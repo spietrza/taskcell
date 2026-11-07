@@ -34,8 +34,9 @@ Optional environment variables:
 
 | Variable | Default | Description |
 |---|---|---|
-| `CLAUDE_CLI_VERSION` | `2.1.165` | `@anthropic-ai/claude-code` version to install |
-| `TAG` | `vanguard-sandbox:latest` | Docker image tag |
+| `CLAUDE_CLI_VERSION` | `2.1.260` | `@anthropic-ai/claude-code` version to install |
+| `TAG` | `taskcell-sandbox:latest` | Docker image tag |
+| `ALIAS_TAG` | `vanguard-sandbox:latest` (only when `TAG` is unset) | Extra tag on the same image; setting `TAG` yourself drops the pre-rename alias unless you pass `ALIAS_TAG` too. `ALIAS_TAG=` skips the alias |
 
 The script builds the image and smoke-tests it (`claude --version`, `git --version`) before returning.
 
