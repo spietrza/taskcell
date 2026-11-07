@@ -32,8 +32,6 @@ const CODE_REFERENCE_PREFIX =
 // `jwt` pattern covers them regardless of this refinement).
 const IDENTIFIER_CHAIN = /^[A-Za-z_$][\w$]*(?:\.[A-Za-z_$][\w$]*)+$/;
 const UPPER_SNAKE_IDENTIFIER = /^[A-Z][A-Z0-9_]*$/;
-/** A placeholder name written in docs where a token would go: `SECRET`, `API_KEY`, `YOUR_TOKEN`. */
-const DOC_PLACEHOLDER_NAME = /^[A-Z][A-Z_]{0,31}$/;
 // A bare camelCase identifier (`callbackToken`, `optionalNonEmptyEnvVar`) as an UNQUOTED RHS is a
 // code reference, not a literal credential — the assignment regex makes the quote optional, so an
 // object entry like `WORKFLOW_CALLBACK_TOKEN: callbackToken,` matches and often clears the entropy
@@ -78,6 +76,11 @@ function isPlaceholderOrLowEntropy(value: string): boolean {
  * non-secret signals (code/env reference, placeholder text, low entropy). Keeps ambiguous matches
  * as findings. The allowlist marker is handled globally in scanForSecrets, not here.
  */
+function isDocPlaceholder(value: string): boolean {
+  if (!/[A-Za-z0-9]/.test(value)) return true;
+  return UPPER_SNAKE_IDENTIFIER.test(value) && isPlaceholderOrLowEntropy(value);
+}
+
 function isLikelyAssignedSecret(value: string, prefix?: string): boolean {
   if (CODE_REFERENCE_PREFIX.test(value)) return false;
   if (IDENTIFIER_CHAIN.test(value)) return false;
@@ -101,13 +104,15 @@ export const SECRET_PATTERNS: readonly SecretPattern[] = [
     // harmless). Prose filtering lives in the gate-only `refine` below.
     re: /((?:\bAuthorization["']?\s*[:=]\s*["']?)?(?:\bBearer\s+)+)([A-Za-z0-9._~+/=-]+)/gi,
     replacement: '$1[REDACTED]',
-    // An explicit Authorization header always counts, except before a documentation placeholder name
-    // (`Authorization: Bearer SECRET`, `Bearer API_KEY` in a comment): upper case, no digits, short —
-    // no issued token has that shape. A bare scheme word counts only before a long value with a digit
-    // or separator, so English prose after it does not block a push.
+    // An explicit Authorization header counts unless the value is a documentation placeholder: an
+    // UPPER_SNAKE name that is also placeholder text or low entropy (`SECRET`, `API_KEY`,
+    // `YOUR_TOKEN`), or bare punctuation (`Bearer +`). A random upper-case token has high entropy
+    // and still counts. A bare scheme word counts only before a long value with a digit or
+    // separator, so English prose after it does not block a push.
     refine: (value: string, prefix?: string): boolean =>
-      !DOC_PLACEHOLDER_NAME.test(value) &&
-      (/authorization/i.test(prefix ?? '') || (value.length >= 20 && /[0-9._~+/=-]/.test(value))),
+      /authorization/i.test(prefix ?? '')
+        ? !isDocPlaceholder(value)
+        : value.length >= 20 && /[0-9._~+/=-]/.test(value),
   },
   {
     name: 'json-token-field',
