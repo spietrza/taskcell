@@ -7,6 +7,13 @@
   Permissions-Policy: camera=(), microphone=(), geolocation=(), payment=(), usb=()
   Cross-Origin-Opener-Policy: same-origin
 
+/
+  Link: </llms.txt>; rel="alternate"; type="text/markdown", </sitemap.xml>; rel="sitemap"
+  Vary: Accept
+
+/llms.txt
+  Content-Type: text/markdown; charset=utf-8
+
 /fonts/*
   Cache-Control: public, max-age=31536000, immutable
 

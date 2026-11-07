@@ -1,0 +1,45 @@
+# Taskcell
+
+> Taskcell is a self-hosted, open-source (MIT) software factory. Label an issue or move a card, and Taskcell builds it in a sealed Docker sandbox cell, runs your gates and a review, and opens a pull request. You merge. It runs on your machine or server with the AI subscription or API keys you already have.
+
+## How it works
+
+Six stations, the same for every card:
+
+1. **Card**: label an issue on GitHub, GitLab or Linear, or move a card on a GitHub Projects board. A card too vague to build goes back as `needs info` before any model runs.
+2. **Spec**: a planner reads the code and writes a tech spec with acceptance criteria, posted on the issue.
+3. **Sealed cell**: the agent builds the card in its own Docker container: non-root, no new privileges, minimal capabilities, no repository token, one git worktree per card.
+4. **Gates**: your verify script runs and the host scans the diff for secrets. A red gate sends the card back for a repair, at most twice.
+5. **Review**: a reviewer reads the diff in a fresh context and fixes what it finds, optionally on a second model (for example Codex reviewing Claude's work).
+6. **Pull request**: the host pushes the branch and opens the PR, ready when every gate passed, a draft when one did not. Review comments on GitHub go back for a revision.
+
+## Swappable parts
+
+- Sources: GitHub Issues (`--github owner/repo#n`), GitHub Projects (`--source project`), GitLab incl. self-hosted (`--source gitlab`), Linear (`--linear TES-1`).
+- Engines: Claude Code (`--provider claude`, default), Codex (`--provider codex`), Cursor (`--provider cursor`), OpenRouter and z.ai (`--provider openrouter`).
+
+## Security
+
+The agent is treated as hostile. The host holds the repository token and the real model key (behind an LLM proxy; the cell gets a one-run nonce), scans every diff for secrets before pushing, and drops agent edits to CI config. The cell can be limited to an egress allowlist. The Hub binds to 127.0.0.1, checks Host headers and needs a per-launch token. No third-party audit yet.
+
+## Get started
+
+Needs Node 24 and Docker.
+
+```sh
+git clone https://github.com/spietrza/taskcell.git
+cd taskcell
+pnpm install && pnpm build
+docker/build.sh          # the sandbox image
+pnpm link --global       # puts vanguard on your PATH
+vanguard run --github you/app#42 --repo ../app --llm-proxy
+```
+
+The CLI is still called `vanguard` (the project's former name).
+
+## Links
+
+- [Source code and README](https://github.com/spietrza/taskcell)
+- [Security policy](https://github.com/spietrza/taskcell/blob/main/SECURITY.md)
+- [OWASP mapping](https://github.com/spietrza/taskcell/blob/main/docs/security/owasp-mapping.md)
+- [Pull requests built by Taskcell](https://github.com/spietrza/taskcell/pulls?q=is%3Apr+is%3Amerged+head%3Achore%2Fvanguard-gh)
