@@ -76,9 +76,14 @@ function isPlaceholderOrLowEntropy(value: string): boolean {
  * non-secret signals (code/env reference, placeholder text, low entropy). Keeps ambiguous matches
  * as findings. The allowlist marker is handled globally in scanForSecrets, not here.
  */
+/**
+ * A documentation placeholder written where a token would go: an UPPER_SNAKE name, no digits, that
+ * ends in a credential noun (`SECRET`, `API_KEY`, `YOUR_TOKEN`, `ACCESS_TOKEN`). An explicit word list,
+ * not an entropy test, so no random value can fall under it.
+ */
+const DOC_PLACEHOLDER = /^(?:[A-Z]+_)*(?:SECRET|TOKEN|KEY|PASSWORD|CREDENTIALS?|NONCE)$/;
 function isDocPlaceholder(value: string): boolean {
-  if (!/[A-Za-z0-9]/.test(value)) return true;
-  return UPPER_SNAKE_IDENTIFIER.test(value) && isPlaceholderOrLowEntropy(value);
+  return value.length <= 32 && DOC_PLACEHOLDER.test(value);
 }
 
 function isLikelyAssignedSecret(value: string, prefix?: string): boolean {
@@ -104,10 +109,9 @@ export const SECRET_PATTERNS: readonly SecretPattern[] = [
     // harmless). Prose filtering lives in the gate-only `refine` below.
     re: /((?:\bAuthorization["']?\s*[:=]\s*["']?)?(?:\bBearer\s+)+)([A-Za-z0-9._~+/=-]+)/gi,
     replacement: '$1[REDACTED]',
-    // An explicit Authorization header counts unless the value is a documentation placeholder: an
-    // UPPER_SNAKE name that is also placeholder text or low entropy (`SECRET`, `API_KEY`,
-    // `YOUR_TOKEN`), or bare punctuation (`Bearer +`). A random upper-case token has high entropy
-    // and still counts. A bare scheme word counts only before a long value with a digit or
+    // An explicit Authorization header counts unless the value is a documentation placeholder name
+    // (isDocPlaceholder: `SECRET`, `API_KEY`, `YOUR_TOKEN`). Anything else after it counts, short,
+    // letters-only or punctuation included. A bare scheme word counts only before a long value with a digit or
     // separator, so English prose after it does not block a push.
     refine: (value: string, prefix?: string): boolean =>
       /authorization/i.test(prefix ?? '')

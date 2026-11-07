@@ -235,9 +235,14 @@ describe('bearer: credential-shaped values only (#625)', () => {
     expect(redactTokens(line)).toBe("// 'bearer' = plain Authorization: Bearer [REDACTED]");
   });
 
-  it('does not block a documented header with no value after the scheme', () => {
-    const line = '// Subscription => Authorization: Bearer + oauth beta merged';
-    expect(scanForSecrets(diffOf([{ path: 'src/foo.mjs', lines: [`+${line}`] }])).some((f) => f.patternName === 'bearer')).toBe(false);
+  it.each([
+    ['punctuation before a real token', '=', ' kJ8sdfJK2mn4Qp7xZr1t'],
+    ['a short random upper-case value', 'K3J9X2Q', ''],
+    ['a short letters-only value', 'QWERTYU', ''],
+    ['a name with digits', 'API_KEY2', ''],
+  ])('still blocks %s after an explicit header', (_label, value, rest) => {
+    expect(scanForSecrets(diffOf([{ path: 'src/foo.ts', lines: [`+Authorization: Bearer ${value}${rest}`] }])))
+      .toContainEqual(expect.objectContaining({ patternName: 'bearer' }));
   });
 
   it.each([
