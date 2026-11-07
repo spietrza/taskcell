@@ -250,7 +250,7 @@ export default function App() {
         className="flex h-8 shrink-0 select-none items-center pl-20 pr-4 text-[13px] font-semibold text-foreground"
         style={titleBar ? { backgroundColor: titleBar, color: contrastColor(titleBar) } : undefined}
       >
-        Vanguard Inspector
+        Taskcell Hub
       </div>
       {hubRestarted && (
         <div

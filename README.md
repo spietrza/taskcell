@@ -28,7 +28,7 @@
 
 Taskcell turns a well-written ticket into a reviewed pull request. You label an issue; Taskcell checks that the ticket is clear enough, writes a tech spec if needed, runs a coding agent inside a locked-down Docker container, has a second model review the change, runs your tests, and opens a PR. It runs on your own machine, a server, or GitHub Actions, with your own model subscription or API key. The agent is treated as untrusted: it never holds your repository token, and nothing it writes reaches your repository without passing host-side checks and a human review.
 
-> **Naming.** Taskcell was called Vanguard, and the repository moved from `spietrza/vanguard` to `spietrza/taskcell` (old links redirect). The CLI command (`vanguard`), the `VANGUARD_*` environment variables, the `vanguard:*` labels and the `.vanguard/` directory keep the old name so existing setups keep working. Website: [taskcell.dev](https://taskcell.dev).
+> **Naming.** `vanguard` is the old name of `taskcell` and still works. The repository moved from `spietrza/vanguard` to `spietrza/taskcell` (old links redirect); `VANGUARD_*` environment variables, `vanguard:*` labels and `.vanguard/` keep their existing names. Website: [taskcell.dev](https://taskcell.dev).
 
 ## How it works
 
@@ -41,7 +41,7 @@ Every task passes six stations:
 5. **Gates.** The host runs your verify command (Proof of Work), an optional conformance check against the spec, and a secret scan of the outgoing diff. A red gate sends the change back for up to two repair rounds.
 6. **Pull request.** The host pushes the branch and opens the PR, ready for review when every gate passed and a draft otherwise. A human reviews and merges.
 
-Run it once per ticket with `vanguard run`, or let `vanguard watch` (or the GitHub Actions workflows) pick up labelled tickets on their own. Details: [docs/autonomous-loop.md](docs/autonomous-loop.md) and [docs/architecture.md](docs/architecture.md).
+Run it once per ticket with `taskcell run`, or let `taskcell watch` (or the GitHub Actions workflows) pick up labelled tickets on their own. Details: [docs/autonomous-loop.md](docs/autonomous-loop.md) and [docs/architecture.md](docs/architecture.md).
 
 ## Quick start
 
@@ -51,20 +51,21 @@ You need Node 24+, pnpm, Docker and a Claude subscription token (`claude setup-t
 git clone https://github.com/spietrza/taskcell && cd taskcell
 pnpm install
 pnpm build
-docker/build.sh                 # builds vanguard-sandbox (node + git + claude + linear CLIs)
+pnpm link --global
+docker/build.sh                 # builds taskcell-sandbox:latest (node + git + claude + linear CLIs)
 ```
 
 Check the setup against your target repository, then run one issue:
 
 ```bash
 export CLAUDE_CODE_OAUTH_TOKEN=...      # or ANTHROPIC_API_KEY=...
-node dist/cli/index.js doctor --source github --github-repo owner/repo
-node dist/cli/index.js run --github owner/repo#123 --repo /path/to/repo --skills ./skills --llm-proxy
+taskcell doctor --source github --github-repo owner/repo
+taskcell run --github owner/repo#123 --repo /path/to/repo --skills ./skills --llm-proxy
 ```
 
-`--llm-proxy` keeps the model credential in a sidecar and limits the sandbox's network to an allowlist. The examples in the docs call the CLI `vanguard`; `pnpm link --global` puts it on your PATH.
+`--llm-proxy` keeps the model credential in a sidecar and limits the sandbox's network to an allowlist. `pnpm link --global` puts `taskcell` on your PATH.
 
-To run the factory from GitHub Actions instead, with no host of your own, follow [docs/onboarding-another-repo.md](docs/onboarding-another-repo.md). For an always-on host, see [docs/deploy.md](docs/deploy.md). For a browser cockpit with a task board, live transcripts and run records, run `pnpm build:ui && pnpm hub --repo /path/to/repo` ([docs/hub.md](docs/hub.md)).
+To run the factory from GitHub Actions instead, with no host of your own, follow [docs/onboarding-another-repo.md](docs/onboarding-another-repo.md). For an always-on host, see [docs/deploy.md](docs/deploy.md). For a browser cockpit with a task board, live transcripts and run records, run `pnpm hub --repo /path/to/repo` ([docs/hub.md](docs/hub.md)).
 
 ## Task sources and providers
 
@@ -110,7 +111,7 @@ How these fit together: [docs/security/boundaries.md](docs/security/boundaries.m
 | [docs/cli.md](docs/cli.md) | Models, providers, decision models, one-shot commands, white-label mode, fork-and-select, sandbox image, cost and limits |
 | [docs/autonomous-loop.md](docs/autonomous-loop.md) | Watch loop, routing labels, PR review, GitHub Actions, metrics, approver, retrospective memory, Proof of Work, visual proof |
 | [docs/skills.md](docs/skills.md) | Bundled skills, custom skills, per-provider injection |
-| [docs/hub.md](docs/hub.md) | The browser cockpit (`vanguard hub`) |
+| [docs/hub.md](docs/hub.md) | The browser cockpit (`taskcell hub`) |
 | [docs/onboarding-another-repo.md](docs/onboarding-another-repo.md) | Run the factory on your repo with GitHub Actions |
 | [docs/onboarding-linear.md](docs/onboarding-linear.md) | Linear setup |
 | [docs/deploy.md](docs/deploy.md) | Always-on host (Docker, Coolify) and garbage collection |

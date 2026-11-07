@@ -32,11 +32,11 @@ export function TopBar({
       <button
         onClick={onHome}
         className="flex items-center gap-2 rounded transition-colors hover:opacity-80"
-        aria-label="Vanguard — home"
+        aria-label="Taskcell Hub — home"
         title="Back to dashboard"
       >
         <Logo className="size-5 text-primary" />
-        <span className="font-semibold">Vanguard</span>
+        <span className="font-semibold">Taskcell Hub</span>
       </button>
       {(projectSwitcher || crumbs.length > 0) && (
         <>

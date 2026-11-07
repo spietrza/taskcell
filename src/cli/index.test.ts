@@ -140,9 +140,9 @@ describe('CLI dispatch', () => {
     expect(process.exitCode).toBeUndefined();
   });
 
-  it('"error" kind writes to stderr with a "vanguard:" prefix, sets exitCode 1, and calls no handler', async () => {
+  it('"error" kind writes to stderr with a "taskcell:" prefix, sets exitCode 1, and calls no handler', async () => {
     await dispatch({ kind: 'error', message: 'boom' });
-    await vi.waitFor(() => expect(errorSpy).toHaveBeenCalledWith('vanguard: boom'));
+    await vi.waitFor(() => expect(errorSpy).toHaveBeenCalledWith('taskcell: boom'));
     for (const handler of Object.values(allHandlers)) expect(handler).not.toHaveBeenCalled();
     expect(process.exitCode).toBe(1);
   });

@@ -1,13 +1,15 @@
-# Vanguard Hub
+# Taskcell Hub
 
-`vanguard hub` serves the same Inspector UI the Tauri desktop app ships (`apps/desktop`) over plain
+`vanguard` is the old name of `taskcell` and still works.
+
+`taskcell hub` serves the same Inspector UI the Tauri desktop app ships (`apps/desktop`) over plain
 HTTP/SSE, backed by a real `.vanguard/` directory. Useful when you want the cockpit without installing
 a native app, or running it on a server. See `src/hub/*.ts` and `src/cli/hub.ts` for the implementation.
 
 ## Quick start
 
 ```bash
-pnpm build:ui && pnpm hub --repo /path/to/your/repo
+pnpm hub --repo /path/to/your/repo
 ```
 
 This opens a browser at the printed launch URL, `http://127.0.0.1:7777/#token=…`. The fragment holds
@@ -20,7 +22,7 @@ the terminal, or `docker logs` in container mode) rather than the bare address.
   `pnpm build:ui` installs and builds).
 - `gh auth login` — the Task board, Remote and cloning private repositories go through `gh`.
 - For runs started from the hub: Docker with the sandbox image (`docker/build.sh` builds
-  `vanguard-sandbox:latest`; the egress proxy sidecar uses the same image, so a missing image
+  `taskcell-sandbox:latest`; the egress proxy sidecar uses the same image, so a missing image
   surfaces as "Failed to start egress enclave"), and the provider credential exported in the shell
   that starts the hub — `CLAUDE_CODE_OAUTH_TOKEN` for Claude (`claude setup-token`), or the
   provider's own variable. The hub passes its environment to the run; a launcher without a shell
@@ -34,8 +36,8 @@ the terminal, or `docker logs` in container mode) rather than the bare address.
 1. **Local factory.** Add the project, open the Task board, click **New Run** on an issue. The
    pipeline runs in the sandbox on this machine; the Runs screen shows the live transcript and, when
    it ends, every stage's record, diff, transcript, proof of work and visual proof. The PR lands on
-   GitHub/GitLab like any other Vanguard run.
-2. **Observe the CI factory.** Keep running Vanguard in GitHub Actions (see
+   GitHub/GitLab like any other Taskcell run.
+2. **Observe the CI factory.** Keep running Taskcell in GitHub Actions (see
    [onboarding-another-repo.md](onboarding-another-repo.md); the callers must pass
    `upload-run-records: true`) and use the hub read-only: Remote lists the repo's CI runs,
    **Fetch records** imports a run's `vanguard-runs` artifact into `.vanguard/remote-runs/<id>`, and
@@ -55,10 +57,10 @@ the terminal, or `docker logs` in container mode) rather than the bare address.
 ## Runs always use the LLM proxy
 
 This is not hub-specific: it is `productionDeps()`'s behavior (`src/sidecar/deps.ts`), so it applies to
-**every** run started through the sidecar protocol — `vanguard __sidecar` — which both the hub's own
+**every** run started through the sidecar protocol — `taskcell __sidecar` — which both the hub's own
 dispatch and the desktop app's Task-board **New Run** use identically (the desktop spawns the same
-`vanguard __sidecar` subprocess; see `../apps/desktop/README.md`). A desktop **Launch** command, or
-`vanguard run`/`vanguard watch` invoked directly from a terminal, is a different path — plain CLI
+`taskcell __sidecar` subprocess; see `../apps/desktop/README.md`). A desktop **Launch** command, or
+`taskcell run`/`taskcell watch` invoked directly from a terminal, is a different path — plain CLI
 invocations, which keep the CLI's own opt-in `--llm-proxy` (off by default) instead of this rule.
 
 Every run on that path runs with the LLM proxy whenever the run has a credential the proxy's
@@ -84,9 +86,9 @@ warning naming the provider rather than leaving the exposure silent:
   is injected into the sandbox.
 
 If the proxy's trusted sidecar itself fails to start — usually a missing or stale sandbox image, since
-it runs inside `vanguard-sandbox:latest` like the egress enclave — the run fails fast rather than
+it runs inside `taskcell-sandbox:latest` like the egress enclave — the run fails fast rather than
 silently falling back to direct mode or hanging. The run view shows: `Failed to start llm proxy
-<id>: rebuild the sandbox image (docker/build.sh builds vanguard-sandbox:latest), or check
+<id>: rebuild the sandbox image (docker/build.sh builds taskcell-sandbox:latest), or check
 VANGUARD_SANDBOX_IMAGE if set.`
 
 ## Modes
@@ -272,7 +274,7 @@ process as the HTTP server, so give the container the same RAM headroom, and kee
 ## CLI flags
 
 ```
-vanguard hub [--repo <path>] [--host <addr>] [--port <n>] [--ui-dir <dir>] [--no-open] [--allowed-host <host[:port]>]
+taskcell hub [--repo <path>] [--host <addr>] [--port <n>] [--ui-dir <dir>] [--no-open] [--allowed-host <host[:port]>]
 ```
 
 | Flag | Overrides | Default |

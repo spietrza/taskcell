@@ -13,6 +13,19 @@ function stubDocker(calls: Call[], fail?: string) {
 const base = { name: 'vg-x-1', runId: '1', image: 'img', files: [{ src: '/h/a.mjs', dest: '/tmp/a.mjs' }], cmd: ['node', '/tmp/a.mjs'] as const };
 
 describe('startSidecar', () => {
+  it.each([true, false])('probes images through the injected runner (current tag present: %s)', async (currentExists) => {
+    const calls: Call[] = [];
+    const docker = async (args: string[]) => {
+      calls.push({ args });
+      return { exitCode: args[0] === 'image' && args[2] === 'taskcell-sandbox:latest' && !currentExists ? 1 : 0, stdout: '', stderr: '' };
+    };
+    await startSidecar({ ...base, image: 'taskcell-sandbox:latest', docker });
+    expect(calls.filter((c) => c.args[0] === 'image').map((c) => c.args)).toEqual(currentExists
+      ? [['image', 'inspect', 'taskcell-sandbox:latest']]
+      : [['image', 'inspect', 'taskcell-sandbox:latest'], ['image', 'inspect', 'vanguard-sandbox:latest']]);
+    expect(calls.find((c) => c.args[0] === 'create')!.args).toContain(currentExists ? 'taskcell-sandbox:latest' : 'vanguard-sandbox:latest');
+  });
+
   it('PID-1 mode: create → connect → cp → start, labels and env on the create', async () => {
     const calls: Call[] = [];
     const s = await startSidecar({ ...base, docker: stubDocker(calls), network: 'net', env: { PORT: '1' }, createArgs: ['--restart', 'on-failure:10'] });

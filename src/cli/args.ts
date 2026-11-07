@@ -680,7 +680,7 @@ export function parseCli(argv: string[], cwd: string): Command {
   }
 
   if (positionals[0] === 'metrics') {
-    if (positionals[1] !== 'push') return fail('metrics expects a subcommand: vanguard metrics push [--repo <path>] [--branch <name>].');
+    if (positionals[1] !== 'push') return fail('metrics expects a subcommand: taskcell metrics push [--repo <path>] [--branch <name>].');
     return { kind: 'metrics', action: 'push', repoPath, ...(typeof values.branch === 'string' ? { branch: values.branch } : {}) };
   }
 
@@ -1210,25 +1210,25 @@ const SHARED_RUN_OPTIONS_USAGE = `    --provider <claude|codex|cursor|zai|openro
     --visual-proof <cmd>     Visual proof command for UI artifacts (overrides VANGUARD_VISUAL_PROOF_CMD)
     --conformance            Run the conformance pass (planner-tier model checks diff against spec; opt-in)
     --conformance-model <m>  Model for the conformance stage (default: same as implementer; 'opus' for planner-tier)
-    --commit-author <a>      Git author for the commit, "Name <email>" (also enables white-label mode: feat/<n> branch, no Vanguard branding/review comment)
+    --commit-author <a>      Git author for the commit, "Name <email>" (also enables white-label mode: feat/<n> branch, no Taskcell branding/review comment)
     --plan                   Add a dedicated planning stage first (opus, high effort) before implement/review
     --flow <name>            Run a named workflow (e.g. flow-b: plan -> implement -> adversary -> repair). --plan == --flow plan`;
 
 /** Printed after each section's own --base/--max-turns lines. */
 const MAX_REPAIR_ITERATIONS_USAGE = '    --max-repair-iterations <n> Override the conformance/verify repair loop-back cap (default: 2)';
 
-export const USAGE = `vanguard <command>
+export const USAGE = `taskcell <command>
 
 Commands:
   run    Run an agent on a task and open a draft PR for review.
   watch  Poll Linear or GitHub and run each newly-ready issue automatically (the AFK factory loop).
   doctor Check whether watch can run AFK before any issue is claimed.
-  review-pr Review an existing GitHub PR and post a non-blocking Vanguard review comment.
-  revise-pr Read human review feedback on a Vanguard draft PR, apply fixes, and hand it back ready to merge.
-  watch-prs Poll GitHub PRs by label and run the non-blocking Vanguard review loop.
+  review-pr Review an existing GitHub PR and post a non-blocking Taskcell review comment.
+  revise-pr Read human review feedback on a Taskcell draft PR, apply fixes, and hand it back ready to merge.
+  watch-prs Poll GitHub PRs by label and run the non-blocking Taskcell review loop.
   doctor-prs Check whether watch-prs can run AFK before any PR is claimed.
-  review-mr Review an existing GitLab MR and post a non-blocking Vanguard review comment.
-  watch-mrs Poll GitLab MRs by label and run the non-blocking Vanguard review loop.
+  review-mr Review an existing GitLab MR and post a non-blocking Taskcell review comment.
+  watch-mrs Poll GitLab MRs by label and run the non-blocking Taskcell review loop.
   doctor-mrs Check whether watch-mrs can run AFK before any MR is claimed.
   stats  Aggregate .vanguard/runs/metrics.jsonl into a cost/token/time rollup (per task, per stage,
          per model, probe); --branch reads the durable copy from the metrics branch instead.
@@ -1304,7 +1304,7 @@ ${MAX_REPAIR_ITERATIONS_USAGE}
                                  (--agent-state/--agent-label), a human moves approved ones to the agent trigger,
                                  and a separate single-pass watch builds them. --spec-only requires --agent-state
                                  (Linear) or --agent-label (GitHub/GitLab) other than the default build trigger,
-                                 which would give no review window. Only the default is checked: Vanguard cannot
+                                 which would give no review window. Only the default is checked: Taskcell cannot
                                  see a build job that triggers on another state or label. On Linear both passes
                                  list issues by state type, so the review state's type must differ from the
                                  --spec-state type (or it is specced again on every poll) and from the build job's
@@ -1315,18 +1315,18 @@ ${MAX_REPAIR_ITERATIONS_USAGE}
                                  also build issues in review and issues not yet specced.
 
     Example (GitHub, defaults):
-      vanguard watch --source github --github-repo owner/repo
+      taskcell watch --source github --github-repo owner/repo
 
     Example (GitHub, custom labels/model):
-      vanguard watch --source github --github-repo owner/repo --label vanguard \\
+      taskcell watch --source github --github-repo owner/repo --label vanguard \\
         --agent-label "ready for agent" --spec-label "ready for spec" \\
         --needs-info-label "needs info" --spec-model haiku
 
     Example (Linear, defaults):
-      vanguard watch --loop-v1 --label vanguard
+      taskcell watch --loop-v1 --label vanguard
 
     Example (Linear, custom state names/model):
-      vanguard watch --loop-v1 --label vanguard --spec-state triage --spec-state-name Spec \\
+      taskcell watch --loop-v1 --label vanguard --spec-state triage --spec-state-name Spec \\
         --needs-info-state "Needs Info" --agent-state Todo --spec-model haiku
 
   run options (exactly one source):
@@ -1372,7 +1372,7 @@ ${MAX_REPAIR_ITERATIONS_USAGE}
     --github-repo <o/r>     Required for bare issue numbers
     --web                   Declare that web egress/search is available; otherwise comments say model-knowledge only
     --research-model <m>    Model for the research pass
-    --commit-author <a>     White-label the comment (drop "Vanguard" heading/marker); the author value is unused
+    --commit-author <a>     White-label the comment (drop "Taskcell" heading/marker); the author value is unused
     --provider <claude|codex|cursor|zai|openrouter|meridian>          Provider used for research (default: claude)
     --egress --llm-proxy --repo <path>         As for run/watch
 
@@ -1384,7 +1384,7 @@ ${MAX_REPAIR_ITERATIONS_USAGE}
     --max-turns <n>         Override the tech-spec stage turn cap (default: 30; opt-in, higher cost)
     --base <branch>         Branch to research against — the "baseline" the spec is written from (default: main)
     --out <file>            Write the spec to this local file instead of posting an issue comment (pairs with run --spec-file)
-    --commit-author <a>     White-label the comment (drop the "Vanguard" heading); the author value is unused
+    --commit-author <a>     White-label the comment (drop the "Taskcell" heading); the author value is unused
     --provider <claude|codex|cursor|zai|openrouter|meridian>          Provider used for the spec pass (default: claude)
     --egress --llm-proxy --skills <dir> --repo <path>  As for run/watch (--skills: the repo's .github/vanguard-skills/ is merged in)
 
@@ -1403,7 +1403,7 @@ ${MAX_REPAIR_ITERATIONS_USAGE}
     --max-rounds <n>       Maximum revision rounds (default: 2)
     --egress --llm-proxy --skills <dir> --repo <path>  As for run/watch (--skills: the repo's .github/vanguard-skills/ is merged in)
 
-    Triggered by the "needs revision" label on a Vanguard draft PR. Reads feedback from
+    Triggered by the "needs revision" label on a Taskcell draft PR. Reads feedback from
     review threads, review summaries, and PR comments; applies fixes to the existing PR branch;
     replies to and resolves addressed threads; un-drafts the PR; and sets the label to
     "vanguard:needs-human-review" for the next human action.
@@ -1426,18 +1426,18 @@ ${MAX_REPAIR_ITERATIONS_USAGE}
     --egress --llm-proxy --skills <dir> --repo <path>  As for run/watch (--skills: the repo's .github/vanguard-skills/ is merged in)
 
     Example:
-      vanguard watch-prs --github-repo owner/repo --label "ready for vanguard review"
+      taskcell watch-prs --github-repo owner/repo --label "ready for vanguard review"
 
-    Dedupe: successful Vanguard reviews include a hidden head SHA marker; watch-prs skips
+    Dedupe: successful Taskcell reviews include a hidden head SHA marker; watch-prs skips
       the same PR commit if the trigger label is re-added accidentally. The PR pinned by --pr or
       the triggering label event is always reviewed, and incomplete notices carry no marker, so a
       failed review is retried on the next re-label or sweep. Only markers from trusted authors
-      (repo members, --feedback-authors, Vanguard's bot) count.
+      (repo members, --feedback-authors, Taskcell's bot) count.
 
   doctor-prs options:
     Uses the same repo and label routing flags as watch-prs, but only runs AFK preflight checks and exits.
     Example:
-      vanguard doctor-prs --github-repo owner/repo --label "ready for vanguard review"
+      taskcell doctor-prs --github-repo owner/repo --label "ready for vanguard review"
 
   review-mr options:
     --mr <iid>               GitLab MR IID (integer)
@@ -1458,12 +1458,12 @@ ${MAX_REPAIR_ITERATIONS_USAGE}
     --egress --llm-proxy --skills <dir> --repo <path>  As for run/watch (--skills: the repo's .github/vanguard-skills/ is merged in)
 
     Example:
-      vanguard watch-mrs --gitlab-project group/project --label "ready for review"
+      taskcell watch-mrs --gitlab-project group/project --label "ready for review"
 
   doctor-mrs options:
     Uses the same flags as watch-mrs, but only runs AFK preflight checks and exits.
     Example:
-      vanguard doctor-mrs --gitlab-project group/project --label "ready for review"
+      taskcell doctor-mrs --gitlab-project group/project --label "ready for review"
 
   watch options (--source gitlab):
     --source gitlab              GitLab issue watch source
@@ -1472,7 +1472,7 @@ ${MAX_REPAIR_ITERATIONS_USAGE}
     --claimed-state / --review-state still apply (label-based, as for --source github).
     GitLab boards are label-based — use --source gitlab --label <column-label> to watch a board column.
     Example:
-      vanguard watch --source gitlab --gitlab-project group/project --label vanguard
+      taskcell watch --source gitlab --gitlab-project group/project --label vanguard
 
   gc options:
     --repo <path>          Git repo to prune worktrees / reap branches in (default: cwd)
@@ -1523,8 +1523,8 @@ ${MAX_REPAIR_ITERATIONS_USAGE}
     Uses the same source/routing flags as watch, but only runs AFK preflight checks and exits.
     Like watch, it rejects the run-only flags --fork, --fork-scorer and --spec-file.
     Add --spec-only to check a spec-only loop-v1 watch: it skips the checks that only guard publishing.
-    Example (GitHub): vanguard doctor --source github --github-repo owner/repo
-    Example (Linear): vanguard doctor --loop-v1 --label vanguard --skills ./skills
+    Example (GitHub): taskcell doctor --source github --github-repo owner/repo
+    Example (Linear): taskcell doctor --loop-v1 --label vanguard --skills ./skills
 
 Env: CLAUDE_CODE_OAUTH_TOKEN or ANTHROPIC_API_KEY (auth); LINEAR_API_KEY (for --linear);
      GITLAB_TOKEN (auth for glab; GITLAB_HOST for self-hosted GitLab instances);

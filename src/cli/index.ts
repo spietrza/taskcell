@@ -26,7 +26,7 @@ async function main(): Promise<void> {
     return;
   }
   if (command.kind === 'error') {
-    console.error(`vanguard: ${command.message}`);
+    console.error(`taskcell: ${command.message}`);
     process.exitCode = 1;
     return;
   }

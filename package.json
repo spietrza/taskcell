@@ -16,7 +16,7 @@
     "typecheck": "tsc --noEmit",
     "verify": "pnpm typecheck && pnpm lint && pnpm test:coverage",
     "eval": "tsx src/cli/index.ts eval",
-    "hub": "tsx src/cli/index.ts hub",
+    "hub": "(test -f apps/desktop/dist/index.html || pnpm build:ui) && tsx src/cli/index.ts hub",
     "build:ui": "pnpm --dir apps/desktop install --frozen-lockfile && pnpm --dir apps/desktop build",
     "pricing:check": "tsx scripts/check-openrouter-pricing.ts",
     "dev": "tsx",
