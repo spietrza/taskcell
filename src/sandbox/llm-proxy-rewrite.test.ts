@@ -17,6 +17,7 @@ import {
   buildRefreshBody,
   buildRevokeBody,
   applyRefreshResponse,
+  type CodexAuthJson,
 } from './llm-proxy-rewrite.mjs';
 
 describe('mergeAnthropicBeta', () => {
@@ -168,6 +169,14 @@ describe('codex-chatgpt upstream wiring', () => {
   });
 });
 
+// The token fields these tests read back off an auth.json: the `.d.mts` types `tokens` as loose JSON,
+// so assert it is present and narrow it here rather than reading `unknown` per field.
+type ChatgptTokens = { id_token: string; access_token: string; refresh_token: string; account_id: string };
+function tokensOf(auth: CodexAuthJson): ChatgptTokens {
+  expect(auth.tokens).toBeDefined();
+  return auth.tokens as ChatgptTokens;
+}
+
 describe('Codex ChatGPT-plan placeholder credential', () => {
   const realIdToken = syntheticIdToken({ chatgpt_account_id: 'acct-real', chatgpt_plan_type: 'pro' });
   const real = {
@@ -200,15 +209,16 @@ describe('Codex ChatGPT-plan placeholder credential', () => {
 
   it('placeholderChatgptAuth replaces every token field, carries no real secret, and drops the legacy key field', () => {
     const placeholder = placeholderChatgptAuth(real);
-    expect(placeholder.tokens.access_token).not.toBe(real.tokens.access_token);
-    expect(placeholder.tokens.refresh_token).not.toBe(real.tokens.refresh_token);
-    expect(placeholder.tokens.id_token).not.toBe(real.tokens.id_token);
-    expect(placeholder.tokens.id_token.split('.')).toHaveLength(3);
+    const tokens = tokensOf(placeholder);
+    expect(tokens.access_token).not.toBe(real.tokens.access_token);
+    expect(tokens.refresh_token).not.toBe(real.tokens.refresh_token);
+    expect(tokens.id_token).not.toBe(real.tokens.id_token);
+    expect(tokens.id_token.split('.')).toHaveLength(3);
     expect(JSON.stringify(placeholder)).not.toContain('real-access-token-value-xyz');
     expect(JSON.stringify(placeholder)).not.toContain('real-refresh-token-value-xyz');
     expect(JSON.stringify(placeholder)).not.toContain('legacy-should-be-dropped');
     // Non-secret fields pass through unchanged.
-    expect(placeholder.tokens.account_id).toBe('acct-real');
+    expect(tokens.account_id).toBe('acct-real');
     expect(chatgptAccountId(real)).toBe('acct-real');
   });
 
@@ -221,10 +231,11 @@ describe('Codex ChatGPT-plan placeholder credential', () => {
 
   it('applyRefreshResponse rotates the stored real tokens from the upstream response', () => {
     const rotated = applyRefreshResponse(real, { access_token: 'new-access', refresh_token: 'new-refresh', id_token: 'new.id.token' });
-    expect(rotated.tokens.access_token).toBe('new-access');
-    expect(rotated.tokens.refresh_token).toBe('new-refresh');
-    expect(rotated.tokens.id_token).toBe('new.id.token');
-    expect(rotated.tokens.account_id).toBe('acct-real'); // untouched
+    const tokens = tokensOf(rotated);
+    expect(tokens.access_token).toBe('new-access');
+    expect(tokens.refresh_token).toBe('new-refresh');
+    expect(tokens.id_token).toBe('new.id.token');
+    expect(tokens.account_id).toBe('acct-real'); // untouched
   });
 });
 
