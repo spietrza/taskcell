@@ -76,6 +76,16 @@ function isPlaceholderOrLowEntropy(value: string): boolean {
  * non-secret signals (code/env reference, placeholder text, low entropy). Keeps ambiguous matches
  * as findings. The allowlist marker is handled globally in scanForSecrets, not here.
  */
+/**
+ * A documentation placeholder written where a token would go: an UPPER_SNAKE name, no digits, that
+ * ends in a credential noun (`SECRET`, `API_KEY`, `YOUR_TOKEN`, `ACCESS_TOKEN`). An explicit word list,
+ * not an entropy test, so no random value can fall under it.
+ */
+const DOC_PLACEHOLDER = /^(?:[A-Z]+_)*(?:SECRET|TOKEN|KEY|PASSWORD|CREDENTIALS?|NONCE)$/;
+function isDocPlaceholder(value: string): boolean {
+  return value.length <= 32 && DOC_PLACEHOLDER.test(value);
+}
+
 function isLikelyAssignedSecret(value: string, prefix?: string): boolean {
   if (CODE_REFERENCE_PREFIX.test(value)) return false;
   if (IDENTIFIER_CHAIN.test(value)) return false;
@@ -99,10 +109,14 @@ export const SECRET_PATTERNS: readonly SecretPattern[] = [
     // harmless). Prose filtering lives in the gate-only `refine` below.
     re: /((?:\bAuthorization["']?\s*[:=]\s*["']?)?(?:\bBearer\s+)+)([A-Za-z0-9._~+/=-]+)/gi,
     replacement: '$1[REDACTED]',
-    // An explicit Authorization header always counts; a bare scheme word counts only before a long
-    // value with a digit or separator, so English prose after it does not block a push.
+    // An explicit Authorization header counts unless the value is a documentation placeholder name
+    // (isDocPlaceholder: `SECRET`, `API_KEY`, `YOUR_TOKEN`). Anything else after it counts, short,
+    // letters-only or punctuation included. A bare scheme word counts only before a long value with a digit or
+    // separator, so English prose after it does not block a push.
     refine: (value: string, prefix?: string): boolean =>
-      /authorization/i.test(prefix ?? '') || (value.length >= 20 && /[0-9._~+/=-]/.test(value)),
+      /authorization/i.test(prefix ?? '')
+        ? !isDocPlaceholder(value)
+        : value.length >= 20 && /[0-9._~+/=-]/.test(value),
   },
   {
     name: 'json-token-field',

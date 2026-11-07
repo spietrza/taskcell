@@ -229,6 +229,37 @@ describe('bearer: credential-shaped values only (#625)', () => {
       .toContainEqual(expect.objectContaining({ patternName: 'bearer' }));
   });
 
+  it.each(['SECRET', 'API_KEY', 'YOUR_TOKEN'])('does not block a documented header with the placeholder name %s', (name) => {
+    const line = `// 'bearer' = plain Authorization: Bearer ${name}`;
+    expect(scanForSecrets(diffOf([{ path: 'src/foo.mjs', lines: [`+${line}`] }])).some((f) => f.patternName === 'bearer')).toBe(false);
+    expect(redactTokens(line)).toBe("// 'bearer' = plain Authorization: Bearer [REDACTED]");
+  });
+
+  it.each([
+    ['punctuation before a real token', '=', ' kJ8sdfJK2mn4Qp7xZr1t'],
+    ['a short random upper-case value', 'K3J9X2Q', ''],
+    ['a short letters-only value', 'QWERTYU', ''],
+    ['a name with digits', 'API_KEY2', ''],
+  ])('still blocks %s after an explicit header', (_label, value, rest) => {
+    expect(scanForSecrets(diffOf([{ path: 'src/foo.ts', lines: [`+Authorization: Bearer ${value}${rest}`] }])))
+      .toContainEqual(expect.objectContaining({ patternName: 'bearer' }));
+  });
+
+  it.each([
+    ['32 random upper-case letters', 'QWERTYUIOPASDFGHJKLZXCVBNMQAZWSX'],
+    ['a digit-free 20-char key id', 'AKIAQWERTYUIOPASDFGH'],
+    ['upper case with digits', 'ABCDEF0123456789ABCDEF0123456789'],
+  ])('still blocks %s after an explicit header', (_label, value) => {
+    expect(scanForSecrets(diffOf([{ path: 'src/foo.ts', lines: [`+Authorization: Bearer ${value}`] }])))
+      .toContainEqual(expect.objectContaining({ patternName: 'bearer' }));
+  });
+
+  it('keeps the bare-scheme rule unchanged for an underscore-separated value', () => {
+    const value = ['ABCDEFGHIJ', 'KLMNOPQRST'].join('_');
+    expect(scanForSecrets(diffOf([{ path: 'src/foo.ts', lines: [`+const h = "Bearer ${value}";`] }])))
+      .toContainEqual(expect.objectContaining({ patternName: 'bearer' }));
+  });
+
   it('redaction stays broad: short and letters-only values are masked even where the gate ignores them', () => {
     const short = ['ab', 'c'].join('');
     expect(redactTokens(`Bearer ${short}`)).toBe('Bearer [REDACTED]');
