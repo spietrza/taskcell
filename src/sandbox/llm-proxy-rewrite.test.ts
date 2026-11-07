@@ -6,9 +6,17 @@ import {
   upstreamAuthHeaders,
   openaiAuthHeaders,
   isAllowedLlmPath,
+  isLocalAuthPath,
   constantTimeEqual,
   upstreamPath,
   UPSTREAMS,
+  chatgptClaims,
+  syntheticIdToken,
+  chatgptAccountId,
+  placeholderChatgptAuth,
+  buildRefreshBody,
+  buildRevokeBody,
+  applyRefreshResponse,
 } from './llm-proxy-rewrite.mjs';
 
 describe('mergeAnthropicBeta', () => {
@@ -139,8 +147,84 @@ describe('openaiAuthHeaders', () => {
   });
 
   it('presents the OpenRouter key as a plain Bearer header (openrouter upstream authenticates by bearer)', () => {
-    expect(UPSTREAMS.openrouter.auth).toBe('bearer');
+    expect(UPSTREAMS.openrouter.authKind).toBe('bearer');
     expect(openaiAuthHeaders('sk-or')).toEqual({ authorization: 'Bearer sk-or' });
+  });
+});
+
+describe('codex-chatgpt upstream wiring', () => {
+  it('routes model calls to the chatgpt.com codex backend only, by POST', () => {
+    expect(isAllowedLlmPath('POST', '/backend-api/codex/responses', 'codex-chatgpt')).toBe(true);
+    expect(isAllowedLlmPath('GET', '/backend-api/codex/responses', 'codex-chatgpt')).toBe(false);
+    expect(isAllowedLlmPath('POST', '/v1/responses', 'codex-chatgpt')).toBe(false);
+  });
+
+  it('terminates refresh/revoke locally instead of forwarding them, and only for codex-chatgpt', () => {
+    expect(isLocalAuthPath('POST', '/oauth/token', 'codex-chatgpt')).toBe('refresh');
+    expect(isLocalAuthPath('POST', '/oauth/revoke', 'codex-chatgpt')).toBe('revoke');
+    expect(isLocalAuthPath('GET', '/oauth/token', 'codex-chatgpt')).toBeUndefined();
+    expect(isLocalAuthPath('POST', '/oauth/token', 'openai')).toBeUndefined();
+    expect(isAllowedLlmPath('POST', '/oauth/token', 'codex-chatgpt')).toBe(false); // not forwarded upstream
+  });
+});
+
+describe('Codex ChatGPT-plan placeholder credential', () => {
+  const realIdToken = syntheticIdToken({ chatgpt_account_id: 'acct-real', chatgpt_plan_type: 'pro' });
+  const real = {
+    auth_mode: 'chatgpt',
+    tokens: {
+      id_token: realIdToken,
+      access_token: 'real-access-token-value-xyz',
+      refresh_token: 'real-refresh-token-value-xyz',
+      account_id: 'acct-real',
+      oauth_provenance: { client_id: 'client-abc' },
+    },
+    last_refresh: '2020-01-01T00:00:00.000Z',
+    OPENAI_API_KEY: 'legacy-should-be-dropped',
+  };
+
+  it('extracts only plan type and account id from the real id_token', () => {
+    expect(chatgptClaims(realIdToken)).toEqual({ chatgpt_account_id: 'acct-real', chatgpt_plan_type: 'pro' });
+    expect(chatgptClaims('not-a-jwt')).toEqual({});
+    expect(chatgptClaims(undefined)).toEqual({});
+  });
+
+  it('builds a three-segment, base64url-decodable synthetic JWT', () => {
+    const token = syntheticIdToken({ chatgpt_account_id: 'a', chatgpt_plan_type: 'plus' });
+    const segments = token.split('.');
+    expect(segments).toHaveLength(3);
+    for (const s of segments) expect(s).toMatch(/^[A-Za-z0-9_-]+$/);
+    const payload = JSON.parse(Buffer.from(segments[1] ?? '', 'base64url').toString('utf8'));
+    expect(payload['https://api.openai.com/auth']).toEqual({ chatgpt_account_id: 'a', chatgpt_plan_type: 'plus' });
+  });
+
+  it('placeholderChatgptAuth replaces every token field, carries no real secret, and drops the legacy key field', () => {
+    const placeholder = placeholderChatgptAuth(real);
+    expect(placeholder.tokens.access_token).not.toBe(real.tokens.access_token);
+    expect(placeholder.tokens.refresh_token).not.toBe(real.tokens.refresh_token);
+    expect(placeholder.tokens.id_token).not.toBe(real.tokens.id_token);
+    expect(placeholder.tokens.id_token.split('.')).toHaveLength(3);
+    expect(JSON.stringify(placeholder)).not.toContain('real-access-token-value-xyz');
+    expect(JSON.stringify(placeholder)).not.toContain('real-refresh-token-value-xyz');
+    expect(JSON.stringify(placeholder)).not.toContain('legacy-should-be-dropped');
+    // Non-secret fields pass through unchanged.
+    expect(placeholder.tokens.account_id).toBe('acct-real');
+    expect(chatgptAccountId(real)).toBe('acct-real');
+  });
+
+  it('buildRefreshBody/buildRevokeBody carry the real refresh token and provenance client id, never the access token', () => {
+    const refreshBody = buildRefreshBody(real);
+    expect(refreshBody).toMatchObject({ grant_type: 'refresh_token', refresh_token: 'real-refresh-token-value-xyz', client_id: 'client-abc' });
+    const revokeBody = buildRevokeBody(real);
+    expect(revokeBody).toMatchObject({ token: 'real-refresh-token-value-xyz', client_id: 'client-abc' });
+  });
+
+  it('applyRefreshResponse rotates the stored real tokens from the upstream response', () => {
+    const rotated = applyRefreshResponse(real, { access_token: 'new-access', refresh_token: 'new-refresh', id_token: 'new.id.token' });
+    expect(rotated.tokens.access_token).toBe('new-access');
+    expect(rotated.tokens.refresh_token).toBe('new-refresh');
+    expect(rotated.tokens.id_token).toBe('new.id.token');
+    expect(rotated.tokens.account_id).toBe('acct-real'); // untouched
   });
 });
 

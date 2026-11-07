@@ -5,7 +5,7 @@
 // (which runs the line-~108 gate) would fail with a connection reset instead of a clean 404.
 import { describe, it, expect, afterEach } from 'vitest';
 import { execa } from 'execa';
-import { request } from 'node:http';
+import { request, createServer } from 'node:http';
 import { mkdtemp, writeFile, rm } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join, dirname } from 'node:path';
@@ -17,9 +17,9 @@ const serverPath = join(here, 'llm-proxy-server.mjs');
 // Spawn the sidecar with the test secret file + port. Wrapped so `Child` below captures the exact
 // execa generic (its options literal) — typing the field as bare `ResultPromise` clashes under
 // exactOptionalPropertyTypes.
-function spawnServer(secretFile: string, port: number) {
+function spawnServer(secretFile: string, port: number, extraEnv: Record<string, string> = {}) {
   return execa('node', [serverPath], {
-    env: { LLM_PROXY_SECRET_FILE: secretFile, PORT: String(port) },
+    env: { LLM_PROXY_SECRET_FILE: secretFile, PORT: String(port), ...extraEnv },
     stdio: 'pipe',
     reject: false,
   });
@@ -90,14 +90,63 @@ async function waitUntilUp(port: number, child: Child, timeoutMs = 45_000): Prom
   }
 }
 
-async function startServer(secretBody: string): Promise<Started> {
+async function startServer(secretBody: string, extraEnv: Record<string, string> = {}): Promise<Started> {
   const dir = await mkdtemp(join(tmpdir(), 'vg-llm-proxy-test-'));
   const secretFile = join(dir, 'secret');
   await writeFile(secretFile, secretBody, 'utf8');
   const port = await freePort();
-  const child = spawnServer(secretFile, port);
+  const child = spawnServer(secretFile, port, extraEnv);
   await waitUntilUp(port, child);
   return { port, child, dir };
+}
+
+/** POST a JSON body and resolve the status + parsed JSON response body. */
+function hitJson(port: number, path: string, headers: Record<string, string>, body: unknown): Promise<{ status: number; json: unknown }> {
+  return new Promise((resolve, reject) => {
+    const payload = Buffer.from(JSON.stringify(body), 'utf8');
+    const req = request({ host: '127.0.0.1', port, method: 'POST', path, headers: { ...headers, 'content-type': 'application/json', 'content-length': String(payload.length) } }, (res) => {
+      const chunks: Buffer[] = [];
+      res.on('data', (c) => chunks.push(c));
+      res.on('end', () => {
+        let json: unknown = null;
+        try {
+          json = JSON.parse(Buffer.concat(chunks).toString('utf8'));
+        } catch {
+          /* no/invalid body */
+        }
+        resolve({ status: res.statusCode ?? 0, json });
+      });
+    });
+    req.on('error', reject);
+    req.end(payload);
+  });
+}
+
+/** A throwaway plain-HTTP fake OpenAI /oauth/token + /oauth/revoke endpoint, for refresh/revoke tests. */
+async function fakeOpenAiAuth(): Promise<{ port: number; close: () => Promise<void>; revoked: boolean }> {
+  const state = { revoked: false };
+  const srv = createServer((req, res) => {
+    const chunks: Buffer[] = [];
+    req.on('data', (c) => chunks.push(c));
+    req.on('end', () => {
+      if (req.url === '/oauth/revoke') {
+        state.revoked = true;
+        res.writeHead(200).end();
+        return;
+      }
+      const payload = Buffer.from(JSON.stringify({ access_token: 'rotated-access', refresh_token: 'rotated-refresh', id_token: 'rotated.id.token' }));
+      res.writeHead(200, { 'content-type': 'application/json' }).end(payload);
+    });
+  });
+  const port = await freePort();
+  await new Promise<void>((resolve) => srv.listen(port, '127.0.0.1', resolve));
+  return {
+    port,
+    close: () => new Promise<void>((resolve) => srv.close(() => resolve())),
+    get revoked() {
+      return state.revoked;
+    },
+  };
 }
 
 describe('llm-proxy-server (booted child)', () => {
@@ -140,6 +189,63 @@ describe('llm-proxy-server (booted child)', () => {
     expect(
       await hit(s.port, 'POST', '/v1/responses', { authorization: 'Bearer wrong-nonce' }),
     ).toBe(401);
+  }, 60_000);
+
+  it('codex-chatgpt: 404 on disallowed path, 401 on wrong nonce (no upstream contacted)', async () => {
+    const authJson = JSON.stringify({ tokens: { access_token: 'real-at', refresh_token: 'real-rt', id_token: 'h.p.s' } });
+    const s = track(await startServer(`UPSTREAM=codex-chatgpt\nNONCE=real-nonce\nAUTH_JSON=${authJson}\n`));
+    expect(await hit(s.port, 'POST', '/v1/responses')).toBe(404); // openai path rejected for this upstream
+    expect(await hit(s.port, 'GET', '/backend-api/codex/responses')).toBe(404);
+    expect(
+      await hit(s.port, 'POST', '/backend-api/codex/responses', { authorization: 'Bearer wrong-nonce' }),
+    ).toBe(401);
+    expect(
+      await hit(s.port, 'POST', '/oauth/token', { authorization: 'Bearer wrong-nonce' }),
+    ).toBe(401);
+  }, 60_000);
+
+  it('codex-chatgpt refresh: goes through a fake OpenAI endpoint, rotates state, and answers the cell with placeholders only', async () => {
+    const fake = await fakeOpenAiAuth();
+    try {
+      const authJson = JSON.stringify({ tokens: { access_token: 'real-at', refresh_token: 'real-rt-SECRET-VALUE', id_token: 'h.p.s', account_id: 'acct-1' } });
+      const s = track(
+        await startServer(`UPSTREAM=codex-chatgpt\nNONCE=real-nonce\nAUTH_JSON=${authJson}\n`, {
+          LLM_PROXY_CODEX_AUTH_HOST: '127.0.0.1',
+          LLM_PROXY_CODEX_AUTH_PORT: String(fake.port),
+          LLM_PROXY_CODEX_AUTH_INSECURE: '1',
+        }),
+      );
+      const { status, json } = await hitJson(s.port, '/oauth/token', { authorization: 'Bearer real-nonce' }, { refresh_token: 'cell-does-not-control-this' });
+      expect(status).toBe(200);
+      const body = json as { access_token: string; refresh_token: string; id_token: string };
+      // The cell gets fresh placeholders — never the rotated real tokens the fake endpoint returned.
+      expect(body.access_token).not.toBe('rotated-access');
+      expect(body.refresh_token).not.toBe('rotated-refresh');
+      expect(body.id_token.split('.')).toHaveLength(3);
+      expect(body.id_token).not.toBe('rotated.id.token');
+    } finally {
+      await fake.close();
+    }
+  }, 60_000);
+
+  it('codex-chatgpt revoke: reaches the fake endpoint with the real refresh token, reports status, no body', async () => {
+    const fake = await fakeOpenAiAuth();
+    try {
+      const authJson = JSON.stringify({ tokens: { access_token: 'real-at', refresh_token: 'real-rt', id_token: 'h.p.s' } });
+      const s = track(
+        await startServer(`UPSTREAM=codex-chatgpt\nNONCE=real-nonce\nAUTH_JSON=${authJson}\n`, {
+          LLM_PROXY_CODEX_AUTH_HOST: '127.0.0.1',
+          LLM_PROXY_CODEX_AUTH_PORT: String(fake.port),
+          LLM_PROXY_CODEX_AUTH_INSECURE: '1',
+        }),
+      );
+      const { status, json } = await hitJson(s.port, '/oauth/revoke', { authorization: 'Bearer real-nonce' }, {});
+      expect(status).toBe(200);
+      expect(json).toBeNull();
+      expect(fake.revoked).toBe(true);
+    } finally {
+      await fake.close();
+    }
   }, 60_000);
 
   it('zai: allows the anthropic-compatible /v1/messages path, rejects openai paths and wrong nonce', async () => {

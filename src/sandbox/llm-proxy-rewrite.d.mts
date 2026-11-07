@@ -1,13 +1,15 @@
 // Type declarations for the plain-ESM `llm-proxy-rewrite.mjs` so the strict-TS app keeps types.
-export type Upstream = 'anthropic' | 'openai' | 'zai' | 'openrouter';
+export type Upstream = 'anthropic' | 'openai' | 'zai' | 'openrouter' | 'codex-chatgpt';
 export type UpstreamAuth = { mode: 'subscription'; secret: string } | { mode: 'api'; secret: string };
 
 /** One upstream's wiring: forward host, allowed POST paths, auth scheme, and optional base path prefix. */
 export interface UpstreamSpec {
   host: string;
   paths: readonly string[];
-  auth: 'anthropic' | 'bearer';
+  authKind: 'anthropic' | 'bearer' | 'chatgpt';
   basePath?: string;
+  /** POST paths this upstream's sidecar terminates itself instead of forwarding (codex-chatgpt only). */
+  localPaths?: { refresh: string; revoke: string };
 }
 
 /** Single source of truth for every proxiable upstream, keyed by the secret file's UPSTREAM value. */
@@ -40,6 +42,9 @@ export declare function upstreamAuthHeaders(
  */
 export declare function isAllowedLlmPath(method: string, path: string, upstream?: Upstream): boolean;
 
+/** 'refresh' | 'revoke' | undefined: whether this POST path is terminated locally by the upstream's own sidecar. */
+export declare function isLocalAuthPath(method: string, path: string, upstream: Upstream): 'refresh' | 'revoke' | undefined;
+
 /** Headers to apply upstream for plain-Bearer providers (OpenAI, z.ai, OpenRouter): just Bearer SECRET (no anthropic-beta, no x-api-key). */
 export declare function openaiAuthHeaders(secret: string): Record<string, string>;
 
@@ -48,3 +53,17 @@ export declare function upstreamPath(upstream: Upstream, reqUrl: string | undefi
 
 /** Constant-time string compare (length-safe). */
 export declare function constantTimeEqual(a: string, b: string): boolean;
+
+// --- Codex ChatGPT-plan credential isolation ---
+
+/** A real Codex auth.json (ChatGPT-plan subscription credential), loosely typed as parsed JSON. */
+export type CodexAuthJson = Record<string, unknown> & { tokens?: Record<string, unknown> };
+
+export declare function randomOpaqueToken(bytes?: number): string;
+export declare function chatgptClaims(realIdToken: string | undefined): Record<string, unknown>;
+export declare function syntheticIdToken(claims: Record<string, unknown>): string;
+export declare function chatgptAccountId(real: CodexAuthJson | undefined): string;
+export declare function placeholderChatgptAuth(real: CodexAuthJson): CodexAuthJson;
+export declare function buildRefreshBody(real: CodexAuthJson): Record<string, unknown>;
+export declare function buildRevokeBody(real: CodexAuthJson): Record<string, unknown>;
+export declare function applyRefreshResponse(real: CodexAuthJson, upstreamJson: Record<string, unknown>): CodexAuthJson;

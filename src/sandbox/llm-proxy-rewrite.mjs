@@ -3,7 +3,7 @@
 // (`llm-proxy-server.mjs`) import the SAME file — no copy-paste, no drift. Types for the
 // TS side live in the sibling `llm-proxy-rewrite.d.mts`. The sidecar gets this file
 // `docker cp`'d next to it so the relative `import './llm-proxy-rewrite.mjs'` resolves.
-import { timingSafeEqual } from 'node:crypto';
+import { timingSafeEqual, randomBytes } from 'node:crypto';
 
 export const OAUTH_BETA = 'oauth-2025-04-20';
 
@@ -109,22 +109,37 @@ export function upstreamAuthHeaders(auth, reqHeaders) {
 /**
  * Single source of truth for every upstream the sidecar can proxy, keyed by the UPSTREAM value in the
  * secret file. Add an upstream here and every consumer follows: host routing + allowlist drop
- * (UPSTREAMS[k].host), POST-path lockdown (.paths), auth scheme (.auth), and boot validation (`k in UPSTREAMS`).
+ * (UPSTREAMS[k].host), POST-path lockdown (.paths), auth scheme (.authKind), and boot validation (`k in UPSTREAMS`).
  *
- * - host:  where the sidecar forwards (and the host dropped from the sandbox egress allowlist).
- * - paths: the ONLY POST paths tunnelled through (query string ignored, no wildcards) — the lockdown.
- * - auth:  how the real credential is presented upstream. 'anthropic' = mode-aware x-api-key OR
- *          Bearer+oauth-beta (upstreamAuthHeaders). 'bearer' = plain Authorization: Bearer SECRET
- *          (openaiAuthHeaders). z.ai/OpenRouter are Anthropic-Messages-compatible on the WIRE (same
- *          paths) but authenticate with plain bearer keys, so they pair anthropic paths with bearer auth.
+ * - host:     where the sidecar forwards (and the host dropped from the sandbox egress allowlist).
+ * - paths:    the ONLY POST paths tunnelled through (query string ignored, no wildcards) — the lockdown.
+ * - authKind: which header builder presents the real credential upstream. 'anthropic' = mode-aware
+ *             x-api-key or Bearer+oauth-beta (upstreamAuthHeaders). 'bearer' = a fixed Bearer value for
+ *             the sidecar's lifetime (openaiAuthHeaders). 'chatgpt' = same Bearer shape, but read fresh
+ *             on every request from the mutable real-auth state the sidecar maintains (rotates on
+ *             refresh — see llm-proxy-server.mjs). z.ai/OpenRouter are Anthropic-Messages-compatible on
+ *             the WIRE (same paths) but authenticate with plain bearer keys, so they pair anthropic
+ *             paths with bearer auth.
+ * - localPaths: POST paths this upstream's OWN sidecar terminates instead of forwarding (codex-chatgpt's
+ *             refresh/revoke): never reach the upstream host untouched — see isLocalAuthPath.
  */
 export const UPSTREAMS = {
-  anthropic: { host: 'api.anthropic.com', paths: ['/v1/messages', '/v1/messages/count_tokens'], auth: 'anthropic' },
-  openai: { host: 'api.openai.com', paths: ['/v1/responses'], auth: 'bearer' },
+  anthropic: { host: 'api.anthropic.com', paths: ['/v1/messages', '/v1/messages/count_tokens'], authKind: 'anthropic' },
+  openai: { host: 'api.openai.com', paths: ['/v1/responses'], authKind: 'bearer' },
   // basePath: keep in sync with ZAI_BASE_URL in src/agents/zai.ts
-  zai: { host: 'api.z.ai', paths: ['/v1/messages', '/v1/messages/count_tokens'], auth: 'bearer', basePath: '/api/coding/paas/v4' },
+  zai: { host: 'api.z.ai', paths: ['/v1/messages', '/v1/messages/count_tokens'], authKind: 'bearer', basePath: '/api/coding/paas/v4' },
   // basePath: keep in sync with OPENROUTER_BASE_URL in src/agents/openrouter.ts
-  openrouter: { host: 'openrouter.ai', paths: ['/v1/messages', '/v1/messages/count_tokens'], auth: 'bearer', basePath: '/api' },
+  openrouter: { host: 'openrouter.ai', paths: ['/v1/messages', '/v1/messages/count_tokens'], authKind: 'bearer', basePath: '/api' },
+  // Codex on a ChatGPT plan (#625/#638 spike): model calls go to chatgpt.com's codex backend; refresh
+  // and revoke are terminated locally (see localPaths) rather than forwarded, since the cell must never
+  // present the real refresh token itself (a stale copy racing the sidecar's own refresh would be
+  // permanently invalidated as reuse by the real IdP).
+  'codex-chatgpt': {
+    host: 'chatgpt.com',
+    paths: ['/backend-api/codex/responses'],
+    authKind: 'chatgpt',
+    localPaths: { refresh: '/oauth/token', revoke: '/oauth/revoke' },
+  },
 };
 
 /** Whether the request is an allowed POST to the chosen upstream's endpoint(s) (query string ignored). */
@@ -136,6 +151,19 @@ export function isAllowedLlmPath(method, path, upstream = 'anthropic') {
   return spec.paths.includes(p);
 }
 
+/**
+ * Whether a POST path is one this upstream's sidecar handles itself (never forwarded upstream
+ * untouched): 'refresh' | 'revoke' | undefined. Only codex-chatgpt defines localPaths today.
+ */
+export function isLocalAuthPath(method, path, upstream) {
+  const spec = UPSTREAMS[upstream];
+  if ((method ?? '').toUpperCase() !== 'POST' || spec?.localPaths === undefined) return undefined;
+  const p = (path ?? '').split('?')[0] ?? '';
+  if (p === spec.localPaths.refresh) return 'refresh';
+  if (p === spec.localPaths.revoke) return 'revoke';
+  return undefined;
+}
+
 /** Headers to apply upstream for plain-Bearer providers (OpenAI, z.ai, OpenRouter): just Bearer SECRET (no anthropic-beta, no x-api-key). */
 export function openaiAuthHeaders(secret) {
   return { authorization: `Bearer ${secret}` };
@@ -145,6 +173,115 @@ export function openaiAuthHeaders(secret) {
 export function upstreamPath(upstream, reqUrl) {
   const spec = UPSTREAMS[upstream];
   return `${spec?.basePath ?? ''}${reqUrl ?? '/'}`;
+}
+
+// --- Codex ChatGPT-plan credential isolation (#625/#638): the real auth.json never leaves the
+// sidecar; the cell gets opaque placeholders plus a syntactically valid but unsigned id_token. ---
+
+/** Random opaque value, base64url-encoded — never a JWT, never tied to any real credential. */
+export function randomOpaqueToken(bytes = 32) {
+  return randomBytes(bytes).toString('base64url');
+}
+
+/**
+ * The non-secret claims copied out of the real id_token's payload, under OpenAI's auth claim
+ * namespace (plan type, account id — never anything else). Best-effort: an unparseable or
+ * differently-shaped id_token yields `{}` rather than throwing.
+ */
+export function chatgptClaims(realIdToken) {
+  try {
+    const parts = String(realIdToken ?? '').split('.');
+    const payload = JSON.parse(Buffer.from(parts[1] ?? '', 'base64url').toString('utf8'));
+    const auth = payload['https://api.openai.com/auth'];
+    if (auth === null || typeof auth !== 'object') return {};
+    const { chatgpt_account_id, chatgpt_plan_type } = auth;
+    return {
+      ...(chatgpt_account_id !== undefined ? { chatgpt_account_id } : {}),
+      ...(chatgpt_plan_type !== undefined ? { chatgpt_plan_type } : {}),
+    };
+  } catch {
+    return {};
+  }
+}
+
+/**
+ * A syntactically valid (three base64url segments) but unsigned JWT carrying only the given claims.
+ * Codex's auth.json loader requires this exact shape or the whole file fails to parse; the signature
+ * segment is opaque random, never a real signature, so this token can never pass upstream verification.
+ */
+export function syntheticIdToken(claims) {
+  const header = Buffer.from(JSON.stringify({ alg: 'none', typ: 'JWT' }), 'utf8').toString('base64url');
+  const payload = Buffer.from(JSON.stringify({ 'https://api.openai.com/auth': claims }), 'utf8').toString('base64url');
+  return `${header}.${payload}.${randomOpaqueToken(16)}`;
+}
+
+/** The real (non-secret) ChatGPT account id carried in auth.json, or '' when absent. */
+export function chatgptAccountId(real) {
+  const id = real?.tokens?.account_id;
+  return typeof id === 'string' ? id : '';
+}
+
+/**
+ * The placeholder auth.json the cell gets: same shape as the real one, but every token field is
+ * replaced — access_token/refresh_token with opaque random values, id_token with a synthetic JWT
+ * carrying only non-secret claims. Non-token fields (account_id, last_refresh, …) pass through
+ * unchanged since they are not secret. The legacy top-level OPENAI_API_KEY field (unused in ChatGPT
+ * mode) is dropped rather than carried through, since it is a credential-shaped field name.
+ */
+export function placeholderChatgptAuth(real) {
+  const tokens = real?.tokens ?? {};
+  const claims = chatgptClaims(typeof tokens.id_token === 'string' ? tokens.id_token : '');
+  const { OPENAI_API_KEY: _drop, ...rest } = real ?? {};
+  return {
+    ...rest,
+    tokens: {
+      ...tokens,
+      id_token: syntheticIdToken(claims),
+      access_token: randomOpaqueToken(),
+      refresh_token: randomOpaqueToken(),
+    },
+  };
+}
+
+/**
+ * The OAuth refresh-grant body the sidecar sends to the REAL auth.openai.com with the REAL refresh
+ * token — built from the host-held auth.json, never from anything the cell sent (a cell-supplied body
+ * is ignored entirely: Q4 of the spike, reuse detection permanently invalidates a token presented
+ * twice, so only the sidecar may ever present the real refresh token).
+ */
+export function buildRefreshBody(real) {
+  const clientId = real?.tokens?.oauth_provenance?.client_id;
+  return {
+    grant_type: 'refresh_token',
+    refresh_token: real?.tokens?.refresh_token,
+    ...(typeof clientId === 'string' && clientId !== '' ? { client_id: clientId } : {}),
+    scope: 'openid profile email',
+  };
+}
+
+/** The OAuth revoke body for the real refresh token, same client-id sourcing as buildRefreshBody. */
+export function buildRevokeBody(real) {
+  const clientId = real?.tokens?.oauth_provenance?.client_id;
+  return {
+    token: real?.tokens?.refresh_token,
+    ...(typeof clientId === 'string' && clientId !== '' ? { client_id: clientId } : {}),
+  };
+}
+
+/** The sidecar's in-memory real-auth state after a successful refresh: rotated tokens applied. */
+export function applyRefreshResponse(real, upstreamJson) {
+  const tokens = real?.tokens ?? {};
+  const u = upstreamJson ?? {};
+  return {
+    ...real,
+    tokens: {
+      ...tokens,
+      ...(typeof u.access_token === 'string' ? { access_token: u.access_token } : {}),
+      ...(typeof u.refresh_token === 'string' ? { refresh_token: u.refresh_token } : {}),
+      ...(typeof u.id_token === 'string' ? { id_token: u.id_token } : {}),
+    },
+    last_refresh: new Date().toISOString(),
+  };
 }
 
 /** Constant-time string compare (length-safe). */
