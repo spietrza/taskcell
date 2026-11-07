@@ -3,6 +3,11 @@ import { parseCli, USAGE } from './args.js';
 import type { SharedRunOptions } from './args.js';
 
 describe('parseCli', () => {
+  it('uses taskcell in help and command examples', () => {
+    expect(USAGE).toMatch(/^taskcell <command>/);
+    expect(USAGE).not.toMatch(/^\s+vanguard /m);
+  });
+
   it('defaults gc to cwd, 6h, no remote, not dry-run', () => {
     expect(parseCli(['gc'], '/work')).toEqual({
       kind: 'gc',
