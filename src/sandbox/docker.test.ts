@@ -3,20 +3,33 @@ import { execa, execaSync } from 'execa';
 import { mkdtemp, writeFile, readFile, rm } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-import { DockerSandboxProvider, toExecResult, isOlderVersion, refreshSandboxClaudeCli, sandboxImage, SANDBOX_CLAUDE_VERSION } from './docker.js';
+import {
+  DockerSandboxProvider,
+  toExecResult,
+  isOlderVersion,
+  refreshSandboxClaudeCli,
+  sandboxImage,
+  resolveSandboxImage,
+  SANDBOX_CLAUDE_VERSION,
+} from './docker.js';
 import { sandboxSecurityOpts } from './limits.js';
 
 const ENV_VAR = 'VANGUARD_SANDBOX_IMAGE';
 
-// Ungated on purpose: pure env resolution, no Docker needed. Every sandbox start and sidecar reads
-// this — a wrong verdict either strands CI on the mutable `:latest` tag it was meant to pin past, or
-// silently drops a deliberate override.
-describe('sandboxImage', () => {
+/** Restore the ambient `VANGUARD_SANDBOX_IMAGE` after each test in the calling suite. */
+function restoresSandboxImageEnv(): void {
   const prev = process.env[ENV_VAR];
   afterEach(() => {
     if (prev === undefined) delete process.env[ENV_VAR];
     else process.env[ENV_VAR] = prev;
   });
+}
+
+// Ungated on purpose: pure env resolution, no Docker needed. Every sandbox start and sidecar reads
+// this — a wrong verdict either strands CI on the mutable `:latest` tag it was meant to pin past, or
+// silently drops a deliberate override.
+describe('sandboxImage', () => {
+  restoresSandboxImageEnv();
 
   it('honours VANGUARD_SANDBOX_IMAGE when set', () => {
     process.env[ENV_VAR] = 'sha256:deadbeef';
@@ -25,23 +38,50 @@ describe('sandboxImage', () => {
 
   it('falls back to the mutable tag when the env var is empty', () => {
     process.env[ENV_VAR] = '';
-    expect(sandboxImage()).toBe('vanguard-sandbox:latest');
+    expect(sandboxImage()).toBe('taskcell-sandbox:latest');
   });
 
   it('falls back to the mutable tag when the env var is unset', () => {
     delete process.env[ENV_VAR];
-    expect(sandboxImage()).toBe('vanguard-sandbox:latest');
+    expect(sandboxImage()).toBe('taskcell-sandbox:latest');
   });
 
   it('rejects a value docker would read as a flag, or one with whitespace', () => {
-    for (const value of ['--privileged', '-v/:/host', 'vanguard-sandbox:latest --privileged']) {
+    for (const value of ['--privileged', '-v/:/host', 'taskcell-sandbox:latest --privileged']) {
       expect(() => sandboxImage({ [ENV_VAR]: value }), value).toThrow(/not an image reference/);
     }
   });
 
   it('reads from an injected env map rather than process.env when given one', () => {
     expect(sandboxImage({ [ENV_VAR]: 'sha256:cafef00d' })).toBe('sha256:cafef00d');
-    expect(sandboxImage({})).toBe('vanguard-sandbox:latest');
+    expect(sandboxImage({})).toBe('taskcell-sandbox:latest');
+  });
+});
+
+// Ungated on purpose: pure logic over an injected existence check, no Docker needed. Covers the
+// rename fallback — a host that only ever built the pre-rename `vanguard-sandbox:latest` tag must
+// keep working until it next runs docker/build.sh.
+describe('resolveSandboxImage', () => {
+  it('passes an explicit (non-default) image through untouched, without checking existence', async () => {
+    const exists = async (): Promise<boolean> => {
+      throw new Error('should not be called');
+    };
+    await expect(resolveSandboxImage('sha256:deadbeef', exists)).resolves.toBe('sha256:deadbeef');
+  });
+
+  it('keeps the default tag when it already exists', async () => {
+    const exists = async (image: string): Promise<boolean> => image === 'taskcell-sandbox:latest';
+    await expect(resolveSandboxImage('taskcell-sandbox:latest', exists)).resolves.toBe('taskcell-sandbox:latest');
+  });
+
+  it('falls back to the legacy tag when only it exists', async () => {
+    const exists = async (image: string): Promise<boolean> => image === 'vanguard-sandbox:latest';
+    await expect(resolveSandboxImage('taskcell-sandbox:latest', exists)).resolves.toBe('vanguard-sandbox:latest');
+  });
+
+  it('keeps the default tag when neither exists, so the caller gets the (clearer) new-name error', async () => {
+    const exists = async (): Promise<boolean> => false;
+    await expect(resolveSandboxImage('taskcell-sandbox:latest', exists)).resolves.toBe('taskcell-sandbox:latest');
   });
 });
 
@@ -59,6 +99,8 @@ const suite = hasDocker ? describe : describe.skip;
 // Ungated on purpose: the comparison is pure, and it gates every sandbox start — a wrong verdict
 // either blocks a healthy image or lets a stale CLI fail deep inside a run (see assertClaudeCliCurrent).
 describe('refreshSandboxClaudeCli', () => {
+  restoresSandboxImageEnv();
+
   it('refuses an immutable image ID instead of committing to a stray sha256 repository', async () => {
     const calls: string[][] = [];
     const run = async (_cmd: string, args: string[]): Promise<{ stdout: string }> => {
@@ -86,6 +128,19 @@ describe('refreshSandboxClaudeCli', () => {
 
     await refreshSandboxClaudeCli({ cwd: '/repo', image: 'cafe', run });
     expect(calls.some((args) => args[0] === 'commit' && args.at(-1) === 'cafe')).toBe(true);
+  });
+
+  it('refreshes the tag resolveSandboxImage picks, so a pre-rename host fixes the image it actually has', async () => {
+    delete process.env[ENV_VAR];
+    const calls: string[][] = [];
+    const run = async (_cmd: string, args: string[]): Promise<{ stdout: string }> => {
+      if (args[0] === 'image' && args.includes('taskcell-sandbox:latest')) throw new Error('No such image');
+      calls.push(args);
+      return { stdout: '' };
+    };
+
+    await refreshSandboxClaudeCli({ cwd: '/repo', run });
+    expect(calls.some((args) => args[0] === 'commit' && args.at(-1) === 'vanguard-sandbox:latest')).toBe(true);
   });
 });
 
@@ -268,7 +323,7 @@ describe('DockerSandboxProvider buildRunArgs (hardening flags)', () => {
     expect(args).toContain('--cap-drop');
     expect(args).toContain('--security-opt');
     expect(args.filter((a) => a === '--tmpfs').length).toBeGreaterThanOrEqual(1);
-    expect(args.slice(-3)).toEqual(['vanguard-sandbox:latest', 'sleep', 'infinity']);
+    expect(args.slice(-3)).toEqual(['taskcell-sandbox:latest', 'sleep', 'infinity']);
   });
 
   it('defaults to VANGUARD_SANDBOX_IMAGE over the mutable tag when no explicit image is given', () => {

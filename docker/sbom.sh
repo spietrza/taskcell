@@ -2,7 +2,7 @@
 # Generate an SBOM (SPDX JSON) for the vanguard sandbox image with syft.
 #   docker/sbom.sh [image] [output]
 set -euo pipefail
-IMAGE="${1:-vanguard-sandbox:latest}"
+IMAGE="${1:-taskcell-sandbox:latest}"
 OUT="${2:-docker/sbom.spdx.json}"
 
 if ! command -v syft >/dev/null 2>&1; then

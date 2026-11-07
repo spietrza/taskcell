@@ -27,11 +27,13 @@ export function toExecResult(raw: {
   return { stdout: raw.stdout ?? '', stderr: raw.stderr ?? '', exitCode: raw.exitCode ?? 1 };
 }
 
-const DEFAULT_IMAGE = 'vanguard-sandbox:latest';
+const DEFAULT_IMAGE = 'taskcell-sandbox:latest';
+/** Pre-rename tag, still built as an alias by docker/build.sh — see `resolveSandboxImage`. */
+const LEGACY_IMAGE = 'vanguard-sandbox:latest';
 
 /**
  * The sandbox image to run: `VANGUARD_SANDBOX_IMAGE` when set (CI passes the exact `sha256:...` ID it
- * just built, since the shared mutable `vanguard-sandbox:latest` tag on a shared Docker host can be
+ * just built, since the shared mutable `taskcell-sandbox:latest` tag on a shared Docker host can be
  * overwritten by another pipeline between build and run), else the mutable tag for local/dev use.
  */
 export function sandboxImage(env: NodeJS.ProcessEnv = process.env): string {
@@ -41,6 +43,25 @@ export function sandboxImage(env: NodeJS.ProcessEnv = process.env): string {
   // --privileged. No valid image reference starts with `-` or contains whitespace.
   if (/^-|\s/.test(override)) throw new SandboxError(`VANGUARD_SANDBOX_IMAGE is not an image reference: ${JSON.stringify(override)}`);
   return override;
+}
+
+/** Whether an image reference resolves locally; injectable so the fallback is testable without Docker. */
+export type ImageExists = (image: string) => Promise<boolean>;
+
+const dockerImageExists: ImageExists = async (image) =>
+  (await execa('docker', ['image', 'inspect', image], { reject: false })).exitCode === 0;
+
+/**
+ * Resolve the image a run should actually use. Only the default tag is adjusted: an explicit
+ * `VANGUARD_SANDBOX_IMAGE` (or `config.image`) always wins, untouched. A host that last ran
+ * `docker/build.sh` before the rename only has the pre-rename `vanguard-sandbox:latest` tag, so fall
+ * back to it rather than failing on a tag that host never built. When neither exists, keep the new
+ * name: the caller's "no such image" then points at the tag the current build.sh produces.
+ */
+export async function resolveSandboxImage(image: string, exists: ImageExists = dockerImageExists): Promise<string> {
+  if (image !== DEFAULT_IMAGE) return image;
+  if (await exists(DEFAULT_IMAGE)) return DEFAULT_IMAGE;
+  return (await exists(LEGACY_IMAGE)) ? LEGACY_IMAGE : DEFAULT_IMAGE;
 }
 
 /**
@@ -81,14 +102,18 @@ const defaultDockerRunner: DockerRunner = async (cmd, args, opts) => {
  */
 export async function refreshSandboxClaudeCli(opts: { cwd: string; image?: string; run?: DockerRunner }): Promise<string> {
   const run = opts.run ?? defaultDockerRunner;
-  const image = opts.image ?? sandboxImage();
+  const { cwd } = opts;
+  // Resolve through the same fallback as a sandbox start: `doctor --fix` is what both the preflight
+  // check and `assertClaudeCliCurrent` point at, and they report the resolved tag — refreshing the
+  // unresolved default would tell a pre-rename host to fix an image it never built.
+  const exists: ImageExists = (img) => run('docker', ['image', 'inspect', img], { cwd }).then(() => true, () => false);
+  const image = opts.image ?? (await resolveSandboxImage(sandboxImage(), exists));
   // `docker commit` onto an image ID or a digest reference cannot change what it names.
   const immutable = new SandboxError(
     `Cannot refresh ${image}: an image ID or digest is immutable. Rebuild the image, or unset VANGUARD_SANDBOX_IMAGE to refresh ${DEFAULT_IMAGE}.`,
   );
   if (/^(sha256:)?[a-f0-9]{12,64}$|@sha256:[a-f0-9]{64}$/.test(image)) throw immutable;
   const helper = 'vg-cli-refresh';
-  const { cwd } = opts;
 
   const inspect = async (field: string): Promise<string> => {
     const { stdout } = await run('docker', ['image', 'inspect', image, '--format', `{{${field}}}`], { cwd });
@@ -200,8 +225,9 @@ export class DockerSandboxProvider implements IsolatedSandboxProvider {
   }
 
   /** Pure `docker run` argv assembly (no docker invocation), so hardening flags are unit-testable
-   * without Docker installed. */
-  buildRunArgs(): string[] {
+   * without Docker installed. `image` lets `start` pass the resolved tag (see `resolveSandboxImage`)
+   * without mutating the configured one. */
+  buildRunArgs(image: string = this.image): string[] {
     const args = ['run', '-d', '--name', this.name, '-w', this.workdir, '--label', `vanguard.runId=${this.id}`, ...ownerLabelArgs()];
     // Map host.docker.internal to the host only for a sandbox that is pointed there (see
     // `hostGateway`): a host egress proxy (`startEgressProxy`), or a provider endpoint on the docker
@@ -236,7 +262,7 @@ export class DockerSandboxProvider implements IsolatedSandboxProvider {
     }
     if (this.envDir !== undefined) args.push('--env-file', join(this.envDir, 'env'));
     for (const [k, v] of Object.entries(this.config.env ?? {})) args.push('-e', `${k}=${v}`);
-    args.push(this.image, 'sleep', 'infinity');
+    args.push(image, 'sleep', 'infinity');
     return args;
   }
 
@@ -246,7 +272,8 @@ export class DockerSandboxProvider implements IsolatedSandboxProvider {
       this.envDir = await mkdtemp(join(tmpdir(), 'vg-env-'));
       await writeFile(join(this.envDir, 'env'), this.secretsBody(), { mode: 0o600 });
     }
-    const args = this.buildRunArgs();
+    const image = await resolveSandboxImage(this.image);
+    const args = this.buildRunArgs(image);
 
     try {
       await execa('docker', args);
@@ -255,7 +282,7 @@ export class DockerSandboxProvider implements IsolatedSandboxProvider {
       throw new SandboxError(`Failed to start container ${this.name}`, { cause });
     }
 
-    await this.assertClaudeCliCurrent();
+    await this.assertClaudeCliCurrent(image);
 
     if (this.hasSecrets && this.secretsMode === 'tmpfs') {
       // Write the secrets file via stdin (umask 077) so the value never appears in argv.
@@ -270,7 +297,7 @@ export class DockerSandboxProvider implements IsolatedSandboxProvider {
     }
   }
 
-  private async assertClaudeCliCurrent(): Promise<void> {
+  private async assertClaudeCliCurrent(image: string): Promise<void> {
     if (claudeVersionChecked || process.env['VANGUARD_SKIP_IMAGE_CHECK'] === '1') return;
     claudeVersionChecked = true;
     const probe = await execa('docker', ['exec', this.name, 'claude', '--version'], { reject: false });
@@ -279,7 +306,7 @@ export class DockerSandboxProvider implements IsolatedSandboxProvider {
     if (!isOlderVersion(found, SANDBOX_CLAUDE_VERSION)) return;
     await this.destroy();
     throw new SandboxError(
-      `Sandbox image ${this.image} has claude ${found}, but this repo pins ${SANDBOX_CLAUDE_VERSION}. ` +
+      `Sandbox image ${image} has claude ${found}, but this repo pins ${SANDBOX_CLAUDE_VERSION}. ` +
         `A stale CLI fails mid-run against a gateway. Fix it with:\n` +
         `  vanguard doctor --fix\n` +
         `or rebuild: CLAUDE_CLI_VERSION=${SANDBOX_CLAUDE_VERSION} ./docker/build.sh. ` +
