@@ -1,7 +1,7 @@
 import { posix } from 'node:path';
 import { execa } from 'execa';
 import { SandboxError } from '../core/errors.js';
-import { sandboxImage } from './docker.js';
+import { resolveSandboxImage, sandboxImage } from './docker.js';
 import { ownerLabelArgs, sidecarMemoryArgs } from './limits.js';
 
 /**
@@ -64,7 +64,7 @@ export async function startSidecar(spec: SidecarSpec): Promise<Sidecar> {
   const docker = spec.docker ?? defaultDocker;
   // The sidecar runs its node script inside the sandbox image itself (no dedicated proxy image), so it
   // must follow the same CI-pinned override as the main sandbox.
-  const image = spec.image ?? sandboxImage();
+  const image = await resolveSandboxImage(spec.image ?? sandboxImage());
   const { name } = spec;
   // alsoDestroy runs even when `rm -f` itself throws (a dead docker daemon): the caller's resource must
   // not leak behind a container that could not be removed.

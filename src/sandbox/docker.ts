@@ -246,6 +246,7 @@ export class DockerSandboxProvider implements IsolatedSandboxProvider {
       this.envDir = await mkdtemp(join(tmpdir(), 'vg-env-'));
       await writeFile(join(this.envDir, 'env'), this.secretsBody(), { mode: 0o600 });
     }
+    this.image = await resolveSandboxImage(this.image);
     const args = this.buildRunArgs();
 
     try {

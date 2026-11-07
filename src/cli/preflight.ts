@@ -2,7 +2,7 @@ import { execa } from 'execa';
 import { authFromEnv } from '../agents/auth.js';
 import { assertProvidersResolvable, claudeCliKeyEnv, needsAnthropicAuth, providerSecrets, requiresApiKey, validateProviderChoice } from '../agents/registry.js';
 import { loadCustomProviders } from '../agents/custom.js';
-import { SANDBOX_CLAUDE_VERSION, isOlderVersion, sandboxImage } from '../sandbox/docker.js';
+import { SANDBOX_CLAUDE_VERSION, isOlderVersion, resolveSandboxImage, sandboxImage } from '../sandbox/docker.js';
 import { isKnownGitlabRemote, parseGitlabProjectFromRemote, redactRemote, remoteHostname } from '../runners/gitlab.js';
 import { GITHUB_CLAIMED_LABEL, GITHUB_REVIEW_LABEL, GITHUB_SPEC_CLAIMED_LABEL } from '../github-labels.js';
 import type { CustomProviderEntry } from '../agents/registry.js';
@@ -326,7 +326,7 @@ export async function runPreflight(cmd: PreflightCommand, opts: PreflightOptions
 
   let image: string | undefined;
   try {
-    image = sandboxImage(env);
+    image = await resolveSandboxImage(sandboxImage(env), async (img) => (await runOk(run, cmd.repoPath, 'docker', ['image', 'inspect', img])).ok);
   } catch (error) {
     checks.push(check('sandbox image', false, error instanceof Error ? error.message : String(error)));
   }
