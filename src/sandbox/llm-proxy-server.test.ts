@@ -228,7 +228,7 @@ describe('llm-proxy-server (booted child)', () => {
     }
   }, 60_000);
 
-  it('codex-chatgpt revoke: reaches the fake endpoint with the real refresh token, reports status, no body', async () => {
+  it('codex-chatgpt revoke: answered locally with 200 and no body, never reaching the real endpoint', async () => {
     const fake = await fakeOpenAiAuth();
     try {
       const authJson = JSON.stringify({ tokens: { access_token: 'real-at', refresh_token: 'real-rt', id_token: 'h.p.s' } });
@@ -242,7 +242,8 @@ describe('llm-proxy-server (booted child)', () => {
       const { status, json } = await hitJson(s.port, '/oauth/revoke', { authorization: 'Bearer real-nonce' }, {});
       expect(status).toBe(200);
       expect(json).toBeNull();
-      expect(fake.revoked).toBe(true);
+      // The cell must not be able to invalidate the host's credential: nothing is forwarded at all.
+      expect(fake.revoked).toBe(false);
     } finally {
       await fake.close();
     }

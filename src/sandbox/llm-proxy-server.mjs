@@ -1,14 +1,16 @@
 #!/usr/bin/env node
-// Standalone zero-dep LLM reverse-proxy for the host enclave sidecar. Holds the real Anthropic
+// Standalone zero-dep LLM reverse-proxy for the host enclave sidecar. Holds the real provider
 // credential (read from a tmpfs file, never argv/env) and swaps it in for a per-run nonce, then
-// forwards to api.anthropic.com. The pure auth/beta/path/compare logic is imported from the shared
-// `llm-proxy-rewrite.mjs`, which the host `docker cp`'s next to this file — the SAME module the TS
-// app and its tests use, so the two never drift.
+// forwards to the chosen upstream's host. The pure auth/beta/path/compare logic is imported from the
+// shared `llm-proxy-rewrite.mjs`, which the host `docker cp`'s next to this file — the SAME module the
+// TS app and its tests use, so the two never drift.
 //
-// SECURITY: never log request/response headers, bodies, the secret, or the nonce. Inbound nonce
-// check is constant-time. Locked down to POST /v1/messages and /v1/messages/count_tokens.
-import { createServer } from 'node:http';
-import { request as httpRequest } from 'node:http';
+// SECURITY: never log request/response headers, bodies, the secret, or the nonce. Inbound nonce check
+// is constant-time. Locked down to the chosen upstream's POST paths (UPSTREAMS[k].paths) — everything
+// else is a 404. For codex-chatgpt the real auth.json stays in this process: its refresh path is
+// terminated here (one serialized exchange with the constant real IdP), and its revoke path is
+// answered here without ever being forwarded.
+import { createServer, request as httpRequest } from 'node:http';
 import { request as httpsRequest } from 'node:https';
 import { readFileSync } from 'node:fs';
 import {
@@ -22,11 +24,18 @@ import {
   filterAnthropicBeta,
   stripEgressTools,
   buildRefreshBody,
-  buildRevokeBody,
   applyRefreshResponse,
   placeholderChatgptAuth,
+  chatgptAuthHeaders,
+  codexIssuerAccepted,
+  serializeRefresh,
+  CODEX_ISSUER,
+  CODEX_REFRESH_URL,
 } from './llm-proxy-rewrite.mjs';
 const MAX_BODY_BYTES = 32 * 1024 * 1024; // 32 MiB
+// The local auth paths ignore the cell's body entirely, so nothing legitimate is large there: cap it
+// far below MAX_BODY_BYTES rather than buffering 32 MiB of a body we are about to throw away.
+const MAX_AUTH_BODY_BYTES = 64 * 1024; // 64 KiB
 const REQUEST_TIMEOUT_MS = 120_000;
 const MAX_CONCURRENT = 8;
 // Hop-by-hop headers must not be forwarded to the upstream.
@@ -88,7 +97,7 @@ if (CONTROL_CHARS.test(config.SECRET ?? '') || CONTROL_CHARS.test(config.NONCE))
 const UPSTREAM_HOST = spec.host;
 const PORT = Number(process.env.PORT ?? '8088');
 
-// --- Codex ChatGPT-plan state: the real auth.json, held only here, mutated in place on refresh. ---
+// --- Codex ChatGPT-plan state: the real auth.json, held only here, replaced on each refresh. ---
 let chatgptState;
 if (spec.authKind === 'chatgpt') {
   try {
@@ -97,17 +106,41 @@ if (spec.authKind === 'chatgpt') {
     console.error('llm-proxy: invalid secret file (AUTH_JSON is not valid JSON)');
     process.exit(1);
   }
-  if (CONTROL_CHARS.test(String(chatgptState?.tokens?.access_token ?? ''))) {
+  // Both tokens are load-bearing and cannot be recovered from inside the sidecar: fail at boot rather
+  // than crash on the first request (access_token goes into the upstream Authorization header on every
+  // model call; refresh_token is the credential for the only refresh exchange anyone performs).
+  if (!hasRealToken('access_token') || !hasRealToken('refresh_token')) {
+    console.error('llm-proxy: invalid secret file (AUTH_JSON needs tokens.access_token and tokens.refresh_token)');
+    process.exit(1);
+  }
+  // Upstream Codex would follow a provenance issuer recorded in the file; this sidecar refreshes
+  // against one constant endpoint only, so a credential naming a different issuer is refused outright
+  // instead of silently refreshing somewhere the constant does not cover.
+  if (!codexIssuerAccepted(chatgptState)) {
+    console.error(`llm-proxy: invalid secret file (AUTH_JSON records an OAuth issuer other than ${CODEX_ISSUER})`);
+    process.exit(1);
+  }
+  if (CONTROL_CHARS.test(chatgptState.tokens.access_token)) {
     console.error('llm-proxy: real auth.json access_token contains control characters');
     process.exit(1);
   }
 }
-// The real IdP, never overridable by request/env: CODEX_REFRESH_TOKEN_URL_OVERRIDE/
-// CODEX_REVOKE_TOKEN_URL_OVERRIDE point the cell AT this sidecar; the sidecar itself always talks to
-// the fixed real endpoint. LLM_PROXY_CODEX_AUTH_* exist ONLY so tests can point this at a fake
-// endpoint instead of TLS to a real host — never set in production.
-const AUTH_HOST = process.env.LLM_PROXY_CODEX_AUTH_HOST ?? 'auth.openai.com';
+
+/** Whether the real auth.json carries a usable (non-empty string) value under `tokens.<field>`. */
+function hasRealToken(field) {
+  const value = chatgptState?.tokens?.[field];
+  return typeof value === 'string' && value !== '';
+}
+
+// The ONE destination a refresh grant is ever sent to, taken apart from the constant CODEX_REFRESH_URL:
+// never read from the cell's request and never from the credential file (codexIssuerAccepted refuses a
+// credential naming another issuer). LLM_PROXY_CODEX_AUTH_* exist ONLY so tests can point this at a
+// local fake instead of TLS to a real host — they are set by whoever spawns the sidecar (startLlmProxy
+// never does) and are unreachable from the cell, which only ever talks HTTP to this server.
+const refreshUrl = new URL(CODEX_REFRESH_URL);
+const AUTH_HOST = process.env.LLM_PROXY_CODEX_AUTH_HOST ?? refreshUrl.hostname;
 const AUTH_PORT = Number(process.env.LLM_PROXY_CODEX_AUTH_PORT ?? '443');
+const AUTH_PATH = refreshUrl.pathname;
 const authRequest = process.env.LLM_PROXY_CODEX_AUTH_INSECURE === '1' ? httpRequest : httpsRequest;
 
 function parseSecretFile(text) {
@@ -131,7 +164,7 @@ const expectedAuthorization = `Bearer ${config.NONCE}`;
 const AUTH_HEADERS_BY_STYLE = {
   anthropic: (req) => upstreamAuthHeaders(auth, req.headers), // mode-aware Bearer/x-api-key (+ oauth beta merge)
   bearer: () => openaiAuthHeaders(config.SECRET), //            plain Authorization: Bearer SECRET (fixed for the sidecar's lifetime)
-  chatgpt: () => openaiAuthHeaders(chatgptState.tokens.access_token), // same shape, but re-read fresh every request (rotates on refresh)
+  chatgpt: () => chatgptAuthHeaders(chatgptState), //          Bearer + chatgpt-account-id, read fresh from the real auth.json every request (rotates on refresh)
 };
 
 let inFlight = 0;
@@ -196,7 +229,9 @@ const server = createServer((req, res) => {
     if (!res.writableEnded) res.destroy();
   };
 
-  // Buffer the request body with a hard size cap.
+  // Buffer the request body with a hard size cap (a tight one on the local auth paths, whose body is
+  // ignored anyway).
+  const maxBody = localAuthKind === undefined ? MAX_BODY_BYTES : MAX_AUTH_BODY_BYTES;
   const chunks = [];
   let size = 0;
   let overflow = false;
@@ -204,7 +239,7 @@ const server = createServer((req, res) => {
   req.on('data', (chunk) => {
     if (done || overflow) return;
     size += chunk.length;
-    if (size > MAX_BODY_BYTES) {
+    if (size > maxBody) {
       overflow = true;
       finish(req, res, 413, started);
       req.destroy();
@@ -225,10 +260,10 @@ const server = createServer((req, res) => {
   req.on('end', () => {
     if (done || overflow) return;
     // The cell's own refresh/revoke body is never trusted (Q4 of the spike) — ignore it entirely and
-    // exchange the sidecar's own real auth.json with the real IdP instead.
+    // answer from the sidecar's own real auth.json instead.
     if (localAuthKind !== undefined) {
       handlingLocally = true;
-      handleCodexAuth(localAuthKind, req, res, started).finally(cleanup);
+      handleCodexAuth(localAuthKind, req, res, started, () => done).finally(cleanup);
       return;
     }
     // An encoded body could not be inspected for egress-capable tools: refuse it rather than pass it on.
@@ -245,12 +280,15 @@ const server = createServer((req, res) => {
   });
 });
 
-/** POST a small JSON body to the real IdP and resolve its status + parsed JSON (null if unparseable). */
-function postAuthJson(path, bodyObj) {
+/**
+ * POST a small JSON body to the real IdP's one refresh endpoint (AUTH_HOST/AUTH_PORT/AUTH_PATH, all
+ * fixed at boot) and resolve its status + parsed JSON (null if unparseable).
+ */
+function postAuthJson(bodyObj) {
   return new Promise((resolve, reject) => {
     const body = Buffer.from(JSON.stringify(bodyObj), 'utf8');
     const upReq = authRequest(
-      { host: AUTH_HOST, port: AUTH_PORT, method: 'POST', path, headers: { 'content-type': 'application/json', 'content-length': String(body.length) } },
+      { host: AUTH_HOST, port: AUTH_PORT, method: 'POST', path: AUTH_PATH, headers: { 'content-type': 'application/json', 'content-length': String(body.length) } },
       (upRes) => {
         const chunks = [];
         upRes.on('data', (c) => chunks.push(c));
@@ -273,31 +311,45 @@ function postAuthJson(path, bodyObj) {
 }
 
 /**
- * Refresh/revoke against the real IdP using the real auth.json held only in this process — never the
- * cell's own request. On a successful refresh, rotates the in-memory real tokens and answers the cell
- * with fresh placeholders (opaque access/refresh tokens + a synthetic id_token). Revoke just reports
- * the real endpoint's status; no token material is ever returned.
+ * The ONE refresh exchange, serialized: concurrent cell requests share the single in-flight exchange
+ * rather than each presenting the real refresh token, which the IdP rotates on use and flags on a
+ * second presentation as reuse — permanently invalidating the credential (Q4 of the spike). Rotates the
+ * in-memory real tokens on success and reports only whether it succeeded, never the IdP's own body.
  */
-async function handleCodexAuth(kind, req, res, started) {
+const refreshOnce = serializeRefresh(async () => {
+  const { status, json } = await postAuthJson(buildRefreshBody(chatgptState));
+  const ok = status >= 200 && status < 300 && json !== null;
+  if (ok) chatgptState = applyRefreshResponse(chatgptState, json);
+  return { ok, status };
+});
+
+/**
+ * Answer a local auth path from the real auth.json held only in this process — never from the cell's
+ * own request. Refresh performs the serialized real exchange and answers with fresh placeholders
+ * (opaque access/refresh tokens + a synthetic id_token). Revoke is answered here and NEVER forwarded:
+ * the cell must not be able to invalidate the host's credential, and there is nothing to revoke
+ * locally (the cell's own tokens are placeholders), so it reports success without contacting anyone.
+ */
+async function handleCodexAuth(kind, req, res, started, isDone) {
+  if (kind === 'revoke') {
+    finish(req, res, 200, started); // success with no body, exactly what the real endpoint returns
+    return;
+  }
   try {
-    if (kind === 'refresh') {
-      const { status, json } = await postAuthJson('/oauth/token', buildRefreshBody(chatgptState));
-      if (status >= 200 && status < 300 && json !== null) {
-        chatgptState = applyRefreshResponse(chatgptState, json);
-        const placeholder = placeholderChatgptAuth(chatgptState);
-        const payload = Buffer.from(JSON.stringify(placeholder.tokens), 'utf8');
-        res.writeHead(200, { 'content-type': 'application/json', 'content-length': String(payload.length) });
-        res.end(payload);
-        log(req, 200, payload.length, started);
-        return;
-      }
+    const { ok, status } = await refreshOnce();
+    // The cell may have hung up while the exchange was in flight; the response is already torn down.
+    if (isDone()) return;
+    if (!ok) {
       finish(req, res, status, started); // no body: never relay the real IdP's response verbatim
       return;
     }
-    const { status } = await postAuthJson('/oauth/revoke', buildRevokeBody(chatgptState));
-    finish(req, res, status, started);
+    const placeholder = placeholderChatgptAuth(chatgptState);
+    const payload = Buffer.from(JSON.stringify(placeholder.tokens), 'utf8');
+    res.writeHead(200, { 'content-type': 'application/json', 'content-length': String(payload.length) });
+    res.end(payload);
+    log(req, 200, payload.length, started);
   } catch {
-    finish(req, res, 502, started);
+    if (!isDone()) finish(req, res, 502, started);
   }
 }
 

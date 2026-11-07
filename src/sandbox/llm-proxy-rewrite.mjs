@@ -131,9 +131,9 @@ export const UPSTREAMS = {
   // basePath: keep in sync with OPENROUTER_BASE_URL in src/agents/openrouter.ts
   openrouter: { host: 'openrouter.ai', paths: ['/v1/messages', '/v1/messages/count_tokens'], authKind: 'bearer', basePath: '/api' },
   // Codex on a ChatGPT plan (#625/#638 spike): model calls go to chatgpt.com's codex backend; refresh
-  // and revoke are terminated locally (see localPaths) rather than forwarded, since the cell must never
+  // and revoke are terminated locally (see localPaths) rather than forwarded — the cell must never
   // present the real refresh token itself (a stale copy racing the sidecar's own refresh would be
-  // permanently invalidated as reuse by the real IdP).
+  // permanently invalidated as reuse by the real IdP), and must never be able to revoke it at all.
   'codex-chatgpt': {
     host: 'chatgpt.com',
     paths: ['/backend-api/codex/responses'],
@@ -177,6 +177,41 @@ export function upstreamPath(upstream, reqUrl) {
 
 // --- Codex ChatGPT-plan credential isolation (#625/#638): the real auth.json never leaves the
 // sidecar; the cell gets opaque placeholders plus a syntactically valid but unsigned id_token. ---
+
+/**
+ * The ONE destination a refresh grant may ever be sent to: a constant `https://` URL under the single
+ * accepted issuer. Deliberately not configurable — no env override, no cell-supplied destination, and
+ * (unlike upstream Codex, which follows `tokens.oauth_provenance.issuer`) no destination read out of
+ * the credential itself, which would let a swapped-in auth.json redirect the real refresh token to a
+ * host of its choosing. A credential recording a different issuer is refused instead — see
+ * codexIssuerAccepted.
+ */
+export const CODEX_ISSUER = 'https://auth.openai.com';
+export const CODEX_REFRESH_URL = `${CODEX_ISSUER}/oauth/token`;
+
+/** Whether the credential's recorded issuer is the one CODEX_REFRESH_URL belongs to (absent = accepted). */
+export function codexIssuerAccepted(real) {
+  const issuer = real?.tokens?.oauth_provenance?.issuer;
+  return issuer === undefined || issuer === null || issuer === '' || issuer === CODEX_ISSUER;
+}
+
+/**
+ * Wraps a refresh exchange so at most ONE runs at a time: a call arriving while an exchange is in
+ * flight is handed that SAME promise instead of starting a second one, so the real refresh token is
+ * never presented twice. The IdP rotates the token on every exchange and flags a second presentation
+ * of a now-stale value as reuse, which permanently invalidates the credential (Q4 of the spike) — so
+ * concurrent cell requests must wait for the one in-flight result rather than race it.
+ */
+export function serializeRefresh(exchange) {
+  let pending = null;
+  // `??=`: the first caller starts the exchange (via `then`, so a synchronous throw still rejects);
+  // every caller arriving before the `finally` clears `pending` gets that same promise back.
+  return () => (pending ??= Promise.resolve()
+    .then(exchange)
+    .finally(() => {
+      pending = null;
+    }));
+}
 
 /** Random opaque value, base64url-encoded — never a JWT, never tied to any real credential. */
 export function randomOpaqueToken(bytes = 32) {
@@ -222,20 +257,52 @@ export function chatgptAccountId(real) {
 }
 
 /**
- * The placeholder auth.json the cell gets: same shape as the real one, but every token field is
- * replaced — access_token/refresh_token with opaque random values, id_token with a synthetic JWT
- * carrying only non-secret claims. Non-token fields (account_id, last_refresh, …) pass through
- * unchanged since they are not secret. The legacy top-level OPENAI_API_KEY field (unused in ChatGPT
- * mode) is dropped rather than carried through, since it is a credential-shaped field name.
+ * Headers to apply upstream for a ChatGPT-plan credential: the same Bearer shape as the other
+ * providers, carrying the REAL access token (re-read per request, since it rotates on refresh), plus
+ * the account routing header. Codex attaches that header itself when it holds the real credential;
+ * inside the cell it authenticates with the nonce instead and skips it, so the sidecar re-adds it from
+ * the real auth.json it holds (the account id is not secret).
+ */
+export function chatgptAuthHeaders(real) {
+  const accountId = chatgptAccountId(real);
+  return {
+    ...openaiAuthHeaders(real?.tokens?.access_token),
+    ...(accountId !== '' ? { 'chatgpt-account-id': accountId } : {}),
+  };
+}
+
+/**
+ * The ONLY fields copied from the real auth.json into the cell's placeholder — an allowlist, not a
+ * blocklist: anything not named here (the legacy top-level OPENAI_API_KEY, oauth_provenance, a field
+ * OpenAI adds in a later release, a field someone planted in the host's file) is left out rather than
+ * carried into the sandbox by default. These are the non-secret fields Codex parses locally (Q3 of the
+ * spike): `auth_mode` selects the ChatGPT code path, `last_refresh` drives the scheduled-refresh
+ * fallback, and tokens.account_id / tokens.login_owner_id the account/workspace match.
+ */
+const PLACEHOLDER_FIELDS = ['auth_mode', 'last_refresh'];
+const PLACEHOLDER_TOKEN_FIELDS = ['account_id', 'login_owner_id'];
+
+/** The allowlisted subset of `source`: listed keys that are actually present, nothing else. */
+function pickFields(source, fields) {
+  const out = {};
+  for (const field of fields) {
+    if (source[field] !== undefined) out[field] = source[field];
+  }
+  return out;
+}
+
+/**
+ * The placeholder auth.json the cell gets: the allowlisted non-secret fields above, plus token values
+ * that are all synthetic — access_token/refresh_token opaque random values, id_token a syntactic JWT
+ * carrying only non-secret claims. No real token material, and no unlisted field, ever reaches it.
  */
 export function placeholderChatgptAuth(real) {
   const tokens = real?.tokens ?? {};
   const claims = chatgptClaims(typeof tokens.id_token === 'string' ? tokens.id_token : '');
-  const { OPENAI_API_KEY: _drop, ...rest } = real ?? {};
   return {
-    ...rest,
+    ...pickFields(real ?? {}, PLACEHOLDER_FIELDS),
     tokens: {
-      ...tokens,
+      ...pickFields(tokens, PLACEHOLDER_TOKEN_FIELDS),
       id_token: syntheticIdToken(claims),
       access_token: randomOpaqueToken(),
       refresh_token: randomOpaqueToken(),
@@ -244,10 +311,12 @@ export function placeholderChatgptAuth(real) {
 }
 
 /**
- * The OAuth refresh-grant body the sidecar sends to the REAL auth.openai.com with the REAL refresh
- * token — built from the host-held auth.json, never from anything the cell sent (a cell-supplied body
- * is ignored entirely: Q4 of the spike, reuse detection permanently invalidates a token presented
- * twice, so only the sidecar may ever present the real refresh token).
+ * The OAuth refresh-grant body the sidecar sends to CODEX_REFRESH_URL with the REAL refresh token —
+ * built from the host-held auth.json, never from anything the cell sent (a cell-supplied body is
+ * ignored entirely: Q4 of the spike, reuse detection permanently invalidates a token presented twice,
+ * so only the sidecar may ever present the real refresh token). There is no revoke counterpart on
+ * purpose: revoke is answered inside the sidecar and never forwarded, so the cell cannot invalidate
+ * the host's credential.
  */
 export function buildRefreshBody(real) {
   const clientId = real?.tokens?.oauth_provenance?.client_id;
@@ -256,15 +325,6 @@ export function buildRefreshBody(real) {
     refresh_token: real?.tokens?.refresh_token,
     ...(typeof clientId === 'string' && clientId !== '' ? { client_id: clientId } : {}),
     scope: 'openid profile email',
-  };
-}
-
-/** The OAuth revoke body for the real refresh token, same client-id sourcing as buildRefreshBody. */
-export function buildRevokeBody(real) {
-  const clientId = real?.tokens?.oauth_provenance?.client_id;
-  return {
-    token: real?.tokens?.refresh_token,
-    ...(typeof clientId === 'string' && clientId !== '' ? { client_id: clientId } : {}),
   };
 }
 

@@ -13,10 +13,13 @@ import {
   chatgptClaims,
   syntheticIdToken,
   chatgptAccountId,
+  chatgptAuthHeaders,
+  codexIssuerAccepted,
+  serializeRefresh,
   placeholderChatgptAuth,
   buildRefreshBody,
-  buildRevokeBody,
   applyRefreshResponse,
+  CODEX_ISSUER,
   type CodexAuthJson,
 } from './llm-proxy-rewrite.mjs';
 
@@ -222,11 +225,41 @@ describe('Codex ChatGPT-plan placeholder credential', () => {
     expect(chatgptAccountId(real)).toBe('acct-real');
   });
 
-  it('buildRefreshBody/buildRevokeBody carry the real refresh token and provenance client id, never the access token', () => {
+  it('buildRefreshBody carries the real refresh token and provenance client id, never the access token', () => {
     const refreshBody = buildRefreshBody(real);
     expect(refreshBody).toMatchObject({ grant_type: 'refresh_token', refresh_token: 'real-refresh-token-value-xyz', client_id: 'client-abc' });
-    const revokeBody = buildRevokeBody(real);
-    expect(revokeBody).toMatchObject({ token: 'real-refresh-token-value-xyz', client_id: 'client-abc' });
+    expect(JSON.stringify(refreshBody)).not.toContain('real-access-token-value-xyz');
+  });
+
+  it('chatgptAuthHeaders presents the real access token as Bearer plus the account routing header', () => {
+    expect(chatgptAuthHeaders(real)).toEqual({
+      authorization: 'Bearer real-access-token-value-xyz',
+      'chatgpt-account-id': 'acct-real',
+    });
+    // No account id recorded → no routing header at all (never an empty one).
+    expect(chatgptAuthHeaders({ tokens: { access_token: 'at' } })).toEqual({ authorization: 'Bearer at' });
+  });
+
+  it('codexIssuerAccepted accepts the one real issuer (or none recorded) and refuses any other', () => {
+    expect(codexIssuerAccepted(real)).toBe(true); // provenance without an issuer field
+    expect(codexIssuerAccepted({ tokens: { oauth_provenance: { issuer: CODEX_ISSUER } } })).toBe(true);
+    expect(codexIssuerAccepted({ tokens: { oauth_provenance: { issuer: '' } } })).toBe(true);
+    expect(codexIssuerAccepted({ tokens: { oauth_provenance: { issuer: 'https://evil.example' } } })).toBe(false);
+  });
+
+  it('serializeRefresh runs one exchange at a time: concurrent callers share the in-flight promise', async () => {
+    let calls = 0;
+    const once = serializeRefresh(async () => {
+      calls += 1;
+      await new Promise((resolve) => setTimeout(resolve, 10));
+      return calls;
+    });
+    const first = once();
+    expect(once()).toBe(first); // the very same promise — never a second presentation of the token
+    expect(await Promise.all([first, once()])).toEqual([1, 1]);
+    expect(calls).toBe(1);
+    // Settled → the next caller starts a fresh exchange.
+    expect(await once()).toBe(2);
   });
 
   it('applyRefreshResponse rotates the stored real tokens from the upstream response', () => {

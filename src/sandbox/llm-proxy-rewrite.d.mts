@@ -59,11 +59,22 @@ export declare function constantTimeEqual(a: string, b: string): boolean;
 /** A real Codex auth.json (ChatGPT-plan subscription credential), loosely typed as parsed JSON. */
 export type CodexAuthJson = Record<string, unknown> & { tokens?: Record<string, unknown> };
 
+/** The one accepted OAuth issuer, and the constant https:// refresh endpoint under it (no override). */
+export declare const CODEX_ISSUER: 'https://auth.openai.com';
+export declare const CODEX_REFRESH_URL: string;
+
+/** Whether the credential records the accepted issuer (absent = accepted); false means refuse it. */
+export declare function codexIssuerAccepted(real: CodexAuthJson | undefined): boolean;
+
+/** Wraps a refresh exchange so only one runs at a time; concurrent callers share the in-flight promise. */
+export declare function serializeRefresh<T>(exchange: () => Promise<T>): () => Promise<T>;
+
 export declare function randomOpaqueToken(bytes?: number): string;
 export declare function chatgptClaims(realIdToken: string | undefined): Record<string, unknown>;
 export declare function syntheticIdToken(claims: Record<string, unknown>): string;
 export declare function chatgptAccountId(real: CodexAuthJson | undefined): string;
+/** Upstream headers for a ChatGPT-plan credential: Bearer real access token + chatgpt-account-id. */
+export declare function chatgptAuthHeaders(real: CodexAuthJson | undefined): Record<string, string>;
 export declare function placeholderChatgptAuth(real: CodexAuthJson): CodexAuthJson;
 export declare function buildRefreshBody(real: CodexAuthJson): Record<string, unknown>;
-export declare function buildRevokeBody(real: CodexAuthJson): Record<string, unknown>;
 export declare function applyRefreshResponse(real: CodexAuthJson, upstreamJson: Record<string, unknown>): CodexAuthJson;
