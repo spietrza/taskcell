@@ -32,6 +32,8 @@ const CODE_REFERENCE_PREFIX =
 // `jwt` pattern covers them regardless of this refinement).
 const IDENTIFIER_CHAIN = /^[A-Za-z_$][\w$]*(?:\.[A-Za-z_$][\w$]*)+$/;
 const UPPER_SNAKE_IDENTIFIER = /^[A-Z][A-Z0-9_]*$/;
+/** A placeholder name written in docs where a token would go: `SECRET`, `API_KEY`, `YOUR_TOKEN`. */
+const DOC_PLACEHOLDER_NAME = /^[A-Z][A-Z_]{0,31}$/;
 // A bare camelCase identifier (`callbackToken`, `optionalNonEmptyEnvVar`) as an UNQUOTED RHS is a
 // code reference, not a literal credential — the assignment regex makes the quote optional, so an
 // object entry like `WORKFLOW_CALLBACK_TOKEN: callbackToken,` matches and often clears the entropy
@@ -99,10 +101,13 @@ export const SECRET_PATTERNS: readonly SecretPattern[] = [
     // harmless). Prose filtering lives in the gate-only `refine` below.
     re: /((?:\bAuthorization["']?\s*[:=]\s*["']?)?(?:\bBearer\s+)+)([A-Za-z0-9._~+/=-]+)/gi,
     replacement: '$1[REDACTED]',
-    // An explicit Authorization header always counts; a bare scheme word counts only before a long
-    // value with a digit or separator, so English prose after it does not block a push.
+    // An explicit Authorization header always counts, except before a documentation placeholder name
+    // (`Authorization: Bearer SECRET`, `Bearer API_KEY` in a comment): upper case, no digits, short —
+    // no issued token has that shape. A bare scheme word counts only before a long value with a digit
+    // or separator, so English prose after it does not block a push.
     refine: (value: string, prefix?: string): boolean =>
-      /authorization/i.test(prefix ?? '') || (value.length >= 20 && /[0-9._~+/=-]/.test(value)),
+      !DOC_PLACEHOLDER_NAME.test(value) &&
+      (/authorization/i.test(prefix ?? '') || (value.length >= 20 && /[0-9._~+/=-]/.test(value))),
   },
   {
     name: 'json-token-field',

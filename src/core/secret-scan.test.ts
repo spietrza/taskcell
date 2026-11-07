@@ -229,6 +229,17 @@ describe('bearer: credential-shaped values only (#625)', () => {
       .toContainEqual(expect.objectContaining({ patternName: 'bearer' }));
   });
 
+  it.each(['SECRET', 'API_KEY', 'YOUR_TOKEN'])('does not block a documented header with the placeholder name %s', (name) => {
+    const line = `// 'bearer' = plain Authorization: Bearer ${name}`;
+    expect(scanForSecrets(diffOf([{ path: 'src/foo.mjs', lines: [`+${line}`] }])).some((f) => f.patternName === 'bearer')).toBe(false);
+    expect(redactTokens(line)).toBe("// 'bearer' = plain Authorization: Bearer [REDACTED]");
+  });
+
+  it.each(['ABCDEF0123456789ABCDEF0123456789', 'SECRETSECRETSECRETSECRETSECRETSECRETX'])('still blocks an upper-case value that is not a short name: %s', (value) => {
+    expect(scanForSecrets(diffOf([{ path: 'src/foo.ts', lines: [`+Authorization: Bearer ${value}`] }])))
+      .toContainEqual(expect.objectContaining({ patternName: 'bearer' }));
+  });
+
   it('redaction stays broad: short and letters-only values are masked even where the gate ignores them', () => {
     const short = ['ab', 'c'].join('');
     expect(redactTokens(`Bearer ${short}`)).toBe('Bearer [REDACTED]');
