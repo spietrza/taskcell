@@ -42,4 +42,3 @@ The CLI is still called `vanguard` (the project's former name).
 - [Source code and README](https://github.com/spietrza/taskcell)
 - [Security policy](https://github.com/spietrza/taskcell/blob/main/SECURITY.md)
 - [OWASP mapping](https://github.com/spietrza/taskcell/blob/main/docs/security/owasp-mapping.md)
-- [Pull requests built by Taskcell](https://github.com/spietrza/taskcell/pulls?q=is%3Apr+is%3Amerged+head%3Achore%2Fvanguard-gh)
