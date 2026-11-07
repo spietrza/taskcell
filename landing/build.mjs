@@ -1,6 +1,7 @@
 // Static build for taskcell.dev: node build.mjs → dist/. No framework and no dependencies: src/ is the site,
 // copied as is, then every local reference in the HTML and CSS is checked so a broken link fails the build.
-import { cpSync, existsSync, readFileSync, readdirSync, rmSync } from 'node:fs';
+import { createHash } from 'node:crypto';
+import { cpSync, existsSync, readFileSync, readdirSync, rmSync, writeFileSync } from 'node:fs';
 import { dirname, join, relative } from 'node:path';
 import { fileURLToPath } from 'node:url';
 
@@ -35,5 +36,21 @@ if (missing.length) {
   for (const m of missing) console.error(`missing: ${m.ref} (in ${m.from})`);
   process.exit(1);
 }
+
+// Agent Skills Discovery index (v0.2.0): name and description from each SKILL.md's front matter, digest from its bytes.
+const skillsDir = join(out, '.well-known', 'agent-skills');
+const skills = readdirSync(skillsDir, { withFileTypes: true })
+  .filter((e) => e.isDirectory())
+  .map(({ name: dir }) => {
+    const body = readFileSync(join(skillsDir, dir, 'SKILL.md'));
+    const meta = Object.fromEntries(
+      [...body.toString('utf8').matchAll(/^(name|description): (.+)$/gm)].map((m) => [m[1], m[2].trim()]),
+    );
+    if (meta.name !== dir || !meta.description) throw new Error(`${dir}/SKILL.md: front matter needs name: ${dir} and a description`);
+    const digest = createHash('sha256').update(body).digest('hex');
+    return { name: dir, type: 'skill-md', description: meta.description, url: `/.well-known/agent-skills/${dir}/SKILL.md`, digest: `sha256:${digest}` };
+  });
+const index = { $schema: 'https://schemas.agentskills.io/discovery/0.2.0/schema.json', skills };
+writeFileSync(join(skillsDir, 'index.json'), `${JSON.stringify(index, null, 2)}\n`);
 
 console.log(`dist/ written: ${files.length} files, ${refs.length} local references checked`);
