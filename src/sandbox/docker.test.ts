@@ -16,15 +16,20 @@ import { sandboxSecurityOpts } from './limits.js';
 
 const ENV_VAR = 'VANGUARD_SANDBOX_IMAGE';
 
-// Ungated on purpose: pure env resolution, no Docker needed. Every sandbox start and sidecar reads
-// this — a wrong verdict either strands CI on the mutable `:latest` tag it was meant to pin past, or
-// silently drops a deliberate override.
-describe('sandboxImage', () => {
+/** Restore the ambient `VANGUARD_SANDBOX_IMAGE` after each test in the calling suite. */
+function restoresSandboxImageEnv(): void {
   const prev = process.env[ENV_VAR];
   afterEach(() => {
     if (prev === undefined) delete process.env[ENV_VAR];
     else process.env[ENV_VAR] = prev;
   });
+}
+
+// Ungated on purpose: pure env resolution, no Docker needed. Every sandbox start and sidecar reads
+// this — a wrong verdict either strands CI on the mutable `:latest` tag it was meant to pin past, or
+// silently drops a deliberate override.
+describe('sandboxImage', () => {
+  restoresSandboxImageEnv();
 
   it('honours VANGUARD_SANDBOX_IMAGE when set', () => {
     process.env[ENV_VAR] = 'sha256:deadbeef';
@@ -94,6 +99,8 @@ const suite = hasDocker ? describe : describe.skip;
 // Ungated on purpose: the comparison is pure, and it gates every sandbox start — a wrong verdict
 // either blocks a healthy image or lets a stale CLI fail deep inside a run (see assertClaudeCliCurrent).
 describe('refreshSandboxClaudeCli', () => {
+  restoresSandboxImageEnv();
+
   it('refuses an immutable image ID instead of committing to a stray sha256 repository', async () => {
     const calls: string[][] = [];
     const run = async (_cmd: string, args: string[]): Promise<{ stdout: string }> => {
@@ -121,6 +128,19 @@ describe('refreshSandboxClaudeCli', () => {
 
     await refreshSandboxClaudeCli({ cwd: '/repo', image: 'cafe', run });
     expect(calls.some((args) => args[0] === 'commit' && args.at(-1) === 'cafe')).toBe(true);
+  });
+
+  it('refreshes the tag resolveSandboxImage picks, so a pre-rename host fixes the image it actually has', async () => {
+    delete process.env[ENV_VAR];
+    const calls: string[][] = [];
+    const run = async (_cmd: string, args: string[]): Promise<{ stdout: string }> => {
+      if (args[0] === 'image' && args.includes('taskcell-sandbox:latest')) throw new Error('No such image');
+      calls.push(args);
+      return { stdout: '' };
+    };
+
+    await refreshSandboxClaudeCli({ cwd: '/repo', run });
+    expect(calls.some((args) => args[0] === 'commit' && args.at(-1) === 'vanguard-sandbox:latest')).toBe(true);
   });
 });
 
