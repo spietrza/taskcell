@@ -9,6 +9,11 @@ ARG CLAUDE_CLI_VERSION=2.1.260
 ARG LINEAR_CLI_VERSION=3.1.0
 ARG CODEX_CLI_VERSION=0.167.0
 
+# Shared retry-with-backoff for the release downloads below: retries a transient network failure
+# (5xx/429/timeout) and fails fast on anything else. src/sandbox/image-build.test.ts exercises it directly.
+COPY retry.sh /usr/local/bin/retry.sh
+RUN chmod +x /usr/local/bin/retry.sh
+
 # xz-utils + ca-certificates: the linear-cli npm package downloads and untars an .xz release binary.
 RUN apt-get update \
  && apt-get install -y --no-install-recommends git ca-certificates openssh-client xz-utils \
@@ -23,17 +28,15 @@ RUN apt-get update \
 # trusted sidecar and the sandbox receives only a per-run nonce.
 # Retried: linear-cli's postinstall downloads its binary from GitHub Releases, which returns
 # transient 5xx often enough to fail whole factory runs (#657).
-RUN for i in 1 2 3 4 5; do \
+RUN retry.sh 5 15 sh -c '\
       npm install -g \
-        @anthropic-ai/claude-code@${CLAUDE_CLI_VERSION} \
-        @schpet/linear-cli@${LINEAR_CLI_VERSION} \
-        @openai/codex@${CODEX_CLI_VERSION} \
+        @anthropic-ai/claude-code@$CLAUDE_CLI_VERSION \
+        @schpet/linear-cli@$LINEAR_CLI_VERSION \
+        @openai/codex@$CODEX_CLI_VERSION \
         pnpm \
         bun \
-      && linear --version >/dev/null && exit 0; \
-      [ "$i" -lt 5 ] || break; \
-      echo "npm install failed (attempt $i/5), retrying in $((i * 15))s" >&2; sleep $((i * 15)); \
-    done; exit 1
+      && linear --version >/dev/null \
+    '
 
 # Cursor CLI (`agent`, --provider cursor) is opt-in: ~550 MB unpacked, so it is installed only when a
 # version is given, e.g. CURSOR_CLI_VERSION=2026.10.16-e3cb207 (the id cursor.com/install pins).
@@ -53,7 +56,7 @@ RUN if [ -n "${CURSOR_CLI_VERSION}" ]; then \
         *) echo "cursor: unsupported arch $(uname -m)" >&2; exit 1 ;; \
       esac \
       && apt-get update && apt-get install -y --no-install-recommends curl && rm -rf /var/lib/apt/lists/* \
-      && curl -fsSL -o /tmp/cursor-agent.tar.gz \
+      && retry.sh 5 10 curl -fsSL -o /tmp/cursor-agent.tar.gz \
          "https://downloads.cursor.com/lab/${CURSOR_CLI_VERSION}/linux/${arch}/agent-cli-package.tar.gz" \
       && echo "${sha}  /tmp/cursor-agent.tar.gz" | sha256sum -c - \
       && mkdir -p /opt/cursor-agent \
