@@ -285,6 +285,9 @@ export interface RunRecord {
   cacheEfficiency?: number;
   durationMs?: number;
   model?: string;
+  /** The model the stage asked for (alias or pin), when the writer was given one; `model` is what
+   *  the provider served. Absent when the stage pinned nothing. */
+  requestedModel?: string;
   timestamp: string;
   stage?: string;
   prUrl?: string;
