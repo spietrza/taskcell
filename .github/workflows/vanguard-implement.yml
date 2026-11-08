@@ -23,10 +23,6 @@ permissions:
   pull-requests: write
   issues: write
 
-concurrency:
-  group: vanguard-implement-${{ github.repository }}
-  cancel-in-progress: false
-
 jobs:
   implement:
     if: >-
@@ -35,6 +31,12 @@ jobs:
       contains(fromJSON('["ready for spec","ready for agent"]'), github.event.label.name) &&
       contains(fromJSON('["spietrza","pawelkrystkiewicz"]'), github.event.issue.user.login) &&
       contains(fromJSON('["spietrza","pawelkrystkiewicz"]'), github.event.sender.login))
+    # Job-level, not workflow-level: label events this job skips (vanguard:* labels, other labels)
+    # never enter the group, so they cannot replace and cancel a pending real run. One group per repo
+    # because `watch --once` claims every ready issue, so two runs at once would race for the same one.
+    concurrency:
+      group: vanguard-implement-${{ github.repository }}
+      cancel-in-progress: false
     uses: ./.github/workflows/implement.yml
     with:
       allowed-actors: '["spietrza","pawelkrystkiewicz"]'
