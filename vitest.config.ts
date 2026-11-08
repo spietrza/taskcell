@@ -20,9 +20,10 @@ export default defineConfig({
         'src/*-labels.ts',
       ],
       reporter: ['text-summary'],
-      // Floor set ~2pts below the 2026-07-04 baseline (stmts 80 / branch 69 / func 76 / lines 82) as a
-      // ratchet: catches a real regression without flaking on v8's run-to-run variance. Raise over time.
-      thresholds: { statements: 78, branches: 66, functions: 73, lines: 80 },
+      // Floor is a ratchet, ~2pts below the measured baseline: catches a real regression without
+      // flaking on v8's run-to-run variance. Raised by `pnpm coverage:ratchet --write` (never lowered
+      // automatically) — see CONTRIBUTING.md and scripts/coverage-ratchet.ts.
+      thresholds: { statements: 86, branches: 79, functions: 84, lines: 88 },
     },
   },
 });
