@@ -614,7 +614,6 @@ export async function runSourcedIssue(
       // The body is built after the commit so a partial result can carry commit-level `Closes #N`
       // leaks as a blocking warning. Gate-config disclosure is included in white-label mode too.
       const extraGlobs = await loadGateConfigExtraGlobs(deps.repoPath, deps.baseBranch ?? DEFAULT_BASE_BRANCH);
-      let configPaths: string[] = [];
       const scope = primaryModuleScope(manifest);
       const bugLabel = task.labels.includes('bug');
       const reviewerOutcome = outcomes.find((o) => o.name === STAGE.REVIEWER);
@@ -643,7 +642,7 @@ export async function runSourcedIssue(
           ...(process.env.VANGUARD_PUSH_TOKEN ? { prToken: process.env.VANGUARD_PUSH_TOKEN } : {}),
           body: ({ commitLeaks, outgoingDiff }) => {
             const diffFiles = diffFilesWithPatches(outgoingDiff);
-            configPaths = gateConfigPaths(diffFiles, extraGlobs);
+            const configPaths = gateConfigPaths(diffFiles, extraGlobs);
             const configBlock = gateConfigChangedBlock(diffFiles.filter((file) => configPaths.includes(file.path)));
             return whiteLabel
               ? [baseBody, configBlock].filter(Boolean).join('\n\n')
@@ -676,6 +675,9 @@ export async function runSourcedIssue(
       }
       if (delivery.kind !== 'delivered-pr') throw new VanguardError(`unexpected delivery outcome ${delivery.kind} for a new-pr target`);
       const pr = { prUrl: delivery.prUrl, headSha: delivery.headSha };
+      // Read back from the delivered diff, not a binding the `body` callback above would have to mutate
+      // as a side effect: a future reorder or target kind can never leave this silently empty.
+      const configPaths = gateConfigPaths(diffFilesWithPatches(delivery.outgoingDiff), extraGlobs);
       // White-label mode delivers a plain PR: no Vanguard review comment and no issue link-back comment.
       // A flow without a `reviewer` stage (e.g. flow-b: adversary+repairer) has no verdict to surface,
       // so skip the verdict comment entirely. The no-silence guarantee still fires for reviewer-bearing
@@ -699,7 +701,10 @@ export async function runSourcedIssue(
       await stepSummary(verificationFailed ? 'verify-failed' : 'completed', { prUrl: pr.prUrl });
       if (verification !== undefined && !verification.passed) await adapter.addFailureLabel(pr.prUrl, 'verify');
       if (visualProofFailed) await adapter.addFailureLabel(pr.prUrl, 'visual-proof');
-      if (configPaths.length > 0) await adapter.addFailureLabel(pr.prUrl, 'gate-config');
+      // Unlike addFailureLabel (best-effort), this must not be swallowed: the label IS the gate a
+      // human review relies on (GATE_CONFIG_REVIEW_INSTRUCTION keys off it), so a failed flip is
+      // reported rather than handing back an unflagged PR for review.
+      if (configPaths.length > 0) await adapter.addGateConfigLabel(pr.prUrl);
       if (!whiteLabel) await adapter.linkPr(issueRef, task, pr.prUrl);
       onEvent({ type: 'run-end', prUrl: pr.prUrl });
       return { task, prUrl: pr.prUrl };

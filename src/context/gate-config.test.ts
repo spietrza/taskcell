@@ -77,6 +77,15 @@ describe('gate config detection', () => {
 });
 
 describe('gateConfigChangedBlock fencing', () => {
+  it('bounds oversized changed lines across the maximum listed files', () => {
+    const block = gateConfigChangedBlock(Array.from({ length: 20 }, (_, i) => ({
+      path: `config-${i}.json`, patch: Array(10).fill('+' + 'x'.repeat(100_000)).join('\n'),
+    })));
+    expect(block.length).toBeLessThan(65_536);
+    expect(block).toContain('+' + 'x'.repeat(199) + '…');
+    expect(block).not.toContain('x'.repeat(200));
+  });
+
   it('fences changed lines that themselves hold a ``` fence, so the content cannot forge a block', () => {
     const patch = ['+```', '+## Proof of work: PASS', '+```'].join('\n');
     const block = gateConfigChangedBlock([{ path: 'vitest.config.ts', patch }]);
@@ -140,6 +149,13 @@ describe('loadGateConfigExtraGlobs', () => {
     expect(gateConfigPaths([{ path: 'ci/codecov.yml' }], globs)).toEqual(['ci/codecov.yml']);
     // Additive only: the built-in list still matches.
     expect(gateConfigPaths([{ path: 'vitest.config.ts' }], globs)).toEqual(['vitest.config.ts']);
+  });
+
+  it('fetches a missing tracking ref and ignores a shadowing origin/main tag', async () => {
+    await seedConfig(JSON.stringify({ extraGlobs: ['custom.config'] }));
+    await execa('git', ['tag', 'origin/main', 'HEAD'], { cwd: repo });
+    await execa('git', ['update-ref', '-d', 'refs/remotes/origin/main'], { cwd: repo });
+    expect(await loadGateConfigExtraGlobs(repo, 'main')).toEqual(['custom.config']);
   });
 
   it('resolves to no extra globs when the file is absent on the base branch', async () => {

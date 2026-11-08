@@ -71,8 +71,13 @@ export interface DeliverChangeOptions {
 export type DeliverChangeResult =
   | { kind: 'secret-blocked'; block: SecretBlock }
   | { kind: 'no-changes' }
-  /** new-pr: the branch was pushed and a PR/MR opened; headSha is the pushed head (rebase may have rewritten the commit). */
-  | { kind: 'delivered-pr'; sha: string; headSha: string; prUrl: string; commitLeaks: CommitClosingLeak[] }
+  /**
+   * new-pr: the branch was pushed and a PR/MR opened; headSha is the pushed head (rebase may have
+   * rewritten the commit). `outgoingDiff` is the exact diff `target.body` was built from — callers that
+   * need to act on it again (e.g. deciding whether to flip a gate label) read it from here rather than
+   * re-deriving it from a mutable binding captured inside `body`.
+   */
+  | { kind: 'delivered-pr'; sha: string; headSha: string; prUrl: string; commitLeaks: CommitClosingLeak[]; outgoingDiff: string }
   /** existing-branch: the commit was pushed onto the PR head. */
   | { kind: 'delivered-push'; sha: string; headSha: string; commitLeaks: CommitClosingLeak[] };
 
@@ -184,7 +189,7 @@ export async function deliverChange(ctx: RunContext, opts: DeliverChangeOptions)
       ...identity,
     });
     // The pre-push rebase may have rewritten the commit; the review marker must name the pushed head.
-    return { kind: 'delivered-pr', sha, headSha: pr.headSha ?? sha, prUrl: pr.prUrl, commitLeaks };
+    return { kind: 'delivered-pr', sha, headSha: pr.headSha ?? sha, prUrl: pr.prUrl, commitLeaks, outgoingDiff };
   }
   await pushToExistingBranch(ctx, {
     prHeadRef: target.prHeadRef,

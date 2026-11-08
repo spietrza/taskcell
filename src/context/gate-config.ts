@@ -1,6 +1,7 @@
 import { execa } from 'execa';
 import { diffSections, extractDiffFiles } from '../pipeline/conformance-gate.js';
 import { matchGlob } from '../approver/policy.js';
+import { resolveRemoteBaseRef } from '../core/base-branch.js';
 
 /**
  * A file the verify gate's own repo config touches. `patch` is the file's diff hunk text (one
@@ -39,6 +40,9 @@ export const DEFAULT_GATE_CONFIG_GLOBS: readonly string[] = [
   // kind of change, read by approver/policy.ts.
   '.vanguard/approver.json',
 ];
+
+/** The heading gateConfigChangedBlock emits; extractGateConfigBlock looks for the same text. */
+const GATE_CONFIG_HEADING = '## Gate config changed';
 
 const PACKAGE_JSON_PATH = /(^|[\\/])package\.json$/;
 /** Every `"key": "value"` pair on a line (compact JSON can hold several), key and value captured. */
@@ -92,10 +96,18 @@ export function diffFilesWithPatches(diff: string): GateConfigDiffFile[] {
 
 const GATE_CONFIG_FILES_LISTED = 20;
 const GATE_CONFIG_LINES_PER_FILE = 10;
+/** Cap on a single excerpt line — a minified/generated changed line (e.g. a bundled config) can run
+ * hundreds of KB, and `gh pr create --body` 422s over 65,536 chars with no partial-delivery recovery
+ * (the branch is already pushed). Same bound style as retrospective-memory.ts's `truncate`. */
+const GATE_CONFIG_LINE_MAX_CHARS = 200;
 
-/** `+`/`-` content lines of a diff hunk, excluding the `+++`/`---` file headers. */
+/** `+`/`-` content lines of a diff hunk, excluding the `+++`/`---` file headers, each capped to
+ * GATE_CONFIG_LINE_MAX_CHARS so one oversized line cannot blow the PR body past GitHub's limit. */
 function changedLinesOnly(patch: string): string[] {
-  return patch.split('\n').filter((l) => (l.startsWith('+') || l.startsWith('-')) && !l.startsWith('+++') && !l.startsWith('---'));
+  return patch
+    .split('\n')
+    .filter((l) => (l.startsWith('+') || l.startsWith('-')) && !l.startsWith('+++') && !l.startsWith('---'))
+    .map((l) => (l.length > GATE_CONFIG_LINE_MAX_CHARS ? `${l.slice(0, GATE_CONFIG_LINE_MAX_CHARS)}…` : l));
 }
 
 /** The longest run of backticks in `text` (0 when it holds none). */
@@ -142,7 +154,7 @@ export function gateConfigChangedBlock(files: readonly GateConfigDiffFile[]): st
   });
   const moreFiles = sorted.length > GATE_CONFIG_FILES_LISTED ? [`…and ${sorted.length - GATE_CONFIG_FILES_LISTED} more file(s).`] : [];
   return [
-    '## Gate config changed',
+    GATE_CONFIG_HEADING,
     '',
     "This diff touches checker config the verify gate runs from the agent's own worktree (coverage thresholds, lint rules, type settings, or the verify/test/lint/typecheck scripts). Weakening a check here — lowering a threshold, disabling a rule, relaxing a type setting, loosening a script — is blocking for review unless the linked issue explicitly asked for it.",
     '',
@@ -152,21 +164,52 @@ export function gateConfigChangedBlock(files: readonly GateConfigDiffFile[]): st
 }
 
 /**
+ * Recover an existing `## Gate config changed` block from a previously-posted PR body, so a caller
+ * that re-derives the whole body (revise-pr.ts, every round) can carry the disclosure forward even on
+ * a round that itself touches no gate config — otherwise re-deriving the body silently drops the
+ * evidence of the original weakening. Every section this codebase joins into a PR body is separated
+ * from its neighbour by a blank line before the next `##` heading, so that is the block's end;
+ * `undefined` when `body` carries no such heading.
+ */
+export function extractGateConfigBlock(body: string): string | undefined {
+  const start = body.indexOf(GATE_CONFIG_HEADING);
+  if (start === -1) return undefined;
+  const rest = body.slice(start);
+  const nextHeading = rest.indexOf('\n\n## ');
+  return (nextHeading === -1 ? rest : rest.slice(0, nextHeading)).trimEnd();
+}
+
+/**
  * Extra gate-config globs from `.vanguard/gate-config.json` (`{ "extraGlobs": string[] }`) on the
- * base branch. Purely additive — a missing file, unreadable ref or malformed JSON all resolve to no
- * extra globs, which only ever narrows detection back to the built-in list, never below it.
+ * base branch, read via the same remote-tracking-ref resolution as the approver's own base-branch
+ * read (approver/policy.ts#loadPolicy) rather than the shorthand `origin/<base>` — which can resolve
+ * to `refs/tags/origin/<base>` or `refs/heads/origin/<base>` before the remote-tracking ref, and which
+ * silently reads nothing on a checkout with no remote-tracking ref for `base` (the common
+ * actions/checkout single-ref/shallow fetch). A repo-configured `extraGlobs` disappearing without a
+ * signal is a worse failure mode than a missing/malformed file, so the two are logged distinctly;
+ * only the fall-through result (no extra globs) is the same for both, which only ever narrows
+ * detection back to the built-in list, never below it.
  */
 export async function loadGateConfigExtraGlobs(repoPath: string, base: string): Promise<string[]> {
+  let ref: string;
+  try {
+    ref = await resolveRemoteBaseRef(repoPath, base, { label: 'gate-config', keepLocalIfAhead: false });
+  } catch (err) {
+    console.warn(`vanguard: gate-config extraGlobs — could not resolve base branch ${JSON.stringify(base)}: ${err instanceof Error ? err.message : String(err)}`);
+    return [];
+  }
   let raw: string;
   try {
-    raw = (await execa('git', ['show', `origin/${base}:.vanguard/gate-config.json`], { cwd: repoPath })).stdout;
+    raw = (await execa('git', ['show', `${ref}:.vanguard/gate-config.json`], { cwd: repoPath })).stdout;
   } catch {
+    console.log(`vanguard: gate-config — no .vanguard/gate-config.json found at ${ref}; extraGlobs stay empty`);
     return [];
   }
   try {
     const parsed = JSON.parse(raw) as { extraGlobs?: unknown };
     return Array.isArray(parsed.extraGlobs) ? parsed.extraGlobs.filter((g): g is string => typeof g === 'string') : [];
-  } catch {
+  } catch (err) {
+    console.warn(`vanguard: gate-config — .vanguard/gate-config.json at ${ref} is unparseable, ignoring extraGlobs: ${err instanceof Error ? err.message : String(err)}`);
     return [];
   }
 }
