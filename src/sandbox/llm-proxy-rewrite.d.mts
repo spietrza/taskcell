@@ -73,10 +73,7 @@ export declare const CODEX_REVOKE_PATH: string;
 export declare function chatgptIdpRoute(method: string, path: string | undefined): 'refresh' | 'revoke' | undefined;
 
 /** Parses a refresh/revoke JSON body and reads the credential under `field`; undefined if malformed/missing. */
-export declare function readIdpRequest(
-  body: Buffer,
-  field: string,
-): { credential: string; parsed: Record<string, unknown> } | undefined;
+export declare function readIdpRequest(body: Buffer, field: string): string | undefined;
 
 /** A three-segment JWT-shaped id_token carrying only the account id + plan type claims. */
 export declare function buildSyntheticIdToken(accountId: string, planType: string): string;

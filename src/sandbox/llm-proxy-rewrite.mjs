@@ -229,14 +229,16 @@ export function chatgptIdpRoute(method, path) {
  * Parses a refresh/revoke JSON request body and reads the credential it carries under `field`
  * (`refresh_token` for the /oauth/token grant, `token` for the /oauth/revoke request — RFC 7009).
  * Returns undefined when the body isn't a JSON object or the field is missing/empty/non-string; the
- * caller treats that exactly like a wrong credential (401), never a different error path.
+ * caller treats that exactly like a wrong credential (401), never a different error path. ONLY the
+ * credential is returned, never the parsed body: nothing the cell sends may reach the real IdP, and
+ * the refresh body the sidecar sends upstream is built from fixed fields instead.
  */
 export function readIdpRequest(body, field) {
   const parsed = parseJsonObject(body.toString('utf8'));
   if (parsed === undefined) return undefined;
   const credential = parsed[field];
   if (typeof credential !== 'string' || credential === '') return undefined;
-  return { credential, parsed };
+  return credential;
 }
 
 /** Base64url-encode a JSON-serializable value (one JWT segment). */

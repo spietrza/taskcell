@@ -10,7 +10,8 @@
 // (CODEX_REFRESH_PATH/CODEX_REVOKE_PATH, from llm-proxy-rewrite.mjs) stand in for
 // CODEX_REFRESH_TOKEN_URL_OVERRIDE/CODEX_REVOKE_TOKEN_URL_OVERRIDE — see
 // docs/research/codex-credential-isolation.md for why the sidecar, not the sandbox, must be the only
-// party that ever presents the real refresh token to the real IdP.
+// party that ever presents the real refresh token to the real IdP. Refresh is the ONLY route that
+// talks to the real IdP; revoke is answered locally (it only drops this run's own binding state).
 //
 // SECURITY: never log request/response headers, bodies, the secret, or the nonce. Inbound nonce
 // check is constant-time. Locked down to POST /v1/messages and /v1/messages/count_tokens (plus the
@@ -18,7 +19,9 @@
 import { createServer } from 'node:http';
 import { request as httpsRequest } from 'node:https';
 import { request as httpRequest } from 'node:http';
-import { readFileSync, writeFileSync } from 'node:fs';
+import { chmodSync, readFileSync, renameSync, writeFileSync } from 'node:fs';
+import { dirname, resolve, sep } from 'node:path';
+import { pathToFileURL } from 'node:url';
 import {
   UPSTREAMS,
   HOP_BY_HOP,
@@ -36,7 +39,6 @@ import {
   buildSyntheticIdToken,
   CODEX_CLIENT_ID,
   CODEX_REFRESH_PATH,
-  CODEX_REVOKE_PATH,
 } from './llm-proxy-rewrite.mjs';
 
 const MAX_BODY_BYTES = 32 * 1024 * 1024; // 32 MiB
@@ -47,8 +49,13 @@ const IDP_TIMEOUT_MS = 20_000;
 const DEFAULT_REFRESH_FLOOR_MS = 5_000;
 const MAX_CONCURRENT = 8;
 const CODEX_IDP_BASE_URL = 'https://auth.openai.com';
-// SECRET/NONCE (and the chatgpt credential fields) are placed into HTTP headers or JSON bodies;
-// reject control chars up front to prevent header/JSON injection.
+// The sidecar's own credential directory: the in-RAM tmpfs holding its secret file, and the ONLY
+// place the rotated real credential may be written. Keep in sync with SECRET_FILE in llm-proxy.ts;
+// the CLI bootstrap below derives it from LLM_PROXY_SECRET_FILE, so this is only the fallback.
+const DEFAULT_CREDENTIAL_DIR = '/run/vanguard-llm';
+// SECRET/NONCE (and the chatgpt credential fields, including AUTH_FILE — it reaches a filesystem
+// path) are placed into HTTP headers, JSON bodies or syscalls; reject control chars up front to
+// prevent header/JSON/path injection.
 const CONTROL_CHARS = /[\x00-\x1f\x7f]/;
 
 function parseSecretFile(text) {
@@ -68,7 +75,7 @@ function parseSecretFile(text) {
  * an invalid file — never calls process.exit itself; only the CLI bootstrap at the bottom of this
  * file does that, so createLlmProxyServer stays usable (and testable) as a library function.
  */
-function resolveUpstream(config) {
+function resolveUpstream(config, credentialDir) {
   const upstreamKind = config.UPSTREAM ?? 'anthropic';
   if (!(upstreamKind in UPSTREAMS)) {
     throw new Error(`invalid secret file (UPSTREAM must be ${Object.keys(UPSTREAMS).join('|')})`);
@@ -87,33 +94,44 @@ function resolveUpstream(config) {
     throw new Error('invalid secret file (need SECRET)');
   }
   if (!config.NONCE) throw new Error('invalid secret file (need NONCE)');
-  const checked = [config.SECRET, config.NONCE, config.ACCESS_TOKEN, config.REFRESH_TOKEN, config.ACCOUNT_ID, config.PLAN_TYPE, config.REFRESH_PLACEHOLDER].filter(
-    (v) => v !== undefined,
-  );
+  const checked = [
+    config.SECRET, config.NONCE, config.ACCESS_TOKEN, config.REFRESH_TOKEN, config.ACCOUNT_ID,
+    config.PLAN_TYPE, config.REFRESH_PLACEHOLDER, config.AUTH_FILE,
+  ].filter((v) => v !== undefined);
   if (checked.some((v) => CONTROL_CHARS.test(v))) {
     throw new Error('invalid secret file (control characters in a credential field)');
+  }
+  // The rotated real credential may only ever be written inside the sidecar's OWN credential
+  // directory — never a shared, cell-visible or traversed path. Checked on the RESOLVED path so
+  // `..` segments cannot climb out.
+  if (spec.auth === 'chatgpt') {
+    const dir = resolve(credentialDir);
+    if (!resolve(config.AUTH_FILE).startsWith(`${dir}${sep}`)) {
+      throw new Error('invalid secret file (AUTH_FILE must be inside the sidecar credential directory)');
+    }
   }
   return { upstreamKind, spec };
 }
 
 /** Buffer a (small) request body with a hard cap; resolves null on overflow/abort — the caller sends
- *  the error status. Used only by the chatgpt IdP routes: the heavier model-call path below has its
- *  own buffering, intertwined with the concurrency-slot bookkeeping forward() needs. */
+ *  the error status and only THEN tears the socket down, so an oversized body still gets a real 413
+ *  instead of a connection reset. Nothing further is accumulated once the cap is hit, so memory stays
+ *  bounded even while the client keeps sending. Used only by the chatgpt IdP routes: the heavier
+ *  model-call path below has its own buffering, intertwined with forward()'s slot bookkeeping. */
 function readSmallBody(req, maxBytes) {
-  return new Promise((resolve) => {
+  return new Promise((settleWith) => {
     const chunks = [];
     let size = 0;
     let settled = false;
     const settle = (value) => {
       if (settled) return;
       settled = true;
-      resolve(value);
+      settleWith(value);
     };
     req.on('data', (chunk) => {
       if (settled) return;
       size += chunk.length;
       if (size > maxBytes) {
-        req.destroy();
         settle(null);
         return;
       }
@@ -147,14 +165,16 @@ async function readCappedResponse(response, maxBytes) {
 
 /**
  * Builds the sidecar's request handler and returns the (not-yet-listening) http.Server.
- * `options.idpBaseUrl` and `options.refreshFloorMs` are test-only injection points for the chatgpt
- * IdP calls; `options.forwardTo` is a test-only injection point for the model-call upstream. None of
- * these are environment variables — production never sets any of them, and this file carries no
- * test-only override environment variable of any kind (host/port/insecure-flag or otherwise).
+ * `options.credentialDir` is the directory AUTH_FILE must live in (the CLI bootstrap passes the
+ * secret file's own directory). `options.idpBaseUrl` and `options.refreshFloorMs` are test-only
+ * injection points for the chatgpt IdP calls; `options.forwardTo` is a test-only injection point for
+ * the model-call upstream. None of these are environment variables — production never sets the
+ * test-only ones, and this file carries no test-only override environment variable of any kind
+ * (host/port/insecure-flag or otherwise).
  */
 export function createLlmProxyServer(secretText, options = {}) {
   const config = parseSecretFile(secretText);
-  const { upstreamKind, spec } = resolveUpstream(config);
+  const { upstreamKind, spec } = resolveUpstream(config, options.credentialDir ?? DEFAULT_CREDENTIAL_DIR);
   const idpBaseUrl = options.idpBaseUrl ?? CODEX_IDP_BASE_URL;
   const refreshFloorMs = options.refreshFloorMs ?? DEFAULT_REFRESH_FLOOR_MS;
 
@@ -213,7 +233,11 @@ export function createLlmProxyServer(secretText, options = {}) {
 
   /** Writes the sidecar's own copy of the rotated real chatgpt credential — the host-side
    *  persistence part 2's launcher reads back on the next run so a logged-in session survives past
-   *  this one container's lifetime. Real access/refresh tokens plus a loadable synthetic id_token. */
+   *  this one container's lifetime. Real access/refresh tokens plus a loadable synthetic id_token.
+   *  Written to a sibling temp file, chmod'd 0600 explicitly (the `mode:` option is masked by umask
+   *  and ignored for an existing file) and renamed into place, so a crash mid-write can never leave
+   *  a truncated — or briefly world-readable — credential behind. AUTH_FILE was validated at boot to
+   *  sit inside the sidecar's own credential directory. */
   function persistChatgptAuth() {
     const body = JSON.stringify({
       auth_mode: 'chatgpt',
@@ -225,7 +249,10 @@ export function createLlmProxyServer(secretText, options = {}) {
       },
       last_refresh: new Date().toISOString(),
     });
-    writeFileSync(chatgptState.authFile, body, { mode: 0o600 });
+    const tmpFile = `${chatgptState.authFile}.${process.pid}.tmp`;
+    writeFileSync(tmpFile, body, { mode: 0o600 });
+    chmodSync(tmpFile, 0o600);
+    renameSync(tmpFile, chatgptState.authFile);
   }
 
   async function callIdp(path, body) {
@@ -279,33 +306,52 @@ export function createLlmProxyServer(secretText, options = {}) {
     return pendingRefresh;
   }
 
+  /** The cell's logout: drop this run's binding state so the placeholder stops working (every later
+   *  refresh/revoke 401s, with no stale cached response behind it) and forget the cached refresh
+   *  result. The real refresh token is NOT revoked at OpenAI — a run's sandbox must not be able to
+   *  log the host's own account out — and the host credential file is left exactly as it was. */
+  function revokeLocally() {
+    chatgptState.refreshPlaceholder = '';
+    cachedRefresh = undefined;
+    clearTimeout(floorTimer);
+    floorTimer = undefined;
+  }
+
   async function handleIdpRoute(route, req, res, started) {
     const body = await readSmallBody(req, MAX_IDP_REQUEST_BYTES);
     if (body === null) {
+      // Answer first, THEN tear down the oversized request's socket, so the cell sees the 413.
+      res.on('finish', () => {
+        if (!req.destroyed) req.destroy();
+      });
       finish(req, res, 413, started);
       return;
     }
     // refresh grant uses `refresh_token`; revoke (RFC 7009) uses `token` — both carry this run's
     // placeholder, never the real value, and that placeholder is the ONLY thing that binds the
-    // request to this run (there is no nonce header on either path).
+    // request to this run (there is no nonce header on either path). Nothing else from the body is
+    // read, and nothing from it is ever forwarded: the upstream refresh body is built from fixed
+    // fields in doRefresh(), and revoke makes no upstream call at all.
     const field = route === 'refresh' ? 'refresh_token' : 'token';
-    const parsedReq = readIdpRequest(body, field);
-    if (parsedReq === undefined || !constantTimeEqual(parsedReq.credential, chatgptState.refreshPlaceholder)) {
+    const credential = readIdpRequest(body, field);
+    // An already-revoked run has an empty placeholder: refuse without comparing, so nothing can
+    // match it.
+    if (credential === undefined || chatgptState.refreshPlaceholder === '' ||
+        !constantTimeEqual(credential, chatgptState.refreshPlaceholder)) {
       finish(req, res, 401, started);
       return;
     }
+    if (route === 'revoke') {
+      revokeLocally();
+      finish(req, res, 200, started);
+      return;
+    }
     try {
-      if (route === 'refresh') {
-        const payload = await refreshFromIdp();
-        const json = JSON.stringify(payload);
-        res.writeHead(200, { 'content-type': 'application/json' });
-        res.end(json);
-        log(req, 200, Buffer.byteLength(json), started);
-      } else {
-        const upstreamBody = { ...parsedReq.parsed, token: chatgptState.refreshToken, client_id: CODEX_CLIENT_ID };
-        const { ok } = await callIdp(CODEX_REVOKE_PATH, upstreamBody);
-        finish(req, res, ok ? 200 : 502, started);
-      }
+      const payload = await refreshFromIdp();
+      const json = JSON.stringify(payload);
+      res.writeHead(200, { 'content-type': 'application/json' });
+      res.end(json);
+      log(req, 200, Buffer.byteLength(json), started);
     } catch {
       finish(req, res, 502, started);
     }
@@ -317,7 +363,24 @@ export function createLlmProxyServer(secretText, options = {}) {
     if (spec.auth === 'chatgpt') {
       const route = chatgptIdpRoute(req.method, req.url);
       if (route !== undefined) {
-        handleIdpRoute(route, req, res, started);
+        // IdP routes hold a concurrency slot like every other route, so a flood of refreshes can
+        // neither bypass MAX_CONCURRENT nor starve the model-call path.
+        if (inFlight >= MAX_CONCURRENT) {
+          finish(req, res, 503, started);
+          req.resume();
+          return;
+        }
+        inFlight += 1;
+        handleIdpRoute(route, req, res, started)
+          .catch(() => {
+            // Never let a rejection escape as an unhandled rejection: answer 500 and log the route
+            // only (never the error object — it can carry credential/path hints).
+            console.error(`llm-proxy: idp ${route} route failed`);
+            if (!res.writableEnded) finish(req, res, 500, started);
+          })
+          .finally(() => {
+            inFlight -= 1;
+          });
         return;
       }
     }
@@ -467,7 +530,9 @@ export function createLlmProxyServer(secretText, options = {}) {
 }
 
 // --- CLI bootstrap (production): read MODE/SECRET/NONCE/etc from the tmpfs file; PORT from env ---
-if (import.meta.main) {
+// Entry check by argv[1] rather than `import.meta.main` (added in Node 24, absent on older runtimes
+// where it silently evaluates to undefined and the sidecar would never start listening).
+if (pathToFileURL(process.argv[1] ?? '').href === import.meta.url) {
   const secretFile = process.env.LLM_PROXY_SECRET_FILE;
   if (!secretFile) {
     console.error('llm-proxy: LLM_PROXY_SECRET_FILE is required');
@@ -484,7 +549,8 @@ if (import.meta.main) {
   const PORT = Number(process.env.PORT ?? '8088');
   let server;
   try {
-    server = createLlmProxyServer(secretText);
+    // The sidecar's own credential directory is the one holding its tmpfs secret file.
+    server = createLlmProxyServer(secretText, { credentialDir: dirname(secretFile) });
   } catch (err) {
     console.error(`llm-proxy: ${err instanceof Error ? err.message : 'invalid secret file'}`);
     process.exit(1);

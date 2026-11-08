@@ -267,15 +267,15 @@ describe('chatgptIdpRoute', () => {
 });
 
 describe('readIdpRequest', () => {
-  it('reads the named credential field out of a JSON body', () => {
+  it('returns ONLY the named credential, never the rest of the cell-sent body', () => {
     const placeholder = 'p'.repeat(32);
-    const body = Buffer.from(JSON.stringify({ grant_type: 'refresh_token', refresh_token: placeholder }));
-    expect(readIdpRequest(body, 'refresh_token')).toEqual({ credential: placeholder, parsed: { grant_type: 'refresh_token', refresh_token: placeholder } });
+    const body = Buffer.from(JSON.stringify({ grant_type: 'refresh_token', refresh_token: placeholder, scope: 'forged-by-cell' }));
+    expect(readIdpRequest(body, 'refresh_token')).toBe(placeholder);
   });
   it('reads the revoke field name (token) separately from the refresh field (refresh_token)', () => {
     const placeholder = 'q'.repeat(32);
     const body = Buffer.from(JSON.stringify({ token: placeholder, token_type_hint: 'refresh_token' }));
-    expect(readIdpRequest(body, 'token')?.credential).toBe(placeholder);
+    expect(readIdpRequest(body, 'token')).toBe(placeholder);
     expect(readIdpRequest(body, 'refresh_token')).toBeUndefined();
   });
   it('returns undefined for malformed JSON, non-objects, or a missing/empty/non-string field', () => {
