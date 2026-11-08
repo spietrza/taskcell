@@ -53,5 +53,7 @@ jobs:
     with:
       allowed-actors: '["spietrza","pawelkrystkiewicz"]'
       llm-proxy: true
+      # One run reviews every labelled PR; four at a time instead of two.
+      review-concurrency: '4'
     secrets:
       CLAUDE_CODE_OAUTH_TOKEN: ${{ secrets.CLAUDE_CODE_OAUTH_TOKEN }}
