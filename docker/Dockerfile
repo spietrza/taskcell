@@ -30,7 +30,8 @@ RUN for i in 1 2 3 4 5; do \
         @openai/codex@${CODEX_CLI_VERSION} \
         pnpm \
         bun \
-      && exit 0; \
+      && linear --version >/dev/null && exit 0; \
+      [ "$i" -lt 5 ] || break; \
       echo "npm install failed (attempt $i/5), retrying in $((i * 15))s" >&2; sleep $((i * 15)); \
     done; exit 1
 
