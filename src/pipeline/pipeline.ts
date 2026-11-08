@@ -1,3 +1,4 @@
+import { setTimeout as timeout } from 'node:timers/promises';
 import { execa } from 'execa';
 import { hostGitArgs } from '../worktree/host-git.js';
 import { runAgent } from '../core/vanguard.js';
@@ -7,7 +8,7 @@ import { buildXmlPrompt } from '../context/xml-prompt.js';
 import { diffForPrompt } from '../context/escape.js';
 import { extractJson } from '../structured/extract.js';
 import { verdictSchema } from '../evals/judges.js';
-import { AgentError, isRateLimitError } from '../core/errors.js';
+import { AgentError, isRateLimitError, rateLimitResetDelayMs } from '../core/errors.js';
 import { roundUsd } from '../core/usd.js';
 import type { RunContext } from '../core/vanguard.js';
 import type { ReasoningEffort, RunResult } from '../core/types.js';
@@ -170,6 +171,27 @@ export interface RunStagesOptions {
   fork?: ForkOptions;
   /** When set, receives structured run events (stage lifecycle + cost). Absent ⇒ no events, no behavior change. */
   onEvent?: (e: RunEvent) => void;
+  /**
+   * Wait used before retrying a rate-limited stage on a fallback that shares the exhausted provider
+   * (see MAX_RATE_LIMIT_WAIT_MS). Defaults to a real abortable timer; a test supplies its own.
+   */
+  sleep?: (ms: number, signal?: AbortSignal) => Promise<void>;
+}
+
+/**
+ * Longest a rate-limited stage will hold the run open waiting for the provider's own reset. A
+ * subscription window can reset hours out; holding a CI job that long burns the runner and usually
+ * ends in its wall-clock kill anyway, losing the work. Past this, the run fails now and the rate-limit
+ * notice invites a re-label once the limit clears.
+ */
+const MAX_RATE_LIMIT_WAIT_MS = 60 * 60 * 1000;
+
+/**
+ * Abortable wait. Cancellation resolves rather than throwing: the caller's next step is the retry,
+ * which carries the same signal and fails there on its own terms.
+ */
+async function delay(ms: number, signal?: AbortSignal): Promise<void> {
+  await timeout(ms, undefined, signal !== undefined ? { signal } : {}).catch(() => undefined);
 }
 
 /** Sandbox dir for the fork scorer: a throwaway cwd so any stray write never touches the worktree. */
@@ -379,9 +401,22 @@ export async function runBudgetedStages(
             ? `${stage.name} provider rate-limited (429) — falling back to ${stage.fallback.provider.name}`
             : `${stage.name} provider unavailable — falling back to ${stage.fallback.provider.name}`,
         );
+        // A fallback on the SAME provider (the --review-model shape: a reviewer degrading to the
+        // primary agent on the same transport) draws on the account that just refused, so an
+        // immediate retry only fails again. When the refusal names its reset, wait for it first.
+        // Decided before effectiveAgent moves, while it still names the provider that failed.
+        const waitMs =
+          rateLimited && stage.fallback.provider.name === effectiveAgent.name ? rateLimitResetDelayMs(err) : undefined;
         effectiveAgent = stage.fallback.provider;
         effectiveModel = stage.fallback.model;
         if (stage.provider === undefined) primaryDown = true;
+        if (waitMs !== undefined && waitMs <= MAX_RATE_LIMIT_WAIT_MS) {
+          ctx.log.warn(
+            { stage: stage.name, provider: effectiveAgent.name, waitMs },
+            `${stage.name} retry waits ${Math.round(waitMs / 1000)}s for the provider limit to reset`,
+          );
+          await (opts.sleep ?? delay)(waitMs, opts.signal);
+        }
         // Do not resume the failed primary session.
         result = await runAgent(ctx, {
           ...stageOpts,

@@ -73,15 +73,58 @@ const RATE_LIMIT_PATTERNS: readonly RegExp[] = [
   // The vendors' own refusal strings: Anthropic's `rate_limit_error`, OpenAI's `rate_limit_exceeded`
   // and "Rate limit reached for <model>".
   /\b(?:rate_limit_(?:error|exceeded)|rate limit reached for)\b/i,
-  // Claude subscription usage-limit stall (the case #615 was about) and the provider's overloaded refusal.
-  /\busage limit reached\b/i,
-  /\bapi error:\s*overloaded\b/i,
+  // Claude subscription stalls (the case #615 was about), both wordings the CLI prints: `Claude usage
+  // limit reached. Your limit will reset at 9pm (UTC).` for a plan cap and `You've hit your session
+  // limit · resets 9pm (UTC)` for a session cap. Both keep the vendor's framing — a bare "usage limit
+  // reached" is prose an agent can write about its own work, and would classify a hard failure as transient.
+  /\bclaude(?: ai)? usage limit reached\b/i,
+  /\byou(?:'ve|’ve| have) hit your [\w-]+ limit\b/i,
+  // Anthropic's overload refusal: the CLI's short form (`API Error: overloaded`) and the raw envelope
+  // it relays, `API Error: 529 {"type":"error","error":{"type":"overloaded_error",...}}`.
+  /\bapi error:\s*overloaded\b|\boverloaded_error\b/i,
 ];
+
+/** The text the rate-limit matchers read: an Error's message, or a non-Error throw rendered as one. */
+const rawMessage = (error: unknown): string => (error instanceof Error ? error.message : String(error));
 
 /** True when `error` is a provider rate-limit refusal, not some other agent failure. */
 export function isRateLimitError(error: unknown): boolean {
-  const message = error instanceof Error ? error.message : String(error);
+  const message = rawMessage(error);
   return RATE_LIMIT_PATTERNS.some((re) => re.test(message));
+}
+
+/**
+ * The reset clause the subscription wordings carry after the refusal itself: `· resets 9pm (UTC)`,
+ * `Your limit will reset at 10:30pm (UTC)`, `resets 21:00`. The zone marker is optional and only
+ * `UTC` is honoured (see rateLimitResetDelayMs).
+ */
+const RATE_LIMIT_RESET_CLAUSE = /\breset(?:s)?(?:\s+at)?\s+(\d{1,2})(?::(\d{2}))?\s*(am|pm)?\s*(?:\(([^)]{1,12})\))?/i;
+
+const DAY_MS = 24 * 60 * 60 * 1000;
+
+/**
+ * Milliseconds from `now` until the reset instant a provider rate-limit refusal names, or undefined
+ * when it names none, the clause is unparseable, or it carries a zone other than UTC — guessing the
+ * zone would mean waiting for the wrong hour, which is worse than not waiting at all. A clock time
+ * with no zone marker is read in the host's local zone, the zone the CLI printed it in. A time
+ * already past rolls to the next day, the way the provider's own window does.
+ */
+export function rateLimitResetDelayMs(error: unknown, now: number = Date.now()): number | undefined {
+  const match = RATE_LIMIT_RESET_CLAUSE.exec(rawMessage(error));
+  if (match === null) return undefined;
+  const [, rawHour, rawMinute, rawMeridiem, zone] = match;
+  const utc = zone !== undefined;
+  if (utc && zone.trim().toLowerCase() !== 'utc') return undefined;
+  const meridiem = rawMeridiem?.toLowerCase();
+  const clockHour = Number(rawHour);
+  const minute = rawMinute !== undefined ? Number(rawMinute) : 0;
+  if (minute > 59 || clockHour > (meridiem !== undefined ? 12 : 23)) return undefined;
+  const hour = meridiem === undefined ? clockHour : (clockHour % 12) + (meridiem === 'pm' ? 12 : 0);
+  const base = new Date(now);
+  const target = utc
+    ? Date.UTC(base.getUTCFullYear(), base.getUTCMonth(), base.getUTCDate(), hour, minute)
+    : new Date(base.getFullYear(), base.getMonth(), base.getDate(), hour, minute).getTime();
+  return (target > now ? target : target + DAY_MS) - now;
 }
 
 /**

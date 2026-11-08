@@ -427,6 +427,12 @@ export async function runRevisePullRequest(prRef: string, deps: ReviseGithubPrDe
           ...(deps.providerModel !== undefined ? { model: deps.providerModel } : {}),
         });
       }
+      // An explicit --review-model survives the fallback only when the fallback runs on the provider
+      // the model was pinned for; a cross-provider fallback keeps --fallback-model / its own default.
+      // Outside the fallback-provider branch: the reviewer's same-provider fallback above exists with
+      // or without --fallback-provider, and withPrimaryFallback below never touches a stage that
+      // already has one.
+      if (deps.reviewModel !== undefined) pipeline = withStageFallbackModel(pipeline, deps.reviewModel, agents.agent);
       // Implementer fallback: on an AgentError from the primary provider (outage, usage limit, revoked
       // credential, rate limit) runStages retries the stage once on this provider — same contract as
       // the first delivery's implementer fallback (source-adapter.ts). Every stage on the primary gets
@@ -436,9 +442,6 @@ export async function runRevisePullRequest(prRef: string, deps: ReviseGithubPrDe
           provider: agents.fallbackAgent,
           ...(deps.fallbackModel !== undefined ? { model: deps.fallbackModel } : {}),
         });
-        // An explicit --review-model survives the fallback only when the fallback runs on the provider
-        // the model was pinned for; a cross-provider fallback keeps --fallback-model / its own default.
-        if (deps.reviewModel !== undefined) pipeline = withStageFallbackModel(pipeline, deps.reviewModel, agents.agent);
       }
 
       // Override the implementer's promptTemplate with the revision prompt. It holds review comments and

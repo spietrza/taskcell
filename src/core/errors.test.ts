@@ -83,12 +83,14 @@ describe('isRateLimitError', () => {
     'rate_limit_error',
     'rate_limit_exceeded',
     'Rate limit reached for gpt-5',
-    'usage limit reached',
+    'Claude usage limit reached. Your limit will reset at 9pm (UTC).',
+    "You've hit your session limit · resets 9pm (UTC)",
     'API Error: overloaded',
+    'API Error: 529 {"type":"error","error":{"type":"overloaded_error","message":"Overloaded"}}',
   ])('recognizes %s', (message) => {
     expect(isRateLimitError(new AgentError(message))).toBe(true);
   });
-  it.each(['API rate limit exceeded for user alice', 'gh failed: API rate limit exceeded', 'line 429', 'implement rate limiting', 'invalid API key'])('rejects %s', (message) => {
+  it.each(['API rate limit exceeded for user alice', 'gh failed: API rate limit exceeded', 'line 429', 'implement rate limiting', 'invalid API key', 'the usage limit reached in this benchmark is documented below'])('rejects %s', (message) => {
     expect(isRateLimitError(new Error(message))).toBe(false);
   });
 });
