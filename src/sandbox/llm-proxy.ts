@@ -21,6 +21,9 @@ const PROXY_SCRIPT = fileURLToPath(new URL('./llm-proxy-server.mjs', import.meta
 // /tmp dir so that relative import resolves inside the container.
 const PROXY_LOGIC = fileURLToPath(new URL('./llm-proxy-rewrite.mjs', import.meta.url));
 
+/** A fresh credential-shaped token (hyphen-free uuid): the sandbox-facing nonce, the refresh placeholder. */
+const randomToken = (): string => randomUUID().replace(/-/g, '');
+
 export interface LlmProxy {
   /** Proxy URL reachable from inside the internal network (by container name). */
   url: string;
@@ -86,16 +89,20 @@ export async function startLlmProxy(opts: {
   const upstream: Upstream = opts.upstream ?? 'anthropic';
   const id = randomUUID().slice(0, 8);
   const name = `vg-llm-${id}`;
-  const nonce = randomUUID().replace(/-/g, '');
+  const nonce = randomToken();
   const auth = opts.auth;
   // Chatgpt-plan sidecars carry the real access/refresh/account/plan fields instead of a single
   // SECRET, plus a second placeholder (REFRESH_PLACEHOLDER) the cell's refresh/revoke calls present —
   // see llm-proxy-rewrite.mjs's resolveUpstream for the shape this is read back into.
-  const refreshPlaceholder = auth.kind === 'chatgpt' ? randomUUID().replace(/-/g, '') : undefined;
-  const secretBody =
-    auth.kind === 'chatgpt'
-      ? `UPSTREAM=${upstream}\nNONCE=${nonce}\nACCESS_TOKEN=${auth.accessToken}\nREFRESH_TOKEN=${auth.refreshToken}\nACCOUNT_ID=${auth.accountId}\nPLAN_TYPE=${auth.planType}\nREFRESH_PLACEHOLDER=${refreshPlaceholder}\nAUTH_FILE=${CHATGPT_AUTH_FILE}\n`
-      : `MODE=${auth.mode}\nSECRET=${auth.secret}\nNONCE=${nonce}\nUPSTREAM=${upstream}\n`;
+  let secretBody: string;
+  let chatgptFields: Pick<ChatgptProxyDep, 'refreshPlaceholder' | 'accountId' | 'planType'> | undefined;
+  if ('kind' in auth) {
+    const refreshPlaceholder = randomToken();
+    secretBody = `UPSTREAM=${upstream}\nNONCE=${nonce}\nACCESS_TOKEN=${auth.accessToken}\nREFRESH_TOKEN=${auth.refreshToken}\nACCOUNT_ID=${auth.accountId}\nPLAN_TYPE=${auth.planType}\nREFRESH_PLACEHOLDER=${refreshPlaceholder}\nAUTH_FILE=${CHATGPT_AUTH_FILE}\n`;
+    chatgptFields = { refreshPlaceholder, accountId: auth.accountId, planType: auth.planType };
+  } else {
+    secretBody = `MODE=${auth.mode}\nSECRET=${auth.secret}\nNONCE=${nonce}\nUPSTREAM=${upstream}\n`;
+  }
   try {
     // The existing reapContainers (label vanguard.runId) already reaps this sidecar on gc — no gc change.
     const sidecar = await startSidecar({
@@ -119,7 +126,7 @@ export async function startLlmProxy(opts: {
       url: `http://${name}:${PROXY_PORT}`,
       nonce,
       host: name,
-      ...(auth.kind === 'chatgpt' ? { refreshPlaceholder: refreshPlaceholder as string, accountId: auth.accountId, planType: auth.planType } : {}),
+      ...chatgptFields,
       destroy: sidecar.destroy,
     };
   } catch (cause) {

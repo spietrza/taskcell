@@ -36,6 +36,15 @@ export interface ChatgptProxyAuth {
 }
 
 /**
+ * The `ProviderProxySecrets` buckets that hold a bare API-key string — the only ones a provider spec's
+ * `proxyKey` may name, since that path routes the value of a key env var. The structured ChatGPT-plan
+ * bucket is filled by providerSecrets' subscription branch instead (parseChatgptAuth, not a key env var).
+ */
+type ApiKeyProxyKey = {
+  [K in keyof ProviderProxySecrets]-?: ProviderProxySecrets[K] extends string | undefined ? K : never;
+}[keyof ProviderProxySecrets];
+
+/**
  * The transport "slot" a provider drives inside the sandbox — the env namespace its CLI authenticates
  * through. Two DIFFERENT providers sharing one slot cannot run in the same sandbox: their env vars
  * collide (a sandbox env holds one ANTHROPIC_BASE_URL, one OPENAI_API_KEY, …). 'claude-cli' is every provider that
@@ -52,7 +61,7 @@ interface ProviderKeySpec {
   /** The sandbox env secrets the key becomes (the CLI reads these inside the sandbox, normal mode). */
   toSandboxSecrets: (key: string) => Record<string, string>;
   /** When set, in proxy mode the real key is held by a sidecar under this name instead of injected into the sandbox. */
-  proxyKey?: keyof ProviderProxySecrets;
+  proxyKey?: ApiKeyProxyKey;
   /**
    * Optional credential-file env var that substitutes for the API key (subscription mode): Codex on a
    * ChatGPT subscription supplies its auth.json via CODEX_AUTH_JSON. In normal mode (or proxy mode with
@@ -302,10 +311,10 @@ export function providerKeyEnvNames(choice: ProviderChoice): string[] {
  * trust level Codex itself applies when loading auth.json (see docs/research/codex-credential-isolation.md Q3).
  */
 function decodeJwtPayload(token: string): Record<string, unknown> | undefined {
-  const parts = token.split('.');
-  if (parts.length !== 3) return undefined;
+  const payload = /^[^.]+\.([^.]+)\.[^.]*$/.exec(token)?.[1];
+  if (payload === undefined) return undefined;
   try {
-    const parsed: unknown = JSON.parse(Buffer.from(parts[1], 'base64url').toString('utf8'));
+    const parsed: unknown = JSON.parse(Buffer.from(payload, 'base64url').toString('utf8'));
     return typeof parsed === 'object' && parsed !== null && !Array.isArray(parsed) ? (parsed as Record<string, unknown>) : undefined;
   } catch {
     return undefined;
