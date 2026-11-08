@@ -436,9 +436,9 @@ export async function runRevisePullRequest(prRef: string, deps: ReviseGithubPrDe
           provider: agents.fallbackAgent,
           ...(deps.fallbackModel !== undefined ? { model: deps.fallbackModel } : {}),
         });
-        // Preserve the primary reviewer model on fallback; a separately configured reviewer
-        // must keep its primary-provider fallback model instead of leaking a foreign model.
-        if (deps.reviewModel !== undefined) pipeline = withStageFallbackModel(pipeline, deps.reviewModel);
+        // An explicit --review-model survives the fallback only when the fallback runs on the provider
+        // the model was pinned for; a cross-provider fallback keeps --fallback-model / its own default.
+        if (deps.reviewModel !== undefined) pipeline = withStageFallbackModel(pipeline, deps.reviewModel, agents.agent);
       }
 
       // Override the implementer's promptTemplate with the revision prompt. It holds review comments and

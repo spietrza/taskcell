@@ -677,15 +677,22 @@ export function withStageFallback(
 
 /**
  * Override `model` inside an already-attached fallback on one named stage (default: 'reviewer'),
- * leaving everything else untouched. Backs `--review-model`: after `withPrimaryFallback` gives the
- * reviewer a same-provider fallback, this keeps that fallback pinned to the explicit review model
- * instead of leaking the generic `--fallback-model`. Guarded to stages with no `provider` of their
- * own, so a cross-provider reviewer's fallback — set via `withStageFallback` and carrying
- * `providerModel`, not `reviewModel` — is left alone.
+ * leaving everything else untouched. Backs `--review-model`: when the stage's fallback runs on the
+ * same provider the stage itself runs on (`primary` when the stage names none), the explicit review
+ * model still applies there, so keep it instead of leaking the generic `--fallback-model`.
+ *
+ * A fallback on a *different* provider is left alone: the pinned model name is that provider's to
+ * reject (an Anthropic alias handed to Codex is a hard error), so it keeps whatever
+ * `withStageFallback`/`withPrimaryFallback` gave it — `--fallback-model`, or the provider's default.
  */
-export function withStageFallbackModel(stages: PipelineStage[], model: string, stageName: StageName = STAGE.REVIEWER): PipelineStage[] {
+export function withStageFallbackModel(
+  stages: PipelineStage[],
+  model: string,
+  primary: AgentProvider,
+  stageName: StageName = STAGE.REVIEWER,
+): PipelineStage[] {
   return stages.map((stage) =>
-    stage.name === stageName && stage.provider === undefined && stage.fallback !== undefined
+    stage.name === stageName && stage.fallback?.provider.name === (stage.provider ?? primary).name
       ? { ...stage, fallback: { ...stage.fallback, model } }
       : stage,
   );

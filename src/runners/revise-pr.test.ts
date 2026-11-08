@@ -91,9 +91,9 @@ function makeSandbox(fixContent = 'fix applied'): IsolatedSandboxProvider {
   } as unknown as IsolatedSandboxProvider;
 }
 
-function agentThatCompletes(received: AgentRunInput[]): AgentProvider {
+function agentThatCompletes(received: AgentRunInput[], name = 'claude-code'): AgentProvider {
   return {
-    name: 'claude-code',
+    name,
     async *run(input: AgentRunInput): AsyncGenerator<AgentTurn, AgentRunOutput, void> {
       received.push(input);
       yield { text: 'applying fix' };
@@ -1560,7 +1560,44 @@ it('uses the fallback model for the failed stage and subsequent stages', async (
   }
 });
 
-it('keeps an explicit --review-model on the reviewer stage even after the primary falls back', async () => {
+it('keeps an explicit --review-model when the reviewer stage falls back to the same provider', async () => {
+  const primaryInputs: AgentRunInput[] = [];
+  const fallbackInputs: AgentRunInput[] = [];
+  const primary = agentThatCompletes(primaryInputs);
+  // `--review-provider` equal to `--provider`: a separate agent instance on the SAME provider, whose
+  // fallback is the primary agent. --fallback-provider can never be the primary itself (selectAgents
+  // rejects that), so this is the one shape in which the reviewer's fallback can serve --review-model.
+  const reviewer = agentThatCompletes([]);
+  reviewer.run = async function* (): AsyncGenerator<AgentTurn, AgentRunOutput, void> {
+    throw new AgentError('HTTP 429');
+  };
+  const spy = vi.spyOn(registry, 'selectAgents').mockReturnValue({
+    agent: primary, reviewAgent: reviewer, fallbackAgent: agentThatCompletes(fallbackInputs, 'codex'),
+    secrets: {}, proxySecrets: {}, injectAnthropicAuth: false,
+  });
+  const gh = vi.fn(async (args: string[]) => {
+    if (args[0] === 'pr' && args[1] === 'view') return makePrViewJson();
+    if (args[0] === 'api' && args[1] === 'graphql' && !args.some((arg) => arg.includes('mutation'))) return makeFeedbackJson();
+    return '';
+  });
+  try {
+    const result = await runRevisePullRequest('7', {
+      repoPath: repo, repoSlug: 'o/r', gh, out: join(repo, 'preview.md'),
+      _sandbox: makeSandbox(), _worktrees: new WorktreeManager(repo), _baseBranch: 'feature-branch',
+      provider: 'claude', reviewProvider: 'claude', fallbackProvider: 'codex',
+      fallbackModel: 'fallback-model', reviewModel: 'review-pin',
+    });
+    expect(result.dryRunOut).toBeDefined();
+    // Implementer and simplifier run on the primary (no model pinned); the reviewer's fallback lands
+    // there too, carrying --review-model rather than the codex-bound --fallback-model.
+    expect(fallbackInputs).toHaveLength(0);
+    expect(primaryInputs.map((input) => input.model)).toEqual([undefined, 'review-pin', undefined]);
+  } finally {
+    spy.mockRestore();
+  }
+});
+
+it('drops an explicit --review-model when the fallback runs on another provider', async () => {
   const primaryInputs: AgentRunInput[] = [];
   const fallbackInputs: AgentRunInput[] = [];
   const primary = agentThatCompletes(primaryInputs);
@@ -1569,7 +1606,8 @@ it('keeps an explicit --review-model on the reviewer stage even after the primar
     throw new AgentError('HTTP 429');
   };
   const spy = vi.spyOn(registry, 'selectAgents').mockReturnValue({
-    agent: primary, fallbackAgent: agentThatCompletes(fallbackInputs),
+    // A Codex fallback cannot serve the Claude model name --review-model pinned for the reviewer.
+    agent: primary, fallbackAgent: agentThatCompletes(fallbackInputs, 'codex'),
     secrets: {}, proxySecrets: {}, injectAnthropicAuth: false,
   });
   const gh = vi.fn(async (args: string[]) => {
@@ -1585,9 +1623,38 @@ it('keeps an explicit --review-model on the reviewer stage even after the primar
     });
     expect(result.dryRunOut).toBeDefined();
     expect(fallbackInputs).toHaveLength(3);
-    expect(fallbackInputs[0]?.model).toBe('fallback-model');
-    expect(fallbackInputs[1]?.model).toBe('review-pin');
-    expect(fallbackInputs[2]?.model).toBe('fallback-model');
+    expect(fallbackInputs.map((input) => input.model)).toEqual(['fallback-model', 'fallback-model', 'fallback-model']);
+  } finally {
+    spy.mockRestore();
+  }
+});
+
+it('leaves the reviewer fallback on the fallback provider default when neither model is set', async () => {
+  const primaryInputs: AgentRunInput[] = [];
+  const fallbackInputs: AgentRunInput[] = [];
+  const primary = agentThatCompletes(primaryInputs);
+  primary.run = async function* (input): AsyncGenerator<AgentTurn, AgentRunOutput, void> {
+    primaryInputs.push(input);
+    throw new AgentError('HTTP 429');
+  };
+  const spy = vi.spyOn(registry, 'selectAgents').mockReturnValue({
+    agent: primary, fallbackAgent: agentThatCompletes(fallbackInputs, 'codex'),
+    secrets: {}, proxySecrets: {}, injectAnthropicAuth: false,
+  });
+  const gh = vi.fn(async (args: string[]) => {
+    if (args[0] === 'pr' && args[1] === 'view') return makePrViewJson();
+    if (args[0] === 'api' && args[1] === 'graphql' && !args.some((arg) => arg.includes('mutation'))) return makeFeedbackJson();
+    return '';
+  });
+  try {
+    const result = await runRevisePullRequest('7', {
+      repoPath: repo, repoSlug: 'o/r', gh, out: join(repo, 'preview.md'),
+      _sandbox: makeSandbox(), _worktrees: new WorktreeManager(repo), _baseBranch: 'feature-branch',
+      provider: 'claude', fallbackProvider: 'codex', reviewModel: 'review-pin',
+    });
+    expect(result.dryRunOut).toBeDefined();
+    expect(fallbackInputs).toHaveLength(3);
+    expect(fallbackInputs.every((input) => input.model === undefined)).toBe(true);
   } finally {
     spy.mockRestore();
   }
@@ -1597,7 +1664,7 @@ it('keeps the primary model when a cross-provider reviewer falls back', async ()
   const primaryInputs: AgentRunInput[] = [];
   const fallbackInputs: AgentRunInput[] = [];
   const primary = agentThatCompletes(primaryInputs);
-  const reviewer = agentThatCompletes([]);
+  const reviewer = agentThatCompletes([], 'codex');
   reviewer.run = async function* (_input): AsyncGenerator<AgentTurn, AgentRunOutput, void> {
     throw new AgentError('HTTP 429');
   };
