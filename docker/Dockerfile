@@ -8,6 +8,8 @@ FROM node:24-bookworm-slim@sha256:01d566e8d94d8c619591d78652babfccd3c6992a3dffa9
 ARG CLAUDE_CLI_VERSION=2.1.260
 ARG LINEAR_CLI_VERSION=3.1.0
 ARG CODEX_CLI_VERSION=0.167.0
+ARG PNPM_VERSION=12.18.0
+ARG BUN_VERSION=1.4.4
 
 # xz-utils + ca-certificates: the linear-cli npm package downloads and untars an .xz release binary.
 RUN apt-get update \
@@ -26,8 +28,8 @@ RUN for i in 1 2 3 4 5; do \
       npm install -g \
         @anthropic-ai/claude-code@${CLAUDE_CLI_VERSION} \
         @openai/codex@${CODEX_CLI_VERSION} \
-        pnpm \
-        bun \
+        pnpm@${PNPM_VERSION} \
+        bun@${BUN_VERSION} \
       && exit 0; \
       [ "$i" -lt 5 ] || break; \
       echo "npm install failed (attempt $i/5), retrying in $((i * 15))s" >&2; sleep $((i * 15)); \
