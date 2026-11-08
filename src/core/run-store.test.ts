@@ -577,7 +577,7 @@ describe('persisted review verdict (T5–T9)', () => {
     expect(VERDICT_STAGES).toEqual(new Set([STAGE.REVIEWER, STAGE.CONFORMANCE]));
     await beginRun(repo, 'TES-1', TS).writeStages([{ name: 'reviewer', result }]);
     const record = (await readRun(runsRoot(repo), 'TES-1', TS)).stages[0]!.record;
-    expect(record.verdict).toBe('pass');
+    expect(record.verdict).toBe('incomplete');
     expect(record).not.toHaveProperty('findings');
   });
 });

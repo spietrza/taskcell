@@ -12,15 +12,22 @@ export interface ReviewVerdictSummary {
   findings: Finding[];
 }
 
+// The reviewer/conformance prompt (pipeline.ts) requires this exact line, on its own, when there is
+// no blocking finding. Anything else — an empty reply, an aborted one, "Review unavailable: …" — is
+// not a stated pass, so it must not read as one (#665: such a reply was recorded as `pass`).
+const NO_BLOCKING_ISSUES_RE = /^No blocking issues\.$/m;
+
 /**
  * The persisted reading of one review reply. `changes` iff `hasBlockingFinding()` — the SAME
  * predicate `publishReviewVerdict` gates `request-changes` on, so a chip can never disagree with
- * what the bot actually did to the PR. The stated `Verdict:` line is NOT used: nothing gates on it
- * today (see verdictContradictsFindings) and a self-contradicting reply must read as the gate read
- * it. `findings` is `[]` when no parseable `<findings>` block is present.
+ * what the bot actually did to the PR. Otherwise `pass` iff the reply states the exact "No blocking
+ * issues." line; a reply that neither blocks nor states that line (empty, aborted, "Review
+ * unavailable: …") is `incomplete`, not a silent pass. The stated `Verdict:` line is NOT used: nothing
+ * gates on it today (see verdictContradictsFindings) and a self-contradicting reply must read as the
+ * gate read it. `findings` is `[]` when no parseable `<findings>` block is present.
  */
 export function reviewVerdictOf(text: string): ReviewVerdictSummary {
-  const verdict: ReviewVerdict = hasBlockingFinding(text) ? 'changes' : 'pass';
+  const verdict: ReviewVerdict = hasBlockingFinding(text) ? 'changes' : NO_BLOCKING_ISSUES_RE.test(text) ? 'pass' : 'incomplete';
   let findings: Finding[];
   try {
     findings = extractFindings(text).findings;
@@ -30,9 +37,9 @@ export function reviewVerdictOf(text: string): ReviewVerdictSummary {
   return { verdict, findings };
 }
 
-/** `Review: PASS (0 findings)` / `Review: CHANGES (3 findings)` — the PR-body one-liner. */
+/** `Review: PASS (0 findings)` / `Review: CHANGES (3 findings)` / `Review: INCOMPLETE (0 findings)` — the PR-body one-liner. */
 export function reviewVerdictLine(summary: ReviewVerdictSummary): string {
   const n = summary.findings.length;
-  const label = summary.verdict === 'pass' ? 'PASS' : 'CHANGES';
+  const label = summary.verdict.toUpperCase();
   return `Review: ${label} (${n} finding${n === 1 ? '' : 's'})`;
 }
