@@ -35,19 +35,21 @@ RUN for i in 1 2 3 4 5; do \
 
 # linear-cli's postinstall downloads its binary from GitHub Releases, which can return 5xx for long
 # stretches (#657). Only `--linear` runs need it, so when every attempt failed on that download (and
-# only then) the image is built without it; preflight fails a `--linear` run on such an image. Any
-# other failure (integrity, missing version) still fails the build. LINEAR_RETRY changes the layer's
+# only then) the image is built without it; `doctor` and run preflight report it for a `--linear` run.
+# An integrity or missing-version error on any attempt still fails the build. LINEAR_RETRY changes the layer's
 # cache key, so `LINEAR_RETRY=1 docker/build.sh` retries a cached build that skipped it.
 ARG LINEAR_RETRY=
-RUN for i in 1 2 3 4 5; do \
-      npm install -g @schpet/linear-cli@${LINEAR_CLI_VERSION} >/tmp/linear-install.log 2>&1 \
-        && linear --version >/dev/null && rm -f /tmp/linear-install.log && exit 0; \
-      cat /tmp/linear-install.log >&2; \
+RUN echo "linear-retry=${LINEAR_RETRY}" >/dev/null; : >/tmp/linear-install.log; \
+    for i in 1 2 3 4 5; do \
+      npm install -g @schpet/linear-cli@${LINEAR_CLI_VERSION} >/tmp/linear-attempt.log 2>&1 \
+        && linear --version >/dev/null && rm -f /tmp/linear-*.log && exit 0; \
+      cat /tmp/linear-attempt.log >&2; cat /tmp/linear-attempt.log >>/tmp/linear-install.log; \
       [ "$i" -lt 5 ] || break; \
       echo "linear-cli install failed (attempt $i/5), retrying in $((i * 15))s" >&2; sleep $((i * 15)); \
     done; \
-    grep -qE 'Error fetching release: Request failed with status code 5[0-9][0-9]|ETIMEDOUT|ECONNRESET' /tmp/linear-install.log || exit 1; \
-    rm -f /tmp/linear-install.log; \
+    if grep -qE 'EINTEGRITY|E404|ETARGET|Integrity check failed' /tmp/linear-install.log; then exit 1; fi; \
+    grep -qE 'Error fetching release: Request failed with status code 5[0-9][0-9]' /tmp/linear-install.log || exit 1; \
+    rm -f /tmp/linear-*.log; \
     npm uninstall -g @schpet/linear-cli >&2 || true; \
     rm -f "$(npm prefix -g)/bin/linear"; \
     if command -v linear >/dev/null; then echo "linear still on PATH after uninstall" >&2; exit 1; fi; \
