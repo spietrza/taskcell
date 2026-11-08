@@ -43,6 +43,7 @@ import {
   withStageModel,
   withStageModelExcept,
   withStageFallback,
+  withStageFallbackModel,
   withPrimaryFallback,
   STAGE,
 } from '../pipeline/pipeline.js';
@@ -435,6 +436,9 @@ export async function runRevisePullRequest(prRef: string, deps: ReviseGithubPrDe
           provider: agents.fallbackAgent,
           ...(deps.fallbackModel !== undefined ? { model: deps.fallbackModel } : {}),
         });
+        // Preserve the primary reviewer model on fallback; a separately configured reviewer
+        // must keep its primary-provider fallback model instead of leaking a foreign model.
+        if (deps.reviewModel !== undefined) pipeline = withStageFallbackModel(pipeline, deps.reviewModel);
       }
 
       // Override the implementer's promptTemplate with the revision prompt. It holds review comments and

@@ -73,6 +73,9 @@ const RATE_LIMIT_PATTERNS: readonly RegExp[] = [
   // The vendors' own refusal strings: Anthropic's `rate_limit_error`, OpenAI's `rate_limit_exceeded`
   // and "Rate limit reached for <model>".
   /\b(?:rate_limit_(?:error|exceeded)|rate limit reached for)\b/i,
+  // Claude subscription usage-limit stall (the case #615 was about) and the provider's overloaded refusal.
+  /\busage limit reached\b/i,
+  /\bapi error:\s*overloaded\b/i,
 ];
 
 /** True when `error` is a provider rate-limit refusal, not some other agent failure. */

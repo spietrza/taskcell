@@ -676,6 +676,22 @@ export function withStageFallback(
 }
 
 /**
+ * Override `model` inside an already-attached fallback on one named stage (default: 'reviewer'),
+ * leaving everything else untouched. Backs `--review-model`: after `withPrimaryFallback` gives the
+ * reviewer a same-provider fallback, this keeps that fallback pinned to the explicit review model
+ * instead of leaking the generic `--fallback-model`. Guarded to stages with no `provider` of their
+ * own, so a cross-provider reviewer's fallback — set via `withStageFallback` and carrying
+ * `providerModel`, not `reviewModel` — is left alone.
+ */
+export function withStageFallbackModel(stages: PipelineStage[], model: string, stageName: StageName = STAGE.REVIEWER): PipelineStage[] {
+  return stages.map((stage) =>
+    stage.name === stageName && stage.provider === undefined && stage.fallback !== undefined
+      ? { ...stage, fallback: { ...stage.fallback, model } }
+      : stage,
+  );
+}
+
+/**
  * Attach `fallback` to every stage that runs on the primary agent (no `provider` of its own and no
  * fallback yet): implementer, simplifier, planner, tech-spec — and any name a repo flow uses. A
  * provider that is down for the implementer is down for the simplifier too; rescuing one stage

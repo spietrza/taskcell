@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { isRateLimitError, failureReason, formatFailureComment, visibleError, VanguardError } from './errors.js';
+import { isRateLimitError, failureReason, formatFailureComment, visibleError, VanguardError, AgentError } from './errors.js';
 
 describe('failureReason', () => {
   it('masks credentials and collapses the message to one line, since it lands in a public CI log', () => {
@@ -74,8 +74,19 @@ describe('visibleError', () => {
 });
 
 describe('isRateLimitError', () => {
-  it.each(['HTTP 429', 'status code 429', 'API Error: 429', '{"code":429}', '429 Too Many Requests', 'rate_limit_error', 'rate_limit_exceeded', 'Rate limit reached for gpt-5'])('recognizes %s', (message) => {
-    expect(isRateLimitError(new Error(message))).toBe(true);
+  it.each([
+    'HTTP 429',
+    'status code 429',
+    'API Error: 429',
+    '{"code":429}',
+    '429 Too Many Requests',
+    'rate_limit_error',
+    'rate_limit_exceeded',
+    'Rate limit reached for gpt-5',
+    'usage limit reached',
+    'API Error: overloaded',
+  ])('recognizes %s', (message) => {
+    expect(isRateLimitError(new AgentError(message))).toBe(true);
   });
   it.each(['API rate limit exceeded for user alice', 'gh failed: API rate limit exceeded', 'line 429', 'implement rate limiting', 'invalid API key'])('rejects %s', (message) => {
     expect(isRateLimitError(new Error(message))).toBe(false);
