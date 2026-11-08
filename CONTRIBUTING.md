@@ -49,6 +49,11 @@ pnpm test
 
 Both must pass before opening a pull request.
 
+Run `pnpm coverage:ratchet` to measure coverage and preview raised thresholds.
+Use `pnpm coverage:ratchet --write` to apply them to `vitest.config.ts` after a
+successful suite. Each threshold stays at least its current value, with new floors
+set to the measured percentage rounded down minus two points.
+
 ## Workflow
 
 1. Fork the repo (external contributors) or create a branch (collaborators).

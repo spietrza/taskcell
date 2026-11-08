@@ -1,5 +1,6 @@
 node_modules/
 dist/
+coverage/
 .vanguard/*
 # ...except the flow-loader test fixture: `ref = "path#export"` resolves against a repo's `.vanguard/`,
 # so the fixture repo must have a real one. Un-ignore the DIRECTORY — git cannot re-include a file whose
@@ -24,3 +25,4 @@ id_rsa*
 # lokalne ustawienia Claude Code (per-maszyna)
 .claude/settings.local.json
 .gstack/
+.idea/
