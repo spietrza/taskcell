@@ -1,8 +1,10 @@
 import { fanOut } from '../pipeline/fan-out.js';
-import { failureReason } from '../core/errors.js';
-import { hasPullRequestReviewMarker } from './pr-review.js';
+import { AgentError, failureReason, isRateLimitError } from '../core/errors.js';
+import { parseProviderRateLimitReset, rateLimitedComment } from '../core/rate-limit-marker.js';
+import { hasPullRequestReviewMarker, commentPullRequest } from './pr-review.js';
 import { defaultGhRunner, isTrustedIssueAuthor } from '../tasks/github.js';
 import { classifyAuthor, describeIgnoredAuthor, isBotLogin } from '../tasks/comment-trust.js';
+import { GITHUB_RATE_LIMITED_LABEL } from '../github-labels.js';
 import type { GhRunner } from '../tasks/github.js';
 
 export interface PullRequestWatchItem {
@@ -265,11 +267,22 @@ export function githubPullRequestWatchPrimitives(opts: GitHubPullRequestWatchOpt
         remove: [opts.reviewingLabel],
         add: [opts.reviewedLabel],
       }).then(() => {}),
-    onFailure: (item) =>
-      editPullRequestLabels(gh, item.repoSlug, item.number, {
+    onFailure: async (item, error) => {
+      if (error instanceof AgentError && isRateLimitError(error)) {
+        const until = parseProviderRateLimitReset(error.message);
+        await gh(['label', 'create', GITHUB_RATE_LIMITED_LABEL, '--repo', item.repoSlug, '--force']).catch(() => undefined);
+        await editPullRequestLabels(gh, item.repoSlug, item.number, {
+          remove: [opts.reviewingLabel],
+          add: [GITHUB_RATE_LIMITED_LABEL],
+        });
+        await commentPullRequest(item, rateLimitedComment(until, opts.label), gh);
+        return;
+      }
+      await editPullRequestLabels(gh, item.repoSlug, item.number, {
         remove: [opts.reviewingLabel],
         add: [opts.label],
-      }).then(() => {}),
+      });
+    },
   };
 }
 

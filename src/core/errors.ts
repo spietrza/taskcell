@@ -73,19 +73,13 @@ const RATE_LIMIT_PATTERNS: readonly RegExp[] = [
   // The vendors' own refusal strings: Anthropic's `rate_limit_error`, OpenAI's `rate_limit_exceeded`
   // and "Rate limit reached for <model>".
   /\b(?:rate_limit_(?:error|exceeded)|rate limit reached for)\b/i,
+  // Anthropic's subscription session-limit refusal, worded as prose rather than an HTTP status (#656):
+  // "You've hit your session limit · resets 9pm (UTC)".
+  /\bhit (?:your|the) session limit\b/i,
 ];
 
 /** True when `error` is a provider rate-limit refusal, not some other agent failure. */
 export function isRateLimitError(error: unknown): boolean {
   const message = error instanceof Error ? error.message : String(error);
   return RATE_LIMIT_PATTERNS.some((re) => re.test(message));
-}
-
-/**
- * PR notice posted when a run ends on a provider rate limit with no fallback to rescue it: nothing
- * retries automatically, so re-labeling is the only way to pick the work back up. Unbranded — a
- * white-label run shows it too, same as any other hand-back notice.
- */
-export function rateLimitRetryNotice(label: string): string {
-  return `This run ended because the AI provider hit a rate limit (HTTP 429) — a temporary condition, not a problem with this change. Remove and re-apply the \`${label}\` label to retry once the limit clears.`;
 }

@@ -8,8 +8,9 @@ import { runGitlabIssue } from './gitlab.js';
 import { runSpecGenerator } from './spec.js';
 import { assessTaskReadiness, isVanguardSpec, SPEC_TAG } from '../tasks/triage.js';
 import { fanOut } from '../pipeline/fan-out.js';
-import { failureReason, formatFailureComment } from '../core/errors.js';
-import { GITHUB_SECRET_BLOCKED_LABEL } from '../github-labels.js';
+import { AgentError, failureReason, formatFailureComment, isRateLimitError } from '../core/errors.js';
+import { parseProviderRateLimitReset, rateLimitedComment } from '../core/rate-limit-marker.js';
+import { GITHUB_SECRET_BLOCKED_LABEL, GITHUB_RATE_LIMITED_LABEL } from '../github-labels.js';
 import { GITLAB_SECRET_BLOCKED_LABEL } from '../gitlab-labels.js';
 import type { Task } from '../tasks/fetcher.js';
 import type { RunLinearIssueDeps } from './linear.js';
@@ -656,6 +657,27 @@ export interface WatchGithubOptions {
 }
 
 /**
+ * Mark a GitHub issue rate-limited: add `vanguard:rate-limited` (creating the label first — a repo
+ * that never created it would otherwise fail the edit and strand the issue claimed), clear the
+ * claim label the failed run left behind, and post the marker comment naming the trigger that
+ * restarts this stage. The trigger label itself is left off until `resume-rate-limited` restores it
+ * once `until` has passed — restoring it now would let the very next poll retry into the same limit.
+ */
+async function markGithubIssueRateLimited(
+  repo: string,
+  id: string,
+  claimedLabel: string,
+  trigger: string,
+  error: Error,
+  gh?: GhRunner,
+): Promise<void> {
+  const until = parseProviderRateLimitReset(error.message);
+  await (gh ?? defaultGhRunner)(['label', 'create', GITHUB_RATE_LIMITED_LABEL, '--repo', repo, '--force']).catch(() => undefined);
+  await editGithubLabels(repo, id, { remove: [claimedLabel], add: [GITHUB_RATE_LIMITED_LABEL] }, gh);
+  await commentGithubIssue(repo, id, rateLimitedComment(until, trigger), gh);
+}
+
+/**
  * Drop ready GitHub issues whose author is not trusted (OWNER/MEMBER/COLLABORATOR, --feedback-authors or
  * a GitHub App bot). A label alone is not consent: issue templates can apply the trigger label to an
  * outsider's issue. Applied to both passes, so the spec pass never advances one into the agent pass.
@@ -735,7 +757,13 @@ export function githubIssueWatchPrimitives(opts: WatchGithubOptions): WatchPrimi
         opts.gh,
       );
     },
-    onFailure: (id, error) => commentGithubIssue(repo, id, formatFailureComment('Vanguard run failed', error), opts.gh),
+    onFailure: async (id, error) => {
+      if (error instanceof AgentError && isRateLimitError(error)) {
+        await markGithubIssueRateLimited(repo, id, opts.claimedLabel, opts.label, error, opts.gh);
+        return;
+      }
+      await commentGithubIssue(repo, id, formatFailureComment('Vanguard run failed', error), opts.gh);
+    },
   };
 }
 
@@ -788,6 +816,10 @@ export function githubSpecPrimitives(opts: WatchGithubSpecOptions): SpecWatchPri
       });
     },
     onFailure: async (id, error) => {
+      if (error instanceof AgentError && isRateLimitError(error)) {
+        await markGithubIssueRateLimited(repo, id, opts.claimedLabel, opts.specLabel, error, opts.gh);
+        return;
+      }
       await commentGithubIssue(repo, id, formatFailureComment('Vanguard spec failed', error), opts.gh);
       await editGithubLabels(repo, id, { remove: [opts.claimedLabel], add: [opts.specLabel] }, opts.gh);
     },
