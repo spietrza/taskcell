@@ -41,8 +41,17 @@ export const DEFAULT_GATE_CONFIG_GLOBS: readonly string[] = [
   '.vanguard/approver.json',
 ];
 
-/** The heading gateConfigChangedBlock emits; extractGateConfigBlock looks for the same text. */
+/** The heading gateConfigChangedBlock emits. */
 const GATE_CONFIG_HEADING = '## Gate config changed';
+/**
+ * Explicit delimiters around the block, so extractGateConfigBlock knows exactly where it ends. A
+ * `##`-heading scan is not enough: in a real first-delivery body the block is followed by the
+ * `Closes`/`Part of` line and the attribution line before the next heading (see source-adapter.ts),
+ * so such a scan over-captures those lines and can carry a stale `Closes #N` into a re-derived body.
+ * Same sentinel idiom as the AGENTS.md block in context/skill-registry.ts.
+ */
+const GATE_CONFIG_BLOCK_START = '<!-- vanguard:gate-config:start -->';
+const GATE_CONFIG_BLOCK_END = '<!-- vanguard:gate-config:end -->';
 
 const PACKAGE_JSON_PATH = /(^|[\\/])package\.json$/;
 /** Every `"key": "value"` pair on a line (compact JSON can hold several), key and value captured. */
@@ -153,7 +162,7 @@ export function gateConfigChangedBlock(files: readonly GateConfigDiffFile[]): st
     return [`- ${codeSpan(f.path)}`, `  ${fence}diff`, ...changed.map((l) => `  ${l}`), `  ${fence}`, ...(more > 0 ? [`  …and ${more} more line(s).`] : [])];
   });
   const moreFiles = sorted.length > GATE_CONFIG_FILES_LISTED ? [`…and ${sorted.length - GATE_CONFIG_FILES_LISTED} more file(s).`] : [];
-  return [
+  const content = [
     GATE_CONFIG_HEADING,
     '',
     "This diff touches checker config the verify gate runs from the agent's own worktree (coverage thresholds, lint rules, type settings, or the verify/test/lint/typecheck scripts). Weakening a check here — lowering a threshold, disabling a rule, relaxing a type setting, loosening a script — is blocking for review unless the linked issue explicitly asked for it.",
@@ -161,22 +170,31 @@ export function gateConfigChangedBlock(files: readonly GateConfigDiffFile[]): st
     ...fileLines,
     ...moreFiles,
   ].join('\n');
+  // Paths and excerpt lines are agent-written: a delimiter inside them would truncate (or forge) the
+  // block extractGateConfigBlock carries forward, so they are defanged like skill-registry.ts does.
+  return [GATE_CONFIG_BLOCK_START, defangBlockDelimiters(content), GATE_CONFIG_BLOCK_END].join('\n');
+}
+
+function defangBlockDelimiters(text: string): string {
+  return text
+    .replaceAll(GATE_CONFIG_BLOCK_START, '[vanguard:gate-config:start]')
+    .replaceAll(GATE_CONFIG_BLOCK_END, '[vanguard:gate-config:end]');
 }
 
 /**
- * Recover an existing `## Gate config changed` block from a previously-posted PR body, so a caller
- * that re-derives the whole body (revise-pr.ts, every round) can carry the disclosure forward even on
- * a round that itself touches no gate config — otherwise re-deriving the body silently drops the
- * evidence of the original weakening. Every section this codebase joins into a PR body is separated
- * from its neighbour by a blank line before the next `##` heading, so that is the block's end;
- * `undefined` when `body` carries no such heading.
+ * Recover an existing gate-config block from a previously-posted PR body, so a caller that re-derives
+ * the whole body (revise-pr.ts, every round) can carry the disclosure forward even on a round that
+ * itself touches no gate config — otherwise re-deriving the body silently drops the evidence of the
+ * original weakening. Delimited strictly by the marker pair gateConfigChangedBlock emits, so nothing
+ * around the block (the `Closes`/`Part of` line, the attribution line) is ever captured with it;
+ * `undefined` when `body` carries no complete marker pair — a body posted before the markers existed
+ * loses the carry-forward rather than risking a stale closing keyword, and keeps its gate label.
  */
 export function extractGateConfigBlock(body: string): string | undefined {
-  const start = body.indexOf(GATE_CONFIG_HEADING);
-  if (start === -1) return undefined;
-  const rest = body.slice(start);
-  const nextHeading = rest.indexOf('\n\n## ');
-  return (nextHeading === -1 ? rest : rest.slice(0, nextHeading)).trimEnd();
+  const start = body.indexOf(GATE_CONFIG_BLOCK_START);
+  const end = body.indexOf(GATE_CONFIG_BLOCK_END, start);
+  if (start === -1 || end === -1) return undefined;
+  return body.slice(start, end + GATE_CONFIG_BLOCK_END.length);
 }
 
 /**

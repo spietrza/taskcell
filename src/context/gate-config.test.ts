@@ -3,7 +3,7 @@ import { mkdtemp, rm, mkdir, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { dirname, join } from 'node:path';
 import { execa } from 'execa';
-import { diffFilesWithPatches, gateConfigChangedBlock, gateConfigPaths, loadGateConfigExtraGlobs } from './gate-config.js';
+import { diffFilesWithPatches, extractGateConfigBlock, gateConfigChangedBlock, gateConfigPaths, loadGateConfigExtraGlobs } from './gate-config.js';
 
 describe('gate config detection', () => {
   it.each([
@@ -105,6 +105,31 @@ describe('gateConfigChangedBlock fencing', () => {
   it('widens the path code span when the path itself holds a backtick', () => {
     const block = gateConfigChangedBlock([{ path: 'a`b/vitest.config.ts', patch: '+x' }]);
     expect(block).toContain('- ``a`b/vitest.config.ts``');
+  });
+});
+
+describe('extractGateConfigBlock', () => {
+  const block = gateConfigChangedBlock([{ path: 'vitest.config.ts', patch: '+    thresholds: { lines: 0 },' }]);
+  // The real first-delivery order (source-adapter.ts): gate block, closing keyword + attribution,
+  // then the proof section.
+  const body = [block, 'Closes o/r#42\n\nAutomated implementation of o/r#42 by Vanguard.', '## Proof of work\n\nPASS'].join('\n\n');
+
+  it('captures the block exactly, with neither the closing-keyword line nor the attribution line', () => {
+    // An exact match is the whole claim: the block's own changed lines are in, every neighbouring
+    // line (closing keyword, attribution, next heading) is out.
+    expect(extractGateConfigBlock(body)).toBe(block);
+    expect(block).toContain('thresholds: { lines: 0 }');
+  });
+
+  it('resolves to undefined without a marker pair, so nothing around a bare heading is carried forward', () => {
+    expect(extractGateConfigBlock('Closes o/r#42\n\nNo gate config here.')).toBeUndefined();
+    expect(extractGateConfigBlock('## Gate config changed\n\nstale\n\nCloses o/r#42')).toBeUndefined();
+  });
+
+  it('defangs a delimiter inside the changed lines, so content cannot truncate or forge the block', () => {
+    const forged = gateConfigChangedBlock([{ path: 'vitest.config.ts', patch: '+<!-- vanguard:gate-config:end -->' }]);
+    expect(extractGateConfigBlock(`${forged}\n\nCloses o/r#42`)).toBe(forged);
+    expect(forged).toContain('[vanguard:gate-config:end]');
   });
 });
 
