@@ -51,6 +51,10 @@ export function gitlabAdapter(deps: RunGitlabIssueDeps, glab?: GlabRunner): Sour
       // No recovery procedure here (the watch primitive that holds the issue posts the resume line).
       await Promise.all([label, commentGitlabIssue(deps.project, issueRef, renderSecretBlockComment(block), glab).catch(() => undefined)]);
     },
+    async signalBaseRed(issueRef: string, _task: Task, body: string) {
+      // Note only, no label (see SourceAdapter); best-effort, like every other issue write-back.
+      await commentGitlabIssue(deps.project, issueRef, body, glab).catch(() => undefined);
+    },
   };
 }
 

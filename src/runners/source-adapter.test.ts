@@ -6,6 +6,7 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { startProviderProxies } from '../sandbox/llm-proxy.js';
 import { resolveVerifyCommand, runVerification } from '../pipeline/verify.js';
+import { resolveBaselineVerify } from '../pipeline/baseline-verify.js';
 import { resolveAndRunVisualProof } from '../pipeline/visual-proof.js';
 import { loadRetrospectiveMemory } from '../core/retrospective-memory.js';
 import { pickRunOptions, runSourcedIssue, conventionalCommitMessage, modelFromLabels } from './source-adapter.js';
@@ -170,6 +171,11 @@ vi.mock('../pipeline/verify.js', () => ({
   renderVerificationFeedback: vi.fn(() => 'verify-feedback'),
   proofBlock: vi.fn(() => ''),
   verifySkippedBlock: vi.fn(() => ''),
+  baseRedBlock: vi.fn(() => 'base-red-block'),
+}));
+// Green base by default, so only the tests about a red base take that early return.
+vi.mock('../pipeline/baseline-verify.js', () => ({
+  resolveBaselineVerify: vi.fn(async () => ({ passed: true })),
 }));
 vi.mock('../pipeline/visual-proof.js', () => ({
   resolveAndRunVisualProof: vi.fn(async () => undefined),
@@ -220,6 +226,7 @@ function fakeAdapter(order: string[], stages: PipelineStage[]): SourceAdapter {
     addFailureLabel: vi.fn(async () => { order.push('addFailureLabel'); }),
     linkPr: vi.fn(async () => { order.push('linkPr'); }),
     signalSecretBlock: vi.fn(async () => { order.push('signalSecretBlock'); }),
+    signalBaseRed: vi.fn(async () => { order.push('signalBaseRed'); }),
   };
 }
 
@@ -911,6 +918,19 @@ describe('runSourcedIssue', () => {
     expect(adapter.addFailureLabel).not.toHaveBeenCalledWith(MR_URL, 'verify');
     const body = publishForReview.mock.calls[0]?.[1]?.body as string;
     expect(body).toContain(`Closes ${task.id}`);
+  });
+
+  it('a red base branch stops the run before implementing, signalling the issue instead of opening a PR (#2024)', async () => {
+    vi.mocked(resolveVerifyCommand).mockResolvedValueOnce('npm test');
+    vi.mocked(resolveBaselineVerify).mockResolvedValueOnce({ passed: false, exitCode: 1 } as never);
+
+    const adapter = fakeAdapter([], STAGES);
+    const result = await runSourcedIssue('group/project#1', { repoPath: '/repo' }, adapter);
+
+    expect(result.prUrl).toBeUndefined();
+    expect(runStages).not.toHaveBeenCalled();
+    expect(publishForReview).not.toHaveBeenCalled();
+    expect(adapter.signalBaseRed).toHaveBeenCalledWith('group/project#1', task, 'base-red-block');
   });
 
   it('an incomplete implementer (max-turns/timeout) fails the gate and resumes its session — never a straight PR of residue (dogfood #352)', async () => {

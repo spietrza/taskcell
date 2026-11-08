@@ -51,6 +51,13 @@ function linearStages(): PipelineStage[] {
   return [{ ...implementer, promptTemplate: readAndImplement }, ...base.slice(1)];
 }
 
+/** Best-effort issue write-back: a failed comment must never fail the run. */
+async function commentBestEffort(taskId: string, body: string): Promise<void> {
+  try {
+    await commentLinearIssue(taskId, body);
+  } catch { /* best-effort */ }
+}
+
 /**
  * @internal Exported for unit tests; production callers use runLinearIssue. `gitlabProject` is set
  * when origin is on gitlab.com or GITLAB_HOST: the draft MR, verdict note and failure labels then go
@@ -79,9 +86,10 @@ export function linearAdapter(deps: RunLinearIssueDeps, gitlabProject?: string, 
     async signalSecretBlock(_issueRef: string, task: Task, block: SecretBlock) {
       // Linear uses workflow states, not labels; the comment is the primary signal. The watch
       // primitive that holds the issue posts how to release it (it knows the configured states).
-      try {
-        await commentLinearIssue(task.id, renderSecretBlockComment(block));
-      } catch { /* best-effort */ }
+      await commentBestEffort(task.id, renderSecretBlockComment(block));
+    },
+    async signalBaseRed(_issueRef: string, task: Task, body: string) {
+      await commentBestEffort(task.id, body);
     },
   };
 }

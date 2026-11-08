@@ -210,8 +210,9 @@ export interface SourceAdapter {
   /**
    * Surface a "base branch is red" notice (pre-rendered by the caller via `baseRedBlock`) on the
    * source issue: the baseline verify command already failed on the base commit, before the
-   * implementer ran, so no implement run was started. Best-effort: must never throw (mirrors
-   * signalSecretBlock).
+   * implementer ran, so no implement run was started. A plain comment/note, no label: a red base is
+   * not a held issue, and the body itself asks for the trigger label to be re-applied once the base
+   * is green. Best-effort: must never throw (mirrors signalSecretBlock).
    */
   signalBaseRed(issueRef: string, task: Task, body: string): Promise<void>;
   /** Write the PR link back onto the source issue. */
@@ -508,10 +509,12 @@ export async function runSourcedIssue(
         ...runMeta,
         stages: pipeline.map((s) => s.name),
       });
+      // Resolved once, from the base worktree, and reused by the post-implement gate below: the
+      // baseline verdict and the gate must be about the same command to mean anything.
+      // Before implementing: check that command against the base commit (cached by SHA). A gate that
+      // is already red there is not this task's fault — starting a repair loop against it would just
+      // burn turns on pre-existing failures, so stop here instead (#2024).
       const verifyCmd = await resolveVerifyCommand(ctx.worktreePath, deps.verifyCmd !== undefined ? { cmd: deps.verifyCmd } : {});
-      // Before implementing: check the verify command against the base commit (cached by SHA). A
-      // gate that is already red there is not this task's fault — starting a repair loop against it
-      // would just burn turns on pre-existing failures, so stop here instead (#2024).
       if (verifyCmd !== undefined) {
         const baselineVerify = await resolveBaselineVerify(deps.repoPath, ctx.startRef, ctx.sandbox, verifyCmd, deps.signal);
         if (!baselineVerify.passed) {
@@ -553,7 +556,6 @@ export async function runSourcedIssue(
         (c) => !isTrustedComment(c, trust) && parseSpecManifest(c.body) !== undefined,
       );
       if (untrustedManifestDropped) console.log(`vanguard: ${task.id} ignoring <spec_manifest> from untrusted comment author(s) — declaring partial scope (Part of)`);
-      const verifyCmd = await resolveVerifyCommand(ctx.worktreePath, deps.verifyCmd !== undefined ? { cmd: deps.verifyCmd } : {});
 
       // The implementer's position in `outcomes` is fixed while its session is resumable (repairUntilGreen
       // merges each repair into that entry in place).

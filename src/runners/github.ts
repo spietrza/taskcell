@@ -55,6 +55,10 @@ export function githubAdapter(deps: RunGithubIssueDeps, gh: GhRunner = defaultGh
       // whose release steps differ. The watch primitive that holds the issue posts the resume line.
       await Promise.all([label, commentGithubIssue(deps.repoSlug, issueRef, renderSecretBlockComment(block), gh).catch(() => undefined)]);
     },
+    async signalBaseRed(issueRef: string, _task: Task, body: string) {
+      // Comment only, no label (see SourceAdapter); best-effort, like every other issue write-back.
+      await commentGithubIssue(deps.repoSlug, issueRef, body, gh).catch(() => undefined);
+    },
   };
 }
 
