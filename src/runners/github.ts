@@ -1,5 +1,5 @@
 import { execa } from 'execa';
-import { GitHubTaskFetcher, linkPullRequest, addPrFailureLabel, editGithubLabels, commentGithubIssue, defaultGhRunner } from '../tasks/github.js';
+import { GitHubTaskFetcher, linkPullRequest, addPrFailureLabel, addPrGateLabel, editGithubLabels, commentGithubIssue, defaultGhRunner } from '../tasks/github.js';
 import { GitHubProjectFetcher } from '../tasks/github-project.js';
 import { implementReviewSimplifyStages } from '../pipeline/pipeline.js';
 import { publishReviewVerdict } from '../pipeline/review-publish.js';
@@ -7,7 +7,7 @@ import { agentAuthFromEnv } from '../agents/auth.js';
 import { fanOut } from '../pipeline/fan-out.js';
 import { runSourcedIssue } from './source-adapter.js';
 import { renderSecretBlockComment } from '../core/secret-scan.js';
-import { githubFailureLabel, GITHUB_SECRET_BLOCKED_LABEL } from '../github-labels.js';
+import { githubFailureLabel, GITHUB_GATE_CONFIG_LABEL, GITHUB_SECRET_BLOCKED_LABEL } from '../github-labels.js';
 import type { Task } from '../tasks/fetcher.js';
 import type { GhRunner } from '../tasks/github.js';
 import type { ProviderChoice } from '../agents/registry.js';
@@ -25,7 +25,8 @@ export type RunGithubIssueResult = RunIssueResult;
 
 /**
  * @internal Exported for unit tests; production callers use runGithubIssue. Only `signalSecretBlock`
- * goes through the injected `gh`; `prepare`, `linkPr` and `addFailureLabel` still reach the real CLI.
+ * goes through the injected `gh`; `prepare`, `linkPr`, `addFailureLabel` and `addGateConfigLabel`
+ * still reach the real CLI.
  */
 export function githubAdapter(deps: RunGithubIssueDeps, gh: GhRunner = defaultGhRunner): SourceAdapter {
   return {
@@ -39,6 +40,9 @@ export function githubAdapter(deps: RunGithubIssueDeps, gh: GhRunner = defaultGh
     publishVerdict: publishReviewVerdict,
     async addFailureLabel(prUrl: string, kind: ProofFailureKind) {
       await addPrFailureLabel(deps.repoPath, prUrl, githubFailureLabel(kind));
+    },
+    async addGateConfigLabel(prUrl: string) {
+      await addPrGateLabel(deps.repoPath, prUrl, GITHUB_GATE_CONFIG_LABEL);
     },
     async linkPr(issueRef: string, _task: Task, prUrl: string) {
       await linkPullRequest(deps.repoSlug, issueRef, prUrl);

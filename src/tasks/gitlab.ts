@@ -166,12 +166,13 @@ export async function linkMergeRequest(
 }
 
 /**
- * Best-effort: ensure the scoped label exists on the project, then add it to a GitLab MR
- * (used to flag failed proofs for triage). Without the pre-create, `glab mr update --label`
- * is a silent no-op on a project lacking the label (matching GitHub's `gh label create --force`
- * pre-step). Both steps swallow errors — labeling a draft MR must never block the run.
+ * Ensure the scoped label exists on the project, then add it to a GitLab MR, surfacing a failed add.
+ * Without the pre-create, `glab mr update --label` is a silent no-op on a project lacking the label
+ * (matching GitHub's `gh label create --force` pre-step); the pre-create itself stays tolerant, as it
+ * already exists on a project that labelled an MR before. For labels that are themselves a review
+ * gate — see SourceAdapter#addGateConfigLabel and addPrGateLabel, the GitHub twin.
  */
-export async function addMrFailureLabel(
+export async function addMrGateLabel(
   project: string,
   iid: number,
   label: string,
@@ -179,10 +180,21 @@ export async function addMrFailureLabel(
 ): Promise<void> {
   try {
     await glab(['label', 'create', '--repo', project, '--name', label]);
-  } catch { /* best-effort */ }
-  try {
-    await glab(['mr', 'update', String(iid), '--repo', project, '--label', label]);
-  } catch { /* best-effort */ }
+  } catch { /* the add below is the step that must succeed */ }
+  await glab(['mr', 'update', String(iid), '--repo', project, '--label', label]);
+}
+
+/**
+ * Best-effort: the same two steps as addMrGateLabel with the add swallowed too (used to flag failed
+ * proofs for triage) — labeling a draft MR must never block the run.
+ */
+export async function addMrFailureLabel(
+  project: string,
+  iid: number,
+  label: string,
+  glab: GlabRunner = defaultGlabRunner,
+): Promise<void> {
+  await addMrGateLabel(project, iid, label, glab).catch(() => undefined);
 }
 
 /** Add/remove labels on a GitLab issue (used to claim/advance it in the watch loop). */

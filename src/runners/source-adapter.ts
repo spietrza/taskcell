@@ -201,6 +201,13 @@ export interface SourceAdapter {
   /** Add a proof-failure label to the opened PR/MR (best-effort; must never throw). */
   addFailureLabel(prUrl: string, kind: ProofFailureKind): Promise<void>;
   /**
+   * Flag the opened PR/MR as touching gate config. Unlike addFailureLabel this is NOT best-effort:
+   * the label IS the gate a human review keys off (GATE_CONFIG_REVIEW_INSTRUCTION in pr-review.ts /
+   * mr-review.ts), so a failed flip must throw rather than hand back an unflagged PR. A no-op on a
+   * source that has no labelable review surface.
+   */
+  addGateConfigLabel(prUrl: string): Promise<void>;
+  /**
    * Surface a secret-scan block on the source issue (label + masked comment). Best-effort: must
    * never throw (mirrors addFailureLabel). Called for BOTH the findings block and the scan-error
    * precautionary block.
