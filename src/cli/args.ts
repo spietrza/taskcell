@@ -79,6 +79,8 @@ export type Command =
       fallbackProvider?: ProviderName;
       /** Model for every stage that fell back (default: that provider's default). */
       fallbackModel?: string;
+      /** Model for the implementer/simplifier stages, as in `run`/`watch`. Overridden by a `vanguard:model=<m>` label on the issue the PR references. */
+      providerModel?: string;
       reviewModel?: string;
       maxRounds?: number;
       /** Git author for the revision commits + white-label the revision marker (client repos carry no automation branding). */
@@ -855,6 +857,7 @@ export function parseCli(argv: string[], cwd: string): Command {
       ...(builtinProvider !== undefined ? { provider: builtinProvider } : {}),
       ...(fallbackProvider !== undefined ? { fallbackProvider } : {}),
       ...(fallbackModel !== undefined ? { fallbackModel } : {}),
+      ...(typeof values['provider-model'] === 'string' ? { providerModel: values['provider-model'] } : {}),
       ...(typeof values['review-model'] === 'string' ? { reviewModel: values['review-model'] } : {}),
       ...(maxRounds !== undefined ? { maxRounds } : {}),
       ...(commitAuthor !== undefined ? { commitAuthor } : {}),
@@ -1398,6 +1401,7 @@ ${MAX_REPAIR_ITERATIONS_USAGE}
     --provider <claude|codex|cursor|zai|openrouter|meridian>          Provider for the implementer/review stages (default: claude)
     --fallback-provider <name>  Retry on this provider when the primary one fails (outage, limit, revoked credential, rate limit) — must sit on a different transport
     --fallback-model <model>    Model for every stage that fell back (default: that provider's default)
+    --provider-model <m>   Model for the implementer/simplifier stages, as for run (default: provider's default); a vanguard:model=<m> label on the issue the PR references overrides it
     --review-model <m>     Model for the review stage
     --feedback-authors <a,b> Extra GitHub/GitLab logins whose PR feedback and <spec_manifest>/<tech_spec> comments are trusted, beyond OWNER/MEMBER/COLLABORATOR and the issue author (pass the workflow's allowed-actors here)
     --max-rounds <n>       Maximum revision rounds (default: 2)

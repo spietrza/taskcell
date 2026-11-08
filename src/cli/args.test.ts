@@ -970,6 +970,13 @@ describe('parseCli', () => {
     expect(parseCli(['review-pr'], '/work').kind).toBe('error');
   });
 
+  it('parses revise-pr --provider-model (absent when the flag is not given)', () => {
+    const cmd = parseCli(['revise-pr', '12', '--github-repo', 'o/r', '--provider-model', 'sonnet'], '/work');
+    expect(cmd.kind === 'revise-pr' && cmd.providerModel).toBe('sonnet');
+    const bare = parseCli(['revise-pr', '12', '--github-repo', 'o/r'], '/work');
+    expect(bare.kind === 'revise-pr' && 'providerModel' in bare).toBe(false);
+  });
+
   it('parses revise-pr with --commit-author (white-label) and the --github alias', () => {
     const cmd = parseCli(
       ['revise-pr', '--github', 'o/r#12', '--review-model', 'claude-fable-5', '--commit-author', 'Sebastian Pietrzak <s@p.co>'],
