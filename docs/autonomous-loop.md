@@ -243,7 +243,7 @@ Want Opus to plan, Sonnet to build, and Codex to review, with Codex running on a
 gh secret set CODEX_AUTH_JSON --repo OWNER/REPO < ~/.codex/auth.json
 ```
 
-**2. Set the providers and drop `llm-proxy`.** Map the secret in the caller's `secrets:` block and pick a provider per stage in `with:`:
+**2. Set the providers.** Map the secret in the caller's `secrets:` block and pick a provider per stage in `with:`:
 
 ```yaml
     uses: spietrza/taskcell/.github/workflows/implement.yml@v1
@@ -262,7 +262,7 @@ gh secret set CODEX_AUTH_JSON --repo OWNER/REPO < ~/.codex/auth.json
 
 `provider-model` applies only to the Claude stages; it is never handed to the cross-provider reviewer (an Anthropic model name like `sonnet` would be rejected by the ChatGPT backend). The Codex reviewer uses its own default model — set `review-model` to pick a specific one.
 
-`llm-proxy` is left off on purpose: a subscription talks to the ChatGPT backend, which the proxy allowlist does not cover (it routes the `api.openai.com` API-key path only). Without the proxy the Claude token sits in the sandbox directly — acceptable on a repo you own; if you need the proxy isolation, give Codex an `OPENAI_API_KEY` with active billing instead and keep `--llm-proxy`.
+`llm-proxy` now covers a subscription too: a ChatGPT sidecar holds the real `auth.json` on the host and the sandbox gets only a placeholder one pointed at it (see [Host LLM proxy](security/boundaries.md#host-llm-proxy)). Turning it on keeps both the Claude token and the ChatGPT credential out of the sandbox; leaving it off puts both in the sandbox directly — acceptable on a repo you own.
 
 One CI caveat: the stored `CODEX_AUTH_JSON` is a snapshot. Codex refreshes the short-lived access token from the embedded `refresh_token` on each run, so the secret must carry a live refresh token; re-run `gh secret set` if a run ever fails to authenticate. For long-running hosts (a `vanguard watch` on a server) the local file refreshes itself and this does not come up.
 

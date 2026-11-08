@@ -98,7 +98,7 @@ async function runDefaultMrReviewer(
     ...(sandboxContext.network !== undefined ? { network: sandboxContext.network } : {}),
   });
   try {
-    const env = llmProxySandboxEnv(sandboxContext.proxyUrl, sandboxContext.llmProxy, providerProxies.openai);
+    const env = llmProxySandboxEnv(sandboxContext.proxyUrl, sandboxContext.llmProxy, providerProxies);
     const sandbox = new DockerSandboxProvider({
       image: sandboxImage(),
       secrets: {

@@ -151,6 +151,10 @@ export interface ProviderProxies {
   destroy: () => Promise<void>;
 }
 
+/** The provider-sidecar handles alone (ProviderProxies minus its teardown) — what the sandbox env is
+ *  built from, so `llmProxySandboxEnv` takes the whole set rather than one positional dep per sidecar. */
+export type ProviderProxyDeps = Omit<ProviderProxies, 'destroy'>;
+
 /**
  * Start the per-run provider proxy sidecars implied by `proxySecrets` (from SelectedAgents): an OpenAI
  * upstream sidecar when a Codex API key was proxied, and/or a chatgpt upstream sidecar when a Codex
@@ -189,14 +193,16 @@ export async function startProviderProxies(opts: {
   }
   if (chatgptAuth !== undefined) {
     const proxy = await startLlmProxy({ network: opts.network, auth: { kind: 'chatgpt', ...chatgptAuth }, upstream: 'chatgpt', ...extra });
-    chatgpt = {
-      url: proxy.url,
-      nonce: proxy.nonce,
-      host: proxy.host,
-      refreshPlaceholder: proxy.refreshPlaceholder as string,
-      accountId: proxy.accountId as string,
-      planType: proxy.planType as string,
-    };
+    const { refreshPlaceholder, accountId, planType } = proxy;
+    if (refreshPlaceholder === undefined || accountId === undefined || planType === undefined) {
+      // Unreachable: startLlmProxy fills these for every 'chatgpt' auth. Checked rather than cast so a
+      // future refactor fails HERE, at dispatch, instead of silently handing the cell an auth.json with
+      // no usable refresh placeholder in it.
+      await proxy.destroy();
+      for (const d of destroys) await d();
+      throw new SandboxError('ChatGPT provider proxy did not return its placeholder credential wiring');
+    }
+    chatgpt = { url: proxy.url, nonce: proxy.nonce, host: proxy.host, refreshPlaceholder, accountId, planType };
     destroys.push(proxy.destroy);
   }
   return {

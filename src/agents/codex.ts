@@ -18,28 +18,33 @@ interface CodexEvent {
 }
 
 /**
- * Sandbox setup command run before `codex exec`, branching at runtime on the credential in the env.
+ * Sandbox setup command run before `codex exec`, branching at runtime on the credential in the env. The
+ * two writes are independent `if`s, not one chain, because the ChatGPT-plan proxy mode needs BOTH.
  *
- * Subscription mode (`$CODEX_AUTH_JSON` set): write its content to `$CODEX_HOME/auth.json` (0600) and skip
- * login entirely. This is a ChatGPT subscription's OAuth credential (`auth_mode: chatgpt`, no API key);
- * `codex exec` reads it like the file `codex login` would have written and self-refreshes the token via the
- * embedded refresh_token. Lives in the sandbox like Claude's OAuth token, so `--llm-proxy` does not apply.
+ * auth.json (`$CODEX_AUTH_JSON` set): write its content to `$CODEX_HOME/auth.json` (0600) and skip login
+ * entirely. Direct mode forwards the real ChatGPT-subscription credential (`auth_mode: chatgpt`, no API
+ * key), which `codex exec` reads like the file `codex login` would have written and self-refreshes via
+ * the embedded refresh_token. Under `--llm-proxy` the real credential stays in its sidecar and the value
+ * here is the generated PLACEHOLDER auth.json instead (nonce as access_token, run-bound refresh
+ * placeholder, synthetic id_token — see llmProxySandboxEnv), which the base-URL branch below completes.
  *
  * Normal mode (no auth.json, no base URL): log in with the real key from `$OPENAI_API_KEY`, piped via
  * stdin so the secret never reaches argv. `codex exec` then reads the auth.json that `codex login` wrote.
  *
  * Proxy mode (the runner set `$VANGUARD_OPENAI_BASE_URL` to a trusted sidecar): never run `codex login`.
  * Instead write `~/.codex/config.toml` (or `$CODEX_HOME/config.toml`) declaring a custom
- * OpenAI-compatible provider pointed at the sidecar. With `wire_api = "responses"` and a base_url ending
- * in `/v1`, Codex POSTs to `/v1/responses` and sends `env_key`'s value (`$OPENAI_API_KEY`, which in proxy
- * mode holds only a nonce, not the real key) as `Authorization: Bearer`; the sidecar validates the nonce
- * and swaps in the real key. Fail clearly if the nonce is missing.
+ * OpenAI-compatible provider pointed at the sidecar. With `wire_api = "responses"`, Codex POSTs
+ * `<base_url>/responses` (the OpenAI-key sidecar's URL ends in `/v1`, the ChatGPT-plan one does not) and
+ * sends `env_key`'s value (`$OPENAI_API_KEY`, which in proxy mode holds only a nonce, not the real
+ * credential) as `Authorization: Bearer`; the sidecar validates the nonce and swaps in the real one.
+ * Fail clearly if the nonce is missing. `login --with-api-key` is reached only when there is no auth.json
+ * at all — never with an empty key just because the credential went to a sidecar.
  *
  * The `\n` sequences are emitted as literal backslash-n into the sandbox shell so `printf` interprets
  * them; the base URL is expanded inside the sandbox via printf's `%s` arg, never interpolated host-side.
  */
 const CODEX_SETUP =
-  'if [ -n "${CODEX_AUTH_JSON:-}" ]; then mkdir -p "${CODEX_HOME:-$HOME/.codex}"; printf %s "$CODEX_AUTH_JSON" > "${CODEX_HOME:-$HOME/.codex}/auth.json"; chmod 600 "${CODEX_HOME:-$HOME/.codex}/auth.json"; elif [ -n "${VANGUARD_OPENAI_BASE_URL:-}" ]; then if [ -z "${OPENAI_API_KEY:-}" ]; then echo \'vanguard: codex proxy mode requires the OPENAI_API_KEY nonce\' >&2; exit 1; fi; mkdir -p "${CODEX_HOME:-$HOME/.codex}"; printf \'model_provider = "vanguardproxy"\\n[model_providers.vanguardproxy]\\nname = "vanguard-proxy"\\nbase_url = "%s"\\nwire_api = "responses"\\nenv_key = "OPENAI_API_KEY"\\n\' "$VANGUARD_OPENAI_BASE_URL" > "${CODEX_HOME:-$HOME/.codex}/config.toml"; else printf %s "$OPENAI_API_KEY" | codex login --with-api-key; fi';
+  'if [ -n "${CODEX_AUTH_JSON:-}" ]; then mkdir -p "${CODEX_HOME:-$HOME/.codex}"; printf %s "$CODEX_AUTH_JSON" > "${CODEX_HOME:-$HOME/.codex}/auth.json"; chmod 600 "${CODEX_HOME:-$HOME/.codex}/auth.json"; fi; if [ -n "${VANGUARD_OPENAI_BASE_URL:-}" ]; then if [ -z "${OPENAI_API_KEY:-}" ]; then echo \'vanguard: codex proxy mode requires the OPENAI_API_KEY nonce\' >&2; exit 1; fi; mkdir -p "${CODEX_HOME:-$HOME/.codex}"; printf \'model_provider = "vanguardproxy"\\n[model_providers.vanguardproxy]\\nname = "vanguard-proxy"\\nbase_url = "%s"\\nwire_api = "responses"\\nenv_key = "OPENAI_API_KEY"\\n\' "$VANGUARD_OPENAI_BASE_URL" > "${CODEX_HOME:-$HOME/.codex}/config.toml"; elif [ -z "${CODEX_AUTH_JSON:-}" ]; then printf %s "$OPENAI_API_KEY" | codex login --with-api-key; fi';
 
 function buildArgs(input: AgentRunInput): string[] {
   const args = ['exec', '--json', '--sandbox', 'danger-full-access'];
