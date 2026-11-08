@@ -14,10 +14,6 @@ permissions:
   pull-requests: write     # reply, resolve threads, gh pr ready
   issues: write
 
-concurrency:
-  group: vanguard-revise-${{ github.repository }}
-  cancel-in-progress: false
-
 jobs:
   revise:
     if: >-
@@ -25,6 +21,11 @@ jobs:
       (github.event.label.name == 'needs revision' &&
        contains(fromJSON('["spietrza","github-actions[bot]","pawelkrystkiewicz"]'), github.event.pull_request.user.login) &&
        contains(fromJSON('["spietrza","pawelkrystkiewicz"]'), github.event.sender.login))
+    # Job-level and per PR: skipped label events never enter a group, and a revision of one PR no
+    # longer waits behind (or cancels the pending revision of) another PR.
+    concurrency:
+      group: vanguard-revise-${{ github.repository }}-${{ github.event.pull_request.number || inputs.pr }}
+      cancel-in-progress: false
     uses: ./.github/workflows/revise.yml
     with:
       allowed-actors: '["spietrza","pawelkrystkiewicz"]'
