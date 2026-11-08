@@ -21,19 +21,22 @@ RUN apt-get update \
 # verify and ends up confabulating completion. Codex authenticates with CODEX_API_KEY: in direct mode
 # it is forwarded into the sandbox when codex is selected; under --llm-proxy the key is held by a
 # trusted sidecar and the sandbox receives only a per-run nonce.
-# Retried: linear-cli's postinstall downloads its binary from GitHub Releases, which returns
-# transient 5xx often enough to fail whole factory runs (#657).
+RUN npm install -g \
+    @anthropic-ai/claude-code@${CLAUDE_CLI_VERSION} \
+    @openai/codex@${CODEX_CLI_VERSION} \
+    pnpm \
+    bun
+
+# linear-cli's postinstall downloads its binary from GitHub Releases, which returns 5xx for long
+# stretches (#657). Only `--linear` runs need it, so it is retried and then skipped with a warning
+# instead of failing every factory run's image build; the build log and `linear --version` show it.
 RUN for i in 1 2 3 4 5; do \
-      npm install -g \
-        @anthropic-ai/claude-code@${CLAUDE_CLI_VERSION} \
-        @schpet/linear-cli@${LINEAR_CLI_VERSION} \
-        @openai/codex@${CODEX_CLI_VERSION} \
-        pnpm \
-        bun \
-      && linear --version >/dev/null && exit 0; \
+      npm install -g @schpet/linear-cli@${LINEAR_CLI_VERSION} && linear --version >/dev/null && exit 0; \
       [ "$i" -lt 5 ] || break; \
-      echo "npm install failed (attempt $i/5), retrying in $((i * 15))s" >&2; sleep $((i * 15)); \
-    done; exit 1
+      echo "linear-cli install failed (attempt $i/5), retrying in $((i * 15))s" >&2; sleep $((i * 15)); \
+    done; \
+    npm uninstall -g @schpet/linear-cli >/dev/null 2>&1; \
+    echo "WARNING: linear-cli not installed; --linear runs will not work with this image" >&2
 
 # Cursor CLI (`agent`, --provider cursor) is opt-in: ~550 MB unpacked, so it is installed only when a
 # version is given, e.g. CURSOR_CLI_VERSION=2026.10.16-e3cb207 (the id cursor.com/install pins).
