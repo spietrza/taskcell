@@ -1,11 +1,11 @@
 import { createServer } from 'node:http';
 import { connect } from 'node:net';
 import type { AddressInfo } from 'node:net';
-import type { LlmProxyDep } from './llm-proxy.js';
+import type { LlmProxyDep, ChatgptProxyDep } from './llm-proxy.js';
 // Single source of the allow semantics + default allowlist: the same plain-ESM `.mjs` the sidecar
 // imports (see egress-allow.mjs). Re-exported below so existing import sites keep working.
 import { isAllowed, DEFAULT_EGRESS_ALLOWLIST, resolveConnectTarget, connectOptions } from './egress-allow.mjs';
-import { UPSTREAMS } from './llm-proxy-rewrite.mjs';
+import { UPSTREAMS, buildSyntheticIdToken, CODEX_REFRESH_PATH, CODEX_REVOKE_PATH } from './llm-proxy-rewrite.mjs';
 
 export { isAllowed, DEFAULT_EGRESS_ALLOWLIST };
 

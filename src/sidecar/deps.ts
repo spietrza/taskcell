@@ -210,10 +210,6 @@ export function productionDeps(): SidecarDeps {
         throw new BadRequestError(error instanceof Error ? error.message : String(error));
       }
       const extraEgressHosts = customEgressHosts(choice);
-      // A used provider's subscription credential (Codex's CODEX_AUTH_JSON) lands in the sandbox
-      // verbatim regardless of llmProxy (providerSecrets forwards it before consulting proxyMode) —
-      // the proxy offers it no protection.
-      const subscriptionProvider = subscriptionCredentialProvider(choice);
       // A direct-mode-only provider (meridian, a repo custom) cannot run under the proxy at all. The
       // sidecar's choice carries an implementer and nothing else, so that provider IS the ineligible
       // one (the reviewer/fallback combinations `llmProxySupported` also rejects cannot arise here).
@@ -225,6 +221,11 @@ export function productionDeps(): SidecarDeps {
       // credential — codex or cursor on their own API key, with or without a Claude token exported, since
       // needsAnthropicAuth is false there — must run direct rather than not at all.
       const llmProxy = proxySupported && auth !== undefined;
+      // A used provider's subscription credential (Codex's CODEX_AUTH_JSON) that `providerSecrets`
+      // still cannot route to a sidecar lands in the sandbox verbatim — e.g. llmProxy off, or a
+      // non-chatgpt-shaped auth.json even with it on. A ChatGPT-plan credential under an active proxy
+      // is fronted by its own chatgpt sidecar instead, so it no longer shows up here.
+      const subscriptionProvider = subscriptionCredentialProvider(choice, process.env, { proxyMode: llmProxy });
       const signal = beginRun();
       let ctx: SandboxContext;
       try {

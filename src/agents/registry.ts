@@ -12,13 +12,27 @@ import type { CustomProviderEntry } from './custom.js';
 
 /**
  * Real provider keys handed to SECONDARY sidecars (proxy mode) — never injected into the sandbox.
- * Only providers proxied by their own sidecar appear here (Codex → OpenAI sidecar). Providers that ride
- * the PRIMARY sidecar (Zai) are NOT here: their key reaches the sidecar via `auth`, and proxy mode just
- * keeps it out of the sandbox (see providerSecrets + ownsClaudeCliTransport).
+ * Only providers proxied by their own sidecar appear here (Codex → OpenAI sidecar, or its ChatGPT-plan
+ * credential → the chatgpt sidecar). Providers that ride the PRIMARY sidecar (Zai) are NOT here: their
+ * key reaches the sidecar via `auth`, and proxy mode just keeps it out of the sandbox (see
+ * providerSecrets + ownsClaudeCliTransport).
  */
 export interface ProviderProxySecrets {
-  /** Real OpenAI/Codex key, owned by the OpenAI proxy sidecar instead of the sandbox. */
+  /** Real OpenAI/Codex API key, owned by the OpenAI proxy sidecar instead of the sandbox. */
   codex?: string;
+  /** Real Codex ChatGPT-plan OAuth credential (parsed CODEX_AUTH_JSON), owned by the chatgpt proxy
+   *  sidecar instead of the sandbox — see parseChatgptAuth. */
+  codexChatgpt?: ChatgptProxyAuth;
+}
+
+/** The real Codex ChatGPT-plan credential fields a chatgpt sidecar needs to front the subscription,
+ *  extracted from CODEX_AUTH_JSON by parseChatgptAuth. */
+export interface ChatgptProxyAuth {
+  accessToken: string;
+  refreshToken: string;
+  accountId: string;
+  /** Decoded from the real id_token's `chatgpt_plan_type` claim (not a top-level auth.json field). */
+  planType: string;
 }
 
 /**
@@ -40,11 +54,14 @@ interface ProviderKeySpec {
   /** When set, in proxy mode the real key is held by a sidecar under this name instead of injected into the sandbox. */
   proxyKey?: keyof ProviderProxySecrets;
   /**
-   * Optional credential-file env var that substitutes for the API key (subscription mode). When this host
-   * env var is set, its value is forwarded verbatim into the sandbox under the same name and the API-key
-   * requirement is waived — Codex on a ChatGPT subscription supplies its auth.json via CODEX_AUTH_JSON,
-   * which CodexProvider writes to ~/.codex/auth.json. The credential lives in the sandbox like Claude's
-   * CLAUDE_CODE_OAUTH_TOKEN, so --llm-proxy does not apply (Codex talks to OpenAI directly with it).
+   * Optional credential-file env var that substitutes for the API key (subscription mode): Codex on a
+   * ChatGPT subscription supplies its auth.json via CODEX_AUTH_JSON. In normal mode (or proxy mode with
+   * a non-chatgpt-shaped file) its value is forwarded verbatim into the sandbox under the same name and
+   * the API-key requirement is waived — CodexProvider writes it to ~/.codex/auth.json, like Claude's
+   * CLAUDE_CODE_OAUTH_TOKEN. Under --llm-proxy, a chatgpt-plan-shaped file (parseChatgptAuth) instead
+   * routes to `proxySecrets[proxyKey]Chatgpt`-equivalent (`ProviderProxySecrets.codexChatgpt`) and never
+   * reaches the sandbox: the chatgpt sidecar fronts it and the sandbox gets a generated placeholder
+   * auth.json + base_url instead (see providerSecrets, startProviderProxies, llmProxySandboxEnv).
    */
   subscriptionEnv?: string;
   /**
@@ -121,7 +138,8 @@ const PROVIDERS = {
       hostEnv: ['CODEX_API_KEY', 'OPENAI_API_KEY'],
       toSandboxSecrets: (key) => ({ OPENAI_API_KEY: key }),
       proxyKey: 'codex',
-      // Run Codex on a ChatGPT subscription instead of an API key: CODEX_AUTH_JSON carries auth.json content.
+      // Run Codex on a ChatGPT subscription instead of an API key: CODEX_AUTH_JSON carries auth.json
+      // content. Under --llm-proxy this is fronted by its own chatgpt sidecar (see providerSecrets).
       subscriptionEnv: 'CODEX_AUTH_JSON',
       // Set OPENAI_BASE_URL to run Codex against any OpenAI-compatible endpoint (Responses API) — direct mode only.
       passthroughEnv: { OPENAI_BASE_URL: 'VANGUARD_OPENAI_BASE_URL' },
@@ -278,6 +296,49 @@ export function providerKeyEnvNames(choice: ProviderChoice): string[] {
 }
 
 /**
+ * Decode a JWT's middle segment as a JSON object; undefined when `token` isn't three dot-separated
+ * segments or the payload doesn't base64url/JSON-decode to a plain object. Never verifies the
+ * signature — callers only read non-secret claims (the real `id_token`'s `chatgpt_plan_type`), the same
+ * trust level Codex itself applies when loading auth.json (see docs/research/codex-credential-isolation.md Q3).
+ */
+function decodeJwtPayload(token: string): Record<string, unknown> | undefined {
+  const parts = token.split('.');
+  if (parts.length !== 3) return undefined;
+  try {
+    const parsed: unknown = JSON.parse(Buffer.from(parts[1], 'base64url').toString('utf8'));
+    return typeof parsed === 'object' && parsed !== null && !Array.isArray(parsed) ? (parsed as Record<string, unknown>) : undefined;
+  } catch {
+    return undefined;
+  }
+}
+
+/**
+ * Extract the fields a chatgpt sidecar needs from a parsed CODEX_AUTH_JSON, or undefined when it is
+ * not a ChatGPT-plan credential (`auth_mode !== 'chatgpt'`, a field is missing/malformed, or the real
+ * `id_token` carries no `chatgpt_plan_type` claim) — e.g. a legacy `codex login --with-api-key` file.
+ * The caller falls back to forwarding that shape verbatim, exactly as before this sidecar existed.
+ */
+export function parseChatgptAuth(parsed: unknown): ChatgptProxyAuth | undefined {
+  if (typeof parsed !== 'object' || parsed === null || Array.isArray(parsed)) return undefined;
+  const obj = parsed as { auth_mode?: unknown; tokens?: { access_token?: unknown; refresh_token?: unknown; account_id?: unknown; id_token?: unknown } };
+  if (obj.auth_mode !== 'chatgpt') return undefined;
+  const { access_token: accessToken, refresh_token: refreshToken, account_id: accountId, id_token: idToken } = obj.tokens ?? {};
+  if (
+    typeof accessToken !== 'string' || accessToken === '' ||
+    typeof refreshToken !== 'string' || refreshToken === '' ||
+    typeof accountId !== 'string' || accountId === '' ||
+    typeof idToken !== 'string' || idToken === ''
+  ) {
+    return undefined;
+  }
+  const claims = decodeJwtPayload(idToken);
+  const auth = claims?.['https://api.openai.com/auth'] as { chatgpt_plan_type?: unknown } | undefined;
+  const planType = auth?.chatgpt_plan_type;
+  if (typeof planType !== 'string' || planType === '') return undefined;
+  return { accessToken, refreshToken, accountId, planType };
+}
+
+/**
  * Collect the API-key secrets for the given providers, read from env and split into two buckets:
  * `sandboxSecrets` (the env vars the providers' CLIs read inside the sandbox) and `proxySecrets` (real
  * keys held by trusted sidecars, never injected into the sandbox). Throws if a selected provider's key
@@ -290,9 +351,14 @@ export function providerKeyEnvNames(choice: ProviderChoice): string[] {
  *   `auth`, and proxy mode just withholds it from the sandbox.
  * - Proxy mode + `proxyKey` (Codex): the key is routed to `proxySecrets[proxyKey]` for its own SECONDARY
  *   sidecar and kept out of `sandboxSecrets`.
+ * - Proxy mode + `subscriptionEnv` shaped as a ChatGPT-plan credential (parseChatgptAuth): routed to
+ *   `proxySecrets.codexChatgpt` for the chatgpt sidecar instead of the sandbox. A subscriptionEnv file
+ *   that ISN'T chatgpt-shaped (e.g. an ApiKey-mode auth.json) has no sidecar to front it and still
+ *   forwards verbatim, same as outside proxy mode.
  *
  * Invariant: in proxy mode a provider's real key never lands in `sandboxSecrets` — e.g. proxy-mode Codex
- * keeps `OPENAI_API_KEY` out (→ `proxySecrets.codex`) and proxy-mode Zai withholds its z.ai key entirely.
+ * keeps `OPENAI_API_KEY` out (→ `proxySecrets.codex`), a proxy-mode ChatGPT-plan credential keeps its
+ * tokens out (→ `proxySecrets.codexChatgpt`), and proxy-mode Zai withholds its z.ai key entirely.
  */
 export function providerSecrets(
   names: Iterable<string>,
@@ -312,17 +378,17 @@ export function providerSecrets(
     if (key === undefined) continue; // Claude: auth handled by authSecrets, no key to route here.
 
     // Subscription mode: a credential FILE substitutes for the API key. When its env var is set we
-    // forward it into the sandbox under the same name and waive the API-key requirement — the credential
-    // lives in the sandbox like Claude's OAuth token, so proxy mode does not apply. auth.json is usually
-    // stored pretty-printed, so collapse it to single-line JSON: the sandbox secret layer rejects any
-    // value with a newline. Forward as-is if it is not parseable JSON (the newline guard then catches
-    // genuinely malformed input with a clear error).
+    // forward it into the sandbox under the same name and waive the API-key requirement. auth.json is
+    // usually stored pretty-printed, so collapse it to single-line JSON: the sandbox secret layer
+    // rejects any value with a newline. Forward as-is if it is not parseable JSON (the newline guard
+    // then catches genuinely malformed input with a clear error).
     if (key.subscriptionEnv !== undefined) {
       const sub = env[key.subscriptionEnv];
       if (sub !== undefined && sub !== '') {
         let value = sub;
+        let parsed: unknown;
         try {
-          const parsed: unknown = JSON.parse(sub);
+          parsed = JSON.parse(sub);
           if (typeof parsed !== 'object' || parsed === null || Array.isArray(parsed)) {
             throw new AgentError(`${key.subscriptionEnv} must be a JSON object (the contents of ~/.codex/auth.json).`);
           }
@@ -330,6 +396,17 @@ export function providerSecrets(
         } catch (e) {
           if (e instanceof AgentError) throw e; // a bare scalar/array parsed but is not auth.json — fail at dispatch
           /* not JSON — leave as-is; the sandbox newline guard / codex surfaces it */
+        }
+        // Under --llm-proxy, a ChatGPT-plan-shaped credential is fronted by its own sidecar instead of
+        // landing in the sandbox: the chatgpt-mode placeholder auth.json is assembled later, once that
+        // sidecar exists (see llmProxySandboxEnv). Anything else (direct mode, or a non-chatgpt shape
+        // under proxy mode) has no sidecar to front it and keeps the old verbatim behavior.
+        if (opts.proxyMode === true && key.proxyKey !== undefined) {
+          const chatgptAuth = parseChatgptAuth(parsed);
+          if (chatgptAuth !== undefined) {
+            proxySecrets.codexChatgpt = chatgptAuth;
+            continue;
+          }
         }
         sandboxSecrets[key.subscriptionEnv] = value;
         continue;
@@ -557,21 +634,33 @@ export function llmProxySupported(choice: ProviderChoice): boolean {
 }
 
 /**
- * Name of the first used provider whose subscription credential (e.g. Codex's CODEX_AUTH_JSON) is set
- * in env, if any. `providerSecrets` forwards that credential into the sandbox verbatim BEFORE it ever
- * consults `opts.proxyMode` (the subscription branch `continue`s first), so --llm-proxy gives it no
- * protection even when active. Callers that auto-enable the proxy (the hub) use this to detect when
- * they must warn instead of silently claiming protection the proxy does not actually provide.
+ * Name of the first used provider whose subscription credential (e.g. Codex's CODEX_AUTH_JSON) still
+ * lands in the sandbox despite `--llm-proxy`, if any. When `opts.llmProxy` is false (direct mode, or no
+ * primary-sidecar credential), every subscription credential is exposed, same as before the chatgpt
+ * sidecar existed. When true, only a credential `providerSecrets` cannot route to a sidecar is still
+ * exposed — today that means anything that isn't a ChatGPT-plan-shaped auth.json (parseChatgptAuth);
+ * mirrors providerSecrets' own gate so this never disagrees with what actually happened. Callers that
+ * auto-enable the proxy (the hub) use this to detect when they must still warn instead of silently
+ * claiming protection the proxy does not actually provide.
  */
 export function subscriptionCredentialProvider(
   choice: ProviderChoice,
   env: NodeJS.ProcessEnv = process.env,
+  opts: ProviderSecretOptions = {},
 ): string | undefined {
   return usedProviderNames(choice).find((name) => {
     const sub = resolveSpec(name, choice.customProviders).key?.subscriptionEnv;
     if (sub === undefined) return false;
     const value = env[sub];
-    return value !== undefined && value !== '';
+    if (value === undefined || value === '') return false;
+    if (opts.proxyMode !== true) return true;
+    let parsed: unknown;
+    try {
+      parsed = JSON.parse(value);
+    } catch {
+      return true; // malformed — providerSecrets forwards it verbatim too
+    }
+    return parseChatgptAuth(parsed) === undefined;
   });
 }
 
