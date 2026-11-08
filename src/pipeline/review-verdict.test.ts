@@ -41,9 +41,33 @@ describe('reviewVerdictOf', () => {
     '<findings>{not json</findings>',
     'No blocking issues',
     '> No blocking issues.',
+    '- No blocking issues.',
+    '* No conformance issues.',
+    '    No blocking issues.',
     'No blocking issues. Still reviewing.',
   ])('marks an empty, aborted or unavailable reply as incomplete: %j', (text) => {
     expect(reviewVerdictOf(text)).toEqual({ verdict: 'incomplete', findings: [] });
+  });
+
+  // Both conformance sentinels, and the same wrapping tolerated by the sibling extractReviewVerdict:
+  // markdown emphasis, trailing whitespace, CRLF line endings.
+  it.each([
+    ['conformance clean', 'No conformance issues.\n<promise>COMPLETE</promise>'],
+    ['conformance skip', 'No spec, conformance skipped.\n<promise>COMPLETE</promise>'],
+    [
+      'conformance clean after prose',
+      'The diff covers every Acceptance Criterion and adds no scope drift.\n\nNo conformance issues.\n\n<promise>COMPLETE</promise>',
+    ],
+    [
+      'conformance clean next to low/medium findings',
+      `No conformance issues.\n${findingsBlock([{ severity: 'low', kind: 'correctness', title: 'nit', evidence: 'x' }])}\n<promise>COMPLETE</promise>`,
+    ],
+    ['trailing space', 'No blocking issues. \n<promise>COMPLETE</promise>'],
+    ['CRLF line endings', 'Reviewed the diff.\r\nNo blocking issues.\r\n<promise>COMPLETE</promise>'],
+    ['markdown emphasis', '**No blocking issues.**\n<promise>COMPLETE</promise>'],
+    ['markdown emphasis, CRLF and a trailing space', '_No conformance issues._ \r\n'],
+  ])('accepts a stated pass sentinel: %s', (_name, text) => {
+    expect(reviewVerdictOf(text).verdict).toBe('pass');
   });
 
   it('blocking findings take precedence over the clean line', () => {
