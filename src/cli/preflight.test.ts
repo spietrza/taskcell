@@ -409,6 +409,23 @@ describe('runPreflight', () => {
     expect(claude.checks.find((c) => c.name === 'sandbox cursor cli')).toBeUndefined();
   });
 
+  it('fails a linear run when the sandbox image has no `linear`, and skips the check for github', async () => {
+    const linearDoctor: DoctorCommand = { kind: 'doctor', source: 'linear', repoPath: '/repo', label: 'vanguard', skillsDir: '/skills' };
+    const base = makeRunner();
+    const run: PreflightRunner = async (cmd, args, opts) => {
+      if (cmd === 'docker' && args.includes('linear')) throw new Error('exec: "linear": executable file not found in $PATH');
+      if (cmd === 'gh' && args[0] === 'auth') return { stdout: '' };
+      return base(cmd, args, opts);
+    };
+    const report = await runPreflight(linearDoctor, { env: { CLAUDE_CODE_OAUTH_TOKEN: 'token', LINEAR_API_KEY: 'lin', GH_TOKEN: 'gh' }, nodeVersion: '24.11.1', run });
+    const cli = report.checks.find((c) => c.name === 'sandbox linear cli');
+    expect(cli?.ok).toBe(false);
+    expect(cli?.reason).toContain('LINEAR_RETRY=1');
+
+    const github = await runPreflight(githubDoctor(), { env: { GH_TOKEN: 'gh', CLAUDE_CODE_OAUTH_TOKEN: 'token' }, nodeVersion: '24.11.1', run });
+    expect(github.checks.find((c) => c.name === 'sandbox linear cli')).toBeUndefined();
+  });
+
   it('fails provider auth for doctor-prs with codex and llmProxy true when OpenAI key is absent', async () => {
     const report = await runPreflight(doctorPrs({ provider: 'codex', llmProxy: true }), {
       env: { GH_TOKEN: 'gh', CLAUDE_CODE_OAUTH_TOKEN: 'token' },
