@@ -42,6 +42,7 @@ const MIN_NODE_MAJOR = 24;
 /** Name of the sandbox CLI-version check; `doctor --fix` keys off it. */
 export const SANDBOX_CLI_CHECK = 'sandbox claude cli';
 export const SANDBOX_CURSOR_CLI_CHECK = 'sandbox cursor cli';
+export const SANDBOX_LINEAR_CLI_CHECK = 'sandbox linear cli';
 
 
 const defaultRunner: PreflightRunner = async (cmd, args, opts) => {
@@ -357,6 +358,15 @@ export async function runPreflight(cmd: PreflightCommand, opts: PreflightOptions
         agent.ok && agent.stdout.trim() !== ''
           ? check(SANDBOX_CURSOR_CLI_CHECK, true)
           : check(SANDBOX_CURSOR_CLI_CHECK, false, `no \`agent\` in ${image} — rebuild with CURSOR_CLI_VERSION=<version> ./docker/build.sh`),
+      );
+    }
+    // The image build skips linear-cli when GitHub Releases is down (docker/Dockerfile), so a Linear run checks for it.
+    if ('source' in cmd && cmd.source === 'linear') {
+      const linear = await runOk(run, cmd.repoPath, 'docker', ['run', '--rm', image, 'linear', '--version']);
+      checks.push(
+        linear.ok && linear.stdout.trim() !== ''
+          ? check(SANDBOX_LINEAR_CLI_CHECK, true)
+          : check(SANDBOX_LINEAR_CLI_CHECK, false, `no \`linear\` in ${image} — rebuild with LINEAR_RETRY=1 ./docker/build.sh`),
       );
     }
   }
