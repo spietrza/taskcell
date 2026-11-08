@@ -2,6 +2,7 @@ import { describe, it, expect, vi } from 'vitest';
 import { repairUntilGreen } from './repair-gate.js';
 import type { RepairGateOptions, GateResult } from './repair-gate.js';
 import { STAGE } from './pipeline.js';
+import { AgentError } from '../core/errors.js';
 import type { PipelineStage, StageOutcome } from './pipeline.js';
 import type { RunContext } from '../core/vanguard.js';
 import type { RunResult } from '../core/types.js';
@@ -84,6 +85,21 @@ describe('repairUntilGreen', () => {
     await repairUntilGreen(ctx, { label: 't', gate: gateRedThenGreen(2), agent, outcomes: outcomesWith(), pipeline, maxIterations: 3, signal, run, log: () => {} });
     expect(run.mock.calls[0]![1]['signal']).toBe(signal);
     expect(run.mock.calls[1]![1]['resumeSessionId']).toBe('sess-next');
+  });
+
+  it('a provider limit during escalation is not counted against the repair budget and propagates distinctly, not as a gate failure', async () => {
+    const limitError = new AgentError("Provider returned no completion (exit 1): You've hit your session limit");
+    const run = vi.fn<Run>().mockRejectedValueOnce(limitError);
+    const outcomes = outcomesWith('sonnet');
+    const logged: string[] = [];
+    const promise = repairUntilGreen(ctx, {
+      label: 't', gate: gateRedThenGreen(99), agent, outcomes, pipeline, maxIterations: 2, run, log: (l) => logged.push(l),
+    });
+    await expect(promise).rejects.toBe(limitError);
+    expect(run).toHaveBeenCalledTimes(1);
+    // The implementer outcome is untouched — no cost/turns were merged in for an attempt that never ran.
+    expect(outcomes[0]!.result).toEqual(result());
+    expect(logged.some((l) => l.includes('provider limit') && l.includes('not counted against the repair budget'))).toBe(true);
   });
 
   it('without an implementer stage in the pipeline the repair runs on runAgent defaults (no turn cap, no USD cap)', async () => {

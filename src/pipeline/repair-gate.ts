@@ -1,9 +1,11 @@
 import { runAgent } from '../core/vanguard.js';
 import { mergeAttempts } from '../core/run-metric.js';
 import { literalPrompt } from '../context/prompt-engine.js';
+import { AgentError, isProviderLimitError } from '../core/errors.js';
 import { DEFAULT_RUN_MAX_COST_USD, STAGE } from './pipeline.js';
 import type { RunContext } from '../core/vanguard.js';
 import type { AgentProvider } from '../agents/provider.js';
+import type { RunResult } from '../core/types.js';
 import type { PipelineStage, StageOutcome } from './pipeline.js';
 
 /**
@@ -86,18 +88,32 @@ export async function repairUntilGreen<G extends GateResult>(ctx: RunContext, op
     iterations += 1;
     const escalate = iterations >= 2 && opts.escalateModel !== undefined && opts.modelPinned !== true;
     log(`vanguard: gate FAILED for ${opts.label} (attempt ${iterations}/${opts.maxIterations}) — resuming implement session${escalate ? ` on ${opts.escalateModel}` : ''}`);
+    // The reason the gate is red, in the CI log too — not just in the prompt fed back to the agent.
+    log(last.feedback);
     const model = escalate ? opts.escalateModel : opts.outcomes[implementerIdx]?.model;
-    const repaired = await run(ctx, {
-      // Gate output is author-controlled text (test output, spec); see literalPrompt.
-      ...literalPrompt(`${last.feedback}\n\nWhen every gap above is addressed, write <promise>COMPLETE</promise>.`),
-      agent: opts.agent,
-      resumeSessionId,
-      ...(model !== undefined ? { model } : {}),
-      ...(maxTurns !== undefined ? { maxTurns } : {}),
-      ...(budgetUsd !== undefined ? { maxBudgetUsd: budgetUsd } : {}),
-      // Honor cancel here too, else an aborted run keeps burning repair iterations.
-      ...(opts.signal !== undefined ? { signal: opts.signal } : {}),
-    });
+    let repaired: RunResult;
+    try {
+      repaired = await run(ctx, {
+        // Gate output is author-controlled text (test output, spec); see literalPrompt.
+        ...literalPrompt(`${last.feedback}\n\nWhen every gap above is addressed, write <promise>COMPLETE</promise>.`),
+        agent: opts.agent,
+        resumeSessionId,
+        ...(model !== undefined ? { model } : {}),
+        ...(maxTurns !== undefined ? { maxTurns } : {}),
+        ...(budgetUsd !== undefined ? { maxBudgetUsd: budgetUsd } : {}),
+        // Honor cancel here too, else an aborted run keeps burning repair iterations.
+        ...(opts.signal !== undefined ? { signal: opts.signal } : {}),
+      });
+    } catch (error) {
+      if (error instanceof AgentError && isProviderLimitError(error)) {
+        // The provider hit a usage/rate limit, not a gate failure: nothing was actually repaired, so
+        // this attempt must not count against the repair budget (the caller sees iterations as if it
+        // never happened — only the thrown error signals what actually ended the run).
+        iterations -= 1;
+        log(`vanguard: gate escalation for ${opts.label} hit a provider limit (not a gate failure, not counted against the repair budget) — ${error.message}`);
+      }
+      throw error;
+    }
     const prior = opts.outcomes[implementerIdx];
     if (prior !== undefined) {
       opts.outcomes[implementerIdx] = {

@@ -26,7 +26,8 @@ import { appendStepSummary } from '../core/step-summary.js';
 import type { StepSummary, StepSummaryExit } from '../core/step-summary.js';
 import { loadRetrospectiveMemory, refreshRetrospectiveMemory } from '../core/retrospective-memory.js';
 import { llmProxySandboxEnv } from '../sandbox/egress-proxy.js';
-import { resolveVerifyCommand, runVerification, renderVerificationFeedback, proofBlock, verifySkippedBlock } from '../pipeline/verify.js';
+import { resolveVerifyCommand, runVerification, renderVerificationFeedback, proofBlock, verifySkippedBlock, baseRedBlock } from '../pipeline/verify.js';
+import { resolveBaselineVerify } from '../pipeline/baseline-verify.js';
 import { resolveAndRunVisualProof, visualProofBlock } from '../pipeline/visual-proof.js';
 import { startProviderProxies } from '../sandbox/llm-proxy.js';
 import { reviewRequestBody } from './review-body.js';
@@ -206,6 +207,13 @@ export interface SourceAdapter {
    * precautionary block.
    */
   signalSecretBlock(issueRef: string, task: Task, block: SecretBlock): Promise<void>;
+  /**
+   * Surface a "base branch is red" notice (pre-rendered by the caller via `baseRedBlock`) on the
+   * source issue: the baseline verify command already failed on the base commit, before the
+   * implementer ran, so no implement run was started. Best-effort: must never throw (mirrors
+   * signalSecretBlock).
+   */
+  signalBaseRed(issueRef: string, task: Task, body: string): Promise<void>;
   /** Write the PR link back onto the source issue. */
   linkPr(issueRef: string, task: Task, prUrl: string): Promise<void>;
 }
@@ -500,6 +508,24 @@ export async function runSourcedIssue(
         ...runMeta,
         stages: pipeline.map((s) => s.name),
       });
+      const verifyCmd = await resolveVerifyCommand(ctx.worktreePath, deps.verifyCmd !== undefined ? { cmd: deps.verifyCmd } : {});
+      // Before implementing: check the verify command against the base commit (cached by SHA). A
+      // gate that is already red there is not this task's fault — starting a repair loop against it
+      // would just burn turns on pre-existing failures, so stop here instead (#2024).
+      if (verifyCmd !== undefined) {
+        const baselineVerify = await resolveBaselineVerify(deps.repoPath, ctx.startRef, ctx.sandbox, verifyCmd, deps.signal);
+        if (!baselineVerify.passed) {
+          console.log(
+            `vanguard: ${task.id} base branch is red — \`${verifyCmd}\` already fails on ${ctx.baseBranch}@${ctx.startRef.slice(0, 7)} (exit ${baselineVerify.exitCode}); stopping before implementing instead of starting a repair loop.`,
+          );
+          console.log(renderVerificationFeedback(baselineVerify));
+          if (!whiteLabel) await adapter.signalBaseRed(issueRef, task, baseRedBlock(ctx.baseBranch, ctx.startRef, baselineVerify));
+          await writer.writeProof(baselineVerify);
+          await stepSummary('base-red', {});
+          onEvent({ type: 'run-end' });
+          return { task };
+        }
+      }
       outcomes = await runStages(ctx, pipeline, {
         agent: agents.agent,
         variables: {

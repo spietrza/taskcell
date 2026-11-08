@@ -4,7 +4,7 @@ import { redactForPublish } from './secret-scan.js';
 import type { SummaryOutcome } from './run-summary.js';
 
 /** How a run ended, as the job summary states it. */
-export type StepSummaryExit = 'completed' | 'verify-failed' | 'secret-blocked' | 'no-changes' | 'error';
+export type StepSummaryExit = 'completed' | 'verify-failed' | 'secret-blocked' | 'no-changes' | 'base-red' | 'error';
 
 /** One run's block in the GitHub Actions job summary — built from the same outcomes as metrics.jsonl. */
 export interface StepSummary {

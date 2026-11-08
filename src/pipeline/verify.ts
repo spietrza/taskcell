@@ -9,6 +9,14 @@ export interface VerificationResult {
   passed: boolean;
   sha256: string;        // over the combined stdout + stderr
   outputTail: string;    // last ~40 lines, for the PR body
+  /**
+   * The earliest lines around the first failure marker in the full output. A monorepo task runner
+   * (turbo, lerna) prints every task's output in sequence, so `outputTail` alone can be a screen of
+   * passing packages with the actual failure scrolled off the top — this is the part that names what
+   * is actually red. Empty (or absent, for a record written before this field existed) when `passed`
+   * or no marker was found.
+   */
+  firstErrorLines?: string;
 }
 
 const WORKDIR = '/workspace';
@@ -85,6 +93,32 @@ export function verifySkippedBlock(): string {
   ].join('\n');
 }
 
+/** Lines that mark an actual failure, as opposed to narrative prose that merely mentions one. */
+const FAILURE_MARKER_RE = /(^|\s)(FAILED?|ERR!|ERROR|error TS\d|✕|✖|×)\b/;
+/** How many lines of context to carry from the first failure marker onward. */
+const FIRST_ERROR_LINES = 20;
+
+/** The earliest `FIRST_ERROR_LINES` lines starting at the first failure marker, or '' if none found. */
+function extractFirstErrorLines(output: string): string {
+  const lines = output.split('\n');
+  const idx = lines.findIndex((l) => FAILURE_MARKER_RE.test(l));
+  if (idx === -1) return '';
+  return lines.slice(idx, idx + FIRST_ERROR_LINES).join('\n').trimEnd();
+}
+
+/** A turbo/lerna-style `<package>:<task>: ` line prefix, the closest thing to "which package failed". */
+const TASK_PREFIX_RE = /^\s*((?:@[\w.-]+\/)?[\w.-]+):([\w.-]+):\s/;
+
+/** Best-effort failing task/package name from a monorepo runner's own output prefix; undefined if not that shape. */
+export function failingTaskName(excerpt: string | undefined): string | undefined {
+  if (excerpt === undefined || excerpt === '') return undefined;
+  for (const line of excerpt.split('\n')) {
+    const m = TASK_PREFIX_RE.exec(line);
+    if (m) return `${m[1]}:${m[2]}`;
+  }
+  return undefined;
+}
+
 /** Run the command inside the sandbox (host-driven) and attest the result. */
 export async function runVerification(
   sandbox: IsolatedSandboxProvider,
@@ -96,45 +130,69 @@ export async function runVerification(
   const output = `${res.stdout}\n${res.stderr}`;
   const sha256 = createHash('sha256').update(output).digest('hex');
   const outputTail = output.split('\n').slice(-40).join('\n').trimEnd();
-  return { command, exitCode: res.exitCode, passed: res.exitCode === 0, sha256, outputTail };
+  const passed = res.exitCode === 0;
+  return { command, exitCode: res.exitCode, passed, sha256, outputTail, firstErrorLines: passed ? '' : extractFirstErrorLines(output) };
 }
 
 /**
  * Minimal failing-witness feedback for the verification repair loop (CEGIS-style, mirrors
- * renderConformanceFeedback): just the command, exit code, and output tail, so the resumed
- * implement session stays small and targeted.
+ * renderConformanceFeedback): the command, exit code, failing task/package when identifiable, and
+ * the first error lines (not just the tail — on a monorepo runner the tail can be all-passing
+ * output from packages after the one that actually failed), so the resumed implement session stays
+ * small and targeted at what is actually red.
  */
 export function renderVerificationFeedback(result: VerificationResult): string {
-  return [
+  const task = failingTaskName(result.firstErrorLines);
+  const lines = [
     'The verification command failed. Make it pass:',
     `- command: \`${result.command}\``,
     `- exit code: ${result.exitCode}`,
-    '',
-    'Output tail:',
-    result.outputTail,
-  ].join('\n');
+    ...(task !== undefined ? [`- failing task/package: \`${task}\``] : []),
+  ];
+  if (result.firstErrorLines !== undefined && result.firstErrorLines !== '') lines.push('', 'First error lines:', result.firstErrorLines);
+  lines.push('', 'Output tail:', result.outputTail);
+  return lines.join('\n');
+}
+
+/** Fence-safe `<details>` block: one backtick longer than the longest run already inside `text`. */
+function detailsBlock(summary: string, text: string): string {
+  const longest = Math.max(0, ...[...text.matchAll(/`+/g)].map((m) => m[0].length));
+  const fence = '`'.repeat(Math.max(3, longest + 1));
+  return [`<details><summary>${summary}</summary>`, '', fence, text, fence, '', '</details>'].join('\n');
 }
 
 /** Markdown Proof of Work block for the PR body. */
 export function proofBlock(result: VerificationResult): string {
   const status = result.passed ? 'PASS' : 'FAIL';
-  // Fence-safe: output with a ``` line would close a 3-backtick block and inject PR-body markdown.
-  // Use a fence one backtick longer than the longest run in the output (same as inlineAttachments).
-  const longest = Math.max(0, ...[...result.outputTail.matchAll(/`+/g)].map((m) => m[0].length));
-  const fence = '`'.repeat(Math.max(3, longest + 1));
-  return [
+  const task = !result.passed ? failingTaskName(result.firstErrorLines) : undefined;
+  const lines = [
     `## Proof of work: ${status}`,
     '',
     `- command: \`${result.command}\``,
     `- exit code: ${result.exitCode}`,
     `- sha256(output): \`${result.sha256}\``,
+    ...(task !== undefined ? [`- failing task/package: \`${task}\``] : []),
     '',
-    '<details><summary>output tail</summary>',
+  ];
+  // The tail alone can be a screen of passing output on a monorepo runner — show the failure itself too.
+  if (!result.passed && result.firstErrorLines !== undefined && result.firstErrorLines !== '') {
+    lines.push(detailsBlock('first error lines', result.firstErrorLines), '');
+  }
+  lines.push(detailsBlock('output tail', result.outputTail));
+  return lines.join('\n');
+}
+
+/** Issue-comment block posted when the baseline verify command already fails on the base commit, before the implementer ran. */
+export function baseRedBlock(baseBranch: string, sha: string, result: VerificationResult): string {
+  const task = failingTaskName(result.firstErrorLines);
+  const lines = [
+    `🚧 Vanguard stopped before implementing: \`${baseBranch}\` (${sha.slice(0, 7)}) already fails \`${result.command}\` (exit ${result.exitCode}).`,
     '',
-    fence,
-    result.outputTail,
-    fence,
-    '',
-    '</details>',
-  ].join('\n');
+    'Fixing it would mean repairing failures that have nothing to do with this issue, so no implement run was started. Fix the base branch, then re-apply the trigger label.',
+    ...(task !== undefined ? ['', `- failing task/package: \`${task}\``] : []),
+  ];
+  const hasFirstError = result.firstErrorLines !== undefined && result.firstErrorLines !== '';
+  const excerpt = hasFirstError ? (result.firstErrorLines as string) : result.outputTail;
+  if (excerpt !== '') lines.push('', detailsBlock(hasFirstError ? 'first error lines' : 'output tail', excerpt));
+  return lines.join('\n');
 }
