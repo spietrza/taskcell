@@ -1,6 +1,7 @@
 import { createHash } from 'node:crypto';
 import { readFile } from 'node:fs/promises';
 import { join } from 'node:path';
+import { redactForPublish } from '../core/secret-scan.js';
 import type { IsolatedSandboxProvider } from '../sandbox/provider.js';
 
 export interface VerificationResult {
@@ -132,6 +133,19 @@ export async function runVerification(
   const outputTail = output.split('\n').slice(-40).join('\n').trimEnd();
   const passed = res.exitCode === 0;
   return { command, exitCode: res.exitCode, passed, sha256, outputTail, firstErrorLines: passed ? '' : extractFirstErrorLines(output) };
+}
+
+/**
+ * Mask the two verbatim-output fields a result carries — `outputTail` and, when present,
+ * `firstErrorLines` — like every other free text in a persisted record. One place, so every copy
+ * written under the state dir is masked the same way (run-store's writeProof, the baseline cache).
+ */
+export function redactVerificationOutput(result: VerificationResult, secretValues?: readonly string[]): VerificationResult {
+  return {
+    ...result,
+    outputTail: redactForPublish(result.outputTail, secretValues),
+    ...(result.firstErrorLines !== undefined ? { firstErrorLines: redactForPublish(result.firstErrorLines, secretValues) } : {}),
+  };
 }
 
 /**
