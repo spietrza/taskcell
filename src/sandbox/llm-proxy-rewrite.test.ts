@@ -9,6 +9,14 @@ import {
   constantTimeEqual,
   upstreamPath,
   UPSTREAMS,
+  buildForwardHeaders,
+  chatgptAuthHeaders,
+  chatgptIdpRoute,
+  readIdpRequest,
+  buildSyntheticIdToken,
+  placeholderRefreshResponse,
+  CODEX_REFRESH_PATH,
+  CODEX_REVOKE_PATH,
 } from './llm-proxy-rewrite.mjs';
 
 describe('mergeAnthropicBeta', () => {
@@ -188,5 +196,126 @@ describe('upstreamPath', () => {
   });
   it('falls back to base path + "/" when reqUrl is undefined', () => {
     expect(upstreamPath('zai', undefined)).toBe('/api/coding/paas/v4/');
+  });
+  it('prepends the Codex ChatGPT-plan backend path for the chatgpt upstream', () => {
+    expect(upstreamPath('chatgpt', '/responses')).toBe('/backend-api/codex/responses');
+  });
+});
+
+describe('isAllowedLlmPath (chatgpt)', () => {
+  it('accepts only POST /responses', () => {
+    expect(isAllowedLlmPath('POST', '/responses', 'chatgpt')).toBe(true);
+    expect(isAllowedLlmPath('GET', '/responses', 'chatgpt')).toBe(false);
+    expect(isAllowedLlmPath('POST', '/v1/responses', 'chatgpt')).toBe(false);
+    expect(isAllowedLlmPath('POST', CODEX_REFRESH_PATH, 'chatgpt')).toBe(false);
+  });
+});
+
+describe('buildForwardHeaders', () => {
+  it('overlays applied headers after copying inbound ones, replacing (not merging) a collision', () => {
+    const headers = buildForwardHeaders(
+      { 'content-type': 'application/json', 'chatgpt-account-id': 'forged-account-id', connection: 'keep-alive' },
+      { authorization: 'Bearer real-token-value', 'chatgpt-account-id': 'real-account-id' },
+    );
+    expect(headers).toEqual({
+      'content-type': 'application/json',
+      'chatgpt-account-id': 'real-account-id',
+      authorization: 'Bearer real-token-value',
+    });
+  });
+  it('drops authorization, x-api-key, host and hop-by-hop headers from the inbound copy', () => {
+    const headers = buildForwardHeaders(
+      { authorization: 'Bearer forged', 'x-api-key': 'forged', host: 'cell-internal', 'transfer-encoding': 'chunked', 'content-type': 'application/json' },
+      {},
+    );
+    expect(headers).toEqual({ 'content-type': 'application/json' });
+  });
+  it('filters anthropic-beta the same way as before', () => {
+    const headers = buildForwardHeaders({ 'anthropic-beta': 'mcp-client-2025-04-04,foo' }, {});
+    expect(headers['anthropic-beta']).toBe('foo');
+  });
+});
+
+describe('chatgptAuthHeaders', () => {
+  it('returns the real access token as Bearer plus the real chatgpt-account-id', () => {
+    const accessToken = 'x'.repeat(40);
+    expect(chatgptAuthHeaders(accessToken, 'acct_real123')).toEqual({
+      authorization: `Bearer ${accessToken}`,
+      'chatgpt-account-id': 'acct_real123',
+    });
+  });
+  it('a forged inbound chatgpt-account-id never survives the overlay', () => {
+    const accessToken = 'y'.repeat(40);
+    const applied = chatgptAuthHeaders(accessToken, 'acct_real123');
+    const headers = buildForwardHeaders({ 'chatgpt-account-id': 'acct_forged', authorization: 'Bearer placeholder-nonce' }, applied);
+    expect(headers['chatgpt-account-id']).toBe('acct_real123');
+    expect(headers.authorization).toBe(`Bearer ${accessToken}`);
+  });
+});
+
+describe('chatgptIdpRoute', () => {
+  it('recognizes the refresh and revoke paths by POST only', () => {
+    expect(chatgptIdpRoute('POST', CODEX_REFRESH_PATH)).toBe('refresh');
+    expect(chatgptIdpRoute('POST', CODEX_REVOKE_PATH)).toBe('revoke');
+    expect(chatgptIdpRoute('GET', CODEX_REFRESH_PATH)).toBeUndefined();
+    expect(chatgptIdpRoute('POST', '/responses')).toBeUndefined();
+    expect(chatgptIdpRoute('POST', undefined)).toBeUndefined();
+  });
+  it('ignores the query string', () => {
+    expect(chatgptIdpRoute('POST', `${CODEX_REFRESH_PATH}?x=1`)).toBe('refresh');
+  });
+});
+
+describe('readIdpRequest', () => {
+  it('reads the named credential field out of a JSON body', () => {
+    const placeholder = 'p'.repeat(32);
+    const body = Buffer.from(JSON.stringify({ grant_type: 'refresh_token', refresh_token: placeholder }));
+    expect(readIdpRequest(body, 'refresh_token')).toEqual({ credential: placeholder, parsed: { grant_type: 'refresh_token', refresh_token: placeholder } });
+  });
+  it('reads the revoke field name (token) separately from the refresh field (refresh_token)', () => {
+    const placeholder = 'q'.repeat(32);
+    const body = Buffer.from(JSON.stringify({ token: placeholder, token_type_hint: 'refresh_token' }));
+    expect(readIdpRequest(body, 'token')?.credential).toBe(placeholder);
+    expect(readIdpRequest(body, 'refresh_token')).toBeUndefined();
+  });
+  it('returns undefined for malformed JSON, non-objects, or a missing/empty/non-string field', () => {
+    expect(readIdpRequest(Buffer.from('not json'), 'refresh_token')).toBeUndefined();
+    expect(readIdpRequest(Buffer.from('[1,2]'), 'refresh_token')).toBeUndefined();
+    expect(readIdpRequest(Buffer.from('{}'), 'refresh_token')).toBeUndefined();
+    expect(readIdpRequest(Buffer.from(JSON.stringify({ refresh_token: '' })), 'refresh_token')).toBeUndefined();
+    expect(readIdpRequest(Buffer.from(JSON.stringify({ refresh_token: 42 })), 'refresh_token')).toBeUndefined();
+  });
+});
+
+describe('buildSyntheticIdToken', () => {
+  it('produces a three-segment, base64url-decodable JWT shape carrying only account id + plan type', () => {
+    const token = buildSyntheticIdToken('acct_real123', 'pro');
+    const segments = token.split('.');
+    expect(segments).toHaveLength(3);
+    for (const seg of segments) expect(seg.length).toBeGreaterThan(0);
+    const payload = JSON.parse(Buffer.from(segments[1] ?? '', 'base64url').toString('utf8'));
+    expect(payload).toEqual({ 'https://api.openai.com/auth': { chatgpt_account_id: 'acct_real123', chatgpt_plan_type: 'pro' } });
+  });
+  it('never embeds a real-looking secret value — only the two non-secret claims', () => {
+    const token = buildSyntheticIdToken('acct_real123', 'pro');
+    expect(token).not.toContain('access_token');
+    expect(token).not.toContain('refresh_token');
+  });
+});
+
+describe('placeholderRefreshResponse', () => {
+  it('returns only placeholders plus a synthetic id_token — never the real tokens', () => {
+    const realAccessToken = 'r'.repeat(40);
+    const realRefreshToken = 's'.repeat(40);
+    const accessPlaceholder = 'nonce-placeholder';
+    const refreshPlaceholder = 'refresh-placeholder';
+    const response = placeholderRefreshResponse(accessPlaceholder, refreshPlaceholder, 'acct_real123', 'pro');
+    expect(response.access_token).toBe(accessPlaceholder);
+    expect(response.refresh_token).toBe(refreshPlaceholder);
+    const serialized = JSON.stringify(response);
+    expect(serialized).not.toContain(realAccessToken);
+    expect(serialized).not.toContain(realRefreshToken);
+    const idPayload = JSON.parse(Buffer.from(response.id_token.split('.')[1] ?? '', 'base64url').toString('utf8'));
+    expect(idPayload).toEqual({ 'https://api.openai.com/auth': { chatgpt_account_id: 'acct_real123', chatgpt_plan_type: 'pro' } });
   });
 });
