@@ -20,6 +20,10 @@ on:
         description: 'Revision provider (--provider). Empty = CLI default.'
         type: string
         default: ''
+      provider-model:
+        description: 'Revision model (--provider-model), e.g. the same model the implement workflow uses. Empty = CLI default.'
+        type: string
+        default: ''
       llm-proxy:
         description: 'Keep the model credential in a sidecar proxy, out of the sandbox (--llm-proxy).'
         type: boolean
@@ -142,6 +146,7 @@ jobs:
           VANGUARD_PUSH_TOKEN: ${{ secrets.VANGUARD_PUSH_TOKEN }}
           IN_NUMBER: ${{ inputs.number }}
           IN_PROVIDER: ${{ inputs.provider }}
+          IN_PROVIDER_MODEL: ${{ inputs.provider-model }}
           IN_LLM_PROXY: ${{ inputs.llm-proxy }}
           IN_SKILLS: ${{ inputs.skills }}
         run: |
@@ -149,6 +154,7 @@ jobs:
           args=(revise-pr "$IN_NUMBER" --github-repo "$GITHUB_REPOSITORY" --repo "$GITHUB_WORKSPACE" --max-rounds 2)
           [ -n "$IN_SKILLS" ] && args+=(--skills "$IN_SKILLS")
           [ -n "$IN_PROVIDER" ] && args+=(--provider "$IN_PROVIDER")
+          [ -n "$IN_PROVIDER_MODEL" ] && args+=(--provider-model "$IN_PROVIDER_MODEL")
           [ "$IN_LLM_PROXY" = "true" ] && args+=(--llm-proxy)
           node .vanguard-src/dist/cli/index.js "${args[@]}"
 
