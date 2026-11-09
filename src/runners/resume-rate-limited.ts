@@ -6,8 +6,8 @@ import { defaultGhRunner } from '../tasks/github.js';
 import type { RateLimitedMarker } from '../core/rate-limit-marker.js';
 import type { GhRunner } from '../tasks/github.js';
 
-/** The only labels a marker may name: a pasted marker must not make this command apply any other label. */
-const KNOWN_TRIGGERS: ReadonlySet<string> = new Set(['ready for agent', 'ready for spec', 'needs revision', 'ready for vanguard review']);
+/** Default trigger labels a marker may name; `triggerLabels` replaces them for repos with their own names. */
+export const DEFAULT_TRIGGER_LABELS: ReadonlySet<string> = new Set(['ready for agent', 'ready for spec', 'needs revision', 'ready for vanguard review']);
 
 /** Cap on parked items read per sweep, as watch-prs uses for its own label-filtered list. */
 const LIST_LIMIT = '100';
@@ -15,6 +15,8 @@ const LIST_LIMIT = '100';
 export interface ResumeRateLimitedOptions {
   /** owner/repo whose parked issues and PRs to sweep. */
   repoSlug: string;
+  /** Labels a marker may name (a pasted marker must not apply any other label). Default: DEFAULT_TRIGGER_LABELS. */
+  triggerLabels?: readonly string[];
   /** Report what would be re-triggered and edit nothing. */
   dryRun?: boolean;
   /** Clock for the `until` comparison (injected by tests). */
@@ -101,6 +103,7 @@ export async function resumeRateLimited(opts: ResumeRateLimitedOptions): Promise
   const gh = opts.gh ?? defaultGhRunner;
   const log = opts.log ?? console.log;
   const now = opts.now ?? new Date();
+  const allowed = new Set(opts.triggerLabels !== undefined && opts.triggerLabels.length > 0 ? opts.triggerLabels : DEFAULT_TRIGGER_LABELS);
   const report: ResumeRateLimitedReport = { resumed: [], waiting: [], skipped: [], failed: [] };
   for (const kind of ['issue', 'pr'] as const) {
     for (const number of await listParked(kind, opts.repoSlug, gh)) {
@@ -113,8 +116,8 @@ export async function resumeRateLimited(opts: ResumeRateLimitedOptions): Promise
         const marker = await latestMarker(kind, opts.repoSlug, number, gh);
         if (marker === undefined) {
           record('skipped', 'skip -> no rate-limit marker from a trusted author');
-        } else if (!KNOWN_TRIGGERS.has(marker.trigger)) {
-          record('skipped', `skip -> marker names an unknown trigger "${marker.trigger}"`);
+        } else if (!allowed.has(marker.trigger)) {
+          record('skipped', `skip -> marker names "${marker.trigger}", not an allowed trigger (pass --trigger-labels)`);
         } else if (marker.until.getTime() > now.getTime()) {
           record('waiting', `waiting -> resets ${marker.until.toISOString()}`);
         } else if (opts.dryRun === true) {

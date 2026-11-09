@@ -63,4 +63,10 @@ describe('resumeRateLimited', () => {
     expect(report.skipped).toEqual(['o/r#1', 'o/r#2']);
     expect(edits).toEqual([]);
   });
+
+  it('--trigger-labels lets a repo with its own label names resume', async () => {
+    const { gh } = fakeGh([{ kind: 'pr', number: 3, comments: [owner(rateLimitedMarker(PAST, 'factory: review'))] }]);
+    const report = await resumeRateLimited({ repoSlug: 'o/r', now: NOW, gh, triggerLabels: ['factory: review'], log: () => {} });
+    expect(report.resumed).toEqual(['o/r#3']);
+  });
 });
