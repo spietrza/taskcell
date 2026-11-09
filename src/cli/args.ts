@@ -8,6 +8,7 @@ type WatchSource = 'linear' | 'github' | 'project' | 'gitlab';
 
 export type Command =
   | { kind: 'gc'; repoPath: string; maxAgeMs: number; remoteRepo?: string; dryRun: boolean; abandoned: boolean }
+  | { kind: 'resume-rate-limited'; repoSlug: string; dryRun: boolean }
   | {
       kind: 'review-pr';
       prRef: string;
@@ -710,6 +711,12 @@ export function parseCli(argv: string[], cwd: string): Command {
     };
   }
 
+  if (positionals[0] === 'resume-rate-limited') {
+    const repoSlug = typeof values['github-repo'] === 'string' ? values['github-repo'] : undefined;
+    if (repoSlug === undefined) return fail('resume-rate-limited requires --github-repo <owner/repo>.');
+    return { kind: 'resume-rate-limited', repoSlug, dryRun: values['dry-run'] === true };
+  }
+
   if (positionals[0] === 'gc') {
     const hours = Number(values['max-age-hours']);
     const maxAgeMs = (Number.isFinite(hours) && hours >= 0 ? hours : DEFAULT_MAX_AGE_HOURS) * HOUR_MS;
@@ -1242,6 +1249,7 @@ Commands:
          (shadow mode: never merges, approves, or edits labels).
   memory Refresh .vanguard/memory/retrospective.md from run artifacts and print it.
   eval   Run the committed eval corpus and print a per-kind pass-rate report.
+  resume-rate-limited Re-apply the trigger label on issues/PRs a provider limit parked, once the reset passed.
   gc     Reap stale sandbox containers, prune worktrees, and (with --remote) delete merged
          remote chore/vanguard-* branches.
   hub    Serve the Inspector UI over HTTP/SSE (node:http), backed by a real .vanguard/ directory.

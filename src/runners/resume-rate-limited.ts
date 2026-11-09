@@ -6,6 +6,9 @@ import { defaultGhRunner } from '../tasks/github.js';
 import type { RateLimitedMarker } from '../core/rate-limit-marker.js';
 import type { GhRunner } from '../tasks/github.js';
 
+/** The only labels a marker may name: a pasted marker must not make this command apply any other label. */
+const KNOWN_TRIGGERS: ReadonlySet<string> = new Set(['ready for agent', 'ready for spec', 'needs revision', 'ready for vanguard review']);
+
 /** Cap on parked items read per sweep, as watch-prs uses for its own label-filtered list. */
 const LIST_LIMIT = '100';
 
@@ -110,6 +113,8 @@ export async function resumeRateLimited(opts: ResumeRateLimitedOptions): Promise
         const marker = await latestMarker(kind, opts.repoSlug, number, gh);
         if (marker === undefined) {
           record('skipped', 'skip -> no rate-limit marker from a trusted author');
+        } else if (!KNOWN_TRIGGERS.has(marker.trigger)) {
+          record('skipped', `skip -> marker names an unknown trigger "${marker.trigger}"`);
         } else if (marker.until.getTime() > now.getTime()) {
           record('waiting', `waiting -> resets ${marker.until.toISOString()}`);
         } else if (opts.dryRun === true) {
