@@ -9,6 +9,7 @@ import { runRevisePullRequest } from './revise-pr.js';
 import * as registry from '../agents/registry.js';
 import { selectAgents } from '../agents/registry.js';
 import { AgentError } from '../core/errors.js';
+import { gateConfigChangedBlock } from '../context/gate-config.js';
 import type { GhRunner } from '../tasks/github.js';
 import type { IsolatedSandboxProvider, ExecResult, SandboxConfig } from '../sandbox/provider.js';
 import type { AgentProvider, AgentRunInput, AgentTurn, AgentRunOutput } from '../agents/provider.js';
@@ -1202,11 +1203,11 @@ describe('runRevisePullRequest — revise-pass verification', () => {
   }
 
   // gh runner referencing an issue via a closing keyword in the PR body, capturing pr-edit bodies.
-  function makeGh(ghCalls: string[][], editBodies: string[]): GhRunner {
+  function makeGh(ghCalls: string[][], editBodies: string[], prBody = 'Adds guard.\n\nCloses o/r#42'): GhRunner {
     return async (args) => {
       ghCalls.push(args);
       if (args[0] === 'pr' && args[1] === 'view' && args.some((a) => a.includes('headRefName'))) {
-        return makePrViewJson({ body: 'Adds guard.\n\nCloses o/r#42' });
+        return makePrViewJson({ body: prBody });
       }
       if (args[0] === 'pr' && args[1] === 'diff') return 'diff --git a/fix.txt';
       if (args[0] === 'api' && args[1] === 'graphql') {
@@ -1279,6 +1280,38 @@ describe('runRevisePullRequest — revise-pass verification', () => {
     const body = editBodies.find((b) => b.includes('o/r#42'));
     expect(body).toBeDefined();
     expect(body).toContain('Part of o/r#42');
+    expect(body).not.toContain('Closes o/r#42');
+  });
+
+  it('carries a first-delivery gate-config block forward on a red round without re-adding its Closes', async () => {
+    const editBodies: string[] = [];
+    const configBlock = gateConfigChangedBlock([{ path: 'vitest.config.ts', patch: '+    thresholds: { lines: 0 },' }]);
+    // The real first-delivery body order: gate block, then `Closes …` + attribution, then the proof.
+    const prBody = [
+      configBlock,
+      'Closes o/r#42',
+      'Automated implementation of o/r#42 by Vanguard.',
+      '## Proof of work\n\nPASS',
+    ].join('\n\n');
+
+    await runRevisePullRequest('7', {
+      repoPath: repo,
+      repoSlug: 'o/r',
+      gh: makeGh([], editBodies, prBody),
+      verifyCmd: VERIFY_CMD,
+      _sandbox: makeSandboxVerify(1),
+      _agent: agentThatCompletes([]),
+      _worktrees: new WorktreeManager(repo),
+      _pushRunner: async () => '',
+      _baseBranch: 'feature-branch',
+      provider: 'claude',
+    });
+
+    const body = editBodies.find((b) => b.includes('o/r#42'));
+    expect(body).toBeDefined();
+    expect(body).toContain('Part of o/r#42');
+    // The disclosure survives verbatim; the stale closing keyword next to it in the old body does not.
+    expect(body).toContain(configBlock);
     expect(body).not.toContain('Closes o/r#42');
   });
 

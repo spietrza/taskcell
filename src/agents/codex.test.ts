@@ -178,9 +178,11 @@ describe('CodexProvider', () => {
     expect(setup).toContain('printf %s "$CODEX_AUTH_JSON"'); // content from env, never embedded on argv
     expect(setup).toContain('chmod 600 "${CODEX_HOME:-$HOME/.codex}/auth.json"');
 
-    // the other two modes remain reachable in the same single command
-    expect(setup).toContain('elif [ -n "${VANGUARD_OPENAI_BASE_URL:-}" ]; then');
-    expect(setup).toContain('codex login --with-api-key');
+    // the auth.json write is its own `if`, not a chain: chatgpt-plan proxy mode needs it AND the
+    // base-URL branch below, so the latter must not be an `elif` hanging off this one.
+    expect(setup).toContain('chmod 600 "${CODEX_HOME:-$HOME/.codex}/auth.json"; fi; if [ -n "${VANGUARD_OPENAI_BASE_URL:-}" ]; then');
+    // login is the fallback only when there is no auth.json at all.
+    expect(setup).toContain('elif [ -z "${CODEX_AUTH_JSON:-}" ]; then printf %s "$OPENAI_API_KEY" | codex login --with-api-key');
   });
 
   it('feeds the prompt on stdin (`-` arg), never on argv', async () => {

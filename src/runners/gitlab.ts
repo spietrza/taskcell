@@ -1,6 +1,6 @@
 import { execa } from 'execa';
 import { agentAuthFromEnv } from '../agents/auth.js';
-import { GitLabTaskFetcher, linkMergeRequest, addMrFailureLabel, editGitlabLabels, commentGitlabIssue, defaultGlabRunner } from '../tasks/gitlab.js';
+import { GitLabTaskFetcher, linkMergeRequest, addMrFailureLabel, addMrGateLabel, editGitlabLabels, commentGitlabIssue, defaultGlabRunner } from '../tasks/gitlab.js';
 import { implementReviewSimplifyStages } from '../pipeline/pipeline.js';
 import { parseMergeRequestRef, postMergeRequestNote, mergeRequestReviewMarker } from './mr-review.js';
 import { REVIEW_INCOMPLETE, stripReviewMarkers } from './review-prompt.js';
@@ -8,7 +8,7 @@ import type { MergeRequestReviewTarget } from './mr-review.js';
 import { renderConformanceSection, hasBlockingFinding } from '../pipeline/review-publish.js';
 import { runSourcedIssue } from './source-adapter.js';
 import { renderSecretBlockComment } from '../core/secret-scan.js';
-import { gitlabFailureLabel, GITLAB_SECRET_BLOCKED_LABEL } from '../gitlab-labels.js';
+import { gitlabFailureLabel, GITLAB_GATE_CONFIG_LABEL, GITLAB_SECRET_BLOCKED_LABEL } from '../gitlab-labels.js';
 import type { Task } from '../tasks/fetcher.js';
 import type { ProviderChoice } from '../agents/registry.js';
 import type { GlabRunner } from '../tasks/gitlab.js';
@@ -37,6 +37,7 @@ export function gitlabAdapter(deps: RunGitlabIssueDeps, glab?: GlabRunner): Sour
     reviewCli: 'glab',
     publishVerdict: (input: PublishVerdictInput) => publishGitlabVerdict(deps.project, input, glab),
     addFailureLabel: (mrUrl: string, kind: ProofFailureKind) => addGitlabFailureLabel(deps.project, mrUrl, kind, glab),
+    addGateConfigLabel: (mrUrl: string) => addGitlabGateConfigLabel(deps.project, mrUrl, glab),
     async linkPr(issueRef: string, _task: Task, mrUrl: string) {
       await linkMergeRequest(deps.project, issueRef, mrUrl, glab);
     },
@@ -116,6 +117,16 @@ export async function addGitlabFailureLabel(
     return;
   }
   await addMrFailureLabel(target.project, target.iid, label, glab);
+}
+
+/**
+ * Flag a GitLab MR as touching gate config; `project` resolves a bare MR iid. Unlike
+ * addGitlabFailureLabel nothing is swallowed — not a bad URL, not a failed flip (see
+ * SourceAdapter#addGateConfigLabel).
+ */
+export async function addGitlabGateConfigLabel(project: string, mrUrl: string, glab?: GlabRunner): Promise<void> {
+  const target = parseMergeRequestRef(mrUrl, project);
+  await addMrGateLabel(target.project, target.iid, GITLAB_GATE_CONFIG_LABEL, glab);
 }
 
 /**

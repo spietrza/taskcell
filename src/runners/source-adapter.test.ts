@@ -218,6 +218,7 @@ function fakeAdapter(order: string[], stages: PipelineStage[]): SourceAdapter {
     closeIssueOnMerge: true,
     publishVerdict: vi.fn(async () => { order.push('publishVerdict'); }),
     addFailureLabel: vi.fn(async () => { order.push('addFailureLabel'); }),
+    addGateConfigLabel: vi.fn(async () => { order.push('addGateConfigLabel'); }),
     linkPr: vi.fn(async () => { order.push('linkPr'); }),
     signalSecretBlock: vi.fn(async () => { order.push('signalSecretBlock'); }),
   };
@@ -1154,7 +1155,7 @@ describe('runSourcedIssue', () => {
     wmDiff.mockResolvedValueOnce(`diff --git a/${path} b/${path}\n--- a/${path}\n+++ b/${path}\n@@ -1 +1 @@\n-old\n+new\n`);
     const adapter = fakeAdapter([], STAGES);
     await runSourcedIssue('group/project#1', { repoPath: '/repo' }, adapter);
-    expect(adapter.addFailureLabel).toHaveBeenCalledWith(MR_URL, 'gate-config');
+    expect(adapter.addGateConfigLabel).toHaveBeenCalledWith(MR_URL);
     expect(publishForReview.mock.calls[0]?.[1]?.body).toContain('## Gate config changed');
     expect(publishForReview.mock.calls[0]?.[1]?.body).toContain(path);
   });
