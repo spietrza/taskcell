@@ -104,8 +104,17 @@ describe('rateLimitResetDelayMs', () => {
     expect(rateLimitResetDelayMs(new AgentError('Claude usage limit reached. Your limit will reset at 10:30pm (UTC).'), at(22))).toBe(30 * 60_000);
   });
 
-  it('rolls a reset already past to the next day', () => {
-    expect(rateLimitResetDelayMs(new AgentError(session), at(21, 30))).toBe(23.5 * 60 * 60_000);
+  it('reads the epoch reset of the plan-cap wording', () => {
+    const resetAt = at(21) / 1000;
+    expect(rateLimitResetDelayMs(new AgentError(`Claude AI usage limit reached|${resetAt}`), at(20, 58))).toBe(2 * 60_000);
+  });
+
+  it('reads a reset that has just passed as "retry now"', () => {
+    expect(rateLimitResetDelayMs(new AgentError(session), at(21, 4))).toBe(0);
+  });
+
+  it('rolls a reset long past to the next day', () => {
+    expect(rateLimitResetDelayMs(new AgentError("You've hit your session limit · resets 9am (UTC)"), at(20))).toBe(13 * 60 * 60_000);
   });
 
   it('ignores a reset clause outside the refusal line', () => {

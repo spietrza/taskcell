@@ -101,18 +101,23 @@ export function isRateLimitError(error: unknown): boolean {
 const RATE_LIMIT_RESET_CLAUSE = /\breset(?:s)?(?:\s+at)?\s+(\d{1,2})(?::(\d{2}))?\s*(am|pm)?\s*(?:\(([^)]{1,12})\))?/i;
 
 const DAY_MS = 24 * 60 * 60 * 1000;
+/** How far past the named reset still counts as "just reset, retry now" rather than tomorrow. */
+const RESET_ALREADY_PAST_MS = 6 * 60 * 60 * 1000;
 
 /**
  * Milliseconds from `now` until the reset instant a provider rate-limit refusal names, or undefined
  * when it names none, the clause is unparseable, or it carries no explicit UTC marker — guessing the
  * zone would mean waiting for the wrong hour, which is worse than not waiting at all. A time already
- * past rolls to the next day, the way the provider's own window does.
+ * past returns 0 (retry now) for up to six hours, and only then rolls to the next day.
  */
 export function rateLimitResetDelayMs(error: unknown, now: number = Date.now()): number | undefined {
   // Only the line that carries the refusal itself: agent-authored text elsewhere in the message
   // ("the cache resets at 3am") must not set how long the run waits.
   const refusal = rawMessage(error).split(/\r?\n/).find((line) => RATE_LIMIT_PATTERNS.some((re) => re.test(line)));
   if (refusal === undefined) return undefined;
+  // The plan-cap form carries the reset as an epoch: `Claude AI usage limit reached|1762722000`.
+  const epoch = /usage limit reached\|(\d{10})\b/i.exec(refusal);
+  if (epoch !== null) return Math.max(0, Number(epoch[1]) * 1000 - now);
   const match = RATE_LIMIT_RESET_CLAUSE.exec(refusal);
   if (match === null) return undefined;
   const [, rawHour, rawMinute, rawMeridiem, zone] = match;
@@ -126,7 +131,11 @@ export function rateLimitResetDelayMs(error: unknown, now: number = Date.now()):
   const hour = meridiem === undefined ? clockHour : (clockHour % 12) + (meridiem === 'pm' ? 12 : 0);
   const base = new Date(now);
   const target = Date.UTC(base.getUTCFullYear(), base.getUTCMonth(), base.getUTCDate(), hour, minute);
-  return (target > now ? target : target + DAY_MS) - now;
+  if (target > now) return target - now;
+  // Named time already behind us: the window most likely just reset (the message was written at
+  // refusal time, the catch can run much later), so retry now. Only a time far in the past is read
+  // as tomorrow's boundary.
+  return now - target <= RESET_ALREADY_PAST_MS ? 0 : target + DAY_MS - now;
 }
 
 /**
