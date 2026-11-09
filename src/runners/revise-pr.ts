@@ -169,6 +169,9 @@ async function handBackPrLabels(
 ): Promise<void> {
   try {
     await gh(['label', 'create', GITHUB_REVIEW_LABEL, '--repo', repoSlug, '--force']);
+    // HAND_BACK_LABELS removes the hold label unconditionally, and a `--remove-label` for a label the
+    // repo never created fails the whole edit: make sure it exists.
+    await gh(['label', 'create', GITHUB_RATE_LIMITED_LABEL, '--repo', repoSlug, '--force']);
   } catch (err) {
     log(`revise-pr ${repoSlug}#${number}: label ensure -> manual label check (${err instanceof Error ? err.message : String(err)})`);
   }
