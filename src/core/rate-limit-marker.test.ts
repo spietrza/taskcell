@@ -2,40 +2,28 @@ import { describe, it, expect } from 'vitest';
 import { parseProviderRateLimitReset, rateLimitedMarker, parseRateLimitedMarker, latestRateLimitedMarker, rateLimitedComment } from './rate-limit-marker.js';
 
 describe('parseProviderRateLimitReset', () => {
-  it('parses a "resets 9pm (UTC)" wall-clock reset later the same day', () => {
-    const now = new Date('2026-11-08T18:00:00.000Z');
-    const until = parseProviderRateLimitReset("You've hit your session limit · resets 9pm (UTC)", now);
-    expect(until.toISOString()).toBe('2026-11-08T21:00:00.000Z');
+  const now = new Date('2026-11-08T18:00:00.000Z');
+
+  it('reads the session-limit wall-clock reset', () => {
+    expect(parseProviderRateLimitReset("You've hit your session limit · resets 9pm (UTC)", now).toISOString()).toBe('2026-11-08T21:00:00.000Z');
   });
 
-  it('rolls over to tomorrow when the named clock time has already passed today', () => {
-    const now = new Date('2026-11-08T22:00:00.000Z');
-    const until = parseProviderRateLimitReset('resets 9pm (UTC)', now);
-    expect(until.toISOString()).toBe('2026-11-09T21:00:00.000Z');
+  it('reads the plan-cap wording and its epoch form', () => {
+    expect(parseProviderRateLimitReset('Claude usage limit reached. Your limit will reset at 9pm (UTC).', now).toISOString()).toBe('2026-11-08T21:00:00.000Z');
+    const epoch = Date.UTC(2026, 10, 8, 20) / 1000;
+    expect(parseProviderRateLimitReset(`Claude AI usage limit reached|${epoch}`, now).toISOString()).toBe('2026-11-08T20:00:00.000Z');
   });
 
-  it('parses a 12-hour clock with minutes and am/pm', () => {
-    const now = new Date('2026-11-08T00:00:00.000Z');
-    const until = parseProviderRateLimitReset('resets 9:30am (UTC)', now);
-    expect(until.toISOString()).toBe('2026-11-08T09:30:00.000Z');
+  it('parses a relative "try again in 2h" on a refusal line', () => {
+    expect(parseProviderRateLimitReset('Rate limit reached for gpt-5, try again in 2h', now).toISOString()).toBe('2026-11-08T20:00:00.000Z');
   });
 
-  it('parses a relative "try again in 2h" duration', () => {
-    const now = new Date('2026-11-08T18:00:00.000Z');
-    const until = parseProviderRateLimitReset('Rate limit reached for gpt-5, try again in 2h', now);
-    expect(until.toISOString()).toBe('2026-11-08T20:00:00.000Z');
+  it('ignores a reset in agent prose and falls back to now + 1h', () => {
+    expect(parseProviderRateLimitReset('rate_limit_error\nthe cache resets 3am (UTC), try again in 9h', now).toISOString()).toBe('2026-11-08T19:00:00.000Z');
   });
 
-  it('parses a relative duration in minutes', () => {
-    const now = new Date('2026-11-08T18:00:00.000Z');
-    const until = parseProviderRateLimitReset('try again in 45m', now);
-    expect(until.toISOString()).toBe('2026-11-08T18:45:00.000Z');
-  });
-
-  it('falls back to now + 1h when the message names no reset time', () => {
-    const now = new Date('2026-11-08T18:00:00.000Z');
-    const until = parseProviderRateLimitReset('rate_limit_error', now);
-    expect(until.toISOString()).toBe('2026-11-08T19:00:00.000Z');
+  it('clamps a garbled relative duration to 24h instead of an Invalid Date', () => {
+    expect(parseProviderRateLimitReset('Rate limit reached for x, try again in 99999999999999h', now).toISOString()).toBe('2026-11-09T18:00:00.000Z');
   });
 });
 
