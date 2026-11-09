@@ -271,6 +271,20 @@ describe('runBudgetedStages', () => {
       await disposeContext(ctx);
     });
 
+    it('retries at once, without waiting, when the fallback runs a different model', async () => {
+      vi.spyOn(Date, 'now').mockReturnValue(Date.UTC(2026, 10, 8, 16, 44));
+      const slept: number[] = [];
+      const fallbackInputs: AgentRunInput[] = [];
+      const fallback = { ...recordingAgent(fallbackInputs), name: 'claude' };
+      const stages = withStageFallback([{ name: 'reviewer', promptTemplate: 'review', provider: limited('claude'), model: 'opus' }], { provider: fallback, model: 'sonnet' });
+      const ctx = await prepareContext({ taskId: 'rl-model', localRepoPath: repo, baseBranch: 'main', start: 'base', sandbox: makeSandbox() }, { worktrees: new WorktreeManager(repo) });
+      const result = await runBudgetedStages(ctx, stages, { agent: recordingAgent([]), maxCostUsd: 1, sleep: async (ms) => { slept.push(ms); } });
+      expect(result.status).toBe('completed');
+      expect(slept).toEqual([]);
+      expect(fallbackInputs[0]?.model).toBe('sonnet');
+      await disposeContext(ctx);
+    });
+
     it('hands back without retrying when the reset is past the cap', async () => {
       vi.spyOn(Date, 'now').mockReturnValue(Date.UTC(2026, 10, 8, 16, 44));
       const slept: number[] = [];

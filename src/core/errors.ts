@@ -77,11 +77,11 @@ const RATE_LIMIT_PATTERNS: readonly RegExp[] = [
   // limit reached. Your limit will reset at 9pm (UTC).` for a plan cap and `You've hit your session
   // limit · resets 9pm (UTC)` for a session cap. Both keep the vendor's framing — a bare "usage limit
   // reached" is prose an agent can write about its own work, and would classify a hard failure as transient.
-  /\bclaude(?: ai)? usage limit reached\b/i,
+  /\bclaude(?: ai)? usage limit reached(?:\|\d+|\.?\s+your limit will reset)/i,
   /\byou(?:'ve|’ve| have) hit your (?:session|usage|weekly|5-hour) limit\b/i,
   // Anthropic's overload refusal: the CLI's short form (`API Error: overloaded`) and the raw envelope
   // it relays, `API Error: 529 {"type":"error","error":{"type":"overloaded_error",...}}`.
-  /\bapi error:\s*overloaded\b|\boverloaded_error\b/i,
+  /\bapi error:\s*(?:overloaded\b|529\b[^\n]*"type"\s*:\s*"overloaded_error")/i,
 ];
 
 /** The text the rate-limit matchers read: an Error's message, or a non-Error throw rendered as one. */
@@ -104,10 +104,9 @@ const DAY_MS = 24 * 60 * 60 * 1000;
 
 /**
  * Milliseconds from `now` until the reset instant a provider rate-limit refusal names, or undefined
- * when it names none, the clause is unparseable, or it carries a zone other than UTC — guessing the
- * zone would mean waiting for the wrong hour, which is worse than not waiting at all. A clock time
- * with no zone marker is read in the host's local zone, the zone the CLI printed it in. A time
- * already past rolls to the next day, the way the provider's own window does.
+ * when it names none, the clause is unparseable, or it carries no explicit UTC marker — guessing the
+ * zone would mean waiting for the wrong hour, which is worse than not waiting at all. A time already
+ * past rolls to the next day, the way the provider's own window does.
  */
 export function rateLimitResetDelayMs(error: unknown, now: number = Date.now()): number | undefined {
   // Only the line that carries the refusal itself: agent-authored text elsewhere in the message
@@ -117,17 +116,16 @@ export function rateLimitResetDelayMs(error: unknown, now: number = Date.now()):
   const match = RATE_LIMIT_RESET_CLAUSE.exec(refusal);
   if (match === null) return undefined;
   const [, rawHour, rawMinute, rawMeridiem, zone] = match;
-  const utc = zone !== undefined;
-  if (utc && zone.trim().toLowerCase() !== 'utc') return undefined;
+  // Only an explicit UTC: the CLI prints inside the sandbox, whose zone need not be the host's, so a
+  // zone-less time could be off by hours.
+  if (zone === undefined || zone.trim().toLowerCase() !== 'utc') return undefined;
   const meridiem = rawMeridiem?.toLowerCase();
   const clockHour = Number(rawHour);
   const minute = rawMinute !== undefined ? Number(rawMinute) : 0;
   if (minute > 59 || clockHour > (meridiem !== undefined ? 12 : 23) || (meridiem !== undefined && clockHour < 1)) return undefined;
   const hour = meridiem === undefined ? clockHour : (clockHour % 12) + (meridiem === 'pm' ? 12 : 0);
   const base = new Date(now);
-  const target = utc
-    ? Date.UTC(base.getUTCFullYear(), base.getUTCMonth(), base.getUTCDate(), hour, minute)
-    : new Date(base.getFullYear(), base.getMonth(), base.getDate(), hour, minute).getTime();
+  const target = Date.UTC(base.getUTCFullYear(), base.getUTCMonth(), base.getUTCDate(), hour, minute);
   return (target > now ? target : target + DAY_MS) - now;
 }
 

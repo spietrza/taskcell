@@ -119,6 +119,17 @@ describe('rateLimitResetDelayMs', () => {
     expect(rateLimitResetDelayMs(new AgentError("You've hit your session limit · resets 9:75pm (UTC)"), at(20))).toBeUndefined();
   });
 
+  it('ignores a reset time with no zone marker', () => {
+    expect(rateLimitResetDelayMs(new AgentError("You've hit your session limit · resets 9pm"), at(20))).toBeUndefined();
+  });
+
+  it('does not treat prose that names the error tokens as a refusal', () => {
+    expect(isRateLimitError(new AgentError('handle the overloaded_error envelope in errors.ts'))).toBe(false);
+    expect(isRateLimitError(new AgentError('match "Claude usage limit reached" in the CLI output'))).toBe(false);
+    expect(isRateLimitError(new AgentError('API Error: 529 {"type":"error","error":{"type":"overloaded_error"}}'))).toBe(true);
+    expect(isRateLimitError(new AgentError('Claude usage limit reached. Your limit will reset at 9pm (UTC).'))).toBe(true);
+  });
+
   it('only counts the documented limit kinds as transient', () => {
     expect(isRateLimitError(new AgentError("You've hit your session limit"))).toBe(true);
     expect(isRateLimitError(new AgentError("You've hit your context limit"))).toBe(false);

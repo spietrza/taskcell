@@ -405,8 +405,10 @@ export async function runBudgetedStages(
         // primary agent on the same transport) draws on the account that just refused, so an
         // immediate retry only fails again. When the refusal names its reset, wait for it first.
         // Decided before effectiveAgent moves, while it still names the provider that failed.
-        const waitMs =
-          rateLimited && stage.fallback.provider.name === effectiveAgent.name ? rateLimitResetDelayMs(err) : undefined;
+        // Same provider AND same model only: a fallback on another model draws on a different limit
+        // (Anthropic's caps are partly per model), so it may well succeed right away.
+        const sameAccountAndModel = stage.fallback.provider.name === effectiveAgent.name && stage.fallback.model === effectiveModel;
+        const waitMs = rateLimited && sameAccountAndModel ? rateLimitResetDelayMs(err) : undefined;
         effectiveAgent = stage.fallback.provider;
         effectiveModel = stage.fallback.model;
         if (stage.provider === undefined) primaryDown = true;
