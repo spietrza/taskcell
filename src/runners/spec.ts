@@ -18,7 +18,7 @@ import type { Task, TaskFetcher } from '../tasks/fetcher.js';
 import type { AgentAuth } from '../agents/auth.js';
 import type { ProviderChoice, ProviderProxySecrets } from '../agents/registry.js';
 import { startProviderProxies } from '../sandbox/llm-proxy.js';
-import type { LlmProxyDep } from '../sandbox/llm-proxy.js';
+import type { LlmProxyDep, ProviderProxyDeps } from '../sandbox/llm-proxy.js';
 import type { IsolatedSandboxProvider } from '../sandbox/provider.js';
 import type { AgentProvider } from '../agents/provider.js';
 import type { RunDeps } from '../core/vanguard.js';
@@ -74,10 +74,10 @@ export interface RunSpecGeneratorDeps extends ProviderChoice {
 function defaultSandboxFactory(
   deps: RunSpecGeneratorDeps,
   secrets: Record<string, string>,
-  openaiProxy: LlmProxyDep | undefined,
+  providerProxies: ProviderProxyDeps,
   injectAnthropicAuth: boolean,
 ): IsolatedSandboxProvider {
-  const env = llmProxySandboxEnv(deps.proxyUrl, deps.llmProxy, openaiProxy);
+  const env = llmProxySandboxEnv(deps.proxyUrl, deps.llmProxy, providerProxies);
   return new DockerSandboxProvider({
     image: sandboxImage(),
     // In llm-proxy mode the real Claude secret stays in the sidecar — the sandbox gets only the nonce.
@@ -132,7 +132,7 @@ export async function runSpecGenerator(id: string, deps: RunSpecGeneratorDeps): 
     ...(deps.network !== undefined ? { network: deps.network } : {}),
   });
   try {
-    const sandbox = (deps.sandboxFactory ?? ((s) => defaultSandboxFactory(deps, s, providerProxies.openai, injectAnthropicAuth)))(secrets);
+    const sandbox = (deps.sandboxFactory ?? ((s) => defaultSandboxFactory(deps, s, providerProxies, injectAnthropicAuth)))(secrets);
 
     const [retrospectiveMemory, skills] = await Promise.all([loadRetrospectiveMemory(deps.repoPath), skillRegistryForRun(deps.skillsDir, deps.repoPath, { includeSpecSkills: true })]);
     const ctx = await prepareContext(

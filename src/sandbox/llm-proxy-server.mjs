@@ -36,7 +36,7 @@ import {
   chatgptIdpRoute,
   readIdpRequest,
   placeholderRefreshResponse,
-  buildSyntheticIdToken,
+  buildCodexAuthJson,
   CODEX_CLIENT_ID,
   CODEX_REFRESH_PATH,
 } from './llm-proxy-rewrite.mjs';
@@ -256,16 +256,8 @@ export function createLlmProxyServer(secretText, options = {}) {
    *  a truncated — or briefly world-readable — credential behind. AUTH_FILE was validated at boot to
    *  sit inside the sidecar's own credential directory. */
   function persistChatgptAuth() {
-    const body = JSON.stringify({
-      auth_mode: 'chatgpt',
-      tokens: {
-        id_token: buildSyntheticIdToken(chatgptState.accountId, chatgptState.planType),
-        access_token: chatgptState.accessToken,
-        refresh_token: chatgptState.refreshToken,
-        account_id: chatgptState.accountId,
-      },
-      last_refresh: new Date().toISOString(),
-    });
+    const { accessToken, refreshToken, accountId, planType } = chatgptState;
+    const body = buildCodexAuthJson(accessToken, refreshToken, accountId, planType);
     const tmpFile = `${chatgptState.authFile}.${process.pid}.tmp`;
     writeFileSync(tmpFile, body, { mode: 0o600 });
     chmodSync(tmpFile, 0o600);

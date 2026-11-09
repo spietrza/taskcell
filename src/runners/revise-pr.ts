@@ -370,7 +370,7 @@ export async function runRevisePullRequest(prRef: string, deps: ReviseGithubPrDe
     ...(deps.network !== undefined ? { network: deps.network } : {}),
   });
   try {
-    const env = llmProxySandboxEnv(deps.proxyUrl, deps.llmProxy, providerProxies.openai);
+    const env = llmProxySandboxEnv(deps.proxyUrl, deps.llmProxy, providerProxies);
     const sandbox =
       deps._sandbox ??
       new DockerSandboxProvider({

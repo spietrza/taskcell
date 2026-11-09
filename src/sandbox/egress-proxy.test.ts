@@ -12,7 +12,7 @@ import {
   DEFAULT_EGRESS_ALLOWLIST,
 } from './egress-proxy.js';
 import { resolveConnectTarget, isPrivateAddress, connectOptions } from './egress-allow.mjs';
-import type { LlmProxyDep } from './llm-proxy.js';
+import type { ChatgptProxyDep, LlmProxyDep } from './llm-proxy.js';
 
 describe('isAllowed', () => {
   it('allows exact domains and subdomains, denies look-alikes', () => {
@@ -109,28 +109,77 @@ describe('llmProxySandboxEnv', () => {
   const proxyUrl = 'http://host.docker.internal:1234';
   const anthropic: LlmProxyDep = { url: 'http://vg-llm-ant:8088', nonce: 'ant-nonce', host: 'vg-llm-ant' };
   const openai: LlmProxyDep = { url: 'http://vg-llm-oai:8088', nonce: 'oai-nonce', host: 'vg-llm-oai' };
+  const chatgpt: ChatgptProxyDep = {
+    url: 'http://vg-llm-cgp:8088',
+    nonce: 'cgp-nonce',
+    host: 'vg-llm-cgp',
+    refreshPlaceholder: 'refresh-placeholder',
+    accountId: 'acct-1',
+    planType: 'pro',
+  };
 
   it('returns undefined in direct mode (no egress proxy)', () => {
-    expect(llmProxySandboxEnv(undefined, anthropic, openai)).toBeUndefined();
+    expect(llmProxySandboxEnv(undefined, anthropic, { openai })).toBeUndefined();
+  });
+
+  it('throws instead of silently dropping the ChatGPT wiring when there is no egress proxy', () => {
+    // The real credential is already in its sidecar: without the cell env the cell would have NO
+    // credential at all, so this must fail at dispatch rather than produce a broken run.
+    expect(() => llmProxySandboxEnv(undefined, anthropic, { chatgpt })).toThrow(/egress enclave/);
   });
 
   it('wires both sidecars: both hosts in NO_PROXY, Anthropic + OpenAI vars set', () => {
-    const env = llmProxySandboxEnv(proxyUrl, anthropic, openai);
+    const env = llmProxySandboxEnv(proxyUrl, anthropic, { openai });
     expect(env).toBeDefined();
     expect(env?.NO_PROXY).toBe('localhost,127.0.0.1,vg-llm-ant,vg-llm-oai');
     expect(env?.ANTHROPIC_BASE_URL).toBe(anthropic.url);
     expect(env?.ANTHROPIC_AUTH_TOKEN).toBe(anthropic.nonce);
     expect(env?.OPENAI_API_KEY).toBe(openai.nonce);
     expect(env?.VANGUARD_OPENAI_BASE_URL).toBe(`${openai.url}/v1`);
+    expect(env?.CODEX_AUTH_JSON).toBeUndefined(); // API-key mode has no auth.json at all
   });
 
   it('wires the OpenAI sidecar alone: OpenAI vars + host in NO_PROXY, no Anthropic vars', () => {
-    const env = llmProxySandboxEnv(proxyUrl, undefined, openai);
+    const env = llmProxySandboxEnv(proxyUrl, undefined, { openai });
     expect(env?.NO_PROXY).toBe('localhost,127.0.0.1,vg-llm-oai');
     expect(env?.OPENAI_API_KEY).toBe(openai.nonce);
     expect(env?.VANGUARD_OPENAI_BASE_URL).toBe(`${openai.url}/v1`);
     expect(env?.ANTHROPIC_BASE_URL).toBeUndefined();
     expect(env?.ANTHROPIC_AUTH_TOKEN).toBeUndefined();
+  });
+
+  it('wires the ChatGPT sidecar: host in NO_PROXY, bare base URL, nonce, IdP overrides', () => {
+    const env = llmProxySandboxEnv(proxyUrl, anthropic, { chatgpt });
+    expect(env?.NO_PROXY).toBe('localhost,127.0.0.1,vg-llm-ant,vg-llm-cgp');
+    expect(env?.OPENAI_API_KEY).toBe(chatgpt.nonce);
+    // No `/v1`: the chatgpt sidecar's inbound model path is a bare /responses.
+    expect(env?.VANGUARD_OPENAI_BASE_URL).toBe(chatgpt.url);
+    expect(env?.CODEX_REFRESH_TOKEN_URL_OVERRIDE).toBe(`${chatgpt.url}/oauth/token`);
+    expect(env?.CODEX_REVOKE_TOKEN_URL_OVERRIDE).toBe(`${chatgpt.url}/oauth/revoke`);
+    expect(env?.ANTHROPIC_BASE_URL).toBe(anthropic.url);
+  });
+
+  it('gives the cell a placeholder auth.json: loadable shape, only placeholder credentials in it', () => {
+    const env = llmProxySandboxEnv(proxyUrl, undefined, { chatgpt });
+    const auth = JSON.parse(env?.CODEX_AUTH_JSON ?? '{}') as {
+      auth_mode: string;
+      tokens: { id_token: string; access_token: string; refresh_token: string; account_id: string };
+      last_refresh: string;
+    };
+    expect(auth.auth_mode).toBe('chatgpt');
+    expect(auth.tokens.access_token).toBe(chatgpt.nonce);
+    expect(auth.tokens.refresh_token).toBe(chatgpt.refreshPlaceholder);
+    expect(auth.tokens.account_id).toBe(chatgpt.accountId);
+    // Codex's loader requires three non-empty base64url segments; the claims are non-secret.
+    const segments = auth.tokens.id_token.split('.');
+    expect(segments).toHaveLength(3);
+    expect(segments.every((s) => s !== '')).toBe(true);
+    expect(JSON.parse(Buffer.from(segments[1] ?? '', 'base64url').toString('utf8'))).toEqual({
+      'https://api.openai.com/auth': { chatgpt_account_id: 'acct-1', chatgpt_plan_type: 'pro' },
+    });
+    expect(Number.isNaN(Date.parse(auth.last_refresh))).toBe(false);
+    // Single-line JSON: the sandbox env/secret layer rejects newlines.
+    expect(env?.CODEX_AUTH_JSON).not.toContain('\n');
   });
 
   it('keeps the Anthropic-only behavior unchanged when no OpenAI sidecar is given', () => {
