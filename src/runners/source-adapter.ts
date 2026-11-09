@@ -30,10 +30,6 @@ import { llmProxySandboxEnv } from '../sandbox/egress-proxy.js';
 import { resolveVerifyCommand, runVerification, renderVerificationFeedback, proofBlock, verifySkippedBlock, baseRedBlock } from '../pipeline/verify.js';
 import { resolveBaselineVerify } from '../pipeline/baseline-verify.js';
 
-/** A verify command that installs its dependencies before running anything (the auto-detected JS shape). */
-/** Issue label that skips the base-red check: the task is meant to fix the red base. */
-export const BASE_RED_OK_LABEL = 'vanguard:base-red-ok';
-const SELF_INSTALLING_VERIFY_RE = /^\s*(?:pnpm|yarn|npm) install --frozen-lockfile\s*&&/;
 import { resolveAndRunVisualProof, visualProofBlock } from '../pipeline/visual-proof.js';
 import { startProviderProxies } from '../sandbox/llm-proxy.js';
 import { reviewRequestBody } from './review-body.js';
@@ -56,6 +52,11 @@ import type { ProviderChoice, CustomProviderEntry } from '../agents/registry.js'
 import type { PipelineStage, StageOutcome } from '../pipeline/pipeline.js';
 import type { RunEvent } from '../pipeline/events.js';
 import { skillRegistryForRun } from '../context/skill-registry.js';
+
+/** Issue label that skips the base-red check: the task is meant to fix the red base. */
+export const BASE_RED_OK_LABEL = 'vanguard:base-red-ok';
+/** A verify command that installs its dependencies before running anything (the auto-detected JS shape). */
+const SELF_INSTALLING_VERIFY_RE = /^\s*(?:pnpm|yarn|npm) install --frozen-lockfile\s*&&/;
 
 /** Agent-pipeline options shared by the `run` and `watch` commands, threaded verbatim into the *Deps. */
 export interface RunOptions extends ProviderChoice {
@@ -232,6 +233,8 @@ export interface RunIssueResult {
   prUrl?: string;
   /** True when a PR was withheld because the secret scan flagged the outgoing diff — NOT "no changes". */
   secretBlocked?: boolean;
+  /** True when the run stopped before implementing because the base branch is already red — NOT "no changes". */
+  baseRed?: boolean;
 }
 
 /** Cap on implement-session resumes triggered by a failing conformance/verify gate, before falling back to a declared-partial PR. */
@@ -540,7 +543,7 @@ export async function runSourcedIssue(
           await writer.writeProof(baselineVerify);
           await stepSummary('base-red', {});
           onEvent({ type: 'run-end' });
-          return { task };
+          return { task, baseRed: true };
         }
       }
       outcomes = await runStages(ctx, pipeline, {

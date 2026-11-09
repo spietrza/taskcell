@@ -931,6 +931,7 @@ describe('runSourcedIssue', () => {
     expect(runStages).not.toHaveBeenCalled();
     expect(publishForReview).not.toHaveBeenCalled();
     expect(adapter.signalBaseRed).toHaveBeenCalledWith('group/project#1', task, 'base-red-block');
+    expect(result.baseRed).toBe(true);
   });
 
   it('an operator-supplied verify command that installs nothing skips the base-red check', async () => {
