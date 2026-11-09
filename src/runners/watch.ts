@@ -662,19 +662,23 @@ export interface WatchGithubOptions {
  * claim label the failed run left behind, and post the marker comment naming the trigger that
  * restarts this stage. The trigger label itself is left off until `resume-rate-limited` restores it
  * once `until` has passed — restoring it now would let the very next poll retry into the same limit.
+ * The caller's usual failure comment is kept and the rate-limit note appended to it: the limit
+ * explains why the stage stopped, but only the failure text (and its stack) says where it was when
+ * it did.
  */
 async function markGithubIssueRateLimited(
   repo: string,
   id: string,
   claimedLabel: string,
   trigger: string,
+  failureComment: string,
   error: Error,
   gh?: GhRunner,
 ): Promise<void> {
   const until = parseProviderRateLimitReset(error.message);
   await (gh ?? defaultGhRunner)(['label', 'create', GITHUB_RATE_LIMITED_LABEL, '--repo', repo, '--force']).catch(() => undefined);
   await editGithubLabels(repo, id, { remove: [claimedLabel], add: [GITHUB_RATE_LIMITED_LABEL] }, gh);
-  await commentGithubIssue(repo, id, rateLimitedComment(until, trigger), gh);
+  await commentGithubIssue(repo, id, `${failureComment}\n\n${rateLimitedComment(until, trigger)}`, gh);
 }
 
 /**
@@ -758,11 +762,12 @@ export function githubIssueWatchPrimitives(opts: WatchGithubOptions): WatchPrimi
       );
     },
     onFailure: async (id, error) => {
+      const comment = formatFailureComment('Vanguard run failed', error);
       if (error instanceof AgentError && isRateLimitError(error)) {
-        await markGithubIssueRateLimited(repo, id, opts.claimedLabel, opts.label, error, opts.gh);
+        await markGithubIssueRateLimited(repo, id, opts.claimedLabel, opts.label, comment, error, opts.gh);
         return;
       }
-      await commentGithubIssue(repo, id, formatFailureComment('Vanguard run failed', error), opts.gh);
+      await commentGithubIssue(repo, id, comment, opts.gh);
     },
   };
 }
@@ -816,11 +821,12 @@ export function githubSpecPrimitives(opts: WatchGithubSpecOptions): SpecWatchPri
       });
     },
     onFailure: async (id, error) => {
+      const comment = formatFailureComment('Vanguard spec failed', error);
       if (error instanceof AgentError && isRateLimitError(error)) {
-        await markGithubIssueRateLimited(repo, id, opts.claimedLabel, opts.specLabel, error, opts.gh);
+        await markGithubIssueRateLimited(repo, id, opts.claimedLabel, opts.specLabel, comment, error, opts.gh);
         return;
       }
-      await commentGithubIssue(repo, id, formatFailureComment('Vanguard spec failed', error), opts.gh);
+      await commentGithubIssue(repo, id, comment, opts.gh);
       await editGithubLabels(repo, id, { remove: [opts.claimedLabel], add: [opts.specLabel] }, opts.gh);
     },
   };
