@@ -50,15 +50,43 @@ function webgl() {
   }
 }
 
+/** WCAG 2.2.2: motion that runs past five seconds gets a pause control. */
+function pauseButton(host, floor) {
+  const b = document.createElement('button');
+  b.type = 'button';
+  b.className = 'pause';
+  b.textContent = 'Pause';
+  b.addEventListener('click', () => {
+    const on = floor.running;
+    if (on) floor.stop();
+    else floor.start();
+    b.textContent = on ? 'Play' : 'Pause';
+    if (host === heroHost) root.classList.toggle('factory-on', !on);
+  });
+  host.append(b);
+}
+
 /** Builds the scene into a .floor host; `run` animates it, otherwise it renders one still frame. */
 async function mount(host, options, run) {
   if (!webgl()) return null;
   try {
     const { createFactoryScene } = await loadScene();
-    const floor = createFactoryScene(host.querySelector('.stage'), { ...SCENE, ...options });
-    if (run && !reduced) floor.start();
-    else floor.still();
-    requestAnimationFrame(() => host.classList.add('live'));
+    let lost = false;
+    const onLost = () => {
+      lost = true;
+      host.classList.remove('live');
+      host.querySelector('.pause')?.remove();
+    };
+    const floor = createFactoryScene(host.querySelector('.stage'), { ...SCENE, onLost, ...options });
+    if (lost) {
+      floor.destroy();
+      return null;
+    }
+    if (run && !reduced) {
+      floor.start();
+      pauseButton(host, floor);
+    } else floor.still();
+    requestAnimationFrame(() => !lost && host.classList.add('live'));
     return floor;
   } catch (err) {
     console.warn('factory scene unavailable', err);
