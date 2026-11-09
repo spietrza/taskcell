@@ -175,7 +175,7 @@ function textTexture(text, font, color) {
 /**
  * Builds the factory floor inside `container`.
  * @param {HTMLElement} container
- * @param {{ mode?: 'hero' | 'panel', labels?: boolean, seed?: number, onFollow?: (info: string | null) => void } & Partial<typeof DEFAULTS>} options
+ * @param {{ mode?: 'hero' | 'panel', labels?: boolean, seed?: number, onFollow?: (info: string | null) => void, onLost?: () => void } & Partial<typeof DEFAULTS>} options
  */
 export function createFactoryScene(container, options = {}) {
   const o = { ...DEFAULTS, mode: 'hero', labels: true, seed: 0x9d93e5f0, ...options };
@@ -191,6 +191,14 @@ export function createFactoryScene(container, options = {}) {
   renderer.domElement.className = 'fs-canvas';
   renderer.domElement.setAttribute('aria-hidden', 'true');
   container.append(renderer.domElement);
+  // A GPU reset or a shader the GPU refuses leaves a blank canvas: stop drawing and let the host show its poster again.
+  const lost = () => {
+    wanted = false;
+    sync();
+    if (o.onLost) o.onLost();
+  };
+  renderer.domElement.addEventListener('webglcontextlost', lost);
+  renderer.debug.onShaderError = lost;
 
   const scene = new THREE.Scene();
   const world = new THREE.Group();
@@ -725,8 +733,10 @@ export function createFactoryScene(container, options = {}) {
     camera.lookAt(view.target);
     camera.updateProjectionMatrix();
   }
+  const boxes = new Map(); // label -> [width, height], measured once per text change or resize so the frame loop never forces layout
   function resize() {
     const r = container.getBoundingClientRect();
+    boxes.clear();
     size.w = Math.max(1, r.width);
     size.h = Math.max(1, r.height);
     renderer.setSize(size.w, size.h, false);
@@ -802,27 +812,50 @@ export function createFactoryScene(container, options = {}) {
     v.copy(p).project(camera);
     return [((v.x + 1) / 2) * size.w, ((1 - v.y) / 2) * size.h];
   }
+  /** Keeps a label's box inside the host, which clips (overflow: hidden). */
+  const PAD = 4;
+  function clampBox(el, x, top) {
+    if (!boxes.has(el)) boxes.set(el, [el.offsetWidth, el.offsetHeight]);
+    const [w, h] = boxes.get(el);
+    return [
+      Math.round(Math.min(Math.max(x - w / 2, PAD), size.w - w - PAD)),
+      Math.round(Math.min(Math.max(top, PAD), size.h - h - PAD)),
+    ];
+  }
   function placeLabels() {
+    // Station labels first; module labels then step below any station label they would cover.
+    const placed = [];
+    for (const l of labels) {
+      const s = statFor(l.st.id);
+      if (s !== l.last) {
+        l.stat.textContent = s;
+        l.last = s;
+        boxes.delete(l.el);
+      }
+      const [x, y] = toScreen(l.anchor);
+      const [left, top] = clampBox(l.el, x, y - (boxes.get(l.el)?.[1] ?? l.el.offsetHeight));
+      l.el.style.transform = `translate(${left}px, ${top}px)`;
+      const [w, h] = boxes.get(l.el);
+      placed.push([left, top, left + w, top + h]);
+    }
     for (const m of moduleLabels) {
-      const [x, y] = toScreen(m.anchor);
-      m.el.style.transform = `translate(${Math.round(x)}px, ${Math.round(y)}px) translate(-50%, 6px)`;
       const name = moduleName(m.g.kind);
       const text = `${m.g.kind} · ${name}`.toUpperCase();
       if (text !== m.last) {
         m.el.textContent = text;
         m.el.setAttribute('aria-label', `Swap the ${m.g.kind}, now ${name}`);
         m.last = text;
+        boxes.delete(m.el);
       }
+      const [x, y] = toScreen(m.anchor);
+      let [left, top] = clampBox(m.el, x, y + 6);
+      const [w, h] = boxes.get(m.el);
+      for (const r of placed) {
+        if (left < r[2] && left + w > r[0] && top < r[3] && top + h > r[1]) [left, top] = clampBox(m.el, left + w / 2, r[3] + 4);
+      }
+      m.el.style.transform = `translate(${left}px, ${top}px)`;
       m.el.classList.toggle('swapping', !!m.g.anim);
-    }
-    for (const l of labels) {
-      const [x, y] = toScreen(l.anchor);
-      l.el.style.transform = `translate(${Math.round(x)}px, ${Math.round(y)}px) translate(-50%, -100%)`;
-      const s = statFor(l.st.id);
-      if (s !== l.last) {
-        l.stat.textContent = s;
-        l.last = s;
-      }
+      placed.push([left, top, left + w, top + h]);
     }
     placeTip();
   }
@@ -981,6 +1014,10 @@ export function createFactoryScene(container, options = {}) {
     stop() {
       wanted = false;
       sync();
+    },
+    /** True while the simulation is wanted (it may still be paused off-screen). */
+    get running() {
+      return wanted;
     },
     /** One static frame: cards in the cells, one at the secret scan, three PRs out. */
     still() {

@@ -127,6 +127,8 @@ p { max-width: 62ch; }
 .follow { position: absolute; left: 16px; bottom: 16px; display: flex; gap: 12px; align-items: center; background: color-mix(in srgb, var(--bg) 90%, transparent); border: 1px solid var(--line-strong); padding: 8px 8px 8px 14px; font-size: 16px; z-index: 3; }
 .follow button { background: var(--surface-2); padding: 6px 10px; font-size: 14px; }
 .follow button:hover { background: var(--accent); color: var(--accent-ink); }
+.pause { position: absolute; right: 16px; bottom: 16px; z-index: 3; font-family: var(--font-mono); font-size: 12px; letter-spacing: 0.05em; text-transform: uppercase; padding: 6px 10px; color: var(--muted); background: color-mix(in srgb, var(--bg) 85%, transparent); border: 1px solid var(--line-strong); }
+.pause:hover, .pause:focus-visible { color: var(--ink); border-color: var(--accent); }
 .play { position: absolute; left: 50%; top: 50%; transform: translate(-50%, -50%); z-index: 3; }
 .compact .fs-label { padding: 3px 7px; }
 
