@@ -26,7 +26,12 @@ const FAILURE_STACK_LINES = 25;
  * Both parts are masked: agent errors embed raw provider stdout/stderr, where a credential can ride along.
  */
 export function formatFailureComment(prefix: string, error: unknown): string {
-  const headline = redactForPublish(`${prefix}: ${String(error)}`);
+  // A provider rate/session limit is not a gate failure or a bug in the change — say so plainly
+  // instead of leaving the reader to parse it out of the raw CLI error text.
+  const effectivePrefix = isProviderLimitError(error)
+    ? `${prefix} — the AI provider hit a usage/rate limit (not a gate failure); re-apply the trigger label to retry once it clears`
+    : prefix;
+  const headline = redactForPublish(`${effectivePrefix}: ${String(error)}`);
   const stack = error instanceof Error ? error.stack : undefined;
   if (stack === undefined || stack.trim() === '') return headline;
   const trimmed = redactForPublish(stack.split('\n').slice(0, FAILURE_STACK_LINES).join('\n'));
@@ -79,6 +84,24 @@ const RATE_LIMIT_PATTERNS: readonly RegExp[] = [
 export function isRateLimitError(error: unknown): boolean {
   const message = error instanceof Error ? error.message : String(error);
   return RATE_LIMIT_PATTERNS.some((re) => re.test(message));
+}
+
+/**
+ * A provider usage/session-limit refusal, in the CLIs' own wording (Claude Code: "You've hit your
+ * session limit"; "usage limit reached"). Distinct from a 429 rate limit (isRateLimitError) — a
+ * subscription cap, not a transient throttle — but needing the same "stop, don't blame the gate,
+ * let a human retry" handling wherever it surfaces (notably mid gate-escalation, see repair-gate.ts).
+ */
+const SESSION_LIMIT_PATTERNS: readonly RegExp[] = [
+  /\byou'?ve hit your (?:session|usage) limit\b/i,
+  /\busage limit reached\b/i,
+  /\bsession limit reached\b/i,
+];
+
+/** True when `error` is a provider rate-limit OR usage/session-limit refusal — never a gate/code failure. */
+export function isProviderLimitError(error: unknown): boolean {
+  const message = error instanceof Error ? error.message : String(error);
+  return isRateLimitError(error) || SESSION_LIMIT_PATTERNS.some((re) => re.test(message));
 }
 
 /**

@@ -14,6 +14,7 @@ import { stageMetric } from './run-metric.js';
 import { exportRunTrace } from './otlp-sink.js';
 import { assertStatePath, ensureStateDir, isSafeTaskId } from './state-path.js';
 import { injectedSecretValues, redactForPublish, scanForInjectedSecrets, scanForSecrets } from './secret-scan.js';
+import { redactVerificationOutput } from '../pipeline/verify.js';
 import type { VerificationResult } from '../pipeline/verify.js';
 import type { VisualProofResult } from '../pipeline/visual-proof.js';
 import { reviewVerdictOf } from '../pipeline/review-verdict.js';
@@ -514,8 +515,8 @@ export function beginRun(
       const base = join(taskDir, sanitizeTimestamp(timestamp));
       const file = `${base}.proof.json`;
       await assertStatePath(repoPath, file);
-      // outputTail is verbatim command output (last ~40 lines): masked like every other free text in the record.
-      await writeFile(file, `${JSON.stringify({ ...result, outputTail: redactForPublish(result.outputTail, secretValues) }, null, 2)}\n`);
+      // outputTail and firstErrorLines are verbatim command output: masked like every other free text in the record.
+      await writeFile(file, `${JSON.stringify(redactVerificationOutput(result, secretValues), null, 2)}\n`);
 
       const metric = { evt: 'verify', ts: timestamp, taskId, passed: result.passed, exitCode: result.exitCode, sha256: result.sha256 };
       await appendMetric(repoPath, metric);

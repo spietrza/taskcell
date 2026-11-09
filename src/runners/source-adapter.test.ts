@@ -6,6 +6,7 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { startProviderProxies } from '../sandbox/llm-proxy.js';
 import { resolveVerifyCommand, runVerification } from '../pipeline/verify.js';
+import { resolveBaselineVerify } from '../pipeline/baseline-verify.js';
 import { resolveAndRunVisualProof } from '../pipeline/visual-proof.js';
 import { loadRetrospectiveMemory } from '../core/retrospective-memory.js';
 import { pickRunOptions, runSourcedIssue, conventionalCommitMessage, modelFromLabels } from './source-adapter.js';
@@ -170,6 +171,11 @@ vi.mock('../pipeline/verify.js', () => ({
   renderVerificationFeedback: vi.fn(() => 'verify-feedback'),
   proofBlock: vi.fn(() => ''),
   verifySkippedBlock: vi.fn(() => ''),
+  baseRedBlock: vi.fn(() => 'base-red-block'),
+}));
+// Green base by default, so only the tests about a red base take that early return.
+vi.mock('../pipeline/baseline-verify.js', () => ({
+  resolveBaselineVerify: vi.fn(async () => ({ passed: true })),
 }));
 vi.mock('../pipeline/visual-proof.js', () => ({
   resolveAndRunVisualProof: vi.fn(async () => undefined),
@@ -221,6 +227,7 @@ function fakeAdapter(order: string[], stages: PipelineStage[]): SourceAdapter {
     addGateConfigLabel: vi.fn(async () => { order.push('addGateConfigLabel'); }),
     linkPr: vi.fn(async () => { order.push('linkPr'); }),
     signalSecretBlock: vi.fn(async () => { order.push('signalSecretBlock'); }),
+    signalBaseRed: vi.fn(async () => { order.push('signalBaseRed'); }),
   };
 }
 
@@ -371,7 +378,7 @@ describe('runSourcedIssue', () => {
 
   it('fires publishVerdict → addFailureLabel → linkPr in order and reaches the conformance stage', async () => {
     // A failing verification triggers exactly one addFailureLabel('verify') between publish and link.
-    vi.mocked(resolveVerifyCommand).mockResolvedValueOnce('npm test');
+    vi.mocked(resolveVerifyCommand).mockResolvedValue('npm test');
     vi.mocked(runVerification).mockResolvedValueOnce({ passed: false } as never);
 
     const order: string[] = [];
@@ -419,7 +426,7 @@ describe('runSourcedIssue', () => {
       { ...stageOutcome('implementer', 'sess-1'), providerName: 'codex', model: 'gpt-5.6-sol' },
       stageOutcome('reviewer'),
     ]);
-    vi.mocked(resolveVerifyCommand).mockResolvedValueOnce('npm test');
+    vi.mocked(resolveVerifyCommand).mockResolvedValue('npm test');
     vi.mocked(runVerification)
       .mockResolvedValueOnce({ passed: false } as never)
       .mockResolvedValueOnce({ passed: false } as never)
@@ -461,7 +468,7 @@ describe('runSourcedIssue', () => {
       { ...stageOutcome('implementer', 'sess-1'), model: 'claude-fable-5' },
       stageOutcome('reviewer'),
     ]);
-    vi.mocked(resolveVerifyCommand).mockResolvedValueOnce('npm test');
+    vi.mocked(resolveVerifyCommand).mockResolvedValue('npm test');
     vi.mocked(runVerification)
       .mockResolvedValueOnce({ passed: false } as never)
       .mockResolvedValueOnce({ passed: false } as never)
@@ -903,7 +910,7 @@ describe('runSourcedIssue', () => {
 
   it('resumes the implement session on red verification, and closes cleanly once it recovers', async () => {
     runStages.mockResolvedValueOnce([stageOutcome('implementer', 'sess-1'), stageOutcome('reviewer')]);
-    vi.mocked(resolveVerifyCommand).mockResolvedValueOnce('npm test');
+    vi.mocked(resolveVerifyCommand).mockResolvedValue('npm test');
     vi.mocked(runVerification)
       .mockResolvedValueOnce({ passed: false } as never)
       .mockResolvedValueOnce({ passed: true } as never);
@@ -918,6 +925,72 @@ describe('runSourcedIssue', () => {
     expect(adapter.addFailureLabel).not.toHaveBeenCalledWith(MR_URL, 'verify');
     const body = publishForReview.mock.calls[0]?.[1]?.body as string;
     expect(body).toContain(`Closes ${task.id}`);
+  });
+
+  it('a red base branch stops the run before implementing, signalling the issue instead of opening a PR (#2024)', async () => {
+    vi.mocked(resolveVerifyCommand).mockResolvedValue('npm install --frozen-lockfile && npm test');
+    vi.mocked(resolveBaselineVerify).mockResolvedValueOnce({ passed: false, exitCode: 1 } as never);
+
+    const adapter = fakeAdapter([], STAGES);
+    const result = await runSourcedIssue('group/project#1', { repoPath: '/repo' }, adapter);
+
+    expect(result.prUrl).toBeUndefined();
+    expect(runStages).not.toHaveBeenCalled();
+    expect(publishForReview).not.toHaveBeenCalled();
+    expect(adapter.signalBaseRed).toHaveBeenCalledWith('group/project#1', task, 'base-red-block');
+    expect(result.baseRed).toBe(true);
+  });
+
+  it('an operator-supplied verify command that installs nothing skips the base-red check', async () => {
+    runStages.mockResolvedValueOnce([stageOutcome('implementer', 'sess-1'), stageOutcome('reviewer')]);
+    vi.mocked(resolveVerifyCommand).mockResolvedValue('pnpm typecheck && pnpm test');
+    vi.mocked(runVerification).mockResolvedValue({ passed: true } as never);
+
+    const adapter = fakeAdapter([], STAGES);
+    const result = await runSourcedIssue('group/project#1', { repoPath: '/repo' }, adapter);
+
+    expect(resolveBaselineVerify).not.toHaveBeenCalled();
+    expect(runVerification).toHaveBeenCalledWith(expect.anything(), 'pnpm typecheck && pnpm test');
+    expect(result.prUrl).toBe(MR_URL);
+  });
+
+  it('the vanguard:base-red-ok label skips the base-red check, so a task can fix the red base', async () => {
+    runStages.mockResolvedValueOnce([stageOutcome('implementer', 'sess-1'), stageOutcome('reviewer')]);
+    vi.mocked(resolveVerifyCommand).mockResolvedValue('npm install --frozen-lockfile && npm test');
+    vi.mocked(runVerification).mockResolvedValue({ passed: true } as never);
+
+    const adapter = fakeAdapter([], STAGES);
+    vi.mocked(adapter.prepare).mockResolvedValueOnce({ task: { ...task, labels: ['vanguard:base-red-ok'] } } as never);
+    const result = await runSourcedIssue('group/project#1', { repoPath: '/repo' }, adapter);
+
+    expect(resolveBaselineVerify).not.toHaveBeenCalled();
+    expect(result.prUrl).toBe(MR_URL);
+  });
+
+  it('a reused branch skips the base-red check: its worktree is not the base commit', async () => {
+    runStages.mockResolvedValueOnce([stageOutcome('implementer', 'sess-1'), stageOutcome('reviewer')]);
+    vi.mocked(resolveVerifyCommand).mockResolvedValue('npm install --frozen-lockfile && npm test');
+    vi.mocked(runVerification).mockResolvedValue({ passed: true } as never);
+
+    const adapter = fakeAdapter([], STAGES);
+    const result = await runSourcedIssue('group/project#1', { repoPath: '/repo', reuse: true }, adapter);
+
+    expect(resolveBaselineVerify).not.toHaveBeenCalled();
+    expect(adapter.signalBaseRed).not.toHaveBeenCalled();
+    expect(result.prUrl).toBe(MR_URL);
+  });
+
+  it('re-resolves the verify command after implement, so a task that adds the test script is gated by it', async () => {
+    runStages.mockResolvedValueOnce([stageOutcome('implementer', 'sess-1'), stageOutcome('reviewer')]);
+    // The base tree has no test script; the implementer adds one.
+    vi.mocked(resolveVerifyCommand).mockResolvedValueOnce(undefined).mockResolvedValueOnce('npm test');
+    vi.mocked(runVerification).mockResolvedValue({ passed: true } as never);
+
+    const adapter = fakeAdapter([], STAGES);
+    await runSourcedIssue('group/project#1', { repoPath: '/repo' }, adapter);
+
+    expect(resolveBaselineVerify).not.toHaveBeenCalled();
+    expect(runVerification).toHaveBeenCalledWith(expect.anything(), 'npm test');
   });
 
   it('an incomplete implementer (max-turns/timeout) fails the gate and resumes its session — never a straight PR of residue (dogfood #352)', async () => {
@@ -994,7 +1067,7 @@ describe('runSourcedIssue', () => {
       { ...stageOutcome('implementer', 'sess-1'), model: 'claude-sonnet-5' },
       stageOutcome('reviewer'),
     ]);
-    vi.mocked(resolveVerifyCommand).mockResolvedValueOnce('npm test');
+    vi.mocked(resolveVerifyCommand).mockResolvedValue('npm test');
     vi.mocked(runVerification)
       .mockResolvedValueOnce({ passed: false } as never)
       .mockResolvedValueOnce({ passed: false } as never)
@@ -1022,7 +1095,7 @@ describe('runSourcedIssue', () => {
       { ...stageOutcome('implementer', 'sess-1'), model: 'claude-sonnet-5' },
       stageOutcome('reviewer'),
     ]);
-    vi.mocked(resolveVerifyCommand).mockResolvedValueOnce('npm test');
+    vi.mocked(resolveVerifyCommand).mockResolvedValue('npm test');
     vi.mocked(runVerification)
       .mockResolvedValueOnce({ passed: false } as never)
       .mockResolvedValueOnce({ passed: false } as never)
@@ -1037,7 +1110,7 @@ describe('runSourcedIssue', () => {
 
   it('exhausts the shared repair cap on persistent red verification and declares partial scope', async () => {
     runStages.mockResolvedValueOnce([stageOutcome('implementer', 'sess-1'), stageOutcome('reviewer')]);
-    vi.mocked(resolveVerifyCommand).mockResolvedValueOnce('npm test');
+    vi.mocked(resolveVerifyCommand).mockResolvedValue('npm test');
     vi.mocked(runVerification)
       .mockResolvedValueOnce({ passed: false } as never)
       .mockResolvedValueOnce({ passed: false } as never)
@@ -1057,7 +1130,7 @@ describe('runSourcedIssue', () => {
 
   it('--max-repair-iterations 5 allows up to 5 loop-back passes on persistent red verification', async () => {
     runStages.mockResolvedValueOnce([stageOutcome('implementer', 'sess-1'), stageOutcome('reviewer')]);
-    vi.mocked(resolveVerifyCommand).mockResolvedValueOnce('npm test');
+    vi.mocked(resolveVerifyCommand).mockResolvedValue('npm test');
     vi.mocked(runVerification).mockResolvedValue({ passed: false } as never);
     runAgent.mockResolvedValue({ sessionId: 'sess-1' } as never);
 
@@ -1072,7 +1145,7 @@ describe('runSourcedIssue', () => {
   });
 
   it('surfaces a commit-message close-leak warning in the body on a partial (red-verification) result', async () => {
-    vi.mocked(resolveVerifyCommand).mockResolvedValueOnce('npm test');
+    vi.mocked(resolveVerifyCommand).mockResolvedValue('npm test');
     vi.mocked(runVerification).mockResolvedValueOnce({ passed: false } as never);
     wmCommitMessages.mockResolvedValueOnce([`Closes ${task.id}`]);
 
@@ -1086,7 +1159,7 @@ describe('runSourcedIssue', () => {
   });
 
   it('scans commit messages from the start commit recorded on the context, not main', async () => {
-    vi.mocked(resolveVerifyCommand).mockResolvedValueOnce('npm test');
+    vi.mocked(resolveVerifyCommand).mockResolvedValue('npm test');
     vi.mocked(runVerification).mockResolvedValueOnce({ passed: false } as never);
 
     await runSourcedIssue('group/project#1', { repoPath: '/repo', baseBranch: 'master' }, fakeAdapter([], STAGES));
@@ -1106,7 +1179,7 @@ describe('runSourcedIssue', () => {
   });
 
   it('opens ready for review (no --draft) when the gate and verification both pass', async () => {
-    vi.mocked(resolveVerifyCommand).mockResolvedValueOnce('npm test');
+    vi.mocked(resolveVerifyCommand).mockResolvedValue('npm test');
     vi.mocked(runVerification).mockResolvedValueOnce({ passed: true } as never);
 
     const adapter = fakeAdapter([], STAGES);
@@ -1117,7 +1190,7 @@ describe('runSourcedIssue', () => {
   });
 
   it('opens as a draft when the gate fails (partial scope)', async () => {
-    vi.mocked(resolveVerifyCommand).mockResolvedValueOnce('npm test');
+    vi.mocked(resolveVerifyCommand).mockResolvedValue('npm test');
     vi.mocked(runVerification)
       .mockResolvedValueOnce({ passed: false } as never)
       .mockResolvedValueOnce({ passed: false } as never)
@@ -1140,7 +1213,7 @@ describe('runSourcedIssue', () => {
   });
 
   it('opens as a draft when verification passes but visual proof fails', async () => {
-    vi.mocked(resolveVerifyCommand).mockResolvedValueOnce('npm test');
+    vi.mocked(resolveVerifyCommand).mockResolvedValue('npm test');
     vi.mocked(runVerification).mockResolvedValueOnce({ passed: true } as never);
     vi.mocked(resolveAndRunVisualProof).mockResolvedValueOnce({ passed: false } as never);
 
