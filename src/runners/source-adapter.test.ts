@@ -248,13 +248,19 @@ describe('runSourcedIssue', () => {
   it('adds exactly one review verdict below proof, omitting it without a reviewer', async () => {
     await runSourcedIssue('group/project#1', { repoPath: '/repo' }, fakeAdapter([], STAGES));
     let body = (publishForReview.mock.calls[0]?.[1] as { body: string }).body;
-    expect(body.match(/^Review: PASS \(0 findings\)$/gm)).toHaveLength(1);
+    expect(body.match(/^Review: INCOMPLETE \(0 findings\)$/gm)).toHaveLength(1);
     expect(body.indexOf('Review:')).toBeGreaterThan(body.indexOf('## Proof of work'));
     publishForReview.mockClear();
     runStages.mockResolvedValueOnce([stageOutcome('implementer')]);
     await runSourcedIssue('group/project#1', { repoPath: '/repo' }, fakeAdapter([], [STAGES[0]!]));
     body = (publishForReview.mock.calls[0]?.[1] as { body: string }).body;
     expect(body).not.toContain('Review:');
+    publishForReview.mockClear();
+    const clean = stageOutcome('reviewer');
+    clean.result.finalText = 'No blocking issues.';
+    runStages.mockResolvedValueOnce([clean]);
+    await runSourcedIssue('group/project#1', { repoPath: '/repo' }, fakeAdapter([], STAGES));
+    expect((publishForReview.mock.calls[0]?.[1] as { body: string }).body).toMatch(/^Review: PASS \(0 findings\)$/m);
     publishForReview.mockClear();
     const blocking = stageOutcome('reviewer');
     blocking.result.finalText = '<findings>' + JSON.stringify({ findings: [{ severity: 'critical', kind: 'security', title: 'leak', evidence: 'line' }] }) + '</findings>';

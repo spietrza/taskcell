@@ -243,7 +243,7 @@ export interface BoardTask {
 }
 
 /** The reviewer's persisted verdict: `changes` ⇔ the merge gate would request changes. */
-export type ReviewVerdict = 'pass' | 'changes';
+export type ReviewVerdict = 'pass' | 'changes' | 'incomplete';
 
 /** One Task Board verdict chip: a stage/gate and what it decided. `label` is pre-rendered by core. */
 export interface BoardChip {

@@ -7,7 +7,7 @@ function findingsBlock(items: { severity: string; kind: string; title: string; e
 }
 
 describe('reviewVerdictOf', () => {
-  it('T1: changes for a high/critical finding, pass for only low/medium; round-trips the shape', () => {
+  it('T1: changes for a high/critical finding, pass for explicitly clean low/medium replies; round-trips the shape', () => {
     const high = reviewVerdictOf(
       `Verdict: BLOCKING\n${findingsBlock([{ severity: 'high', kind: 'correctness', title: 'bad', evidence: 'diff line' }])}`,
     );
@@ -15,29 +15,70 @@ describe('reviewVerdictOf', () => {
     expect(high.findings).toEqual([{ severity: 'high', kind: 'correctness', title: 'bad', evidence: 'diff line' }]);
 
     const low = reviewVerdictOf(
-      `Verdict: NO BLOCKING FINDINGS\n${findingsBlock([{ severity: 'low', kind: 'style', title: 'nit', evidence: 'x' }])}`,
+      `No blocking issues.\n${findingsBlock([{ severity: 'low', kind: 'style', title: 'nit', evidence: 'x' }])}`,
     );
     expect(low.verdict).toBe('pass');
     expect(low.findings).toEqual([{ severity: 'low', kind: 'style', title: 'nit', evidence: 'x' }]);
-    expect(reviewVerdictOf(findingsBlock([{ severity: 'medium', kind: 'correctness', title: 'minor', evidence: 'x' }])).verdict).toBe('pass');
+    expect(reviewVerdictOf(`No blocking issues.\n${findingsBlock([{ severity: 'medium', kind: 'correctness', title: 'minor', evidence: 'x' }])}`).verdict).toBe('pass');
   });
 
   it('T2: no <findings> block — prose keyword drives verdict, findings always []; malformed JSON never throws', () => {
     const blockingProse = reviewVerdictOf('Verdict: BLOCKING\nThis has a critical issue.');
     expect(blockingProse).toEqual({ verdict: 'changes', findings: [] });
 
-    const cleanProse = reviewVerdictOf('Verdict: NO BLOCKING FINDINGS\nLooks fine.');
+    const cleanProse = reviewVerdictOf('No blocking issues.\n<promise>COMPLETE</promise>');
     expect(cleanProse).toEqual({ verdict: 'pass', findings: [] });
 
-    const malformed = reviewVerdictOf('Verdict: NO BLOCKING FINDINGS\n<findings>{not json</findings>');
+    const malformed = reviewVerdictOf('No blocking issues.\n<findings>{not json</findings>');
     expect(malformed).toEqual({ verdict: 'pass', findings: [] });
+  });
+
+  it.each([
+    '',
+    '   ',
+    'Review unavailable: no diff was supplied',
+    'Verdict: NO BLOCKING FINDINGS\nLooks fine.',
+    '<findings>{not json</findings>',
+    'No blocking issues',
+    '> No blocking issues.',
+    '- No blocking issues.',
+    '* No conformance issues.',
+    '    No blocking issues.',
+    'No blocking issues. Still reviewing.',
+  ])('marks an empty, aborted or unavailable reply as incomplete: %j', (text) => {
+    expect(reviewVerdictOf(text)).toEqual({ verdict: 'incomplete', findings: [] });
+  });
+
+  // Both conformance sentinels, and the same wrapping tolerated by the sibling extractReviewVerdict:
+  // markdown emphasis, trailing whitespace, CRLF line endings.
+  it.each([
+    ['conformance clean', 'No conformance issues.\n<promise>COMPLETE</promise>'],
+    ['conformance skip', 'No spec, conformance skipped.\n<promise>COMPLETE</promise>'],
+    [
+      'conformance clean after prose',
+      'The diff covers every Acceptance Criterion and adds no scope drift.\n\nNo conformance issues.\n\n<promise>COMPLETE</promise>',
+    ],
+    [
+      'conformance clean next to low/medium findings',
+      `No conformance issues.\n${findingsBlock([{ severity: 'low', kind: 'correctness', title: 'nit', evidence: 'x' }])}\n<promise>COMPLETE</promise>`,
+    ],
+    ['trailing space', 'No blocking issues. \n<promise>COMPLETE</promise>'],
+    ['CRLF line endings', 'Reviewed the diff.\r\nNo blocking issues.\r\n<promise>COMPLETE</promise>'],
+    ['markdown emphasis', '**No blocking issues.**\n<promise>COMPLETE</promise>'],
+    ['markdown emphasis, CRLF and a trailing space', '_No conformance issues._ \r\n'],
+  ])('accepts a stated pass sentinel: %s', (_name, text) => {
+    expect(reviewVerdictOf(text).verdict).toBe('pass');
+  });
+
+  it('blocking findings take precedence over the clean line', () => {
+    expect(reviewVerdictOf(`No blocking issues.\n${findingsBlock([{ severity: 'high', kind: 'correctness', title: 'bad', evidence: 'x' }])}`).verdict).toBe('changes');
   });
 
   it('T3: verdict === "changes" iff hasBlockingFinding(text), including a self-contradicting reply', () => {
     const table = [
       'Verdict: NO BLOCKING FINDINGS\nAll good.',
       'Verdict: BLOCKING\nSomething is wrong.',
-      `Verdict: NO BLOCKING FINDINGS\n${findingsBlock([{ severity: 'critical', kind: 'security', title: 'leak', evidence: 'x' }])}`,
+      `No blocking issues.\n${findingsBlock([{ severity: 'critical', kind: 'security', title: 'leak', evidence: 'x' }])}`,
       'Verdict: BLOCKING\nThis has a high-severity bug.',
       'Verdict: NO BLOCKING FINDINGS\nNo issues found.',
     ];
@@ -49,6 +90,7 @@ describe('reviewVerdictOf', () => {
 
 describe('reviewVerdictLine', () => {
   it('T4: renders PASS/CHANGES with singular/plural finding counts', () => {
+    expect(reviewVerdictLine({ verdict: 'incomplete', findings: [] })).toBe('Review: INCOMPLETE (0 findings)');
     expect(reviewVerdictLine({ verdict: 'pass', findings: [] })).toBe('Review: PASS (0 findings)');
     expect(
       reviewVerdictLine({
