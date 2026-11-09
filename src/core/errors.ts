@@ -161,11 +161,3 @@ export function isProviderLimitError(error: unknown): boolean {
   return isRateLimitError(error) || SESSION_LIMIT_PATTERNS.some((re) => re.test(message));
 }
 
-/**
- * PR notice posted when a run ends on a provider rate limit with no fallback to rescue it: nothing
- * retries automatically, so re-labeling is the only way to pick the work back up. Unbranded — a
- * white-label run shows it too, same as any other hand-back notice.
- */
-export function rateLimitRetryNotice(label: string): string {
-  return `This run ended because the AI provider hit a rate limit or was overloaded — a temporary condition, not a problem with this change. Remove and re-apply the \`${label}\` label to retry once the limit clears.`;
-}

@@ -14,6 +14,7 @@ import { researchCommand } from './research.js';
 import { specCommand } from './spec.js';
 import { revisePrCommand } from './revise-pr.js';
 import { watchPrsCommand } from './watch-prs.js';
+import { resumeRateLimited } from '../runners/resume-rate-limited.js';
 import { reviewMrCommand } from './review-mr.js';
 import { watchMrsCommand } from './watch-mrs.js';
 import { doctorMrsCommand } from './doctor-mrs.js';
@@ -68,6 +69,12 @@ async function main(): Promise<void> {
   }
   if (command.kind === 'revise-pr') {
     await revisePrCommand(command);
+    return;
+  }
+  if (command.kind === 'resume-rate-limited') {
+    const report = await resumeRateLimited({ repoSlug: command.repoSlug, dryRun: command.dryRun, ...(command.triggerLabels !== undefined ? { triggerLabels: command.triggerLabels } : {}) });
+    console.log(`resume-rate-limited: ${report.resumed.length} resumed, ${report.waiting.length} waiting, ${report.skipped.length} skipped, ${report.failed.length} failed`);
+    if (report.failed.length > 0) process.exitCode = 1;
     return;
   }
   if (command.kind === 'watch-prs') {
