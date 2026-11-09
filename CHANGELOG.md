@@ -1,5 +1,28 @@
 # Changelog
 
+## [1.14.0](https://github.com/spietrza/taskcell/compare/v1.13.0...v1.14.0) (2026-11-09)
+
+
+### Features
+
+* 429 handling: match usage-limit and overload wordings, keep --review-model on fallback (spietrza/taskcell[#640](https://github.com/spietrza/taskcell/issues/640)) ([#656](https://github.com/spietrza/taskcell/issues/656)) ([64b64b8](https://github.com/spietrza/taskcell/commit/64b64b82661f259ea5460811d45792547577527b))
+* auto-resume factory work after a provider rate or session limit (spietrza/taskcell[#682](https://github.com/spietrza/taskcell/issues/682)) ([#684](https://github.com/spietrza/taskcell/issues/684)) ([1871c8e](https://github.com/spietrza/taskcell/commit/1871c8eb100f4c54c33d88601f1aeebdd89057e7))
+* Codex ChatGPT plan, part 1: sidecar auth (account id, refresh/revoke binding, refresh floor) (spietrza/taskcell[#652](https://github.com/spietrza/taskcell/issues/652)) ([#658](https://github.com/spietrza/taskcell/issues/658)) ([14b8d26](https://github.com/spietrza/taskcell/commit/14b8d26da1582c5d2314c858ce939f9deeb9accb))
+* Codex ChatGPT plan, part 2: placeholder auth.json in the cell, warnings and docs (spietrza/taskcell[#653](https://github.com/spietrza/taskcell/issues/653)) ([#670](https://github.com/spietrza/taskcell/issues/670)) ([7c81ce7](https://github.com/spietrza/taskcell/commit/7c81ce7f4211c18103408934bf136288098449ac))
+* codex sidecar: no redirects on IdP calls, refresh floor/backoff/cap, rotation warning (spietrza/taskcell[#672](https://github.com/spietrza/taskcell/issues/672)) ([#679](https://github.com/spietrza/taskcell/issues/679)) ([6fad262](https://github.com/spietrza/taskcell/commit/6fad2623e970f51e51bf0f708f2229bcaaa215fe))
+* Gate red on base branch burns repair loops and widens scope (AW [#2024](https://github.com/spietrza/taskcell/issues/2024): 1-line fix ended incomplete twice) (spietrza/taskcell[#651](https://github.com/spietrza/taskcell/issues/651)) ([#655](https://github.com/spietrza/taskcell/issues/655)) ([e8cb7af](https://github.com/spietrza/taskcell/commit/e8cb7af7a12000089051a41b224b36362263ef2f))
+* Gate-config signal: reliability follow-ups from [#641](https://github.com/spietrza/taskcell/issues/641) (spietrza/taskcell[#643](https://github.com/spietrza/taskcell/issues/643)) ([#654](https://github.com/spietrza/taskcell/issues/654)) ([29bd75b](https://github.com/spietrza/taskcell/commit/29bd75b5b145f103fe7fc59b56749a56d40e9ec8))
+* gate: ratchet coverage thresholds up to the current baseline (spietrza/taskcell[#628](https://github.com/spietrza/taskcell/issues/628)) ([#662](https://github.com/spietrza/taskcell/issues/662)) ([12a9bb4](https://github.com/spietrza/taskcell/commit/12a9bb48a86973bcf408e1070d16589421a0350c))
+* in-pipeline review: an empty or aborted reply is incomplete, not pass (spietrza/taskcell[#678](https://github.com/spietrza/taskcell/issues/678)) ([#681](https://github.com/spietrza/taskcell/issues/681)) ([35f9a26](https://github.com/spietrza/taskcell/commit/35f9a268297755a289a984bcd8d0c7446a56184d))
+* revise-pr: --provider-model so revise rounds use the same model as implement (spietrza/taskcell[#664](https://github.com/spietrza/taskcell/issues/664)) ([#665](https://github.com/spietrza/taskcell/issues/665)) ([09d8047](https://github.com/spietrza/taskcell/commit/09d8047dd757bd47e54bd92b9e2a701b9502f4e8))
+* sandbox image: pin pnpm and bun to exact versions (spietrza/taskcell[#666](https://github.com/spietrza/taskcell/issues/666)) ([#676](https://github.com/spietrza/taskcell/issues/676)) ([b1f0ff2](https://github.com/spietrza/taskcell/commit/b1f0ff25f0a62303c6c0262b32eb7174587839b7))
+
+
+### Bug Fixes
+
+* **sandbox:** don't fail the image build when linear-cli can't download ([#661](https://github.com/spietrza/taskcell/issues/661)) ([3f68818](https://github.com/spietrza/taskcell/commit/3f68818c9701f0059c1a5cbea7dc650d5e3dec3f))
+* **sandbox:** retry global npm install on transient download errors ([#659](https://github.com/spietrza/taskcell/issues/659)) ([664ce2c](https://github.com/spietrza/taskcell/commit/664ce2c88e6dfdf7046313db27f02fcbc852a234))
+
 ## [1.13.0](https://github.com/spietrza/taskcell/compare/v1.12.0...v1.13.0) (2026-11-07)
 
 
