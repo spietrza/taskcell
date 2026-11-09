@@ -145,16 +145,25 @@ export async function linkPullRequest(
 }
 
 /**
- * Best-effort: ensure a label exists and add it to a PR (used to flag failed proofs for triage).
- * Both steps swallow errors — labeling a draft PR must never block the run.
+ * Ensure a label exists and add it to a PR, surfacing a failed add. For labels that are themselves a
+ * review gate (see SourceAdapter#addGateConfigLabel): an unflagged PR reaching a human is worse than
+ * a failing run. The pre-create stays tolerant — it already exists on a repo that flagged a PR before,
+ * and `gh pr edit --add-label` is the step that must succeed.
  */
-export async function addPrFailureLabel(repoPath: string, prUrl: string, label: string): Promise<void> {
+export async function addPrGateLabel(repoPath: string, prUrl: string, label: string): Promise<void> {
   try {
     await execa('gh', ['label', 'create', label, '--force'], { cwd: repoPath });
-  } catch { /* best-effort */ }
-  try {
-    await execa('gh', ['pr', 'edit', prUrl, '--add-label', label], { cwd: repoPath });
-  } catch { /* best-effort */ }
+  } catch { /* the add below is the step that must succeed */ }
+  await execa('gh', ['pr', 'edit', prUrl, '--add-label', label], { cwd: repoPath });
+}
+
+/**
+ * Best-effort: ensure a label exists and add it to a PR (used to flag failed proofs for triage).
+ * The same two steps as addPrGateLabel, with the add swallowed too — labeling a draft PR must never
+ * block the run.
+ */
+export async function addPrFailureLabel(repoPath: string, prUrl: string, label: string): Promise<void> {
+  await addPrGateLabel(repoPath, prUrl, label).catch(() => undefined);
 }
 
 /** Add/remove labels on a GitHub issue (used to claim/advance it in the watch loop). */

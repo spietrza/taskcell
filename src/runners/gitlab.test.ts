@@ -307,6 +307,26 @@ describe('gitlabAdapter', () => {
     ]);
   });
 
+  it('addGateConfigLabel pre-creates and adds the gate-config label', async () => {
+    const { calls, glab } = makeGlab('');
+    await gitlabAdapter(makeDeps(), glab).addGateConfigLabel('https://gitlab.com/group/project/-/merge_requests/1');
+    expect(calls).toEqual([
+      ['label', 'create', '--repo', 'group/project', '--name', 'vanguard::gate-config-changed'],
+      ['mr', 'update', '1', '--repo', 'group/project', '--label', 'vanguard::gate-config-changed'],
+    ]);
+  });
+
+  it('addGateConfigLabel is not best-effort: a failed flip rejects rather than leaving the MR unflagged', async () => {
+    const glab: GlabRunner = async (args) => {
+      if (args[0] === 'mr') throw new Error('glab: 403');
+      return '';
+    };
+    await expect(gitlabAdapter(makeDeps(), glab).addGateConfigLabel('https://gitlab.com/group/project/-/merge_requests/1'))
+      .rejects.toThrow('glab: 403');
+    // A bad URL is not swallowed either (addGitlabFailureLabel returns silently there).
+    await expect(gitlabAdapter(makeDeps(), makeGlab('').glab).addGateConfigLabel('not-a-url')).rejects.toThrow();
+  });
+
   it('addFailureLabel maps verify → vanguard::verify-failed and pre-creates the label', async () => {
     const { calls, glab } = makeGlab('');
     const adapter = gitlabAdapter(makeDeps(), glab);

@@ -31,7 +31,7 @@ import { appendStepSummary } from '../core/step-summary.js';
 import type { StepSummary, StepSummaryExit } from '../core/step-summary.js';
 import type { StageOutcome } from '../pipeline/pipeline.js';
 import { GITHUB_GATE_CONFIG_LABEL, GITHUB_SECRET_BLOCKED_LABEL } from '../github-labels.js';
-import { diffFilesWithPatches, gateConfigChangedBlock, gateConfigPaths, loadGateConfigExtraGlobs } from '../context/gate-config.js';
+import { diffFilesWithPatches, extractGateConfigBlock, gateConfigChangedBlock, gateConfigPaths, loadGateConfigExtraGlobs } from '../context/gate-config.js';
 import { renderSecretBlockComment } from '../core/secret-scan.js';
 import { deliverChange, scanOutgoingForSecrets } from './deliver-change.js';
 import { extractTaskIdFromPrBody, scanCommitClosingKeywords } from '../pipeline/conformance-gate.js';
@@ -624,10 +624,16 @@ export async function runRevisePullRequest(prRef: string, deps: ReviseGithubPrDe
       const issueTaskId = extractTaskIdFromPrBody(pr.body);
       if (issueTaskId !== undefined) {
         const closeIssueOnMerge = scanCommitClosingKeywords([pr.body], issueTaskId).length > 0;
-        const newBody = reviewRequestBody(issueTaskId, {
+        const rederived = reviewRequestBody(issueTaskId, {
           closeIssueOnMerge,
           ...(verificationFailed ? { verificationFailed: true } : {}),
         });
+        // reviewRequestBody only ever rebuilds the closing-keyword section; it knows nothing about the
+        // `## Gate config changed` block the first delivery (or an earlier round) wrote into the body.
+        // Carry it forward verbatim — otherwise this re-derivation silently drops the disclosure of a
+        // weakening the gate already flagged (the label survives; the human-readable evidence would not).
+        const existingGateConfigBlock = extractGateConfigBlock(pr.body);
+        const newBody = existingGateConfigBlock !== undefined ? [rederived, existingGateConfigBlock].join('\n\n') : rederived;
         if (newBody !== pr.body) {
           log(`revise-pr ${target.repoSlug}#${target.number}: body -> re-derived (${verificationFailed ? 'Part of' : closeIssueOnMerge ? 'Closes' : 'no-close'})`);
           await gh(['pr', 'edit', String(target.number), '--repo', target.repoSlug, '--body', newBody]);
