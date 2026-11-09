@@ -1,3 +1,4 @@
+import { setTimeout as timeout } from 'node:timers/promises';
 import { execa } from 'execa';
 import { hostGitArgs } from '../worktree/host-git.js';
 import { runAgent } from '../core/vanguard.js';
@@ -7,7 +8,7 @@ import { buildXmlPrompt } from '../context/xml-prompt.js';
 import { diffForPrompt } from '../context/escape.js';
 import { extractJson } from '../structured/extract.js';
 import { verdictSchema } from '../evals/judges.js';
-import { AgentError, isRateLimitError } from '../core/errors.js';
+import { AgentError, isRateLimitError, rateLimitResetDelayMs } from '../core/errors.js';
 import { roundUsd } from '../core/usd.js';
 import type { RunContext } from '../core/vanguard.js';
 import type { ReasoningEffort, RunResult } from '../core/types.js';
@@ -170,6 +171,27 @@ export interface RunStagesOptions {
   fork?: ForkOptions;
   /** When set, receives structured run events (stage lifecycle + cost). Absent ⇒ no events, no behavior change. */
   onEvent?: (e: RunEvent) => void;
+  /**
+   * Wait used before retrying a rate-limited stage on a fallback that shares the exhausted provider
+   * (see MAX_RATE_LIMIT_WAIT_MS). Defaults to a real abortable timer; a test supplies its own.
+   */
+  sleep?: (ms: number, signal?: AbortSignal) => Promise<void>;
+}
+
+/**
+ * Longest a rate-limited stage will hold the run open waiting for the provider's own reset. CI jobs
+ * run under a 30–90 minute timeout shared with every later stage, so a long sleep risks a wall-clock
+ * kill that loses the work and skips the hand-back. Past this, the stage fails now (no retry on the
+ * account that just refused) and the rate-limit hand-back takes over.
+ */
+export const MAX_RATE_LIMIT_WAIT_MS = 5 * 60 * 1000;
+
+/**
+ * Abortable wait. Cancellation resolves rather than throwing: the caller's next step is the retry,
+ * which carries the same signal and fails there on its own terms.
+ */
+async function delay(ms: number, signal?: AbortSignal): Promise<void> {
+  await timeout(ms, undefined, signal !== undefined ? { signal } : {}).catch(() => undefined);
 }
 
 /** Sandbox dir for the fork scorer: a throwaway cwd so any stray write never touches the worktree. */
@@ -376,12 +398,29 @@ export async function runBudgetedStages(
         ctx.log.warn(
           { stage: stage.name, from: agent.name, to: stage.fallback.provider.name, rateLimited },
           rateLimited
-            ? `${stage.name} provider rate-limited (429) — falling back to ${stage.fallback.provider.name}`
+            ? `${stage.name} provider rate-limited or overloaded — falling back to ${stage.fallback.provider.name}`
             : `${stage.name} provider unavailable — falling back to ${stage.fallback.provider.name}`,
         );
+        // A fallback on the SAME provider (the --review-model shape: a reviewer degrading to the
+        // primary agent on the same transport) draws on the account that just refused, so an
+        // immediate retry only fails again. When the refusal names its reset, wait for it first.
+        // Decided before effectiveAgent moves, while it still names the provider that failed.
+        // Same provider AND same model only: a fallback on another model draws on a different limit
+        // (Anthropic's caps are partly per model), so it may well succeed right away.
+        const sameAccountAndModel = stage.fallback.provider.name === effectiveAgent.name && stage.fallback.model === effectiveModel;
+        const waitMs = rateLimited && sameAccountAndModel ? rateLimitResetDelayMs(err) : undefined;
         effectiveAgent = stage.fallback.provider;
         effectiveModel = stage.fallback.model;
         if (stage.provider === undefined) primaryDown = true;
+        // A reset past the cap: retrying the same account now only fails again, so hand back instead.
+        if (waitMs !== undefined && waitMs > MAX_RATE_LIMIT_WAIT_MS) throw err;
+        if (waitMs !== undefined) {
+          ctx.log.warn(
+            { stage: stage.name, provider: effectiveAgent.name, waitMs },
+            `${stage.name} retry waits ${Math.round(waitMs / 1000)}s for the provider limit to reset`,
+          );
+          await (opts.sleep ?? delay)(waitMs, opts.signal);
+        }
         // Do not resume the failed primary session.
         result = await runAgent(ctx, {
           ...stageOpts,
@@ -393,7 +432,7 @@ export async function runBudgetedStages(
         // No fallback to catch this one: at least name a rate limit for what it is before it
         // propagates — the operator log line that follows (watch-prs / revise-pr) stays generic.
         if (rateLimited) {
-          ctx.log.warn({ stage: stage.name, provider: agent.name }, `${stage.name} provider rate-limited (429) — no fallback configured`);
+          ctx.log.warn({ stage: stage.name, provider: agent.name }, `${stage.name} provider rate-limited or overloaded — no fallback configured`);
         }
         throw err;
       }
@@ -673,6 +712,29 @@ export function withStageFallback(
   stageName: StageName = STAGE.REVIEWER,
 ): PipelineStage[] {
   return stages.map((stage) => (stage.name === stageName ? { ...stage, fallback } : stage));
+}
+
+/**
+ * Override `model` inside an already-attached fallback on one named stage (default: 'reviewer'),
+ * leaving everything else untouched. Backs `--review-model`: when the stage's fallback runs on the
+ * same provider the stage itself runs on (`primary` when the stage names none), the explicit review
+ * model still applies there, so keep it instead of leaking the generic `--fallback-model`.
+ *
+ * A fallback on a *different* provider is left alone: the pinned model name is that provider's to
+ * reject (an Anthropic alias handed to Codex is a hard error), so it keeps whatever
+ * `withStageFallback`/`withPrimaryFallback` gave it — `--fallback-model`, or the provider's default.
+ */
+export function withStageFallbackModel(
+  stages: PipelineStage[],
+  model: string,
+  primary: AgentProvider,
+  stageName: StageName = STAGE.REVIEWER,
+): PipelineStage[] {
+  return stages.map((stage) =>
+    stage.name === stageName && stage.fallback?.provider.name === (stage.provider ?? primary).name
+      ? { ...stage, fallback: { ...stage.fallback, model } }
+      : stage,
+  );
 }
 
 /**

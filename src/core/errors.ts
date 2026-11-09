@@ -78,15 +78,69 @@ const RATE_LIMIT_PATTERNS: readonly RegExp[] = [
   // The vendors' own refusal strings: Anthropic's `rate_limit_error`, OpenAI's `rate_limit_exceeded`
   // and "Rate limit reached for <model>".
   /\b(?:rate_limit_(?:error|exceeded)|rate limit reached for)\b/i,
-  // Anthropic's subscription session-limit refusal, worded as prose rather than an HTTP status (#656):
-  // "You've hit your session limit · resets 9pm (UTC)".
-  /\bhit (?:your|the) session limit\b/i,
+  // Claude subscription stalls (the case #615 was about), both wordings the CLI prints: `Claude usage
+  // limit reached. Your limit will reset at 9pm (UTC).` for a plan cap and `You've hit your session
+  // limit · resets 9pm (UTC)` for a session cap. Both keep the vendor's framing — a bare "usage limit
+  // reached" is prose an agent can write about its own work, and would classify a hard failure as transient.
+  /\bclaude(?: ai)? usage limit reached(?:\|\d+|\.?\s+your limit will reset)/i,
+  /\byou(?:'ve|’ve| have) hit your (?:session|usage|weekly|5-hour) limit\b/i,
+  // Anthropic's overload refusal: the CLI's short form (`API Error: overloaded`) and the raw envelope
+  // it relays, `API Error: 529 {"type":"error","error":{"type":"overloaded_error",...}}`.
+  /\bapi error:\s*(?:overloaded\b|529\b[^\n]*"type"\s*:\s*"overloaded_error")/i,
 ];
+
+/** The text the rate-limit matchers read: an Error's message, or a non-Error throw rendered as one. */
+const rawMessage = (error: unknown): string => (error instanceof Error ? error.message : String(error));
 
 /** True when `error` is a provider rate-limit refusal, not some other agent failure. */
 export function isRateLimitError(error: unknown): boolean {
-  const message = error instanceof Error ? error.message : String(error);
+  const message = rawMessage(error);
   return RATE_LIMIT_PATTERNS.some((re) => re.test(message));
+}
+
+/**
+ * The reset clause the subscription wordings carry after the refusal itself: `· resets 9pm (UTC)`,
+ * `Your limit will reset at 10:30pm (UTC)`, `resets 21:00`. The zone marker is optional and only
+ * `UTC` is honoured (see rateLimitResetDelayMs).
+ */
+const RATE_LIMIT_RESET_CLAUSE = /\breset(?:s)?(?:\s+at)?\s+(\d{1,2})(?::(\d{2}))?\s*(am|pm)?\s*(?:\(([^)]{1,12})\))?/i;
+
+const DAY_MS = 24 * 60 * 60 * 1000;
+/** How far past the named reset still counts as "just reset, retry now" rather than tomorrow. */
+const RESET_ALREADY_PAST_MS = 6 * 60 * 60 * 1000;
+
+/**
+ * Milliseconds from `now` until the reset instant a provider rate-limit refusal names, or undefined
+ * when it names none, the clause is unparseable, or it carries no explicit UTC marker — guessing the
+ * zone would mean waiting for the wrong hour, which is worse than not waiting at all. A time already
+ * past returns 0 (retry now) for up to six hours, and only then rolls to the next day.
+ */
+export function rateLimitResetDelayMs(error: unknown, now: number = Date.now()): number | undefined {
+  // Only the line that carries the refusal itself: agent-authored text elsewhere in the message
+  // ("the cache resets at 3am") must not set how long the run waits.
+  const refusal = rawMessage(error).split(/\r?\n/).find((line) => RATE_LIMIT_PATTERNS.some((re) => re.test(line)));
+  if (refusal === undefined) return undefined;
+  // The plan-cap form carries the reset as an epoch: `Claude AI usage limit reached|1762722000`.
+  const epoch = /usage limit reached\|(\d{10})\b/i.exec(refusal);
+  if (epoch !== null) return Math.max(0, Number(epoch[1]) * 1000 - now);
+  const match = RATE_LIMIT_RESET_CLAUSE.exec(refusal);
+  if (match === null) return undefined;
+  const [, rawHour, rawMinute, rawMeridiem, zone] = match;
+  // Only an explicit UTC: the CLI prints inside the sandbox, whose zone need not be the host's, so a
+  // zone-less time could be off by hours.
+  if (zone === undefined || zone.trim().toLowerCase() !== 'utc') return undefined;
+  const meridiem = rawMeridiem?.toLowerCase();
+  const clockHour = Number(rawHour);
+  const minute = rawMinute !== undefined ? Number(rawMinute) : 0;
+  if (minute > 59 || clockHour > (meridiem !== undefined ? 12 : 23) || (meridiem !== undefined && clockHour < 1)) return undefined;
+  const hour = meridiem === undefined ? clockHour : (clockHour % 12) + (meridiem === 'pm' ? 12 : 0);
+  const base = new Date(now);
+  const target = Date.UTC(base.getUTCFullYear(), base.getUTCMonth(), base.getUTCDate(), hour, minute);
+  if (target > now) return target - now;
+  // Named time already behind us: the window most likely just reset (the message was written at
+  // refusal time, the catch can run much later), so retry now. Only a time far in the past is read
+  // as tomorrow's boundary.
+  return now - target <= RESET_ALREADY_PAST_MS ? 0 : target + DAY_MS - now;
 }
 
 /**
