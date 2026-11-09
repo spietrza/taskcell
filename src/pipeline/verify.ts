@@ -95,12 +95,12 @@ export function verifySkippedBlock(): string {
 }
 
 /** Lines that mark an actual failure, as opposed to narrative prose that merely mentions one. */
-const FAILURE_MARKER_RE = /(^|\s)(FAILED?|ERR!|ERROR|error TS\d|✕|✖|×)\b/;
+const FAILURE_MARKER_RE = /(^|\s)(?:FAIL(?:ED)?\b|ERROR\b|ERR!|error TS\d+|[✕✖×])/;
 /** How many lines of context to carry from the first failure marker onward. */
 const FIRST_ERROR_LINES = 20;
 
 /** The earliest `FIRST_ERROR_LINES` lines starting at the first failure marker, or '' if none found. */
-function extractFirstErrorLines(output: string): string {
+export function extractFirstErrorLines(output: string): string {
   const lines = output.split('\n');
   const idx = lines.findIndex((l) => FAILURE_MARKER_RE.test(l));
   if (idx === -1) return '';
@@ -108,7 +108,8 @@ function extractFirstErrorLines(output: string): string {
 }
 
 /** A turbo/lerna-style `<package>:<task>: ` line prefix, the closest thing to "which package failed". */
-const TASK_PREFIX_RE = /^\s*((?:@[\w.-]+\/)?[\w.-]+):([\w.-]+):\s/;
+// The task part must hold a letter, so a `file.ts:12: message` compiler line is not read as one.
+const TASK_PREFIX_RE = /^\s*((?:@[\w.-]+\/)?[\w.-]+):([\w.-]*[A-Za-z_][\w.-]*):\s/;
 
 /** Best-effort failing task/package name from a monorepo runner's own output prefix; undefined if not that shape. */
 export function failingTaskName(excerpt: string | undefined): string | undefined {

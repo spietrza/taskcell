@@ -21,6 +21,7 @@ import { buildReviewerAttribution } from '../pipeline/review-publish.js';
 import { authSecrets } from '../agents/auth.js';
 import { beginRun, persistDecisionProbe } from '../core/run-store.js';
 import type { SecretBlock } from '../core/secret-scan.js';
+import { redactForPublish } from '../core/secret-scan.js';
 import { summarizeOutcomes } from '../core/run-summary.js';
 import { appendStepSummary } from '../core/step-summary.js';
 import type { StepSummary, StepSummaryExit } from '../core/step-summary.js';
@@ -509,19 +510,21 @@ export async function runSourcedIssue(
         ...runMeta,
         stages: pipeline.map((s) => s.name),
       });
-      // Resolved once, from the base worktree, and reused by the post-implement gate below: the
-      // baseline verdict and the gate must be about the same command to mean anything.
-      // Before implementing: check that command against the base commit (cached by SHA). A gate that
-      // is already red there is not this task's fault — starting a repair loop against it would just
-      // burn turns on pre-existing failures, so stop here instead (#2024).
-      const verifyCmd = await resolveVerifyCommand(ctx.worktreePath, deps.verifyCmd !== undefined ? { cmd: deps.verifyCmd } : {});
-      if (verifyCmd !== undefined) {
+      // Before implementing: check the base tree's verify command against the base commit (cached by
+      // SHA). A gate that is already red there is not this task's fault — starting a repair loop against
+      // it would just burn turns on pre-existing failures, so stop here instead (#2024). Skipped on a
+      // reused branch: its worktree holds the branch's own prior work, not the base commit, so neither
+      // the command nor the verdict would be about the base.
+      const verifyOpts = deps.verifyCmd !== undefined ? { cmd: deps.verifyCmd } : {};
+      const baselineCmd = deps.reuse === true ? undefined : await resolveVerifyCommand(ctx.worktreePath, verifyOpts);
+      if (baselineCmd !== undefined) {
+        const verifyCmd = baselineCmd;
         const baselineVerify = await resolveBaselineVerify(deps.repoPath, ctx.startRef, ctx.sandbox, verifyCmd, deps.signal);
         if (!baselineVerify.passed) {
           console.log(
             `vanguard: ${task.id} base branch is red — \`${verifyCmd}\` already fails on ${ctx.baseBranch}@${ctx.startRef.slice(0, 7)} (exit ${baselineVerify.exitCode}); stopping before implementing instead of starting a repair loop.`,
           );
-          console.log(renderVerificationFeedback(baselineVerify));
+          console.log(redactForPublish(renderVerificationFeedback(baselineVerify)));
           if (!whiteLabel) await adapter.signalBaseRed(issueRef, task, baseRedBlock(ctx.baseBranch, ctx.startRef, baselineVerify));
           await writer.writeProof(baselineVerify);
           await stepSummary('base-red', {});
@@ -542,6 +545,9 @@ export async function runSourcedIssue(
         onEvent,
         ...(deps.signal !== undefined ? { signal: deps.signal } : {}),
       });
+      // Re-resolved after implement: a task that adds the `test`/`verify` script must still be gated
+      // by it, even though the base tree had none.
+      const verifyCmd = await resolveVerifyCommand(ctx.worktreePath, verifyOpts);
       // Deterministic spec-manifest vs diff conformance gate, joined with the verify command into a
       // single shared-cap repair loop: either gate failing resumes the implementer's own session with
       // a combined gap report (bounded, budget/turn caps already apply to the resumed stage) —

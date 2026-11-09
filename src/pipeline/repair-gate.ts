@@ -2,6 +2,7 @@ import { runAgent } from '../core/vanguard.js';
 import { mergeAttempts } from '../core/run-metric.js';
 import { literalPrompt } from '../context/prompt-engine.js';
 import { AgentError, isProviderLimitError } from '../core/errors.js';
+import { redactForPublish } from '../core/secret-scan.js';
 import { DEFAULT_RUN_MAX_COST_USD, STAGE } from './pipeline.js';
 import type { RunContext } from '../core/vanguard.js';
 import type { AgentProvider } from '../agents/provider.js';
@@ -88,8 +89,8 @@ export async function repairUntilGreen<G extends GateResult>(ctx: RunContext, op
     iterations += 1;
     const escalate = iterations >= 2 && opts.escalateModel !== undefined && opts.modelPinned !== true;
     log(`vanguard: gate FAILED for ${opts.label} (attempt ${iterations}/${opts.maxIterations}) — resuming implement session${escalate ? ` on ${opts.escalateModel}` : ''}`);
-    // The reason the gate is red, in the CI log too — not just in the prompt fed back to the agent.
-    log(last.feedback);
+    // The reason the gate is red, in the CI log too — masked, since job logs are public on a public repo.
+    log(redactForPublish(last.feedback));
     const model = escalate ? opts.escalateModel : opts.outcomes[implementerIdx]?.model;
     let repaired: RunResult;
     try {
