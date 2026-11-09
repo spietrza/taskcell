@@ -57,9 +57,6 @@ permissions:
   contents: write
   pull-requests: write
   issues: write
-concurrency:
-  group: vanguard-implement-${{ github.repository }}
-  cancel-in-progress: false
 jobs:
   implement:
     if: >-
@@ -68,6 +65,11 @@ jobs:
       contains(fromJSON('["ready for spec","ready for agent"]'), github.event.label.name) &&
       github.event.issue.user.login == 'YOUR_LOGIN' &&
       github.event.sender.login == 'YOUR_LOGIN')
+    # On the job, not the workflow: a label event the `if:` skips (the factory's own vanguard:*
+    # labels) then never enters the group, so it cannot cancel a pending real run.
+    concurrency:
+      group: vanguard-implement-${{ github.repository }}
+      cancel-in-progress: false
     uses: spietrza/taskcell/.github/workflows/implement.yml@v1
     with:
       allowed-actors: '["YOUR_LOGIN"]'
@@ -238,9 +240,6 @@ permissions:
   contents: write          # pushes the revision commit to the PR branch
   pull-requests: write
   issues: write
-concurrency:
-  group: vanguard-revise-${{ github.repository }}
-  cancel-in-progress: false
 jobs:
   revise:
     if: >-
@@ -248,6 +247,11 @@ jobs:
       (github.event.label.name == 'needs revision' &&
        contains(fromJSON('["YOUR_LOGIN","github-actions[bot]"]'), github.event.pull_request.user.login) &&
        github.event.sender.login == 'YOUR_LOGIN')
+    # On the job and per PR: skipped label events never enter a group, and revisions of
+    # different PRs do not queue behind each other.
+    concurrency:
+      group: vanguard-revise-${{ github.repository }}-${{ github.event.pull_request.number || inputs.pr }}
+      cancel-in-progress: false
     uses: spietrza/taskcell/.github/workflows/revise.yml@v1
     with:
       allowed-actors: '["YOUR_LOGIN"]'

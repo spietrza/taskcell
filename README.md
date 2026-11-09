@@ -52,7 +52,7 @@ git clone https://github.com/spietrza/taskcell && cd taskcell
 pnpm install
 pnpm build
 pnpm link --global
-docker/build.sh                 # builds taskcell-sandbox:latest (node + git + claude + linear CLIs)
+docker/build.sh                 # builds taskcell-sandbox:latest (node + git + claude, codex and linear CLIs)
 ```
 
 Check the setup against your target repository, then run one issue:

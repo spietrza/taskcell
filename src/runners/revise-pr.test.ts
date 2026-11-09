@@ -9,6 +9,7 @@ import { runRevisePullRequest } from './revise-pr.js';
 import * as registry from '../agents/registry.js';
 import { selectAgents } from '../agents/registry.js';
 import { AgentError } from '../core/errors.js';
+import { gateConfigChangedBlock } from '../context/gate-config.js';
 import type { GhRunner } from '../tasks/github.js';
 import type { IsolatedSandboxProvider, ExecResult, SandboxConfig } from '../sandbox/provider.js';
 import type { AgentProvider, AgentRunInput, AgentTurn, AgentRunOutput } from '../agents/provider.js';
@@ -1202,11 +1203,11 @@ describe('runRevisePullRequest — revise-pass verification', () => {
   }
 
   // gh runner referencing an issue via a closing keyword in the PR body, capturing pr-edit bodies.
-  function makeGh(ghCalls: string[][], editBodies: string[]): GhRunner {
+  function makeGh(ghCalls: string[][], editBodies: string[], prBody = 'Adds guard.\n\nCloses o/r#42'): GhRunner {
     return async (args) => {
       ghCalls.push(args);
       if (args[0] === 'pr' && args[1] === 'view' && args.some((a) => a.includes('headRefName'))) {
-        return makePrViewJson({ body: 'Adds guard.\n\nCloses o/r#42' });
+        return makePrViewJson({ body: prBody });
       }
       if (args[0] === 'pr' && args[1] === 'diff') return 'diff --git a/fix.txt';
       if (args[0] === 'api' && args[1] === 'graphql') {
@@ -1282,6 +1283,38 @@ describe('runRevisePullRequest — revise-pass verification', () => {
     expect(body).not.toContain('Closes o/r#42');
   });
 
+  it('carries a first-delivery gate-config block forward on a red round without re-adding its Closes', async () => {
+    const editBodies: string[] = [];
+    const configBlock = gateConfigChangedBlock([{ path: 'vitest.config.ts', patch: '+    thresholds: { lines: 0 },' }]);
+    // The real first-delivery body order: gate block, then `Closes …` + attribution, then the proof.
+    const prBody = [
+      configBlock,
+      'Closes o/r#42',
+      'Automated implementation of o/r#42 by Vanguard.',
+      '## Proof of work\n\nPASS',
+    ].join('\n\n');
+
+    await runRevisePullRequest('7', {
+      repoPath: repo,
+      repoSlug: 'o/r',
+      gh: makeGh([], editBodies, prBody),
+      verifyCmd: VERIFY_CMD,
+      _sandbox: makeSandboxVerify(1),
+      _agent: agentThatCompletes([]),
+      _worktrees: new WorktreeManager(repo),
+      _pushRunner: async () => '',
+      _baseBranch: 'feature-branch',
+      provider: 'claude',
+    });
+
+    const body = editBodies.find((b) => b.includes('o/r#42'));
+    expect(body).toBeDefined();
+    expect(body).toContain('Part of o/r#42');
+    // The disclosure survives verbatim; the stale closing keyword next to it in the old body does not.
+    expect(body).toContain(configBlock);
+    expect(body).not.toContain('Closes o/r#42');
+  });
+
   it('the verify repair resumes on the implementer\'s routed model and turn cap', async () => {
     const agentInputs: AgentRunInput[] = [];
     await runRevisePullRequest('7', {
@@ -1300,6 +1333,83 @@ describe('runRevisePullRequest — revise-pass verification', () => {
     expect(agentInputs).toHaveLength(4);
     expect(agentInputs[3]?.model).toBe('claude-sonnet-5');
     expect(agentInputs[3]?.maxTurns).toBe(agentInputs[0]?.maxTurns);
+  });
+
+  // gh runner whose PR body references o/r#42 and whose issue view returns the given labels.
+  function makeGhWithIssueLabels(labels: string[], ghCalls: string[][]): GhRunner {
+    const base = makeGh(ghCalls, []);
+    return async (args, env) => {
+      if (args[0] === 'issue' && args[1] === 'view') {
+        ghCalls.push(args);
+        return JSON.stringify({ number: 42, title: 'Issue', body: '', labels: labels.map((name) => ({ name })), comments: [] });
+      }
+      return base(args, env);
+    };
+  }
+
+  async function readRunRecordModels(): Promise<string[]> {
+    const runsDir = join(repo, '.vanguard', 'runs');
+    const files = (await readdir(runsDir, { recursive: true })).map(String).filter((f) => f.endsWith('.json'));
+    const models: string[] = [];
+    for (const f of files) {
+      const text = await readFile(join(runsDir, f), 'utf8');
+      for (const m of text.matchAll(/"requestedModel":\s*"([^"]+)"/g)) models.push(m[1] ?? '');
+    }
+    return models;
+  }
+
+  it('--provider-model: the implement stage runs on that model and the run record names it', async () => {
+    const agentInputs: AgentRunInput[] = [];
+    const ghCalls: string[][] = [];
+    await runRevisePullRequest('12', {
+      repoPath: repo, repoSlug: 'o/r', gh: makeGhWithIssueLabels([], ghCalls),
+      _sandbox: makeSandbox(), _agent: agentThatCompletes(agentInputs), _worktrees: new WorktreeManager(repo),
+      _pushRunner: async () => '', _baseBranch: 'feature-branch', provider: 'claude', providerModel: 'sonnet',
+    });
+    expect(agentInputs[0]?.model).toBe('sonnet');
+    expect(await readRunRecordModels()).toContain('sonnet');
+  });
+
+  it('without --provider-model the implement stage carries no model (provider default)', async () => {
+    const agentInputs: AgentRunInput[] = [];
+    await runRevisePullRequest('12', {
+      repoPath: repo, repoSlug: 'o/r', gh: makeGhWithIssueLabels([], []),
+      _sandbox: makeSandbox(), _agent: agentThatCompletes(agentInputs), _worktrees: new WorktreeManager(repo),
+      _pushRunner: async () => '', _baseBranch: 'feature-branch', provider: 'claude',
+    });
+    expect(agentInputs[0]?.model).toBeUndefined();
+    expect(await readRunRecordModels()).toEqual([]);
+  });
+
+  it('a vanguard:model=<m> label on the source issue overrides --provider-model', async () => {
+    const agentInputs: AgentRunInput[] = [];
+    const ghCalls: string[][] = [];
+    const logs: string[] = [];
+    await runRevisePullRequest('12', {
+      repoPath: repo, repoSlug: 'o/r', gh: makeGhWithIssueLabels(['bug', 'vanguard:model=opus'], ghCalls), log: (l) => logs.push(l),
+      _sandbox: makeSandbox(), _agent: agentThatCompletes(agentInputs), _worktrees: new WorktreeManager(repo),
+      _pushRunner: async () => '', _baseBranch: 'feature-branch', provider: 'claude', providerModel: 'sonnet',
+    });
+    expect(ghCalls.some((c) => c[0] === 'issue' && c[1] === 'view' && c[2] === '42')).toBe(true);
+    expect(agentInputs[0]?.model).toBe('opus');
+    expect(agentInputs.every((i) => i.model === 'opus')).toBe(true);
+    expect(logs.some((l) => l.includes('pins the implementer model to opus via label'))).toBe(true);
+    expect(await readRunRecordModels()).toContain('opus');
+  });
+
+  it('a failed issue lookup leaves --provider-model in place instead of blocking the revision', async () => {
+    const agentInputs: AgentRunInput[] = [];
+    const base = makeGh([], []);
+    const gh: GhRunner = async (args, env) => {
+      if (args[0] === 'issue' && args[1] === 'view') throw new Error('gh: issue not found');
+      return base(args, env);
+    };
+    await runRevisePullRequest('12', {
+      repoPath: repo, repoSlug: 'o/r', gh,
+      _sandbox: makeSandbox(), _agent: agentThatCompletes(agentInputs), _worktrees: new WorktreeManager(repo),
+      _pushRunner: async () => '', _baseBranch: 'feature-branch', provider: 'claude', providerModel: 'sonnet',
+    });
+    expect(agentInputs[0]?.model).toBe('sonnet');
   });
 });
 

@@ -224,6 +224,7 @@ function fakeAdapter(order: string[], stages: PipelineStage[]): SourceAdapter {
     closeIssueOnMerge: true,
     publishVerdict: vi.fn(async () => { order.push('publishVerdict'); }),
     addFailureLabel: vi.fn(async () => { order.push('addFailureLabel'); }),
+    addGateConfigLabel: vi.fn(async () => { order.push('addGateConfigLabel'); }),
     linkPr: vi.fn(async () => { order.push('linkPr'); }),
     signalSecretBlock: vi.fn(async () => { order.push('signalSecretBlock'); }),
     signalBaseRed: vi.fn(async () => { order.push('signalBaseRed'); }),
@@ -254,13 +255,19 @@ describe('runSourcedIssue', () => {
   it('adds exactly one review verdict below proof, omitting it without a reviewer', async () => {
     await runSourcedIssue('group/project#1', { repoPath: '/repo' }, fakeAdapter([], STAGES));
     let body = (publishForReview.mock.calls[0]?.[1] as { body: string }).body;
-    expect(body.match(/^Review: PASS \(0 findings\)$/gm)).toHaveLength(1);
+    expect(body.match(/^Review: INCOMPLETE \(0 findings\)$/gm)).toHaveLength(1);
     expect(body.indexOf('Review:')).toBeGreaterThan(body.indexOf('## Proof of work'));
     publishForReview.mockClear();
     runStages.mockResolvedValueOnce([stageOutcome('implementer')]);
     await runSourcedIssue('group/project#1', { repoPath: '/repo' }, fakeAdapter([], [STAGES[0]!]));
     body = (publishForReview.mock.calls[0]?.[1] as { body: string }).body;
     expect(body).not.toContain('Review:');
+    publishForReview.mockClear();
+    const clean = stageOutcome('reviewer');
+    clean.result.finalText = 'No blocking issues.';
+    runStages.mockResolvedValueOnce([clean]);
+    await runSourcedIssue('group/project#1', { repoPath: '/repo' }, fakeAdapter([], STAGES));
+    expect((publishForReview.mock.calls[0]?.[1] as { body: string }).body).toMatch(/^Review: PASS \(0 findings\)$/m);
     publishForReview.mockClear();
     const blocking = stageOutcome('reviewer');
     blocking.result.finalText = '<findings>' + JSON.stringify({ findings: [{ severity: 'critical', kind: 'security', title: 'leak', evidence: 'line' }] }) + '</findings>';
@@ -1221,7 +1228,7 @@ describe('runSourcedIssue', () => {
     wmDiff.mockResolvedValueOnce(`diff --git a/${path} b/${path}\n--- a/${path}\n+++ b/${path}\n@@ -1 +1 @@\n-old\n+new\n`);
     const adapter = fakeAdapter([], STAGES);
     await runSourcedIssue('group/project#1', { repoPath: '/repo' }, adapter);
-    expect(adapter.addFailureLabel).toHaveBeenCalledWith(MR_URL, 'gate-config');
+    expect(adapter.addGateConfigLabel).toHaveBeenCalledWith(MR_URL);
     expect(publishForReview.mock.calls[0]?.[1]?.body).toContain('## Gate config changed');
     expect(publishForReview.mock.calls[0]?.[1]?.body).toContain(path);
   });

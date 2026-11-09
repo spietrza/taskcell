@@ -1,13 +1,13 @@
 import { LinearCliTaskFetcher, linkLinearIssue, commentLinearIssue } from '../tasks/linear-cli.js';
 import { implementReviewSimplifyStages, retrospectiveMemoryBlock } from '../pipeline/pipeline.js';
 import { publishReviewVerdict } from '../pipeline/review-publish.js';
-import { addPrFailureLabel } from '../tasks/github.js';
+import { addPrFailureLabel, addPrGateLabel } from '../tasks/github.js';
 import { fanOut } from '../pipeline/fan-out.js';
 import { agentAuthFromEnv } from '../agents/auth.js';
 import { runSourcedIssue } from './source-adapter.js';
-import { knownGitlabProjectFromOrigin, publishGitlabVerdict, addGitlabFailureLabel } from './gitlab.js';
+import { knownGitlabProjectFromOrigin, publishGitlabVerdict, addGitlabFailureLabel, addGitlabGateConfigLabel } from './gitlab.js';
 import { renderSecretBlockComment } from '../core/secret-scan.js';
-import { githubFailureLabel } from '../github-labels.js';
+import { githubFailureLabel, GITHUB_GATE_CONFIG_LABEL } from '../github-labels.js';
 import type { PipelineStage } from '../pipeline/pipeline.js';
 import type { Task, SubTask } from '../tasks/fetcher.js';
 import type { CustomProviderEntry } from '../agents/registry.js';
@@ -79,6 +79,12 @@ export function linearAdapter(deps: RunLinearIssueDeps, gitlabProject?: string, 
     async addFailureLabel(prUrl: string, kind: ProofFailureKind) {
       if (gitlabProject !== undefined) return addGitlabFailureLabel(gitlabProject, prUrl, kind, glab);
       await addPrFailureLabel(deps.repoPath, prUrl, githubFailureLabel(kind));
+    },
+    // Linear itself has no labels, but the gate lives on the review surface — the same PR/MR label the
+    // GitHub/GitLab reviewer keys off — so this labels there, strictly, like the two native adapters.
+    async addGateConfigLabel(prUrl: string) {
+      if (gitlabProject !== undefined) return addGitlabGateConfigLabel(gitlabProject, prUrl, glab);
+      await addPrGateLabel(deps.repoPath, prUrl, GITHUB_GATE_CONFIG_LABEL);
     },
     async linkPr(_issueRef: string, task: Task, prUrl: string) {
       await linkLinearIssue(task.id, prUrl);

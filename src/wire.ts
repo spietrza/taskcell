@@ -242,7 +242,7 @@ export interface BoardTask {
 }
 
 /** The reviewer's persisted verdict: `changes` ⇔ the merge gate would request changes. */
-export type ReviewVerdict = 'pass' | 'changes';
+export type ReviewVerdict = 'pass' | 'changes' | 'incomplete';
 
 /** One Task Board verdict chip: a stage/gate and what it decided. `label` is pre-rendered by core. */
 export interface BoardChip {
@@ -285,6 +285,9 @@ export interface RunRecord {
   cacheEfficiency?: number;
   durationMs?: number;
   model?: string;
+  /** The model the stage asked for (alias or pin), when the writer was given one; `model` is what
+   *  the provider served. Absent when the stage pinned nothing. */
+  requestedModel?: string;
   timestamp: string;
   stage?: string;
   prUrl?: string;

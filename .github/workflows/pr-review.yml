@@ -12,6 +12,10 @@ on:
         description: 'JSON array of GitHub logins allowed to trigger this workflow, e.g. ["octocat"]. Enforced here as a backstop to the caller if:.'
         type: string
         required: true
+      review-concurrency:
+        description: 'How many labelled PRs one run reviews in parallel (--concurrency). Empty = CLI default (2).'
+        type: string
+        default: ''
       provider:
         description: 'Review provider (--provider), e.g. codex or claude. Empty = CLI default.'
         type: string
@@ -173,6 +177,7 @@ jobs:
           IN_AUTHOR: ${{ inputs.author }}
           IN_LLM_PROXY: ${{ inputs.llm-proxy }}
           IN_SKILLS: ${{ inputs.skills }}
+          IN_CONCURRENCY: ${{ inputs.review-concurrency }}
           IN_ALLOWED_ACTORS: ${{ inputs.allowed-actors }}
         run: |
           # Allowed actors also count as trusted PR authors (repo members always do).
@@ -185,6 +190,7 @@ jobs:
               --reviewed-label "vanguard:reviewed"
               --repo "$GITHUB_WORKSPACE")
             [ -n "$IN_SKILLS" ] && args+=(--skills "$IN_SKILLS")
+            [ -n "$IN_CONCURRENCY" ] && args+=(--concurrency "$IN_CONCURRENCY")
             [ -n "$IN_AUTHOR" ] && args+=(--author "$IN_AUTHOR")
             [ -n "$feedback_authors" ] && args+=(--feedback-authors "$feedback_authors")
             [ -n "$provider" ] && args+=(--provider "$provider")

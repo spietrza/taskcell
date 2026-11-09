@@ -14,7 +14,7 @@ import type { AgentAuth } from '../agents/auth.js';
  * `destroy()` tears the whole thing down in the right order.
  */
 /** Display name for each llm-proxy upstream, used in the sidecar-credential log line. */
-const UPSTREAM_LABEL: Record<Upstream, string> = { anthropic: 'Claude', openai: 'OpenAI', zai: 'z.ai', openrouter: 'OpenRouter' };
+const UPSTREAM_LABEL: Record<Upstream, string> = { anthropic: 'Claude', openai: 'OpenAI', zai: 'z.ai', openrouter: 'OpenRouter', chatgpt: 'ChatGPT' };
 
 export interface SandboxContext {
   /** Egress proxy URL the sandbox routes through (absent when no enclave was created). */

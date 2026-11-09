@@ -407,10 +407,15 @@ async function writeRecord(repoPath: string, taskId: string, timestamp: string, 
         evidence: redactForPublish(finding.evidence, opts.secretValues),
       }))
     : [];
+  // The model the stage ASKED for (alias or pin), beside `model` — the one the provider served. Goes
+  // on the record as well as the metric line, so the run's own file names the routed model even when
+  // the provider reported none.
+  const requested = opts.requestedModel !== undefined ? { requestedModel: opts.requestedModel } : {};
   const record = {
     ...meta,
     ...(review !== undefined ? { verdict: review.verdict } : {}),
     ...(findings.length > 0 ? { findings } : {}),
+    ...requested,
     finalText: diffOmitted !== undefined ? `[withheld: ${diffOmitted}]` : redactForPublish(result.finalText, opts.secretValues),
     timestamp,
     ...(opts.label !== undefined ? { stage: opts.label } : {}),
@@ -454,7 +459,7 @@ async function writeRecord(repoPath: string, taskId: string, timestamp: string, 
   const metric = {
     evt: 'run_complete',
     ts: timestamp,
-    ...stageMetric(result, opts.label, opts.requestedModel !== undefined ? { requestedModel: opts.requestedModel } : undefined),
+    ...stageMetric(result, opts.label, requested),
     ...(opts.prUrl !== undefined ? { prUrl: opts.prUrl } : {}),
   };
   await appendMetric(repoPath, metric);
