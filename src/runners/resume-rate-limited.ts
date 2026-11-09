@@ -70,25 +70,30 @@ async function listParked(kind: ParkedKind, repoSlug: string, gh: GhRunner): Pro
 /** The newest marker on the item. A PR carries it as a comment (pr-watch) or a review (revise-pr). */
 async function latestMarker(kind: ParkedKind, repoSlug: string, number: number, gh: GhRunner): Promise<RateLimitedMarker | undefined> {
   // `gh issue view` has no `reviews` field to ask for; an issue's marker is always a comment.
-  const fields = kind === 'issue' ? 'comments' : 'comments,reviews';
+  const fields = kind === 'issue' ? 'comments,labels' : 'comments,reviews,labels';
   const view = JSON.parse(await gh([kind, 'view', String(number), '--repo', repoSlug, '--json', fields])) as {
     comments?: GhCommentBody[];
     reviews?: GhCommentBody[];
+    labels?: { name?: string }[];
   };
+  // Re-read the hold on the item itself: label-filtered lists lag, and a claim may have released it.
+  if (!(view.labels ?? []).some((label) => label.name === GITHUB_RATE_LIMITED_LABEL)) return undefined;
   return latestRateLimitedMarker(trustedBodies([...(view.comments ?? []), ...(view.reviews ?? [])]));
 }
 
 /**
- * Re-trigger the stage, then release the hold. The trigger label is removed and added back rather
+ * Release the hold, then re-trigger the stage. The trigger label is removed and added back rather
  * than just added: GitHub fires `labeled` only for a label that was not already there, and a parked
  * PR still carries its trigger label (revise-pr drops only `vanguard:revising`). The hold label goes
- * last, so a failure mid-way leaves the item parked and the next sweep retries it.
+ * first, so a sweep never fires the same marker twice.
  */
 async function retrigger(kind: ParkedKind, repoSlug: string, number: number, trigger: string, gh: GhRunner): Promise<void> {
   const edit = (labels: string[]): Promise<string> => gh([kind, 'edit', String(number), '--repo', repoSlug, ...labels]);
+  // Hold first: if releasing it fails nothing has fired, and once it is gone no later sweep can
+  // re-trigger the same marker even if the trigger edits below fail.
+  await edit(['--remove-label', GITHUB_RATE_LIMITED_LABEL]);
   await edit(['--remove-label', trigger]);
   await edit(['--add-label', trigger]);
-  await edit(['--remove-label', GITHUB_RATE_LIMITED_LABEL]);
 }
 
 /**

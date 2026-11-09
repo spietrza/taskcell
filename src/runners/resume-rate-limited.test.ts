@@ -7,7 +7,7 @@ const NOW = new Date('2026-11-09T03:00:00Z');
 const PAST = new Date('2026-11-09T02:00:00Z');
 const FUTURE = new Date('2026-11-09T05:00:00Z');
 
-interface Item { kind: 'issue' | 'pr'; number: number; comments: { body: string; login: string; association: string }[] }
+interface Item { kind: 'issue' | 'pr'; number: number; held?: boolean; comments: { body: string; login: string; association: string }[] }
 
 /** A fake `gh` over a fixed set of parked items; records every edit. */
 function fakeGh(items: Item[]): { gh: GhRunner; edits: string[][] } {
@@ -20,7 +20,8 @@ function fakeGh(items: Item[]): { gh: GhRunner; edits: string[][] } {
       const comments = (item?.comments ?? []).map((c, n) => ({
         body: c.body, author: { login: c.login }, authorAssociation: c.association, createdAt: `2026-11-09T0${n}:00:00Z`,
       }));
-      return JSON.stringify({ comments, reviews: [] });
+      const labels = item?.held === false ? [] : [{ name: 'vanguard:rate-limited' }];
+      return JSON.stringify({ comments, reviews: [], labels });
     }
     if (verb === 'edit') { edits.push(args); return ''; }
     throw new Error(`unexpected gh ${args.join(' ')}`);
@@ -41,9 +42,9 @@ describe('resumeRateLimited', () => {
     expect(report.resumed).toEqual(['o/r#1']);
     expect(report.waiting).toEqual(['o/r#2']);
     expect(edits).toEqual([
+      ['issue', 'edit', '1', '--repo', 'o/r', '--remove-label', 'vanguard:rate-limited'],
       ['issue', 'edit', '1', '--repo', 'o/r', '--remove-label', 'ready for agent'],
       ['issue', 'edit', '1', '--repo', 'o/r', '--add-label', 'ready for agent'],
-      ['issue', 'edit', '1', '--repo', 'o/r', '--remove-label', 'vanguard:rate-limited'],
     ]);
   });
 
@@ -68,5 +69,12 @@ describe('resumeRateLimited', () => {
     const { gh } = fakeGh([{ kind: 'pr', number: 3, comments: [owner(rateLimitedMarker(PAST, 'factory: review'))] }]);
     const report = await resumeRateLimited({ repoSlug: 'o/r', now: NOW, gh, triggerLabels: ['factory: review'], log: () => {} });
     expect(report.resumed).toEqual(['o/r#3']);
+  });
+
+  it('skips an item whose hold a claim already released (stale label-filtered list)', async () => {
+    const { gh, edits } = fakeGh([{ kind: 'issue', number: 4, held: false, comments: [owner(rateLimitedMarker(PAST, 'ready for agent'))] }]);
+    const report = await resumeRateLimited({ repoSlug: 'o/r', now: NOW, gh, log: () => {} });
+    expect(report.skipped).toEqual(['o/r#4']);
+    expect(edits).toEqual([]);
   });
 });

@@ -728,18 +728,30 @@ export function githubIssueWatchPrimitives(opts: WatchGithubOptions): WatchPrimi
   // them, so the claim clears it too. Only for issues seen with the label — a blind `--remove-label`
   // makes `gh issue edit` fail in a repo that never created it.
   const heldBefore = new Set<string>();
+  const rateLimitedBefore = new Set<string>();
   return {
     listReady: async () => {
       const tasks = await withTrustedIssueAuthors(repo, await fetcher.list({ labels: agentLabels }), opts.deps.feedbackAuthors, opts.gh);
       heldBefore.clear();
       for (const task of tasks) if (task.labels.includes(GITHUB_SECRET_BLOCKED_LABEL)) heldBefore.add(task.id);
+      rateLimitedBefore.clear();
+      for (const task of tasks) if (task.labels.includes(GITHUB_RATE_LIMITED_LABEL)) rateLimitedBefore.add(task.id);
       return tasks.map((task) => ({ id: task.id }));
     },
+    // A claim releases every hold the issue carried: a rate-limit hold left on would make the resume
+    // sweep re-trigger work that this run is already doing.
     claim: (id) =>
       editGithubLabels(
         repo,
         id,
-        { remove: heldBefore.has(id) ? [opts.label, GITHUB_SECRET_BLOCKED_LABEL] : [opts.label], add: [opts.claimedLabel] },
+        {
+          remove: [
+            opts.label,
+            ...(heldBefore.has(id) ? [GITHUB_SECRET_BLOCKED_LABEL] : []),
+            ...(rateLimitedBefore.has(id) ? [GITHUB_RATE_LIMITED_LABEL] : []),
+          ],
+          add: [opts.claimedLabel],
+        },
         opts.gh,
       ),
     runOne:

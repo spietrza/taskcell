@@ -258,7 +258,7 @@ export function githubPullRequestWatchPrimitives(opts: GitHubPullRequestWatchOpt
     },
     claim: (item) =>
       editPullRequestLabels(gh, item.repoSlug, item.number, {
-        remove: [opts.label],
+        remove: item.labels.includes(GITHUB_RATE_LIMITED_LABEL) ? [opts.label, GITHUB_RATE_LIMITED_LABEL] : [opts.label],
         add: [opts.reviewingLabel],
       }).then(() => {}),
     review: (item) => opts.reviewOne(item),
