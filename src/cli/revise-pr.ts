@@ -32,6 +32,7 @@ export async function revisePrCommand(cmd: RevisePrCommand, deps: RevisePrComman
     signal: controller.signal,
     ...(cmd.repoSlug !== undefined ? { repoSlug: cmd.repoSlug } : {}),
     ...(cmd.fallbackModel !== undefined ? { fallbackModel: cmd.fallbackModel } : {}),
+    ...(cmd.providerModel !== undefined ? { providerModel: cmd.providerModel } : {}),
     ...(cmd.reviewModel !== undefined ? { reviewModel: cmd.reviewModel } : {}),
     ...(cmd.maxRounds !== undefined ? { maxRounds: cmd.maxRounds } : {}),
     ...(cmd.commitAuthor !== undefined ? { commitAuthor: cmd.commitAuthor } : {}),

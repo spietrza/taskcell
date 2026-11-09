@@ -51,6 +51,12 @@ describe('revisePrCommand', () => {
     expect(revisePullRequest).toHaveBeenCalledWith('7', expect.objectContaining({ fallbackProvider: 'codex', fallbackModel: 'gpt-5' }));
   });
 
+  it('forwards --provider-model to the runner', async () => {
+    const revisePullRequest = vi.fn(async (): Promise<ReviseGithubPrResult> => makeResult());
+    await revisePrCommand(makeCmd({ providerModel: 'sonnet' }), { revisePullRequest });
+    expect(revisePullRequest).toHaveBeenCalledWith('7', expect.objectContaining({ providerModel: 'sonnet' }));
+  });
+
   it('delegates to the revision runner and logs the done message on success', async () => {
     const logs: string[] = [];
     const revisePullRequest = vi.fn(

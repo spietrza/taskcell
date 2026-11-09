@@ -376,7 +376,7 @@ export async function runSourcedIssue(
     ...(deps.network !== undefined ? { network: deps.network } : {}),
   });
   try {
-    const env = llmProxySandboxEnv(deps.proxyUrl, deps.llmProxy, providerProxies.openai);
+    const env = llmProxySandboxEnv(deps.proxyUrl, deps.llmProxy, providerProxies);
     const sandbox = new DockerSandboxProvider({
       image: sandboxImage(),
       // In llm-proxy mode the real Claude secret stays in the sidecar — the sandbox gets only the nonce.

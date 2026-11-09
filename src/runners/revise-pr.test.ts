@@ -1334,6 +1334,83 @@ describe('runRevisePullRequest — revise-pass verification', () => {
     expect(agentInputs[3]?.model).toBe('claude-sonnet-5');
     expect(agentInputs[3]?.maxTurns).toBe(agentInputs[0]?.maxTurns);
   });
+
+  // gh runner whose PR body references o/r#42 and whose issue view returns the given labels.
+  function makeGhWithIssueLabels(labels: string[], ghCalls: string[][]): GhRunner {
+    const base = makeGh(ghCalls, []);
+    return async (args, env) => {
+      if (args[0] === 'issue' && args[1] === 'view') {
+        ghCalls.push(args);
+        return JSON.stringify({ number: 42, title: 'Issue', body: '', labels: labels.map((name) => ({ name })), comments: [] });
+      }
+      return base(args, env);
+    };
+  }
+
+  async function readRunRecordModels(): Promise<string[]> {
+    const runsDir = join(repo, '.vanguard', 'runs');
+    const files = (await readdir(runsDir, { recursive: true })).map(String).filter((f) => f.endsWith('.json'));
+    const models: string[] = [];
+    for (const f of files) {
+      const text = await readFile(join(runsDir, f), 'utf8');
+      for (const m of text.matchAll(/"requestedModel":\s*"([^"]+)"/g)) models.push(m[1] ?? '');
+    }
+    return models;
+  }
+
+  it('--provider-model: the implement stage runs on that model and the run record names it', async () => {
+    const agentInputs: AgentRunInput[] = [];
+    const ghCalls: string[][] = [];
+    await runRevisePullRequest('12', {
+      repoPath: repo, repoSlug: 'o/r', gh: makeGhWithIssueLabels([], ghCalls),
+      _sandbox: makeSandbox(), _agent: agentThatCompletes(agentInputs), _worktrees: new WorktreeManager(repo),
+      _pushRunner: async () => '', _baseBranch: 'feature-branch', provider: 'claude', providerModel: 'sonnet',
+    });
+    expect(agentInputs[0]?.model).toBe('sonnet');
+    expect(await readRunRecordModels()).toContain('sonnet');
+  });
+
+  it('without --provider-model the implement stage carries no model (provider default)', async () => {
+    const agentInputs: AgentRunInput[] = [];
+    await runRevisePullRequest('12', {
+      repoPath: repo, repoSlug: 'o/r', gh: makeGhWithIssueLabels([], []),
+      _sandbox: makeSandbox(), _agent: agentThatCompletes(agentInputs), _worktrees: new WorktreeManager(repo),
+      _pushRunner: async () => '', _baseBranch: 'feature-branch', provider: 'claude',
+    });
+    expect(agentInputs[0]?.model).toBeUndefined();
+    expect(await readRunRecordModels()).toEqual([]);
+  });
+
+  it('a vanguard:model=<m> label on the source issue overrides --provider-model', async () => {
+    const agentInputs: AgentRunInput[] = [];
+    const ghCalls: string[][] = [];
+    const logs: string[] = [];
+    await runRevisePullRequest('12', {
+      repoPath: repo, repoSlug: 'o/r', gh: makeGhWithIssueLabels(['bug', 'vanguard:model=opus'], ghCalls), log: (l) => logs.push(l),
+      _sandbox: makeSandbox(), _agent: agentThatCompletes(agentInputs), _worktrees: new WorktreeManager(repo),
+      _pushRunner: async () => '', _baseBranch: 'feature-branch', provider: 'claude', providerModel: 'sonnet',
+    });
+    expect(ghCalls.some((c) => c[0] === 'issue' && c[1] === 'view' && c[2] === '42')).toBe(true);
+    expect(agentInputs[0]?.model).toBe('opus');
+    expect(agentInputs.every((i) => i.model === 'opus')).toBe(true);
+    expect(logs.some((l) => l.includes('pins the implementer model to opus via label'))).toBe(true);
+    expect(await readRunRecordModels()).toContain('opus');
+  });
+
+  it('a failed issue lookup leaves --provider-model in place instead of blocking the revision', async () => {
+    const agentInputs: AgentRunInput[] = [];
+    const base = makeGh([], []);
+    const gh: GhRunner = async (args, env) => {
+      if (args[0] === 'issue' && args[1] === 'view') throw new Error('gh: issue not found');
+      return base(args, env);
+    };
+    await runRevisePullRequest('12', {
+      repoPath: repo, repoSlug: 'o/r', gh,
+      _sandbox: makeSandbox(), _agent: agentThatCompletes(agentInputs), _worktrees: new WorktreeManager(repo),
+      _pushRunner: async () => '', _baseBranch: 'feature-branch', provider: 'claude', providerModel: 'sonnet',
+    });
+    expect(agentInputs[0]?.model).toBe('sonnet');
+  });
 });
 
 // ---------------------------------------------------------------------------
