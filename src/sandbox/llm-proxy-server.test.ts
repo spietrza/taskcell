@@ -3,7 +3,7 @@
 // This is the regression guard for the module-level `upstreamKind` binding: if it shadowed the
 // per-request `upstream` socket again, the request handler would TDZ-crash and the 404 assertion
 // (which runs the line-~108 gate) would fail with a connection reset instead of a clean 404.
-import { describe, it, expect, afterEach } from 'vitest';
+import { describe, it, expect, afterEach, vi } from 'vitest';
 import { execa } from 'execa';
 import { request, createServer } from 'node:http';
 import { mkdtemp, writeFile, readFile, readdir, rm, stat } from 'node:fs/promises';
@@ -185,7 +185,13 @@ interface FakeIdp {
  *  tests never need (or could even accidentally make) a real network call. `hold`, when given, gates
  *  the refresh response so a test can keep calls in flight. */
 function startFakeIdp(
-  behavior: { refreshStatus?: number; refreshBody?: () => string; revokeStatus?: number; hold?: Promise<void> } = {},
+  behavior: {
+    refreshStatus?: number;
+    refreshBody?: () => string;
+    refreshHeaders?: Record<string, string>;
+    revokeStatus?: number;
+    hold?: Promise<void>;
+  } = {},
 ): Promise<FakeIdp> {
   let refreshCalls = 0;
   let revokeCalls = 0;
@@ -203,7 +209,7 @@ function startFakeIdp(
       if (req.url === '/oauth/token') {
         refreshCalls += 1;
         const respond = (): void => {
-          res.writeHead(behavior.refreshStatus ?? 200, { 'content-type': 'application/json' });
+          res.writeHead(behavior.refreshStatus ?? 200, { 'content-type': 'application/json', ...behavior.refreshHeaders });
           res.end(behavior.refreshBody?.() ?? JSON.stringify({
             access_token: `real-access-${randomUUID()}`,
             refresh_token: `real-refresh-${randomUUID()}`,
@@ -230,6 +236,19 @@ function startFakeIdp(
       resolve({ port, server, refreshCalls: () => refreshCalls, revokeCalls: () => revokeCalls, bodies: () => bodies });
     });
   });
+}
+
+/** POST a refresh grant carrying the run's placeholder token. */
+function postRefresh(port: number, refreshPlaceholder: string): Promise<{ status: number; text: string }> {
+  return postJson(port, '/oauth/token', JSON.stringify({ refresh_token: refreshPlaceholder }));
+}
+
+/** Mocks Date.now() at a value the caller advances manually, for deterministic backoff-timing
+ *  assertions. Always restore via the returned function, in a `finally`. */
+function mockNow(): { advance: (ms: number) => void; restore: () => void } {
+  let now = Date.now();
+  const spy = vi.spyOn(Date, 'now').mockImplementation(() => now);
+  return { advance: (ms: number) => { now += ms; }, restore: () => spy.mockRestore() };
 }
 
 /** POST a JSON body on its OWN connection (agent: false) and resolve with the status + body text. */
@@ -331,6 +350,9 @@ describe('llm-proxy-server chatgpt auth kind (in-process factory, fake IdP/upstr
   async function bootChatgpt(options: {
     idpPort?: number;
     refreshFloorMs?: number;
+    refreshBackoffBaseMs?: number;
+    refreshBackoffMaxMs?: number;
+    maxRefreshesPerRun?: number;
     forwardTo?: { host: string; port: number; protocol: 'http' | 'https' };
     overrides?: Record<string, string>;
   } = {}): Promise<Booted> {
@@ -340,6 +362,9 @@ describe('llm-proxy-server chatgpt auth kind (in-process factory, fake IdP/upstr
       credentialDir,
       ...(options.idpPort !== undefined ? { idpBaseUrl: `http://127.0.0.1:${options.idpPort}` } : {}),
       ...(options.refreshFloorMs !== undefined ? { refreshFloorMs: options.refreshFloorMs } : {}),
+      ...(options.refreshBackoffBaseMs !== undefined ? { refreshBackoffBaseMs: options.refreshBackoffBaseMs } : {}),
+      ...(options.refreshBackoffMaxMs !== undefined ? { refreshBackoffMaxMs: options.refreshBackoffMaxMs } : {}),
+      ...(options.maxRefreshesPerRun !== undefined ? { maxRefreshesPerRun: options.maxRefreshesPerRun } : {}),
       ...(options.forwardTo !== undefined ? { forwardTo: options.forwardTo } : {}),
     });
     const port = await listenOn(server);
@@ -490,6 +515,121 @@ describe('llm-proxy-server chatgpt auth kind (in-process factory, fake IdP/upstr
     const c = await call();
     expect(c.status).toBe(200);
     expect(idp.refreshCalls()).toBe(1);
+  });
+
+  it('backs off failed exchanges exponentially and caps real attempts', async () => {
+    const idp = await bootIdp({ refreshStatus: 500 });
+    const { port, refreshPlaceholder } = await bootChatgpt({
+      idpPort: idp.port, refreshBackoffBaseMs: 100, refreshBackoffMaxMs: 200, maxRefreshesPerRun: 3,
+    });
+    const clock = mockNow();
+    const call = (): Promise<{ status: number; text: string }> => postRefresh(port, refreshPlaceholder);
+    try {
+      for (const delay of [100, 200, 200]) {
+        const before = idp.refreshCalls();
+        expect((await call()).status).toBe(502);
+        expect(idp.refreshCalls()).toBe(before + 1);
+        clock.advance(delay - 1);
+        expect((await call()).status).toBe(502);
+        expect(idp.refreshCalls()).toBe(before + 1);
+        clock.advance(1);
+      }
+      clock.advance(10_000);
+      expect((await call()).status).toBe(502);
+      expect(idp.refreshCalls()).toBe(3);
+    } finally {
+      clock.restore();
+    }
+  });
+
+  it('resets failure backoff after success and permits cached responses at the attempt cap', async () => {
+    const behavior = { refreshStatus: 500 };
+    const idp = await bootIdp(behavior);
+    const { port, refreshPlaceholder } = await bootChatgpt({
+      idpPort: idp.port, refreshFloorMs: 10, refreshBackoffBaseMs: 100,
+      refreshBackoffMaxMs: 400, maxRefreshesPerRun: 4,
+    });
+    const clock = mockNow();
+    const call = (): Promise<{ status: number; text: string }> => postRefresh(port, refreshPlaceholder);
+    try {
+      expect((await call()).status).toBe(502);
+      clock.advance(100);
+      behavior.refreshStatus = 200;
+      expect((await call()).status).toBe(200);
+      await new Promise((resolve) => setTimeout(resolve, 20));
+      behavior.refreshStatus = 500;
+      expect((await call()).status).toBe(502);
+      clock.advance(100);
+      behavior.refreshStatus = 200;
+      expect((await call()).status).toBe(200);
+      expect((await call()).status).toBe(200);
+      expect(idp.refreshCalls()).toBe(4);
+      await new Promise((resolve) => setTimeout(resolve, 20));
+      expect((await call()).status).toBe(502);
+      expect(idp.refreshCalls()).toBe(4);
+    } finally {
+      clock.restore();
+    }
+  });
+
+  it('does not follow redirects carrying the real refresh token', async () => {
+    const target = await bootIdp();
+    const idp = await bootIdp({
+      refreshStatus: 307,
+      refreshHeaders: { location: 'http://127.0.0.1:' + target.port + '/oauth/token' },
+    });
+    const { port, refreshPlaceholder } = await bootChatgpt({ idpPort: idp.port });
+    expect((await postRefresh(port, refreshPlaceholder)).status).toBe(502);
+    expect(idp.refreshCalls()).toBe(1);
+    expect(target.refreshCalls()).toBe(0);
+  });
+
+  it('does not warn about rotation when the IdP leaves the refresh token unchanged', async () => {
+    const idp = await bootIdp({ refreshBody: () => JSON.stringify({ access_token: 'new-access' }) });
+    const { port, refreshPlaceholder } = await bootChatgpt({ idpPort: idp.port });
+    const warning = vi.spyOn(console, 'warn').mockImplementation(() => {});
+    try {
+      expect((await postRefresh(port, refreshPlaceholder)).status).toBe(200);
+      expect(warning).not.toHaveBeenCalled();
+    } finally {
+      warning.mockRestore();
+    }
+  });
+
+  it('warns immediately when the refresh token rotates, naming the stale secret', async () => {
+    const idp = await bootIdp();
+    const { port, refreshPlaceholder } = await bootChatgpt({ idpPort: idp.port });
+    const warning = vi.spyOn(console, 'warn').mockImplementation(() => {});
+    try {
+      expect((await postRefresh(port, refreshPlaceholder)).status).toBe(200);
+      expect(warning).toHaveBeenCalledTimes(1);
+      const [line] = warning.mock.calls[0] ?? [];
+      expect(line).toContain('rotated');
+      expect(line).toContain('CODEX_AUTH_JSON');
+    } finally {
+      warning.mockRestore();
+    }
+  });
+
+  it('run summary: restates the rotation warning once more at server close', async () => {
+    const idp = await bootIdp();
+    const credentialDir = await mkdtemp(join(tmpdir(), 'vg-chatgpt-cred-'));
+    const fixture = chatgptSecretText(credentialDir);
+    const server = createLlmProxyServer(fixture.text, { credentialDir, idpBaseUrl: `http://127.0.0.1:${idp.port}` });
+    const port = await listenOn(server);
+    const warning = vi.spyOn(console, 'warn').mockImplementation(() => {});
+    try {
+      expect((await postRefresh(port, fixture.refreshPlaceholder)).status).toBe(200);
+      expect(warning).toHaveBeenCalledTimes(1);
+      await closeServer(server);
+      expect(warning).toHaveBeenCalledTimes(2);
+      const [summaryLine] = warning.mock.calls[1] ?? [];
+      expect(summaryLine).toContain('run summary');
+      expect(summaryLine).toContain('CODEX_AUTH_JSON');
+    } finally {
+      warning.mockRestore();
+      await rm(credentialDir, { recursive: true, force: true });
+    }
   });
 
   it('IdP routes hold a concurrency slot: the MAX_CONCURRENT-th+1 in-flight refresh gets 503', async () => {

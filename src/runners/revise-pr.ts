@@ -47,7 +47,8 @@ import {
   STAGE,
 } from '../pipeline/pipeline.js';
 import { droppedCiPathsNote } from '../pipeline/remote-branch.js';
-import { defaultGhRunner } from '../tasks/github.js';
+import { defaultGhRunner, GitHubTaskFetcher } from '../tasks/github.js';
+import { modelFromLabels } from './source-adapter.js';
 import { DockerSandboxProvider, sandboxImage } from '../sandbox/docker.js';
 import { sandboxResourceLimits } from '../sandbox/limits.js';
 import { llmProxySandboxEnv } from '../sandbox/egress-proxy.js';
@@ -88,7 +89,11 @@ export interface ReviseGithubPrDeps extends ProviderChoice {
   proxyUrl?: string;
   /** Docker network for the sandbox (from startSandboxContext). */
   network?: string;
-  /** Model for the implementer/simplifier stages. */
+  /**
+   * Model for the implementer/simplifier stages, as in `implement`. Overridden by a
+   * `vanguard:model=<m>` label on the issue the PR body references (Closes/Part of #N) — same
+   * precedence as implement's label vs. --provider-model.
+   */
   providerModel?: string;
   /** Model for the review stage. */
   reviewModel?: string;
@@ -221,6 +226,31 @@ async function markReady(
 }
 
 /**
+ * Model pinned by a `vanguard:model=<m>` label on the issue the PR body references via a closing
+ * keyword or `Part of` (extractTaskIdFromPrBody) — same override as implement's label vs.
+ * --provider-model. Best-effort: a PR with no referenced issue, or a lookup that fails (deleted
+ * issue, missing scope), must not block the revision — it just leaves --provider-model in place.
+ */
+async function modelFromSourceIssue(
+  repoSlug: string,
+  prBody: string,
+  gh: GhRunner,
+  log: (line: string) => void,
+  prId: string,
+): Promise<string | undefined> {
+  const issueTaskId = extractTaskIdFromPrBody(prBody);
+  if (issueTaskId === undefined) return undefined;
+  try {
+    const task = await new GitHubTaskFetcher(repoSlug, gh).fetch(issueTaskId);
+    return modelFromLabels(task.labels, (label) =>
+      log(`revise-pr ${prId}: ignoring malformed model label ${JSON.stringify(label)} on ${issueTaskId}`));
+  } catch (err) {
+    log(`revise-pr ${prId}: could not read labels on ${issueTaskId} (${err instanceof Error ? err.message : String(err)})`);
+    return undefined;
+  }
+}
+
+/**
  * Run one PR revision round: read human review feedback, apply fixes on the existing PR branch,
  * reply to and resolve addressed threads, un-draft the PR, and flip the labels.
  */
@@ -319,6 +349,12 @@ export async function runRevisePullRequest(prRef: string, deps: ReviseGithubPrDe
     return { pr, addressed: 0, committed: false, pushed: false, undrafted: false };
   }
 
+  const labelModel = await modelFromSourceIssue(target.repoSlug, pr.body, gh, log, `${target.repoSlug}#${target.number}`);
+  if (labelModel !== undefined) {
+    log(`revise-pr ${target.repoSlug}#${target.number}: pins the implementer model to ${labelModel} via label (overrides --provider-model)`);
+  }
+  const effectiveModel = labelModel ?? deps.providerModel;
+
   const agents: SelectedAgents =
     deps._agent !== undefined
       ? {
@@ -358,7 +394,7 @@ export async function runRevisePullRequest(prRef: string, deps: ReviseGithubPrDe
     let outcomes: StageOutcome[] = [];
     // One block per revision in the Actions job's Summary tab (no GITHUB_STEP_SUMMARY ⇒ no-op).
     const stepSummary = (exit: StepSummaryExit, extra: Pick<StepSummary, 'error'> = {}): Promise<void> => {
-      const model = outcomes.find((o) => o.name === STAGE.IMPLEMENTER)?.result.model ?? deps.providerModel;
+      const model = outcomes.find((o) => o.name === STAGE.IMPLEMENTER)?.result.model ?? effectiveModel;
       return appendStepSummary(process.env.GITHUB_STEP_SUMMARY, {
         taskId: `${target.repoSlug}#${target.number}`,
         flow: 'revise-pr',
@@ -412,18 +448,18 @@ export async function runRevisePullRequest(prRef: string, deps: ReviseGithubPrDe
       const allStages = implementReviewSimplifyStages();
       const base = deps.noSimplify === true ? allStages.filter((s) => s.name !== STAGE.SIMPLIFIER) : allStages;
       let pipeline = agents.reviewAgent !== undefined ? withStageProvider(base, agents.reviewAgent) : base;
-      if (deps.providerModel !== undefined) {
+      if (effectiveModel !== undefined) {
         const crossProviderReview =
           deps.reviewProvider !== undefined && deps.reviewProvider !== (deps.provider ?? 'claude');
         pipeline = crossProviderReview
-          ? withStageModelExcept(pipeline, deps.providerModel, STAGE.REVIEWER)
-          : withStageModel(pipeline, deps.providerModel);
+          ? withStageModelExcept(pipeline, effectiveModel, STAGE.REVIEWER)
+          : withStageModel(pipeline, effectiveModel);
       }
       if (deps.reviewModel !== undefined) pipeline = withStageModel(pipeline, deps.reviewModel, STAGE.REVIEWER);
       if (agents.reviewAgent !== undefined) {
         pipeline = withStageFallback(pipeline, {
           provider: agents.agent,
-          ...(deps.providerModel !== undefined ? { model: deps.providerModel } : {}),
+          ...(effectiveModel !== undefined ? { model: effectiveModel } : {}),
         });
       }
       // Implementer fallback: on an AgentError from the primary provider (outage, usage limit, revoked

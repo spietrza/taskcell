@@ -29,6 +29,8 @@ jobs:
       # SBOM over the installed dependency tree (node_modules present after install), SPDX JSON,
       # uploaded as a build artifact for provenance/audit.
       - name: Generate SBOM (SPDX)
+        # The action downloads syft from GitHub Releases; a 5xx there must not block merges.
+        continue-on-error: true
         uses: anchore/sbom-action@66cbf4bc1f1c0d2edc94016e65bc221b6bb0ad6c # v0.24.3
         with:
           format: spdx-json

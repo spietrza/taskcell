@@ -46,7 +46,12 @@ const MAX_IDP_REQUEST_BYTES = 64 * 1024; // the cell's refresh/revoke bodies are
 const MAX_IDP_RESPONSE_BYTES = 1024 * 1024; // the real IdP's refresh/revoke responses are tiny JSON too
 const REQUEST_TIMEOUT_MS = 120_000;
 const IDP_TIMEOUT_MS = 20_000;
-const DEFAULT_REFRESH_FLOOR_MS = 5_000;
+const DEFAULT_REFRESH_FLOOR_MS = 5 * 60_000; // 5 minutes: caches only a SUCCESSFUL refresh, so a
+// hostile or buggy cell driving one refresh per cell-visible tick still drives at most one real IdP
+// exchange every 5 minutes, not every few seconds.
+const DEFAULT_REFRESH_BACKOFF_BASE_MS = 30_000; // first wait after a failed refresh
+const DEFAULT_REFRESH_BACKOFF_MAX_MS = 30 * 60_000; // backoff growth is capped here
+const DEFAULT_MAX_REFRESHES_PER_RUN = 20; // hard ceiling on real IdP refresh exchanges for the life of this process
 const MAX_CONCURRENT = 8;
 const CODEX_IDP_BASE_URL = 'https://auth.openai.com';
 // The sidecar's own credential directory: the in-RAM tmpfs holding its secret file, and the ONLY
@@ -166,17 +171,21 @@ async function readCappedResponse(response, maxBytes) {
 /**
  * Builds the sidecar's request handler and returns the (not-yet-listening) http.Server.
  * `options.credentialDir` is the directory AUTH_FILE must live in (the CLI bootstrap passes the
- * secret file's own directory). `options.idpBaseUrl` and `options.refreshFloorMs` are test-only
- * injection points for the chatgpt IdP calls; `options.forwardTo` is a test-only injection point for
- * the model-call upstream. None of these are environment variables — production never sets the
- * test-only ones, and this file carries no test-only override environment variable of any kind
- * (host/port/insecure-flag or otherwise).
+ * secret file's own directory). `options.idpBaseUrl`, `options.refreshFloorMs`,
+ * `options.refreshBackoffBaseMs`, `options.refreshBackoffMaxMs` and `options.maxRefreshesPerRun` are
+ * test-only injection points for the chatgpt IdP calls; `options.forwardTo` is a test-only injection
+ * point for the model-call upstream. None of these are environment variables — production never
+ * sets the test-only ones, and this file carries no test-only override environment variable of any
+ * kind (host/port/insecure-flag or otherwise).
  */
 export function createLlmProxyServer(secretText, options = {}) {
   const config = parseSecretFile(secretText);
   const { upstreamKind, spec } = resolveUpstream(config, options.credentialDir ?? DEFAULT_CREDENTIAL_DIR);
   const idpBaseUrl = options.idpBaseUrl ?? CODEX_IDP_BASE_URL;
   const refreshFloorMs = options.refreshFloorMs ?? DEFAULT_REFRESH_FLOOR_MS;
+  const refreshBackoffBaseMs = options.refreshBackoffBaseMs ?? DEFAULT_REFRESH_BACKOFF_BASE_MS;
+  const refreshBackoffMaxMs = options.refreshBackoffMaxMs ?? DEFAULT_REFRESH_BACKOFF_MAX_MS;
+  const maxRefreshesPerRun = options.maxRefreshesPerRun ?? DEFAULT_MAX_REFRESHES_PER_RUN;
 
   const auth = { mode: config.MODE, secret: config.SECRET };
   const expectedAuthorization = `Bearer ${config.NONCE}`;
@@ -206,12 +215,20 @@ export function createLlmProxyServer(secretText, options = {}) {
   };
 
   let inFlight = 0;
-  // Refresh floor + dedup state (chatgpt only): `cachedRefresh` holds the last successful response
-  // for `refreshFloorMs`; `pendingRefresh` is the in-flight call concurrent callers share instead of
-  // each starting their own. Both — and `floorTimer` — are reset on server close.
+  // Refresh floor + dedup + backoff + cap state (chatgpt only): `cachedRefresh` holds the last
+  // successful response for `refreshFloorMs`; `pendingRefresh` is the in-flight call concurrent
+  // callers share instead of each starting their own; `refreshAttempts` counts real IdP exchanges
+  // (success or failure) toward `maxRefreshesPerRun`; `backoffUntil` is the epoch ms before which a
+  // failed refresh's next attempt is refused without calling the IdP; `consecutiveFailures` grows
+  // the backoff exponentially. `refreshCount` counts token rotations for the warning/summary.
+  // Only the cache and pending call are cleared on server close.
   let cachedRefresh;
   let floorTimer;
   let pendingRefresh;
+  let refreshAttempts = 0;
+  let consecutiveFailures = 0;
+  let backoffUntil = 0;
+  let refreshCount = 0;
 
   function finish(req, res, status, started) {
     if (!res.headersSent) {
@@ -253,6 +270,10 @@ export function createLlmProxyServer(secretText, options = {}) {
       headers: { 'content-type': 'application/json' },
       body: JSON.stringify(body),
       signal: AbortSignal.timeout(IDP_TIMEOUT_MS),
+      // Never follow a redirect: the real refresh token is in the request body, so a 30x (even to a
+      // same-looking host) must never cause it to be re-sent to wherever that redirect points.
+      // `fetch` throws on a redirect response instead of following it.
+      redirect: 'error',
     });
     const text = await readCappedResponse(res, MAX_IDP_RESPONSE_BYTES);
     return { ok: res.ok, text };
@@ -274,6 +295,7 @@ export function createLlmProxyServer(secretText, options = {}) {
           (typeof parsed.refresh_token !== 'string' || !parsed.refresh_token || CONTROL_CHARS.test(parsed.refresh_token)))) {
       throw new Error('invalid idp refresh response');
     }
+    const rotated = parsed.refresh_token !== undefined && parsed.refresh_token !== chatgptState.refreshToken;
     chatgptState.accessToken = parsed.access_token;
     if (parsed.refresh_token !== undefined) chatgptState.refreshToken = parsed.refresh_token;
     persistChatgptAuth();
@@ -284,17 +306,52 @@ export function createLlmProxyServer(secretText, options = {}) {
       cachedRefresh = undefined;
     }, refreshFloorMs);
     floorTimer.unref?.();
+    if (rotated) {
+      refreshCount += 1;
+      // The rotated refresh token just invalidated whatever CODEX_AUTH_JSON a CI job sourced at boot
+      // (it is a static secret; nothing writes the rotation back to GitHub) — surface that immediately
+      // in the sidecar's own output rather than leaving the operator to discover a dead token on the
+      // next run. See docs/research/codex-credential-isolation.md.
+      console.warn(
+        `llm-proxy: WARNING codex refresh token rotated (refresh #${refreshCount} this run) — ` +
+          'the CODEX_AUTH_JSON secret now holds a stale refresh token; update it (gh secret set CODEX_AUTH_JSON) ' +
+          'or a future run may fail to authenticate',
+      );
+    }
     return payload;
   }
 
-  /** The refresh floor: inside the window, repeated calls get the cached result instead of hitting
-   *  OpenAI again; concurrent calls before the first settles share that one call. */
+  /** The refresh floor + backoff + per-run cap: inside the floor window, repeated calls get the
+   *  cached result instead of hitting OpenAI again; concurrent calls before the first settles share
+   *  that one call. After a failed refresh, the next real attempt is refused (no IdP call) until
+   *  `backoffUntil`, growing exponentially with consecutive failures up to `refreshBackoffMaxMs`, and
+   *  reset on the next success. Once `maxRefreshesPerRun` real attempts have been made, every later
+   *  call is refused locally for the rest of this process's life — never another IdP call. */
   function refreshFromIdp() {
     if (cachedRefresh !== undefined) return Promise.resolve(cachedRefresh);
     if (pendingRefresh !== undefined) return pendingRefresh;
-    pendingRefresh = doRefresh().finally(() => {
-      pendingRefresh = undefined;
-    });
+    if (refreshAttempts >= maxRefreshesPerRun) {
+      return Promise.reject(new Error('idp refresh cap reached for this run'));
+    }
+    if (Date.now() < backoffUntil) {
+      return Promise.reject(new Error('idp refresh backoff in effect after a prior failure'));
+    }
+    refreshAttempts += 1;
+    pendingRefresh = doRefresh()
+      .then((payload) => {
+        consecutiveFailures = 0;
+        backoffUntil = 0;
+        return payload;
+      })
+      .catch((error) => {
+        consecutiveFailures += 1;
+        const backoffMs = Math.min(refreshBackoffBaseMs * 2 ** (consecutiveFailures - 1), refreshBackoffMaxMs);
+        backoffUntil = Date.now() + backoffMs;
+        throw error;
+      })
+      .finally(() => {
+        pendingRefresh = undefined;
+      });
     return pendingRefresh;
   }
 
@@ -514,6 +571,14 @@ export function createLlmProxyServer(secretText, options = {}) {
     clearTimeout(floorTimer);
     cachedRefresh = undefined;
     pendingRefresh = undefined;
+    // Run summary: restate the warning once more at teardown, when a refresh happened, so it is not
+    // lost in whatever per-request access-log lines came after it.
+    if (refreshCount > 0) {
+      console.warn(
+        `llm-proxy: run summary: codex refresh token was rotated ${refreshCount} time(s) this run — ` +
+          'update the CODEX_AUTH_JSON secret (gh secret set CODEX_AUTH_JSON) before the next run.',
+      );
+    }
   });
 
   // Exposed for the CLI bootstrap's banner only; not part of the public contract.
