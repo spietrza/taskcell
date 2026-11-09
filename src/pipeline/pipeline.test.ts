@@ -1,4 +1,4 @@
-import { describe, it, expect, beforeEach, afterEach } from 'vitest';
+import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
 import { mkdtemp, rm, writeFile, mkdir } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
@@ -29,6 +29,7 @@ import {
   assembleReviewPipeline,
   resolveRouting,
   STAGE,
+  MAX_RATE_LIMIT_WAIT_MS,
 } from './pipeline.js';
 import type { PipelineStage, StageName, StageRouting } from './pipeline.js';
 import type { RunEvent } from './events.js';
@@ -240,6 +241,63 @@ describe('runBudgetedStages', () => {
     expect(fallbackInputs).toHaveLength(1);
     expect(fallbackInputs[0]?.model).toBe('sonnet');
     await disposeContext(ctx);
+  });
+
+  describe('same-provider fallback after a session limit', () => {
+    const limited = (name: string): AgentProvider => ({
+      name,
+      // eslint-disable-next-line require-yield
+      async *run(): AsyncGenerator<AgentTurn, AgentRunOutput, void> {
+        throw new AgentError("You've hit your session limit · resets 9pm (UTC)");
+      },
+    });
+    const stagesFor = (fallbackInputs: AgentRunInput[]): PipelineStage[] => {
+      const fallback = { ...recordingAgent(fallbackInputs), name: 'claude' };
+      return withStageFallback([{ name: 'reviewer', promptTemplate: 'review', provider: limited('claude') }], { provider: fallback });
+    };
+    afterEach(() => vi.restoreAllMocks());
+
+    it('waits for a reset within the cap, then retries', async () => {
+      vi.spyOn(Date, 'now').mockReturnValue(Date.UTC(2026, 10, 8, 20, 58));
+      const slept: number[] = [];
+      const fallbackInputs: AgentRunInput[] = [];
+      const ctx = await prepareContext({ taskId: 'rl-short', localRepoPath: repo, baseBranch: 'main', start: 'base', sandbox: makeSandbox() }, { worktrees: new WorktreeManager(repo) });
+      const result = await runBudgetedStages(ctx, stagesFor(fallbackInputs), {
+        agent: recordingAgent([]), maxCostUsd: 1, sleep: async (ms) => { slept.push(ms); },
+      });
+      expect(result.status).toBe('completed');
+      expect(slept).toEqual([2 * 60 * 1000]);
+      expect(fallbackInputs).toHaveLength(1);
+      await disposeContext(ctx);
+    });
+
+    it('retries at once, without waiting, when the fallback runs a different model', async () => {
+      vi.spyOn(Date, 'now').mockReturnValue(Date.UTC(2026, 10, 8, 16, 44));
+      const slept: number[] = [];
+      const fallbackInputs: AgentRunInput[] = [];
+      const fallback = { ...recordingAgent(fallbackInputs), name: 'claude' };
+      const stages = withStageFallback([{ name: 'reviewer', promptTemplate: 'review', provider: limited('claude'), model: 'opus' }], { provider: fallback, model: 'sonnet' });
+      const ctx = await prepareContext({ taskId: 'rl-model', localRepoPath: repo, baseBranch: 'main', start: 'base', sandbox: makeSandbox() }, { worktrees: new WorktreeManager(repo) });
+      const result = await runBudgetedStages(ctx, stages, { agent: recordingAgent([]), maxCostUsd: 1, sleep: async (ms) => { slept.push(ms); } });
+      expect(result.status).toBe('completed');
+      expect(slept).toEqual([]);
+      expect(fallbackInputs[0]?.model).toBe('sonnet');
+      await disposeContext(ctx);
+    });
+
+    it('hands back without retrying when the reset is past the cap', async () => {
+      vi.spyOn(Date, 'now').mockReturnValue(Date.UTC(2026, 10, 8, 16, 44));
+      const slept: number[] = [];
+      const fallbackInputs: AgentRunInput[] = [];
+      const ctx = await prepareContext({ taskId: 'rl-long', localRepoPath: repo, baseBranch: 'main', start: 'base', sandbox: makeSandbox() }, { worktrees: new WorktreeManager(repo) });
+      await expect(runBudgetedStages(ctx, stagesFor(fallbackInputs), {
+        agent: recordingAgent([]), maxCostUsd: 1, sleep: async (ms) => { slept.push(ms); },
+      })).rejects.toThrow(/session limit/);
+      expect(slept).toEqual([]);
+      expect(fallbackInputs).toHaveLength(0);
+      expect(MAX_RATE_LIMIT_WAIT_MS).toBe(5 * 60 * 1000);
+      await disposeContext(ctx);
+    });
   });
 
   it('implementer fallback: starts fresh on the fallback CLI, carries no primary model, owns the session afterwards', async () => {

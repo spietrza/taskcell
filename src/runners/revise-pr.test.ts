@@ -92,9 +92,9 @@ function makeSandbox(fixContent = 'fix applied'): IsolatedSandboxProvider {
   } as unknown as IsolatedSandboxProvider;
 }
 
-function agentThatCompletes(received: AgentRunInput[]): AgentProvider {
+function agentThatCompletes(received: AgentRunInput[], name = 'claude-code'): AgentProvider {
   return {
-    name: 'claude-code',
+    name,
     async *run(input: AgentRunInput): AsyncGenerator<AgentTurn, AgentRunOutput, void> {
       received.push(input);
       yield { text: 'applying fix' };
@@ -1571,6 +1571,73 @@ it('T11: a rate-limited provider with no fallback says so on the PR and drops th
   expect(editCall?.join(' ')).not.toContain('needs-human-review');
 });
 
+it('a non-AgentError carrying GitHub\'s "API rate limit exceeded" posts no 429 notice', async () => {
+  const gh = vi.fn(async (args: string[]) => {
+    if (args[0] === 'pr' && args[1] === 'view') return makePrViewJson();
+    if (args[0] === 'pr' && args[1] === 'diff') return '';
+    if (args[0] === 'api' && args[1] === 'graphql') return makeFeedbackJson();
+    if (args[0] === 'pr' && args[1] === 'review') return '';
+    if (args[0] === 'pr' && args[1] === 'edit') return '';
+    throw new Error('Unexpected mutation: ' + args.join(' '));
+  });
+  const notGithubRateLimited: AgentProvider = {
+    name: 'claude-code',
+    async *run(): AsyncGenerator<AgentTurn, AgentRunOutput, void> {
+      yield { text: 'starting' };
+      // Not an AgentError — e.g. a `gh` call failing with GitHub's own wording — so it must never be
+      // mistaken for a provider rate limit, even though the text matches that wording exactly.
+      throw new Error('gh: API rate limit exceeded for user');
+    },
+  };
+  await expect(
+    runRevisePullRequest('7', {
+      repoPath: repo,
+      repoSlug: 'o/r',
+      gh,
+      _sandbox: makeSandbox(),
+      _agent: notGithubRateLimited,
+      _worktrees: new WorktreeManager(repo),
+      _baseBranch: 'feature-branch',
+      provider: 'claude',
+    }),
+  ).rejects.toThrow(/API rate limit exceeded/);
+  expect(gh.mock.calls.some(([args]) => args[0] === 'pr' && args[1] === 'review')).toBe(false);
+  expect(gh.mock.calls.some(([args]) => args[0] === 'pr' && args[1] === 'edit')).toBe(false);
+});
+
+it('--out calls neither gh pr review nor gh pr edit when the agent is rate-limited', async () => {
+  const gh = vi.fn(async (args: string[]) => {
+    if (args[0] === 'pr' && args[1] === 'view') return makePrViewJson();
+    if (args[0] === 'pr' && args[1] === 'diff') return '';
+    if (args[0] === 'api' && args[1] === 'graphql') return makeFeedbackJson();
+    if (args[0] === 'pr' && args[1] === 'review') return '';
+    if (args[0] === 'pr' && args[1] === 'edit') return '';
+    throw new Error('Unexpected mutation: ' + args.join(' '));
+  });
+  const rateLimited: AgentProvider = {
+    name: 'claude-code',
+    async *run(): AsyncGenerator<AgentTurn, AgentRunOutput, void> {
+      yield { text: 'starting' };
+      throw new AgentError('claude exited 1: API error 429 rate_limit_error');
+    },
+  };
+  await expect(
+    runRevisePullRequest('7', {
+      repoPath: repo,
+      repoSlug: 'o/r',
+      gh,
+      out: join(repo, 'preview.md'),
+      _sandbox: makeSandbox(),
+      _agent: rateLimited,
+      _worktrees: new WorktreeManager(repo),
+      _baseBranch: 'feature-branch',
+      provider: 'claude',
+    }),
+  ).rejects.toThrow(/429/);
+  expect(gh.mock.calls.some(([args]) => args[0] === 'pr' && args[1] === 'review')).toBe(false);
+  expect(gh.mock.calls.some(([args]) => args[0] === 'pr' && args[1] === 'edit')).toBe(false);
+});
+
 it('uses the fallback model for the failed stage and subsequent stages', async () => {
   const primaryInputs: AgentRunInput[] = [];
   const fallbackInputs: AgentRunInput[] = [];
@@ -1598,6 +1665,137 @@ it('uses the fallback model for the failed stage and subsequent stages', async (
     expect(primaryInputs).toHaveLength(1);
     expect(fallbackInputs).toHaveLength(3);
     expect(fallbackInputs.every((input) => input.model === 'fallback-model')).toBe(true);
+  } finally {
+    spy.mockRestore();
+  }
+});
+
+it('keeps an explicit --review-model when the reviewer stage falls back to the same provider', async () => {
+  const primaryInputs: AgentRunInput[] = [];
+  const fallbackInputs: AgentRunInput[] = [];
+  const primary = agentThatCompletes(primaryInputs);
+  // `--review-provider` equal to `--provider`: a separate agent instance on the SAME provider, whose
+  // fallback is the primary agent. --fallback-provider can never be the primary itself (selectAgents
+  // rejects that), so this is the one shape in which the reviewer's fallback can serve --review-model.
+  const reviewer = agentThatCompletes([]);
+  reviewer.run = async function* (): AsyncGenerator<AgentTurn, AgentRunOutput, void> {
+    throw new AgentError('HTTP 429');
+  };
+  const spy = vi.spyOn(registry, 'selectAgents').mockReturnValue({
+    agent: primary, reviewAgent: reviewer, fallbackAgent: agentThatCompletes(fallbackInputs, 'codex'),
+    secrets: {}, proxySecrets: {}, injectAnthropicAuth: false,
+  });
+  const gh = vi.fn(async (args: string[]) => {
+    if (args[0] === 'pr' && args[1] === 'view') return makePrViewJson();
+    if (args[0] === 'api' && args[1] === 'graphql' && !args.some((arg) => arg.includes('mutation'))) return makeFeedbackJson();
+    return '';
+  });
+  try {
+    const result = await runRevisePullRequest('7', {
+      repoPath: repo, repoSlug: 'o/r', gh, out: join(repo, 'preview.md'),
+      _sandbox: makeSandbox(), _worktrees: new WorktreeManager(repo), _baseBranch: 'feature-branch',
+      provider: 'claude', reviewProvider: 'claude', fallbackProvider: 'codex',
+      fallbackModel: 'fallback-model', reviewModel: 'review-pin',
+    });
+    expect(result.dryRunOut).toBeDefined();
+    // Implementer and simplifier run on the primary (no model pinned); the reviewer's fallback lands
+    // there too, carrying --review-model rather than the codex-bound --fallback-model.
+    expect(fallbackInputs).toHaveLength(0);
+    expect(primaryInputs.map((input) => input.model)).toEqual([undefined, 'review-pin', undefined]);
+  } finally {
+    spy.mockRestore();
+  }
+});
+
+it('drops an explicit --review-model when the fallback runs on another provider', async () => {
+  const primaryInputs: AgentRunInput[] = [];
+  const fallbackInputs: AgentRunInput[] = [];
+  const primary = agentThatCompletes(primaryInputs);
+  primary.run = async function* (input): AsyncGenerator<AgentTurn, AgentRunOutput, void> {
+    primaryInputs.push(input);
+    throw new AgentError('HTTP 429');
+  };
+  const spy = vi.spyOn(registry, 'selectAgents').mockReturnValue({
+    // A Codex fallback cannot serve the Claude model name --review-model pinned for the reviewer.
+    agent: primary, fallbackAgent: agentThatCompletes(fallbackInputs, 'codex'),
+    secrets: {}, proxySecrets: {}, injectAnthropicAuth: false,
+  });
+  const gh = vi.fn(async (args: string[]) => {
+    if (args[0] === 'pr' && args[1] === 'view') return makePrViewJson();
+    if (args[0] === 'api' && args[1] === 'graphql' && !args.some((arg) => arg.includes('mutation'))) return makeFeedbackJson();
+    return '';
+  });
+  try {
+    const result = await runRevisePullRequest('7', {
+      repoPath: repo, repoSlug: 'o/r', gh, out: join(repo, 'preview.md'),
+      _sandbox: makeSandbox(), _worktrees: new WorktreeManager(repo), _baseBranch: 'feature-branch',
+      provider: 'claude', fallbackProvider: 'codex', fallbackModel: 'fallback-model', reviewModel: 'review-pin',
+    });
+    expect(result.dryRunOut).toBeDefined();
+    expect(fallbackInputs).toHaveLength(3);
+    expect(fallbackInputs.map((input) => input.model)).toEqual(['fallback-model', 'fallback-model', 'fallback-model']);
+  } finally {
+    spy.mockRestore();
+  }
+});
+
+it('leaves the reviewer fallback on the fallback provider default when neither model is set', async () => {
+  const primaryInputs: AgentRunInput[] = [];
+  const fallbackInputs: AgentRunInput[] = [];
+  const primary = agentThatCompletes(primaryInputs);
+  primary.run = async function* (input): AsyncGenerator<AgentTurn, AgentRunOutput, void> {
+    primaryInputs.push(input);
+    throw new AgentError('HTTP 429');
+  };
+  const spy = vi.spyOn(registry, 'selectAgents').mockReturnValue({
+    agent: primary, fallbackAgent: agentThatCompletes(fallbackInputs, 'codex'),
+    secrets: {}, proxySecrets: {}, injectAnthropicAuth: false,
+  });
+  const gh = vi.fn(async (args: string[]) => {
+    if (args[0] === 'pr' && args[1] === 'view') return makePrViewJson();
+    if (args[0] === 'api' && args[1] === 'graphql' && !args.some((arg) => arg.includes('mutation'))) return makeFeedbackJson();
+    return '';
+  });
+  try {
+    const result = await runRevisePullRequest('7', {
+      repoPath: repo, repoSlug: 'o/r', gh, out: join(repo, 'preview.md'),
+      _sandbox: makeSandbox(), _worktrees: new WorktreeManager(repo), _baseBranch: 'feature-branch',
+      provider: 'claude', fallbackProvider: 'codex', reviewModel: 'review-pin',
+    });
+    expect(result.dryRunOut).toBeDefined();
+    expect(fallbackInputs).toHaveLength(3);
+    expect(fallbackInputs.every((input) => input.model === undefined)).toBe(true);
+  } finally {
+    spy.mockRestore();
+  }
+});
+
+it('keeps the primary model when a cross-provider reviewer falls back', async () => {
+  const primaryInputs: AgentRunInput[] = [];
+  const fallbackInputs: AgentRunInput[] = [];
+  const primary = agentThatCompletes(primaryInputs);
+  const reviewer = agentThatCompletes([], 'codex');
+  reviewer.run = async function* (_input): AsyncGenerator<AgentTurn, AgentRunOutput, void> {
+    throw new AgentError('HTTP 429');
+  };
+  const spy = vi.spyOn(registry, 'selectAgents').mockReturnValue({
+    agent: primary, reviewAgent: reviewer, fallbackAgent: agentThatCompletes(fallbackInputs),
+    secrets: {}, proxySecrets: {}, injectAnthropicAuth: false,
+  });
+  const gh = vi.fn(async (args: string[]) => {
+    if (args[0] === 'pr' && args[1] === 'view') return makePrViewJson();
+    if (args[0] === 'api' && args[1] === 'graphql' && !args.some((arg) => arg.includes('mutation'))) return makeFeedbackJson();
+    return '';
+  });
+  try {
+    const result = await runRevisePullRequest('7', {
+      repoPath: repo, repoSlug: 'o/r', gh, out: join(repo, 'preview.md'),
+      _sandbox: makeSandbox(), _worktrees: new WorktreeManager(repo), _baseBranch: 'feature-branch',
+      provider: 'claude', fallbackProvider: 'codex', fallbackModel: 'fallback-model', providerModel: 'sonnet', reviewProvider: 'codex', reviewModel: 'gpt-5',
+    });
+    expect(result.dryRunOut).toBeDefined();
+    expect(fallbackInputs).toHaveLength(0);
+    expect(primaryInputs.map((input) => input.model)).toEqual(['sonnet', 'sonnet', 'sonnet']);
   } finally {
     spy.mockRestore();
   }
