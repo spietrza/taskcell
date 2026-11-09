@@ -1,13 +1,13 @@
 import { LinearCliTaskFetcher, linkLinearIssue, commentLinearIssue } from '../tasks/linear-cli.js';
 import { implementReviewSimplifyStages, retrospectiveMemoryBlock } from '../pipeline/pipeline.js';
 import { publishReviewVerdict } from '../pipeline/review-publish.js';
-import { addPrFailureLabel } from '../tasks/github.js';
+import { addPrFailureLabel, addPrGateLabel } from '../tasks/github.js';
 import { fanOut } from '../pipeline/fan-out.js';
 import { agentAuthFromEnv } from '../agents/auth.js';
 import { runSourcedIssue } from './source-adapter.js';
-import { knownGitlabProjectFromOrigin, publishGitlabVerdict, addGitlabFailureLabel } from './gitlab.js';
+import { knownGitlabProjectFromOrigin, publishGitlabVerdict, addGitlabFailureLabel, addGitlabGateConfigLabel } from './gitlab.js';
 import { renderSecretBlockComment } from '../core/secret-scan.js';
-import { githubFailureLabel } from '../github-labels.js';
+import { githubFailureLabel, GITHUB_GATE_CONFIG_LABEL } from '../github-labels.js';
 import type { PipelineStage } from '../pipeline/pipeline.js';
 import type { Task, SubTask } from '../tasks/fetcher.js';
 import type { CustomProviderEntry } from '../agents/registry.js';
@@ -51,6 +51,13 @@ function linearStages(): PipelineStage[] {
   return [{ ...implementer, promptTemplate: readAndImplement }, ...base.slice(1)];
 }
 
+/** Best-effort issue write-back: a failed comment must never fail the run. */
+async function commentBestEffort(taskId: string, body: string): Promise<void> {
+  try {
+    await commentLinearIssue(taskId, body);
+  } catch { /* best-effort */ }
+}
+
 /**
  * @internal Exported for unit tests; production callers use runLinearIssue. `gitlabProject` is set
  * when origin is on gitlab.com or GITLAB_HOST: the draft MR, verdict note and failure labels then go
@@ -73,15 +80,22 @@ export function linearAdapter(deps: RunLinearIssueDeps, gitlabProject?: string, 
       if (gitlabProject !== undefined) return addGitlabFailureLabel(gitlabProject, prUrl, kind, glab);
       await addPrFailureLabel(deps.repoPath, prUrl, githubFailureLabel(kind));
     },
+    // Linear itself has no labels, but the gate lives on the review surface — the same PR/MR label the
+    // GitHub/GitLab reviewer keys off — so this labels there, strictly, like the two native adapters.
+    async addGateConfigLabel(prUrl: string) {
+      if (gitlabProject !== undefined) return addGitlabGateConfigLabel(gitlabProject, prUrl, glab);
+      await addPrGateLabel(deps.repoPath, prUrl, GITHUB_GATE_CONFIG_LABEL);
+    },
     async linkPr(_issueRef: string, task: Task, prUrl: string) {
       await linkLinearIssue(task.id, prUrl);
     },
     async signalSecretBlock(_issueRef: string, task: Task, block: SecretBlock) {
       // Linear uses workflow states, not labels; the comment is the primary signal. The watch
       // primitive that holds the issue posts how to release it (it knows the configured states).
-      try {
-        await commentLinearIssue(task.id, renderSecretBlockComment(block));
-      } catch { /* best-effort */ }
+      await commentBestEffort(task.id, renderSecretBlockComment(block));
+    },
+    async signalBaseRed(_issueRef: string, task: Task, body: string) {
+      await commentBestEffort(task.id, body);
     },
   };
 }

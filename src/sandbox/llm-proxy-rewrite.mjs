@@ -261,6 +261,27 @@ export function buildSyntheticIdToken(accountId, planType) {
 }
 
 /**
+ * A serialized Codex `auth.json`: the shape the CLI's loader reads — `auth_mode: chatgpt`, the token
+ * fields, and a `last_refresh` stamped now so the CLI's 8-day scheduled-refresh fallback does not fire
+ * immediately (see docs/research/codex-credential-isolation.md Q3). Single source of the shape for both
+ * copies that exist in a run: the real credential the sidecar persists for itself, and the placeholder
+ * one the cell is handed — only the access/refresh values the caller passes differ. Single-line JSON, so
+ * it also passes through the sandbox env/secret layer (which rejects newlines).
+ */
+export function buildCodexAuthJson(accessToken, refreshToken, accountId, planType) {
+  return JSON.stringify({
+    auth_mode: 'chatgpt',
+    tokens: {
+      id_token: buildSyntheticIdToken(accountId, planType),
+      access_token: accessToken,
+      refresh_token: refreshToken,
+      account_id: accountId,
+    },
+    last_refresh: new Date().toISOString(),
+  });
+}
+
+/**
  * The refresh response handed back to the cell: the SAME placeholders it already holds (the
  * model-call nonce as access_token, the run-bound refresh-binding value, both unchanged) plus a
  * freshly built synthetic id_token. The real access/refresh/id tokens never appear here.

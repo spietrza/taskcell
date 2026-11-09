@@ -72,6 +72,8 @@ export interface WatchRunOutcome {
   prUrl?: string;
   parked?: boolean;
   secretBlocked?: boolean;
+  /** The base branch was already red and the adapter commented. Not a no-change: never revert the claim to the trigger. */
+  baseRed?: boolean;
 }
 
 export interface WatchPrimitives {
@@ -93,6 +95,12 @@ export interface WatchPrimitives {
    * onFailure and the claim stays.
    */
   onSecretBlocked?: (id: string) => Promise<void>;
+  /**
+   * The base branch was red, the adapter already posted why. Release the claim WITHOUT restoring the
+   * trigger (a revert would re-run the full verify every poll). Absent: the issue stays claimed, which
+   * is what state sources (Linear, GitHub Projects) want.
+   */
+  onBaseRed?: (id: string) => Promise<void>;
   onFailure: (id: string, error: unknown) => Promise<void>;
 }
 
@@ -195,7 +203,12 @@ export async function watchOnce(primitives: WatchPrimitives, opts: WatchOnceOpti
       }
       operatorLog(opts, `${phase} ${item.id}: claim -> running`);
       try {
-        const { prUrl, parked, secretBlocked } = await primitives.runOne(item.id);
+        const { prUrl, parked, secretBlocked, baseRed } = await primitives.runOne(item.id);
+        if (baseRed === true) {
+          operatorLog(opts, `${phase} ${item.id}: base branch red -> held, no re-run until re-labelled`);
+          await primitives.onBaseRed?.(item.id);
+          return { id: item.id, kind: 'noChange' };
+        }
         if (secretBlocked === true) {
           // Log first: if the hold edit below throws, the failure comment must not be the only record.
           operatorLog(opts, `${phase} ${item.id}: secret blocked -> held for a human`);
@@ -743,6 +756,9 @@ export function githubIssueWatchPrimitives(opts: WatchGithubOptions): WatchPrimi
         commentGithubIssue(repo, id, NO_CHANGE_MSG, opts.gh),
         editGithubLabels(repo, id, { remove: [opts.claimedLabel] }, opts.gh),
       ),
+    // The trigger label was removed on claim, so dropping the claim leaves the issue idle until a
+    // human re-applies the trigger — what the base-red comment asks for. No no-change comment.
+    onBaseRed: (id) => editGithubLabels(repo, id, { remove: [opts.claimedLabel] }, opts.gh),
     // One edit swaps claimed -> secret-blocked, so the claim is never released without the hold
     // label landing. `gh issue edit --add-label` fails on a label the repo never created, and the
     // adapter only pre-creates it when it posts findings (not in white-label mode), so ensure it

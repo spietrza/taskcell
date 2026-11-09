@@ -21,12 +21,15 @@ import { buildReviewerAttribution } from '../pipeline/review-publish.js';
 import { authSecrets } from '../agents/auth.js';
 import { beginRun, persistDecisionProbe } from '../core/run-store.js';
 import type { SecretBlock } from '../core/secret-scan.js';
+import { redactForPublish } from '../core/secret-scan.js';
 import { summarizeOutcomes } from '../core/run-summary.js';
 import { appendStepSummary } from '../core/step-summary.js';
 import type { StepSummary, StepSummaryExit } from '../core/step-summary.js';
 import { loadRetrospectiveMemory, refreshRetrospectiveMemory } from '../core/retrospective-memory.js';
 import { llmProxySandboxEnv } from '../sandbox/egress-proxy.js';
-import { resolveVerifyCommand, runVerification, renderVerificationFeedback, proofBlock, verifySkippedBlock } from '../pipeline/verify.js';
+import { resolveVerifyCommand, runVerification, renderVerificationFeedback, proofBlock, verifySkippedBlock, baseRedBlock } from '../pipeline/verify.js';
+import { resolveBaselineVerify } from '../pipeline/baseline-verify.js';
+
 import { resolveAndRunVisualProof, visualProofBlock } from '../pipeline/visual-proof.js';
 import { startProviderProxies } from '../sandbox/llm-proxy.js';
 import { reviewRequestBody } from './review-body.js';
@@ -49,6 +52,11 @@ import type { ProviderChoice, CustomProviderEntry } from '../agents/registry.js'
 import type { PipelineStage, StageOutcome } from '../pipeline/pipeline.js';
 import type { RunEvent } from '../pipeline/events.js';
 import { skillRegistryForRun } from '../context/skill-registry.js';
+
+/** Issue label that skips the base-red check: the task is meant to fix the red base. */
+export const BASE_RED_OK_LABEL = 'vanguard:base-red-ok';
+/** A verify command that installs its dependencies before running anything (the auto-detected JS shape). */
+const SELF_INSTALLING_VERIFY_RE = /^\s*(?:pnpm|yarn|npm) install --frozen-lockfile\s*&&/;
 
 /** Agent-pipeline options shared by the `run` and `watch` commands, threaded verbatim into the *Deps. */
 export interface RunOptions extends ProviderChoice {
@@ -201,11 +209,26 @@ export interface SourceAdapter {
   /** Add a proof-failure label to the opened PR/MR (best-effort; must never throw). */
   addFailureLabel(prUrl: string, kind: ProofFailureKind): Promise<void>;
   /**
+   * Flag the opened PR/MR as touching gate config. Unlike addFailureLabel this is NOT best-effort:
+   * the label IS the gate a human review keys off (GATE_CONFIG_REVIEW_INSTRUCTION in pr-review.ts /
+   * mr-review.ts), so a failed flip must throw rather than hand back an unflagged PR. A no-op on a
+   * source that has no labelable review surface.
+   */
+  addGateConfigLabel(prUrl: string): Promise<void>;
+  /**
    * Surface a secret-scan block on the source issue (label + masked comment). Best-effort: must
    * never throw (mirrors addFailureLabel). Called for BOTH the findings block and the scan-error
    * precautionary block.
    */
   signalSecretBlock(issueRef: string, task: Task, block: SecretBlock): Promise<void>;
+  /**
+   * Surface a "base branch is red" notice (pre-rendered by the caller via `baseRedBlock`) on the
+   * source issue: the baseline verify command already failed on the base commit, before the
+   * implementer ran, so no implement run was started. A plain comment/note, no label: a red base is
+   * not a held issue, and the body itself asks for the trigger label to be re-applied once the base
+   * is green. Best-effort: must never throw (mirrors signalSecretBlock).
+   */
+  signalBaseRed(issueRef: string, task: Task, body: string): Promise<void>;
   /** Write the PR link back onto the source issue. */
   linkPr(issueRef: string, task: Task, prUrl: string): Promise<void>;
 }
@@ -217,6 +240,8 @@ export interface RunIssueResult {
   prUrl?: string;
   /** True when a PR was withheld because the secret scan flagged the outgoing diff — NOT "no changes". */
   secretBlocked?: boolean;
+  /** True when the run stopped before implementing because the base branch is already red — NOT "no changes". */
+  baseRed?: boolean;
 }
 
 /** Cap on implement-session resumes triggered by a failing conformance/verify gate, before falling back to a declared-partial PR. */
@@ -369,7 +394,7 @@ export async function runSourcedIssue(
     ...(deps.network !== undefined ? { network: deps.network } : {}),
   });
   try {
-    const env = llmProxySandboxEnv(deps.proxyUrl, deps.llmProxy, providerProxies.openai);
+    const env = llmProxySandboxEnv(deps.proxyUrl, deps.llmProxy, providerProxies);
     const sandbox = new DockerSandboxProvider({
       image: sandboxImage(),
       // In llm-proxy mode the real Claude secret stays in the sidecar — the sandbox gets only the nonce.
@@ -500,6 +525,34 @@ export async function runSourcedIssue(
         ...runMeta,
         stages: pipeline.map((s) => s.name),
       });
+      // Before implementing: check the base tree's verify command against the base commit (cached by
+      // SHA). A gate that is already red there is not this task's fault — starting a repair loop against
+      // it would just burn turns on pre-existing failures, so stop here instead (#2024). Skipped on a
+      // reused branch: its worktree holds the branch's own prior work, not the base commit, so neither
+      // the command nor the verdict would be about the base.
+      const verifyOpts = deps.verifyCmd !== undefined ? { cmd: deps.verifyCmd } : {};
+      // Only a command that installs its own dependencies first: the base worktree is a fresh copy with
+      // no node_modules, so an operator-supplied `pnpm typecheck && pnpm test` (or a bare `pytest`)
+      // would fail there on a perfectly green base and stop every task.
+      // `vanguard:base-red-ok` on the issue is the escape hatch for tasks whose job IS fixing the red base.
+      const skipBaseline = deps.reuse === true || task.labels.includes(BASE_RED_OK_LABEL);
+      const resolvedBase = skipBaseline ? undefined : await resolveVerifyCommand(ctx.worktreePath, verifyOpts);
+      const baselineCmd = resolvedBase !== undefined && SELF_INSTALLING_VERIFY_RE.test(resolvedBase) ? resolvedBase : undefined;
+      if (baselineCmd !== undefined) {
+        const verifyCmd = baselineCmd;
+        const baselineVerify = await resolveBaselineVerify(deps.repoPath, ctx.startRef, ctx.sandbox, verifyCmd, deps.signal);
+        if (!baselineVerify.passed) {
+          console.log(
+            `vanguard: ${task.id} base branch is red — \`${verifyCmd}\` already fails on ${ctx.baseBranch}@${ctx.startRef.slice(0, 7)} (exit ${baselineVerify.exitCode}); stopping before implementing instead of starting a repair loop.`,
+          );
+          console.log(redactForPublish(renderVerificationFeedback(baselineVerify)));
+          if (!whiteLabel) await adapter.signalBaseRed(issueRef, task, baseRedBlock(ctx.baseBranch, ctx.startRef, baselineVerify));
+          await writer.writeProof(baselineVerify);
+          await stepSummary('base-red', {});
+          onEvent({ type: 'run-end' });
+          return { task, baseRed: true };
+        }
+      }
       outcomes = await runStages(ctx, pipeline, {
         agent: agents.agent,
         variables: {
@@ -513,6 +566,9 @@ export async function runSourcedIssue(
         onEvent,
         ...(deps.signal !== undefined ? { signal: deps.signal } : {}),
       });
+      // Re-resolved after implement: a task that adds the `test`/`verify` script must still be gated
+      // by it, even though the base tree had none.
+      const verifyCmd = await resolveVerifyCommand(ctx.worktreePath, verifyOpts);
       // Deterministic spec-manifest vs diff conformance gate, joined with the verify command into a
       // single shared-cap repair loop: either gate failing resumes the implementer's own session with
       // a combined gap report (bounded, budget/turn caps already apply to the resumed stage) —
@@ -527,7 +583,6 @@ export async function runSourcedIssue(
         (c) => !isTrustedComment(c, trust) && parseSpecManifest(c.body) !== undefined,
       );
       if (untrustedManifestDropped) console.log(`vanguard: ${task.id} ignoring <spec_manifest> from untrusted comment author(s) — declaring partial scope (Part of)`);
-      const verifyCmd = await resolveVerifyCommand(ctx.worktreePath, deps.verifyCmd !== undefined ? { cmd: deps.verifyCmd } : {});
 
       // The implementer's position in `outcomes` is fixed while its session is resumable (repairUntilGreen
       // merges each repair into that entry in place).
@@ -614,7 +669,6 @@ export async function runSourcedIssue(
       // The body is built after the commit so a partial result can carry commit-level `Closes #N`
       // leaks as a blocking warning. Gate-config disclosure is included in white-label mode too.
       const extraGlobs = await loadGateConfigExtraGlobs(deps.repoPath, deps.baseBranch ?? DEFAULT_BASE_BRANCH);
-      let configPaths: string[] = [];
       const scope = primaryModuleScope(manifest);
       const bugLabel = task.labels.includes('bug');
       const reviewerOutcome = outcomes.find((o) => o.name === STAGE.REVIEWER);
@@ -643,7 +697,7 @@ export async function runSourcedIssue(
           ...(process.env.VANGUARD_PUSH_TOKEN ? { prToken: process.env.VANGUARD_PUSH_TOKEN } : {}),
           body: ({ commitLeaks, outgoingDiff }) => {
             const diffFiles = diffFilesWithPatches(outgoingDiff);
-            configPaths = gateConfigPaths(diffFiles, extraGlobs);
+            const configPaths = gateConfigPaths(diffFiles, extraGlobs);
             const configBlock = gateConfigChangedBlock(diffFiles.filter((file) => configPaths.includes(file.path)));
             return whiteLabel
               ? [baseBody, configBlock].filter(Boolean).join('\n\n')
@@ -676,6 +730,9 @@ export async function runSourcedIssue(
       }
       if (delivery.kind !== 'delivered-pr') throw new VanguardError(`unexpected delivery outcome ${delivery.kind} for a new-pr target`);
       const pr = { prUrl: delivery.prUrl, headSha: delivery.headSha };
+      // Read back from the delivered diff, not a binding the `body` callback above would have to mutate
+      // as a side effect: a future reorder or target kind can never leave this silently empty.
+      const configPaths = gateConfigPaths(diffFilesWithPatches(delivery.outgoingDiff), extraGlobs);
       // White-label mode delivers a plain PR: no Vanguard review comment and no issue link-back comment.
       // A flow without a `reviewer` stage (e.g. flow-b: adversary+repairer) has no verdict to surface,
       // so skip the verdict comment entirely. The no-silence guarantee still fires for reviewer-bearing
@@ -699,7 +756,10 @@ export async function runSourcedIssue(
       await stepSummary(verificationFailed ? 'verify-failed' : 'completed', { prUrl: pr.prUrl });
       if (verification !== undefined && !verification.passed) await adapter.addFailureLabel(pr.prUrl, 'verify');
       if (visualProofFailed) await adapter.addFailureLabel(pr.prUrl, 'visual-proof');
-      if (configPaths.length > 0) await adapter.addFailureLabel(pr.prUrl, 'gate-config');
+      // Unlike addFailureLabel (best-effort), this must not be swallowed: the label IS the gate a
+      // human review relies on (GATE_CONFIG_REVIEW_INSTRUCTION keys off it), so a failed flip is
+      // reported rather than handing back an unflagged PR for review.
+      if (configPaths.length > 0) await adapter.addGateConfigLabel(pr.prUrl);
       if (!whiteLabel) await adapter.linkPr(issueRef, task, pr.prUrl);
       onEvent({ type: 'run-end', prUrl: pr.prUrl });
       return { task, prUrl: pr.prUrl };

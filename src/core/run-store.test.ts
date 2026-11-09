@@ -265,7 +265,7 @@ describe('beginRun — writing', () => {
     }, { commit: false }),
   );
 
-  it('writeProof masks credential material in outputTail', async () => {
+  it('writeProof masks credential material in outputTail and firstErrorLines', async () => {
     const token = `ghp_${'C'.repeat(36)}`;
     const file = await beginRun(repo, 'TES-1', TS).writeProof({
       command: 'pnpm test',
@@ -273,10 +273,13 @@ describe('beginRun — writing', () => {
       passed: false,
       sha256: 'abc',
       outputTail: `Error: bad token ${token}`,
+      firstErrorLines: `FAILED auth.test.ts — bad token ${token}`,
     });
     const proof = JSON.parse(await readFile(file, 'utf8'));
     expect(proof.outputTail).not.toContain(token);
     expect(proof.outputTail).toContain('[REDACTED-GH]');
+    expect(proof.firstErrorLines).not.toContain(token);
+    expect(proof.firstErrorLines).toContain('[REDACTED-GH]');
   });
 
   it('writeProof writes proof.json and metric line', async () => {
@@ -577,7 +580,7 @@ describe('persisted review verdict (T5–T9)', () => {
     expect(VERDICT_STAGES).toEqual(new Set([STAGE.REVIEWER, STAGE.CONFORMANCE]));
     await beginRun(repo, 'TES-1', TS).writeStages([{ name: 'reviewer', result }]);
     const record = (await readRun(runsRoot(repo), 'TES-1', TS)).stages[0]!.record;
-    expect(record.verdict).toBe('pass');
+    expect(record.verdict).toBe('incomplete');
     expect(record).not.toHaveProperty('findings');
   });
 });

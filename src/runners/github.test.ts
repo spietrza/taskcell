@@ -1,6 +1,11 @@
 import { describe, it, expect, vi } from 'vitest';
+vi.mock('../tasks/github.js', async (importOriginal) => ({
+  ...(await importOriginal<typeof import('../tasks/github.js')>()),
+  addPrGateLabel: vi.fn(async () => {}),
+}));
+import { addPrGateLabel } from '../tasks/github.js';
 import { githubAdapter, sameRepoTasks } from './github.js';
-import { GITHUB_SECRET_BLOCKED_LABEL } from '../github-labels.js';
+import { GITHUB_GATE_CONFIG_LABEL, GITHUB_SECRET_BLOCKED_LABEL } from '../github-labels.js';
 import type { RunGithubIssueDeps } from './github.js';
 import type { GhRunner } from '../tasks/github.js';
 import type { Task } from '../tasks/fetcher.js';
@@ -56,6 +61,19 @@ describe('githubAdapter', () => {
     const adapter = githubAdapter(makeDeps(), gh);
 
     await expect(adapter.signalSecretBlock('owner/repo#7', task, { reason: 'scan-error', message: 'x' })).resolves.toBeUndefined();
+  });
+
+  it('addGateConfigLabel flags the PR with the gate-config label', async () => {
+    vi.mocked(addPrGateLabel).mockClear();
+    await githubAdapter(makeDeps()).addGateConfigLabel('https://github.com/owner/repo/pull/7');
+
+    expect(addPrGateLabel).toHaveBeenCalledWith('/repo', 'https://github.com/owner/repo/pull/7', GITHUB_GATE_CONFIG_LABEL);
+  });
+
+  it('addGateConfigLabel is not best-effort: a failed flip rejects rather than leaving the PR unflagged', async () => {
+    vi.mocked(addPrGateLabel).mockRejectedValueOnce(new Error('gh: 403'));
+
+    await expect(githubAdapter(makeDeps()).addGateConfigLabel('https://github.com/owner/repo/pull/7')).rejects.toThrow('gh: 403');
   });
 });
 

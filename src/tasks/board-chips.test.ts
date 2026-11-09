@@ -47,3 +47,12 @@ it('T17/T18: uses only the newest run and skips garbage records', async () => {
   await writeFile(join(runsRoot(repo), result.taskId, 'garbage.json'), '{');
   expect((await latestRunChips(repo)).get('gh-904')).toEqual([{ key: 'implementer', label: 'implementer: incomplete', tone: 'failed' }]);
 });
+
+it('shows unavailable reviews as incomplete with a failed tone', async () => {
+  await beginRun(repo, result.taskId, timestamp).writeStages([
+    { name: 'reviewer', result: { ...result, finalText: 'Review unavailable: session limit' } },
+  ]);
+  expect((await latestRunChips(repo)).get('gh-904')).toEqual([
+    { key: 'reviewer', label: 'reviewer: incomplete', tone: 'failed' },
+  ]);
+});
