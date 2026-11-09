@@ -179,12 +179,12 @@ export interface RunStagesOptions {
 }
 
 /**
- * Longest a rate-limited stage will hold the run open waiting for the provider's own reset. A
- * subscription window can reset hours out; holding a CI job that long burns the runner and usually
- * ends in its wall-clock kill anyway, losing the work. Past this, the run fails now and the rate-limit
- * notice invites a re-label once the limit clears.
+ * Longest a rate-limited stage will hold the run open waiting for the provider's own reset. CI jobs
+ * run under a 30–90 minute timeout shared with every later stage, so a long sleep risks a wall-clock
+ * kill that loses the work and skips the hand-back. Past this, the stage fails now (no retry on the
+ * account that just refused) and the rate-limit hand-back takes over.
  */
-const MAX_RATE_LIMIT_WAIT_MS = 60 * 60 * 1000;
+export const MAX_RATE_LIMIT_WAIT_MS = 5 * 60 * 1000;
 
 /**
  * Abortable wait. Cancellation resolves rather than throwing: the caller's next step is the retry,
@@ -398,7 +398,7 @@ export async function runBudgetedStages(
         ctx.log.warn(
           { stage: stage.name, from: agent.name, to: stage.fallback.provider.name, rateLimited },
           rateLimited
-            ? `${stage.name} provider rate-limited (429) — falling back to ${stage.fallback.provider.name}`
+            ? `${stage.name} provider rate-limited or overloaded — falling back to ${stage.fallback.provider.name}`
             : `${stage.name} provider unavailable — falling back to ${stage.fallback.provider.name}`,
         );
         // A fallback on the SAME provider (the --review-model shape: a reviewer degrading to the
@@ -410,7 +410,9 @@ export async function runBudgetedStages(
         effectiveAgent = stage.fallback.provider;
         effectiveModel = stage.fallback.model;
         if (stage.provider === undefined) primaryDown = true;
-        if (waitMs !== undefined && waitMs <= MAX_RATE_LIMIT_WAIT_MS) {
+        // A reset past the cap: retrying the same account now only fails again, so hand back instead.
+        if (waitMs !== undefined && waitMs > MAX_RATE_LIMIT_WAIT_MS) throw err;
+        if (waitMs !== undefined) {
           ctx.log.warn(
             { stage: stage.name, provider: effectiveAgent.name, waitMs },
             `${stage.name} retry waits ${Math.round(waitMs / 1000)}s for the provider limit to reset`,
@@ -428,7 +430,7 @@ export async function runBudgetedStages(
         // No fallback to catch this one: at least name a rate limit for what it is before it
         // propagates — the operator log line that follows (watch-prs / revise-pr) stays generic.
         if (rateLimited) {
-          ctx.log.warn({ stage: stage.name, provider: agent.name }, `${stage.name} provider rate-limited (429) — no fallback configured`);
+          ctx.log.warn({ stage: stage.name, provider: agent.name }, `${stage.name} provider rate-limited or overloaded — no fallback configured`);
         }
         throw err;
       }

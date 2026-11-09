@@ -78,7 +78,7 @@ const RATE_LIMIT_PATTERNS: readonly RegExp[] = [
   // limit · resets 9pm (UTC)` for a session cap. Both keep the vendor's framing — a bare "usage limit
   // reached" is prose an agent can write about its own work, and would classify a hard failure as transient.
   /\bclaude(?: ai)? usage limit reached\b/i,
-  /\byou(?:'ve|’ve| have) hit your [\w-]+ limit\b/i,
+  /\byou(?:'ve|’ve| have) hit your (?:session|usage|weekly|5-hour) limit\b/i,
   // Anthropic's overload refusal: the CLI's short form (`API Error: overloaded`) and the raw envelope
   // it relays, `API Error: 529 {"type":"error","error":{"type":"overloaded_error",...}}`.
   /\bapi error:\s*overloaded\b|\boverloaded_error\b/i,
@@ -110,7 +110,11 @@ const DAY_MS = 24 * 60 * 60 * 1000;
  * already past rolls to the next day, the way the provider's own window does.
  */
 export function rateLimitResetDelayMs(error: unknown, now: number = Date.now()): number | undefined {
-  const match = RATE_LIMIT_RESET_CLAUSE.exec(rawMessage(error));
+  // Only the line that carries the refusal itself: agent-authored text elsewhere in the message
+  // ("the cache resets at 3am") must not set how long the run waits.
+  const refusal = rawMessage(error).split(/\r?\n/).find((line) => RATE_LIMIT_PATTERNS.some((re) => re.test(line)));
+  if (refusal === undefined) return undefined;
+  const match = RATE_LIMIT_RESET_CLAUSE.exec(refusal);
   if (match === null) return undefined;
   const [, rawHour, rawMinute, rawMeridiem, zone] = match;
   const utc = zone !== undefined;
@@ -118,7 +122,7 @@ export function rateLimitResetDelayMs(error: unknown, now: number = Date.now()):
   const meridiem = rawMeridiem?.toLowerCase();
   const clockHour = Number(rawHour);
   const minute = rawMinute !== undefined ? Number(rawMinute) : 0;
-  if (minute > 59 || clockHour > (meridiem !== undefined ? 12 : 23)) return undefined;
+  if (minute > 59 || clockHour > (meridiem !== undefined ? 12 : 23) || (meridiem !== undefined && clockHour < 1)) return undefined;
   const hour = meridiem === undefined ? clockHour : (clockHour % 12) + (meridiem === 'pm' ? 12 : 0);
   const base = new Date(now);
   const target = utc
@@ -133,5 +137,5 @@ export function rateLimitResetDelayMs(error: unknown, now: number = Date.now()):
  * white-label run shows it too, same as any other hand-back notice.
  */
 export function rateLimitRetryNotice(label: string): string {
-  return `This run ended because the AI provider hit a rate limit (HTTP 429) — a temporary condition, not a problem with this change. Remove and re-apply the \`${label}\` label to retry once the limit clears.`;
+  return `This run ended because the AI provider hit a rate limit or was overloaded — a temporary condition, not a problem with this change. Remove and re-apply the \`${label}\` label to retry once the limit clears.`;
 }
