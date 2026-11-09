@@ -701,10 +701,11 @@ export async function runRevisePullRequest(prRef: string, deps: ReviseGithubPrDe
       await stepSummary('error', { error: String(error) });
       // A rate or session limit that no fallback rescued ends the round with the PR still carrying
       // `vanguard:revising` and nothing said on it, so the work sits until someone notices (#615,
-      // #656). Mark it `vanguard:rate-limited` with a comment carrying the parsed reset time, and
-      // drop the in-flight label, leaving `needs revision` in place: `vanguard resume-rate-limited`
-      // re-triggers that label once the reset time has passed (or a human can re-apply it sooner).
-      // Best-effort — neither the comment nor the label edit may mask the original failure. --out is
+      // #656). Mark it `vanguard:rate-limited` with a notice carrying the parsed reset time (posted
+      // as a review comment, like the other hand-back notices here), and drop the in-flight label,
+      // leaving `needs revision` in place: `vanguard resume-rate-limited` re-triggers that label
+      // once the reset time has passed (or a human can re-apply it sooner).
+      // Best-effort — neither the notice nor the label edit may mask the original failure. --out is
       // a dry run that touches neither the branch nor the PR. Gated on AgentError (same test as
       // pipeline.ts): a `gh`/git failure carrying GitHub's own "API rate limit exceeded" is not the
       // provider, and the notice would misname it — and after a successful push it would invite a
@@ -714,7 +715,7 @@ export async function runRevisePullRequest(prRef: string, deps: ReviseGithubPrDe
         log(`revise-pr ${target.repoSlug}#${target.number}: provider rate-limited, marking vanguard:rate-limited until ${until.toISOString()}`);
         await gh(['label', 'create', GITHUB_RATE_LIMITED_LABEL, '--repo', target.repoSlug, '--force']).catch(() => undefined);
         await editPrLabels(gh, target.repoSlug, target.number, { remove: [VANGUARD_REVISING_LABEL], add: [GITHUB_RATE_LIMITED_LABEL] }).catch(() => undefined);
-        await commentPullRequest(target, rateLimitedComment(until, NEEDS_REVISION_LABEL), gh).catch(() => undefined);
+        await postPullRequestReview(target, rateLimitedComment(until, NEEDS_REVISION_LABEL), 'comment', gh).catch(() => undefined);
       }
       throw error;
     } finally {
