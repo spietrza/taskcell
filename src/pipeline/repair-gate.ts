@@ -106,11 +106,9 @@ export async function repairUntilGreen<G extends GateResult>(ctx: RunContext, op
         ...(opts.signal !== undefined ? { signal: opts.signal } : {}),
       });
     } catch (error) {
+      // Always rethrow so the caller sees what actually ended the run; if it was a provider
+      // limit (not a gate failure), log that context first.
       if (error instanceof AgentError && isProviderLimitError(error)) {
-        // The provider hit a usage/rate limit, not a gate failure: nothing was actually repaired, so
-        // this attempt must not count against the repair budget (the caller sees iterations as if it
-        // never happened — only the thrown error signals what actually ended the run).
-        iterations -= 1;
         log(`vanguard: gate escalation for ${opts.label} hit a provider limit (not a gate failure, not counted against the repair budget) — ${error.message}`);
       }
       throw error;
