@@ -87,8 +87,8 @@ describe('repairUntilGreen', () => {
     expect(run.mock.calls[1]![1]['resumeSessionId']).toBe('sess-next');
   });
 
-  it('a provider limit during escalation is not counted against the repair budget and propagates distinctly, not as a gate failure', async () => {
-    const limitError = new AgentError("Provider returned no completion (exit 1): You've hit your session limit");
+  it('a provider limit during escalation propagates distinctly, not as a gate failure, and its logged message is redacted', async () => {
+    const limitError = new AgentError("Provider returned no completion (exit 1): You've hit your session limit ghp_abcdefghijklmnopqrstuvwxyz0123456789");
     const run = vi.fn<Run>().mockRejectedValueOnce(limitError);
     const outcomes = outcomesWith('sonnet');
     const logged: string[] = [];
@@ -99,7 +99,8 @@ describe('repairUntilGreen', () => {
     expect(run).toHaveBeenCalledTimes(1);
     // The implementer outcome is untouched — no cost/turns were merged in for an attempt that never ran.
     expect(outcomes[0]!.result).toEqual(result());
-    expect(logged.some((l) => l.includes('provider limit') && l.includes('not counted against the repair budget'))).toBe(true);
+    expect(logged.some((l) => l.includes('provider limit') && l.includes('not a gate failure'))).toBe(true);
+    expect(logged.join('\n')).not.toContain('ghp_abcdefghijklmnopqrstuvwxyz0123456789');
   });
 
   it('without an implementer stage in the pipeline the repair runs on runAgent defaults (no turn cap, no USD cap)', async () => {

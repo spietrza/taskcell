@@ -109,7 +109,7 @@ export async function repairUntilGreen<G extends GateResult>(ctx: RunContext, op
       // Always rethrow so the caller sees what actually ended the run; if it was a provider
       // limit (not a gate failure), log that context first.
       if (error instanceof AgentError && isProviderLimitError(error)) {
-        log(`vanguard: gate escalation for ${opts.label} hit a provider limit (not a gate failure, not counted against the repair budget) — ${error.message}`);
+        log(`vanguard: gate escalation for ${opts.label} hit a provider limit (not a gate failure) — ${redactForPublish(error.message)}`);
       }
       throw error;
     }
