@@ -16,9 +16,13 @@ HERE="$(cd "$(dirname "$0")" && pwd)"
 CURSOR_SHA_ARGS=()
 if [ -n "${CURSOR_CLI_SHA256_X64:-}" ]; then CURSOR_SHA_ARGS+=(--build-arg "CURSOR_CLI_SHA256_X64=${CURSOR_CLI_SHA256_X64}"); fi
 if [ -n "${CURSOR_CLI_SHA256_ARM64:-}" ]; then CURSOR_SHA_ARGS+=(--build-arg "CURSOR_CLI_SHA256_ARM64=${CURSOR_CLI_SHA256_ARM64}"); fi
-docker build --build-arg "CLAUDE_CLI_VERSION=${VERSION}" --build-arg "CURSOR_CLI_VERSION=${CURSOR_VERSION}" \
+# Set LINEAR_RETRY=1 to rebuild the linear-cli layer after a build that skipped it (see Dockerfile).
+LINEAR_RETRY="${LINEAR_RETRY:+$(date +%s)}"
+docker build --build-arg "CLAUDE_CLI_VERSION=${VERSION}" --build-arg "LINEAR_RETRY=${LINEAR_RETRY}" --build-arg "CURSOR_CLI_VERSION=${CURSOR_VERSION}" \
   ${CURSOR_SHA_ARGS[@]+"${CURSOR_SHA_ARGS[@]}"} -t "${TAG}" ${ALIAS_ARGS[@]+"${ALIAS_ARGS[@]}"} "${HERE}"
 echo "Zbudowano ${TAG}${ALIAS_TAG:+ (alias ${ALIAS_TAG})} (claude ${VERSION}${CURSOR_VERSION:+, cursor ${CURSOR_VERSION}})"
 # Weryfikacja kontraktu CLI (R4): obecność narzędzi i flag.
 docker run --rm "${TAG}" sh -lc 'claude --version && git --version && bun --version'
+docker run --rm "${TAG}" sh -lc 'linear --version' \
+  || echo "WARNING: ${TAG} has no linear CLI (GitHub Releases was down); --linear runs need LINEAR_RETRY=1 docker/build.sh" >&2
 if [ -n "${CURSOR_VERSION}" ]; then docker run --rm "${TAG}" sh -lc 'agent --version'; fi

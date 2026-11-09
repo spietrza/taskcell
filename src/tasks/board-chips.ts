@@ -14,7 +14,7 @@ export function boardChipsFor(detail: RunDetail): BoardChip[] {
     const record = detail.stages.find((s) => s.record.stage === key)?.record;
     if (record?.verdict === undefined) continue;
     const count = record.findings?.length ?? 0;
-    chips.push({ key, label: `${key}: ${record.verdict}${count > 0 ? ` (${count})` : ''}`, tone: record.verdict });
+    chips.push({ key, label: `${key}: ${record.verdict}${count > 0 ? ` (${count})` : ''}`, tone: record.verdict === 'incomplete' ? 'failed' : record.verdict });
   }
   for (const [key, label, proof] of [
     ['proof', 'proof', detail.proof],

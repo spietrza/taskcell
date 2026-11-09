@@ -1,8 +1,13 @@
 import { describe, it, expect } from 'vitest';
 import { startLlmProxy, startProviderProxies } from './llm-proxy.js';
+import { llmProxySandboxEnv } from './egress-proxy.js';
+import { providerSecrets } from '../agents/registry.js';
 import { SandboxError } from '../core/errors.js';
 
 const ENV_VAR = 'VANGUARD_SANDBOX_IMAGE';
+
+/** A ChatGPT-plan credential as providerSecrets hands it to the sidecar (real token values). */
+const REAL_CHATGPT_AUTH = { accessToken: 'real-access', refreshToken: 'real-refresh', accountId: 'acct-real', planType: 'pro' };
 
 function fakeDocker(): { calls: { args: string[]; input?: string }[]; run: (args: string[], opts?: { input?: string }) => Promise<{ exitCode: number; stdout: string; stderr: string }> } {
   const calls: { args: string[]; input?: string }[] = [];
@@ -216,5 +221,85 @@ describe('startProviderProxies', () => {
     const d = fakeDocker();
     await expect(startProviderProxies({ proxySecrets: { codex: 'sk-real-codex' }, docker: d.run })).rejects.toBeInstanceOf(SandboxError);
     expect(d.calls).toHaveLength(0);
+  });
+
+  it('stands up a ChatGPT sidecar with the real credential only via stdin, and returns the cell wiring', async () => {
+    const d = fakeDocker();
+    const proxies = await startProviderProxies({ proxySecrets: { codexChatgpt: REAL_CHATGPT_AUTH }, network: 'vg-egr-x', docker: d.run });
+    expect(proxies.openai).toBeUndefined(); // mutually exclusive with the API-key sidecar
+    expect(proxies.chatgpt?.url).toMatch(/^http:\/\/vg-llm-.*:8088$/);
+    expect(proxies.chatgpt?.host).toMatch(/^vg-llm-/);
+    expect(proxies.chatgpt?.nonce.length).toBeGreaterThanOrEqual(16);
+    // The refresh placeholder is a fresh per-run value, never the real refresh token.
+    expect(proxies.chatgpt?.refreshPlaceholder.length).toBeGreaterThanOrEqual(16);
+    expect(proxies.chatgpt?.refreshPlaceholder).not.toBe(REAL_CHATGPT_AUTH.refreshToken);
+    // The non-secret routing fields pass straight through for the cell's placeholder auth.json.
+    expect(proxies.chatgpt?.accountId).toBe('acct-real');
+    expect(proxies.chatgpt?.planType).toBe('pro');
+    // UPSTREAM + the real tokens travel only via stdin, never argv.
+    expect(d.calls.some((c) => c.input?.includes('UPSTREAM=chatgpt'))).toBe(true);
+    expect(d.calls.some((c) => c.input?.includes('ACCESS_TOKEN=real-access'))).toBe(true);
+    expect(d.calls.some((c) => c.input?.includes('REFRESH_TOKEN=real-refresh'))).toBe(true);
+    const flat = d.calls.flatMap((c) => c.args).join(' ');
+    expect(flat).not.toContain('real-access');
+    expect(flat).not.toContain('real-refresh');
+    await proxies.destroy();
+    expect(d.calls.some((c) => c.args[0] === 'rm' && c.args.includes('-f'))).toBe(true);
+  });
+
+  it('throws SandboxError when a chatgpt credential is proxied without a network', async () => {
+    const d = fakeDocker();
+    await expect(startProviderProxies({ proxySecrets: { codexChatgpt: REAL_CHATGPT_AUTH }, docker: d.run })).rejects.toBeInstanceOf(SandboxError);
+    expect(d.calls).toHaveLength(0);
+  });
+});
+
+/**
+ * End-to-end over the whole ChatGPT-plan path a `--llm-proxy` run actually walks: a real
+ * `CODEX_AUTH_JSON` in the host env → providerSecrets → startProviderProxies → the cell's env. The
+ * assertion that matters: the cell gets a loadable placeholder auth.json and NOTHING in its env carries
+ * a real token.
+ */
+describe('codex chatgpt credential, host env to cell (proxy mode)', () => {
+  const idToken = (claims: unknown): string => `e30.${Buffer.from(JSON.stringify(claims), 'utf8').toString('base64url')}.sig`;
+  const REAL_ID_TOKEN = idToken({ 'https://api.openai.com/auth': { chatgpt_plan_type: 'pro', email: 'real@example.com' } });
+  const hostEnv = {
+    CODEX_AUTH_JSON: JSON.stringify({
+      auth_mode: 'chatgpt',
+      tokens: { access_token: 'real-access', refresh_token: 'real-refresh', account_id: 'acct-real', id_token: REAL_ID_TOKEN },
+    }),
+  } as NodeJS.ProcessEnv;
+
+  it('gives the cell a placeholder auth.json and keeps every real token out of its env', async () => {
+    // 1. The real credential is routed to the sidecar bucket, never into the sandbox secrets.
+    const { sandboxSecrets, proxySecrets } = providerSecrets(['codex'], hostEnv, { proxyMode: true });
+    expect(sandboxSecrets).toEqual({});
+    expect(proxySecrets.codexChatgpt).toEqual({ accessToken: 'real-access', refreshToken: 'real-refresh', accountId: 'acct-real', planType: 'pro' });
+
+    // 2. The sidecar takes it off-argv (stdin only).
+    const d = fakeDocker();
+    const proxies = await startProviderProxies({ proxySecrets, network: 'vg-egr-x', docker: d.run });
+    expect(d.calls.flatMap((c) => c.args).join(' ')).not.toContain('real-');
+
+    // 3. The cell's env: a placeholder auth.json pointing at that sidecar.
+    const env = llmProxySandboxEnv('http://host.docker.internal:1234', undefined, proxies);
+    const auth = JSON.parse(env?.CODEX_AUTH_JSON ?? '{}') as {
+      auth_mode: string;
+      tokens: { id_token: string; access_token: string; refresh_token: string; account_id: string };
+    };
+    expect(auth.auth_mode).toBe('chatgpt');
+    expect(auth.tokens.access_token).toBe(proxies.chatgpt?.nonce);
+    expect(auth.tokens.refresh_token).toBe(proxies.chatgpt?.refreshPlaceholder);
+    expect(auth.tokens.id_token.split('.')).toHaveLength(3); // loadable shape; synthetic claims
+    expect(auth.tokens.id_token).not.toBe(REAL_ID_TOKEN);
+    expect(env?.NO_PROXY).toContain(proxies.chatgpt?.host);
+
+    // No real token anywhere in the cell's env — not in auth.json, not in a base URL, not in the nonce.
+    const cellEnv = JSON.stringify(env);
+    expect(cellEnv).not.toContain('real-access');
+    expect(cellEnv).not.toContain('real-refresh');
+    expect(cellEnv).not.toContain(REAL_ID_TOKEN);
+    expect(cellEnv).not.toContain('real@example.com');
+    await proxies.destroy();
   });
 });

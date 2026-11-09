@@ -14,6 +14,7 @@ import { stageMetric } from './run-metric.js';
 import { exportRunTrace } from './otlp-sink.js';
 import { assertStatePath, ensureStateDir, isSafeTaskId } from './state-path.js';
 import { injectedSecretValues, redactForPublish, scanForInjectedSecrets, scanForSecrets } from './secret-scan.js';
+import { redactVerificationOutput } from '../pipeline/verify.js';
 import type { VerificationResult } from '../pipeline/verify.js';
 import type { VisualProofResult } from '../pipeline/visual-proof.js';
 import { reviewVerdictOf } from '../pipeline/review-verdict.js';
@@ -406,10 +407,15 @@ async function writeRecord(repoPath: string, taskId: string, timestamp: string, 
         evidence: redactForPublish(finding.evidence, opts.secretValues),
       }))
     : [];
+  // The model the stage ASKED for (alias or pin), beside `model` — the one the provider served. Goes
+  // on the record as well as the metric line, so the run's own file names the routed model even when
+  // the provider reported none.
+  const requested = opts.requestedModel !== undefined ? { requestedModel: opts.requestedModel } : {};
   const record = {
     ...meta,
     ...(review !== undefined ? { verdict: review.verdict } : {}),
     ...(findings.length > 0 ? { findings } : {}),
+    ...requested,
     finalText: diffOmitted !== undefined ? `[withheld: ${diffOmitted}]` : redactForPublish(result.finalText, opts.secretValues),
     timestamp,
     ...(opts.label !== undefined ? { stage: opts.label } : {}),
@@ -453,7 +459,7 @@ async function writeRecord(repoPath: string, taskId: string, timestamp: string, 
   const metric = {
     evt: 'run_complete',
     ts: timestamp,
-    ...stageMetric(result, opts.label, opts.requestedModel !== undefined ? { requestedModel: opts.requestedModel } : undefined),
+    ...stageMetric(result, opts.label, requested),
     ...(opts.prUrl !== undefined ? { prUrl: opts.prUrl } : {}),
   };
   await appendMetric(repoPath, metric);
@@ -509,8 +515,8 @@ export function beginRun(
       const base = join(taskDir, sanitizeTimestamp(timestamp));
       const file = `${base}.proof.json`;
       await assertStatePath(repoPath, file);
-      // outputTail is verbatim command output (last ~40 lines): masked like every other free text in the record.
-      await writeFile(file, `${JSON.stringify({ ...result, outputTail: redactForPublish(result.outputTail, secretValues) }, null, 2)}\n`);
+      // outputTail and firstErrorLines are verbatim command output: masked like every other free text in the record.
+      await writeFile(file, `${JSON.stringify(redactVerificationOutput(result, secretValues), null, 2)}\n`);
 
       const metric = { evt: 'verify', ts: timestamp, taskId, passed: result.passed, exitCode: result.exitCode, sha256: result.sha256 };
       await appendMetric(repoPath, metric);

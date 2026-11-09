@@ -3,6 +3,7 @@ import {
   isProviderName,
   llmProxySupported,
   makeProvider,
+  parseChatgptAuth,
   providerSecrets,
   providerUpstream,
   selectAgents,
@@ -27,6 +28,62 @@ describe('makeProvider', () => {
     expect(makeProvider('cursor').name).toBe('cursor');
     expect(makeProvider('zai').name).toBe('zai');
     expect(makeProvider('openrouter').name).toBe('openrouter');
+  });
+});
+
+/** A JWT-shaped id_token (header.payload.signature) carrying `claims` — only the payload is read. */
+const idToken = (claims: unknown): string => `e30.${Buffer.from(JSON.stringify(claims), 'utf8').toString('base64url')}.sig`;
+
+/** A ChatGPT-plan auth.json as CODEX_AUTH_JSON carries it, with the plan type inside the id_token. */
+const chatgptAuthJson = (planType = 'pro'): string =>
+  JSON.stringify({
+    auth_mode: 'chatgpt',
+    tokens: {
+      access_token: 'a-tok',
+      refresh_token: 'r-tok',
+      account_id: 'acct-1',
+      id_token: idToken({ 'https://api.openai.com/auth': { chatgpt_plan_type: planType } }),
+    },
+  });
+
+describe('parseChatgptAuth', () => {
+  it('extracts the sidecar fields, decoding the plan type from the id_token', () => {
+    expect(parseChatgptAuth(JSON.parse(chatgptAuthJson('plus')))).toEqual({
+      accessToken: 'a-tok',
+      refreshToken: 'r-tok',
+      accountId: 'acct-1',
+      planType: 'plus',
+    });
+  });
+
+  it('undefined for anything that is not a ChatGPT-plan credential (falls back to verbatim forwarding)', () => {
+    expect(parseChatgptAuth(undefined)).toBeUndefined();
+    expect(parseChatgptAuth('{}')).toBeUndefined(); // a string, not a parsed object
+    expect(parseChatgptAuth([{ auth_mode: 'chatgpt' }])).toBeUndefined();
+    expect(parseChatgptAuth({ OPENAI_API_KEY: 'k' })).toBeUndefined(); // legacy --with-api-key file
+    expect(parseChatgptAuth({ auth_mode: 'chatgpt' })).toBeUndefined(); // no tokens at all
+  });
+
+  it('undefined when a token field is missing, blank or not a string', () => {
+    const full = JSON.parse(chatgptAuthJson()) as { tokens: Record<string, unknown> };
+    for (const [field, bad] of [
+      ['access_token', ''],
+      ['refresh_token', undefined],
+      ['account_id', 42],
+      ['id_token', ''],
+    ] as const) {
+      expect(parseChatgptAuth({ ...full, tokens: { ...full.tokens, [field]: bad } })).toBeUndefined();
+    }
+  });
+
+  it('undefined when the id_token is not a JWT or carries no chatgpt_plan_type claim', () => {
+    const full = JSON.parse(chatgptAuthJson()) as { tokens: Record<string, unknown> };
+    const withIdToken = (id: string): unknown => ({ ...full, tokens: { ...full.tokens, id_token: id } });
+    expect(parseChatgptAuth(withIdToken('not-a-jwt'))).toBeUndefined();
+    expect(parseChatgptAuth(withIdToken('e30.!!not-base64-json!!.sig'))).toBeUndefined();
+    expect(parseChatgptAuth(withIdToken(idToken(['an', 'array'])))).toBeUndefined();
+    expect(parseChatgptAuth(withIdToken(idToken({ sub: 'u1' })))).toBeUndefined(); // no auth claim
+    expect(parseChatgptAuth(withIdToken(idToken({ 'https://api.openai.com/auth': { chatgpt_plan_type: '' } })))).toBeUndefined();
   });
 });
 
@@ -73,12 +130,27 @@ describe('providerSecrets', () => {
     expect(() => providerSecrets(['codex'], { CODEX_AUTH_JSON: '["a"]' } as NodeJS.ProcessEnv)).toThrow(/must be a JSON object/);
   });
 
-  it('keeps CODEX_AUTH_JSON in the sandbox even under --llm-proxy (subscription is a sandbox credential)', () => {
-    const env = { CODEX_AUTH_JSON: '{"auth_mode":"chatgpt"}' } as NodeJS.ProcessEnv;
+  it('keeps a non-chatgpt-shaped CODEX_AUTH_JSON in the sandbox under --llm-proxy (no sidecar fronts it)', () => {
+    const env = { CODEX_AUTH_JSON: '{"auth_mode":"chatgpt"}' } as NodeJS.ProcessEnv; // no usable tokens
     expect(providerSecrets(['codex'], env, { proxyMode: true })).toEqual({
       sandboxSecrets: { CODEX_AUTH_JSON: '{"auth_mode":"chatgpt"}' },
       proxySecrets: {},
     });
+  });
+
+  it('routes a chatgpt-plan CODEX_AUTH_JSON to its sidecar under --llm-proxy, never the sandbox', () => {
+    const env = { CODEX_AUTH_JSON: chatgptAuthJson() } as NodeJS.ProcessEnv;
+    expect(providerSecrets(['codex'], env, { proxyMode: true })).toEqual({
+      sandboxSecrets: {},
+      proxySecrets: { codexChatgpt: { accessToken: 'a-tok', refreshToken: 'r-tok', accountId: 'acct-1', planType: 'pro' } },
+    });
+  });
+
+  it('forwards a chatgpt-plan CODEX_AUTH_JSON verbatim in direct mode (no sidecar to hold it)', () => {
+    const env = { CODEX_AUTH_JSON: chatgptAuthJson() } as NodeJS.ProcessEnv;
+    const { sandboxSecrets, proxySecrets } = providerSecrets(['codex'], env);
+    expect(sandboxSecrets.CODEX_AUTH_JSON).toBe(chatgptAuthJson());
+    expect(proxySecrets).toEqual({});
   });
 
   it('subscription mode ignores OPENAI_BASE_URL (mutually exclusive with passthrough)', () => {
@@ -413,6 +485,15 @@ describe('subscriptionCredentialProvider', () => {
     expect(subscriptionCredentialProvider({ provider: 'codex' }, { CODEX_AUTH_JSON: '' })).toBeUndefined();
     expect(subscriptionCredentialProvider({ provider: 'claude' }, SUB)).toBeUndefined(); // codex not in the run
     expect(subscriptionCredentialProvider({ provider: 'cursor' }, SUB)).toBeUndefined(); // no subscriptionEnv at all
+  });
+
+  it('under an active proxy, only a credential no sidecar can front still counts', () => {
+    const chatgpt = { CODEX_AUTH_JSON: chatgptAuthJson() } as NodeJS.ProcessEnv;
+    expect(subscriptionCredentialProvider({ provider: 'codex' }, chatgpt, { proxyMode: true })).toBeUndefined();
+    expect(subscriptionCredentialProvider({ provider: 'codex' }, chatgpt)).toBe('codex'); // direct mode: still exposed
+    expect(subscriptionCredentialProvider({ provider: 'codex' }, SUB, { proxyMode: true })).toBe('codex'); // not chatgpt-shaped
+    // Malformed JSON: providerSecrets forwards it verbatim, so the warning still applies.
+    expect(subscriptionCredentialProvider({ provider: 'codex' }, { CODEX_AUTH_JSON: 'not-json' }, { proxyMode: true })).toBe('codex');
   });
 });
 

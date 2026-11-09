@@ -265,7 +265,7 @@ describe('beginRun — writing', () => {
     }, { commit: false }),
   );
 
-  it('writeProof masks credential material in outputTail', async () => {
+  it('writeProof masks credential material in outputTail and firstErrorLines', async () => {
     const token = `ghp_${'C'.repeat(36)}`;
     const file = await beginRun(repo, 'TES-1', TS).writeProof({
       command: 'pnpm test',
@@ -273,10 +273,13 @@ describe('beginRun — writing', () => {
       passed: false,
       sha256: 'abc',
       outputTail: `Error: bad token ${token}`,
+      firstErrorLines: `FAILED auth.test.ts — bad token ${token}`,
     });
     const proof = JSON.parse(await readFile(file, 'utf8'));
     expect(proof.outputTail).not.toContain(token);
     expect(proof.outputTail).toContain('[REDACTED-GH]');
+    expect(proof.firstErrorLines).not.toContain(token);
+    expect(proof.firstErrorLines).toContain('[REDACTED-GH]');
   });
 
   it('writeProof writes proof.json and metric line', async () => {
@@ -363,6 +366,14 @@ describe('beginRun — writing', () => {
     const metrics = (await readFile(join(runsRoot(repo), 'metrics.jsonl'), 'utf8')).trim().split('\n');
     expect(JSON.parse(metrics[0]!)).toMatchObject({ model: 'claude-sonnet-4-6', requestedModel: 'claude-fable-5' });
     expect(JSON.parse(metrics[1]!)).not.toHaveProperty('requestedModel');
+
+    // On the record too, so the run's own file names the routed model (the hub reads these, not metrics.jsonl).
+    const taskDir = join(runsRoot(repo), 'TES-1');
+    expect(JSON.parse(await readFile(join(taskDir, `${PREFIX}-implementer.json`), 'utf8'))).toMatchObject({
+      model: 'claude-sonnet-4-6',
+      requestedModel: 'claude-fable-5',
+    });
+    expect(JSON.parse(await readFile(join(taskDir, `${PREFIX}-reviewer.json`), 'utf8'))).not.toHaveProperty('requestedModel');
   });
 
   it('one writer gives the stage records, proof.json and visual-proof.json one shared prefix', async () => {
@@ -569,7 +580,7 @@ describe('persisted review verdict (T5–T9)', () => {
     expect(VERDICT_STAGES).toEqual(new Set([STAGE.REVIEWER, STAGE.CONFORMANCE]));
     await beginRun(repo, 'TES-1', TS).writeStages([{ name: 'reviewer', result }]);
     const record = (await readRun(runsRoot(repo), 'TES-1', TS)).stages[0]!.record;
-    expect(record.verdict).toBe('pass');
+    expect(record.verdict).toBe('incomplete');
     expect(record).not.toHaveProperty('findings');
   });
 });
