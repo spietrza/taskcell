@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { isRateLimitError, failureReason, formatFailureComment, visibleError, VanguardError } from './errors.js';
+import { isRateLimitError, rateLimitResetDelayMs, failureReason, formatFailureComment, visibleError, VanguardError, AgentError } from './errors.js';
 
 describe('failureReason', () => {
   it('masks credentials and collapses the message to one line, since it lands in a public CI log', () => {
@@ -74,10 +74,74 @@ describe('visibleError', () => {
 });
 
 describe('isRateLimitError', () => {
-  it.each(['HTTP 429', 'status code 429', 'API Error: 429', '{"code":429}', '429 Too Many Requests', 'rate_limit_error', 'rate_limit_exceeded', 'Rate limit reached for gpt-5'])('recognizes %s', (message) => {
-    expect(isRateLimitError(new Error(message))).toBe(true);
+  it.each([
+    'HTTP 429',
+    'status code 429',
+    'API Error: 429',
+    '{"code":429}',
+    '429 Too Many Requests',
+    'rate_limit_error',
+    'rate_limit_exceeded',
+    'Rate limit reached for gpt-5',
+    'Claude usage limit reached. Your limit will reset at 9pm (UTC).',
+    "You've hit your session limit · resets 9pm (UTC)",
+    'API Error: overloaded',
+    'API Error: 529 {"type":"error","error":{"type":"overloaded_error","message":"Overloaded"}}',
+  ])('recognizes %s', (message) => {
+    expect(isRateLimitError(new AgentError(message))).toBe(true);
   });
-  it.each(['API rate limit exceeded for user alice', 'gh failed: API rate limit exceeded', 'line 429', 'implement rate limiting', 'invalid API key'])('rejects %s', (message) => {
+  it.each(['API rate limit exceeded for user alice', 'gh failed: API rate limit exceeded', 'line 429', 'implement rate limiting', 'invalid API key', 'the usage limit reached in this benchmark is documented below'])('rejects %s', (message) => {
     expect(isRateLimitError(new Error(message))).toBe(false);
+  });
+});
+
+describe('rateLimitResetDelayMs', () => {
+  const at = (h: number, m = 0): number => Date.UTC(2026, 10, 8, h, m);
+  const session = "You've hit your session limit · resets 9pm (UTC)";
+
+  it('reads the reset named on the refusal line', () => {
+    expect(rateLimitResetDelayMs(new AgentError(session), at(20, 58))).toBe(2 * 60_000);
+    expect(rateLimitResetDelayMs(new AgentError('Claude usage limit reached. Your limit will reset at 10:30pm (UTC).'), at(22))).toBe(30 * 60_000);
+  });
+
+  it('reads the epoch reset of the plan-cap wording', () => {
+    const resetAt = at(21) / 1000;
+    expect(rateLimitResetDelayMs(new AgentError(`Claude AI usage limit reached|${resetAt}`), at(20, 58))).toBe(2 * 60_000);
+  });
+
+  it('reads a reset that has just passed as "retry now"', () => {
+    expect(rateLimitResetDelayMs(new AgentError(session), at(21, 4))).toBe(0);
+  });
+
+  it('rolls a reset long past to the next day', () => {
+    expect(rateLimitResetDelayMs(new AgentError("You've hit your session limit · resets 9am (UTC)"), at(20))).toBe(13 * 60 * 60_000);
+  });
+
+  it('ignores a reset clause outside the refusal line', () => {
+    expect(rateLimitResetDelayMs(new AgentError(`the cache resets 3am (UTC)\n${"You've hit your session limit"}`), at(20))).toBeUndefined();
+  });
+
+  it('rejects zones other than UTC and impossible clock times', () => {
+    expect(rateLimitResetDelayMs(new AgentError("You've hit your session limit · resets 9pm (PST)"), at(20))).toBeUndefined();
+    expect(rateLimitResetDelayMs(new AgentError("You've hit your session limit · resets 0pm (UTC)"), at(20))).toBeUndefined();
+    expect(rateLimitResetDelayMs(new AgentError("You've hit your session limit · resets 13pm (UTC)"), at(20))).toBeUndefined();
+    expect(rateLimitResetDelayMs(new AgentError("You've hit your session limit · resets 9:75pm (UTC)"), at(20))).toBeUndefined();
+  });
+
+  it('ignores a reset time with no zone marker', () => {
+    expect(rateLimitResetDelayMs(new AgentError("You've hit your session limit · resets 9pm"), at(20))).toBeUndefined();
+  });
+
+  it('does not treat prose that names the error tokens as a refusal', () => {
+    expect(isRateLimitError(new AgentError('handle the overloaded_error envelope in errors.ts'))).toBe(false);
+    expect(isRateLimitError(new AgentError('match "Claude usage limit reached" in the CLI output'))).toBe(false);
+    expect(isRateLimitError(new AgentError('API Error: 529 {"type":"error","error":{"type":"overloaded_error"}}'))).toBe(true);
+    expect(isRateLimitError(new AgentError('Claude usage limit reached. Your limit will reset at 9pm (UTC).'))).toBe(true);
+  });
+
+  it('only counts the documented limit kinds as transient', () => {
+    expect(isRateLimitError(new AgentError("You've hit your session limit"))).toBe(true);
+    expect(isRateLimitError(new AgentError("You've hit your context limit"))).toBe(false);
+    expect(isRateLimitError(new AgentError("You've hit your turn limit"))).toBe(false);
   });
 });

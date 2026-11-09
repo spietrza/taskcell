@@ -100,6 +100,25 @@ describe('watchOnce', () => {
     expect(calls).not.toContain('secret:B');
   });
 
+  it('a base-red run is held: onBaseRed releases it, onNoChange never reverts it to the trigger', async () => {
+    const onNoChange = vi.fn(async () => {});
+    const onBaseRed = vi.fn(async () => {});
+    const primitives: WatchPrimitives = {
+      listReady: async () => [{ id: 'A' }],
+      claim: async () => {},
+      runOne: async () => ({ baseRed: true }),
+      review: async () => {},
+      onNoChange,
+      onBaseRed,
+      onFailure: async () => {},
+    };
+
+    await watchOnce(primitives);
+
+    expect(onBaseRed).toHaveBeenCalledWith('A');
+    expect(onNoChange).not.toHaveBeenCalled();
+  });
+
   it('a secret-blocked run without an onSecretBlocked primitive still skips onNoChange (claim stays)', async () => {
     const onNoChange = vi.fn(async () => {});
     const primitives: WatchPrimitives = {

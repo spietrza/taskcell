@@ -4,7 +4,7 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { createHash } from 'node:crypto';
 import type { IsolatedSandboxProvider, ExecResult } from '../sandbox/provider.js';
-import { resolveVerifyCommand, runVerification, renderVerificationFeedback, proofBlock } from './verify.js';
+import { resolveVerifyCommand, runVerification, renderVerificationFeedback, proofBlock, extractFirstErrorLines, failingTaskName } from './verify.js';
 
 // ---------------------------------------------------------------------------
 // Fake sandbox
@@ -311,5 +311,32 @@ describe('proofBlock', () => {
   it('contains the exit code', () => {
     const block = proofBlock({ ...baseResult, exitCode: 42, passed: false });
     expect(block).toContain('42');
+  });
+});
+
+describe('extractFirstErrorLines', () => {
+  it.each([
+    ['npm', 'install ok\nnpm ERR! code ELIFECYCLE\nmore'],
+    ['tsc', 'ok\nsrc/a.ts(1,2): error TS2345: bad\nmore'],
+    ['vitest ×', 'ok\n × suite > test\nmore'],
+    ['vitest ✕', 'ok\n ✕ suite > test\nmore'],
+    ['FAIL', 'ok\n FAIL  src/a.test.ts\nmore'],
+  ])('starts at the first %s failure marker', (_name, output) => {
+    expect(extractFirstErrorLines(output).split('\n')[0]).not.toBe('ok');
+    expect(extractFirstErrorLines(output)).not.toBe('');
+  });
+
+  it('returns empty when nothing failed', () => {
+    expect(extractFirstErrorLines('all good\nno errors here')).toBe('');
+  });
+});
+
+describe('failingTaskName', () => {
+  it('reads a turbo-style package:task prefix', () => {
+    expect(failingTaskName('@app/web:test: FAIL src/a.test.ts')).toBe('@app/web:test');
+  });
+
+  it('does not read a file:line compiler location as a task', () => {
+    expect(failingTaskName('src/a.ts:12: error something')).toBeUndefined();
   });
 });

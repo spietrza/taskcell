@@ -9,6 +9,7 @@ export const GITHUB_VERIFY_FAILED_LABEL = 'vanguard:verify-failed';
 export const GITHUB_VISUAL_PROOF_FAILED_LABEL = 'vanguard:visual-proof-failed';
 export const GITHUB_SECRET_BLOCKED_LABEL = 'vanguard:secret-blocked';
 export const GITHUB_GATE_CONFIG_LABEL = 'vanguard:gate-config-changed';
+export const GITHUB_RATE_LIMITED_LABEL = 'vanguard:rate-limited';
 
 /** Map a proof-failure kind to its GitHub label. */
 export function githubFailureLabel(kind: ProofFailureKind): string {

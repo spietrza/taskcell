@@ -11,12 +11,13 @@ vi.mock('./source-adapter.js', async (importOriginal) => ({
 vi.mock('../tasks/github.js', async (importOriginal) => ({
   ...(await importOriginal<typeof import('../tasks/github.js')>()),
   addPrFailureLabel: vi.fn(async () => {}),
+  addPrGateLabel: vi.fn(async () => {}),
 }));
 
 import { runSourcedIssue } from './source-adapter.js';
-import { addPrFailureLabel } from '../tasks/github.js';
+import { addPrFailureLabel, addPrGateLabel } from '../tasks/github.js';
 import { publishReviewVerdict } from '../pipeline/review-publish.js';
-import { GITHUB_VERIFY_FAILED_LABEL } from '../github-labels.js';
+import { GITHUB_GATE_CONFIG_LABEL, GITHUB_VERIFY_FAILED_LABEL } from '../github-labels.js';
 import { linearAdapter, runLinearIssue } from './linear.js';
 import type { RunLinearIssueDeps } from './linear.js';
 import type { GlabRunner } from '../tasks/gitlab.js';
@@ -42,6 +43,7 @@ function reviewerOutcome(finalText: string): StageOutcome {
 beforeEach(() => {
   vi.mocked(runSourcedIssue).mockClear();
   vi.mocked(addPrFailureLabel).mockClear();
+  vi.mocked(addPrGateLabel).mockClear();
 });
 
 describe('linearAdapter on a GitLab remote', () => {
@@ -71,6 +73,17 @@ describe('linearAdapter on a GitLab remote', () => {
     ]);
     expect(addPrFailureLabel).not.toHaveBeenCalled();
   });
+
+  it('flags gate config on the MR — Linear has no labels, so the gate lives on the review surface', async () => {
+    const { calls, glab } = makeGlab();
+    const adapter = linearAdapter(makeDeps(), 'group/project', glab);
+    await adapter.addGateConfigLabel('https://gitlab.com/group/project/-/merge_requests/7');
+    expect(calls).toEqual([
+      ['label', 'create', '--repo', 'group/project', '--name', 'vanguard::gate-config-changed'],
+      ['mr', 'update', '7', '--repo', 'group/project', '--label', 'vanguard::gate-config-changed'],
+    ]);
+    expect(addPrGateLabel).not.toHaveBeenCalled();
+  });
 });
 
 describe('linearAdapter on a GitHub remote', () => {
@@ -81,6 +94,15 @@ describe('linearAdapter on a GitHub remote', () => {
 
     await adapter.addFailureLabel('https://github.com/owner/repo/pull/3', 'verify');
     expect(addPrFailureLabel).toHaveBeenCalledWith('/repo', 'https://github.com/owner/repo/pull/3', GITHUB_VERIFY_FAILED_LABEL);
+  });
+
+  it('flags gate config on the PR, and does not swallow a failed flip', async () => {
+    const adapter = linearAdapter(makeDeps());
+    await adapter.addGateConfigLabel('https://github.com/owner/repo/pull/3');
+    expect(addPrGateLabel).toHaveBeenCalledWith('/repo', 'https://github.com/owner/repo/pull/3', GITHUB_GATE_CONFIG_LABEL);
+
+    vi.mocked(addPrGateLabel).mockRejectedValueOnce(new Error('gh: 403'));
+    await expect(adapter.addGateConfigLabel('https://github.com/owner/repo/pull/3')).rejects.toThrow('gh: 403');
   });
 });
 

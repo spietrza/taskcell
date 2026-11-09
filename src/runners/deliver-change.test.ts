@@ -170,6 +170,7 @@ describe('deliverChange', () => {
       expect(r.prUrl).toBe('https://github.com/o/r/pull/9');
       expect(r.headSha).toBe('rebasedhead');
       expect(r.commitLeaks.length).toBeGreaterThan(0);
+      expect(r.outgoingDiff).toContain('+work');
     });
     const gh = calls.find((c) => c[0] === 'gh');
     expect(gh?.[gh.indexOf('--title') + 1]).toBe('feat: thing (o/r#7)');

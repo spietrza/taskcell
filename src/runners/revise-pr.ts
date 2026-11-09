@@ -30,8 +30,9 @@ import { beginRun } from '../core/run-store.js';
 import { appendStepSummary } from '../core/step-summary.js';
 import type { StepSummary, StepSummaryExit } from '../core/step-summary.js';
 import type { StageOutcome } from '../pipeline/pipeline.js';
-import { GITHUB_GATE_CONFIG_LABEL, GITHUB_SECRET_BLOCKED_LABEL } from '../github-labels.js';
-import { diffFilesWithPatches, gateConfigChangedBlock, gateConfigPaths, loadGateConfigExtraGlobs } from '../context/gate-config.js';
+import { GITHUB_GATE_CONFIG_LABEL, GITHUB_SECRET_BLOCKED_LABEL, GITHUB_RATE_LIMITED_LABEL } from '../github-labels.js';
+import { parseProviderRateLimitReset, rateLimitedComment } from '../core/rate-limit-marker.js';
+import { diffFilesWithPatches, extractGateConfigBlock, gateConfigChangedBlock, gateConfigPaths, loadGateConfigExtraGlobs } from '../context/gate-config.js';
 import { renderSecretBlockComment } from '../core/secret-scan.js';
 import { deliverChange, scanOutgoingForSecrets } from './deliver-change.js';
 import { extractTaskIdFromPrBody, scanCommitClosingKeywords } from '../pipeline/conformance-gate.js';
@@ -43,6 +44,7 @@ import {
   withStageModel,
   withStageModelExcept,
   withStageFallback,
+  withStageFallbackModel,
   withPrimaryFallback,
   STAGE,
 } from '../pipeline/pipeline.js';
@@ -57,7 +59,7 @@ import { authSecrets } from '../agents/auth.js';
 import { selectAgents, providerKeyEnvNames } from '../agents/registry.js';
 import { GITHUB_REVIEW_LABEL } from '../github-labels.js';
 import { WorktreeManager } from '../worktree/manager.js';
-import { AgentError, VanguardError, isRateLimitError, rateLimitRetryNotice } from '../core/errors.js';
+import { AgentError, VanguardError, isRateLimitError } from '../core/errors.js';
 import type { GhRunner } from '../tasks/github.js';
 import type { PullRequestForReview } from './pr-review.js';
 import type { CommandRunner } from '../pipeline/remote-branch.js';
@@ -72,7 +74,8 @@ const VANGUARD_REVISING_LABEL = 'vanguard:revising';
 const DEFAULT_MAX_ROUNDS = 2;
 // secret-blocked is removed too: a round that pushes cleanly after the human stripped the secret must
 // not leave the PR mapped to verify-failed on the board.
-const HAND_BACK_LABELS = { remove: [NEEDS_REVISION_LABEL, VANGUARD_REVISING_LABEL, GITHUB_SECRET_BLOCKED_LABEL], add: [GITHUB_REVIEW_LABEL] };
+// rate-limited too: a round that ran must not be re-triggered by the resume sweep.
+const HAND_BACK_LABELS = { remove: [NEEDS_REVISION_LABEL, VANGUARD_REVISING_LABEL, GITHUB_SECRET_BLOCKED_LABEL, GITHUB_RATE_LIMITED_LABEL], add: [GITHUB_REVIEW_LABEL] };
 
 /** Cap on implement-session resumes triggered by a red verification in the revise pass — one bounded repair. */
 const MAX_VERIFY_REPAIRS = 1;
@@ -166,6 +169,9 @@ async function handBackPrLabels(
 ): Promise<void> {
   try {
     await gh(['label', 'create', GITHUB_REVIEW_LABEL, '--repo', repoSlug, '--force']);
+    // HAND_BACK_LABELS removes the hold label unconditionally, and a `--remove-label` for a label the
+    // repo never created fails the whole edit: make sure it exists.
+    await gh(['label', 'create', GITHUB_RATE_LIMITED_LABEL, '--repo', repoSlug, '--force']);
   } catch (err) {
     log(`revise-pr ${repoSlug}#${number}: label ensure -> manual label check (${err instanceof Error ? err.message : String(err)})`);
   }
@@ -370,7 +376,7 @@ export async function runRevisePullRequest(prRef: string, deps: ReviseGithubPrDe
     ...(deps.network !== undefined ? { network: deps.network } : {}),
   });
   try {
-    const env = llmProxySandboxEnv(deps.proxyUrl, deps.llmProxy, providerProxies.openai);
+    const env = llmProxySandboxEnv(deps.proxyUrl, deps.llmProxy, providerProxies);
     const sandbox =
       deps._sandbox ??
       new DockerSandboxProvider({
@@ -462,6 +468,12 @@ export async function runRevisePullRequest(prRef: string, deps: ReviseGithubPrDe
           ...(effectiveModel !== undefined ? { model: effectiveModel } : {}),
         });
       }
+      // An explicit --review-model survives the fallback only when the fallback runs on the provider
+      // the model was pinned for; a cross-provider fallback keeps --fallback-model / its own default.
+      // Outside the fallback-provider branch: the reviewer's same-provider fallback above exists with
+      // or without --fallback-provider, and withPrimaryFallback below never touches a stage that
+      // already has one.
+      if (deps.reviewModel !== undefined) pipeline = withStageFallbackModel(pipeline, deps.reviewModel, agents.agent);
       // Implementer fallback: on an AgentError from the primary provider (outage, usage limit, revoked
       // credential, rate limit) runStages retries the stage once on this provider — same contract as
       // the first delivery's implementer fallback (source-adapter.ts). Every stage on the primary gets
@@ -624,10 +636,16 @@ export async function runRevisePullRequest(prRef: string, deps: ReviseGithubPrDe
       const issueTaskId = extractTaskIdFromPrBody(pr.body);
       if (issueTaskId !== undefined) {
         const closeIssueOnMerge = scanCommitClosingKeywords([pr.body], issueTaskId).length > 0;
-        const newBody = reviewRequestBody(issueTaskId, {
+        const rederived = reviewRequestBody(issueTaskId, {
           closeIssueOnMerge,
           ...(verificationFailed ? { verificationFailed: true } : {}),
         });
+        // reviewRequestBody only ever rebuilds the closing-keyword section; it knows nothing about the
+        // `## Gate config changed` block the first delivery (or an earlier round) wrote into the body.
+        // Carry it forward verbatim — otherwise this re-derivation silently drops the disclosure of a
+        // weakening the gate already flagged (the label survives; the human-readable evidence would not).
+        const existingGateConfigBlock = extractGateConfigBlock(pr.body);
+        const newBody = existingGateConfigBlock !== undefined ? [rederived, existingGateConfigBlock].join('\n\n') : rederived;
         if (newBody !== pr.body) {
           log(`revise-pr ${target.repoSlug}#${target.number}: body -> re-derived (${verificationFailed ? 'Part of' : closeIssueOnMerge ? 'Closes' : 'no-close'})`);
           await gh(['pr', 'edit', String(target.number), '--repo', target.repoSlug, '--body', newBody]);
@@ -698,19 +716,23 @@ export async function runRevisePullRequest(prRef: string, deps: ReviseGithubPrDe
       };
     } catch (error) {
       await stepSummary('error', { error: String(error) });
-      // A rate limit that no fallback rescued ends the round with the PR still carrying
-      // `vanguard:revising` and nothing said on it, so the work sits until someone notices (#615).
-      // Say what happened and drop the in-flight label, leaving `needs revision` in place: the retry
-      // is the human removing and re-applying it (the revise workflow triggers on that label event).
-      // Best-effort — neither the notice nor the label edit may mask the original failure. --out is a
-      // dry run that touches neither the branch nor the PR. Gated on AgentError (same test as
+      // A rate or session limit that no fallback rescued ends the round with the PR still carrying
+      // `vanguard:revising` and nothing said on it, so the work sits until someone notices (#615,
+      // #656). Mark it `vanguard:rate-limited` with a notice carrying the parsed reset time (posted
+      // as a review comment, like the other hand-back notices here), and drop the in-flight label,
+      // leaving `needs revision` in place: `vanguard resume-rate-limited` re-triggers that label
+      // once the reset time has passed (or a human can re-apply it sooner).
+      // Best-effort — neither the notice nor the label edit may mask the original failure. --out is
+      // a dry run that touches neither the branch nor the PR. Gated on AgentError (same test as
       // pipeline.ts): a `gh`/git failure carrying GitHub's own "API rate limit exceeded" is not the
       // provider, and the notice would misname it — and after a successful push it would invite a
       // pointless second round.
       if (error instanceof AgentError && isRateLimitError(error) && deps.out === undefined) {
-        log(`revise-pr ${target.repoSlug}#${target.number}: provider rate-limited (429), posting notice`);
-        await postPullRequestReview(target, rateLimitRetryNotice(NEEDS_REVISION_LABEL), 'comment', gh).catch(() => undefined);
-        await editPrLabels(gh, target.repoSlug, target.number, { remove: [VANGUARD_REVISING_LABEL] }).catch(() => undefined);
+        const until = parseProviderRateLimitReset(error.message);
+        log(`revise-pr ${target.repoSlug}#${target.number}: provider rate-limited, marking vanguard:rate-limited until ${until.toISOString()}`);
+        await gh(['label', 'create', GITHUB_RATE_LIMITED_LABEL, '--repo', target.repoSlug, '--force']).catch(() => undefined);
+        await editPrLabels(gh, target.repoSlug, target.number, { remove: [VANGUARD_REVISING_LABEL], add: [GITHUB_RATE_LIMITED_LABEL] }).catch(() => undefined);
+        await postPullRequestReview(target, rateLimitedComment(until, NEEDS_REVISION_LABEL), 'comment', gh).catch(() => undefined);
       }
       throw error;
     } finally {

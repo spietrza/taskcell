@@ -8,8 +8,9 @@ import { runGitlabIssue } from './gitlab.js';
 import { runSpecGenerator } from './spec.js';
 import { assessTaskReadiness, isVanguardSpec, SPEC_TAG } from '../tasks/triage.js';
 import { fanOut } from '../pipeline/fan-out.js';
-import { failureReason, formatFailureComment } from '../core/errors.js';
-import { GITHUB_SECRET_BLOCKED_LABEL } from '../github-labels.js';
+import { AgentError, failureReason, formatFailureComment, isRateLimitError } from '../core/errors.js';
+import { parseProviderRateLimitReset, rateLimitedComment } from '../core/rate-limit-marker.js';
+import { GITHUB_SECRET_BLOCKED_LABEL, GITHUB_RATE_LIMITED_LABEL } from '../github-labels.js';
 import { GITLAB_SECRET_BLOCKED_LABEL } from '../gitlab-labels.js';
 import type { Task } from '../tasks/fetcher.js';
 import type { RunLinearIssueDeps } from './linear.js';
@@ -71,6 +72,8 @@ export interface WatchRunOutcome {
   prUrl?: string;
   parked?: boolean;
   secretBlocked?: boolean;
+  /** The base branch was already red and the adapter commented. Not a no-change: never revert the claim to the trigger. */
+  baseRed?: boolean;
 }
 
 export interface WatchPrimitives {
@@ -92,6 +95,12 @@ export interface WatchPrimitives {
    * onFailure and the claim stays.
    */
   onSecretBlocked?: (id: string) => Promise<void>;
+  /**
+   * The base branch was red, the adapter already posted why. Release the claim WITHOUT restoring the
+   * trigger (a revert would re-run the full verify every poll). Absent: the issue stays claimed, which
+   * is what state sources (Linear, GitHub Projects) want.
+   */
+  onBaseRed?: (id: string) => Promise<void>;
   onFailure: (id: string, error: unknown) => Promise<void>;
 }
 
@@ -194,7 +203,12 @@ export async function watchOnce(primitives: WatchPrimitives, opts: WatchOnceOpti
       }
       operatorLog(opts, `${phase} ${item.id}: claim -> running`);
       try {
-        const { prUrl, parked, secretBlocked } = await primitives.runOne(item.id);
+        const { prUrl, parked, secretBlocked, baseRed } = await primitives.runOne(item.id);
+        if (baseRed === true) {
+          operatorLog(opts, `${phase} ${item.id}: base branch red -> held, no re-run until re-labelled`);
+          await primitives.onBaseRed?.(item.id);
+          return { id: item.id, kind: 'noChange' };
+        }
         if (secretBlocked === true) {
           // Log first: if the hold edit below throws, the failure comment must not be the only record.
           operatorLog(opts, `${phase} ${item.id}: secret blocked -> held for a human`);
@@ -656,6 +670,31 @@ export interface WatchGithubOptions {
 }
 
 /**
+ * Mark a GitHub issue rate-limited: add `vanguard:rate-limited` (creating the label first — a repo
+ * that never created it would otherwise fail the edit and strand the issue claimed), clear the
+ * claim label the failed run left behind, and post the marker comment naming the trigger that
+ * restarts this stage. The trigger label itself is left off until `resume-rate-limited` restores it
+ * once `until` has passed — restoring it now would let the very next poll retry into the same limit.
+ * The caller's usual failure comment is kept and the rate-limit note appended to it: the limit
+ * explains why the stage stopped, but only the failure text (and its stack) says where it was when
+ * it did.
+ */
+async function markGithubIssueRateLimited(
+  repo: string,
+  id: string,
+  claimedLabel: string,
+  trigger: string,
+  failureComment: string,
+  error: Error,
+  gh?: GhRunner,
+): Promise<void> {
+  const until = parseProviderRateLimitReset(error.message);
+  await (gh ?? defaultGhRunner)(['label', 'create', GITHUB_RATE_LIMITED_LABEL, '--repo', repo, '--force']).catch(() => undefined);
+  await editGithubLabels(repo, id, { remove: [claimedLabel], add: [GITHUB_RATE_LIMITED_LABEL] }, gh);
+  await commentGithubIssue(repo, id, `${failureComment}\n\n${rateLimitedComment(until, trigger)}`, gh);
+}
+
+/**
  * Drop ready GitHub issues whose author is not trusted (OWNER/MEMBER/COLLABORATOR, --feedback-authors or
  * a GitHub App bot). A label alone is not consent: issue templates can apply the trigger label to an
  * outsider's issue. Applied to both passes, so the spec pass never advances one into the agent pass.
@@ -689,18 +728,30 @@ export function githubIssueWatchPrimitives(opts: WatchGithubOptions): WatchPrimi
   // them, so the claim clears it too. Only for issues seen with the label — a blind `--remove-label`
   // makes `gh issue edit` fail in a repo that never created it.
   const heldBefore = new Set<string>();
+  const rateLimitedBefore = new Set<string>();
   return {
     listReady: async () => {
       const tasks = await withTrustedIssueAuthors(repo, await fetcher.list({ labels: agentLabels }), opts.deps.feedbackAuthors, opts.gh);
       heldBefore.clear();
       for (const task of tasks) if (task.labels.includes(GITHUB_SECRET_BLOCKED_LABEL)) heldBefore.add(task.id);
+      rateLimitedBefore.clear();
+      for (const task of tasks) if (task.labels.includes(GITHUB_RATE_LIMITED_LABEL)) rateLimitedBefore.add(task.id);
       return tasks.map((task) => ({ id: task.id }));
     },
+    // A claim releases every hold the issue carried: a rate-limit hold left on would make the resume
+    // sweep re-trigger work that this run is already doing.
     claim: (id) =>
       editGithubLabels(
         repo,
         id,
-        { remove: heldBefore.has(id) ? [opts.label, GITHUB_SECRET_BLOCKED_LABEL] : [opts.label], add: [opts.claimedLabel] },
+        {
+          remove: [
+            opts.label,
+            ...(heldBefore.has(id) ? [GITHUB_SECRET_BLOCKED_LABEL] : []),
+            ...(rateLimitedBefore.has(id) ? [GITHUB_RATE_LIMITED_LABEL] : []),
+          ],
+          add: [opts.claimedLabel],
+        },
         opts.gh,
       ),
     runOne:
@@ -717,6 +768,9 @@ export function githubIssueWatchPrimitives(opts: WatchGithubOptions): WatchPrimi
         commentGithubIssue(repo, id, NO_CHANGE_MSG, opts.gh),
         editGithubLabels(repo, id, { remove: [opts.claimedLabel] }, opts.gh),
       ),
+    // The trigger label was removed on claim, so dropping the claim leaves the issue idle until a
+    // human re-applies the trigger — what the base-red comment asks for. No no-change comment.
+    onBaseRed: (id) => editGithubLabels(repo, id, { remove: [opts.claimedLabel] }, opts.gh),
     // One edit swaps claimed -> secret-blocked, so the claim is never released without the hold
     // label landing. `gh issue edit --add-label` fails on a label the repo never created, and the
     // adapter only pre-creates it when it posts findings (not in white-label mode), so ensure it
@@ -735,7 +789,14 @@ export function githubIssueWatchPrimitives(opts: WatchGithubOptions): WatchPrimi
         opts.gh,
       );
     },
-    onFailure: (id, error) => commentGithubIssue(repo, id, formatFailureComment('Vanguard run failed', error), opts.gh),
+    onFailure: async (id, error) => {
+      const comment = formatFailureComment('Vanguard run failed', error);
+      if (error instanceof AgentError && isRateLimitError(error)) {
+        await markGithubIssueRateLimited(repo, id, opts.claimedLabel, opts.label, comment, error, opts.gh);
+        return;
+      }
+      await commentGithubIssue(repo, id, comment, opts.gh);
+    },
   };
 }
 
@@ -788,7 +849,12 @@ export function githubSpecPrimitives(opts: WatchGithubSpecOptions): SpecWatchPri
       });
     },
     onFailure: async (id, error) => {
-      await commentGithubIssue(repo, id, formatFailureComment('Vanguard spec failed', error), opts.gh);
+      const comment = formatFailureComment('Vanguard spec failed', error);
+      if (error instanceof AgentError && isRateLimitError(error)) {
+        await markGithubIssueRateLimited(repo, id, opts.claimedLabel, opts.specLabel, comment, error, opts.gh);
+        return;
+      }
+      await commentGithubIssue(repo, id, comment, opts.gh);
       await editGithubLabels(repo, id, { remove: [opts.claimedLabel], add: [opts.specLabel] }, opts.gh);
     },
   };

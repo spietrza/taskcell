@@ -78,6 +78,14 @@ export declare function readIdpRequest(body: Buffer, field: string): string | un
 /** A three-segment JWT-shaped id_token carrying only the account id + plan type claims. */
 export declare function buildSyntheticIdToken(accountId: string, planType: string): string;
 
+/** A serialized Codex `auth.json` (`auth_mode: chatgpt`, the token fields, `last_refresh` stamped now). */
+export declare function buildCodexAuthJson(
+  accessToken: string,
+  refreshToken: string,
+  accountId: string,
+  planType: string,
+): string;
+
 /** The refresh response handed back to the cell: placeholders + a freshly built synthetic id_token. */
 export declare function placeholderRefreshResponse(
   accessPlaceholder: string,
