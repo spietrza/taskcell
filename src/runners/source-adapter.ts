@@ -29,6 +29,11 @@ import { loadRetrospectiveMemory, refreshRetrospectiveMemory } from '../core/ret
 import { llmProxySandboxEnv } from '../sandbox/egress-proxy.js';
 import { resolveVerifyCommand, runVerification, renderVerificationFeedback, proofBlock, verifySkippedBlock, baseRedBlock } from '../pipeline/verify.js';
 import { resolveBaselineVerify } from '../pipeline/baseline-verify.js';
+
+/** A verify command that installs its dependencies before running anything (the auto-detected JS shape). */
+/** Issue label that skips the base-red check: the task is meant to fix the red base. */
+export const BASE_RED_OK_LABEL = 'vanguard:base-red-ok';
+const SELF_INSTALLING_VERIFY_RE = /^\s*(?:pnpm|yarn|npm) install --frozen-lockfile\s*&&/;
 import { resolveAndRunVisualProof, visualProofBlock } from '../pipeline/visual-proof.js';
 import { startProviderProxies } from '../sandbox/llm-proxy.js';
 import { reviewRequestBody } from './review-body.js';
@@ -516,7 +521,13 @@ export async function runSourcedIssue(
       // reused branch: its worktree holds the branch's own prior work, not the base commit, so neither
       // the command nor the verdict would be about the base.
       const verifyOpts = deps.verifyCmd !== undefined ? { cmd: deps.verifyCmd } : {};
-      const baselineCmd = deps.reuse === true ? undefined : await resolveVerifyCommand(ctx.worktreePath, verifyOpts);
+      // Only a command that installs its own dependencies first: the base worktree is a fresh copy with
+      // no node_modules, so an operator-supplied `pnpm typecheck && pnpm test` (or a bare `pytest`)
+      // would fail there on a perfectly green base and stop every task.
+      // `vanguard:base-red-ok` on the issue is the escape hatch for tasks whose job IS fixing the red base.
+      const skipBaseline = deps.reuse === true || task.labels.includes(BASE_RED_OK_LABEL);
+      const resolvedBase = skipBaseline ? undefined : await resolveVerifyCommand(ctx.worktreePath, verifyOpts);
+      const baselineCmd = resolvedBase !== undefined && SELF_INSTALLING_VERIFY_RE.test(resolvedBase) ? resolvedBase : undefined;
       if (baselineCmd !== undefined) {
         const verifyCmd = baselineCmd;
         const baselineVerify = await resolveBaselineVerify(deps.repoPath, ctx.startRef, ctx.sandbox, verifyCmd, deps.signal);

@@ -921,7 +921,7 @@ describe('runSourcedIssue', () => {
   });
 
   it('a red base branch stops the run before implementing, signalling the issue instead of opening a PR (#2024)', async () => {
-    vi.mocked(resolveVerifyCommand).mockResolvedValue('npm test');
+    vi.mocked(resolveVerifyCommand).mockResolvedValue('npm install --frozen-lockfile && npm test');
     vi.mocked(resolveBaselineVerify).mockResolvedValueOnce({ passed: false, exitCode: 1 } as never);
 
     const adapter = fakeAdapter([], STAGES);
@@ -933,10 +933,35 @@ describe('runSourcedIssue', () => {
     expect(adapter.signalBaseRed).toHaveBeenCalledWith('group/project#1', task, 'base-red-block');
   });
 
+  it('an operator-supplied verify command that installs nothing skips the base-red check', async () => {
+    runStages.mockResolvedValueOnce([stageOutcome('implementer', 'sess-1'), stageOutcome('reviewer')]);
+    vi.mocked(resolveVerifyCommand).mockResolvedValue('pnpm typecheck && pnpm test');
+    vi.mocked(runVerification).mockResolvedValue({ passed: true } as never);
+
+    const adapter = fakeAdapter([], STAGES);
+    const result = await runSourcedIssue('group/project#1', { repoPath: '/repo' }, adapter);
+
+    expect(resolveBaselineVerify).not.toHaveBeenCalled();
+    expect(runVerification).toHaveBeenCalledWith(expect.anything(), 'pnpm typecheck && pnpm test');
+    expect(result.prUrl).toBe(MR_URL);
+  });
+
+  it('the vanguard:base-red-ok label skips the base-red check, so a task can fix the red base', async () => {
+    runStages.mockResolvedValueOnce([stageOutcome('implementer', 'sess-1'), stageOutcome('reviewer')]);
+    vi.mocked(resolveVerifyCommand).mockResolvedValue('npm install --frozen-lockfile && npm test');
+    vi.mocked(runVerification).mockResolvedValue({ passed: true } as never);
+
+    const adapter = fakeAdapter([], STAGES);
+    vi.mocked(adapter.prepare).mockResolvedValueOnce({ task: { ...task, labels: ['vanguard:base-red-ok'] } } as never);
+    const result = await runSourcedIssue('group/project#1', { repoPath: '/repo' }, adapter);
+
+    expect(resolveBaselineVerify).not.toHaveBeenCalled();
+    expect(result.prUrl).toBe(MR_URL);
+  });
+
   it('a reused branch skips the base-red check: its worktree is not the base commit', async () => {
     runStages.mockResolvedValueOnce([stageOutcome('implementer', 'sess-1'), stageOutcome('reviewer')]);
-    vi.mocked(resolveVerifyCommand).mockResolvedValue('npm test');
-    vi.mocked(resolveBaselineVerify).mockResolvedValueOnce({ passed: false, exitCode: 1 } as never);
+    vi.mocked(resolveVerifyCommand).mockResolvedValue('npm install --frozen-lockfile && npm test');
     vi.mocked(runVerification).mockResolvedValue({ passed: true } as never);
 
     const adapter = fakeAdapter([], STAGES);
@@ -945,7 +970,6 @@ describe('runSourcedIssue', () => {
     expect(resolveBaselineVerify).not.toHaveBeenCalled();
     expect(adapter.signalBaseRed).not.toHaveBeenCalled();
     expect(result.prUrl).toBe(MR_URL);
-    vi.mocked(resolveBaselineVerify).mockReset().mockResolvedValue({ passed: true } as never);
   });
 
   it('re-resolves the verify command after implement, so a task that adds the test script is gated by it', async () => {

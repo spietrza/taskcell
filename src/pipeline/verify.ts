@@ -109,7 +109,7 @@ export function extractFirstErrorLines(output: string): string {
 
 /** A turbo/lerna-style `<package>:<task>: ` line prefix, the closest thing to "which package failed". */
 // The task part must hold a letter, so a `file.ts:12: message` compiler line is not read as one.
-const TASK_PREFIX_RE = /^\s*((?:@[\w.-]+\/)?[\w.-]+):([\w.-]*[A-Za-z_][\w.-]*):\s/;
+const TASK_PREFIX_RE = /^\s*((?:@[\w.-]+\/)?[\w.-]+):((?=[\w.-]*[A-Za-z_])[\w.-]+):\s/;
 
 /** Best-effort failing task/package name from a monorepo runner's own output prefix; undefined if not that shape. */
 export function failingTaskName(excerpt: string | undefined): string | undefined {
@@ -203,7 +203,7 @@ export function baseRedBlock(baseBranch: string, sha: string, result: Verificati
   const lines = [
     `🚧 Vanguard stopped before implementing: \`${baseBranch}\` (${sha.slice(0, 7)}) already fails \`${result.command}\` (exit ${result.exitCode}).`,
     '',
-    'Fixing it would mean repairing failures that have nothing to do with this issue, so no implement run was started. Fix the base branch, then re-apply the trigger label.',
+    'Fixing it would mean repairing failures that have nothing to do with this issue, so no implement run was started. Fix the base branch, then re-apply the trigger label. If this issue is the fix for the red base, add the `vanguard:base-red-ok` label and re-apply the trigger label to skip this check.',
     ...(task !== undefined ? ['', `- failing task/package: \`${task}\``] : []),
   ];
   const hasFirstError = result.firstErrorLines !== undefined && result.firstErrorLines !== '';
