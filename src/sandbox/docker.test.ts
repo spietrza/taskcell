@@ -10,6 +10,7 @@ import {
   refreshSandboxClaudeCli,
   sandboxImage,
   resolveSandboxImage,
+  pnpmStoreVolumeName,
   SANDBOX_CLAUDE_VERSION,
 } from './docker.js';
 import { sandboxSecurityOpts } from './limits.js';
@@ -400,6 +401,43 @@ describe('DockerSandboxProvider buildRunArgs (hardening flags)', () => {
       if (prev === undefined) delete process.env.VANGUARD_OWNER_LABEL;
       else process.env.VANGUARD_OWNER_LABEL = prev;
     }
+  });
+});
+
+// Runs without Docker: the opt-in persistent pnpm store is pure argv (see SandboxConfig.pnpmStore).
+describe('DockerSandboxProvider buildRunArgs (pnpm store)', () => {
+  it('is off by default: no mount, no store-dir env', () => {
+    const args = new DockerSandboxProvider({}).buildRunArgs();
+    expect(args).not.toContain('-v');
+    expect(args.some((a) => a.includes('/pnpm-store'))).toBe(false);
+    expect(args.some((a) => a.startsWith('npm_config_store_dir='))).toBe(false);
+  });
+
+  it('mounts the per-repo named volume at /pnpm-store and points pnpm at it', () => {
+    const args = new DockerSandboxProvider({ pnpmStore: { repoKey: 'octo/repo' } }).buildRunArgs();
+    const vol = pnpmStoreVolumeName('octo/repo');
+    expect(vol).toMatch(/^taskcell-pnpm-store-[a-f0-9]{16}$/);
+    expect(args[args.indexOf('-v') + 1]).toBe(`${vol}:/pnpm-store`);
+    const envIdx = args.indexOf('npm_config_store_dir=/pnpm-store');
+    expect(envIdx).toBeGreaterThan(-1);
+    expect(args[envIdx - 1]).toBe('-e');
+    expect(args.slice(-3)).toEqual(['taskcell-sandbox:latest', 'sleep', 'infinity']);
+  });
+
+  it('gives two different repos two different stores', () => {
+    const mountOf = (repoKey: string): string => {
+      const args = new DockerSandboxProvider({ pnpmStore: { repoKey } }).buildRunArgs();
+      return args[args.indexOf('-v') + 1]!;
+    };
+    expect(mountOf('octo/alpha')).not.toBe(mountOf('octo/beta'));
+    expect(mountOf('octo/alpha')).toBe(mountOf('octo/alpha'));
+  });
+
+  it('bind-mounts a host directory instead of a volume when hostDir is set (the CI shape)', () => {
+    const args = new DockerSandboxProvider({ pnpmStore: { repoKey: 'octo/repo', hostDir: '/tmp/pnpm-store' } }).buildRunArgs();
+    expect(args[args.indexOf('-v') + 1]).toBe('/tmp/pnpm-store:/pnpm-store');
+    expect(args.some((a) => a.startsWith('taskcell-pnpm-store-'))).toBe(false);
+    expect(args).toContain('npm_config_store_dir=/pnpm-store');
   });
 });
 

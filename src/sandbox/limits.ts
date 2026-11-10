@@ -2,6 +2,8 @@ import type { SandboxConfig, SandboxSecurityOpts } from './provider.js';
 
 export type SandboxResourceLimits = Pick<SandboxConfig, 'memoryMb' | 'cpus' | 'pidsLimit'>;
 
+type PnpmStoreConfig = SandboxConfig['pnpmStore'];
+
 /**
  * Env-overridable sandbox resource limits. Defaults: memory 2048 MB, 2 CPUs, 512 pids. Each
  * VANGUARD_SANDBOX_* var overrides its default; set it to "0" (or an invalid/empty value) to OMIT
@@ -47,6 +49,28 @@ export function sidecarMemoryArgs(env: NodeJS.ProcessEnv = process.env): string[
 export function ownerLabelArgs(env: NodeJS.ProcessEnv = process.env): string[] {
   const owner = env.VANGUARD_OWNER_LABEL;
   return owner === undefined || owner === '' ? [] : ['--label', `vanguard.owner=${owner}`];
+}
+
+/**
+ * Resolve the opt-in persistent pnpm store for one target repo (`--pnpm-store` / VANGUARD_PNPM_STORE;
+ * off by default). `cliFlag` is the parsed `--pnpm-store` (undefined when the flag was not passed);
+ * VANGUARD_PNPM_STORE=1/true is the env equivalent, so CI can turn it on without touching argv.
+ * Disabled (the common case) returns undefined: nothing is mounted and `buildRunArgs` is unchanged.
+ * Enabled, with VANGUARD_PNPM_STORE_DIR unset: a named Docker volume keyed by `repoKey` (local/NAS/hub
+ * — the volume outlives the container). With VANGUARD_PNPM_STORE_DIR set: that host directory is
+ * bind-mounted instead (the CI shape — GitHub-hosted runners are fresh, so a volume would never
+ * survive between runs; `actions/cache` restores/saves that directory around the job instead — see
+ * docs/cli.md for why only the pre-agent baseline install may save it).
+ */
+export function pnpmStoreConfig(
+  repoKey: string,
+  cliFlag: boolean | undefined,
+  env: NodeJS.ProcessEnv = process.env,
+): PnpmStoreConfig {
+  const enabled = cliFlag === true || env.VANGUARD_PNPM_STORE === '1' || env.VANGUARD_PNPM_STORE === 'true';
+  if (!enabled) return undefined;
+  const hostDir = env.VANGUARD_PNPM_STORE_DIR;
+  return hostDir !== undefined && hostDir !== '' ? { repoKey, hostDir } : { repoKey };
 }
 
 /**

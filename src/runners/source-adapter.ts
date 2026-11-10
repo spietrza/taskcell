@@ -6,7 +6,7 @@ import { readFile } from 'node:fs/promises';
 import { taskToVariables } from '../tasks/fetcher.js';
 import { escapePromptTags } from '../context/escape.js';
 import { DockerSandboxProvider, sandboxImage } from '../sandbox/docker.js';
-import { sandboxResourceLimits } from '../sandbox/limits.js';
+import { sandboxResourceLimits, pnpmStoreConfig } from '../sandbox/limits.js';
 import { selectAgents, forcedProviderModel, providerKeyEnvNames } from '../agents/registry.js';
 import { DEFAULT_BASE_BRANCH } from '../core/base-branch.js';
 import { prepareContext, disposeContext } from '../core/vanguard.js';
@@ -116,6 +116,14 @@ export interface RunOptions extends ProviderChoice {
    * with the target repo's own `.github/vanguard-skills/`. Set via --skills.
    */
   skillsDir?: string;
+  /**
+   * Opt-in persistent pnpm store (off by default): mounts `/pnpm-store` into the sandbox and sets
+   * `npm_config_store_dir`, so the base-red install and the post-implement reinstall (#655) stop
+   * re-downloading a repo's dependencies from scratch. One store per repo, never shared — see
+   * `pnpmStoreConfig` in sandbox/limits.ts and docs/cli.md for the store-poisoning tradeoff. Set via
+   * --pnpm-store / VANGUARD_PNPM_STORE.
+   */
+  pnpmStore?: boolean;
 }
 
 /**
@@ -151,6 +159,7 @@ export function pickRunOptions(cmd: Readonly<Partial<RunOptions>>): RunOptions {
     ...(cmd.maxRepairIterations !== undefined ? { maxRepairIterations: cmd.maxRepairIterations } : {}),
     ...(cmd.specFile !== undefined ? { specFile: cmd.specFile } : {}),
     ...(cmd.skillsDir !== undefined ? { skillsDir: cmd.skillsDir } : {}),
+    ...(cmd.pnpmStore !== undefined ? { pnpmStore: cmd.pnpmStore } : {}),
   };
 }
 
@@ -413,6 +422,9 @@ export async function runSourcedIssue(
   });
   try {
     const env = llmProxySandboxEnv(deps.proxyUrl, deps.llmProxy, providerProxies);
+    // Keyed on the local repo path: every source (github/linear/gitlab) has one, and it is already
+    // the one thing that pins "this target repo" regardless of tracker.
+    const pnpmStore = pnpmStoreConfig(deps.repoPath, deps.pnpmStore);
     const sandbox = new DockerSandboxProvider({
       image: sandboxImage(),
       // In llm-proxy mode the real Claude secret stays in the sidecar — the sandbox gets only the nonce.
@@ -424,6 +436,7 @@ export async function runSourcedIssue(
       ...sandboxResourceLimits(),
       ...(env !== undefined ? { env } : {}),
       ...(deps.network !== undefined ? { network: deps.network } : {}),
+      ...(pnpmStore !== undefined ? { pnpmStore } : {}),
     });
 
     // A decision-model fork scorer needs credentials; resolve them BEFORE the sandbox is built so a

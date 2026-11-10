@@ -79,4 +79,16 @@ export interface SandboxConfig {
   hostGateway?: boolean;
   /** Overrides sandboxSecurityOpts()'s env-derived defaults (cap-drop/add, no-new-privileges, readonly). */
   security?: Partial<SandboxSecurityOpts>;
+  /**
+   * Opt-in persistent pnpm store (`--pnpm-store` / VANGUARD_PNPM_STORE; off by default — see
+   * docs/cli.md). Undefined: no mount, pnpm's default in-tmpfs store-dir, every install
+   * re-downloads. Set: mounts a per-repo store at `/pnpm-store` and sets `npm_config_store_dir`,
+   * so a repeat install on the SAME repo skips the network fetch.
+   */
+  pnpmStore?: {
+    /** Stable per-repo identifier (e.g. the repo's local path), hashed into the volume/dir name so two repos never share a store. */
+    repoKey: string;
+    /** Bind-mount this host directory instead of a named Docker volume — the CI shape, where actions/cache restores to a path. */
+    hostDir?: string;
+  };
 }
