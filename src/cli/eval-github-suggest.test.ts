@@ -34,7 +34,7 @@ function makeGh(stub: Stub, calls: string[][] = []): GhRunner {
     if (args[0] === 'api' && args[1] !== undefined) {
       const pulls = /commits\/([0-9a-f]+)\/pulls$/.exec(args[1]);
       if (pulls !== null) return JSON.stringify(stub.pulls?.[pulls[1]!] ?? []);
-      if (args[1].includes('/commits?')) return JSON.stringify(stub.commits ?? []);
+      if (args[1] === '--paginate' && args[3]?.includes('/commits?')) return JSON.stringify([stub.commits ?? []]);
     }
     throw new Error(`unexpected gh call: ${args.join(' ')}`);
   };
@@ -90,9 +90,9 @@ describe('fetchClosedUnmergedCandidates', () => {
     expect(calls[0]).toContain(`closed:>=${SINCE}`);
   });
 
-  it('returns [] when gh fails', async () => {
+  it('propagates a gh failure instead of reporting no candidates', async () => {
     const gh: GhRunner = async () => { throw new Error('gh: not logged in'); };
-    expect(await fetchClosedUnmergedCandidates('o/r', SINCE, gh)).toEqual([]);
+    await expect(fetchClosedUnmergedCandidates('o/r', SINCE, gh)).rejects.toThrow('not logged in');
   });
 });
 
@@ -159,7 +159,7 @@ describe('fetchRevertCandidates', () => {
     expect(c!.reason).not.toContain(RAW_TOKEN);
     expect(c!.reason).not.toContain('<');
     expect(c!.case.input).toContain('Revert &quot;feat: add thing (#61)&quot;'.replaceAll('&quot;', '"'));
-    expect(calls.some((a) => a[0] === 'api' && a[1] === `repos/o/r/commits?sha=main&since=${SINCE}`)).toBe(true);
+    expect(calls.some((a) => a[0] === 'api' && a.includes('--paginate') && a[3] === `repos/o/r/commits?sha=main&since=${SINCE}&per_page=100`)).toBe(true);
   });
 
   it('skips a revert whose target was not a factory commit', async () => {
@@ -167,10 +167,10 @@ describe('fetchRevertCandidates', () => {
     expect(await fetchRevertCandidates('o/r', SINCE, gh)).toEqual([]);
   });
 
-  it('skips a revert whose target has no associated PR, and returns [] when the default branch cannot be resolved', async () => {
+  it('skips a revert whose target has no associated PR, and propagates a failure to resolve the default branch', async () => {
     expect(await fetchRevertCandidates('o/r', SINCE, makeGh({ commits: [REVERT_COMMIT] }))).toEqual([]);
     const gh: GhRunner = async () => { throw new Error('offline'); };
-    expect(await fetchRevertCandidates('o/r', SINCE, gh)).toEqual([]);
+    await expect(fetchRevertCandidates('o/r', SINCE, gh)).rejects.toThrow('default branch');
   });
 });
 
@@ -182,6 +182,23 @@ describe('fetchGitHubCandidates', () => {
     commits: [{ sha: 'f', html_url: 'https://github.com/o/r/commit/f', commit: { message: `Revert "x"\n\nThis reverts commit ${TARGET}.` } }],
     pulls: { [TARGET]: [{ number: 61, head: { ref: 'chore/vanguard-61-x' } }] },
   };
+
+  it('warns about a failed source and keeps the others', async () => {
+    const base = makeGh(STUB);
+    const gh: GhRunner = async (args) => {
+      if (args[0] === 'pr' && args.includes('--label')) throw new Error('rate limited');
+      return base(args);
+    };
+    const warnings: string[] = [];
+    const candidates = await fetchGitHubCandidates('o/r', SINCE, gh, (m) => warnings.push(m));
+    expect(candidates.map((c) => c.source)).toEqual(['pr_closed_unmerged', 'reverted_commit']);
+    expect(warnings).toEqual(['warning: could not read needs-human-review PRs from o/r: rate limited']);
+  });
+
+  it('throws when every source fails', async () => {
+    const gh: GhRunner = async () => { throw new Error('gh: not logged in'); };
+    await expect(fetchGitHubCandidates('o/r', SINCE, gh, () => {})).rejects.toThrow('every GitHub source failed');
+  });
 
   it('yields one candidate per source', async () => {
     const candidates = await fetchGitHubCandidates('o/r', SINCE, makeGh(STUB));

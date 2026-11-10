@@ -98,12 +98,7 @@ export async function fetchClosedUnmergedCandidates(
     '--search', `closed:>=${since}`,
     '--json', 'number,title,url,headRefName,mergedAt,comments',
   ];
-  let prs: GhClosedPr[];
-  try {
-    prs = JSON.parse(await gh(args)) as GhClosedPr[];
-  } catch {
-    return [];
-  }
+  const prs = JSON.parse(await gh(args)) as GhClosedPr[];
   return prs
     .filter((pr) => (pr.mergedAt ?? null) === null && isFactoryBranch(pr.headRefName))
     .map((pr) =>
@@ -153,12 +148,7 @@ export async function fetchNeedsHumanReviewCandidates(
     '--search', `updated:>=${since}`,
     '--json', 'number,title,url,headRefName,reviews',
   ];
-  let prs: GhLabeledPr[];
-  try {
-    prs = JSON.parse(await gh(args)) as GhLabeledPr[];
-  } catch {
-    return [];
-  }
+  const prs = JSON.parse(await gh(args)) as GhLabeledPr[];
   return prs
     .filter((pr) => isFactoryBranch(pr.headRefName))
     .map((pr) =>
@@ -194,19 +184,12 @@ export async function fetchRevertCandidates(
   since: string,
   gh: GhRunner = defaultGhRunner,
 ): Promise<EvalCaseCandidate[]> {
-  let branch: string;
-  try {
-    branch = await githubDefaultBranch(repoSlug, gh);
-  } catch {
-    return [];
-  }
-
-  let commits: GhCommitListItem[];
-  try {
-    commits = JSON.parse(await gh(['api', `repos/${repoSlug}/commits?sha=${branch}&since=${since}`])) as GhCommitListItem[];
-  } catch {
-    return [];
-  }
+  const branch = await githubDefaultBranch(repoSlug, gh);
+  // --paginate --slurp: one JSON array of pages, so a busy week past the first page is not dropped.
+  const pages = JSON.parse(
+    await gh(['api', '--paginate', '--slurp', `repos/${repoSlug}/commits?sha=${branch}&since=${since}&per_page=100`]),
+  ) as GhCommitListItem[][];
+  const commits = pages.flat();
 
   const candidates: EvalCaseCandidate[] = [];
   for (const commit of commits) {
@@ -240,16 +223,34 @@ export async function fetchRevertCandidates(
 
 // ─── Combinator ─────────────────────────────────────────────────────────────────
 
-/** All three GitHub sources, fetched concurrently. Dedup across sources/runs happens in the caller. */
+/**
+ * All three GitHub sources, fetched concurrently. Dedup across sources/runs happens in the caller.
+ * A failed source is warned on stderr; when every source fails this throws, so a scheduled job cannot
+ * mistake "gh is not logged in" for "nothing was rejected this week".
+ */
 export async function fetchGitHubCandidates(
   repoSlug: string,
   since: string,
   gh: GhRunner = defaultGhRunner,
+  warn: (message: string) => void = (message) => console.error(message),
 ): Promise<EvalCaseCandidate[]> {
-  const [unmerged, needsReview, reverts] = await Promise.all([
+  const sources = ['closed unmerged PRs', 'needs-human-review PRs', 'reverted commits'] as const;
+  const results = await Promise.allSettled([
     fetchClosedUnmergedCandidates(repoSlug, since, gh),
     fetchNeedsHumanReviewCandidates(repoSlug, since, gh),
     fetchRevertCandidates(repoSlug, since, gh),
   ]);
-  return [...unmerged, ...needsReview, ...reverts];
+  const candidates: EvalCaseCandidate[] = [];
+  results.forEach((result, i) => {
+    if (result.status === 'fulfilled') {
+      candidates.push(...result.value);
+      return;
+    }
+    const reason = result.reason instanceof Error ? result.reason.message : String(result.reason);
+    warn(`warning: could not read ${sources[i]} from ${repoSlug}: ${reason}`);
+  });
+  if (results.every((result) => result.status === 'rejected')) {
+    throw new Error(`every GitHub source failed for ${repoSlug}; is gh authenticated?`);
+  }
+  return candidates;
 }
