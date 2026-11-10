@@ -153,9 +153,9 @@ export const activeRuns: ActiveRun[] = [
 ];
 
 /** Hub-only: runs waiting behind the active one — a dev-build fixture for the queued-runs list. */
-export const queuedRuns: { runId: string; position: number }[] = [
-  { runId: 'run-queued-001', position: 1 },
-  { runId: 'run-queued-002', position: 2 },
+export const queuedRuns: { runId: string; repoPath: string; position: number }[] = [
+  { runId: 'run-queued-001', repoPath: '/home/user/projects/demo', position: 1 },
+  { runId: 'run-queued-002', repoPath: '/home/user/projects/demo', position: 2 },
 ];
 
 export const session: SessionRead = {
