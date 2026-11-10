@@ -60,6 +60,21 @@ function workflowFileName(caller: CallerName): string {
   return `vanguard-${caller}.yml`;
 }
 
+/** Nothing detected — the fallback when the repo has no readable package.json. */
+export function noScripts(): FactoryPlan['scripts'] {
+  return { typecheck: false, lint: false, test: false, build: false };
+}
+
+/** What `apply` will write: the caller paths it stages and the labels it creates. Always derived
+ * from this process's own constants — never read off a plan a client echoes back (see rpc.ts's
+ * `requirePlan`), so a tampered plan cannot widen `git add` or `gh label create`. */
+export function factoryPlanTargets(): Pick<FactoryPlan, 'callerFiles' | 'labels'> {
+  return {
+    callerFiles: CALLER_NAMES.map((name) => join('.github', 'workflows', workflowFileName(name))),
+    labels: FACTORY_LABELS.map((l) => l.name),
+  };
+}
+
 async function execJson(exec: FactoryExec, file: string, args: string[], options?: { cwd?: string }): Promise<unknown> {
   const result = await exec(file, args, options);
   try {
@@ -84,7 +99,7 @@ async function detectScripts(repoPath: string): Promise<{ packageManager: string
   try {
     raw = await readFile(join(repoPath, 'package.json'), 'utf8');
   } catch {
-    return { packageManager: 'none', scripts: { typecheck: false, lint: false, test: false, build: false } };
+    return { packageManager: 'none', scripts: noScripts() };
   }
   try {
     const pkg = JSON.parse(raw) as { scripts?: Record<string, string>; packageManager?: string };
@@ -101,7 +116,7 @@ async function detectScripts(repoPath: string): Promise<{ packageManager: string
       },
     };
   } catch {
-    return { packageManager: 'none', scripts: { typecheck: false, lint: false, test: false, build: false } };
+    return { packageManager: 'none', scripts: noScripts() };
   }
 }
 
@@ -130,8 +145,7 @@ export async function planGithubFactory(repoPath: string, deps: GithubFactoryDep
     packageManager,
     ...(verifyCommand !== undefined ? { verifyCommand } : {}),
     scripts,
-    callerFiles: CALLER_NAMES.map((name) => join('.github', 'workflows', workflowFileName(name))),
-    labels: FACTORY_LABELS.map((l) => l.name),
+    ...factoryPlanTargets(),
   };
 }
 

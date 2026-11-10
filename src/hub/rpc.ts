@@ -24,6 +24,7 @@ import { readAppConfig, readAppConfigStrict, writeAppConfig, type AppConfig } fr
 import * as drafts from './drafts.js';
 import * as projects from './projects.js';
 import * as remote from './remote.js';
+import { enableFactory, factoryPlanTargets, noScripts, type FactoryPlan, type FactoryProviderId } from './enable-factory.js';
 
 export class UnknownCommandError extends BadRequestError {}
 
@@ -64,6 +65,35 @@ function optionalString(args: Record<string, unknown>, key: string): string | un
 function optionalNumber(args: Record<string, unknown>, key: string): number | undefined {
   const v = args[key];
   return typeof v === 'number' ? v : undefined;
+}
+
+/** The provider the client picked. Only `github` has an adapter; `enableFactory` itself rejects the
+ * other two with a `not implemented` BadRequestError, so this only narrows the string. */
+function requireProvider(args: Record<string, unknown>, key: string): FactoryProviderId {
+  const v = requireString(args, key);
+  if (v !== 'github' && v !== 'gitlab' && v !== 'linear') throw new BadRequestError(`${key} must be github, gitlab or linear`);
+  return v;
+}
+
+/** Re-read the plan the client echoes back from `enable_factory_plan`. The paths `apply` stages and
+ * the labels it creates are NOT taken from the client: `factoryPlanTargets()` re-derives them from
+ * this process's own constants, so a tampered plan cannot widen `git add` or `gh label create`. */
+function requirePlan(args: Record<string, unknown>, key: string): FactoryPlan {
+  const raw = args[key];
+  if (typeof raw !== 'object' || raw === null) throw new BadRequestError(`${key} is required`);
+  const plan = raw as Record<string, unknown>;
+  if (plan.provider !== 'github') throw new BadRequestError(`${key}.provider must be github`);
+  const verifyCommand = optionalString(plan, 'verifyCommand');
+  return {
+    provider: 'github',
+    repoSlug: requireString(plan, 'repoSlug'),
+    defaultBranch: requireString(plan, 'defaultBranch'),
+    login: requireString(plan, 'login'),
+    packageManager: requireString(plan, 'packageManager'),
+    ...(verifyCommand !== undefined ? { verifyCommand } : {}),
+    scripts: (plan.scripts as FactoryPlan['scripts'] | undefined) ?? noScripts(),
+    ...factoryPlanTargets(),
+  };
 }
 
 /** `read_run`'s `source` (wire's `RunSource`) → the root the records live under: the project's own
@@ -325,6 +355,26 @@ export async function dispatchRpc(ctx: RpcContext, cmd: string, rawArgs: unknown
     case 'browse_dirs': {
       assertMutationsAllowed(ctx.bind);
       return browseDirs(ctx.browseRoot, optionalString(args, 'path'));
+    }
+    case 'enable_factory_plan': {
+      const real = await ctx.allowlist.assertAllowed(requireString(args, 'repoPath'));
+      return enableFactory(real, requireProvider(args, 'provider')).plan();
+    }
+    case 'enable_factory_apply': {
+      // Writes a branch, a commit and a PR in the target repo — a mutation, like clone_project.
+      assertMutationsAllowed(ctx.bind);
+      const real = await ctx.allowlist.assertAllowed(requireString(args, 'repoPath'));
+      return enableFactory(real, 'github').apply(requirePlan(args, 'plan'));
+    }
+    case 'enable_factory_secret': {
+      const real = await ctx.allowlist.assertAllowed(requireString(args, 'repoPath'));
+      return enableFactory(real, 'github').secretCommand(requirePlan(args, 'plan'));
+    }
+    case 'enable_factory_verify': {
+      // Dispatches the doctor workflow, so it mutates the remote too.
+      assertMutationsAllowed(ctx.bind);
+      const real = await ctx.allowlist.assertAllowed(requireString(args, 'repoPath'));
+      return enableFactory(real, 'github').verify(requirePlan(args, 'plan'));
     }
     default:
       throw new UnknownCommandError(`unknown command: ${cmd}`);
