@@ -1,6 +1,7 @@
 import { z } from 'zod';
 import { extractJson } from '../structured/extract.js';
 import { buildXmlPrompt } from '../context/xml-prompt.js';
+import { StructuredOutputError } from '../core/errors.js';
 import type { EvalCase, EvalVerdict, Judge } from './types.js';
 
 export type Predicate = (testCase: EvalCase, output: string) => boolean | EvalVerdict;
@@ -40,8 +41,16 @@ export function llmJudge(complete: Complete): Judge {
         context: `Case kind: ${testCase.kind}\nInput: ${testCase.input}\nExpectation: ${testCase.expectation ?? '(none — judge reasonableness)'}`,
         task: `Agent output:\n${output}\n\nReturn the verdict as <verdict>{...}</verdict>.`,
       });
-      const text = await complete(prompt);
-      return extractJson(text, 'verdict', verdictSchema);
+      // One malformed verdict must not abort the whole corpus run: retry once, then count the case as failed.
+      for (let attempt = 0; attempt < 2; attempt += 1) {
+        const retryNote = attempt === 0 ? '' : '\n\nYour previous reply was not valid JSON. Reply with only <verdict>{...}</verdict>, escaping quotes inside strings.';
+        try {
+          return extractJson(await complete(prompt + retryNote), 'verdict', verdictSchema);
+        } catch (err) {
+          if (!(err instanceof StructuredOutputError)) throw err;
+        }
+      }
+      return { passed: false, score: 0, reason: 'Judge reply was not a valid <verdict> JSON after one retry' };
     },
   };
 }
