@@ -143,75 +143,12 @@ vanguard eval --save-baseline                   # publish this run as the baseli
 
 ### In CI
 
-The factory cannot edit `.github/workflows/` (a [security boundary](security/boundaries.md)), so the two jobs below are for a maintainer to add by hand — e.g. as `.github/workflows/eval.yml`. Both use `pull_request` (never `pull_request_target`), keep `permissions` minimal, and pass the credential through `env:` so no `${{ }}` is interpolated into a `run:` script:
+`.github/workflows/eval.yml` runs two jobs:
 
-```yaml
-name: Eval
-on:
-  pull_request:
-    paths:
-      - 'src/context/**'
-      - 'src/evals/**'
-      - 'src/agents/**'
-      - 'src/pipeline/**'
-  push:
-    branches: [main]
-    paths:
-      - 'src/context/**'
-      - 'src/evals/**'
-      - 'src/agents/**'
-      - 'src/pipeline/**'
-jobs:
-  # (a) Gate the PR: compare against the latest baseline pushed from main.
-  gate:
-    if: github.event_name == 'pull_request'
-    runs-on: ubuntu-latest
-    permissions:
-      contents: read
-    steps:
-      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
-        with:
-          fetch-depth: 0
-          persist-credentials: false
-      - uses: pnpm/action-setup@ea17c68df8912ef543352723c149a84f56e3d413 # v6.1.0
-      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v6
-        with:
-          node-version: 24
-          cache: pnpm
-      - run: pnpm install --frozen-lockfile
-      - run: pnpm build
-      # eval shells out to the host `claude` CLI; pin the same version docker/Dockerfile does.
-      - run: npm install -g @anthropic-ai/claude-code@2.1.260
-      - name: Eval against main's baseline
-        env:
-          CLAUDE_CODE_OAUTH_TOKEN: ${{ secrets.CLAUDE_CODE_OAUTH_TOKEN }}
-        run: node dist/cli/index.js eval --baseline main
+- **gate** (`eval --baseline main`): a PR's own code runs with a model credential in env, so it never starts by itself. A maintainer reads the diff and adds the `run eval` label; after new commits the label is added again. Fork PRs are skipped.
+- **baseline** (`eval --save-baseline`): every push to main that touches `src/context|evals|agents|pipeline/**` publishes a new baseline to the metrics branch. Run it once by hand (`workflow_dispatch` on main) to seed the first baseline.
 
-  # (b) Publish a new baseline for every commit that lands on main.
-  baseline:
-    if: github.event_name == 'push'
-    runs-on: ubuntu-latest
-    permissions:
-      contents: write # pushes eval-baselines.jsonl to the vanguard-metrics branch
-    steps:
-      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
-        with:
-          fetch-depth: 0
-      - uses: pnpm/action-setup@ea17c68df8912ef543352723c149a84f56e3d413 # v6.1.0
-      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v6
-        with:
-          node-version: 24
-          cache: pnpm
-      - run: pnpm install --frozen-lockfile
-      - run: pnpm build
-      - run: npm install -g @anthropic-ai/claude-code@2.1.260
-      - name: Save baseline
-        env:
-          CLAUDE_CODE_OAUTH_TOKEN: ${{ secrets.CLAUDE_CODE_OAUTH_TOKEN }}
-        run: node dist/cli/index.js eval --save-baseline
-```
-
-Two notes on the credential. `--llm-proxy` does not apply here: it keeps a model key out of the **sandbox**, and `eval` runs no sandbox — it shells out to the host `claude` CLI, which reads `CLAUDE_CODE_OAUTH_TOKEN` (or `ANTHROPIC_API_KEY`) from the environment, so the job's `env:` block is the whole credential path. And the gate job runs PR-authored code with a read-only token on the `pull_request` trigger, which is why it must not be `pull_request_target` — the baseline it reads is public data on the metrics branch, so it needs nothing more.
+Two notes on the credential. `--llm-proxy` does not apply here: it keeps a model key out of the **sandbox**, and `eval` runs no sandbox — it shells out to the host `claude` CLI, which reads `CLAUDE_CODE_OAUTH_TOKEN` (or `ANTHROPIC_API_KEY`) from the environment, so the job's `env:` block is the whole credential path. And the gate job runs PR-authored code on the `pull_request` trigger (never `pull_request_target`) with a read-only `GITHUB_TOKEN`, but with the model credential in env — which is why a maintainer's label, not every push, starts it.
 
 A first run on a repo with no baseline yet exits non-zero with `no baseline found` — land the `baseline` job (or run `vanguard eval --save-baseline` once from main) before turning the gate on.
 
@@ -262,41 +199,7 @@ Titles, comments and commit messages are untrusted: secrets are redacted, `<`/`>
 
 **Curating.** Aim for about 100 cases, kept roughly balanced across `control` (an ordinary task that must succeed), `edge` (a boundary case) and `refusal` (the factory must decline). `refusal` is never guessed from GitHub; write those by hand. For each draft keep one sentence of input and one checkable expectation, drop anything that only restates an existing case, then add it to the corpus file in a normal PR. Editing the corpus changes its hash, so save a new eval baseline after the merge.
 
-A weekly job (for a maintainer to add as `.github/workflows/eval-suggest.yml`; the factory cannot edit workflows) posts the drafts for review:
-
-```yaml
-name: Eval suggest
-on:
-  schedule:
-    - cron: '0 6 * * 1'
-  workflow_dispatch:
-permissions:
-  contents: read
-  issues: write
-  pull-requests: read
-jobs:
-  suggest:
-    runs-on: ubuntu-latest
-    steps:
-      - uses: actions/checkout@v4
-      - uses: pnpm/action-setup@v4
-      - uses: actions/setup-node@v4
-        with:
-          node-version: 24
-          cache: pnpm
-      - run: pnpm install --frozen-lockfile
-      - run: pnpm build
-      - name: Draft candidates
-        env:
-          GH_TOKEN: ${{ github.token }}
-          REPO: ${{ github.repository }}
-        run: |
-          since="$(date -u -d '7 days ago' +%F)"
-          node dist/cli/index.js eval --suggest --github-repo "$REPO" --since "$since" --out drafts.md
-          gh issue create --repo "$REPO" --title "Eval corpus candidates since $since" --body-file drafts.md
-```
-
-Pin the actions to commit SHAs when you add it, as the other workflows do.
+`.github/workflows/eval-suggest.yml` runs this every Monday (or by hand) and opens an issue with the drafts for curation.
 
 ## Fork-and-select
 
