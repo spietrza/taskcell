@@ -26,3 +26,7 @@ docker run --rm "${TAG}" sh -lc 'claude --version && git --version && bun --vers
 docker run --rm "${TAG}" sh -lc 'linear --version' \
   || echo "WARNING: ${TAG} has no linear CLI (GitHub Releases was down); --linear runs need LINEAR_RETRY=1 docker/build.sh" >&2
 if [ -n "${CURSOR_VERSION}" ]; then docker run --rm "${TAG}" sh -lc 'agent --version'; fi
+
+# Check cache removal and print measurements for the PR body.
+docker run --rm --user root "${TAG}" sh -lc 'test ! -d /root/.npm && test ! -d /home/agent/.npm && du -sh "$(npm root -g)"/*'
+docker image inspect --format 'Image size: {{.Size}} bytes' "${TAG}"

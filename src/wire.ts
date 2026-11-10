@@ -291,6 +291,9 @@ export interface RunRecord {
   timestamp: string;
   stage?: string;
   prUrl?: string;
+  /** The sandbox image's content digest/ID (DockerSandboxProvider.imageDigest), so a run can be
+   *  traced back to the exact image it executed against — pulled from GHCR or built locally. */
+  imageDigest?: string;
   /** Why no `.diff` / `.bundle` / transcript sit next to this record (see core run-store.ts). */
   diffOmitted?: 'secret-blocked' | 'secret-scan';
   /** Verdict-bearing stages (reviewer, conformance) only: the merge gate's own reading of this

@@ -332,6 +332,9 @@ export interface WriteStagesOptions {
   /** Flow and provider names of the run, recorded on the exported trace (see otlp-sink). */
   flow?: string;
   provider?: string;
+  /** The sandbox image's content digest (IsolatedSandboxProvider.imageDigest), recorded on every
+   *  stage of the run so a run record can be traced back to the exact image it executed against. */
+  imageDigest?: string;
   /**
    * Leave the `.diff`, `.bundle` and `.transcript.log` off disk and stub `finalText`; only the JSON
    * record (marked `diffOmitted: 'secret-blocked'`) and the metric line are written for every stage.
@@ -367,6 +370,7 @@ interface WriteRecordOptions {
   prUrl?: string;
   requestedModel?: string;
   omitDiff?: boolean;
+  imageDigest?: string;
 }
 
 /**
@@ -420,6 +424,7 @@ async function writeRecord(repoPath: string, taskId: string, timestamp: string, 
     timestamp,
     ...(opts.label !== undefined ? { stage: opts.label } : {}),
     ...(opts.prUrl !== undefined ? { prUrl: opts.prUrl } : {}),
+    ...(opts.imageDigest !== undefined ? { imageDigest: opts.imageDigest } : {}),
     ...(diffOmitted !== undefined ? { diffOmitted } : {}),
   };
   const suffix = opts.label !== undefined ? `-${opts.label}` : '';
@@ -497,6 +502,7 @@ export function beginRun(
           ...(opts.prUrl !== undefined ? { prUrl: opts.prUrl } : {}),
           ...(outcome.model !== undefined ? { requestedModel: outcome.model } : {}),
           ...(opts.omitDiff ? { omitDiff: opts.omitDiff } : {}),
+          ...(opts.imageDigest !== undefined ? { imageDigest: opts.imageDigest } : {}),
         });
       }
       const first = outcomes[0];

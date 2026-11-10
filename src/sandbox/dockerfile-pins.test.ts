@@ -74,4 +74,22 @@ describe('docker/Dockerfile npm global installs', () => {
     expect(pnpm).toBeDefined();
     expect(bun).toBeDefined();
   });
+
+  // Version arguments must not invalidate earlier tool installations.
+  it('isolates CLI layers and cleans their npm caches before committing them', async () => {
+    const { dockerfile } = await readDockerfileSpecs();
+    const instructions = dockerfile.replace(/\\\r?\n/g, ' ').split('\n');
+    const installs = instructions.filter((line) => line.startsWith('RUN ') && line.includes('npm install -g'));
+    expect(installs).toHaveLength(5);
+    expect(installs.flatMap(npmGlobalInstallArgs).map((spec) => spec.split('@$')[0])).toEqual([
+      'pnpm', 'bun', '@openai/codex', '@schpet/linear-cli', '@anthropic-ai/claude-code',
+    ]);
+    for (const install of installs) {
+      expect(npmGlobalInstallArgs(install)).toHaveLength(1);
+      expect(install).toContain('npm cache clean --force && rm -rf /root/.npm');
+    }
+    const claudeArg = dockerfile.indexOf('ARG CLAUDE_CLI_VERSION=');
+    expect(claudeArg).toBeGreaterThan(dockerfile.lastIndexOf('npm install -g @schpet/linear-cli'));
+    expect(dockerfile.slice(claudeArg).match(/npm install -g/g)).toHaveLength(1);
+  });
 });
