@@ -119,6 +119,13 @@ describe('checkConformance', () => {
     expect(result.missingFiles).toEqual(['src/bar.ts']);
   });
 
+  it('FAILS on a required docs file absent from the diff (docs are a `files` entry like code)', () => {
+    const manifest: SpecManifest = { files: [{ path: 'docs/cli.md' }] };
+    const result = checkConformance(manifest, fileSection('src/other.ts', ['x']));
+    expect(result.pass).toBe(false);
+    expect(result.missingFiles).toEqual(['docs/cli.md']);
+  });
+
   it('FAILS when a required test file is touched but adds no test content', () => {
     const manifest: SpecManifest = { tests: [{ id: 'T1', file: 'src/foo.test.ts' }] };
     const result = checkConformance(manifest, fileSection('src/foo.test.ts', ['const noTestsHere = 1;']));
@@ -189,6 +196,39 @@ describe('checkConformance', () => {
     expect(result.optionalMissingTests).toEqual([]);
     expect(result.optionalMissingArtifacts).toEqual([]);
   });
+
+  describe('prBody (items that cannot live in the diff)', () => {
+    const manifest: SpecManifest = {
+      prBody: [{ id: 'PR-1', description: 'CI workflow YAML', contains: '```yaml\nname: gate\n```' }],
+    };
+
+    it('is skipped (never fails) when no prBody text is supplied — the pre-delivery repair loop has none yet', () => {
+      const result = checkConformance(manifest, fileSection('src/other.ts', ['x']));
+      expect(result.pass).toBe(true);
+      expect(result.missingPrBody).toEqual([]);
+    });
+
+    it('FAILS when the PR body lacks the required item', () => {
+      const result = checkConformance(manifest, fileSection('src/other.ts', ['x']), 'Closes #1\n\nSome unrelated body text.');
+      expect(result.pass).toBe(false);
+      expect(result.missingPrBody).toEqual([{ id: 'PR-1', contains: '```yaml\nname: gate\n```' }]);
+    });
+
+    it('PASSES when the PR body contains the required item', () => {
+      const body = ['Closes #1', '', '```yaml', 'name: gate', '```'].join('\n');
+      const result = checkConformance(manifest, fileSection('src/other.ts', ['x']), body);
+      expect(result.pass).toBe(true);
+      expect(result.missingPrBody).toEqual([]);
+    });
+
+    it('tracks an optional prBody item absent from the body as optionalMissingPrBody, not a FAIL', () => {
+      const optional: SpecManifest = { prBody: [{ id: 'PR-2', contains: '## Manual follow-up', required: false }] };
+      const result = checkConformance(optional, fileSection('src/other.ts', ['x']), 'no matching heading here');
+      expect(result.pass).toBe(true);
+      expect(result.missingPrBody).toEqual([]);
+      expect(result.optionalMissingPrBody).toEqual([{ id: 'PR-2', contains: '## Manual follow-up' }]);
+    });
+  });
 });
 
 describe('renderConformanceFeedback', () => {
@@ -198,11 +238,14 @@ describe('renderConformanceFeedback', () => {
       missingTests: [{ id: 'T1', file: 'src/foo.test.ts' }],
       missingArtifacts: [{ id: 'AC-1', artifact: 'golden/base.txt' }],
       danglingConsumers: [{ consumer: 'src/consumer.ts', producer: 'src/producer.ts' }],
+      missingPrBody: [{ id: 'PR-1', contains: '```yaml\nname: gate\n```' }],
     });
     expect(feedback).toContain('src/bar.ts');
     expect(feedback).toContain('T1 (src/foo.test.ts)');
     expect(feedback).toContain('AC-1 (golden/base.txt)');
     expect(feedback).toContain('src/consumer.ts depends on src/producer.ts');
+    expect(feedback).toContain('PR-1');
+    expect(feedback).toContain('cannot live in the diff');
   });
 
   it('T11: excludes optional-missing entries when only optional gaps exist', () => {
@@ -268,6 +311,19 @@ describe('renderScopeChecklist', () => {
     expect(checklist).toContain('- [x] T-delivered (`src/delivered.test.ts`)');
     expect(checklist).toContain('- [ ] AC-missing: optional artifact missing (optional — not delivered)');
     expect(checklist).toContain('- [x] AC-delivered: optional artifact delivered');
+  });
+
+  it('renders a PR body section, checked when the body contains the item and unchecked when it does not', () => {
+    const manifest: SpecManifest = {
+      prBody: [{ id: 'PR-1', description: 'CI workflow YAML', contains: '```yaml\nname: gate\n```' }],
+    };
+    const missing = renderScopeChecklist(manifest, checkConformance(manifest, '', 'no yaml here'));
+    expect(missing).toContain('**PR body:**');
+    expect(missing).toContain('- [ ] PR-1: CI workflow YAML');
+
+    const satisfiedBody = ['```yaml', 'name: gate', '```'].join('\n');
+    const satisfied = renderScopeChecklist(manifest, checkConformance(manifest, '', satisfiedBody));
+    expect(satisfied).toContain('- [x] PR-1: CI workflow YAML');
   });
 });
 

@@ -42,6 +42,7 @@ import {
   checkConformance,
   renderConformanceFeedback,
   commitLeakWarningBlock,
+  prBodyGapWarningBlock,
   PASSING_RESULT,
 } from '../pipeline/conformance-gate.js';
 import type { LlmProxyDep } from '../sandbox/llm-proxy.js';

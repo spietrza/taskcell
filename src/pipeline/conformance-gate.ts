@@ -22,6 +22,21 @@ export const specManifestSchema = z.object({
     .optional(),
   /** Producer/consumer pairs: if `consumer` is in the diff, `producer` must be too (dangling-consumer check). */
   dependencies: z.array(z.object({ consumer: z.string(), producer: z.string() })).optional(),
+  /**
+   * Obligations that cannot live in the diff at all (e.g. CI workflow YAML — copy-back drops it) and so
+   * must instead appear verbatim in the PR body for a human to apply by hand. `contains` is the exact
+   * text the body must contain: a fenced ```yaml block or a named heading, for example.
+   */
+  prBody: z
+    .array(
+      z.object({
+        id: z.string(),
+        description: z.string().optional(),
+        contains: z.string(),
+        required: z.boolean().optional(),
+      }),
+    )
+    .optional(),
 });
 
 export type SpecManifest = z.infer<typeof specManifestSchema>;
@@ -110,6 +125,8 @@ export interface ConformanceGap {
   missingTests: { id: string; file: string }[];
   missingArtifacts: { id: string; artifact: string }[];
   danglingConsumers: { consumer: string; producer: string }[];
+  /** Required `prBody` entries absent from the PR body text passed to `checkConformance`. */
+  missingPrBody: { id: string; contains: string }[];
 }
 
 export interface ConformanceResult extends ConformanceGap {
@@ -120,6 +137,7 @@ export interface ConformanceResult extends ConformanceGap {
   optionalMissingFiles: string[];
   optionalMissingTests: { id: string; file: string }[];
   optionalMissingArtifacts: { id: string; artifact: string }[];
+  optionalMissingPrBody: { id: string; contains: string }[];
 }
 
 /** Result for a spec with no manifest to check against — advisory-only, always passing. */
@@ -130,9 +148,11 @@ export const PASSING_RESULT: ConformanceResult = {
   missingTests: [],
   missingArtifacts: [],
   danglingConsumers: [],
+  missingPrBody: [],
   optionalMissingFiles: [],
   optionalMissingTests: [],
   optionalMissingArtifacts: [],
+  optionalMissingPrBody: [],
 };
 
 /**
@@ -156,7 +176,12 @@ function partitionByRequired<T extends { required?: boolean | undefined }>(
   return { missing, optionalMissing };
 }
 
-export function checkConformance(manifest: SpecManifest | undefined, diff: string): ConformanceResult {
+/**
+ * `prBody` is the text of the PR body the run is about to open. Omit it (the default) to skip the
+ * `prBody` manifest check entirely — a caller that has no body yet (e.g. the implement-loop repair
+ * gate, which runs before the PR is composed) is not penalized for an obligation it cannot see.
+ */
+export function checkConformance(manifest: SpecManifest | undefined, diff: string, prBody?: string): ConformanceResult {
   if (manifest === undefined) return PASSING_RESULT;
 
   const touched = new Set(extractDiffFiles(diff));
@@ -179,7 +204,20 @@ export function checkConformance(manifest: SpecManifest | undefined, diff: strin
 
   const danglingConsumers = (manifest.dependencies ?? []).filter((d) => touched.has(d.consumer) && !touched.has(d.producer));
 
-  const pass = missingFiles.length === 0 && missingTests.length === 0 && missingArtifacts.length === 0 && danglingConsumers.length === 0;
+  // prBody is undefined for callers with no PR body yet (the pre-delivery repair loop): skip the check
+  // entirely rather than fail every such call just because nothing has been composed to check against.
+  const prBodyItems = prBody === undefined
+    ? { missing: [], optionalMissing: [] }
+    : partitionByRequired(manifest.prBody ?? [], (p) => prBody.includes(p.contains));
+  const missingPrBody = prBodyItems.missing.map((p) => ({ id: p.id, contains: p.contains }));
+  const optionalMissingPrBody = prBodyItems.optionalMissing.map((p) => ({ id: p.id, contains: p.contains }));
+
+  const pass =
+    missingFiles.length === 0 &&
+    missingTests.length === 0 &&
+    missingArtifacts.length === 0 &&
+    danglingConsumers.length === 0 &&
+    missingPrBody.length === 0;
   return {
     checked: true,
     pass,
@@ -187,9 +225,11 @@ export function checkConformance(manifest: SpecManifest | undefined, diff: strin
     missingTests,
     missingArtifacts,
     danglingConsumers,
+    missingPrBody,
     optionalMissingFiles,
     optionalMissingTests,
     optionalMissingArtifacts,
+    optionalMissingPrBody,
   };
 }
 
@@ -210,6 +250,13 @@ export function renderConformanceFeedback(gap: ConformanceGap): string {
     lines.push(
       `- Dangling consumers (wired to a producer never implemented): ${gap.danglingConsumers
         .map((d) => `${d.consumer} depends on ${d.producer}`)
+        .join(', ')}`,
+    );
+  }
+  if (gap.missingPrBody.length > 0) {
+    lines.push(
+      `- Missing PR-body items (cannot live in the diff — must appear verbatim in the PR description instead): ${gap.missingPrBody
+        .map((p) => p.id)
         .join(', ')}`,
     );
   }
@@ -234,6 +281,8 @@ export function renderScopeChecklist(manifest: SpecManifest, result: Conformance
   const optionalMissingTestIds = new Set(result.optionalMissingTests.map((t) => t.id));
   const missingArtifactIds = new Set(result.missingArtifacts.map((a) => a.id));
   const optionalMissingArtifactIds = new Set(result.optionalMissingArtifacts.map((a) => a.id));
+  const missingPrBodyIds = new Set(result.missingPrBody.map((p) => p.id));
+  const optionalMissingPrBodyIds = new Set(result.optionalMissingPrBody.map((p) => p.id));
   const lines: string[] = [];
 
   const files = manifest.files ?? [];
@@ -256,6 +305,14 @@ export function renderScopeChecklist(manifest: SpecManifest, result: Conformance
       const requiredMissing = a.artifact !== undefined && missingArtifactIds.has(a.id);
       const optionalMissing = a.artifact !== undefined && optionalMissingArtifactIds.has(a.id);
       lines.push(renderItem(label, requiredMissing, optionalMissing));
+    }
+  }
+  const prBody = manifest.prBody ?? [];
+  if (prBody.length > 0) {
+    lines.push('', '**PR body:**');
+    for (const p of prBody) {
+      const label = `${p.id}${p.description !== undefined && p.description !== '' ? `: ${p.description}` : ''}`;
+      lines.push(renderItem(label, missingPrBodyIds.has(p.id), optionalMissingPrBodyIds.has(p.id)));
     }
   }
   return lines.join('\n');
@@ -317,5 +374,23 @@ export function commitLeakWarningBlock(leaks: CommitClosingLeak[]): string {
     ...leaks.map((l) => `- \`${l.keyword} ${l.ref}\``),
     '',
     'Reword the offending commit(s), or squash-merge instead of rebase-merging.',
+  ].join('\n');
+}
+
+/**
+ * Blocking-warning markdown block surfaced when the PR body about to be opened is missing a required
+ * `prBody` manifest item (e.g. CI workflow YAML the diff cannot carry — copy-back drops it). Empty for
+ * no gaps, so wiring this in is a no-op for a manifest that declares no `prBody` entries.
+ */
+export function prBodyGapWarningBlock(missing: { id: string; contains: string }[]): string {
+  if (missing.length === 0) return '';
+  return [
+    '## ⚠️ Required PR-body item missing',
+    '',
+    'The spec manifest requires the following verbatim in this PR description (they cannot live in the diff), but this PR body does not contain them:',
+    '',
+    ...missing.map((m) => `- \`${m.id}\``),
+    '',
+    'Add the missing content to the PR body by hand.',
   ].join('\n');
 }
