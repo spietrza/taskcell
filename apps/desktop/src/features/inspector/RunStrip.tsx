@@ -8,7 +8,7 @@ export function RunStrip({ state, onCancel }: { state: TypedRunState; onCancel: 
   return (
     <div className="space-y-3 rounded-lg border border-border bg-muted/20 p-3">
       <div className="flex items-center gap-2">
-        <span className="text-xs text-muted-foreground">{state.taskId ?? 'starting…'}</span>
+        <span className="text-xs text-muted-foreground">{state.queuedPosition !== undefined ? `queued — #${state.queuedPosition} in line` : (state.taskId ?? 'starting…')}</span>
         <span className="ml-auto text-xs tabular-nums text-muted-foreground">~${usdSpent.toFixed(2)}</span>
         {terminal === undefined && (
           <Button variant="text" color="destructive" onClick={onCancel} startIcon={<Square className="size-3.5" />}>

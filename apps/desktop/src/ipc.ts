@@ -299,7 +299,7 @@ export function apiRunBacklog(runId: string): Promise<unknown[]> {
 
 /** HUB_ONLY: runs waiting behind the active one, for a page that just (re)loaded — events alone
  * cannot reconstruct this for a client that wasn't listening when they were queued. */
-export function apiQueue(): Promise<{ runId: string; position: number }[]> {
+export function apiQueue(): Promise<{ runId: string; repoPath: string; position: number }[]> {
   return call('api_queue', undefined);
 }
 

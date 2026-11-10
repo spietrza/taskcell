@@ -98,6 +98,84 @@ describe('run-session', () => {
     await firstPromise;
   });
 
+  test('T-44d a cancelled queued run is evicted like any settled run (no unbounded buffer)', async () => {
+    const session = createRunSession(fakeDeps(() => new Promise<CreateRunResult>(() => {})), () => {});
+    void session.createRun({ issueRef: '0', repoPath: '/repo' } as CreateRunParams);
+    for (let i = 1; i <= 5; i += 1) {
+      const p = session.createRun({ issueRef: String(i), repoPath: '/repo' } as CreateRunParams);
+      p.catch(() => {});
+      session.cancel(`run-${i}`);
+    }
+    // RETAINED_RUNS=4: the first cancelled queued run's buffer is gone, the last one's is kept.
+    expect(session.backlog('run-1')).toEqual([]);
+    expect(session.backlog('run-5').length).toBeGreaterThan(0);
+  });
+
+  test('T-44e a queued run keeps one run-queued while waiting, and starts with run-accepted at index 0', async () => {
+    let resolveFirst: ((r: CreateRunResult) => void) | undefined;
+    const deps = fakeDeps(
+      () =>
+        new Promise<CreateRunResult>((resolve) => {
+          if (resolveFirst === undefined) resolveFirst = resolve;
+          else resolve({});
+        }),
+    );
+    const session = createRunSession(deps, () => {});
+    const first = session.createRun({ issueRef: '0', repoPath: '/repo' } as CreateRunParams);
+    const second = session.createRun({ issueRef: '1', repoPath: '/repo' } as CreateRunParams);
+    const third = session.createRun({ issueRef: '2', repoPath: '/repo' } as CreateRunParams);
+    third.catch(() => {});
+    session.cancel('run-1'); // republishes run-2's position
+    expect(session.backlog('run-2')).toEqual([{ runId: 'run-2', event: { type: 'run-queued', position: 1, repoPath: '/repo' } }]);
+    await expect(second).rejects.toThrow(/cancelled/);
+    resolveFirst?.({});
+    await first;
+    await third;
+    const backlog = session.backlog('run-2') as { event: { type: string } }[];
+    expect(backlog[0]?.event.type).toBe('run-accepted');
+    expect(backlog.some((e) => e.event.type === 'run-queued')).toBe(false);
+  });
+
+  test('T-44f the start-time check runs when a queued run starts and fails it with run-error', async () => {
+    let resolveFirst: ((r: CreateRunResult) => void) | undefined;
+    let calls = 0;
+    const deps = fakeDeps(
+      () =>
+        new Promise<CreateRunResult>((resolve) => {
+          calls += 1;
+          resolveFirst = resolve;
+        }),
+    );
+    let revoked = false;
+    const session = createRunSession(deps, () => {}, async (p) => {
+      if (revoked && p.repoPath === '/gone') throw new Error('not an allowed project');
+    });
+    const first = session.createRun({ issueRef: '0', repoPath: '/repo' } as CreateRunParams);
+    const queued = session.createRun({ issueRef: '1', repoPath: '/gone' } as CreateRunParams);
+    await Promise.resolve();
+    revoked = true; // the project is unbound while its run waits
+    resolveFirst?.({});
+    await first;
+    await expect(queued).rejects.toThrow(/not an allowed project/);
+    expect(calls).toBe(1);
+    expect((session.backlog('run-1') as { event: { type: string } }[]).at(-1)?.event).toEqual({
+      type: 'run-error',
+      message: 'not an allowed project',
+    });
+  });
+
+  test('T-44g a blank VANGUARD_HUB_MAX_QUEUE falls back to the default instead of disabling the queue', () => {
+    process.env.VANGUARD_HUB_MAX_QUEUE = '';
+    try {
+      const session = createRunSession(fakeDeps(() => new Promise<CreateRunResult>(() => {})), () => {});
+      void session.createRun({ issueRef: '1', repoPath: '/repo' } as CreateRunParams);
+      void session.createRun({ issueRef: '2', repoPath: '/repo' } as CreateRunParams).catch(() => {});
+      expect(session.queued()).toHaveLength(1);
+    } finally {
+      delete process.env.VANGUARD_HUB_MAX_QUEUE;
+    }
+  });
+
   test('T-44c past the cap createRun is rejected with a message naming the limit', async () => {
     process.env.VANGUARD_HUB_MAX_QUEUE = '1';
     try {

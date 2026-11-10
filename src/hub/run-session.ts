@@ -50,7 +50,9 @@ export interface RunSession {
 }
 
 function maxQueueLimit(): number {
-  const env = Number(process.env.VANGUARD_HUB_MAX_QUEUE);
+  const raw = process.env.VANGUARD_HUB_MAX_QUEUE;
+  // Unset or blank falls back to the default — `Number('')` is 0, which would silently disable queueing.
+  const env = raw === undefined || raw.trim() === '' ? NaN : Number(raw);
   return Number.isFinite(env) && env >= 0 ? Math.floor(env) : DEFAULT_MAX_QUEUE;
 }
 
@@ -59,9 +61,16 @@ function maxQueueLimit(): number {
  * by every RPC call for the hub's lifetime (or per-repo, in a future multi-slot wave 2) — it owns the
  * single-in-flight gate, the FIFO queue behind it, the event ring buffers, and the cancel-flag
  * bookkeeping. The queue lives only in this in-memory array: a hub restart drops every queued run
- * (docs/hub.md says so) — same as the active run and the event buffers above.
+ * (see docs/hub.md) — same as the active run and the event buffers above.
+ *
+ * `assertStart` re-checks a run's params right before it starts (the hub passes its repo allowlist
+ * check): a queued run may start long after `createRun`, and its project may have been unbound since.
  */
-export function createRunSession(deps: SidecarDeps, publish: (name: string, payload: unknown) => void): RunSession {
+export function createRunSession(
+  deps: SidecarDeps,
+  publish: (name: string, payload: unknown) => void,
+  assertStart?: (params: CreateRunParams) => Promise<void>,
+): RunSession {
   let active: { runId: string; repoPath: string } | null = null;
   let counter = 0;
   const buffer = new Map<string, BufferedEvent[]>();
@@ -121,10 +130,23 @@ export function createRunSession(deps: SidecarDeps, publish: (name: string, payl
     }
   }
 
+  /** Announce a queued run's position. Its buffer holds only the LATEST `run-queued` (replaced, not
+   * appended), so re-announcing positions as the queue drains stays O(N), and `execute` can drop it
+   * to keep `run-accepted` at index 0 once the run starts. */
+  function emitQueued(q: QueuedRun, position: number): void {
+    const payload: BufferedEvent = { runId: q.runId, event: { type: 'run-queued', position, repoPath: q.params.repoPath } };
+    buffer.set(q.runId, [payload]);
+    try {
+      publish('api:event', payload);
+    } catch {
+      // A broken publisher must not break the queue.
+    }
+  }
+
   /** Re-announce every still-queued run's position after the queue's shape changes (a start or a
    * cancel) — otherwise a position shown to a client would go stale as runs ahead of it clear. */
   function republishQueue(): void {
-    queue.forEach((q, i) => emit(q.runId, { type: 'run-queued', position: i + 1, repoPath: q.params.repoPath }));
+    queue.forEach((q, i) => emitQueued(q, i + 1));
   }
 
   /** Run one entry to completion (mirrors the old single-shot `createRun` body) and settle its
@@ -135,11 +157,15 @@ export function createRunSession(deps: SidecarDeps, publish: (name: string, payl
     const { runId, params, resolve, reject } = entry;
     const repoPath = params.repoPath;
     active = { runId, repoPath };
+    // Drop the queued-phase `run-queued` so `run-accepted` is index 0 — the eviction invariant in
+    // bufferPush, and the only event a strip re-attach may adopt from.
+    buffer.delete(runId);
     emit(runId, { type: 'run-accepted', repoPath });
 
     let result: CreateRunResult | undefined;
     let errMessage: string | undefined;
     try {
+      if (assertStart !== undefined) await assertStart(params);
       result = await deps.createRun(params, (e) => emit(runId, e));
     } catch (error) {
       errMessage = error instanceof Error ? error.message : String(error);
@@ -167,7 +193,7 @@ export function createRunSession(deps: SidecarDeps, publish: (name: string, payl
   }
 
   /** Promote the head of the queue into the active slot, if the slot is free and the queue is
-   * non-empty. No-op otherwise (called both after a finish and after a queued cancel). */
+   * non-empty. No-op otherwise. Called after a finish only: a queued cancel never frees the slot. */
   function startNext(): void {
     if (active !== null) return;
     const next = queue.shift();
@@ -188,6 +214,7 @@ export function createRunSession(deps: SidecarDeps, publish: (name: string, payl
         if (index !== -1) {
           const [removed] = queue.splice(index, 1);
           emit(runId, { type: 'run-cancelled' });
+          finishRun(runId); // bounded eviction of its buffer, like any settled run
           removed!.reject(new Error('run cancelled while queued'));
           republishQueue();
           return;
@@ -217,7 +244,7 @@ export function createRunSession(deps: SidecarDeps, publish: (name: string, payl
           return;
         }
         queue.push(entry);
-        emit(runId, { type: 'run-queued', position: queue.length, repoPath });
+        emitQueued(entry, queue.length);
       });
     },
   };

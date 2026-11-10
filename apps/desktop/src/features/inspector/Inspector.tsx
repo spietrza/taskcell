@@ -397,7 +397,11 @@ export function Inspector({
             <ArrowLeft className="size-3.5" />
             Back to runs
           </button>
-          <RunStrip state={typedRun} onCancel={() => void apiCancel()} />
+          <RunStrip
+            state={typedRun}
+            // A queued run is not the active one: cancel it by id, or the active run would be killed.
+            onCancel={() => void apiCancel(typedRun.queuedPosition !== undefined ? typedRun.runId : undefined)}
+          />
         </div>
       ) : detail ? (
         <div className="flex min-h-0 flex-1 flex-col">

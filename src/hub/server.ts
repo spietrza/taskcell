@@ -325,9 +325,13 @@ export function createHubServer(opts: HubServerOptions): HubServer {
   eventBus.startKeepalive();
   const watchRegistry = new WatchRegistry(opts.watch);
   const publish = (name: string, payload: unknown): void => eventBus.publish(name, payload);
-  const runSession = createRunSession(deps, publish);
   const completeRegistry = new CompleteRegistry(opts.spawnComplete);
   const allowlist = new ProjectAllowlist(() => loadPaths(opts.configDir), opts.seedRepoPath);
+  // Re-check the allowlist when a run STARTS, not only at enqueue: a queued run can wait long
+  // enough for its project to be unbound.
+  const runSession = createRunSession(deps, publish, async (p) => {
+    await allowlist.assertAllowed(p.repoPath);
+  });
 
   const ctx: RpcContext = {
     allowlist,

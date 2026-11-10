@@ -19,6 +19,17 @@ describe('reduceTypedRun', () => {
     expect(s.stageState[0]).toBe('done');
   });
 
+  it('a queued run (hub) seeds a scoped strip, tracks its position, and clears it once accepted', () => {
+    expect(reduceTypedRun(initialTypedRun(), ev('r2', { type: 'run-queued', position: 1, repoPath: '/other' }), '/repo').runId).toBeUndefined();
+    let s = reduceTypedRun(initialTypedRun(), ev('r2', { type: 'run-queued', position: 2, repoPath: '/repo' }), '/repo');
+    expect(s).toMatchObject({ runId: 'r2', queuedPosition: 2 });
+    s = reduceTypedRun(s, ev('r2', { type: 'run-queued', position: 1, repoPath: '/repo' }), '/repo');
+    expect(s.queuedPosition).toBe(1);
+    s = reduceTypedRun(s, ev('r2', { type: 'run-accepted', repoPath: '/repo' }), '/repo');
+    expect(s.runId).toBe('r2');
+    expect(s.queuedPosition).toBeUndefined();
+  });
+
   it('cost is last-wins (cumulative), not summed', () => {
     let s = reduceTypedRun(initialTypedRun(), ev('r1', { type: 'run-accepted' }));
     s = reduceTypedRun(s, ev('r1', { type: 'cost', usdSpent: 0.02 }));
