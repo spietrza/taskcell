@@ -1,0 +1,41 @@
+# Evals and guardrails: where Taskcell stands
+
+A self-assessment against the usual checklist for LLM systems: an eval pipeline from local to production, the kinds of metrics, and guardrails on input, execution and output. Taskcell is an agent that writes code, not a chatbot or a RAG service, so some items map to something else here; the table says what. ✅ in place, ⚠️ partial, ❌ missing.
+
+For the security boundaries themselves see [security/boundaries.md](security/boundaries.md); for the OWASP mapping, [security/owasp-mapping.md](security/owasp-mapping.md).
+
+## Eval pipeline
+
+| Stage | Taskcell | |
+|---|---|---|
+| Golden dataset | `src/evals/corpus`: 30 cases (control, edge, refusal), run with `vanguard eval` ([cli.md](cli.md)) | ⚠️ small |
+| Evals on every PR, gated on a drop | not yet: prompt and model changes are covered by unit tests only ([#706](https://github.com/spietrza/taskcell/issues/706)) | ❌ |
+| Comparison with main's baseline | not yet ([#706](https://github.com/spietrza/taskcell/issues/706)) | ❌ |
+| Adversarial testing | containment tests against the sandbox (container escape, egress, secrets, permissions, prompt injection), in progress | ⚠️ |
+| Production observability | per-run metrics on the `vanguard-metrics` branch (`vanguard stats`), run records with transcript and diff, the shadow [Approver](autonomous-loop.md#approver-shadow-mode), calibration (Brier) of the decision probe | ✅ |
+| Feedback loop into the dataset | `vanguard eval --suggest` drafts candidates from failed runs and reviewer notes; retrospective memory feeds later runs. Human-rejected PRs are not collected yet ([#707](https://github.com/spietrza/taskcell/issues/707)); a human curates every case | ⚠️ |
+
+## Metrics
+
+| Kind | Taskcell | |
+|---|---|---|
+| Deterministic | `programmaticJudge` in the eval suite; in the factory itself every change passes deterministic gates: tests, typecheck, secret scan, and the spec-manifest conformance gate | ✅ |
+| LLM as judge | eval judge pinned to a Haiku model, a different family from the model under test, verdict parsed with a schema; a second model reviews every factory change, and a reply without an explicit pass is `incomplete`, never a pass | ✅ |
+| Judge calibration on human labels | not done | ❌ |
+| Eval libraries (promptfoo, Ragas, DeepEval) | not used: the corpus, judges and report are in-repo, so the harness has no extra dependency and runs the real factory stages | n/a |
+
+## Guardrails
+
+Prompt injection cannot be fully prevented, so the weight is on limiting what the agent can do.
+
+| Level | In place | Missing or opt-in |
+|---|---|---|
+| Input | author gate on issues and PRs (only listed accounts start the factory); untrusted tracker text escaped and tagged as data in prompts (`src/context/escape.ts`) | no injection classifier |
+| Execution | Docker sandbox: non-root, `cap-drop ALL`, `no-new-privileges`, no GitHub token inside; `--egress` (allowlisted CONNECT proxy on an internal network) and `--llm-proxy` (model key stays in a sidecar, the sandbox gets a per-run nonce); copy-back drops CI config; only the host pushes; turn, time and budget limits; a human merges every PR | `--egress` and `--llm-proxy` are opt-in; the cost budget is enforced for Claude and z.ai only; read-only rootfs is opt-in (`VANGUARD_SANDBOX_READONLY=1`) |
+| Output | secret scan on the diff before push; redaction of logs and published text; review verdict must be explicit; the change must pass the repo's own tests and spec gates, which is how "hallucinated" code is caught | no PII scan (rarely relevant to code changes) |
+
+## Next
+
+1. Evals gate PRs against main's baseline ([#706](https://github.com/spietrza/taskcell/issues/706)).
+2. Human-rejected runs become draft corpus candidates; grow the corpus to about 100 curated cases ([#707](https://github.com/spietrza/taskcell/issues/707)).
+3. Calibrate the eval judge on 20-30 human-labelled verdicts.
