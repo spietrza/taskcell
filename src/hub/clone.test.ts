@@ -1,4 +1,4 @@
-import { mkdtemp, mkdir, rm, symlink, writeFile } from 'node:fs/promises';
+import { mkdtemp, mkdir, realpath, rm, symlink, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { afterEach, expect, test, vi } from 'vitest';
@@ -8,8 +8,10 @@ const roots: string[] = [];
 afterEach(async () => {
   await Promise.all(roots.splice(0).map((root) => rm(root, { recursive: true, force: true })));
 });
+// realpath: on macOS os.tmpdir() is under /var, a symlink to /private/var — cloneProject() (and git)
+// resolve symlinks before returning a path, so the raw tmpdir path would never string-equal theirs.
 async function root(): Promise<string> {
-  const path = await mkdtemp(join(tmpdir(), 'clone-test-'));
+  const path = await realpath(await mkdtemp(join(tmpdir(), 'clone-test-')));
   roots.push(path);
   return path;
 }
