@@ -1,4 +1,4 @@
-import { chmod, lstat, mkdir, mkdtemp, readFile, rm, symlink, writeFile } from 'node:fs/promises';
+import { chmod, lstat, mkdir, mkdtemp, readFile, realpath, rm, symlink, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { dirname, join } from 'node:path';
 import { execa } from 'execa';
@@ -10,7 +10,10 @@ const roots: string[] = [];
 afterEach(async () => { await Promise.all(roots.splice(0).map((p) => rm(p, { recursive: true, force: true }))); });
 
 async function fixture() {
-  const repoPath = await mkdtemp(join(tmpdir(), 'vg-instructions-'));
+  // realpath: on macOS os.tmpdir() is under /var, a symlink to /private/var — git resolves symlinks
+  // when it records the worktree's gitdir, so a worktree path built from the raw tmpdir would not
+  // string-equal the one git reports.
+  const repoPath = await realpath(await mkdtemp(join(tmpdir(), 'vg-instructions-')));
   roots.push(repoPath);
   const git = (args: string[], cwd = repoPath) => execa('git', args, { cwd });
   await git(['init', '-q', '-b', 'main']);
