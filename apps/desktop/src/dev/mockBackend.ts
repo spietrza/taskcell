@@ -16,6 +16,7 @@ import {
   createdTask,
   dirListing,
   remoteImport,
+  needsYouItems,
 } from './fixtures';
 
 const READ_DRAFT = JSON.stringify({ id: 'draft-001', title: 'Draft task', body: 'Some draft content here.' });
@@ -105,6 +106,8 @@ const commandHandlers = {
     name: args?.name ?? 'repo',
     runCount: 0, taskCount: 0, totalCostUsd: 0, failedCount: 0, runningCount: 0, runsLast24h: 0,
   }),
+  list_needs_you: () => ({ items: needsYouItems }),
+  reply_needs_you: () => undefined,
 } satisfies Partial<{
   [K in keyof Commands]: (args: Commands[K]['args']) => Promise<Commands[K]['result']> | Commands[K]['result'];
 }>;

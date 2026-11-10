@@ -17,6 +17,8 @@ import type { RunSession } from './run-session.js';
 import { CompleteRegistry, type CompleteParams } from './complete.js';
 import { assertWithinBrowseRoot, browseDirs } from './browse.js';
 import { cloneProject } from './clone.js';
+import { listNeedsYou, replyNeedsYou } from './needs-you.js';
+import { detectRepoSlug } from '../runners/github.js';
 import type { ErrorKind } from '../hub-wire.js';
 import { defaultRunsRoot, remoteRunsRoot, listRunSummaries, readRunDetail } from './runs.js';
 import { listActive, readSession } from './active.js';
@@ -325,6 +327,25 @@ export async function dispatchRpc(ctx: RpcContext, cmd: string, rawArgs: unknown
     case 'browse_dirs': {
       assertMutationsAllowed(ctx.bind);
       return browseDirs(ctx.browseRoot, optionalString(args, 'path'));
+    }
+    case 'list_needs_you': {
+      const real = await ctx.allowlist.assertAllowed(requireString(args, 'repoPath'));
+      let repoSlug: string;
+      try {
+        repoSlug = await detectRepoSlug(real);
+      } catch {
+        return { items: [] }; // not a GitHub remote — nothing for this read model to show
+      }
+      return { items: await listNeedsYou(repoSlug) };
+    }
+    case 'reply_needs_you': {
+      await ctx.allowlist.assertAllowed(requireString(args, 'repoPath'));
+      const id = requireString(args, 'id');
+      const kind = requireString(args, 'kind');
+      if (kind !== 'issue' && kind !== 'pr') throw new BadRequestError("kind must be 'issue' or 'pr'");
+      const body = requireString(args, 'body');
+      await replyNeedsYou(id, kind, body);
+      return null;
     }
     default:
       throw new UnknownCommandError(`unknown command: ${cmd}`);
