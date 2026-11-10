@@ -1,0 +1,43 @@
+name: Sandbox image
+
+# Publishes the sandbox image that docker/build.sh pulls first (#674). The tag is the git tree hash of
+# docker/, the same key build.sh computes, so a factory run pulls exactly the image for its tree and
+# builds only when none is published. Runs only on main, never on PR code.
+
+on:
+  push:
+    branches: [main]
+    paths: ['docker/**']
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  packages: write
+
+concurrency:
+  group: sandbox-image
+  cancel-in-progress: false
+
+jobs:
+  publish:
+    if: github.event_name == 'push' || github.actor == 'spietrza'
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+        with:
+          persist-credentials: false
+
+      - name: Build and push
+        env:
+          GH_TOKEN: ${{ github.token }}
+          ACTOR: ${{ github.actor }}
+        run: |
+          IMAGE=ghcr.io/spietrza/taskcell-sandbox
+          TREE="$(git rev-parse HEAD:docker)"
+          echo "$GH_TOKEN" | docker login ghcr.io -u "$ACTOR" --password-stdin
+          # build.sh pulls first, so an already-published tree is a no-op apart from the push.
+          TAG="$IMAGE:$TREE" ALIAS_TAG= docker/build.sh
+          docker push "$IMAGE:$TREE"
+          docker tag "$IMAGE:$TREE" "$IMAGE:latest"
+          docker push "$IMAGE:latest"
