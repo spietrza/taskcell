@@ -86,7 +86,7 @@ describe('renderCandidatesMarkdown', () => {
   it('shows an empty-state message for no candidates', () => {
     const markdown = renderCandidatesMarkdown([]);
     expect(markdown).toContain('DRAFT');
-    expect(markdown).toContain('_No retrospective entries to draft candidates from._');
+    expect(markdown).toContain('_No retrospective entries or GitHub signals to draft candidates from._');
   });
 
   it('renders id, kind, source, input, expectation, and reason per candidate', () => {
@@ -147,7 +147,7 @@ describe('evalSuggestCommand', () => {
     const logs = await withLogCapture(() =>
       evalSuggestCommand({ kind: 'eval', json: false, suggest: true, repoPath: tmp }),
     );
-    expect(logs.join('\n')).toContain('_No retrospective entries to draft candidates from._');
+    expect(logs.join('\n')).toContain('_No retrospective entries or GitHub signals to draft candidates from._');
   });
 
   it('never writes to src/evals/corpus/, and refuses an --out path under it', async () => {

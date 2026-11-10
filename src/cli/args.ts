@@ -294,6 +294,12 @@ export type Command =
       limit?: number;
       /** Also write the drafted candidates to this scratch path (refused if under src/evals/corpus/). */
       out?: string;
+      /** With --suggest: also draft candidates from GitHub (closed-unmerged / needs-human-review PRs, reverts). */
+      githubRepo?: string;
+      /** With --suggest: only consider entries/PRs/commits at or after this ISO date. */
+      since?: string;
+      /** With --suggest: force markdown output (default is already markdown unless --json; explicit for scripting). */
+      markdown?: boolean;
     }
   | { kind: 'sidecar' }
   | { kind: 'complete' }
@@ -562,6 +568,8 @@ export function parseCli(argv: string[], cwd: string): Command {
         // eval --suggest
         suggest: { type: 'boolean' },
         out: { type: 'string' },
+        since: { type: 'string' },
+        markdown: { type: 'boolean' },
         // hub
         port: { type: 'string' },
         host: { type: 'string' },
@@ -712,6 +720,9 @@ export function parseCli(argv: string[], cwd: string): Command {
       repoPath,
       ...(limit !== undefined ? { limit } : {}),
       ...(typeof values.out === 'string' ? { out: values.out } : {}),
+      ...(typeof values['github-repo'] === 'string' ? { githubRepo: values['github-repo'] } : {}),
+      ...(typeof values.since === 'string' ? { since: values.since } : {}),
+      ...(values.markdown === true ? { markdown: true } : {}),
     };
   }
 
@@ -1534,10 +1545,15 @@ ${MAX_REPAIR_ITERATIONS_USAGE}
     --judge-model <m>        Model used to judge agent outputs (default: pinned claude-haiku-4-5-20251001; override for
                              experiments; clef|clef-flash judges with a decision model — calibrated probabilities, no JSON to parse)
     --produce-model <m>      Model under test whose outputs are judged (default: claude-sonnet-5-5)
-    --suggest                Draft eval-corpus candidates from retrospective memory (suggest-only; never writes the corpus)
+    --suggest                Draft eval-corpus candidates from retrospective memory and, with --github-repo, from GitHub
+                             (closed-unmerged factory PRs, PRs that ended needs-human-review, reverted factory commits);
+                             suggest-only, never writes the corpus
     --repo <path>            Repo to read run artifacts from (with --suggest; default: cwd)
     --limit <n>              Max retrospective entries to consider (with --suggest; default: 10)
     --out <path>             Also write drafts to this scratch file (refuses paths under src/evals/corpus/)
+    --github-repo <o/r>      With --suggest: also draft candidates from this GitHub repo's closed/reverted factory PRs
+    --since <date>           With --suggest: only consider entries/PRs/commits at or after this ISO date
+    --markdown               With --suggest: print one Markdown document (default already markdown unless --json)
 
     Temperature note: the claude CLI exposes no --temperature flag; run the suite 3× on a known-good
     state to measure pass-rate variance before relying on absolute regression thresholds (phase 2).

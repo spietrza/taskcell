@@ -24,6 +24,27 @@ describe('parseCli eval', () => {
     expect(cmd).toMatchObject({ kind: 'eval', produceModel: 'claude-sonnet-4-6' });
   });
 
+  it('parses --suggest --github-repo --since --markdown', () => {
+    const cmd = parseCli(
+      ['eval', '--suggest', '--github-repo', 'o/r', '--since', '2026-11-03', '--markdown'],
+      '/repo',
+    );
+    expect(cmd).toMatchObject({
+      kind: 'eval',
+      suggest: true,
+      githubRepo: 'o/r',
+      since: '2026-11-03',
+      markdown: true,
+    });
+  });
+
+  it('omits githubRepo/since/markdown when not passed', () => {
+    const cmd = parseCli(['eval', '--suggest'], '/repo');
+    expect(cmd).not.toHaveProperty('githubRepo');
+    expect(cmd).not.toHaveProperty('since');
+    expect(cmd).not.toHaveProperty('markdown');
+  });
+
 });
 
 describe('JUDGE_MODEL', () => {
