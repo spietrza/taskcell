@@ -105,7 +105,7 @@ describe('run-session', () => {
       void session.createRun({ issueRef: '1', repoPath: '/repo' } as CreateRunParams);
       void session.createRun({ issueRef: '2', repoPath: '/repo' } as CreateRunParams).catch(() => {});
       await expect(session.createRun({ issueRef: '3', repoPath: '/repo' } as CreateRunParams)).rejects.toThrow(
-        /queue is full \\(max 1 queued runs\\)/,
+        'queue is full (max 1 queued runs)',
       );
       expect(session.queued()).toHaveLength(1);
     } finally {
