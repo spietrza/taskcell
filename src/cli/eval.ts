@@ -31,7 +31,7 @@ export const EMPTY_TASK_PROMPT = '(The task description is empty.)';
 export const EVAL_CLAUDE_ARGS = ['--print', '--tools', '', '--strict-mcp-config'] as const;
 
 /** The CLI's message when the API stops a reply on safety grounds; it exits non-zero but this is the model's answer. */
-export const API_REFUSAL_RE = /API Error: \S+ can't help with this/;
+export const API_REFUSAL_RE = /API Error: .*(?:can't help with this|safeguards flagged this message)/;
 
 /** Thin host-side completion: runs `claude --print --model <model>` with the prompt on stdin, tool-less, in a throwaway directory. */
 export function makeCliComplete(model: string): (prompt: string) => Promise<string> {
