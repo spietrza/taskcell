@@ -343,9 +343,12 @@ type StageOnlyKey = 'visualProofCmd' | 'conformance' | 'conformanceModel';
 
 /**
  * Every key of T, present or not — so a RunOptions field added without a line in parseRunOptions
- * is a type error, not a flag one subcommand silently drops.
+ * is a type error, not a flag one subcommand silently drops. `keyof Required<T>` makes the keys
+ * required without a `-?` modifier, which would also strip `undefined` from the value type wherever
+ * `exactOptionalPropertyTypes` is off — apps/desktop's tsconfig, which type-checks this file through
+ * the hub — and every value here is allowed to be undefined.
  */
-export type Exhaustive<T> = { readonly [K in keyof T]-?: T[K] | undefined };
+export type Exhaustive<T> = { readonly [K in keyof Required<T>]: T[K] | undefined };
 
 /** Drop the undefined entries: an absent flag leaves no key on the command (callers test with `in`). */
 function present<T extends object>(exhaustive: Exhaustive<T>): T {
