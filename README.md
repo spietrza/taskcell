@@ -119,6 +119,7 @@ How these fit together: [docs/security/boundaries.md](docs/security/boundaries.m
 | [docs/CURSOR-provider.md](docs/CURSOR-provider.md), [docs/MERIDIAN-provider.md](docs/MERIDIAN-provider.md) | Provider guides |
 | [docs/security/boundaries.md](docs/security/boundaries.md) | Security boundaries and the host LLM proxy |
 | [docs/security/owasp-mapping.md](docs/security/owasp-mapping.md) | OWASP self-assessment |
+| [docs/evals-and-guardrails.md](docs/evals-and-guardrails.md) | Evals and guardrails: where Taskcell stands |
 | [CHANGELOG.md](CHANGELOG.md) | Release notes |
 
 ## Contributing
