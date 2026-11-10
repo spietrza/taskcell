@@ -1,5 +1,27 @@
 # Changelog
 
+## [1.15.0](https://github.com/spietrza/taskcell/compare/v1.14.0...v1.15.0) (2026-11-10)
+
+
+### Features
+
+* in-pipeline reviewer: no pass by default, re-review after repairs, report-only (spietrza/taskcell[#673](https://github.com/spietrza/taskcell/issues/673)) ([#700](https://github.com/spietrza/taskcell/issues/700)) ([32ad52b](https://github.com/spietrza/taskcell/commit/32ad52b0bb1d59ce3f114f05b19a808a57f3d25e))
+* prebuilt sandbox image on GHCR, pull-first in all factory runs (spietrza/taskcell[#674](https://github.com/spietrza/taskcell/issues/674)) ([#702](https://github.com/spietrza/taskcell/issues/702)) ([739e1b8](https://github.com/spietrza/taskcell/commit/739e1b8730ca63fc70847c171fdae57b628fb9b4))
+* repair-gate: drop the dead iterations decrement in the provider-limit catch (spietrza/taskcell[#691](https://github.com/spietrza/taskcell/issues/691)) ([#692](https://github.com/spietrza/taskcell/issues/692)) ([75d740b](https://github.com/spietrza/taskcell/commit/75d740b5c37cd31e945fcb7f792cbc18e175d8c7))
+* revise: a fresh human request after the round cap starts a new budget (spietrza/taskcell[#675](https://github.com/spietrza/taskcell/issues/675)) ([#701](https://github.com/spietrza/taskcell/issues/701)) ([e02824b](https://github.com/spietrza/taskcell/commit/e02824bdeb94034e52a7ecf0e727d23e2a762eb3))
+* sandbox: opt-in persistent pnpm store per repo, so installs stop re-downloading (spietrza/taskcell[#695](https://github.com/spietrza/taskcell/issues/695)) ([#703](https://github.com/spietrza/taskcell/issues/703)) ([dac316b](https://github.com/spietrza/taskcell/commit/dac316b422bd48ce926044fde6e777604ffdf3af))
+
+
+### Bug Fixes
+
+* **landing:** scene labels, pause control, WebGL fallback ([#699](https://github.com/spietrza/taskcell/issues/699)) ([6bfdbcf](https://github.com/spietrza/taskcell/commit/6bfdbcfd8c49ca10cece135f95e3ef1e98349c2b))
+* redact the provider-limit log line in repair-gate ([#698](https://github.com/spietrza/taskcell/issues/698)) ([9bf4437](https://github.com/spietrza/taskcell/commit/9bf4437a6b26f09c9d927aac768c4268b9499c95))
+
+
+### Documentation
+
+* Taskcell banner, social preview and icon ([#696](https://github.com/spietrza/taskcell/issues/696)) ([7495195](https://github.com/spietrza/taskcell/commit/7495195cbc2b0524dbb5edfef9e56eeacfea8f61))
+
 ## [1.14.0](https://github.com/spietrza/taskcell/compare/v1.13.0...v1.14.0) (2026-11-09)
 
 
