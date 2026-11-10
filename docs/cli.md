@@ -146,7 +146,7 @@ vanguard eval --save-baseline                   # publish this run as the baseli
 `.github/workflows/eval.yml` runs two jobs:
 
 - **gate** (`eval --baseline main`): a PR's own code runs with a model credential in env, so it never starts by itself. A maintainer reads the diff and adds the `run eval` label; after new commits the label is added again. Fork PRs are skipped.
-- **baseline** (`eval --save-baseline`): every push to main that touches `src/context|evals|agents|pipeline/**` publishes a new baseline to the metrics branch. Run it once by hand (`workflow_dispatch` on main) to seed the first baseline.
+- **baseline**: every push to main that touches `src/context|evals|agents|pipeline/**` publishes a new baseline to the metrics branch. The eval runs with a read-only token; a second job that runs no install, build or model appends the report to `eval-baselines.jsonl` (same record and per-commit dedup as `eval --save-baseline`). Run it once by hand (`workflow_dispatch` on main) to seed the first baseline.
 
 Two notes on the credential. `--llm-proxy` does not apply here: it keeps a model key out of the **sandbox**, and `eval` runs no sandbox — it shells out to the host `claude` CLI, which reads `CLAUDE_CODE_OAUTH_TOKEN` (or `ANTHROPIC_API_KEY`) from the environment, so the job's `env:` block is the whole credential path. And the gate job runs PR-authored code on the `pull_request` trigger (never `pull_request_target`) with a read-only `GITHUB_TOKEN`, but with the model credential in env — which is why a maintainer's label, not every push, starts it.
 
