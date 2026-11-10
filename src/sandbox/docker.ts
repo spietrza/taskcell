@@ -1,5 +1,5 @@
 import { execa } from 'execa';
-import { randomUUID } from 'node:crypto';
+import { createHash, randomUUID } from 'node:crypto';
 import { mkdtemp, writeFile, rm, mkdir, stat } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { dirname, join } from 'node:path';
@@ -155,6 +155,19 @@ type SecretsMode = 'tmpfs' | 'env-file';
 
 const HOST_GATEWAY_NAME = 'host.docker.internal';
 
+/** Mount point inside the sandbox for the opt-in persistent pnpm store (see SandboxConfig.pnpmStore). */
+const PNPM_STORE_DIR = '/pnpm-store';
+
+/**
+ * Named Docker volume for one repo's persistent pnpm store: `taskcell-pnpm-store-<hash>`. One per
+ * `repoKey` so a run against repo A can never read (or poison) repo B's cached packages — see the
+ * store-poisoning note on SandboxConfig.pnpmStore and docs/cli.md.
+ */
+export function pnpmStoreVolumeName(repoKey: string): string {
+  const hash = createHash('sha256').update(repoKey).digest('hex').slice(0, 16);
+  return `taskcell-pnpm-store-${hash}`;
+}
+
 /** Runs an isolated command environment as a detached Docker container. */
 export class DockerSandboxProvider implements IsolatedSandboxProvider {
   readonly id: string;
@@ -262,6 +275,14 @@ export class DockerSandboxProvider implements IsolatedSandboxProvider {
     }
     if (this.envDir !== undefined) args.push('--env-file', join(this.envDir, 'env'));
     for (const [k, v] of Object.entries(this.config.env ?? {})) args.push('-e', `${k}=${v}`);
+
+    if (this.config.pnpmStore !== undefined) {
+      const { repoKey, hostDir } = this.config.pnpmStore;
+      const mount = hostDir ?? pnpmStoreVolumeName(repoKey);
+      args.push('-v', `${mount}:${PNPM_STORE_DIR}`);
+      args.push('-e', `npm_config_store_dir=${PNPM_STORE_DIR}`);
+    }
+
     args.push(image, 'sleep', 'infinity');
     return args;
   }

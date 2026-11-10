@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { ownerLabelArgs, sandboxResourceLimits, sandboxSecurityOpts, sidecarMemoryArgs } from './limits.js';
+import { ownerLabelArgs, pnpmStoreConfig, sandboxResourceLimits, sandboxSecurityOpts, sidecarMemoryArgs } from './limits.js';
 
 describe('sandboxResourceLimits', () => {
   it('uses defaults when no env is set', () => {
@@ -93,5 +93,22 @@ describe('ownerLabelArgs', () => {
       '--label',
       'vanguard.owner=ci-job-42',
     ]);
+  });
+});
+
+describe('pnpmStoreConfig', () => {
+  it('is off unless --pnpm-store or VANGUARD_PNPM_STORE opts in', () => {
+    expect(pnpmStoreConfig('/repo', undefined, {})).toBeUndefined();
+    expect(pnpmStoreConfig('/repo', undefined, { VANGUARD_PNPM_STORE: '0' })).toBeUndefined();
+    expect(pnpmStoreConfig('/repo', undefined, { VANGUARD_PNPM_STORE: '' })).toBeUndefined();
+    expect(pnpmStoreConfig('/repo', true, {})).toEqual({ repoKey: '/repo' });
+    expect(pnpmStoreConfig('/repo', undefined, { VANGUARD_PNPM_STORE: '1' })).toEqual({ repoKey: '/repo' });
+    expect(pnpmStoreConfig('/repo', undefined, { VANGUARD_PNPM_STORE: 'true' })).toEqual({ repoKey: '/repo' });
+  });
+
+  it('bind-mounts VANGUARD_PNPM_STORE_DIR when set, only once enabled', () => {
+    expect(pnpmStoreConfig('/repo', true, { VANGUARD_PNPM_STORE_DIR: '/cache/pnpm' })).toEqual({ repoKey: '/repo', hostDir: '/cache/pnpm' });
+    expect(pnpmStoreConfig('/repo', true, { VANGUARD_PNPM_STORE_DIR: '' })).toEqual({ repoKey: '/repo' });
+    expect(pnpmStoreConfig('/repo', undefined, { VANGUARD_PNPM_STORE_DIR: '/cache/pnpm' })).toBeUndefined();
   });
 });

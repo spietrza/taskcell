@@ -29,4 +29,5 @@ export const RUN_OPTIONS = {
   escalateModel: 'claude-fable-5',
   skillsDir: '/skills',
   feedbackAuthors: ['maintainer'] as string[],
+  pnpmStore: true,
 } as const satisfies Exhaustive<SharedRunOptions>;

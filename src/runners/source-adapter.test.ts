@@ -123,7 +123,11 @@ vi.mock('../sandbox/docker.js', () => ({
   },
   sandboxImage,
 }));
-vi.mock('../sandbox/limits.js', () => ({ sandboxResourceLimits: vi.fn(() => ({})) }));
+vi.mock('../sandbox/limits.js', () => ({
+  sandboxResourceLimits: vi.fn(() => ({})),
+  // Off by default, as it is in production — the opt-in store itself is covered in limits.test.ts.
+  pnpmStoreConfig: vi.fn(() => undefined),
+}));
 const { probeTaskDifficulty } = vi.hoisted(() => ({ probeTaskDifficulty: vi.fn(async () => undefined) }));
 vi.mock('../core/decision-probe.js', () => ({ probeTaskDifficulty, decisionProbeConfig: vi.fn(() => undefined) }));
 const { decisionModelConfig } = vi.hoisted(() => ({ decisionModelConfig: vi.fn((): unknown => undefined) }));

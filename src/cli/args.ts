@@ -379,6 +379,7 @@ function parseRunOptions(values: Record<string, string | boolean | undefined>, c
     maxTurns: checked.maxTurns,
     maxRepairIterations: checked.maxRepairIterations,
     skillsDir: typeof values.skills === 'string' ? values.skills : undefined,
+    pnpmStore: values['pnpm-store'] === true ? true : undefined,
   });
 }
 
@@ -541,6 +542,8 @@ export function parseCli(argv: string[], cwd: string): Command {
         // proof-of-work verification (run + watch)
         verify: { type: 'string' },
         'visual-proof': { type: 'string' },
+        // opt-in persistent pnpm store, one per repo (run + watch); see docs/cli.md
+        'pnpm-store': { type: 'boolean' },
         // research
         web: { type: 'boolean' },
         'research-model': { type: 'string' },
