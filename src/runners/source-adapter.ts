@@ -6,7 +6,7 @@ import { readFile } from 'node:fs/promises';
 import { taskToVariables } from '../tasks/fetcher.js';
 import { escapePromptTags } from '../context/escape.js';
 import { DockerSandboxProvider, sandboxImage } from '../sandbox/docker.js';
-import { sandboxResourceLimits, pnpmStoreConfig } from '../sandbox/limits.js';
+import { sandboxResourceLimits, pnpmStoreConfig, sandboxSecurityOpts } from '../sandbox/limits.js';
 import { selectAgents, forcedProviderModel, providerKeyEnvNames } from '../agents/registry.js';
 import { DEFAULT_BASE_BRANCH } from '../core/base-branch.js';
 import { prepareContext, disposeContext } from '../core/vanguard.js';
@@ -437,6 +437,7 @@ export async function runSourcedIssue(
       ...(env !== undefined ? { env } : {}),
       ...(deps.network !== undefined ? { network: deps.network } : {}),
       ...(pnpmStore !== undefined ? { pnpmStore } : {}),
+      security: sandboxSecurityOpts(process.env, deps.network !== undefined),
     });
 
     // A decision-model fork scorer needs credentials; resolve them BEFORE the sandbox is built so a

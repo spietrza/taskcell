@@ -76,8 +76,13 @@ export function pnpmStoreConfig(
 /**
  * Env-overridable sandbox hardening. Unlike the resource limits above, these default ON for every
  * sandbox (least-privilege by default) and are overridable per the same "0"/empty ⇒ disable idiom.
+ *
+ * `hardened` is the caller's "this run is `--egress`/`--llm-proxy`" signal — a plain boolean, passed
+ * in by the CLI/runner call site, never read from argv or env here — and only shifts the
+ * `readOnlyRootfs` default from false to true; an explicit `VANGUARD_SANDBOX_READONLY` still wins
+ * either way, so `=0` disables it even when hardened and `=1` enables it even when not.
  */
-export function sandboxSecurityOpts(env: NodeJS.ProcessEnv = process.env): SandboxSecurityOpts {
+export function sandboxSecurityOpts(env: NodeJS.ProcessEnv = process.env, hardened = false): SandboxSecurityOpts {
   const list = (raw: string | undefined, fallback: string[]): string[] =>
     raw === undefined
       ? fallback
@@ -91,6 +96,6 @@ export function sandboxSecurityOpts(env: NodeJS.ProcessEnv = process.env): Sandb
     capDrop: list(env.VANGUARD_SANDBOX_CAP_DROP, ['ALL']),
     capAdd: list(env.VANGUARD_SANDBOX_CAP_ADD, ['CHOWN', 'FOWNER', 'DAC_OVERRIDE']),
     noNewPrivileges: flag(env.VANGUARD_SANDBOX_NO_NEW_PRIVILEGES, true),
-    readOnlyRootfs: flag(env.VANGUARD_SANDBOX_READONLY, false),
+    readOnlyRootfs: flag(env.VANGUARD_SANDBOX_READONLY, hardened),
   };
 }

@@ -252,6 +252,8 @@ export class DockerSandboxProvider implements IsolatedSandboxProvider {
     if (this.config.cpus !== undefined) args.push('--cpus', String(this.config.cpus));
     if (this.config.pidsLimit !== undefined) args.push('--pids-limit', String(this.config.pidsLimit));
 
+    // Bare call = non-hardened defaults; the runners pass `sandboxSecurityOpts(env, hardened)` via
+    // config.security, which wins here (see SandboxConfig.security).
     const security = { ...sandboxSecurityOpts(), ...this.config.security };
     for (const cap of security.capDrop) args.push('--cap-drop', cap);
     // Added back on top of capDrop ALL: copyIn's `docker exec -u 0 chown -R` needs CAP_CHOWN (and,

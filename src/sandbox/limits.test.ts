@@ -64,6 +64,13 @@ describe('sandboxSecurityOpts', () => {
     expect(sandboxSecurityOpts({ VANGUARD_SANDBOX_READONLY: 'true' } as NodeJS.ProcessEnv).readOnlyRootfs).toBe(true);
     expect(sandboxSecurityOpts({ VANGUARD_SANDBOX_READONLY: '0' } as NodeJS.ProcessEnv).readOnlyRootfs).toBe(false);
   });
+
+  it('readOnlyRootfs defaults to the hardened flag (--egress/--llm-proxy), but env still wins either way', () => {
+    expect(sandboxSecurityOpts({}, true).readOnlyRootfs).toBe(true);
+    expect(sandboxSecurityOpts({}, false).readOnlyRootfs).toBe(false);
+    expect(sandboxSecurityOpts({ VANGUARD_SANDBOX_READONLY: '0' } as NodeJS.ProcessEnv, true).readOnlyRootfs).toBe(false);
+    expect(sandboxSecurityOpts({ VANGUARD_SANDBOX_READONLY: '1' } as NodeJS.ProcessEnv, false).readOnlyRootfs).toBe(true);
+  });
 });
 
 describe('sidecarMemoryArgs', () => {

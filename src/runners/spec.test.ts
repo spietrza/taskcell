@@ -12,7 +12,8 @@ import {
   linearWatchPrimitives,
   githubIssueWatchPrimitives,
 } from './watch.js';
-import { runSpecGenerator } from './spec.js';
+import { runSpecGenerator, defaultSandboxFactory } from './spec.js';
+import type { DockerSandboxProvider } from '../sandbox/docker.js';
 import { parseSpecManifest } from '../pipeline/conformance-gate.js';
 import { GITHUB_CLAIMED_LABEL, GITHUB_REVIEW_LABEL, GITHUB_SPEC_CLAIMED_LABEL } from '../github-labels.js';
 import type { SpecWatchPrimitives, WatchPrimitives, GenerateSpec } from './watch.js';
@@ -789,5 +790,39 @@ describe('runSpecGenerator', () => {
     } finally {
       await rm(bundled, { recursive: true, force: true });
     }
+  });
+});
+
+// Runs without Docker: the runner-built sandbox's argv. Proves the hardened flag reaches
+// `buildRunArgs` through config.security (limits.test.ts/docker.test.ts cover the pieces in isolation).
+describe('defaultSandboxFactory wires the hardened read-only rootfs', () => {
+  const KEY = 'VANGUARD_SANDBOX_READONLY';
+  const prev = process.env[KEY];
+  afterEach(() => {
+    if (prev === undefined) delete process.env[KEY];
+    else process.env[KEY] = prev;
+  });
+  const runArgs = (deps: Partial<RunSpecGeneratorDeps>): string[] => {
+    const fetcher = { fetch: vi.fn() } as unknown as TaskFetcher;
+    const sandbox = defaultSandboxFactory({ repoPath: '/nowhere', fetcher, ...deps } as RunSpecGeneratorDeps, {}, {}, false);
+    return (sandbox as DockerSandboxProvider).buildRunArgs();
+  };
+
+  it('--egress/--llm-proxy (enclave network set): --read-only plus the three tmpfs mounts', () => {
+    delete process.env[KEY];
+    const args = runArgs({ network: 'vg-egr-1' });
+    expect(args).toContain('--read-only');
+    const tmpfs = args.filter((_, i) => args[i - 1] === '--tmpfs');
+    for (const path of ['/workspace:', '/home/agent:', '/tmp:']) expect(tmpfs.some((t) => t.startsWith(path))).toBe(true);
+  });
+
+  it('an explicit VANGUARD_SANDBOX_READONLY=0 still turns it off in hardened mode', () => {
+    process.env[KEY] = '0';
+    expect(runArgs({ network: 'vg-egr-1' })).not.toContain('--read-only');
+  });
+
+  it('without the flags the rootfs stays writable, as before', () => {
+    delete process.env[KEY];
+    expect(runArgs({})).not.toContain('--read-only');
   });
 });

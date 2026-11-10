@@ -385,6 +385,39 @@ describe('DockerSandboxProvider buildRunArgs (hardening flags)', () => {
     expect(args).not.toContain('--read-only');
   });
 
+  it('hardened mode (--llm-proxy/--egress) defaults readOnlyRootfs on: --read-only plus the three tmpfs mounts', () => {
+    const sb = new DockerSandboxProvider({ security: sandboxSecurityOpts({}, true) });
+    const args = sb.buildRunArgs();
+    expect(args).toContain('--read-only');
+    const tmpfsArgs = args.filter((_, i) => args[i - 1] === '--tmpfs');
+    expect(tmpfsArgs.some((a) => a.startsWith('/workspace:'))).toBe(true);
+    expect(tmpfsArgs.some((a) => a.startsWith('/home/agent:'))).toBe(true);
+    expect(tmpfsArgs.some((a) => a.startsWith('/tmp:'))).toBe(true);
+  });
+
+  it('an explicit VANGUARD_SANDBOX_READONLY=0 still turns readOnlyRootfs off in hardened mode', () => {
+    const sb = new DockerSandboxProvider({
+      security: sandboxSecurityOpts({ VANGUARD_SANDBOX_READONLY: '0' } as NodeJS.ProcessEnv, true),
+    });
+    expect(sb.buildRunArgs()).not.toContain('--read-only');
+  });
+
+  it('an explicit VANGUARD_SANDBOX_READONLY=1 still turns readOnlyRootfs on outside hardened mode', () => {
+    const sb = new DockerSandboxProvider({
+      security: sandboxSecurityOpts({ VANGUARD_SANDBOX_READONLY: '1' } as NodeJS.ProcessEnv, false),
+    });
+    expect(sb.buildRunArgs()).toContain('--read-only');
+  });
+
+  it('without --llm-proxy/--egress (hardened=false), args are unchanged from the non-hardened default', () => {
+    // Strip the per-instance id (container name + runId label) so the two argv lists compare equal.
+    const stable = (args: string[]): string[] => args.filter((a) => !a.startsWith('vg-') && !a.startsWith('vanguard.runId='));
+    const plain = stable(new DockerSandboxProvider({ security: sandboxSecurityOpts({}) }).buildRunArgs());
+    const explicitlyNotHardened = stable(new DockerSandboxProvider({ security: sandboxSecurityOpts({}, false) }).buildRunArgs());
+    expect(explicitlyNotHardened).toEqual(plain);
+    expect(plain).not.toContain('--read-only');
+  });
+
   it('has no vanguard.owner label by default', () => {
     const sb = new DockerSandboxProvider({});
     expect(sb.buildRunArgs()).not.toContain('vanguard.owner=');
@@ -437,6 +470,17 @@ describe('DockerSandboxProvider buildRunArgs (pnpm store)', () => {
     const args = new DockerSandboxProvider({ pnpmStore: { repoKey: 'octo/repo', hostDir: '/tmp/pnpm-store' } }).buildRunArgs();
     expect(args[args.indexOf('-v') + 1]).toBe('/tmp/pnpm-store:/pnpm-store');
     expect(args.some((a) => a.startsWith('taskcell-pnpm-store-'))).toBe(false);
+    expect(args).toContain('npm_config_store_dir=/pnpm-store');
+  });
+
+  it('still mounts /pnpm-store (its own -v mount, unaffected by --read-only) under a hardened readOnlyRootfs', () => {
+    const args = new DockerSandboxProvider({
+      security: sandboxSecurityOpts({}, true),
+      pnpmStore: { repoKey: 'octo/repo' },
+    }).buildRunArgs();
+    expect(args).toContain('--read-only');
+    const vol = pnpmStoreVolumeName('octo/repo');
+    expect(args[args.indexOf('-v') + 1]).toBe(`${vol}:/pnpm-store`);
     expect(args).toContain('npm_config_store_dir=/pnpm-store');
   });
 });

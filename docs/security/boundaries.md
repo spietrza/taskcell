@@ -36,6 +36,8 @@ A Codex **ChatGPT subscription** (`CODEX_AUTH_JSON`) is covered by the same patt
 
 The flag **implies `--egress`** and additionally **removes `api.anthropic.com` from the sandbox's allowlist**, so the sandbox has no direct route to Anthropic — its only path to the model is through the sidecar. The invariant: the real key never enters the sandbox; a leaked nonce is useless beyond the run and never reaches Anthropic. `--llm-proxy` now protects the Claude, Codex/OpenAI, and z.ai provider keys. Cursor is not yet proxied — selecting `cursor` with `--llm-proxy` still injects `CURSOR_API_KEY` directly into the sandbox (a stable Cursor base-url proxy is planned).
 
+`--llm-proxy` and `--egress` also default the sandbox rootfs to read-only (`--read-only`, with `/workspace`, `$HOME` and `/tmp` as writable tmpfs — see `sandboxSecurityOpts` in `src/sandbox/limits.ts`), so an agent cannot write anywhere else, e.g. into tool directories it later executes. `VANGUARD_SANDBOX_READONLY=0` turns it back off even in that mode; `=1` turns it on even without either flag. Outside `--llm-proxy`/`--egress` the rootfs stays writable by default, as before.
+
 See [smoke-tests/codex-openai-proxy.md](../smoke-tests/codex-openai-proxy.md) for the current verification status, a zero-cost negative preflight check, and a controlled live runbook that walks through the Codex/OpenAI proxy preflight and a read-only `review-pr` smoke run when active OpenAI billing is available.
 
 The `review-pr` and `review-mr` commands read code from the change's real base branch and repository instruction files and skills from the repository's default branch. Default-branch guidance applies even when a release branch carries different review rules; an unavailable default branch fails the review.
