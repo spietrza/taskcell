@@ -119,6 +119,102 @@ vanguard: spietrza/taskcell#999 difficulty probe (clef-flash, 518ms): first-try 
 
 and the judge on a refusal case: an output that charges ahead scores `P(acceptable)=0.11`; one that merely sounds careful but does not do what the expectation names scores `0.48` — the judge reads the expectation, not the tone. The fork scorer gives a small, tested diff `0.91` and an empty diff `0.03`.
 
+## Evals and the baseline gate
+
+`vanguard eval` runs the committed corpus (`src/evals/corpus`, 30 cases: control, edge, refusal) and prints a per-kind pass-rate report. Each case makes two host-side `claude --print` calls — one on the model under test (`--produce-model`, default `claude-sonnet-5-5`) and one on the judge (`--judge-model`, default a Haiku model, or a [decision model](#decision-models)). There is no sandbox and no git write unless you ask for one.
+
+```bash
+vanguard eval                                   # report only
+vanguard eval --json > baseline.json            # machine-readable: EvalRunReport (judgeModel, produceModel, corpusHash, per-case verdicts)
+vanguard eval --baseline baseline.json          # gate this run against that file
+vanguard eval --baseline main                   # gate against the latest baseline on the metrics branch
+vanguard eval --save-baseline                   # publish this run as the baseline for the current commit
+```
+
+**What the gate fails on.** `--baseline` compares the run against a saved `EvalRunReport` and exits non-zero on any of three conditions, all checked and reported together (never short-circuited), followed by a table naming every case that flipped verdict in either direction:
+
+- **Pass-rate drop** — the overall pass rate fell by more than `--max-drop` points (default **5**). The judge is non-deterministic and the CLI exposes no temperature, so run the suite 3× on a known-good state to measure variance before tightening this.
+- **Refusal regression** — a `refusal`-kind case that passed in the baseline now fails. Never tolerated, whatever `--max-drop` says: a safety case that stopped refusing is a regression even when the overall rate is flat.
+- **Corpus-hash mismatch** — `corpusHash` (a stable, order-independent hash of every case's id, kind, input, expectation and variables) differs from the baseline's, so the two runs did not answer the same questions and the pass rates are not comparable. Editing or adding a case changes it; reordering the corpus files does not. The fix is normally to save a new baseline, not to compare across the change — pass `--allow-corpus-change` to compare anyway (useful to see which old cases flipped while a new one is being added).
+
+`--save-baseline` pushes the run's report to the `vanguard-metrics` branch (`eval-baselines.jsonl`, one record per commit, same mechanism as `metrics push`; `--branch` overrides the branch). A second save for the same commit is a no-op — the first push wins. With both flags, the comparison runs **before** the save, so `--baseline main --save-baseline` gates against main's existing record rather than against the run it is about to publish.
+
+**Cost per run.** 60 short calls: the corpus prompts are one or two sentences each and the judge sees one case plus one output, so a whole run is tens of thousands of tokens, and the cases run serially (a few minutes of wall clock). Billing follows the credential the host `claude` CLI uses: on a subscription (`CLAUDE_CODE_OAUTH_TOKEN`) it is plan usage with no per-token charge; on an API key it is a few cents at Haiku ($1/$5 per MTok) and Sonnet rates. `--judge-model clef-flash` makes the judge half of that essentially free (see [Decision models](#decision-models)).
+
+### In CI
+
+The factory cannot edit `.github/workflows/` (a [security boundary](security/boundaries.md)), so the two jobs below are for a maintainer to add by hand — e.g. as `.github/workflows/eval.yml`. Both use `pull_request` (never `pull_request_target`), keep `permissions` minimal, and pass the credential through `env:` so no `${{ }}` is interpolated into a `run:` script:
+
+```yaml
+name: Eval
+on:
+  pull_request:
+    paths:
+      - 'src/context/**'
+      - 'src/evals/**'
+      - 'src/agents/**'
+      - 'src/pipeline/**'
+  push:
+    branches: [main]
+    paths:
+      - 'src/context/**'
+      - 'src/evals/**'
+      - 'src/agents/**'
+      - 'src/pipeline/**'
+jobs:
+  # (a) Gate the PR: compare against the latest baseline pushed from main.
+  gate:
+    if: github.event_name == 'pull_request'
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+      - uses: pnpm/action-setup@ea17c68df8912ef543352723c149a84f56e3d413 # v6.1.0
+      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v6
+        with:
+          node-version: 24
+          cache: pnpm
+      - run: pnpm install --frozen-lockfile
+      - run: pnpm build
+      # eval shells out to the host `claude` CLI; pin the same version docker/Dockerfile does.
+      - run: npm install -g @anthropic-ai/claude-code@2.1.260
+      - name: Eval against main's baseline
+        env:
+          CLAUDE_CODE_OAUTH_TOKEN: ${{ secrets.CLAUDE_CODE_OAUTH_TOKEN }}
+        run: node dist/cli/index.js eval --baseline main
+
+  # (b) Publish a new baseline for every commit that lands on main.
+  baseline:
+    if: github.event_name == 'push'
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write # pushes eval-baselines.jsonl to the vanguard-metrics branch
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+        with:
+          fetch-depth: 0
+      - uses: pnpm/action-setup@ea17c68df8912ef543352723c149a84f56e3d413 # v6.1.0
+      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v6
+        with:
+          node-version: 24
+          cache: pnpm
+      - run: pnpm install --frozen-lockfile
+      - run: pnpm build
+      - run: npm install -g @anthropic-ai/claude-code@2.1.260
+      - name: Save baseline
+        env:
+          CLAUDE_CODE_OAUTH_TOKEN: ${{ secrets.CLAUDE_CODE_OAUTH_TOKEN }}
+        run: node dist/cli/index.js eval --save-baseline
+```
+
+Two notes on the credential. `--llm-proxy` does not apply here: it keeps a model key out of the **sandbox**, and `eval` runs no sandbox — it shells out to the host `claude` CLI, which reads `CLAUDE_CODE_OAUTH_TOKEN` (or `ANTHROPIC_API_KEY`) from the environment, so the job's `env:` block is the whole credential path. And the gate job runs PR-authored code with a read-only token on the `pull_request` trigger, which is why it must not be `pull_request_target` — the baseline it reads is public data on the metrics branch, so it needs nothing more.
+
+A first run on a repo with no baseline yet exits non-zero with `no baseline found` — land the `baseline` job (or run `vanguard eval --save-baseline` once from main) before turning the gate on.
+
 ## One-shot commands and white-label mode
 
 The commit is authored `Vanguard <vanguard@local>` by default; override with `--commit-author "Name <email>"` (git's standard form) to attribute the work to yourself. The PR itself is opened by whichever account owns the push token (`VANGUARD_PUSH_TOKEN`/`GH_TOKEN`), independent of the commit author.

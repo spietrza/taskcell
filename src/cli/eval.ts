@@ -30,6 +30,16 @@ export function makeCliComplete(model: string): (prompt: string) => Promise<stri
   };
 }
 
+/** Parse a `--baseline <file>` payload, naming the file when it does not hold a JSON report. */
+function parseBaselineFile(path: string, text: string): EvalRunReport {
+  try {
+    return JSON.parse(text) as EvalRunReport;
+  } catch (error) {
+    const message = error instanceof Error ? error.message : String(error);
+    throw new Error(`--baseline ${path}: not a valid eval report (${message})`);
+  }
+}
+
 /** A decision model as the judge: calibrated P(acceptable) instead of an LLM's self-rated JSON. */
 export function makeDecisionJudge(model: string, env: NodeJS.ProcessEnv = process.env): Judge {
   const config = decisionModelConfig(env, model);
@@ -40,7 +50,7 @@ export function makeDecisionJudge(model: string, env: NodeJS.ProcessEnv = proces
 /**
  * Run the committed eval corpus and print a per-kind pass-rate report. With `--baseline <file|main>`
  * it also gates the run against a saved baseline (see baseline.ts); with `--save-baseline` it pushes
- * this run's report to the metrics branch, keyed by the current commit, before reporting.
+ * this run's report to the metrics branch, keyed by the current commit, after any comparison.
  * makeComplete/makeDecision/deps are injectable for testing (no real `claude` CLI, no real git).
  */
 export async function evalCommand(
@@ -70,17 +80,14 @@ export async function evalCommand(
   const readLatest = deps.readLatestBaseline ?? readLatestEvalBaseline;
   const branchOpts = cmd.branch !== undefined ? { branch: cmd.branch } : {};
 
-  if (cmd.saveBaseline === true) {
-    const saved = await save(cmd.repoPath, runReport, branchOpts);
-    console.log(`vanguard eval: saved baseline for ${saved.commit.slice(0, 7)}`);
-  }
-
+  // Compare before saving: with both flags, saving first would publish this run and then compare it
+  // against itself (`--baseline main` reads the most recent record), which can never fail.
   let comparison: BaselineComparison | undefined;
   if (cmd.baseline !== undefined) {
     const baselineReport =
       cmd.baseline === 'main'
         ? await readLatest(cmd.repoPath, branchOpts)
-        : (JSON.parse(await readBaselineFile(cmd.baseline)) as EvalRunReport);
+        : parseBaselineFile(cmd.baseline, await readBaselineFile(cmd.baseline));
     if (baselineReport === undefined) {
       console.error(`vanguard eval: no baseline found for "${cmd.baseline}"`);
       process.exitCode = 1;
@@ -91,6 +98,11 @@ export async function evalCommand(
       });
       if (!comparison.ok) process.exitCode = 1;
     }
+  }
+
+  if (cmd.saveBaseline === true) {
+    const saved = await save(cmd.repoPath, runReport, branchOpts);
+    console.log(`vanguard eval: saved baseline for ${saved.commit.slice(0, 7)}`);
   }
 
   if (cmd.json) {

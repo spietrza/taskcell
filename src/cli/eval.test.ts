@@ -153,7 +153,7 @@ describe('evalCommand --baseline / --save-baseline', () => {
     };
   }
 
-  /** A fully-passing JSON report, suitable as a --baseline fixture. */
+  /** A fully-passing JSON report, suitable as a --baseline file fixture. */
   async function runJson(): Promise<string> {
     const logSpy = vi.spyOn(console, 'log').mockImplementation(() => {});
     try {
@@ -163,6 +163,11 @@ describe('evalCommand --baseline / --save-baseline', () => {
     } finally {
       logSpy.mockRestore();
     }
+  }
+
+  /** The same fixture already parsed, for the paths that compare against a report rather than a file. */
+  async function runReport(): Promise<EvalRunReport> {
+    return JSON.parse(await runJson()) as EvalRunReport;
   }
 
   let priorExitCode: typeof process.exitCode;
@@ -229,9 +234,7 @@ describe('evalCommand --baseline / --save-baseline', () => {
   });
 
   it('fails on a corpus hash change unless --allow-corpus-change', async () => {
-    const baselineJson = await runJson();
-    const parsed = JSON.parse(baselineJson) as EvalRunReport;
-    const stale = JSON.stringify({ ...parsed, corpusHash: 'sha256:stale' });
+    const stale = JSON.stringify({ ...(await runReport()), corpusHash: 'sha256:stale' });
 
     const blockedLog = vi.spyOn(console, 'log').mockImplementation(() => {});
     try {
@@ -263,8 +266,7 @@ describe('evalCommand --baseline / --save-baseline', () => {
   });
 
   it('reads --baseline main through the injected readLatestBaseline dependency', async () => {
-    const baselineJson = await runJson();
-    const baselineReport = JSON.parse(baselineJson) as EvalRunReport;
+    const baselineReport = await runReport();
     const readLatestBaseline = vi.fn(async () => baselineReport);
     const logSpy = vi.spyOn(console, 'log').mockImplementation(() => {});
     try {
@@ -308,5 +310,44 @@ describe('evalCommand --baseline / --save-baseline', () => {
     } finally {
       logSpy.mockRestore();
     }
+  });
+
+  it('compares before saving, so --save-baseline with --baseline main never compares against itself', async () => {
+    const calls: string[] = [];
+    const baselineReport = await runReport();
+    const logSpy = vi.spyOn(console, 'log').mockImplementation(() => {});
+    try {
+      const cmd = {
+        kind: 'eval' as const,
+        json: false,
+        suggest: false,
+        repoPath: '/repo',
+        baseline: 'main',
+        saveBaseline: true,
+      };
+      await evalCommand(cmd, makeFactoryFailingKind('control'), undefined, {
+        readLatestBaseline: async () => {
+          calls.push('read');
+          return baselineReport;
+        },
+        saveBaseline: async (_repoPath: string, report: EvalRunReport) => {
+          calls.push('save');
+          return { commit: 'abcdef1234567890', timestamp: 't', report };
+        },
+      });
+      expect(calls).toEqual(['read', 'save']);
+      // The regression is still caught: the run was compared against main's baseline, not its own push.
+      expect(process.exitCode).toBe(1);
+    } finally {
+      logSpy.mockRestore();
+    }
+  });
+
+  it('names the offending file when a --baseline file is not valid JSON', async () => {
+    // Nothing is printed: the parse throws before the report is formatted, so no console spy is needed.
+    const cmd = { kind: 'eval' as const, json: false, suggest: false, repoPath: '/repo', baseline: 'broken.json' };
+    await expect(
+      evalCommand(cmd, makeFactoryFailingKind(undefined), undefined, { readBaselineFile: async () => 'not json' }),
+    ).rejects.toThrow(/--baseline broken\.json: not a valid eval report/);
   });
 });
