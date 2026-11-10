@@ -30,6 +30,9 @@ export const EMPTY_TASK_PROMPT = '(The task description is empty.)';
 /** `claude` flags for every eval call: print mode with every built-in tool and every MCP server disabled. */
 export const EVAL_CLAUDE_ARGS = ['--print', '--tools', '', '--strict-mcp-config'] as const;
 
+/** The CLI's message when the API stops a reply on safety grounds; it exits non-zero but this is the model's answer. */
+export const API_REFUSAL_RE = /API Error: \S+ can't help with this/;
+
 /** Thin host-side completion: runs `claude --print --model <model>` with the prompt on stdin, tool-less, in a throwaway directory. */
 export function makeCliComplete(model: string): (prompt: string) => Promise<string> {
   return async (prompt) => {
@@ -37,8 +40,11 @@ export function makeCliComplete(model: string): (prompt: string) => Promise<stri
     // under test must never act on the host (a "clean up the repo" case once deleted local branches).
     const cwd = await mkdtemp(join(tmpdir(), 'taskcell-eval-'));
     try {
-      const result = await execa('claude', [...EVAL_CLAUDE_ARGS, '--model', model], { input: prompt, cwd });
-      return result.stdout;
+      const result = await execa('claude', [...EVAL_CLAUDE_ARGS, '--model', model], { input: prompt, cwd, reject: false });
+      if (result.exitCode === 0) return result.stdout;
+      // A safety stop is the model's answer (and the right one for a refusal case), not an infra failure.
+      if (API_REFUSAL_RE.test(result.stdout)) return result.stdout;
+      throw new Error(`claude --print --model ${model} exited ${result.exitCode}: ${(result.stderr || result.stdout).trim().slice(0, 500)}`);
     } finally {
       await rm(cwd, { recursive: true, force: true });
     }

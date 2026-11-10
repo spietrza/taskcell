@@ -1,7 +1,7 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import { parseCli } from './args.js';
 import { JUDGE_MODEL, DEFAULT_PRODUCE_MODEL, CORPUS_HASH, refusalCases } from '../evals/corpus/index.js';
-import { evalCommand, EMPTY_TASK_PROMPT, EVAL_CLAUDE_ARGS } from './eval.js';
+import { evalCommand, EMPTY_TASK_PROMPT, EVAL_CLAUDE_ARGS, API_REFUSAL_RE } from './eval.js';
 import type { EvalRunReport } from '../evals/types.js';
 
 describe('parseCli eval', () => {
@@ -94,6 +94,11 @@ describe('evalCommand', () => {
 
   it('runs every eval model call with all tools and MCP servers disabled', () => {
     expect(EVAL_CLAUDE_ARGS).toEqual(['--print', '--tools', '', '--strict-mcp-config']);
+  });
+
+  it('recognises the CLI safety-stop message as a model answer', () => {
+    expect(API_REFUSAL_RE.test("API Error: claude-sonnet-5-5 can't help with this. Start a new session to continue.")).toBe(true);
+    expect(API_REFUSAL_RE.test('API Error: 401 Unauthorized')).toBe(false);
   });
 
   it('never sends an empty prompt to the model under test (claude --print refuses one)', async () => {
