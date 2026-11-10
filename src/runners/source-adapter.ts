@@ -519,7 +519,8 @@ export async function runSourcedIssue(
           `--conformance needs a flow with a reviewer stage (its verdict rides on the review comment); flow "${flow ?? 'default'}" has none`,
         );
       }
-      const runMeta = { flow: flow ?? 'default', provider: agents.agent.name };
+      const imageDigest = await ctx.sandbox.imageDigest?.();
+      const runMeta = { flow: flow ?? 'default', provider: agents.agent.name, ...(imageDigest !== undefined ? { imageDigest } : {}) };
       // One RunWriter for the whole run: it owns the timestamp, so proof.json, visual-proof.json and
       // every stage record share one prefix and the hub/desktop readers can match a run's proof to
       // its stage records by name.

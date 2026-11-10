@@ -8,8 +8,11 @@ CURSOR_VERSION="${CURSOR_CLI_VERSION:-}"
 # a one-off build. An explicit ALIAS_TAG always applies, empty included (skips the alias).
 if [ -z "${TAG:-}" ]; then ALIAS_TAG="${ALIAS_TAG-vanguard-sandbox:latest}"; fi
 TAG="${TAG:-taskcell-sandbox:latest}"
-ALIAS_ARGS=()
-if [ -n "${ALIAS_TAG:-}" ]; then ALIAS_ARGS+=(-t "${ALIAS_TAG}"); fi
+# Tags the image carries locally, whether pulled or built: the primary one plus the optional alias.
+TAGS=("${TAG}")
+if [ -n "${ALIAS_TAG:-}" ]; then TAGS+=("${ALIAS_TAG}"); fi
+TAG_ARGS=()
+for t in "${TAGS[@]}"; do TAG_ARGS+=(-t "${t}"); done
 HERE="$(cd "$(dirname "$0")" && pwd)"
 # A non-default Cursor version needs its per-arch checksums; forward them only when set so the
 # Dockerfile defaults apply otherwise.
@@ -18,11 +21,32 @@ if [ -n "${CURSOR_CLI_SHA256_X64:-}" ]; then CURSOR_SHA_ARGS+=(--build-arg "CURS
 if [ -n "${CURSOR_CLI_SHA256_ARM64:-}" ]; then CURSOR_SHA_ARGS+=(--build-arg "CURSOR_CLI_SHA256_ARM64=${CURSOR_CLI_SHA256_ARM64}"); fi
 # Set LINEAR_RETRY=1 to rebuild the linear-cli layer after a build that skipped it (see Dockerfile).
 LINEAR_RETRY="${LINEAR_RETRY:+$(date +%s)}"
-docker build --build-arg "CLAUDE_CLI_VERSION=${VERSION}" --build-arg "LINEAR_RETRY=${LINEAR_RETRY}" --build-arg "CURSOR_CLI_VERSION=${CURSOR_VERSION}" \
-  ${CURSOR_SHA_ARGS[@]+"${CURSOR_SHA_ARGS[@]}"} -t "${TAG}" ${ALIAS_ARGS[@]+"${ALIAS_ARGS[@]}"} "${HERE}"
-echo "Zbudowano ${TAG}${ALIAS_TAG:+ (alias ${ALIAS_TAG})} (claude ${VERSION}${CURSOR_VERSION:+, cursor ${CURSOR_VERSION}})"
+# Pull-first: when the image for this `docker/` tree is published to GHCR, a factory run must not pay
+# a from-scratch npm + GitHub Releases build. Nothing in this repo publishes that tag yet (no CI job
+# does, and this run may not add one) — push it by hand or point GHCR_SANDBOX_IMAGE at your own
+# registry; until then the pull just fails and the build below runs as before.
+# The tag is the git tree hash of `docker/`, so it is only valid for a committed, clean tree; any
+# build-arg override (CLAUDE_CLI_VERSION, Cursor, LINEAR_RETRY) asks for something other than the
+# published default, so those build. Every failure path — no tag, no registry access, no git, a `git`
+# that errors — leaves the chain and builds.
+GHCR_IMAGE="${GHCR_SANDBOX_IMAGE:-ghcr.io/spietrza/taskcell-sandbox}"
+if [ -z "${CLAUDE_CLI_VERSION:-}${CURSOR_VERSION}${CURSOR_CLI_SHA256_X64:-}${CURSOR_CLI_SHA256_ARM64:-}${LINEAR_RETRY}" ] \
+  && DOCKER_TREE="$(git -C "${HERE}" rev-parse HEAD:docker 2>/dev/null)" \
+  && DOCKER_DIRTY="$(git -C "${HERE}" status --porcelain -- "${HERE}")" \
+  && [ -z "${DOCKER_DIRTY}" ] \
+  && docker pull "${GHCR_IMAGE}:${DOCKER_TREE}"; then
+  for t in "${TAGS[@]}"; do docker tag "${GHCR_IMAGE}:${DOCKER_TREE}" "${t}"; done
+  echo "Pobrano ${GHCR_IMAGE}:${DOCKER_TREE} -> ${TAG}${ALIAS_TAG:+ (alias ${ALIAS_TAG})}; pomijam build"
+else
+  docker build --build-arg "CLAUDE_CLI_VERSION=${VERSION}" --build-arg "LINEAR_RETRY=${LINEAR_RETRY}" --build-arg "CURSOR_CLI_VERSION=${CURSOR_VERSION}" \
+    ${CURSOR_SHA_ARGS[@]+"${CURSOR_SHA_ARGS[@]}"} "${TAG_ARGS[@]}" "${HERE}"
+  echo "Zbudowano ${TAG}${ALIAS_TAG:+ (alias ${ALIAS_TAG})} (claude ${VERSION}${CURSOR_VERSION:+, cursor ${CURSOR_VERSION}})"
+fi
 # Weryfikacja kontraktu CLI (R4): obecność narzędzi i flag.
 docker run --rm "${TAG}" sh -lc 'claude --version && git --version && bun --version'
 docker run --rm "${TAG}" sh -lc 'linear --version' \
   || echo "WARNING: ${TAG} has no linear CLI (GitHub Releases was down); --linear runs need LINEAR_RETRY=1 docker/build.sh" >&2
 if [ -n "${CURSOR_VERSION}" ]; then docker run --rm "${TAG}" sh -lc 'agent --version'; fi
+
+# The per-CLI layer split only pays off if no npm cache is committed into the image (see Dockerfile).
+docker run --rm --user root "${TAG}" sh -lc 'test ! -d /root/.npm && test ! -d /home/agent/.npm'

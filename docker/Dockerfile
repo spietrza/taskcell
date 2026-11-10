@@ -5,11 +5,6 @@
 FROM node:24-bookworm-slim@sha256:01d566e8d94d8c619591d78652babfccd3c6992a3dffa9ed5ab39e11cf6c70e9
 # Exact CLI versions, never `latest`, so a rebuild cannot silently pull a new (or hijacked) release.
 # Bump: `npm view <pkg> version`, update the default here (or pass --build-arg), rebuild, run build.sh.
-ARG CLAUDE_CLI_VERSION=2.1.260
-ARG LINEAR_CLI_VERSION=3.1.0
-ARG CODEX_CLI_VERSION=0.167.0
-ARG PNPM_VERSION=12.18.0
-ARG BUN_VERSION=1.4.4
 
 # xz-utils + ca-certificates: the linear-cli npm package downloads and untars an .xz release binary.
 RUN apt-get update \
@@ -24,13 +19,26 @@ RUN apt-get update \
 # it is forwarded into the sandbox when codex is selected; under --llm-proxy the key is held by a
 # trusted sidecar and the sandbox receives only a per-run nonce.
 # Retried: npm and GitHub Releases return transient 5xx often enough to fail whole factory runs (#657).
+ARG PNPM_VERSION=12.18.0
 RUN for i in 1 2 3 4 5; do \
-      npm install -g \
-        @anthropic-ai/claude-code@${CLAUDE_CLI_VERSION} \
-        @openai/codex@${CODEX_CLI_VERSION} \
-        pnpm@${PNPM_VERSION} \
-        bun@${BUN_VERSION} \
-      && exit 0; \
+      npm install -g pnpm@${PNPM_VERSION} \
+      && npm cache clean --force && rm -rf /root/.npm && exit 0; \
+      [ "$i" -lt 5 ] || break; \
+      echo "npm install failed (attempt $i/5), retrying in $((i * 15))s" >&2; sleep $((i * 15)); \
+    done; exit 1
+
+ARG BUN_VERSION=1.4.4
+RUN for i in 1 2 3 4 5; do \
+      npm install -g bun@${BUN_VERSION} \
+      && npm cache clean --force && rm -rf /root/.npm && exit 0; \
+      [ "$i" -lt 5 ] || break; \
+      echo "npm install failed (attempt $i/5), retrying in $((i * 15))s" >&2; sleep $((i * 15)); \
+    done; exit 1
+
+ARG CODEX_CLI_VERSION=0.167.0
+RUN for i in 1 2 3 4 5; do \
+      npm install -g @openai/codex@${CODEX_CLI_VERSION} \
+      && npm cache clean --force && rm -rf /root/.npm && exit 0; \
       [ "$i" -lt 5 ] || break; \
       echo "npm install failed (attempt $i/5), retrying in $((i * 15))s" >&2; sleep $((i * 15)); \
     done; exit 1
@@ -40,11 +48,13 @@ RUN for i in 1 2 3 4 5; do \
 # only then) the image is built without it; `doctor` and run preflight report it for a `--linear` run.
 # An integrity or missing-version error on any attempt still fails the build. LINEAR_RETRY changes the layer's
 # cache key, so `LINEAR_RETRY=1 docker/build.sh` retries a cached build that skipped it.
+ARG LINEAR_CLI_VERSION=3.1.0
 ARG LINEAR_RETRY=
 RUN echo "linear-retry=${LINEAR_RETRY}" >/dev/null; : >/tmp/linear-install.log; \
     for i in 1 2 3 4 5; do \
       npm install -g @schpet/linear-cli@${LINEAR_CLI_VERSION} >/tmp/linear-attempt.log 2>&1 \
-        && linear --version >/dev/null && rm -f /tmp/linear-*.log && exit 0; \
+        && linear --version >/dev/null && npm cache clean --force && rm -rf /root/.npm \
+        && rm -f /tmp/linear-*.log && exit 0; \
       cat /tmp/linear-attempt.log >&2; cat /tmp/linear-attempt.log >>/tmp/linear-install.log; \
       [ "$i" -lt 5 ] || break; \
       echo "linear-cli install failed (attempt $i/5), retrying in $((i * 15))s" >&2; sleep $((i * 15)); \
@@ -55,6 +65,7 @@ RUN echo "linear-retry=${LINEAR_RETRY}" >/dev/null; : >/tmp/linear-install.log; 
     npm uninstall -g @schpet/linear-cli >&2 || true; \
     rm -f "$(npm prefix -g)/bin/linear"; \
     if command -v linear >/dev/null; then echo "linear still on PATH after uninstall" >&2; exit 1; fi; \
+    npm cache clean --force && rm -rf /root/.npm || exit 1; \
     echo "WARNING: GitHub Releases unavailable; image built WITHOUT linear-cli (--linear runs will fail preflight)" >&2
 
 # Cursor CLI (`agent`, --provider cursor) is opt-in: ~550 MB unpacked, so it is installed only when a
@@ -89,6 +100,15 @@ RUN groupadd -g 10001 agent \
  && useradd -m -u 10001 -g agent -s /bin/bash agent \
  && mkdir -p /workspace /home/agent/.claude \
  && chown -R agent:agent /workspace /home/agent
+
+# Most frequently bumped CLI goes last; scope its ARG to this layer.
+ARG CLAUDE_CLI_VERSION=2.1.260
+RUN for i in 1 2 3 4 5; do \
+      npm install -g @anthropic-ai/claude-code@${CLAUDE_CLI_VERSION} \
+      && npm cache clean --force && rm -rf /root/.npm && exit 0; \
+      [ "$i" -lt 5 ] || break; \
+      echo "npm install failed (attempt $i/5), retrying in $((i * 15))s" >&2; sleep $((i * 15)); \
+    done; exit 1
 
 USER agent
 WORKDIR /workspace
