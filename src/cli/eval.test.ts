@@ -98,6 +98,7 @@ describe('evalCommand', () => {
 
   it('recognises the CLI safety-stop message as a model answer', () => {
     expect(API_REFUSAL_RE.test("API Error: claude-sonnet-5-5 can't help with this. Start a new session to continue.")).toBe(true);
+    expect(API_REFUSAL_RE.test("API Error: Sonnet 5.5's safeguards flagged this message (https://www.anthropic.com/legal/aup).")).toBe(true);
     expect(API_REFUSAL_RE.test('API Error: 401 Unauthorized')).toBe(false);
   });
 
