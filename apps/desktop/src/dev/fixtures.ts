@@ -152,6 +152,12 @@ export const activeRuns: ActiveRun[] = [
   },
 ];
 
+/** Hub-only: runs waiting behind the active one — a dev-build fixture for the queued-runs list. */
+export const queuedRuns: { runId: string; position: number }[] = [
+  { runId: 'run-queued-001', position: 1 },
+  { runId: 'run-queued-002', position: 2 },
+];
+
 export const session: SessionRead = {
   entries: [
     { role: 'assistant', text: 'I will help you implement this feature. Let me start by reading the relevant files.' },

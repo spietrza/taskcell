@@ -240,8 +240,11 @@ export async function dispatchRpc(ctx: RpcContext, cmd: string, rawArgs: unknown
     case 'api_run_backlog': {
       return ctx.runSession.backlog(requireString(args, 'runId'));
     }
+    case 'api_queue': {
+      return ctx.runSession.queued();
+    }
     case 'api_cancel': {
-      ctx.runSession.cancel();
+      ctx.runSession.cancel(optionalString(args, 'runId'));
       return null;
     }
     case 'api_create_task': {

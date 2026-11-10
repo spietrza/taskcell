@@ -52,29 +52,65 @@ describe('run-session', () => {
     expect(session.activeRun()).toBeNull();
   });
 
-  test('T-44 second concurrent run rejected, first unaffected', async () => {
+  test('T-44 a second run is queued, starts after the first ends, both return a runId', async () => {
     let resolveFirst: ((r: CreateRunResult) => void) | undefined;
+    let calls = 0;
+    const published: { runId: string; event: { type: string } }[] = [];
     const deps = fakeDeps(
-      (_params) =>
+      () =>
         new Promise<CreateRunResult>((resolve) => {
-          resolveFirst = resolve;
+          calls += 1;
+          if (calls === 1) resolveFirst = resolve;
+          else resolve({});
         }),
     );
-    const session = createRunSession(deps, () => {});
+    const session = createRunSession(deps, (_n, p) => published.push(p as (typeof published)[number]));
     const firstPromise = session.createRun({ issueRef: '1', repoPath: '/repo' } as CreateRunParams);
-    // allow the first call's synchronous prologue to run
-    await Promise.resolve();
-    expect(session.activeRun()).not.toBeNull();
     const firstActive = session.activeRun();
-
-    await expect(session.createRun({ issueRef: '2', repoPath: '/repo2' } as CreateRunParams)).rejects.toThrow(
-      /single-in-flight/,
-    );
+    const secondPromise = session.createRun({ issueRef: '2', repoPath: '/repo2' } as CreateRunParams);
+    await Promise.resolve();
     expect(session.activeRun()).toEqual(firstActive);
-
+    expect(session.queued()).toEqual([{ runId: 'run-1', repoPath: '/repo2', position: 1 }]);
+    expect(published.at(-1)).toEqual({ runId: 'run-1', event: { type: 'run-queued', position: 1, repoPath: '/repo2' } });
+    expect(calls).toBe(1);
     resolveFirst?.({});
     await firstPromise;
+    await secondPromise;
+    expect(calls).toBe(2);
+    expect(session.queued()).toEqual([]);
+    expect(published.some((p) => p.runId === 'run-1' && p.event.type === 'run-accepted')).toBe(true);
     expect(MAX_CONCURRENT_RUNS).toBe(1);
+  });
+
+  test('T-44b cancelling a queued run removes it, emits run-cancelled, leaves the active run alone', async () => {
+    let resolveFirst: ((r: CreateRunResult) => void) | undefined;
+    const published: { runId: string; event: { type: string } }[] = [];
+    const deps = fakeDeps(() => new Promise<CreateRunResult>((resolve) => { resolveFirst ??= resolve; }));
+    const session = createRunSession(deps, (_n, p) => published.push(p as (typeof published)[number]));
+    const firstPromise = session.createRun({ issueRef: '1', repoPath: '/repo' } as CreateRunParams);
+    const queuedPromise = session.createRun({ issueRef: '2', repoPath: '/repo' } as CreateRunParams);
+    session.cancel('run-1');
+    await expect(queuedPromise).rejects.toThrow(/cancelled/);
+    expect(published.at(-1)).toEqual({ runId: 'run-1', event: { type: 'run-cancelled' } });
+    expect(session.queued()).toEqual([]);
+    expect(session.activeRun()?.runId).toBe('run-0');
+    resolveFirst?.({});
+    await firstPromise;
+  });
+
+  test('T-44c past the cap createRun is rejected with a message naming the limit', async () => {
+    process.env.VANGUARD_HUB_MAX_QUEUE = '1';
+    try {
+      const session = createRunSession(fakeDeps(() => new Promise<CreateRunResult>(() => {})), () => {});
+      void session.createRun({ issueRef: '1', repoPath: '/repo' } as CreateRunParams);
+      void session.createRun({ issueRef: '2', repoPath: '/repo' } as CreateRunParams).catch(() => {});
+      await expect(session.createRun({ issueRef: '3', repoPath: '/repo' } as CreateRunParams)).rejects.toThrow(
+        /queue is full \\(max 1 queued runs\\)/,
+      );
+      expect(session.queued()).toHaveLength(1);
+    } finally {
+      delete process.env.VANGUARD_HUB_MAX_QUEUE;
+    }
   });
 
   test('T-45 success emits exactly one terminal (run-end from the stream, none synthesized)', async () => {
