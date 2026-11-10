@@ -11,11 +11,18 @@ import { describe, it, expect } from 'vitest';
 const BUILD_SH = fileURLToPath(new URL('../../docker/build.sh', import.meta.url));
 const TREE = 'ffeedd00';
 const PUBLISHED = `ghcr.io/spietrza/taskcell-sandbox:${TREE}`;
+const DIGEST = 'ghcr.io/spietrza/taskcell-sandbox@sha256:abc123';
 
 /** Fake binary that appends its argv to $ARGS_LOG, one invocation per line. */
 const fake = (body: string): string => `#!/bin/sh\necho "$@" >>"$ARGS_LOG"\n${body}\n`;
 
-const FAKE_DOCKER = fake('case "$1" in pull) [ -z "${FAKE_PULL_FAILS:-}" ] || exit 1 ;; esac\nexit 0');
+const FAKE_DOCKER = fake(`case "$1" in
+  pull) [ -z "\${FAKE_PULL_FAILS:-}" ] || exit 1 ;;
+  inspect) echo ${DIGEST} ;;
+esac
+exit 0`);
+// `gh attestation verify oci://<digest> ...`: provenance check, failing on demand.
+const FAKE_GH = fake('[ -z "${FAKE_ATTEST_FAILS:-}" ] || exit 1\nexit 0');
 // `git -C <dir> <subcommand> ...`: rev-parse yields the docker/ tree hash, status the dirty state.
 const FAKE_GIT = fake(`shift 2
 case "$1" in
@@ -31,6 +38,7 @@ async function runBuild(env: Record<string, string>): Promise<{ calls: string[];
     const log = join(bin, 'args.log');
     await writeFile(join(bin, 'docker'), FAKE_DOCKER, { mode: 0o755 });
     await writeFile(join(bin, 'git'), FAKE_GIT, { mode: 0o755 });
+    await writeFile(join(bin, 'gh'), FAKE_GH, { mode: 0o755 });
     await writeFile(log, '');
     // extendEnv: false — an ambient CLAUDE_CLI_VERSION/LINEAR_RETRY in the developer's shell is
     // exactly what the script treats as "build, do not pull", so inheriting it would flip the cases.
@@ -46,18 +54,20 @@ async function runBuild(env: Record<string, string>): Promise<{ calls: string[];
 }
 
 describe('docker/build.sh pull-first', () => {
-  it('pulls the published tag and tags it locally instead of building', async () => {
+  it('pulls the published tag, verifies its digest and tags that digest instead of building', async () => {
     const { calls, stdout } = await runBuild({});
 
     expect(calls).toContain(`pull ${PUBLISHED}`);
-    expect(calls).toContain(`tag ${PUBLISHED} taskcell-sandbox:latest`);
-    expect(calls).toContain(`tag ${PUBLISHED} vanguard-sandbox:latest`);
+    expect(calls.some((call) => call.startsWith(`attestation verify oci://${DIGEST} `))).toBe(true);
+    expect(calls).toContain(`tag ${DIGEST} taskcell-sandbox:latest`);
+    expect(calls).toContain(`tag ${DIGEST} vanguard-sandbox:latest`);
     expect(calls.filter((call) => call.startsWith('build '))).toEqual([]);
     expect(stdout).toContain('pomijam build');
   });
 
   it.each([
     ['the tag is not published', { FAKE_PULL_FAILS: '1' }],
+    ['the pulled image has no verifiable provenance', { FAKE_ATTEST_FAILS: '1' }],
     ['git cannot resolve the docker/ tree', { FAKE_NO_GIT: '1' }],
     ['docker/ has uncommitted changes', { FAKE_DIRTY: '1' }],
     ['the dirty check itself errors', { FAKE_STATUS_FAILS: '1' }],

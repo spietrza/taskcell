@@ -112,7 +112,10 @@ jobs:
         working-directory: .vanguard-src
 
       - name: Build sandbox image
-        run: docker build -t vanguard-sandbox:latest .vanguard-src/docker/
+        # Pulls ghcr.io/spietrza/taskcell-sandbox for this docker/ tree when its build provenance verifies, else builds.
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: .vanguard-src/docker/build.sh
 
       - name: Ensure routing labels
         run: |

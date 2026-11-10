@@ -30,13 +30,25 @@ LINEAR_RETRY="${LINEAR_RETRY:+$(date +%s)}"
 # published default, so those build. Every failure path — no tag, no registry access, no git, a `git`
 # that errors — leaves the chain and builds.
 GHCR_IMAGE="${GHCR_SANDBOX_IMAGE:-ghcr.io/spietrza/taskcell-sandbox}"
+# A registry tag can be overwritten, so a pulled image is used only when GitHub's build provenance ties
+# that exact digest to the publish workflow on the Taskcell repo. No `gh`, no token or no attestation
+# means the build below runs instead: the check fails closed to building from source.
+ATTEST_REPO="${SANDBOX_ATTEST_REPO:-spietrza/taskcell}"
+verify_provenance() {
+  command -v gh >/dev/null 2>&1 || return 1
+  gh attestation verify "oci://$1" --repo "${ATTEST_REPO}" \
+    --signer-workflow "${ATTEST_REPO}/.github/workflows/sandbox-image.yml" >/dev/null 2>&1 \
+    || { echo "WARNING: no verifiable provenance for $1; building instead" >&2; return 1; }
+}
 if [ -z "${CLAUDE_CLI_VERSION:-}${CURSOR_VERSION}${CURSOR_CLI_SHA256_X64:-}${CURSOR_CLI_SHA256_ARM64:-}${LINEAR_RETRY}" ] \
   && DOCKER_TREE="$(git -C "${HERE}" rev-parse HEAD:docker 2>/dev/null)" \
   && DOCKER_DIRTY="$(git -C "${HERE}" status --porcelain -- "${HERE}")" \
   && [ -z "${DOCKER_DIRTY}" ] \
-  && docker pull "${GHCR_IMAGE}:${DOCKER_TREE}"; then
-  for t in "${TAGS[@]}"; do docker tag "${GHCR_IMAGE}:${DOCKER_TREE}" "${t}"; done
-  echo "Pobrano ${GHCR_IMAGE}:${DOCKER_TREE} -> ${TAG}${ALIAS_TAG:+ (alias ${ALIAS_TAG})}; pomijam build"
+  && docker pull "${GHCR_IMAGE}:${DOCKER_TREE}" \
+  && PULLED="$(docker inspect --format '{{index .RepoDigests 0}}' "${GHCR_IMAGE}:${DOCKER_TREE}")" \
+  && verify_provenance "${PULLED}"; then
+  for t in "${TAGS[@]}"; do docker tag "${PULLED}" "${t}"; done
+  echo "Pobrano ${PULLED} -> ${TAG}${ALIAS_TAG:+ (alias ${ALIAS_TAG})}; pomijam build"
 else
   docker build --build-arg "CLAUDE_CLI_VERSION=${VERSION}" --build-arg "LINEAR_RETRY=${LINEAR_RETRY}" --build-arg "CURSOR_CLI_VERSION=${CURSOR_VERSION}" \
     ${CURSOR_SHA_ARGS[@]+"${CURSOR_SHA_ARGS[@]}"} "${TAG_ARGS[@]}" "${HERE}"
