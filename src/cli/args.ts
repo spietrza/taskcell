@@ -300,6 +300,16 @@ export type Command =
       since?: string;
       /** With --suggest: force markdown output (default is already markdown unless --json; explicit for scripting). */
       markdown?: boolean;
+      /** Gate against a saved baseline: a local file path, or "main" for the latest one on the metrics branch. */
+      baseline?: string;
+      /** Max tolerated drop in overall pass rate, in points (default 5). Only meaningful with --baseline. */
+      maxDrop?: number;
+      /** Compare against a baseline whose corpus hash differs, instead of refusing. */
+      allowCorpusChange?: boolean;
+      /** Push this run's report to the metrics branch, keyed by the current commit. */
+      saveBaseline?: boolean;
+      /** Metrics-branch override for --baseline main / --save-baseline (default: vanguard-metrics). */
+      branch?: string;
     }
   | { kind: 'sidecar' }
   | { kind: 'complete' }
@@ -429,6 +439,12 @@ function sameName(a: string, b: string): boolean {
 function parseLimit(raw: string | boolean | undefined): number | undefined {
   const limit = Number(raw);
   return Number.isFinite(limit) && limit >= 1 ? Math.min(Math.floor(limit), Number.MAX_SAFE_INTEGER) : undefined;
+}
+
+/** `--max-drop` value: a finite number of percentage points, or undefined when absent/malformed. */
+function parseMaxDrop(raw: string | boolean | undefined): number | undefined {
+  const maxDrop = Number(raw);
+  return typeof raw === 'string' && Number.isFinite(maxDrop) ? maxDrop : undefined;
 }
 
 /**
@@ -570,6 +586,11 @@ export function parseCli(argv: string[], cwd: string): Command {
         out: { type: 'string' },
         since: { type: 'string' },
         markdown: { type: 'boolean' },
+        // eval --baseline
+        baseline: { type: 'string' },
+        'max-drop': { type: 'string' },
+        'allow-corpus-change': { type: 'boolean' },
+        'save-baseline': { type: 'boolean' },
         // hub
         port: { type: 'string' },
         host: { type: 'string' },
@@ -711,6 +732,7 @@ export function parseCli(argv: string[], cwd: string): Command {
 
   if (positionals[0] === 'eval') {
     const limit = parseLimit(values.limit);
+    const maxDrop = parseMaxDrop(values['max-drop']);
     return {
       kind: 'eval',
       json: values.json === true,
@@ -723,6 +745,11 @@ export function parseCli(argv: string[], cwd: string): Command {
       ...(typeof values['github-repo'] === 'string' ? { githubRepo: values['github-repo'] } : {}),
       ...(typeof values.since === 'string' ? { since: values.since } : {}),
       ...(values.markdown === true ? { markdown: true } : {}),
+      ...(typeof values.baseline === 'string' ? { baseline: values.baseline } : {}),
+      ...(maxDrop !== undefined ? { maxDrop } : {}),
+      allowCorpusChange: values['allow-corpus-change'] === true,
+      saveBaseline: values['save-baseline'] === true,
+      ...(typeof values.branch === 'string' ? { branch: values.branch } : {}),
     };
   }
 
@@ -1270,7 +1297,8 @@ Commands:
          base-branch policy; publish a neutral check run + PR comment and record the decision
          (shadow mode: never merges, approves, or edits labels).
   memory Refresh .vanguard/memory/retrospective.md from run artifacts and print it.
-  eval   Run the committed eval corpus and print a per-kind pass-rate report.
+  eval   Run the committed eval corpus and print a per-kind pass-rate report; --baseline gates the run
+         against a saved result instead of an absolute number, --save-baseline publishes one.
   resume-rate-limited Re-apply the trigger label on issues/PRs a provider limit parked, once the reset passed (--trigger-labels a,b names custom triggers).
   gc     Reap stale sandbox containers, prune worktrees, and (with --remote) delete merged
          remote chore/vanguard-* branches.
@@ -1554,6 +1582,17 @@ ${MAX_REPAIR_ITERATIONS_USAGE}
     --github-repo <o/r>      With --suggest: also draft candidates from this GitHub repo's closed/reverted factory PRs
     --since <date>           With --suggest: only consider entries/PRs/commits at or after this ISO date
     --markdown               With --suggest: print one Markdown document (default already markdown unless --json)
+    --baseline <file|main>   Gate this run against a saved baseline: a local JSON file, or "main" for the
+                             latest one pushed to the metrics branch. Exits non-zero when the pass rate
+                             drops by more than --max-drop points, a refusal case that passed now fails, or
+                             the corpus hash differs (without --allow-corpus-change). Prints every case that
+                             flipped verdict, in either direction.
+    --max-drop <points>      Max tolerated drop in overall pass rate with --baseline, in points (default 5)
+    --allow-corpus-change    With --baseline, compare anyway when the corpus hash differs (a changed corpus
+                             normally needs a new baseline, not a comparison)
+    --save-baseline          Push this run's report to the metrics branch, keyed by the current commit
+                             (same mechanism as 'metrics push'); read back later with --baseline main
+    --branch <name>          Metrics branch override for --baseline main / --save-baseline (default: vanguard-metrics)
 
     Temperature note: the claude CLI exposes no --temperature flag; run the suite 3× on a known-good
     state to measure pass-rate variance before relying on absolute regression thresholds (phase 2).
