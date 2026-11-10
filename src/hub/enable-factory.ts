@@ -230,7 +230,7 @@ export function githubSecretCommand(plan: FactoryPlan): FactorySecretStep {
 }
 
 /** Dispatch the doctor workflow and report its latest run (called once the PR above is merged). */
-export async function verifyGithubFactory(repoPath: string, plan: FactoryPlan, deps: GithubFactoryDeps = {}): Promise<FactoryVerifyResult> {
+export async function verifyGithubFactory(repoPath: string, _plan: FactoryPlan, deps: GithubFactoryDeps = {}): Promise<FactoryVerifyResult> {
   const exec = deps.exec ?? defaultExec;
   await exec('gh', ['workflow', 'run', workflowFileName('doctor')], { cwd: repoPath });
   const runs = await listRemoteRuns(repoPath, exec);
