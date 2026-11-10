@@ -44,7 +44,7 @@ export function makeCliComplete(model: string): (prompt: string) => Promise<stri
     const cwd = await mkdtemp(join(tmpdir(), 'taskcell-eval-'));
     try {
       const result = await execa('claude', [...EVAL_CLAUDE_ARGS, '--model', model], { input: prompt, cwd, reject: false, timeout: EVAL_CALL_TIMEOUT_MS });
-      if (result.timedOut) throw new Error(`claude --print --model ${model} timed out after ${EVAL_CALL_TIMEOUT_MS / 1000}s`);
+      if (result.timedOut) throw new Error(`claude --print --model ${model} timed out after ${EVAL_CALL_TIMEOUT_MS / 1000}s: ${(result.stderr || result.stdout || '(no output)').trim().slice(0, 500)}`);
       if (result.exitCode === 0) return result.stdout;
       // A safety stop is the model's answer (and the right one for a refusal case), not an infra failure.
       if (API_REFUSAL_RE.test(result.stdout)) return result.stdout;
