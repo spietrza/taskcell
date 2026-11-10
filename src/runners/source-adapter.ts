@@ -14,7 +14,7 @@ import { probeTaskDifficulty, decisionProbeConfig } from '../core/decision-probe
 import { decisionModelConfig, decisionEgressAllowed, decisionModelMissing, DECISION_MODEL_DEFAULT, type DecisionModelConfig } from '../core/decision-model.js';
 import { VanguardError } from '../core/errors.js';
 import { decisionDiffScorer } from '../evals/decision-judge.js';
-import { runStages, assembleReviewPipeline, withPrimaryFallback, sandboxComplete, withStageMaxTurns, withStageResumeUntilComplete, STAGE } from '../pipeline/pipeline.js';
+import { runStages, assembleReviewPipeline, withPrimaryFallback, sandboxComplete, withStageMaxTurns, withStageResumeUntilComplete, reviewFinalDiff, STAGE } from '../pipeline/pipeline.js';
 import { FLOWS } from '../api/capabilities.js';
 import { resolveRepoFlow, unknownFlowError } from '../flows/repo.js';
 import { buildReviewerAttribution } from '../pipeline/review-publish.js';
@@ -591,6 +591,7 @@ export async function runSourcedIssue(
       let verification: VerificationResult | undefined;
       let implementerDone = false;
       let gatePassed = false;
+      let repairIterations = 0;
       // try/finally so the per-stage cost table is printed even when a repair call throws or the run
       // is cancelled mid-loop — and, on the happy path, after the loop so repairs show up in it.
       try {
@@ -636,10 +637,36 @@ export async function runSourcedIssue(
           ...(deps.signal !== undefined ? { signal: deps.signal } : {}),
         });
         gatePassed = repair.passed;
+        repairIterations = repair.iterations;
       } finally {
         console.log(summarizeOutcomes(outcomes));
       }
       console.log(`vanguard: gate ${gatePassed ? 'PASSED' : 'FAILED — declaring partial scope'} for ${task.id}`);
+
+      // The reviewer ran once, before the repair loop. When a repair actually resumed the implementer
+      // (iterations > 0), the diff it reviewed no longer matches what ships (#665) — re-review the
+      // final diff so the published verdict is never stale. No repairs ⇒ the original verdict stands.
+      const reviewerStage = pipeline.find((s) => s.name === STAGE.REVIEWER);
+      if (reviewerStage !== undefined && repairIterations > 0) {
+        const rereviewed = await reviewFinalDiff(ctx, reviewerStage, {
+          agent: agents.agent,
+          variables: {
+            ...taskToVariables(task, { allowedAuthors: deps.feedbackAuthors }),
+            ...(adapter.variables?.(issueRef, task) ?? {}),
+            RETROSPECTIVE_MEMORY: escapePromptTags(retrospectiveMemory),
+          },
+          ...(deps.signal !== undefined ? { signal: deps.signal } : {}),
+        });
+        const reviewerIdx = outcomes.findIndex((o) => o.name === STAGE.REVIEWER);
+        const rereviewedOutcome: StageOutcome = {
+          name: STAGE.REVIEWER,
+          result: rereviewed,
+          providerName: (reviewerStage.provider ?? agents.agent).name,
+          ...(reviewerStage.model !== undefined ? { model: reviewerStage.model } : {}),
+        };
+        if (reviewerIdx !== -1) outcomes[reviewerIdx] = rereviewedOutcome;
+        else outcomes.push(rereviewedOutcome);
+      }
 
       const visualProof = await resolveAndRunVisualProof(
         ctx.sandbox,
