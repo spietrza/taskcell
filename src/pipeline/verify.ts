@@ -28,6 +28,12 @@ const PYTHON_MARKERS = ['pyproject.toml', 'pytest.ini', 'setup.cfg'];
 /** Type-check script names, in precedence order. */
 const TYPECHECK_SCRIPTS = ['typecheck', 'check-types', 'type-check'];
 
+/** The package manager a package.json's `packageManager` field names (pnpm/yarn), default npm. */
+export function packageManagerOf(field: string | undefined): 'pnpm' | 'yarn' | 'npm' {
+  const value = field ?? '';
+  return value.startsWith('pnpm') ? 'pnpm' : value.startsWith('yarn') ? 'yarn' : 'npm';
+}
+
 /**
  * Resolve the verification command. Precedence: explicit cmd (CLI flag) > VANGUARD_VERIFY_CMD env >
  * a `verify` script in the worktree package.json > auto-detect from package.json's test/typecheck
@@ -58,8 +64,7 @@ export async function resolveVerifyCommand(
     try {
       const pkg = JSON.parse(pkgRaw) as { scripts?: Record<string, string>; packageManager?: string };
       const scripts = pkg.scripts ?? {};
-      const field = pkg.packageManager ?? '';
-      const pm = field.startsWith('pnpm') ? 'pnpm' : field.startsWith('yarn') ? 'yarn' : 'npm';
+      const pm = packageManagerOf(pkg.packageManager);
       const install = `${pm} install --frozen-lockfile`;
       if (scripts.verify !== undefined) return `${install} && ${pm} run verify`;
       if (scripts.test === undefined) return undefined;

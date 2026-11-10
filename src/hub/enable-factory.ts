@@ -3,15 +3,15 @@
 // GitLab and Linear plug into the same `FactoryProvider` seam later (see docs/hub.md).
 //
 // Three steps, matching docs/onboarding-another-repo.md: plan (read the repo, show what will
-// change), apply (branch + the five callers from templates/github/ + a PR + the three labels —
+// change), apply (branch + the five callers from templates/github/ + a PR + the routing labels —
 // NEVER a push to the default branch), secret (print the `gh secret set` command text — the hub
 // never reads, prints or stores a secret value), verify (dispatch the doctor workflow once the PR
-// is merged, report its latest run).
+// is merged, report the run that dispatch created).
 import { execa } from 'execa';
 import { mkdir, readFile, writeFile } from 'node:fs/promises';
 import { join } from 'node:path';
 import { BadRequestError } from '../sidecar/sidecar.js';
-import { resolveVerifyCommand } from '../pipeline/verify.js';
+import { packageManagerOf, resolveVerifyCommand } from '../pipeline/verify.js';
 import { listRemoteRuns } from './remote.js';
 import type { FactoryApplyResult, FactoryPlan, FactoryProviderId, FactorySecretStep, FactoryVerifyResult } from '../wire.js';
 
@@ -30,6 +30,8 @@ export const FACTORY_LABELS = [
   { name: 'ready for agent', color: '0E8A16' },
   { name: 'needs revision', color: 'D93F0B' },
   { name: 'needs info', color: 'FBCA04' },
+  { name: 'ready for spec', color: '1D76DB' },
+  { name: 'ready for vanguard review', color: '5319E7' },
 ] as const;
 
 const TEMPLATES_DIR = new URL('../../templates/github/', import.meta.url);
@@ -46,6 +48,8 @@ const defaultExec: FactoryExec = (file, args, options) => execa(file, args, opti
 
 export interface GithubFactoryDeps {
   exec?: FactoryExec;
+  /** Wait between `verify`'s polls for the dispatched run; tests pass a no-op. */
+  sleep?: (ms: number) => Promise<void>;
 }
 
 /** The provider-adapter seam: GitLab and Linear (UI "coming soon") implement this later. */
@@ -104,10 +108,8 @@ async function detectScripts(repoPath: string): Promise<{ packageManager: string
   try {
     const pkg = JSON.parse(raw) as { scripts?: Record<string, string>; packageManager?: string };
     const scripts = pkg.scripts ?? {};
-    const field = pkg.packageManager ?? '';
-    const packageManager = field.startsWith('pnpm') ? 'pnpm' : field.startsWith('yarn') ? 'yarn' : 'npm';
     return {
-      packageManager,
+      packageManager: packageManagerOf(pkg.packageManager),
       scripts: {
         typecheck: scripts.typecheck !== undefined || scripts['check-types'] !== undefined || scripts['type-check'] !== undefined,
         lint: scripts.lint !== undefined,
@@ -149,8 +151,8 @@ export async function planGithubFactory(repoPath: string, deps: GithubFactoryDep
   };
 }
 
-/** Branch `apply` opens the PR from. Fixed, not random: a second `apply` on an already-open PR
- * updates the same branch instead of spawning a parallel one. */
+/** Branch `apply` opens the PR from. Fixed, not random: a second `apply` resets and reuses the same
+ * branch (and its open PR) instead of spawning a parallel one. */
 export function enableFactoryBranch(): string {
   return 'vanguard/enable-factory';
 }
@@ -161,10 +163,10 @@ async function run(exec: FactoryExec, file: string, args: string[], options?: { 
 }
 
 /**
- * Create a branch, add the five callers (author gate set to `plan.login`), open a PR against
- * `plan.defaultBranch` (never push TO it), and create the three routing labels. Idempotent-ish:
- * label creation uses `--force` so re-running after a partial failure does not error on labels that
- * already exist.
+ * Branch from `origin/<plan.defaultBranch>`, add the five callers (author gate set to `plan.login`),
+ * open a PR against `plan.defaultBranch` (never push TO it), and create the routing labels.
+ * Re-runnable after a partial failure: the branch is reset to the base and re-applied, the commit is
+ * skipped when nothing changed, an already-open PR is reused, and labels use `--force`.
  */
 export async function applyGithubFactory(repoPath: string, plan: FactoryPlan, deps: GithubFactoryDeps = {}): Promise<FactoryApplyResult> {
   const exec = deps.exec ?? defaultExec;
@@ -175,7 +177,9 @@ export async function applyGithubFactory(repoPath: string, plan: FactoryPlan, de
     throw new BadRequestError('refusing to use the default branch as the enable-factory branch');
   }
 
-  await run(exec, 'git', ['checkout', '-b', branch], { cwd: repoPath });
+  await run(exec, 'git', ['fetch', 'origin', plan.defaultBranch], { cwd: repoPath });
+  // -B: create the branch, or reset an existing one from an earlier apply, at the base.
+  await run(exec, 'git', ['checkout', '-B', branch, `origin/${plan.defaultBranch}`], { cwd: repoPath });
 
   const workflowsDir = join(repoPath, '.github', 'workflows');
   await mkdir(workflowsDir, { recursive: true });
@@ -185,10 +189,32 @@ export async function applyGithubFactory(repoPath: string, plan: FactoryPlan, de
     await writeFile(join(workflowsDir, workflowFileName(name)), content);
   }
 
-  await run(exec, 'git', ['add', ...plan.callerFiles], { cwd: repoPath });
-  await run(exec, 'git', ['commit', '-m', 'feat: enable the Taskcell factory (GitHub Actions)'], { cwd: repoPath });
-  // Pushes the NEW branch, never plan.defaultBranch — the PR is the only path onto the default branch.
-  await run(exec, 'git', ['push', '-u', 'origin', branch], { cwd: repoPath });
+  const { callerFiles } = factoryPlanTargets();
+  await run(exec, 'git', ['add', ...callerFiles], { cwd: repoPath });
+  const changed = (await run(exec, 'git', ['status', '--porcelain', '--', ...callerFiles], { cwd: repoPath })) !== '';
+  if (changed) {
+    await run(exec, 'git', ['commit', '-m', 'feat: enable the Taskcell factory (GitHub Actions)'], { cwd: repoPath });
+    // Pushes the hub's own fixed branch, never plan.defaultBranch — the PR is the only path onto the
+    // default branch. --force: the branch was just reset to the base, so an earlier apply's commit is replaced.
+    await run(exec, 'git', ['push', '--force', '-u', 'origin', branch], { cwd: repoPath });
+  }
+
+  const labelsCreated: string[] = [];
+  for (const label of FACTORY_LABELS) {
+    await run(exec, 'gh', ['label', 'create', label.name, '--color', label.color, '--force'], { cwd: repoPath });
+    labelsCreated.push(label.name);
+  }
+
+  const openPr = await run(
+    exec,
+    'gh',
+    ['pr', 'list', '--head', branch, '--base', plan.defaultBranch, '--state', 'open', '--json', 'url', '--jq', '.[0].url // ""'],
+    { cwd: repoPath },
+  );
+  if (openPr !== '') return { branch, prUrl: openPr, labelsCreated };
+  if (!changed) {
+    throw new BadRequestError(`the factory callers are already on ${plan.defaultBranch}; nothing to open a PR for`);
+  }
 
   const prUrl = await run(
     exec,
@@ -208,12 +234,6 @@ export async function applyGithubFactory(repoPath: string, plan: FactoryPlan, de
     { cwd: repoPath },
   );
 
-  const labelsCreated: string[] = [];
-  for (const label of FACTORY_LABELS) {
-    await run(exec, 'gh', ['label', 'create', label.name, '--color', label.color, '--force'], { cwd: repoPath });
-    labelsCreated.push(label.name);
-  }
-
   return { branch, prUrl, labelsCreated };
 }
 
@@ -229,14 +249,27 @@ export function githubSecretCommand(plan: FactoryPlan): FactorySecretStep {
   };
 }
 
-/** Dispatch the doctor workflow and report its latest run (called once the PR above is merged). */
+const VERIFY_POLLS = 5;
+const VERIFY_POLL_MS = 2000;
+
+/** Dispatch the doctor workflow and report the run that dispatch created (called once the PR above
+ * is merged). A run listed before the dispatch is never reported; if the new run has not appeared
+ * after a few polls, the result is `dispatched` with no `run`. */
 export async function verifyGithubFactory(repoPath: string, _plan: FactoryPlan, deps: GithubFactoryDeps = {}): Promise<FactoryVerifyResult> {
   const exec = deps.exec ?? defaultExec;
+  const sleep = deps.sleep ?? ((ms: number) => new Promise<void>((resolve) => setTimeout(resolve, ms)));
+  // Run ids, not timestamps: immune to clock skew between this machine and GitHub.
+  const seen = new Set((await listRemoteRuns(repoPath, exec)).map((r) => r.id));
   await exec('gh', ['workflow', 'run', workflowFileName('doctor')], { cwd: repoPath });
-  const runs = await listRemoteRuns(repoPath, exec);
-  const doctorRun = runs.find((r) => r.workflow === 'Vanguard Doctor') ?? runs[0];
-  if (doctorRun === undefined) return { dispatched: true };
-  return { dispatched: true, run: { url: doctorRun.url, status: doctorRun.status, conclusion: doctorRun.conclusion } };
+  for (let attempt = 0; attempt < VERIFY_POLLS; attempt++) {
+    await sleep(VERIFY_POLL_MS);
+    const runs = await listRemoteRuns(repoPath, exec);
+    const doctorRun = runs.find((r) => r.workflow === 'Vanguard Doctor' && r.event === 'workflow_dispatch' && !seen.has(r.id));
+    if (doctorRun !== undefined) {
+      return { dispatched: true, run: { url: doctorRun.url, status: doctorRun.status, conclusion: doctorRun.conclusion } };
+    }
+  }
+  return { dispatched: true };
 }
 
 /** Build a `FactoryProvider` for GitHub Actions, bound to one repo. GitLab/Linear are "coming

@@ -6,6 +6,7 @@ import { PassThrough } from 'node:stream';
 import { afterEach, describe, expect, test, vi } from 'vitest';
 import { dispatchRpc, classifyError, FLEET_DISABLED_MESSAGE, type RpcContext } from './rpc.js';
 import * as clone from './clone.js';
+import * as enableFactoryModule from './enable-factory.js';
 import { loadPaths } from './projects.js';
 import { ProjectAllowlist } from './allowlist.js';
 import { WatchRegistry } from './watch.js';
@@ -15,6 +16,7 @@ import { writeAppConfig } from './app-config.js';
 import { BadRequestError, runSidecar, type SidecarDeps } from '../sidecar/sidecar.js';
 import { VanguardError } from '../core/errors.js';
 import type { ChildProcess } from 'node:child_process';
+import type { FactoryPlan } from './enable-factory.js';
 
 class FakeChild extends EventEmitter {
   stdin = new PassThrough();
@@ -356,6 +358,99 @@ test('clone_project enforces mutation permissions before cloning', async () => {
   } finally {
     mock.mockRestore();
   }
+});
+
+describe('enable_factory RPCs', () => {
+  const validPlan = {
+    provider: 'github',
+    repoSlug: 'acme/widgets',
+    defaultBranch: 'main',
+    login: 'octocat',
+    packageManager: 'pnpm',
+    scripts: { typecheck: true, lint: true, test: true, build: true },
+  };
+
+  function spyProvider(): { seen: FactoryPlan[]; mock: ReturnType<typeof vi.spyOn> } {
+    const seen: FactoryPlan[] = [];
+    const mock = vi.spyOn(enableFactoryModule, 'enableFactory').mockImplementation(() => ({
+      plan: async () => validPlan as FactoryPlan,
+      apply: async (plan) => {
+        seen.push(plan);
+        return { branch: 'vanguard/enable-factory', prUrl: 'https://example/pr/1', labelsCreated: [] };
+      },
+      secretCommand: (plan) => {
+        seen.push(plan);
+        return enableFactoryModule.githubSecretCommand(plan);
+      },
+      verify: async (plan) => {
+        seen.push(plan);
+        return { dispatched: true };
+      },
+    }));
+    return { seen, mock };
+  }
+
+  test.each([
+    ['login', "octocat'\n    evil: true"],
+    ['login', '-octocat'],
+    ['login', 'a'.repeat(40)],
+    ['repoSlug', 'acme/widgets; rm -rf ~'],
+    ['repoSlug', 'acme'],
+    ['defaultBranch', '--upload-pack=evil'],
+  ])('rejects a plan whose %s is not a valid shape (%s)', async (field, value) => {
+    const repo = await tmpRepo();
+    const { ctx } = await makeCtx(repo);
+    const { seen, mock } = spyProvider();
+    try {
+      await expect(dispatchRpc(ctx, 'enable_factory_secret', { repoPath: repo, plan: { ...validPlan, [field]: value } }))
+        .rejects.toThrow(BadRequestError);
+      expect(seen).toEqual([]);
+    } finally {
+      mock.mockRestore();
+    }
+  });
+
+  test('discards client-supplied callerFiles and labels', async () => {
+    const repo = await tmpRepo();
+    const { ctx } = await makeCtx(repo);
+    const { seen, mock } = spyProvider();
+    try {
+      await dispatchRpc(ctx, 'enable_factory_apply', {
+        repoPath: repo,
+        plan: { ...validPlan, callerFiles: ['../../etc/passwd', '.'], labels: ['evil'] },
+      });
+      expect(seen).toHaveLength(1);
+      expect(seen[0]?.callerFiles).toEqual(enableFactoryModule.factoryPlanTargets().callerFiles);
+      expect(seen[0]?.labels).toEqual(enableFactoryModule.factoryPlanTargets().labels);
+    } finally {
+      mock.mockRestore();
+    }
+  });
+
+  test('requires the plan provider to be github', async () => {
+    const repo = await tmpRepo();
+    const { ctx } = await makeCtx(repo);
+    const { seen, mock } = spyProvider();
+    try {
+      await expect(dispatchRpc(ctx, 'enable_factory_apply', { repoPath: repo, plan: { ...validPlan, provider: 'gitlab' } }))
+        .rejects.toThrow('plan.provider must be github');
+      expect(seen).toEqual([]);
+    } finally {
+      mock.mockRestore();
+    }
+  });
+
+  test.each(['enable_factory_apply', 'enable_factory_verify'])('%s enforces mutation permissions', async (cmd) => {
+    const repo = await tmpRepo();
+    const { ctx } = await makeCtx(repo, { bind: { isLoopback: false, allowAdd: false } });
+    const { mock } = spyProvider();
+    try {
+      await expect(dispatchRpc(ctx, cmd, { repoPath: repo, plan: validPlan })).rejects.toThrow('disabled on a non-loopback bind');
+      expect(mock).not.toHaveBeenCalled();
+    } finally {
+      mock.mockRestore();
+    }
+  });
 });
 
 test('add_project is confined to the browse root, like browse_dirs', async () => {

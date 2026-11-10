@@ -75,9 +75,22 @@ function requireProvider(args: Record<string, unknown>, key: string): FactoryPro
   return v;
 }
 
+// `login` is spliced into the callers' YAML and `repoSlug` into the displayed `gh secret set`
+// command, `defaultBranch` into git argv — so each must match its GitHub shape, nothing wider.
+const GITHUB_LOGIN = /^[A-Za-z0-9](?:[A-Za-z0-9-]{0,38})$/;
+const GITHUB_REPO_SLUG = /^[A-Za-z0-9-]+\/[A-Za-z0-9._-]+$/;
+const GIT_BRANCH = /^(?!-)(?!.*\.\.)[A-Za-z0-9._/-]+$/;
+
+function requireMatch(args: Record<string, unknown>, key: string, shape: RegExp, label: string): string {
+  const v = requireString(args, key);
+  if (!shape.test(v)) throw new BadRequestError(`${key} must be a valid ${label}`);
+  return v;
+}
+
 /** Re-read the plan the client echoes back from `enable_factory_plan`. The paths `apply` stages and
  * the labels it creates are NOT taken from the client: `factoryPlanTargets()` re-derives them from
- * this process's own constants, so a tampered plan cannot widen `git add` or `gh label create`. */
+ * this process's own constants, so a tampered plan cannot widen `git add` or `gh label create`; the
+ * fields that reach YAML, shell text or git argv are shape-checked. */
 function requirePlan(args: Record<string, unknown>, key: string): FactoryPlan {
   const raw = args[key];
   if (typeof raw !== 'object' || raw === null) throw new BadRequestError(`${key} is required`);
@@ -86,9 +99,9 @@ function requirePlan(args: Record<string, unknown>, key: string): FactoryPlan {
   const verifyCommand = optionalString(plan, 'verifyCommand');
   return {
     provider: 'github',
-    repoSlug: requireString(plan, 'repoSlug'),
-    defaultBranch: requireString(plan, 'defaultBranch'),
-    login: requireString(plan, 'login'),
+    repoSlug: requireMatch(plan, 'repoSlug', GITHUB_REPO_SLUG, 'owner/repo slug'),
+    defaultBranch: requireMatch(plan, 'defaultBranch', GIT_BRANCH, 'branch name'),
+    login: requireMatch(plan, 'login', GITHUB_LOGIN, 'GitHub login'),
     packageManager: requireString(plan, 'packageManager'),
     ...(verifyCommand !== undefined ? { verifyCommand } : {}),
     scripts: (plan.scripts as FactoryPlan['scripts'] | undefined) ?? noScripts(),

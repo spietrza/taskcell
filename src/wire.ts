@@ -584,12 +584,12 @@ export interface Commands {
    *  forward compatibility with GitLab/Linear, which the UI marks "coming soon" instead of calling this. */
   enable_factory_plan: { args: { repoPath: string; provider: FactoryProviderId }; result: FactoryPlan };
   /** HUB_ONLY: create a branch, add the five caller workflows, open a PR (never push to the default
-   *  branch) and create the three routing labels. */
+   *  branch) and create the routing labels. */
   enable_factory_apply: { args: { repoPath: string; plan: FactoryPlan }; result: FactoryApplyResult };
   /** HUB_ONLY: the `gh secret set` command text for the user to run themselves — the hub never
    *  reads, prints or stores the secret value. */
   enable_factory_secret: { args: { repoPath: string; plan: FactoryPlan }; result: FactorySecretStep };
-  /** HUB_ONLY: dispatch the doctor workflow (once the PR above is merged) and report its latest run. */
+  /** HUB_ONLY: dispatch the doctor workflow (once the PR above is merged) and report the run that dispatch created. */
   enable_factory_verify: { args: { repoPath: string; plan: FactoryPlan }; result: FactoryVerifyResult };
 }
 

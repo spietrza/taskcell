@@ -32,9 +32,40 @@ interface Call {
   cwd: string | undefined;
 }
 
-function fakeExec(calls: Call[]): FactoryExec {
+interface FakeOptions {
+  /** `git status --porcelain` output — non-empty means the callers changed. */
+  status?: string;
+  /** URL `gh pr list` reports for an already-open PR ('' = none). */
+  openPr?: string;
+  /** `gh run list` results per call, in order (the last one repeats). */
+  runLists?: unknown[][];
+}
+
+const doctorRun = (id: number, event = 'workflow_dispatch'): unknown => ({
+  databaseId: id,
+  status: 'completed',
+  conclusion: 'success',
+  displayTitle: 'Vanguard Doctor',
+  headBranch: 'main',
+  workflowName: 'Vanguard Doctor',
+  createdAt: '2026-01-01T00:00:00Z',
+  event,
+  url: `https://github.com/acme/widgets/actions/runs/${id}`,
+});
+
+const noSleep = async (): Promise<void> => {};
+
+function fakeExec(calls: Call[], opts: FakeOptions = {}): FactoryExec {
+  const runLists = opts.runLists ?? [[], [doctorRun(1)]];
+  let runListCalls = 0;
   return async (file, args, options) => {
     calls.push({ file, args, cwd: options?.cwd });
+    if (file === 'git' && args[0] === 'status') {
+      return { stdout: opts.status ?? ' M .github/workflows/vanguard-implement.yml\n', stderr: '' };
+    }
+    if (file === 'gh' && args[0] === 'pr' && args[1] === 'list') {
+      return { stdout: `${opts.openPr ?? ''}\n`, stderr: '' };
+    }
     if (file === 'gh' && args[0] === 'repo' && args[1] === 'view') {
       return { stdout: JSON.stringify({ nameWithOwner: 'acme/widgets', defaultBranchRef: { name: 'main' } }), stderr: '' };
     }
@@ -45,22 +76,9 @@ function fakeExec(calls: Call[]): FactoryExec {
       return { stdout: 'https://github.com/acme/widgets/pull/42\n', stderr: '' };
     }
     if (file === 'gh' && args[0] === 'run' && args[1] === 'list') {
-      return {
-        stdout: JSON.stringify([
-          {
-            databaseId: 1,
-            status: 'completed',
-            conclusion: 'success',
-            displayTitle: 'Vanguard Doctor',
-            headBranch: 'main',
-            workflowName: 'Vanguard Doctor',
-            createdAt: '2026-01-01T00:00:00Z',
-            event: 'workflow_dispatch',
-            url: 'https://github.com/acme/widgets/actions/runs/1',
-          },
-        ]),
-        stderr: '',
-      };
+      const runs = runLists[Math.min(runListCalls, runLists.length - 1)];
+      runListCalls++;
+      return { stdout: JSON.stringify(runs), stderr: '' };
     }
     return { stdout: '', stderr: '' };
   };
@@ -103,7 +121,7 @@ describe('applyGithubFactory', () => {
     return { repoPath, plan, calls };
   }
 
-  it('creates a branch, commits the callers, opens a PR and creates the three labels', async () => {
+  it('creates a branch from origin/<default>, commits the callers, opens a PR and creates the labels', async () => {
     const { repoPath, plan, calls } = await plannedRepo();
     const result = await applyGithubFactory(repoPath, plan, { exec: fakeExec(calls) });
 
@@ -111,8 +129,11 @@ describe('applyGithubFactory', () => {
     expect(result.prUrl).toBe('https://github.com/acme/widgets/pull/42');
     expect(result.labelsCreated).toEqual(FACTORY_LABELS.map((l) => l.name));
 
-    const checkout = calls.find((c) => c.file === 'git' && c.args[0] === 'checkout');
-    expect(checkout?.args).toEqual(['checkout', '-b', 'vanguard/enable-factory']);
+    const fetchIdx = calls.findIndex((c) => c.file === 'git' && c.args[0] === 'fetch');
+    const checkoutIdx = calls.findIndex((c) => c.file === 'git' && c.args[0] === 'checkout');
+    expect(calls[fetchIdx]?.args).toEqual(['fetch', 'origin', 'main']);
+    expect(calls[checkoutIdx]?.args).toEqual(['checkout', '-B', 'vanguard/enable-factory', 'origin/main']);
+    expect(fetchIdx).toBeLessThan(checkoutIdx);
 
     const commit = calls.find((c) => c.file === 'git' && c.args[0] === 'commit');
     expect(commit).toBeDefined();
@@ -147,6 +168,37 @@ describe('applyGithubFactory', () => {
   });
 });
 
+describe('applyGithubFactory re-runs', () => {
+  it('reuses an already-open PR instead of creating a second one', async () => {
+    const repoPath = await repo();
+    const calls: Call[] = [];
+    const exec = fakeExec(calls, { openPr: 'https://github.com/acme/widgets/pull/7' });
+    const plan = await planGithubFactory(repoPath, { exec });
+    const result = await applyGithubFactory(repoPath, plan, { exec });
+
+    expect(result.prUrl).toBe('https://github.com/acme/widgets/pull/7');
+    expect(calls.some((c) => c.file === 'gh' && c.args[0] === 'pr' && c.args[1] === 'create')).toBe(false);
+  });
+
+  it('skips the commit and push when the callers did not change', async () => {
+    const repoPath = await repo();
+    const calls: Call[] = [];
+    const exec = fakeExec(calls, { status: '', openPr: 'https://github.com/acme/widgets/pull/7' });
+    const plan = await planGithubFactory(repoPath, { exec });
+    const result = await applyGithubFactory(repoPath, plan, { exec });
+
+    expect(result.prUrl).toBe('https://github.com/acme/widgets/pull/7');
+    expect(calls.some((c) => c.file === 'git' && (c.args[0] === 'commit' || c.args[0] === 'push'))).toBe(false);
+  });
+
+  it('reports a clear error when nothing changed and no PR is open', async () => {
+    const repoPath = await repo();
+    const exec = fakeExec([], { status: '' });
+    const plan = await planGithubFactory(repoPath, { exec });
+    await expect(applyGithubFactory(repoPath, plan, { exec })).rejects.toThrow(/already on main/);
+  });
+});
+
 describe('githubSecretCommand', () => {
   it('returns the command text only, with no exec dependency at all', async () => {
     const repoPath = await repo();
@@ -164,21 +216,35 @@ describe('githubSecretCommand', () => {
 });
 
 describe('verifyGithubFactory', () => {
-  it('dispatches the doctor workflow and reports its latest run', async () => {
+  it('dispatches the doctor workflow and reports the run that dispatch created', async () => {
     const repoPath = await repo();
     const calls: Call[] = [];
-    const plan = await planGithubFactory(repoPath, { exec: fakeExec(calls) });
-    const result = await verifyGithubFactory(repoPath, plan, { exec: fakeExec(calls) });
-
-    expect(result.dispatched).toBe(true);
-    expect(result.run).toEqual({
-      url: 'https://github.com/acme/widgets/actions/runs/1',
-      status: 'completed',
-      conclusion: 'success',
+    const plan = await planGithubFactory(repoPath, { exec: fakeExec([]) });
+    const result = await verifyGithubFactory(repoPath, plan, {
+      exec: fakeExec(calls, { runLists: [[doctorRun(1)], [doctorRun(1)], [doctorRun(2), doctorRun(1)]] }),
+      sleep: noSleep,
     });
 
-    const dispatch = calls.find((c) => c.file === 'gh' && c.args[0] === 'workflow' && c.args[1] === 'run');
-    expect(dispatch?.args).toEqual(['workflow', 'run', 'vanguard-doctor.yml']);
+    expect(result).toEqual({
+      dispatched: true,
+      run: { url: 'https://github.com/acme/widgets/actions/runs/2', status: 'completed', conclusion: 'success' },
+    });
+
+    const listIdx = calls.findIndex((c) => c.file === 'gh' && c.args[0] === 'run' && c.args[1] === 'list');
+    const dispatchIdx = calls.findIndex((c) => c.file === 'gh' && c.args[0] === 'workflow' && c.args[1] === 'run');
+    expect(calls[dispatchIdx]?.args).toEqual(['workflow', 'run', 'vanguard-doctor.yml']);
+    expect(listIdx).toBeLessThan(dispatchIdx);
+  });
+
+  it('never reports a stale or unrelated run; returns dispatched with no run instead', async () => {
+    const repoPath = await repo();
+    const plan = await planGithubFactory(repoPath, { exec: fakeExec([]) });
+    const unrelated = { ...(doctorRun(3) as object), workflowName: 'CI' };
+    const result = await verifyGithubFactory(repoPath, plan, {
+      exec: fakeExec([], { runLists: [[doctorRun(1)], [unrelated, doctorRun(4, 'push'), doctorRun(1)]] }),
+      sleep: noSleep,
+    });
+    expect(result).toEqual({ dispatched: true });
   });
 });
 
@@ -191,7 +257,7 @@ describe('enableFactory', () => {
   it('wires plan/apply/secret/verify to one repo for github, and never calls `gh secret set`', async () => {
     const repoPath = await repo();
     const calls: Call[] = [];
-    const provider = enableFactory(repoPath, 'github', { exec: fakeExec(calls) });
+    const provider = enableFactory(repoPath, 'github', { exec: fakeExec(calls), sleep: noSleep });
 
     const plan = await provider.plan();
     await provider.apply(plan);

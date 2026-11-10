@@ -63,9 +63,15 @@ describe('templates/github/ caller templates', () => {
 
   it('every caller gates workflow_dispatch (and any label event) on an actor, not just the event type', async () => {
     for (const file of EXPECTED_FILES) {
-      const raw = await readFile(new URL(file, TEMPLATES_DIR), 'utf8');
-      // YOUR_LOGIN is the placeholder enableFactory's apply step replaces with the signed-in gh login.
-      expect(raw).toContain('YOUR_LOGIN');
+      const doc = parse(await readFile(new URL(file, TEMPLATES_DIR), 'utf8')) as { jobs?: Record<string, { if?: unknown }> };
+      const jobs = Object.values(doc.jobs ?? {});
+      expect(jobs.length).toBeGreaterThan(0);
+      // YOUR_LOGIN is the placeholder enableFactory's apply step replaces with the signed-in gh login;
+      // it must sit in each job's parsed `if:` against the actor, not merely somewhere in the text.
+      for (const job of jobs) {
+        expect(job.if).toBeTypeOf('string');
+        expect(job.if as string).toMatch(/(github\.actor|github\.event\.sender\.login) == 'YOUR_LOGIN'/);
+      }
     }
   });
 });
