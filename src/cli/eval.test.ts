@@ -1,12 +1,13 @@
-import { describe, it, expect, vi } from 'vitest';
+import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import { parseCli } from './args.js';
-import { JUDGE_MODEL, DEFAULT_PRODUCE_MODEL } from '../evals/corpus/index.js';
+import { JUDGE_MODEL, DEFAULT_PRODUCE_MODEL, CORPUS_HASH, refusalCases } from '../evals/corpus/index.js';
 import { evalCommand } from './eval.js';
+import type { EvalRunReport } from '../evals/types.js';
 
 describe('parseCli eval', () => {
   it('parses eval with defaults', () => {
     const cmd = parseCli(['eval'], '/repo');
-    expect(cmd).toEqual({ kind: 'eval', json: false, suggest: false, repoPath: '/repo' });
+    expect(cmd).toEqual({ kind: 'eval', json: false, suggest: false, repoPath: '/repo', allowCorpusChange: false, saveBaseline: false });
   });
 
   it('parses --json flag', () => {
@@ -22,6 +23,21 @@ describe('parseCli eval', () => {
   it('parses --produce-model override', () => {
     const cmd = parseCli(['eval', '--produce-model', 'claude-sonnet-4-6'], '/repo');
     expect(cmd).toMatchObject({ kind: 'eval', produceModel: 'claude-sonnet-4-6' });
+  });
+
+  it('parses --baseline, --max-drop, --allow-corpus-change and --branch', () => {
+    const cmd = parseCli(['eval', '--baseline', 'main', '--max-drop', '10', '--allow-corpus-change', '--branch', 'custom-metrics'], '/repo');
+    expect(cmd).toMatchObject({ kind: 'eval', baseline: 'main', maxDrop: 10, allowCorpusChange: true, branch: 'custom-metrics' });
+  });
+
+  it('parses --baseline with a local file path', () => {
+    const cmd = parseCli(['eval', '--baseline', './baseline.json'], '/repo');
+    expect(cmd).toMatchObject({ kind: 'eval', baseline: './baseline.json' });
+  });
+
+  it('parses --save-baseline', () => {
+    const cmd = parseCli(['eval', '--save-baseline'], '/repo');
+    expect(cmd).toMatchObject({ kind: 'eval', saveBaseline: true });
   });
 
 });
@@ -88,7 +104,7 @@ describe('evalCommand', () => {
     expect(models).toContain('claude-opus-4-8');
   });
 
-  it('emits a JSON EvalReport when --json is set', async () => {
+  it('emits a JSON EvalReport when --json is set, with judge/produce model and corpus hash', async () => {
     const logSpy = vi.spyOn(console, 'log').mockImplementation(() => {});
     try {
       const cmd = { kind: 'eval' as const, json: true, suggest: false, repoPath: '/repo' };
@@ -99,6 +115,10 @@ describe('evalCommand', () => {
       expect(parsed).toHaveProperty('total');
       expect(parsed).toHaveProperty('passRate');
       expect(parsed).toHaveProperty('byKind');
+      expect(parsed.judgeModel).toBe(JUDGE_MODEL);
+      expect(parsed.produceModel).toBe(DEFAULT_PRODUCE_MODEL);
+      expect(parsed.corpusHash).toBe(CORPUS_HASH);
+      expect(parsed.results[0]).toHaveProperty('verdict');
     } finally {
       logSpy.mockRestore();
     }
@@ -116,5 +136,218 @@ describe('evalCommand', () => {
     } finally {
       logSpy.mockRestore();
     }
+  });
+});
+
+describe('evalCommand --baseline / --save-baseline', () => {
+  const allPass = '<verdict>{"passed":true,"score":1,"reason":"ok"}</verdict>';
+
+  /** produce(model) echoes the prompt; judge(model) fails every case of `failKind` and passes the rest. */
+  function makeFactoryFailingKind(failKind: string | undefined) {
+    return (model: string) => async (prompt: string): Promise<string> => {
+      if (model === DEFAULT_PRODUCE_MODEL) return `out:${prompt}`;
+      if (failKind !== undefined && prompt.includes(`Case kind: ${failKind}`)) {
+        return '<verdict>{"passed":false,"score":0,"reason":"fail"}</verdict>';
+      }
+      return allPass;
+    };
+  }
+
+  /** A fully-passing JSON report, suitable as a --baseline file fixture. */
+  async function runJson(): Promise<string> {
+    const logSpy = vi.spyOn(console, 'log').mockImplementation(() => {});
+    try {
+      const cmd = { kind: 'eval' as const, json: true, suggest: false, repoPath: '/repo' };
+      await evalCommand(cmd, makeFactoryFailingKind(undefined));
+      return logSpy.mock.calls[0]![0] as string;
+    } finally {
+      logSpy.mockRestore();
+    }
+  }
+
+  /** The same fixture already parsed, for the paths that compare against a report rather than a file. */
+  async function runReport(): Promise<EvalRunReport> {
+    return JSON.parse(await runJson()) as EvalRunReport;
+  }
+
+  let priorExitCode: typeof process.exitCode;
+  beforeEach(() => {
+    priorExitCode = process.exitCode;
+    process.exitCode = undefined;
+  });
+  afterEach(() => {
+    process.exitCode = priorExitCode;
+  });
+
+  it('exits 0 and reports "no case changed verdict" when the result matches the baseline', async () => {
+    const baselineJson = await runJson();
+    const logSpy = vi.spyOn(console, 'log').mockImplementation(() => {});
+    try {
+      const cmd = { kind: 'eval' as const, json: false, suggest: false, repoPath: '/repo', baseline: 'baseline.json' };
+      await evalCommand(cmd, makeFactoryFailingKind(undefined), undefined, { readBaselineFile: async () => baselineJson });
+      expect(process.exitCode).toBeUndefined();
+      const output = logSpy.mock.calls.map((c) => String(c[0])).join('\n');
+      expect(output).toContain('BASELINE: pass');
+      expect(output).toContain('no case changed verdict');
+    } finally {
+      logSpy.mockRestore();
+    }
+  });
+
+  it('exits non-zero and names the flipped cases when the pass rate drops by more than --max-drop', async () => {
+    const baselineJson = await runJson();
+    const logSpy = vi.spyOn(console, 'log').mockImplementation(() => {});
+    try {
+      const cmd = { kind: 'eval' as const, json: false, suggest: false, repoPath: '/repo', baseline: 'baseline.json' };
+      await evalCommand(cmd, makeFactoryFailingKind('control'), undefined, { readBaselineFile: async () => baselineJson });
+      expect(process.exitCode).toBe(1);
+      const output = logSpy.mock.calls.map((c) => String(c[0])).join('\n');
+      expect(output).toContain('BASELINE: FAIL');
+      expect(output).toContain('pass rate dropped');
+      expect(output).toContain('ctrl-01'); // a flipped control case named in the report
+    } finally {
+      logSpy.mockRestore();
+    }
+  });
+
+  it('exits non-zero on a refusal regression even when the overall drop is within --max-drop', async () => {
+    const baselineJson = await runJson();
+    const target = refusalCases[0]!;
+    const logSpy = vi.spyOn(console, 'log').mockImplementation(() => {});
+    try {
+      // 1 of 30 cases flips: well within the default 5-point budget, but a refusal regression is never tolerated.
+      const factory = (model: string) => async (prompt: string): Promise<string> => {
+        if (model === DEFAULT_PRODUCE_MODEL) return `out:${prompt}`;
+        if (prompt.includes(target.input)) return '<verdict>{"passed":false,"score":0,"reason":"fail"}</verdict>';
+        return allPass;
+      };
+      const cmd = { kind: 'eval' as const, json: false, suggest: false, repoPath: '/repo', baseline: 'baseline.json', maxDrop: 50 };
+      await evalCommand(cmd, factory, undefined, { readBaselineFile: async () => baselineJson });
+      expect(process.exitCode).toBe(1);
+      const output = logSpy.mock.calls.map((c) => String(c[0])).join('\n');
+      expect(output).toContain('BASELINE: FAIL');
+      expect(output).toContain('refusal regression');
+      expect(output).toContain(target.id);
+    } finally {
+      logSpy.mockRestore();
+    }
+  });
+
+  it('fails on a corpus hash change unless --allow-corpus-change', async () => {
+    const stale = JSON.stringify({ ...(await runReport()), corpusHash: 'sha256:stale' });
+
+    const blockedLog = vi.spyOn(console, 'log').mockImplementation(() => {});
+    try {
+      const cmd = { kind: 'eval' as const, json: false, suggest: false, repoPath: '/repo', baseline: 'baseline.json' };
+      await evalCommand(cmd, makeFactoryFailingKind(undefined), undefined, { readBaselineFile: async () => stale });
+      expect(process.exitCode).toBe(1);
+      const output = blockedLog.mock.calls.map((c) => String(c[0])).join('\n');
+      expect(output).toContain('corpus changed');
+    } finally {
+      blockedLog.mockRestore();
+    }
+
+    process.exitCode = undefined;
+    const allowedLog = vi.spyOn(console, 'log').mockImplementation(() => {});
+    try {
+      const cmd = {
+        kind: 'eval' as const,
+        json: false,
+        suggest: false,
+        repoPath: '/repo',
+        baseline: 'baseline.json',
+        allowCorpusChange: true,
+      };
+      await evalCommand(cmd, makeFactoryFailingKind(undefined), undefined, { readBaselineFile: async () => stale });
+      expect(process.exitCode).toBeUndefined();
+    } finally {
+      allowedLog.mockRestore();
+    }
+  });
+
+  it('reads --baseline main through the injected readLatestBaseline dependency', async () => {
+    const baselineReport = await runReport();
+    const readLatestBaseline = vi.fn(async () => baselineReport);
+    const logSpy = vi.spyOn(console, 'log').mockImplementation(() => {});
+    try {
+      const cmd = { kind: 'eval' as const, json: false, suggest: false, repoPath: '/repo', baseline: 'main' };
+      await evalCommand(cmd, makeFactoryFailingKind(undefined), undefined, { readLatestBaseline });
+      expect(readLatestBaseline).toHaveBeenCalledWith('/repo', {});
+      expect(process.exitCode).toBeUndefined();
+    } finally {
+      logSpy.mockRestore();
+    }
+  });
+
+  it('exits non-zero and warns when --baseline main finds nothing', async () => {
+    const errorSpy = vi.spyOn(console, 'error').mockImplementation(() => {});
+    const logSpy = vi.spyOn(console, 'log').mockImplementation(() => {});
+    try {
+      const cmd = { kind: 'eval' as const, json: false, suggest: false, repoPath: '/repo', baseline: 'main' };
+      await evalCommand(cmd, makeFactoryFailingKind(undefined), undefined, { readLatestBaseline: async () => undefined });
+      expect(process.exitCode).toBe(1);
+      expect(errorSpy.mock.calls.map((c) => String(c[0])).join('\n')).toContain('no baseline found');
+    } finally {
+      errorSpy.mockRestore();
+      logSpy.mockRestore();
+    }
+  });
+
+  it('pushes the run report via saveEvalBaseline with --save-baseline and logs the commit', async () => {
+    const saveBaseline = vi.fn(async (_repoPath: string, report: EvalRunReport) => ({
+      commit: 'abcdef1234567890',
+      timestamp: 't',
+      report,
+    }));
+    const logSpy = vi.spyOn(console, 'log').mockImplementation(() => {});
+    try {
+      const cmd = { kind: 'eval' as const, json: false, suggest: false, repoPath: '/repo', saveBaseline: true };
+      await evalCommand(cmd, makeFactoryFailingKind(undefined), undefined, { saveBaseline });
+      expect(saveBaseline).toHaveBeenCalledTimes(1);
+      expect(saveBaseline.mock.calls[0]?.[0]).toBe('/repo');
+      const output = logSpy.mock.calls.map((c) => String(c[0])).join('\n');
+      expect(output).toContain('saved baseline for abcdef1');
+    } finally {
+      logSpy.mockRestore();
+    }
+  });
+
+  it('compares before saving, so --save-baseline with --baseline main never compares against itself', async () => {
+    const calls: string[] = [];
+    const baselineReport = await runReport();
+    const logSpy = vi.spyOn(console, 'log').mockImplementation(() => {});
+    try {
+      const cmd = {
+        kind: 'eval' as const,
+        json: false,
+        suggest: false,
+        repoPath: '/repo',
+        baseline: 'main',
+        saveBaseline: true,
+      };
+      await evalCommand(cmd, makeFactoryFailingKind('control'), undefined, {
+        readLatestBaseline: async () => {
+          calls.push('read');
+          return baselineReport;
+        },
+        saveBaseline: async (_repoPath: string, report: EvalRunReport) => {
+          calls.push('save');
+          return { commit: 'abcdef1234567890', timestamp: 't', report };
+        },
+      });
+      expect(calls).toEqual(['read', 'save']);
+      // The regression is still caught: the run was compared against main's baseline, not its own push.
+      expect(process.exitCode).toBe(1);
+    } finally {
+      logSpy.mockRestore();
+    }
+  });
+
+  it('names the offending file when a --baseline file is not valid JSON', async () => {
+    // Nothing is printed: the parse throws before the report is formatted, so no console spy is needed.
+    const cmd = { kind: 'eval' as const, json: false, suggest: false, repoPath: '/repo', baseline: 'broken.json' };
+    await expect(
+      evalCommand(cmd, makeFactoryFailingKind(undefined), undefined, { readBaselineFile: async () => 'not json' }),
+    ).rejects.toThrow(/--baseline broken\.json: not a valid eval report/);
   });
 });
