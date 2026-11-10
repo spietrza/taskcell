@@ -1,7 +1,7 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import { parseCli } from './args.js';
 import { JUDGE_MODEL, DEFAULT_PRODUCE_MODEL, CORPUS_HASH, refusalCases } from '../evals/corpus/index.js';
-import { evalCommand, EMPTY_TASK_PROMPT } from './eval.js';
+import { evalCommand, EMPTY_TASK_PROMPT, EVAL_CLAUDE_ARGS } from './eval.js';
 import type { EvalRunReport } from '../evals/types.js';
 
 describe('parseCli eval', () => {
@@ -90,6 +90,10 @@ describe('evalCommand', () => {
     expect(models).toHaveLength(2);
     expect(models).toContain(JUDGE_MODEL);
     expect(models).toContain(DEFAULT_PRODUCE_MODEL);
+  });
+
+  it('runs every eval model call with all tools and MCP servers disabled', () => {
+    expect(EVAL_CLAUDE_ARGS).toEqual(['--print', '--tools', '', '--strict-mcp-config']);
   });
 
   it('never sends an empty prompt to the model under test (claude --print refuses one)', async () => {
