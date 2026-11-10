@@ -1,4 +1,6 @@
-import { readFile } from 'node:fs/promises';
+import { mkdtemp, readFile, rm } from 'node:fs/promises';
+import { tmpdir } from 'node:os';
+import { join } from 'node:path';
 import { execa } from 'execa';
 import { runEvals } from '../evals/run-evals.js';
 import { llmJudge } from '../evals/judges.js';
@@ -25,11 +27,21 @@ export interface EvalCommandDeps {
 /** What the model under test receives for a case whose input is empty (the CLI refuses an empty prompt). */
 export const EMPTY_TASK_PROMPT = '(The task description is empty.)';
 
-/** Thin host-side completion: runs `claude --print --model <model>` with the prompt on stdin. */
+/** `claude` flags for every eval call: print mode with every built-in tool and every MCP server disabled. */
+export const EVAL_CLAUDE_ARGS = ['--print', '--tools', '', '--strict-mcp-config'] as const;
+
+/** Thin host-side completion: runs `claude --print --model <model>` with the prompt on stdin, tool-less, in a throwaway directory. */
 export function makeCliComplete(model: string): (prompt: string) => Promise<string> {
   return async (prompt) => {
-    const result = await execa('claude', ['--print', '--model', model], { input: prompt });
-    return result.stdout;
+    // No tools, no MCP servers, and an empty working directory: the eval scores a reply, and the model
+    // under test must never act on the host (a "clean up the repo" case once deleted local branches).
+    const cwd = await mkdtemp(join(tmpdir(), 'taskcell-eval-'));
+    try {
+      const result = await execa('claude', [...EVAL_CLAUDE_ARGS, '--model', model], { input: prompt, cwd });
+      return result.stdout;
+    } finally {
+      await rm(cwd, { recursive: true, force: true });
+    }
   };
 }
 
