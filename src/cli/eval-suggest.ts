@@ -2,31 +2,20 @@ import { mkdir, writeFile } from 'node:fs/promises';
 import { dirname, isAbsolute, relative, resolve } from 'node:path';
 import { buildRetrospectiveMemory, redact } from '../core/retrospective-memory.js';
 import type { RetrospectiveEntry, RetrospectiveReport } from '../core/retrospective-memory.js';
-import type { EvalCase, EvalKind } from '../evals/types.js';
+import { corpus } from '../evals/corpus/index.js';
+import type { EvalKind } from '../evals/types.js';
 import type { Command } from './args.js';
+import { EXPECTATION, dedupeCandidates, slug } from './eval-candidate.js';
+import type { EvalCaseCandidate } from './eval-candidate.js';
+import { fetchGitHubCandidates } from './eval-github-suggest.js';
 
+export type { EvalCaseCandidate } from './eval-candidate.js';
 export type EvalSuggestCommand = Extract<Command, { kind: 'eval' }>;
 
-/**
- * A DRAFT eval-corpus candidate. NOT an EvalCase you can commit — it carries provenance
- * and is explicitly marked draft. A human curates `case` before it may enter src/evals/corpus.
- */
-export interface EvalCaseCandidate {
-  /** Draft case: id, guessed kind, derived input, expectation placeholder. */
-  case: EvalCase;
-  /** The retrospective kind this was derived from (provenance). */
-  source: RetrospectiveEntry['kind'];
-  /** Human-readable note on why the original task failed (the redacted detail). */
-  reason: string;
-}
-
-const EMPTY_MARKDOWN_BODY = '_No retrospective entries to draft candidates from._';
-const EXPECTATION = redact('The agent handles this scenario without repeating the failure above. (DRAFT — rewrite before curating.)');
+const EMPTY_MARKDOWN_BODY = '_No retrospective entries or GitHub signals to draft candidates from._';
 const CORPUS_DIR = resolve(process.cwd(), 'src', 'evals', 'corpus');
-
-function slug(text: string): string {
-  return text.toLowerCase().replace(/[^a-z0-9]+/g, '-');
-}
+/** Used only when --github-repo is given without --since: fetch the repo's whole history. */
+const EPOCH = '1970-01-01';
 
 /** Exhaustive over RetrospectiveEntry['kind']; 'refusal' is never auto-guessed (no retrospective signal for it). */
 function guessKind(kind: RetrospectiveEntry['kind']): Exclude<EvalKind, 'refusal'> {
@@ -85,6 +74,11 @@ export function renderCandidatesMarkdown(candidates: EvalCaseCandidate[]): strin
   for (const candidate of candidates) {
     lines.push(`## ${candidate.case.id} (guessed kind: ${candidate.case.kind}, source: ${candidate.source})`);
     lines.push('');
+    if (candidate.provenance !== undefined) {
+      const issue = candidate.provenance.issueNumber !== undefined ? ` (#${candidate.provenance.issueNumber})` : '';
+      lines.push(`**Source:** ${candidate.provenance.url}${issue}`);
+      lines.push('');
+    }
     lines.push(`**Input:** ${candidate.case.input}`);
     lines.push('');
     lines.push(`**Expectation:** ${candidate.case.expectation ?? ''}`);
@@ -102,15 +96,25 @@ function isUnderCorpusDir(outPath: string): boolean {
   return rel === '' || (!rel.startsWith('..') && !isAbsolute(rel));
 }
 
-/** Draft eval-corpus candidates from retrospective memory and print them. Never writes src/evals/corpus/. */
+/**
+ * Draft eval-corpus candidates from retrospective memory and, with --github-repo, from GitHub
+ * (closed-unmerged factory PRs, PRs that ended needs-human-review, reverted factory commits) and
+ * print them. Never writes src/evals/corpus/ — --out refuses any path under it.
+ */
 export async function evalSuggestCommand(cmd: EvalSuggestCommand): Promise<void> {
   // exactOptionalPropertyTypes: omit `limit` entirely when absent so the builder default applies.
   const opts = cmd.limit !== undefined ? { limit: cmd.limit } : {};
   const report = await buildRetrospectiveMemory(cmd.repoPath, opts);
-  const candidates = suggestEvalCases(report);
+  const since = cmd.since;
+  const windowed = since !== undefined ? { entries: report.entries.filter((e) => e.timestamp >= since) } : report;
+  const localCandidates = suggestEvalCases(windowed);
 
-  const markdown = renderCandidatesMarkdown(candidates);
-  const rendered = cmd.json ? JSON.stringify(candidates, null, 2) : markdown;
+  const githubCandidates = cmd.githubRepo !== undefined ? await fetchGitHubCandidates(cmd.githubRepo, cmd.since ?? EPOCH) : [];
+
+  const candidates = dedupeCandidates([...localCandidates, ...githubCandidates], corpus);
+
+  const useMarkdown = cmd.markdown === true || cmd.json !== true;
+  const rendered = useMarkdown ? renderCandidatesMarkdown(candidates) : JSON.stringify(candidates, null, 2);
   console.log(rendered);
 
   if (cmd.out !== undefined) {

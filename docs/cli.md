@@ -242,6 +242,62 @@ The quality pipeline (reviewer, conformance, verification) still runs and still 
 
 **Base branch.** By default Taskcell branches off `main` and targets the PR at `main`. Pass `--base <branch>` (e.g. `--base dev`) to branch off and open the PR against a different base — the diff is then computed against, and the PR merges into, that branch.
 
+## Growing the eval corpus
+
+`vanguard eval --suggest` drafts candidate cases; it never writes into `src/evals/corpus/`. A human picks the good ones and commits them by hand.
+
+```bash
+vanguard eval --suggest                                              # from retrospective memory (failed runs, reviewer notes)
+vanguard eval --suggest --github-repo owner/repo --since 2026-11-03  # plus human-rejected factory work on GitHub
+vanguard eval --suggest --github-repo owner/repo --out drafts.md     # also write the drafts to a scratch file
+```
+
+With `--github-repo` it reads three signals of "a human rejected this", factory branches only:
+
+- **closed without merge**: the PR's last comment becomes the reason;
+- **`needs-human-review`**: the revision cap was hit; the last review becomes the reason;
+- **reverted on the default branch**: a `Revert` commit whose target came from a factory PR.
+
+Titles, comments and commit messages are untrusted: secrets are redacted, `<`/`>` escaped and `@mentions` defused, so the Markdown can be pasted into an issue without pinging anyone. If one source fails (gh not logged in, rate limit) the command warns on stderr and keeps the others; if every source fails it exits non-zero, so a scheduled job never reports "nothing rejected" by mistake.
+
+**Curating.** Aim for about 100 cases, kept roughly balanced across `control` (an ordinary task that must succeed), `edge` (a boundary case) and `refusal` (the factory must decline). `refusal` is never guessed from GitHub; write those by hand. For each draft keep one sentence of input and one checkable expectation, drop anything that only restates an existing case, then add it to the corpus file in a normal PR. Editing the corpus changes its hash, so save a new eval baseline after the merge.
+
+A weekly job (for a maintainer to add as `.github/workflows/eval-suggest.yml`; the factory cannot edit workflows) posts the drafts for review:
+
+```yaml
+name: Eval suggest
+on:
+  schedule:
+    - cron: '0 6 * * 1'
+  workflow_dispatch:
+permissions:
+  contents: read
+  issues: write
+  pull-requests: read
+jobs:
+  suggest:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: pnpm/action-setup@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24
+          cache: pnpm
+      - run: pnpm install --frozen-lockfile
+      - run: pnpm build
+      - name: Draft candidates
+        env:
+          GH_TOKEN: ${{ github.token }}
+          REPO: ${{ github.repository }}
+        run: |
+          since="$(date -u -d '7 days ago' +%F)"
+          node dist/cli/index.js eval --suggest --github-repo "$REPO" --since "$since" --out drafts.md
+          gh issue create --repo "$REPO" --title "Eval corpus candidates since $since" --body-file drafts.md
+```
+
+Pin the actions to commit SHAs when you add it, as the other workflows do.
+
 ## Fork-and-select
 
 `run --fork <n>` runs the implementer stage `n` times (each variant forks the same base, on a worktree reset between runs), scores each variant's diff, and keeps the best one before the review/simplify stages continue. Scoring is an LLM verdict produced by a one-shot run of the same provider in a throwaway `/tmp` cwd (the diff is supplied in the prompt, so the scorer never touches the worktree) — or, with `--fork-scorer decision`, a [decision model](#decision-models) (`clef-flash` on Workers AI or any System-One endpoint): `P(acceptable)` for each diff in ~100 ms, a calibrated probability instead of a model's self-rated JSON, with no verdict parsing to fail. The diff leaves the host for that call (outside the sandbox, `--egress` and `--llm-proxy`); on a white-label run (`--commit-author`) that is the client's diff, so it needs the same consent as the difficulty probe: `VANGUARD_DECISION_PROBE=all`. Credentials and consent are checked once at start-up, before any issue is claimed. Use it to trade tokens for quality on hard tasks:
