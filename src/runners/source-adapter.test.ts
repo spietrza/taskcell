@@ -11,6 +11,7 @@ import { resolveAndRunVisualProof } from '../pipeline/visual-proof.js';
 import { loadRetrospectiveMemory } from '../core/retrospective-memory.js';
 import { pickRunOptions, runSourcedIssue, conventionalCommitMessage, modelFromLabels } from './source-adapter.js';
 import type { RunIssueDeps, SourceAdapter } from './source-adapter.js';
+import { extractPrBodyItemsBlock } from '../pipeline/conformance-gate.js';
 import type { Task } from '../tasks/fetcher.js';
 import type { PipelineStage, StageOutcome } from '../pipeline/pipeline.js';
 import type { RunEvent } from '../pipeline/events.js';
@@ -1272,32 +1273,51 @@ describe('runSourcedIssue', () => {
     expect(wmCommitMessages).toHaveBeenCalledWith('/wt', '0000sha'); // ctx.startRef: the very commit the worktree was cut from
   });
 
-  it('surfaces a missing required PR-body item in the body, without downgrading the diff gate', async () => {
+  const prBodyManifest = (items: string): Awaited<ReturnType<SourceAdapter['prepare']>> => ({ task: { ...task, comments: [
+    { author: 'maintainer', authorAssociation: 'OWNER', body: `<spec_manifest>{"prBody":${items}}</spec_manifest>` },
+  ] } }) as Awaited<ReturnType<SourceAdapter['prepare']>>;
+
+  it('declares partial scope (Part of + draft) with a delimited warning for a missing required PR-body item', async () => {
+    vi.mocked(resolveVerifyCommand).mockResolvedValue('npm test');
+    vi.mocked(runVerification).mockResolvedValueOnce({ passed: true } as never);
     const adapter = fakeAdapter([], STAGES);
-    vi.mocked(adapter.prepare).mockResolvedValueOnce({ task: { ...task, comments: [
-      { author: 'maintainer', authorAssociation: 'OWNER', body: '<spec_manifest>{"prBody":[{"id":"PR-1","description":"CI workflow YAML","contains":"name: gate"}]}</spec_manifest>' },
-    ] } } as Awaited<ReturnType<SourceAdapter['prepare']>>);
+    vi.mocked(adapter.prepare).mockResolvedValueOnce(prBodyManifest('[{"id":"PR-1","description":"CI workflow YAML","contains":"name: gate"}]'));
 
     await runSourcedIssue(task.id, { repoPath: '/repo' }, adapter);
 
-    const body = publishForReview.mock.calls[0]?.[1]?.body as string;
-    expect(body).toContain('Required PR-body item missing');
+    const published = publishForReview.mock.calls[0]?.[1];
+    const body = published?.body as string;
+    expect(published?.draft).toBe(true);
+    expect(body).toContain('Part of ' + task.id);
+    expect(body).not.toContain('Closes ' + task.id);
     expect(body).toContain('- [ ] PR-1: CI workflow YAML');
-    // The item is human work the diff cannot carry: it never flips an otherwise-green delivery to `Part of`.
-    expect(body).toContain('Closes ' + task.id);
+    expect(extractPrBodyItemsBlock(body)).toContain('Required PR-body item missing');
   });
 
-  it('omits the PR-body warning when the composed body already carries the required item', async () => {
+  it('never lets text the composer itself emits satisfy a PR-body item', async () => {
     const adapter = fakeAdapter([], STAGES);
-    vi.mocked(adapter.prepare).mockResolvedValueOnce({ task: { ...task, comments: [
-      { author: 'maintainer', authorAssociation: 'OWNER', body: `<spec_manifest>{"prBody":[{"id":"PR-1","contains":"Closes ${task.id}"}]}</spec_manifest>` },
-    ] } } as Awaited<ReturnType<SourceAdapter['prepare']>>);
+    // `Closes <id>` and the checklist label would both be in a composed body.
+    vi.mocked(adapter.prepare).mockResolvedValueOnce(prBodyManifest(`[{"id":"PR-1","description":"Closes ${task.id}","contains":"Closes ${task.id}"}]`));
 
     await runSourcedIssue(task.id, { repoPath: '/repo' }, adapter);
 
     const body = publishForReview.mock.calls[0]?.[1]?.body as string;
-    expect(body).not.toContain('Required PR-body item missing');
-    expect(body).toContain('- [x] PR-1');
+    expect(body).toContain('- [ ] PR-1');
+    expect(body).toContain('Required PR-body item missing');
+  });
+
+  it('keeps Closes and ready-for-review when only an optional PR-body item is missing', async () => {
+    vi.mocked(resolveVerifyCommand).mockResolvedValue('npm test');
+    vi.mocked(runVerification).mockResolvedValueOnce({ passed: true } as never);
+    const adapter = fakeAdapter([], STAGES);
+    vi.mocked(adapter.prepare).mockResolvedValueOnce(prBodyManifest('[{"id":"PR-1","contains":"name: gate","required":false}]'));
+
+    await runSourcedIssue(task.id, { repoPath: '/repo' }, adapter);
+
+    const published = publishForReview.mock.calls[0]?.[1];
+    expect(published?.draft).toBe(false);
+    expect(published?.body).toContain('Closes ' + task.id);
+    expect(published?.body).not.toContain('Required PR-body item missing');
   });
 
   it('omits the commit-leak warning on a full green pass', async () => {

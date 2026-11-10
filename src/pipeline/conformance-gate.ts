@@ -177,7 +177,9 @@ function partitionByRequired<T extends { required?: boolean | undefined }>(
 }
 
 /**
- * `prBody` is the text of the PR body the run is about to open. Omit it (the default) to skip the
+ * `prBody` is the human-authored PR-body text to check `prBody` items against — never the composed
+ * body, whose machine-generated parts (boilerplate, diff excerpts, the checklist itself) would satisfy
+ * them. Omit it (the default) to skip the
  * `prBody` manifest check entirely — a caller that has no body yet (e.g. the implement-loop repair
  * gate, which runs before the PR is composed) is not penalized for an obligation it cannot see.
  */
@@ -208,7 +210,8 @@ export function checkConformance(manifest: SpecManifest | undefined, diff: strin
   // entirely rather than fail every such call just because nothing has been composed to check against.
   const prBodyItems = prBody === undefined
     ? { missing: [], optionalMissing: [] }
-    : partitionByRequired(manifest.prBody ?? [], (p) => prBody.includes(p.contains));
+    // A blank `contains` is unsatisfiable rather than trivially true (`''.includes('')`).
+    : partitionByRequired(manifest.prBody ?? [], (p) => p.contains.trim() !== '' && prBody.includes(p.contains));
   const missingPrBody = prBodyItems.missing.map((p) => ({ id: p.id, contains: p.contains }));
   const optionalMissingPrBody = prBodyItems.optionalMissing.map((p) => ({ id: p.id, contains: p.contains }));
 
@@ -377,20 +380,35 @@ export function commitLeakWarningBlock(leaks: CommitClosingLeak[]): string {
   ].join('\n');
 }
 
+const PR_BODY_ITEMS_START = '<!-- vanguard:pr-body-items:start -->';
+const PR_BODY_ITEMS_END = '<!-- vanguard:pr-body-items:end -->';
+
 /**
- * Blocking-warning markdown block surfaced when the PR body about to be opened is missing a required
- * `prBody` manifest item (e.g. CI workflow YAML the diff cannot carry — copy-back drops it). Empty for
- * no gaps, so wiring this in is a no-op for a manifest that declares no `prBody` entries.
+ * Blocking-warning markdown block surfaced when a required `prBody` manifest item is missing (e.g. CI
+ * workflow YAML the diff cannot carry — copy-back drops it). Delimited like the gate-config block so
+ * revise-pr carries it — and whatever a human pastes inside it — forward verbatim. Empty for no gaps,
+ * so wiring this in is a no-op for a manifest that declares no `prBody` entries.
  */
 export function prBodyGapWarningBlock(missing: { id: string; contains: string }[]): string {
   if (missing.length === 0) return '';
   return [
+    PR_BODY_ITEMS_START,
     '## ⚠️ Required PR-body item missing',
     '',
-    'The spec manifest requires the following verbatim in this PR description (they cannot live in the diff), but this PR body does not contain them:',
+    'The spec manifest requires the following in this PR description (they cannot live in the diff, and the factory cannot write them), so this PR is a partial delivery:',
     '',
     ...missing.map((m) => `- \`${m.id}\``),
     '',
-    'Add the missing content to the PR body by hand.',
+    'Apply the change by hand and paste the content below, above the closing marker; it is kept across revise rounds.',
+    '',
+    PR_BODY_ITEMS_END,
   ].join('\n');
+}
+
+/** The delimited `prBodyGapWarningBlock` (markers included) from an existing PR body, or undefined. */
+export function extractPrBodyItemsBlock(body: string): string | undefined {
+  const start = body.indexOf(PR_BODY_ITEMS_START);
+  const end = body.indexOf(PR_BODY_ITEMS_END, start);
+  if (start === -1 || end === -1) return undefined;
+  return body.slice(start, end + PR_BODY_ITEMS_END.length);
 }

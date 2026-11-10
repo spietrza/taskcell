@@ -760,24 +760,27 @@ export async function runSourcedIssue(
       // forces the declared-partial path even when conformance itself passed.
       const verificationFailed = verification !== undefined && !verification.passed;
       const visualProofFailed = visualProof !== undefined && !visualProof.passed;
-      const partial = !gatePassed || untrustedManifestDropped;
-      const bodyFor = (result: ConformanceResult): string => reviewRequestBody(task.id, {
+      // `prBody` items name content the diff cannot carry (CI workflow YAML — copy-back drops it) and the
+      // factory has no channel to write: no human-authored body text exists yet, so a required item is
+      // a gap at delivery — partial scope (`Part of` + draft) — and only the composed body's delimited
+      // block, never its generated text, is where a human supplies it.
+      const prBodyCheck = checkConformance(manifest?.prBody !== undefined ? { prBody: manifest.prBody } : undefined, '', '');
+      const delivered: ConformanceResult = {
+        ...conformance,
+        pass: conformance.pass && prBodyCheck.pass,
+        missingPrBody: prBodyCheck.missingPrBody,
+        optionalMissingPrBody: prBodyCheck.optionalMissingPrBody,
+      };
+      const prBodyGapBlock = prBodyGapWarningBlock(delivered.missingPrBody);
+      const partial = !gatePassed || untrustedManifestDropped || !prBodyCheck.pass;
+      const baseBody = reviewRequestBody(task.id, {
         closeIssueOnMerge: !!adapter.closeIssueOnMerge,
         ...(untrustedManifestDropped ? { untrustedManifest: true } : {}),
-        ...(manifest !== undefined ? { conformance: result, manifest } : {}),
+        ...(manifest !== undefined ? { conformance: delivered, manifest } : {}),
         ...(verificationFailed ? { verificationFailed: true } : {}),
         ...(!implementerDone ? { implementerIncomplete: true } : {}),
         ...(whiteLabel ? { hideAttribution: true } : {}),
       });
-      // `prBody` manifest items name content the diff cannot carry (CI workflow YAML — copy-back drops
-      // it), so they are checked against the composed PR body instead of the worktree diff. The diff
-      // gate's own `pass` is kept: such an item is human work, surfaced as an unchecked checklist line
-      // plus a warning block, never flipping an otherwise-complete delivery to `Part of`.
-      const withPrBodyGaps = (body: string): ConformanceResult => {
-        if (manifest?.prBody === undefined) return conformance;
-        const checked = checkConformance({ prBody: manifest.prBody }, '', body);
-        return { ...conformance, missingPrBody: checked.missingPrBody, optionalMissingPrBody: checked.optionalMissingPrBody };
-      };
       // deliverChange owns the order: secret scan → commit → closing-keyword scan → rebase/push → PR.
       // The body is built after the commit so a partial result can carry commit-level `Closes #N`
       // leaks as a blocking warning. Gate-config disclosure is included in white-label mode too.
@@ -816,24 +819,18 @@ export async function runSourcedIssue(
             const diffFiles = diffFilesWithPatches(outgoingDiff);
             const configPaths = gateConfigPaths(diffFiles, extraGlobs);
             const configBlock = gateConfigChangedBlock(diffFiles.filter((file) => configPaths.includes(file.path)));
-            const compose = (result: ConformanceResult, prBodyGap: string): string => {
-              const baseBody = bodyFor(result);
-              return whiteLabel
-                ? [baseBody, configBlock].filter(Boolean).join('\n\n')
-                : [
-                  configBlock,
-                  baseBody,
-                  commitLeaks.length > 0 ? commitLeakWarningBlock(commitLeaks) : undefined,
-                  prBodyGap,
-                  verification !== undefined ? proofBlock(verification) : verifySkippedBlock(),
-                  visualProof !== undefined ? visualProofBlock(visualProof) : undefined,
-                  reviewerOutcome !== undefined ? reviewVerdictLine(reviewVerdictOf(reviewerOutcome.result.finalText)) : undefined,
-                ].filter((s): s is string => s !== undefined && s !== '').join('\n\n');
-            };
-            // A `prBody` item can only be checked against the composed body, so compose once to check
-            // against, then recompose with the gap in the checklist and the warning block.
-            const checked = withPrBodyGaps(compose(conformance, ''));
-            return compose(checked, prBodyGapWarningBlock(checked.missingPrBody));
+            // The PR-body gap block carries no branding, so white-label keeps it like the gate-config block.
+            return whiteLabel
+              ? [baseBody, configBlock, prBodyGapBlock].filter(Boolean).join('\n\n')
+              : [
+                configBlock,
+                baseBody,
+                commitLeaks.length > 0 ? commitLeakWarningBlock(commitLeaks) : undefined,
+                prBodyGapBlock,
+                verification !== undefined ? proofBlock(verification) : verifySkippedBlock(),
+                visualProof !== undefined ? visualProofBlock(visualProof) : undefined,
+                reviewerOutcome !== undefined ? reviewVerdictLine(reviewVerdictOf(reviewerOutcome.result.finalText)) : undefined,
+              ].filter((s): s is string => s !== undefined && s !== '').join('\n\n');
           },
         },
       });

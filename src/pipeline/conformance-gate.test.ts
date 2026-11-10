@@ -12,6 +12,7 @@ import {
   scanCommitClosingKeywords,
   commitLeakWarningBlock,
   prBodyGapWarningBlock,
+  extractPrBodyItemsBlock,
   type SpecManifest,
 } from './conformance-gate.js';
 
@@ -229,6 +230,13 @@ describe('checkConformance', () => {
       expect(result.missingPrBody).toEqual([]);
     });
 
+    it('never treats a blank contains as satisfied', () => {
+      const blank: SpecManifest = { prBody: [{ id: 'PR-3', contains: '  ' }] };
+      const result = checkConformance(blank, fileSection('src/other.ts', ['x']), 'any body  at all');
+      expect(result.pass).toBe(false);
+      expect(result.missingPrBody).toEqual([{ id: 'PR-3', contains: '  ' }]);
+    });
+
     it('tracks an optional prBody item absent from the body as optionalMissingPrBody, not a FAIL', () => {
       const optional: SpecManifest = { prBody: [{ id: 'PR-2', contains: '## Manual follow-up', required: false }] };
       const result = checkConformance(optional, fileSection('src/other.ts', ['x']), 'no matching heading here');
@@ -401,7 +409,14 @@ describe('prBodyGapWarningBlock', () => {
     const block = prBodyGapWarningBlock([{ id: 'PR-1', contains: '```yaml\nname: gate\n```' }]);
     expect(block).toContain('Required PR-body item missing');
     expect(block).toContain('`PR-1`');
-    expect(block).toContain('Add the missing content to the PR body by hand.');
+    expect(extractPrBodyItemsBlock(`Part of #1\n\n${block}\n\nmore`)).toBe(block);
+  });
+
+  it('extracts a block a human pasted into, and nothing for a body without one', () => {
+    const block = prBodyGapWarningBlock([{ id: 'PR-1', contains: 'name: gate' }]);
+    const edited = block.replace('<!-- vanguard:pr-body-items:end -->', 'name: gate\n<!-- vanguard:pr-body-items:end -->');
+    expect(extractPrBodyItemsBlock(`Part of #1\n\n${edited}`)).toBe(edited);
+    expect(extractPrBodyItemsBlock('Closes #1')).toBeUndefined();
   });
 
   it('returns an empty block for no gaps', () => {
