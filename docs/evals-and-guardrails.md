@@ -9,11 +9,11 @@ For the security boundaries themselves see [security/boundaries.md](security/bou
 | Stage | Taskcell | |
 |---|---|---|
 | Golden dataset | `src/evals/corpus`: 30 cases (control, edge, refusal), run with `vanguard eval` ([cli.md](cli.md)) | ⚠️ small |
-| Evals on every PR, gated on a drop | `vanguard eval --baseline main` is the gate (pass-rate drop, refusal regression, corpus-hash mismatch — see [cli.md](cli.md#evals-and-the-baseline-gate)); the workflow that runs it on every PR is still for a maintainer to add ([#706](https://github.com/spietrza/taskcell/issues/706)) | ⚠️ |
+| Evals on every PR, gated on a drop | `vanguard eval --baseline main` is the gate (pass-rate drop, refusal regression, corpus-hash mismatch — see [cli.md](cli.md#evals-and-the-baseline-gate)); `.github/workflows/eval.yml` runs it on PRs touching prompts, context or the pipeline once a maintainer adds the `run eval` label, since the PR's own code runs with a model credential | ✅ |
 | Comparison with main's baseline | `vanguard eval --save-baseline` publishes a report per main commit to the `vanguard-metrics` branch; `--baseline main` compares against the latest ([cli.md](cli.md#evals-and-the-baseline-gate)) | ✅ |
 | Adversarial testing | containment tests against the sandbox (container escape, egress, secrets, permissions, prompt injection), in progress | ⚠️ |
 | Production observability | per-run metrics on the `vanguard-metrics` branch (`vanguard stats`), run records with transcript and diff, the shadow [Approver](autonomous-loop.md#approver-shadow-mode), calibration (Brier) of the decision probe | ✅ |
-| Feedback loop into the dataset | `vanguard eval --suggest` drafts candidates from failed runs and reviewer notes; retrospective memory feeds later runs. Human-rejected PRs are not collected yet ([#707](https://github.com/spietrza/taskcell/issues/707)); a human curates every case | ⚠️ |
+| Feedback loop into the dataset | `vanguard eval --suggest` drafts candidates from failed runs and reviewer notes; retrospective memory feeds later runs. with `--github-repo` also from factory PRs closed without merge, PRs at `needs-human-review` and reverted commits; `.github/workflows/eval-suggest.yml` opens a weekly issue with the drafts. A human curates every case, aiming at about 100 | ✅ |
 
 ## Metrics
 
@@ -36,6 +36,5 @@ Prompt injection cannot be fully prevented, so the weight is on limiting what th
 
 ## Next
 
-1. Evals gate PRs against main's baseline ([#706](https://github.com/spietrza/taskcell/issues/706)).
-2. Human-rejected runs become draft corpus candidates; grow the corpus to about 100 curated cases ([#707](https://github.com/spietrza/taskcell/issues/707)).
-3. Calibrate the eval judge on 20-30 human-labelled verdicts.
+1. Grow the corpus from the weekly drafts to about 100 curated cases, balanced across control, edge and refusal.
+2. Calibrate the eval judge on 20-30 human-labelled verdicts.
