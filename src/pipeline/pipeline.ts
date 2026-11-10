@@ -277,6 +277,8 @@ export async function runBudgetedStages(
   const maxCostUsd = opts.maxCostUsd ?? DEFAULT_RUN_MAX_COST_USD;
   const outcomes: StageOutcome[] = [];
   let previous: RunResult | undefined;
+  // Report-only stages have no diff; retain the last editing stage's diff for downstream stages.
+  let previousDiff = '';
   let prevName = '';
   let sessionId: string | undefined;
   // The provider that produced `sessionId`: a session is only resumable on the CLI that opened it, so
@@ -314,7 +316,7 @@ export async function runBudgetedStages(
       ...(opts.variables ?? {}),
       // The diff is agent-written content (file text, quoted issue text): no `<` may open or close a prompt
       // block. diffForPrompt also prepends the escaping note, so every stage that shows the diff carries it.
-      PREVIOUS_DIFF: diffForPrompt(previous?.diff ?? ''),
+      PREVIOUS_DIFF: diffForPrompt(previousDiff),
       PREVIOUS_FINAL: previous?.finalText ?? '',
       PREVIOUS_STAGE: prevName,
       PREVIOUS_STAGE_TRUNCATED: previous !== undefined && previous.exitReason !== 'completed' ? 'true' : 'false',
@@ -344,6 +346,7 @@ export async function runBudgetedStages(
         ...(stage.model !== undefined ? { model: stage.model } : {}),
       });
       previous = result;
+      if (stage.copyBack !== false) previousDiff = result.diff ?? '';
       prevName = stage.name;
       if (result.sessionId !== undefined) {
         sessionId = result.sessionId;
@@ -478,6 +481,7 @@ export async function runBudgetedStages(
       ...(effectiveModel !== undefined ? { model: effectiveModel } : {}),
     });
     previous = result;
+    if (stage.copyBack !== false) previousDiff = result.diff ?? '';
     prevName = stage.name;
     if (result.sessionId !== undefined) {
       sessionId = result.sessionId;
@@ -582,8 +586,12 @@ export function implementReviewSimplifyStages(): PipelineStage[] {
       // Fresh context (resumePrevious:false): an independent reviewer judges the diff cold, without
       // inheriting the implementer's reasoning. The files are still on disk in the shared worktree.
       resumePrevious: false,
+      // Report-only, like the conformance pass: a cross-provider reviewer (Codex) runs with full
+      // sandbox access, so its own edits would ship without anyone reviewing them. No sandbox->worktree
+      // sync; findings are published for the PR revision flow.
+      copyBack: false,
       promptTemplate:
-        'You are an independent code reviewer of the change below — you did not write it. If a code-review skill is available, use it. Review adversarially for bugs, security, missing tests, and convention violations. Also review for over-engineering: unnecessary complexity, speculative abstractions, boilerplate, and dead code — apply the ponytail lens (would less code do the same job?) and prefer deletion. Fix what you find in the repo.\n\nTicket and spec context (if a <tech_spec> block is present, its Acceptance Criteria and Tests section are mandatory — flag as a high-severity finding any AC or spec-mandated test the diff does not cover, unless the PR body explicitly declares it deferred):\n{{COMMENTS}}\n\n{{PREVIOUS_DIFF}}\n\nAfter completing your review and any fixes, emit a verdict: if there are no blocking issues, write exactly "No blocking issues." on its own line. If there are high or critical severity issues, also include a structured block: <findings>{"findings":[{"severity":"high|critical","kind":"security|perf|correctness|style","title":"...","evidence":"..."}]}</findings>.\n\nWhen done, write <promise>COMPLETE</promise>.',
+        'You are an independent code reviewer of the change below — you did not write it. If a code-review skill is available, use it. Review adversarially for bugs, security, missing tests, and convention violations. Also review for over-engineering: unnecessary complexity, speculative abstractions, boilerplate, and dead code — apply the ponytail lens (would less code do the same job?) and prefer deletion. Do not edit any files. Report only — your findings go back to the implementer to fix.\n\nTicket and spec context (if a <tech_spec> block is present, its Acceptance Criteria and Tests section are mandatory — flag as a high-severity finding any AC or spec-mandated test the diff does not cover, unless the PR body explicitly declares it deferred):\n{{COMMENTS}}\n\n{{PREVIOUS_DIFF}}\n\nAfter completing your review, emit a verdict: if there are no blocking issues, write exactly "No blocking issues." on its own line. If there are high or critical severity issues, also include a structured block: <findings>{"findings":[{"severity":"high|critical","kind":"security|perf|correctness|style","title":"...","evidence":"..."}]}</findings>.\n\nWhen done, write <promise>COMPLETE</promise>.',
       effort: 'high',
       maxTurns: 20,
       stageCostFraction: 0.25,
@@ -644,6 +652,46 @@ export function conformanceStage(): PipelineStage {
       'End with <promise>COMPLETE</promise>.',
     ].join('\n'),
   };
+}
+
+export interface ReviewFinalDiffOptions {
+  /** Default agent; overridden by stage.provider (cross-provider review). */
+  agent: AgentProvider;
+  variables?: Record<string, string>;
+  signal?: AbortSignal;
+}
+
+/**
+ * Re-run a reviewer-shaped stage against the worktree's CURRENT diff, in a fresh context — used when
+ * the repair loop resumed the implementer after the pipeline's own reviewer already ran, so the diff
+ * the stored verdict describes no longer matches what ships (#665). Report-only like the stage itself:
+ * `stage.copyBack` is honored, so a reviewer stage still cannot land edits from this call either.
+ */
+export async function reviewFinalDiff(
+  ctx: RunContext,
+  stage: PipelineStage,
+  opts: ReviewFinalDiffOptions,
+): Promise<RunResult> {
+  const diff = await ctx.wm.diff(ctx.worktreePath);
+  return runAgent(ctx, {
+    stageName: stage.name,
+    promptTemplate: stage.promptTemplate,
+    agent: stage.provider ?? opts.agent,
+    variables: {
+      ...(opts.variables ?? {}),
+      PREVIOUS_DIFF: diffForPrompt(diff),
+      PREVIOUS_FINAL: '',
+      PREVIOUS_STAGE: STAGE.IMPLEMENTER,
+      PREVIOUS_STAGE_TRUNCATED: 'false',
+    },
+    ...(stage.model !== undefined ? { model: stage.model } : {}),
+    ...(stage.effort !== undefined ? { effort: stage.effort } : {}),
+    ...(stage.maxTurns !== undefined ? { maxTurns: stage.maxTurns } : {}),
+    ...(stage.systemPrompt !== undefined ? { systemPrompt: stage.systemPrompt } : {}),
+    ...(stage.copyBack !== undefined ? { copyBack: stage.copyBack } : {}),
+    ...(stage.timeoutMs !== undefined ? { timeoutMs: stage.timeoutMs } : {}),
+    ...(opts.signal !== undefined ? { signal: opts.signal } : {}),
+  });
 }
 
 /**
@@ -887,8 +935,11 @@ export function planImplementReviewStages(): PipelineStage[] {
       effort: 'high',
       maxTurns: 20,
       resumePrevious: false,
+      // Report-only, like the conformance pass: no sandbox->worktree sync. Findings are published for
+      // the PR revision flow rather than applied by the reviewer itself.
+      copyBack: false,
       promptTemplate:
-        'Review the diff below for bugs and gaps, then fix the code:\n\n{{PREVIOUS_DIFF}}\n\nAfter completing your review and any fixes, emit a verdict: if there are no blocking issues, write exactly "No blocking issues." on its own line. If there are high or critical severity issues, also include a structured block: <findings>{"findings":[{"severity":"high|critical","kind":"security|perf|correctness|style","title":"...","evidence":"..."}]}</findings>.\n\nWhen done, write <promise>COMPLETE</promise>.',
+        'Review the diff below for bugs and gaps. Do not edit any files. Report only — your findings go back to the implementer to fix.\n\n{{PREVIOUS_DIFF}}\n\nAfter completing your review, emit a verdict: if there are no blocking issues, write exactly "No blocking issues." on its own line. If there are high or critical severity issues, also include a structured block: <findings>{"findings":[{"severity":"high|critical","kind":"security|perf|correctness|style","title":"...","evidence":"..."}]}</findings>.\n\nWhen done, write <promise>COMPLETE</promise>.',
     },
   ];
   return stages.map((stage) => ({ systemPrompt, ...stage }));

@@ -14,10 +14,11 @@ import { probeTaskDifficulty, decisionProbeConfig } from '../core/decision-probe
 import { decisionModelConfig, decisionEgressAllowed, decisionModelMissing, DECISION_MODEL_DEFAULT, type DecisionModelConfig } from '../core/decision-model.js';
 import { VanguardError } from '../core/errors.js';
 import { decisionDiffScorer } from '../evals/decision-judge.js';
-import { runStages, assembleReviewPipeline, withPrimaryFallback, sandboxComplete, withStageMaxTurns, withStageResumeUntilComplete, STAGE } from '../pipeline/pipeline.js';
+import { runStages, assembleReviewPipeline, withPrimaryFallback, sandboxComplete, withStageMaxTurns, withStageResumeUntilComplete, reviewFinalDiff, STAGE } from '../pipeline/pipeline.js';
 import { FLOWS } from '../api/capabilities.js';
 import { resolveRepoFlow, unknownFlowError } from '../flows/repo.js';
-import { buildReviewerAttribution } from '../pipeline/review-publish.js';
+import { buildReviewerAttribution, hasBlockingFinding } from '../pipeline/review-publish.js';
+import { stripReviewMarkers } from './review-prompt.js';
 import { authSecrets } from '../agents/auth.js';
 import { beginRun, persistDecisionProbe } from '../core/run-store.js';
 import type { SecretBlock } from '../core/secret-scan.js';
@@ -50,6 +51,8 @@ import type { Task } from '../tasks/fetcher.js';
 import type { AgentAuth } from '../agents/auth.js';
 import type { ProviderChoice, CustomProviderEntry } from '../agents/registry.js';
 import type { PipelineStage, StageOutcome } from '../pipeline/pipeline.js';
+import type { GateResult } from '../pipeline/repair-gate.js';
+import type { RunResult } from '../core/types.js';
 import type { RunEvent } from '../pipeline/events.js';
 import { skillRegistryForRun } from '../context/skill-registry.js';
 
@@ -246,6 +249,21 @@ export interface RunIssueResult {
 
 /** Cap on implement-session resumes triggered by a failing conformance/verify gate, before falling back to a declared-partial PR. */
 const MAX_REPAIR_ITERATIONS = 2;
+
+/**
+ * The report-only reviewer's blocking findings, as repair feedback for the implementer (#673): the
+ * structured `<findings>` block when it parses, else the reply's prose with the review markers
+ * stripped (the reviewer can quote a dedupe/revision marker out of the diff; as everywhere the bot
+ * forwards verdict text, it must not ride along). The text is agent-written and reaches the resumed
+ * session through `literalPrompt` (see repairUntilGreen).
+ */
+function reviewRepairFeedback(verdictText: string): string {
+  const { findings } = reviewVerdictOf(verdictText);
+  const body = findings.length > 0
+    ? findings.map((f) => `- [${f.severity}] (${f.kind}) ${f.title}\n  ${f.evidence}`).join('\n')
+    : stripReviewMarkers(verdictText).trim();
+  return `An independent reviewer read your change and found blocking issues. Fix every one of them in the repo:\n\n${body}`;
+}
 
 /** Read the local --spec-file eagerly with a clear error — an ENOENT deep inside a run is not actionable. */
 async function readSpecFile(path: string): Promise<string> {
@@ -553,13 +571,16 @@ export async function runSourcedIssue(
           return { task, baseRed: true };
         }
       }
+      // One set of prompt variables for the whole run: the final-diff re-review below renders the same
+      // reviewer prompt, so it must see the same task.
+      const variables = {
+        ...taskToVariables(task, { allowedAuthors: deps.feedbackAuthors }),
+        ...(adapter.variables?.(issueRef, task) ?? {}),
+        RETROSPECTIVE_MEMORY: escapePromptTags(retrospectiveMemory),
+      };
       outcomes = await runStages(ctx, pipeline, {
         agent: agents.agent,
-        variables: {
-          ...taskToVariables(task, { allowedAuthors: deps.feedbackAuthors }),
-          ...(adapter.variables?.(issueRef, task) ?? {}),
-          RETROSPECTIVE_MEMORY: escapePromptTags(retrospectiveMemory),
-        },
+        variables,
         ...(deps.forkN !== undefined
           ? { fork: { n: deps.forkN, complete: sandboxComplete(ctx, agents.agent), ...(forkScore !== undefined ? { score: forkScore } : {}) } }
           : {}),
@@ -591,55 +612,123 @@ export async function runSourcedIssue(
       let verification: VerificationResult | undefined;
       let implementerDone = false;
       let gatePassed = false;
+      let repairIterations = 0;
+      // A re-review that never produced a verdict: published as an incomplete review on a draft PR
+      // rather than losing the (already gate-green) work.
+      let reviewUnavailable = false;
+      const fallbackHolder = agents.fallbackAgent !== undefined && outcomes[implementerIdx]?.providerName === agents.fallbackAgent.name ? agents.fallbackAgent : undefined;
+      const onFallback = fallbackHolder !== undefined;
+      const gate = async (): Promise<GateResult> => {
+        // Only touch the worktree diff when there is a manifest to check against — a legacy/no-manifest
+        // spec skips the conformance half of the gate entirely.
+        conformance = manifest !== undefined ? checkConformance(manifest, await ctx.wm.diff(ctx.worktreePath)) : PASSING_RESULT;
+        verification = verifyCmd !== undefined ? await runVerification(ctx.sandbox, verifyCmd) : undefined;
+        // Completion is part of the gate (dogfood #352): an implementer that hit its turn cap or timeout
+        // mid-task can leave residue that still typechecks and tests green. Gate on `completed`, NOT on
+        // exitReason === 'maxTurns': the SDK counts internal steps as turns while vanguard counts real
+        // ones. A provider that finishes but never emits <promise>COMPLETE</promise> is re-nudged and,
+        // if it still won't signal, downgraded to a Part-of PR — an unverifiable "done" must not
+        // auto-close the issue.
+        implementerDone = implementerIdx === -1 || outcomes[implementerIdx]?.result.completed === true;
+        const pass = conformance.pass && (verification === undefined || verification.passed) && implementerDone;
+        const feedback = [
+          !implementerDone
+            ? 'The previous session ended before the task was finished (turn cap or timeout). Continue and complete the remaining work.'
+            : undefined,
+          !conformance.pass ? renderConformanceFeedback(conformance) : undefined,
+          verification !== undefined && !verification.passed ? renderVerificationFeedback(verification) : undefined,
+        ].filter((part): part is string => part !== undefined).join('\n\n');
+        return { pass, feedback };
+      };
+      // Shared by the gate loop and the review-findings round below, so the caps, the escalation rule
+      // and the provider the implementer's session belongs to cannot drift between them.
+      const repairOpts = {
+        label: task.id,
+        // Resume on the provider that actually ran the stage: after a fallback the session belongs to it.
+        agent: fallbackHolder ?? agents.agent,
+        outcomes,
+        pipeline,
+        // NOTE: with an explicit --max-repair-iterations N, an incomplete implementer can be resumed up
+        // to ~2N times total — N in-stage (resumeUntilComplete inside runStages) plus N here.
+        maxIterations: deps.maxRepairIterations ?? MAX_REPAIR_ITERATIONS,
+        // --escalate-model names a model of the implementer's provider; handed to the fallback CLI it is
+        // an AgentError, so the fallback repairs on its own model only.
+        ...(deps.escalateModel !== undefined && !onFallback ? { escalateModel: deps.escalateModel } : {}),
+        // A per-task label is the human's own escalation call; the fleet-wide --escalate-model does not
+        // override it (it could even downgrade).
+        modelPinned: labelModel !== undefined,
+        ...(deps.signal !== undefined ? { signal: deps.signal } : {}),
+      };
+      const reviewerStage = pipeline.find((s) => s.name === STAGE.REVIEWER);
       // try/finally so the per-stage cost table is printed even when a repair call throws or the run
       // is cancelled mid-loop — and, on the happy path, after the loop so repairs show up in it.
       try {
-        const fallbackHolder = agents.fallbackAgent !== undefined && outcomes[implementerIdx]?.providerName === agents.fallbackAgent.name ? agents.fallbackAgent : undefined;
-        const onFallback = fallbackHolder !== undefined;
-        const repair = await repairUntilGreen(ctx, {
-          label: task.id,
-          gate: async () => {
-            // Only touch the worktree diff when there is a manifest to check against — a legacy/no-manifest
-            // spec skips the conformance half of the gate entirely.
-            conformance = manifest !== undefined ? checkConformance(manifest, await ctx.wm.diff(ctx.worktreePath)) : PASSING_RESULT;
-            verification = verifyCmd !== undefined ? await runVerification(ctx.sandbox, verifyCmd) : undefined;
-            // Completion is part of the gate (dogfood #352): an implementer that hit its turn cap or timeout
-            // mid-task can leave residue that still typechecks and tests green. Gate on `completed`, NOT on
-            // exitReason === 'maxTurns': the SDK counts internal steps as turns while vanguard counts real
-            // ones. A provider that finishes but never emits <promise>COMPLETE</promise> is re-nudged and,
-            // if it still won't signal, downgraded to a Part-of PR — an unverifiable "done" must not
-            // auto-close the issue.
-            implementerDone = implementerIdx === -1 || outcomes[implementerIdx]?.result.completed === true;
-            const pass = conformance.pass && (verification === undefined || verification.passed) && implementerDone;
-            const feedback = [
-              !implementerDone
-                ? 'The previous session ended before the task was finished (turn cap or timeout). Continue and complete the remaining work.'
-                : undefined,
-              !conformance.pass ? renderConformanceFeedback(conformance) : undefined,
-              verification !== undefined && !verification.passed ? renderVerificationFeedback(verification) : undefined,
-            ].filter((part): part is string => part !== undefined).join('\n\n');
-            return { pass, feedback };
-          },
-          // Resume on the provider that actually ran the stage: after a fallback the session belongs to it.
-          agent: fallbackHolder ?? agents.agent,
-          outcomes,
-          pipeline,
-          // NOTE: with an explicit --max-repair-iterations N, an incomplete implementer can be resumed up
-          // to ~2N times total — N in-stage (resumeUntilComplete inside runStages) plus N here.
-          maxIterations: deps.maxRepairIterations ?? MAX_REPAIR_ITERATIONS,
-          // --escalate-model names a model of the implementer's provider; handed to the fallback CLI it is
-          // an AgentError, so the fallback repairs on its own model only.
-          ...(deps.escalateModel !== undefined && !onFallback ? { escalateModel: deps.escalateModel } : {}),
-          // A per-task label is the human's own escalation call; the fleet-wide --escalate-model does not
-          // override it (it could even downgrade).
-          modelPinned: labelModel !== undefined,
-          ...(deps.signal !== undefined ? { signal: deps.signal } : {}),
-        });
+        const repair = await repairUntilGreen(ctx, { ...repairOpts, gate });
         gatePassed = repair.passed;
+        repairIterations = repair.iterations;
+        // The reviewer is report-only (#673), so nobody acts on its findings unless they are handed
+        // back here: one repair round on the implementer's own session, through the same loop, so the
+        // conformance/verify gate still has to be green after the fix. Only once the gate is green —
+        // a gate that is still red already exhausted the cap, and a partial PR discloses the findings.
+        const firstReview = outcomes.find((o) => o.name === STAGE.REVIEWER);
+        if (gatePassed && firstReview !== undefined && hasBlockingFinding(firstReview.result.finalText)) {
+          const feedback = reviewRepairFeedback(firstReview.result.finalText);
+          let reported = false;
+          const reviewRepair = await repairUntilGreen(ctx, {
+            ...repairOpts,
+            gate: async () => {
+              if (!reported) {
+                reported = true;
+                return { pass: false, feedback };
+              }
+              return gate();
+            },
+            maxIterations: 1,
+          });
+          gatePassed = reviewRepair.passed;
+          repairIterations += reviewRepair.iterations;
+        }
       } finally {
         console.log(summarizeOutcomes(outcomes));
       }
       console.log(`vanguard: gate ${gatePassed ? 'PASSED' : 'FAILED — declaring partial scope'} for ${task.id}`);
+
+      // The reviewer ran once, before the repair loop. When a repair actually resumed the implementer
+      // (iterations > 0), the diff it reviewed no longer matches what ships (#665) — re-review the
+      // final diff so the published verdict is never stale. No repairs ⇒ the original verdict stands.
+      if (reviewerStage !== undefined && repairIterations > 0) {
+        let rereviewed: RunResult;
+        try {
+          rereviewed = await reviewFinalDiff(ctx, reviewerStage, {
+            agent: agents.agent,
+            variables,
+            ...(deps.signal !== undefined ? { signal: deps.signal } : {}),
+          });
+        } catch (error) {
+          // A provider limit or a timeout in the re-review must not sink work that already passed the
+          // gate: record it as an unavailable (⇒ `incomplete`, never a pass) verdict and still publish,
+          // as a draft — a change that ships without a verdict is not ready for review.
+          console.error(`vanguard: re-review of the final diff failed for ${task.id} — publishing as a draft with an incomplete review: ${redactForPublish(String(error))}`);
+          reviewUnavailable = true;
+          rereviewed = {
+            taskId: task.id,
+            completed: false,
+            exitReason: 'incomplete',
+            turns: 0,
+            worktreePath: ctx.worktreePath,
+            worktreePreserved: true,
+            finalText: `Review unavailable: ${redactForPublish(String(error))}`,
+          };
+        }
+        // Appended, never swapped in over the first review: both reviews' cost and turns stay in the
+        // stats table, and the published verdict reads the LAST reviewer outcome (reviewerOutcome below).
+        outcomes.push({
+          name: STAGE.REVIEWER,
+          result: rereviewed,
+          providerName: (reviewerStage.provider ?? agents.agent).name,
+          ...(reviewerStage.model !== undefined ? { model: reviewerStage.model } : {}),
+        });
+      }
 
       const visualProof = await resolveAndRunVisualProof(
         ctx.sandbox,
@@ -671,7 +760,10 @@ export async function runSourcedIssue(
       const extraGlobs = await loadGateConfigExtraGlobs(deps.repoPath, deps.baseBranch ?? DEFAULT_BASE_BRANCH);
       const scope = primaryModuleScope(manifest);
       const bugLabel = task.labels.includes('bug');
-      const reviewerOutcome = outcomes.find((o) => o.name === STAGE.REVIEWER);
+      // The LAST reviewer outcome: after a re-review the first review is kept for the cost table only —
+      // its verdict describes a diff that no longer ships.
+      // Not `findLast`: that needs lib ES2023, and apps/desktop compiles this file against ES2022.
+      const reviewerOutcome = outcomes.filter((o) => o.name === STAGE.REVIEWER).at(-1);
       const delivery = await deliverChange(ctx, {
         taskId: task.id,
         // Default and white-label share the same type/scope logic as the PR title (conventionalPrTitle):
@@ -690,8 +782,9 @@ export async function runSourcedIssue(
           title: `${task.title} (${task.id})`,
           bugLabel,
           ...(scope !== undefined ? { scope } : {}),
-          // Ready for review only after verification and every configured proof passed.
-          draft: partial || verifyCmd === undefined || visualProofFailed,
+          // Ready for review only after verification, every configured proof and the review verdict
+          // landed: an unavailable re-review ships as a draft too.
+          draft: partial || verifyCmd === undefined || visualProofFailed || reviewUnavailable,
           ...(adapter.reviewCli !== undefined ? { cli: adapter.reviewCli } : {}),
           // Same PAT revise pushes with: a PR it opens fires the repo's pull_request workflows (CI).
           ...(process.env.VANGUARD_PUSH_TOKEN ? { prToken: process.env.VANGUARD_PUSH_TOKEN } : {}),

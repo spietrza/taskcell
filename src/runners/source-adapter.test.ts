@@ -82,7 +82,7 @@ describe('pickRunOptions', () => {
 // The heavy host-side machinery (Docker, proxies, context, stage execution) is stubbed so the test
 // exercises only the orchestration the seam owns: hook ordering and the lost-MR-link persistence.
 
-const { writeStages, beginRun, runStages, commitStage, publishForReview } = vi.hoisted(() => {
+const { writeStages, beginRun, runStages, commitStage, publishForReview, reviewFinalDiff } = vi.hoisted(() => {
   const writeStages = vi.fn(async () => {});
   const writeProof = vi.fn(async () => '/proof.json');
   const writeVisualProof = vi.fn(async () => '/visual-proof.json');
@@ -96,6 +96,14 @@ const { writeStages, beginRun, runStages, commitStage, publishForReview } = vi.h
     runStages: vi.fn(),
     commitStage: vi.fn(),
     publishForReview: vi.fn(),
+    // Separate from the shared `runAgent` mock (used by the repair loop) so repair-loop call-count
+    // assertions stay valid: only the tests that care about re-review touch this mock.
+    // `..._args` declares the parameters the re-review is called with, so `mock.calls[0]?.[1]` (the
+    // reviewer stage) is typed rather than an index into an empty tuple.
+    reviewFinalDiff: vi.fn(async (..._args: unknown[]) => ({
+      taskId: 'gl-1', completed: true, exitReason: 'completed', turns: 1,
+      worktreePath: '/wt', worktreePreserved: true, finalText: 'No blocking issues.',
+    })),
   };
 });
 
@@ -187,6 +195,7 @@ vi.mock('../pipeline/pipeline.js', async (importActual) => {
     ...actual,
     runStages: (...args: unknown[]) => runStages(...(args as [])),
     commitStage: (...args: unknown[]) => commitStage(...(args as [])),
+    reviewFinalDiff: (...args: unknown[]) => reviewFinalDiff(...(args as [])),
   };
 });
 vi.mock('../pipeline/remote-branch.js', async (importActual) => {
@@ -925,6 +934,98 @@ describe('runSourcedIssue', () => {
     expect(adapter.addFailureLabel).not.toHaveBeenCalledWith(MR_URL, 'verify');
     const body = publishForReview.mock.calls[0]?.[1]?.body as string;
     expect(body).toContain(`Closes ${task.id}`);
+  });
+
+  it('re-reviews the final diff when the repair loop changed it (#665: a stale verdict must never ship)', async () => {
+    runStages.mockResolvedValueOnce([stageOutcome('implementer', 'sess-1'), stageOutcome('reviewer')]);
+    vi.mocked(resolveVerifyCommand).mockResolvedValue('npm test');
+    vi.mocked(runVerification)
+      .mockResolvedValueOnce({ passed: false } as never)
+      .mockResolvedValueOnce({ passed: true } as never);
+    runAgent.mockResolvedValueOnce({ sessionId: 'sess-2', completed: true, exitReason: 'completed' } as never);
+    reviewFinalDiff.mockResolvedValueOnce({
+      taskId: 'gl-1', completed: true, exitReason: 'completed', turns: 1,
+      worktreePath: '/wt', worktreePreserved: true,
+      finalText: '<findings>' + JSON.stringify({ findings: [{ severity: 'high', kind: 'correctness', title: 'still broken', evidence: 'x' }] }) + '</findings>',
+    } as never);
+
+    const adapter = fakeAdapter([], STAGES);
+    await runSourcedIssue('group/project#1', { repoPath: '/repo' }, adapter);
+
+    expect(reviewFinalDiff).toHaveBeenCalledTimes(1);
+    expect(reviewFinalDiff.mock.calls[0]?.[1]).toMatchObject({ name: 'reviewer' });
+    // The published verdict reflects the fresh re-review's findings, not the original (now-stale) pass.
+    const body = publishForReview.mock.calls[0]?.[1]?.body as string;
+    expect(body).toMatch(/^Review: CHANGES \(1 finding\)$/m);
+  });
+
+  it('does not re-review when the repair loop never resumed the implementer', async () => {
+    runStages.mockResolvedValueOnce([stageOutcome('implementer', 'sess-1'), stageOutcome('reviewer')]);
+    vi.mocked(resolveVerifyCommand).mockResolvedValue('npm test');
+    vi.mocked(runVerification).mockResolvedValueOnce({ passed: true } as never);
+
+    const adapter = fakeAdapter([], STAGES);
+    await runSourcedIssue('group/project#1', { repoPath: '/repo' }, adapter);
+
+    expect(reviewFinalDiff).not.toHaveBeenCalled();
+    expect(runAgent).not.toHaveBeenCalled();
+  });
+
+  it('hands the report-only reviewer blocking findings back to the implementer, then publishes the re-review (#673)', async () => {
+    const blocking = stageOutcome('reviewer');
+    blocking.result.finalText = '<findings>' + JSON.stringify({ findings: [{ severity: 'high', kind: 'correctness', title: 'unchecked null deref', evidence: 'src/a.ts:10' }] }) + '</findings>';
+    runStages.mockResolvedValueOnce([stageOutcome('implementer', 'sess-1'), blocking]);
+    // Conformance/verify gate green from the start: the only reason to resume is the review findings.
+    vi.mocked(resolveVerifyCommand).mockResolvedValue('npm test');
+    vi.mocked(runVerification).mockResolvedValue({ passed: true } as never);
+    runAgent.mockResolvedValueOnce({ sessionId: 'sess-2', completed: true, exitReason: 'completed' } as never);
+
+    const adapter = fakeAdapter([], STAGES);
+    const result = await runSourcedIssue('group/project#1', { repoPath: '/repo' }, adapter);
+
+    expect(result.prUrl).toBe(MR_URL);
+    // Exactly one repair round, on the implementer's own session, carrying the finding itself.
+    expect(runAgent).toHaveBeenCalledTimes(1);
+    expect(runAgent.mock.calls[0]?.[1]).toMatchObject({ resumeSessionId: 'sess-1' });
+    const repairPrompt = runAgent.mock.calls[0]?.[1]?.variables?.PROMPT as string;
+    expect(repairPrompt).toContain('unchecked null deref');
+    expect(repairPrompt).toContain('src/a.ts:10');
+    // The fix changed the diff, so the published verdict is the re-review's — never the stale block.
+    expect(reviewFinalDiff).toHaveBeenCalledTimes(1);
+    const body = publishForReview.mock.calls[0]?.[1]?.body as string;
+    expect(body).toMatch(/^Review: PASS \(0 findings\)$/m);
+  });
+
+  it('publishes a draft with an incomplete, masked verdict when the re-review itself fails', async () => {
+    const consoleError = vi.spyOn(console, 'error').mockImplementation(() => {});
+    // A stated pass from the first review: only the failed re-review can make the verdict incomplete.
+    const clean = stageOutcome('reviewer');
+    clean.result.finalText = 'No blocking issues.';
+    runStages.mockResolvedValueOnce([stageOutcome('implementer', 'sess-1'), clean]);
+    vi.mocked(resolveVerifyCommand).mockResolvedValue('npm test');
+    vi.mocked(runVerification)
+      .mockResolvedValueOnce({ passed: false } as never)
+      .mockResolvedValueOnce({ passed: true } as never);
+    runAgent.mockResolvedValueOnce({ sessionId: 'sess-2', completed: true, exitReason: 'completed' } as never);
+    const token = `ghp_${'a'.repeat(36)}`;
+    reviewFinalDiff.mockRejectedValueOnce(new Error(`usage limit reached for token ${token}`));
+
+    const adapter = fakeAdapter([], STAGES);
+    const result = await runSourcedIssue('group/project#1', { repoPath: '/repo' }, adapter);
+
+    // Gate-green work still ships — as a draft, since nothing reviewed what ships.
+    expect(result.prUrl).toBe(MR_URL);
+    const published = publishForReview.mock.calls[0]?.[1];
+    expect(published?.draft).toBe(true);
+    const body = published?.body as string;
+    expect(body).toMatch(/^Review: INCOMPLETE \(0 findings\)$/m);
+    // A provider error can quote a credential: the verdict comment carries the reason, masked.
+    const verdictText = vi.mocked(adapter.publishVerdict).mock.calls[0]?.[0]?.reviewerOutcome?.result.finalText ?? '';
+    expect(verdictText).toContain('Review unavailable:');
+    expect(verdictText).toContain('[REDACTED-GH]');
+    expect(verdictText).not.toContain(token);
+    expect(body).not.toContain(token);
+    consoleError.mockRestore();
   });
 
   it('a red base branch stops the run before implementing, signalling the issue instead of opening a PR (#2024)', async () => {

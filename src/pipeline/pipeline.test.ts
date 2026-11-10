@@ -485,6 +485,30 @@ describe('generateEvaluateRepairStages', () => {
 });
 
 describe('implementReviewSimplifyStages', () => {
+  it('keeps review report-only and passes the implementation diff to the fresh simplifier', async () => {
+    const received: AgentRunInput[] = [];
+    const sandbox = makeSandbox();
+    const copyOut = vi.spyOn(sandbox, 'copyFileOut');
+    const ctx = await prepareContext(
+      { taskId: 'report-review', localRepoPath: repo, baseBranch: 'main', start: 'base', sandbox },
+      { worktrees: new WorktreeManager(repo) },
+    );
+    try {
+      const stages = implementReviewSimplifyStages();
+      const outcomes = await runStages(ctx, stages, { agent: recordingAgent(received) });
+      expect(stages[1]?.copyBack).toBe(false);
+      expect(received[1]?.prompt).toContain('Do not edit any files.');
+      expect(received[1]?.prompt).not.toContain('Fix what you find in the repo.');
+      expect(outcomes[1]?.result.diff).toBeUndefined();
+      expect(copyOut.mock.calls.filter(([path]) => path === '/workspace')).toHaveLength(2);
+      expect(received[2]?.resumeSessionId).toBeUndefined();
+      expect(received[2]?.prompt).toContain(diffForPrompt(outcomes[0]?.result.diff ?? ''));
+      expect(received[2]?.prompt).toContain('feature.txt');
+    } finally {
+      await disposeContext(ctx);
+    }
+  });
+
   it('runs reviewer and simplifier in a fresh context (independent review)', () => {
     const byName = Object.fromEntries(implementReviewSimplifyStages().map((s) => [s.name, s]));
     expect(byName.implementer?.resumePrevious).toBeUndefined(); // implementer keeps the default
@@ -523,6 +547,13 @@ describe('planImplementReviewStages', () => {
     expect(stages[1]?.model).toBe('sonnet');
     expect(stages[2]?.model).toBe('sonnet');
     expect(stages.every((s) => (s.systemPrompt ?? '').includes('<tradeoffs>'))).toBe(true);
+  });
+
+  it('reviewer is report-only: copyBack false, prompt forbids edits', () => {
+    const reviewer = planImplementReviewStages().find((s) => s.name === STAGE.REVIEWER);
+    expect(reviewer?.copyBack).toBe(false);
+    expect(reviewer?.promptTemplate).toContain('Do not edit any files');
+    expect(reviewer?.promptTemplate).not.toContain('fix the code');
   });
 });
 
