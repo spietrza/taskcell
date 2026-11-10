@@ -246,7 +246,6 @@ describe('runBudgetedStages', () => {
   describe('same-provider fallback after a session limit', () => {
     const limited = (name: string): AgentProvider => ({
       name,
-      // eslint-disable-next-line require-yield
       async *run(): AsyncGenerator<AgentTurn, AgentRunOutput, void> {
         throw new AgentError("You've hit your session limit · resets 9pm (UTC)");
       },

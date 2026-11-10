@@ -1272,6 +1272,34 @@ describe('runSourcedIssue', () => {
     expect(wmCommitMessages).toHaveBeenCalledWith('/wt', '0000sha'); // ctx.startRef: the very commit the worktree was cut from
   });
 
+  it('surfaces a missing required PR-body item in the body, without downgrading the diff gate', async () => {
+    const adapter = fakeAdapter([], STAGES);
+    vi.mocked(adapter.prepare).mockResolvedValueOnce({ task: { ...task, comments: [
+      { author: 'maintainer', authorAssociation: 'OWNER', body: '<spec_manifest>{"prBody":[{"id":"PR-1","description":"CI workflow YAML","contains":"name: gate"}]}</spec_manifest>' },
+    ] } } as Awaited<ReturnType<SourceAdapter['prepare']>>);
+
+    await runSourcedIssue(task.id, { repoPath: '/repo' }, adapter);
+
+    const body = publishForReview.mock.calls[0]?.[1]?.body as string;
+    expect(body).toContain('Required PR-body item missing');
+    expect(body).toContain('- [ ] PR-1: CI workflow YAML');
+    // The item is human work the diff cannot carry: it never flips an otherwise-green delivery to `Part of`.
+    expect(body).toContain('Closes ' + task.id);
+  });
+
+  it('omits the PR-body warning when the composed body already carries the required item', async () => {
+    const adapter = fakeAdapter([], STAGES);
+    vi.mocked(adapter.prepare).mockResolvedValueOnce({ task: { ...task, comments: [
+      { author: 'maintainer', authorAssociation: 'OWNER', body: `<spec_manifest>{"prBody":[{"id":"PR-1","contains":"Closes ${task.id}"}]}</spec_manifest>` },
+    ] } } as Awaited<ReturnType<SourceAdapter['prepare']>>);
+
+    await runSourcedIssue(task.id, { repoPath: '/repo' }, adapter);
+
+    const body = publishForReview.mock.calls[0]?.[1]?.body as string;
+    expect(body).not.toContain('Required PR-body item missing');
+    expect(body).toContain('- [x] PR-1');
+  });
+
   it('omits the commit-leak warning on a full green pass', async () => {
     wmCommitMessages.mockResolvedValueOnce([`Closes ${task.id}`]);
 

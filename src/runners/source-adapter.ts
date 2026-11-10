@@ -761,14 +761,23 @@ export async function runSourcedIssue(
       const verificationFailed = verification !== undefined && !verification.passed;
       const visualProofFailed = visualProof !== undefined && !visualProof.passed;
       const partial = !gatePassed || untrustedManifestDropped;
-      const baseBody = reviewRequestBody(task.id, {
+      const bodyFor = (result: ConformanceResult): string => reviewRequestBody(task.id, {
         closeIssueOnMerge: !!adapter.closeIssueOnMerge,
         ...(untrustedManifestDropped ? { untrustedManifest: true } : {}),
-        ...(manifest !== undefined ? { conformance, manifest } : {}),
+        ...(manifest !== undefined ? { conformance: result, manifest } : {}),
         ...(verificationFailed ? { verificationFailed: true } : {}),
         ...(!implementerDone ? { implementerIncomplete: true } : {}),
         ...(whiteLabel ? { hideAttribution: true } : {}),
       });
+      // `prBody` manifest items name content the diff cannot carry (CI workflow YAML — copy-back drops
+      // it), so they are checked against the composed PR body instead of the worktree diff. The diff
+      // gate's own `pass` is kept: such an item is human work, surfaced as an unchecked checklist line
+      // plus a warning block, never flipping an otherwise-complete delivery to `Part of`.
+      const withPrBodyGaps = (body: string): ConformanceResult => {
+        if (manifest?.prBody === undefined) return conformance;
+        const checked = checkConformance({ prBody: manifest.prBody }, '', body);
+        return { ...conformance, missingPrBody: checked.missingPrBody, optionalMissingPrBody: checked.optionalMissingPrBody };
+      };
       // deliverChange owns the order: secret scan → commit → closing-keyword scan → rebase/push → PR.
       // The body is built after the commit so a partial result can carry commit-level `Closes #N`
       // leaks as a blocking warning. Gate-config disclosure is included in white-label mode too.
@@ -807,16 +816,24 @@ export async function runSourcedIssue(
             const diffFiles = diffFilesWithPatches(outgoingDiff);
             const configPaths = gateConfigPaths(diffFiles, extraGlobs);
             const configBlock = gateConfigChangedBlock(diffFiles.filter((file) => configPaths.includes(file.path)));
-            return whiteLabel
-              ? [baseBody, configBlock].filter(Boolean).join('\n\n')
-              : [
-                configBlock,
-                baseBody,
-                commitLeaks.length > 0 ? commitLeakWarningBlock(commitLeaks) : undefined,
-                verification !== undefined ? proofBlock(verification) : verifySkippedBlock(),
-                visualProof !== undefined ? visualProofBlock(visualProof) : undefined,
-                reviewerOutcome !== undefined ? reviewVerdictLine(reviewVerdictOf(reviewerOutcome.result.finalText)) : undefined,
-              ].filter((s): s is string => s !== undefined && s !== '').join('\n\n');
+            const compose = (result: ConformanceResult, prBodyGap: string): string => {
+              const baseBody = bodyFor(result);
+              return whiteLabel
+                ? [baseBody, configBlock].filter(Boolean).join('\n\n')
+                : [
+                  configBlock,
+                  baseBody,
+                  commitLeaks.length > 0 ? commitLeakWarningBlock(commitLeaks) : undefined,
+                  prBodyGap,
+                  verification !== undefined ? proofBlock(verification) : verifySkippedBlock(),
+                  visualProof !== undefined ? visualProofBlock(visualProof) : undefined,
+                  reviewerOutcome !== undefined ? reviewVerdictLine(reviewVerdictOf(reviewerOutcome.result.finalText)) : undefined,
+                ].filter((s): s is string => s !== undefined && s !== '').join('\n\n');
+            };
+            // A `prBody` item can only be checked against the composed body, so compose once to check
+            // against, then recompose with the gap in the checklist and the warning block.
+            const checked = withPrBodyGaps(compose(conformance, ''));
+            return compose(checked, prBodyGapWarningBlock(checked.missingPrBody));
           },
         },
       });

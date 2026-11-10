@@ -11,6 +11,7 @@ import {
   extractTaskIdFromPrBody,
   scanCommitClosingKeywords,
   commitLeakWarningBlock,
+  prBodyGapWarningBlock,
   type SpecManifest,
 } from './conformance-gate.js';
 
@@ -100,6 +101,13 @@ describe('checkConformance', () => {
     const result = checkConformance(undefined, fullCoverageDiff());
     expect(result.checked).toBe(false);
     expect(result.pass).toBe(true);
+  });
+
+  it('stays advisory-only for a legacy spec even with a PR body to check against', () => {
+    const result = checkConformance(undefined, fileSection('src/other.ts', ['x']), 'a body with no required item');
+    expect(result.checked).toBe(false);
+    expect(result.pass).toBe(true);
+    expect(result.missingPrBody).toEqual([]);
   });
 
   it('PASSES when the diff covers every obligation', () => {
@@ -385,6 +393,19 @@ describe('commitLeakWarningBlock', () => {
 
   it('returns an empty block for no leaks', () => {
     expect(commitLeakWarningBlock([])).toBe('');
+  });
+});
+
+describe('prBodyGapWarningBlock', () => {
+  it('renders a labeled blocking warning listing each missing item', () => {
+    const block = prBodyGapWarningBlock([{ id: 'PR-1', contains: '```yaml\nname: gate\n```' }]);
+    expect(block).toContain('Required PR-body item missing');
+    expect(block).toContain('`PR-1`');
+    expect(block).toContain('Add the missing content to the PR body by hand.');
+  });
+
+  it('returns an empty block for no gaps', () => {
+    expect(prBodyGapWarningBlock([])).toBe('');
   });
 });
 
