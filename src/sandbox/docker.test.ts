@@ -13,7 +13,7 @@ import {
   pnpmStoreVolumeName,
   SANDBOX_CLAUDE_VERSION,
 } from './docker.js';
-import { sandboxSecurityOpts } from './limits.js';
+import { readOnlyTmpfsSizesMb, sandboxSecurityOpts } from './limits.js';
 
 const ENV_VAR = 'VANGUARD_SANDBOX_IMAGE';
 
@@ -393,6 +393,23 @@ describe('DockerSandboxProvider buildRunArgs (hardening flags)', () => {
     expect(tmpfsArgs.some((a) => a.startsWith('/workspace:'))).toBe(true);
     expect(tmpfsArgs.some((a) => a.startsWith('/home/agent:'))).toBe(true);
     expect(tmpfsArgs.some((a) => a.startsWith('/tmp:'))).toBe(true);
+  });
+
+  // The sizes themselves (and that they stay inside --memory) are limits.test.ts's; here: each mount
+  // gets its own share, so a raised/omitted VANGUARD_SANDBOX_MEMORY_MB reaches the argv.
+  it.each([2048, 1536, undefined])('sizes the tmpfs mounts from the resolved memoryMb (%s)', (memoryMb) => {
+    const args = new DockerSandboxProvider({
+      security: sandboxSecurityOpts({}, true),
+      ...(memoryMb !== undefined ? { memoryMb } : {}),
+    }).buildRunArgs();
+    const { workspace, home, tmp } = readOnlyTmpfsSizesMb(memoryMb);
+    expect(args.filter((_, i) => args[i - 1] === '--tmpfs')).toEqual(
+      expect.arrayContaining([
+        `/workspace:rw,exec,nosuid,size=${workspace}m`,
+        `/home/agent:rw,exec,nosuid,size=${home}m`,
+        `/tmp:rw,exec,nosuid,size=${tmp}m`,
+      ]),
+    );
   });
 
   it('an explicit VANGUARD_SANDBOX_READONLY=0 still turns readOnlyRootfs off in hardened mode', () => {

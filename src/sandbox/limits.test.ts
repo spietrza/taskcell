@@ -1,5 +1,12 @@
 import { describe, it, expect } from 'vitest';
-import { ownerLabelArgs, pnpmStoreConfig, sandboxResourceLimits, sandboxSecurityOpts, sidecarMemoryArgs } from './limits.js';
+import {
+  ownerLabelArgs,
+  pnpmStoreConfig,
+  readOnlyTmpfsSizesMb,
+  sandboxResourceLimits,
+  sandboxSecurityOpts,
+  sidecarMemoryArgs,
+} from './limits.js';
 
 describe('sandboxResourceLimits', () => {
   it('uses defaults when no env is set', () => {
@@ -70,6 +77,29 @@ describe('sandboxSecurityOpts', () => {
     expect(sandboxSecurityOpts({}, false).readOnlyRootfs).toBe(false);
     expect(sandboxSecurityOpts({ VANGUARD_SANDBOX_READONLY: '0' } as NodeJS.ProcessEnv, true).readOnlyRootfs).toBe(false);
     expect(sandboxSecurityOpts({ VANGUARD_SANDBOX_READONLY: '1' } as NodeJS.ProcessEnv, false).readOnlyRootfs).toBe(true);
+  });
+});
+
+describe('readOnlyTmpfsSizesMb', () => {
+  it('sizes the three mounts 3:2:1 within three quarters of the memory limit (tmpfs is charged to it)', () => {
+    expect(readOnlyTmpfsSizesMb(2048)).toEqual({ workspace: 768, home: 512, tmp: 256 });
+  });
+
+  it('scales with a raised VANGUARD_SANDBOX_MEMORY_MB and stays inside a lowered one', () => {
+    for (const memoryMb of [1024, 1536, 2048, 4096, 8192]) {
+      const sizes = readOnlyTmpfsSizesMb(memoryMb);
+      expect(sizes.workspace + sizes.home + sizes.tmp).toBeLessThanOrEqual(memoryMb);
+      expect(sizes.tmp).toBeGreaterThan(0);
+    }
+    expect(readOnlyTmpfsSizesMb(8192).workspace).toBe(3072);
+  });
+
+  it('never yields size=0 (which tmpfs reads as unlimited) on an absurdly small limit', () => {
+    expect(readOnlyTmpfsSizesMb(1)).toEqual({ workspace: 3, home: 2, tmp: 1 });
+  });
+
+  it('falls back to fixed sizes with the memory limit omitted (VANGUARD_SANDBOX_MEMORY_MB=0)', () => {
+    expect(readOnlyTmpfsSizesMb(undefined)).toEqual({ workspace: 4096, home: 2048, tmp: 1024 });
   });
 });
 

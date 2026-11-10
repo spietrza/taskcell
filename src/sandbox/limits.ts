@@ -99,3 +99,20 @@ export function sandboxSecurityOpts(env: NodeJS.ProcessEnv = process.env, harden
     readOnlyRootfs: flag(env.VANGUARD_SANDBOX_READONLY, hardened),
   };
 }
+
+/**
+ * `--tmpfs` sizes (MB) for the three writable mounts a read-only rootfs needs — `/workspace`, `$HOME`
+ * and `/tmp` (see `buildRunArgs`). A tmpfs page is charged to the container's own memory cgroup, so
+ * fixed sizes larger than `--memory` would just turn a full workspace into an OOM kill of the whole
+ * sandbox: the sizes are derived from the resolved `memoryMb` instead, split 3:2:1 over three quarters
+ * of the limit, with the last quarter left for the processes. With the memory limit omitted entirely
+ * (VANGUARD_SANDBOX_MEMORY_MB=0) there is nothing to size against, so the mounts fall back to fixed
+ * sizes. Either way a repo whose install or build needs more than that wants a bigger
+ * VANGUARD_SANDBOX_MEMORY_MB — see docs/cli.md.
+ */
+export function readOnlyTmpfsSizesMb(memoryMb: number | undefined): { workspace: number; home: number; tmp: number } {
+  if (memoryMb === undefined) return { workspace: 4096, home: 2048, tmp: 1024 };
+  // Floored at 1 MB a share: `size=0` means UNLIMITED to tmpfs, the opposite of the cap asked for.
+  const unit = Math.max(1, Math.floor((memoryMb * 3) / 4 / 6));
+  return { workspace: unit * 3, home: unit * 2, tmp: unit };
+}

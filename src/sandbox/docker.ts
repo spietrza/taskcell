@@ -5,7 +5,7 @@ import { tmpdir } from 'node:os';
 import { dirname, join } from 'node:path';
 import { createInterface } from 'node:readline';
 import { SandboxError } from '../core/errors.js';
-import { ownerLabelArgs, sandboxSecurityOpts } from './limits.js';
+import { ownerLabelArgs, readOnlyTmpfsSizesMb, sandboxSecurityOpts } from './limits.js';
 import type { ExecOptions, ExecResult, ExecStream, IsolatedSandboxProvider, SandboxConfig } from './provider.js';
 
 /**
@@ -265,10 +265,15 @@ export class DockerSandboxProvider implements IsolatedSandboxProvider {
       args.push('--read-only');
       // Paths a real run writes: /workspace (copyIn + pnpm install + git), $HOME (skills, tool
       // caches), /tmp (build scratch). exec is required (tool shims, build scripts) unlike the
-      // deliberately noexec secrets tmpfs above.
-      args.push('--tmpfs', `${this.workdir}:rw,exec,nosuid,size=4g`);
-      args.push('--tmpfs', `${DEFAULT_HOME}:rw,exec,nosuid,size=2g`);
-      args.push('--tmpfs', '/tmp:rw,exec,nosuid,size=1g');
+      // deliberately noexec secrets tmpfs above. The sizes are shares of this sandbox's own memory
+      // limit, because that is the cgroup a tmpfs page is charged to (see readOnlyTmpfsSizesMb).
+      const tmpfs = readOnlyTmpfsSizesMb(this.config.memoryMb);
+      const mounts = [
+        [this.workdir, tmpfs.workspace],
+        [DEFAULT_HOME, tmpfs.home],
+        ['/tmp', tmpfs.tmp],
+      ] as const;
+      for (const [path, sizeMb] of mounts) args.push('--tmpfs', `${path}:rw,exec,nosuid,size=${sizeMb}m`);
     }
 
     if (this.hasSecrets && this.secretsMode === 'tmpfs') {
