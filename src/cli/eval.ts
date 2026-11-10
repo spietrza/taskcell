@@ -1,16 +1,26 @@
+import { readFile } from 'node:fs/promises';
 import { execa } from 'execa';
 import { runEvals } from '../evals/run-evals.js';
 import { llmJudge } from '../evals/judges.js';
 import { decisionJudge } from '../evals/decision-judge.js';
 import { decisionModelConfig, decisionModelMissing, isDecisionModelName } from '../core/decision-model.js';
-import type { Judge } from '../evals/types.js';
-import { corpus, JUDGE_MODEL, DEFAULT_PRODUCE_MODEL } from '../evals/corpus/index.js';
+import { corpus, CORPUS_HASH, JUDGE_MODEL, DEFAULT_PRODUCE_MODEL } from '../evals/corpus/index.js';
 import { formatEvalReport } from '../evals/eval-report.js';
+import { compareToBaseline, formatBaselineComparison } from '../evals/baseline.js';
+import { saveEvalBaseline, readLatestEvalBaseline } from '../evals/eval-baseline-branch.js';
 import { evalSuggestCommand } from './eval-suggest.js';
+import type { Judge, EvalCase, EvalRunReport } from '../evals/types.js';
+import type { BaselineComparison } from '../evals/baseline.js';
 import type { Command } from './args.js';
-import type { EvalCase } from '../evals/types.js';
 
 type EvalCommand = Extract<Command, { kind: 'eval' }>;
+
+/** Everything evalCommand reads off disk/network, injectable for tests (no real git, no real baseline file). */
+export interface EvalCommandDeps {
+  readBaselineFile?: (path: string) => Promise<string>;
+  saveBaseline?: typeof saveEvalBaseline;
+  readLatestBaseline?: typeof readLatestEvalBaseline;
+}
 
 /** Thin host-side completion: runs `claude --print --model <model>` with the prompt on stdin. */
 export function makeCliComplete(model: string): (prompt: string) => Promise<string> {
@@ -28,13 +38,16 @@ export function makeDecisionJudge(model: string, env: NodeJS.ProcessEnv = proces
 }
 
 /**
- * Run the committed eval corpus and print a per-kind pass-rate report.
- * The optional makeComplete parameter is injectable for testing.
+ * Run the committed eval corpus and print a per-kind pass-rate report. With `--baseline <file|main>`
+ * it also gates the run against a saved baseline (see baseline.ts); with `--save-baseline` it pushes
+ * this run's report to the metrics branch, keyed by the current commit, before reporting.
+ * makeComplete/makeDecision/deps are injectable for testing (no real `claude` CLI, no real git).
  */
 export async function evalCommand(
   cmd: EvalCommand,
   makeComplete: (model: string) => (prompt: string) => Promise<string> = makeCliComplete,
   makeDecision: (model: string) => Judge = makeDecisionJudge,
+  deps: EvalCommandDeps = {},
 ): Promise<void> {
   if (cmd.suggest) {
     await evalSuggestCommand(cmd);
@@ -50,10 +63,40 @@ export async function evalCommand(
   const produce = (testCase: EvalCase) => produceComplete(testCase.input);
 
   const report = await runEvals({ cases: corpus, produce, judge });
+  const runReport: EvalRunReport = { ...report, judgeModel, produceModel, corpusHash: CORPUS_HASH };
+
+  const readBaselineFile = deps.readBaselineFile ?? ((path: string) => readFile(path, 'utf8'));
+  const save = deps.saveBaseline ?? saveEvalBaseline;
+  const readLatest = deps.readLatestBaseline ?? readLatestEvalBaseline;
+  const branchOpts = cmd.branch !== undefined ? { branch: cmd.branch } : {};
+
+  if (cmd.saveBaseline === true) {
+    const saved = await save(cmd.repoPath, runReport, branchOpts);
+    console.log(`vanguard eval: saved baseline for ${saved.commit.slice(0, 7)}`);
+  }
+
+  let comparison: BaselineComparison | undefined;
+  if (cmd.baseline !== undefined) {
+    const baselineReport =
+      cmd.baseline === 'main'
+        ? await readLatest(cmd.repoPath, branchOpts)
+        : (JSON.parse(await readBaselineFile(cmd.baseline)) as EvalRunReport);
+    if (baselineReport === undefined) {
+      console.error(`vanguard eval: no baseline found for "${cmd.baseline}"`);
+      process.exitCode = 1;
+    } else {
+      comparison = compareToBaseline(runReport, baselineReport, {
+        ...(cmd.maxDrop !== undefined ? { maxDropPoints: cmd.maxDrop } : {}),
+        allowCorpusChange: cmd.allowCorpusChange === true,
+      });
+      if (!comparison.ok) process.exitCode = 1;
+    }
+  }
 
   if (cmd.json) {
-    console.log(JSON.stringify(report, null, 2));
+    console.log(JSON.stringify(comparison !== undefined ? { ...runReport, baseline: comparison } : runReport, null, 2));
     return;
   }
-  console.log(formatEvalReport(report));
+  console.log(formatEvalReport(runReport));
+  if (comparison !== undefined) console.log(formatBaselineComparison(comparison));
 }
