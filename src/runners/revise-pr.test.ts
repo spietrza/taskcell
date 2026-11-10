@@ -6,6 +6,7 @@ import { join } from 'node:path';
 import { execa } from 'execa';
 import { WorktreeManager } from '../worktree/manager.js';
 import { runRevisePullRequest } from './revise-pr.js';
+import { revisionCapMarker, revisionMarker } from './pr-feedback.js';
 import * as registry from '../agents/registry.js';
 import { selectAgents } from '../agents/registry.js';
 import { AgentError } from '../core/errors.js';
@@ -161,6 +162,48 @@ function makeFeedbackJsonWithRevisions(): string {
         { author: { login: 'github-actions' }, body: '<!-- vanguard-revision: abc1234 -->', createdAt: '2024-01-09T00:00:01Z' },
       ],
     },
+  });
+}
+
+function makeFeedbackJsonCapReset(): string {
+  // Two prior rounds plus a cap notice, all from the bot, posted BEFORE the default thread's
+  // trusted-human comment (alice/COLLABORATOR @ 2024-01-11T10:00:00Z, from makeFeedbackJson) — that
+  // comment is both the actionable feedback for this round and the fresh human ask that resets the
+  // budget: revisionBudgetResetAt should find it after the cap notice and countRevisionRoundsFromFeedback
+  // should drop both prior markers.
+  return makeFeedbackJson({
+    reviews: { nodes: [
+      {
+        author: { login: 'github-actions' },
+        body: `Revision cap reached (2/2 rounds). No further automated revisions will be applied.\n\n${revisionCapMarker()}`,
+        state: 'COMMENTED',
+        submittedAt: '2024-01-09T00:00:02Z',
+      },
+    ] },
+    comments: { nodes: [
+      { author: { login: 'github-actions' }, body: revisionMarker('deadbeef'), createdAt: '2024-01-09T00:00:00Z' },
+      { author: { login: 'github-actions' }, body: revisionMarker('abc1234'), createdAt: '2024-01-09T00:00:01Z' },
+    ] },
+  });
+}
+
+function makeFeedbackJsonCapStillHeld(): string {
+  // Same two prior rounds, but the cap notice is posted AFTER the (sole) trusted-human comment —
+  // i.e. nothing trusted-human followed the notice. A bot/automated re-label alone must not reset
+  // the budget.
+  return makeFeedbackJson({
+    reviews: { nodes: [
+      {
+        author: { login: 'github-actions' },
+        body: `Revision cap reached (2/2 rounds). No further automated revisions will be applied.\n\n${revisionCapMarker()}`,
+        state: 'COMMENTED',
+        submittedAt: '2024-01-12T00:00:00Z',
+      },
+    ] },
+    comments: { nodes: [
+      { author: { login: 'github-actions' }, body: revisionMarker('deadbeef'), createdAt: '2024-01-09T00:00:00Z' },
+      { author: { login: 'github-actions' }, body: revisionMarker('abc1234'), createdAt: '2024-01-09T00:00:01Z' },
+    ] },
   });
 }
 
@@ -957,6 +1000,34 @@ describe('runRevisePullRequest — no actionable feedback', () => {
 // ---------------------------------------------------------------------------
 
 describe('runRevisePullRequest — round cap', () => {
+  it.each([
+    { author: 'alice', resumes: true },
+    { author: 'github-actions', resumes: false },
+  ])('resumes after a cap only for a human comment: $author', async ({ author, resumes }) => {
+    const feedback = JSON.parse(makeFeedbackJsonWithRevisions());
+    feedback.data.repository.pullRequest.comments.nodes.push(
+      { author: { login: 'github-actions' }, body: '<!-- vanguard-revision-cap -->', createdAt: '2024-01-11T11:00:00Z' },
+      { author: { login: author }, authorAssociation: 'OWNER', body: 'Please continue.', createdAt: '2024-01-11T12:00:00Z' },
+    );
+    const ghCalls: string[][] = [];
+    const gh: GhRunner = async (args) => {
+      ghCalls.push(args);
+      if (args[0] === 'pr' && args[1] === 'view') return makePrViewJson();
+      if (args[0] === 'pr' && args[1] === 'diff') return 'diff --git a/fix.txt';
+      if (args[0] === 'api' && args[1] === 'graphql') return JSON.stringify(feedback);
+      return '';
+    };
+    const out = join(repo, 'preview.md');
+    const result = await runRevisePullRequest('7', {
+      repoPath: repo, repoSlug: 'o/r', gh, maxRounds: 2, out,
+      _sandbox: makeSandbox(), _agent: agentThatCompletes([]),
+      _worktrees: new WorktreeManager(repo), _baseBranch: 'feature-branch',
+    });
+    expect(result.dryRunOut).toBe(resumes ? out : undefined);
+    if (resumes) expect(await readFile(out, 'utf8')).toContain('Please continue.');
+    else expect(ghCalls.some((args) => args.some((arg) => arg.includes('Revision cap reached')))).toBe(true);
+  });
+
   it('posts a cap notice and flips labels without running the agent when cap is reached', async () => {
     const ghCalls: string[][] = [];
     const pushCalls: string[][] = [];
@@ -1031,6 +1102,91 @@ describe('runRevisePullRequest — round cap', () => {
     expect(result.pushed).toBe(false);
     expect(result.undrafted).toBe(false);
     expect(ghCalls.some((a) => a[0] === 'pr' && a[1] === 'edit')).toBe(true);
+  });
+
+  it('a trusted-human comment posted after the cap notice starts a new budget and the revision runs', async () => {
+    const ghCalls: string[][] = [];
+    const pushCalls: string[][] = [];
+    const agentInputs: AgentRunInput[] = [];
+
+    const gh: GhRunner = async (args) => {
+      ghCalls.push(args);
+      if (args[0] === 'pr' && args[1] === 'view' && args.some((a) => a.includes('headRefName'))) return makePrViewJson();
+      if (args[0] === 'pr' && args[1] === 'diff') return 'diff --git a/fix.txt';
+      if (args[0] === 'api' && args[1] === 'graphql') {
+        const query = args.find((a) => a.startsWith('query=')) ?? '';
+        if (query.includes('reviewThreads')) return makeFeedbackJsonCapReset();
+        if (query.includes('addPullRequestReviewThreadReply')) return JSON.stringify({ data: {} });
+        if (query.includes('resolveReviewThread')) return JSON.stringify({ data: {} });
+        return JSON.stringify({ data: {} });
+      }
+      if (args[0] === 'pr' && args[1] === 'comment') return '';
+      if (args[0] === 'pr' && args[1] === 'ready') return '';
+      if (args[0] === 'label' && args[1] === 'create') return '';
+      if (args[0] === 'pr' && args[1] === 'edit') return '';
+      throw new Error(`unexpected: ${args.join(' ')}`);
+    };
+
+    const result = await runRevisePullRequest('7', {
+      repoPath: repo,
+      repoSlug: 'o/r',
+      gh,
+      _sandbox: makeSandbox(),
+      _agent: agentThatCompletes(agentInputs),
+      _worktrees: new WorktreeManager(repo),
+      _pushRunner: async (f, a) => { pushCalls.push(a); return ''; },
+      _baseBranch: 'feature-branch',
+      maxRounds: 2,
+      provider: 'claude',
+    });
+
+    // The round ran: the fresh human comment reset the budget instead of being refused again.
+    expect(result.committed).toBe(true);
+    expect(result.pushed).toBe(true);
+    expect(result.undrafted).toBe(true);
+    expect(pushCalls.some((a) => a[0] === 'push')).toBe(true);
+    expect(agentInputs[0]?.prompt).toContain('Please rename this.');
+
+    // No second cap-refusal was posted this round.
+    const capNoticePosts = ghCalls.filter((a) => a[0] === 'pr' && a[1] === 'review' && a.join(' ').includes('Revision cap reached'));
+    expect(capNoticePosts).toHaveLength(0);
+  });
+
+  it('without a new trusted-human comment after the cap notice, the cap still holds', async () => {
+    const ghCalls: string[][] = [];
+    const pushCalls: string[][] = [];
+
+    const gh: GhRunner = async (args) => {
+      ghCalls.push(args);
+      if (args[0] === 'pr' && args[1] === 'view' && args.some((a) => a.includes('headRefName'))) return makePrViewJson();
+      if (args[0] === 'pr' && args[1] === 'diff') return 'diff --git a/fix.txt';
+      if (args[0] === 'api' && args[1] === 'graphql') return makeFeedbackJsonCapStillHeld();
+      if (args[0] === 'pr' && args[1] === 'review') return '';
+      if (args[0] === 'label' && args[1] === 'create') return '';
+      if (args[0] === 'pr' && args[1] === 'edit') return '';
+      throw new Error(`unexpected: ${args.join(' ')}`);
+    };
+
+    const result = await runRevisePullRequest('7', {
+      repoPath: repo,
+      repoSlug: 'o/r',
+      gh,
+      _sandbox: makeSandbox(),
+      _worktrees: new WorktreeManager(repo),
+      _pushRunner: async (f, a) => { pushCalls.push(a); return ''; },
+      _baseBranch: 'feature-branch',
+      maxRounds: 2,
+      provider: 'claude',
+    });
+
+    expect(result.committed).toBe(false);
+    expect(result.pushed).toBe(false);
+    expect(result.undrafted).toBe(false);
+    expect(pushCalls.filter((a) => a[0] === 'push')).toHaveLength(0);
+
+    const reviewPost = ghCalls.find((a) => a[0] === 'pr' && a[1] === 'review' && a.includes('--comment'));
+    expect(reviewPost).toBeDefined();
+    expect(reviewPost?.join(' ')).toContain('Revision cap reached');
   });
 });
 

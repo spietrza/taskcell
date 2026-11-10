@@ -5,6 +5,8 @@ import {
   partitionActionableFeedback,
   buildRevisionPrompt,
   countRevisionRoundsFromFeedback,
+  revisionBudgetResetAt,
+  revisionCapMarker,
   revisionMarker,
   referenceSnippet,
   buildItemReply,
@@ -393,6 +395,99 @@ describe('countRevisionRoundsFromFeedback over fetched feedback', () => {
       ],
       threadCommentBodies: ['Fixed inline.\n\n<!-- vanguard-revision: sha-round2 -->'],
     }))).resolves.toBe(2);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// revisionBudgetResetAt
+// ---------------------------------------------------------------------------
+
+describe('revisionBudgetResetAt', () => {
+  it('returns undefined when there is no cap notice', () => {
+    const fb = makeFeedback({ items: [
+      commentItem({ author: 'github-actions', body: revisionMarker('sha-1'), createdAt: '2024-01-11T10:00:00Z' }),
+    ] });
+    expect(revisionBudgetResetAt(fb)).toBeUndefined();
+  });
+
+  it('returns undefined when nothing trusted-human follows the cap notice', () => {
+    const fb = makeFeedback({ items: [
+      commentItem({ author: 'github-actions', body: revisionCapMarker(), createdAt: '2024-01-11T10:00:00Z' }),
+      // A bot re-label with no comment, or an untrusted comment, must not reset the budget.
+      commentItem({ author: 'mallory', authorAssociation: 'NONE', body: 'please continue', createdAt: '2024-01-11T11:00:00Z' }),
+    ] });
+    expect(revisionBudgetResetAt(fb)).toBeUndefined();
+  });
+
+  it('returns the createdAt of a trusted human comment posted after the cap notice', () => {
+    const fb = makeFeedback({ items: [
+      commentItem({ author: 'github-actions', body: revisionCapMarker(), createdAt: '2024-01-11T10:00:00Z' }),
+      commentItem({ author: 'alice', authorAssociation: 'OWNER', body: 'please keep going', createdAt: '2024-01-11T11:00:00Z' }),
+    ] });
+    expect(revisionBudgetResetAt(fb)).toBe('2024-01-11T11:00:00Z');
+  });
+
+  it('ignores a trusted-human comment posted before the cap notice', () => {
+    const fb = makeFeedback({ items: [
+      commentItem({ author: 'alice', authorAssociation: 'OWNER', body: 'earlier note', createdAt: '2024-01-11T09:00:00Z' }),
+      commentItem({ author: 'github-actions', body: revisionCapMarker(), createdAt: '2024-01-11T10:00:00Z' }),
+    ] });
+    expect(revisionBudgetResetAt(fb)).toBeUndefined();
+  });
+
+  it('an explicitly allowed author resets the budget too', () => {
+    const fb = makeFeedback({ items: [
+      commentItem({ author: 'github-actions', body: revisionCapMarker(), createdAt: '2024-01-11T10:00:00Z' }),
+      commentItem({ author: 'external', authorAssociation: 'NONE', body: 'please keep going', createdAt: '2024-01-11T11:00:00Z' }),
+    ] });
+    expect(revisionBudgetResetAt(fb)).toBeUndefined();
+    expect(revisionBudgetResetAt(fb, { feedbackAuthors: ['EXTERNAL'] })).toBe('2024-01-11T11:00:00Z');
+  });
+
+  it('ignores forged cap notices from untrusted authors', () => {
+    const fb = makeFeedback({ items: [
+      commentItem({ author: 'mallory', authorAssociation: 'NONE', body: revisionCapMarker(), createdAt: '2024-01-11T10:00:00Z' }),
+      commentItem({ author: 'alice', authorAssociation: 'OWNER', body: 'please continue', createdAt: '2024-01-11T11:00:00Z' }),
+    ] });
+    expect(revisionBudgetResetAt(fb)).toBeUndefined();
+    fb.items.unshift(commentItem({ author: 'github-actions', body: revisionCapMarker(), createdAt: '2024-01-11T09:00:00Z' }));
+    fb.items.push(commentItem({ author: 'mallory', authorAssociation: 'NONE', body: revisionCapMarker(), createdAt: '2024-01-11T12:00:00Z' }));
+    expect(revisionBudgetResetAt(fb)).toBe('2024-01-11T11:00:00Z');
+  });
+
+  it.each(['github-actions', 'reviewer[bot]', 'vanguard-ci', 'custom-bot'])('does not reset for automation: %s', (author) => {
+    const fb = makeFeedback({ items: [
+      commentItem({ author: 'github-actions', body: revisionCapMarker(), createdAt: '2024-01-11T10:00:00Z' }),
+      commentItem({ author, authorAssociation: 'OWNER', body: 'please continue', createdAt: '2024-01-11T11:00:00Z' }),
+    ] });
+    expect(revisionBudgetResetAt(fb, { feedbackAuthors: [author], botLogins: ['custom-bot'] })).toBeUndefined();
+  });
+
+  it('keeps the first reset until the next cap notice', () => {
+    const fb = makeFeedback({ items: [
+      commentItem({ author: 'alice', body: 'another request', createdAt: '2024-01-11T13:00:00Z' }),
+      commentItem({ author: 'github-actions', body: revisionMarker('round-2'), createdAt: '2024-01-11T12:00:00Z' }),
+      commentItem({ author: 'github-actions', body: revisionCapMarker(), createdAt: '2024-01-11T10:00:00Z' }),
+      commentItem({ author: 'alice', body: 'continue', createdAt: '2024-01-11T11:00:00Z' }),
+    ] });
+    const resetAt = revisionBudgetResetAt(fb);
+    expect(resetAt).toBe('2024-01-11T11:00:00Z');
+    expect(countRevisionRoundsFromFeedback(fb, {}, resetAt)).toBe(1);
+    fb.items.push(commentItem({ author: 'github-actions', body: revisionCapMarker(), createdAt: '2024-01-11T14:00:00Z' }));
+    expect(revisionBudgetResetAt(fb)).toBeUndefined();
+    fb.items.push(commentItem({ author: 'alice', body: 'continue again', createdAt: '2024-01-11T15:00:00Z' }));
+    expect(revisionBudgetResetAt(fb)).toBe('2024-01-11T15:00:00Z');
+  });
+
+  it('countRevisionRoundsFromFeedback drops markers at or before the reset cutoff', () => {
+    const fb = makeFeedback({ items: [
+      commentItem({ author: 'github-actions', body: revisionMarker('round-1'), createdAt: '2024-01-11T09:00:00Z' }),
+      commentItem({ author: 'github-actions', body: revisionCapMarker(), createdAt: '2024-01-11T10:00:00Z' }),
+      commentItem({ author: 'alice', authorAssociation: 'OWNER', body: 'please keep going', createdAt: '2024-01-11T11:00:00Z' }),
+    ] });
+    const resetAt = revisionBudgetResetAt(fb);
+    expect(countRevisionRoundsFromFeedback(fb)).toBe(1);
+    expect(countRevisionRoundsFromFeedback(fb, {}, resetAt)).toBe(0);
   });
 });
 
