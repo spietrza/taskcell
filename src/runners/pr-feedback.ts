@@ -312,16 +312,67 @@ function hasRevisionMarker(body: string): boolean {
   return REVISION_MARKER_PRESENT_RE.test(body);
 }
 
-/** Count how many revision rounds Vanguard has already completed on this PR. */
-export function countRevisionRoundsFromFeedback(fb: PullRequestFeedback, opts: Pick<ActionableOptions, 'feedbackAuthors' | 'botLogins'> = {}): number {
+/** Hidden marker on the round-cap notice, so a later run can tell whether a human commented since. */
+const REVISION_CAP_MARKER = '<!-- vanguard-revision-cap -->';
+
+export const revisionCapMarker = (): string => REVISION_CAP_MARKER;
+
+function hasRevisionCapMarker(body: string): boolean {
+  return body.includes(REVISION_CAP_MARKER);
+}
+
+type FeedbackTrustOptions = Pick<ActionableOptions, 'feedbackAuthors' | 'botLogins'>;
+
+function classifyFeedbackAuthor(item: FeedbackItem, opts: FeedbackTrustOptions) {
+  return classifyAuthor(item.author, item.authorAssociation, { allowedAuthors: opts.feedbackAuthors, botLogins: opts.botLogins });
+}
+
+/**
+ * Count how many revision rounds Vanguard has already completed on this PR.
+ * `afterCreatedAt`, when given, drops every item at or before it — used to start a fresh budget from
+ * a trusted human's comment that followed a cap notice (revisionBudgetResetAt).
+ */
+export function countRevisionRoundsFromFeedback(
+  fb: PullRequestFeedback,
+  opts: FeedbackTrustOptions = {},
+  afterCreatedAt?: string,
+): number {
   const rounds = new Set<string>();
   for (const item of fb.items) {
-    if (classifyAuthor(item.author, item.authorAssociation, { allowedAuthors: opts.feedbackAuthors, botLogins: opts.botLogins }) === 'untrusted') continue;
+    if (afterCreatedAt !== undefined && !(item.createdAt > afterCreatedAt)) continue;
+    if (classifyFeedbackAuthor(item, opts) === 'untrusted') continue;
     for (const match of item.body.matchAll(REVISION_MARKER_RE)) {
       if (match[1] !== undefined) rounds.add(match[1]);
     }
   }
   return rounds.size;
+}
+
+/**
+ * When the most recent round-cap notice was followed by a new comment from a trusted human (OWNER,
+ * MEMBER, COLLABORATOR, or explicitly allowed — never a bot or an untrusted author), returns that
+ * comment's createdAt: the cutoff `countRevisionRoundsFromFeedback` should count rounds after, so a
+ * fresh human ask for more revision starts a new budget instead of being refused again. Returns
+ * undefined when there is no cap notice, or nothing trusted-human came after it — the cap still holds.
+ */
+export function revisionBudgetResetAt(fb: PullRequestFeedback, opts: FeedbackTrustOptions = {}): string | undefined {
+  let lastCapNoticeAt: string | undefined;
+  for (const item of fb.items) {
+    if (!hasRevisionCapMarker(item.body)) continue;
+    if (classifyFeedbackAuthor(item, opts) === 'untrusted') continue;
+    if (lastCapNoticeAt === undefined || item.createdAt > lastCapNoticeAt) lastCapNoticeAt = item.createdAt;
+  }
+  if (lastCapNoticeAt === undefined) return undefined;
+
+  let resetAt: string | undefined;
+  for (const item of fb.items) {
+    if (item.createdAt === '' || item.createdAt <= lastCapNoticeAt) continue;
+    if (isBotLogin(item.author, opts.botLogins)) continue;
+    const trust = classifyFeedbackAuthor(item, opts);
+    if (trust !== 'association' && trust !== 'allowed') continue;
+    if (resetAt === undefined || item.createdAt < resetAt) resetAt = item.createdAt;
+  }
+  return resetAt;
 }
 
 /**
