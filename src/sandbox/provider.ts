@@ -50,6 +50,12 @@ export interface IsolatedSandboxProvider {
   destroy: () => Promise<void>;
   /** Host command that opens an interactive shell into the live sandbox (for HITL). */
   shellCommand: () => string;
+  /**
+   * Content digest/ID of the image this sandbox is actually running, for the run record (so a run
+   * can be traced to the exact image regardless of whether it was pulled from GHCR or built locally).
+   * Optional: providers that cannot report one (or haven't started yet) return undefined.
+   */
+  imageDigest?: () => Promise<string | undefined>;
 }
 
 export interface SandboxConfig {

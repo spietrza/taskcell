@@ -168,8 +168,13 @@ export async function runSpecGenerator(id: string, deps: RunSpecGeneratorDeps): 
         throw new VanguardError(`Tech-spec stage produced no <${SPEC_TAG}> block for ${task.id}`);
       }
       // Persisted under the 'spec' label (not the stage's library name) so `vanguard stats` keys it as before.
-      const persistSpec = (): Promise<void> =>
-        beginRun(deps.repoPath, ctx.taskId, undefined, { secretEnvVars: providerKeyEnvNames(deps) }).writeStages([{ ...specOutcome, name: 'spec' }], { flow: 'spec', provider: agent.name });
+      const persistSpec = async (): Promise<void> => {
+        const imageDigest = await ctx.sandbox.imageDigest?.();
+        await beginRun(deps.repoPath, ctx.taskId, undefined, { secretEnvVars: providerKeyEnvNames(deps) }).writeStages(
+          [{ ...specOutcome, name: 'spec' }],
+          { flow: 'spec', provider: agent.name, ...(imageDigest !== undefined ? { imageDigest } : {}) },
+        );
+      };
       // Lenient extraction recovers a spec whose closing tag was lost to a truncated stream (common
       // through a corp MITM proxy). A genuinely empty result yields undefined below.
       const extracted = extractTagLenient(specOutcome.result.finalText, SPEC_TAG);

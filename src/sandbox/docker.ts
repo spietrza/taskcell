@@ -412,6 +412,15 @@ export class DockerSandboxProvider implements IsolatedSandboxProvider {
     return `docker exec -it ${this.name} bash`;
   }
 
+  /** The image ID the container was actually created from — correct whether that image was pulled
+   * from GHCR or built locally, and regardless of a mutable tag moving since. Undefined before `start()`. */
+  async imageDigest(): Promise<string | undefined> {
+    if (!this.started) return undefined;
+    const result = await execa('docker', ['inspect', this.name, '--format', '{{.Image}}'], { reject: false });
+    const digest = result.stdout.trim();
+    return result.exitCode === 0 && digest !== '' ? digest : undefined;
+  }
+
   async destroy(): Promise<void> {
     await execa('docker', ['rm', '-f', this.name], { reject: false });
     this.started = false;
