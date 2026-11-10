@@ -762,7 +762,8 @@ export async function runSourcedIssue(
       const bugLabel = task.labels.includes('bug');
       // The LAST reviewer outcome: after a re-review the first review is kept for the cost table only —
       // its verdict describes a diff that no longer ships.
-      const reviewerOutcome = outcomes.findLast((o) => o.name === STAGE.REVIEWER);
+      // Not `findLast`: that needs lib ES2023, and apps/desktop compiles this file against ES2022.
+      const reviewerOutcome = outcomes.filter((o) => o.name === STAGE.REVIEWER).at(-1);
       const delivery = await deliverChange(ctx, {
         taskId: task.id,
         // Default and white-label share the same type/scope logic as the PR title (conventionalPrTitle):
