@@ -30,6 +30,12 @@ describe('reduceTypedRun', () => {
     expect(s.queuedPosition).toBeUndefined();
   });
 
+  it('a queued run cancelled before it starts ends cancelled', () => {
+    let s = reduceTypedRun(initialTypedRun(), ev('r2', { type: 'run-queued', position: 1, repoPath: '/repo' }), '/repo');
+    s = reduceTypedRun(s, ev('r2', { type: 'run-cancelled' }), '/repo');
+    expect(s.terminal).toEqual({ kind: 'cancelled' });
+  });
+
   it('cost is last-wins (cumulative), not summed', () => {
     let s = reduceTypedRun(initialTypedRun(), ev('r1', { type: 'run-accepted' }));
     s = reduceTypedRun(s, ev('r1', { type: 'cost', usdSpent: 0.02 }));

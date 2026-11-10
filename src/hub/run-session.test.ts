@@ -1,4 +1,4 @@
-import { describe, expect, test } from 'vitest';
+import { describe, expect, test, vi } from 'vitest';
 import { createRunSession, MAX_CONCURRENT_RUNS } from './run-session.js';
 import type { SidecarDeps, CreateRunParams, CreateRunResult } from '../sidecar/sidecar.js';
 import type { RunEvent } from '../pipeline/events.js';
@@ -67,6 +67,7 @@ describe('run-session', () => {
     const session = createRunSession(deps, (_n, p) => published.push(p as (typeof published)[number]));
     const firstPromise = session.createRun({ issueRef: '1', repoPath: '/repo' } as CreateRunParams);
     const firstActive = session.activeRun();
+    expect(firstActive).not.toBeNull();
     const secondPromise = session.createRun({ issueRef: '2', repoPath: '/repo2' } as CreateRunParams);
     await Promise.resolve();
     expect(session.activeRun()).toEqual(firstActive);
@@ -158,26 +159,58 @@ describe('run-session', () => {
     await first;
     await expect(queued).rejects.toThrow(/not an allowed project/);
     expect(calls).toBe(1);
-    expect((session.backlog('run-1') as { event: { type: string } }[]).at(-1)?.event).toEqual({
-      type: 'run-error',
-      message: 'not an allowed project',
+    const backlog = session.backlog('run-1') as { event: { type: string } }[];
+    expect(backlog.at(-1)?.event).toEqual({ type: 'run-error', message: 'not an allowed project' });
+    expect(backlog.some((e) => e.event.type === 'run-accepted')).toBe(false); // refused, never announced
+  });
+
+  test('T-44h a stale cancel(id) for a finished run leaves the promoted next run running', async () => {
+    const resolvers: ((r: CreateRunResult) => void)[] = [];
+    const deps = fakeDeps(() => new Promise<CreateRunResult>((resolve) => resolvers.push(resolve)));
+    const session = createRunSession(deps, () => {});
+    const first = session.createRun({ issueRef: '0', repoPath: '/repo' } as CreateRunParams);
+    const second = session.createRun({ issueRef: '1', repoPath: '/repo' } as CreateRunParams);
+    second.catch(() => {});
+    resolvers[0]?.({});
+    await first;
+    expect(session.activeRun()?.runId).toBe('run-1');
+    session.cancel('run-0'); // a late Stop click on the run that already ended
+    expect(session.activeRun()?.runId).toBe('run-1');
+    resolvers[1]?.({});
+    await expect(second).resolves.toEqual({});
+    expect((session.backlog('run-1') as { event: { type: string } }[]).some((e) => e.event.type === 'run-cancelled')).toBe(false);
+  });
+
+  test('T-44i a cancel during the start-time check ends the run as cancelled without starting it', async () => {
+    let calls = 0;
+    let release: (() => void) | undefined;
+    const deps = fakeDeps(async () => {
+      calls += 1;
+      return {};
     });
+    const session = createRunSession(deps, () => {}, () => new Promise<void>((resolve) => (release = resolve)));
+    const run = session.createRun({ issueRef: '0', repoPath: '/repo' } as CreateRunParams);
+    session.cancel('run-0');
+    release?.();
+    await expect(run).rejects.toThrow(/cancelled/);
+    expect(calls).toBe(0);
+    expect((session.backlog('run-0') as { event: { type: string } }[]).at(-1)?.event).toEqual({ type: 'run-cancelled' });
   });
 
   test('T-44g a blank VANGUARD_HUB_MAX_QUEUE falls back to the default instead of disabling the queue', () => {
-    process.env.VANGUARD_HUB_MAX_QUEUE = '';
+    vi.stubEnv('VANGUARD_HUB_MAX_QUEUE', '');
     try {
       const session = createRunSession(fakeDeps(() => new Promise<CreateRunResult>(() => {})), () => {});
       void session.createRun({ issueRef: '1', repoPath: '/repo' } as CreateRunParams);
       void session.createRun({ issueRef: '2', repoPath: '/repo' } as CreateRunParams).catch(() => {});
       expect(session.queued()).toHaveLength(1);
     } finally {
-      delete process.env.VANGUARD_HUB_MAX_QUEUE;
+      vi.unstubAllEnvs();
     }
   });
 
   test('T-44c past the cap createRun is rejected with a message naming the limit', async () => {
-    process.env.VANGUARD_HUB_MAX_QUEUE = '1';
+    vi.stubEnv('VANGUARD_HUB_MAX_QUEUE', '1');
     try {
       const session = createRunSession(fakeDeps(() => new Promise<CreateRunResult>(() => {})), () => {});
       void session.createRun({ issueRef: '1', repoPath: '/repo' } as CreateRunParams);
@@ -187,7 +220,7 @@ describe('run-session', () => {
       );
       expect(session.queued()).toHaveLength(1);
     } finally {
-      delete process.env.VANGUARD_HUB_MAX_QUEUE;
+      vi.unstubAllEnvs();
     }
   });
 

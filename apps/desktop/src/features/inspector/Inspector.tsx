@@ -1,7 +1,7 @@
 import { useEffect, useRef, useState } from 'react';
 import { Button, Chip, cn } from '@/ui';
 import { ArrowLeft, FilePlus, RefreshCw } from 'lucide-react';
-import { canUseFleet, subscribe, onStreamReset } from '../../transport';
+import { canUseFleet, isHubMode, subscribe, onStreamReset } from '../../transport';
 import {
   listRuns,
   listActive,
@@ -12,6 +12,7 @@ import {
   apiCreateRun,
   apiActiveRun,
   apiRunBacklog,
+  apiQueue,
   apiCancel,
   apiRepoOk,
   type Capabilities,
@@ -186,8 +187,9 @@ export function Inspector({
       // repoPath scopes adoption: a foreign project's run can never seed a strip here (S8).
       const type = e.payload.event.type;
       if (type === 'run-end' || type === 'run-error' || type === 'run-cancelled') {
-        // Single-in-flight: ANY observed terminal means the sidecar is (about to be) idle — the
-        // foreign-run note would otherwise outlive the run it warns about (review #343 r2).
+        // ANY observed terminal means the foreign run is over — the note would otherwise outlive the
+        // run it warns about (review #343 r2). On the hub a queued run may take the slot next; that
+        // one's note is not re-shown until the next mount (no live signal names the new occupant).
         // (A LOCAL run's note-hiding needs no clear here: the note renders only while
         // typedRun === null, and a local run materializes the strip.)
         setForeignRun(null);
@@ -209,15 +211,18 @@ export function Inspector({
     const attach = async (): Promise<void> => {
       try {
         const active = await apiActiveRun();
-        if (active === null) return;
-        if (active.repoPath !== project) {
+        let runId = active !== null && active.repoPath === project ? active.runId : undefined;
+        if (active !== null && runId === undefined) {
           // Another project's run holds the sidecar. Don't fold its backlog — surface a note
-          // instead; New-run stays enabled (the Rust single-in-flight guard rejects with a clear
-          // error, which beats silently disabling the button for a run the user can't see).
+          // instead; New-run stays enabled (Tauri's single-in-flight guard rejects with a clear
+          // error, the hub queues the run — either beats disabling the button for an unseen run).
           setForeignRun(active.repoPath);
-          return;
         }
-        const backlog = (await apiRunBacklog(active.runId)) as { runId: string; event: RunEvent }[];
+        // Hub: no active run of ours, but one may be waiting in the queue — re-attach that instead,
+        // or a reload would leave it with no strip and no way to cancel it.
+        if (runId === undefined && isHubMode()) runId = (await apiQueue()).find((q) => q.repoPath === project)?.runId;
+        if (runId === undefined) return;
+        const backlog = (await apiRunBacklog(runId)) as { runId: string; event: RunEvent }[];
         // Fold BEFORE flipping checkedIdle: between the two the button's guard would see
         // checkedIdle && typedRun === null and enable New run while a run is genuinely live.
         setTypedRun((prev) =>
@@ -225,8 +230,8 @@ export function Inspector({
         );
       } catch {
         // Treat an unverifiable idle-check as idle: a rejected apiActiveRun (sidecar not up yet, IPC
-        // error) must not leave the New-run button disabled forever. The Rust busy guard still
-        // rejects a second concurrent run, so the worst case is a confusing error, not corruption.
+        // error) must not leave the New-run button disabled forever. A second concurrent run is still
+        // rejected (Tauri's busy guard) or queued (hub), so the worst case is confusion, not corruption.
       } finally {
         setCheckedIdle(true);
       }
@@ -281,8 +286,8 @@ export function Inspector({
       })
       .catch((e) => {
         if (runGen.current !== gen) return; // a newer run owns the strip
-        // apiCreateRun rejects on BOTH a pre-start rejection (the Rust single-in-flight guard, which
-        // returns Err before any run-accepted event) AND a run that started then errored/cancelled
+        // apiCreateRun rejects on BOTH a pre-start rejection (Tauri's single-in-flight guard or a full
+        // hub queue, both before any run event) AND a run that started then errored/cancelled
         // (resolve_terminal returns Err for those). Only the former needs clearing + a banner — it never
         // adopted a runId. A real error/cancel already folded run-accepted, so its runId is set and the
         // terminal EVENT renders it in the strip; don't wipe it or double-report.
@@ -399,8 +404,9 @@ export function Inspector({
           </button>
           <RunStrip
             state={typedRun}
-            // A queued run is not the active one: cancel it by id, or the active run would be killed.
-            onCancel={() => void apiCancel(typedRun.queuedPosition !== undefined ? typedRun.runId : undefined)}
+            // Always by id: with a hub queue, an id-less cancel hits whatever run is active NOW, which
+            // may be the next one promoted after this run ended. Unset only while "starting…".
+            onCancel={() => void apiCancel(typedRun.runId)}
           />
         </div>
       ) : detail ? (

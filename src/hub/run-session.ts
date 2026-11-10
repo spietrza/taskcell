@@ -7,8 +7,9 @@ import { BadRequestError } from '../sidecar/sidecar.js';
 import type { SidecarDeps, CreateRunParams, CreateRunResult } from '../sidecar/sidecar.js';
 
 /**
- * Single-in-flight only, for now: raising this requires replacing src/sidecar/cancel.ts's
- * module-global AbortController with a per-run registry (wave 2). Do not raise without that.
+ * Single-in-flight only, for now. Documents the gate rather than driving it: the session holds one
+ * `active` slot, so supporting more needs that slot turned into a set AND src/sidecar/cancel.ts's
+ * module-global AbortController replaced with a per-run registry (wave 2).
  * Raising the hub's throughput beyond this slot is `VANGUARD_MAX_SANDBOXES`'s job, not the queue's
  * (the queue below only changes what happens to a SECOND caller while this one slot is busy).
  */
@@ -156,16 +157,19 @@ export function createRunSession(
   async function execute(entry: QueuedRun): Promise<void> {
     const { runId, params, resolve, reject } = entry;
     const repoPath = params.repoPath;
-    active = { runId, repoPath };
-    // Drop the queued-phase `run-queued` so `run-accepted` is index 0 — the eviction invariant in
-    // bufferPush, and the only event a strip re-attach may adopt from.
-    buffer.delete(runId);
-    emit(runId, { type: 'run-accepted', repoPath });
+    active = { runId, repoPath }; // hold the slot across the start-time check below
 
     let result: CreateRunResult | undefined;
     let errMessage: string | undefined;
     try {
+      // Before `run-accepted`: a run refused here is never announced as started.
       if (assertStart !== undefined) await assertStart(params);
+      // A cancel landing during that await armed no controller yet — honour it here, not in the run.
+      if (cancelledRunId === runId) throw new Error('run cancelled');
+      // Drop the queued-phase `run-queued` so `run-accepted` is index 0 — the eviction invariant in
+      // bufferPush, and the only event a strip re-attach may adopt from.
+      buffer.delete(runId);
+      emit(runId, { type: 'run-accepted', repoPath });
       result = await deps.createRun(params, (e) => emit(runId, e));
     } catch (error) {
       errMessage = error instanceof Error ? error.message : String(error);

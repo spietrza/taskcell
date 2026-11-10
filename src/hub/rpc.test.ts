@@ -166,6 +166,18 @@ describe('dispatchRpc', () => {
     expect(cancelResult).toBeNull();
   });
 
+  test('api_cancel refuses a present non-string runId instead of cancelling the active run', async () => {
+    const repo = await tmpRepo();
+    const { ctx } = await makeCtx(repo);
+    await expect(dispatchRpc(ctx, 'api_cancel', { runId: 123 })).rejects.toThrow(/runId must be a string/);
+  });
+
+  test('api_queue returns the session queue', async () => {
+    const repo = await tmpRepo();
+    const { ctx } = await makeCtx(repo);
+    expect(await dispatchRpc(ctx, 'api_queue', {})).toEqual([]);
+  });
+
   test('T-58 Fleet commands are refused in hub mode', async () => {
     const repo = await tmpRepo();
     const { ctx } = await makeCtx(repo);

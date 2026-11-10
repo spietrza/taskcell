@@ -244,6 +244,8 @@ export async function dispatchRpc(ctx: RpcContext, cmd: string, rawArgs: unknown
       return ctx.runSession.queued();
     }
     case 'api_cancel': {
+      // Only an ABSENT runId means "the active run": a present non-string one must not fall back to it.
+      if (args.runId !== undefined && typeof args.runId !== 'string') throw new BadRequestError('runId must be a string');
       ctx.runSession.cancel(optionalString(args, 'runId'));
       return null;
     }

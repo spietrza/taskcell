@@ -528,7 +528,8 @@ export interface Commands {
   /** HUB_ONLY: Tauri has no queue to read — it is still strictly single-in-flight, the hub's queue
    * (src/hub/run-session.ts) is what's new here. Position is 1-based, 1 = next to start. */
   api_queue: { args: undefined; result: { runId: string; repoPath: string; position: number }[] };
-  /** `runId` cancels exactly that run (active or queued); omitted cancels the active run. */
+  /** `runId` cancels exactly that run (active or queued); omitted cancels the active run. Tauri
+   * ignores `runId` and always cancels its one active run (it has no queue, so that is the same run). */
   api_cancel: { args: { runId?: string }; result: void };
   api_create_task: { args: { repoPath: string; title: string; body: string }; result: CreatedTask };
   api_list_flows: { args: { repoPath: string }; result: { flows: RepoFlowInfo[] } };
