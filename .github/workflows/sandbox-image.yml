@@ -13,6 +13,8 @@ on:
 permissions:
   contents: read
   packages: write
+  id-token: write       # build provenance (Sigstore)
+  attestations: write
 
 concurrency:
   group: sandbox-image
@@ -41,3 +43,12 @@ jobs:
           docker push "$IMAGE:$TREE"
           docker tag "$IMAGE:$TREE" "$IMAGE:latest"
           docker push "$IMAGE:latest"
+          echo "digest=$(docker inspect --format '{{index .RepoDigests 0}}' "$IMAGE:$TREE" | cut -d@ -f2)" >> "$GITHUB_OUTPUT"
+        id: push
+
+      # build.sh uses a pulled image only when this provenance verifies (gh attestation verify).
+      - uses: actions/attest-build-provenance@4d101475d8b20a2381f78447822ac1eab6504dd8 # v4.2.2
+        with:
+          subject-name: ghcr.io/spietrza/taskcell-sandbox
+          subject-digest: ${{ steps.push.outputs.digest }}
+          push-to-registry: true
