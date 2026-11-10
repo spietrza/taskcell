@@ -98,7 +98,9 @@ const { writeStages, beginRun, runStages, commitStage, publishForReview, reviewF
     publishForReview: vi.fn(),
     // Separate from the shared `runAgent` mock (used by the repair loop) so repair-loop call-count
     // assertions stay valid: only the tests that care about re-review touch this mock.
-    reviewFinalDiff: vi.fn(async () => ({
+    // `..._args` declares the parameters the re-review is called with, so `mock.calls[0]?.[1]` (the
+    // reviewer stage) is typed rather than an index into an empty tuple.
+    reviewFinalDiff: vi.fn(async (..._args: unknown[]) => ({
       taskId: 'gl-1', completed: true, exitReason: 'completed', turns: 1,
       worktreePath: '/wt', worktreePreserved: true, finalText: 'No blocking issues.',
     })),
