@@ -40,13 +40,14 @@ jobs:
     uses: ./.github/workflows/implement.yml
     with:
       allowed-actors: '["spietrza","pawelkrystkiewicz"]'
-      # Cross-provider self-review: Opus plans the spec, Sonnet implements, Codex reviews.
+      # Opus plans the spec, Sonnet implements, Fable reviews (Codex's weekly limit is nearly spent).
       # No llm-proxy: Codex runs on a ChatGPT subscription (CODEX_AUTH_JSON), which talks to the
       # ChatGPT backend directly — the proxy allowlist only covers the api.openai.com (API-key) path.
       provider: claude
       provider-model: sonnet
       spec-model: opus
-      review-provider: codex
+      review-provider: claude
+      review-model: claude-fable-5-1
       escalate-model: claude-fable-5-1
       # If Claude is down or out of plan, the implementer retries once on the Codex subscription.
       fallback-provider: codex
