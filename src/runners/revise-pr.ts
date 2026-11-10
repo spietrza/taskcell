@@ -8,6 +8,8 @@ import {
   buildRevisionPrompt,
   replyAndResolveThread,
   countRevisionRoundsFromFeedback,
+  revisionBudgetResetAt,
+  revisionCapMarker,
   revisionMarker,
   buildItemReply,
   buildRevisionSummary,
@@ -329,10 +331,15 @@ export async function runRevisePullRequest(prRef: string, deps: ReviseGithubPrDe
     return { pr, ignoredFeedback, addressed: 0, committed: false, pushed: false, undrafted: false };
   }
 
-  const rounds = countRevisionRoundsFromFeedback(fb, deps);
+  // A trusted human who comments after a cap notice and re-labels `needs revision` gets a fresh
+  // budget: rounds are then only counted from that comment onward, so the PR is not refused again
+  // for rounds that ran before the human asked for more work. A re-label with no new human comment
+  // (automated or bot) leaves the cutoff undefined and the cap holds.
+  const resetAt = revisionBudgetResetAt(fb, deps);
+  const rounds = countRevisionRoundsFromFeedback(fb, deps, resetAt);
   if (rounds >= maxRounds) {
     await handBackWithNotice(`cap -> ${rounds} rounds`,
-      `Revision cap reached (${rounds}/${maxRounds} rounds). No further automated revisions will be applied.`);
+      `Revision cap reached (${rounds}/${maxRounds} rounds). No further automated revisions will be applied.\n\n${revisionCapMarker()}`);
     return { pr, ignoredFeedback, addressed: 0, committed: false, pushed: false, undrafted: false };
   }
 
