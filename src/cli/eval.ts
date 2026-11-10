@@ -31,6 +31,9 @@ export const EMPTY_TASK_PROMPT = '(The task description is empty.)';
 export const EVAL_CLAUDE_ARGS = ['--print', '--tools', '', '--strict-mcp-config'] as const;
 
 /** The CLI's message when the API stops a reply on safety grounds; it exits non-zero but this is the model's answer. */
+/** One model call never takes this long; a hung CLI otherwise stalls the CI job for hours. */
+export const EVAL_CALL_TIMEOUT_MS = 5 * 60_000;
+
 export const API_REFUSAL_RE = /API Error: .*(?:can't help with this|safeguards flagged this message)/;
 
 /** Thin host-side completion: runs `claude --print --model <model>` with the prompt on stdin, tool-less, in a throwaway directory. */
@@ -40,7 +43,8 @@ export function makeCliComplete(model: string): (prompt: string) => Promise<stri
     // under test must never act on the host (a "clean up the repo" case once deleted local branches).
     const cwd = await mkdtemp(join(tmpdir(), 'taskcell-eval-'));
     try {
-      const result = await execa('claude', [...EVAL_CLAUDE_ARGS, '--model', model], { input: prompt, cwd, reject: false });
+      const result = await execa('claude', [...EVAL_CLAUDE_ARGS, '--model', model], { input: prompt, cwd, reject: false, timeout: EVAL_CALL_TIMEOUT_MS });
+      if (result.timedOut) throw new Error(`claude --print --model ${model} timed out after ${EVAL_CALL_TIMEOUT_MS / 1000}s`);
       if (result.exitCode === 0) return result.stdout;
       // A safety stop is the model's answer (and the right one for a refusal case), not an infra failure.
       if (API_REFUSAL_RE.test(result.stdout)) return result.stdout;
