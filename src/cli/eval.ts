@@ -22,6 +22,9 @@ export interface EvalCommandDeps {
   readLatestBaseline?: typeof readLatestEvalBaseline;
 }
 
+/** What the model under test receives for a case whose input is empty (the CLI refuses an empty prompt). */
+export const EMPTY_TASK_PROMPT = '(The task description is empty.)';
+
 /** Thin host-side completion: runs `claude --print --model <model>` with the prompt on stdin. */
 export function makeCliComplete(model: string): (prompt: string) => Promise<string> {
   return async (prompt) => {
@@ -70,7 +73,9 @@ export async function evalCommand(
   const produceComplete = makeComplete(produceModel);
 
   const judge = isDecisionModelName(judgeModel) ? makeDecision(judgeModel) : llmJudge(makeComplete(judgeModel));
-  const produce = (testCase: EvalCase) => produceComplete(testCase.input);
+  // `claude --print` rejects an empty prompt, so the empty-input edge case sends a stand-in that says so.
+  const produce = (testCase: EvalCase) =>
+    produceComplete(testCase.input.trim() === '' ? EMPTY_TASK_PROMPT : testCase.input);
 
   const report = await runEvals({ cases: corpus, produce, judge });
   const runReport: EvalRunReport = { ...report, judgeModel, produceModel, corpusHash: CORPUS_HASH };
