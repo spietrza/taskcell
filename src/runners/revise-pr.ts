@@ -37,7 +37,7 @@ import { parseProviderRateLimitReset, rateLimitedComment } from '../core/rate-li
 import { diffFilesWithPatches, extractGateConfigBlock, gateConfigChangedBlock, gateConfigPaths, loadGateConfigExtraGlobs } from '../context/gate-config.js';
 import { renderSecretBlockComment } from '../core/secret-scan.js';
 import { deliverChange, scanOutgoingForSecrets } from './deliver-change.js';
-import { extractTaskIdFromPrBody, scanCommitClosingKeywords } from '../pipeline/conformance-gate.js';
+import { extractPrBodyItemsBlock, extractTaskIdFromPrBody, scanCommitClosingKeywords } from '../pipeline/conformance-gate.js';
 import type { VerificationResult } from '../pipeline/verify.js';
 import {
   implementReviewSimplifyStages,
@@ -651,8 +651,11 @@ export async function runRevisePullRequest(prRef: string, deps: ReviseGithubPrDe
         // `## Gate config changed` block the first delivery (or an earlier round) wrote into the body.
         // Carry it forward verbatim — otherwise this re-derivation silently drops the disclosure of a
         // weakening the gate already flagged (the label survives; the human-readable evidence would not).
-        const existingGateConfigBlock = extractGateConfigBlock(pr.body);
-        const newBody = existingGateConfigBlock !== undefined ? [rederived, existingGateConfigBlock].join('\n\n') : rederived;
+        // Same for the required-PR-body-item block: it is the only record of a hand-applied obligation,
+        // and holds whatever a human pasted into it.
+        const newBody = [rederived, extractGateConfigBlock(pr.body), extractPrBodyItemsBlock(pr.body)]
+          .filter((s): s is string => s !== undefined)
+          .join('\n\n');
         if (newBody !== pr.body) {
           log(`revise-pr ${target.repoSlug}#${target.number}: body -> re-derived (${verificationFailed ? 'Part of' : closeIssueOnMerge ? 'Closes' : 'no-close'})`);
           await gh(['pr', 'edit', String(target.number), '--repo', target.repoSlug, '--body', newBody]);
