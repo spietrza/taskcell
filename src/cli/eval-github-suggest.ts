@@ -1,4 +1,4 @@
-import { escapePromptTags } from '../context/escape.js';
+import { escapePromptTags, neutralizeMentions } from '../context/escape.js';
 import { redact } from '../core/retrospective-memory.js';
 import { GITHUB_REVIEW_LABEL } from '../github-labels.js';
 import { defaultGhRunner, githubDefaultBranch } from '../tasks/github.js';
@@ -16,9 +16,10 @@ function truncate(text: string, maxChars: number = DETAIL_MAX_CHARS): string {
 
 /** Untrusted GitHub text (PR titles, comments, review bodies, commit messages) gets the same treatment
  * as any other tracker text read into a prompt: secrets masked, then `<`/`>` escaped so it cannot break
- * out of a prompt block or forge a `<promise>COMPLETE</promise>` once pasted into an issue. */
+ * out of a prompt block or forge a `<promise>COMPLETE</promise>` once pasted into an issue, and finally
+ * `@mentions` defused so pasting the drafts into an issue notifies nobody. */
 function sanitize(text: string): string {
-  return escapePromptTags(redact(truncate(text)));
+  return neutralizeMentions(escapePromptTags(redact(truncate(text))));
 }
 
 /** Exhaustive over GitHubCandidateKind; 'refusal' is never auto-guessed (no refusal signal from GitHub). */

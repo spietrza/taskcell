@@ -18,6 +18,18 @@ export function neutralizePromptTags(text: string): string {
   return text.replaceAll('<', '&lt;');
 }
 
+/** Zero-width joiner: invisible in rendered Markdown, but enough that GitHub no longer resolves a mention. */
+const ZWJ = '‍';
+
+/**
+ * Defuse `@mentions` in untrusted text by inserting a zero-width joiner after the `@`: text quoted into
+ * Markdown that a human pastes into an issue — a PR title, a review comment — must not notify whoever it
+ * names. Invisible when rendered, and the text still reads as written.
+ */
+export function neutralizeMentions(text: string): string {
+  return text.replace(/@(?=[A-Za-z0-9])/g, `@${ZWJ}`);
+}
+
 /** The note every diff carries into a prompt, so a reviewer does not report the escaping as a defect. */
 export const DIFF_ESCAPING_NOTE =
   'Every `<` in the diff below is escaped as &lt;; the files on disk hold the real text, so do not report the escaping as a defect.';
