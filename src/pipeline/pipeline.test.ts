@@ -781,6 +781,14 @@ describe('techSpecStage', () => {
     expect(promptTemplate).toContain('{{DESCRIPTION}}');
   });
 
+  it('promptTemplate instructs mapping every acceptance-criteria and scope item onto a manifest entry', () => {
+    const { promptTemplate } = techSpecStage()[0]!;
+    expect(promptTemplate).toContain('## Acceptance criteria');
+    expect(promptTemplate).toContain('never drop an acceptance-criteria or scope item silently');
+    expect(promptTemplate).toContain('prBody');
+    expect(promptTemplate).toContain('copy-back drops');
+  });
+
   it('systemPrompt is read-only: does not mention editing files', () => {
     const { systemPrompt } = techSpecStage()[0]!;
     expect(systemPrompt).toBeDefined();

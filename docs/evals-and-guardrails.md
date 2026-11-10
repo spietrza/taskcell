@@ -19,7 +19,7 @@ For the security boundaries themselves see [security/boundaries.md](security/bou
 
 | Kind | Taskcell | |
 |---|---|---|
-| Deterministic | `programmaticJudge` in the eval suite; in the factory itself every change passes deterministic gates: tests, typecheck, secret scan, and the spec-manifest conformance gate | ✅ |
+| Deterministic | `programmaticJudge` in the eval suite; in the factory itself every change passes deterministic gates: tests, typecheck, secret scan, and the spec-manifest conformance gate ([cli.md](cli.md#the-spec-manifest-and-the-deterministic-conformance-gate)) | ✅ |
 | LLM as judge | eval judge pinned to a Haiku model, a different family from the model under test, verdict parsed with a schema; a second model reviews every factory change, and a reply without an explicit pass is `incomplete`, never a pass | ✅ |
 | Judge calibration on human labels | not done | ❌ |
 | Eval libraries (promptfoo, Ragas, DeepEval) | not used: the corpus, judges and report are in-repo, so the harness has no extra dependency and runs the real factory stages | n/a |
