@@ -78,6 +78,15 @@ function runSourceRoot(repoPath: string, raw: unknown): string {
   throw new BadRequestError("source is required and must be { kind: 'local' } or { kind: 'ci', runId: number }");
 }
 
+/** The GitHub slug of an allowlisted repo's origin, or undefined when it has no GitHub remote. */
+async function githubSlug(repoPath: string): Promise<string | undefined> {
+  try {
+    return await detectRepoSlug(repoPath);
+  } catch {
+    return undefined;
+  }
+}
+
 async function repoOk(repoPath: string): Promise<boolean> {
   try {
     const res = await execa('git', ['-C', repoPath, 'rev-parse', '--is-inside-work-tree']);
@@ -330,21 +339,21 @@ export async function dispatchRpc(ctx: RpcContext, cmd: string, rawArgs: unknown
     }
     case 'list_needs_you': {
       const real = await ctx.allowlist.assertAllowed(requireString(args, 'repoPath'));
-      let repoSlug: string;
-      try {
-        repoSlug = await detectRepoSlug(real);
-      } catch {
-        return { items: [] }; // not a GitHub remote — nothing for this read model to show
-      }
-      return { items: await listNeedsYou(repoSlug) };
+      const repoSlug = await githubSlug(real);
+      // Not a GitHub remote — nothing for this read model to show.
+      return { items: repoSlug === undefined ? [] : await listNeedsYou(repoSlug) };
     }
     case 'reply_needs_you': {
-      await ctx.allowlist.assertAllowed(requireString(args, 'repoPath'));
+      const real = await ctx.allowlist.assertAllowed(requireString(args, 'repoPath'));
       const id = requireString(args, 'id');
       const kind = requireString(args, 'kind');
       if (kind !== 'issue' && kind !== 'pr') throw new BadRequestError("kind must be 'issue' or 'pr'");
       const body = requireString(args, 'body');
-      await replyNeedsYou(id, kind, body);
+      const repoSlug = await githubSlug(real);
+      if (repoSlug === undefined) throw new BadRequestError('reply_needs_you: this project has no GitHub remote');
+      // The slug comes from the allowlisted repo, never from `id` — `replyNeedsYou` refuses an `id`
+      // naming any other repo, so a reply can only ever touch a registered project.
+      await replyNeedsYou(repoSlug, id, kind, body);
       return null;
     }
     default:

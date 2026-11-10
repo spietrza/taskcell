@@ -3,6 +3,7 @@ import { mkdir, mkdtemp, realpath } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { PassThrough } from 'node:stream';
+import { execa } from 'execa';
 import { afterEach, describe, expect, test, vi } from 'vitest';
 import { dispatchRpc, classifyError, FLEET_DISABLED_MESSAGE, type RpcContext } from './rpc.js';
 import * as clone from './clone.js';
@@ -88,6 +89,14 @@ async function tmpRepo(): Promise<string> {
   // realpath so assertions built on this path match the allowlist's realpath'd comparisons, even
   // on platforms (e.g. macOS) where the OS temp dir is itself a symlink.
   return realpath(repo);
+}
+
+/** A tmpRepo that is a real git repo, optionally with an `origin` the repo slug is detected from. */
+async function tmpGitRepo(originUrl?: string): Promise<string> {
+  const repo = await tmpRepo();
+  await execa('git', ['init', '-q', '-b', 'main'], { cwd: repo });
+  if (originUrl !== undefined) await execa('git', ['remote', 'add', 'origin', originUrl], { cwd: repo });
+  return repo;
 }
 
 afterEach(() => {
@@ -356,6 +365,26 @@ test('clone_project enforces mutation permissions before cloning', async () => {
   } finally {
     mock.mockRestore();
   }
+});
+
+test('reply_needs_you takes the repo from the allowlisted path, never from the id', async () => {
+  const repo = await tmpGitRepo('https://github.com/allowed/repo.git');
+  const { ctx } = await makeCtx(repo);
+  // An id naming an unregistered repo is refused: it must never become the `--repo` a reply
+  // comments on and relabels.
+  await expect(dispatchRpc(ctx, 'reply_needs_you', { repoPath: repo, id: 'other/repo#1', kind: 'issue', body: 'hi' }))
+    .rejects.toThrow('other/repo#1 is not an item of allowed/repo');
+  await expect(dispatchRpc(ctx, 'reply_needs_you', { repoPath: repo, id: 'other/repo#1', kind: 'nope', body: 'hi' }))
+    .rejects.toThrow("kind must be 'issue' or 'pr'");
+});
+
+test('list_needs_you is empty on a project with no GitHub remote', async () => {
+  const repo = await tmpRepo();
+  await execa('git', ['init', '-q', '-b', 'main'], { cwd: repo });
+  const { ctx } = await makeCtx(repo);
+  expect(await dispatchRpc(ctx, 'list_needs_you', { repoPath: repo })).toEqual({ items: [] });
+  await expect(dispatchRpc(ctx, 'reply_needs_you', { repoPath: repo, id: 'o/r#1', kind: 'issue', body: 'hi' }))
+    .rejects.toThrow('no GitHub remote');
 });
 
 test('add_project is confined to the browse root, like browse_dirs', async () => {
