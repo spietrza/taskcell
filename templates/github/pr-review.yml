@@ -1,0 +1,40 @@
+name: Vanguard PR Review
+
+# Thin caller of the reusable workflow (pr-review.yml), which holds the steps.
+#
+# Triggers on `pull_request` (NOT `pull_request_target`): a `pull_request_target` run checks out
+# the base branch's workflow but can still be pointed at an attacker-controlled head, which is the
+# wrong trade for a hub-managed, single-maintainer caller. `pull_request` runs with the permissions
+# GitHub already grants same-repo PRs, and gets none of the caller's secrets on a fork PR, which is
+# the safer default here. Reviews only the signed-in user's own PRs (the author gate below).
+
+on:
+  pull_request:
+    types: [labeled]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  pull-requests: write
+  issues: write
+
+concurrency:
+  group: vanguard-pr-review-${{ github.repository }}
+  cancel-in-progress: false
+
+jobs:
+  review:
+    if: >-
+      (github.event_name == 'workflow_dispatch' && github.actor == 'YOUR_LOGIN') ||
+      (github.event_name == 'pull_request' &&
+      github.event.label.name == 'ready for vanguard review' &&
+      github.event.pull_request.draft == false &&
+      github.event.pull_request.user.login == 'YOUR_LOGIN' &&
+      github.event.sender.login == 'YOUR_LOGIN')
+    uses: spietrza/taskcell/.github/workflows/pr-review.yml@v1
+    with:
+      allowed-actors: '["YOUR_LOGIN"]'
+      author: YOUR_LOGIN
+      llm-proxy: true
+    secrets:
+      CLAUDE_CODE_OAUTH_TOKEN: ${{ secrets.CLAUDE_CODE_OAUTH_TOKEN }}

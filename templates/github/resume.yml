@@ -1,0 +1,55 @@
+name: Vanguard Resume
+
+# Brings factory work back after a provider rate or session limit. A run that ends on such a limit
+# marks the issue/PR with `vanguard:rate-limited` and a reset time; this sweep re-adds the trigger
+# label once that time has passed. It runs on a PAT (VANGUARD_PUSH_TOKEN): a label added with the
+# default GITHUB_TOKEN starts no workflow (GitHub's recursion guard).
+#
+# No reusable workflow backs this one (unlike implement/doctor/pr-review/revise) — it checks out
+# Taskcell's source directly and runs the CLI's `resume-rate-limited` command, same as Taskcell's own
+# `vanguard-resume.yml`. No `pull_request_target`: this is a scheduled sweep, not a PR-triggered run.
+
+on:
+  schedule:
+    - cron: '*/30 * * * *'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: vanguard-resume-${{ github.repository }}
+  cancel-in-progress: false
+
+jobs:
+  resume:
+    if: github.event_name == 'schedule' || github.actor == 'YOUR_LOGIN'
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+        with:
+          repository: spietrza/taskcell
+          ref: v1
+          path: .vanguard-src
+          persist-credentials: false
+
+      - uses: pnpm/action-setup@73e46992e05b19abd31f2f3c20e0e7370d762115 # v6.1.1
+
+      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v6
+        with:
+          node-version: 24
+          cache: pnpm
+          cache-dependency-path: .vanguard-src/pnpm-lock.yaml
+
+      # --ignore-scripts: only `pnpm build` (tsc + cp) and `node dist/` run here.
+      - run: pnpm install --frozen-lockfile --ignore-scripts
+        working-directory: .vanguard-src
+
+      - run: pnpm build
+        working-directory: .vanguard-src
+
+      - name: Resume rate-limited work
+        env:
+          GH_TOKEN: ${{ secrets.VANGUARD_PUSH_TOKEN || secrets.GITHUB_TOKEN }}
+        run: node .vanguard-src/dist/cli/index.js resume-rate-limited --github-repo "$GITHUB_REPOSITORY"
