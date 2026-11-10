@@ -27,29 +27,47 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 10
     steps:
-      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+      # Without the PAT the sweep cannot label (read-only GITHUB_TOKEN, and its labels start no
+      # workflow) — skip with a notice instead of failing every 30 minutes.
+      - name: Check for VANGUARD_PUSH_TOKEN
+        id: token
+        env:
+          HAS_TOKEN: ${{ secrets.VANGUARD_PUSH_TOKEN != '' }}
+        run: |
+          echo "ok=$HAS_TOKEN" >> "$GITHUB_OUTPUT"
+          if [ "$HAS_TOKEN" != "true" ]; then echo "::notice::VANGUARD_PUSH_TOKEN is not set; skipping the resume sweep"; fi
+
+      - if: steps.token.outputs.ok == 'true'
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
         with:
           repository: spietrza/taskcell
           ref: v1
           path: .vanguard-src
           persist-credentials: false
 
-      - uses: pnpm/action-setup@73e46992e05b19abd31f2f3c20e0e7370d762115 # v6.1.1
+      - if: steps.token.outputs.ok == 'true'
+        uses: pnpm/action-setup@73e46992e05b19abd31f2f3c20e0e7370d762115 # v6.1.1
+        with:
+          package_json_file: .vanguard-src/package.json
 
-      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v6
+      - if: steps.token.outputs.ok == 'true'
+        uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v6
         with:
           node-version: 24
           cache: pnpm
           cache-dependency-path: .vanguard-src/pnpm-lock.yaml
 
       # --ignore-scripts: only `pnpm build` (tsc + cp) and `node dist/` run here.
-      - run: pnpm install --frozen-lockfile --ignore-scripts
+      - if: steps.token.outputs.ok == 'true'
+        run: pnpm install --frozen-lockfile --ignore-scripts
         working-directory: .vanguard-src
 
-      - run: pnpm build
+      - if: steps.token.outputs.ok == 'true'
+        run: pnpm build
         working-directory: .vanguard-src
 
-      - name: Resume rate-limited work
+      - if: steps.token.outputs.ok == 'true'
+        name: Resume rate-limited work
         env:
-          GH_TOKEN: ${{ secrets.VANGUARD_PUSH_TOKEN || secrets.GITHUB_TOKEN }}
+          GH_TOKEN: ${{ secrets.VANGUARD_PUSH_TOKEN }}
         run: node .vanguard-src/dist/cli/index.js resume-rate-limited --github-repo "$GITHUB_REPOSITORY"

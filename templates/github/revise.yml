@@ -2,15 +2,13 @@ name: Vanguard Revise
 
 # Thin caller of the reusable workflow (revise.yml), which holds the steps.
 #
-# Triggers on `pull_request` (NOT `pull_request_target`): a `pull_request_target` run checks out
-# the base branch's workflow but can still be pointed at an attacker-controlled head, which is the
-# wrong trade for a hub-managed, single-maintainer caller. `pull_request` runs with the permissions
-# GitHub already grants same-repo PRs, and gets none of the caller's secrets on a fork PR, which is
-# the safer default here. Revises only the signed-in user's own PRs (the author gate below) — or
+# Triggers on `pull_request_target` (as docs/onboarding-another-repo.md prescribes): the workflow
+# definition — this `if:` gate and the `secrets:` block — is read from the base branch, so a PR's
+# head branch cannot edit the gate away. The gate admits only same-repo PRs by the signed-in user. Revises only the signed-in user's own PRs (the author gate below) — or
 # Taskcell's own bot commits, which carry the `github-actions[bot]` author.
 
 on:
-  pull_request:
+  pull_request_target:
     types: [labeled]
   workflow_dispatch:
     inputs:
@@ -25,7 +23,8 @@ jobs:
   revise:
     if: >-
       (github.event_name == 'workflow_dispatch' && github.actor == 'YOUR_LOGIN') ||
-      (github.event_name == 'pull_request' &&
+      (github.event_name == 'pull_request_target' &&
+       github.event.pull_request.head.repo.full_name == github.repository &&
        github.event.label.name == 'needs revision' &&
        contains(fromJSON('["YOUR_LOGIN","github-actions[bot]"]'), github.event.pull_request.user.login) &&
        github.event.sender.login == 'YOUR_LOGIN')

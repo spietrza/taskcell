@@ -32,20 +32,23 @@ describe('templates/github/ caller templates', () => {
     expect(entries.sort()).toEqual([...EXPECTED_FILES].sort());
   });
 
-  it.each(EXPECTED_FILES)('%s parses as YAML, has permissions:, no pull_request_target, no ${{ in run:', async (file) => {
+  it.each(EXPECTED_FILES)('%s parses as YAML, has permissions:, no head-defined pull_request trigger, no ${{ in run:', async (file) => {
     const raw = await readFile(new URL(file, TEMPLATES_DIR), 'utf8');
     const doc = parse(raw) as Record<string, unknown>;
 
     expect(doc).toBeTypeOf('object');
     expect(doc).not.toBeNull();
 
-    // no pull_request_target trigger — see pr-review.yml/revise.yml's header comment: a hub-managed
-    // caller trades it for plain `pull_request`, which carries none of the base repo's secrets on a
-    // fork PR instead of relying on an actor gate alone. (Checked against the parsed trigger keys,
-    // not the raw text, since the rationale comments above mention the name by design.)
+    // No plain `pull_request` trigger: it reads the workflow from the PR's head, so a branch could
+    // edit the `if:` gate and the `secrets:` block. PR-triggered callers use `pull_request_target`
+    // (base-branch definition), as docs/onboarding-another-repo.md prescribes.
     const on = doc.on as Record<string, unknown> | string[] | undefined;
     const triggers = Array.isArray(on) ? on : Object.keys(on ?? {});
-    expect(triggers).not.toContain('pull_request_target');
+    expect(triggers).not.toContain('pull_request');
+    // Every `pull_request_target` caller only admits same-repo PRs.
+    if (triggers.includes('pull_request_target')) {
+      expect(raw).toContain('github.event.pull_request.head.repo.full_name == github.repository');
+    }
 
     // `permissions:` must be declared — a caller that omits it inherits the repo default, which can
     // be read-only and fails the run deep inside a step rather than at startup.

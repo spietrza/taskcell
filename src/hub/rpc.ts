@@ -87,6 +87,20 @@ function requireMatch(args: Record<string, unknown>, key: string, shape: RegExp,
   return v;
 }
 
+function requireOneOf(args: Record<string, unknown>, key: string, allowed: readonly string[]): string {
+  const v = requireString(args, key);
+  if (!allowed.includes(v)) throw new BadRequestError(`${key} must be one of ${allowed.join(', ')}`);
+  return v;
+}
+
+function requireScripts(raw: unknown): FactoryPlan['scripts'] {
+  if (raw === undefined) return noScripts();
+  const s = (typeof raw === 'object' && raw !== null ? raw : {}) as Record<string, unknown>;
+  const keys = ['typecheck', 'lint', 'test', 'build'] as const;
+  if (keys.some((k) => typeof s[k] !== 'boolean')) throw new BadRequestError('plan.scripts must map typecheck/lint/test/build to booleans');
+  return { typecheck: s.typecheck as boolean, lint: s.lint as boolean, test: s.test as boolean, build: s.build as boolean };
+}
+
 /** Re-read the plan the client echoes back from `enable_factory_plan`. The paths `apply` stages and
  * the labels it creates are NOT taken from the client: `factoryPlanTargets()` re-derives them from
  * this process's own constants, so a tampered plan cannot widen `git add` or `gh label create`; the
@@ -102,9 +116,9 @@ function requirePlan(args: Record<string, unknown>, key: string): FactoryPlan {
     repoSlug: requireMatch(plan, 'repoSlug', GITHUB_REPO_SLUG, 'owner/repo slug'),
     defaultBranch: requireMatch(plan, 'defaultBranch', GIT_BRANCH, 'branch name'),
     login: requireMatch(plan, 'login', GITHUB_LOGIN, 'GitHub login'),
-    packageManager: requireString(plan, 'packageManager'),
+    packageManager: requireOneOf(plan, 'packageManager', ['pnpm', 'yarn', 'npm', 'none']),
     ...(verifyCommand !== undefined ? { verifyCommand } : {}),
-    scripts: (plan.scripts as FactoryPlan['scripts'] | undefined) ?? noScripts(),
+    scripts: requireScripts(plan.scripts),
     ...factoryPlanTargets(),
   };
 }

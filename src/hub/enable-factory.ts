@@ -163,10 +163,11 @@ async function run(exec: FactoryExec, file: string, args: string[], options?: { 
 }
 
 /**
- * Branch from `origin/<plan.defaultBranch>`, add the five callers (author gate set to `plan.login`),
- * open a PR against `plan.defaultBranch` (never push TO it), and create the routing labels.
+ * Refuse a dirty working tree, branch from `origin/<plan.defaultBranch>`, add the five callers
+ * (author gate set to `plan.login`), open a PR against `plan.defaultBranch` (never push TO it), and create the routing labels.
  * Re-runnable after a partial failure: the branch is reset to the base and re-applied, the commit is
- * skipped when nothing changed, an already-open PR is reused, and labels use `--force`.
+ * skipped when nothing changed, an already-open PR is reused, and labels use `--force`. The
+ * originally checked-out branch is restored afterwards, on success or failure.
  */
 export async function applyGithubFactory(repoPath: string, plan: FactoryPlan, deps: GithubFactoryDeps = {}): Promise<FactoryApplyResult> {
   const exec = deps.exec ?? defaultExec;
@@ -177,26 +178,40 @@ export async function applyGithubFactory(repoPath: string, plan: FactoryPlan, de
     throw new BadRequestError('refusing to use the default branch as the enable-factory branch');
   }
 
+  // The user's own checkout: refuse a dirty tree (its changes would ride onto the branch), and
+  // put back whatever was checked out before, even when a step below fails.
+  if ((await run(exec, 'git', ['status', '--porcelain', '--untracked-files=no'], { cwd: repoPath })) !== '') {
+    throw new BadRequestError('the working tree has uncommitted changes; commit or stash them before enabling the factory');
+  }
+  const head = await run(exec, 'git', ['rev-parse', '--abbrev-ref', 'HEAD'], { cwd: repoPath });
+  const original = head === 'HEAD' ? await run(exec, 'git', ['rev-parse', 'HEAD'], { cwd: repoPath }) : head;
+
   await run(exec, 'git', ['fetch', 'origin', plan.defaultBranch], { cwd: repoPath });
+  const { callerFiles } = factoryPlanTargets();
+  let changed: boolean;
   // -B: create the branch, or reset an existing one from an earlier apply, at the base.
   await run(exec, 'git', ['checkout', '-B', branch, `origin/${plan.defaultBranch}`], { cwd: repoPath });
+  try {
+    const workflowsDir = join(repoPath, '.github', 'workflows');
+    await mkdir(workflowsDir, { recursive: true });
+    for (const name of CALLER_NAMES) {
+      const templateRaw = await readFile(new URL(`${name}.yml`, TEMPLATES_DIR), 'utf8');
+      const content = templateRaw.split(LOGIN_PLACEHOLDER).join(plan.login);
+      await writeFile(join(workflowsDir, workflowFileName(name)), content);
+    }
 
-  const workflowsDir = join(repoPath, '.github', 'workflows');
-  await mkdir(workflowsDir, { recursive: true });
-  for (const name of CALLER_NAMES) {
-    const templateRaw = await readFile(new URL(`${name}.yml`, TEMPLATES_DIR), 'utf8');
-    const content = templateRaw.split(LOGIN_PLACEHOLDER).join(plan.login);
-    await writeFile(join(workflowsDir, workflowFileName(name)), content);
-  }
-
-  const { callerFiles } = factoryPlanTargets();
-  await run(exec, 'git', ['add', ...callerFiles], { cwd: repoPath });
-  const changed = (await run(exec, 'git', ['status', '--porcelain', '--', ...callerFiles], { cwd: repoPath })) !== '';
-  if (changed) {
-    await run(exec, 'git', ['commit', '-m', 'feat: enable the Taskcell factory (GitHub Actions)'], { cwd: repoPath });
-    // Pushes the hub's own fixed branch, never plan.defaultBranch — the PR is the only path onto the
-    // default branch. --force: the branch was just reset to the base, so an earlier apply's commit is replaced.
-    await run(exec, 'git', ['push', '--force', '-u', 'origin', branch], { cwd: repoPath });
+    await run(exec, 'git', ['add', ...callerFiles], { cwd: repoPath });
+    changed = (await run(exec, 'git', ['status', '--porcelain', '--', ...callerFiles], { cwd: repoPath })) !== '';
+    if (changed) {
+      // Pathspec: commit the callers only, never anything else in the index.
+      await run(exec, 'git', ['commit', '-m', 'feat: enable the Taskcell factory (GitHub Actions)', '--', ...callerFiles], { cwd: repoPath });
+      // Pushes the hub's own fixed branch, never plan.defaultBranch — the PR is the only path onto the
+      // default branch. --force: the branch was just reset to the base, so an earlier apply's commit is replaced.
+      await run(exec, 'git', ['push', '--force', '-u', 'origin', branch], { cwd: repoPath });
+    }
+  } finally {
+    // -f is safe: the tree was clean on entry, so the only changes it drops are this function's own.
+    await run(exec, 'git', ['checkout', '-f', original], { cwd: repoPath });
   }
 
   const labelsCreated: string[] = [];

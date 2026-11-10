@@ -397,7 +397,9 @@ describe('enable_factory RPCs', () => {
     ['repoSlug', 'acme/widgets; rm -rf ~'],
     ['repoSlug', 'acme'],
     ['defaultBranch', '--upload-pack=evil'],
-  ])('rejects a plan whose %s is not a valid shape (%s)', async (field, value) => {
+    ['packageManager', 'bun'],
+    ['scripts', { typecheck: 'yes' }],
+  ] as [string, unknown][])('rejects a plan whose %s is not a valid shape (%s)', async (field, value) => {
     const repo = await tmpRepo();
     const { ctx } = await makeCtx(repo);
     const { seen, mock } = spyProvider();

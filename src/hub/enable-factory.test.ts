@@ -35,6 +35,8 @@ interface Call {
 interface FakeOptions {
   /** `git status --porcelain` output — non-empty means the callers changed. */
   status?: string;
+  /** `git status --porcelain --untracked-files=no` output — non-empty means a dirty tree. */
+  dirty?: string;
   /** URL `gh pr list` reports for an already-open PR ('' = none). */
   openPr?: string;
   /** `gh run list` results per call, in order (the last one repeats). */
@@ -61,7 +63,12 @@ function fakeExec(calls: Call[], opts: FakeOptions = {}): FactoryExec {
   return async (file, args, options) => {
     calls.push({ file, args, cwd: options?.cwd });
     if (file === 'git' && args[0] === 'status') {
-      return { stdout: opts.status ?? ' M .github/workflows/vanguard-implement.yml\n', stderr: '' };
+      // With a pathspec: did the callers change. Without: the up-front dirty-tree check.
+      if (args.includes('--')) return { stdout: opts.status ?? 'M  .github/workflows/vanguard-implement.yml\n', stderr: '' };
+      return { stdout: opts.dirty ?? '', stderr: '' };
+    }
+    if (file === 'git' && args[0] === 'rev-parse') {
+      return { stdout: 'feature/wip\n', stderr: '' };
     }
     if (file === 'gh' && args[0] === 'pr' && args[1] === 'list') {
       return { stdout: `${opts.openPr ?? ''}\n`, stderr: '' };
@@ -135,8 +142,13 @@ describe('applyGithubFactory', () => {
     expect(calls[checkoutIdx]?.args).toEqual(['checkout', '-B', 'vanguard/enable-factory', 'origin/main']);
     expect(fetchIdx).toBeLessThan(checkoutIdx);
 
+    // Commits the callers only (pathspec), never whatever else the user had staged.
     const commit = calls.find((c) => c.file === 'git' && c.args[0] === 'commit');
-    expect(commit).toBeDefined();
+    expect(commit?.args.slice(commit.args.indexOf('--') + 1)).toEqual(plan.callerFiles);
+
+    // The user's original branch is checked out again at the end.
+    const lastGit = calls.filter((c) => c.file === 'git').at(-1);
+    expect(lastGit?.args).toEqual(['checkout', '-f', 'feature/wip']);
 
     const labelCreates = calls.filter((c) => c.file === 'gh' && c.args[0] === 'label' && c.args[1] === 'create');
     expect(labelCreates).toHaveLength(FACTORY_LABELS.length);
@@ -189,6 +201,28 @@ describe('applyGithubFactory re-runs', () => {
 
     expect(result.prUrl).toBe('https://github.com/acme/widgets/pull/7');
     expect(calls.some((c) => c.file === 'git' && (c.args[0] === 'commit' || c.args[0] === 'push'))).toBe(false);
+  });
+
+  it('refuses a dirty working tree before touching the checkout', async () => {
+    const repoPath = await repo();
+    const calls: Call[] = [];
+    const exec = fakeExec(calls, { dirty: ' M src/index.ts\n' });
+    const plan = await planGithubFactory(repoPath, { exec });
+    await expect(applyGithubFactory(repoPath, plan, { exec })).rejects.toThrow(/uncommitted changes/);
+    expect(calls.some((c) => c.file === 'git' && (c.args[0] === 'checkout' || c.args[0] === 'fetch'))).toBe(false);
+  });
+
+  it('restores the original branch when a step after checkout fails', async () => {
+    const repoPath = await repo();
+    const calls: Call[] = [];
+    const base = fakeExec(calls);
+    const exec: FactoryExec = async (file, args, options) => {
+      if (file === 'git' && args[0] === 'push') throw new Error('push rejected');
+      return base(file, args, options);
+    };
+    const plan = await planGithubFactory(repoPath, { exec });
+    await expect(applyGithubFactory(repoPath, plan, { exec })).rejects.toThrow('push rejected');
+    expect(calls.filter((c) => c.file === 'git').at(-1)?.args).toEqual(['checkout', '-f', 'feature/wip']);
   });
 
   it('reports a clear error when nothing changed and no PR is open', async () => {
