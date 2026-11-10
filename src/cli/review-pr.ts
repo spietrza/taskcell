@@ -146,7 +146,7 @@ async function runDefaultReviewer(
         ...(sandboxContext.llmProxy === undefined && auth !== undefined && agents.injectAnthropicAuth ? authSecrets(auth) : {}),
         ...agents.secrets,
       },
-      ...sandboxResourceLimits(),
+      ...sandboxResourceLimits(process.env, sandboxContext.network !== undefined),
       ...(env !== undefined ? { env } : {}),
       ...(sandboxContext.network !== undefined ? { network: sandboxContext.network } : {}),
       security: sandboxSecurityOpts(process.env, sandboxContext.network !== undefined),

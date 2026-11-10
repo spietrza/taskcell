@@ -85,7 +85,7 @@ export function defaultSandboxFactory(
       ...(deps.llmProxy === undefined && deps.auth !== undefined && injectAnthropicAuth ? authSecrets(deps.auth) : {}),
       ...secrets,
     },
-    ...sandboxResourceLimits(),
+    ...sandboxResourceLimits(process.env, deps.network !== undefined),
     ...(env !== undefined ? { env } : {}),
     ...(deps.network !== undefined ? { network: deps.network } : {}),
     security: sandboxSecurityOpts(process.env, deps.network !== undefined),

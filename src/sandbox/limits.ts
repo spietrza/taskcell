@@ -4,23 +4,35 @@ export type SandboxResourceLimits = Pick<SandboxConfig, 'memoryMb' | 'cpus' | 'p
 
 type PnpmStoreConfig = SandboxConfig['pnpmStore'];
 
+/** Parse one VANGUARD_SANDBOX_* limit: unset ⇒ `fallback`; "0", invalid or empty ⇒ undefined (omit the flag). */
+function envLimit(env: NodeJS.ProcessEnv, name: string, fallback: number): number | undefined {
+  const raw = env[name];
+  if (raw === undefined) return fallback;
+  const n = Number(raw);
+  return Number.isFinite(n) && n > 0 ? n : undefined;
+}
+
 /**
- * Env-overridable sandbox resource limits. Defaults: memory 2048 MB, 2 CPUs, 512 pids. Each
+ * Default sandbox memory (MB) when the rootfs is read-only: `/workspace`, `$HOME` and `/tmp` are then
+ * tmpfs charged to the same cgroup (see readOnlyTmpfsSizesMb), so 6144 gives `/workspace` 2304 MB,
+ * `$HOME` 1536 MB, `/tmp` 768 MB and 1.5 GB for the processes — enough for a typical pnpm install +
+ * build, where the 2048 default would leave `/workspace` at 768 MB.
+ */
+export const READONLY_SANDBOX_MEMORY_MB = 6144;
+
+/**
+ * Env-overridable sandbox resource limits. Defaults: memory 2048 MB (READONLY_SANDBOX_MEMORY_MB when
+ * the run's rootfs is read-only — `hardened` is passed through to sandboxSecurityOpts), 2 CPUs, 512 pids. Each
  * VANGUARD_SANDBOX_* var overrides its default; set it to "0" (or an invalid/empty value) to OMIT
  * that limit entirely, so no `--memory`/`--cpus`/`--pids-limit` flag is passed. This is required on
  * hosts whose kernel lacks a cgroup — e.g. Synology DSM has no CPU CFS scheduler, so `--cpus` is
  * fatal there and must be disabled with VANGUARD_SANDBOX_CPUS=0.
  */
-export function sandboxResourceLimits(env: NodeJS.ProcessEnv = process.env): SandboxResourceLimits {
-  const limit = (name: string, fallback: number): number | undefined => {
-    const raw = env[name];
-    if (raw === undefined) return fallback;
-    const n = Number(raw);
-    return Number.isFinite(n) && n > 0 ? n : undefined;
-  };
-  const memoryMb = limit('VANGUARD_SANDBOX_MEMORY_MB', 2048);
-  const cpus = limit('VANGUARD_SANDBOX_CPUS', 2);
-  const pidsLimit = limit('VANGUARD_SANDBOX_PIDS', 512);
+export function sandboxResourceLimits(env: NodeJS.ProcessEnv = process.env, hardened = false): SandboxResourceLimits {
+  const memoryFallback = sandboxSecurityOpts(env, hardened).readOnlyRootfs ? READONLY_SANDBOX_MEMORY_MB : 2048;
+  const memoryMb = envLimit(env, 'VANGUARD_SANDBOX_MEMORY_MB', memoryFallback);
+  const cpus = envLimit(env, 'VANGUARD_SANDBOX_CPUS', 2);
+  const pidsLimit = envLimit(env, 'VANGUARD_SANDBOX_PIDS', 512);
   return {
     ...(memoryMb !== undefined ? { memoryMb } : {}),
     ...(cpus !== undefined ? { cpus } : {}),
@@ -80,7 +92,11 @@ export function pnpmStoreConfig(
  * `hardened` is the caller's "this run is `--egress`/`--llm-proxy`" signal — a plain boolean, passed
  * in by the CLI/runner call site, never read from argv or env here — and only shifts the
  * `readOnlyRootfs` default from false to true; an explicit `VANGUARD_SANDBOX_READONLY` still wins
- * either way, so `=0` disables it even when hardened and `=1` enables it even when not.
+ * either way, so `=0` disables it even when hardened and `=1` enables it even when not. An EMPTY
+ * VANGUARD_SANDBOX_READONLY counts as unset (an unset CI variable passed through `env:` arrives as ""),
+ * so it cannot silently turn the hardened default off. The hardened default also stays off when the
+ * memory limit is omitted (VANGUARD_SANDBOX_MEMORY_MB=0): the tmpfs mounts would then have no cgroup
+ * to be sized against and charged to, and would press on host RAM instead.
  */
 export function sandboxSecurityOpts(env: NodeJS.ProcessEnv = process.env, hardened = false): SandboxSecurityOpts {
   const list = (raw: string | undefined, fallback: string[]): string[] =>
@@ -96,7 +112,10 @@ export function sandboxSecurityOpts(env: NodeJS.ProcessEnv = process.env, harden
     capDrop: list(env.VANGUARD_SANDBOX_CAP_DROP, ['ALL']),
     capAdd: list(env.VANGUARD_SANDBOX_CAP_ADD, ['CHOWN', 'FOWNER', 'DAC_OVERRIDE']),
     noNewPrivileges: flag(env.VANGUARD_SANDBOX_NO_NEW_PRIVILEGES, true),
-    readOnlyRootfs: flag(env.VANGUARD_SANDBOX_READONLY, hardened),
+    readOnlyRootfs: flag(
+      env.VANGUARD_SANDBOX_READONLY || undefined,
+      hardened && envLimit(env, 'VANGUARD_SANDBOX_MEMORY_MB', 1) !== undefined,
+    ),
   };
 }
 
@@ -107,7 +126,8 @@ export function sandboxSecurityOpts(env: NodeJS.ProcessEnv = process.env, harden
  * sandbox: the sizes are derived from the resolved `memoryMb` instead, split 3:2:1 over three quarters
  * of the limit, with the last quarter left for the processes. With the memory limit omitted entirely
  * (VANGUARD_SANDBOX_MEMORY_MB=0) there is nothing to size against, so the mounts fall back to fixed
- * sizes. Either way a repo whose install or build needs more than that wants a bigger
+ * sizes — reachable only through an explicit VANGUARD_SANDBOX_READONLY=1, since the hardened default
+ * stays off without a memory limit (see sandboxSecurityOpts). Either way a repo whose install or build needs more than that wants a bigger
  * VANGUARD_SANDBOX_MEMORY_MB — see docs/cli.md.
  */
 export function readOnlyTmpfsSizesMb(memoryMb: number | undefined): { workspace: number; home: number; tmp: number } {

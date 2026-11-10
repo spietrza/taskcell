@@ -3,6 +3,7 @@ import {
   ownerLabelArgs,
   pnpmStoreConfig,
   readOnlyTmpfsSizesMb,
+  READONLY_SANDBOX_MEMORY_MB,
   sandboxResourceLimits,
   sandboxSecurityOpts,
   sidecarMemoryArgs,
@@ -32,6 +33,15 @@ describe('sandboxResourceLimits', () => {
   it('omits a limit on an invalid or empty value', () => {
     expect('memoryMb' in sandboxResourceLimits({ VANGUARD_SANDBOX_MEMORY_MB: '' } as NodeJS.ProcessEnv)).toBe(false);
     expect('pidsLimit' in sandboxResourceLimits({ VANGUARD_SANDBOX_PIDS: 'off' } as NodeJS.ProcessEnv)).toBe(false);
+  });
+
+  it('raises the memory default when the rootfs is read-only (tmpfs shares the cgroup), but an explicit value wins', () => {
+    expect(sandboxResourceLimits({}, true).memoryMb).toBe(READONLY_SANDBOX_MEMORY_MB);
+    expect(sandboxResourceLimits({ VANGUARD_SANDBOX_READONLY: '1' } as NodeJS.ProcessEnv).memoryMb).toBe(
+      READONLY_SANDBOX_MEMORY_MB,
+    );
+    expect(sandboxResourceLimits({ VANGUARD_SANDBOX_READONLY: '0' } as NodeJS.ProcessEnv, true).memoryMb).toBe(2048);
+    expect(sandboxResourceLimits({ VANGUARD_SANDBOX_MEMORY_MB: '1536' } as NodeJS.ProcessEnv, true).memoryMb).toBe(1536);
   });
 });
 
@@ -77,6 +87,17 @@ describe('sandboxSecurityOpts', () => {
     expect(sandboxSecurityOpts({}, false).readOnlyRootfs).toBe(false);
     expect(sandboxSecurityOpts({ VANGUARD_SANDBOX_READONLY: '0' } as NodeJS.ProcessEnv, true).readOnlyRootfs).toBe(false);
     expect(sandboxSecurityOpts({ VANGUARD_SANDBOX_READONLY: '1' } as NodeJS.ProcessEnv, false).readOnlyRootfs).toBe(true);
+  });
+
+  it('treats an empty VANGUARD_SANDBOX_READONLY as unset, so it cannot silently drop the hardened default', () => {
+    expect(sandboxSecurityOpts({ VANGUARD_SANDBOX_READONLY: '' } as NodeJS.ProcessEnv, true).readOnlyRootfs).toBe(true);
+    expect(sandboxSecurityOpts({ VANGUARD_SANDBOX_READONLY: '' } as NodeJS.ProcessEnv, false).readOnlyRootfs).toBe(false);
+  });
+
+  it('keeps the hardened read-only default off without a memory limit (nothing to cap the tmpfs mounts)', () => {
+    expect(sandboxSecurityOpts({ VANGUARD_SANDBOX_MEMORY_MB: '0' } as NodeJS.ProcessEnv, true).readOnlyRootfs).toBe(false);
+    const explicit = { VANGUARD_SANDBOX_MEMORY_MB: '0', VANGUARD_SANDBOX_READONLY: '1' } as NodeJS.ProcessEnv;
+    expect(sandboxSecurityOpts(explicit, true).readOnlyRootfs).toBe(true);
   });
 });
 

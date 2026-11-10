@@ -394,7 +394,7 @@ export async function runRevisePullRequest(prRef: string, deps: ReviseGithubPrDe
             : {}),
           ...agents.secrets,
         },
-        ...sandboxResourceLimits(),
+        ...sandboxResourceLimits(process.env, deps.network !== undefined),
         ...(env !== undefined ? { env } : {}),
         ...(deps.network !== undefined ? { network: deps.network } : {}),
         security: sandboxSecurityOpts(process.env, deps.network !== undefined),

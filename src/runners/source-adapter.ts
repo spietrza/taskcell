@@ -433,7 +433,7 @@ export async function runSourcedIssue(
         ...(adapter.secrets ?? {}),
         ...agents.secrets,
       },
-      ...sandboxResourceLimits(),
+      ...sandboxResourceLimits(process.env, deps.network !== undefined),
       ...(env !== undefined ? { env } : {}),
       ...(deps.network !== undefined ? { network: deps.network } : {}),
       ...(pnpmStore !== undefined ? { pnpmStore } : {}),
