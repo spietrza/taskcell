@@ -20,8 +20,11 @@ import type {
   FactoryProviderId,
   FactorySecretStep,
   FactoryVerifyResult,
+  NeedsYouItem,
   SpawnInfo,
 } from './wire';
+
+export type { NeedsYouItem } from './wire';
 
 /**
  * The one typed seam over the transport (S7): `cmd` must name a command in the wire's `Commands`
@@ -89,6 +92,19 @@ export function enableFactoryVerify(repoPath: string, plan: FactoryPlan): Promis
 
 export function removeProject(path: string): Promise<Project[]> {
   return call('remove_project', { path });
+}
+
+/** Hub-only: the "Needs you" read model (src/hub/needs-you.ts) — items waiting on a human, gh/labels
+ *  only, no model call. Empty on a project with no GitHub remote. */
+export function listNeedsYou(repoPath: string): Promise<{ items: NeedsYouItem[] }> {
+  return call('list_needs_you', { repoPath });
+}
+
+/** Hub-only: post `body` as the caller's own comment on the item, then move it on (issue: `needs
+ *  info` -> `ready for agent`; PR: adds `needs revision`). Throws with no label change when the item
+ *  is no longer in a waiting state. */
+export function replyNeedsYou(repoPath: string, id: string, kind: 'issue' | 'pr', body: string): Promise<void> {
+  return call('reply_needs_you', { repoPath, id, kind, body });
 }
 
 export function listActive(repoPath: string): Promise<ActiveRun[]> {

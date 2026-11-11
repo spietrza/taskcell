@@ -17,11 +17,14 @@ import {
   createdTask,
   dirListing,
   remoteImport,
+  needsYouItems,
   factoryPlan,
   factoryApplyResult,
   factorySecret,
   factoryVerify,
 } from './fixtures';
+
+let waitingNeedsYou = [...needsYouItems];
 
 const READ_DRAFT = JSON.stringify({ id: 'draft-001', title: 'Draft task', body: 'Some draft content here.' });
 
@@ -111,6 +114,12 @@ const commandHandlers = {
     name: args?.name ?? 'repo',
     runCount: 0, taskCount: 0, totalCostUsd: 0, failedCount: 0, runningCount: 0, runsLast24h: 0,
   }),
+  list_needs_you: () => ({ items: waitingNeedsYou }),
+  // A reply hands the item back to the factory (issue: trigger label; PR: `needs revision`), so it
+  // drops out of the next list for either kind — as on a real repo.
+  reply_needs_you: (args: { id?: string } | undefined) => {
+    waitingNeedsYou = waitingNeedsYou.filter((i) => i.id !== args?.id);
+  },
   // Hub-only Enable factory flow (EnableFactoryDialog).
   enable_factory_plan: () => factoryPlan,
   enable_factory_apply: () => factoryApplyResult,

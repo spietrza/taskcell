@@ -17,6 +17,7 @@ import type {
   RepoProviderInfo,
   FlowDoc,
   CreatedTask,
+  NeedsYouItem,
   FactoryApplyResult,
   FactoryPlan,
   FactorySecretStep,
@@ -258,6 +259,29 @@ export const flowDoc: FlowDoc = {
   ],
   loops: [],
 };
+
+export const needsYouItems: NeedsYouItem[] = [
+  {
+    id: 'acme/my-app#42',
+    kind: 'issue',
+    number: 42,
+    repoSlug: 'acme/my-app',
+    title: 'Dark mode toggle flickers on load',
+    url: 'https://github.com/acme/my-app/issues/42',
+    reason: 'needs info',
+    lastComment: { author: 'vanguard[bot]', body: 'Which browser and OS does this reproduce on?' },
+  },
+  {
+    id: 'acme/my-app#57',
+    kind: 'pr',
+    number: 57,
+    repoSlug: 'acme/my-app',
+    title: 'Refactor auth middleware',
+    url: 'https://github.com/acme/my-app/pull/57',
+    reason: 'vanguard:needs-human-review',
+    lastComment: { author: 'vanguard[bot]', body: 'Review complete — one finding needs a human call on scope.' },
+  },
+];
 
 export const createdTask: CreatedTask = {
   id: 'LINEAR-999',
