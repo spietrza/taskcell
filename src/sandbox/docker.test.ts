@@ -559,11 +559,11 @@ describe('DockerSandboxProvider buildRunArgs (hardening flags)', () => {
   });
 
   it('hardened mode (--llm-proxy/--egress) alone keeps the writable rootfs: read-only is opt-in', () => {
-    expect(new DockerSandboxProvider({ profile: resolveSandboxProfile({}, true) }).buildRunArgs()).not.toContain('--read-only');
+    expect(new DockerSandboxProvider({ profile: resolveSandboxProfile({}) }).buildRunArgs()).not.toContain('--read-only');
   });
 
   it('hardened mode with VANGUARD_SANDBOX_READONLY=1: --read-only plus the three tmpfs mounts', () => {
-    const sb = new DockerSandboxProvider({ profile: resolveSandboxProfile({ VANGUARD_SANDBOX_READONLY: '1' } as NodeJS.ProcessEnv, true) });
+    const sb = new DockerSandboxProvider({ profile: resolveSandboxProfile({ VANGUARD_SANDBOX_READONLY: '1' } as NodeJS.ProcessEnv) });
     const args = sb.buildRunArgs();
     expect(args).toContain('--read-only');
     const tmpfsArgs = args.filter((_, i) => args[i - 1] === '--tmpfs');
@@ -578,7 +578,6 @@ describe('DockerSandboxProvider buildRunArgs (hardening flags)', () => {
     const args = new DockerSandboxProvider({
       profile: resolveSandboxProfile(
         { VANGUARD_SANDBOX_READONLY: '1', VANGUARD_SANDBOX_MEMORY_MB: memoryMb === undefined ? '0' : String(memoryMb) } as NodeJS.ProcessEnv,
-        true,
       ),
     }).buildRunArgs();
     const { workspace, home, tmp } = readOnlyTmpfsSizesMb(memoryMb);
@@ -593,14 +592,14 @@ describe('DockerSandboxProvider buildRunArgs (hardening flags)', () => {
 
   it('VANGUARD_SANDBOX_READONLY=0 keeps readOnlyRootfs off in hardened mode', () => {
     const sb = new DockerSandboxProvider({
-      profile: resolveSandboxProfile({ VANGUARD_SANDBOX_READONLY: '0' } as NodeJS.ProcessEnv, true),
+      profile: resolveSandboxProfile({ VANGUARD_SANDBOX_READONLY: '0' } as NodeJS.ProcessEnv),
     });
     expect(sb.buildRunArgs()).not.toContain('--read-only');
   });
 
   it('VANGUARD_SANDBOX_READONLY=1 turns readOnlyRootfs on outside hardened mode too', () => {
     const sb = new DockerSandboxProvider({
-      profile: resolveSandboxProfile({ VANGUARD_SANDBOX_READONLY: '1' } as NodeJS.ProcessEnv, false),
+      profile: resolveSandboxProfile({ VANGUARD_SANDBOX_READONLY: '1' } as NodeJS.ProcessEnv),
     });
     expect(sb.buildRunArgs()).toContain('--read-only');
   });
@@ -609,7 +608,7 @@ describe('DockerSandboxProvider buildRunArgs (hardening flags)', () => {
     // Strip the per-instance id (container name + runId label) so the two argv lists compare equal.
     const stable = (args: string[]): string[] => args.filter((a) => !a.startsWith('vg-') && !a.startsWith('vanguard.runId='));
     const plain = stable(new DockerSandboxProvider({ profile: profileFor() }).buildRunArgs());
-    const explicitlyNotHardened = stable(new DockerSandboxProvider({ profile: resolveSandboxProfile({}, false) }).buildRunArgs());
+    const explicitlyNotHardened = stable(new DockerSandboxProvider({ profile: resolveSandboxProfile({}) }).buildRunArgs());
     expect(explicitlyNotHardened).toEqual(plain);
     expect(plain).not.toContain('--read-only');
   });
@@ -671,7 +670,7 @@ describe('DockerSandboxProvider buildRunArgs (pnpm store)', () => {
 
   it('still mounts /pnpm-store (its own -v mount, unaffected by --read-only) under an opted-in readOnlyRootfs', () => {
     const args = new DockerSandboxProvider({
-      profile: resolveSandboxProfile({ VANGUARD_SANDBOX_READONLY: '1' } as NodeJS.ProcessEnv, true),
+      profile: resolveSandboxProfile({ VANGUARD_SANDBOX_READONLY: '1' } as NodeJS.ProcessEnv),
       pnpmStore: { repoKey: 'octo/repo' },
     }).buildRunArgs();
     expect(args).toContain('--read-only');

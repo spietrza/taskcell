@@ -81,7 +81,7 @@ export async function startSandboxContext(opts: SandboxContextOptions): Promise<
   console.log('egress: sandbox confined to an internal network; only the allowlist proxy can reach out.');
   // Hardened: this note only runs on the --egress/--llm-proxy path, the same signal the runners
   // pass when they resolve the profile their sandbox runs under.
-  const rootfs = resolveSandboxProfile(process.env, true).note;
+  const rootfs = resolveSandboxProfile(process.env).note;
   (rootfs.warn ? console.warn : console.log)(rootfs.message);
 
   if (!opts.llmProxy) {

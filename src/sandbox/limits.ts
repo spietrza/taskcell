@@ -33,14 +33,13 @@ export const READONLY_SANDBOX_MEMORY_MB = 8192;
  * hosts whose kernel lacks a cgroup — e.g. Synology DSM has no CPU CFS scheduler, so `--cpus` is
  * fatal there and must be disabled with VANGUARD_SANDBOX_CPUS=0.
  *
- * The memory default rises to READONLY_SANDBOX_MEMORY_MB when `hardened` (the caller's "this run is
- * `--egress`/`--llm-proxy`" signal) or when the rootfs is read-only (VANGUARD_SANDBOX_READONLY=1):
- * a hardened run carries the proxy round trips and the in-sandbox test suite, which 2048 MB is not
- * enough for (an OOM-killed vitest shows up as an EPIPE), and a read-only rootfs additionally
- * charges the three tmpfs mounts to this same cgroup (see readOnlyTmpfsSizesMb).
+ * The memory default rises to READONLY_SANDBOX_MEMORY_MB only when the rootfs is read-only
+ * (VANGUARD_SANDBOX_READONLY=1), which charges the three tmpfs mounts to this same cgroup (see
+ * readOnlyTmpfsSizesMb). `--egress`/`--llm-proxy` alone keep 2048 MB: a cgroup bigger than the host's
+ * free RAM bounds nothing, and small hosts (NAS) run the hardened path too.
  */
-export function sandboxResourceLimits(env: NodeJS.ProcessEnv = process.env, hardened = false): SandboxResourceLimits {
-  const memoryFallback = hardened || sandboxSecurityOpts(env).readOnlyRootfs ? READONLY_SANDBOX_MEMORY_MB : 2048;
+export function sandboxResourceLimits(env: NodeJS.ProcessEnv = process.env): SandboxResourceLimits {
+  const memoryFallback = sandboxSecurityOpts(env).readOnlyRootfs ? READONLY_SANDBOX_MEMORY_MB : 2048;
   const memoryMb = envLimit(env, 'VANGUARD_SANDBOX_MEMORY_MB', memoryFallback);
   const cpus = envLimit(env, 'VANGUARD_SANDBOX_CPUS', 2);
   const pidsLimit = envLimit(env, 'VANGUARD_SANDBOX_PIDS', 512);
@@ -166,13 +165,10 @@ function hardenedRootfsNote(env: NodeJS.ProcessEnv, readOnlyRootfs: boolean, mem
  * separately, which is what let `docker.ts`'s `buildRunArgs` and `start()` each decide a piece of the
  * posture on their own and drift apart (see #746, #753). `DockerSandboxProvider` only consumes the
  * result; it never calls the pieces below directly.
- *
- * `hardened` is the caller's "this run is `--egress`/`--llm-proxy`" signal (the runners pass
- * `network !== undefined`): it raises the memory default only — the read-only rootfs stays opt-in.
  */
-export function resolveSandboxProfile(env: NodeJS.ProcessEnv = process.env, hardened = false): SandboxProfile {
+export function resolveSandboxProfile(env: NodeJS.ProcessEnv = process.env): SandboxProfile {
   const security = sandboxSecurityOpts(env);
-  const { memoryMb, cpus, pidsLimit } = sandboxResourceLimits(env, hardened);
+  const { memoryMb, cpus, pidsLimit } = sandboxResourceLimits(env);
   return {
     ...(memoryMb !== undefined ? { memoryMb } : {}),
     ...(cpus !== undefined ? { cpus } : {}),
@@ -186,12 +182,11 @@ export function resolveSandboxProfile(env: NodeJS.ProcessEnv = process.env, hard
 
 /**
  * The two `SandboxConfig` fields a run's egress posture decides together: the enclave network to join
- * (undefined ⇒ the default bridge) and the profile resolved for it. Joining an enclave IS the
- * `hardened` signal, so resolving the profile from the same value keeps the pair from drifting — no
- * caller repeats the `network !== undefined` test.
+ * (undefined ⇒ the default bridge) and the profile resolved for it, built together so no caller
+ * assembles the pair by hand.
  */
 export function sandboxNetworkConfig(network: string | undefined, env: NodeJS.ProcessEnv = process.env): Pick<SandboxConfig, 'network' | 'profile'> {
-  return { ...(network !== undefined ? { network } : {}), profile: resolveSandboxProfile(env, network !== undefined) };
+  return { ...(network !== undefined ? { network } : {}), profile: resolveSandboxProfile(env) };
 }
 
 /**

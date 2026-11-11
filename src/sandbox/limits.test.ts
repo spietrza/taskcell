@@ -37,18 +37,13 @@ describe('sandboxResourceLimits', () => {
     expect('pidsLimit' in sandboxResourceLimits({ VANGUARD_SANDBOX_PIDS: 'off' } as NodeJS.ProcessEnv)).toBe(false);
   });
 
-  it('raises the memory default for a hardened run and for a read-only rootfs, but an explicit value wins', () => {
-    expect(sandboxResourceLimits({}, true).memoryMb).toBe(READONLY_SANDBOX_MEMORY_MB);
-    expect(sandboxResourceLimits({ VANGUARD_SANDBOX_READONLY: '1' } as NodeJS.ProcessEnv, true).memoryMb).toBe(
-      READONLY_SANDBOX_MEMORY_MB,
-    );
+  it('raises the memory default only for a read-only rootfs, and an explicit value wins', () => {
     expect(sandboxResourceLimits({ VANGUARD_SANDBOX_READONLY: '1' } as NodeJS.ProcessEnv).memoryMb).toBe(
       READONLY_SANDBOX_MEMORY_MB,
     );
-    // Not hardened and not read-only: the plain default.
     expect(sandboxResourceLimits({ VANGUARD_SANDBOX_READONLY: '0' } as NodeJS.ProcessEnv).memoryMb).toBe(2048);
     const forced = { VANGUARD_SANDBOX_MEMORY_MB: '1536', VANGUARD_SANDBOX_READONLY: '1' } as NodeJS.ProcessEnv;
-    expect(sandboxResourceLimits(forced, true).memoryMb).toBe(1536);
+    expect(sandboxResourceLimits(forced).memoryMb).toBe(1536);
   });
 });
 
@@ -116,10 +111,18 @@ describe('resolveSandboxProfile', () => {
   }[] = [
     { name: 'default run', env: {}, hardened: false, memoryMb: 2048, readOnlyRootfs: false, warn: false },
     {
-      name: 'egress or llm-proxy run',
+      name: 'egress or llm-proxy run keeps the plain default',
       env: {},
       hardened: true,
-      memoryMb: READONLY_SANDBOX_MEMORY_MB,
+      memoryMb: 2048,
+      readOnlyRootfs: false,
+      warn: false,
+    },
+    {
+      name: 'egress run with the read-only rootfs explicitly off',
+      env: { VANGUARD_SANDBOX_READONLY: '0' } as NodeJS.ProcessEnv,
+      hardened: true,
+      memoryMb: 2048,
       readOnlyRootfs: false,
       warn: false,
     },
@@ -157,8 +160,8 @@ describe('resolveSandboxProfile', () => {
     },
   ];
 
-  it.each(cases)('$name', ({ env, hardened, memoryMb, readOnlyRootfs, warn }) => {
-    const profile = resolveSandboxProfile(env, hardened);
+  it.each(cases)('$name', ({ env, memoryMb, readOnlyRootfs, warn }) => {
+    const profile = resolveSandboxProfile(env);
     expect(profile.memoryMb).toBe(memoryMb);
     expect(profile.cpus).toBe(2);
     expect(profile.pidsLimit).toBe(512);
