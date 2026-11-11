@@ -88,21 +88,32 @@ describe('startSandboxContext reports the hardened read-only rootfs decision', (
     vi.restoreAllMocks();
   });
 
-  it('logs the engaged default on console.log', async () => {
+  it('logs the opt-in note on console.log when VANGUARD_SANDBOX_READONLY is unset', async () => {
     vi.stubEnv('VANGUARD_SANDBOX_MEMORY_MB', undefined);
     const log = vi.spyOn(console, 'log').mockImplementation(() => {});
     const warn = vi.spyOn(console, 'warn').mockImplementation(() => {});
     await startSandboxContext({ egress: true, llmProxy: false });
-    expect(log).toHaveBeenCalledWith(expect.stringContaining('read-only rootfs on (hardened default)'));
+    expect(log).toHaveBeenCalledWith(expect.stringContaining('read-only rootfs off (opt-in: VANGUARD_SANDBOX_READONLY=1'));
     expect(warn).not.toHaveBeenCalled();
   });
 
-  it('warns on console.warn when a memory limit below 8192 MB stands it down', async () => {
-    vi.stubEnv('VANGUARD_SANDBOX_MEMORY_MB', '1536');
+  it('logs the opted-in rootfs on console.log', async () => {
+    vi.stubEnv('VANGUARD_SANDBOX_READONLY', '1');
+    vi.stubEnv('VANGUARD_SANDBOX_MEMORY_MB', undefined);
+    const log = vi.spyOn(console, 'log').mockImplementation(() => {});
+    const warn = vi.spyOn(console, 'warn').mockImplementation(() => {});
+    await startSandboxContext({ egress: true, llmProxy: false });
+    expect(log).toHaveBeenCalledWith(expect.stringContaining('read-only rootfs on (VANGUARD_SANDBOX_READONLY=1)'));
+    expect(warn).not.toHaveBeenCalled();
+  });
+
+  it('warns on console.warn when forced on with no memory limit', async () => {
+    vi.stubEnv('VANGUARD_SANDBOX_READONLY', '1');
+    vi.stubEnv('VANGUARD_SANDBOX_MEMORY_MB', '0');
     vi.spyOn(console, 'log').mockImplementation(() => {});
     const warn = vi.spyOn(console, 'warn').mockImplementation(() => {});
     await startSandboxContext({ egress: true, llmProxy: false });
     expect(warn).toHaveBeenCalledTimes(1);
-    expect(warn).toHaveBeenCalledWith(expect.stringContaining('VANGUARD_SANDBOX_MEMORY_MB=1536'));
+    expect(warn).toHaveBeenCalledWith(expect.stringContaining('VANGUARD_SANDBOX_MEMORY_MB=0'));
   });
 });

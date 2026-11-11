@@ -793,10 +793,10 @@ describe('runSpecGenerator', () => {
   });
 });
 
-// Runs without Docker: the runner-built sandbox's argv. Proves the hardened flag reaches
+// Runs without Docker: the runner-built sandbox's argv. Proves the opt-in reaches
 // `buildRunArgs` through config.security (limits.test.ts/docker.test.ts cover the pieces in isolation).
-describe('defaultSandboxFactory wires the hardened read-only rootfs', () => {
-  // Both vars gate the hardened default (a low/omitted memory limit stands it down): pin them.
+describe('defaultSandboxFactory wires the opt-in read-only rootfs', () => {
+  // Pin both vars so the host env cannot opt in or resize under the test.
   beforeEach(() => {
     vi.stubEnv('VANGUARD_SANDBOX_READONLY', undefined);
     vi.stubEnv('VANGUARD_SANDBOX_MEMORY_MB', undefined);
@@ -808,14 +808,19 @@ describe('defaultSandboxFactory wires the hardened read-only rootfs', () => {
     return (sandbox as DockerSandboxProvider).buildRunArgs();
   };
 
-  it('--egress/--llm-proxy (enclave network set): --read-only plus the three tmpfs mounts', () => {
+  it('--egress/--llm-proxy (enclave network set) alone keeps the rootfs writable: read-only is opt-in', () => {
+    expect(runArgs({ network: 'vg-egr-1' })).not.toContain('--read-only');
+  });
+
+  it('--egress/--llm-proxy with VANGUARD_SANDBOX_READONLY=1: --read-only plus the three tmpfs mounts', () => {
+    vi.stubEnv('VANGUARD_SANDBOX_READONLY', '1');
     const args = runArgs({ network: 'vg-egr-1' });
     expect(args).toContain('--read-only');
     const tmpfs = args.filter((_, i) => args[i - 1] === '--tmpfs');
     for (const path of ['/workspace:', '/home/agent:', '/tmp:']) expect(tmpfs.some((t) => t.startsWith(path))).toBe(true);
   });
 
-  it('an explicit VANGUARD_SANDBOX_READONLY=0 still turns it off in hardened mode', () => {
+  it('VANGUARD_SANDBOX_READONLY=0 keeps it off in hardened mode', () => {
     vi.stubEnv('VANGUARD_SANDBOX_READONLY', '0');
     expect(runArgs({ network: 'vg-egr-1' })).not.toContain('--read-only');
   });

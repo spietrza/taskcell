@@ -554,8 +554,12 @@ describe('DockerSandboxProvider buildRunArgs (hardening flags)', () => {
     expect(args).not.toContain('--read-only');
   });
 
-  it('hardened mode (--llm-proxy/--egress) defaults readOnlyRootfs on: --read-only plus the three tmpfs mounts', () => {
-    const sb = new DockerSandboxProvider({ security: sandboxSecurityOpts({}, true) });
+  it('hardened mode (--llm-proxy/--egress) alone keeps the writable rootfs: read-only is opt-in', () => {
+    expect(new DockerSandboxProvider({ security: sandboxSecurityOpts({}, true) }).buildRunArgs()).not.toContain('--read-only');
+  });
+
+  it('hardened mode with VANGUARD_SANDBOX_READONLY=1: --read-only plus the three tmpfs mounts', () => {
+    const sb = new DockerSandboxProvider({ security: sandboxSecurityOpts({ VANGUARD_SANDBOX_READONLY: '1' } as NodeJS.ProcessEnv, true) });
     const args = sb.buildRunArgs();
     expect(args).toContain('--read-only');
     const tmpfsArgs = args.filter((_, i) => args[i - 1] === '--tmpfs');
@@ -568,7 +572,7 @@ describe('DockerSandboxProvider buildRunArgs (hardening flags)', () => {
   // gets its own share, so a raised/omitted VANGUARD_SANDBOX_MEMORY_MB reaches the argv.
   it.each([2048, 1536, undefined])('sizes the tmpfs mounts from the resolved memoryMb (%s)', (memoryMb) => {
     const args = new DockerSandboxProvider({
-      security: sandboxSecurityOpts({}, true),
+      security: sandboxSecurityOpts({ VANGUARD_SANDBOX_READONLY: '1' } as NodeJS.ProcessEnv, true),
       ...(memoryMb !== undefined ? { memoryMb } : {}),
     }).buildRunArgs();
     const { workspace, home, tmp } = readOnlyTmpfsSizesMb(memoryMb);
@@ -581,14 +585,14 @@ describe('DockerSandboxProvider buildRunArgs (hardening flags)', () => {
     );
   });
 
-  it('an explicit VANGUARD_SANDBOX_READONLY=0 still turns readOnlyRootfs off in hardened mode', () => {
+  it('VANGUARD_SANDBOX_READONLY=0 keeps readOnlyRootfs off in hardened mode', () => {
     const sb = new DockerSandboxProvider({
       security: sandboxSecurityOpts({ VANGUARD_SANDBOX_READONLY: '0' } as NodeJS.ProcessEnv, true),
     });
     expect(sb.buildRunArgs()).not.toContain('--read-only');
   });
 
-  it('an explicit VANGUARD_SANDBOX_READONLY=1 still turns readOnlyRootfs on outside hardened mode', () => {
+  it('VANGUARD_SANDBOX_READONLY=1 turns readOnlyRootfs on outside hardened mode too', () => {
     const sb = new DockerSandboxProvider({
       security: sandboxSecurityOpts({ VANGUARD_SANDBOX_READONLY: '1' } as NodeJS.ProcessEnv, false),
     });
@@ -659,9 +663,9 @@ describe('DockerSandboxProvider buildRunArgs (pnpm store)', () => {
     expect(args).toContain('npm_config_store_dir=/pnpm-store');
   });
 
-  it('still mounts /pnpm-store (its own -v mount, unaffected by --read-only) under a hardened readOnlyRootfs', () => {
+  it('still mounts /pnpm-store (its own -v mount, unaffected by --read-only) under an opted-in readOnlyRootfs', () => {
     const args = new DockerSandboxProvider({
-      security: sandboxSecurityOpts({}, true),
+      security: sandboxSecurityOpts({ VANGUARD_SANDBOX_READONLY: '1' } as NodeJS.ProcessEnv, true),
       pnpmStore: { repoKey: 'octo/repo' },
     }).buildRunArgs();
     expect(args).toContain('--read-only');
