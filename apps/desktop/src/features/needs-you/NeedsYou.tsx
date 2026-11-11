@@ -10,6 +10,12 @@ export function canUseNeedsYou(): boolean {
   return isHubMode() || (import.meta.env.DEV && !isTauri());
 }
 
+/** Plain words for the factory's waiting labels (src/hub/needs-you.ts); anything else shows as-is. */
+const REASON_TEXT: Record<string, string> = {
+  'vanguard:needs-human-review': 'needs a human review',
+  'vanguard:verify-failed': 'verify failed',
+};
+
 function ReplyBox({ project, item, onReplied }: { project: string; item: NeedsYouItem; onReplied: () => void }) {
   const [body, setBody] = useState('');
   const [sending, setSending] = useState(false);
@@ -104,14 +110,15 @@ export function NeedsYou({ project }: { project: string }) {
         </Empty.Root>
       )}
       {items?.map((item) => (
-        <Card.Root key={item.id}>
+        // py-0: Card.Root's own vertical padding doubled Card.Content's p-4 into a gap above the chips.
+        <Card.Root key={item.id} className="py-0">
           <Card.Content className="space-y-2 p-4">
             <div className="flex items-center gap-2">
               <Chip color="secondary" variant="outlined">
                 {item.kind === 'pr' ? 'PR' : 'Task'} <span className="font-mono tabular-nums">#{item.number}</span>
               </Chip>
-              <Chip color="warning" variant="outlined">
-                {item.reason}
+              <Chip color="warning" variant="outlined" title={item.reason}>
+                {REASON_TEXT[item.reason] ?? item.reason}
               </Chip>
               <a href={item.url} target="_blank" rel="noreferrer" className="min-w-0 truncate font-medium hover:underline">
                 {item.title}

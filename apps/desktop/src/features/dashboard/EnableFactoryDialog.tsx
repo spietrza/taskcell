@@ -63,18 +63,22 @@ export function EnableFactoryDialog({ project, onClose }: { project: { path: str
       setSecret(await enableFactorySecret(project.path, p));
       setPlan(p);
     });
+  const existing = new Set(plan?.existingCallerFiles ?? []);
+  // Every caller already on the default branch: apply would have nothing to commit, so skip straight to verify.
+  const nothingToAdd = plan !== null && plan.callerFiles.every((f) => existing.has(f));
   const apply = (p: FactoryPlan): Promise<void> => step('apply', async () => setApplied(await enableFactoryApply(project.path, p)));
   const runVerify = (p: FactoryPlan): Promise<void> => step('verify', async () => setVerify(await enableFactoryVerify(project.path, p)));
 
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40" onClick={() => busy === null && onClose()}>
+    // Top-anchored, not centered: the plan is taller than the platform picker, so a centered dialog jumps when it loads.
+    <div className="fixed inset-0 z-50 flex items-start justify-center bg-black/40 pt-[10vh]" onClick={() => busy === null && onClose()}>
       <div
         role="dialog"
         aria-label="Enable factory"
-        className="max-h-[90vh] w-[34rem] overflow-y-auto rounded-lg border border-border bg-background p-4 shadow-lg"
+        className="max-h-[80vh] w-[34rem] overflow-y-auto rounded-lg border border-border bg-background p-4 shadow-lg"
         onClick={(e) => e.stopPropagation()}
       >
-        <h2 className="text-sm font-medium">Enable factory on {project.name}</h2>
+        <h2 className="font-semibold">Enable factory on {project.name}</h2>
 
         {plan === null ? (
           <>
@@ -114,10 +118,20 @@ export function EnableFactoryDialog({ project, onClose }: { project: { path: str
                 </div>
               ))}
             </dl>
-            <Section title="Caller workflows (added in a PR)">
+            <Section title={nothingToAdd ? 'Caller workflows (already on the default branch)' : 'Caller workflows (added in a PR)'}>
               <ul className="font-mono text-xs">
-                {plan.callerFiles.map((f) => <li key={f}>{f}</li>)}
+                {plan.callerFiles.map((f) => (
+                  <li key={f}>
+                    {f}
+                    {existing.has(f) && <span className="font-sans text-muted-foreground"> — already exists, left as is</span>}
+                  </li>
+                ))}
               </ul>
+              {nothingToAdd && (
+                <p className="mt-1 text-xs text-muted-foreground">
+                  This repo already has every caller workflow, so there is no PR to open. Set the secret, then run verify.
+                </p>
+              )}
             </Section>
             <Section title="Labels">
               <div className="flex flex-wrap gap-1">
@@ -166,12 +180,12 @@ export function EnableFactoryDialog({ project, onClose }: { project: { path: str
           <Button variant="text" color="secondary" onClick={onClose} disabled={busy !== null}>
             {applied ? 'Close' : 'Cancel'}
           </Button>
-          {plan && !applied && (
+          {plan && !applied && !nothingToAdd && (
             <Button onClick={() => void apply(plan)} loading={busy === 'apply'} disabled={busy !== null}>
               Open PR
             </Button>
           )}
-          {plan && applied && (
+          {plan && (applied || nothingToAdd) && (
             <Button onClick={() => void runVerify(plan)} loading={busy === 'verify'} disabled={busy !== null}>
               Run verify
             </Button>
