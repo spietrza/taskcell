@@ -122,19 +122,19 @@ export function scanOutgoingForSecrets(
     if (findings.length === 0 && injected.length === 0) return undefined;
     if (findings.length > 0) {
       console.error(
-        `vanguard: secret scan blocked ${phase} for ${taskId}:`,
+        `taskcell: secret scan blocked ${phase} for ${taskId}:`,
         findings.map((f) => `${f.file} [${f.patternName}] ${f.masked}`).join('; '),
       );
     }
     if (injected.length > 0) {
       console.error(
-        `vanguard: secret scan blocked ${phase} for ${taskId} (exact match on an injected credential):`,
+        `taskcell: secret scan blocked ${phase} for ${taskId} (exact match on an injected credential):`,
         injected.map((f) => `${f.file}${injectedLineSuffix(f)}`).join('; '),
       );
     }
     return { reason: 'findings', findings, ...(injected.length > 0 ? { injected } : {}) };
   } catch (err) {
-    console.error(`vanguard: secret scan failed for ${taskId}, blocking ${phase} as a precaution:`, err);
+    console.error(`taskcell: secret scan failed for ${taskId}, blocking ${phase} as a precaution:`, err);
     return { reason: 'scan-error', message: err instanceof Error ? err.message : String(err) };
   }
 }
@@ -161,7 +161,7 @@ export async function deliverChange(ctx: RunContext, opts: DeliverChangeOptions)
     const redacted = redactInjectedSecrets(text, secretValues);
     const count = redacted.split(INJECTED_REDACTION).length - text.split(INJECTED_REDACTION).length;
     if (count > 0) {
-      console.error(`vanguard: redacted ${count} injected credential occurrence(s) from the ${field} for ${opts.taskId} (values withheld)`);
+      console.error(`taskcell: redacted ${count} injected credential occurrence(s) from the ${field} for ${opts.taskId} (values withheld)`);
     }
     return redacted;
   };

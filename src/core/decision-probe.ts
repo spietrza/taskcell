@@ -5,7 +5,7 @@ import { decide, decisionModelConfig, num, type DecisionModelConfig, type Decisi
  * Log-only "decision model" probe (System One API: Cloudflare Clef / Typesafe Jev). Before the
  * pipeline starts, one typed query asks a sub-second, probability-returning model how hard the task
  * looks. The answer changes NOTHING about the run — it is persisted next to the run metrics so that,
- * after enough runs, `vanguard stats` can show whether the probe predicts gate repairs/escalation.
+ * after enough runs, `taskcell stats` can show whether the probe predicts gate repairs/escalation.
  * If it does, it becomes the automatic `vanguard:model=` label; if it does not, it is one env var
  * to unset.
  *
@@ -112,7 +112,7 @@ export async function probeTaskDifficulty(
   const difficulty = num(a['difficulty']?.score);
   const specClear = num(a['spec_clear']?.noul);
   if (completesFirstTry === undefined || difficulty === undefined || specClear === undefined) {
-    console.warn('vanguard: difficulty probe returned no usable answers — is the endpoint System-One compatible?');
+    console.warn('taskcell: difficulty probe returned no usable answers — is the endpoint System-One compatible?');
     return undefined;
   }
   return {

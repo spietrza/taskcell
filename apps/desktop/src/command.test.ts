@@ -36,7 +36,7 @@ describe('config-derived tokens are validated (app.json is repo content)', () =>
 
   it('builds an argv with one element per argument (no shell string)', () => {
     expect(watchArgv({ provider: 'zai' }, { source: 'gitlab', concurrency: 2.7, loopV1: true })).toEqual([
-      'vanguard', 'watch', '--gitlab', '--concurrency', '2', '--loop-v1', '--provider', 'zai', '--max-turns', '30',
+      'taskcell', 'watch', '--gitlab', '--concurrency', '2', '--loop-v1', '--provider', 'zai', '--max-turns', '30',
     ]);
     expect(watchArgv({}, { ...opts, concurrency: 0 })).toContain('1');
   });
@@ -59,7 +59,7 @@ describe('command builder', () => {
   });
 
   it('run uses the given source and lifts the turn cap', () => {
-    expect(runCommand({}, 'gitlab')).toBe('vanguard run --gitlab <issue> --provider claude --max-turns 30');
+    expect(runCommand({}, 'gitlab')).toBe('taskcell run --gitlab <issue> --provider claude --max-turns 30');
   });
 
   it('run falls back to cfg.source, then github', () => {
@@ -69,7 +69,7 @@ describe('command builder', () => {
 
   it('watch wires source/concurrency and only adds --loop-v1 when set', () => {
     expect(watchCommand({}, { source: 'github', concurrency: 5, loopV1: false })).toBe(
-      'vanguard watch --github --concurrency 5 --provider claude --max-turns 30',
+      'taskcell watch --github --concurrency 5 --provider claude --max-turns 30',
     );
     expect(watchCommand({}, { source: 'github', concurrency: 2, loopV1: true })).toContain('--loop-v1');
   });
@@ -78,9 +78,9 @@ describe('command builder', () => {
     const presets = runPresets({ provider: 'codex' });
     // Pin label→source so a copy-paste swap (e.g. the GitLab preset emitting --github) fails.
     expect(presets).toEqual([
-      { label: 'Run issue', cmd: 'vanguard run --github <issue> --provider codex --max-turns 30' },
-      { label: 'Run (GitLab MR)', cmd: 'vanguard run --gitlab <issue> --provider codex --max-turns 30' },
-      { label: 'Run (Linear)', cmd: 'vanguard run --linear <issue> --provider codex --max-turns 30' },
+      { label: 'Run issue', cmd: 'taskcell run --github <issue> --provider codex --max-turns 30' },
+      { label: 'Run (GitLab MR)', cmd: 'taskcell run --gitlab <issue> --provider codex --max-turns 30' },
+      { label: 'Run (Linear)', cmd: 'taskcell run --linear <issue> --provider codex --max-turns 30' },
     ]);
   });
 });
