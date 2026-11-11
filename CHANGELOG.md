@@ -1,5 +1,37 @@
 # Changelog
 
+## [1.15.1](https://github.com/spietrza/taskcell/compare/v1.15.0...v1.15.1) (2026-11-10)
+
+
+### Features
+
+* eval: compare with main's baseline and gate PRs on a regression (spietrza/taskcell[#706](https://github.com/spietrza/taskcell/issues/706)) ([#713](https://github.com/spietrza/taskcell/issues/713)) ([de2322d](https://github.com/spietrza/taskcell/commit/de2322d1e79214a8b392374058e619ff9addfba2))
+* eval: turn human-rejected factory runs into draft corpus candidates (spietrza/taskcell[#707](https://github.com/spietrza/taskcell/issues/707)) ([#712](https://github.com/spietrza/taskcell/issues/712)) ([e3cb2bb](https://github.com/spietrza/taskcell/commit/e3cb2bb6532e370d5e0aab4bb610bbe0441ddaa2))
+* tests: three tests fail on macOS (/private/var temp paths) (spietrza/taskcell[#668](https://github.com/spietrza/taskcell/issues/668)) ([#710](https://github.com/spietrza/taskcell/issues/710)) ([f674bc4](https://github.com/spietrza/taskcell/commit/f674bc4ca4fe3c5dacbcd39404c2f36ad8021baf))
+
+
+### Bug Fixes
+
+* **deps:** desktop dependency bumps and pnpm/action-setup 6.1.1 ([#719](https://github.com/spietrza/taskcell/issues/719)) ([4662d08](https://github.com/spietrza/taskcell/commit/4662d08555ac1da4776257766019c6b78c776a4f))
+* **evals:** also accept the safeguards-flagged stop as an answer ([#732](https://github.com/spietrza/taskcell/issues/732)) ([db344d3](https://github.com/spietrza/taskcell/commit/db344d38f90cb57886f6974245fbacb51ba5f81d))
+* **evals:** retry the judge once on an invalid verdict instead of aborting the run ([#723](https://github.com/spietrza/taskcell/issues/723)) ([3766754](https://github.com/spietrza/taskcell/commit/3766754f9ea6e16a3c483a6e66f597e4d3ba9775))
+* **evals:** run eval model calls without tools, MCP or the repo as cwd ([#729](https://github.com/spietrza/taskcell/issues/729)) ([d52df53](https://github.com/spietrza/taskcell/commit/d52df532bd58a59395618c7958aaa0dd52764443))
+* **evals:** send a stand-in prompt for the empty-input case ([#724](https://github.com/spietrza/taskcell/issues/724)) ([0c41ab4](https://github.com/spietrza/taskcell/commit/0c41ab41244b6f80d7ec96d6fd13661ef70d8db7))
+* **evals:** show partial CLI output when a model call times out ([#734](https://github.com/spietrza/taskcell/issues/734)) ([7e9260a](https://github.com/spietrza/taskcell/commit/7e9260a1d534cf69be6579076f91bc48f2fb56d2))
+* **evals:** time out a hung model call after 5 minutes ([#733](https://github.com/spietrza/taskcell/issues/733)) ([1618d95](https://github.com/spietrza/taskcell/commit/1618d9550cbd6ba751b8955830bdd0387a5ffbc5))
+* **evals:** treat an API safety stop as the model's answer ([#731](https://github.com/spietrza/taskcell/issues/731)) ([fc7194b](https://github.com/spietrza/taskcell/commit/fc7194bf90d5f9cbf5eab563b88c5d36d2f8382c))
+* factory workflows pull the prebuilt sandbox image ([#711](https://github.com/spietrza/taskcell/issues/711)) ([192cdfe](https://github.com/spietrza/taskcell/commit/192cdfe61d0c1ecae81c1dcf6e111795461b4c7f))
+
+
+### Documentation
+
+* evals and guardrails self-assessment ([#708](https://github.com/spietrza/taskcell/issues/708)) ([8a8efad](https://github.com/spietrza/taskcell/commit/8a8efad0a70cbc0c380c6317316fbbbf9e55a59d))
+
+
+### Miscellaneous
+
+* release 1.15.1 ([#714](https://github.com/spietrza/taskcell/issues/714)) ([79e6ce0](https://github.com/spietrza/taskcell/commit/79e6ce06ea24dd2c2db7ae95db752da5493af0af))
+
 ## [1.15.0](https://github.com/spietrza/taskcell/compare/v1.14.0...v1.15.0) (2026-11-10)
 
 

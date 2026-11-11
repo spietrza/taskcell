@@ -17,6 +17,10 @@ import {
   createdTask,
   dirListing,
   remoteImport,
+  factoryPlan,
+  factoryApplyResult,
+  factorySecret,
+  factoryVerify,
 } from './fixtures';
 
 const READ_DRAFT = JSON.stringify({ id: 'draft-001', title: 'Draft task', body: 'Some draft content here.' });
@@ -107,6 +111,11 @@ const commandHandlers = {
     name: args?.name ?? 'repo',
     runCount: 0, taskCount: 0, totalCostUsd: 0, failedCount: 0, runningCount: 0, runsLast24h: 0,
   }),
+  // Hub-only Enable factory flow (EnableFactoryDialog).
+  enable_factory_plan: () => factoryPlan,
+  enable_factory_apply: () => factoryApplyResult,
+  enable_factory_secret: () => factorySecret,
+  enable_factory_verify: () => factoryVerify,
 } satisfies Partial<{
   [K in keyof Commands]: (args: Commands[K]['args']) => Promise<Commands[K]['result']> | Commands[K]['result'];
 }>;

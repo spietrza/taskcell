@@ -477,6 +477,42 @@ export interface SpawnInfo {
   command: string;
 }
 
+/** Enable-factory provider seam (hub § "Enable factory"): GitHub Actions is implemented; GitLab and
+ * Linear are "coming soon" in the UI and never reach `enable_factory_*` (see docs/task-sources.md,
+ * docs/onboarding-linear.md). */
+export type FactoryProviderId = 'github' | 'gitlab' | 'linear';
+
+/** What `enable_factory_plan` detected and what `enable_factory_apply` will do with it. */
+export interface FactoryPlan {
+  provider: 'github';
+  repoSlug: string;
+  defaultBranch: string;
+  login: string;
+  packageManager: string;
+  verifyCommand?: string;
+  scripts: { typecheck: boolean; lint: boolean; test: boolean; build: boolean };
+  /** Repo-relative paths `apply` will add, e.g. `.github/workflows/vanguard-implement.yml`. */
+  callerFiles: string[];
+  labels: string[];
+}
+
+export interface FactoryApplyResult {
+  branch: string;
+  prUrl: string;
+  labelsCreated: string[];
+}
+
+/** The secret-setup step's result: command text only — never a value, never executed by the hub. */
+export interface FactorySecretStep {
+  secretName: string;
+  command: string;
+}
+
+export interface FactoryVerifyResult {
+  dispatched: boolean;
+  run?: { url: string; status: string; conclusion: string };
+}
+
 /**
  * Allowlisted fields for `api_complete`'s `req` (S3/Editor UX 7/7). Deliberately NOT
  * `Omit<CompleteRequest, 'baseUrl' | 'assetRoot'>`: every field here is one the renderer is
@@ -554,6 +590,18 @@ export interface Commands {
   kill_run: { args: { pid: number }; result: void };
   /** TAURI_ONLY (see spawn_run). */
   list_spawns: { args: undefined; result: SpawnInfo[] };
+  /** HUB_ONLY: read the repo (default branch, package manager, verify command) and report what
+   *  `enable_factory_apply` would change — no writes yet. GitHub only; `provider` is accepted for
+   *  forward compatibility with GitLab/Linear, which the UI marks "coming soon" instead of calling this. */
+  enable_factory_plan: { args: { repoPath: string; provider: FactoryProviderId }; result: FactoryPlan };
+  /** HUB_ONLY: create a branch, add the five caller workflows, open a PR (never push to the default
+   *  branch) and create the routing labels. */
+  enable_factory_apply: { args: { repoPath: string; plan: FactoryPlan }; result: FactoryApplyResult };
+  /** HUB_ONLY: the `gh secret set` command text for the user to run themselves — the hub never
+   *  reads, prints or stores the secret value. */
+  enable_factory_secret: { args: { repoPath: string; plan: FactoryPlan }; result: FactorySecretStep };
+  /** HUB_ONLY: dispatch the doctor workflow (once the PR above is merged) and report the run that dispatch created. */
+  enable_factory_verify: { args: { repoPath: string; plan: FactoryPlan }; result: FactoryVerifyResult };
 }
 
 /** Commands the hub does not implement for real: absent from `src/hub/rpc.ts`'s dispatch cases (the
@@ -561,9 +609,18 @@ export interface Commands {
 export const TAURI_ONLY = ['spawn_run', 'kill_run', 'list_spawns'] as const satisfies readonly (keyof Commands)[];
 
 /** Commands with no `#[tauri::command]` in `src-tauri/src/lib.rs` — browser-only stand-ins for
- * native capability the webview doesn't need (no folder-picker dialog), plus `api_queue`: Tauri
- * stays strictly single-in-flight (no queue to read) so it has nothing to implement either. */
-export const HUB_ONLY = ['browse_dirs', 'clone_project', 'api_queue'] as const satisfies readonly (keyof Commands)[];
+ * native capability the webview doesn't need (no folder-picker dialog), plus the enable-factory
+ * seam (shells out to `gh`/`git`, which only the hub's Node process does today), plus `api_queue`:
+ * Tauri stays strictly single-in-flight (no queue to read) so it has nothing to implement either. */
+export const HUB_ONLY = [
+  'browse_dirs',
+  'clone_project',
+  'enable_factory_plan',
+  'enable_factory_apply',
+  'enable_factory_secret',
+  'enable_factory_verify',
+  'api_queue',
+] as const satisfies readonly (keyof Commands)[];
 
 /** Every command name, for the lib.rs parity test and friends. TYPE-CHECKED (not just asserted)
  * against `Commands`: the `satisfies` below rejects a typo or a name not in `Commands`, and
@@ -614,6 +671,10 @@ export const COMMAND_NAMES = [
   'spawn_run',
   'kill_run',
   'list_spawns',
+  'enable_factory_plan',
+  'enable_factory_apply',
+  'enable_factory_secret',
+  'enable_factory_verify',
 ] as const satisfies readonly (keyof Commands)[];
 type _Exhaustive = keyof Commands extends (typeof COMMAND_NAMES)[number]
   ? true

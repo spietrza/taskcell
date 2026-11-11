@@ -1,0 +1,42 @@
+name: Vanguard Implement
+
+# Thin caller of the reusable workflow (implement.yml), which holds the steps — checkout, build,
+# label bootstrap, the CLI call. See docs/onboarding-another-repo.md.
+#
+#   "ready for spec"  -> plan, then build it in the same run
+#   "ready for agent" -> build directly
+#   too vague         -> "needs info" (human fills it in)
+#
+# Requires repo setting: Settings > Actions > General > Workflow permissions >
+# "Allow GitHub Actions to create and approve pull requests" (otherwise the
+# agent's PR fails with "GitHub Actions is not permitted to create ... pull requests").
+
+on:
+  issues:
+    types: [labeled]
+  workflow_dispatch:
+
+permissions:
+  contents: write
+  pull-requests: write
+  issues: write
+
+jobs:
+  implement:
+    if: >-
+      (github.event_name == 'workflow_dispatch' && github.actor == 'YOUR_LOGIN') ||
+      (github.event_name == 'issues' &&
+      contains(fromJSON('["ready for spec","ready for agent"]'), github.event.label.name) &&
+      github.event.issue.user.login == 'YOUR_LOGIN' &&
+      github.event.sender.login == 'YOUR_LOGIN')
+    # On the job, not the workflow: a label event the `if:` skips (the factory's own vanguard:*
+    # labels) then never enters the group, so it cannot cancel a pending real run.
+    concurrency:
+      group: vanguard-implement-${{ github.repository }}
+      cancel-in-progress: false
+    uses: spietrza/taskcell/.github/workflows/implement.yml@v1
+    with:
+      allowed-actors: '["YOUR_LOGIN"]'
+      llm-proxy: true
+    secrets:
+      CLAUDE_CODE_OAUTH_TOKEN: ${{ secrets.CLAUDE_CODE_OAUTH_TOKEN }}

@@ -42,6 +42,7 @@ import {
   checkConformance,
   renderConformanceFeedback,
   commitLeakWarningBlock,
+  prBodyGapWarningBlock,
   PASSING_RESULT,
 } from '../pipeline/conformance-gate.js';
 import type { LlmProxyDep } from '../sandbox/llm-proxy.js';
@@ -759,11 +760,23 @@ export async function runSourcedIssue(
       // forces the declared-partial path even when conformance itself passed.
       const verificationFailed = verification !== undefined && !verification.passed;
       const visualProofFailed = visualProof !== undefined && !visualProof.passed;
-      const partial = !gatePassed || untrustedManifestDropped;
+      // `prBody` items name content the diff cannot carry (CI workflow YAML — copy-back drops it) and the
+      // factory has no channel to write: no human-authored body text exists yet, so a required item is
+      // a gap at delivery — partial scope (`Part of` + draft) — and only the composed body's delimited
+      // block, never its generated text, is where a human supplies it.
+      const prBodyCheck = checkConformance(manifest?.prBody !== undefined ? { prBody: manifest.prBody } : undefined, '', '');
+      const delivered: ConformanceResult = {
+        ...conformance,
+        pass: conformance.pass && prBodyCheck.pass,
+        missingPrBody: prBodyCheck.missingPrBody,
+        optionalMissingPrBody: prBodyCheck.optionalMissingPrBody,
+      };
+      const prBodyGapBlock = prBodyGapWarningBlock(delivered.missingPrBody);
+      const partial = !gatePassed || untrustedManifestDropped || !prBodyCheck.pass;
       const baseBody = reviewRequestBody(task.id, {
         closeIssueOnMerge: !!adapter.closeIssueOnMerge,
         ...(untrustedManifestDropped ? { untrustedManifest: true } : {}),
-        ...(manifest !== undefined ? { conformance, manifest } : {}),
+        ...(manifest !== undefined ? { conformance: delivered, manifest } : {}),
         ...(verificationFailed ? { verificationFailed: true } : {}),
         ...(!implementerDone ? { implementerIncomplete: true } : {}),
         ...(whiteLabel ? { hideAttribution: true } : {}),
@@ -806,12 +819,14 @@ export async function runSourcedIssue(
             const diffFiles = diffFilesWithPatches(outgoingDiff);
             const configPaths = gateConfigPaths(diffFiles, extraGlobs);
             const configBlock = gateConfigChangedBlock(diffFiles.filter((file) => configPaths.includes(file.path)));
+            // The PR-body gap block carries no branding, so white-label keeps it like the gate-config block.
             return whiteLabel
-              ? [baseBody, configBlock].filter(Boolean).join('\n\n')
+              ? [baseBody, configBlock, prBodyGapBlock].filter(Boolean).join('\n\n')
               : [
                 configBlock,
                 baseBody,
                 commitLeaks.length > 0 ? commitLeakWarningBlock(commitLeaks) : undefined,
+                prBodyGapBlock,
                 verification !== undefined ? proofBlock(verification) : verifySkippedBlock(),
                 visualProof !== undefined ? visualProofBlock(visualProof) : undefined,
                 reviewerOutcome !== undefined ? reviewVerdictLine(reviewVerdictOf(reviewerOutcome.result.finalText)) : undefined,
