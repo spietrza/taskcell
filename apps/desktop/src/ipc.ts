@@ -11,7 +11,18 @@ import type {
   DirListing,
   AppConfig,
 } from './vanguard-output';
-import type { BoardTask, Commands, CompleteResponse, NeedsYouItem, SpawnInfo } from './wire';
+import type {
+  BoardTask,
+  Commands,
+  CompleteResponse,
+  FactoryApplyResult,
+  FactoryPlan,
+  FactoryProviderId,
+  FactorySecretStep,
+  FactoryVerifyResult,
+  NeedsYouItem,
+  SpawnInfo,
+} from './wire';
 
 export type { NeedsYouItem } from './wire';
 
@@ -58,6 +69,25 @@ export function addProject(path: string): Promise<Project[]> {
  *  it, like `cloneProject`'s RepoPicker caller does). */
 export function cloneProject(url: string, parentDir: string, name?: string): Promise<Project> {
   return call('clone_project', { url, parentDir, name });
+}
+
+// Enable factory (hub-only): plan -> apply (branch + PR, never the default branch) -> secret
+// command text for the user to run -> verify (dispatch the doctor workflow). See src/hub/enable-factory.ts.
+export function enableFactoryPlan(repoPath: string, provider: FactoryProviderId): Promise<FactoryPlan> {
+  return call('enable_factory_plan', { repoPath, provider });
+}
+
+export function enableFactoryApply(repoPath: string, plan: FactoryPlan): Promise<FactoryApplyResult> {
+  return call('enable_factory_apply', { repoPath, plan });
+}
+
+/** Command text only — the hub never reads, prints or stores the secret value. */
+export function enableFactorySecret(repoPath: string, plan: FactoryPlan): Promise<FactorySecretStep> {
+  return call('enable_factory_secret', { repoPath, plan });
+}
+
+export function enableFactoryVerify(repoPath: string, plan: FactoryPlan): Promise<FactoryVerifyResult> {
+  return call('enable_factory_verify', { repoPath, plan });
 }
 
 export function removeProject(path: string): Promise<Project[]> {

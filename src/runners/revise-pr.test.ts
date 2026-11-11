@@ -11,6 +11,7 @@ import * as registry from '../agents/registry.js';
 import { selectAgents } from '../agents/registry.js';
 import { AgentError } from '../core/errors.js';
 import { gateConfigChangedBlock } from '../context/gate-config.js';
+import { prBodyGapWarningBlock } from '../pipeline/conformance-gate.js';
 import type { GhRunner } from '../tasks/github.js';
 import type { IsolatedSandboxProvider, ExecResult, SandboxConfig } from '../sandbox/provider.js';
 import type { AgentProvider, AgentRunInput, AgentTurn, AgentRunOutput } from '../agents/provider.js';
@@ -1477,6 +1478,32 @@ describe('runRevisePullRequest — revise-pass verification', () => {
     // The disclosure survives verbatim; the stale closing keyword next to it in the old body does not.
     expect(body).toContain(configBlock);
     expect(body).not.toContain('Closes o/r#42');
+  });
+
+  it('carries the required-PR-body-item block, with what a human pasted into it, across a round', async () => {
+    const editBodies: string[] = [];
+    const itemsBlock = prBodyGapWarningBlock([{ id: 'PR-1', contains: 'name: gate' }])
+      .replace('<!-- vanguard:pr-body-items:end -->', '```yaml\nname: gate\n```\n<!-- vanguard:pr-body-items:end -->');
+    const prBody = ['Part of o/r#42', 'Automated implementation of o/r#42 by Vanguard.', itemsBlock].join('\n\n');
+
+    await runRevisePullRequest('7', {
+      repoPath: repo,
+      repoSlug: 'o/r',
+      gh: makeGh([], editBodies, prBody),
+      verifyCmd: VERIFY_CMD,
+      _sandbox: makeSandboxVerify(0),
+      _agent: agentThatCompletes([]),
+      _worktrees: new WorktreeManager(repo),
+      _pushRunner: async () => '',
+      _baseBranch: 'feature-branch',
+      provider: 'claude',
+    });
+
+    const body = editBodies.find((b) => b.includes('o/r#42'));
+    expect(body).toBeDefined();
+    // A green round never upgrades the partial delivery to a closing keyword, and keeps the block verbatim.
+    expect(body).not.toContain('Closes o/r#42');
+    expect(body).toContain(itemsBlock);
   });
 
   it('the verify repair resumes on the implementer\'s routed model and turn cap', async () => {

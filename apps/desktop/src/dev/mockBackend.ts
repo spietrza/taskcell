@@ -17,6 +17,10 @@ import {
   dirListing,
   remoteImport,
   needsYouItems,
+  factoryPlan,
+  factoryApplyResult,
+  factorySecret,
+  factoryVerify,
 } from './fixtures';
 
 let waitingNeedsYou = [...needsYouItems];
@@ -113,6 +117,11 @@ const commandHandlers = {
   reply_needs_you: (args) => {
     waitingNeedsYou = waitingNeedsYou.filter((i) => i.id !== args.id);
   },
+  // Hub-only Enable factory flow (EnableFactoryDialog).
+  enable_factory_plan: () => factoryPlan,
+  enable_factory_apply: () => factoryApplyResult,
+  enable_factory_secret: () => factorySecret,
+  enable_factory_verify: () => factoryVerify,
 } satisfies Partial<{
   [K in keyof Commands]: (args: Commands[K]['args']) => Promise<Commands[K]['result']> | Commands[K]['result'];
 }>;

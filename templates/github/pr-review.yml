@@ -1,0 +1,39 @@
+name: Vanguard PR Review
+
+# Thin caller of the reusable workflow (pr-review.yml), which holds the steps.
+#
+# Triggers on `pull_request_target` (as docs/onboarding-another-repo.md prescribes): the workflow
+# definition — this `if:` gate and the `secrets:` block — is read from the base branch, so a PR's
+# head branch cannot edit the gate away. The gate admits only same-repo PRs by the signed-in user. Reviews only the signed-in user's own PRs (the author gate below).
+
+on:
+  pull_request_target:
+    types: [labeled]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  pull-requests: write
+  issues: write
+
+concurrency:
+  group: vanguard-pr-review-${{ github.repository }}
+  cancel-in-progress: false
+
+jobs:
+  review:
+    if: >-
+      (github.event_name == 'workflow_dispatch' && github.actor == 'YOUR_LOGIN') ||
+      (github.event_name == 'pull_request_target' &&
+      github.event.pull_request.head.repo.full_name == github.repository &&
+      github.event.label.name == 'ready for vanguard review' &&
+      github.event.pull_request.draft == false &&
+      github.event.pull_request.user.login == 'YOUR_LOGIN' &&
+      github.event.sender.login == 'YOUR_LOGIN')
+    uses: spietrza/taskcell/.github/workflows/pr-review.yml@v1
+    with:
+      allowed-actors: '["YOUR_LOGIN"]'
+      author: YOUR_LOGIN
+      llm-proxy: true
+    secrets:
+      CLAUDE_CODE_OAUTH_TOKEN: ${{ secrets.CLAUDE_CODE_OAUTH_TOKEN }}
