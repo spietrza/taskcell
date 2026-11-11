@@ -168,12 +168,18 @@
           "oklch(0.85 0.025 200)",
           "oklch(0.95 0.025 200)"
         ]
+      },
+      "caption": {
+        "role": "tertiary",
+        "displayName": "Caption Teal",
+        "canonical": "#79a9ad",
+        "purpose": "Caption text only (section labels, table headers); #3f6b70 in light."
       }
     },
     "typographyMeta": {
       "title": {
         "displayName": "Title",
-        "purpose": "Page and dialog headings (Schibsted Grotesk)."
+        "purpose": "Page headings at 20px (Schibsted Grotesk), one step above card titles; dialog headings stay small."
       },
       "card-title": {
         "displayName": "Card title",
@@ -189,7 +195,7 @@
       },
       "section-label": {
         "displayName": "Section label",
-        "purpose": "Uppercase group captions (rail Running, tile labels); never above a page heading."
+        "purpose": "Caption voice from taskcell.dev: IBM Plex Mono 11px uppercase in caption teal (the caption utility). Group captions, tile labels, table headers; never above a page heading."
       },
       "mono": {
         "displayName": "Mono",

@@ -103,7 +103,7 @@ export function Fleet({ project, active }: { project: string; active: ActiveRun[
   return (
     <div className="mx-auto max-w-3xl space-y-4">
       <div className="flex items-center gap-3">
-        <h2 className="font-semibold">Fleet</h2>
+        <h2 className="text-xl font-semibold">Fleet</h2>
         {running && (
           <Button className="ml-auto" variant="outlined" color="destructive" onClick={stop}>
             Stop all
@@ -188,7 +188,7 @@ export function Fleet({ project, active }: { project: string; active: ActiveRun[
         />
       )}
 
-      <div className="text-xs font-medium uppercase tracking-wide text-muted-foreground">Claimed / Running</div>
+      <div className="caption">Claimed / Running</div>
       <div className="space-y-2">
         {slots.map((a, i) => (
           <div key={i} className="flex items-center gap-3 rounded-lg border border-border px-4 py-3 text-sm">

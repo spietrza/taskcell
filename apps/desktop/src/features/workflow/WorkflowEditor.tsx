@@ -224,7 +224,7 @@ export function WorkflowEditor({ project }: { project: string }) {
   return (
     <div className="flex h-full min-h-0 flex-col gap-4">
       <div className="flex shrink-0 items-center gap-3">
-        <h2 className="font-semibold">Flows</h2>
+        <h2 className="text-xl font-semibold">Flows</h2>
         {state.file !== null && <code className="text-xs text-muted-foreground">.vanguard/flows/{state.file}</code>}
         {state.dirty && (
           <span className="rounded bg-warning/15 px-1.5 py-0.5 text-[11px] text-warning-text">unsaved</span>
@@ -285,7 +285,7 @@ export function WorkflowEditor({ project }: { project: string }) {
         ) : (
           <div className="grid grid-cols-1 gap-4 lg:grid-cols-[200px_1fr_280px]">
             <div className="rounded-lg border border-border p-2">
-              <div className="mb-2 px-1 text-[11px] font-medium uppercase tracking-wide text-muted-foreground">Flows</div>
+              <div className="mb-2 px-1 caption">Flows</div>
               {listError !== null && <div className="px-1 pb-2 text-xs text-destructive">{listError}</div>}
               {flows !== null && flows.length === 0 && listError === null && (
                 <div className="px-1 pb-2 text-xs text-muted-foreground">No flows yet — create one below.</div>
@@ -401,7 +401,7 @@ export function WorkflowEditor({ project }: { project: string }) {
             )}
 
             <div className="rounded-lg border border-border p-4">
-              <div className="mb-3 text-[11px] font-semibold uppercase tracking-wide text-muted-foreground">
+              <div className="mb-3 caption">
                 {selectedStage !== undefined ? `Stage — ${selectedStage.name}` : 'Palette'}
               </div>
               {selectedStage !== undefined && state.selected !== null ? (

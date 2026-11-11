@@ -14,7 +14,7 @@ type Busy = 'plan' | 'apply' | 'verify' | null;
 function Section({ title, children }: { title: string; children: ReactNode }) {
   return (
     <div className="mt-3">
-      <div className="text-[11px] font-medium uppercase tracking-wide text-muted-foreground">{title}</div>
+      <div className="caption">{title}</div>
       <div className="mt-1 text-sm">{children}</div>
     </div>
   );

@@ -60,6 +60,8 @@
   --border: #d3dadd;
   --input: #b9c3c7;
   --ring: var(--primary);
+  /* The landing's steel teal (--accent-2), darkened to keep 4.5:1 on paper and wells. */
+  --caption: #3f6b70;
 }
 
 /* Dark (default): the landing's palette as is. */
@@ -90,6 +92,18 @@
   --border: #202c2f;
   --input: #3a5054;
   --ring: var(--primary);
+  --caption: #79a9ad;
+}
+
+/* The landing's caption voice (.eyebrow, .chip): mono, uppercase, steel teal. Section and group
+   labels and table headers only; never above a page heading. */
+@utility caption {
+  font-family: var(--font-mono);
+  font-size: 11px;
+  font-weight: 500;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  color: var(--caption);
 }
 
 body {

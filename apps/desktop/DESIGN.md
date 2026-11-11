@@ -23,12 +23,14 @@ colors:
   muted-foreground-light: "#56616b"
   border-light: "#d3dadd"
   input-light: "#b9c3c7"
+  caption: "#79a9ad"
+  caption-light: "#3f6b70"
 typography:
   title:
     fontFamily: "Schibsted Grotesk, sans-serif"
-    fontSize: "1rem"
+    fontSize: "1.25rem"
     fontWeight: 600
-    lineHeight: 1.5
+    lineHeight: 1.4
   card-title:
     fontFamily: "Schibsted Grotesk, sans-serif"
     fontSize: "1.125rem"
@@ -46,10 +48,10 @@ typography:
     fontWeight: 400
     lineHeight: 1.33
   section-label:
-    fontFamily: "Atkinson Hyperlegible, sans-serif"
+    fontFamily: "IBM Plex Mono, monospace"
     fontSize: "11px"
-    fontWeight: 400
-    letterSpacing: "0.025em"
+    fontWeight: 500
+    letterSpacing: "0.06em"
   micro:
     fontFamily: "Atkinson Hyperlegible, sans-serif"
     fontSize: "10px"
@@ -131,7 +133,7 @@ display sizes, glow or 3D scene. Dark is the default; light is a derived theme f
 pick it.
 
 Amber is the only accent. It marks the one main action per screen, focus, selection and live
-state (the running chip, an active filter, the selected run row). It is never decoration. The
+state (the running chip, an active filter, the running run row, at a 5% tint). It is never decoration. The
 other colors are status (green passed/running dot, yellow warning, red failed) and the project's
 own identity color in the title bar. When a screen is all ink and hairline, nothing needs the
 operator.
@@ -176,7 +178,8 @@ class on `<html>`. Dark is applied before first paint (`class="dark"` in `index.
 - **Fault Red** (`destructive`): failed runs, errors, Kill, removed diff lines, error banners. Text
   uses `text-destructive-text` (the landing's `--fail` `#ff6a5c` in dark), banners included.
 - **Board and info hues (Tailwind palette, not tokens):** the task board gives each column its own
-  hue (slate Queued, amber Claimed, blue Running, rose Verify failed, violet Review, emerald Done),
+  hue on the header dot, count pill and card hover edge only; lanes stay neutral (`bg-muted/20`)
+  (slate Queued, amber Claimed, blue Running, rose Verify failed, violet Review, emerald Done),
   and sky marks informational lines (tool calls, `@@` hunks). These are the only sanctioned raw
   palette colors; they are spelled out in `COLUMNS`/`CHIP_TONE` in `TaskBoard.tsx`.
 
@@ -184,6 +187,9 @@ class on `<html>`. Dark is applied before first paint (`class="dark"` in `index.
 - **Project color** (`projectColor()` in `src/color.ts`): a per-project hex, auto-derived from the
   path (HSL 70% / 52%) or set in Settings. It fills the 32px title bar inside a project (text from
   `contrastColor()`), the dashboard card's left edge, and the dot in the project switcher.
+- **Caption teal** (`--caption`, the `caption` utility): the landing's steel teal (`--accent-2`
+  `#79a9ad`), darkened to `#3f6b70` in light. Only for caption text (section labels, table
+  headers); never a fill, border or status.
 - **Doorway mark** (`Logo`): the landing's mark, wall in `currentColor`, card in `fill-primary`.
 
 ### Neutral (dark / light)
@@ -207,6 +213,7 @@ class on `<html>`. Dark is applied before first paint (`class="dark"` in `index.
 | success-text | 9.2 / 7.8 | 5.9 / 5.3 |
 | warning-text | 12.5 / 10.5 | 5.4 / 4.8 |
 | destructive-text | 6.8 / 5.7 | 5.8 / 5.2 |
+| caption | 7.4 / 6.2 | 5.6 / 5.0 |
 | ink on amber button | 8.7 | 5.3 |
 
 ### Named Rules
@@ -236,14 +243,16 @@ wordmark, monospace only where the content is machine text: task ids, commands, 
 code, stage names, diffs, transcripts.
 
 ### Hierarchy
-- **Title** (Schibsted 600, 16px): page and dialog headings (`h2.font-semibold`, dialog
-  `text-sm font-medium`).
+- **Title** (Schibsted 600, 20px): page headings (`h2.text-xl.font-semibold`), one step above the
+  18px card title. Dialog headings stay small (`text-sm font-medium`).
 - **Card title** (Schibsted 600, 18px, tight): project card names (chunks `Card.Title`).
 - **Stat** (600, 24px, tabular): the five summary tiles on Home only.
 - **Body** (400, 14px): table cells, form labels, list rows, buttons.
 - **Meta** (400, 12px, `text-muted-foreground`): timestamps, counts, hints, chips.
-- **Section label** (11px, uppercase, `tracking-wide`, muted): the rail's "Running" group,
-  summary tile labels, panel captions. Labels a group of controls; never sits above a page heading.
+- **Section label** (the `caption` utility in `src/styles.css`: IBM Plex Mono 500, 11px,
+  uppercase, 0.06em, caption teal): the landing's caption voice (`.eyebrow`, `.chip`). The rail's
+  "Running" group, summary tile labels, panel captions, Callout labels and table headers. Labels a
+  group of controls or a column; never sits above a page heading.
 - **Micro** (400, 10px): inline tags inside a row ("git", ".vanguard", a stage's "review" badge,
   the code block's language and copy labels). Never body text.
 - **Title bar** (700, 13px): the window title strip only.
@@ -254,7 +263,8 @@ code, stage names, diffs, transcripts.
 turns) uses `tabular-nums`.
 
 **The Machine-Text Rule.** Monospace marks text a machine produced or consumes. It is not a
-"technical" costume for headings, buttons or chat placeholders.
+"technical" costume for headings, buttons or chat placeholders. The one exception is the
+`caption` label voice, taken from the landing as identity, and only at 11px uppercase.
 
 ## Layout
 
@@ -344,13 +354,14 @@ wider edge is the dashboard card's 6px project-color strip, which is identity, n
 - **Hub connection banners** (`App.tsx`): full-width strip under the title bar.
 
 ### App-owned primitives (`src/ui`)
-- **Callout**: 11px uppercase muted label + content, `p-3`, no border; labelled asides inside
+- **Callout**: `caption` label + content, `p-3`, no border; labelled asides inside
   prose and panels. A bordered note (the Settings Credentials box) is a Callout inside a hairline
   `rounded-md border bg-muted/30` box; prefer extending Callout over hand-rolling another.
 - **CodeBlock**: dark `pre` with highlight.js tokens, a 10px language label and a copy button.
 - **Markdown**: `react-markdown` + GFM in Tailwind `prose`, code fences through CodeBlock.
 - **ScrollTable** over chunks **Table**: the run list and Remote; rows scroll inside their own
-  container under a sticky `bg-muted` header.
+  container under a sticky `bg-background` header set in `caption` (`[&_th]:caption`); hairlines,
+  no band.
 - **InlineEdit**: click-to-rename text (the last breadcrumb on New Task).
 - **Logo**: the Doorway mark from taskcell.dev; wall `currentColor`, card `fill-primary`.
 

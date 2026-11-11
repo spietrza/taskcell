@@ -174,7 +174,7 @@ export function TaskDrawer({
           {active.map(row)}
           {archived.length > 0 && (
             <>
-              <div className="pt-2 text-[11px] font-semibold uppercase tracking-wide text-muted-foreground">
+              <div className="pt-2 caption">
                 Archived
               </div>
               {archived.map(row)}

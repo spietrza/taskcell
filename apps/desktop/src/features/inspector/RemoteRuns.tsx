@@ -60,7 +60,7 @@ export function RemoteRuns({
   return (
     <ScrollTable>
     <Table.Root>
-      <Table.Header className="sticky top-0 z-10 bg-muted">
+      <Table.Header className="sticky top-0 z-10 bg-background [&_th]:caption">
         <Table.Row>
           <Table.Head>Workflow</Table.Head>
           <Table.Head>Title</Table.Head>
