@@ -1,7 +1,7 @@
 name: Vanguard Approver (shadow)
 
 # Deterministic APPROVE / ESCALATE for a factory PR, in shadow mode: it decides from typed facts, appends
-# the decision to decisions.jsonl on the vanguard-metrics branch, and posts a neutral `vanguard/approver`
+# the decision to decisions.jsonl on the taskcell-metrics branch, and posts a neutral `vanguard/approver`
 # check and a comment. It never merges, approves or labels (docs/approver-policy.md, #513).
 #
 # Trigger: the external review finishing. The job then waits for the required CI checks, so the decision
@@ -23,7 +23,7 @@ on:
       pr: { description: "PR number", required: true }
 
 permissions:
-  contents: write        # append decisions.jsonl to the vanguard-metrics branch
+  contents: write        # append decisions.jsonl to the taskcell-metrics branch
   checks: write          # the vanguard/approver check run
   pull-requests: write   # the decision comment
   issues: write

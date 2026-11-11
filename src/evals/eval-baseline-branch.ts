@@ -4,7 +4,7 @@ import { parseJsonlLines } from '../core/stats.js';
 import type { EvalRunReport } from './types.js';
 
 /**
- * Baselines live on the same orphan `vanguard-metrics` branch as run metrics and approver decisions
+ * Baselines live on the same orphan `taskcell-metrics` branch as run metrics and approver decisions
  * (metrics-branch.ts), in their own file so the three never conflict. One record per main commit;
  * `--baseline main` reads the most recently pushed one.
  */

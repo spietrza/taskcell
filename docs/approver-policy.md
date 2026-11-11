@@ -7,7 +7,7 @@ the committed policy this repo runs under is at the repo root (`.vanguard/approv
 purpose, see `.gitignore`).
 
 v1 is **shadow mode**: the decision is published as a `neutral` check run plus a PR comment and
-appended to `decisions.jsonl` on the `vanguard-metrics` branch. Nothing is ever merged, approved or
+appended to `decisions.jsonl` on the `taskcell-metrics` branch. Nothing is ever merged, approved or
 labelled. See [Approver (shadow mode)](autonomous-loop.md#approver-shadow-mode) for how to run it.
 
 ## Where the file is read from
