@@ -1,0 +1,33 @@
+{
+  "issueRef": "acme/widgets#842",
+  "issueTimeline": [
+    { "event": "subscribed", "created_at": "2026-11-10T14:02:11Z" },
+    { "event": "labeled", "created_at": "2026-11-10T14:02:11Z", "label": { "name": "bug" } },
+    { "event": "labeled", "created_at": "2026-11-10T14:05:47Z", "label": { "name": "ready for agent" } },
+    {
+      "event": "cross-referenced",
+      "created_at": "2026-11-10T14:18:30Z",
+      "source": { "type": "issue", "issue": { "number": 845, "pull_request": {}, "repository": { "full_name": "acme/widgets" } } }
+    }
+  ],
+  "pr": {
+    "number": 845,
+    "createdAt": "2026-11-10T14:18:30Z",
+    "mergedAt": "2026-11-10T19:47:02Z"
+  },
+  "prTimeline": [
+    { "event": "ready_for_review", "created_at": "2026-11-10T14:31:09Z" },
+    { "event": "review_requested", "created_at": "2026-11-10T14:31:10Z" },
+    { "event": "labeled", "created_at": "2026-11-10T15:50:03Z", "label": { "name": "needs revision" } },
+    { "event": "unlabeled", "created_at": "2026-11-10T16:05:21Z", "label": { "name": "needs revision" } },
+    { "event": "labeled", "created_at": "2026-11-10T16:05:21Z", "label": { "name": "vanguard:revising" } },
+    { "event": "unlabeled", "created_at": "2026-11-10T16:22:40Z", "label": { "name": "vanguard:revising" } },
+    { "event": "labeled", "created_at": "2026-11-10T16:22:41Z", "label": { "name": "vanguard:needs-human-review" } },
+    { "event": "labeled", "created_at": "2026-11-10T18:10:15Z", "label": { "name": "needs revision" } },
+    { "event": "unlabeled", "created_at": "2026-11-10T18:14:02Z", "label": { "name": "needs revision" } },
+    { "event": "labeled", "created_at": "2026-11-10T18:14:02Z", "label": { "name": "vanguard:revising" } },
+    { "event": "unlabeled", "created_at": "2026-11-10T18:29:50Z", "label": { "name": "vanguard:revising" } },
+    { "event": "labeled", "created_at": "2026-11-10T18:29:51Z", "label": { "name": "vanguard:needs-human-review" } },
+    { "event": "merged", "created_at": "2026-11-10T19:47:02Z" }
+  ]
+}

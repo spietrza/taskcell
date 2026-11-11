@@ -2,6 +2,8 @@ import { readFile } from 'node:fs/promises';
 import { join } from 'node:path';
 import { parseMetrics, parseProbes, aggregateMetrics, formatStats } from '../core/stats.js';
 import { readBranchMetrics } from '../core/metrics-branch.js';
+import { leadTimeRollupForPrUrls } from '../core/lead-time-github.js';
+import { formatLeadTime } from '../core/lead-time.js';
 import type { Command } from './args.js';
 
 type StatsCommand = Extract<Command, { kind: 'stats' }>;
@@ -29,8 +31,12 @@ export async function statsCommand(cmd: StatsCommand): Promise<void> {
   }
   const records = parseMetrics(text);
   const report = aggregateMetrics(records, parseProbes(text));
+  const leadTime =
+    cmd.githubRepo !== undefined
+      ? await leadTimeRollupForPrUrls(cmd.githubRepo, records.flatMap((r) => (r.prUrl !== undefined ? [r.prUrl] : [])))
+      : undefined;
   if (cmd.json) {
-    console.log(JSON.stringify(report, null, 2));
+    console.log(JSON.stringify(leadTime !== undefined ? { ...report, leadTime } : report, null, 2));
     return;
   }
   if (records.length === 0) {
@@ -38,4 +44,5 @@ export async function statsCommand(cmd: StatsCommand): Promise<void> {
     return;
   }
   console.log(formatStats(report));
+  if (leadTime !== undefined) console.log(`\n${formatLeadTime(leadTime)}`);
 }
