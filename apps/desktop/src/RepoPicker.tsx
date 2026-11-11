@@ -3,6 +3,7 @@ import { ArrowUp, FolderGit2, Folder } from 'lucide-react';
 import { Button, Input, Tabs } from '@/ui';
 import { browseDirs } from './ipc';
 import { subscribe } from './transport';
+import { errorMessage } from './errors';
 import type { DirListing } from './vanguard-output';
 
 type Mode = 'existing' | 'clone';
@@ -38,7 +39,7 @@ export function RepoPicker({
       setListing(await browseDirs(path));
       setCurrentIsGit(isGitRepo);
     } catch (err) {
-      setError(String(err));
+      setError(`Could not open that folder: ${errorMessage(err)}`);
     }
   };
 
@@ -72,7 +73,7 @@ export function RepoPicker({
     try {
       await onAdd(listing.path);
     } catch (err) {
-      setError(String(err));
+      setError(`Could not add this repo: ${errorMessage(err)} — check it has a .vanguard directory and try again.`);
     }
   };
 
@@ -84,7 +85,7 @@ export function RepoPicker({
     try {
       await onClone(url.trim(), listing.path, folderName.trim() || undefined);
     } catch (err) {
-      setError(String(err));
+      setError(`Clone failed: ${errorMessage(err)} — check the URL and that you have access, then try again.`);
     } finally {
       setCloning(false);
     }
