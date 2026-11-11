@@ -90,14 +90,14 @@ jobs:
     needs: baseline
     runs-on: ubuntu-latest
     permissions:
-      contents: write # pushes eval-baselines.jsonl to the vanguard-metrics branch
+      contents: write # pushes eval-baselines.jsonl to the taskcell-metrics branch
     concurrency:
       group: eval-publish-baseline
       cancel-in-progress: false
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
         with:
-          ref: vanguard-metrics
+          ref: taskcell-metrics
       - uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
         with:
           name: eval-report
@@ -114,4 +114,4 @@ jobs:
           jq -c --arg c "$COMMIT" --arg t "$(date -u +%Y-%m-%dT%H:%M:%S.000Z)" '{commit: $c, timestamp: $t, report: .}' "$REPORT" >> eval-baselines.jsonl
           git add eval-baselines.jsonl
           git -c user.name=Vanguard -c user.email=vanguard@local commit -q -m "eval baseline ${COMMIT:0:7}"
-          git push origin HEAD:vanguard-metrics
+          git push origin HEAD:taskcell-metrics
