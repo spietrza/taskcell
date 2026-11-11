@@ -10,6 +10,7 @@ import { RepoPicker } from './RepoPicker';
 import { TailwindDebugScreens } from './components/TailwindDebugScreens';
 import { Dashboard } from './features/dashboard/Dashboard';
 import { Inspector } from './features/inspector/Inspector';
+import { EnableFactoryDialog } from './features/dashboard/EnableFactoryDialog';
 import { listProjects, addProject, cloneProject, removeProject, listActive } from './ipc';
 import { projectColor, contrastColor } from './color';
 import { createNavGuardRegistry, NavGuardContext } from './navGuard';
@@ -165,6 +166,7 @@ export default function App() {
   }, []);
 
   const [showRepoPicker, setShowRepoPicker] = useState(false);
+  const [factoryProject, setFactoryProject] = useState<{ path: string; name: string } | null>(null);
 
   const add = async (): Promise<void> => {
     // Hub mode has no native OS file dialog (no Tauri plugin in a browser) — RepoPicker (over
@@ -299,6 +301,8 @@ export default function App() {
               onOpen={(p) => enterProject(p.path)}
               onAdd={add}
               onRemove={remove}
+              // enable_factory_* are HUB_ONLY: offered in a browser (the hub, or the dev mock), never in Tauri.
+              onEnableFactory={isTauri() ? undefined : setFactoryProject}
             />
           ) : (
             <NavGuardContext.Provider value={navGuard.current}>
@@ -347,6 +351,7 @@ export default function App() {
           onClose={() => setShowRepoPicker(false)}
         />
       )}
+      {factoryProject && <EnableFactoryDialog project={factoryProject} onClose={() => setFactoryProject(null)} />}
       <TailwindDebugScreens />
     </div>
   );

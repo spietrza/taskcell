@@ -5,6 +5,7 @@ import {
   runs,
   runDetail,
   activeRuns,
+  queuedRuns,
   session,
   appConfig,
   remoteRuns,
@@ -16,6 +17,10 @@ import {
   createdTask,
   dirListing,
   remoteImport,
+  factoryPlan,
+  factoryApplyResult,
+  factorySecret,
+  factoryVerify,
 } from './fixtures';
 
 const READ_DRAFT = JSON.stringify({ id: 'draft-001', title: 'Draft task', body: 'Some draft content here.' });
@@ -93,6 +98,7 @@ const commandHandlers = {
   api_delete_flow: () => undefined,
   api_active_run: () => null,
   api_run_backlog: () => [],
+  api_queue: () => queuedRuns,
   api_cancel: () => undefined,
   api_repo_ok: () => true,
   // Hub-only command (apps/desktop never reaches it through Tauri, but the browser dev build —
@@ -105,6 +111,11 @@ const commandHandlers = {
     name: args?.name ?? 'repo',
     runCount: 0, taskCount: 0, totalCostUsd: 0, failedCount: 0, runningCount: 0, runsLast24h: 0,
   }),
+  // Hub-only Enable factory flow (EnableFactoryDialog).
+  enable_factory_plan: () => factoryPlan,
+  enable_factory_apply: () => factoryApplyResult,
+  enable_factory_secret: () => factorySecret,
+  enable_factory_verify: () => factoryVerify,
 } satisfies Partial<{
   [K in keyof Commands]: (args: Commands[K]['args']) => Promise<Commands[K]['result']> | Commands[K]['result'];
 }>;

@@ -11,7 +11,17 @@ import type {
   DirListing,
   AppConfig,
 } from './vanguard-output';
-import type { BoardTask, Commands, CompleteResponse, SpawnInfo } from './wire';
+import type {
+  BoardTask,
+  Commands,
+  CompleteResponse,
+  FactoryApplyResult,
+  FactoryPlan,
+  FactoryProviderId,
+  FactorySecretStep,
+  FactoryVerifyResult,
+  SpawnInfo,
+} from './wire';
 
 /**
  * The one typed seam over the transport (S7): `cmd` must name a command in the wire's `Commands`
@@ -56,6 +66,25 @@ export function addProject(path: string): Promise<Project[]> {
  *  it, like `cloneProject`'s RepoPicker caller does). */
 export function cloneProject(url: string, parentDir: string, name?: string): Promise<Project> {
   return call('clone_project', { url, parentDir, name });
+}
+
+// Enable factory (hub-only): plan -> apply (branch + PR, never the default branch) -> secret
+// command text for the user to run -> verify (dispatch the doctor workflow). See src/hub/enable-factory.ts.
+export function enableFactoryPlan(repoPath: string, provider: FactoryProviderId): Promise<FactoryPlan> {
+  return call('enable_factory_plan', { repoPath, provider });
+}
+
+export function enableFactoryApply(repoPath: string, plan: FactoryPlan): Promise<FactoryApplyResult> {
+  return call('enable_factory_apply', { repoPath, plan });
+}
+
+/** Command text only — the hub never reads, prints or stores the secret value. */
+export function enableFactorySecret(repoPath: string, plan: FactoryPlan): Promise<FactorySecretStep> {
+  return call('enable_factory_secret', { repoPath, plan });
+}
+
+export function enableFactoryVerify(repoPath: string, plan: FactoryPlan): Promise<FactoryVerifyResult> {
+  return call('enable_factory_verify', { repoPath, plan });
 }
 
 export function removeProject(path: string): Promise<Project[]> {
@@ -297,9 +326,16 @@ export function apiRunBacklog(runId: string): Promise<unknown[]> {
   return call('api_run_backlog', { runId });
 }
 
-/** Cancel the in-flight typed run (out-of-band SIGUSR2 to the sidecar child). */
-export function apiCancel(): Promise<void> {
-  return call('api_cancel', undefined);
+/** HUB_ONLY: runs waiting behind the active one, for a page that just (re)loaded — events alone
+ * cannot reconstruct this for a client that wasn't listening when they were queued. */
+export function apiQueue(): Promise<{ runId: string; repoPath: string; position: number }[]> {
+  return call('api_queue', undefined);
+}
+
+/** Cancel one run: `runId` given cancels exactly that run (active or queued, hub-only for the
+ * latter); omitted cancels the active run (out-of-band SIGUSR2 to the sidecar child on Tauri). */
+export function apiCancel(runId?: string): Promise<void> {
+  return call('api_cancel', { runId });
 }
 
 /** Click-time pre-flight: is `repoPath` a git work tree? */

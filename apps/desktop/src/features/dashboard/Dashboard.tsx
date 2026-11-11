@@ -1,6 +1,6 @@
 import type { CSSProperties } from 'react';
 import { Button, Card, Chip, Empty } from '@/ui';
-import { FolderPlus, LayoutGrid, X } from 'lucide-react';
+import { Factory, FolderPlus, LayoutGrid, X } from 'lucide-react';
 import { projectColor } from '../../color';
 import { relTime } from '../../time';
 import type { Project } from '../../vanguard-output';
@@ -32,11 +32,14 @@ export function Dashboard({
   onOpen,
   onAdd,
   onRemove,
+  onEnableFactory,
 }: {
   projects: Project[];
   onOpen: (p: { path: string; name: string }) => void;
   onAdd: () => void;
   onRemove: (path: string) => void;
+  /** Hub-only (the `enable_factory_*` commands are HUB_ONLY): omitted, the card has no button. */
+  onEnableFactory?: (p: { path: string; name: string }) => void;
 }) {
   const totals = {
     projects: projects.length,
@@ -138,6 +141,20 @@ export function Dashboard({
                       {p.runsLast24h > 0 && <Chip color="secondary" variant="outlined">{p.runsLast24h} in 24h</Chip>}
                       {last && <span className="ml-auto">{last}</span>}
                     </div>
+                    {onEnableFactory && (
+                      <Button
+                        className="mt-3 h-7 px-2 text-xs"
+                        variant="outlined"
+                        color="secondary"
+                        startIcon={<Factory className="size-3.5" />}
+                        onClick={(e) => {
+                          e.stopPropagation();
+                          onEnableFactory({ path: p.path, name: p.name });
+                        }}
+                      >
+                        Enable factory
+                      </Button>
+                    )}
                   </Card.Content>
                 </Card.Root>
               );
