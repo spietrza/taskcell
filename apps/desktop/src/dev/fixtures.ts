@@ -17,6 +17,10 @@ import type {
   RepoProviderInfo,
   FlowDoc,
   CreatedTask,
+  FactoryApplyResult,
+  FactoryPlan,
+  FactorySecretStep,
+  FactoryVerifyResult,
 } from '../wire';
 
 const REPO_PATH = '/home/user/projects/my-app';
@@ -271,4 +275,33 @@ export const remoteImport: RemoteImport = {
   taskIds: [...new Set(runs.map((r) => r.taskId))],
   runs,
   cachedAt: '2026-07-14T08:05:00.000Z',
+};
+
+/** Enable factory (hub mode): a plan for a pnpm repo, the PR it opens, the secret command, and a verify run. */
+export const factoryPlan: FactoryPlan = {
+  provider: 'github',
+  repoSlug: 'acme/my-app',
+  defaultBranch: 'main',
+  login: 'octocat',
+  packageManager: 'pnpm',
+  verifyCommand: 'pnpm typecheck && pnpm lint && pnpm test',
+  scripts: { typecheck: true, lint: true, test: true, build: true },
+  callerFiles: ['implement', 'doctor', 'pr-review', 'revise', 'resume'].map((n) => `.github/workflows/vanguard-${n}.yml`),
+  labels: ['ready for agent', 'needs revision', 'needs info', 'ready for spec', 'ready for vanguard review'],
+};
+
+export const factoryApplyResult: FactoryApplyResult = {
+  branch: 'vanguard/enable-factory',
+  prUrl: 'https://github.com/acme/my-app/pull/42',
+  labelsCreated: factoryPlan.labels,
+};
+
+export const factorySecret: FactorySecretStep = {
+  secretName: 'CLAUDE_CODE_OAUTH_TOKEN',
+  command: 'gh secret set CLAUDE_CODE_OAUTH_TOKEN --repo acme/my-app',
+};
+
+export const factoryVerify: FactoryVerifyResult = {
+  dispatched: true,
+  run: { url: 'https://github.com/acme/my-app/actions/runs/123456', status: 'queued', conclusion: '' },
 };
