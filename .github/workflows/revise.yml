@@ -40,6 +40,10 @@ on:
         description: 'Vanguard source ref to build. Empty = the ref this workflow was called at.'
         type: string
         default: ''
+      max-rounds:
+        description: 'How many revise rounds a PR gets before it is handed to a human (--max-rounds), 1-5. Raise it only from a trusted caller that explicitly wants more automatic revisions; the round history on the PR is kept, never reset.'
+        type: string
+        default: '2'
       timeout-minutes:
         description: 'Job timeout in minutes.'
         type: number
@@ -152,9 +156,12 @@ jobs:
           IN_PROVIDER_MODEL: ${{ inputs.provider-model }}
           IN_LLM_PROXY: ${{ inputs.llm-proxy }}
           IN_SKILLS: ${{ inputs.skills }}
+          IN_MAX_ROUNDS: ${{ inputs.max-rounds }}
         run: |
           [[ "$IN_NUMBER" =~ ^[0-9]+$ ]] || { echo "::error::number must be a positive integer, got '$IN_NUMBER'"; exit 1; }
-          args=(revise-pr "$IN_NUMBER" --github-repo "$GITHUB_REPOSITORY" --repo "$GITHUB_WORKSPACE" --max-rounds 2)
+          # Bounded on purpose: more rounds is an explicit caller choice, never unlimited retries.
+          [[ "$IN_MAX_ROUNDS" =~ ^[1-5]$ ]] || { echo "::error::max-rounds must be an integer from 1 to 5, got '$IN_MAX_ROUNDS'"; exit 1; }
+          args=(revise-pr "$IN_NUMBER" --github-repo "$GITHUB_REPOSITORY" --repo "$GITHUB_WORKSPACE" --max-rounds "$IN_MAX_ROUNDS")
           [ -n "$IN_SKILLS" ] && args+=(--skills "$IN_SKILLS")
           [ -n "$IN_PROVIDER" ] && args+=(--provider "$IN_PROVIDER")
           [ -n "$IN_PROVIDER_MODEL" ] && args+=(--provider-model "$IN_PROVIDER_MODEL")
