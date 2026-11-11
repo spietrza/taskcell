@@ -103,7 +103,7 @@ export function Settings({ project }: { project: string }) {
   return (
     <div className="mx-auto max-w-2xl space-y-5">
       <div className="flex items-center gap-3">
-        <h2 className="font-semibold">Settings</h2>
+        <h2 className="text-xl font-semibold">Settings</h2>
         <code className="text-xs text-muted-foreground">.vanguard/app.json</code>
         <Button className="ml-auto" onClick={save} disabled={!savable}>
           {saved ? 'Saved' : 'Save'}
@@ -235,7 +235,7 @@ export function Settings({ project }: { project: string }) {
           <div className="flex items-center gap-2">
             <span className="text-sm font-semibold">Custom providers</span>
             <span className="text-xs text-muted-foreground">
-              — Anthropic-compatible endpoints run with <code>--provider &lt;name&gt;</code> (S6)
+              — Anthropic-compatible endpoints run with <code>--provider &lt;name&gt;</code>
             </span>
             <Button
               variant="text"
@@ -295,7 +295,7 @@ export function Settings({ project }: { project: string }) {
         </div>
 
         <div className="rounded-md border border-border bg-muted/30 p-3">
-          <div className="text-[11px] font-semibold uppercase tracking-wide text-muted-foreground">
+          <div className="caption">
             Credentials
           </div>
           <p className="mt-1 text-sm text-muted-foreground">

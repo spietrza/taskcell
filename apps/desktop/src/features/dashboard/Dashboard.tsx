@@ -18,7 +18,7 @@ function Stat({
 }) {
   return (
     <div className="rounded-lg border border-border p-4">
-      <div className="text-[11px] font-medium uppercase tracking-wide text-muted-foreground">{label}</div>
+      <div className="caption">{label}</div>
       <div className={`mt-1 flex items-center gap-1.5 text-2xl font-semibold tabular-nums ${accent ? 'text-success-text' : ''}`}>
         {dot && <span className="size-2 rounded-full bg-success" />}
         {value}
@@ -54,7 +54,7 @@ export function Dashboard({
   return (
     <div className="mx-auto h-full w-full max-w-5xl space-y-4 overflow-y-auto p-6">
       <div className="flex items-center gap-3">
-        <h2 className="font-semibold">Projects</h2>
+        <h2 className="text-xl font-semibold">Projects</h2>
         <Button className="ml-auto" onClick={onAdd} startIcon={<FolderPlus className="size-4" />}>
           Add project
         </Button>

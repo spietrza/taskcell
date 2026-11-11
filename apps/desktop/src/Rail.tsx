@@ -104,7 +104,7 @@ export function Rail({
         {running.length > 0 && (
           <div className={collapsed ? 'mt-4 px-2' : 'mt-5 px-2'}>
             {!collapsed && (
-              <div className="px-2 text-[11px] font-medium uppercase tracking-wide text-muted-foreground">Running</div>
+              <div className="px-2 caption">Running</div>
             )}
             <div className={collapsed ? 'flex flex-col items-center gap-1' : 'mt-1 space-y-1'}>
               {running.map((r) => {

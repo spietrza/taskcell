@@ -16,11 +16,8 @@ import { projectColor, contrastColor } from './color';
 import { createNavGuardRegistry, NavGuardContext } from './navGuard';
 import { ProjectCombobox } from './ProjectCombobox';
 import { isHubMode, onHubRestart, onHubConnectionIssue } from './transport';
+import { applyTheme, initialTheme, saveTheme } from './theme';
 import type { Project, ActiveRun } from './vanguard-output';
-
-function applyTheme(theme: Theme): void {
-  document.documentElement.classList.toggle('dark', theme === 'dark');
-}
 
 export default function App() {
   const [projects, setProjects] = useState<Project[]>([]);
@@ -52,13 +49,8 @@ export default function App() {
     fn();
   };
   const [theme, setTheme] = useState<Theme>(() => {
-    const saved = localStorage.getItem('vg-theme');
-    const initial: Theme =
-      saved === 'dark' || saved === 'light'
-        ? saved
-        : window.matchMedia('(prefers-color-scheme: dark)').matches
-          ? 'dark'
-          : 'light';
+    // index.html already applied this before first paint; re-apply so React owns it from here.
+    const initial = initialTheme();
     applyTheme(initial);
     return initial;
   });
@@ -197,8 +189,7 @@ export default function App() {
   const toggleTheme = (): void => {
     const next: Theme = theme === 'dark' ? 'light' : 'dark';
     setTheme(next);
-    applyTheme(next);
-    localStorage.setItem('vg-theme', next);
+    saveTheme(next);
   };
 
   const enterProject = (path: string): void => {

@@ -7,7 +7,7 @@ import type { ReactNode } from 'react';
  * so the sticky thead has a scroll ancestor to stick to.
  * ponytail: depends on Table.Root rendering exactly one wrapper `<div>` — degrades to a non-sticky
  * header (rows still scroll) if chunks-ui changes that internal structure. Pair with
- * `<Table.Header className="sticky top-0 z-10 bg-muted">`.
+ * `<Table.Header className="sticky top-0 z-10 bg-background [&_th]:caption">`.
  */
 export function ScrollTable({ children }: { children: ReactNode }) {
   return (

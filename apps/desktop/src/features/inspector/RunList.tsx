@@ -86,7 +86,7 @@ export function RunList({
       ) : (
         <ScrollTable>
         <Table.Root>
-          <Table.Header className="sticky top-0 z-10 bg-muted">
+          <Table.Header className="sticky top-0 z-10 bg-background [&_th]:caption">
             <Table.Row>
               <Table.Head>Task</Table.Head>
               <Table.Head>When</Table.Head>
@@ -100,7 +100,7 @@ export function RunList({
               <Table.Row
                 key={`active:${a.taskId}`}
                 onClick={() => onOpenActive(a)}
-                className="cursor-pointer bg-primary/10"
+                className="cursor-pointer bg-primary/5"
               >
                 <Table.Cell className="font-medium">{a.taskId}</Table.Cell>
                 <Table.Cell className="tabular-nums text-muted-foreground">
@@ -109,7 +109,7 @@ export function RunList({
                 <Table.Cell className="text-muted-foreground">—</Table.Cell>
                 <Table.Cell className="text-right tabular-nums text-muted-foreground">—</Table.Cell>
                 <Table.Cell>
-                  {/* Non-verdict color (blue) so a running row isn't mistaken for a green "passed" one. */}
+                  {/* Amber (live), not green, so a running row isn't mistaken for a green "passed" one. */}
                   <Chip color="primary" variant="outlined">
                     <span className="inline-flex items-center gap-1">
                       <RefreshCw className="size-3 animate-spin motion-reduce:animate-none" aria-hidden />

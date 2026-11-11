@@ -1,22 +1,22 @@
 {
   "schemaVersion": 2,
-  "generatedAt": "2026-11-11T09:11:33.534Z",
+  "generatedAt": "2026-11-11T10:30:43.382Z",
   "title": "Design System: Taskcell Hub",
   "extensions": {
     "colorMeta": {
       "primary": {
         "role": "primary",
-        "displayName": "Signal Blue",
-        "canonical": "oklch(0.56 0.2165 257.21)",
+        "displayName": "Signal Amber",
+        "canonical": "#f99a2c",
         "tonalRamp": [
-          "oklch(0.25 0.126 257.21)",
-          "oklch(0.35 0.152 257.21)",
-          "oklch(0.45 0.178 257.21)",
-          "oklch(0.55 0.204 257.21)",
-          "oklch(0.65 0.204 257.21)",
-          "oklch(0.75 0.178 257.21)",
-          "oklch(0.85 0.152 257.21)",
-          "oklch(0.95 0.126 257.21)"
+          "oklch(0.25 0.160 62.5)",
+          "oklch(0.35 0.160 62.5)",
+          "oklch(0.45 0.160 62.5)",
+          "oklch(0.55 0.160 62.5)",
+          "oklch(0.65 0.160 62.5)",
+          "oklch(0.75 0.160 62.5)",
+          "oklch(0.85 0.160 62.5)",
+          "oklch(0.95 0.160 62.5)"
         ]
       },
       "success": {
@@ -36,17 +36,17 @@
       },
       "warning": {
         "role": "tertiary",
-        "displayName": "Caution Amber",
-        "canonical": "oklch(77.97% 0.1665 72.45)",
+        "displayName": "Caution Yellow",
+        "canonical": "oklch(0.86 0.16 95)",
         "tonalRamp": [
-          "oklch(0.25 0.097 72.45)",
-          "oklch(0.35 0.117 72.45)",
-          "oklch(0.45 0.137 72.45)",
-          "oklch(0.55 0.157 72.45)",
-          "oklch(0.65 0.157 72.45)",
-          "oklch(0.75 0.137 72.45)",
-          "oklch(0.85 0.117 72.45)",
-          "oklch(0.95 0.097 72.45)"
+          "oklch(0.25 0.140 95)",
+          "oklch(0.35 0.140 95)",
+          "oklch(0.45 0.140 95)",
+          "oklch(0.55 0.140 95)",
+          "oklch(0.65 0.140 95)",
+          "oklch(0.75 0.140 95)",
+          "oklch(0.85 0.140 95)",
+          "oklch(0.95 0.140 95)"
         ]
       },
       "destructive": {
@@ -66,84 +66,120 @@
       },
       "background": {
         "role": "neutral",
-        "displayName": "Paper",
-        "canonical": "oklch(1 0 0)",
+        "displayName": "Floor",
+        "canonical": "#0d1013",
         "tonalRamp": [
-          "oklch(0.25 0.000 0)",
-          "oklch(0.35 0.000 0)",
-          "oklch(0.45 0.000 0)",
-          "oklch(0.55 0.000 0)",
-          "oklch(0.65 0.000 0)",
-          "oklch(0.75 0.000 0)",
-          "oklch(0.85 0.000 0)",
-          "oklch(0.95 0.000 0)"
+          "oklch(0.25 0.008 230)",
+          "oklch(0.35 0.008 230)",
+          "oklch(0.45 0.008 230)",
+          "oklch(0.55 0.008 230)",
+          "oklch(0.65 0.008 230)",
+          "oklch(0.75 0.008 230)",
+          "oklch(0.85 0.008 230)",
+          "oklch(0.95 0.008 230)"
         ]
       },
       "foreground": {
         "role": "neutral",
         "displayName": "Ink",
-        "canonical": "oklch(0.145 0 0)",
+        "canonical": "#e8ecef",
         "tonalRamp": [
-          "oklch(0.25 0.000 0)",
-          "oklch(0.35 0.000 0)",
-          "oklch(0.45 0.000 0)",
-          "oklch(0.55 0.000 0)",
-          "oklch(0.65 0.000 0)",
-          "oklch(0.75 0.000 0)",
-          "oklch(0.85 0.000 0)",
-          "oklch(0.95 0.000 0)"
+          "oklch(0.25 0.006 230)",
+          "oklch(0.35 0.006 230)",
+          "oklch(0.45 0.006 230)",
+          "oklch(0.55 0.006 230)",
+          "oklch(0.65 0.006 230)",
+          "oklch(0.75 0.006 230)",
+          "oklch(0.85 0.006 230)",
+          "oklch(0.95 0.006 230)"
         ]
       },
       "muted": {
         "role": "neutral",
-        "displayName": "Mist",
-        "canonical": "oklch(0.97 0 0)",
+        "displayName": "Well",
+        "canonical": "#1b2228",
         "tonalRamp": [
-          "oklch(0.25 0.000 0)",
-          "oklch(0.35 0.000 0)",
-          "oklch(0.45 0.000 0)",
-          "oklch(0.55 0.000 0)",
-          "oklch(0.65 0.000 0)",
-          "oklch(0.75 0.000 0)",
-          "oklch(0.85 0.000 0)",
-          "oklch(0.95 0.000 0)"
+          "oklch(0.25 0.014 235)",
+          "oklch(0.35 0.014 235)",
+          "oklch(0.45 0.014 235)",
+          "oklch(0.55 0.014 235)",
+          "oklch(0.65 0.014 235)",
+          "oklch(0.75 0.014 235)",
+          "oklch(0.85 0.014 235)",
+          "oklch(0.95 0.014 235)"
         ]
       },
       "muted-foreground": {
         "role": "neutral",
         "displayName": "Graphite",
-        "canonical": "oklch(0.53 0 0)",
+        "canonical": "#a3adb6",
         "tonalRamp": [
-          "oklch(0.25 0.000 0)",
-          "oklch(0.35 0.000 0)",
-          "oklch(0.45 0.000 0)",
-          "oklch(0.55 0.000 0)",
-          "oklch(0.65 0.000 0)",
-          "oklch(0.75 0.000 0)",
-          "oklch(0.85 0.000 0)",
-          "oklch(0.95 0.000 0)"
+          "oklch(0.25 0.016 240)",
+          "oklch(0.35 0.016 240)",
+          "oklch(0.45 0.016 240)",
+          "oklch(0.55 0.016 240)",
+          "oklch(0.65 0.016 240)",
+          "oklch(0.75 0.016 240)",
+          "oklch(0.85 0.016 240)",
+          "oklch(0.95 0.016 240)"
         ]
       },
       "border": {
         "role": "neutral",
         "displayName": "Hairline",
-        "canonical": "oklch(0.922 0 0)",
+        "canonical": "#202c2f",
         "tonalRamp": [
-          "oklch(0.25 0.000 0)",
-          "oklch(0.35 0.000 0)",
-          "oklch(0.45 0.000 0)",
-          "oklch(0.55 0.000 0)",
-          "oklch(0.65 0.000 0)",
-          "oklch(0.75 0.000 0)",
-          "oklch(0.85 0.000 0)",
-          "oklch(0.95 0.000 0)"
+          "oklch(0.25 0.016 200)",
+          "oklch(0.35 0.016 200)",
+          "oklch(0.45 0.016 200)",
+          "oklch(0.55 0.016 200)",
+          "oklch(0.65 0.016 200)",
+          "oklch(0.75 0.016 200)",
+          "oklch(0.85 0.016 200)",
+          "oklch(0.95 0.016 200)"
         ]
+      },
+      "popover": {
+        "role": "neutral",
+        "displayName": "Surface",
+        "canonical": "#141a1f",
+        "tonalRamp": [
+          "oklch(0.25 0.012 235)",
+          "oklch(0.35 0.012 235)",
+          "oklch(0.45 0.012 235)",
+          "oklch(0.55 0.012 235)",
+          "oklch(0.65 0.012 235)",
+          "oklch(0.75 0.012 235)",
+          "oklch(0.85 0.012 235)",
+          "oklch(0.95 0.012 235)"
+        ]
+      },
+      "input": {
+        "role": "neutral",
+        "displayName": "Input edge",
+        "canonical": "#3a5054",
+        "tonalRamp": [
+          "oklch(0.25 0.025 200)",
+          "oklch(0.35 0.025 200)",
+          "oklch(0.45 0.025 200)",
+          "oklch(0.55 0.025 200)",
+          "oklch(0.65 0.025 200)",
+          "oklch(0.75 0.025 200)",
+          "oklch(0.85 0.025 200)",
+          "oklch(0.95 0.025 200)"
+        ]
+      },
+      "caption": {
+        "role": "tertiary",
+        "displayName": "Caption Teal",
+        "canonical": "#79a9ad",
+        "purpose": "Caption text only (section labels, table headers); #3f6b70 in light."
       }
     },
     "typographyMeta": {
       "title": {
         "displayName": "Title",
-        "purpose": "Page and dialog headings."
+        "purpose": "Page headings at 20px (Schibsted Grotesk), one step above card titles; dialog headings stay small."
       },
       "card-title": {
         "displayName": "Card title",
@@ -159,7 +195,7 @@
       },
       "section-label": {
         "displayName": "Section label",
-        "purpose": "Uppercase group captions (rail Running, tile labels); never above a page heading."
+        "purpose": "Caption voice from taskcell.dev: IBM Plex Mono 11px uppercase in caption teal (the caption utility). Group captions, tile labels, table headers; never above a page heading."
       },
       "mono": {
         "displayName": "Mono",
@@ -172,6 +208,10 @@
       "titlebar": {
         "displayName": "Title bar",
         "purpose": "The window title strip only."
+      },
+      "wordmark": {
+        "displayName": "Wordmark",
+        "purpose": "\"Taskcell Hub\" next to the Doorway mark in the top bar."
       }
     },
     "shadows": [
@@ -235,7 +275,7 @@
       "refersTo": "button-primary",
       "description": "The one main action per screen.",
       "html": "<button class=\"ds-btn-primary\">New Task</button>",
-      "css": ".ds-btn-primary{background:var(--primary);color:var(--primary-foreground);height:35px;padding:0 14px;border:0;border-radius:8px;font:500 14px Manrope,sans-serif;cursor:pointer;transition:background .15s}.ds-btn-primary:hover{background:color-mix(in oklab,var(--primary) 88%,black)}.ds-btn-primary:focus-visible{outline:2px solid var(--ring);outline-offset:2px}.ds-btn-primary:disabled{opacity:.5}"
+      "css": ".ds-btn-primary{font-weight:700;background:var(--primary);color:var(--primary-foreground);height:35px;padding:0 14px;border:0;border-radius:4px;font:500 14px 'Atkinson Hyperlegible',sans-serif;cursor:pointer;transition:background .15s}.ds-btn-primary:hover{background:#ffb04f}.ds-btn-primary:focus-visible{outline:2px solid var(--ring);outline-offset:2px}.ds-btn-primary:disabled{opacity:.5}"
     },
     {
       "name": "Outlined Button",
@@ -243,7 +283,7 @@
       "refersTo": "button-outlined",
       "description": "Secondary toolbar action.",
       "html": "<button class=\"ds-btn-outlined\">Fetch records</button>",
-      "css": ".ds-btn-outlined{background:var(--background);color:var(--foreground);height:35px;padding:0 14px;border:1px solid var(--border);border-radius:8px;font:500 14px Manrope,sans-serif;cursor:pointer;transition:background .15s}.ds-btn-outlined:hover{background:var(--muted)}.ds-btn-outlined:focus-visible{outline:2px solid var(--ring);outline-offset:2px}"
+      "css": ".ds-btn-outlined{background:var(--background);color:var(--foreground);height:35px;padding:0 14px;border:1px solid var(--border);border-radius:4px;font:500 14px 'Atkinson Hyperlegible',sans-serif;cursor:pointer;transition:background .15s}.ds-btn-outlined:hover{background:var(--muted)}.ds-btn-outlined:focus-visible{outline:2px solid var(--ring);outline-offset:2px}"
     },
     {
       "name": "Rail item",
@@ -251,14 +291,14 @@
       "refersTo": "rail-item",
       "description": "Project navigation row; active row is muted-filled.",
       "html": "<nav class=\"ds-rail\"><a class=\"ds-rail-item\" aria-current=\"page\">Runs <span>42</span></a><a class=\"ds-rail-item\">Task board</a></nav>",
-      "css": ".ds-rail{width:144px;padding:8px;background:color-mix(in oklab,var(--muted) 20%,transparent);border-right:1px solid var(--border)}.ds-rail-item{display:flex;gap:8px;padding:6px 8px;border-radius:4px;font:14px Manrope,sans-serif;color:var(--muted-foreground);cursor:pointer}.ds-rail-item span{margin-left:auto;font-size:12px;font-variant-numeric:tabular-nums}.ds-rail-item:hover{background:color-mix(in oklab,var(--muted) 60%,transparent)}.ds-rail-item[aria-current=page]{background:var(--muted);color:var(--foreground);font-weight:500}"
+      "css": ".ds-rail{width:144px;padding:8px;background:color-mix(in oklab,var(--muted) 20%,transparent);border-right:1px solid var(--border)}.ds-rail-item{display:flex;gap:8px;padding:6px 8px;border-radius:4px;font:14px 'Atkinson Hyperlegible',sans-serif;color:var(--muted-foreground);cursor:pointer}.ds-rail-item span{margin-left:auto;font-size:12px;font-variant-numeric:tabular-nums}.ds-rail-item:hover{background:color-mix(in oklab,var(--muted) 60%,transparent)}.ds-rail-item[aria-current=page]{background:var(--muted);color:var(--foreground);font-weight:500}"
     },
     {
       "name": "Status chip",
       "kind": "chip",
       "description": "Outlined run status pill.",
       "html": "<span class=\"ds-chip ds-chip-ok\">passed</span> <span class=\"ds-chip ds-chip-bad\">failed</span>",
-      "css": ".ds-chip{display:inline-flex;padding:2px 10px;border-radius:9999px;border:1px solid;font:12px Manrope,sans-serif}.ds-chip-ok{color:oklch(from var(--success) min(l,0.51) c h);border-color:oklch(from var(--success) min(l,0.64) c h)}.ds-chip-bad{color:oklch(from var(--destructive) min(l,0.51) c h);border-color:var(--destructive)}"
+      "css": ".ds-chip{display:inline-flex;padding:2px 10px;border-radius:9999px;border:1px solid;font:12px 'Atkinson Hyperlegible',sans-serif}.ds-chip-ok{color:oklch(from var(--success) min(l,0.51) c h);border-color:oklch(from var(--success) min(l,0.64) c h)}.ds-chip-bad{color:oklch(from var(--destructive) min(l,0.51) c h);border-color:var(--destructive)}"
     },
     {
       "name": "Panel",
@@ -266,42 +306,47 @@
       "refersTo": "panel",
       "description": "Bordered flat container for forms, proof of work, launch output.",
       "html": "<div class=\"ds-panel\"><strong>Proof of work</strong><code>pnpm test · exit 0</code></div>",
-      "css": ".ds-panel{display:flex;flex-direction:column;gap:8px;padding:12px;border:1px solid var(--border);border-radius:10px;background:var(--background);font:14px Manrope,sans-serif}.ds-panel code{font:12px \"Fira Code\",monospace;color:var(--muted-foreground)}"
+      "css": ".ds-panel{display:flex;flex-direction:column;gap:8px;padding:12px;border:1px solid var(--border);border-radius:6px;background:var(--background);font:14px 'Atkinson Hyperlegible',sans-serif}.ds-panel code{font:12px 'IBM Plex Mono',monospace;color:var(--muted-foreground)}"
     },
     {
       "name": "Error banner",
       "kind": "custom",
       "description": "Full hairline border plus a 10% tint; never a thick left edge.",
       "html": "<div class=\"ds-banner\" role=\"alert\">.vanguard/app.json is unreadable. Fix its JSON before editing here.</div>",
-      "css": ".ds-banner{padding:8px 12px;border:1px solid color-mix(in oklab,var(--destructive) 40%,transparent);background:color-mix(in oklab,var(--destructive) 10%,transparent);border-radius:4px;font:14px Manrope,sans-serif;color:oklch(from var(--destructive) min(l,0.51) c h)}"
+      "css": ".ds-banner{padding:8px 12px;border:1px solid color-mix(in oklab,var(--destructive) 40%,transparent);background:color-mix(in oklab,var(--destructive) 10%,transparent);border-radius:4px;font:14px 'Atkinson Hyperlegible',sans-serif;color:oklch(from var(--destructive) min(l,0.51) c h)}"
     },
     {
       "name": "Live indicator",
       "kind": "custom",
       "description": "Pulsing green dot plus a word.",
       "html": "<span class=\"ds-live\"><i></i>live</span>",
-      "css": ".ds-live{display:inline-flex;align-items:center;gap:4px;font:12px Manrope,sans-serif;color:var(--muted-foreground)}.ds-live i{width:8px;height:8px;border-radius:9999px;background:var(--success);animation:ds-pulse 2s cubic-bezier(.4,0,.6,1) infinite}@keyframes ds-pulse{50%{opacity:.5}}@media (prefers-reduced-motion:reduce){.ds-live i{animation:none}}"
+      "css": ".ds-live{display:inline-flex;align-items:center;gap:4px;font:12px 'Atkinson Hyperlegible',sans-serif;color:var(--muted-foreground)}.ds-live i{width:8px;height:8px;border-radius:9999px;background:var(--success);animation:ds-pulse 2s cubic-bezier(.4,0,.6,1) infinite}@keyframes ds-pulse{50%{opacity:.5}}@media (prefers-reduced-motion:reduce){.ds-live i{animation:none}}"
     }
   ],
   "narrative": {
-    "northStar": "The Quiet Control Room",
-    "overview": "The hub is a tool people check, not a page they browse. Surfaces are grayscale: white or near-black background, hairline borders, light muted fills for chrome. The only color at rest is the primary blue on the one main action per screen and the project's own identity color in the title bar. Everything else that is colored is status: green means running or passed, red means failed, amber means a warning or something unsaved. When a screen is all gray, nothing needs the operator.",
+    "northStar": "The Night Shift Floor",
+    "overview": "The hub is the product taskcell.dev shows: the landing's near-black floor (#0d1013), cool ink, teal-tinted hairlines and one amber accent, in Schibsted Grotesk, Atkinson Hyperlegible and IBM Plex Mono. It stays a tool people check, so it takes the landing's palette and type but not its display sizes, glow or 3D scene. Dark is the default; light is derived. Amber marks the one main action per screen, focus, selection and live state, never decoration. Other color is status (green, yellow, red) or the project's identity color in the title bar.",
     "keyCharacteristics": [
-      "Grayscale chrome, color reserved for status and identity.",
+      "Near-black floor, cool ink, teal-tinted hairlines (landing palette).",
+      "One amber accent with dark ink on it, for action, focus and live state only.",
       "One primary (filled) button per screen; everything else is outlined or text.",
-      "Hairline 1px borders and tonal fills instead of shadows.",
-      "Small type (14px body, 12px metadata), monospace for ids, commands, code and diffs.",
-      "Light and dark are equal; every color comes from a token that has both."
+      "Hairline 1px borders and tonal steps instead of shadows; small, tight radii.",
+      "Landing faces, self-hosted: Schibsted Grotesk headings, Atkinson Hyperlegible text, IBM Plex Mono machine text."
     ],
     "rules": [
       {
-        "name": "The Gray-At-Rest Rule",
-        "body": "A screen with nothing wrong and nothing running is grayscale plus one blue button. Status color appears only when its state is true.",
+        "name": "The Ink-At-Rest Rule",
+        "body": "A screen with nothing wrong and nothing running is ink, hairlines and one amber button. Status color appears only when its state is true.",
+        "section": "colors"
+      },
+      {
+        "name": "The One-Amber Rule",
+        "body": "Amber means act here or live. Not for decoration, headings or illustration; no Tailwind amber-* for new status.",
         "section": "colors"
       },
       {
         "name": "The Text-Shade Rule",
-        "body": "Colored text uses the *-text token, which chunks-ui clamps to 4.5:1 in both themes. Never text-green-600 dark:text-green-400 or text-rose-500.",
+        "body": "Colored text uses the *-text token, which keeps 4.5:1 in both themes (light overrides --success-text for the #f7f8f9 page). Never text-primary for text, text-green-600 dark:text-green-400 or text-rose-500.",
         "section": "colors"
       },
       {
@@ -333,7 +378,7 @@
       "Don't use raw Tailwind palette colors (`text-green-600`, `bg-rose-500/5`) for status; only the board's column hues and sky info lines are allowed, and only where they already live.",
       "Don't put a thick colored left border on cards, callouts or alerts (`border-l-4`).",
       "Don't color a whole panel for a passed state; status color goes on the dot, chip or text.",
-      "Don't add display-size type, gradients, glass or decorative illustration.",
+      "Don't add display-size type, gradients, glass, the landing's glow or decorative illustration.",
       "Don't add uppercase eyebrow labels above page headings.",
       "Don't leak internal ticket refs (`(S6)`, `#491`) or the old `vanguard` name into UI copy."
     ]

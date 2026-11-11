@@ -85,7 +85,7 @@ export function NeedsYou({ project }: { project: string }) {
   return (
     <div className="mx-auto w-full max-w-3xl space-y-3 overflow-y-auto">
       <div className="flex items-center gap-3">
-        <h2 className="font-semibold">Needs you</h2>
+        <h2 className="text-xl font-semibold">Needs you</h2>
         {/* Announces the count when it changes, e.g. after a reply or a refresh finds new items. */}
         <span role="status" className="text-xs tabular-nums text-muted-foreground">
           {items === null ? '' : `${items.length} waiting`}

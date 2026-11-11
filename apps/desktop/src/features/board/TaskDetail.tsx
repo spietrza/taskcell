@@ -37,7 +37,7 @@ export function TaskDetail({
       <div className="grid grid-cols-1 gap-4 lg:grid-cols-[1fr_360px]">
         <Card.Root>
           <Card.Content className="p-4">
-            <div className="mb-2 text-[11px] font-semibold uppercase tracking-wide text-muted-foreground">
+            <div className="mb-2 caption">
               Spec — from source
             </div>
             <SpecPane project={project} taskId={taskId} />
@@ -45,7 +45,7 @@ export function TaskDetail({
         </Card.Root>
 
         <div>
-          <div className="mb-2 text-[11px] font-semibold uppercase tracking-wide text-muted-foreground">
+          <div className="mb-2 caption">
             Run history
           </div>
           <div className="space-y-2">

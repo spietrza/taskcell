@@ -16,8 +16,117 @@
 
 @custom-variant dark (&:is(.dark *));
 
+/* Taskcell identity, shared with taskcell.dev (landing/src/site.css): self-hosted faces, so the
+   Tauri window and an offline hub render the same type. */
+@font-face { font-family: 'Schibsted Grotesk'; src: url('./fonts/schibsted-var.woff2') format('woff2'); font-weight: 400 900; font-display: swap; }
+@font-face { font-family: 'Atkinson Hyperlegible'; src: url('./fonts/atkinson-400.woff2') format('woff2'); font-weight: 400; font-display: swap; }
+@font-face { font-family: 'Atkinson Hyperlegible'; src: url('./fonts/atkinson-700.woff2') format('woff2'); font-weight: 700; font-display: swap; }
+@font-face { font-family: 'IBM Plex Mono'; src: url('./fonts/plex-mono-500.woff2') format('woff2'); font-weight: 500; font-display: swap; }
+
+@theme {
+  --font-sans: 'Atkinson Hyperlegible', system-ui, sans-serif;
+  --font-mono: 'IBM Plex Mono', ui-monospace, monospace;
+  /* In @theme, not :root, so `font-heading` exists as a utility (the wordmark uses it). */
+  --font-heading: 'Schibsted Grotesk', system-ui, sans-serif;
+}
+
+/* Light: derived from the landing's dark palette. Amber is deepened so a 2px tab underline or the
+   focus ring keeps 3:1 on the page; the landing's dark ink stays on amber fills. */
+:root {
+  color-scheme: light;
+  --radius: 0.375rem;
+
+  --background: #f7f8f9;
+  --foreground: #0d1013;
+  --card: #ffffff;
+  --card-foreground: #0d1013;
+  --popover: #ffffff;
+  --popover-foreground: #0d1013;
+
+  --primary: #c8730f;
+  --primary-foreground: #14100a;
+  /* Yellow, not amber: warning must not read as the accent. */
+  --warning: oklch(0.82 0.16 95);
+  --warning-foreground: #14100a;
+
+  --secondary: #e8ecef;
+  --secondary-foreground: #0d1013;
+  --muted: #e8ecef;
+  --muted-foreground: #56616b;
+  --accent: #e8ecef;
+  --accent-foreground: #0d1013;
+
+  --border: #d3dadd;
+  --input: #b9c3c7;
+  --ring: var(--primary);
+  /* The landing's steel teal (--accent-2), darkened to keep 4.5:1 on paper and wells. */
+  --caption: #3f6b70;
+}
+
+/* Light only: chunks-ui clamps colored text for a white page, but this one is #f7f8f9 with #e8ecef
+   wells. Scoped off `.dark` rather than reset there, so in dark `--color-success-text` keeps
+   falling back to the kit's own derived shade. */
+:root:not(.dark) {
+  --success-text: oklch(0.47 0.11 166.5);
+}
+
+/* Dark (default): the landing's palette as is. */
+.dark {
+  color-scheme: dark;
+  --background: #0d1013;
+  --foreground: #e8ecef;
+  --card: #0d1013;
+  --card-foreground: #e8ecef;
+  --popover: #141a1f;
+  --popover-foreground: #e8ecef;
+
+  --primary: #f99a2c;
+  --primary-foreground: #14100a;
+  --warning: oklch(0.86 0.16 95);
+  --warning-foreground: #14100a;
+  --destructive-text: #ff6a5c;
+
+  --secondary: #1b2228;
+  --secondary-foreground: #e8ecef;
+  --muted: #1b2228;
+  --muted-foreground: #a3adb6;
+  --accent: #1b2228;
+  --accent-foreground: #e8ecef;
+
+  /* The landing's teal hairlines (rgba(121,169,173,.18) / .42 on #0d1013), as solid colors. */
+  --border: #202c2f;
+  --input: #3a5054;
+  --ring: var(--primary);
+  --caption: #79a9ad;
+}
+
+/* The landing's caption voice (.eyebrow, .chip): mono, uppercase, steel teal. Section and group
+   labels and table headers only; never above a page heading. */
+@utility caption {
+  font-family: var(--font-mono);
+  font-size: 11px;
+  font-weight: 500;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  color: var(--caption);
+}
+
 body {
   @apply bg-background text-foreground antialiased;
+}
+
+@layer base {
+  h1,
+  h2,
+  h3 {
+    font-family: var(--font-heading);
+    letter-spacing: -0.01em;
+  }
+}
+
+::selection {
+  background: var(--primary);
+  color: var(--primary-foreground);
 }
 
 /* Let the CodeBlock's own dark <pre> provide the background; keep hljs token colors. */

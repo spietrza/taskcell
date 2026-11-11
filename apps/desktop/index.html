@@ -1,10 +1,17 @@
 <!doctype html>
-<html lang="en">
+<html lang="en" class="dark">
   <head>
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
     <link rel="icon" type="image/png" href="/src-tauri/icons/32x32.png" />
     <title>Taskcell Hub</title>
+    <!-- Apply the saved theme before first paint, so a saved light theme never flashes dark.
+         Same rule as initialTheme() in src/theme.ts: dark unless the operator picked light. -->
+    <script>
+      try {
+        if (localStorage.getItem('vg-theme') === 'light') document.documentElement.classList.remove('dark');
+      } catch {}
+    </script>
   </head>
   <body>
     <div id="root"></div>

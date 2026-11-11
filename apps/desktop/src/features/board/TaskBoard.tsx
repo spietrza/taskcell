@@ -4,7 +4,7 @@ import { listTasks } from '../../ipc';
 import { useAsync } from '../../hooks';
 import { boardCountLabels } from './counts';
 
-// Each column owns a color identity used across its header dot, count pill, lane tint, and card
+// Each column owns a color identity used across its header dot, count pill and card
 // hover border. Classes are spelled out (not interpolated) so Tailwind's JIT keeps them — a
 // `bg-${accent}-500` template would get purged. Add a row here to add a column.
 type Column = {
@@ -12,7 +12,6 @@ type Column = {
   label: string;
   dot: string;
   pill: string;
-  lane: string;
   cardHover: string;
   pulse?: boolean;
 };
@@ -24,12 +23,12 @@ const CHIP_TONE: Record<string, string> = {
 };
 
 const COLUMNS: Column[] = [
-  { key: 'queued', label: 'Queued', dot: 'bg-slate-400', pill: 'bg-slate-400/15 text-slate-600 dark:text-slate-300', lane: 'bg-slate-400/[0.06]', cardHover: 'hover:border-slate-400' },
-  { key: 'claimed', label: 'Claimed', dot: 'bg-amber-500', pill: 'bg-amber-500/15 text-amber-700 dark:text-amber-300', lane: 'bg-amber-500/[0.06]', cardHover: 'hover:border-amber-500' },
-  { key: 'running', label: 'Running', dot: 'bg-blue-500', pill: 'bg-blue-500/15 text-blue-700 dark:text-blue-300', lane: 'bg-blue-500/[0.06]', cardHover: 'hover:border-blue-500', pulse: true },
-  { key: 'verify-failed', label: 'Verify failed', dot: 'bg-rose-500', pill: 'bg-rose-500/15 text-rose-700 dark:text-rose-300', lane: 'bg-rose-500/[0.06]', cardHover: 'hover:border-rose-500' },
-  { key: 'review', label: 'Review', dot: 'bg-violet-500', pill: 'bg-violet-500/15 text-violet-700 dark:text-violet-300', lane: 'bg-violet-500/[0.06]', cardHover: 'hover:border-violet-500' },
-  { key: 'done', label: 'Done', dot: 'bg-emerald-500', pill: 'bg-emerald-500/15 text-emerald-700 dark:text-emerald-300', lane: 'bg-emerald-500/[0.06]', cardHover: 'hover:border-emerald-500' },
+  { key: 'queued', label: 'Queued', dot: 'bg-slate-400', pill: 'bg-slate-400/15 text-slate-600 dark:text-slate-300', cardHover: 'hover:border-slate-400' },
+  { key: 'claimed', label: 'Claimed', dot: 'bg-amber-500', pill: 'bg-amber-500/15 text-amber-700 dark:text-amber-300', cardHover: 'hover:border-amber-500' },
+  { key: 'running', label: 'Running', dot: 'bg-blue-500', pill: 'bg-blue-500/15 text-blue-700 dark:text-blue-300', cardHover: 'hover:border-blue-500', pulse: true },
+  { key: 'verify-failed', label: 'Verify failed', dot: 'bg-rose-500', pill: 'bg-rose-500/15 text-rose-700 dark:text-rose-300', cardHover: 'hover:border-rose-500' },
+  { key: 'review', label: 'Review', dot: 'bg-violet-500', pill: 'bg-violet-500/15 text-violet-700 dark:text-violet-300', cardHover: 'hover:border-violet-500' },
+  { key: 'done', label: 'Done', dot: 'bg-emerald-500', pill: 'bg-emerald-500/15 text-emerald-700 dark:text-emerald-300', cardHover: 'hover:border-emerald-500' },
 ];
 
 export function TaskBoard({
@@ -90,7 +89,7 @@ export function TaskBoard({
           return (
             <div
               key={col.key}
-              className={cn('flex h-full min-h-0 w-72 shrink-0 flex-col rounded-xl border border-border/60 p-2', col.lane)}
+              className="flex h-full min-h-0 w-72 shrink-0 flex-col rounded-xl border border-border/60 bg-muted/20 p-2"
             >
               <div className="mb-2 flex shrink-0 items-center gap-2 px-1 py-0.5">
                 <span className={cn('size-2 rounded-full', col.dot, col.pulse && items.length > 0 && 'animate-pulse')} />
@@ -107,7 +106,7 @@ export function TaskBoard({
                 ) : (
                   items.map((t) => (
                     <button key={t.id} onClick={() => onOpenTask(t.id)} className="block w-full text-left">
-                      <Card.Root className={cn('bg-background/80 shadow-sm transition-all hover:shadow-md', col.cardHover)}>
+                      <Card.Root className={cn('bg-background/80 py-0 shadow-sm transition-all hover:shadow-md', col.cardHover)}>
                         <Card.Content className="space-y-1.5 p-3">
                           <div className="font-mono text-[11px] font-medium text-muted-foreground">{t.id}</div>
                           <div className="text-sm leading-snug">{t.title}</div>

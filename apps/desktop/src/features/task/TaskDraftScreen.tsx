@@ -951,7 +951,7 @@ export function TaskDraftScreen({
             href={created.url}
             target="_blank"
             rel="noreferrer"
-            className="shrink-0 rounded border border-border px-2 py-0.5 font-mono text-xs text-primary"
+            className="shrink-0 rounded border border-border px-2 py-0.5 font-mono text-xs text-primary-text"
           >
             filed as #{created.id}
           </a>
