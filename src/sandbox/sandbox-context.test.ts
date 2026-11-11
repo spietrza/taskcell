@@ -97,7 +97,7 @@ describe('startSandboxContext reports the hardened read-only rootfs decision', (
     expect(warn).not.toHaveBeenCalled();
   });
 
-  it('warns on console.warn when a memory limit below 6144 MB stands it down', async () => {
+  it('warns on console.warn when a memory limit below 8192 MB stands it down', async () => {
     vi.stubEnv('VANGUARD_SANDBOX_MEMORY_MB', '1536');
     vi.spyOn(console, 'log').mockImplementation(() => {});
     const warn = vi.spyOn(console, 'warn').mockImplementation(() => {});

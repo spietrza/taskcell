@@ -101,12 +101,12 @@ describe('sandboxSecurityOpts', () => {
     expect(sandboxSecurityOpts(explicit, true).readOnlyRootfs).toBe(true);
   });
 
-  it('keeps the hardened read-only default off under an explicit memory limit below 6144 MB; READONLY=1 still forces it', () => {
+  it('keeps the hardened read-only default off under an explicit memory limit below 8192 MB; READONLY=1 still forces it', () => {
     const mem = (v: string): NodeJS.ProcessEnv => ({ VANGUARD_SANDBOX_MEMORY_MB: v }) as NodeJS.ProcessEnv;
     expect(sandboxSecurityOpts(mem('1536'), true).readOnlyRootfs).toBe(false);
-    expect(sandboxSecurityOpts(mem('6143'), true).readOnlyRootfs).toBe(false);
-    expect(sandboxSecurityOpts(mem('6144'), true).readOnlyRootfs).toBe(true);
+    expect(sandboxSecurityOpts(mem('8191'), true).readOnlyRootfs).toBe(false);
     expect(sandboxSecurityOpts(mem('8192'), true).readOnlyRootfs).toBe(true);
+    expect(sandboxSecurityOpts(mem('16384'), true).readOnlyRootfs).toBe(true);
     const forced = { VANGUARD_SANDBOX_MEMORY_MB: '1536', VANGUARD_SANDBOX_READONLY: '1' } as NodeJS.ProcessEnv;
     expect(sandboxSecurityOpts(forced, true).readOnlyRootfs).toBe(true);
   });
@@ -115,15 +115,15 @@ describe('sandboxSecurityOpts', () => {
 describe('hardenedRootfsNote', () => {
   it('reports the hardened default engaging under the default or a big enough limit', () => {
     expect(hardenedRootfsNote({})).toEqual({ warn: false, message: expect.stringContaining('read-only rootfs on (hardened default)') });
-    expect(hardenedRootfsNote({}).message).toContain('6144 MB');
+    expect(hardenedRootfsNote({}).message).toContain('8192 MB');
   });
 
-  it('warns, naming the variable and the 6144 MB requirement, when the memory limit stands it down', () => {
+  it('warns, naming the variable and the 8192 MB requirement, when the memory limit stands it down', () => {
     for (const v of ['1536', '0']) {
       const note = hardenedRootfsNote({ VANGUARD_SANDBOX_MEMORY_MB: v } as NodeJS.ProcessEnv);
       expect(note.warn).toBe(true);
       expect(note.message).toContain(`VANGUARD_SANDBOX_MEMORY_MB=${v}`);
-      expect(note.message).toContain('6144 MB');
+      expect(note.message).toContain('8192 MB');
     }
   });
 
@@ -141,6 +141,8 @@ describe('hardenedRootfsNote', () => {
 describe('readOnlyTmpfsSizesMb', () => {
   it('sizes the three mounts 3:2:1 within three quarters of the memory limit (tmpfs is charged to it)', () => {
     expect(readOnlyTmpfsSizesMb(2048)).toEqual({ workspace: 768, home: 512, tmp: 256 });
+    // The read-only default: 3 GB workspace, 2 GB $HOME (pnpm store), 1 GB /tmp, 2 GB left for processes.
+    expect(readOnlyTmpfsSizesMb(READONLY_SANDBOX_MEMORY_MB)).toEqual({ workspace: 3072, home: 2048, tmp: 1024 });
   });
 
   it('scales with a raised VANGUARD_SANDBOX_MEMORY_MB and stays inside a lowered one', () => {

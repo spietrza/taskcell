@@ -14,14 +14,14 @@ function envLimit(env: NodeJS.ProcessEnv, name: string, fallback: number): numbe
 
 /**
  * Default sandbox memory (MB) when the rootfs is read-only: `/workspace`, `$HOME` and `/tmp` are then
- * tmpfs charged to the same cgroup (see readOnlyTmpfsSizesMb), so 6144 gives `/workspace` 2304 MB,
- * `$HOME` 1536 MB, `/tmp` 768 MB and 1.5 GB for the processes — enough for a typical pnpm install +
+ * tmpfs charged to the same cgroup (see readOnlyTmpfsSizesMb), so 8192 gives `/workspace` 3072 MB,
+ * `$HOME` 2048 MB (room for a pnpm store), `/tmp` 1024 MB and 2 GB for the processes — enough for a typical pnpm install +
  * build, where the 2048 default would leave `/workspace` at 768 MB. It is also the floor for the
  * hardened default: an explicit VANGUARD_SANDBOX_MEMORY_MB below it stands that default down. A cgroup
- * bigger than the host's free RAM bounds nothing, so a host without ~6 GB to spare per concurrent
+ * bigger than the host's free RAM bounds nothing, so a host without ~8 GB to spare per concurrent
  * sandbox should set a lower VANGUARD_SANDBOX_MEMORY_MB (keeping the writable rootfs).
  */
-export const READONLY_SANDBOX_MEMORY_MB = 6144;
+export const READONLY_SANDBOX_MEMORY_MB = 8192;
 
 /** Memory the hardened read-only default would run under: unset ⇒ READONLY_SANDBOX_MEMORY_MB; "0"/invalid/empty ⇒ undefined. */
 const hardenedMemoryMb = (env: NodeJS.ProcessEnv): number | undefined =>
