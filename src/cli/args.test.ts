@@ -781,6 +781,16 @@ describe('parseCli', () => {
     expect(parseCli(['stats', '--repo', '/r', '--json'], '/work')).toEqual({ kind: 'stats', repoPath: '/r', json: true });
   });
 
+  it('parses stats --github-repo (lead-time rollup)', () => {
+    expect(parseCli(['stats', '--github-repo', 'acme/widgets'], '/work')).toEqual({
+      kind: 'stats',
+      repoPath: '/work',
+      json: false,
+      githubRepo: 'acme/widgets',
+    });
+    expect(parseCli(['stats'], '/work')).not.toHaveProperty('githubRepo');
+  });
+
   it('parses memory with defaults (no limit field)', () => {
     expect(parseCli(['memory'], '/work')).toEqual({ kind: 'memory', repoPath: '/work', json: false });
   });

@@ -279,7 +279,15 @@ export type Command =
       provider?: ProviderName;
       llmProxy?: boolean;
     }
-  | { kind: 'stats'; repoPath: string; json: boolean; /** Read the metrics file from this remote branch instead of the local .vanguard/runs. */ branch?: string }
+  | {
+      kind: 'stats';
+      repoPath: string;
+      json: boolean;
+      /** Read the metrics file from this remote branch instead of the local .vanguard/runs. */
+      branch?: string;
+      /** Also print the label->merge lead-time rollup for every PR url recorded in metrics.jsonl that belongs to this repo (needs `gh`). */
+      githubRepo?: string;
+    }
   | { kind: 'metrics'; action: 'push'; repoPath: string; branch?: string }
   | { kind: 'approve'; prNumber: number; repoSlug: string; repoPath: string; mode: 'shadow'; json: boolean; dryRun: boolean; branch?: string }
   | { kind: 'memory'; repoPath: string; limit?: number; json: boolean }
@@ -694,6 +702,7 @@ export function parseCli(argv: string[], cwd: string): Command {
       repoPath,
       json: values.json === true,
       ...(typeof values.branch === 'string' ? { branch: values.branch } : {}),
+      ...(typeof values['github-repo'] === 'string' ? { githubRepo: values['github-repo'] } : {}),
     };
   }
 
