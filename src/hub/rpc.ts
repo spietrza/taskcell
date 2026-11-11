@@ -79,7 +79,8 @@ function requireProvider(args: Record<string, unknown>, key: string): FactoryPro
 
 // `login` is spliced into the callers' YAML and `repoSlug` into the displayed `gh secret set`
 // command, `defaultBranch` into git argv — so each must match its GitHub shape, nothing wider.
-const GITHUB_LOGIN = /^[A-Za-z0-9](?:[A-Za-z0-9-]{0,38})$/;
+// `_` for Enterprise Managed Users (`name_shortcode`).
+const GITHUB_LOGIN = /^[A-Za-z0-9](?:[A-Za-z0-9_-]{0,38})$/;
 const GITHUB_REPO_SLUG = /^[A-Za-z0-9-]+\/[A-Za-z0-9._-]+$/;
 const GIT_BRANCH = /^(?!-)(?!.*\.\.)[A-Za-z0-9._/-]+$/;
 
@@ -430,7 +431,15 @@ export async function dispatchRpc(ctx: RpcContext, cmd: string, rawArgs: unknown
       // Writes a branch, a commit and a PR in the target repo — a mutation, like clone_project.
       assertMutationsAllowed(ctx.bind);
       const real = await ctx.allowlist.assertAllowed(requireString(args, 'repoPath'));
-      return enableFactory(real, 'github').apply(requirePlan(args, 'plan'));
+      const shown = requirePlan(args, 'plan');
+      const provider = enableFactory(real, 'github');
+      // `login` becomes the callers' actor gate: apply a plan re-derived here, never the client's echo,
+      // and refuse one that no longer matches what the user was shown.
+      const plan = await provider.plan();
+      if (plan.login !== shown.login || plan.repoSlug !== shown.repoSlug || plan.defaultBranch !== shown.defaultBranch) {
+        throw new BadRequestError('the plan no longer matches the repository (gh login, repo or default branch changed); review the new plan and apply again');
+      }
+      return provider.apply(plan);
     }
     case 'enable_factory_secret': {
       const real = await ctx.allowlist.assertAllowed(requireString(args, 'repoPath'));

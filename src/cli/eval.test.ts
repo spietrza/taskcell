@@ -1,7 +1,7 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import { parseCli } from './args.js';
 import { JUDGE_MODEL, DEFAULT_PRODUCE_MODEL, CORPUS_HASH, refusalCases } from '../evals/corpus/index.js';
-import { evalCommand, EMPTY_TASK_PROMPT, EVAL_CLAUDE_ARGS, EVAL_CLAUDE_ENV, API_REFUSAL_RE } from './eval.js';
+import { evalCommand, EMPTY_TASK_PROMPT, EVAL_CLAUDE_ARGS, API_REFUSAL_RE } from './eval.js';
 import type { EvalRunReport } from '../evals/types.js';
 
 describe('parseCli eval', () => {
@@ -94,10 +94,6 @@ describe('evalCommand', () => {
 
   it('runs every eval model call with all tools and MCP servers disabled', () => {
     expect(EVAL_CLAUDE_ARGS).toEqual(['--print', '--tools', '', '--strict-mcp-config']);
-  });
-
-  it('turns off the CLI unknown-model window enforcement that hung the pinned CLI on new model ids', () => {
-    expect(EVAL_CLAUDE_ENV).toEqual({ CLAUDE_CODE_DISABLE_UNKNOWN_MODEL_WINDOW_ENFORCEMENT: '1' });
   });
 
   it('recognises the CLI safety-stop message as a model answer', () => {

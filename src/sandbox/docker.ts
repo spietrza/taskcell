@@ -6,7 +6,7 @@ import { dirname, join } from 'node:path';
 import { createInterface } from 'node:readline';
 import { SandboxError } from '../core/errors.js';
 import { ownerLabelArgs, readOnlyTmpfsSizesMb, sandboxSecurityOpts } from './limits.js';
-import type { ExecOptions, ExecResult, ExecStream, IsolatedSandboxProvider, SandboxConfig } from './provider.js';
+import type { CopyOutOptions, ExecOptions, ExecResult, ExecStream, IsolatedSandboxProvider, SandboxConfig } from './provider.js';
 
 /**
  * Normalise an execa result into an `ExecResult`.
@@ -411,6 +411,9 @@ export class DockerSandboxProvider implements IsolatedSandboxProvider {
           .pipe('docker', ['exec', '-i', '-u', '0', this.name, 'tar', '-xf', '-', '-C', sandboxPath]);
       } else {
         await execa('docker', ['exec', '-i', '-u', '0', this.name, 'sh', '-c', 'cat > "$1"', 'sh', sandboxPath], { inputFile: hostPath });
+        // `cat >` creates the file with the default mode; keep the host's (an executable script stays executable).
+        const mode = ((await stat(hostPath)).mode & 0o7777).toString(8);
+        await execa('docker', ['exec', '-u', '0', this.name, 'chmod', mode, sandboxPath]);
       }
       // Extracted as root (tar keeps host uid/gid), so chown to the container user; otherwise the
       // non-root agent cannot edit copied files (only create new ones).
@@ -420,7 +423,7 @@ export class DockerSandboxProvider implements IsolatedSandboxProvider {
     }
   }
 
-  async copyFileOut(sandboxPath: string, hostPath: string): Promise<void> {
+  async copyFileOut(sandboxPath: string, hostPath: string, options: CopyOutOptions = {}): Promise<void> {
     try {
       const isDir = (await execa('docker', ['exec', this.name, 'test', '-d', sandboxPath], { reject: false })).exitCode === 0;
       if (isDir) await mkdir(hostPath, { recursive: true });
@@ -428,8 +431,24 @@ export class DockerSandboxProvider implements IsolatedSandboxProvider {
       // Not `docker cp`: it reads the container's rootfs layer, so under --read-only it cannot see
       // the /workspace, $HOME and /tmp tmpfs mounts the run actually wrote to.
       if (isDir) {
-        await execa('docker', ['exec', this.name, 'tar', '-C', sandboxPath, '-cf', '-', '.'], { buffer: false })
-          .pipe('tar', ['-xf', '-', '-C', hostPath]);
+        // As root: a path the agent made unreadable (chmod 000) must not fail the copy-back (exit 2).
+        // A bare name in --exclude matches at any depth (GNU and busybox tar alike).
+        const excludes = (options.exclude ?? []).map((name) => `--exclude=${name}`);
+        const source = execa('docker', ['exec', '-u', '0', this.name, 'tar', ...excludes, '-C', sandboxPath, '-cf', '-', '.'], {
+          buffer: { stdout: false },
+          reject: false,
+        });
+        // A failing extract (e.g. a truncated archive) rejects the pipe.
+        await source.pipe('tar', ['-xf', '-', '-C', hostPath]);
+        const archived = await source;
+        // GNU tar exits 1 for "file changed as we read it" (a process still writing): the archive is
+        // complete, so keep it. Anything else (2 = fatal/unreadable) fails closed.
+        if (archived.exitCode !== 0 && archived.exitCode !== 1) {
+          throw new Error(`tar in sandbox exited ${archived.exitCode}: ${archived.stderr}`);
+        }
+        // Tar restores modes, so a 000 dir or file would leave the host user unable to read (or later
+        // delete) what it just extracted.
+        await execa('chmod', ['-R', 'u+rwX', hostPath]);
       } else {
         const res = await execa('docker', ['exec', this.name, 'cat', sandboxPath], { stdout: { file: hostPath }, reject: false });
         // The redirect creates hostPath before cat runs; don't leave an empty file for a missing source.
