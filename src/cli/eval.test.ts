@@ -93,7 +93,8 @@ describe('evalCommand', () => {
   });
 
   it('runs every eval model call with all tools and MCP servers disabled', () => {
-    expect(EVAL_CLAUDE_ARGS).toEqual(['--print', '--tools', '', '--strict-mcp-config']);
+    expect(EVAL_CLAUDE_ARGS.slice(0, 4)).toEqual(['--print', '--tools', '', '--strict-mcp-config']);
+    expect(EVAL_CLAUDE_ARGS).toContain('--append-system-prompt');
   });
 
   it('recognises the CLI safety-stop message as a model answer', () => {
