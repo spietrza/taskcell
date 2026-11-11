@@ -26,7 +26,7 @@ function githubDoctor(overrides: Partial<DoctorCommand> = {}): DoctorCommand {
 
 function makeRunner(
   labels: string[] = ['ready for spec', 'ready for agent', 'needs info', GITHUB_SPEC_CLAIMED_LABEL, GITHUB_CLAIMED_LABEL, GITHUB_REVIEW_LABEL],
-  cliVersion = '2.1.260',
+  cliVersion = '2.1.322',
 ): PreflightRunner {
   return async (cmd, args) => {
     if (cmd === 'git' && args.join(' ') === 'rev-parse --show-toplevel') return { stdout: '/repo' };
@@ -149,7 +149,7 @@ describe('runPreflight', () => {
       }
       if (cmd === 'docker' && args[0] === 'run') {
         inspected.push(args[2]!);
-        return { stdout: '2.1.260 (Claude Code)' };
+        return { stdout: '2.1.322 (Claude Code)' };
       }
       if (cmd === 'gh' && args[0] === 'auth') return { stdout: '' };
       if (cmd === 'gh' && args[0] === 'label') return { stdout: JSON.stringify([]) };
@@ -214,7 +214,7 @@ describe('runPreflight', () => {
           if (!glabAuthOk) throw new Error('not logged in');
           return { stdout: '' };
         }
-        if (cmd === 'docker' && args[0] === 'run') return { stdout: '2.1.260 (Claude Code)' };
+        if (cmd === 'docker' && args[0] === 'run') return { stdout: '2.1.322 (Claude Code)' };
         return { stdout: '' };
       };
       return { run, calls };
@@ -508,7 +508,7 @@ describe('runPreflight gitlab source', () => {
     const run: PreflightRunner = async (cmd, args) => {
       if (cmd === 'glab' && args[0] === 'api' && args[1] === 'user') throw new Error('403 Forbidden');
       if (cmd === 'git') return { stdout: 'https://gitlab.com/g/p.git' };
-      if (cmd === 'docker' && args[0] === 'run') return { stdout: '2.1.260 (Claude Code)' };
+      if (cmd === 'docker' && args[0] === 'run') return { stdout: '2.1.322 (Claude Code)' };
       if (cmd === 'glab' && args[0] === 'label') return { stdout: '[]' };
       return { stdout: '' };
     };
@@ -538,7 +538,7 @@ describe('runPreflight gitlab source', () => {
     const run: PreflightRunner = async (cmd, args) => {
       if (cmd === 'glab' && args[0] === 'auth') throw new Error('not logged in');
       if (cmd === 'git') return { stdout: 'https://gitlab.com/g/p.git' };
-      if (cmd === 'docker' && args[0] === 'run') return { stdout: '2.1.260 (Claude Code)' };
+      if (cmd === 'docker' && args[0] === 'run') return { stdout: '2.1.322 (Claude Code)' };
       if (cmd === 'glab' && args[0] === 'label') return { stdout: JSON.stringify([{ name: 'vanguard' }, { name: 'ready for spec' }]) };
       return { stdout: '' };
     };
@@ -713,7 +713,7 @@ describe('runPreflight provider combo check', () => {
       calls.push(`${cmd} ${args.join(' ')}`);
       if (cmd === 'git' && args[0] === 'remote') return { stdout: 'https://gitlab.com/' };
       if (cmd === 'gh' || cmd === 'glab') throw new Error('not logged in');
-      if (cmd === 'docker' && args[0] === 'run') return { stdout: '2.1.260 (Claude Code)' };
+      if (cmd === 'docker' && args[0] === 'run') return { stdout: '2.1.322 (Claude Code)' };
       return { stdout: '' };
     };
     const report = await runPreflight(command, { env: { CLAUDE_CODE_OAUTH_TOKEN: 'token', LINEAR_API_KEY: 'lin' }, nodeVersion: '24.11.1', run });

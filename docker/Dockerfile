@@ -92,7 +92,7 @@ RUN groupadd -g 10001 agent \
  && chown -R agent:agent /workspace /home/agent
 
 # Most frequently bumped CLI goes last; scope its ARG to this layer.
-ARG CLAUDE_CLI_VERSION=2.1.260
+ARG CLAUDE_CLI_VERSION=2.1.322
 RUN /tmp/retry.sh 5 15 -- npm install -g @anthropic-ai/claude-code@${CLAUDE_CLI_VERSION} && npm cache clean --force && rm -rf /root/.npm
 
 # Last use of the retry helper: drop it so it never lands in the final image.

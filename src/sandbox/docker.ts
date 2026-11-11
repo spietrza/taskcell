@@ -83,7 +83,7 @@ export async function resolveSandboxImage(image: string, exists: ImageExists = d
  * surfaces deep inside a run as a gateway error (live case: 2.1.165 answered every Meridian request
  * with `400 This session advanced while the request was waiting`, burning ~50 min per attempt).
  */
-export const SANDBOX_CLAUDE_VERSION = '2.1.260';
+export const SANDBOX_CLAUDE_VERSION = '2.1.322';
 
 /** True when `actual` sorts below `expected`; unparseable parts count as older. */
 export function isOlderVersion(actual: string, expected: string): boolean {
