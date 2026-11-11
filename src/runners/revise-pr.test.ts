@@ -964,12 +964,12 @@ describe('runRevisePullRequest — VANGUARD_PUSH_TOKEN', () => {
 // ---------------------------------------------------------------------------
 
 describe('runRevisePullRequest — hardened sandbox', () => {
-  const KEY = 'VANGUARD_SANDBOX_READONLY';
-  const prev = process.env[KEY];
-  afterEach(() => {
-    if (prev === undefined) delete process.env[KEY];
-    else process.env[KEY] = prev;
+  // Both vars gate the hardened default (a low/omitted memory limit stands it down): pin them.
+  beforeEach(() => {
+    vi.stubEnv('VANGUARD_SANDBOX_READONLY', undefined);
+    vi.stubEnv('VANGUARD_SANDBOX_MEMORY_MB', undefined);
   });
+  afterEach(() => vi.unstubAllEnvs());
 
   // No `_sandbox`: the runner builds the (mocked) DockerSandboxProvider itself, so its config is the
   // assertion — the same hardened default the other runners get (limits.test.ts covers the resolution).
@@ -990,17 +990,15 @@ describe('runRevisePullRequest — hardened sandbox', () => {
   };
 
   it('--egress/--llm-proxy (enclave network set): the sandbox gets a read-only rootfs', async () => {
-    delete process.env[KEY];
     expect((await revise('vg-egr-1'))?.security?.readOnlyRootfs).toBe(true);
   });
 
   it('an explicit VANGUARD_SANDBOX_READONLY=0 still turns it off in hardened mode', async () => {
-    process.env[KEY] = '0';
+    vi.stubEnv('VANGUARD_SANDBOX_READONLY', '0');
     expect((await revise('vg-egr-1'))?.security?.readOnlyRootfs).toBe(false);
   });
 
   it('without the flags the rootfs stays writable, as before', async () => {
-    delete process.env[KEY];
     expect((await revise())?.security?.readOnlyRootfs).toBe(false);
   });
 });

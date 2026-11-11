@@ -796,12 +796,12 @@ describe('runSpecGenerator', () => {
 // Runs without Docker: the runner-built sandbox's argv. Proves the hardened flag reaches
 // `buildRunArgs` through config.security (limits.test.ts/docker.test.ts cover the pieces in isolation).
 describe('defaultSandboxFactory wires the hardened read-only rootfs', () => {
-  const KEY = 'VANGUARD_SANDBOX_READONLY';
-  const prev = process.env[KEY];
-  afterEach(() => {
-    if (prev === undefined) delete process.env[KEY];
-    else process.env[KEY] = prev;
+  // Both vars gate the hardened default (a low/omitted memory limit stands it down): pin them.
+  beforeEach(() => {
+    vi.stubEnv('VANGUARD_SANDBOX_READONLY', undefined);
+    vi.stubEnv('VANGUARD_SANDBOX_MEMORY_MB', undefined);
   });
+  afterEach(() => vi.unstubAllEnvs());
   const runArgs = (deps: Partial<RunSpecGeneratorDeps>): string[] => {
     const fetcher = { fetch: vi.fn() } as unknown as TaskFetcher;
     const sandbox = defaultSandboxFactory({ repoPath: '/nowhere', fetcher, ...deps } as RunSpecGeneratorDeps, {}, {}, false);
@@ -809,7 +809,6 @@ describe('defaultSandboxFactory wires the hardened read-only rootfs', () => {
   };
 
   it('--egress/--llm-proxy (enclave network set): --read-only plus the three tmpfs mounts', () => {
-    delete process.env[KEY];
     const args = runArgs({ network: 'vg-egr-1' });
     expect(args).toContain('--read-only');
     const tmpfs = args.filter((_, i) => args[i - 1] === '--tmpfs');
@@ -817,12 +816,11 @@ describe('defaultSandboxFactory wires the hardened read-only rootfs', () => {
   });
 
   it('an explicit VANGUARD_SANDBOX_READONLY=0 still turns it off in hardened mode', () => {
-    process.env[KEY] = '0';
+    vi.stubEnv('VANGUARD_SANDBOX_READONLY', '0');
     expect(runArgs({ network: 'vg-egr-1' })).not.toContain('--read-only');
   });
 
   it('without the flags the rootfs stays writable, as before', () => {
-    delete process.env[KEY];
     expect(runArgs({})).not.toContain('--read-only');
   });
 });

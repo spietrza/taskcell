@@ -16,9 +16,16 @@ function envLimit(env: NodeJS.ProcessEnv, name: string, fallback: number): numbe
  * Default sandbox memory (MB) when the rootfs is read-only: `/workspace`, `$HOME` and `/tmp` are then
  * tmpfs charged to the same cgroup (see readOnlyTmpfsSizesMb), so 6144 gives `/workspace` 2304 MB,
  * `$HOME` 1536 MB, `/tmp` 768 MB and 1.5 GB for the processes — enough for a typical pnpm install +
- * build, where the 2048 default would leave `/workspace` at 768 MB.
+ * build, where the 2048 default would leave `/workspace` at 768 MB. It is also the floor for the
+ * hardened default: an explicit VANGUARD_SANDBOX_MEMORY_MB below it stands that default down. A cgroup
+ * bigger than the host's free RAM bounds nothing, so a host without ~6 GB to spare per concurrent
+ * sandbox should set a lower VANGUARD_SANDBOX_MEMORY_MB (keeping the writable rootfs).
  */
 export const READONLY_SANDBOX_MEMORY_MB = 6144;
+
+/** Memory the hardened read-only default would run under: unset ⇒ READONLY_SANDBOX_MEMORY_MB; "0"/invalid/empty ⇒ undefined. */
+const hardenedMemoryMb = (env: NodeJS.ProcessEnv): number | undefined =>
+  envLimit(env, 'VANGUARD_SANDBOX_MEMORY_MB', READONLY_SANDBOX_MEMORY_MB);
 
 /**
  * Env-overridable sandbox resource limits. Defaults: memory 2048 MB (READONLY_SANDBOX_MEMORY_MB when
@@ -95,8 +102,9 @@ export function pnpmStoreConfig(
  * either way, so `=0` disables it even when hardened and `=1` enables it even when not. An EMPTY
  * VANGUARD_SANDBOX_READONLY counts as unset (an unset CI variable passed through `env:` arrives as ""),
  * so it cannot silently turn the hardened default off. The hardened default also stays off when the
- * memory limit is omitted (VANGUARD_SANDBOX_MEMORY_MB=0): the tmpfs mounts would then have no cgroup
- * to be sized against and charged to, and would press on host RAM instead.
+ * memory limit is omitted (VANGUARD_SANDBOX_MEMORY_MB=0) — the tmpfs mounts would have no cgroup to
+ * be sized against and would press on host RAM — or set below READONLY_SANDBOX_MEMORY_MB, where the
+ * mounts would be too small for a real install + build. `hardenedRootfsNote` reports which applied.
  */
 export function sandboxSecurityOpts(env: NodeJS.ProcessEnv = process.env, hardened = false): SandboxSecurityOpts {
   const list = (raw: string | undefined, fallback: string[]): string[] =>
@@ -114,8 +122,35 @@ export function sandboxSecurityOpts(env: NodeJS.ProcessEnv = process.env, harden
     noNewPrivileges: flag(env.VANGUARD_SANDBOX_NO_NEW_PRIVILEGES, true),
     readOnlyRootfs: flag(
       env.VANGUARD_SANDBOX_READONLY || undefined,
-      hardened && envLimit(env, 'VANGUARD_SANDBOX_MEMORY_MB', 1) !== undefined,
+      hardened && (hardenedMemoryMb(env) ?? 0) >= READONLY_SANDBOX_MEMORY_MB,
     ),
+  };
+}
+
+/**
+ * One line for the start of an `--egress`/`--llm-proxy` run: whether the hardened read-only rootfs
+ * default engaged or stood down, and why. `warn` is true when it stood down for the memory limit, so
+ * an operator sees the variable to raise instead of a silently writable rootfs.
+ */
+export function hardenedRootfsNote(env: NodeJS.ProcessEnv = process.env): { warn: boolean; message: string } {
+  const explicit = env.VANGUARD_SANDBOX_READONLY;
+  if (explicit !== undefined && explicit !== '') {
+    const on = sandboxSecurityOpts(env, true).readOnlyRootfs;
+    return { warn: false, message: `sandbox: read-only rootfs ${on ? 'on' : 'off'} (VANGUARD_SANDBOX_READONLY=${explicit}).` };
+  }
+  const memoryMb = hardenedMemoryMb(env);
+  if (memoryMb !== undefined && memoryMb >= READONLY_SANDBOX_MEMORY_MB) {
+    return {
+      warn: false,
+      message: `sandbox: read-only rootfs on (hardened default); /workspace, $HOME and /tmp are tmpfs inside the ${memoryMb} MB memory limit.`,
+    };
+  }
+  return {
+    warn: true,
+    message:
+      `sandbox: hardened read-only rootfs NOT applied — VANGUARD_SANDBOX_MEMORY_MB=${env.VANGUARD_SANDBOX_MEMORY_MB ?? ''} ` +
+      `is below the ${READONLY_SANDBOX_MEMORY_MB} MB it needs (its tmpfs mounts share that limit); the rootfs stays writable. ` +
+      `Raise it to ${READONLY_SANDBOX_MEMORY_MB} or more, or set VANGUARD_SANDBOX_READONLY=1 to force it.`,
   };
 }
 
