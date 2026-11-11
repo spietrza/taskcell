@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 set -euo pipefail
-VERSION="${CLAUDE_CLI_VERSION:-2.1.260}"
+VERSION="${CLAUDE_CLI_VERSION:-2.1.322}"
 # Opt-in: empty skips the Cursor CLI (~550 MB); set e.g. CURSOR_CLI_VERSION=2026.10.16-e3cb207 for --provider cursor.
 CURSOR_VERSION="${CURSOR_CLI_VERSION:-}"
 # Alias tag on the same image, kept for hosts/scripts still looking for the pre-rename name. Only
