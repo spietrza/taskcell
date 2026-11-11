@@ -51,6 +51,17 @@ describe('EnableFactoryDialog', () => {
     expect(enableFactoryVerify).toHaveBeenCalledWith(project.path, factoryPlan);
   });
 
+  test('callers already on the default branch are marked; with all of them there, no PR is offered', async () => {
+    vi.mocked(enableFactoryPlan).mockResolvedValue({ ...factoryPlan, existingCallerFiles: factoryPlan.callerFiles });
+    render(<EnableFactoryDialog project={project} onClose={() => {}} />);
+    fireEvent.click(screen.getByRole('button', { name: /GitHub Actions/ }));
+
+    expect(await screen.findByText(/already on the default branch/)).toBeInTheDocument();
+    expect(screen.getAllByText(/already exists, left as is/)).toHaveLength(factoryPlan.callerFiles.length);
+    expect(screen.queryByRole('button', { name: 'Open PR' })).not.toBeInTheDocument();
+    expect(screen.getByRole('button', { name: 'Run verify' })).toBeInTheDocument();
+  });
+
   test('a failed step shows its error and keeps the dialog on the same step', async () => {
     vi.mocked(enableFactoryApply).mockRejectedValue(new Error('the working tree has uncommitted changes'));
     render(<EnableFactoryDialog project={project} onClose={() => {}} />);

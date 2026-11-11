@@ -1,4 +1,4 @@
-import { mkdtemp, readFile, rm, writeFile } from 'node:fs/promises';
+import { mkdir, mkdtemp, readFile, rm, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { afterEach, describe, expect, it } from 'vitest';
@@ -41,6 +41,8 @@ interface FakeOptions {
   openPr?: string;
   /** `gh run list` results per call, in order (the last one repeats). */
   runLists?: unknown[][];
+  /** `git ls-tree` output: the caller paths already on origin/<default>. */
+  lsTree?: string;
 }
 
 const doctorRun = (id: number, event = 'workflow_dispatch'): unknown => ({
@@ -66,6 +68,9 @@ function fakeExec(calls: Call[], opts: FakeOptions = {}): FactoryExec {
       // With a pathspec: did the callers change. Without: the up-front dirty-tree check.
       if (args.includes('--')) return { stdout: opts.status ?? 'M  .github/workflows/vanguard-implement.yml\n', stderr: '' };
       return { stdout: opts.dirty ?? '', stderr: '' };
+    }
+    if (file === 'git' && args[0] === 'ls-tree') {
+      return { stdout: opts.lsTree ?? '', stderr: '' };
     }
     if (file === 'git' && args[0] === 'rev-parse') {
       return { stdout: 'feature/wip\n', stderr: '' };
@@ -109,6 +114,13 @@ describe('planGithubFactory', () => {
     expect(plan.labels).toEqual(FACTORY_LABELS.map((l) => l.name));
   });
 
+  it('reports the callers already on the default branch', async () => {
+    const repoPath = await repo();
+    const lsTree = '.github/workflows/vanguard-implement.yml\n.github/workflows/vanguard-doctor.yml\n';
+    const plan = await planGithubFactory(repoPath, { exec: fakeExec([], { lsTree }) });
+    expect(plan.existingCallerFiles).toEqual(['.github/workflows/vanguard-implement.yml', '.github/workflows/vanguard-doctor.yml']);
+  });
+
   it('falls back gracefully when there is no package.json', async () => {
     const repoPath = await mkdtemp(join(tmpdir(), 'enable-factory-test-'));
     roots.push(repoPath);
@@ -127,6 +139,16 @@ describe('applyGithubFactory', () => {
     const plan = await planGithubFactory(repoPath, { exec: fakeExec(calls) });
     return { repoPath, plan, calls };
   }
+
+  it('leaves callers already on the default branch untouched and writes only the missing ones', async () => {
+    const { repoPath, plan, calls } = await plannedRepo();
+    await mkdir(join(repoPath, '.github', 'workflows'), { recursive: true });
+    const own = join(repoPath, '.github', 'workflows', 'vanguard-implement.yml');
+    await writeFile(own, 'name: my own implement\n');
+    await applyGithubFactory(repoPath, plan, { exec: fakeExec(calls, { lsTree: '.github/workflows/vanguard-implement.yml\n' }) });
+    expect(await readFile(own, 'utf8')).toBe('name: my own implement\n');
+    expect(await readFile(join(repoPath, '.github', 'workflows', 'vanguard-doctor.yml'), 'utf8')).toContain('octocat');
+  });
 
   it('creates a branch from origin/<default>, commits the callers, opens a PR and creates the labels', async () => {
     const { repoPath, plan, calls } = await plannedRepo();

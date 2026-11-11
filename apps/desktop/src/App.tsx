@@ -247,14 +247,17 @@ export default function App() {
   return (
     <div className="flex h-screen flex-col bg-background text-foreground">
       {/* Custom titlebar (native decorations overlaid, macOS): the app/project identity. In a project
-          it takes that project's color so the working context is unmistakable; generic on the dashboard. */}
-      <div
-        data-tauri-drag-region
-        className="flex h-8 shrink-0 select-none items-center pl-20 pr-4 text-[13px] font-semibold text-foreground"
-        style={titleBar ? { backgroundColor: titleBar, color: contrastColor(titleBar) } : undefined}
-      >
-        Taskcell Hub
-      </div>
+          it takes that project's color so the working context is unmistakable; generic on the dashboard.
+          Tauri only — a browser (the hub, the dev mock) has its own chrome, so it would be a stray band. */}
+      {isTauri() && (
+        <div
+          data-tauri-drag-region
+          className="flex h-8 shrink-0 select-none items-center pl-20 pr-4 text-[13px] font-semibold text-foreground"
+          style={titleBar ? { backgroundColor: titleBar, color: contrastColor(titleBar) } : undefined}
+        >
+          Taskcell Hub
+        </div>
+      )}
       {hubRestarted && (
         <div
           role="alert"

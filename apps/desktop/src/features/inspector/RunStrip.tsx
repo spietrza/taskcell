@@ -5,15 +5,29 @@ import type { TypedRunState } from './typedRunReducer';
 /** Renders the folded typed-run state: stage progress row, live spend, terminal. */
 export function RunStrip({ state, onCancel }: { state: TypedRunState; onCancel: () => void }) {
   const { stages, stageState, usdSpent, warnings, terminal } = state;
+  // A queued run that ended (e.g. cancelled while waiting) never started: the terminal chip below says how it ended.
+  const queued = state.queuedPosition !== undefined && terminal === undefined;
+  const label = queued
+    ? `queued — #${state.queuedPosition} in line`
+    : (state.taskId ?? (terminal !== undefined ? 'not started' : 'starting…'));
   return (
     <div className="space-y-3 rounded-lg border border-border bg-muted/20 p-3">
       <div className="flex items-center gap-2">
-        <span className="text-xs text-muted-foreground">{state.queuedPosition !== undefined ? `queued — #${state.queuedPosition} in line` : (state.taskId ?? 'starting…')}</span>
-        <span className="ml-auto text-xs tabular-nums text-muted-foreground">~${usdSpent.toFixed(2)}</span>
+        <span className="text-xs text-muted-foreground">{label}</span>
+        {/* A run still waiting in the queue (or that ended there) has spent nothing yet. */}
+        {state.queuedPosition === undefined && (
+          <span className="ml-auto text-xs tabular-nums text-muted-foreground">~${usdSpent.toFixed(2)}</span>
+        )}
         {/* No Stop before the run has an id ("starting…"): the hub cancels by id only. */}
         {terminal === undefined && state.runId !== undefined && (
-          <Button variant="text" color="destructive" onClick={onCancel} startIcon={<Square className="size-3.5" />}>
-            Kill
+          <Button
+            variant="text"
+            color="destructive"
+            className={state.queuedPosition === undefined ? undefined : 'ml-auto'}
+            onClick={onCancel}
+            startIcon={<Square className="size-3.5" />}
+          >
+            Stop
           </Button>
         )}
       </div>

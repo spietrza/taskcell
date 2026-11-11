@@ -61,11 +61,22 @@ test('a queued run shows its place in line and can be stopped', () => {
   const queued = reduceTypedRun(initialTypedRun(), { runId: 'r2', event: { type: 'run-queued', position: 2, repoPath: '/repo' } });
   render(<RunStrip state={queued} onCancel={() => {}} />);
   expect(screen.getByText('queued — #2 in line')).toBeInTheDocument();
-  expect(screen.getByRole('button', { name: /kill/i })).toBeInTheDocument();
+  expect(screen.getByRole('button', { name: /stop/i })).toBeInTheDocument();
+  expect(screen.queryByText(/\$/)).toBeNull();
+});
+
+test('a queued run that was cancelled shows how it ended, not its old place in line', () => {
+  const queued = reduceTypedRun(initialTypedRun(), { runId: 'r2', event: { type: 'run-queued', position: 2, repoPath: '/repo' } });
+  const cancelled = reduceTypedRun(queued, { runId: 'r2', event: { type: 'run-cancelled' } });
+  render(<RunStrip state={cancelled} onCancel={() => {}} />);
+  expect(screen.queryByText(/in line/)).toBeNull();
+  expect(screen.getByText('not started')).toBeInTheDocument();
+  expect(screen.getByText('cancelled')).toBeInTheDocument();
+  expect(screen.queryByRole('button', { name: /stop/i })).toBeNull();
 });
 
 test('no Stop button while the run has no id yet (starting…)', () => {
   render(<RunStrip state={initialTypedRun()} onCancel={() => {}} />);
   expect(screen.getByText('starting…')).toBeInTheDocument();
-  expect(screen.queryByRole('button', { name: /kill/i })).toBeNull();
+  expect(screen.queryByRole('button', { name: /stop/i })).toBeNull();
 });
