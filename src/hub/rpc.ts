@@ -17,6 +17,8 @@ import type { RunSession } from './run-session.js';
 import { CompleteRegistry, type CompleteParams } from './complete.js';
 import { assertWithinBrowseRoot, browseDirs } from './browse.js';
 import { cloneProject } from './clone.js';
+import { listNeedsYou, replyNeedsYou } from './needs-you.js';
+import { detectRepoSlug } from '../runners/github.js';
 import type { ErrorKind } from '../hub-wire.js';
 import { defaultRunsRoot, remoteRunsRoot, listRunSummaries, readRunDetail } from './runs.js';
 import { listActive, readSession } from './active.js';
@@ -131,6 +133,15 @@ function runSourceRoot(repoPath: string, raw: unknown): string {
   if (source.kind === 'local') return defaultRunsRoot(repoPath);
   if (source.kind === 'ci' && typeof source.runId === 'number') return remoteRunsRoot(repoPath, source.runId);
   throw new BadRequestError("source is required and must be { kind: 'local' } or { kind: 'ci', runId: number }");
+}
+
+/** The GitHub slug of an allowlisted repo's origin, or undefined when it has no GitHub remote. */
+async function githubSlug(repoPath: string): Promise<string | undefined> {
+  try {
+    return await detectRepoSlug(repoPath);
+  } catch {
+    return undefined;
+  }
 }
 
 async function repoOk(repoPath: string): Promise<boolean> {
@@ -387,6 +398,29 @@ export async function dispatchRpc(ctx: RpcContext, cmd: string, rawArgs: unknown
     case 'browse_dirs': {
       assertMutationsAllowed(ctx.bind);
       return browseDirs(ctx.browseRoot, optionalString(args, 'path'));
+    }
+    case 'list_needs_you': {
+      const real = await ctx.allowlist.assertAllowed(requireString(args, 'repoPath'));
+      const repoSlug = await githubSlug(real);
+      // Not a GitHub remote — nothing for this read model to show.
+      return { items: repoSlug === undefined ? [] : await listNeedsYou(repoSlug) };
+    }
+    case 'reply_needs_you': {
+      // Comments under the hub's `gh` identity and adds a trigger label — a remote mutation.
+      assertMutationsAllowed(ctx.bind);
+      const real = await ctx.allowlist.assertAllowed(requireString(args, 'repoPath'));
+      const id = requireString(args, 'id');
+      const kind = requireString(args, 'kind');
+      if (kind !== 'issue' && kind !== 'pr') throw new BadRequestError("kind must be 'issue' or 'pr'");
+      const body = requireString(args, 'body');
+      const repoSlug = await githubSlug(real);
+      if (repoSlug === undefined) throw new BadRequestError('reply_needs_you: this project has no GitHub remote');
+      // The slug comes from the allowlisted repo, never from `id` — `replyNeedsYou` refuses an `id`
+      // naming any other repo, so a reply can only ever touch a registered project.
+      // The repo's configured trigger label (app.json `label`, as api_create_task applies), else the default.
+      const { label } = await readAppConfig(real);
+      await replyNeedsYou(repoSlug, id, kind, body, undefined, label?.trim() ? label : undefined);
+      return null;
     }
     case 'enable_factory_plan': {
       const real = await ctx.allowlist.assertAllowed(requireString(args, 'repoPath'));

@@ -470,6 +470,25 @@ export interface DirListing {
   entries: DirEntry[];
 }
 
+/**
+ * One GitHub issue/PR waiting for a human (Hub "Needs you" — hub-only, src/hub/needs-you.ts): an
+ * issue at `needs info`, or a PR at `vanguard:needs-human-review`/`vanguard:verify-failed` or with a
+ * review requesting changes.
+ */
+export interface NeedsYouItem {
+  /** `owner/repo#number` — also the id a reply targets. */
+  id: string;
+  kind: 'issue' | 'pr';
+  number: number;
+  repoSlug: string;
+  title: string;
+  url: string;
+  /** Why this item waits: the label name, or `'changes requested'` for a PR review verdict. */
+  reason: string;
+  /** The factory's own last comment, redacted; untrusted, render as plain text. Absent when it never commented. */
+  lastComment?: { author: string; body: string };
+}
+
 /** A Fleet-screen spawned process (TAURI_ONLY — Fleet is disabled in hub mode). */
 export interface SpawnInfo {
   pid: number;
@@ -582,6 +601,10 @@ export interface Commands {
   browse_dirs: { args: { path?: string }; result: DirListing };
   /** HUB_ONLY: clone a repository under the browse root and register it. */
   clone_project: { args: { url: string; parentDir: string; name?: string }; result: Project };
+  /** HUB_ONLY: the hub "Needs you" read model (src/hub/needs-you.ts) — `gh` and labels only, no model call. */
+  list_needs_you: { args: { repoPath: string }; result: { items: NeedsYouItem[] } };
+  /** HUB_ONLY: post a reply with the caller's own `gh` identity and move the item on. */
+  reply_needs_you: { args: { repoPath: string; id: string; kind: 'issue' | 'pr'; body: string }; result: void };
   /** TAURI_ONLY: the Fleet screen's shell-spawn surface — disabled in hub mode (remote code
    * execution on a reachable server). `argv[0]` is the program, run WITHOUT a shell: values built
    * from repo config travel as single arguments and can never introduce shell syntax. */
@@ -619,6 +642,8 @@ export const HUB_ONLY = [
   'enable_factory_apply',
   'enable_factory_secret',
   'enable_factory_verify',
+  'list_needs_you',
+  'reply_needs_you',
   'api_queue',
 ] as const satisfies readonly (keyof Commands)[];
 
@@ -668,6 +693,8 @@ export const COMMAND_NAMES = [
   'api_cancel_complete',
   'browse_dirs',
   'clone_project',
+  'list_needs_you',
+  'reply_needs_you',
   'spawn_run',
   'kill_run',
   'list_spawns',
