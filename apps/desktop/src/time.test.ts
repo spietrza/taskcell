@@ -1,5 +1,5 @@
 import { afterEach, describe, expect, it, vi } from 'vitest';
-import { relTime } from './time';
+import { absTime, relTime } from './time';
 
 const NOW = 1_700_000_000_000; // fixed epoch ms so Date.now() is deterministic
 
@@ -30,5 +30,17 @@ describe('relTime', () => {
 
   it('clamps future timestamps to 0s', () => {
     expect(ago(-10_000)).toBe('0s ago');
+  });
+});
+
+describe('absTime', () => {
+  it('formats to UTC minutes', () => {
+    expect(absTime(Date.parse('2026-07-06T19:12:02.123Z'))).toBe('2026-07-06 19:12');
+  });
+
+  it('renders an em dash for non-finite input instead of throwing', () => {
+    // `Date.parse` of a malformed timestamp is NaN, and `new Date(NaN).toISOString()` throws.
+    expect(absTime(Date.parse('not a date'))).toBe('—');
+    expect(absTime(Infinity)).toBe('—');
   });
 });

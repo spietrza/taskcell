@@ -11,7 +11,8 @@ function StatusChip({ r }: { r: RemoteRun }) {
     return <Chip color="warning" variant="outlined">{r.status.replace(/_/g, ' ')}</Chip>;
   }
   // success/failure is the same verdict the run list calls passed/failed (hub-audit P2 #3); any
-  // other CI conclusion (cancelled, skipped, timed_out…) isn't a binary verdict, so it shows as-is.
+  // other CI conclusion (cancelled, skipped…) isn't a binary verdict, so it shows as-is — neutral,
+  // except `timed_out`, which is a failure by another name and stays red.
   if (r.conclusion === 'success' || r.conclusion === 'failure') {
     const ok = r.conclusion === 'success';
     return (
@@ -21,7 +22,7 @@ function StatusChip({ r }: { r: RemoteRun }) {
     );
   }
   return (
-    <Chip color="secondary" variant="outlined">
+    <Chip color={r.conclusion === 'timed_out' ? verdictColor(false) : 'secondary'} variant="outlined">
       {r.conclusion || 'done'}
     </Chip>
   );
