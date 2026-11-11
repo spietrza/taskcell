@@ -11,7 +11,9 @@ export interface RunEvalsOptions {
 /** Run every case through produce -> judge and aggregate a pass/fail report grouped by kind. */
 export async function runEvals(opts: RunEvalsOptions): Promise<EvalReport> {
   const results: EvalCaseResult[] = [];
-  for (const testCase of opts.cases) {
+  for (const [index, testCase] of opts.cases.entries()) {
+    // Progress on stderr (stdout carries --json): a hung case is named in the CI log, not guessed.
+    process.stderr.write(`eval ${index + 1}/${opts.cases.length}: ${testCase.id}\n`);
     const output = await opts.produce(testCase);
     const verdict = await opts.judge.judge({ testCase, output });
     results.push({ testCase, output, verdict });
