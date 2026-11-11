@@ -663,7 +663,8 @@ export interface WatchGithubOptions {
   /**
    * Run only this issue (owner/repo#n or a bare number) instead of listing every issue carrying the
    * trigger label(s). Fetched directly — no label-search index lag — and gated exactly as a listed
-   * issue would be: required labels, author trust, and not already claimed by another run.
+   * issue would be: open state, required labels, author trust, and not already claimed by another
+   * run (best effort; the claim is what settles a race).
    */
   issueRef?: string;
   concurrency?: number;
@@ -726,10 +727,13 @@ async function withTrustedIssueAuthors(
 
 /**
  * Fetch the `--issue`-named issue directly (no label-search index lag) and gate it exactly as a
- * listed issue would be: the required trigger label(s) must be present, and it must not already
- * carry `claimedLabel` — another run claimed it first, so this one skips it with a log line rather
- * than risk running it twice. Returns zero or one task; downstream (author trust, held/rate-limited
- * bookkeeping) treats it identically to a bulk list() result.
+ * listed issue would be: it must be open (the sweep's `--state open`), carry the required trigger
+ * label(s), and not already carry `claimedLabel` — another run claimed it first, so this one skips
+ * it with a log line. That skip is best effort: the claim's label swap is what actually catches a
+ * run that claimed between this fetch and the claim. Returns zero or one task; downstream (author
+ * trust, held/rate-limited bookkeeping) treats it identically to a bulk list() result. A failed
+ * fetch is NOT swallowed — it throws, so an unreachable or misnamed issue fails the run instead of
+ * reporting "0 ready".
  */
 async function fetchHintedIssue(
   fetcher: { fetch: (id: string) => Promise<Task> },
@@ -737,11 +741,9 @@ async function fetchHintedIssue(
   requiredLabels: string[],
   claimedLabel: string,
 ): Promise<Task[]> {
-  let task: Task;
-  try {
-    task = await fetcher.fetch(ref);
-  } catch (error) {
-    console.log(`vanguard: --issue ${ref} fetch failed -> ${error instanceof Error ? error.message : String(error)}`);
+  const task = await fetcher.fetch(ref);
+  if (task.state !== undefined && task.state.toUpperCase() !== 'OPEN') {
+    console.log(`vanguard: ${task.id} skipped -> issue is ${task.state.toLowerCase()}, not open`);
     return [];
   }
   if (task.labels.includes(claimedLabel)) {

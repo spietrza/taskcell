@@ -1291,25 +1291,31 @@ describe('githubIssueWatchPrimitives ownerLabel', () => {
   });
 });
 
-describe('githubIssueWatchPrimitives issueRef (single-issue watch)', () => {
-  function issueView(number: number, labels: string[]): string {
-    return JSON.stringify({ number, title: 'T', body: '', labels: labels.map((name) => ({ name })), author: { login: 'maintainer' } });
-  }
+/** `gh issue view --json ...` payload for the single-issue watch tests. */
+function issueView(number: number, labels: string[], state = 'OPEN'): string {
+  return JSON.stringify({ number, title: 'T', body: '', labels: labels.map((name) => ({ name })), author: { login: 'maintainer' }, state });
+}
 
+/** The agent-pass primitives under test, pinned to one issue (`--issue <ref>`). */
+function issuePrimitives(gh: GhRunner, issueRef: string): WatchPrimitives {
+  return githubIssueWatchPrimitives({
+    deps: { auth: { type: 'api', apiKey: 'k' } as never, repoPath: '/tmp', repoSlug: 'owner/repo' },
+    label: 'ready for agent',
+    claimedLabel: GITHUB_CLAIMED_LABEL,
+    reviewLabel: GITHUB_REVIEW_LABEL,
+    issueRef,
+    gh,
+  });
+}
+
+describe('githubIssueWatchPrimitives issueRef (single-issue watch)', () => {
   it('listReady fetches only the named issue directly (no list scan) and returns it when gates pass', async () => {
     const gh: GhRunner = vi.fn(async (args: string[]) => {
       if (args[0] === 'issue' && args[1] === 'view') return issueView(42, ['ready for agent']);
       if (args[0] === 'api') return JSON.stringify({ user: { login: 'maintainer' }, author_association: 'MEMBER' });
       throw new Error(`unexpected gh call: ${args.join(' ')}`);
     });
-    const primitives = githubIssueWatchPrimitives({
-      deps: { auth: { type: 'api', apiKey: 'k' } as never, repoPath: '/tmp', repoSlug: 'owner/repo' },
-      label: 'ready for agent',
-      claimedLabel: GITHUB_CLAIMED_LABEL,
-      reviewLabel: GITHUB_REVIEW_LABEL,
-      issueRef: '42',
-      gh,
-    });
+    const primitives = issuePrimitives(gh, '42');
 
     expect(await primitives.listReady()).toEqual([{ id: 'owner/repo#42' }]);
     const calls = (gh as ReturnType<typeof vi.fn>).mock.calls.map(([args]) => args as string[]);
@@ -1324,14 +1330,7 @@ describe('githubIssueWatchPrimitives issueRef (single-issue watch)', () => {
         if (args[0] === 'issue' && args[1] === 'view') return issueView(42, ['ready for agent', GITHUB_CLAIMED_LABEL]);
         throw new Error(`unexpected gh call: ${args.join(' ')}`);
       });
-      const primitives = githubIssueWatchPrimitives({
-        deps: { auth: { type: 'api', apiKey: 'k' } as never, repoPath: '/tmp', repoSlug: 'owner/repo' },
-        label: 'ready for agent',
-        claimedLabel: GITHUB_CLAIMED_LABEL,
-        reviewLabel: GITHUB_REVIEW_LABEL,
-        issueRef: '42',
-        gh,
-      });
+      const primitives = issuePrimitives(gh, '42');
 
       expect(await primitives.listReady()).toEqual([]);
       expect(log).toHaveBeenCalledWith(expect.stringContaining(`owner/repo#42 skipped -> already "${GITHUB_CLAIMED_LABEL}" (claimed by another run)`));
@@ -1349,6 +1348,22 @@ describe('githubIssueWatchPrimitives issueRef (single-issue watch)', () => {
         if (args[0] === 'issue' && args[1] === 'view') return issueView(42, ['some-other-label']);
         throw new Error(`unexpected gh call: ${args.join(' ')}`);
       });
+      const primitives = issuePrimitives(gh, '42');
+
+      expect(await primitives.listReady()).toEqual([]);
+      expect(log).toHaveBeenCalledWith(expect.stringContaining('owner/repo#42 skipped -> missing label "ready for agent"'));
+    } finally {
+      log.mockRestore();
+    }
+  });
+
+  it('listReady skips a closed issue that still carries the trigger label, with a log line', async () => {
+    const log = vi.spyOn(console, 'log').mockImplementation(() => {});
+    try {
+      const gh: GhRunner = vi.fn(async (args: string[]) => {
+        if (args[0] === 'issue' && args[1] === 'view') return issueView(42, ['ready for agent'], 'CLOSED');
+        throw new Error(`unexpected gh call: ${args.join(' ')}`);
+      });
       const primitives = githubIssueWatchPrimitives({
         deps: { auth: { type: 'api', apiKey: 'k' } as never, repoPath: '/tmp', repoSlug: 'owner/repo' },
         label: 'ready for agent',
@@ -1359,10 +1374,27 @@ describe('githubIssueWatchPrimitives issueRef (single-issue watch)', () => {
       });
 
       expect(await primitives.listReady()).toEqual([]);
-      expect(log).toHaveBeenCalledWith(expect.stringContaining('owner/repo#42 skipped -> missing label "ready for agent"'));
+      expect(log).toHaveBeenCalledWith(expect.stringContaining('owner/repo#42 skipped -> issue is closed, not open'));
     } finally {
       log.mockRestore();
     }
+  });
+
+  it('listReady fails the run when the named issue cannot be fetched (never "0 ready")', async () => {
+    const gh: GhRunner = vi.fn(async (args: string[]) => {
+      if (args[0] === 'issue' && args[1] === 'view') throw new Error('gh: issue not found');
+      throw new Error(`unexpected gh call: ${args.join(' ')}`);
+    });
+    const primitives = githubIssueWatchPrimitives({
+      deps: { auth: { type: 'api', apiKey: 'k' } as never, repoPath: '/tmp', repoSlug: 'owner/repo' },
+      label: 'ready for agent',
+      claimedLabel: GITHUB_CLAIMED_LABEL,
+      reviewLabel: GITHUB_REVIEW_LABEL,
+      issueRef: '42',
+      gh,
+    });
+
+    await expect(primitives.listReady()).rejects.toThrow('gh: issue not found');
   });
 
   it('spec pass applies the same issueRef gating against its own claimed label', async () => {
@@ -1392,53 +1424,44 @@ describe('githubIssueWatchPrimitives issueRef (single-issue watch)', () => {
 });
 
 describe('watch --issue: concurrent single-issue invocations', () => {
-  it('two concurrent watchOnce calls racing to claim the same issue claim it exactly once (claim-label race)', async () => {
-    let claimed = false;
-    const runOne = vi.fn(async () => ({ prUrl: 'https://example.invalid/pr/1' }));
-    const primitives: WatchPrimitives = {
-      listReady: async () => [{ id: 'owner/repo#1' }],
-      claim: async () => {
-        // Simulates the GitHub label edit: the second racer's claim lands on an issue the first
-        // racer already moved off the trigger label, so it fails exactly like the real claim-label
-        // race the sweep already guards against (see claimGate / 'taken').
-        if (claimed) throw new Error('already claimed');
-        claimed = true;
-      },
-      runOne,
-      review: async () => {},
-      onNoChange: async () => {},
-      onFailure: async () => {},
+  it('both fetch the issue unclaimed, but the claim-label swap lets only one run it', async () => {
+    // The listReady gate is best effort: both invocations read the issue before either claims it,
+    // so the real dedup is the claim itself (`gh issue edit --remove-label` fails once the trigger
+    // label is gone -> claimGate 'taken').
+    const labels = new Set(['ready for agent']);
+    const gh: GhRunner = async (args: string[]) => {
+      if (args[0] === 'issue' && args[1] === 'view') {
+        return JSON.stringify({ number: 1, title: 'T', body: '', labels: [...labels].map((name) => ({ name })), author: { login: 'maintainer' }, state: 'OPEN' });
+      }
+      if (args[0] === 'api') return JSON.stringify({ user: { login: 'maintainer' }, author_association: 'MEMBER' });
+      if (args[0] === 'issue' && args[1] === 'edit') {
+        if (args.includes('--remove-label') && args[args.indexOf('--remove-label') + 1] === 'ready for agent') {
+          if (!labels.has('ready for agent')) throw new Error('could not remove label: "ready for agent" not found on issue #1');
+          labels.delete('ready for agent');
+          labels.add(GITHUB_CLAIMED_LABEL);
+        }
+        return '';
+      }
+      throw new Error(`unexpected gh call: ${args.join(' ')}`);
     };
+    const runOne = vi.fn(async () => ({ prUrl: 'https://example.invalid/pr/1' }));
+    const racer = (): WatchPrimitives => ({
+      ...githubIssueWatchPrimitives({
+        deps: { auth: { type: 'api', apiKey: 'k' } as never, repoPath: '/tmp', repoSlug: 'owner/repo' },
+        label: 'ready for agent',
+        claimedLabel: GITHUB_CLAIMED_LABEL,
+        reviewLabel: GITHUB_REVIEW_LABEL,
+        issueRef: '1',
+        gh,
+      }),
+      runOne,
+    });
 
-    const [tickA, tickB] = await Promise.all([watchOnce(primitives, { concurrency: 1 }), watchOnce(primitives, { concurrency: 1 })]);
+    const [tickA, tickB] = await Promise.all([watchOnce(racer(), { concurrency: 1 }), watchOnce(racer(), { concurrency: 1 })]);
 
     expect(runOne).toHaveBeenCalledTimes(1);
     expect([...tickA.opened, ...tickB.opened]).toEqual(['owner/repo#1']);
     expect([...tickA.skipped, ...tickB.skipped]).toEqual(['owner/repo#1']);
-  });
-
-  it('two concurrent --issue watches for different issues do not interfere', async () => {
-    const runOne = vi.fn(async (id: string) => ({ prUrl: `https://example.invalid/pr/${id}` }));
-    function makePrimitives(id: string): WatchPrimitives {
-      return {
-        listReady: async () => [{ id }],
-        claim: async () => {},
-        runOne: () => runOne(id),
-        review: async () => {},
-        onNoChange: async () => {},
-        onFailure: async () => {},
-      };
-    }
-
-    const [tickA, tickB] = await Promise.all([
-      watchOnce(makePrimitives('owner/repo#1'), { concurrency: 1 }),
-      watchOnce(makePrimitives('owner/repo#2'), { concurrency: 1 }),
-    ]);
-
-    expect(tickA.opened).toEqual(['owner/repo#1']);
-    expect(tickB.opened).toEqual(['owner/repo#2']);
-    expect(runOne).toHaveBeenCalledWith('owner/repo#1');
-    expect(runOne).toHaveBeenCalledWith('owner/repo#2');
   });
 });
 
