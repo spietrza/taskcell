@@ -93,6 +93,9 @@ export function RepoPicker({
   return (
     <div className="fixed inset-0 z-50 flex items-start justify-center bg-black/40 pt-[15vh]" onClick={onClose}>
       <div
+        role="dialog"
+        aria-modal="true"
+        aria-label="Add a repository"
         className="flex w-full max-w-lg flex-col overflow-hidden rounded-lg border border-border bg-background shadow-xl"
         onClick={(e) => e.stopPropagation()}
       >
@@ -110,12 +113,14 @@ export function RepoPicker({
                 value={url}
                 onChange={(e) => setUrl(e.target.value)}
                 placeholder="https://github.com/org/repo"
+                aria-label="Repository URL"
                 disabled={cloning}
               />
               <Input
                 value={folderName}
                 onChange={(e) => setFolderName(e.target.value)}
                 placeholder="Folder name (default: repo name)"
+                aria-label="Folder name"
                 disabled={cloning}
               />
             </div>
@@ -135,7 +140,7 @@ export function RepoPicker({
             </span>
           </div>
           <div className="max-h-80 overflow-auto p-1">
-            {error && <div className="px-3 py-2 text-sm text-destructive">{error}</div>}
+            {error && <div role="alert" className="px-3 py-2 text-sm text-destructive-text">{error}</div>}
             {listing?.entries.map((entry) => (
               <button
                 key={entry.path}

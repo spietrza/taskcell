@@ -79,6 +79,7 @@ export function Rail({
               <button
                 type="button"
                 onClick={() => onScreen(n.key)}
+                aria-current={screen === n.key ? 'page' : undefined}
                 className={cn(
                   'flex w-full items-center rounded py-1.5 text-sm transition-colors',
                   collapsed ? 'justify-center px-0' : 'gap-2 px-2',
