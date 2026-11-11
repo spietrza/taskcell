@@ -4,6 +4,7 @@ export type { RunOptions, RunResult, ReasoningEffort, ExitReason } from './core/
 export type {
   IsolatedSandboxProvider,
   SandboxConfig,
+  SandboxProfile,
   ExecOptions,
   ExecResult,
   ExecStream,
@@ -28,6 +29,7 @@ export { SkillRegistry, skillRegistryFromDirectory } from './context/skill-regis
 export { renderPrompt } from './context/prompt-engine.js';
 export { extractTag, extractJson, hasTerminationSignal } from './structured/extract.js';
 export { DockerSandboxProvider } from './sandbox/docker.js';
+export { resolveSandboxProfile } from './sandbox/limits.js';
 export { FirecrackerSandboxProvider } from './sandbox/firecracker.js';
 export { fanOut, type FanOutOutcome, type FanOutOptions } from './pipeline/fan-out.js';
 export type { Task, SubTask, TaskComment, TaskFilter, TaskFetcher } from './tasks/fetcher.js';
