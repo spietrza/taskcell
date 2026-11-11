@@ -123,7 +123,9 @@ the project cards).
 
 ### P2
 
-1. **No webfont is loaded.** chunks-ui sets `font-sans: Manrope` and `font-mono: Fira Code`, but
+1. **No webfont is loaded.** · **resolved** by the landing identity change: the hub now
+   self-hosts the taskcell.dev faces (Schibsted Grotesk, Atkinson Hyperlegible, IBM Plex Mono) in
+   `apps/desktop/src/fonts`; see `apps/desktop/DESIGN.md` Typography. Original finding: chunks-ui sets `font-sans: Manrope` and `font-mono: Fira Code`, but
    nothing ships the files, so the app renders in whatever the OS has (Helvetica/SF on the Mac,
    something else on a Linux server's browser). Decide: bundle both faces (the landing page already
    self-hosts woff2 files) or set the stacks to the system fonts on purpose. `src/styles.css`.

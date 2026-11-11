@@ -35,8 +35,8 @@ export function TopBar({
         aria-label="Taskcell Hub — home"
         title="Back to dashboard"
       >
-        <Logo className="size-5 text-primary" />
-        <span className="font-semibold">Taskcell Hub</span>
+        <Logo className="size-5" />
+        <span className="font-heading font-bold tracking-tight">Taskcell Hub</span>
       </button>
       {(projectSwitcher || crumbs.length > 0) && (
         <>

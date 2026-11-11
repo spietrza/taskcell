@@ -134,7 +134,7 @@ export function EnableFactoryDialog({ project, onClose }: { project: { path: str
             )}
             {applied && (
               <Section title="Pull request">
-                <a href={applied.prUrl} target="_blank" rel="noreferrer" className="text-primary underline">
+                <a href={applied.prUrl} target="_blank" rel="noreferrer" className="text-primary-text underline">
                   {applied.prUrl}
                 </a>
                 <p className="mt-1 text-xs text-muted-foreground">
@@ -145,7 +145,7 @@ export function EnableFactoryDialog({ project, onClose }: { project: { path: str
             {verify && (
               <Section title="Verify">
                 {verify.run ? (
-                  <a href={verify.run.url} target="_blank" rel="noreferrer" className="text-primary underline">
+                  <a href={verify.run.url} target="_blank" rel="noreferrer" className="text-primary-text underline">
                     Doctor run: {verify.run.conclusion || verify.run.status}
                   </a>
                 ) : (

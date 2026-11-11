@@ -53,12 +53,8 @@ export default function App() {
   };
   const [theme, setTheme] = useState<Theme>(() => {
     const saved = localStorage.getItem('vg-theme');
-    const initial: Theme =
-      saved === 'dark' || saved === 'light'
-        ? saved
-        : window.matchMedia('(prefers-color-scheme: dark)').matches
-          ? 'dark'
-          : 'light';
+    // Dark is the Taskcell look (taskcell.dev); light only when the operator picked it.
+    const initial: Theme = saved === 'light' ? 'light' : 'dark';
     applyTheme(initial);
     return initial;
   });

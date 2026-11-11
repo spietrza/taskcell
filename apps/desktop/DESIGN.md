@@ -2,65 +2,75 @@
 name: Taskcell Hub
 description: The operator's cockpit over a self-hosted software factory, in a Tauri window or a browser.
 colors:
-  primary: "oklch(0.56 0.2165 257.21)"
-  primary-foreground: "oklch(0.985 0 0)"
+  primary: "#f99a2c"
+  primary-foreground: "#14100a"
+  primary-light: "#c8730f"
   success: "oklch(75.14% 0.1514 166.5)"
-  warning: "oklch(77.97% 0.1665 72.45)"
+  warning: "oklch(0.86 0.16 95)"
   destructive: "oklch(0.582 0.2249 25.88)"
-  background: "oklch(1 0 0)"
-  foreground: "oklch(0.145 0 0)"
-  muted: "oklch(0.97 0 0)"
-  muted-foreground: "oklch(0.53 0 0)"
-  border: "oklch(0.922 0 0)"
-  background-dark: "oklch(0.145 0 0)"
-  foreground-dark: "oklch(0.985 0 0)"
-  muted-dark: "oklch(0.269 0 0)"
-  muted-foreground-dark: "oklch(0.708 0 0)"
-  border-dark: "oklch(0.269 0 0)"
+  destructive-text-dark: "#ff6a5c"
+  background: "#0d1013"
+  foreground: "#e8ecef"
+  popover: "#141a1f"
+  muted: "#1b2228"
+  muted-foreground: "#a3adb6"
+  border: "#202c2f"
+  input: "#3a5054"
+  background-light: "#f7f8f9"
+  foreground-light: "#0d1013"
+  card-light: "#ffffff"
+  muted-light: "#e8ecef"
+  muted-foreground-light: "#56616b"
+  border-light: "#d3dadd"
+  input-light: "#b9c3c7"
 typography:
   title:
-    fontFamily: "Manrope, sans-serif"
+    fontFamily: "Schibsted Grotesk, sans-serif"
     fontSize: "1rem"
     fontWeight: 600
     lineHeight: 1.5
   card-title:
-    fontFamily: "Manrope, sans-serif"
+    fontFamily: "Schibsted Grotesk, sans-serif"
     fontSize: "1.125rem"
     fontWeight: 600
     lineHeight: 1
     letterSpacing: "-0.025em"
   body:
-    fontFamily: "Manrope, sans-serif"
+    fontFamily: "Atkinson Hyperlegible, sans-serif"
     fontSize: "0.875rem"
     fontWeight: 400
     lineHeight: 1.43
   meta:
-    fontFamily: "Manrope, sans-serif"
+    fontFamily: "Atkinson Hyperlegible, sans-serif"
     fontSize: "0.75rem"
     fontWeight: 400
     lineHeight: 1.33
   section-label:
-    fontFamily: "Manrope, sans-serif"
+    fontFamily: "Atkinson Hyperlegible, sans-serif"
     fontSize: "11px"
-    fontWeight: 500
+    fontWeight: 400
     letterSpacing: "0.025em"
   micro:
-    fontFamily: "Manrope, sans-serif"
+    fontFamily: "Atkinson Hyperlegible, sans-serif"
     fontSize: "10px"
     fontWeight: 400
   titlebar:
-    fontFamily: "Manrope, sans-serif"
+    fontFamily: "Atkinson Hyperlegible, sans-serif"
     fontSize: "13px"
-    fontWeight: 600
+    fontWeight: 700
+  wordmark:
+    fontFamily: "Schibsted Grotesk, sans-serif"
+    fontSize: "1rem"
+    fontWeight: 700
   mono:
-    fontFamily: "Fira Code, monospace"
+    fontFamily: "IBM Plex Mono, monospace"
     fontSize: "0.75rem"
-    fontWeight: 400
+    fontWeight: 500
 rounded:
-  sm: "6px"
-  md: "8px"
-  lg: "10px"
-  xl: "14px"
+  sm: "2px"
+  md: "4px"
+  lg: "6px"
+  xl: "10px"
   tight: "4px"
   full: "9999px"
 spacing:
@@ -104,52 +114,67 @@ components:
 
 # Design System: Taskcell Hub
 
-<!-- Recorded from the code on main (apps/desktop/src, chunks-ui theme) in November 2026. Tokens come
-     from chunks-ui's theme.css; the app adds none of its own. Product context: ./PRODUCT.md.
-     Earlier direction: ../../docs/design/brief.md. Audit: ../../docs/design/hub-audit.md. -->
+<!-- Recorded from the code in November 2026. Structure comes from chunks-ui's theme.css; the hub
+     overrides its colors, fonts and radius in src/styles.css with the identity of taskcell.dev
+     (landing/src/site.css). Product context: ./PRODUCT.md. Earlier direction:
+     ../../docs/design/brief.md. Audit: ../../docs/design/hub-audit.md. -->
 
 ## Overview
 
-**Creative North Star: "The Quiet Control Room"** *(proposed name; the direction behind it is the
-brief's "calm, precise, Mac-native cockpit")*
+**Creative North Star: "The Night Shift Floor"** *(the factory floor of taskcell.dev, seen from
+the operator's desk)*
 
-The hub is a tool people check, not a page they browse. Surfaces are grayscale: white or near-black
-background, hairline borders, light muted fills for chrome. The only color at rest is the
-primary blue on the one main action per screen and the project's own identity color in the title
-bar. Everything else that is colored is status: green means running or passed, red means failed,
-amber means a warning or something unsaved. When a screen is all gray, nothing needs the operator.
+The hub is the product the landing page shows: the same near-black floor (`#0d1013`), cool ink,
+teal-tinted hairlines and one amber accent, set in the landing's three faces. It is still a tool
+people check, not a page they browse, so it takes the landing's palette and type but not its
+display sizes, glow or 3D scene. Dark is the default; light is a derived theme for operators who
+pick it.
+
+Amber is the only accent. It marks the one main action per screen, focus, selection and live
+state (the running chip, an active filter, the selected run row). It is never decoration. The
+other colors are status (green passed/running dot, yellow warning, red failed) and the project's
+own identity color in the title bar. When a screen is all ink and hairline, nothing needs the
+operator.
 
 Density follows content. Tables, the task board, transcripts and diffs are packed (`text-xs` and
-`text-sm`, 4–8px gaps); page headers and dialogs get more air. Type stays small and modest: there is
-no display size, the largest text in the app is a 24px number in a summary tile.
+`text-sm`, 4–8px gaps); page headers and dialogs get more air. There is no display size in the
+hub; the largest text is a 24px number in a summary tile.
 
 Everything visual is imported from `@/ui` (`src/ui/index.ts`), a thin seam over the `chunks-ui` kit
-(Base UI + Tailwind v4). New UI composes those primitives at their own proportions.
+(Base UI + Tailwind v4). New UI composes those primitives at their own proportions; brand values
+live only in `src/styles.css`.
 
 **Key Characteristics:**
-- Grayscale chrome, color reserved for status and identity.
+- Near-black floor, cool ink, teal-tinted hairlines (landing palette).
+- One amber accent with dark ink on it, for action, focus and live state only.
 - One primary (filled) button per screen; everything else is outlined or text.
-- Hairline 1px borders and tonal fills instead of shadows.
-- Small type (14px body, 12px metadata), monospace for ids, commands, code and diffs.
-- Light and dark are equal; every color comes from a token that has both.
+- Hairline 1px borders and tonal steps instead of shadows; small, tight radii.
+- Schibsted Grotesk headings, Atkinson Hyperlegible text, IBM Plex Mono for machine text, all
+  self-hosted (`src/fonts`), so the Tauri window and an offline hub render the same.
 
 ## Colors
 
-A neutral grayscale system with one blue accent and three status hues, all defined in OKLCH by
-`chunks-ui/theme.css` and switched by a `.dark` class on `<html>`.
+The landing's palette, set as chunks-ui tokens in `src/styles.css` and switched by a `.dark`
+class on `<html>`. Dark is applied before first paint (`class="dark"` in `index.html`); a saved
+`vg-theme: light` turns it off.
 
 ### Primary
-- **Signal Blue** (`primary`): the main action on a screen (Add project, New Task, Save, Create
-  task), the logo, active tab indicators, the focus ring (60% mix with the background). Never a
+- **Signal Amber** (`primary`): `#f99a2c` in dark (the landing's `--accent`), deepened to `#c8730f`
+  in light so a tab underline, the focus ring and the logo card keep 3:1 on the page. Ink on it is
+  always the landing's `--accent-ink` `#14100a`. Used for the main action on a screen, the logo's
+  card, active tab indicators, focus ring (solid, as on the landing), text selection, the active
+  run filter and the running chip. Links and colored text use `text-primary-text`. Never a
   surface fill.
 
 ### Status
 - **Live Green** (`success`): running dot (`bg-success`, pulsing), passed chips, positive diff
-  lines. Text uses `text-success-text`, never the fill.
-- **Caution Amber** (`warning`): verify issues, unsaved state, unknown stages, budget nearing the
-  cap. Text uses `text-warning-text`.
+  lines. Text uses `text-success-text`, never the fill. Light sets `--success-text` to
+  `oklch(0.47 0.11 166.5)` because chunks-ui's clamp assumes a white page.
+- **Caution Yellow** (`warning`): verify issues, unsaved state, unknown stages, budget nearing the
+  cap. Shifted from amber to yellow (hue 95) so a warning never reads as the accent. Text uses
+  `text-warning-text`.
 - **Fault Red** (`destructive`): failed runs, errors, Kill, removed diff lines, error banners. Text
-  uses `text-destructive-text`, banners included.
+  uses `text-destructive-text` (the landing's `--fail` `#ff6a5c` in dark), banners included.
 - **Board and info hues (Tailwind palette, not tokens):** the task board gives each column its own
   hue (slate Queued, amber Claimed, blue Running, rose Verify failed, violet Review, emerald Done),
   and sky marks informational lines (tool calls, `@@` hunks). These are the only sanctioned raw
@@ -159,44 +184,70 @@ A neutral grayscale system with one blue accent and three status hues, all defin
 - **Project color** (`projectColor()` in `src/color.ts`): a per-project hex, auto-derived from the
   path (HSL 70% / 52%) or set in Settings. It fills the 32px title bar inside a project (text from
   `contrastColor()`), the dashboard card's left edge, and the dot in the project switcher.
+- **Doorway mark** (`Logo`): the landing's mark, wall in `currentColor`, card in `fill-primary`.
 
-### Neutral
-- **Paper / Ink** (`background` / `foreground`): page and primary text.
-- **Mist** (`muted`, used at /20–/60): rail background, hover fills, table headers, code wells.
-- **Graphite** (`muted-foreground`): metadata, labels, inactive nav, placeholders.
-- **Hairline** (`border`): every divider and card edge.
+### Neutral (dark / light)
+- **Floor / Paper** (`background`): `#0d1013` / `#f7f8f9`. Cards sit on the floor in dark, white
+  in light.
+- **Ink** (`foreground`): `#e8ecef` / `#0d1013`.
+- **Surface** (`popover`): `#141a1f` / `#ffffff`, for floating layers.
+- **Well** (`muted`, `secondary`, `accent`; used at /20–/60): `#1b2228` / `#e8ecef`. Rail, hover
+  fills, table headers, code wells.
+- **Graphite** (`muted-foreground`): `#a3adb6` / `#56616b`. Metadata, labels, inactive nav,
+  placeholders.
+- **Hairline** (`border`): `#202c2f` / `#d3dadd` (the landing's teal `--line` at 18% on the floor,
+  as a solid). **Input** edge `#3a5054` / `#b9c3c7` (`--line-strong`).
+
+### Contrast (measured in the rendered app, WCAG 2)
+| Text | dark: floor / well | light: paper / well |
+|---|---|---|
+| foreground | 16.1 / 13.5 | 17.9 / 16.1 |
+| muted-foreground | 8.4 / 7.1 | 6.0 / 5.3 |
+| primary-text | 8.8 / 7.4 | 5.6 / 5.0 |
+| success-text | 9.2 / 7.8 | 5.9 / 5.3 |
+| warning-text | 12.5 / 10.5 | 5.4 / 4.8 |
+| destructive-text | 6.8 / 5.7 | 5.8 / 5.2 |
+| ink on amber button | 8.7 | 5.3 |
 
 ### Named Rules
-**The Gray-At-Rest Rule.** A screen with nothing wrong and nothing running is grayscale plus one
-blue button. Status color appears only when its state is true.
+**The Ink-At-Rest Rule.** A screen with nothing wrong and nothing running is ink, hairlines and
+one amber button. Status color appears only when its state is true.
+
+**The One-Amber Rule.** Amber means "act here" or "live". Do not use it for decoration, headings
+or illustration; do not use Tailwind `amber-*` for new status.
 
 **The Text-Shade Rule.** Colored text uses the `*-text` token (`text-success-text`,
-`text-warning-text`, `text-destructive-text`, `text-primary-text`), which chunks-ui clamps to 4.5:1
-in both themes. Never `text-green-600 dark:text-green-400` or `text-rose-500`.
+`text-warning-text`, `text-destructive-text`, `text-primary-text`), which keeps 4.5:1 in both
+themes. Never `text-primary` for text, `text-green-600 dark:text-green-400` or `text-rose-500`.
 
 ## Typography
 
-**Body Font:** Manrope (falls back to the platform sans; see the note below)
-**Mono Font:** Fira Code (falls back to the platform monospace)
+**Heading Font:** Schibsted Grotesk (variable 400–900), via `--font-heading` and a base rule on
+`h1`–`h3`.
+**Body Font:** Atkinson Hyperlegible (400, 700) as `font-sans`.
+**Mono Font:** IBM Plex Mono (500) as `font-mono`.
 
-**Character:** a plain humanist sans for chrome and prose, monospace only where the content is
-machine text: task ids, commands, file paths in code, stage names, diffs, transcripts.
+The same files the landing ships (`landing/src/fonts`, OFL), copied to `src/fonts` and bundled by
+Vite. No CDN. Atkinson has two weights, so `font-medium` renders 400 and `font-semibold` renders
+700; Plex Mono renders every mono weight at 500.
 
-Neither font is bundled or loaded today, so the app renders in the system sans (SF / Helvetica on
-macOS) and system mono. Treat that as the current reality; shipping the two faces is an open
-decision tracked in the audit.
+**Character:** a hyperlegible sans for chrome and prose, a tight grotesk for titles and the
+wordmark, monospace only where the content is machine text: task ids, commands, file paths in
+code, stage names, diffs, transcripts.
 
 ### Hierarchy
-- **Title** (600, 16px): page and dialog headings (`h2.font-semibold`, dialog `text-sm font-medium`).
-- **Card title** (600, 18px, tight): project card names (chunks `Card.Title`).
+- **Title** (Schibsted 600, 16px): page and dialog headings (`h2.font-semibold`, dialog
+  `text-sm font-medium`).
+- **Card title** (Schibsted 600, 18px, tight): project card names (chunks `Card.Title`).
 - **Stat** (600, 24px, tabular): the five summary tiles on Home only.
 - **Body** (400, 14px): table cells, form labels, list rows, buttons.
 - **Meta** (400, 12px, `text-muted-foreground`): timestamps, counts, hints, chips.
-- **Section label** (500, 11px, uppercase, `tracking-wide`, muted): the rail's "Running" group,
+- **Section label** (11px, uppercase, `tracking-wide`, muted): the rail's "Running" group,
   summary tile labels, panel captions. Labels a group of controls; never sits above a page heading.
 - **Micro** (400, 10px): inline tags inside a row ("git", ".vanguard", a stage's "review" badge,
   the code block's language and copy labels). Never body text.
-- **Title bar** (600, 13px): the window title strip only.
+- **Title bar** (700, 13px): the window title strip only.
+- **Wordmark** (Schibsted 700, `font-heading`): "Taskcell Hub" next to the mark in the top bar.
 
 ### Named Rules
 **The Tabular Rule.** Every number that can change or be compared (counts, cost, durations,
@@ -234,11 +285,11 @@ shadow means the thing floats above the page.
 
 ## Shapes
 
-Soft, small radii from the chunks-ui scale (base `--radius` 10px): 4px (`rounded`) on rail items,
-inline tags and banners; 8px (`rounded-md`) on buttons and inputs; 10px (`rounded-lg`) on panels,
-dialogs and summary tiles; 14px (`rounded-xl`) on chunks `Card` and board lanes; full pills for
-chips, counts and live dots. Borders are always 1px; the one wider edge is the dashboard card's
-6px project-color strip, which is identity, not decoration.
+Tight radii, closer to the landing's square edges than chunks-ui's default (`--radius` 6px): 2px
+(`rounded-sm`), 4px (`rounded`, `rounded-md`) on buttons, inputs, rail items, inline tags and
+banners; 6px (`rounded-lg`) on panels, dialogs and summary tiles; 10px (`rounded-xl`) on chunks
+`Card` and board lanes; full pills for chips, counts and live dots. Borders are always 1px; the one
+wider edge is the dashboard card's 6px project-color strip, which is identity, not decoration.
 
 ## Components
 
@@ -301,7 +352,7 @@ chips, counts and live dots. Borders are always 1px; the one wider edge is the d
 - **ScrollTable** over chunks **Table**: the run list and Remote; rows scroll inside their own
   container under a sticky `bg-muted` header.
 - **InlineEdit**: click-to-rename text (the last breadcrumb on New Task).
-- **Logo**: the shield-cog mark, `currentColor`.
+- **Logo**: the Doorway mark from taskcell.dev; wall `currentColor`, card `fill-primary`.
 
 ### Empty, loading and error states
 - **Empty:** chunks `Empty` (icon, title, one sentence, the action) for whole screens; a dashed
@@ -327,7 +378,7 @@ chips, counts and live dots. Borders are always 1px; the one wider edge is the d
   the board's column hues and sky info lines are allowed, and only where they already live.
 - **Don't** put a thick colored left border on cards, callouts or alerts (`border-l-4`).
 - **Don't** color a whole panel for a passed state; status color goes on the dot, chip or text.
-- **Don't** add display-size type, gradients, glass or decorative illustration.
+- **Don't** add display-size type, gradients, glass, the landing's glow or decorative illustration.
 - **Don't** add uppercase eyebrow labels above page headings.
 - **Don't** leak internal ticket refs (`(S6)`, `#491`) or the old `vanguard` name into UI copy.
 

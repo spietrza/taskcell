@@ -3,8 +3,8 @@ import ReactDOM from 'react-dom/client';
 import { isTauri } from '@tauri-apps/api/core';
 import App from './App';
 import { captureHubToken, isHubMode } from './transport';
+// styles.css already pulls in chunks-ui/theme.css; importing it again here would override the hub's tokens.
 import './styles.css';
-import 'chunks-ui/theme.css';
 import 'highlight.js/styles/github-dark.css';
 
 if (import.meta.env.DEV && !isTauri()) {
