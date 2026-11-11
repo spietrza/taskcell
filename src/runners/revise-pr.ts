@@ -653,18 +653,21 @@ export async function runRevisePullRequest(prRef: string, deps: ReviseGithubPrDe
           closeIssueOnMerge,
           ...(verificationFailed ? { verificationFailed: true } : {}),
         });
-        // One verdict, re-evaluated against the real, current PR body: a human may have discharged a
-        // required prBody item (e.g. pasted the CI yaml the diff can't carry) by editing it between
-        // rounds. prBody items never depend on the diff (conformance-gate.ts) — unlike the first
-        // delivery's full manifest check, there is no cumulative base-branch diff available here
-        // (WorktreeManager.diff is this round's diff against the PR head, not against base), so only
-        // the prBody slice of the manifest is re-checked. No manifest resolved (no referenced issue,
-        // untrusted/absent spec) carries the existing block forward verbatim, same as before.
+        // One verdict, re-evaluated against the delimited items block only: a human may have discharged
+        // a required prBody item (e.g. pasted the CI yaml the diff can't carry) by editing it between
+        // rounds, and only what they pasted inside the block counts — the composed body's generated
+        // text (checklist, gate-config excerpt, proof) must never satisfy an item. prBody items never
+        // depend on the diff (conformance-gate.ts) — unlike the first delivery's full manifest check,
+        // there is no cumulative base-branch diff available here (WorktreeManager.diff is this round's
+        // diff against the PR head, not against base), so only the prBody slice of the manifest is
+        // re-checked. No manifest resolved (no referenced issue, untrusted/absent spec) carries the
+        // existing block forward verbatim, same as before.
         const manifest = sourceIssueTask !== undefined
           ? parseSpecManifest(trustedSpecText(sourceIssueTask, { allowedAuthors: deps.feedbackAuthors, issueAuthor: sourceIssueTask.author }))
           : undefined;
+        const prBodyItemsBlock = extractPrBodyItemsBlock(pr.body);
         const prBodyDischarged = manifest?.prBody !== undefined
-          && checkConformance({ prBody: manifest.prBody }, '', pr.body).missingPrBody.length === 0;
+          && checkConformance({ prBody: manifest.prBody }, '', prBodyItemsBlock ?? '').missingPrBody.length === 0;
         // reviewRequestBody only ever rebuilds the closing-keyword section; it knows nothing about the
         // `## Gate config changed` block the first delivery (or an earlier round) wrote into the body.
         // Carry it forward verbatim — otherwise this re-derivation silently drops the disclosure of a
@@ -672,7 +675,7 @@ export async function runRevisePullRequest(prRef: string, deps: ReviseGithubPrDe
         // The required-PR-body-item block is carried forward too, but only while still unmet — it holds
         // whatever a human pasted into it, and a discharged item must stop forcing partial scope rather
         // than being re-attached forever.
-        const newBody = [rederived, extractGateConfigBlock(pr.body), prBodyDischarged ? undefined : extractPrBodyItemsBlock(pr.body)]
+        const newBody = [rederived, extractGateConfigBlock(pr.body), prBodyDischarged ? undefined : prBodyItemsBlock]
           .filter((s): s is string => s !== undefined)
           .join('\n\n');
         if (newBody !== pr.body) {
