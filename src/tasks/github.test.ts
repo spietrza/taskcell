@@ -212,6 +212,11 @@ describe('resolveGithubDependencyNode', () => {
     expect(node.met).toBe(false);
   });
 
+  it('is met when the issue is closed with no state_reason (null)', async () => {
+    const node = await resolveGithubDependencyNode({ number: '5' }, 'me/app', ghWith({ issue: { state: 'closed', state_reason: null } }));
+    expect(node.met).toBe(true);
+  });
+
   it('is not met while the issue is still open', async () => {
     const node = await resolveGithubDependencyNode({ number: '5' }, 'me/app', ghWith({ issue: { state: 'open' } }));
     expect(node.met).toBe(false);

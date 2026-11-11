@@ -178,6 +178,50 @@ describe('checkDependencies', () => {
     expect(resolveCalls).toBe(3);
   });
 
+  /** Wraps a fixture resolver, counting resolutions per ref key. */
+  function counting(graph: Record<string, DependencyNode>): { resolve: (ref: TaskRef) => Promise<DependencyNode>; calls: Map<string, number> } {
+    const inner = resolverFromGraph(graph);
+    const calls = new Map<string, number>();
+    return {
+      calls,
+      resolve: async (ref) => {
+        const key = describeRef(ref, 'me/app').toLowerCase();
+        calls.set(key, (calls.get(key) ?? 0) + 1);
+        return inner(ref);
+      },
+    };
+  }
+
+  it('resolves each of ~20 densely linked (acyclic) issues exactly once', async () => {
+    // 5 layers of 4 issues, each depending on every issue in the next layer: 4^5 paths, 20 nodes.
+    const layers = Array.from({ length: 5 }, (_, l) => Array.from({ length: 4 }, (_, i) => String(10 + l * 4 + i)));
+    const graph: Record<string, DependencyNode> = {};
+    layers.forEach((layer, l) => {
+      for (const n of layer) graph[`me/app#${n}`] = { met: false, dependsOn: (layers[l + 1] ?? []).map((number) => ({ number })) };
+    });
+    const { resolve, calls } = counting(graph);
+    const start = Date.now();
+    const check = await checkDependencies({ dependsOn: layers[0]!.map((number) => ({ number })) }, SELF, 'me/app', resolve);
+    expect(Date.now() - start).toBeLessThan(1000);
+    expect(check).toEqual({ status: 'waiting', kind: 'unmet', blockers: layers[0]!.map((number) => ({ number })) });
+    expect(calls.size).toBe(20);
+    expect([...calls.values()].every((n) => n === 1)).toBe(true);
+  });
+
+  it('stops at the first cycle among ~20 mutually linked issues, resolving each node at most once', async () => {
+    const numbers = Array.from({ length: 20 }, (_, i) => String(i + 2));
+    const graph: Record<string, DependencyNode> = {};
+    for (const n of numbers) graph[`me/app#${n}`] = { met: false, dependsOn: numbers.filter((m) => m !== n).map((number) => ({ number })) };
+    const { resolve, calls } = counting(graph);
+    const start = Date.now();
+    const check = await checkDependencies({ dependsOn: numbers.map((number) => ({ number })) }, SELF, 'me/app', resolve);
+    expect(Date.now() - start).toBeLessThan(1000);
+    expect(check.status).toBe('needs_info');
+    expect((check as { reason: string }).reason).toContain('cycle');
+    expect([...calls.values()].every((n) => n === 1)).toBe(true);
+    expect(calls.size).toBeLessThanOrEqual(numbers.length);
+  });
+
   it('does not treat a cross-repo dependency as same-repo', async () => {
     const graph = { 'other/lib#2': { met: false, dependsOn: [] } };
     const check = await checkDependencies({ dependsOn: [{ repo: 'other/lib', number: '2' }] }, SELF, 'me/app', resolverFromGraph(graph));

@@ -121,9 +121,9 @@ export async function fetchNativeBlockedBy(repo: string, number: string, gh: GhR
 }
 
 /**
- * Resolve one dependency ref's status (met = closed as completed, or its PR merged) plus its own
- * `dependsOn` (native + body fallback, both fully qualified to this ref's own repo), for
- * `checkDependencies`'s graph walk. Only a 404 on the issue itself (deleted issue, bad number) comes
+ * Resolve one dependency ref's status (met = its PR merged, or the issue closed other than as not
+ * planned — `state_reason` is null for one closed without a reason) plus its own `dependsOn` (native +
+ * body fallback, both fully qualified to this ref's own repo), for `checkDependencies`'s graph walk. Only a 404 on the issue itself (deleted issue, bad number) comes
  * back `missing` rather than throwing — any other error (rate limit, auth, network) propagates, so a
  * transient failure fails the run loudly instead of being silently read as "this reference does not
  * exist" (needs_info) or "no blockers" (ready).
@@ -148,7 +148,7 @@ export async function resolveGithubDependencyNode(ref: TaskRef, fallbackRepo: st
   const met =
     data.pull_request != null
       ? data.pull_request.merged_at != null
-      : data.state === 'closed' && data.state_reason === 'completed';
+      : data.state === 'closed' && data.state_reason !== 'not_planned';
   return { met, dependsOn: mergeDependsOn(native, fromBody) };
 }
 

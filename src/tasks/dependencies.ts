@@ -94,28 +94,13 @@ export type DependencyCheck =
  */
 const MAX_WALK_DEPTH = 10;
 const MAX_WALK_NODES = 100;
-const MAX_WALK_CONCURRENCY = 4;
-
-/** Gate at most `limit` resolutions in flight at once; the rest queue in arrival order. */
-function concurrencyGate(limit: number): <T>(fn: () => Promise<T>) => Promise<T> {
-  let active = 0;
-  const waiting: Array<() => void> = [];
-  return async <T>(fn: () => Promise<T>): Promise<T> => {
-    if (active >= limit) await new Promise<void>((resume) => waiting.push(resume));
-    active += 1;
-    try {
-      return await fn();
-    } finally {
-      active -= 1;
-      waiting.shift()?.();
-    }
-  };
-}
 
 /**
- * Walk a task's dependency graph (each node resolved via `resolveNode`, cached per ref so a
- * diamond-shaped graph resolves each node once, at most MAX_WALK_CONCURRENCY at a time) to decide
- * whether it is ready to run.
+ * Walk a task's dependency graph (each node resolved via `resolveNode`) to decide whether it is
+ * ready to run. A depth-first walk with classic colouring: a node on the current path is "visiting",
+ * one whose subtree is fully walked is "done", so every node is resolved and expanded at most once
+ * however many paths reach it, and meeting a "visiting" node again is a cycle. The walk stops as soon
+ * as a cycle or a bound is hit.
  *
  * Order of checks: an unmet start date gates first (independent of `dependsOn`); then, among the
  * task's direct and transitive dependencies, a graph past the walk bounds, a cycle (a ref that
@@ -142,72 +127,53 @@ export async function checkDependencies(
   if (deps.length === 0) return { status: 'ready' };
 
   const selfKey = refKey(self, fallbackRepo);
-  // Caches the in-flight PROMISE, not just the settled value: two branches of a diamond-shaped graph
-  // (both depending on the same node) can reach `resolve` for it before either has awaited — caching
-  // only the resolved value would let both call `resolveNode` and double the (network) work.
-  const cache = new Map<string, Promise<DependencyNode>>();
-  const gate = concurrencyGate(MAX_WALK_CONCURRENCY);
-  let cycle = false;
-  let exceeded: string | undefined;
+  const nodes = new Map<string, DependencyNode>();
+  const visiting = new Set<string>([selfKey]);
+  const done = new Set<string>();
   const missingRefs: TaskRef[] = [];
-  const missingKeys = new Set<string>();
+  /** Set on the first cycle or bound hit; the walk stops and the check fails closed with this reason. */
+  let stopped: string | undefined;
 
-  /** Undefined once the node budget is spent — the caller stops walking and the check fails closed. */
-  function resolve(ref: TaskRef): Promise<DependencyNode> | undefined {
+  async function walk(ref: TaskRef): Promise<void> {
     const key = refKey(ref, fallbackRepo);
-    const cached = cache.get(key);
-    if (cached !== undefined) return cached;
-    if (cache.size >= MAX_WALK_NODES) {
-      exceeded ??= `more than ${MAX_WALK_NODES} linked tasks`;
-      return undefined;
-    }
-    const promise = gate(() => resolveNode(ref));
-    cache.set(key, promise);
-    return promise;
-  }
-
-  async function walk(ref: TaskRef, path: ReadonlySet<string>): Promise<void> {
-    const key = refKey(ref, fallbackRepo);
-    if (key === selfKey || path.has(key)) {
-      cycle = true;
+    if (visiting.has(key)) {
+      stopped = `a dependency cycle involving ${deps.map((r) => describeRef(r, fallbackRepo)).join(', ')}`;
       return;
     }
-    if (path.size > MAX_WALK_DEPTH) {
-      exceeded ??= `more than ${MAX_WALK_DEPTH} levels of nesting`;
+    if (done.has(key)) return;
+    if (visiting.size > MAX_WALK_DEPTH) {
+      stopped = `a dependency graph too large to check (more than ${MAX_WALK_DEPTH} levels of nesting)`;
       return;
     }
-    const pending = resolve(ref);
-    if (pending === undefined) return;
-    const node = await pending;
-    if (node.missing === true) {
-      if (!missingKeys.has(key)) {
-        missingKeys.add(key);
-        missingRefs.push(ref);
+    if (nodes.size >= MAX_WALK_NODES) {
+      stopped = `a dependency graph too large to check (more than ${MAX_WALK_NODES} linked tasks)`;
+      return;
+    }
+    const node = await resolveNode(ref);
+    nodes.set(key, node);
+    visiting.add(key);
+    if (node.missing === true) missingRefs.push(ref);
+    else if (!node.met) {
+      // only an unmet node is expanded: nothing below a met dependency can block this task
+      for (const child of node.dependsOn) {
+        await walk(child);
+        if (stopped !== undefined) return;
       }
-      return;
     }
-    if (node.met) return; // nothing below a met dependency can block this task
-    const nextPath = new Set(path);
-    nextPath.add(key);
-    await Promise.all(node.dependsOn.map((child) => walk(child, nextPath)));
+    visiting.delete(key);
+    done.add(key);
   }
 
-  await Promise.all(deps.map((ref) => walk(ref, new Set([selfKey]))));
-
-  if (exceeded !== undefined) {
-    return { status: 'needs_info', reason: `a dependency graph too large to check (${exceeded})` };
-  }
-  if (cycle) {
-    return { status: 'needs_info', reason: `a dependency cycle involving ${deps.map((r) => describeRef(r, fallbackRepo)).join(', ')}` };
+  for (const ref of deps) {
+    await walk(ref);
+    if (stopped !== undefined) return { status: 'needs_info', reason: stopped };
   }
   if (missingRefs.length > 0) {
     return { status: 'needs_info', reason: `depends on ${missingRefs.map((r) => describeRef(r, fallbackRepo)).join(', ')}, which does not exist` };
   }
 
-  // Every direct dep was resolved by the walk above (and is cached), unless the walk short-circuited
-  // on a bound — in which case this line is never reached.
-  const directNodes = await Promise.all(deps.map((ref) => resolve(ref)));
-  const blockers = deps.filter((_, i) => directNodes[i]?.met !== true);
+  // The walk resolved every direct dep (it only skips nodes on a stop, which returned above).
+  const blockers = deps.filter((ref) => nodes.get(refKey(ref, fallbackRepo))?.met !== true);
   if (blockers.length > 0) return { status: 'waiting', kind: 'unmet', blockers };
   return { status: 'ready' };
 }
