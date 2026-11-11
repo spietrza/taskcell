@@ -50,18 +50,18 @@ describe('utilization parsing (recorded fixtures)', () => {
 
 describe('usage cap status', () => {
   it('is uncapped when no cap is set', () => {
-    recordUtilization('claude-code', { pct: 99, resetsAt: FUTURE });
+    recordUtilization('claude-code', { pct: 99, resetsAt: FUTURE }, NOW);
     expect(usageCapStatus('claude-code', NOW, undefined)).toEqual({ state: 'uncapped' });
   });
 
   it('runs under the cap', () => {
-    recordUtilization('claude-code', { pct: 50, resetsAt: FUTURE });
+    recordUtilization('claude-code', { pct: 50, resetsAt: FUTURE }, NOW);
     expect(usageCapStatus('claude-code', NOW, 80)).toEqual({ state: 'under', pct: 50, cap: 80 });
   });
 
   it('pauses at and over the cap with the provider reset as until', () => {
     for (const pct of [80, 82]) {
-      recordUtilization('claude-code', { pct, resetsAt: FUTURE });
+      recordUtilization('claude-code', { pct, resetsAt: FUTURE }, NOW);
       expect(usageCapStatus('claude-code', NOW, 80)).toEqual({ state: 'capped', pct, cap: 80, until: FUTURE });
     }
   });
@@ -73,8 +73,8 @@ describe('usage cap status', () => {
     enforceUsageCap('codex', log);
     enforceUsageCap('codex', log);
     expect(lines).toHaveLength(1);
-    recordUtilization('codex', { pct: 99, resetsAt: new Date(NOW.getTime() - 1) });
-    expect(usageCapStatus('codex', NOW, 80)).toEqual({ state: 'unknown' });
+    recordUtilization('codex', { pct: 99, resetsAt: new Date(NOW.getTime() + 1) }, NOW);
+    expect(usageCapStatus('codex', new Date(NOW.getTime() + 1), 80)).toEqual({ state: 'unknown' });
   });
 
   it('enforceUsageCap throws UsageCapError carrying the reset', () => {
@@ -88,6 +88,55 @@ describe('usage cap status', () => {
     expect(parseUsageCap('0')).toBeUndefined();
     expect(parseUsageCap('101')).toBeUndefined();
     expect(parseUsageCap('abc')).toBeUndefined();
+  });
+});
+
+describe('agent-controlled stream values are bounded', () => {
+  const DAY = 24 * 3_600_000;
+
+  it('reads Claude utilization as a fraction only, so overage above 1.0 is 100%, not ~1%', () => {
+    expect(parseClaudeUtilization({ type: 'rate_limit_event', rate_limit_info: { utilization: 1.02 } })).toEqual({ pct: 100 });
+    expect(parseClaudeUtilization({ type: 'rate_limit_event', rate_limit_info: { utilization: 1 } })).toEqual({ pct: 100 });
+  });
+
+  it('drops an Invalid Date reset instead of crashing the cap error', () => {
+    const u = parseClaudeUtilization({ type: 'rate_limit_event', rate_limit_info: { utilization: 1, resetsAt: 1e20 } });
+    expect(u).toEqual({ pct: 100 });
+    process.env['VANGUARD_USAGE_CAP_PCT'] = '80';
+    recordUtilization('claude-code', { pct: 100, resetsAt: new Date(NaN) });
+    const err = (() => {
+      try {
+        enforceUsageCap('claude-code');
+      } catch (e) {
+        return e;
+      }
+      return undefined;
+    })();
+    expect(err).toBeInstanceOf(UsageCapError);
+    expect(Number.isNaN((err as UsageCapError).until.getTime())).toBe(false);
+  });
+
+  it('clamps pct to 0..100 and a far-future reset to now + 8 days', () => {
+    expect(parseCodexUtilization({ rate_limits: { primary: { used_percent: 500 } } })).toEqual({ pct: 100 });
+    expect(parseCodexUtilization({ rate_limits: { primary: { used_percent: -5 } } })).toEqual({ pct: 0 });
+    recordUtilization('codex', { pct: 99, resetsAt: new Date('9999-01-01T00:00:00Z') }, NOW);
+    const status = usageCapStatus('codex', NOW, 80);
+    expect(status).toEqual({ state: 'capped', pct: 99, cap: 80, until: new Date(NOW.getTime() + 8 * DAY) });
+    expect(usageCapStatus('codex', new Date(NOW.getTime() + 8 * DAY), 80)).toEqual({ state: 'unknown' });
+  });
+
+  it('expires a reading with no reset after an hour instead of capping forever', () => {
+    recordUtilization('codex', { pct: 95 }, NOW);
+    expect(usageCapStatus('codex', NOW, 80)).toEqual({ state: 'capped', pct: 95, cap: 80, until: FUTURE });
+    expect(usageCapStatus('codex', new Date(NOW.getTime() + 30 * 60_000), 80)).toMatchObject({ state: 'capped', until: FUTURE });
+    expect(usageCapStatus('codex', FUTURE, 80)).toEqual({ state: 'unknown' });
+  });
+
+  it('limits how deep the Codex parser recurses', () => {
+    let deep: unknown = { rate_limits: { primary: { used_percent: 90 } } };
+    for (let i = 0; i < 100_000; i++) deep = { msg: deep };
+    expect(parseCodexUtilization(deep)).toBeUndefined();
+    expect(parseCodexUtilization({ payload: { msg: { rate_limits: { primary: { used_percent: 90 } } } } })).toEqual({ pct: 90 });
   });
 });
 

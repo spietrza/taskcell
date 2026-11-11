@@ -10,6 +10,7 @@ import { assessTaskReadiness, isVanguardSpec, SPEC_TAG } from '../tasks/triage.j
 import { fanOut } from '../pipeline/fan-out.js';
 import { failureReason, formatFailureComment } from '../core/errors.js';
 import { isRateLimitHold, rateLimitHold } from '../core/rate-limit-marker.js';
+import { UsageCapError, usageCapMessage } from '../core/usage-cap.js';
 import { GITHUB_SECRET_BLOCKED_LABEL, GITHUB_RATE_LIMITED_LABEL } from '../github-labels.js';
 import { GITLAB_SECRET_BLOCKED_LABEL } from '../gitlab-labels.js';
 import type { Task } from '../tasks/fetcher.js';
@@ -383,7 +384,7 @@ export function linearWatchPrimitives(opts: WatchLinearOptions): WatchPrimitives
         ),
         opts.linear,
       ),
-    onFailure: (id, error) => commentLinearIssue(id, formatFailureComment('Vanguard run failed', error), opts.linear),
+    onFailure: (id, error) => commentLinearIssue(id, failureOrCapComment('Vanguard run failed', error), opts.linear),
   };
 }
 
@@ -509,7 +510,7 @@ export function linearSpecPrimitives(opts: WatchLinearSpecOptions): SpecWatchPri
       });
     },
     onFailure: async (id, error) => {
-      await commentLinearIssue(id, formatFailureComment('Vanguard spec failed', error), opts.linear);
+      await commentLinearIssue(id, failureOrCapComment('Vanguard spec failed', error), opts.linear);
       await setLinearState(id, opts.specTriggerStateName, opts.linear);
     },
   };
@@ -698,7 +699,17 @@ async function markGithubIssueRateLimited(
   const hold = rateLimitHold(error, trigger);
   await (gh ?? defaultGhRunner)(['label', 'create', GITHUB_RATE_LIMITED_LABEL, '--repo', repo, '--force']).catch(() => undefined);
   await editGithubLabels(repo, id, { remove: [claimedLabel], add: [GITHUB_RATE_LIMITED_LABEL] }, gh);
-  await commentGithubIssue(repo, id, `${failureComment}\n\n${hold.comment}`, gh);
+  // A usage-cap pause is not a failure: only the hold notice, no "run failed" text.
+  await commentGithubIssue(repo, id, error instanceof UsageCapError ? hold.comment : `${failureComment}\n\n${hold.comment}`, gh);
+}
+
+/**
+ * Failure comment for a source without the `vanguard:rate-limited` hold (Linear, GitLab, Projects): a
+ * usage-cap pause is worded as the configured reserve, not a failure, and names when to re-trigger.
+ */
+function failureOrCapComment(title: string, error: unknown): string {
+  if (!(error instanceof UsageCapError)) return formatFailureComment(title, error);
+  return `Vanguard ${usageCapMessage(error.pct, error.cap, error.until)} (\`VANGUARD_USAGE_CAP_PCT\`). This is the configured reserve, not a failure and not a problem with this task; re-trigger it once ${error.until.toISOString()} has passed.`;
 }
 
 /**
@@ -1078,7 +1089,7 @@ export function githubProjectWatchPrimitives(opts: WatchGithubProjectOptions): W
         holdMessage(`It stays in "${opts.claimedStatus}" so the watch will not re-run it.`, `move it back to "${opts.triggerStatus}"`),
         gh,
       ),
-    onFailure: (id, error) => commentGithubIssue(repo, id, formatFailureComment('Vanguard run failed', error), gh),
+    onFailure: (id, error) => commentGithubIssue(repo, id, failureOrCapComment('Vanguard run failed', error), gh),
   };
 }
 
@@ -1176,7 +1187,7 @@ export function gitlabWatchPrimitives(opts: WatchGitlabOptions): WatchPrimitives
       );
     },
     onFailure: (id, error) =>
-      commentGitlabIssue(project, id, formatFailureComment('Vanguard run failed', error), glab),
+      commentGitlabIssue(project, id, failureOrCapComment('Vanguard run failed', error), glab),
   };
 }
 
@@ -1228,7 +1239,7 @@ export function gitlabSpecPrimitives(opts: WatchGitlabSpecOptions): SpecWatchPri
       });
     },
     onFailure: async (id, error) => {
-      await commentGitlabIssue(opts.project, id, formatFailureComment('Vanguard spec failed', error), glab);
+      await commentGitlabIssue(opts.project, id, failureOrCapComment('Vanguard spec failed', error), glab);
       // Restore spec label so next poll retries
       await editGitlabLabels(opts.project, id, { remove: [opts.claimedLabel], add: [opts.specLabel] }, glab);
     },

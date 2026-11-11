@@ -1,6 +1,7 @@
 import { runAgent } from '../core/vanguard.js';
 import { roundUsd } from '../core/usd.js';
 import { diffForPrompt } from '../context/escape.js';
+import { enforceUsageCap } from '../core/usage-cap.js';
 import type { RunContext, StageInput } from '../core/vanguard.js';
 import { makeFrozenRun } from './pipeline.js';
 import type { PipelineStage, PipelineResult, StageOutcome } from './pipeline.js';
@@ -94,6 +95,8 @@ export async function runJudgedRepair(ctx: RunContext, opts: JudgedRepairOptions
       PREVIOUS_FINAL: result.finalText,
     };
     const repairBudget = maxCostUsd < Number.POSITIVE_INFINITY ? roundUsd(maxCostUsd - spentUsd) : undefined;
+    // Each repair is a new agent run: not started when the provider is at the usage cap.
+    enforceUsageCap(opts.agent.name, ctx.log);
     result = await runAgent(
       ctx,
       toStageInput(opts.repair, opts.agent, variables, opts.signal, sessionId, repairBudget),

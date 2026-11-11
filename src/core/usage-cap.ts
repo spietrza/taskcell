@@ -15,11 +15,34 @@ export interface Utilization {
   resetsAt?: Date;
 }
 
-const observed = new Map<string, Utilization>();
+interface Observation extends Utilization {
+  observedAt: Date;
+}
 
-/** Remember the latest utilization a provider reported. */
-export function recordUtilization(provider: string, utilization: Utilization): void {
-  observed.set(provider, utilization);
+/** Longest window a provider reports on (Codex's weekly one) plus slack: a later reset is clamped to it. */
+const MAX_RESET_HORIZON_MS = 8 * 24 * 60 * 60 * 1000;
+/** An observation that named no reset expires after this long, so a capped provider cannot stay capped forever. */
+const OBSERVATION_TTL_MS = 60 * 60 * 1000;
+/** How deep parseCodexUtilization looks for `rate_limits` under `msg`/`payload`. */
+const MAX_CODEX_NESTING = 3;
+
+const observed = new Map<string, Observation>();
+
+const clampPct = (pct: number): number => Math.min(100, Math.max(0, pct));
+
+/**
+ * Remember the latest utilization a provider reported. The stream is agent-controlled (a sandboxed tool
+ * can write to it), so the value is bounded here: pct to 0..100, a reset to (now, now + 8 days]; a
+ * non-finite pct is dropped and a past or invalid reset is treated as none.
+ */
+export function recordUtilization(provider: string, utilization: Utilization, now: Date = new Date()): void {
+  if (!Number.isFinite(utilization.pct)) return;
+  const reset = utilization.resetsAt?.getTime();
+  const resetsAt =
+    reset === undefined || !Number.isFinite(reset) || reset <= now.getTime()
+      ? undefined
+      : new Date(Math.min(reset, now.getTime() + MAX_RESET_HORIZON_MS));
+  observed.set(provider, { pct: clampPct(utilization.pct), ...(resetsAt !== undefined ? { resetsAt } : {}), observedAt: now });
 }
 
 /** Forget every observation (tests). */
@@ -28,39 +51,41 @@ export function resetUtilization(): void {
 }
 
 function withReset(pct: number, resetsAtEpochSec: unknown): Utilization {
-  if (typeof resetsAtEpochSec !== 'number' || !Number.isFinite(resetsAtEpochSec)) return { pct };
-  return { pct, resetsAt: new Date(resetsAtEpochSec * 1000) };
+  // A non-finite or out-of-range epoch yields an Invalid Date: dropped as no reset.
+  const resetsAt = typeof resetsAtEpochSec === 'number' ? new Date(resetsAtEpochSec * 1000) : undefined;
+  return resetsAt === undefined || Number.isNaN(resetsAt.getTime()) ? { pct: clampPct(pct) } : { pct: clampPct(pct), resetsAt };
 }
 
 /**
  * Claude Code (verified against 2.1.322): stream-json carries
  * `{"type":"rate_limit_event","rate_limit_info":{"status":"allowed","resetsAt":<epoch s>,
- * "rateLimitType":"five_hour","utilization":0.82}}`. `utilization` is a 0..1 fraction (a value above 1
- * is read as already a percent) and is absent until the plan is near a threshold, so it can be missing.
+ * "rateLimitType":"five_hour","utilization":0.82}}`. `utilization` is a 0..1 fraction (above 1 in
+ * overage, read as 100%) and is absent until the plan is near a threshold, so it can be missing.
  */
 export function parseClaudeUtilization(event: unknown): Utilization | undefined {
   const e = event as { type?: unknown; rate_limit_info?: { utilization?: unknown; resetsAt?: unknown } } | null;
   if (e?.type !== 'rate_limit_event') return undefined;
   const info = e.rate_limit_info;
   if (typeof info?.utilization !== 'number' || !Number.isFinite(info.utilization) || info.utilization < 0) return undefined;
-  const pct = info.utilization <= 1 ? info.utilization * 100 : info.utilization;
-  return withReset(pct, info.resetsAt);
+  return withReset(info.utilization * 100, info.resetsAt);
 }
 
 /**
  * Codex (verified against codex-cli 0.167.0): the `token_count` event carries
  * `rate_limits: {primary: {used_percent, window_minutes, resets_at}, secondary: {...}}`, `used_percent`
  * 0..100 and `resets_at` epoch seconds (older builds: `resets_in_seconds`). The event may sit at the top
- * level of the `--json` stream or nested under `msg`/`payload`. The primary window is the short (5h) one;
- * the most-used of primary/secondary wins so a nearly spent weekly window also trips the cap.
+ * level of the `--json` stream or nested under `msg`/`payload` (searched MAX_CODEX_NESTING levels deep).
+ * The primary window is the short (5h) one; the most-used of primary/secondary wins so a nearly spent
+ * weekly window also trips the cap.
  */
-export function parseCodexUtilization(event: unknown, now: Date = new Date()): Utilization | undefined {
+export function parseCodexUtilization(event: unknown, now: Date = new Date(), depth = 0): Utilization | undefined {
   type Window = { used_percent?: unknown; resets_at?: unknown; resets_in_seconds?: unknown };
   const e = event as { rate_limits?: Record<string, Window | null>; msg?: unknown; payload?: unknown } | null;
   if (e === null || typeof e !== 'object') return undefined;
   const limits = e.rate_limits;
   if (limits === undefined || limits === null || typeof limits !== 'object') {
-    return parseCodexUtilization(e.msg, now) ?? parseCodexUtilization(e.payload, now);
+    if (depth >= MAX_CODEX_NESTING) return undefined;
+    return parseCodexUtilization(e.msg, now, depth + 1) ?? parseCodexUtilization(e.payload, now, depth + 1);
   }
   let best: Utilization | undefined;
   for (const w of [limits['primary'], limits['secondary']]) {
@@ -96,16 +121,18 @@ export type UsageCapStatus =
   | { state: 'under'; pct: number; cap: number }
   | { state: 'capped'; pct: number; cap: number; until: Date };
 
-/** Fallback pause when the provider named no reset for a capped window. */
-const FALLBACK_PAUSE_MS = 60 * 60 * 1000;
-
-/** Where a provider stands against the cap. An observation whose window already reset is stale → unknown. */
+/**
+ * Where a provider stands against the cap. An observation whose window already reset, or that named no
+ * reset and is older than OBSERVATION_TTL_MS, is stale → unknown (the next run reports afresh).
+ */
 export function usageCapStatus(provider: string, now: Date = new Date(), cap: number | undefined = usageCapPct()): UsageCapStatus {
   if (cap === undefined) return { state: 'uncapped' };
   const u = observed.get(provider);
-  if (u === undefined || (u.resetsAt !== undefined && u.resetsAt.getTime() <= now.getTime())) return { state: 'unknown' };
+  if (u === undefined) return { state: 'unknown' };
+  const until = u.resetsAt ?? new Date(u.observedAt.getTime() + OBSERVATION_TTL_MS);
+  if (until.getTime() <= now.getTime()) return { state: 'unknown' };
   if (u.pct < cap) return { state: 'under', pct: u.pct, cap };
-  return { state: 'capped', pct: u.pct, cap, until: u.resetsAt ?? new Date(now.getTime() + FALLBACK_PAUSE_MS) };
+  return { state: 'capped', pct: u.pct, cap, until };
 }
 
 /** Human text for a pause at the cap, distinct from a hard provider 429. */
