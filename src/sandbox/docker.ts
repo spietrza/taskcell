@@ -388,10 +388,17 @@ export class DockerSandboxProvider implements IsolatedSandboxProvider {
     try {
       const isDir = (await stat(hostPath)).isDirectory();
       await execa('docker', ['exec', this.name, 'mkdir', '-p', isDir ? sandboxPath : dirname(sandboxPath)]);
-      const src = isDir ? `${hostPath}/.` : hostPath;
-      await execa('docker', ['cp', src, `${this.name}:${sandboxPath}`]);
-      // docker cp preserves host uid/gid, so chown to the container user; otherwise the non-root
-      // agent cannot edit copied files (only create new ones).
+      // Streamed through `docker exec` rather than `docker cp`: the daemon refuses `docker cp` into a
+      // container started with --read-only ("container rootfs is marked read-only") even when the
+      // target is a writable tmpfs, which broke every hardened run.
+      if (isDir) {
+        await execa('tar', ['-C', hostPath, '-cf', '-', '.'], { env: { COPYFILE_DISABLE: '1' } })
+          .pipe('docker', ['exec', '-i', '-u', '0', this.name, 'tar', '-xf', '-', '-C', sandboxPath]);
+      } else {
+        await execa('docker', ['exec', '-i', '-u', '0', this.name, 'sh', '-c', 'cat > "$1"', 'sh', sandboxPath], { inputFile: hostPath });
+      }
+      // Extracted as root (tar keeps host uid/gid), so chown to the container user; otherwise the
+      // non-root agent cannot edit copied files (only create new ones).
       await execa('docker', ['exec', '-u', '0', this.name, 'chown', '-R', await this.containerOwner(), sandboxPath]);
     } catch (cause) {
       throw new SandboxError(`copyIn failed: ${hostPath} -> ${sandboxPath}`, { cause });
@@ -403,8 +410,19 @@ export class DockerSandboxProvider implements IsolatedSandboxProvider {
       const isDir = (await execa('docker', ['exec', this.name, 'test', '-d', sandboxPath], { reject: false })).exitCode === 0;
       if (isDir) await mkdir(hostPath, { recursive: true });
       else await mkdir(dirname(hostPath), { recursive: true });
-      const src = isDir ? `${this.name}:${sandboxPath}/.` : `${this.name}:${sandboxPath}`;
-      await execa('docker', ['cp', src, hostPath]);
+      // Not `docker cp`: it reads the container's rootfs layer, so under --read-only it cannot see
+      // the /workspace, $HOME and /tmp tmpfs mounts the run actually wrote to.
+      if (isDir) {
+        await execa('docker', ['exec', this.name, 'tar', '-C', sandboxPath, '-cf', '-', '.'], { encoding: 'buffer' })
+          .pipe('tar', ['-xf', '-', '-C', hostPath]);
+      } else {
+        const res = await execa('docker', ['exec', this.name, 'cat', sandboxPath], { stdout: { file: hostPath }, reject: false });
+        // The redirect creates hostPath before cat runs; don't leave an empty file for a missing source.
+        if (res.exitCode !== 0) {
+          await rm(hostPath, { force: true });
+          throw new Error(`cat ${sandboxPath} exited ${res.exitCode}: ${res.stderr}`);
+        }
+      }
     } catch (cause) {
       throw new SandboxError(`copyFileOut failed: ${sandboxPath} -> ${hostPath}`, { cause });
     }

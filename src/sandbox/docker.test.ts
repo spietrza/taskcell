@@ -231,6 +231,29 @@ suite('DockerSandboxProvider', () => {
     await rm(host, { recursive: true, force: true });
   }, 60_000);
 
+  it('copies a directory and a single file into a read-only-rootfs sandbox (docker cp is refused there)', async () => {
+    const ro = new DockerSandboxProvider({ image: 'alpine:3.20', workdir: '/workspace', security: { ...sandboxSecurityOpts({}), readOnlyRootfs: true } });
+    const host = await mkdtemp(join(tmpdir(), 'vg-ro-'));
+    try {
+      await ro.start();
+      await writeFile(join(host, 'a.txt'), 'alpha');
+      await ro.copyIn(host, '/workspace/in');
+      await ro.copyIn(join(host, 'a.txt'), '/workspace/renamed.txt');
+      const r = await ro.exec('echo more >> /workspace/in/a.txt && cat /workspace/in/a.txt /workspace/renamed.txt');
+      expect(r.exitCode).toBe(0);
+      expect(r.stdout).toBe('alphamore\nalpha');
+      await ro.copyFileOut('/workspace/in', join(host, 'out'));
+      expect(await readFile(join(host, 'out', 'a.txt'), 'utf8')).toBe('alphamore\n');
+      await ro.copyFileOut('/workspace/renamed.txt', join(host, 'single.txt'));
+      expect(await readFile(join(host, 'single.txt'), 'utf8')).toBe('alpha');
+      await expect(ro.copyFileOut('/workspace/missing.txt', join(host, 'missing.txt'))).rejects.toThrow(/copyFileOut failed/);
+      await expect(readFile(join(host, 'missing.txt'))).rejects.toThrow();
+    } finally {
+      await ro.destroy();
+      await rm(host, { recursive: true, force: true });
+    }
+  }, 120_000);
+
   it('exposes secrets to commands but keeps them out of docker inspect (tmpfs default)', async () => {
     const sec = new DockerSandboxProvider({ image: 'alpine:3.20', secrets: { VG_SECRET: 'topsecret' } });
     try {
