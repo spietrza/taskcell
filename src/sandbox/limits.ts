@@ -1,8 +1,11 @@
-import type { SandboxConfig, SandboxSecurityOpts } from './provider.js';
+import type { SandboxConfig, SandboxProfile, SandboxSecurityOpts } from './provider.js';
 
-export type SandboxResourceLimits = Pick<SandboxConfig, 'memoryMb' | 'cpus' | 'pidsLimit'>;
+export type SandboxResourceLimits = Pick<SandboxProfile, 'memoryMb' | 'cpus' | 'pidsLimit'>;
 
 type PnpmStoreConfig = SandboxConfig['pnpmStore'];
+
+/** $HOME inside every sandbox — part of the resolved profile, not a value docker.ts hard-codes. */
+export const DEFAULT_SANDBOX_HOME = '/home/agent';
 
 /** Parse one VANGUARD_SANDBOX_* limit: unset ⇒ `fallback`; "0", invalid or empty ⇒ undefined (omit the flag). */
 function envLimit(env: NodeJS.ProcessEnv, name: string, fallback: number): number | undefined {
@@ -22,10 +25,6 @@ function envLimit(env: NodeJS.ProcessEnv, name: string, fallback: number): numbe
  */
 export const READONLY_SANDBOX_MEMORY_MB = 8192;
 
-/** Memory an opted-in read-only rootfs runs under: unset ⇒ READONLY_SANDBOX_MEMORY_MB; "0"/invalid/empty ⇒ undefined. */
-const hardenedMemoryMb = (env: NodeJS.ProcessEnv): number | undefined =>
-  envLimit(env, 'VANGUARD_SANDBOX_MEMORY_MB', READONLY_SANDBOX_MEMORY_MB);
-
 /**
  * Env-overridable sandbox resource limits. Defaults: memory 2048 MB (READONLY_SANDBOX_MEMORY_MB when
  * the rootfs is read-only, i.e. VANGUARD_SANDBOX_READONLY=1), 2 CPUs, 512 pids. Each
@@ -34,8 +33,8 @@ const hardenedMemoryMb = (env: NodeJS.ProcessEnv): number | undefined =>
  * hosts whose kernel lacks a cgroup — e.g. Synology DSM has no CPU CFS scheduler, so `--cpus` is
  * fatal there and must be disabled with VANGUARD_SANDBOX_CPUS=0.
  */
-export function sandboxResourceLimits(env: NodeJS.ProcessEnv = process.env, hardened = false): SandboxResourceLimits {
-  const memoryFallback = sandboxSecurityOpts(env, hardened).readOnlyRootfs ? READONLY_SANDBOX_MEMORY_MB : 2048;
+export function sandboxResourceLimits(env: NodeJS.ProcessEnv = process.env): SandboxResourceLimits {
+  const memoryFallback = sandboxSecurityOpts(env).readOnlyRootfs ? READONLY_SANDBOX_MEMORY_MB : 2048;
   const memoryMb = envLimit(env, 'VANGUARD_SANDBOX_MEMORY_MB', memoryFallback);
   const cpus = envLimit(env, 'VANGUARD_SANDBOX_CPUS', 2);
   const pidsLimit = envLimit(env, 'VANGUARD_SANDBOX_PIDS', 512);
@@ -96,11 +95,11 @@ export function pnpmStoreConfig(
  * sandbox (least-privilege by default) and are overridable per the same "0"/empty ⇒ disable idiom.
  *
  * The exception is `readOnlyRootfs`, which is opt-in: on only with VANGUARD_SANDBOX_READONLY set to a
- * non-empty value other than "0". `_hardened` (the caller's "this run is `--egress`/`--llm-proxy`"
- * signal) does not change it. An EMPTY VANGUARD_SANDBOX_READONLY counts as unset (an unset CI variable
- * passed through `env:` arrives as ""). `hardenedRootfsNote` reports the decision at run start.
+ * non-empty value other than "0". An EMPTY VANGUARD_SANDBOX_READONLY counts as unset (an unset CI
+ * variable passed through `env:` arrives as ""). `resolveSandboxProfile`'s `note` reports the decision
+ * at run start.
  */
-export function sandboxSecurityOpts(env: NodeJS.ProcessEnv = process.env, _hardened = false): SandboxSecurityOpts {
+export function sandboxSecurityOpts(env: NodeJS.ProcessEnv = process.env): SandboxSecurityOpts {
   const list = (raw: string | undefined, fallback: string[]): string[] =>
     raw === undefined
       ? fallback
@@ -114,25 +113,26 @@ export function sandboxSecurityOpts(env: NodeJS.ProcessEnv = process.env, _harde
     capDrop: list(env.VANGUARD_SANDBOX_CAP_DROP, ['ALL']),
     capAdd: list(env.VANGUARD_SANDBOX_CAP_ADD, ['CHOWN', 'FOWNER', 'DAC_OVERRIDE']),
     noNewPrivileges: flag(env.VANGUARD_SANDBOX_NO_NEW_PRIVILEGES, true),
-    // Opt-in only (VANGUARD_SANDBOX_READONLY=1), hardened or not: it moves the workspace into RAM under an
-    // 8 GB limit, which a smaller host or a large monorepo cannot take, and reusable-workflow callers had
-    // no way to turn a default off. `_hardened` is kept so the call sites need not change.
+    // Opt-in only (VANGUARD_SANDBOX_READONLY=1): it moves the workspace into RAM under an 8 GB
+    // limit, which a smaller host or a large monorepo cannot take, and reusable-workflow callers
+    // had no way to turn a default off.
     readOnlyRootfs: flag(env.VANGUARD_SANDBOX_READONLY || undefined, false),
   };
 }
 
 /**
- * One line for the start of an `--egress`/`--llm-proxy` run: whether the read-only rootfs is on and
- * how to opt in when it is not. `warn` is true only when it was forced on with no memory limit, so the
- * tmpfs mounts are backed by host RAM with no cgroup bounding them.
+ * One line for the start of a run: whether the read-only rootfs is on and how to opt in when it is
+ * not. `warn` is true only when it was forced on with no memory limit, so the tmpfs mounts are backed
+ * by host RAM with no cgroup bounding them. `memoryMb` is the already-resolved limit (from
+ * `sandboxResourceLimits`) — this never re-derives it, so the note can't drift from the profile it
+ * describes.
  */
-export function hardenedRootfsNote(env: NodeJS.ProcessEnv = process.env): { warn: boolean; message: string } {
+function hardenedRootfsNote(env: NodeJS.ProcessEnv, readOnlyRootfs: boolean, memoryMb: number | undefined): { warn: boolean; message: string } {
   const explicit = env.VANGUARD_SANDBOX_READONLY;
   if (explicit !== undefined && explicit !== '') {
-    const on = sandboxSecurityOpts(env, true).readOnlyRootfs;
-    const message = `sandbox: read-only rootfs ${on ? 'on' : 'off'} (VANGUARD_SANDBOX_READONLY=${explicit}).`;
+    const message = `sandbox: read-only rootfs ${readOnlyRootfs ? 'on' : 'off'} (VANGUARD_SANDBOX_READONLY=${explicit}).`;
     // Forced on with no memory limit: the fixed-size tmpfs mounts have no cgroup to bound them.
-    if (on && hardenedMemoryMb(env) === undefined) {
+    if (readOnlyRootfs && memoryMb === undefined) {
       const { workspace, home, tmp } = readOnlyTmpfsSizesMb(undefined);
       return {
         warn: true,
@@ -146,6 +146,29 @@ export function hardenedRootfsNote(env: NodeJS.ProcessEnv = process.env): { warn
     message:
       `sandbox: read-only rootfs off (opt-in: VANGUARD_SANDBOX_READONLY=1; /workspace, $HOME and /tmp then live in RAM, ` +
       `sized for VANGUARD_SANDBOX_MEMORY_MB of ${READONLY_SANDBOX_MEMORY_MB} or more).`,
+  };
+}
+
+/**
+ * Resolve the sandbox profile — memory/cpus/pids, hardening caps, the read-only-rootfs writable
+ * mounts and their sizes, $HOME, and the start-of-run note — ONCE, from env. Every caller (the six
+ * runners, plus the egress/llm-proxy start note) builds its sandbox posture by calling this single
+ * function instead of composing `sandboxResourceLimits`/`sandboxSecurityOpts`/`readOnlyTmpfsSizesMb`
+ * separately, which is what let `docker.ts`'s `buildRunArgs` and `start()` each decide a piece of the
+ * posture on their own and drift apart (see #746, #753). `DockerSandboxProvider` only consumes the
+ * result; it never calls the pieces below directly.
+ */
+export function resolveSandboxProfile(env: NodeJS.ProcessEnv = process.env): SandboxProfile {
+  const security = sandboxSecurityOpts(env);
+  const { memoryMb, cpus, pidsLimit } = sandboxResourceLimits(env);
+  return {
+    ...(memoryMb !== undefined ? { memoryMb } : {}),
+    ...(cpus !== undefined ? { cpus } : {}),
+    ...(pidsLimit !== undefined ? { pidsLimit } : {}),
+    security,
+    home: DEFAULT_SANDBOX_HOME,
+    tmpfs: readOnlyTmpfsSizesMb(memoryMb),
+    note: hardenedRootfsNote(env, security.readOnlyRootfs, memoryMb),
   };
 }
 

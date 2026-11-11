@@ -5,6 +5,27 @@ export interface SandboxSecurityOpts {
   readOnlyRootfs: boolean;
 }
 
+/**
+ * The full hardened posture for one sandbox, resolved once per command by
+ * `resolveSandboxProfile()` (see sandbox/limits.ts) and only ever consumed by the adapter —
+ * `DockerSandboxProvider` never re-derives any of this itself. Bundling memory/cpus/pids,
+ * caps, the read-only-rootfs writable mounts and their sizes, and the start-of-run note into one
+ * object closes the gap where `buildRunArgs` and `start()` each decided a piece of the posture
+ * independently and could drift out of sync.
+ */
+export interface SandboxProfile {
+  memoryMb?: number;
+  cpus?: number;
+  pidsLimit?: number;
+  security: SandboxSecurityOpts;
+  /** $HOME inside the sandbox — the writable mount a read-only rootfs hands back to the run user. */
+  home: string;
+  /** `--tmpfs` sizes (MB) for /workspace, $HOME and /tmp; only mounted when security.readOnlyRootfs is on. */
+  tmpfs: { workspace: number; home: number; tmp: number };
+  /** Start-of-run log line summarising the read-only-rootfs decision above. */
+  note: { warn: boolean; message: string };
+}
+
 export interface ExecOptions {
   cwd?: string;
   env?: Record<string, string>;
@@ -79,9 +100,6 @@ export interface SandboxConfig {
    * disk. 'env-file' loads them into the container env (visible to docker inspect).
    */
   secretsMode?: 'tmpfs' | 'env-file';
-  memoryMb?: number;
-  cpus?: number;
-  pidsLimit?: number;
   /** Join this docker network instead of the default bridge (e.g. an internal egress enclave). */
   network?: string;
   /**
@@ -92,12 +110,12 @@ export interface SandboxConfig {
    */
   hostGateway?: boolean;
   /**
-   * Overrides sandboxSecurityOpts()'s env-derived defaults (cap-drop/add, no-new-privileges, readonly).
-   * The runners build this with `sandboxSecurityOpts(process.env, hardened)`, `hardened` being "the
-   * run is --egress/--llm-proxy" (the egress enclave `network` is set) — that is how the read-only
-   * rootfs default reaches `buildRunArgs`; the bare call there is only the non-hardened fallback.
+   * The resolved sandbox posture: memory/cpus/pids, hardening caps, and the read-only-rootfs
+   * writable mounts. Build with `resolveSandboxProfile()` (sandbox/limits.ts) once per command;
+   * defaults to that same resolution when omitted. The adapter only consumes this — it never
+   * decides the posture itself.
    */
-  security?: Partial<SandboxSecurityOpts>;
+  profile?: SandboxProfile;
   /**
    * Opt-in persistent pnpm store (`--pnpm-store` / VANGUARD_PNPM_STORE; off by default — see
    * docs/cli.md). Undefined: no mount, pnpm's default in-tmpfs store-dir, every install

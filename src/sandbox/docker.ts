@@ -5,8 +5,8 @@ import { tmpdir } from 'node:os';
 import { dirname, join } from 'node:path';
 import { createInterface } from 'node:readline';
 import { SandboxError } from '../core/errors.js';
-import { ownerLabelArgs, readOnlyTmpfsSizesMb, sandboxSecurityOpts } from './limits.js';
-import type { CopyOutOptions, ExecOptions, ExecResult, ExecStream, IsolatedSandboxProvider, SandboxConfig } from './provider.js';
+import { ownerLabelArgs, resolveSandboxProfile } from './limits.js';
+import type { CopyOutOptions, ExecOptions, ExecResult, ExecStream, IsolatedSandboxProvider, SandboxConfig, SandboxProfile } from './provider.js';
 
 /**
  * GNU tar exits 1 when a file grows or is deleted while it is archived (a watcher or test cache still
@@ -160,7 +160,6 @@ export async function refreshSandboxClaudeCli(opts: { cwd: string; image?: strin
  */
 let claudeVersionChecked = false;
 const DEFAULT_WORKDIR = '/workspace';
-const DEFAULT_HOME = '/home/agent';
 const SECRETS_DIR = '/run/vanguard';
 const SECRETS_FILE = `${SECRETS_DIR}/secrets.env`;
 
