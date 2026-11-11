@@ -8,8 +8,9 @@ import type { VanguardLogger } from '../core/logger.js';
 /**
  * Repository files that instruct the agent rather than being reviewed by it. The review reads these
  * from the default branch, never from the branch under review: a branch the change's author can push
- * to must not set the rules its own review is judged by. Same shape and spirit as WORKFLOW_PATH in
- * core/vanguard.ts — one regex, case-insensitive, matched against repo-relative POSIX paths.
+ * to must not set the rules its own review is judged by. Same shape and spirit as the rules in
+ * PATH_POLICY (sandbox/copy-back.ts) — one regex, case-insensitive, matched against repo-relative
+ * POSIX paths.
  */
 const INSTRUCTION_PATH =
   /(^|[\\/])(CLAUDE|CLAUDE\.local|AGENTS|AGENT)\.md$|(^|[\\/])\.claude([\\/]|$)|(^|[\\/])\.cursor([\\/]|$)|^\.mcp\.json$|^\.github[\\/]vanguard-skills([\\/]|$)/i;

@@ -1,5 +1,5 @@
-import { cp, lstat, readFile, readdir, readlink, rm } from 'node:fs/promises';
-import { join, relative } from 'node:path';
+import { rm } from 'node:fs/promises';
+import { join } from 'node:path';
 import { execa } from 'execa';
 import { WorktreeManager } from '../worktree/manager.js';
 import { SkillRegistry } from '../context/skill-registry.js';
@@ -14,6 +14,7 @@ import { installSignalCleanup, trackSandbox, untrackSandbox } from './cleanup.js
 import { acquireSandboxSlot, releaseSandboxSlot } from './concurrency.js';
 import { SandboxError, WorkflowGuardError, WorktreeError } from './errors.js';
 import { DEFAULT_BASE_BRANCH, assertSafeBaseBranch, redactGitError, resolveRemoteBaseRef } from './base-branch.js';
+import { exportWorkspace, isCiConfigPath } from '../sandbox/copy-back.js';
 import type { RunOptions, RunResult, ExitReason, ReasoningEffort } from './types.js';
 import type { IsolatedSandboxProvider } from '../sandbox/provider.js';
 import type { AgentProvider, AgentUsage } from '../agents/provider.js';
@@ -22,36 +23,6 @@ import type { VanguardLogger } from './logger.js';
 const WORKDIR = '/workspace';
 const DEFAULT_TIMEOUT_MS = 30 * 60 * 1000;
 const DEFAULT_MAX_TURNS = 6;
-// Skip on copy-back: .git (a linked worktree's .git is a file pointer; copying it corrupts the
-// worktree), node_modules (gitignored, huge, and its .bin symlinks make fs.cp throw EINVAL),
-// .claude/skills (plugin-installed symlinks pointing to absolute paths inside the sandbox —
-// copying them yields dangling symlinks that cause Bun's fs.cp to throw ENOENT via stat),
-// .cursor/rules (injected .mdc skill rules — load-bearing exclusion, these must not land in PRs),
-// .vanguard/skills (skill bodies copied in as pointer targets for codex/cursor providers), and
-// .pnpm-store (under a read-only rootfs /workspace is its own tmpfs, so pnpm puts its store at the
-// mount root, /workspace/.pnpm-store, and the whole content store would land in the PR).
-export const COPY_BACK_SKIP =
-  /(^|[\\/])(\.git|node_modules|\.pnpm-store)([\\/]|$)|(^|[\\/])\.claude[\\/]skills([\\/]|$)|(^|[\\/])\.cursor[\\/]rules([\\/]|$)|(^|[\\/])\.vanguard[\\/]skills([\\/]|$)/;
-// Hard security boundary (see CLAUDE.md): an agent must never be able to write a workflow file
-// that gets committed and pushed — that is the exact escalation path in the disclosed
-// claude-code-action prompt-injection class (a malicious workflow runs with repo secrets on the
-// next GitHub event). Local actions under .github/actions/ count too, since `uses: ./.github/actions/x` runs
-// them with the workflow's secrets; an action kept elsewhere needs the repository's own review. GitLab CI config counts too: a merge request pipeline reads .gitlab-ci.yml, and
-// the .gitlab/ YAML it conventionally includes, from the source branch, so an agent-written copy would
-// run with the project's CI variables. For GitLab this is defence in depth, not a boundary:
-// `include: local:` can name any path, so CI YAML kept elsewhere needs the project's own gate. Other
-// .gitlab/ files (MR templates, CODEOWNERS) are not executed and still sync back. Kept as its own
-// regex (not folded into COPY_BACK_SKIP) so drops can be logged loudly instead of silently, like the
-// other noisy-but-expected skips above.
-// Case-insensitive, so `job.YML` or a `.GitLab` directory on a case-insensitive filesystem cannot slip
-// past; over-matching only drops a file that no pipeline reads. `s` lets `.*` cross a newline in a file name.
-// The diff guard (assertNoWorkflowChanges) tests the same pattern against every path git reports as changed.
-const WORKFLOW_PATH = /(^|[\\/])\.github[\\/]workflows([\\/]|$)|(^|[\\/])\.github[\\/]actions([\\/]|$)|(^|[\\/])\.gitlab-ci\.yml$|(^|[\\/])\.gitlab[\\/].*\.ya?ml$/is;
-// A `.github` or `.gitlab` entry that is not a real directory (a symlink or a file, and in a diff any changed
-// path, since git lists no directories) could stand in for the directory and point at CI files kept elsewhere.
-// Copy-back also drops any symlink inside those directories, which could do the same for a subdirectory.
-const CI_DIR_NAME = /(^|[\\/])\.git(hub|lab)$/i;
-const IN_CI_DIR = /(^|[\\/])\.git(hub|lab)[\\/]/i;
 
 /**
  * Which commit a task starts from. `'base'`: origin's copy of `baseBranch` when it is ahead of the
@@ -286,9 +257,10 @@ export async function prepareContext(opts: PrepareOptions, deps: RunDeps = {}): 
  *
  * We replace that dangling pointer with a throwaway repo seeded from the copied-in tree as a single
  * baseline commit. The agent can then diff its work against the baseline. This repo never reaches the
- * host: COPY_BACK_SKIP excludes `.git`, and the authoritative diff is still computed host-side in
- * syncSandboxToWorktree against the real worktree. `.gitignore` (present in the tree) keeps node_modules
- * out of the baseline. Best-effort: a failure here must not abort provisioning, so we swallow errors.
+ * host: the copy-back PATH_POLICY excludes `.git`, and the authoritative diff is still computed
+ * host-side in syncSandboxToWorktree against the real worktree. `.gitignore` (present in the tree)
+ * keeps node_modules out of the baseline. Best-effort: a failure here must not abort provisioning, so
+ * we swallow errors.
  */
 async function seedSandboxGit(sandbox: IsolatedSandboxProvider): Promise<void> {
   const script = [
@@ -303,9 +275,9 @@ async function seedSandboxGit(sandbox: IsolatedSandboxProvider): Promise<void> {
   await sandbox.exec(script).catch(() => undefined);
 }
 
-/** CI config paths (`.github/workflows/`, `.github/actions/`, `.gitlab-ci.yml`, any .yml/.yaml under `.gitlab/` at any depth, plus files standing in for those directories — see WORKFLOW_PATH / CI_DIR_NAME) among changed paths. Empty ⇒ clean. */
+/** CI config paths (`.github/workflows/`, `.github/actions/`, `.gitlab-ci.yml`, any .yml/.yaml under `.gitlab/` at any depth, plus a `.github`/`.gitlab` entry standing in for that directory — see copy-back's PATH_POLICY) among changed paths. Empty ⇒ clean. */
 export function workflowPaths(paths: string[]): string[] {
-  return paths.filter((path) => WORKFLOW_PATH.test(path) || CI_DIR_NAME.test(path)).sort();
+  return paths.filter((path) => isCiConfigPath(path)).sort();
 }
 
 /** Throws WorkflowGuardError (logged) if a changed path is CI config. */
@@ -316,129 +288,21 @@ export function assertNoWorkflowChanges(paths: string[], log: VanguardLogger, ta
   throw new WorkflowGuardError(`Diff touches forbidden CI config path(s): ${offending.join(', ')}`);
 }
 
-/** Larger dropped files are reported as changed unread: CI YAML is small, and the sandbox chose the size. */
-const MAX_COMPARED_BYTES = 4 * 1024 * 1024;
 /** The copy-back warning names this many dropped files and counts the rest. */
 const DROPPED_CI_LOGGED = 20;
 
-/**
- * Collect the files under a dropped CI path whose sandbox copy is new or differs from the worktree.
- * Unchanged CI files are dropped on every copy-back; only these mean the agent's work is missing from
- * the diff. A file the agent deleted is not in staging, so it is not reported. The walk is sequential:
- * the sandbox chose how many files there are, and a parallel walk can run out of file descriptors.
- */
-async function collectChangedFiles(staging: string, worktree: string, rel: string, changed: string[]): Promise<void> {
-  const src = join(staging, rel);
-  const dest = join(worktree, rel);
-  const info = await lstat(src);
-  if (info.isDirectory()) {
-    for (const name of await readdir(src)) await collectChangedFiles(staging, worktree, join(rel, name), changed);
-    return;
-  }
-  // Compare a symlink by its target and never read through it: the sandbox chose where it points.
-  if (info.isSymbolicLink()) {
-    if ((await readlink(src)) !== (await readlink(dest).catch(() => undefined))) changed.push(rel);
-    return;
-  }
-  const destInfo = info.isFile() ? await lstat(dest).catch(() => undefined) : undefined;
-  if (destInfo?.isFile() !== true || destInfo.size !== info.size || info.size > MAX_COMPARED_BYTES) {
-    changed.push(rel);
-    return;
-  }
-  if (!(await readFile(src)).equals(await readFile(dest))) changed.push(rel);
-}
-
-// ponytail: copy-back ceiling of 2 GiB / 200,000 files (node_modules and .git not counted). Far above
-// any real change; it exists so a sandbox cannot fill the host disk through staging and the worktree.
-export const COPY_BACK_MAX_BYTES = 2 * 1024 * 1024 * 1024;
-export const COPY_BACK_MAX_FILES = 200_000;
-// The stream cap counts tar bytes: up to ~1 KiB of header and padding per member on top of the file
-// bytes the ceiling measured, so a workspace that passes the ceiling never trips the stream cap.
-const COPY_BACK_STREAM_MAX_BYTES = COPY_BACK_MAX_BYTES + COPY_BACK_MAX_FILES * 1024;
-
-function copyBackCeilingError(maxBytes: number, maxFiles: number): SandboxError {
-  return new SandboxError(
-    `copy-back: sandbox workspace exceeds the copy-back ceiling (${maxFiles} files / ${Math.round(maxBytes / 1024 / 1024)} MiB, node_modules and .git excluded); the run stops and nothing is committed — remove build output or large generated files from the workspace`,
-  );
-}
-
-/**
- * First check, before anything leaves the sandbox: count files and bytes under the workspace (node_modules
- * and .git pruned) and refuse when over the ceiling. Output that does not parse (an image without GNU
- * find) skips this check; the staging-to-worktree budget below still applies.
- */
-export async function assertWorkspaceWithinCeiling(
-  sandbox: Pick<IsolatedSandboxProvider, 'exec'>,
-  maxBytes = COPY_BACK_MAX_BYTES,
-  maxFiles = COPY_BACK_MAX_FILES,
-): Promise<void> {
-  const res = await sandbox.exec(
-    `find ${WORKDIR} \\( -name node_modules -o -name .git -o -name .pnpm-store \\) -prune -o -type f -printf '%s\\n' | awk '{n++; s+=$1} END {printf "%d %d\\n", n, s}'`,
-  );
-  const m = /^(\d+) (\d+)\s*$/.exec(res.stdout);
-  if (res.exitCode !== 0 || m === null) return;
-  if (Number(m[1]) > maxFiles || Number(m[2]) > maxBytes) throw copyBackCeilingError(maxBytes, maxFiles);
-}
-
-/**
- * Second check: a running total over the entries copy-back syncs into the worktree; throws a SandboxError
- * as soon as the total size or file count passes the ceiling. Directories count toward neither. A throw
- * mid-copy leaves the worktree partly written, but the error ends the run before commitStage, so
- * nothing from it is committed or pushed.
- */
-export function copyBackBudget(maxBytes = COPY_BACK_MAX_BYTES, maxFiles = COPY_BACK_MAX_FILES): (entry: { isDirectory: () => boolean; size: number }) => void {
-  let bytes = 0;
-  let files = 0;
-  return (entry) => {
-    if (entry.isDirectory()) return;
-    bytes += entry.size;
-    files += 1;
-    if (bytes > maxBytes || files > maxFiles) throw copyBackCeilingError(maxBytes, maxFiles);
-  };
-}
-
 /** Copy the sandbox workspace back onto the worktree via a staging dir, then return the resulting diff. */
 async function syncSandboxToWorktree(ctx: RunContext): Promise<string> {
-  await assertWorkspaceWithinCeiling(ctx.sandbox);
   const staging = await ensureStateDir(ctx.localRepoPath, join(ctx.localRepoPath, '.vanguard', 'staging', ctx.taskId));
   try {
-    // Skipped at the source too: they never sync back (COPY_BACK_SKIP) and can dwarf the workspace.
-    await ctx.sandbox.copyFileOut(WORKDIR, staging, { exclude: ['node_modules', '.pnpm-store', '.git'], maxBytes: COPY_BACK_STREAM_MAX_BYTES });
-    const charge = copyBackBudget();
-    const dropped: string[] = [];
-    await cp(staging, ctx.worktreePath, {
-      recursive: true,
-      force: true,
-      verbatimSymlinks: true,
-      filter: async (src) => {
-        // Relative, so a `.gitlab` or `.github` directory above the repo does not match.
-        const rel = relative(staging, src);
-        const standsIn = async (): Promise<boolean> => {
-          if (!CI_DIR_NAME.test(rel) && !IN_CI_DIR.test(rel)) return false;
-          const info = await lstat(src);
-          return CI_DIR_NAME.test(rel) ? !info.isDirectory() : info.isSymbolicLink();
-        };
-        if (WORKFLOW_PATH.test(rel) || (await standsIn())) {
-          dropped.push(rel);
-          return false;
-        }
-        if (COPY_BACK_SKIP.test(src)) return false;
-        charge(await lstat(src));
-        return true;
-      },
-    });
-    // A comparison that fails reports the whole dropped path, so an edit is never hidden.
-    const changed: string[] = [];
-    for (const rel of dropped) {
-      await collectChangedFiles(staging, ctx.worktreePath, rel, changed).catch(() => changed.push(rel));
-    }
-    if (changed.length > 0) {
+    const { dropped } = await exportWorkspace(ctx.sandbox, WORKDIR, staging, ctx.worktreePath);
+    if (dropped.length > 0) {
       ctx.log.warn(
-        { taskId: ctx.taskId, count: changed.length, paths: changed.slice(0, DROPPED_CI_LOGGED) },
+        { taskId: ctx.taskId, count: dropped.length, paths: dropped.slice(0, DROPPED_CI_LOGGED) },
         'copy-back: dropped CI config path (.github/workflows, .github/actions, .gitlab-ci.yml and .gitlab/ YAML are never synced back)',
       );
       const recorded = (ctx.droppedCiPaths ??= new Set());
-      for (const path of changed) recorded.add(path);
+      for (const path of dropped) recorded.add(path);
     }
   } finally {
     await rm(staging, { recursive: true, force: true });
