@@ -625,6 +625,9 @@ export async function runSourcedIssue(
       // merges each repair into that entry in place).
       const implementerIdx = outcomes.findIndex((o) => o.name === STAGE.IMPLEMENTER);
       let conformance: ConformanceResult = PASSING_RESULT;
+      // The diff the last gate run checked — reused at delivery so the published verdict is derived
+      // from exactly what the gate judged, without a second `wm.diff` round-trip.
+      let gateDiff = '';
       let verification: VerificationResult | undefined;
       let implementerDone = false;
       let gatePassed = false;
@@ -637,7 +640,8 @@ export async function runSourcedIssue(
       const gate = async (): Promise<GateResult> => {
         // Only touch the worktree diff when there is a manifest to check against — a legacy/no-manifest
         // spec skips the conformance half of the gate entirely.
-        conformance = manifest !== undefined ? checkConformance(manifest, await ctx.wm.diff(ctx.worktreePath)) : PASSING_RESULT;
+        gateDiff = manifest !== undefined ? await ctx.wm.diff(ctx.worktreePath) : '';
+        conformance = checkConformance(manifest, gateDiff);
         verification = verifyCmd !== undefined ? await runVerification(ctx.sandbox, verifyCmd) : undefined;
         // Completion is part of the gate (dogfood #352): an implementer that hit its turn cap or timeout
         // mid-task can leave residue that still typechecks and tests green. Gate on `completed`, NOT on
@@ -764,16 +768,13 @@ export async function runSourcedIssue(
       // `prBody` items name content the diff cannot carry (CI workflow YAML — copy-back drops it) and the
       // factory has no channel to write: no human-authored body text exists yet, so a required item is
       // a gap at delivery — partial scope (`Part of` + draft) — and only the composed body's delimited
-      // block, never its generated text, is where a human supplies it.
-      const prBodyCheck = checkConformance(manifest?.prBody !== undefined ? { prBody: manifest.prBody } : undefined, '', '');
-      const delivered: ConformanceResult = {
-        ...conformance,
-        pass: conformance.pass && prBodyCheck.pass,
-        missingPrBody: prBodyCheck.missingPrBody,
-        optionalMissingPrBody: prBodyCheck.optionalMissingPrBody,
-      };
+      // block, never its generated text, is where a human supplies it. One verdict from the manifest,
+      // the diff the gate already checked (`gateDiff`, the final one — the loop re-runs the gate after
+      // every repair) and the real PR body — '' is accurate here, not a placeholder: no PR exists yet,
+      // so there is genuinely no human-authored body text to check prBody items against.
+      const delivered: ConformanceResult = checkConformance(manifest, gateDiff, '');
       const prBodyGapBlock = prBodyGapWarningBlock(delivered.missingPrBody);
-      const partial = !gatePassed || untrustedManifestDropped || !prBodyCheck.pass;
+      const partial = !gatePassed || untrustedManifestDropped || !delivered.pass;
       const baseBody = reviewRequestBody(task.id, {
         closeIssueOnMerge: !!adapter.closeIssueOnMerge,
         ...(untrustedManifestDropped ? { untrustedManifest: true } : {}),
