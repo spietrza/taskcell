@@ -27,10 +27,20 @@ describe('Dashboard project card', () => {
   test('Remove and Enable factory run their own action without opening the project', () => {
     const { onOpen, onRemove, onEnableFactory } = setup();
     fireEvent.click(screen.getByRole('button', { name: `Remove ${first.name}` }));
+    expect(onRemove).not.toHaveBeenCalled();
+    fireEvent.click(screen.getByRole('button', { name: 'Remove' }));
     fireEvent.click(screen.getByRole('button', { name: /Enable factory/ }));
     expect(onRemove).toHaveBeenCalledWith(first.path);
     expect(onEnableFactory).toHaveBeenCalledWith({ path: first.path, name: first.name });
     expect(onOpen).not.toHaveBeenCalled();
+  });
+
+  test('Remove asks first; Cancel keeps the project', () => {
+    const { onRemove } = setup();
+    fireEvent.click(screen.getByRole('button', { name: `Remove ${first.name}` }));
+    fireEvent.click(screen.getByRole('button', { name: 'Cancel' }));
+    expect(onRemove).not.toHaveBeenCalled();
+    expect(screen.getByRole('button', { name: `Remove ${first.name}` })).toBeInTheDocument();
   });
 
   test('card actions are stacked above the stretched open overlay', () => {

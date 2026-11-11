@@ -1,6 +1,6 @@
 import { describe, it, expect, afterAll, afterEach } from 'vitest';
 import { execa, execaSync } from 'execa';
-import { mkdtemp, writeFile, readFile, rm } from 'node:fs/promises';
+import { mkdtemp, writeFile, readFile, rm, stat } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import {
@@ -221,6 +221,21 @@ suite('DockerSandboxProvider', () => {
     await rm(out, { recursive: true, force: true });
   }, 60_000);
 
+  it('round-trips a directory larger than execa\'s 100 MB default buffer intact', async () => {
+    const host = await mkdtemp(join(tmpdir(), 'vg-big-'));
+    const out = await mkdtemp(join(tmpdir(), 'vg-big-out-'));
+    try {
+      await writeFile(join(host, 'big.bin'), Buffer.alloc(110 * 1024 * 1024, 7));
+      await sb.copyIn(host, '/workspace/big');
+      await sb.copyFileOut('/workspace/big', out);
+      expect((await stat(join(out, 'big.bin'))).size).toBe(110 * 1024 * 1024);
+    } finally {
+      await sb.exec('rm -rf /workspace/big');
+      await rm(host, { recursive: true, force: true });
+      await rm(out, { recursive: true, force: true });
+    }
+  }, 180_000);
+
   it('makes copied-in files editable by the sandbox user (chown)', async () => {
     const host = await mkdtemp(join(tmpdir(), 'vg-edit-'));
     await writeFile(join(host, 'f.txt'), 'one');
@@ -230,6 +245,44 @@ suite('DockerSandboxProvider', () => {
     expect(r.stdout).toContain('two');
     await rm(host, { recursive: true, force: true });
   }, 60_000);
+
+  it('copies a directory and a single file into a read-only-rootfs sandbox (docker cp is refused there)', async () => {
+    const ro = new DockerSandboxProvider({ image: 'alpine:3.20', workdir: '/workspace', security: { ...sandboxSecurityOpts({}), readOnlyRootfs: true } });
+    const host = await mkdtemp(join(tmpdir(), 'vg-ro-'));
+    try {
+      await ro.start();
+      await writeFile(join(host, 'a.txt'), 'alpha');
+      await ro.copyIn(host, '/workspace/in');
+      await ro.copyIn(join(host, 'a.txt'), '/workspace/renamed.txt');
+      const r = await ro.exec('echo more >> /workspace/in/a.txt && cat /workspace/in/a.txt /workspace/renamed.txt');
+      expect(r.exitCode).toBe(0);
+      expect(r.stdout).toBe('alphamore\nalpha');
+      await ro.copyFileOut('/workspace/in', join(host, 'out'));
+      expect(await readFile(join(host, 'out', 'a.txt'), 'utf8')).toBe('alphamore\n');
+      await ro.copyFileOut('/workspace/renamed.txt', join(host, 'single.txt'));
+      expect(await readFile(join(host, 'single.txt'), 'utf8')).toBe('alpha');
+      await expect(ro.copyFileOut('/workspace/missing.txt', join(host, 'missing.txt'))).rejects.toThrow(/copyFileOut failed/);
+      await expect(readFile(join(host, 'missing.txt'))).rejects.toThrow();
+    } finally {
+      await ro.destroy();
+      await rm(host, { recursive: true, force: true });
+    }
+  }, 120_000);
+
+  it('lets a non-root run user write $HOME, /workspace and /tmp under a read-only rootfs', async () => {
+    // Like the real image: a non-root USER whose $HOME exists in the image (a tmpfs over it comes up root:root 0755).
+    const dockerfile = 'FROM alpine:3.20\nRUN adduser -D -h /home/agent -u 10001 agent && mkdir -p /workspace && chown agent /workspace\nUSER agent\n';
+    await execa('docker', ['build', '-q', '-t', 'vg-ro-user-test', '-'], { input: dockerfile });
+    const ro = new DockerSandboxProvider({ image: 'vg-ro-user-test', workdir: '/workspace', security: { ...sandboxSecurityOpts({}), readOnlyRootfs: true } });
+    try {
+      await ro.start();
+      const r = await ro.exec('mkdir -p /home/agent/.claude/skills && touch /workspace/f /tmp/f && id -u');
+      expect(r.exitCode, r.stderr).toBe(0);
+      expect(r.stdout.trim()).toBe('10001');
+    } finally {
+      await ro.destroy();
+    }
+  }, 180_000);
 
   it('exposes secrets to commands but keeps them out of docker inspect (tmpfs default)', async () => {
     const sec = new DockerSandboxProvider({ image: 'alpine:3.20', secrets: { VG_SECRET: 'topsecret' } });
@@ -407,7 +460,7 @@ describe('DockerSandboxProvider buildRunArgs (hardening flags)', () => {
       expect.arrayContaining([
         `/workspace:rw,exec,nosuid,size=${workspace}m`,
         `/home/agent:rw,exec,nosuid,size=${home}m`,
-        `/tmp:rw,exec,nosuid,size=${tmp}m`,
+        `/tmp:rw,exec,nosuid,size=${tmp}m,mode=1777`,
       ]),
     );
   });
