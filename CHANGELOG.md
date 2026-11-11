@@ -16,13 +16,12 @@
 * **hub:** landing visual identity (dark, amber, landing fonts) ([#744](https://github.com/spietrza/taskcell/issues/744)) ([1f7300f](https://github.com/spietrza/taskcell/commit/1f7300f8d588fbc07f8c6a41363a0784e0e13459))
 * Sandbox: contract test suite on the real image (spietrza/taskcell[#756](https://github.com/spietrza/taskcell/issues/756)) ([#758](https://github.com/spietrza/taskcell/issues/758)) ([15cf067](https://github.com/spietrza/taskcell/commit/15cf067f3aa2c83097ac599e698a0b7315221877))
 * Sandbox: decide the sandbox profile once (spietrza/taskcell[#755](https://github.com/spietrza/taskcell/issues/755)) ([#767](https://github.com/spietrza/taskcell/issues/767)) ([87abf5f](https://github.com/spietrza/taskcell/commit/87abf5f8bceea015491bf88096634a5a5c104c17))
-* sandbox: read-only rootfs by default in hardened mode (--llm-proxy / --egress) (spietrza/taskcell[#717](https://github.com/spietrza/taskcell/issues/717)) ([#725](https://github.com/spietrza/taskcell/issues/725)) ([3b438a8](https://github.com/spietrza/taskcell/commit/3b438a8184987f4b2e0161eebe02176750f45d8d))
+* sandbox: read-only rootfs, opt-in with `VANGUARD_SANDBOX_READONLY=1` (spietrza/taskcell[#717](https://github.com/spietrza/taskcell/issues/717)) ([#725](https://github.com/spietrza/taskcell/issues/725)) ([3b438a8](https://github.com/spietrza/taskcell/commit/3b438a8184987f4b2e0161eebe02176750f45d8d))
 
 
 ### Bug Fixes
 
 * **copy-back:** skip the pnpm store a read-only sandbox puts in the workspace ([#748](https://github.com/spietrza/taskcell/issues/748)) ([c34f711](https://github.com/spietrza/taskcell/commit/c34f711902c2f56800f7212d89971ac4bab94432))
-* **eval:** disable unknown-model window enforcement on eval CLI calls ([#749](https://github.com/spietrza/taskcell/issues/749)) ([dfb14dd](https://github.com/spietrza/taskcell/commit/dfb14dd728f3b0b0f1bdcc6cadcaf6504760e5e5))
 * **eval:** retry a hung model call instead of failing the baseline ([#763](https://github.com/spietrza/taskcell/issues/763)) ([4fe6c90](https://github.com/spietrza/taskcell/commit/4fe6c90037c34f1a8135c5bbebf43b63be180e13))
 * **eval:** tell the tool-less model it has no tools; name the case in progress and timeouts ([#766](https://github.com/spietrza/taskcell/issues/766)) ([8856702](https://github.com/spietrza/taskcell/commit/88567028371a96033e5cf309423584d2b8e8ad70))
 * **hub:** demo QA fixes (title bar, queued strip, enable-factory plan, needs-you) ([#743](https://github.com/spietrza/taskcell/issues/743)) ([66415ea](https://github.com/spietrza/taskcell/commit/66415ea962df4ed2f201c6c0525d40c52cd40499))
