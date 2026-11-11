@@ -29,6 +29,12 @@ export const EMPTY_TASK_PROMPT = '(The task description is empty.)';
 
 /** `claude` flags for every eval call: print mode with every built-in tool and every MCP server disabled. */
 export const EVAL_CLAUDE_ARGS = ['--print', '--tools', '', '--strict-mcp-config'] as const;
+/**
+ * The pinned CLI does not know newer model ids (e.g. claude-sonnet-5-5) and then enforces an assumed
+ * context window; in CI the first call hung until the timeout (#735). The CLI names this switch to
+ * restore the plain wait-for-the-API behaviour.
+ */
+export const EVAL_CLAUDE_ENV = { CLAUDE_CODE_DISABLE_UNKNOWN_MODEL_WINDOW_ENFORCEMENT: '1' } as const;
 
 /** The CLI's message when the API stops a reply on safety grounds; it exits non-zero but this is the model's answer. */
 /** One model call never takes this long; a hung CLI otherwise stalls the CI job for hours. */
@@ -43,7 +49,7 @@ export function makeCliComplete(model: string): (prompt: string) => Promise<stri
     // under test must never act on the host (a "clean up the repo" case once deleted local branches).
     const cwd = await mkdtemp(join(tmpdir(), 'taskcell-eval-'));
     try {
-      const result = await execa('claude', [...EVAL_CLAUDE_ARGS, '--model', model], { input: prompt, cwd, reject: false, timeout: EVAL_CALL_TIMEOUT_MS });
+      const result = await execa('claude', [...EVAL_CLAUDE_ARGS, '--model', model], { input: prompt, cwd, reject: false, timeout: EVAL_CALL_TIMEOUT_MS, env: EVAL_CLAUDE_ENV });
       if (result.timedOut) throw new Error(`claude --print --model ${model} timed out after ${EVAL_CALL_TIMEOUT_MS / 1000}s: ${(result.stderr || result.stdout || '(no output)').trim().slice(0, 500)}`);
       if (result.exitCode === 0) return result.stdout;
       // A safety stop is the model's answer (and the right one for a refusal case), not an infra failure.
