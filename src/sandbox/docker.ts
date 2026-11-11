@@ -11,7 +11,7 @@ import type { CopyOutOptions, ExecOptions, ExecResult, ExecStream, IsolatedSandb
 /**
  * GNU tar exits 1 when a file grows or is deleted while it is archived (a watcher or test cache still
  * running in the sandbox); the archive is complete, so copy-back keeps it. Exit 1 for any other reason,
- * and every other non-zero code, fails closed.
+ * and every other non-zero code, fails closed — including busybox tar's wording on custom images.
  */
 export function isBenignTarExit(exitCode: number, stderr: string): boolean {
   if (exitCode === 0) return true;
@@ -412,7 +412,8 @@ export class DockerSandboxProvider implements IsolatedSandboxProvider {
 
   async copyIn(hostPath: string, sandboxPath: string): Promise<void> {
     try {
-      const isDir = (await stat(hostPath)).isDirectory();
+      const hostStat = await stat(hostPath);
+      const isDir = hostStat.isDirectory();
       await execa('docker', ['exec', this.name, 'mkdir', '-p', isDir ? sandboxPath : dirname(sandboxPath)]);
       // Streamed through `docker exec` rather than `docker cp`: the daemon refuses `docker cp` into a
       // container started with --read-only ("container rootfs is marked read-only") even when the
@@ -425,7 +426,7 @@ export class DockerSandboxProvider implements IsolatedSandboxProvider {
       } else {
         await execa('docker', ['exec', '-i', '-u', '0', this.name, 'sh', '-c', 'cat > "$1"', 'sh', sandboxPath], { inputFile: hostPath });
         // `cat >` creates the file with the default mode; keep the host's (an executable script stays executable).
-        const mode = ((await stat(hostPath)).mode & 0o777).toString(8);
+        const mode = (hostStat.mode & 0o777).toString(8);
         await execa('docker', ['exec', '-u', '0', this.name, 'chmod', mode, sandboxPath]);
       }
       // Extracted as root (tar keeps host uid/gid), so chown to the container user; otherwise the

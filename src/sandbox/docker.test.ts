@@ -240,7 +240,8 @@ suite('DockerSandboxProvider', () => {
     try {
       await writeFile(join(host, 'big.bin'), Buffer.alloc(110 * 1024 * 1024, 7));
       await sb.copyIn(host, '/workspace/big');
-      await sb.copyFileOut('/workspace/big', out);
+      // With maxBytes set, as copy-back always does: the counting listener must not starve the extract.
+      await sb.copyFileOut('/workspace/big', out, { maxBytes: 1024 * 1024 * 1024 });
       expect((await stat(join(out, 'big.bin'))).size).toBe(110 * 1024 * 1024);
     } finally {
       await sb.exec('rm -rf /workspace/big');

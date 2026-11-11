@@ -199,7 +199,7 @@ export async function applyGithubFactory(repoPath: string, plan: FactoryPlan, de
   // The check above ignores untracked files, but a local caller at one of our paths would be
   // overwritten by the template, committed, then deleted by the `checkout -f` below.
   const { callerFiles } = factoryPlanTargets();
-  const localCallers = await run(exec, 'git', ['status', '--porcelain', '--untracked-files=all', '--ignored', '--', ...callerFiles], { cwd: repoPath });
+  const localCallers = await run(exec, 'git', ['status', '--porcelain', '--untracked-files=all', '--ignored=matching', '--', ...callerFiles], { cwd: repoPath });
   if (localCallers !== '') {
     throw new BadRequestError(
       `uncommitted workflow files at the factory caller paths would be overwritten:\n${localCallers}\ncommit, move or delete them before enabling the factory`,
