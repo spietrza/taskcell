@@ -22,7 +22,7 @@ import { stripReviewMarkers } from './review-prompt.js';
 import { authSecrets } from '../agents/auth.js';
 import { beginRun, persistDecisionProbe } from '../core/run-store.js';
 import type { SecretBlock } from '../core/secret-scan.js';
-import { redactForPublish } from '../core/secret-scan.js';
+import { injectedSecretValues, redactForPublish } from '../core/secret-scan.js';
 import { summarizeOutcomes } from '../core/run-summary.js';
 import { appendStepSummary } from '../core/step-summary.js';
 import type { StepSummary, StepSummaryExit } from '../core/step-summary.js';
@@ -572,14 +572,14 @@ export async function runSourcedIssue(
       const baselineCmd = resolvedBase !== undefined && SELF_INSTALLING_VERIFY_RE.test(resolvedBase) ? resolvedBase : undefined;
       if (baselineCmd !== undefined) {
         const verifyCmd = baselineCmd;
-        const baselineVerify = await resolveBaselineVerify(deps.repoPath, ctx.startRef, ctx.sandbox, verifyCmd, deps.signal);
+        const baselineVerify = await resolveBaselineVerify(deps.repoPath, ctx.startRef, ctx.sandbox, verifyCmd, deps.signal, injectedSecretValues(process.env, providerKeyEnvNames(deps)));
         if (!baselineVerify.passed) {
           console.log(
             `taskcell: ${task.id} base branch is red — \`${verifyCmd}\` already fails on ${ctx.baseBranch}@${ctx.startRef.slice(0, 7)} (exit ${baselineVerify.exitCode}); stopping before implementing instead of starting a repair loop.`,
           );
           console.log(redactForPublish(renderVerificationFeedback(baselineVerify)));
           if (!whiteLabel) await adapter.signalBaseRed(issueRef, task, baseRedBlock(ctx.baseBranch, ctx.startRef, baselineVerify));
-          await writer.writeProof(baselineVerify);
+          await writer.writeProof(baselineVerify, { baseRed: true });
           await stepSummary('base-red', {});
           onEvent({ type: 'run-end' });
           return { task, baseRed: true };

@@ -901,7 +901,9 @@ export function assembleReviewPipeline(
   // conformanceModel wins over providerModel on the conformance stage (last-writer-wins).
   if (deps.conformanceModel !== undefined) route(STAGE.CONFORMANCE, { model: deps.conformanceModel });
 
-  return resolveRouting(pipeline, config);
+  const routed = resolveRouting(pipeline, config);
+  // A same-provider reviewer fallback keeps --review-model too; a cross-provider one is left alone.
+  return deps.reviewModel !== undefined ? withStageFallbackModel(routed, deps.reviewModel, agents.agent) : routed;
 }
 
 /**

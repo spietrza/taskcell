@@ -38,6 +38,15 @@ afterEach(async () => {
 });
 
 describe('resolveBaselineVerify', () => {
+  it('masks the run\'s extra secret values in the cached record', async () => {
+    const secret = 'custom-provider-key-value-123';
+    const sandbox = countingSandbox({ stdout: `leaked ${secret}`, stderr: '', exitCode: 0 }).sandbox;
+    await resolveBaselineVerify(repo, SHA, sandbox, CMD, undefined, [secret]);
+    const dir = baselineDir(repo);
+    const [file] = await readdir(dir);
+    expect(await readFile(join(dir, file as string), 'utf8')).not.toContain(secret);
+  });
+
   it('caches a green verdict and serves it without re-running', async () => {
     const first = countingSandbox(GREEN);
     const result = await resolveBaselineVerify(repo, SHA, first.sandbox, CMD);

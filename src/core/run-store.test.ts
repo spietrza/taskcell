@@ -282,6 +282,12 @@ describe('beginRun — writing', () => {
     expect(proof.firstErrorLines).toContain('[REDACTED-GH]');
   });
 
+  it('writeProof with baseRed records a base_red metric, not a verify one', async () => {
+    await beginRun(repo, 'TES-1', TS).writeProof({ ...verResult, passed: false, exitCode: 1 }, { baseRed: true });
+    const metrics = await readFile(join(runsRoot(repo), 'metrics.jsonl'), 'utf8');
+    expect(JSON.parse(metrics.trim())).toMatchObject({ evt: 'base_red', taskId: 'TES-1', passed: false });
+  });
+
   it('writeProof writes proof.json and metric line', async () => {
     const file = await beginRun(repo, 'TES-1', TS).writeProof(verResult);
     expect(file).toBe(join(runsRoot(repo), 'TES-1', `${PREFIX}.proof.json`));

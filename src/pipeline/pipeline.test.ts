@@ -1063,6 +1063,13 @@ describe('assembleReviewPipeline', () => {
     expect(result.find((s) => s.name === 'reviewer')?.model).toBe('opus');
   });
 
+  it('reviewModel reaches a same-provider reviewer fallback but not a cross-provider one', () => {
+    const same = assembleReviewPipeline(base, { agent, reviewAgent: stubAgent('claude') }, { providerModel: 'sonnet', reviewModel: 'opus' });
+    expect(same.find((s) => s.name === 'reviewer')?.fallback?.model).toBe('opus');
+    const cross = assembleReviewPipeline(base, { agent, reviewAgent }, { providerModel: 'sonnet', reviewModel: 'opus' });
+    expect(cross.find((s) => s.name === 'reviewer')?.fallback?.model).toBe('sonnet');
+  });
+
   it('noSimplify:true removes the simplifier stage', () => {
     const result = assembleReviewPipeline(base, { agent }, { noSimplify: true });
     expect(result.map((s) => s.name)).not.toContain('simplifier');
