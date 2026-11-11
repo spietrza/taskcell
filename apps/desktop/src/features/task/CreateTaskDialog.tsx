@@ -1,3 +1,4 @@
+import { useEffect, useRef } from 'react';
 import { Button } from '@/ui';
 
 /**
@@ -22,10 +23,30 @@ export function CreateTaskDialog({
   onConfirm: () => void;
   onCancel: () => void;
 }) {
+  const panelRef = useRef<HTMLDivElement>(null);
+  // Focus starts inside the dialog, so screen readers announce it and Tab stays near its buttons.
+  useEffect(() => {
+    panelRef.current?.focus();
+  }, []);
+  useEffect(() => {
+    const onKey = (e: KeyboardEvent): void => {
+      if (e.key === 'Escape' && !busy) onCancel();
+    };
+    window.addEventListener('keydown', onKey);
+    return () => window.removeEventListener('keydown', onKey);
+  }, [busy, onCancel]);
+
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40">
-      <div className="w-[28rem] rounded-lg border border-border bg-background p-4 shadow-lg">
-        <h2 className="text-sm font-medium">Create a task on {source}?</h2>
+      <div
+        ref={panelRef}
+        role="dialog"
+        aria-modal="true"
+        aria-labelledby="create-task-title"
+        tabIndex={-1}
+        className="w-[28rem] rounded-lg border border-border bg-background p-4 shadow-lg outline-none"
+      >
+        <h2 id="create-task-title" className="text-sm font-medium">Create a task on {source}?</h2>
         <p className="mt-2 text-sm text-muted-foreground">
           This creates a real issue and <strong>cannot be undone from here</strong>. It does not start a run.
         </p>

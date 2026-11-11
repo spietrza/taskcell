@@ -95,7 +95,7 @@ export function StageInspector({
           className="w-full"
         />
         {maxTurnsDraft !== null && (
-          <span className="text-xs text-rose-600 dark:text-rose-400">positive integer only</span>
+          <span className="text-xs text-destructive-text">positive integer only</span>
         )}
       </Field>
       <Field label="provider">

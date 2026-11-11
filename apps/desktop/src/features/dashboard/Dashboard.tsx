@@ -19,7 +19,7 @@ function Stat({
   return (
     <div className="rounded-lg border border-border p-4">
       <div className="text-[11px] font-medium uppercase tracking-wide text-muted-foreground">{label}</div>
-      <div className={`mt-1 flex items-center gap-1.5 text-2xl font-semibold tabular-nums ${accent ? 'text-green-600 dark:text-green-400' : ''}`}>
+      <div className={`mt-1 flex items-center gap-1.5 text-2xl font-semibold tabular-nums ${accent ? 'text-success-text' : ''}`}>
         {dot && <span className="size-2 rounded-full bg-success" />}
         {value}
       </div>
@@ -87,9 +87,8 @@ export function Dashboard({
               return (
                 <Card.Root
                   key={p.path}
-                  onClick={() => onOpen({ path: p.path, name: p.name })}
                   style={{ ['--proj']: color } as CSSProperties}
-                  className="relative cursor-pointer overflow-hidden pl-1.5 transition-colors hover:border-[color:var(--proj)]"
+                  className="relative overflow-hidden pl-1.5 transition-colors hover:border-[color:var(--proj)] has-[.proj-open:focus-visible]:ring-2 has-[.proj-open:focus-visible]:ring-ring"
                 >
                   {/* Project identity color — matches the in-project top bar and the border on hover so
                       cards read as one consistent object. */}
@@ -101,9 +100,17 @@ export function Dashboard({
                   <Card.Header className="flex flex-row items-start justify-between gap-2 pb-2">
                     <div className="min-w-0">
                       <Card.Title className="flex items-center gap-2 truncate">
-                        {p.name}
+                        {/* Stretched over the whole card (after:inset-0) so the card opens by click
+                            and by keyboard without nesting the Remove button inside a button. */}
+                        <button
+                          type="button"
+                          onClick={() => onOpen({ path: p.path, name: p.name })}
+                          className="proj-open truncate text-left outline-none after:absolute after:inset-0"
+                        >
+                          {p.name}
+                        </button>
                         {p.runningCount > 0 && (
-                          <span className="flex items-center gap-1 text-xs font-normal text-green-600 dark:text-green-400">
+                          <span className="flex items-center gap-1 text-xs font-normal text-success-text">
                             <span className="size-2 animate-pulse rounded-full bg-success" />
                             {p.runningCount}
                           </span>
@@ -114,12 +121,10 @@ export function Dashboard({
                       </Card.Description>
                     </div>
                     <button
-                      onClick={(e) => {
-                        e.stopPropagation();
-                        onRemove(p.path);
-                      }}
+                      type="button"
+                      onClick={() => onRemove(p.path)}
                       aria-label={`Remove ${p.name}`}
-                      className="text-muted-foreground transition-colors hover:text-destructive"
+                      className="relative z-10 text-muted-foreground transition-colors hover:text-destructive-text"
                     >
                       <X className="size-4" />
                     </button>
@@ -129,7 +134,7 @@ export function Dashboard({
                       <span>{p.runCount} runs</span>
                       <span>{p.taskCount} tasks</span>
                       <span>${p.totalCostUsd.toFixed(2)}</span>
-                      {p.failedCount > 0 && <span className="text-destructive">{p.failedCount} failed</span>}
+                      {p.failedCount > 0 && <span className="text-destructive-text">{p.failedCount} failed</span>}
                       {p.runsLast24h > 0 && <Chip color="secondary" variant="outlined">{p.runsLast24h} in 24h</Chip>}
                       {last && <span className="ml-auto">{last}</span>}
                     </div>

@@ -227,7 +227,7 @@ export function WorkflowEditor({ project }: { project: string }) {
         <h2 className="font-semibold">Flows</h2>
         {state.file !== null && <code className="text-xs text-muted-foreground">.vanguard/flows/{state.file}</code>}
         {state.dirty && (
-          <span className="rounded bg-amber-500/15 px-1.5 py-0.5 text-[11px] text-amber-600 dark:text-amber-400">unsaved</span>
+          <span className="rounded bg-warning/15 px-1.5 py-0.5 text-[11px] text-warning-text">unsaved</span>
         )}
         <div className="ml-auto flex items-center gap-2">
           <div className="flex rounded border border-border p-0.5 text-xs">
@@ -260,7 +260,7 @@ export function WorkflowEditor({ project }: { project: string }) {
         </div>
       )}
       {capsError !== null && (
-        <div className="flex shrink-0 items-center gap-2 rounded border border-amber-500/40 bg-amber-500/10 px-2 py-1.5 text-xs text-amber-600 dark:text-amber-400">
+        <div className="flex shrink-0 items-center gap-2 rounded border border-warning/40 bg-warning/10 px-2 py-1.5 text-xs text-warning-text">
           <AlertTriangle className="size-3.5 shrink-0" aria-hidden />
           stage palette unavailable — {capsError}. Creating flows and adding library stages need it.
         </div>

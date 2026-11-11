@@ -83,6 +83,9 @@ export function CommandPalette({
   return (
     <div className="fixed inset-0 z-50 flex items-start justify-center bg-black/40 pt-[15vh]" onClick={onClose}>
       <div
+        role="dialog"
+        aria-modal="true"
+        aria-label="Command palette"
         className="w-full max-w-lg overflow-hidden rounded-lg border border-border bg-background shadow-xl"
         onClick={(e) => e.stopPropagation()}
       >
@@ -92,15 +95,24 @@ export function CommandPalette({
           onChange={(e) => setQ(e.target.value)}
           onKeyDown={onKey}
           placeholder="Search projects & actions…"
+          role="combobox"
+          aria-label="Search projects and actions"
+          aria-expanded="true"
+          aria-controls="command-palette-list"
+          aria-activedescendant={filtered[sel] ? `cmd-${sel}` : undefined}
           className="w-full border-b border-border bg-transparent px-4 py-3 text-sm outline-none"
         />
-        <div className="max-h-80 overflow-auto p-1">
+        <div id="command-palette-list" role="listbox" aria-label="Commands" className="max-h-80 overflow-auto p-1">
           {filtered.length === 0 ? (
             <div className="px-3 py-6 text-center text-sm text-muted-foreground">No matches</div>
           ) : (
             filtered.map((c, i) => (
               <button
                 key={c.id}
+                id={`cmd-${i}`}
+                role="option"
+                aria-selected={i === sel}
+                tabIndex={-1}
                 onMouseEnter={() => setSel(i)}
                 onClick={() => exec(c)}
                 className={`flex w-full items-center gap-2 rounded px-3 py-2 text-left text-sm ${

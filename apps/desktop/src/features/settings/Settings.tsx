@@ -111,8 +111,8 @@ export function Settings({ project }: { project: string }) {
       </div>
 
       {cfgStatus === 'error' && (
-        <div className="rounded-md border-l-4 border-rose-500/60 bg-rose-500/5 p-3 text-sm text-muted-foreground">
-          <span className="font-semibold text-rose-600 dark:text-rose-400">.vanguard/app.json is unreadable</span> — fix
+        <div role="alert" className="rounded-md border border-destructive/40 bg-destructive/10 p-3 text-sm text-muted-foreground">
+          <span className="font-semibold text-destructive-text">.vanguard/app.json is unreadable</span> — fix
           its JSON by hand before editing here; saving now would replace the whole file.
         </div>
       )}
@@ -288,14 +288,14 @@ export function Settings({ project }: { project: string }) {
                 </Button>
               </div>
               {customErrors[i] !== undefined && (
-                <div className="text-xs text-rose-600 dark:text-rose-400">{customErrors[i]}</div>
+                <div className="text-xs text-destructive-text">{customErrors[i]}</div>
               )}
             </div>
           ))}
         </div>
 
-        <div className="rounded-md border-l-4 border-sky-500/50 bg-sky-500/5 p-3">
-          <div className="text-[11px] font-semibold uppercase tracking-wide text-sky-600 dark:text-sky-400">
+        <div className="rounded-md border border-border bg-muted/30 p-3">
+          <div className="text-[11px] font-semibold uppercase tracking-wide text-muted-foreground">
             Credentials
           </div>
           <p className="mt-1 text-sm text-muted-foreground">
