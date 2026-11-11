@@ -1,10 +1,11 @@
 import { describe, it, expect, afterAll, afterEach } from 'vitest';
 import { execa, execaSync } from 'execa';
-import { mkdtemp, writeFile, readFile, rm, stat } from 'node:fs/promises';
+import { chmod, mkdtemp, writeFile, readFile, rm, stat } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import {
   DockerSandboxProvider,
+  isBenignTarExit,
   toExecResult,
   isOlderVersion,
   refreshSandboxClaudeCli,
@@ -190,6 +191,18 @@ describe('toExecResult', () => {
   });
 });
 
+describe('isBenignTarExit', () => {
+  it('keeps an archive GNU tar finished despite files changing or vanishing mid-read, and fails closed otherwise', () => {
+    // Lines as GNU tar 1.34 (debian bookworm) prints them when a file is appended to / deleted during -c.
+    const gnu = 'tar: ./f3: File removed before we read it\ntar: ./f12: file changed as we read it\ntar: .: file changed as we read it\n';
+    expect(isBenignTarExit(0, '')).toBe(true);
+    expect(isBenignTarExit(1, gnu)).toBe(true);
+    expect(isBenignTarExit(1, '')).toBe(false);
+    expect(isBenignTarExit(1, `${gnu}tar: ./x: Cannot open: Permission denied\n`)).toBe(false);
+    expect(isBenignTarExit(2, gnu)).toBe(false);
+  });
+});
+
 suite('DockerSandboxProvider', () => {
   const sb = new DockerSandboxProvider({ image: 'alpine:3.20', workdir: '/workspace' });
 
@@ -227,7 +240,8 @@ suite('DockerSandboxProvider', () => {
     try {
       await writeFile(join(host, 'big.bin'), Buffer.alloc(110 * 1024 * 1024, 7));
       await sb.copyIn(host, '/workspace/big');
-      await sb.copyFileOut('/workspace/big', out);
+      // With maxBytes set, as copy-back always does: the counting listener must not starve the extract.
+      await sb.copyFileOut('/workspace/big', out, { maxBytes: 1024 * 1024 * 1024 });
       expect((await stat(join(out, 'big.bin'))).size).toBe(110 * 1024 * 1024);
     } finally {
       await sb.exec('rm -rf /workspace/big');
@@ -268,6 +282,108 @@ suite('DockerSandboxProvider', () => {
       await rm(host, { recursive: true, force: true });
     }
   }, 120_000);
+
+  it('keeps a single copied-in file\'s mode (an executable script stays executable)', async () => {
+    const host = await mkdtemp(join(tmpdir(), 'vg-mode-'));
+    try {
+      await writeFile(join(host, 'run.sh'), '#!/bin/sh\necho ran\n');
+      await chmod(join(host, 'run.sh'), 0o750);
+      await sb.copyIn(join(host, 'run.sh'), '/workspace/mode/run.sh');
+      const r = await sb.exec('stat -c %a /workspace/mode/run.sh && /workspace/mode/run.sh');
+      expect(r.stdout).toBe('750\nran');
+    } finally {
+      await rm(host, { recursive: true, force: true });
+    }
+  }, 60_000);
+
+  it('copies out a file that is still being appended to', async () => {
+    const out = await mkdtemp(join(tmpdir(), 'vg-grow-'));
+    try {
+      await sb.exec('mkdir -p /workspace/grow && echo start > /workspace/grow/log && echo kept > /workspace/grow/other');
+      await sb.exec('nohup sh -c "while :; do echo line >> /workspace/grow/log; done" >/dev/null 2>&1 &');
+      await sb.copyFileOut('/workspace/grow', out);
+      expect(await readFile(join(out, 'other'), 'utf8')).toBe('kept\n');
+      expect(await readFile(join(out, 'log'), 'utf8')).toMatch(/^start\n/);
+    } finally {
+      await sb.exec('pkill -f "echo line" ; rm -rf /workspace/grow');
+      await rm(out, { recursive: true, force: true });
+    }
+  }, 60_000);
+
+  it('skips excluded names at any depth only when asked', async () => {
+    const out = await mkdtemp(join(tmpdir(), 'vg-excl-'));
+    try {
+      await sb.exec('mkdir -p /workspace/ex/node_modules/a /workspace/ex/pkg/node_modules/b /workspace/ex/.pnpm-store && touch /workspace/ex/keep /workspace/ex/node_modules/a/f /workspace/ex/pkg/node_modules/b/f /workspace/ex/.pnpm-store/f');
+      await sb.copyFileOut('/workspace/ex', join(out, 'skip'), { exclude: ['node_modules', '.pnpm-store'] });
+      expect(await stat(join(out, 'skip', 'keep'))).toBeTruthy();
+      for (const gone of ['node_modules', join('pkg', 'node_modules'), '.pnpm-store']) {
+        await expect(stat(join(out, 'skip', gone)), gone).rejects.toThrow();
+      }
+      await sb.copyFileOut('/workspace/ex', join(out, 'all'));
+      expect(await stat(join(out, 'all', 'pkg', 'node_modules', 'b', 'f'))).toBeTruthy();
+    } finally {
+      await sb.exec('rm -rf /workspace/ex');
+      await rm(out, { recursive: true, force: true });
+    }
+  }, 60_000);
+
+  it('fails closed when the host-side extract fails', async () => {
+    const out = await mkdtemp(join(tmpdir(), 'vg-ro-out-'));
+    try {
+      await sb.exec('mkdir -p /workspace/fx && echo a > /workspace/fx/a');
+      await chmod(out, 0o555);
+      await expect(sb.copyFileOut('/workspace/fx', out)).rejects.toThrow(/copyFileOut failed/);
+    } finally {
+      await chmod(out, 0o755);
+      await rm(out, { recursive: true, force: true });
+    }
+  }, 60_000);
+
+  it('aborts copy-out once the stream passes maxBytes, even for data the agent made unreadable', async () => {
+    const out = await mkdtemp(join(tmpdir(), 'vg-cap-'));
+    try {
+      await sb.exec('mkdir -p /workspace/cap/hidden && head -c 8388608 /dev/zero > /workspace/cap/hidden/big && chmod 000 /workspace/cap/hidden');
+      await expect(sb.copyFileOut('/workspace/cap', out, { maxBytes: 1024 * 1024 })).rejects.toThrow(/copyFileOut failed/);
+      await expect(sb.copyFileOut('/workspace/cap', out, { maxBytes: 1024 * 1024 })).rejects.toHaveProperty('cause.message', expect.stringMatching(/passed 1048576 bytes/));
+    } finally {
+      await sb.exec('chmod -R 755 /workspace/cap; rm -rf /workspace/cap');
+      await rm(out, { recursive: true, force: true });
+    }
+  }, 60_000);
+
+  it('fails closed when the source dies mid-stream (truncated archive)', async () => {
+    const doomed = new DockerSandboxProvider({ image: 'alpine:3.20', workdir: '/workspace' });
+    const out = await mkdtemp(join(tmpdir(), 'vg-trunc-'));
+    try {
+      await doomed.start();
+      await doomed.exec('mkdir -p /workspace/t && head -c 209715200 /dev/zero > /workspace/t/big');
+      const copy = doomed.copyFileOut('/workspace/t', out);
+      await execa('docker', ['kill', `vg-${doomed.id}`], { reject: false });
+      await expect(copy).rejects.toThrow(/copyFileOut failed/);
+    } finally {
+      await doomed.destroy();
+      await rm(out, { recursive: true, force: true });
+    }
+  }, 120_000);
+
+  it('copies out paths the non-root agent made unreadable (chmod 000)', async () => {
+    const dockerfile = 'FROM alpine:3.20\nRUN adduser -D -h /home/agent -u 10001 agent && mkdir -p /workspace && chown agent /workspace\nUSER agent\n';
+    await execa('docker', ['build', '-q', '-t', 'vg-ro-user-test', '-'], { input: dockerfile });
+    const ro = new DockerSandboxProvider({ image: 'vg-ro-user-test', workdir: '/workspace', security: { ...sandboxSecurityOpts({}), readOnlyRootfs: true } });
+    const out = await mkdtemp(join(tmpdir(), 'vg-000-'));
+    try {
+      await ro.start();
+      const r = await ro.exec('mkdir -p /workspace/locked && echo s > /workspace/locked/secret && echo h > /workspace/hidden && echo ok > /workspace/fine && chmod 000 /workspace/locked /workspace/hidden');
+      expect(r.exitCode, r.stderr).toBe(0);
+      await ro.copyFileOut('/workspace', out);
+      expect(await readFile(join(out, 'fine'), 'utf8')).toBe('ok\n');
+      expect(await readFile(join(out, 'hidden'), 'utf8')).toBe('h\n');
+      expect(await readFile(join(out, 'locked', 'secret'), 'utf8')).toBe('s\n');
+    } finally {
+      await ro.destroy();
+      await rm(out, { recursive: true, force: true });
+    }
+  }, 180_000);
 
   it('lets a non-root run user write $HOME, /workspace and /tmp under a read-only rootfs', async () => {
     // Like the real image: a non-root USER whose $HOME exists in the image (a tmpfs over it comes up root:root 0755).

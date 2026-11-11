@@ -43,6 +43,8 @@ interface FakeOptions {
   runLists?: unknown[][];
   /** `git ls-tree` output: the caller paths already on origin/<default>. */
   lsTree?: string;
+  /** `git status --untracked-files=all -- <callers>` output: local files at the caller paths. */
+  localCallers?: string;
 }
 
 const doctorRun = (id: number, event = 'workflow_dispatch'): unknown => ({
@@ -65,6 +67,7 @@ function fakeExec(calls: Call[], opts: FakeOptions = {}): FactoryExec {
   return async (file, args, options) => {
     calls.push({ file, args, cwd: options?.cwd });
     if (file === 'git' && args[0] === 'status') {
+      if (args.includes('--untracked-files=all')) return { stdout: opts.localCallers ?? '', stderr: '' };
       // With a pathspec: did the callers change. Without: the up-front dirty-tree check.
       if (args.includes('--')) return { stdout: opts.status ?? 'M  .github/workflows/vanguard-implement.yml\n', stderr: '' };
       return { stdout: opts.dirty ?? '', stderr: '' };
@@ -232,6 +235,16 @@ describe('applyGithubFactory re-runs', () => {
     const plan = await planGithubFactory(repoPath, { exec });
     await expect(applyGithubFactory(repoPath, plan, { exec })).rejects.toThrow(/uncommitted changes/);
     expect(calls.some((c) => c.file === 'git' && (c.args[0] === 'checkout' || c.args[0] === 'fetch'))).toBe(false);
+  });
+
+  it('refuses an untracked local caller file instead of overwriting and then deleting it', async () => {
+    const repoPath = await repo();
+    const calls: Call[] = [];
+    const exec = fakeExec(calls, { localCallers: '?? .github/workflows/vanguard-implement.yml\n' });
+    const plan = await planGithubFactory(repoPath, { exec });
+    await expect(applyGithubFactory(repoPath, plan, { exec })).rejects.toThrow(/vanguard-implement\.yml/);
+    expect(calls.some((c) => c.file === 'git' && (c.args[0] === 'checkout' || c.args[0] === 'fetch'))).toBe(false);
+    await expect(readFile(join(repoPath, '.github', 'workflows', 'vanguard-implement.yml'))).rejects.toThrow();
   });
 
   it('restores the original branch when a step after checkout fails', async () => {

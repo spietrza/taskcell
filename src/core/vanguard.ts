@@ -352,6 +352,9 @@ async function collectChangedFiles(staging: string, worktree: string, rel: strin
 // any real change; it exists so a sandbox cannot fill the host disk through staging and the worktree.
 export const COPY_BACK_MAX_BYTES = 2 * 1024 * 1024 * 1024;
 export const COPY_BACK_MAX_FILES = 200_000;
+// The stream cap counts tar bytes: up to ~1 KiB of header and padding per member on top of the file
+// bytes the ceiling measured, so a workspace that passes the ceiling never trips the stream cap.
+const COPY_BACK_STREAM_MAX_BYTES = COPY_BACK_MAX_BYTES + COPY_BACK_MAX_FILES * 1024;
 
 function copyBackCeilingError(maxBytes: number, maxFiles: number): SandboxError {
   return new SandboxError(
@@ -399,7 +402,8 @@ async function syncSandboxToWorktree(ctx: RunContext): Promise<string> {
   await assertWorkspaceWithinCeiling(ctx.sandbox);
   const staging = await ensureStateDir(ctx.localRepoPath, join(ctx.localRepoPath, '.vanguard', 'staging', ctx.taskId));
   try {
-    await ctx.sandbox.copyFileOut(WORKDIR, staging);
+    // Skipped at the source too: they never sync back (COPY_BACK_SKIP) and can dwarf the workspace.
+    await ctx.sandbox.copyFileOut(WORKDIR, staging, { exclude: ['node_modules', '.pnpm-store', '.git'], maxBytes: COPY_BACK_STREAM_MAX_BYTES });
     const charge = copyBackBudget();
     const dropped: string[] = [];
     await cp(staging, ctx.worktreePath, {

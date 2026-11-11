@@ -196,11 +196,19 @@ export async function applyGithubFactory(repoPath: string, plan: FactoryPlan, de
   if ((await run(exec, 'git', ['status', '--porcelain', '--untracked-files=no'], { cwd: repoPath })) !== '') {
     throw new BadRequestError('the working tree has uncommitted changes; commit or stash them before enabling the factory');
   }
+  // The check above ignores untracked files, but a local caller at one of our paths would be
+  // overwritten by the template, committed, then deleted by the `checkout -f` below.
+  const { callerFiles } = factoryPlanTargets();
+  const localCallers = await run(exec, 'git', ['status', '--porcelain', '--untracked-files=all', '--ignored=matching', '--', ...callerFiles], { cwd: repoPath });
+  if (localCallers !== '') {
+    throw new BadRequestError(
+      `uncommitted workflow files at the factory caller paths would be overwritten:\n${localCallers}\ncommit, move or delete them before enabling the factory`,
+    );
+  }
   const head = await run(exec, 'git', ['rev-parse', '--abbrev-ref', 'HEAD'], { cwd: repoPath });
   const original = head === 'HEAD' ? await run(exec, 'git', ['rev-parse', 'HEAD'], { cwd: repoPath }) : head;
 
   await run(exec, 'git', ['fetch', 'origin', plan.defaultBranch], { cwd: repoPath });
-  const { callerFiles } = factoryPlanTargets();
   const existing = new Set(await existingCallerFiles(exec, repoPath, plan.defaultBranch));
   let changed: boolean;
   // -B: create the branch, or reset an existing one from an earlier apply, at the base.

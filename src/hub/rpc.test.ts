@@ -423,7 +423,7 @@ describe('enable_factory RPCs', () => {
   function spyProvider(): { seen: FactoryPlan[]; mock: ReturnType<typeof vi.spyOn> } {
     const seen: FactoryPlan[] = [];
     const mock = vi.spyOn(enableFactoryModule, 'enableFactory').mockImplementation(() => ({
-      plan: async () => validPlan as FactoryPlan,
+      plan: async () => ({ ...validPlan, ...enableFactoryModule.factoryPlanTargets() }) as FactoryPlan,
       apply: async (plan) => {
         seen.push(plan);
         return { branch: 'vanguard/enable-factory', prUrl: 'https://example/pr/1', labelsCreated: [] };
@@ -474,6 +474,47 @@ describe('enable_factory RPCs', () => {
       expect(seen).toHaveLength(1);
       expect(seen[0]?.callerFiles).toEqual(enableFactoryModule.factoryPlanTargets().callerFiles);
       expect(seen[0]?.labels).toEqual(enableFactoryModule.factoryPlanTargets().labels);
+    } finally {
+      mock.mockRestore();
+    }
+  });
+
+  test('accepts an Enterprise Managed User login (underscore)', async () => {
+    const repo = await tmpRepo();
+    const { ctx } = await makeCtx(repo);
+    const { seen, mock } = spyProvider();
+    try {
+      await dispatchRpc(ctx, 'enable_factory_secret', { repoPath: repo, plan: { ...validPlan, login: 'octo_corp' } });
+      expect(seen[0]?.login).toBe('octo_corp');
+    } finally {
+      mock.mockRestore();
+    }
+  });
+
+  test.each([
+    ['login', 'mallory'],
+    ['repoSlug', 'acme/other'],
+    ['defaultBranch', 'develop'],
+  ])('apply refuses a client plan whose %s differs from the server-side plan', async (field, value) => {
+    const repo = await tmpRepo();
+    const { ctx } = await makeCtx(repo);
+    const { seen, mock } = spyProvider();
+    try {
+      await expect(dispatchRpc(ctx, 'enable_factory_apply', { repoPath: repo, plan: { ...validPlan, [field]: value } }))
+        .rejects.toThrow('the plan no longer matches');
+      expect(seen).toEqual([]);
+    } finally {
+      mock.mockRestore();
+    }
+  });
+
+  test('apply uses the server-side plan, not the client echo', async () => {
+    const repo = await tmpRepo();
+    const { ctx } = await makeCtx(repo);
+    const { seen, mock } = spyProvider();
+    try {
+      await dispatchRpc(ctx, 'enable_factory_apply', { repoPath: repo, plan: { ...validPlan, packageManager: 'npm' } });
+      expect(seen[0]?.packageManager).toBe('pnpm');
     } finally {
       mock.mockRestore();
     }

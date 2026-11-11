@@ -24,6 +24,14 @@ export interface ExecStream {
   result: Promise<ExecResult>;
 }
 
+/** Options for copying a directory out of a sandbox. */
+export interface CopyOutOptions {
+  /** File/dir names skipped at any depth (bare names, no slashes). */
+  exclude?: readonly string[];
+  /** Abort once the archive streamed out of the sandbox passes this many bytes (before it reaches the host disk). */
+  maxBytes?: number;
+}
+
 /**
  * A fully isolated execution environment (Docker container or Firecracker microVM).
  * The host owns explicit file sync: nothing crosses the boundary except via copyIn/copyFileOut.
@@ -43,7 +51,7 @@ export interface IsolatedSandboxProvider {
    */
   copyIn: (hostPath: string, sandboxPath: string) => Promise<void>;
   /** Copy a sandbox file/dir OUT to the host. */
-  copyFileOut: (sandboxPath: string, hostPath: string) => Promise<void>;
+  copyFileOut: (sandboxPath: string, hostPath: string, options?: CopyOutOptions) => Promise<void>;
   /** True if a path exists inside the sandbox. */
   exists: (sandboxPath: string) => Promise<boolean>;
   /** Tear down (rm container / kill VM). Safe to call multiple times. */

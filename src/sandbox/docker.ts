@@ -6,7 +6,20 @@ import { dirname, join } from 'node:path';
 import { createInterface } from 'node:readline';
 import { SandboxError } from '../core/errors.js';
 import { ownerLabelArgs, readOnlyTmpfsSizesMb, sandboxSecurityOpts } from './limits.js';
-import type { ExecOptions, ExecResult, ExecStream, IsolatedSandboxProvider, SandboxConfig } from './provider.js';
+import type { CopyOutOptions, ExecOptions, ExecResult, ExecStream, IsolatedSandboxProvider, SandboxConfig } from './provider.js';
+
+/**
+ * GNU tar exits 1 when a file grows or is deleted while it is archived (a watcher or test cache still
+ * running in the sandbox); the archive is complete, so copy-back keeps it. Exit 1 for any other reason,
+ * and every other non-zero code, fails closed — including busybox tar's wording on custom images.
+ */
+export function isBenignTarExit(exitCode: number, stderr: string): boolean {
+  if (exitCode === 0) return true;
+  if (exitCode !== 1) return false;
+  const benign = /file changed as we read it|File removed before we read it/;
+  const lines = stderr.split('\n').filter((line) => line.trim() !== '');
+  return lines.length > 0 && lines.every((line) => benign.test(line));
+}
 
 /**
  * Normalise an execa result into an `ExecResult`.
@@ -399,7 +412,8 @@ export class DockerSandboxProvider implements IsolatedSandboxProvider {
 
   async copyIn(hostPath: string, sandboxPath: string): Promise<void> {
     try {
-      const isDir = (await stat(hostPath)).isDirectory();
+      const hostStat = await stat(hostPath);
+      const isDir = hostStat.isDirectory();
       await execa('docker', ['exec', this.name, 'mkdir', '-p', isDir ? sandboxPath : dirname(sandboxPath)]);
       // Streamed through `docker exec` rather than `docker cp`: the daemon refuses `docker cp` into a
       // container started with --read-only ("container rootfs is marked read-only") even when the
@@ -411,6 +425,9 @@ export class DockerSandboxProvider implements IsolatedSandboxProvider {
           .pipe('docker', ['exec', '-i', '-u', '0', this.name, 'tar', '-xf', '-', '-C', sandboxPath]);
       } else {
         await execa('docker', ['exec', '-i', '-u', '0', this.name, 'sh', '-c', 'cat > "$1"', 'sh', sandboxPath], { inputFile: hostPath });
+        // `cat >` creates the file with the default mode; keep the host's (an executable script stays executable).
+        const mode = (hostStat.mode & 0o777).toString(8);
+        await execa('docker', ['exec', '-u', '0', this.name, 'chmod', mode, sandboxPath]);
       }
       // Extracted as root (tar keeps host uid/gid), so chown to the container user; otherwise the
       // non-root agent cannot edit copied files (only create new ones).
@@ -420,7 +437,7 @@ export class DockerSandboxProvider implements IsolatedSandboxProvider {
     }
   }
 
-  async copyFileOut(sandboxPath: string, hostPath: string): Promise<void> {
+  async copyFileOut(sandboxPath: string, hostPath: string, options: CopyOutOptions = {}): Promise<void> {
     try {
       const isDir = (await execa('docker', ['exec', this.name, 'test', '-d', sandboxPath], { reject: false })).exitCode === 0;
       if (isDir) await mkdir(hostPath, { recursive: true });
@@ -428,8 +445,41 @@ export class DockerSandboxProvider implements IsolatedSandboxProvider {
       // Not `docker cp`: it reads the container's rootfs layer, so under --read-only it cannot see
       // the /workspace, $HOME and /tmp tmpfs mounts the run actually wrote to.
       if (isDir) {
-        await execa('docker', ['exec', this.name, 'tar', '-C', sandboxPath, '-cf', '-', '.'], { buffer: false })
-          .pipe('tar', ['-xf', '-', '-C', hostPath]);
+        // As root: a path the agent made unreadable (chmod 000) must not fail the copy-back (exit 2).
+        // A bare name in --exclude matches at any depth (GNU and busybox tar alike).
+        const excludes = (options.exclude ?? []).map((name) => `--exclude=${name}`);
+        const source = execa('docker', ['exec', '-u', '0', this.name, 'tar', ...excludes, '-C', sandboxPath, '-cf', '-', '.'], {
+          buffer: { stdout: false },
+          reject: false,
+        });
+        // Hard byte cap on the stream itself: the pre-copy `find` runs as the agent and cannot see into
+        // what it made unreadable, while this tar runs as root, so only the stream is a reliable limit.
+        let streamed = 0;
+        let overCap = false;
+        if (options.maxBytes !== undefined) {
+          const cap = options.maxBytes;
+          if (!source.stdout) throw new SandboxError('copy-out has no stdout to enforce maxBytes on');
+          source.stdout.on('data', (chunk: Buffer) => {
+            streamed += chunk.length;
+            if (streamed > cap && !overCap) {
+              overCap = true;
+              source.kill();
+            }
+          });
+        }
+        // A failing extract (e.g. a truncated archive) rejects the pipe. Tar restores modes, so a 000 dir or
+        // file would leave the host user unable to read (or later delete) what it extracted — fix that
+        // whether or not the copy succeeded, or the caller's cleanup of a partial extract fails too.
+        const extracted = await source.pipe('tar', ['-xf', '-', '-C', hostPath]).catch((cause: unknown) => cause);
+        await execa('chmod', ['-R', 'u+rwX', hostPath], { reject: false });
+        if (overCap) throw new Error(`copy-out passed ${options.maxBytes} bytes; aborted before more reached the host`);
+        if (extracted instanceof Error) throw extracted;
+        const archived = await source;
+        // GNU tar exits 1 for "file changed as we read it" (a process still writing): the archive is
+        // complete, so keep it — but only for that reason. Anything else fails closed.
+        if (!isBenignTarExit(archived.exitCode ?? -1, archived.stderr)) {
+          throw new Error(`tar in sandbox exited ${archived.exitCode}: ${archived.stderr}`);
+        }
       } else {
         const res = await execa('docker', ['exec', this.name, 'cat', sandboxPath], { stdout: { file: hostPath }, reject: false });
         // The redirect creates hostPath before cat runs; don't leave an empty file for a missing source.
