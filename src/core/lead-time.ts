@@ -107,15 +107,18 @@ function median(values: ReadonlyArray<number>): number | undefined {
 
 /** Medians + first-try rate over a set of per-issue lead times (e.g. one project, one repo). */
 export function rollupLeadTimes(items: ReadonlyArray<IssueLeadTime>): LeadTimeRollup {
-  const labelToPr = items.map((i) => i.labelToPrMs).filter((v): v is number => v !== undefined);
-  const prToMerge = items.map((i) => i.prToMergeMs).filter((v): v is number => v !== undefined);
+  const medianOf = (pick: (i: IssueLeadTime) => number | undefined): number | undefined =>
+    median(items.map(pick).filter((v): v is number => v !== undefined));
   const merged = items.filter((i) => i.mergedAt !== undefined);
-  const firstTryCount = merged.filter((i) => i.firstTry).length;
+  const medianLabelToPrMs = medianOf((i) => i.labelToPrMs);
+  const medianPrToMergeMs = medianOf((i) => i.prToMergeMs);
+  const medianReviseRounds = medianOf((i) => i.reviseRounds);
+  const firstTryRate = merged.length > 0 ? merged.filter((i) => i.firstTry).length / merged.length : undefined;
   return {
     items: [...items],
-    ...(labelToPr.length > 0 ? { medianLabelToPrMs: median(labelToPr) } : {}),
-    ...(prToMerge.length > 0 ? { medianPrToMergeMs: median(prToMerge) } : {}),
-    ...(items.length > 0 ? { medianReviseRounds: median(items.map((i) => i.reviseRounds)) } : {}),
-    ...(merged.length > 0 ? { firstTryRate: firstTryCount / merged.length } : {}),
+    ...(medianLabelToPrMs !== undefined ? { medianLabelToPrMs } : {}),
+    ...(medianPrToMergeMs !== undefined ? { medianPrToMergeMs } : {}),
+    ...(medianReviseRounds !== undefined ? { medianReviseRounds } : {}),
+    ...(firstTryRate !== undefined ? { firstTryRate } : {}),
   };
 }

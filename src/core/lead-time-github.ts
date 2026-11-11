@@ -56,7 +56,11 @@ export async function fetchPrLeadTime(
     fetchTimeline(repoSlug, issueNumber, gh),
     fetchTimeline(repoSlug, prNumber, gh),
   ]);
-  const pr: PrLeadTimeInfo = { number: view.number, createdAt: view.createdAt, mergedAt: view.mergedAt };
+  const pr: PrLeadTimeInfo = {
+    number: view.number,
+    createdAt: view.createdAt,
+    ...(view.mergedAt !== undefined ? { mergedAt: view.mergedAt } : {}),
+  };
   return computeIssueLeadTime({
     issueRef: `${repoSlug}#${issueNumber}`,
     issueTimeline,
