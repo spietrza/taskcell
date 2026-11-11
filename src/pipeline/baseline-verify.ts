@@ -36,7 +36,7 @@ async function readCachedBaselineVerify(repoPath: string, sha: string): Promise<
 }
 
 /** Best-effort cache write — a failure here must never fail a run. */
-async function writeCachedBaselineVerify(repoPath: string, sha: string, result: VerificationResult): Promise<void> {
+async function writeCachedBaselineVerify(repoPath: string, sha: string, result: VerificationResult, secretValues?: readonly string[]): Promise<void> {
   const file = baselinePath(repoPath, sha);
   if (file === undefined) return;
   try {
@@ -44,7 +44,7 @@ async function writeCachedBaselineVerify(repoPath: string, sha: string, result: 
     await assertStatePath(repoPath, file);
     // Verbatim command output, masked on the way to disk like every other free text persisted
     // under the state dir (see run-store's writeProof).
-    await writeFile(file, JSON.stringify(redactVerificationOutput(result)));
+    await writeFile(file, JSON.stringify(redactVerificationOutput(result, secretValues)));
   } catch {
     // best-effort
   }
@@ -69,10 +69,11 @@ export async function resolveBaselineVerify(
   sandbox: IsolatedSandboxProvider,
   command: string,
   signal?: AbortSignal,
+  secretValues?: readonly string[],
 ): Promise<VerificationResult> {
   const cached = await readCachedBaselineVerify(repoPath, sha);
   if (cached !== undefined && cached.command === command) return cached;
   const result = await runVerification(sandbox, command, signal);
-  if (result.passed) await writeCachedBaselineVerify(repoPath, sha, result);
+  if (result.passed) await writeCachedBaselineVerify(repoPath, sha, result, secretValues);
   return result;
 }
