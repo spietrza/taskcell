@@ -120,11 +120,12 @@ export function Rail({
                     {collapsed ? (
                       <span className="size-2 animate-pulse rounded-full bg-success" />
                     ) : (
-                      <div className="flex items-center gap-2">
+                      // Time on its own line: beside the id it left the narrow rail room for ~4 characters.
+                      <div className="flex items-center gap-2" title={r.taskId}>
                         <span className="size-2 shrink-0 animate-pulse rounded-full bg-success" />
-                        <span className="min-w-0 flex-1 truncate font-mono text-xs font-medium">{r.taskId}</span>
-                        <span className="shrink-0 text-[11px] tabular-nums text-muted-foreground">
-                          {relTime(r.lastActivityMs)}
+                        <span className="flex min-w-0 flex-1 flex-col">
+                          <span className="truncate font-mono text-xs font-medium">{r.taskId}</span>
+                          <span className="text-[11px] tabular-nums text-muted-foreground">{relTime(r.lastActivityMs)}</span>
                         </span>
                       </div>
                     )}

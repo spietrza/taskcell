@@ -1,13 +1,8 @@
 import { useMemo, useState } from 'react';
-import { Table, Chip, Empty, Input, ScrollTable } from '@/ui';
+import { Table, Chip, Empty, Input, ScrollTable, Timestamp } from '@/ui';
 import { Inbox, RefreshCw, Search } from 'lucide-react';
-import { relTime } from '../../time';
+import { verdictColor, verdictWord } from '../../status';
 import type { ActiveRun, RunSummary } from '../../vanguard-output';
-
-/** `2026-07-06T19:12:02.123Z` -> `2026-07-06 19:12`. */
-function when(ts: string): string {
-  return ts.replace('T', ' ').slice(0, 16);
-}
 
 type Filter = 'all' | 'passed' | 'failed';
 
@@ -108,7 +103,9 @@ export function RunList({
                 className="cursor-pointer bg-primary/5"
               >
                 <Table.Cell className="font-medium">{a.taskId}</Table.Cell>
-                <Table.Cell className="tabular-nums text-muted-foreground">{relTime(a.lastActivityMs)}</Table.Cell>
+                <Table.Cell className="tabular-nums text-muted-foreground">
+                  <Timestamp ms={a.lastActivityMs} />
+                </Table.Cell>
                 <Table.Cell className="text-muted-foreground">—</Table.Cell>
                 <Table.Cell className="text-right tabular-nums text-muted-foreground">—</Table.Cell>
                 <Table.Cell>
@@ -129,12 +126,14 @@ export function RunList({
                 className="cursor-pointer"
               >
                 <Table.Cell className="font-medium">{r.taskId}</Table.Cell>
-                <Table.Cell className="tabular-nums text-muted-foreground">{when(r.timestamp)}</Table.Cell>
+                <Table.Cell className="tabular-nums text-muted-foreground">
+                  <Timestamp ms={Date.parse(r.timestamp)} />
+                </Table.Cell>
                 <Table.Cell className="text-muted-foreground">{r.stages.join(', ')}</Table.Cell>
                 <Table.Cell className="text-right tabular-nums">${r.totalCostUsd.toFixed(2)}</Table.Cell>
                 <Table.Cell>
-                  <Chip color={r.anyFailed ? 'destructive' : 'success'} variant="outlined">
-                    {r.anyFailed ? 'failed' : 'passed'}
+                  <Chip color={verdictColor(!r.anyFailed)} variant="outlined">
+                    {verdictWord(!r.anyFailed)}
                   </Chip>
                 </Table.Cell>
               </Table.Row>

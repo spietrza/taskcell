@@ -513,6 +513,8 @@ export interface FactoryPlan {
   scripts: { typecheck: boolean; lint: boolean; test: boolean; build: boolean };
   /** Repo-relative paths `apply` will add, e.g. `.github/workflows/vanguard-implement.yml`. */
   callerFiles: string[];
+  /** The subset of `callerFiles` already on the default branch — `apply` leaves those untouched. */
+  existingCallerFiles?: string[];
   labels: string[];
 }
 

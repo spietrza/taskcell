@@ -1,4 +1,4 @@
-import type { CSSProperties } from 'react';
+import { useState, type CSSProperties } from 'react';
 import { Button, Card, Chip, Empty } from '@/ui';
 import { Factory, FolderPlus, LayoutGrid, X } from 'lucide-react';
 import { projectColor } from '../../color';
@@ -41,6 +41,8 @@ export function Dashboard({
   /** Hub-only (the `enable_factory_*` commands are HUB_ONLY): omitted, the card has no button. */
   onEnableFactory?: (p: { path: string; name: string }) => void;
 }) {
+  // Path of the card whose × was clicked: removal waits for a second, explicit click.
+  const [confirmRemove, setConfirmRemove] = useState<string | null>(null);
   const totals = {
     projects: projects.length,
     running: projects.reduce((n, p) => n + p.runningCount, 0),
@@ -65,7 +67,7 @@ export function Dashboard({
           </Empty.Media>
           <Empty.Title>No projects yet</Empty.Title>
           <Empty.Description>
-            Add a repo containing <code>.vanguard/runs</code> to track its runs and spend.
+            Add any git repository to track its factory runs, tasks and spend.
           </Empty.Description>
           <Empty.Actions>
             <Button onClick={onAdd} startIcon={<FolderPlus className="size-4" />}>
@@ -124,14 +126,40 @@ export function Dashboard({
                         {p.path}
                       </Card.Description>
                     </div>
-                    <button
-                      type="button"
-                      onClick={() => onRemove(p.path)}
-                      aria-label={`Remove ${p.name}`}
-                      className="relative z-10 text-muted-foreground transition-colors hover:text-destructive-text"
-                    >
-                      <X className="size-4" />
-                    </button>
+                    {confirmRemove === p.path ? (
+                      <div className="relative z-10 flex shrink-0 items-center gap-1 text-xs">
+                        <Button
+                          variant="text"
+                          color="secondary"
+                          className="h-6 px-1.5 text-xs"
+                          autoFocus
+                          onClick={() => setConfirmRemove(null)}
+                        >
+                          Cancel
+                        </Button>
+                        <Button
+                          variant="text"
+                          color="destructive"
+                          className="h-6 px-1.5 text-xs"
+                          onClick={() => {
+                            setConfirmRemove(null);
+                            onRemove(p.path);
+                          }}
+                        >
+                          Remove
+                        </Button>
+                      </div>
+                    ) : (
+                      <button
+                        type="button"
+                        onClick={() => setConfirmRemove(p.path)}
+                        aria-label={`Remove ${p.name}`}
+                        title="Remove from the hub (the repo itself is not touched)"
+                        className="relative z-10 text-muted-foreground transition-colors hover:text-destructive-text"
+                      >
+                        <X className="size-4" />
+                      </button>
+                    )}
                   </Card.Header>
                   <Card.Content className="pt-0">
                     <div className="flex flex-wrap items-center gap-x-3 gap-y-1 text-xs tabular-nums text-muted-foreground">

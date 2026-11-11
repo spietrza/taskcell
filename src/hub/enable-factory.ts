@@ -122,6 +122,16 @@ async function detectScripts(repoPath: string): Promise<{ packageManager: string
   }
 }
 
+/** The caller paths already committed on `origin/<base>` — `apply` leaves those as they are, so it
+ * never overwrites a repo's own (possibly customised) workflows. Reads the local remote-tracking
+ * ref, no network. */
+async function existingCallerFiles(exec: FactoryExec, repoPath: string, base: string): Promise<string[]> {
+  const { callerFiles } = factoryPlanTargets();
+  const out = await run(exec, 'git', ['ls-tree', '--full-tree', '--name-only', `origin/${base}`, '--', ...callerFiles], { cwd: repoPath });
+  const present = new Set(out.split('\n'));
+  return callerFiles.filter((f) => present.has(f));
+}
+
 /** Read the repo's default branch, slug and the signed-in gh login — nothing written yet. */
 export async function planGithubFactory(repoPath: string, deps: GithubFactoryDeps = {}): Promise<FactoryPlan> {
   const exec = deps.exec ?? defaultExec;
@@ -138,6 +148,8 @@ export async function planGithubFactory(repoPath: string, deps: GithubFactoryDep
   if (repoSlug === '') throw new BadRequestError('could not determine the repository (gh repo view returned no nameWithOwner)');
   if (defaultBranch === '') throw new BadRequestError('could not determine the default branch (gh repo view returned no defaultBranchRef)');
   if (login === '') throw new BadRequestError('could not determine the signed-in gh login (gh api user returned no login)');
+  // Best effort: a missing/stale origin ref only costs the hint — apply re-checks after its fetch.
+  const existing = await existingCallerFiles(exec, repoPath, defaultBranch).catch((): string[] => []);
 
   return {
     provider: 'github',
@@ -148,6 +160,7 @@ export async function planGithubFactory(repoPath: string, deps: GithubFactoryDep
     ...(verifyCommand !== undefined ? { verifyCommand } : {}),
     scripts,
     ...factoryPlanTargets(),
+    existingCallerFiles: existing,
   };
 }
 
@@ -163,8 +176,8 @@ async function run(exec: FactoryExec, file: string, args: string[], options?: { 
 }
 
 /**
- * Refuse a dirty working tree, branch from `origin/<plan.defaultBranch>`, add the five callers
- * (author gate set to `plan.login`), open a PR against `plan.defaultBranch` (never push TO it), and create the routing labels.
+ * Refuse a dirty working tree, branch from `origin/<plan.defaultBranch>`, add the callers that base
+ * does not already have (author gate set to `plan.login`; existing ones are left untouched), open a PR against `plan.defaultBranch` (never push TO it), and create the routing labels.
  * Re-runnable after a partial failure: the branch is reset to the base and re-applied, the commit is
  * skipped when nothing changed, an already-open PR is reused, and labels use `--force`. The
  * originally checked-out branch is restored afterwards, on success or failure.
@@ -188,6 +201,7 @@ export async function applyGithubFactory(repoPath: string, plan: FactoryPlan, de
 
   await run(exec, 'git', ['fetch', 'origin', plan.defaultBranch], { cwd: repoPath });
   const { callerFiles } = factoryPlanTargets();
+  const existing = new Set(await existingCallerFiles(exec, repoPath, plan.defaultBranch));
   let changed: boolean;
   // -B: create the branch, or reset an existing one from an earlier apply, at the base.
   await run(exec, 'git', ['checkout', '-B', branch, `origin/${plan.defaultBranch}`], { cwd: repoPath });
@@ -195,6 +209,7 @@ export async function applyGithubFactory(repoPath: string, plan: FactoryPlan, de
     const workflowsDir = join(repoPath, '.github', 'workflows');
     await mkdir(workflowsDir, { recursive: true });
     for (const name of CALLER_NAMES) {
+      if (existing.has(join('.github', 'workflows', workflowFileName(name)))) continue;
       const templateRaw = await readFile(new URL(`${name}.yml`, TEMPLATES_DIR), 'utf8');
       const content = templateRaw.split(LOGIN_PLACEHOLDER).join(plan.login);
       await writeFile(join(workflowsDir, workflowFileName(name)), content);
