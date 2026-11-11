@@ -3,7 +3,7 @@ import type { GlabRunner } from '../tasks/gitlab.js';
 import { overlayInstructionFiles } from '../context/instruction-files.js';
 import type { InstructionOverlay } from '../context/instruction-files.js';
 import { DockerSandboxProvider, sandboxImage } from '../sandbox/docker.js';
-import { sandboxResourceLimits, sandboxSecurityOpts } from '../sandbox/limits.js';
+import { sandboxNetworkConfig } from '../sandbox/limits.js';
 import { llmProxySandboxEnv } from '../sandbox/egress-proxy.js';
 import { startProviderProxies } from '../sandbox/llm-proxy.js';
 import { startSandboxContext } from '../sandbox/sandbox-context.js';
@@ -105,10 +105,8 @@ async function runDefaultMrReviewer(
         ...(sandboxContext.llmProxy === undefined && auth !== undefined && agents.injectAnthropicAuth ? authSecrets(auth) : {}),
         ...agents.secrets,
       },
-      ...sandboxResourceLimits(process.env, sandboxContext.network !== undefined),
       ...(env !== undefined ? { env } : {}),
-      ...(sandboxContext.network !== undefined ? { network: sandboxContext.network } : {}),
-      security: sandboxSecurityOpts(process.env, sandboxContext.network !== undefined),
+      ...sandboxNetworkConfig(sandboxContext.network),
     });
     const taskId = `mr-review-${mr.project.replace(/[^a-zA-Z0-9]/g, '-')}-${mr.iid}`;
     // The reviewer reads the tree the change lands on: the MR's target branch as origin has it.

@@ -1,10 +1,11 @@
 import { describe, it, expect } from 'vitest';
 import {
-  hardenedRootfsNote,
+  DEFAULT_SANDBOX_HOME,
   ownerLabelArgs,
   pnpmStoreConfig,
   readOnlyTmpfsSizesMb,
   READONLY_SANDBOX_MEMORY_MB,
+  resolveSandboxProfile,
   sandboxResourceLimits,
   sandboxSecurityOpts,
   sidecarMemoryArgs,
@@ -36,17 +37,13 @@ describe('sandboxResourceLimits', () => {
     expect('pidsLimit' in sandboxResourceLimits({ VANGUARD_SANDBOX_PIDS: 'off' } as NodeJS.ProcessEnv)).toBe(false);
   });
 
-  it('raises the memory default when the rootfs is read-only (tmpfs shares the cgroup), but an explicit value wins', () => {
-    expect(sandboxResourceLimits({}, true).memoryMb).toBe(2048);
-    expect(sandboxResourceLimits({ VANGUARD_SANDBOX_READONLY: '1' } as NodeJS.ProcessEnv, true).memoryMb).toBe(
-      READONLY_SANDBOX_MEMORY_MB,
-    );
+  it('raises the memory default only for a read-only rootfs, and an explicit value wins', () => {
     expect(sandboxResourceLimits({ VANGUARD_SANDBOX_READONLY: '1' } as NodeJS.ProcessEnv).memoryMb).toBe(
       READONLY_SANDBOX_MEMORY_MB,
     );
-    expect(sandboxResourceLimits({ VANGUARD_SANDBOX_READONLY: '0' } as NodeJS.ProcessEnv, true).memoryMb).toBe(2048);
+    expect(sandboxResourceLimits({ VANGUARD_SANDBOX_READONLY: '0' } as NodeJS.ProcessEnv).memoryMb).toBe(2048);
     const forced = { VANGUARD_SANDBOX_MEMORY_MB: '1536', VANGUARD_SANDBOX_READONLY: '1' } as NodeJS.ProcessEnv;
-    expect(sandboxResourceLimits(forced, true).memoryMb).toBe(1536);
+    expect(sandboxResourceLimits(forced).memoryMb).toBe(1536);
   });
 });
 
@@ -87,46 +84,114 @@ describe('sandboxSecurityOpts', () => {
     expect(sandboxSecurityOpts({ VANGUARD_SANDBOX_READONLY: '0' } as NodeJS.ProcessEnv).readOnlyRootfs).toBe(false);
   });
 
-  it('keeps readOnlyRootfs opt-in under the hardened flag (--egress/--llm-proxy): only READONLY=1 turns it on', () => {
-    expect(sandboxSecurityOpts({}, true).readOnlyRootfs).toBe(false);
-    expect(sandboxSecurityOpts({}, false).readOnlyRootfs).toBe(false);
-    expect(sandboxSecurityOpts({ VANGUARD_SANDBOX_READONLY: '1' } as NodeJS.ProcessEnv, true).readOnlyRootfs).toBe(true);
-    expect(sandboxSecurityOpts({ VANGUARD_SANDBOX_READONLY: '0' } as NodeJS.ProcessEnv, true).readOnlyRootfs).toBe(false);
-    expect(sandboxSecurityOpts({ VANGUARD_SANDBOX_READONLY: '1' } as NodeJS.ProcessEnv, false).readOnlyRootfs).toBe(true);
-  });
-
-  it('treats an empty VANGUARD_SANDBOX_READONLY as unset (off), hardened or not', () => {
-    expect(sandboxSecurityOpts({ VANGUARD_SANDBOX_READONLY: '' } as NodeJS.ProcessEnv, true).readOnlyRootfs).toBe(false);
-    expect(sandboxSecurityOpts({ VANGUARD_SANDBOX_READONLY: '' } as NodeJS.ProcessEnv, false).readOnlyRootfs).toBe(false);
+  it('keeps readOnlyRootfs opt-in: only READONLY=1 turns it on, and an empty value counts as unset', () => {
+    expect(sandboxSecurityOpts({}).readOnlyRootfs).toBe(false);
+    expect(sandboxSecurityOpts({ VANGUARD_SANDBOX_READONLY: '' } as NodeJS.ProcessEnv).readOnlyRootfs).toBe(false);
   });
 
   it('honours READONLY=1 whatever the memory limit, and ignores the limit when not opted in', () => {
-    const mem = (v: string): NodeJS.ProcessEnv => ({ VANGUARD_SANDBOX_MEMORY_MB: v }) as NodeJS.ProcessEnv;
-    expect(sandboxSecurityOpts(mem('16384'), true).readOnlyRootfs).toBe(false);
+    expect(sandboxSecurityOpts({ VANGUARD_SANDBOX_MEMORY_MB: '16384' } as NodeJS.ProcessEnv).readOnlyRootfs).toBe(false);
     const explicit = { VANGUARD_SANDBOX_MEMORY_MB: '0', VANGUARD_SANDBOX_READONLY: '1' } as NodeJS.ProcessEnv;
-    expect(sandboxSecurityOpts(explicit, true).readOnlyRootfs).toBe(true);
+    expect(sandboxSecurityOpts(explicit).readOnlyRootfs).toBe(true);
     const forced = { VANGUARD_SANDBOX_MEMORY_MB: '1536', VANGUARD_SANDBOX_READONLY: '1' } as NodeJS.ProcessEnv;
-    expect(sandboxSecurityOpts(forced, true).readOnlyRootfs).toBe(true);
+    expect(sandboxSecurityOpts(forced).readOnlyRootfs).toBe(true);
   });
 });
 
-describe('hardenedRootfsNote', () => {
+// The one resolution every runner (and the start-of-run note) goes through: one row per posture a
+// real run can be in.
+describe('resolveSandboxProfile', () => {
+  const cases: {
+    name: string;
+    env: NodeJS.ProcessEnv;
+    hardened: boolean;
+    memoryMb: number | undefined;
+    readOnlyRootfs: boolean;
+    warn: boolean;
+  }[] = [
+    { name: 'default run', env: {}, hardened: false, memoryMb: 2048, readOnlyRootfs: false, warn: false },
+    {
+      name: 'egress or llm-proxy run keeps the plain default',
+      env: {},
+      hardened: true,
+      memoryMb: 2048,
+      readOnlyRootfs: false,
+      warn: false,
+    },
+    {
+      name: 'egress run with the read-only rootfs explicitly off',
+      env: { VANGUARD_SANDBOX_READONLY: '0' } as NodeJS.ProcessEnv,
+      hardened: true,
+      memoryMb: 2048,
+      readOnlyRootfs: false,
+      warn: false,
+    },
+    {
+      name: 'read-only opt-in',
+      env: { VANGUARD_SANDBOX_READONLY: '1' } as NodeJS.ProcessEnv,
+      hardened: false,
+      memoryMb: READONLY_SANDBOX_MEMORY_MB,
+      readOnlyRootfs: true,
+      warn: false,
+    },
+    {
+      name: 'explicit memory override',
+      env: { VANGUARD_SANDBOX_MEMORY_MB: '1536' } as NodeJS.ProcessEnv,
+      hardened: true,
+      memoryMb: 1536,
+      readOnlyRootfs: false,
+      warn: false,
+    },
+    {
+      name: 'read-only opt-in under an explicit memory override below the read-only default',
+      env: { VANGUARD_SANDBOX_MEMORY_MB: '1536', VANGUARD_SANDBOX_READONLY: '1' } as NodeJS.ProcessEnv,
+      hardened: true,
+      memoryMb: 1536,
+      readOnlyRootfs: true,
+      warn: true,
+    },
+    {
+      name: 'read-only opt-in with the memory limit omitted',
+      env: { VANGUARD_SANDBOX_MEMORY_MB: '0', VANGUARD_SANDBOX_READONLY: '1' } as NodeJS.ProcessEnv,
+      hardened: true,
+      memoryMb: undefined,
+      readOnlyRootfs: true,
+      warn: true,
+    },
+  ];
+
+  it.each(cases)('$name', ({ env, memoryMb, readOnlyRootfs, warn }) => {
+    const profile = resolveSandboxProfile(env);
+    expect(profile.memoryMb).toBe(memoryMb);
+    expect(profile.cpus).toBe(2);
+    expect(profile.pidsLimit).toBe(512);
+    expect(profile.security).toEqual({ ...sandboxSecurityOpts(env), readOnlyRootfs });
+    expect(profile.home).toBe(DEFAULT_SANDBOX_HOME);
+    // The mounts are sized from the SAME memoryMb the profile reports, never re-derived.
+    expect(profile.tmpfs).toEqual(readOnlyTmpfsSizesMb(memoryMb));
+    expect(profile.note.warn).toBe(warn);
+  });
+
   it('reports the rootfs off and how to opt in when VANGUARD_SANDBOX_READONLY is unset or empty, without warning', () => {
     for (const env of [{}, { VANGUARD_SANDBOX_READONLY: '' }, { VANGUARD_SANDBOX_MEMORY_MB: '1536' }] as NodeJS.ProcessEnv[]) {
-      const note = hardenedRootfsNote(env);
+      const note = resolveSandboxProfile(env).note;
       expect(note.warn).toBe(false);
       expect(note.message).toContain('read-only rootfs off (opt-in: VANGUARD_SANDBOX_READONLY=1');
       expect(note.message).toContain('8192');
     }
   });
 
-  it('reports an explicit VANGUARD_SANDBOX_READONLY, warning only when forced on with no memory limit', () => {
-    const forced = { VANGUARD_SANDBOX_MEMORY_MB: '1536', VANGUARD_SANDBOX_READONLY: '1' } as NodeJS.ProcessEnv;
-    expect(hardenedRootfsNote(forced)).toEqual({ warn: false, message: expect.stringContaining('read-only rootfs on') });
-    const unbounded = hardenedRootfsNote({ VANGUARD_SANDBOX_MEMORY_MB: '0', VANGUARD_SANDBOX_READONLY: '1' } as NodeJS.ProcessEnv);
+  it('warns when the rootfs is forced on with no memory limit, or under less than the read-only default', () => {
+    const unbounded = resolveSandboxProfile({ VANGUARD_SANDBOX_MEMORY_MB: '0', VANGUARD_SANDBOX_READONLY: '1' } as NodeJS.ProcessEnv).note;
     expect(unbounded.warn).toBe(true);
     expect(unbounded.message).toContain('4096/2048/1024 MB');
-    const off = hardenedRootfsNote({ VANGUARD_SANDBOX_READONLY: '0' } as NodeJS.ProcessEnv);
+    const small = resolveSandboxProfile({ VANGUARD_SANDBOX_MEMORY_MB: '1536', VANGUARD_SANDBOX_READONLY: '1' } as NodeJS.ProcessEnv).note;
+    expect(small.warn).toBe(true);
+    expect(small.message).toContain(`below ${READONLY_SANDBOX_MEMORY_MB}`);
+    // At the read-only default the mounts fit: on, no warning.
+    const sized = resolveSandboxProfile({ VANGUARD_SANDBOX_READONLY: '1' } as NodeJS.ProcessEnv).note;
+    expect(sized).toEqual({ warn: false, message: expect.stringContaining('read-only rootfs on') });
+    const off = resolveSandboxProfile({ VANGUARD_SANDBOX_READONLY: '0' } as NodeJS.ProcessEnv).note;
     expect(off).toEqual({ warn: false, message: expect.stringContaining('read-only rootfs off') });
   });
 });

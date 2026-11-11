@@ -39,9 +39,7 @@ function sandbox(auth: AgentAuth): DockerSandboxProvider {
   return new DockerSandboxProvider({
     image: 'vanguard-sandbox:latest',
     secrets: authSecrets(auth),
-    memoryMb: 2048,
-    cpus: 2,
-    pidsLimit: 512,
+    // Limits default to 2048 MB / 2 CPUs / 512 pids (resolveSandboxProfile).
   });
 }
 

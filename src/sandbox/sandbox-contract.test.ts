@@ -4,7 +4,7 @@ import { mkdtemp, writeFile, readFile, rm, stat, cp } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { DockerSandboxProvider, isBenignTarExit } from './docker.js';
-import { sandboxSecurityOpts } from './limits.js';
+import { resolveSandboxProfile } from './limits.js';
 import { prunedNames } from './copy-back.js';
 import { WorktreeManager } from '../worktree/manager.js';
 
@@ -119,7 +119,7 @@ for (const readOnly of [false, true]) {
       sb = new DockerSandboxProvider({
         image: TASKCELL_IMAGE,
         workdir: '/workspace',
-        security: { ...sandboxSecurityOpts({}), readOnlyRootfs: readOnly },
+        profile: resolveSandboxProfile({ VANGUARD_SANDBOX_READONLY: readOnly ? '1' : '0' } as NodeJS.ProcessEnv),
       });
       await sb.start();
     }, 120_000);
@@ -198,7 +198,7 @@ suite('smoke: pnpm install -> copy-back -> diff', () => {
   it('installs with pnpm, copies the workspace back, and the resulting diff shows the lockfile landing', async () => {
     const worktree = await mkdtemp(join(tmpdir(), 'vg-smoke-'));
     const staging = await mkdtemp(join(tmpdir(), 'vg-smoke-staging-'));
-    const sb = new DockerSandboxProvider({ image: TASKCELL_IMAGE, workdir: '/workspace', security: sandboxSecurityOpts({}) });
+    const sb = new DockerSandboxProvider({ image: TASKCELL_IMAGE, workdir: '/workspace', profile: resolveSandboxProfile({}) });
     try {
       await execa('git', ['init', '-q'], { cwd: worktree });
       await execa('git', ['config', 'user.email', 'vanguard@example.com'], { cwd: worktree });

@@ -29,9 +29,7 @@ async function main(): Promise<void> {
     image: 'vanguard-sandbox:latest',
     workdir: '/workspace',
     secrets: authSecrets(auth),
-    memoryMb: 2048,
-    cpus: 2,
-    pidsLimit: 512,
+    // Limits default to 2048 MB / 2 CPUs / 512 pids (resolveSandboxProfile).
   });
 
   const result = await run({

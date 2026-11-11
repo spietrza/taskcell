@@ -54,7 +54,7 @@ import { droppedCiPathsNote } from '../pipeline/remote-branch.js';
 import { defaultGhRunner, GitHubTaskFetcher } from '../tasks/github.js';
 import { modelFromLabels } from './source-adapter.js';
 import { DockerSandboxProvider, sandboxImage } from '../sandbox/docker.js';
-import { sandboxResourceLimits, sandboxSecurityOpts } from '../sandbox/limits.js';
+import { sandboxNetworkConfig } from '../sandbox/limits.js';
 import { llmProxySandboxEnv } from '../sandbox/egress-proxy.js';
 import { startProviderProxies } from '../sandbox/llm-proxy.js';
 import { authSecrets } from '../agents/auth.js';
@@ -394,10 +394,8 @@ export async function runRevisePullRequest(prRef: string, deps: ReviseGithubPrDe
             : {}),
           ...agents.secrets,
         },
-        ...sandboxResourceLimits(process.env, deps.network !== undefined),
         ...(env !== undefined ? { env } : {}),
-        ...(deps.network !== undefined ? { network: deps.network } : {}),
-        security: sandboxSecurityOpts(process.env, deps.network !== undefined),
+        ...sandboxNetworkConfig(deps.network),
       });
 
     const taskId = `revise-pr-${target.repoSlug.replace(/[^a-zA-Z0-9]/g, '-')}-${target.number}`;

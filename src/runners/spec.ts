@@ -1,7 +1,7 @@
 import { taskToVariables } from '../tasks/fetcher.js';
 import { escapePromptTags } from '../context/escape.js';
 import { DockerSandboxProvider, sandboxImage } from '../sandbox/docker.js';
-import { sandboxResourceLimits, sandboxSecurityOpts } from '../sandbox/limits.js';
+import { sandboxNetworkConfig } from '../sandbox/limits.js';
 import { forcedProviderModel, providerKeyEnvNames, selectAgents } from '../agents/registry.js';
 import { prepareContext, disposeContext } from '../core/vanguard.js';
 import { runStages, techSpecStage } from '../pipeline/pipeline.js';
@@ -85,10 +85,8 @@ export function defaultSandboxFactory(
       ...(deps.llmProxy === undefined && deps.auth !== undefined && injectAnthropicAuth ? authSecrets(deps.auth) : {}),
       ...secrets,
     },
-    ...sandboxResourceLimits(process.env, deps.network !== undefined),
     ...(env !== undefined ? { env } : {}),
-    ...(deps.network !== undefined ? { network: deps.network } : {}),
-    security: sandboxSecurityOpts(process.env, deps.network !== undefined),
+    ...sandboxNetworkConfig(deps.network),
   });
 }
 
