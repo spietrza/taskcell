@@ -9,6 +9,19 @@ import { ownerLabelArgs, readOnlyTmpfsSizesMb, sandboxSecurityOpts } from './lim
 import type { CopyOutOptions, ExecOptions, ExecResult, ExecStream, IsolatedSandboxProvider, SandboxConfig } from './provider.js';
 
 /**
+ * GNU tar exits 1 when a file grows or is deleted while it is archived (a watcher or test cache still
+ * running in the sandbox); the archive is complete, so copy-back keeps it. Exit 1 for any other reason,
+ * and every other non-zero code, fails closed.
+ */
+export function isBenignTarExit(exitCode: number, stderr: string): boolean {
+  if (exitCode === 0) return true;
+  if (exitCode !== 1) return false;
+  const benign = /file changed as we read it|File removed before we read it/;
+  const lines = stderr.split('\n').filter((line) => line.trim() !== '');
+  return lines.length > 0 && lines.every((line) => benign.test(line));
+}
+
+/**
  * Normalise an execa result into an `ExecResult`.
  *
  * With `reject: false`, execa hands back its error object for a subprocess that never ran or was
@@ -462,9 +475,7 @@ export class DockerSandboxProvider implements IsolatedSandboxProvider {
         const archived = await source;
         // GNU tar exits 1 for "file changed as we read it" (a process still writing): the archive is
         // complete, so keep it — but only for that reason. Anything else fails closed.
-        const changedOnly = archived.exitCode === 1 && /file changed as we read it/.test(archived.stderr)
-          && archived.stderr.split('\n').every((line) => line.trim() === '' || /file changed as we read it/.test(line));
-        if (archived.exitCode !== 0 && !changedOnly) {
+        if (!isBenignTarExit(archived.exitCode ?? -1, archived.stderr)) {
           throw new Error(`tar in sandbox exited ${archived.exitCode}: ${archived.stderr}`);
         }
       } else {

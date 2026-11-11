@@ -400,7 +400,7 @@ async function syncSandboxToWorktree(ctx: RunContext): Promise<string> {
   const staging = await ensureStateDir(ctx.localRepoPath, join(ctx.localRepoPath, '.vanguard', 'staging', ctx.taskId));
   try {
     // Skipped at the source too: they never sync back (COPY_BACK_SKIP) and can dwarf the workspace.
-    await ctx.sandbox.copyFileOut(WORKDIR, staging, { exclude: ['node_modules', '.pnpm-store'], maxBytes: COPY_BACK_MAX_BYTES });
+    await ctx.sandbox.copyFileOut(WORKDIR, staging, { exclude: ['node_modules', '.pnpm-store', '.git'], maxBytes: COPY_BACK_MAX_BYTES });
     const charge = copyBackBudget();
     const dropped: string[] = [];
     await cp(staging, ctx.worktreePath, {

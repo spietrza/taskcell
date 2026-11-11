@@ -5,6 +5,7 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import {
   DockerSandboxProvider,
+  isBenignTarExit,
   toExecResult,
   isOlderVersion,
   refreshSandboxClaudeCli,
@@ -187,6 +188,18 @@ describe('toExecResult', () => {
 
   it('yields a splittable stdout, which is what the consumer actually relies on', () => {
     expect(() => toExecResult({ stdout: undefined }).stdout.split('\n')).not.toThrow();
+  });
+});
+
+describe('isBenignTarExit', () => {
+  it('keeps an archive GNU tar finished despite files changing or vanishing mid-read, and fails closed otherwise', () => {
+    // Lines as GNU tar 1.34 (debian bookworm) prints them when a file is appended to / deleted during -c.
+    const gnu = 'tar: ./f3: File removed before we read it\ntar: ./f12: file changed as we read it\ntar: .: file changed as we read it\n';
+    expect(isBenignTarExit(0, '')).toBe(true);
+    expect(isBenignTarExit(1, gnu)).toBe(true);
+    expect(isBenignTarExit(1, '')).toBe(false);
+    expect(isBenignTarExit(1, `${gnu}tar: ./x: Cannot open: Permission denied\n`)).toBe(false);
+    expect(isBenignTarExit(2, gnu)).toBe(false);
   });
 });
 
