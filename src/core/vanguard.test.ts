@@ -13,6 +13,7 @@ import {
   assertNoWorkflowChanges,
   copyBackBudget,
   assertWorkspaceWithinCeiling,
+  COPY_BACK_SKIP,
 } from './vanguard.js';
 import { WorktreeManager } from '../worktree/manager.js';
 import { skillRegistryForRun } from '../context/skill-registry.js';
@@ -27,7 +28,7 @@ describe('assertWorkspaceWithinCeiling', () => {
   it('measures inside the sandbox with node_modules and .git pruned, and passes under the ceiling', async () => {
     const sb = sandbox('3 30\n');
     await expect(assertWorkspaceWithinCeiling(sb, 100, 10)).resolves.toBeUndefined();
-    expect(sb.commands[0]).toContain('-name node_modules -o -name .git');
+    expect(sb.commands[0]).toContain('-name node_modules -o -name .git -o -name .pnpm-store');
   });
 
   it('refuses before anything is copied when bytes or files pass the ceiling', async () => {
@@ -38,6 +39,13 @@ describe('assertWorkspaceWithinCeiling', () => {
   it('skips (leaving the staging budget) when the measurement does not parse', async () => {
     await expect(assertWorkspaceWithinCeiling(sandbox('find: unknown predicate', 0), 1, 1)).resolves.toBeUndefined();
     await expect(assertWorkspaceWithinCeiling(sandbox('', 1), 1, 1)).resolves.toBeUndefined();
+  });
+});
+
+describe('COPY_BACK_SKIP', () => {
+  it('skips the pnpm content store a read-only sandbox puts at the workspace root, and node_modules/.git', () => {
+    for (const p of ['/s/.pnpm-store/v11/files/00/abc', '/s/apps/desktop/node_modules/x', '/s/.git']) expect(COPY_BACK_SKIP.test(p)).toBe(true);
+    for (const p of ['/s/src/pnpm-store.ts', '/s/docs/.pnpm-store.md', '/s/apps/desktop/src/App.tsx']) expect(COPY_BACK_SKIP.test(p)).toBe(false);
   });
 });
 
