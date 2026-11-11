@@ -675,6 +675,23 @@ describe('parseCli', () => {
     expect(cmd.kind === 'watch' && cmd.maxTasks === undefined).toBe(true);
   });
 
+  it('parses --issue on a github watch, running only that issue instead of the sweep', () => {
+    const cmd = parseCli(['watch', '--source', 'github', '--github-repo', 'o/r', '--label', 'vanguard', '--issue', '42', '--once'], '/work');
+    expect(cmd).toMatchObject({ kind: 'watch', source: 'github', issue: '42', once: true });
+  });
+
+  it('rejects --issue on a non-github watch source', () => {
+    expect(parseCli(['watch', '--label', 'vanguard', '--issue', '42'], '/work')).toEqual({
+      kind: 'error',
+      message: 'watch --issue requires --source github.',
+    });
+  });
+
+  it('leaves issue unset when --issue is absent', () => {
+    const cmd = parseCli(['watch', '--source', 'github', '--github-repo', 'o/r', '--label', 'vanguard'], '/work');
+    expect(cmd.kind === 'watch' && cmd.issue === undefined).toBe(true);
+  });
+
   it('parses a github watch with markers and interval', () => {
     expect(
       parseCli(['watch', '--source', 'github', '--label', 'vanguard', '--claimed-state', 'wip', '--interval', '30', '--once'], '/work'),

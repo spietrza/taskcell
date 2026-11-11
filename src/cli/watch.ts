@@ -226,6 +226,7 @@ export async function watchGithubSource(
         agentLabel,
         needsInfoLabel,
         ...(cmd.label !== undefined ? { ownerLabel: cmd.label } : {}),
+        ...(cmd.issue !== undefined ? { issueRef: cmd.issue } : {}),
       },
       agent: {
         deps,
@@ -234,6 +235,7 @@ export async function watchGithubSource(
         reviewLabel: cmd.reviewState ?? GITHUB_REVIEW_LABEL,
         needsInfoLabel,
         ...(cmd.label !== undefined ? { ownerLabel: cmd.label } : {}),
+        ...(cmd.issue !== undefined ? { issueRef: cmd.issue } : {}),
       },
       concurrency: cmd.concurrency,
       intervalMs: cmd.intervalMs,
@@ -257,6 +259,7 @@ export async function watchGithubSource(
     intervalMs: cmd.intervalMs,
     once: cmd.once,
     ...(cmd.maxTasks !== undefined ? { maxTasks: cmd.maxTasks } : {}),
+    ...(cmd.issue !== undefined ? { issueRef: cmd.issue } : {}),
     signal,
   });
 }
