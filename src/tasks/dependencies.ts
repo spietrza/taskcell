@@ -10,6 +10,15 @@ export interface TaskRef {
 const DEPENDS_ON_LINE_RE = /^[ \t]*depends\s+on\s*:?\s*(.+?)\s*$/gim;
 const REF_RE = /(?:([\w.-]+\/[\w.-]+)#|#)(\d+)/g;
 
+/**
+ * A valid `owner/repo` slug: every segment starts alphanumeric and then holds only `[A-Za-z0-9._-]`,
+ * so neither segment can be `.` or `..`. Refs parsed out of an issue BODY are untrusted text that
+ * ends up interpolated into a `repos/<repo>/issues/<n>` API path: an unvalidated one could walk out
+ * of the repo namespace (`../`) and make the gate read some unrelated resource. Validation happens at
+ * this parse boundary, before any API call, and anything that fails it is dropped.
+ */
+const REPO_SLUG_RE = /^[A-Za-z0-9][A-Za-z0-9._-]*\/[A-Za-z0-9][A-Za-z0-9._-]*$/;
+
 /** Dedupe a list of refs, same-repo-vs-qualified keyed case-insensitively. First occurrence wins. */
 function dedupeRefs(refs: TaskRef[]): TaskRef[] {
   const seen = new Set<string>();
@@ -31,6 +40,8 @@ export function mergeDependsOn(a: readonly TaskRef[], b: readonly TaskRef[]): Ta
 /**
  * Parse `Depends on #N` / `Depends on owner/repo#N` lines from a task body — the fallback a provider
  * uses when it has no native dependency relation (#760). Each matching line may list multiple refs.
+ * A qualified ref whose repo is not a valid `owner/repo` slug is dropped rather than returned
+ * unqualified: it is a typo (or an attempt at a traversal) and must never reach the API.
  */
 export function parseDependsOnBody(body: string): TaskRef[] {
   const refs: TaskRef[] = [];
@@ -38,7 +49,8 @@ export function parseDependsOnBody(body: string): TaskRef[] {
     for (const ref of (line[1] ?? '').matchAll(REF_RE)) {
       const repo = ref[1];
       const number = ref[2]!;
-      refs.push(repo !== undefined ? { repo, number } : { number });
+      if (repo === undefined) refs.push({ number });
+      else if (REPO_SLUG_RE.test(repo)) refs.push({ repo, number });
     }
   }
   return dedupeRefs(refs);
@@ -75,13 +87,42 @@ export type DependencyCheck =
   | { status: 'needs_info'; reason: string };
 
 /**
+ * Bounds on the dependency walk. Each node costs API round trips, and the graph is author-controlled
+ * (anyone who can write an issue body can link more), so a deep or wide one must not turn a single
+ * readiness check into an unbounded fan-out. Exceeding a bound fails closed (`needs_info`): the check
+ * is incomplete, and guessing "ready" would spend an implement budget on a blocked task.
+ */
+const MAX_WALK_DEPTH = 10;
+const MAX_WALK_NODES = 100;
+const MAX_WALK_CONCURRENCY = 4;
+
+/** Gate at most `limit` resolutions in flight at once; the rest queue in arrival order. */
+function concurrencyGate(limit: number): <T>(fn: () => Promise<T>) => Promise<T> {
+  let active = 0;
+  const waiting: Array<() => void> = [];
+  return async <T>(fn: () => Promise<T>): Promise<T> => {
+    if (active >= limit) await new Promise<void>((resume) => waiting.push(resume));
+    active += 1;
+    try {
+      return await fn();
+    } finally {
+      active -= 1;
+      waiting.shift()?.();
+    }
+  };
+}
+
+/**
  * Walk a task's dependency graph (each node resolved via `resolveNode`, cached per ref so a
- * diamond-shaped graph resolves each node once) to decide whether it is ready to run.
+ * diamond-shaped graph resolves each node once, at most MAX_WALK_CONCURRENCY at a time) to decide
+ * whether it is ready to run.
  *
  * Order of checks: an unmet start date gates first (independent of `dependsOn`); then, among the
- * task's direct and transitive dependencies, a cycle (a ref that resolves back to `self` or to an
- * ancestor already on the current path) or a reference that does not exist both end in `needs_info`
- * with the reason; otherwise any direct dependency not yet met ends in `waiting` naming it.
+ * task's direct and transitive dependencies, a graph past the walk bounds, a cycle (a ref that
+ * resolves back to `self` or to an ancestor already on the current path) or a reference that does not
+ * exist all end in `needs_info` with the reason; otherwise any direct dependency not yet met ends in
+ * `waiting` naming it. The walk stops below a dependency that is already met: nothing under a closed
+ * issue can block this one, so neither its blockers nor its cycles are worth the round trips.
  */
 export async function checkDependencies(
   task: Pick<Task, 'dependsOn' | 'startDate'>,
@@ -105,15 +146,22 @@ export async function checkDependencies(
   // (both depending on the same node) can reach `resolve` for it before either has awaited — caching
   // only the resolved value would let both call `resolveNode` and double the (network) work.
   const cache = new Map<string, Promise<DependencyNode>>();
+  const gate = concurrencyGate(MAX_WALK_CONCURRENCY);
   let cycle = false;
+  let exceeded: string | undefined;
   const missingRefs: TaskRef[] = [];
   const missingKeys = new Set<string>();
 
-  function resolve(ref: TaskRef): Promise<DependencyNode> {
+  /** Undefined once the node budget is spent — the caller stops walking and the check fails closed. */
+  function resolve(ref: TaskRef): Promise<DependencyNode> | undefined {
     const key = refKey(ref, fallbackRepo);
     const cached = cache.get(key);
     if (cached !== undefined) return cached;
-    const promise = resolveNode(ref);
+    if (cache.size >= MAX_WALK_NODES) {
+      exceeded ??= `more than ${MAX_WALK_NODES} linked tasks`;
+      return undefined;
+    }
+    const promise = gate(() => resolveNode(ref));
     cache.set(key, promise);
     return promise;
   }
@@ -124,7 +172,13 @@ export async function checkDependencies(
       cycle = true;
       return;
     }
-    const node = await resolve(ref);
+    if (path.size > MAX_WALK_DEPTH) {
+      exceeded ??= `more than ${MAX_WALK_DEPTH} levels of nesting`;
+      return;
+    }
+    const pending = resolve(ref);
+    if (pending === undefined) return;
+    const node = await pending;
     if (node.missing === true) {
       if (!missingKeys.has(key)) {
         missingKeys.add(key);
@@ -132,6 +186,7 @@ export async function checkDependencies(
       }
       return;
     }
+    if (node.met) return; // nothing below a met dependency can block this task
     const nextPath = new Set(path);
     nextPath.add(key);
     await Promise.all(node.dependsOn.map((child) => walk(child, nextPath)));
@@ -139,6 +194,9 @@ export async function checkDependencies(
 
   await Promise.all(deps.map((ref) => walk(ref, new Set([selfKey]))));
 
+  if (exceeded !== undefined) {
+    return { status: 'needs_info', reason: `a dependency graph too large to check (${exceeded})` };
+  }
   if (cycle) {
     return { status: 'needs_info', reason: `a dependency cycle involving ${deps.map((r) => describeRef(r, fallbackRepo)).join(', ')}` };
   }
@@ -146,6 +204,8 @@ export async function checkDependencies(
     return { status: 'needs_info', reason: `depends on ${missingRefs.map((r) => describeRef(r, fallbackRepo)).join(', ')}, which does not exist` };
   }
 
+  // Every direct dep was resolved by the walk above (and is cached), unless the walk short-circuited
+  // on a bound — in which case this line is never reached.
   const directNodes = await Promise.all(deps.map((ref) => resolve(ref)));
   const blockers = deps.filter((_, i) => directNodes[i]?.met !== true);
   if (blockers.length > 0) return { status: 'waiting', kind: 'unmet', blockers };

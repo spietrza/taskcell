@@ -71,6 +71,8 @@ async function commentAndRevert(comment: Promise<void>, revert?: Promise<void>):
 export interface WatchRunOutcome {
   prUrl?: string;
   parked?: boolean;
+  /** Set with `parked` when the block clears itself (dependency/start date, #760): `onWaiting` hands the issue back to its trigger. */
+  waiting?: boolean;
   secretBlocked?: boolean;
   /** The base branch was already red and the adapter commented. Not a no-change: never revert the claim to the trigger. */
   baseRed?: boolean;
@@ -101,6 +103,15 @@ export interface WatchPrimitives {
    * is what state sources (Linear, GitHub Projects) want.
    */
   onBaseRed?: (id: string) => Promise<void>;
+  /**
+   * The run parked on a block that clears itself — an unmet dependency or a future start date (#760).
+   * Undo the claim so the issue is back in the trigger state and a later poll re-checks it, which is
+   * what the posted comment promises ("will run automatically once..."). Unlike onNoChange this posts
+   * nothing: the dependency comment, posted once, is the record. Re-listing is cheap — the gate runs
+   * before any implement budget is spent, and the comment is not repeated. Absent: the issue stays
+   * claimed (a test double, or a source with no dependency gate).
+   */
+  onWaiting?: (id: string) => Promise<void>;
   onFailure: (id: string, error: unknown) => Promise<void>;
 }
 
@@ -203,7 +214,7 @@ export async function watchOnce(primitives: WatchPrimitives, opts: WatchOnceOpti
       }
       operatorLog(opts, `${phase} ${item.id}: claim -> running`);
       try {
-        const { prUrl, parked, secretBlocked, baseRed } = await primitives.runOne(item.id);
+        const { prUrl, parked, waiting, secretBlocked, baseRed } = await primitives.runOne(item.id);
         if (baseRed === true) {
           operatorLog(opts, `${phase} ${item.id}: base branch red -> held, no re-run until re-labelled`);
           await primitives.onBaseRed?.(item.id);
@@ -216,8 +227,12 @@ export async function watchOnce(primitives: WatchPrimitives, opts: WatchOnceOpti
           return { id: item.id, kind: 'secretBlocked' };
         }
         if (prUrl === undefined) {
+          // A park on a self-clearing block goes back to the trigger (the run already commented);
+          // any other park holds the claim silently; a plain no-change takes the no-change path.
+          const waitingPark = parked === true && waiting === true;
           if (parked !== true) await primitives.onNoChange(item.id);
-          operatorLog(opts, `${phase} ${item.id}: no change -> idle`);
+          else if (waitingPark) await primitives.onWaiting?.(item.id);
+          operatorLog(opts, `${phase} ${item.id}: ${waitingPark ? 'waiting -> returned to the trigger' : 'no change -> idle'}`);
           return { id: item.id, kind: 'noChange' };
         }
         await primitives.review(item.id);
@@ -771,6 +786,9 @@ export function githubIssueWatchPrimitives(opts: WatchGithubOptions): WatchPrimi
     // The trigger label was removed on claim, so dropping the claim leaves the issue idle until a
     // human re-applies the trigger — what the base-red comment asks for. No no-change comment.
     onBaseRed: (id) => editGithubLabels(repo, id, { remove: [opts.claimedLabel] }, opts.gh),
+    // Blocked on a dependency/start date: put the trigger label back (one edit, so the claim is never
+    // dropped without it) and the next poll re-checks. No comment — the run posted it once.
+    onWaiting: (id) => editGithubLabels(repo, id, { remove: [opts.claimedLabel], add: [opts.label] }, opts.gh),
     // One edit swaps claimed -> secret-blocked, so the claim is never released without the hold
     // label landing. `gh issue edit --add-label` fails on a label the repo never created, and the
     // adapter only pre-creates it when it posts findings (not in white-label mode), so ensure it
@@ -1013,6 +1031,9 @@ export function githubProjectWatchPrimitives(opts: WatchGithubProjectOptions): W
     runOne: (id) => runGithubIssue(id, opts.deps),
     review: (id) => setStatus(id, opts.reviewStatus),
     onNoChange: (id) => commentAndRevert(commentGithubIssue(repo, id, NO_CHANGE_MSG, gh), setStatus(id, opts.triggerStatus)),
+    // Blocked on a dependency/start date: back to the trigger status so a later poll re-checks it
+    // (the run already commented why, once).
+    onWaiting: (id) => setStatus(id, opts.triggerStatus),
     // The only configured statuses are trigger/claimed/review and reverting to the trigger status
     // would re-list the item next poll, so the hold keeps the claimed status; the comment names the
     // status to move back to. The adapter already added the secret-blocked label + masked findings.

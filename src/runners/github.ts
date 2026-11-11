@@ -35,14 +35,14 @@ export type RunGithubIssueResult = RunIssueResult;
 
 /**
  * @internal Exported for unit tests; production callers use runGithubIssue. Only `signalSecretBlock`
- * goes through the injected `gh`; `prepare`, `linkPr`, `addFailureLabel` and `addGateConfigLabel`
- * still reach the real CLI.
+ * and `prepare` go through the injected `gh`; `linkPr`, `addFailureLabel` and `addGateConfigLabel`
+ * still reach the real CLI. `task`, when given, is the issue the caller already fetched (the
+ * dependency gate in runGithubIssue), so the run does not read it a second time.
  */
-export function githubAdapter(deps: RunGithubIssueDeps, gh: GhRunner = defaultGhRunner): SourceAdapter {
+export function githubAdapter(deps: RunGithubIssueDeps, gh: GhRunner = defaultGhRunner, task?: Task): SourceAdapter {
   return {
     async prepare(issueRef: string) {
-      const task = await new GitHubTaskFetcher(deps.repoSlug).fetch(issueRef);
-      return { task };
+      return { task: task ?? (await new GitHubTaskFetcher(deps.repoSlug, gh).fetch(issueRef)) };
     },
     taskId: (task) => `gh-${task.id.replace(/[^a-zA-Z0-9]/g, '-')}`,
     stages: implementReviewSimplifyStages,
@@ -86,19 +86,23 @@ export function githubAdapter(deps: RunGithubIssueDeps, gh: GhRunner = defaultGh
  * has normally already filtered the issue out before it is claimed — this is the backstop for
  * callers, like `runGithubProject` and the sidecar, that go straight to `runGithubIssue` with no
  * claim/trigger-label lifecycle to preserve). A blocked issue is `parked`: no implement budget is
- * spent, and (when not already posted) a single comment names the reason.
+ * spent, and (when not already posted) a single comment names the reason. A `waiting` block (a
+ * dependency that will close, a start date that will arrive) is also flagged `waiting`, so the watch
+ * hands the issue back to its trigger and a later poll re-checks it — the comment promises exactly
+ * that. A `needs_info` block (cycle, missing reference) stays claimed for a human.
+ *
+ * The task fetched for the gate is handed to the adapter, so a ready issue is read once.
  */
-export async function runGithubIssue(issueRef: string, deps: RunGithubIssueDeps): Promise<RunGithubIssueResult> {
-  const fetcher = new GitHubTaskFetcher(deps.repoSlug);
-  const task = await fetcher.fetch(issueRef);
-  const check = await checkGithubDependencies(deps.repoSlug, task, issueRef);
+export async function runGithubIssue(issueRef: string, deps: RunGithubIssueDeps, gh: GhRunner = defaultGhRunner): Promise<RunGithubIssueResult> {
+  const task = await new GitHubTaskFetcher(deps.repoSlug, gh).fetch(issueRef);
+  const check = await checkGithubDependencies(deps.repoSlug, task, issueRef, gh);
   if (check.status !== 'ready') {
     if (!hasDependencyComment(task)) {
-      await commentGithubIssue(deps.repoSlug, issueRef, dependencyWaitComment(check, deps.repoSlug));
+      await commentGithubIssue(deps.repoSlug, issueRef, dependencyWaitComment(check, deps.repoSlug), gh);
     }
-    return { task, parked: true };
+    return { task, parked: true, ...(check.status === 'waiting' ? { waiting: true } : {}) };
   }
-  return runSourcedIssue(issueRef, deps, githubAdapter(deps));
+  return runSourcedIssue(issueRef, deps, githubAdapter(deps, gh, task));
 }
 
 /**

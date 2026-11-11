@@ -257,6 +257,12 @@ export interface RunIssueResult {
   baseRed?: boolean;
   /** True when the run never started because the task is blocked (unmet dependency, future start date, or a dependency cycle/missing reference, #760) — NOT "no changes". */
   parked?: boolean;
+  /**
+   * Set with `parked` when the block is one that clears itself: a dependency that will close, or a
+   * start date that will arrive (#760). The watch reverts the claim for these so a later poll
+   * re-checks — unlike a `needs_info` park (cycle, missing reference), which waits for a human.
+   */
+  waiting?: boolean;
 }
 
 /** Cap on implement-session resumes triggered by a failing conformance/verify gate, before falling back to a declared-partial PR. */

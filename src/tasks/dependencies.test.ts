@@ -156,9 +156,10 @@ describe('checkDependencies', () => {
 
   it('resolves a diamond-shaped graph without re-resolving a shared node twice', async () => {
     let resolveCalls = 0;
+    // Unmet parents: the walk stops below a met dependency, so only an unmet diamond reaches #4 twice.
     const graph = {
-      'me/app#2': { met: true, dependsOn: [{ number: '4' }] },
-      'me/app#3': { met: true, dependsOn: [{ number: '4' }] },
+      'me/app#2': { met: false, dependsOn: [{ number: '4' }] },
+      'me/app#3': { met: false, dependsOn: [{ number: '4' }] },
       'me/app#4': { met: true, dependsOn: [] },
     };
     const resolve = resolverFromGraph(graph);
@@ -172,7 +173,7 @@ describe('checkDependencies', () => {
       'me/app',
       counting,
     );
-    expect(check).toEqual({ status: 'ready' });
+    expect(check).toEqual({ status: 'waiting', kind: 'unmet', blockers: [{ number: '2' }, { number: '3' }] });
     // #2, #3 and #4 each resolved exactly once, even though #4 is reachable through both #2 and #3.
     expect(resolveCalls).toBe(3);
   });
