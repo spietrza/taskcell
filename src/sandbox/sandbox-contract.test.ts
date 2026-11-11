@@ -3,8 +3,7 @@ import { execa, execaSync } from 'execa';
 import { mkdtemp, writeFile, readFile, rm, stat, cp } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-import { fileURLToPath } from 'node:url';
-import { DockerSandboxProvider } from './docker.js';
+import { DockerSandboxProvider, isBenignTarExit } from './docker.js';
 import { sandboxSecurityOpts } from './limits.js';
 import { WorktreeManager } from '../worktree/manager.js';
 
@@ -12,65 +11,114 @@ import { WorktreeManager } from '../worktree/manager.js';
  * Contract suite for the sandbox interface (1.15.2 follow-ups #745-#748, which all lived in this gap):
  * docker.test.ts's fixture is alpine (busybox tar) as root with no install, while production runs
  * node:24-bookworm (GNU tar) as the non-root agent user, with pnpm, and optionally a read-only rootfs.
- * Every test below runs against both the cheap alpine fixture and the real taskcell-sandbox image, in
- * both rootfs modes, so a GNU-tar- or non-root-specific regression shows up here instead of in a live run.
+ * Everything below runs against the real taskcell-sandbox image, in both rootfs modes, so a GNU-tar- or
+ * non-root-specific regression shows up here instead of in a live run.
+ *
+ * Opt-in via `VANGUARD_CONTRACT=1`: these tests need the real image to already exist locally. They never
+ * build or pull it — `docker/build.sh` retags local images, which is not a test's business — so build it
+ * by hand first. Without the opt-in the file says why it skipped and runs nothing; with it, a missing
+ * image fails the run rather than quietly passing an empty suite.
  */
 
-const BUILD_SH = fileURLToPath(new URL('../../docker/build.sh', import.meta.url));
+const CONTRACT_ENV = 'VANGUARD_CONTRACT';
 const TASKCELL_IMAGE = 'taskcell-sandbox:latest';
 
-const hasDocker = ((): boolean => {
+const optedIn = process.env[CONTRACT_ENV] === '1';
+
+const probe = (args: string[]): boolean => {
   try {
-    execaSync('docker', ['version']);
+    execaSync('docker', args);
     return true;
   } catch {
     return false;
   }
-})();
+};
 
-/**
- * Builds (or pulls) the real sandbox image once, synchronously, before any test in this file runs — the
- * same thing a factory run does via docker/build.sh. Registry/network trouble must not fail the whole
- * file: this resolves to false and the taskcell-specific blocks below skip themselves, leaving the alpine
- * contract to run alone on that host.
- */
-const hasTaskcellImage = ((): boolean => {
-  if (!hasDocker) return false;
-  try {
-    execaSync('bash', [BUILD_SH], { timeout: 15 * 60_000 });
-    return true;
-  } catch {
-    return false;
+/** Why this file is not running the real-image contract, or undefined when it is. */
+const skipReason = ((): string | undefined => {
+  if (!optedIn) return `${CONTRACT_ENV} is not set to 1 (the real-image contract is opt-in)`;
+  if (!probe(['version'])) return 'docker is not available on this host';
+  if (!probe(['image', 'inspect', TASKCELL_IMAGE])) {
+    return `${TASKCELL_IMAGE} is not present locally — build it first with docker/build.sh`;
   }
+  return undefined;
 })();
 
-interface Config {
-  label: string;
-  image: string;
-  readOnly: boolean;
-  /** Only the real image's GNU tar (bookworm) reproduces tar's benign exit-1 wording; busybox does not. */
-  gnuTar: boolean;
-  available: boolean;
+if (skipReason !== undefined) {
+  // Say it out loud: a file that silently ran nothing reads like a pass in CI output.
+  console.warn(`[sandbox-contract] skipping the real-image contract: ${skipReason}`);
 }
 
-const CONFIGS: Config[] = [
-  { label: 'alpine (busybox tar), read-write', image: 'alpine:3.20', readOnly: false, gnuTar: false, available: hasDocker },
-  { label: 'alpine (busybox tar), read-only rootfs', image: 'alpine:3.20', readOnly: true, gnuTar: false, available: hasDocker },
-  { label: 'taskcell image (GNU tar, non-root agent), read-write', image: TASKCELL_IMAGE, readOnly: false, gnuTar: true, available: hasTaskcellImage },
-  { label: 'taskcell image (GNU tar, non-root agent), read-only rootfs', image: TASKCELL_IMAGE, readOnly: true, gnuTar: true, available: hasTaskcellImage },
+// Opting in asks for the real image specifically, so a missing image is a failed run, not a skip.
+describe.runIf(optedIn && skipReason !== undefined)('sandbox contract preconditions', () => {
+  it('has the real sandbox image available', () => {
+    expect.fail(`${CONTRACT_ENV}=1 but ${skipReason}`);
+  });
+});
+
+const suite = skipReason === undefined ? describe : describe.skip;
+
+/**
+ * Runs copy-back's exact tar command against the same container, so the test can see the stderr
+ * `copyFileOut` swallows: it treats GNU tar's benign exit 1 as success (see `isBenignTarExit`) and
+ * reports nothing, which would let a race test pass without the race ever firing.
+ */
+async function tarStderr(sb: DockerSandboxProvider, path: string): Promise<{ exitCode: number; stderr: string }> {
+  const res = await execa('docker', ['exec', '-u', '0', `vg-${sb.id}`, 'tar', '-C', path, '-cf', '-', '.'], {
+    stdout: 'ignore',
+    reject: false,
+  });
+  return { exitCode: res.exitCode ?? -1, stderr: res.stderr };
+}
+
+interface Race {
+  title: string;
+  /** Directory the background loop churns while copy-back archives it. */
+  dir: string;
+  /** Seeds `dir` with the files copy-back must still bring out intact. */
+  setup: string;
+  /** Body of the background loop that races the archive. */
+  loop: string;
+  /** GNU tar's wording for this race; missing from stderr means it never fired on this host. */
+  wording: RegExp;
+  /** How to describe that miss when skipping. */
+  missed: string;
+  /** What copy-back must have brought out, as file name -> expected contents. */
+  expected: Record<string, RegExp>;
+}
+
+const RACES: Race[] = [
+  {
+    title: 'copies out a file that is still being appended to (GNU tar: "file changed as we read it")',
+    dir: '/tmp/grow',
+    setup: 'echo start > /tmp/grow/log && echo kept > /tmp/grow/other',
+    loop: 'while :; do echo line >> /tmp/grow/log; done',
+    wording: /file changed as we read it/,
+    missed: 'tar never caught the growing file mid-read',
+    expected: { other: /^kept\n$/, log: /^start\n/ },
+  },
+  {
+    title: 'copies out a directory while a file inside it vanishes mid-archive (GNU tar: "File removed before we read it")',
+    dir: '/tmp/vanish',
+    setup: 'echo keep > /tmp/vanish/keep',
+    // A tight create/delete loop for the whole archive: GNU tar's readdir sees the entry, then its
+    // open() loses the race often enough to hit the exit-1 path this test exists for.
+    loop: 'while :; do : > /tmp/vanish/tmp; rm -f /tmp/vanish/tmp; done',
+    wording: /File removed before we read it/,
+    missed: 'tar never lost the open() race',
+    expected: { keep: /^keep\n$/ },
+  },
 ];
 
-for (const cfg of CONFIGS) {
-  const run = cfg.available ? describe : describe.skip;
-
-  run(cfg.label, () => {
+for (const readOnly of [false, true]) {
+  suite(`taskcell image (GNU tar, non-root agent), ${readOnly ? 'read-only rootfs' : 'read-write'}`, () => {
     let sb: DockerSandboxProvider;
 
     beforeAll(async () => {
       sb = new DockerSandboxProvider({
-        image: cfg.image,
+        image: TASKCELL_IMAGE,
         workdir: '/workspace',
-        security: cfg.readOnly ? { ...sandboxSecurityOpts({}), readOnlyRootfs: true } : sandboxSecurityOpts({}),
+        security: { ...sandboxSecurityOpts({}), readOnlyRootfs: readOnly },
       });
       await sb.start();
     }, 120_000);
@@ -107,35 +155,33 @@ for (const cfg of CONFIGS) {
       }
     }, 60_000);
 
-    if (cfg.gnuTar) {
-      // GNU tar's "this is still fine" exit-1 cases (see docker.ts's isBenignTarExit): busybox tar on
-      // alpine does not reproduce either wording, which is exactly the gap #745-#748 lived in. These two
-      // run copy-back's real tar command against the real image's GNU tar (bookworm) only.
-      it('copies out a file that is still being appended to (GNU tar: "file changed as we read it")', async () => {
-        const out = await mkdtemp(join(tmpdir(), 'vg-grow-'));
+    // GNU tar's "this is still fine" exit-1 cases (see docker.ts's isBenignTarExit): busybox tar on
+    // alpine does not reproduce either wording, which is exactly the gap #745-#748 lived in. These two
+    // run copy-back's real tar command against the real image's GNU tar (bookworm).
+    // The image has no pkill, so each background loop's PID goes to a pidfile (outside the directory
+    // being archived) and the cleanup kills exactly that process.
+    for (const race of RACES) {
+      it(race.title, async ({ skip }) => {
+        const out = await mkdtemp(join(tmpdir(), 'vg-race-'));
+        const pidfile = `${race.dir}.pid`;
         try {
-          await sb.exec('mkdir -p /tmp/grow && echo start > /tmp/grow/log && echo kept > /tmp/grow/other');
-          await sb.exec('nohup sh -c "while :; do echo line >> /tmp/grow/log; done" >/dev/null 2>&1 &');
-          await sb.copyFileOut('/tmp/grow', out);
-          expect(await readFile(join(out, 'other'), 'utf8')).toBe('kept\n');
-          expect(await readFile(join(out, 'log'), 'utf8')).toMatch(/^start\n/);
-        } finally {
-          await sb.exec('pkill -f "echo line" ; rm -rf /tmp/grow');
-          await rm(out, { recursive: true, force: true });
-        }
-      }, 30_000);
+          const setup = await sb.exec(`mkdir -p ${race.dir} && ${race.setup}`);
+          expect(setup.exitCode, setup.stderr).toBe(0);
+          const loop = await sb.exec(`nohup sh -c "${race.loop}" >/dev/null 2>&1 & echo $! > ${pidfile}`);
+          expect(loop.exitCode, loop.stderr).toBe(0);
 
-      it('copies out a directory while a file inside it vanishes mid-archive (GNU tar: "File removed before we read it")', async () => {
-        const out = await mkdtemp(join(tmpdir(), 'vg-vanish-'));
-        try {
-          await sb.exec('mkdir -p /tmp/vanish && echo keep > /tmp/vanish/keep');
-          // A tight create/delete loop for the whole archive: GNU tar's readdir sees the entry, then its
-          // open() loses the race often enough to hit the exit-1 path this test exists for.
-          await sb.exec('nohup sh -c "while :; do : > /tmp/vanish/tmp; rm -f /tmp/vanish/tmp; done" >/dev/null 2>&1 &');
-          await sb.copyFileOut('/tmp/vanish', out);
-          expect(await readFile(join(out, 'keep'), 'utf8')).toBe('keep\n');
+          await sb.copyFileOut(race.dir, out);
+          for (const [name, contents] of Object.entries(race.expected)) {
+            expect(await readFile(join(out, name), 'utf8')).toMatch(contents);
+          }
+
+          const archive = await tarStderr(sb, race.dir);
+          if (!race.wording.test(archive.stderr)) {
+            skip(`${race.missed} on this host: the benign exit-1 path was not exercised`);
+          }
+          expect(isBenignTarExit(archive.exitCode, archive.stderr), archive.stderr).toBe(true);
         } finally {
-          await sb.exec('pkill -f "/tmp/vanish/tmp" ; rm -rf /tmp/vanish');
+          await sb.exec(`kill "$(cat ${pidfile})" 2>/dev/null; rm -rf ${race.dir} ${pidfile}`);
           await rm(out, { recursive: true, force: true });
         }
       }, 30_000);
@@ -146,14 +192,12 @@ for (const cfg of CONFIGS) {
 // Smoke test: the full loop a real run exercises — copy a project in, pnpm install, copy the workspace
 // back out the same way syncSandboxToWorktree does (node_modules/.pnpm-store/.git excluded, see
 // core/vanguard.ts's COPY_BACK_SKIP), and check the diff a human/PR would see. Runs once, read-write,
-// against the real taskcell image only (alpine has neither pnpm nor node).
-describe('smoke: pnpm install -> copy-back -> diff', () => {
-  const run = hasTaskcellImage ? it : it.skip;
-
-  run('installs with pnpm, copies the workspace back, and the resulting diff shows the lockfile landing', async () => {
+// against the real taskcell image.
+suite('smoke: pnpm install -> copy-back -> diff', () => {
+  it('installs with pnpm, copies the workspace back, and the resulting diff shows the lockfile landing', async () => {
     const worktree = await mkdtemp(join(tmpdir(), 'vg-smoke-'));
     const staging = await mkdtemp(join(tmpdir(), 'vg-smoke-staging-'));
-    const sb = new DockerSandboxProvider({ image: TASKCELL_IMAGE, workdir: '/workspace' });
+    const sb = new DockerSandboxProvider({ image: TASKCELL_IMAGE, workdir: '/workspace', security: sandboxSecurityOpts({}) });
     try {
       await execa('git', ['init', '-q'], { cwd: worktree });
       await execa('git', ['config', 'user.email', 'vanguard@example.com'], { cwd: worktree });
