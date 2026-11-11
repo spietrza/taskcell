@@ -89,16 +89,23 @@ the project cards).
 
 **[P1] Project cards on Home could not be opened by keyboard** · Accessibility · **fixed**
 - Where: `Dashboard.tsx`; the card was a `div` with `onClick`.
-- Fix applied: the project name is a real `<button>` stretched over the card (`after:inset-0`),
-  the Remove button sits above it, and the card shows the focus ring when the name button has
-  keyboard focus. Mouse behavior is unchanged.
+- Fix applied: the project name is a real `<button>` stretched over the card (`after:inset-0`,
+  `cursor-pointer`); the card's own actions (Remove, Enable factory) sit above it with
+  `relative z-10`, and the card shows the focus ring when the name button has keyboard focus.
+  Covered by `Dashboard.test.tsx`.
+- Trade-off (P3): the overlay sits over the path line, so its `title` tooltip no longer shows and
+  the path and stats text cannot be selected with the mouse. Any new interactive element on the
+  card needs `relative z-10`.
 
 **[P1] Overlays had no dialog semantics** · Accessibility · **fixed (partly)**
 - Where: `CommandPalette.tsx`, `RepoPicker.tsx`, `features/task/CreateTaskDialog.tsx`.
 - Fix applied: `role="dialog"`, `aria-modal`, an accessible name on all three; the palette is now
   a combobox + listbox with `aria-activedescendant`; the create-task dialog takes focus on open and
   closes on Escape unless the create is in flight.
-- Still open (P2): none of them traps Tab inside the dialog. New dialogs should use chunks-ui's
+  Focus returns to the opener when the create-task dialog closes (`CreateTaskDialog.test.tsx`).
+- Still open (P2): none of them traps Tab inside the dialog. In the palette the options are now
+  `tabIndex={-1}` (arrow keys drive them), so Tab from the search input leaves the open palette
+  for the page behind it. New dialogs should use chunks-ui's
   `Dialog` (Base UI, with focus management), and these three should move to it.
 
 **[P1] Inputs labelled only by placeholder** · Accessibility · **fixed (partly)**
@@ -165,7 +172,8 @@ the project cards).
 
 ## For open PRs
 
-These files are being changed in open PRs, so this PR does not touch them. Apply there:
+These files were being changed in other PRs when this audit was written (#727, #728, #739; some
+have since merged), so this PR does not touch them. Apply the fixes there or in a follow-up:
 
 **`features/inspector/RunStrip.tsx`**
 - [P1] Stage pills use `text-emerald-500` / `text-rose-500` / `text-blue-500` at 12px (about

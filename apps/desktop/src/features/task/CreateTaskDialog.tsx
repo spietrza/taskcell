@@ -24,9 +24,12 @@ export function CreateTaskDialog({
   onCancel: () => void;
 }) {
   const panelRef = useRef<HTMLDivElement>(null);
-  // Focus starts inside the dialog, so screen readers announce it and Tab stays near its buttons.
+  // Focus starts inside the dialog, so screen readers announce it and Tab stays near its buttons;
+  // on close it goes back to whatever opened the dialog instead of falling to <body>.
   useEffect(() => {
+    const opener = document.activeElement instanceof HTMLElement ? document.activeElement : null;
     panelRef.current?.focus();
+    return () => opener?.focus();
   }, []);
   useEffect(() => {
     const onKey = (e: KeyboardEvent): void => {

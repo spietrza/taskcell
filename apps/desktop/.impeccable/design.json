@@ -321,8 +321,8 @@
       }
     ],
     "dos": [
-      "Do import every visual primitive from `@/ui`; add a re-export there when a screen first needs",
-      "Do use semantic tokens (`bg-success`, `text-destructive-text`, `border-border`) so both themes",
+      "Do import every visual primitive from `@/ui`; add a re-export there when a screen first needs a chunks-ui component.",
+      "Do use semantic tokens (`bg-success`, `text-destructive-text`, `border-border`) so both themes work; check new UI in light and dark.",
       "Do keep one primary button per screen and put it at the right end of the page header row.",
       "Do use the glossary words (Task, Run, Proof of Work, Stage, PR/MR) exactly.",
       "Do give icon-only buttons an `aria-label` and every overlay dialog semantics.",
@@ -330,7 +330,7 @@
       "Do run the design detector over changed UI before committing (below)."
     ],
     "donts": [
-      "Don't use raw Tailwind palette colors (`text-green-600`, `bg-rose-500/5`) for status; only",
+      "Don't use raw Tailwind palette colors (`text-green-600`, `bg-rose-500/5`) for status; only the board's column hues and sky info lines are allowed, and only where they already live.",
       "Don't put a thick colored left border on cards, callouts or alerts (`border-l-4`).",
       "Don't color a whole panel for a passed state; status color goes on the dot, chip or text.",
       "Don't add display-size type, gradients, glass or decorative illustration.",

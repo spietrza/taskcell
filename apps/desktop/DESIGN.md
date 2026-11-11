@@ -149,7 +149,7 @@ A neutral grayscale system with one blue accent and three status hues, all defin
 - **Caution Amber** (`warning`): verify issues, unsaved state, unknown stages, budget nearing the
   cap. Text uses `text-warning-text`.
 - **Fault Red** (`destructive`): failed runs, errors, Kill, removed diff lines, error banners. Text
-  uses `text-destructive-text` (or `text-destructive` on a `bg-destructive/10` banner).
+  uses `text-destructive-text`, banners included.
 - **Board and info hues (Tailwind palette, not tokens):** the task board gives each column its own
   hue (slate Queued, amber Claimed, blue Running, rose Verify failed, violet Review, emerald Done),
   and sky marks informational lines (tool calls, `@@` hunks). These are the only sanctioned raw
@@ -291,6 +291,17 @@ chips, counts and live dots. Borders are always 1px; the one wider edge is the d
 - **Banner:** full 1px border + 10% tint of the status color, `rounded`, `px-3 py-2 text-sm`;
   `role="alert"` for errors. Never a thick left border.
 - **Hub connection banners** (`App.tsx`): full-width strip under the title bar.
+
+### App-owned primitives (`src/ui`)
+- **Callout**: 11px uppercase muted label + content, `p-3`, no border; labelled asides inside
+  prose and panels. A bordered note (the Settings Credentials box) is a Callout inside a hairline
+  `rounded-md border bg-muted/30` box; prefer extending Callout over hand-rolling another.
+- **CodeBlock**: dark `pre` with highlight.js tokens, a 10px language label and a copy button.
+- **Markdown**: `react-markdown` + GFM in Tailwind `prose`, code fences through CodeBlock.
+- **ScrollTable** over chunks **Table**: the run list and Remote; rows scroll inside their own
+  container under a sticky `bg-muted` header.
+- **InlineEdit**: click-to-rename text (the last breadcrumb on New Task).
+- **Logo**: the shield-cog mark, `currentColor`.
 
 ### Empty, loading and error states
 - **Empty:** chunks `Empty` (icon, title, one sentence, the action) for whole screens; a dashed

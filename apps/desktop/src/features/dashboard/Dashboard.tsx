@@ -104,11 +104,12 @@ export function Dashboard({
                     <div className="min-w-0">
                       <Card.Title className="flex items-center gap-2 truncate">
                         {/* Stretched over the whole card (after:inset-0) so the card opens by click
-                            and by keyboard without nesting the Remove button inside a button. */}
+                            and by keyboard without nesting buttons; the card's own buttons (Remove,
+                            Enable factory) sit above it with `relative z-10`. */}
                         <button
                           type="button"
                           onClick={() => onOpen({ path: p.path, name: p.name })}
-                          className="proj-open truncate text-left outline-none after:absolute after:inset-0"
+                          className="proj-open cursor-pointer truncate text-left outline-none after:absolute after:inset-0"
                         >
                           {p.name}
                         </button>
@@ -143,7 +144,7 @@ export function Dashboard({
                     </div>
                     {onEnableFactory && (
                       <Button
-                        className="mt-3 h-7 px-2 text-xs"
+                        className="relative z-10 mt-3 h-7 px-2 text-xs"
                         variant="outlined"
                         color="secondary"
                         startIcon={<Factory className="size-3.5" />}

@@ -104,7 +104,9 @@ export function CommandPalette({
         />
         <div id="command-palette-list" role="listbox" aria-label="Commands" className="max-h-80 overflow-auto p-1">
           {filtered.length === 0 ? (
-            <div className="px-3 py-6 text-center text-sm text-muted-foreground">No matches</div>
+            <div role="option" aria-disabled="true" aria-selected="false" className="px-3 py-6 text-center text-sm text-muted-foreground">
+              No matches
+            </div>
           ) : (
             filtered.map((c, i) => (
               <button
