@@ -124,10 +124,10 @@ describe('run-session', () => {
     const session = createRunSession(deps, () => {});
     const first = session.createRun({ issueRef: '0', repoPath: '/repo' } as CreateRunParams);
     const second = session.createRun({ issueRef: '1', repoPath: '/repo' } as CreateRunParams);
-    const third = session.createRun({ issueRef: '2', repoPath: '/repo' } as CreateRunParams);
+    const third = session.createRun({ issueRef: '2', repoPath: '/repo3' } as CreateRunParams);
     third.catch(() => {});
     session.cancel('run-1'); // republishes run-2's position
-    expect(session.backlog('run-2')).toEqual([{ runId: 'run-2', event: { type: 'run-queued', position: 1, repoPath: '/repo' } }]);
+    expect(session.backlog('run-2')).toEqual([{ runId: 'run-2', event: { type: 'run-queued', position: 1, repoPath: '/repo3' } }]);
     await expect(second).rejects.toThrow(/cancelled/);
     resolveFirst?.({});
     await first;
@@ -207,6 +207,17 @@ describe('run-session', () => {
     } finally {
       vi.unstubAllEnvs();
     }
+  });
+
+  test('T-44j a second queued run for the same project is refused, naming the queued one', async () => {
+    const session = createRunSession(fakeDeps(() => new Promise<CreateRunResult>(() => {})), () => {});
+    void session.createRun({ issueRef: '0', repoPath: '/repo' } as CreateRunParams);
+    void session.createRun({ issueRef: '1', repoPath: '/repo' } as CreateRunParams).catch(() => {});
+    await expect(session.createRun({ issueRef: '2', repoPath: '/repo' } as CreateRunParams)).rejects.toThrow(
+      '/repo already has a queued run (run-1)',
+    );
+    void session.createRun({ issueRef: '3', repoPath: '/other' } as CreateRunParams).catch(() => {});
+    expect(session.queued().map((q) => q.repoPath)).toEqual(['/repo', '/other']);
   });
 
   test('T-44c past the cap createRun is rejected with a message naming the limit', async () => {

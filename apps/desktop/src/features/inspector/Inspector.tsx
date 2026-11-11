@@ -222,9 +222,8 @@ export function Inspector({
           setForeignRun(active.repoPath);
         }
         // Hub: no active run of ours, but one may be waiting in the queue — re-attach that instead,
-        // or a reload would leave it with no strip and no way to cancel it.
-        // shortcut: one strip per project, so only its FIRST queued run is re-attached after a reload;
-        // a second one runs unattended — upgrade if per-project multi-queueing becomes a real flow.
+        // or a reload would leave it with no strip and no way to cancel it. The hub allows at most
+        // one queued run per project (run-session.ts), so `find` cannot miss a second one.
         if (runId === undefined && isHubMode()) runId = (await apiQueue()).find((q) => q.repoPath === project)?.runId;
         if (runId === undefined) return;
         const backlog = (await apiRunBacklog(runId)) as { runId: string; event: RunEvent }[];

@@ -246,6 +246,12 @@ export function createRunSession(
             : `the run queue is full (max ${maxQueue} queued runs) — try again once a run finishes`,
         );
       }
+      // One queued run per project: the desktop shows one strip per project, so a second queued run
+      // there would get no strip (and no Stop) after a reload.
+      const waiting = active !== null ? queue.find((q) => q.params.repoPath === repoPath) : undefined;
+      if (waiting !== undefined) {
+        throw new BadRequestError(`${repoPath} already has a queued run (${waiting.runId}) — cancel it or wait for it to start`);
+      }
       const runId = `run-${counter}`;
       counter += 1;
       return new Promise<CreateRunResult>((resolve, reject) => {
