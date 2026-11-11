@@ -292,6 +292,9 @@ describe('createRun: the real credential never reaches Docker secrets (source-ad
       addPrFailureLabel: vi.fn(),
       editGithubLabels: vi.fn(),
       commentGithubIssue: vi.fn(),
+      // TASK has no dependsOn, so the real dependency gate in runGithubIssue would resolve to 'ready'
+      // anyway; stubbed here only because this mock replaces the whole module.
+      checkGithubDependencies: vi.fn(async () => ({ status: 'ready' })),
     }));
     vi.doMock('../context/skill-registry.js', () => ({ skillRegistryForRun: vi.fn(async () => ({})) }));
     const capturedSecrets: Array<Record<string, string>> = [];

@@ -3,6 +3,8 @@ import { VanguardError } from '../core/errors.js';
 import { classifyAuthor } from './comment-trust.js';
 import type { Task, TaskComment, TaskFetcher, TaskFilter } from './fetcher.js';
 import { redactForPublish } from '../core/secret-scan.js';
+import { parseDependsOnBody, parseStartDate, mergeDependsOn, checkDependencies } from './dependencies.js';
+import type { TaskRef, DependencyCheck, DependencyNode } from './dependencies.js';
 
 export interface GitHubLabel {
   name: string;
@@ -60,17 +62,120 @@ export function toTask(repo: string, issue: GitHubIssue): Task {
   if (comments.length > 0 && (issue.comments ?? []).every((c) => c.authorAssociation === undefined)) {
     console.warn(`vanguard: ${repo}#${issue.number} — gh returned no authorAssociation on any comment; non-bot comments are treated as untrusted`);
   }
+  const body = issue.body ?? '';
+  const dependsOn = parseDependsOnBody(body);
+  const startDate = parseStartDate(body);
   return {
     id: `${repo}#${issue.number}`,
     title: issue.title,
-    description: issue.body ?? '',
+    description: body,
     labels: issue.labels.map((label) => label.name),
     children: [], // the gh issue mapping does not fetch sub-issues
     comments,
     ref: String(issue.number),
     ...(issue.state !== undefined ? { state: issue.state } : {}),
     ...(issue.author?.login !== undefined ? { author: issue.author.login } : {}),
+    ...(dependsOn.length > 0 ? { dependsOn } : {}),
+    ...(startDate !== undefined ? { startDate } : {}),
   };
+}
+
+/** One native "blocked by" relationship as GitHub's Issue Dependencies REST API returns it. */
+export interface GitHubBlockedByItem {
+  number: number;
+  repository?: { full_name?: string } | null;
+}
+
+/**
+ * True when `error` is a `gh api` 404 (resource not found) — the ONLY failure that should be read as
+ * "this reference does not exist" / "this host has no Issue Dependencies endpoint". Anything else
+ * (a 5xx, an auth failure, a network error) must propagate: silently treating a transient failure the
+ * same as "not found" would wrongly report an existing, unmet dependency as missing (needs_info) or
+ * wrongly report it as having no blockers at all (ready).
+ */
+function isNotFoundError(error: unknown): boolean {
+  const message = error instanceof Error ? error.message : String(error);
+  return /\b404\b/.test(message) || /not found/i.test(message);
+}
+
+/**
+ * Native "blocked by" relationships for one issue (#760), via GitHub's Issue Dependencies REST API
+ * (`GET /repos/{owner}/{repo}/issues/{number}/dependencies/blocked_by`). Best-effort only for a 404
+ * (a host where the feature is unavailable, e.g. older GHES) — that case yields no native refs,
+ * falling back to whatever the body's `Depends on` lines say. Every other error (rate limit, auth,
+ * network) propagates rather than being silently read as "no blockers". Refs are always fully
+ * qualified with their own `repo` (never left implicit), so a caller merging them into another
+ * node's `dependsOn` cannot mistake "same repo as the queried issue" for "same repo as some other
+ * fallback" (#760 cross-repo bug).
+ */
+export async function fetchNativeBlockedBy(repo: string, number: string, gh: GhRunner = defaultGhRunner): Promise<TaskRef[]> {
+  let out: string;
+  try {
+    out = await gh(['api', `repos/${repo}/issues/${number}/dependencies/blocked_by`]);
+  } catch (error) {
+    if (isNotFoundError(error)) return [];
+    throw error;
+  }
+  const items = JSON.parse(out) as GitHubBlockedByItem[];
+  return items.map((item) => ({ repo: item.repository?.full_name ?? repo, number: String(item.number) }));
+}
+
+/**
+ * Resolve one dependency ref's status (met = closed as completed, or its PR merged) plus its own
+ * `dependsOn` (native + body fallback, both fully qualified to this ref's own repo), for
+ * `checkDependencies`'s graph walk. Only a 404 on the issue itself (deleted issue, bad number) comes
+ * back `missing` rather than throwing — any other error (rate limit, auth, network) propagates, so a
+ * transient failure fails the run loudly instead of being silently read as "this reference does not
+ * exist" (needs_info) or "no blockers" (ready).
+ */
+export async function resolveGithubDependencyNode(ref: TaskRef, fallbackRepo: string, gh: GhRunner = defaultGhRunner): Promise<DependencyNode> {
+  const repo = ref.repo ?? fallbackRepo;
+  let out: string;
+  try {
+    out = await gh(['api', `repos/${repo}/issues/${ref.number}`]);
+  } catch (error) {
+    if (isNotFoundError(error)) return { met: false, missing: true, dependsOn: [] };
+    throw error;
+  }
+  const native = await fetchNativeBlockedBy(repo, ref.number, gh);
+  const data = JSON.parse(out) as {
+    state?: string;
+    state_reason?: string | null;
+    body?: string | null;
+    pull_request?: { merged_at?: string | null } | null;
+  };
+  const fromBody = parseDependsOnBody(data.body ?? '').map((r) => (r.repo !== undefined ? r : { ...r, repo }));
+  const met =
+    data.pull_request != null
+      ? data.pull_request.merged_at != null
+      : data.state === 'closed' && data.state_reason === 'completed';
+  return { met, dependsOn: mergeDependsOn(native, fromBody) };
+}
+
+/**
+ * Check a fetched GitHub task's readiness against its dependencies and start date (#760). `task`
+ * supplies the body-fallback `dependsOn`/`startDate` already parsed by `toTask`; native "blocked by"
+ * relations are fetched fresh here (not cached on `Task`, so plain `fetch()`/`list()` stay a single
+ * round trip for every caller that does not need dependency gating).
+ */
+export async function checkGithubDependencies(
+  repo: string,
+  task: Task,
+  issueRef: string,
+  gh: GhRunner = defaultGhRunner,
+  now?: Date,
+): Promise<DependencyCheck> {
+  const number = issueNumber(issueRef);
+  const native = await fetchNativeBlockedBy(repo, number, gh);
+  const dependsOn = mergeDependsOn(native, task.dependsOn ?? []);
+  const self: TaskRef = { repo, number };
+  return checkDependencies(
+    { dependsOn, ...(task.startDate !== undefined ? { startDate: task.startDate } : {}) },
+    self,
+    repo,
+    (ref) => resolveGithubDependencyNode(ref, repo, gh),
+    now,
+  );
 }
 
 /**

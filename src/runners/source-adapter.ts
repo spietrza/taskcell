@@ -255,6 +255,8 @@ export interface RunIssueResult {
   secretBlocked?: boolean;
   /** True when the run stopped before implementing because the base branch is already red — NOT "no changes". */
   baseRed?: boolean;
+  /** True when the run never started because the task is blocked (unmet dependency, future start date, or a dependency cycle/missing reference, #760) — NOT "no changes". */
+  parked?: boolean;
 }
 
 /** Cap on implement-session resumes triggered by a failing conformance/verify gate, before falling back to a declared-partial PR. */

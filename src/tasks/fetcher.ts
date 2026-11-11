@@ -1,6 +1,7 @@
 import { escapePromptTags } from '../context/escape.js';
 import { trustedComments } from './comment-trust.js';
 import type { TrustOptions } from './comment-trust.js';
+import type { TaskRef } from './dependencies.js';
 
 /** A child (sub-issue) of a task; identifier and title only (sub-issues carry no body in list shape). */
 export interface SubTask {
@@ -28,6 +29,10 @@ export interface Task {
   state?: string;
   /** Issue/PR author login (GitHub `author.login`, GitLab `author.username`). Absent ⇒ no issue-author trust. */
   author?: string;
+  /** Other tasks this one is blocked by (native relation + `Depends on #N` body fallback, #760). Absent/empty ⇒ no dependencies. */
+  dependsOn?: TaskRef[];
+  /** `Start: YYYY-MM-DD` line in the body — the task waits until this date regardless of its dependencies (#760). */
+  startDate?: string;
 }
 
 export interface TaskFilter {

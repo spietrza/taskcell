@@ -1,5 +1,15 @@
 import { execa } from 'execa';
-import { GitHubTaskFetcher, linkPullRequest, addPrFailureLabel, addPrGateLabel, editGithubLabels, commentGithubIssue, defaultGhRunner } from '../tasks/github.js';
+import {
+  GitHubTaskFetcher,
+  linkPullRequest,
+  addPrFailureLabel,
+  addPrGateLabel,
+  editGithubLabels,
+  commentGithubIssue,
+  defaultGhRunner,
+  checkGithubDependencies,
+} from '../tasks/github.js';
+import { hasDependencyComment, dependencyWaitComment } from '../tasks/dependencies.js';
 import { GitHubProjectFetcher } from '../tasks/github-project.js';
 import { implementReviewSimplifyStages } from '../pipeline/pipeline.js';
 import { publishReviewVerdict } from '../pipeline/review-publish.js';
@@ -70,8 +80,24 @@ export function githubAdapter(deps: RunGithubIssueDeps, gh: GhRunner = defaultGh
  * Run one GitHub issue end to end: fetch via `gh`, run the canonical implement/review/simplify
  * pipeline (the issue title/body go in as variables — no skill needed), open a draft PR, and comment
  * the PR link back onto the issue. GitHub is both the source and the review surface.
+ *
+ * Before any of that: check the issue's dependencies and start date (#760). This is the gate shared
+ * by the one-shot `vanguard run --github` path and the sweep's `runOne` (for the sweep, `listReady`
+ * has normally already filtered the issue out before it is claimed — this is the backstop for
+ * callers, like `runGithubProject` and the sidecar, that go straight to `runGithubIssue` with no
+ * claim/trigger-label lifecycle to preserve). A blocked issue is `parked`: no implement budget is
+ * spent, and (when not already posted) a single comment names the reason.
  */
 export async function runGithubIssue(issueRef: string, deps: RunGithubIssueDeps): Promise<RunGithubIssueResult> {
+  const fetcher = new GitHubTaskFetcher(deps.repoSlug);
+  const task = await fetcher.fetch(issueRef);
+  const check = await checkGithubDependencies(deps.repoSlug, task, issueRef);
+  if (check.status !== 'ready') {
+    if (!hasDependencyComment(task)) {
+      await commentGithubIssue(deps.repoSlug, issueRef, dependencyWaitComment(check, deps.repoSlug));
+    }
+    return { task, parked: true };
+  }
   return runSourcedIssue(issueRef, deps, githubAdapter(deps));
 }
 
