@@ -262,6 +262,29 @@ configurable here: a repo that runs the factory with a custom `--needs-info-labe
 Replies are a remote mutation, gated like `clone_project`: loopback only, unless
 `VANGUARD_HUB_ALLOW_ADD=1`.
 
+## Enable factory
+
+**Enable factory** on a project card (hub only) turns on the GitHub Actions factory for that repo in
+four steps, following [onboarding-another-repo.md](onboarding-another-repo.md)
+(`src/hub/enable-factory.ts`). GitLab and Linear show as coming soon.
+
+1. **Plan** reads the repo with `gh` and changes nothing: the slug, the default branch, the signed-in
+   `gh` login (it becomes the callers' actor gate), the package manager and scripts, and the caller
+   workflows already on the default branch.
+2. **Apply** writes the five thin callers (`vanguard-implement`, `-doctor`, `-pr-review`, `-revise`,
+   `-resume`) from `templates/github/` on a branch of its own, skips any caller the default branch
+   already has, pushes that branch, opens a PR and creates the routing labels. It never pushes to the
+   default branch. It refuses a dirty work tree or untracked files at the caller paths, puts back the
+   branch you had checked out, and can be re-run after a partial failure. The hub reads the plan again
+   before applying and refuses if the login, repo or default branch changed.
+3. **Secret** shows the `gh secret set CLAUDE_CODE_OAUTH_TOKEN --repo <owner/repo>` command for you to
+   run. The hub never reads, prints or stores a secret value.
+4. **Verify**, once the PR is merged, dispatches the doctor workflow and links the run it started.
+
+Apply and verify change the remote, so they are gated like `clone_project`: loopback only, unless
+`VANGUARD_HUB_ALLOW_ADD=1`. The `gh` login must be able to push workflow files (classic `repo` and
+`workflow` scopes), create labels, open a PR and dispatch a workflow.
+
 ## `gh` auth
 
 The hub shells out to `gh` for the Remote screen (listing GitHub Actions runs), CI-run import and

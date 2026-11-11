@@ -49,6 +49,12 @@ pnpm test
 
 Both must pass before opening a pull request.
 
+The sandbox contract suite (`src/sandbox/sandbox-contract.test.ts`) runs against the real
+`taskcell-sandbox:latest` image in both rootfs modes, and it is opt-in. Build the image with
+`bash docker/build.sh`, then run `VANGUARD_CONTRACT=1 pnpm test src/sandbox/sandbox-contract.test.ts`.
+Without the variable the file logs why it skipped; with it, a missing image fails the run. Run it when
+you change `src/sandbox/`.
+
 Run `pnpm coverage:ratchet` to measure coverage and preview raised thresholds.
 Use `pnpm coverage:ratchet --write` to apply them to `vitest.config.ts` after a
 successful suite. Each threshold stays at least its current value, with new floors
