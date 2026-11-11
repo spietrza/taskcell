@@ -1,6 +1,6 @@
 import { describe, it, expect, afterAll, afterEach } from 'vitest';
 import { execa, execaSync } from 'execa';
-import { mkdtemp, writeFile, readFile, rm } from 'node:fs/promises';
+import { mkdtemp, writeFile, readFile, rm, stat } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import {
@@ -220,6 +220,21 @@ suite('DockerSandboxProvider', () => {
     await rm(host, { recursive: true, force: true });
     await rm(out, { recursive: true, force: true });
   }, 60_000);
+
+  it('round-trips a directory larger than execa\'s 100 MB default buffer intact', async () => {
+    const host = await mkdtemp(join(tmpdir(), 'vg-big-'));
+    const out = await mkdtemp(join(tmpdir(), 'vg-big-out-'));
+    try {
+      await writeFile(join(host, 'big.bin'), Buffer.alloc(110 * 1024 * 1024, 7));
+      await sb.copyIn(host, '/workspace/big');
+      await sb.copyFileOut('/workspace/big', out);
+      expect((await stat(join(out, 'big.bin'))).size).toBe(110 * 1024 * 1024);
+    } finally {
+      await sb.exec('rm -rf /workspace/big');
+      await rm(host, { recursive: true, force: true });
+      await rm(out, { recursive: true, force: true });
+    }
+  }, 180_000);
 
   it('makes copied-in files editable by the sandbox user (chown)', async () => {
     const host = await mkdtemp(join(tmpdir(), 'vg-edit-'));

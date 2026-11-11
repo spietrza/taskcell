@@ -405,7 +405,9 @@ export class DockerSandboxProvider implements IsolatedSandboxProvider {
       // container started with --read-only ("container rootfs is marked read-only") even when the
       // target is a writable tmpfs, which broke every hardened run.
       if (isDir) {
-        await execa('tar', ['-C', hostPath, '-cf', '-', '.'], { env: { COPYFILE_DISABLE: '1' } })
+        // buffer: false — piping still buffers the source's stdout, and past execa's 100 MB maxBuffer
+        // it kills the source mid-stream (a truncated archive or a hang for any real workspace).
+        await execa('tar', ['-C', hostPath, '-cf', '-', '.'], { env: { COPYFILE_DISABLE: '1' }, buffer: false })
           .pipe('docker', ['exec', '-i', '-u', '0', this.name, 'tar', '-xf', '-', '-C', sandboxPath]);
       } else {
         await execa('docker', ['exec', '-i', '-u', '0', this.name, 'sh', '-c', 'cat > "$1"', 'sh', sandboxPath], { inputFile: hostPath });
@@ -426,7 +428,7 @@ export class DockerSandboxProvider implements IsolatedSandboxProvider {
       // Not `docker cp`: it reads the container's rootfs layer, so under --read-only it cannot see
       // the /workspace, $HOME and /tmp tmpfs mounts the run actually wrote to.
       if (isDir) {
-        await execa('docker', ['exec', this.name, 'tar', '-C', sandboxPath, '-cf', '-', '.'], { encoding: 'buffer' })
+        await execa('docker', ['exec', this.name, 'tar', '-C', sandboxPath, '-cf', '-', '.'], { buffer: false })
           .pipe('tar', ['-xf', '-', '-C', hostPath]);
       } else {
         const res = await execa('docker', ['exec', this.name, 'cat', sandboxPath], { stdout: { file: hostPath }, reject: false });
