@@ -764,16 +764,14 @@ export async function runSourcedIssue(
       // `prBody` items name content the diff cannot carry (CI workflow YAML — copy-back drops it) and the
       // factory has no channel to write: no human-authored body text exists yet, so a required item is
       // a gap at delivery — partial scope (`Part of` + draft) — and only the composed body's delimited
-      // block, never its generated text, is where a human supplies it.
-      const prBodyCheck = checkConformance(manifest?.prBody !== undefined ? { prBody: manifest.prBody } : undefined, '', '');
-      const delivered: ConformanceResult = {
-        ...conformance,
-        pass: conformance.pass && prBodyCheck.pass,
-        missingPrBody: prBodyCheck.missingPrBody,
-        optionalMissingPrBody: prBodyCheck.optionalMissingPrBody,
-      };
+      // block, never its generated text, is where a human supplies it. One verdict from the manifest,
+      // the real (final) diff and the real PR body — '' is accurate here, not a placeholder: no PR
+      // exists yet, so there is genuinely no human-authored body text to check prBody items against.
+      const delivered: ConformanceResult = manifest !== undefined
+        ? checkConformance(manifest, await ctx.wm.diff(ctx.worktreePath), '')
+        : PASSING_RESULT;
       const prBodyGapBlock = prBodyGapWarningBlock(delivered.missingPrBody);
-      const partial = !gatePassed || untrustedManifestDropped || !prBodyCheck.pass;
+      const partial = !gatePassed || untrustedManifestDropped || !delivered.pass;
       const baseBody = reviewRequestBody(task.id, {
         closeIssueOnMerge: !!adapter.closeIssueOnMerge,
         ...(untrustedManifestDropped ? { untrustedManifest: true } : {}),

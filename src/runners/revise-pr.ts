@@ -1,4 +1,4 @@
-import { describeIgnoredAuthor } from '../tasks/comment-trust.js';
+import { describeIgnoredAuthor, trustedSpecText } from '../tasks/comment-trust.js';
 import { mkdir, writeFile } from 'node:fs/promises';
 import { dirname, resolve } from 'node:path';
 import { parsePullRequestRef, fetchPullRequestForReview, postPullRequestReview, commentPullRequest } from './pr-review.js';
@@ -37,7 +37,7 @@ import { parseProviderRateLimitReset, rateLimitedComment } from '../core/rate-li
 import { diffFilesWithPatches, extractGateConfigBlock, gateConfigChangedBlock, gateConfigPaths, loadGateConfigExtraGlobs } from '../context/gate-config.js';
 import { renderSecretBlockComment } from '../core/secret-scan.js';
 import { deliverChange, scanOutgoingForSecrets } from './deliver-change.js';
-import { extractPrBodyItemsBlock, extractTaskIdFromPrBody, scanCommitClosingKeywords } from '../pipeline/conformance-gate.js';
+import { checkConformance, extractPrBodyItemsBlock, extractTaskIdFromPrBody, parseSpecManifest, scanCommitClosingKeywords } from '../pipeline/conformance-gate.js';
 import type { VerificationResult } from '../pipeline/verify.js';
 import {
   implementReviewSimplifyStages,
@@ -63,6 +63,7 @@ import { GITHUB_REVIEW_LABEL } from '../github-labels.js';
 import { WorktreeManager } from '../worktree/manager.js';
 import { AgentError, VanguardError, isRateLimitError } from '../core/errors.js';
 import type { GhRunner } from '../tasks/github.js';
+import type { Task } from '../tasks/fetcher.js';
 import type { PullRequestForReview } from './pr-review.js';
 import type { CommandRunner } from '../pipeline/remote-branch.js';
 import type { LlmProxyDep } from '../sandbox/llm-proxy.js';
@@ -234,26 +235,26 @@ async function markReady(
 }
 
 /**
- * Model pinned by a `vanguard:model=<m>` label on the issue the PR body references via a closing
- * keyword or `Part of` (extractTaskIdFromPrBody) — same override as implement's label vs.
- * --provider-model. Best-effort: a PR with no referenced issue, or a lookup that fails (deleted
- * issue, missing scope), must not block the revision — it just leaves --provider-model in place.
+ * Fetch the task for the issue a PR body references via a closing keyword or `Part of`
+ * (extractTaskIdFromPrBody): source for the `vanguard:model=<m>` label override and for the
+ * `<spec_manifest>` its trusted comments may carry. Best-effort: a PR with no referenced issue, or
+ * a lookup that fails (deleted issue, missing scope), must not block the revision — callers get
+ * undefined and fall back to their defaults. Fetched once and shared, so a revise round never makes
+ * two `issue view` round-trips for the same referenced issue.
  */
-async function modelFromSourceIssue(
+async function fetchSourceIssueTask(
   repoSlug: string,
   prBody: string,
   gh: GhRunner,
   log: (line: string) => void,
   prId: string,
-): Promise<string | undefined> {
+): Promise<Task | undefined> {
   const issueTaskId = extractTaskIdFromPrBody(prBody);
   if (issueTaskId === undefined) return undefined;
   try {
-    const task = await new GitHubTaskFetcher(repoSlug, gh).fetch(issueTaskId);
-    return modelFromLabels(task.labels, (label) =>
-      log(`revise-pr ${prId}: ignoring malformed model label ${JSON.stringify(label)} on ${issueTaskId}`));
+    return await new GitHubTaskFetcher(repoSlug, gh).fetch(issueTaskId);
   } catch (err) {
-    log(`revise-pr ${prId}: could not read labels on ${issueTaskId} (${err instanceof Error ? err.message : String(err)})`);
+    log(`revise-pr ${prId}: could not read ${issueTaskId} (${err instanceof Error ? err.message : String(err)})`);
     return undefined;
   }
 }
@@ -362,7 +363,11 @@ export async function runRevisePullRequest(prRef: string, deps: ReviseGithubPrDe
     return { pr, addressed: 0, committed: false, pushed: false, undrafted: false };
   }
 
-  const labelModel = await modelFromSourceIssue(target.repoSlug, pr.body, gh, log, `${target.repoSlug}#${target.number}`);
+  const sourceIssueTask = await fetchSourceIssueTask(target.repoSlug, pr.body, gh, log, `${target.repoSlug}#${target.number}`);
+  const labelModel = sourceIssueTask !== undefined
+    ? modelFromLabels(sourceIssueTask.labels, (label) =>
+        log(`revise-pr ${target.repoSlug}#${target.number}: ignoring malformed model label ${JSON.stringify(label)} on ${sourceIssueTask.id}`))
+    : undefined;
   if (labelModel !== undefined) {
     log(`revise-pr ${target.repoSlug}#${target.number}: pins the implementer model to ${labelModel} via label (overrides --provider-model)`);
   }
@@ -648,13 +653,26 @@ export async function runRevisePullRequest(prRef: string, deps: ReviseGithubPrDe
           closeIssueOnMerge,
           ...(verificationFailed ? { verificationFailed: true } : {}),
         });
+        // One verdict, re-evaluated against the real, current PR body: a human may have discharged a
+        // required prBody item (e.g. pasted the CI yaml the diff can't carry) by editing it between
+        // rounds. prBody items never depend on the diff (conformance-gate.ts) — unlike the first
+        // delivery's full manifest check, there is no cumulative base-branch diff available here
+        // (WorktreeManager.diff is this round's diff against the PR head, not against base), so only
+        // the prBody slice of the manifest is re-checked. No manifest resolved (no referenced issue,
+        // untrusted/absent spec) carries the existing block forward verbatim, same as before.
+        const manifest = sourceIssueTask !== undefined
+          ? parseSpecManifest(trustedSpecText(sourceIssueTask, { allowedAuthors: deps.feedbackAuthors, issueAuthor: sourceIssueTask.author }))
+          : undefined;
+        const prBodyDischarged = manifest?.prBody !== undefined
+          && checkConformance({ prBody: manifest.prBody }, '', pr.body).missingPrBody.length === 0;
         // reviewRequestBody only ever rebuilds the closing-keyword section; it knows nothing about the
         // `## Gate config changed` block the first delivery (or an earlier round) wrote into the body.
         // Carry it forward verbatim — otherwise this re-derivation silently drops the disclosure of a
         // weakening the gate already flagged (the label survives; the human-readable evidence would not).
-        // Same for the required-PR-body-item block: it is the only record of a hand-applied obligation,
-        // and holds whatever a human pasted into it.
-        const newBody = [rederived, extractGateConfigBlock(pr.body), extractPrBodyItemsBlock(pr.body)]
+        // The required-PR-body-item block is carried forward too, but only while still unmet — it holds
+        // whatever a human pasted into it, and a discharged item must stop forcing partial scope rather
+        // than being re-attached forever.
+        const newBody = [rederived, extractGateConfigBlock(pr.body), prBodyDischarged ? undefined : extractPrBodyItemsBlock(pr.body)]
           .filter((s): s is string => s !== undefined)
           .join('\n\n');
         if (newBody !== pr.body) {

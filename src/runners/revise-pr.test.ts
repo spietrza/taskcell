@@ -1574,6 +1574,50 @@ describe('runRevisePullRequest — revise-pass verification', () => {
     expect(body).toContain(itemsBlock);
   });
 
+  it('drops the required-PR-body-item block once the manifest-declared content is present (discharged)', async () => {
+    const editBodies: string[] = [];
+    const itemsBlock = prBodyGapWarningBlock([{ id: 'PR-1', contains: 'name: gate' }])
+      .replace('<!-- vanguard:pr-body-items:end -->', '```yaml\nname: gate\n```\n<!-- vanguard:pr-body-items:end -->');
+    const prBody = ['Part of o/r#42', 'Automated implementation of o/r#42 by Vanguard.', itemsBlock].join('\n\n');
+    const base = makeGh([], editBodies, prBody);
+    const gh: GhRunner = async (args, env) => {
+      if (args[0] === 'issue' && args[1] === 'view') {
+        return JSON.stringify({
+          number: 42,
+          title: 'Issue',
+          body: '',
+          labels: [],
+          comments: [{
+            author: 'maintainer',
+            authorAssociation: 'OWNER',
+            body: '<spec_manifest>{"prBody":[{"id":"PR-1","contains":"name: gate"}]}</spec_manifest>',
+          }],
+        });
+      }
+      return base(args, env);
+    };
+
+    await runRevisePullRequest('7', {
+      repoPath: repo,
+      repoSlug: 'o/r',
+      gh,
+      verifyCmd: VERIFY_CMD,
+      _sandbox: makeSandboxVerify(0),
+      _agent: agentThatCompletes([]),
+      _worktrees: new WorktreeManager(repo),
+      _pushRunner: async () => '',
+      _baseBranch: 'feature-branch',
+      provider: 'claude',
+    });
+
+    const body = editBodies.find((b) => b.includes('o/r#42'));
+    expect(body).toBeDefined();
+    // The manifest's required prBody item is now present in the body a human edited between rounds:
+    // re-evaluating the verdict against it drops the warning — a discharged item no longer forces partial scope.
+    expect(body).not.toContain('Required PR-body item missing');
+    expect(body).not.toContain('vanguard:pr-body-items');
+  });
+
   it('the verify repair resumes on the implementer\'s routed model and turn cap', async () => {
     const agentInputs: AgentRunInput[] = [];
     await runRevisePullRequest('7', {
