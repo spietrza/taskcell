@@ -289,7 +289,15 @@ export type Command =
       provider?: ProviderName;
       llmProxy?: boolean;
     }
-  | { kind: 'stats'; repoPath: string; json: boolean; /** Read the metrics file from this remote branch instead of the local .vanguard/runs. */ branch?: string }
+  | {
+      kind: 'stats';
+      repoPath: string;
+      json: boolean;
+      /** Read the metrics file from this remote branch instead of the local .vanguard/runs. */
+      branch?: string;
+      /** Shadow approver scorecard instead of the cost/token rollup: verdict vs human outcome, per risk class. */
+      approver: boolean;
+    }
   | { kind: 'metrics'; action: 'push'; repoPath: string; branch?: string }
   | { kind: 'approve'; prNumber: number; repoSlug: string; repoPath: string; mode: 'shadow'; json: boolean; dryRun: boolean; branch?: string }
   | { kind: 'memory'; repoPath: string; limit?: number; json: boolean }
@@ -588,6 +596,8 @@ export function parseCli(argv: string[], cwd: string): Command {
         'max-rounds': { type: 'string' },
         // stats / memory / metrics
         json: { type: 'boolean' },
+        // stats --approver: the shadow-verdict-vs-human scorecard instead of the cost/token rollup
+        approver: { type: 'boolean' },
         // stats --branch / metrics push --branch: the orphan branch that holds durable metrics
         branch: { type: 'string' },
         limit: { type: 'string' },
@@ -705,6 +715,7 @@ export function parseCli(argv: string[], cwd: string): Command {
       kind: 'stats',
       repoPath,
       json: values.json === true,
+      approver: values.approver === true,
       ...(typeof values.branch === 'string' ? { branch: values.branch } : {}),
     };
   }
@@ -1327,6 +1338,7 @@ Commands:
   doctor-mrs Check whether watch-mrs can run AFK before any MR is claimed.
   stats  Aggregate .vanguard/runs/metrics.jsonl into a cost/token/time rollup (per task, per stage,
          per model, probe); --branch reads the durable copy from the metrics branch instead.
+         --approver prints the shadow approver scorecard instead (verdict vs human outcome).
   metrics push  Append this checkout's metrics.jsonl lines to the orphan vanguard-metrics branch and
          push, so an ephemeral CI run leaves a durable trace (idempotent; needs push rights).
   approve Compute a deterministic APPROVE/ESCALATE decision for a factory PR from typed facts and the
@@ -1592,6 +1604,11 @@ ${MAX_REPAIR_ITERATIONS_USAGE}
     --branch <name>        Read metrics.jsonl from this remote branch instead (what 'metrics push' wrote;
                            default name: vanguard-metrics)
     --json                 Emit the aggregated report as JSON instead of tables
+    --approver             Shadow approver scorecard instead of the cost/token rollup: per factory PR,
+                           the shadow verdict and reasons next to what the human did, and per risk class
+                           how many APPROVEs were right, how many ESCALATEs the human merged unchanged,
+                           and the current correct-APPROVE streak (needs gh; reads decisions.jsonl from
+                           the metrics branch plus live PR/revert history)
 
   metrics push options:
     --repo <path>          Repo whose .vanguard/runs/metrics.jsonl to persist (default: cwd)
