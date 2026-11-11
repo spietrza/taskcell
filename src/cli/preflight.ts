@@ -346,7 +346,7 @@ export async function runPreflight(cmd: PreflightCommand, opts: PreflightOptions
           ? check(
               SANDBOX_CLI_CHECK,
               false,
-              `image has ${found}, repo pins ${SANDBOX_CLAUDE_VERSION} — run \`vanguard doctor --fix\`, ` +
+              `image has ${found}, repo pins ${SANDBOX_CLAUDE_VERSION} — run \`taskcell doctor --fix\`, ` +
                 `or rebuild with CLAUDE_CLI_VERSION=${SANDBOX_CLAUDE_VERSION} ./docker/build.sh`,
             )
           : check(SANDBOX_CLI_CHECK, true),

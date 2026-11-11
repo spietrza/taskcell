@@ -26,7 +26,7 @@ export interface GitHubIssue {
   body: string | null;
   labels: GitHubLabel[];
   comments?: GitHubComment[];
-  /** Present only when list() requests it (S9 board). */
+  /** Requested by fetch() (the open-state gate) and by list() only when a limit is set (S9 board). */
   state?: string;
   /** Issue author; added to fetch()'s --json field list (never on list(), which fetches no comments either). */
   author?: GitHubCommentAuthor | null;
@@ -58,7 +58,7 @@ export function toTask(repo: string, issue: GitHubIssue): Task {
   }));
   // A future gh that drops the field would turn every non-bot comment untrusted: say it out loud.
   if (comments.length > 0 && (issue.comments ?? []).every((c) => c.authorAssociation === undefined)) {
-    console.warn(`vanguard: ${repo}#${issue.number} — gh returned no authorAssociation on any comment; non-bot comments are treated as untrusted`);
+    console.warn(`taskcell: ${repo}#${issue.number} — gh returned no authorAssociation on any comment; non-bot comments are treated as untrusted`);
   }
   return {
     id: `${repo}#${issue.number}`,
@@ -108,7 +108,9 @@ export class GitHubTaskFetcher implements TaskFetcher {
 
   async fetch(id: string): Promise<Task> {
     const number = issueNumber(id);
-    const out = await this.gh(['issue', 'view', number, '--repo', this.repo, '--json', 'number,title,body,labels,comments,author']);
+    // `state` is requested so callers that fetch an issue by name (watch --issue) can apply the same
+    // open-only gate list() gets from `--state open`.
+    const out = await this.gh(['issue', 'view', number, '--repo', this.repo, '--json', 'number,title,body,labels,comments,author,state']);
     return toTask(this.repo, JSON.parse(out) as GitHubIssue);
   }
 

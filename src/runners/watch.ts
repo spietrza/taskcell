@@ -660,6 +660,13 @@ export interface WatchGithubOptions {
    * is spent (returns no PR). Absent => behaviour is unchanged (no triage, straight to runGithubIssue).
    */
   needsInfoLabel?: string;
+  /**
+   * Run only this issue (owner/repo#n or a bare number) instead of listing every issue carrying the
+   * trigger label(s). Fetched directly — no label-search index lag — and gated exactly as a listed
+   * issue would be: open state, required labels, author trust, and not already claimed by another
+   * run (best effort; the claim is what settles a race).
+   */
+  issueRef?: string;
   concurrency?: number;
   intervalMs?: number;
   once?: boolean;
@@ -710,12 +717,45 @@ async function withTrustedIssueAuthors(
     const verdict = verdicts[i]!;
     if (verdict.trusted) return true;
     if (verdict.error !== undefined) {
-      console.log(`vanguard: ${task.id} skipped -> author lookup failed: ${verdict.error}`);
+      console.log(`taskcell: ${task.id} skipped -> author lookup failed: ${verdict.error}`);
       return false;
     }
-    console.log(`vanguard: ${task.id} skipped -> issue author ${describeIgnoredAuthor(verdict.author || '?', verdict.association)} is not trusted (repo member or --feedback-authors)`);
+    console.log(`taskcell: ${task.id} skipped -> issue author ${describeIgnoredAuthor(verdict.author || '?', verdict.association)} is not trusted (repo member or --feedback-authors)`);
     return false;
   });
+}
+
+/**
+ * Fetch the `--issue`-named issue directly (no label-search index lag) and gate it exactly as a
+ * listed issue would be: it must be open (the sweep's `--state open`), carry the required trigger
+ * label(s), and not already carry `claimedLabel` — another run claimed it first, so this one skips
+ * it with a log line. That skip is best effort: the claim's label swap is what actually catches a
+ * run that claimed between this fetch and the claim. Returns zero or one task; downstream (author
+ * trust, held/rate-limited bookkeeping) treats it identically to a bulk list() result. A failed
+ * fetch is NOT swallowed — it throws, so an unreachable or misnamed issue fails the run instead of
+ * reporting "0 ready".
+ */
+async function fetchHintedIssue(
+  fetcher: { fetch: (id: string) => Promise<Task> },
+  ref: string,
+  requiredLabels: string[],
+  claimedLabel: string,
+): Promise<Task[]> {
+  const task = await fetcher.fetch(ref);
+  if (task.state !== undefined && task.state.toUpperCase() !== 'OPEN') {
+    console.log(`vanguard: ${task.id} skipped -> issue is ${task.state.toLowerCase()}, not open`);
+    return [];
+  }
+  if (task.labels.includes(claimedLabel)) {
+    console.log(`vanguard: ${task.id} skipped -> already "${claimedLabel}" (claimed by another run)`);
+    return [];
+  }
+  const missing = requiredLabels.filter((label) => !task.labels.includes(label));
+  if (missing.length > 0) {
+    console.log(`vanguard: ${task.id} skipped -> missing label${missing.length > 1 ? 's' : ''} ${missing.map((label) => `"${label}"`).join(', ')}`);
+    return [];
+  }
+  return [task];
 }
 
 /** GitHub-issue primitives: trigger by label, claim/review by swapping labels (issues have no states). */
@@ -731,7 +771,11 @@ export function githubIssueWatchPrimitives(opts: WatchGithubOptions): WatchPrimi
   const rateLimitedBefore = new Set<string>();
   return {
     listReady: async () => {
-      const tasks = await withTrustedIssueAuthors(repo, await fetcher.list({ labels: agentLabels }), opts.deps.feedbackAuthors, opts.gh);
+      const listed =
+        opts.issueRef !== undefined
+          ? await fetchHintedIssue(fetcher, opts.issueRef, agentLabels, opts.claimedLabel)
+          : await fetcher.list({ labels: agentLabels });
+      const tasks = await withTrustedIssueAuthors(repo, listed, opts.deps.feedbackAuthors, opts.gh);
       heldBefore.clear();
       for (const task of tasks) if (task.labels.includes(GITHUB_SECRET_BLOCKED_LABEL)) heldBefore.add(task.id);
       rateLimitedBefore.clear();
@@ -821,6 +865,12 @@ export interface WatchGithubSpecOptions {
   agentLabel: string;
   /** Label added when triage flags the ticket as too vague, e.g. 'vanguard:needs-info'. */
   needsInfoLabel: string;
+  /**
+   * Run only this issue (owner/repo#n or a bare number) instead of listing every issue carrying the
+   * spec trigger label(s). Same gating as `WatchGithubOptions.issueRef`, against the spec claimed
+   * label (e.g. 'vanguard:speccing').
+   */
+  issueRef?: string;
   gh?: GhRunner;
   /** Injected for tests so the spec pass runs without a sandbox. Defaults to the real generator. */
   generateSpec?: GenerateSpec;
@@ -837,8 +887,13 @@ export function githubSpecPrimitives(opts: WatchGithubSpecOptions): SpecWatchPri
   const generate = opts.generateSpec ?? runSpecGenerator;
   const specLabels = opts.ownerLabel !== undefined ? [opts.ownerLabel, opts.specLabel] : [opts.specLabel];
   return {
-    listReady: async () =>
-      (await withTrustedIssueAuthors(repo, await fetcher.list({ labels: specLabels }), opts.deps.feedbackAuthors, opts.gh)).map((task) => ({ id: task.id })),
+    listReady: async () => {
+      const listed =
+        opts.issueRef !== undefined
+          ? await fetchHintedIssue(fetcher, opts.issueRef, specLabels, opts.claimedLabel)
+          : await fetcher.list({ labels: specLabels });
+      return (await withTrustedIssueAuthors(repo, listed, opts.deps.feedbackAuthors, opts.gh)).map((task) => ({ id: task.id }));
+    },
     claim: (id) => editGithubLabels(repo, id, { remove: [opts.specLabel], add: [opts.claimedLabel] }, opts.gh),
     runSpec: async (id) => {
       const task = await fetcher.fetch(id);
@@ -987,7 +1042,7 @@ export function githubProjectWatchPrimitives(opts: WatchGithubProjectOptions): W
         // The run path (runGithubIssue) is pinned to the watched repo: a foreign item would run
         // <repo>#<number>, an issue nobody selected. Skip it and say so.
         if (itemRepo.toLowerCase() !== repo.toLowerCase()) {
-          if (item.status === opts.triggerStatus) console.warn(`vanguard: project item ${itemRepo}#${content.number} belongs to another repository than ${repo}; skipped`);
+          if (item.status === opts.triggerStatus) console.warn(`taskcell: project item ${itemRepo}#${content.number} belongs to another repository than ${repo}; skipped`);
           continue;
         }
         const issueRef = `${itemRepo}#${content.number}`;

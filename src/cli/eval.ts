@@ -129,7 +129,7 @@ export async function evalCommand(
         ? await readLatest(cmd.repoPath, branchOpts)
         : parseBaselineFile(cmd.baseline, await readBaselineFile(cmd.baseline));
     if (baselineReport === undefined) {
-      console.error(`vanguard eval: no baseline found for "${cmd.baseline}"`);
+      console.error(`taskcell eval: no baseline found for "${cmd.baseline}"`);
       process.exitCode = 1;
     } else {
       comparison = compareToBaseline(runReport, baselineReport, {
@@ -142,7 +142,7 @@ export async function evalCommand(
 
   if (cmd.saveBaseline === true) {
     const saved = await save(cmd.repoPath, runReport, branchOpts);
-    console.log(`vanguard eval: saved baseline for ${saved.commit.slice(0, 7)}`);
+    console.log(`taskcell eval: saved baseline for ${saved.commit.slice(0, 7)}`);
   }
 
   if (cmd.json) {

@@ -15,7 +15,7 @@ export async function statsCommand(cmd: StatsCommand): Promise<void> {
   if (cmd.branch !== undefined) {
     text = await readBranchMetrics(cmd.repoPath, { branch: cmd.branch });
     if (text === '') {
-      console.log(`No metrics on branch ${cmd.branch} — has \`vanguard metrics push\` run yet?`);
+      console.log(`No metrics on branch ${cmd.branch} — has \`taskcell metrics push\` run yet?`);
       return;
     }
   } else {

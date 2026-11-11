@@ -57,7 +57,7 @@ export function decisionModelConfig(
     // Refused, not warned: the state (issue text, diff) and any bearer token would cross the network
     // unencrypted. Loopback, private/Tailscale addresses and dotless LAN names stay allowed.
     if (isPlainHttpOffHost(url)) {
-      console.warn(`vanguard: ${PLAIN_HTTP_REFUSED} — disabled`);
+      console.warn(`taskcell: ${PLAIN_HTTP_REFUSED} — disabled`);
       return undefined;
     }
     return { url, model, ...(token !== undefined ? { token } : {}) };
@@ -66,7 +66,7 @@ export function decisionModelConfig(
   const token = env['CLOUDFLARE_AUTH_TOKEN'];
   if (account === undefined || account === '' || token === undefined || token === '') return undefined;
   if (!WORKERS_AI_MODELS.has(model)) {
-    console.warn(`vanguard: decision model "${model}" is not a Workers AI decision model (clef, clef-flash) — disabled`);
+    console.warn(`taskcell: decision model "${model}" is not a Workers AI decision model (clef, clef-flash) — disabled`);
     return undefined;
   }
   return {
@@ -193,7 +193,7 @@ export async function decide(
           await new Promise((r) => setTimeout(r, RETRY_BACKOFF_MS));
           continue;
         }
-        console.warn(`vanguard: ${label} failed (HTTP ${res.status}${detail}) — check the decision-model credentials/model`);
+        console.warn(`taskcell: ${label} failed (HTTP ${res.status}${detail}) — check the decision-model credentials/model`);
         return undefined;
       }
       // A malformed success body is not transient: no retry, just the "no answers" path.
@@ -202,7 +202,7 @@ export async function decide(
       const answers = inner.answers;
       // `typeof null === 'object'` — a `{answers: null}` envelope must not reach the callers' indexing.
       if (answers === undefined || answers === null || typeof answers !== 'object' || Array.isArray(answers)) {
-        console.warn(`vanguard: ${label} returned no answers${errorDetail(parsed)} — is the endpoint System-One compatible?`);
+        console.warn(`taskcell: ${label} returned no answers${errorDetail(parsed)} — is the endpoint System-One compatible?`);
         return undefined;
       }
       const inputTokens = num(inner.usage?.input_tokens);
@@ -218,7 +218,7 @@ export async function decide(
         await new Promise((r) => setTimeout(r, RETRY_BACKOFF_MS));
         continue;
       }
-      console.warn(`vanguard: ${label} failed (${err instanceof Error ? err.name : 'error'})`);
+      console.warn(`taskcell: ${label} failed (${err instanceof Error ? err.name : 'error'})`);
       return undefined;
     }
   }

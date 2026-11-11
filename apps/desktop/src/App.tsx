@@ -255,7 +255,7 @@ export default function App() {
           className="shrink-0 border-b border-destructive/40 bg-destructive/10 px-4 py-2 text-sm text-destructive"
         >
           This tab has no valid hub token (the hub restarted, or the page was opened without its launch
-          URL) — open the URL `vanguard hub` printed to reconnect.
+          URL) — open the URL `taskcell hub` printed to reconnect.
         </div>
       )}
       {!hubRestarted && hubConnectionIssue && (

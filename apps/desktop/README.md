@@ -46,7 +46,7 @@ no URL routing needed.
 
 ## Hub mode
 
-This same frontend also runs with no Tauri runtime at all, served by `vanguard hub` over plain
+This same frontend also runs with no Tauri runtime at all, served by `taskcell hub` over plain
 HTTP/SSE (see `../../docs/hub.md`). `src/transport.ts` is the seam: every `invoke`/`listen` call goes
 through `invoke()`/`subscribe()`, which pick Tauri's IPC or the hub's `POST /rpc/<cmd>` + `/events` SSE
 stream depending on `window.__VANGUARD_HUB__ === true` — the marker the hub injects into `index.html`
@@ -67,7 +67,7 @@ the hub invalidates an already-open page — the UI says so; open the new launch
 
 ```bash
 pnpm --dir apps/desktop build          # emits apps/desktop/dist, which the hub serves
-vanguard hub --repo /path/to/your/repo # from the repo root; prints the launch URL it opened
+taskcell hub --repo /path/to/your/repo # from the repo root; prints the launch URL it opened
 ```
 
 Reaching the hub under a hostname other than loopback or an IP literal needs that Host allowed —
@@ -107,7 +107,7 @@ the test immediately.
 - **Per-project screens** (Inspector sub-nav) — **Runs · Board · Fleet · Remote · Workflow · Settings**:
   - **Task board** — tasks from the configured source (`linear`/`gh`) bucketed into lifecycle columns;
     card → **Task/spec detail** (source spec + run history + New Run). Best-effort (auth-dependent).
-  - **Fleet** — Watch Loop start/stop, concurrency, Loop-v1, slot meter (spawns `vanguard watch`).
+  - **Fleet** — Watch Loop start/stop, concurrency, Loop-v1, slot meter (spawns `taskcell watch`).
   - **Workflow** — visual block composer over `.vanguard/app.json` (blocks + inspector + Canvas/Source HCL).
   - **Settings** — the `.vanguard/app.json` config form (source, label, provider, verify, concurrency, budget).
 - **Rich output** — markdown rendering, `highlight.js` code/JSON blocks, agent `<plan>`/`<findings>`/

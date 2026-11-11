@@ -434,7 +434,7 @@ async function writeRecord(repoPath: string, taskId: string, timestamp: string, 
   await writeFile(file, `${JSON.stringify(record, null, 2)}\n`);
   if (diffOmitted === 'secret-scan') {
     // Visible in the job log too, so a scan false positive on a green run does not vanish silently.
-    console.error(`vanguard: run record ${taskId}${suffix}: diff, bundle and transcript withheld (secret-scan)`);
+    console.error(`taskcell: run record ${taskId}${suffix}: diff, bundle and transcript withheld (secret-scan)`);
   }
   if (diffOmitted === undefined) {
     // The transcript is raw agent output: tool results can echo env or config (a `cat` of the Codex
@@ -609,7 +609,7 @@ export async function persistStageOutcomes(
 
 /**
  * Append one `{ evt: 'decision_probe', ts, taskId, ... }` line to metrics.jsonl — the log-only
- * difficulty probe, joined to the stage outcomes by taskId in `vanguard stats`. Independent of
+ * difficulty probe, joined to the stage outcomes by taskId in `taskcell stats`. Independent of
  * `beginRun`: the probe runs (and may fail) before a run's timestamp is otherwise needed.
  */
 export async function persistDecisionProbe(

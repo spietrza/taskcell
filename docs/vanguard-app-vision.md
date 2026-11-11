@@ -13,7 +13,7 @@ cycle later.
 ## Problem
 
 Today the desktop app's "New run" is effectively **"Run Vanguard in CLI"**: a single
-raw `<Textarea>` holding a `vanguard run …` command string. The user must already
+raw `<Textarea>` holding a `taskcell run …` command string. The user must already
 know Vanguard's CLI surface — args aren't proposed, aren't validated, aren't
 discoverable in the UI. There is no real API; the desktop shells out to the `vanguard`
 CLI via `sh -c "<cmd>"` and parses stdout.
