@@ -412,7 +412,9 @@ export async function dispatchRpc(ctx: RpcContext, cmd: string, rawArgs: unknown
       if (repoSlug === undefined) throw new BadRequestError('reply_needs_you: this project has no GitHub remote');
       // The slug comes from the allowlisted repo, never from `id` — `replyNeedsYou` refuses an `id`
       // naming any other repo, so a reply can only ever touch a registered project.
-      await replyNeedsYou(repoSlug, id, kind, body);
+      // The repo's configured trigger label (app.json `label`, as api_create_task applies), else the default.
+      const { label } = await readAppConfig(real);
+      await replyNeedsYou(repoSlug, id, kind, body, undefined, label?.trim() ? label : undefined);
       return null;
     }
     case 'enable_factory_plan': {

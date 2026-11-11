@@ -1,13 +1,13 @@
 import { useEffect, useState } from 'react';
 import { isTauri } from '@tauri-apps/api/core';
-import { Button, Card, Chip, Textarea } from '@/ui';
-import { RefreshCw } from 'lucide-react';
+import { Button, Card, Chip, Empty, Textarea } from '@/ui';
+import { MessageCircleQuestionMark, RefreshCw } from 'lucide-react';
 import { listNeedsYou, replyNeedsYou, type NeedsYouItem } from '../../ipc';
 import { isHubMode } from '../../transport';
 
-/** `list_needs_you`/`reply_needs_you` are HUB_ONLY (no Tauri command); the browser dev build serves them from the mock. */
+/** `list_needs_you`/`reply_needs_you` are HUB_ONLY (no Tauri command); only the browser dev build's mock serves them outside the hub. */
 export function canUseNeedsYou(): boolean {
-  return isHubMode() || !isTauri();
+  return isHubMode() || (import.meta.env.DEV && !isTauri());
 }
 
 function ReplyBox({ project, item, onReplied }: { project: string; item: NeedsYouItem; onReplied: () => void }) {
@@ -39,10 +39,15 @@ function ReplyBox({ project, item, onReplied }: { project: string; item: NeedsYo
         rows={3}
       />
       <div className="flex items-center gap-2">
-        <Button disabled={sending || body.trim() === ''} onClick={() => void send()}>
+        {/* Outlined: the screen has one Reply per item, so none of them is the screen's primary action. */}
+        <Button variant="outlined" disabled={sending || body.trim() === ''} onClick={() => void send()}>
           {sending ? 'Sending…' : 'Reply'}
         </Button>
-        {error && <span className="text-xs text-destructive">{error}</span>}
+        {error && (
+          <span role="alert" className="text-xs text-destructive-text">
+            Reply not sent: {error}. Refresh — the item may no longer be waiting.
+          </span>
+        )}
       </div>
     </div>
   );
@@ -75,21 +80,35 @@ export function NeedsYou({ project }: { project: string }) {
     <div className="mx-auto w-full max-w-3xl space-y-3 overflow-y-auto">
       <div className="flex items-center gap-3">
         <h2 className="font-semibold">Needs you</h2>
+        {/* Announces the count when it changes, e.g. after a reply or a refresh finds new items. */}
+        <span role="status" className="text-xs tabular-nums text-muted-foreground">
+          {items === null ? '' : `${items.length} waiting`}
+        </span>
         <Button className="ml-auto" variant="text" color="secondary" onClick={reload} startIcon={<RefreshCw className="size-4" />}>
           Refresh
         </Button>
       </div>
       {error && (
-        <div className="rounded border border-border bg-muted/30 px-3 py-2 text-sm text-muted-foreground">{error}</div>
+        <div role="alert" className="rounded border border-destructive/40 bg-destructive/10 px-3 py-2 text-sm text-destructive">
+          Could not load what the factory is waiting on: {error}. Check the hub's `gh` login, then Refresh.
+        </div>
       )}
       {items === null && !error && <div className="text-sm text-muted-foreground">Loading…</div>}
-      {items?.length === 0 && <div className="text-sm text-muted-foreground">Nothing is waiting on you.</div>}
+      {items?.length === 0 && (
+        <Empty.Root>
+          <Empty.Media>
+            <MessageCircleQuestionMark />
+          </Empty.Media>
+          <Empty.Title>Nothing needs you</Empty.Title>
+          <Empty.Description>The factory is not waiting on an answer for any Task or PR in this project.</Empty.Description>
+        </Empty.Root>
+      )}
       {items?.map((item) => (
         <Card.Root key={item.id}>
           <Card.Content className="space-y-2 p-4">
             <div className="flex items-center gap-2">
               <Chip color="secondary" variant="outlined">
-                {item.kind === 'pr' ? 'PR' : 'Issue'} #{item.number}
+                {item.kind === 'pr' ? 'PR' : 'Task'} <span className="font-mono tabular-nums">#{item.number}</span>
               </Chip>
               <Chip color="warning" variant="outlined">
                 {item.reason}

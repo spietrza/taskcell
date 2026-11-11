@@ -83,6 +83,8 @@ describe('listNeedsYou', () => {
         { number: 2, title: 'B', url: 'u2', labels: [{ name: 'vanguard:verify-failed' }] },
         { number: 3, title: 'C', url: 'u3', labels: [], reviewDecision: 'CHANGES_REQUESTED' },
         { number: 4, title: 'D', url: 'u4', labels: [], reviewDecision: 'APPROVED' },
+        // Already handed back to the factory (a reply added `needs revision`): not waiting on a human.
+        { number: 5, title: 'E', url: 'u5', labels: [{ name: 'vanguard:needs-human-review' }, { name: NEEDS_REVISION_LABEL }] },
       ],
     });
     const items = await listNeedsYou('o/r', gh);
@@ -120,23 +122,26 @@ describe('listNeedsYou', () => {
     for (const list of calls) expect(list.some((arg) => arg === '--label' || arg === '--search')).toBe(true);
   });
 
-  it('bounds the concurrent comment fetches', async () => {
+  it('bounds the concurrent and the total comment fetches', async () => {
+    let fetches = 0;
     let inFlight = 0;
     let peak = 0;
     const base = stubGh({
       issueList: [],
-      prList: Array.from({ length: 12 }, (_, i) => ({ number: i + 1, title: 't', url: 'u', labels: [], reviewDecision: 'CHANGES_REQUESTED' })),
+      prList: Array.from({ length: 35 }, (_, i) => ({ number: i + 1, title: 't', url: 'u', labels: [], reviewDecision: 'CHANGES_REQUESTED' })),
     });
     const gh: GhRunner = async (args) => {
       if (args[1] !== 'view') return base(args);
+      fetches += 1;
       inFlight += 1;
       peak = Math.max(peak, inFlight);
       await new Promise((resolve) => setTimeout(resolve, 1));
       inFlight -= 1;
       return base(args);
     };
-    expect(await listNeedsYou('o/r', gh)).toHaveLength(12);
+    expect(await listNeedsYou('o/r', gh)).toHaveLength(35);
     expect(peak).toBeLessThanOrEqual(4);
+    expect(fetches).toBe(30);
   });
 
   it('omits lastComment when the factory never commented', async () => {
@@ -180,6 +185,26 @@ describe('listNeedsYou', () => {
 
   it('rejects a slug that is not owner/repo', async () => {
     await expect(listNeedsYou('--repo=evil', stubGh({}))).rejects.toThrow(/Invalid repo slug/);
+    await expect(listNeedsYou('-L/x', stubGh({}))).rejects.toThrow(/Invalid repo slug/);
+  });
+
+  it('keeps an item whose comment fetch fails, without its lastComment', async () => {
+    const base = stubGh({
+      issueList: [],
+      prList: [
+        { number: 1, title: 'A', url: 'u1', labels: [], reviewDecision: 'CHANGES_REQUESTED' },
+        { number: 2, title: 'B', url: 'u2', labels: [], reviewDecision: 'CHANGES_REQUESTED' },
+      ],
+      comments: { 'pr#2': [{ author: { login: 'vanguard-bot' }, body: 'why?' }] },
+    });
+    const gh: GhRunner = async (args) => {
+      if (args[1] === 'view' && args[2] === '1') throw new Error('HTTP 502');
+      return base(args);
+    };
+    const items = await listNeedsYou('o/r', gh);
+    expect(items.map((i) => i.number)).toEqual([1, 2]);
+    expect(items[0]?.lastComment).toBeUndefined();
+    expect(items[1]?.lastComment?.body).toBe('why?');
   });
 });
 
@@ -238,6 +263,24 @@ describe('replyNeedsYou', () => {
     const gh = stubGh({ issueView: { state: 'CLOSED', labels: [{ name: DEFAULT_GITHUB_NEEDS_INFO_LABEL }] } }, calls);
     await expect(replyNeedsYou('o/r', 'o/r#7', 'issue', 'too late', gh)).rejects.toThrow(/not waiting/);
     expect(calls.some((c) => c[0] === 'issue' && (c[1] === 'comment' || c[1] === 'edit'))).toBe(false);
+  });
+
+  it('on a needs-info issue: moves it to the repo\'s configured trigger label', async () => {
+    const calls: string[][] = [];
+    const gh = stubGh({ issueView: { state: 'OPEN', labels: [{ name: DEFAULT_GITHUB_NEEDS_INFO_LABEL }] } }, calls);
+    await replyNeedsYou('o/r', 'o/r#7', 'issue', 'context', gh, 'vanguard:go');
+    const edit = calls.find((c) => c[0] === 'issue' && c[1] === 'edit');
+    expect(edit?.slice(-2)).toEqual(['--add-label', 'vanguard:go']);
+  });
+
+  it('on a PR already at needs revision: refuses a second reply', async () => {
+    const calls: string[][] = [];
+    const gh = stubGh(
+      { prView: { state: 'OPEN', labels: [{ name: 'vanguard:needs-human-review' }, { name: NEEDS_REVISION_LABEL }] } },
+      calls,
+    );
+    await expect(replyNeedsYou('o/r', 'o/r#9', 'pr', 'again', gh)).rejects.toThrow(/not waiting/);
+    expect(calls.some((c) => c[0] === 'pr' && (c[1] === 'comment' || c[1] === 'edit'))).toBe(false);
   });
 
   it('on a PR with no waiting signal: makes no label change and throws', async () => {

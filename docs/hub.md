@@ -238,11 +238,36 @@ that runs in this container. If you only ever need read-only access to Docker en
 socket instead of mounting it directly. The [CIS Docker Benchmark](https://www.cisecurity.org/benchmark/docker)
 is the usual reference for "don't mount the docker socket without justification."
 
+## Needs you
+
+The **Needs you** screen (hub only) lists what the factory is waiting on a human for in the current
+project, using `gh` and labels only — no model call (`src/hub/needs-you.ts`):
+
+- Tasks (GitHub issues) at `needs info`.
+- PRs at `vanguard:needs-human-review` or `vanguard:verify-failed`, or with a review requesting
+  changes — unless they already carry `needs revision` (then it is the factory's turn).
+
+Each item shows the factory's own last comment (its `gh` user, the CI identity, or a configured bot
+login), redacted for secrets and rendered as plain text. Every list is filtered on GitHub's side and
+capped at 100; only the first 30 items fetch their last comment, and a failed fetch drops just that
+comment, not the list.
+
+`reply_needs_you` posts the reply as the hub's `gh` user, then hands the item back to the factory:
+a Task moves from `needs info` to the project's trigger label (`label` in `.vanguard/app.json`, else
+`ready for agent`); a PR gets `needs revision`. Either way it leaves the list. An item that is no
+longer waiting is refused with no comment and no label change. The `needs info` label itself is not
+configurable here: a repo that runs the factory with a custom `--needs-info-label` shows no Tasks.
+
+Replies are a remote mutation, gated like `clone_project`: loopback only, unless
+`VANGUARD_HUB_ALLOW_ADD=1`.
+
 ## `gh` auth
 
-The hub shells out to `gh` for the Remote screen (listing GitHub Actions runs) and CI-run import. It
-needs a token with `actions:read` (fine-grained PAT) or classic `repo` scope. Run `gh auth login` or set
-`GH_TOKEN`.
+The hub shells out to `gh` for the Remote screen (listing GitHub Actions runs), CI-run import and
+Needs you. Reading needs a token with `actions:read`, `issues:read` and `pull_requests:read`
+(fine-grained PAT) or classic `repo` scope. Replying from Needs you also needs `issues:write` and
+`pull_requests:write` (comments and labels); with a read-only token a reply fails when it posts the
+comment. Run `gh auth login` or set `GH_TOKEN`.
 
 ## CI run import
 
@@ -288,7 +313,8 @@ taskcell hub [--repo <path>] [--host <addr>] [--port <n>] [--ui-dir <dir>] [--no
 
 A missing or unbuilt `--ui-dir` fails at startup, naming `pnpm --dir apps/desktop build`
 (run `pnpm build:ui`) rather than failing on the first request. Binding a non-loopback host
-prints the no-auth warning above and disables `add_project`/`browse_dirs`/`clone_project` unless
+prints the no-auth warning above and disables `add_project`/`browse_dirs`/`clone_project`,
+`enable_factory_apply`/`enable_factory_verify` and `reply_needs_you` unless
 `VANGUARD_HUB_ALLOW_ADD=1`. `SIGINT`/`SIGTERM` close the listener, every connected SSE client,
 and the project file watchers.
 

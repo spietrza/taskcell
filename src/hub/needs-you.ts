@@ -55,7 +55,7 @@ interface GhPrLite extends GhIssueLite {
 }
 
 /** `owner/repo`, the only shape that may reach a `--repo` flag: no leading `-`, no path traversal. */
-const REPO_SLUG_RE = /^[A-Za-z0-9._-]+\/[A-Za-z0-9._-]+$/;
+const REPO_SLUG_RE = /^[A-Za-z0-9._][A-Za-z0-9._-]*\/[A-Za-z0-9._-]+$/;
 
 function assertRepoSlug(repoSlug: string): void {
   if (!REPO_SLUG_RE.test(repoSlug)) throw new VanguardError(`Invalid repo slug: ${repoSlug}`);
@@ -97,9 +97,13 @@ async function lastOwnComment(
   return { author: last.author?.login ?? '', body: redactForPublish(last.body ?? '') };
 }
 
-/** Why a PR waits for a human, or undefined if it doesn't (the acceptance-criteria vocabulary). */
+/**
+ * Why a PR waits for a human, or undefined if it doesn't (the acceptance-criteria vocabulary).
+ * A PR at `needs revision` is the factory's turn — a human (or a hub reply) already asked for one.
+ */
 function prReason(pr: { labels: GhLabelLite[]; reviewDecision?: string | null }): string | undefined {
   const labels = new Set(pr.labels.map((l) => l.name));
+  if (labels.has(NEEDS_REVISION_LABEL)) return undefined;
   if (labels.has(GITHUB_REVIEW_LABEL)) return GITHUB_REVIEW_LABEL;
   if (labels.has(GITHUB_VERIFY_FAILED_LABEL)) return GITHUB_VERIFY_FAILED_LABEL;
   if (pr.reviewDecision === 'CHANGES_REQUESTED') return 'changes requested';
@@ -112,6 +116,8 @@ const PR_FIELDS = 'number,title,url,labels,reviewDecision';
 const DEFAULT_LIST_LIMIT = 100;
 /** Concurrent `gh … view --json comments` calls per list — one per waiting item, bounded. */
 const COMMENT_FETCH_CONCURRENCY = 4;
+/** Only the first this-many waiting items get `lastComment`: the rest are listed without it, to spare the API quota the factory shares. */
+const MAX_COMMENT_FETCHES = 30;
 
 /** Builds a `NeedsYouItem` shared by issues and PRs — the two only differ in `kind` and `reason`. */
 function toItem(
@@ -136,8 +142,9 @@ function toItem(
 /**
  * List the items of `repoSlug` waiting for a human: issues at `needs info`, and PRs at
  * `vanguard:needs-human-review`/`vanguard:verify-failed` or with a review requesting changes.
- * Uses the default labels: the hub has no config for `--needs-info-label`/`--agent-label`, so a
- * repo running the factory with custom labels shows no issues here.
+ * Uses the default `needs info` label: the hub has no config for `--needs-info-label`, so a repo
+ * running the factory with a custom one shows no issues here. A failed comment fetch drops only that
+ * item's `lastComment`, never the list.
  */
 export async function listNeedsYou(
   repoSlug: string,
@@ -147,10 +154,11 @@ export async function listNeedsYou(
   assertRepoSlug(repoSlug);
   const scope = ['--repo', repoSlug, '--state', 'open', '-L', String(opts.limit ?? DEFAULT_LIST_LIMIT)];
   // Every list is filtered server-side, so `-L` caps waiting items only — never unrelated open PRs.
+  const notRevising = `-label:"${NEEDS_REVISION_LABEL}"`;
   const [issuesOut, labelledPrsOut, changesPrsOut] = await Promise.all([
     gh(['issue', 'list', ...scope, '--label', DEFAULT_GITHUB_NEEDS_INFO_LABEL, '--json', ISSUE_FIELDS]),
-    gh(['pr', 'list', ...scope, '--search', `label:"${GITHUB_REVIEW_LABEL}","${GITHUB_VERIFY_FAILED_LABEL}"`, '--json', PR_FIELDS]),
-    gh(['pr', 'list', ...scope, '--search', 'review:changes_requested', '--json', PR_FIELDS]),
+    gh(['pr', 'list', ...scope, '--search', `label:"${GITHUB_REVIEW_LABEL}","${GITHUB_VERIFY_FAILED_LABEL}" ${notRevising}`, '--json', PR_FIELDS]),
+    gh(['pr', 'list', ...scope, '--search', `review:changes_requested ${notRevising}`, '--json', PR_FIELDS]),
   ]);
   // A PR can match both searches; keep it once.
   const prs = new Map<number, GhPrLite>();
@@ -173,13 +181,13 @@ export async function listNeedsYou(
 
   const own = await ownLogins(gh, opts.botLogins ?? []);
   const outcomes = await fanOut(
-    waiting,
-    async ({ kind, raw, reason }) => toItem(repoSlug, kind, raw, reason, await lastOwnComment(repoSlug, kind, raw.number, own, gh)),
+    waiting.slice(0, MAX_COMMENT_FETCHES),
+    ({ kind, raw }) => lastOwnComment(repoSlug, kind, raw.number, own, gh),
     { concurrency: COMMENT_FETCH_CONCURRENCY },
   );
-  return outcomes.map((outcome) => {
-    if (outcome.status === 'rejected') throw outcome.reason;
-    return outcome.value;
+  return waiting.map(({ kind, raw, reason }, i) => {
+    const outcome = outcomes[i];
+    return toItem(repoSlug, kind, raw, reason, outcome?.status === 'fulfilled' ? outcome.value : undefined);
   });
 }
 
@@ -216,10 +224,10 @@ async function prIsWaiting(repoSlug: string, number: string, gh: GhRunner): Prom
 /**
  * Post `body` as the caller's own comment on `id` — an item of `repoSlug`, never of the repo the
  * `id` itself names — then move it on to the factory's next trigger label: `needs info` ->
- * `ready for agent` for an issue, or `needs revision` added for a PR. Refuses (no comment, no label
+ * `agentLabel` (the repo's configured trigger, default `ready for agent`) for an issue, or
+ * `needs revision` added for a PR. Either way the item leaves the list. Refuses (no comment, no label
  * change) when the item is no longer in a waiting state, so a stale read model cannot relabel it.
  * The check and the writes are separate `gh` calls: two concurrent replies can both pass it.
- * A PR reply only adds `needs revision`; its waiting label stays, so it remains listed until cleared.
  */
 export async function replyNeedsYou(
   repoSlug: string,
@@ -227,6 +235,7 @@ export async function replyNeedsYou(
   kind: 'issue' | 'pr',
   body: string,
   gh: GhRunner = defaultGhRunner,
+  agentLabel: string = DEFAULT_GITHUB_AGENT_LABEL,
 ): Promise<void> {
   assertRepoSlug(repoSlug);
   const number = itemNumber(repoSlug, id);
@@ -236,8 +245,8 @@ export async function replyNeedsYou(
       throw new VanguardError(`${id} is not waiting for a reply (no longer labelled "${DEFAULT_GITHUB_NEEDS_INFO_LABEL}").`);
     }
     await commentGithubIssue(repoSlug, number, body, gh);
-    await ensureLabel(repoSlug, DEFAULT_GITHUB_AGENT_LABEL, gh);
-    await gh(['issue', 'edit', number, '--repo', repoSlug, '--remove-label', DEFAULT_GITHUB_NEEDS_INFO_LABEL, '--add-label', DEFAULT_GITHUB_AGENT_LABEL]);
+    await ensureLabel(repoSlug, agentLabel, gh);
+    await gh(['issue', 'edit', number, '--repo', repoSlug, '--remove-label', DEFAULT_GITHUB_NEEDS_INFO_LABEL, '--add-label', agentLabel]);
     return;
   }
 

@@ -113,9 +113,10 @@ const commandHandlers = {
     runCount: 0, taskCount: 0, totalCostUsd: 0, failedCount: 0, runningCount: 0, runsLast24h: 0,
   }),
   list_needs_you: () => ({ items: waitingNeedsYou }),
-  // A reply moves the item on, so it drops out of the next list — as on a real repo.
-  reply_needs_you: (args) => {
-    waitingNeedsYou = waitingNeedsYou.filter((i) => i.id !== args.id);
+  // A reply hands the item back to the factory (issue: trigger label; PR: `needs revision`), so it
+  // drops out of the next list for either kind — as on a real repo.
+  reply_needs_you: (args: { id?: string } | undefined) => {
+    waitingNeedsYou = waitingNeedsYou.filter((i) => i.id !== args?.id);
   },
   // Hub-only Enable factory flow (EnableFactoryDialog).
   enable_factory_plan: () => factoryPlan,
