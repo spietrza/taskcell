@@ -1,5 +1,6 @@
 import { useEffect, useState, type Dispatch, type SetStateAction } from 'react';
 import { readAppConfigStrict } from './ipc';
+import { errorMessage } from './errors';
 import type { AppConfig } from './vanguard-output';
 
 export interface AsyncState<T> {
@@ -20,7 +21,7 @@ export function useAsync<T>(fn: () => Promise<T>, deps: unknown[]): AsyncState<T
         if (alive) setState({ data, error: null, loading: false });
       })
       .catch((e) => {
-        if (alive) setState({ data: null, error: String(e), loading: false });
+        if (alive) setState({ data: null, error: errorMessage(e), loading: false });
       });
     return () => {
       alive = false;

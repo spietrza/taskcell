@@ -28,3 +28,4 @@ export { Logo } from './Logo';
 // The app's own presentational components, alongside the kit re-exports above.
 export { Markdown } from './Markdown';
 export { ScrollTable } from './ScrollTable';
+export { Timestamp } from './Timestamp';

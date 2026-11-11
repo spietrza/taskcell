@@ -1,6 +1,13 @@
 @import 'tailwindcss';
 @import 'chunks-ui/theme.css';
 
+/* Self-hosted webfonts for the `--font-sans` / `--font-mono` tokens chunks-ui already names — no
+   external CDN, so the app renders correctly offline and on first load. */
+@import '@fontsource/manrope/400.css';
+@import '@fontsource/manrope/500.css';
+@import '@fontsource/manrope/600.css';
+@import '@fontsource/fira-code/400.css';
+
 /* Tailwind v4 excludes node_modules by default — scan chunks-ui's compiled
    components so their utility classes are actually generated. */
 @source './';

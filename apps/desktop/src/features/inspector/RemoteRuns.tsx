@@ -1,21 +1,27 @@
 import { useState } from 'react';
-import { Button, Table, Chip, ScrollTable } from '@/ui';
+import { Button, Table, Chip, ScrollTable, Timestamp } from '@/ui';
 import { Download } from 'lucide-react';
 import { importRemoteRun, listRemoteRuns } from '../../ipc';
 import { useAsync } from '../../hooks';
+import { verdictColor, verdictWord } from '../../status';
 import type { RemoteImport, RemoteRun, RunSource, RunSummary } from '../../vanguard-output';
-
-function when(ts: string): string {
-  return ts.replace('T', ' ').slice(0, 16);
-}
 
 function StatusChip({ r }: { r: RemoteRun }) {
   if (r.status !== 'completed') {
     return <Chip color="warning" variant="outlined">{r.status.replace(/_/g, ' ')}</Chip>;
   }
-  const ok = r.conclusion === 'success';
+  // success/failure is the same verdict the run list calls passed/failed (hub-audit P2 #3); any
+  // other CI conclusion (cancelled, skipped, timed_out…) isn't a binary verdict, so it shows as-is.
+  if (r.conclusion === 'success' || r.conclusion === 'failure') {
+    const ok = r.conclusion === 'success';
+    return (
+      <Chip color={verdictColor(ok)} variant="outlined">
+        {verdictWord(ok)}
+      </Chip>
+    );
+  }
   return (
-    <Chip color={ok ? 'success' : 'destructive'} variant="outlined">
+    <Chip color="secondary" variant="outlined">
       {r.conclusion || 'done'}
     </Chip>
   );
@@ -81,7 +87,9 @@ export function RemoteRuns({
                 {r.title}
               </Table.Cell>
               <Table.Cell className="text-muted-foreground">{r.branch}</Table.Cell>
-              <Table.Cell className="tabular-nums text-muted-foreground">{when(r.createdAt)}</Table.Cell>
+              <Table.Cell className="tabular-nums text-muted-foreground">
+                <Timestamp ms={Date.parse(r.createdAt)} />
+              </Table.Cell>
               <Table.Cell>
                 <StatusChip r={r} />
               </Table.Cell>
@@ -119,10 +127,10 @@ export function RemoteRuns({
                             className="flex w-full cursor-pointer items-center gap-3 py-1.5 text-left hover:bg-muted"
                           >
                             <span className="font-medium">{s.taskId}</span>
-                            <span className="tabular-nums text-muted-foreground">{when(s.timestamp)}</span>
+                            <Timestamp ms={Date.parse(s.timestamp)} className="tabular-nums text-muted-foreground" />
                             <span className="text-muted-foreground">{s.stages.join(', ')}</span>
-                            <Chip color={s.anyFailed ? 'destructive' : 'success'} variant="outlined">
-                              {s.anyFailed ? 'failed' : 'passed'}
+                            <Chip color={verdictColor(!s.anyFailed)} variant="outlined">
+                              {verdictWord(!s.anyFailed)}
                             </Chip>
                           </button>
                         </li>
