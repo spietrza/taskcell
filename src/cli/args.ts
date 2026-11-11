@@ -697,6 +697,11 @@ export function parseCli(argv: string[], cwd: string): Command {
   const maxRepairIterations = parseLimit(values['max-repair-iterations']);
 
   if (positionals[0] === 'stats') {
+    const statsRepo = values['github-repo'];
+    // The slug lands in a `gh api repos/<slug>/...` path, so `..` segments or extra slashes are refused.
+    if (typeof statsRepo === 'string' && (!/^[\w.-]+\/[\w.-]+$/.test(statsRepo) || statsRepo.split('/').some((p) => p === '.' || p === '..'))) {
+      return fail(`stats --github-repo must be owner/repo, got '${statsRepo}'.`);
+    }
     return {
       kind: 'stats',
       repoPath,

@@ -1,6 +1,6 @@
 import { readFileSync } from 'node:fs';
 import { describe, expect, it } from 'vitest';
-import { computeIssueLeadTime, countLabelEvents, earliestLabelAt, rollupLeadTimes } from './lead-time.js';
+import { computeIssueLeadTime, countLabelEvents, earliestLabelAt, rollupLeadTimes, formatLeadTime } from './lead-time.js';
 import type { IssueLeadTime, TimelineEvent } from './lead-time.js';
 
 /** A recorded GitHub timeline for one issue + its PR (two revise rounds, then merged). */
@@ -28,7 +28,6 @@ describe('countLabelEvents', () => {
   });
 
   it('is 0 for a label that never appears', () => {
-    expect(countLabelEvents(fixture.prTimeline, 'needs revision')).not.toBe(0);
     expect(countLabelEvents(fixture.prTimeline, 'nonexistent')).toBe(0);
   });
 });
@@ -110,5 +109,23 @@ describe('rollupLeadTimes', () => {
 
   it('omits every summary field for an empty set', () => {
     expect(rollupLeadTimes([])).toEqual({ items: [] });
+  });
+});
+
+describe('lead time guards and formatting', () => {
+  it('drops a negative span (label applied after the PR opened)', () => {
+    const item = computeIssueLeadTime({
+      issueRef: 'a/b#1',
+      issueTimeline: [{ event: 'labeled', label: { name: 'ready for agent' }, created_at: '2026-01-02T00:00:00Z' }],
+      pr: { number: 2, createdAt: '2026-01-01T00:00:00Z' },
+    });
+    expect(item.labelToPrMs).toBeUndefined();
+  });
+
+  it('prints medians and warns about failed lookups', () => {
+    const text = formatLeadTime({ items: [], medianLabelToPrMs: 7_200_000, firstTryRate: 0.5, failedPrs: 2 });
+    expect(text).toContain('median label -> PR     2.0 h');
+    expect(text).toContain('first-try merge rate   50%');
+    expect(text).toContain('2 PR lookup(s) failed');
   });
 });

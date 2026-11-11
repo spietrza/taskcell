@@ -49,6 +49,7 @@ export async function fetchPrLeadTime(
   const view = JSON.parse(
     await gh(['pr', 'view', String(prNumber), '--repo', repoSlug, '--json', 'number,createdAt,mergedAt,closingIssuesReferences']),
   ) as GhPrLeadView;
+  // Only the first closing issue is measured: one PR, one lead-time record.
   const issueNumber = view.closingIssuesReferences?.[0]?.number;
   if (issueNumber === undefined) return undefined;
 
@@ -71,18 +72,35 @@ export async function fetchPrLeadTime(
   });
 }
 
-/** Lead times for several PRs in one repo, concurrently. A PR that fails to fetch (deleted, no
- * access) or has no closing issue is dropped rather than failing the whole rollup. */
+/** Concurrent `gh` lookups at once: each PR costs three subprocesses, so a large metrics file must
+ * not fan out into hundreds of calls (GitHub secondary rate limits). */
+const FETCH_CONCURRENCY = 6;
+
+/** Lead times for several PRs in one repo, at most FETCH_CONCURRENCY at a time. A PR that fails to
+ * fetch (deleted, no access, rate limited) is counted in `failed` rather than failing the rollup, so
+ * the caller can say the medians come from a partial sample. A PR with no closing issue is skipped. */
 export async function fetchLeadTimes(
   repoSlug: string,
   prNumbers: ReadonlyArray<number>,
   opts: LeadTimeOptions = {},
   gh: GhRunner = defaultGhRunner,
-): Promise<IssueLeadTime[]> {
-  const results = await Promise.all(
-    prNumbers.map((number) => fetchPrLeadTime(repoSlug, number, opts, gh).catch(() => undefined)),
-  );
-  return results.filter((r): r is IssueLeadTime => r !== undefined);
+): Promise<{ items: IssueLeadTime[]; failed: number }> {
+  const items: IssueLeadTime[] = [];
+  let failed = 0;
+  let next = 0;
+  const worker = async (): Promise<void> => {
+    while (next < prNumbers.length) {
+      const number = prNumbers[next++] as number;
+      try {
+        const item = await fetchPrLeadTime(repoSlug, number, opts, gh);
+        if (item !== undefined) items.push(item);
+      } catch {
+        failed++;
+      }
+    }
+  };
+  await Promise.all(Array.from({ length: Math.min(FETCH_CONCURRENCY, prNumbers.length) }, worker));
+  return { items, failed };
 }
 
 /** Distinct PR numbers in `repoSlug` found among `prUrls` (e.g. every `prUrl` recorded in
@@ -104,6 +122,6 @@ export async function leadTimeRollupForPrUrls(
   gh: GhRunner = defaultGhRunner,
 ): Promise<LeadTimeRollup> {
   const prNumbers = prNumbersForRepo(prUrls, repoSlug);
-  const items = await fetchLeadTimes(repoSlug, prNumbers, opts, gh);
-  return rollupLeadTimes(items);
+  const { items, failed } = await fetchLeadTimes(repoSlug, prNumbers, opts, gh);
+  return { ...rollupLeadTimes(items), ...(failed > 0 ? { failedPrs: failed } : {}) };
 }

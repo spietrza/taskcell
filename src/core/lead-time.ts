@@ -44,6 +44,8 @@ export interface LeadTimeRollup {
   medianReviseRounds?: number;
   /** Share of MERGED items that were first-try; undefined when nothing merged yet. */
   firstTryRate?: number;
+  /** PRs whose lookup failed (no access, rate limit); set only when > 0, so the medians are partial. */
+  failedPrs?: number;
 }
 
 const DEFAULT_TRIGGER_LABELS: ReadonlySet<string> = new Set(['ready for agent', 'ready for spec', 'ready for vanguard review']);
@@ -65,7 +67,8 @@ export function countLabelEvents(events: ReadonlyArray<TimelineEvent>, labelName
 function diffMs(laterIso: string, earlierIso: string): number | undefined {
   const later = new Date(laterIso).getTime();
   const earlier = new Date(earlierIso).getTime();
-  return Number.isNaN(later) || Number.isNaN(earlier) ? undefined : later - earlier;
+  // A negative span (label applied after the PR opened, a placeholder timestamp) is not a lead time.
+  return Number.isNaN(later) || Number.isNaN(earlier) || later < earlier ? undefined : later - earlier;
 }
 
 export interface ComputeLeadTimeInput {
@@ -121,4 +124,20 @@ export function rollupLeadTimes(items: ReadonlyArray<IssueLeadTime>): LeadTimeRo
     ...(medianReviseRounds !== undefined ? { medianReviseRounds } : {}),
     ...(firstTryRate !== undefined ? { firstTryRate } : {}),
   };
+}
+
+const hours = (ms: number | undefined): string => (ms === undefined ? '-' : `${(ms / 3_600_000).toFixed(1)} h`);
+
+/** Plain-text LEAD TIME block for `taskcell stats --github-repo`. */
+export function formatLeadTime(rollup: LeadTimeRollup): string {
+  const lines = [
+    'LEAD TIME',
+    `  PRs measured           ${rollup.items.length}`,
+    `  median label -> PR     ${hours(rollup.medianLabelToPrMs)}`,
+    `  median PR -> merge     ${hours(rollup.medianPrToMergeMs)}`,
+    `  median revise rounds   ${rollup.medianReviseRounds ?? '-'}`,
+    `  first-try merge rate   ${rollup.firstTryRate === undefined ? '-' : `${Math.round(rollup.firstTryRate * 100)}%`}`,
+  ];
+  if (rollup.failedPrs !== undefined) lines.push(`  warning: ${rollup.failedPrs} PR lookup(s) failed; medians cover the rest only`);
+  return lines.join('\n');
 }

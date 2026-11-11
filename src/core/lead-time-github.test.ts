@@ -77,13 +77,30 @@ describe('fetchPrLeadTime', () => {
 });
 
 describe('fetchLeadTimes', () => {
-  it('drops a PR whose fetch throws instead of failing the whole batch', async () => {
+  it('counts a PR whose fetch throws and keeps the healthy one', async () => {
     const gh: GhRunner = async (args: string[]): Promise<string> => {
-      if (args.includes('1')) throw new Error('boom');
-      if (args[0] === 'pr') return JSON.stringify({ number: 2, createdAt: '2026-01-01T00:00:00Z', closingIssuesReferences: [] });
+      if (args[0] === 'pr' && args[2] === '1') throw new Error('HTTP 403: rate limited');
+      if (args[0] === 'pr') return JSON.stringify({ number: 2, createdAt: '2026-01-01T00:00:00Z', closingIssuesReferences: [{ number: 9 }] });
       return JSON.stringify([]);
     };
-    expect(await fetchLeadTimes('acme/widgets', [1, 2], {}, gh)).toEqual([]);
+    const { items, failed } = await fetchLeadTimes('acme/widgets', [1, 2], {}, gh);
+    expect(failed).toBe(1);
+    expect(items).toHaveLength(1);
+    expect(items[0]?.prNumber).toBe(2);
+  });
+
+  it('never runs more than six lookups at once', async () => {
+    let active = 0;
+    let peak = 0;
+    const gh: GhRunner = async (args: string[]): Promise<string> => {
+      active++;
+      peak = Math.max(peak, active);
+      await new Promise((r) => setTimeout(r, 2));
+      active--;
+      return args[0] === 'pr' ? JSON.stringify({ number: 1, createdAt: '2026-01-01T00:00:00Z', closingIssuesReferences: [] }) : '[]';
+    };
+    await fetchLeadTimes('acme/widgets', Array.from({ length: 30 }, (_, i) => i + 1), {}, gh);
+    expect(peak).toBeLessThanOrEqual(6);
   });
 });
 
