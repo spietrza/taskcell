@@ -378,6 +378,13 @@ test('reply_needs_you takes the repo from the allowlisted path, never from the i
     .rejects.toThrow("kind must be 'issue' or 'pr'");
 });
 
+test('reply_needs_you enforces mutation permissions before touching GitHub', async () => {
+  const repo = await tmpGitRepo('https://github.com/allowed/repo.git');
+  const { ctx } = await makeCtx(repo, { bind: { isLoopback: false, allowAdd: false } });
+  await expect(dispatchRpc(ctx, 'reply_needs_you', { repoPath: repo, id: 'allowed/repo#1', kind: 'issue', body: 'hi' }))
+    .rejects.toThrow('disabled on a non-loopback bind');
+});
+
 test('list_needs_you is empty on a project with no GitHub remote', async () => {
   const repo = await tmpRepo();
   await execa('git', ['init', '-q', '-b', 'main'], { cwd: repo });

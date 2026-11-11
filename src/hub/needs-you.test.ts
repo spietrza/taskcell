@@ -109,13 +109,35 @@ describe('listNeedsYou', () => {
     expect(commentFetches.map((c) => c[2])).toEqual(['3']);
   });
 
-  it('makes no gh call beyond the two lists when nothing waits', async () => {
+  it('makes no gh call beyond the lists when nothing waits, and filters every list server-side', async () => {
     const calls: string[][] = [];
     await listNeedsYou('o/r', stubGh({ issueList: [], prList: [] }, calls));
     expect(calls.map((c) => c.slice(0, 2))).toEqual([
       ['issue', 'list'],
       ['pr', 'list'],
+      ['pr', 'list'],
     ]);
+    // `-L` must cap waiting items only: no list may fetch unrelated open PRs.
+    for (const list of calls) expect(list.some((arg) => arg === '--label' || arg === '--search')).toBe(true);
+  });
+
+  it('bounds the concurrent comment fetches', async () => {
+    let inFlight = 0;
+    let peak = 0;
+    const base = stubGh({
+      issueList: [],
+      prList: Array.from({ length: 12 }, (_, i) => ({ number: i + 1, title: 't', url: 'u', labels: [], reviewDecision: 'CHANGES_REQUESTED' })),
+    });
+    const gh: GhRunner = async (args) => {
+      if (args[1] !== 'view') return base(args);
+      inFlight += 1;
+      peak = Math.max(peak, inFlight);
+      await new Promise((resolve) => setTimeout(resolve, 1));
+      inFlight -= 1;
+      return base(args);
+    };
+    expect(await listNeedsYou('o/r', gh)).toHaveLength(12);
+    expect(peak).toBeLessThanOrEqual(4);
   });
 
   it('omits lastComment when the factory never commented', async () => {

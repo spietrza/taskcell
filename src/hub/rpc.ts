@@ -344,6 +344,8 @@ export async function dispatchRpc(ctx: RpcContext, cmd: string, rawArgs: unknown
       return { items: repoSlug === undefined ? [] : await listNeedsYou(repoSlug) };
     }
     case 'reply_needs_you': {
+      // Comments under the hub's `gh` identity and adds a trigger label — a remote mutation.
+      assertMutationsAllowed(ctx.bind);
       const real = await ctx.allowlist.assertAllowed(requireString(args, 'repoPath'));
       const id = requireString(args, 'id');
       const kind = requireString(args, 'kind');
