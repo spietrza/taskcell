@@ -254,6 +254,21 @@ suite('DockerSandboxProvider', () => {
     }
   }, 120_000);
 
+  it('lets a non-root run user write $HOME, /workspace and /tmp under a read-only rootfs', async () => {
+    // Like the real image: a non-root USER whose $HOME exists in the image (a tmpfs over it comes up root:root 0755).
+    const dockerfile = 'FROM alpine:3.20\nRUN adduser -D -h /home/agent -u 10001 agent && mkdir -p /workspace && chown agent /workspace\nUSER agent\n';
+    await execa('docker', ['build', '-q', '-t', 'vg-ro-user-test', '-'], { input: dockerfile });
+    const ro = new DockerSandboxProvider({ image: 'vg-ro-user-test', workdir: '/workspace', security: { ...sandboxSecurityOpts({}), readOnlyRootfs: true } });
+    try {
+      await ro.start();
+      const r = await ro.exec('mkdir -p /home/agent/.claude/skills && touch /workspace/f /tmp/f && id -u');
+      expect(r.exitCode, r.stderr).toBe(0);
+      expect(r.stdout.trim()).toBe('10001');
+    } finally {
+      await ro.destroy();
+    }
+  }, 180_000);
+
   it('exposes secrets to commands but keeps them out of docker inspect (tmpfs default)', async () => {
     const sec = new DockerSandboxProvider({ image: 'alpine:3.20', secrets: { VG_SECRET: 'topsecret' } });
     try {
@@ -430,7 +445,7 @@ describe('DockerSandboxProvider buildRunArgs (hardening flags)', () => {
       expect.arrayContaining([
         `/workspace:rw,exec,nosuid,size=${workspace}m`,
         `/home/agent:rw,exec,nosuid,size=${home}m`,
-        `/tmp:rw,exec,nosuid,size=${tmp}m`,
+        `/tmp:rw,exec,nosuid,size=${tmp}m,mode=1777`,
       ]),
     );
   });

@@ -273,7 +273,12 @@ export class DockerSandboxProvider implements IsolatedSandboxProvider {
         [DEFAULT_HOME, tmpfs.home],
         ['/tmp', tmpfs.tmp],
       ] as const;
-      for (const [path, sizeMb] of mounts) args.push('--tmpfs', `${path}:rw,exec,nosuid,size=${sizeMb}m`);
+      // A tmpfs mounted over an image directory comes up root:root 0755, not with the directory's own
+      // owner: /tmp gets its sticky 1777 back here, /workspace and $HOME are chowned to the run user
+      // in start() (its uid is only known once the container runs).
+      for (const [path, sizeMb] of mounts) {
+        args.push('--tmpfs', `${path}:rw,exec,nosuid,size=${sizeMb}m${path === '/tmp' ? ',mode=1777' : ''}`);
+      }
     }
 
     if (this.hasSecrets && this.secretsMode === 'tmpfs') {
@@ -308,6 +313,14 @@ export class DockerSandboxProvider implements IsolatedSandboxProvider {
       this.started = true;
     } catch (cause) {
       throw new SandboxError(`Failed to start container ${this.name}`, { cause });
+    }
+
+    if ({ ...sandboxSecurityOpts(), ...this.config.security }.readOnlyRootfs) {
+      const chown = await execa('docker', ['exec', '-u', '0', this.name, 'chown', await this.containerOwner(), this.workdir, DEFAULT_HOME], { reject: false });
+      if (chown.exitCode !== 0) {
+        await this.destroy();
+        throw new SandboxError(`Failed to hand the read-only sandbox's tmpfs mounts to the run user: ${chown.stderr}`);
+      }
     }
 
     await this.assertClaudeCliCurrent(image);
