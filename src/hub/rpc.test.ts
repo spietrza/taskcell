@@ -164,8 +164,22 @@ describe('dispatchRpc', () => {
     await writeAppConfig(repo, {});
     const result = await dispatchRpc(ctx, 'write_app_config', { repoPath: repo, config: { label: 'x' } });
     expect(result).toBeNull();
-    const cancelResult = await dispatchRpc(ctx, 'api_cancel', {});
+    const cancelResult = await dispatchRpc(ctx, 'api_cancel', { runId: 'run-unknown' });
     expect(cancelResult).toBeNull();
+  });
+
+  test('api_cancel requires a runId instead of falling back to the active run', async () => {
+    const repo = await tmpRepo();
+    const { ctx } = await makeCtx(repo);
+    for (const args of [{}, { runId: 123 }, { runId: null }, { runId: '  ' }]) {
+      await expect(dispatchRpc(ctx, 'api_cancel', args)).rejects.toThrow(/runId is required/);
+    }
+  });
+
+  test('api_queue returns the session queue', async () => {
+    const repo = await tmpRepo();
+    const { ctx } = await makeCtx(repo);
+    expect(await dispatchRpc(ctx, 'api_queue', {})).toEqual([]);
   });
 
   test('T-58 Fleet commands are refused in hub mode', async () => {

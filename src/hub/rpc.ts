@@ -297,8 +297,13 @@ export async function dispatchRpc(ctx: RpcContext, cmd: string, rawArgs: unknown
     case 'api_run_backlog': {
       return ctx.runSession.backlog(requireString(args, 'runId'));
     }
+    case 'api_queue': {
+      return ctx.runSession.queued();
+    }
     case 'api_cancel': {
-      ctx.runSession.cancel();
+      // Required on the hub: with a queue, an id-less "cancel the active run" can hit another
+      // project's run, or the successor promoted after the clicked run ended.
+      ctx.runSession.cancel(requireString(args, 'runId'));
       return null;
     }
     case 'api_create_task': {

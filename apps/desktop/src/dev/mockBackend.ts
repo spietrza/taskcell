@@ -5,6 +5,7 @@ import {
   runs,
   runDetail,
   activeRuns,
+  queuedRuns,
   session,
   appConfig,
   remoteRuns,
@@ -97,6 +98,7 @@ const commandHandlers = {
   api_delete_flow: () => undefined,
   api_active_run: () => null,
   api_run_backlog: () => [],
+  api_queue: () => queuedRuns,
   api_cancel: () => undefined,
   api_repo_ok: () => true,
   // Hub-only command (apps/desktop never reaches it through Tauri, but the browser dev build —
