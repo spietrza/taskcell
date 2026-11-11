@@ -1,7 +1,7 @@
 import { useEffect, useRef, useState } from 'react';
 import { Button, Chip, cn } from '@/ui';
 import { ArrowLeft, FilePlus, RefreshCw } from 'lucide-react';
-import { canUseFleet, subscribe, onStreamReset } from '../../transport';
+import { canUseFleet, isHubMode, subscribe, onStreamReset } from '../../transport';
 import {
   listRuns,
   listActive,
@@ -12,6 +12,7 @@ import {
   apiCreateRun,
   apiActiveRun,
   apiRunBacklog,
+  apiQueue,
   apiCancel,
   apiRepoOk,
   type Capabilities,
@@ -27,9 +28,10 @@ import { TaskBoard } from '../board/TaskBoard';
 import { TaskDetail } from '../board/TaskDetail';
 import { WorkflowEditor } from '../workflow/WorkflowEditor';
 import { TaskDraftScreen } from '../task/TaskDraftScreen';
+import { NeedsYou } from '../needs-you/NeedsYou';
 import { NewRunForm } from './NewRunForm';
 import { RunStrip } from './RunStrip';
-import { foldLiveEvent, reduceTypedRun, initialTypedRun, type TypedRunState, type RunEvent } from './typedRunReducer';
+import { foldLiveEvent, reduceTypedRun, initialTypedRun, type TypedRunState, type RunEvent, type AppRunEvent } from './typedRunReducer';
 import { useAppConfig } from '../../hooks';
 import type { RunSummary, RunDetail as RunDetailT, ActiveRun, RunRef, RunSource } from '../../vanguard-output';
 
@@ -45,7 +47,7 @@ export function Inspector({
   onOpenBoard,
 }: {
   project: string;
-  screen: 'runs' | 'board' | 'task' | 'fleet' | 'remote' | 'workflow' | 'settings';
+  screen: 'runs' | 'board' | 'task' | 'fleet' | 'remote' | 'workflow' | 'settings' | 'needs';
   focusRunning: ActiveRun | null;
   clearNonce: number;
   newTaskNonce: number;
@@ -186,11 +188,15 @@ export function Inspector({
       // repoPath scopes adoption: a foreign project's run can never seed a strip here (S8).
       const type = e.payload.event.type;
       if (type === 'run-end' || type === 'run-error' || type === 'run-cancelled') {
-        // Single-in-flight: ANY observed terminal means the sidecar is (about to be) idle — the
-        // foreign-run note would otherwise outlive the run it warns about (review #343 r2).
-        // (A LOCAL run's note-hiding needs no clear here: the note renders only while
-        // typedRun === null, and a local run materializes the strip.)
+        // ANY observed terminal means the foreign run is over — the note would otherwise outlive the
+        // run it warns about (review #343 r2). (A LOCAL run's note-hiding needs no clear here: the
+        // note renders only while typedRun === null, and a local run materializes the strip.)
         setForeignRun(null);
+      }
+      // ...and a newly accepted run in another project (e.g. promoted from the hub queue) re-arms it.
+      const accepted = e.payload.event as AppRunEvent;
+      if (accepted.type === 'run-accepted' && accepted.repoPath !== undefined && accepted.repoPath !== project) {
+        setForeignRun(accepted.repoPath);
       }
       // foldLiveEvent keeps null null when the reducer declines — materializing an empty strip
       // for a foreign event would hide the note and render a blank panel (r3 blocking).
@@ -209,15 +215,19 @@ export function Inspector({
     const attach = async (): Promise<void> => {
       try {
         const active = await apiActiveRun();
-        if (active === null) return;
-        if (active.repoPath !== project) {
+        let runId = active !== null && active.repoPath === project ? active.runId : undefined;
+        if (active !== null && runId === undefined) {
           // Another project's run holds the sidecar. Don't fold its backlog — surface a note
-          // instead; New-run stays enabled (the Rust single-in-flight guard rejects with a clear
-          // error, which beats silently disabling the button for a run the user can't see).
+          // instead; New-run stays enabled (Tauri's single-in-flight guard rejects with a clear
+          // error, the hub queues the run — either beats disabling the button for an unseen run).
           setForeignRun(active.repoPath);
-          return;
         }
-        const backlog = (await apiRunBacklog(active.runId)) as { runId: string; event: RunEvent }[];
+        // Hub: no active run of ours, but one may be waiting in the queue — re-attach that instead,
+        // or a reload would leave it with no strip and no way to cancel it. The hub allows at most
+        // one queued run per project (run-session.ts), so `find` cannot miss a second one.
+        if (runId === undefined && isHubMode()) runId = (await apiQueue()).find((q) => q.repoPath === project)?.runId;
+        if (runId === undefined) return;
+        const backlog = (await apiRunBacklog(runId)) as { runId: string; event: RunEvent }[];
         // Fold BEFORE flipping checkedIdle: between the two the button's guard would see
         // checkedIdle && typedRun === null and enable New run while a run is genuinely live.
         setTypedRun((prev) =>
@@ -225,8 +235,8 @@ export function Inspector({
         );
       } catch {
         // Treat an unverifiable idle-check as idle: a rejected apiActiveRun (sidecar not up yet, IPC
-        // error) must not leave the New-run button disabled forever. The Rust busy guard still
-        // rejects a second concurrent run, so the worst case is a confusing error, not corruption.
+        // error) must not leave the New-run button disabled forever. A second concurrent run is still
+        // rejected (Tauri's busy guard) or queued (hub), so the worst case is confusion, not corruption.
       } finally {
         setCheckedIdle(true);
       }
@@ -281,8 +291,8 @@ export function Inspector({
       })
       .catch((e) => {
         if (runGen.current !== gen) return; // a newer run owns the strip
-        // apiCreateRun rejects on BOTH a pre-start rejection (the Rust single-in-flight guard, which
-        // returns Err before any run-accepted event) AND a run that started then errored/cancelled
+        // apiCreateRun rejects on BOTH a pre-start rejection (Tauri's single-in-flight guard or a full
+        // hub queue, both before any run event) AND a run that started then errored/cancelled
         // (resolve_terminal returns Err for those). Only the former needs clearing + a banner — it never
         // adopted a runId. A real error/cancel already folded run-accepted, so its runId is set and the
         // terminal EVENT renders it in the strip; don't wipe it or double-report.
@@ -375,7 +385,8 @@ export function Inspector({
 
       {foreignRun !== null && typedRun === null && screen === 'runs' && (
         <div className="mb-2 rounded border border-border bg-muted/40 px-3 py-2 text-xs text-muted-foreground">
-          a run is live in <code className="font-mono">{foreignRun}</code> — starting one here will be rejected until it finishes
+          a run is live in <code className="font-mono">{foreignRun}</code> —{' '}
+          {isHubMode() ? 'a run started here will be queued until it finishes' : 'starting one here will be rejected until it finishes'}
         </div>
       )}
       {typedRun !== null && screen === 'runs' && !stripMinimized ? (
@@ -397,7 +408,12 @@ export function Inspector({
             <ArrowLeft className="size-3.5" />
             Back to runs
           </button>
-          <RunStrip state={typedRun} onCancel={() => void apiCancel()} />
+          <RunStrip
+            state={typedRun}
+            // Always by id: with a hub queue, an id-less cancel hits whatever run is active NOW, which
+            // may be the next one promoted after this run ended. Unset only while "starting…".
+            onCancel={() => void apiCancel(typedRun.runId)}
+          />
         </div>
       ) : detail ? (
         <div className="flex min-h-0 flex-1 flex-col">
@@ -429,6 +445,10 @@ export function Inspector({
         </div>
       ) : screen === 'board' ? (
         <TaskBoard project={project} onOpenTask={setTaskDetailId} onNewTask={onNewTask} />
+      ) : screen === 'needs' ? (
+        <div className="min-h-0 flex-1 overflow-y-auto">
+          <NeedsYou project={project} />
+        </div>
       ) : screen === 'remote' ? (
         <div className="flex min-h-0 flex-1 flex-col">
           <RemoteRuns project={project} onOpenRun={open} />

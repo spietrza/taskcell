@@ -1,0 +1,27 @@
+name: Vanguard Doctor
+
+# One-click preflight: validates that this repo is ready for Vanguard (secrets, labels, Docker,
+# sandbox image, provider auth) WITHOUT processing any issue. Run it from Actions -> Vanguard Doctor
+# -> Run workflow (clickable from the GitHub mobile app). Green = ready to label an issue.
+# Thin caller of the reusable workflow (doctor.yml), which holds the steps.
+
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  issues: write
+  pull-requests: read
+
+concurrency:
+  group: vanguard-doctor-${{ github.repository }}
+  cancel-in-progress: true
+
+jobs:
+  doctor:
+    if: github.actor == 'YOUR_LOGIN'
+    uses: spietrza/taskcell/.github/workflows/doctor.yml@v1
+    with:
+      allowed-actors: '["YOUR_LOGIN"]'
+    secrets:
+      CLAUDE_CODE_OAUTH_TOKEN: ${{ secrets.CLAUDE_CODE_OAUTH_TOKEN }}

@@ -17,6 +17,8 @@ import type { RunSession } from './run-session.js';
 import { CompleteRegistry, type CompleteParams } from './complete.js';
 import { assertWithinBrowseRoot, browseDirs } from './browse.js';
 import { cloneProject } from './clone.js';
+import { listNeedsYou, replyNeedsYou } from './needs-you.js';
+import { detectRepoSlug } from '../runners/github.js';
 import type { ErrorKind } from '../hub-wire.js';
 import { defaultRunsRoot, remoteRunsRoot, listRunSummaries, readRunDetail } from './runs.js';
 import { listActive, readSession } from './active.js';
@@ -24,6 +26,7 @@ import { readAppConfig, readAppConfigStrict, writeAppConfig, type AppConfig } fr
 import * as drafts from './drafts.js';
 import * as projects from './projects.js';
 import * as remote from './remote.js';
+import { enableFactory, factoryPlanTargets, noScripts, type FactoryPlan, type FactoryProviderId } from './enable-factory.js';
 
 export class UnknownCommandError extends BadRequestError {}
 
@@ -66,6 +69,62 @@ function optionalNumber(args: Record<string, unknown>, key: string): number | un
   return typeof v === 'number' ? v : undefined;
 }
 
+/** The provider the client picked. Only `github` has an adapter; `enableFactory` itself rejects the
+ * other two with a `not implemented` BadRequestError, so this only narrows the string. */
+function requireProvider(args: Record<string, unknown>, key: string): FactoryProviderId {
+  const v = requireString(args, key);
+  if (v !== 'github' && v !== 'gitlab' && v !== 'linear') throw new BadRequestError(`${key} must be github, gitlab or linear`);
+  return v;
+}
+
+// `login` is spliced into the callers' YAML and `repoSlug` into the displayed `gh secret set`
+// command, `defaultBranch` into git argv — so each must match its GitHub shape, nothing wider.
+const GITHUB_LOGIN = /^[A-Za-z0-9](?:[A-Za-z0-9-]{0,38})$/;
+const GITHUB_REPO_SLUG = /^[A-Za-z0-9-]+\/[A-Za-z0-9._-]+$/;
+const GIT_BRANCH = /^(?!-)(?!.*\.\.)[A-Za-z0-9._/-]+$/;
+
+function requireMatch(args: Record<string, unknown>, key: string, shape: RegExp, label: string): string {
+  const v = requireString(args, key);
+  if (!shape.test(v)) throw new BadRequestError(`${key} must be a valid ${label}`);
+  return v;
+}
+
+function requireOneOf(args: Record<string, unknown>, key: string, allowed: readonly string[]): string {
+  const v = requireString(args, key);
+  if (!allowed.includes(v)) throw new BadRequestError(`${key} must be one of ${allowed.join(', ')}`);
+  return v;
+}
+
+function requireScripts(raw: unknown): FactoryPlan['scripts'] {
+  if (raw === undefined) return noScripts();
+  const s = (typeof raw === 'object' && raw !== null ? raw : {}) as Record<string, unknown>;
+  const keys = ['typecheck', 'lint', 'test', 'build'] as const;
+  if (keys.some((k) => typeof s[k] !== 'boolean')) throw new BadRequestError('plan.scripts must map typecheck/lint/test/build to booleans');
+  return { typecheck: s.typecheck as boolean, lint: s.lint as boolean, test: s.test as boolean, build: s.build as boolean };
+}
+
+/** Re-read the plan the client echoes back from `enable_factory_plan`. The paths `apply` stages and
+ * the labels it creates are NOT taken from the client: `factoryPlanTargets()` re-derives them from
+ * this process's own constants, so a tampered plan cannot widen `git add` or `gh label create`; the
+ * fields that reach YAML, shell text or git argv are shape-checked. */
+function requirePlan(args: Record<string, unknown>, key: string): FactoryPlan {
+  const raw = args[key];
+  if (typeof raw !== 'object' || raw === null) throw new BadRequestError(`${key} is required`);
+  const plan = raw as Record<string, unknown>;
+  if (plan.provider !== 'github') throw new BadRequestError(`${key}.provider must be github`);
+  const verifyCommand = optionalString(plan, 'verifyCommand');
+  return {
+    provider: 'github',
+    repoSlug: requireMatch(plan, 'repoSlug', GITHUB_REPO_SLUG, 'owner/repo slug'),
+    defaultBranch: requireMatch(plan, 'defaultBranch', GIT_BRANCH, 'branch name'),
+    login: requireMatch(plan, 'login', GITHUB_LOGIN, 'GitHub login'),
+    packageManager: requireOneOf(plan, 'packageManager', ['pnpm', 'yarn', 'npm', 'none']),
+    ...(verifyCommand !== undefined ? { verifyCommand } : {}),
+    scripts: requireScripts(plan.scripts),
+    ...factoryPlanTargets(),
+  };
+}
+
 /** `read_run`'s `source` (wire's `RunSource`) → the root the records live under: the project's own
  * `.vanguard/runs`, or a CI run's imported `.vanguard/remote-runs/<id>`. The client never names a
  * root — the same discriminant resolves against the Tauri cache dir on the desktop side. */
@@ -74,6 +133,15 @@ function runSourceRoot(repoPath: string, raw: unknown): string {
   if (source.kind === 'local') return defaultRunsRoot(repoPath);
   if (source.kind === 'ci' && typeof source.runId === 'number') return remoteRunsRoot(repoPath, source.runId);
   throw new BadRequestError("source is required and must be { kind: 'local' } or { kind: 'ci', runId: number }");
+}
+
+/** The GitHub slug of an allowlisted repo's origin, or undefined when it has no GitHub remote. */
+async function githubSlug(repoPath: string): Promise<string | undefined> {
+  try {
+    return await detectRepoSlug(repoPath);
+  } catch {
+    return undefined;
+  }
 }
 
 async function repoOk(repoPath: string): Promise<boolean> {
@@ -240,8 +308,13 @@ export async function dispatchRpc(ctx: RpcContext, cmd: string, rawArgs: unknown
     case 'api_run_backlog': {
       return ctx.runSession.backlog(requireString(args, 'runId'));
     }
+    case 'api_queue': {
+      return ctx.runSession.queued();
+    }
     case 'api_cancel': {
-      ctx.runSession.cancel();
+      // Required on the hub: with a queue, an id-less "cancel the active run" can hit another
+      // project's run, or the successor promoted after the clicked run ended.
+      ctx.runSession.cancel(requireString(args, 'runId'));
       return null;
     }
     case 'api_create_task': {
@@ -325,6 +398,49 @@ export async function dispatchRpc(ctx: RpcContext, cmd: string, rawArgs: unknown
     case 'browse_dirs': {
       assertMutationsAllowed(ctx.bind);
       return browseDirs(ctx.browseRoot, optionalString(args, 'path'));
+    }
+    case 'list_needs_you': {
+      const real = await ctx.allowlist.assertAllowed(requireString(args, 'repoPath'));
+      const repoSlug = await githubSlug(real);
+      // Not a GitHub remote — nothing for this read model to show.
+      return { items: repoSlug === undefined ? [] : await listNeedsYou(repoSlug) };
+    }
+    case 'reply_needs_you': {
+      // Comments under the hub's `gh` identity and adds a trigger label — a remote mutation.
+      assertMutationsAllowed(ctx.bind);
+      const real = await ctx.allowlist.assertAllowed(requireString(args, 'repoPath'));
+      const id = requireString(args, 'id');
+      const kind = requireString(args, 'kind');
+      if (kind !== 'issue' && kind !== 'pr') throw new BadRequestError("kind must be 'issue' or 'pr'");
+      const body = requireString(args, 'body');
+      const repoSlug = await githubSlug(real);
+      if (repoSlug === undefined) throw new BadRequestError('reply_needs_you: this project has no GitHub remote');
+      // The slug comes from the allowlisted repo, never from `id` — `replyNeedsYou` refuses an `id`
+      // naming any other repo, so a reply can only ever touch a registered project.
+      // The repo's configured trigger label (app.json `label`, as api_create_task applies), else the default.
+      const { label } = await readAppConfig(real);
+      await replyNeedsYou(repoSlug, id, kind, body, undefined, label?.trim() ? label : undefined);
+      return null;
+    }
+    case 'enable_factory_plan': {
+      const real = await ctx.allowlist.assertAllowed(requireString(args, 'repoPath'));
+      return enableFactory(real, requireProvider(args, 'provider')).plan();
+    }
+    case 'enable_factory_apply': {
+      // Writes a branch, a commit and a PR in the target repo — a mutation, like clone_project.
+      assertMutationsAllowed(ctx.bind);
+      const real = await ctx.allowlist.assertAllowed(requireString(args, 'repoPath'));
+      return enableFactory(real, 'github').apply(requirePlan(args, 'plan'));
+    }
+    case 'enable_factory_secret': {
+      const real = await ctx.allowlist.assertAllowed(requireString(args, 'repoPath'));
+      return enableFactory(real, 'github').secretCommand(requirePlan(args, 'plan'));
+    }
+    case 'enable_factory_verify': {
+      // Dispatches the doctor workflow, so it mutates the remote too.
+      assertMutationsAllowed(ctx.bind);
+      const real = await ctx.allowlist.assertAllowed(requireString(args, 'repoPath'));
+      return enableFactory(real, 'github').verify(requirePlan(args, 'plan'));
     }
     default:
       throw new UnknownCommandError(`unknown command: ${cmd}`);

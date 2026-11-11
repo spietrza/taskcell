@@ -343,9 +343,12 @@ type StageOnlyKey = 'visualProofCmd' | 'conformance' | 'conformanceModel';
 
 /**
  * Every key of T, present or not — so a RunOptions field added without a line in parseRunOptions
- * is a type error, not a flag one subcommand silently drops.
+ * is a type error, not a flag one subcommand silently drops. `keyof Required<T>` makes the keys
+ * required without a `-?` modifier, which would also strip `undefined` from the value type wherever
+ * `exactOptionalPropertyTypes` is off — apps/desktop's tsconfig, which type-checks this file through
+ * the hub — and every value here is allowed to be undefined.
  */
-export type Exhaustive<T> = { readonly [K in keyof T]-?: T[K] | undefined };
+export type Exhaustive<T> = { readonly [K in keyof Required<T>]: T[K] | undefined };
 
 /** Drop the undefined entries: an absent flag leaves no key on the command (callers test with `in`). */
 function present<T extends object>(exhaustive: Exhaustive<T>): T {
@@ -405,7 +408,7 @@ const DEFAULT_CONCURRENCY = 2;
 const DEFAULT_LOOP_V1_OWNERSHIP_LABEL = 'vanguard';
 const DEFAULT_GITHUB_SPEC_LABEL = 'ready for spec';
 export const DEFAULT_GITHUB_AGENT_LABEL = 'ready for agent';
-const DEFAULT_GITHUB_NEEDS_INFO_LABEL = 'needs info';
+export const DEFAULT_GITHUB_NEEDS_INFO_LABEL = 'needs info';
 const DEFAULT_LINEAR_SPEC_STATE = 'triage';
 const DEFAULT_LINEAR_SPEC_STATE_NAME = 'Spec';
 const DEFAULT_LINEAR_NEEDS_INFO_STATE = 'Needs Info';

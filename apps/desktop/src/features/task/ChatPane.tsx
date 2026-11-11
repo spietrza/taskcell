@@ -352,7 +352,7 @@ export function ChatPane({
         ))}
         {state.busy && <p className="text-xs text-muted-foreground">thinking…</p>}
       </div>
-      {state.error !== undefined && <p className="text-xs text-rose-500">{state.error}</p>}
+      {state.error !== undefined && <p role="alert" className="text-xs text-destructive-text">{state.error}</p>}
       {state.pending !== undefined && (
         <div className="flex items-center gap-2 rounded border border-border bg-muted/20 p-2">
           <span className="text-xs text-muted-foreground">Proposed a doc revision.</span>
@@ -364,9 +364,9 @@ export function ChatPane({
           </Button>
         </div>
       )}
-      {dropError !== null && <p className="text-xs text-rose-500">{dropError}</p>}
+      {dropError !== null && <p role="alert" className="text-xs text-destructive-text">{dropError}</p>}
       {imageUnsupported && (
-        <p className="text-xs text-rose-500">
+        <p role="alert" className="text-xs text-destructive-text">
           {resolvedModel} can't read images — remove the image or switch to a Claude model before sending.
         </p>
       )}

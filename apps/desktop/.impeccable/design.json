@@ -1,0 +1,341 @@
+{
+  "schemaVersion": 2,
+  "generatedAt": "2026-11-11T09:11:33.534Z",
+  "title": "Design System: Taskcell Hub",
+  "extensions": {
+    "colorMeta": {
+      "primary": {
+        "role": "primary",
+        "displayName": "Signal Blue",
+        "canonical": "oklch(0.56 0.2165 257.21)",
+        "tonalRamp": [
+          "oklch(0.25 0.126 257.21)",
+          "oklch(0.35 0.152 257.21)",
+          "oklch(0.45 0.178 257.21)",
+          "oklch(0.55 0.204 257.21)",
+          "oklch(0.65 0.204 257.21)",
+          "oklch(0.75 0.178 257.21)",
+          "oklch(0.85 0.152 257.21)",
+          "oklch(0.95 0.126 257.21)"
+        ]
+      },
+      "success": {
+        "role": "tertiary",
+        "displayName": "Live Green",
+        "canonical": "oklch(75.14% 0.1514 166.5)",
+        "tonalRamp": [
+          "oklch(0.25 0.088 166.5)",
+          "oklch(0.35 0.106 166.5)",
+          "oklch(0.45 0.124 166.5)",
+          "oklch(0.55 0.142 166.5)",
+          "oklch(0.65 0.142 166.5)",
+          "oklch(0.75 0.124 166.5)",
+          "oklch(0.85 0.106 166.5)",
+          "oklch(0.95 0.088 166.5)"
+        ]
+      },
+      "warning": {
+        "role": "tertiary",
+        "displayName": "Caution Amber",
+        "canonical": "oklch(77.97% 0.1665 72.45)",
+        "tonalRamp": [
+          "oklch(0.25 0.097 72.45)",
+          "oklch(0.35 0.117 72.45)",
+          "oklch(0.45 0.137 72.45)",
+          "oklch(0.55 0.157 72.45)",
+          "oklch(0.65 0.157 72.45)",
+          "oklch(0.75 0.137 72.45)",
+          "oklch(0.85 0.117 72.45)",
+          "oklch(0.95 0.097 72.45)"
+        ]
+      },
+      "destructive": {
+        "role": "tertiary",
+        "displayName": "Fault Red",
+        "canonical": "oklch(0.582 0.2249 25.88)",
+        "tonalRamp": [
+          "oklch(0.25 0.130 25.88)",
+          "oklch(0.35 0.157 25.88)",
+          "oklch(0.45 0.184 25.88)",
+          "oklch(0.55 0.211 25.88)",
+          "oklch(0.65 0.211 25.88)",
+          "oklch(0.75 0.184 25.88)",
+          "oklch(0.85 0.157 25.88)",
+          "oklch(0.95 0.130 25.88)"
+        ]
+      },
+      "background": {
+        "role": "neutral",
+        "displayName": "Paper",
+        "canonical": "oklch(1 0 0)",
+        "tonalRamp": [
+          "oklch(0.25 0.000 0)",
+          "oklch(0.35 0.000 0)",
+          "oklch(0.45 0.000 0)",
+          "oklch(0.55 0.000 0)",
+          "oklch(0.65 0.000 0)",
+          "oklch(0.75 0.000 0)",
+          "oklch(0.85 0.000 0)",
+          "oklch(0.95 0.000 0)"
+        ]
+      },
+      "foreground": {
+        "role": "neutral",
+        "displayName": "Ink",
+        "canonical": "oklch(0.145 0 0)",
+        "tonalRamp": [
+          "oklch(0.25 0.000 0)",
+          "oklch(0.35 0.000 0)",
+          "oklch(0.45 0.000 0)",
+          "oklch(0.55 0.000 0)",
+          "oklch(0.65 0.000 0)",
+          "oklch(0.75 0.000 0)",
+          "oklch(0.85 0.000 0)",
+          "oklch(0.95 0.000 0)"
+        ]
+      },
+      "muted": {
+        "role": "neutral",
+        "displayName": "Mist",
+        "canonical": "oklch(0.97 0 0)",
+        "tonalRamp": [
+          "oklch(0.25 0.000 0)",
+          "oklch(0.35 0.000 0)",
+          "oklch(0.45 0.000 0)",
+          "oklch(0.55 0.000 0)",
+          "oklch(0.65 0.000 0)",
+          "oklch(0.75 0.000 0)",
+          "oklch(0.85 0.000 0)",
+          "oklch(0.95 0.000 0)"
+        ]
+      },
+      "muted-foreground": {
+        "role": "neutral",
+        "displayName": "Graphite",
+        "canonical": "oklch(0.53 0 0)",
+        "tonalRamp": [
+          "oklch(0.25 0.000 0)",
+          "oklch(0.35 0.000 0)",
+          "oklch(0.45 0.000 0)",
+          "oklch(0.55 0.000 0)",
+          "oklch(0.65 0.000 0)",
+          "oklch(0.75 0.000 0)",
+          "oklch(0.85 0.000 0)",
+          "oklch(0.95 0.000 0)"
+        ]
+      },
+      "border": {
+        "role": "neutral",
+        "displayName": "Hairline",
+        "canonical": "oklch(0.922 0 0)",
+        "tonalRamp": [
+          "oklch(0.25 0.000 0)",
+          "oklch(0.35 0.000 0)",
+          "oklch(0.45 0.000 0)",
+          "oklch(0.55 0.000 0)",
+          "oklch(0.65 0.000 0)",
+          "oklch(0.75 0.000 0)",
+          "oklch(0.85 0.000 0)",
+          "oklch(0.95 0.000 0)"
+        ]
+      }
+    },
+    "typographyMeta": {
+      "title": {
+        "displayName": "Title",
+        "purpose": "Page and dialog headings."
+      },
+      "card-title": {
+        "displayName": "Card title",
+        "purpose": "Project card names."
+      },
+      "body": {
+        "displayName": "Body",
+        "purpose": "Table cells, labels, rows, buttons."
+      },
+      "meta": {
+        "displayName": "Meta",
+        "purpose": "Timestamps, counts, hints, chips."
+      },
+      "section-label": {
+        "displayName": "Section label",
+        "purpose": "Uppercase group captions (rail Running, tile labels); never above a page heading."
+      },
+      "mono": {
+        "displayName": "Mono",
+        "purpose": "Task ids, commands, stage names, diffs, transcripts."
+      },
+      "micro": {
+        "displayName": "Micro",
+        "purpose": "Inline tags inside a row; never body text."
+      },
+      "titlebar": {
+        "displayName": "Title bar",
+        "purpose": "The window title strip only."
+      }
+    },
+    "shadows": [
+      {
+        "name": "float",
+        "value": "0 20px 25px -5px rgb(0 0 0 / 0.1), 0 8px 10px -6px rgb(0 0 0 / 0.1)",
+        "purpose": "Dialogs and the command palette (shadow-xl)."
+      },
+      {
+        "name": "tooltip",
+        "value": "0 4px 6px -1px rgb(0 0 0 / 0.1), 0 2px 4px -2px rgb(0 0 0 / 0.1)",
+        "purpose": "Tooltips (shadow-md)."
+      },
+      {
+        "name": "board-card",
+        "value": "0 1px 3px 0 rgb(0 0 0 / 0.1), 0 1px 2px -1px rgb(0 0 0 / 0.1)",
+        "purpose": "Task cards on the board (shadow-sm, md on hover)."
+      }
+    ],
+    "motion": [
+      {
+        "name": "ease-fluid",
+        "value": "cubic-bezier(0.3, 0, 0, 1)",
+        "purpose": "chunks-ui default for larger transitions."
+      },
+      {
+        "name": "ease-snappy",
+        "value": "cubic-bezier(0.2, 0, 0, 1)",
+        "purpose": "Small control transitions."
+      },
+      {
+        "name": "rail-width",
+        "value": "width 200ms",
+        "purpose": "Rail collapse/expand."
+      },
+      {
+        "name": "live-pulse",
+        "value": "animate-pulse",
+        "purpose": "Live/running dot only."
+      }
+    ],
+    "breakpoints": [
+      {
+        "name": "sm",
+        "value": "640px"
+      },
+      {
+        "name": "lg",
+        "value": "1024px"
+      },
+      {
+        "name": "min-window",
+        "value": "1100px"
+      }
+    ]
+  },
+  "components": [
+    {
+      "name": "Primary Button",
+      "kind": "button",
+      "refersTo": "button-primary",
+      "description": "The one main action per screen.",
+      "html": "<button class=\"ds-btn-primary\">New Task</button>",
+      "css": ".ds-btn-primary{background:var(--primary);color:var(--primary-foreground);height:35px;padding:0 14px;border:0;border-radius:8px;font:500 14px Manrope,sans-serif;cursor:pointer;transition:background .15s}.ds-btn-primary:hover{background:color-mix(in oklab,var(--primary) 88%,black)}.ds-btn-primary:focus-visible{outline:2px solid var(--ring);outline-offset:2px}.ds-btn-primary:disabled{opacity:.5}"
+    },
+    {
+      "name": "Outlined Button",
+      "kind": "button",
+      "refersTo": "button-outlined",
+      "description": "Secondary toolbar action.",
+      "html": "<button class=\"ds-btn-outlined\">Fetch records</button>",
+      "css": ".ds-btn-outlined{background:var(--background);color:var(--foreground);height:35px;padding:0 14px;border:1px solid var(--border);border-radius:8px;font:500 14px Manrope,sans-serif;cursor:pointer;transition:background .15s}.ds-btn-outlined:hover{background:var(--muted)}.ds-btn-outlined:focus-visible{outline:2px solid var(--ring);outline-offset:2px}"
+    },
+    {
+      "name": "Rail item",
+      "kind": "nav",
+      "refersTo": "rail-item",
+      "description": "Project navigation row; active row is muted-filled.",
+      "html": "<nav class=\"ds-rail\"><a class=\"ds-rail-item\" aria-current=\"page\">Runs <span>42</span></a><a class=\"ds-rail-item\">Task board</a></nav>",
+      "css": ".ds-rail{width:144px;padding:8px;background:color-mix(in oklab,var(--muted) 20%,transparent);border-right:1px solid var(--border)}.ds-rail-item{display:flex;gap:8px;padding:6px 8px;border-radius:4px;font:14px Manrope,sans-serif;color:var(--muted-foreground);cursor:pointer}.ds-rail-item span{margin-left:auto;font-size:12px;font-variant-numeric:tabular-nums}.ds-rail-item:hover{background:color-mix(in oklab,var(--muted) 60%,transparent)}.ds-rail-item[aria-current=page]{background:var(--muted);color:var(--foreground);font-weight:500}"
+    },
+    {
+      "name": "Status chip",
+      "kind": "chip",
+      "description": "Outlined run status pill.",
+      "html": "<span class=\"ds-chip ds-chip-ok\">passed</span> <span class=\"ds-chip ds-chip-bad\">failed</span>",
+      "css": ".ds-chip{display:inline-flex;padding:2px 10px;border-radius:9999px;border:1px solid;font:12px Manrope,sans-serif}.ds-chip-ok{color:oklch(from var(--success) min(l,0.51) c h);border-color:oklch(from var(--success) min(l,0.64) c h)}.ds-chip-bad{color:oklch(from var(--destructive) min(l,0.51) c h);border-color:var(--destructive)}"
+    },
+    {
+      "name": "Panel",
+      "kind": "card",
+      "refersTo": "panel",
+      "description": "Bordered flat container for forms, proof of work, launch output.",
+      "html": "<div class=\"ds-panel\"><strong>Proof of work</strong><code>pnpm test · exit 0</code></div>",
+      "css": ".ds-panel{display:flex;flex-direction:column;gap:8px;padding:12px;border:1px solid var(--border);border-radius:10px;background:var(--background);font:14px Manrope,sans-serif}.ds-panel code{font:12px \"Fira Code\",monospace;color:var(--muted-foreground)}"
+    },
+    {
+      "name": "Error banner",
+      "kind": "custom",
+      "description": "Full hairline border plus a 10% tint; never a thick left edge.",
+      "html": "<div class=\"ds-banner\" role=\"alert\">.vanguard/app.json is unreadable. Fix its JSON before editing here.</div>",
+      "css": ".ds-banner{padding:8px 12px;border:1px solid color-mix(in oklab,var(--destructive) 40%,transparent);background:color-mix(in oklab,var(--destructive) 10%,transparent);border-radius:4px;font:14px Manrope,sans-serif;color:oklch(from var(--destructive) min(l,0.51) c h)}"
+    },
+    {
+      "name": "Live indicator",
+      "kind": "custom",
+      "description": "Pulsing green dot plus a word.",
+      "html": "<span class=\"ds-live\"><i></i>live</span>",
+      "css": ".ds-live{display:inline-flex;align-items:center;gap:4px;font:12px Manrope,sans-serif;color:var(--muted-foreground)}.ds-live i{width:8px;height:8px;border-radius:9999px;background:var(--success);animation:ds-pulse 2s cubic-bezier(.4,0,.6,1) infinite}@keyframes ds-pulse{50%{opacity:.5}}@media (prefers-reduced-motion:reduce){.ds-live i{animation:none}}"
+    }
+  ],
+  "narrative": {
+    "northStar": "The Quiet Control Room",
+    "overview": "The hub is a tool people check, not a page they browse. Surfaces are grayscale: white or near-black background, hairline borders, light muted fills for chrome. The only color at rest is the primary blue on the one main action per screen and the project's own identity color in the title bar. Everything else that is colored is status: green means running or passed, red means failed, amber means a warning or something unsaved. When a screen is all gray, nothing needs the operator.",
+    "keyCharacteristics": [
+      "Grayscale chrome, color reserved for status and identity.",
+      "One primary (filled) button per screen; everything else is outlined or text.",
+      "Hairline 1px borders and tonal fills instead of shadows.",
+      "Small type (14px body, 12px metadata), monospace for ids, commands, code and diffs.",
+      "Light and dark are equal; every color comes from a token that has both."
+    ],
+    "rules": [
+      {
+        "name": "The Gray-At-Rest Rule",
+        "body": "A screen with nothing wrong and nothing running is grayscale plus one blue button. Status color appears only when its state is true.",
+        "section": "colors"
+      },
+      {
+        "name": "The Text-Shade Rule",
+        "body": "Colored text uses the *-text token, which chunks-ui clamps to 4.5:1 in both themes. Never text-green-600 dark:text-green-400 or text-rose-500.",
+        "section": "colors"
+      },
+      {
+        "name": "The Tabular Rule",
+        "body": "Every number that can change or be compared uses tabular-nums.",
+        "section": "typography"
+      },
+      {
+        "name": "The Machine-Text Rule",
+        "body": "Monospace marks text a machine produced or consumes. It is not a technical costume for headings, buttons or chat placeholders.",
+        "section": "typography"
+      },
+      {
+        "name": "The Hairline Rule",
+        "body": "Separation is a 1px border-border line or a tonal step, not a shadow. A shadow means the thing floats above the page.",
+        "section": "elevation"
+      }
+    ],
+    "dos": [
+      "Do import every visual primitive from `@/ui`; add a re-export there when a screen first needs a chunks-ui component.",
+      "Do use semantic tokens (`bg-success`, `text-destructive-text`, `border-border`) so both themes work; check new UI in light and dark.",
+      "Do keep one primary button per screen and put it at the right end of the page header row.",
+      "Do use the glossary words (Task, Run, Proof of Work, Stage, PR/MR) exactly.",
+      "Do give icon-only buttons an `aria-label` and every overlay dialog semantics.",
+      "Do use `tabular-nums` on numbers and monospace on ids, commands and code.",
+      "Do run the design detector over changed UI before committing (below)."
+    ],
+    "donts": [
+      "Don't use raw Tailwind palette colors (`text-green-600`, `bg-rose-500/5`) for status; only the board's column hues and sky info lines are allowed, and only where they already live.",
+      "Don't put a thick colored left border on cards, callouts or alerts (`border-l-4`).",
+      "Don't color a whole panel for a passed state; status color goes on the dot, chip or text.",
+      "Don't add display-size type, gradients, glass or decorative illustration.",
+      "Don't add uppercase eyebrow labels above page headings.",
+      "Don't leak internal ticket refs (`(S6)`, `#491`) or the old `vanguard` name into UI copy."
+    ]
+  }
+}

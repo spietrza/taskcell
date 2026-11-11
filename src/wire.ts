@@ -21,6 +21,11 @@ export type ReasoningEffort = 'low' | 'medium' | 'high' | 'xhigh' | 'max';
  * Structured run events emitted by the pipeline runner when a caller passes `onEvent`. Stage names
  * are plain strings (matching StageOutcome.name). The desktop additionally sees a Rust-minted
  * `run-accepted` variant that core never emits — declared desktop-side, not here.
+ *
+ * `run-queued` is the one exception to that rule: unlike `run-accepted`, it is minted by the HUB
+ * itself (`src/hub/run-session.ts`), in TypeScript on both ends of the wire, so it is declared here
+ * rather than as a desktop-side extension — `position` is 1-based (1 = next to start), `repoPath`
+ * scopes it to a project exactly like `run-accepted`'s.
  */
 export type RunEvent =
   | { type: 'run-start'; taskId: string; flow: string; provider: string; stages: string[] }
@@ -30,7 +35,8 @@ export type RunEvent =
   | { type: 'warning'; message: string }
   | { type: 'run-end'; prUrl?: string; secretBlocked?: boolean }
   | { type: 'run-error'; message: string }
-  | { type: 'run-cancelled' };
+  | { type: 'run-cancelled' }
+  | { type: 'run-queued'; position: number; repoPath: string };
 
 /** A selectable flow: its stable key and a human label for the UI. */
 export interface FlowInfo {
@@ -464,11 +470,66 @@ export interface DirListing {
   entries: DirEntry[];
 }
 
+/**
+ * One GitHub issue/PR waiting for a human (Hub "Needs you" — hub-only, src/hub/needs-you.ts): an
+ * issue at `needs info`, or a PR at `vanguard:needs-human-review`/`vanguard:verify-failed` or with a
+ * review requesting changes.
+ */
+export interface NeedsYouItem {
+  /** `owner/repo#number` — also the id a reply targets. */
+  id: string;
+  kind: 'issue' | 'pr';
+  number: number;
+  repoSlug: string;
+  title: string;
+  url: string;
+  /** Why this item waits: the label name, or `'changes requested'` for a PR review verdict. */
+  reason: string;
+  /** The factory's own last comment, redacted; untrusted, render as plain text. Absent when it never commented. */
+  lastComment?: { author: string; body: string };
+}
+
 /** A Fleet-screen spawned process (TAURI_ONLY — Fleet is disabled in hub mode). */
 export interface SpawnInfo {
   pid: number;
   cwd: string;
   command: string;
+}
+
+/** Enable-factory provider seam (hub § "Enable factory"): GitHub Actions is implemented; GitLab and
+ * Linear are "coming soon" in the UI and never reach `enable_factory_*` (see docs/task-sources.md,
+ * docs/onboarding-linear.md). */
+export type FactoryProviderId = 'github' | 'gitlab' | 'linear';
+
+/** What `enable_factory_plan` detected and what `enable_factory_apply` will do with it. */
+export interface FactoryPlan {
+  provider: 'github';
+  repoSlug: string;
+  defaultBranch: string;
+  login: string;
+  packageManager: string;
+  verifyCommand?: string;
+  scripts: { typecheck: boolean; lint: boolean; test: boolean; build: boolean };
+  /** Repo-relative paths `apply` will add, e.g. `.github/workflows/vanguard-implement.yml`. */
+  callerFiles: string[];
+  labels: string[];
+}
+
+export interface FactoryApplyResult {
+  branch: string;
+  prUrl: string;
+  labelsCreated: string[];
+}
+
+/** The secret-setup step's result: command text only — never a value, never executed by the hub. */
+export interface FactorySecretStep {
+  secretName: string;
+  command: string;
+}
+
+export interface FactoryVerifyResult {
+  dispatched: boolean;
+  run?: { url: string; status: string; conclusion: string };
 }
 
 /**
@@ -519,7 +580,12 @@ export interface Commands {
   api_create_run: { args: { params: CreateRunParams }; result: CreateRunResult };
   api_active_run: { args: undefined; result: { runId: string; repoPath: string } | null };
   api_run_backlog: { args: { runId: string }; result: unknown[] };
-  api_cancel: { args: undefined; result: void };
+  /** HUB_ONLY: Tauri has no queue to read — it is still strictly single-in-flight, the hub's queue
+   * (src/hub/run-session.ts) is what's new here. Position is 1-based, 1 = next to start. */
+  api_queue: { args: undefined; result: { runId: string; repoPath: string; position: number }[] };
+  /** `runId` cancels exactly that run (active or queued). The hub REQUIRES it (an id-less cancel
+   * could hit another project's run); Tauri ignores it and cancels its one active run (no queue). */
+  api_cancel: { args: { runId?: string }; result: void };
   api_create_task: { args: { repoPath: string; title: string; body: string }; result: CreatedTask };
   api_list_flows: { args: { repoPath: string }; result: { flows: RepoFlowInfo[] } };
   api_list_providers: { args: { repoPath: string }; result: { providers: RepoProviderInfo[] } };
@@ -535,6 +601,10 @@ export interface Commands {
   browse_dirs: { args: { path?: string }; result: DirListing };
   /** HUB_ONLY: clone a repository under the browse root and register it. */
   clone_project: { args: { url: string; parentDir: string; name?: string }; result: Project };
+  /** HUB_ONLY: the hub "Needs you" read model (src/hub/needs-you.ts) — `gh` and labels only, no model call. */
+  list_needs_you: { args: { repoPath: string }; result: { items: NeedsYouItem[] } };
+  /** HUB_ONLY: post a reply with the caller's own `gh` identity and move the item on. */
+  reply_needs_you: { args: { repoPath: string; id: string; kind: 'issue' | 'pr'; body: string }; result: void };
   /** TAURI_ONLY: the Fleet screen's shell-spawn surface — disabled in hub mode (remote code
    * execution on a reachable server). `argv[0]` is the program, run WITHOUT a shell: values built
    * from repo config travel as single arguments and can never introduce shell syntax. */
@@ -543,6 +613,18 @@ export interface Commands {
   kill_run: { args: { pid: number }; result: void };
   /** TAURI_ONLY (see spawn_run). */
   list_spawns: { args: undefined; result: SpawnInfo[] };
+  /** HUB_ONLY: read the repo (default branch, package manager, verify command) and report what
+   *  `enable_factory_apply` would change — no writes yet. GitHub only; `provider` is accepted for
+   *  forward compatibility with GitLab/Linear, which the UI marks "coming soon" instead of calling this. */
+  enable_factory_plan: { args: { repoPath: string; provider: FactoryProviderId }; result: FactoryPlan };
+  /** HUB_ONLY: create a branch, add the five caller workflows, open a PR (never push to the default
+   *  branch) and create the routing labels. */
+  enable_factory_apply: { args: { repoPath: string; plan: FactoryPlan }; result: FactoryApplyResult };
+  /** HUB_ONLY: the `gh secret set` command text for the user to run themselves — the hub never
+   *  reads, prints or stores the secret value. */
+  enable_factory_secret: { args: { repoPath: string; plan: FactoryPlan }; result: FactorySecretStep };
+  /** HUB_ONLY: dispatch the doctor workflow (once the PR above is merged) and report the run that dispatch created. */
+  enable_factory_verify: { args: { repoPath: string; plan: FactoryPlan }; result: FactoryVerifyResult };
 }
 
 /** Commands the hub does not implement for real: absent from `src/hub/rpc.ts`'s dispatch cases (the
@@ -550,8 +632,20 @@ export interface Commands {
 export const TAURI_ONLY = ['spawn_run', 'kill_run', 'list_spawns'] as const satisfies readonly (keyof Commands)[];
 
 /** Commands with no `#[tauri::command]` in `src-tauri/src/lib.rs` — browser-only stand-ins for
- * native capability the webview doesn't need (no folder-picker dialog). */
-export const HUB_ONLY = ['browse_dirs', 'clone_project'] as const satisfies readonly (keyof Commands)[];
+ * native capability the webview doesn't need (no folder-picker dialog), plus the enable-factory
+ * seam (shells out to `gh`/`git`, which only the hub's Node process does today), plus `api_queue`:
+ * Tauri stays strictly single-in-flight (no queue to read) so it has nothing to implement either. */
+export const HUB_ONLY = [
+  'browse_dirs',
+  'clone_project',
+  'enable_factory_plan',
+  'enable_factory_apply',
+  'enable_factory_secret',
+  'enable_factory_verify',
+  'list_needs_you',
+  'reply_needs_you',
+  'api_queue',
+] as const satisfies readonly (keyof Commands)[];
 
 /** Every command name, for the lib.rs parity test and friends. TYPE-CHECKED (not just asserted)
  * against `Commands`: the `satisfies` below rejects a typo or a name not in `Commands`, and
@@ -584,6 +678,7 @@ export const COMMAND_NAMES = [
   'api_create_run',
   'api_active_run',
   'api_run_backlog',
+  'api_queue',
   'api_cancel',
   'api_create_task',
   'api_list_flows',
@@ -598,9 +693,15 @@ export const COMMAND_NAMES = [
   'api_cancel_complete',
   'browse_dirs',
   'clone_project',
+  'list_needs_you',
+  'reply_needs_you',
   'spawn_run',
   'kill_run',
   'list_spawns',
+  'enable_factory_plan',
+  'enable_factory_apply',
+  'enable_factory_secret',
+  'enable_factory_verify',
 ] as const satisfies readonly (keyof Commands)[];
 type _Exhaustive = keyof Commands extends (typeof COMMAND_NAMES)[number]
   ? true

@@ -8,6 +8,7 @@ import {
   Workflow,
   Settings as SettingsIcon,
   PanelLeft,
+  MessageCircleQuestionMark,
   type LucideIcon,
 } from 'lucide-react';
 import { Collapsible, Tooltip, cn } from '@/ui';
@@ -15,22 +16,24 @@ import type { Project, ActiveRun } from './vanguard-output';
 import { relTime } from './time';
 import { RailTip } from './RailTip';
 import { canUseFleet } from './transport';
+import { canUseNeedsYou } from './features/needs-you/NeedsYou';
 
 // 'task' (S10) is reached by intent — the New Task button on the board and Runs toolbars — so it
 // has no NAV entry; the breadcrumb is its location anchor.
-export type Screen = 'dashboard' | 'runs' | 'board' | 'task' | 'fleet' | 'remote' | 'workflow' | 'settings';
+export type Screen = 'dashboard' | 'runs' | 'board' | 'task' | 'fleet' | 'remote' | 'workflow' | 'settings' | 'needs';
 
 const ALL_NAV: { key: Screen; label: string; icon: LucideIcon }[] = [
   { key: 'dashboard', label: 'Dashboard', icon: LayoutDashboard },
   { key: 'runs', label: 'Runs', icon: List },
   { key: 'board', label: 'Task board', icon: Columns3 },
+  { key: 'needs', label: 'Needs you', icon: MessageCircleQuestionMark },
   { key: 'fleet', label: 'Fleet', icon: Boxes },
   { key: 'remote', label: 'Remote', icon: Cloud },
   { key: 'workflow', label: 'Workflow', icon: Workflow },
   { key: 'settings', label: 'Settings', icon: SettingsIcon },
 ];
 // Hub mode drops Fleet from the rail entirely — see canUseFleet().
-const NAV = ALL_NAV.filter((n) => n.key !== 'fleet' || canUseFleet());
+const NAV = ALL_NAV.filter((n) => (n.key !== 'fleet' || canUseFleet()) && (n.key !== 'needs' || canUseNeedsYou()));
 
 export function Rail({
   projects,
@@ -76,6 +79,7 @@ export function Rail({
               <button
                 type="button"
                 onClick={() => onScreen(n.key)}
+                aria-current={screen === n.key ? 'page' : undefined}
                 className={cn(
                   'flex w-full items-center rounded py-1.5 text-sm transition-colors',
                   collapsed ? 'justify-center px-0' : 'gap-2 px-2',
