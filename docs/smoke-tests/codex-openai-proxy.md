@@ -24,7 +24,7 @@ Under `--llm-proxy`, the real `OPENAI_API_KEY` is held by a trusted sidecar star
 Before starting a `watch` loop run the readiness check to confirm all dependencies are in order without claiming any work:
 
 ```bash
-vanguard doctor \
+taskcell doctor \
   --source github \
   --github-repo OWNER/REPO \
   --provider codex \
@@ -44,9 +44,9 @@ Expected result:
 Run the same check for the PR-watch path:
 
 ```bash
-vanguard doctor-prs \
+taskcell doctor-prs \
   --github-repo OWNER/REPO \
-  --label "ready for vanguard review" \
+  --label "ready for taskcell review" \
   --provider codex \
   --llm-proxy \
   --repo /path/to/repo
@@ -59,7 +59,7 @@ Expected result: identical to the issue loop preflight above. Both doctor comman
 If you do not have active OpenAI billing, you can still validate the failure path without making any model call. Run the preflight with no Codex/OpenAI key in the host environment:
 
 ```bash
-env -u CODEX_API_KEY -u OPENAI_API_KEY vanguard doctor \
+env -u CODEX_API_KEY -u OPENAI_API_KEY taskcell doctor \
   --source github \
   --github-repo OWNER/REPO \
   --provider codex \
@@ -74,7 +74,7 @@ Expected result: the report includes `preflight: provider auth Provider "codex" 
 `review-pr` is the safest live test: it is read-only on the repository (no labels change, no code is written) and posts exactly one non-blocking GitHub review comment. Use a PR you own and that is safe to annotate.
 
 ```bash
-vanguard review-pr \
+taskcell review-pr \
   https://github.com/OWNER/REPO/pull/PR \
   --provider codex \
   --review-model gpt-5 \
@@ -146,16 +146,16 @@ docker/build.sh
 
 **Proxy sidecar not reachable (`ECONNREFUSED` or timeout in the sandbox)**
 
-The sidecar is started automatically by `vanguard review-pr --llm-proxy`. If you see a connection error, check that `--egress` and the Docker network were set up correctly. Rerunning the command is usually enough; if not, confirm `docker network ls` shows the expected internal network and that no firewall rule blocks inter-container traffic on it.
+The sidecar is started automatically by `taskcell review-pr --llm-proxy`. If you see a connection error, check that `--egress` and the Docker network were set up correctly. Rerunning the command is usually enough; if not, confirm `docker network ls` shows the expected internal network and that no firewall rule blocks inter-container traffic on it.
 
 **`preflight: github auth missing -> stop before claim`**
 
 Run `gh auth login` or set `GH_TOKEN` in your shell, then rerun the doctor command.
 
-**`preflight: github labels missing ready for vanguard review -> stop before claim`**
+**`preflight: github labels missing ready for taskcell review -> stop before claim`**
 
 The `doctor-prs` preflight checks that the trigger label exists in the repo. Create it:
 
 ```bash
-gh label create "ready for vanguard review" --repo OWNER/REPO --color 0075ca
+gh label create "ready for taskcell review" --repo OWNER/REPO --color 0075ca
 ```

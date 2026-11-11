@@ -3,7 +3,7 @@
 The Linear counterpart of [docs/onboarding-another-repo.md](onboarding-another-repo.md). Same pipeline (spec → implement → review → simplify → draft GitHub PR), two differences from the GitHub flow:
 
 - **Routing is by STATE, not labels.** GitHub uses `ready for spec` / `ready for agent` labels; Linear uses workflow **states** (state types: `triage`, `unstarted`, …). A `vanguard` label is an ownership tag the issue must carry.
-- **No GitHub-Actions equivalent.** Linear has no CI trigger, so you run an **always-on `vanguard watch --source linear`** on a host (a server, or the Synology deploy — see [docs/deploy.md](deploy.md)). It is still phone-drivable: change an issue's state from the Linear app and the watcher picks it up on the next poll.
+- **No GitHub-Actions equivalent.** Linear has no CI trigger, so you run an **always-on `taskcell watch --source linear`** on a host (a server, or the Synology deploy — see [docs/deploy.md](deploy.md)). It is still phone-drivable: change an issue's state from the Linear app and the watcher picks it up on the next poll.
 
 GitHub is still the review surface — the PR opens on the linked GitHub repo and the PR link is commented back onto the Linear issue.
 
@@ -30,8 +30,8 @@ On a host with the repo checked out and the sandbox image built (`docker/build.s
 export LINEAR_API_KEY=...                 # Linear API key (or `linear auth login`)
 export CLAUDE_CODE_OAUTH_TOKEN=...         # Claude subscription token
 
-vanguard doctor --loop-v1 --label vanguard --repo /path/to/repo   # preflight: no work claimed
-vanguard watch  --loop-v1 --label vanguard --repo /path/to/repo   # the loop
+taskcell doctor --loop-v1 --label vanguard --repo /path/to/repo   # preflight: no work claimed
+taskcell watch  --loop-v1 --label vanguard --repo /path/to/repo   # the loop
 ```
 
 `--loop-v1` is the Linear two-pass loop; `--label vanguard` is the ownership tag (only issues carrying it are picked up). Defaults: spec pass fires on state type `triage`, agent pass on `unstarted` (e.g. the `Todo` state), vague tickets move to `Needs Info`. Override with `--spec-state` / `--agent-state` / `--needs-info-state` / `--spec-model` if your workspace uses different state names.
@@ -77,7 +77,7 @@ A ticket meeting neither is moved to **Needs Info** with a clarification comment
 - **Full (cross-provider on a Codex subscription)** — start the watcher with the cross-provider flags and `CODEX_AUTH_JSON` in the env:
   ```bash
   export CODEX_AUTH_JSON="$(cat ~/.codex/auth.json)"   # ChatGPT subscription credential (see onboarding-another-repo.md)
-  vanguard watch --loop-v1 --label vanguard --repo /path/to/repo \
+  taskcell watch --loop-v1 --label vanguard --repo /path/to/repo \
     --spec-model opus --provider claude --provider-model sonnet --review-provider codex --review-model gpt-5.6-sol
   ```
 

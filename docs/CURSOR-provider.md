@@ -18,7 +18,7 @@ boundary, as with codex's `danger-full-access`.
 
 1. **Key.** Create a user API key at [cursor.com/dashboard/api](https://cursor.com/dashboard/api) and
    export it as `CURSOR_API_KEY`. It is forwarded into the sandbox only when cursor is selected, and a
-   missing key fails at dispatch (and in `vanguard doctor`). Runs bill against that account's plan. Keys
+   missing key fails at dispatch (and in `taskcell doctor`). Runs bill against that account's plan. Keys
    (`crsr_…`) are redacted from logs and blocked by the diff secret scan.
 2. **Image.** The CLI is opt-in in the sandbox image. It adds about 760 MB. Build it with a version id from
    `cursor.com/install`:
@@ -30,7 +30,7 @@ boundary, as with codex's `danger-full-access`.
    The tarball is checked against a pinned per-arch sha256 (defaults match 2026.10.16-e3cb207). For another
    version, also set `CURSOR_CLI_SHA256_X64` / `CURSOR_CLI_SHA256_ARM64` (the `sha256sum` of each arch's tarball).
 
-   `vanguard doctor` checks for `agent` in the image whenever cursor is one of the providers.
+   `taskcell doctor` checks for `agent` in the image whenever cursor is one of the providers.
 3. **GitHub Actions: not supported yet.** The reusable workflows do not install the Cursor CLI in the
    sandbox image and do not pass `CURSOR_API_KEY` through, so `provider: cursor` fails there. Cursor
    runs locally, on an always-on host and in the desktop app, wherever you build the image as in step 2.
@@ -56,7 +56,7 @@ The short names are Vanguard's and translate to Cursor's `auto-smart[…]` form.
 limit.
 
 ```bash
-vanguard run --github o/r#1 --provider cursor --provider-model auto-intelligence --review-model auto-cost
+taskcell run --github o/r#1 --provider cursor --provider-model auto-intelligence --review-model auto-cost
 ```
 
 The Claude tiers that Vanguard's presets pin (spec → `haiku`, planner → `opus`, escalation →
@@ -102,5 +102,5 @@ Everything". The real `CursorProvider` ran with the prompt on stdin. It edited a
 command without `--force`. A second call with `--resume` in the same container recalled the first. The
 `opus`/`haiku`/`claude-sonnet-5-5` requests ran on Auto Intelligence, Auto Cost and Auto Balance. The
 recorded stream is the test fixture (`src/agents/cursor-stream.fixture.ndjson`). A full
-`vanguard run --provider cursor --egress` on a GitHub issue ran with no Claude credential. Implementer,
+`taskcell run --provider cursor --egress` on a GitHub issue ran with no Claude credential. Implementer,
 reviewer and simplifier all completed, the gate passed, and it opened the PR in 210 s.

@@ -7,7 +7,7 @@ import { execa } from 'execa';
  * `LinearCliTaskFetcher.list()` used to shell `linear issue query`, a command that does not exist in
  * the installed CLI. Every unit test passed, because they all inject a fake `LinearCliRunner` — and a
  * fake will happily answer a command that isn't there. The suite proved the parsing and nothing about
- * the contract, so `vanguard watch --linear` was broken in production while CI stayed green.
+ * the contract, so `taskcell watch --linear` was broken in production while CI stayed green.
  *
  * So: one test that touches the real CLI. It asserts the contract we actually depend on, and the
  * absence of the one we wrongly depended on.

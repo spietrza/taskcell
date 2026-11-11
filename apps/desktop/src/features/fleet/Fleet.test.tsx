@@ -37,7 +37,7 @@ describe('Fleet watch loop launch — repo config cannot inject', () => {
     await act(async () => {});
     await act(async () => fireEvent.click(screen.getByLabelText('Toggle watch loop')));
     expect(spawnRun).toHaveBeenCalledWith('/repo', [
-      'vanguard', 'watch', '--github', '--concurrency', '3', '--provider', 'codex', '--max-turns', '30',
+      'taskcell', 'watch', '--github', '--concurrency', '3', '--provider', 'codex', '--max-turns', '30',
     ]);
   });
 });

@@ -110,7 +110,7 @@ export class GitLabTaskFetcher implements TaskFetcher {
     try {
       return await glabUser(this.glab);
     } catch (error) {
-      console.warn(`vanguard: ${error instanceof Error ? error.message : String(error)}; Vanguard's own notes on ${this.project} are not recognised`);
+      console.warn(`taskcell: ${error instanceof Error ? error.message : String(error)}; Vanguard's own notes on ${this.project} are not recognised`);
       return undefined;
     }
   }

@@ -72,7 +72,7 @@ describe('approveCommand', () => {
     await runCli(['approve', '--pr', '7', '--github-repo', 'o/r', '--repo', '/r', '--branch', 'b', '--dry-run']);
 
     expect(engineInput()).toEqual({ repoPath: '/r', repoSlug: 'o/r', prNumber: 7, mode: 'shadow', dryRun: true, branch: 'b' });
-    expect(logs).toEqual(['vanguard approve: APPROVE']);
+    expect(logs).toEqual(['taskcell approve: APPROVE']);
     expect(process.exitCode).not.toBe(1);
   });
 
@@ -86,7 +86,7 @@ describe('approveCommand', () => {
     vi.mocked(runApprover).mockResolvedValue({ record: fakeRecord({ verdict: 'ESCALATE', rulesFired: ['path:ci-config', 'size-lines'] }) });
     await runCli(['approve', '--pr', '7', '--github-repo', 'o/r']);
 
-    expect(logs).toEqual(['vanguard approve: ESCALATE (path:ci-config, size-lines)']);
+    expect(logs).toEqual(['taskcell approve: ESCALATE (path:ci-config, size-lines)']);
   });
 
   it('prints the decision record as a single JSON line with --json', async () => {
@@ -100,7 +100,7 @@ describe('approveCommand', () => {
     vi.mocked(runApprover).mockRejectedValue(new Error('gh: not authenticated'));
     await runCli(['approve', '--pr', '7', '--github-repo', 'o/r']);
 
-    expect(errors[0]).toContain('vanguard approve: gh: not authenticated');
+    expect(errors[0]).toContain('taskcell approve: gh: not authenticated');
     expect(logs).toEqual([]);
     expect(process.exitCode).toBe(1);
   });

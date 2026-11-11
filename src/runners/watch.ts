@@ -710,10 +710,10 @@ async function withTrustedIssueAuthors(
     const verdict = verdicts[i]!;
     if (verdict.trusted) return true;
     if (verdict.error !== undefined) {
-      console.log(`vanguard: ${task.id} skipped -> author lookup failed: ${verdict.error}`);
+      console.log(`taskcell: ${task.id} skipped -> author lookup failed: ${verdict.error}`);
       return false;
     }
-    console.log(`vanguard: ${task.id} skipped -> issue author ${describeIgnoredAuthor(verdict.author || '?', verdict.association)} is not trusted (repo member or --feedback-authors)`);
+    console.log(`taskcell: ${task.id} skipped -> issue author ${describeIgnoredAuthor(verdict.author || '?', verdict.association)} is not trusted (repo member or --feedback-authors)`);
     return false;
   });
 }
@@ -987,7 +987,7 @@ export function githubProjectWatchPrimitives(opts: WatchGithubProjectOptions): W
         // The run path (runGithubIssue) is pinned to the watched repo: a foreign item would run
         // <repo>#<number>, an issue nobody selected. Skip it and say so.
         if (itemRepo.toLowerCase() !== repo.toLowerCase()) {
-          if (item.status === opts.triggerStatus) console.warn(`vanguard: project item ${itemRepo}#${content.number} belongs to another repository than ${repo}; skipped`);
+          if (item.status === opts.triggerStatus) console.warn(`taskcell: project item ${itemRepo}#${content.number} belongs to another repository than ${repo}; skipped`);
           continue;
         }
         const issueRef = `${itemRepo}#${content.number}`;

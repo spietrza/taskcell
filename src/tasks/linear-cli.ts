@@ -226,7 +226,7 @@ export class LinearCliTaskFetcher implements TaskFetcher {
    * NOT the `linear` CLI: it has no machine-readable issue list (schpet v1.11.1 has no `issue query`
    * at all, and `issue list` has no `--json`), and which flags exist varies by CLI version. The API
    * does not. This method used to shell `issue query` — a command that does not exist — which broke
-   * `vanguard watch --linear` on every poll while the unit tests, all using a fake runner, stayed green.
+   * `taskcell watch --linear` on every poll while the unit tests, all using a fake runner, stayed green.
    *
    * `filter.state` is a Linear state TYPE (triage/backlog/unstarted/started/completed/canceled) and
    * MUST reach the query: without it a watcher polls every issue in the team and would claim ones that

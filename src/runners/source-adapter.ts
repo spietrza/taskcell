@@ -108,7 +108,7 @@ export interface RunOptions extends ProviderChoice {
   /**
    * Local spec file injected as a virtual issue comment: the implementer prompt ({{COMMENTS}}),
    * triage, and the conformance manifest read it exactly like a posted spec, but nothing is written
-   * to the tracker. Pairs with `vanguard spec --out` for a no-trace client-repo flow. Set via --spec-file.
+   * to the tracker. Pairs with `taskcell spec --out` for a no-trace client-repo flow. Set via --spec-file.
    */
   specFile?: string;
   feedbackAuthors?: string[];
@@ -450,7 +450,7 @@ export async function runSourcedIssue(
     // hides under sandbox + worktree provisioning; awaited once the pipeline is assembled. Recorded
     // next to the run so stats can later tell whether it predicts repairs/escalation. Never routes.
     const labelModel = modelFromLabels(task.labels, (label) =>
-      console.warn(`vanguard: ${task.id} ignoring malformed model label ${JSON.stringify(label)}`),
+      console.warn(`taskcell: ${task.id} ignoring malformed model label ${JSON.stringify(label)}`),
     );
     const probePromise = probeTaskDifficulty(task, labelModel ?? deps.providerModel, {
       config: decisionProbeConfig(process.env, { whiteLabel }),
@@ -500,7 +500,7 @@ export async function runSourcedIssue(
           : turnScoped;
       const providerForcedModel = forcedProviderModel(deps.provider ?? 'claude', deps.customProviders);
       if (labelModel !== undefined) {
-        console.log(`vanguard: ${task.id} pins the implementer model to ${labelModel} via label (overrides --provider-model)`);
+        console.log(`taskcell: ${task.id} pins the implementer model to ${labelModel} via label (overrides --provider-model)`);
       }
       let pipeline = assembleReviewPipeline(scopedStages, agents, {
         ...deps,
@@ -521,7 +521,7 @@ export async function runSourcedIssue(
       if (probe !== undefined && deps.signal?.aborted !== true) {
         await persistDecisionProbe(deps.repoPath, adapter.taskId(task), probe).catch(() => undefined);
         console.log(
-          `vanguard: ${task.id} difficulty probe (${probe.model}, ${probe.latencyMs}ms): first-try ${probe.completesFirstTry.toFixed(2)}, difficulty ${probe.difficulty.toFixed(2)}/4, spec clear ${probe.specClear.toFixed(2)}`,
+          `taskcell: ${task.id} difficulty probe (${probe.model}, ${probe.latencyMs}ms): first-try ${probe.completesFirstTry.toFixed(2)}, difficulty ${probe.difficulty.toFixed(2)}/4, spec clear ${probe.specClear.toFixed(2)}`,
         );
       }
       // A conformance stage's narrative rides on the reviewer verdict comment (publishReviewVerdict
@@ -577,7 +577,7 @@ export async function runSourcedIssue(
         const baselineVerify = await resolveBaselineVerify(deps.repoPath, ctx.startRef, ctx.sandbox, verifyCmd, deps.signal);
         if (!baselineVerify.passed) {
           console.log(
-            `vanguard: ${task.id} base branch is red — \`${verifyCmd}\` already fails on ${ctx.baseBranch}@${ctx.startRef.slice(0, 7)} (exit ${baselineVerify.exitCode}); stopping before implementing instead of starting a repair loop.`,
+            `taskcell: ${task.id} base branch is red — \`${verifyCmd}\` already fails on ${ctx.baseBranch}@${ctx.startRef.slice(0, 7)} (exit ${baselineVerify.exitCode}); stopping before implementing instead of starting a repair loop.`,
           );
           console.log(redactForPublish(renderVerificationFeedback(baselineVerify)));
           if (!whiteLabel) await adapter.signalBaseRed(issueRef, task, baseRedBlock(ctx.baseBranch, ctx.startRef, baselineVerify));
@@ -619,7 +619,7 @@ export async function runSourcedIssue(
       const untrustedManifestDropped = manifest === undefined && task.comments.some(
         (c) => !isTrustedComment(c, trust) && parseSpecManifest(c.body) !== undefined,
       );
-      if (untrustedManifestDropped) console.log(`vanguard: ${task.id} ignoring <spec_manifest> from untrusted comment author(s) — declaring partial scope (Part of)`);
+      if (untrustedManifestDropped) console.log(`taskcell: ${task.id} ignoring <spec_manifest> from untrusted comment author(s) — declaring partial scope (Part of)`);
 
       // The implementer's position in `outcomes` is fixed while its session is resumable (repairUntilGreen
       // merges each repair into that entry in place).
@@ -711,7 +711,7 @@ export async function runSourcedIssue(
       } finally {
         console.log(summarizeOutcomes(outcomes));
       }
-      console.log(`vanguard: gate ${gatePassed ? 'PASSED' : 'FAILED — declaring partial scope'} for ${task.id}`);
+      console.log(`taskcell: gate ${gatePassed ? 'PASSED' : 'FAILED — declaring partial scope'} for ${task.id}`);
 
       // The reviewer ran once, before the repair loop. When a repair actually resumed the implementer
       // (iterations > 0), the diff it reviewed no longer matches what ships (#665) — re-review the
@@ -728,7 +728,7 @@ export async function runSourcedIssue(
           // A provider limit or a timeout in the re-review must not sink work that already passed the
           // gate: record it as an unavailable (⇒ `incomplete`, never a pass) verdict and still publish,
           // as a draft — a change that ships without a verdict is not ready for review.
-          console.error(`vanguard: re-review of the final diff failed for ${task.id} — publishing as a draft with an incomplete review: ${redactForPublish(String(error))}`);
+          console.error(`taskcell: re-review of the final diff failed for ${task.id} — publishing as a draft with an incomplete review: ${redactForPublish(String(error))}`);
           reviewUnavailable = true;
           rereviewed = {
             taskId: task.id,

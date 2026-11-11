@@ -1,6 +1,6 @@
 /**
  * Marker and reset-time parsing for a run that ended on a provider rate or session limit. The marker
- * is the only durable record of when a stage may safely retry: `vanguard resume-rate-limited` reads
+ * is the only durable record of when a stage may safely retry: `taskcell resume-rate-limited` reads
  * it back up to hours later, long after the run's own process and logs are gone.
  */
 
@@ -69,7 +69,7 @@ export function latestRateLimitedMarker(bodies: readonly string[]): RateLimitedM
 export function rateLimitedComment(until: Date, trigger: string): string {
   return [
     "This run ended because the AI provider hit a rate limit or session limit — a temporary condition, not a problem with this change.",
-    `Vanguard will not retry automatically until ${until.toISOString()}. Once that time has passed, \`vanguard resume-rate-limited\` (scheduled every 30 minutes) removes \`vanguard:rate-limited\` and re-applies \`${trigger}\` to retry.`,
+    `Vanguard will not retry automatically until ${until.toISOString()}. Once that time has passed, \`taskcell resume-rate-limited\` (scheduled every 30 minutes) removes \`vanguard:rate-limited\` and re-applies \`${trigger}\` to retry.`,
     `To retry sooner, remove \`vanguard:rate-limited\` and re-apply \`${trigger}\` yourself.`,
     '',
     rateLimitedMarker(until, trigger),

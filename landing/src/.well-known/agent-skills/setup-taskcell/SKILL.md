@@ -24,15 +24,15 @@ git clone https://github.com/spietrza/taskcell.git
 cd taskcell
 pnpm install && pnpm build
 docker/build.sh          # builds the sandbox image
-pnpm link --global       # puts vanguard on PATH
+pnpm link --global       # puts taskcell on PATH
 ```
 
-Check it: `vanguard doctor --source github --github-repo owner/repo` reports what is missing.
+Check it: `taskcell doctor --source github --github-repo owner/repo` reports what is missing.
 
 ## Build one issue
 
 ```sh
-vanguard run --github owner/repo#42 --repo /path/to/local/clone --llm-proxy
+taskcell run --github owner/repo#42 --repo /path/to/local/clone --llm-proxy
 ```
 
 `--llm-proxy` keeps the real model key on the host; the sandbox only gets a one-run nonce. Prefer it. The run ends with a pull request: ready for review when every gate passed, a draft when one did not. Run artifacts (diff, transcripts, metrics) are under `.vanguard/runs/` in the target repo; keep `.vanguard/` in its `.gitignore`.
@@ -42,7 +42,7 @@ The issue needs acceptance criteria. A vague issue is relabelled `needs info` be
 ## Keep it running
 
 ```sh
-vanguard watch --source github --github-repo owner/repo
+taskcell watch --source github --github-repo owner/repo
 ```
 
 It picks up issues by label:
@@ -55,7 +55,7 @@ GitLab uses `--source gitlab` and the same trigger labels. Linear routes by work
 
 ## Hub
 
-`pnpm build:ui && vanguard hub --repo /path/to/clone` serves a local board at http://127.0.0.1:7777. It has no login: on a server, put it behind Tailscale or an authenticating proxy, never on a public port.
+`pnpm build:ui && taskcell hub --repo /path/to/clone` serves a local board at http://127.0.0.1:7777. It has no login: on a server, put it behind Tailscale or an authenticating proxy, never on a public port.
 
 ## Do not
 

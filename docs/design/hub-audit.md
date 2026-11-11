@@ -154,7 +154,7 @@ the project cards).
    comments only.
 10. **Remove project has no confirmation or undo** (`Dashboard.tsx`). It only unregisters the
     project, but a misclick on the 16px × costs the operator a re-add through the folder picker.
-11. **Hub restart banner names the old CLI** (`App.tsx`: "open the URL `vanguard hub` printed").
+11. **Hub restart banner names the old CLI** (`App.tsx`: "open the URL `taskcell hub` printed").
     Should say `taskcell hub`.
 12. **Errors are raw strings.** `String(err)` lands on screen in RepoPicker, the board ("No task
     board. Error: …") and Settings. State the problem and the next step.

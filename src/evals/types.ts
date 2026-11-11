@@ -40,7 +40,7 @@ export interface Judge {
 }
 
 /**
- * The shape `vanguard eval --json` actually prints: an EvalReport plus the run's identity (which
+ * The shape `taskcell eval --json` actually prints: an EvalReport plus the run's identity (which
  * judge, which model under test, which corpus) so a later run can diff against it as a baseline
  * without guessing what produced the numbers.
  */
