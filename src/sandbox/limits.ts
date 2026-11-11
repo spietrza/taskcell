@@ -136,7 +136,16 @@ export function hardenedRootfsNote(env: NodeJS.ProcessEnv = process.env): { warn
   const explicit = env.VANGUARD_SANDBOX_READONLY;
   if (explicit !== undefined && explicit !== '') {
     const on = sandboxSecurityOpts(env, true).readOnlyRootfs;
-    return { warn: false, message: `sandbox: read-only rootfs ${on ? 'on' : 'off'} (VANGUARD_SANDBOX_READONLY=${explicit}).` };
+    const message = `sandbox: read-only rootfs ${on ? 'on' : 'off'} (VANGUARD_SANDBOX_READONLY=${explicit}).`;
+    // Forced on with no memory limit: the fixed-size tmpfs mounts have no cgroup to bound them.
+    if (on && hardenedMemoryMb(env) === undefined) {
+      const { workspace, home, tmp } = readOnlyTmpfsSizesMb(undefined);
+      return {
+        warn: true,
+        message: `${message} No memory limit (VANGUARD_SANDBOX_MEMORY_MB=${env.VANGUARD_SANDBOX_MEMORY_MB ?? ''}), so /workspace, $HOME and /tmp are tmpfs of ${workspace}/${home}/${tmp} MB backed by host RAM.`,
+      };
+    }
+    return { warn: false, message };
   }
   const memoryMb = hardenedMemoryMb(env);
   if (memoryMb !== undefined && memoryMb >= READONLY_SANDBOX_MEMORY_MB) {

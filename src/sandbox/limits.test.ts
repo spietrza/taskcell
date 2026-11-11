@@ -127,9 +127,12 @@ describe('hardenedRootfsNote', () => {
     }
   });
 
-  it('reports an explicit VANGUARD_SANDBOX_READONLY without warning', () => {
+  it('reports an explicit VANGUARD_SANDBOX_READONLY, warning only when forced on with no memory limit', () => {
     const forced = { VANGUARD_SANDBOX_MEMORY_MB: '1536', VANGUARD_SANDBOX_READONLY: '1' } as NodeJS.ProcessEnv;
     expect(hardenedRootfsNote(forced)).toEqual({ warn: false, message: expect.stringContaining('read-only rootfs on') });
+    const unbounded = hardenedRootfsNote({ VANGUARD_SANDBOX_MEMORY_MB: '0', VANGUARD_SANDBOX_READONLY: '1' } as NodeJS.ProcessEnv);
+    expect(unbounded.warn).toBe(true);
+    expect(unbounded.message).toContain('4096/2048/1024 MB');
     const off = hardenedRootfsNote({ VANGUARD_SANDBOX_READONLY: '0' } as NodeJS.ProcessEnv);
     expect(off).toEqual({ warn: false, message: expect.stringContaining('read-only rootfs off') });
   });

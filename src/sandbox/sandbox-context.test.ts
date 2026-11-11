@@ -1,4 +1,4 @@
-import { beforeEach, describe, expect, it, vi } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { DEFAULT_EGRESS_ALLOWLIST } from './egress-allow.mjs';
 import { llmProxyEgressAllowlist } from './egress-proxy.js';
 
@@ -78,5 +78,31 @@ describe('startSandboxContext llm-proxy upstream follows the provider table', ()
       await startSandboxContext({ egress: true, llmProxy: true, auth, ...(provider !== undefined ? { provider } : {}) });
       expect(startLlmProxy).toHaveBeenLastCalledWith(expect.not.objectContaining({ upstream: expect.anything() }));
     }
+  });
+});
+
+describe('startSandboxContext reports the hardened read-only rootfs decision', () => {
+  beforeEach(() => vi.stubEnv('VANGUARD_SANDBOX_READONLY', undefined));
+  afterEach(() => {
+    vi.unstubAllEnvs();
+    vi.restoreAllMocks();
+  });
+
+  it('logs the engaged default on console.log', async () => {
+    vi.stubEnv('VANGUARD_SANDBOX_MEMORY_MB', undefined);
+    const log = vi.spyOn(console, 'log').mockImplementation(() => {});
+    const warn = vi.spyOn(console, 'warn').mockImplementation(() => {});
+    await startSandboxContext({ egress: true, llmProxy: false });
+    expect(log).toHaveBeenCalledWith(expect.stringContaining('read-only rootfs on (hardened default)'));
+    expect(warn).not.toHaveBeenCalled();
+  });
+
+  it('warns on console.warn when a memory limit below 6144 MB stands it down', async () => {
+    vi.stubEnv('VANGUARD_SANDBOX_MEMORY_MB', '1536');
+    vi.spyOn(console, 'log').mockImplementation(() => {});
+    const warn = vi.spyOn(console, 'warn').mockImplementation(() => {});
+    await startSandboxContext({ egress: true, llmProxy: false });
+    expect(warn).toHaveBeenCalledTimes(1);
+    expect(warn).toHaveBeenCalledWith(expect.stringContaining('VANGUARD_SANDBOX_MEMORY_MB=1536'));
   });
 });
