@@ -26,13 +26,14 @@
 @theme {
   --font-sans: 'Atkinson Hyperlegible', system-ui, sans-serif;
   --font-mono: 'IBM Plex Mono', ui-monospace, monospace;
+  /* In @theme, not :root, so `font-heading` exists as a utility (the wordmark uses it). */
+  --font-heading: 'Schibsted Grotesk', system-ui, sans-serif;
 }
 
 /* Light: derived from the landing's dark palette. Amber is deepened so a 2px tab underline or the
    focus ring keeps 3:1 on the page; the landing's dark ink stays on amber fills. */
 :root {
   color-scheme: light;
-  --font-heading: 'Schibsted Grotesk', system-ui, sans-serif;
   --radius: 0.375rem;
 
   --background: #f7f8f9;
@@ -47,8 +48,6 @@
   /* Yellow, not amber: warning must not read as the accent. */
   --warning: oklch(0.82 0.16 95);
   --warning-foreground: #14100a;
-  /* chunks-ui clamps colored text for white; this page is #f7f8f9 with #e8ecef wells. */
-  --success-text: oklch(0.47 0.11 166.5);
 
   --secondary: #e8ecef;
   --secondary-foreground: #0d1013;
@@ -62,6 +61,13 @@
   --ring: var(--primary);
   /* The landing's steel teal (--accent-2), darkened to keep 4.5:1 on paper and wells. */
   --caption: #3f6b70;
+}
+
+/* Light only: chunks-ui clamps colored text for a white page, but this one is #f7f8f9 with #e8ecef
+   wells. Scoped off `.dark` rather than reset there, so in dark `--color-success-text` keeps
+   falling back to the kit's own derived shade. */
+:root:not(.dark) {
+  --success-text: oklch(0.47 0.11 166.5);
 }
 
 /* Dark (default): the landing's palette as is. */
@@ -79,7 +85,6 @@
   --warning: oklch(0.86 0.16 95);
   --warning-foreground: #14100a;
   --destructive-text: #ff6a5c;
-  --success-text: initial; /* back to chunks-ui's derived shade */
 
   --secondary: #1b2228;
   --secondary-foreground: #e8ecef;
