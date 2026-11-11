@@ -10,7 +10,7 @@ import type { Upstream } from './llm-proxy-rewrite.mjs';
 import type { AgentAuth } from '../agents/auth.js';
 
 /**
- * The sandbox-side wiring shared by `vanguard run` and `vanguard watch`: the egress enclave's proxy
+ * The sandbox-side wiring shared by `taskcell run` and `taskcell watch`: the egress enclave's proxy
  * URL + network, and (when `--llm-proxy` is active) the trusted LLM-proxy sidecar's url/nonce/host.
  * `destroy()` tears the whole thing down in the right order.
  */
@@ -67,7 +67,7 @@ export async function startSandboxContext(opts: SandboxContextOptions): Promise<
 
   // The primary sidecar's upstream follows the provider; the credential comes uniformly from `auth`.
   // Checked before the enclave exists: a throw after startEgressEnclave would leave the network and
-  // proxy container behind until `vanguard gc` (a codex/cursor-only run under --llm-proxy hits this).
+  // proxy container behind until `taskcell gc` (a codex/cursor-only run under --llm-proxy hits this).
   if (opts.llmProxy && opts.auth === undefined) throw new Error(LLM_PROXY_CREDENTIAL_MESSAGE);
 
   // Custom-provider hosts (S6) extend the allowlist here, at enclave creation — the list is baked
@@ -92,7 +92,7 @@ export async function startSandboxContext(opts: SandboxContextOptions): Promise<
   const upstream: Upstream = providerUpstream(opts.provider);
   const auth = llmProxyAuth(opts.auth);
   // startLlmProxy fails closed on any docker error; the enclave created above is this function's to
-  // clean up, or its network and proxy container would survive until `vanguard gc`.
+  // clean up, or its network and proxy container would survive until `taskcell gc`.
   let llmProxy: Awaited<ReturnType<typeof startLlmProxy>>;
   try {
     llmProxy = await startLlmProxy({ network: enclave.network, auth, ...(upstream === 'anthropic' ? {} : { upstream }) });

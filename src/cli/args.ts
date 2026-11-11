@@ -142,6 +142,8 @@ export type Command =
       repoPath: string;
       /** Cap on ready tasks per poll; parsed with watch's flags, read by nothing doctor runs. */
       maxTasks?: number;
+      /** Single-issue selector; parsed with watch's flags, read by nothing doctor runs. */
+      issue?: string;
       specModel?: string;
       specLabel?: string;
       agentLabel?: string;
@@ -196,6 +198,14 @@ export type Command =
       egress: boolean;
       /** Cap the number of ready tasks claimed and processed per poll. Unset: process all of them. */
       maxTasks?: number;
+      /**
+       * Run only this GitHub issue (owner/repo#n matching --github-repo, or a bare number) instead
+       * of sweeping every ready issue — same gates as the sweep (open state, labels, author trust,
+       * triage). An issue another run already claimed (carries the claimed label) is skipped with a
+       * log line; that check is best effort, the claim's label swap is what settles a race. Implies
+       * --once. --source github only.
+       */
+      issue?: string;
       /** Hold the provider credential (Anthropic, or z.ai with --provider zai) in a trusted sidecar; the sandbox gets only a per-run nonce (implies egress). */
       llmProxy?: boolean;
       // --- Loop v1 flags ---
@@ -509,6 +519,8 @@ export function parseCli(argv: string[], cwd: string): Command {
         concurrency: { type: 'string' },
         // watch-prs: review this PR even when the label-filtered scan misses it
         pr: { type: 'string' },
+        // watch: run only this GitHub issue instead of sweeping every ready issue
+        issue: { type: 'string' },
         // watch
         team: { type: 'string' },
         'trigger-state': { type: 'string' },
@@ -1203,6 +1215,24 @@ export function parseCli(argv: string[], cwd: string): Command {
     if (values['max-tasks'] !== undefined && maxTasks === undefined) {
       return fail(`--max-tasks needs a positive integer, got "${String(values['max-tasks'])}".`);
     }
+    const issueRef = typeof values.issue === 'string' ? values.issue : undefined;
+    if (issueRef !== undefined) {
+      if (source !== 'github') return fail(`${commandKind} --issue requires --source github.`);
+      // Same shape check as `watch-prs --pr`, plus the repo prefix: the fetch strips an `owner/repo#`
+      // prefix and reads the number from --github-repo, so a prefix naming another repo would
+      // silently run a different issue.
+      const groups = /^(?:(?<repo>[^\s#/]+\/[^\s#/]+)#)?(?<number>\d+)$/.exec(issueRef)?.groups;
+      if (groups === undefined || Number(groups['number']) < 1) {
+        return fail(`${commandKind} --issue expects a positive issue number or owner/repo#n, got "${issueRef}".`);
+      }
+      const refRepo = groups['repo'];
+      const repoSlug = typeof values['github-repo'] === 'string' ? values['github-repo'] : undefined;
+      if (refRepo !== undefined && refRepo !== repoSlug) {
+        return fail(
+          `${commandKind} --issue ${issueRef} names repo "${refRepo}", but --github-repo is ${repoSlug === undefined ? 'unset' : `"${repoSlug}"`}; the issue must live in the watched repo.`,
+        );
+      }
+    }
     // The single-task flags (RunOnlyKey + --fork): on watch each would be a silent no-op or a spurious failure.
     if (values['fork-scorer'] !== undefined) return fail(`--fork-scorer applies to \`run --fork <n>\` only; ${commandKind} does not fork.`);
     if (values.fork !== undefined) return fail(`--fork applies to run only; ${commandKind} does not fork.`);
@@ -1212,6 +1242,7 @@ export function parseCli(argv: string[], cwd: string): Command {
       source,
       repoPath,
       ...(maxTasks !== undefined ? { maxTasks } : {}),
+      ...(issueRef !== undefined ? { issue: issueRef } : {}),
       ...(label !== undefined ? { label } : {}),
       ...(projectNumber !== undefined ? { projectNumber } : {}),
       ...(typeof values['gitlab-project'] === 'string' ? { project: values['gitlab-project'] } : {}),
@@ -1248,7 +1279,9 @@ export function parseCli(argv: string[], cwd: string): Command {
       ...common,
       concurrency: Number.isFinite(concurrency) && concurrency >= 1 ? Math.floor(concurrency) : DEFAULT_CONCURRENCY,
       intervalMs: (Number.isFinite(interval) && interval > 0 ? interval : 60) * 1000,
-      once: values.once === true,
+      // --issue names one issue: polling for it again would re-read an issue this run already
+      // claimed or skipped, so it implies --once.
+      once: values.once === true || issueRef !== undefined,
       egress: values.egress === true,
     };
   }
@@ -1326,6 +1359,13 @@ Commands:
     --max-tasks <n>        Cap the ready tasks claimed and processed per poll, for each phase
                            (spec, then agent); the rest stay unclaimed for the next poll
                            (default: unlimited)
+    --issue <ref>          (--source github only) Run only this issue (owner/repo#n matching
+                           --github-repo, or a bare number) instead of sweeping every ready issue —
+                           same gates as the sweep (open state, labels, author trust, triage).
+                           Already claimed by another run? Skipped with a log line; that check is
+                           best effort, the claim itself is what catches a run that claimed in
+                           between. Implies --once. Without this flag, behaviour is unchanged (the
+                           sweep).
     --loop-v1              Use Loop v1 defaults (GitHub labels "ready for spec"/"ready for agent"/
                            "needs info"; Linear ownership label "vanguard", state type "triage",
                            state name "Spec", needs-info state "Needs Info"). For GitHub, a repo-only

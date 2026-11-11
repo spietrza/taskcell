@@ -55,7 +55,7 @@ export function githubAdapter(deps: RunGithubIssueDeps, gh: GhRunner = defaultGh
         .catch(() => undefined)
         .then(() => editGithubLabels(deps.repoSlug, issueRef, { add: [GITHUB_SECRET_BLOCKED_LABEL] }, gh))
         .catch(() => undefined);
-      // No recovery procedure here: this adapter also serves one-shot `vanguard run` and Projects,
+      // No recovery procedure here: this adapter also serves one-shot `taskcell run` and Projects,
       // whose release steps differ. The watch primitive that holds the issue posts the resume line.
       await Promise.all([label, commentGithubIssue(deps.repoSlug, issueRef, renderSecretBlockComment(block), gh).catch(() => undefined)]);
     },
@@ -84,7 +84,7 @@ export function sameRepoTasks(tasks: Task[], repoSlug: string): Task[] {
   return tasks.filter((task) => {
     const itemRepo = task.id.slice(0, task.id.lastIndexOf('#'));
     if (itemRepo.toLowerCase() === repoSlug.toLowerCase()) return true;
-    console.warn(`vanguard: project item ${task.id} belongs to another repository than ${repoSlug}; skipped`);
+    console.warn(`taskcell: project item ${task.id} belongs to another repository than ${repoSlug}; skipped`);
     return false;
   });
 }

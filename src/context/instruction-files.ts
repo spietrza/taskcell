@@ -96,7 +96,7 @@ export async function overlayInstructionFiles(opts: OverlayInstructionFilesOptio
     await execa('git', hostGitArgs(['add', '-A']), { cwd: worktreePath });
     await execa(
       'git',
-      hostGitArgs(['-c', 'user.name=Vanguard', '-c', 'user.email=vanguard@local', 'commit', '--no-verify', '-m', `vanguard: instruction files from ${opts.ref}@${sha.slice(0, 7)}`]),
+      hostGitArgs(['-c', 'user.name=Vanguard', '-c', 'user.email=vanguard@local', 'commit', '--no-verify', '-m', `taskcell: instruction files from ${opts.ref}@${sha.slice(0, 7)}`]),
       { cwd: worktreePath },
     );
   }

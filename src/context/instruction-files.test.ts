@@ -78,7 +78,7 @@ describe('instruction files', () => {
     }
     expect((await f.git(['status', '--porcelain'], f.worktreePath)).stdout).toBe('');
     expect((await f.git(['rev-list', '--count', `${base}..HEAD`], f.worktreePath)).stdout).toBe('1');
-    expect((await f.git(['log', '-1', '--format=%s'], f.worktreePath)).stdout).toBe(`vanguard: instruction files from main@${sha.slice(0, 7)}`);
+    expect((await f.git(['log', '-1', '--format=%s'], f.worktreePath)).stdout).toBe(`taskcell: instruction files from main@${sha.slice(0, 7)}`);
     const changed = (await f.git(['diff', '--name-only', '-z', base, 'HEAD'], f.worktreePath)).stdout.split('\0').filter(Boolean).sort();
     expect(overlay.differing).toEqual(changed);
     expect(instructionPaths(changed)).toEqual(changed);

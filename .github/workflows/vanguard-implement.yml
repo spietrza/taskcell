@@ -22,6 +22,8 @@ permissions:
   contents: write
   pull-requests: write
   issues: write
+  # Read-only: the reusable workflow's slot step lists this workflow's in-progress runs (max-parallel).
+  actions: read
 
 jobs:
   implement:
@@ -32,14 +34,18 @@ jobs:
       contains(fromJSON('["spietrza","pawelkrystkiewicz"]'), github.event.issue.user.login) &&
       contains(fromJSON('["spietrza","pawelkrystkiewicz"]'), github.event.sender.login))
     # Job-level, not workflow-level: label events this job skips (vanguard:* labels, other labels)
-    # never enter the group, so they cannot replace and cancel a pending real run. One group per repo
-    # because `watch --once` claims every ready issue, so two runs at once would race for the same one.
+    # never enter a group, so they cannot replace and cancel a pending real run. A labelled issue gets
+    # its own group and its own run (`watch --issue`), so issues no longer queue behind each other or
+    # knock a pending run out of a shared group; `max-parallel` below caps how many work at once. A
+    # dispatch has no issue and sweeps every ready one, in a group of its own.
     concurrency:
-      group: vanguard-implement-${{ github.repository }}
+      group: vanguard-implement-${{ github.repository }}-${{ github.event.issue.number || 'sweep' }}
       cancel-in-progress: false
     uses: ./.github/workflows/implement.yml
     with:
       allowed-actors: '["spietrza","pawelkrystkiewicz"]'
+      issue: ${{ github.event.issue.number || '' }}
+      max-parallel: '3'
       # Opus plans the spec, Sonnet implements, Fable reviews (Codex's weekly limit is nearly spent).
       # No llm-proxy: Codex runs on a ChatGPT subscription (CODEX_AUTH_JSON), which talks to the
       # ChatGPT backend directly — the proxy allowlist only covers the api.openai.com (API-key) path.
@@ -47,8 +53,8 @@ jobs:
       provider-model: sonnet
       spec-model: opus
       review-provider: claude
-      review-model: claude-fable-5-1
-      escalate-model: claude-fable-5-1
+      review-model: claude-fable-5-2
+      escalate-model: claude-fable-5-2
       # If Claude is down or out of plan, the implementer retries once on the Codex subscription.
       fallback-provider: codex
       decision-probe: true

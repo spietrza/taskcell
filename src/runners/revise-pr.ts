@@ -550,7 +550,7 @@ export async function runRevisePullRequest(prRef: string, deps: ReviseGithubPrDe
       // A custom provider's key env var is repo-configured: the secret gate cannot know its name.
       const secretEnvVars = providerKeyEnvNames(deps);
       const block = scanOutgoingForSecrets(gateDiff, `${target.repoSlug}#${target.number}`, 'revise push', secretEnvVars);
-      // Repair cost merged into the implementer outcome by the gate reaches `vanguard stats` only if
+      // Repair cost merged into the implementer outcome by the gate reaches `taskcell stats` only if
       // the outcomes are persisted — the first delivery does this in runSourcedIssue. Persisted after
       // the scan so a blocked round leaves no `.diff` / `.bundle` on disk (the diff holds the secret).
       await writer.writeStages(outcomes, {
@@ -729,7 +729,7 @@ export async function runRevisePullRequest(prRef: string, deps: ReviseGithubPrDe
       // `vanguard:revising` and nothing said on it, so the work sits until someone notices (#615,
       // #656). Mark it `vanguard:rate-limited` with a notice carrying the parsed reset time (posted
       // as a review comment, like the other hand-back notices here), and drop the in-flight label,
-      // leaving `needs revision` in place: `vanguard resume-rate-limited` re-triggers that label
+      // leaving `needs revision` in place: `taskcell resume-rate-limited` re-triggers that label
       // once the reset time has passed (or a human can re-apply it sooner).
       // Best-effort — neither the notice nor the label edit may mask the original failure. --out is
       // a dry run that touches neither the branch nor the PR. Gated on AgentError (same test as

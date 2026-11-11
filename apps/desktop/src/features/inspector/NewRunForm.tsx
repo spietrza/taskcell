@@ -105,7 +105,7 @@ export function NewRunForm({
     maxTurns: maxTurnsNum,
     baseBranch: baseBranch.trim(),
   };
-  const preview = `vanguard run --${transport} ${issueRef || '<issue>'} --provider ${provider}${flow === 'plan' ? ' --plan' : ''} --max-turns ${maxTurns}`;
+  const preview = `taskcell run --${transport} ${issueRef || '<issue>'} --provider ${provider}${flow === 'plan' ? ' --plan' : ''} --max-turns ${maxTurns}`;
 
   return (
     <div className="space-y-3 rounded-lg border border-border bg-muted/30 p-3">

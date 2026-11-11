@@ -3,7 +3,7 @@ import { FLOW_NAME_RE } from './wire';
 import { SOURCES } from './sources';
 
 /**
- * The single source of truth for the `vanguard` commands the desktop app launches.
+ * The single source of truth for the `taskcell` commands the desktop app launches.
  * Three call sites used to hardcode `--provider zai --llm-proxy` and drift apart; they all
  * route through here now.
  *
@@ -41,9 +41,9 @@ const checkSource = (source: string): string => {
   return source;
 };
 
-/** Default `vanguard run` command for a New Run — `<issue>` is left for the user to fill. */
+/** Default `taskcell run` command for a New Run — `<issue>` is left for the user to fill. */
 export function runCommand(cfg: AppConfig, source: string = cfg.source ?? 'github'): string {
-  return `vanguard run --${checkSource(source)} <issue> --provider ${provider(cfg)} --max-turns ${MAX_TURNS}`;
+  return `taskcell run --${checkSource(source)} <issue> --provider ${provider(cfg)} --max-turns ${MAX_TURNS}`;
 }
 
 /**
@@ -56,7 +56,7 @@ export function watchArgv(
 ): string[] {
   const n = Math.max(1, Math.floor(opts.concurrency) || 1);
   return [
-    'vanguard',
+    'taskcell',
     'watch',
     `--${checkSource(opts.source)}`,
     '--concurrency',
