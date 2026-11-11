@@ -325,6 +325,18 @@ suite('DockerSandboxProvider', () => {
     }
   }, 60_000);
 
+  it('aborts copy-out once the stream passes maxBytes, even for data the agent made unreadable', async () => {
+    const out = await mkdtemp(join(tmpdir(), 'vg-cap-'));
+    try {
+      await sb.exec('mkdir -p /workspace/cap/hidden && head -c 8388608 /dev/zero > /workspace/cap/hidden/big && chmod 000 /workspace/cap/hidden');
+      await expect(sb.copyFileOut('/workspace/cap', out, { maxBytes: 1024 * 1024 })).rejects.toThrow(/copyFileOut failed/);
+      await expect(sb.copyFileOut('/workspace/cap', out, { maxBytes: 1024 * 1024 })).rejects.toHaveProperty('cause.message', expect.stringMatching(/passed 1048576 bytes/));
+    } finally {
+      await sb.exec('chmod -R 755 /workspace/cap; rm -rf /workspace/cap');
+      await rm(out, { recursive: true, force: true });
+    }
+  }, 60_000);
+
   it('fails closed when the source dies mid-stream (truncated archive)', async () => {
     const doomed = new DockerSandboxProvider({ image: 'alpine:3.20', workdir: '/workspace' });
     const out = await mkdtemp(join(tmpdir(), 'vg-trunc-'));

@@ -438,17 +438,35 @@ export class DockerSandboxProvider implements IsolatedSandboxProvider {
           buffer: { stdout: false },
           reject: false,
         });
-        // A failing extract (e.g. a truncated archive) rejects the pipe.
-        await source.pipe('tar', ['-xf', '-', '-C', hostPath]);
+        // Hard byte cap on the stream itself: the pre-copy `find` runs as the agent and cannot see into
+        // what it made unreadable, while this tar runs as root, so only the stream is a reliable limit.
+        let streamed = 0;
+        let overCap = false;
+        if (options.maxBytes !== undefined) {
+          const cap = options.maxBytes;
+          source.stdout?.on('data', (chunk: Buffer) => {
+            streamed += chunk.length;
+            if (streamed > cap && !overCap) {
+              overCap = true;
+              source.kill();
+            }
+          });
+        }
+        // A failing extract (e.g. a truncated archive) rejects the pipe. Tar restores modes, so a 000 dir or
+        // file would leave the host user unable to read (or later delete) what it extracted — fix that
+        // whether or not the copy succeeded, or the caller's cleanup of a partial extract fails too.
+        const extracted = await source.pipe('tar', ['-xf', '-', '-C', hostPath]).catch((cause: unknown) => cause);
+        await execa('chmod', ['-R', 'u+rwX', hostPath], { reject: false });
+        if (overCap) throw new Error(`copy-out passed ${options.maxBytes} bytes; aborted before more reached the host`);
+        if (extracted instanceof Error) throw extracted;
         const archived = await source;
         // GNU tar exits 1 for "file changed as we read it" (a process still writing): the archive is
-        // complete, so keep it. Anything else (2 = fatal/unreadable) fails closed.
-        if (archived.exitCode !== 0 && archived.exitCode !== 1) {
+        // complete, so keep it — but only for that reason. Anything else fails closed.
+        const changedOnly = archived.exitCode === 1 && /file changed as we read it/.test(archived.stderr)
+          && archived.stderr.split('\n').every((line) => line.trim() === '' || /file changed as we read it/.test(line));
+        if (archived.exitCode !== 0 && !changedOnly) {
           throw new Error(`tar in sandbox exited ${archived.exitCode}: ${archived.stderr}`);
         }
-        // Tar restores modes, so a 000 dir or file would leave the host user unable to read (or later
-        // delete) what it just extracted.
-        await execa('chmod', ['-R', 'u+rwX', hostPath]);
       } else {
         const res = await execa('docker', ['exec', this.name, 'cat', sandboxPath], { stdout: { file: hostPath }, reject: false });
         // The redirect creates hostPath before cat runs; don't leave an empty file for a missing source.

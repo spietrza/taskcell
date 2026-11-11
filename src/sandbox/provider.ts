@@ -28,6 +28,8 @@ export interface ExecStream {
 export interface CopyOutOptions {
   /** File/dir names skipped at any depth (bare names, no slashes). */
   exclude?: readonly string[];
+  /** Abort once the archive streamed out of the sandbox passes this many bytes (before it reaches the host disk). */
+  maxBytes?: number;
 }
 
 /**
