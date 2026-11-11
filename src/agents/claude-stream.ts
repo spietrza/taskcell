@@ -124,7 +124,7 @@ export async function* runClaudeCli(
     }
   }
 
-  if (droppedSessionId) console.warn('vanguard: ignored a malformed session_id in the claude stream (no resume from it)');
+  if (droppedSessionId) console.warn('taskcell: ignored a malformed session_id in the claude stream (no resume from it)');
 
   // Only a genuine crash (no result produced) is an error. The CLI returns a non-zero exit code
   // for graceful stops too (max_turns, max_budget), so do not treat exit code alone as failure.
@@ -140,7 +140,7 @@ export async function* runClaudeCli(
       throw new AgentError(`Agent exited without a result (exit ${res.exitCode}): ${detail()}`);
     }
     console.warn(
-      `vanguard: claude stream ended without a result event (exit 0, ${turns} turns) — treating the stage as incomplete and resumable`,
+      `taskcell: claude stream ended without a result event (exit 0, ${turns} turns) — treating the stage as incomplete and resumable`,
     );
   }
 

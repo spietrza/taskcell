@@ -1,6 +1,6 @@
 # Autonomous loop
 
-`vanguard watch` polls a source for ready items and runs each one by itself (claim → run → PR → move to review): `--source linear` (trigger = state type + label) or `--source github` (open issues with labels). Each run implements, then **reviews and simplifies its own diff in a fresh, independent context** using the bundled `skills/` (code-review + simplify) injected into the sandbox. The defaults let you start GitHub with `vanguard watch --source github --github-repo owner/repo`, and Linear with `vanguard watch --loop-v1 --label vanguard`. To run it always-on on any Docker host, see [deploy.md](deploy.md).
+`taskcell watch` polls a source for ready items and runs each one by itself (claim → run → PR → move to review): `--source linear` (trigger = state type + label) or `--source github` (open issues with labels). Each run implements, then **reviews and simplifies its own diff in a fresh, independent context** using the bundled `skills/` (code-review + simplify) injected into the sandbox. The defaults let you start GitHub with `taskcell watch --source github --github-repo owner/repo`, and Linear with `taskcell watch --loop-v1 --label vanguard`. To run it always-on on any Docker host, see [deploy.md](deploy.md).
 
 ## Two passes: spec, then build
 
@@ -28,11 +28,11 @@ Routing differs by source:
 <p align="center">
   <picture>
     <source media="(prefers-color-scheme: dark)" srcset="diagrams/labels-dark.svg" />
-    <img src="diagrams/labels-light.svg" width="100%" alt="Taskcell routing labels on GitHub, in three columns: labels you add, labels Taskcell sets while working, and labels that mean it is your turn. needs research leads to vanguard:researching, which posts findings and rests until you pick the next label. ready for spec leads to vanguard:speccing, which posts the spec and moves the issue to ready for agent, or to needs info when triage finds it too vague. ready for agent leads to vanguard:running, then vanguard:needs-human-review once the PR is open, or needs info. needs revision on a PR Taskcell opened leads to vanguard:revising, which pushes fixes and returns to vanguard:needs-human-review. ready for vanguard review on any PR leads to vanguard:reviewing, then vanguard:reviewed; where the review workflow opts in, it adds that label itself to a factory PR that opens ready for review or leaves draft. GitLab uses the same ready for spec, ready for agent and needs info labels, writes its states with a double colon (vanguard::speccing, vanguard::running, then vanguard::review once the MR is open) and has no research or revise pass; Linear routes by workflow states instead." />
+    <img src="diagrams/labels-light.svg" width="100%" alt="Taskcell routing labels on GitHub, in three columns: labels you add, labels Taskcell sets while working, and labels that mean it is your turn. needs research leads to vanguard:researching, which posts findings and rests until you pick the next label. ready for spec leads to vanguard:speccing, which posts the spec and moves the issue to ready for agent, or to needs info when triage finds it too vague. ready for agent leads to vanguard:running, then vanguard:needs-human-review once the PR is open, or needs info. needs revision on a PR Taskcell opened leads to vanguard:revising, which pushes fixes and returns to vanguard:needs-human-review. ready for taskcell review on any PR leads to vanguard:reviewing, then vanguard:reviewed; where the review workflow opts in, it adds that label itself to a factory PR that opens ready for review or leaves draft. GitLab uses the same ready for spec, ready for agent and needs info labels, writes its states with a double colon (vanguard::speccing, vanguard::running, then vanguard::review once the MR is open) and has no research or revise pass; Linear routes by workflow states instead." />
   </picture>
 </p>
 
-`ready for ...` / `needs ...` are **triggers you add by hand**; `vanguard:...` are **states Taskcell sets itself**. On GitHub Actions, issue-side triggers fire `issues: labeled` workflows; PR-side triggers fire `pull_request_target: labeled` workflows. The exception is `ready for vanguard review`: this repo's review workflow also adds it to a factory PR that opens ready for review or leaves draft, so that PR gets Taskcell's review without anyone labelling it. A caller copied from [onboarding-another-repo.md](onboarding-another-repo.md) runs on the label only.
+`ready for ...` / `needs ...` are **triggers you add by hand**; `vanguard:...` are **states Taskcell sets itself**. On GitHub Actions, issue-side triggers fire `issues: labeled` workflows; PR-side triggers fire `pull_request_target: labeled` workflows. The exception is `ready for taskcell review`: this repo's review workflow also adds it to a factory PR that opens ready for review or leaves draft, so that PR gets Taskcell's review without anyone labelling it. A caller copied from [onboarding-another-repo.md](onboarding-another-repo.md) runs on the label only.
 
 These are the GitHub names. GitLab (`watch --source gitlab`) uses the same `ready for spec`, `ready for agent` and `needs info` triggers but writes its states with a double colon: `vanguard::speccing`, `vanguard::running`, `vanguard::review` once the MR is open, and `vanguard::reviewing` / `vanguard::reviewed` for `watch-mrs`, whose trigger label you pass with `--label`. GitLab has no `needs research` or `needs revision` pass. Linear routes by workflow states (table below), and a GitHub Projects board by its Status column.
 
@@ -42,24 +42,24 @@ These are the GitHub names. GitLab (`watch --source gitlab`) uses the same `read
 | `ready for agent` | issue | trigger | builds directly (issue already scoped) |
 | `needs research` | issue | trigger | external research → posts a findings comment → **rests** (no auto-advance; you set spec/agent next) |
 | `needs info` | issue | triage (resting) | parked — ticket too vague |
-| `ready for vanguard review` | **PR** | trigger | adversarial **read-only** review → posts a comment; never edits code |
+| `ready for taskcell review` | **PR** | trigger | adversarial **read-only** review → posts a comment; never edits code |
 | `needs revision` | **PR** (opened by Taskcell) | trigger | reads your review comments → fixes on the PR branch → pushes → un-drafts if still a draft → back to `needs-human-review` |
 | `vanguard:speccing` · `:running` · `:researching` · `:revising` · `:reviewing` | issue/PR | transient state | Taskcell is working (seconds–minutes) |
 | `vanguard:needs-human-review` · `:reviewed` · `:verify-failed` · `:visual-proof-failed` | issue/PR | resting state | waiting on a human |
 
-The word "review" means two things: `ready for vanguard review` (PR) is **Taskcell reviewing your PR** (read-only comment); `needs revision` (PR) is **Taskcell acting on your review of its own PR** (edits + pushes). `vanguard:needs-human-review` is the post-build resting state — your turn to review the PR.
+The word "review" means two things: `ready for taskcell review` (PR) is **Taskcell reviewing your PR** (read-only comment); `needs revision` (PR) is **Taskcell acting on your review of its own PR** (edits + pushes). `vanguard:needs-human-review` is the post-build resting state — your turn to review the PR.
 
 ```bash
 # GitHub defaults
-vanguard doctor --source github --github-repo owner/repo
-vanguard watch --source github --github-repo owner/repo
+taskcell doctor --source github --github-repo owner/repo
+taskcell watch --source github --github-repo owner/repo
 
 # GitHub with custom labels/model
-vanguard doctor --source github --github-repo owner/repo --label vanguard \
+taskcell doctor --source github --github-repo owner/repo --label vanguard \
   --spec-label "ready for spec" \
   --agent-label "ready for agent" \
   --needs-info-label "needs info"
-vanguard watch --source github --github-repo owner/repo \
+taskcell watch --source github --github-repo owner/repo \
   --label vanguard \
   --spec-label "ready for spec" \
   --agent-label "ready for agent" \
@@ -79,13 +79,13 @@ The two-flag split is Linear-specific: `--agent-state` sets the **state name** t
 
 ```bash
 # Linear defaults
-vanguard doctor --loop-v1 --label vanguard
-vanguard watch --loop-v1 --label vanguard
+taskcell doctor --loop-v1 --label vanguard
+taskcell watch --loop-v1 --label vanguard
 
 # Linear with custom states/model
-vanguard doctor --loop-v1 --label vanguard --spec-state triage --spec-state-name Spec \
+taskcell doctor --loop-v1 --label vanguard --spec-state triage --spec-state-name Spec \
   --needs-info-state "Needs Info" --agent-state Todo
-vanguard watch --loop-v1 --label vanguard \
+taskcell watch --loop-v1 --label vanguard \
   --spec-state triage \
   --spec-state-name Spec \
   --needs-info-state "Needs Info" \
@@ -95,7 +95,7 @@ vanguard watch --loop-v1 --label vanguard \
 
 ## Shared behaviour (both sources)
 
-- `vanguard doctor` runs the AFK preflight without claiming work. It checks Node 24+, LLM auth, repo remote, Docker daemon, the sandbox image, `vanguard-sandbox:latest` or `VANGUARD_SANDBOX_IMAGE` when set (including the Claude CLI version inside it — see [Keeping the sandbox image current](cli.md#keeping-the-sandbox-image-current)), source auth, GitHub routing labels, and Linear env/skills setup. On a GitHub repo it also verifies the "Allow GitHub Actions to create and approve pull requests" setting (best-effort — skipped if the token cannot read it) and, when Codex is selected with a `CODEX_AUTH_JSON` subscription credential, validates its shape before the run.
+- `taskcell doctor` runs the AFK preflight without claiming work. It checks Node 24+, LLM auth, repo remote, Docker daemon, the sandbox image, `vanguard-sandbox:latest` or `VANGUARD_SANDBOX_IMAGE` when set (including the Claude CLI version inside it — see [Keeping the sandbox image current](cli.md#keeping-the-sandbox-image-current)), source auth, GitHub routing labels, and Linear env/skills setup. On a GitHub repo it also verifies the "Allow GitHub Actions to create and approve pull requests" setting (best-effort — skipped if the token cannot read it) and, when Codex is selected with a `CODEX_AUTH_JSON` subscription credential, validates its shape before the run.
 - Triage is deterministic (`assessTaskReadiness`) and rejects under-specified tickets before spending any model tokens.
 - The spec stage is read-only: it posts a `<tech_spec>` comment but never writes code or opens a PR.
 - In continuous mode, a freshly-specced ticket is implemented on the **next poll** (human intervention window). In `--once` mode spec and build complete in the same invocation.
@@ -128,26 +128,26 @@ Normal logs report source, task id, phase, outcome, and next action. Full prompt
 
 ## External PR review
 
-`vanguard review-pr` runs an adversarial, read-only review over an existing GitHub PR diff and posts a non-blocking GitHub review comment. It does not edit code, open another PR, or move issue labels. The review opens with its `Verdict:` line followed by `Risk: low|medium|high — <what the change can break>` (MR reviews get the same line). The risk is advisory: it never changes the verdict or the merge gate, and `review-pr` reports it in its result and the job summary next to the verdict.
+`taskcell review-pr` runs an adversarial, read-only review over an existing GitHub PR diff and posts a non-blocking GitHub review comment. It does not edit code, open another PR, or move issue labels. The review opens with its `Verdict:` line followed by `Risk: low|medium|high — <what the change can break>` (MR reviews get the same line). The risk is advisory: it never changes the verdict or the merge gate, and `review-pr` reports it in its result and the job summary next to the verdict.
 
 The reviewer applies the repository's review guidelines (`CLAUDE.md` or `AGENTS.md`, and any document they point to). It reads them from its sandbox checkout, which `review-pr` and `review-mr` build from the local `main` branch, not from the PR or MR head. Keep that local `main` current with the target branch; guideline edits inside the diff are reviewed, not applied. This stops an author from rewriting the rules their own change is judged by only when the author cannot change the job that runs the review. A GitLab MR pipeline reads its job definitions from the MR's source branch, so the author of a same-project MR controls the whole job. They can point `main` at their own head, since the detached checkout has no local `main` until the job script makes one. They can also change the provider, model, prompt or token, or stop the review from running or posting. A GitHub workflow on `pull_request` for a branch in the same repository has the same exposure, because it takes the workflow file from the PR's merge ref. A workflow on `pull_request_target`, or on `workflow_dispatch` run from the base branch, takes it from the base branch and avoids this, provided the job checks out and runs only base-branch code. Never check out or build the PR head in a `pull_request_target` job, because that job has the repository's secrets and a write token. Where that matters, run the review from a pipeline whose configuration the author does not control. A label that a maintainer adds after reading the diff is not enough: the job definition still comes from the source branch, and the author can push a new one after the maintainer has read it.
 
 ```bash
-vanguard review-pr https://github.com/owner/repo/pull/123
-vanguard review-pr --github-pr 123 --github-repo owner/repo --provider codex --review-model gpt-5
+taskcell review-pr https://github.com/owner/repo/pull/123
+taskcell review-pr --github-pr 123 --github-repo owner/repo --provider codex --review-model gpt-5
 ```
 
-`vanguard watch-prs` turns that reviewer into a small PR loop. It polls only PRs with an explicit trigger label, skips drafts and Taskcell/bot-authored PRs, swaps labels while reviewing, and restores the trigger label on failure so the next poll can retry; if the restore itself fails you will see a `restore failed -> manual label check` log line and should verify the PR labels by hand before the next poll. Pass `--author <login>` to restrict the loop to a single author's PRs (self-review-only). Successful reviews include a hidden `headRefOid` marker, so the loop skips the same commit if the trigger label is re-added accidentally.
+`taskcell watch-prs` turns that reviewer into a small PR loop. It polls only PRs with an explicit trigger label, skips drafts and Taskcell/bot-authored PRs, swaps labels while reviewing, and restores the trigger label on failure so the next poll can retry; if the restore itself fails you will see a `restore failed -> manual label check` log line and should verify the PR labels by hand before the next poll. Pass `--author <login>` to restrict the loop to a single author's PRs (self-review-only). Successful reviews include a hidden `headRefOid` marker, so the loop skips the same commit if the trigger label is re-added accidentally.
 
 ```bash
-vanguard doctor-prs --github-repo owner/repo --label "ready for vanguard review"
-vanguard watch-prs --github-repo owner/repo --label "ready for vanguard review"
-vanguard doctor-prs --github-repo owner/repo \
-  --label "ready for vanguard review" \
+taskcell doctor-prs --github-repo owner/repo --label "ready for taskcell review"
+taskcell watch-prs --github-repo owner/repo --label "ready for taskcell review"
+taskcell doctor-prs --github-repo owner/repo \
+  --label "ready for taskcell review" \
   --reviewing-label "vanguard:reviewing" \
   --reviewed-label "vanguard:reviewed"
-vanguard watch-prs --github-repo owner/repo \
-  --label "ready for vanguard review" \
+taskcell watch-prs --github-repo owner/repo \
+  --label "ready for taskcell review" \
   --reviewing-label "vanguard:reviewing" \
   --reviewed-label "vanguard:reviewed" \
   --author owner \
@@ -157,7 +157,7 @@ vanguard watch-prs --github-repo owner/repo \
 
 | PR label state | What happens |
 |---|---|
-| `ready for vanguard review` | Picked up on the next poll. The label is removed and `vanguard:reviewing` is added before the review starts. |
+| `ready for taskcell review` | Picked up on the next poll. The label is removed and `vanguard:reviewing` is added before the review starts. |
 | `vanguard:reviewing` | Claimed/in progress. Later polls skip it. |
 | `vanguard:reviewed` | Review comment posted successfully. Re-add the trigger label after new commits if you want another review pass; the same commit is deduped by the hidden review marker. A review whose reply stated its `Verdict:` line but stopped before the completion signal counts as posted (with a truncation note), so it is deduped too. A reply with no verdict after two passes posts an incomplete notice without the marker — remove and re-add the trigger label (or run the workflow by hand) to retry. |
 
@@ -175,7 +175,7 @@ watch-prs owner/repo#123: reviewed -> marked
 
 ### GitHub Actions trigger
 
-`.github/workflows/vanguard-pr-review.yml` fires on `pull_request_target` when the `ready for vanguard review` label is applied to a PR. It also fires when a factory PR (a `chore/vanguard-*` branch in this repo, opened by an allowed login) opens ready for review or leaves draft: a first job adds the label, so that PR is reviewed without anyone labelling it. It can also be triggered manually via `workflow_dispatch` to sweep all currently-labeled PRs.
+`.github/workflows/vanguard-pr-review.yml` fires on `pull_request_target` when the `ready for taskcell review` label is applied to a PR. It also fires when a factory PR (a `chore/vanguard-*` branch in this repo, opened by an allowed login) opens ready for review or leaves draft: a first job adds the label, so that PR is reviewed without anyone labelling it. It can also be triggered manually via `workflow_dispatch` to sweep all currently-labeled PRs.
 
 **Required secrets:** `CLAUDE_CODE_OAUTH_TOKEN` — the Claude subscription OAuth token. The built-in `GITHUB_TOKEN` provides PR/label write access automatically.
 
@@ -183,17 +183,17 @@ watch-prs owner/repo#123: reviewed -> marked
 
 **Behavior:** each run (a label event, or a factory PR that just became ready) runs `watch-prs --once` (the gate, not an `--author` filter, controls which PRs are eligible), reviewing PRs carrying the trigger label. This is idempotent: already-reviewed commits are skipped via the hidden `headRefOid` marker and the label swap.
 
-**Re-review:** after new commits land, remove and re-add `ready for vanguard review` to trigger a fresh pass.
+**Re-review:** after new commits land, remove and re-add `ready for taskcell review` to trigger a fresh pass.
 
 **Label setup:** the workflow creates the three routing labels idempotently on every run (`gh label create --force`), so no manual label setup is needed in a fresh repo.
 
 **Relationship to always-on `watch-prs`:** both modes watch the same label; dedupe makes running both safe but redundant — pick one per repo.
 
-Run `vanguard gc --remote <owner/repo>` on a timer (cron or systemd) to reap stale sandboxes, worktrees, and merged branches — see [Garbage collection](deploy.md#garbage-collection-and-self-maintenance) for cron and systemd-timer examples.
+Run `taskcell gc --remote <owner/repo>` on a timer (cron or systemd) to reap stale sandboxes, worktrees, and merged branches — see [Garbage collection](deploy.md#garbage-collection-and-self-maintenance) for cron and systemd-timer examples.
 
 ## Metrics and tracing
 
-Each run appends a `run_complete` metric line per stage to `.vanguard/runs/metrics.jsonl` (cost, tokens, cache efficiency, duration, exit reason). `vanguard stats` aggregates that into a rollup — per task, per stage, per model (served, annotated with the requested one when a gateway substituted it), and a grand total — for fleet cost/time visibility (`--json` for machine output). **On an ephemeral host (GitHub Actions) that file dies with the job**, so a run there ends with `vanguard metrics push`: it appends the run's metric lines to a single `metrics.jsonl` on an orphan `vanguard-metrics` branch of the repo (git plumbing only — no checkout, no merge; idempotent, so a re-run never duplicates; needs push rights, which the implement workflow's `contents: write` already grants). `vanguard stats --branch vanguard-metrics` then reads that durable copy from any clone — it is where the `BY MODEL` and `PROBE` tables for the factory come from.
+Each run appends a `run_complete` metric line per stage to `.vanguard/runs/metrics.jsonl` (cost, tokens, cache efficiency, duration, exit reason). `taskcell stats` aggregates that into a rollup — per task, per stage, per model (served, annotated with the requested one when a gateway substituted it), and a grand total — for fleet cost/time visibility (`--json` for machine output). **On an ephemeral host (GitHub Actions) that file dies with the job**, so a run there ends with `taskcell metrics push`: it appends the run's metric lines to a single `metrics.jsonl` on an orphan `vanguard-metrics` branch of the repo (git plumbing only — no checkout, no merge; idempotent, so a re-run never duplicates; needs push rights, which the implement workflow's `contents: write` already grants). `taskcell stats --branch vanguard-metrics` then reads that durable copy from any clone — it is where the `BY MODEL` and `PROBE` tables for the factory come from.
 
 **Langfuse / OTLP mirror (opt-in).** The same per-stage records can be exported as one OpenTelemetry trace per run: the task id is the trace, each stage is a `generation` span carrying `gen_ai.request.model`, `gen_ai.usage.{input_tokens,output_tokens,cache_read_input_tokens}`, `gen_ai.usage.cost` / `vanguard.cost_usd`, `vanguard.turns` and `vanguard.exit_reason`; flow, provider, PR URL and exit reason ride on every span as filterable Langfuse trace metadata, and the task id doubles as the Langfuse *session*, so the spec run, the implement run and each revise round of one issue group together. Switch it on with an endpoint **and** auth — endpoint without auth is off, and with nothing set nothing changes:
 
@@ -215,7 +215,7 @@ Run the two-pass loop straight from GitHub Actions — no always-on host. Label 
 
 Your repo carries only a **thin caller** (triggers, permissions, an actor gate and a `uses:` line); the steps live in reusable workflows in this repo (`implement.yml`, `pr-review.yml`, `research.yml`, `revise.yml`, `doctor.yml`), so a change to a default or a step reaches every repo without touching its copy. For the copy-paste callers, secret mapping, `allowed-actors`, the `@v1` / `@main` pin, the inputs of each workflow, the Codex-subscription setup, and the triage contract see **[onboarding-another-repo.md](onboarding-another-repo.md)**. `decision-probe`, `persist-metrics` and `upload-run-records` are off by default there: the probe ships issue text to Cloudflare, persisting metrics writes a branch into your repo, and run-record artifacts are readable by anyone who can read the repo.
 
-The job runs `vanguard watch --source github --once` **once**: a `ready for spec` ticket is specced and built in the same invocation. Taskcell's own [`vanguard-implement.yml`](../.github/workflows/vanguard-implement.yml) is a caller of [`implement.yml`](../.github/workflows/implement.yml) (`uses: ./.github/workflows/implement.yml`). Each run processes every matching open issue (not only the one just labelled), so labelling one `ready for agent` also picks up any others already waiting — run an always-on `vanguard watch` on a host if you want continuous polling instead ([deploy.md](deploy.md)). Set `max-tasks: <n>` on the caller (or `--max-tasks <n>` on a host-run `vanguard watch`) to cap how many ready issues one run claims per phase, so a mislabelled batch cannot flood one CI runner.
+The job runs `taskcell watch --source github --once` **once**: a `ready for spec` ticket is specced and built in the same invocation. Taskcell's own [`vanguard-implement.yml`](../.github/workflows/vanguard-implement.yml) is a caller of [`implement.yml`](../.github/workflows/implement.yml) (`uses: ./.github/workflows/implement.yml`). Each run processes every matching open issue (not only the one just labelled), so labelling one `ready for agent` also picks up any others already waiting — run an always-on `taskcell watch` on a host if you want continuous polling instead ([deploy.md](deploy.md)). Set `max-tasks: <n>` on the caller (or `--max-tasks <n>` on a host-run `taskcell watch`) to cap how many ready issues one run claims per phase, so a mislabelled batch cannot flood one CI runner.
 
 **Run summary:** on Actions every run — each issue `watch` builds, each PR `watch-prs` reviews, each `revise-pr` round — also appends a markdown block to the job's **Summary** tab (via `$GITHUB_STEP_SUMMARY`): task id, flow, provider and model, a per-stage table (exit, turns, time, cost), the cost total, the PR URL, the review verdict, and how the run ended (`completed` / `verify-failed` / `secret-blocked` / `no-changes` / `error`). Several runs in one job stack. Outside Actions nothing is written. The on-disk run record under `.vanguard/runs/<taskId>/` (transcripts, diffs, bundles) still dies with the job unless the caller uploads it as an artifact.
 
@@ -231,7 +231,7 @@ The target repo does not need Taskcell installed: add the `CLAUDE_CODE_OAUTH_TOK
 
 Notes: the repo needs at least one commit (an empty repo has no `main` to open a PR against). The sandbox agent reads the target repo's `CLAUDE.md`, so put design/stack rules there to steer output — Taskcell does not inject your local Claude Code skills. The reusable workflow passes `--skills .vanguard-src/skills`, which injects Taskcell's bundled skills (`ponytail`, `code-review`, `simplify`), plus any skills the repo keeps in `.github/vanguard-skills/` (see [Custom skills](skills.md#custom-skills-bring-your-own)). Don't run this **and** an always-on GitHub watcher on the same labels — pick one per repo (a Linear watcher does not clash). The reusable workflow installs Taskcell with `--ignore-workspace`, so it also works when the target repo is a **pnpm workspace** (monorepo).
 
-**Backward compatibility — `vanguard:review` label (deprecated).** The post-build resting state was renamed from `vanguard:review` to `vanguard:needs-human-review`; A repo onboarded before the rename may still carry `vanguard:review` on in-flight items — Taskcell will not migrate it automatically. The new default and the old label coexist harmlessly (`gh label create --force` adds the new one without touching the old); delete the stale `vanguard:review` once nothing in flight uses it, or pass `--review-state vanguard:review` to a host-run `vanguard watch` if you deliberately want to keep the old terminal label (the reusable workflow has no input for it).
+**Backward compatibility — `vanguard:review` label (deprecated).** The post-build resting state was renamed from `vanguard:review` to `vanguard:needs-human-review`; A repo onboarded before the rename may still carry `vanguard:review` on in-flight items — Taskcell will not migrate it automatically. The new default and the old label coexist harmlessly (`gh label create --force` adds the new one without touching the old); delete the stale `vanguard:review` once nothing in flight uses it, or pass `--review-state vanguard:review` to a host-run `taskcell watch` if you deliberately want to keep the old terminal label (the reusable workflow has no input for it).
 
 ### Cross-provider on a Codex subscription (no OpenAI key)
 
@@ -264,24 +264,24 @@ gh secret set CODEX_AUTH_JSON --repo OWNER/REPO < ~/.codex/auth.json
 
 `llm-proxy` now covers a subscription too: a ChatGPT sidecar holds the real `auth.json` on the host and the sandbox gets only a placeholder one pointed at it (see [Host LLM proxy](security/boundaries.md#host-llm-proxy)). Turning it on keeps both the Claude token and the ChatGPT credential out of the sandbox; leaving it off puts both in the sandbox directly — acceptable on a repo you own.
 
-One CI caveat: the stored `CODEX_AUTH_JSON` is a snapshot. Codex refreshes the short-lived access token from the embedded `refresh_token` on each run, so the secret must carry a live refresh token; re-run `gh secret set` if a run ever fails to authenticate. For long-running hosts (a `vanguard watch` on a server) the local file refreshes itself and this does not come up.
+One CI caveat: the stored `CODEX_AUTH_JSON` is a snapshot. Codex refreshes the short-lived access token from the embedded `refresh_token` on each run, so the secret must carry a live refresh token; re-run `gh secret set` if a run ever fails to authenticate. For long-running hosts (a `taskcell watch` on a server) the local file refreshes itself and this does not come up.
 
 ## Approver (shadow mode)
 
-`vanguard approve` is the stage after review: it decides whether a factory PR is boring enough to merge without a human, deterministically and with no LLM in the loop. v1 runs in **shadow mode** — it computes and publishes the decision, and never merges, approves, or edits a label. The point is to collect a record of what it *would* have done next to what humans actually did.
+`taskcell approve` is the stage after review: it decides whether a factory PR is boring enough to merge without a human, deterministically and with no LLM in the loop. v1 runs in **shadow mode** — it computes and publishes the decision, and never merges, approves, or edits a label. The point is to collect a record of what it *would* have done next to what humans actually did.
 
 **What it decides.** One of two verdicts. `ESCALATE` if any rule fires, `APPROVE` only when the rule list comes back empty. The rules cover: not a same-repo `chore/vanguard-*` head, a closed or merged PR, draft, a required check that is not `success` from the expected app, a missing / stale / blocking / verdict-less review, a merge conflict, a head that moved under the run, git facts that could not be computed, a changed path on a sensitive surface (CI config, dependencies, deploy/migrations, security surface, the review pipeline itself, gate config, agent instructions, release config), a diff over the size ceiling, a deleted test file or a net loss of test cases, a new dependency, a removed export — plus a deterministic audit sample (10%) that escalates a share of otherwise-clean PRs so humans keep seeing normal cases, and a trailing-week per-module line ledger that escalates a drip of individually-small changes.
 
 **Which typed facts it reads.** Only structured data, never free text from an issue, PR body, or comment. From `gh`: the PR record (`isDraft`, head/base refs and SHAs, head repo) and check runs on the head SHA matched by **both** name and app id. From the published review: the verdict line and the head-SHA marker of the latest review in the external review format whose author is on the allow-list — a body with no marker, or with more than one distinct marker SHA, is rejected, and the main loop's own in-pipeline review never counts. From git, read-only (fetch into `FETCH_HEAD`, then `show`/`diff`/`patch-id`/`merge-tree` against SHAs — the PR head is never checked out): changed files, lines and paths against the merge base, deleted test files and test-case delta, removed exports, new manifest dependencies, patch ids and ancestry, and merge-tree cleanliness. Any git fact that cannot be computed fails closed into `git-facts-failed`.
 
-**Where records go.** One JSON line per decision, appended to `decisions.jsonl` on the orphan `vanguard-metrics` branch (the same branch `vanguard metrics push` uses — the files coexist, nothing is rewritten). Append-only and idempotent per (PR, head SHA): a rerun at the same head adds nothing, except that a `stopped` / `policy-unreadable` placeholder does not block the full decision once the stop is lifted. Each record holds the verdict, every rule id that fired, the signals behind them, the audit draw and its seed, and the `sha256` of the policy that produced it, so any decision can be replayed. The decision is also published as a `neutral` check run (`vanguard/approver`) and a PR comment. The check run and comment go out first and the record last; all three are attempted even when one fails, and any failure makes the command exit non-zero after the rest ran.
+**Where records go.** One JSON line per decision, appended to `decisions.jsonl` on the orphan `vanguard-metrics` branch (the same branch `taskcell metrics push` uses — the files coexist, nothing is rewritten). Append-only and idempotent per (PR, head SHA): a rerun at the same head adds nothing, except that a `stopped` / `policy-unreadable` placeholder does not block the full decision once the stop is lifted. Each record holds the verdict, every rule id that fired, the signals behind them, the audit draw and its seed, and the `sha256` of the policy that produced it, so any decision can be replayed. The decision is also published as a `neutral` check run (`vanguard/approver`) and a PR comment. The check run and comment go out first and the record last; all three are attempted even when one fails, and any failure makes the command exit non-zero after the rest ran.
 
 **How to run it.**
 
 ```bash
-vanguard approve --pr 557 --github-repo spietrza/taskcell     # decide, publish, record
-vanguard approve --pr 557 --github-repo spietrza/taskcell --json      # print the decision record
-vanguard approve --pr 557 --github-repo spietrza/taskcell --dry-run   # decide and print only — publish and record nothing
+taskcell approve --pr 557 --github-repo spietrza/taskcell     # decide, publish, record
+taskcell approve --pr 557 --github-repo spietrza/taskcell --json      # print the decision record
+taskcell approve --pr 557 --github-repo spietrza/taskcell --dry-run   # decide and print only — publish and record nothing
 ```
 
 `--github-repo` is required (the approver never infers the repo it judges), `--repo <path>` points at a local checkout of the base branch (default: cwd), and `--mode` accepts `shadow` only in v1.
@@ -293,20 +293,20 @@ vanguard approve --pr 557 --github-repo spietrza/taskcell --dry-run   # decide a
 Two kill switches, either one short-circuits to `ESCALATE` (`stopped`) before any diff or ledger collection:
 
 ```bash
-VANGUARD_APPROVER_STOP=1 vanguard approve --pr 557 --github-repo spietrza/taskcell   # per-run, env
+VANGUARD_APPROVER_STOP=1 taskcell approve --pr 557 --github-repo spietrza/taskcell   # per-run, env
 # or, repo-wide: set "enabled": false in .vanguard/approver.json on the base branch
 ```
 
 ## Retrospective memory
 
-`vanguard memory` reads `.vanguard/runs` artifacts — failed runs, failed proofs, and reviewer notes (not diffs or transcripts) — and refreshes a short, redacted digest at `.vanguard/memory/retrospective.md`. It is deterministic (no LLM): a host-side rollup, advisory only.
+`taskcell memory` reads `.vanguard/runs` artifacts — failed runs, failed proofs, and reviewer notes (not diffs or transcripts) — and refreshes a short, redacted digest at `.vanguard/memory/retrospective.md`. It is deterministic (no LLM): a host-side rollup, advisory only.
 
 Subsequent `run`, `watch`, and spec runs automatically load that digest into the implementer and tech-spec prompts as advisory context ("use only when relevant"); the digest refreshes best-effort after each run. `.vanguard/` is gitignored — this is operational host state, not committed source.
 
 ```bash
-vanguard memory                 # refresh + print the digest
-vanguard memory --json          # machine-readable report
-vanguard memory --limit 20      # keep the 20 most recent entries
+taskcell memory                 # refresh + print the digest
+taskcell memory --json          # machine-readable report
+taskcell memory --limit 20      # keep the 20 most recent entries
 ```
 
 ## Proof of work
@@ -318,9 +318,9 @@ Command precedence: `--verify "<cmd>"` flag > `VANGUARD_VERIFY_CMD` env > a `ver
 On failure the PR always opens, the body carries a `FAIL` Proof of Work block (command, exit code, SHA-256, and an output tail), and a `vanguard:verify-failed` label is added to the PR (best-effort).
 
 ```bash
-vanguard run --linear TES-1 --verify "pnpm typecheck && pnpm test"
+taskcell run --linear TES-1 --verify "pnpm typecheck && pnpm test"
 # or set for all runs:
-VANGUARD_VERIFY_CMD="pnpm typecheck && pnpm test" vanguard watch --label vanguard
+VANGUARD_VERIFY_CMD="pnpm typecheck && pnpm test" taskcell watch --label vanguard
 ```
 
 ## Visual proof
@@ -334,7 +334,7 @@ Allowed artifact extensions: `.png`, `.jpg`, `.jpeg`, `.webp`, `.gif`, `.svg`, `
 Visual proof failure never blocks the PR: the PR always opens, and on a non-zero exit — or if a configured command can't be executed at all (sandbox crash, cancel, timeout) — the body carries a `FAIL` Visual proof block (a crash is recorded with exit code `-1`) and a `vanguard:visual-proof-failed` label is added to the PR (best-effort). A requested proof is never silently dropped; only when no command is configured is there no block.
 
 ```bash
-vanguard run --github 123 --visual-proof "pnpm exec playwright test --project=chromium"
+taskcell run --github 123 --visual-proof "pnpm exec playwright test --project=chromium"
 # or set for all runs:
-VANGUARD_VISUAL_PROOF_CMD="pnpm exec playwright test --project=chromium" vanguard watch --label vanguard
+VANGUARD_VISUAL_PROOF_CMD="pnpm exec playwright test --project=chromium" taskcell watch --label vanguard
 ```

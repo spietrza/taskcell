@@ -41,9 +41,9 @@ const checkSource = (source: string): string => {
   return source;
 };
 
-/** Default `vanguard run` command for a New Run — `<issue>` is left for the user to fill. */
+/** Default `taskcell run` command for a New Run — `<issue>` is left for the user to fill. */
 export function runCommand(cfg: AppConfig, source: string = cfg.source ?? 'github'): string {
-  return `vanguard run --${checkSource(source)} <issue> --provider ${provider(cfg)} --max-turns ${MAX_TURNS}`;
+  return `taskcell run --${checkSource(source)} <issue> --provider ${provider(cfg)} --max-turns ${MAX_TURNS}`;
 }
 
 /**

@@ -105,7 +105,7 @@ async function gitlabProject(repoPath: string): Promise<string> {
 
 /**
  * Confirm the configured Linear team key resolves — scoped to the BOARD only, never the shared
- * list() path (an unconditional probe would flip `vanguard watch` from idles-on-empty to
+ * list() path (an unconditional probe would flip `taskcell watch` from idles-on-empty to
  * throws-every-poll on a typo'd key — S9 spec §2.7c). Linear returns an empty issue set for a
  * wrong key exactly as for an empty team, so without this a typo looks like "0 issues".
  */

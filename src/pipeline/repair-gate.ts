@@ -23,7 +23,7 @@ import type { PipelineStage, StageOutcome } from './pipeline.js';
  *   `escalateModel` takes over when set and no per-task label pinned a model. Reacting to an observed red
  *   gate beats guessing difficulty up front.
  * - Each repair's cost, turns and tokens are merged into the implementer outcome (`mergeAttempts`), and an
- *   escalated repair re-labels the outcome's model, so `vanguard stats` attributes the final attempt to the
+ *   escalated repair re-labels the outcome's model, so `taskcell stats` attributes the final attempt to the
  *   model that actually closed the gate.
  * - The per-call budget is stageCostFraction × DEFAULT_RUN_MAX_COST_USD (floored at stageCostFloorUsd):
  *   these calls run outside runStages' accounting, where the stage budget is Infinity.
@@ -88,7 +88,7 @@ export async function repairUntilGreen<G extends GateResult>(ctx: RunContext, op
     }
     iterations += 1;
     const escalate = iterations >= 2 && opts.escalateModel !== undefined && opts.modelPinned !== true;
-    log(`vanguard: gate FAILED for ${opts.label} (attempt ${iterations}/${opts.maxIterations}) — resuming implement session${escalate ? ` on ${opts.escalateModel}` : ''}`);
+    log(`taskcell: gate FAILED for ${opts.label} (attempt ${iterations}/${opts.maxIterations}) — resuming implement session${escalate ? ` on ${opts.escalateModel}` : ''}`);
     // The reason the gate is red, in the CI log too — masked, since job logs are public on a public repo.
     log(redactForPublish(last.feedback));
     const model = escalate ? opts.escalateModel : opts.outcomes[implementerIdx]?.model;
@@ -109,7 +109,7 @@ export async function repairUntilGreen<G extends GateResult>(ctx: RunContext, op
       // Always rethrow so the caller sees what actually ended the run; if it was a provider
       // limit (not a gate failure), log that context first.
       if (error instanceof AgentError && isProviderLimitError(error)) {
-        log(`vanguard: gate escalation for ${opts.label} hit a provider limit (not a gate failure) — ${redactForPublish(error.message)}`);
+        log(`taskcell: gate escalation for ${opts.label} hit a provider limit (not a gate failure) — ${redactForPublish(error.message)}`);
       }
       throw error;
     }

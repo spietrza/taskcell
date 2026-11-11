@@ -3,7 +3,7 @@ import type { Command } from './args.js';
 
 type ApproveCommand = Extract<Command, { kind: 'approve' }>;
 
-/** `vanguard approve --pr <n> --github-repo <slug>`: compute, publish, and record the shadow-mode decision. */
+/** `taskcell approve --pr <n> --github-repo <slug>`: compute, publish, and record the shadow-mode decision. */
 export async function approveCommand(cmd: ApproveCommand): Promise<void> {
   try {
     const result = await runApprover({
@@ -18,10 +18,10 @@ export async function approveCommand(cmd: ApproveCommand): Promise<void> {
       console.log(JSON.stringify(result.record));
     } else {
       const rules = result.record.rulesFired.length > 0 ? ` (${result.record.rulesFired.join(', ')})` : '';
-      console.log(`vanguard approve: ${result.record.verdict}${rules}`);
+      console.log(`taskcell approve: ${result.record.verdict}${rules}`);
     }
   } catch (error) {
-    console.error(`vanguard approve: ${error instanceof Error ? error.message : String(error)}`);
+    console.error(`taskcell approve: ${error instanceof Error ? error.message : String(error)}`);
     process.exitCode = 1;
   }
 }
