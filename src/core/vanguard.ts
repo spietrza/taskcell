@@ -27,9 +27,11 @@ const DEFAULT_MAX_TURNS = 6;
 // .claude/skills (plugin-installed symlinks pointing to absolute paths inside the sandbox —
 // copying them yields dangling symlinks that cause Bun's fs.cp to throw ENOENT via stat),
 // .cursor/rules (injected .mdc skill rules — load-bearing exclusion, these must not land in PRs),
-// and .vanguard/skills (skill bodies copied in as pointer targets for codex/cursor providers).
-const COPY_BACK_SKIP =
-  /(^|[\\/])(\.git|node_modules)([\\/]|$)|(^|[\\/])\.claude[\\/]skills([\\/]|$)|(^|[\\/])\.cursor[\\/]rules([\\/]|$)|(^|[\\/])\.vanguard[\\/]skills([\\/]|$)/;
+// .vanguard/skills (skill bodies copied in as pointer targets for codex/cursor providers), and
+// .pnpm-store (under a read-only rootfs /workspace is its own tmpfs, so pnpm puts its store at the
+// mount root, /workspace/.pnpm-store, and the whole content store would land in the PR).
+export const COPY_BACK_SKIP =
+  /(^|[\\/])(\.git|node_modules|\.pnpm-store)([\\/]|$)|(^|[\\/])\.claude[\\/]skills([\\/]|$)|(^|[\\/])\.cursor[\\/]rules([\\/]|$)|(^|[\\/])\.vanguard[\\/]skills([\\/]|$)/;
 // Hard security boundary (see CLAUDE.md): an agent must never be able to write a workflow file
 // that gets committed and pushed — that is the exact escalation path in the disclosed
 // claude-code-action prompt-injection class (a malicious workflow runs with repo secrets on the
@@ -368,7 +370,7 @@ export async function assertWorkspaceWithinCeiling(
   maxFiles = COPY_BACK_MAX_FILES,
 ): Promise<void> {
   const res = await sandbox.exec(
-    `find ${WORKDIR} \\( -name node_modules -o -name .git \\) -prune -o -type f -printf '%s\\n' | awk '{n++; s+=$1} END {printf "%d %d\\n", n, s}'`,
+    `find ${WORKDIR} \\( -name node_modules -o -name .git -o -name .pnpm-store \\) -prune -o -type f -printf '%s\\n' | awk '{n++; s+=$1} END {printf "%d %d\\n", n, s}'`,
   );
   const m = /^(\d+) (\d+)\s*$/.exec(res.stdout);
   if (res.exitCode !== 0 || m === null) return;
