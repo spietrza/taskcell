@@ -34,7 +34,7 @@ function stubGh(responses: StubResponses, calls: string[][] = []): GhRunner {
 }
 
 describe('listNeedsYou', () => {
-  it('lists an issue at needs info with its last factory comment redacted and escaped', async () => {
+  it('lists an issue at needs info with its last factory comment redacted, verbatim otherwise', async () => {
     const calls: string[][] = [];
     const gh = stubGh(
       {
@@ -64,9 +64,8 @@ describe('listNeedsYou', () => {
     expect(items[0]?.reason).toBe(DEFAULT_GITHUB_NEEDS_INFO_LABEL);
     expect(items[0]?.url).toBe('https://github.com/o/r/issues/7');
     expect(items[0]?.lastComment?.author).toBe('vanguard-bot');
-    // `<`/`>` escaped…
-    expect(items[0]?.lastComment?.body).toContain('&lt;this&gt;');
-    expect(items[0]?.lastComment?.body).not.toContain('<this>');
+    // Verbatim: the UI renders it as text, so no HTML-escaping here…
+    expect(items[0]?.lastComment?.body).toContain('<this>');
     // …and a secret-shaped token redacted.
     expect(items[0]?.lastComment?.body).not.toContain('sk-ANTHROPIC1234567890ABCDEFGHIJKLMNOPQR');
     // Both lists carry an explicit `-L`, and neither asks for comments.

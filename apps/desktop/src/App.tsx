@@ -214,6 +214,7 @@ export default function App() {
     dashboard: 'Home',
     runs: 'Runs',
     board: 'Task board',
+    needs: 'Needs you',
     task: 'New Task',
     fleet: 'Fleet',
     remote: 'Remote',

@@ -27,6 +27,7 @@ import { TaskBoard } from '../board/TaskBoard';
 import { TaskDetail } from '../board/TaskDetail';
 import { WorkflowEditor } from '../workflow/WorkflowEditor';
 import { TaskDraftScreen } from '../task/TaskDraftScreen';
+import { NeedsYou } from '../needs-you/NeedsYou';
 import { NewRunForm } from './NewRunForm';
 import { RunStrip } from './RunStrip';
 import { foldLiveEvent, reduceTypedRun, initialTypedRun, type TypedRunState, type RunEvent } from './typedRunReducer';
@@ -45,7 +46,7 @@ export function Inspector({
   onOpenBoard,
 }: {
   project: string;
-  screen: 'runs' | 'board' | 'task' | 'fleet' | 'remote' | 'workflow' | 'settings';
+  screen: 'runs' | 'board' | 'task' | 'fleet' | 'remote' | 'workflow' | 'settings' | 'needs';
   focusRunning: ActiveRun | null;
   clearNonce: number;
   newTaskNonce: number;
@@ -429,6 +430,10 @@ export function Inspector({
         </div>
       ) : screen === 'board' ? (
         <TaskBoard project={project} onOpenTask={setTaskDetailId} onNewTask={onNewTask} />
+      ) : screen === 'needs' ? (
+        <div className="min-h-0 flex-1 overflow-y-auto">
+          <NeedsYou project={project} />
+        </div>
       ) : screen === 'remote' ? (
         <div className="flex min-h-0 flex-1 flex-col">
           <RemoteRuns project={project} onOpenRun={open} />

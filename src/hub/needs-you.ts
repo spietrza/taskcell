@@ -5,7 +5,6 @@ import { defaultGhRunner, commentGithubIssue } from '../tasks/github.js';
 import type { GhRunner } from '../tasks/github.js';
 import { commentPullRequest } from '../runners/pr-review.js';
 import { redactForPublish } from '../core/secret-scan.js';
-import { escapePromptTags } from '../context/escape.js';
 import { DEFAULT_GITHUB_AGENT_LABEL, DEFAULT_GITHUB_NEEDS_INFO_LABEL } from '../cli/args.js';
 import { GITHUB_REVIEW_LABEL, GITHUB_VERIFY_FAILED_LABEL } from '../github-labels.js';
 import { VanguardError } from '../core/errors.js';
@@ -24,7 +23,7 @@ export interface NeedsYouItem {
   url: string;
   /** Why this item waits: the label name, or `'changes requested'` for a PR review verdict. */
   reason: string;
-  /** The factory's own last comment on the item, redacted and escaped as untrusted text. Absent when it never commented. */
+  /** The factory's own last comment on the item, redacted; untrusted text the UI renders as plain text. Absent when it never commented. */
   lastComment?: { author: string; body: string };
 }
 
@@ -80,8 +79,8 @@ async function ownLogins(gh: GhRunner, botLogins: readonly string[]): Promise<Se
 }
 
 /**
- * The factory's own last comment on one waiting item — redacted, then escaped so untrusted text
- * cannot break out of whatever block the hub UI renders it into. Fetched per waiting item: asking
+ * The factory's own last comment on one waiting item, redacted. Not escaped: it is untrusted text
+ * the hub UI renders as a plain text node (NeedsYou.tsx), never as HTML. Fetched per waiting item: asking
  * the list calls for `comments` would download every comment of every open issue and PR.
  */
 async function lastOwnComment(
@@ -95,7 +94,7 @@ async function lastOwnComment(
   const comments = (JSON.parse(out) as { comments?: GhCommentLite[] }).comments ?? [];
   const last = comments.filter((c) => own.has((c.author?.login ?? '').toLowerCase())).at(-1);
   if (last === undefined) return undefined;
-  return { author: last.author?.login ?? '', body: escapePromptTags(redactForPublish(last.body ?? '')) };
+  return { author: last.author?.login ?? '', body: redactForPublish(last.body ?? '') };
 }
 
 /** Why a PR waits for a human, or undefined if it doesn't (the acceptance-criteria vocabulary). */

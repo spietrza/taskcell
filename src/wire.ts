@@ -479,7 +479,7 @@ export interface NeedsYouItem {
   url: string;
   /** Why this item waits: the label name, or `'changes requested'` for a PR review verdict. */
   reason: string;
-  /** The factory's own last comment, redacted and escaped as untrusted text. Absent when it never commented. */
+  /** The factory's own last comment, redacted; untrusted, render as plain text. Absent when it never commented. */
   lastComment?: { author: string; body: string };
 }
 
