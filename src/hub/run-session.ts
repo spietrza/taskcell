@@ -91,9 +91,9 @@ export function createRunSession(
     }
     events.push(payload);
     if (events.length > MAX_EVENTS_PER_RUN) {
-      // Evict the SECOND-oldest, never index 0: index 0 is always `run-accepted`, the only event
-      // allowed to seed a strip re-attach — evicting it would make an over-cap run's re-attach fold
-      // nothing while blocking New-run.
+      // Evict the SECOND-oldest, never index 0: index 0 is the run's seeding event (`run-accepted`, or
+      // `run-queued` for a run that never started) — the only events allowed to seed a strip
+      // re-attach; evicting it would make an over-cap run's re-attach fold nothing.
       events.splice(1, 1);
     }
   }
@@ -175,25 +175,28 @@ export function createRunSession(
       errMessage = error instanceof Error ? error.message : String(error);
     }
 
-    // Was this run cancelled? Read + clear the flag BEFORE finishRun (which also clears it) so the
-    // terminal below is computed against the pre-cleanup state, mirroring the Rust RunGuard's Drop
-    // order (the guard releases `active`/`cancelled` only after the terminal is decided and emitted).
-    const wasCancelled = cancelledRunId === runId;
-    if (wasCancelled) cancelledRunId = null;
+    try {
+      // Was this run cancelled? Read + clear the flag BEFORE finishRun so the terminal below is
+      // computed against the pre-cleanup state, mirroring the Rust RunGuard's Drop order (the guard
+      // releases `active`/`cancelled` only after the terminal is decided and emitted).
+      const wasCancelled = cancelledRunId === runId;
+      if (wasCancelled) cancelledRunId = null;
 
-    if (result !== undefined) {
-      // The pipeline already streamed `run-end`; no terminal to synthesize.
+      if (result !== undefined) {
+        // The pipeline already streamed `run-end`; no terminal to synthesize.
+        resolve(result);
+      } else {
+        const terminal = wasCancelled ? { type: 'run-cancelled' } : { type: 'run-error', message: errMessage ?? 'run failed' };
+        // Only synthesize if no terminal was already streamed (e.g. run-end emitted, then a teardown
+        // throw) — "exactly one terminal" must hold even on that path.
+        if (!hasTerminal(runId)) emit(runId, terminal);
+        reject(new Error(errMessage ?? 'run failed'));
+      }
+    } finally {
+      // Unconditional: a throw above must not leave `active` set and wedge every queued run behind it.
       finishRun(runId);
-      resolve(result);
-    } else {
-      const terminal = wasCancelled ? { type: 'run-cancelled' } : { type: 'run-error', message: errMessage ?? 'run failed' };
-      // Only synthesize if no terminal was already streamed (e.g. run-end emitted, then a teardown
-      // throw) — "exactly one terminal" must hold even on that path.
-      if (!hasTerminal(runId)) emit(runId, terminal);
-      finishRun(runId);
-      reject(new Error(errMessage ?? 'run failed'));
+      startNext();
     }
-    startNext();
   }
 
   /** Promote the head of the queue into the active slot, if the slot is free and the queue is
@@ -237,7 +240,11 @@ export function createRunSession(
         throw new BadRequestError('repoPath is required and must be a non-blank string');
       }
       if (active !== null && queue.length >= maxQueue) {
-        throw new BadRequestError(`the run queue is full (max ${maxQueue} queued runs) — try again once a run finishes`);
+        throw new BadRequestError(
+          maxQueue === 0
+            ? 'a run is already in flight (queueing is disabled: VANGUARD_HUB_MAX_QUEUE=0)'
+            : `the run queue is full (max ${maxQueue} queued runs) — try again once a run finishes`,
+        );
       }
       const runId = `run-${counter}`;
       counter += 1;

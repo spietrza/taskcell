@@ -30,7 +30,7 @@ import { WorkflowEditor } from '../workflow/WorkflowEditor';
 import { TaskDraftScreen } from '../task/TaskDraftScreen';
 import { NewRunForm } from './NewRunForm';
 import { RunStrip } from './RunStrip';
-import { foldLiveEvent, reduceTypedRun, initialTypedRun, type TypedRunState, type RunEvent } from './typedRunReducer';
+import { foldLiveEvent, reduceTypedRun, initialTypedRun, type TypedRunState, type RunEvent, type AppRunEvent } from './typedRunReducer';
 import { useAppConfig } from '../../hooks';
 import type { RunSummary, RunDetail as RunDetailT, ActiveRun, RunRef, RunSource } from '../../vanguard-output';
 
@@ -188,11 +188,14 @@ export function Inspector({
       const type = e.payload.event.type;
       if (type === 'run-end' || type === 'run-error' || type === 'run-cancelled') {
         // ANY observed terminal means the foreign run is over — the note would otherwise outlive the
-        // run it warns about (review #343 r2). On the hub a queued run may take the slot next; that
-        // one's note is not re-shown until the next mount (no live signal names the new occupant).
-        // (A LOCAL run's note-hiding needs no clear here: the note renders only while
-        // typedRun === null, and a local run materializes the strip.)
+        // run it warns about (review #343 r2). (A LOCAL run's note-hiding needs no clear here: the
+        // note renders only while typedRun === null, and a local run materializes the strip.)
         setForeignRun(null);
+      }
+      // ...and a newly accepted run in another project (e.g. promoted from the hub queue) re-arms it.
+      const accepted = e.payload.event as AppRunEvent;
+      if (accepted.type === 'run-accepted' && accepted.repoPath !== undefined && accepted.repoPath !== project) {
+        setForeignRun(accepted.repoPath);
       }
       // foldLiveEvent keeps null null when the reducer declines — materializing an empty strip
       // for a foreign event would hide the note and render a blank panel (r3 blocking).
@@ -220,6 +223,8 @@ export function Inspector({
         }
         // Hub: no active run of ours, but one may be waiting in the queue — re-attach that instead,
         // or a reload would leave it with no strip and no way to cancel it.
+        // shortcut: one strip per project, so only its FIRST queued run is re-attached after a reload;
+        // a second one runs unattended — upgrade if per-project multi-queueing becomes a real flow.
         if (runId === undefined && isHubMode()) runId = (await apiQueue()).find((q) => q.repoPath === project)?.runId;
         if (runId === undefined) return;
         const backlog = (await apiRunBacklog(runId)) as { runId: string; event: RunEvent }[];
@@ -380,7 +385,8 @@ export function Inspector({
 
       {foreignRun !== null && typedRun === null && screen === 'runs' && (
         <div className="mb-2 rounded border border-border bg-muted/40 px-3 py-2 text-xs text-muted-foreground">
-          a run is live in <code className="font-mono">{foreignRun}</code> — starting one here will be rejected until it finishes
+          a run is live in <code className="font-mono">{foreignRun}</code> —{' '}
+          {isHubMode() ? 'a run started here will be queued until it finishes' : 'starting one here will be rejected until it finishes'}
         </div>
       )}
       {typedRun !== null && screen === 'runs' && !stripMinimized ? (
