@@ -81,7 +81,7 @@ function requireProvider(args: Record<string, unknown>, key: string): FactoryPro
 // command, `defaultBranch` into git argv — so each must match its GitHub shape, nothing wider.
 // `_` for Enterprise Managed Users (`name_shortcode`).
 const GITHUB_LOGIN = /^[A-Za-z0-9](?:[A-Za-z0-9_-]{0,38})$/;
-const GITHUB_REPO_SLUG = /^[A-Za-z0-9-]+\/[A-Za-z0-9._-]+$/;
+const GITHUB_REPO_SLUG = /^[A-Za-z0-9_-]+\/[A-Za-z0-9._-]+$/;
 const GIT_BRANCH = /^(?!-)(?!.*\.\.)[A-Za-z0-9._/-]+$/;
 
 function requireMatch(args: Record<string, unknown>, key: string, shape: RegExp, label: string): string {

@@ -425,7 +425,7 @@ export class DockerSandboxProvider implements IsolatedSandboxProvider {
       } else {
         await execa('docker', ['exec', '-i', '-u', '0', this.name, 'sh', '-c', 'cat > "$1"', 'sh', sandboxPath], { inputFile: hostPath });
         // `cat >` creates the file with the default mode; keep the host's (an executable script stays executable).
-        const mode = ((await stat(hostPath)).mode & 0o7777).toString(8);
+        const mode = ((await stat(hostPath)).mode & 0o777).toString(8);
         await execa('docker', ['exec', '-u', '0', this.name, 'chmod', mode, sandboxPath]);
       }
       // Extracted as root (tar keeps host uid/gid), so chown to the container user; otherwise the
@@ -457,7 +457,8 @@ export class DockerSandboxProvider implements IsolatedSandboxProvider {
         let overCap = false;
         if (options.maxBytes !== undefined) {
           const cap = options.maxBytes;
-          source.stdout?.on('data', (chunk: Buffer) => {
+          if (!source.stdout) throw new SandboxError('copy-out has no stdout to enforce maxBytes on');
+          source.stdout.on('data', (chunk: Buffer) => {
             streamed += chunk.length;
             if (streamed > cap && !overCap) {
               overCap = true;
