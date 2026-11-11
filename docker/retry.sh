@@ -15,7 +15,7 @@ shift 2
 # Shapes curl/npm use for a transient failure: curl's connect/resolve/timeout error text, a bare 5xx
 # status line, or npm's "Error fetching release: Request failed with status code 5xx" (the linear-cli
 # postinstall's wording, see Dockerfile).
-NETWORK_PATTERN='Could not resolve host|Connection timed out|Failed to connect|Operation timed out|Connection reset by peer|\bETIMEDOUT\b|\bEAI_AGAIN\b|\bECONNRESET\b|HTTP/[0-9.]+ 5[0-9]{2}\b|5[0-9]{2} (Gateway Time-?out|Service Unavailable|Bad Gateway|Internal Server Error)|status code 5[0-9]{2}'
+NETWORK_PATTERN='Could not resolve host|Connection timed out|Failed to connect|Operation timed out|Connection reset by peer|\bETIMEDOUT\b|\bEAI_AGAIN\b|\bECONNRESET\b|HTTP/[0-9.]+ 5[0-9]{2}\b|5[0-9]{2} (Gateway Time-?out|Service Unavailable|Bad Gateway|Internal Server Error)|status code 5[0-9]{2}|returned error: 5[0-9]{2}\b'
 
 attempt=1
 while true; do

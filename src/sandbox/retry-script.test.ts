@@ -70,6 +70,20 @@ describe('docker/retry.sh', () => {
     }
   });
 
+  it("treats curl -f's bare 5xx message as a network failure", async () => {
+    const dir = await mkdtemp(join(tmpdir(), 'retry-sh-'));
+    try {
+      const { bin } = await writeAlwaysFails(dir, 'curl: (22) The requested URL returned error: 504');
+
+      const result = await runRetry(['2', '0', '--', bin]);
+
+      expect(result.exitCode).toBe(1);
+      expect(result.stderr).toContain('RETRY_EXHAUSTED_NETWORK');
+    } finally {
+      await rm(dir, { recursive: true, force: true });
+    }
+  });
+
   it('reports RETRY_EXHAUSTED_NETWORK and exits non-zero on a persistent network failure', async () => {
     const dir = await mkdtemp(join(tmpdir(), 'retry-sh-'));
     try {
