@@ -58,10 +58,17 @@ export interface SandboxContextOptions {
 const LLM_PROXY_CREDENTIAL_MESSAGE =
   'llm-proxy needs a primary-sidecar credential (set CLAUDE_CODE_OAUTH_TOKEN/ANTHROPIC_API_KEY, ZAI_API_KEY, or OPENROUTER_API_KEY).';
 
+/** Print a `resolveSandboxProfile(...).note` at the level (`warn`/`log`) it asks for. */
+const logRootfsNote = (note: { warn: boolean; message: string }): void => (note.warn ? console.warn : console.log)(note.message);
+
 export async function startSandboxContext(opts: SandboxContextOptions): Promise<SandboxContext> {
   // --llm-proxy implies the egress enclave; in that mode the sandbox loses its direct route to the
   // sidecar-owned upstream providers.
   if (!opts.egress && !opts.llmProxy) {
+    // A read-only rootfs can be opted into without --egress/--llm-proxy too (VANGUARD_SANDBOX_READONLY=1
+    // alone): that run gets no other sandbox-posture log line, so report the decision here as well.
+    const profile = resolveSandboxProfile(process.env);
+    if (profile.security.readOnlyRootfs) logRootfsNote(profile.note);
     return { destroy: async (): Promise<void> => {} };
   }
 
@@ -81,8 +88,7 @@ export async function startSandboxContext(opts: SandboxContextOptions): Promise<
   console.log('egress: sandbox confined to an internal network; only the allowlist proxy can reach out.');
   // Hardened: this note only runs on the --egress/--llm-proxy path, the same signal the runners
   // pass when they resolve the profile their sandbox runs under.
-  const rootfs = resolveSandboxProfile(process.env).note;
-  (rootfs.warn ? console.warn : console.log)(rootfs.message);
+  logRootfsNote(resolveSandboxProfile(process.env).note);
 
   if (!opts.llmProxy) {
     return { proxyUrl: enclave.proxyUrl, network: enclave.network, destroy: enclave.destroy };
