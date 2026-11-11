@@ -185,9 +185,12 @@ describe('resolveSandboxProfile', () => {
     const unbounded = resolveSandboxProfile({ VANGUARD_SANDBOX_MEMORY_MB: '0', VANGUARD_SANDBOX_READONLY: '1' } as NodeJS.ProcessEnv).note;
     expect(unbounded.warn).toBe(true);
     expect(unbounded.message).toContain('4096/2048/1024 MB');
+    expect(unbounded.message).toContain('OOM');
     const small = resolveSandboxProfile({ VANGUARD_SANDBOX_MEMORY_MB: '1536', VANGUARD_SANDBOX_READONLY: '1' } as NodeJS.ProcessEnv).note;
     expect(small.warn).toBe(true);
     expect(small.message).toContain(`below ${READONLY_SANDBOX_MEMORY_MB}`);
+    expect(small.message).toContain('ENOSPC');
+    expect(small.message).toContain('OOM');
     // At the read-only default the mounts fit: on, no warning.
     const sized = resolveSandboxProfile({ VANGUARD_SANDBOX_READONLY: '1' } as NodeJS.ProcessEnv).note;
     expect(sized).toEqual({ warn: false, message: expect.stringContaining('read-only rootfs on') });
