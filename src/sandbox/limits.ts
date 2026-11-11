@@ -128,8 +128,9 @@ export function sandboxSecurityOpts(env: NodeJS.ProcessEnv = process.env): Sandb
 /**
  * One line for the start of a run: whether the read-only rootfs is on and how to opt in when it is
  * not. `warn` is true when it was turned on with no memory limit (the tmpfs mounts are then backed by
- * host RAM with no cgroup bounding them) or with less than READONLY_SANDBOX_MEMORY_MB (the mounts are
- * shares of that limit, so a lower one shrinks `/workspace` below what an install + build needs).
+ * host RAM with no cgroup bounding them, risking an OOM kill) or with less than
+ * READONLY_SANDBOX_MEMORY_MB (the mounts are shares of that limit, so a lower one shrinks `/workspace`
+ * below what an install + build needs, risking ENOSPC on those mounts or an OOM kill of the sandbox).
  * `memoryMb` is the already-resolved limit (from `sandboxResourceLimits`) — this never re-derives it,
  * so the note can't drift from the profile it describes.
  */
@@ -143,8 +144,8 @@ function hardenedRootfsNote(env: NodeJS.ProcessEnv, readOnlyRootfs: boolean, mem
       const { workspace, home, tmp } = readOnlyTmpfsSizesMb(memoryMb);
       const why =
         memoryMb === undefined
-          ? `No memory limit (VANGUARD_SANDBOX_MEMORY_MB=${env.VANGUARD_SANDBOX_MEMORY_MB ?? ''}), so /workspace, $HOME and /tmp are tmpfs of ${workspace}/${home}/${tmp} MB backed by host RAM.`
-          : `VANGUARD_SANDBOX_MEMORY_MB=${memoryMb} is below ${READONLY_SANDBOX_MEMORY_MB}, so /workspace, $HOME and /tmp are tmpfs of only ${workspace}/${home}/${tmp} MB — an install or build may run out of room.`;
+          ? `No memory limit (VANGUARD_SANDBOX_MEMORY_MB=${env.VANGUARD_SANDBOX_MEMORY_MB ?? ''}), so /workspace, $HOME and /tmp are tmpfs of ${workspace}/${home}/${tmp} MB backed by host RAM, risking an OOM kill of the sandbox.`
+          : `VANGUARD_SANDBOX_MEMORY_MB=${memoryMb} is below ${READONLY_SANDBOX_MEMORY_MB}, so /workspace, $HOME and /tmp are tmpfs of only ${workspace}/${home}/${tmp} MB — an install or build may hit ENOSPC on those mounts or an OOM kill of the sandbox.`;
       return { warn: true, message: `${message} ${why}` };
     }
     return { warn: false, message };
