@@ -181,7 +181,7 @@ export interface CompleteResponse {
   error?: { message: string };
 }
 
-/** A created task: the ref `vanguard run` accepts, and the URL to show the human. */
+/** A created task: the ref `taskcell run` accepts, and the URL to show the human. */
 export interface CreatedTask {
   id: string;
   url: string;

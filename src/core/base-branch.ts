@@ -31,7 +31,7 @@ export const DEFAULT_BASE_BRANCH = 'main';
  */
 export function baseBranchOrDefault(base: string, what: string): string {
   if (base !== '') return base;
-  console.warn(`vanguard: ${what} carries no base branch — reviewing against ${DEFAULT_BASE_BRANCH}`);
+  console.warn(`taskcell: ${what} carries no base branch — reviewing against ${DEFAULT_BASE_BRANCH}`);
   return DEFAULT_BASE_BRANCH;
 }
 

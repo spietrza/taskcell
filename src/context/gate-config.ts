@@ -213,21 +213,21 @@ export async function loadGateConfigExtraGlobs(repoPath: string, base: string): 
   try {
     ref = await resolveRemoteBaseRef(repoPath, base, { label: 'gate-config', keepLocalIfAhead: false });
   } catch (err) {
-    console.warn(`vanguard: gate-config extraGlobs — could not resolve base branch ${JSON.stringify(base)}: ${err instanceof Error ? err.message : String(err)}`);
+    console.warn(`taskcell: gate-config extraGlobs — could not resolve base branch ${JSON.stringify(base)}: ${err instanceof Error ? err.message : String(err)}`);
     return [];
   }
   let raw: string;
   try {
     raw = (await execa('git', ['show', `${ref}:.vanguard/gate-config.json`], { cwd: repoPath })).stdout;
   } catch {
-    console.log(`vanguard: gate-config — no .vanguard/gate-config.json found at ${ref}; extraGlobs stay empty`);
+    console.log(`taskcell: gate-config — no .vanguard/gate-config.json found at ${ref}; extraGlobs stay empty`);
     return [];
   }
   try {
     const parsed = JSON.parse(raw) as { extraGlobs?: unknown };
     return Array.isArray(parsed.extraGlobs) ? parsed.extraGlobs.filter((g): g is string => typeof g === 'string') : [];
   } catch (err) {
-    console.warn(`vanguard: gate-config — .vanguard/gate-config.json at ${ref} is unparseable, ignoring extraGlobs: ${err instanceof Error ? err.message : String(err)}`);
+    console.warn(`taskcell: gate-config — .vanguard/gate-config.json at ${ref} is unparseable, ignoring extraGlobs: ${err instanceof Error ? err.message : String(err)}`);
     return [];
   }
 }

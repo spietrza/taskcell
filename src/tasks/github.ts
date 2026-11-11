@@ -58,7 +58,7 @@ export function toTask(repo: string, issue: GitHubIssue): Task {
   }));
   // A future gh that drops the field would turn every non-bot comment untrusted: say it out loud.
   if (comments.length > 0 && (issue.comments ?? []).every((c) => c.authorAssociation === undefined)) {
-    console.warn(`vanguard: ${repo}#${issue.number} — gh returned no authorAssociation on any comment; non-bot comments are treated as untrusted`);
+    console.warn(`taskcell: ${repo}#${issue.number} — gh returned no authorAssociation on any comment; non-bot comments are treated as untrusted`);
   }
   return {
     id: `${repo}#${issue.number}`,

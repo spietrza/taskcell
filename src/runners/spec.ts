@@ -166,7 +166,7 @@ export async function runSpecGenerator(id: string, deps: RunSpecGeneratorDeps): 
       if (specOutcome === undefined) {
         throw new VanguardError(`Tech-spec stage produced no <${SPEC_TAG}> block for ${task.id}`);
       }
-      // Persisted under the 'spec' label (not the stage's library name) so `vanguard stats` keys it as before.
+      // Persisted under the 'spec' label (not the stage's library name) so `taskcell stats` keys it as before.
       const persistSpec = async (): Promise<void> => {
         const imageDigest = await ctx.sandbox.imageDigest?.();
         await beginRun(deps.repoPath, ctx.taskId, undefined, { secretEnvVars: providerKeyEnvNames(deps) }).writeStages(

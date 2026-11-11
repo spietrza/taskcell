@@ -1,6 +1,6 @@
 # Deploying the Vanguard watch loop
 
-Run `vanguard watch` always-on so the factory pulls ready Linear or GitHub issues by itself, runs them, and opens PRs. Optionally run `vanguard watch-prs` as a second loop so Vanguard reviews external PRs by label. This guide gives three concrete recipes: Synology (step by step, the one that was actually deployed), Hetzner native Docker, and Hetzner with Coolify. All three are the same idea: Docker on Linux, one controller container that starts sibling sandboxes.
+Run `taskcell watch` always-on so the factory pulls ready Linear or GitHub issues by itself, runs them, and opens PRs. Optionally run `taskcell watch-prs` as a second loop so Vanguard reviews external PRs by label. This guide gives three concrete recipes: Synology (step by step, the one that was actually deployed), Hetzner native Docker, and Hetzner with Coolify. All three are the same idea: Docker on Linux, one controller container that starts sibling sandboxes.
 
 ## Architecture (docker-out-of-docker)
 
@@ -8,8 +8,8 @@ Vanguard runs as one long-lived **controller** container. It talks to the host D
 
 ```
 host docker daemon
- ├─ vanguard-watch        controller: node + docker CLI + git + gh + linear, runs `vanguard watch`
- ├─ vanguard-watch-prs    optional controller profile, runs `vanguard watch-prs`
+ ├─ vanguard-watch        controller: node + docker CLI + git + gh + linear, runs `taskcell watch`
+ ├─ vanguard-watch-prs    optional controller profile, runs `taskcell watch-prs`
  ├─ vanguard-gc           controller image again, loops: refresh target-repo + gc every 4h
  ├─ vg-<uuid>             per-run sandbox (the agent), started as a sibling
  ├─ vg-llm-<id>           per-run llm-proxy sidecar (holds the Anthropic — or, for Codex, the OpenAI — token; sandbox gets a nonce)
@@ -134,7 +134,7 @@ Set the `gc --remote OWNER/REPO` slug to match your repo. Keep `VANGUARD_MAX_SAN
 The same compose file also ships an optional **external PR review loop** under the `pr-review` profile. It watches PRs carrying the trigger label, posts a non-blocking Vanguard review, and marks the PR with `vanguard:reviewed`. Run its preflight first:
 
 ```bash
-ssh -p 50022 <user>@<nas-ip> 'cd /volume1/docker/vanguard && sudo /usr/local/bin/docker compose --profile pr-review run --rm vanguard-watch-prs doctor-prs --github-repo=OWNER/REPO --label "ready for vanguard review" --repo=/work/repo'
+ssh -p 50022 <user>@<nas-ip> 'cd /volume1/docker/vanguard && sudo /usr/local/bin/docker compose --profile pr-review run --rm vanguard-watch-prs doctor-prs --github-repo=OWNER/REPO --label "ready for taskcell review" --repo=/work/repo'
 ```
 
 Then start only the PR-review controller:
@@ -144,7 +144,7 @@ ssh -p 50022 <user>@<nas-ip> 'cd /volume1/docker/vanguard && sudo /usr/local/bin
 ssh -p 50022 <user>@<nas-ip> 'sudo /usr/local/bin/docker logs -f vanguard-vanguard-watch-prs-1'
 ```
 
-This service is separate from `vanguard-watch`; keep it disabled if you only want Vanguard to implement tickets. Before enabling it, create the labels from `docker/compose.yaml` in the target repo: `ready for vanguard review`, `vanguard:reviewing`, and `vanguard:reviewed`.
+This service is separate from `vanguard-watch`; keep it disabled if you only want Vanguard to implement tickets. Before enabling it, create the labels from `docker/compose.yaml` in the target repo: `ready for taskcell review`, `vanguard:reviewing`, and `vanguard:reviewed`.
 
 ### 6. Start and verify
 
@@ -197,9 +197,9 @@ Caveats: Coolify redeploys may recreate the controller, which is fine (the watch
 
 ## Garbage collection and self-maintenance
 
-The `vanguard-gc` service in `docker/compose.yaml` loops every 4 hours: `git -C /work/repo pull --ff-only` (so PRs branch off the latest main instead of a staling clone) and `vanguard gc` (reap stale sandbox containers, prune worktree admin entries, delete merged remote `vanguard/*` branches). Running it in-stack means no DSM Task Scheduler, cron, or systemd timer is needed, and it survives reboots via the restart policy.
+The `vanguard-gc` service in `docker/compose.yaml` loops every 4 hours: `git -C /work/repo pull --ff-only` (so PRs branch off the latest main instead of a staling clone) and `taskcell gc` (reap stale sandbox containers, prune worktree admin entries, delete merged remote `vanguard/*` branches). Running it in-stack means no DSM Task Scheduler, cron, or systemd timer is needed, and it survives reboots via the restart policy.
 
-If you prefer an external scheduler instead of the in-stack service, `vanguard gc` flags:
+If you prefer an external scheduler instead of the in-stack service, `taskcell gc` flags:
 
 | Flag | Default | Description |
 |---|---|---|
@@ -209,10 +209,10 @@ If you prefer an external scheduler instead of the in-stack service, `vanguard g
 | `--abandoned` | off | Also delete branches whose PR is closed unmerged (only when that PR's head is the branch's current tip and no open PR uses the branch) |
 | `--dry-run` | off | Report what would be reaped without removing anything |
 
-A cron line, for reference: `0 */4 * * * vanguard gc --remote owner/repo --repo /work/repo`. On Synology you would put this in Control Panel, Task Scheduler instead; the in-stack `vanguard-gc` service is simpler and is what this repo ships.
+A cron line, for reference: `0 */4 * * * taskcell gc --remote owner/repo --repo /work/repo`. On Synology you would put this in Control Panel, Task Scheduler instead; the in-stack `vanguard-gc` service is simpler and is what this repo ships.
 
 ## Operational notes
 
-- Run records and metrics land in `<repo>/.vanguard/runs/` (a mounted volume): per-stage transcript, a git bundle of the changes, the diff, and a `run_complete` metric line. `vanguard stats --repo /work/repo` rolls them up across the fleet.
+- Run records and metrics land in `<repo>/.vanguard/runs/` (a mounted volume): per-stage transcript, a git bundle of the changes, the diff, and a `run_complete` metric line. `taskcell stats --repo /work/repo` rolls them up across the fleet.
 - RAM is the real cap. Each sandbox is roughly 1.5 to 2 GB plus small sidecars. Keep `VANGUARD_MAX_SANDBOXES` at 1 on a 5 to 6 GB host.
 - Updating the deployed code: rebuild `vanguard-runner` for amd64, transfer and load it (Synology) or rebuild on the box (Hetzner), then `docker compose up -d --force-recreate`. The `vanguard-gc` pull keeps the edited repo current on its own.

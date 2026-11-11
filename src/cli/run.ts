@@ -16,7 +16,7 @@ import type { Command } from './args.js';
 
 type RunCommand = Extract<Command, { kind: 'run' }>;
 
-/** Dispatch `vanguard run` to the right source runner, assembling deps from env + flags. */
+/** Dispatch `taskcell run` to the right source runner, assembling deps from env + flags. */
 export async function runCommand(cmd: RunCommand): Promise<void> {
   // S6: customs load + re-validate FIRST — before gc, auth, and (critically) startSandboxContext.
   // The parse-time validateProviderChoice was skipped for a non-built-in --provider (sync parser

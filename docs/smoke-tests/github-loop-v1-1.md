@@ -34,7 +34,7 @@ Create a fresh issue with `ready for spec`. Give it a short goal and measurable 
 Run the AFK readiness check before claiming anything:
 
 ```bash
-vanguard doctor --loop-v1 --source github --github-repo OWNER/REPO --repo /path/to/repo
+taskcell doctor --loop-v1 --source github --github-repo OWNER/REPO --repo /path/to/repo
 ```
 
 Expected result:
@@ -46,7 +46,7 @@ Expected result:
 Run one controlled poll:
 
 ```bash
-vanguard watch --loop-v1 --source github --github-repo OWNER/REPO --repo /path/to/repo --once --llm-proxy
+taskcell watch --loop-v1 --source github --github-repo OWNER/REPO --repo /path/to/repo --once --llm-proxy
 ```
 
 Expected result:
@@ -61,7 +61,7 @@ Expected result:
 Run the same command a second time to confirm it is a clean no-op:
 
 ```bash
-vanguard watch --loop-v1 --source github --github-repo OWNER/REPO --repo /path/to/repo --once --llm-proxy
+taskcell watch --loop-v1 --source github --github-repo OWNER/REPO --repo /path/to/repo --once --llm-proxy
 ```
 
 Expected result:
