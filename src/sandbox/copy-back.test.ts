@@ -1,12 +1,31 @@
 import { describe, it, expect } from 'vitest';
-import { mkdir, mkdtemp, readFile, rm, stat, writeFile } from 'node:fs/promises';
+import { mkdir, mkdtemp, readFile, rm, stat, symlink, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { dirname, join } from 'node:path';
 import { execa } from 'execa';
-import { assertWorkspaceWithinCeiling, copyBackBudget, exportWorkspace, prunedNames, PATH_POLICY } from './copy-back.js';
+import { assertWorkspaceWithinCeiling, classifyPath, copyBackBudget, exportWorkspace, prunedNames, CI_CONFIG_RULE } from './copy-back.js';
 import { WorktreeManager } from '../worktree/manager.js';
 import { SandboxError } from '../core/errors.js';
 import type { CopyOutOptions, IsolatedSandboxProvider } from './provider.js';
+
+type Tree = Record<string, string | { link: string }>;
+
+/** Write `rel -> content` files (and `rel -> { link }` symlinks) under `root`, in insertion order. */
+async function writeTree(root: string, entries: Tree): Promise<void> {
+  for (const [rel, value] of Object.entries(entries)) {
+    const dest = join(root, rel);
+    await mkdir(dirname(dest), { recursive: true });
+    if (typeof value === 'string') await writeFile(dest, value);
+    else await symlink(value.link, dest);
+  }
+}
+
+/** A staging dir seeded with `writeTree`. */
+async function stage(entries: Tree): Promise<string> {
+  const root = await mkdtemp(join(tmpdir(), 'vg-copyback-'));
+  await writeTree(root, entries);
+  return root;
+}
 
 describe('assertWorkspaceWithinCeiling', () => {
   const sandbox = (stdout: string, exitCode = 0): Pick<IsolatedSandboxProvider, 'exec'> & { commands: string[] } => {
@@ -14,10 +33,10 @@ describe('assertWorkspaceWithinCeiling', () => {
     return { commands, exec: async (command: string) => { commands.push(command); return { exitCode, stdout, stderr: '' }; } };
   };
 
-  it('measures inside the sandbox with node_modules and .git pruned, and passes under the ceiling', async () => {
+  it('measures inside the sandbox with the pruned names quoted, and passes under the ceiling', async () => {
     const sb = sandbox('3 30\n');
     await expect(assertWorkspaceWithinCeiling(sb, '/workspace', 100, 10)).resolves.toBeUndefined();
-    expect(sb.commands[0]).toContain('-name .git -o -name node_modules -o -name .pnpm-store');
+    expect(sb.commands[0]).toContain(`-name '.git' -o -name 'node_modules' -o -name '.pnpm-store'`);
   });
 
   it('refuses before anything is copied when bytes or files pass the ceiling', async () => {
@@ -31,12 +50,57 @@ describe('assertWorkspaceWithinCeiling', () => {
   });
 });
 
-describe('PATH_POLICY', () => {
-  const skips = (path: string): boolean => PATH_POLICY.some((rule) => rule.match.test(path));
+describe('prunedNames', () => {
+  it('is the list the ceiling prunes and copyFileOut excludes', () => {
+    expect(prunedNames()).toEqual(['.git', 'node_modules', '.pnpm-store']);
+  });
+});
 
-  it('skips the pnpm content store a read-only sandbox puts at the workspace root, and node_modules/.git', () => {
-    for (const p of ['/s/.pnpm-store/v11/files/00/abc', '/s/apps/desktop/node_modules/x', '/s/.git']) expect(skips(p)).toBe(true);
-    for (const p of ['/s/src/pnpm-store.ts', '/s/docs/.pnpm-store.md', '/s/apps/desktop/src/App.tsx']) expect(skips(p)).toBe(false);
+describe('classifyPath', () => {
+  it('skips the pnpm content store a read-only sandbox puts at the workspace root, and node_modules/.git', async () => {
+    const root = await stage({});
+    try {
+      for (const p of ['.pnpm-store/v11/files/00/abc', 'apps/desktop/node_modules/x', '.git', '.claude/skills/s.md', '.cursor/rules/r.mdc', '.vanguard/skills/s.md']) {
+        expect(await classifyPath(root, p)).toBeDefined();
+      }
+      for (const p of ['src/pnpm-store.ts', 'docs/.pnpm-store.md', 'apps/desktop/src/App.tsx']) {
+        expect(await classifyPath(root, p)).toBeUndefined();
+      }
+    } finally {
+      await rm(root, { recursive: true, force: true });
+    }
+  });
+
+  it('classifies CI config, including nested .gitlab YAML and a case-variant .GITHUB directory', async () => {
+    // Only the non-executed files need to exist: a path the rule matches is classified without an lstat.
+    const root = await stage({ '.github/CODEOWNERS': '* @me\n', '.gitlab/merge_request_templates/default.md': 'tpl\n' });
+    try {
+      for (const p of ['.github/workflows/ci.yml', '.github/actions/build/action.yml', '.gitlab-ci.yml', '.gitlab/ci/job.yaml', '.GITHUB/WORKFLOWS/x.yml']) {
+        expect(await classifyPath(root, p)).toBe(CI_CONFIG_RULE);
+      }
+      // Non-executed files under those directories still sync back.
+      for (const p of ['.github/CODEOWNERS', '.gitlab/merge_request_templates/default.md']) {
+        expect(await classifyPath(root, p)).toBeUndefined();
+      }
+    } finally {
+      await rm(root, { recursive: true, force: true });
+    }
+  });
+
+  it('treats an entry standing in for a CI config directory as CI config', async () => {
+    const asFile = await stage({ '.github': 'not a directory\n' });
+    const asSymlink = await stage({ elsewhere: 'x\n', '.gitlab': { link: 'elsewhere' } });
+    const inside = await stage({ '.github/CODEOWNERS': '* @me\n', '.github/sneaky': { link: '/etc' } });
+    try {
+      expect(await classifyPath(asFile, '.github')).toBe(CI_CONFIG_RULE);
+      expect(await classifyPath(asSymlink, '.gitlab')).toBe(CI_CONFIG_RULE);
+      expect(await classifyPath(inside, join('.github', 'sneaky'))).toBe(CI_CONFIG_RULE);
+      // A real directory, and a real file inside one, are not standing in for anything.
+      expect(await classifyPath(inside, '.github')).toBeUndefined();
+      expect(await classifyPath(inside, join('.github', 'CODEOWNERS'))).toBeUndefined();
+    } finally {
+      for (const root of [asFile, asSymlink, inside]) await rm(root, { recursive: true, force: true });
+    }
   });
 });
 
@@ -66,49 +130,58 @@ describe('copyBackBudget', () => {
   });
 });
 
+/** A git repo at `worktree` with one committed README. */
+async function seedRepo(worktree: string): Promise<void> {
+  await execa('git', ['init', '-q', '-b', 'main'], { cwd: worktree });
+  await execa('git', ['config', 'user.email', 't@t'], { cwd: worktree });
+  await execa('git', ['config', 'user.name', 't'], { cwd: worktree });
+  await writeFile(join(worktree, 'README.md'), '# r\n');
+  await execa('git', ['add', '-A'], { cwd: worktree });
+  await execa('git', ['commit', '-q', '-m', 'baseline'], { cwd: worktree });
+}
+
+/**
+ * A fake sandbox that deliberately ignores `exclude` and stages everything, including a bogus `.git`
+ * that would corrupt the worktree if it ever landed (the #748 bug): the host-side filter, not the tar
+ * exclude, is what these tests prove holds the line. Records into `excludeArgs` the excludes it was
+ * asked for.
+ */
+function fakeSandbox(files: Tree, excludeArgs: (readonly string[])[] = []): Pick<IsolatedSandboxProvider, 'exec' | 'copyFileOut'> {
+  return {
+    exec: async () => ({ exitCode: 1, stdout: '', stderr: '' }),
+    copyFileOut: async (_sandboxPath: string, hostPath: string, options?: CopyOutOptions) => {
+      excludeArgs.push(options?.exclude ?? []);
+      await writeTree(hostPath, files);
+    },
+  };
+}
+
 describe('exportWorkspace', () => {
   it('runs a real workspace through copy-back: .git, node_modules and .pnpm-store never reach the worktree, CI config is dropped and reported, everything else lands in the diff (#748 regression)', async () => {
     const worktree = await mkdtemp(join(tmpdir(), 'vg-copyback-wt-'));
     const staging = await mkdtemp(join(tmpdir(), 'vg-copyback-staging-'));
     try {
-      await execa('git', ['init', '-q', '-b', 'main'], { cwd: worktree });
-      await execa('git', ['config', 'user.email', 't@t'], { cwd: worktree });
-      await execa('git', ['config', 'user.name', 't'], { cwd: worktree });
-      await writeFile(join(worktree, 'README.md'), '# r\n');
-      await execa('git', ['add', '-A'], { cwd: worktree });
-      await execa('git', ['commit', '-q', '-m', 'baseline'], { cwd: worktree });
+      await seedRepo(worktree);
       const headBefore = await readFile(join(worktree, '.git', 'HEAD'), 'utf8');
 
-      // The fake sandbox deliberately ignores `exclude` and stages everything, including a bogus
-      // `.git` that would corrupt the worktree if it ever landed (the #748 bug): the host-side
-      // filter, not the tar exclude, is what this test is proving holds the line.
       const excludeArgs: (readonly string[])[] = [];
-      const write = async (hostPath: string, rel: string, content: string): Promise<void> => {
-        const dest = join(hostPath, rel);
-        await mkdir(dirname(dest), { recursive: true });
-        await writeFile(dest, content);
-      };
-      const sandbox: Pick<IsolatedSandboxProvider, 'exec' | 'copyFileOut'> = {
-        exec: async () => ({ exitCode: 1, stdout: '', stderr: '' }),
-        copyFileOut: async (_sandboxPath: string, hostPath: string, options?: CopyOutOptions) => {
-          excludeArgs.push(options?.exclude ?? []);
-          await write(hostPath, 'README.md', '# r\n');
-          await write(hostPath, 'src/app.ts', 'export const x = 2;\n');
-          await write(hostPath, '.git/HEAD', 'ref: refs/heads/sandbox-bogus\n');
-          await write(hostPath, 'node_modules/left-pad/index.js', 'module.exports = () => {};\n');
-          await write(hostPath, '.pnpm-store/v3/files/00/abc', 'blob\n');
-          await write(hostPath, '.gitlab-ci.yml', 'stages: [test]\n');
+      const sandbox = fakeSandbox(
+        {
+          'README.md': '# r\n',
+          'src/app.ts': 'export const x = 2;\n',
+          '.git/HEAD': 'ref: refs/heads/sandbox-bogus\n',
+          'node_modules/left-pad/index.js': 'module.exports = () => {};\n',
+          '.pnpm-store/v3/files/00/abc': 'blob\n',
+          '.gitlab-ci.yml': 'stages: [test]\n',
         },
-      };
+        excludeArgs,
+      );
 
       const report = await exportWorkspace(sandbox, '/workspace', staging, worktree);
 
       // copyFileOut was still asked to exclude the pruned names (the ceiling/source-exclude layer);
       // this fake proves the host filter catches them even when that layer is bypassed.
-      expect(excludeArgs[0]).toEqual(prunedNames());
-
-      expect(report.synced).toContain('README.md');
-      expect(report.synced).toContain('src/app.ts');
+      expect(excludeArgs[0]).toEqual(['.git', 'node_modules', '.pnpm-store']);
       expect(report.dropped).toEqual(['.gitlab-ci.yml']);
 
       await expect(stat(join(worktree, 'node_modules'))).rejects.toThrow();
@@ -126,6 +199,25 @@ describe('exportWorkspace', () => {
     } finally {
       await rm(worktree, { recursive: true, force: true });
       await rm(staging, { recursive: true, force: true });
+    }
+  });
+
+  it('syncs a host repo checked out under a path that contains node_modules: the skips are matched relative to staging, never against the host path', async () => {
+    const base = await mkdtemp(join(tmpdir(), 'vg-copyback-host-'));
+    const worktree = join(base, 'node_modules', '.pnpm-store', 'repo');
+    const staging = join(base, 'node_modules', 'staging');
+    try {
+      await mkdir(worktree, { recursive: true });
+      await mkdir(staging, { recursive: true });
+      await seedRepo(worktree);
+
+      const report = await exportWorkspace(fakeSandbox({ 'README.md': '# r\n', 'src/app.ts': 'export const x = 2;\n' }), '/workspace', staging, worktree);
+
+      expect(report.dropped).toEqual([]);
+      expect(await readFile(join(worktree, 'src', 'app.ts'), 'utf8')).toBe('export const x = 2;\n');
+      expect(await new WorktreeManager(worktree).changedPaths(worktree)).toEqual(['src/app.ts']);
+    } finally {
+      await rm(base, { recursive: true, force: true });
     }
   });
 });

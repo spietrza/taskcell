@@ -14,15 +14,23 @@ import type { IsolatedSandboxProvider } from './provider.js';
  * skip that can only be recognised by path shape (e.g. nested CI YAML under `.gitlab/`), which can
  * only be filtered host-side, after it has already been staged.
  *
- * `report`: a dropped match is tracked and diffed against the existing worktree content instead of
- * dropped silently — see `exportWorkspace`'s `dropped` result. Used for CI config paths, so an
- * agent's edit under one is never lost without a human seeing it.
+ * Every rule drops silently except CI_CONFIG_RULE, whose matches are tracked and diffed against the
+ * worktree — see `exportWorkspace`'s `dropped` result.
  */
 export interface PathSkipRule {
   readonly name?: string;
   readonly match: RegExp;
-  readonly report?: boolean;
 }
+
+/**
+ * Hard security boundary (see CLAUDE.md): an agent must never be able to write CI config that gets
+ * committed and pushed. Case-insensitive and `s` lets `.*` cross a newline in a file name, so nothing
+ * slips past on a case-insensitive filesystem or via a crafted name. The one rule whose drops are
+ * reported rather than silent, and the one `isCiConfigPath` answers for the final-diff backstop.
+ */
+export const CI_CONFIG_RULE: PathSkipRule = {
+  match: /(^|[\\/])\.github[\\/]workflows([\\/]|$)|(^|[\\/])\.github[\\/]actions([\\/]|$)|(^|[\\/])\.gitlab-ci\.yml$|(^|[\\/])\.gitlab[\\/].*\.ya?ml$/is,
+};
 
 export const PATH_POLICY: readonly PathSkipRule[] = [
   // A linked worktree's .git is a file pointer; copying it corrupts the worktree.
@@ -39,49 +47,38 @@ export const PATH_POLICY: readonly PathSkipRule[] = [
   { match: /(^|[\\/])\.cursor[\\/]rules([\\/]|$)/ },
   // Skill bodies copied in as pointer targets for codex/cursor providers.
   { match: /(^|[\\/])\.vanguard[\\/]skills([\\/]|$)/ },
-  // Hard security boundary (see CLAUDE.md): an agent must never be able to write CI config that gets
-  // committed and pushed. Case-insensitive and `s` lets `.*` cross a newline in a file name, so
-  // nothing slips past on a case-insensitive filesystem or via a crafted name.
-  {
-    match: /(^|[\\/])\.github[\\/]workflows([\\/]|$)|(^|[\\/])\.github[\\/]actions([\\/]|$)|(^|[\\/])\.gitlab-ci\.yml$|(^|[\\/])\.gitlab[\\/].*\.ya?ml$/is,
-    report: true,
-  },
+  CI_CONFIG_RULE,
 ];
-
-/** The CI-config ("report") rule in a policy — the one dropped match that is tracked, not silent. */
-function reportRule(policy: readonly PathSkipRule[]): PathSkipRule | undefined {
-  return policy.find((rule) => rule.report === true);
-}
 
 /** A `.github` or `.gitlab` entry that is not a real directory (symlink or file) could stand in for the
  * directory and point at CI files kept elsewhere. A symlink inside one of those directories could do
- * the same for a subdirectory. Checked only against the report rule: this is specifically about
+ * the same for a subdirectory. Checked only for CI_CONFIG_RULE: this is specifically about
  * impersonating a CI config directory, not a generic skip. */
 const CI_DIR_NAME = /(^|[\\/])\.git(hub|lab)$/i;
 const IN_CI_DIR = /(^|[\\/])\.git(hub|lab)[\\/]/i;
 
 async function standsInForCiDir(stagingRoot: string, rel: string): Promise<boolean> {
-  if (!CI_DIR_NAME.test(rel) && !IN_CI_DIR.test(rel)) return false;
+  const isCiDirItself = CI_DIR_NAME.test(rel);
+  if (!isCiDirItself && !IN_CI_DIR.test(rel)) return false;
   const info = await lstat(join(stagingRoot, rel));
-  return CI_DIR_NAME.test(rel) ? !info.isDirectory() : info.isSymbolicLink();
+  return isCiDirItself ? !info.isDirectory() : info.isSymbolicLink();
 }
 
 /** Which policy rule (if any) drops `rel`. `rel` is relative to `stagingRoot`, forward or back slash. */
-async function classifyPath(stagingRoot: string, rel: string, policy: readonly PathSkipRule[]): Promise<PathSkipRule | undefined> {
-  const report = reportRule(policy);
-  if (report !== undefined && (report.match.test(rel) || (await standsInForCiDir(stagingRoot, rel)))) return report;
-  return policy.find((rule) => rule.report !== true && rule.match.test(rel));
+export async function classifyPath(stagingRoot: string, rel: string): Promise<PathSkipRule | undefined> {
+  if (CI_CONFIG_RULE.match.test(rel) || (await standsInForCiDir(stagingRoot, rel))) return CI_CONFIG_RULE;
+  return PATH_POLICY.find((rule) => rule.match.test(rel));
 }
 
 /** Bare names pruned at the source (never archived out of the sandbox at all) — see PathSkipRule.name. */
-export function prunedNames(policy: readonly PathSkipRule[] = PATH_POLICY): string[] {
-  return policy.flatMap((rule) => (rule.name !== undefined ? [rule.name] : []));
+export function prunedNames(): string[] {
+  return PATH_POLICY.flatMap((rule) => (rule.name !== undefined ? [rule.name] : []));
 }
 
 /** The `find`+`awk` ceiling measurement, with every `name` rule pruned — same names copyFileOut excludes. */
-export function ceilingFindCommand(workdir: string, policy: readonly PathSkipRule[] = PATH_POLICY): string {
-  const prune = prunedNames(policy)
-    .map((name) => `-name ${name}`)
+export function ceilingFindCommand(workdir: string): string {
+  const prune = prunedNames()
+    .map((name) => `-name '${name}'`)
     .join(' -o ');
   return `find ${workdir} \\( ${prune} \\) -prune -o -type f -printf '%s\\n' | awk '{n++; s+=$1} END {printf "%d %d\\n", n, s}'`;
 }
@@ -110,9 +107,8 @@ export async function assertWorkspaceWithinCeiling(
   workdir: string,
   maxBytes = COPY_BACK_MAX_BYTES,
   maxFiles = COPY_BACK_MAX_FILES,
-  policy: readonly PathSkipRule[] = PATH_POLICY,
 ): Promise<void> {
-  const res = await sandbox.exec(ceilingFindCommand(workdir, policy));
+  const res = await sandbox.exec(ceilingFindCommand(workdir));
   const m = /^(\d+) (\d+)\s*$/.exec(res.stdout);
   if (res.exitCode !== 0 || m === null) return;
   if (Number(m[1]) > maxFiles || Number(m[2]) > maxBytes) throw copyBackCeilingError(maxBytes, maxFiles);
@@ -138,7 +134,7 @@ export function copyBackBudget(maxBytes = COPY_BACK_MAX_BYTES, maxFiles = COPY_B
 const MAX_COMPARED_BYTES = 4 * 1024 * 1024;
 
 /**
- * Collect the files under a dropped, reported path whose sandbox copy is new or differs from the
+ * Collect the files under a dropped CI config path whose sandbox copy is new or differs from the
  * worktree. Unchanged files are dropped on every copy-back; only these mean the agent's work is
  * missing from the diff. A file the agent deleted is not in staging, so it is not reported. The walk
  * is sequential: the sandbox chose how many files there are, and a parallel walk can run out of file
@@ -166,22 +162,19 @@ async function collectChangedFiles(staging: string, worktree: string, rel: strin
 }
 
 export interface CopyBackReport {
-  /** Relative paths (POSIX-or-native separators, as the filesystem gives them) that reached the worktree. */
-  synced: string[];
-  /** Reported-rule paths (CI config) whose sandbox copy is new or differs from what was already in the
-   * worktree — dropped, but worth a human's attention. See PathSkipRule.report. */
+  /** CI config paths (see CI_CONFIG_RULE) whose sandbox copy is new or differs from what was already
+   * in the worktree — dropped, but worth a human's attention. What synced is the worktree itself. */
   dropped: string[];
 }
 
 export interface ExportWorkspaceOptions {
-  policy?: readonly PathSkipRule[];
   maxBytes?: number;
   maxFiles?: number;
 }
 
 /**
  * The one interface for what leaves the sandbox: export the workspace at `workdir` into `worktreePath`
- * via `stagingDir`, then report what synced and what was dropped. The ceiling, copyFileOut's source
+ * via `stagingDir`, then report the CI config that was dropped. The ceiling, copyFileOut's source
  * excludes and the host-side filter all come from the same PATH_POLICY, so they can never disagree.
  */
 export async function exportWorkspace(
@@ -189,17 +182,16 @@ export async function exportWorkspace(
   workdir: string,
   stagingDir: string,
   worktreePath: string,
-  { policy = PATH_POLICY, maxBytes = COPY_BACK_MAX_BYTES, maxFiles = COPY_BACK_MAX_FILES }: ExportWorkspaceOptions = {},
+  { maxBytes = COPY_BACK_MAX_BYTES, maxFiles = COPY_BACK_MAX_FILES }: ExportWorkspaceOptions = {},
 ): Promise<CopyBackReport> {
-  await assertWorkspaceWithinCeiling(sandbox, workdir, maxBytes, maxFiles, policy);
+  await assertWorkspaceWithinCeiling(sandbox, workdir, maxBytes, maxFiles);
   // Skipped at the source too: pruned names never sync back and can dwarf the workspace.
   await sandbox.copyFileOut(workdir, stagingDir, {
-    exclude: prunedNames(policy),
+    exclude: prunedNames(),
     maxBytes: maxBytes + maxFiles * STREAM_OVERHEAD_PER_FILE_BYTES,
   });
 
   const charge = copyBackBudget(maxBytes, maxFiles);
-  const synced: string[] = [];
   const dropped: string[] = [];
   await cp(stagingDir, worktreePath, {
     recursive: true,
@@ -208,13 +200,12 @@ export async function exportWorkspace(
     filter: async (src) => {
       const rel = relative(stagingDir, src);
       if (rel === '') return true;
-      const rule = await classifyPath(stagingDir, rel, policy);
+      const rule = await classifyPath(stagingDir, rel);
       if (rule !== undefined) {
-        if (rule.report === true) dropped.push(rel);
+        if (rule === CI_CONFIG_RULE) dropped.push(rel);
         return false;
       }
       charge(await lstat(src));
-      synced.push(rel);
       return true;
     },
   });
@@ -224,13 +215,13 @@ export async function exportWorkspace(
   for (const rel of dropped) {
     await collectChangedFiles(stagingDir, worktreePath, rel, changed).catch(() => changed.push(rel));
   }
-  return { synced, dropped: changed };
+  return { dropped: changed };
 }
 
-/** True when `path` is CI config by the policy's report rule (`.github/workflows`, `.github/actions`,
+/** True when `path` is CI config by CI_CONFIG_RULE (`.github/workflows`, `.github/actions`,
  * `.gitlab-ci.yml`, `.gitlab/` YAML) or a `.github`/`.gitlab` entry standing in for that directory —
- * the same question `exportWorkspace` asks while copying, asked here against a plain path string
+ * the same question `classifyPath` asks while copying, asked here against a plain path string
  * (no lstat), for the final-diff backstop in core/vanguard.ts. */
-export function isCiConfigPath(path: string, policy: readonly PathSkipRule[] = PATH_POLICY): boolean {
-  return (reportRule(policy)?.match.test(path) ?? false) || CI_DIR_NAME.test(path);
+export function isCiConfigPath(path: string): boolean {
+  return CI_CONFIG_RULE.match.test(path) || CI_DIR_NAME.test(path);
 }
