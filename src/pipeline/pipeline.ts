@@ -9,6 +9,7 @@ import { diffForPrompt } from '../context/escape.js';
 import { extractJson } from '../structured/extract.js';
 import { verdictSchema } from '../evals/judges.js';
 import { AgentError, isRateLimitError, rateLimitResetDelayMs } from '../core/errors.js';
+import { enforceUsageCap, UsageCapError } from '../core/usage-cap.js';
 import { roundUsd } from '../core/usd.js';
 import type { RunContext } from '../core/vanguard.js';
 import type { ReasoningEffort, RunResult } from '../core/types.js';
@@ -384,6 +385,22 @@ export async function runBudgetedStages(
       ...(isFiniteGlobal ? { remainingBudgetUsd: remainingGlobal } : {}),
     };
 
+    // User-set usage cap: do not start the stage on a provider at/over it. A capped primary falls back
+    // only when the fallback is under its own cap; otherwise the UsageCapError parks the task.
+    try {
+      enforceUsageCap(effectiveAgent.name, ctx.log);
+    } catch (capErr) {
+      if (!(capErr instanceof UsageCapError) || stage.fallback === undefined || effectiveAgent === stage.fallback.provider) throw capErr;
+      enforceUsageCap(stage.fallback.provider.name, ctx.log);
+      ctx.log.warn(
+        { stage: stage.name, from: effectiveAgent.name, to: stage.fallback.provider.name },
+        `${stage.name} provider at the usage cap — falling back to ${stage.fallback.provider.name}`,
+      );
+      effectiveAgent = stage.fallback.provider;
+      effectiveModel = stage.fallback.model;
+      if (stage.provider === undefined) primaryDown = true;
+    }
+
     let result: RunResult;
     try {
       result = await runAgent(ctx, {
@@ -391,7 +408,7 @@ export async function runBudgetedStages(
         promptTemplate: stage.promptTemplate,
         agent: effectiveAgent,
         ...(effectiveModel !== undefined ? { model: effectiveModel } : {}),
-        ...(resume && sessionId !== undefined ? { resumeSessionId: sessionId } : {}),
+        ...(resume && sessionId !== undefined && effectiveAgent === agent ? { resumeSessionId: sessionId } : {}),
       });
     } catch (err) {
       const rateLimited = err instanceof AgentError && isRateLimitError(err);

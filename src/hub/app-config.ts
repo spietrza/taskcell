@@ -18,6 +18,8 @@ export interface AppConfig {
   verifyCmd?: string;
   concurrency?: number;
   budgetUsd?: number;
+  /** Stop starting tasks/stages at this % (1-100) of the provider's plan window; unset = no cap. */
+  usageCapPct?: number;
   runCommand?: string;
   /** Doc-editor chat model (Subsystem 3), e.g. `claude-sonnet-5`. Non-secret; the API key is never
    * stored here (env only). Optional Anthropic-compatible base URL for a self-hosted proxy. */

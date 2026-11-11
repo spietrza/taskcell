@@ -3,6 +3,7 @@ import { isProviderName, validateProviderChoice, PROVIDER_NAMES } from '../agent
 import type { ProviderName } from '../agents/registry.js';
 import type { RunOptions } from '../runners/source-adapter.js';
 import { assertSafeBaseBranch } from '../core/base-branch.js';
+import { parseUsageCap } from '../core/usage-cap.js';
 
 type WatchSource = 'linear' | 'github' | 'project' | 'gitlab';
 
@@ -558,6 +559,8 @@ export function parseCli(argv: string[], cwd: string): Command {
         provider: { type: 'string' },
         'review-provider': { type: 'string' },
         'fallback-provider': { type: 'string' },
+        // stop starting work at this % of the provider's plan window (run, watch, watch-prs); 1-100
+        'usage-cap': { type: 'string' },
         'fallback-model': { type: 'string' },
         // model selection per stage (run + watch)
         'provider-model': { type: 'string' },
@@ -701,6 +704,13 @@ export function parseCli(argv: string[], cwd: string): Command {
     } catch (error) {
       return fail(error instanceof Error ? error.message : String(error));
     }
+  }
+
+  const usageCapRaw = values['usage-cap'];
+  if (typeof usageCapRaw === 'string') {
+    if (parseUsageCap(usageCapRaw) === undefined) return fail(`--usage-cap must be a number from 1 to 100, got "${usageCapRaw}".`);
+    // The cap is read from the environment at stage start, so the flag and VANGUARD_USAGE_CAP_PCT share one path.
+    process.env['VANGUARD_USAGE_CAP_PCT'] = usageCapRaw;
   }
 
   // Opt-in overrides to let a single run finish a large task (run + watch). Positive integers only;
@@ -1310,6 +1320,7 @@ const SHARED_RUN_OPTIONS_USAGE = `    --provider <claude|codex|cursor|zai|openro
     --review-provider <claude|codex|cursor|zai|openrouter|meridian>   Run only the review stage on this provider (cross-provider review)
     --fallback-provider <name>  Retry on this provider when the primary one fails (outage, limit, revoked credential) — the implementer and every other stage on its provider; must sit on a different transport (e.g. codex for a claude implementer)
     --fallback-model <model>    Model for every stage that fell back (default: that provider's default)
+    --usage-cap <pct>        Stop starting tasks/stages once the provider's plan window is at/over this % (1-100; env VANGUARD_USAGE_CAP_PCT; default: no cap)
     --provider-model <m>     Model for the implementer/simplifier stages (default: provider's default; zai -> glm-5.2)
     --review-model <m>       Model for the review stage (default: provider's default)
     --escalate-model <m>     Model for the 2nd and later gate repairs, once a repair on the implementer
@@ -1541,6 +1552,7 @@ ${MAX_REPAIR_ITERATIONS_USAGE}
     --concurrency <n>      Max PRs reviewed at once (default: 2)
     --provider <claude|codex|cursor|zai|openrouter|meridian>          Provider used for PR review (default: claude)
     --review-model <m>     Model for the PR review
+    --usage-cap <pct>      As for run/watch
     --max-turns <n>        As for review-pr
     --egress --llm-proxy --skills <dir> --repo <path>  As for run/watch (--skills: the repo's .github/vanguard-skills/ is merged in)
 

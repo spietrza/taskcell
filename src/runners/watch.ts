@@ -8,8 +8,8 @@ import { runGitlabIssue } from './gitlab.js';
 import { runSpecGenerator } from './spec.js';
 import { assessTaskReadiness, isVanguardSpec, SPEC_TAG } from '../tasks/triage.js';
 import { fanOut } from '../pipeline/fan-out.js';
-import { AgentError, failureReason, formatFailureComment, isRateLimitError } from '../core/errors.js';
-import { parseProviderRateLimitReset, rateLimitedComment } from '../core/rate-limit-marker.js';
+import { failureReason, formatFailureComment } from '../core/errors.js';
+import { isRateLimitHold, rateLimitHold } from '../core/rate-limit-marker.js';
 import { GITHUB_SECRET_BLOCKED_LABEL, GITHUB_RATE_LIMITED_LABEL } from '../github-labels.js';
 import { GITLAB_SECRET_BLOCKED_LABEL } from '../gitlab-labels.js';
 import type { Task } from '../tasks/fetcher.js';
@@ -695,10 +695,10 @@ async function markGithubIssueRateLimited(
   error: Error,
   gh?: GhRunner,
 ): Promise<void> {
-  const until = parseProviderRateLimitReset(error.message);
+  const hold = rateLimitHold(error, trigger);
   await (gh ?? defaultGhRunner)(['label', 'create', GITHUB_RATE_LIMITED_LABEL, '--repo', repo, '--force']).catch(() => undefined);
   await editGithubLabels(repo, id, { remove: [claimedLabel], add: [GITHUB_RATE_LIMITED_LABEL] }, gh);
-  await commentGithubIssue(repo, id, `${failureComment}\n\n${rateLimitedComment(until, trigger)}`, gh);
+  await commentGithubIssue(repo, id, `${failureComment}\n\n${hold.comment}`, gh);
 }
 
 /**
@@ -835,7 +835,7 @@ export function githubIssueWatchPrimitives(opts: WatchGithubOptions): WatchPrimi
     },
     onFailure: async (id, error) => {
       const comment = formatFailureComment('Vanguard run failed', error);
-      if (error instanceof AgentError && isRateLimitError(error)) {
+      if (isRateLimitHold(error)) {
         await markGithubIssueRateLimited(repo, id, opts.claimedLabel, opts.label, comment, error, opts.gh);
         return;
       }
@@ -905,7 +905,7 @@ export function githubSpecPrimitives(opts: WatchGithubSpecOptions): SpecWatchPri
     },
     onFailure: async (id, error) => {
       const comment = formatFailureComment('Vanguard spec failed', error);
-      if (error instanceof AgentError && isRateLimitError(error)) {
+      if (isRateLimitHold(error)) {
         await markGithubIssueRateLimited(repo, id, opts.claimedLabel, opts.specLabel, comment, error, opts.gh);
         return;
       }
