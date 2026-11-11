@@ -965,7 +965,7 @@ describe('runRevisePullRequest — VANGUARD_PUSH_TOKEN', () => {
 // ---------------------------------------------------------------------------
 
 describe('runRevisePullRequest — hardened sandbox', () => {
-  // Both vars gate the hardened default (a low/omitted memory limit stands it down): pin them.
+  // Pin both vars so the host env cannot opt in or resize under the test.
   beforeEach(() => {
     vi.stubEnv('VANGUARD_SANDBOX_READONLY', undefined);
     vi.stubEnv('VANGUARD_SANDBOX_MEMORY_MB', undefined);
@@ -973,7 +973,7 @@ describe('runRevisePullRequest — hardened sandbox', () => {
   afterEach(() => vi.unstubAllEnvs());
 
   // No `_sandbox`: the runner builds the (mocked) DockerSandboxProvider itself, so its config is the
-  // assertion — the same hardened default the other runners get (limits.test.ts covers the resolution).
+  // assertion — the same opt-in resolution the other runners get (limits.test.ts covers the resolution).
   const revise = async (network?: string): Promise<SandboxConfig | undefined> => {
     dockerSandboxConfigs.length = 0;
     await runRevisePullRequest('7', {
@@ -990,11 +990,16 @@ describe('runRevisePullRequest — hardened sandbox', () => {
     return dockerSandboxConfigs[0];
   };
 
-  it('--egress/--llm-proxy (enclave network set): the sandbox gets a read-only rootfs', async () => {
+  it('--egress/--llm-proxy (enclave network set) alone keeps the rootfs writable: read-only is opt-in', async () => {
+    expect((await revise('vg-egr-1'))?.security?.readOnlyRootfs).toBe(false);
+  });
+
+  it('--egress/--llm-proxy with VANGUARD_SANDBOX_READONLY=1: the sandbox gets a read-only rootfs', async () => {
+    vi.stubEnv('VANGUARD_SANDBOX_READONLY', '1');
     expect((await revise('vg-egr-1'))?.security?.readOnlyRootfs).toBe(true);
   });
 
-  it('an explicit VANGUARD_SANDBOX_READONLY=0 still turns it off in hardened mode', async () => {
+  it('VANGUARD_SANDBOX_READONLY=0 keeps it off in hardened mode', async () => {
     vi.stubEnv('VANGUARD_SANDBOX_READONLY', '0');
     expect((await revise('vg-egr-1'))?.security?.readOnlyRootfs).toBe(false);
   });
