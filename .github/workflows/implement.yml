@@ -85,6 +85,14 @@ on:
         description: 'Cap how many ready issues one run claims per phase (--max-tasks), so a mislabelled batch cannot flood the runner. Empty = no cap.'
         type: string
         default: ''
+      issue:
+        description: 'Run only this issue number (watch --issue) instead of sweeping every ready issue. The caller passes the labelled issue, so each issue gets its own run. Empty = sweep (dispatch, resume).'
+        type: string
+        default: ''
+      max-parallel:
+        description: 'With `issue` set: at most this many runs of the calling workflow do agent work at once; a later run waits (FIFO by run id) for a slot instead of being dropped. The caller needs `actions: read`. Empty = no limit.'
+        type: string
+        default: ''
       skills:
         description: 'Skills directory (--skills), relative to the workspace.'
         type: string
@@ -137,6 +145,36 @@ jobs:
         env:
           IN_MAX_TASKS: ${{ inputs.max-tasks }}
         run: '[[ "$IN_MAX_TASKS" =~ ^[1-9][0-9]*$ ]] || { echo "::error::max-tasks must be a positive integer, got ''$IN_MAX_TASKS''"; exit 1; }'
+
+      - name: Check issue and max-parallel
+        if: ${{ inputs.issue != '' || inputs.max-parallel != '' }}
+        env:
+          IN_ISSUE: ${{ inputs.issue }}
+          IN_MAX_PARALLEL: ${{ inputs.max-parallel }}
+        run: |
+          [[ -z "$IN_ISSUE" || "$IN_ISSUE" =~ ^[1-9][0-9]*$ ]] || { echo "::error::issue must be a positive issue number, got '$IN_ISSUE'"; exit 1; }
+          [[ -z "$IN_MAX_PARALLEL" || "$IN_MAX_PARALLEL" =~ ^[1-9][0-9]*$ ]] || { echo "::error::max-parallel must be a positive integer, got '$IN_MAX_PARALLEL'"; exit 1; }
+
+      # Per-issue runs each have their own concurrency group, so GitHub no longer serialises them. This
+      # step is the cap: wait while `max-parallel` or more OLDER runs of the calling workflow are still in
+      # progress (older = smaller run id, so slots go first come, first served). Waiting runs count too,
+      # which keeps the order. Two runs that see a free slot in the same poll can both start, so the cap
+      # can overshoot by one; the claim label still stops two runs from taking the same issue.
+      - name: Wait for a free slot
+        if: ${{ inputs.issue != '' && inputs.max-parallel != '' }}
+        env:
+          IN_MAX_PARALLEL: ${{ inputs.max-parallel }}
+          WORKFLOW_NAME: ${{ github.workflow }}
+          RUN_ID: ${{ github.run_id }}
+        run: |
+          for _ in $(seq 1 120); do
+            older=$(gh run list --repo "$GITHUB_REPOSITORY" --workflow "$WORKFLOW_NAME" --status in_progress --limit 50 --json databaseId \
+              --jq "[.[] | select(.databaseId < $RUN_ID)] | length")
+            if [ "$older" -lt "$IN_MAX_PARALLEL" ]; then echo "slot free ($older older run(s) in progress, max $IN_MAX_PARALLEL)"; exit 0; fi
+            echo "waiting for a slot: $older older run(s) in progress, max $IN_MAX_PARALLEL"
+            sleep 60
+          done
+          echo "::error::no free slot after 120 min; re-add the trigger label to retry" && exit 1
 
       # Fail loudly rather than let actions/checkout silently build the default branch.
       - name: Resolve vanguard source ref
@@ -208,6 +246,7 @@ jobs:
           IN_CONFORMANCE: ${{ inputs.conformance }}
           IN_CONFORMANCE_MODEL: ${{ inputs.conformance-model }}
           IN_MAX_TASKS: ${{ inputs.max-tasks }}
+          IN_ISSUE: ${{ inputs.issue }}
           IN_LLM_PROXY: ${{ inputs.llm-proxy }}
           IN_SKILLS: ${{ inputs.skills }}
           IN_ALLOWED_ACTORS: ${{ inputs.allowed-actors }}
@@ -229,6 +268,7 @@ jobs:
           [ "$IN_CONFORMANCE" = "true" ] && args+=(--conformance)
           [ -n "$IN_CONFORMANCE_MODEL" ] && args+=(--conformance-model "$IN_CONFORMANCE_MODEL")
           [ -n "$IN_MAX_TASKS" ] && args+=(--max-tasks "$IN_MAX_TASKS")
+          [ -n "$IN_ISSUE" ] && args+=(--issue "$IN_ISSUE")
           [ "$IN_LLM_PROXY" = "true" ] && args+=(--llm-proxy)
           node .vanguard-src/dist/cli/index.js "${args[@]}"
 
