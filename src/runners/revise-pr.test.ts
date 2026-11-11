@@ -105,6 +105,25 @@ function agentThatCompletes(received: AgentRunInput[], name = 'claude-code'): Ag
   };
 }
 
+/** gh mock answering every call a full revise round makes (view, diff, feedback, thread replies, comment, ready, labels). */
+function makeGh(): GhRunner {
+  return async (args) => {
+    if (args[0] === 'pr' && args[1] === 'view' && args.some((a) => a.includes('headRefName'))) return makePrViewJson();
+    if (args[0] === 'pr' && args[1] === 'diff') return 'diff --git a/fix.txt';
+    if (args[0] === 'api' && args[1] === 'graphql') {
+      const query = args.find((a) => a.startsWith('query=')) ?? '';
+      if (query.includes('reviewThreads')) return makeFeedbackJson();
+      if (query.includes('addPullRequestReviewThreadReply')) return JSON.stringify({ data: {} });
+      if (query.includes('resolveReviewThread')) return JSON.stringify({ data: {} });
+    }
+    if (args[0] === 'pr' && args[1] === 'comment') return '';
+    if (args[0] === 'pr' && args[1] === 'ready') return '';
+    if (args[0] === 'label' && args[1] === 'create') return '';
+    if (args[0] === 'pr' && args[1] === 'edit') return '';
+    throw new Error(`unexpected gh call: ${args.join(' ')}`);
+  };
+}
+
 function makePrViewJson(overrides: Record<string, unknown> = {}): string {
   return JSON.stringify({
     number: 7,
@@ -938,6 +957,50 @@ describe('runRevisePullRequest — VANGUARD_PUSH_TOKEN', () => {
     expect(dockerSandboxConfigs).toHaveLength(1);
     expect(dockerSandboxConfigs[0]?.secrets ?? {}).not.toHaveProperty('VANGUARD_PUSH_TOKEN');
     expect(Object.values(dockerSandboxConfigs[0]?.secrets ?? {})).not.toContain('test-pat');
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Hardened sandbox (read-only rootfs)
+// ---------------------------------------------------------------------------
+
+describe('runRevisePullRequest — hardened sandbox', () => {
+  // Both vars gate the hardened default (a low/omitted memory limit stands it down): pin them.
+  beforeEach(() => {
+    vi.stubEnv('VANGUARD_SANDBOX_READONLY', undefined);
+    vi.stubEnv('VANGUARD_SANDBOX_MEMORY_MB', undefined);
+  });
+  afterEach(() => vi.unstubAllEnvs());
+
+  // No `_sandbox`: the runner builds the (mocked) DockerSandboxProvider itself, so its config is the
+  // assertion — the same hardened default the other runners get (limits.test.ts covers the resolution).
+  const revise = async (network?: string): Promise<SandboxConfig | undefined> => {
+    dockerSandboxConfigs.length = 0;
+    await runRevisePullRequest('7', {
+      repoPath: repo,
+      repoSlug: 'o/r',
+      gh: makeGh(),
+      _agent: agentThatCompletes([]),
+      _worktrees: new WorktreeManager(repo),
+      _pushRunner: async () => '',
+      _baseBranch: 'feature-branch',
+      provider: 'claude',
+      ...(network !== undefined ? { network } : {}),
+    });
+    return dockerSandboxConfigs[0];
+  };
+
+  it('--egress/--llm-proxy (enclave network set): the sandbox gets a read-only rootfs', async () => {
+    expect((await revise('vg-egr-1'))?.security?.readOnlyRootfs).toBe(true);
+  });
+
+  it('an explicit VANGUARD_SANDBOX_READONLY=0 still turns it off in hardened mode', async () => {
+    vi.stubEnv('VANGUARD_SANDBOX_READONLY', '0');
+    expect((await revise('vg-egr-1'))?.security?.readOnlyRootfs).toBe(false);
+  });
+
+  it('without the flags the rootfs stays writable, as before', async () => {
+    expect((await revise())?.security?.readOnlyRootfs).toBe(false);
   });
 });
 

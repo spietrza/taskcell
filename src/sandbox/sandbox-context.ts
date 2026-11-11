@@ -3,6 +3,7 @@ import { providerUpstream } from '../agents/registry.js';
 import { startLlmProxy } from './llm-proxy.js';
 import { llmProxyEgressAllowlist } from './egress-proxy.js';
 import { DEFAULT_EGRESS_ALLOWLIST } from './egress-allow.mjs';
+import { hardenedRootfsNote } from './limits.js';
 import { llmProxyAuth } from '../agents/auth.js';
 import type { LlmProxyDep } from './llm-proxy.js';
 import type { Upstream } from './llm-proxy-rewrite.mjs';
@@ -78,6 +79,8 @@ export async function startSandboxContext(opts: SandboxContextOptions): Promise<
     extras.length > 0 || opts.llmProxy ? { allowlist: [...baseAllowlist, ...extras], ...(extras.length > 0 ? { trusted: extras } : {}) } : {},
   );
   console.log('egress: sandbox confined to an internal network; only the allowlist proxy can reach out.');
+  const rootfs = hardenedRootfsNote();
+  (rootfs.warn ? console.warn : console.log)(rootfs.message);
 
   if (!opts.llmProxy) {
     return { proxyUrl: enclave.proxyUrl, network: enclave.network, destroy: enclave.destroy };

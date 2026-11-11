@@ -1,7 +1,7 @@
 import { taskToVariables } from '../tasks/fetcher.js';
 import { escapePromptTags } from '../context/escape.js';
 import { DockerSandboxProvider, sandboxImage } from '../sandbox/docker.js';
-import { sandboxResourceLimits } from '../sandbox/limits.js';
+import { sandboxResourceLimits, sandboxSecurityOpts } from '../sandbox/limits.js';
 import { forcedProviderModel, providerKeyEnvNames, selectAgents } from '../agents/registry.js';
 import { prepareContext, disposeContext } from '../core/vanguard.js';
 import { runStages, techSpecStage } from '../pipeline/pipeline.js';
@@ -71,7 +71,7 @@ export interface RunSpecGeneratorDeps extends ProviderChoice {
 }
 
 /** Build the default Docker sandbox for the spec pass — same shape as the issue runners. */
-function defaultSandboxFactory(
+export function defaultSandboxFactory(
   deps: RunSpecGeneratorDeps,
   secrets: Record<string, string>,
   providerProxies: ProviderProxyDeps,
@@ -85,9 +85,10 @@ function defaultSandboxFactory(
       ...(deps.llmProxy === undefined && deps.auth !== undefined && injectAnthropicAuth ? authSecrets(deps.auth) : {}),
       ...secrets,
     },
-    ...sandboxResourceLimits(),
+    ...sandboxResourceLimits(process.env, deps.network !== undefined),
     ...(env !== undefined ? { env } : {}),
     ...(deps.network !== undefined ? { network: deps.network } : {}),
+    security: sandboxSecurityOpts(process.env, deps.network !== undefined),
   });
 }
 

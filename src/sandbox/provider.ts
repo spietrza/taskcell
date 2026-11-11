@@ -83,7 +83,12 @@ export interface SandboxConfig {
    * for repo tooling that reaches host services by that name on Linux.
    */
   hostGateway?: boolean;
-  /** Overrides sandboxSecurityOpts()'s env-derived defaults (cap-drop/add, no-new-privileges, readonly). */
+  /**
+   * Overrides sandboxSecurityOpts()'s env-derived defaults (cap-drop/add, no-new-privileges, readonly).
+   * The runners build this with `sandboxSecurityOpts(process.env, hardened)`, `hardened` being "the
+   * run is --egress/--llm-proxy" (the egress enclave `network` is set) — that is how the read-only
+   * rootfs default reaches `buildRunArgs`; the bare call there is only the non-hardened fallback.
+   */
   security?: Partial<SandboxSecurityOpts>;
   /**
    * Opt-in persistent pnpm store (`--pnpm-store` / VANGUARD_PNPM_STORE; off by default — see

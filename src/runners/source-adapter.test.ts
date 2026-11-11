@@ -128,6 +128,8 @@ vi.mock('../sandbox/limits.js', () => ({
   sandboxResourceLimits: vi.fn(() => ({})),
   // Off by default, as it is in production — the opt-in store itself is covered in limits.test.ts.
   pnpmStoreConfig: vi.fn(() => undefined),
+  // The hardened/readonly resolution itself is covered in limits.test.ts and docker.test.ts.
+  sandboxSecurityOpts: vi.fn(() => ({})),
 }));
 const { probeTaskDifficulty } = vi.hoisted(() => ({ probeTaskDifficulty: vi.fn(async () => undefined) }));
 vi.mock('../core/decision-probe.js', () => ({ probeTaskDifficulty, decisionProbeConfig: vi.fn(() => undefined) }));

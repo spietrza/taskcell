@@ -5,7 +5,7 @@ import { tmpdir } from 'node:os';
 import { dirname, join } from 'node:path';
 import { createInterface } from 'node:readline';
 import { SandboxError } from '../core/errors.js';
-import { ownerLabelArgs, sandboxSecurityOpts } from './limits.js';
+import { ownerLabelArgs, readOnlyTmpfsSizesMb, sandboxSecurityOpts } from './limits.js';
 import type { ExecOptions, ExecResult, ExecStream, IsolatedSandboxProvider, SandboxConfig } from './provider.js';
 
 /**
@@ -252,6 +252,8 @@ export class DockerSandboxProvider implements IsolatedSandboxProvider {
     if (this.config.cpus !== undefined) args.push('--cpus', String(this.config.cpus));
     if (this.config.pidsLimit !== undefined) args.push('--pids-limit', String(this.config.pidsLimit));
 
+    // Bare call = non-hardened defaults; the runners pass `sandboxSecurityOpts(env, hardened)` via
+    // config.security, which wins here (see SandboxConfig.security).
     const security = { ...sandboxSecurityOpts(), ...this.config.security };
     for (const cap of security.capDrop) args.push('--cap-drop', cap);
     // Added back on top of capDrop ALL: copyIn's `docker exec -u 0 chown -R` needs CAP_CHOWN (and,
@@ -263,10 +265,15 @@ export class DockerSandboxProvider implements IsolatedSandboxProvider {
       args.push('--read-only');
       // Paths a real run writes: /workspace (copyIn + pnpm install + git), $HOME (skills, tool
       // caches), /tmp (build scratch). exec is required (tool shims, build scripts) unlike the
-      // deliberately noexec secrets tmpfs above.
-      args.push('--tmpfs', `${this.workdir}:rw,exec,nosuid,size=4g`);
-      args.push('--tmpfs', `${DEFAULT_HOME}:rw,exec,nosuid,size=2g`);
-      args.push('--tmpfs', '/tmp:rw,exec,nosuid,size=1g');
+      // deliberately noexec secrets tmpfs above. The sizes are shares of this sandbox's own memory
+      // limit, because that is the cgroup a tmpfs page is charged to (see readOnlyTmpfsSizesMb).
+      const tmpfs = readOnlyTmpfsSizesMb(this.config.memoryMb);
+      const mounts = [
+        [this.workdir, tmpfs.workspace],
+        [DEFAULT_HOME, tmpfs.home],
+        ['/tmp', tmpfs.tmp],
+      ] as const;
+      for (const [path, sizeMb] of mounts) args.push('--tmpfs', `${path}:rw,exec,nosuid,size=${sizeMb}m`);
     }
 
     if (this.hasSecrets && this.secretsMode === 'tmpfs') {

@@ -5,7 +5,7 @@ import type { InstructionOverlay } from '../context/instruction-files.js';
 import { mkdir, writeFile } from 'node:fs/promises';
 import { dirname, resolve } from 'node:path';
 import { DockerSandboxProvider, sandboxImage } from '../sandbox/docker.js';
-import { sandboxResourceLimits } from '../sandbox/limits.js';
+import { sandboxResourceLimits, sandboxSecurityOpts } from '../sandbox/limits.js';
 import { llmProxySandboxEnv } from '../sandbox/egress-proxy.js';
 import { startProviderProxies } from '../sandbox/llm-proxy.js';
 import { startSandboxContext } from '../sandbox/sandbox-context.js';
@@ -146,9 +146,10 @@ async function runDefaultReviewer(
         ...(sandboxContext.llmProxy === undefined && auth !== undefined && agents.injectAnthropicAuth ? authSecrets(auth) : {}),
         ...agents.secrets,
       },
-      ...sandboxResourceLimits(),
+      ...sandboxResourceLimits(process.env, sandboxContext.network !== undefined),
       ...(env !== undefined ? { env } : {}),
       ...(sandboxContext.network !== undefined ? { network: sandboxContext.network } : {}),
+      security: sandboxSecurityOpts(process.env, sandboxContext.network !== undefined),
     });
     const taskId = `pr-review-${pr.repoSlug.replace(/[^a-zA-Z0-9]/g, '-')}-${pr.number}`;
     // The reviewer reads the tree the change lands on: the PR's base as origin has it.
