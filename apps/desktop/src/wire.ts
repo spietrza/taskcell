@@ -22,6 +22,11 @@ export type ReasoningEffort = 'low' | 'medium' | 'high' | 'xhigh' | 'max';
  * Structured run events emitted by the pipeline runner when a caller passes `onEvent`. Stage names
  * are plain strings (matching StageOutcome.name). The desktop additionally sees a Rust-minted
  * `run-accepted` variant that core never emits — declared desktop-side, not here.
+ *
+ * `run-queued` is the one exception to that rule: unlike `run-accepted`, it is minted by the HUB
+ * itself (`src/hub/run-session.ts`), in TypeScript on both ends of the wire, so it is declared here
+ * rather than as a desktop-side extension — `position` is 1-based (1 = next to start), `repoPath`
+ * scopes it to a project exactly like `run-accepted`'s.
  */
 export type RunEvent =
   | { type: 'run-start'; taskId: string; flow: string; provider: string; stages: string[] }
@@ -31,7 +36,8 @@ export type RunEvent =
   | { type: 'warning'; message: string }
   | { type: 'run-end'; prUrl?: string; secretBlocked?: boolean }
   | { type: 'run-error'; message: string }
-  | { type: 'run-cancelled' };
+  | { type: 'run-cancelled' }
+  | { type: 'run-queued'; position: number; repoPath: string };
 
 /** A selectable flow: its stable key and a human label for the UI. */
 export interface FlowInfo {
@@ -575,7 +581,12 @@ export interface Commands {
   api_create_run: { args: { params: CreateRunParams }; result: CreateRunResult };
   api_active_run: { args: undefined; result: { runId: string; repoPath: string } | null };
   api_run_backlog: { args: { runId: string }; result: unknown[] };
-  api_cancel: { args: undefined; result: void };
+  /** HUB_ONLY: Tauri has no queue to read — it is still strictly single-in-flight, the hub's queue
+   * (src/hub/run-session.ts) is what's new here. Position is 1-based, 1 = next to start. */
+  api_queue: { args: undefined; result: { runId: string; repoPath: string; position: number }[] };
+  /** `runId` cancels exactly that run (active or queued). The hub REQUIRES it (an id-less cancel
+   * could hit another project's run); Tauri ignores it and cancels its one active run (no queue). */
+  api_cancel: { args: { runId?: string }; result: void };
   api_create_task: { args: { repoPath: string; title: string; body: string }; result: CreatedTask };
   api_list_flows: { args: { repoPath: string }; result: { flows: RepoFlowInfo[] } };
   api_list_providers: { args: { repoPath: string }; result: { providers: RepoProviderInfo[] } };
@@ -623,7 +634,8 @@ export const TAURI_ONLY = ['spawn_run', 'kill_run', 'list_spawns'] as const sati
 
 /** Commands with no `#[tauri::command]` in `src-tauri/src/lib.rs` — browser-only stand-ins for
  * native capability the webview doesn't need (no folder-picker dialog), plus the enable-factory
- * seam (shells out to `gh`/`git`, which only the hub's Node process does today). */
+ * seam (shells out to `gh`/`git`, which only the hub's Node process does today), plus `api_queue`:
+ * Tauri stays strictly single-in-flight (no queue to read) so it has nothing to implement either. */
 export const HUB_ONLY = [
   'browse_dirs',
   'clone_project',
@@ -633,6 +645,7 @@ export const HUB_ONLY = [
   'enable_factory_verify',
   'list_needs_you',
   'reply_needs_you',
+  'api_queue',
 ] as const satisfies readonly (keyof Commands)[];
 
 /** Every command name, for the lib.rs parity test and friends. TYPE-CHECKED (not just asserted)
@@ -666,6 +679,7 @@ export const COMMAND_NAMES = [
   'api_create_run',
   'api_active_run',
   'api_run_backlog',
+  'api_queue',
   'api_cancel',
   'api_create_task',
   'api_list_flows',

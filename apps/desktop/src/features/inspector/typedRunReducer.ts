@@ -15,6 +15,8 @@ export interface TypedRunState {
   usdSpent: number;
   /** Non-fatal advisories (e.g. a credential the LLM proxy doesn't cover) — accumulated, deduplicated, never cleared. */
   warnings: string[];
+  /** Hub only: 1-based place in the run queue while this run waits; cleared once it is accepted. */
+  queuedPosition?: number;
   terminal?: { kind: 'success' | 'no-changes' | 'secret-blocked' | 'error' | 'cancelled'; prUrl?: string; message?: string };
 }
 
@@ -45,15 +47,19 @@ export function reduceTypedRun(
     // Virgin state: only an accepted marker for OUR project may seed it. A scoped strip also
     // rejects an accepted marker with NO repoPath — Rust always stamps it, so an unstamped one is
     // a stale/foreign source, not a legitimate run (defensive, review #343 obs 3).
-    if (e.type !== 'run-accepted') return state;
+    // `run-queued` (hub) may seed it too, scoped the same way: it is a queued run's only event.
+    if (e.type !== 'run-accepted' && e.type !== 'run-queued') return state;
     if (repoPath !== undefined && e.repoPath !== repoPath) return state;
-    return { ...state, runId: payload.runId };
+    return e.type === 'run-queued' ? { ...state, runId: payload.runId, queuedPosition: e.position } : { ...state, runId: payload.runId };
   }
   if (payload.runId !== state.runId) return state;
   const runId = state.runId;
   switch (e.type) {
     case 'run-accepted':
-      return { ...state, runId };
+      return { ...state, runId, queuedPosition: undefined };
+    case 'run-queued':
+      // A late/replayed position must not re-queue a run that already started.
+      return state.taskId !== undefined || state.terminal !== undefined ? state : { ...state, runId, queuedPosition: e.position };
     case 'run-start':
       return { ...state, runId, taskId: e.taskId, flow: e.flow, provider: e.provider, stages: e.stages };
     case 'stage-start':

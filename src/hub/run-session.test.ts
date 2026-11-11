@@ -1,4 +1,4 @@
-import { describe, expect, test } from 'vitest';
+import { describe, expect, test, vi } from 'vitest';
 import { createRunSession, MAX_CONCURRENT_RUNS } from './run-session.js';
 import type { SidecarDeps, CreateRunParams, CreateRunResult } from '../sidecar/sidecar.js';
 import type { RunEvent } from '../pipeline/events.js';
@@ -52,29 +52,187 @@ describe('run-session', () => {
     expect(session.activeRun()).toBeNull();
   });
 
-  test('T-44 second concurrent run rejected, first unaffected', async () => {
+  test('T-44 a second run is queued, starts after the first ends, both return a runId', async () => {
+    let resolveFirst: ((r: CreateRunResult) => void) | undefined;
+    let calls = 0;
+    const published: { runId: string; event: { type: string } }[] = [];
+    const deps = fakeDeps(
+      () =>
+        new Promise<CreateRunResult>((resolve) => {
+          calls += 1;
+          if (calls === 1) resolveFirst = resolve;
+          else resolve({});
+        }),
+    );
+    const session = createRunSession(deps, (_n, p) => published.push(p as (typeof published)[number]));
+    const firstPromise = session.createRun({ issueRef: '1', repoPath: '/repo' } as CreateRunParams);
+    const firstActive = session.activeRun();
+    expect(firstActive).not.toBeNull();
+    const secondPromise = session.createRun({ issueRef: '2', repoPath: '/repo2' } as CreateRunParams);
+    await Promise.resolve();
+    expect(session.activeRun()).toEqual(firstActive);
+    expect(session.queued()).toEqual([{ runId: 'run-1', repoPath: '/repo2', position: 1 }]);
+    expect(published.at(-1)).toEqual({ runId: 'run-1', event: { type: 'run-queued', position: 1, repoPath: '/repo2' } });
+    expect(calls).toBe(1);
+    resolveFirst?.({});
+    await firstPromise;
+    await secondPromise;
+    expect(calls).toBe(2);
+    expect(session.queued()).toEqual([]);
+    expect(published.some((p) => p.runId === 'run-1' && p.event.type === 'run-accepted')).toBe(true);
+    expect(MAX_CONCURRENT_RUNS).toBe(1);
+  });
+
+  test('T-44b cancelling a queued run removes it, emits run-cancelled, leaves the active run alone', async () => {
+    let resolveFirst: ((r: CreateRunResult) => void) | undefined;
+    const published: { runId: string; event: { type: string } }[] = [];
+    const deps = fakeDeps(() => new Promise<CreateRunResult>((resolve) => { resolveFirst ??= resolve; }));
+    const session = createRunSession(deps, (_n, p) => published.push(p as (typeof published)[number]));
+    const firstPromise = session.createRun({ issueRef: '1', repoPath: '/repo' } as CreateRunParams);
+    const queuedPromise = session.createRun({ issueRef: '2', repoPath: '/repo' } as CreateRunParams);
+    session.cancel('run-1');
+    await expect(queuedPromise).rejects.toThrow(/cancelled/);
+    expect(published.at(-1)).toEqual({ runId: 'run-1', event: { type: 'run-cancelled' } });
+    expect(session.queued()).toEqual([]);
+    expect(session.activeRun()?.runId).toBe('run-0');
+    resolveFirst?.({});
+    await firstPromise;
+  });
+
+  test('T-44d a cancelled queued run is evicted like any settled run (no unbounded buffer)', async () => {
+    const session = createRunSession(fakeDeps(() => new Promise<CreateRunResult>(() => {})), () => {});
+    void session.createRun({ issueRef: '0', repoPath: '/repo' } as CreateRunParams);
+    for (let i = 1; i <= 5; i += 1) {
+      const p = session.createRun({ issueRef: String(i), repoPath: '/repo' } as CreateRunParams);
+      p.catch(() => {});
+      session.cancel(`run-${i}`);
+    }
+    // RETAINED_RUNS=4: the first cancelled queued run's buffer is gone, the last one's is kept.
+    expect(session.backlog('run-1')).toEqual([]);
+    expect(session.backlog('run-5').length).toBeGreaterThan(0);
+  });
+
+  test('T-44e a queued run keeps one run-queued while waiting, and starts with run-accepted at index 0', async () => {
     let resolveFirst: ((r: CreateRunResult) => void) | undefined;
     const deps = fakeDeps(
-      (_params) =>
+      () =>
         new Promise<CreateRunResult>((resolve) => {
-          resolveFirst = resolve;
+          if (resolveFirst === undefined) resolveFirst = resolve;
+          else resolve({});
         }),
     );
     const session = createRunSession(deps, () => {});
-    const firstPromise = session.createRun({ issueRef: '1', repoPath: '/repo' } as CreateRunParams);
-    // allow the first call's synchronous prologue to run
-    await Promise.resolve();
-    expect(session.activeRun()).not.toBeNull();
-    const firstActive = session.activeRun();
-
-    await expect(session.createRun({ issueRef: '2', repoPath: '/repo2' } as CreateRunParams)).rejects.toThrow(
-      /single-in-flight/,
-    );
-    expect(session.activeRun()).toEqual(firstActive);
-
+    const first = session.createRun({ issueRef: '0', repoPath: '/repo' } as CreateRunParams);
+    const second = session.createRun({ issueRef: '1', repoPath: '/repo' } as CreateRunParams);
+    const third = session.createRun({ issueRef: '2', repoPath: '/repo3' } as CreateRunParams);
+    third.catch(() => {});
+    session.cancel('run-1'); // republishes run-2's position
+    expect(session.backlog('run-2')).toEqual([{ runId: 'run-2', event: { type: 'run-queued', position: 1, repoPath: '/repo3' } }]);
+    await expect(second).rejects.toThrow(/cancelled/);
     resolveFirst?.({});
-    await firstPromise;
-    expect(MAX_CONCURRENT_RUNS).toBe(1);
+    await first;
+    await third;
+    const backlog = session.backlog('run-2') as { event: { type: string } }[];
+    expect(backlog[0]?.event.type).toBe('run-accepted');
+    expect(backlog.some((e) => e.event.type === 'run-queued')).toBe(false);
+  });
+
+  test('T-44f the start-time check runs when a queued run starts and fails it with run-error', async () => {
+    let resolveFirst: ((r: CreateRunResult) => void) | undefined;
+    let calls = 0;
+    const deps = fakeDeps(
+      () =>
+        new Promise<CreateRunResult>((resolve) => {
+          calls += 1;
+          resolveFirst = resolve;
+        }),
+    );
+    let revoked = false;
+    const session = createRunSession(deps, () => {}, async (p) => {
+      if (revoked && p.repoPath === '/gone') throw new Error('not an allowed project');
+    });
+    const first = session.createRun({ issueRef: '0', repoPath: '/repo' } as CreateRunParams);
+    const queued = session.createRun({ issueRef: '1', repoPath: '/gone' } as CreateRunParams);
+    await Promise.resolve();
+    revoked = true; // the project is unbound while its run waits
+    resolveFirst?.({});
+    await first;
+    await expect(queued).rejects.toThrow(/not an allowed project/);
+    expect(calls).toBe(1);
+    const backlog = session.backlog('run-1') as { event: { type: string } }[];
+    expect(backlog.at(-1)?.event).toEqual({ type: 'run-error', message: 'not an allowed project' });
+    expect(backlog.some((e) => e.event.type === 'run-accepted')).toBe(false); // refused, never announced
+  });
+
+  test('T-44h a stale cancel(id) for a finished run leaves the promoted next run running', async () => {
+    const resolvers: ((r: CreateRunResult) => void)[] = [];
+    const deps = fakeDeps(() => new Promise<CreateRunResult>((resolve) => resolvers.push(resolve)));
+    const session = createRunSession(deps, () => {});
+    const first = session.createRun({ issueRef: '0', repoPath: '/repo' } as CreateRunParams);
+    const second = session.createRun({ issueRef: '1', repoPath: '/repo' } as CreateRunParams);
+    second.catch(() => {});
+    resolvers[0]?.({});
+    await first;
+    expect(session.activeRun()?.runId).toBe('run-1');
+    session.cancel('run-0'); // a late Stop click on the run that already ended
+    expect(session.activeRun()?.runId).toBe('run-1');
+    resolvers[1]?.({});
+    await expect(second).resolves.toEqual({});
+    expect((session.backlog('run-1') as { event: { type: string } }[]).some((e) => e.event.type === 'run-cancelled')).toBe(false);
+  });
+
+  test('T-44i a cancel during the start-time check ends the run as cancelled without starting it', async () => {
+    let calls = 0;
+    let release: (() => void) | undefined;
+    const deps = fakeDeps(async () => {
+      calls += 1;
+      return {};
+    });
+    const session = createRunSession(deps, () => {}, () => new Promise<void>((resolve) => (release = resolve)));
+    const run = session.createRun({ issueRef: '0', repoPath: '/repo' } as CreateRunParams);
+    session.cancel('run-0');
+    release?.();
+    await expect(run).rejects.toThrow(/cancelled/);
+    expect(calls).toBe(0);
+    expect((session.backlog('run-0') as { event: { type: string } }[]).at(-1)?.event).toEqual({ type: 'run-cancelled' });
+  });
+
+  test('T-44g a blank VANGUARD_HUB_MAX_QUEUE falls back to the default instead of disabling the queue', () => {
+    vi.stubEnv('VANGUARD_HUB_MAX_QUEUE', '');
+    try {
+      const session = createRunSession(fakeDeps(() => new Promise<CreateRunResult>(() => {})), () => {});
+      void session.createRun({ issueRef: '1', repoPath: '/repo' } as CreateRunParams);
+      void session.createRun({ issueRef: '2', repoPath: '/repo' } as CreateRunParams).catch(() => {});
+      expect(session.queued()).toHaveLength(1);
+    } finally {
+      vi.unstubAllEnvs();
+    }
+  });
+
+  test('T-44j a second queued run for the same project is refused, naming the queued one', async () => {
+    const session = createRunSession(fakeDeps(() => new Promise<CreateRunResult>(() => {})), () => {});
+    void session.createRun({ issueRef: '0', repoPath: '/repo' } as CreateRunParams);
+    void session.createRun({ issueRef: '1', repoPath: '/repo' } as CreateRunParams).catch(() => {});
+    await expect(session.createRun({ issueRef: '2', repoPath: '/repo' } as CreateRunParams)).rejects.toThrow(
+      '/repo already has a queued run (run-1)',
+    );
+    void session.createRun({ issueRef: '3', repoPath: '/other' } as CreateRunParams).catch(() => {});
+    expect(session.queued().map((q) => q.repoPath)).toEqual(['/repo', '/other']);
+  });
+
+  test('T-44c past the cap createRun is rejected with a message naming the limit', async () => {
+    vi.stubEnv('VANGUARD_HUB_MAX_QUEUE', '1');
+    try {
+      const session = createRunSession(fakeDeps(() => new Promise<CreateRunResult>(() => {})), () => {});
+      void session.createRun({ issueRef: '1', repoPath: '/repo' } as CreateRunParams);
+      void session.createRun({ issueRef: '2', repoPath: '/repo' } as CreateRunParams).catch(() => {});
+      await expect(session.createRun({ issueRef: '3', repoPath: '/repo' } as CreateRunParams)).rejects.toThrow(
+        'queue is full (max 1 queued runs)',
+      );
+      expect(session.queued()).toHaveLength(1);
+    } finally {
+      vi.unstubAllEnvs();
+    }
   });
 
   test('T-45 success emits exactly one terminal (run-end from the stream, none synthesized)', async () => {

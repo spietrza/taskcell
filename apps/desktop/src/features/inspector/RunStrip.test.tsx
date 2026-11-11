@@ -56,3 +56,16 @@ test('renders terminal: error message', () => {
   render(<RunStrip state={errored} onCancel={() => {}} />);
   expect(screen.getByText(/boom/)).toBeInTheDocument();
 });
+
+test('a queued run shows its place in line and can be stopped', () => {
+  const queued = reduceTypedRun(initialTypedRun(), { runId: 'r2', event: { type: 'run-queued', position: 2, repoPath: '/repo' } });
+  render(<RunStrip state={queued} onCancel={() => {}} />);
+  expect(screen.getByText('queued — #2 in line')).toBeInTheDocument();
+  expect(screen.getByRole('button', { name: /kill/i })).toBeInTheDocument();
+});
+
+test('no Stop button while the run has no id yet (starting…)', () => {
+  render(<RunStrip state={initialTypedRun()} onCancel={() => {}} />);
+  expect(screen.getByText('starting…')).toBeInTheDocument();
+  expect(screen.queryByRole('button', { name: /kill/i })).toBeNull();
+});
