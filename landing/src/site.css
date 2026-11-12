@@ -98,8 +98,6 @@ p { max-width: 62ch; }
 .chips { display: flex; flex-wrap: wrap; gap: 8px; margin-top: 36px; }
 .chip { display: inline-flex; align-items: center; gap: 8px; font-family: var(--font-mono); font-size: 13px; letter-spacing: 0.05em; text-transform: uppercase; padding: 6px 10px; border: 1px solid var(--line-strong); }
 .chip::before { content: ""; width: 7px; height: 7px; background: var(--ok); }
-.chip.soon { color: var(--muted); }
-.chip.soon::before { background: var(--accent); }
 .floor-hero { grid-column: 6 / -1; margin-right: calc(-1 * clamp(var(--m), (100vw - var(--page)) / 2, 2 * var(--m))); /* bleeds to the viewport edge until the page caps, then a fixed overhang */ position: relative; min-height: 560px; }
 
 /* ---------- the scene host (hero and Hub panel) ---------- */
@@ -130,7 +128,6 @@ p { max-width: 62ch; }
 .pause { position: absolute; right: 16px; bottom: 16px; z-index: 3; font-family: var(--font-mono); font-size: 12px; letter-spacing: 0.05em; text-transform: uppercase; padding: 6px 10px; color: var(--muted); background: color-mix(in srgb, var(--bg) 85%, transparent); border: 1px solid var(--line-strong); }
 .pause:hover, .pause:focus-visible { color: var(--ink); border-color: var(--accent); }
 .play { position: absolute; left: 50%; top: 50%; transform: translate(-50%, -50%); z-index: 3; }
-.compact .fs-label { padding: 3px 7px; }
 
 /* ---------- sections: one hairline above each ---------- */
 .section { margin-top: var(--gap); border-top: 1px solid var(--line); padding-top: 40px; }
@@ -164,6 +161,11 @@ p { max-width: 62ch; }
 .cmd { margin-top: 12px; padding: 16px 18px; background: var(--surface); border: 1px solid var(--line); font-size: 14px; line-height: 1.6; overflow-x: auto; white-space: pre; tab-size: 2; }
 .cmd .c { color: var(--muted); }
 .cmd-label { font-family: var(--font-mono); font-size: 13px; letter-spacing: 0.06em; text-transform: uppercase; color: var(--muted); }
+/* The button sits on the block's top edge, not over the code: a long first line would run under it. */
+.cmd-box { display: flex; flex-direction: column; margin-top: 12px; min-width: 0; }
+.cmd-box .cmd { margin-top: 0; }
+.copy { align-self: flex-end; margin-bottom: -1px; font-family: var(--font-mono); font-size: 12px; letter-spacing: 0.05em; text-transform: uppercase; padding: 6px 10px; color: var(--muted); background: var(--surface-2); border: 1px solid var(--line-strong); }
+.copy:hover, .copy:focus-visible { color: var(--ink); border-color: var(--accent); }
 :not(pre) > code { font-size: 0.88em; padding: 1px 5px; background: var(--surface-2); border: 1px solid var(--line); }
 
 /* ---------- security: the cell boundary, then each control ---------- */
@@ -195,12 +197,11 @@ p { max-width: 62ch; }
 .ways h3 { font-size: 24px; letter-spacing: -0.02em; }
 .ways p { margin-top: 10px; font-size: 16px; }
 .ways .cmd { margin-top: auto; }
-.ways p + .cmd { margin-top: 16px; }
+.ways .cmd-box { margin-top: auto; }
+.ways p + .cmd, .ways p + .cmd-box { margin-top: 16px; }
 .ways .note { margin-top: 12px; font-size: 14px; color: var(--muted); }
 .install { grid-column: 1 / 8; margin-top: 40px; min-width: 0; }
 .install p:not(.cmd-label) { margin-top: 12px; font-size: 16px; color: var(--muted); }
-.rename { grid-column: 9 / -1; margin-top: 40px; align-self: start; padding: 20px; border-left: 2px solid var(--accent-2); background: var(--surface); font-size: 16px; }
-.rename b { display: block; font-family: var(--font-display); font-size: 20px; margin-bottom: 6px; }
 .coming { grid-column: 1 / -1; margin-top: 40px; display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 20px; }
 .coming li { padding: 14px 16px; background: var(--surface); font-size: 16px; }
 .coming li b { display: block; font-family: var(--font-display); }
@@ -273,14 +274,19 @@ p { max-width: 62ch; }
 .lost .btn { grid-column: 1 / -1; justify-self: start; margin-top: 32px; }
 
 @media (max-width: 900px) {
-  .links a:not(.btn) { display: none; }
+  html { scroll-padding-top: 68px; }
+  .bar { position: sticky; top: 0; z-index: 10; gap: 16px; padding-top: 0; padding-bottom: 0; background: color-mix(in srgb, var(--bg) 94%, transparent); border-bottom: 1px solid var(--line); }
+  .links { gap: 0; min-width: 0; overflow-x: auto; }
+  .links a:not(.btn) { padding: 15px 7px; font-size: 14px; white-space: nowrap; }
+  .links a:not(.btn):last-of-type { padding-right: 0; }
+  .links .btn { display: none; } /* the hero's own button is on the same screen */
   .hero { min-height: 0; }
   .hero-copy, .floor-hero { grid-column: 1 / -1; }
   .hero-copy { padding: 24px 0 32px; }
   .hero h1 { font-size: clamp(2.6rem, 11.5vw, 4.5rem); }
   .floor-hero { margin: 0 calc(-1 * var(--m)); min-height: 0; aspect-ratio: 4 / 5; }
   .section { padding-top: 28px; }
-  .section > .head, .section > .intro, .install, .rename, .faq { grid-column: 1 / -1; }
+  .section > .head, .section > .intro, .install, .faq { grid-column: 1 / -1; }
   .section > .intro { margin-top: 20px; }
   .steps, .swap, .controls, .ways, .coming { grid-template-columns: minmax(0, 1fr); }
   .steps { row-gap: 32px; }
@@ -296,16 +302,19 @@ p { max-width: 62ch; }
 }
 
 @media (max-width: 720px) {
-  /* Narrow floor: only the start, the cells and the PR dock stay legible; the rest crowd and clip. */
-  .fs-module { display: none; }
-  .fs-label { display: none; padding: 15px 9px; }
-  .fs-label[data-station="intake"], .fs-label[data-station="cells"], .fs-label[data-station="outbound"] { display: flex; }
-  .links .btn.small { padding: 16px; }
+  /* Narrow floor: at 44 px a label, Spec and Review would overlap their neighbours; the module captions crowd too. */
+  .fs-module, .fs-label[data-station="plan"], .fs-label[data-station="review"] { display: none; }
+  .brand span { display: none; } /* the mark stays; the link keeps its aria-label */
   /* Wider than tall: the 4:5 box left ~400 px of empty floor under the scene. */
   .floor-hero { aspect-ratio: 5 / 4; }
   /* The PR dock sits on the right edge; pull its label inward so it is not cut. */
   .fs-label[data-station="outbound"] { translate: -24px 0; }
   .fs-label[data-station="cells"] { translate: 0 12px; }
+}
+
+/* Touch: every control in the scene and on the command blocks is at least 44 px. */
+@media (pointer: coarse) {
+  .fs-label, .fs-module, .pause, .copy, .follow button { min-height: 44px; min-width: 44px; justify-content: center; }
 }
 
 @media (prefers-reduced-motion: reduce) {
