@@ -8,6 +8,7 @@ import { escapePromptTags } from '../context/escape.js';
 import { DockerSandboxProvider, sandboxImage } from '../sandbox/docker.js';
 import { pnpmStoreConfig, sandboxNetworkConfig } from '../sandbox/limits.js';
 import { selectAgents, forcedProviderModel, providerKeyEnvNames } from '../agents/registry.js';
+import { tokenProviderFor } from '../core/push-token.js';
 import { DEFAULT_BASE_BRANCH } from '../core/base-branch.js';
 import { prepareContext, disposeContext } from '../core/taskcell.js';
 import { probeTaskDifficulty, decisionProbeConfig } from '../core/decision-probe.js';
@@ -814,7 +815,8 @@ export async function runSourcedIssue(
           draft: partial || verifyCmd === undefined || visualProofFailed || reviewUnavailable,
           ...(adapter.reviewCli !== undefined ? { cli: adapter.reviewCli } : {}),
           // Same PAT revise pushes with: a PR it opens fires the repo's pull_request workflows (CI).
-          ...(process.env.VANGUARD_PUSH_TOKEN ? { prToken: process.env.VANGUARD_PUSH_TOKEN } : {}),
+          // Minted (App) or read (PAT) at each use, never cached: an App token lives 1 h, a run up to 180 min.
+          tokenProvider: tokenProviderFor(deps.repoPath),
           body: ({ commitLeaks, outgoingDiff }) => {
             const diffFiles = diffFilesWithPatches(outgoingDiff);
             const configPaths = gateConfigPaths(diffFiles, extraGlobs);

@@ -40,14 +40,14 @@ export type DeliveryTarget =
       body: (info: { commitLeaks: CommitClosingLeak[]; outgoingDiff: string }) => string;
       draft?: boolean;
       cli?: PublishOptions['cli'];
-      prToken?: PublishOptions['prToken'];
+      tokenProvider?: PublishOptions['tokenProvider'];
       /** Injected git/gh runner (tests). */
       runner?: CommandRunner;
     }
   | {
       kind: 'existing-branch';
       prHeadRef: string;
-      pushToken?: string;
+      tokenProvider?: () => Promise<string | undefined>;
       host?: string;
       runner?: CommandRunner;
     };
@@ -183,7 +183,7 @@ export async function deliverChange(ctx: RunContext, opts: DeliverChangeOptions)
       body: redact(target.body({ commitLeaks, outgoingDiff }), 'PR body'),
       ...(target.draft !== undefined ? { draft: target.draft } : {}),
       ...(target.cli !== undefined ? { cli: target.cli } : {}),
-      ...(target.prToken !== undefined ? { prToken: target.prToken } : {}),
+      ...(target.tokenProvider !== undefined ? { tokenProvider: target.tokenProvider } : {}),
       ...(target.runner !== undefined ? { runner: target.runner } : {}),
       // Same identity as the commit: the pre-push rebase replays the commits.
       ...identity,
@@ -193,7 +193,8 @@ export async function deliverChange(ctx: RunContext, opts: DeliverChangeOptions)
   }
   await pushToExistingBranch(ctx, {
     prHeadRef: target.prHeadRef,
-    ...(target.pushToken !== undefined ? { pushToken: target.pushToken, host: target.host ?? 'github.com' } : {}),
+    ...(target.tokenProvider !== undefined ? { host: target.host ?? 'github.com' } : {}),
+    ...(target.tokenProvider !== undefined ? { tokenProvider: target.tokenProvider } : {}),
     ...(target.runner !== undefined ? { runner: target.runner } : {}),
   });
   return { kind: 'delivered-push', sha, headSha: sha, commitLeaks };
