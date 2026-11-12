@@ -98,6 +98,7 @@ export function pnpmStoreConfig(
 /**
  * Env-overridable sandbox hardening. Unlike the resource limits above, these default ON for every
  * sandbox (least-privilege by default) and are overridable per the same "0"/empty ⇒ disable idiom.
+ * `init` rides along here for the same idiom, though it is process hygiene rather than hardening.
  *
  * The exception is `readOnlyRootfs`, which is opt-in: on only with VANGUARD_SANDBOX_READONLY set to a
  * non-empty value other than "0". An EMPTY VANGUARD_SANDBOX_READONLY counts as unset (an unset CI
@@ -122,6 +123,12 @@ export function sandboxSecurityOpts(env: NodeJS.ProcessEnv = process.env): Sandb
     // limit, which a smaller host or a large monorepo cannot take, and reusable-workflow callers
     // had no way to turn a default off.
     readOnlyRootfs: flag(env.VANGUARD_SANDBOX_READONLY || undefined, false),
+    // Without an init, PID 1 is `sleep infinity`, which never reaps: every orphan a build or test run
+    // leaves behind stays a zombie and keeps its slot in the pids cgroup until the container dies (one
+    // `pnpm test` of this repo leaves ~90). A few runs fill --pids-limit, then thread creation fails and
+    // the agent CLI aborts (exit 134) or spawn returns EAGAIN. VANGUARD_SANDBOX_INIT=0 is for a runtime
+    // with no init binary (docker-init / catatonit), where `--init` fails the container start.
+    init: flag(env.VANGUARD_SANDBOX_INIT, true),
   };
 }
 
