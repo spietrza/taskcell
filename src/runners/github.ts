@@ -10,6 +10,7 @@ import {
   checkGithubDependencies,
 } from '../tasks/github.js';
 import { hasDependencyComment, dependencyWaitComment } from '../tasks/dependencies.js';
+import type { DependencyCheck } from '../tasks/dependencies.js';
 import { GitHubProjectFetcher } from '../tasks/github-project.js';
 import { implementReviewSimplifyStages } from '../pipeline/pipeline.js';
 import { publishReviewVerdict } from '../pipeline/review-publish.js';
@@ -81,28 +82,37 @@ export function githubAdapter(deps: RunGithubIssueDeps, gh: GhRunner = defaultGh
  * pipeline (the issue title/body go in as variables — no skill needed), open a draft PR, and comment
  * the PR link back onto the issue. GitHub is both the source and the review surface.
  *
- * Before any of that: check the issue's dependencies and start date (#760). This is the gate shared
- * by the one-shot `vanguard run --github` path and the sweep's `runOne` (for the sweep, `listReady`
- * has normally already filtered the issue out before it is claimed — this is the backstop for
- * callers, like `runGithubProject` and the sidecar, that go straight to `runGithubIssue` with no
- * claim/trigger-label lifecycle to preserve). A blocked issue is `parked`: no implement budget is
- * spent, and (when not already posted) a single comment names the reason. A `waiting` block (a
- * dependency that will close, a start date that will arrive) is also flagged `waiting`, so the watch
- * hands the issue back to its trigger and a later poll re-checks it — the comment promises exactly
- * that. A `needs_info` block (cycle, missing reference) stays claimed for a human.
+ * Before any of that: check the issue's dependencies and start date (#760). The watch sweeps filter
+ * blocked issues out in `listReady` (watch.ts), before any claim; this is the backstop for the one-shot
+ * `taskcell run --github` path, the sidecar, and a dependency that reopened between listing and the
+ * run. A blocked issue is `parked`: no implement budget is spent, and (when not already posted) a
+ * single comment names the reason. A `waiting` block (a dependency that will close, a start date that
+ * will arrive) is also flagged `waiting`, so the watch hands the issue back to its trigger. A
+ * `needs_info` block (cycle, missing reference) is flagged `released`: the watch drops the claim and
+ * the issue stays idle until a human fixes the reference and re-triggers it.
  *
  * The task fetched for the gate is handed to the adapter, so a ready issue is read once.
  */
 export async function runGithubIssue(issueRef: string, deps: RunGithubIssueDeps, gh: GhRunner = defaultGhRunner): Promise<RunGithubIssueResult> {
   const task = await new GitHubTaskFetcher(deps.repoSlug, gh).fetch(issueRef);
-  const check = await checkGithubDependencies(deps.repoSlug, task, issueRef, gh);
-  if (check.status !== 'ready') {
-    if (!hasDependencyComment(task)) {
-      await commentGithubIssue(deps.repoSlug, issueRef, dependencyWaitComment(check, deps.repoSlug), gh);
-    }
-    return { task, parked: true, ...(check.status === 'waiting' ? { waiting: true } : {}) };
-  }
+  const check = await githubDependencyGate(deps.repoSlug, task, issueRef, gh);
+  if (check.status !== 'ready') return { task, parked: true, ...(check.status === 'waiting' ? { waiting: true } : { released: true }) };
   return runSourcedIssue(issueRef, deps, githubAdapter(deps, gh, task));
+}
+
+/**
+ * Check one issue's dependencies and start date (#760) and, when it is blocked, post the reason once
+ * (the exact same comment is never repeated; a changed reason is posted). `task` may come from a bulk
+ * list, which carries the body but no comments: the issue is re-read for its comments only when a
+ * comment might be posted.
+ */
+export async function githubDependencyGate(repo: string, task: Task, issueRef: string, gh: GhRunner = defaultGhRunner): Promise<DependencyCheck> {
+  const check = await checkGithubDependencies(repo, task, issueRef, gh);
+  if (check.status === 'ready') return check;
+  const comment = dependencyWaitComment(check, repo);
+  const withComments = task.comments.length > 0 ? task : await new GitHubTaskFetcher(repo, gh).fetch(issueRef);
+  if (!hasDependencyComment(withComments, comment)) await commentGithubIssue(repo, issueRef, comment, gh);
+  return check;
 }
 
 /**

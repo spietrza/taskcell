@@ -263,6 +263,8 @@ export interface RunIssueResult {
    * re-checks — unlike a `needs_info` park (cycle, missing reference), which waits for a human.
    */
   waiting?: boolean;
+  /** Set with `parked` when the block needs a human (dependency cycle or missing reference, #760): the watch drops the claim, leaving the issue idle until re-triggered. */
+  released?: boolean;
 }
 
 /** Cap on implement-session resumes triggered by a failing conformance/verify gate, before falling back to a declared-partial PR. */

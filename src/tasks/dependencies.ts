@@ -1,4 +1,5 @@
 import type { Task } from './fetcher.js';
+import { isTrustedComment } from './comment-trust.js';
 
 /** A reference to another task (issue or PR), optionally in a different repo (`owner/repo#N`). Same-repo refs omit `repo`. */
 export interface TaskRef {
@@ -6,8 +7,12 @@ export interface TaskRef {
   number: string;
 }
 
-/** `Depends on #12` / `Depends on owner/repo#12`; one or more comma/space-separated refs per line. */
-const DEPENDS_ON_LINE_RE = /^[ \t]*depends\s+on\s*:?\s*(.+?)\s*$/gim;
+/**
+ * `Depends on #12` / `Depends on owner/repo#12`; one or more comma/space-separated refs per line.
+ * Horizontal whitespace only and no two adjacent `*` runs: the body is untrusted text, and an
+ * ambiguous pattern (`\s*:?\s*`, `(.+?)\s*$`) backtracks quadratically on a long run of spaces.
+ */
+const DEPENDS_ON_LINE_RE = /^[ \t]*depends[ \t]+on[ \t]*(?::[ \t]*)?([^\n]*)$/gim;
 const REF_RE = /(?:([\w.-]+\/[\w.-]+)#|#)(\d+)/g;
 
 /**
@@ -56,7 +61,7 @@ export function parseDependsOnBody(body: string): TaskRef[] {
   return dedupeRefs(refs);
 }
 
-const START_DATE_RE = /^[ \t]*start\s*:?\s*(\d{4}-\d{2}-\d{2})\s*$/im;
+const START_DATE_RE = /^[ \t]*start[ \t]*(?::[ \t]*)?(\d{4}-\d{2}-\d{2})[ \t\r]*$/im;
 
 /** Parse an optional `Start: YYYY-MM-DD` line from a task body — the issue waits until that date (#760). */
 export function parseStartDate(body: string): string | undefined {
@@ -134,10 +139,12 @@ export async function checkDependencies(
   /** Set on the first cycle or bound hit; the walk stops and the check fails closed with this reason. */
   let stopped: string | undefined;
 
-  async function walk(ref: TaskRef): Promise<void> {
+  // Reasons name only the direct dependency a problem was reached through: transitive refs come from
+  // other issues' bodies (possibly private repos) and the reason is posted on this issue.
+  async function walk(ref: TaskRef, root: TaskRef): Promise<void> {
     const key = refKey(ref, fallbackRepo);
     if (visiting.has(key)) {
-      stopped = `a dependency cycle involving ${deps.map((r) => describeRef(r, fallbackRepo)).join(', ')}`;
+      stopped = `a dependency cycle through ${describeRef(root, fallbackRepo)}`;
       return;
     }
     if (done.has(key)) return;
@@ -152,11 +159,11 @@ export async function checkDependencies(
     const node = await resolveNode(ref);
     nodes.set(key, node);
     visiting.add(key);
-    if (node.missing === true) missingRefs.push(ref);
+    if (node.missing === true) missingRefs.push(root);
     else if (!node.met) {
       // only an unmet node is expanded: nothing below a met dependency can block this task
       for (const child of node.dependsOn) {
-        await walk(child);
+        await walk(child, root);
         if (stopped !== undefined) return;
       }
     }
@@ -165,11 +172,17 @@ export async function checkDependencies(
   }
 
   for (const ref of deps) {
-    await walk(ref);
+    await walk(ref, ref);
     if (stopped !== undefined) return { status: 'needs_info', reason: stopped };
   }
   if (missingRefs.length > 0) {
-    return { status: 'needs_info', reason: `depends on ${missingRefs.map((r) => describeRef(r, fallbackRepo)).join(', ')}, which does not exist` };
+    const named = [...new Set(missingRefs.map((r) => describeRef(r, fallbackRepo)))].join(', ');
+    // missingRefs holds roots: a root that is itself missing is a missing direct reference
+    const directMissing = missingRefs.every((r) => nodes.get(refKey(r, fallbackRepo))?.missing === true);
+    return {
+      status: 'needs_info',
+      reason: directMissing ? `depends on ${named}, which does not exist` : `a dependency through ${named} that refers to an issue that does not exist`,
+    };
   }
 
   // The walk resolved every direct dep (it only skips nodes on a stop, which returned above).
@@ -181,9 +194,13 @@ export async function checkDependencies(
 /** HTML-comment marker embedded in the one wait/needs-info comment posted per issue, so a later sweep does not repeat it. */
 export const DEPENDENCY_MARKER = '<!-- vanguard:dependency-wait -->';
 
-/** True when a task already carries the dependency wait/needs-info comment (dedup guard). */
-export function hasDependencyComment(task: Pick<Task, 'comments'>): boolean {
-  return task.comments.some((c) => c.body.includes(DEPENDENCY_MARKER));
+/**
+ * True when a task already carries this exact wait/needs-info comment (dedup guard). Keyed on the
+ * text, not the marker alone, so a changed reason (a dependency deleted, a cycle appearing) is posted;
+ * and only a trusted comment counts, so an outsider pasting the marker cannot silence it.
+ */
+export function hasDependencyComment(task: Pick<Task, 'comments'>, comment: string): boolean {
+  return task.comments.some((c) => c.body.trim() === comment.trim() && isTrustedComment(c));
 }
 
 /** One-line reason suitable for an operator/sweep log line. */

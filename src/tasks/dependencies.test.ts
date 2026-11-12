@@ -41,6 +41,13 @@ describe('parseDependsOnBody', () => {
     expect(parseDependsOnBody('Depends on #1\nDepends on #1')).toEqual([{ number: '1' }]);
   });
 
+  it('stays linear on a long run of whitespace (no catastrophic backtracking)', () => {
+    const t = Date.now();
+    expect(parseDependsOnBody(`depends on a${' '.repeat(60_000)}b`)).toEqual([]);
+    expect(parseStartDate(`start${' '.repeat(60_000)}x`)).toBeUndefined();
+    expect(Date.now() - t).toBeLessThan(500);
+  });
+
   it('returns [] when there is no "Depends on" line', () => {
     expect(parseDependsOnBody('Just a normal description, nothing blocking this.')).toEqual([]);
   });
@@ -145,6 +152,28 @@ describe('checkDependencies', () => {
     expect((check as { reason: string }).reason).toContain('cycle');
   });
 
+  it('names only the direct dependency a cycle was reached through', async () => {
+    const graph = {
+      'me/app#2': { met: false, dependsOn: [] },
+      'me/app#3': { met: false, dependsOn: [{ repo: 'secret/repo', number: '4' }] },
+      'secret/repo#4': { met: false, dependsOn: [{ repo: 'secret/repo', number: '5' }] },
+      'secret/repo#5': { met: false, dependsOn: [{ repo: 'secret/repo', number: '4' }] },
+    };
+    const check = await checkDependencies({ dependsOn: [{ number: '2' }, { number: '3' }] }, SELF, 'me/app', resolverFromGraph(graph));
+    expect(check).toEqual({ status: 'needs_info', reason: 'a dependency cycle through me/app#3' });
+  });
+
+  it('does not name a transitive reference that does not exist', async () => {
+    const graph = {
+      'me/app#2': { met: false, dependsOn: [{ repo: 'secret/repo', number: '9' }] },
+      'secret/repo#9': { met: false, missing: true, dependsOn: [] },
+    };
+    const check = await checkDependencies({ dependsOn: [{ number: '2' }] }, SELF, 'me/app', resolverFromGraph(graph));
+    expect(check.status).toBe('needs_info');
+    expect((check as { reason: string }).reason).toContain('me/app#2');
+    expect((check as { reason: string }).reason).not.toContain('secret');
+  });
+
   it('reports needs_info for a transitive cycle (A -> B -> C -> A)', async () => {
     const graph = {
       'me/app#2': { met: false, dependsOn: [{ number: '3' }] },
@@ -230,10 +259,20 @@ describe('checkDependencies', () => {
 });
 
 describe('hasDependencyComment', () => {
-  it('is true only when a comment carries the marker', () => {
-    expect(hasDependencyComment({ comments: [{ author: 'vanguard', body: `waiting ${DEPENDENCY_MARKER}` }] })).toBe(true);
-    expect(hasDependencyComment({ comments: [{ author: 'alice', body: 'unrelated comment' }] })).toBe(false);
-    expect(hasDependencyComment({ comments: [] })).toBe(false);
+  const body = `waiting ${DEPENDENCY_MARKER}`;
+  it('is true only for the same comment from a trusted author', () => {
+    expect(hasDependencyComment({ comments: [{ author: 'github-actions[bot]', authorAssociation: 'NONE', body }] }, body)).toBe(true);
+    expect(hasDependencyComment({ comments: [{ author: 'owner', authorAssociation: 'OWNER', body }] }, body)).toBe(true);
+    expect(hasDependencyComment({ comments: [] }, body)).toBe(false);
+  });
+
+  it('posts again when the reason changed', () => {
+    const old = { author: 'owner', authorAssociation: 'OWNER', body: `waiting on #5 ${DEPENDENCY_MARKER}` };
+    expect(hasDependencyComment({ comments: [old] }, body)).toBe(false);
+  });
+
+  it('ignores a marker pasted by an outsider', () => {
+    expect(hasDependencyComment({ comments: [{ author: 'mallory', authorAssociation: 'NONE', body }] }, body)).toBe(false);
   });
 });
 

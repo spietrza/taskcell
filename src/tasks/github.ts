@@ -142,9 +142,14 @@ export async function resolveGithubDependencyNode(ref: TaskRef, fallbackRepo: st
     state?: string;
     state_reason?: string | null;
     body?: string | null;
+    user?: { login?: string } | null;
+    author_association?: string;
     pull_request?: { merged_at?: string | null } | null;
   };
-  const fromBody = parseDependsOnBody(data.body ?? '').map((r) => (r.repo !== undefined ? r : { ...r, repo }));
+  // Body refs only from a trusted author: anyone can edit their own issue's body, and following it
+  // would let an outsider force a cycle or fan the walk out. Native blocked_by needs triage rights.
+  const trustedBody = classifyAuthor(data.user?.login ?? '', data.author_association ?? '') !== 'untrusted';
+  const fromBody = trustedBody ? parseDependsOnBody(data.body ?? '').map((r) => (r.repo !== undefined ? r : { ...r, repo })) : [];
   const met =
     data.pull_request != null
       ? data.pull_request.merged_at != null

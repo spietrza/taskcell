@@ -4,7 +4,8 @@ vi.mock('../tasks/github.js', async (importOriginal) => ({
   addPrGateLabel: vi.fn(async () => {}),
 }));
 import { addPrGateLabel } from '../tasks/github.js';
-import { githubAdapter, sameRepoTasks } from './github.js';
+import { githubAdapter, sameRepoTasks, runGithubIssue } from './github.js';
+import { DEPENDENCY_MARKER } from '../tasks/dependencies.js';
 import { GITHUB_GATE_CONFIG_LABEL, GITHUB_SECRET_BLOCKED_LABEL } from '../github-labels.js';
 import type { RunGithubIssueDeps } from './github.js';
 import type { GhRunner } from '../tasks/github.js';
@@ -90,5 +91,50 @@ describe('sameRepoTasks', () => {
     } finally {
       warn.mockRestore();
     }
+  });
+});
+
+describe('runGithubIssue dependency gate (#760)', () => {
+  /** owner/repo#7 is blocked by owner/repo#9; `dep` is #9's state, `comments` #7's comments. */
+  function gateGh(dep: { state: string; state_reason?: string | null } | 'missing', comments: unknown[] = []): { gh: GhRunner; calls: string[][] } {
+    const calls: string[][] = [];
+    const gh: GhRunner = async (args) => {
+      calls.push(args);
+      const path = args[1] ?? '';
+      if (args[0] === 'issue' && args[1] === 'view') return JSON.stringify({ number: 7, title: 't', body: '', labels: [], comments });
+      if (path === 'repos/owner/repo/issues/7/dependencies/blocked_by') return JSON.stringify([{ number: 9 }]);
+      if (path.endsWith('/dependencies/blocked_by')) return '[]';
+      if (path === 'repos/owner/repo/issues/9') {
+        if (dep === 'missing') throw new Error('HTTP 404: Not Found');
+        return JSON.stringify(dep);
+      }
+      if (args[0] === 'issue' && args[1] === 'comment') return '';
+      throw new Error(`unexpected gh call: ${args.join(' ')}`);
+    };
+    return { gh, calls };
+  }
+  const posted = (calls: string[][]): string[][] => calls.filter((a) => a[0] === 'issue' && a[1] === 'comment');
+
+  it('parks a waiting issue, flags it waiting, and posts the reason once', async () => {
+    const { gh, calls } = gateGh({ state: 'open' });
+    const result = await runGithubIssue('owner/repo#7', makeDeps(), gh);
+    expect(result).toMatchObject({ parked: true, waiting: true });
+    expect(posted(calls)).toHaveLength(1);
+    expect(posted(calls)[0]?.join(' ')).toContain('owner/repo#9');
+  });
+
+  it('does not repeat a comment it already posted', async () => {
+    const first = gateGh({ state: 'open' });
+    await runGithubIssue('owner/repo#7', makeDeps(), first.gh);
+    const body = posted(first.calls)[0]?.[(posted(first.calls)[0]?.indexOf('--body') ?? 0) + 1] ?? '';
+    expect(body).toContain(DEPENDENCY_MARKER);
+    const again = gateGh({ state: 'open' }, [{ author: { login: 'owner' }, authorAssociation: 'OWNER', body }]);
+    await runGithubIssue('owner/repo#7', makeDeps(), again.gh);
+    expect(posted(again.calls)).toHaveLength(0);
+  });
+
+  it('releases (not waiting) on a missing dependency, so the watch drops the claim', async () => {
+    const { gh } = gateGh('missing');
+    expect(await runGithubIssue('owner/repo#7', makeDeps(), gh)).toMatchObject({ parked: true, released: true });
   });
 });

@@ -3,7 +3,8 @@ import { LinearCliTaskFetcher, setLinearState, commentLinearIssue } from '../tas
 import { GitHubTaskFetcher, editGithubLabels, commentGithubIssue, defaultGhRunner, isTrustedIssueAuthor } from '../tasks/github.js';
 import { GitLabTaskFetcher, editGitlabLabels, commentGitlabIssue, defaultGlabRunner } from '../tasks/gitlab.js';
 import { runLinearIssue } from './linear.js';
-import { runGithubIssue } from './github.js';
+import { runGithubIssue, githubDependencyGate } from './github.js';
+import { dependencyLogReason } from '../tasks/dependencies.js';
 import { runGitlabIssue } from './gitlab.js';
 import { runSpecGenerator } from './spec.js';
 import { assessTaskReadiness, isVanguardSpec, SPEC_TAG } from '../tasks/triage.js';
@@ -74,6 +75,8 @@ export interface WatchRunOutcome {
   parked?: boolean;
   /** Set with `parked` when the block clears itself (dependency/start date, #760): `onWaiting` hands the issue back to its trigger. */
   waiting?: boolean;
+  /** Set with `parked` when the block needs a human (dependency cycle/missing reference, #760): the claim is dropped like onBaseRed. */
+  released?: boolean;
   secretBlocked?: boolean;
   /** The base branch was already red and the adapter commented. Not a no-change: never revert the claim to the trigger. */
   baseRed?: boolean;
@@ -106,10 +109,10 @@ export interface WatchPrimitives {
   onBaseRed?: (id: string) => Promise<void>;
   /**
    * The run parked on a block that clears itself — an unmet dependency or a future start date (#760).
-   * Undo the claim so the issue is back in the trigger state and a later poll re-checks it, which is
-   * what the posted comment promises ("will run automatically once..."). Unlike onNoChange this posts
-   * nothing: the dependency comment, posted once, is the record. Re-listing is cheap — the gate runs
-   * before any implement budget is spent, and the comment is not repeated. Absent: the issue stays
+   * Undo the claim so the issue is back in the trigger state, which is what the posted comment
+   * promises ("will run automatically once..."). Unlike onNoChange this posts nothing: the dependency
+   * comment is the record. Rare: `listReady` already filters blocked issues out before any claim, so
+   * this only fires when a dependency reopened between listing and the run. Absent: the issue stays
    * claimed (a test double, or a source with no dependency gate).
    */
   onWaiting?: (id: string) => Promise<void>;
@@ -215,9 +218,10 @@ export async function watchOnce(primitives: WatchPrimitives, opts: WatchOnceOpti
       }
       operatorLog(opts, `${phase} ${item.id}: claim -> running`);
       try {
-        const { prUrl, parked, waiting, secretBlocked, baseRed } = await primitives.runOne(item.id);
-        if (baseRed === true) {
-          operatorLog(opts, `${phase} ${item.id}: base branch red -> held, no re-run until re-labelled`);
+        const { prUrl, parked, waiting, released, secretBlocked, baseRed } = await primitives.runOne(item.id);
+        if (baseRed === true || (parked === true && released === true)) {
+          // Both commented already and both need a human: drop the claim without restoring the trigger.
+          operatorLog(opts, `${phase} ${item.id}: ${baseRed === true ? 'base branch red' : 'dependency needs info'} -> held, no re-run until re-labelled`);
           await primitives.onBaseRed?.(item.id);
           return { id: item.id, kind: 'noChange' };
         }
@@ -784,6 +788,37 @@ async function fetchHintedIssue(
   return [task];
 }
 
+/** shortcut: a blocked issue is re-checked at most this often per watch process; fine at today's poll rates, move to a shared cache if polls get much faster. */
+const DEPENDENCY_RECHECK_MS = 10 * 60_000;
+
+/**
+ * Drop the issues whose dependencies or start date block them (#760), before any claim: a blocked
+ * issue keeps its trigger, takes no `--max-tasks` slot and causes no label churn. The gate posts the
+ * reason once. A blocked result is remembered for DEPENDENCY_RECHECK_MS so a waiting issue does not
+ * walk its dependency graph on every poll.
+ */
+export async function filterDependencyReady<T extends { id: string }>(
+  repo: string,
+  tasks: readonly T[],
+  blockedUntil: Map<string, number>,
+  gate: (task: T) => ReturnType<typeof githubDependencyGate>,
+  now: () => number = Date.now,
+): Promise<T[]> {
+  const ready: T[] = [];
+  for (const task of tasks) {
+    if ((blockedUntil.get(task.id) ?? 0) > now()) continue;
+    const check = await gate(task);
+    if (check.status === 'ready') {
+      blockedUntil.delete(task.id);
+      ready.push(task);
+      continue;
+    }
+    blockedUntil.set(task.id, now() + DEPENDENCY_RECHECK_MS);
+    console.log(`taskcell: ${task.id} skipped -> ${dependencyLogReason(check, repo)}`);
+  }
+  return ready;
+}
+
 /** GitHub-issue primitives: trigger by label, claim/review by swapping labels (issues have no states). */
 export function githubIssueWatchPrimitives(opts: WatchGithubOptions): WatchPrimitives {
   const repo = opts.deps.repoSlug;
@@ -795,13 +830,15 @@ export function githubIssueWatchPrimitives(opts: WatchGithubOptions): WatchPrimi
   // makes `gh issue edit` fail in a repo that never created it.
   const heldBefore = new Set<string>();
   const rateLimitedBefore = new Set<string>();
+  const blockedUntil = new Map<string, number>();
   return {
     listReady: async () => {
       const listed =
         opts.issueRef !== undefined
           ? await fetchHintedIssue(fetcher, opts.issueRef, agentLabels, opts.claimedLabel)
           : await fetcher.list({ labels: agentLabels });
-      const tasks = await withTrustedIssueAuthors(repo, listed, opts.deps.feedbackAuthors, opts.gh);
+      const trusted = await withTrustedIssueAuthors(repo, listed, opts.deps.feedbackAuthors, opts.gh);
+      const tasks = await filterDependencyReady(repo, trusted, blockedUntil, (task) => githubDependencyGate(repo, task, task.id, opts.gh));
       heldBefore.clear();
       for (const task of tasks) if (task.labels.includes(GITHUB_SECRET_BLOCKED_LABEL)) heldBefore.add(task.id);
       rateLimitedBefore.clear();
@@ -841,8 +878,8 @@ export function githubIssueWatchPrimitives(opts: WatchGithubOptions): WatchPrimi
     // The trigger label was removed on claim, so dropping the claim leaves the issue idle until a
     // human re-applies the trigger — what the base-red comment asks for. No no-change comment.
     onBaseRed: (id) => editGithubLabels(repo, id, { remove: [opts.claimedLabel] }, opts.gh),
-    // Blocked on a dependency/start date: put the trigger label back (one edit, so the claim is never
-    // dropped without it) and the next poll re-checks. No comment — the run posted it once.
+    // A dependency reopened between listReady and the run: put the trigger label back (one edit, so
+    // the claim is never dropped without it); listReady re-checks. No comment — the gate posted it.
     onWaiting: (id) => editGithubLabels(repo, id, { remove: [opts.claimedLabel], add: [opts.label] }, opts.gh),
     // One edit swaps claimed -> secret-blocked, so the claim is never released without the hold
     // label landing. `gh issue edit --add-label` fails on a label the repo never created, and the
@@ -1016,6 +1053,8 @@ export function githubProjectWatchPrimitives(opts: WatchGithubProjectOptions): W
   const itemNodeIds = new Map<string, string>();
   // Ready items still carrying the hold label from an earlier secret block; cleared on claim.
   const heldBefore = new Set<string>();
+  const blockedUntil = new Map<string, number>();
+  const fetcher = new GitHubTaskFetcher(repo, gh);
 
   // Single cached promise: fetches project node ID and Status field in parallel, resolved once.
   let projectMeta: Promise<ProjectMeta> | undefined;
@@ -1081,7 +1120,8 @@ export function githubProjectWatchPrimitives(opts: WatchGithubProjectOptions): W
         if ((content.labels ?? []).includes(GITHUB_SECRET_BLOCKED_LABEL)) heldBefore.add(issueRef);
         ready.push({ id: issueRef });
       }
-      return ready;
+      // Project items carry no body, so the gate reads each trigger-status issue (blocked ones are cached).
+      return filterDependencyReady(repo, ready, blockedUntil, async (item) => githubDependencyGate(repo, await fetcher.fetch(item.id), item.id, gh));
     },
     // A re-triggered item (moved back to the trigger status by a human) sheds the hold label from
     // its earlier secret block; only for items listReady saw carrying it (see githubIssueWatchPrimitives).
@@ -1097,8 +1137,8 @@ export function githubProjectWatchPrimitives(opts: WatchGithubProjectOptions): W
     runOne: (id) => runGithubIssue(id, opts.deps),
     review: (id) => setStatus(id, opts.reviewStatus),
     onNoChange: (id) => commentAndRevert(commentGithubIssue(repo, id, NO_CHANGE_MSG, gh), setStatus(id, opts.triggerStatus)),
-    // Blocked on a dependency/start date: back to the trigger status so a later poll re-checks it
-    // (the run already commented why, once).
+    // A dependency reopened between listReady and the run: back to the trigger status; listReady
+    // re-checks (the gate already commented why).
     onWaiting: (id) => setStatus(id, opts.triggerStatus),
     // The only configured statuses are trigger/claimed/review and reverting to the trigger status
     // would re-list the item next poll, so the hold keeps the claimed status; the comment names the

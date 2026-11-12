@@ -257,7 +257,7 @@ describe('resolveGithubDependencyNode', () => {
 
   it('merges native + body dependsOn, qualifying body refs with its own repo', async () => {
     const gh = ghWith({
-      issue: { state: 'open', body: 'Depends on #9' },
+      issue: { state: 'open', body: 'Depends on #9', user: { login: 'owner' }, author_association: 'OWNER' },
       blockedBy: [{ number: 7, repository: { full_name: 'other/lib' } }],
     });
     const node = await resolveGithubDependencyNode({ number: '5' }, 'me/app', gh);
@@ -265,6 +265,15 @@ describe('resolveGithubDependencyNode', () => {
       { repo: 'other/lib', number: '7' },
       { repo: 'me/app', number: '9' },
     ]);
+  });
+
+  it("ignores body refs on an outsider's issue but keeps native blockers", async () => {
+    const gh = ghWith({
+      issue: { state: 'open', body: 'Depends on #1', user: { login: 'mallory' }, author_association: 'NONE' },
+      blockedBy: [{ number: 7, repository: { full_name: 'other/lib' } }],
+    });
+    const node = await resolveGithubDependencyNode({ number: '5' }, 'me/app', gh);
+    expect(node.dependsOn).toEqual([{ repo: 'other/lib', number: '7' }]);
   });
 
   // #760 cross-repo bug: a same-repo native blocker (the API omits `repository`, so it is implicitly

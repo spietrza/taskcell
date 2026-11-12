@@ -9,6 +9,7 @@ import {
   githubSpecPrimitives,
   githubIssueWatchPrimitives,
   gitlabWatchPrimitives,
+  filterDependencyReady,
 } from './watch.js';
 import { runGithubIssue } from './github.js';
 import { runGitlabIssue } from './gitlab.js';
@@ -785,12 +786,20 @@ describe('githubProjectWatchPrimitives', () => {
     ],
   });
 
+  /** The dependency gate reads each trigger-status issue and its native blockers (none here). */
+  const ISSUE_VIEW = (args: string[]): string | undefined =>
+    args[0] === 'issue' && args[1] === 'view'
+      ? JSON.stringify({ number: Number(args[2]), title: 'T', body: '', labels: [], comments: [] })
+      : (args[1] ?? '').endsWith('/dependencies/blocked_by') ? '[]' : undefined;
+
   function makeFakeGh(ghCalls: string[][]): GhRunner {
     return async (args: string[]): Promise<string> => {
       ghCalls.push(args);
       if (args[0] === 'project' && args[1] === 'item-list') return ITEM_LIST;
       if (args[0] === 'project' && args[1] === 'view') return PROJECT_VIEW;
       if (args[0] === 'project' && args[1] === 'field-list') return FIELD_LIST;
+      const gate = ISSUE_VIEW(args);
+      if (gate !== undefined) return gate;
       if (args[0] === 'project' && args[1] === 'item-edit') return '';
       if (args[0] === 'issue' && args[1] === 'comment') return '';
       return '';
@@ -926,6 +935,8 @@ describe('githubProjectWatchPrimitives', () => {
       if (args[0] === 'project' && args[1] === 'item-list') return itemList;
       if (args[0] === 'project' && args[1] === 'view') return PROJECT_VIEW;
       if (args[0] === 'project' && args[1] === 'field-list') return FIELD_LIST;
+      const gate = ISSUE_VIEW(args);
+      if (gate !== undefined) return gate;
       return '';
     };
     const primitives = githubProjectWatchPrimitives({
@@ -960,6 +971,8 @@ describe('githubProjectWatchPrimitives', () => {
       if (args[0] === 'project' && args[1] === 'item-list') return itemList;
       if (args[0] === 'project' && args[1] === 'view') return PROJECT_VIEW;
       if (args[0] === 'project' && args[1] === 'field-list') return FIELD_LIST;
+      const gate = ISSUE_VIEW(args);
+      if (gate !== undefined) return gate;
       if (args[0] === 'issue' && args[1] === 'edit') throw new Error('HTTP 502');
       return '';
     };
@@ -995,6 +1008,8 @@ describe('githubProjectWatchPrimitives', () => {
       if (args[0] === 'project' && args[1] === 'item-list') return itemList;
       if (args[0] === 'project' && args[1] === 'view') return PROJECT_VIEW;
       if (args[0] === 'project' && args[1] === 'field-list') return FIELD_LIST;
+      const gate = ISSUE_VIEW(args);
+      if (gate !== undefined) return gate;
       return '';
     };
     const primitives = githubProjectWatchPrimitives({
@@ -1207,7 +1222,9 @@ describe('githubIssueWatchPrimitives ownerLabel', () => {
 
   it('claim clears a stale secret-blocked label only on issues listReady saw carrying it', async () => {
     const gh: GhRunner = vi.fn(async (args: string[]) =>
-      args[0] === 'api'
+      (args[1] ?? '').endsWith('/dependencies/blocked_by')
+        ? '[]'
+        : args[0] === 'api'
         ? JSON.stringify({ user: { login: 'maintainer' }, author_association: 'MEMBER' })
         : JSON.stringify([
           { number: 1, title: 'retried', body: '', labels: [{ name: 'ready for agent' }, { name: GITHUB_SECRET_BLOCKED_LABEL }] },
@@ -1312,6 +1329,7 @@ describe('githubIssueWatchPrimitives issueRef (single-issue watch)', () => {
   it('listReady fetches only the named issue directly (no list scan) and returns it when gates pass', async () => {
     const gh: GhRunner = vi.fn(async (args: string[]) => {
       if (args[0] === 'issue' && args[1] === 'view') return issueView(42, ['ready for agent']);
+      if ((args[1] ?? '').endsWith('/dependencies/blocked_by')) return '[]';
       if (args[0] === 'api') return JSON.stringify({ user: { login: 'maintainer' }, author_association: 'MEMBER' });
       throw new Error(`unexpected gh call: ${args.join(' ')}`);
     });
@@ -1433,6 +1451,7 @@ describe('watch --issue: concurrent single-issue invocations', () => {
       if (args[0] === 'issue' && args[1] === 'view') {
         return JSON.stringify({ number: 1, title: 'T', body: '', labels: [...labels].map((name) => ({ name })), author: { login: 'maintainer' }, state: 'OPEN' });
       }
+      if ((args[1] ?? '').endsWith('/dependencies/blocked_by')) return '[]';
       if (args[0] === 'api') return JSON.stringify({ user: { login: 'maintainer' }, author_association: 'MEMBER' });
       if (args[0] === 'issue' && args[1] === 'edit') {
         if (args.includes('--remove-label') && args[args.indexOf('--remove-label') + 1] === 'ready for agent') {
@@ -1479,6 +1498,7 @@ describe('GitHub watch issue-author gate', () => {
   };
   const gh: GhRunner = async (args) => {
     if (args[0] !== 'api') return issues;
+    if ((args[1] ?? '').endsWith('/dependencies/blocked_by')) return '[]';
     const author = authors[args[1] ?? ''];
     if (author === undefined) throw new Error('HTTP 502');
     return JSON.stringify(author);
@@ -1733,3 +1753,90 @@ describe('gitlabWatchPrimitives', () => {
   });
 });
 
+
+describe('dependency gate in the watch (#760)', () => {
+  const base = (runOne: WatchPrimitives['runOne']): WatchPrimitives & { onNoChange: ReturnType<typeof vi.fn>; onWaiting: ReturnType<typeof vi.fn>; onBaseRed: ReturnType<typeof vi.fn> } => ({
+    listReady: async () => [{ id: 'A' }],
+    claim: async () => {},
+    runOne,
+    review: async () => {},
+    onNoChange: vi.fn(async () => {}),
+    onWaiting: vi.fn(async () => {}),
+    onBaseRed: vi.fn(async () => {}),
+    onFailure: async () => {},
+  });
+
+  it('a waiting park returns the issue to its trigger and is not a no-change', async () => {
+    const p = base(async () => ({ parked: true, waiting: true }));
+    await watchOnce(p);
+    expect(p.onWaiting).toHaveBeenCalledWith('A');
+    expect(p.onNoChange).not.toHaveBeenCalled();
+    expect(p.onBaseRed).not.toHaveBeenCalled();
+  });
+
+  it('a needs-info park drops the claim like base-red', async () => {
+    const p = base(async () => ({ parked: true, released: true }));
+    await watchOnce(p);
+    expect(p.onBaseRed).toHaveBeenCalledWith('A');
+    expect(p.onWaiting).not.toHaveBeenCalled();
+    expect(p.onNoChange).not.toHaveBeenCalled();
+  });
+
+  it('filterDependencyReady drops blocked tasks and re-checks them only after the recheck window', async () => {
+    const log = vi.spyOn(console, 'log').mockImplementation(() => {});
+    try {
+      const gate = vi.fn(async (t: { id: string }) =>
+        t.id === 'blocked' ? ({ status: 'waiting', kind: 'start-date', startDate: '2099-01-01' } as const) : ({ status: 'ready' } as const),
+      );
+      const cache = new Map<string, number>();
+      let clock = 0;
+      const tasks = [{ id: 'blocked' }, { id: 'ok' }];
+      expect(await filterDependencyReady('o/r', tasks, cache, gate, () => clock)).toEqual([{ id: 'ok' }]);
+      expect(await filterDependencyReady('o/r', tasks, cache, gate, () => clock)).toEqual([{ id: 'ok' }]);
+      expect(gate.mock.calls.filter(([t]) => t.id === 'blocked')).toHaveLength(1);
+      clock = 11 * 60_000;
+      await filterDependencyReady('o/r', tasks, cache, gate, () => clock);
+      expect(gate.mock.calls.filter(([t]) => t.id === 'blocked')).toHaveLength(2);
+    } finally {
+      log.mockRestore();
+    }
+  });
+
+  it('githubIssueWatchPrimitives never claims a blocked issue, so it takes no --max-tasks slot', async () => {
+    const log = vi.spyOn(console, 'log').mockImplementation(() => {});
+    try {
+      const gh: GhRunner = vi.fn(async (args: string[]) => {
+        const path = args[1] ?? '';
+        if (args[0] === 'issue' && args[1] === 'list') {
+          return JSON.stringify([
+            { number: 1, title: 'blocked', body: 'Depends on #9', labels: [{ name: 'ready for agent' }] },
+            { number: 2, title: 'ready', body: '', labels: [{ name: 'ready for agent' }] },
+          ]);
+        }
+        if (args[0] === 'issue' && args[1] === 'view') return JSON.stringify({ number: 1, title: 'blocked', body: 'Depends on #9', labels: [], comments: [] });
+        if (path.endsWith('/dependencies/blocked_by')) return '[]';
+        if (path === 'repos/owner/repo/issues/9') return JSON.stringify({ state: 'open' });
+        if (args[0] === 'api') return JSON.stringify({ user: { login: 'maintainer' }, author_association: 'MEMBER' });
+        return '';
+      });
+      const runOne = vi.fn(async () => ({ prUrl: 'https://example.invalid/pr/2' }));
+      const primitives: WatchPrimitives = {
+        ...githubIssueWatchPrimitives({
+          deps: { auth: { type: 'api', apiKey: 'k' } as never, repoPath: '/tmp', repoSlug: 'owner/repo' },
+          label: 'ready for agent',
+          claimedLabel: GITHUB_CLAIMED_LABEL,
+          reviewLabel: GITHUB_REVIEW_LABEL,
+          gh,
+        }),
+        runOne,
+      };
+      await watchOnce(primitives, { maxTasks: 1 });
+      expect(runOne).toHaveBeenCalledWith('owner/repo#2');
+      const calls = (gh as ReturnType<typeof vi.fn>).mock.calls.map(([a]) => a as string[]);
+      expect(calls.some((a) => a[0] === 'issue' && a[1] === 'edit' && a[2] === '1')).toBe(false);
+      expect(calls.filter((a) => a[0] === 'issue' && a[1] === 'comment' && a[2] === '1')).toHaveLength(1);
+    } finally {
+      log.mockRestore();
+    }
+  });
+});
