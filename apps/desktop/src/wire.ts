@@ -458,6 +458,8 @@ export interface AppConfig {
   chatBaseUrl?: string | null;
   /** Repository default target branch for pull requests; unset = `main`. */
   baseBranch?: string | null;
+  /** Extra branches a card's `vanguard:base=` label may select, besides the default. Unset = only the default. */
+  baseBranches?: string[] | null;
   /** Opaque JSON preserved by Rust and the hub, including invalid entries and unknown keys — see
    * `CustomProviderSpec` for the shape a valid entry has. */
   customProviders?: unknown;
@@ -670,7 +672,7 @@ export interface Commands {
   enable_factory_secret: { args: { repoPath: string; plan: FactoryPlan }; result: FactorySecretStep };
   /** HUB_ONLY: dispatch the doctor workflow (once the PR above is merged) and report the run that dispatch created. */
   enable_factory_verify: { args: { repoPath: string; plan: FactoryPlan }; result: FactoryVerifyResult };
-  /** HUB_ONLY, read-only: the repository's branches (local and origin) and its configured default target branch, for the new-card form. */
+  /** HUB_ONLY, read-only: the target branches a card may name (repo default + `baseBranches` allowlist) and the configured default, for the new-card form. */
   list_branches: { args: { repoPath: string }; result: { branches: string[]; default?: string } };
   /** HUB_ONLY, read-only: installed vs latest claude/codex/cursor CLI in the local sandbox image (3-day soak applied; `enabled: false`, and no lookups, when VANGUARD_CLI_VERSION_CHECK is off). Refused on a non-loopback bind without VANGUARD_HUB_ALLOW_ADD. */
   agent_cli_versions: { args: undefined; result: CliVersionReport };

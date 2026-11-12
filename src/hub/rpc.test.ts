@@ -328,7 +328,7 @@ describe('dispatchRpc', () => {
     }
 
     test('api_create_task carries baseBranch as a vanguard:base= label next to the trigger label', async () => {
-      const r = await createWith({ label: 'ready' }, { baseBranch: ' dev ' });
+      const r = await createWith({ label: 'ready', baseBranch: 'dev' }, { baseBranch: ' dev ' });
       await r.call;
       expect(r.captured).toMatchObject({ labels: ['ready', 'vanguard:base=dev'] });
     });
@@ -352,6 +352,12 @@ describe('dispatchRpc', () => {
       expect(r.captured).toBeUndefined();
     });
 
+    test('api_create_task refuses a target branch outside the committed allowlist', async () => {
+      const r = await createWith({}, { baseBranch: 'uat' });
+      await expect(r.call).rejects.toThrow(/is not allowed/);
+      expect(r.captured).toBeUndefined();
+    });
+
     test('api_create_task refuses a target branch on a Linear card', async () => {
       const r = await createWith({ source: 'linear', team: 'DEV' }, { baseBranch: 'dev' });
       await expect(r.call).rejects.toThrow(/Linear/);
@@ -366,12 +372,11 @@ describe('dispatchRpc', () => {
       expect(await dispatchRpc(ctx, 'read_app_config', { repoPath: repo })).toMatchObject({ baseBranch: 'dev' });
     });
 
-    test('list_branches offers local and origin branches plus the configured default, never HEAD', async () => {
-      const repo = await tmpGitRepo();
-      await execa('git', ['-c', 'user.name=t', '-c', 'user.email=t@t', 'commit', '--allow-empty', '-q', '-m', 'x'], { cwd: repo });
-      await execa('git', ['branch', 'uat'], { cwd: repo });
-      await writeAppConfig(repo, { baseBranch: 'dev' });
+    test('list_branches offers only the allowlisted targets plus the configured default', async () => {
+      const repo = await tmpRepo();
       const { ctx } = await makeCtx(repo);
+      expect(await dispatchRpc(ctx, 'list_branches', { repoPath: repo })).toEqual({ branches: ['main'] });
+      await writeAppConfig(repo, { baseBranch: 'dev', baseBranches: ['uat', 'main'] });
       expect(await dispatchRpc(ctx, 'list_branches', { repoPath: repo })).toEqual({ branches: ['dev', 'main', 'uat'], default: 'dev' });
     });
   });

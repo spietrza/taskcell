@@ -300,7 +300,7 @@ export function apiCreateTask(repoPath: string, title: string, body: string, bas
   return call('api_create_task', { repoPath, title, body, ...(baseBranch !== undefined ? { baseBranch } : {}) });
 }
 
-/** HUB_ONLY: the repo's branches and its configured default target branch, for the new-card form. */
+/** HUB_ONLY: the target branches a card may name and the configured default, for the new-card form. */
 export function apiListBranches(repoPath: string): Promise<{ branches: string[]; default?: string }> {
   return call('list_branches', { repoPath });
 }

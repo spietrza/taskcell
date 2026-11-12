@@ -28,46 +28,100 @@ export function assertSafeBaseBranch(base: string): void {
 /** The base a run targets when no `--base` is given. Every default goes through this name, never a bare literal. */
 export const DEFAULT_BASE_BRANCH = 'main';
 
-/** Issue label that carries a card's target branch: `vanguard:base=<branch>` (like `vanguard:model=<m>`). */
+/**
+ * Issue label that carries a card's target branch: `vanguard:base=<branch>` (like `vanguard:model=<m>`).
+ * Trust: anyone who can label the issue (GitHub triage) can set it, so it only SELECTS among the targets a
+ * maintainer committed — the repo default plus `baseBranches` in `.taskcell/app.json` (see readAllowedBases).
+ */
 export const BASE_LABEL_PREFIX = 'vanguard:base=';
 
+/** True for a `vanguard:base=` label. It names a branch, not a lifecycle state, so board column/chip reads skip it. */
+export function isBaseLabel(label: string): boolean {
+  return label.startsWith(BASE_LABEL_PREFIX);
+}
+
 /**
- * The target branch a card names, from its labels (last one wins), or undefined when it names none.
- * A `vanguard:base=` label with an empty or unsafe value is refused, not ignored: opening the PR
- * against some other branch than the one the card asked for is worse than not running.
+ * The target branch a card names, from its labels, or undefined when it names none. The one reader of
+ * `vanguard:base=` labels. A label with an empty or unsafe value, or two labels naming different branches,
+ * is refused, not ignored: opening the PR against some other branch than the one the card asked for is
+ * worse than not running.
  * @throws TaskcellError (see assertSafeBaseBranch).
  */
 export function baseFromLabels(labels: ReadonlyArray<string>): string | undefined {
-  const named = labels.filter((l) => l.startsWith(BASE_LABEL_PREFIX)).at(-1);
-  if (named === undefined) return undefined;
-  const value = named.slice(BASE_LABEL_PREFIX.length).trim();
+  const values = [...new Set(labels.filter(isBaseLabel).map((l) => l.slice(BASE_LABEL_PREFIX.length).trim()))];
+  if (values.length > 1) throw new TaskcellError(`Conflicting target branches: the card carries ${values.map((v) => `${BASE_LABEL_PREFIX}${v}`).join(', ')} — keep exactly one`);
+  const value = values[0];
+  if (value === undefined) return undefined;
   assertSafeBaseBranch(value);
   return value;
 }
 
-/**
- * The repository's default target branch: `baseBranch` in `.taskcell/app.json`, read leniently like the
- * board config. Undefined when the file or key is absent. A set but unsafe value is refused.
- * @throws TaskcellError (see assertSafeBaseBranch).
- */
-export async function readRepoBaseBranch(repoPath: string): Promise<string | undefined> {
-  let parsed: unknown;
+/** For display only (board, Needs-you): the card's target branch, or undefined when it names none or names it badly. */
+export function shownBaseFromLabels(labels: ReadonlyArray<string>): string | undefined {
   try {
-    parsed = JSON.parse(await readFile(join(stateDir(repoPath), 'app.json'), 'utf8'));
+    return baseFromLabels(labels);
   } catch {
     return undefined;
   }
-  const raw = typeof parsed === 'object' && parsed !== null ? (parsed as Record<string, unknown>).baseBranch : undefined;
+}
+
+/** `.taskcell/app.json`, read leniently like the board config: anything unreadable or not an object is `{}`. */
+async function readAppJson(repoPath: string): Promise<Record<string, unknown>> {
+  try {
+    const parsed: unknown = JSON.parse(await readFile(join(stateDir(repoPath), 'app.json'), 'utf8'));
+    return typeof parsed === 'object' && parsed !== null ? (parsed as Record<string, unknown>) : {};
+  } catch {
+    return {};
+  }
+}
+
+/** A configured branch name: trimmed, undefined when blank, refused when unsafe. */
+function configuredBranch(raw: unknown): string | undefined {
   const value = typeof raw === 'string' ? raw.trim() : '';
   if (value === '') return undefined;
   assertSafeBaseBranch(value);
   return value;
 }
 
-/** The branch a run's PR targets: an explicit `--base`, else the card's label, else the repo default, else `main`. */
+/**
+ * The repository's default target branch: `baseBranch` in `.taskcell/app.json`. Undefined when the file
+ * or key is absent. A set but unsafe value is refused.
+ * @throws TaskcellError (see assertSafeBaseBranch).
+ */
+export async function readRepoBaseBranch(repoPath: string): Promise<string | undefined> {
+  return configuredBranch((await readAppJson(repoPath)).baseBranch);
+}
+
+/**
+ * The branches a `vanguard:base=` label may select: the repo default (`baseBranch`, else `main`) plus the
+ * `baseBranches` list in `.taskcell/app.json`. With no list, only the default — a label can never point a
+ * PR anywhere a maintainer did not commit. An unsafe entry is refused.
+ * @throws TaskcellError (see assertSafeBaseBranch).
+ */
+export async function readAllowedBases(repoPath: string): Promise<string[]> {
+  const cfg = await readAppJson(repoPath);
+  const extra = Array.isArray(cfg.baseBranches) ? cfg.baseBranches.map(configuredBranch).filter((b): b is string => b !== undefined) : [];
+  return [...new Set([configuredBranch(cfg.baseBranch) ?? DEFAULT_BASE_BRANCH, ...extra])];
+}
+
+/** Refuse a label-selected target that is not in the committed allowlist. @throws TaskcellError */
+export function assertAllowedBase(base: string, allowed: ReadonlyArray<string>): void {
+  if (!allowed.includes(base)) {
+    throw new TaskcellError(`Target branch ${JSON.stringify(base)} is not allowed: a ${BASE_LABEL_PREFIX} label may only name ${allowed.join(', ')} (add it to baseBranches in .taskcell/app.json)`);
+  }
+}
+
+/**
+ * The branch a run's PR targets: an explicit `--base`, else the card's label (if allowlisted), else the repo
+ * default, else `main`.
+ */
 export async function resolveTargetBase(repoPath: string, labels: ReadonlyArray<string>, explicit?: string): Promise<string> {
-  // A label or app.json value is checked on read; an explicit --base by prepareContext/resolveRemoteBaseRef.
-  return explicit ?? baseFromLabels(labels) ?? (await readRepoBaseBranch(repoPath)) ?? DEFAULT_BASE_BRANCH;
+  // An explicit --base is the operator's own flag: checked by prepareContext/resolveRemoteBaseRef, not allowlisted.
+  if (explicit !== undefined) return explicit;
+  const labelled = baseFromLabels(labels);
+  if (labelled === undefined) return (await readRepoBaseBranch(repoPath)) ?? DEFAULT_BASE_BRANCH;
+  assertAllowedBase(labelled, await readAllowedBases(repoPath));
+  return labelled;
 }
 
 /**

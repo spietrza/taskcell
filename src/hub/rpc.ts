@@ -20,7 +20,7 @@ import { assertWithinBrowseRoot, browseDirs } from './browse.js';
 import { cloneProject } from './clone.js';
 import { listNeedsYou, mergeNeedsYou, replyNeedsYou, MAX_COMMENT_FETCHES } from './needs-you.js';
 import { detectRepoSlug } from '../runners/github.js';
-import { BASE_LABEL_PREFIX, assertSafeBaseBranch, readRepoBaseBranch } from '../core/base-branch.js';
+import { BASE_LABEL_PREFIX, assertAllowedBase, assertSafeBaseBranch, readAllowedBases, readRepoBaseBranch } from '../core/base-branch.js';
 import type { ErrorKind } from '../hub-wire.js';
 import { defaultRunsRoot, remoteRunsRoot, listRunSummaries, readRunDetail } from './runs.js';
 import { readRunEvents } from './run-events.js';
@@ -401,7 +401,8 @@ export async function dispatchRpc(ctx: RpcContext, cmd: string, rawArgs: unknown
       // `createTask`'s own validator (not a re-typed check here) rejects a bad source/missing team.
       const cfg = await readAppConfig(real);
       // The target branch rides on the card as a `vanguard:base=<branch>` label, so a run started from CI
-      // or `watch` sees it too. Refused here when unsafe — before anything is created, with no undo.
+      // or `watch` sees it too. Refused here when unsafe or not allowlisted (the run would refuse it) — before
+      // anything is created, with no undo.
       // Blank means unset (as in app.json). The label must survive the tracker: GitHub caps a label name at
       // 50 characters, and GitLab takes labels as a comma-separated list.
       const baseBranch = optionalString(args, 'baseBranch')?.trim() || undefined;
@@ -411,6 +412,7 @@ export async function dispatchRpc(ctx: RpcContext, cmd: string, rawArgs: unknown
         baseLabel = `${BASE_LABEL_PREFIX}${baseBranch}`;
         if (baseLabel.length > MAX_LABEL_LENGTH || baseBranch.includes(',')) throw new BadRequestError(`baseBranch cannot be carried as a label (at most ${MAX_LABEL_LENGTH - BASE_LABEL_PREFIX.length} characters, no ",")`);
         if ((cfg.source ?? 'github') === 'linear') throw new BadRequestError('a target branch cannot be carried on a Linear card yet — leave it unset');
+        assertAllowedBase(baseBranch, await readAllowedBases(real));
       }
       const labels = [cfg.label, baseLabel].filter((l): l is string => l !== undefined);
       const params: CreateTaskParams = {
@@ -598,24 +600,8 @@ export function classifyError(err: unknown): { message: string; kind: ErrorKind;
   return { message, kind, notFound };
 }
 
-/** Local and origin branch names (no `origin/HEAD`), plus the repo's configured default target. An unsafe configured default is not offered. */
+/** The targets a card may name (the allowlist a run enforces, see readAllowedBases), plus the repo's configured default. */
 async function listBranches(repoPath: string): Promise<{ branches: string[]; default?: string }> {
-  const { stdout } = await execa('git', ['for-each-ref', '--format=%(refname)', 'refs/heads', 'refs/remotes/origin'], { cwd: repoPath });
-  const names = stdout
-    .split('\n')
-    .map((ref) => ref.replace(/^refs\/heads\//, '').replace(/^refs\/remotes\/origin\//, ''))
-    .filter((name) => name !== '' && name !== 'HEAD' && isSafeBranch(name));
-  const dflt = await readRepoBaseBranch(repoPath).catch(() => undefined);
-  const branches = [...new Set(dflt !== undefined ? [dflt, ...names] : names)].sort();
-  return { branches, ...(dflt !== undefined ? { default: dflt } : {}) };
-}
-
-/** Only branches a run could actually target are offered. */
-function isSafeBranch(name: string): boolean {
-  try {
-    assertSafeBaseBranch(name);
-    return true;
-  } catch {
-    return false;
-  }
+  const [allowed, dflt] = await Promise.all([readAllowedBases(repoPath), readRepoBaseBranch(repoPath)]);
+  return { branches: [...allowed].sort(), ...(dflt !== undefined ? { default: dflt } : {}) };
 }

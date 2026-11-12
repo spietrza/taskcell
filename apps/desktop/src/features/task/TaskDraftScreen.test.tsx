@@ -26,6 +26,7 @@ vi.mock('../../ipc.js', () => ({
   apiComplete: vi.fn(async () => ({ text: 'ok' })),
   apiCancelComplete: vi.fn(async () => {}),
   apiCreateTask: vi.fn(async () => ({ id: 'gh-7', url: 'https://github.com/o/r/issues/7' })),
+  apiListBranches: vi.fn(async () => ({ branches: [] })),
   apiListRepoFiles: vi.fn(async () => ({ files: ['src/app.ts', 'README.md'], capped: false })),
   apiReadRepoFile: vi.fn(async (_p: string, path: string) => ({ path, content: `content of ${path}`, truncated: false })),
   writeDraftAsset: vi.fn(async (_p: string, id: string, name: string) => `/assets/${id}/${name}`),

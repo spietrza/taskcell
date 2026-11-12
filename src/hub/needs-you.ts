@@ -7,7 +7,7 @@ import { commentPullRequest } from '../runners/pr-review.js';
 import { redactForPublish } from '../core/secret-scan.js';
 import { DEFAULT_GITHUB_AGENT_LABEL, DEFAULT_GITHUB_NEEDS_INFO_LABEL } from '../cli/args.js';
 import { GITHUB_REVIEW_LABEL, GITHUB_VERIFY_FAILED_LABEL } from '../github-labels.js';
-import { BASE_LABEL_PREFIX } from '../core/base-branch.js';
+import { shownBaseFromLabels } from '../core/base-branch.js';
 import { TaskcellError } from '../core/errors.js';
 import { fanOut } from '../pipeline/fan-out.js';
 
@@ -58,7 +58,6 @@ interface GhIssueLite {
 }
 
 interface GhPrLite extends GhIssueLite {
-  baseRefName?: string;
   reviewDecision?: string | null;
   baseRefName?: string;
 }
@@ -135,9 +134,8 @@ function toItem(
   raw: GhIssueLite & { baseRefName?: string },
   reason: string,
   lastComment: { author: string; body: string } | undefined,
-  baseRefName?: string,
 ): NeedsYouItem {
-  const baseBranch = baseRefName ?? raw.labels.map((l) => l.name).filter((n) => n.startsWith(BASE_LABEL_PREFIX)).at(-1)?.slice(BASE_LABEL_PREFIX.length);
+  const baseBranch = raw.baseRefName ?? shownBaseFromLabels(raw.labels.map((l) => l.name));
   return {
     id: `${repoSlug}#${raw.number}`,
     kind,
@@ -203,7 +201,7 @@ export async function listNeedsYou(
   );
   return waiting.map(({ kind, raw, reason }, i) => {
     const outcome = outcomes[i];
-    return toItem(repoSlug, kind, raw, reason, outcome?.status === 'fulfilled' ? outcome.value : undefined, (raw as GhPrLite).baseRefName);
+    return toItem(repoSlug, kind, raw, reason, outcome?.status === 'fulfilled' ? outcome.value : undefined);
   });
 }
 

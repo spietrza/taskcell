@@ -179,9 +179,13 @@ describe('target branch per card', () => {
     return dir;
   }
 
-  it('reads the card label, last one wins, and ignores other labels', () => {
-    expect(baseFromLabels(['bug', 'vanguard:base=dev', 'vanguard:base=uat'])).toBe('uat');
+  it('reads the card label, tolerates a repeat of the same branch, and ignores other labels', () => {
+    expect(baseFromLabels(['bug', 'vanguard:base=uat', 'vanguard:base=uat'])).toBe('uat');
     expect(baseFromLabels(['bug', 'vanguard:model=opus'])).toBeUndefined();
+  });
+
+  it('refuses two labels naming different branches', () => {
+    expect(() => baseFromLabels(['vanguard:base=dev', 'vanguard:base=uat'])).toThrow('Conflicting target branches');
   });
 
   it.each(['vanguard:base=', 'vanguard:base=--upload-pack=x', 'vanguard:base=a:b'])('refuses %s', (label) => {
@@ -196,14 +200,22 @@ describe('target branch per card', () => {
     expect(await resolveTargetBase(await repoWith({ baseBranch: 'dev' }), ['bug'])).toBe('dev');
   });
 
-  it('lets the card override the repository default, and --base override the card', async () => {
-    const repo = await repoWith({ baseBranch: 'dev' });
+  it('lets the card select an allowlisted branch, and --base override the card', async () => {
+    const repo = await repoWith({ baseBranch: 'dev', baseBranches: ['uat'] });
     expect(await resolveTargetBase(repo, ['vanguard:base=uat'])).toBe('uat');
     expect(await resolveTargetBase(repo, ['vanguard:base=uat'], 'release')).toBe('release');
+  });
+
+  it('allows a label naming only the default when no allowlist is committed', async () => {
+    expect(await resolveTargetBase(await repoWith(), ['vanguard:base=main'])).toBe('main');
+    expect(await resolveTargetBase(await repoWith({ baseBranch: 'dev' }), ['vanguard:base=dev'])).toBe('dev');
+    await expect(resolveTargetBase(await repoWith(), ['vanguard:base=uat'])).rejects.toThrow('is not allowed');
+    await expect(resolveTargetBase(await repoWith({ baseBranch: 'dev', baseBranches: ['uat'] }), ['vanguard:base=main'])).rejects.toThrow('is not allowed');
   });
 
   it('refuses an unsafe card label or repository default before any run starts', async () => {
     await expect(resolveTargetBase(await repoWith(), ['vanguard:base=-x'])).rejects.toThrow('Invalid base branch');
     await expect(resolveTargetBase(await repoWith({ baseBranch: 'a b' }), [])).rejects.toThrow('Invalid base branch');
+    await expect(resolveTargetBase(await repoWith({ baseBranches: ['-x'] }), ['vanguard:base=main'])).rejects.toThrow('Invalid base branch');
   });
 });
