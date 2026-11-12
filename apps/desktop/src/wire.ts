@@ -612,6 +612,12 @@ export interface CliVersionReport {
 export interface Commands {
   list_runs: { args: { repoPath: string }; result: RunSummary[] };
   read_run: { args: { repoPath: string; taskId: string; timestamp: string; source: RunSource }; result: RunDetail };
+  /** HUB_ONLY, read-only: a run's persisted event log (`.taskcell/runs/<taskId>/events-*.jsonl`), events with
+   *  `id > after` (the SSE `id:`), at most `limit`; `timestamp` picks a run by its start time, default the newest. */
+  read_run_events: {
+    args: { repoPath: string; taskId: string; timestamp?: string; after?: number; limit?: number };
+    result: { events: { id: number; ts: string; event: string; data: unknown }[]; nextAfter: number; hasMore: boolean; truncated: boolean };
+  };
   list_projects: { args: undefined; result: Project[] };
   /** HUB_ONLY: token-only mode has exactly one team and the caller acts as its admin. */
   list_teams: { args: undefined; result: Team[] };
@@ -713,6 +719,7 @@ export const TAURI_ONLY = ['spawn_run', 'kill_run', 'list_spawns'] as const sati
  * Tauri stays strictly single-in-flight (no queue to read) so it has nothing to implement either,
  * plus `list_teams`/`get_team` (hub teams are stored in the hub's config dir; the desktop has none). */
 export const HUB_ONLY = [
+  'read_run_events',
   'list_teams',
   'get_team',
   'browse_dirs',
@@ -739,6 +746,7 @@ export const HUB_ONLY = [
 export const COMMAND_NAMES = [
   'list_runs',
   'read_run',
+  'read_run_events',
   'list_projects',
   'list_teams',
   'get_team',

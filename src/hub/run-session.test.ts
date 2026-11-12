@@ -367,3 +367,28 @@ describe('run-session', () => {
   });
 });
 
+
+describe('run-session event log', () => {
+  test('a run persists its events and still completes when the log cannot be written', async () => {
+    const { mkdtemp, rm } = await import('node:fs/promises');
+    const { tmpdir } = await import('node:os');
+    const { join } = await import('node:path');
+    const { readRunEvents } = await import('./run-events.js');
+    const repo = await mkdtemp(join(tmpdir(), 'run-session-log-'));
+    try {
+      let id = 0;
+      const deps = fakeDeps(async (_p, onEvent) => {
+        onEvent({ type: 'run-start', taskId: 'T-9', flow: 'f', provider: 'p', stages: [] } as RunEvent);
+        onEvent({ type: 'run-end' } as RunEvent);
+        return {};
+      });
+      const session = createRunSession(deps, () => ++id);
+      await session.createRun({ issueRef: '1', repoPath: repo } as CreateRunParams);
+      const page = await readRunEvents(repo, 'T-9');
+      expect(page.events.map((e) => (e.data as { event: { type: string } }).event.type)).toEqual(['run-accepted', 'run-start', 'run-end']);
+      expect(page.events.map((e) => e.id)).toEqual([1, 2, 3]);
+    } finally {
+      await rm(repo, { recursive: true, force: true });
+    }
+  });
+});

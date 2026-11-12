@@ -326,7 +326,7 @@ export function createHubServer(opts: HubServerOptions): HubServer {
   const eventBus = new EventBus();
   eventBus.startKeepalive();
   const watchRegistry = new WatchRegistry(opts.watch);
-  const publish = (name: string, payload: unknown): void => eventBus.publish(name, payload);
+  const publish = (name: string, payload: unknown): number => eventBus.publish(name, payload);
   const completeRegistry = new CompleteRegistry(opts.spawnComplete);
   const allowlist = new ProjectAllowlist(() => loadPaths(opts.configDir), opts.seedRepoPath);
   // Re-check the allowlist when a run STARTS, not only at enqueue: a queued run can wait long
