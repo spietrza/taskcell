@@ -8,6 +8,10 @@ on:
   schedule:
     - cron: '*/30 * * * *'
   workflow_dispatch:
+  # Closing an issue can unblock `vanguard:waiting` dependents (#769); scheduled runs are often
+  # delayed or dropped, so sweep right away. The sweep is idempotent and runs main's code only.
+  issues:
+    types: [closed]
 
 permissions:
   contents: read
@@ -18,7 +22,7 @@ concurrency:
 
 jobs:
   resume:
-    if: github.event_name == 'schedule' || github.actor == 'spietrza'
+    if: github.event_name == 'schedule' || github.event_name == 'issues' || github.actor == 'spietrza'
     runs-on: ubuntu-latest
     timeout-minutes: 10
     steps:
