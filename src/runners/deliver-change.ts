@@ -50,6 +50,8 @@ export type DeliveryTarget =
       prHeadRef: string;
       tokenProvider?: () => Promise<string | undefined>;
       host?: string;
+      /** Push with `--force-with-lease` on this remote tip (a rebased factory branch). */
+      forceWithLease?: string;
       runner?: CommandRunner;
     };
 
@@ -196,6 +198,7 @@ export async function deliverChange(ctx: RunContext, opts: DeliverChangeOptions)
     prHeadRef: target.prHeadRef,
     ...(target.tokenProvider !== undefined ? { host: target.host ?? 'github.com' } : {}),
     ...(target.tokenProvider !== undefined ? { tokenProvider: target.tokenProvider } : {}),
+    ...(target.forceWithLease !== undefined ? { forceWithLease: target.forceWithLease } : {}),
     ...(target.runner !== undefined ? { runner: target.runner } : {}),
   });
   return { kind: 'delivered-push', sha, headSha: sha, commitLeaks };

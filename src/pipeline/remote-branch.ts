@@ -64,6 +64,8 @@ export interface PushToExistingBranchOptions {
   host?: string;
   /** Resolved right before the push (overrides pushToken). */
   tokenProvider?: () => Promise<string | undefined>;
+  /** The remote branch tip the caller last saw: push with `--force-with-lease` on it (a rebased factory branch). */
+  forceWithLease?: string;
   /** Injected for tests; defaults to running git via execa. */
   runner?: CommandRunner;
 }
@@ -130,7 +132,8 @@ async function gitPush(run: CommandRunner, args: string[], cwd: string, token: s
 export async function pushToExistingBranch(ctx: RunContext, opts: PushToExistingBranchOptions): Promise<void> {
   const run = opts.runner ?? defaultRunner;
   // Fully qualified destination: an unqualified one could resolve to a same-named tag on the remote.
-  const args = ['push', '--no-verify', opts.remote ?? 'origin', `HEAD:refs/heads/${opts.prHeadRef}`];
+  const lease = opts.forceWithLease !== undefined ? [`--force-with-lease=refs/heads/${opts.prHeadRef}:${opts.forceWithLease}`] : [];
+  const args = ['push', '--no-verify', ...lease, opts.remote ?? 'origin', `HEAD:refs/heads/${opts.prHeadRef}`];
   const pushToken = await resolveToken(opts.tokenProvider, opts.pushToken, (m) => ctx.log.warn({ branch: ctx.branch }, m));
   try {
     await gitPush(run, args, ctx.worktreePath, pushToken, opts.host);

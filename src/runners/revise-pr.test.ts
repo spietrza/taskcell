@@ -2300,7 +2300,7 @@ describe('runRevisePullRequest base conflicts', () => {
     await execa('git', ['push', 'origin', 'main'], { cwd: repo });
   }
 
-  async function run(sandboxFiles: Record<string, string>, opts: { body?: string; noop?: boolean; out?: string } = {}): Promise<{
+  async function run(sandboxFiles: Record<string, string>, opts: { body?: string; noop?: boolean; out?: string; headRef?: string } = {}): Promise<{
     result: Awaited<ReturnType<typeof runRevisePullRequest>>;
     ghCalls: string[][];
     pushed: string[];
@@ -2319,6 +2319,7 @@ describe('runRevisePullRequest base conflicts', () => {
     const gh: GhRunner = async (args) => {
       ghCalls.push(args);
       if (args[0] === 'pr' && args[1] === 'review') return '';
+      if (opts.headRef !== undefined && args[0] === 'pr' && args[1] === 'view' && args.some((a) => a.includes('headRefName'))) return makePrViewJson({ headRefName: opts.headRef });
       if (args[0] === 'api' && opts.body !== undefined && (args.find((a) => a.startsWith('query=')) ?? '').includes('reviewThreads')) {
         return makeFeedbackJson().replace('Please rename this.', opts.body);
       }
@@ -2336,7 +2337,7 @@ describe('runRevisePullRequest base conflicts', () => {
     };
     const result = await runRevisePullRequest('7', {
       repoPath: repo, repoSlug: 'o/r', gh, _sandbox: sandbox, _agent: agentThatCompletes(inputs),
-      _worktrees: new WorktreeManager(repo), _baseBranch: 'feature-branch', provider: 'claude',
+      _worktrees: new WorktreeManager(repo), _baseBranch: opts.headRef ?? 'feature-branch', provider: 'claude',
       ...(opts.out !== undefined ? { out: opts.out } : {}),
       _pushRunner: async (_f, args, cwd) => {
         if (args[0] === 'push') {
@@ -2379,6 +2380,44 @@ describe('runRevisePullRequest base conflicts', () => {
     const text = comments(ghCalls);
     expect(text).toContain('### Merged base');
     expect(text).toContain('Merged `main` into the branch; resolved conflicts in: `shared.txt`');
+  });
+
+  describe('a base that changed CI config', () => {
+    /** diverge(), then main also gains a workflow file; the feature commit is re-authored as `email` on branch `head`. */
+    async function divergeWithWorkflow(head: string, email: string): Promise<void> {
+      await diverge('shared.txt');
+      await mkdir(join(repo, '.github', 'workflows'), { recursive: true });
+      await writeFile(join(repo, '.github', 'workflows', 'ci.yml'), 'on: push\n');
+      await commitAll('main workflow');
+      await execa('git', ['push', 'origin', 'main'], { cwd: repo });
+      await execa('git', ['checkout', '-B', head, 'feature-branch'], { cwd: repo });
+      await execa('git', ['-c', `user.email=${email}`, '-c', 'user.name=x', 'commit', '--amend', '--reset-author', '--no-edit'], { cwd: repo });
+      await execa('git', ['checkout', 'main'], { cwd: repo });
+    }
+
+    it('factory branch: rebased, force-pushed with a lease on the PR head, the summary says rebased', async () => {
+      await divergeWithWorkflow('chore/vanguard-x', 'vanguard@local');
+      const { result, pushed, parents, ghCalls, prompt } = await run({ 'shared.txt': 'both lines\n' }, { headRef: 'chore/vanguard-x' });
+      expect(prompt).toContain('mid-rebase onto its base `main`');
+      expect(result.pushed).toBe(true);
+      expect(pushed).toEqual(['push --no-verify --force-with-lease=refs/heads/chore/vanguard-x:deadbeef origin HEAD:refs/heads/chore/vanguard-x']);
+      expect(parents[0]).toBe('0');
+      const text = comments(ghCalls);
+      expect(text).toContain('### Rebased onto base');
+      expect(text).toContain('Rebased the branch onto `main`');
+      expect(text).not.toContain('### Merged base');
+    });
+
+    it.each([
+      ['a same-prefix branch with human commits', 'chore/vanguard-x', 't@t'],
+      ['a human-named branch', 'feature-branch', 'vanguard@local'],
+    ])('%s: no rebase, no push, held for a human', async (_label, head, email) => {
+      await divergeWithWorkflow(head, email);
+      const { result, pushed, ghCalls } = await run({}, { headRef: head });
+      expect(pushed).toEqual([]);
+      expect(result.conflictUnresolved).toEqual(['.github/workflows/ci.yml']);
+      expect(comments(ghCalls)).toContain('Could not resolve the conflict with `main`');
+    });
   });
 
   it('conflict the agent could not resolve: nothing pushed, "could not resolve" comment, needs revision kept', async () => {
