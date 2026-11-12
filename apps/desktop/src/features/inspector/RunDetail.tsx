@@ -5,6 +5,7 @@ import { StageCard } from './StageCard';
 import { DiffView } from './DiffView';
 import { TranscriptView } from './TranscriptView';
 import { SpecPane } from './SpecPane';
+import { ExternalLink, hostName } from '../../components/ExternalLink';
 import type { RunDetail as RunDetailT } from '../../taskcell-output';
 
 export function RunDetail({ detail, project }: { detail: RunDetailT; project: string }) {
@@ -27,6 +28,14 @@ export function RunDetail({ detail, project }: { detail: RunDetailT; project: st
       </Tabs.List>
 
       <Tabs.Panel value="overview" className="min-h-0 flex-1 space-y-3 overflow-y-auto pt-4">
+        {(detail.prUrl !== undefined || detail.ciUrl !== undefined) && (
+          <div className="flex flex-wrap gap-3">
+            {detail.prUrl !== undefined && (
+              <ExternalLink href={detail.prUrl}>{`Open in ${hostName(detail.prUrl)}`}</ExternalLink>
+            )}
+            <ExternalLink href={detail.ciUrl}>CI run</ExternalLink>
+          </div>
+        )}
         <ProofGate proof={detail.proof} />
         <div className="space-y-2">
           {detail.stages.map((s, i) => (
@@ -40,6 +49,11 @@ export function RunDetail({ detail, project }: { detail: RunDetailT; project: st
       </Tabs.Panel>
 
       <Tabs.Panel value="diff" className="min-h-0 flex-1 space-y-4 overflow-y-auto pt-4">
+        {detail.diffUrl !== undefined && (
+          <ExternalLink href={detail.diffUrl}>
+            {detail.diffUrl.endsWith('/diffs') ? 'Changes on GitLab' : 'Files changed on GitHub'}
+          </ExternalLink>
+        )}
         {diffStages.length === 0 && <DiffView />}
         {diffStages.map((s, i) => (
           <div key={i} className="space-y-1">

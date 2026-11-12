@@ -3,6 +3,7 @@ import { Button, Table, Chip, ScrollTable, Timestamp } from '@/ui';
 import { Download } from 'lucide-react';
 import { importRemoteRun, listRemoteRuns } from '../../ipc';
 import { useAsync } from '../../hooks';
+import { ExternalLink } from '../../components/ExternalLink';
 import { verdictColor, verdictWord } from '../../status';
 import type { RemoteImport, RemoteRun, RunSource, RunSummary } from '../../taskcell-output';
 
@@ -96,6 +97,7 @@ export function RemoteRuns({
               </Table.Cell>
               <Table.Cell>
                 <span className="flex items-center gap-2">
+                  <ExternalLink href={r.url}>CI run</ExternalLink>
                   {cached && <Chip color="secondary" variant="outlined">cached</Chip>}
                   {!(rec !== undefined && 'data' in rec) && (
                     <Button

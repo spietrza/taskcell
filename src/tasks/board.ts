@@ -1,5 +1,6 @@
 import type { BoardTask } from '../wire.js';
 import type { Task } from './fetcher.js';
+import { httpsUrl } from '../core/links.js';
 
 /**
  * The board read path (S9) — ported 1:1 from the retired Rust implementation
@@ -113,12 +114,15 @@ export function toBoardTask(source: BoardSource, task: Task): BoardTask {
   // Waiting = a human asked for the factory and nothing has claimed it yet. LABEL-sourced, not
   // state-sourced: the flag answers "is this queued for a trigger-label watch loop".
   const waiting = column === 'queued' && task.labels.some(isTriggerLabel);
+  const url = httpsUrl(task.url);
   return {
     id: mintBoardId(source, task.ref ?? task.id),
     title: task.title,
     column,
     state: source === 'linear' ? state : (task.labels[0] ?? state),
+    source,
     ...(waiting ? { waiting: true } : {}),
+    ...(url !== undefined ? { url } : {}),
   };
 }
 
