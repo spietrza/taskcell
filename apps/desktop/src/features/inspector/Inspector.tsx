@@ -74,9 +74,10 @@ export function Inspector({
   const [taskDetailRepo, setTaskDetailRepo] = useState(project);
   const [active, setActive] = useState<(ActiveRun & Partial<RepoStamp>)[]>([]);
   const [detail, setDetail] = useState<RunDetailT | null>(null);
-  const [liveRun, setLiveRun] = useState<ActiveRun | null>(null);
+  const [liveRun, setLiveRun] = useState<(ActiveRun & Partial<RepoStamp>) | null>(null);
   const [error, setError] = useState<string | null>(null);
-  const [cfg] = useAppConfig(project);
+  // A live run under "All repositories" is held to its own repository's budget.
+  const [cfg] = useAppConfig(liveRun?.repoPath ?? project);
   const [loading, setLoading] = useState(false);
   const [watching, setWatching] = useState(false);
   const [tick, setTick] = useState(0);
@@ -140,16 +141,20 @@ export function Inspector({
         Promise.all(
           projects.map((p) =>
             listActive(p.path).then(
-              (rows) => rows.map((x) => ({ ...x, repoPath: p.path, repoName: p.name })),
-              () => [], // that repository's running rows are best-effort; its failure shows in `failures`
+              (rows) => ({ rows: rows.map((x) => ({ ...x, repoPath: p.path, repoName: p.name })) }),
+              // One repository's running rows failing leaves the others listed; it is named in `failures`.
+              (e: unknown) => ({ rows: [], failure: { repoPath: p.path, repoName: p.name, error: String(e) } }),
             ),
           ),
         ),
       ]);
       if (gen !== runsGen.current) return;
+      const activeFailures = a.flatMap((x) =>
+        'failure' in x && !r.failures.some((f) => f.repoPath === x.failure.repoPath) ? [x.failure] : [],
+      );
       setRuns(r.runs);
-      setFailures(r.failures);
-      setActive(a.flat());
+      setFailures([...r.failures, ...activeFailures]);
+      setActive(a.flatMap((x) => x.rows));
       return;
     }
     const [r, a] = await Promise.all([listRuns(project), listActive(project)]);
@@ -183,28 +188,51 @@ export function Inspector({
       // transient mid-write; next event resyncs
     }
   };
-
+  // Load on mount and when the filter mode changes — not when only the repository list changes,
+  // so an open run is not closed by a repository being added or removed.
   useEffect(() => {
     void load();
-    // "All repositories" watches every repository, so any of them live-updates the list.
-    const watched = allRepos ? projects.map((p) => p.path) : [project];
-    void Promise.all(watched.map((p) => watchProject(p)))
-      .then(() => setWatching(true))
-      .catch(() => setWatching(false));
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [project, allRepos]);
+
+  // The listener is registered once, so it reaches the latest render's `refresh` through a ref.
+  const refreshRef = useRef(refresh);
+  refreshRef.current = refresh;
+  // The paths being watched; "All repositories" watches every repository, so any of them live-updates the list.
+  const watchedRef = useRef<Set<string>>(new Set());
+  useEffect(() => {
     const unlisten = subscribe<string>('vanguard:changed', (e) => {
-      if (watched.includes(e.payload)) void refresh();
+      if (watchedRef.current.has(e.payload)) void refreshRef.current();
     });
     // A stream-reset means the SSE gap may have swallowed a vanguard:changed we'd otherwise have
     // reacted to, so resync unconditionally rather than trusting the stream to have told us (#491).
-    const unlistenReset = onStreamReset(() => void refresh());
+    const unlistenReset = onStreamReset(() => void refreshRef.current());
     return () => {
       setWatching(false);
-      watched.forEach((p) => void unwatchProject(p));
+      watchedRef.current.forEach((p) => void unwatchProject(p));
+      watchedRef.current = new Set();
       void unlisten.then((f) => f());
       void unlistenReset.then((f) => f());
     };
+  }, []);
+
+  // Diff the watched set: watch only the added paths, unwatch only the removed ones.
+  const watchKey = allRepos ? projects.map((p) => p.path).join('\n') : project;
+  const watchedMode = useRef<boolean | null>(null);
+  useEffect(() => {
+    const next = new Set(watchKey.split('\n').filter((p) => p !== ''));
+    const prev = watchedRef.current;
+    const added = [...next].filter((p) => !prev.has(p));
+    [...prev].filter((p) => !next.has(p)).forEach((p) => void unwatchProject(p));
+    watchedRef.current = next;
+    void Promise.all(added.map((p) => watchProject(p)))
+      .then(() => setWatching(true))
+      .catch(() => setWatching(false));
+    // Only the repository list changed: re-read the runs without closing what is open (a mode change is `load`'s).
+    if (watchedMode.current === allRepos) void refreshRef.current();
+    watchedMode.current = allRepos;
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [project, allRepos, allRepos ? projects.map((p) => p.path).join('\n') : '']);
+  }, [watchKey]);
 
   // Load the capability surface once (cached; pure — never blocks on a live run).
   useEffect(() => {

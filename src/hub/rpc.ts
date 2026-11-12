@@ -17,7 +17,7 @@ import type { RunSession } from './run-session.js';
 import { CompleteRegistry, type CompleteParams } from './complete.js';
 import { assertWithinBrowseRoot, browseDirs } from './browse.js';
 import { cloneProject } from './clone.js';
-import { listNeedsYou, replyNeedsYou } from './needs-you.js';
+import { listNeedsYou, replyNeedsYou, MAX_COMMENT_FETCHES } from './needs-you.js';
 import { detectRepoSlug } from '../runners/github.js';
 import type { ErrorKind } from '../hub-wire.js';
 import { defaultRunsRoot, remoteRunsRoot, listRunSummaries, readRunDetail } from './runs.js';
@@ -182,6 +182,8 @@ export async function dispatchRpc(ctx: RpcContext, cmd: string, rawArgs: unknown
         (p) => ctx.allowlist.assertAllowed(p),
         (real) => listRunSummaries(defaultRunsRoot(real)),
       );
+      // Newest first across repositories, as each repository's own list is.
+      items.sort((x, y) => (x.timestamp < y.timestamp ? 1 : x.timestamp > y.timestamp ? -1 : 0));
       return { runs: items, failures };
     }
     case 'read_run': {
@@ -429,12 +431,14 @@ export async function dispatchRpc(ctx: RpcContext, cmd: string, rawArgs: unknown
       return { items: repoSlug === undefined ? [] : await listNeedsYou(repoSlug) };
     }
     case 'list_needs_you_all': {
+      // One comment-fetch budget for every repository, not MAX_COMMENT_FETCHES each.
+      const commentBudget = { remaining: MAX_COMMENT_FETCHES };
       const { items, failures } = await projects.listAcrossProjects(
         ctx.configDir,
         (p) => ctx.allowlist.assertAllowed(p),
         async (real) => {
           const repoSlug = await githubSlug(real);
-          return repoSlug === undefined ? [] : listNeedsYou(repoSlug);
+          return repoSlug === undefined ? [] : listNeedsYou(repoSlug, undefined, { commentBudget });
         },
       );
       return { items, failures };

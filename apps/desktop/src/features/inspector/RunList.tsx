@@ -104,7 +104,7 @@ export function RunList({
           <Table.Body>
             {shownActive.map((a) => (
               <Table.Row
-                key={`active:${a.taskId}`}
+                key={`active:${a.repoPath ?? ''}:${a.taskId}`}
                 onClick={() => onOpenActive(a)}
                 className="cursor-pointer bg-primary/5"
               >

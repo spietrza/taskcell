@@ -32,6 +32,8 @@ export interface NeedsYouOptions {
   botLogins?: readonly string[];
   /** Cap on the open issues/PRs each `gh` list returns (`-L`). */
   limit?: number;
+  /** A comment-fetch budget shared across calls (the all-repositories list): each call takes what it fetches from `remaining`. */
+  commentBudget?: { remaining: number };
 }
 
 interface GhLabelLite {
@@ -117,7 +119,7 @@ const DEFAULT_LIST_LIMIT = 100;
 /** Concurrent `gh … view --json comments` calls per list — one per waiting item, bounded. */
 const COMMENT_FETCH_CONCURRENCY = 4;
 /** Only the first this-many waiting items get `lastComment`: the rest are listed without it, to spare the API quota the factory shares. */
-const MAX_COMMENT_FETCHES = 30;
+export const MAX_COMMENT_FETCHES = 30;
 
 /** Builds a `NeedsYouItem` shared by issues and PRs — the two only differ in `kind` and `reason`. */
 function toItem(
@@ -180,8 +182,11 @@ export async function listNeedsYou(
   if (waiting.length === 0) return []; // nothing waits — no identity lookup, no comment fetch
 
   const own = await ownLogins(gh, opts.botLogins ?? []);
+  const budget = opts.commentBudget;
+  const fetches = Math.min(waiting.length, MAX_COMMENT_FETCHES, budget?.remaining ?? MAX_COMMENT_FETCHES);
+  if (budget !== undefined) budget.remaining -= fetches;
   const outcomes = await fanOut(
-    waiting.slice(0, MAX_COMMENT_FETCHES),
+    waiting.slice(0, fetches),
     ({ kind, raw }) => lastOwnComment(repoSlug, kind, raw.number, own, gh),
     { concurrency: COMMENT_FETCH_CONCURRENCY },
   );

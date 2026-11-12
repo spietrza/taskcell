@@ -5,6 +5,7 @@ import { readAppConfig } from './app-config.js';
 import { defaultRunsRoot, listRunSummaries } from './runs.js';
 import { listActive } from './active.js';
 import { fanOut } from '../pipeline/fan-out.js';
+import { redactForPublish } from '../core/secret-scan.js';
 import type { RepoReadFailure, RepoStamp } from '../wire.js';
 
 export interface Project {
@@ -49,11 +50,6 @@ export async function savePaths(configDir: string, paths: string[]): Promise<voi
 }
 
 const repoDisplayName = (repoPath: string): string => basename(repoPath) || repoPath;
-
-function repoNameOf(repoPath: string): string {
-  const base = basename(repoPath);
-  return base !== '' ? base : repoPath;
-}
 
 /** Aggregate a repo's `.taskcell/runs` into a dashboard summary (+ live running count). */
 export async function aggregate(repoPath: string, now: Date = new Date()): Promise<Project> {
@@ -137,9 +133,16 @@ export async function listAcrossProjects<T extends object>(
   const items: (T & RepoStamp)[] = [];
   const failures: RepoReadFailure[] = [];
   for (const o of outcomes) {
-    const stamp = { repoPath: o.item, repoName: repoNameOf(o.item) };
+    const stamp = { repoPath: o.item, repoName: repoDisplayName(o.item) };
     if (o.status === 'fulfilled') items.push(...o.value.map((i) => ({ ...i, ...stamp })));
-    else failures.push({ ...stamp, error: o.reason instanceof Error ? o.reason.message : String(o.reason) });
+    else failures.push({ ...stamp, error: failureMessage(o.reason) });
   }
   return { items, failures };
+}
+
+/** A failure's error goes to the browser: redacted, and capped so one runaway message cannot flood the list. */
+const MAX_FAILURE_ERROR = 300;
+function failureMessage(reason: unknown): string {
+  const text = redactForPublish(reason instanceof Error ? reason.message : String(reason));
+  return text.length > MAX_FAILURE_ERROR ? `${text.slice(0, MAX_FAILURE_ERROR)}…` : text;
 }

@@ -642,6 +642,27 @@ describe('all-repositories lists', () => {
   expect(out.runs[0]?.repoName.length).toBeGreaterThan(0);
 });
 
+  test('list_runs_all lists every repository newest-first', async () => {
+    const { ctx, a, b } = await twoRepoCtx(async () => ({ tasks: [], capped: false }));
+    const run = async (repo: string, taskId: string, timestamp: string): Promise<void> => {
+      const dir = join(repo, '.taskcell', 'runs', taskId);
+      await mkdir(dir, { recursive: true });
+      await writeFile(
+        join(dir, `${timestamp.replace(/[:.]/g, '-')}-implement.json`),
+        JSON.stringify({ taskId, completed: true, exitReason: 'completed', turns: 1, worktreePath: '/tmp/wt', worktreePreserved: false, finalText: 'ok', costUsd: 0.1, timestamp, stage: 'implement' }),
+      );
+    };
+    await run(a, 'old-a', '2026-07-01T10:00:00.000Z');
+    await run(b, 'mid-b', '2026-07-02T10:00:00.000Z');
+    await run(a, 'new-a', '2026-07-03T10:00:00.000Z');
+    const out = (await dispatchRpc(ctx, 'list_runs_all', {})) as { runs: { taskId: string; repoPath: string }[] };
+    expect(out.runs.map((r) => [r.taskId, r.repoPath])).toEqual([
+      ['new-a', a],
+      ['mid-b', b],
+      ['old-a', a],
+    ]);
+  });
+
 test('list_runs_all isolates a repository outside the allowlist', async () => {
     const a = await tmpRepo();
     const { ctx } = await makeCtx(a);
