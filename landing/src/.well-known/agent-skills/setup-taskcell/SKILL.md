@@ -1,13 +1,13 @@
 ---
 name: setup-taskcell
-description: Install Taskcell, a self-hosted software factory, and run it on a user's GitHub, GitLab or Linear repository. Use when a user asks to set up Taskcell (CLI name vanguard), build an issue into a pull request with it, or keep it watching labelled issues.
+description: Install Taskcell, a self-hosted software factory, and run it on a user's GitHub, GitLab or Linear repository. Use when a user asks to set up Taskcell (CLI name taskcell), build an issue into a pull request with it, or keep it watching labelled issues.
 ---
 
 # Set up Taskcell
 
 Taskcell turns a labelled issue into a pull request: it writes a spec, builds the change in a Docker sandbox, runs the repository's verify script and a review, and opens the PR. A human merges. Source and docs: https://github.com/spietrza/taskcell
 
-The CLI is still named `vanguard` (the project's former name), and so are the `VANGUARD_*` variables, and the `vanguard:*` labels. Per-repo state lives in `.taskcell/` (an existing `.vanguard/` is still used until renamed).
+The CLI is `taskcell`; `vanguard` (the project's former name) still works as a deprecated alias. The `VANGUARD_*` variables and the `vanguard:*` labels keep the old name. Per-repo state lives in `.taskcell/` (an existing `.vanguard/` is still used until renamed).
 
 ## Requirements
 
