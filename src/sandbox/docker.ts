@@ -85,6 +85,9 @@ export async function resolveSandboxImage(image: string, exists: ImageExists = d
  */
 export const SANDBOX_CLAUDE_VERSION = '2.1.322';
 
+/** Codex CLI the sandbox image is built with — keep in sync with docker/Dockerfile's ARG CODEX_CLI_VERSION. */
+export const SANDBOX_CODEX_VERSION = '0.167.2';
+
 /** True when `actual` sorts below `expected`; unparseable parts count as older. */
 export function isOlderVersion(actual: string, expected: string): boolean {
   const a = actual.split('.');
@@ -99,28 +102,50 @@ export function isOlderVersion(actual: string, expected: string): boolean {
 }
 
 /** Minimal command runner, injectable so the refresh can be exercised without Docker. */
-export type DockerRunner = (cmd: string, args: string[], opts: { cwd: string }) => Promise<{ stdout: string }>;
+export type DockerRunner = (cmd: string, args: string[], opts: { cwd: string; timeoutMs?: number }) => Promise<{ stdout: string }>;
 
-const defaultDockerRunner: DockerRunner = async (cmd, args, opts) => {
-  const { stdout } = await execa(cmd, args, { cwd: opts.cwd });
+/** No timeout unless the call sets one: a slow `npm install` behind a proxy is what `doctor --fix` exists for. */
+export const defaultDockerRunner: DockerRunner = async (cmd, args, opts) => {
+  const { stdout } = await execa(cmd, args, { cwd: opts.cwd, ...(opts.timeoutMs !== undefined ? { timeout: opts.timeoutMs } : {}) });
   return { stdout };
 };
 
+/** The sandbox image to inspect or refresh: `sandboxImage(env)` through the pre-rename fallback, probed with `run`. */
+export function resolveSandboxImageVia(run: DockerRunner, cwd: string, env: NodeJS.ProcessEnv = process.env): Promise<string> {
+  return resolveSandboxImage(sandboxImage(env), (img) => run('docker', ['image', 'inspect', img], { cwd }).then(() => true, () => false));
+}
+
+/** Install the pinned claude CLI into an existing sandbox image, in place; see `refreshSandboxNpmCli`. */
+export async function refreshSandboxClaudeCli(opts: SandboxRefreshOptions): Promise<string> {
+  return refreshSandboxNpmCli({ ...opts, pkg: '@anthropic-ai/claude-code', version: SANDBOX_CLAUDE_VERSION });
+}
+
+/** Same in-place refresh for the pinned codex CLI. */
+export async function refreshSandboxCodexCli(opts: SandboxRefreshOptions): Promise<string> {
+  return refreshSandboxNpmCli({ ...opts, pkg: '@openai/codex', version: SANDBOX_CODEX_VERSION });
+}
+
+interface SandboxRefreshOptions {
+  cwd: string;
+  image?: string;
+  run?: DockerRunner;
+  env?: NodeJS.ProcessEnv;
+}
+
 /**
- * Install the pinned claude CLI into an existing sandbox image, in place. Cheaper and far more
+ * Install an npm CLI into an existing sandbox image, in place. Cheaper and far more
  * reliable than a rebuild behind a corporate MITM proxy, which breaks on the linear-cli release
  * tarball. The npm install needs root, but `docker commit` snapshots the CONTAINER's config — so the
  * original USER/WorkingDir are read first and restored, or the image would silently start running as
  * root and the CLI would then refuse to launch at all.
  */
-export async function refreshSandboxClaudeCli(opts: { cwd: string; image?: string; run?: DockerRunner }): Promise<string> {
+async function refreshSandboxNpmCli(opts: SandboxRefreshOptions & { pkg: string; version: string }): Promise<string> {
   const run = opts.run ?? defaultDockerRunner;
   const { cwd } = opts;
   // Resolve through the same fallback as a sandbox start: `doctor --fix` is what both the preflight
   // check and `assertClaudeCliCurrent` point at, and they report the resolved tag — refreshing the
   // unresolved default would tell a pre-rename host to fix an image it never built.
-  const exists: ImageExists = (img) => run('docker', ['image', 'inspect', img], { cwd }).then(() => true, () => false);
-  const image = opts.image ?? (await resolveSandboxImage(sandboxImage(), exists));
+  const image = opts.image ?? (await resolveSandboxImageVia(run, cwd, opts.env));
   // `docker commit` onto an image ID or a digest reference cannot change what it names.
   const immutable = new SandboxError(
     `Cannot refresh ${image}: an image ID or digest is immutable. Rebuild the image, or unset VANGUARD_SANDBOX_IMAGE to refresh ${DEFAULT_IMAGE}.`,
@@ -140,7 +165,7 @@ export async function refreshSandboxClaudeCli(opts: { cwd: string; image?: strin
 
   await run('docker', ['rm', '-f', helper], { cwd }).catch(() => undefined);
   try {
-    await run('docker', ['run', '--name', helper, '-u', '0', image, 'npm', 'install', '-g', `@anthropic-ai/claude-code@${SANDBOX_CLAUDE_VERSION}`], { cwd });
+    await run('docker', ['run', '--name', helper, '-u', '0', image, 'npm', 'install', '-g', `${opts.pkg}@${opts.version}`], { cwd });
     const changes = [
       ...(user !== '' ? ['--change', `USER ${user}`] : []),
       ...(workdir !== '' ? ['--change', `WORKDIR ${workdir}`] : []),
@@ -149,7 +174,7 @@ export async function refreshSandboxClaudeCli(opts: { cwd: string; image?: strin
   } finally {
     await run('docker', ['rm', '-f', helper], { cwd }).catch(() => undefined);
   }
-  return SANDBOX_CLAUDE_VERSION;
+  return opts.version;
 }
 
 /**
