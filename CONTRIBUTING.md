@@ -1,4 +1,4 @@
-# Contributing to Vanguard
+# Contributing to Taskcell
 
 ## Prerequisites
 

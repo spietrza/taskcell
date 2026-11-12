@@ -4,7 +4,7 @@ Adds **`--provider meridian`**. Additive — `claude`/`codex`/`cursor`/`zai`/`op
 
 Meridian (<https://github.com/rynfar/meridian>) is a self-hosted, Anthropic-Messages-compatible proxy
 that bridges to the Claude Code SDK. Run it on one host (e.g. a NAS) that holds the `claude login`
-session; every other machine points Vanguard at it and shares the Claude Max subscription **without the
+session; every other machine points Taskcell at it and shares the Claude Max subscription **without the
 token ever living locally**. Useful when the factory (CLI + Docker sandboxes) must run where the target
 files are, but the subscription auth and the outbound Anthropic traffic should originate elsewhere.
 
@@ -52,9 +52,9 @@ meridian --host 0.0.0.0        # bind 0.0.0.0, not 127.0.0.1, so other machines 
 ```
 
 The listen port is arbitrary (default `3456`). Use any port, or put Meridian behind a reverse proxy on
-`80`/`443` — Vanguard only cares about the value of `MERIDIAN_BASE_URL`.
+`80`/`443` — Taskcell only cares about the value of `MERIDIAN_BASE_URL`.
 
-On the Vanguard host:
+On the Taskcell host:
 
 ```bash
 export MERIDIAN_BASE_URL=http://<meridian-host>:3456
@@ -77,7 +77,7 @@ sonnet-implement default.
 
 > **Cross-provider review keeps its own credential local.** Meridian only bridges the Claude/Anthropic
 > path — it does **not** proxy Codex. A `--review-provider codex` reviewer runs its CLI in the sandbox
-> on the Vanguard host and talks to OpenAI directly, so `CODEX_AUTH_JSON` (or `CODEX_API_KEY`) must be
+> on the Taskcell host and talks to OpenAI directly, so `CODEX_AUTH_JSON` (or `CODEX_API_KEY`) must be
 > set on that host and its egress leaves from there. If the goal is to keep the machine fully clean
 > (no local credentials at all), review with Claude instead — e.g. bump the reviewer with
 > `--review-model opus` and drop `--review-provider`, so every stage runs through Meridian:

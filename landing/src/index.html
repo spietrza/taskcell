@@ -110,7 +110,7 @@
     </div>
     <div class="swap-cmd d3" data-reveal>
       <p class="cmd-label">Claude builds, Codex reviews</p>
-<pre class="cmd"><code>vanguard run --github you/app#42 --repo ../app --provider claude --review-provider codex</code></pre>
+<pre class="cmd"><code>taskcell run --github you/app#42 --repo ../app --provider claude --review-provider codex</code></pre>
     </div>
   </div>
 </section>
@@ -228,12 +228,12 @@
 cd taskcell
 pnpm install &amp;&amp; pnpm build
 docker/build.sh       <span class="c"># the sandbox image</span>
-pnpm link --global    <span class="c"># puts vanguard on your PATH</span></code></pre>
+pnpm link --global    <span class="c"># puts taskcell on your PATH</span></code></pre>
     <p>Also needed: <code>gh</code> for GitHub, <code>glab</code> for GitLab or the <code>linear</code> CLI for Linear.</p>
   </div>
   <aside class="rename d1" data-reveal aria-label="About the command name">
-    <b>Why the command says vanguard</b>
-    Taskcell used to be called Vanguard. The CLI keeps its pre-rename name, <code>vanguard</code>, for now, and so do the <code>VANGUARD_*</code> variables, the <code>vanguard:*</code> labels and the <code>.vanguard/</code> folder.
+    <b>What about vanguard?</b>
+    Taskcell used to be called Vanguard. The command is now <code>taskcell</code>; <code>vanguard</code> still works as a deprecated alias. The <code>VANGUARD_*</code> variables, the <code>vanguard:*</code> labels and the <code>.vanguard/</code> folder keep the old name for now.
   </aside>
 
   <ul class="ways">
@@ -242,15 +242,15 @@ pnpm link --global    <span class="c"># puts vanguard on your PATH</span></code>
       <p>Run a single issue end to end, with the key held by the LLM proxy.</p>
 <pre class="cmd"><code><span class="c"># token from: claude setup-token</span>
 export CLAUDE_CODE_OAUTH_TOKEN=…
-vanguard run --github you/app#42 \
+taskcell run --github you/app#42 \
   --repo ../app --llm-proxy</code></pre>
-      <p class="note">Or <code>vanguard watch</code> to keep picking up labelled issues on its own.</p>
+      <p class="note">Or <code>taskcell watch</code> to keep picking up labelled issues on its own.</p>
     </li>
     <li data-reveal class="d2">
       <h3>The Hub on your machine</h3>
       <p>Projects, the task board with New Run, the fleet, and every run's record, in a browser.</p>
 <pre class="cmd"><code>pnpm build:ui
-vanguard hub --repo ../app
+taskcell hub --repo ../app
 <span class="c"># http://127.0.0.1:7777</span></code></pre>
     </li>
     <li data-reveal class="d3">
@@ -274,7 +274,7 @@ vanguard hub --repo ../app
     <p class="eyebrow" data-reveal>The Hub</p>
     <h2 id="hub-h" data-reveal class="d1">Your factory, on one screen</h2>
   </div>
-  <p class="intro d2" data-reveal><code>vanguard hub</code> shows your projects, the task board and the cost of every run. The live factory floor is coming to it; this is how it will look.</p>
+  <p class="intro d2" data-reveal><code>taskcell hub</code> shows your projects, the task board and the cost of every run. The live factory floor is coming to it; this is how it will look.</p>
   <p class="preview-note d2" data-reveal>Preview with sample data. Projects, the board and cost per run are in the Hub today; the floor panel is not yet.</p>
 
   <div class="hub d2" data-reveal>
@@ -372,8 +372,8 @@ vanguard hub --repo ../app
       <p>The card goes back for a repair, at most twice. If it is still red, the PR opens as a draft with a verify-failed label, so you see the failure instead of a green-looking PR.</p>
     </details>
     <details>
-      <summary>Why is the command called vanguard?</summary>
-      <p>Taskcell used to be called Vanguard. The CLI, the <code>VANGUARD_*</code> variables, the <code>vanguard:*</code> labels and the <code>.vanguard/</code> folder keep that name for now; the old repository URL redirects to the new one.</p>
+      <summary>Does the old vanguard command still work?</summary>
+      <p>Yes. Taskcell used to be called Vanguard. The command is now <code>taskcell</code>, and <code>vanguard</code> still works as a deprecated alias. The <code>VANGUARD_*</code> variables, the <code>vanguard:*</code> labels and the <code>.vanguard/</code> folder keep the old name for now; the old repository URL redirects to the new one.</p>
     </details>
     <details>
       <summary>Can it run in CI instead of on my machine?</summary>
@@ -390,7 +390,7 @@ vanguard hub --repo ../app
   <h2 class="sr" id="end-h">Get Taskcell</h2>
   <p class="big" data-reveal>Put one card through it this week.</p>
   <a class="btn d1" href="https://github.com/spietrza/taskcell" data-reveal>Get it on GitHub</a>
-  <p class="small d2" data-reveal>Open source, MIT. The command is still <code>vanguard</code>.</p>
+  <p class="small d2" data-reveal>Open source, MIT. The command is <code>taskcell</code>; <code>vanguard</code> is a deprecated alias.</p>
 </section>
 </main>
 

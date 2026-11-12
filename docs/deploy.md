@@ -1,10 +1,10 @@
-# Deploying the Vanguard watch loop
+# Deploying the Taskcell watch loop
 
-Run `taskcell watch` always-on so the factory pulls ready Linear or GitHub issues by itself, runs them, and opens PRs. Optionally run `taskcell watch-prs` as a second loop so Vanguard reviews external PRs by label. This guide gives three concrete recipes: Synology (step by step, the one that was actually deployed), Hetzner native Docker, and Hetzner with Coolify. All three are the same idea: Docker on Linux, one controller container that starts sibling sandboxes.
+Run `taskcell watch` always-on so the factory pulls ready Linear or GitHub issues by itself, runs them, and opens PRs. Optionally run `taskcell watch-prs` as a second loop so Taskcell reviews external PRs by label. This guide gives three concrete recipes: Synology (step by step, the one that was actually deployed), Hetzner native Docker, and Hetzner with Coolify. All three are the same idea: Docker on Linux, one controller container that starts sibling sandboxes.
 
 ## Architecture (docker-out-of-docker)
 
-Vanguard runs as one long-lived **controller** container. It talks to the host Docker daemon through the mounted socket and starts a **sibling** sandbox container (plus optional egress and llm-proxy sidecars) for each run.
+Taskcell runs as one long-lived **controller** container. It talks to the host Docker daemon through the mounted socket and starts a **sibling** sandbox container (plus optional egress and llm-proxy sidecars) for each run.
 
 ```
 host docker daemon
@@ -18,7 +18,7 @@ host docker daemon
 
 This works without path tricks because the controller streams the worktree into each sandbox as a tar archive over `docker exec` (it reads the source from its own filesystem) and injects secrets over tmpfs. It never bind-mounts the worktree, so there is no "host path must match" problem. One requirement stands: the **sandbox image must exist on the host daemon** that the controller drives.
 
-> **Warning: the Docker socket is host root.** The controller (`vanguard-watch`, `vanguard-watch-prs`, `vanguard-gc`) and the hub (`docker/hub.Dockerfile`) mount `/var/run/docker.sock` by design, because that is how they start sibling sandboxes. Anything that can talk to that socket can start a privileged container with the host filesystem mounted, so a compromised controller or hub process is equivalent to root on the host. The sandboxes themselves never get the socket. Treat these containers as host-privileged: run them on a box dedicated to Vanguard, keep the hub off the public internet, and keep their images pinned. To narrow the blast radius, run the daemon in [rootless mode](https://docs.docker.com/engine/security/rootless/) (a socket compromise is then bounded by an unprivileged user), or put a socket proxy such as [docker-socket-proxy](https://github.com/Tecnativa/docker-socket-proxy) in front of the daemon and point `DOCKER_HOST` at it with only the API sections the controller uses (containers, images, networks, exec, POST) enabled. A proxy limits which endpoints are reachable, not what a created container may mount, so it reduces exposure rather than removing it; rootless mode is the stronger option.
+> **Warning: the Docker socket is host root.** The controller (`vanguard-watch`, `vanguard-watch-prs`, `vanguard-gc`) and the hub (`docker/hub.Dockerfile`) mount `/var/run/docker.sock` by design, because that is how they start sibling sandboxes. Anything that can talk to that socket can start a privileged container with the host filesystem mounted, so a compromised controller or hub process is equivalent to root on the host. The sandboxes themselves never get the socket. Treat these containers as host-privileged: run them on a box dedicated to Taskcell, keep the hub off the public internet, and keep their images pinned. To narrow the blast radius, run the daemon in [rootless mode](https://docs.docker.com/engine/security/rootless/) (a socket compromise is then bounded by an unprivileged user), or put a socket proxy such as [docker-socket-proxy](https://github.com/Tecnativa/docker-socket-proxy) in front of the daemon and point `DOCKER_HOST` at it with only the API sections the controller uses (containers, images, networks, exec, POST) enabled. A proxy limits which endpoints are reachable, not what a created container may mount, so it reduces exposure rather than removing it; rootless mode is the stronger option.
 
 ## What you need on the host
 
@@ -29,9 +29,9 @@ This works without path tricks because the controller streams the worktree into 
 
 ## Auth: subscription, not API credit
 
-Vanguard reads auth from the environment. `authFromEnv()` prefers `CLAUDE_CODE_OAUTH_TOKEN` (subscription) over `ANTHROPIC_API_KEY` (pay per use). Run on the subscription token: set `CLAUDE_CODE_OAUTH_TOKEN` and leave `ANTHROPIC_API_KEY` unset. With `--llm-proxy` the real token never enters the sandbox at all: a trusted sidecar holds it (and the Codex/OpenAI key too when Codex is used) and the sandbox sees only a per-run nonce.
+Taskcell reads auth from the environment. `authFromEnv()` prefers `CLAUDE_CODE_OAUTH_TOKEN` (subscription) over `ANTHROPIC_API_KEY` (pay per use). Run on the subscription token: set `CLAUDE_CODE_OAUTH_TOKEN` and leave `ANTHROPIC_API_KEY` unset. With `--llm-proxy` the real token never enters the sandbox at all: a trusted sidecar holds it (and the Codex/OpenAI key too when Codex is used) and the sandbox sees only a per-run nonce.
 
-1Password is a local-dev convenience and is not part of Vanguard. On a server you populate the env some other way. The simplest is a root-only `.env` (chmod 600) next to the compose file.
+1Password is a local-dev convenience and is not part of Taskcell. On a server you populate the env some other way. The simplest is a root-only `.env` (chmod 600) next to the compose file.
 
 Secrets are passed at **runtime only**: compose reads that `.env` to fill the `${VAR}` references in `environment:` (or use `env_file:`), and plain `docker run` takes `-e VAR` / `--env-file`. Never put them in a Dockerfile `ARG`/`ENV` or in an image layer. The runner and hub images are built with `COPY . .`, so the repo-root `.dockerignore` keeps `.env*`, `.git`, `.taskcell`, `node_modules`, local tool state, build output and `docker/target-repo` out of the image; the sandbox build context (`docker/`) sends nothing. Keep the `.env` and the target-repo clone in those excluded places, or outside the checkout entirely.
 
@@ -131,7 +131,7 @@ GitHub mode watches the `ready for spec`, `ready for agent`, and `needs info` la
 
 Set the `gc --remote OWNER/REPO` slug to match your repo. Keep `VANGUARD_MAX_SANDBOXES: "1"` on a small NAS.
 
-The same compose file also ships an optional **external PR review loop** under the `pr-review` profile. It watches PRs carrying the trigger label, posts a non-blocking Vanguard review, and marks the PR with `vanguard:reviewed`. Run its preflight first:
+The same compose file also ships an optional **external PR review loop** under the `pr-review` profile. It watches PRs carrying the trigger label, posts a non-blocking Taskcell review, and marks the PR with `vanguard:reviewed`. Run its preflight first:
 
 ```bash
 ssh -p 50022 <user>@<nas-ip> 'cd /volume1/docker/vanguard && sudo /usr/local/bin/docker compose --profile pr-review run --rm vanguard-watch-prs doctor-prs --github-repo=OWNER/REPO --label "ready for taskcell review" --repo=/work/repo'
@@ -144,7 +144,7 @@ ssh -p 50022 <user>@<nas-ip> 'cd /volume1/docker/vanguard && sudo /usr/local/bin
 ssh -p 50022 <user>@<nas-ip> 'sudo /usr/local/bin/docker logs -f vanguard-vanguard-watch-prs-1'
 ```
 
-This service is separate from `vanguard-watch`; keep it disabled if you only want Vanguard to implement tickets. Before enabling it, create the labels from `docker/compose.yaml` in the target repo: `ready for taskcell review`, `vanguard:reviewing`, and `vanguard:reviewed`.
+This service is separate from `vanguard-watch`; keep it disabled if you only want Taskcell to implement tickets. Before enabling it, create the labels from `docker/compose.yaml` in the target repo: `ready for taskcell review`, `vanguard:reviewing`, and `vanguard:reviewed`.
 
 ### 6. Start and verify
 
@@ -153,7 +153,7 @@ ssh -p 50022 <user>@<nas-ip> 'cd /volume1/docker/vanguard && sudo /usr/local/bin
 ssh -p 50022 <user>@<nas-ip> 'sudo /usr/local/bin/docker logs -f vanguard-vanguard-watch-1'
 ```
 
-You should see `watch[linear]: polling every 120s`, followed by terse operator lines such as `spec: poll -> 1 ready` and `spec TES-123: claim -> triage`. For the PR review loop, you should see `watch-prs[github]: polling every 120s`. To prove the full Loop v1.1 chain in Linear, create a Linear issue in your team, add the `vanguard` label, and move it to the **Spec** state. The spec pass posts a `<tech_spec>` comment and advances the issue to Todo; the next poll runs the agent pass and opens a draft PR. To skip the spec pass for a fully-scoped ticket, put the issue directly in Todo with acceptance criteria or an existing Vanguard spec comment.
+You should see `watch[linear]: polling every 120s`, followed by terse operator lines such as `spec: poll -> 1 ready` and `spec TES-123: claim -> triage`. For the PR review loop, you should see `watch-prs[github]: polling every 120s`. To prove the full Loop v1.1 chain in Linear, create a Linear issue in your team, add the `vanguard` label, and move it to the **Spec** state. The spec pass posts a `<tech_spec>` comment and advances the issue to Todo; the next poll runs the agent pass and opens a draft PR. To skip the spec pass for a fully-scoped ticket, put the issue directly in Todo with acceptance criteria or an existing Taskcell spec comment.
 
 For GitHub smoke tests, create an issue in `OWNER/REPO` with `ready for spec`. The watcher should post a `<tech_spec>` comment and relabel to `ready for agent`; the next poll should open a draft PR. A fully-scoped issue can start directly with `ready for agent`. `needs info` means the issue is parked until a human adds detail and moves it back. See the [GitHub Loop v1.1 smoke test](smoke-tests/github-loop-v1-1.md) for the controlled two-pass `--once` runbook.
 
@@ -182,7 +182,7 @@ Put the box behind a firewall. With `--llm-proxy` and `--egress` the sandboxes a
 
 ## Recipe C: Hetzner with Coolify
 
-Coolify deploys a Docker Compose resource straight from a Git repo, which fits Vanguard well. This recipe is the shape to follow; verify it against your Coolify version, because the docker-out-of-docker socket mount is the part Coolify is strict about.
+Coolify deploys a Docker Compose resource straight from a Git repo, which fits Taskcell well. This recipe is the shape to follow; verify it against your Coolify version, because the docker-out-of-docker socket mount is the part Coolify is strict about.
 
 1. In Coolify, add a new resource of type **Docker Compose**, pointed at this repo, with the compose path `docker/compose.yaml`.
 2. Set the secrets as **environment variables** in the Coolify UI: `CLAUDE_CODE_OAUTH_TOKEN`, `LINEAR_API_KEY`, `GH_TOKEN`. Coolify injects them into the compose `${VAR}` references.

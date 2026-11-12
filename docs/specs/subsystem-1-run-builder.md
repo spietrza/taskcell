@@ -1,6 +1,6 @@
 # Subsystem 1 — Structured Run Builder
 
-**Parent:** [`docs/vanguard-app-vision.md`](../vanguard-app-vision.md)
+**Parent:** [`docs/taskcell-app-vision.md`](../taskcell-app-vision.md)
 **Status:** spec — ready for implementation plan (S0.5 merged, PR #325).
 **Date:** 2026-07-11 (re-verified against merged S0.5).
 **Depends on:**

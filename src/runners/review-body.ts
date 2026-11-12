@@ -11,7 +11,7 @@ export interface ReviewRequestBodyOptions {
   verificationFailed?: boolean;
   /** Same override for an implementer that never signalled COMPLETE (turn cap/timeout) — partial by definition. */
   implementerIncomplete?: boolean;
-  /** White-label mode: drop the "Automated implementation … by Vanguard" attribution line entirely. */
+  /** White-label mode: drop the "Automated implementation … by Taskcell" attribution line entirely. */
   hideAttribution?: boolean;
   /** A `<spec_manifest>` was present but only from an untrusted comment author: scope is unverifiable. */
   untrustedManifest?: boolean;
@@ -32,7 +32,7 @@ export function reviewRequestBody(taskId: string, opts: ReviewRequestBodyOptions
   // as a silent `Closes`.
   const red = verificationFailed === true || opts.implementerIncomplete === true || opts.untrustedManifest === true;
   // White-label mode drops the attribution line; `join` then omits it (and its blank separator).
-  const base = opts.hideAttribution === true ? undefined : `Automated implementation of ${taskId} by Vanguard.`;
+  const base = opts.hideAttribution === true ? undefined : `Automated implementation of ${taskId} by Taskcell.`;
   const join = (...parts: (string | undefined)[]): string =>
     parts.filter((p): p is string => p !== undefined && p !== '').join('\n\n');
 

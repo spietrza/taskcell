@@ -21,7 +21,7 @@ Routing differs by source:
 | `ready for agent` | Agent pass triggers (next poll after spec, or immediately for directly-labelled issues). Triage runs again — no spec or acceptance criteria → `needs info`. Valid tickets: full Implementer → Reviewer → Simplifier pipeline → PR (draft only when a gate or configured visual proof failed, or no verify command ran). If `--label` is supplied, the issue must also carry that ownership label. |
 | `needs info` | Parked. Human updates the ticket and moves it back. |
 
-> **Note on the issue template:** The [Vanguard Task template](../.github/ISSUE_TEMPLATE/vanguard-task.md) defaults to `ready for agent` only. The spec loop runs when a human downgrades the label to `ready for spec` (for high-level ideas that need a research + planning pass first). Leaving the label as `ready for agent` skips the spec pass and goes straight to implementation — this is intentional, not a bug. Add an ownership label such as `vanguard` only when your watcher is started with `--label vanguard`.
+> **Note on the issue template:** The [Taskcell Task template](../.github/ISSUE_TEMPLATE/vanguard-task.md) defaults to `ready for agent` only. The spec loop runs when a human downgrades the label to `ready for spec` (for high-level ideas that need a research + planning pass first). Leaving the label as `ready for agent` skips the spec pass and goes straight to implementation — this is intentional, not a bug. Add an ownership label such as `vanguard` only when your watcher is started with `--label vanguard`.
 
 ### Routing labels — full set (which go on an **issue** vs a **PR**)
 
@@ -286,7 +286,7 @@ taskcell approve --pr 557 --github-repo spietrza/taskcell --dry-run   # decide a
 
 `--github-repo` is required (the approver never infers the repo it judges), `--repo <path>` points at a local checkout of the base branch (default: cwd), and `--mode` accepts `shadow` only in v1.
 
-**In CI (this repo).** `.github/workflows/taskcell-approver.yml` runs it after the external review of a factory PR finishes (`workflow_run` on `Vanguard PR Review`), and waits for the required CI checks before deciding. That way the decision sees complete inputs once; triggering on CI as well would record a premature `review-missing` that the per-head dedupe then keeps. It builds the CLI from the default branch and never checks out PR code. Run it by hand from Actions → Vanguard Approver (shadow) with a PR number. Drafts get no decision, since the review does not run on them.
+**In CI (this repo).** `.github/workflows/taskcell-approver.yml` runs it after the external review of a factory PR finishes (`workflow_run` on `Taskcell PR Review`), and waits for the required CI checks before deciding. That way the decision sees complete inputs once; triggering on CI as well would record a premature `review-missing` that the per-head dedupe then keeps. It builds the CLI from the default branch and never checks out PR code. Run it by hand from Actions → Taskcell Approver (shadow) with a PR number. Drafts get no decision, since the review does not run on them.
 
 **Policy and kill switch.** Everything tunable lives in `.taskcell/approver.json`, read from the **base branch only** (`git show refs/remotes/origin/<base>:.taskcell/approver.json`) — never the working tree or the PR head, so a PR cannot widen the policy judging it; a PR that touches that file always escalates. An unreadable or invalid policy fails closed to `ESCALATE` (`policy-unreadable`). Field-by-field reference: [approver-policy.md](approver-policy.md).
 

@@ -15,19 +15,19 @@ describe('reviewRequestBody', () => {
   it('starts with Closes <task.id> when auto-close is enabled (legacy, no manifest)', () => {
     const taskId = 'owner/repo#42';
     const body = reviewRequestBody(taskId, { closeIssueOnMerge: true });
-    expect(body).toBe(`Closes ${taskId}\n\nAutomated implementation of ${taskId} by Vanguard.`);
+    expect(body).toBe(`Closes ${taskId}\n\nAutomated implementation of ${taskId} by Taskcell.`);
   });
 
   it('omits auto-close syntax by default (legacy, no manifest)', () => {
     const body = reviewRequestBody('LIN-42');
-    expect(body).toBe('Automated implementation of LIN-42 by Vanguard.');
+    expect(body).toBe('Automated implementation of LIN-42 by Taskcell.');
   });
 
-  it('drops the Vanguard attribution line under hideAttribution (white-label)', () => {
+  it('drops the Taskcell attribution line under hideAttribution (white-label)', () => {
     const taskId = 'owner/repo#42';
     const body = reviewRequestBody(taskId, { closeIssueOnMerge: true, hideAttribution: true });
     expect(body).toBe(`Closes ${taskId}`);
-    expect(body).not.toMatch(/Vanguard/);
+    expect(body).not.toMatch(/Taskcell|Vanguard/);
   });
 
   it('uses Closes with a full checklist when conformance passes', () => {
@@ -55,7 +55,7 @@ describe('reviewRequestBody', () => {
   it('falls back to legacy behavior for an unchecked conformance result', () => {
     const conformance = checkConformance(undefined, '');
     const body = reviewRequestBody('owner/repo#42', { closeIssueOnMerge: true, conformance });
-    expect(body).toBe('Closes owner/repo#42\n\nAutomated implementation of owner/repo#42 by Vanguard.');
+    expect(body).toBe('Closes owner/repo#42\n\nAutomated implementation of owner/repo#42 by Taskcell.');
   });
 });
 

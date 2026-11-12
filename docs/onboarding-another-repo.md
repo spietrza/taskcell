@@ -48,7 +48,7 @@ The reusable workflows declare no `permissions:` of their own — they run with 
 The **minimal** form: Claude does plan/implement/review/simplify, and the model credential stays in a sidecar (`llm-proxy`). Replace every `YOUR_LOGIN`.
 
 ```yaml
-name: Vanguard Implement
+name: Taskcell Implement
 on:
   issues:
     types: [labeled]
@@ -126,7 +126,7 @@ Taskcell's own callers turn all three on; client repos should decide deliberatel
 ### `.github/workflows/taskcell-doctor.yml` — validate before your first issue
 
 ```yaml
-name: Vanguard Doctor
+name: Taskcell Doctor
 on:
   workflow_dispatch:
 permissions:
@@ -148,14 +148,14 @@ jobs:
 
 Inputs: `allowed-actors` (required), `provider`, `review-provider`, `vanguard-ref`. Pass the same `provider` / `review-provider` as your implement caller (and map `CODEX_AUTH_JSON` if you review with Codex) so it validates the credentials the real run will use.
 
-Run it from **Actions → Vanguard Doctor → Run workflow** (clickable from the GitHub mobile app). It processes no issues; it just checks Node, auth, labels, Docker, the sandbox image, and the repo remote, then goes green or red. Run it once on a fresh repo before you label anything.
+Run it from **Actions → Taskcell Doctor → Run workflow** (clickable from the GitHub mobile app). It processes no issues; it just checks Node, auth, labels, Docker, the sandbox image, and the repo remote, then goes green or red. Run it once on a fresh repo before you label anything.
 
 ### `.github/workflows/taskcell-pr-review.yml` — review a PR (optional)
 
 Adds a visible, adversarial `gh pr review` when you put `ready for taskcell review` on your own PR. This example reviews with Codex and falls back to Claude if Codex fails (a usage limit, a bad model name). `watch-prs` has no provider fallback of its own, so `pr-review.yml` retries with `fallback-provider` / `fallback-model` when you set them.
 
 ```yaml
-name: Vanguard PR Review
+name: Taskcell PR Review
 on:
   pull_request_target:
     types: [labeled]
@@ -234,7 +234,7 @@ Then set them on your `taskcell-revise.yml` caller the same way as `pr-review.ym
 The revise gate differs from the PR-review one: Taskcell's own PRs are authored by `github-actions[bot]`, so the **author** list must include it while the **sender** list stays human. A caller that copies the PR-review gate (`pull_request.user.login == 'YOUR_LOGIN'`) can never run:
 
 ```yaml
-name: Vanguard Revise
+name: Taskcell Revise
 on:
   pull_request_target:
     types: [labeled]
@@ -275,8 +275,8 @@ jobs:
 
 ```markdown
 ---
-name: Vanguard Task / Agent Implementation
-about: Submit a well-defined task ready for automatic implementation by Vanguard.
+name: Taskcell Task / Agent Implementation
+about: Submit a well-defined task ready for automatic implementation by Taskcell.
 title: "[TASK] "
 labels: ready for agent
 assignees: ''
@@ -340,8 +340,8 @@ Both runs pick it up automatically when present, on the host only (it never ente
 
 ## 3. Validate, then use it
 
-1. **Validate:** run **Vanguard Doctor** once. Green means secrets, labels, Docker, and the sandbox image are all in place.
-2. **Create an issue:** New issue → the **Vanguard Task** template. Fill in real Acceptance Criteria (replace the placeholders).
+1. **Validate:** run **Taskcell Doctor** once. Green means secrets, labels, Docker, and the sandbox image are all in place.
+2. **Create an issue:** New issue → the **Taskcell Task** template. Fill in real Acceptance Criteria (replace the placeholders).
 3. **Label it:**
    - `ready for agent` — the task is precisely scoped (you wrote the criteria); Taskcell builds it directly.
    - `ready for spec` — a rough idea; Taskcell writes a Tech Spec first, then builds it.

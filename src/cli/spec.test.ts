@@ -22,7 +22,7 @@ describe('specCommand', () => {
       log: () => {},
     });
     expect(posted).toHaveLength(1);
-    expect(posted[0]).toContain('Vanguard tech spec:');
+    expect(posted[0]).toContain('Taskcell tech spec:');
     expect(posted[0]).toContain('<tech_spec>\nGoal: build it\n</tech_spec>');
   });
 
@@ -35,7 +35,7 @@ describe('specCommand', () => {
       },
       log: () => {},
     });
-    expect(posted[0]).not.toContain('Vanguard');
+    expect(posted[0]).not.toContain('Taskcell');
     expect(posted[0]).toContain('Tech spec:');
     expect(posted[0]).toContain('<tech_spec>');
   });

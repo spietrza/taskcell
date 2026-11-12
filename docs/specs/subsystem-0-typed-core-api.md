@@ -1,6 +1,6 @@
 # Subsystem 0 — Typed Core API (Node sidecar)
 
-**Parent:** [`docs/vanguard-app-vision.md`](../vanguard-app-vision.md)
+**Parent:** [`docs/taskcell-app-vision.md`](../taskcell-app-vision.md)
 **Status:** spec — ready for implementation plan
 **Date:** 2026-07-10
 **Depends on:** nothing (foundation). Subsystems 1–5 depend on this.

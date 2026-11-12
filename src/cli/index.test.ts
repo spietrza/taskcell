@@ -1,4 +1,5 @@
 import { describe, expect, it, vi, beforeEach, afterEach } from 'vitest';
+import { readFileSync } from 'node:fs';
 import type { Command } from './args.js';
 
 vi.mock('./run.js', () => ({ runCommand: vi.fn(async () => undefined) }));
@@ -88,7 +89,7 @@ const originalExitCode = process.exitCode;
 
 beforeEach(() => {
   vi.clearAllMocks();
-  process.argv = ['node', 'vanguard'];
+  process.argv = ['node', 'taskcell'];
   process.exitCode = undefined;
   exitSpy = vi.spyOn(process, 'exit').mockImplementation(() => undefined as never);
   logSpy = vi.spyOn(console, 'log').mockImplementation(() => undefined);
@@ -111,6 +112,30 @@ async function dispatch(command: Command): Promise<void> {
     if (exitSpy.mock.calls.length > 0) throw new Error(`process.exit called: ${JSON.stringify(exitSpy.mock.calls)}`);
   });
 }
+
+describe('bin name', () => {
+  it('the `vanguard` entry prints a one-line deprecation note on stderr, then runs the CLI', async () => {
+    const stderrSpy = vi.spyOn(process.stderr, 'write').mockImplementation(() => true);
+    vi.mocked(parseCli).mockReturnValue(commands.gc);
+    vi.resetModules();
+    await import('./vanguard.js');
+    await vi.waitFor(() => expect(allHandlers.gc).toHaveBeenCalled());
+    expect(stderrSpy.mock.calls.map((c) => String(c[0]))).toEqual(['vanguard: deprecated name, use `taskcell` instead.\n']);
+    stderrSpy.mockRestore();
+  });
+
+  it('the main entry prints nothing extra', async () => {
+    const stderrSpy = vi.spyOn(process.stderr, 'write').mockImplementation(() => true);
+    await dispatch(commands.gc);
+    expect(stderrSpy).not.toHaveBeenCalled();
+    stderrSpy.mockRestore();
+  });
+
+  it('package.json points the `vanguard` bin at the alias entry and `taskcell` at the main CLI', () => {
+    const pkg = JSON.parse(readFileSync(new URL('../../package.json', import.meta.url), 'utf8')) as { bin: Record<string, string> };
+    expect(pkg.bin).toEqual({ vanguard: 'dist/cli/vanguard.js', taskcell: 'dist/cli/index.js' });
+  });
+});
 
 describe('CLI dispatch', () => {
   for (const kind of Object.keys(allHandlers) as Array<keyof typeof allHandlers>) {

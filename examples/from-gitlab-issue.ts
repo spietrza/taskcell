@@ -1,8 +1,8 @@
 import { runGitlabIssue, gitlabDepsFromEnv } from '../src/runners/gitlab.js';
 
 /**
- * Full Vanguard loop with a GitLab Issue as the ONLY source of truth: issue = input,
- * draft MR = review, everything in one project. (Same logic as `vanguard run --gitlab`.)
+ * Full Taskcell loop with a GitLab Issue as the ONLY source of truth: issue = input,
+ * draft MR = review, everything in one project. (Same logic as `taskcell run --gitlab`.)
  *
  * Requires: the vanguard-sandbox image (docker/build.sh), an authenticated `glab`
  * (GITLAB_TOKEN env or `glab auth login`), auth in the env

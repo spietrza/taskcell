@@ -1,4 +1,4 @@
-# The Vanguard HUB image. Serves the desktop Inspector UI (apps/desktop) over plain HTTP/SSE via
+# The Taskcell HUB image. Serves the desktop Inspector UI (apps/desktop) over plain HTTP/SSE via
 # `vanguard hub` (src/hub/*.ts, src/cli/hub.ts) for local/VPS use without Tauri. Runs agent sandboxes
 # via the host docker socket (docker-out-of-docker), same as docker/runner.Dockerfile.
 # Pinned by digest for a reproducible, tamper-evident base (the tag is kept for readability).

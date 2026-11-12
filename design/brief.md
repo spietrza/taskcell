@@ -1,6 +1,6 @@
-# Vanguard Inspector — Design Brief (Final, Full-Product)
+# Taskcell Inspector — Design Brief (Final, Full-Product)
 
-> **For:** a Designer AI producing high-fidelity mockups for **every screen** of Vanguard Inspector.
+> **For:** a Designer AI producing high-fidelity mockups for **every screen** of Taskcell Inspector.
 > **Status:** Final full-product brief. Covers all phases (P0–P4), not an MVP slice.
 > **Deliver:** every screen below, in **light and dark**, at desktop size, with all key states, composed
 > from the **chunks-ui** component library and its Tailwind v4 tokens.
@@ -12,8 +12,8 @@
 
 ## 1. Product overview
 
-**Vanguard Inspector** is a local **Tauri 2** desktop app (Rust backend · React 19 · Tailwind v4 · the
-`chunks-ui` component library) — a **cockpit over Vanguard**, an autonomous software-factory CLI. Vanguard
+**Taskcell Inspector** is a local **Tauri 2** desktop app (Rust backend · React 19 · Tailwind v4 · the
+`chunks-ui` component library) — a **cockpit over Taskcell**, an autonomous software-factory CLI. Taskcell
 claims **Tasks** off a **Task Source** (GitHub / GitLab / Linear), runs an AI-agent pipeline inside isolated
 git worktrees, gates every **Run** behind a **Proof of Work** command, and opens draft **PRs / MRs** for
 human review. The desktop app lets a developer **watch, inspect, drive, configure, and remotely observe**
@@ -24,9 +24,9 @@ dashboard template.
 **Two personas** (spec §1):
 
 - **Sebastian — mobile / automated.** Specs are filed as issues; a cloud runner picks them up and drives
-  Vanguard unattended. Wants minimal UI: a glance from a phone-narrow window, remote observation of
+  Taskcell unattended. Wants minimal UI: a glance from a phone-narrow window, remote observation of
   CI-hosted Runs, high-signal status. The pipeline is the product.
-- **Paweł — local / hands-on.** Runs Vanguard locally alongside cloud orchestration and *wants to watch it
+- **Paweł — local / hands-on.** Runs Taskcell locally alongside cloud orchestration and *wants to watch it
   happen* — see the fleet, read live Run traces, inspect failures directly, and eventually launch and steer
   Runs from the app.
 
@@ -87,14 +87,14 @@ horizontally-scrolling containers — the page body never scrolls sideways.
 
 ### 3a. Conductor (PRIMARY — the look to hit)
 
-Native macOS SwiftUI. Concrete patterns to emulate and how they map onto Vanguard:
+Native macOS SwiftUI. Concrete patterns to emulate and how they map onto Taskcell:
 
-| Conductor pattern | What it looks like | Map onto Vanguard |
+| Conductor pattern | What it looks like | Map onto Taskcell |
 |---|---|---|
 | **Three-panel workspace layout** | Left: workspace sidebar (each workspace named after a city). Middle: agent chat/conversation. Right: live git **diff** + integrated **terminal**. | **Run detail / Live Run** as a 2–3 pane view: left = Run/stage nav, center = agent transcript, right = diff (and, for launched Runs, a log/terminal tail). |
 | **Workspace sidebar shows PR title or branch, git status, lifecycle logs at a glance** | Compact rows, quiet status glyphs, "at a glance what each agent is doing." | **Left rail / project rail**: each project and each running Run shows a one-line status (branch/Task id, Claim state, live dot, last activity). |
 | **Side-by-side diff, auto-fallback to unified in narrow windows** | PR-review-style diff, toggle side-by-side vs inline. | **Diff tab / diff pane**: default to the built colored unified diff; offer side-by-side at wide widths, unified when narrow. |
-| **Status bar: per-turn cost, budget tracking, token %, savings** | Persistent, quiet metrics row. | **Run cost strip**: per-stage cost, tokens, cache efficiency, budget cap vs remaining. Reuse Vanguard's already-persisted cost data. |
+| **Status bar: per-turn cost, budget tracking, token %, savings** | Persistent, quiet metrics row. | **Run cost strip**: per-stage cost, tokens, cache efficiency, budget cap vs remaining. Reuse Taskcell's already-persisted cost data. |
 | **Command palette (Cmd+K), session browser (Cmd+S), dashboard toggle (Tab)** | Keyboard-driven, actions grouped by category. | **Command palette** (open project, open Run, launch Run, toggle theme, jump to Task board) — a designed Future screen. |
 | **Markdown that "reads like a document"** — blockquotes, code with line numbers + copy buttons, links | Content pane feels editorial, not console. | Already partly built (`Markdown`, `CodeBlock`, `Callout`, `AgentText`). Keep this quality bar across all agent output. |
 | **Vibe-Coder / distraction-free mode (hide tools + metadata)** | Collapses tool noise to just the prose. | Maps to the built **Show raw ↔ Formatted** transcript toggle; extend to a "prose only" density control. |
@@ -110,7 +110,7 @@ traffic-light-aware top bar padding.
 React + Rust; a kanban board to orchestrate coding agents. Borrow specifically for the **Task board** and
 **Task detail** screens:
 
-| Vibe Kanban pattern | Map onto Vanguard |
+| Vibe Kanban pattern | Map onto Taskcell |
 |---|---|
 | **Board columns = lifecycle states** (To Do → In Progress → Review → Done) | Columns = the **Task Source label lifecycle**: `queued → claimed → running → verify-failed → review → done`, derived from issue labels + `metrics.jsonl`. On GitLab these are **Scoped Labels** (`vanguard::running`, `vanguard::review`). |
 | **Cards = tasks/agent runs with debug metadata** | **Task cards**: Task id + title, Claim state chip, running dot, last Run status, cost, #Runs. |
@@ -180,7 +180,7 @@ Numbers use **tabular-nums**. Muted metadata uses `text-muted-foreground` at `te
 - **Logo:** the **shield-cog** mark (a shield with a cog/gear inset) — an inline SVG using `currentColor`,
   sized via className, tinted `text-primary` in the top bar. It reads as *guardian + machinery*: the
   autonomous factory that guards quality behind Proof of Work.
-- **Wordmark:** "**Vanguard**" `font-semibold` beside the mark; a small `Chip` (e.g. "Inspector") denotes
+- **Wordmark:** "**Taskcell**" `font-semibold` beside the mark; a small `Chip` (e.g. "Inspector") denotes
   the active mode.
 - **Iconography:** **lucide-react**, thin stroke, matched to the shield-cog line weight. Seen in the built
   app: `Home`, `RefreshCw`, `FolderPlus`, `LayoutGrid`, `Inbox`, `X`. Extend consistently (e.g.
@@ -201,7 +201,7 @@ decorative spinners; loading is `Skeleton`/`Loader`.
 **Shell (target, Conductor-style cockpit):**
 
 - **Top bar** (built, keep): sticky, translucent (`bg-background/80 backdrop-blur`), 1px bottom border.
-  Left → right: shield-cog logo (`text-primary`) · "Vanguard" wordmark · mode `Chip` · **breadcrumb**
+  Left → right: shield-cog logo (`text-primary`) · "Taskcell" wordmark · mode `Chip` · **breadcrumb**
   context · **live** indicator (pulsing dot + "live") · right-aligned global actions (Reload, command
   palette trigger, `ThemeToggle`).
 - **Left rail** (target, Future): project switcher + primary nav (Dashboard, Task board, Remote, Fleet,
@@ -451,7 +451,7 @@ instant and stateful.
 - **Data:** the composed flag graph ↔ a declarative workflow file (round-trip). Mirrors `spawn_run` /
   `spawn_watch` flags: repo, source, label, models, concurrency, verify, budget.
 - **States:** empty canvas (start block) · composing · node selected (inspector populated) · invalid config
-  (node error + callout) · source-view · saved · dirty/unsaved. Clarify this depends on a Vanguard-side
+  (node error + callout) · source-view · saved · dirty/unsaved. Clarify this depends on a Taskcell-side
   declarative-workflow capability (spec §13) — design it as an aspirational, cohesive editor.
 
 ### 6.15 Settings  · *Future · P1/P2*
@@ -540,11 +540,11 @@ From `CONTEXT.md` — the words on screen must match:
   the spec pass labels vague Tasks as needing info.
 - **Proof of Work** — the verification command run in the sandbox after the agent finishes; failure **flags**
   the PR/MR but does not block it. *Not* "verify step / sandbox test." (Built UI label: "Proof of work".)
-- **Scoped Label** (GitLab) — a `::`-scoped, mutually-exclusive label; Vanguard's state labels
+- **Scoped Label** (GitLab) — a `::`-scoped, mutually-exclusive label; Taskcell's state labels
   (`vanguard::running`, `vanguard::review`, …). Use for board columns on GitLab.
 - **MR** — a GitLab **Merge Request** (the GitLab equivalent of a PR). Say **MR** for GitLab, **PR** for
   GitHub — never "PR" when the source is GitLab.
-- **Runner** — the CLI Vanguard shells out to for platform ops: `gh` (GitHub), `glab` (GitLab), `linear`
+- **Runner** — the CLI Taskcell shells out to for platform ops: `gh` (GitHub), `glab` (GitLab), `linear`
   (Linear). *Not* "CLI / client / SDK" in this sense.
 
 Additional on-screen terms from the built app: **Stage** (pipeline stage: implementer / reviewer /
@@ -570,7 +570,7 @@ Produce **high-fidelity frames** for **every screen in §6** (6.1–6.17), each:
    primitives; status color used sparingly per §4b.
 5. In the **Conductor-forward** visual language (§2–3): calm, Mac-native, quiet chrome, generous
    whitespace, restrained color, document-quality content, the pulsing live dot, subtle motion.
-6. Carrying the **shield-cog** logo + "Vanguard" wordmark + mode chip in the top bar, and the **exact
+6. Carrying the **shield-cog** logo + "Taskcell" wordmark + mode chip in the top bar, and the **exact
    domain labels** from §8 everywhere.
 
 Also provide: the **cockpit shell** (top bar + left rail + breadcrumb) as a reusable frame; the **status /

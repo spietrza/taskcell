@@ -1,6 +1,6 @@
 # CLI reference
 
-Detailed reference for the `vanguard` CLI: models, providers, decision models, one-shot commands, fork-and-select, the sandbox image, and cost. Run `vanguard --help` for the full flag list.
+Detailed reference for the `taskcell` CLI: models, providers, decision models, one-shot commands, fork-and-select, the sandbox image, and cost. Run `taskcell --help` for the full flag list.
 
 ## Models
 
@@ -166,16 +166,16 @@ A first run on a repo with no baseline yet exits non-zero with `no baseline foun
 
 The commit is authored `Vanguard <vanguard@local>` by default; override with `--commit-author "Name <email>"` (git's standard form) to attribute the work to yourself. The PR itself is opened by whichever account owns the push token (`VANGUARD_PUSH_TOKEN`/`GH_TOKEN`), independent of the commit author.
 
-**White-label mode.** Passing `--commit-author` also switches Taskcell to deliver a plain, human-looking PR — the "Vanguard" branding (PR text still uses the old name) is dropped everywhere it would reach the remote:
+**White-label mode.** Passing `--commit-author` also switches Taskcell to deliver a plain, human-looking PR — the Taskcell branding (some of it, such as the `## Vanguard Review` heading and the default commit author, still uses the old name) is dropped everywhere it would reach the remote:
 
 - Branch becomes `feat/<issue-number>-<hash>` (e.g. `feat/904-9d414a3d`) instead of `chore/vanguard-…`.
-- The PR body is just the `Closes #N` / `Part of #N` line — no "Automated implementation … by Vanguard" attribution and no `## Proof of work` block.
+- The PR body is just the `Closes #N` / `Part of #N` line — no "Automated implementation … by Taskcell" attribution and no `## Proof of work` block.
 - No Taskcell review comment is posted on the PR, and no "opened a PR" comment is posted back on the issue.
 - The commit message is Conventional-Commits-safe — `feat: <lower-case subject> (#N)`, header ≤100 chars — so a target repo's `commitlint` passes.
 
 `taskcell research` honours the same switch: with `--commit-author` its comment heading drops "Vanguard" (`## Research` instead of `## Vanguard Research`) and uses a neutral hidden marker — the author value is unused there since research never commits.
 
-**One-shot spec pass.** `taskcell spec <owner/repo#n> --repo <path> [--spec-model <m>] [--commit-author <a>]` runs the same tech-spec generator the watch loop uses (`techSpecStage`: read-only codebase research, `<tech_spec>` output) as a single CLI step — **no labels are read or written**. The spec is posted as an issue comment; `--commit-author` white-labels the heading (`Tech spec:` instead of `Vanguard tech spec:`). Recognition is keyed on the `<tech_spec>` tag, so triage and the conformance manifest treat both headings identically. Pair it with `taskcell run` on the same issue once the spec looks right — e.g. spec on a planner-tier model, then implement on a cheaper one (`--provider-model`) with the review pinned back on the planner tier (`--review-model`).
+**One-shot spec pass.** `taskcell spec <owner/repo#n> --repo <path> [--spec-model <m>] [--commit-author <a>]` runs the same tech-spec generator the watch loop uses (`techSpecStage`: read-only codebase research, `<tech_spec>` output) as a single CLI step — **no labels are read or written**. The spec is posted as an issue comment; `--commit-author` white-labels the heading (`Tech spec:` instead of `Taskcell tech spec:`). Recognition is keyed on the `<tech_spec>` tag, so triage and the conformance manifest treat both headings identically. Pair it with `taskcell run` on the same issue once the spec looks right — e.g. spec on a planner-tier model, then implement on a cheaper one (`--provider-model`) with the review pinned back on the planner tier (`--review-model`).
 
 **Fully local spec (no tracker trace).** Add `--out <file>` to `taskcell spec` to write the spec to a local file instead of posting any comment, then feed it back with `taskcell run … --spec-file <file>`: the file is injected into the fetched task as a virtual comment, so the implementer prompt, triage, and the conformance manifest read it exactly like a posted spec — but the only public artifact of the whole pipeline is the PR itself. `--spec-file` is single-issue only (rejected with `--parent`/`--project` fan-out); make sure `.taskcell/` is gitignored in the target repo so the spec never rides along in a commit.
 
