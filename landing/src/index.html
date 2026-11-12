@@ -30,7 +30,7 @@
 <a class="skip" href="#main">Skip to content</a>
 
 <header class="bar">
-  <a class="brand" href="/" aria-label="Taskcell home"><svg class="mark" viewBox="0 0 32 32" aria-hidden="true"><path class="wall" d="M2 2h28v16h-4V6H6v20h20v-4h4v8H2z"/><rect class="card" x="12" y="12" width="8" height="8"/></svg>Taskcell</a>
+  <a class="brand" href="/" aria-label="Taskcell home"><svg class="mark" viewBox="0 0 32 32" aria-hidden="true"><path class="wall" d="M2 2h28v16h-4V6H6v20h20v-4h4v8H2z"/><rect class="card" x="12" y="12" width="8" height="8"/></svg><span>Taskcell</span></a>
   <nav class="links" aria-label="Main">
     <a href="#how">How it works</a>
     <a href="#security">Security</a>
@@ -53,7 +53,6 @@
       <li class="chip">Self-hosted</li>
       <li class="chip">Claude Code · Codex · Cursor</li>
       <li class="chip">GitHub · GitLab · Linear</li>
-      <li class="chip soon">Desktop app · coming</li>
     </ul>
   </div>
 
@@ -79,6 +78,82 @@
     <li data-reveal class="d2"><b>Review</b><p>A reviewer reads the diff in a fresh context and fixes what it finds. Give it a second model, for example Codex reviewing Claude's work.</p></li>
     <li data-reveal class="d3"><b>Pull request</b><p>The host pushes the branch and opens the PR: ready for review when every gate passed, a draft when one did not. On GitHub, your review comments go back for a revision. You merge.</p></li>
   </ol>
+</section>
+
+<section class="section wrap" id="hub" aria-labelledby="hub-h">
+  <div class="head">
+    <p class="eyebrow" data-reveal>The Hub</p>
+    <h2 id="hub-h" data-reveal class="d1">Your factory, on one screen</h2>
+  </div>
+  <p class="intro d2" data-reveal><code>taskcell hub</code> shows your projects, the task board and the cost of every run. The live factory floor is coming to it; this is how it will look.</p>
+  <p class="preview-note d2" data-reveal>Preview with sample data. Projects, the board and cost per run are in the Hub today; the floor panel is not yet.</p>
+
+  <div class="hub d2" data-reveal>
+    <div class="hub-top"><b>Taskcell Hub</b></div>
+    <div class="hub-grid">
+      <div class="pane">
+        <h3>Factory floor <span>acme/billing</span></h3>
+        <div class="floor floor-panel compact" id="floor-panel">
+          <img class="poster" src="/img/floor-800.jpg" srcset="/img/floor-800.jpg 800w, /img/floor-1600.jpg 1600w" sizes="(max-width: 900px) 100vw, 55vw" width="1600" height="1100" alt="The same factory floor, as a panel in the Hub." loading="lazy">
+          <div class="stage"></div>
+        </div>
+      </div>
+      <div class="side">
+        <div class="pane">
+          <h3>Projects <span>this week</span></h3>
+          <div class="projects">
+            <div class="project"><b>acme/billing</b><span class="cost">$9.84</span><span class="meta">GitHub · 3 running · 12 runs</span><span class="meta cost">spend</span></div>
+            <div class="project"><b>acme/infra</b><span class="cost">$3.10</span><span class="meta">GitLab, self-hosted · 1 running · 4 runs</span><span class="meta cost">spend</span></div>
+            <div class="project"><b>acme/web</b><span class="cost">$0.00</span><span class="meta">GitHub · idle</span><span class="meta cost">spend</span></div>
+          </div>
+        </div>
+        <div class="pane">
+          <h3>Cost per run <span>last five</span></h3>
+          <table class="runs">
+            <thead><tr><th scope="col">Card</th><th scope="col">Models</th><th scope="col" class="r">Cache</th><th scope="col" class="r">Cost</th></tr></thead>
+            <tbody>
+              <tr><td>TC-44</td><td>Claude, Codex review</td><td class="r">97%</td><td class="r">$0.84</td></tr>
+              <tr><td>TC-45</td><td>Claude, Codex review</td><td class="r">98%</td><td class="r">$0.61</td></tr>
+              <tr><td>TC-43</td><td>Claude, 1 repair</td><td class="r">96%</td><td class="r">$1.27</td></tr>
+              <tr><td>TC-42</td><td>Codex, Claude review</td><td class="r">95%</td><td class="r">$0.93</td></tr>
+              <tr><td>TC-41</td><td>Claude, Codex review</td><td class="r">98%</td><td class="r">$0.58</td></tr>
+            </tbody>
+          </table>
+        </div>
+      </div>
+      <div class="pane board">
+        <h3>Task board <span>acme/billing</span></h3>
+        <div class="cols">
+          <div class="col"><h4>Todo</h4><ul>
+            <li><span class="id">TC-52</span>Rate-limit the export endpoint</li>
+            <li><span class="id">TC-53</span>Dark mode for settings</li>
+          </ul></div>
+          <div class="col"><h4>Spec</h4><ul>
+            <li><span class="id">TC-50 <span>for you to read</span></span>Paginate the audit log</li>
+          </ul></div>
+          <div class="col"><h4>In a cell</h4><ul>
+            <li><span class="id">TC-47</span>Retry webhooks with backoff<span class="charge"><i class="w25"></i></span></li>
+            <li><span class="id">TC-48</span>Show VAT on invoice PDFs<span class="charge"><i class="w50"></i></span></li>
+            <li><span class="id">TC-49</span>Export filter for currency<span class="charge"><i></i></span></li>
+          </ul></div>
+          <div class="col"><h4>Review</h4><ul>
+            <li><span class="id">TC-46</span>Archive paid invoices<span class="charge"><i class="w100"></i></span></li>
+          </ul></div>
+          <div class="col"><h4>Pull request</h4><ul>
+            <li><span class="id">TC-44 <span>#212</span></span>Add CSV export to invoices</li>
+            <li><span class="id">TC-45 <span>#213</span></span>Fix rounding in totals</li>
+          </ul></div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <ul class="hub-screens">
+    <li data-reveal class="d1"><b>Task board</b>Your tracker's issues, with New Run and a count of what is running and waiting.</li>
+    <li data-reveal class="d2"><b>Fleet</b>A watch loop at the concurrency you set, and the slots in use.</li>
+    <li data-reveal class="d3"><b>Runs</b>Every stage's record, diff, transcript and proof of work.</li>
+    <li data-reveal class="d4"><b>Remote</b>Import a CI run's records and open them like a local run.</li>
+  </ul>
 </section>
 
 <section class="section wrap" id="modules" aria-labelledby="mod-h">
@@ -231,10 +306,6 @@ docker/build.sh       <span class="c"># the sandbox image</span>
 pnpm link --global    <span class="c"># puts taskcell on your PATH</span></code></pre>
     <p>Also needed: <code>gh</code> for GitHub, <code>glab</code> for GitLab or the <code>linear</code> CLI for Linear.</p>
   </div>
-  <aside class="rename d1" data-reveal aria-label="About the command name">
-    <b>What about vanguard?</b>
-    Taskcell used to be called Vanguard. The command is now <code>taskcell</code>; <code>vanguard</code> still works as a deprecated alias. The <code>VANGUARD_*</code> variables, the <code>vanguard:*</code> labels and the <code>.vanguard/</code> folder keep the old name for now.
-  </aside>
 
   <ul class="ways">
     <li data-reveal class="d1">
@@ -257,7 +328,7 @@ taskcell hub --repo ../app
       <h3>The Hub on a server</h3>
       <p>A Docker image for a VPS or a home server, Coolify or plain Compose.</p>
 <pre class="cmd"><code>docker build -f docker/hub.Dockerfile \
-  -t vanguard-hub .</code></pre>
+  -t taskcell-hub .</code></pre>
       <p class="note">Behind Tailscale or an authenticating proxy, never a published port. Mounting the Docker socket gives the Hub root on that host.</p>
     </li>
   </ul>
@@ -266,82 +337,6 @@ taskcell hub --repo ../app
     <li data-reveal class="d1"><b>Desktop app</b>The Hub as a native app, starting with macOS.</li>
     <li data-reveal class="d2"><b>Mobile app</b>Connects to your own instance.</li>
     <li data-reveal class="d3"><b>Managed hosting</b>Later, for teams that want it run for them.</li>
-  </ul>
-</section>
-
-<section class="section wrap" id="hub" aria-labelledby="hub-h">
-  <div class="head">
-    <p class="eyebrow" data-reveal>The Hub</p>
-    <h2 id="hub-h" data-reveal class="d1">Your factory, on one screen</h2>
-  </div>
-  <p class="intro d2" data-reveal><code>taskcell hub</code> shows your projects, the task board and the cost of every run. The live factory floor is coming to it; this is how it will look.</p>
-  <p class="preview-note d2" data-reveal>Preview with sample data. Projects, the board and cost per run are in the Hub today; the floor panel is not yet.</p>
-
-  <div class="hub d2" data-reveal>
-    <div class="hub-top"><b>Taskcell Hub</b></div>
-    <div class="hub-grid">
-      <div class="pane">
-        <h3>Factory floor <span>acme/billing</span></h3>
-        <div class="floor floor-panel compact" id="floor-panel">
-          <img class="poster" src="/img/floor-800.jpg" srcset="/img/floor-800.jpg 800w, /img/floor-1600.jpg 1600w" sizes="(max-width: 900px) 100vw, 55vw" width="1600" height="1100" alt="The same factory floor, as a panel in the Hub." loading="lazy">
-          <div class="stage"></div>
-        </div>
-      </div>
-      <div class="side">
-        <div class="pane">
-          <h3>Projects <span>this week</span></h3>
-          <div class="projects">
-            <div class="project"><b>acme/billing</b><span class="cost">$9.84</span><span class="meta">GitHub · 3 running · 12 runs</span><span class="meta cost">spend</span></div>
-            <div class="project"><b>acme/infra</b><span class="cost">$3.10</span><span class="meta">GitLab, self-hosted · 1 running · 4 runs</span><span class="meta cost">spend</span></div>
-            <div class="project"><b>acme/web</b><span class="cost">$0.00</span><span class="meta">GitHub · idle</span><span class="meta cost">spend</span></div>
-          </div>
-        </div>
-        <div class="pane">
-          <h3>Cost per run <span>last five</span></h3>
-          <table class="runs">
-            <thead><tr><th scope="col">Card</th><th scope="col">Models</th><th scope="col" class="r">Cache</th><th scope="col" class="r">Cost</th></tr></thead>
-            <tbody>
-              <tr><td>TC-44</td><td>Claude, Codex review</td><td class="r">97%</td><td class="r">$0.84</td></tr>
-              <tr><td>TC-45</td><td>Claude, Codex review</td><td class="r">98%</td><td class="r">$0.61</td></tr>
-              <tr><td>TC-43</td><td>Claude, 1 repair</td><td class="r">96%</td><td class="r">$1.27</td></tr>
-              <tr><td>TC-42</td><td>Codex, Claude review</td><td class="r">95%</td><td class="r">$0.93</td></tr>
-              <tr><td>TC-41</td><td>Claude, Codex review</td><td class="r">98%</td><td class="r">$0.58</td></tr>
-            </tbody>
-          </table>
-        </div>
-      </div>
-      <div class="pane board">
-        <h3>Task board <span>acme/billing</span></h3>
-        <div class="cols">
-          <div class="col"><h4>Todo</h4><ul>
-            <li><span class="id">TC-52</span>Rate-limit the export endpoint</li>
-            <li><span class="id">TC-53</span>Dark mode for settings</li>
-          </ul></div>
-          <div class="col"><h4>Spec</h4><ul>
-            <li><span class="id">TC-50 <span>for you to read</span></span>Paginate the audit log</li>
-          </ul></div>
-          <div class="col"><h4>In a cell</h4><ul>
-            <li><span class="id">TC-47</span>Retry webhooks with backoff<span class="charge"><i class="w25"></i></span></li>
-            <li><span class="id">TC-48</span>Show VAT on invoice PDFs<span class="charge"><i class="w50"></i></span></li>
-            <li><span class="id">TC-49</span>Export filter for currency<span class="charge"><i></i></span></li>
-          </ul></div>
-          <div class="col"><h4>Review</h4><ul>
-            <li><span class="id">TC-46</span>Archive paid invoices<span class="charge"><i class="w100"></i></span></li>
-          </ul></div>
-          <div class="col"><h4>Pull request</h4><ul>
-            <li><span class="id">TC-44 <span>#212</span></span>Add CSV export to invoices</li>
-            <li><span class="id">TC-45 <span>#213</span></span>Fix rounding in totals</li>
-          </ul></div>
-        </div>
-      </div>
-    </div>
-  </div>
-
-  <ul class="hub-screens">
-    <li data-reveal class="d1"><b>Task board</b>Your tracker's issues, with New Run and a count of what is running and waiting.</li>
-    <li data-reveal class="d2"><b>Fleet</b>A watch loop at the concurrency you set, and the slots in use.</li>
-    <li data-reveal class="d3"><b>Runs</b>Every stage's record, diff, transcript and proof of work.</li>
-    <li data-reveal class="d4"><b>Remote</b>Import a CI run's records and open them like a local run.</li>
   </ul>
 </section>
 
@@ -390,7 +385,7 @@ taskcell hub --repo ../app
   <h2 class="sr" id="end-h">Get Taskcell</h2>
   <p class="big" data-reveal>Put one card through it this week.</p>
   <a class="btn d1" href="https://github.com/spietrza/taskcell" data-reveal>Get it on GitHub</a>
-  <p class="small d2" data-reveal>Open source, MIT. The command is <code>taskcell</code>; <code>vanguard</code> is a deprecated alias.</p>
+  <p class="small d2" data-reveal>Open source, MIT.</p>
 </section>
 </main>
 

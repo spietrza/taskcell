@@ -2,7 +2,7 @@ import { useEffect, useState } from 'react';
 import { isTauri } from '@tauri-apps/api/core';
 import { Button, Card, Chip, Empty, Textarea } from '@/ui';
 import { MessageCircleQuestionMark, RefreshCw } from 'lucide-react';
-import { listNeedsYou, replyNeedsYou, type NeedsYouItem } from '../../ipc';
+import { listNeedsYou, mergeNeedsYou, replyNeedsYou, type NeedsYouItem } from '../../ipc';
 import { isHubMode } from '../../transport';
 
 /** `list_needs_you`/`reply_needs_you` are HUB_ONLY (no Tauri command); only the browser dev build's mock serves them outside the hub. */
@@ -55,6 +55,46 @@ function ReplyBox({ project, item, onReplied }: { project: string; item: NeedsYo
           </span>
         )}
       </div>
+    </div>
+  );
+}
+
+/** Merge a waiting PR into its real base branch; a refusal (not waiting, checks not green) shows inline. */
+function MergeButton({ project, item, onMerged }: { project: string; item: NeedsYouItem; onMerged: () => void }) {
+  const [merging, setMerging] = useState(false);
+  const [confirming, setConfirming] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+
+  const merge = async (): Promise<void> => {
+    setMerging(true);
+    setConfirming(false);
+    setError(null);
+    try {
+      await mergeNeedsYou(project, item.id);
+      onMerged();
+    } catch (e) {
+      setError(String(e));
+    } finally {
+      setMerging(false);
+    }
+  };
+
+  return (
+    <div className="flex items-center gap-2">
+      {/* Outlined, like Reply: the screen has one per item. A merge is irreversible, so it takes a second click. */}
+      <Button variant="outlined" disabled={merging} onClick={() => (confirming ? void merge() : setConfirming(true))}>
+        {merging ? 'Merging…' : `${confirming ? 'Confirm merge' : 'Merge'}${item.baseRef ? ` into ${item.baseRef}` : ''}`}
+      </Button>
+      {confirming && (
+        <Button variant="text" color="secondary" onClick={() => setConfirming(false)}>
+          Cancel
+        </Button>
+      )}
+      {error && (
+        <span role="alert" className="text-xs text-destructive-text">
+          Not merged: {error}
+        </span>
+      )}
     </div>
   );
 }
@@ -131,6 +171,7 @@ export function NeedsYou({ project }: { project: string }) {
                 <div className="whitespace-pre-wrap break-words">{item.lastComment.body}</div>
               </div>
             )}
+            {item.kind === 'pr' && <MergeButton project={project} item={item} onMerged={reload} />}
             <ReplyBox project={project} item={item} onReplied={reload} />
           </Card.Content>
         </Card.Root>

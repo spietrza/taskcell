@@ -283,3 +283,15 @@ Every sandbox run installs the target repo's dependencies into an empty pnpm sto
 An issue can wait for others. Native "blocked by" relations and body lines count: `Depends on #12`, `Depends on owner/repo#12`, `Depends on https://github.com/owner/repo/issues/12` (comma-separated lists allowed). A dependency is met when closed as completed or its PR is merged. A `Start: YYYY-MM-DD` line keeps the issue waiting until that date (UTC).
 
 `watch` (sweep and `--issue`) does not start an issue with unmet dependencies: it comments once naming the blockers and swaps the trigger label for `vanguard:waiting`. `resume-rate-limited` (run it on a schedule, e.g. taskcell-resume.yml) re-applies the trigger label once the blockers are done or the date passed; without such a sweep, re-apply the label by hand. A cycle, a missing reference, or a blocker closed as not planned / unmerged ends in `needs info` with the reason. A failed lookup (no access to a cross-repo issue, an API error) parks the issue under `vanguard:waiting` with the reason; the sweep reports it as failed until the lookup works. Issues without dependencies behave as before.
+
+### Starting the factory from the hub
+
+The hub's `start_task` call applies a trigger label to an issue of a registered project, as the hub's own `gh` identity (the credential it already uses for that project's GitHub source). Arguments: `repoPath`, `number`, `label`. GitHub only: a GitLab or Linear project answers "not supported yet". The response says what happened: `status` is `labelled` (or `retried` when a trigger label was already on a parked issue), `label` is the label applied, and `waitingOn` lists the unmet dependencies (`owner/repo#N`) of an issue parked at `vanguard:waiting`, for "waiting on #N".
+
+It is a remote mutation, so a non-loopback hub refuses it unless `VANGUARD_HUB_ALLOW_ADD=1`. It also refuses, with no GitHub write:
+
+- a label that is not one of the project's trigger labels (`ready for agent`, `ready for spec`, and the `label` in `.taskcell/app.json`);
+- a closed issue, or a pull request;
+- an issue that already carries a trigger label (compared case-insensitively) or a started label (`vanguard:running`, `vanguard:speccing`, `vanguard:researching`, `vanguard:needs-human-review`): "already running or queued". Other `vanguard:*` labels, such as `vanguard:model=<m>` or `vanguard:secret-blocked`, do not block.
+
+A parked issue (`vanguard:waiting` or `vanguard:rate-limited`) is the exception, so a human can force a retry: any trigger label still on it is removed and the requested one added, which fires a fresh `labeled` event even if the label was already there.
