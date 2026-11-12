@@ -6,7 +6,7 @@ import type { AddressInfo } from 'node:net';
 import { request } from 'node:http';
 import { PassThrough } from 'node:stream';
 import type { ChildProcess } from 'node:child_process';
-import { afterEach, beforeEach, describe, expect, test } from 'vitest';
+import { afterEach, beforeEach, describe, expect, test, vi } from 'vitest';
 import { createHubServer, MAX_RPC_BODY_BYTES, type HubServer } from './server.js';
 import { listRunSummaries, defaultRunsRoot } from './runs.js';
 import { MAX_CONCURRENT_COMPLETES } from './complete.js';
@@ -96,8 +96,7 @@ describe('hub server', () => {
     hub.eventBus.publish('api:event', { runId: 'run-0', event: { type: 'run-accepted', repoPath: repo } });
     hub.eventBus.publish('api:event', { runId: 'run-0', event: { type: 'run-start', taskId: 'T-5', flow: 'f', provider: 'p', stages: [] } });
     hub.eventBus.publish('api:event', { runId: 'run-0', event: { type: 'run-end' } });
-    await new Promise((r) => setTimeout(r, 100));
-    expect((await readRunEvents(repo, 'T-5')).events).toHaveLength(3);
+    await vi.waitFor(async () => expect((await readRunEvents(repo, 'T-5')).events).toHaveLength(3));
   });
 
   test('rejects untrusted Hosts before disclosing the SPA token, allows explicit proxy Hosts', async () => {

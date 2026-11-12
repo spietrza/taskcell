@@ -54,6 +54,8 @@ export interface EventLog {
   record(entry: { id: number; event: string; data: unknown }): void;
   /** Resolves once every write queued so far has settled (tests, shutdown). */
   flush(): Promise<void>;
+  /** Shutdown: flush, then close the handle of any run that never reached a terminal event. */
+  close(): Promise<void>;
 }
 
 export function createEventLog(maxBytes: number = MAX_EVENT_LOG_BYTES): EventLog {
@@ -107,6 +109,23 @@ export function createEventLog(maxBytes: number = MAX_EVENT_LOG_BYTES): EventLog
     });
   }
 
+  /** Queued after the open step, so the handle (if any) is set by the time this runs. */
+  function detach(runId: string, log: RunLog): void {
+    runs.delete(runId);
+    enqueue(async () => {
+      await log.handle?.close();
+    });
+  }
+
+  async function flush(): Promise<void> {
+    // Loop: the open step queues the pending lines after the chain was first read.
+    for (;;) {
+      const seen = chain;
+      await seen;
+      if (chain === seen) return;
+    }
+  }
+
   function accept(runId: string, repoPath: string): RunLog {
     const log: RunLog = { repoPath, secretValues: injectedSecretValues(), pending: [], pendingBytes: 0, opening: false, bytes: 0, dead: false };
     runs.set(runId, log);
@@ -136,24 +155,15 @@ export function createEventLog(maxBytes: number = MAX_EVENT_LOG_BYTES): EventLog
             if (event.type === 'run-start' && typeof event.taskId === 'string' && !log.opening) open(log, event.taskId, ts);
           }
         }
-        if (event.type === 'run-end' || event.type === 'run-error' || event.type === 'run-cancelled') {
-          runs.delete(runId);
-          // Queued after the open step, so the handle (if any) is set by the time this runs.
-          enqueue(async () => {
-            await log.handle?.close();
-          });
-        }
+        if (event.type === 'run-end' || event.type === 'run-error' || event.type === 'run-cancelled') detach(runId, log);
       } catch {
         // never break the hub's publish path
       }
     },
-    async flush(): Promise<void> {
-      // Loop: the open step queues the pending lines after the chain was first read.
-      for (;;) {
-        const seen = chain;
-        await seen;
-        if (chain === seen) return;
-      }
+    flush,
+    async close(): Promise<void> {
+      for (const [runId, log] of runs) detach(runId, log);
+      await flush();
     },
   };
 }

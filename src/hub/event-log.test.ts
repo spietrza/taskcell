@@ -138,6 +138,16 @@ describe('event log', () => {
     warn.mockRestore();
   });
 
+  test('close drains an unfinished run and detaches it', async () => {
+    const { bus, log } = wire();
+    bus.publish('api:event', api({ type: 'run-accepted', repoPath: repo }));
+    bus.publish('api:event', api({ type: 'run-start', taskId: 'T-1', flow: 'f', provider: 'p', stages: [] }));
+    await log.close();
+    bus.publish('api:event', api({ type: 'warning', message: 'after close' }));
+    await log.flush();
+    expect((await readRunEvents(repo, 'T-1')).events.map((e) => e.id)).toEqual([1, 2]);
+  });
+
   test('unknown task returns an empty page; traversal is refused', async () => {
     expect(await readRunEvents(repo, 'nope')).toEqual({ events: [], hasMore: false, truncated: false });
     await expect(readRunEvents(repo, '../x')).rejects.toThrow();

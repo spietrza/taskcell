@@ -373,7 +373,7 @@ export function createHubServer(opts: HubServerOptions): HubServer {
         watchRegistry.closeAll();
         eventBus.close();
         server.closeAllConnections();
-        server.close(() => void eventLog.flush().then(resolve));
+        server.close(() => void eventLog.close().then(resolve));
       }),
   };
 }
