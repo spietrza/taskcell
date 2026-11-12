@@ -72,3 +72,4 @@ jobs:
       # PAT that opens the PR: a PR opened with GITHUB_TOKEN fires no workflows (recursion guard),
       # so it would sit with no CI until someone pushes. Same token as revise.
       VANGUARD_PUSH_TOKEN: ${{ secrets.VANGUARD_PUSH_TOKEN }}
+      TASKCELL_APP_PRIVATE_KEY: ${{ secrets.TASKCELL_APP_PRIVATE_KEY }}

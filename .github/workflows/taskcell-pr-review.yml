@@ -22,14 +22,18 @@ jobs:
       contains(fromJSON('["opened","ready_for_review"]'), github.event.action) &&
       github.event.pull_request.draft == false &&
       github.event.pull_request.head.repo.full_name == github.repository &&
-      startsWith(github.event.pull_request.head.ref, 'chore/vanguard-') &&
-      contains(fromJSON('["spietrza","pawelkrystkiewicz"]'), github.event.pull_request.user.login) &&
-      contains(fromJSON('["spietrza","pawelkrystkiewicz"]'), github.event.sender.login)
+      startsWith(github.event.pull_request.head.ref, 'chore/vanguard-') && (
+      (contains(fromJSON('["spietrza","pawelkrystkiewicz"]'), github.event.pull_request.user.login) &&
+      contains(fromJSON('["spietrza","pawelkrystkiewicz"]'), github.event.sender.login)) ||
+      (github.event.pull_request.user.login == 'taskcell[bot]' && github.event.sender.login == 'taskcell[bot]'))
     runs-on: ubuntu-latest
     steps:
+      # A PR the taskcell App opened or undrafted is labelled with the PAT, not GITHUB_TOKEN: that `labeled`
+      # event starts its own review run with a human sender, which the reusable workflow's allowed-actors
+      # check accepts. The bot itself is never an allowed actor (that list also names trusted feedback authors).
       - name: Add the review trigger label
         env:
-          GH_TOKEN: ${{ github.token }}
+          GH_TOKEN: ${{ github.event.sender.login == 'taskcell[bot]' && secrets.VANGUARD_PUSH_TOKEN || github.token }}
           PR: ${{ github.event.pull_request.number }}
         run: gh api -X POST "repos/$GITHUB_REPOSITORY/issues/$PR/labels" -f 'labels[]=ready for vanguard review' --silent
 
@@ -38,12 +42,15 @@ jobs:
     if: >-
       !cancelled() && (
       github.event_name == 'workflow_dispatch' ||
-      needs.label-factory-pr.result == 'success' ||
+      (needs.label-factory-pr.result == 'success' && github.event.sender.login != 'taskcell[bot]') ||
       (github.event.action == 'labeled' &&
       github.event.label.name == 'ready for vanguard review' &&
       github.event.pull_request.draft == false &&
-      contains(fromJSON('["spietrza","pawelkrystkiewicz"]'), github.event.pull_request.user.login) &&
-      contains(fromJSON('["spietrza","pawelkrystkiewicz"]'), github.event.sender.login)))
+      contains(fromJSON('["spietrza","pawelkrystkiewicz"]'), github.event.sender.login) && (
+      contains(fromJSON('["spietrza","pawelkrystkiewicz"]'), github.event.pull_request.user.login) ||
+      (github.event.pull_request.user.login == 'taskcell[bot]' &&
+      github.event.pull_request.head.repo.full_name == github.repository &&
+      startsWith(github.event.pull_request.head.ref, 'chore/vanguard-')))))
     # Job-level, not workflow-level: a run whose jobs are all skipped (any other label, any other opened PR)
     # never joins the group, so it cannot cancel a review that is waiting in it.
     concurrency:

@@ -64,6 +64,9 @@ on:
       VANGUARD_PUSH_TOKEN:
         description: 'PAT for revision pushes. GITHUB_TOKEN pushes fire no workflows (recursion guard), so a revised PR would get no CI and sit BLOCKED under branch protection (#256). Falls back to the workflow token.'
         required: false
+      TASKCELL_APP_PRIVATE_KEY:
+        description: 'Private key of the taskcell GitHub App (with repo variable TASKCELL_APP_CLIENT_ID). When both are set, factory PRs are opened by the App bot instead of the PAT owner; the CLI mints a short-lived token right before each use.'
+        required: false
 
 jobs:
   revise:
@@ -159,6 +162,8 @@ jobs:
           CLAUDE_CODE_OAUTH_TOKEN: ${{ secrets.CLAUDE_CODE_OAUTH_TOKEN }}
           CODEX_AUTH_JSON: ${{ secrets.CODEX_AUTH_JSON }}
           VANGUARD_PUSH_TOKEN: ${{ secrets.VANGUARD_PUSH_TOKEN }}
+          TASKCELL_APP_CLIENT_ID: ${{ vars.TASKCELL_APP_CLIENT_ID }}
+          TASKCELL_APP_PRIVATE_KEY: ${{ secrets.TASKCELL_APP_PRIVATE_KEY }}
           IN_NUMBER: ${{ inputs.number }}
           IN_PROVIDER: ${{ inputs.provider }}
           IN_PROVIDER_MODEL: ${{ inputs.provider-model }}
