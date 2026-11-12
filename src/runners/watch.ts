@@ -7,6 +7,7 @@ import { runGithubIssue } from './github.js';
 import { runGitlabIssue } from './gitlab.js';
 import { runSpecGenerator } from './spec.js';
 import { assessTaskReadiness, isTaskcellSpec, SPEC_TAG } from '../tasks/triage.js';
+import { applyDependencyGate } from '../tasks/dependencies.js';
 import { fanOut } from '../pipeline/fan-out.js';
 import { failureReason, formatFailureComment } from '../core/errors.js';
 import { isRateLimitHold, rateLimitHold } from '../core/rate-limit-marker.js';
@@ -786,7 +787,13 @@ export function githubIssueWatchPrimitives(opts: WatchGithubOptions): WatchPrimi
         opts.issueRef !== undefined
           ? await fetchHintedIssue(fetcher, opts.issueRef, agentLabels, opts.claimedLabel)
           : await fetcher.list({ labels: agentLabels });
-      const tasks = await withTrustedIssueAuthors(repo, listed, opts.deps.feedbackAuthors, opts.gh);
+      const trusted = await withTrustedIssueAuthors(repo, listed, opts.deps.feedbackAuthors, opts.gh);
+      const tasks = await applyDependencyGate(trusted, {
+        repo,
+        trigger: opts.label,
+        ...(needsInfoLabel !== undefined ? { needsInfoLabel } : {}),
+        ...(opts.gh !== undefined ? { gh: opts.gh } : {}),
+      });
       heldBefore.clear();
       for (const task of tasks) if (task.labels.includes(GITHUB_SECRET_BLOCKED_LABEL)) heldBefore.add(task.id);
       rateLimitedBefore.clear();
@@ -903,7 +910,16 @@ export function githubSpecPrimitives(opts: WatchGithubSpecOptions): SpecWatchPri
         opts.issueRef !== undefined
           ? await fetchHintedIssue(fetcher, opts.issueRef, specLabels, opts.claimedLabel)
           : await fetcher.list({ labels: specLabels });
-      return (await withTrustedIssueAuthors(repo, listed, opts.deps.feedbackAuthors, opts.gh)).map((task) => ({ id: task.id }));
+      const trusted = await withTrustedIssueAuthors(repo, listed, opts.deps.feedbackAuthors, opts.gh);
+      // Gate here too: a blocked issue must never be specced or advanced (a --once run carries
+      // advanced ids straight into the agent pass, past its own gate).
+      const tasks = await applyDependencyGate(trusted, {
+        repo,
+        trigger: opts.specLabel,
+        needsInfoLabel: opts.needsInfoLabel,
+        ...(opts.gh !== undefined ? { gh: opts.gh } : {}),
+      });
+      return tasks.map((task) => ({ id: task.id }));
     },
     claim: (id) => editGithubLabels(repo, id, { remove: [opts.specLabel], add: [opts.claimedLabel] }, opts.gh),
     runSpec: async (id) => {

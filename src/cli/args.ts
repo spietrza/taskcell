@@ -5,12 +5,13 @@ import type { RunOptions } from '../runners/source-adapter.js';
 import type { LessonsCommand } from './lessons.js';
 import { assertSafeBaseBranch } from '../core/base-branch.js';
 import { parseUsageCap } from '../core/usage-cap.js';
+import { GITHUB_CLAIMED_LABEL, GITHUB_REVIEW_LABEL, GITHUB_SPEC_CLAIMED_LABEL } from '../github-labels.js';
 
 type WatchSource = 'linear' | 'github' | 'project' | 'gitlab';
 
 export type Command =
   | { kind: 'gc'; repoPath: string; maxAgeMs: number; remoteRepo?: string; dryRun: boolean; abandoned: boolean }
-  | { kind: 'resume-rate-limited'; repoSlug: string; dryRun: boolean; triggerLabels?: string[] }
+  | { kind: 'resume-rate-limited'; repoSlug: string; dryRun: boolean; triggerLabels?: string[]; startedLabels?: string[] }
   | {
       kind: 'review-pr';
       prRef: string;
@@ -835,11 +836,21 @@ export function parseCli(argv: string[], cwd: string): Command {
     if (repoSlug === undefined) return fail('resume-rate-limited requires --github-repo <owner/repo>.');
     const raw = values['trigger-labels'];
     const triggerLabels = typeof raw === 'string' ? raw.split(',').map((l) => l.trim()).filter((l) => l !== '') : [];
+    // A waiting issue carrying one of these already started; custom names must match the watch's.
+    const started = [
+      [values['claimed-state'], GITHUB_CLAIMED_LABEL],
+      [values['review-state'], GITHUB_REVIEW_LABEL],
+      [values['spec-claimed-label'], GITHUB_SPEC_CLAIMED_LABEL],
+    ] as const;
+    const startedLabels = started.some(([v]) => typeof v === 'string')
+      ? started.map(([v, fallback]) => (typeof v === 'string' ? v : fallback))
+      : undefined;
     return {
       kind: 'resume-rate-limited',
       repoSlug,
       dryRun: values['dry-run'] === true,
       ...(triggerLabels.length > 0 ? { triggerLabels } : {}),
+      ...(startedLabels !== undefined ? { startedLabels } : {}),
     };
   }
 
@@ -1403,7 +1414,9 @@ Commands:
   lessons list | dismiss <id>  Show the live lessons, or dismiss a wrong one so no run gets it again.
   eval   Run the committed eval corpus and print a per-kind pass-rate report; --baseline gates the run
          against a saved result instead of an absolute number, --save-baseline publishes one.
-  resume-rate-limited Re-apply the trigger label on issues/PRs a provider limit parked, once the reset passed (--trigger-labels a,b names custom triggers).
+  resume-rate-limited Re-apply the trigger label on issues/PRs a provider limit parked, once the reset passed, and on issues
+         parked as vanguard:waiting (unmet Depends on #N / native blocked-by, future Start: YYYY-MM-DD) once they are clear
+         (--trigger-labels a,b names custom triggers; --claimed-state, --review-state, --spec-claimed-label as given to watch).
   gc     Reap stale sandbox containers, prune worktrees, and (with --remote) delete merged
          remote chore/vanguard-* branches.
   hub    Serve the Inspector UI over HTTP/SSE (node:http), backed by a real .taskcell/ directory.

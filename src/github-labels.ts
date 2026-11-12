@@ -16,3 +16,6 @@ export function githubFailureLabel(kind: ProofFailureKind): string {
   if (kind === 'gate-config') return GITHUB_GATE_CONFIG_LABEL;
   return kind === 'verify' ? GITHUB_VERIFY_FAILED_LABEL : GITHUB_VISUAL_PROOF_FAILED_LABEL;
 }
+
+/** Parks an issue whose dependencies are unmet or whose `Start:` date is in the future; the resume sweep swaps the trigger label back. */
+export const GITHUB_WAITING_LABEL = 'vanguard:waiting';
