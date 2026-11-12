@@ -593,7 +593,7 @@ export interface RunEventsPage {
 export interface Commands {
   list_runs: { args: { repoPath: string }; result: RunSummary[] };
   read_run: { args: { repoPath: string; taskId: string; timestamp: string; source: RunSource }; result: RunDetail };
-  /** HUB_ONLY, read-only: a run's persisted event log (`.taskcell/runs/<taskId>/<timestamp>.events.jsonl`), events with `id > after`, oldest first. `timestamp` (a run record's `RunSummary.timestamp`) resolves to the newest log started at or before it; omitted = the task's newest log. Continue on the live SSE stream with `Last-Event-ID` = the last returned id. */
+  /** HUB_ONLY, read-only: a run's persisted event log (`.taskcell/runs/<taskId>/<timestamp>.events.jsonl`), events with `id > after`, oldest first. `timestamp` (a run record's `RunSummary.timestamp`, or a page's `timestamp`) resolves to the oldest log started at or up to a minute after it, else none; omitted = the task's newest log. Continue on the live SSE stream with `Last-Event-ID` = the last returned id. */
   read_run_events: { args: { repoPath: string; taskId: string; timestamp?: string; after?: number; limit?: number }; result: RunEventsPage };
   list_projects: { args: undefined; result: Project[] };
   add_project: { args: { path: string }; result: Project[] };

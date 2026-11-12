@@ -107,19 +107,22 @@ describe('event log', () => {
     expect(page.events.length).toBeLessThan(5); // ~150 bytes a line: far fewer than the 22 published
   });
 
-  test('a run record timestamp resolves to the log started at or before it; the page reports it', async () => {
+  test('a run record timestamp resolves to its log (started just after it), never a neighbouring run', async () => {
     const { bus, log } = wire();
     publishRun(bus);
     await log.flush();
     const dir = join(runsRoot(repo), 'T-1');
     const [name] = await readdir(dir);
     const started = name!.slice(0, -'.events.jsonl'.length);
-    const recordTs = new Date(Date.now() + 5000).toISOString(); // the pipeline stamps its record later
+    const recordTs = new Date(Date.now() - 1000).toISOString(); // the pipeline stamps its record just before run-start
     const page = await readRunEvents(repo, 'T-1', { timestamp: recordTs });
     expect(page.timestamp).toBe(started);
     expect(page.events.length).toBe(3);
-    // a record older than the log belongs to no log
+    expect((await readRunEvents(repo, 'T-1', { timestamp: started })).timestamp).toBe(started); // pinned
+    // a later record without a log (a CLI run) and a much older one belong to no log
+    expect((await readRunEvents(repo, 'T-1', { timestamp: new Date(Date.now() + 5000).toISOString() })).events).toEqual([]);
     expect((await readRunEvents(repo, 'T-1', { timestamp: '2000-01-01T00:00:00.000Z' })).events).toEqual([]);
+    await expect(readRunEvents(repo, 'T-1', { timestamp: 'nope' })).rejects.toThrow('timestamp');
   });
 
   test('a log that cannot be opened is dropped with a warning, bounded, and never throws', async () => {

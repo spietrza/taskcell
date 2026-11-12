@@ -160,11 +160,11 @@ replay; `transport.ts` resyncs by re-running its snapshot fetches rather than tr
 
 Besides the SSE stream (and its 500-event replay ring), the hub appends every `api:event` of a run to
 `.taskcell/runs/<taskId>/<timestamp>.events.jsonl` next to the run's other records. `<timestamp>` is when
-the hub accepted the run, a moment before the pipeline stamps the run record, so the two differ. The file
-starts at `run-start` (which names the task), so a run that fails before it leaves no log. One JSON line
-per event, one write each: `{"id","ts","event","data"}`, redacted like the other run artifacts. Event ids
-are seeded from the clock when the hub starts, so they keep increasing across restarts and order events
-across logs. Past 5 MB per run, later events are dropped and a single `{"truncated":true,...}` line is
+the hub received `run-start`, a moment after the pipeline stamps the run record, so the two differ. The
+log holds the run's events from `run-accepted` on, so a run that fails before `run-start` leaves no log.
+One JSON line per event, appended through one handle the hub creates (never an existing file or
+symlink): `{"id","ts","event","data"}`, redacted like the other run artifacts. Event ids are seeded from
+the clock when the hub starts, so they keep increasing across restarts and order events across logs. Past 5 MB per run, later events are dropped and a single `{"truncated":true,...}` line is
 written; the run itself is unaffected. A log that cannot be opened (symlinked state dir, permissions, full
 disk) is skipped with one warning on the hub's stderr. Appends do not trigger the project watcher's
 `vanguard:changed`.
@@ -172,7 +172,8 @@ disk) is skipped with one warning on the hub's stderr. Appends do not trigger th
 The read-only `read_run_events` command (allowed in server mode) returns `{ events, hasMore, truncated,
 timestamp }` for `{ repoPath, taskId, timestamp?, after?, limit? }`: events with `id > after`, oldest first
 (`limit` default 500, max 5000). `timestamp` is a run record's timestamp (`RunSummary.timestamp`) and
-resolves to the newest log started at or before it; omitted, the task's newest log. The page returns the
+resolves to the oldest log started at or up to a minute after it, or to none (a CLI run has no log, and
+never borrows a neighbouring run's); omitted, the task's newest log. The page returns the
 resolved log's `timestamp`; pass it back to pin later pages to that log. Each page reads the whole file
 (at most 5 MB). To join history and live without gap or duplicate, page until `hasMore` is false, then
 connect `/events` with `Last-Event-ID` = the last id. A `stream-reset` (id older than the ring, including

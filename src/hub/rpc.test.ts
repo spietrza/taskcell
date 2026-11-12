@@ -229,7 +229,7 @@ describe('dispatchRpc', () => {
     const page = (await dispatchRpc(ctx, 'read_run_events', { repoPath: repo, taskId: 'T-9', after: 1, limit: 1 })) as { events: { id: number }[]; hasMore: boolean };
     expect(page.events.map((e) => e.id)).toEqual([2]);
     expect(page.hasMore).toBe(true);
-    const byRecord = (await dispatchRpc(ctx, 'read_run_events', { repoPath: repo, taskId: 'T-9', timestamp: '2026-01-01T00:00:05.000Z' })) as { events: unknown[]; timestamp: string };
+    const byRecord = (await dispatchRpc(ctx, 'read_run_events', { repoPath: repo, taskId: 'T-9', timestamp: '2025-12-31T23:59:59.990Z' })) as { events: unknown[]; timestamp: string };
     expect(byRecord.events).toHaveLength(3);
     expect(byRecord.timestamp).toBe('2026-01-01T00-00-00-000Z');
     await expect(dispatchRpc(ctx, 'read_run_events', { repoPath: repo, taskId: 'T-9', after: -1 })).rejects.toThrow('after');

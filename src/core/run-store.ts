@@ -131,7 +131,7 @@ export async function fingerprint(root: string): Promise<number> {
 const SANITIZED_TIMESTAMP_RE = /^(\d{4}-\d{2}-\d{2})T(\d{2})-(\d{2})-(\d{2})-(\d{3})Z$/;
 
 /** Parse a `sanitizeTimestamp()`-shaped prefix back into epoch ms, or undefined if it doesn't match. */
-function parseSanitizedTimestampMs(sanitized: string): number | undefined {
+export function parseSanitizedTimestampMs(sanitized: string): number | undefined {
   const m = SANITIZED_TIMESTAMP_RE.exec(sanitized);
   if (m === null) return undefined;
   const [, date, hh, mm, ss, mmm] = m;
