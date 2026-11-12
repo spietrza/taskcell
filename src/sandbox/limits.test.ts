@@ -1,15 +1,20 @@
-import { describe, it, expect } from 'vitest';
+import { describe, it, expect, vi } from 'vitest';
 import {
   DEFAULT_SANDBOX_HOME,
   ownerLabelArgs,
   pnpmStoreConfig,
   readOnlyTmpfsSizesMb,
+  hostMemoryDefaultMb,
   READONLY_SANDBOX_MEMORY_MB,
   resolveSandboxProfile,
   sandboxResourceLimits,
   sandboxSecurityOpts,
   sidecarMemoryArgs,
 } from './limits.js';
+
+// Pin host RAM (default 8 GB ⇒ the 2048 MB floor) so memory-default assertions don't depend on the machine.
+const host = vi.hoisted(() => ({ totalBytes: 8 * 1024 ** 3 }));
+vi.mock('node:os', async (orig) => ({ ...(await orig<typeof import('node:os')>()), totalmem: (): number => host.totalBytes }));
 
 describe('sandboxResourceLimits', () => {
   it('uses defaults when no env is set', () => {
@@ -275,5 +280,26 @@ describe('pnpmStoreConfig', () => {
     expect(pnpmStoreConfig('/repo', true, { VANGUARD_PNPM_STORE_DIR: '/cache/pnpm' })).toEqual({ repoKey: '/repo', hostDir: '/cache/pnpm' });
     expect(pnpmStoreConfig('/repo', true, { VANGUARD_PNPM_STORE_DIR: '' })).toEqual({ repoKey: '/repo' });
     expect(pnpmStoreConfig('/repo', undefined, { VANGUARD_PNPM_STORE_DIR: '/cache/pnpm' })).toBeUndefined();
+  });
+});
+
+describe('hostMemoryDefaultMb', () => {
+  const GB = 1024 ** 3;
+  it('clamps totalmem/4 to 2048..4096', () => {
+    expect(hostMemoryDefaultMb(16 * GB)).toBe(4096);
+    expect(hostMemoryDefaultMb(16_759_439_360)).toBe(4096); // a real "16 GB" runner reports a bit under 16 GiB
+    expect(hostMemoryDefaultMb(8 * GB)).toBe(2048);
+    expect(hostMemoryDefaultMb(4 * GB)).toBe(2048);
+    expect(hostMemoryDefaultMb(64 * GB)).toBe(4096);
+  });
+  it('is what sandboxResourceLimits uses when unset, and an explicit value wins', () => {
+    host.totalBytes = 16 * GB;
+    try {
+      expect(sandboxResourceLimits({}).memoryMb).toBe(4096);
+      expect(sandboxResourceLimits({ VANGUARD_SANDBOX_MEMORY_MB: '1536' } as NodeJS.ProcessEnv).memoryMb).toBe(1536);
+    } finally {
+      host.totalBytes = 8 * GB;
+    }
+    expect(sandboxResourceLimits({}).memoryMb).toBe(2048);
   });
 });

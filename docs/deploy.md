@@ -93,6 +93,8 @@ VANGUARD_SANDBOX_MEMORY_MB=1536  # too small for the opt-in read-only rootfs (VA
 # VANGUARD_VISUAL_PROOF_CMD=pnpm exec playwright test --project=chromium
 ```
 
+When `VANGUARD_SANDBOX_MEMORY_MB` is unset, the sandbox memory cap defaults to `clamp(host RAM / 4, 2048, 4096)` MB per sandbox (4096 on a 16 GB runner, 2048 on 8 GB or less); setting it always wins, and parallel sandboxes (`--concurrency`) each get that much. A failed in-sandbox verify reports whether it was an OOM kill. See docs/cli.md.
+
 ### 4. Clone the target repo (the NAS has no git, so use the runner image)
 
 ```bash

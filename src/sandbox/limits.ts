@@ -1,3 +1,4 @@
+import { totalmem } from 'node:os';
 import type { SandboxConfig, SandboxProfile, SandboxSecurityOpts } from './provider.js';
 
 export type SandboxResourceLimits = Pick<SandboxProfile, 'memoryMb' | 'cpus' | 'pidsLimit'>;
@@ -19,15 +20,25 @@ function envLimit(env: NodeJS.ProcessEnv, name: string, fallback: number): numbe
  * Default sandbox memory (MB) when the rootfs is read-only: `/workspace`, `$HOME` and `/tmp` are then
  * tmpfs charged to the same cgroup (see readOnlyTmpfsSizesMb), so 8192 gives `/workspace` 3072 MB,
  * `$HOME` 2048 MB (room for a pnpm store), `/tmp` 1024 MB and 2 GB for the processes — enough for a typical pnpm install +
- * build, where the 2048 default would leave `/workspace` at 768 MB. It is also the default for a
- * hardened (`--egress`/`--llm-proxy`) run, whose in-sandbox test suite dies at 2048 MB; a cgroup
+ * build, where a 2048 MB cap would leave `/workspace` at 768 MB. It is also the default for a
+ * hardened (`--egress`/`--llm-proxy`) run, whose in-sandbox test suite can die at 2048 MB; a cgroup
  * bigger than the host's free RAM bounds nothing, so a host without ~8 GB to spare per concurrent
  * sandbox wants VANGUARD_SANDBOX_MEMORY_MB set lower.
  */
 export const READONLY_SANDBOX_MEMORY_MB = 8192;
 
 /**
- * Env-overridable sandbox resource limits. Defaults: memory 2048 MB, 2 CPUs, 512 pids. Each
+ * Host-aware memory default (MB): `clamp(totalmem / 4, 2048, 4096)` rounded to 256 MB, so a 16 GB
+ * runner (whose reported RAM is a little under 16 GiB) gets 4096 and a host with 8 GB or less gets 2048.
+ * It is per sandbox: with several sandboxes in parallel, set VANGUARD_SANDBOX_MEMORY_MB lower.
+ */
+export function hostMemoryDefaultMb(totalBytes: number = totalmem()): number {
+  const share = Math.round(totalBytes / 1024 / 1024 / 4 / 256) * 256;
+  return Math.min(4096, Math.max(2048, share));
+}
+
+/**
+ * Env-overridable sandbox resource limits. Defaults: memory hostMemoryDefaultMb() (2048–4096 MB), 2 CPUs, 512 pids. Each
  * VANGUARD_SANDBOX_* var overrides its default; set it to "0" (or an invalid/empty value) to OMIT
  * that limit entirely, so no `--memory`/`--cpus`/`--pids-limit` flag is passed. This is required on
  * hosts whose kernel lacks a cgroup — e.g. Synology DSM has no CPU CFS scheduler, so `--cpus` is
@@ -35,11 +46,11 @@ export const READONLY_SANDBOX_MEMORY_MB = 8192;
  *
  * The memory default rises to READONLY_SANDBOX_MEMORY_MB only when the rootfs is read-only
  * (VANGUARD_SANDBOX_READONLY=1), which charges the three tmpfs mounts to this same cgroup (see
- * readOnlyTmpfsSizesMb). `--egress`/`--llm-proxy` alone keep 2048 MB: a cgroup bigger than the host's
+ * readOnlyTmpfsSizesMb). `--egress`/`--llm-proxy` alone keep the host-aware default: a cgroup bigger than the host's
  * free RAM bounds nothing, and small hosts (NAS) run the hardened path too.
  */
 export function sandboxResourceLimits(env: NodeJS.ProcessEnv = process.env): SandboxResourceLimits {
-  const memoryFallback = sandboxSecurityOpts(env).readOnlyRootfs ? READONLY_SANDBOX_MEMORY_MB : 2048;
+  const memoryFallback = sandboxSecurityOpts(env).readOnlyRootfs ? READONLY_SANDBOX_MEMORY_MB : hostMemoryDefaultMb();
   const memoryMb = envLimit(env, 'VANGUARD_SANDBOX_MEMORY_MB', memoryFallback);
   const cpus = envLimit(env, 'VANGUARD_SANDBOX_CPUS', 2);
   const pidsLimit = envLimit(env, 'VANGUARD_SANDBOX_PIDS', 512);

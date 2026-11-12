@@ -340,3 +340,36 @@ describe('failingTaskName', () => {
     expect(failingTaskName('src/a.ts:12: error something')).toBeUndefined();
   });
 });
+
+describe('OOM evidence after a failed verify', () => {
+  /** Sandbox whose memory.events reads return `counters` in turn (last one repeats); the command exits `code`. */
+  const sandbox = (counters: Array<string | Error>, code: number): IsolatedSandboxProvider => {
+    let i = 0;
+    return {
+      exec: async (cmd: string) => {
+        if (!cmd.includes('memory.events')) return { stdout: '', stderr: 'EPIPE', exitCode: code };
+        const c = counters[Math.min(i++, counters.length - 1)] as string | Error;
+        if (c instanceof Error) throw c;
+        return { stdout: c, stderr: '', exitCode: 0 };
+      },
+    } as unknown as IsolatedSandboxProvider;
+  };
+  it('reports an OOM when oom_kill rose during the run', async () => {
+    const r = await runVerification(sandbox(['low 0\noom_kill 1\n', 'low 0\noom 2\noom_kill 3\n'], 1), 'x');
+    expect(r.oomKilled).toBe(true);
+    expect(proofBlock(r)).toContain('OOM kill: yes');
+  });
+  it('does not blame a pre-existing OOM kill for a later ordinary failure', async () => {
+    const r = await runVerification(sandbox(['oom_kill 4\n', 'oom_kill 4\n'], 1), 'x');
+    expect(r.oomKilled).toBe(false);
+    expect(proofBlock(r)).toContain('no OOM kill');
+  });
+  it('says nothing on a pass, or when memory.events is unreadable or throws', async () => {
+    expect((await runVerification(sandbox(['oom_kill 0\n', 'oom_kill 3\n'], 0), 'x')).oomKilled).toBeUndefined();
+    for (const bad of ['', new Error('no exec')]) {
+      const r = await runVerification(sandbox([bad], 1), 'x');
+      expect(r.oomKilled).toBeUndefined();
+      expect(proofBlock(r)).not.toContain('OOM kill');
+    }
+  });
+});
