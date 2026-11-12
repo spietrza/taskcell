@@ -26,6 +26,7 @@ import { readAppConfig, readAppConfigStrict, writeAppConfig, type AppConfig } fr
 import { checkCliVersions } from '../sandbox/cli-versions.js';
 import * as drafts from './drafts.js';
 import * as projects from './projects.js';
+import * as teams from './teams.js';
 import * as remote from './remote.js';
 import { startGithubTask, triggerLabelsFor } from './start-task.js';
 import { enableFactory, factoryPlanTargets, noScripts, type FactoryPlan, type FactoryProviderId } from './enable-factory.js';
@@ -185,6 +186,12 @@ export async function dispatchRpc(ctx: RpcContext, cmd: string, rawArgs: unknown
     }
     case 'list_projects': {
       return projects.list(ctx.configDir);
+    }
+    case 'list_teams': {
+      return teams.listTeams(ctx.configDir);
+    }
+    case 'get_team': {
+      return (await teams.getTeam(ctx.configDir, requireString(args, 'id'))) ?? null;
     }
     case 'add_project': {
       assertMutationsAllowed(ctx.bind);

@@ -9,7 +9,7 @@ import { dispatchRpc, classifyError, FLEET_DISABLED_MESSAGE, type RpcContext } f
 import * as clone from './clone.js';
 import * as enableFactoryModule from './enable-factory.js';
 import * as cliVersions from '../sandbox/cli-versions.js';
-import { loadPaths } from './projects.js';
+import { loadPaths, savePaths } from './projects.js';
 import { ProjectAllowlist } from './allowlist.js';
 import { WatchRegistry } from './watch.js';
 import { createRunSession } from './run-session.js';
@@ -104,6 +104,20 @@ async function tmpGitRepo(originUrl?: string): Promise<string> {
 
 afterEach(() => {
   cleanups.length = 0;
+});
+
+describe('dispatchRpc teams', () => {
+  test('list_teams / get_team return the default team and track project changes', async () => {
+    const repo = await tmpGitRepo();
+    const { ctx } = await makeCtx(repo);
+    await savePaths(ctx.configDir, [repo]);
+    const teams = (await dispatchRpc(ctx, 'list_teams', {})) as { id: string; repositories: string[] }[];
+    expect(teams).toHaveLength(1);
+    expect(teams[0]!.repositories).toEqual([repo]);
+    await dispatchRpc(ctx, 'remove_project', { path: repo });
+    expect(await dispatchRpc(ctx, 'get_team', { id: teams[0]!.id })).toMatchObject({ repositories: [] });
+    expect(await dispatchRpc(ctx, 'get_team', { id: 'nope' })).toBeNull();
+  });
 });
 
 describe('dispatchRpc', () => {

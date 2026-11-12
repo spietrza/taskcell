@@ -394,6 +394,21 @@ export interface RunRef {
   timestamp: string;
 }
 
+export type TeamRole = 'admin' | 'member';
+
+export interface TeamMember {
+  login: string;
+  role: TeamRole;
+}
+
+/** A hub team (src/hub/teams.ts). `repositories` are project paths. */
+export interface Team {
+  id: string;
+  name: string;
+  members: TeamMember[];
+  repositories: string[];
+}
+
 /**
  * Hand-mirrors of RUST serde structs in src-tauri (the persisted/aggregated shapes) — a TS seam
  * cannot pin these to Rust, so they live here only because the `Commands` catalogue below needs a
@@ -586,6 +601,10 @@ export interface Commands {
   list_runs: { args: { repoPath: string }; result: RunSummary[] };
   read_run: { args: { repoPath: string; taskId: string; timestamp: string; source: RunSource }; result: RunDetail };
   list_projects: { args: undefined; result: Project[] };
+  /** HUB_ONLY: token-only mode has exactly one team and the caller acts as its admin. */
+  list_teams: { args: undefined; result: Team[] };
+  /** HUB_ONLY: one team by id (`null` when unknown). */
+  get_team: { args: { id: string }; result: Team | null };
   add_project: { args: { path: string }; result: Project[] };
   remove_project: { args: { path: string }; result: Project[] };
   list_active: { args: { repoPath: string }; result: ActiveRun[] };
@@ -673,8 +692,11 @@ export const TAURI_ONLY = ['spawn_run', 'kill_run', 'list_spawns'] as const sati
  * native capability the webview doesn't need (no folder-picker dialog), plus the enable-factory
  * seam (shells out to `gh`/`git`, which only the hub's Node process does today), plus
  * `agent_cli_versions` (probes the sandbox image through `docker`, likewise), plus `api_queue`:
- * Tauri stays strictly single-in-flight (no queue to read) so it has nothing to implement either. */
+ * Tauri stays strictly single-in-flight (no queue to read) so it has nothing to implement either,
+ * plus `list_teams`/`get_team` (hub teams are stored in the hub's config dir; the desktop has none). */
 export const HUB_ONLY = [
+  'list_teams',
+  'get_team',
   'browse_dirs',
   'clone_project',
   'enable_factory_plan',
@@ -697,6 +719,8 @@ export const COMMAND_NAMES = [
   'list_runs',
   'read_run',
   'list_projects',
+  'list_teams',
+  'get_team',
   'add_project',
   'remove_project',
   'list_active',
