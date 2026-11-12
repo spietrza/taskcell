@@ -9,6 +9,21 @@ export class TaskcellError extends Error {
 export class SandboxError extends TaskcellError {}
 export class WorktreeError extends TaskcellError {}
 export class AgentError extends TaskcellError {}
+/**
+ * The primary provider failed and the fallback provider failed too, for its own (non-limit) reason.
+ * The message carries both, so a primary rate limit still parks the run while the comment says the
+ * fallback broke.
+ */
+export class FallbackFailedError extends AgentError {
+  constructor(
+    readonly primary: string,
+    readonly fallback: string,
+    primaryMessage: string,
+    fallbackMessage: string,
+  ) {
+    super(`fallback provider ${fallback} failed (${fallbackMessage}) after primary provider ${primary} failed: ${primaryMessage}`);
+  }
+}
 export class NotImplementedError extends TaskcellError {}
 export class StructuredOutputError extends TaskcellError {}
 export class WorkflowGuardError extends TaskcellError {}
@@ -28,9 +43,11 @@ const FAILURE_STACK_LINES = 25;
 export function formatFailureComment(prefix: string, error: unknown): string {
   // A provider rate/session limit is not a gate failure or a bug in the change — say so plainly
   // instead of leaving the reader to parse it out of the raw CLI error text.
-  const effectivePrefix = isProviderLimitError(error)
-    ? `${prefix} — the AI provider hit a usage/rate limit (not a gate failure); re-apply the trigger label to retry once it clears`
-    : prefix;
+  const effectivePrefix = error instanceof FallbackFailedError
+    ? `${prefix} — fallback provider ${error.fallback} failed (not a rate limit), so ${error.primary}'s failure was not covered`
+    : isProviderLimitError(error)
+      ? `${prefix} — the AI provider hit a usage/rate limit (not a gate failure); re-apply the trigger label to retry once it clears`
+      : prefix;
   const headline = redactForPublish(`${effectivePrefix}: ${String(error)}`);
   const stack = error instanceof Error ? error.stack : undefined;
   if (stack === undefined || stack.trim() === '') return headline;

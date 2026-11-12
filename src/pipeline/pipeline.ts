@@ -8,7 +8,7 @@ import { buildXmlPrompt } from '../context/xml-prompt.js';
 import { diffForPrompt } from '../context/escape.js';
 import { extractJson } from '../structured/extract.js';
 import { verdictSchema } from '../evals/judges.js';
-import { AgentError, isRateLimitError, rateLimitResetDelayMs } from '../core/errors.js';
+import { AgentError, FallbackFailedError, isRateLimitError, rateLimitResetDelayMs } from '../core/errors.js';
 import { enforceUsageCap, UsageCapError } from '../core/usage-cap.js';
 import { roundUsd } from '../core/usd.js';
 import type { RunContext } from '../core/taskcell.js';
@@ -447,12 +447,20 @@ export async function runBudgetedStages(
           await (opts.sleep ?? delay)(waitMs, opts.signal);
         }
         // Do not resume the failed primary session.
-        result = await runAgent(ctx, {
-          ...stageOpts,
-          promptTemplate: stage.promptTemplate,
-          agent: effectiveAgent,
-          ...(effectiveModel !== undefined ? { model: effectiveModel } : {}),
-        });
+        try {
+          result = await runAgent(ctx, {
+            ...stageOpts,
+            promptTemplate: stage.promptTemplate,
+            agent: effectiveAgent,
+            ...(effectiveModel !== undefined ? { model: effectiveModel } : {}),
+          });
+        } catch (fallbackErr) {
+          // A fallback that fails for its own reason (not a limit) is named, not hidden behind the primary's error.
+          if (fallbackErr instanceof AgentError && !isRateLimitError(fallbackErr) && !(fallbackErr instanceof UsageCapError)) {
+            throw new FallbackFailedError(agent.name, effectiveAgent.name, err.message, fallbackErr.message);
+          }
+          throw fallbackErr;
+        }
       } else {
         // No fallback to catch this one: at least name a rate limit for what it is before it
         // propagates — the operator log line that follows (watch-prs / revise-pr) stays generic.
