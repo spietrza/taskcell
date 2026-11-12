@@ -382,6 +382,10 @@ export function commitLeakWarningBlock(leaks: CommitClosingLeak[]): string {
 
 const PR_BODY_ITEMS_START = '<!-- vanguard:pr-body-items:start -->';
 const PR_BODY_ITEMS_END = '<!-- vanguard:pr-body-items:end -->';
+const PR_BODY_ITEMS_HEADING = '## ⚠️ Required PR-body item missing';
+const PR_BODY_ITEMS_DISCHARGED_HEADING = '## ✅ Required PR-body item discharged';
+/** Last line of the generated preamble: everything after it, up to the end marker, is human-pasted. */
+const PR_BODY_ITEMS_PASTE_LINE = 'Apply the change by hand and paste the content below, above the closing marker; it is kept across revise rounds.';
 
 /**
  * Blocking-warning markdown block surfaced when a required `prBody` manifest item is missing (e.g. CI
@@ -393,13 +397,15 @@ export function prBodyGapWarningBlock(missing: { id: string; contains: string }[
   if (missing.length === 0) return '';
   return [
     PR_BODY_ITEMS_START,
-    '## ⚠️ Required PR-body item missing',
+    PR_BODY_ITEMS_HEADING,
     '',
     'The spec manifest requires the following in this PR description (they cannot live in the diff, and the factory cannot write them), so this PR is a partial delivery:',
     '',
-    ...missing.map((m) => `- \`${m.id}\``),
+    // Percent-encoded so a manifest id (reporter-controllable at implement time) stays one inert line:
+    // no newline, backtick or forged paste line can move where the human-pasted region starts.
+    ...missing.map((m) => `- \`${encodeURIComponent(m.id)}\``),
     '',
-    'Apply the change by hand and paste the content below, above the closing marker; it is kept across revise rounds.',
+    PR_BODY_ITEMS_PASTE_LINE,
     '',
     PR_BODY_ITEMS_END,
   ].join('\n');
@@ -411,4 +417,40 @@ export function extractPrBodyItemsBlock(body: string): string | undefined {
   const end = body.indexOf(PR_BODY_ITEMS_END, start);
   if (start === -1 || end === -1) return undefined;
   return body.slice(start, end + PR_BODY_ITEMS_END.length);
+}
+
+/**
+ * Discharge a `prBodyGapWarningBlock` once a human has pasted every item it records. Only the ids the
+ * block itself lists can be discharged (a manifest with `prBody: []` or other ids discharges nothing),
+ * and only the human-pasted region after the generated preamble is searched for `contains`: the
+ * preamble must be byte-identical to the one `prBodyGapWarningBlock` renders for the recorded ids, so
+ * an edited or forged preamble discharges nothing. Line endings are normalised to `\n` first (GitHub's
+ * web editor saves CRLF), so a multi-line `contains` matches a hand-edited body. The block and its
+ * pasted content are kept; just the heading is rewritten to a discharged marker. Returns the block
+ * unchanged when anything is still outstanding, or when it is not an undischarged block.
+ * `manifest` must exclude the issue reporter's comments — the caller's job.
+ */
+export function dischargePrBodyItemsBlock(block: string, manifest: SpecManifest | undefined): string {
+  if (manifest === undefined) return block;
+  const text = block.replace(/\r\n/g, '\n');
+  const pasteAt = text.indexOf(`\n${PR_BODY_ITEMS_PASTE_LINE}\n`);
+  if (pasteAt === -1 || !text.endsWith(PR_BODY_ITEMS_END)) return block;
+  let recorded: string[];
+  try {
+    recorded = [...text.slice(0, pasteAt).matchAll(/^- `([^`\n]+)`$/gm)].map((m) => decodeURIComponent(m[1] ?? ''));
+  } catch {
+    return block;
+  }
+  if (recorded.length === 0) return block;
+  const generated = prBodyGapWarningBlock(recorded.map((id) => ({ id, contains: '' })));
+  const preamble = generated.slice(0, generated.lastIndexOf(PR_BODY_ITEMS_PASTE_LINE) + PR_BODY_ITEMS_PASTE_LINE.length);
+  if (!text.startsWith(preamble)) return block;
+  const pasted = text.slice(preamble.length, text.length - PR_BODY_ITEMS_END.length);
+  const items = manifest.prBody ?? [];
+  const done = recorded.every((id) => {
+    const item = items.find((p) => p.id === id);
+    if (item === undefined || item.contains.trim() === '') return false;
+    return pasted.includes(item.contains.replace(/\r\n/g, '\n'));
+  });
+  return done ? text.replace(PR_BODY_ITEMS_HEADING, PR_BODY_ITEMS_DISCHARGED_HEADING) : block;
 }

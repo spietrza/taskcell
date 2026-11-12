@@ -334,6 +334,17 @@ export interface VisualProof {
   artifacts: VisualProofArtifact[];
 }
 
+/** Which repository an item of an all-repositories list belongs to. */
+export interface RepoStamp {
+  repoPath: string;
+  repoName: string;
+}
+
+/** A repository an all-repositories list could not read (tracker down, bad config); the rest are still listed. */
+export interface RepoReadFailure extends RepoStamp {
+  error: string;
+}
+
 export interface RunSummary {
   taskId: string;
   timestamp: string;
@@ -625,6 +636,10 @@ export interface Commands {
    * a later `read_run` to its own root. A cache hit skips `gh run download` on both sides. */
   import_remote_run: { args: { repoPath: string; runId: number }; result: RemoteImport };
   list_tasks: { args: { repoPath: string }; result: { tasks: BoardTask[]; capped: boolean } };
+  /** HUB_ONLY: `list_tasks` across every hub repository, each card stamped with its repository. */
+  list_tasks_all: { args: undefined; result: { tasks: (BoardTask & RepoStamp)[]; capped: boolean; failures: RepoReadFailure[] } };
+  /** HUB_ONLY: `list_runs` across every hub repository, each row stamped with its repository. */
+  list_runs_all: { args: undefined; result: { runs: (RunSummary & RepoStamp)[]; failures: RepoReadFailure[] } };
   fetch_spec: { args: { repoPath: string; taskId: string }; result: { spec: string } };
   watch_project: { args: { repoPath: string }; result: void };
   unwatch_project: { args: { repoPath: string }; result: void };
@@ -655,6 +670,8 @@ export interface Commands {
   clone_project: { args: { url: string; parentDir: string; name?: string }; result: Project };
   /** HUB_ONLY: the hub "Needs you" read model (src/hub/needs-you.ts) — `gh` and labels only, no model call. */
   list_needs_you: { args: { repoPath: string }; result: { items: NeedsYouItem[] } };
+  /** HUB_ONLY: `list_needs_you` across every hub repository, each item stamped with its repository. */
+  list_needs_you_all: { args: undefined; result: { items: (NeedsYouItem & RepoStamp)[]; failures: RepoReadFailure[] } };
   /** HUB_ONLY: post a reply with the caller's own `gh` identity and move the item on. */
   reply_needs_you: { args: { repoPath: string; id: string; kind: 'issue' | 'pr'; body: string }; result: void };
   /** HUB_ONLY: merge a waiting PR (refused when not in "Needs you" or required checks are not green). */
@@ -706,6 +723,9 @@ export const HUB_ONLY = [
   'enable_factory_verify',
   'agent_cli_versions',
   'list_needs_you',
+  'list_needs_you_all',
+  'list_tasks_all',
+  'list_runs_all',
   'reply_needs_you',
   'merge_needs_you',
   'start_task',
@@ -761,6 +781,9 @@ export const COMMAND_NAMES = [
   'browse_dirs',
   'clone_project',
   'list_needs_you',
+  'list_needs_you_all',
+  'list_tasks_all',
+  'list_runs_all',
   'reply_needs_you',
   'merge_needs_you',
   'start_task',

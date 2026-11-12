@@ -2,7 +2,7 @@ import { mkdir, mkdtemp, readFile, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { beforeEach, describe, expect, it } from 'vitest';
-import { aggregate, add, list, loadPaths, remove } from './projects.js';
+import { aggregate, add, list, listAcrossProjects, loadPaths, remove, savePaths } from './projects.js';
 
 let cfg: string;
 let repoRoot: string;
@@ -118,5 +118,24 @@ describe('aggregate', () => {
     );
     const afterSecondRun = await aggregate(repo);
     expect(afterSecondRun.runCount).toBe(2);
+  });
+});
+
+describe('listAcrossProjects', () => {
+  it('stamps items with their repository and names a failing one', async () => {
+    await savePaths(cfg, ['/r/one', '/r/bad', '/r/two']);
+    const out = await listAcrossProjects(
+      cfg,
+      async (p) => p,
+      async (p) => {
+        if (p === '/r/bad') throw new Error('boom');
+        return [{ id: p }];
+      },
+    );
+    expect(out.items).toEqual([
+      { id: '/r/one', repoPath: '/r/one', repoName: 'one' },
+      { id: '/r/two', repoPath: '/r/two', repoName: 'two' },
+    ]);
+    expect(out.failures).toEqual([{ repoPath: '/r/bad', repoName: 'bad', error: 'boom' }]);
   });
 });

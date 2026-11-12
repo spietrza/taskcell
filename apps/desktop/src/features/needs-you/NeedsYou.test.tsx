@@ -29,7 +29,7 @@ function stubHub(initial: NeedsYouItem[], failReply = false, failMerge = false):
         return new Response(JSON.stringify({ error: { kind: 'internal', message: 'has failing or pending required checks' } }), { status: 500 });
       }
       if (cmd === 'reply_needs_you' || cmd === 'merge_needs_you') items = items.filter((i) => i.id !== body?.id);
-      const result = cmd === 'list_needs_you' ? { items } : null;
+      const result = cmd === 'list_needs_you' ? { items } : cmd === 'list_needs_you_all' ? { items, failures: [] } : null;
       return new Response(JSON.stringify({ result }), { status: 200, headers: { 'content-type': 'application/json' } });
     }),
   );
@@ -81,6 +81,18 @@ test('a known factory label reads as plain words; an unknown one shows as-is', a
   expect(await screen.findByText('needs a human review')).toHaveAttribute('title', 'vanguard:needs-human-review');
   expect(screen.queryByText('vanguard:needs-human-review')).toBeNull();
   expect(screen.getByText('custom:label')).toBeInTheDocument();
+});
+
+test('under "All repositories" an item names its repository and a reply targets that repository', async () => {
+  const item = { ...needsYouItems[0], repoPath: '/r/beta', repoName: 'beta' };
+  const calls = stubHub([item]);
+  render(<NeedsYou project="/r/alpha" allRepos />);
+  await screen.findByText(item.title);
+  expect(screen.getByText('beta')).toBeInTheDocument();
+  reply(item, 'go ahead');
+  await vi.waitFor(() => expect(calls.some((c) => c.cmd === 'reply_needs_you')).toBe(true));
+  expect(calls.find((c) => c.cmd === 'reply_needs_you')?.body).toEqual(expect.objectContaining({ repoPath: '/r/beta' }));
+  expect(calls.some((c) => c.cmd === 'list_needs_you_all')).toBe(true);
 });
 
 test('Merge names the PR base branch, merges, and the item leaves the list', async () => {

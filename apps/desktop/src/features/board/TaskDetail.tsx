@@ -8,12 +8,15 @@ export function TaskDetail({
   project,
   taskId,
   runs,
+  canRun = true,
   onBack,
   onNewRun,
 }: {
   project: string;
   taskId: string;
   runs: RunSummary[];
+  /** False when the task belongs to a repository other than the one runs start in ("All repositories"). */
+  canRun?: boolean;
   onBack: () => void;
   onNewRun: () => void;
 }) {
@@ -29,9 +32,13 @@ export function TaskDetail({
           Board
         </Button>
         <span className="font-mono font-semibold">{taskId}</span>
-        <Button className="ml-auto" onClick={onNewRun} startIcon={<Play className="size-4" />}>
-          New Run
-        </Button>
+        {canRun ? (
+          <Button className="ml-auto" onClick={onNewRun} startIcon={<Play className="size-4" />}>
+            New Run
+          </Button>
+        ) : (
+          <span className="ml-auto text-xs text-muted-foreground">Pick this repository in the filter to start a run.</span>
+        )}
       </div>
 
       <div className="grid grid-cols-1 gap-4 lg:grid-cols-[1fr_360px]">
