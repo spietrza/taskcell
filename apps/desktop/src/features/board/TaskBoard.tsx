@@ -1,6 +1,8 @@
 import { Button, Card, cn } from '@/ui';
 import { FilePlus } from 'lucide-react';
-import { listTasks } from '../../ipc';
+import { listTasks, listTasksAll } from '../../ipc';
+import { RepoFailures, RepoLabel } from '../../RepoViews';
+import type { BoardTask, RepoReadFailure, RepoStamp } from '../../wire';
 import { useAsync } from '../../hooks';
 import { boardCountLabels } from './counts';
 import { ExternalLink } from '../../components/ExternalLink';
@@ -34,16 +36,26 @@ const COLUMNS: Column[] = [
   { key: 'done', label: 'Done', dot: 'bg-emerald-500', pill: 'bg-emerald-500/15 text-emerald-700 dark:text-emerald-300', cardHover: 'hover:border-emerald-500' },
 ];
 
+/** One repository's board, or every repository's (cards stamped with their repository). */
+type BoardList = { tasks: (BoardTask & Partial<RepoStamp>)[]; capped: boolean; failures: RepoReadFailure[] };
+
 export function TaskBoard({
   project,
+  allRepos = false,
   onOpenTask,
   onNewTask,
 }: {
   project: string;
-  onOpenTask: (taskId: string) => void;
+  /** "All repositories": list every repository's cards, each naming its repository. */
+  allRepos?: boolean;
+  onOpenTask: (taskId: string, repoPath?: string) => void;
   onNewTask: () => void;
 }) {
-  const { data, error, loading } = useAsync(() => listTasks(project), [project]);
+  const { data, error, loading } = useAsync(
+    (): Promise<BoardList> =>
+      allRepos ? listTasksAll() : listTasks(project).then((r) => ({ ...r, failures: [] })),
+    [project, allRepos],
+  );
   const tasks = data?.tasks;
 
   // Capped comes from the response now (S9) — no more synced literal; the core fetch cap decides.
@@ -81,9 +93,12 @@ export function TaskBoard({
   return (
     <div className="flex min-h-0 flex-1 flex-col">
       {header}
+      <RepoFailures failures={data?.failures ?? []} />
       {capped && (
         <div className="mb-2 shrink-0 text-xs text-muted-foreground">
-          Showing the first {tasks?.length ?? 0} tasks — narrow with a label filter in Settings to see the rest.
+          {allRepos
+            ? 'At least one repository hit the task limit, so some cards are missing — pick that repository and narrow with a label filter in Settings.'
+            : `Showing the first ${tasks?.length ?? 0} tasks — narrow with a label filter in Settings to see the rest.`}
         </div>
       )}
       <div className="flex min-h-0 flex-1 gap-3 overflow-x-auto pb-4">
@@ -108,11 +123,14 @@ export function TaskBoard({
                   </div>
                 ) : (
                   items.map((t) => (
-                    <div key={t.id}>
-                    <button onClick={() => onOpenTask(t.id)} className="block w-full text-left">
+                    <div key={`${t.repoPath ?? ''}:${t.id}`}>
+                    <button onClick={() => onOpenTask(t.id, t.repoPath)} className="block w-full text-left">
                       <Card.Root className={cn('bg-background/80 py-0 shadow-sm transition-all hover:shadow-md', col.cardHover)}>
                         <Card.Content className="space-y-1.5 p-3">
-                          <div className="font-mono text-[11px] font-medium text-muted-foreground">{t.id}</div>
+                          <div className="flex items-center gap-1.5 font-mono text-[11px] font-medium text-muted-foreground">
+                            {t.id}
+                            {allRepos && <RepoLabel name={t.repoName} />}
+                          </div>
                           <div className="text-sm leading-snug">{t.title}</div>
                           {t.column === 'running' && t.stage && <div className="font-mono text-[11px]">stage: {t.stage}</div>}
                           {(t.column === 'review' || t.column === 'done') && !!t.chips?.length && (
