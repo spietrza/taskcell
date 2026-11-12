@@ -4,7 +4,6 @@ import { GITHUB_CLAIMED_LABEL, GITHUB_REVIEW_LABEL, GITHUB_SPEC_CLAIMED_LABEL } 
 import type { Command } from './args.js';
 import type { PreflightRunner } from './preflight.js';
 
-
 type DoctorCommand = Extract<Command, { kind: 'doctor' }>;
 
 const cmd: DoctorCommand = {
@@ -50,14 +49,14 @@ const runner: PreflightRunner = async (name, args) => {
 };
 
 /** Docker stub: image codex/claude versions from the labelled `sh -c` probe, plus preflight's own calls. */
-function versionRunner(codex: string, installs: string[], failInstall = false): PreflightRunner {
+function versionRunner(codex: string, installs: string[], install: 'ok' | 'fail' | 'noop' = 'ok'): PreflightRunner {
   let codexNow = codex;
   return async (name, args, o) => {
     if (name === 'docker' && args[0] === 'run' && args.includes('sh')) return { stdout: `claude 2.1.322\ncodex ${codexNow}\nagent \n` };
     if (name === 'docker' && args[0] === 'run' && args.includes('npm')) {
       installs.push(args.at(-1) ?? '');
-      if (failInstall) throw new Error('npm down');
-      codexNow = '0.167.2';
+      if (install === 'fail') throw new Error('npm down');
+      if (install === 'ok') codexNow = '0.167.2';
       return { stdout: '' };
     }
     return runner(name, args, o);
@@ -65,8 +64,8 @@ function versionRunner(codex: string, installs: string[], failInstall = false): 
 }
 
 describe('doctorCommand cli versions', () => {
-  const base = { env: { GH_TOKEN: 'gh', CLAUDE_CODE_OAUTH_TOKEN: 'token' }, nodeVersion: '24.11.1' };
-  const fix = { ...cmd, fix: true };
+  const base = { env: { VANGUARD_CLI_VERSION_CHECK: 'off', GH_TOKEN: 'gh', CLAUDE_CODE_OAUTH_TOKEN: 'token', CODEX_API_KEY: 'k' }, nodeVersion: '24.11.1' };
+  const fix: DoctorCommand = { ...cmd, fix: true, provider: 'codex' };
 
   it('prints installed vs latest from the lookup', async () => {
     const logs: string[] = [];
@@ -77,12 +76,20 @@ describe('doctorCommand cli versions', () => {
       cliVersions: async () => ({ enabled: true, clis: [{ name: 'codex', installed: '0.100.0', latest: '0.167.2', changelog: 'https://x', outdated: true, updatable: true }] }),
     });
     expect(logs).toContain('cli versions: codex installed 0.100.0, latest 0.167.2 — newer available (https://x)');
+    // The preflight report comes first: the version check must not delay it.
+    expect(logs.findIndex((l) => l.startsWith('preflight:'))).toBeLessThan(logs.findIndex((l) => l.startsWith('cli versions:')));
+  });
+
+  it('passes the image, runner and env through to the version check', async () => {
+    const seen: unknown[] = [];
+    await doctorCommand(cmd, { ...base, run: runner, log: () => undefined, cliVersions: async (o) => (seen.push(o), { enabled: false, clis: [] }) });
+    expect(seen).toEqual([{ cwd: '/repo', run: runner, env: base.env }]);
   });
 
   it('--fix rebuilds an old codex, even with the version check off', async () => {
     const installs: string[] = [];
     const logs: string[] = [];
-    await doctorCommand(fix, { ...base, env: { ...base.env, VANGUARD_CLI_VERSION_CHECK: 'off' }, run: versionRunner('0.100.0', installs), log: (l) => logs.push(l) });
+    await doctorCommand(fix, { ...base, run: versionRunner('0.100.0', installs), log: (l) => logs.push(l) });
     expect(installs).toEqual(['@openai/codex@0.167.2']);
     expect(logs).toContain('doctor --fix: installing codex 0.167.2 into the sandbox image');
   });
@@ -93,11 +100,23 @@ describe('doctorCommand cli versions', () => {
     expect(installs).toEqual([]);
   });
 
-  it('a failed codex install does not hide the preflight report', async () => {
+  it('--fix leaves codex alone when no stage uses it', async () => {
+    const installs: string[] = [];
+    await doctorCommand({ ...cmd, fix: true }, { ...base, run: versionRunner('0.100.0', installs), log: () => undefined });
+    expect(installs).toEqual([]);
+  });
+
+  it('a failed codex install prints the preflight report, then fails', async () => {
     const logs: string[] = [];
-    await doctorCommand(fix, { ...base, run: versionRunner('0.100.0', [], true), log: (l) => logs.push(l), cliVersions: async () => ({ enabled: false, clis: [] }) });
+    await expect(doctorCommand(fix, { ...base, run: versionRunner('0.100.0', [], 'fail'), log: (l) => logs.push(l) })).rejects.toThrow('codex install failed');
     expect(logs.some((l) => l.includes('codex install failed: npm down'))).toBe(true);
     expect(logs).toContain('preflight: llm auth ok');
+  });
+
+  it('fails when the image still has the old codex after the install', async () => {
+    const logs: string[] = [];
+    await expect(doctorCommand(fix, { ...base, run: versionRunner('0.100.0', [], 'noop'), log: (l) => logs.push(l) })).rejects.toThrow('codex install failed');
+    expect(logs).toContain('doctor --fix: codex install failed: image still has codex 0.100.0');
   });
 });
 
@@ -106,7 +125,7 @@ describe('doctorCommand', () => {
     const logs: string[] = [];
 
     await doctorCommand(cmd, {
-      env: { GH_TOKEN: 'gh', CLAUDE_CODE_OAUTH_TOKEN: 'token' },
+      env: { VANGUARD_CLI_VERSION_CHECK: 'off', GH_TOKEN: 'gh', CLAUDE_CODE_OAUTH_TOKEN: 'token' },
       nodeVersion: '24.11.1',
       run: runner,
       log: (line) => logs.push(line),
@@ -121,7 +140,7 @@ describe('doctorCommand', () => {
 
     await expect(
       doctorCommand(cmd, {
-        env: { GH_TOKEN: 'gh' },
+        env: { VANGUARD_CLI_VERSION_CHECK: 'off', GH_TOKEN: 'gh' },
         nodeVersion: '24.11.1',
         run: runner,
         log: (line) => logs.push(line),
@@ -137,7 +156,7 @@ describe('doctorCommand', () => {
 
     await expect(
       doctorCommand(codexCmd, {
-        env: { GH_TOKEN: 'gh', CLAUDE_CODE_OAUTH_TOKEN: 'token' },
+        env: { VANGUARD_CLI_VERSION_CHECK: 'off', GH_TOKEN: 'gh', CLAUDE_CODE_OAUTH_TOKEN: 'token' },
         nodeVersion: '24.11.1',
         run: runner,
         log: (line) => logs.push(line),
@@ -157,7 +176,7 @@ describe('doctorCommand --fix', () => {
 
     await doctorCommand(
       { ...cmd, fix: true },
-      { env: { GH_TOKEN: 'gh', CLAUDE_CODE_OAUTH_TOKEN: 'token' }, nodeVersion: '24.11.1', run, log: (l) => lines.push(l) },
+      { env: { VANGUARD_CLI_VERSION_CHECK: 'off', GH_TOKEN: 'gh', CLAUDE_CODE_OAUTH_TOKEN: 'token' }, nodeVersion: '24.11.1', run, log: (l) => lines.push(l) },
     );
 
     expect(calls.some((c) => c.includes('npm install -g @anthropic-ai/claude-code@2.1.322'))).toBe(true);
@@ -172,7 +191,7 @@ describe('doctorCommand --fix', () => {
 
     await expect(
       doctorCommand(cmd, {
-        env: { GH_TOKEN: 'gh', CLAUDE_CODE_OAUTH_TOKEN: 'token' },
+        env: { VANGUARD_CLI_VERSION_CHECK: 'off', GH_TOKEN: 'gh', CLAUDE_CODE_OAUTH_TOKEN: 'token' },
         nodeVersion: '24.11.1',
         run,
         log: () => undefined,

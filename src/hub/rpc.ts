@@ -425,6 +425,8 @@ export async function dispatchRpc(ctx: RpcContext, cmd: string, rawArgs: unknown
       return null;
     }
     case 'agent_cli_versions':
+      // Starts a container on the host and makes outbound lookups — gated like the other side effects.
+      assertMutationsAllowed(ctx.bind);
       return checkCliVersions({ cwd: ctx.configDir });
     case 'enable_factory_plan': {
       const real = await ctx.allowlist.assertAllowed(requireString(args, 'repoPath'));

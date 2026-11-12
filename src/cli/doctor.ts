@@ -18,6 +18,11 @@ export interface DoctorOptions extends PreflightOptions {
   cliVersions?: typeof checkCliVersions;
 }
 
+/** Codex runs as the implementer, the reviewer or the implementer fallback. */
+function usesCodex(cmd: DoctorCommand): boolean {
+  return [cmd.provider, cmd.reviewProvider, 'fallbackProvider' in cmd ? cmd.fallbackProvider : undefined].includes('codex');
+}
+
 /** Print AFK-readiness checks and fail before any task can be claimed. */
 export async function doctorCommand(cmd: DoctorCommand, opts: DoctorOptions = {}): Promise<void> {
   const log = opts.log ?? console.log;
@@ -37,17 +42,27 @@ export async function doctorCommand(cmd: DoctorCommand, opts: DoctorOptions = {}
     await refreshSandboxClaudeCli(dockerOpts);
     report = await runPreflight(cmd, opts);
   }
-  if (cmd.fix === true) {
+  let codexFixFailed = false;
+  if (cmd.fix === true && usesCodex(cmd)) {
     // Read straight from the image: the codex fix must not depend on the version-check switch.
     const codex = (await installedCliVersions(dockerOpts)).codex;
     if (codex !== undefined && isOlderVersion(codex, SANDBOX_CODEX_VERSION)) {
       log(`doctor --fix: installing codex ${SANDBOX_CODEX_VERSION} into the sandbox image`);
-      // Best effort: a failed codex install must not hide the preflight report below.
-      await refreshSandboxCodexCli(dockerOpts).catch((e: unknown) => log(`doctor --fix: codex install failed: ${e instanceof Error ? e.message : String(e)}`));
+      // A failed codex install must not hide the preflight report below; it fails doctor after it.
+      try {
+        await refreshSandboxCodexCli(dockerOpts);
+        const after = (await installedCliVersions(dockerOpts)).codex;
+        if (after === undefined || isOlderVersion(after, SANDBOX_CODEX_VERSION)) throw new Error(`image still has codex ${after ?? 'unknown'}`);
+      } catch (e: unknown) {
+        codexFixFailed = true;
+        log(`doctor --fix: codex install failed: ${e instanceof Error ? e.message : String(e)}`);
+      }
     }
   }
 
-  for (const line of formatCliVersions(await (opts.cliVersions ?? checkCliVersions)(dockerOpts))) log(line);
+  // The report first: the version check needs Docker and the network, and must not delay it.
   for (const line of formatPreflightReport(report)) log(line);
+  for (const line of formatCliVersions(await (opts.cliVersions ?? checkCliVersions)(dockerOpts))) log(line);
   if (!report.ok) throw new Error('preflight failed');
+  if (codexFixFailed) throw new Error('doctor --fix: codex install failed');
 }

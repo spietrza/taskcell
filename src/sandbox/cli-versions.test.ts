@@ -1,6 +1,7 @@
 import { describe, it, expect, vi } from 'vitest';
 import { checkCliVersions, formatCliVersions, type Fetcher } from './cli-versions.js';
 import type { DockerRunner } from './docker.js';
+import type { CliVersionReport } from '../wire.js';
 
 const NOW = Date.parse('2026-11-12T00:00:00Z');
 const days = (n: number): string => new Date(NOW - n * 864e5).toISOString();
@@ -10,15 +11,22 @@ const runWith = (cursor = ''): DockerRunner => async (_c, args) => {
   return { stdout: `claude 2.1.260 (Claude Code)\ncodex codex-cli 0.167.2\nagent ${cursor}\n` };
 };
 
+/** A packument whose `versions` lists every `time` key except `unpublished`. */
+const packument = (times: Record<string, string>, unpublished: string[] = []): unknown => ({
+  time: { created: days(900), ...times },
+  versions: Object.fromEntries(Object.keys(times).filter((v) => !unpublished.includes(v)).map((v) => [v, {}])),
+});
+
 /** A fresh fetcher per test: lookups are cached per fetcher identity. */
-function fetcher(claudeTimes: Record<string, string>, cursorText = 'https://downloads.cursor.com/lab/2026.11.01-abcdef1/linux'): Fetcher {
+function fetcher(claudeTimes: Record<string, string>, cursorText = 'https://downloads.cursor.com/lab/2026.11.01-abcdef1/linux', unpublished: string[] = []): Fetcher {
   return vi.fn(async (url: string) => {
-    if (url.includes('claude-code')) return { ok: true, json: async () => ({ time: { created: days(900), ...claudeTimes } }), text: async () => '' };
-    if (url.includes('codex')) return { ok: true, json: async () => ({ time: { '0.167.2': days(10) } }), text: async () => '' };
+    if (url.includes('claude-code')) return { ok: true, json: async () => packument(claudeTimes, unpublished), text: async () => '' };
+    if (url.includes('codex')) return { ok: true, json: async () => packument({ '0.167.2': days(10) }), text: async () => '' };
     return { ok: true, json: async () => ({}), text: async () => cursorText };
   });
 }
-const check = (f: Fetcher, run = runWith()) => checkCliVersions({ cwd: '/', image: 'img', run, fetch: f, now: NOW, env: {} });
+const check = (f: Fetcher, run = runWith(), now = NOW): Promise<CliVersionReport> =>
+  checkCliVersions({ cwd: '/', image: 'img', run, fetch: f, now, env: {} });
 
 describe('checkCliVersions', () => {
   it('reports outdated claude with the soaked release as target, and current codex', async () => {
@@ -47,6 +55,62 @@ describe('checkCliVersions', () => {
     expect(old.clis[2]?.reason).toMatch(/sha256/);
     const newer = await check(fetcher({}), runWith('2026.12.01-aaaaaaa'));
     expect(newer.clis[2]).toMatchObject({ outdated: false });
+    const sameDay = await check(fetcher({}), runWith('2026.11.01-1234567'));
+    expect(sameDay.clis[2]).toMatchObject({ outdated: true });
+    const same = await check(fetcher({}), runWith('2026.11.01-abcdef1'));
+    expect(same.clis[2]).toMatchObject({ outdated: false });
+  });
+
+  it('ignores versions that were unpublished from npm', async () => {
+    const r = await check(fetcher({ '2.1.260': days(60), '2.1.300': days(10), '2.1.322': days(5) }, undefined, ['2.1.322']));
+    expect(r.clis[0]).toMatchObject({ latest: '2.1.300', target: '2.1.300' });
+  });
+
+  it('does not cache a non-OK response, and refetches once the TTL expires', async () => {
+    let ok = false;
+    const f: Fetcher = vi.fn(async () => ({ ok, json: async () => packument({ '2.1.322': days(10) }), text: async () => '' }));
+    expect((await check(f)).clis[0]).toMatchObject({ reason: 'version lookup failed' });
+    ok = true;
+    expect((await check(f)).clis[0]).toMatchObject({ latest: '2.1.322' });
+    const calls = vi.mocked(f).mock.calls.length;
+    await check(f, runWith(), NOW + 59 * 60_000);
+    expect(vi.mocked(f).mock.calls.length).toBe(calls);
+    await check(f, runWith(), NOW + 61 * 60_000);
+    expect(vi.mocked(f).mock.calls.length).toBeGreaterThan(calls);
+  });
+
+  it('makes no lookups for a CLI that is not installed', async () => {
+    const f = fetcher({ '2.1.322': days(10) });
+    const r = await check(f, async (_c, args) => ({ stdout: args[0] === 'image' ? 'sha256:1' : 'claude \ncodex \nagent \n' }));
+    expect(f).not.toHaveBeenCalled();
+    expect(formatCliVersions(r)).toEqual([]);
+  });
+
+  it('probes only a local image, never pulling, with no network, once per image ID', async () => {
+    const calls: string[][] = [];
+    let id = 'sha256:1';
+    const run: DockerRunner = async (_c, args) => {
+      calls.push(args);
+      return { stdout: args[0] === 'image' ? id : 'claude 2.1.260\n' };
+    };
+    const f = fetcher({ '2.1.260': days(60) });
+    await check(f, run);
+    await check(f, run);
+    const probes = (): string[][] => calls.filter((a) => a[0] === 'run');
+    expect(probes()).toHaveLength(1);
+    expect(probes()[0]).toEqual(expect.arrayContaining(['--rm', '--pull=never', '--network', 'none']));
+    id = 'sha256:2';
+    await check(f, run);
+    expect(probes()).toHaveLength(2);
+
+    const missing: string[][] = [];
+    const r = await check(f, async (_c, args) => {
+      missing.push(args);
+      if (args[0] === 'image') throw new Error('No such image');
+      return { stdout: 'claude 2.1.260\n' };
+    });
+    expect(missing.some((a) => a[0] === 'run')).toBe(false);
+    expect(formatCliVersions(r)).toEqual([]);
   });
 
   it('caches lookups per fetcher', async () => {

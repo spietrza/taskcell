@@ -102,10 +102,11 @@ export function isOlderVersion(actual: string, expected: string): boolean {
 }
 
 /** Minimal command runner, injectable so the refresh can be exercised without Docker. */
-export type DockerRunner = (cmd: string, args: string[], opts: { cwd: string }) => Promise<{ stdout: string }>;
+export type DockerRunner = (cmd: string, args: string[], opts: { cwd: string; timeoutMs?: number }) => Promise<{ stdout: string }>;
 
+/** No timeout unless the call sets one: a slow `npm install` behind a proxy is what `doctor --fix` exists for. */
 export const defaultDockerRunner: DockerRunner = async (cmd, args, opts) => {
-  const { stdout } = await execa(cmd, args, { cwd: opts.cwd, timeout: 10 * 60_000 });
+  const { stdout } = await execa(cmd, args, { cwd: opts.cwd, ...(opts.timeoutMs !== undefined ? { timeout: opts.timeoutMs } : {}) });
   return { stdout };
 };
 
