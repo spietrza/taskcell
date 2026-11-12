@@ -122,6 +122,25 @@ if (phone) {
   afterPaint(mountHero);
 }
 
+// ---------- copy buttons on the command blocks (clipboard needs a secure context) ----------
+if (navigator.clipboard) {
+  for (const pre of document.querySelectorAll('pre.cmd')) {
+    const box = document.createElement('div');
+    box.className = 'cmd-box';
+    pre.replaceWith(box);
+    const b = document.createElement('button');
+    b.type = 'button';
+    b.className = 'copy';
+    b.textContent = 'Copy';
+    b.addEventListener('click', async () => {
+      const done = await navigator.clipboard.writeText(pre.textContent.trim()).then(() => true, () => false);
+      b.textContent = done ? 'Copied' : 'Failed';
+      setTimeout(() => (b.textContent = 'Copy'), 1600);
+    });
+    box.append(b, pre);
+  }
+}
+
 // ---------- Hub preview panel: built when it comes near the screen; phones keep the poster ----------
 const panelHost = document.getElementById('floor-panel');
 if (!phone) {
@@ -129,7 +148,7 @@ if (!phone) {
     (entries) => {
       if (!entries.some((e) => e.isIntersecting)) return;
       near.disconnect();
-      afterPaint(() => mount(panelHost, { mode: 'panel' }, true));
+      afterPaint(() => mount(panelHost, { mode: 'panel', labels: false }, true));
     },
     { rootMargin: '300px 0px' },
   );
