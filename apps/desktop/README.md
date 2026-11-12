@@ -44,13 +44,38 @@ The app renders with populated fixture data (two projects, three runs with full 
 board tasks, capabilities, flows). Navigate screens by clicking the rail icons exactly as a user would —
 no URL routing needed.
 
-## Hub mode
+## Local hub (the desktop backend)
 
-This same frontend also runs with no Tauri runtime at all, served by `taskcell hub` over plain
-HTTP/SSE (see `../../docs/hub.md`). `src/transport.ts` is the seam: every `invoke`/`listen` call goes
-through `invoke()`/`subscribe()`, which pick Tauri's IPC or the hub's `POST /rpc/<cmd>` + `/events` SSE
-stream depending on `window.__VANGUARD_HUB__ === true` — the marker the hub injects into `index.html`
-itself; its absence selects Tauri, the branch `vitest` and `dev/mockBackend.ts` always exercise.
+The hub (`taskcell hub`, see `../../docs/hub.md`) is the only backend. The desktop app is a client of a
+hub: on launch it starts one on `127.0.0.1` (random free port, per-launch token, no terminal, no
+sign-in), loads the UI the hub serves into its window, and stops it on quit. The window therefore shows
+exactly what a browser pointed at the same hub shows, and the UI makes no Tauri command calls for product
+features. `src/transport.ts` is the seam: `invoke()`/`subscribe()` use the hub's `POST /rpc/<cmd>` + `/events`
+SSE stream, selected by the `window.__VANGUARD_HUB__` marker the hub injects into `index.html`. (Its Tauri
+branch only serves `dev/mockBackend.ts` and `vitest`.)
+
+**What the Rust code does** (`src-tauri/src/hub.rs`, `lib.rs`): open the window (a splash page,
+`splash/index.html`), start the hub, navigate to its launch URL, restart it with backoff if it dies (a status
+overlay says so; one supervisor, so nothing starts twice), and stop it on quit. The hub also exits on its own
+if the app dies (its stdin, a pipe from the app, closes). Projects stay in the app config dir, so existing
+installs keep their list. Capabilities: `capabilities/hub.json` grants the loopback-served UI only window
+chrome (drag, close flush) — no commands.
+
+**Fleet** works here because this hub is loopback-only and started with `VANGUARD_HUB_ALLOW_FLEET=1`; any
+other hub rejects `spawn_run`/`kill_run`/`list_spawns`.
+
+**Which hub runs:** a source checkout (`pnpm start`, which builds the UI first) runs `src/cli/index.ts` through
+`node --import tsx` (needs Node ≥ 24 and `pnpm install` at the root). An installed app runs its bundled
+hub: `pnpm --dir apps/desktop bundle` (`scripts/prepare-sidecar.mjs`) stages a Node runtime as the Tauri
+sidecar `node` plus the built CLI, its production dependencies and the UI as the `taskcell` resource
+(`src-tauri/tauri.bundle.conf.json`). **Decision: bundled Node, not a single-executable build** — the CLI is
+ESM with many dependencies and runtime-resolved assets/child scripts (`__complete`, proxies, templates) that a
+single executable would have to embed and patch, and it re-runs itself as a child process; shipping `node`
+plus the plain `dist/` keeps one code path with the source checkout at the cost of a larger installer.
+
+## Hub mode (browser)
+
+The same frontend runs in a browser against any hub.
 
 The hub requires a **per-launch token** on every `/rpc/<cmd>` and on `/events`. It is never part of
 `index.html`: the hub prints and opens a launch URL that carries it in the fragment
@@ -73,13 +98,13 @@ taskcell hub --repo /path/to/your/repo # from the repo root; prints the launch U
 Reaching the hub under a hostname other than loopback or an IP literal needs that Host allowed —
 `--allowed-host hub.example.com` (see `../../docs/hub.md`).
 
-**What's absent in hub mode:**
+**Differences from the desktop window:**
 
-- **Fleet** — dropped from the rail entirely. It spawns shell commands, which would be remote code
-  execution on a reachable server; the hub's RPC dispatcher rejects the underlying commands too.
-- **The native OS folder dialog** — there is no Tauri plugin in a browser. "Add a repo" opens
-  `RepoPicker` instead, a modal that walks the filesystem via `browse_dirs` (confined server-side to
-  the hub's browse root).
+- **Fleet** — dropped from the rail unless the hub is the desktop app's own loopback hub. It spawns
+  programs, which would be remote code execution on a reachable server; the hub's RPC dispatcher rejects
+  the underlying commands too.
+- **A native OS folder dialog** — on every client, "Add a repo" opens `RepoPicker`, a modal that walks the
+  filesystem via `browse_dirs` (confined server-side to the hub's browse root).
 
 **Coverage guard:** `src/dev/mockBackend.test.ts` asserts that every `invoke` command string in
 `src/ipc.ts` has a fixture. A new IPC command added without a matching case in `mockBackend.ts` fails
@@ -118,18 +143,8 @@ the test immediately.
 Typed JSON over Tauri IPC is the only boundary. `src/taskcell-output.d.ts` hand-mirrors the persisted
 shapes (kept decoupled from Taskcell's build, per the design spec §4).
 
-**Rust (`src-tauri/src/`)** — one module per concern, each with pure functions + unit tests, thin
-`#[tauri::command]` wrappers in `lib.rs`:
-
-| Module | Responsibility |
-|---|---|
-| `runs.rs` | Parse & group `.taskcell/runs` into summaries + run detail (diff/transcript/proof) |
-| `active.rs` | Detect in-flight runs (fresh sessions); parse a session into a transcript + token totals |
-| `projects.rs` | Persist the project list (OS app-config dir); aggregate per-project metrics + velocity |
-| `watch.rs` | `notify` watcher per project → debounced `vanguard:changed` events |
-| `spawn.rs` | Launch/kill runs (argv, no shell, in the project dir, inherits env); stream output events |
-| `spec.rs` | Best-effort fetch of a Task's source issue (`gh`/`linear`) |
-| `remote.rs` | List GitHub Actions runs (`gh run list`); pull a run's record artifact into the local cache |
+**Rust (`src-tauri/src/`)** — `hub.rs` starts, supervises and stops the local hub; `lib.rs` opens the window. No
+`#[tauri::command]`s: the runs/projects/drafts/remote/spawn logic lives in `src/hub/*` and `src/core/*`.
 
 **React (`src/`)** — `App` (left-rail shell + ⌘K + theme), `features/dashboard`, `features/inspector`
 (run list/detail/live/remote/launch/spec), `components/` (reusable `Markdown` / `CodeBlock` / `Callout` /

@@ -4,15 +4,14 @@
   "version": "0.1.0",
   "identifier": "dev.vanguard.desktop",
   "build": {
-    "beforeDevCommand": "pnpm dev",
-    "devUrl": "http://localhost:1420",
+    "beforeDevCommand": "pnpm build",
     "beforeBuildCommand": "pnpm build",
-    "frontendDist": "../dist"
+    "frontendDist": "../splash"
   },
   "app": {
     "windows": [{ "title": "Taskcell", "width": 1100, "height": 800, "minWidth": 1000, "minHeight": 600, "titleBarStyle": "Overlay", "hiddenTitle": true }],
     "security": {
-      "csp": "default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data:; connect-src 'self' ipc: http://ipc.localhost ws://localhost:1420"
+      "csp": "default-src 'self'; style-src 'self' 'unsafe-inline'"
     }
   },
   "bundle": {

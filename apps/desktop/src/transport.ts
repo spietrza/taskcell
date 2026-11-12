@@ -1,10 +1,9 @@
-// Transport seam between the Inspector UI and its backend. Two backends answer the same calls:
-// Tauri's `invoke`/`listen` (the desktop app, and the branch vitest + dev/mockBackend.ts exercise)
-// and the hub's `POST /rpc/<cmd>` + `/events` SSE stream (a browser against `taskcell hub`, no Tauri
-// runtime present). Mode resolution: the server-injected `window.__VANGUARD_HUB__` marker
-// (src/hub/static.ts) selects the hub branch; its absence selects Tauri. There is no dev-server path
-// into hub mode — the hub only ever serves its own built `dist/`, which is where the marker comes
-// from (see apps/desktop/README.md's "Hub mode" section).
+// Transport seam between the UI and its backend. The hub is the only product backend: the UI calls
+// `POST /rpc/<cmd>` and reads the `/events` SSE stream, in a browser and in the desktop window alike
+// (the desktop app starts a local hub and loads the UI the hub serves — apps/desktop/README.md,
+// "Local hub"). The server-injected `window.__VANGUARD_HUB__` marker (src/hub/static.ts) selects the
+// hub branch. The Tauri `invoke`/`listen` branch below is not a product backend: it exists only for
+// the dev-server fixture mock (dev/mockBackend.ts) and vitest, which run without a hub.
 import {
   decodeResponse,
   decodeEvent,
@@ -20,6 +19,7 @@ import { listen as tauriListen, type UnlistenFn } from '@tauri-apps/api/event';
 declare global {
   interface Window {
     __VANGUARD_HUB__?: boolean;
+    __VANGUARD_HUB_FLEET__?: boolean;
   }
 }
 
@@ -27,10 +27,11 @@ export function isHubMode(): boolean {
   return window.__VANGUARD_HUB__ === true;
 }
 
-// Fleet spawns shell commands — remote code execution on a reachable server — so hub mode disables
-// it everywhere (src/hub/rpc.ts's DISABLED_COMMANDS rejects the underlying calls too).
+// Fleet spawns programs — remote code execution on a reachable server — so only the desktop app's own
+// loopback hub enables it (it injects `__VANGUARD_HUB_FLEET__`, src/hub/static.ts); src/hub/rpc.ts rejects
+// the underlying calls on every other hub too.
 export function canUseFleet(): boolean {
-  return !isHubMode();
+  return !isHubMode() || window.__VANGUARD_HUB_FLEET__ === true;
 }
 
 /** A hub restart mints a fresh per-launch token (src/hub/server.ts), so the one this tab holds
