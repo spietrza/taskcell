@@ -277,6 +277,7 @@ async function dischargedItemsBlockFor(
   deps: ReviseGithubPrDeps,
   prBody: string,
   issueTaskId: string,
+  log: (line: string) => void,
 ): Promise<string | undefined> {
   const block = extractPrBodyItemsBlock(prBody);
   if (block === undefined) return undefined;
@@ -291,7 +292,8 @@ async function dischargedItemsBlockFor(
       .map((c) => c.body)
       .join('\n');
     return dischargePrBodyItemsBlock(block, parseSpecManifest(specText));
-  } catch {
+  } catch (err) {
+    log(`revise-pr ${repoSlug}: could not read the spec manifest on ${issueTaskId} (${err instanceof Error ? err.message : String(err)}) — PR-body items left undischarged`);
     return block;
   }
 }
@@ -698,7 +700,7 @@ export async function runRevisePullRequest(prRef: string, deps: ReviseGithubPrDe
         // weakening the gate already flagged (the label survives; the human-readable evidence would not).
         // Same for the required-PR-body-item block: it is the only record of a hand-applied obligation,
         // and holds whatever a human pasted into it.
-        const newBody = [rederived, extractGateConfigBlock(pr.body), await dischargedItemsBlockFor(target.repoSlug, gh, deps, pr.body, issueTaskId)]
+        const newBody = [rederived, extractGateConfigBlock(pr.body), await dischargedItemsBlockFor(target.repoSlug, gh, deps, pr.body, issueTaskId, log)]
           .filter((s): s is string => s !== undefined)
           .join('\n\n');
         if (newBody !== pr.body) {
