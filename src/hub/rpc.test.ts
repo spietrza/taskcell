@@ -128,6 +128,16 @@ describe('dispatchRpc', () => {
     expect(runs).toEqual([]);
   });
 
+  test('agent_cli_versions reports a disabled check without any lookup when the switch is off', async () => {
+    vi.stubEnv('VANGUARD_CLI_VERSION_CHECK', 'off');
+    try {
+      const { ctx } = await makeCtx(await tmpRepo());
+      expect(await dispatchRpc(ctx, 'agent_cli_versions', {})).toEqual({ enabled: false, clis: [] });
+    } finally {
+      vi.unstubAllEnvs();
+    }
+  });
+
   test('T-55 unknown command classifies as a 404-flavored bad-request', async () => {
     const repo = await tmpRepo();
     const { ctx } = await makeCtx(repo);

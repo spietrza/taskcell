@@ -13,6 +13,8 @@ import {
   resolveSandboxImage,
   pnpmStoreVolumeName,
   SANDBOX_CLAUDE_VERSION,
+  refreshSandboxCodexCli,
+  SANDBOX_CODEX_VERSION,
 } from './docker.js';
 import { readOnlyTmpfsSizesMb, resolveSandboxProfile } from './limits.js';
 import type { SandboxProfile, SandboxSecurityOpts } from './provider.js';
@@ -107,6 +109,25 @@ const suite = hasDocker ? describe : describe.skip;
 
 // Ungated on purpose: the comparison is pure, and it gates every sandbox start — a wrong verdict
 // either blocks a healthy image or lets a stale CLI fail deep inside a run (see assertClaudeCliCurrent).
+describe('refreshSandboxCodexCli', () => {
+  it('installs the pinned codex into the image and restores USER/WORKDIR', async () => {
+    const calls: string[][] = [];
+    const run = async (_cmd: string, args: string[]): Promise<{ stdout: string }> => {
+      calls.push(args);
+      return { stdout: args.at(-1) === '{{.Config.User}}' ? 'agent' : args.at(-1) === '{{.Config.WorkingDir}}' ? '/workspace' : '' };
+    };
+    expect(await refreshSandboxCodexCli({ cwd: '/repo', image: 'img:1', run })).toBe(SANDBOX_CODEX_VERSION);
+    expect(calls.some((a) => a.includes('npm') && a.includes(`@openai/codex@${SANDBOX_CODEX_VERSION}`))).toBe(true);
+    expect(calls.find((a) => a[0] === 'commit')).toEqual(expect.arrayContaining(['USER agent', 'WORKDIR /workspace', 'img:1']));
+  });
+
+  it('pins the same codex and claude versions as the Dockerfile', async () => {
+    const dockerfile = await readFile(join(__dirname, '..', '..', 'docker', 'Dockerfile'), 'utf8');
+    expect(/^ARG CODEX_CLI_VERSION=(.+)$/m.exec(dockerfile)?.[1]).toBe(SANDBOX_CODEX_VERSION);
+    expect(/^ARG CLAUDE_CLI_VERSION=(.+)$/m.exec(dockerfile)?.[1]).toBe(SANDBOX_CLAUDE_VERSION);
+  });
+});
+
 describe('refreshSandboxClaudeCli', () => {
   restoresSandboxImageEnv();
 

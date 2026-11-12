@@ -233,6 +233,10 @@ taskcell doctor --fix
 
 This installs the pinned CLI into the existing image and re-runs the checks. It does **not** rebuild — a rebuild also re-downloads the linear-cli release tarball, which is exactly what a corporate MITM proxy breaks, and updating the CLI alone goes through a plain npm install. The original `USER` and `WORKDIR` are read from the image and restored, because `docker commit` snapshots the *container's* config: commit a root container without restoring them and the image starts running as root, at which point the CLI refuses to launch at all.
 
+`doctor --fix` does the same for the codex CLI when the image's codex predates the repo pin. If the codex install fails, doctor says so and still prints the preflight report.
+
+`taskcell doctor` also prints installed vs latest for the claude, codex and (when installed) cursor CLIs in the image, and the hub's `agent_cli_versions` command returns the same data. "Latest" comes from the npm registry (claude, codex) and `cursor.com/install` (cursor); results are cached for an hour. A one-click update targets the newest release at least 3 days old, the same soak as the bump PR; a newer release is shown but not offered. Cursor is never offered: it publishes no checksums, so an update needs the new per-arch sha256. Set `VANGUARD_CLI_VERSION_CHECK=off` (also `0`, `false`, `no`) to turn the check off: no registry or Cursor lookups are made, and the hub endpoint returns `{ enabled: false, clis: [] }`.
+
 A full rebuild still works where the network allows it:
 
 ```bash

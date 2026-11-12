@@ -4,6 +4,7 @@ import { GITHUB_CLAIMED_LABEL, GITHUB_REVIEW_LABEL, GITHUB_SPEC_CLAIMED_LABEL } 
 import type { Command } from './args.js';
 import type { PreflightRunner } from './preflight.js';
 
+
 type DoctorCommand = Extract<Command, { kind: 'doctor' }>;
 
 const cmd: DoctorCommand = {
@@ -47,6 +48,58 @@ const runner: PreflightRunner = async (name, args) => {
   }
   return { stdout: '' };
 };
+
+/** Docker stub: image codex/claude versions from the labelled `sh -c` probe, plus preflight's own calls. */
+function versionRunner(codex: string, installs: string[], failInstall = false): PreflightRunner {
+  let codexNow = codex;
+  return async (name, args, o) => {
+    if (name === 'docker' && args[0] === 'run' && args.includes('sh')) return { stdout: `claude 2.1.322\ncodex ${codexNow}\nagent \n` };
+    if (name === 'docker' && args[0] === 'run' && args.includes('npm')) {
+      installs.push(args.at(-1) ?? '');
+      if (failInstall) throw new Error('npm down');
+      codexNow = '0.167.2';
+      return { stdout: '' };
+    }
+    return runner(name, args, o);
+  };
+}
+
+describe('doctorCommand cli versions', () => {
+  const base = { env: { GH_TOKEN: 'gh', CLAUDE_CODE_OAUTH_TOKEN: 'token' }, nodeVersion: '24.11.1' };
+  const fix = { ...cmd, fix: true };
+
+  it('prints installed vs latest from the lookup', async () => {
+    const logs: string[] = [];
+    await doctorCommand(cmd, {
+      ...base,
+      run: runner,
+      log: (l) => logs.push(l),
+      cliVersions: async () => ({ enabled: true, clis: [{ name: 'codex', installed: '0.100.0', latest: '0.167.2', changelog: 'https://x', outdated: true, updatable: true }] }),
+    });
+    expect(logs).toContain('cli versions: codex installed 0.100.0, latest 0.167.2 — newer available (https://x)');
+  });
+
+  it('--fix rebuilds an old codex, even with the version check off', async () => {
+    const installs: string[] = [];
+    const logs: string[] = [];
+    await doctorCommand(fix, { ...base, env: { ...base.env, VANGUARD_CLI_VERSION_CHECK: 'off' }, run: versionRunner('0.100.0', installs), log: (l) => logs.push(l) });
+    expect(installs).toEqual(['@openai/codex@0.167.2']);
+    expect(logs).toContain('doctor --fix: installing codex 0.167.2 into the sandbox image');
+  });
+
+  it('--fix leaves a current codex alone', async () => {
+    const installs: string[] = [];
+    await doctorCommand(fix, { ...base, run: versionRunner('0.167.2', installs), log: () => undefined, cliVersions: async () => ({ enabled: false, clis: [] }) });
+    expect(installs).toEqual([]);
+  });
+
+  it('a failed codex install does not hide the preflight report', async () => {
+    const logs: string[] = [];
+    await doctorCommand(fix, { ...base, run: versionRunner('0.100.0', [], true), log: (l) => logs.push(l), cliVersions: async () => ({ enabled: false, clis: [] }) });
+    expect(logs.some((l) => l.includes('codex install failed: npm down'))).toBe(true);
+    expect(logs).toContain('preflight: llm auth ok');
+  });
+});
 
 describe('doctorCommand', () => {
   it('prints preflight lines when checks pass', async () => {

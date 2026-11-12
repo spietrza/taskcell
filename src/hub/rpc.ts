@@ -23,6 +23,7 @@ import type { ErrorKind } from '../hub-wire.js';
 import { defaultRunsRoot, remoteRunsRoot, listRunSummaries, readRunDetail } from './runs.js';
 import { listActive, readSession } from './active.js';
 import { readAppConfig, readAppConfigStrict, writeAppConfig, type AppConfig } from './app-config.js';
+import { checkCliVersions } from '../sandbox/cli-versions.js';
 import * as drafts from './drafts.js';
 import * as projects from './projects.js';
 import * as remote from './remote.js';
@@ -423,6 +424,8 @@ export async function dispatchRpc(ctx: RpcContext, cmd: string, rawArgs: unknown
       await replyNeedsYou(repoSlug, id, kind, body, undefined, label?.trim() ? label : undefined);
       return null;
     }
+    case 'agent_cli_versions':
+      return checkCliVersions({ cwd: ctx.configDir });
     case 'enable_factory_plan': {
       const real = await ctx.allowlist.assertAllowed(requireString(args, 'repoPath'));
       return enableFactory(real, requireProvider(args, 'provider')).plan();

@@ -549,6 +549,25 @@ export interface CompleteCallArgs {
   attachments?: CompleteRequest['attachments'];
 }
 
+/** One agent CLI in the local sandbox image: installed vs latest (src/sandbox/cli-versions.ts). */
+export interface CliVersionInfo {
+  name: 'claude' | 'codex' | 'cursor';
+  installed?: string;
+  latest?: string;
+  /** Newest version past the 3-day soak; set only when an update is offered (what it installs). */
+  target?: string;
+  publishedAt?: string;
+  changelog: string;
+  outdated: boolean;
+  /** Outdated and a soaked, verifiable newer version exists — safe to offer a one-click update. */
+  updatable: boolean;
+  reason?: string;
+}
+export interface CliVersionReport {
+  enabled: boolean;
+  clis: CliVersionInfo[];
+}
+
 /**
  * Shared command catalogue for the Tauri, hub and mock adapters. Adapter integration is separate:
  * the existing invoke wrappers and dispatchers do not yet enforce these argument/result types.
@@ -629,6 +648,8 @@ export interface Commands {
   enable_factory_secret: { args: { repoPath: string; plan: FactoryPlan }; result: FactorySecretStep };
   /** HUB_ONLY: dispatch the doctor workflow (once the PR above is merged) and report the run that dispatch created. */
   enable_factory_verify: { args: { repoPath: string; plan: FactoryPlan }; result: FactoryVerifyResult };
+  /** HUB_ONLY: installed vs latest claude/codex/cursor CLI in the local sandbox image (3-day soak applied; `enabled: false`, and no lookups, when VANGUARD_CLI_VERSION_CHECK is off). */
+  agent_cli_versions: { args: undefined; result: CliVersionReport };
 }
 
 /** Commands the hub does not implement for real: absent from `src/hub/rpc.ts`'s dispatch cases (the
@@ -646,6 +667,7 @@ export const HUB_ONLY = [
   'enable_factory_apply',
   'enable_factory_secret',
   'enable_factory_verify',
+  'agent_cli_versions',
   'list_needs_you',
   'reply_needs_you',
   'api_queue',
@@ -706,6 +728,7 @@ export const COMMAND_NAMES = [
   'enable_factory_apply',
   'enable_factory_secret',
   'enable_factory_verify',
+  'agent_cli_versions',
 ] as const satisfies readonly (keyof Commands)[];
 type _Exhaustive = keyof Commands extends (typeof COMMAND_NAMES)[number]
   ? true
