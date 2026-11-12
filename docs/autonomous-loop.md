@@ -336,7 +336,7 @@ Later `run`, `watch` and spec runs read the live lessons back into the retrospec
 
 This repo runs the step from `.github/workflows/taskcell-lessons.yml` when a `chore/vanguard-*` PR is closed. The job needs `CLAUDE_CODE_OAUTH_TOKEN`.
 
-**On your own repo.** There is no reusable workflow or template for this step yet. Taskcell's `taskcell-lessons.yml` builds the CLI from its own checkout, so it only works inside the Taskcell repo. To enable lessons elsewhere, add a `pull_request_target: [closed]` job shaped like [`templates/github/resume.yml`](../templates/github/resume.yml): check out `spietrza/taskcell` at `v1` into `.vanguard-src`, build it, then run:
+**On your own repo.** There is no reusable workflow or template for this step yet. Taskcell's `taskcell-lessons.yml` builds the CLI from its own checkout, so it only works inside the Taskcell repo. To enable lessons elsewhere, add a `pull_request_target: [closed]` job shaped like [`templates/github/resume.yml`](../templates/github/resume.yml). First check out your own repo's **default branch** at the workspace root (`ref: ${{ github.event.repository.default_branch }}`, credentials kept), because `lessons record` uses git in its working directory (or `--repo <path>`) to append to `taskcell-metrics`. Then check out `spietrza/taskcell` at `v1` into `.vanguard-src`, build it, and run from the workspace root:
 
 ```bash
 node .vanguard-src/dist/cli/index.js lessons record --pr <n> --github-repo "$GITHUB_REPOSITORY" --feedback-authors <your-logins>
@@ -347,9 +347,11 @@ The job needs:
 - the same `chore/vanguard-*` / same-repo gate as Taskcell's own `taskcell-lessons.yml`;
 - `contents: write`, to append to `taskcell-metrics`;
 - `pull-requests: write`, for the Lesson comment;
+- `issues: write`, as Taskcell's own `taskcell-lessons.yml` grants;
+- `GH_TOKEN: ${{ github.token }}` in the job's `env:`, for the PR history and the comment;
 - `CLAUDE_CODE_OAUTH_TOKEN`.
 
-Never check out the PR's own code in that job. Run `taskcell lessons list` and `taskcell lessons dismiss <id>` locally or from any checkout.
+Never check out the PR's own code in that job. Run `taskcell lessons list` and `taskcell lessons dismiss <id>` from any clone of your repo (they read and write its `taskcell-metrics` branch).
 
 ## Proof of work
 
