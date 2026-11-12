@@ -6,6 +6,9 @@ name: Taskcell Revise
 # definition — this `if:` gate and the `secrets:` block — is read from the base branch, so a PR's
 # head branch cannot edit the gate away. The gate admits only same-repo PRs by the signed-in user. Revises only the signed-in user's own PRs (the author gate below) — or
 # Taskcell's own bot commits, which carry the `github-actions[bot]` author.
+#
+# Optional GitHub App (docs/onboarding-another-repo.md): replace YOUR_APP_SLUG with your App's slug so PRs it
+# opened can be revised. PR-author list only — never the sender check or `allowed-actors`.
 
 on:
   pull_request_target:
@@ -26,7 +29,7 @@ jobs:
       (github.event_name == 'pull_request_target' &&
        github.event.pull_request.head.repo.full_name == github.repository &&
        github.event.label.name == 'needs revision' &&
-       contains(fromJSON('["YOUR_LOGIN","github-actions[bot]"]'), github.event.pull_request.user.login) &&
+       contains(fromJSON('["YOUR_LOGIN","github-actions[bot]","YOUR_APP_SLUG[bot]"]'), github.event.pull_request.user.login) &&
        github.event.sender.login == 'YOUR_LOGIN')
     # On the job and per PR: skipped label events never enter a group, and revisions of
     # different PRs do not queue behind each other.

@@ -9,6 +9,8 @@ const TEMPLATES_DIR = new URL('../../templates/github/', import.meta.url);
 
 const EXPECTED_FILES = ['implement.yml', 'doctor.yml', 'pr-review.yml', 'revise.yml', 'resume.yml'];
 
+const read = async (f: string): Promise<string> => readFile(new URL(f, TEMPLATES_DIR), 'utf8');
+
 /** Depth-first search for any `run:` step value anywhere in a parsed workflow doc. */
 function collectRunValues(node: unknown, out: string[]): void {
   if (Array.isArray(node)) {
@@ -75,6 +77,29 @@ describe('templates/github/ caller templates', () => {
         expect(job.if).toBeTypeOf('string');
         expect(job.if as string).toMatch(/(github\.actor|github\.event\.sender\.login) == 'YOUR_LOGIN'/);
       }
+    }
+  });
+
+  it('admits the optional App bot only as a revise PR author, never as a sender or in allowed-actors', async () => {
+    const BOT = 'YOUR_APP_SLUG[bot]';
+    for (const file of EXPECTED_FILES) {
+      const doc = parse(await readFile(new URL(file, TEMPLATES_DIR), 'utf8')) as {
+        jobs?: Record<string, { if?: unknown; with?: Record<string, unknown> }>;
+      };
+      for (const job of Object.values(doc.jobs ?? {})) {
+        expect(String(job.with?.['allowed-actors'] ?? '')).not.toContain(BOT);
+        // Every clause that mentions the bot must be the PR-author check.
+        for (const clause of String(job.if).split(/&&|\|\|/).filter((c) => c.includes(BOT))) {
+          expect(clause).toContain('pull_request.user.login');
+          expect(clause).not.toContain('sender.login');
+        }
+      }
+    }
+    const revise = parse(await readFile(new URL('revise.yml', TEMPLATES_DIR), 'utf8')) as { jobs: Record<string, { if: string }> };
+    expect(revise.jobs.revise?.if).toContain(BOT);
+    // No reusable workflow declares the App secret yet, so no caller may map it.
+    for (const file of EXPECTED_FILES) {
+      expect(await readFile(new URL(file, TEMPLATES_DIR), 'utf8')).not.toContain('TASKCELL_APP_PRIVATE_KEY:');
     }
   });
 });

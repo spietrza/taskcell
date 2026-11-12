@@ -252,6 +252,7 @@ jobs:
       (github.event.label.name == 'needs revision' &&
        contains(fromJSON('["YOUR_LOGIN","github-actions[bot]"]'), github.event.pull_request.user.login) &&
        github.event.sender.login == 'YOUR_LOGIN')
+    # (With the App, `templates/github/revise.yml` also lists `YOUR_APP_SLUG[bot]` as a PR author; see step 4 below.)
     # On the job and per PR: skipped label events never enter a group, and revisions of
     # different PRs do not queue behind each other.
     concurrency:
