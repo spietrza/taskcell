@@ -104,6 +104,8 @@ The reusable workflow installs Taskcell with `pnpm install --ignore-workspace`, 
 | `upload-run-records` | boolean | `false` | upload `.vanguard/runs/` as a workflow artifact (see below) |
 | `skills` | string | `.vanguard-src/skills` | `--skills`: Taskcell's bundled skills; keep the default. Your repo's own skills go in `.github/vanguard-skills/<name>/SKILL.md` and are merged in automatically, no input needed ([Custom skills](skills.md#custom-skills-bring-your-own)). GitHub, GitLab and Projects runs used to ignore this input; they now read it, so a custom path that does not exist fails the run at startup |
 | `max-tasks` | string | `''` (no cap) | `--max-tasks`: cap ready issues claimed per phase in one run |
+| `issue` | string | `''` (sweep) | `--issue`: run only this issue. The template passes the labelled issue, so every issue gets its own run and its own concurrency group instead of queueing behind one shared group |
+| `max-parallel` | string | `''` (no limit) | with `issue`: at most this many runs work at once; later runs wait for a slot, first come first served (the cap can overshoot by one when two runs start in the same minute). The caller needs `actions: read` |
 | `vanguard-ref` | string | `''` (the workflow's own ref) | Taskcell source ref to build |
 
 Secrets: `CLAUDE_CODE_OAUTH_TOKEN`, `CODEX_AUTH_JSON`, `CLOUDFLARE_ACCOUNT_ID`, `CLOUDFLARE_AUTH_TOKEN` (all optional).
@@ -193,7 +195,7 @@ Same shape: a caller with its triggers, permissions, `concurrency` and `if:`, pl
 | Workflow | Inputs | Secrets |
 |---|---|---|
 | `research.yml` | `allowed-actors`, `number` (issue number, required), `provider`, `research-model`, `vanguard-ref` | `CLAUDE_CODE_OAUTH_TOKEN`, `CODEX_AUTH_JSON` |
-| `revise.yml` | `allowed-actors`, `number` (PR number, required), `provider`, `llm-proxy`, `upload-run-records`, `skills` (default `.vanguard-src/skills`; keep it, a missing custom path fails the run), `timeout-minutes` (default 90), `vanguard-ref` | `CLAUDE_CODE_OAUTH_TOKEN`, `CODEX_AUTH_JSON`, `VANGUARD_PUSH_TOKEN` |
+| `revise.yml` | `allowed-actors`, `number` (PR number, required), `provider`, `llm-proxy`, `upload-run-records`, `skills` (default `.vanguard-src/skills`; keep it, a missing custom path fails the run), `max-rounds` (default 2, allowed 1–5: revise rounds before a human takes over; raise it only from a trusted caller), `timeout-minutes` (default 90), `vanguard-ref` | `CLAUDE_CODE_OAUTH_TOKEN`, `CODEX_AUTH_JSON`, `VANGUARD_PUSH_TOKEN` |
 
 Inside a called workflow the `inputs` context means the `workflow_call` inputs, not your `workflow_dispatch` ones, so the caller passes the number in: `number: ${{ github.event.issue.number || inputs.issue }}` for research, `number: ${{ github.event.pull_request.number || inputs.pr }}` for revise. Revise runs at most 2 rounds.
 
@@ -383,6 +385,10 @@ To run **Opus** spec / **Sonnet** impl / **Codex** review with Codex on a ChatGP
 The stored `CODEX_AUTH_JSON` is a snapshot; Codex refreshes the access token from the embedded refresh token each run, so the secret must carry a live refresh token. Re-run `gh secret set` if a run ever fails to authenticate.
 
 ---
+
+### Keeping a reserve of your plan (usage cap)
+
+If the factory shares your Claude or ChatGPT subscription with your own work, cap it: `--usage-cap 80` (env `VANGUARD_USAGE_CAP_PCT=80`, or the hub's Settings **Usage cap %**) lets it spend up to 80% of the provider's window and leaves the last 20% to you. The factory stops *starting* tasks and stages at the cap (running stages finish), labels the task `vanguard:rate-limited` and `resume-rate-limited` retries it after the window resets. See [cli.md](cli.md#cost-and-limits). The reusable workflows have no `usage-cap` input yet — Taskcell cannot edit `.github/workflows/**`, so add the input by hand (passing it as `--usage-cap` to the CLI call) or set `VANGUARD_USAGE_CAP_PCT` in the job env.
 
 ## One run, spec and build
 

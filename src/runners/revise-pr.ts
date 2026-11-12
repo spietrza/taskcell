@@ -33,7 +33,8 @@ import { appendStepSummary } from '../core/step-summary.js';
 import type { StepSummary, StepSummaryExit } from '../core/step-summary.js';
 import type { StageOutcome } from '../pipeline/pipeline.js';
 import { GITHUB_GATE_CONFIG_LABEL, GITHUB_SECRET_BLOCKED_LABEL, GITHUB_RATE_LIMITED_LABEL } from '../github-labels.js';
-import { parseProviderRateLimitReset, rateLimitedComment } from '../core/rate-limit-marker.js';
+import { isRateLimitHold, rateLimitHold } from '../core/rate-limit-marker.js';
+import { UsageCapError } from '../core/usage-cap.js';
 import { diffFilesWithPatches, extractGateConfigBlock, gateConfigChangedBlock, gateConfigPaths, loadGateConfigExtraGlobs } from '../context/gate-config.js';
 import { renderSecretBlockComment } from '../core/secret-scan.js';
 import { deliverChange, scanOutgoingForSecrets } from './deliver-change.js';
@@ -61,7 +62,7 @@ import { authSecrets } from '../agents/auth.js';
 import { selectAgents, providerKeyEnvNames } from '../agents/registry.js';
 import { GITHUB_REVIEW_LABEL } from '../github-labels.js';
 import { WorktreeManager } from '../worktree/manager.js';
-import { AgentError, VanguardError, isRateLimitError } from '../core/errors.js';
+import { VanguardError } from '../core/errors.js';
 import type { GhRunner } from '../tasks/github.js';
 import type { PullRequestForReview } from './pr-review.js';
 import type { CommandRunner } from '../pipeline/remote-branch.js';
@@ -725,7 +726,7 @@ export async function runRevisePullRequest(prRef: string, deps: ReviseGithubPrDe
       };
     } catch (error) {
       await stepSummary('error', { error: String(error) });
-      // A rate or session limit that no fallback rescued ends the round with the PR still carrying
+      // A rate or session limit (or the usage cap) that no fallback rescued ends the round with the PR still carrying
       // `vanguard:revising` and nothing said on it, so the work sits until someone notices (#615,
       // #656). Mark it `vanguard:rate-limited` with a notice carrying the parsed reset time (posted
       // as a review comment, like the other hand-back notices here), and drop the in-flight label,
@@ -736,12 +737,12 @@ export async function runRevisePullRequest(prRef: string, deps: ReviseGithubPrDe
       // pipeline.ts): a `gh`/git failure carrying GitHub's own "API rate limit exceeded" is not the
       // provider, and the notice would misname it — and after a successful push it would invite a
       // pointless second round.
-      if (error instanceof AgentError && isRateLimitError(error) && deps.out === undefined) {
-        const until = parseProviderRateLimitReset(error.message);
-        log(`revise-pr ${target.repoSlug}#${target.number}: provider rate-limited, marking vanguard:rate-limited until ${until.toISOString()}`);
+      if (isRateLimitHold(error) && deps.out === undefined) {
+        const { until, comment } = rateLimitHold(error, NEEDS_REVISION_LABEL);
+        log(`revise-pr ${target.repoSlug}#${target.number}: ${error instanceof UsageCapError ? 'at the usage cap' : 'provider rate-limited'}, marking vanguard:rate-limited until ${until.toISOString()}`);
         await gh(['label', 'create', GITHUB_RATE_LIMITED_LABEL, '--repo', target.repoSlug, '--force']).catch(() => undefined);
         await editPrLabels(gh, target.repoSlug, target.number, { remove: [VANGUARD_REVISING_LABEL], add: [GITHUB_RATE_LIMITED_LABEL] }).catch(() => undefined);
-        await postPullRequestReview(target, rateLimitedComment(until, NEEDS_REVISION_LABEL), 'comment', gh).catch(() => undefined);
+        await postPullRequestReview(target, comment, 'comment', gh).catch(() => undefined);
       }
       throw error;
     } finally {

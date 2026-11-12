@@ -236,7 +236,7 @@ This installs the pinned CLI into the existing image and re-runs the checks. It 
 A full rebuild still works where the network allows it:
 
 ```bash
-CLAUDE_CLI_VERSION=2.1.260 ./docker/build.sh
+CLAUDE_CLI_VERSION=2.1.322 ./docker/build.sh
 ```
 
 The check is deliberately **not** an auto-update. Refreshing an image needs the network at run start and rewrites an image that concurrent sandboxes share — on the machines where this drift actually bites, the build is itself the unreliable step, so doing it automatically would turn a rare manual command into a recurring mid-run failure. `VANGUARD_SKIP_IMAGE_CHECK=1` bypasses the gate if you are deliberately running an older image.
@@ -254,6 +254,8 @@ Two cost dimensions: **GitHub Actions minutes** (only when you run via Actions) 
 - **Cut per-run minutes** (private-repo Actions): the biggest slice is rebuilding the sandbox image every run — prebuild it and push to GHCR as `ghcr.io/spietrza/taskcell-sandbox:$(git rev-parse HEAD:docker)` (the git tree hash of `docker/`, so one tag covers every commit that leaves the image inputs alone). `docker/build.sh` then pulls that tag and skips the build (saves ~2-3 min/run); it only tries when `docker/` is committed and clean and no build arg overrides the published default, and falls back to building on any failure. `GHCR_SANDBOX_IMAGE` points it at another registry. Also cache `pnpm` and the build. Keep `runs-on: ubuntu-latest` (1× multiplier; larger runners multiply the minute cost). A single `watch --once` (the default since the spec→build fix) already halved the old double-sweep.
 
 **Model usage.** Billing follows the credential, not the run count: a **subscription** (`CLAUDE_CODE_OAUTH_TOKEN`, or Codex `CODEX_AUTH_JSON`) draws on your plan's usage with no per-token charge; an **API key** bills per token (see [Auth](auth.md)). On a subscription the marginal cost of a run is plan usage + time, not dollars. `taskcell stats` rolls up per-run tokens/cost from `.vanguard/runs/metrics.jsonl`.
+
+**Usage cap (keep a reserve).** If the factory shares your Claude or ChatGPT subscription with your own work, set `--usage-cap <pct>` (`run`, `watch`, `watch-prs`; env `VANGUARD_USAGE_CAP_PCT`; the hub's Settings **Usage cap %** field; 1–100, unset = no cap) — e.g. `80` lets the factory use up to 80% of your 5-hour window and leaves the last 20% to you. Utilization is read from what the provider CLI already reports during a run (Claude Code's `rate_limit_event`, Codex's `rate_limits` in its event stream) — no extra API calls. Before a new task, stage, fork, gate repair or PR review starts, a provider at or over the cap is not started: a GitHub issue or PR (`watch`, `watch-prs`, `revise-pr`) gets `vanguard:rate-limited` with the provider's window reset as `until`, and the comment says "paused at the usage cap (82% of 80%), resumes after <time>" (distinct from a provider 429); `resume-rate-limited` retries it after the reset. Linear, GitLab and GitHub Projects items get the same pause wording (not a failure) but no automatic resume: re-trigger them after the reset. A stage already running always finishes. When utilization is not known yet (no event seen, a provider that does not report it, or a reading with no reset time older than an hour) the cap does not block and one log line says so. Reported values are bounded (0–100%, reset at most 8 days out), since the agent can write to the stream they come from. With `--fallback-provider`, a capped primary falls back only if the fallback is under its own cap.
 
 ## Persistent pnpm store (opt-in)
 

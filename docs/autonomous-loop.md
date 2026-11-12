@@ -193,7 +193,7 @@ Run `taskcell gc --remote <owner/repo>` on a timer (cron or systemd) to reap sta
 
 ## Metrics and tracing
 
-Each run appends a `run_complete` metric line per stage to `.vanguard/runs/metrics.jsonl` (cost, tokens, cache efficiency, duration, exit reason). `taskcell stats` aggregates that into a rollup — per task, per stage, per model (served, annotated with the requested one when a gateway substituted it), and a grand total — for fleet cost/time visibility (`--json` for machine output). **On an ephemeral host (GitHub Actions) that file dies with the job**, so a run there ends with `taskcell metrics push`: it appends the run's metric lines to a single `metrics.jsonl` on an orphan `vanguard-metrics` branch of the repo (git plumbing only — no checkout, no merge; idempotent, so a re-run never duplicates; needs push rights, which the implement workflow's `contents: write` already grants). `taskcell stats --branch vanguard-metrics` then reads that durable copy from any clone — it is where the `BY MODEL` and `PROBE` tables for the factory come from.
+Each run appends a `run_complete` metric line per stage to `.vanguard/runs/metrics.jsonl` (cost, tokens, cache efficiency, duration, exit reason). `taskcell stats` aggregates that into a rollup — per task, per stage, per model (served, annotated with the requested one when a gateway substituted it), and a grand total — for fleet cost/time visibility (`--json` for machine output). **On an ephemeral host (GitHub Actions) that file dies with the job**, so a run there ends with `taskcell metrics push`: it appends the run's metric lines to a single `metrics.jsonl` on an orphan `vanguard-metrics` branch of the repo (git plumbing only — no checkout, no merge; idempotent, so a re-run never duplicates; needs push rights, which the implement workflow's `contents: write` already grants). `taskcell stats --branch vanguard-metrics` then reads that durable copy from any clone — it is where the `BY MODEL` and `PROBE` tables for the factory come from. Add `--github-repo owner/repo` for a `LEAD TIME` block: for every PR recorded in the metrics it asks `gh` for the time from the trigger label to the PR, from the PR to its merge, the revise rounds and the first-try merge rate (medians; at most six lookups at a time; failed lookups are counted and reported, so a partial sample is visible). `--json` adds it as `leadTime`.
 
 **Langfuse / OTLP mirror (opt-in).** The same per-stage records can be exported as one OpenTelemetry trace per run: the task id is the trace, each stage is a `generation` span carrying `gen_ai.request.model`, `gen_ai.usage.{input_tokens,output_tokens,cache_read_input_tokens}`, `gen_ai.usage.cost` / `vanguard.cost_usd`, `vanguard.turns` and `vanguard.exit_reason`; flow, provider, PR URL and exit reason ride on every span as filterable Langfuse trace metadata, and the task id doubles as the Langfuse *session*, so the spec run, the implement run and each revise round of one issue group together. Switch it on with an endpoint **and** auth — endpoint without auth is off, and with nothing set nothing changes:
 
@@ -295,6 +295,25 @@ Two kill switches, either one short-circuits to `ESCALATE` (`stopped`) before an
 ```bash
 VANGUARD_APPROVER_STOP=1 taskcell approve --pr 557 --github-repo spietrza/taskcell   # per-run, env
 # or, repo-wide: set "enabled": false in .vanguard/approver.json on the base branch
+```
+
+### Scorecard: shadow verdict vs what the human did
+
+`taskcell stats --approver` turns the recorded decisions into the thing shadow mode exists to answer: was the verdict right? For every factory PR with a decision on `decisions.jsonl`, it joins the shadow verdict and the rules that fired to what actually happened to the PR — read from `gh pr list` (state, merge, the final head SHA) and a scan of the default branch's revert commits, never guessed:
+
+- **merged with no commits after the verdict** — the PR's final head SHA is exactly the one the decision judged.
+- **merged after revision** — more commits landed after the decision's head SHA before it merged; the verdict is stale regardless of what it said.
+- **closed unmerged**.
+- **reverted** — a revert commit targeting the merge commit landed on the default branch within 7 days of the merge; this overrides either merged outcome above, since a later-reverted merge was never a correct `APPROVE`.
+
+A PR with no decision at all (the approver never ran, or hasn't yet) is listed with no verdict and excluded from every count, same as a decision whose outcome isn't resolved yet (still open). The risk class per row is whichever `path:<key>` rules fired (see `pathRules` in [approver-policy.md](approver-policy.md)), or `general` when none did — true of every `APPROVE` by construction, since any matched path rule escalates.
+
+Per risk class, the report counts how many `APPROVE` verdicts were right (merged as-is, not reverted within the window), how many `ESCALATE` verdicts the human merged unchanged anyway (a signal the escalation was unnecessary), and the current streak of correct `APPROVE` verdicts in a row — reset to 0 by a wrong one, left untouched by an `ESCALATE` landing in between. **30 correct `APPROVE` verdicts in a row in one risk class** is the documented bar this report measures progress toward, shown as `streak/30` per class — the point at which that class of PR could be considered for opt-in auto-merge. Reaching it does nothing by itself; this command only reports, it never flips a switch.
+
+```bash
+taskcell stats --approver                                        # text report: per-PR rows, then per-risk-class rollup
+taskcell stats --approver --json                                 # the same ApproverScorecardReport, machine-readable
+taskcell stats --approver --branch vanguard-metrics               # read decisions.jsonl from a non-default metrics branch
 ```
 
 ## Retrospective memory

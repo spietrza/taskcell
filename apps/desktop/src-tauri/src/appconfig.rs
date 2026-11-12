@@ -21,6 +21,8 @@ pub struct AppConfig {
     pub verify_cmd: Option<String>,
     pub concurrency: Option<u32>,
     pub budget_usd: Option<f64>,
+    /// Stop starting tasks/stages at this % (1-100) of the provider's plan window; unset = no cap.
+    pub usage_cap_pct: Option<f64>,
     pub run_command: Option<String>,
     /// Doc-editor chat model (Subsystem 3), e.g. `claude-sonnet-5`. Non-secret; the API key is never
     /// stored here (env only). Optional Anthropic-compatible base URL for a self-hosted proxy.

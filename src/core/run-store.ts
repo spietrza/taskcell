@@ -352,7 +352,7 @@ export interface RunWriter {
    * OTLP trace when an exporter is configured (opt-in, best-effort — see otlp-sink). */
   writeStages(outcomes: ReadonlyArray<{ name: string; result: RunResult; model?: string }>, opts?: WriteStagesOptions): Promise<void>;
   /** Persist a verification proof to `<ts>.proof.json` and append a `{ evt: 'verify', ... }` metric line. */
-  writeProof(result: VerificationResult): Promise<string>;
+  writeProof(result: VerificationResult, opts?: { baseRed?: boolean }): Promise<string>;
   /** Persist a visual proof to `<ts>.visual-proof.json` and append a `{ evt: 'visual_proof', ... }` metric line. */
   writeVisualProof(result: VisualProofResult): Promise<string>;
 }
@@ -516,7 +516,7 @@ export function beginRun(
       });
     },
 
-    async writeProof(result: VerificationResult): Promise<string> {
+    async writeProof(result, opts = {}): Promise<string> {
       const taskDir = await ensureStateDir(repoPath, join(root, taskId));
       const base = join(taskDir, sanitizeTimestamp(timestamp));
       const file = `${base}.proof.json`;
@@ -524,7 +524,8 @@ export function beginRun(
       // outputTail and firstErrorLines are verbatim command output: masked like every other free text in the record.
       await writeFile(file, `${JSON.stringify(redactVerificationOutput(result, secretValues), null, 2)}\n`);
 
-      const metric = { evt: 'verify', ts: timestamp, taskId, passed: result.passed, exitCode: result.exitCode, sha256: result.sha256 };
+      // A base-red proof is the base commit's verdict, not a verification of this run's work.
+      const metric = { evt: opts.baseRed === true ? 'base_red' : 'verify', ts: timestamp, taskId, passed: result.passed, exitCode: result.exitCode, sha256: result.sha256 };
       await appendMetric(repoPath, metric);
       return file;
     },

@@ -9,6 +9,7 @@ import { diffForPrompt } from '../context/escape.js';
 import { extractJson } from '../structured/extract.js';
 import { verdictSchema } from '../evals/judges.js';
 import { AgentError, isRateLimitError, rateLimitResetDelayMs } from '../core/errors.js';
+import { enforceUsageCap, UsageCapError } from '../core/usage-cap.js';
 import { roundUsd } from '../core/usd.js';
 import type { RunContext } from '../core/vanguard.js';
 import type { ReasoningEffort, RunResult } from '../core/types.js';
@@ -323,6 +324,8 @@ export async function runBudgetedStages(
     };
 
     if (opts.fork !== undefined && stage.name === (opts.fork.stageName ?? STAGE.IMPLEMENTER)) {
+      // Every variant draws on the same plan window: none starts when the provider is at the usage cap.
+      enforceUsageCap(agent.name, ctx.log);
       const forkResult = await forkAndSelect(ctx, stage, {
         agent,
         ...(opts.fork.n !== undefined ? { n: opts.fork.n } : {}),
@@ -384,6 +387,25 @@ export async function runBudgetedStages(
       ...(isFiniteGlobal ? { remainingBudgetUsd: remainingGlobal } : {}),
     };
 
+    // User-set usage cap: do not start the stage on a provider at/over it. A capped primary falls back
+    // only when the fallback is under its own cap; otherwise the UsageCapError parks the task.
+    // A cap fallback already moved to the fallback: a failure there is rethrown, not retried on the fallback again.
+    let onCapFallback = false;
+    try {
+      enforceUsageCap(effectiveAgent.name, ctx.log);
+    } catch (capErr) {
+      if (!(capErr instanceof UsageCapError) || stage.fallback === undefined || effectiveAgent === stage.fallback.provider) throw capErr;
+      enforceUsageCap(stage.fallback.provider.name, ctx.log);
+      ctx.log.warn(
+        { stage: stage.name, from: effectiveAgent.name, to: stage.fallback.provider.name },
+        `${stage.name} provider at the usage cap — falling back to ${stage.fallback.provider.name}`,
+      );
+      effectiveAgent = stage.fallback.provider;
+      effectiveModel = stage.fallback.model;
+      if (stage.provider === undefined) primaryDown = true;
+      onCapFallback = true;
+    }
+
     let result: RunResult;
     try {
       result = await runAgent(ctx, {
@@ -391,11 +413,11 @@ export async function runBudgetedStages(
         promptTemplate: stage.promptTemplate,
         agent: effectiveAgent,
         ...(effectiveModel !== undefined ? { model: effectiveModel } : {}),
-        ...(resume && sessionId !== undefined ? { resumeSessionId: sessionId } : {}),
+        ...(resume && sessionId !== undefined && effectiveAgent === agent ? { resumeSessionId: sessionId } : {}),
       });
     } catch (err) {
       const rateLimited = err instanceof AgentError && isRateLimitError(err);
-      if (err instanceof AgentError && stage.fallback !== undefined) {
+      if (err instanceof AgentError && stage.fallback !== undefined && !onCapFallback) {
         // No `reason` here: AgentError carries the CLI's raw stderr, and an auth failure may echo the
         // credential it was handed — the redactor knows common token shapes, not every vendor's.
         ctx.log.warn(
@@ -672,11 +694,13 @@ export async function reviewFinalDiff(
   stage: PipelineStage,
   opts: ReviewFinalDiffOptions,
 ): Promise<RunResult> {
+  const agent = stage.provider ?? opts.agent;
+  enforceUsageCap(agent.name, ctx.log);
   const diff = await ctx.wm.diff(ctx.worktreePath);
   return runAgent(ctx, {
     stageName: stage.name,
     promptTemplate: stage.promptTemplate,
-    agent: stage.provider ?? opts.agent,
+    agent,
     variables: {
       ...(opts.variables ?? {}),
       PREVIOUS_DIFF: diffForPrompt(diff),
@@ -901,7 +925,9 @@ export function assembleReviewPipeline(
   // conformanceModel wins over providerModel on the conformance stage (last-writer-wins).
   if (deps.conformanceModel !== undefined) route(STAGE.CONFORMANCE, { model: deps.conformanceModel });
 
-  return resolveRouting(pipeline, config);
+  const routed = resolveRouting(pipeline, config);
+  // A same-provider reviewer fallback keeps --review-model too; a cross-provider one is left alone.
+  return deps.reviewModel !== undefined ? withStageFallbackModel(routed, deps.reviewModel, agents.agent) : routed;
 }
 
 /**

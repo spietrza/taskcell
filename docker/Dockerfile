@@ -11,6 +11,12 @@ RUN apt-get update \
  && apt-get install -y --no-install-recommends git ca-certificates openssh-client xz-utils \
  && rm -rf /var/lib/apt/lists/*
 
+# Shared retry-with-backoff for every release download below (npm installs here, curl for Cursor):
+# npm and GitHub Releases return transient 5xx often enough to fail whole factory runs (#657). Removed
+# near the end of the build (see the claude install), so it never lands in the final image.
+COPY retry.sh /tmp/retry.sh
+RUN chmod +x /tmp/retry.sh
+
 # claude/codex run the agent (selectable via --provider/--review-provider); linear lets the agent use
 # the linear-cli skill; pnpm and bun let it install deps and run the project's typecheck/tests from
 # inside the sandbox before finishing. bun is required for bun-workspace monorepos (e.g. ModelBox),
@@ -18,30 +24,14 @@ RUN apt-get update \
 # verify and ends up confabulating completion. Codex authenticates with CODEX_API_KEY: in direct mode
 # it is forwarded into the sandbox when codex is selected; under --llm-proxy the key is held by a
 # trusted sidecar and the sandbox receives only a per-run nonce.
-# Retried: npm and GitHub Releases return transient 5xx often enough to fail whole factory runs (#657).
 ARG PNPM_VERSION=12.18.0
-RUN for i in 1 2 3 4 5; do \
-      npm install -g pnpm@${PNPM_VERSION} \
-      && npm cache clean --force && rm -rf /root/.npm && exit 0; \
-      [ "$i" -lt 5 ] || break; \
-      echo "npm install failed (attempt $i/5), retrying in $((i * 15))s" >&2; sleep $((i * 15)); \
-    done; exit 1
+RUN /tmp/retry.sh 5 15 -- npm install -g pnpm@${PNPM_VERSION} && npm cache clean --force && rm -rf /root/.npm
 
 ARG BUN_VERSION=1.4.4
-RUN for i in 1 2 3 4 5; do \
-      npm install -g bun@${BUN_VERSION} \
-      && npm cache clean --force && rm -rf /root/.npm && exit 0; \
-      [ "$i" -lt 5 ] || break; \
-      echo "npm install failed (attempt $i/5), retrying in $((i * 15))s" >&2; sleep $((i * 15)); \
-    done; exit 1
+RUN /tmp/retry.sh 5 15 -- npm install -g bun@${BUN_VERSION} && npm cache clean --force && rm -rf /root/.npm
 
 ARG CODEX_CLI_VERSION=0.167.0
-RUN for i in 1 2 3 4 5; do \
-      npm install -g @openai/codex@${CODEX_CLI_VERSION} \
-      && npm cache clean --force && rm -rf /root/.npm && exit 0; \
-      [ "$i" -lt 5 ] || break; \
-      echo "npm install failed (attempt $i/5), retrying in $((i * 15))s" >&2; sleep $((i * 15)); \
-    done; exit 1
+RUN /tmp/retry.sh 5 15 -- npm install -g @openai/codex@${CODEX_CLI_VERSION} && npm cache clean --force && rm -rf /root/.npm
 
 # linear-cli's postinstall downloads its binary from GitHub Releases, which can return 5xx for long
 # stretches (#657). Only `--linear` runs need it, so when every attempt failed on that download (and
@@ -86,7 +76,7 @@ RUN if [ -n "${CURSOR_CLI_VERSION}" ]; then \
         *) echo "cursor: unsupported arch $(uname -m)" >&2; exit 1 ;; \
       esac \
       && apt-get update && apt-get install -y --no-install-recommends curl && rm -rf /var/lib/apt/lists/* \
-      && curl -fsSL -o /tmp/cursor-agent.tar.gz \
+      && /tmp/retry.sh 5 15 -- curl -fsSL -o /tmp/cursor-agent.tar.gz \
          "https://downloads.cursor.com/lab/${CURSOR_CLI_VERSION}/linux/${arch}/agent-cli-package.tar.gz" \
       && echo "${sha}  /tmp/cursor-agent.tar.gz" | sha256sum -c - \
       && mkdir -p /opt/cursor-agent \
@@ -102,13 +92,11 @@ RUN groupadd -g 10001 agent \
  && chown -R agent:agent /workspace /home/agent
 
 # Most frequently bumped CLI goes last; scope its ARG to this layer.
-ARG CLAUDE_CLI_VERSION=2.1.260
-RUN for i in 1 2 3 4 5; do \
-      npm install -g @anthropic-ai/claude-code@${CLAUDE_CLI_VERSION} \
-      && npm cache clean --force && rm -rf /root/.npm && exit 0; \
-      [ "$i" -lt 5 ] || break; \
-      echo "npm install failed (attempt $i/5), retrying in $((i * 15))s" >&2; sleep $((i * 15)); \
-    done; exit 1
+ARG CLAUDE_CLI_VERSION=2.1.322
+RUN /tmp/retry.sh 5 15 -- npm install -g @anthropic-ai/claude-code@${CLAUDE_CLI_VERSION} && npm cache clean --force && rm -rf /root/.npm
+
+# Last use of the retry helper: drop it so it never lands in the final image.
+RUN rm -f /tmp/retry.sh
 
 USER agent
 WORKDIR /workspace

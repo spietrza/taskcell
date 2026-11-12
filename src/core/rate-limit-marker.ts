@@ -4,7 +4,8 @@
  * it back up to hours later, long after the run's own process and logs are gone.
  */
 
-import { isRateLimitError, rateLimitResetDelayMs } from './errors.js';
+import { AgentError, isRateLimitError, rateLimitResetDelayMs } from './errors.js';
+import { UsageCapError, usageCapMessage } from './usage-cap.js';
 
 const RESET_RELATIVE_RE = /try again in\s+(\d+)\s*(h|hr|hrs|hour|hours|m|min|mins|minute|minutes|s|sec|secs|second|seconds)\b/i;
 
@@ -74,4 +75,26 @@ export function rateLimitedComment(until: Date, trigger: string): string {
     '',
     rateLimitedMarker(until, trigger),
   ].join('\n\n');
+}
+
+/** True for a failure that parks the task for `resume-rate-limited`: a provider 429 or our own usage cap. */
+export function isRateLimitHold(error: unknown): error is AgentError {
+  return error instanceof AgentError && (error instanceof UsageCapError || isRateLimitError(error));
+}
+
+/** Comment posted when a stage was not started because its provider is at the user's usage cap. */
+export function usageCapComment(error: UsageCapError, trigger: string): string {
+  return [
+    `Vanguard ${usageCapMessage(error.pct, error.cap, error.until)} (\`VANGUARD_USAGE_CAP_PCT\`). This is the configured reserve, not a provider rate limit and not a problem with this change; no running stage was interrupted.`,
+    `\`taskcell resume-rate-limited\` removes \`vanguard:rate-limited\` and re-applies \`${trigger}\` once ${error.until.toISOString()} has passed.`,
+    '',
+    rateLimitedMarker(error.until, trigger),
+  ].join('\n\n');
+}
+
+/** Reset time and comment for a rate-limit hold: usage-cap wording for the cap, the generic 429 notice otherwise. */
+export function rateLimitHold(error: Error, trigger: string): { until: Date; comment: string } {
+  if (error instanceof UsageCapError) return { until: error.until, comment: usageCapComment(error, trigger) };
+  const until = parseProviderRateLimitReset(error.message);
+  return { until, comment: rateLimitedComment(until, trigger) };
 }

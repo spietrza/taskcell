@@ -2,6 +2,7 @@ import { AgentError } from '../core/errors.js';
 import { redactForPublish } from '../core/secret-scan.js';
 import type { AgentProvider, AgentRunInput, AgentTurn, AgentRunOutput, AgentUsage } from './provider.js';
 import { shellQuote } from './shell.js';
+import { parseCodexUtilization, recordUtilization } from '../core/usage-cap.js';
 
 interface CodexEvent {
   type?: string;
@@ -104,6 +105,8 @@ export class CodexProvider implements AgentProvider {
         continue;
       }
       parsedAny = true;
+      const utilization = parseCodexUtilization(event);
+      if (utilization !== undefined) recordUtilization(this.name, utilization);
 
       if (event.type === 'thread.started' && typeof event.thread_id === 'string') {
         sessionId = event.thread_id;

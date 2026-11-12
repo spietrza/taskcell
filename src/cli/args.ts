@@ -3,6 +3,7 @@ import { isProviderName, validateProviderChoice, PROVIDER_NAMES } from '../agent
 import type { ProviderName } from '../agents/registry.js';
 import type { RunOptions } from '../runners/source-adapter.js';
 import { assertSafeBaseBranch } from '../core/base-branch.js';
+import { parseUsageCap } from '../core/usage-cap.js';
 
 type WatchSource = 'linear' | 'github' | 'project' | 'gitlab';
 
@@ -142,6 +143,8 @@ export type Command =
       repoPath: string;
       /** Cap on ready tasks per poll; parsed with watch's flags, read by nothing doctor runs. */
       maxTasks?: number;
+      /** Single-issue selector; parsed with watch's flags, read by nothing doctor runs. */
+      issue?: string;
       specModel?: string;
       specLabel?: string;
       agentLabel?: string;
@@ -196,6 +199,14 @@ export type Command =
       egress: boolean;
       /** Cap the number of ready tasks claimed and processed per poll. Unset: process all of them. */
       maxTasks?: number;
+      /**
+       * Run only this GitHub issue (owner/repo#n matching --github-repo, or a bare number) instead
+       * of sweeping every ready issue — same gates as the sweep (open state, labels, author trust,
+       * triage). An issue another run already claimed (carries the claimed label) is skipped with a
+       * log line; that check is best effort, the claim's label swap is what settles a race. Implies
+       * --once. --source github only.
+       */
+      issue?: string;
       /** Hold the provider credential (Anthropic, or z.ai with --provider zai) in a trusted sidecar; the sandbox gets only a per-run nonce (implies egress). */
       llmProxy?: boolean;
       // --- Loop v1 flags ---
@@ -279,7 +290,17 @@ export type Command =
       provider?: ProviderName;
       llmProxy?: boolean;
     }
-  | { kind: 'stats'; repoPath: string; json: boolean; /** Read the metrics file from this remote branch instead of the local .vanguard/runs. */ branch?: string }
+  | {
+      kind: 'stats';
+      repoPath: string;
+      json: boolean;
+      /** Read the metrics file from this remote branch instead of the local .vanguard/runs. */
+      branch?: string;
+      /** Shadow approver scorecard instead of the cost/token rollup: verdict vs human outcome, per risk class. */
+      approver: boolean;
+      /** Also print the label->merge lead-time rollup for every PR url recorded in metrics.jsonl that belongs to this repo (needs `gh`). */
+      githubRepo?: string;
+    }
   | { kind: 'metrics'; action: 'push'; repoPath: string; branch?: string }
   | { kind: 'approve'; prNumber: number; repoSlug: string; repoPath: string; mode: 'shadow'; json: boolean; dryRun: boolean; branch?: string }
   | { kind: 'memory'; repoPath: string; limit?: number; json: boolean }
@@ -509,6 +530,8 @@ export function parseCli(argv: string[], cwd: string): Command {
         concurrency: { type: 'string' },
         // watch-prs: review this PR even when the label-filtered scan misses it
         pr: { type: 'string' },
+        // watch: run only this GitHub issue instead of sweeping every ready issue
+        issue: { type: 'string' },
         // watch
         team: { type: 'string' },
         'trigger-state': { type: 'string' },
@@ -538,6 +561,8 @@ export function parseCli(argv: string[], cwd: string): Command {
         provider: { type: 'string' },
         'review-provider': { type: 'string' },
         'fallback-provider': { type: 'string' },
+        // stop starting work at this % of the provider's plan window (run, watch, watch-prs); 1-100
+        'usage-cap': { type: 'string' },
         'fallback-model': { type: 'string' },
         // model selection per stage (run + watch)
         'provider-model': { type: 'string' },
@@ -576,6 +601,8 @@ export function parseCli(argv: string[], cwd: string): Command {
         'max-rounds': { type: 'string' },
         // stats / memory / metrics
         json: { type: 'boolean' },
+        // stats --approver: the shadow-verdict-vs-human scorecard instead of the cost/token rollup
+        approver: { type: 'boolean' },
         // stats --branch / metrics push --branch: the orphan branch that holds durable metrics
         branch: { type: 'string' },
         limit: { type: 'string' },
@@ -683,17 +710,31 @@ export function parseCli(argv: string[], cwd: string): Command {
     }
   }
 
+  const usageCapRaw = values['usage-cap'];
+  if (typeof usageCapRaw === 'string') {
+    if (parseUsageCap(usageCapRaw) === undefined) return fail(`--usage-cap must be a number from 1 to 100, got "${usageCapRaw}".`);
+    // The cap is read from the environment at stage start, so the flag and VANGUARD_USAGE_CAP_PCT share one path.
+    process.env['VANGUARD_USAGE_CAP_PCT'] = usageCapRaw;
+  }
+
   // Opt-in overrides to let a single run finish a large task (run + watch). Positive integers only;
   // 0/negative/non-numeric are rejected at parse (no override set), same semantics as parseLimit.
   const maxTurns = parseLimit(values['max-turns']);
   const maxRepairIterations = parseLimit(values['max-repair-iterations']);
 
   if (positionals[0] === 'stats') {
+    const statsRepo = values['github-repo'];
+    // The slug lands in a `gh api repos/<slug>/...` path, so `..` segments or extra slashes are refused.
+    if (typeof statsRepo === 'string' && (!/^[\w.-]+\/[\w.-]+$/.test(statsRepo) || statsRepo.split('/').some((p) => p === '.' || p === '..'))) {
+      return fail(`stats --github-repo must be owner/repo, got '${statsRepo}'.`);
+    }
     return {
       kind: 'stats',
       repoPath,
       json: values.json === true,
+      approver: values.approver === true,
       ...(typeof values.branch === 'string' ? { branch: values.branch } : {}),
+      ...(typeof values['github-repo'] === 'string' ? { githubRepo: values['github-repo'] } : {}),
     };
   }
 
@@ -1203,6 +1244,24 @@ export function parseCli(argv: string[], cwd: string): Command {
     if (values['max-tasks'] !== undefined && maxTasks === undefined) {
       return fail(`--max-tasks needs a positive integer, got "${String(values['max-tasks'])}".`);
     }
+    const issueRef = typeof values.issue === 'string' ? values.issue : undefined;
+    if (issueRef !== undefined) {
+      if (source !== 'github') return fail(`${commandKind} --issue requires --source github.`);
+      // Same shape check as `watch-prs --pr`, plus the repo prefix: the fetch strips an `owner/repo#`
+      // prefix and reads the number from --github-repo, so a prefix naming another repo would
+      // silently run a different issue.
+      const groups = /^(?:(?<repo>[^\s#/]+\/[^\s#/]+)#)?(?<number>\d+)$/.exec(issueRef)?.groups;
+      if (groups === undefined || Number(groups['number']) < 1) {
+        return fail(`${commandKind} --issue expects a positive issue number or owner/repo#n, got "${issueRef}".`);
+      }
+      const refRepo = groups['repo'];
+      const repoSlug = typeof values['github-repo'] === 'string' ? values['github-repo'] : undefined;
+      if (refRepo !== undefined && refRepo !== repoSlug) {
+        return fail(
+          `${commandKind} --issue ${issueRef} names repo "${refRepo}", but --github-repo is ${repoSlug === undefined ? 'unset' : `"${repoSlug}"`}; the issue must live in the watched repo.`,
+        );
+      }
+    }
     // The single-task flags (RunOnlyKey + --fork): on watch each would be a silent no-op or a spurious failure.
     if (values['fork-scorer'] !== undefined) return fail(`--fork-scorer applies to \`run --fork <n>\` only; ${commandKind} does not fork.`);
     if (values.fork !== undefined) return fail(`--fork applies to run only; ${commandKind} does not fork.`);
@@ -1212,6 +1271,7 @@ export function parseCli(argv: string[], cwd: string): Command {
       source,
       repoPath,
       ...(maxTasks !== undefined ? { maxTasks } : {}),
+      ...(issueRef !== undefined ? { issue: issueRef } : {}),
       ...(label !== undefined ? { label } : {}),
       ...(projectNumber !== undefined ? { projectNumber } : {}),
       ...(typeof values['gitlab-project'] === 'string' ? { project: values['gitlab-project'] } : {}),
@@ -1248,7 +1308,9 @@ export function parseCli(argv: string[], cwd: string): Command {
       ...common,
       concurrency: Number.isFinite(concurrency) && concurrency >= 1 ? Math.floor(concurrency) : DEFAULT_CONCURRENCY,
       intervalMs: (Number.isFinite(interval) && interval > 0 ? interval : 60) * 1000,
-      once: values.once === true,
+      // --issue names one issue: polling for it again would re-read an issue this run already
+      // claimed or skipped, so it implies --once.
+      once: values.once === true || issueRef !== undefined,
       egress: values.egress === true,
     };
   }
@@ -1263,6 +1325,7 @@ const SHARED_RUN_OPTIONS_USAGE = `    --provider <claude|codex|cursor|zai|openro
     --review-provider <claude|codex|cursor|zai|openrouter|meridian>   Run only the review stage on this provider (cross-provider review)
     --fallback-provider <name>  Retry on this provider when the primary one fails (outage, limit, revoked credential) — the implementer and every other stage on its provider; must sit on a different transport (e.g. codex for a claude implementer)
     --fallback-model <model>    Model for every stage that fell back (default: that provider's default)
+    --usage-cap <pct>        Stop starting tasks/stages once the provider's plan window is at/over this % (1-100; env VANGUARD_USAGE_CAP_PCT; default: no cap)
     --provider-model <m>     Model for the implementer/simplifier stages (default: provider's default; zai -> glm-5.2)
     --review-model <m>       Model for the review stage (default: provider's default)
     --escalate-model <m>     Model for the 2nd and later gate repairs, once a repair on the implementer
@@ -1294,6 +1357,7 @@ Commands:
   doctor-mrs Check whether watch-mrs can run AFK before any MR is claimed.
   stats  Aggregate .vanguard/runs/metrics.jsonl into a cost/token/time rollup (per task, per stage,
          per model, probe); --branch reads the durable copy from the metrics branch instead.
+         --approver prints the shadow approver scorecard instead (verdict vs human outcome).
   metrics push  Append this checkout's metrics.jsonl lines to the orphan vanguard-metrics branch and
          push, so an ephemeral CI run leaves a durable trace (idempotent; needs push rights).
   approve Compute a deterministic APPROVE/ESCALATE decision for a factory PR from typed facts and the
@@ -1326,6 +1390,13 @@ Commands:
     --max-tasks <n>        Cap the ready tasks claimed and processed per poll, for each phase
                            (spec, then agent); the rest stay unclaimed for the next poll
                            (default: unlimited)
+    --issue <ref>          (--source github only) Run only this issue (owner/repo#n matching
+                           --github-repo, or a bare number) instead of sweeping every ready issue —
+                           same gates as the sweep (open state, labels, author trust, triage).
+                           Already claimed by another run? Skipped with a log line; that check is
+                           best effort, the claim itself is what catches a run that claimed in
+                           between. Implies --once. Without this flag, behaviour is unchanged (the
+                           sweep).
     --loop-v1              Use Loop v1 defaults (GitHub labels "ready for spec"/"ready for agent"/
                            "needs info"; Linear ownership label "vanguard", state type "triage",
                            state name "Spec", needs-info state "Needs Info"). For GitHub, a repo-only
@@ -1487,6 +1558,7 @@ ${MAX_REPAIR_ITERATIONS_USAGE}
     --concurrency <n>      Max PRs reviewed at once (default: 2)
     --provider <claude|codex|cursor|zai|openrouter|meridian>          Provider used for PR review (default: claude)
     --review-model <m>     Model for the PR review
+    --usage-cap <pct>      As for run/watch
     --max-turns <n>        As for review-pr
     --egress --llm-proxy --skills <dir> --repo <path>  As for run/watch (--skills: the repo's .github/vanguard-skills/ is merged in)
 
@@ -1552,6 +1624,11 @@ ${MAX_REPAIR_ITERATIONS_USAGE}
     --branch <name>        Read metrics.jsonl from this remote branch instead (what 'metrics push' wrote;
                            default name: vanguard-metrics)
     --json                 Emit the aggregated report as JSON instead of tables
+    --approver             Shadow approver scorecard instead of the cost/token rollup: per factory PR,
+                           the shadow verdict and reasons next to what the human did, and per risk class
+                           how many APPROVEs were right, how many ESCALATEs the human merged unchanged,
+                           and the current correct-APPROVE streak (needs gh; reads decisions.jsonl from
+                           the metrics branch plus live PR/revert history)
 
   metrics push options:
     --repo <path>          Repo whose .vanguard/runs/metrics.jsonl to persist (default: cwd)

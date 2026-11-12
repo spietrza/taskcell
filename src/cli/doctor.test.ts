@@ -22,7 +22,7 @@ function selfHealingRunner(): { run: PreflightRunner; calls: string[] } {
   const run: PreflightRunner = async (name, args) => {
     calls.push(`${name} ${args.join(' ')}`);
     if (name === 'docker' && args[0] === 'run' && args.includes('npm')) {
-      version = '2.1.260';
+      version = '2.1.322';
       return { stdout: '' };
     }
     if (name === 'docker' && args[0] === 'run') return { stdout: `${version} (Claude Code)` };
@@ -36,7 +36,7 @@ function selfHealingRunner(): { run: PreflightRunner; calls: string[] } {
 const runner: PreflightRunner = async (name, args) => {
   if (name === 'git' && args[0] === 'rev-parse') return { stdout: '/repo' };
   if (name === 'git' && args[0] === 'remote') return { stdout: 'https://github.com/owner/repo.git' };
-  if (name === 'docker' && args[0] === 'run') return { stdout: '2.1.260 (Claude Code)' };
+  if (name === 'docker' && args[0] === 'run') return { stdout: '2.1.322 (Claude Code)' };
   if (name === 'docker') return { stdout: '' };
   if (name === 'gh' && args[0] === 'label') {
     return {
@@ -107,7 +107,7 @@ describe('doctorCommand --fix', () => {
       { env: { GH_TOKEN: 'gh', CLAUDE_CODE_OAUTH_TOKEN: 'token' }, nodeVersion: '24.11.1', run, log: (l) => lines.push(l) },
     );
 
-    expect(calls.some((c) => c.includes('npm install -g @anthropic-ai/claude-code@2.1.260'))).toBe(true);
+    expect(calls.some((c) => c.includes('npm install -g @anthropic-ai/claude-code@2.1.322'))).toBe(true);
     // USER/WorkingDir are restored from the original image, never hardcoded — a commit without them
     // bakes root into the image and the new CLI then refuses to start.
     expect(calls.some((c) => c.startsWith('docker commit') && c.includes('USER '))).toBe(true);
