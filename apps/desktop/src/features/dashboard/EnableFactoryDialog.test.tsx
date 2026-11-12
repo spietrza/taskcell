@@ -35,7 +35,7 @@ describe('EnableFactoryDialog', () => {
 
     await screen.findByText('acme/my-app');
     expect(enableFactoryPlan).toHaveBeenCalledWith(project.path, 'github');
-    expect(screen.getByText('.github/workflows/vanguard-implement.yml')).toBeInTheDocument();
+    expect(screen.getByText('.github/workflows/taskcell-implement.yml')).toBeInTheDocument();
     expect(screen.getByText('ready for agent')).toBeInTheDocument();
     // CodeBlock highlights into spans, so match the whole code element's text.
     expect(screen.getByText((_, el) => el?.tagName === 'CODE' && el.textContent === factorySecret.command)).toBeInTheDocument();

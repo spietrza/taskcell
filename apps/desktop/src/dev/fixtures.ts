@@ -316,7 +316,7 @@ export const factoryPlan: FactoryPlan = {
   packageManager: 'pnpm',
   verifyCommand: 'pnpm typecheck && pnpm lint && pnpm test',
   scripts: { typecheck: true, lint: true, test: true, build: true },
-  callerFiles: ['implement', 'doctor', 'pr-review', 'revise', 'resume'].map((n) => `.github/workflows/vanguard-${n}.yml`),
+  callerFiles: ['implement', 'doctor', 'pr-review', 'revise', 'resume'].map((n) => `.github/workflows/taskcell-${n}.yml`),
   labels: ['ready for agent', 'needs revision', 'needs info', 'ready for spec', 'ready for vanguard review'],
 };
 

@@ -271,9 +271,9 @@ four steps, following [onboarding-another-repo.md](onboarding-another-repo.md)
 1. **Plan** reads the repo with `gh` and changes nothing: the slug, the default branch, the signed-in
    `gh` login (it becomes the callers' actor gate), the package manager and scripts, and the caller
    workflows already on the default branch.
-2. **Apply** writes the five thin callers (`vanguard-implement`, `-doctor`, `-pr-review`, `-revise`,
+2. **Apply** writes the five thin callers (`taskcell-implement`, `-doctor`, `-pr-review`, `-revise`,
    `-resume`) from `templates/github/` on a branch of its own, skips any caller the default branch
-   already has, pushes that branch, opens a PR and creates the routing labels. It never pushes to the
+   already has (under its `taskcell-` or the older `vanguard-` name), pushes that branch, opens a PR and creates the routing labels. It never pushes to the
    default branch. It refuses a dirty work tree or untracked files at the caller paths, puts back the
    branch you had checked out, and can be re-run after a partial failure. The hub reads the plan again
    before applying and refuses if the login, repo or default branch changed.

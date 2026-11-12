@@ -63,7 +63,9 @@ export function EnableFactoryDialog({ project, onClose }: { project: { path: str
       setSecret(await enableFactorySecret(project.path, p));
       setPlan(p);
     });
-  const existing = new Set(plan?.existingCallerFiles ?? []);
+  const existingFiles = new Set(plan?.existingCallerFiles ?? []);
+  // A caller counts as present under its legacy `vanguard-` name too (the hub adds no `taskcell-` twin).
+  const existing = { has: (f: string): boolean => existingFiles.has(f) || existingFiles.has(f.replace('/taskcell-', '/vanguard-')) };
   // Every caller already on the default branch: apply would have nothing to commit, so skip straight to verify.
   const nothingToAdd = plan !== null && plan.callerFiles.every((f) => existing.has(f));
   const apply = (p: FactoryPlan): Promise<void> => step('apply', async () => setApplied(await enableFactoryApply(project.path, p)));

@@ -9,7 +9,7 @@
 // is merged, report the run that dispatch created).
 import { execa } from 'execa';
 import { mkdir, readFile, writeFile } from 'node:fs/promises';
-import { join } from 'node:path';
+import { basename, join } from 'node:path';
 import { BadRequestError } from '../sidecar/sidecar.js';
 import { packageManagerOf, resolveVerifyCommand } from '../pipeline/verify.js';
 import { listRemoteRuns } from './remote.js';
@@ -61,7 +61,16 @@ export interface FactoryProvider {
 }
 
 function workflowFileName(caller: CallerName): string {
+  return `taskcell-${caller}.yml`;
+}
+
+/** Pre-rename caller name; a repo that already has one is treated as enabled for that caller. */
+function legacyWorkflowFileName(caller: CallerName): string {
   return `vanguard-${caller}.yml`;
+}
+
+function workflowPath(file: string): string {
+  return join('.github', 'workflows', file);
 }
 
 /** Nothing detected — the fallback when the repo has no readable package.json. */
@@ -74,7 +83,7 @@ export function noScripts(): FactoryPlan['scripts'] {
  * `requirePlan`), so a tampered plan cannot widen `git add` or `gh label create`. */
 export function factoryPlanTargets(): Pick<FactoryPlan, 'callerFiles' | 'labels'> {
   return {
-    callerFiles: CALLER_NAMES.map((name) => join('.github', 'workflows', workflowFileName(name))),
+    callerFiles: CALLER_NAMES.map((name) => workflowPath(workflowFileName(name))),
     labels: FACTORY_LABELS.map((l) => l.name),
   };
 }
@@ -122,14 +131,20 @@ async function detectScripts(repoPath: string): Promise<{ packageManager: string
   }
 }
 
-/** The caller paths already committed on `origin/<base>` — `apply` leaves those as they are, so it
- * never overwrites a repo's own (possibly customised) workflows. Reads the local remote-tracking
- * ref, no network. */
-async function existingCallerFiles(exec: FactoryExec, repoPath: string, base: string): Promise<string[]> {
-  const { callerFiles } = factoryPlanTargets();
-  const out = await run(exec, 'git', ['ls-tree', '--full-tree', '--name-only', `origin/${base}`, '--', ...callerFiles], { cwd: repoPath });
+/** Per caller, the file already committed on `origin/<base>` under either the `taskcell-` or the
+ * legacy `vanguard-` name (taskcell- wins) — `apply` leaves those callers as they are, so it never
+ * overwrites a repo's own (possibly customised) workflows nor adds a second caller that would fire
+ * twice. Reads the local remote-tracking ref, no network. */
+async function existingCallerMap(exec: FactoryExec, repoPath: string, base: string): Promise<Map<CallerName, string>> {
+  const candidates = (n: CallerName): string[] => [workflowPath(workflowFileName(n)), workflowPath(legacyWorkflowFileName(n))];
+  const out = await run(exec, 'git', ['ls-tree', '--full-tree', '--name-only', `origin/${base}`, '--', ...CALLER_NAMES.flatMap(candidates)], { cwd: repoPath });
   const present = new Set(out.split('\n'));
-  return callerFiles.filter((f) => present.has(f));
+  const found = new Map<CallerName, string>();
+  for (const n of CALLER_NAMES) {
+    const file = candidates(n).find((f) => present.has(f));
+    if (file !== undefined) found.set(n, file);
+  }
+  return found;
 }
 
 /** Read the repo's default branch, slug and the signed-in gh login — nothing written yet. */
@@ -149,7 +164,7 @@ export async function planGithubFactory(repoPath: string, deps: GithubFactoryDep
   if (defaultBranch === '') throw new BadRequestError('could not determine the default branch (gh repo view returned no defaultBranchRef)');
   if (login === '') throw new BadRequestError('could not determine the signed-in gh login (gh api user returned no login)');
   // Best effort: a missing/stale origin ref only costs the hint — apply re-checks after its fetch.
-  const existing = await existingCallerFiles(exec, repoPath, defaultBranch).catch((): string[] => []);
+  const existing = [...(await existingCallerMap(exec, repoPath, defaultBranch).catch(() => new Map<CallerName, string>())).values()];
 
   return {
     provider: 'github',
@@ -209,25 +224,28 @@ export async function applyGithubFactory(repoPath: string, plan: FactoryPlan, de
   const original = head === 'HEAD' ? await run(exec, 'git', ['rev-parse', 'HEAD'], { cwd: repoPath }) : head;
 
   await run(exec, 'git', ['fetch', 'origin', plan.defaultBranch], { cwd: repoPath });
-  const existing = new Set(await existingCallerFiles(exec, repoPath, plan.defaultBranch));
+  const existing = await existingCallerMap(exec, repoPath, plan.defaultBranch);
   let changed: boolean;
   // -B: create the branch, or reset an existing one from an earlier apply, at the base.
   await run(exec, 'git', ['checkout', '-B', branch, `origin/${plan.defaultBranch}`], { cwd: repoPath });
   try {
     const workflowsDir = join(repoPath, '.github', 'workflows');
     await mkdir(workflowsDir, { recursive: true });
+    const written: string[] = [];
     for (const name of CALLER_NAMES) {
-      if (existing.has(join('.github', 'workflows', workflowFileName(name)))) continue;
+      if (existing.has(name)) continue;
       const templateRaw = await readFile(new URL(`${name}.yml`, TEMPLATES_DIR), 'utf8');
       const content = templateRaw.split(LOGIN_PLACEHOLDER).join(plan.login);
       await writeFile(join(workflowsDir, workflowFileName(name)), content);
+      written.push(workflowPath(workflowFileName(name)));
     }
 
-    await run(exec, 'git', ['add', ...callerFiles], { cwd: repoPath });
-    changed = (await run(exec, 'git', ['status', '--porcelain', '--', ...callerFiles], { cwd: repoPath })) !== '';
+    // Only what was written: a caller skipped under its legacy name has no taskcell-* path to stage.
+    if (written.length > 0) await run(exec, 'git', ['add', ...written], { cwd: repoPath });
+    changed = written.length > 0 && (await run(exec, 'git', ['status', '--porcelain', '--', ...written], { cwd: repoPath })) !== '';
     if (changed) {
       // Pathspec: commit the callers only, never anything else in the index.
-      await run(exec, 'git', ['commit', '-m', 'feat: enable the Taskcell factory (GitHub Actions)', '--', ...callerFiles], { cwd: repoPath });
+      await run(exec, 'git', ['commit', '-m', 'feat: enable the Taskcell factory (GitHub Actions)', '--', ...written], { cwd: repoPath });
       // Pushes the hub's own fixed branch, never plan.defaultBranch — the PR is the only path onto the
       // default branch. --force: the branch was just reset to the base, so an earlier apply's commit is replaced.
       await run(exec, 'git', ['push', '--force', '-u', 'origin', branch], { cwd: repoPath });
@@ -293,16 +311,19 @@ const VERIFY_POLL_MS = 2000;
 /** Dispatch the doctor workflow and report the run that dispatch created (called once the PR above
  * is merged). A run listed before the dispatch is never reported; if the new run has not appeared
  * after a few polls, the result is `dispatched` with no `run`. */
-export async function verifyGithubFactory(repoPath: string, _plan: FactoryPlan, deps: GithubFactoryDeps = {}): Promise<FactoryVerifyResult> {
+export async function verifyGithubFactory(repoPath: string, plan: FactoryPlan, deps: GithubFactoryDeps = {}): Promise<FactoryVerifyResult> {
   const exec = deps.exec ?? defaultExec;
   const sleep = deps.sleep ?? ((ms: number) => new Promise<void>((resolve) => setTimeout(resolve, ms)));
   // Run ids, not timestamps: immune to clock skew between this machine and GitHub.
   const seen = new Set((await listRemoteRuns(repoPath, exec)).map((r) => r.id));
-  await exec('gh', ['workflow', 'run', workflowFileName('doctor')], { cwd: repoPath });
+  // The client-echoed plan carries no existingCallerFiles (see rpc.ts's requirePlan), so re-read the base:
+  // an already-enabled repo may still carry the legacy vanguard-doctor.yml; dispatch whichever it has.
+  const doctorPath = (await existingCallerMap(exec, repoPath, plan.defaultBranch).catch(() => undefined))?.get('doctor');
+  await exec('gh', ['workflow', 'run', doctorPath !== undefined ? basename(doctorPath) : workflowFileName('doctor')], { cwd: repoPath });
   for (let attempt = 0; attempt < VERIFY_POLLS; attempt++) {
     await sleep(VERIFY_POLL_MS);
     const runs = await listRemoteRuns(repoPath, exec);
-    const doctorRun = runs.find((r) => r.workflow === 'Vanguard Doctor' && r.event === 'workflow_dispatch' && !seen.has(r.id));
+    const doctorRun = runs.find((r) => (r.workflow === 'Taskcell Doctor' || r.workflow === 'Vanguard Doctor') && r.event === 'workflow_dispatch' && !seen.has(r.id));
     if (doctorRun !== undefined) {
       return { dispatched: true, run: { url: doctorRun.url, status: doctorRun.status, conclusion: doctorRun.conclusion } };
     }
