@@ -1,7 +1,7 @@
 import { readFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { describe, expect, expectTypeOf, it } from 'vitest';
-import { COMMAND_NAMES, HUB_ONLY, TAURI_ONLY, WIRE_PROVIDER_NAMES } from './wire.js';
+import { COMMAND_NAMES, WIRE_PROVIDER_NAMES } from './wire.js';
 import type { AppConfig, BoardChip, BoardTask, CompleteCallArgs, Commands, Finding, Project, ReviewVerdict, RunRecord } from './wire.js';
 import { PROVIDER_NAMES } from './agents/registry.js';
 import { isCoreMethod, type SidecarDeps } from './sidecar/sidecar.js';
@@ -29,18 +29,10 @@ function assertZeroImports(file: string): void {
 }
 
 describe('wire contract (S7)', () => {
-  it('catalogue matches the registered Tauri commands', () => {
-    const rust = readSource('../apps/desktop/src-tauri/src/lib.rs');
-    const registered = rust.match(/tauri::generate_handler!\[([\s\S]*?)\]/)?.[1];
-    expect(registered).toBeDefined();
-    const names = registered!.split(',').map((name) => name.trim().replace(/^sidecar::/, '')).filter(Boolean);
-    expect(names.sort()).toEqual(COMMAND_NAMES.filter((name) => !(HUB_ONLY as readonly string[]).includes(name)).sort());
-  });
-
   it('catalogue matches the implemented hub dispatch cases', () => {
     const rpc = readSource('hub/rpc.ts');
     const names = [...rpc.matchAll(/case '([^']+)':/g)].map((match) => match[1]);
-    expect(names.sort()).toEqual(COMMAND_NAMES.filter((name) => !(TAURI_ONLY as readonly string[]).includes(name)).sort());
+    expect(names.sort()).toEqual([...COMMAND_NAMES].sort());
   });
 
   it('models nullable Rust options and opaque config without widening completion permissions', () => {
@@ -84,28 +76,13 @@ describe('wire contract (S7)', () => {
   });
 });
 
-// T9: the run-record read path has ONE producer — src/core/run-store.ts. The hub calls it directly
-// and the desktop forwards `list_runs`/`read_run` over the sidecar pipe, so wire.ts is the contract
-// on both ends; the Rust reader (and its hand-mirror of these structs) must not come back.
+// T9: the run-record read path has ONE producer — src/core/run-store.ts — and wire.ts is the contract
+// for it: the hub's list_runs/read_run return exactly the core method shapes.
 describe('run-record read path (T9)', () => {
-  const RUNS_RS = '../apps/desktop/src-tauri/src/runs.rs';
-
-  it('the desktop forwards both commands to core methods typed by the wire shapes', () => {
-    const source = readSource(RUNS_RS);
-    for (const method of ['listRuns', 'readRun'] as const) {
-      expect(source).toContain(`board_request(state, "${method}"`);
-      expect(isCoreMethod(method)).toBe(true);
-    }
+  it('the hub forwards both commands to core methods typed by the wire shapes', () => {
+    for (const method of ['listRuns', 'readRun'] as const) expect(isCoreMethod(method)).toBe(true);
     expectTypeOf<Awaited<ReturnType<SidecarDeps['listRuns']>>>().toEqualTypeOf<Commands['list_runs']['result']>();
     expectTypeOf<Awaited<ReturnType<SidecarDeps['readRun']>>>().toEqualTypeOf<Commands['read_run']['result']>();
-  });
-
-  it('runs.rs keeps no reader and no serde hand-mirror of the record shapes', () => {
-    const source = readSource(RUNS_RS);
-    expect(source).not.toMatch(/\bstruct\b/);
-    for (const shape of ['RunRecord', 'AgentUsage', 'RunSummary', 'StageDetail', 'RunDetail', 'Proof', 'VisualProof']) {
-      expect(source).not.toContain(shape);
-    }
   });
 });
 
