@@ -1,4 +1,4 @@
-# Vanguard sandbox image: node + git + the claude, codex and (normally) linear CLIs, non-root user.
+# Taskcell sandbox image: node + git + the claude, codex and (normally) linear CLIs, non-root user.
 # Single stage so the global npm bins and their node_modules stay consistent (the linear-cli
 # launcher resolves a sibling binary, which breaks when bins are copied across build stages).
 # Pinned by digest for a reproducible, tamper-evident base (the tag is kept for readability).

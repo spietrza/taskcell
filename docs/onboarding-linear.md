@@ -1,4 +1,4 @@
-# Run Vanguard on Linear
+# Run Taskcell on Linear
 
 The Linear counterpart of [docs/onboarding-another-repo.md](onboarding-another-repo.md). Same pipeline (spec → implement → review → simplify → draft GitHub PR), two differences from the GitHub flow:
 
@@ -61,7 +61,7 @@ The two-flag split is Linear-specific: `--agent-state` is the **state name** the
 Independent of routing, before spending model budget the agent pass refuses an under-specified ticket. To pass, a ticket in the agent state needs **one** of:
 
 - a `## Acceptance Criteria` markdown heading in the description followed by at least one **real** bullet (placeholders do not count), **or**
-- a Vanguard `<tech_spec>` comment, which the spec pass writes for tickets you put in **Triage**.
+- a Taskcell `<tech_spec>` comment, which the spec pass writes for tickets you put in **Triage**.
 
 A ticket meeting neither is moved to **Needs Info** with a clarification comment. Same contract as the GitHub onboarding — see [the triage contract there](onboarding-another-repo.md#what-an-issue-must-contain-the-triage-contract).
 
@@ -90,7 +90,7 @@ Models are chosen the same way as GitHub (`--spec-model` plans, `--provider`/`--
 After the watcher finishes and a draft PR exists:
 
 1. **Check the diff stat** — every layer the spec demanded actually landed. A schema change without the corresponding module, or a missing test, means the run stopped short → resume or finish by hand.
-2. **Read the Proof-of-Work block** — Vanguard auto-runs the verify command (auto-detected `typecheck` + test) and writes a `## Proof of work` block (command, exit code, sha256) into the PR body, plus a `vanguard:verify-failed` label if it failed. Trust that attestation; re-run locally only if the block is missing or you want a stricter gate.
+2. **Read the Proof-of-Work block** — Taskcell auto-runs the verify command (auto-detected `typecheck` + test) and writes a `## Proof of work` block (command, exit code, sha256) into the PR body, plus a `vanguard:verify-failed` label if it failed. Trust that attestation; re-run locally only if the block is missing or you want a stricter gate.
 3. **Spot-check auth/security** — resolver ownership filters, webhook signature verification, feature gates. These are the areas agents most commonly skip under time pressure.
-4. **Open the review request** — push the draft PR out of draft. (Vanguard already commented the PR link onto the Linear issue.)
+4. **Open the review request** — push the draft PR out of draft. (Taskcell already commented the PR link onto the Linear issue.)
 5. **Close the loop** — mark the Linear issue **Done**. File any newly discovered bugs as separate issues.

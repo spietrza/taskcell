@@ -1,8 +1,8 @@
 import { runGithubIssue, githubDepsFromEnv } from '../src/runners/github.js';
 
 /**
- * Full Vanguard loop with a GitHub Issue as the ONLY source of truth (no Linear): issue = input,
- * draft PR = review, everything in one repo. (Same logic as `vanguard run --github`.)
+ * Full Taskcell loop with a GitHub Issue as the ONLY source of truth (no Linear): issue = input,
+ * draft PR = review, everything in one repo. (Same logic as `taskcell run --github`.)
  *
  * Requires: the vanguard-sandbox image (docker/build.sh), an authenticated `gh`, auth in the env
  * (CLAUDE_CODE_OAUTH_TOKEN or ANTHROPIC_API_KEY), and running from a clone of the target repo.

@@ -51,7 +51,7 @@ taskcell watch --loop-v1 --source github --github-repo OWNER/REPO --repo /path/t
 
 Expected result:
 
-- The issue receives a `Vanguard tech spec:` comment containing `<tech_spec>`.
+- The issue receives a `Taskcell tech spec:` comment containing `<tech_spec>`.
 - The agent claims the issue with `vanguard:running` and opens a draft PR.
 - The issue receives a comment with the PR URL.
 - Final labels: `vanguard:needs-human-review` (all routing labels removed).
@@ -71,7 +71,7 @@ Expected result:
 
 ## Needs Info
 
-If the issue is too vague, Vanguard parks it instead of spending implementation budget.
+If the issue is too vague, Taskcell parks it instead of spending implementation budget.
 
 Expected result:
 

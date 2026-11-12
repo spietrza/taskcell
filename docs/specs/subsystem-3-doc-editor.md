@@ -1,6 +1,6 @@
 # Subsystem 3 — Doc Editor + Sidebar Chat (v1)
 
-**Parent:** [`docs/vanguard-app-vision.md`](../vanguard-app-vision.md)
+**Parent:** [`docs/taskcell-app-vision.md`](../taskcell-app-vision.md)
 **Status:** spec — revised per two spec reviews (feasibility + design-gap)
 **Date:** 2026-07-12
 **Depends on:** Subsystem 0 (shipped, sidecar/IPC pattern). **Feeds:** Subsystem 4 (create-task).

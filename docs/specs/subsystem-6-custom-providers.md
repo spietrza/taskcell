@@ -2,7 +2,7 @@
 
 **Status:** v3, review-converged (two adversarial rounds — adjudications in §14)
 **Depends on:** Subsystem 0 (typed core API), 0.5 (query pipe), 5 (the repo-scoped-listing pattern this spec mirrors)
-**Umbrella:** `docs/vanguard-app-vision.md`
+**Umbrella:** `docs/taskcell-app-vision.md`
 
 ---
 

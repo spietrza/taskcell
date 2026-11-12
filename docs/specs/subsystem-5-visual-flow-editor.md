@@ -1,6 +1,6 @@
 # Subsystem 5 — Visual Workflow Editor
 
-**Parent:** [`docs/vanguard-app-vision.md`](../vanguard-app-vision.md)
+**Parent:** [`docs/taskcell-app-vision.md`](../taskcell-app-vision.md)
 **Status:** spec — revised per four-lens adversarial review (feasibility, design-gap, scope, protocol); 27 findings adjudicated
 **Date:** 2026-07-13
 **Depends on:** Subsystem 2 (HCL format, shipped), Subsystem 0.5/4.2 (query pipe, shipped).

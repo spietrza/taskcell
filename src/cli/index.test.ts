@@ -88,7 +88,7 @@ const originalExitCode = process.exitCode;
 
 beforeEach(() => {
   vi.clearAllMocks();
-  process.argv = ['node', 'vanguard'];
+  process.argv = ['node', 'taskcell'];
   process.exitCode = undefined;
   exitSpy = vi.spyOn(process, 'exit').mockImplementation(() => undefined as never);
   logSpy = vi.spyOn(console, 'log').mockImplementation(() => undefined);
@@ -111,6 +111,24 @@ async function dispatch(command: Command): Promise<void> {
     if (exitSpy.mock.calls.length > 0) throw new Error(`process.exit called: ${JSON.stringify(exitSpy.mock.calls)}`);
   });
 }
+
+describe('bin name', () => {
+  it('prints a one-line deprecation note on stderr when invoked as `vanguard`', async () => {
+    const stderrSpy = vi.spyOn(process.stderr, 'write').mockImplementation(() => true);
+    process.argv = ['node', '/usr/local/bin/vanguard'];
+    await dispatch(commands.gc);
+    expect(stderrSpy.mock.calls.map((c) => String(c[0]))).toEqual(['vanguard: deprecated name, use `taskcell` instead.\n']);
+    stderrSpy.mockRestore();
+  });
+
+  it('prints nothing extra when invoked as `taskcell`', async () => {
+    const stderrSpy = vi.spyOn(process.stderr, 'write').mockImplementation(() => true);
+    process.argv = ['node', '/usr/local/bin/taskcell'];
+    await dispatch(commands.gc);
+    expect(stderrSpy).not.toHaveBeenCalled();
+    stderrSpy.mockRestore();
+  });
+});
 
 describe('CLI dispatch', () => {
   for (const kind of Object.keys(allHandlers) as Array<keyof typeof allHandlers>) {

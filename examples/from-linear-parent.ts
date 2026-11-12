@@ -2,7 +2,7 @@ import { runLinearParent, linearDepsFromEnv } from '../src/runners/linear.js';
 
 /**
  * Fan a Linear parent issue out into one run (and PR) per sub-issue, concurrently and with failure
- * isolation. (Same logic as `vanguard run --linear <ID> --parent`.)
+ * isolation. (Same logic as `taskcell run --linear <ID> --parent`.)
  *
  *   LINEAR_API_KEY=$(op read "op://Personal/Linear API/credential") \
  *   CLAUDE_CODE_OAUTH_TOKEN=$(op read "op://Personal/Claude OAuth/credential") \

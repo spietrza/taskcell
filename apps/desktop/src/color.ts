@@ -1,4 +1,4 @@
-// Per-project identity color. Ported from model-box `stringToHslColor` (standalone — Vanguard has no
+// Per-project identity color. Ported from model-box `stringToHslColor` (standalone — Taskcell has no
 // cross-repo deps), but emits hex so it round-trips through a `<input type="color">` and the config's
 // hex `color` field. Saturation/lightness tuned for a visible accent on both light and dark themes.
 

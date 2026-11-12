@@ -1,4 +1,4 @@
-# Template: the Vanguard CONTROLLER image. It runs `vanguard watch` and starts sibling sandbox
+# Template: the Taskcell CONTROLLER image. It runs `vanguard watch` and starts sibling sandbox
 # containers via the host docker socket (docker-out-of-docker). This is NOT the sandbox image
 # (that is docker/Dockerfile -> vanguard-sandbox). Validate on your host/arch before relying on it.
 # Pinned by digest for a reproducible, tamper-evident base (the tag is kept for readability).

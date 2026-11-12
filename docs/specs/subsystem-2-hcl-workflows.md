@@ -1,6 +1,6 @@
 # Subsystem 2 — Named Workflows (HCL)
 
-**Parent:** [`docs/vanguard-app-vision.md`](../vanguard-app-vision.md)
+**Parent:** [`docs/taskcell-app-vision.md`](../taskcell-app-vision.md)
 **Status:** spec — revised per two spec reviews (feasibility + design-gap)
 **Date:** 2026-07-12
 **Depends on:** Subsystem 0 (shipped). **Defines the format Subsystem 5 consumes.**

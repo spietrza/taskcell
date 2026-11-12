@@ -1,4 +1,5 @@
 #!/usr/bin/env node
+import { basename } from 'node:path';
 import { parseCli, USAGE } from './args.js';
 import { runGc } from './gc.js';
 import { runCommand } from './run.js';
@@ -21,6 +22,10 @@ import { doctorMrsCommand } from './doctor-mrs.js';
 import { evalCommand } from './eval.js';
 
 async function main(): Promise<void> {
+  // Compatibility alias: the pre-rename `vanguard` bin runs the same CLI, with a one-line stderr note.
+  if (basename(process.argv[1] ?? '').replace(/\.[cm]?js$/, '') === 'vanguard') {
+    process.stderr.write('vanguard: deprecated name, use `taskcell` instead.\n');
+  }
   const command = parseCli(process.argv.slice(2), process.cwd());
   if (command.kind === 'help') {
     console.log(USAGE);

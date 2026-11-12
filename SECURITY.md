@@ -1,6 +1,6 @@
 # Security policy
 
-Vanguard runs coding agents on untrusted input: issue text, repository files and dependencies. We treat the agent as hostile, so the controls around it are the core of the product. We appreciate reports that break any of them.
+Taskcell runs coding agents on untrusted input: issue text, repository files and dependencies. We treat the agent as hostile, so the controls around it are the core of the product. We appreciate reports that break any of them.
 
 ## Supported versions
 
@@ -35,7 +35,7 @@ What to expect:
 Anything that crosses one of these boundaries:
 
 - **Sandbox escape:** code running in the agent sandbox affects the host or another run.
-- **Credential exposure:** a model, GitHub, GitLab or Linear credential reaches the sandbox, a PR, a log, a transcript or a run record when Vanguard claims it does not (for example under `--llm-proxy`).
+- **Credential exposure:** a model, GitHub, GitLab or Linear credential reaches the sandbox, a PR, a log, a transcript or a run record when Taskcell claims it does not (for example under `--llm-proxy`).
 - **Egress bypass:** a sandbox under `--egress` reaches a host outside the allowlist.
 - **CI-config copy-back bypass:** an agent change to `.github/workflows/`, `.github/actions/`, `.gitlab-ci.yml` or `.gitlab/**.yml` reaches a pushed branch.
 - **Secret-scan bypass:** a credential in a diff is pushed without being blocked.

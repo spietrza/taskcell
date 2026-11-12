@@ -1,4 +1,4 @@
-# Vanguard
+# Taskcell
 
 An autonomous software factory that fetches work items from external task systems, runs an AI agent pipeline to implement them, and opens draft PRs/MRs for human review.
 
@@ -7,7 +7,7 @@ An autonomous software factory that fetches work items from external task system
 ### Task Layer
 
 **Task Source**:
-A pluggable integration that connects Vanguard to an external task system. Each source implements `TaskFetcher` and `WatchPrimitives`.
+A pluggable integration that connects Taskcell to an external task system. Each source implements `TaskFetcher` and `WatchPrimitives`.
 _Avoid_: Provider, plugin, adapter, integration
 
 **Task**:
@@ -47,13 +47,13 @@ _Avoid_: Verify step, sandbox test
 ### Platform Surface
 
 **Scoped Label** (GitLab):
-A GitLab label whose name contains `::`, making it mutually exclusive with other labels in the same scope. Vanguard uses these for its own state labels (`vanguard::running`, `vanguard::review`, etc.) so transitions don't require manual removal of the prior label.
+A GitLab label whose name contains `::`, making it mutually exclusive with other labels in the same scope. Taskcell uses these for its own state labels (`vanguard::running`, `vanguard::review`, etc.) so transitions don't require manual removal of the prior label.
 _Avoid_: Exclusive label, scoped tag
 
 **MR**:
-A GitLab Merge Request — the GitLab equivalent of a GitHub Pull Request. Vanguard opens draft MRs after completing a Run on a GitLab-sourced Task.
+A GitLab Merge Request — the GitLab equivalent of a GitHub Pull Request. Taskcell opens draft MRs after completing a Run on a GitLab-sourced Task.
 _Avoid_: Pull Request, PR (when referring to GitLab)
 
 **Runner**:
-The CLI tool Vanguard shells out to for platform operations. `gh` for GitHub, `glab` for GitLab, `linear` for Linear.
+The CLI tool Taskcell shells out to for platform operations. `gh` for GitHub, `glab` for GitLab, `linear` for Linear.
 _Avoid_: CLI, client, SDK

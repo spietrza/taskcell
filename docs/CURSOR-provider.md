@@ -11,7 +11,7 @@ The prompt goes on stdin. Before each call the provider writes a permission allo
 (`Shell(*)`, `Read(**)`, `Write(**)`) into the sandbox's `~/.cursor/cli-config.json`, keeping the rest of
 the file. It does this instead of passing `--force`, because a team admin can disable "Run Everything", and then
 `--force` aborts the run. Without either one, print mode rejects every shell command except `ls`.
-`--sandbox disabled` turns off Cursor's own sandbox. In both cases the Vanguard container is the
+`--sandbox disabled` turns off Cursor's own sandbox. In both cases the Taskcell container is the
 boundary, as with codex's `danger-full-access`.
 
 ## Setup
@@ -51,7 +51,7 @@ names as they are. It runs either one of its **Auto modes**, which pick a model 
 | `auto-cost` (= `auto-smart[optimize_for=cost]`)               | Auto Cost                               |
 | an id from `agent models`, e.g. `claude-opus-5-5-high`, `gpt-5.6-sol-high`, `composer-2.5` | exactly that model (ids vary by account and plan) |
 
-The short names are Vanguard's and translate to Cursor's `auto-smart[…]` form. They also fit a
+The short names are Taskcell's and translate to Cursor's `auto-smart[…]` form. They also fit a
 `vanguard:model=auto-intelligence` issue label, while the long form exceeds GitHub's 50-character label
 limit.
 
@@ -59,7 +59,7 @@ limit.
 taskcell run --github o/r#1 --provider cursor --provider-model auto-intelligence --review-model auto-cost
 ```
 
-The Claude tiers that Vanguard's presets pin (spec → `haiku`, planner → `opus`, escalation →
+The Claude tiers that Taskcell's presets pin (spec → `haiku`, planner → `opus`, escalation →
 `claude-fable-5-1`) are not Cursor models. They map onto the matching Auto mode, so each stage keeps its
 trade-off:
 

@@ -8,7 +8,7 @@ Codex/OpenAI proxy mode is covered by unit tests and typecheck. The live smoke b
 
 ## Prerequisites
 
-- `CODEX_API_KEY` or `OPENAI_API_KEY` is exported on the **host** (not inside any container). Vanguard reads it from the host to hand it to the proxy sidecar; it must never be set inside the sandbox.
+- `CODEX_API_KEY` or `OPENAI_API_KEY` is exported on the **host** (not inside any container). Taskcell reads it from the host to hand it to the proxy sidecar; it must never be set inside the sandbox.
 - The OpenAI account behind the key has active billing. Without it, `codex exec` connects and authenticates but the API returns "account is not active", which surfaces as a failed review stage.
 - `vanguard-sandbox:latest` exists on the Docker daemon used by the controller (`docker image ls vanguard-sandbox` should list it).
 - `GH_TOKEN` is set, or `gh auth login` has been run. The reviewer posts a GitHub review comment, so write access to the target PR is required.
@@ -122,7 +122,7 @@ The host key is missing. Export it before running:
 export CODEX_API_KEY=your-key-here
 ```
 
-Or use `OPENAI_API_KEY` — Vanguard reads both. The key must be set in the shell that runs `vanguard`, not only inside a container.
+Or use `OPENAI_API_KEY` — Taskcell reads both. The key must be set in the shell that runs `vanguard`, not only inside a container.
 
 **`preflight: llm auth missing -> stop before claim`**
 

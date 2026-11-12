@@ -110,7 +110,7 @@
     </div>
     <div class="swap-cmd d3" data-reveal>
       <p class="cmd-label">Claude builds, Codex reviews</p>
-<pre class="cmd"><code>vanguard run --github you/app#42 --repo ../app --provider claude --review-provider codex</code></pre>
+<pre class="cmd"><code>taskcell run --github you/app#42 --repo ../app --provider claude --review-provider codex</code></pre>
     </div>
   </div>
 </section>
@@ -228,7 +228,7 @@
 cd taskcell
 pnpm install &amp;&amp; pnpm build
 docker/build.sh       <span class="c"># the sandbox image</span>
-pnpm link --global    <span class="c"># puts vanguard on your PATH</span></code></pre>
+pnpm link --global    <span class="c"># puts taskcell on your PATH</span></code></pre>
     <p>Also needed: <code>gh</code> for GitHub, <code>glab</code> for GitLab or the <code>linear</code> CLI for Linear.</p>
   </div>
   <aside class="rename d1" data-reveal aria-label="About the command name">
@@ -242,15 +242,15 @@ pnpm link --global    <span class="c"># puts vanguard on your PATH</span></code>
       <p>Run a single issue end to end, with the key held by the LLM proxy.</p>
 <pre class="cmd"><code><span class="c"># token from: claude setup-token</span>
 export CLAUDE_CODE_OAUTH_TOKEN=…
-vanguard run --github you/app#42 \
+taskcell run --github you/app#42 \
   --repo ../app --llm-proxy</code></pre>
-      <p class="note">Or <code>vanguard watch</code> to keep picking up labelled issues on its own.</p>
+      <p class="note">Or <code>taskcell watch</code> to keep picking up labelled issues on its own.</p>
     </li>
     <li data-reveal class="d2">
       <h3>The Hub on your machine</h3>
       <p>Projects, the task board with New Run, the fleet, and every run's record, in a browser.</p>
 <pre class="cmd"><code>pnpm build:ui
-vanguard hub --repo ../app
+taskcell hub --repo ../app
 <span class="c"># http://127.0.0.1:7777</span></code></pre>
     </li>
     <li data-reveal class="d3">
@@ -274,7 +274,7 @@ vanguard hub --repo ../app
     <p class="eyebrow" data-reveal>The Hub</p>
     <h2 id="hub-h" data-reveal class="d1">Your factory, on one screen</h2>
   </div>
-  <p class="intro d2" data-reveal><code>vanguard hub</code> shows your projects, the task board and the cost of every run. The live factory floor is coming to it; this is how it will look.</p>
+  <p class="intro d2" data-reveal><code>taskcell hub</code> shows your projects, the task board and the cost of every run. The live factory floor is coming to it; this is how it will look.</p>
   <p class="preview-note d2" data-reveal>Preview with sample data. Projects, the board and cost per run are in the Hub today; the floor panel is not yet.</p>
 
   <div class="hub d2" data-reveal>

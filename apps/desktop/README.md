@@ -1,6 +1,6 @@
-# Vanguard Inspector
+# Taskcell Inspector
 
-A local **Tauri 2** cockpit over [Vanguard](../../README.md) — watch, inspect, drive, and remotely
+A local **Tauri 2** cockpit over [Taskcell](../../README.md) — watch, inspect, drive, and remotely
 observe agent Runs. Rust backend · React 19 · Tailwind v4 · [chunks-ui](https://github.com/) · TypeScript.
 
 ## Run
@@ -116,7 +116,7 @@ the test immediately.
 ## Architecture
 
 Typed JSON over Tauri IPC is the only boundary. `src/taskcell-output.d.ts` hand-mirrors the persisted
-shapes (kept decoupled from Vanguard's build, per the design spec §4).
+shapes (kept decoupled from Taskcell's build, per the design spec §4).
 
 **Rust (`src-tauri/src/`)** — one module per concern, each with pure functions + unit tests, thin
 `#[tauri::command]` wrappers in `lib.rs`:

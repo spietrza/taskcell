@@ -1,9 +1,9 @@
 import { runLinearIssue, linearDepsFromEnv } from '../src/runners/linear.js';
 
 /**
- * Full Vanguard loop with a Linear issue as the source of truth and GitHub as the review surface.
+ * Full Taskcell loop with a Linear issue as the source of truth and GitHub as the review surface.
  * The agent reads the issue from inside the sandbox via the injected linear-cli skill, implements it,
- * opens a draft PR, then comments the PR link back onto the issue. (Same logic as `vanguard run --linear`.)
+ * opens a draft PR, then comments the PR link back onto the issue. (Same logic as `taskcell run --linear`.)
  *
  *   LINEAR_API_KEY=$(op read "op://Personal/Linear API/credential") \
  *   CLAUDE_CODE_OAUTH_TOKEN=$(op read "op://Personal/Claude OAuth/credential") \

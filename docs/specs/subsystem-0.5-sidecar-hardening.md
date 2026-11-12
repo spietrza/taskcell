@@ -1,6 +1,6 @@
 # Subsystem 0.5 — Sidecar Hardening
 
-**Parent:** [`docs/vanguard-app-vision.md`](../vanguard-app-vision.md)
+**Parent:** [`docs/taskcell-app-vision.md`](../taskcell-app-vision.md)
 **Status:** spec — ready for implementation plan (revised per two spec reviews)
 **Date:** 2026-07-11
 **Depends on:** Subsystem 0 (shipped). **Blocks:** Subsystem 1.

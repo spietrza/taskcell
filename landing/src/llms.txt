@@ -31,8 +31,8 @@ git clone https://github.com/spietrza/taskcell.git
 cd taskcell
 pnpm install && pnpm build
 docker/build.sh          # the sandbox image
-pnpm link --global       # puts vanguard on your PATH
-vanguard run --github you/app#42 --repo ../app --llm-proxy
+pnpm link --global       # puts taskcell on your PATH
+taskcell run --github you/app#42 --repo ../app --llm-proxy
 ```
 
 The CLI is still called `vanguard` (the project's former name).
