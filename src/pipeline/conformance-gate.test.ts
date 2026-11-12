@@ -13,6 +13,7 @@ import {
   commitLeakWarningBlock,
   prBodyGapWarningBlock,
   extractPrBodyItemsBlock,
+  dischargePrBodyItemsBlock,
   type SpecManifest,
 } from './conformance-gate.js';
 
@@ -421,6 +422,32 @@ describe('prBodyGapWarningBlock', () => {
 
   it('returns an empty block for no gaps', () => {
     expect(prBodyGapWarningBlock([])).toBe('');
+  });
+});
+
+describe('dischargePrBodyItemsBlock', () => {
+  const end = '<!-- vanguard:pr-body-items:end -->';
+  const manifest = { prBody: [{ id: 'PR-1', contains: 'name: gate' }] };
+  const empty = prBodyGapWarningBlock([{ id: 'PR-1', contains: 'name: gate' }]);
+  const pasted = empty.replace(end, `name: gate\n${end}`);
+
+  it('rewrites the header and keeps the pasted content once every recorded id is satisfied', () => {
+    const out = dischargePrBodyItemsBlock(pasted, manifest);
+    expect(out).toContain('Required PR-body item discharged');
+    expect(out).not.toContain('Required PR-body item missing');
+    expect(out).toContain('name: gate\n' + end);
+  });
+
+  it('leaves the block alone for a prBody: [] manifest, an unknown id, or no manifest', () => {
+    expect(dischargePrBodyItemsBlock(pasted, { prBody: [] })).toBe(pasted);
+    expect(dischargePrBodyItemsBlock(pasted, { prBody: [{ id: 'PR-9', contains: 'name: gate' }] })).toBe(pasted);
+    expect(dischargePrBodyItemsBlock(pasted, undefined)).toBe(pasted);
+  });
+
+  it('does not search the generated preamble, so an unpasted block is not discharged', () => {
+    // 'PR-body' appears in the generated heading/preamble; only the pasted region may satisfy contains.
+    expect(dischargePrBodyItemsBlock(empty, { prBody: [{ id: 'PR-1', contains: 'PR-body' }] })).toBe(empty);
+    expect(dischargePrBodyItemsBlock(empty, manifest)).toBe(empty);
   });
 });
 

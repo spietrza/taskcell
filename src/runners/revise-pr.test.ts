@@ -1574,6 +1574,48 @@ describe('runRevisePullRequest — revise-pass verification', () => {
     expect(body).toContain(itemsBlock);
   });
 
+  describe('required-PR-body-item discharge', () => {
+    const item = { id: 'PR-1', contains: 'name: gate' };
+    const pastedBlock = prBodyGapWarningBlock([item])
+      .replace('<!-- vanguard:pr-body-items:end -->', 'name: gate\n<!-- vanguard:pr-body-items:end -->');
+    const prBody = ['Part of o/r#42', pastedBlock].join('\n\n');
+    const comment = (login: string, assoc: string, manifest: object): object => ({
+      author: { login }, authorAssociation: assoc, createdAt: '2026-01-01T00:00:00Z',
+      body: `<spec_manifest>${JSON.stringify(manifest)}</spec_manifest>`,
+    });
+
+    async function round(comments: object[]): Promise<string> {
+      const editBodies: string[] = [];
+      const base = makeGh([], editBodies, prBody);
+      const gh: GhRunner = async (args, env) => {
+        if (args[0] === 'issue' && args[1] === 'view') {
+          return JSON.stringify({ number: 42, title: 't', body: '', labels: [], comments, author: { login: 'reporter' }, state: 'OPEN' });
+        }
+        return base(args, env);
+      };
+      await runRevisePullRequest('7', {
+        repoPath: repo, repoSlug: 'o/r', gh, verifyCmd: VERIFY_CMD,
+        _sandbox: makeSandboxVerify(0), _agent: agentThatCompletes([]), _worktrees: new WorktreeManager(repo),
+        _pushRunner: async () => '', _baseBranch: 'feature-branch', provider: 'claude',
+      });
+      return editBodies.find((b) => b.includes('o/r#42')) ?? '';
+    }
+
+    it('discharges from a non-author trusted manifest, keeping the pasted content', async () => {
+      const body = await round([comment('maint', 'MEMBER', { prBody: [item] })]);
+      expect(body).toContain('Required PR-body item discharged');
+      expect(body).toContain('name: gate\n<!-- vanguard:pr-body-items:end -->');
+    });
+
+    it('keeps the block when the manifest is from an untrusted comment', async () => {
+      expect(await round([comment('reporter', 'NONE', { prBody: [item] })])).toContain(pastedBlock);
+    });
+
+    it('keeps the block when a trusted manifest declares prBody: []', async () => {
+      expect(await round([comment('maint', 'MEMBER', { prBody: [] })])).toContain(pastedBlock);
+    });
+  });
+
   it('the verify repair resumes on the implementer\'s routed model and turn cap', async () => {
     const agentInputs: AgentRunInput[] = [];
     await runRevisePullRequest('7', {

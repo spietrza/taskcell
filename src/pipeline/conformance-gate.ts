@@ -382,6 +382,10 @@ export function commitLeakWarningBlock(leaks: CommitClosingLeak[]): string {
 
 const PR_BODY_ITEMS_START = '<!-- vanguard:pr-body-items:start -->';
 const PR_BODY_ITEMS_END = '<!-- vanguard:pr-body-items:end -->';
+const PR_BODY_ITEMS_HEADING = '## ⚠️ Required PR-body item missing';
+const PR_BODY_ITEMS_DISCHARGED_HEADING = '## ✅ Required PR-body item discharged';
+/** Last line of the generated preamble: everything after it, up to the end marker, is human-pasted. */
+const PR_BODY_ITEMS_PASTE_LINE = 'Apply the change by hand and paste the content below, above the closing marker; it is kept across revise rounds.';
 
 /**
  * Blocking-warning markdown block surfaced when a required `prBody` manifest item is missing (e.g. CI
@@ -393,13 +397,13 @@ export function prBodyGapWarningBlock(missing: { id: string; contains: string }[
   if (missing.length === 0) return '';
   return [
     PR_BODY_ITEMS_START,
-    '## ⚠️ Required PR-body item missing',
+    PR_BODY_ITEMS_HEADING,
     '',
     'The spec manifest requires the following in this PR description (they cannot live in the diff, and the factory cannot write them), so this PR is a partial delivery:',
     '',
     ...missing.map((m) => `- \`${m.id}\``),
     '',
-    'Apply the change by hand and paste the content below, above the closing marker; it is kept across revise rounds.',
+    PR_BODY_ITEMS_PASTE_LINE,
     '',
     PR_BODY_ITEMS_END,
   ].join('\n');
@@ -411,4 +415,27 @@ export function extractPrBodyItemsBlock(body: string): string | undefined {
   const end = body.indexOf(PR_BODY_ITEMS_END, start);
   if (start === -1 || end === -1) return undefined;
   return body.slice(start, end + PR_BODY_ITEMS_END.length);
+}
+
+/**
+ * Discharge a `prBodyGapWarningBlock` once a human has pasted every item it records. Only the ids the
+ * block itself lists can be discharged (a manifest with `prBody: []` or other ids discharges nothing),
+ * and only the human-pasted region after the generated preamble is searched for `contains`. The block
+ * and its pasted content are kept; just the heading is rewritten to a discharged marker. Returns the
+ * block unchanged when anything is still outstanding, or when it is not an undischarged block.
+ * `manifest` must come from non-issue-author trust — the caller's job.
+ */
+export function dischargePrBodyItemsBlock(block: string, manifest: SpecManifest | undefined): string {
+  const pasteAt = block.indexOf(PR_BODY_ITEMS_PASTE_LINE);
+  if (manifest === undefined || !block.includes(PR_BODY_ITEMS_HEADING) || pasteAt === -1) return block;
+  const preamble = block.slice(0, pasteAt);
+  const pasted = block.slice(pasteAt + PR_BODY_ITEMS_PASTE_LINE.length, block.lastIndexOf(PR_BODY_ITEMS_END));
+  const recorded = [...preamble.matchAll(/^- `(.+)`$/gm)].map((m) => m[1]);
+  if (recorded.length === 0) return block;
+  const items = manifest.prBody ?? [];
+  const done = recorded.every((id) => {
+    const item = items.find((p) => p.id === id);
+    return item !== undefined && item.contains.trim() !== '' && pasted.includes(item.contains);
+  });
+  return done ? block.replace(PR_BODY_ITEMS_HEADING, PR_BODY_ITEMS_DISCHARGED_HEADING) : block;
 }
