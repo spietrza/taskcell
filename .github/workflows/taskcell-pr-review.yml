@@ -53,6 +53,10 @@ jobs:
     with:
       allowed-actors: '["spietrza","pawelkrystkiewicz"]'
       llm-proxy: true
+      # Same model as the in-run reviewer (taskcell-implement.yml); was the CLI default (Opus) until 2026-11-12.
+      # Compare before/after with `taskcell stats --approver` and the lead-time / revise-round stats.
+      provider: claude
+      review-model: claude-fable-5-2
       # One run reviews every labelled PR; four at a time instead of two.
       review-concurrency: '4'
     secrets:
