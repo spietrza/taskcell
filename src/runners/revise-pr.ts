@@ -444,11 +444,13 @@ export async function runRevisePullRequest(prRef: string, deps: ReviseGithubPrDe
       });
 
     const taskId = `revise-pr-${target.repoSlug.replace(/[^a-zA-Z0-9]/g, '-')}-${target.number}`;
-    // One RunWriter for the whole revision round, shared by the two (mutually exclusive) writeStages
+    // One RunWriter for the whole revision round, shared by the (mutually exclusive) writeStages
     // calls below, for consistency with runSourcedIssue's writer.
     const writer = beginRun(deps.repoPath, taskId, undefined, { secretEnvVars: providerKeyEnvNames(deps) });
     const revisionStageMeta = { flow: 'revise', provider: agents.agent.name };
     let outcomes: StageOutcome[] = [];
+    // For paths where the secret scan never ran: keep the cost trace, keep the diff off disk.
+    const writeStagesWithoutDiff = (): Promise<void> => writer.writeStages(outcomes, { ...revisionStageMeta, omitDiff: true });
     // One block per revision in the Actions job's Summary tab (no GITHUB_STEP_SUMMARY ⇒ no-op).
     const stepSummary = (exit: StepSummaryExit, extra: Pick<StepSummary, 'error'> = {}): Promise<void> => {
       const model = outcomes.find((o) => o.name === STAGE.IMPLEMENTER)?.result.model ?? effectiveModel;
@@ -577,7 +579,10 @@ export async function runRevisePullRequest(prRef: string, deps: ReviseGithubPrDe
       log(`revise-pr ${target.repoSlug}#${target.number}: agent -> implementing`);
       outcomes = await runStages(ctx, pipeline, { agent: agents.agent, variables });
       const stillConflicted = await filesWithConflictMarkers(ctx.worktreePath, conflicted);
-      if (stillConflicted.length > 0) return await holdForConflict(stillConflicted);
+      if (stillConflicted.length > 0) {
+        await writeStagesWithoutDiff();
+        return await holdForConflict(stillConflicted);
+      }
 
       // Run the resolved verification command after applying changes and before pushing, with one
       // bounded repair iteration on red — reusing renderVerificationFeedback and the same resume
@@ -614,8 +619,7 @@ export async function runRevisePullRequest(prRef: string, deps: ReviseGithubPrDe
         revisionDiff = await ctx.wm.diff(ctx.worktreePath);
         gateDiff = await ctx.wm.outgoingDiff(ctx.worktreePath);
       } catch (err) {
-        // Nothing is known about the content on this path (the scan never ran): keep the payloads off disk.
-        await writer.writeStages(outcomes, { ...revisionStageMeta, omitDiff: true });
+        await writeStagesWithoutDiff();
         throw err;
       }
       const whiteLabel = deps.commitAuthor !== undefined;

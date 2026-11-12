@@ -2392,6 +2392,10 @@ describe('runRevisePullRequest base conflicts', () => {
     const edits = ghCalls.filter((a) => a[0] === 'pr' && a[1] === 'edit');
     expect(edits.some((a) => a.includes('vanguard:revising') && a.includes('--remove-label'))).toBe(true);
     expect(edits.some((a) => a.includes('needs revision'))).toBe(false);
+    // The agent ran: its cost trace is kept, without a diff (the secret scan never ran).
+    const recordFiles = await readdir(join(repo, '.taskcell', 'runs'), { recursive: true });
+    expect(recordFiles.some((f) => f.endsWith('.json'))).toBe(true);
+    expect(recordFiles.some((f) => f.endsWith('.diff') || f.endsWith('.bundle'))).toBe(false);
   });
 
   it('no-op revision on a conflict finding: nothing pushed, not reported as success', async () => {
