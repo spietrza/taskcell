@@ -107,6 +107,7 @@ The reusable workflow installs Taskcell with `pnpm install --ignore-workspace`, 
 | `issue` | string | `''` (sweep) | `--issue`: run only this issue. The template passes the labelled issue, so every issue gets its own run and its own concurrency group instead of queueing behind one shared group |
 | `max-parallel` | string | `''` (no limit) | with `issue`: at most this many runs work at once; later runs wait for a slot, first come first served (the cap can overshoot by one when two runs start in the same minute). The caller needs `actions: read` |
 | `sandbox-memory-mb` | string | `''` (CLI default: 2048, 8192 with a read-only rootfs) | sandbox memory cap in MB (`VANGUARD_SANDBOX_MEMORY_MB`). A GitHub-hosted runner has 16 GB; long agent sessions or a full test suite inside the sandbox may need `'8192'` (at 2048 MB they can die with exit 134). Also on `revise.yml` |
+| `timeout-minutes` | number | `90` | job timeout. It also covers the wait for a free slot under `max-parallel`, so raise it for large tasks or a long queue (GitHub's ceiling is 360) |
 | `vanguard-ref` | string | `''` (the workflow's own ref) | Taskcell source ref to build |
 
 Secrets: `CLAUDE_CODE_OAUTH_TOKEN`, `CODEX_AUTH_JSON`, `CLOUDFLARE_ACCOUNT_ID`, `CLOUDFLARE_AUTH_TOKEN` (all optional).

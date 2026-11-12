@@ -105,6 +105,10 @@ on:
         description: 'Vanguard source ref to build. Empty = the ref this workflow was called at.'
         type: string
         default: ''
+      timeout-minutes:
+        description: 'Job timeout in minutes. It also covers the wait for a free slot (max-parallel), so a large task behind a full queue needs room for both.'
+        type: number
+        default: 90
     secrets:
       CLAUDE_CODE_OAUTH_TOKEN:
         required: false
@@ -121,7 +125,7 @@ on:
 jobs:
   implement:
     runs-on: ubuntu-latest
-    timeout-minutes: 90
+    timeout-minutes: ${{ inputs.timeout-minutes }}
     env:
       GH_TOKEN: ${{ github.token }}
       # A caller repo with its own `packageManager` (e.g. pnpm@9) would make `pnpm store path` (setup-node's
