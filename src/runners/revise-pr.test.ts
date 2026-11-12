@@ -2151,3 +2151,79 @@ describe('runRevisePullRequest — gate-config signal', () => {
     expect(ghCalls.some((a) => a[0] === 'pr' && a[1] === 'edit' && a.includes('--remove-label'))).toBe(false);
   });
 });
+
+describe('runRevisePullRequest — taskcell GitHub App', () => {
+  const KEYS = ['TASKCELL_APP_CLIENT_ID', 'TASKCELL_APP_PRIVATE_KEY', 'VANGUARD_PUSH_TOKEN'] as const;
+  const saved = Object.fromEntries(KEYS.map((k) => [k, process.env[k]]));
+  afterEach(() => {
+    vi.unstubAllGlobals();
+    for (const k of KEYS) {
+      if (saved[k] === undefined) delete process.env[k];
+      else process.env[k] = saved[k];
+    }
+  });
+
+  const run = async (status: number): Promise<{ readyEnvs: Array<Record<string, string> | undefined>; pushEnvs: Array<Record<string, string> | undefined>; logs: string[]; fetched: string[] }> => {
+    const { generateKeyPairSync } = await import('node:crypto');
+    const { privateKey } = generateKeyPairSync('rsa', { modulusLength: 2048, privateKeyEncoding: { type: 'pkcs8', format: 'pem' }, publicKeyEncoding: { type: 'spki', format: 'pem' } });
+    process.env.TASKCELL_APP_CLIENT_ID = 'Iv1.test';
+    process.env.TASKCELL_APP_PRIVATE_KEY = privateKey;
+    const fetched: string[] = [];
+    let n = 0;
+    vi.stubGlobal('fetch', async (url: string, init?: RequestInit) => {
+      fetched.push(`${init?.method} ${url}`);
+      if (status !== 200) return new Response('{}', { status });
+      if (init?.method === 'DELETE') return new Response(null, { status: 204 });
+      if (String(url).endsWith('/installation')) return new Response(JSON.stringify({ id: 9 }), { status: 200 });
+      n += 1;
+      return new Response(JSON.stringify({ token: `ghs_app_token_${n}_Zx9Qw8Er7Ty6Ui5Op4` }), { status: 201 });
+    });
+    const readyEnvs: Array<Record<string, string> | undefined> = [];
+    const pushEnvs: Array<Record<string, string> | undefined> = [];
+    const logs: string[] = [];
+    const gh: GhRunner = async (args, env) => {
+      if (args[0] === 'pr' && args[1] === 'view' && args.some((a) => a.includes('headRefName'))) return makePrViewJson();
+      if (args[0] === 'pr' && args[1] === 'diff') return 'diff --git a/fix.txt';
+      if (args[0] === 'api' && args[1] === 'graphql') {
+        const query = args.find((a) => a.startsWith('query=')) ?? '';
+        if (query.includes('reviewThreads')) return makeFeedbackJson();
+        return JSON.stringify({ data: {} });
+      }
+      if (args[0] === 'pr' && args[1] === 'ready') { readyEnvs.push(env); return ''; }
+      if ((args[0] === 'pr' && (args[1] === 'comment' || args[1] === 'edit')) || (args[0] === 'label' && args[1] === 'create')) return '';
+      throw new Error(`unexpected gh call: ${args.join(' ')}`);
+    };
+    await runRevisePullRequest('7', {
+      repoPath: repo,
+      repoSlug: 'o/r',
+      gh,
+      log: (line: string) => logs.push(line),
+      _sandbox: makeSandbox(),
+      _agent: agentThatCompletes([]),
+      _worktrees: new WorktreeManager(repo),
+      _pushRunner: async (file, args, _cwd, env) => { if (file === 'git' && args[0] === 'push') pushEnvs.push(env); return ''; },
+      _baseBranch: 'feature-branch',
+      provider: 'claude',
+    });
+    return { readyEnvs, pushEnvs, logs, fetched };
+  };
+
+  it('pushes and undrafts with freshly minted App tokens, revokes each, and labels the logs by the credential used', async () => {
+    const { readyEnvs, pushEnvs, logs, fetched } = await run(200);
+    expect(Object.values(pushEnvs[0] ?? {})).toContain(`AUTHORIZATION: basic ${Buffer.from('x-access-token:ghs_app_token_1_Zx9Qw8Er7Ty6Ui5Op4').toString('base64')}`);
+    expect(readyEnvs[0]).toEqual({ GH_TOKEN: 'ghs_app_token_2_Zx9Qw8Er7Ty6Ui5Op4' });
+    expect(fetched.filter((c) => c.startsWith('DELETE'))).toHaveLength(2);
+    expect(logs.some((l) => /pushed -> feature-branch \(taskcell App token\)/.test(l))).toBe(true);
+    expect(logs.some((l) => /undraft -> pr ready \(taskcell App token\)/.test(l))).toBe(true);
+  });
+
+  it('a failed mint without a PAT pushes and undrafts with the ambient credential, and the logs say so', async () => {
+    delete process.env.VANGUARD_PUSH_TOKEN;
+    const { readyEnvs, pushEnvs, logs } = await run(500);
+    expect(pushEnvs).toEqual([undefined]);
+    expect(readyEnvs).toEqual([undefined]);
+    expect(logs.some((l) => /push token unavailable, using the ambient credential/.test(l))).toBe(true);
+    expect(logs.some((l) => /pushed -> feature-branch$/.test(l))).toBe(true);
+    expect(logs.some((l) => /undraft -> pr ready$/.test(l))).toBe(true);
+  });
+});

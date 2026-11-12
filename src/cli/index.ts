@@ -19,8 +19,11 @@ import { reviewMrCommand } from './review-mr.js';
 import { watchMrsCommand } from './watch-mrs.js';
 import { doctorMrsCommand } from './doctor-mrs.js';
 import { evalCommand } from './eval.js';
+import { takeAppKey } from '../core/push-token.js';
 
 async function main(): Promise<void> {
+  // Before anything spawns: the taskcell App private key must not be inherited by docker/git/gh children.
+  takeAppKey();
   const command = parseCli(process.argv.slice(2), process.cwd());
   if (command.kind === 'help') {
     console.log(USAGE);

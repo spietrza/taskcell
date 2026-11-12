@@ -37,7 +37,7 @@ import { isRateLimitHold, rateLimitHold } from '../core/rate-limit-marker.js';
 import { UsageCapError } from '../core/usage-cap.js';
 import { diffFilesWithPatches, extractGateConfigBlock, gateConfigChangedBlock, gateConfigPaths, loadGateConfigExtraGlobs } from '../context/gate-config.js';
 import { renderSecretBlockComment } from '../core/secret-scan.js';
-import { tokenProviderFor } from '../core/push-token.js';
+import { credentialLabel, releaseToken, tokenProviderFor } from '../core/push-token.js';
 import { resolveToken } from '../pipeline/remote-branch.js';
 import { deliverChange, scanOutgoingForSecrets } from './deliver-change.js';
 import { extractPrBodyItemsBlock, extractTaskIdFromPrBody, scanCommitClosingKeywords } from '../pipeline/conformance-gate.js';
@@ -211,12 +211,6 @@ async function addGateConfigLabel(
   await editPrLabels(gh, repoSlug, number, { add: [GITHUB_GATE_CONFIG_LABEL] });
 }
 
-/** Log marker naming which credential the push / undraft uses (never its value). */
-function credentialLabel(env: NodeJS.ProcessEnv = process.env): string {
-  if (env.TASKCELL_APP_CLIENT_ID && env.TASKCELL_APP_PRIVATE_KEY) return ' (taskcell App token)';
-  return env.VANGUARD_PUSH_TOKEN ? ' (VANGUARD_PUSH_TOKEN)' : '';
-}
-
 /**
  * Un-draft the PR. With a pushToken, try `pr ready` as the token's owner first (GH_TOKEN for this one
  * call): a `ready_for_review` event from the ambient GITHUB_TOKEN starts no workflows, so the review
@@ -232,12 +226,16 @@ async function markReady(
 ): Promise<void> {
   const args = ['pr', 'ready', String(number), '--repo', repoSlug];
   const pushToken = await resolveToken(tokenProvider, undefined, log);
+  // Labelled from the credential actually resolved, not from which env vars are set.
+  log(`revise-pr ${repoSlug}#${number}: undraft -> pr ready${credentialLabel(pushToken)}`);
   if (pushToken) {
     try {
       await gh(args, { GH_TOKEN: pushToken });
       return;
     } catch {
       log(`revise-pr ${repoSlug}#${number}: pr ready with the push token failed, retrying with the ambient credential`);
+    } finally {
+      await releaseToken(pushToken);
     }
   }
   await gh(args);
@@ -617,7 +615,14 @@ export async function runRevisePullRequest(prRef: string, deps: ReviseGithubPrDe
 
       log(`revise-pr ${target.repoSlug}#${target.number}: commit -> staging`);
       // Resolved at each use (push, undraft): an App installation token is minted then, not now.
-      const tokenProvider = tokenProviderFor(deps.repoPath, target.repoSlug);
+      const resolvePushToken = tokenProviderFor(deps.repoPath, target.repoSlug);
+      let pushedWith = '';
+      const tokenProvider = async (): Promise<string | undefined> => {
+        pushedWith = '';
+        const token = await resolvePushToken();
+        pushedWith = credentialLabel(token);
+        return token;
+      };
       // deliverChange owns the order: secret scan on the revision diff → commit → push onto the PR branch.
       const delivery = await deliverChange(ctx, {
         taskId: `${target.repoSlug}#${target.number}`,
@@ -643,7 +648,7 @@ export async function runRevisePullRequest(prRef: string, deps: ReviseGithubPrDe
         return { pr, ignoredFeedback, addressed: 0, committed: false, pushed: false, undrafted: false };
       }
       if (delivery.kind !== 'delivered-push') throw new TaskcellError(`unexpected delivery outcome ${delivery.kind} for an existing-branch target`);
-      log(`revise-pr ${target.repoSlug}#${target.number}: pushed -> ${pr.headRefName}${credentialLabel()}`);
+      log(`revise-pr ${target.repoSlug}#${target.number}: pushed -> ${pr.headRefName}${pushedWith}`);
       const sha = delivery.sha;
 
       // Re-derive the PR body from the CURRENT diff on every cycle so a stale `Closes #N` can never
@@ -720,7 +725,6 @@ export async function runRevisePullRequest(prRef: string, deps: ReviseGithubPrDe
       await commentPullRequest(target, [summaryText, configBlock, droppedCiPathsNote(ctx.droppedCiPaths)].filter((part) => part !== '').join('\n\n'), gh);
       if (configPaths.length > 0) await addGateConfigLabel(gh, target.repoSlug, target.number, log);
 
-      log(`revise-pr ${target.repoSlug}#${target.number}: undraft -> pr ready${credentialLabel()}`);
       await markReady(gh, target.repoSlug, target.number, tokenProvider, log);
 
       await handBackPrLabels(gh, target.repoSlug, target.number, log);

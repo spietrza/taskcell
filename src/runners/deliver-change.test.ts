@@ -75,7 +75,7 @@ describe('deliverChange', () => {
     expect(calls).toEqual([]);
   });
 
-  it('passes tokenProvider through to the existing-branch push and the new-PR token', async () => {
+  it('passes tokenProvider through to the existing-branch push', async () => {
     const seen: Array<Record<string, string> | undefined> = [];
     await withWork('hello', async (ctx) => {
       const r = await deliverChange(ctx, {

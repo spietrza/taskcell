@@ -276,12 +276,28 @@ export const INJECTED_SECRET_ENV_VARS = [
  */
 const registeredSecretEnvVars = new Set<string>();
 
-/** Secret values minted at run time (taskcell App installation tokens): no env var holds them. Append-only. */
+/**
+ * Secret values no env var holds: taskcell App installation tokens minted at run time, and the App
+ * private key once it is taken out of process.env. A minted token leaves the set when it is revoked.
+ */
 const registeredSecretValues = new Set<string>();
 
-/** Register a minted credential so every default injectedSecretValues() call redacts it. */
+/**
+ * Register a credential so every injectedSecretValues() call made from now on redacts it. A snapshot
+ * taken earlier does not see it: pass such a snapshot through withRegisteredSecretValues at use.
+ */
 export function registerInjectedSecretValue(value: string): void {
   registeredSecretValues.add(value);
+}
+
+/** Drop a registered value (a revoked token grants nothing, and the set must not grow for the whole process). */
+export function forgetInjectedSecretValue(value: string): void {
+  registeredSecretValues.delete(value);
+}
+
+/** `snapshot` plus the values registered since it was taken. */
+export function withRegisteredSecretValues(snapshot: readonly string[]): string[] {
+  return [...new Set([...snapshot, ...[...registeredSecretValues].filter(isPlausibleInjectedSecret)])];
 }
 
 /** Register a run's extra credential env var names (see registeredSecretEnvVars). Called from selectAgents. */

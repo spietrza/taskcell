@@ -1,6 +1,10 @@
 import { generateKeyPairSync } from 'node:crypto';
 import { describe, it, expect } from 'vitest';
-import { pushToken, repoSlugOf, signAppJwt, tokenProviderFor } from './push-token.js';
+import { mkdtemp, rm } from 'node:fs/promises';
+import { tmpdir } from 'node:os';
+import { join } from 'node:path';
+import { execa } from 'execa';
+import { credentialLabel, pushToken, releaseToken, repoSlugOf, signAppJwt, tokenProviderFor } from './push-token.js';
 import { selectAgents } from '../agents/registry.js';
 import { injectedSecretValues, redactInjectedSecrets } from './secret-scan.js';
 
@@ -32,13 +36,13 @@ describe('pushToken', () => {
     ]);
   });
 
-  it('signs an RS256 JWT with iss, iat = now - 60 and exp within 10 minutes', () => {
+  it('signs an RS256 JWT with iss, iat = now - 60 and exp 9 minutes after iat', () => {
     const now = 1_700_000_000_000;
     const [h, p] = signAppJwt('Iv1.abc', privateKey, now).split('.').slice(0, 2).map((x) => JSON.parse(Buffer.from(x!, 'base64url').toString()));
     expect(h.alg).toBe('RS256');
     expect(p.iss).toBe('Iv1.abc');
     expect(p.iat).toBe(now / 1000 - 60);
-    expect(p.exp - now / 1000).toBeLessThanOrEqual(600);
+    expect(p.exp).toBe(p.iat + 540);
   });
 
   it('falls back to VANGUARD_PUSH_TOKEN, then undefined', async () => {
@@ -76,7 +80,7 @@ describe('pushToken', () => {
     expect(Object.values(selected.proxySecrets)).not.toContain(privateKey);
   });
 
-  it('scopes the installation token to the repo and the three permissions', async () => {
+  it('scopes the installation token to the repo and the permissions it is used for', async () => {
     const bodies: string[] = [];
     const f = (async (url: string, init?: RequestInit) => {
       if (String(url).endsWith('/installation')) return new Response(JSON.stringify({ id: 1 }), { status: 200 });
@@ -84,7 +88,47 @@ describe('pushToken', () => {
       return new Response(JSON.stringify({ token: 'ghs_scoped_Zx9Qw8Er7Ty6Ui5Op4' }), { status: 201 });
     }) as typeof fetch;
     await pushToken('o/r', { env, fetch: f });
-    expect(JSON.parse(bodies[0] ?? '{}')).toEqual({ repositories: ['r'], permissions: { contents: 'write', issues: 'write', pull_requests: 'write' } });
+    expect(JSON.parse(bodies[0] ?? '{}')).toEqual({ repositories: ['r'], permissions: { contents: 'write', pull_requests: 'write' } });
+  });
+
+  it('a failed mint is retried once, then falls back to VANGUARD_PUSH_TOKEN with a warning', async () => {
+    const calls: string[] = [];
+    const warnings: string[] = [];
+    const f = (async (url: string) => { calls.push(String(url)); return new Response('{"message":"boom"}', { status: 500 }); }) as typeof fetch;
+    expect(await pushToken('o/r', { env: { ...env, VANGUARD_PUSH_TOKEN: 'pat' }, fetch: f, warn: (m) => warnings.push(m) })).toBe('pat');
+    expect(calls).toHaveLength(2);
+    expect(warnings[0]).toMatch(/boom.*VANGUARD_PUSH_TOKEN/);
+  });
+
+  it('rejects a malformed repo slug before calling the API', async () => {
+    const calls: string[] = [];
+    for (const slug of ['o', 'o/r?x=1', 'o/..', 'o/r#x']) {
+      await expect(pushToken(slug, { env, fetch: fakeFetch(calls) })).rejects.toThrow(/valid owner\/repo/);
+    }
+    expect(calls).toEqual([]);
+  });
+
+  it('reports 403 as a refusal and includes GitHub\'s message', async () => {
+    const err = await pushToken('o/r', { env, fetch: (async () => new Response('{"message":"API rate limit exceeded"}', { status: 403 })) as typeof fetch }).catch((e: Error) => e);
+    expect((err as Error).message).toContain('HTTP 403');
+    expect((err as Error).message).toContain('API rate limit exceeded');
+    expect((err as Error).message).not.toContain('rejected the App credentials');
+  });
+
+  it('releaseToken revokes a minted token and drops it from redaction; a PAT is left alone', async () => {
+    const calls: string[] = [];
+    const base = fakeFetch(calls);
+    const f = (async (url: string, init?: RequestInit) => (init?.method === 'DELETE' ? (calls.push(`DELETE ${url}`), new Response(null, { status: 204 })) : base(url, init))) as typeof fetch;
+    const token = await pushToken('o/r', { env, fetch: f });
+    expect(credentialLabel(token, {})).toBe(' (taskcell App token)');
+    expect(injectedSecretValues({})).toContain(token);
+    await releaseToken(token);
+    expect(calls.at(-1)).toBe('DELETE https://api.github.com/installation/token');
+    expect(injectedSecretValues({})).not.toContain(token);
+    expect(credentialLabel(token, {})).toBe('');
+    await releaseToken('pat');
+    expect(calls.filter((c) => c.startsWith('DELETE'))).toHaveLength(1);
+    expect(credentialLabel('pat', { VANGUARD_PUSH_TOKEN: 'pat' })).toBe(' (VANGUARD_PUSH_TOKEN)');
   });
 
   it('wraps network errors and null bodies, and reports 401 as a credential problem', async () => {
@@ -113,7 +157,18 @@ describe('pushToken', () => {
     expect(await tokenProviderFor('/nonexistent', undefined, { env: { VANGUARD_PUSH_TOKEN: 'pat' } })()).toBe('pat');
   });
 
-  it('repoSlugOf prefers GITHUB_REPOSITORY and parses origin URLs', async () => {
+  it('repoSlugOf parses the origin URL first, then falls back to GITHUB_REPOSITORY', async () => {
+    const dir = await mkdtemp(join(tmpdir(), 'slug-'));
+    try {
+      await execa('git', ['init', '-q'], { cwd: dir });
+      for (const url of ['https://github.com/own/rep.git', 'git@github.com:own/rep.git', 'https://github.com/own/rep']) {
+        await execa('git', ['remote', 'remove', 'origin'], { cwd: dir, reject: false });
+        await execa('git', ['remote', 'add', 'origin', url], { cwd: dir });
+        expect(await repoSlugOf(dir, { GITHUB_REPOSITORY: 'a/b' })).toBe('own/rep');
+      }
+    } finally {
+      await rm(dir, { recursive: true, force: true });
+    }
     expect(await repoSlugOf('/x', { GITHUB_REPOSITORY: 'a/b' })).toBe('a/b');
     expect(await repoSlugOf('/definitely/not/a/repo', {})).toBeUndefined();
   });

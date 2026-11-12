@@ -13,7 +13,7 @@ import type { RunResult } from './types.js';
 import { stageMetric } from './run-metric.js';
 import { exportRunTrace } from './otlp-sink.js';
 import { assertStatePath, ensureStateDir, isSafeTaskId, stateDir } from './state-path.js';
-import { injectedSecretValues, redactForPublish, scanForInjectedSecrets, scanForSecrets } from './secret-scan.js';
+import { injectedSecretValues, redactForPublish, scanForInjectedSecrets, scanForSecrets, withRegisteredSecretValues } from './secret-scan.js';
 import { redactVerificationOutput } from '../pipeline/verify.js';
 import type { VerificationResult } from '../pipeline/verify.js';
 import type { VisualProofResult } from '../pipeline/visual-proof.js';
@@ -491,13 +491,15 @@ export function beginRun(
   runOpts: BeginRunOptions = {},
 ): RunWriter {
   const root = runsRoot(repoPath);
-  const secretValues = injectedSecretValues(process.env, runOpts.secretEnvVars ?? []);
+  const envSecretValues = injectedSecretValues(process.env, runOpts.secretEnvVars ?? []);
+  // Plus values registered after this snapshot (an App token minted mid-run), merged at each write.
+  const secretValues = (): string[] => withRegisteredSecretValues(envSecretValues);
 
   return {
     async writeStages(outcomes, opts = {}): Promise<void> {
       for (const outcome of outcomes) {
         await writeRecord(repoPath, taskId, timestamp, outcome.result, {
-          secretValues,
+          secretValues: secretValues(),
           label: outcome.name,
           ...(opts.prUrl !== undefined ? { prUrl: opts.prUrl } : {}),
           ...(outcome.model !== undefined ? { requestedModel: outcome.model } : {}),
@@ -522,7 +524,7 @@ export function beginRun(
       const file = `${base}.proof.json`;
       await assertStatePath(repoPath, file);
       // outputTail and firstErrorLines are verbatim command output: masked like every other free text in the record.
-      await writeFile(file, `${JSON.stringify(redactVerificationOutput(result, secretValues), null, 2)}\n`);
+      await writeFile(file, `${JSON.stringify(redactVerificationOutput(result, secretValues()), null, 2)}\n`);
 
       // A base-red proof is the base commit's verdict, not a verification of this run's work.
       const metric = { evt: opts.baseRed === true ? 'base_red' : 'verify', ts: timestamp, taskId, passed: result.passed, exitCode: result.exitCode, sha256: result.sha256 };
@@ -538,7 +540,7 @@ export function beginRun(
       // Masked like proof.json (sha256 is over the full output there). On the did-not-run path
       // (exitCode -1) visual-proof.ts hashes `outputTail` itself, so the hash is recomputed over the
       // masked text to keep the stored proof verifiable.
-      const outputTail = redactForPublish(result.outputTail, secretValues);
+      const outputTail = redactForPublish(result.outputTail, secretValues());
       const stored = {
         ...result,
         outputTail,

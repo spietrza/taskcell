@@ -1,5 +1,6 @@
 import { execa } from 'execa';
 import { redactTokens } from '../core/secret-scan.js';
+import { releaseToken } from '../core/push-token.js';
 import { assertSafeBaseBranch } from '../core/base-branch.js';
 import { neutralizeQuickActions } from '../tasks/gitlab.js';
 import type { RunContext } from '../core/taskcell.js';
@@ -131,7 +132,11 @@ export async function pushToExistingBranch(ctx: RunContext, opts: PushToExisting
   // Fully qualified destination: an unqualified one could resolve to a same-named tag on the remote.
   const args = ['push', '--no-verify', opts.remote ?? 'origin', `HEAD:refs/heads/${opts.prHeadRef}`];
   const pushToken = await resolveToken(opts.tokenProvider, opts.pushToken, (m) => ctx.log.warn({ branch: ctx.branch }, m));
-  await gitPush(run, args, ctx.worktreePath, pushToken, opts.host);
+  try {
+    await gitPush(run, args, ctx.worktreePath, pushToken, opts.host);
+  } finally {
+    await releaseToken(pushToken);
+  }
 }
 
 const DROPPED_CI_LISTED = 20;
@@ -235,6 +240,9 @@ async function openReview(run: CommandRunner, tool: string, args: string[], ctx:
   } catch (cause) {
     ctx.log.warn({ branch: ctx.branch }, `publish: opening the PR with the push token failed, using the ambient credential (the PR gets no CI until a push): ${errorMessage(cause)}`);
     return run(tool, args, ctx.worktreePath);
+  } finally {
+    // A minted App token is revoked right after its one use; a PAT is left alone.
+    await releaseToken(prToken);
   }
 }
 

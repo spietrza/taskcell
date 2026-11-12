@@ -7,6 +7,7 @@ import {
   redactInjectedSecrets,
   scanForInjectedSecrets,
   scanForSecrets,
+  withRegisteredSecretValues,
 } from '../core/secret-scan.js';
 import { scanCommitClosingKeywords } from '../pipeline/conformance-gate.js';
 import type { SecretBlock } from '../core/secret-scan.js';
@@ -158,7 +159,7 @@ export async function deliverChange(ctx: RunContext, opts: DeliverChangeOptions)
   // diff to gate: redact in place, and log that it happened as a count only — never the value.
   const secretValues = injectedSecretValues(process.env, secretEnvVars);
   const redact = (text: string, field: 'commit message' | 'PR title' | 'PR body'): string => {
-    const redacted = redactInjectedSecrets(text, secretValues);
+    const redacted = redactInjectedSecrets(text, withRegisteredSecretValues(secretValues));
     const count = redacted.split(INJECTED_REDACTION).length - text.split(INJECTED_REDACTION).length;
     if (count > 0) {
       console.error(`taskcell: redacted ${count} injected credential occurrence(s) from the ${field} for ${opts.taskId} (values withheld)`);
