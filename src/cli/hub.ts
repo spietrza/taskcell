@@ -8,6 +8,7 @@ import { createHubServer, splitHostPort } from '../hub/server.js';
 import { injectHubMarker } from '../hub/static.js';
 import { assertGitWorkTreeDir } from '../hub/allowlist.js';
 import { HUB_TOKEN_FRAGMENT_PARAM } from '../hub-wire.js';
+import { createHubIdentity, localOnlyIdentity, parsePublicUrl, parseSignupAllowlist, providersFromEnv } from '../hub/auth.js';
 import { ensureTeams } from '../hub/teams.js';
 import { loadPaths, add as addProject } from '../hub/projects.js';
 import { loadOrCreateToken, rotateToken } from '../hub/token-file.js';
@@ -76,12 +77,12 @@ export function hubLaunchUrl(origin: string, token: string): string {
   return `${origin}/#${HUB_TOKEN_FRAGMENT_PARAM}=${encodeURIComponent(token)}`;
 }
 
-const NO_AUTH_WARNING = [
-  'WARNING: Vanguard Hub is bound to a non-loopback address with no authentication.',
-  'Anyone who can reach this host and port can read and change every allowed project.',
-  'Put it behind Tailscale or an authenticating reverse proxy — never expose it directly on a',
-  'public port. See docs/hub.md.',
-].join('\n');
+const NO_PROVIDER_WARNING =
+  'WARNING: no sign-in provider is configured (VANGUARD_HUB_AUTH_<GITHUB|GITLAB|GOOGLE>_CLIENT_ID/_CLIENT_SECRET): only the hub token works. See docs/hub.md "Server mode sign-in".';
+const NO_PUBLIC_URL_WARNING =
+  'WARNING: VANGUARD_HUB_PUBLIC_URL is not set: OAuth callbacks will use the bind address, which a provider cannot redirect to. Set it to the URL users open (https://hub.example.com).';
+const NO_ALLOWLIST_WARNING =
+  'WARNING: VANGUARD_HUB_SIGNUP_ALLOW is empty: nobody can create an account. See docs/hub.md "Server mode sign-in".';
 
 /** `hub rotate-token`: writes a new token; a running hub uses it after its next restart. */
 export async function hubRotateTokenCommand(command: Extract<Command, { kind: 'hub-rotate-token' }>): Promise<void> {
@@ -101,10 +102,15 @@ export async function hubCommand(command: Extract<Command, { kind: 'hub' }>): Pr
     ...parseHostList(process.env.VANGUARD_HUB_ADMIN_GITHUB_LOGINS),
   ];
 
-  const uiDir = resolve(command.uiDir ?? process.env.VANGUARD_HUB_UI_DIR ?? join(pkgRoot(), 'apps/desktop/dist'));
   const isLoopback = LOOPBACK_HOSTS.includes(command.host);
-  // The desktop app's own local hub (apps/desktop/src-tauri) sets this; only ever on a loopback bind.
-  const fleet = process.env.VANGUARD_HUB_ALLOW_FLEET === '1' && isLoopback;
+  // Server mode = sign-in required: any non-loopback bind, or a loopback bind behind a same-host
+  // reverse proxy that sets VANGUARD_HUB_SERVER_MODE=1. Only a plain loopback bind is local mode.
+  const serverMode = !isLoopback || process.env.VANGUARD_HUB_SERVER_MODE === '1';
+
+  const uiDir = resolve(command.uiDir ?? process.env.VANGUARD_HUB_UI_DIR ?? join(pkgRoot(), 'apps/desktop/dist'));
+  // The desktop app's own local hub (apps/desktop/src-tauri) sets this; honoured in local mode only
+  // (a server-mode hub, reachable by others, must never run arbitrary programs).
+  const fleet = process.env.VANGUARD_HUB_ALLOW_FLEET === '1' && !serverMode;
   await assertUiDirBuilt(uiDir, fleet);
 
   const configDir =
@@ -133,7 +139,21 @@ export async function hubCommand(command: Extract<Command, { kind: 'hub' }>): Pr
   // After the startup checks above, so a failed first launch leaves no file behind.
   const token = command.tokenFile !== undefined ? await loadOrCreateToken(command.tokenFile) : undefined;
 
+  // Sign-in (server mode); local mode is the automatic owner with no database and no OAuth.
+  const hostForUrl = command.host.includes(':') ? `[${command.host}]` : command.host;
+  const signupEntries = parseHostList(process.env.VANGUARD_HUB_SIGNUP_ALLOW);
+  const publicUrl = process.env.VANGUARD_HUB_PUBLIC_URL?.trim() || undefined;
+  const identity = serverMode
+    ? await createHubIdentity({
+        configDir,
+        baseURL: publicUrl !== undefined ? parsePublicUrl(publicUrl) : `http://${hostForUrl}:${command.port}`,
+        providers: providersFromEnv(process.env),
+        allowlist: parseSignupAllowlist(signupEntries),
+      })
+    : localOnlyIdentity();
+
   const hub = createHubServer({
+    identity,
     uiDir,
     allowedHosts,
     adminGithubLogins,
@@ -142,7 +162,7 @@ export async function hubCommand(command: Extract<Command, { kind: 'hub' }>): Pr
     browseRoot: process.env.VANGUARD_HUB_BROWSE_ROOT ?? homedir(),
     ...(process.env.VANGUARD_HUB_CLONE_HOSTS ? { cloneHosts: parseHostList(process.env.VANGUARD_HUB_CLONE_HOSTS) } : {}),
     bind: {
-      isLoopback,
+      isLoopback: !serverMode,
       allowAdd: process.env.VANGUARD_HUB_ALLOW_ADD === '1',
     },
     ...(seededRepoPath !== undefined ? { seedRepoPath: seededRepoPath } : {}),
@@ -191,8 +211,9 @@ export async function hubCommand(command: Extract<Command, { kind: 'hub' }>): Pr
     allowedHosts.push(`${command.host}:${boundPort}`);
   }
 
-  const hostForUrl = command.host.includes(':') ? `[${command.host}]` : command.host;
-  const url = hubLaunchUrl(`http://${hostForUrl}:${boundPort}`, hub.token);
+  // Server mode requires sign-in for pages, so the token-carrying launch URL would only redirect.
+  const origin = `http://${hostForUrl}:${boundPort}`;
+  const url = serverMode ? origin : hubLaunchUrl(origin, hub.token);
   console.log(`Vanguard Hub → ${url}`);
 
   const projects = await loadPaths(configDir);
@@ -203,8 +224,10 @@ export async function hubCommand(command: Extract<Command, { kind: 'hub' }>): Pr
     console.log('Projects: (none yet — add one with add_project, or pass --repo)');
   }
 
-  if (!isLoopback) {
-    console.error(NO_AUTH_WARNING);
+  if (serverMode) {
+    if (identity.providers.length === 0) console.error(NO_PROVIDER_WARNING);
+    else if (publicUrl === undefined) console.error(NO_PUBLIC_URL_WARNING);
+    if (signupEntries.length === 0) console.error(NO_ALLOWLIST_WARNING);
   }
 
   if (command.open) {

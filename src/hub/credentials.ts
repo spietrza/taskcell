@@ -1,6 +1,6 @@
 // Per-user provider credentials (server mode, #472). An encrypted file store (AES-256-GCM, key kept
 // 0600 beside it in the hub config dir) holding named provider env credentials per scope — the
-// `instance` scope or one `user:<GitHub user id>` — and the admin switch that decides which scope a
+// `instance` scope or one `user:<hub user id>` — and the admin switch that decides which scope a
 // run draws on. Values are write-only: nothing here, and no RPC built on it, ever returns one except
 // to the run that uses it (`RunCredential.env`, never persisted).
 import { createCipheriv, createDecipheriv, randomBytes } from 'node:crypto';
@@ -8,13 +8,9 @@ import { chmod, mkdir, readFile, rename, writeFile } from 'node:fs/promises';
 import { join } from 'node:path';
 import { BadRequestError } from '../sidecar/sidecar.js';
 import type { RunCredential } from '../wire.js';
+import type { HubUser } from './auth.js';
 
-/** The signed-in person behind a request (supplied by the hub's GitHub sign-in). */
-export interface HubUser {
-  /** Stable GitHub user id — the credential key (a login can be renamed and re-registered). */
-  id: string;
-  login: string;
-}
+export type { HubUser };
 
 export const CREDENTIAL_POLICIES = ['off', 'user-first', 'user-only'] as const;
 export type CredentialPolicy = (typeof CREDENTIAL_POLICIES)[number];
@@ -150,7 +146,11 @@ export function createCredentialService(configDir: string, adminLogins: readonly
   const policyFile = join(configDir, 'credential-policy.json');
   const service: CredentialService = {
     store,
-    isAdmin: (user) => user !== undefined && admins.has(user.login.toLowerCase()),
+    // A GitHub sign-in carries `login: 'github:<login>'`; GitLab, Google and the token owner never match.
+    isAdmin: (user) => {
+      const login = user?.login?.toLowerCase();
+      return login?.startsWith('github:') === true && admins.has(login.slice('github:'.length));
+    },
     assertAdmin(user) {
       if (!service.isAdmin(user)) throw new ForbiddenError('admin only — your GitHub login is not in --admin-github-login');
     },

@@ -5,6 +5,7 @@ import { join } from 'node:path';
 import { execa } from 'execa';
 import { afterEach, beforeEach, describe, expect, test, vi } from 'vitest';
 import { createHubServer, type HubServer } from './server.js';
+import { localOnlyIdentity } from './auth.js';
 import { HUB_TOKEN_HEADER } from '../hub-wire.js';
 import type { SidecarDeps } from '../sidecar/sidecar.js';
 import type { RunCredential } from '../wire.js';
@@ -58,11 +59,17 @@ beforeEach(async () => {
     seedRepoPath: repo,
     deps: deps(),
     adminGithubLogins: ['Root'],
-    identify: (req) => {
-      const raw = req.headers['x-test-user'];
-      if (typeof raw !== 'string') return undefined;
-      const [id, login] = raw.split(':');
-      return { id: id!, login: login! };
+    identity: {
+      ...localOnlyIdentity(),
+      // Stands in for the Better Auth session: `id:login` signs in as GitHub `login`, `id:gitlab:login`
+      // as a GitLab user. Token requests (no header) are the owner.
+      sessionUser: async (req) => {
+        const raw = req.headers['x-test-user'];
+        if (typeof raw !== 'string') return undefined;
+        const [id, ...rest] = raw.split(':');
+        const login = rest.length > 1 ? rest.join(':') : `github:${rest[0]}`;
+        return { id: id!, email: `${id}@example.com`, name: id!, login };
+      },
     },
   });
   await hub.listen(0, '127.0.0.1');
@@ -80,6 +87,10 @@ let repoPath: string;
 const alice = '1:alice';
 const bob = '2:bob';
 const root = '99:root';
+/** The hub token: the owner user (no GitHub login, so never an admin). */
+const OWNER = undefined;
+/** No token and no session. */
+const ANON = 'anon';
 
 async function rpc(as: string | undefined, cmd: string, args: unknown = {}): Promise<{ status: number; body: { error: { message: string }; result: any } }> {
   const res = await fetch(`${baseUrl}/rpc/${cmd}`, {
@@ -87,8 +98,7 @@ async function rpc(as: string | undefined, cmd: string, args: unknown = {}): Pro
     headers: {
       'content-type': 'application/json',
       origin: baseUrl,
-      [HUB_TOKEN_HEADER]: hub.token,
-      ...(as !== undefined ? { 'x-test-user': as } : {}),
+      ...(as === undefined ? { [HUB_TOKEN_HEADER]: hub.token } : as === ANON ? {} : { 'x-test-user': as }),
     },
     body: JSON.stringify(args),
   });
@@ -107,9 +117,11 @@ describe('admin gating', () => {
     ['delete_instance_credential', { name: 'ANTHROPIC_API_KEY' }],
   ];
 
-  test.each(adminCalls)('%s is 403 for a non-admin and for nobody', async (cmd, args) => {
+  test.each(adminCalls)('%s is 403 for a non-admin, a GitLab namesake and the token owner; 401 signed out', async (cmd, args) => {
     expect((await rpc(alice, cmd, args)).status).toBe(403);
-    expect((await rpc(undefined, cmd, args)).status).toBe(403);
+    expect((await rpc('98:gitlab:root', cmd, args)).status).toBe(403);
+    expect((await rpc(OWNER, cmd, args)).status).toBe(403);
+    expect((await rpc(ANON, cmd, args)).status).toBe(401);
     expect((await rpc(root, cmd, args)).status).toBe(200);
   });
 
@@ -203,10 +215,11 @@ describe('user isolation', () => {
     expect(createRun).not.toHaveBeenCalled();
   });
 
-  test('nobody signed in cannot save, delete or run under user only', async () => {
-    expect((await rpc(undefined, 'save_user_credential', { name: 'ANTHROPIC_API_KEY', value: 'x' })).status).toBe(400);
-    expect((await rpc(undefined, 'delete_user_credential', { name: 'ANTHROPIC_API_KEY' })).status).toBe(400);
-    expect((await run(undefined)).status).toBe(400);
+  test('nobody signed in cannot save, delete or run', async () => {
+    expect((await rpc(ANON, 'save_user_credential', { name: 'ANTHROPIC_API_KEY', value: 'x' })).status).toBe(401);
+    expect((await rpc(ANON, 'delete_user_credential', { name: 'ANTHROPIC_API_KEY' })).status).toBe(401);
+    expect((await run(ANON)).status).toBe(401);
+    expect(createRun).not.toHaveBeenCalled();
   });
 
   test('values are encrypted at rest', async () => {

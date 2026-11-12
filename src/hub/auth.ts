@@ -15,6 +15,9 @@ export interface HubUser {
   id: string;
   email: string;
   name: string;
+  /** `github:<login>` / `gitlab:<username>` captured at sign-up (absent for the owner and Google): per-user
+   * credential admins (`--admin-github-login`) match on it. */
+  login?: string;
 }
 
 export type AuthProviderId = 'github' | 'gitlab' | 'google';
@@ -157,7 +160,7 @@ export async function createHubIdentity(opts: CreateIdentityOptions): Promise<Hu
     database: db,
     socialProviders,
     // `input` must stay true: Better Auth drops input:false keys of a provider profile before the
-    // create hook sees them. The field is only ever read by that hook, at account creation.
+    // create hook sees them. Read by that hook (sign-up allowlist) and by sessionUser (`HubUser.login`).
     user: { additionalFields: { providerLogin: { type: 'string', required: false } } },
     // Sign-up is closed: an OAuth profile creates an account only when the allowlist names it.
     // Returning false (not throwing) makes the callback redirect to the error URL below with
@@ -175,6 +178,9 @@ export async function createHubIdentity(opts: CreateIdentityOptions): Promise<Hu
       },
     },
     onAPIError: { errorURL: '/sign-in' },
+    // `providerLogin` is an input field, so `/update-user` would let a signed-in user rewrite it to
+    // `github:<an admin>` and pass the credential admin check. The hub never edits a profile.
+    disabledPaths: ['/update-user'],
   };
 
   await (await getMigrations(options)).runMigrations();
@@ -210,7 +216,8 @@ export async function createHubIdentity(opts: CreateIdentityOptions): Promise<Hu
       }
       if (session === null) return undefined;
       const { id, email, name } = session.user;
-      return { id, email, name };
+      const login = (session.user as { providerLogin?: unknown }).providerLogin;
+      return { id, email, name, ...(typeof login === 'string' && login !== '' ? { login } : {}) };
     },
     close: () => db.close(),
   };
