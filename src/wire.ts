@@ -526,7 +526,7 @@ export interface NeedsYouItem {
   lastComment?: { author: string; body: string };
 }
 
-/** A Fleet-screen spawned process (TAURI_ONLY — Fleet is disabled in hub mode). */
+/** A Fleet-screen spawned process (Fleet is enabled only on the desktop app's local hub). */
 export interface SpawnInfo {
   pid: number;
   cwd: string;
@@ -683,13 +683,14 @@ export interface Commands {
   merge_needs_you: { args: { repoPath: string; id: string }; result: void };
   /** HUB_ONLY: apply a trigger label to a GitHub issue of the project (src/hub/start-task.ts). */
   start_task: { args: { repoPath: string; number: number; label: string }; result: StartTaskResult };
-  /** TAURI_ONLY: the Fleet screen's shell-spawn surface — disabled in hub mode (remote code
-   * execution on a reachable server). `argv[0]` is the program, run WITHOUT a shell: values built
-   * from repo config travel as single arguments and can never introduce shell syntax. */
+  /** The Fleet screen's shell-spawn surface — enabled only on the desktop app's local (loopback) hub,
+   * refused elsewhere (remote code execution on a reachable server). `argv[0]` is the program, run
+   * WITHOUT a shell: values built from repo config travel as single arguments and can never
+   * introduce shell syntax. */
   spawn_run: { args: { cwd: string; argv: string[] }; result: number };
-  /** TAURI_ONLY (see spawn_run). */
+  /** See spawn_run. */
   kill_run: { args: { pid: number }; result: void };
-  /** TAURI_ONLY (see spawn_run). */
+  /** See spawn_run. */
   list_spawns: { args: undefined; result: SpawnInfo[] };
   /** HUB_ONLY: read the repo (default branch, package manager, verify command) and report what
    *  `enable_factory_apply` would change — no writes yet. GitHub only; `provider` is accepted for
@@ -707,38 +708,7 @@ export interface Commands {
   agent_cli_versions: { args: undefined; result: CliVersionReport };
 }
 
-/** Commands the hub does not implement for real: absent from `src/hub/rpc.ts`'s dispatch cases (the
- * Fleet shell-spawn surface is rejected generically instead of dispatched). */
-export const TAURI_ONLY = ['spawn_run', 'kill_run', 'list_spawns'] as const satisfies readonly (keyof Commands)[];
-
-/** Commands with no `#[tauri::command]` in `src-tauri/src/lib.rs` — browser-only stand-ins for
- * native capability the webview doesn't need (no folder-picker dialog), plus the enable-factory
- * seam (shells out to `gh`/`git`, which only the hub's Node process does today), plus
- * `agent_cli_versions` (probes the sandbox image through `docker`, likewise), plus `api_queue`:
- * Tauri stays strictly single-in-flight (no queue to read) so it has nothing to implement either,
- * plus `list_teams`/`get_team` (hub teams are stored in the hub's config dir; the desktop has none). */
-export const HUB_ONLY = [
-  'read_run_events',
-  'list_teams',
-  'get_team',
-  'browse_dirs',
-  'clone_project',
-  'enable_factory_plan',
-  'enable_factory_apply',
-  'enable_factory_secret',
-  'enable_factory_verify',
-  'agent_cli_versions',
-  'list_needs_you',
-  'list_needs_you_all',
-  'list_tasks_all',
-  'list_runs_all',
-  'reply_needs_you',
-  'merge_needs_you',
-  'start_task',
-  'api_queue',
-] as const satisfies readonly (keyof Commands)[];
-
-/** Every command name, for the lib.rs parity test and friends. TYPE-CHECKED (not just asserted)
+/** Every command name, for the hub dispatch parity test and friends. TYPE-CHECKED (not just asserted)
  * against `Commands`: the `satisfies` below rejects a typo or a name not in `Commands`, and
  * `_Exhaustive` rejects a missing one — adding a command to `Commands` without adding it here is a
  * compile error. */
