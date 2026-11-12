@@ -288,9 +288,12 @@ export async function dispatchRpc(ctx: RpcContext, cmd: string, rawArgs: unknown
       const real = await ctx.allowlist.assertAllowed(requireString(args, 'repoPath'));
       const config = args.config;
       if (typeof config !== 'object' || config === null) throw new BadRequestError('config is required');
-      // A repository default that git would misread is refused before it is saved, not at the next run.
-      const { baseBranch } = config as AppConfig;
-      if (typeof baseBranch === 'string' && baseBranch.trim() !== '') assertSafeBaseBranch(baseBranch.trim());
+      // A repository default or label-allowlist entry that git would misread is refused before it is saved,
+      // not at the next run (one unsafe allowlist entry would refuse every labelled run and list_branches).
+      const { baseBranch, baseBranches } = config as AppConfig;
+      for (const b of [baseBranch, ...(Array.isArray(baseBranches) ? baseBranches : [])]) {
+        if (typeof b === 'string' && b.trim() !== '') assertSafeBaseBranch(b.trim());
+      }
       await writeAppConfig(real, config as AppConfig);
       return null;
     }

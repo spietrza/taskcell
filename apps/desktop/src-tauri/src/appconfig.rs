@@ -31,7 +31,9 @@ pub struct AppConfig {
     /// Repository default target branch for pull requests; unset = `main`.
     pub base_branch: Option<String>,
     /// Extra branches a card's `vanguard:base=` label may select besides `base_branch`; unset = none.
-    pub base_branches: Option<Vec<String>>,
+    /// A raw `Value` for the same reason as `custom_providers`: one hand-edited non-string entry must
+    /// not collapse the whole config. The core reader (src/core/base-branch.ts) validates entries.
+    pub base_branches: Option<serde_json::Value>,
     /// Custom providers (Subsystem 6). Deliberately a raw `Value`, NOT a typed Vec: Rust is a dumb
     /// pipe here — a typed struct would silently strip unknown entry keys on every Settings save
     /// and collapse the whole config to `Default` on one type-mismatched entry. The core loader

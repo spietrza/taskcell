@@ -372,6 +372,14 @@ describe('dispatchRpc', () => {
       expect(await dispatchRpc(ctx, 'read_app_config', { repoPath: repo })).toMatchObject({ baseBranch: 'dev' });
     });
 
+    test('write_app_config refuses an unsafe baseBranches entry', async () => {
+      const repo = await tmpRepo();
+      const { ctx } = await makeCtx(repo);
+      await expect(dispatchRpc(ctx, 'write_app_config', { repoPath: repo, config: { baseBranches: ['uat', '-x'] } })).rejects.toThrow(/Invalid base branch/);
+      await dispatchRpc(ctx, 'write_app_config', { repoPath: repo, config: { baseBranches: ['uat'] } });
+      expect(await dispatchRpc(ctx, 'read_app_config', { repoPath: repo })).toMatchObject({ baseBranches: ['uat'] });
+    });
+
     test('list_branches offers only the allowlisted targets plus the configured default', async () => {
       const repo = await tmpRepo();
       const { ctx } = await makeCtx(repo);

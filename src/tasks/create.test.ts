@@ -44,6 +44,14 @@ describe('createGithubIssue target-branch label', () => {
     expect(calls[0]).toEqual(['label', 'create', 'vanguard:base=dev', '--force']);
     expect(calls[1]).toContain('vanguard:base=dev');
   });
+
+  it('still files the issue when the label cannot be created (already exists, or no label permission)', async () => {
+    const created = await createGithubIssue('/repo', { title: 't', body: 'b', labels: ['vanguard:base=dev'] }, async (_bin, args) => {
+      if (args[0] === 'label') throw new Error('HTTP 403');
+      return 'https://github.com/o/r/issues/1\n';
+    });
+    expect(created.id).toBe('o/r#1');
+  });
 });
 
 describe('createGitlabIssue', () => {
