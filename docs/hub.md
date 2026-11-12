@@ -262,6 +262,8 @@ configurable here: a repo that runs the factory with a custom `--needs-info-labe
 Replies are a remote mutation, gated like `clone_project`: loopback only, unless
 `VANGUARD_HUB_ALLOW_ADD=1`.
 
+`start_task` labels an issue to start the factory on it; see [Starting the factory from the hub](cli.md#starting-the-factory-from-the-hub).
+
 ## Enable factory
 
 **Enable factory** on a project card (hub only) turns on the GitHub Actions factory for that repo in
@@ -338,7 +340,7 @@ taskcell hub [--repo <path>] [--host <addr>] [--port <n>] [--ui-dir <dir>] [--no
 A missing or unbuilt `--ui-dir` fails at startup, naming `pnpm --dir apps/desktop build`
 (run `pnpm build:ui`) rather than failing on the first request. Binding a non-loopback host
 prints the no-auth warning above and disables `add_project`/`browse_dirs`/`clone_project`,
-`enable_factory_apply`/`enable_factory_verify` and `reply_needs_you` unless
+`enable_factory_apply`/`enable_factory_verify`, `reply_needs_you` and `start_task` unless
 `VANGUARD_HUB_ALLOW_ADD=1`. `SIGINT`/`SIGTERM` close the listener, every connected SSE client,
 and the project file watchers.
 
