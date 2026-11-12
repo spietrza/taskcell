@@ -15,6 +15,12 @@ export interface TaskComment {
   authorAssociation?: string;
 }
 
+/** A reference to another issue/PR, always with its repo (a bare `#N` resolves to the task's own repo). */
+export interface TaskRef {
+  repo: string;
+  number: number;
+}
+
 export interface Task {
   id: string;
   title: string;
@@ -28,6 +34,8 @@ export interface Task {
   state?: string;
   /** Issue/PR author login (GitHub `author.login`, GitLab `author.username`). Absent ⇒ no issue-author trust. */
   author?: string;
+  /** Issues/PRs that must be done first (GitHub: native blocked-by plus `Depends on` body lines). Absent or empty ⇒ none. */
+  dependsOn?: TaskRef[];
 }
 
 export interface TaskFilter {

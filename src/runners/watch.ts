@@ -7,6 +7,7 @@ import { runGithubIssue } from './github.js';
 import { runGitlabIssue } from './gitlab.js';
 import { runSpecGenerator } from './spec.js';
 import { assessTaskReadiness, isTaskcellSpec, SPEC_TAG } from '../tasks/triage.js';
+import { applyDependencyGate } from '../tasks/dependencies.js';
 import { fanOut } from '../pipeline/fan-out.js';
 import { failureReason, formatFailureComment } from '../core/errors.js';
 import { isRateLimitHold, rateLimitHold } from '../core/rate-limit-marker.js';
@@ -786,7 +787,13 @@ export function githubIssueWatchPrimitives(opts: WatchGithubOptions): WatchPrimi
         opts.issueRef !== undefined
           ? await fetchHintedIssue(fetcher, opts.issueRef, agentLabels, opts.claimedLabel)
           : await fetcher.list({ labels: agentLabels });
-      const tasks = await withTrustedIssueAuthors(repo, listed, opts.deps.feedbackAuthors, opts.gh);
+      const trusted = await withTrustedIssueAuthors(repo, listed, opts.deps.feedbackAuthors, opts.gh);
+      const tasks = await applyDependencyGate(trusted, {
+        repo,
+        trigger: opts.label,
+        ...(needsInfoLabel !== undefined ? { needsInfoLabel } : {}),
+        ...(opts.gh !== undefined ? { gh: opts.gh } : {}),
+      });
       heldBefore.clear();
       for (const task of tasks) if (task.labels.includes(GITHUB_SECRET_BLOCKED_LABEL)) heldBefore.add(task.id);
       rateLimitedBefore.clear();

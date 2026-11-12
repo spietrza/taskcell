@@ -1,7 +1,8 @@
 import { failureReason } from '../core/errors.js';
 import { latestRateLimitedMarker } from '../core/rate-limit-marker.js';
-import { GITHUB_RATE_LIMITED_LABEL } from '../github-labels.js';
+import { GITHUB_CLAIMED_LABEL, GITHUB_RATE_LIMITED_LABEL, GITHUB_REVIEW_LABEL, GITHUB_SPEC_CLAIMED_LABEL, GITHUB_WAITING_LABEL } from '../github-labels.js';
 import { classifyAuthor } from '../tasks/comment-trust.js';
+import { checkDependencies, WAITING_MARKER_RE } from '../tasks/dependencies.js';
 import { defaultGhRunner } from '../tasks/github.js';
 import type { RateLimitedMarker } from '../core/rate-limit-marker.js';
 import type { GhRunner } from '../tasks/github.js';
@@ -87,13 +88,69 @@ async function latestMarker(kind: ParkedKind, repoSlug: string, number: number, 
  * PR still carries its trigger label (revise-pr drops only `vanguard:revising`). The hold label goes
  * first, so a sweep never fires the same marker twice.
  */
-async function retrigger(kind: ParkedKind, repoSlug: string, number: number, trigger: string, gh: GhRunner): Promise<void> {
-  const edit = (labels: string[]): Promise<string> => gh([kind, 'edit', String(number), '--repo', repoSlug, ...labels]);
+async function retrigger(item: { kind: ParkedKind; repoSlug: string; number: number }, trigger: string, hold: string, gh: GhRunner): Promise<void> {
+  const edit = (labels: string[]): Promise<string> => gh([item.kind, 'edit', String(item.number), '--repo', item.repoSlug, ...labels]);
   // Hold first: if releasing it fails nothing has fired, and once it is gone no later sweep can
   // re-trigger the same marker even if the trigger edits below fail.
-  await edit(['--remove-label', GITHUB_RATE_LIMITED_LABEL]);
+  await edit(['--remove-label', hold]);
   await edit(['--remove-label', trigger]);
   await edit(['--add-label', trigger]);
+}
+
+/**
+ * Dependency-waiting issues (`vanguard:waiting`, see applyDependencyGate): once every blocker is done and
+ * the `Start:` date has passed, drop the hold and re-apply the trigger label named in the wait comment,
+ * which starts the per-issue implement run. An invalid dependency is re-triggered too, so that run
+ * reports it as needs-info; a failed lookup stays parked.
+ */
+async function resumeWaiting(ctx: { opts: ResumeRateLimitedOptions; gh: GhRunner; log: (line: string) => void; now: Date; allowed: ReadonlySet<string>; report: ResumeRateLimitedReport }): Promise<void> {
+  const { opts, gh, log, now, allowed, report } = ctx;
+  const listed = JSON.parse(
+    await gh(['issue', 'list', '--repo', opts.repoSlug, '--state', 'open', '--label', GITHUB_WAITING_LABEL, '--limit', LIST_LIMIT, '--json', 'number']),
+  ) as { number?: number }[];
+  for (const { number } of listed) {
+    if (number === undefined) continue;
+    const id = `${opts.repoSlug}#${number}`;
+    const record = (outcome: keyof ResumeRateLimitedReport, line: string): void => {
+      log(`resume-rate-limited ${id}: ${line}`);
+      report[outcome].push(id);
+    };
+    try {
+      const view = JSON.parse(await gh(['issue', 'view', String(number), '--repo', opts.repoSlug, '--json', 'number,title,body,labels,comments'])) as {
+        title?: string;
+        body?: string | null;
+        labels?: { name?: string }[];
+        comments?: GhCommentBody[];
+      };
+      const labels = (view.labels ?? []).flatMap((label) => (label.name === undefined ? [] : [label.name]));
+      if (!labels.includes(GITHUB_WAITING_LABEL)) continue;
+      // Already started (or in review): the label is stale. Drop it; re-triggering would run the issue twice.
+      if (labels.includes(GITHUB_CLAIMED_LABEL) || labels.includes(GITHUB_REVIEW_LABEL) || labels.includes(GITHUB_SPEC_CLAIMED_LABEL)) {
+        if (opts.dryRun !== true) await gh(['issue', 'edit', String(number), '--repo', opts.repoSlug, '--remove-label', GITHUB_WAITING_LABEL]);
+        record('skipped', `skip -> already started, ${opts.dryRun === true ? 'would drop' : 'dropped'} stale ${GITHUB_WAITING_LABEL}`);
+        continue;
+      }
+      const trigger = trustedBodies(view.comments ?? []).flatMap((body) => WAITING_MARKER_RE.exec(body)?.[1] ?? []).at(-1);
+      if (trigger === undefined || !allowed.has(trigger)) {
+        record('skipped', 'skip -> no trusted waiting marker naming an allowed trigger');
+        continue;
+      }
+      const task = { id, title: view.title ?? '', description: view.body ?? '', labels, children: [], comments: [], ref: String(number) };
+      const verdict = await checkDependencies(opts.repoSlug, task, gh, now);
+      if (verdict.status === 'error') {
+        record('failed', `failed -> ${verdict.reason}`);
+      } else if (verdict.status === 'waiting') {
+        record('waiting', `waiting -> ${verdict.reason}`);
+      } else if (opts.dryRun === true) {
+        record('resumed', `would re-apply "${trigger}" and drop ${GITHUB_WAITING_LABEL} (dry-run)`);
+      } else {
+        await retrigger({ kind: 'issue', repoSlug: opts.repoSlug, number }, trigger, GITHUB_WAITING_LABEL, gh);
+        record('resumed', `resumed -> re-applied "${trigger}", dropped ${GITHUB_WAITING_LABEL}`);
+      }
+    } catch (error) {
+      record('failed', `failed -> ${failureReason(error)}`);
+    }
+  }
 }
 
 /**
@@ -128,7 +185,7 @@ export async function resumeRateLimited(opts: ResumeRateLimitedOptions): Promise
         } else if (opts.dryRun === true) {
           record('resumed', `would re-apply "${marker.trigger}" and drop ${GITHUB_RATE_LIMITED_LABEL} (dry-run)`);
         } else {
-          await retrigger(kind, opts.repoSlug, number, marker.trigger, gh);
+          await retrigger({ kind, repoSlug: opts.repoSlug, number }, marker.trigger, GITHUB_RATE_LIMITED_LABEL, gh);
           record('resumed', `resumed -> re-applied "${marker.trigger}", dropped ${GITHUB_RATE_LIMITED_LABEL}`);
         }
       } catch (error) {
@@ -136,5 +193,6 @@ export async function resumeRateLimited(opts: ResumeRateLimitedOptions): Promise
       }
     }
   }
+  await resumeWaiting({ opts, gh, log, now, allowed, report });
   return report;
 }

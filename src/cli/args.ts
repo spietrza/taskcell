@@ -1403,7 +1403,9 @@ Commands:
   lessons list | dismiss <id>  Show the live lessons, or dismiss a wrong one so no run gets it again.
   eval   Run the committed eval corpus and print a per-kind pass-rate report; --baseline gates the run
          against a saved result instead of an absolute number, --save-baseline publishes one.
-  resume-rate-limited Re-apply the trigger label on issues/PRs a provider limit parked, once the reset passed (--trigger-labels a,b names custom triggers).
+  resume-rate-limited Re-apply the trigger label on issues/PRs a provider limit parked, once the reset passed, and on issues
+         parked as vanguard:waiting (unmet Depends on #N / native blocked-by, future Start: YYYY-MM-DD) once they are clear
+         (--trigger-labels a,b names custom triggers).
   gc     Reap stale sandbox containers, prune worktrees, and (with --remote) delete merged
          remote chore/vanguard-* branches.
   hub    Serve the Inspector UI over HTTP/SSE (node:http), backed by a real .taskcell/ directory.
