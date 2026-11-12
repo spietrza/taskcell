@@ -297,6 +297,8 @@ export type Command =
       branch?: string;
       /** Shadow approver scorecard instead of the cost/token rollup: verdict vs human outcome, per risk class. */
       approver: boolean;
+      /** Also print the label->merge lead-time rollup for every PR url recorded in metrics.jsonl that belongs to this repo (needs `gh`). */
+      githubRepo?: string;
     }
   | { kind: 'metrics'; action: 'push'; repoPath: string; branch?: string }
   | { kind: 'approve'; prNumber: number; repoSlug: string; repoPath: string; mode: 'shadow'; json: boolean; dryRun: boolean; branch?: string }
@@ -711,12 +713,18 @@ export function parseCli(argv: string[], cwd: string): Command {
   const maxRepairIterations = parseLimit(values['max-repair-iterations']);
 
   if (positionals[0] === 'stats') {
+    const statsRepo = values['github-repo'];
+    // The slug lands in a `gh api repos/<slug>/...` path, so `..` segments or extra slashes are refused.
+    if (typeof statsRepo === 'string' && (!/^[\w.-]+\/[\w.-]+$/.test(statsRepo) || statsRepo.split('/').some((p) => p === '.' || p === '..'))) {
+      return fail(`stats --github-repo must be owner/repo, got '${statsRepo}'.`);
+    }
     return {
       kind: 'stats',
       repoPath,
       json: values.json === true,
       approver: values.approver === true,
       ...(typeof values.branch === 'string' ? { branch: values.branch } : {}),
+      ...(typeof values['github-repo'] === 'string' ? { githubRepo: values['github-repo'] } : {}),
     };
   }
 

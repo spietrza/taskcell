@@ -236,7 +236,7 @@ This installs the pinned CLI into the existing image and re-runs the checks. It 
 A full rebuild still works where the network allows it:
 
 ```bash
-CLAUDE_CLI_VERSION=2.1.260 ./docker/build.sh
+CLAUDE_CLI_VERSION=2.1.322 ./docker/build.sh
 ```
 
 The check is deliberately **not** an auto-update. Refreshing an image needs the network at run start and rewrites an image that concurrent sandboxes share — on the machines where this drift actually bites, the build is itself the unreliable step, so doing it automatically would turn a rare manual command into a recurring mid-run failure. `VANGUARD_SKIP_IMAGE_CHECK=1` bypasses the gate if you are deliberately running an older image.

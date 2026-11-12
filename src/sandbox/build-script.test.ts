@@ -19,6 +19,16 @@ const fake = (body: string): string => `#!/bin/sh\necho "$@" >>"$ARGS_LOG"\n${bo
 const FAKE_DOCKER = fake(`case "$1" in
   pull) [ -z "\${FAKE_PULL_FAILS:-}" ] || exit 1 ;;
   inspect) echo ${DIGEST} ;;
+  build)
+    if [ -n "\${FAKE_BUILD_NETWORK_FAIL:-}" ]; then
+      echo "RETRY_EXHAUSTED_NETWORK: giving up after 5 attempts: npm install -g pnpm@12.18.0" >&2
+      exit 1
+    fi
+    if [ -n "\${FAKE_BUILD_FAILS:-}" ]; then
+      echo "some unrelated docker build error" >&2
+      exit 1
+    fi
+    ;;
 esac
 exit 0`);
 // `gh attestation verify oci://<digest> ...`: provenance check, failing on demand.
@@ -32,7 +42,9 @@ esac
 exit 0`);
 
 /** Run build.sh with the fakes first on PATH; returns one entry per fake invocation, argv joined. */
-async function runBuild(env: Record<string, string>): Promise<{ calls: string[]; stdout: string }> {
+async function runBuild(
+  env: Record<string, string>,
+): Promise<{ calls: string[]; stdout: string; stderr: string; exitCode: number }> {
   const bin = await mkdtemp(join(tmpdir(), 'build-sh-'));
   try {
     const log = join(bin, 'args.log');
@@ -42,12 +54,14 @@ async function runBuild(env: Record<string, string>): Promise<{ calls: string[];
     await writeFile(log, '');
     // extendEnv: false — an ambient CLAUDE_CLI_VERSION/LINEAR_RETRY in the developer's shell is
     // exactly what the script treats as "build, do not pull", so inheriting it would flip the cases.
+    // reject: false — the network-failure case below exits non-zero on purpose; execa would otherwise throw.
     const result = await execa('bash', [BUILD_SH], {
       env: { ...env, ARGS_LOG: log, PATH: `${bin}${delimiter}${process.env.PATH}` },
       extendEnv: false,
+      reject: false,
     });
     const calls = (await readFile(log, 'utf8')).split('\n').filter(Boolean);
-    return { calls, stdout: result.stdout };
+    return { calls, stdout: result.stdout, stderr: result.stderr, exitCode: result.exitCode ?? 1 };
   } finally {
     await rm(bin, { recursive: true, force: true });
   }
@@ -79,5 +93,29 @@ describe('docker/build.sh pull-first', () => {
     expect(build).toContain('-t taskcell-sandbox:latest -t vanguard-sandbox:latest');
     expect(calls.filter((call) => call.startsWith('tag '))).toEqual([]);
     expect(stdout).toContain('Zbudowano taskcell-sandbox:latest');
+  });
+});
+
+// A persistent GitHub Releases/npm outage (#657) must surface as an infrastructure problem, distinct
+// from an actual break in the image, and must never touch an issue/PR: build.sh runs before anything
+// that labels or comments (see implement.yml's "Build sandbox image" step), so a failure here already
+// cannot reach that code — these tests pin that down against a regression.
+describe('docker/build.sh network-failure reporting', () => {
+  it('reports an infrastructure failure, not a generic one, when retried downloads exhaust on a network error', async () => {
+    // FAKE_PULL_FAILS forces the else branch (actual `docker build`) rather than the pull-first path.
+    const { calls, stderr, exitCode } = await runBuild({ FAKE_PULL_FAILS: '1', FAKE_BUILD_NETWORK_FAIL: '1' });
+
+    expect(exitCode).toBe(1);
+    expect(stderr).toContain('::error::Infrastructure failure');
+    expect(stderr).toContain('not a code or task problem');
+    expect(calls.some((call) => /\b(label|comment|issue|pr)\b/.test(call))).toBe(false);
+  });
+
+  it('fails plainly, with no infrastructure banner, on an unrelated build error', async () => {
+    const { calls, stderr, exitCode } = await runBuild({ FAKE_PULL_FAILS: '1', FAKE_BUILD_FAILS: '1' });
+
+    expect(exitCode).toBe(1);
+    expect(stderr).not.toContain('Infrastructure failure');
+    expect(calls.some((call) => /\b(label|comment|issue|pr)\b/.test(call))).toBe(false);
   });
 });

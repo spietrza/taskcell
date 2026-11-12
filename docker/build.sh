@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 set -euo pipefail
-VERSION="${CLAUDE_CLI_VERSION:-2.1.260}"
+VERSION="${CLAUDE_CLI_VERSION:-2.1.322}"
 # Opt-in: empty skips the Cursor CLI (~550 MB); set e.g. CURSOR_CLI_VERSION=2026.10.16-e3cb207 for --provider cursor.
 CURSOR_VERSION="${CURSOR_CLI_VERSION:-}"
 # Alias tag on the same image, kept for hosts/scripts still looking for the pre-rename name. Only
@@ -50,8 +50,22 @@ if [ -z "${CLAUDE_CLI_VERSION:-}${CURSOR_VERSION}${CURSOR_CLI_SHA256_X64:-}${CUR
   for t in "${TAGS[@]}"; do docker tag "${PULLED}" "${t}"; done
   echo "Pobrano ${PULLED} -> ${TAG}${ALIAS_TAG:+ (alias ${ALIAS_TAG})}; pomijam build"
 else
+  # Captured (not just streamed) so a build failure can be told apart below: docker/retry.sh tags its
+  # own giving-up line with RETRY_EXHAUSTED_NETWORK when every retried download (npm installs, the
+  # Cursor curl) failed on what looks like a transient network error — a GitHub Releases/npm 5xx or a
+  # timeout (#657) — rather than a real break (bad pin, checksum mismatch, ...). `tee` plus `pipefail`
+  # (set above) keep `$?` below the real `docker build` exit code, not tee's.
+  BUILD_LOG="$(mktemp)"
+  trap 'rm -f "${BUILD_LOG}"' EXIT
   docker build --build-arg "CLAUDE_CLI_VERSION=${VERSION}" --build-arg "LINEAR_RETRY=${LINEAR_RETRY}" --build-arg "CURSOR_CLI_VERSION=${CURSOR_VERSION}" \
-    ${CURSOR_SHA_ARGS[@]+"${CURSOR_SHA_ARGS[@]}"} "${TAG_ARGS[@]}" "${HERE}"
+    ${CURSOR_SHA_ARGS[@]+"${CURSOR_SHA_ARGS[@]}"} "${TAG_ARGS[@]}" "${HERE}" 2>&1 | tee "${BUILD_LOG}" && BUILD_STATUS=0 || BUILD_STATUS=$?
+  if [ "${BUILD_STATUS}" -ne 0 ]; then
+    if grep -q 'RETRY_EXHAUSTED_NETWORK' "${BUILD_LOG}"; then
+      echo "::error::Infrastructure failure: sandbox image build failed after retries on a network error (GitHub Releases or the npm registry is likely down) — not a code or task problem; re-run the job." >&2
+      exit 1
+    fi
+    exit "${BUILD_STATUS}"
+  fi
   echo "Zbudowano ${TAG}${ALIAS_TAG:+ (alias ${ALIAS_TAG})} (claude ${VERSION}${CURSOR_VERSION:+, cursor ${CURSOR_VERSION}})"
 fi
 # Weryfikacja kontraktu CLI (R4): obecność narzędzi i flag.
