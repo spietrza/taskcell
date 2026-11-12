@@ -22,6 +22,8 @@ import { listNeedsYou, mergeNeedsYou, replyNeedsYou, MAX_COMMENT_FETCHES } from 
 import { detectRepoSlug } from '../runners/github.js';
 import type { ErrorKind } from '../hub-wire.js';
 import { defaultRunsRoot, remoteRunsRoot, listRunSummaries, readRunDetail } from './runs.js';
+import { readRunEvents } from './run-events.js';
+import { isSafeTaskId } from '../core/state-path.js';
 import { listActive, readSession } from './active.js';
 import { readAppConfig, readAppConfigStrict, writeAppConfig, type AppConfig } from './app-config.js';
 import { checkCliVersions } from '../sandbox/cli-versions.js';
@@ -213,6 +215,20 @@ export async function dispatchRpc(ctx: RpcContext, cmd: string, rawArgs: unknown
       const taskId = requireString(args, 'taskId');
       const timestamp = requireString(args, 'timestamp');
       return readRunDetail(runSourceRoot(real, args.source), taskId, timestamp);
+    }
+    case 'read_run_events': {
+      // Read-only: allowed in server mode like read_run.
+      const real = await ctx.allowlist.assertAllowed(requireString(args, 'repoPath'));
+      const taskId = requireString(args, 'taskId');
+      if (!isSafeTaskId(taskId)) throw new BadRequestError('taskId must name a single direct child of the runs root');
+      const timestamp = optionalString(args, 'timestamp');
+      const after = optionalNumber(args, 'after');
+      const limit = optionalNumber(args, 'limit');
+      return readRunEvents(real, taskId, {
+        ...(timestamp !== undefined ? { timestamp } : {}),
+        ...(after !== undefined ? { after } : {}),
+        ...(limit !== undefined ? { limit } : {}),
+      });
     }
     case 'list_projects': {
       return projects.list(ctx.configDir);

@@ -70,6 +70,7 @@ describe('EventBus', () => {
     bus.subscribe(fakeReq('1'), res as unknown as ServerResponse);
     const frame = res.chunks.join('');
     expect(frame).toContain('event: stream-reset');
+    expect(frame).toContain('read_run_events');
   });
 
   test('T-39 keepalive comment emitted on the interval', () => {
@@ -112,5 +113,15 @@ describe('EventBus', () => {
     expect(bus.clientCount).toBe(1);
     const fastFrame = fast.chunks.join('');
     expect(fastFrame).toContain(`"n":${MAX_PENDING_WRITES + 1}`);
+  });
+});
+
+describe('EventBus restart', () => {
+  test('an id newer than any issued (restarted hub) emits stream-reset', () => {
+    const bus = new EventBus();
+    bus.publish('api:event', { n: 1 });
+    const res = new FakeRes();
+    bus.subscribe(fakeReq('700'), res as unknown as ServerResponse);
+    expect(res.chunks.join('')).toContain('event: stream-reset');
   });
 });

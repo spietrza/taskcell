@@ -611,6 +611,12 @@ export interface CliVersionReport {
 export interface Commands {
   list_runs: { args: { repoPath: string }; result: RunSummary[] };
   read_run: { args: { repoPath: string; taskId: string; timestamp: string; source: RunSource }; result: RunDetail };
+  /** HUB_ONLY, read-only: a run's persisted event log (`.taskcell/runs/<taskId>/events-*.jsonl`), events with
+   *  `id > after` (the SSE `id:`), at most `limit`; `timestamp` (a run record's, from `list_runs`) picks that run, default the newest. */
+  read_run_events: {
+    args: { repoPath: string; taskId: string; timestamp?: string; after?: number; limit?: number };
+    result: { events: { id: number; ts: string; event: string; data: unknown }[]; nextAfter: number; hasMore: boolean; truncated: boolean };
+  };
   list_projects: { args: undefined; result: Project[] };
   /** HUB_ONLY: token-only mode has exactly one team and the caller acts as its admin. */
   list_teams: { args: undefined; result: Team[] };
@@ -677,13 +683,14 @@ export interface Commands {
   merge_needs_you: { args: { repoPath: string; id: string }; result: void };
   /** HUB_ONLY: apply a trigger label to a GitHub issue of the project (src/hub/start-task.ts). */
   start_task: { args: { repoPath: string; number: number; label: string }; result: StartTaskResult };
-  /** The Fleet screen's shell-spawn surface — enabled only on the desktop app's local (loopback) hub; refused
-   * elsewhere (remote code execution on a reachable server). `argv[0]` is the program, run WITHOUT a shell: values built
-   * from repo config travel as single arguments and can never introduce shell syntax. */
+  /** The Fleet screen's shell-spawn surface — enabled only on the desktop app's local (loopback) hub,
+   * refused elsewhere (remote code execution on a reachable server). `argv[0]` is the program, run
+   * WITHOUT a shell: values built from repo config travel as single arguments and can never
+   * introduce shell syntax. */
   spawn_run: { args: { cwd: string; argv: string[] }; result: number };
-  /** see spawn_run. */
+  /** See spawn_run. */
   kill_run: { args: { pid: number }; result: void };
-  /** see spawn_run. */
+  /** See spawn_run. */
   list_spawns: { args: undefined; result: SpawnInfo[] };
   /** HUB_ONLY: read the repo (default branch, package manager, verify command) and report what
    *  `enable_factory_apply` would change — no writes yet. GitHub only; `provider` is accepted for
@@ -708,6 +715,7 @@ export interface Commands {
 export const COMMAND_NAMES = [
   'list_runs',
   'read_run',
+  'read_run_events',
   'list_projects',
   'list_teams',
   'get_team',
