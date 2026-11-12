@@ -320,7 +320,7 @@ taskcell stats --approver --branch vanguard-metrics               # read decisio
 
 `taskcell memory` reads `.taskcell/runs` artifacts — failed runs, failed proofs, and reviewer notes (not diffs or transcripts) — and refreshes a short, redacted digest at `.taskcell/memory/retrospective.md`. It is deterministic (no LLM): a host-side rollup, advisory only.
 
-Subsequent `run`, `watch`, and spec runs automatically load that digest into the implementer and tech-spec prompts as advisory context ("use only when relevant"); the digest refreshes best-effort after each run. `.taskcell/` is gitignored — this is operational host state, not committed source.
+Subsequent `run`, `watch`, and spec runs automatically load that digest into the implementer and tech-spec prompts as advisory context ("use only when relevant"); the digest refreshes best-effort after each run. `.taskcell/` is operational host state, not committed source — add it to your `.gitignore`.
 
 ```bash
 taskcell memory                 # refresh + print the digest

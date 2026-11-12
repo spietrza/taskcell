@@ -57,6 +57,16 @@ mod tests {
     use super::*;
 
     #[test]
+    fn state_dir_prefers_taskcell_and_falls_back_to_legacy() {
+        let tmp = tempfile::tempdir().unwrap();
+        assert_eq!(state_dir(tmp.path()), tmp.path().join(".taskcell"));
+        fs::create_dir(tmp.path().join(".vanguard")).unwrap();
+        assert_eq!(state_dir(tmp.path()), tmp.path().join(".vanguard"));
+        fs::create_dir(tmp.path().join(".taskcell")).unwrap();
+        assert_eq!(state_dir(tmp.path()), tmp.path().join(".taskcell"));
+    }
+
+    #[test]
     fn forwards_params_verbatim() {
         let root = Path::new("/repo/cache root");
         assert_eq!(list_runs_params(root), serde_json::json!({"repoPath": "/repo/cache root"}));

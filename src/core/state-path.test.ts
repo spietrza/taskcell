@@ -3,7 +3,7 @@ import { lstat, mkdir, mkdtemp, readdir, rm, symlink, writeFile } from 'node:fs/
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { execa } from 'execa';
-import { assertStatePath, ensureStateDir, resetLegacyStateDirWarning, showStateFile, stateDir } from './state-path.js';
+import { assertStatePath, ensureStateDir, resetStateDirCache, showStateFile, stateDir } from './state-path.js';
 import { StatePathError } from './errors.js';
 
 let repo: string;
@@ -73,7 +73,7 @@ describe('ensureStateDir', () => {
 
 describe('stateDir', () => {
   afterEach(() => {
-    resetLegacyStateDirWarning();
+    resetStateDirCache();
     vi.restoreAllMocks();
   });
 
@@ -102,6 +102,42 @@ describe('stateDir', () => {
     await ensureStateDir(repo, join(stateDir(repo), 'runs'));
     expect((await readdir(repo)).sort()).toEqual(['.taskcell']);
   });
+
+  it('stays on .vanguard when .taskcell appears mid-run, and still guards both', async () => {
+    vi.spyOn(console, 'warn').mockImplementation(() => undefined);
+    await mkdir(join(repo, '.vanguard'));
+    const inFlight = join(stateDir(repo), 'runs', 'task-1');
+    await mkdir(join(repo, '.taskcell'));
+    expect(stateDir(repo)).toBe(join(repo, '.vanguard'));
+    await expect(assertStatePath(repo, inFlight)).resolves.toBeUndefined();
+    await expect(assertStatePath(repo, join(repo, '.taskcell', 'runs'))).resolves.toBeUndefined();
+    await expect(assertStatePath(repo, join(repo, 'src', 'x'))).rejects.toBeInstanceOf(StatePathError);
+  });
+
+  it('refuses a legacy .vanguard that is itself a symlink', async () => {
+    vi.spyOn(console, 'warn').mockImplementation(() => undefined);
+    await symlink(outside, join(repo, '.vanguard'));
+    expect(stateDir(repo)).toBe(join(repo, '.vanguard'));
+    await expect(ensureStateDir(repo, join(stateDir(repo), 'runs'))).rejects.toBeInstanceOf(StatePathError);
+    expect(await readdir(outside)).toEqual([]);
+  });
+
+  it('hints once when a fresh .taskcell is not gitignored', async () => {
+    const warn = vi.spyOn(console, 'warn').mockImplementation(() => undefined);
+    await execa('git', ['init', '-q'], { cwd: repo });
+    await ensureStateDir(repo, join(stateDir(repo), 'runs'));
+    await ensureStateDir(repo, join(stateDir(repo), 'drafts'));
+    expect(warn).toHaveBeenCalledTimes(1);
+    expect(String(warn.mock.calls[0]?.[0])).toContain('.gitignore');
+  });
+
+  it('does not hint when .taskcell is gitignored', async () => {
+    const warn = vi.spyOn(console, 'warn').mockImplementation(() => undefined);
+    await execa('git', ['init', '-q'], { cwd: repo });
+    await writeFile(join(repo, '.gitignore'), '.taskcell/\n');
+    await ensureStateDir(repo, join(stateDir(repo), 'runs'));
+    expect(warn).not.toHaveBeenCalled();
+  });
 });
 
 describe('showStateFile', () => {
@@ -118,7 +154,13 @@ describe('showStateFile', () => {
     await writeFile(join(repo, '.taskcell', 'approver.json'), 'current\n');
     await git('add', '.');
     await git('-c', 'user.email=t@t', '-c', 'user.name=t', 'commit', '-qm', 'current');
+    const warn = vi.spyOn(console, 'warn').mockImplementation(() => undefined);
     expect(await showStateFile(repo, 'HEAD', 'approver.json')).toBe('current\n');
+    expect(await showStateFile(repo, 'HEAD', 'approver.json')).toBe('current\n');
+    expect(warn).toHaveBeenCalledTimes(1);
+    expect(String(warn.mock.calls[0]?.[0])).toContain('.vanguard/approver.json there is ignored');
+    warn.mockRestore();
+    resetStateDirCache();
     await expect(showStateFile(repo, 'HEAD', 'missing.json')).rejects.toThrow();
   });
 });

@@ -19,7 +19,7 @@
       "src/runners/source-adapter.ts",
       "src/pipeline/review-publish.ts", "src/pipeline/conformance-gate.ts", "src/pipeline/verify.ts",
       "src/pipeline/remote-branch.ts", "src/pipeline/repair-gate.ts",
-      "src/approver/**", ".vanguard/approver.json"
+      "src/approver/**", ".vanguard/approver.json", ".taskcell/approver.json"
     ],
     "gate-config": ["vitest.config.ts", "eslint.config.js", "tsconfig*.json"],
     "agent-instructions": ["skills/**", "CLAUDE.md", "AGENTS.md"],

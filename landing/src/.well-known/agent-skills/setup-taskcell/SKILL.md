@@ -7,7 +7,7 @@ description: Install Taskcell, a self-hosted software factory, and run it on a u
 
 Taskcell turns a labelled issue into a pull request: it writes a spec, builds the change in a Docker sandbox, runs the repository's verify script and a review, and opens the PR. A human merges. Source and docs: https://github.com/spietrza/taskcell
 
-The CLI is still named `vanguard` (the project's former name), and so are the `VANGUARD_*` variables, the `vanguard:*` labels and the `.taskcell/` folder.
+The CLI is still named `vanguard` (the project's former name), and so are the `VANGUARD_*` variables, and the `vanguard:*` labels. Per-repo state lives in `.taskcell/` (an existing `.vanguard/` is still used until renamed).
 
 ## Requirements
 

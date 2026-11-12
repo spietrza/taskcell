@@ -66,7 +66,7 @@ of work, review, verify result, cost per run), not an agent chat front-end.
   Claim, Watch Loop, Proof of Work, Stage, PR (GitHub) vs MR (GitLab). UI copy uses these exact
   words.
 - `vanguard` is the old name of `taskcell` and still works; on-screen copy says Taskcell /
-  `taskcell`. Paths and labels keep `.taskcell/` and `vanguard:*`.
+  `taskcell`. Labels keep `vanguard:*`; the per-repo dir is `.taskcell/` (legacy `.vanguard/` still read).
 - Irreversible writes (creating a real issue, enabling the factory on a repo) are confirmed in a
   dialog that states what will happen and where.
 - All visual primitives come through `src/ui/index.ts` (the `@/ui` seam over `chunks-ui`).
