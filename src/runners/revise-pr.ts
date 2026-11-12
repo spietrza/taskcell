@@ -1,4 +1,4 @@
-import { describeIgnoredAuthor } from '../tasks/comment-trust.js';
+import { describeIgnoredAuthor, isTrustedNonAuthorComment } from '../tasks/comment-trust.js';
 import { mkdir, writeFile } from 'node:fs/promises';
 import { dirname, resolve } from 'node:path';
 import { parsePullRequestRef, fetchPullRequestForReview, postPullRequestReview, commentPullRequest } from './pr-review.js';
@@ -40,7 +40,7 @@ import { renderSecretBlockComment } from '../core/secret-scan.js';
 import { credentialLabel, releaseToken, tokenProviderFor } from '../core/push-token.js';
 import { resolveToken } from '../pipeline/remote-branch.js';
 import { deliverChange, scanOutgoingForSecrets } from './deliver-change.js';
-import { extractPrBodyItemsBlock, extractTaskIdFromPrBody, scanCommitClosingKeywords } from '../pipeline/conformance-gate.js';
+import { dischargePrBodyItemsBlock, extractPrBodyItemsBlock, parseSpecManifest, extractTaskIdFromPrBody, scanCommitClosingKeywords } from '../pipeline/conformance-gate.js';
 import type { VerificationResult } from '../pipeline/verify.js';
 import {
   implementReviewSimplifyStages,
@@ -263,6 +263,38 @@ async function modelFromSourceIssue(
   } catch (err) {
     log(`revise-pr ${prId}: could not read labels on ${issueTaskId} (${err instanceof Error ? err.message : String(err)})`);
     return undefined;
+  }
+}
+
+/**
+ * The required-PR-body-item block with discharge applied. The manifest is read from non-issue-author
+ * trusted comments only (the reporter must not be able to erase the disclosure); a failed lookup
+ * leaves the block untouched.
+ */
+async function dischargedItemsBlockFor(
+  repoSlug: string,
+  gh: GhRunner,
+  deps: ReviseGithubPrDeps,
+  prBody: string,
+  issueTaskId: string,
+  log: (line: string) => void,
+): Promise<string | undefined> {
+  const block = extractPrBodyItemsBlock(prBody);
+  if (block === undefined) return undefined;
+  try {
+    const task = await new GitHubTaskFetcher(repoSlug, gh).fetch(issueTaskId);
+    const trust = { allowedAuthors: deps.feedbackAuthors, botLogins: deps.botLogins };
+    // Dropping issue-author *trust* is not enough: a reporter who is also a member/allowlisted would
+    // still count, so the reporter's own comments are excluded outright.
+    const reporter = task.author?.toLowerCase();
+    const specText = task.comments
+      .filter((c) => c.author.toLowerCase() !== reporter && isTrustedNonAuthorComment(c, trust))
+      .map((c) => c.body)
+      .join('\n');
+    return dischargePrBodyItemsBlock(block, parseSpecManifest(specText));
+  } catch (err) {
+    log(`revise-pr ${repoSlug}: could not read the spec manifest on ${issueTaskId} (${err instanceof Error ? err.message : String(err)}) — PR-body items left undischarged`);
+    return block;
   }
 }
 
@@ -668,7 +700,7 @@ export async function runRevisePullRequest(prRef: string, deps: ReviseGithubPrDe
         // weakening the gate already flagged (the label survives; the human-readable evidence would not).
         // Same for the required-PR-body-item block: it is the only record of a hand-applied obligation,
         // and holds whatever a human pasted into it.
-        const newBody = [rederived, extractGateConfigBlock(pr.body), extractPrBodyItemsBlock(pr.body)]
+        const newBody = [rederived, extractGateConfigBlock(pr.body), await dischargedItemsBlockFor(target.repoSlug, gh, deps, pr.body, issueTaskId, log)]
           .filter((s): s is string => s !== undefined)
           .join('\n\n');
         if (newBody !== pr.body) {
