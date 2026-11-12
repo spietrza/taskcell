@@ -1479,6 +1479,7 @@ describe('GitHub watch issue-author gate', () => {
   };
   const gh: GhRunner = async (args) => {
     if (args[0] !== 'api') return issues;
+    if (args[1]?.endsWith('/dependencies/blocked_by')) return '[]';
     const author = authors[args[1] ?? ''];
     if (author === undefined) throw new Error('HTTP 502');
     return JSON.stringify(author);
@@ -1733,3 +1734,33 @@ describe('gitlabWatchPrimitives', () => {
   });
 });
 
+
+describe('GitHub watch dependency gate', () => {
+  it('listReady skips an issue whose dependency is open', async () => {
+    const log = vi.spyOn(console, 'log').mockImplementation(() => {});
+    try {
+      const calls: string[] = [];
+      const gh: GhRunner = async (args) => {
+        calls.push(args.join(' '));
+        if (args[0] === 'issue' && args[1] === 'list') return JSON.stringify([{ number: 1, title: 'T', body: 'Depends on #2', labels: [{ name: 'ready for agent' }] }]);
+        if (args[0] === 'api' && args[1] === 'repos/owner/repo/issues/1') return JSON.stringify({ user: { login: 'm' }, author_association: 'MEMBER' });
+        if (args[0] === 'api' && args[1] === 'repos/owner/repo/issues/2') return JSON.stringify({ state: 'open' });
+        if (args[0] === 'api') return '[]';
+        if (args[0] === 'issue' && args[1] === 'view') return '{"comments":[]}';
+        return '';
+      };
+      const primitives = githubIssueWatchPrimitives({
+        deps: { auth: { type: 'api', apiKey: 'k' } as never, repoPath: '/tmp', repoSlug: 'owner/repo' },
+        label: 'ready for agent',
+        claimedLabel: GITHUB_CLAIMED_LABEL,
+        reviewLabel: GITHUB_REVIEW_LABEL,
+        gh,
+      });
+      expect(await primitives.listReady()).toEqual([]);
+      expect(calls.some((c) => c.startsWith('issue comment 1'))).toBe(true);
+      expect(log).toHaveBeenCalledWith(expect.stringContaining('owner/repo#1 skipped -> waiting for owner/repo#2'));
+    } finally {
+      log.mockRestore();
+    }
+  });
+});
