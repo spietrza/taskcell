@@ -11,7 +11,7 @@ import { startProviderProxies } from '../sandbox/llm-proxy.js';
 import { startSandboxContext } from '../sandbox/sandbox-context.js';
 import { agentAuthFromEnv, authSecrets } from '../agents/auth.js';
 import { selectAgents } from '../agents/registry.js';
-import { prepareContext, runAgent, disposeContext } from '../core/vanguard.js';
+import { prepareContext, runAgent, disposeContext } from '../core/taskcell.js';
 import { enforceUsageCap } from '../core/usage-cap.js';
 import { skillRegistryForRun } from '../context/skill-registry.js';
 import { baseBranchOrDefault } from '../core/base-branch.js';

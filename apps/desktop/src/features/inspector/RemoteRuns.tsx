@@ -4,7 +4,7 @@ import { Download } from 'lucide-react';
 import { importRemoteRun, listRemoteRuns } from '../../ipc';
 import { useAsync } from '../../hooks';
 import { verdictColor, verdictWord } from '../../status';
-import type { RemoteImport, RemoteRun, RunSource, RunSummary } from '../../vanguard-output';
+import type { RemoteImport, RemoteRun, RunSource, RunSummary } from '../../taskcell-output';
 
 function StatusChip({ r }: { r: RemoteRun }) {
   if (r.status !== 'completed') {

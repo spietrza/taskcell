@@ -5,7 +5,7 @@ import { startProviderProxies } from '../sandbox/llm-proxy.js';
 import { startSandboxContext } from '../sandbox/sandbox-context.js';
 import { agentAuthFromEnv, authSecrets } from '../agents/auth.js';
 import { selectAgents } from '../agents/registry.js';
-import { prepareContext, runAgent, disposeContext } from '../core/vanguard.js';
+import { prepareContext, runAgent, disposeContext } from '../core/taskcell.js';
 import { DEFAULT_BASE_BRANCH } from '../core/base-branch.js';
 import { literalPrompt } from '../context/prompt-engine.js';
 import { runResearch } from '../runners/research.js';

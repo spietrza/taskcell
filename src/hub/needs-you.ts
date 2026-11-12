@@ -7,7 +7,7 @@ import { commentPullRequest } from '../runners/pr-review.js';
 import { redactForPublish } from '../core/secret-scan.js';
 import { DEFAULT_GITHUB_AGENT_LABEL, DEFAULT_GITHUB_NEEDS_INFO_LABEL } from '../cli/args.js';
 import { GITHUB_REVIEW_LABEL, GITHUB_VERIFY_FAILED_LABEL } from '../github-labels.js';
-import { VanguardError } from '../core/errors.js';
+import { TaskcellError } from '../core/errors.js';
 import { fanOut } from '../pipeline/fan-out.js';
 
 /** The revise-pr trigger (DEFAULT_TRIGGER_LABELS in src/runners/resume-rate-limited.ts). */
@@ -58,7 +58,7 @@ interface GhPrLite extends GhIssueLite {
 const REPO_SLUG_RE = /^[A-Za-z0-9._][A-Za-z0-9._-]*\/[A-Za-z0-9._-]+$/;
 
 function assertRepoSlug(repoSlug: string): void {
-  if (!REPO_SLUG_RE.test(repoSlug)) throw new VanguardError(`Invalid repo slug: ${repoSlug}`);
+  if (!REPO_SLUG_RE.test(repoSlug)) throw new TaskcellError(`Invalid repo slug: ${repoSlug}`);
 }
 
 /** The login Vanguard comments under from CI (see src/tasks/comment-trust.ts). */
@@ -199,8 +199,8 @@ export async function listNeedsYou(
 function itemNumber(repoSlug: string, id: string): string {
   const hash = id.lastIndexOf('#');
   const number = id.slice(hash + 1);
-  if (hash === -1 || !/^\d+$/.test(number)) throw new VanguardError(`Invalid item id: ${id}`);
-  if (id.slice(0, hash) !== repoSlug) throw new VanguardError(`${id} is not an item of ${repoSlug}`);
+  if (hash === -1 || !/^\d+$/.test(number)) throw new TaskcellError(`Invalid item id: ${id}`);
+  if (id.slice(0, hash) !== repoSlug) throw new TaskcellError(`${id} is not an item of ${repoSlug}`);
   return number;
 }
 
@@ -242,7 +242,7 @@ export async function replyNeedsYou(
 
   if (kind === 'issue') {
     if (!(await issueIsWaiting(repoSlug, number, gh))) {
-      throw new VanguardError(`${id} is not waiting for a reply (no longer labelled "${DEFAULT_GITHUB_NEEDS_INFO_LABEL}").`);
+      throw new TaskcellError(`${id} is not waiting for a reply (no longer labelled "${DEFAULT_GITHUB_NEEDS_INFO_LABEL}").`);
     }
     await commentGithubIssue(repoSlug, number, body, gh);
     await ensureLabel(repoSlug, agentLabel, gh);
@@ -251,7 +251,7 @@ export async function replyNeedsYou(
   }
 
   if (!(await prIsWaiting(repoSlug, number, gh))) {
-    throw new VanguardError(`${id} is not waiting for a reply.`);
+    throw new TaskcellError(`${id} is not waiting for a reply.`);
   }
   await commentPullRequest({ repoSlug, number: Number(number) }, body, gh);
   await ensureLabel(repoSlug, NEEDS_REVISION_LABEL, gh);

@@ -13,7 +13,7 @@ export interface DirEntry {
   /** true if this directory directly contains a `.git` entry (file or dir — a worktree's .git is a file). */
   isGitRepo: boolean;
   /** true if this directory directly contains a `.taskcell` entry. */
-  hasVanguard: boolean;
+  hasTaskcell: boolean;
 }
 
 export interface DirListing {
@@ -86,8 +86,8 @@ export async function browseDirs(root: string, requestedPath?: string): Promise<
   const entries: DirEntry[] = await Promise.all(
     capped.map(async (name) => {
       const childPath = join(target, name);
-      const [isGitRepo, hasVanguard] = await Promise.all([hasMarker(childPath, '.git'), hasMarker(childPath, '.taskcell').then(async (has) => has || (await hasMarker(childPath, '.vanguard')))]);
-      return { name, path: childPath, isGitRepo, hasVanguard };
+      const [isGitRepo, hasTaskcell] = await Promise.all([hasMarker(childPath, '.git'), hasMarker(childPath, '.taskcell').then(async (has) => has || (await hasMarker(childPath, '.vanguard')))]);
+      return { name, path: childPath, isGitRepo, hasTaskcell };
     }),
   );
 

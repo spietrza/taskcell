@@ -3,7 +3,7 @@ import { escapePromptTags } from '../context/escape.js';
 import { DockerSandboxProvider, sandboxImage } from '../sandbox/docker.js';
 import { sandboxNetworkConfig } from '../sandbox/limits.js';
 import { forcedProviderModel, providerKeyEnvNames, selectAgents } from '../agents/registry.js';
-import { prepareContext, disposeContext } from '../core/vanguard.js';
+import { prepareContext, disposeContext } from '../core/taskcell.js';
 import { runStages, techSpecStage } from '../pipeline/pipeline.js';
 import { authSecrets } from '../agents/auth.js';
 import { beginRun } from '../core/run-store.js';
@@ -11,7 +11,7 @@ import { summarizeOutcomes } from '../core/run-summary.js';
 import { loadRetrospectiveMemory, refreshRetrospectiveMemory } from '../core/retrospective-memory.js';
 import { llmProxySandboxEnv } from '../sandbox/egress-proxy.js';
 import { extractTag, extractTagLenient } from '../structured/extract.js';
-import { VanguardError } from '../core/errors.js';
+import { TaskcellError } from '../core/errors.js';
 import { SPEC_TAG } from '../tasks/triage.js';
 import { SPEC_MANIFEST_TAG } from '../pipeline/conformance-gate.js';
 import type { Task, TaskFetcher } from '../tasks/fetcher.js';
@@ -21,8 +21,8 @@ import { startProviderProxies } from '../sandbox/llm-proxy.js';
 import type { LlmProxyDep, ProviderProxyDeps } from '../sandbox/llm-proxy.js';
 import type { IsolatedSandboxProvider } from '../sandbox/provider.js';
 import type { AgentProvider } from '../agents/provider.js';
-import type { RunDeps } from '../core/vanguard.js';
-import type { VanguardLogger } from '../core/logger.js';
+import type { RunDeps } from '../core/taskcell.js';
+import type { TaskcellLogger } from '../core/logger.js';
 import { DEFAULT_BASE_BRANCH } from '../core/base-branch.js';
 import { skillRegistryForRun } from '../context/skill-registry.js';
 
@@ -57,7 +57,7 @@ export interface RunSpecGeneratorDeps extends ProviderChoice {
   baseBranch?: string;
   /** --skills dir (e.g. the bundled tech-spec skill), merged with the repo's .github/vanguard-skills/. */
   skillsDir?: string;
-  logger?: VanguardLogger;
+  logger?: TaskcellLogger;
   signal?: AbortSignal;
   /**
    * Sandbox factory, injected for tests so the spec pass can run against a fake sandbox. Defaults to a
@@ -100,7 +100,7 @@ export function defaultSandboxFactory(
  * sandbox, the stage runs read-only (techSpecStage sets copyBack:false), and disposeContext tears it
  * down in a finally. The run is persisted with the 'spec' label so the AFK fleet leaves a trace.
  *
- * @throws VanguardError when the agent does not emit a <tech_spec> block (so the caller's onFailure runs).
+ * @throws TaskcellError when the agent does not emit a <tech_spec> block (so the caller's onFailure runs).
  */
 export async function runSpecGenerator(id: string, deps: RunSpecGeneratorDeps): Promise<string> {
   const task: Task = await deps.fetcher.fetch(id);
@@ -122,7 +122,7 @@ export async function runSpecGenerator(id: string, deps: RunSpecGeneratorDeps): 
     proxySecrets = selected.proxySecrets;
     injectAnthropicAuth = selected.injectAnthropicAuth;
   }
-  if (agent === undefined) throw new VanguardError('No agent available for the spec pass');
+  if (agent === undefined) throw new TaskcellError('No agent available for the spec pass');
 
   // Per-run provider sidecars (e.g. OpenAI for Codex) hold the real key out of the sandbox. Created
   // before prepareContext so the finally below tears them down even if context provisioning throws.
@@ -164,7 +164,7 @@ export async function runSpecGenerator(id: string, deps: RunSpecGeneratorDeps): 
 
       const specOutcome = outcomes[outcomes.length - 1];
       if (specOutcome === undefined) {
-        throw new VanguardError(`Tech-spec stage produced no <${SPEC_TAG}> block for ${task.id}`);
+        throw new TaskcellError(`Tech-spec stage produced no <${SPEC_TAG}> block for ${task.id}`);
       }
       // Persisted under the 'spec' label (not the stage's library name) so `taskcell stats` keys it as before.
       const persistSpec = async (): Promise<void> => {
@@ -181,7 +181,7 @@ export async function runSpecGenerator(id: string, deps: RunSpecGeneratorDeps): 
         // Persist the failed run BEFORE throwing so its transcript/cost survive for diagnosis instead
         // of being discarded (best-effort: a persist failure must not mask the real error).
         await persistSpec().catch(() => {});
-        throw new VanguardError(
+        throw new TaskcellError(
           `Tech-spec stage produced no <${SPEC_TAG}> block for ${task.id} ` +
             `(exitReason: ${specOutcome.result.exitReason}, turns: ${specOutcome.result.turns}). Re-run the spec.`,
         );

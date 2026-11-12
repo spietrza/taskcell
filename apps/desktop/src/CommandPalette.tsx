@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useRef, useState, type ReactNode } from 'react';
 import { Home, FolderPlus, FolderGit2, SunMoon } from 'lucide-react';
-import type { Project } from './vanguard-output';
+import type { Project } from './taskcell-output';
 
 interface Cmd {
   id: string;

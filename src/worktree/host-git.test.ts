@@ -7,7 +7,7 @@ import { WorktreeManager } from './manager.js';
 import { hostGitArgs, hostGitEnv } from './host-git.js';
 import { commitStage } from '../pipeline/pipeline.js';
 import { pushToExistingBranch } from '../pipeline/remote-branch.js';
-import type { RunContext } from '../core/vanguard.js';
+import type { RunContext } from '../core/taskcell.js';
 
 const HOOKS = ['post-commit', 'reference-transaction', 'post-index-change', 'pre-push', 'post-checkout'];
 const IDENTITY = ['-c', 'user.email=t@t', '-c', 'user.name=t'];

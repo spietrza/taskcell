@@ -1,7 +1,7 @@
 import { describe, it, expect } from 'vitest';
 import { issueIID, encodeProject, GitLabTaskFetcher, commentGitlabIssue, editGitlabLabels, neutralizeQuickActions } from './gitlab.js';
 import { isTrustedComment, isTrustedNonAuthorComment, trustedComments, trustedSpecText } from './comment-trust.js';
-import { assessTaskReadiness, isVanguardSpec } from './triage.js';
+import { assessTaskReadiness, isTaskcellSpec } from './triage.js';
 import { parseSpecManifest } from '../pipeline/conformance-gate.js';
 
 describe('issueIID', () => {
@@ -74,8 +74,8 @@ describe('GitLabTaskFetcher', () => {
     expect(trustedComments(task, trust).map((c) => c.author)).toEqual(['VG-Bot', 'maintainer']);
     expect(parseSpecManifest(trustedSpecText(task, trust))?.files).toEqual([{ path: 'src/a.ts' }]);
     const forged = task.comments[1]!;
-    expect(isTrustedNonAuthorComment(forged, trust) && isVanguardSpec(forged)).toBe(false);
-    expect(isTrustedNonAuthorComment(task.comments[0]!, trust) && isVanguardSpec(task.comments[0]!)).toBe(true);
+    expect(isTrustedNonAuthorComment(forged, trust) && isTaskcellSpec(forged)).toBe(false);
+    expect(isTrustedNonAuthorComment(task.comments[0]!, trust) && isTaskcellSpec(task.comments[0]!)).toBe(true);
     const outsiderOnly = { ...task, description: 'vague', comments: [forged] };
     expect(assessTaskReadiness(outsiderOnly, 'agent', trust)).toBe('needs_info');
     // Without any allowlist GitLab keeps its pre-gate behaviour.
@@ -199,7 +199,7 @@ it('list() with limit + all adds -P and --all (the board call); state carried on
 });
 
 import { gitlabDefaultBranch } from './gitlab.js';
-import { VanguardError } from '../core/errors.js';
+import { TaskcellError } from '../core/errors.js';
 describe('gitlabDefaultBranch', () => {
   it('reads the API default branch with the exact argv', async () => {
     const calls: string[][] = [];
@@ -207,6 +207,6 @@ describe('gitlabDefaultBranch', () => {
     expect(calls).toEqual([['api', 'projects/g%2Fp']]);
   });
   it.each([{}, { default_branch: '' }, { default_branch: null }])('fails closed on %j', async (data) => {
-    await expect(gitlabDefaultBranch('g/p', async () => JSON.stringify(data))).rejects.toThrow(VanguardError);
+    await expect(gitlabDefaultBranch('g/p', async () => JSON.stringify(data))).rejects.toThrow(TaskcellError);
   });
 });

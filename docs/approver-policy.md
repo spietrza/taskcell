@@ -60,7 +60,7 @@ engine, as long as `schemaVersion` still matches.
 | `ci-config` | `.github/**`, `.gitlab-ci.yml`, `.gitlab/**` | CI config runs with the repo's secrets; the autonomous run is not allowed to change it at all (see `CLAUDE.md`). |
 | `dependencies` | `**/package.json`, `**/pnpm-lock.yaml`, `**/Cargo.*`, `apps/desktop/src-tauri/**` | Supply chain: a new or moved dependency is a human call. |
 | `migration-deploy` | `docker/**`, `**/*migration*` | Deploy and data-shape changes are not safely reversible by a revert. |
-| `security-surface` | `src/sandbox/**`, `src/core/vanguard.ts`, `src/core/secret-scan.ts`, `src/context/**`, `src/agents/**` | The isolation and secret-handling boundaries. |
+| `security-surface` | `src/sandbox/**`, `src/core/taskcell.ts`, `src/core/secret-scan.ts`, `src/context/**`, `src/agents/**` | The isolation and secret-handling boundaries. |
 | `review-pipeline` | the review/revise runners, the publish and gate pipeline, `src/approver/**`, `.taskcell/approver.json` | The machinery that produces and checks the factory's own output, including this policy — it must never approve a change to itself. |
 | `gate-config` | `vitest.config.ts`, `eslint.config.js`, `tsconfig*.json` | Loosening a gate would invalidate every later green check. |
 | `agent-instructions` | `skills/**`, `CLAUDE.md`, `AGENTS.md` | The prompts and constraints the agents run under. |

@@ -2,7 +2,7 @@ import { useEffect, useRef, useState } from 'react';
 import { StreamView } from './StreamView';
 import { readSession } from '../../ipc';
 import { cn } from '@/ui';
-import type { ActiveRun, SessionRead } from '../../vanguard-output';
+import type { ActiveRun, SessionRead } from '../../taskcell-output';
 
 export function LiveRun({
   active,

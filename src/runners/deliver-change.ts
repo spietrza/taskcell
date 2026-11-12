@@ -11,7 +11,7 @@ import {
 import { scanCommitClosingKeywords } from '../pipeline/conformance-gate.js';
 import type { SecretBlock } from '../core/secret-scan.js';
 import type { CommitClosingLeak } from '../pipeline/conformance-gate.js';
-import type { RunContext } from '../core/vanguard.js';
+import type { RunContext } from '../core/taskcell.js';
 import type { CommandRunner, PublishOptions } from '../pipeline/remote-branch.js';
 
 /**

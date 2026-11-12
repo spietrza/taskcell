@@ -6,7 +6,7 @@ import { runLinearIssue } from './linear.js';
 import { runGithubIssue } from './github.js';
 import { runGitlabIssue } from './gitlab.js';
 import { runSpecGenerator } from './spec.js';
-import { assessTaskReadiness, isVanguardSpec, SPEC_TAG } from '../tasks/triage.js';
+import { assessTaskReadiness, isTaskcellSpec, SPEC_TAG } from '../tasks/triage.js';
 import { fanOut } from '../pipeline/fan-out.js';
 import { failureReason, formatFailureComment } from '../core/errors.js';
 import { isRateLimitHold, rateLimitHold } from '../core/rate-limit-marker.js';
@@ -438,7 +438,7 @@ async function runSpecCore(
   // (a) Idempotent retry: if a Vanguard-generated spec is already posted skip regeneration and just
   // advance — cheap, no duplicate spec comment / wasted sandbox+LLM. Issue-author trust is excluded
   // here: the reporter must not be able to skip spec generation with a forged <tech_spec>.
-  if (task.comments.some((c) => isTrustedNonAuthorComment(c, { allowedAuthors: deps.feedbackAuthors }) && isVanguardSpec(c))) {
+  if (task.comments.some((c) => isTrustedNonAuthorComment(c, { allowedAuthors: deps.feedbackAuthors }) && isTaskcellSpec(c))) {
     await actions.advance();
     return 'advanced';
   }

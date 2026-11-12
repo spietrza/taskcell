@@ -22,7 +22,7 @@ export function isSessionPathGrammar(p: string): boolean {
 /** Index of the `.taskcell` segment of a `.taskcell/sessions/...` path, or -1 if absent. Operates on
  * the REALPATH'd string, so a symlinked `.taskcell` (whose name would disappear under realpath)
  * cannot be used to smuggle a path outside an allowed project. */
-function vanguardSessionsSegmentIndex(realPath: string): number {
+function sessionsSegmentIndex(realPath: string): number {
   const parts = realPath.split(sep);
   for (let i = 0; i + 1 < parts.length; i++) {
     if (STATE_DIR_NAMES.includes(parts[i] as string) && parts[i + 1] === 'sessions') return i;
@@ -120,7 +120,7 @@ export class ProjectAllowlist {
     } catch {
       throw new BadRequestError(`session file does not exist: ${sessionFile}`);
     }
-    const idx = vanguardSessionsSegmentIndex(real);
+    const idx = sessionsSegmentIndex(real);
     if (idx <= 0) {
       throw new BadRequestError('not a vanguard session file');
     }

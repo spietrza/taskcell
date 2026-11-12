@@ -1,7 +1,7 @@
 import { useEffect, useState, type Dispatch, type SetStateAction } from 'react';
 import { readAppConfigStrict } from './ipc';
 import { errorMessage } from './errors';
-import type { AppConfig } from './vanguard-output';
+import type { AppConfig } from './taskcell-output';
 
 export interface AsyncState<T> {
   data: T | null;

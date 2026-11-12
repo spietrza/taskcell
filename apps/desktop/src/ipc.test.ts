@@ -1,7 +1,7 @@
 import { test, expect, afterEach } from 'vitest';
 import { mockIPC, clearMocks } from '@tauri-apps/api/mocks';
 import { apiCapabilitiesCached, apiListFlows, apiReadFlow, apiWriteFlow, browseDirs, importRemoteRun, listRuns, readRun } from './ipc';
-import type { RunSummary } from './vanguard-output';
+import type { RunSummary } from './taskcell-output';
 
 afterEach(() => clearMocks());
 

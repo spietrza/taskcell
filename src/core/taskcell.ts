@@ -18,7 +18,7 @@ import { exportWorkspace, isCiConfigPath } from '../sandbox/copy-back.js';
 import type { RunOptions, RunResult, ExitReason, ReasoningEffort } from './types.js';
 import type { IsolatedSandboxProvider } from '../sandbox/provider.js';
 import type { AgentProvider, AgentUsage } from '../agents/provider.js';
-import type { VanguardLogger } from './logger.js';
+import type { TaskcellLogger } from './logger.js';
 
 const WORKDIR = '/workspace';
 const DEFAULT_TIMEOUT_MS = 30 * 60 * 1000;
@@ -55,7 +55,7 @@ export interface PrepareOptions {
   /** Provider name of the implementer fallback; its family gets skills too, or the rescued stage runs without them. */
   fallbackAgentName?: string;
   sandbox: IsolatedSandboxProvider;
-  logger?: VanguardLogger;
+  logger?: TaskcellLogger;
 }
 
 export interface RunContext {
@@ -70,7 +70,7 @@ export interface RunContext {
   /** The commit the task started from, as a SHA. The worktree cut, the closing-keyword scan and the pre-push rebase all measure from it. */
   startRef: string;
   wm: WorktreeManager;
-  log: VanguardLogger;
+  log: TaskcellLogger;
   /** CI config files the agent added or edited in the sandbox, which copy-back dropped. The PR/MR description or revision summary lists them. */
   droppedCiPaths?: Set<string>;
 }
@@ -139,7 +139,7 @@ async function revParseCommit(cwd: string, ref: string): Promise<string> {
  * commit here: the base is then unused when an existing run branch is picked up (prepareContext
  * measures from that branch instead), and a fresh cut fails in WorktreeManager.create as it always did.
  */
-async function resolveStartRef(opts: PrepareOptions, log: VanguardLogger): Promise<string | undefined> {
+async function resolveStartRef(opts: PrepareOptions, log: TaskcellLogger): Promise<string | undefined> {
   const { localRepoPath: cwd, baseBranch, start } = opts;
   // ctx.baseBranch feeds a fetch and the PR/MR target later; validate it here, whatever the start kind.
   assertSafeBaseBranch(baseBranch);
@@ -281,7 +281,7 @@ export function workflowPaths(paths: string[]): string[] {
 }
 
 /** Throws WorkflowGuardError (logged) if a changed path is CI config. */
-export function assertNoWorkflowChanges(paths: string[], log: VanguardLogger, taskId: string): void {
+export function assertNoWorkflowChanges(paths: string[], log: TaskcellLogger, taskId: string): void {
   const offending = workflowPaths(paths);
   if (offending.length === 0) return;
   log.error({ taskId, paths: offending }, 'diff guard: blocked commit — diff touches CI config (hard constraint)');

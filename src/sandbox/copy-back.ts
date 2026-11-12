@@ -221,7 +221,7 @@ export async function exportWorkspace(
 /** True when `path` is CI config by CI_CONFIG_RULE (`.github/workflows`, `.github/actions`,
  * `.gitlab-ci.yml`, `.gitlab/` YAML) or a `.github`/`.gitlab` entry standing in for that directory —
  * the same question `classifyPath` asks while copying, asked here against a plain path string
- * (no lstat), for the final-diff backstop in core/vanguard.ts. */
+ * (no lstat), for the final-diff backstop in core/taskcell.ts. */
 export function isCiConfigPath(path: string): boolean {
   return CI_CONFIG_RULE.match.test(path) || CI_DIR_NAME.test(path);
 }

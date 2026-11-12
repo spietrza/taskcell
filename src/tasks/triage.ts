@@ -91,7 +91,7 @@ export function hasRealAcceptanceCriteria(text: string): boolean {
  * @param comment - The task comment to inspect.
  * @returns `true` when the body contains the Vanguard `<tech_spec` marker; `false` otherwise.
  */
-export function isVanguardSpec(comment: TaskComment): boolean {
+export function isTaskcellSpec(comment: TaskComment): boolean {
   return comment.body.includes(`<${SPEC_TAG}`);
 }
 
@@ -127,7 +127,7 @@ export function assessTaskReadiness(task: Task, mode: 'spec' | 'agent', trust: T
   }
 
   const hasSpecComment = trustedComments(task, trust).some(
-    (c) => c.body.trim() !== '' && (isVanguardSpec(c) || hasRealAcceptanceCriteria(c.body)),
+    (c) => c.body.trim() !== '' && (isTaskcellSpec(c) || hasRealAcceptanceCriteria(c.body)),
   );
   if (hasSpecComment) {
     return 'ok';

@@ -2,7 +2,7 @@ import { describe, it, expect } from 'vitest';
 import { LinearCliTaskFetcher, linkLinearIssue } from './linear-cli.js';
 import type { LinearCliRunner } from './linear-cli.js';
 import { isTrustedNonAuthorComment, trustedComments, trustedSpecText } from './comment-trust.js';
-import { assessTaskReadiness, isVanguardSpec } from './triage.js';
+import { assessTaskReadiness, isTaskcellSpec } from './triage.js';
 import { parseSpecManifest } from '../pipeline/conformance-gate.js';
 
 function runner(payload: unknown): LinearCliRunner {
@@ -107,7 +107,7 @@ describe('LinearCliTaskFetcher', () => {
     expect(trustedComments(task, trust).map((c) => c.author)).toEqual(['Seba Member']);
     expect(parseSpecManifest(trustedSpecText(task, trust))?.files).toEqual([{ path: 'src/a.ts' }]);
     const outsiders = { ...task, comments: task.comments.slice(1) };
-    expect(outsiders.comments.some((c) => isTrustedNonAuthorComment(c, trust) && isVanguardSpec(c))).toBe(false);
+    expect(outsiders.comments.some((c) => isTrustedNonAuthorComment(c, trust) && isTaskcellSpec(c))).toBe(false);
     expect(trustedSpecText(outsiders, trust)).toBe('');
     expect(assessTaskReadiness(outsiders, 'agent', trust)).toBe('needs_info');
   });

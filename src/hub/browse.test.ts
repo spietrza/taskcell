@@ -22,7 +22,7 @@ afterEach(async () => {
 });
 
 describe('browseDirs', () => {
-  it('T-76 lists only directories with correct isGitRepo/hasVanguard flags', async () => {
+  it('T-76 lists only directories with correct isGitRepo/hasTaskcell flags', async () => {
     await mkdir(join(root, 'project-a', '.git'), { recursive: true });
     await mkdir(join(root, 'project-b'), { recursive: true });
     await writeFile(join(root, 'project-b', '.git'), 'gitdir: ../somewhere'); // worktree-style .git file
@@ -37,15 +37,15 @@ describe('browseDirs', () => {
 
     const a = listing.entries.find((e) => e.name === 'project-a')!;
     expect(a.isGitRepo).toBe(true);
-    expect(a.hasVanguard).toBe(false);
+    expect(a.hasTaskcell).toBe(false);
 
     const b = listing.entries.find((e) => e.name === 'project-b')!;
     expect(b.isGitRepo).toBe(true);
-    expect(b.hasVanguard).toBe(false);
+    expect(b.hasTaskcell).toBe(false);
 
     const c = listing.entries.find((e) => e.name === 'project-c')!;
     expect(c.isGitRepo).toBe(false);
-    expect(c.hasVanguard).toBe(true);
+    expect(c.hasTaskcell).toBe(true);
   });
 
   it('T-77 confined to the configured root: escaping requests throw BadRequestError', async () => {
@@ -98,7 +98,7 @@ describe('browseDirs', () => {
     expect(names).toEqual(['visible']);
 
     const visible = listing.entries.find((e) => e.name === 'visible')!;
-    expect(visible.hasVanguard).toBe(true);
+    expect(visible.hasTaskcell).toBe(true);
   });
 
   it('omits `parent` when path is the root itself', async () => {

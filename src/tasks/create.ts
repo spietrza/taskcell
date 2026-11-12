@@ -1,5 +1,5 @@
 import { execa } from 'execa';
-import { VanguardError } from '../core/errors.js';
+import { TaskcellError } from '../core/errors.js';
 import { linearGraphql } from './linear-cli.js';
 import { neutralizeQuickActions } from './gitlab.js';
 import type { LinearGraphql } from './linear-cli.js';
@@ -52,14 +52,14 @@ const defaultCli: CliRunner = async (bin, args, opts) =>
   ).stdout;
 
 function assertCreatable(input: CreateTaskInput): void {
-  if (input.title.trim() === '') throw new VanguardError('A task needs a title.');
+  if (input.title.trim() === '') throw new TaskcellError('A task needs a title.');
   const titleBytes = Buffer.byteLength(input.title, 'utf8');
   if (titleBytes > MAX_TITLE_BYTES) {
-    throw new VanguardError(`Task title is ${titleBytes} bytes; the limit is ${MAX_TITLE_BYTES}. Shorten the heading.`);
+    throw new TaskcellError(`Task title is ${titleBytes} bytes; the limit is ${MAX_TITLE_BYTES}. Shorten the heading.`);
   }
   const bytes = Buffer.byteLength(input.body, 'utf8');
   if (bytes > MAX_BODY_BYTES) {
-    throw new VanguardError(`Task body is ${bytes} bytes; the limit is ${MAX_BODY_BYTES}. Shorten the document.`);
+    throw new TaskcellError(`Task body is ${bytes} bytes; the limit is ${MAX_BODY_BYTES}. Shorten the document.`);
   }
 }
 
@@ -73,7 +73,7 @@ function assertCreatable(input: CreateTaskInput): void {
  */
 function issueUrl(stdout: string, what: string): string {
   const match = stdout.match(/https?:\/\/\S*\/issues\/\d+/);
-  if (match === null) throw new VanguardError(`${what} did not print an issue URL: ${stdout.trim().slice(0, 200)}`);
+  if (match === null) throw new TaskcellError(`${what} did not print an issue URL: ${stdout.trim().slice(0, 200)}`);
   return match[0];
 }
 
@@ -81,7 +81,7 @@ function issueUrl(stdout: string, what: string): string {
 function refFromIssueUrl(url: string, what: string): string {
   const m = url.match(/^https?:\/\/[^/]+\/(.+?)(?:\/-)?\/issues\/(\d+)/);
   if (m?.[1] === undefined || m[2] === undefined) {
-    throw new VanguardError(`${what} returned a URL this does not understand: ${url}`);
+    throw new TaskcellError(`${what} returned a URL this does not understand: ${url}`);
   }
   return `${m[1]}#${m[2]}`;
 }
@@ -153,7 +153,7 @@ export async function createLinearIssue(
   const teams = (await send({ query: TEAM_QUERY, variables: { key: team } })) as TeamResp;
   const teamId = teams.data?.teams?.nodes?.[0]?.id;
   if (teamId === undefined) {
-    throw new VanguardError(`No Linear team with key \`${team}\` — check the team key in Settings.`);
+    throw new TaskcellError(`No Linear team with key \`${team}\` — check the team key in Settings.`);
   }
 
   // NOTE: `input.labels` is ignored here. IssueCreateInput takes `labelIds` (uuids), not the names
@@ -166,13 +166,13 @@ export async function createLinearIssue(
   })) as CreateResp;
   const errors = created.errors;
   if (errors !== undefined && errors.length > 0) {
-    throw new VanguardError(`Linear API error: ${errors.map((e) => e.message ?? '').join('; ')}`);
+    throw new TaskcellError(`Linear API error: ${errors.map((e) => e.message ?? '').join('; ')}`);
   }
   const issue = created.data?.issueCreate?.issue;
   if (created.data?.issueCreate?.success !== true || issue?.identifier === undefined || issue.url === undefined) {
     // Never report success we cannot prove: the caller is about to tell a human "created", and this is
     // the one action in the app that cannot be undone from inside it.
-    throw new VanguardError('Linear did not confirm the issue was created.');
+    throw new TaskcellError('Linear did not confirm the issue was created.');
   }
   return { id: issue.identifier, url: issue.url };
 }

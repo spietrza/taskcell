@@ -1,7 +1,7 @@
 import { afterEach, beforeEach, expect, test, vi } from 'vitest';
 import { fireEvent, render, screen } from '@testing-library/react';
 import { RunDetail } from './RunDetail';
-import type { RunDetail as RunDetailT, StageDetail } from '../../vanguard-output';
+import type { RunDetail as RunDetailT, StageDetail } from '../../taskcell-output';
 
 beforeEach(() => {
   vi.stubGlobal('matchMedia', vi.fn(() => ({

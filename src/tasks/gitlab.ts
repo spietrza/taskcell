@@ -1,5 +1,5 @@
 import { execa } from 'execa';
-import { VanguardError } from '../core/errors.js';
+import { TaskcellError } from '../core/errors.js';
 import type { Task, TaskComment, TaskFetcher, TaskFilter } from './fetcher.js';
 import { redactForPublish } from '../core/secret-scan.js';
 
@@ -216,9 +216,9 @@ export async function gitlabDefaultBranch(project: string, glab: GlabRunner = de
   try {
     data = JSON.parse(await glab(['api', `projects/${encodeProject(project)}`])) as typeof data;
   } catch (cause) {
-    throw new VanguardError('Cannot establish the repository default branch', { cause });
+    throw new TaskcellError('Cannot establish the repository default branch', { cause });
   }
   const name = data?.default_branch;
-  if (typeof name !== 'string' || name.trim() === '') throw new VanguardError('Cannot establish the repository default branch');
+  if (typeof name !== 'string' || name.trim() === '') throw new TaskcellError('Cannot establish the repository default branch');
   return name;
 }

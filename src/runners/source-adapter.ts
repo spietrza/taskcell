@@ -9,10 +9,10 @@ import { DockerSandboxProvider, sandboxImage } from '../sandbox/docker.js';
 import { pnpmStoreConfig, sandboxNetworkConfig } from '../sandbox/limits.js';
 import { selectAgents, forcedProviderModel, providerKeyEnvNames } from '../agents/registry.js';
 import { DEFAULT_BASE_BRANCH } from '../core/base-branch.js';
-import { prepareContext, disposeContext } from '../core/vanguard.js';
+import { prepareContext, disposeContext } from '../core/taskcell.js';
 import { probeTaskDifficulty, decisionProbeConfig } from '../core/decision-probe.js';
 import { decisionModelConfig, decisionEgressAllowed, decisionModelMissing, DECISION_MODEL_DEFAULT, type DecisionModelConfig } from '../core/decision-model.js';
-import { VanguardError } from '../core/errors.js';
+import { TaskcellError } from '../core/errors.js';
 import { decisionDiffScorer } from '../evals/decision-judge.js';
 import { runStages, assembleReviewPipeline, withPrimaryFallback, sandboxComplete, withStageMaxTurns, withStageResumeUntilComplete, reviewFinalDiff, STAGE } from '../pipeline/pipeline.js';
 import { FLOWS } from '../api/capabilities.js';
@@ -371,13 +371,13 @@ async function resolveBaseStages(
  */
 export function resolveForkScorerConfig(whiteLabel: boolean, env: NodeJS.ProcessEnv = process.env): DecisionModelConfig {
   if (!decisionEgressAllowed(whiteLabel, env)) {
-    throw new VanguardError(
+    throw new TaskcellError(
       '--fork-scorer decision on a white-label run (--commit-author) sends the client diff to the decision model; set VANGUARD_DECISION_PROBE=all to allow that.',
     );
   }
   const config = decisionModelConfig(env);
   if (config === undefined) {
-    throw new VanguardError(`--fork-scorer decision: ${decisionModelMissing(env['VANGUARD_DECISION_MODEL'] ?? DECISION_MODEL_DEFAULT, env)}`);
+    throw new TaskcellError(`--fork-scorer decision: ${decisionModelMissing(env['VANGUARD_DECISION_MODEL'] ?? DECISION_MODEL_DEFAULT, env)}`);
   }
   return config;
 }
@@ -850,7 +850,7 @@ export async function runSourcedIssue(
         onEvent({ type: 'run-end' });
         return { task };
       }
-      if (delivery.kind !== 'delivered-pr') throw new VanguardError(`unexpected delivery outcome ${delivery.kind} for a new-pr target`);
+      if (delivery.kind !== 'delivered-pr') throw new TaskcellError(`unexpected delivery outcome ${delivery.kind} for a new-pr target`);
       const pr = { prUrl: delivery.prUrl, headSha: delivery.headSha };
       // Read back from the delivered diff, not a binding the `body` callback above would have to mutate
       // as a side effect: a future reorder or target kind can never leave this silently empty.

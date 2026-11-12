@@ -1,7 +1,7 @@
 import type { InstructionOverlay } from '../context/instruction-files.js';
 import { instructionSourceNote } from './review-prompt.js';
 import { defaultGhRunner } from '../tasks/github.js';
-import { VanguardError } from '../core/errors.js';
+import { TaskcellError } from '../core/errors.js';
 import { GITHUB_GATE_CONFIG_LABEL } from '../github-labels.js';
 import {
   AUTHORITATIVE_BLOCK_INSTRUCTION,
@@ -311,7 +311,7 @@ export function buildPullRequestReviewIncompleteComment(
 }
 
 /** Both review attempts ended without a verdict. The incomplete notice (when publishing) was already posted. */
-export class PullRequestReviewIncompleteError extends VanguardError {
+export class PullRequestReviewIncompleteError extends TaskcellError {
   constructor(
     readonly pr: PullRequestForReview,
     readonly commentBody: string,

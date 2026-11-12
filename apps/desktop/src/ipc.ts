@@ -10,7 +10,7 @@ import type {
   RunRef,
   DirListing,
   AppConfig,
-} from './vanguard-output';
+} from './taskcell-output';
 import type {
   BoardTask,
   Commands,

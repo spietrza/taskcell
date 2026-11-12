@@ -33,7 +33,7 @@ export const HUB_TOKEN_FRAGMENT_PARAM = 'token';
  * `src/hub/server.ts` sends it, `isHubTokenRejected` below recognises it. */
 export const HUB_TOKEN_REJECTED = 'invalid hub token';
 
-/** `BadRequestError`/`FlowError`/`VanguardError` are caller-correctable (`bad-request`); anything
+/** `BadRequestError`/`FlowError`/`TaskcellError` are caller-correctable (`bad-request`); anything
  * else is a real fault (`internal`) — `src/hub/rpc.ts`'s `classifyError` is the one place that maps
  * a thrown value to this vocabulary. */
 export type ErrorKind = 'bad-request' | 'internal';

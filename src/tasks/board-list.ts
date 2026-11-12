@@ -3,7 +3,7 @@ import { latestRunChips } from './board-chips.js';
 import { readFile } from 'node:fs/promises';
 import { join } from 'node:path';
 import { execa } from 'execa';
-import { VanguardError, visibleError } from '../core/errors.js';
+import { TaskcellError, visibleError } from '../core/errors.js';
 import { detectRepoSlug } from '../runners/github.js';
 import { parseGitlabProjectFromRemote } from '../runners/gitlab.js';
 import { GitHubTaskFetcher } from './github.js';
@@ -56,7 +56,7 @@ function requireBoardSource(cfg: BoardConfig): BoardSource {
   if (source === 'github' || source === 'gitlab' || source === 'linear') return source;
   // Explicit prompt, NOT createTask's github default: a board silently reading the wrong tracker
   // is worse than asking (S9 spec §2.7).
-  throw new VanguardError('Set a Task Source in Settings to load the board.');
+  throw new TaskcellError('Set a Task Source in Settings to load the board.');
 }
 
 async function originRemote(repoPath: string): Promise<string> {
@@ -91,16 +91,16 @@ async function githubSlug(repoPath: string): Promise<string> {
   } catch {
     const remote = await originRemote(repoPath).catch(() => '<no origin remote>');
     // Declared limitation (S9 spec §2.8): detection is github.com-only; Enterprise is trigger-gated.
-    throw new VanguardError(`could not detect a github.com repo from origin (${redactRemote(remote)}) — the board supports github.com remotes.`);
+    throw new TaskcellError(`could not detect a github.com repo from origin (${redactRemote(remote)}) — the board supports github.com remotes.`);
   }
 }
 
 async function gitlabProject(repoPath: string): Promise<string> {
   const remote = await originRemote(repoPath).catch(() => {
-    throw new VanguardError('no origin remote — the board needs one to find the GitLab project.');
+    throw new TaskcellError('no origin remote — the board needs one to find the GitLab project.');
   });
   const project = parseGitlabProjectFromRemote(remote);
-  if (project === undefined) throw new VanguardError(`cannot detect a GitLab project from origin (${redactRemote(remote)}).`);
+  if (project === undefined) throw new TaskcellError(`cannot detect a GitLab project from origin (${redactRemote(remote)}).`);
   return project;
 }
 
@@ -116,7 +116,7 @@ async function assertLinearTeam(team: string, send: Awaited<ReturnType<typeof li
     variables: { tf: { key: { eq: team } } },
   })) as { data?: { teams?: { nodes?: unknown[] } } };
   if ((response.data?.teams?.nodes ?? []).length === 0) {
-    throw new VanguardError(`No Linear team with key \`${team}\` — check the team key in Settings.`);
+    throw new TaskcellError(`No Linear team with key \`${team}\` — check the team key in Settings.`);
   }
 }
 
@@ -139,7 +139,7 @@ const defaultFetcherFactory: BoardFetcherFactory = async (source, cfg, repoPath)
   if (source === 'github') return new GitHubTaskFetcher(await githubSlug(repoPath));
   if (source === 'gitlab') return new GitLabTaskFetcher(await gitlabProject(repoPath));
   const team = cfg.team;
-  if (team === undefined) throw new VanguardError('Set a Linear team key (e.g. DEV) in Settings to load the board.');
+  if (team === undefined) throw new TaskcellError('Set a Linear team key (e.g. DEV) in Settings to load the board.');
   // ONE credential resolution for probe + list — linearGraphql shells `linear auth token` when
   // LINEAR_API_KEY is unset, and doing that twice per board load is a subprocess per load wasted
   // (review #346 obs 3).
@@ -203,7 +203,7 @@ export async function listBoardTasks(
 export async function fetchTaskSpec(repoPath: string, taskId: string): Promise<{ spec: string }> {
   const resolved = resolveTaskRef(taskId);
   if (resolved === undefined) {
-    throw new VanguardError(
+    throw new TaskcellError(
       `Couldn't resolve a Task Source from task id \`${taskId}\`. Recognized prefixes: \`gh-\` (GitHub), \`gl-\` (GitLab), \`linear-\` (Linear).`,
     );
   }
@@ -214,7 +214,7 @@ export async function fetchTaskSpec(repoPath: string, taskId: string): Promise<{
   else {
     // Guard the Linear identifier before it reaches argv (spec.rs's flag-smuggling check, ported).
     if (reference.startsWith('-') || !reference.includes('-') || !/^[A-Za-z0-9-]+$/.test(reference)) {
-      throw new VanguardError(`Invalid Linear id in task \`${taskId}\`.`);
+      throw new TaskcellError(`Invalid Linear id in task \`${taskId}\`.`);
     }
     fetcher = new LinearCliTaskFetcher({});
   }

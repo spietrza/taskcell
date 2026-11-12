@@ -1,7 +1,7 @@
 import { afterEach, beforeEach, describe, expect, test, vi } from 'vitest';
 import { render, screen, fireEvent, within } from '@testing-library/react';
 import { RepoPicker } from './RepoPicker';
-import type { DirListing } from './vanguard-output';
+import type { DirListing } from './taskcell-output';
 
 vi.mock('./ipc', () => ({ browseDirs: vi.fn() }));
 import { browseDirs } from './ipc';
@@ -10,8 +10,8 @@ const mockBrowseDirs = vi.mocked(browseDirs);
 const ROOT: DirListing = {
   path: '/root',
   entries: [
-    { name: 'git-repo', path: '/root/git-repo', isGitRepo: true, hasVanguard: true },
-    { name: 'plain', path: '/root/plain', isGitRepo: false, hasVanguard: false },
+    { name: 'git-repo', path: '/root/git-repo', isGitRepo: true, hasTaskcell: true },
+    { name: 'plain', path: '/root/plain', isGitRepo: false, hasTaskcell: false },
   ],
 };
 const GIT_REPO: DirListing = { path: '/root/git-repo', parent: '/root', entries: [] };

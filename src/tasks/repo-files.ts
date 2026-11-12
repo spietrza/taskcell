@@ -1,7 +1,7 @@
 import { readFile, realpath } from 'node:fs/promises';
 import { isAbsolute, join, normalize, relative, sep } from 'node:path';
 import { execa } from 'execa';
-import { VanguardError, visibleError } from '../core/errors.js';
+import { TaskcellError, visibleError } from '../core/errors.js';
 import { MAX_ATTACHMENT_BYTES } from '../wire.js';
 
 /**
@@ -47,11 +47,11 @@ export async function listRepoFiles(repoPath: string): Promise<ListRepoFilesResu
  */
 export function resolveRepoFile(repoPath: string, rel: string): string {
   if (rel === '' || isAbsolute(rel) || rel.includes('\0')) {
-    throw new VanguardError(`invalid mention path: ${rel}`);
+    throw new TaskcellError(`invalid mention path: ${rel}`);
   }
   const norm = normalize(rel);
   if (norm === '..' || norm.startsWith(`..${sep}`) || norm.includes(`${sep}..${sep}`)) {
-    throw new VanguardError(`mention path escapes the repo: ${rel}`);
+    throw new TaskcellError(`mention path escapes the repo: ${rel}`);
   }
   return join(repoPath, norm);
 }
@@ -63,7 +63,7 @@ async function assertTracked(repoPath: string, rel: string, shown: string): Prom
     // --literal-pathspecs: `*` or `:(glob)…` must name one file, not match any tracked file.
     await execa('git', ['--literal-pathspecs', '-C', repoPath, 'ls-files', '--error-unmatch', '-z', '--', rel]);
   } catch {
-    throw new VanguardError(`mention path is not a tracked file: ${shown}`);
+    throw new TaskcellError(`mention path is not a tracked file: ${shown}`);
   }
 }
 
@@ -83,7 +83,7 @@ export async function readRepoFile(repoPath: string, rel: string): Promise<ReadR
     // and require containment, the same realpath discipline as the image root in complete.ts.
     const [realAbs, realRoot] = await Promise.all([realpath(abs), realpath(repoPath)]);
     if (realAbs !== realRoot && !realAbs.startsWith(realRoot + sep)) {
-      throw new VanguardError(`mention path escapes the repo: ${rel}`);
+      throw new TaskcellError(`mention path escapes the repo: ${rel}`);
     }
     // Containment alone still lets a tracked `notes.md -> .env` read an untracked, ignored file
     // inside the checkout: when the path resolved somewhere else, the target must be tracked too.

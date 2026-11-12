@@ -1,7 +1,7 @@
 import { Combobox } from '@/ui';
 import { Check, ChevronsUpDown } from 'lucide-react';
 import { projectColor } from './color';
-import type { Project } from './vanguard-output';
+import type { Project } from './taskcell-output';
 
 interface Item {
   value: string;

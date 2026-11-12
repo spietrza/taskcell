@@ -1,7 +1,7 @@
 import { test, expect } from 'vitest';
 import { render, screen } from '@testing-library/react';
 import { RunList } from './RunList';
-import type { ActiveRun, RunSummary } from '../../vanguard-output';
+import type { ActiveRun, RunSummary } from '../../taskcell-output';
 
 const noop = (): void => {};
 

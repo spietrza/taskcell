@@ -1,11 +1,11 @@
-import { runAgent } from '../core/vanguard.js';
+import { runAgent } from '../core/taskcell.js';
 import { mergeAttempts } from '../core/run-metric.js';
 import { literalPrompt } from '../context/prompt-engine.js';
 import { AgentError, isProviderLimitError } from '../core/errors.js';
 import { redactForPublish } from '../core/secret-scan.js';
 import { enforceUsageCap } from '../core/usage-cap.js';
 import { DEFAULT_RUN_MAX_COST_USD, STAGE } from './pipeline.js';
-import type { RunContext } from '../core/vanguard.js';
+import type { RunContext } from '../core/taskcell.js';
 import type { AgentProvider } from '../agents/provider.js';
 import type { RunResult } from '../core/types.js';
 import type { PipelineStage, StageOutcome } from './pipeline.js';

@@ -9,7 +9,7 @@ import type {
   RunRecord,
   DirListing,
   RemoteImport,
-} from '../vanguard-output';
+} from '../taskcell-output';
 import type {
   Capabilities,
   BoardTask,
@@ -293,9 +293,9 @@ export const dirListing: DirListing = {
   path: '/home/user/projects',
   parent: '/home/user',
   entries: [
-    { name: 'my-app', path: '/home/user/projects/my-app', isGitRepo: true, hasVanguard: true },
-    { name: 'api-service', path: '/home/user/projects/api-service', isGitRepo: true, hasVanguard: false },
-    { name: 'scratch', path: '/home/user/projects/scratch', isGitRepo: false, hasVanguard: false },
+    { name: 'my-app', path: '/home/user/projects/my-app', isGitRepo: true, hasTaskcell: true },
+    { name: 'api-service', path: '/home/user/projects/api-service', isGitRepo: true, hasTaskcell: false },
+    { name: 'scratch', path: '/home/user/projects/scratch', isGitRepo: false, hasTaskcell: false },
   ],
 };
 

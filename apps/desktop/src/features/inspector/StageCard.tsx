@@ -1,7 +1,7 @@
 import { Chip, Collapsible } from '@/ui'
 import { AlertCircle, CheckCircle, ChevronDown } from 'lucide-react'
 import { AgentText } from '../../components/AgentText'
-import type { StageDetail } from '../../vanguard-output'
+import type { StageDetail } from '../../taskcell-output'
 import { buildStageMeta } from './stage-meta'
 
 export function StageCard({ stage }: { stage: StageDetail }) {

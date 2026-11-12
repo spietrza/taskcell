@@ -1,5 +1,7 @@
-export { run, prepareContext, runAgent, disposeContext, type RunDeps, type RunContext, type PrepareOptions, type TaskStart, type StageInput } from './core/vanguard.js';
-export * as vanguard from './core/vanguard.js';
+export { run, prepareContext, runAgent, disposeContext, type RunDeps, type RunContext, type PrepareOptions, type TaskStart, type StageInput } from './core/taskcell.js';
+export * as taskcell from './core/taskcell.js';
+/** @deprecated Use the `taskcell` namespace; kept for existing imports until the next major release. */
+export * as vanguard from './core/taskcell.js';
 export type { RunOptions, RunResult, ReasoningEffort, ExitReason } from './core/types.js';
 export type {
   IsolatedSandboxProvider,

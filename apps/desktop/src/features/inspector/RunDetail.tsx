@@ -5,7 +5,7 @@ import { StageCard } from './StageCard';
 import { DiffView } from './DiffView';
 import { TranscriptView } from './TranscriptView';
 import { SpecPane } from './SpecPane';
-import type { RunDetail as RunDetailT } from '../../vanguard-output';
+import type { RunDetail as RunDetailT } from '../../taskcell-output';
 
 export function RunDetail({ detail, project }: { detail: RunDetailT; project: string }) {
   const [tab, setTab] = useState('overview');

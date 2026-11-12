@@ -3,7 +3,7 @@ import { Button, Card, Chip, Empty } from '@/ui';
 import { Factory, FolderPlus, LayoutGrid, X } from 'lucide-react';
 import { projectColor } from '../../color';
 import { relTime } from '../../time';
-import type { Project } from '../../vanguard-output';
+import type { Project } from '../../taskcell-output';
 
 function Stat({
   label,

@@ -1,6 +1,6 @@
 import type { IsolatedSandboxProvider } from '../sandbox/provider.js';
 import type { AgentProvider, AgentUsage } from '../agents/provider.js';
-import type { VanguardLogger } from './logger.js';
+import type { TaskcellLogger } from './logger.js';
 
 export type { ReasoningEffort } from '../wire.js';
 import type { ReasoningEffort } from '../wire.js';
@@ -28,7 +28,7 @@ export interface RunOptions {
   model?: string;
   sandbox: IsolatedSandboxProvider;
   agent: AgentProvider;
-  logger?: VanguardLogger;
+  logger?: TaskcellLogger;
   signal?: AbortSignal;
 }
 

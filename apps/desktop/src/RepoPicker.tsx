@@ -4,7 +4,7 @@ import { Button, Input, Tabs } from '@/ui';
 import { browseDirs } from './ipc';
 import { subscribe } from './transport';
 import { errorMessage } from './errors';
-import type { DirListing } from './vanguard-output';
+import type { DirListing } from './taskcell-output';
 
 type Mode = 'existing' | 'clone';
 
@@ -159,7 +159,7 @@ export function RepoPicker({
                   {entry.isGitRepo && (
                     <span className="rounded border border-border px-1.5 py-0.5 text-[10px] text-muted-foreground">git</span>
                   )}
-                  {entry.hasVanguard && (
+                  {entry.hasTaskcell && (
                     <span className="rounded border border-border px-1.5 py-0.5 text-[10px] text-muted-foreground">.taskcell</span>
                   )}
                 </span>

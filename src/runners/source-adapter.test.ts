@@ -155,8 +155,8 @@ const { wmDiff, wmCommitMessages } = vi.hoisted(() => ({
 const { runAgent } = vi.hoisted(() => ({ runAgent: vi.fn() }));
 
 // The agent pass resolves the base against origin before cutting the worktree; keep it a pure pass-through here.
-import { prepareContext } from '../core/vanguard.js';
-vi.mock('../core/vanguard.js', () => ({
+import { prepareContext } from '../core/taskcell.js';
+vi.mock('../core/taskcell.js', () => ({
   prepareContext: vi.fn(async () => ({
     taskId: 'gl-1',
     sandbox: {},

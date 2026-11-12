@@ -7,7 +7,7 @@ import { readLedger } from './ledger.js';
 import { decide } from './rules.js';
 import { buildDecisionRecord, appendDecision } from './record.js';
 import { publishCheckRun, commentDecision, shadowSafeGhRunner } from './publish.js';
-import { VanguardError } from '../core/errors.js';
+import { TaskcellError } from '../core/errors.js';
 import type { ApproverFacts, Decision, DecisionRecord } from './types.js';
 
 export interface RunApproverInput {
@@ -53,7 +53,7 @@ export async function runApprover(input: RunApproverInput): Promise<RunApproverR
     await attempt('comment', () => commentDecision(gh, input.repoSlug, input.prNumber, decision, record));
     await attempt('decision record', () => appendDecision(input.repoPath, record, input.branch !== undefined ? { branch: input.branch } : {}));
     if (failures.length > 0) {
-      throw new VanguardError(`approver: ${decision.verdict} for #${input.prNumber} was decided, but ${failures.join('; ')}`);
+      throw new TaskcellError(`approver: ${decision.verdict} for #${input.prNumber} was decided, but ${failures.join('; ')}`);
     }
     return { record };
   };

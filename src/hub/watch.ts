@@ -105,9 +105,9 @@ export class WatchRegistry {
       return;
     }
 
-    const vanguardDir = stateDir(repoPath);
-    const recursive = existsSync(vanguardDir);
-    const target = recursive ? vanguardDir : repoPath;
+    const stateDirPath = stateDir(repoPath);
+    const recursive = existsSync(stateDirPath);
+    const target = recursive ? stateDirPath : repoPath;
 
     try {
       const entry = this.startWatching(target, recursive, repoPath, onChange);

@@ -1,6 +1,6 @@
 import { test, expect } from 'vitest'
 import { buildStageMeta } from './stage-meta'
-import type { RunRecord } from '../../vanguard-output'
+import type { RunRecord } from '../../taskcell-output'
 
 const base: RunRecord = {
   taskId: 'task-1',

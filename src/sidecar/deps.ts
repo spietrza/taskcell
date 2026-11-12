@@ -3,7 +3,7 @@ import { assertFlowResolvable, deleteRepoFlow, listRepoFlows, readRepoFlow, writ
 import { fetchTaskSpec, listBoardTasks } from '../tasks/board-list.js';
 import { listRepoFiles, readRepoFile } from '../tasks/repo-files.js';
 import { listRuns as listRunSummaries, readRun as readRunDetail, runsRoot } from '../core/run-store.js';
-import { VanguardError } from '../core/errors.js';
+import { TaskcellError } from '../core/errors.js';
 import { loadCustomProviders } from '../agents/custom.js';
 import {
   assertProvidersResolvable,
@@ -146,13 +146,13 @@ export function productionDeps(): SidecarDeps {
       return {};
     },
     // Board read path (S9): user-fixable failures (no source, wrong team key, not logged in,
-    // undetectable remote) arrive as VanguardError — wrap to bad-request so the board shows the
+    // undetectable remote) arrive as TaskcellError — wrap to bad-request so the board shows the
     // actionable message instead of an 'internal' shrug.
     listTasks: async ({ repoPath }) => {
       try {
         return await listBoardTasks(repoPath);
       } catch (error) {
-        if (error instanceof VanguardError) throw new BadRequestError(error.message);
+        if (error instanceof TaskcellError) throw new BadRequestError(error.message);
         throw error;
       }
     },
@@ -160,7 +160,7 @@ export function productionDeps(): SidecarDeps {
       try {
         return await fetchTaskSpec(repoPath, taskId);
       } catch (error) {
-        if (error instanceof VanguardError) throw new BadRequestError(error.message);
+        if (error instanceof TaskcellError) throw new BadRequestError(error.message);
         throw error;
       }
     },
@@ -171,7 +171,7 @@ export function productionDeps(): SidecarDeps {
       try {
         return await listRepoFiles(repoPath);
       } catch (error) {
-        if (error instanceof VanguardError) throw new BadRequestError(error.message);
+        if (error instanceof TaskcellError) throw new BadRequestError(error.message);
         throw error;
       }
     },
@@ -179,7 +179,7 @@ export function productionDeps(): SidecarDeps {
       try {
         return await readRepoFile(repoPath, path);
       } catch (error) {
-        if (error instanceof VanguardError) throw new BadRequestError(error.message);
+        if (error instanceof TaskcellError) throw new BadRequestError(error.message);
         throw error;
       }
     },

@@ -1,5 +1,5 @@
 import { execa } from 'execa';
-import { VanguardError } from '../core/errors.js';
+import { TaskcellError } from '../core/errors.js';
 import { classifyAuthor } from './comment-trust.js';
 import type { Task, TaskComment, TaskFetcher, TaskFilter } from './fetcher.js';
 import { redactForPublish } from '../core/secret-scan.js';
@@ -187,9 +187,9 @@ export async function githubDefaultBranch(repoSlug: string, gh: GhRunner = defau
   try {
     data = JSON.parse(await gh(['repo', 'view', repoSlug, '--json', 'defaultBranchRef'])) as typeof data;
   } catch (cause) {
-    throw new VanguardError('Cannot establish the repository default branch', { cause });
+    throw new TaskcellError('Cannot establish the repository default branch', { cause });
   }
   const name = data?.defaultBranchRef?.name;
-  if (typeof name !== 'string' || name.trim() === '') throw new VanguardError('Cannot establish the repository default branch');
+  if (typeof name !== 'string' || name.trim() === '') throw new TaskcellError('Cannot establish the repository default branch');
   return name;
 }
