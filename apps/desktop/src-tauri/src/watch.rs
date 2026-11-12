@@ -15,7 +15,7 @@ pub const CHANGED_EVENT: &str = "vanguard:changed";
 #[derive(Default)]
 pub struct WatchState(pub Mutex<HashMap<String, RecommendedWatcher>>);
 
-/// Watch a repo's `.vanguard/` and emit a debounced `vanguard:changed` on any change.
+/// Watch a repo's `.taskcell/` and emit a debounced `vanguard:changed` on any change.
 pub fn start(app: AppHandle, state: &WatchState, repo_path: String) -> notify::Result<()> {
     // Replace any existing watcher for this path (idempotent re-entry).
     stop(state, &repo_path);
@@ -23,7 +23,7 @@ pub fn start(app: AppHandle, state: &WatchState, repo_path: String) -> notify::R
     let (tx, rx) = mpsc::channel::<()>();
     let mut watcher = notify::recommended_watcher(move |res: notify::Result<notify::Event>| {
         if let Ok(event) = res {
-            // Draft autosaves (S10) land under `.vanguard/drafts/` at typing cadence, and nothing
+            // Draft autosaves (S10) land under `.taskcell/drafts/` at typing cadence, and nothing
             // the watcher's consumers show (runs list, active runs) derives from them — forwarding
             // those events would drive a refresh loop for as long as the user types.
             if !event.paths.is_empty() && event.paths.iter().all(|p| is_draft_path(p)) {
@@ -34,12 +34,12 @@ pub fn start(app: AppHandle, state: &WatchState, repo_path: String) -> notify::R
         }
     })?;
 
-    // When `.vanguard/` exists, watch it recursively. When it doesn't yet (fresh repo),
-    // watch the repo root NON-recursively — enough to notice `.vanguard` appearing without
+    // When `.taskcell/` exists, watch it recursively. When it doesn't yet (fresh repo),
+    // watch the repo root NON-recursively — enough to notice `.taskcell` appearing without
     // drowning in node_modules/.git writes and re-fetching on every unrelated file save.
-    // ponytail: a repo opened before `.vanguard` exists won't deep-watch until re-opened;
-    // real projects are added with `.vanguard/` already present, so this is rare.
-    let vanguard_dir = Path::new(&repo_path).join(".vanguard");
+    // ponytail: a repo opened before `.taskcell` exists won't deep-watch until re-opened;
+    // real projects are added with `.taskcell/` already present, so this is rare.
+    let vanguard_dir = crate::runs::state_dir(Path::new(&repo_path));
     let (target, mode) = if vanguard_dir.exists() {
         (vanguard_dir, RecursiveMode::Recursive)
     } else {
@@ -61,12 +61,12 @@ pub fn start(app: AppHandle, state: &WatchState, repo_path: String) -> notify::R
     Ok(())
 }
 
-/// True for paths under `<repo>/.vanguard/drafts/` — matched structurally (adjacent components)
+/// True for paths under `<repo>/<state dir>/drafts/` — matched structurally (adjacent components)
 /// so a repo directory that happens to be NAMED `drafts` elsewhere is not filtered.
 fn is_draft_path(p: &Path) -> bool {
     let mut comps = p.components();
     while let Some(c) = comps.next() {
-        if c.as_os_str() == ".vanguard" {
+        if c.as_os_str().to_str().is_some_and(|n| crate::runs::STATE_DIR_NAMES.contains(&n)) {
             return comps.next().is_some_and(|n| n.as_os_str() == "drafts");
         }
     }
@@ -85,6 +85,7 @@ mod tests {
     #[test]
     fn draft_paths_are_filtered_structurally() {
         assert!(is_draft_path(Path::new("/r/.vanguard/drafts/draft-a.json")));
+        assert!(is_draft_path(Path::new("/r/.taskcell/drafts/draft-a.json")));
         assert!(is_draft_path(Path::new("/r/.vanguard/drafts/.gitignore")));
         assert!(!is_draft_path(Path::new("/r/.vanguard/runs/x.json")));
         assert!(!is_draft_path(Path::new("/r/drafts/.vanguard/x")));

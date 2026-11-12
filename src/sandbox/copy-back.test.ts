@@ -60,7 +60,7 @@ describe('classifyPath', () => {
   it('skips the pnpm content store a read-only sandbox puts at the workspace root, and node_modules/.git', async () => {
     const root = await stage({});
     try {
-      for (const p of ['.pnpm-store/v11/files/00/abc', 'apps/desktop/node_modules/x', '.git', '.claude/skills/s.md', '.cursor/rules/r.mdc', '.vanguard/skills/s.md']) {
+      for (const p of ['.pnpm-store/v11/files/00/abc', 'apps/desktop/node_modules/x', '.git', '.claude/skills/s.md', '.cursor/rules/r.mdc', '.vanguard/skills/s.md', '.taskcell/skills/s.md']) {
         expect(await classifyPath(root, p)).toBeDefined();
       }
       for (const p of ['src/pnpm-store.ts', 'docs/.pnpm-store.md', 'apps/desktop/src/App.tsx']) {

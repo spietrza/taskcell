@@ -61,7 +61,7 @@ const consumedNonce = { value: 0 };
 /**
  * The New Task screen, tabbed-drawer shape (task-page handoff): full-page markdown editor, a
  * header carrying the primary action, and a chat drawer whose tab strip holds one tab per open
- * conversation. One conversation == one draft == one JSON file under `.vanguard/drafts/` —
+ * conversation. One conversation == one draft == one JSON file under `.taskcell/drafts/` —
  * created lazily on the first non-empty edit or chat send, never on click. Filing the draft as a
  * task archives it in place. All S10 persistence invariants (id-keyed, snapshot-only hand-offs)
  * are carried over unchanged.

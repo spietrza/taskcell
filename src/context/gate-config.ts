@@ -1,7 +1,7 @@
-import { execa } from 'execa';
 import { diffSections, extractDiffFiles } from '../pipeline/conformance-gate.js';
 import { matchGlob } from '../approver/policy.js';
 import { resolveRemoteBaseRef } from '../core/base-branch.js';
+import { showStateFile } from '../core/state-path.js';
 
 /**
  * A file the verify gate's own repo config touches. `patch` is the file's diff hunk text (one
@@ -15,7 +15,7 @@ export interface GateConfigDiffFile {
 
 /**
  * Built-in gate-config path globs — the same mini-glob syntax as the approver's pathRules (see
- * approver/policy.ts#compileGlob). A repo can add to this list via `.vanguard/gate-config.json`
+ * approver/policy.ts#compileGlob). A repo can add to this list via `.taskcell/gate-config.json`
  * (see loadGateConfigExtraGlobs). package.json is handled separately (packageJsonScriptsChanged):
  * whether it counts as gate config depends on which script changed, not just the path.
  */
@@ -35,9 +35,11 @@ export const DEFAULT_GATE_CONFIG_GLOBS: readonly string[] = [
   'skills.lock.json',
   // The list that decides what counts as gate config is gate config itself: narrowing it (or
   // deleting it) weakens every check above, so it goes through the same human gate.
+  '.taskcell/gate-config.json',
   '.vanguard/gate-config.json',
   // The auto-approver's policy (required checks, path rules, size caps): loosening it is the same
   // kind of change, read by approver/policy.ts.
+  '.taskcell/approver.json',
   '.vanguard/approver.json',
 ];
 
@@ -87,7 +89,7 @@ export function packageJsonScriptsChanged(patch: string): boolean {
 
 /**
  * The gate-config paths among `files`, sorted. `extraGlobs` (from a repo's own
- * `.vanguard/gate-config.json`) are matched in addition to the built-in list. Empty ⇒ nothing to flag.
+ * `.taskcell/gate-config.json`) are matched in addition to the built-in list. Empty ⇒ nothing to flag.
  */
 export function gateConfigPaths(files: readonly GateConfigDiffFile[], extraGlobs: readonly string[] = []): string[] {
   const globs = [...DEFAULT_GATE_CONFIG_GLOBS, ...extraGlobs];
@@ -198,7 +200,7 @@ export function extractGateConfigBlock(body: string): string | undefined {
 }
 
 /**
- * Extra gate-config globs from `.vanguard/gate-config.json` (`{ "extraGlobs": string[] }`) on the
+ * Extra gate-config globs from `.taskcell/gate-config.json` (`{ "extraGlobs": string[] }`) on the
  * base branch, read via the same remote-tracking-ref resolution as the approver's own base-branch
  * read (approver/policy.ts#loadPolicy) rather than the shorthand `origin/<base>` — which can resolve
  * to `refs/tags/origin/<base>` or `refs/heads/origin/<base>` before the remote-tracking ref, and which
@@ -218,16 +220,16 @@ export async function loadGateConfigExtraGlobs(repoPath: string, base: string): 
   }
   let raw: string;
   try {
-    raw = (await execa('git', ['show', `${ref}:.vanguard/gate-config.json`], { cwd: repoPath })).stdout;
+    raw = await showStateFile(repoPath, ref, 'gate-config.json');
   } catch {
-    console.log(`taskcell: gate-config — no .vanguard/gate-config.json found at ${ref}; extraGlobs stay empty`);
+    console.log(`taskcell: gate-config — no .taskcell/gate-config.json (or legacy .vanguard/) found at ${ref}; extraGlobs stay empty`);
     return [];
   }
   try {
     const parsed = JSON.parse(raw) as { extraGlobs?: unknown };
     return Array.isArray(parsed.extraGlobs) ? parsed.extraGlobs.filter((g): g is string => typeof g === 'string') : [];
   } catch (err) {
-    console.warn(`taskcell: gate-config — .vanguard/gate-config.json at ${ref} is unparseable, ignoring extraGlobs: ${err instanceof Error ? err.message : String(err)}`);
+    console.warn(`taskcell: gate-config — gate-config.json at ${ref} is unparseable, ignoring extraGlobs: ${err instanceof Error ? err.message : String(err)}`);
     return [];
   }
 }

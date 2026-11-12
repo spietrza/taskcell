@@ -1,11 +1,11 @@
 import { createHash } from 'node:crypto';
-import { execa } from 'execa';
 import { z } from 'zod';
 import { resolveRemoteBaseRef } from '../core/base-branch.js';
 import type { ApproverPolicy } from './types.js';
+import { showStateFile } from '../core/state-path.js';
 
 /**
- * `.vanguard/approver.json`, read from the base branch only (never the working tree or the PR
+ * `.taskcell/approver.json`, read from the base branch only (never the working tree or the PR
  * head) — see `loadPolicy` below. Unknown extra keys are tolerated (forward-compat); every field
  * other than schemaVersion/enabled/requiredChecks/reviewAuthors/pathRules/shape/ledger/auditSample
  * has a default so a minimal policy still validates. Security-relevant fields have no default.
@@ -38,7 +38,7 @@ function sha256hex(bytes: string): string {
 }
 
 /**
- * Read `.vanguard/approver.json` from `origin/<base>` via `git show` — never the working tree, never
+ * Read `.taskcell/approver.json` (or the legacy `.vanguard/approver.json`) from `origin/<base>` via `git show` — never the working tree, never
  * the PR head. Returns `undefined` when the file is missing, not JSON, or fails schema validation;
  * the caller then records `rulesFired: ['policy-unreadable']` and still writes a decision record.
  */
@@ -46,7 +46,7 @@ export async function loadPolicy(repoPath: string, base: string): Promise<Loaded
   let raw: string;
   try {
     await resolveRemoteBaseRef(repoPath, base, { label: 'approver', keepLocalIfAhead: false });
-    raw = (await execa('git', ['show', `refs/remotes/origin/${base}:.vanguard/approver.json`], { cwd: repoPath, stripFinalNewline: false })).stdout;
+    raw = await showStateFile(repoPath, `refs/remotes/origin/${base}`, 'approver.json');
   } catch {
     return undefined;
   }

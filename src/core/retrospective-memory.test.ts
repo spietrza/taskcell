@@ -25,7 +25,7 @@ function makeMetricsLine(obj: Record<string, unknown>): string {
 }
 
 async function writeMetrics(repoPath: string, lines: string[]): Promise<void> {
-  const runsDir = join(repoPath, '.vanguard', 'runs');
+  const runsDir = join(repoPath, '.taskcell', 'runs');
   await mkdir(runsDir, { recursive: true });
   await writeFile(join(runsDir, 'metrics.jsonl'), lines.join('\n') + '\n');
 }
@@ -36,7 +36,7 @@ async function writeProof(
   ts: string,
   proof: Record<string, unknown>,
 ): Promise<void> {
-  const taskDir = join(repoPath, '.vanguard', 'runs', taskId);
+  const taskDir = join(repoPath, '.taskcell', 'runs', taskId);
   await mkdir(taskDir, { recursive: true });
   const sanitized = ts.replace(/[^0-9A-Za-z]/g, '-');
   await writeFile(join(taskDir, `${sanitized}.proof.json`), JSON.stringify(proof, null, 2) + '\n');
@@ -48,7 +48,7 @@ async function writeReviewerJson(
   ts: string,
   record: Record<string, unknown>,
 ): Promise<void> {
-  const taskDir = join(repoPath, '.vanguard', 'runs', taskId);
+  const taskDir = join(repoPath, '.taskcell', 'runs', taskId);
   await mkdir(taskDir, { recursive: true });
   const sanitized = ts.replace(/[^0-9A-Za-z]/g, '-');
   await writeFile(join(taskDir, `${sanitized}-reviewer.json`), JSON.stringify(record, null, 2) + '\n');
@@ -207,7 +207,7 @@ describe('buildRetrospectiveMemory – failed proof', () => {
 describe('buildRetrospectiveMemory – reviewer notes', () => {
   it('includes substantive reviewer notes', async () => {
     const ts = '2026-06-10T15:00:00.000Z';
-    await mkdir(join(repo, '.vanguard', 'runs', 'TES-7'), { recursive: true });
+    await mkdir(join(repo, '.taskcell', 'runs', 'TES-7'), { recursive: true });
     await writeReviewerJson(repo, 'TES-7', ts, {
       taskId: 'TES-7',
       stage: 'reviewer',
@@ -226,7 +226,7 @@ describe('buildRetrospectiveMemory – reviewer notes', () => {
   it('redacts a token embedded in a reviewer note', async () => {
     const ts = '2026-06-10T15:00:00.000Z';
     const fakeSecret = 'ABCDEF0123456789ABCDEF0123456789'; // 32 chars
-    await mkdir(join(repo, '.vanguard', 'runs', 'TES-RT'), { recursive: true });
+    await mkdir(join(repo, '.taskcell', 'runs', 'TES-RT'), { recursive: true });
     await writeReviewerJson(repo, 'TES-RT', ts, {
       taskId: 'TES-RT',
       stage: 'reviewer',
@@ -243,7 +243,7 @@ describe('buildRetrospectiveMemory – reviewer notes', () => {
 
   it('skips reviewer notes whose finalText is just <promise>COMPLETE</promise>', async () => {
     const ts = '2026-06-10T15:00:00.000Z';
-    await mkdir(join(repo, '.vanguard', 'runs', 'TES-8'), { recursive: true });
+    await mkdir(join(repo, '.taskcell', 'runs', 'TES-8'), { recursive: true });
     await writeReviewerJson(repo, 'TES-8', ts, {
       taskId: 'TES-8',
       stage: 'reviewer',
@@ -258,7 +258,7 @@ describe('buildRetrospectiveMemory – reviewer notes', () => {
 
   it('skips reviewer notes whose finalText (after stripping promise tags) equals COMPLETE case-insensitively', async () => {
     const ts = '2026-06-10T15:00:00.000Z';
-    await mkdir(join(repo, '.vanguard', 'runs', 'TES-9'), { recursive: true });
+    await mkdir(join(repo, '.taskcell', 'runs', 'TES-9'), { recursive: true });
     await writeReviewerJson(repo, 'TES-9', ts, {
       taskId: 'TES-9',
       stage: 'reviewer',
@@ -273,7 +273,7 @@ describe('buildRetrospectiveMemory – reviewer notes', () => {
   it('ignores .diff and .transcript.log siblings — their content must not appear in the report', async () => {
     const ts = '2026-06-10T16:00:00.000Z';
     const sanitized = ts.replace(/[^0-9A-Za-z]/g, '-');
-    const taskDir = join(repo, '.vanguard', 'runs', 'TES-10');
+    const taskDir = join(repo, '.taskcell', 'runs', 'TES-10');
     await mkdir(taskDir, { recursive: true });
 
     // Write sibling .diff and .transcript.log with unique content
@@ -328,7 +328,7 @@ describe('loadRetrospectiveMemory', () => {
 
     await refreshRetrospectiveMemory(repo);
 
-    const fullContent = await readFile(join(repo, '.vanguard', 'memory', 'retrospective.md'), 'utf8');
+    const fullContent = await readFile(join(repo, '.taskcell', 'memory', 'retrospective.md'), 'utf8');
     expect(fullContent.length).toBeGreaterThan(200);
 
     const maxBytes = 100;
@@ -339,7 +339,7 @@ describe('loadRetrospectiveMemory', () => {
   it('caps multibyte content without producing U+FFFD mojibake', async () => {
     // Reviewer note full of multibyte chars; cap mid-stream.
     const ts = '2026-06-10T10:00:00.000Z';
-    await mkdir(join(repo, '.vanguard', 'runs', 'TES-MB'), { recursive: true });
+    await mkdir(join(repo, '.taskcell', 'runs', 'TES-MB'), { recursive: true });
     await writeReviewerJson(repo, 'TES-MB', ts, {
       taskId: 'TES-MB',
       stage: 'reviewer',
@@ -360,7 +360,7 @@ describe('loadRetrospectiveMemory', () => {
     ]);
 
     const path = await refreshRetrospectiveMemory(repo);
-    expect(path).toBe(join(repo, '.vanguard', 'memory', 'retrospective.md'));
+    expect(path).toBe(join(repo, '.taskcell', 'memory', 'retrospective.md'));
 
     const content = await readFile(path, 'utf8');
     expect(content).toContain('TES-R');
@@ -372,8 +372,8 @@ describe('loadRetrospectiveMemory', () => {
     try {
       const victim = join(outside, 'notes.txt');
       await writeFile(victim, 'operator notes\n');
-      await mkdir(join(repo, '.vanguard', 'memory'), { recursive: true });
-      await symlink(victim, join(repo, '.vanguard', 'memory', 'retrospective.md'));
+      await mkdir(join(repo, '.taskcell', 'memory'), { recursive: true });
+      await symlink(victim, join(repo, '.taskcell', 'memory', 'retrospective.md'));
       await expect(writeRetrospectiveMarkdown(repo, '# dummy\n')).rejects.toThrow(/symlink/);
       expect(await readFile(victim, 'utf8')).toBe('operator notes\n');
     } finally {
@@ -383,7 +383,7 @@ describe('loadRetrospectiveMemory', () => {
 
   it('writeRetrospectiveMarkdown writes the given markdown and returns the path', async () => {
     const path = await writeRetrospectiveMarkdown(repo, '# hello\n');
-    expect(path).toBe(join(repo, '.vanguard', 'memory', 'retrospective.md'));
+    expect(path).toBe(join(repo, '.taskcell', 'memory', 'retrospective.md'));
     expect(await readFile(path, 'utf8')).toBe('# hello\n');
   });
 });

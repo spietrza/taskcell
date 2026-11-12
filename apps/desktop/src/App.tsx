@@ -168,7 +168,7 @@ export default function App() {
       return;
     }
     try {
-      const dir = await open({ directory: true, title: 'Add a repo (contains .vanguard/)' });
+      const dir = await open({ directory: true, title: 'Add a repo (contains .taskcell/)' });
       if (typeof dir === 'string') setProjects(await addProject(dir));
     } catch {
       /* ignore */

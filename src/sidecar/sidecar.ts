@@ -94,7 +94,7 @@ export interface ReadRepoFileParams {
 }
 /**
  * Repo-scoped run listing. Query pipe, Bound::Timed. `repoPath` is a repo-shaped root: the project
- * itself, or (desktop CI import) the cache dir whose `.vanguard/runs` is the downloaded artifact.
+ * itself, or (desktop CI import) the cache dir whose `.taskcell/runs` is the downloaded artifact.
  */
 export interface ListRunsParams {
   repoPath: string;
@@ -176,7 +176,7 @@ function validateCreateRun(params: unknown): void {
   if (p.transport !== undefined && !(TRANSPORTS as readonly unknown[]).includes(p.transport)) {
     throw new BadRequestError(`unknown transport "${String(p.transport)}" — choose one of: ${TRANSPORTS.join(', ')}`);
   }
-  // Only the string shape is checked here: repo `.vanguard/flows/*.hcl` flows are legal values and
+  // Only the string shape is checked here: repo `.taskcell/flows/*.hcl` flows are legal values and
   // this validator is synchronous. Resolvability is the createRun dep's first statement
   // (assertFlowResolvable — before beginRun, before any sandbox cost), still kind `bad-request`.
   if (p.flow !== undefined && (typeof p.flow !== 'string' || p.flow.trim() === '')) {

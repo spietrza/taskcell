@@ -11,7 +11,7 @@ export function LiveRun({
 }: {
   active: ActiveRun;
   refreshKey: number;
-  /** Budget cap from the project's .vanguard/app.json; when set, the strip shows spend vs cap.
+  /** Budget cap from the project's .taskcell/app.json; when set, the strip shows spend vs cap.
    *  Nullable like the config field — Rust's serde writes `null` for an absent `Option`. */
   budgetUsd?: number | null;
 }) {
@@ -55,7 +55,7 @@ export function LiveRun({
         {cap != null && (
           <span
             className={cn('flex items-center gap-1.5', over && 'font-medium text-destructive')}
-            title={`Budget cap $${cap.toFixed(2)} (from .vanguard/app.json)`}
+            title={`Budget cap $${cap.toFixed(2)} (from .taskcell/app.json)`}
           >
             <span className="h-1.5 w-20 overflow-hidden rounded-full bg-muted">
               <span

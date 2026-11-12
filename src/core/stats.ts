@@ -2,7 +2,7 @@ import { cacheEfficiency } from '../agents/provider.js';
 import { alignTable } from './table.js';
 import { DIFFICULTY_LEVELS } from './decision-probe.js';
 
-/** One parsed `run_complete` line from .vanguard/runs/metrics.jsonl. */
+/** One parsed `run_complete` line from .taskcell/runs/metrics.jsonl. */
 export interface MetricRecord {
   taskId: string;
   /** ISO timestamp of the line; used to join probes to the run they preceded. */

@@ -46,7 +46,7 @@ export async function savePaths(configDir: string, paths: string[]): Promise<voi
   await writeFile(projectsFile(configDir), JSON.stringify(paths, null, 2));
 }
 
-/** Aggregate a repo's `.vanguard/runs` into a dashboard summary (+ live running count). */
+/** Aggregate a repo's `.taskcell/runs` into a dashboard summary (+ live running count). */
 export async function aggregate(repoPath: string, now: Date = new Date()): Promise<Project> {
   const base = basename(repoPath);
   const name = base !== '' ? base : repoPath;

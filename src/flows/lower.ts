@@ -1,17 +1,18 @@
 import { stat } from 'node:fs/promises';
-import { join, resolve, sep } from 'node:path';
+import { resolve, sep } from 'node:path';
 import { pathToFileURL } from 'node:url';
 import { claudeCliKeyEnv, makeProvider } from '../agents/registry.js';
 import type { CustomProviderEntry } from '../agents/registry.js';
 import type { PipelineStage } from '../pipeline/pipeline.js';
 import { STAGE_LIBRARY } from './library.js';
 import type { FlowDoc, StageDecl, StageOverrides } from './types.js';
+import { stateDir } from '../core/state-path.js';
 
 /**
  * Lower a parsed FlowDoc to `PipelineStage[]` — the array the runner consumes. Each stage's base
  * record comes from the library (by name) or a `ref =` TS export (Layer 2), then HCL overrides are
  * spread on top (last-writer-wins, mirroring resolveRouting). `ref` paths are resolved and confined
- * to `<repoPath>/.vanguard/` (no escape). Source order is preserved.
+ * to `<repoPath>/.taskcell/` (no escape). Source order is preserved.
  */
 export async function lowerFlow(
   doc: FlowDoc,
@@ -44,10 +45,10 @@ async function resolveRef(ref: string, repoPath: string): Promise<PipelineStage>
   }
   const rel = ref.slice(0, hash);
   const exportName = ref.slice(hash + 1);
-  const root = resolve(repoPath, '.vanguard');
+  const root = resolve(stateDir(repoPath));
   const abs = resolve(root, rel);
   if (abs !== root && !abs.startsWith(root + sep)) {
-    throw new Error(`ref "${ref}" resolves outside ${join(repoPath, '.vanguard')} — refs must stay inside .vanguard/`);
+    throw new Error(`ref "${ref}" resolves outside ${stateDir(repoPath)} — refs must stay inside the repo's .taskcell/ (or legacy .vanguard/)`);
   }
   // Cache-bust by mtime (integer — a fractional query breaks vite's transform in tests): the
   // sidecar child is long-lived and ESM caches by URL, so without this an edited ref TS silently

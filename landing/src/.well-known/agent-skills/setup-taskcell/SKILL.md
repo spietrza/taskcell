@@ -7,7 +7,7 @@ description: Install Taskcell, a self-hosted software factory, and run it on a u
 
 Taskcell turns a labelled issue into a pull request: it writes a spec, builds the change in a Docker sandbox, runs the repository's verify script and a review, and opens the PR. A human merges. Source and docs: https://github.com/spietrza/taskcell
 
-The CLI is still named `vanguard` (the project's former name), and so are the `VANGUARD_*` variables, the `vanguard:*` labels and the `.vanguard/` folder.
+The CLI is still named `vanguard` (the project's former name), and so are the `VANGUARD_*` variables, and the `vanguard:*` labels. Per-repo state lives in `.taskcell/` (an existing `.vanguard/` is still used until renamed).
 
 ## Requirements
 
@@ -35,7 +35,7 @@ Check it: `taskcell doctor --source github --github-repo owner/repo` reports wha
 taskcell run --github owner/repo#42 --repo /path/to/local/clone --llm-proxy
 ```
 
-`--llm-proxy` keeps the real model key on the host; the sandbox only gets a one-run nonce. Prefer it. The run ends with a pull request: ready for review when every gate passed, a draft when one did not. Run artifacts (diff, transcripts, metrics) are under `.vanguard/runs/` in the target repo; keep `.vanguard/` in its `.gitignore`.
+`--llm-proxy` keeps the real model key on the host; the sandbox only gets a one-run nonce. Prefer it. The run ends with a pull request: ready for review when every gate passed, a draft when one did not. Run artifacts (diff, transcripts, metrics) are under `.taskcell/runs/` in the target repo; keep `.taskcell/` in its `.gitignore`.
 
 The issue needs acceptance criteria. A vague issue is relabelled `needs info` before any model runs.
 

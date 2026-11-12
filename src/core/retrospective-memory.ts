@@ -1,6 +1,6 @@
 import { writeFile, readFile, readdir } from 'node:fs/promises';
 import { join } from 'node:path';
-import { assertStatePath, ensureStateDir } from './state-path.js';
+import { assertStatePath, ensureStateDir, stateDir } from './state-path.js';
 
 // ─── Public types ────────────────────────────────────────────────────────────
 
@@ -214,10 +214,10 @@ async function loadReviewerNotes(runsDir: string): Promise<RetrospectiveEntry[]>
 
 // ─── Core builder ─────────────────────────────────────────────────────────────
 
-/** Read .vanguard/runs artifacts and return a capped, newest-first report. */
+/** Read .taskcell/runs artifacts and return a capped, newest-first report. */
 export async function buildRetrospectiveMemory(repoPath: string, opts?: BuildOptions): Promise<RetrospectiveReport> {
   const limit = opts?.limit ?? DEFAULT_LIMIT;
-  const runsDir = join(repoPath, '.vanguard', 'runs');
+  const runsDir = join(stateDir(repoPath), 'runs');
 
   // Read metrics.jsonl
   let metricsText = '';
@@ -320,28 +320,28 @@ export function renderRetrospectiveMarkdown(report: RetrospectiveReport): string
 
 // ─── Refresh + Load ───────────────────────────────────────────────────────────
 
-/** Write pre-rendered markdown to `.vanguard/memory/retrospective.md`. Returns the written path. */
+/** Write pre-rendered markdown to `.taskcell/memory/retrospective.md`. Returns the written path. */
 export async function writeRetrospectiveMarkdown(repoPath: string, markdown: string): Promise<string> {
-  // Runs on every issue run's `finally`: a repo-committed symlink under `.vanguard` must not
+  // Runs on every issue run's `finally`: a repo-committed symlink under `.taskcell` must not
   // redirect this overwrite out of the checkout.
-  const memDir = await ensureStateDir(repoPath, join(repoPath, '.vanguard', 'memory'));
+  const memDir = await ensureStateDir(repoPath, join(stateDir(repoPath), 'memory'));
   const filePath = join(memDir, 'retrospective.md');
   await assertStatePath(repoPath, filePath);
   await writeFile(filePath, markdown, 'utf8');
   return filePath;
 }
 
-/** Build + render + write `.vanguard/memory/retrospective.md`. Returns the written path. */
+/** Build + render + write `.taskcell/memory/retrospective.md`. Returns the written path. */
 export async function refreshRetrospectiveMemory(repoPath: string, opts?: BuildOptions): Promise<string> {
   const report = await buildRetrospectiveMemory(repoPath, opts);
   const markdown = renderRetrospectiveMarkdown(report);
   return writeRetrospectiveMarkdown(repoPath, markdown);
 }
 
-/** Read `.vanguard/memory/retrospective.md` capped to maxBytes; returns fallback message when absent/empty. */
+/** Read `.taskcell/memory/retrospective.md` capped to maxBytes; returns fallback message when absent/empty. */
 export async function loadRetrospectiveMemory(repoPath: string, opts?: LoadOptions): Promise<string> {
   const maxBytes = opts?.maxBytes ?? DEFAULT_MAX_BYTES;
-  const filePath = join(repoPath, '.vanguard', 'memory', 'retrospective.md');
+  const filePath = join(stateDir(repoPath), 'memory', 'retrospective.md');
   let content: string;
   try {
     content = await readFile(filePath, 'utf8');

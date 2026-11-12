@@ -9,7 +9,7 @@ import { StageInspector } from './StageInspector';
 import { FLOW_NAME_RE, flowEditorReducer, initialFlowEditor } from './flowEditorReducer';
 
 /**
- * The visual flow editor (S5 §18-20): reads and writes real `.vanguard/flows/*.hcl` through the
+ * The visual flow editor (S5 §18-20): reads and writes real `.taskcell/flows/*.hcl` through the
  * sidecar. Rail = discovered flows (unparseable entries disabled; parsed-but-invalid entries
  * selectable with an error badge — fixing them is what this screen is for). Canvas = stage blocks
  * in source order. Inspector = overrides for the selected stage. The doc's `meta` and `loop`
@@ -154,7 +154,7 @@ export function WorkflowEditor({ project }: { project: string }) {
 
   const removeFlow = async (file: string): Promise<void> => {
     if (opBusy.current) return;
-    if (!window.confirm(`Delete ${file} from .vanguard/flows/?`)) return;
+    if (!window.confirm(`Delete ${file} from .taskcell/flows/?`)) return;
     opBusy.current = true;
     try {
       await apiDeleteFlow(project, file);
@@ -225,7 +225,7 @@ export function WorkflowEditor({ project }: { project: string }) {
     <div className="flex h-full min-h-0 flex-col gap-4">
       <div className="flex shrink-0 items-center gap-3">
         <h2 className="text-xl font-semibold">Flows</h2>
-        {state.file !== null && <code className="text-xs text-muted-foreground">.vanguard/flows/{state.file}</code>}
+        {state.file !== null && <code className="text-xs text-muted-foreground">.taskcell/flows/{state.file}</code>}
         {state.dirty && (
           <span className="rounded bg-warning/15 px-1.5 py-0.5 text-[11px] text-warning-text">unsaved</span>
         )}

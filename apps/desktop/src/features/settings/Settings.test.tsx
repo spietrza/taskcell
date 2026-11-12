@@ -32,7 +32,7 @@ test('the form does not render until the read resolves — a mid-load edit canno
 });
 
 test('an unreadable config surfaces an error and blocks save instead of silently defaulting (S6 guard b)', async () => {
-  read.mockRejectedValueOnce(new Error('.vanguard/app.json is unreadable: expected value at line 1'));
+  read.mockRejectedValueOnce(new Error('.taskcell/app.json is unreadable: expected value at line 1'));
   render(<Settings project="/repo" />);
   await waitFor(() => expect(screen.getByText(/app\.json is unreadable/i)).toBeInTheDocument());
   fireEvent.change(screen.getByPlaceholderText('vanguard-ready'), { target: { value: 'x' } });

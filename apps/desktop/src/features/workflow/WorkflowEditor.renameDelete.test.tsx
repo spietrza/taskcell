@@ -33,7 +33,7 @@ test('delete confirms, calls apiDeleteFlow, and resets an editor that had the fl
   fireEvent.click(screen.getByRole('button', { name: 'delete my-flow' }));
   await waitFor(() => expect(ipc.apiDeleteFlow).toHaveBeenCalledWith('/repo', 'my-flow.hcl'));
   // editor reset: the open-file chip is gone
-  await waitFor(() => expect(screen.queryByText('.vanguard/flows/my-flow.hcl')).not.toBeInTheDocument());
+  await waitFor(() => expect(screen.queryByText('.taskcell/flows/my-flow.hcl')).not.toBeInTheDocument());
   confirmSpy.mockRestore();
 });
 

@@ -124,7 +124,7 @@ watch owner/repo#124: claim -> running
 watch owner/repo#124: pr opened -> review
 ```
 
-Normal logs report source, task id, phase, outcome, and next action. Full prompts, diffs, transcripts, and proof details stay in `.vanguard/runs/`.
+Normal logs report source, task id, phase, outcome, and next action. Full prompts, diffs, transcripts, and proof details stay in `.taskcell/runs/`.
 
 ## External PR review
 
@@ -193,7 +193,7 @@ Run `taskcell gc --remote <owner/repo>` on a timer (cron or systemd) to reap sta
 
 ## Metrics and tracing
 
-Each run appends a `run_complete` metric line per stage to `.vanguard/runs/metrics.jsonl` (cost, tokens, cache efficiency, duration, exit reason). `taskcell stats` aggregates that into a rollup — per task, per stage, per model (served, annotated with the requested one when a gateway substituted it), and a grand total — for fleet cost/time visibility (`--json` for machine output). **On an ephemeral host (GitHub Actions) that file dies with the job**, so a run there ends with `taskcell metrics push`: it appends the run's metric lines to a single `metrics.jsonl` on an orphan `taskcell-metrics` branch of the repo (git plumbing only — no checkout, no merge; idempotent, so a re-run never duplicates; needs push rights, which the implement workflow's `contents: write` already grants). `taskcell stats --branch taskcell-metrics` then reads that durable copy from any clone — it is where the `BY MODEL` and `PROBE` tables for the factory come from. Add `--github-repo owner/repo` for a `LEAD TIME` block: for every PR recorded in the metrics it asks `gh` for the time from the trigger label to the PR, from the PR to its merge, the revise rounds and the first-try merge rate (medians; at most six lookups at a time; failed lookups are counted and reported, so a partial sample is visible). `--json` adds it as `leadTime`.
+Each run appends a `run_complete` metric line per stage to `.taskcell/runs/metrics.jsonl` (cost, tokens, cache efficiency, duration, exit reason). `taskcell stats` aggregates that into a rollup — per task, per stage, per model (served, annotated with the requested one when a gateway substituted it), and a grand total — for fleet cost/time visibility (`--json` for machine output). **On an ephemeral host (GitHub Actions) that file dies with the job**, so a run there ends with `taskcell metrics push`: it appends the run's metric lines to a single `metrics.jsonl` on an orphan `taskcell-metrics` branch of the repo (git plumbing only — no checkout, no merge; idempotent, so a re-run never duplicates; needs push rights, which the implement workflow's `contents: write` already grants). `taskcell stats --branch taskcell-metrics` then reads that durable copy from any clone — it is where the `BY MODEL` and `PROBE` tables for the factory come from. Add `--github-repo owner/repo` for a `LEAD TIME` block: for every PR recorded in the metrics it asks `gh` for the time from the trigger label to the PR, from the PR to its merge, the revise rounds and the first-try merge rate (medians; at most six lookups at a time; failed lookups are counted and reported, so a partial sample is visible). `--json` adds it as `leadTime`.
 
 **Langfuse / OTLP mirror (opt-in).** The same per-stage records can be exported as one OpenTelemetry trace per run: the task id is the trace, each stage is a `generation` span carrying `gen_ai.request.model`, `gen_ai.usage.{input_tokens,output_tokens,cache_read_input_tokens}`, `gen_ai.usage.cost` / `vanguard.cost_usd`, `vanguard.turns` and `vanguard.exit_reason`; flow, provider, PR URL and exit reason ride on every span as filterable Langfuse trace metadata, and the task id doubles as the Langfuse *session*, so the spec run, the implement run and each revise round of one issue group together. Switch it on with an endpoint **and** auth — endpoint without auth is off, and with nothing set nothing changes:
 
@@ -217,7 +217,7 @@ Your repo carries only a **thin caller** (triggers, permissions, an actor gate a
 
 The job runs `taskcell watch --source github --once` **once**: a `ready for spec` ticket is specced and built in the same invocation. Taskcell's own [`taskcell-implement.yml`](../.github/workflows/taskcell-implement.yml) is a caller of [`implement.yml`](../.github/workflows/implement.yml) (`uses: ./.github/workflows/implement.yml`). Each run processes every matching open issue (not only the one just labelled), so labelling one `ready for agent` also picks up any others already waiting — run an always-on `taskcell watch` on a host if you want continuous polling instead ([deploy.md](deploy.md)). Set `max-tasks: <n>` on the caller (or `--max-tasks <n>` on a host-run `taskcell watch`) to cap how many ready issues one run claims per phase, so a mislabelled batch cannot flood one CI runner.
 
-**Run summary:** on Actions every run — each issue `watch` builds, each PR `watch-prs` reviews, each `revise-pr` round — also appends a markdown block to the job's **Summary** tab (via `$GITHUB_STEP_SUMMARY`): task id, flow, provider and model, a per-stage table (exit, turns, time, cost), the cost total, the PR URL, the review verdict, and how the run ended (`completed` / `verify-failed` / `secret-blocked` / `no-changes` / `error`). Several runs in one job stack. Outside Actions nothing is written. The on-disk run record under `.vanguard/runs/<taskId>/` (transcripts, diffs, bundles) still dies with the job unless the caller uploads it as an artifact.
+**Run summary:** on Actions every run — each issue `watch` builds, each PR `watch-prs` reviews, each `revise-pr` round — also appends a markdown block to the job's **Summary** tab (via `$GITHUB_STEP_SUMMARY`): task id, flow, provider and model, a per-stage table (exit, turns, time, cost), the cost total, the PR URL, the review verdict, and how the run ended (`completed` / `verify-failed` / `secret-blocked` / `no-changes` / `error`). Several runs in one job stack. Outside Actions nothing is written. The on-disk run record under `.taskcell/runs/<taskId>/` (transcripts, diffs, bundles) still dies with the job unless the caller uploads it as an artifact.
 
 **Required secret:** `CLAUDE_CODE_OAUTH_TOKEN` (repository or org secret). The built-in `GITHUB_TOKEN` covers git push, PR, and label writes.
 
@@ -288,13 +288,13 @@ taskcell approve --pr 557 --github-repo spietrza/taskcell --dry-run   # decide a
 
 **In CI (this repo).** `.github/workflows/taskcell-approver.yml` runs it after the external review of a factory PR finishes (`workflow_run` on `Vanguard PR Review`), and waits for the required CI checks before deciding. That way the decision sees complete inputs once; triggering on CI as well would record a premature `review-missing` that the per-head dedupe then keeps. It builds the CLI from the default branch and never checks out PR code. Run it by hand from Actions → Vanguard Approver (shadow) with a PR number. Drafts get no decision, since the review does not run on them.
 
-**Policy and kill switch.** Everything tunable lives in `.vanguard/approver.json`, read from the **base branch only** (`git show refs/remotes/origin/<base>:.vanguard/approver.json`) — never the working tree or the PR head, so a PR cannot widen the policy judging it; a PR that touches that file always escalates. An unreadable or invalid policy fails closed to `ESCALATE` (`policy-unreadable`). Field-by-field reference: [approver-policy.md](approver-policy.md).
+**Policy and kill switch.** Everything tunable lives in `.taskcell/approver.json`, read from the **base branch only** (`git show refs/remotes/origin/<base>:.taskcell/approver.json`) — never the working tree or the PR head, so a PR cannot widen the policy judging it; a PR that touches that file always escalates. An unreadable or invalid policy fails closed to `ESCALATE` (`policy-unreadable`). Field-by-field reference: [approver-policy.md](approver-policy.md).
 
 Two kill switches, either one short-circuits to `ESCALATE` (`stopped`) before any diff or ledger collection:
 
 ```bash
 VANGUARD_APPROVER_STOP=1 taskcell approve --pr 557 --github-repo spietrza/taskcell   # per-run, env
-# or, repo-wide: set "enabled": false in .vanguard/approver.json on the base branch
+# or, repo-wide: set "enabled": false in .taskcell/approver.json on the base branch
 ```
 
 ### Scorecard: shadow verdict vs what the human did
@@ -318,9 +318,9 @@ taskcell stats --approver --branch vanguard-metrics               # read decisio
 
 ## Retrospective memory
 
-`taskcell memory` reads `.vanguard/runs` artifacts — failed runs, failed proofs, and reviewer notes (not diffs or transcripts) — and refreshes a short, redacted digest at `.vanguard/memory/retrospective.md`. It is deterministic (no LLM): a host-side rollup, advisory only.
+`taskcell memory` reads `.taskcell/runs` artifacts — failed runs, failed proofs, and reviewer notes (not diffs or transcripts) — and refreshes a short, redacted digest at `.taskcell/memory/retrospective.md`. It is deterministic (no LLM): a host-side rollup, advisory only.
 
-Subsequent `run`, `watch`, and spec runs automatically load that digest into the implementer and tech-spec prompts as advisory context ("use only when relevant"); the digest refreshes best-effort after each run. `.vanguard/` is gitignored — this is operational host state, not committed source.
+Subsequent `run`, `watch`, and spec runs automatically load that digest into the implementer and tech-spec prompts as advisory context ("use only when relevant"); the digest refreshes best-effort after each run. `.taskcell/` is operational host state, not committed source — add it to your `.gitignore`.
 
 ```bash
 taskcell memory                 # refresh + print the digest

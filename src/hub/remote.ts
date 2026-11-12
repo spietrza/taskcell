@@ -4,7 +4,7 @@ import { cp, lstat, mkdtemp, readdir, rename, rm, writeFile } from 'node:fs/prom
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { BadRequestError } from '../sidecar/sidecar.js';
-import { assertStatePath, ensureStateDir } from '../core/state-path.js';
+import { assertStatePath, ensureStateDir, stateDir } from '../core/state-path.js';
 import { isRunRecordFile, listRunSummaries, remoteRunsRoot } from './runs.js';
 import type { RemoteImport, RemoteRun, RunSummary } from '../wire.js';
 
@@ -51,7 +51,7 @@ function parseRuns(json: unknown): Omit<RemoteRun, 'cached'>[] {
   });
 }
 
-/** The run's cached summaries, already imported into `<repoPath>/.vanguard/remote-runs/<id>` by a
+/** The run's cached summaries, already imported into `<repoPath>/.taskcell/remote-runs/<id>` by a
  * prior `fetchRemoteRun`, or `[]` if not yet imported (or unreadable). */
 async function cachedRunSummaries(repoPath: string, runId: number): Promise<RunSummary[]> {
   try {
@@ -172,7 +172,7 @@ async function hasRunShape(dir: string): Promise<boolean> {
  * deep: the artifact's internal layout is decided by a workflow step that doesn't exist yet.
  */
 async function findRunsDir(tmpdirPath: string): Promise<string | undefined> {
-  const relCandidates = ['.', 'runs', join('.vanguard', 'runs')];
+  const relCandidates = ['.', 'runs', join('.taskcell', 'runs'), join('.vanguard', 'runs')];
   for (const rel of relCandidates) {
     const candidate = join(tmpdirPath, rel);
     if (await hasRunShape(candidate)) return candidate;
@@ -203,7 +203,7 @@ async function topLevelEntryNames(dir: string): Promise<string[]> {
 }
 
 /**
- * Import a CI run's `vanguard-runs` artifact into `<repoPath>/.vanguard/remote-runs/<runId>/` and
+ * Import a CI run's `vanguard-runs` artifact into `<repoPath>/.taskcell/remote-runs/<runId>/` and
  * return a summary of what was imported.
  */
 export async function fetchRemoteRun(repoPath: string, runId: number, exec: Exec = defaultExec): Promise<RemoteImport> {
@@ -226,7 +226,7 @@ export async function fetchRemoteRun(repoPath: string, runId: number, exec: Exec
     // gh wording seen live: "no valid artifacts found to download" (run without the artifact or still in progress).
     if (/no (?:valid )?artifacts?|not found/i.test(text)) {
       throw new BadRequestError(
-        `CI run ${runId} has no "vanguard-runs" artifact — the workflow must upload .vanguard/runs (see docs/hub.md § CI run import)`,
+        `CI run ${runId} has no "vanguard-runs" artifact — the workflow must upload .taskcell/runs (see docs/hub.md § CI run import)`,
       );
     }
     if (isEnoentFlavored(text)) {
@@ -246,12 +246,12 @@ export async function fetchRemoteRun(repoPath: string, runId: number, exec: Exec
     );
   }
 
-  const remoteRunsBase = join(repoPath, '.vanguard', 'remote-runs');
+  const remoteRunsBase = join(stateDir(repoPath), 'remote-runs');
   const finalDir = join(remoteRunsBase, String(runId));
   const tmpDest = `${finalDir}.tmp`;
   const gitignorePath = join(remoteRunsBase, '.gitignore');
 
-  // The destination is inside the checkout: a committed symlink at `.vanguard`, `remote-runs` or any
+  // The destination is inside the checkout: a committed symlink at `.taskcell`, `remote-runs` or any
   // of these leaves would point the recursive deletes and the copy outside it.
   try {
     for (const path of [finalDir, tmpDest, gitignorePath]) await assertStatePath(repoPath, path);

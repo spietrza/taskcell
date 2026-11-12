@@ -303,7 +303,7 @@ describe('runRevisePullRequest secret gate', () => {
     }
     expect(pushCalls).toEqual([]);
     // The blocked round still leaves a run record (cost trace), but no .diff / .bundle: the diff holds the secret.
-    const recordFiles = await readdir(join(repo, '.vanguard', 'runs'), { recursive: true });
+    const recordFiles = await readdir(join(repo, '.taskcell', 'runs'), { recursive: true });
     expect(recordFiles.some((f) => f.endsWith('.json'))).toBe(true);
     expect(recordFiles.some((f) => f.endsWith('.diff') || f.endsWith('.bundle'))).toBe(false);
     // Ordering pin: no branch anywhere in the repo moved past the initial commit — the gate ran before commitStage.
@@ -1607,7 +1607,7 @@ describe('runRevisePullRequest — revise-pass verification', () => {
   }
 
   async function readRunRecordModels(): Promise<string[]> {
-    const runsDir = join(repo, '.vanguard', 'runs');
+    const runsDir = join(repo, '.taskcell', 'runs');
     const files = (await readdir(runsDir, { recursive: true })).map(String).filter((f) => f.endsWith('.json'));
     const models: string[] = [];
     for (const f of files) {

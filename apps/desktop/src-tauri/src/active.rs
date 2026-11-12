@@ -100,8 +100,8 @@ fn epoch_ms(t: SystemTime) -> u64 {
 /// In-flight runs: a task whose newest session line was written within the window, and which has
 /// NOT just written a completed run record (a fresh record means the run finished — show it as done).
 pub fn list_active(repo_path: &Path) -> io::Result<Vec<ActiveRun>> {
-    let sessions = repo_path.join(".vanguard").join("sessions");
-    let runs = repo_path.join(".vanguard").join("runs");
+    let sessions = crate::runs::state_dir(repo_path).join("sessions");
+    let runs = crate::runs::runs_dir(repo_path);
     let now = SystemTime::now();
     let mut out = Vec::new();
 
@@ -139,8 +139,8 @@ pub fn list_active(repo_path: &Path) -> io::Result<Vec<ActiveRun>> {
 }
 
 /// Path is caller-supplied — only read Vanguard session logs
-/// (`…/.vanguard/sessions/<task>/<file>.jsonl`). A substring check on "sessions"
-/// would read any `.jsonl` anywhere; require the real `.vanguard/sessions` segments.
+/// (`…/.taskcell/sessions/<task>/<file>.jsonl`). A substring check on "sessions"
+/// would read any `.jsonl` anywhere; require the real `<state dir>/sessions` segments.
 pub fn is_session_path(p: &str) -> bool {
     if p.contains("..") {
         return false;
@@ -152,7 +152,7 @@ pub fn is_session_path(p: &str) -> bool {
     let comps: Vec<&std::ffi::OsStr> = path.components().map(|c| c.as_os_str()).collect();
     comps
         .windows(2)
-        .any(|w| w[0].to_str() == Some(".vanguard") && w[1].to_str() == Some("sessions"))
+        .any(|w| w[0].to_str().is_some_and(|n| crate::runs::STATE_DIR_NAMES.contains(&n)) && w[1].to_str() == Some("sessions"))
 }
 
 /// Parse a Claude session `.jsonl` into a readable stream: assistant prose + tool-invocation names.
@@ -269,7 +269,7 @@ mod tests {
         let tmp = tempfile::tempdir().unwrap();
         assert!(list_active(tmp.path()).unwrap().is_empty());
 
-        let sess = tmp.path().join(".vanguard/sessions/task-x");
+        let sess = tmp.path().join(".taskcell/sessions/task-x");
         fs::create_dir_all(&sess).unwrap();
         fs::write(sess.join("a.jsonl"), "{}").unwrap(); // just written -> mtime now
         let active = list_active(tmp.path()).unwrap();
@@ -279,10 +279,11 @@ mod tests {
 
     #[test]
     fn session_path_guard() {
+        assert!(is_session_path("/repo/.taskcell/sessions/t/a.jsonl"));
         assert!(is_session_path("/repo/.vanguard/sessions/t/a.jsonl"));
         assert!(!is_session_path("/etc/passwd"));
         assert!(!is_session_path("/repo/.vanguard/sessions/../../secret.jsonl"));
-        // "sessions" in the path but NOT under a real `.vanguard/sessions` dir.
+        // "sessions" in the path but NOT under a real `.taskcell/sessions` dir.
         assert!(!is_session_path("/tmp/sessions/evil.jsonl"));
         assert!(!is_session_path("/repo/.vanguard/runs/t/a.jsonl"));
     }

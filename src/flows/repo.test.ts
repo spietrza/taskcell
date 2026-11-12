@@ -17,7 +17,7 @@ import {
 import type { FlowDoc } from './types.js';
 
 let repo: string;
-const flowsDir = (): string => join(repo, '.vanguard', 'flows');
+const flowsDir = (): string => join(repo, '.taskcell', 'flows');
 
 beforeEach(async () => {
   repo = await mkdtemp(join(tmpdir(), 'vg-flows-'));
@@ -157,7 +157,7 @@ describe('writeRepoFlow', () => {
     loops: [],
   };
 
-  it('creates .vanguard/flows on first save in a fresh repo and writes the canonical source', async () => {
+  it('creates .taskcell/flows on first save in a fresh repo and writes the canonical source', async () => {
     const { source } = await writeRepoFlow(repo, 'my-flow.hcl', DOC);
     expect(await readFile(join(flowsDir(), 'my-flow.hcl'), 'utf8')).toBe(source);
     const { doc } = await readRepoFlow(repo, 'my-flow.hcl');

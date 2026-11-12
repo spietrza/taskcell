@@ -46,7 +46,7 @@ export const PATH_POLICY: readonly PathSkipRule[] = [
   // Injected .mdc skill rules — load-bearing exclusion, these must not land in PRs.
   { match: /(^|[\\/])\.cursor[\\/]rules([\\/]|$)/ },
   // Skill bodies copied in as pointer targets for codex/cursor providers.
-  { match: /(^|[\\/])\.vanguard[\\/]skills([\\/]|$)/ },
+  { match: /(^|[\\/])\.(?:taskcell|vanguard)[\\/]skills([\\/]|$)/ },
   CI_CONFIG_RULE,
 ];
 

@@ -13,7 +13,7 @@ beforeEach(async () => {
 });
 
 async function oneRunRepo(repo: string): Promise<void> {
-  const dir = join(repo, '.vanguard', 'runs', 'task-1');
+  const dir = join(repo, '.taskcell', 'runs', 'task-1');
   await mkdir(dir, { recursive: true });
   await writeFile(
     join(dir, '2026-07-06T19-12-02-123Z-implement.json'),
@@ -90,7 +90,7 @@ describe('aggregate', () => {
   it('T-19 busts the per-repo summary cache on a fingerprint shift and never caches a miss', async () => {
     const repo = join(repoRoot, 'proj-cache');
 
-    // Cache MISS path: no .vanguard/runs directory at all yet — must not get pinned at 0.
+    // Cache MISS path: no .taskcell/runs directory at all yet — must not get pinned at 0.
     const empty = await aggregate(repo);
     expect(empty.runCount).toBe(0);
 
@@ -99,7 +99,7 @@ describe('aggregate', () => {
     expect(afterFirstRun.runCount).toBe(1);
 
     // A second run under a new task dir must shift the fingerprint and bust the cache.
-    const dir2 = join(repo, '.vanguard', 'runs', 'task-2');
+    const dir2 = join(repo, '.taskcell', 'runs', 'task-2');
     await mkdir(dir2, { recursive: true });
     await writeFile(
       join(dir2, '2026-07-06T20-00-00-000Z-implement.json'),

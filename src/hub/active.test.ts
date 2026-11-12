@@ -70,7 +70,7 @@ describe('listActive', () => {
   it('fresh session is active; no sessions dir is empty', async () => {
     expect(await listActive(tmp)).toEqual([]);
 
-    const sess = join(tmp, '.vanguard', 'sessions', 'task-x');
+    const sess = join(tmp, '.taskcell', 'sessions', 'task-x');
     await mkdir(sess, { recursive: true });
     await write(join(sess, 'a.jsonl'), '{}'); // just written -> mtime now
     const active = await listActive(tmp);
@@ -79,7 +79,7 @@ describe('listActive', () => {
   });
 
   it('T-14 excludes a task whose run record also just finished (fresh mtime)', async () => {
-    const sess = join(tmp, '.vanguard', 'sessions', 'task-y');
+    const sess = join(tmp, '.taskcell', 'sessions', 'task-y');
     await mkdir(sess, { recursive: true });
     await write(join(sess, 'a.jsonl'), '{}');
 
@@ -89,7 +89,7 @@ describe('listActive', () => {
     expect(active[0]?.taskId).toBe('task-y');
 
     // A fresh run record for the same task means the run just finished -> excluded.
-    const runsDir = join(tmp, '.vanguard', 'runs', 'task-y');
+    const runsDir = join(tmp, '.taskcell', 'runs', 'task-y');
     await mkdir(runsDir, { recursive: true });
     await write(join(runsDir, '2026-01-01T00-00-00-000Z.json'), '{}');
     active = await listActive(tmp);
@@ -97,7 +97,7 @@ describe('listActive', () => {
   });
 
   it('T-15 treats a future mtime (clock skew) as active, not too old', async () => {
-    const sess = join(tmp, '.vanguard', 'sessions', 'task-z');
+    const sess = join(tmp, '.taskcell', 'sessions', 'task-z');
     await mkdir(sess, { recursive: true });
     const file = join(sess, 'a.jsonl');
     await write(file, '{}');
@@ -114,7 +114,7 @@ describe('listActive — non-regular session files', () => {
   it('never offers a symlinked .jsonl as a session to tail', async () => {
     const outside = join(tmp, 'outside.jsonl');
     await write(outside, '{}');
-    const sess = join(tmp, '.vanguard', 'sessions', 'task-link');
+    const sess = join(tmp, '.taskcell', 'sessions', 'task-link');
     await mkdir(sess, { recursive: true });
     await symlink(outside, join(sess, 'a.jsonl'));
     expect(await listActive(tmp)).toEqual([]);

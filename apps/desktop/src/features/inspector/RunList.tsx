@@ -13,7 +13,7 @@ export function RunList({
   onOpenActive,
 }: {
   runs: RunSummary[];
-  /** In-flight runs discovered from `.vanguard` state, rendered as running rows at the top. */
+  /** In-flight runs discovered from `.taskcell` state, rendered as running rows at the top. */
   active: ActiveRun[];
   onSelect: (r: RunSummary) => void;
   onOpenActive: (a: ActiveRun) => void;
@@ -46,7 +46,7 @@ export function RunList({
         </Empty.Media>
         <Empty.Title>No runs found</Empty.Title>
         <Empty.Description>
-          This repo has no <code>.vanguard/runs</code> yet.
+          This repo has no <code>.taskcell/runs</code> yet.
         </Empty.Description>
       </Empty.Root>
     );

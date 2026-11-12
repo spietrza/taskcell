@@ -349,7 +349,7 @@ export function conventionalCommitMessage(title: string, taskId: string, opts: {
  * FLOWS.default.build is the generic implementReviewSimplifyStages. Selecting 'default' by name —
  * the natural thing for a name-driven UI — must not silently downgrade a Linear run to an
  * implementer that never reads the issue. Non-built-in names resolve from the repo's
- * `.vanguard/flows/*.hcl` (S5); unknown names throw listing both sets.
+ * `.taskcell/flows/*.hcl` (S5); unknown names throw listing both sets.
  */
 async function resolveBaseStages(
   flow: string | undefined,
@@ -390,7 +390,7 @@ export async function runSourcedIssue(
 ): Promise<RunIssueResult> {
   // Named-flow dispatch, resolved FIRST: a flow typo must fail before the tracker fetch, the
   // provider proxies, and the sandbox spin-up (the CLI mirror of the sidecar fail-fast, S5 D6).
-  // `--flow <name>` selects a FLOWS builder or a repo `.vanguard/flows/*.hcl` flow; `--plan` is
+  // `--flow <name>` selects a FLOWS builder or a repo `.taskcell/flows/*.hcl` flow; `--plan` is
   // the back-compat alias for flow 'plan'.
   const flow = deps.flow ?? (deps.plan === true ? 'plan' : undefined);
   const baseStages = await resolveBaseStages(flow, deps.repoPath, adapter, deps.customProviders);
