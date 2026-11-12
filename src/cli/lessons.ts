@@ -35,7 +35,7 @@ async function sdkLessonModel(model: string): Promise<LessonModel> {
     const res = await runComplete({ system, model, messages: [{ role: 'user', content: prompt }] }, {
       query: (params) => query(params as Parameters<typeof query>[0]),
     });
-    if ('error' in res) throw new Error(`lesson model call failed: ${res.error.message}`);
+    if (res.error !== undefined) throw new Error(`lesson model call failed: ${res.error.message}`);
     return res.text ?? '';
   };
 }
