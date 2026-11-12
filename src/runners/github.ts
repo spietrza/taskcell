@@ -95,7 +95,7 @@ export function githubAdapter(deps: RunGithubIssueDeps, gh: GhRunner = defaultGh
  */
 export async function runGithubIssue(issueRef: string, deps: RunGithubIssueDeps, gh: GhRunner = defaultGhRunner): Promise<RunGithubIssueResult> {
   const task = await new GitHubTaskFetcher(deps.repoSlug, gh).fetch(issueRef);
-  const check = await githubDependencyGate(deps.repoSlug, task, issueRef, gh);
+  const check = await githubDependencyGate(deps.repoSlug, task, issueRef, gh, deps.commitAuthor !== undefined);
   if (check.status !== 'ready') return { task, parked: true, ...(check.status === 'waiting' ? { waiting: true } : { released: true }) };
   return runSourcedIssue(issueRef, deps, githubAdapter(deps, gh, task));
 }
@@ -106,9 +106,16 @@ export async function runGithubIssue(issueRef: string, deps: RunGithubIssueDeps,
  * list, which carries the body but no comments: the issue is re-read for its comments only when a
  * comment might be posted.
  */
-export async function githubDependencyGate(repo: string, task: Task, issueRef: string, gh: GhRunner = defaultGhRunner): Promise<DependencyCheck> {
+export async function githubDependencyGate(
+  repo: string,
+  task: Task,
+  issueRef: string,
+  gh: GhRunner = defaultGhRunner,
+  whiteLabel = false,
+): Promise<DependencyCheck> {
   const check = await checkGithubDependencies(repo, task, issueRef, gh);
-  if (check.status === 'ready') return check;
+  // White-label (--commit-author) posts nothing on the issue, like runSourcedIssue's signals: park silently.
+  if (check.status === 'ready' || whiteLabel) return check;
   const comment = dependencyWaitComment(check, repo);
   const withComments = task.comments.length > 0 ? task : await new GitHubTaskFetcher(repo, gh).fetch(issueRef);
   if (!hasDependencyComment(withComments, comment)) await commentGithubIssue(repo, issueRef, comment, gh);

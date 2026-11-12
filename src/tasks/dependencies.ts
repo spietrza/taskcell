@@ -51,7 +51,8 @@ export function mergeDependsOn(a: readonly TaskRef[], b: readonly TaskRef[]): Ta
 export function parseDependsOnBody(body: string): TaskRef[] {
   const refs: TaskRef[] = [];
   for (const line of body.matchAll(DEPENDS_ON_LINE_RE)) {
-    for (const ref of (line[1] ?? '').matchAll(REF_RE)) {
+    // shortcut: refs past the first 1000 chars of a line are ignored; keeps REF_RE's backtracking bounded on untrusted text
+    for (const ref of (line[1] ?? '').slice(0, 1000).matchAll(REF_RE)) {
       const repo = ref[1];
       const number = ref[2]!;
       if (repo === undefined) refs.push({ number });
@@ -69,6 +70,14 @@ export function parseStartDate(body: string): string | undefined {
 }
 
 /** `owner/repo#N`, qualified against `fallbackRepo` when `ref.repo` is absent. */
+/**
+ * A ref as it may appear in a comment posted on the issue: a ref in another repository is not
+ * named, since the bot token may read a private repo the issue's readers cannot.
+ */
+export function publicRef(ref: TaskRef, fallbackRepo: string): string {
+  return ref.repo === undefined || ref.repo.toLowerCase() === fallbackRepo.toLowerCase() ? `#${ref.number}` : 'a dependency in another repository';
+}
+
 export function describeRef(ref: TaskRef, fallbackRepo: string): string {
   return `${ref.repo ?? fallbackRepo}#${ref.number}`;
 }
@@ -144,7 +153,7 @@ export async function checkDependencies(
   async function walk(ref: TaskRef, root: TaskRef): Promise<void> {
     const key = refKey(ref, fallbackRepo);
     if (visiting.has(key)) {
-      stopped = `a dependency cycle through ${describeRef(root, fallbackRepo)}`;
+      stopped = `a dependency cycle through ${publicRef(root, fallbackRepo)}`;
       return;
     }
     if (done.has(key)) return;
@@ -176,7 +185,7 @@ export async function checkDependencies(
     if (stopped !== undefined) return { status: 'needs_info', reason: stopped };
   }
   if (missingRefs.length > 0) {
-    const named = [...new Set(missingRefs.map((r) => describeRef(r, fallbackRepo)))].join(', ');
+    const named = [...new Set(missingRefs.map((r) => publicRef(r, fallbackRepo)))].join(', ');
     // missingRefs holds roots: a root that is itself missing is a missing direct reference
     const directMissing = missingRefs.every((r) => nodes.get(refKey(r, fallbackRepo))?.missing === true);
     return {
@@ -218,7 +227,7 @@ export function dependencyWaitComment(check: Exclude<DependencyCheck, { status: 
   if (check.kind === 'start-date') {
     return `Vanguard is waiting: this issue has a start date of ${check.startDate} and will run automatically on or after that date. ${DEPENDENCY_MARKER}`;
   }
-  const list = check.blockers.map((r) => describeRef(r, fallbackRepo)).join(', ');
+  const list = [...new Set(check.blockers.map((r) => publicRef(r, fallbackRepo)))].join(', ');
   const plural = check.blockers.length > 1;
   return `Vanguard is waiting: this issue depends on ${list}, which ${plural ? 'are' : 'is'} not done yet. It will run automatically once ${plural ? 'those are closed' : 'that is closed'} (or merged, for a pull request). ${DEPENDENCY_MARKER}`;
 }

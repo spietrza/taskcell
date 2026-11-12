@@ -1802,6 +1802,26 @@ describe('dependency gate in the watch (#760)', () => {
     }
   });
 
+  it('filterDependencyReady: one failing lookup skips only that issue, for a short backoff', async () => {
+    const log = vi.spyOn(console, 'log').mockImplementation(() => {});
+    try {
+      const gate = vi.fn(async (t: { id: string }) => {
+        if (t.id === 'saml') throw new Error('HTTP 403: Resource protected by organization SAML enforcement');
+        return { status: 'ready' } as const;
+      });
+      const cache = new Map<string, number>();
+      let clock = 0;
+      const tasks = [{ id: 'saml' }, { id: 'ok' }];
+      expect(await filterDependencyReady('o/r', tasks, cache, gate, () => clock)).toEqual([{ id: 'ok' }]);
+      expect(log).toHaveBeenCalledWith(expect.stringContaining('saml skipped -> dependency lookup failed: HTTP 403'));
+      clock = 61_000;
+      await filterDependencyReady('o/r', tasks, cache, gate, () => clock);
+      expect(gate.mock.calls.filter(([t]) => t.id === 'saml')).toHaveLength(2);
+    } finally {
+      log.mockRestore();
+    }
+  });
+
   it('githubIssueWatchPrimitives never claims a blocked issue, so it takes no --max-tasks slot', async () => {
     const log = vi.spyOn(console, 'log').mockImplementation(() => {});
     try {

@@ -267,6 +267,11 @@ describe('resolveGithubDependencyNode', () => {
     ]);
   });
 
+  it('does not read a failure on issue #404 as "not found" (the number is in the command line)', async () => {
+    const err = Object.assign(new Error('Command failed with exit code 1: gh api repos/me/app/issues/404'), { stderr: 'HTTP 502: Bad Gateway' });
+    await expect(resolveGithubDependencyNode({ number: '404' }, 'me/app', ghWith({ issue: err }))).rejects.toThrow('exit code 1');
+  });
+
   it("ignores body refs on an outsider's issue but keeps native blockers", async () => {
     const gh = ghWith({
       issue: { state: 'open', body: 'Depends on #1', user: { login: 'mallory' }, author_association: 'NONE' },

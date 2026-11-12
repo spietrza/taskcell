@@ -790,6 +790,7 @@ async function fetchHintedIssue(
 
 /** shortcut: a blocked issue is re-checked at most this often per watch process; fine at today's poll rates, move to a shared cache if polls get much faster. */
 const DEPENDENCY_RECHECK_MS = 10 * 60_000;
+const DEPENDENCY_ERROR_BACKOFF_MS = 60_000;
 
 /**
  * Drop the issues whose dependencies or start date block them (#760), before any claim: a blocked
@@ -807,7 +808,15 @@ export async function filterDependencyReady<T extends { id: string }>(
   const ready: T[] = [];
   for (const task of tasks) {
     if ((blockedUntil.get(task.id) ?? 0) > now()) continue;
-    const check = await gate(task);
+    let check: Awaited<ReturnType<typeof gate>>;
+    try {
+      check = await gate(task);
+    } catch (error) {
+      // One failing lookup (403, 5xx, rate limit) holds back only this issue, for a short while.
+      blockedUntil.set(task.id, now() + DEPENDENCY_ERROR_BACKOFF_MS);
+      console.log(`taskcell: ${task.id} skipped -> dependency lookup failed: ${error instanceof Error ? error.message : String(error)}`);
+      continue;
+    }
     if (check.status === 'ready') {
       blockedUntil.delete(task.id);
       ready.push(task);
@@ -838,7 +847,9 @@ export function githubIssueWatchPrimitives(opts: WatchGithubOptions): WatchPrimi
           ? await fetchHintedIssue(fetcher, opts.issueRef, agentLabels, opts.claimedLabel)
           : await fetcher.list({ labels: agentLabels });
       const trusted = await withTrustedIssueAuthors(repo, listed, opts.deps.feedbackAuthors, opts.gh);
-      const tasks = await filterDependencyReady(repo, trusted, blockedUntil, (task) => githubDependencyGate(repo, task, task.id, opts.gh));
+      const tasks = await filterDependencyReady(repo, trusted, blockedUntil, (task) =>
+        githubDependencyGate(repo, task, task.id, opts.gh, opts.deps.commitAuthor !== undefined),
+      );
       heldBefore.clear();
       for (const task of tasks) if (task.labels.includes(GITHUB_SECRET_BLOCKED_LABEL)) heldBefore.add(task.id);
       rateLimitedBefore.clear();
@@ -1121,7 +1132,9 @@ export function githubProjectWatchPrimitives(opts: WatchGithubProjectOptions): W
         ready.push({ id: issueRef });
       }
       // Project items carry no body, so the gate reads each trigger-status issue (blocked ones are cached).
-      return filterDependencyReady(repo, ready, blockedUntil, async (item) => githubDependencyGate(repo, await fetcher.fetch(item.id), item.id, gh));
+      return filterDependencyReady(repo, ready, blockedUntil, async (item) =>
+        githubDependencyGate(repo, await fetcher.fetch(item.id), item.id, gh, opts.deps.commitAuthor !== undefined),
+      );
     },
     // A re-triggered item (moved back to the trigger status by a human) sheds the hold label from
     // its earlier secret block; only for items listReady saw carrying it (see githubIssueWatchPrimitives).

@@ -48,6 +48,12 @@ describe('parseDependsOnBody', () => {
     expect(Date.now() - t).toBeLessThan(500);
   });
 
+  it('stays fast on a long word with no slash (REF_RE backtracking)', () => {
+    const t = Date.now();
+    expect(parseDependsOnBody(`Depends on ${'a'.repeat(65_000)}`)).toEqual([]);
+    expect(Date.now() - t).toBeLessThan(500);
+  });
+
   it('returns [] when there is no "Depends on" line', () => {
     expect(parseDependsOnBody('Just a normal description, nothing blocking this.')).toEqual([]);
   });
@@ -141,8 +147,7 @@ describe('checkDependencies', () => {
     const graph = { 'me/app#2': { met: false, missing: true, dependsOn: [] } };
     const check = await checkDependencies({ dependsOn: [{ number: '2' }] }, SELF, 'me/app', resolverFromGraph(graph));
     expect(check.status).toBe('needs_info');
-    expect((check as { reason: string }).reason).toContain('me/app#2');
-    expect((check as { reason: string }).reason).toContain('does not exist');
+    expect((check as { reason: string }).reason).toBe('depends on #2, which does not exist');
   });
 
   it('reports needs_info when a dependency resolves back to self (direct cycle)', async () => {
@@ -160,7 +165,7 @@ describe('checkDependencies', () => {
       'secret/repo#5': { met: false, dependsOn: [{ repo: 'secret/repo', number: '4' }] },
     };
     const check = await checkDependencies({ dependsOn: [{ number: '2' }, { number: '3' }] }, SELF, 'me/app', resolverFromGraph(graph));
-    expect(check).toEqual({ status: 'needs_info', reason: 'a dependency cycle through me/app#3' });
+    expect(check).toEqual({ status: 'needs_info', reason: 'a dependency cycle through #3' });
   });
 
   it('does not name a transitive reference that does not exist', async () => {
@@ -170,7 +175,7 @@ describe('checkDependencies', () => {
     };
     const check = await checkDependencies({ dependsOn: [{ number: '2' }] }, SELF, 'me/app', resolverFromGraph(graph));
     expect(check.status).toBe('needs_info');
-    expect((check as { reason: string }).reason).toContain('me/app#2');
+    expect((check as { reason: string }).reason).toContain('#2');
     expect((check as { reason: string }).reason).not.toContain('secret');
   });
 
@@ -281,8 +286,15 @@ describe('dependencyLogReason / dependencyWaitComment', () => {
     const check: DependencyCheck = { status: 'waiting', kind: 'unmet', blockers: [{ number: '5' }] };
     expect(dependencyLogReason(check, 'me/app')).toContain('me/app#5');
     const comment = dependencyWaitComment(check, 'me/app');
-    expect(comment).toContain('me/app#5');
+    expect(comment).toContain('#5');
     expect(comment).toContain(DEPENDENCY_MARKER);
+  });
+
+  it('does not name a blocker in another repository in the posted comment', () => {
+    const check: DependencyCheck = { status: 'waiting', kind: 'unmet', blockers: [{ repo: 'org/private', number: '12' }, { repo: 'ME/app', number: '3' }] };
+    const comment = dependencyWaitComment(check, 'me/app');
+    expect(comment).not.toContain('org/private');
+    expect(comment).toContain('a dependency in another repository, #3');
   });
 
   it('describe a start-date wait', () => {

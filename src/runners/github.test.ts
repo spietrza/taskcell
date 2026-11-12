@@ -120,7 +120,7 @@ describe('runGithubIssue dependency gate (#760)', () => {
     const result = await runGithubIssue('owner/repo#7', makeDeps(), gh);
     expect(result).toMatchObject({ parked: true, waiting: true });
     expect(posted(calls)).toHaveLength(1);
-    expect(posted(calls)[0]?.join(' ')).toContain('owner/repo#9');
+    expect(posted(calls)[0]?.join(' ')).toContain('#9');
   });
 
   it('does not repeat a comment it already posted', async () => {
@@ -131,6 +131,13 @@ describe('runGithubIssue dependency gate (#760)', () => {
     const again = gateGh({ state: 'open' }, [{ author: { login: 'owner' }, authorAssociation: 'OWNER', body }]);
     await runGithubIssue('owner/repo#7', makeDeps(), again.gh);
     expect(posted(again.calls)).toHaveLength(0);
+  });
+
+  it('white-label: parks without posting anything on the issue', async () => {
+    const { gh, calls } = gateGh({ state: 'open' });
+    const deps = { ...makeDeps(), commitAuthor: { name: 'Dev', email: 'dev@example.invalid' } };
+    expect(await runGithubIssue('owner/repo#7', deps, gh)).toMatchObject({ parked: true, waiting: true });
+    expect(posted(calls)).toHaveLength(0);
   });
 
   it('releases (not waiting) on a missing dependency, so the watch drops the claim', async () => {

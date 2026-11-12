@@ -94,8 +94,11 @@ export interface GitHubBlockedByItem {
  * wrongly report it as having no blockers at all (ready).
  */
 function isNotFoundError(error: unknown): boolean {
-  const message = error instanceof Error ? error.message : String(error);
-  return /\b404\b/.test(message) || /not found/i.test(message);
+  // Only the status gh prints: execa's composed message also carries the command line, where an
+  // issue #404 or a repo name would otherwise match and turn any failure into "not found".
+  const stderr = (error as { stderr?: unknown } | null)?.stderr;
+  const text = typeof stderr === 'string' && stderr !== '' ? stderr : error instanceof Error ? error.message : String(error);
+  return /\bHTTP 404\b/.test(text);
 }
 
 /**
