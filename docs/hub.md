@@ -173,7 +173,7 @@ carries on. A new run of the same task writes a new file; the older ones stay.
 
 The read-only server call `read_run_events` (`{ repoPath, taskId, timestamp?, after?, limit? }`, allowed in server
 mode) returns `{ events, nextAfter, hasMore, truncated }`: events with `id > after` in order, at most `limit`
-(default 500, max 2000), of the run started at `timestamp` or the newest one. To show history then go live:
+(default 500, max 2000), of the run whose `list_runs` record carries `timestamp` (the newest log begun at or before it) or the newest run. To show history then go live:
 open the SSE stream, page `read_run_events` from `after: 0` until `hasMore` is false, then apply live events whose
 id is greater than `nextAfter` — no gap, no duplicate.
 

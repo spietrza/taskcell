@@ -82,6 +82,20 @@ describe('run event log', () => {
     expect(page.events.length).toBeLessThan(50);
   });
 
+  test('timestamp picks the run whose log began at or before it (a run record stamped after accept)', async () => {
+    const first = new RunEventLog(repo, '2026-01-01T00:00:00.000Z');
+    first.append(ev(1), 'T-1');
+    const second = new RunEventLog(repo, '2026-01-01T01:00:00.000Z');
+    second.append(ev(2), 'T-1');
+    await Promise.all([first.flush(), second.flush()]);
+    const ids = async (timestamp?: string): Promise<number[]> =>
+      (await readRunEvents(repo, 'T-1', timestamp === undefined ? {} : { timestamp })).events.map((e) => e.id);
+    expect(await ids('2026-01-01T00:00:02.500Z')).toEqual([1]);
+    expect(await ids('2026-01-01T01:00:00.000Z')).toEqual([2]);
+    expect(await ids()).toEqual([2]);
+    expect(await ids('2025-12-31T23:59:59.000Z')).toEqual([]);
+  });
+
   test('a missing log is an empty page', async () => {
     expect(await readRunEvents(repo, 'nope', { after: 3 })).toEqual({ events: [], nextAfter: 3, hasMore: false, truncated: false });
   });

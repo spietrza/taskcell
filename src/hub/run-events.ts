@@ -3,7 +3,7 @@
 // and a busy run pushing events out of EventBus's 500-event ring. The `id` is the SSE `id:` the bus
 // assigned, so a client can read history with `readRunEvents` and then continue on the live stream
 // (skipping ids it already has) without a gap or a duplicate.
-import { appendFile, readdir, stat } from 'node:fs/promises';
+import { appendFile, readdir } from 'node:fs/promises';
 import { join } from 'node:path';
 import { readTextNoSymlink, sanitizeTimestamp } from '../core/run-store.js';
 import { injectedSecretValues, redactForPublish } from '../core/secret-scan.js';
@@ -16,6 +16,8 @@ export const MAX_EVENTS_LIMIT = 2000;
 
 const FILE_PREFIX = 'events-';
 const FILE_SUFFIX = '.jsonl';
+/** A run's log file name; sanitized ISO times are fixed-width, so name order is time order. */
+const logFileName = (timestamp: string): string => `${FILE_PREFIX}${sanitizeTimestamp(timestamp)}${FILE_SUFFIX}`;
 
 export interface RunLogEvent {
   id: number;
@@ -78,7 +80,7 @@ export class RunEventLog {
   private file(): Promise<string | undefined> {
     this.ready ??= (async () => {
       const dir = await ensureStateDir(this.repoPath, join(stateDir(this.repoPath), 'runs', this.taskId as string));
-      const file = join(dir, `${FILE_PREFIX}${sanitizeTimestamp(this.startedAt)}${FILE_SUFFIX}`);
+      const file = join(dir, logFileName(this.startedAt));
       await assertStatePath(this.repoPath, file);
       return file;
     })().catch(() => undefined);
@@ -105,16 +107,18 @@ export class RunEventLog {
   }
 }
 
-/** The newest `events-*.jsonl` for a task (or the one for `timestamp`, an ISO run-start time). */
+/** The newest `events-*.jsonl` for a task, or with `timestamp` (an ISO time, e.g. a run record's from
+ * `list_runs`) the newest one started at or before it: the log opens when the hub accepts the run, a
+ * moment before the runner stamps its record, so the record's run is the last log begun by then. */
 async function eventsFile(repoPath: string, taskId: string, timestamp: string | undefined): Promise<string | undefined> {
   const dir = join(stateDir(repoPath), 'runs', taskId);
-  if (timestamp !== undefined) {
-    const file = join(dir, `${FILE_PREFIX}${sanitizeTimestamp(timestamp)}${FILE_SUFFIX}`);
-    return (await stat(file).then(() => true, () => false)) ? file : undefined;
-  }
   const names = await readdir(dir).catch(() => [] as string[]);
-  const newest = names.filter((n) => n.startsWith(FILE_PREFIX) && n.endsWith(FILE_SUFFIX)).sort().pop();
-  return newest === undefined ? undefined : join(dir, newest);
+  const limit = timestamp === undefined ? undefined : logFileName(timestamp);
+  const match = names
+    .filter((n) => n.startsWith(FILE_PREFIX) && n.endsWith(FILE_SUFFIX) && (limit === undefined || n <= limit))
+    .sort()
+    .pop();
+  return match === undefined ? undefined : join(dir, match);
 }
 
 /** Read a run's persisted events with `id > after`, at most `limit`, in order. A missing log is an empty page. */

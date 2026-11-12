@@ -612,7 +612,7 @@ export interface Commands {
   list_runs: { args: { repoPath: string }; result: RunSummary[] };
   read_run: { args: { repoPath: string; taskId: string; timestamp: string; source: RunSource }; result: RunDetail };
   /** HUB_ONLY, read-only: a run's persisted event log (`.taskcell/runs/<taskId>/events-*.jsonl`), events with
-   *  `id > after` (the SSE `id:`), at most `limit`; `timestamp` picks a run by its start time, default the newest. */
+   *  `id > after` (the SSE `id:`), at most `limit`; `timestamp` (a run record's, from `list_runs`) picks that run, default the newest. */
   read_run_events: {
     args: { repoPath: string; taskId: string; timestamp?: string; after?: number; limit?: number };
     result: { events: { id: number; ts: string; event: string; data: unknown }[]; nextAfter: number; hasMore: boolean; truncated: boolean };

@@ -369,24 +369,43 @@ describe('run-session', () => {
 
 
 describe('run-session event log', () => {
-  test('a run persists its events and still completes when the log cannot be written', async () => {
+  /** A session whose run emits run-start then run-end for T-9. */
+  const endingSession = (): ReturnType<typeof createRunSession> => {
+    let id = 0;
+    const deps = fakeDeps(async (_p, onEvent) => {
+      onEvent({ type: 'run-start', taskId: 'T-9', flow: 'f', provider: 'p', stages: [] } as RunEvent);
+      onEvent({ type: 'run-end' } as RunEvent);
+      return {};
+    });
+    return createRunSession(deps, () => ++id);
+  };
+
+  test('a run persists its events, readable after it settles', async () => {
     const { mkdtemp, rm } = await import('node:fs/promises');
     const { tmpdir } = await import('node:os');
     const { join } = await import('node:path');
     const { readRunEvents } = await import('./run-events.js');
     const repo = await mkdtemp(join(tmpdir(), 'run-session-log-'));
     try {
-      let id = 0;
-      const deps = fakeDeps(async (_p, onEvent) => {
-        onEvent({ type: 'run-start', taskId: 'T-9', flow: 'f', provider: 'p', stages: [] } as RunEvent);
-        onEvent({ type: 'run-end' } as RunEvent);
-        return {};
-      });
-      const session = createRunSession(deps, () => ++id);
+      const session = endingSession();
       await session.createRun({ issueRef: '1', repoPath: repo } as CreateRunParams);
       const page = await readRunEvents(repo, 'T-9');
       expect(page.events.map((e) => (e.data as { event: { type: string } }).event.type)).toEqual(['run-accepted', 'run-start', 'run-end']);
       expect(page.events.map((e) => e.id)).toEqual([1, 2, 3]);
+    } finally {
+      await rm(repo, { recursive: true, force: true });
+    }
+  });
+
+  test('a run completes when its event log cannot be written', async () => {
+    const { mkdtemp, rm, writeFile } = await import('node:fs/promises');
+    const { tmpdir } = await import('node:os');
+    const { join } = await import('node:path');
+    const repo = await mkdtemp(join(tmpdir(), 'run-session-log-'));
+    try {
+      await writeFile(join(repo, '.taskcell'), 'not a directory'); // the state dir cannot be created
+      const session = endingSession();
+      await expect(session.createRun({ issueRef: '1', repoPath: repo } as CreateRunParams)).resolves.toBeDefined();
     } finally {
       await rm(repo, { recursive: true, force: true });
     }
