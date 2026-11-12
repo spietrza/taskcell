@@ -75,7 +75,7 @@ const commands: Record<keyof typeof allHandlers, Command> = {
   'watch-mrs': { kind: 'watch-mrs', project: 'g/p', repoPath: '/repo', label: 'l', reviewingLabel: 'ri', reviewedLabel: 'rd', concurrency: 2, intervalMs: 60000, once: false, egress: false },
   'doctor-mrs': { kind: 'doctor-mrs', project: 'g/p', repoPath: '/repo', label: 'l', reviewingLabel: 'ri', reviewedLabel: 'rd' },
   eval: { kind: 'eval', json: false, suggest: false, repoPath: '/repo' },
-  stats: { kind: 'stats', repoPath: '/repo', json: false },
+  stats: { kind: 'stats', repoPath: '/repo', json: false, approver: false },
   memory: { kind: 'memory', repoPath: '/repo', json: false },
   gc: { kind: 'gc', repoPath: '/repo', maxAgeMs: 1000, dryRun: false, abandoned: false },
 };

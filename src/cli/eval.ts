@@ -28,12 +28,23 @@ export interface EvalCommandDeps {
 export const EMPTY_TASK_PROMPT = '(The task description is empty.)';
 
 /** `claude` flags for every eval call: print mode with every built-in tool and every MCP server disabled. */
-export const EVAL_CLAUDE_ARGS = ['--print', '--tools', '', '--strict-mcp-config'] as const;
+export const EVAL_CLAUDE_ARGS = [
+  '--print', '--tools', '', '--strict-mcp-config',
+  // Without tools the model still tries to call them (it writes tool-call markup as text), and the CLI can
+  // then hang with no output (#735); telling it up front keeps the reply plain text.
+  '--append-system-prompt', 'This session has no tools. Answer in plain text only; never write tool calls.',
+] as const;
+
+/**
+ * One model call normally answers in 5-15s. The tool-less CLI occasionally hangs with no output (about 1 call
+ * in 10 on the "Improve performance." case, #735), so a call is cut off after this and retried.
+ */
+export const EVAL_CALL_TIMEOUT_MS = 2 * 60_000;
+
+/** Attempts per model call; only a timeout is retried (a hang is not the model's answer). */
+export const EVAL_CALL_ATTEMPTS = 3;
 
 /** The CLI's message when the API stops a reply on safety grounds; it exits non-zero but this is the model's answer. */
-/** One model call never takes this long; a hung CLI otherwise stalls the CI job for hours. */
-export const EVAL_CALL_TIMEOUT_MS = 5 * 60_000;
-
 export const API_REFUSAL_RE = /API Error: .*(?:can't help with this|safeguards flagged this message)/;
 
 /** Thin host-side completion: runs `claude --print --model <model>` with the prompt on stdin, tool-less, in a throwaway directory. */
@@ -43,8 +54,10 @@ export function makeCliComplete(model: string): (prompt: string) => Promise<stri
     // under test must never act on the host (a "clean up the repo" case once deleted local branches).
     const cwd = await mkdtemp(join(tmpdir(), 'taskcell-eval-'));
     try {
-      const result = await execa('claude', [...EVAL_CLAUDE_ARGS, '--model', model], { input: prompt, cwd, reject: false, timeout: EVAL_CALL_TIMEOUT_MS });
-      if (result.timedOut) throw new Error(`claude --print --model ${model} timed out after ${EVAL_CALL_TIMEOUT_MS / 1000}s: ${(result.stderr || result.stdout || '(no output)').trim().slice(0, 500)}`);
+      const call = () => execa('claude', [...EVAL_CLAUDE_ARGS, '--model', model], { input: prompt, cwd, reject: false, timeout: EVAL_CALL_TIMEOUT_MS });
+      let result = await call();
+      for (let attempt = 2; result.timedOut && attempt <= EVAL_CALL_ATTEMPTS; attempt++) result = await call();
+      if (result.timedOut) throw new Error(`claude --print --model ${model} timed out ${EVAL_CALL_ATTEMPTS}x after ${EVAL_CALL_TIMEOUT_MS / 1000}s on prompt ${JSON.stringify(prompt.slice(0, 80))}: ${((result.stderr || result.stdout) || '(no output)').trim().slice(0, 500)}`);
       if (result.exitCode === 0) return result.stdout;
       // A safety stop is the model's answer (and the right one for a refusal case), not an infra failure.
       if (API_REFUSAL_RE.test(result.stdout)) return result.stdout;
@@ -116,7 +129,7 @@ export async function evalCommand(
         ? await readLatest(cmd.repoPath, branchOpts)
         : parseBaselineFile(cmd.baseline, await readBaselineFile(cmd.baseline));
     if (baselineReport === undefined) {
-      console.error(`vanguard eval: no baseline found for "${cmd.baseline}"`);
+      console.error(`taskcell eval: no baseline found for "${cmd.baseline}"`);
       process.exitCode = 1;
     } else {
       comparison = compareToBaseline(runReport, baselineReport, {
@@ -129,7 +142,7 @@ export async function evalCommand(
 
   if (cmd.saveBaseline === true) {
     const saved = await save(cmd.repoPath, runReport, branchOpts);
-    console.log(`vanguard eval: saved baseline for ${saved.commit.slice(0, 7)}`);
+    console.log(`taskcell eval: saved baseline for ${saved.commit.slice(0, 7)}`);
   }
 
   if (cmd.json) {

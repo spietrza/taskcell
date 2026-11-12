@@ -1,3 +1,4 @@
-# Build context for docker/Dockerfile (the sandbox image, `docker build docker/`). It copies nothing,
-# so send nothing: keeps an operator .env and docker/target-repo out of the build context.
+# Build context for docker/Dockerfile (the sandbox image, `docker build docker/`). Send only what the
+# Dockerfile copies: keeps an operator .env and docker/target-repo out of the build context.
 *
+!retry.sh

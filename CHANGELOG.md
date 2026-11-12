@@ -1,5 +1,42 @@
 # Changelog
 
+## [1.15.2](https://github.com/spietrza/taskcell/compare/v1.15.1...v1.15.2) (2026-11-11)
+
+
+### Features
+
+* conformance: map every acceptance criterion to the spec manifest, incl. docs and PR-body items (spietrza/taskcell[#718](https://github.com/spietrza/taskcell/issues/718)) ([#720](https://github.com/spietrza/taskcell/issues/720)) ([2e2b9d6](https://github.com/spietrza/taskcell/commit/2e2b9d64312ff5805e72baaa87577766d7415274))
+* Conformance: PR-body obligations as one delivery verdict (spietrza/taskcell[#757](https://github.com/spietrza/taskcell/issues/757)) ([#759](https://github.com/spietrza/taskcell/issues/759)) ([6084059](https://github.com/spietrza/taskcell/commit/6084059e33b249ca95b901267db99b4d25d1205a))
+* Copy-back: one module owns what leaves the sandbox (spietrza/taskcell[#754](https://github.com/spietrza/taskcell/issues/754)) ([#762](https://github.com/spietrza/taskcell/issues/762)) ([44790f1](https://github.com/spietrza/taskcell/commit/44790f1d471b4e148d44b9971767e3de1f434f34))
+* hub: Enable factory on the platform the user picks (GitHub Actions first; GitLab, Linear next) (spietrza/taskcell[#721](https://github.com/spietrza/taskcell/issues/721)) ([#726](https://github.com/spietrza/taskcell/issues/726)) ([3e444eb](https://github.com/spietrza/taskcell/commit/3e444eb4b54d50f9bba2adf556cf87551d3b9a59))
+* hub: queue runs instead of rejecting a second one (spietrza/taskcell[#618](https://github.com/spietrza/taskcell/issues/618)) ([#728](https://github.com/spietrza/taskcell/issues/728)) ([2164dd6](https://github.com/spietrza/taskcell/commit/2164dd6abb0c09901e5af22dcf420dce66a71e65))
+* Hub: shared timestamps, status words and error text (spietrza/taskcell[#741](https://github.com/spietrza/taskcell/issues/741)) ([#742](https://github.com/spietrza/taskcell/issues/742)) ([93b1569](https://github.com/spietrza/taskcell/commit/93b15695634f8572d1a61b5c78760562045d2bab))
+* hub: show what the factory is asking and reply from the hub (spietrza/taskcell[#722](https://github.com/spietrza/taskcell/issues/722)) ([#727](https://github.com/spietrza/taskcell/issues/727)) ([bf41a0a](https://github.com/spietrza/taskcell/commit/bf41a0ae28a3fbfacda3eb8995285cbaa461b7a0))
+* **hub:** Enable factory button and plan dialog ([#739](https://github.com/spietrza/taskcell/issues/739)) ([6c04833](https://github.com/spietrza/taskcell/commit/6c048335835b5971592ed250850bd5c10a6db772))
+* **hub:** landing visual identity (dark, amber, landing fonts) ([#744](https://github.com/spietrza/taskcell/issues/744)) ([1f7300f](https://github.com/spietrza/taskcell/commit/1f7300f8d588fbc07f8c6a41363a0784e0e13459))
+* Sandbox: contract test suite on the real image (spietrza/taskcell[#756](https://github.com/spietrza/taskcell/issues/756)) ([#758](https://github.com/spietrza/taskcell/issues/758)) ([15cf067](https://github.com/spietrza/taskcell/commit/15cf067f3aa2c83097ac599e698a0b7315221877))
+* Sandbox: decide the sandbox profile once (spietrza/taskcell[#755](https://github.com/spietrza/taskcell/issues/755)) ([#767](https://github.com/spietrza/taskcell/issues/767)) ([87abf5f](https://github.com/spietrza/taskcell/commit/87abf5f8bceea015491bf88096634a5a5c104c17))
+* sandbox: read-only rootfs, opt-in with `VANGUARD_SANDBOX_READONLY=1` (spietrza/taskcell[#717](https://github.com/spietrza/taskcell/issues/717)) ([#725](https://github.com/spietrza/taskcell/issues/725)) ([3b438a8](https://github.com/spietrza/taskcell/commit/3b438a8184987f4b2e0161eebe02176750f45d8d))
+
+
+### Bug Fixes
+
+* **copy-back:** skip the pnpm store a read-only sandbox puts in the workspace ([#748](https://github.com/spietrza/taskcell/issues/748)) ([c34f711](https://github.com/spietrza/taskcell/commit/c34f711902c2f56800f7212d89971ac4bab94432))
+* **eval:** retry a hung model call instead of failing the baseline ([#763](https://github.com/spietrza/taskcell/issues/763)) ([4fe6c90](https://github.com/spietrza/taskcell/commit/4fe6c90037c34f1a8135c5bbebf43b63be180e13))
+* **eval:** tell the tool-less model it has no tools; name the case in progress and timeouts ([#766](https://github.com/spietrza/taskcell/issues/766)) ([8856702](https://github.com/spietrza/taskcell/commit/88567028371a96033e5cf309423584d2b8e8ad70))
+* **hub:** demo QA fixes (title bar, queued strip, enable-factory plan, needs-you) ([#743](https://github.com/spietrza/taskcell/issues/743)) ([66415ea](https://github.com/spietrza/taskcell/commit/66415ea962df4ed2f201c6c0525d40c52cd40499))
+* release review follow-ups (copy-back robustness, enable-factory apply guards) ([#750](https://github.com/spietrza/taskcell/issues/750)) ([80d944e](https://github.com/spietrza/taskcell/commit/80d944e56c4a978bb5df84dd559d792d89df6871))
+* **sandbox:** copy in/out via docker exec under read-only rootfs ([#745](https://github.com/spietrza/taskcell/issues/745)) ([4e797a0](https://github.com/spietrza/taskcell/commit/4e797a020fb5549796c92d1a6a765b0b71ec4d0f))
+* **sandbox:** give tmpfs workspace and home to the run user under read-only rootfs ([#746](https://github.com/spietrza/taskcell/issues/746)) ([1d64392](https://github.com/spietrza/taskcell/commit/1d64392caf6645e293663feefe62440b2e450ec2))
+* **sandbox:** make the read-only rootfs opt-in (VANGUARD_SANDBOX_READONLY=1) ([#752](https://github.com/spietrza/taskcell/issues/752)) ([829b9b6](https://github.com/spietrza/taskcell/commit/829b9b6a6c1d8dae66e1734539f554fa89ca9b61))
+* **sandbox:** stream copy-in/out without execa's 100 MB buffer ([#747](https://github.com/spietrza/taskcell/issues/747)) ([a156b04](https://github.com/spietrza/taskcell/commit/a156b048229bb292b31af3413f0046beee100119))
+
+
+### Documentation
+
+* bring docs up to date for 1.15.2 ([#770](https://github.com/spietrza/taskcell/issues/770)) ([f4d217a](https://github.com/spietrza/taskcell/commit/f4d217ae3baab21d524329dd8a41141ec83a8ce8))
+* **hub:** design baseline, audit and fixes ([#740](https://github.com/spietrza/taskcell/issues/740)) ([025074d](https://github.com/spietrza/taskcell/commit/025074d507012fe97d286e2a18dd798c8bb891df))
+
 ## [1.15.1](https://github.com/spietrza/taskcell/compare/v1.15.0...v1.15.1) (2026-11-10)
 
 

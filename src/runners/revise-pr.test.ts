@@ -991,21 +991,21 @@ describe('runRevisePullRequest — hardened sandbox', () => {
   };
 
   it('--egress/--llm-proxy (enclave network set) alone keeps the rootfs writable: read-only is opt-in', async () => {
-    expect((await revise('vg-egr-1'))?.security?.readOnlyRootfs).toBe(false);
+    expect((await revise('vg-egr-1'))?.profile?.security.readOnlyRootfs).toBe(false);
   });
 
   it('--egress/--llm-proxy with VANGUARD_SANDBOX_READONLY=1: the sandbox gets a read-only rootfs', async () => {
     vi.stubEnv('VANGUARD_SANDBOX_READONLY', '1');
-    expect((await revise('vg-egr-1'))?.security?.readOnlyRootfs).toBe(true);
+    expect((await revise('vg-egr-1'))?.profile?.security.readOnlyRootfs).toBe(true);
   });
 
   it('VANGUARD_SANDBOX_READONLY=0 keeps it off in hardened mode', async () => {
     vi.stubEnv('VANGUARD_SANDBOX_READONLY', '0');
-    expect((await revise('vg-egr-1'))?.security?.readOnlyRootfs).toBe(false);
+    expect((await revise('vg-egr-1'))?.profile?.security.readOnlyRootfs).toBe(false);
   });
 
   it('without the flags the rootfs stays writable, as before', async () => {
-    expect((await revise())?.security?.readOnlyRootfs).toBe(false);
+    expect((await revise())?.profile?.security.readOnlyRootfs).toBe(false);
   });
 });
 

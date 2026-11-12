@@ -4,7 +4,8 @@ import { mkdtemp, writeFile, readFile, rm, stat, cp } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { DockerSandboxProvider, isBenignTarExit } from './docker.js';
-import { sandboxSecurityOpts } from './limits.js';
+import { resolveSandboxProfile } from './limits.js';
+import { prunedNames } from './copy-back.js';
 import { WorktreeManager } from '../worktree/manager.js';
 
 /**
@@ -118,7 +119,7 @@ for (const readOnly of [false, true]) {
       sb = new DockerSandboxProvider({
         image: TASKCELL_IMAGE,
         workdir: '/workspace',
-        security: { ...sandboxSecurityOpts({}), readOnlyRootfs: readOnly },
+        profile: resolveSandboxProfile({ VANGUARD_SANDBOX_READONLY: readOnly ? '1' : '0' } as NodeJS.ProcessEnv),
       });
       await sb.start();
     }, 120_000);
@@ -191,13 +192,13 @@ for (const readOnly of [false, true]) {
 
 // Smoke test: the full loop a real run exercises — copy a project in, pnpm install, copy the workspace
 // back out the same way syncSandboxToWorktree does (node_modules/.pnpm-store/.git excluded, see
-// core/vanguard.ts's COPY_BACK_SKIP), and check the diff a human/PR would see. Runs once, read-write,
+// copy-back.ts's PATH_POLICY), and check the diff a human/PR would see. Runs once, read-write,
 // against the real taskcell image.
 suite('smoke: pnpm install -> copy-back -> diff', () => {
   it('installs with pnpm, copies the workspace back, and the resulting diff shows the lockfile landing', async () => {
     const worktree = await mkdtemp(join(tmpdir(), 'vg-smoke-'));
     const staging = await mkdtemp(join(tmpdir(), 'vg-smoke-staging-'));
-    const sb = new DockerSandboxProvider({ image: TASKCELL_IMAGE, workdir: '/workspace', security: sandboxSecurityOpts({}) });
+    const sb = new DockerSandboxProvider({ image: TASKCELL_IMAGE, workdir: '/workspace', profile: resolveSandboxProfile({}) });
     try {
       await execa('git', ['init', '-q'], { cwd: worktree });
       await execa('git', ['config', 'user.email', 'vanguard@example.com'], { cwd: worktree });
@@ -217,10 +218,10 @@ suite('smoke: pnpm install -> copy-back -> diff', () => {
       expect(await sb.exists('/workspace/pnpm-lock.yaml')).toBe(true);
       expect(await sb.exists('/workspace/node_modules')).toBe(true);
 
-      await sb.copyFileOut('/workspace', staging, { exclude: ['node_modules', '.pnpm-store', '.git'] });
+      await sb.copyFileOut('/workspace', staging, { exclude: prunedNames() });
       await cp(staging, worktree, { recursive: true, force: true });
 
-      // Copy-back drops node_modules at the source, same as production (see COPY_BACK_SKIP).
+      // Copy-back drops node_modules at the source, same as production (see copy-back.ts's PATH_POLICY).
       await expect(stat(join(worktree, 'node_modules'))).rejects.toThrow();
 
       const wm = new WorktreeManager(worktree);

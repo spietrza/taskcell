@@ -5,13 +5,14 @@ import type { InstructionOverlay } from '../context/instruction-files.js';
 import { mkdir, writeFile } from 'node:fs/promises';
 import { dirname, resolve } from 'node:path';
 import { DockerSandboxProvider, sandboxImage } from '../sandbox/docker.js';
-import { sandboxResourceLimits, sandboxSecurityOpts } from '../sandbox/limits.js';
+import { sandboxNetworkConfig } from '../sandbox/limits.js';
 import { llmProxySandboxEnv } from '../sandbox/egress-proxy.js';
 import { startProviderProxies } from '../sandbox/llm-proxy.js';
 import { startSandboxContext } from '../sandbox/sandbox-context.js';
 import { agentAuthFromEnv, authSecrets } from '../agents/auth.js';
 import { selectAgents } from '../agents/registry.js';
 import { prepareContext, runAgent, disposeContext } from '../core/vanguard.js';
+import { enforceUsageCap } from '../core/usage-cap.js';
 import { skillRegistryForRun } from '../context/skill-registry.js';
 import { baseBranchOrDefault } from '../core/base-branch.js';
 import { literalPrompt } from '../context/prompt-engine.js';
@@ -131,6 +132,8 @@ async function runDefaultReviewer(
   gh: GhRunner,
 ): Promise<PullRequestReviewOutcome> {
   const agents = selectAgents(cmd, process.env, { proxyMode: sandboxContext.llmProxy !== undefined });
+  // A review is a new agent run: not started when the provider is at the usage cap (watch-prs parks the PR).
+  enforceUsageCap(agents.agent.name);
 
   // Per-run provider sidecars (e.g. OpenAI for Codex) hold the real key out of the sandbox. Created
   // before prepareContext so the finally below tears them down even if context provisioning throws.
@@ -146,10 +149,8 @@ async function runDefaultReviewer(
         ...(sandboxContext.llmProxy === undefined && auth !== undefined && agents.injectAnthropicAuth ? authSecrets(auth) : {}),
         ...agents.secrets,
       },
-      ...sandboxResourceLimits(process.env, sandboxContext.network !== undefined),
       ...(env !== undefined ? { env } : {}),
-      ...(sandboxContext.network !== undefined ? { network: sandboxContext.network } : {}),
-      security: sandboxSecurityOpts(process.env, sandboxContext.network !== undefined),
+      ...sandboxNetworkConfig(sandboxContext.network),
     });
     const taskId = `pr-review-${pr.repoSlug.replace(/[^a-zA-Z0-9]/g, '-')}-${pr.number}`;
     // The reviewer reads the tree the change lands on: the PR's base as origin has it.

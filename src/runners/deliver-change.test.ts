@@ -213,9 +213,9 @@ describe('deliverChange', () => {
     expect(JSON.stringify(calls)).not.toContain(credential);
     // One count-only line per redacted field (commit message, PR title, PR body), never the value.
     expect(logged.filter((l) => l.includes('redacted'))).toEqual([
-      'vanguard: redacted 1 injected credential occurrence(s) from the commit message for o/r#7 (values withheld)',
-      'vanguard: redacted 2 injected credential occurrence(s) from the PR title for o/r#7 (values withheld)',
-      'vanguard: redacted 1 injected credential occurrence(s) from the PR body for o/r#7 (values withheld)',
+      'taskcell: redacted 1 injected credential occurrence(s) from the commit message for o/r#7 (values withheld)',
+      'taskcell: redacted 2 injected credential occurrence(s) from the PR title for o/r#7 (values withheld)',
+      'taskcell: redacted 1 injected credential occurrence(s) from the PR body for o/r#7 (values withheld)',
     ]);
     expect(logged.join('\n')).not.toContain(credential);
   });

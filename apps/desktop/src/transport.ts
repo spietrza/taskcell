@@ -1,6 +1,6 @@
 // Transport seam between the Inspector UI and its backend. Two backends answer the same calls:
 // Tauri's `invoke`/`listen` (the desktop app, and the branch vitest + dev/mockBackend.ts exercise)
-// and the hub's `POST /rpc/<cmd>` + `/events` SSE stream (a browser against `vanguard hub`, no Tauri
+// and the hub's `POST /rpc/<cmd>` + `/events` SSE stream (a browser against `taskcell hub`, no Tauri
 // runtime present). Mode resolution: the server-injected `window.__VANGUARD_HUB__` marker
 // (src/hub/static.ts) selects the hub branch; its absence selects Tauri. There is no dev-server path
 // into hub mode — the hub only ever serves its own built `dist/`, which is where the marker comes

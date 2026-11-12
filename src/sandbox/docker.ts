@@ -5,8 +5,8 @@ import { tmpdir } from 'node:os';
 import { dirname, join } from 'node:path';
 import { createInterface } from 'node:readline';
 import { SandboxError } from '../core/errors.js';
-import { ownerLabelArgs, readOnlyTmpfsSizesMb, sandboxSecurityOpts } from './limits.js';
-import type { CopyOutOptions, ExecOptions, ExecResult, ExecStream, IsolatedSandboxProvider, SandboxConfig } from './provider.js';
+import { ownerLabelArgs, resolveSandboxProfile } from './limits.js';
+import type { CopyOutOptions, ExecOptions, ExecResult, ExecStream, IsolatedSandboxProvider, SandboxConfig, SandboxProfile } from './provider.js';
 
 /**
  * GNU tar exits 1 when a file grows or is deleted while it is archived (a watcher or test cache still
@@ -83,7 +83,7 @@ export async function resolveSandboxImage(image: string, exists: ImageExists = d
  * surfaces deep inside a run as a gateway error (live case: 2.1.165 answered every Meridian request
  * with `400 This session advanced while the request was waiting`, burning ~50 min per attempt).
  */
-export const SANDBOX_CLAUDE_VERSION = '2.1.260';
+export const SANDBOX_CLAUDE_VERSION = '2.1.322';
 
 /** True when `actual` sorts below `expected`; unparseable parts count as older. */
 export function isOlderVersion(actual: string, expected: string): boolean {
@@ -160,7 +160,6 @@ export async function refreshSandboxClaudeCli(opts: { cwd: string; image?: strin
  */
 let claudeVersionChecked = false;
 const DEFAULT_WORKDIR = '/workspace';
-const DEFAULT_HOME = '/home/agent';
 const SECRETS_DIR = '/run/vanguard';
 const SECRETS_FILE = `${SECRETS_DIR}/secrets.env`;
 
@@ -187,6 +186,8 @@ export class DockerSandboxProvider implements IsolatedSandboxProvider {
   private readonly image: string;
   private readonly workdir: string;
   private readonly config: SandboxConfig;
+  /** The posture this sandbox runs under, decided once by the caller (see SandboxConfig.profile). */
+  private readonly profile: SandboxProfile;
   private readonly secretsMode: SecretsMode;
   private readonly secrets: Record<string, string>;
   private envDir: string | undefined;
@@ -197,6 +198,7 @@ export class DockerSandboxProvider implements IsolatedSandboxProvider {
     this.config = config;
     this.id = randomUUID();
     this.image = config.image ?? sandboxImage();
+    this.profile = config.profile ?? resolveSandboxProfile();
     this.workdir = config.workdir ?? DEFAULT_WORKDIR;
     this.secretsMode = config.secretsMode ?? 'tmpfs';
     this.secrets = { ...config.secrets };
@@ -261,13 +263,13 @@ export class DockerSandboxProvider implements IsolatedSandboxProvider {
     // >= 20.10. The egress enclave and the llm-proxy sidecar are reached by container name instead.
     if (this.needsHostGateway()) args.push('--add-host', `${HOST_GATEWAY_NAME}:host-gateway`);
     if (this.config.network !== undefined) args.push('--network', this.config.network);
-    if (this.config.memoryMb !== undefined) args.push('--memory', `${this.config.memoryMb}m`);
-    if (this.config.cpus !== undefined) args.push('--cpus', String(this.config.cpus));
-    if (this.config.pidsLimit !== undefined) args.push('--pids-limit', String(this.config.pidsLimit));
+    if (this.profile.memoryMb !== undefined) args.push('--memory', `${this.profile.memoryMb}m`);
+    if (this.profile.cpus !== undefined) args.push('--cpus', String(this.profile.cpus));
+    if (this.profile.pidsLimit !== undefined) args.push('--pids-limit', String(this.profile.pidsLimit));
 
-    // Bare call = non-hardened defaults; the runners pass `sandboxSecurityOpts(env, hardened)` via
-    // config.security, which wins here (see SandboxConfig.security).
-    const security = { ...sandboxSecurityOpts(), ...this.config.security };
+    // Decided once by the caller (`resolveSandboxProfile`), never re-derived here — see
+    // SandboxConfig.profile.
+    const { security } = this.profile;
     for (const cap of security.capDrop) args.push('--cap-drop', cap);
     // Added back on top of capDrop ALL: copyIn's `docker exec -u 0 chown -R` needs CAP_CHOWN (and,
     // to retarget files the exec'd root doesn't own, CAP_FOWNER/CAP_DAC_OVERRIDE) — cap-drop fixes
@@ -279,11 +281,12 @@ export class DockerSandboxProvider implements IsolatedSandboxProvider {
       // Paths a real run writes: /workspace (copyIn + pnpm install + git), $HOME (skills, tool
       // caches), /tmp (build scratch). exec is required (tool shims, build scripts) unlike the
       // deliberately noexec secrets tmpfs above. The sizes are shares of this sandbox's own memory
-      // limit, because that is the cgroup a tmpfs page is charged to (see readOnlyTmpfsSizesMb).
-      const tmpfs = readOnlyTmpfsSizesMb(this.config.memoryMb);
+      // limit, because that is the cgroup a tmpfs page is charged to — resolved with the rest of the
+      // profile (see readOnlyTmpfsSizesMb), not here.
+      const { tmpfs, home } = this.profile;
       const mounts = [
         [this.workdir, tmpfs.workspace],
-        [DEFAULT_HOME, tmpfs.home],
+        [home, tmpfs.home],
         ['/tmp', tmpfs.tmp],
       ] as const;
       // A tmpfs mounted over an image directory comes up root:root 0755, not with the directory's own
@@ -328,8 +331,8 @@ export class DockerSandboxProvider implements IsolatedSandboxProvider {
       throw new SandboxError(`Failed to start container ${this.name}`, { cause });
     }
 
-    if ({ ...sandboxSecurityOpts(), ...this.config.security }.readOnlyRootfs) {
-      const chown = await execa('docker', ['exec', '-u', '0', this.name, 'chown', await this.containerOwner(), this.workdir, DEFAULT_HOME], { reject: false });
+    if (this.profile.security.readOnlyRootfs) {
+      const chown = await execa('docker', ['exec', '-u', '0', this.name, 'chown', await this.containerOwner(), this.workdir, this.profile.home], { reject: false });
       if (chown.exitCode !== 0) {
         await this.destroy();
         throw new SandboxError(`Failed to hand the read-only sandbox's tmpfs mounts to the run user: ${chown.stderr}`);

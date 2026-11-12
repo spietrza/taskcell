@@ -579,7 +579,7 @@ describe('skillRegistryForRun', () => {
     const warn = vi.spyOn(console, 'warn').mockImplementation(() => {});
     const skills = await injected(await skillRegistryForRun(bundled, repo));
     expect(skills['code-review']).toMatch(/\.github\/vanguard-skills\/code-review$/);
-    expect(warn).toHaveBeenCalledWith('vanguard: .github/vanguard-skills overrides --skills skill(s): code-review');
+    expect(warn).toHaveBeenCalledWith('taskcell: .github/vanguard-skills overrides --skills skill(s): code-review');
     warn.mockRestore();
   });
 
@@ -612,7 +612,7 @@ describe('skillRegistryForRun', () => {
     await addSkill(join(repo, REPO_SKILLS_DIR), 'tech-spec');
     const warn = vi.spyOn(console, 'warn').mockImplementation(() => {});
     expect(Object.keys(await injected(await skillRegistryForRun(undefined, repo)))).toEqual([]);
-    expect(warn).toHaveBeenCalledWith('vanguard: .github/vanguard-skills/tech-spec is loaded only by the spec pass');
+    expect(warn).toHaveBeenCalledWith('taskcell: .github/vanguard-skills/tech-spec is loaded only by the spec pass');
     warn.mockClear();
     expect(Object.keys(await injected(await skillRegistryForRun(undefined, repo, { includeSpecSkills: true })))).toEqual(['tech-spec']);
     expect(warn).not.toHaveBeenCalled();
@@ -626,10 +626,10 @@ describe('skillRegistryForRun', () => {
     await addSkill(join(repo, REPO_SKILLS_DIR), 'tech-spec');
     const warn = vi.spyOn(console, 'warn').mockImplementation(() => {});
     await skillRegistryForRun(bundled, repo);
-    expect(warn.mock.calls).toEqual([['vanguard: .github/vanguard-skills/tech-spec is loaded only by the spec pass']]);
+    expect(warn.mock.calls).toEqual([['taskcell: .github/vanguard-skills/tech-spec is loaded only by the spec pass']]);
     warn.mockClear();
     await skillRegistryForRun(bundled, repo, { includeSpecSkills: true });
-    expect(warn.mock.calls).toEqual([['vanguard: .github/vanguard-skills overrides --skills skill(s): tech-spec']]);
+    expect(warn.mock.calls).toEqual([['taskcell: .github/vanguard-skills overrides --skills skill(s): tech-spec']]);
     warn.mockRestore();
   });
 

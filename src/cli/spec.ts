@@ -21,7 +21,7 @@ export interface SpecCommandDeps {
 /**
  * One-shot CLI spec pass: research the codebase read-only and post a tech-spec comment on one GitHub
  * issue. Unlike the watch spec pass this touches NO labels (no claim/advance) — pair it with
- * `vanguard run` on the same issue once the spec looks right. --commit-author white-labels the
+ * `taskcell run` on the same issue once the spec looks right. --commit-author white-labels the
  * comment heading; recognition is keyed on the <tech_spec> tag, so the readiness gate and the
  * conformance manifest see the spec either way.
  */
@@ -36,7 +36,7 @@ export async function specCommand(cmd: SpecCommand, deps: SpecCommandDeps = {}):
     });
 
   // --out routes the rendered spec to a local file instead of the tracker (a fully no-trace flow;
-  // feed it back with `vanguard run --spec-file <file>`).
+  // feed it back with `taskcell run --spec-file <file>`).
   const deliver = async (spec: string): Promise<void> => {
     const body = specComment(spec, { whiteLabel });
     if (cmd.out !== undefined) {

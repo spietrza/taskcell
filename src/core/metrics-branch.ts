@@ -8,7 +8,7 @@ import { parseJsonlLines } from './stats.js';
  * `metrics.jsonl` lines a run wrote under `.vanguard/runs/` are appended to a single file on an
  * orphan branch of the repo, with git plumbing only — no checkout, no worktree, no merge. The branch
  * can hold more than one file (e.g. the approver's decisions.jsonl); appendBranchLines preserves every
- * tree entry it does not touch, so unrelated files never conflict with each other. `vanguard stats
+ * tree entry it does not touch, so unrelated files never conflict with each other. `taskcell stats
  * --branch` reads the metrics copy from anywhere the repo is cloned.
  */
 

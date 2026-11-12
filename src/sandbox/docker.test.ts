@@ -14,7 +14,14 @@ import {
   pnpmStoreVolumeName,
   SANDBOX_CLAUDE_VERSION,
 } from './docker.js';
-import { readOnlyTmpfsSizesMb, sandboxSecurityOpts } from './limits.js';
+import { readOnlyTmpfsSizesMb, resolveSandboxProfile } from './limits.js';
+import type { SandboxProfile, SandboxSecurityOpts } from './provider.js';
+
+/** The runners' one call, plus the security overrides a test needs: never a hand-built posture. */
+const profileFor = (env: NodeJS.ProcessEnv = {}, security: Partial<SandboxSecurityOpts> = {}): SandboxProfile => {
+  const profile = resolveSandboxProfile(env);
+  return { ...profile, security: { ...profile.security, ...security } };
+};
 
 const ENV_VAR = 'VANGUARD_SANDBOX_IMAGE';
 
@@ -261,7 +268,7 @@ suite('DockerSandboxProvider', () => {
   }, 60_000);
 
   it('copies a directory and a single file into a read-only-rootfs sandbox (docker cp is refused there)', async () => {
-    const ro = new DockerSandboxProvider({ image: 'alpine:3.20', workdir: '/workspace', security: { ...sandboxSecurityOpts({}), readOnlyRootfs: true } });
+    const ro = new DockerSandboxProvider({ image: 'alpine:3.20', workdir: '/workspace', profile: profileFor({}, { readOnlyRootfs: true }) });
     const host = await mkdtemp(join(tmpdir(), 'vg-ro-'));
     try {
       await ro.start();
@@ -369,7 +376,7 @@ suite('DockerSandboxProvider', () => {
   it('copies out paths the non-root agent made unreadable (chmod 000)', async () => {
     const dockerfile = 'FROM alpine:3.20\nRUN adduser -D -h /home/agent -u 10001 agent && mkdir -p /workspace && chown agent /workspace\nUSER agent\n';
     await execa('docker', ['build', '-q', '-t', 'vg-ro-user-test', '-'], { input: dockerfile });
-    const ro = new DockerSandboxProvider({ image: 'vg-ro-user-test', workdir: '/workspace', security: { ...sandboxSecurityOpts({}), readOnlyRootfs: true } });
+    const ro = new DockerSandboxProvider({ image: 'vg-ro-user-test', workdir: '/workspace', profile: profileFor({}, { readOnlyRootfs: true }) });
     const out = await mkdtemp(join(tmpdir(), 'vg-000-'));
     try {
       await ro.start();
@@ -389,7 +396,7 @@ suite('DockerSandboxProvider', () => {
     // Like the real image: a non-root USER whose $HOME exists in the image (a tmpfs over it comes up root:root 0755).
     const dockerfile = 'FROM alpine:3.20\nRUN adduser -D -h /home/agent -u 10001 agent && mkdir -p /workspace && chown agent /workspace\nUSER agent\n';
     await execa('docker', ['build', '-q', '-t', 'vg-ro-user-test', '-'], { input: dockerfile });
-    const ro = new DockerSandboxProvider({ image: 'vg-ro-user-test', workdir: '/workspace', security: { ...sandboxSecurityOpts({}), readOnlyRootfs: true } });
+    const ro = new DockerSandboxProvider({ image: 'vg-ro-user-test', workdir: '/workspace', profile: profileFor({}, { readOnlyRootfs: true }) });
     try {
       await ro.start();
       const r = await ro.exec('mkdir -p /home/agent/.claude/skills && touch /workspace/f /tmp/f && id -u');
@@ -431,7 +438,7 @@ suite('DockerSandboxProvider', () => {
 // Runs without Docker: exercises the pure argv builder directly.
 describe('DockerSandboxProvider buildRunArgs (hardening flags)', () => {
   it('drops all capabilities and blocks privilege escalation by default', () => {
-    const sb = new DockerSandboxProvider({ security: sandboxSecurityOpts({}) });
+    const sb = new DockerSandboxProvider({ profile: profileFor() });
     const args = sb.buildRunArgs();
     expect(args).toContain('--cap-drop');
     expect(args[args.indexOf('--cap-drop') + 1]).toBe('ALL');
@@ -465,7 +472,7 @@ describe('DockerSandboxProvider buildRunArgs (hardening flags)', () => {
   });
 
   it('adds back the chown trio needed by copyIn, after the drop', () => {
-    const sb = new DockerSandboxProvider({ security: sandboxSecurityOpts({}) });
+    const sb = new DockerSandboxProvider({ profile: profileFor() });
     const args = sb.buildRunArgs();
     const dropIdx = args.indexOf('--cap-drop');
     for (const cap of ['CHOWN', 'FOWNER', 'DAC_OVERRIDE']) {
@@ -478,12 +485,9 @@ describe('DockerSandboxProvider buildRunArgs (hardening flags)', () => {
 
   it('coexists with resource limits, network, secrets tmpfs, and the terminal image/command', () => {
     const sb = new DockerSandboxProvider({
-      memoryMb: 1024,
-      cpus: 1,
-      pidsLimit: 128,
+      profile: { ...profileFor(), memoryMb: 1024, cpus: 1, pidsLimit: 128 },
       network: 'vg-net',
       secrets: { FOO: 'bar' },
-      security: sandboxSecurityOpts({}),
     });
     const args = sb.buildRunArgs();
     expect(args).toContain('--memory');
@@ -522,7 +526,7 @@ describe('DockerSandboxProvider buildRunArgs (hardening flags)', () => {
 
   it('config.security override disables hardening', () => {
     const sb = new DockerSandboxProvider({
-      security: { capDrop: [], capAdd: [], noNewPrivileges: false, readOnlyRootfs: false },
+      profile: { ...profileFor(), security: { capDrop: [], capAdd: [], noNewPrivileges: false, readOnlyRootfs: false } },
     });
     const args = sb.buildRunArgs();
     expect(args).not.toContain('--cap-drop');
@@ -532,14 +536,14 @@ describe('DockerSandboxProvider buildRunArgs (hardening flags)', () => {
   });
 
   it('config.security override can customize the added-back caps', () => {
-    const sb = new DockerSandboxProvider({ security: { capAdd: ['NET_BIND_SERVICE'] } });
+    const sb = new DockerSandboxProvider({ profile: profileFor({}, { capAdd: ['NET_BIND_SERVICE'] }) });
     const args = sb.buildRunArgs();
     expect(args).toContain('NET_BIND_SERVICE');
     expect(args).not.toContain('CHOWN');
   });
 
   it('stretch: readOnlyRootfs adds --read-only and writable tmpfs for workspace/$HOME/tmp', () => {
-    const sb = new DockerSandboxProvider({ security: { ...sandboxSecurityOpts({}), readOnlyRootfs: true } });
+    const sb = new DockerSandboxProvider({ profile: profileFor({}, { readOnlyRootfs: true }) });
     const args = sb.buildRunArgs();
     expect(args).toContain('--read-only');
     const tmpfsArgs = args.filter((_, i) => args[i - 1] === '--tmpfs');
@@ -549,17 +553,17 @@ describe('DockerSandboxProvider buildRunArgs (hardening flags)', () => {
   });
 
   it('stretch: readOnlyRootfs is off by default', () => {
-    const sb = new DockerSandboxProvider({ security: sandboxSecurityOpts({}) });
+    const sb = new DockerSandboxProvider({ profile: profileFor() });
     const args = sb.buildRunArgs();
     expect(args).not.toContain('--read-only');
   });
 
   it('hardened mode (--llm-proxy/--egress) alone keeps the writable rootfs: read-only is opt-in', () => {
-    expect(new DockerSandboxProvider({ security: sandboxSecurityOpts({}, true) }).buildRunArgs()).not.toContain('--read-only');
+    expect(new DockerSandboxProvider({ profile: resolveSandboxProfile({}) }).buildRunArgs()).not.toContain('--read-only');
   });
 
   it('hardened mode with VANGUARD_SANDBOX_READONLY=1: --read-only plus the three tmpfs mounts', () => {
-    const sb = new DockerSandboxProvider({ security: sandboxSecurityOpts({ VANGUARD_SANDBOX_READONLY: '1' } as NodeJS.ProcessEnv, true) });
+    const sb = new DockerSandboxProvider({ profile: resolveSandboxProfile({ VANGUARD_SANDBOX_READONLY: '1' } as NodeJS.ProcessEnv) });
     const args = sb.buildRunArgs();
     expect(args).toContain('--read-only');
     const tmpfsArgs = args.filter((_, i) => args[i - 1] === '--tmpfs');
@@ -572,8 +576,9 @@ describe('DockerSandboxProvider buildRunArgs (hardening flags)', () => {
   // gets its own share, so a raised/omitted VANGUARD_SANDBOX_MEMORY_MB reaches the argv.
   it.each([2048, 1536, undefined])('sizes the tmpfs mounts from the resolved memoryMb (%s)', (memoryMb) => {
     const args = new DockerSandboxProvider({
-      security: sandboxSecurityOpts({ VANGUARD_SANDBOX_READONLY: '1' } as NodeJS.ProcessEnv, true),
-      ...(memoryMb !== undefined ? { memoryMb } : {}),
+      profile: resolveSandboxProfile(
+        { VANGUARD_SANDBOX_READONLY: '1', VANGUARD_SANDBOX_MEMORY_MB: memoryMb === undefined ? '0' : String(memoryMb) } as NodeJS.ProcessEnv,
+      ),
     }).buildRunArgs();
     const { workspace, home, tmp } = readOnlyTmpfsSizesMb(memoryMb);
     expect(args.filter((_, i) => args[i - 1] === '--tmpfs')).toEqual(
@@ -587,14 +592,14 @@ describe('DockerSandboxProvider buildRunArgs (hardening flags)', () => {
 
   it('VANGUARD_SANDBOX_READONLY=0 keeps readOnlyRootfs off in hardened mode', () => {
     const sb = new DockerSandboxProvider({
-      security: sandboxSecurityOpts({ VANGUARD_SANDBOX_READONLY: '0' } as NodeJS.ProcessEnv, true),
+      profile: resolveSandboxProfile({ VANGUARD_SANDBOX_READONLY: '0' } as NodeJS.ProcessEnv),
     });
     expect(sb.buildRunArgs()).not.toContain('--read-only');
   });
 
   it('VANGUARD_SANDBOX_READONLY=1 turns readOnlyRootfs on outside hardened mode too', () => {
     const sb = new DockerSandboxProvider({
-      security: sandboxSecurityOpts({ VANGUARD_SANDBOX_READONLY: '1' } as NodeJS.ProcessEnv, false),
+      profile: resolveSandboxProfile({ VANGUARD_SANDBOX_READONLY: '1' } as NodeJS.ProcessEnv),
     });
     expect(sb.buildRunArgs()).toContain('--read-only');
   });
@@ -602,8 +607,8 @@ describe('DockerSandboxProvider buildRunArgs (hardening flags)', () => {
   it('without --llm-proxy/--egress (hardened=false), args are unchanged from the non-hardened default', () => {
     // Strip the per-instance id (container name + runId label) so the two argv lists compare equal.
     const stable = (args: string[]): string[] => args.filter((a) => !a.startsWith('vg-') && !a.startsWith('vanguard.runId='));
-    const plain = stable(new DockerSandboxProvider({ security: sandboxSecurityOpts({}) }).buildRunArgs());
-    const explicitlyNotHardened = stable(new DockerSandboxProvider({ security: sandboxSecurityOpts({}, false) }).buildRunArgs());
+    const plain = stable(new DockerSandboxProvider({ profile: profileFor() }).buildRunArgs());
+    const explicitlyNotHardened = stable(new DockerSandboxProvider({ profile: resolveSandboxProfile({}) }).buildRunArgs());
     expect(explicitlyNotHardened).toEqual(plain);
     expect(plain).not.toContain('--read-only');
   });
@@ -665,7 +670,7 @@ describe('DockerSandboxProvider buildRunArgs (pnpm store)', () => {
 
   it('still mounts /pnpm-store (its own -v mount, unaffected by --read-only) under an opted-in readOnlyRootfs', () => {
     const args = new DockerSandboxProvider({
-      security: sandboxSecurityOpts({ VANGUARD_SANDBOX_READONLY: '1' } as NodeJS.ProcessEnv, true),
+      profile: resolveSandboxProfile({ VANGUARD_SANDBOX_READONLY: '1' } as NodeJS.ProcessEnv),
       pnpmStore: { repoKey: 'octo/repo' },
     }).buildRunArgs();
     expect(args).toContain('--read-only');

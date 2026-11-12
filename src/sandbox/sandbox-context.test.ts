@@ -116,4 +116,20 @@ describe('startSandboxContext reports the hardened read-only rootfs decision', (
     expect(warn).toHaveBeenCalledTimes(1);
     expect(warn).toHaveBeenCalledWith(expect.stringContaining('VANGUARD_SANDBOX_MEMORY_MB=0'));
   });
+
+  it('logs the opted-in rootfs decision even with neither --egress nor --llm-proxy', async () => {
+    vi.stubEnv('VANGUARD_SANDBOX_READONLY', '1');
+    vi.stubEnv('VANGUARD_SANDBOX_MEMORY_MB', undefined);
+    const log = vi.spyOn(console, 'log').mockImplementation(() => {});
+    await startSandboxContext({ egress: false, llmProxy: false });
+    expect(log).toHaveBeenCalledWith(expect.stringContaining('read-only rootfs on (VANGUARD_SANDBOX_READONLY=1)'));
+  });
+
+  it('stays silent with neither --egress nor --llm-proxy when the rootfs is not opted in', async () => {
+    const log = vi.spyOn(console, 'log').mockImplementation(() => {});
+    const warn = vi.spyOn(console, 'warn').mockImplementation(() => {});
+    await startSandboxContext({ egress: false, llmProxy: false });
+    expect(log).not.toHaveBeenCalled();
+    expect(warn).not.toHaveBeenCalled();
+  });
 });

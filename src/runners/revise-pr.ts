@@ -33,7 +33,8 @@ import { appendStepSummary } from '../core/step-summary.js';
 import type { StepSummary, StepSummaryExit } from '../core/step-summary.js';
 import type { StageOutcome } from '../pipeline/pipeline.js';
 import { GITHUB_GATE_CONFIG_LABEL, GITHUB_SECRET_BLOCKED_LABEL, GITHUB_RATE_LIMITED_LABEL } from '../github-labels.js';
-import { parseProviderRateLimitReset, rateLimitedComment } from '../core/rate-limit-marker.js';
+import { isRateLimitHold, rateLimitHold } from '../core/rate-limit-marker.js';
+import { UsageCapError } from '../core/usage-cap.js';
 import { diffFilesWithPatches, extractGateConfigBlock, gateConfigChangedBlock, gateConfigPaths, loadGateConfigExtraGlobs } from '../context/gate-config.js';
 import { renderSecretBlockComment } from '../core/secret-scan.js';
 import { deliverChange, scanOutgoingForSecrets } from './deliver-change.js';
@@ -54,14 +55,14 @@ import { droppedCiPathsNote } from '../pipeline/remote-branch.js';
 import { defaultGhRunner, GitHubTaskFetcher } from '../tasks/github.js';
 import { modelFromLabels } from './source-adapter.js';
 import { DockerSandboxProvider, sandboxImage } from '../sandbox/docker.js';
-import { sandboxResourceLimits, sandboxSecurityOpts } from '../sandbox/limits.js';
+import { sandboxNetworkConfig } from '../sandbox/limits.js';
 import { llmProxySandboxEnv } from '../sandbox/egress-proxy.js';
 import { startProviderProxies } from '../sandbox/llm-proxy.js';
 import { authSecrets } from '../agents/auth.js';
 import { selectAgents, providerKeyEnvNames } from '../agents/registry.js';
 import { GITHUB_REVIEW_LABEL } from '../github-labels.js';
 import { WorktreeManager } from '../worktree/manager.js';
-import { AgentError, VanguardError, isRateLimitError } from '../core/errors.js';
+import { VanguardError } from '../core/errors.js';
 import type { GhRunner } from '../tasks/github.js';
 import type { PullRequestForReview } from './pr-review.js';
 import type { CommandRunner } from '../pipeline/remote-branch.js';
@@ -394,10 +395,8 @@ export async function runRevisePullRequest(prRef: string, deps: ReviseGithubPrDe
             : {}),
           ...agents.secrets,
         },
-        ...sandboxResourceLimits(process.env, deps.network !== undefined),
         ...(env !== undefined ? { env } : {}),
-        ...(deps.network !== undefined ? { network: deps.network } : {}),
-        security: sandboxSecurityOpts(process.env, deps.network !== undefined),
+        ...sandboxNetworkConfig(deps.network),
       });
 
     const taskId = `revise-pr-${target.repoSlug.replace(/[^a-zA-Z0-9]/g, '-')}-${target.number}`;
@@ -552,7 +551,7 @@ export async function runRevisePullRequest(prRef: string, deps: ReviseGithubPrDe
       // A custom provider's key env var is repo-configured: the secret gate cannot know its name.
       const secretEnvVars = providerKeyEnvNames(deps);
       const block = scanOutgoingForSecrets(gateDiff, `${target.repoSlug}#${target.number}`, 'revise push', secretEnvVars);
-      // Repair cost merged into the implementer outcome by the gate reaches `vanguard stats` only if
+      // Repair cost merged into the implementer outcome by the gate reaches `taskcell stats` only if
       // the outcomes are persisted — the first delivery does this in runSourcedIssue. Persisted after
       // the scan so a blocked round leaves no `.diff` / `.bundle` on disk (the diff holds the secret).
       await writer.writeStages(outcomes, {
@@ -727,23 +726,23 @@ export async function runRevisePullRequest(prRef: string, deps: ReviseGithubPrDe
       };
     } catch (error) {
       await stepSummary('error', { error: String(error) });
-      // A rate or session limit that no fallback rescued ends the round with the PR still carrying
+      // A rate or session limit (or the usage cap) that no fallback rescued ends the round with the PR still carrying
       // `vanguard:revising` and nothing said on it, so the work sits until someone notices (#615,
       // #656). Mark it `vanguard:rate-limited` with a notice carrying the parsed reset time (posted
       // as a review comment, like the other hand-back notices here), and drop the in-flight label,
-      // leaving `needs revision` in place: `vanguard resume-rate-limited` re-triggers that label
+      // leaving `needs revision` in place: `taskcell resume-rate-limited` re-triggers that label
       // once the reset time has passed (or a human can re-apply it sooner).
       // Best-effort — neither the notice nor the label edit may mask the original failure. --out is
       // a dry run that touches neither the branch nor the PR. Gated on AgentError (same test as
       // pipeline.ts): a `gh`/git failure carrying GitHub's own "API rate limit exceeded" is not the
       // provider, and the notice would misname it — and after a successful push it would invite a
       // pointless second round.
-      if (error instanceof AgentError && isRateLimitError(error) && deps.out === undefined) {
-        const until = parseProviderRateLimitReset(error.message);
-        log(`revise-pr ${target.repoSlug}#${target.number}: provider rate-limited, marking vanguard:rate-limited until ${until.toISOString()}`);
+      if (isRateLimitHold(error) && deps.out === undefined) {
+        const { until, comment } = rateLimitHold(error, NEEDS_REVISION_LABEL);
+        log(`revise-pr ${target.repoSlug}#${target.number}: ${error instanceof UsageCapError ? 'at the usage cap' : 'provider rate-limited'}, marking vanguard:rate-limited until ${until.toISOString()}`);
         await gh(['label', 'create', GITHUB_RATE_LIMITED_LABEL, '--repo', target.repoSlug, '--force']).catch(() => undefined);
         await editPrLabels(gh, target.repoSlug, target.number, { remove: [VANGUARD_REVISING_LABEL], add: [GITHUB_RATE_LIMITED_LABEL] }).catch(() => undefined);
-        await postPullRequestReview(target, rateLimitedComment(until, NEEDS_REVISION_LABEL), 'comment', gh).catch(() => undefined);
+        await postPullRequestReview(target, comment, 'comment', gh).catch(() => undefined);
       }
       throw error;
     } finally {

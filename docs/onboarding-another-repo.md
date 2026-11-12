@@ -25,7 +25,7 @@ When Taskcell changes a default or a step, you get it on your next run (or when 
 Things to know before copying:
 
 - **Pin the ref.** `uses: spietrza/taskcell/.github/workflows/implement.yml@v1` follows the moving `v1` tag (moved by hand once Taskcell's own factory is green on `main`). `@main` follows the tip immediately — a bad change then hits every repo at once, so prefer `@v1`.
-- **`vanguard-ref` follows the workflow ref.** Leave the `vanguard-ref` input empty and the CLI is built at the same revision as the YAML, so a caller pinned `@v1` builds Taskcell at `v1` too. Set it only to build a different revision (for example to test a branch). On GitHub Enterprise Server `job.workflow_sha` / `job.workflow_repository` are not available, so set `vanguard-ref` explicitly there or the run fails at the "Resolve vanguard source ref" guard.
+- **`vanguard-ref` follows the workflow ref.** Leave the `vanguard-ref` input empty and the CLI is built at the same revision as the YAML, so a caller pinned `@v1` builds Taskcell at `v1` too. Set it only to build a different revision (for example to test a branch). On GitHub Enterprise Server `job.workflow_sha` / `job.workflow_repository` are not available, so set `vanguard-ref` explicitly there or the run fails at the "Resolve taskcell source ref" guard.
 - **No `secrets: inherit`.** Each secret is mapped explicitly in the caller, so you can see exactly which credentials reach the run. Every secret is optional on the reusable side; map only what your setup needs.
 - **`allowed-actors` is mandatory.** It is a JSON array of GitHub logins, passed as a string. The reusable workflow checks `github.event.sender.login` against it as a backstop to your own `if:`; a caller that omits it fails at startup, and a sender not in the list fails the run loudly (red, with an error) rather than skipping it, so a typo in the list cannot hide as a green no-op. Keep your caller's `if:` as well — it also gates on the issue or PR author, which the backstop does not.
 - **Inputs never reach a shell as text.** The reusable workflows pass every input through `env:` and build the CLI arguments as a bash array, so a hostile value cannot inject a command.
@@ -104,6 +104,8 @@ The reusable workflow installs Taskcell with `pnpm install --ignore-workspace`, 
 | `upload-run-records` | boolean | `false` | upload `.vanguard/runs/` as a workflow artifact (see below) |
 | `skills` | string | `.vanguard-src/skills` | `--skills`: Taskcell's bundled skills; keep the default. Your repo's own skills go in `.github/vanguard-skills/<name>/SKILL.md` and are merged in automatically, no input needed ([Custom skills](skills.md#custom-skills-bring-your-own)). GitHub, GitLab and Projects runs used to ignore this input; they now read it, so a custom path that does not exist fails the run at startup |
 | `max-tasks` | string | `''` (no cap) | `--max-tasks`: cap ready issues claimed per phase in one run |
+| `issue` | string | `''` (sweep) | `--issue`: run only this issue. The template passes the labelled issue, so every issue gets its own run and its own concurrency group instead of queueing behind one shared group |
+| `max-parallel` | string | `''` (no limit) | with `issue`: at most this many runs work at once; later runs wait for a slot, first come first served (the cap can overshoot by one when two runs start in the same minute). The caller needs `actions: read` |
 | `vanguard-ref` | string | `''` (the workflow's own ref) | Taskcell source ref to build |
 
 Secrets: `CLAUDE_CODE_OAUTH_TOKEN`, `CODEX_AUTH_JSON`, `CLOUDFLARE_ACCOUNT_ID`, `CLOUDFLARE_AUTH_TOKEN` (all optional).
@@ -147,7 +149,7 @@ Run it from **Actions → Vanguard Doctor → Run workflow** (clickable from the
 
 ### `.github/workflows/vanguard-pr-review.yml` — review a PR (optional)
 
-Adds a visible, adversarial `gh pr review` when you put `ready for vanguard review` on your own PR. This example reviews with Codex and falls back to Claude if Codex fails (a usage limit, a bad model name). `watch-prs` has no provider fallback of its own, so `pr-review.yml` retries with `fallback-provider` / `fallback-model` when you set them.
+Adds a visible, adversarial `gh pr review` when you put `ready for taskcell review` on your own PR. This example reviews with Codex and falls back to Claude if Codex fails (a usage limit, a bad model name). `watch-prs` has no provider fallback of its own, so `pr-review.yml` retries with `fallback-provider` / `fallback-model` when you set them.
 
 ```yaml
 name: Vanguard PR Review
@@ -167,7 +169,7 @@ jobs:
     if: >-
       (github.event_name == 'workflow_dispatch' && github.actor == 'YOUR_LOGIN') ||
       (github.event_name == 'pull_request_target' &&
-      github.event.label.name == 'ready for vanguard review' &&
+      github.event.label.name == 'ready for taskcell review' &&
       github.event.pull_request.draft == false &&
       github.event.pull_request.user.login == 'YOUR_LOGIN' &&
       github.event.sender.login == 'YOUR_LOGIN')
@@ -193,7 +195,7 @@ Same shape: a caller with its triggers, permissions, `concurrency` and `if:`, pl
 | Workflow | Inputs | Secrets |
 |---|---|---|
 | `research.yml` | `allowed-actors`, `number` (issue number, required), `provider`, `research-model`, `vanguard-ref` | `CLAUDE_CODE_OAUTH_TOKEN`, `CODEX_AUTH_JSON` |
-| `revise.yml` | `allowed-actors`, `number` (PR number, required), `provider`, `llm-proxy`, `upload-run-records`, `skills` (default `.vanguard-src/skills`; keep it, a missing custom path fails the run), `timeout-minutes` (default 90), `vanguard-ref` | `CLAUDE_CODE_OAUTH_TOKEN`, `CODEX_AUTH_JSON`, `VANGUARD_PUSH_TOKEN` |
+| `revise.yml` | `allowed-actors`, `number` (PR number, required), `provider`, `llm-proxy`, `upload-run-records`, `skills` (default `.vanguard-src/skills`; keep it, a missing custom path fails the run), `max-rounds` (default 2, allowed 1–5: revise rounds before a human takes over; raise it only from a trusted caller), `timeout-minutes` (default 90), `vanguard-ref` | `CLAUDE_CODE_OAUTH_TOKEN`, `CODEX_AUTH_JSON`, `VANGUARD_PUSH_TOKEN` |
 
 Inside a called workflow the `inputs` context means the `workflow_call` inputs, not your `workflow_dispatch` ones, so the caller passes the number in: `number: ${{ github.event.issue.number || inputs.issue }}` for research, `number: ${{ github.event.pull_request.number || inputs.pr }}` for revise. Revise runs at most 2 rounds.
 
@@ -384,6 +386,10 @@ The stored `CODEX_AUTH_JSON` is a snapshot; Codex refreshes the access token fro
 
 ---
 
+### Keeping a reserve of your plan (usage cap)
+
+If the factory shares your Claude or ChatGPT subscription with your own work, cap it: `--usage-cap 80` (env `VANGUARD_USAGE_CAP_PCT=80`, or the hub's Settings **Usage cap %**) lets it spend up to 80% of the provider's window and leaves the last 20% to you. The factory stops *starting* tasks and stages at the cap (running stages finish), labels the task `vanguard:rate-limited` and `resume-rate-limited` retries it after the window resets. See [cli.md](cli.md#cost-and-limits). The reusable workflows have no `usage-cap` input yet — Taskcell cannot edit `.github/workflows/**`, so add the input by hand (passing it as `--usage-cap` to the CLI call) or set `VANGUARD_USAGE_CAP_PCT` in the job env.
+
 ## One run, spec and build
 
 `watch --once` does a spec pass then an implement pass in the same invocation. A `ready for spec` ticket is specced and built in one job: the spec pass generates the tech spec and advances the ticket to `ready for agent`, and the implement pass immediately picks it up without relying on GitHub's label index (which has eventual-consistency lag). A `ready for agent` ticket that was already labelled before the run is also picked up in the same pass.
@@ -412,10 +418,10 @@ The labels above go on **issues**. Two more go on a **pull request** and fire th
 
 | Label | On | Set by | Bot state | Bot action |
 |---|---|---|---|---|
-| `ready for vanguard review` | PR (trusted author's, non-draft) | Human | `vanguard:reviewing` → `vanguard:reviewed` | Adversarial **read-only** review — posts a comment, never edits code. Re-apply for a fresh pass. |
+| `ready for taskcell review` | PR (trusted author's, non-draft) | Human | `vanguard:reviewing` → `vanguard:reviewed` | Adversarial **read-only** review — posts a comment, never edits code. Re-apply for a fresh pass. |
 | `needs revision` | PR (trusted author's) | Human | `vanguard:revising` | Reads your review → pushes fix commits to the PR branch → un-drafts → back to `vanguard:needs-human-review`. Iterative: re-apply to loop. Needs `VANGUARD_PUSH_TOKEN` (section above) or the revised PR gets no CI. |
 
-`ready for vanguard review` reviews *your* PR (read-only); `needs revision` has Taskcell *edit* a trusted author's draft per your review. Both gate on a trusted PR author **and** label-setter, same allowlist as the issue workflows.
+`ready for taskcell review` reviews *your* PR (read-only); `needs revision` has Taskcell *edit* a trusted author's draft per your review. Both gate on a trusted PR author **and** label-setter, same allowlist as the issue workflows.
 
 ### `needs research` vs `needs info`
 

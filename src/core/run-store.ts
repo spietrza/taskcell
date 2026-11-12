@@ -352,7 +352,7 @@ export interface RunWriter {
    * OTLP trace when an exporter is configured (opt-in, best-effort — see otlp-sink). */
   writeStages(outcomes: ReadonlyArray<{ name: string; result: RunResult; model?: string }>, opts?: WriteStagesOptions): Promise<void>;
   /** Persist a verification proof to `<ts>.proof.json` and append a `{ evt: 'verify', ... }` metric line. */
-  writeProof(result: VerificationResult): Promise<string>;
+  writeProof(result: VerificationResult, opts?: { baseRed?: boolean }): Promise<string>;
   /** Persist a visual proof to `<ts>.visual-proof.json` and append a `{ evt: 'visual_proof', ... }` metric line. */
   writeVisualProof(result: VisualProofResult): Promise<string>;
 }
@@ -434,7 +434,7 @@ async function writeRecord(repoPath: string, taskId: string, timestamp: string, 
   await writeFile(file, `${JSON.stringify(record, null, 2)}\n`);
   if (diffOmitted === 'secret-scan') {
     // Visible in the job log too, so a scan false positive on a green run does not vanish silently.
-    console.error(`vanguard: run record ${taskId}${suffix}: diff, bundle and transcript withheld (secret-scan)`);
+    console.error(`taskcell: run record ${taskId}${suffix}: diff, bundle and transcript withheld (secret-scan)`);
   }
   if (diffOmitted === undefined) {
     // The transcript is raw agent output: tool results can echo env or config (a `cat` of the Codex
@@ -516,7 +516,7 @@ export function beginRun(
       });
     },
 
-    async writeProof(result: VerificationResult): Promise<string> {
+    async writeProof(result, opts = {}): Promise<string> {
       const taskDir = await ensureStateDir(repoPath, join(root, taskId));
       const base = join(taskDir, sanitizeTimestamp(timestamp));
       const file = `${base}.proof.json`;
@@ -524,7 +524,8 @@ export function beginRun(
       // outputTail and firstErrorLines are verbatim command output: masked like every other free text in the record.
       await writeFile(file, `${JSON.stringify(redactVerificationOutput(result, secretValues), null, 2)}\n`);
 
-      const metric = { evt: 'verify', ts: timestamp, taskId, passed: result.passed, exitCode: result.exitCode, sha256: result.sha256 };
+      // A base-red proof is the base commit's verdict, not a verification of this run's work.
+      const metric = { evt: opts.baseRed === true ? 'base_red' : 'verify', ts: timestamp, taskId, passed: result.passed, exitCode: result.exitCode, sha256: result.sha256 };
       await appendMetric(repoPath, metric);
       return file;
     },
@@ -609,7 +610,7 @@ export async function persistStageOutcomes(
 
 /**
  * Append one `{ evt: 'decision_probe', ts, taskId, ... }` line to metrics.jsonl — the log-only
- * difficulty probe, joined to the stage outcomes by taskId in `vanguard stats`. Independent of
+ * difficulty probe, joined to the stage outcomes by taskId in `taskcell stats`. Independent of
  * `beginRun`: the probe runs (and may fail) before a run's timestamp is otherwise needed.
  */
 export async function persistDecisionProbe(

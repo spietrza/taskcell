@@ -71,6 +71,6 @@ export async function appendStepSummary(path: string | undefined, summary: StepS
   try {
     await appendFile(path, `${renderStepSummary(summary)}\n`);
   } catch (error) {
-    console.warn(`vanguard: could not append the job summary to ${path}: ${String(error)}`);
+    console.warn(`taskcell: could not append the job summary to ${path}: ${String(error)}`);
   }
 }

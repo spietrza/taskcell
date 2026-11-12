@@ -3,7 +3,7 @@ import { FLOW_NAME_RE } from './wire';
 import { SOURCES } from './sources';
 
 /**
- * The single source of truth for the `vanguard` commands the desktop app launches.
+ * The single source of truth for the `taskcell` commands the desktop app launches.
  * Three call sites used to hardcode `--provider zai --llm-proxy` and drift apart; they all
  * route through here now.
  *
@@ -23,6 +23,12 @@ export const DEFAULT_PROVIDER = 'claude';
 /** `--max-turns` lifts the 12-turn implementer cap so non-trivial tasks can actually complete. */
 const MAX_TURNS = 30;
 
+/** `--usage-cap` flag for a valid 1-100 cap in the project config, else nothing (app.json is repo content). */
+const usageCapArgs = (cfg: AppConfig): string[] => {
+  const n = cfg.usageCapPct;
+  return typeof n === 'number' && Number.isFinite(n) && n >= 1 && n <= 100 ? ['--usage-cap', String(n)] : [];
+};
+
 /**
  * The configured provider, validated: a built-in or custom provider name (FLOW_NAME_RE — the one
  * repo-configured-name grammar). Throws on anything else, so shell syntax or a `--flag` can never
@@ -41,9 +47,9 @@ const checkSource = (source: string): string => {
   return source;
 };
 
-/** Default `vanguard run` command for a New Run — `<issue>` is left for the user to fill. */
+/** Default `taskcell run` command for a New Run — `<issue>` is left for the user to fill. */
 export function runCommand(cfg: AppConfig, source: string = cfg.source ?? 'github'): string {
-  return `vanguard run --${checkSource(source)} <issue> --provider ${provider(cfg)} --max-turns ${MAX_TURNS}`;
+  return ['taskcell run', `--${checkSource(source)}`, '<issue>', '--provider', provider(cfg), '--max-turns', String(MAX_TURNS), ...usageCapArgs(cfg)].join(' ');
 }
 
 /**
@@ -56,7 +62,7 @@ export function watchArgv(
 ): string[] {
   const n = Math.max(1, Math.floor(opts.concurrency) || 1);
   return [
-    'vanguard',
+    'taskcell',
     'watch',
     `--${checkSource(opts.source)}`,
     '--concurrency',
@@ -66,6 +72,7 @@ export function watchArgv(
     provider(cfg),
     '--max-turns',
     String(MAX_TURNS),
+    ...usageCapArgs(cfg),
   ];
 }
 

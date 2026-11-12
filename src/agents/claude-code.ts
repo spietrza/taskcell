@@ -28,6 +28,6 @@ export class ClaudeCodeProvider implements AgentProvider {
   readonly name = 'claude-code';
 
   run(input: AgentRunInput) {
-    return runClaudeCli(input, buildClaudeArgs);
+    return runClaudeCli(input, buildClaudeArgs, this.name);
   }
 }

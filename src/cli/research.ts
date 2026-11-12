@@ -1,5 +1,5 @@
 import { DockerSandboxProvider, sandboxImage } from '../sandbox/docker.js';
-import { sandboxResourceLimits, sandboxSecurityOpts } from '../sandbox/limits.js';
+import { sandboxNetworkConfig } from '../sandbox/limits.js';
 import { llmProxySandboxEnv } from '../sandbox/egress-proxy.js';
 import { startProviderProxies } from '../sandbox/llm-proxy.js';
 import { startSandboxContext } from '../sandbox/sandbox-context.js';
@@ -83,10 +83,8 @@ async function runDefaultResearcher(
         ...(sandboxContext.llmProxy === undefined && auth !== undefined && agents.injectAnthropicAuth ? authSecrets(auth) : {}),
         ...agents.secrets,
       },
-      ...sandboxResourceLimits(process.env, sandboxContext.network !== undefined),
       ...(env !== undefined ? { env } : {}),
-      ...(sandboxContext.network !== undefined ? { network: sandboxContext.network } : {}),
-      security: sandboxSecurityOpts(process.env, sandboxContext.network !== undefined),
+      ...sandboxNetworkConfig(sandboxContext.network),
     });
     const taskId = `research-${cmd.issueRef.replace(/[^a-zA-Z0-9]/g, '-')}`;
     // research has no --base: the codebase is read at the default base as origin has it, like every other run.

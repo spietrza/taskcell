@@ -58,7 +58,7 @@ On the Vanguard host:
 
 ```bash
 export MERIDIAN_BASE_URL=http://<meridian-host>:3456
-vanguard run --provider meridian --repo <path> ...
+taskcell run --provider meridian --repo <path> ...
 ```
 
 ### Split models across providers
@@ -68,7 +68,7 @@ The default pipeline already plans with `opus` and implements with `sonnet`. To 
 ```bash
 export MERIDIAN_BASE_URL=http://<meridian-host>:3456
 export CODEX_AUTH_JSON='<contents of ~/.codex/auth.json>'   # Codex has its own auth (ChatGPT Plus)
-vanguard run --provider meridian --review-provider codex --repo <path> ...
+taskcell run --provider meridian --review-provider codex --repo <path> ...
 ```
 
 `--provider-model` is safe to pass here: it sets the implement-tier stages only and leaves the planner
@@ -84,7 +84,7 @@ sonnet-implement default.
 >
 > ```bash
 > export MERIDIAN_BASE_URL=http://<meridian-host>:3456
-> vanguard run --provider meridian --review-model opus --repo <path> ...
+> taskcell run --provider meridian --review-model opus --repo <path> ...
 > ```
 
 ## Backwards compatibility

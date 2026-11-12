@@ -246,7 +246,6 @@ describe('runBudgetedStages', () => {
   describe('same-provider fallback after a session limit', () => {
     const limited = (name: string): AgentProvider => ({
       name,
-      // eslint-disable-next-line require-yield
       async *run(): AsyncGenerator<AgentTurn, AgentRunOutput, void> {
         throw new AgentError("You've hit your session limit · resets 9pm (UTC)");
       },
@@ -1064,6 +1063,13 @@ describe('assembleReviewPipeline', () => {
     expect(result.find((s) => s.name === 'reviewer')?.model).toBe('opus');
   });
 
+  it('reviewModel reaches a same-provider reviewer fallback but not a cross-provider one', () => {
+    const same = assembleReviewPipeline(base, { agent, reviewAgent: stubAgent('claude') }, { providerModel: 'sonnet', reviewModel: 'opus' });
+    expect(same.find((s) => s.name === 'reviewer')?.fallback?.model).toBe('opus');
+    const cross = assembleReviewPipeline(base, { agent, reviewAgent }, { providerModel: 'sonnet', reviewModel: 'opus' });
+    expect(cross.find((s) => s.name === 'reviewer')?.fallback?.model).toBe('sonnet');
+  });
+
   it('noSimplify:true removes the simplifier stage', () => {
     const result = assembleReviewPipeline(base, { agent }, { noSimplify: true });
     expect(result.map((s) => s.name)).not.toContain('simplifier');
@@ -1437,5 +1443,59 @@ describe('planImplementReviewStages defaults', () => {
   it('carries the deliver-every-AC / do-not-stop-partway clause in the implementer prompt', () => {
     const stages = planImplementReviewStages();
     expect(stages.find((s) => s.name === 'implementer')?.promptTemplate).toContain(DELIVER_FULL_SCOPE_CLAUSE);
+  });
+});
+
+describe('usage cap', () => {
+  const capped = (name: string): AgentProvider => ({
+    name,
+    async *run(): AsyncGenerator<AgentTurn, AgentRunOutput, void> {
+      yield { text: 'working' };
+      return { finalText: 'done <promise>COMPLETE</promise>', turns: 1 };
+    },
+  });
+  const reset = new Date(Date.now() + 3_600_000);
+
+  afterEach(async () => {
+    const { resetUtilization } = await import('../core/usage-cap.js');
+    resetUtilization();
+    delete process.env['VANGUARD_USAGE_CAP_PCT'];
+  });
+
+  it('refuses to start a stage on a provider at the cap, with the reset as until', async () => {
+    const { recordUtilization, UsageCapError } = await import('../core/usage-cap.js');
+    process.env['VANGUARD_USAGE_CAP_PCT'] = '80';
+    recordUtilization('p1', { pct: 82, resetsAt: reset });
+    const ctx = await prepareContext({ taskId: 'cap1', localRepoPath: repo, baseBranch: 'main', start: 'base', sandbox: makeSandbox() }, { worktrees: new WorktreeManager(repo) });
+    const err = await runStages(ctx, [{ name: 'implementer', promptTemplate: 'x' }], { agent: capped('p1') }).catch((e: unknown) => e);
+    expect(err).toBeInstanceOf(UsageCapError);
+    expect((err as InstanceType<typeof UsageCapError>).until).toEqual(reset);
+    await disposeContext(ctx);
+  });
+
+  it('falls back only when the fallback is under its own cap', async () => {
+    const { recordUtilization, UsageCapError } = await import('../core/usage-cap.js');
+    process.env['VANGUARD_USAGE_CAP_PCT'] = '80';
+    recordUtilization('p1', { pct: 90, resetsAt: reset });
+    recordUtilization('fb', { pct: 10, resetsAt: reset });
+    const ctx = await prepareContext({ taskId: 'cap2', localRepoPath: repo, baseBranch: 'main', start: 'base', sandbox: makeSandbox() }, { worktrees: new WorktreeManager(repo) });
+    const stages = withStageFallback([{ name: 'reviewer', promptTemplate: 'x', provider: capped('p1') }], { provider: capped('fb') });
+    const outcomes = await runStages(ctx, stages, { agent: capped('p1') });
+    expect(outcomes[0]?.providerName).toBe('fb');
+
+    recordUtilization('fb', { pct: 95, resetsAt: reset });
+    const err = await runStages(ctx, stages, { agent: capped('p1') }).catch((e: unknown) => e);
+    expect(err).toBeInstanceOf(UsageCapError);
+    await disposeContext(ctx);
+  });
+
+  it('runs when under the cap or utilization is unknown', async () => {
+    const { recordUtilization } = await import('../core/usage-cap.js');
+    process.env['VANGUARD_USAGE_CAP_PCT'] = '80';
+    recordUtilization('p1', { pct: 50, resetsAt: reset });
+    const ctx = await prepareContext({ taskId: 'cap3', localRepoPath: repo, baseBranch: 'main', start: 'base', sandbox: makeSandbox() }, { worktrees: new WorktreeManager(repo) });
+    expect(await runStages(ctx, [{ name: 'implementer', promptTemplate: 'x' }], { agent: capped('p1') })).toHaveLength(1);
+    expect(await runStages(ctx, [{ name: 'implementer', promptTemplate: 'x' }], { agent: capped('never-seen') })).toHaveLength(1);
+    await disposeContext(ctx);
   });
 });
