@@ -15,6 +15,8 @@ import type {
   BoardTask,
   Commands,
   CompleteResponse,
+  CredentialProvider,
+  CredentialsSummary,
   FactoryApplyResult,
   FactoryPlan,
   FactoryProviderId,
@@ -147,6 +149,18 @@ export function readAppConfig(repoPath: string): Promise<AppConfig> {
  *  that will write the whole object back. */
 export function readAppConfigStrict(repoPath: string): Promise<AppConfig> {
   return call('read_app_config_strict', { repoPath });
+}
+
+export function getCredentials(): Promise<CredentialsSummary> {
+  return call('get_credentials', undefined);
+}
+
+export function setCredential(provider: CredentialProvider, value: string): Promise<CredentialsSummary> {
+  return call('set_credential', { provider, value });
+}
+
+export function deleteCredential(provider: CredentialProvider): Promise<CredentialsSummary> {
+  return call('delete_credential', { provider });
 }
 
 export function writeAppConfig(repoPath: string, config: AppConfig): Promise<void> {

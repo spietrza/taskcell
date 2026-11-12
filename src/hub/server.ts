@@ -8,17 +8,16 @@ import { isIP } from 'node:net';
 import { serveStatic } from './static.js';
 import { EventBus } from './events.js';
 import { writeJson, jsonError } from './json-response.js';
+import { CredentialStore } from './credentials.js';
 import { dispatchRpc, classifyError, type RpcContext } from './rpc.js';
-import { encodeError, encodeResult, HUB_EVENTS_SESSION_PATH, HUB_SIGN_IN_REQUIRED, HUB_TOKEN_HEADER, HUB_TOKEN_REJECTED } from '../hub-wire.js';
+import { encodeError, encodeResult, HUB_EVENTS_SESSION_PATH, HUB_TOKEN_HEADER, HUB_TOKEN_REJECTED } from '../hub-wire.js';
 import { ProjectAllowlist, type BindOptions } from './allowlist.js';
 import { WatchRegistry, type WatchOptions } from './watch.js';
 import { createRunSession } from './run-session.js';
 import { CompleteBusyError, CompleteRegistry, type SpawnComplete } from './complete.js';
 import { loadPaths } from './projects.js';
-import { SpawnRegistry } from './spawn.js';
 import { productionDeps } from '../sidecar/deps.js';
 import type { SidecarDeps } from '../sidecar/sidecar.js';
-import { localOnlyIdentity, signInPage, type HubIdentity, type HubUser } from './auth.js';
 
 /**
  * `write_draft_asset` ships an image's bytes as a JSON array of numbers (comma-separated decimal —
@@ -46,11 +45,8 @@ export interface HubServerOptions {
   allowedHosts?: readonly string[];
   /** Fixed token (from `--token-file`); a fresh one per launch when omitted. */
   token?: string;
-  /** Sign-in (Better Auth) and the owner user (src/hub/auth.ts). Omitted: token-only, local owner. */
-  identity?: HubIdentity;
-  /** Enable the Fleet spawn commands (`spawn_run` et al). Loopback binds only — the desktop app's
-   * local hub sets it; a hub reachable by others must never run arbitrary programs. */
-  fleet?: boolean;
+  /** `VANGUARD_HUB_SECRET` (base64, 32 bytes) keying the credential store; defaults to the env var. */
+  hubSecret?: string;
 }
 
 export interface HubServer {
@@ -62,8 +58,8 @@ export interface HubServer {
    * the SPA: the CLI hands it to the operator's browser in the launch URL's fragment
    * (`src/cli/hub.ts`), which browsers never send to the server, and the SPA moves it into
    * sessionStorage (apps/desktop/src/transport.ts). Reaching the port is not enough to drive the
-   * hub. It is not per-user authentication: it maps to the owner user, and server mode requires
-   * sign-in for browsers (src/hub/auth.ts, docs/hub.md "Server mode sign-in"). */
+   * hub. A non-loopback bind still needs Tailscale or an authenticating reverse proxy in front
+   * (docs/hub.md): this is a launch secret, not per-user authentication. */
   readonly token: string;
   listen(port: number, host: string): Promise<void>;
   /** Graceful shutdown: ends every SSE client, stops project watchers, then closes the listener. */
@@ -253,7 +249,6 @@ async function handleRequest(
   eventBus: EventBus,
   opts: HubServerOptions,
   auth: HubAuth,
-  identity: HubIdentity,
   req: IncomingMessage,
   res: ServerResponse,
 ): Promise<void> {
@@ -263,34 +258,6 @@ async function handleRequest(
   }
   const url = new URL(req.url ?? '/', 'http://hub.local');
   const pathname = url.pathname;
-
-  // The token (CLI, scripts) maps to the owner; otherwise the Better Auth session (server mode only).
-  const resolveUser = async (): Promise<HubUser | undefined> =>
-    tokenOk(singleHeader(req.headers[HUB_TOKEN_HEADER]), auth.token) ? identity.owner : identity.sessionUser(req);
-  // A server-mode request that offered no token and has no session is "sign in", not "token dead".
-  const unauthorized = (): void =>
-    jsonError(
-      res,
-      401,
-      identity.handler !== undefined && !singleHeader(req.headers[HUB_TOKEN_HEADER]) ? HUB_SIGN_IN_REQUIRED : HUB_TOKEN_REJECTED,
-      'bad-request',
-    );
-
-  if (pathname === '/api/auth' || pathname.startsWith('/api/auth/')) {
-    // No OAuth on loopback: there the hub is one automatic owner.
-    if (identity.handler === undefined) return notFound(res);
-    await identity.handler(req, res);
-    return;
-  }
-
-  if (pathname === '/sign-in') {
-    if (identity.handler === undefined) return notFound(res);
-    if (req.method !== 'GET' && req.method !== 'HEAD') return methodNotAllowed(res, 'GET, HEAD');
-    const html = signInPage(identity.providers, url.searchParams.get('error') ?? undefined);
-    res.writeHead(200, { 'content-type': 'text/html; charset=utf-8', 'cache-control': 'no-store' });
-    res.end(req.method === 'HEAD' ? undefined : html);
-    return;
-  }
 
   if (pathname === '/healthz') {
     if (req.method !== 'GET' && req.method !== 'HEAD') return methodNotAllowed(res, 'GET, HEAD');
@@ -302,16 +269,12 @@ async function handleRequest(
 
   if (pathname === HUB_EVENTS_SESSION_PATH) {
     if (req.method !== 'POST') return methodNotAllowed(res, 'POST');
-    const user = await resolveUser();
-    if (user === undefined) return unauthorized();
-    if (!sameOriginOk(req)) {
-      jsonError(res, 400, 'cross-origin request rejected', 'bad-request');
+    if (!tokenOk(singleHeader(req.headers[HUB_TOKEN_HEADER]), auth.token)) {
+      jsonError(res, 401, HUB_TOKEN_REJECTED, 'bad-request');
       return;
     }
-    // A signed-in session needs no events cookie: `/events` takes the session cookie itself, so
-    // sign-out or revocation ends the stream's auth. The shared secret goes to token holders only.
-    if (!tokenOk(singleHeader(req.headers[HUB_TOKEN_HEADER]), auth.token)) {
-      writeJson(res, 200, encodeResult(null), { 'cache-control': 'no-store' });
+    if (!sameOriginOk(req)) {
+      jsonError(res, 400, 'cross-origin request rejected', 'bad-request');
       return;
     }
     // No `Secure`: the loopback hub is plain http. SameSite=Strict + HttpOnly + Path=/events keep it
@@ -325,8 +288,11 @@ async function handleRequest(
   if (pathname === '/events') {
     if (req.method !== 'GET') return methodNotAllowed(res, 'GET');
     const authorized =
-      eventsCookieOk(singleHeader(req.headers.cookie), auth) || (await resolveUser()) !== undefined;
-    if (!authorized) return unauthorized();
+      tokenOk(singleHeader(req.headers[HUB_TOKEN_HEADER]), auth.token) || eventsCookieOk(singleHeader(req.headers.cookie), auth);
+    if (!authorized) {
+      jsonError(res, 401, HUB_TOKEN_REJECTED, 'bad-request');
+      return;
+    }
     eventBus.subscribe(req, res);
     res.flushHeaders();
     return;
@@ -334,7 +300,10 @@ async function handleRequest(
 
   if (pathname.startsWith('/rpc/')) {
     if (req.method !== 'POST') return methodNotAllowed(res, 'POST');
-    if ((await resolveUser()) === undefined) return unauthorized();
+    if (!tokenOk(singleHeader(req.headers[HUB_TOKEN_HEADER]), auth.token)) {
+      jsonError(res, 401, HUB_TOKEN_REJECTED, 'bad-request');
+      return;
+    }
     await handleRpcRequest(ctx, req, res, pathname.slice('/rpc/'.length));
     return;
   }
@@ -344,14 +313,7 @@ async function handleRequest(
     return;
   }
 
-  // Pages, unlike the API, redirect: a hub bound beyond loopback requires sign-in for everything it serves.
-  if (identity.handler !== undefined && (await resolveUser()) === undefined) {
-    res.writeHead(302, { location: '/sign-in', 'cache-control': 'no-store' });
-    res.end();
-    return;
-  }
-
-  const handled = await serveStatic({ uiDir: opts.uiDir, fleet: opts.fleet === true }, req, res);
+  const handled = await serveStatic({ uiDir: opts.uiDir }, req, res);
   if (!handled) notFound(res);
 }
 
@@ -363,15 +325,12 @@ export function createHubServer(opts: HubServerOptions): HubServer {
     eventsCookieName: `vanguard_hub_events_${randomBytes(4).toString('hex')}`,
     eventsSecret: randomBytes(32).toString('hex'),
   };
-  const identity = opts.identity ?? localOnlyIdentity();
   const deps = opts.deps ?? productionDeps();
   const eventBus = new EventBus();
   eventBus.startKeepalive();
   const watchRegistry = new WatchRegistry(opts.watch);
-  const publish = (name: string, payload: unknown): number => eventBus.publish(name, payload);
+  const publish = (name: string, payload: unknown): void => eventBus.publish(name, payload);
   const completeRegistry = new CompleteRegistry(opts.spawnComplete);
-  if (opts.fleet === true && !opts.bind.isLoopback) throw new Error('fleet requires a loopback bind');
-  const spawnRegistry = opts.fleet === true ? new SpawnRegistry(publish) : undefined;
   const allowlist = new ProjectAllowlist(() => loadPaths(opts.configDir), opts.seedRepoPath);
   // Re-check the allowlist when a run STARTS, not only at enqueue: a queued run can wait long
   // enough for its project to be unbound.
@@ -379,12 +338,16 @@ export function createHubServer(opts: HubServerOptions): HubServer {
     await allowlist.assertAllowed(p.repoPath);
   });
 
+  const credentials = new CredentialStore(opts.configDir, opts.hubSecret);
+  // An unreadable store (wrong secret) is reported in Settings and on stderr; runs keep the env credentials.
+  const credentialsReady = credentials.applyStored().catch((e: unknown) => console.error(`vanguard-hub: ${(e as Error).message}`));
+
   const ctx: RpcContext = {
+    credentials,
     allowlist,
     watchRegistry,
     runSession,
     completeRegistry,
-    ...(spawnRegistry !== undefined ? { spawnRegistry } : {}),
     deps,
     configDir: opts.configDir,
     browseRoot: opts.browseRoot,
@@ -394,7 +357,7 @@ export function createHubServer(opts: HubServerOptions): HubServer {
   };
 
   const server = createServer((req, res) => {
-    void handleRequest(ctx, eventBus, opts, auth, identity, req, res).catch(() => {
+    void handleRequest(ctx, eventBus, opts, auth, req, res).catch(() => {
       if (res.headersSent) res.destroy();
       else jsonError(res, 500, 'internal server error', 'internal');
     });
@@ -406,23 +369,19 @@ export function createHubServer(opts: HubServerOptions): HubServer {
     eventBus,
     allowlist,
     listen: (port, host) =>
-      new Promise<void>((resolve, reject) => {
+      credentialsReady.then(() => new Promise<void>((resolve, reject) => {
         server.once('error', reject);
         server.listen(port, host, () => {
           server.off('error', reject);
           resolve();
         });
-      }),
+      })),
     close: () =>
       new Promise<void>((resolve) => {
         watchRegistry.closeAll();
-        spawnRegistry?.killAll();
         eventBus.close();
         server.closeAllConnections();
-        server.close(() => {
-          identity.close();
-          resolve();
-        });
+        server.close(() => resolve());
       }),
   };
 }
