@@ -114,3 +114,11 @@ export function decodeEvent(name: string, data: string): DecodedEvent {
   }
 }
 
+
+/** The hub's 401 message when GitHub sign-in is on and the request has neither a live session nor the
+ * token — a reload (which sends the browser back to GitHub) fixes it, unlike `HUB_TOKEN_REJECTED`. */
+export const HUB_SIGN_IN_REQUIRED = 'sign-in required';
+
+export function isHubSignInRequired(body: unknown): boolean {
+  return wireErrorMessage(body) === HUB_SIGN_IN_REQUIRED;
+}

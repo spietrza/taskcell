@@ -133,6 +133,7 @@ export async function hubCommand(command: Extract<Command, { kind: 'hub' }>): Pr
     },
     ...(seededRepoPath !== undefined ? { seedRepoPath: seededRepoPath } : {}),
     ...(token !== undefined ? { token } : {}),
+    ...(command.github !== undefined ? { github: command.github } : {}),
     watch: {
       forcePoll: process.env.VANGUARD_HUB_WATCH_POLL === '1',
       ...(Number(process.env.VANGUARD_HUB_WATCH_INTERVAL_MS) > 0
@@ -170,7 +171,9 @@ export async function hubCommand(command: Extract<Command, { kind: 'hub' }>): Pr
   }
 
   const hostForUrl = command.host.includes(':') ? `[${command.host}]` : command.host;
-  const url = hubLaunchUrl(`http://${hostForUrl}:${boundPort}`, hub.token);
+  // With GitHub sign-in the launch URL's `#token=…` would ride the redirect to github.com (a fragment is
+  // inherited by a redirect), so the sign-in hub prints its public URL and opens nothing.
+  const url = command.github !== undefined ? command.github.publicUrl : hubLaunchUrl(`http://${hostForUrl}:${boundPort}`, hub.token);
   console.log(`Vanguard Hub → ${url}`);
 
   const projects = await loadPaths(configDir);
@@ -181,11 +184,11 @@ export async function hubCommand(command: Extract<Command, { kind: 'hub' }>): Pr
     console.log('Projects: (none yet — add one with add_project, or pass --repo)');
   }
 
-  if (!isLoopback) {
+  if (!isLoopback && command.github === undefined) {
     console.error(NO_AUTH_WARNING);
   }
 
-  if (command.open) {
+  if (command.open && command.github === undefined) {
     const program = process.platform === 'darwin' ? 'open' : process.platform === 'win32' ? 'explorer.exe' : 'xdg-open';
     void execa(program, [url]).catch(() => console.error(`Open ${url} in your browser.`));
   }

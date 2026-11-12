@@ -1797,3 +1797,57 @@ describe('parseCli hub', () => {
     expect(parseCli(['frobnicate'], '/work').kind).toBe('help');
   });
 });
+
+describe('parseCli hub GitHub sign-in', () => {
+  const env = ['VANGUARD_HUB_GITHUB_CLIENT_ID', 'VANGUARD_HUB_GITHUB_CLIENT_SECRET'] as const;
+  afterEach(() => {
+    for (const k of env) delete process.env[k];
+  });
+
+  it('stays off without any GitHub option', () => {
+    expect(parseCli(['hub'], '/work')).not.toHaveProperty('github');
+  });
+
+  it('parses the allowlists, public URL and env credentials', () => {
+    process.env.VANGUARD_HUB_GITHUB_CLIENT_ID = 'id';
+    process.env.VANGUARD_HUB_GITHUB_CLIENT_SECRET = 'secret';
+    expect(
+      parseCli(['hub', '--public-url', 'https://hub.example.com', '--allow-github-login', 'a, b', '--allow-github-org', 'o'], '/work'),
+    ).toMatchObject({
+      kind: 'hub',
+      github: { clientId: 'id', clientSecret: 'secret', publicUrl: 'https://hub.example.com', allowLogins: ['a', 'b'], allowOrgs: ['o'] },
+    });
+  });
+
+  it('refuses to start with no allowlist, no credentials or no public URL', () => {
+    process.env.VANGUARD_HUB_GITHUB_CLIENT_ID = 'id';
+    process.env.VANGUARD_HUB_GITHUB_CLIENT_SECRET = 'secret';
+    expect(parseCli(['hub', '--public-url', 'https://h.example'], '/work').kind).toBe('error');
+    expect(parseCli(['hub', '--allow-github-login', 'a'], '/work').kind).toBe('error');
+    delete process.env.VANGUARD_HUB_GITHUB_CLIENT_SECRET;
+    expect(parseCli(['hub', '--public-url', 'https://h.example', '--allow-github-login', 'a'], '/work').kind).toBe('error');
+  });
+});
+
+describe('parseCli hub GitHub sign-in flags', () => {
+  afterEach(() => {
+    delete process.env.VANGUARD_HUB_GITHUB_CLIENT_ID;
+    delete process.env.VANGUARD_HUB_GITHUB_CLIENT_SECRET;
+  });
+
+  it('merges repeated allowlist flags instead of keeping the last', () => {
+    process.env.VANGUARD_HUB_GITHUB_CLIENT_ID = 'id';
+    process.env.VANGUARD_HUB_GITHUB_CLIENT_SECRET = 'secret';
+    expect(
+      parseCli(['hub', '--public-url', 'https://h.example', '--allow-github-org', 'a', '--allow-github-org', 'b', '--allow-github-login', 'x', '--allow-github-login', 'y,z'], '/work'),
+    ).toMatchObject({ github: { allowOrgs: ['a', 'b'], allowLogins: ['x', 'y', 'z'] } });
+  });
+
+  it('rejects a --public-url that is not a bare https origin', () => {
+    process.env.VANGUARD_HUB_GITHUB_CLIENT_ID = 'id';
+    process.env.VANGUARD_HUB_GITHUB_CLIENT_SECRET = 'secret';
+    for (const bad of ['http://h.example', 'https://h.example/', 'https://h.example/path', 'h.example', 'ftp://h.example']) {
+      expect(parseCli(['hub', '--public-url', bad, '--allow-github-login', 'a'], '/work').kind, bad).toBe('error');
+    }
+  });
+});

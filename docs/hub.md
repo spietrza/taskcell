@@ -100,7 +100,47 @@ VANGUARD_SANDBOX_IMAGE if set.`
   including a non-default port).
 
 Local mode has no authentication — on a VPS put it behind Tailscale or an authenticating reverse proxy,
-never a published port.
+never a published port — or turn on GitHub sign-in (next section).
+
+### GitHub sign-in (server mode)
+
+Opt-in, for a non-loopback bind. **Local mode stays without login**: with none of the options below the hub
+behaves exactly as before.
+
+1. Create an OAuth App (GitHub → Settings → Developer settings → OAuth Apps → New). Set the
+   **Authorization callback URL** to `<public-url>/auth/github/callback`, e.g.
+   `https://hub.example.com/auth/github/callback`.
+2. Export its credentials to the hub: `VANGUARD_HUB_GITHUB_CLIENT_ID` and `VANGUARD_HUB_GITHUB_CLIENT_SECRET`.
+3. Start the hub with the public origin and who may sign in:
+
+```
+taskcell hub --host 0.0.0.0 --allowed-host hub.example.com \
+  --public-url https://hub.example.com \
+  --allow-github-login alice,bob --allow-github-org my-org
+```
+
+- `--public-url` is the **https** origin the browser uses, with no path or trailing slash (the callback URL is
+  built from it; the session cookie is `Secure`, so plain http is a startup error). Its hostname still needs
+  `--allowed-host` like any named host.
+- `--allow-github-login a,b` and/or `--allow-github-org o` (comma-separated, or repeat the flag): a login in either list may sign in (logins
+  case-insensitively; an org needs an *active* membership, checked with the user's token at sign-in, which
+  requests the `read:org` scope only when an org is configured). With neither list — or without the client
+  id/secret or `--public-url` — the hub refuses to start.
+- An unauthenticated page request is redirected to GitHub; assets, `/rpc/*` and `/events` answer `401`
+  (`sign-in required`, which makes the UI reload and sign in again once a session has expired). A
+  login that is not allowed gets `403` after the callback and no session. A callback whose `state` is
+  missing or does not match the short-lived `state` cookie is rejected (login CSRF).
+- After sign-in the hub sets a session cookie (`HttpOnly`, `Secure`, `SameSite=Lax`, 12 h). Sessions live
+  in memory: a restart signs everyone out. The UI shows the signed-in login and a **Sign out** button, which
+  ends the session on the server — including its `/events` streams — and lands on a signed-out page. With
+  sign-in on, `/events` takes the session cookie or the token header only (no shared events cookie). Serve the
+  hub over HTTPS (a reverse proxy), since the cookie is `Secure`. The hub prints the public URL and opens no
+  browser: the launch URL's `#token=…` fragment would follow the redirect to github.com.
+- The allowlist matches the GitHub *login*, which a user can rename and GitHub can later reissue; prefer an
+  org (or review the list) when that matters.
+- The `x-vanguard-hub-token` header keeps working, so scripts and the CLI still have access. The Host and
+  same-origin checks stay in front of every route.
+- The GitHub user token is used only to check membership at sign-in; it is not stored and never used for runs.
 
 ### Allowed Hosts (DNS rebinding)
 
@@ -339,7 +379,7 @@ process as the HTTP server, so give the container the same RAM headroom, and kee
 ## CLI flags
 
 ```
-taskcell hub [--repo <path>] [--host <addr>] [--port <n>] [--ui-dir <dir>] [--no-open] [--allowed-host <host[:port]>] [--token-file <path>]
+taskcell hub [--repo <path>] [--host <addr>] [--port <n>] [--ui-dir <dir>] [--no-open] [--allowed-host <host[:port]>] [--token-file <path>] [--public-url <origin>] [--allow-github-login <a,b>] [--allow-github-org <org>]
 taskcell hub rotate-token --token-file <path>
 ```
 
@@ -351,6 +391,8 @@ taskcell hub rotate-token --token-file <path>
 | `--port <n>` | `VANGUARD_HUB_PORT` | `7777` (1-65535; an invalid explicit `--port` is a startup error) |
 | `--ui-dir <dir>` | `VANGUARD_HUB_UI_DIR` | `<pkg>/apps/desktop/dist` |
 | `--token-file <path>` | `VANGUARD_HUB_TOKEN_FILE` | unset: a fresh token per launch |
+| `--public-url <origin>` | — | unset: no GitHub sign-in (see above) |
+| `--allow-github-login <a,b>` / `--allow-github-org <org>` | — | unset; one is required with `--public-url` |
 | `--no-open` | — | opens the printed launch URL (`/#token=…`) in a browser unless passed |
 
 A missing or unbuilt `--ui-dir` fails at startup, naming `pnpm --dir apps/desktop build`

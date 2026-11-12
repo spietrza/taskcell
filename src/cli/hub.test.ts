@@ -156,6 +156,29 @@ describe('hubCommand', () => {
     }
   });
 
+  test('GitHub sign-in prints the public URL (no #token fragment), opens no browser and skips the no-auth warning', async () => {
+    const logSpy = vi.spyOn(console, 'log').mockImplementation(() => undefined);
+    const errorSpy = vi.spyOn(console, 'error').mockImplementation(() => undefined);
+    try {
+      await hubCommand(
+        command({
+          host: '0.0.0.0',
+          github: { clientId: 'id', clientSecret: 's', publicUrl: 'https://hub.example.com', allowLogins: ['a'], allowOrgs: [] },
+        }),
+      );
+      const lines = logSpy.mock.calls.map((c) => String(c[0]));
+      expect(lines).toContain('Vanguard Hub → https://hub.example.com');
+      expect(lines.join('\n')).not.toContain('#token=');
+      expect(execa).not.toHaveBeenCalled();
+      expect(errorSpy).not.toHaveBeenCalled();
+    } finally {
+      logSpy.mockRestore();
+      errorSpy.mockRestore();
+      process.emit('SIGINT');
+      await new Promise((r) => setTimeout(r, 0));
+    }
+  });
+
   test('--host <hostname> seeds the allowlist, so the URL it prints and opens is not refused', async () => {
     const logSpy = vi.spyOn(console, 'log').mockImplementation(() => undefined);
     const errorSpy = vi.spyOn(console, 'error').mockImplementation(() => undefined);

@@ -13,6 +13,7 @@ import {
   HUB_EVENTS_SESSION_PATH,
   HUB_TOKEN_FRAGMENT_PARAM,
   isHubTokenRejected,
+  isHubSignInRequired,
 } from './hub-wire';
 import { invoke as tauriInvoke } from '@tauri-apps/api/core';
 import { listen as tauriListen, type UnlistenFn } from '@tauri-apps/api/event';
@@ -87,6 +88,13 @@ function notify(handlers: Set<() => void>): void {
   for (const h of handlers) h();
 }
 
+/** With GitHub sign-in on, the hub answers 401 `sign-in required` once the 12 h session is gone (or the
+ * hub restarted): reloading sends the browser back through GitHub, which is the fix — there is no launch
+ * URL to open. */
+function reloadForSignIn(): void {
+  window.location.reload();
+}
+
 function notifyHubRestarted(): void {
   notify(restartHandlers);
 }
@@ -127,7 +135,9 @@ async function probeHubRestart(): Promise<boolean> {
       void response.body?.cancel();
       return false;
     }
-    return isHubTokenRejected(await response.json());
+    const body: unknown = await response.json();
+    if (isHubSignInRequired(body)) reloadForSignIn();
+    return isHubTokenRejected(body);
   } catch {
     return false;
   }
@@ -154,6 +164,7 @@ async function hubInvoke<T>(cmd: string, args?: Record<string, unknown>): Promis
   // Only the hub's own 401 envelope means "this page's token is dead"; a reverse proxy's 401 is a
   // different problem, and telling the operator to reload would be wrong (docs/hub.md).
   if (response.status === 401 && isHubTokenRejected(body)) notifyHubRestarted();
+  if (response.status === 401 && isHubSignInRequired(body)) reloadForSignIn();
   return decodeResponse<T>(response.status, body);
 }
 
@@ -188,7 +199,11 @@ async function openEventsSession(): Promise<'ok' | 'restarted' | 'issue'> {
       void response.body?.cancel();
       return 'ok';
     }
-    if (response.status === 401 && isHubTokenRejected(await response.json().catch(() => undefined))) return 'restarted';
+    if (response.status === 401) {
+      const body: unknown = await response.json().catch(() => undefined);
+      if (isHubTokenRejected(body)) return 'restarted';
+      if (isHubSignInRequired(body)) reloadForSignIn();
+    }
     // A 401 body was already read above (stream locked/disturbed); cancelling it would reject unhandled.
     if (!response.bodyUsed) void response.body?.cancel().catch(() => undefined);
     return 'issue';

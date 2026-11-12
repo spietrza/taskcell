@@ -2,14 +2,15 @@
 // (events.ts) and the static SPA server (static.ts) behind one listener. Same-origin only — this
 // never emits Access-Control-Allow-Origin, so a page on another origin cannot read responses even
 // if it can trigger the request.
-import { randomBytes, timingSafeEqual } from 'node:crypto';
+import { randomBytes } from 'node:crypto';
 import { createServer, type IncomingMessage, type Server, type ServerResponse } from 'node:http';
 import { isIP } from 'node:net';
+import { cookieValue, createGithubAuth, tokenOk, type GithubAuth, type GithubAuthOptions } from './github-auth.js';
 import { serveStatic } from './static.js';
 import { EventBus } from './events.js';
 import { writeJson, jsonError } from './json-response.js';
 import { dispatchRpc, classifyError, type RpcContext } from './rpc.js';
-import { encodeError, encodeResult, HUB_EVENTS_SESSION_PATH, HUB_TOKEN_HEADER, HUB_TOKEN_REJECTED } from '../hub-wire.js';
+import { encodeError, encodeResult, HUB_EVENTS_SESSION_PATH, HUB_SIGN_IN_REQUIRED, HUB_TOKEN_HEADER, HUB_TOKEN_REJECTED } from '../hub-wire.js';
 import { ProjectAllowlist, type BindOptions } from './allowlist.js';
 import { WatchRegistry, type WatchOptions } from './watch.js';
 import { createRunSession } from './run-session.js';
@@ -44,6 +45,9 @@ export interface HubServerOptions {
   allowedHosts?: readonly string[];
   /** Fixed token (from `--token-file`); a fresh one per launch when omitted. */
   token?: string;
+  /** GitHub sign-in (docs/hub.md): when set, the SPA, `/rpc/*` and `/events` also accept a session cookie
+   * and an unauthenticated browser is sent to GitHub. The token header keeps working. */
+  github?: GithubAuthOptions;
 }
 
 export interface HubServer {
@@ -70,22 +74,25 @@ interface HubAuth {
   token: string;
   eventsCookieName: string;
   eventsSecret: string;
+  github?: GithubAuth;
+}
+
+function hasSession(auth: HubAuth, req: IncomingMessage): boolean {
+  return auth.github?.sessionLogin(req) !== undefined;
 }
 
 function eventsCookieOk(header: string | undefined, auth: HubAuth): boolean {
-  if (header === undefined) return false;
-  for (const part of header.split(';')) {
-    const eq = part.indexOf('=');
-    if (eq !== -1 && part.slice(0, eq).trim() === auth.eventsCookieName) return tokenOk(part.slice(eq + 1).trim(), auth.eventsSecret);
-  }
-  return false;
+  return tokenOk(cookieValue(header, auth.eventsCookieName), auth.eventsSecret);
 }
 
-function tokenOk(candidate: string | null | undefined, token: string): boolean {
-  if (typeof candidate !== 'string') return false;
-  const bytes = Buffer.from(candidate);
-  const expected = Buffer.from(token);
-  return bytes.length === expected.length && timingSafeEqual(bytes, expected);
+/** Whether the request carries the launch token or, with GitHub sign-in on, a live session. */
+function authorized(req: IncomingMessage, auth: HubAuth): boolean {
+  return tokenOk(singleHeader(req.headers[HUB_TOKEN_HEADER]), auth.token) || hasSession(auth, req);
+}
+
+/** The 401 for a request that failed `authorized`: with GitHub sign-in a reload fixes it, so say so. */
+function unauthorized(res: ServerResponse, auth: HubAuth): void {
+  jsonError(res, 401, auth.github !== undefined ? HUB_SIGN_IN_REQUIRED : HUB_TOKEN_REJECTED, 'bad-request');
 }
 
 /** Names the fix: a named-host deployment (a reverse proxy, a container reached under its own
@@ -264,14 +271,21 @@ async function handleRequest(
     return;
   }
 
+  if (auth.github !== undefined && pathname.startsWith('/auth/')) {
+    if (await auth.github.handle(pathname, req, res, sameOriginOk(req))) return;
+  }
+
   if (pathname === HUB_EVENTS_SESSION_PATH) {
     if (req.method !== 'POST') return methodNotAllowed(res, 'POST');
-    if (!tokenOk(singleHeader(req.headers[HUB_TOKEN_HEADER]), auth.token)) {
-      jsonError(res, 401, HUB_TOKEN_REJECTED, 'bad-request');
-      return;
-    }
+    if (!authorized(req, auth)) return unauthorized(res, auth);
     if (!sameOriginOk(req)) {
       jsonError(res, 400, 'cross-origin request rejected', 'bad-request');
+      return;
+    }
+    // With GitHub sign-in `/events` takes the session cookie or the token header only: the shared events
+    // cookie would outlive a sign-out, so none is minted.
+    if (auth.github !== undefined) {
+      writeJson(res, 200, encodeResult(null), { 'cache-control': 'no-store' });
       return;
     }
     // No `Secure`: the loopback hub is plain http. SameSite=Strict + HttpOnly + Path=/events keep it
@@ -284,12 +298,9 @@ async function handleRequest(
 
   if (pathname === '/events') {
     if (req.method !== 'GET') return methodNotAllowed(res, 'GET');
-    const authorized =
-      tokenOk(singleHeader(req.headers[HUB_TOKEN_HEADER]), auth.token) || eventsCookieOk(singleHeader(req.headers.cookie), auth);
-    if (!authorized) {
-      jsonError(res, 401, HUB_TOKEN_REJECTED, 'bad-request');
-      return;
-    }
+    const ok = auth.github !== undefined ? authorized(req, auth) : authorized(req, auth) || eventsCookieOk(singleHeader(req.headers.cookie), auth);
+    if (!ok) return unauthorized(res, auth);
+    auth.github?.trackStream(req, res);
     eventBus.subscribe(req, res);
     res.flushHeaders();
     return;
@@ -297,16 +308,18 @@ async function handleRequest(
 
   if (pathname.startsWith('/rpc/')) {
     if (req.method !== 'POST') return methodNotAllowed(res, 'POST');
-    if (!tokenOk(singleHeader(req.headers[HUB_TOKEN_HEADER]), auth.token)) {
-      jsonError(res, 401, HUB_TOKEN_REJECTED, 'bad-request');
-      return;
-    }
+    if (!authorized(req, auth)) return unauthorized(res, auth);
     await handleRpcRequest(ctx, req, res, pathname.slice('/rpc/'.length));
     return;
   }
 
   if (req.method !== 'GET' && req.method !== 'HEAD') {
     notFound(res);
+    return;
+  }
+
+  if (auth.github !== undefined && auth.github.sessionLogin(req) === undefined) {
+    auth.github.rejectUnauthenticated(req, res, pathname);
     return;
   }
 
@@ -321,6 +334,7 @@ export function createHubServer(opts: HubServerOptions): HubServer {
     token,
     eventsCookieName: `vanguard_hub_events_${randomBytes(4).toString('hex')}`,
     eventsSecret: randomBytes(32).toString('hex'),
+    ...(opts.github !== undefined ? { github: createGithubAuth(opts.github) } : {}),
   };
   const deps = opts.deps ?? productionDeps();
   const eventBus = new EventBus();

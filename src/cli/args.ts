@@ -1,3 +1,4 @@
+import type { GithubAuthOptions } from '../hub/github-auth.js';
 import { parseArgs } from 'node:util';
 import { isProviderName, validateProviderChoice, PROVIDER_NAMES } from '../agents/registry.js';
 import type { ProviderName } from '../agents/registry.js';
@@ -8,6 +9,9 @@ import { parseUsageCap } from '../core/usage-cap.js';
 import { GITHUB_CLAIMED_LABEL, GITHUB_REVIEW_LABEL, GITHUB_SPEC_CLAIMED_LABEL } from '../github-labels.js';
 
 type WatchSource = 'linear' | 'github' | 'project' | 'gitlab';
+
+/** GitHub sign-in for the hub (docs/hub.md); the client id and secret come from the environment. */
+export type HubGithubConfig = Omit<GithubAuthOptions, 'fetch'>;
 
 export type Command =
   | { kind: 'gc'; repoPath: string; maxAgeMs: number; remoteRepo?: string; dryRun: boolean; abandoned: boolean }
@@ -337,7 +341,7 @@ export type Command =
     }
   | { kind: 'sidecar' }
   | { kind: 'complete' }
-  | { kind: 'hub'; repoPath: string; host: string; port: number; uiDir?: string; open: boolean; allowedHosts?: string[]; tokenFile?: string }
+  | { kind: 'hub'; repoPath: string; host: string; port: number; uiDir?: string; open: boolean; allowedHosts?: string[]; tokenFile?: string; github?: HubGithubConfig }
   | { kind: 'hub-rotate-token'; tokenFile: string }
   | { kind: 'help' }
   | { kind: 'error'; message: string };
@@ -498,6 +502,7 @@ function parseCommitAuthor(raw: string | boolean | undefined): { name: string; e
 export function parseCli(argv: string[], cwd: string): Command {
   let values: Record<string, string | boolean | undefined>;
   let allowedHosts: string[] | undefined;
+  let githubLists = { logins: [] as string[], orgs: [] as string[] };
   let positionals: string[];
   try {
     const parsed = parseArgs({
@@ -632,11 +637,15 @@ export function parseCli(argv: string[], cwd: string): Command {
         'no-open': { type: 'boolean' },
         'token-file': { type: 'string' },
         'allowed-host': { type: 'string', multiple: true },
+        'public-url': { type: 'string' },
+        'allow-github-login': { type: 'string', multiple: true },
+        'allow-github-org': { type: 'string', multiple: true },
         help: { type: 'boolean' },
       },
     });
-    const { 'allowed-host': hosts, ...singleValues } = parsed.values;
+    const { 'allowed-host': hosts, 'allow-github-login': ghLogins, 'allow-github-org': ghOrgs, ...singleValues } = parsed.values;
     allowedHosts = hosts;
+    githubLists = { logins: ghLogins ?? [], orgs: ghOrgs ?? [] };
     values = singleValues;
     positionals = parsed.positionals;
   } catch {
@@ -894,8 +903,29 @@ export function parseCli(argv: string[], cwd: string): Command {
     }
     if (positionals[1] !== undefined) return fail(`Unknown hub subcommand '${positionals[1]}'. Expected: rotate-token.`);
 
+    const list = (flags: string[]): string[] => flags.flatMap((v) => v.split(',')).map((x) => x.trim()).filter(Boolean);
+    const allowLogins = list(githubLists.logins);
+    const allowOrgs = list(githubLists.orgs);
+    const publicUrl = typeof values['public-url'] === 'string' ? values['public-url'].trim() : '';
+    const clientId = process.env.VANGUARD_HUB_GITHUB_CLIENT_ID?.trim() ?? '';
+    const clientSecret = process.env.VANGUARD_HUB_GITHUB_CLIENT_SECRET?.trim() ?? '';
+    let github: HubGithubConfig | undefined;
+    if (clientId !== '' || clientSecret !== '' || publicUrl !== '' || allowLogins.length > 0 || allowOrgs.length > 0) {
+      if (clientId === '' || clientSecret === '') {
+        return fail('GitHub sign-in needs VANGUARD_HUB_GITHUB_CLIENT_ID and VANGUARD_HUB_GITHUB_CLIENT_SECRET.');
+      }
+      if (!/^https:\/\/[^/?#\s]+$/.test(publicUrl)) {
+        return fail('GitHub sign-in needs --public-url <https origin>, e.g. https://hub.example.com (https, no path or trailing slash: the session cookie is Secure).');
+      }
+      if (allowLogins.length === 0 && allowOrgs.length === 0) {
+        return fail('GitHub sign-in needs --allow-github-login and/or --allow-github-org; refusing to start with no one allowed.');
+      }
+      github = { clientId, clientSecret, publicUrl, allowLogins, allowOrgs };
+    }
+
     return {
       kind: 'hub',
+      ...(github !== undefined ? { github } : {}),
       ...(tokenFile !== undefined ? { tokenFile } : {}),
       repoPath,
       host,
@@ -1433,6 +1463,7 @@ Commands:
   hub    Serve the Inspector UI over HTTP/SSE (node:http), backed by a real .taskcell/ directory.
          --token-file <path> (VANGUARD_HUB_TOKEN_FILE) keeps one token across restarts (created 0600 if missing);
          "hub rotate-token --token-file <path>" writes a new one, picked up on the next restart.
+         GitHub sign-in: --public-url <origin> --allow-github-login a,b --allow-github-org o, repeatable (+ VANGUARD_HUB_GITHUB_CLIENT_ID/_SECRET).
 
   watch options (trigger = state/label + label):
     --source <linear|github|project|gitlab>  Task source (default: linear)

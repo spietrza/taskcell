@@ -1,6 +1,7 @@
 import { Fragment, type ReactNode } from 'react';
 import { Breadcrumb, InlineEdit, Logo, ThemeToggle, type Theme } from '@/ui';
 import { Search } from 'lucide-react';
+import { HubUser } from './HubUser';
 
 export interface Crumb {
   label: string;
@@ -80,6 +81,7 @@ export function TopBar({
           <Search className="size-3.5" />
           <span className="font-mono">⌘K</span>
         </button>
+        <HubUser />
         <ThemeToggle theme={theme} onClick={onToggleTheme} />
       </div>
     </header>
