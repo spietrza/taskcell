@@ -1,7 +1,10 @@
+import { readFile } from 'node:fs/promises';
+import { join } from 'node:path';
 import { execa } from 'execa';
 import { TaskcellError } from './errors.js';
 import { createLogger } from './logger.js';
 import { redactTokens } from './secret-scan.js';
+import { stateDir } from './state-path.js';
 import type { TaskcellLogger } from './logger.js';
 
 /**
@@ -24,6 +27,48 @@ export function assertSafeBaseBranch(base: string): void {
 
 /** The base a run targets when no `--base` is given. Every default goes through this name, never a bare literal. */
 export const DEFAULT_BASE_BRANCH = 'main';
+
+/** Issue label that carries a card's target branch: `vanguard:base=<branch>` (like `vanguard:model=<m>`). */
+export const BASE_LABEL_PREFIX = 'vanguard:base=';
+
+/**
+ * The target branch a card names, from its labels (last one wins), or undefined when it names none.
+ * A `vanguard:base=` label with an empty or unsafe value is refused, not ignored: opening the PR
+ * against some other branch than the one the card asked for is worse than not running.
+ * @throws TaskcellError (see assertSafeBaseBranch).
+ */
+export function baseFromLabels(labels: ReadonlyArray<string>): string | undefined {
+  const named = labels.filter((l) => l.startsWith(BASE_LABEL_PREFIX)).at(-1);
+  if (named === undefined) return undefined;
+  const value = named.slice(BASE_LABEL_PREFIX.length).trim();
+  assertSafeBaseBranch(value);
+  return value;
+}
+
+/**
+ * The repository's default target branch: `baseBranch` in `.taskcell/app.json`, read leniently like the
+ * board config. Undefined when the file or key is absent. A set but unsafe value is refused.
+ * @throws TaskcellError (see assertSafeBaseBranch).
+ */
+export async function readRepoBaseBranch(repoPath: string): Promise<string | undefined> {
+  let parsed: unknown;
+  try {
+    parsed = JSON.parse(await readFile(join(stateDir(repoPath), 'app.json'), 'utf8'));
+  } catch {
+    return undefined;
+  }
+  const raw = typeof parsed === 'object' && parsed !== null ? (parsed as Record<string, unknown>).baseBranch : undefined;
+  const value = typeof raw === 'string' ? raw.trim() : '';
+  if (value === '') return undefined;
+  assertSafeBaseBranch(value);
+  return value;
+}
+
+/** The branch a run's PR targets: an explicit `--base`, else the card's label, else the repo default, else `main`. */
+export async function resolveTargetBase(repoPath: string, labels: ReadonlyArray<string>, explicit?: string): Promise<string> {
+  // A label or app.json value is checked on read; an explicit --base by prepareContext/resolveRemoteBaseRef.
+  return explicit ?? baseFromLabels(labels) ?? (await readRepoBaseBranch(repoPath)) ?? DEFAULT_BASE_BRANCH;
+}
 
 /**
  * A base taken from a PR/MR record, or the default when the API left it out. The fallback is announced:

@@ -203,6 +203,14 @@ export function Settings({ project }: { project: string }) {
             placeholder="pnpm typecheck && pnpm test"
           />
         </Field>
+        <Field label="Default target branch" hint="— where pull requests go when a card names none (default main)">
+          <Input
+            value={cfg.baseBranch ?? ''}
+            onChange={(e) => set('baseBranch', e.target.value || undefined)}
+            className="w-full font-mono text-xs"
+            placeholder="main"
+          />
+        </Field>
         <div className="grid grid-cols-2 gap-4">
           <Field label="Concurrency">
             <Input

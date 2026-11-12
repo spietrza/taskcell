@@ -5,6 +5,7 @@ import {
   apiComplete,
   apiCancelComplete,
   apiCreateTask,
+  apiListBranches,
   apiListRepoFiles,
   apiReadRepoFile,
   writeDraftAsset,
@@ -781,6 +782,20 @@ export function TaskDraftScreen({
   const tooBig = bodyBytes > MAX_BODY_BYTES;
   const titleTooLong = docTitle !== undefined && new TextEncoder().encode(docTitle).length > MAX_TITLE_BYTES;
 
+  // Target branch for the PR (hub only: Tauri has no branch listing, so the choice is simply not offered).
+  const [branches, setBranches] = useState<string[]>([]);
+  const [baseBranch, setBaseBranch] = useState('');
+  useEffect(() => {
+    if (!confirming) return;
+    let live = true;
+    apiListBranches(project)
+      .then((r) => live && setBranches(r.branches))
+      .catch(() => live && setBranches([]));
+    return () => {
+      live = false;
+    };
+  }, [confirming, project]);
+
   const createTask = (): void => {
     const id = activeIdRef.current;
     if (createInFlight.current !== null || id === null || docTitle === undefined || archived) return;
@@ -791,7 +806,7 @@ export function TaskDraftScreen({
     // is a read-modify-write, and a debounce firing after it would regress `archived` (spec G14).
     writer.discard(id);
     void writer.writeNow(id, { ...draftRef.current });
-    void apiCreateTask(project, docTitle, draftRef.current.body)
+    void apiCreateTask(project, docTitle, draftRef.current.body, baseBranch === '' ? undefined : baseBranch)
       .then(async (task) => {
         // The one rule the whole subsystem hangs on (spec G1): this write is keyed to the id
         // captured at click time and runs regardless of what is selected NOW — a filed draft
@@ -1073,6 +1088,9 @@ export function TaskDraftScreen({
           source={source}
           title={docTitle}
           bodyBytes={bodyBytes}
+          branches={branches}
+          baseBranch={baseBranch}
+          onBaseBranch={setBaseBranch}
           busy={creating}
           onConfirm={createTask}
           onCancel={() => setConfirming(false)}

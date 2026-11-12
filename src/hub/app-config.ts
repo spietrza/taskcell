@@ -3,8 +3,9 @@ import { readFile, writeFile } from 'node:fs/promises';
 import { join } from 'node:path';
 import { assertStatePath, ensureStateDir, stateDir } from '../core/state-path.js';
 
-/** The app's per-project config (`.taskcell/app.json`, spec §6). All optional; the CLI does not read
- * this — the app translates it into flags / a launch command. */
+/** The app's per-project config (`.taskcell/app.json`, spec §6). All optional; the CLI reads only `baseBranch`
+ * (core/base-branch.ts) — the app translates the rest into flags / a launch command. `.taskcell/*` is
+ * git-ignored by default, so a run in CI sees `baseBranch` only if the repo commits `.taskcell/app.json`. */
 export interface AppConfig {
   source?: string;
   label?: string;
@@ -25,6 +26,8 @@ export interface AppConfig {
    * stored here (env only). Optional Anthropic-compatible base URL for a self-hosted proxy. */
   chatModel?: string;
   chatBaseUrl?: string;
+  /** Default target branch for pull requests when a card names none; unset = `main`. */
+  baseBranch?: string;
   /** Opaque pass-through — deliberately `unknown`, NOT a typed array/shape. A typed field would
    * silently strip unknown entry keys on every settings save. Round-trip byte-for-byte. */
   customProviders?: unknown;

@@ -245,6 +245,8 @@ export interface BoardTask {
   stage?: string;
   /** Latest run's per-stage/gate verdicts. Absent ⇒ no run record for this task. */
   chips?: BoardChip[];
+  /** The branch this card's PR targets: its `vanguard:base=` label, else the repo default. Absent when neither is set (`main`). */
+  baseBranch?: string;
 }
 
 /** The reviewer's persisted verdict: `changes` ⇔ the merge gate would request changes. */
@@ -308,6 +310,8 @@ export interface RunRecord {
   /** The `<findings>` block this stage emitted (the shape the repair gate consumes). Absent when
    *  the stage emitted none, and withheld entirely when `diffOmitted` is set. */
   findings?: Finding[];
+  /** The branch the run's PR targets. Absent on records written before the target branch was recorded. */
+  baseBranch?: string;
 }
 
 export interface Proof {
@@ -331,17 +335,6 @@ export interface VisualProof {
   sha256: string;
   outputTail: string;
   artifacts: VisualProofArtifact[];
-}
-
-/** Which repository an item of an all-repositories list belongs to. */
-export interface RepoStamp {
-  repoPath: string;
-  repoName: string;
-}
-
-/** A repository an all-repositories list could not read (tracker down, bad config); the rest are still listed. */
-export interface RepoReadFailure extends RepoStamp {
-  error: string;
 }
 
 export interface RunSummary {
@@ -405,21 +398,6 @@ export interface RunRef {
   timestamp: string;
 }
 
-export type TeamRole = 'admin' | 'member';
-
-export interface TeamMember {
-  login: string;
-  role: TeamRole;
-}
-
-/** A hub team (src/hub/teams.ts). `repositories` are project paths. */
-export interface Team {
-  id: string;
-  name: string;
-  members: TeamMember[];
-  repositories: string[];
-}
-
 /**
  * Hand-mirrors of RUST serde structs in src-tauri (the persisted/aggregated shapes) — a TS seam
  * cannot pin these to Rust, so they live here only because the `Commands` catalogue below needs a
@@ -477,6 +455,8 @@ export interface AppConfig {
   /** Doc-editor chat model (Subsystem 3), e.g. `claude-sonnet-5`. Non-secret; key is env-only. */
   chatModel?: string | null;
   chatBaseUrl?: string | null;
+  /** Repository default target branch for pull requests; unset = `main`. */
+  baseBranch?: string | null;
   /** Opaque JSON preserved by Rust and the hub, including invalid entries and unknown keys — see
    * `CustomProviderSpec` for the shape a valid entry has. */
   customProviders?: unknown;
@@ -524,9 +504,11 @@ export interface NeedsYouItem {
   baseRef?: string;
   /** The factory's own last comment, redacted; untrusted, render as plain text. Absent when it never commented. */
   lastComment?: { author: string; body: string };
+  /** The branch the PR targets (a PR's base), or the one the card asks for (`vanguard:base=`). Absent when unknown. */
+  baseBranch?: string;
 }
 
-/** A Fleet-screen spawned process (Fleet is enabled only on the desktop app's local hub). */
+/** A Fleet-screen spawned process (TAURI_ONLY — Fleet is disabled in hub mode). */
 export interface SpawnInfo {
   pid: number;
   cwd: string;
@@ -611,17 +593,7 @@ export interface CliVersionReport {
 export interface Commands {
   list_runs: { args: { repoPath: string }; result: RunSummary[] };
   read_run: { args: { repoPath: string; taskId: string; timestamp: string; source: RunSource }; result: RunDetail };
-  /** HUB_ONLY, read-only: a run's persisted event log (`.taskcell/runs/<taskId>/events-*.jsonl`), events with
-   *  `id > after` (the SSE `id:`), at most `limit`; `timestamp` (a run record's, from `list_runs`) picks that run, default the newest. */
-  read_run_events: {
-    args: { repoPath: string; taskId: string; timestamp?: string; after?: number; limit?: number };
-    result: { events: { id: number; ts: string; event: string; data: unknown }[]; nextAfter: number; hasMore: boolean; truncated: boolean };
-  };
   list_projects: { args: undefined; result: Project[] };
-  /** HUB_ONLY: token-only mode has exactly one team and the caller acts as its admin. */
-  list_teams: { args: undefined; result: Team[] };
-  /** HUB_ONLY: one team by id (`null` when unknown). */
-  get_team: { args: { id: string }; result: Team | null };
   add_project: { args: { path: string }; result: Project[] };
   remove_project: { args: { path: string }; result: Project[] };
   list_active: { args: { repoPath: string }; result: ActiveRun[] };
@@ -641,10 +613,6 @@ export interface Commands {
    * a later `read_run` to its own root. A cache hit skips `gh run download` on both sides. */
   import_remote_run: { args: { repoPath: string; runId: number }; result: RemoteImport };
   list_tasks: { args: { repoPath: string }; result: { tasks: BoardTask[]; capped: boolean } };
-  /** HUB_ONLY: `list_tasks` across every hub repository, each card stamped with its repository. */
-  list_tasks_all: { args: undefined; result: { tasks: (BoardTask & RepoStamp)[]; capped: boolean; failures: RepoReadFailure[] } };
-  /** HUB_ONLY: `list_runs` across every hub repository, each row stamped with its repository. */
-  list_runs_all: { args: undefined; result: { runs: (RunSummary & RepoStamp)[]; failures: RepoReadFailure[] } };
   fetch_spec: { args: { repoPath: string; taskId: string }; result: { spec: string } };
   watch_project: { args: { repoPath: string }; result: void };
   unwatch_project: { args: { repoPath: string }; result: void };
@@ -658,7 +626,7 @@ export interface Commands {
   /** `runId` cancels exactly that run (active or queued). The hub REQUIRES it (an id-less cancel
    * could hit another project's run); Tauri ignores it and cancels its one active run (no queue). */
   api_cancel: { args: { runId?: string }; result: void };
-  api_create_task: { args: { repoPath: string; title: string; body: string }; result: CreatedTask };
+  api_create_task: { args: { repoPath: string; title: string; body: string; baseBranch?: string }; result: CreatedTask };
   api_list_flows: { args: { repoPath: string }; result: { flows: RepoFlowInfo[] } };
   api_list_providers: { args: { repoPath: string }; result: { providers: RepoProviderInfo[] } };
   api_read_flow: { args: { repoPath: string; file: string }; result: { doc: FlowDoc; source: string } };
@@ -675,22 +643,19 @@ export interface Commands {
   clone_project: { args: { url: string; parentDir: string; name?: string }; result: Project };
   /** HUB_ONLY: the hub "Needs you" read model (src/hub/needs-you.ts) — `gh` and labels only, no model call. */
   list_needs_you: { args: { repoPath: string }; result: { items: NeedsYouItem[] } };
-  /** HUB_ONLY: `list_needs_you` across every hub repository, each item stamped with its repository. */
-  list_needs_you_all: { args: undefined; result: { items: (NeedsYouItem & RepoStamp)[]; failures: RepoReadFailure[] } };
   /** HUB_ONLY: post a reply with the caller's own `gh` identity and move the item on. */
   reply_needs_you: { args: { repoPath: string; id: string; kind: 'issue' | 'pr'; body: string }; result: void };
   /** HUB_ONLY: merge a waiting PR (refused when not in "Needs you" or required checks are not green). */
   merge_needs_you: { args: { repoPath: string; id: string }; result: void };
   /** HUB_ONLY: apply a trigger label to a GitHub issue of the project (src/hub/start-task.ts). */
   start_task: { args: { repoPath: string; number: number; label: string }; result: StartTaskResult };
-  /** The Fleet screen's shell-spawn surface — enabled only on the desktop app's local (loopback) hub,
-   * refused elsewhere (remote code execution on a reachable server). `argv[0]` is the program, run
-   * WITHOUT a shell: values built from repo config travel as single arguments and can never
-   * introduce shell syntax. */
+  /** TAURI_ONLY: the Fleet screen's shell-spawn surface — disabled in hub mode (remote code
+   * execution on a reachable server). `argv[0]` is the program, run WITHOUT a shell: values built
+   * from repo config travel as single arguments and can never introduce shell syntax. */
   spawn_run: { args: { cwd: string; argv: string[] }; result: number };
-  /** See spawn_run. */
+  /** TAURI_ONLY (see spawn_run). */
   kill_run: { args: { pid: number }; result: void };
-  /** See spawn_run. */
+  /** TAURI_ONLY (see spawn_run). */
   list_spawns: { args: undefined; result: SpawnInfo[] };
   /** HUB_ONLY: read the repo (default branch, package manager, verify command) and report what
    *  `enable_factory_apply` would change — no writes yet. GitHub only; `provider` is accepted for
@@ -704,21 +669,45 @@ export interface Commands {
   enable_factory_secret: { args: { repoPath: string; plan: FactoryPlan }; result: FactorySecretStep };
   /** HUB_ONLY: dispatch the doctor workflow (once the PR above is merged) and report the run that dispatch created. */
   enable_factory_verify: { args: { repoPath: string; plan: FactoryPlan }; result: FactoryVerifyResult };
+  /** HUB_ONLY, read-only: the repository's branches (local and origin) and its configured default target branch, for the new-card form. */
+  list_branches: { args: { repoPath: string }; result: { branches: string[]; default?: string } };
   /** HUB_ONLY, read-only: installed vs latest claude/codex/cursor CLI in the local sandbox image (3-day soak applied; `enabled: false`, and no lookups, when VANGUARD_CLI_VERSION_CHECK is off). Refused on a non-loopback bind without VANGUARD_HUB_ALLOW_ADD. */
   agent_cli_versions: { args: undefined; result: CliVersionReport };
 }
 
-/** Every command name, for the hub dispatch parity test and friends. TYPE-CHECKED (not just asserted)
+/** Commands the hub does not implement for real: absent from `src/hub/rpc.ts`'s dispatch cases (the
+ * Fleet shell-spawn surface is rejected generically instead of dispatched). */
+export const TAURI_ONLY = ['spawn_run', 'kill_run', 'list_spawns'] as const satisfies readonly (keyof Commands)[];
+
+/** Commands with no `#[tauri::command]` in `src-tauri/src/lib.rs` — browser-only stand-ins for
+ * native capability the webview doesn't need (no folder-picker dialog), plus the enable-factory
+ * seam (shells out to `gh`/`git`, which only the hub's Node process does today), plus
+ * `agent_cli_versions` (probes the sandbox image through `docker`, likewise), plus `api_queue`:
+ * Tauri stays strictly single-in-flight (no queue to read) so it has nothing to implement either. */
+export const HUB_ONLY = [
+  'browse_dirs',
+  'clone_project',
+  'enable_factory_plan',
+  'enable_factory_apply',
+  'enable_factory_secret',
+  'enable_factory_verify',
+  'agent_cli_versions',
+  'list_branches',
+  'list_needs_you',
+  'reply_needs_you',
+  'merge_needs_you',
+  'start_task',
+  'api_queue',
+] as const satisfies readonly (keyof Commands)[];
+
+/** Every command name, for the lib.rs parity test and friends. TYPE-CHECKED (not just asserted)
  * against `Commands`: the `satisfies` below rejects a typo or a name not in `Commands`, and
  * `_Exhaustive` rejects a missing one — adding a command to `Commands` without adding it here is a
  * compile error. */
 export const COMMAND_NAMES = [
   'list_runs',
   'read_run',
-  'read_run_events',
   'list_projects',
-  'list_teams',
-  'get_team',
   'add_project',
   'remove_project',
   'list_active',
@@ -758,9 +747,6 @@ export const COMMAND_NAMES = [
   'browse_dirs',
   'clone_project',
   'list_needs_you',
-  'list_needs_you_all',
-  'list_tasks_all',
-  'list_runs_all',
   'reply_needs_you',
   'merge_needs_you',
   'start_task',
@@ -772,6 +758,7 @@ export const COMMAND_NAMES = [
   'enable_factory_secret',
   'enable_factory_verify',
   'agent_cli_versions',
+  'list_branches',
 ] as const satisfies readonly (keyof Commands)[];
 type _Exhaustive = keyof Commands extends (typeof COMMAND_NAMES)[number]
   ? true

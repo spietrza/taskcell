@@ -75,6 +75,15 @@ describe('listNeedsYou', () => {
     }
   });
 
+  it('reports the target branch: a PR\'s base, an issue\'s vanguard:base= label', async () => {
+    const gh = stubGh({
+      issueList: [{ number: 1, title: 'I', url: 'u1', labels: [{ name: 'needs info' }, { name: 'vanguard:base=uat' }] }],
+      prList: [{ number: 2, title: 'P', url: 'u2', labels: [{ name: 'vanguard:needs-human-review' }], baseRefName: 'dev' }],
+    });
+    const items = await listNeedsYou('o/r', gh);
+    expect(items.map((i) => [i.number, i.baseBranch])).toEqual([[1, 'uat'], [2, 'dev']]);
+  });
+
   it('lists a PR at vanguard:needs-human-review, vanguard:verify-failed, or with changes requested', async () => {
     const gh = stubGh({
       issueList: [],

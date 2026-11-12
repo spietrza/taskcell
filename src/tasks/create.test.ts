@@ -33,6 +33,19 @@ describe('createGithubIssue', () => {
   });
 });
 
+describe('createGithubIssue target-branch label', () => {
+  it('creates the vanguard:base= label first, because gh issue create fails on a missing label', async () => {
+    const calls: string[][] = [];
+    await createGithubIssue('/repo', { title: 't', body: 'b', labels: ['ready', 'vanguard:base=dev'] }, async (_bin, args) => {
+      calls.push(args);
+      return 'https://github.com/o/r/issues/1\n';
+    });
+    expect(calls.map((c) => c.slice(0, 2).join(' '))).toEqual(['label create', 'issue create']);
+    expect(calls[0]).toEqual(['label', 'create', 'vanguard:base=dev', '--force']);
+    expect(calls[1]).toContain('vanguard:base=dev');
+  });
+});
+
 describe('createGitlabIssue', () => {
   it('passes the description as argv (glab has no --body-file) and returns a ref + url', async () => {
     let seen: string[] = [];

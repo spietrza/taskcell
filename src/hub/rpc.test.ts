@@ -311,6 +311,71 @@ describe('dispatchRpc', () => {
     expect(captured).toMatchObject({ source: 'linear', team: 'DEV', labels: ['vanguard-ready'], title: 'hello', body: 'world' });
   });
 
+  describe('target branch', () => {
+    async function createWith(cfg: Record<string, string>, extra: Record<string, unknown>): Promise<{ captured: unknown; call: Promise<unknown> }> {
+      const repo = await tmpRepo();
+      const out: { captured: unknown } = { captured: undefined };
+      const { ctx } = await makeCtx(repo, {
+        depsOverrides: {
+          createTask: async (p) => {
+            out.captured = p;
+            return { id: 'x', url: 'https://x' };
+          },
+        },
+      });
+      await writeAppConfig(repo, cfg);
+      return Object.assign(out, { call: dispatchRpc(ctx, 'api_create_task', { repoPath: repo, title: 't', body: 'b', ...extra }) });
+    }
+
+    test('api_create_task carries baseBranch as a vanguard:base= label next to the trigger label', async () => {
+      const r = await createWith({ label: 'ready' }, { baseBranch: ' dev ' });
+      await r.call;
+      expect(r.captured).toMatchObject({ labels: ['ready', 'vanguard:base=dev'] });
+    });
+
+    test('api_create_task adds no base label when baseBranch is absent or blank', async () => {
+      const a = await createWith({ label: 'ready' }, {});
+      await a.call;
+      expect(a.captured).toMatchObject({ labels: ['ready'] });
+      const b = await createWith({}, { baseBranch: '  ' });
+      await b.call;
+      expect((b.captured as { labels?: string[] }).labels).toBeUndefined();
+    });
+
+    test.each([
+      ['an unsafe name', { baseBranch: '--upload-pack=x' }, /Invalid base branch/],
+      ['a name too long for a GitHub label', { baseBranch: 'x'.repeat(40) }, /cannot be carried as a label/],
+      ['a name with a comma (GitLab label list)', { baseBranch: 'a,b' }, /cannot be carried as a label/],
+    ])('api_create_task refuses %s before anything is created', async (_n, extra, message) => {
+      const r = await createWith({}, extra);
+      await expect(r.call).rejects.toThrow(message);
+      expect(r.captured).toBeUndefined();
+    });
+
+    test('api_create_task refuses a target branch on a Linear card', async () => {
+      const r = await createWith({ source: 'linear', team: 'DEV' }, { baseBranch: 'dev' });
+      await expect(r.call).rejects.toThrow(/Linear/);
+      expect(r.captured).toBeUndefined();
+    });
+
+    test('write_app_config refuses an unsafe baseBranch and saves a safe one', async () => {
+      const repo = await tmpRepo();
+      const { ctx } = await makeCtx(repo);
+      await expect(dispatchRpc(ctx, 'write_app_config', { repoPath: repo, config: { baseBranch: 'a:b' } })).rejects.toThrow(/Invalid base branch/);
+      await dispatchRpc(ctx, 'write_app_config', { repoPath: repo, config: { baseBranch: 'dev' } });
+      expect(await dispatchRpc(ctx, 'read_app_config', { repoPath: repo })).toMatchObject({ baseBranch: 'dev' });
+    });
+
+    test('list_branches offers local and origin branches plus the configured default, never HEAD', async () => {
+      const repo = await tmpGitRepo();
+      await execa('git', ['-c', 'user.name=t', '-c', 'user.email=t@t', 'commit', '--allow-empty', '-q', '-m', 'x'], { cwd: repo });
+      await execa('git', ['branch', 'uat'], { cwd: repo });
+      await writeAppConfig(repo, { baseBranch: 'dev' });
+      const { ctx } = await makeCtx(repo);
+      expect(await dispatchRpc(ctx, 'list_branches', { repoPath: repo })).toEqual({ branches: ['dev', 'main', 'uat'], default: 'dev' });
+    });
+  });
+
   test('api_create_task requires a Linear team key when source is linear and none is configured', async () => {
     const repo = await tmpRepo();
     const { ctx } = await makeCtx(repo);

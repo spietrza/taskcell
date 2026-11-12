@@ -9,6 +9,7 @@ import type { RunDetail as RunDetailT } from '../../taskcell-output';
 
 export function RunDetail({ detail, project }: { detail: RunDetailT; project: string }) {
   const [tab, setTab] = useState('overview');
+  const baseBranch = detail.stages.find((s) => s.record.baseBranch !== undefined)?.record.baseBranch;
   const diffStages = detail.stages.filter((s) => s.diff || s.record.diffOmitted);
   const transcriptStages = detail.stages.filter((s) => s.transcript);
 
@@ -27,6 +28,11 @@ export function RunDetail({ detail, project }: { detail: RunDetailT; project: st
       </Tabs.List>
 
       <Tabs.Panel value="overview" className="min-h-0 flex-1 space-y-3 overflow-y-auto pt-4">
+        {baseBranch && (
+          <div className="text-sm text-muted-foreground">
+            Target branch <code className="rounded bg-muted px-1 py-0.5">{baseBranch}</code>
+          </div>
+        )}
         <ProofGate proof={detail.proof} />
         <div className="space-y-2">
           {detail.stages.map((s, i) => (

@@ -60,6 +60,16 @@ describe('isTriggerLabel', () => {
 });
 
 // ── toBoardTask waiting flag: label-sourced, present only for trigger-labelled + queued ─────────
+describe('toBoardTask target branch', () => {
+  const base: Task = { id: 'x', title: 'T', description: '', labels: [], children: [], comments: [] };
+  it('shows the card\'s vanguard:base= label, the last one winning', () => {
+    expect(toBoardTask('github', { ...base, ref: '1', state: 'open', labels: ['vanguard:base=dev', 'vanguard:base=uat'] }).baseBranch).toBe('uat');
+  });
+  it('shows none when the card names none', () => {
+    expect(toBoardTask('github', { ...base, ref: '1', state: 'open' }).baseBranch).toBeUndefined();
+  });
+});
+
 describe('toBoardTask waiting flag', () => {
   const base: Task = { id: 'x', title: 'T', description: '', labels: [], children: [], comments: [] };
 

@@ -1,3 +1,4 @@
+import { BASE_LABEL_PREFIX } from '../core/base-branch.js';
 import type { BoardTask } from '../wire.js';
 import type { Task } from './fetcher.js';
 
@@ -112,6 +113,8 @@ export function toBoardTask(source: BoardSource, task: Task): BoardTask {
   const column = columnFor(combined);
   // Waiting = a human asked for the factory and nothing has claimed it yet. LABEL-sourced, not
   // state-sourced: the flag answers "is this queued for a trigger-label watch loop".
+  // Display only, so no validation here: a malformed label is refused when the run starts.
+  const baseBranch = task.labels.filter((l) => l.startsWith(BASE_LABEL_PREFIX)).at(-1)?.slice(BASE_LABEL_PREFIX.length).trim() ?? '';
   const waiting = column === 'queued' && task.labels.some(isTriggerLabel);
   return {
     id: mintBoardId(source, task.ref ?? task.id),
@@ -119,6 +122,7 @@ export function toBoardTask(source: BoardSource, task: Task): BoardTask {
     column,
     state: source === 'linear' ? state : (task.labels[0] ?? state),
     ...(waiting ? { waiting: true } : {}),
+    ...(baseBranch !== '' ? { baseBranch } : {}),
   };
 }
 
