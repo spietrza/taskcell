@@ -503,8 +503,8 @@ rect.c-bg-rect { fill: var(--bg); }
         <text x="278" y="204" class="t-muted" font-size="9" text-anchor="middle">base branch only</text>
         </g>
 
-        <g id="node-metrics" data-node-id="metrics" data-node-label="decisions.jsonl" tabindex="0" role="button" aria-label="Focus decisions.jsonl, vanguard-metrics branch, GitHub · GitLab · Linear" aria-pressed="false" data-node-kind="external" data-node-sublabel="vanguard-metrics branch" data-node-context="GitHub · GitLab · Linear">
-          <title>decisions.jsonl · vanguard-metrics branch · GitHub · GitLab · Linear</title>
+        <g id="node-metrics" data-node-id="metrics" data-node-label="decisions.jsonl" tabindex="0" role="button" aria-label="Focus decisions.jsonl, taskcell-metrics branch, GitHub · GitLab · Linear" aria-pressed="false" data-node-kind="external" data-node-sublabel="taskcell-metrics branch" data-node-context="GitHub · GitLab · Linear">
+          <title>decisions.jsonl · taskcell-metrics branch · GitHub · GitLab · Linear</title>
           <rect x="380" y="164" width="140" height="52" rx="6" class="c-mask"/>
           <rect x="380" y="164" width="140" height="52" rx="6" class="c-external" stroke-width="1.5"/>
           <g aria-hidden="true" data-semantic-sigil="external" class="semantic-sigil s-external" transform="translate(386 170) scale(0.6875)">
@@ -512,7 +512,7 @@ rect.c-bg-rect { fill: var(--bg); }
             <path d="M8 2.5h5.5V8M13.5 2.5 7.5 8.5"/>
           </g>
           <text data-node-label="" x="450" y="188" class="t-primary" font-size="11" font-weight="600" text-anchor="middle">decisions.jsonl</text>
-        <text x="450" y="204" class="t-muted" font-size="9" text-anchor="middle">vanguard-metrics branch</text>
+        <text x="450" y="204" class="t-muted" font-size="9" text-anchor="middle">taskcell-metrics branch</text>
         </g>
 
         <g id="node-pr" data-node-id="pr" data-node-label="PR / MR" tabindex="0" role="button" aria-label="Focus PR / MR, pushed by host only, GitHub · GitLab · Linear" aria-pressed="false" data-node-kind="external" data-node-sublabel="pushed by host only" data-node-context="GitHub · GitLab · Linear">

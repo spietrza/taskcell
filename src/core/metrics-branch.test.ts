@@ -3,7 +3,7 @@ import { mkdtemp, rm, mkdir, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { execa } from 'execa';
-import { pushMetrics, readBranchMetrics, appendBranchLines, readBranchFile, METRICS_BRANCH_DEFAULT } from './metrics-branch.js';
+import { pushMetrics, readBranchMetrics, appendBranchLines, readBranchFile, METRICS_BRANCH_DEFAULT, METRICS_BRANCH_LEGACY } from './metrics-branch.js';
 
 let root: string;
 let origin: string;
@@ -141,4 +141,20 @@ it('ignores non-object JSON input before invoking a record key', async () => {
   });
   expect(result).toMatchObject({ pushed: 1, total: 1 });
   expect((await readBranchFile(repo, { file: 'decisions.jsonl' })).trim()).toBe('{"id":1}');
+});
+
+describe('legacy metrics branch (pre-rename vanguard-metrics)', () => {
+  it('reads the legacy branch until the new one exists, then continues its history on the first push', async () => {
+    await writeMetrics(repo, [line('old', '2026-10-08T10:00:00.000Z')]);
+    await pushMetrics(repo, { branch: METRICS_BRANCH_LEGACY });
+    expect(await readBranchMetrics(repo)).toContain('"taskId":"old"');
+
+    await writeMetrics(repo, [line('new', '2026-10-08T11:00:00.000Z')]);
+    expect(await pushMetrics(repo)).toEqual({ branch: METRICS_BRANCH_DEFAULT, pushed: 1, total: 2 });
+    const text = await readBranchMetrics(repo);
+    expect(text).toContain('"taskId":"old"');
+    expect(text).toContain('"taskId":"new"');
+    // An explicit --branch never falls back.
+    expect(await readBranchMetrics(repo, { branch: 'other' })).toBe('');
+  });
 });

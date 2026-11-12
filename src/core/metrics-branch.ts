@@ -12,7 +12,9 @@ import { parseJsonlLines } from './stats.js';
  * --branch` reads the metrics copy from anywhere the repo is cloned.
  */
 
-export const METRICS_BRANCH_DEFAULT = 'vanguard-metrics';
+export const METRICS_BRANCH_DEFAULT = 'taskcell-metrics';
+/** The default before the Taskcell rename; read (and continued from) while the new default does not exist yet. */
+export const METRICS_BRANCH_LEGACY = 'vanguard-metrics';
 export const METRICS_FILE = 'metrics.jsonl';
 
 export interface MetricsBranchOptions {
@@ -47,6 +49,17 @@ async function fetchTip(cwd: string, remote: string, branch: string): Promise<st
   }
 }
 
+/**
+ * fetchTip, except that the default branch falls back to the legacy one while it does not exist yet:
+ * readers keep seeing the old history, and the first append starts the new branch on top of it. An
+ * explicit `--branch` never falls back.
+ */
+async function fetchTipWithLegacy(cwd: string, remote: string, branch: string | undefined): Promise<string | undefined> {
+  const tip = await fetchTip(cwd, remote, branch ?? METRICS_BRANCH_DEFAULT);
+  if (tip !== undefined || branch !== undefined) return tip;
+  return fetchTip(cwd, remote, METRICS_BRANCH_LEGACY);
+}
+
 async function fileAtName(cwd: string, commit: string | undefined, file: string): Promise<string> {
   if (commit === undefined) return '';
   try {
@@ -58,10 +71,9 @@ async function fileAtName(cwd: string, commit: string | undefined, file: string)
 
 /** The named file as currently on the branch ('' when absent or the branch does not exist). */
 export async function readBranchFile(repoPath: string, opts: BranchFileOptions = {}): Promise<string> {
-  const branch = opts.branch ?? METRICS_BRANCH_DEFAULT;
   const remote = opts.remote ?? 'origin';
   const file = opts.file ?? METRICS_FILE;
-  return fileAtName(repoPath, await fetchTip(repoPath, remote, branch), file);
+  return fileAtName(repoPath, await fetchTipWithLegacy(repoPath, remote, opts.branch), file);
 }
 
 /** The metrics file as currently on the branch ('' when the branch does not exist). */
@@ -93,7 +105,7 @@ export async function appendBranchLines(
   const file = opts.file;
 
   for (let attempt = 0; ; attempt += 1) {
-    const tip = await fetchTip(repoPath, remote, branch);
+    const tip = await fetchTipWithLegacy(repoPath, remote, opts.branch);
     const existingText = await fileAtName(repoPath, tip, file);
     const existingRecords = parseJsonlLines(existingText);
     const existingLines = existingRecords.map((o) => JSON.stringify(o));
@@ -153,5 +165,5 @@ export async function pushMetrics(repoPath: string, opts: MetricsBranchOptions =
   } catch {
     return { branch, pushed: 0, total: 0 };
   }
-  return appendBranchLines(repoPath, localText.split('\n'), { branch, remote, file: METRICS_FILE });
+  return appendBranchLines(repoPath, localText.split('\n'), { ...(opts.branch !== undefined ? { branch: opts.branch } : {}), remote, file: METRICS_FILE });
 }

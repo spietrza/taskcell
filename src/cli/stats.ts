@@ -1,7 +1,7 @@
 import { readFile } from 'node:fs/promises';
 import { join } from 'node:path';
 import { parseMetrics, parseProbes, aggregateMetrics, formatStats } from '../core/stats.js';
-import { readBranchFile, readBranchMetrics } from '../core/metrics-branch.js';
+import { readBranchFile, readBranchMetrics, METRICS_BRANCH_DEFAULT } from '../core/metrics-branch.js';
 import { DECISIONS_FILE } from '../approver/ledger.js';
 import { parseDecisions, formatApproverScorecard } from '../approver/scorecard.js';
 import { collectApproverScorecard } from '../approver/outcome.js';
@@ -19,7 +19,7 @@ async function approverScorecardCommand(cmd: StatsCommand): Promise<void> {
   const text = await readBranchFile(cmd.repoPath, { file: DECISIONS_FILE, ...(cmd.branch !== undefined ? { branch: cmd.branch } : {}) });
   const decisions = parseDecisions(text);
   if (decisions.length === 0) {
-    console.log(`No approver decisions on branch ${cmd.branch ?? 'vanguard-metrics'} — has \`taskcell approve\` run yet?`);
+    console.log(`No approver decisions on branch ${cmd.branch ?? METRICS_BRANCH_DEFAULT} — has \`taskcell approve\` run yet?`);
     return;
   }
   const report = await collectApproverScorecard(decisions);

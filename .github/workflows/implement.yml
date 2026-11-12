@@ -78,7 +78,7 @@ on:
         type: boolean
         default: false
       metrics-branch:
-        description: 'Orphan branch for persisted metrics (--branch). Empty = CLI default (vanguard-metrics).'
+        description: 'Orphan branch for persisted metrics (--branch). Empty = CLI default (taskcell-metrics).'
         type: string
         default: ''
       upload-run-records:

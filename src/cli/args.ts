@@ -329,7 +329,7 @@ export type Command =
       allowCorpusChange?: boolean;
       /** Push this run's report to the metrics branch, keyed by the current commit. */
       saveBaseline?: boolean;
-      /** Metrics-branch override for --baseline main / --save-baseline (default: vanguard-metrics). */
+      /** Metrics-branch override for --baseline main / --save-baseline (default: taskcell-metrics). */
       branch?: string;
     }
   | { kind: 'sidecar' }
@@ -1358,7 +1358,7 @@ Commands:
   stats  Aggregate .vanguard/runs/metrics.jsonl into a cost/token/time rollup (per task, per stage,
          per model, probe); --branch reads the durable copy from the metrics branch instead.
          --approver prints the shadow approver scorecard instead (verdict vs human outcome).
-  metrics push  Append this checkout's metrics.jsonl lines to the orphan vanguard-metrics branch and
+  metrics push  Append this checkout's metrics.jsonl lines to the orphan taskcell-metrics branch and
          push, so an ephemeral CI run leaves a durable trace (idempotent; needs push rights).
   approve Compute a deterministic APPROVE/ESCALATE decision for a factory PR from typed facts and the
          base-branch policy; publish a neutral check run + PR comment and record the decision
@@ -1622,7 +1622,7 @@ ${MAX_REPAIR_ITERATIONS_USAGE}
   stats options:
     --repo <path>          Repo whose .vanguard/runs/metrics.jsonl to read (default: cwd)
     --branch <name>        Read metrics.jsonl from this remote branch instead (what 'metrics push' wrote;
-                           default name: vanguard-metrics)
+                           default name: taskcell-metrics)
     --json                 Emit the aggregated report as JSON instead of tables
     --approver             Shadow approver scorecard instead of the cost/token rollup: per factory PR,
                            the shadow verdict and reasons next to what the human did, and per risk class
@@ -1632,14 +1632,14 @@ ${MAX_REPAIR_ITERATIONS_USAGE}
 
   metrics push options:
     --repo <path>          Repo whose .vanguard/runs/metrics.jsonl to persist (default: cwd)
-    --branch <name>        Target branch (default: vanguard-metrics)
+    --branch <name>        Target branch (default: taskcell-metrics)
 
   approve options:
     --pr <n>               Required: PR number (bare positional also accepted)
     --github-repo <o/r>    Required repo slug — the approver never infers the repo it judges
     --mode <shadow>        Only "shadow" is implemented in v1
     --repo <path>          Local git repo checked out from the base branch (default: cwd)
-    --branch <name>        Metrics branch override (default: vanguard-metrics)
+    --branch <name>        Metrics branch override (default: taskcell-metrics)
     --json                 Print the decision record to stdout
     --dry-run              Compute and print the decision; publish and record nothing (backtest/local inspection)
 
@@ -1672,7 +1672,7 @@ ${MAX_REPAIR_ITERATIONS_USAGE}
                              normally needs a new baseline, not a comparison)
     --save-baseline          Push this run's report to the metrics branch, keyed by the current commit
                              (same mechanism as 'metrics push'); read back later with --baseline main
-    --branch <name>          Metrics branch override for --baseline main / --save-baseline (default: vanguard-metrics)
+    --branch <name>          Metrics branch override for --baseline main / --save-baseline (default: taskcell-metrics)
 
     Temperature note: the claude CLI exposes no --temperature flag; run the suite 3× on a known-good
     state to measure pass-rate variance before relying on absolute regression thresholds (phase 2).

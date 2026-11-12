@@ -10,9 +10,9 @@ For the security boundaries themselves see [security/boundaries.md](security/bou
 |---|---|---|
 | Golden dataset | `src/evals/corpus`: 30 cases (control, edge, refusal), run with `taskcell eval` ([cli.md](cli.md)) | ⚠️ small |
 | Evals on every PR, gated on a drop | `taskcell eval --baseline main` is the gate (pass-rate drop, refusal regression, corpus-hash mismatch — see [cli.md](cli.md#evals-and-the-baseline-gate)); `.github/workflows/eval.yml` runs it on PRs touching prompts, context or the pipeline once a maintainer adds the `run eval` label, since the PR's own code runs with a model credential | ✅ |
-| Comparison with main's baseline | `taskcell eval --save-baseline` publishes a report per main commit to the `vanguard-metrics` branch; `--baseline main` compares against the latest ([cli.md](cli.md#evals-and-the-baseline-gate)) | ✅ |
+| Comparison with main's baseline | `taskcell eval --save-baseline` publishes a report per main commit to the `taskcell-metrics` branch; `--baseline main` compares against the latest ([cli.md](cli.md#evals-and-the-baseline-gate)) | ✅ |
 | Adversarial testing | containment tests against the sandbox (container escape, egress, secrets, permissions, prompt injection), in progress | ⚠️ |
-| Production observability | per-run metrics on the `vanguard-metrics` branch (`taskcell stats`), run records with transcript and diff, the shadow [Approver](autonomous-loop.md#approver-shadow-mode), calibration (Brier) of the decision probe | ✅ |
+| Production observability | per-run metrics on the `taskcell-metrics` branch (`taskcell stats`), run records with transcript and diff, the shadow [Approver](autonomous-loop.md#approver-shadow-mode), calibration (Brier) of the decision probe | ✅ |
 | Feedback loop into the dataset | `taskcell eval --suggest` drafts candidates from failed runs and reviewer notes; retrospective memory feeds later runs. with `--github-repo` also from factory PRs closed without merge, PRs at `needs-human-review` and reverted commits; `.github/workflows/eval-suggest.yml` opens a weekly issue with the drafts. A human curates every case, aiming at about 100 | ✅ |
 
 ## Metrics
