@@ -2,7 +2,8 @@ import { useEffect, useState } from 'react';
 import { isTauri } from '@tauri-apps/api/core';
 import { Button, Card, Chip, Empty, Textarea } from '@/ui';
 import { MessageCircleQuestionMark, RefreshCw } from 'lucide-react';
-import { listNeedsYou, replyNeedsYou, type NeedsYouItem } from '../../ipc';
+import { listNeedsYou, listNeedsYouAll, replyNeedsYou, type NeedsYouItem, type RepoReadFailure, type RepoStamp } from '../../ipc';
+import { RepoFailures, RepoLabel } from '../../RepoViews';
 import { isHubMode } from '../../transport';
 
 /** `list_needs_you`/`reply_needs_you` are HUB_ONLY (no Tauri command); only the browser dev build's mock serves them outside the hub. */
@@ -60,18 +61,20 @@ function ReplyBox({ project, item, onReplied }: { project: string; item: NeedsYo
 }
 
 /** The hub "Needs you" screen: what the factory waits on for this project, with a reply per item. */
-export function NeedsYou({ project }: { project: string }) {
-  const [items, setItems] = useState<NeedsYouItem[] | null>(null);
+export function NeedsYou({ project, allRepos = false }: { project: string; allRepos?: boolean }) {
+  const [items, setItems] = useState<(NeedsYouItem & Partial<RepoStamp>)[] | null>(null);
+  const [failures, setFailures] = useState<RepoReadFailure[]>([]);
   const [error, setError] = useState<string | null>(null);
   const [nonce, setNonce] = useState(0);
   const reload = (): void => setNonce((n) => n + 1);
 
   useEffect(() => {
     let alive = true;
-    listNeedsYou(project)
+    (allRepos ? listNeedsYouAll() : listNeedsYou(project).then((r) => ({ ...r, failures: [] })))
       .then((r) => {
         if (!alive) return;
         setItems(r.items);
+        setFailures(r.failures);
         setError(null);
       })
       .catch((e) => {
@@ -80,7 +83,7 @@ export function NeedsYou({ project }: { project: string }) {
     return () => {
       alive = false;
     };
-  }, [project, nonce]);
+  }, [project, allRepos, nonce]);
 
   return (
     <div className="mx-auto w-full max-w-3xl space-y-3 overflow-y-auto">
@@ -99,6 +102,7 @@ export function NeedsYou({ project }: { project: string }) {
           Could not load what the factory is waiting on: {error}. Check the hub's `gh` login, then Refresh.
         </div>
       )}
+      <RepoFailures failures={failures} />
       {items === null && !error && <div className="text-sm text-muted-foreground">Loading…</div>}
       {items?.length === 0 && (
         <Empty.Root>
@@ -111,9 +115,10 @@ export function NeedsYou({ project }: { project: string }) {
       )}
       {items?.map((item) => (
         // py-0: Card.Root's own vertical padding doubled Card.Content's p-4 into a gap above the chips.
-        <Card.Root key={item.id} className="py-0">
+        <Card.Root key={`${item.repoPath ?? ''}:${item.id}`} className="py-0">
           <Card.Content className="space-y-2 p-4">
             <div className="flex items-center gap-2">
+              {allRepos && item.repoName !== undefined && <RepoLabel name={item.repoName} />}
               <Chip color="secondary" variant="outlined">
                 {item.kind === 'pr' ? 'PR' : 'Task'} <span className="font-mono tabular-nums">#{item.number}</span>
               </Chip>
@@ -131,7 +136,7 @@ export function NeedsYou({ project }: { project: string }) {
                 <div className="whitespace-pre-wrap break-words">{item.lastComment.body}</div>
               </div>
             )}
-            <ReplyBox project={project} item={item} onReplied={reload} />
+            <ReplyBox project={item.repoPath ?? project} item={item} onReplied={reload} />
           </Card.Content>
         </Card.Root>
       ))}

@@ -4,6 +4,7 @@ import { ArrowLeft, FilePlus, RefreshCw } from 'lucide-react';
 import { canUseFleet, isHubMode, subscribe, onStreamReset } from '../../transport';
 import {
   listRuns,
+  listRunsAll,
   listActive,
   readRun,
   watchProject,
@@ -33,10 +34,15 @@ import { NewRunForm } from './NewRunForm';
 import { RunStrip } from './RunStrip';
 import { foldLiveEvent, reduceTypedRun, initialTypedRun, type TypedRunState, type RunEvent, type AppRunEvent } from './typedRunReducer';
 import { useAppConfig } from '../../hooks';
+import { RepoFailures } from '../../RepoViews';
+import type { RepoReadFailure, RepoStamp } from '../../wire';
+import type { Project } from '../../taskcell-output';
 import type { RunSummary, RunDetail as RunDetailT, ActiveRun, RunRef, RunSource } from '../../taskcell-output';
 
 export function Inspector({
   project,
+  projects,
+  allRepos,
   screen,
   focusRunning,
   clearNonce,
@@ -47,6 +53,10 @@ export function Inspector({
   onOpenBoard,
 }: {
   project: string;
+  /** Every hub repository: "All repositories" watches and lists running runs for each. */
+  projects: Project[];
+  /** The shared repository filter is "All repositories": Board, Runs and Needs you list every repository. */
+  allRepos: boolean;
   screen: 'runs' | 'board' | 'task' | 'fleet' | 'remote' | 'workflow' | 'settings' | 'needs';
   focusRunning: ActiveRun | null;
   clearNonce: number;
@@ -57,8 +67,12 @@ export function Inspector({
   onNewTask: () => void;
   onOpenBoard: () => void;
 }) {
-  const [runs, setRuns] = useState<RunSummary[]>([]);
-  const [active, setActive] = useState<ActiveRun[]>([]);
+  const [runs, setRuns] = useState<(RunSummary & Partial<RepoStamp>)[]>([]);
+  const [failures, setFailures] = useState<RepoReadFailure[]>([]);
+  // Under "All repositories" an opened run / task belongs to ITS repository, not the active project.
+  const [detailRepo, setDetailRepo] = useState(project);
+  const [taskDetailRepo, setTaskDetailRepo] = useState(project);
+  const [active, setActive] = useState<(ActiveRun & Partial<RepoStamp>)[]>([]);
   const [detail, setDetail] = useState<RunDetailT | null>(null);
   const [liveRun, setLiveRun] = useState<ActiveRun | null>(null);
   const [error, setError] = useState<string | null>(null);
@@ -84,7 +98,9 @@ export function Inspector({
   // The open detail's ref, so `refresh` can re-read it: which run, and which tree it came from —
   // the project's own runs, or a CI run imported by the Remote screen. Only the discriminant
   // travels — whichever backend answers `read_run` resolves it to a root. Written by `open`.
-  const openRef = useRef<RunRef | null>(null);
+  const openRef = useRef<{ ref: RunRef; repo: string } | null>(null);
+  // Latest loadRuns wins: a slow listRunsAll must not overwrite a newer per-repository load.
+  const runsGen = useRef(0);
   useEffect(() => {
     if (!detail) openRef.current = null;
   }, [detail]);
@@ -116,15 +132,40 @@ export function Inspector({
     }
   }, [clearNonce]);
 
+  const loadRuns = async (): Promise<void> => {
+    const gen = ++runsGen.current;
+    if (allRepos) {
+      const [r, a] = await Promise.all([
+        listRunsAll(),
+        Promise.all(
+          projects.map((p) =>
+            listActive(p.path).then(
+              (rows) => rows.map((x) => ({ ...x, repoPath: p.path, repoName: p.name })),
+              () => [], // that repository's running rows are best-effort; its failure shows in `failures`
+            ),
+          ),
+        ),
+      ]);
+      if (gen !== runsGen.current) return;
+      setRuns(r.runs);
+      setFailures(r.failures);
+      setActive(a.flat());
+      return;
+    }
+    const [r, a] = await Promise.all([listRuns(project), listActive(project)]);
+    if (gen !== runsGen.current) return;
+    setRuns(r);
+    setFailures([]);
+    setActive(a);
+  };
+
   const load = async (): Promise<void> => {
     setError(null);
     setDetail(null);
     setLiveRun(null);
     setLoading(true);
     try {
-      const [r, a] = await Promise.all([listRuns(project), listActive(project)]);
-      setRuns(r);
-      setActive(a);
+      await loadRuns();
     } catch (e) {
       setError(String(e));
     } finally {
@@ -134,12 +175,10 @@ export function Inspector({
 
   const refresh = async (): Promise<void> => {
     try {
-      const [r, a] = await Promise.all([listRuns(project), listActive(project)]);
-      setRuns(r);
-      setActive(a);
+      await loadRuns();
       setTick((t) => t + 1);
       const o = openRef.current;
-      if (o) setDetail(await readRun(project, o));
+      if (o) setDetail(await readRun(o.repo, o.ref));
     } catch {
       // transient mid-write; next event resyncs
     }
@@ -147,23 +186,25 @@ export function Inspector({
 
   useEffect(() => {
     void load();
-    void watchProject(project)
+    // "All repositories" watches every repository, so any of them live-updates the list.
+    const watched = allRepos ? projects.map((p) => p.path) : [project];
+    void Promise.all(watched.map((p) => watchProject(p)))
       .then(() => setWatching(true))
       .catch(() => setWatching(false));
     const unlisten = subscribe<string>('vanguard:changed', (e) => {
-      if (e.payload === project) void refresh();
+      if (watched.includes(e.payload)) void refresh();
     });
     // A stream-reset means the SSE gap may have swallowed a vanguard:changed we'd otherwise have
     // reacted to, so resync unconditionally rather than trusting the stream to have told us (#491).
     const unlistenReset = onStreamReset(() => void refresh());
     return () => {
       setWatching(false);
-      void unwatchProject(project);
+      watched.forEach((p) => void unwatchProject(p));
       void unlisten.then((f) => f());
       void unlistenReset.then((f) => f());
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [project]);
+  }, [project, allRepos, allRepos ? projects.map((p) => p.path).join('\n') : '']);
 
   // Load the capability surface once (cached; pure — never blocks on a live run).
   useEffect(() => {
@@ -307,12 +348,14 @@ export function Inspector({
       });
   };
 
-  const open = async (r: RunSummary, source: RunSource = { kind: 'local' }): Promise<void> => {
+  const open = async (r: RunSummary & Partial<RepoStamp>, source: RunSource = { kind: 'local' }): Promise<void> => {
+    const repo = r.repoPath ?? project;
     setError(null);
     const ref: RunRef = { source, taskId: r.taskId, timestamp: r.timestamp };
     try {
-      setDetail(await readRun(project, ref));
-      openRef.current = ref;
+      setDetail(await readRun(repo, ref));
+      setDetailRepo(repo);
+      openRef.current = { ref, repo };
     } catch (e) {
       setError(String(e));
     }
@@ -417,7 +460,7 @@ export function Inspector({
         </div>
       ) : detail ? (
         <div className="flex min-h-0 flex-1 flex-col">
-          <RunDetail detail={detail} project={project} />
+          <RunDetail detail={detail} project={detailRepo} />
         </div>
       ) : liveRun ? (
         <div className="flex min-h-0 flex-1 flex-col">
@@ -428,9 +471,10 @@ export function Inspector({
         // view matches every other detail view instead of spanning edge-to-edge.
         <div className="mx-auto min-h-0 w-full max-w-5xl flex-1 overflow-y-auto">
           <TaskDetail
-            project={project}
+            project={taskDetailRepo}
             taskId={taskDetailId}
-            runs={runs}
+            runs={runs.filter((r) => r.repoPath === undefined || r.repoPath === taskDetailRepo)}
+            canRun={taskDetailRepo === project}
             onBack={() => setTaskDetailId(null)}
             onNewRun={() => {
               setTaskDetailId(null);
@@ -441,13 +485,22 @@ export function Inspector({
       ) : screen === 'runs' ? (
         // In-flight runs render as running rows at the top of the RunList table.
         <div className="flex min-h-0 flex-1 flex-col">
-          <RunList runs={runs} active={active} onSelect={open} onOpenActive={setLiveRun} />
+          <RepoFailures failures={failures} />
+          <RunList runs={runs} active={active} showRepo={allRepos} onSelect={open} onOpenActive={setLiveRun} />
         </div>
       ) : screen === 'board' ? (
-        <TaskBoard project={project} onOpenTask={setTaskDetailId} onNewTask={onNewTask} />
+        <TaskBoard
+          project={project}
+          allRepos={allRepos}
+          onOpenTask={(id, repo) => {
+            setTaskDetailRepo(repo ?? project);
+            setTaskDetailId(id);
+          }}
+          onNewTask={onNewTask}
+        />
       ) : screen === 'needs' ? (
         <div className="min-h-0 flex-1 overflow-y-auto">
-          <NeedsYou project={project} />
+          <NeedsYou project={project} allRepos={allRepos} />
         </div>
       ) : screen === 'remote' ? (
         <div className="flex min-h-0 flex-1 flex-col">

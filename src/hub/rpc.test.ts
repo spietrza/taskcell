@@ -1,5 +1,5 @@
 import { EventEmitter } from 'node:events';
-import { mkdir, mkdtemp, realpath } from 'node:fs/promises';
+import { mkdir, mkdtemp, realpath, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { PassThrough } from 'node:stream';
@@ -9,7 +9,7 @@ import { dispatchRpc, classifyError, FLEET_DISABLED_MESSAGE, type RpcContext } f
 import * as clone from './clone.js';
 import * as enableFactoryModule from './enable-factory.js';
 import * as cliVersions from '../sandbox/cli-versions.js';
-import { loadPaths } from './projects.js';
+import { loadPaths, savePaths } from './projects.js';
 import { ProjectAllowlist } from './allowlist.js';
 import { WatchRegistry } from './watch.js';
 import { createRunSession } from './run-session.js';
@@ -592,4 +592,67 @@ test('add_project is confined to the browse root, like browse_dirs', async () =>
   // An unresolved spelling (`..`, a symlinked temp dir) is stored as its realpath.
   await dispatchRpc(ctx, 'add_project', { path: `${ctx.browseRoot}/repo/../repo` });
   expect(await loadPaths(ctx.configDir)).toEqual([inside]);
+});
+
+describe('all-repositories lists', () => {
+  async function twoRepoCtx(listTasks: SidecarDeps['listTasks']): Promise<{ ctx: RpcContext; a: string; b: string }> {
+    const a = await tmpRepo();
+    const b = await tmpRepo();
+    const { ctx } = await makeCtx(a, { depsOverrides: { listTasks } });
+    await savePaths(ctx.configDir, [a, b]);
+    ctx.allowlist = new ProjectAllowlist(() => loadPaths(ctx.configDir), a);
+    return { ctx, a, b };
+  }
+  const task = (id: string): { id: string; title: string; column: 'queued'; state: string } => ({ id, title: id, column: 'queued', state: 'queued' });
+
+  test('list_tasks_all stamps every card with its repository', async () => {
+    const { ctx, a, b } = await twoRepoCtx(async (p) => ({ tasks: [task(p.repoPath.includes('x') ? 'x' : 't')], capped: false }));
+    const out = (await dispatchRpc(ctx, 'list_tasks_all', {})) as { tasks: { repoPath: string; repoName: string }[]; failures: unknown[] };
+    expect(out.failures).toEqual([]);
+    expect(out.tasks.map((t) => t.repoPath).sort()).toEqual([a, b].sort());
+    expect(out.tasks.every((t) => t.repoName.length > 0)).toBe(true);
+  });
+
+  test('list_tasks_all returns the other repositories and names the failing one', async () => {
+    const { ctx, a, b } = await twoRepoCtx(async (p) => {
+      if (p.repoPath === b) throw new Error('tracker down');
+      return { tasks: [task('ok')], capped: true };
+    });
+    const out = (await dispatchRpc(ctx, 'list_tasks_all', {})) as { tasks: { repoPath: string }[]; capped: boolean; failures: { repoPath: string; error: string }[] };
+    expect(out.tasks.map((t) => t.repoPath)).toEqual([a]);
+    expect(out.capped).toBe(true);
+    expect(out.failures).toHaveLength(1);
+    expect(out.failures[0]).toMatchObject({ repoPath: b, error: 'tracker down' });
+  });
+
+  test('list_runs_all stamps each run with its repository', async () => {
+  const a = await tmpRepo();
+  const { ctx } = await makeCtx(a);
+  await savePaths(ctx.configDir, [a]);
+  ctx.allowlist = new ProjectAllowlist(() => loadPaths(ctx.configDir), a);
+  const dir = join(a, '.taskcell', 'runs', 'task-1');
+  await mkdir(dir, { recursive: true });
+  await writeFile(
+    join(dir, '2026-07-06T19-12-02-123Z-implement.json'),
+    JSON.stringify({ taskId: 'task-1', completed: true, exitReason: 'completed', turns: 1, worktreePath: '/tmp/wt', worktreePreserved: false, finalText: 'ok', costUsd: 0.1, timestamp: '2026-07-06T19:12:02.123Z', stage: 'implement' }),
+  );
+  const out = (await dispatchRpc(ctx, 'list_runs_all', {})) as { runs: { taskId: string; repoPath: string; repoName: string }[] };
+  expect(out.runs).toHaveLength(1);
+  expect(out.runs[0]).toMatchObject({ taskId: 'task-1', repoPath: a });
+  expect(out.runs[0]?.repoName.length).toBeGreaterThan(0);
+});
+
+test('list_runs_all isolates a repository outside the allowlist', async () => {
+    const a = await tmpRepo();
+    const { ctx } = await makeCtx(a);
+    await savePaths(ctx.configDir, [a, '/not/allowed/anywhere']);
+    const out = (await dispatchRpc(ctx, 'list_runs_all', {})) as { runs: unknown[]; failures: { repoPath: string }[] };
+    expect(out.runs).toEqual([]);
+    expect(out.failures.map((f) => f.repoPath)).toEqual(['/not/allowed/anywhere']);
+  });
+
+  test('list_needs_you_all is empty for repositories without a GitHub remote', async () => {
+    const { ctx } = await twoRepoCtx(async () => ({ tasks: [], capped: false }));
+    expect(await dispatchRpc(ctx, 'list_needs_you_all', {})).toEqual({ items: [], failures: [] });
+  });
 });

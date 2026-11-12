@@ -4,6 +4,8 @@ import { basename, join } from 'node:path';
 import { readAppConfig } from './app-config.js';
 import { defaultRunsRoot, listRunSummaries } from './runs.js';
 import { listActive } from './active.js';
+import { fanOut } from '../pipeline/fan-out.js';
+import type { RepoReadFailure, RepoStamp } from '../wire.js';
 
 export interface Project {
   path: string;
@@ -46,10 +48,16 @@ export async function savePaths(configDir: string, paths: string[]): Promise<voi
   await writeFile(projectsFile(configDir), JSON.stringify(paths, null, 2));
 }
 
+const repoDisplayName = (repoPath: string): string => basename(repoPath) || repoPath;
+
+function repoNameOf(repoPath: string): string {
+  const base = basename(repoPath);
+  return base !== '' ? base : repoPath;
+}
+
 /** Aggregate a repo's `.taskcell/runs` into a dashboard summary (+ live running count). */
 export async function aggregate(repoPath: string, now: Date = new Date()): Promise<Project> {
-  const base = basename(repoPath);
-  const name = base !== '' ? base : repoPath;
+  const name = repoDisplayName(repoPath);
   const [summaries, runningCount, { color }] = await Promise.all([
     listRunSummaries(defaultRunsRoot(repoPath)),
     listActive(repoPath).then((active) => active.length),
@@ -111,4 +119,27 @@ export async function remove(configDir: string, path: string): Promise<Project[]
   const paths = (await loadPaths(configDir)).filter((p) => p !== path);
   await savePaths(configDir, paths);
   return list(configDir);
+}
+
+/**
+ * Run `read` over every project (the same loop as `list`) and stamp each returned item with its
+ * repository. One repository failing does not empty the rest: it is named in `failures` instead.
+ * `resolve` gates each path (the hub's allowlist) inside that isolation. Bounded concurrency: each
+ * read can start `gh` subprocesses or tracker calls.
+ */
+export async function listAcrossProjects<T extends object>(
+  configDir: string,
+  resolve: (repoPath: string) => Promise<string>,
+  read: (repoPath: string) => Promise<T[]>,
+): Promise<{ items: (T & RepoStamp)[]; failures: RepoReadFailure[] }> {
+  const paths = await loadPaths(configDir);
+  const outcomes = await fanOut(paths, async (repoPath) => read(await resolve(repoPath)), { concurrency: 4 });
+  const items: (T & RepoStamp)[] = [];
+  const failures: RepoReadFailure[] = [];
+  for (const o of outcomes) {
+    const stamp = { repoPath: o.item, repoName: repoNameOf(o.item) };
+    if (o.status === 'fulfilled') items.push(...o.value.map((i) => ({ ...i, ...stamp })));
+    else failures.push({ ...stamp, error: o.reason instanceof Error ? o.reason.message : String(o.reason) });
+  }
+  return { items, failures };
 }

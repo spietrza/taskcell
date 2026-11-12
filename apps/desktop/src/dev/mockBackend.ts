@@ -39,8 +39,11 @@ const READ_DRAFT = JSON.stringify({ id: 'draft-001', title: 'Draft task', body: 
  * Handlers take their args as `| undefined`: mockIPC passes whatever the caller sent, and the
  * wrappers in ipc.ts omit the record entirely for no-arg commands.
  */
+const mockStamp = (): { repoPath: string; repoName: string } => ({ repoPath: projects[0]!.path, repoName: projects[0]!.name });
+
 const commandHandlers = {
   list_runs: () => runs,
+  list_runs_all: () => ({ runs: runs.map((r) => ({ ...r, ...mockStamp() })), failures: [] }),
   read_run: () => runDetail,
   list_projects: () => projects,
   add_project: (args: { path?: string } | undefined) => {
@@ -65,6 +68,7 @@ const commandHandlers = {
     return { ...remoteImport, runId };
   },
   list_tasks: () => ({ tasks: boardTasks, capped: false }),
+  list_tasks_all: () => ({ tasks: boardTasks.map((t) => ({ ...t, ...mockStamp() })), capped: false, failures: [] }),
   fetch_spec: () => ({ spec: '## Task\n\nFix the login bug when the JWT token expires after inactivity.\n\n**Acceptance criteria:**\n- [ ] Login still works after token refresh\n- [ ] Tests pass\n- [ ] No regressions in the auth flow\n' }),
   list_spawns: () => [],
   spawn_run: () => 42,
@@ -115,6 +119,7 @@ const commandHandlers = {
     runCount: 0, taskCount: 0, totalCostUsd: 0, failedCount: 0, runningCount: 0, runsLast24h: 0,
   }),
   list_needs_you: () => ({ items: waitingNeedsYou }),
+  list_needs_you_all: () => ({ items: waitingNeedsYou.map((i) => ({ ...i, ...mockStamp() })), failures: [] }),
   // A reply hands the item back to the factory (issue: trigger label; PR: `needs revision`), so it
   // drops out of the next list for either kind — as on a real repo.
   reply_needs_you: (args: { id?: string } | undefined) => {

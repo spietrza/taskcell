@@ -2,21 +2,26 @@ import { useMemo, useState } from 'react';
 import { Table, Chip, Empty, Input, ScrollTable, Timestamp } from '@/ui';
 import { Inbox, RefreshCw, Search } from 'lucide-react';
 import { verdictColor, verdictWord } from '../../status';
+import { RepoLabel } from '../../RepoViews';
 import type { ActiveRun, RunSummary } from '../../taskcell-output';
+import type { RepoStamp } from '../../wire';
 
 type Filter = 'all' | 'passed' | 'failed';
 
 export function RunList({
   runs,
   active,
+  showRepo = false,
   onSelect,
   onOpenActive,
 }: {
-  runs: RunSummary[];
+  runs: (RunSummary & Partial<RepoStamp>)[];
   /** In-flight runs discovered from `.taskcell` state, rendered as running rows at the top. */
-  active: ActiveRun[];
-  onSelect: (r: RunSummary) => void;
-  onOpenActive: (a: ActiveRun) => void;
+  active: (ActiveRun & Partial<RepoStamp>)[];
+  /** "All repositories": each row names its repository. */
+  showRepo?: boolean;
+  onSelect: (r: RunSummary & Partial<RepoStamp>) => void;
+  onOpenActive: (a: ActiveRun & Partial<RepoStamp>) => void;
 }) {
   const [query, setQuery] = useState('');
   const [filter, setFilter] = useState<Filter>('all');
@@ -89,6 +94,7 @@ export function RunList({
           <Table.Header className="sticky top-0 z-10 bg-background [&_th]:caption">
             <Table.Row>
               <Table.Head>Task</Table.Head>
+              {showRepo && <Table.Head>Repository</Table.Head>}
               <Table.Head>When</Table.Head>
               <Table.Head>Stages</Table.Head>
               <Table.Head className="text-right">Cost</Table.Head>
@@ -103,6 +109,7 @@ export function RunList({
                 className="cursor-pointer bg-primary/5"
               >
                 <Table.Cell className="font-medium">{a.taskId}</Table.Cell>
+                {showRepo && <Table.Cell>{a.repoName !== undefined && <RepoLabel name={a.repoName} />}</Table.Cell>}
                 <Table.Cell className="tabular-nums text-muted-foreground">
                   <Timestamp ms={a.lastActivityMs} />
                 </Table.Cell>
@@ -121,11 +128,12 @@ export function RunList({
             ))}
             {shown.map((r) => (
               <Table.Row
-                key={`${r.taskId}:${r.timestamp}`}
+                key={`${r.repoPath ?? ''}:${r.taskId}:${r.timestamp}`}
                 onClick={() => onSelect(r)}
                 className="cursor-pointer"
               >
                 <Table.Cell className="font-medium">{r.taskId}</Table.Cell>
+                {showRepo && <Table.Cell>{r.repoName !== undefined && <RepoLabel name={r.repoName} />}</Table.Cell>}
                 <Table.Cell className="tabular-nums text-muted-foreground">
                   <Timestamp ms={Date.parse(r.timestamp)} />
                 </Table.Cell>

@@ -176,6 +176,14 @@ export async function dispatchRpc(ctx: RpcContext, cmd: string, rawArgs: unknown
       const real = await ctx.allowlist.assertAllowed(requireString(args, 'repoPath'));
       return listRunSummaries(defaultRunsRoot(real));
     }
+    case 'list_runs_all': {
+      const { items, failures } = await projects.listAcrossProjects(
+        ctx.configDir,
+        (p) => ctx.allowlist.assertAllowed(p),
+        (real) => listRunSummaries(defaultRunsRoot(real)),
+      );
+      return { runs: items, failures };
+    }
     case 'read_run': {
       const real = await ctx.allowlist.assertAllowed(requireString(args, 'repoPath'));
       const taskId = requireString(args, 'taskId');
@@ -277,6 +285,19 @@ export async function dispatchRpc(ctx: RpcContext, cmd: string, rawArgs: unknown
     case 'list_tasks': {
       const real = await ctx.allowlist.assertAllowed(requireString(args, 'repoPath'));
       return invokeCoreMethod(ctx.deps, 'listTasks', { repoPath: real });
+    }
+    case 'list_tasks_all': {
+      let capped = false;
+      const { items, failures } = await projects.listAcrossProjects(
+        ctx.configDir,
+        (p) => ctx.allowlist.assertAllowed(p),
+        async (real) => {
+          const r = (await invokeCoreMethod(ctx.deps, 'listTasks', { repoPath: real })) as { tasks: object[]; capped: boolean };
+          capped ||= r.capped;
+          return r.tasks;
+        },
+      );
+      return { tasks: items, capped, failures };
     }
     case 'fetch_spec': {
       const real = await ctx.allowlist.assertAllowed(requireString(args, 'repoPath'));
@@ -406,6 +427,17 @@ export async function dispatchRpc(ctx: RpcContext, cmd: string, rawArgs: unknown
       const repoSlug = await githubSlug(real);
       // Not a GitHub remote — nothing for this read model to show.
       return { items: repoSlug === undefined ? [] : await listNeedsYou(repoSlug) };
+    }
+    case 'list_needs_you_all': {
+      const { items, failures } = await projects.listAcrossProjects(
+        ctx.configDir,
+        (p) => ctx.allowlist.assertAllowed(p),
+        async (real) => {
+          const repoSlug = await githubSlug(real);
+          return repoSlug === undefined ? [] : listNeedsYou(repoSlug);
+        },
+      );
+      return { items, failures };
     }
     case 'reply_needs_you': {
       // Comments under the hub's `gh` identity and adds a trigger label — a remote mutation.
