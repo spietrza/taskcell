@@ -1611,6 +1611,10 @@ describe('runRevisePullRequest — revise-pass verification', () => {
       expect(await round([comment('reporter', 'NONE', { prBody: [item] })])).toContain(pastedBlock);
     });
 
+    it('keeps the block when the manifest is from the reporter, even as a member', async () => {
+      expect(await round([comment('reporter', 'MEMBER', { prBody: [item] })])).toContain(pastedBlock);
+    });
+
     it('keeps the block when a trusted manifest declares prBody: []', async () => {
       expect(await round([comment('maint', 'MEMBER', { prBody: [] })])).toContain(pastedBlock);
     });

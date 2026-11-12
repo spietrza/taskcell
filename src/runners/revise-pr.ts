@@ -283,7 +283,13 @@ async function dischargedItemsBlockFor(
   try {
     const task = await new GitHubTaskFetcher(repoSlug, gh).fetch(issueTaskId);
     const trust = { allowedAuthors: deps.feedbackAuthors, botLogins: deps.botLogins };
-    const specText = task.comments.filter((c) => isTrustedNonAuthorComment(c, trust)).map((c) => c.body).join('\n');
+    // Dropping issue-author *trust* is not enough: a reporter who is also a member/allowlisted would
+    // still count, so the reporter's own comments are excluded outright.
+    const reporter = task.author?.toLowerCase();
+    const specText = task.comments
+      .filter((c) => c.author.toLowerCase() !== reporter && isTrustedNonAuthorComment(c, trust))
+      .map((c) => c.body)
+      .join('\n');
     return dischargePrBodyItemsBlock(block, parseSpecManifest(specText));
   } catch {
     return block;
