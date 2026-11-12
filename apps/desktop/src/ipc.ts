@@ -108,6 +108,12 @@ export function replyNeedsYou(repoPath: string, id: string, kind: 'issue' | 'pr'
   return call('reply_needs_you', { repoPath, id, kind, body });
 }
 
+/** Hub-only: merge a waiting PR. Throws with a UI-ready message when it is not in "Needs you" or
+ *  its required checks are not green. */
+export function mergeNeedsYou(repoPath: string, id: string): Promise<void> {
+  return call('merge_needs_you', { repoPath, id });
+}
+
 /** Hub-only: apply a trigger label to a GitHub issue of the project (src/hub/start-task.ts). Throws
  *  on a non-trigger label, a closed or already-started issue, or a non-GitHub project. */
 export function startTask(repoPath: string, number: number, label: string): Promise<StartTaskResult> {

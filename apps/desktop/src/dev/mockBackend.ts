@@ -120,6 +120,9 @@ const commandHandlers = {
   reply_needs_you: (args: { id?: string } | undefined) => {
     waitingNeedsYou = waitingNeedsYou.filter((i) => i.id !== args?.id);
   },
+  merge_needs_you: (args: { id?: string } | undefined) => {
+    waitingNeedsYou = waitingNeedsYou.filter((i) => i.id !== args?.id);
+  },
   start_task: (args: { label?: string } | undefined) => ({ status: 'labelled', label: args?.label ?? 'ready for agent', waitingOn: [] }),
   // Hub-only Enable factory flow (EnableFactoryDialog).
   enable_factory_plan: () => factoryPlan,
