@@ -13,6 +13,7 @@ import {
 } from '../sidecar/sidecar.js';
 import { ProjectAllowlist, assertGitWorkTreeDir, assertMutationsAllowed, type BindOptions } from './allowlist.js';
 import { WatchRegistry } from './watch.js';
+import type { SpawnRegistry } from './spawn.js';
 import type { RunSession } from './run-session.js';
 import { CompleteRegistry, type CompleteParams } from './complete.js';
 import { assertWithinBrowseRoot, browseDirs } from './browse.js';
@@ -26,20 +27,23 @@ import { readAppConfig, readAppConfigStrict, writeAppConfig, type AppConfig } fr
 import { checkCliVersions } from '../sandbox/cli-versions.js';
 import * as drafts from './drafts.js';
 import * as projects from './projects.js';
+import * as teams from './teams.js';
 import * as remote from './remote.js';
 import { startGithubTask, triggerLabelsFor } from './start-task.js';
 import { enableFactory, factoryPlanTargets, noScripts, type FactoryPlan, type FactoryProviderId } from './enable-factory.js';
 
 export class UnknownCommandError extends BadRequestError {}
 
-/** The Fleet screen (`spawn_run` et al) is dropped in hub mode: `spawn_run` executes arbitrary
- * shell, which is remote code execution on a reachable server. */
-export const FLEET_DISABLED_MESSAGE = 'the Fleet screen is not available in hub mode';
+/** The Fleet screen (`spawn_run` et al) is off unless the hub is the desktop app's own local hub:
+ * `spawn_run` executes arbitrary programs, which is remote code execution on a reachable server. */
+export const FLEET_DISABLED_MESSAGE = 'the Fleet screen is not available on this hub';
 
 export interface RpcContext {
   allowlist: ProjectAllowlist;
   watchRegistry: WatchRegistry;
   runSession: RunSession;
+  /** Present only when fleet is enabled (loopback bind + VANGUARD_HUB_ALLOW_FLEET=1). */
+  spawnRegistry?: SpawnRegistry;
   completeRegistry: CompleteRegistry;
   deps: SidecarDeps;
   configDir: string;
@@ -156,8 +160,8 @@ async function repoOk(repoPath: string): Promise<boolean> {
   }
 }
 
-/** Commands disabled in hub mode — the Fleet screen's shell-spawn surface. */
-export const DISABLED_COMMANDS = ['spawn_run', 'kill_run', 'list_spawns'] as const;
+/** The Fleet screen's shell-spawn surface — rejected unless `ctx.spawnRegistry` is set. */
+export const FLEET_COMMANDS = ['spawn_run', 'kill_run', 'list_spawns'] as const;
 
 /**
  * Dispatch one RPC command. Returns the raw result (never `undefined` — void commands resolve
@@ -168,11 +172,28 @@ export const DISABLED_COMMANDS = ['spawn_run', 'kill_run', 'list_spawns'] as con
 export async function dispatchRpc(ctx: RpcContext, cmd: string, rawArgs: unknown): Promise<unknown> {
   const args = obj(rawArgs);
 
-  if ((DISABLED_COMMANDS as readonly string[]).includes(cmd)) {
+  if ((FLEET_COMMANDS as readonly string[]).includes(cmd) && ctx.spawnRegistry === undefined) {
     throw new BadRequestError(FLEET_DISABLED_MESSAGE);
   }
 
   switch (cmd) {
+    case 'spawn_run': {
+      const real = await ctx.allowlist.assertAllowed(requireString(args, 'cwd'));
+      const argv = args.argv;
+      if (!Array.isArray(argv) || argv.length === 0 || argv.some((a) => typeof a !== 'string')) {
+        throw new BadRequestError('argv is required and must be a non-empty array of strings');
+      }
+      return ctx.spawnRegistry!.spawn(real, argv as string[]);
+    }
+    case 'kill_run': {
+      const pid = optionalNumber(args, 'pid');
+      if (pid === undefined) throw new BadRequestError('pid is required and must be a number');
+      ctx.spawnRegistry!.kill(pid);
+      return null;
+    }
+    case 'list_spawns': {
+      return ctx.spawnRegistry!.list();
+    }
     case 'list_runs': {
       const real = await ctx.allowlist.assertAllowed(requireString(args, 'repoPath'));
       return listRunSummaries(defaultRunsRoot(real));
@@ -195,6 +216,12 @@ export async function dispatchRpc(ctx: RpcContext, cmd: string, rawArgs: unknown
     }
     case 'list_projects': {
       return projects.list(ctx.configDir);
+    }
+    case 'list_teams': {
+      return teams.listTeams(ctx.configDir);
+    }
+    case 'get_team': {
+      return (await teams.getTeam(ctx.configDir, requireString(args, 'id'))) ?? null;
     }
     case 'add_project': {
       assertMutationsAllowed(ctx.bind);

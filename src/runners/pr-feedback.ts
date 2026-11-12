@@ -5,6 +5,7 @@ import { AUTHORITATIVE_BLOCK_INSTRUCTION, neutralizePromptTags } from './review-
 import type { PullRequestReviewTarget } from './pr-review.js';
 import type { GhRunner } from '../tasks/github.js';
 import { redactForPublish } from '../core/secret-scan.js';
+import { formatConflictFiles } from './base-merge.js';
 
 export interface FeedbackItem {
   source: 'thread' | 'review' | 'comment';
@@ -242,6 +243,7 @@ const SOURCE_LABEL: Record<FeedbackItem['source'], string> = {
 export function buildRevisionPrompt(
   pr: { repoSlug: string; number: number; headRefOid: string; title: string; diff: string },
   actionable: FeedbackItem[],
+  merge?: { base: string; files: string[] },
 ): string {
   const feedbackSection =
     actionable.length === 0
@@ -254,6 +256,12 @@ export function buildRevisionPrompt(
     '<task_instructions>',
     'Address the human review feedback in <review_feedback> on the pull request described in <pr_metadata>.',
     'Apply the requested fixes in the repo. Keep changes minimal and scoped to the feedback. Run typecheck/tests after making changes.',
+    ...(merge !== undefined
+      ? [
+          neutralizePromptTags(`The branch is mid-merge with its base \`${merge.base}\` and these files carry git conflict markers: ${formatConflictFiles(merge.files)}.`),
+          'Resolve every conflict, keeping the intent of both sides, and remove all <<<<<<<, ======= and >>>>>>> markers. Do not run git commands that rewrite history or commit.',
+        ]
+      : []),
     'When done, write exactly <promise>COMPLETE</promise>.',
     '',
     '<input_handling>',
@@ -425,6 +433,10 @@ export interface RevisionSummaryInput {
   verification: { typecheck: 'pass' | 'fail' | 'unknown'; test: 'pass' | 'fail' | 'unknown' };
   /** When true, use the neutral (no-"vanguard") revision marker. */
   whiteLabel?: boolean;
+  /** The base was merged into the branch this round; `files` are the conflicted files that were resolved. */
+  mergedBase?: { base: string; files: string[] };
+  /** The base could not be checked for conflicts this round (e.g. the fetch failed). */
+  baseCheckSkipped?: { base: string; reason: string };
 }
 
 /** Build the single wrap-up summary comment posted at the end of a revision round. */
@@ -454,6 +466,14 @@ export function buildRevisionSummary(input: RevisionSummaryInput): string {
     for (const { item, reason } of input.deferred) {
       lines.push(`- ${referenceSnippet(item)}: ${reason}`);
     }
+  }
+
+  if (input.mergedBase !== undefined) {
+    lines.push('', '### Merged base', '', `- Merged \`${input.mergedBase.base}\` into the branch; resolved conflicts in: ${formatConflictFiles(input.mergedBase.files)}`);
+  }
+
+  if (input.baseCheckSkipped !== undefined) {
+    lines.push('', '### Merged base', '', `- Could not check this branch against \`${input.baseCheckSkipped.base}\` (${input.baseCheckSkipped.reason.replace(/[\r\n]+/g, ' ')}); confirm it merges cleanly.`);
   }
 
   lines.push(

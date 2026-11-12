@@ -2,9 +2,10 @@
 
 `vanguard` is the old name of `taskcell` and still works.
 
-`taskcell hub` serves the same Inspector UI the Tauri desktop app ships (`apps/desktop`) over plain
-HTTP/SSE, backed by a real `.taskcell/` directory. Useful when you want the cockpit without installing
-a native app, or running it on a server. See `src/hub/*.ts` and `src/cli/hub.ts` for the implementation.
+`taskcell hub` serves the Inspector UI (`apps/desktop`) over plain HTTP/SSE, backed by a real `.taskcell/`
+directory. It is the only backend: the desktop app is a client of a hub (see
+[the desktop app's local hub](#the-desktop-apps-local-hub)), and a browser can use one directly — useful
+without a native app, or on a server. See `src/hub/*.ts` and `src/cli/hub.ts` for the implementation.
 
 ## Install the desktop app
 
@@ -168,6 +169,19 @@ hand-rolling either side of the wire. A reconnecting
 SSE client whose `Last-Event-ID` gap exceeds the replay ring gets a `stream-reset` frame instead of a
 replay; `transport.ts` resyncs by re-running its snapshot fetches rather than trusting the stream alone.
 
+## The desktop app's local hub
+
+The desktop app (`apps/desktop`) starts `taskcell hub` itself on `127.0.0.1` (a free port, a fresh per-launch
+token, `--no-open`), loads the launch URL into its window, restarts the hub if it dies, and stops it on quit
+(the hub also exits when the app's stdin pipe closes, `VANGUARD_HUB_EXIT_ON_STDIN_EOF=1`, so it is never
+orphaned). Its project list lives in the app config dir (`VANGUARD_HUB_CONFIG_DIR`). Installed apps bundle a
+Node runtime and the CLI; a source checkout (`pnpm start`) runs the TypeScript CLI — details in
+[apps/desktop/README.md](../apps/desktop/README.md#local-hub-the-desktop-backend). Connecting the app to a
+remote hub is a separate follow-up.
+
+Only this hub enables **Fleet** (`spawn_run`/`kill_run`/`list_spawns`, `VANGUARD_HUB_ALLOW_FLEET=1`, honoured on
+a loopback bind only); every other hub rejects those commands.
+
 ## Env vars
 
 | Variable | Default |
@@ -180,6 +194,8 @@ replay; `transport.ts` resyncs by re-running its snapshot fetches rather than tr
 | `VANGUARD_HUB_WATCH_INTERVAL_MS` | `2000` |
 | `VANGUARD_HUB_BROWSE_ROOT` | `$HOME` |
 | `VANGUARD_HUB_ALLOW_ADD` | — |
+| `VANGUARD_HUB_ALLOW_FLEET` | — (`1` on a loopback bind enables Fleet; set by the desktop app) |
+| `VANGUARD_HUB_EXIT_ON_STDIN_EOF` | — (`1`: shut down when stdin closes; set by the desktop app) |
 | `VANGUARD_HUB_ALLOWED_HOSTS` | — (comma-separated exact Host values, added to `localhost`/any IP literal on any port) |
 | `VANGUARD_HUB_MAX_QUEUE` | `10` (runs that may wait behind the one running run; past it a new run is refused. The queue is in memory only: a hub restart drops queued runs) |
 | `VANGUARD_HUB_CLONE_HOSTS` | — (comma-separated hosts, added to `github.com`/`gitlab.com`) |

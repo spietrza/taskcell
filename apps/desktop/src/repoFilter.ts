@@ -21,7 +21,7 @@ export function saveRepoFilter(filter: string): void {
   }
 }
 
-/** `list_*_all` are HUB_ONLY (no Tauri command); only the browser dev build's mock serves them outside the hub. */
+/** `list_*_all` are served by the hub only; outside it only the browser dev build's mock answers them. */
 export function canUseAllRepos(): boolean {
   return isHubMode() || (import.meta.env.DEV && !isTauri());
 }

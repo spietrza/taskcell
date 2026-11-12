@@ -406,6 +406,21 @@ export interface RunRef {
   timestamp: string;
 }
 
+export type TeamRole = 'admin' | 'member';
+
+export interface TeamMember {
+  login: string;
+  role: TeamRole;
+}
+
+/** A hub team (src/hub/teams.ts). `repositories` are project paths. */
+export interface Team {
+  id: string;
+  name: string;
+  members: TeamMember[];
+  repositories: string[];
+}
+
 /**
  * Hand-mirrors of RUST serde structs in src-tauri (the persisted/aggregated shapes) — a TS seam
  * cannot pin these to Rust, so they live here only because the `Commands` catalogue below needs a
@@ -512,7 +527,7 @@ export interface NeedsYouItem {
   lastComment?: { author: string; body: string };
 }
 
-/** A Fleet-screen spawned process (TAURI_ONLY — Fleet is disabled in hub mode). */
+/** A Fleet-screen spawned process (Fleet is enabled only on the desktop app's local hub). */
 export interface SpawnInfo {
   pid: number;
   cwd: string;
@@ -598,6 +613,10 @@ export interface Commands {
   list_runs: { args: { repoPath: string }; result: RunSummary[] };
   read_run: { args: { repoPath: string; taskId: string; timestamp: string; source: RunSource }; result: RunDetail };
   list_projects: { args: undefined; result: Project[] };
+  /** HUB_ONLY: token-only mode has exactly one team and the caller acts as its admin. */
+  list_teams: { args: undefined; result: Team[] };
+  /** HUB_ONLY: one team by id (`null` when unknown). */
+  get_team: { args: { id: string }; result: Team | null };
   add_project: { args: { path: string }; result: Project[] };
   remove_project: { args: { path: string }; result: Project[] };
   list_active: { args: { repoPath: string }; result: ActiveRun[] };
@@ -659,13 +678,13 @@ export interface Commands {
   merge_needs_you: { args: { repoPath: string; id: string }; result: void };
   /** HUB_ONLY: apply a trigger label to a GitHub issue of the project (src/hub/start-task.ts). */
   start_task: { args: { repoPath: string; number: number; label: string }; result: StartTaskResult };
-  /** TAURI_ONLY: the Fleet screen's shell-spawn surface — disabled in hub mode (remote code
-   * execution on a reachable server). `argv[0]` is the program, run WITHOUT a shell: values built
+  /** The Fleet screen's shell-spawn surface — enabled only on the desktop app's local (loopback) hub; refused
+   * elsewhere (remote code execution on a reachable server). `argv[0]` is the program, run WITHOUT a shell: values built
    * from repo config travel as single arguments and can never introduce shell syntax. */
   spawn_run: { args: { cwd: string; argv: string[] }; result: number };
-  /** TAURI_ONLY (see spawn_run). */
+  /** see spawn_run. */
   kill_run: { args: { pid: number }; result: void };
-  /** TAURI_ONLY (see spawn_run). */
+  /** see spawn_run. */
   list_spawns: { args: undefined; result: SpawnInfo[] };
   /** HUB_ONLY: read the repo (default branch, package manager, verify command) and report what
    *  `enable_factory_apply` would change — no writes yet. GitHub only; `provider` is accepted for
@@ -683,34 +702,7 @@ export interface Commands {
   agent_cli_versions: { args: undefined; result: CliVersionReport };
 }
 
-/** Commands the hub does not implement for real: absent from `src/hub/rpc.ts`'s dispatch cases (the
- * Fleet shell-spawn surface is rejected generically instead of dispatched). */
-export const TAURI_ONLY = ['spawn_run', 'kill_run', 'list_spawns'] as const satisfies readonly (keyof Commands)[];
-
-/** Commands with no `#[tauri::command]` in `src-tauri/src/lib.rs` — browser-only stand-ins for
- * native capability the webview doesn't need (no folder-picker dialog), plus the enable-factory
- * seam (shells out to `gh`/`git`, which only the hub's Node process does today), plus
- * `agent_cli_versions` (probes the sandbox image through `docker`, likewise), plus `api_queue`:
- * Tauri stays strictly single-in-flight (no queue to read) so it has nothing to implement either. */
-export const HUB_ONLY = [
-  'browse_dirs',
-  'clone_project',
-  'enable_factory_plan',
-  'enable_factory_apply',
-  'enable_factory_secret',
-  'enable_factory_verify',
-  'agent_cli_versions',
-  'list_needs_you',
-  'list_needs_you_all',
-  'list_tasks_all',
-  'list_runs_all',
-  'reply_needs_you',
-  'merge_needs_you',
-  'start_task',
-  'api_queue',
-] as const satisfies readonly (keyof Commands)[];
-
-/** Every command name, for the lib.rs parity test and friends. TYPE-CHECKED (not just asserted)
+/** Every command name, for the hub dispatch parity test and friends. TYPE-CHECKED (not just asserted)
  * against `Commands`: the `satisfies` below rejects a typo or a name not in `Commands`, and
  * `_Exhaustive` rejects a missing one — adding a command to `Commands` without adding it here is a
  * compile error. */
@@ -718,6 +710,8 @@ export const COMMAND_NAMES = [
   'list_runs',
   'read_run',
   'list_projects',
+  'list_teams',
+  'get_team',
   'add_project',
   'remove_project',
   'list_active',
