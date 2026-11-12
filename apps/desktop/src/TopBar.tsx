@@ -17,6 +17,7 @@ export function TopBar({
   onCommandK,
   theme,
   onToggleTheme,
+  onSignOut,
 }: {
   crumbs: Crumb[];
   /** Inline project switcher rendered as the first breadcrumb (null on the dashboard). */
@@ -25,6 +26,8 @@ export function TopBar({
   onCommandK: () => void;
   theme: Theme;
   onToggleTheme: () => void;
+  /** Server mode only (a signed-in hub session): ends the session. */
+  onSignOut?: () => void;
 }) {
   return (
     <header className="flex items-center gap-3 border-b border-border px-4 py-2.5">
@@ -81,6 +84,11 @@ export function TopBar({
           <span className="font-mono">⌘K</span>
         </button>
         <ThemeToggle theme={theme} onClick={onToggleTheme} />
+        {onSignOut && (
+          <button onClick={onSignOut} className="rounded border border-border px-2 py-1 text-xs text-muted-foreground transition-colors hover:bg-muted">
+            Sign out
+          </button>
+        )}
       </div>
     </header>
   );

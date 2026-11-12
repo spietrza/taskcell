@@ -36,6 +36,11 @@ export const HUB_TOKEN_FRAGMENT_PARAM = 'token';
  * `src/hub/server.ts` sends it, `isHubTokenRejected` below recognises it. */
 export const HUB_TOKEN_REJECTED = 'invalid hub token';
 
+/** The 401 message of a hub in server mode when the request carries no session (never signed in, or
+ * the session expired or was revoked): the SPA sends the user to `/sign-in` instead of saying the hub
+ * restarted. */
+export const HUB_SIGN_IN_REQUIRED = 'sign-in required';
+
 /** `BadRequestError`/`FlowError`/`TaskcellError` are caller-correctable (`bad-request`); anything
  * else is a real fault (`internal`) — `src/hub/rpc.ts`'s `classifyError` is the one place that maps
  * a thrown value to this vocabulary. */
@@ -72,6 +77,11 @@ function wireErrorMessage(body: unknown): string | undefined {
  * is a different problem a reload won't fix, so it must not match. */
 export function isHubTokenRejected(body: unknown): boolean {
   return wireErrorMessage(body) === HUB_TOKEN_REJECTED;
+}
+
+/** True only for the hub's own server-mode "no session" 401 body. */
+export function isHubSignInRequired(body: unknown): boolean {
+  return wireErrorMessage(body) === HUB_SIGN_IN_REQUIRED;
 }
 
 /**

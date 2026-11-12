@@ -94,14 +94,86 @@ VANGUARD_SANDBOX_IMAGE if set.`
 
 ## Modes
 
-- **Local mode** — no authentication, binds `127.0.0.1` by default. Intended for running on your own
+- **Local mode** — no sign-in screen (the hub acts as one automatic owner user), binds `127.0.0.1` by default. Intended for running on your own
   machine, reachable only from itself.
 - **Container mode** — binds `0.0.0.0` because Docker port-mapping requires it. Reached under a
   hostname, set `VANGUARD_HUB_ALLOWED_HOSTS=hub.example.com` (every hostname the browser uses,
   including a non-default port).
 
-Local mode has no authentication — on a VPS put it behind Tailscale or an authenticating reverse proxy,
-never a published port.
+A hub bound beyond loopback is **server mode** and requires sign-in (see "Server mode sign-in" below).
+Do not publish it on a raw port without TLS: put it behind Tailscale or an HTTPS reverse proxy.
+
+### Server mode sign-in
+
+Whenever the hub binds beyond loopback (`--host 0.0.0.0`, a LAN/Tailscale address, a hostname) — even
+with a single user — every page and every RPC/SSE route requires a signed-in user. Sign-in is
+[Better Auth](https://www.better-auth.com) mounted on the hub's own HTTP server under `/api/auth/*`;
+its data (users, sessions, linked accounts) lives in `auth.sqlite` in the hub state dir
+(`VANGUARD_HUB_CONFIG_DIR`) via Node's built-in `node:sqlite` — no native module. The schema is created
+or migrated on start. The signing secret is `VANGUARD_HUB_AUTH_SECRET`, or a random one persisted to
+`auth-secret` (mode 0600) in the same directory. Signed-out browsers requesting a page are redirected
+to `/sign-in`; API calls (`/rpc/*`, `/events`) answer `401` (`sign-in required`, which the web UI turns
+into a redirect to `/sign-in`; the top bar has a **Sign out** button). `auth.sqlite` is created mode 0600.
+
+**Behind a reverse proxy on the same host.** A hub bound to `127.0.0.1` behind nginx/Caddy is still
+reachable by everyone the proxy serves, so set `VANGUARD_HUB_SERVER_MODE=1`: the loopback bind then runs
+in server mode (sign-in required, `add_project` and the other writes need `VANGUARD_HUB_ALLOW_ADD=1`).
+Also set `VANGUARD_HUB_PUBLIC_URL` and `--allowed-host` to the public name.
+
+**Providers.** Each is enabled by the operator from env; a provider without both halves is hidden from
+the sign-in page. Any enabled provider can sign in — one hub may hold GitHub and GitLab projects, and
+Google is for people who only work on cards (e.g. Linear). Setup suggests the provider matching the
+hub's repositories, but that is only a suggestion. (Apple arrives with the iOS app, #860.)
+
+| Provider | Env vars |
+|---|---|
+| GitHub | `VANGUARD_HUB_AUTH_GITHUB_CLIENT_ID`, `VANGUARD_HUB_AUTH_GITHUB_CLIENT_SECRET` |
+| GitLab | `VANGUARD_HUB_AUTH_GITLAB_CLIENT_ID`, `VANGUARD_HUB_AUTH_GITLAB_CLIENT_SECRET`, optional `VANGUARD_HUB_AUTH_GITLAB_ISSUER` (self-managed base URL, e.g. `https://gitlab.example.com`; default `https://gitlab.com`) |
+| Google | `VANGUARD_HUB_AUTH_GOOGLE_CLIENT_ID`, `VANGUARD_HUB_AUTH_GOOGLE_CLIENT_SECRET` |
+
+Also set `VANGUARD_HUB_PUBLIC_URL` to the URL users open: a bare origin such as `https://hub.example.com`
+(a path or query is a startup error). It is the base of the OAuth callback URLs and must match the `Host`
+you allow (`--allowed-host`). Unset, it falls back to the bind address — which a provider cannot
+redirect to (`0.0.0.0`) — and the hub warns at startup when a provider is configured without it.
+
+**Creating the OAuth apps.** The callback (redirect) URL is always
+`<VANGUARD_HUB_PUBLIC_URL>/api/auth/callback/<provider>`, with `<provider>` = `github`, `gitlab` or `google`.
+
+- *GitHub*: Settings → Developer settings → OAuth Apps → New OAuth App. Homepage = the public URL;
+  authorization callback URL = `…/api/auth/callback/github`. Generate a client secret.
+- *GitLab* (gitlab.com or **self-managed**): User Settings (or Admin → Applications for an
+  instance-wide app) → Applications → Add new application. Redirect URI = `…/api/auth/callback/gitlab`;
+  scopes `read_user`. Untick "Confidential" only if your GitLab version requires it. For a
+  self-managed instance also set `VANGUARD_HUB_AUTH_GITLAB_ISSUER=https://gitlab.example.com`, and add
+  that host to `VANGUARD_HUB_CLONE_HOSTS` if projects are cloned from it.
+- *Google*: Google Cloud console → APIs & Services → Credentials → Create credentials → OAuth client ID
+  (Web application). Authorized redirect URI = `…/api/auth/callback/google`; configure the consent screen.
+
+**Sign-up allowlist.** Sign-up is not open. `VANGUARD_HUB_SIGNUP_ALLOW` is a comma-separated list that
+decides who may *create* an account on first sign-in; anyone else is refused with "Sign-up is not open
+on this hub". Entries: `alice@example.com` (an e-mail), `@example.com` (a domain), `github:login`,
+`gitlab:login`. E-mail and domain entries only match an address the provider reports as verified. A
+`gitlab:login` entry matches that login on whichever GitLab the hub is configured for. An empty list
+means nobody can sign up (the hub warns at startup). Existing accounts are not re-checked on sign-in.
+
+**Local owner user.** In local mode (a plain loopback bind) there is no sign-in screen, no OAuth and no
+database (`/api/auth/*` and `/sign-in` answer 404); the hub acts as one automatic owner user. In server
+mode the owner is a real Better Auth user (`owner@hub.invalid`, e-mail unverified so no provider
+profile can link to it) created on first start. Every request resolves a user — the Better Auth session,
+the hub token, or the owner — so teams, roles (#841) and "who started this run" share one code path;
+server-mode user ids are Better Auth's.
+
+**Token.** `x-vanguard-hub-token` keeps working for the CLI and scripts and maps to the owner user, in
+both modes. In server mode the CLI prints the bare URL (a token in the fragment cannot load a page).
+
+**Security model.** Only the OAuth providers' verified identity plus the allowlist decide who gets an
+account; sessions are Better Auth's signed HttpOnly cookies. The Host check, the same-origin check on
+RPC and the `401`-for-API / redirect-for-pages split above all still apply. A session user's `/events`
+stream authenticates with the session cookie itself (no separate events secret), so signing out or
+revoking the session ends it; only token holders get the `/events` cookie. Anyone holding the token is
+the owner: keep `--token-file` private. Connecting GitHub, GitLab or Linear as a card source is
+separate from sign-in and unchanged. Use HTTPS in front of the hub (cookies are `Secure` when the
+public URL is `https`).
 
 ### Allowed Hosts (DNS rebinding)
 
@@ -202,6 +274,12 @@ a loopback bind only); every other hub rejects those commands.
 | `VANGUARD_HUB_WATCH_INTERVAL_MS` | `2000` |
 | `VANGUARD_HUB_BROWSE_ROOT` | `$HOME` |
 | `VANGUARD_HUB_ALLOW_ADD` | — |
+| `VANGUARD_HUB_SERVER_MODE` | — (`1` = require sign-in on a loopback bind, for a same-host reverse proxy) |
+| `VANGUARD_HUB_PUBLIC_URL` | `http://<host>:<port>` (server mode: the OAuth callback base) |
+| `VANGUARD_HUB_AUTH_{GITHUB,GITLAB,GOOGLE}_CLIENT_ID` / `_CLIENT_SECRET` | — (provider hidden unless both set; see "Server mode sign-in") |
+| `VANGUARD_HUB_AUTH_GITLAB_ISSUER` | `https://gitlab.com` |
+| `VANGUARD_HUB_AUTH_SECRET` | random, persisted to `auth-secret` in the state dir |
+| `VANGUARD_HUB_SIGNUP_ALLOW` | — (comma-separated e-mails, `@domains`, `github:login`, `gitlab:login`) |
 | `VANGUARD_HUB_ALLOW_FLEET` | — (`1` on a loopback bind enables Fleet; set by the desktop app) |
 | `VANGUARD_HUB_EXIT_ON_STDIN_EOF` | — (`1`: shut down when stdin closes; set by the desktop app) |
 | `VANGUARD_HUB_ALLOWED_HOSTS` | — (comma-separated exact Host values, added to `localhost`/any IP literal on any port) |
@@ -387,11 +465,11 @@ taskcell hub rotate-token --token-file <path>
 | `--port <n>` | `VANGUARD_HUB_PORT` | `7777` (1-65535; an invalid explicit `--port` is a startup error) |
 | `--ui-dir <dir>` | `VANGUARD_HUB_UI_DIR` | `<pkg>/apps/desktop/dist` |
 | `--token-file <path>` | `VANGUARD_HUB_TOKEN_FILE` | unset: a fresh token per launch |
-| `--no-open` | — | opens the printed launch URL (`/#token=…`) in a browser unless passed |
+| `--no-open` | — | opens the printed URL (loopback: the launch URL `/#token=…`; server mode: the bare URL) in a browser unless passed |
 
 A missing or unbuilt `--ui-dir` fails at startup, naming `pnpm --dir apps/desktop build`
 (run `pnpm build:ui`) rather than failing on the first request. Binding a non-loopback host
-prints the no-auth warning above and disables `add_project`/`browse_dirs`/`clone_project`,
+requires sign-in (warning at startup if no provider or allowlist is configured) and disables `add_project`/`browse_dirs`/`clone_project`,
 `enable_factory_apply`/`enable_factory_verify`, `reply_needs_you`, `merge_needs_you` and `start_task` unless
 `VANGUARD_HUB_ALLOW_ADD=1`. `SIGINT`/`SIGTERM` close the listener, every connected SSE client,
 and the project file watchers.
