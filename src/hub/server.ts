@@ -368,7 +368,7 @@ export function createHubServer(opts: HubServerOptions): HubServer {
   const eventBus = new EventBus();
   eventBus.startKeepalive();
   const watchRegistry = new WatchRegistry(opts.watch);
-  const publish = (name: string, payload: unknown): void => eventBus.publish(name, payload);
+  const publish = (name: string, payload: unknown): number => eventBus.publish(name, payload);
   const completeRegistry = new CompleteRegistry(opts.spawnComplete);
   if (opts.fleet === true && !opts.bind.isLoopback) throw new Error('fleet requires a loopback bind');
   const spawnRegistry = opts.fleet === true ? new SpawnRegistry(publish) : undefined;

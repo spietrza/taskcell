@@ -228,6 +228,26 @@ browser (`apps/desktop/src/transport.ts`) both call its `encodeResult`/`encodeEr
 hand-rolling either side of the wire. A reconnecting
 SSE client whose `Last-Event-ID` gap exceeds the replay ring gets a `stream-reset` frame instead of a
 replay; `transport.ts` resyncs by re-running its snapshot fetches rather than trusting the stream alone.
+The same frame is sent when the id is *newer* than anything the hub has issued (a restarted hub numbers from 1
+again); its data is `{"fallback":"read_run_events"}`, naming the call that returns the history the ring lacks.
+
+## Run event log
+
+The ring holds 500 events and dies with the process, so every `api:event` of a run is also appended to the run
+store, next to the run's other artifacts (`<repo>/.taskcell/runs/<taskId>/`):
+
+| File | Contents |
+|---|---|
+| `events-<run start>.jsonl` | One JSON line per event: `{"id","ts","event","data"}`. `id` is the SSE `id:` the live stream carried. Append-only, one write per event, string values masked like the other run artifacts. |
+
+Capped at 5 MB per run: past it events are dropped, one `{"truncated":true,...}` marker line is written, and the run
+carries on. A new run of the same task writes a new file; the older ones stay.
+
+The read-only server call `read_run_events` (`{ repoPath, taskId, timestamp?, after?, limit? }`, allowed in server
+mode) returns `{ events, nextAfter, hasMore, truncated }`: events with `id > after` in order, at most `limit`
+(default 500, max 2000), of the run whose `list_runs` record carries `timestamp` (the newest log begun at or before it) or the newest run. To show history then go live:
+open the SSE stream, page `read_run_events` from `after: 0` until `hasMore` is false, then apply live events whose
+id is greater than `nextAfter` — no gap, no duplicate.
 
 ## The desktop app's local hub
 
