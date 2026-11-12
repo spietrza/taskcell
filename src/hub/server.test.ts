@@ -76,6 +76,14 @@ afterEach(async () => {
   await rm(uiDir, { recursive: true, force: true });
 });
 
+test('uses a fixed token when given one, instead of minting per launch', () => {
+  const fixed = 'f'.repeat(64);
+  const h = createHubServer({ uiDir, configDir, browseRoot, bind: { isLoopback: true, allowAdd: false }, deps: unimplementedDeps(), token: fixed });
+  expect(h.token).toBe(fixed);
+  expect(hub.token).not.toBe(fixed);
+  void h.close();
+});
+
 /** `fetch` rewrites the `Host` header from the URL; node:http sends the one it is handed verbatim. */
 function withHost(path: string, host: string): Promise<{ status: number; body: string }> {
   return new Promise((resolve, reject) => {

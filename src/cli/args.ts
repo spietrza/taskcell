@@ -337,7 +337,8 @@ export type Command =
     }
   | { kind: 'sidecar' }
   | { kind: 'complete' }
-  | { kind: 'hub'; repoPath: string; host: string; port: number; uiDir?: string; open: boolean; allowedHosts?: string[] }
+  | { kind: 'hub'; repoPath: string; host: string; port: number; uiDir?: string; open: boolean; allowedHosts?: string[]; tokenFile?: string }
+  | { kind: 'hub-rotate-token'; tokenFile: string }
   | { kind: 'help' }
   | { kind: 'error'; message: string };
 
@@ -629,6 +630,7 @@ export function parseCli(argv: string[], cwd: string): Command {
         host: { type: 'string' },
         'ui-dir': { type: 'string' },
         'no-open': { type: 'boolean' },
+        'token-file': { type: 'string' },
         'allowed-host': { type: 'string', multiple: true },
         help: { type: 'boolean' },
       },
@@ -884,8 +886,17 @@ export function parseCli(argv: string[], cwd: string): Command {
       port = Number.isInteger(envPort) && envPort >= 1 && envPort <= 65535 ? envPort : DEFAULT_HUB_PORT;
     }
 
+    const tokenFileRaw = typeof values['token-file'] === 'string' ? values['token-file'] : process.env.VANGUARD_HUB_TOKEN_FILE;
+    const tokenFile = tokenFileRaw !== undefined && tokenFileRaw.trim() !== '' ? tokenFileRaw : undefined;
+    if (positionals[1] === 'rotate-token') {
+      if (tokenFile === undefined) return fail('hub rotate-token requires --token-file <path> (or VANGUARD_HUB_TOKEN_FILE).');
+      return { kind: 'hub-rotate-token', tokenFile };
+    }
+    if (positionals[1] !== undefined) return fail(`Unknown hub subcommand '${positionals[1]}'. Expected: rotate-token.`);
+
     return {
       kind: 'hub',
+      ...(tokenFile !== undefined ? { tokenFile } : {}),
       repoPath,
       host,
       port,
@@ -1420,6 +1431,8 @@ Commands:
   gc     Reap stale sandbox containers, prune worktrees, and (with --remote) delete merged
          remote chore/vanguard-* branches.
   hub    Serve the Inspector UI over HTTP/SSE (node:http), backed by a real .taskcell/ directory.
+         --token-file <path> (VANGUARD_HUB_TOKEN_FILE) keeps one token across restarts (created 0600 if missing);
+         "hub rotate-token --token-file <path>" writes a new one, picked up on the next restart.
 
   watch options (trigger = state/label + label):
     --source <linear|github|project|gitlab>  Task source (default: linear)
