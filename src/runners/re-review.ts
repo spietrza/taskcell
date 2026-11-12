@@ -6,7 +6,7 @@
 import { z } from 'zod';
 import { extractJson } from '../structured/extract.js';
 import { neutralizePromptTags } from '../context/escape.js';
-import { DIFF_GIT_HEADER_RE, RISK_RE, VERDICT_RE } from './review-prompt.js';
+import { DIFF_GIT_HEADER_RE, extractReviewVerdict, RISK_RE, VERDICT_RE } from './review-prompt.js';
 
 export interface ReReviewContext {
   /** The previous factory review's body and the head SHA it was made at. */
@@ -111,10 +111,14 @@ function peelVerdict(text: string): { verdict?: string; risk?: string; rest: str
 /**
  * Enforce the re-review rules on the reviewer's reply. A missing, repeated or malformed <rereview> block
  * (exactly one is valid, so a quoted second one cannot override the real one) leaves the reviewer's stated
- * verdict untouched — a formatting slip never flips it — and is noted. `downgraded` counts new blocking
+ * verdict untouched — a formatting slip never flips it — and is noted; so does a block listing no blocking
+ * previous finding when the previous review (`previousBody`) was BLOCKING. `downgraded` counts new blocking
  * findings rejected by the rules.
  */
-export function applyReReviewRules(text: string, ctx: Pick<ReReviewContext, 'sinceDiff'>): { text: string; downgraded: number } {
+export function applyReReviewRules(
+  text: string,
+  ctx: Pick<ReReviewContext, 'sinceDiff'> & Partial<Pick<ReReviewContext, 'previousBody'>>,
+): { text: string; downgraded: number } {
   const peeled = peelVerdict(text.replace(REREVIEW_STRIP_RE, ''));
   let parsed: z.infer<typeof reReviewSchema> | undefined;
   try {
@@ -122,6 +126,10 @@ export function applyReReviewRules(text: string, ctx: Pick<ReReviewContext, 'sin
   } catch {
     parsed = undefined;
   }
+  // A BLOCKING previous review had a blocking finding: a table listing none dropped it, and deriving the verdict
+  // from that table would turn BLOCKING into clean by omission (fail-open past the approver). Malformed instead.
+  const previousBlocking = ctx.previousBody !== undefined && extractReviewVerdict(peelVerdict(ctx.previousBody).verdict ?? '') === 'blocking';
+  if (previousBlocking && parsed?.previous.some((p) => p.blocking) !== true) parsed = undefined;
   if (parsed === undefined) {
     return {
       text: [...(peeled.verdict !== undefined ? [peeled.verdict] : []), ...(peeled.risk !== undefined ? [peeled.risk] : []), '', peeled.rest, '', REREVIEW_MALFORMED_NOTE].join('\n').trim(),

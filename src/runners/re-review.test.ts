@@ -41,6 +41,15 @@ describe('applyReReviewRules', () => {
     expect(r.text).not.toContain('<rereview>');
   });
 
+  it('a BLOCKING previous review needs a blocking row: dropping it is malformed, not a flip to clean', () => {
+    const previousBody = '## Vanguard Review\n\nVerdict: BLOCKING\n\n1. [high] x';
+    const dropped = applyReReviewRules(`Verdict: BLOCKING\n${block({ previous: [], new: [] })}`, { previousBody });
+    expect(dropped.text.startsWith('Verdict: BLOCKING')).toBe(true);
+    expect(dropped.text).toContain(REREVIEW_MALFORMED_NOTE);
+    const listed = applyReReviewRules(`Verdict: BLOCKING\n${block({ previous: [prev('resolved')], new: [] })}`, { previousBody });
+    expect(listed.text.startsWith('Verdict: NO BLOCKING FINDINGS')).toBe(true);
+  });
+
   it('a truncated block never reaches the posted comment', () => {
     const r = applyReReviewRules('Verdict: BLOCKING\n<rereview>{"previous":[{"id":"1"', {});
     expect(r.text).not.toContain('rereview>');

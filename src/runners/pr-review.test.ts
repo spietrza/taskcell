@@ -20,6 +20,7 @@ import {
 } from './pr-review.js';
 import type { GhRunner } from '../tasks/github.js';
 import type { PullRequestForReview } from './pr-review.js';
+import { REREVIEW_MALFORMED_NOTE } from './re-review.js';
 
 /** Raw `gh pr view --json` payload, defaulted to the "Fix auth" PR used throughout this file. */
 function ghPrView(overrides: Record<string, unknown> = {}): string {
@@ -667,9 +668,19 @@ describe('incremental re-review', () => {
   });
 
   it('unresolved non-blocking finding does not block', async () => {
-    const { gh } = reGh('bbb222');
+    const clean = prevBody.replace('Verdict: BLOCKING', 'Verdict: NO BLOCKING FINDINGS').replace('[high]', '[low]');
+    const { gh } = reGh('bbb222', { reviews: [{ author: { login: 'github-actions' }, body: clean, submittedAt: '2024-01-01T10:00:00Z' }] });
     const result = await run(gh, `Verdict: BLOCKING\n${rereview({ previous: [prevRow('not resolved', false)], new: [] })}`);
     expect(result.verdict).toBe('clean');
+  });
+
+  it('a BLOCKING previous review whose table lists no blocking finding keeps the stated BLOCKING verdict', async () => {
+    const { gh } = reGh('bbb222');
+    for (const previous of [[], [prevRow('not resolved', false)]]) {
+      const result = await run(gh, `Verdict: BLOCKING\n${rereview({ previous, new: [] })}`);
+      expect(result.verdict).toBe('blocking');
+      expect(result.commentBody).toContain(REREVIEW_MALFORMED_NOTE);
+    }
   });
 
   it('rejects a new blocking finding on unchanged code, accepts one on changed code or a missed blocking class', async () => {
@@ -682,7 +693,7 @@ describe('incremental re-review', () => {
     expect(noBasis.verdict).toBe('blocking');
     const changed = await run(gh, `Verdict: NO BLOCKING FINDINGS\n${rereview({ previous: [prevRow('resolved')], new: [{ title: 'y', file: 'auth.ts', blocking: true, basis: 'changed-since-last-review' }] })}`);
     expect(changed.verdict).toBe('blocking');
-    const missed = await run(gh, `Verdict: NO BLOCKING FINDINGS\n${rereview({ previous: [], new: [{ title: 'z', file: 'other.ts', blocking: true, basis: 'missed-blocking-class' }] })}`);
+    const missed = await run(gh, `Verdict: NO BLOCKING FINDINGS\n${rereview({ previous: [prevRow('resolved')], new: [{ title: 'z', file: 'other.ts', blocking: true, basis: 'missed-blocking-class' }] })}`);
     expect(missed.verdict).toBe('blocking');
   });
 
