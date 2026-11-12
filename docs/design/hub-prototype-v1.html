@@ -1,0 +1,1155 @@
+<!doctype html><html><head><meta charset=utf8><meta name=viewport content="width=device-width,initial-scale=1,viewport-fit=cover"><style>:root{color-scheme:light;box-sizing:border-box;padding-top:env(safe-area-inset-top,0px);padding-bottom:env(safe-area-inset-bottom,0px)}html{scroll-padding-top:env(safe-area-inset-top,0px)}body{margin:0;padding:0;font:14px -apple-system,BlinkMacSystemFont,sans-serif;background:#fff;color:#000}img{max-width:100%}[hidden]:not([hidden=until-found i]){display:none!important}</style></head><body>
+<title>Taskcell Cloud Prototype</title>
+<meta name="claude:viewport-fit-sides" content="cover">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Atkinson+Hyperlegible:ital,wght@0,400;0,700;1,400&family=IBM+Plex+Mono:wght@400;500&family=Schibsted+Grotesk:wght@500;600;700;800&display=swap" rel="stylesheet">
+<script src="https://cdn.jsdelivr.net/npm/lucide@0.460.0/dist/umd/lucide.min.js"></script>
+<style>
+/* Layout: one dark factory console — top bar, single working column, detail panes at right; map-style accents only on the selected thing. Single dark theme, matching taskcell.dev. */
+:root{
+  --bg:#0d1013; --surface:#141a1f; --surface-2:#1b2228; --ink:#e8ecef; --muted:#a3adb6; --dim:#8a96a0; --dimmer:#7b858e;
+  --accent:#f99a2c; --accent-ink:#14100a; --teal:#79a9ad; --fail:#ff6a5c;
+  --line:rgba(121,169,173,.18); --line-strong:rgba(121,169,173,.42); --glow:rgba(249,154,44,.12); --acc-wash:rgba(249,154,44,.07); --fail-wash:rgba(255,106,92,.07); --teal-wash:rgba(121,169,173,.05);
+  --scrim:rgba(5,7,9,.72);
+  --display:'Schibsted Grotesk',system-ui,sans-serif; --text:'Atkinson Hyperlegible',system-ui,sans-serif; --mono:'IBM Plex Mono',ui-monospace,Menlo,monospace;
+  color-scheme:dark;
+}
+*{box-sizing:border-box}
+html,body{background:var(--bg);color:var(--ink)}
+body{font:15px/1.45 var(--text);min-height:100%}
+a{color:inherit}
+button,input,select,textarea{font:inherit;color:inherit}
+button{cursor:pointer}
+:focus-visible{outline:2px solid var(--accent);outline-offset:2px}
+@media (prefers-reduced-motion:reduce){*{animation:none!important;transition:none!important}}
+
+/* icons */
+svg.lucide{width:16px;height:16px;stroke-width:1.75;flex:none;vertical-align:-3px}
+svg.i12{width:12px;height:12px} svg.i14{width:14px;height:14px} svg.i18{width:18px;height:18px} svg.i20{width:20px;height:20px}
+svg.spin{animation:spin 1.4s linear infinite}
+@keyframes spin{to{transform:rotate(360deg)}}
+
+/* map accents, quiet */
+.brk{position:relative;--bc:var(--accent);--bl:7px;--bw:1.5px}
+.brk::before{content:"";position:absolute;inset:-4px;pointer-events:none;opacity:.85;background:
+  linear-gradient(var(--bc),var(--bc)) top left/var(--bl) var(--bw),linear-gradient(var(--bc),var(--bc)) top left/var(--bw) var(--bl),
+  linear-gradient(var(--bc),var(--bc)) top right/var(--bl) var(--bw),linear-gradient(var(--bc),var(--bc)) top right/var(--bw) var(--bl),
+  linear-gradient(var(--bc),var(--bc)) bottom left/var(--bl) var(--bw),linear-gradient(var(--bc),var(--bc)) bottom left/var(--bw) var(--bl),
+  linear-gradient(var(--bc),var(--bc)) bottom right/var(--bl) var(--bw),linear-gradient(var(--bc),var(--bc)) bottom right/var(--bw) var(--bl);
+  background-repeat:no-repeat}
+.brk.teal{--bc:var(--teal)}
+.sh{display:flex;align-items:center;gap:10px;font:500 11px/1 var(--mono);letter-spacing:.1em;text-transform:uppercase;color:var(--dim);margin:0 0 12px}
+.sh .rule{flex:1;height:1px;background:var(--line-strong)}
+.sh .cnt{color:var(--ink)}
+.sh svg{color:var(--teal)}
+.tagline{display:inline-flex;align-items:stretch;white-space:nowrap;max-width:100%}
+.tag-inv{font:800 16px/1 var(--display);letter-spacing:.07em;text-transform:uppercase;background:var(--ink);color:var(--bg);padding:6px 9px 5px}
+.readout{font:500 12px/1 var(--mono);letter-spacing:.06em;text-transform:uppercase;background:var(--surface-2);color:var(--ink);padding:0 10px;display:flex;align-items:center;gap:6px;border:1px solid var(--line-strong);border-left:0;overflow:hidden;text-overflow:ellipsis}
+.dash{border:1px dashed var(--line-strong)}
+.lead-v{position:absolute;left:50%;top:100%;height:27px;border-left:1px dashed var(--accent);z-index:2;pointer-events:none}
+.lead-v::before{content:"";position:absolute;left:-4.5px;top:-4px;width:7px;height:7px;border:1.5px solid var(--accent);border-radius:50%;background:var(--bg)}
+
+/* atoms */
+.mono{font-family:var(--mono)} .num{font-variant-numeric:tabular-nums}
+.label{font:500 11px/1.2 var(--mono);letter-spacing:.1em;text-transform:uppercase;color:var(--dim)}
+.tealtx{color:var(--teal)} .failtx{color:var(--fail)} .acctx{color:var(--accent)} .mutedtx{color:var(--muted)} .dimtx{color:var(--dim)}
+.btn{display:inline-flex;align-items:center;justify-content:center;gap:8px;font:700 14px/1 var(--display);padding:11px 16px;border:1px solid var(--line-strong);background:transparent;color:var(--ink);border-radius:0;text-decoration:none;white-space:nowrap;transition:border-color .15s,background .15s}
+.btn:hover{border-color:var(--ink)}
+.btn.primary{background:var(--accent);border-color:var(--accent);color:var(--accent-ink)}
+.btn.primary:hover{background:#ffb04f}
+.btn.danger{border-color:rgba(255,106,92,.5);color:var(--fail)}
+.btn.sm{padding:8px 12px;font-size:13px}
+.btn.icon{padding:0;width:34px;height:34px}
+.btn[disabled]{opacity:.4;cursor:not-allowed}
+.chip{display:inline-flex;align-items:center;gap:6px;font:500 11px/1 var(--mono);letter-spacing:.08em;text-transform:uppercase;padding:6px 8px;border:1px solid var(--line-strong);color:var(--ink);white-space:nowrap}
+.chip svg{color:var(--teal)}
+.chip.acc{border-color:rgba(249,154,44,.55);color:var(--accent)} .chip.acc svg{color:var(--accent)}
+.chip.fail{border-color:rgba(255,106,92,.5)} .chip.fail svg{color:var(--fail)}
+.chip.mut{color:var(--muted)} .chip.mut svg{color:var(--dim)}
+.sq{display:inline-block;width:10px;height:10px;border:1px solid var(--line-strong);flex:none}
+.sq.f{background:var(--ink);border-color:var(--ink)} .sq.a{background:var(--accent);border-color:var(--accent)} .sq.t{background:var(--teal);border-color:var(--teal)} .sq.x{background:var(--fail);border-color:var(--fail)}
+.panel{background:var(--surface);border:1px solid var(--line)}
+.panel-h{display:flex;justify-content:space-between;align-items:center;gap:12px;padding:13px 18px;border-bottom:1px solid var(--line);flex-wrap:wrap}
+.panel-h h3{margin:0;font:700 15px/1.2 var(--display);display:flex;align-items:center;gap:8px}
+.gh{display:inline-flex;align-items:center;gap:6px;text-decoration:none}
+.gh:hover{color:var(--accent)}
+.avatar{width:30px;height:30px;display:grid;place-items:center;font:700 12px/1 var(--display);background:var(--surface-2);border:1px solid var(--line-strong);flex:none}
+.avatar.fac{background:var(--bg)} .avatar.fac::after{content:"";width:9px;height:9px;background:var(--accent)}
+.empty{padding:28px 18px;color:var(--muted);text-align:center;font-size:14px}
+.scroll-x{overflow-x:auto}
+
+/* shell */
+.top{position:sticky;top:env(safe-area-inset-top,0px);z-index:20;background:var(--bg);display:flex;align-items:center;gap:20px;height:64px;padding-left:max(24px,env(safe-area-inset-left,0px));padding-right:max(24px,env(safe-area-inset-right,0px));border-bottom:1px solid var(--line)}
+body::before{content:"";position:fixed;inset:0 0 auto;height:env(safe-area-inset-top,0px);z-index:30;background:var(--bg)}
+.logo{display:flex;align-items:center;gap:10px;font:800 19px/1 var(--display);letter-spacing:-.01em;text-decoration:none;flex:none}
+.logo i{width:20px;height:20px;border:2px solid var(--ink);display:grid;place-items:center}
+.logo i::after{content:"";width:8px;height:8px;background:var(--accent)}
+.ws-wrap{position:relative;flex:none}
+.ws{display:flex;align-items:center;gap:8px;padding:8px 10px;border:1px solid var(--line);font:500 13px/1 var(--mono);color:var(--muted);background:transparent}
+.ws b{color:var(--ink);font-weight:500}
+.nav{display:flex;gap:2px;overflow-x:auto;min-width:0;scrollbar-width:none}
+.nav a{font:500 14px/1 var(--text);color:var(--muted);text-decoration:none;padding:9px 10px;display:flex;align-items:center;gap:7px;white-space:nowrap}
+.nav a:hover{color:var(--ink)}
+.nav a svg{color:var(--dim)}
+.nav a[aria-current="page"]{color:var(--ink);box-shadow:inset 0 -2px 0 var(--accent)}
+.nav a[aria-current="page"] svg{color:var(--accent)}
+.badge{font:500 11px/1 var(--mono);background:var(--accent);color:var(--accent-ink);padding:3px 6px}
+.top .right{margin-left:auto;display:flex;align-items:center;gap:10px;flex:none}
+.pop{position:absolute;top:calc(100% + 8px);z-index:40;background:var(--surface);border:1px solid var(--line-strong);min-width:280px;box-shadow:0 24px 60px -20px rgba(0,0,0,.7)}
+.pop button,.pop a{display:flex;align-items:center;gap:10px;width:100%;padding:11px 14px;background:transparent;border:0;border-top:1px solid var(--line);text-align:left;text-decoration:none;font-size:14px}
+.pop > :first-child{border-top:0}
+.pop button:hover,.pop a:hover{background:var(--surface-2)}
+main{padding-block:32px 120px;padding-left:max(24px,env(safe-area-inset-left,0px));padding-right:max(24px,env(safe-area-inset-right,0px));max-width:1440px;margin:0 auto}
+.h-display{font:800 clamp(32px,4.2vw,46px)/1.03 var(--display);letter-spacing:-.025em;margin:0;text-wrap:balance}
+.h-display .dim{color:var(--dimmer)}
+.h2{font:800 26px/1.1 var(--display);letter-spacing:-.02em;margin:0}
+.page-head{display:flex;justify-content:space-between;align-items:flex-end;gap:16px;flex-wrap:wrap;margin-bottom:26px}
+.cols{display:grid;grid-template-columns:minmax(0,1fr) 360px;gap:28px;align-items:start}
+.stack{display:flex;flex-direction:column;gap:24px;min-width:0}
+.tabs{display:flex;gap:0;border:1px solid var(--line-strong);width:max-content;max-width:100%;overflow-x:auto}
+.tabs button{background:transparent;border:0;border-right:1px solid var(--line-strong);padding:9px 14px;font:500 12.5px/1 var(--mono);color:var(--muted);display:flex;align-items:center;gap:7px;white-space:nowrap}
+.tabs button:last-child{border-right:0}
+.tabs button[aria-pressed="true"]{background:var(--ink);color:var(--bg)}
+.tabs button[aria-pressed="true"] svg{color:var(--bg)}
+
+/* home */
+.signoff{border:1px solid var(--accent);background:linear-gradient(180deg,var(--acc-wash),transparent 70%)}
+.signoff .panel-h{border-color:rgba(249,154,44,.35)} .signoff .panel-h h3{color:var(--accent)}
+.so-row{display:grid;grid-template-columns:110px minmax(0,1fr) 220px 170px;align-items:center;gap:16px;padding:14px 18px;border-top:1px solid var(--line)}
+.so-row:first-child{border-top:0}
+.so-row .id{font:13px/1 var(--mono);color:var(--dim)}
+.so-row .t{font:700 15.5px/1.3 var(--display);text-decoration:none}
+.so-row .t:hover{color:var(--accent)}
+.so-row small{display:flex;align-items:center;gap:6px;font:400 13px/1.3 var(--text);color:var(--muted);margin-top:3px}
+.so-row .s{font:12.5px/1.4 var(--mono);display:flex;align-items:flex-start;gap:7px}
+.so-row .act{display:flex;justify-content:flex-end}
+.floor-row{display:grid;grid-template-columns:210px minmax(0,1fr) 84px;gap:18px;align-items:center;padding:14px 18px;border-top:1px solid var(--line)}
+.floor-row:first-child{border-top:0}
+.floor-row .pj b{font:700 15px/1.2 var(--display)}
+.floor-row .pj span{font:12px/1.4 var(--mono);color:var(--dim);display:flex;align-items:center;gap:5px;margin-top:3px}
+.rail{display:grid;grid-template-columns:repeat(6,minmax(0,1fr));position:relative}
+.rail::before{content:"";position:absolute;left:0;right:0;top:15px;height:1px;background:var(--line-strong)}
+.rail.off{opacity:.45}
+.st{position:relative;display:flex;flex-direction:column;align-items:flex-start;gap:6px;min-width:0}
+.st .slot{display:flex;gap:4px;height:30px;align-items:center;padding:0 6px;background:var(--bg);position:relative;z-index:1}
+.panel .st .slot{background:var(--surface)}
+.st .slot a{display:block;line-height:0}
+.st .slot .sq{width:12px;height:12px;transition:transform .15s}
+.st .slot a:hover .sq{transform:scale(1.3)}
+.st .nm{font:500 10.5px/1.2 var(--mono);letter-spacing:.08em;text-transform:uppercase;color:var(--dim);padding-left:6px}
+.cost{font:500 14px/1 var(--mono);text-align:right}
+.cost small{display:block;font-size:11px;color:var(--dim);margin-top:4px}
+.stats{display:grid;grid-template-columns:1fr 1fr;border:1px solid var(--line)}
+.stat{padding:15px 18px;border-right:1px solid var(--line);border-bottom:1px solid var(--line)}
+.stat:nth-child(2n){border-right:0} .stat:nth-last-child(-n+2){border-bottom:0}
+.stat .label{display:flex;align-items:center;gap:6px} .stat .label svg{color:var(--teal)}
+.stat b{display:block;font:800 30px/1 var(--display);margin-top:10px;letter-spacing:-.02em}
+.feed{list-style:none;margin:0;padding:0}
+.feed li{display:grid;grid-template-columns:28px minmax(0,1fr);gap:12px;padding:12px 18px;border-top:1px solid var(--line);font-size:14px}
+.feed li:first-child{border-top:0}
+.feed .avatar{width:26px;height:26px;font-size:11px}
+.feed .w{font:12px/1.4 var(--mono);color:var(--dim);display:flex;align-items:center;gap:6px;margin-top:3px}
+.feed .w svg{color:var(--teal)}
+.feed li.new{animation:flash 1.6s ease-out}
+@keyframes flash{from{background:var(--acc-wash)}to{background:transparent}}
+
+/* board */
+.kanban{display:grid;grid-template-columns:repeat(5,minmax(220px,1fr));gap:14px;overflow-x:auto;padding-bottom:6px}
+.kcol{display:flex;flex-direction:column;gap:10px;min-width:0}
+.kcol h4{margin:0;display:flex;justify-content:space-between;align-items:center;font:500 11px/1 var(--mono);letter-spacing:.1em;text-transform:uppercase;color:var(--dim);padding:0 2px 8px;border-bottom:1px solid var(--line-strong)}
+.kcard{display:block;text-decoration:none;background:var(--surface);border:1px solid var(--line);padding:12px 13px;transition:border-color .15s}
+.kcard:hover{border-color:var(--line-strong)}
+.kcard.needs{border-color:rgba(249,154,44,.6)}
+.kcard .r1{display:flex;justify-content:space-between;align-items:center;font:12.5px/1 var(--mono);color:var(--dim);gap:8px}
+.kcard .tt{font:700 14.5px/1.3 var(--display);margin:8px 0 10px}
+.kcard .bar{height:3px;background:var(--line)} .kcard .bar i{display:block;height:100%;background:var(--accent)}
+
+/* runs */
+.tbl{width:100%;border-collapse:collapse;min-width:760px}
+.tbl th{font:500 11px/1 var(--mono);letter-spacing:.1em;text-transform:uppercase;color:var(--dim);text-align:left;padding:12px 16px;border-bottom:1px solid var(--line-strong);white-space:nowrap}
+.tbl td{padding:13px 16px;border-bottom:1px solid var(--line);vertical-align:middle;font-size:14px}
+.tbl tr:last-child td{border-bottom:0}
+.tbl td.t a{font:700 14.5px/1.3 var(--display);text-decoration:none}
+.tbl td.t a:hover{color:var(--accent)}
+.pips{display:flex;gap:4px}
+
+/* run detail */
+.runhead{display:flex;justify-content:space-between;gap:16px;align-items:flex-end;flex-wrap:wrap;margin-bottom:24px}
+.crumb{display:flex;align-items:center;gap:8px;font:13px/1 var(--mono);color:var(--dim);margin-bottom:14px;flex-wrap:wrap}
+.crumb a{text-decoration:none} .crumb a:hover{color:var(--accent)}
+.stagebox{padding:28px 28px 22px;margin-bottom:24px}
+.srail{display:grid;grid-template-columns:repeat(6,minmax(0,1fr));position:relative}
+.srail .seg{position:relative;padding-top:26px}
+.srail .seg::before{content:"";position:absolute;left:0;right:0;top:8px;height:2px;background:var(--line-strong)}
+.srail .seg.done::before{background:var(--ink)}
+.srail .seg.cur::before{background:linear-gradient(90deg,var(--accent) 50%,var(--line-strong) 50%)}
+.srail .node{position:absolute;left:0;top:2px;width:14px;height:14px;background:var(--bg);border:1.5px solid var(--line-strong)}
+.srail .done .node{background:var(--ink);border-color:var(--ink)}
+.srail .cur .node{background:var(--accent);border-color:var(--accent);box-shadow:0 0 0 5px var(--glow)}
+.srail .cur.fail .node{background:var(--fail);border-color:var(--fail);box-shadow:0 0 0 5px var(--fail-wash)}
+.srail .lbl{font:500 11px/1.2 var(--mono);letter-spacing:.08em;text-transform:uppercase;color:var(--dim)}
+.srail .cur .lbl{color:var(--accent)}
+.srail .ttl{font:700 16px/1.2 var(--display);margin:8px 0 4px}
+.srail .todo .ttl{color:var(--dimmer)}
+.srail .sub{font-size:12.5px;color:var(--muted);padding-right:12px}
+.loopnote{margin-top:16px;display:inline-flex;gap:8px;align-items:center;border:1px dashed var(--accent);background:var(--acc-wash);padding:8px 12px;font:12.5px/1.3 var(--mono)}
+.log{list-style:none;margin:0;padding:0}
+.log li{display:grid;grid-template-columns:56px 20px minmax(0,1fr);gap:10px;padding:12px 18px;border-top:1px solid var(--line);font-size:14px;align-items:start}
+.log li:first-child{border-top:0}
+.log li .tm{font:12.5px/1.5 var(--mono);color:var(--dim)}
+.log li svg{margin-top:2px;color:var(--teal)}
+.log li.held{background:var(--acc-wash)} .log li.held .tm{color:var(--accent)} .log li.held svg{color:var(--accent)}
+.log li.you svg{color:var(--accent)}
+.log code,.inline-code{font:13px/1 var(--mono);background:var(--bg);border:1px solid var(--line);padding:1px 5px}
+.receipt .kv{display:grid;grid-template-columns:120px minmax(0,1fr)}
+.kv{display:grid;grid-template-columns:130px minmax(0,1fr);margin:0}
+.kv dt{font:500 11px/1 var(--mono);letter-spacing:.08em;text-transform:uppercase;color:var(--dim);padding:11px 18px;border-top:1px solid var(--line);display:flex;align-items:center}
+.kv dd{margin:0;padding:11px 18px;border-top:1px solid var(--line);font:13.5px/1.35 var(--mono);display:flex;align-items:center;gap:6px;min-width:0;overflow-wrap:anywhere}
+.receipt .kv dt:first-of-type,.receipt .kv dd:first-of-type{border-top:0}
+.receipt-acts{display:flex;flex-direction:column;gap:10px;padding:16px 18px;border-top:1px dashed var(--line-strong)}
+.receipt-acts .row{display:flex;gap:10px} .receipt-acts .row .btn{flex:1}
+.diff{font:12.5px/1.65 var(--mono);margin:0;padding:14px 0;overflow-x:auto;white-space:pre}
+.diff span{display:block;padding:0 18px}
+.diff .a{background:rgba(121,169,173,.10);color:#bfe0e2} .diff .d{background:var(--fail-wash);color:#ffb3ab} .diff .h{color:var(--dim)}
+.tx{list-style:none;margin:0;padding:6px 0;font:13px/1.55 var(--mono)}
+.tx li{padding:5px 18px;display:flex;gap:10px}
+.tx li .k{flex:none;width:18px;color:var(--dim)}
+.tx li.tool .k{color:var(--teal)} .tx li.ok .k{color:var(--teal)}
+
+/* line editor */
+.line{display:grid;grid-template-columns:repeat(6,minmax(0,1fr));margin-top:4px}
+.stn{position:relative;padding:15px 15px 14px;border:1px solid var(--line);background:var(--surface);margin-right:14px;display:flex;flex-direction:column;gap:8px;min-height:150px;text-align:left;transition:border-color .15s}
+.stn:hover{border-color:var(--line-strong)}
+.stn:last-child{margin-right:0}
+.stn:not(:last-child)::after{content:"";position:absolute;right:-15px;top:28px;width:14px;height:2px;background:repeating-linear-gradient(90deg,var(--accent) 0 4px,transparent 4px 7px)}
+.stn .no{font:500 11px/1 var(--mono);color:var(--teal);position:absolute;right:11px;top:11px}
+.stn > svg{color:var(--muted)}
+.stn h4{margin:0;font:800 18px/1.1 var(--display);letter-spacing:-.01em}
+.stn ul{list-style:none;margin:0;padding:0;font:12px/1.55 var(--mono);color:var(--muted);overflow-wrap:anywhere}
+.stn ul li::before{content:"· ";color:var(--dim)}
+.stn .dot{position:absolute;left:11px;top:-5px;width:8px;height:8px;background:var(--accent)}
+.stn[aria-pressed="true"]{border-color:var(--accent);background:linear-gradient(180deg,var(--acc-wash),var(--surface))}
+.stn[aria-pressed="true"] h4,.stn[aria-pressed="true"] > svg{color:var(--accent)}
+.insp{margin-top:28px;display:grid;grid-template-columns:1fr 1fr;border:1px solid var(--line-strong)}
+.insp-h{grid-column:1/-1;display:flex;justify-content:space-between;align-items:center;gap:12px;padding:13px 20px;border-bottom:1px solid var(--line);background:var(--surface);flex-wrap:wrap}
+.fld{padding:15px 20px;border-bottom:1px solid var(--line);display:flex;flex-direction:column;gap:8px;min-width:0}
+.fld:nth-child(even){border-right:1px solid var(--line)}
+.fld.last{border-bottom:0}
+.fld label,.fld .lb{font:500 11px/1 var(--mono);letter-spacing:.1em;text-transform:uppercase;color:var(--dim);display:flex;align-items:center;gap:6px}
+.inp,.fld select{font:14px/1 var(--mono);color:var(--ink);background:var(--bg);border:1px solid var(--line-strong);padding:10px 12px;border-radius:0;appearance:none;width:100%}
+.inp.changed,.fld select.changed{border-color:var(--accent)}
+.selw{position:relative}
+.selw svg{position:absolute;right:11px;top:50%;transform:translateY(-50%);color:var(--muted);pointer-events:none}
+.fld .hint{font-size:12.5px;color:var(--muted)}
+.fld.locked{background:var(--teal-wash)}
+.fld .val{font:14px/1.2 var(--mono);color:var(--teal);display:flex;align-items:center;gap:8px}
+.seg2{display:flex;border:1px solid var(--line-strong);width:max-content}
+.seg2 button{background:transparent;border:0;border-right:1px solid var(--line-strong);padding:9px 14px;font:500 13px/1 var(--mono);color:var(--muted)}
+.seg2 button:last-child{border-right:0}
+.seg2 button[aria-pressed="true"]{background:var(--ink);color:var(--bg)}
+.seg2.changed{border-color:var(--accent)}
+.toggle{display:flex;align-items:center;gap:10px;background:transparent;border:0;padding:0;font:14px/1 var(--mono);color:var(--ink)}
+.toggle .tr{width:38px;height:20px;border:1px solid var(--line-strong);position:relative;flex:none}
+.toggle .tr::after{content:"";position:absolute;top:3px;left:3px;width:12px;height:12px;background:var(--dim);transition:left .15s}
+.toggle[aria-checked="true"] .tr{border-color:var(--teal)}
+.toggle[aria-checked="true"] .tr::after{left:21px;background:var(--teal)}
+.toggle.changed .tr{border-color:var(--accent)}
+.ver{list-style:none;margin:0;padding:0}
+.ver li{padding:12px 18px;border-top:1px solid var(--line);font-size:14px}
+.ver li:first-child{border-top:0}
+.ver .meta{font:12px/1.4 var(--mono);color:var(--dim);display:flex;justify-content:space-between;align-items:center;margin-bottom:4px}
+.ver .meta span{display:inline-flex;align-items:center;gap:6px}
+.vd{font:12.5px/1.5 var(--mono);margin-top:6px;overflow-wrap:anywhere}
+.vd .m{color:var(--fail);display:block} .vd .p{color:var(--teal);display:block}
+.note{border-left:3px solid var(--accent);background:var(--acc-wash);padding:12px 14px;font-size:13.5px;display:flex;gap:10px;align-items:flex-start}
+.note svg{color:var(--accent);margin-top:2px}
+.code{font:13px/1.6 var(--mono);background:var(--bg);border:1px solid var(--line);padding:12px 14px;color:var(--ink);position:relative;overflow-x:auto;white-space:pre}
+.code .c{color:var(--dim)} .code .hl{color:var(--accent)}
+.code .cp{position:absolute;right:8px;top:8px;background:var(--bg);border:1px solid var(--line);color:var(--muted);width:28px;height:28px;display:grid;place-items:center}
+
+/* runners */
+.rtab .nm{display:flex;gap:12px;align-items:center}
+.rtab .nm > svg{color:var(--muted)}
+.rtab tr.sel td{background:var(--acc-wash)}
+.rtab tr.sel td:first-child{box-shadow:inset 3px 0 0 var(--accent)}
+.rtab tr.sel .nm > svg{color:var(--accent)}
+.rtab .nm button{background:transparent;border:0;padding:0;text-align:left}
+.rtab .nm b{display:block;font:700 15px/1.2 var(--display)}
+.rtab .nm span{font:12px/1.4 var(--mono);color:var(--dim)}
+.rtab tr{cursor:pointer}
+.cells{display:flex;gap:4px} .cells .sq{width:14px;height:14px}
+.seen{font:13px/1 var(--mono);display:inline-flex;align-items:center;gap:6px;white-space:nowrap}
+.egress{list-style:none;margin:0;padding:0;font:13px/1 var(--mono)}
+.egress li{display:flex;justify-content:space-between;align-items:center;gap:10px;padding:10px 14px;border-top:1px dashed var(--line)}
+.egress li:first-child{border-top:0}
+.egress li span:last-child{display:inline-flex;align-items:center;gap:6px}
+.warn{border:1px solid rgba(255,106,92,.45);background:var(--fail-wash);padding:14px 16px;font-size:13.5px;display:flex;gap:12px;align-items:flex-start}
+.warn > svg{color:var(--fail);margin-top:1px}
+.warn b{color:var(--fail);font-family:var(--display)}
+.warn .acts{display:flex;gap:10px;margin-top:10px;flex-wrap:wrap}
+
+/* setup */
+.ob{display:grid;grid-template-columns:290px minmax(0,1fr);min-height:calc(100vh - 64px)}
+.ob-side{border-right:1px solid var(--line);padding:32px 26px;display:flex;flex-direction:column;gap:4px}
+.ob-step{display:grid;grid-template-columns:28px 1fr;gap:12px;padding:11px 0;align-items:start;background:transparent;border:0;text-align:left}
+.ob-step .n{font:500 12px/1 var(--mono);width:28px;height:28px;display:grid;place-items:center;border:1px solid var(--line-strong);color:var(--muted)}
+.ob-step.done .n{background:var(--teal);border-color:var(--teal);color:var(--bg)}
+.ob-step.cur .n{background:var(--accent);border-color:var(--accent);color:var(--accent-ink)}
+.ob-step strong{display:block;font:700 15px/1.2 var(--display)}
+.ob-step span{font-size:13px;color:var(--muted)}
+.ob-step.todo strong{color:var(--muted)}
+.ob-main{padding:36px 48px 60px;display:flex;flex-direction:column;gap:24px;max-width:1100px;min-width:0}
+.choice{display:grid;grid-template-columns:1fr 1fr;gap:22px;border:0;padding:0;margin:0;min-width:0}
+.opt{position:relative;padding:20px 22px;border:1px solid var(--line-strong);background:var(--surface);display:flex;flex-direction:column;gap:12px;cursor:pointer;min-width:0}
+.opt:hover{border-color:var(--ink)}
+.opt.sel{border-color:var(--accent);box-shadow:0 20px 60px -30px var(--glow)}
+.opt input{position:absolute;opacity:0;pointer-events:none}
+.opt:has(input:focus-visible){outline:2px solid var(--accent);outline-offset:2px}
+.opt .hd{display:flex;justify-content:space-between;align-items:center}
+.opt h3{margin:0;font:800 21px/1.1 var(--display);letter-spacing:-.01em;display:flex;align-items:center;gap:10px}
+.opt h3 svg{color:var(--muted)} .opt.sel h3 svg{color:var(--accent)}
+.opt p{margin:0;color:var(--muted);font-size:14.5px}
+.radio{width:18px;height:18px;border:1px solid var(--line-strong);display:grid;place-items:center;flex:none}
+.opt.sel .radio{border-color:var(--accent)} .opt.sel .radio::after{content:"";width:8px;height:8px;background:var(--accent)}
+.trust{width:100%;border-collapse:collapse;font-size:14px;min-width:560px}
+.trust th{font:500 11px/1 var(--mono);letter-spacing:.1em;text-transform:uppercase;color:var(--dim);text-align:left;padding:0 14px 10px;border-bottom:1px solid var(--line-strong)}
+.trust td{padding:10px 14px;border-bottom:1px solid var(--line)}
+.trust td:first-child{font-weight:700;width:30%}
+.trust td:first-child svg{color:var(--dim);margin-right:8px}
+.trust td.on{background:var(--acc-wash);color:var(--teal)}
+.trust td.off{color:var(--muted)}
+.repo-list{display:flex;flex-direction:column;border:1px solid var(--line)}
+.repo{display:flex;align-items:center;gap:14px;padding:14px 16px;border-top:1px solid var(--line);background:var(--surface);cursor:pointer;text-align:left;border-left:0;border-right:0;border-bottom:0}
+.repo:first-child{border-top:0}
+.repo b{font:700 15px/1.2 var(--display)}
+.repo span.m{font:12px/1.4 var(--mono);color:var(--dim)}
+.repo[aria-pressed="true"]{background:var(--acc-wash);box-shadow:inset 3px 0 0 var(--accent)}
+.repo .tail{margin-left:auto}
+.row-acts{display:flex;gap:12px;flex-wrap:wrap}
+
+/* modal, toasts, proto bar */
+.scrim{position:fixed;inset:0;background:var(--scrim);z-index:60;display:grid;place-items:center;padding:20px}
+.modal{width:min(560px,100%);background:var(--surface);border:1px solid var(--line-strong);box-shadow:0 30px 80px -20px rgba(0,0,0,.8);max-height:calc(100vh - 40px);overflow:auto}
+.modal .mh{display:flex;justify-content:space-between;align-items:center;padding:16px 20px;border-bottom:1px solid var(--line)}
+.modal .mh h2{margin:0;font:800 20px/1.15 var(--display)}
+.modal .mb{padding:18px 20px;display:flex;flex-direction:column;gap:16px}
+.modal .mf{display:flex;justify-content:flex-end;gap:10px;padding:14px 20px;border-top:1px solid var(--line)}
+.field{display:flex;flex-direction:column;gap:8px}
+.field label{font:500 11px/1 var(--mono);letter-spacing:.1em;text-transform:uppercase;color:var(--dim)}
+textarea.inp{min-height:84px;line-height:1.45;font-family:var(--text);resize:vertical}
+.radio-row{display:flex;gap:12px;align-items:flex-start;padding:12px 14px;border:1px solid var(--line);cursor:pointer}
+.radio-row:has(input:checked){border-color:var(--accent);background:var(--acc-wash)}
+.radio-row input{accent-color:var(--accent);margin-top:3px}
+.check{display:flex;gap:10px;align-items:center;font-size:14px}
+.check input{accent-color:var(--accent);width:16px;height:16px}
+.toasts{position:fixed;right:max(20px,env(safe-area-inset-right,0px));bottom:calc(20px + env(safe-area-inset-bottom,0px));z-index:70;display:flex;flex-direction:column;gap:8px;align-items:flex-end;pointer-events:none}
+.toast{background:var(--surface-2);border:1px solid var(--line-strong);border-left:3px solid var(--teal);padding:12px 14px;font-size:14px;display:flex;gap:10px;align-items:center;max-width:380px;box-shadow:0 20px 50px -20px rgba(0,0,0,.8);animation:tin .2s ease-out}
+.toast.acc{border-left-color:var(--accent)} .toast svg{color:var(--teal)} .toast.acc svg{color:var(--accent)}
+@keyframes tin{from{transform:translateY(8px);opacity:0}}
+.proto{position:fixed;left:max(16px,env(safe-area-inset-left,0px));bottom:calc(16px + env(safe-area-inset-bottom,0px));z-index:50;display:flex;align-items:center;gap:6px;background:var(--surface-2);border:1px dashed var(--line-strong);padding:6px;box-shadow:0 20px 50px -20px rgba(0,0,0,.8);max-width:calc(100vw - 32px);flex-wrap:wrap}
+.proto .label{padding:0 6px;display:flex;gap:6px;align-items:center}
+.proto .btn{padding:7px 10px;font-size:12.5px}
+.proto .btn[aria-pressed="true"]{border-color:var(--accent);color:var(--accent)}
+
+@media (max-width:1080px){
+  .cols{grid-template-columns:minmax(0,1fr)}
+  .so-row{grid-template-columns:90px minmax(0,1fr);}
+  .so-row .s{grid-column:2} .so-row .act{grid-column:2;justify-content:flex-start}
+  .line{grid-template-columns:repeat(3,minmax(0,1fr));row-gap:14px}
+  .stn:nth-child(3n){margin-right:0} .stn:nth-child(3n)::after{display:none}
+}
+@media (max-width:760px){
+  .top{gap:12px} .ws-wrap{display:none} .top .right .hide-sm{display:none}
+  .floor-row{grid-template-columns:minmax(0,1fr) 70px}
+  .floor-row .rail{grid-column:1/-1;grid-row:2}
+  .insp{grid-template-columns:1fr} .fld:nth-child(even){border-right:0}
+  .ob{grid-template-columns:1fr} .ob-side{border-right:0;border-bottom:1px solid var(--line);padding:20px 16px} .ob-side .note{display:none}
+  .ob-main{padding:24px 0 60px}
+  .choice{grid-template-columns:1fr}
+  .srail{grid-template-columns:repeat(3,minmax(0,1fr));row-gap:18px}
+  .line{grid-template-columns:repeat(2,minmax(0,1fr))}
+  .stn:nth-child(3n){margin-right:14px} .stn:nth-child(3n)::after{display:block} .stn:nth-child(2n){margin-right:0} .stn:nth-child(2n)::after{display:none}
+  .lead-v{display:none}
+}
+</style>
+
+<div id="app"></div>
+<div class="toasts" id="toasts" aria-live="polite"></div>
+
+<script>
+(function(){
+/* ------------------------------------------------------------------ data */
+const STAGES=['todo','spec','cell','gates','review','pr'];
+const ST_NAME={todo:'Card',spec:'Spec',cell:'Cell',gates:'Gates',review:'Review',pr:'Pull request',merged:'Merged'};
+const ST_ICON={todo:'tag',spec:'file-text',cell:'box',gates:'list-checks',review:'scan-eye',pr:'git-pull-request'};
+
+function seed(){
+  return {
+    clock: 21*60+24,
+    auto:false,
+    route:'home', boardProject:'billing', runsFilter:'all', runTab:'log',
+    lineProject:'billing', lineStation:'gates', selRunner:'home-server',
+    pop:null, modal:null, setup:freshSetup(),
+    stats:{merged:23,repairs:9,stepped:3,spend:12.94},
+    nextId:776, nextPr:780,
+    projects:[
+      {id:'billing',name:'acme/billing',host:'github',runner:'home-server',spend:9.84},
+      {id:'infra',name:'acme/infra',host:'gitlab',runner:'taskcell',spend:3.10},
+      {id:'web',name:'acme/web',host:'github',runner:'pawel-mbp',spend:0}
+    ],
+    runners:[
+      {id:'home-server',name:'home-server',kind:'own',os:'linux/amd64',ver:'1.13.2',cells:4,online:true,egress:true,seen:'4 s',icon:'server'},
+      {id:'pawel-mbp',name:'pawel-mbp',kind:'own',os:'darwin/arm64',ver:'1.12.0',cells:2,online:false,egress:false,seen:'2 h',icon:'laptop'},
+      {id:'taskcell',name:'Taskcell cells',kind:'hosted',os:'hosted · EU · metered',ver:'managed',cells:4,online:true,egress:true,seen:'live',icon:'cloud'}
+    ],
+    cards:[
+      card('TC-0764','billing','Rename the metrics branch to taskcell-metrics','pr','signoff',{issue:764,pr:764,cost:1.62,author:'sonnet-5-5',reviewer:'codex',diff:'+64 −21 · 9 files',ci:'1 file, by a human',followup:'Copy vanguard-metrics to taskcell-metrics once, after merging.'}),
+      card('TC-0771','infra','Memory default for the sandbox','spec','question',{issue:771,cost:0.31,question:'Should the default memory limit follow the host\'s RAM, or stay fixed at 4 GB?'}),
+      card('TC-0768','billing','Run one issue or one PR per invocation','gates','repairing',{issue:768,cost:2.14,repair:1,author:'sonnet-5-5 → opus',reviewer:'codex',tests:'2 failing'}),
+      card('TC-0769','billing','Task dependencies on GitHub','spec','running',{issue:769,cost:0.22}),
+      card('TC-0770','billing','Retry webhooks with backoff','cell','running',{issue:770,cost:0.88,willFail:true}),
+      card('TC-0772','billing','Show VAT on invoice PDFs','cell','running',{issue:772,cost:0.61}),
+      card('TC-0773','infra','Rotate runner tokens from the Hub','review','running',{issue:773,cost:1.04}),
+      card('TC-0775','billing','Rate-limit the export endpoint','todo','queued',{issue:775}),
+      card('TC-0657','web','Retry the sandbox image build on a GitHub 504','todo','blocked',{issue:657}),
+      card('TC-0774','web','Dark mode for settings','todo','blocked',{issue:774}),
+      card('TC-0767','billing','Decide the sandbox profile once','merged','merged',{issue:767,pr:767,cost:3.40,repairs:2}),
+      card('TC-0766','infra','Eval: tell the tool-less model it has no tools','merged','merged',{issue:766,pr:766,cost:0.96}),
+      card('TC-0212','billing','Add CSV export to invoices','merged','merged',{issue:212,pr:212,cost:0.84})
+    ],
+    feed:[
+      {who:'MS',text:'Marta merged <b>PR #212</b> from its receipt',meta:'acme/billing · 14 min ago',icon:'git-merge'},
+      {who:'SP',text:'Sebastian changed the line: review now runs on Codex',meta:'acme/billing · line v7 · 1 h ago',icon:'workflow'},
+      {who:'PK',text:'You answered a spec question on <b>#766</b>',meta:'acme/infra · 3 h ago',icon:'message-circle-reply'},
+      {who:'MS',text:'Marta asked for changes on <b>PR #209</b>; the card went back for a revision',meta:'acme/billing · yesterday',icon:'rotate-ccw'}
+    ],
+    lines:{
+      billing:freshLine('home-server'),
+      infra:Object.assign(freshLine('Taskcell cells'),{v:4,history:[{v:4,who:'Sebastian',when:'Mon',text:'Moved to Taskcell cells',diff:[['cell.runner','home-server','Taskcell cells']]}]}),
+      web:Object.assign(freshLine('pawel-mbp'),{v:2,history:[{v:2,who:'You',when:'Oct 30',text:'First line',diff:[]}]})
+    }
+  };
+}
+function freshSetup(){return {step:1,gh:'no',repo:'acme/docs',loc:'mine',runnerUp:false,region:'EU (Frankfurt)',engine:'Claude Code',reviewer:'Codex',keySaved:false,picked:null};}
+function freshLine(runner){
+  return {v:7,draft:null,cfg:{
+    card:{label:'vanguard:ready',source:'GitHub Issues',needsInfo:true},
+    spec:{planner:'opus',window:'10 min',post:true},
+    cell:{engine:'Claude Code',budget:'$4.00',runner:runner},
+    gates:{verify:'pnpm verify',repairs:'2',escalate:'opus',timeout:'15 min'},
+    review:{engine:'Codex',fixes:true},
+    pr:{openAs:'Draft if a gate failed',signoff:'Any 1 member'}
+  },history:[
+    {v:7,who:'Sebastian',when:'1 h ago',text:'Review runs on Codex',diff:[['review.engine','Claude Code','Codex']]},
+    {v:6,who:'Marta',when:'Tue',text:'Budget cap raised',diff:[['cell.budget','$2.50','$4.00']]},
+    {v:5,who:'You',when:'Nov 3',text:'Planner moved to opus',diff:[['spec.planner','sonnet-5-5','opus']]}
+  ]};
+}
+function card(id,project,title,stage,status,o){
+  const c=Object.assign({id,project,title,stage,status,cost:0,repairs:0,author:'sonnet-5-5',reviewer:'codex',tests:'pass',ci:'untouched',diff:'+41 −8 · 4 files',events:[]},o||{});
+  c.events=initialEvents(c);
+  return c;
+}
+function initialEvents(c){
+  const e=[];
+  const t=(m)=>fmt(21*60+m);
+  if(c.stage==='todo') return [{tm:t(0),ic:'tag',text:`Issue #${c.issue} labelled <code>vanguard:ready</code>. Waiting for a free cell.`}];
+  e.push({tm:t(2),ic:'file-text',text:`Read issue #${c.issue} and wrote the spec. ${c.id==='TC-0768'?'6':'4'} acceptance criteria, each mapped to a test or a doc line.`});
+  if(c.status==='question'){e.push({tm:t(4),ic:'message-circle-question',cls:'held',text:'<b>Held at spec.</b> The planner has a question only you can answer.'});return e;}
+  if(c.stage==='spec') return e;
+  e.push({tm:t(6),ic:'box',text:'Built in a sealed cell, with no repository token inside.'});
+  if(c.stage==='cell') return e;
+  if(c.id==='TC-0768'){
+    e.push({tm:t(21),ic:'circle-x',cls:'held',text:'<b>Held at gates.</b> <code>pnpm test</code>: 2 failing in <code>src/cli/watch.test.ts</code>. Typecheck and secret scan passed.'});
+    e.push({tm:t(21),ic:'wrench',text:'Repair 1 of 2 runs on a stronger model: sonnet-5-5 → opus. Nothing for you to do yet.'});
+    return e;
+  }
+  e.push({tm:t(14),ic:'circle-check',text:'Gates passed: types, tests, lint. Secret scan clean.'});
+  if(c.stage==='gates') return e;
+  if(c.stage==='review') {e.push({tm:t(16),ic:'scan-eye',text:'A fresh-context reviewer on Codex is reading the diff.'});return e;}
+  e.push({tm:t(19),ic:'scan-eye',text:'Review on Codex: no blockers.'});
+  e.push({tm:t(20),ic:'git-pull-request',text:`The host pushed the branch and opened PR #${c.pr||c.issue}.`});
+  if(c.stage==='merged') e.push({tm:t(40),ic:'git-merge',text:'Merged into main.'});
+  return e;
+}
+function fmt(m){m=((m%1440)+1440)%1440;return String(Math.floor(m/60)).padStart(2,'0')+':'+String(m%60).padStart(2,'0');}
+
+let S=seed();
+
+/* ------------------------------------------------------------------ helpers */
+const esc=s=>String(s).replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
+const ic=(n,cls,style)=>`<i data-lucide="${n}"${cls?` class="${cls}"`:''}${style?` style="${style}"`:''}></i>`;
+const P=id=>S.projects.find(p=>p.id===id);
+const R=id=>S.runners.find(r=>r.id===id||r.name===id);
+const C=id=>S.cards.find(c=>c.id.toLowerCase()===String(id).toLowerCase());
+const hostIc=h=>h==='gitlab'?'gitlab':'github';
+const money=n=>'$'+n.toFixed(2);
+const runnerOf=p=>R(p.runner);
+const needsYou=c=>c.status==='signoff'||c.status==='question';
+const moving=c=>['spec','cell','gates','review'].includes(c.stage)&&c.status!=='question';
+const stIdx=s=>s==='merged'?6:STAGES.indexOf(s);
+const prLabel=c=>c.pr?`PR #${c.pr}`:`#${c.issue}`;
+function stateChip(c){
+  const m={
+    signoff:['acc','stamp','Sign-off'],question:['acc','message-circle-question','Question'],
+    repairing:['fail','wrench','Repairing'],running:['','loader-circle','Running'],queued:['mut','clock','Queued'],
+    blocked:['fail','wifi-off','Runner offline'],merged:['','git-merge','Merged'],revision:['acc','rotate-ccw','Revision']
+  }[c.status]||['mut','circle','—'];
+  return `<span class="chip ${m[0]}">${ic(m[1],'i12'+(c.status==='running'?' spin':''))}${m[2]}</span>`;
+}
+function pips(c){
+  const i=stIdx(c.stage);let h='';
+  for(let k=1;k<6;k++){
+    let cls='';
+    if(c.stage==='merged'||k<i) cls='f';
+    else if(k===i) cls= c.status==='repairing'?'x': needsYou(c)?'a':'t';
+    h+=`<span class="sq ${cls}"></span>`;
+  }
+  return `<span class="pips" aria-label="stage ${ST_NAME[c.stage]}">${h}</span>`;
+}
+function sqFor(c){return c.status==='repairing'?'x':needsYou(c)?'a':c.status==='blocked'||c.status==='queued'?'':'f';}
+function ago(){return 'just now';}
+
+/* ------------------------------------------------------------------ shell */
+function nav(){
+  const n=S.cards.filter(needsYou).length;
+  const items=[['home','house','Home'],['board','square-kanban','Board'],['runs','activity','Runs'],['line','workflow','Line'],['runners','server','Runners'],['signoff','stamp','Sign-off']];
+  const cur=S.route.startsWith('run-')?'runs':S.route;
+  return items.map(([r,i,l])=>`<a href="#${r}" ${cur===r?'aria-current="page"':''}>${ic(i)}${l}${r==='signoff'&&n?` <span class="badge">${n}</span>`:''}</a>`).join('');
+}
+function topbar(){
+  if(S.route==='setup') return `<header class="top"><a class="logo" href="#home"><i aria-hidden="true"></i>Taskcell</a>
+    <span class="label" style="margin-left:auto;display:flex;align-items:center;gap:8px">${ic('settings-2','i14')}New project · acme</span>
+    <a class="btn sm" href="#home">${ic('x','i14')}Exit setup</a></header>`;
+  return `<header class="top">
+    <a class="logo" href="#home"><i aria-hidden="true"></i>Taskcell</a>
+    <div class="ws-wrap"><button class="ws" type="button" data-act="pop" data-v="ws" aria-expanded="${S.pop==='ws'}">${ic('building-2','i14')}<b>acme</b> · team${ic('chevrons-up-down','i14')}</button>
+      ${S.pop==='ws'?`<div class="pop" style="left:0"><button type="button" data-act="noop">${ic('check','i14','color:var(--accent)')}<span><b>acme</b> <span class="dimtx mono" style="font-size:12px">team · 3 people</span></span></button>
+      <button type="button" data-act="toast" data-v="Personal workspaces are not in this prototype.">${ic('user','i14')}Paweł <span class="dimtx mono" style="font-size:12px">personal</span></button>
+      <a href="#setup">${ic('plus','i14')}Set up a new project</a></div>`:''}</div>
+    <nav class="nav" aria-label="Main">${nav()}</nav>
+    <div class="right">
+      <a class="btn icon hide-sm" href="https://github.com/" target="_blank" rel="noopener" aria-label="Taskcell on GitHub">${ic('github')}</a>
+      <div style="position:relative" class="hide-sm"><button class="btn icon" type="button" data-act="pop" data-v="bell" aria-label="Activity" aria-expanded="${S.pop==='bell'}">${ic('bell')}</button>
+        ${S.pop==='bell'?`<div class="pop" style="right:0;width:340px"><div class="panel-h"><h3>Activity</h3><span class="label">latest</span></div><ul class="feed">${S.feed.slice(0,5).map(feedItem).join('')}</ul></div>`:''}</div>
+      <button class="btn sm primary" type="button" data-act="modal" data-v="newcard">${ic('plus','i14')}<span class="hide-sm">New card</span></button>
+      <span class="avatar" title="Paweł">PK</span>
+    </div></header>`;
+}
+function feedItem(f,i){
+  return `<li class="${f.fresh?'new':''}">${f.who==='TC'?'<span class="avatar fac" aria-label="Factory"></span>':`<span class="avatar">${f.who}</span>`}<div>${f.text}<span class="w">${ic(f.icon,'i12')}${esc(f.meta)}</span></div></li>`;
+}
+function protobar(){
+  return `<div class="proto" role="region" aria-label="Prototype controls">
+    <span class="label">${ic('flask-conical','i12','color:var(--accent)')}Prototype</span>
+    <button class="btn" type="button" data-act="tick">${ic('step-forward','i14')}Advance</button>
+    <button class="btn" type="button" data-act="auto" aria-pressed="${S.auto}">${ic(S.auto?'pause':'play','i14')}${S.auto?'Pause':'Run'} factory</button>
+    <a class="btn" href="#setup">${ic('rocket','i14')}Setup</a>
+    <button class="btn" type="button" data-act="reset">${ic('rotate-ccw','i14')}Reset</button>
+  </div>`;
+}
+
+/* ------------------------------------------------------------------ views */
+function vHome(){
+  const wait=S.cards.filter(needsYou), mov=S.cards.filter(moving).length;
+  return `<div class="cols">
+    <div class="stack">
+      <h1 class="h-display">${wait.length?`${wait.length} card${wait.length>1?'s':''} wait${wait.length>1?'':'s'} for you.`:'Nothing waits for you.'}<br><span class="dim">${mov} ${mov===1?'is':'are'} on the line.</span></h1>
+      ${signoffPanel(wait,true)}
+      <div class="panel">
+        <div class="panel-h"><h3>${ic('factory','i18','color:var(--teal)')}The floor</h3><span class="label">${S.projects.length} projects · ${mov} cards moving</span></div>
+        <div>${S.projects.map(floorRow).join('')}</div>
+      </div>
+    </div>
+    <aside class="stack">
+      <div><div class="sh">${ic('calendar-range','i14')}<span>This week · acme</span><span class="rule"></span><span class="cnt">W46</span></div>
+        <div class="stats">
+          <div class="stat"><span class="label">${ic('git-merge','i12')}Merged</span><b class="num">${S.stats.merged}</b></div>
+          <div class="stat"><span class="label">${ic('wrench','i12')}Self-repairs</span><b class="num">${S.stats.repairs}</b></div>
+          <div class="stat"><span class="label">${ic('hand','i12','color:var(--accent)')}You stepped in</span><b class="num acctx">${S.stats.stepped}</b></div>
+          <div class="stat"><span class="label">${ic('coins','i12')}Spend</span><b class="num">${money(S.stats.spend)}</b></div>
+        </div></div>
+      <div><div class="sh">${ic('users','i14')}<span>Team and factory</span><span class="rule"></span><span class="cnt">${S.feed.length}</span></div>
+        <ul class="feed panel">${S.feed.slice(0,6).map(feedItem).join('')}</ul></div>
+    </aside></div>`;
+}
+function signoffPanel(wait,compact){
+  return `<section class="signoff ${compact?'':''}" aria-label="Waiting for your sign-off">
+    <div class="panel-h"><h3>${ic('stamp','i18')}Waiting for your sign-off</h3>${compact?`<a href="#signoff" class="label acctx" style="text-decoration:none;display:flex;align-items:center;gap:6px">Open all${ic('arrow-right','i14')}</a>`:''}</div>
+    <div>${wait.length?wait.map(soRow).join(''):`<div class="empty">${ic('circle-check','i18','color:var(--teal)')} Nothing waits for you. Everything is moving.</div>`}</div>
+  </section>`;
+}
+function soRow(c){
+  const p=P(c.project), q=c.status==='question';
+  return `<div class="so-row">
+    <a href="#run-${c.id.toLowerCase()}" class="id gh">${ic(q?'circle-dot':'git-pull-request','i14')}${prLabel(c)}</a>
+    <div style="min-width:0"><a class="t" href="#run-${c.id.toLowerCase()}">${esc(q?c.question:c.title)}</a><small>${ic(hostIc(p.host),'i12')}${p.name} · ${q?'the spec asks you a question':'built on '+runnerOf(p).name}</small></div>
+    <span class="s ${q?'acctx':'tealtx'}">${ic(q?'message-circle-question':'circle-check','i14')}${q?'question · held at spec':'gates passed · review: no blockers'}</span>
+    <div class="act">${q?`<button class="btn sm" type="button" data-act="modal" data-v="answer" data-id="${c.id}">${ic('reply','i14')}Answer</button>`
+      :`<a class="btn sm primary" href="#run-${c.id.toLowerCase()}">${ic('receipt-text','i14')}Review receipt</a>`}</div>
+  </div>`;
+}
+function floorRow(p){
+  const r=runnerOf(p), cards=S.cards.filter(c=>c.project===p.id&&c.stage!=='merged');
+  const off=!r.online;
+  const cells=STAGES.map(s=>{
+    const here=cards.filter(c=>c.stage===s);
+    let nm=s==='pr'&&p.host==='gitlab'?'MR':ST_NAME[s]==='Pull request'?'PR':ST_NAME[s];
+    const flag=here.find(c=>c.status==='repairing')?' · repair':here.find(c=>c.status==='question')?' · held':here.find(c=>c.status==='signoff')?' · sign-off':s==='todo'&&here.length?` · ${here.length}`:'';
+    return `<div class="st"><span class="slot">${here.slice(0,4).map(c=>`<a href="#run-${c.id.toLowerCase()}" title="${c.id} · ${esc(c.title)}"><span class="sq ${sqFor(c)}"></span></a>`).join('')}</span><span class="nm">${nm}${flag}</span></div>`;
+  }).join('');
+  return `<div class="floor-row">
+    <div class="pj"><a href="#board" data-act="board" data-v="${p.id}" class="gh"><b>${p.name}</b></a><span>${ic(off?'wifi-off':hostIc(p.host),'i12',off?'color:var(--fail)':'')}${r.name}${off?' <span class="failtx">offline</span>':''}</span></div>
+    <div class="rail ${off?'off':''}">${cells}</div>
+    <div class="cost num">${money(p.spend)}<small>${cards.length?'this week':'idle'}</small></div>
+  </div>`;
+}
+function vSignoff(){
+  const wait=S.cards.filter(needsYou);
+  return `<div class="page-head"><h1 class="h-display">Sign-off</h1><span class="label">${wait.length} waiting · Taskcell never merges on its own</span></div>
+    ${signoffPanel(wait,false)}
+    <div style="margin-top:28px"><div class="sh">${ic('history','i14')}<span>Signed off recently</span><span class="rule"></span><span class="cnt">${S.cards.filter(c=>c.stage==='merged').length}</span></div>
+    <div class="panel scroll-x">${runsTable(S.cards.filter(c=>c.stage==='merged'))}</div></div>`;
+}
+function vBoard(){
+  const p=P(S.boardProject);
+  const cols=[['todo','Todo'],['spec','Spec'],['cell','In a cell'],['review','Review'],['pr','Pull request']];
+  const cards=S.cards.filter(c=>c.project===p.id&&c.stage!=='merged');
+  return `<div class="page-head"><div><div class="label tealtx" style="margin-bottom:10px;display:flex;gap:8px;align-items:center"><a class="gh" href="https://github.com/" target="_blank" rel="noopener">${ic(hostIc(p.host),'i14')}${p.name}</a> · ${p.host==='gitlab'?'GitLab issues':'GitHub issues'}</div><h1 class="h-display">Board</h1></div>
+    <div class="tabs" role="group" aria-label="Project">${S.projects.map(x=>`<button type="button" data-act="board" data-v="${x.id}" aria-pressed="${x.id===p.id}">${ic(hostIc(x.host),'i12')}${x.name}</button>`).join('')}</div></div>
+    ${!runnerOf(p).online?`<div class="warn" style="margin-bottom:20px">${ic('wifi-off','i18')}<div><b>${runnerOf(p).name} is offline.</b> <span class="mutedtx">Cards for ${p.name} wait in Todo until it calls in, or until you move the project to another runner.</span><div class="acts"><button class="btn sm" type="button" data-act="move-web">${ic('arrow-right-left','i14')}Move to home-server</button></div></div></div>`:''}
+    <div class="kanban">${cols.map(([s,l])=>{
+      const here=cards.filter(c=>s==='cell'?(c.stage==='cell'||c.stage==='gates'):c.stage===s);
+      return `<div class="kcol"><h4>${l}<span class="cnt" style="color:var(--ink)">${here.length}</span></h4>${here.map(kcard).join('')||'<div class="empty" style="padding:16px 4px;text-align:left;font-size:13px">Nothing here</div>'}</div>`;}).join('')}</div>`;
+}
+function kcard(c){
+  const pct={todo:0,spec:20,cell:45,gates:65,review:80,pr:100}[c.stage];
+  return `<a class="kcard ${needsYou(c)?'needs':''}" href="#run-${c.id.toLowerCase()}">
+    <div class="r1"><span>${c.id}</span>${c.pr&&c.stage==='pr'?`<span>#${c.pr}</span>`:c.status==='question'?'<span class="acctx">for you</span>':''}</div>
+    <div class="tt">${esc(c.title)}</div>
+    <div style="display:flex;justify-content:space-between;align-items:center;gap:8px">${stateChip(c)}<span class="mono dimtx num" style="font-size:12px">${c.cost?money(c.cost):''}</span></div>
+    ${moving(c)?`<div class="bar" style="margin-top:10px"><i style="width:${pct}%;${c.status==='repairing'?'background:var(--fail)':''}"></i></div>`:''}
+  </a>`;
+}
+function vRuns(){
+  const f=S.runsFilter;
+  const list=S.cards.filter(c=>f==='all'||(f==='running'&&moving(c))||(f==='you'&&needsYou(c))||(f==='merged'&&c.stage==='merged'));
+  const t=[['all','All',S.cards.length],['running','Running',S.cards.filter(moving).length],['you','Needs you',S.cards.filter(needsYou).length],['merged','Merged',S.cards.filter(c=>c.stage==='merged').length]];
+  return `<div class="page-head"><h1 class="h-display">Runs</h1>
+    <div class="tabs" role="group" aria-label="Filter">${t.map(([k,l,n])=>`<button type="button" data-act="runsf" data-v="${k}" aria-pressed="${f===k}">${l} <span class="num">${n}</span></button>`).join('')}</div></div>
+    <div class="panel scroll-x">${runsTable(list)}</div>`;
+}
+function runsTable(list){
+  if(!list.length) return '<div class="empty">No runs here.</div>';
+  return `<table class="tbl"><thead><tr><th>Run</th><th>Task</th><th>Spec · Cell · Gate · Rev · PR</th><th>Project</th><th>Cost</th><th>State</th></tr></thead><tbody>
+    ${list.map(c=>{const p=P(c.project);return `<tr><td class="mono dimtx" style="font-size:13px">${c.id}</td><td class="t"><a href="#run-${c.id.toLowerCase()}">${esc(c.title)}</a></td><td>${pips(c)}</td><td><span class="mono" style="font-size:13px;display:inline-flex;gap:6px;align-items:center">${ic(hostIc(p.host),'i12','color:var(--dim)')}${p.name}</span></td><td class="mono num" style="font-size:13px">${c.cost?money(c.cost):'—'}</td><td>${stateChip(c)}</td></tr>`}).join('')}
+  </tbody></table>`;
+}
+
+/* run detail */
+function vRun(id){
+  const c=C(id); if(!c) return `<div class="empty">That run does not exist. <a href="#runs">Back to runs</a></div>`;
+  const p=P(c.project), r=runnerOf(p), i=stIdx(c.stage);
+  const subs={
+    todo: c.status==='blocked'?'runner offline':'waiting for a cell',
+    spec: c.status==='question'?'held: a question for you':c.stage==='spec'?'planner on opus':'acceptance criteria mapped',
+    cell: c.stage==='cell'?'building now':'sealed, no repo token',
+    gates: c.status==='repairing'?`${c.tests}, repairing on opus`:c.stage==='gates'?'running pnpm verify':'types · tests · lint',
+    review: c.stage==='review'?'Codex is reading the diff':i>4?`by ${c.reviewer}, not the author`:`by ${c.reviewer}, not the author`,
+    pr: c.stage==='merged'?'merged into main':c.stage==='pr'?'you sign off':'you sign off'
+  };
+  const segs=STAGES.map((s,k)=>{
+    const st=c.stage==='merged'||k<i?'done':k===i?'cur'+(c.status==='repairing'?' fail':''):'todo';
+    return `<div class="seg ${st}"><span class="node"></span><div class="lbl">${String(k+1).padStart(2,'0')} ${s==='todo'?'card':s}${k===i&&c.status==='repairing'?' · held':''}</div><div class="ttl">${ST_NAME[s]}</div><div class="sub">${subs[s]}</div></div>`;
+  }).join('');
+  const readout = c.stage==='merged'?'merged':`${ST_NAME[c.stage].toLowerCase()} · ${c.status==='repairing'?'repair '+c.repair+'/2':c.status}`;
+  return `<div class="crumb"><a href="#runs">Runs</a>${ic('chevron-right','i12')}<a class="gh" href="https://github.com/" target="_blank" rel="noopener">${ic(hostIc(p.host),'i12')}${p.name}</a>${ic('chevron-right','i12')}<span>issue #${c.issue}</span></div>
+  <div class="runhead"><div style="min-width:0"><span class="tagline" style="margin-bottom:14px"><span class="tag-inv">${c.id}</span><span class="readout">${ic('radio','i12','color:var(--teal)')}${readout} · ${r.name}</span></span>
+    <h1 class="h-display" style="margin-top:14px">${esc(c.title)}</h1></div>
+    <div style="display:flex;gap:10px;flex-wrap:wrap">${moving(c)||c.status==='repairing'?`<button class="btn sm danger" type="button" data-act="stop" data-id="${c.id}">${ic('square','i14')}Stop run</button>`:''}${c.pr?`<a class="btn sm" href="https://github.com/" target="_blank" rel="noopener">${ic('github','i14')}PR #${c.pr}</a>`:''}</div></div>
+  <div class="panel stagebox"><div class="srail">${segs}</div>
+    ${c.status==='repairing'?`<div class="loopnote">${ic('wrench','i14','color:var(--accent)')}repair ${c.repair} of 2 · escalated sonnet-5-5 → opus · nothing for you to do yet</div>`:''}
+    ${c.status==='question'?`<div class="loopnote">${ic('message-circle-question','i14','color:var(--accent)')}The planner asks: ${esc(c.question)}</div>`:''}
+  </div>
+  <div class="cols">
+    <div class="panel" style="min-width:0">
+      <div class="panel-h"><div class="tabs" role="group" aria-label="Run record">
+        ${[['log','list','What the factory did'],['diff','file-diff','Diff'],['transcript','terminal','Transcript']].map(([k,i2,l])=>`<button type="button" data-act="runtab" data-v="${k}" aria-pressed="${S.runTab===k}">${ic(i2,'i12')}${l}</button>`).join('')}
+      </div><span class="label">${c.events.length} entries</span></div>
+      ${S.runTab==='log'?`<ul class="log">${c.events.map(e=>`<li class="${e.cls||''}"><span class="tm">${e.tm}</span>${ic(e.ic,'i14')}<span>${e.text}</span></li>`).join('')}</ul>`
+       :S.runTab==='diff'?diffView(c):transcriptView(c)}
+    </div>
+    <aside>${receipt(c)}</aside>
+  </div>`;
+}
+function receipt(c){
+  const done=c.stage==='pr'||c.stage==='merged';
+  const gate=c.status==='repairing'?`<span class="failtx">${c.tests}</span>`:stIdx(c.stage)>3||done?'<span class="tealtx">types · tests · lint</span>':'<span class="dimtx">not yet</span>';
+  return `<div class="panel receipt ${c.status==='signoff'?'brk':''}">
+    <div class="panel-h"><h3>${ic('receipt-text','i18','color:var(--teal)')}${done?'Delivery receipt':'Receipt so far'}</h3>
+      ${c.stage==='merged'?`<span class="chip">${ic('git-merge','i12')}Merged</span>`:c.status==='signoff'?`<span class="chip">${ic('circle-check','i12')}Passed</span>`:`<span class="label">in progress</span>`}</div>
+    <dl class="kv">
+      <dt>Spec</dt><dd>sha ${(c.issue*7919).toString(16).slice(0,7)}</dd>
+      <dt>Author</dt><dd>${esc(c.author)}</dd>
+      <dt>Reviewer</dt><dd>${esc(c.reviewer)}${stIdx(c.stage)>=5?' · <span class="tealtx">no blockers</span>':''}</dd>
+      <dt>Gates</dt><dd>${gate}</dd>
+      <dt>Secret scan</dt><dd class="tealtx">${ic('shield-check','i14')}clean</dd>
+      <dt>CI config</dt><dd class="${c.ci==='untouched'?'':'acctx'}">${esc(c.ci)}</dd>
+      <dt>Diff</dt><dd>${esc(c.diff)}</dd>
+      <dt>Cost</dt><dd class="num">${money(c.cost)}</dd>
+    </dl>
+    ${c.followup&&c.status==='signoff'?`<div class="note" style="margin:0 18px 16px">${ic('info','i14')}<span><b>One step after merging:</b> ${esc(c.followup)}</span></div>`:''}
+    ${c.status==='signoff'?(S.changes===c.id?`<div class="receipt-acts"><div class="field"><label for="chg">What should change?</label><textarea class="inp" id="chg" placeholder="Keep the old branch name as an alias for one release."></textarea></div>
+        <div class="row"><button class="btn sm" type="button" data-act="changes-cancel">Cancel</button><button class="btn sm primary" type="button" data-act="changes-send" data-id="${c.id}">${ic('send','i14')}Send back</button></div></div>`
+      :`<div class="receipt-acts"><button class="btn primary" type="button" data-act="merge" data-id="${c.id}">${ic('git-merge','i14')}Merge into main</button>
+        <div class="row"><button class="btn sm" type="button" data-act="changes" data-id="${c.id}">${ic('message-square','i14')}Ask for changes</button><button class="btn sm" type="button" data-act="runtab" data-v="diff">${ic('file-diff','i14')}Open diff</button></div></div>`):''}
+    ${c.status==='question'?`<div class="receipt-acts"><button class="btn primary" type="button" data-act="modal" data-v="answer" data-id="${c.id}">${ic('reply','i14')}Answer the question</button></div>`:''}
+  </div>`;
+}
+function diffView(c){
+  if(stIdx(c.stage)<2) return '<div class="empty">No diff yet. The cell has not started.</div>';
+  const slug=c.title.toLowerCase().replace(/[^a-z0-9]+/g,'-').slice(0,28);
+  return `<pre class="diff"><span class="h">@@ src/cli/${slug}.ts @@</span><span> import { runCard } from '../run'</span><span class="d">-export async function watch(opts: WatchOpts) {</span><span class="a">+export async function watch(opts: WatchOpts, once = false) {</span><span>   const queue = await source.ready(opts)</span><span class="a">+  if (once) return runCard(queue[0], opts)</span><span>   for (const card of queue) {</span><span class="h">@@ src/cli/${slug}.test.ts @@</span><span class="a">+it('runs one issue and exits', async () =&gt; {</span><span class="a">+  await watch({ issue: 768 }, true)</span><span class="a">+  expect(runCard).toHaveBeenCalledTimes(1)</span><span class="a">+})</span></pre>`;
+}
+function transcriptView(c){
+  if(stIdx(c.stage)<1) return '<div class="empty">No transcript yet.</div>';
+  return `<ul class="tx">
+    <li><span class="k">›</span><span>Reading issue #${c.issue} and the repository layout.</span></li>
+    <li class="tool"><span class="k">→</span><span>read_file src/cli/watch.ts</span></li>
+    <li class="tool"><span class="k">→</span><span>grep "runCard(" src/</span></li>
+    <li><span class="k">›</span><span>Plan: add a one-shot path to watch, keep the loop as the default.</span></li>
+    <li class="tool"><span class="k">→</span><span>edit src/cli/watch.ts (+12 −3)</span></li>
+    <li class="tool"><span class="k">→</span><span>run pnpm verify</span></li>
+    ${c.status==='repairing'?'<li><span class="k" style="color:var(--fail)">✗</span><span>2 failing: watch › exits after one card · watch › keeps polling</span></li>':'<li class="ok"><span class="k">✓</span><span>pnpm verify exited 0</span></li>'}
+  </ul>`;
+}
+
+/* line editor */
+const FIELDS={
+  card:[['label','Trigger label','input','tag','Moving or labelling an issue with this starts the build.'],['source','Where cards come from','select','inbox','',['GitHub Issues','GitHub Projects','GitLab','Linear']],['needsInfo','Send vague cards back as needs info','toggle','circle-help','Checked before any model runs.']],
+  spec:[['planner','Planner model','select','brain','',['opus','sonnet-5-5','codex']],['window','Window to read the spec','seg','eye','The build waits this long after the spec is posted.',['0 min','10 min','30 min']],['post','Post the spec on the issue','toggle','message-square','']],
+  cell:[['engine','Engine','select','cpu','Who writes the code, on your plan or keys.',['Claude Code','Codex','Cursor','OpenRouter']],['budget','Budget cap per run','input','coins','The run stops when spend reaches the cap.'],['runner','Runner','select','server','Where the sealed cell runs.',['home-server','pawel-mbp','Taskcell cells']],['_egress','Egress allowlist','locked','globe-lock','Set on the runner, not on the line.','follows the runner']],
+  gates:[['verify','Verify command','input','terminal','Runs inside the cell. Exit 0 is green.'],['repairs','Repairs on a red gate','seg','wrench','After the last repair the PR opens as a draft.',['0','1','2']],['escalate','Second repair runs on','select','trending-up','',['opus','same as the cell']],['timeout','Gate timeout','input','timer',''],['_secret','Secret scan','locked','shield-check','A hit pushes nothing. Can\'t be turned off.','always on · host side'],['_ci','CI config edits','locked','ban','Listed under Not included. Can\'t be turned off.','dropped']],
+  review:[['engine','Reviewer','select','scan-eye','A second model catches what the author missed.',['Codex','Claude Code','none']],['fixes','Reviewer may fix what it finds','toggle','wrench',''],['_fresh','Context','locked','sparkles','The reviewer never sees the author\'s transcript.','fresh, every time']],
+  pr:[['openAs','Open the PR as','select','git-pull-request','',['Draft if a gate failed','Always a draft']],['signoff','Who can sign off','select','stamp','',['Any 1 member','Any 2 members','Maintainers only']],['_push','Push and merge','locked','lock','The host pushes. A person merges.','Taskcell never merges']]
+};
+function lineCfg(L){return L.draft||L.cfg;}
+function changes(L){
+  if(!L.draft) return [];
+  const out=[];
+  for(const s in L.cfg) for(const k in L.cfg[s]) if(String(L.cfg[s][k])!==String(L.draft[s][k])) out.push([s+'.'+k,L.cfg[s][k],L.draft[s][k]]);
+  return out;
+}
+const show=v=>v===true?'on':v===false?'off':v;
+function stnSummary(s,cf){
+  const v=cf[s];
+  return ({
+    card:()=>[`label ${v.label}`,v.source,`needs-info ${show(v.needsInfo)}`],
+    spec:()=>[`planner: ${v.planner}`,`read window ${v.window}`],
+    cell:()=>[`engine: ${v.engine}`,`budget ${v.budget}`,`runner: ${v.runner}`],
+    gates:()=>[v.verify,`${v.repairs} repairs${v.repairs!=='0'&&v.escalate!=='same as the cell'?', 2nd → '+v.escalate:''}`,'secret scan'],
+    review:()=>[v.engine==='none'?'no reviewer':`${v.engine}, fresh context`,`fixes: ${show(v.fixes)}`],
+    pr:()=>[v.openAs.toLowerCase(),`sign-off: ${v.signoff.toLowerCase()}`]
+  })[s]();
+}
+function vLine(){
+  const L=S.lines[S.lineProject], p=P(S.lineProject), cf=lineCfg(L), ch=changes(L), s=S.lineStation;
+  const changedStations=new Set(ch.map(x=>x[0].split('.')[0]));
+  const stations=['card','spec','cell','gates','review','pr'].map((k,n)=>`<button class="stn ${k===s?'brk':''}" type="button" data-act="station" data-v="${k}" aria-pressed="${k===s}">
+      ${changedStations.has(k)?'<span class="dot" title="Changed in the draft"></span>':''}<span class="no">0${n+1}</span>${ic(k==='todo'?'tag':(ST_ICON[k]||'tag'),'i18')}<h4>${k==='card'?'Card':ST_NAME[k]}</h4>
+      <ul>${stnSummary(k,cf).map(x=>`<li>${esc(x)}</li>`).join('')}</ul>${k===s?'<span class="lead-v" aria-hidden="true"></span>':''}</button>`).join('');
+  const fields=FIELDS[s];
+  const fl=fields.map((f,idx)=>{
+    const [key,label,type,icon,hint,opts]=f;
+    const isLast=idx>=fields.length-(fields.length%2===0?2:1);
+    if(type==='locked') return `<div class="fld locked ${isLast?'last':''}"><span class="lb">${ic('lock','i12')}${label}</span><span class="val">${ic(icon,'i14')}${opts}</span><span class="hint">${hint}</span></div>`;
+    const val=cf[s][key], chg=L.draft&&String(L.cfg[s][key])!==String(val);
+    const id=`f-${s}-${key}`;
+    let ctl='';
+    if(type==='input') ctl=`<input class="inp ${chg?'changed':''}" id="${id}" value="${esc(val)}" data-act="field" data-k="${key}">`;
+    if(type==='select') ctl=`<div class="selw"><select id="${id}" class="${chg?'changed':''}" data-act="field" data-k="${key}">${(key==='runner'?S.runners.map(r=>r.name):opts).map(o=>`<option ${o===val?'selected':''}>${esc(o)}</option>`).join('')}</select>${ic('chevron-down','i14')}</div>`;
+    if(type==='seg') ctl=`<div class="seg2 ${chg?'changed':''}" role="group" aria-labelledby="${id}">${opts.map(o=>`<button type="button" data-act="fieldv" data-k="${key}" data-v="${o}" aria-pressed="${o===val}">${o}</button>`).join('')}</div>`;
+    if(type==='toggle') ctl=`<button class="toggle ${chg?'changed':''}" type="button" role="switch" aria-checked="${!!val}" data-act="fieldv" data-k="${key}" data-v="${!val}" aria-labelledby="${id}"><span class="tr"></span>${val?'on':'off'}</button>`;
+    return `<div class="fld ${isLast?'last':''}">${type==='seg'||type==='toggle'?`<span class="lb" id="${id}">`:`<label for="${id}">`}${ic(icon,'i12')}${label}${type==='seg'||type==='toggle'?'</span>':'</label>'}${ctl}${hint?`<span class="hint">${hint}</span>`:''}</div>`;
+  }).join('');
+  const inflight=S.cards.filter(c=>c.project===p.id&&moving(c)).length;
+  const hcl=Object.entries(cf[s]).map(([k,v])=>{const chg=L.draft&&String(L.cfg[s][k])!==String(v);const line=`  ${k.padEnd(9)}= ${typeof v==='boolean'||/^\d+$/.test(v)?v:`"${v}"`}`;return chg?`<span class="hl">${esc(line)}</span>`:esc(line);}).join('\n');
+  return `<div class="cols">
+    <div style="min-width:0">
+      <div class="page-head" style="margin-bottom:22px"><div>
+        <div class="label tealtx" style="display:flex;align-items:center;gap:8px;margin-bottom:10px;flex-wrap:wrap"><a class="gh" href="https://github.com/" target="_blank" rel="noopener">${ic(hostIc(p.host),'i14')}${p.name}</a> · line v${L.v}${L.draft?` · <span class="acctx">draft v${L.v+1}</span>`:''}</div>
+        <h1 class="h-display">Your line, station by station.</h1></div>
+        <div style="display:flex;gap:10px;flex-wrap:wrap;align-items:center">
+          <div class="selw"><label class="label" for="lp" style="position:absolute;left:-9999px">Project</label><select id="lp" class="inp" style="padding-right:34px;width:auto" data-act="lineproj">${S.projects.map(x=>`<option value="${x.id}" ${x.id===p.id?'selected':''}>${x.name}</option>`).join('')}</select>${ic('chevron-down','i14')}</div>
+          <button class="btn sm" type="button" data-act="discard" ${L.draft?'':'disabled'}>${ic('undo-2','i14')}Discard</button>
+          <button class="btn sm primary" type="button" data-act="publish" ${ch.length?'':'disabled'}>${ic('upload','i14')}Publish v${L.v+1}</button></div>
+      </div>
+      <div class="line" role="group" aria-label="Stations">${stations}</div>
+      <div class="insp">
+        <div class="insp-h"><span class="tagline"><span class="tag-inv">${s==='card'?'Card':ST_NAME[s]}</span><span class="readout">0${['card','spec','cell','gates','review','pr'].indexOf(s)+1} · ${esc(stnSummary(s,cf)[0])}</span></span>
+          <span class="label" style="display:flex;align-items:center;gap:6px">${ic('clock-arrow-up','i12')}Changes apply to the next card</span></div>
+        ${fl}
+      </div>
+    </div>
+    <aside class="stack" style="gap:20px">
+      ${ch.length?`<div class="panel"><div class="panel-h"><h3>${ic('pencil-line','i14','color:var(--accent)')}Draft v${L.v+1}</h3><span class="label">${ch.length} change${ch.length>1?'s':''}</span></div>
+        <div style="padding:12px 18px" class="vd">${ch.map(([k,a,b])=>`<span class="m">− ${k}: ${esc(show(a))}</span><span class="p">+ ${k}: ${esc(show(b))}</span>`).join('')}</div></div>
+        <div class="note">${ic('info','i14')}<span>${inflight} card${inflight===1?'':'s'} in flight keep <b>v${L.v}</b>. v${L.v+1} starts with the next card that leaves Todo.</span></div>`:''}
+      <div><div class="sh">${ic('history','i14')}<span>Line history</span><span class="rule"></span><span class="cnt">v${L.v}</span></div>
+        <ul class="ver panel">${L.history.map(h=>`<li><div class="meta"><span>${ic('git-commit-horizontal','i12')}v${h.v} · ${esc(h.who)}</span><span>${esc(h.when)}</span></div>${esc(h.text)}${h.diff.length?`<div class="vd">${h.diff.slice(0,2).map(([k,a,b])=>`<span class="m">− ${k}: ${esc(show(a))}</span><span class="p">+ ${k}: ${esc(show(b))}</span>`).join('')}${h.diff.length>2?`<span class="dimtx">+ ${h.diff.length-2} more</span>`:''}</div>`:''}</li>`).join('')}</ul></div>
+      <div class="dash"><div class="panel-h" style="border-bottom:1px dashed var(--line-strong)"><h3>${ic('file-code-2','i14','color:var(--teal)')}As code</h3><span class="label">.vanguard/line.hcl</span></div>
+        <div class="code" style="border:0;font-size:12.5px;background:transparent">${s} {\n${hcl}\n}</div></div>
+    </aside></div>`;
+}
+
+/* runners */
+function busy(r){
+  const ps=S.projects.filter(p=>runnerOf(p)===r).map(p=>p.id);
+  return S.cards.filter(c=>ps.includes(c.project)&&['cell','gates','review'].includes(c.stage)).slice(0,r.cells);
+}
+function vRunners(){
+  const sel=R(S.selRunner)||S.runners[0];
+  const total=S.runners.reduce((a,r)=>a+r.cells,0), b=S.runners.reduce((a,r)=>a+(r.online?busy(r).length:0),0);
+  const bad=S.runners.filter(r=>!r.egress||!r.online).filter(r=>S.projects.some(p=>runnerOf(p)===r));
+  const rows=S.runners.map(r=>{
+    const bz=r.online?busy(r):[], ps=S.projects.filter(p=>runnerOf(p)===r);
+    return `<tr class="${r===sel?'sel':''}" data-act="runner" data-v="${r.id}">
+      <td><div class="nm">${ic(r.icon,'i20')}<button type="button" data-act="runner" data-v="${r.id}"><b>${esc(r.name)}</b><span>${r.kind==='hosted'?esc(r.os):`your machine · ${r.os} · ${r.ver}`}</span></button></div></td>
+      <td><div class="cells">${Array.from({length:r.cells},(_,k)=>`<span class="sq ${k<bz.length?(bz[k].status==='repairing'?'x':'f'):''}"></span>`).join('')}</div></td>
+      <td>${ps.length?ps.map(p=>`<span class="mono" style="font-size:13px;display:inline-flex;gap:6px;align-items:center">${ic(hostIc(p.host),'i12','color:var(--dim)')}${p.name}</span>`).join('<br>'):'<span class="dimtx mono" style="font-size:13px">no lines</span>'}</td>
+      <td style="white-space:nowrap"><span class="chip">${ic('key-round','i12')}proxy</span> <span class="chip ${r.egress?'':'fail'}">${ic(r.egress?'shield-check':'shield-off','i12')}egress</span></td>
+      <td><span class="seen ${r.online?'tealtx':'failtx'}">${ic(r.online?'radio':'wifi-off','i14')}${r.seen}</span></td></tr>`;
+  }).join('');
+  const sb=sel.online?busy(sel).length:0;
+  return `<div class="cols" style="grid-template-columns:minmax(0,1fr) 390px">
+    <div class="stack">
+      <div class="page-head" style="margin:0"><h1 class="h-display">Where your cells run.<br><span class="dim">${b} of ${total} cells busy.</span></h1>
+        <button class="btn sm primary" type="button" data-act="modal" data-v="connect">${ic('plug-zap','i14')}Connect a runner</button></div>
+      <div><div class="sh">${ic('server','i14')}<span>Runners</span><span class="rule"></span><span class="cnt">${S.runners.length}</span></div>
+        <div class="panel scroll-x"><table class="tbl rtab"><thead><tr><th>Runner</th><th>Cells</th><th>Lines</th><th>Guards</th><th>Seen</th></tr></thead><tbody>${rows}</tbody></table></div></div>
+      ${bad.map(r=>`<div class="warn">${ic('triangle-alert','i18')}<div><b>${esc(r.name)} ${!r.online?'is offline and ':''}runs without the egress allowlist.</b> <span class="mutedtx">Its cells could reach any host. ${S.cards.filter(c=>runnerOf(P(c.project))===r&&c.stage!=='merged').length} cards wait for it. Turn on <span class="mono">--egress</span> on that machine, or move its lines to home-server.</span>
+        <div class="acts"><button class="btn sm" type="button" data-act="move-web">${ic('arrow-right-left','i14')}Move acme/web to home-server</button></div></div></div>`).join('')}
+    </div>
+    <aside class="panel brk teal" style="min-width:0">
+      <div class="panel-h"><span class="tagline"><span class="tag-inv">${esc(sel.name)}</span><span class="readout">${ic(sel.online?'radio':'wifi-off','i12',sel.online?'color:var(--teal)':'color:var(--fail)')}${sel.online?`${sb}/${sel.cells} busy`:'offline'}</span></span></div>
+      <dl class="kv">
+        <dt>Host</dt><dd>${sel.kind==='hosted'?'Taskcell, EU (Frankfurt)':'Docker 27 · Node 24'}</dd>
+        <dt>Images</dt><dd>pinned by digest ${ic('circle-check','i14','color:var(--teal)')}</dd>
+        <dt>Model key</dt><dd>${ic('key-round','i14','color:var(--teal)')}${sel.kind==='hosted'?'our LLM proxy':'runner\'s LLM proxy'}</dd>
+        <dt>Code leaves?</dt><dd class="${sel.kind==='hosted'?'mutedtx':'tealtx'}">${ic(sel.kind==='hosted'?'cloud':'shield-check','i14')}${sel.kind==='hosted'?'cloned into our cell, deleted after':'no, receipts only'}</dd>
+        <dt>Version</dt><dd>${sel.ver}${sel.ver==='1.13.2'?` · <span class="acctx" style="display:inline-flex;align-items:center;gap:5px">${ic('circle-arrow-up','i14')}1.14.0</span>`:sel.ver==='1.12.0'?` · <span class="acctx">2 behind</span>`:''}</dd>
+      </dl>
+      <div style="padding:14px 18px;border-top:1px solid var(--line)">
+        <div class="sh" style="margin-bottom:10px">${ic('globe-lock','i14')}<span>Out of the cell</span><span class="rule"></span><span class="cnt">${sel.egress?'allowlist':'open'}</span></div>
+        ${sel.egress?`<ul class="egress dash">
+          <li><span>registry.npmjs.org</span><span class="tealtx">${ic('check','i12')}allowed</span></li>
+          <li><span>github.com</span><span class="tealtx">${ic('check','i12')}no token</span></li>
+          <li><span>api.anthropic.com</span><span class="mutedtx">${ic('arrow-right-left','i12')}via proxy</span></li>
+          <li><span>api.openai.com</span><span class="mutedtx">${ic('arrow-right-left','i12')}via proxy</span></li>
+          <li><span>anything else</span><span class="failtx">${ic('x','i12')}refused</span></li></ul>`
+          :`<div class="dash" style="padding:12px 14px;font-size:13.5px"><span class="failtx">No allowlist.</span> <span class="mutedtx">The cell's network is open. Start the runner with <span class="mono">--egress</span>.</span></div>`}
+      </div>
+      <div style="padding:14px 18px;border-top:1px solid var(--line);display:flex;gap:10px;flex-wrap:wrap">
+        <button class="btn sm" type="button" data-act="toast" data-v="${esc(sel.name)} takes no new cards. Running cells finish first.">${ic('pause','i14')}Drain</button>
+        <button class="btn sm" type="button" data-act="toast" data-v="New token minted. The old one stops working in 10 minutes.">${ic('rotate-cw','i14')}Rotate token</button>
+      </div>
+    </aside></div>`;
+}
+
+/* setup */
+const SETUP_STEPS=[['Connect GitHub','Install the Taskcell App'],['Pick the repository','One project per repo'],['Where the cells run','Your machine, or ours'],['Engine and key','Claude Code, Codex, Cursor'],['Put one card through','Label an issue']];
+function vSetup(){
+  const u=S.setup;
+  const side=SETUP_STEPS.map(([t,s],k)=>{const n=k+1;const st=n<u.step?'done':n===u.step?'cur':'todo';
+    return `<button type="button" class="ob-step ${st}" data-act="setupgo" data-v="${n}" ${n>u.step?'disabled':''}><span class="n">${st==='done'?ic('check','i14'):n}</span><div><strong>${t}</strong><span>${n===1&&u.gh==='yes'?'Taskcell App on acme · 4 repos':n===2&&n<u.step?u.repo:n===3&&n<u.step?(u.loc==='mine'?'studio-mini, your machine':'Taskcell cells'):n===4&&n<u.step?u.engine+' + '+u.reviewer:s}</span></div></button>`;}).join('');
+  return `<div class="ob">
+    <nav class="ob-side" aria-label="Setup steps">
+      <div class="sh"><span>Your first line</span><span class="rule"></span><span class="cnt">${u.step} / 5</span></div>
+      ${side}
+      <div style="margin-top:auto" class="note">${ic('info','i14')}<span>You can change any of this later on the Line page. Nothing runs until you label a card.</span></div>
+    </nav>
+    <div class="ob-main">${[s1,s2,s3,s4,s5][u.step-1]()}</div></div>`;
+}
+const stepHead=(n,t,sub)=>`<div><div class="label tealtx">Step ${n} of 5</div><h1 class="h-display" style="margin-top:12px">${t}</h1>${sub?`<p class="mutedtx" style="margin:12px 0 0;font-size:17px;max-width:62ch">${sub}</p>`:''}</div>`;
+const nextBtns=(ok,label)=>`<div class="row-acts" style="margin-top:8px"><button class="btn primary" type="button" data-act="setupnext" ${ok?'':'disabled'}>${label||'Continue'}${ic('arrow-right','i14')}</button>${S.setup.step>1?`<button class="btn" type="button" data-act="setupback">${ic('chevron-left','i14')}Back</button>`:''}</div>`;
+function s1(){const u=S.setup;return `${stepHead(1,'Connect GitHub.','Taskcell uses a GitHub App, not a personal token. It gets a short-lived token for each push, scoped to the repos you pick.')}
+  <div class="panel" style="padding:22px;display:flex;gap:18px;align-items:center;flex-wrap:wrap">${ic('github','i20')}
+    <div style="flex:1;min-width:220px"><b style="font:700 17px/1.2 var(--display)">Taskcell App</b><div class="mutedtx" style="font-size:14px;margin-top:4px">Reads issues, writes comments and branches, opens PRs. Never merges.</div></div>
+    ${u.gh==='yes'?`<span class="chip">${ic('circle-check','i12')}Installed on acme</span>`:u.gh==='wait'?`<span class="chip mut">${ic('loader-circle','i12 spin')}Waiting for GitHub…</span>`:`<button class="btn primary" type="button" data-act="gh">${ic('github','i14')}Install on GitHub</button>`}
+  </div>
+  <div class="mutedtx" style="font-size:14px;display:flex;gap:8px;align-items:center">${ic('gitlab','i14')}GitLab or Linear? Add them after the first project.</div>
+  ${nextBtns(u.gh==='yes')}`;}
+function s2(){const u=S.setup;const repos=[['acme/docs','Docs site · TypeScript · 12 open issues',false],['acme/billing','already a project',true],['acme/infra','already a project',true],['acme/web','already a project',true]];
+  return `${stepHead(2,'Pick the repository.','Each repository gets its own line. You can add more later.')}
+  <div class="repo-list" role="group" aria-label="Repositories">${repos.map(([n,m,used])=>`<button type="button" class="repo" data-act="repo" data-v="${n}" aria-pressed="${u.repo===n}" ${used?'disabled style="opacity:.5;cursor:default"':''}>${ic('github','i18')}<span><b>${n}</b><br><span class="m">${m}</span></span><span class="tail">${used?ic('check','i14','color:var(--teal)'):u.repo===n?'<span class="radio" style="border-color:var(--accent)"><span style="width:8px;height:8px;background:var(--accent)"></span></span>':'<span class="radio"></span>'}</span></button>`).join('')}</div>
+  ${nextBtns(!!u.repo)}`;}
+function s3(){const u=S.setup;const mine=u.loc==='mine';
+  return `${stepHead(3,'Where should the cells run?','The Hub is hosted. The sealed cell that holds your code and runs the agent can stay on a machine you own.')}
+  <fieldset class="choice"><legend class="sh" style="width:100%;display:flex">${ic('box','i14')}<span>Cell location</span><span class="rule"></span><span class="cnt">2 options</span></legend>
+    <label class="opt ${mine?'sel brk':''}"><input type="radio" name="loc" value="mine" ${mine?'checked':''} data-act="loc">
+      <div class="hd"><span class="chip">${ic('shield-check','i12')}Recommended</span><span class="radio" aria-hidden="true"></span></div>
+      <h3>${ic('server','i20')}On your machine</h3>
+      <p>Connect a runner on a laptop, home server or VPS. Your code, the cell and the model key never leave it. The Hub gets stage records and receipts, nothing else.</p>
+      <div class="code"><span class="c"># on the box with Docker and Node 24</span>\nvanguard runner connect --token tcr_7Hq…k2<button class="cp" type="button" data-act="copy" data-v="vanguard runner connect --token tcr_7Hq9xk2" aria-label="Copy command">${ic('copy','i14')}</button></div>
+      ${mine?(u.runnerUp?`<span class="label tealtx" style="display:flex;align-items:center;gap:8px">${ic('circle-check','i14')}studio-mini connected · darwin/arm64 · 2 cells</span>`:`<span class="label mutedtx" style="display:flex;align-items:center;gap:8px">${ic('loader-circle','i14 spin','color:var(--accent)')}Waiting for a runner…</span>`):''}
+    </label>
+    <label class="opt ${!mine?'sel brk':''}"><input type="radio" name="loc" value="ours" ${!mine?'checked':''} data-act="loc">
+      <div class="hd"><span class="chip mut">${ic('gauge','i12')}Metered</span><span class="radio" aria-hidden="true"></span></div>
+      <h3>${ic('cloud','i20')}On Taskcell cells</h3>
+      <p>We run the sealed cell for you. Your repo is cloned into a fresh container for each card, and the container is destroyed when the run ends.</p>
+      <div class="code"><span class="c"># nothing to install</span>\n2 cells · egress allowlist on · ${u.region}</div>
+      <span class="label mutedtx" style="display:flex;align-items:center;gap:8px">${ic('timer','i14')}Billed per cell-minute</span>
+    </label></fieldset>
+  <div><div class="sh">${ic('split','i14')}<span>What sits where</span><span class="rule"></span><span class="cnt">4</span></div>
+    <div class="scroll-x"><table class="trust"><thead><tr><th>Thing</th><th>On your machine</th><th>On Taskcell cells</th></tr></thead><tbody>
+      ${[['code-xml','Your code','your runner only','our cell, deleted after the run'],['key-round','Model key','your runner\'s LLM proxy','our LLM proxy, encrypted at rest'],['github','GitHub access','App token, minted per push','App token, minted per push'],['file-diff','Diffs and transcripts','stay on the runner; Hub shows receipts','stored 30 days, then purged']]
+        .map(([i,a,b,c])=>`<tr><td>${ic(i,'i14')}${a}</td><td class="${mine?'on':'off'}">${b}</td><td class="${!mine?'on':'off'}">${c}</td></tr>`).join('')}</tbody></table></div></div>
+  ${nextBtns(!mine||u.runnerUp, mine?'Continue with my machine':'Continue with Taskcell cells')}`;}
+function s4(){const u=S.setup;const mine=u.loc==='mine';
+  return `${stepHead(4,'Pick the engine and the reviewer.','Taskcell runs on the plan or API keys you already pay for. A second model reviews the first one\'s work.')}
+  <div class="panel insp" style="margin-top:0">
+    <div class="insp-h"><span class="tagline"><span class="tag-inv">${esc(u.engine)}</span><span class="readout">${ic('scan-eye','i12','color:var(--teal)')}reviewed by ${esc(u.reviewer)}</span></span><span class="label">${esc(u.repo)}</span></div>
+    <div class="fld"><span class="lb" id="eng-l">${ic('cpu','i12')}Engine</span><div class="seg2" role="group" aria-labelledby="eng-l">${['Claude Code','Codex','Cursor'].map(o=>`<button type="button" data-act="setengine" data-v="${o}" aria-pressed="${u.engine===o}">${o}</button>`).join('')}</div><span class="hint">Writes the code inside the cell.</span></div>
+    <div class="fld"><label for="rev">${ic('scan-eye','i12')}Reviewer</label><div class="selw"><select id="rev" data-act="setrev">${['Codex','Claude Code','none'].map(o=>`<option ${u.reviewer===o?'selected':''}>${o}</option>`).join('')}</select>${ic('chevron-down','i14')}</div><span class="hint">Reads the diff in a fresh context.</span></div>
+    <div class="fld last" style="grid-column:1/-1"><label for="key">${ic('key-round','i12')}${u.engine==='Codex'?'OpenAI API key':u.engine==='Cursor'?'Cursor API key':'Anthropic API key'}</label>
+      ${mine?`<div class="note" style="border-left-color:var(--teal);background:var(--teal-wash)">${ic('shield-check','i14','color:var(--teal)')}<span>Your key stays on <b>studio-mini</b>. Set it in the runner's environment; this page never sees it.</span></div><div class="code"><span class="c"># on studio-mini</span>\nexport ANTHROPIC_API_KEY=…   <span class="c"># read by the runner's LLM proxy</span></div>`
+        :`<input class="inp" id="key" type="password" placeholder="sk-…" autocomplete="off" data-act="key"><span class="hint">Stored encrypted in our LLM proxy. The agent only ever sees a one-run nonce.</span>`}
+    </div>
+  </div>
+  ${nextBtns(true)}`;}
+function s5(){const u=S.setup;const issues=[[41,'Broken anchor links on the API page'],[44,'Add a search box to the sidebar'],[47,'Document the runner token rotation']];
+  return `${stepHead(5,'Put one card through.','Label an issue <span class="mono" style="font-size:.9em">vanguard:ready</span>. The planner writes a spec first; you can read it before the build starts.')}
+  <div class="repo-list">${issues.map(([n,t])=>`<div class="repo" style="cursor:default">${ic('circle-dot','i18','color:var(--teal)')}<span><b>${t}</b><br><span class="m">${u.repo} #${n} · opened by Marta</span></span><span class="tail"><button class="btn sm ${u.picked===n?'':'primary'}" type="button" data-act="pick" data-v="${n}" data-t="${esc(t)}" ${u.picked?'disabled':''}>${u.picked===n?ic('check','i14')+'Labelled':ic('tag','i14')+'Label vanguard:ready'}</button></span></div>`).join('')}</div>
+  <div class="row-acts"><button class="btn" type="button" data-act="setupback">${ic('chevron-left','i14')}Back</button></div>`;}
+
+/* modals */
+function modal(){
+  const m=S.modal; if(!m) return '';
+  let h='',b='',f='';
+  if(m.type==='answer'){const c=C(m.id);
+    h=`${ic('message-circle-question','i18','color:var(--accent)')} The spec asks`;
+    b=`<div class="label">${c.id} · ${P(c.project).name} · issue #${c.issue}</div><p style="margin:0;font:700 18px/1.35 var(--display)">${esc(c.question)}</p>
+      <div class="field" role="radiogroup" aria-label="Answer">${['Follow the host: 50% of RAM, at most 16 GB','Keep 4 GB fixed, and make it a setting','Something else'].map((o,k)=>`<label class="radio-row"><input type="radio" name="ans" value="${esc(o)}" ${k===0?'checked':''}><span>${o}</span></label>`).join('')}</div>
+      <div class="field"><label for="ansnote">Note for the planner (optional)</label><textarea class="inp" id="ansnote" placeholder="Document the default in the README."></textarea></div>
+      <div class="mutedtx" style="font-size:13px;display:flex;gap:8px;align-items:center">${ic(hostIc(P(c.project).host),'i14')}Your answer is posted on the issue, so the record stays in your tracker.</div>`;
+    f=`<button class="btn sm" type="button" data-act="close">Cancel</button><button class="btn sm primary" type="button" data-act="answer" data-id="${c.id}">${ic('send','i14')}Post answer and build</button>`;
+  }
+  if(m.type==='newcard'){
+    h=`${ic('plus','i18','color:var(--accent)')} New card`;
+    b=`<div class="field"><label for="nc-t">Title</label><input class="inp" id="nc-t" value="Paginate the audit log"></div>
+      <div class="field"><label for="nc-p">Project</label><div class="selw"><select id="nc-p" class="inp">${S.projects.map(p=>`<option value="${p.id}">${p.name}</option>`).join('')}</select>${ic('chevron-down','i14')}</div></div>
+      <div class="field"><label for="nc-d">What done looks like</label><textarea class="inp" id="nc-d">The audit log loads 50 entries at a time, with a Load more button.</textarea></div>
+      <label class="check"><input type="checkbox" id="nc-go" checked> Label it <span class="mono">vanguard:ready</span> so the build starts</label>
+      <div class="mutedtx" style="font-size:13px;display:flex;gap:8px;align-items:center">${ic('github','i14')}Created as an issue in the project's tracker.</div>`;
+    f=`<button class="btn sm" type="button" data-act="close">Cancel</button><button class="btn sm primary" type="button" data-act="newcard">${ic('plus','i14')}Create card</button>`;
+  }
+  if(m.type==='connect'){
+    h=`${ic('plug-zap','i18','color:var(--accent)')} Connect a runner`;
+    b=`<p class="mutedtx" style="margin:0">Run this on any machine with Docker and Node 24. The token works once and expires in 15 minutes.</p>
+      <div class="code"><span class="c"># add --egress to turn on the allowlist</span>\nvanguard runner connect --egress \\\n  --token tcr_Lm2…9f<button class="cp" type="button" data-act="copy" data-v="vanguard runner connect --egress --token tcr_Lm29f" aria-label="Copy command">${ic('copy','i14')}</button></div>
+      ${m.done?`<div class="note" style="border-left-color:var(--teal);background:var(--teal-wash)">${ic('circle-check','i14','color:var(--teal)')}<span><b>build-box</b> called in · linux/arm64 · 2 cells · egress on</span></div>`
+        :`<div class="label mutedtx" style="display:flex;gap:8px;align-items:center">${ic('loader-circle','i14 spin','color:var(--accent)')}Waiting for the runner to call in…</div>`}`;
+    f=m.done?`<button class="btn sm primary" type="button" data-act="close">${ic('check','i14')}Done</button>`:`<button class="btn sm" type="button" data-act="close">Cancel</button>`;
+  }
+  return `<div class="scrim" data-act="scrim"><div class="modal" role="dialog" aria-modal="true" aria-labelledby="mh"><div class="mh"><h2 id="mh" style="display:flex;gap:10px;align-items:center">${h}</h2><button class="btn icon" type="button" data-act="close" aria-label="Close">${ic('x','i14')}</button></div><div class="mb">${b}</div><div class="mf">${f}</div></div></div>`;
+}
+
+/* ------------------------------------------------------------------ render */
+const ROUTES=['home','board','runs','line','runners','signoff','setup'];
+function render(){
+  const r=S.route;
+  let body = r==='home'?vHome(): r==='board'?vBoard(): r==='runs'?vRuns(): r==='line'?vLine(): r==='runners'?vRunners(): r==='signoff'?vSignoff(): r==='setup'?vSetup(): r.startsWith('run-')?vRun(r.slice(4)):vHome();
+  document.getElementById('app').innerHTML = topbar() + (r==='setup'?`<main style="padding:0;max-width:none">${body}</main>`:`<main>${body}</main>`) + (r==='setup'?'':protobar()) + modal();
+  if(window.lucide) lucide.createIcons({attrs:{'stroke-width':1.75}});
+  S.feed.forEach(f=>f.fresh=false);
+}
+function go(){
+  const h=(location.hash||'#home').slice(1);
+  S.route = ROUTES.includes(h)||(h.startsWith('run-')&&C(h.slice(4)))?h:'home';
+  S.pop=null; S.changes=null;
+  if(S.route.startsWith('run-')) S.runTab='log';
+  if(S.route==='setup') setupTimers();
+  render(); window.scrollTo(0,0);
+}
+window.addEventListener('hashchange',go);
+
+/* ------------------------------------------------------------------ toasts */
+function toast(text,kind,icon){
+  const el=document.createElement('div');
+  el.className='toast '+(kind||'');
+  el.innerHTML=`${ic(icon||'circle-check','i14')}<span>${text}</span>`;
+  const box=document.getElementById('toasts'); box.appendChild(el);
+  while(box.children.length>3) box.firstChild.remove();
+  if(window.lucide) lucide.createIcons({attrs:{'stroke-width':1.75}});
+  setTimeout(()=>el.remove(),3800);
+}
+function feed(who,text,meta,icon){S.feed.unshift({who,text,meta,icon,fresh:true});}
+
+/* ------------------------------------------------------------------ factory */
+function tick(){
+  S.clock+=3; const t=fmt(S.clock);
+  const startedTodo=new Set(), opened=[]; let moved=0;
+  const order=[...S.cards].sort((a,b)=>stIdx(b.stage)-stIdx(a.stage));
+  for(const c of order){
+    if(c.stage==='merged'||needsYou(c)) continue;
+    if(c.stage!=='todo'&&moved>=2) continue;
+    const p=P(c.project), r=runnerOf(p);
+    if(!r.online){ if(c.stage==='todo') c.status='blocked'; continue; }
+    const add=(ic2,text,cls)=>c.events.push({tm:t,ic:ic2,text,cls});
+    if(c.stage!=='todo') moved++;
+    if(c.status==='repairing'){
+      c.status='running'; c.stage='review'; c.tests='pass'; c.cost+=0.42;
+      add('circle-check',`Repair ${c.repair} on opus fixed both tests. All gates green. Sent to review.`);
+      continue;
+    }
+    if(c.stage==='todo'){
+      if(startedTodo.has(p.id)) continue; startedTodo.add(p.id);
+      c.stage='spec'; c.status='running'; c.cost+=0.18;
+      add('file-text','A planner is reading the code and writing the spec.'); continue;
+    }
+    if(c.stage==='spec'){c.stage='cell';c.cost+=0.35;add('box','Spec posted on the issue. Building in a sealed cell.');continue;}
+    if(c.stage==='cell'){
+      c.stage='gates'; c.cost+=0.5;
+      if(c.willFail){c.willFail=false;c.status='repairing';c.repair=1;c.tests='1 failing';c.author='sonnet-5-5 → opus';S.stats.repairs++;
+        add('circle-x','<b>Held at gates.</b> <code>pnpm test</code>: 1 failing. Repair 1 of 2 runs on opus.','held');
+        feed('TC',`${c.id} held at gates, repairing on its own`,`${p.name} · ${t}`,'wrench');}
+      else add('list-checks','Running <code>pnpm verify</code> and the secret scan.');
+      continue;
+    }
+    if(c.stage==='gates'){c.stage='review';add('circle-check','Gates passed: types, tests, lint. Secret scan clean.');continue;}
+    if(c.stage==='review'){
+      c.stage='pr'; c.status='signoff'; c.pr=c.pr||S.nextPr++; c.cost+=0.21;
+      add('git-pull-request',`Review on ${c.reviewer}: no blockers. The host opened PR #${c.pr}.`);
+      feed('TC',`Opened <b>PR #${c.pr}</b>: ${esc(c.title)}`,`${p.name} · ${t}`,'git-pull-request');
+      opened.push(c.pr);
+    }
+  }
+  if(opened.length) toast(`PR #${opened.join(', #')} ${opened.length>1?'are':'is'} ready for your sign-off`,'acc','stamp');
+  S.stats.spend=+(S.stats.spend+0.9).toFixed(2);
+  S.projects.forEach(p=>{if(S.cards.some(c=>c.project===p.id&&moving(c))) p.spend=+(p.spend+0.3).toFixed(2);});
+  render();
+}
+let autoT=null;
+function setAuto(on){S.auto=on;clearInterval(autoT);if(on) autoT=setInterval(tick,5000);render();}
+
+/* setup timers */
+let ghT=null,runT=null;
+function setupTimers(){
+  const u=S.setup;
+  if(u.step===3&&u.loc==='mine'&&!u.runnerUp&&!runT) runT=setTimeout(()=>{runT=null;if(S.route==='setup'&&S.setup.step===3&&S.setup.loc==='mine'){S.setup.runnerUp=true;toast('studio-mini called in','', 'radio');render();}},2600);
+}
+
+/* ------------------------------------------------------------------ actions */
+document.addEventListener('click',e=>{
+  const el=e.target.closest('[data-act]'); if(!el) { if(S.pop){S.pop=null;render();} return; }
+  const a=el.dataset.act, v=el.dataset.v, id=el.dataset.id;
+  if(a!=='pop'&&a!=='noop'&&S.pop&&!el.closest('.pop')) S.pop=null;
+  switch(a){
+    case 'pop': S.pop=S.pop===v?null:v; render(); break;
+    case 'noop': S.pop=null; render(); break;
+    case 'toast': S.pop=null; toast(esc(v),'', 'info'); render(); break;
+    case 'tick': tick(); break;
+    case 'auto': setAuto(!S.auto); break;
+    case 'reset': clearInterval(autoT); S=seed(); location.hash='#home'; render(); toast('Prototype reset to the sample data','', 'rotate-ccw'); break;
+    case 'modal': S.pop=null; S.modal={type:v,id}; render();
+      if(v==='connect') setTimeout(()=>{ if(S.modal&&S.modal.type==='connect'&&!S.modal.done){S.modal.done=true; if(!R('build-box')) S.runners.push({id:'build-box',name:'build-box',kind:'own',os:'linux/arm64',ver:'1.14.0',cells:2,online:true,egress:true,seen:'1 s',icon:'server'}); feed('PK','You connected the runner <b>build-box</b>','acme · just now','plug-zap'); render();}},2400);
+      break;
+    case 'scrim': if(e.target===el){S.modal=null;render();} break;
+    case 'close': S.modal=null; render(); break;
+    case 'answer': {
+      const c=C(id), ans=(document.querySelector('input[name="ans"]:checked')||{}).value||'', note=(document.getElementById('ansnote')||{}).value||'';
+      c.status='running'; c.stage='cell'; S.stats.stepped++;
+      c.events.push({tm:fmt(S.clock),ic:'message-circle-reply',cls:'you',text:`You answered: <b>${esc(ans)}</b>${note?` · “${esc(note)}”`:''}. Spec updated; building in a sealed cell.`});
+      feed('PK',`You answered the spec question on <b>#${c.issue}</b>`,`${P(c.project).name} · just now`,'message-circle-reply');
+      S.modal=null; render(); toast(`Answer posted on #${c.issue}. The build has started.`);
+      break; }
+    case 'newcard': {
+      const t=document.getElementById('nc-t').value.trim()||'Untitled card', pid=document.getElementById('nc-p').value, goNow=document.getElementById('nc-go').checked;
+      const n=S.nextId++; const c=card('TC-0'+n,pid,t,'todo','queued',{issue:n});
+      if(goNow&&runnerOf(P(pid)).online){c.stage='spec';c.status='running';c.events.push({tm:fmt(S.clock),ic:'file-text',text:'A planner is reading the code and writing the spec.'});}
+      else if(!runnerOf(P(pid)).online) c.status='blocked';
+      S.cards.push(c); feed('PK',`You created <b>${c.id}</b>: ${esc(t)}`,`${P(pid).name} · just now`,'plus');
+      S.modal=null; render(); toast(`${c.id} created${c.stage==='spec'?' and on the line':''}`);
+      break; }
+    case 'board': if(el.tagName==='A') e.preventDefault(); S.boardProject=v; if(S.route!=='board') location.hash='#board'; else render(); break;
+    case 'runsf': S.runsFilter=v; render(); break;
+    case 'runtab': S.runTab=v; render(); break;
+    case 'merge': {
+      const c=C(id); c.stage='merged'; c.status='merged'; S.stats.merged++;
+      c.events.push({tm:fmt(S.clock),ic:'git-merge',cls:'you',text:`You merged PR #${c.pr} into main from its receipt.`});
+      feed('PK',`You merged <b>PR #${c.pr}</b> from its receipt`,`${P(c.project).name} · just now`,'git-merge');
+      render(); toast(`Merged PR #${c.pr} into main`,'', 'git-merge'); break; }
+    case 'changes': S.changes=id; render(); setTimeout(()=>{const t=document.getElementById('chg');t&&t.focus();},0); break;
+    case 'changes-cancel': S.changes=null; render(); break;
+    case 'changes-send': {
+      const c=C(id), txt=(document.getElementById('chg').value||'').trim()||'Small fixes, see the PR comment.';
+      c.stage='cell'; c.status='running'; S.changes=null; S.stats.stepped++;
+      c.events.push({tm:fmt(S.clock),ic:'message-square',cls:'you',text:`You asked for changes: “${esc(txt)}”. The card went back to a cell for a revision.`});
+      feed('PK',`You asked for changes on <b>PR #${c.pr}</b>`,`${P(c.project).name} · just now`,'rotate-ccw');
+      render(); toast('Sent back for a revision. It returns here when the gates pass.','acc','rotate-ccw'); break; }
+    case 'stop': {
+      const c=C(id); c.stage='todo'; c.status='queued';
+      c.events.push({tm:fmt(S.clock),ic:'square',cls:'you',text:'You stopped the run. The worktree and partial diff are kept; the card is back in Todo.'});
+      render(); toast(`${c.id} stopped. Partial work is kept.`,'acc','square'); break; }
+    case 'station': S.lineStation=v; render(); break;
+    case 'fieldv': {
+      const L=S.lines[S.lineProject]; if(!L.draft) L.draft=JSON.parse(JSON.stringify(L.cfg));
+      const cur=L.draft[S.lineStation][el.dataset.k]; L.draft[S.lineStation][el.dataset.k]= typeof cur==='boolean'? v==='true': v;
+      if(!changes(L).length) L.draft=null; render(); break; }
+    case 'discard': S.lines[S.lineProject].draft=null; render(); toast('Draft discarded','', 'undo-2'); break;
+    case 'publish': {
+      const L=S.lines[S.lineProject], ch=changes(L);
+      L.cfg=L.draft; L.draft=null; L.v++;
+      const nice=ch.length===1?`${ch[0][0]} → ${show(ch[0][2])}`:`${ch.length} changes`;
+      L.history.unshift({v:L.v,who:'You',when:'now',text:nice,diff:ch});
+      if(ch.find(x=>x[0]==='cell.runner')){const p=P(S.lineProject);const nr=S.runners.find(r=>r.name===L.cfg.cell.runner);if(nr){p.runner=nr.id;S.cards.filter(c=>c.project===p.id&&c.status==='blocked').forEach(c=>c.status='queued');}}
+      feed('PK',`You published line v${L.v}: ${esc(nice)}`,`${P(S.lineProject).name} · just now`,'workflow');
+      render(); toast(`Line v${L.v} published. The next card uses it.`,'', 'upload'); break; }
+    case 'runner': S.selRunner=v; render(); break;
+    case 'move-web': {
+      const p=P('web'); p.runner='home-server'; S.lines.web.cfg.cell.runner='home-server'; S.lines.web.v++;
+      S.lines.web.history.unshift({v:S.lines.web.v,who:'You',when:'now',text:'Moved to home-server',diff:[['cell.runner','pawel-mbp','home-server']]});
+      S.cards.filter(c=>c.project==='web'&&c.status==='blocked').forEach(c=>c.status='queued');
+      feed('PK','You moved <b>acme/web</b> to home-server','acme/web · line v'+S.lines.web.v+' · just now','arrow-right-left');
+      render(); toast('acme/web now runs on home-server. Its 2 cards start on the next step.','', 'arrow-right-left'); break; }
+    case 'copy': e.preventDefault(); e.stopPropagation();
+      try{navigator.clipboard.writeText(v).then(()=>toast('Command copied','', 'copy'),()=>toast('Copy failed. Select the command instead.','acc','copy'));}catch(_){toast('Copy failed. Select the command instead.','acc','copy');}
+      break;
+    /* setup */
+    case 'gh': S.setup.gh='wait'; render(); setTimeout(()=>{S.setup.gh='yes';render();toast('Taskcell App installed on acme','', 'github');},1300); break;
+    case 'repo': S.setup.repo=v; render(); break;
+    case 'setengine': S.setup.engine=v; render(); break;
+    case 'setupnext': S.setup.step=Math.min(5,S.setup.step+1); render(); setupTimers(); window.scrollTo(0,0); break;
+    case 'setupback': S.setup.step=Math.max(1,S.setup.step-1); render(); window.scrollTo(0,0); break;
+    case 'setupgo': S.setup.step=+v; render(); setupTimers(); break;
+    case 'pick': {
+      const u=S.setup; u.picked=+v; render();
+      const mine=u.loc==='mine';
+      if(mine&&!R('studio-mini')) S.runners.push({id:'studio-mini',name:'studio-mini',kind:'own',os:'darwin/arm64',ver:'1.14.0',cells:2,online:true,egress:true,seen:'2 s',icon:'monitor'});
+      if(!P('docs')){S.projects.push({id:'docs',name:u.repo,host:'github',runner:mine?'studio-mini':'taskcell',spend:0});
+        const L=freshLine(mine?'studio-mini':'Taskcell cells'); L.v=1; L.history=[{v:1,who:'You',when:'now',text:'First line',diff:[]}]; L.cfg.cell.engine=u.engine; L.cfg.review.engine=u.reviewer; L.cfg.gates.verify='pnpm test'; S.lines.docs=L;}
+      const n=S.nextId++; const c=card('TC-0'+n,'docs',el.dataset.t,'spec','running',{issue:+v,cost:0.12,author:u.engine==='Claude Code'?'sonnet-5-5':u.engine.toLowerCase(),reviewer:u.reviewer.toLowerCase()});
+      c.events=[{tm:fmt(S.clock),ic:'tag',text:`Issue #${v} labelled <code>vanguard:ready</code>.`},{tm:fmt(S.clock),ic:'file-text',text:'A planner is reading the code and writing the spec.'}];
+      S.cards.push(c); feed('PK',`You set up <b>${u.repo}</b>. ${c.id} is on the line`,`${u.repo} · just now`,'rocket');
+      setTimeout(()=>{S.setup=freshSetup(); location.hash='#home'; toast(`${u.repo} is live. ${c.id} is on the line.`,'acc','rocket');},900);
+      break; }
+  }
+});
+document.addEventListener('change',e=>{
+  const el=e.target, a=el.dataset&&el.dataset.act;
+  if(a==='field'){const L=S.lines[S.lineProject]; if(!L.draft) L.draft=JSON.parse(JSON.stringify(L.cfg)); L.draft[S.lineStation][el.dataset.k]=el.value; if(!changes(L).length) L.draft=null; render();}
+  if(a==='lineproj'){S.lineProject=el.value; render();}
+  if(a==='loc'){S.setup.loc=el.value; render(); setupTimers();}
+  if(a==='setrev'){S.setup.reviewer=el.value; render();}
+});
+document.addEventListener('keydown',e=>{
+  if(e.key==='Escape'&&(S.modal||S.pop)){S.modal=null;S.pop=null;render();}
+  if(e.target.matches&&e.target.matches('.rtab tr')&&e.key==='Enter'){S.selRunner=e.target.dataset.v;render();}
+});
+
+go();
+})();
+</script>
+
+</body></html>
