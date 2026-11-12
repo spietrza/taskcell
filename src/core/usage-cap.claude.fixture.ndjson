@@ -1,0 +1,4 @@
+{"type":"system","subtype":"init","session_id":"s1","model":"claude-sonnet-5-5"}
+{"type":"rate_limit_event","rate_limit_info":{"status":"allowed","resetsAt":1893456000,"rateLimitType":"five_hour","utilization":0.82,"isUsingOverage":false},"session_id":"s1"}
+{"type":"assistant","message":{"content":[{"type":"text","text":"hi"}]},"session_id":"s1"}
+{"type":"rate_limit_event","rate_limit_info":{"status":"allowed","rateLimitType":"five_hour","isUsingOverage":false},"session_id":"s1"}

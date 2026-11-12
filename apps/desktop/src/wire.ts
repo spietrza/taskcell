@@ -446,6 +446,8 @@ export interface AppConfig {
   verifyCmd?: string | null;
   concurrency?: number | null;
   budgetUsd?: number | null;
+  /** Stop starting tasks/stages at this % (1-100) of the provider's plan window; unset = no cap. */
+  usageCapPct?: number | null;
   runCommand?: string | null;
   /** Doc-editor chat model (Subsystem 3), e.g. `claude-sonnet-5`. Non-secret; key is env-only. */
   chatModel?: string | null;
