@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { isRateLimitError, rateLimitResetDelayMs, failureReason, formatFailureComment, visibleError, TaskcellError, AgentError } from './errors.js';
+import { isRateLimitError, rateLimitResetDelayMs, failureReason, formatFailureComment, visibleError, TaskcellError, AgentError, FallbackFailedError } from './errors.js';
 
 describe('failureReason', () => {
   it('masks credentials and collapses the message to one line, since it lands in a public CI log', () => {
@@ -143,5 +143,18 @@ describe('rateLimitResetDelayMs', () => {
     expect(isRateLimitError(new AgentError("You've hit your session limit"))).toBe(true);
     expect(isRateLimitError(new AgentError("You've hit your context limit"))).toBe(false);
     expect(isRateLimitError(new AgentError("You've hit your turn limit"))).toBe(false);
+  });
+});
+
+describe('formatFailureComment for a failed fallback', () => {
+  it('says the fallback failed and why, not only the primary rate limit', () => {
+    const error = new FallbackFailedError('claude', 'codex', "You've hit your session limit", 'failed to spawn code-mode host: Resource temporarily unavailable (os error 11)');
+
+    const comment = formatFailureComment('Vanguard run failed', error);
+
+    expect(comment).toContain('fallback provider codex failed (not a rate limit)');
+    expect(comment).toContain('Resource temporarily unavailable (os error 11)');
+    expect(comment).not.toContain('the AI provider hit a usage/rate limit');
+    expect(isRateLimitError(error)).toBe(true);
   });
 });
