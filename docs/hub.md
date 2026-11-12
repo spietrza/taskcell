@@ -6,6 +6,18 @@
 HTTP/SSE, backed by a real `.taskcell/` directory. Useful when you want the cockpit without installing
 a native app, or running it on a server. See `src/hub/*.ts` and `src/cli/hub.ts` for the implementation.
 
+## Install the desktop app
+
+Installers (macOS `.dmg`, Windows `.msi`/`-setup.exe`, Linux `.AppImage`/`.deb`) are attached to the
+[latest release](https://github.com/spietrza/taskcell/releases/latest) once the desktop release job is enabled
+(see `apps/desktop/README.md`). The app checks for updates on start and offers a new version.
+
+**macOS, unsigned builds.** Unsigned apps are blocked on first open. On macOS 14 and earlier, right-click the app
+and choose **Open**. On macOS 15 and later, try to open it once, then go to **System Settings > Privacy & Security**
+and click **Open Anyway**. If macOS says the app "is damaged", run `xattr -cr /Applications/Taskcell.app` and open it again.
+
+**Linux.** `chmod +x Taskcell_*.AppImage && ./Taskcell_*.AppImage`, or `sudo apt install ./Taskcell_*.deb`.
+
 ## Quick start
 
 ```bash

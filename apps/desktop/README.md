@@ -17,6 +17,49 @@ environment (LLM/platform credentials) — see **Launching runs** below.
 
 Gates: `cd src-tauri && cargo test` · `pnpm vitest run` · `pnpm build`.
 
+## Install the desktop app
+
+See [Install the desktop app](../../docs/hub.md#install-the-desktop-app) for download and first-open steps.
+
+### Build installers locally
+
+```bash
+cd apps/desktop
+pnpm install
+pnpm tauri build                  # installers land in src-tauri/target/release/bundle/
+pnpm tauri build --target universal-apple-darwin   # macOS universal (needs both rust targets)
+```
+
+Each platform builds only its own formats. The build version comes from `tauri.conf.json`; releases override it with
+`--config '{"version":"X.Y.Z"}'`. Updater artifacts are off by default, so a local build needs no key.
+
+### Auto-update keys
+
+The updater verifies signed artifacts. The maintainer creates the key pair once:
+
+```bash
+pnpm tauri signer generate -w ~/.tauri/taskcell.key
+```
+
+- Put the **public** key (`taskcell.key.pub` contents) in `plugins.updater.pubkey` of `src-tauri/tauri.conf.json` (a `REPLACE_` placeholder until then; the app skips the update check).
+- Store the **private** key as the CI secret `TAURI_SIGNING_PRIVATE_KEY` (and its password as `TAURI_SIGNING_PRIVATE_KEY_PASSWORD`). Never commit it.
+
+### Release job (CI, applied by a human)
+
+The factory cannot edit `.github/`, so the matrix job (macOS universal, Windows, Linux via `tauri-apps/tauri-action`)
+is described in the PR that introduced it and must be added to the release workflow by hand. It must:
+
+- pass `--config '{"version":"X.Y.Z","bundle":{"createUpdaterArtifacts":true}}'` and the signing secrets above;
+- upload installers to the release, and `latest.json` to a **dedicated rolling release tagged `desktop-latest`**
+  (the updater endpoint is `releases/download/desktop-latest/latest.json`), not the CLI release stream, which has no desktop assets on most tags.
+
+Until `plugins.updater.pubkey` is a real key, the app skips the update check.
+
+### Optional macOS signing and notarization
+
+Builds work unsigned. When these secrets are present the release job signs and notarizes: `APPLE_CERTIFICATE`
+(base64 .p12), `APPLE_CERTIFICATE_PASSWORD`, `APPLE_SIGNING_IDENTITY`, `APPLE_ID`, `APPLE_PASSWORD` (app-specific), `APPLE_TEAM_ID`.
+
 ## Driving the UI with an agent
 
 The frontend is a plain Vite + React app that can run in any browser with a mocked backend — no Rust build,
