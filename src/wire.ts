@@ -494,6 +494,8 @@ export interface NeedsYouItem {
   url: string;
   /** Why this item waits: the label name, or `'changes requested'` for a PR review verdict. */
   reason: string;
+  /** A PR's base (target) branch, which a merge lands on. Absent for an issue. */
+  baseRef?: string;
   /** The factory's own last comment, redacted; untrusted, render as plain text. Absent when it never commented. */
   lastComment?: { author: string; body: string };
 }
@@ -635,6 +637,8 @@ export interface Commands {
   list_needs_you: { args: { repoPath: string }; result: { items: NeedsYouItem[] } };
   /** HUB_ONLY: post a reply with the caller's own `gh` identity and move the item on. */
   reply_needs_you: { args: { repoPath: string; id: string; kind: 'issue' | 'pr'; body: string }; result: void };
+  /** HUB_ONLY: merge a waiting PR (refused when not in "Needs you" or required checks are not green). */
+  merge_needs_you: { args: { repoPath: string; id: string }; result: void };
   /** HUB_ONLY: apply a trigger label to a GitHub issue of the project (src/hub/start-task.ts). */
   start_task: { args: { repoPath: string; number: number; label: string }; result: StartTaskResult };
   /** TAURI_ONLY: the Fleet screen's shell-spawn surface — disabled in hub mode (remote code
@@ -680,6 +684,7 @@ export const HUB_ONLY = [
   'agent_cli_versions',
   'list_needs_you',
   'reply_needs_you',
+  'merge_needs_you',
   'start_task',
   'api_queue',
 ] as const satisfies readonly (keyof Commands)[];
@@ -732,6 +737,7 @@ export const COMMAND_NAMES = [
   'clone_project',
   'list_needs_you',
   'reply_needs_you',
+  'merge_needs_you',
   'start_task',
   'spawn_run',
   'kill_run',
