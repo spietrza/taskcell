@@ -1,5 +1,41 @@
 # Changelog
 
+## [1.15.3](https://github.com/spietrza/taskcell/compare/v1.15.2...v1.15.3) (2026-11-12)
+
+
+### Features
+
+* Enable factory: write taskcell-*.yml callers, recognise existing vanguard-*.yml (spietrza/taskcell[#802](https://github.com/spietrza/taskcell/issues/802)) ([#807](https://github.com/spietrza/taskcell/issues/807)) ([f30ad11](https://github.com/spietrza/taskcell/commit/f30ad11f3c6f2e901b5e6ca4537c177d4a7f121a))
+* Factory: run one issue or one PR per invocation (watch --issue / watch-prs --pr) (spietrza/taskcell[#768](https://github.com/spietrza/taskcell/issues/768)) ([#780](https://github.com/spietrza/taskcell/issues/780)) ([c9ec4bf](https://github.com/spietrza/taskcell/commit/c9ec4bfabaec5913407a7efed1bd271e0fb852e6))
+* Factory: stop at a user-set usage cap (e.g. 80% of the plan window) instead of the provider's 100% (spietrza/taskcell[#784](https://github.com/spietrza/taskcell/issues/784)) ([#794](https://github.com/spietrza/taskcell/issues/794)) ([d759913](https://github.com/spietrza/taskcell/commit/d759913158a4f8c0d292a6023aa223d61ed11bfb))
+* follow-ups from the [#655](https://github.com/spietrza/taskcell/issues/655) and [#656](https://github.com/spietrza/taskcell/issues/656) reviews (spietrza/taskcell[#685](https://github.com/spietrza/taskcell/issues/685)) ([#793](https://github.com/spietrza/taskcell/issues/793)) ([91f0ba6](https://github.com/spietrza/taskcell/commit/91f0ba6b8ee3e8bf87b17f5346f91617e6a9969f))
+* per-PR lessons on the metrics branch ([#765](https://github.com/spietrza/taskcell/issues/765)) ([#808](https://github.com/spietrza/taskcell/issues/808)) ([d399421](https://github.com/spietrza/taskcell/commit/d3994215f0db8294d770d6339d5d25115e914238))
+* per-repo directory .taskcell/ with .vanguard/ fallback ([#803](https://github.com/spietrza/taskcell/issues/803)) ([fe11cea](https://github.com/spietrza/taskcell/commit/fe11ceadb2d8378ae21ffc05070ad342240b99b6))
+* Read-only rootfs opt-in: follow-ups from [#752](https://github.com/spietrza/taskcell/issues/752) review (spietrza/taskcell[#753](https://github.com/spietrza/taskcell/issues/753)) ([#791](https://github.com/spietrza/taskcell/issues/791)) ([19da950](https://github.com/spietrza/taskcell/commit/19da950f6513fc64385cf2e9f36c8e40b450ae20))
+* rename the metrics branch to taskcell-metrics (legacy fallback) ([#764](https://github.com/spietrza/taskcell/issues/764)) ([fcbda08](https://github.com/spietrza/taskcell/commit/fcbda0857c6ad861f7b8578fbdb9d9d67fc2ceaa))
+* Rename: vanguard bin deprecation note and docs (spietrza/taskcell[#797](https://github.com/spietrza/taskcell/issues/797)) ([#806](https://github.com/spietrza/taskcell/issues/806)) ([72acae9](https://github.com/spietrza/taskcell/commit/72acae91156f7d5510798392b73fe0fa2da75228))
+* sandbox image build fails the whole run on a transient GitHub Releases 504 (spietrza/taskcell[#657](https://github.com/spietrza/taskcell/issues/657)) ([#781](https://github.com/spietrza/taskcell/issues/781)) ([f3112dd](https://github.com/spietrza/taskcell/commit/f3112dd5a8c8f31287443a31ba07f265093323e9))
+* Sandbox: host-aware memory default and OOM evidence after a failed verify (spietrza/taskcell[#771](https://github.com/spietrza/taskcell/issues/771)) ([#810](https://github.com/spietrza/taskcell/issues/810)) ([eacbad6](https://github.com/spietrza/taskcell/commit/eacbad6076c0048e3664a5c09f778cca1c6e2d4b))
+* Stats: approver scorecard (shadow verdict vs what the human did) (spietrza/taskcell[#785](https://github.com/spietrza/taskcell/issues/785)) ([#790](https://github.com/spietrza/taskcell/issues/790)) ([3b7069f](https://github.com/spietrza/taskcell/commit/3b7069f156ff44f3b3e0599d642d5dc0019a61c5))
+* Stats: label-to-merge lead time and revise rounds per issue (spietrza/taskcell[#737](https://github.com/spietrza/taskcell/issues/737)) ([#788](https://github.com/spietrza/taskcell/issues/788)) ([e26c3fe](https://github.com/spietrza/taskcell/commit/e26c3fe6f90c58d5bf2520d5dbde76f87571e27a))
+
+
+### Bug Fixes
+
+* bump sandbox Claude CLI to 2.1.322 ([#792](https://github.com/spietrza/taskcell/issues/792)) ([f6017c9](https://github.com/spietrza/taskcell/commit/f6017c961e7b184307d710dcc3c1075b8fbb15c5))
+* **sandbox:** run an init so zombies stop filling the pids limit (exit 134) ([#809](https://github.com/spietrza/taskcell/issues/809)) ([ecd1bf7](https://github.com/spietrza/taskcell/commit/ecd1bf709595113c47e0d42ec22a0cf191834a1a))
+* say taskcell in user-facing messages, docs and the desktop window ([#783](https://github.com/spietrza/taskcell/issues/783)) ([aa1694c](https://github.com/spietrza/taskcell/commit/aa1694c847005203f827fc18f62adc525d08f2c8))
+
+
+### Code Refactoring
+
+* Taskcell names for source files and identifiers ([#805](https://github.com/spietrza/taskcell/issues/805)) ([cc7f3c0](https://github.com/spietrza/taskcell/commit/cc7f3c04e284c6f343234ba2eb21c35fdce1e8f2))
+
+
+### Miscellaneous
+
+* release 1.15.3 ([c955bd7](https://github.com/spietrza/taskcell/commit/c955bd763670f431f8ac85f802ee117a312b2e2f))
+
 ## [1.15.2](https://github.com/spietrza/taskcell/compare/v1.15.1...v1.15.2) (2026-11-11)
 
 
