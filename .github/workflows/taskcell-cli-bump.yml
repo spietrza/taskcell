@@ -1,0 +1,63 @@
+name: Taskcell CLI bump
+
+# Daily: if npm has a newer claude or codex CLI than docker/Dockerfile pins, open (or refresh) one PR that
+# moves the pins. Never auto-merged: CI and the Eval baseline (which runs the real claude CLI) gate it,
+# then a human merges. A new CLI reaches callers with the next release (they build the image at @v1).
+#
+# Pushed with VANGUARD_PUSH_TOKEN so the PR gets CI (a GITHUB_TOKEN push fires no workflows). The script
+# never edits .github/, so that token needs no workflow scope.
+
+on:
+  schedule:
+    - cron: '17 5 * * *'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: taskcell-cli-bump
+  cancel-in-progress: false
+
+jobs:
+  bump:
+    if: github.event_name == 'schedule' || github.actor == 'spietrza'
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    env:
+      BRANCH: chore/agent-cli-bump
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+        with:
+          persist-credentials: false
+
+      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v6
+        with:
+          node-version: 24
+
+      - name: Bump pins
+        id: bump
+        run: |
+          out=$(scripts/bump-agent-clis.sh)
+          echo "$out"
+          { echo 'summary<<EOF'; echo "$out"; echo 'EOF'; } >> "$GITHUB_OUTPUT"
+
+      - name: Open or refresh the PR
+        if: ${{ steps.bump.outputs.summary != '' }}
+        env:
+          GH_TOKEN: ${{ secrets.VANGUARD_PUSH_TOKEN }}
+          SUMMARY: ${{ steps.bump.outputs.summary }}
+          BASE: ${{ github.event.repository.default_branch }}
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git switch -c "$BRANCH"
+          git commit -qam "fix(sandbox): bump agent CLIs" -m "$SUMMARY"
+          git push -f "https://x-access-token:${GH_TOKEN}@github.com/${GITHUB_REPOSITORY}.git" "$BRANCH"
+          body=$(printf "Newer agent CLIs on npm:\n\n%s\n\nMerge only after CI and Eval are green. Changelogs: https://github.com/anthropics/claude-code/releases , https://github.com/openai/codex/releases\n" "$SUMMARY")
+          if [ -z "$(gh pr list --repo "$GITHUB_REPOSITORY" --head "$BRANCH" --json number -q '.[].number')" ]; then
+            gh pr create --repo "$GITHUB_REPOSITORY" --base "$BASE" --head "$BRANCH" \
+              --title "fix(sandbox): bump agent CLIs" --body "$body" --label "ready for vanguard review"
+          else
+            gh pr edit "$BRANCH" --repo "$GITHUB_REPOSITORY" --body "$body"
+          fi

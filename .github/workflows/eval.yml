@@ -46,9 +46,9 @@ jobs:
           cache: pnpm
       - run: pnpm install --frozen-lockfile
       - run: pnpm build
-      # eval shells out to the host `claude` CLI. Newer than docker/Dockerfile's pin: 2.1.260 does not
-      # know claude-sonnet-5-5 and hangs on the first call (#735).
-      - run: npm install -g @anthropic-ai/claude-code@2.1.322
+      # eval shells out to the host `claude` CLI, at docker/Dockerfile's pin (scripts/bump-agent-clis.sh moves it). 2.1.260 did not
+      # know claude-sonnet-5-5 and hung on the first call (#735).
+      - run: npm install -g "@anthropic-ai/claude-code@$(sed -n 's/^ARG CLAUDE_CLI_VERSION=//p' docker/Dockerfile)"
       - name: Eval against main's baseline
         env:
           CLAUDE_CODE_OAUTH_TOKEN: ${{ secrets.CLAUDE_CODE_OAUTH_TOKEN }}
@@ -73,7 +73,7 @@ jobs:
           cache: pnpm
       - run: pnpm install --frozen-lockfile
       - run: pnpm build
-      - run: npm install -g @anthropic-ai/claude-code@2.1.322
+      - run: npm install -g "@anthropic-ai/claude-code@$(sed -n 's/^ARG CLAUDE_CLI_VERSION=//p' docker/Dockerfile)"
       - name: Run eval
         env:
           CLAUDE_CODE_OAUTH_TOKEN: ${{ secrets.CLAUDE_CODE_OAUTH_TOKEN }}
