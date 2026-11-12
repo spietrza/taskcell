@@ -50,8 +50,9 @@ The factory cannot edit `.github/`, so the matrix job (macOS universal, Windows,
 is described in the PR that introduced it and must be added to the release workflow by hand. It must:
 
 - pass `--config '{"version":"X.Y.Z","bundle":{"createUpdaterArtifacts":true}}'` and the signing secrets above;
-- upload installers to the release, and `latest.json` to a **dedicated rolling release tagged `desktop-latest`**
-  (the updater endpoint is `releases/download/desktop-latest/latest.json`), not the CLI release stream, which has no desktop assets on most tags.
+- upload the installers and `latest.json` to a **dedicated rolling release tagged `desktop-latest`**, replacing the
+  previous assets, not to the CLI release stream, which has no desktop assets on most tags. The updater endpoint
+  (`releases/download/desktop-latest/latest.json`), the landing page and the docs all point at that release.
 
 Until `plugins.updater.pubkey` is a real key, the app skips the update check.
 

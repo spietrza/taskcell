@@ -9,7 +9,7 @@ a native app, or running it on a server. See `src/hub/*.ts` and `src/cli/hub.ts`
 ## Install the desktop app
 
 Installers (macOS `.dmg`, Windows `.msi`/`-setup.exe`, Linux `.AppImage`/`.deb`) are attached to the
-[latest release](https://github.com/spietrza/taskcell/releases/latest) once the desktop release job is enabled
+[`desktop-latest` release](https://github.com/spietrza/taskcell/releases/tag/desktop-latest) once the desktop release job is enabled
 (see `apps/desktop/README.md`). The app checks for updates on start and offers a new version.
 
 **macOS, unsigned builds.** Unsigned apps are blocked on first open. On macOS 14 and earlier, right-click the app
