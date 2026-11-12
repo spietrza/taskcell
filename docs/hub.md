@@ -299,7 +299,7 @@ The reusable `implement.yml` and `revise.yml` workflows take an `upload-run-reco
 off by default). When a caller passes `upload-run-records: true`, the job uploads `.vanguard/runs/` as
 a `vanguard-runs` artifact kept for 14 days, with `**/*.bundle` excluded (git bundles are large and the
 reader ignores them). The step runs under the same gate as `persist-metrics`: only once the run step
-finished, pass or fail. This repo's own callers (`vanguard-implement.yml`, `vanguard-revise.yml`) opt
+finished, pass or fail. This repo's own callers (`taskcell-implement.yml`, `taskcell-revise.yml`) opt
 in; a client repo adds the input to its thin caller, see `docs/onboarding-another-repo.md` for the
 input table and the "off by default, on purpose" notes.
 

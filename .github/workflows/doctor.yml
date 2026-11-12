@@ -1,4 +1,4 @@
-name: Vanguard Doctor (reusable)
+name: Taskcell Doctor (reusable)
 
 # Reusable body of the one-click preflight: validates that a repo is ready for Vanguard (secrets, labels,
 # Docker, sandbox image, provider auth) WITHOUT processing any issue. A caller owns the `workflow_dispatch`

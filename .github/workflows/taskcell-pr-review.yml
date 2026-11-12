@@ -1,4 +1,4 @@
-name: Vanguard PR Review
+name: Taskcell PR Review
 
 # Thin caller of the reusable workflow (pr-review.yml), which holds the steps.
 
@@ -47,7 +47,7 @@ jobs:
     # Job-level, not workflow-level: a run whose jobs are all skipped (any other label, any other opened PR)
     # never joins the group, so it cannot cancel a review that is waiting in it.
     concurrency:
-      group: vanguard-pr-review-${{ github.repository }}
+      group: taskcell-pr-review-${{ github.repository }}
       cancel-in-progress: false
     uses: ./.github/workflows/pr-review.yml
     with:

@@ -1,4 +1,4 @@
-name: Vanguard Doctor
+name: Taskcell Doctor
 
 # One-click preflight: validates that this repo is ready for Vanguard (secrets, labels, Docker,
 # sandbox image, provider auth) WITHOUT processing any issue. Run it from Actions -> Vanguard Doctor
@@ -14,7 +14,7 @@ permissions:
   pull-requests: read
 
 concurrency:
-  group: vanguard-doctor-${{ github.repository }}
+  group: taskcell-doctor-${{ github.repository }}
   cancel-in-progress: true
 
 jobs:
