@@ -2,6 +2,7 @@ import { AgentError } from '../core/errors.js';
 import type { AgentRunInput, AgentTurn, AgentRunOutput, AgentUsage } from './provider.js';
 import { shellQuote, assistantText } from './shell.js';
 import { isSafeSessionId } from './session-store.js';
+import { parseClaudeUtilization, recordUtilization } from '../core/usage-cap.js';
 
 interface StreamContentBlock {
   type?: string;
@@ -59,6 +60,8 @@ function toUsage(raw: StreamMessage['usage']): AgentUsage | undefined {
 export async function* runClaudeCli(
   input: AgentRunInput,
   buildArgs: (input: AgentRunInput) => string[],
+  /** Provider whose plan window the stream's rate_limit_event reports on (usage cap); none = not recorded. */
+  usageProvider?: string,
 ): AsyncGenerator<AgentTurn, AgentRunOutput, void> {
   const command = `claude ${buildArgs(input).map(shellQuote).join(' ')}`;
   const res = await input.sandbox.exec(command, {
@@ -90,6 +93,10 @@ export async function* runClaudeCli(
       continue; // skip non-JSON diagnostic lines
     }
     parsedAny = true;
+    if (usageProvider !== undefined) {
+      const utilization = parseClaudeUtilization(msg);
+      if (utilization !== undefined) recordUtilization(usageProvider, utilization);
+    }
     // The id names host files on capture/restore and the agent controls this stream: keep only a
     // plain id token, so a forged `session_id` cannot smuggle a path (it is treated as no session).
     if (msg.session_id !== undefined) {

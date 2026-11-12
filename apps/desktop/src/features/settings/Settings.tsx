@@ -222,6 +222,17 @@ export function Settings({ project }: { project: string }) {
             />
           </Field>
         </div>
+        <Field label="Usage cap %" hint="— the factory stops starting work at this % of your plan window, leaving the rest as your reserve (1–100; empty = no cap)">
+          <Input
+            type="number"
+            min={1}
+            max={100}
+            value={cfg.usageCapPct ?? ''}
+            onChange={(e) => set('usageCapPct', e.target.value ? Number(e.target.value) : undefined)}
+            className="w-full"
+            placeholder="80"
+          />
+        </Field>
         <Field label="Doc chat model" hint="— the Docs editor chat (uses your Claude auth from the environment)">
           <Input
             value={cfg.chatModel ?? ''}

@@ -3,6 +3,7 @@ import { mergeAttempts } from '../core/run-metric.js';
 import { literalPrompt } from '../context/prompt-engine.js';
 import { AgentError, isProviderLimitError } from '../core/errors.js';
 import { redactForPublish } from '../core/secret-scan.js';
+import { enforceUsageCap } from '../core/usage-cap.js';
 import { DEFAULT_RUN_MAX_COST_USD, STAGE } from './pipeline.js';
 import type { RunContext } from '../core/vanguard.js';
 import type { AgentProvider } from '../agents/provider.js';
@@ -94,6 +95,8 @@ export async function repairUntilGreen<G extends GateResult>(ctx: RunContext, op
     const model = escalate ? opts.escalateModel : opts.outcomes[implementerIdx]?.model;
     let repaired: RunResult;
     try {
+      // Each repair is a new agent run: not started when the provider is at the usage cap.
+      enforceUsageCap(opts.agent.name, ctx.log);
       repaired = await run(ctx, {
         // Gate output is author-controlled text (test output, spec); see literalPrompt.
         ...literalPrompt(`${last.feedback}\n\nWhen every gap above is addressed, write <promise>COMPLETE</promise>.`),

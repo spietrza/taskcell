@@ -386,6 +386,10 @@ The stored `CODEX_AUTH_JSON` is a snapshot; Codex refreshes the access token fro
 
 ---
 
+### Keeping a reserve of your plan (usage cap)
+
+If the factory shares your Claude or ChatGPT subscription with your own work, cap it: `--usage-cap 80` (env `VANGUARD_USAGE_CAP_PCT=80`, or the hub's Settings **Usage cap %**) lets it spend up to 80% of the provider's window and leaves the last 20% to you. The factory stops *starting* tasks and stages at the cap (running stages finish), labels the task `vanguard:rate-limited` and `resume-rate-limited` retries it after the window resets. See [cli.md](cli.md#cost-and-limits). The reusable workflows have no `usage-cap` input yet — Taskcell cannot edit `.github/workflows/**`, so add the input by hand (passing it as `--usage-cap` to the CLI call) or set `VANGUARD_USAGE_CAP_PCT` in the job env.
+
 ## One run, spec and build
 
 `watch --once` does a spec pass then an implement pass in the same invocation. A `ready for spec` ticket is specced and built in one job: the spec pass generates the tech spec and advances the ticket to `ready for agent`, and the implement pass immediately picks it up without relying on GitHub's label index (which has eventual-consistency lag). A `ready for agent` ticket that was already labelled before the run is also picked up in the same pass.

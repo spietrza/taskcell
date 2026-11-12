@@ -131,6 +131,14 @@ describe('parseCli', () => {
     expect(cmd.kind === 'run' && cmd.reviewProvider).toBe('codex');
   });
 
+  it('validates --usage-cap and exports it as VANGUARD_USAGE_CAP_PCT', () => {
+    delete process.env['VANGUARD_USAGE_CAP_PCT'];
+    expect(parseCli(['run', '--linear', 'TES-1', '--usage-cap', '0'], '/work').kind).toBe('error');
+    expect(parseCli(['run', '--linear', 'TES-1', '--usage-cap', '80'], '/work').kind).not.toBe('error');
+    expect(process.env['VANGUARD_USAGE_CAP_PCT']).toBe('80');
+    delete process.env['VANGUARD_USAGE_CAP_PCT'];
+  });
+
   it('parses --fallback-provider / --fallback-model on run and watch, and rejects an unknown one or a model without a provider', () => {
     const run = parseCli(['run', '--linear', 'TES-1', '--provider', 'claude', '--fallback-provider', 'codex', '--fallback-model', 'gpt-5.6-sol'], '/work');
     expect(run.kind === 'run' && run.fallbackProvider).toBe('codex');
