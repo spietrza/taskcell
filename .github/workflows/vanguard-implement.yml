@@ -46,6 +46,8 @@ jobs:
       allowed-actors: '["spietrza","pawelkrystkiewicz"]'
       issue: ${{ github.event.issue.number || '' }}
       max-parallel: '3'
+      # Each run gets its own 16 GB runner; at 2048 MB long sessions died with exit 134 (#789, #795).
+      sandbox-memory-mb: '8192'
       # Opus plans the spec, Sonnet implements, Fable reviews (Codex's weekly limit is nearly spent).
       # No llm-proxy: Codex runs on a ChatGPT subscription (CODEX_AUTH_JSON), which talks to the
       # ChatGPT backend directly — the proxy allowlist only covers the api.openai.com (API-key) path.
