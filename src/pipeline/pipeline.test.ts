@@ -34,7 +34,7 @@ import {
 import type { PipelineStage, StageName, StageRouting } from './pipeline.js';
 import type { RunEvent } from './events.js';
 import type { Complete } from '../evals/judges.js';
-import { AgentError } from '../core/errors.js';
+import { AgentError, FallbackFailedError } from '../core/errors.js';
 import { WorktreeManager } from '../worktree/manager.js';
 import type { IsolatedSandboxProvider, ExecResult } from '../sandbox/provider.js';
 import type { AgentProvider, AgentRunInput, AgentTurn, AgentRunOutput } from '../agents/provider.js';
@@ -240,6 +240,25 @@ describe('runBudgetedStages', () => {
     expect(primaryInputs[0]?.model).toBe('gpt-5');
     expect(fallbackInputs).toHaveLength(1);
     expect(fallbackInputs[0]?.model).toBe('sonnet');
+    await disposeContext(ctx);
+  });
+
+  it('names a fallback that fails for a non-limit reason, keeping the primary limit', async () => {
+    const failing = (name: string, message: string): AgentProvider => ({
+      name,
+      async *run(): AsyncGenerator<AgentTurn, AgentRunOutput, void> {
+        throw new AgentError(message);
+      },
+    });
+    const stages = withStageFallback(
+      [{ name: 'reviewer', promptTemplate: 'review', provider: failing('claude', "You've hit your session limit") }],
+      { provider: failing('codex', 'failed to spawn code-mode host: Resource temporarily unavailable (os error 11)') },
+    );
+    const ctx = await prepareContext({ taskId: 'fb-fail', localRepoPath: repo, baseBranch: 'main', start: 'base', sandbox: makeSandbox() }, { worktrees: new WorktreeManager(repo) });
+    const err = await runBudgetedStages(ctx, stages, { agent: recordingAgent([]), maxCostUsd: 1 }).catch((e: unknown) => e);
+    expect(err).toBeInstanceOf(FallbackFailedError);
+    expect((err as Error).message).toContain('os error 11');
+    expect((err as Error).message).toContain('session limit');
     await disposeContext(ctx);
   });
 
