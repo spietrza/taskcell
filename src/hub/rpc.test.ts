@@ -1,16 +1,17 @@
 import { EventEmitter } from 'node:events';
 import { CredentialStore } from './credentials.js';
-import { mkdir, mkdtemp, realpath } from 'node:fs/promises';
+import { mkdir, mkdtemp, realpath, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { PassThrough } from 'node:stream';
 import { execa } from 'execa';
 import { afterEach, describe, expect, test, vi } from 'vitest';
+import { SpawnRegistry } from './spawn.js';
 import { dispatchRpc, classifyError, FLEET_DISABLED_MESSAGE, type RpcContext } from './rpc.js';
 import * as clone from './clone.js';
 import * as enableFactoryModule from './enable-factory.js';
 import * as cliVersions from '../sandbox/cli-versions.js';
-import { loadPaths } from './projects.js';
+import { loadPaths, savePaths } from './projects.js';
 import { ProjectAllowlist } from './allowlist.js';
 import { WatchRegistry } from './watch.js';
 import { createRunSession } from './run-session.js';
@@ -106,6 +107,20 @@ async function tmpGitRepo(originUrl?: string): Promise<string> {
 
 afterEach(() => {
   cleanups.length = 0;
+});
+
+describe('dispatchRpc teams', () => {
+  test('list_teams / get_team return the default team and track project changes', async () => {
+    const repo = await tmpGitRepo();
+    const { ctx } = await makeCtx(repo);
+    await savePaths(ctx.configDir, [repo]);
+    const teams = (await dispatchRpc(ctx, 'list_teams', {})) as { id: string; repositories: string[] }[];
+    expect(teams).toHaveLength(1);
+    expect(teams[0]!.repositories).toEqual([repo]);
+    await dispatchRpc(ctx, 'remove_project', { path: repo });
+    expect(await dispatchRpc(ctx, 'get_team', { id: teams[0]!.id })).toMatchObject({ repositories: [] });
+    expect(await dispatchRpc(ctx, 'get_team', { id: 'nope' })).toBeNull();
+  });
 });
 
 describe('dispatchRpc', () => {
@@ -227,12 +242,26 @@ describe('dispatchRpc', () => {
     expect(await dispatchRpc(ctx, 'api_queue', {})).toEqual([]);
   });
 
-  test('T-58 Fleet commands are refused in hub mode', async () => {
+  test('T-58 Fleet commands are refused unless the hub enabled fleet', async () => {
     const repo = await tmpRepo();
     const { ctx } = await makeCtx(repo);
     for (const cmd of ['spawn_run', 'kill_run', 'list_spawns']) {
       await expect(dispatchRpc(ctx, cmd, {})).rejects.toThrow(FLEET_DISABLED_MESSAGE);
     }
+  });
+
+  test('Fleet commands spawn, list and report exit when fleet is enabled, and respect the allowlist', async () => {
+    const repo = await tmpRepo();
+    const { ctx, published } = await makeCtx(repo);
+    ctx.spawnRegistry = new SpawnRegistry(ctx.publish);
+    const pid = (await dispatchRpc(ctx, 'spawn_run', { cwd: repo, argv: [process.execPath, '-e', 'console.log("hi")'] })) as number;
+    expect(typeof pid).toBe('number');
+    await vi.waitFor(() => expect(published.some((e) => e.name === 'spawn:exit')).toBe(true));
+    expect(published).toContainEqual({ name: 'spawn:output', payload: { pid, line: 'hi' } });
+    expect(published).toContainEqual({ name: 'spawn:exit', payload: { pid, code: 0 } });
+    expect(await dispatchRpc(ctx, 'list_spawns', {})).toEqual([]);
+    await expect(dispatchRpc(ctx, 'spawn_run', { cwd: tmpdir(), argv: ['true'] })).rejects.toThrow();
+    await expect(dispatchRpc(ctx, 'spawn_run', { cwd: repo, argv: [] })).rejects.toThrow(/argv/);
   });
 
   test('T-59 a repoPath outside the allowlist is refused for every path-taking command', async () => {
@@ -609,6 +638,87 @@ test('add_project is confined to the browse root, like browse_dirs', async () =>
   // An unresolved spelling (`..`, a symlinked temp dir) is stored as its realpath.
   await dispatchRpc(ctx, 'add_project', { path: `${ctx.browseRoot}/repo/../repo` });
   expect(await loadPaths(ctx.configDir)).toEqual([inside]);
+});
+
+describe('all-repositories lists', () => {
+  async function twoRepoCtx(listTasks: SidecarDeps['listTasks']): Promise<{ ctx: RpcContext; a: string; b: string }> {
+    const a = await tmpRepo();
+    const b = await tmpRepo();
+    const { ctx } = await makeCtx(a, { depsOverrides: { listTasks } });
+    await savePaths(ctx.configDir, [a, b]);
+    ctx.allowlist = new ProjectAllowlist(() => loadPaths(ctx.configDir), a);
+    return { ctx, a, b };
+  }
+  const task = (id: string): { id: string; title: string; column: 'queued'; state: string } => ({ id, title: id, column: 'queued', state: 'queued' });
+  const noTasks: SidecarDeps['listTasks'] = async () => ({ tasks: [], capped: false });
+
+  test('list_tasks_all stamps every card with its repository', async () => {
+    const { ctx, a, b } = await twoRepoCtx(async (p) => ({ tasks: [task(p.repoPath.includes('x') ? 'x' : 't')], capped: false }));
+    const out = (await dispatchRpc(ctx, 'list_tasks_all', {})) as { tasks: { repoPath: string; repoName: string }[]; failures: unknown[] };
+    expect(out.failures).toEqual([]);
+    expect(out.tasks.map((t) => t.repoPath).sort()).toEqual([a, b].sort());
+    expect(out.tasks.every((t) => t.repoName.length > 0)).toBe(true);
+  });
+
+  test('list_tasks_all returns the other repositories and names the failing one', async () => {
+    const { ctx, a, b } = await twoRepoCtx(async (p) => {
+      if (p.repoPath === b) throw new Error('tracker down');
+      return { tasks: [task('ok')], capped: true };
+    });
+    const out = (await dispatchRpc(ctx, 'list_tasks_all', {})) as { tasks: { repoPath: string }[]; capped: boolean; failures: { repoPath: string; error: string }[] };
+    expect(out.tasks.map((t) => t.repoPath)).toEqual([a]);
+    expect(out.capped).toBe(true);
+    expect(out.failures).toHaveLength(1);
+    expect(out.failures[0]).toMatchObject({ repoPath: b, error: 'tracker down' });
+  });
+
+  const writeRun = async (repo: string, taskId: string, timestamp: string): Promise<void> => {
+    const dir = join(repo, '.taskcell', 'runs', taskId);
+    await mkdir(dir, { recursive: true });
+    await writeFile(
+      join(dir, `${timestamp.replace(/[:.]/g, '-')}-implement.json`),
+      JSON.stringify({ taskId, completed: true, exitReason: 'completed', turns: 1, worktreePath: '/tmp/wt', worktreePreserved: false, finalText: 'ok', costUsd: 0.1, timestamp, stage: 'implement' }),
+    );
+  };
+
+  test('list_runs_all stamps each run with its repository', async () => {
+    const a = await tmpRepo();
+    const { ctx } = await makeCtx(a);
+    await savePaths(ctx.configDir, [a]);
+    ctx.allowlist = new ProjectAllowlist(() => loadPaths(ctx.configDir), a);
+    await writeRun(a, 'task-1', '2026-07-06T19:12:02.123Z');
+    const out = (await dispatchRpc(ctx, 'list_runs_all', {})) as { runs: { taskId: string; repoPath: string; repoName: string }[] };
+    expect(out.runs).toHaveLength(1);
+    expect(out.runs[0]).toMatchObject({ taskId: 'task-1', repoPath: a });
+    expect(out.runs[0]?.repoName.length).toBeGreaterThan(0);
+  });
+
+  test('list_runs_all lists every repository newest-first', async () => {
+    const { ctx, a, b } = await twoRepoCtx(noTasks);
+    await writeRun(a, 'old-a', '2026-07-01T10:00:00.000Z');
+    await writeRun(b, 'mid-b', '2026-07-02T10:00:00.000Z');
+    await writeRun(a, 'new-a', '2026-07-03T10:00:00.000Z');
+    const out = (await dispatchRpc(ctx, 'list_runs_all', {})) as { runs: { taskId: string; repoPath: string }[] };
+    expect(out.runs.map((r) => [r.taskId, r.repoPath])).toEqual([
+      ['new-a', a],
+      ['mid-b', b],
+      ['old-a', a],
+    ]);
+  });
+
+  test('list_runs_all isolates a repository outside the allowlist', async () => {
+    const a = await tmpRepo();
+    const { ctx } = await makeCtx(a);
+    await savePaths(ctx.configDir, [a, '/not/allowed/anywhere']);
+    const out = (await dispatchRpc(ctx, 'list_runs_all', {})) as { runs: unknown[]; failures: { repoPath: string }[] };
+    expect(out.runs).toEqual([]);
+    expect(out.failures.map((f) => f.repoPath)).toEqual(['/not/allowed/anywhere']);
+  });
+
+  test('list_needs_you_all is empty for repositories without a GitHub remote', async () => {
+    const { ctx } = await twoRepoCtx(noTasks);
+    expect(await dispatchRpc(ctx, 'list_needs_you_all', {})).toEqual({ items: [], failures: [] });
+  });
 });
 
 describe('start_task', () => {
