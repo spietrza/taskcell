@@ -707,7 +707,7 @@ describe('runSourcedIssue', () => {
     expect(order).not.toContain('linkPr');
     // PR body is the plain Closes line — no "Vanguard", no "Proof of work" artifact.
     const body = (publishForReview.mock.calls[0]?.[1] as { body: string }).body;
-    expect(body).not.toMatch(/Vanguard|Proof of work|Review:/);
+    expect(body).not.toMatch(/Taskcell|Vanguard|Proof of work|Review:/);
     // Commit message is Conventional-Commits-safe (lower-case subject, trailing #issue).
     const message = (commitStage.mock.calls[0]?.[1] as { message: string }).message;
     expect(message).toBe('feat: t (#1)');

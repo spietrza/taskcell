@@ -166,7 +166,7 @@ A first run on a repo with no baseline yet exits non-zero with `no baseline foun
 
 The commit is authored `Vanguard <vanguard@local>` by default; override with `--commit-author "Name <email>"` (git's standard form) to attribute the work to yourself. The PR itself is opened by whichever account owns the push token (`VANGUARD_PUSH_TOKEN`/`GH_TOKEN`), independent of the commit author.
 
-**White-label mode.** Passing `--commit-author` also switches Taskcell to deliver a plain, human-looking PR — the "Vanguard" branding (PR text still uses the old name) is dropped everywhere it would reach the remote:
+**White-label mode.** Passing `--commit-author` also switches Taskcell to deliver a plain, human-looking PR — the Taskcell branding (some of it, such as the `## Vanguard Review` heading and the default commit author, still uses the old name) is dropped everywhere it would reach the remote:
 
 - Branch becomes `feat/<issue-number>-<hash>` (e.g. `feat/904-9d414a3d`) instead of `chore/vanguard-…`.
 - The PR body is just the `Closes #N` / `Part of #N` line — no "Automated implementation … by Taskcell" attribution and no `## Proof of work` block.

@@ -38,7 +38,7 @@ function clarifyMessage(mode: 'spec' | 'agent'): string {
  * keyed on the <tech_spec> tag, so triage/idempotency/conformance behave identically in both modes.
  */
 export function specComment(spec: string, opts?: { whiteLabel?: boolean }): string {
-  const heading = opts?.whiteLabel === true ? 'Tech spec:' : 'Vanguard tech spec:';
+  const heading = opts?.whiteLabel === true ? 'Tech spec:' : 'Taskcell tech spec:';
   return `${heading}\n\n<${SPEC_TAG}>\n${spec}\n</${SPEC_TAG}>`;
 }
 

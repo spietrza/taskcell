@@ -1,4 +1,5 @@
 import { describe, expect, it, vi, beforeEach, afterEach } from 'vitest';
+import { readFileSync } from 'node:fs';
 import type { Command } from './args.js';
 
 vi.mock('./run.js', () => ({ runCommand: vi.fn(async () => undefined) }));
@@ -113,20 +114,26 @@ async function dispatch(command: Command): Promise<void> {
 }
 
 describe('bin name', () => {
-  it('prints a one-line deprecation note on stderr when invoked as `vanguard`', async () => {
+  it('the `vanguard` entry prints a one-line deprecation note on stderr, then runs the CLI', async () => {
     const stderrSpy = vi.spyOn(process.stderr, 'write').mockImplementation(() => true);
-    process.argv = ['node', '/usr/local/bin/vanguard'];
-    await dispatch(commands.gc);
+    vi.mocked(parseCli).mockReturnValue(commands.gc);
+    vi.resetModules();
+    await import('./vanguard.js');
+    await vi.waitFor(() => expect(allHandlers.gc).toHaveBeenCalled());
     expect(stderrSpy.mock.calls.map((c) => String(c[0]))).toEqual(['vanguard: deprecated name, use `taskcell` instead.\n']);
     stderrSpy.mockRestore();
   });
 
-  it('prints nothing extra when invoked as `taskcell`', async () => {
+  it('the main entry prints nothing extra', async () => {
     const stderrSpy = vi.spyOn(process.stderr, 'write').mockImplementation(() => true);
-    process.argv = ['node', '/usr/local/bin/taskcell'];
     await dispatch(commands.gc);
     expect(stderrSpy).not.toHaveBeenCalled();
     stderrSpy.mockRestore();
+  });
+
+  it('package.json points the `vanguard` bin at the alias entry and `taskcell` at the main CLI', () => {
+    const pkg = JSON.parse(readFileSync(new URL('../../package.json', import.meta.url), 'utf8')) as { bin: Record<string, string> };
+    expect(pkg.bin).toEqual({ vanguard: 'dist/cli/vanguard.js', taskcell: 'dist/cli/index.js' });
   });
 });
 

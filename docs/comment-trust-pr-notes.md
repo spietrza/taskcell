@@ -36,7 +36,7 @@ AUTHORS=$(printf '%s' "$IN_ALLOWED_ACTORS" | tr -d '[]" ' )
 if [ -n "$AUTHORS" ]; then args+=(--feedback-authors "$AUTHORS"); fi
 ```
 
-Apply the identical environment entry and two shell lines in `implement.yml`'s **Run Taskcell loop** step. No trigger, permissions or actor-gate change is required.
+Apply the identical environment entry and two shell lines in `implement.yml`'s **Run Vanguard loop** step. No trigger, permissions or actor-gate change is required.
 
 ## Follow-up
 

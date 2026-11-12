@@ -3,7 +3,7 @@
   "version": "1.15.2",
   "main": "dist/index.js",
   "bin": {
-    "vanguard": "dist/cli/index.js",
+    "vanguard": "dist/cli/vanguard.js",
     "taskcell": "dist/cli/index.js"
   },
   "scripts": {

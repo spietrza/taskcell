@@ -35,7 +35,7 @@ pnpm link --global       # puts taskcell on your PATH
 taskcell run --github you/app#42 --repo ../app --llm-proxy
 ```
 
-The CLI is still called `vanguard` (the project's former name).
+The CLI is `taskcell`; `vanguard` (the project's former name) still works as a deprecated alias.
 
 ## Links
 
