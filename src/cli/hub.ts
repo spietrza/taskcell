@@ -9,6 +9,7 @@ import { injectHubMarker } from '../hub/static.js';
 import { assertGitWorkTreeDir } from '../hub/allowlist.js';
 import { HUB_TOKEN_FRAGMENT_PARAM } from '../hub-wire.js';
 import { loadPaths, add as addProject } from '../hub/projects.js';
+import { loadOrCreateToken, rotateToken } from '../hub/token-file.js';
 import type { Command } from './args.js';
 
 const LOOPBACK_HOSTS = ['127.0.0.1', '::1', 'localhost'];
@@ -81,6 +82,12 @@ const NO_AUTH_WARNING = [
   'public port. See docs/hub.md.',
 ].join('\n');
 
+/** `hub rotate-token`: writes a new token; a running hub uses it after its next restart. */
+export async function hubRotateTokenCommand(command: Extract<Command, { kind: 'hub-rotate-token' }>): Promise<void> {
+  await rotateToken(command.tokenFile);
+  console.log(`Vanguard Hub: wrote a new token to ${command.tokenFile}; restart the hub to use it.`);
+}
+
 export async function hubCommand(command: Extract<Command, { kind: 'hub' }>): Promise<void> {
   const allowedHosts = [
     ...trimHosts(command.allowedHosts ?? []),
@@ -111,6 +118,9 @@ export async function hubCommand(command: Extract<Command, { kind: 'hub' }>): Pr
     }
   }
 
+  // After the startup checks above, so a failed first launch leaves no file behind.
+  const token = command.tokenFile !== undefined ? await loadOrCreateToken(command.tokenFile) : undefined;
+
   const hub = createHubServer({
     uiDir,
     allowedHosts,
@@ -122,6 +132,7 @@ export async function hubCommand(command: Extract<Command, { kind: 'hub' }>): Pr
       allowAdd: process.env.VANGUARD_HUB_ALLOW_ADD === '1',
     },
     ...(seededRepoPath !== undefined ? { seedRepoPath: seededRepoPath } : {}),
+    ...(token !== undefined ? { token } : {}),
     watch: {
       forcePoll: process.env.VANGUARD_HUB_WATCH_POLL === '1',
       ...(Number(process.env.VANGUARD_HUB_WATCH_INTERVAL_MS) > 0

@@ -23,6 +23,8 @@ export interface NeedsYouItem {
   url: string;
   /** Why this item waits: the label name, or `'changes requested'` for a PR review verdict. */
   reason: string;
+  /** A PR's base (target) branch, which a merge lands on. Absent for an issue. */
+  baseRef?: string;
   /** The factory's own last comment on the item, redacted; untrusted text the UI renders as plain text. Absent when it never commented. */
   lastComment?: { author: string; body: string };
 }
@@ -52,12 +54,13 @@ interface GhIssueLite {
 
 interface GhPrLite extends GhIssueLite {
   reviewDecision?: string | null;
+  baseRefName?: string;
 }
 
 /** `owner/repo`, the only shape that may reach a `--repo` flag: no leading `-`, no path traversal. */
 const REPO_SLUG_RE = /^[A-Za-z0-9._][A-Za-z0-9._-]*\/[A-Za-z0-9._-]+$/;
 
-function assertRepoSlug(repoSlug: string): void {
+export function assertRepoSlug(repoSlug: string): void {
   if (!REPO_SLUG_RE.test(repoSlug)) throw new TaskcellError(`Invalid repo slug: ${repoSlug}`);
 }
 
@@ -111,7 +114,7 @@ function prReason(pr: { labels: GhLabelLite[]; reviewDecision?: string | null })
 }
 
 const ISSUE_FIELDS = 'number,title,url,labels';
-const PR_FIELDS = 'number,title,url,labels,reviewDecision';
+const PR_FIELDS = 'number,title,url,labels,reviewDecision,baseRefName';
 /** Explicit `-L`: gh's own default (30) would silently hide waiting items on a busy repo. */
 const DEFAULT_LIST_LIMIT = 100;
 /** Concurrent `gh … view --json comments` calls per list — one per waiting item, bounded. */
@@ -123,7 +126,7 @@ const MAX_COMMENT_FETCHES = 30;
 function toItem(
   repoSlug: string,
   kind: 'issue' | 'pr',
-  raw: GhIssueLite,
+  raw: GhIssueLite & { baseRefName?: string },
   reason: string,
   lastComment: { author: string; body: string } | undefined,
 ): NeedsYouItem {
@@ -135,6 +138,7 @@ function toItem(
     title: raw.title,
     url: raw.url,
     reason,
+    ...(raw.baseRefName !== undefined ? { baseRef: raw.baseRefName } : {}),
     ...(lastComment !== undefined ? { lastComment } : {}),
   };
 }
@@ -205,7 +209,7 @@ function itemNumber(repoSlug: string, id: string): string {
 }
 
 /** Create `label` if missing. No `--force`: it would reset an existing label's color. */
-async function ensureLabel(repoSlug: string, label: string, gh: GhRunner): Promise<void> {
+export async function ensureLabel(repoSlug: string, label: string, gh: GhRunner): Promise<void> {
   await gh(['label', 'create', label, '--repo', repoSlug]).catch(() => undefined);
 }
 
@@ -215,11 +219,15 @@ async function issueIsWaiting(repoSlug: string, number: string, gh: GhRunner): P
   return issue.state === 'OPEN' && issue.labels.some((l) => l.name === DEFAULT_GITHUB_NEEDS_INFO_LABEL);
 }
 
-async function prIsWaiting(repoSlug: string, number: string, gh: GhRunner): Promise<boolean> {
-  const out = await gh(['pr', 'view', number, '--repo', repoSlug, '--json', 'state,labels,reviewDecision']);
-  const pr = JSON.parse(out) as { state: string; labels: GhLabelLite[]; reviewDecision?: string | null };
-  return pr.state === 'OPEN' && prReason(pr) !== undefined;
+/** The PR's head commit when it is open and waiting for a human, else undefined. */
+async function waitingPrHead(repoSlug: string, number: string, gh: GhRunner): Promise<{ headRefOid?: string } | undefined> {
+  const out = await gh(['pr', 'view', number, '--repo', repoSlug, '--json', 'state,labels,reviewDecision,headRefOid']);
+  const pr = JSON.parse(out) as { state: string; labels: GhLabelLite[]; reviewDecision?: string | null; headRefOid?: string };
+  return pr.state === 'OPEN' && prReason(pr) !== undefined ? pr : undefined;
 }
+
+const prIsWaiting = async (repoSlug: string, number: string, gh: GhRunner): Promise<boolean> =>
+  (await waitingPrHead(repoSlug, number, gh)) !== undefined;
 
 /**
  * Post `body` as the caller's own comment on `id` — an item of `repoSlug`, never of the repo the
@@ -256,4 +264,43 @@ export async function replyNeedsYou(
   await commentPullRequest({ repoSlug, number: Number(number) }, body, gh);
   await ensureLabel(repoSlug, NEEDS_REVISION_LABEL, gh);
   await gh(['pr', 'edit', number, '--repo', repoSlug, '--add-label', NEEDS_REVISION_LABEL]);
+}
+
+/** Merge methods in preference order, with the `gh repo view` field that says the repo allows each. */
+const MERGE_METHODS = [
+  { flag: '--squash', allowed: 'squashMergeAllowed' },
+  { flag: '--merge', allowed: 'mergeCommitAllowed' },
+  { flag: '--rebase', allowed: 'rebaseMergeAllowed' },
+] as const;
+
+/**
+ * Merge PR `id` of `repoSlug` with the repository's allowed merge method. Refuses (nothing merged)
+ * a PR that is not in the "Needs you" list, or whose required checks are not all green. The check
+ * and the merge are separate `gh` calls; GitHub itself still enforces branch protection on the merge.
+ */
+export async function mergeNeedsYou(repoSlug: string, id: string, gh: GhRunner = defaultGhRunner): Promise<void> {
+  assertRepoSlug(repoSlug);
+  const number = itemNumber(repoSlug, id);
+  const head = await waitingPrHead(repoSlug, number, gh);
+  if (head === undefined) {
+    throw new TaskcellError(`${id} is not waiting for you, so the hub will not merge it.`);
+  }
+  // `--required` limits to the required checks. With `--json` the buckets carry the verdict; `gh` only
+  // errors when it has nothing to report (no checks at all, or none required) — nothing to wait for.
+  // Any other error (auth, network, old gh) is not a verdict on the checks and surfaces as itself.
+  const notGreen = new TaskcellError(`${id} has failing or pending required checks.`);
+  const checks = await gh(['pr', 'checks', number, '--repo', repoSlug, '--required', '--json', 'bucket']).catch((e: unknown) => {
+    if (/no (required )?checks reported/i.test(String(e))) return '[]';
+    throw e;
+  });
+  if ((JSON.parse(checks) as { bucket: string }[]).some((c) => c.bucket !== 'pass' && c.bucket !== 'skipping')) {
+    throw notGreen;
+  }
+  const fields = MERGE_METHODS.map((m) => m.allowed).join(',');
+  const repo = JSON.parse(await gh(['repo', 'view', repoSlug, '--json', fields])) as Record<string, boolean>;
+  const method = MERGE_METHODS.find((m) => repo[m.allowed] === true);
+  if (method === undefined) throw new TaskcellError(`${repoSlug} allows no merge method.`);
+  // Pinned to the commit that was checked: a push in between makes the merge fail instead.
+  const pin = head.headRefOid === undefined ? [] : ['--match-head-commit', head.headRefOid];
+  await gh(['pr', 'merge', number, '--repo', repoSlug, method.flag, ...pin]);
 }

@@ -223,14 +223,23 @@ services:
       - /var/run/docker.sock:/var/run/docker.sock # sibling-sandbox execution; see risk note below
       - ./target-repo:/work/repo                  # the repo the hub serves + agent edits
       - vanguard-hub-config:/config                # VANGUARD_HUB_CONFIG_DIR
+      - taskcell-hub-state:/state                  # holds the token file (below)
     environment:
       GH_TOKEN: ${GH_TOKEN}
       VANGUARD_MAX_SANDBOXES: "1"
+      VANGUARD_HUB_TOKEN_FILE: /state/hub.key      # same token across restarts and redeploys
       VANGUARD_HUB_ALLOWED_HOSTS: hub.example.com # every Host the browser uses; loopback only by default
 
 volumes:
   vanguard-hub-config:
+  taskcell-hub-state:
 ```
+
+On first start the hub creates `/state/hub.key` and prints the launch URL; read it from the logs and
+save that URL (the page strips `#token=…` from the address bar, so bookmarking the open page won't
+keep it). Later restarts keep the token. Rotate it with
+`docker compose exec vanguard-hub taskcell hub rotate-token --token-file /state/hub.key`, then restart
+the hub and read the new launch URL from its logs.
 
 Mounting the Docker socket is equivalent to root on the host — a process with access to it can start a
 privileged container and read or write anything the host can. Only do this when you trust everything
@@ -259,8 +268,15 @@ a Task moves from `needs info` to the project's trigger label (`label` in `.task
 longer waiting is refused with no comment and no label change. The `needs info` label itself is not
 configurable here: a repo that runs the factory with a custom `--needs-info-label` shows no Tasks.
 
-Replies are a remote mutation, gated like `clone_project`: loopback only, unless
+`merge_needs_you` merges a waiting PR with the repository's allowed merge method (squash, else merge
+commit, else rebase). It refuses a PR that is not in the list and one whose required checks are not
+all green, with a message the UI shows; the item leaves the list once merged. The UI's Merge button
+names the PR's base branch (`baseRef`) and asks for a second click to confirm. The merge is pinned to the checked head commit (`--match-head-commit`). A PR with no required checks passes the check gate. The button sits on the Needs you card: the card quick view/drawer of the v3 prototype does not exist in the app yet. "Ask for changes" stays `reply_needs_you`.
+
+Replies and merges are a remote mutation, gated like `clone_project`: loopback only, unless
 `VANGUARD_HUB_ALLOW_ADD=1`.
+
+`start_task` labels an issue to start the factory on it; see [Starting the factory from the hub](cli.md#starting-the-factory-from-the-hub).
 
 ## Enable factory
 
@@ -290,7 +306,7 @@ Apply and verify change the remote, so they are gated like `clone_project`: loop
 The hub shells out to `gh` for the Remote screen (listing GitHub Actions runs), CI-run import and
 Needs you. Reading needs a token with `actions:read`, `issues:read` and `pull_requests:read`
 (fine-grained PAT) or classic `repo` scope. Replying from Needs you also needs `issues:write` and
-`pull_requests:write` (comments and labels); with a read-only token a reply fails when it posts the
+`pull_requests:write` (comments and labels), and merging also needs `contents:write`; with a read-only token a reply fails when it posts the
 comment. Run `gh auth login` or set `GH_TOKEN`.
 
 ## CI run import
@@ -323,7 +339,8 @@ process as the HTTP server, so give the container the same RAM headroom, and kee
 ## CLI flags
 
 ```
-taskcell hub [--repo <path>] [--host <addr>] [--port <n>] [--ui-dir <dir>] [--no-open] [--allowed-host <host[:port]>]
+taskcell hub [--repo <path>] [--host <addr>] [--port <n>] [--ui-dir <dir>] [--no-open] [--allowed-host <host[:port]>] [--token-file <path>]
+taskcell hub rotate-token --token-file <path>
 ```
 
 | Flag | Overrides | Default |
@@ -333,12 +350,13 @@ taskcell hub [--repo <path>] [--host <addr>] [--port <n>] [--ui-dir <dir>] [--no
 | `--host <addr>` | `VANGUARD_HUB_HOST` | `127.0.0.1` |
 | `--port <n>` | `VANGUARD_HUB_PORT` | `7777` (1-65535; an invalid explicit `--port` is a startup error) |
 | `--ui-dir <dir>` | `VANGUARD_HUB_UI_DIR` | `<pkg>/apps/desktop/dist` |
+| `--token-file <path>` | `VANGUARD_HUB_TOKEN_FILE` | unset: a fresh token per launch |
 | `--no-open` | — | opens the printed launch URL (`/#token=…`) in a browser unless passed |
 
 A missing or unbuilt `--ui-dir` fails at startup, naming `pnpm --dir apps/desktop build`
 (run `pnpm build:ui`) rather than failing on the first request. Binding a non-loopback host
 prints the no-auth warning above and disables `add_project`/`browse_dirs`/`clone_project`,
-`enable_factory_apply`/`enable_factory_verify` and `reply_needs_you` unless
+`enable_factory_apply`/`enable_factory_verify`, `reply_needs_you`, `merge_needs_you` and `start_task` unless
 `VANGUARD_HUB_ALLOW_ADD=1`. `SIGINT`/`SIGTERM` close the listener, every connected SSE client,
 and the project file watchers.
 
@@ -356,3 +374,11 @@ the same `/#token=…` to the public URL. Reaching the port is therefore not eno
 but the token is a launch secret, not per-user authentication: it does not replace authentication at
 the reverse proxy. It is regenerated on every hub launch, so an already-open page must be given the
 new launch URL once the hub restarts.
+
+With `--token-file <path>` (or `VANGUARD_HUB_TOKEN_FILE`) the token persists instead: an existing file
+is read, a missing one is created with a fresh token and mode `0600` (every launch prints the
+launch URL, with the token in its fragment, same as without the flag). The hub refuses to start when the file is
+group or world readable (`chmod 600 <path>`) or holds fewer than 32 bytes of entropy (hex or
+base64url). `taskcell hub rotate-token --token-file <path>` writes a new token; a running hub keeps
+the old one until it restarts, after which the old token is rejected. The events cookie secret stays
+per launch, so a restart still ends old SSE sessions.

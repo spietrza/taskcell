@@ -12,7 +12,7 @@ afterEach(() => {
 });
 
 /** A hub stub: a reply hands the item back to the factory, so it leaves the next list (issue or PR). */
-function stubHub(initial: NeedsYouItem[], failReply = false): { cmd: string; body: unknown }[] {
+function stubHub(initial: NeedsYouItem[], failReply = false, failMerge = false): { cmd: string; body: unknown }[] {
   let items = initial;
   const calls: { cmd: string; body: unknown }[] = [];
   window.__VANGUARD_HUB__ = true;
@@ -25,7 +25,10 @@ function stubHub(initial: NeedsYouItem[], failReply = false): { cmd: string; bod
       if (cmd === 'reply_needs_you' && failReply) {
         return new Response(JSON.stringify({ error: { kind: 'internal', message: 'not waiting' } }), { status: 500 });
       }
-      if (cmd === 'reply_needs_you') items = items.filter((i) => i.id !== body?.id);
+      if (cmd === 'merge_needs_you' && failMerge) {
+        return new Response(JSON.stringify({ error: { kind: 'internal', message: 'has failing or pending required checks' } }), { status: 500 });
+      }
+      if (cmd === 'reply_needs_you' || cmd === 'merge_needs_you') items = items.filter((i) => i.id !== body?.id);
       const result = cmd === 'list_needs_you' ? { items } : null;
       return new Response(JSON.stringify({ result }), { status: 200, headers: { 'content-type': 'application/json' } });
     }),
@@ -78,4 +81,26 @@ test('a known factory label reads as plain words; an unknown one shows as-is', a
   expect(await screen.findByText('needs a human review')).toHaveAttribute('title', 'vanguard:needs-human-review');
   expect(screen.queryByText('vanguard:needs-human-review')).toBeNull();
   expect(screen.getByText('custom:label')).toBeInTheDocument();
+});
+
+test('Merge names the PR base branch, merges, and the item leaves the list', async () => {
+  const pr = { ...needsYouItems[1], baseRef: 'release/2' };
+  const calls = stubHub([pr]);
+  render(<NeedsYou project="/repo" />);
+  fireEvent.click(await screen.findByRole('button', { name: 'Merge into release/2' }));
+  fireEvent.click(screen.getByRole('button', { name: 'Confirm merge into release/2' }));
+  expect(await screen.findByText('Nothing needs you')).toBeInTheDocument();
+  expect(calls.find((c) => c.cmd === 'merge_needs_you')?.body).toEqual({ repoPath: '/repo', id: pr.id });
+});
+
+test('a refused merge keeps the item and says why; an issue has no Merge button', async () => {
+  const [issue, pr] = [needsYouItems[0], needsYouItems[1]];
+  stubHub([issue, pr], false, true);
+  render(<NeedsYou project="/repo" />);
+  await screen.findByText(pr.title);
+  expect(screen.getAllByRole('button').filter((b) => b.textContent?.startsWith('Merge'))).toHaveLength(1);
+  fireEvent.click(screen.getByRole('button', { name: /^Merge/ }));
+  fireEvent.click(screen.getByRole('button', { name: /^Confirm merge/ }));
+  expect(await screen.findByRole('alert')).toHaveTextContent('Not merged');
+  expect(screen.getByText(pr.title)).toBeInTheDocument();
 });

@@ -1712,6 +1712,17 @@ describe('parseCli hub', () => {
   it('T-86 parses --repo/--port/--host/--ui-dir/--no-open, defaulting host/port when absent', () => {
     delete process.env.VANGUARD_HUB_HOST;
     delete process.env.VANGUARD_HUB_PORT;
+    expect(parseCli(['hub', '--token-file', '/s/k'], '/repo')).toMatchObject({ kind: 'hub', tokenFile: '/s/k' });
+    expect(parseCli(['hub', 'rotate-token', '--token-file', '/s/k'], '/repo')).toEqual({ kind: 'hub-rotate-token', tokenFile: '/s/k' });
+    expect(parseCli(['hub', 'rotate-token'], '/repo')).toMatchObject({ kind: 'error', message: expect.stringContaining('--token-file') });
+    expect(parseCli(['hub', 'bogus'], '/repo')).toMatchObject({ kind: 'error', message: expect.stringContaining('bogus') });
+    process.env.VANGUARD_HUB_TOKEN_FILE = '/env/k';
+    try {
+      expect(parseCli(['hub'], '/repo')).toMatchObject({ tokenFile: '/env/k' });
+      expect(parseCli(['hub', 'rotate-token'], '/repo')).toEqual({ kind: 'hub-rotate-token', tokenFile: '/env/k' });
+    } finally {
+      delete process.env.VANGUARD_HUB_TOKEN_FILE;
+    }
     expect(parseCli(['hub'], '/repo')).toEqual({
       kind: 'hub',
       repoPath: '/repo',
