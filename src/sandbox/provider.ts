@@ -3,6 +3,8 @@ export interface SandboxSecurityOpts {
   capAdd: string[];
   noNewPrivileges: boolean;
   readOnlyRootfs: boolean;
+  /** `docker run --init`: an init as PID 1 that reaps orphaned children (see sandboxSecurityOpts). */
+  init: boolean;
 }
 
 /**

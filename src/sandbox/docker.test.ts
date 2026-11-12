@@ -446,6 +446,11 @@ describe('DockerSandboxProvider buildRunArgs (hardening flags)', () => {
     expect(args[args.indexOf('--security-opt') + 1]).toBe('no-new-privileges');
   });
 
+  it('runs an init as PID 1 by default, so orphaned children are reaped instead of filling --pids-limit', () => {
+    expect(new DockerSandboxProvider({ profile: profileFor() }).buildRunArgs()).toContain('--init');
+    expect(new DockerSandboxProvider({ profile: profileFor({}, { init: false }) }).buildRunArgs()).not.toContain('--init');
+  });
+
   it('maps host.docker.internal only for a sandbox pointed at the docker host', () => {
     const alias = 'host.docker.internal:host-gateway';
     // Default runs, and the egress enclave / llm-proxy (reached by container name), need no alias.
@@ -526,7 +531,7 @@ describe('DockerSandboxProvider buildRunArgs (hardening flags)', () => {
 
   it('config.security override disables hardening', () => {
     const sb = new DockerSandboxProvider({
-      profile: { ...profileFor(), security: { capDrop: [], capAdd: [], noNewPrivileges: false, readOnlyRootfs: false } },
+      profile: { ...profileFor(), security: { capDrop: [], capAdd: [], noNewPrivileges: false, readOnlyRootfs: false, init: false } },
     });
     const args = sb.buildRunArgs();
     expect(args).not.toContain('--cap-drop');
