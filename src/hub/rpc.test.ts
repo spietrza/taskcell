@@ -593,3 +593,41 @@ test('add_project is confined to the browse root, like browse_dirs', async () =>
   await dispatchRpc(ctx, 'add_project', { path: `${ctx.browseRoot}/repo/../repo` });
   expect(await loadPaths(ctx.configDir)).toEqual([inside]);
 });
+
+describe('start_task', () => {
+  const call = (ctx: RpcContext, repo: string, extra: Record<string, unknown> = {}): Promise<unknown> =>
+    dispatchRpc(ctx, 'start_task', { repoPath: repo, number: 1, label: 'ready for agent', ...extra });
+
+  test('refuses on a non-loopback bind without mutations allowed', async () => {
+    const repo = await tmpGitRepo('https://github.com/allowed/repo.git');
+    const { ctx } = await makeCtx(repo, { bind: { isLoopback: false, allowAdd: false } });
+    await expect(call(ctx, repo)).rejects.toThrow('disabled on a non-loopback bind');
+  });
+
+  test.each(['gitlab', 'linear'])('says %s is not supported yet', async (source) => {
+    const repo = await tmpGitRepo('https://github.com/allowed/repo.git');
+    await writeAppConfig(repo, { source });
+    const { ctx } = await makeCtx(repo);
+    await expect(call(ctx, repo)).rejects.toThrow(`start_task: ${source} is not supported yet`);
+  });
+
+  test('refuses a project with no GitHub remote', async () => {
+    const repo = await tmpRepo();
+    await execa('git', ['init', '-q', '-b', 'main'], { cwd: repo });
+    const { ctx } = await makeCtx(repo);
+    await expect(call(ctx, repo)).rejects.toThrow('no GitHub remote');
+  });
+
+  test('requires a numeric issue number', async () => {
+    const repo = await tmpGitRepo('https://github.com/allowed/repo.git');
+    const { ctx } = await makeCtx(repo);
+    await expect(call(ctx, repo, { number: '1' })).rejects.toThrow('number is required and must be a number');
+  });
+
+  test("offers the project's configured trigger label alongside the defaults", async () => {
+    const repo = await tmpGitRepo('https://github.com/allowed/repo.git');
+    await writeAppConfig(repo, { label: 'go' });
+    const { ctx } = await makeCtx(repo);
+    await expect(call(ctx, repo, { label: 'bug' })).rejects.toThrow('"bug" is not a trigger label of this project (ready for agent, ready for spec, go)');
+  });
+});

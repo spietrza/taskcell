@@ -42,6 +42,8 @@ export interface HubServerOptions {
    * `--allowed-host` / `VANGUARD_HUB_ALLOWED_HOSTS`, for the VPS / reverse-proxy deployment
    * (docs/hub.md). */
   allowedHosts?: readonly string[];
+  /** Fixed token (from `--token-file`); a fresh one per launch when omitted. */
+  token?: string;
 }
 
 export interface HubServer {
@@ -314,7 +316,7 @@ async function handleRequest(
 
 /** Build (but do not start) the hub's HTTP server. `listen`/`close` drive its lifecycle. */
 export function createHubServer(opts: HubServerOptions): HubServer {
-  const token = randomBytes(32).toString('hex');
+  const token = opts.token ?? randomBytes(32).toString('hex');
   const auth: HubAuth = {
     token,
     eventsCookieName: `vanguard_hub_events_${randomBytes(4).toString('hex')}`,

@@ -39,6 +39,11 @@ async function main(): Promise<void> {
     await hubCommand(command);
     return;
   }
+  if (command.kind === 'hub-rotate-token') {
+    const { hubRotateTokenCommand } = await import('./hub.js');
+    await hubRotateTokenCommand(command);
+    return;
+  }
   if (command.kind === 'run') {
     // Validate decision-model credentials/consent ONCE, before the tracker fetch, sidecars and sandbox
     // (a `run --parent` fan-out would otherwise fail every child the same way).
