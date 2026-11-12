@@ -265,6 +265,19 @@ describe('pushToExistingBranch', () => {
     await disposeContext(ctx);
   });
 
+  it('forceWithLease pushes with a lease on the given remote tip', async () => {
+    const wm = new WorktreeManager(repo, undefined, () => 'r1');
+    const ctx = await prepareContext({ taskId: 'push-lease', localRepoPath: repo, baseBranch: 'main', start: 'base', sandbox: makeSandbox() }, { worktrees: wm });
+    const calls: string[][] = [];
+    const runner = async (_file: string, args: string[]): Promise<string> => {
+      calls.push(args);
+      return '';
+    };
+    await pushToExistingBranch(ctx, { prHeadRef: 'feature-branch', forceWithLease: 'abc123', runner });
+    expect(calls[0]).toEqual(['push', '--no-verify', '--force-with-lease=refs/heads/feature-branch:abc123', 'origin', 'HEAD:refs/heads/feature-branch']);
+    await disposeContext(ctx);
+  });
+
   it('with pushToken absent, argv is exactly the baseline (no -c prefix)', async () => {
     const wm = new WorktreeManager(repo, undefined, () => 'r1');
     const ctx = await prepareContext({ taskId: 'push-notoken', localRepoPath: repo, baseBranch: 'main', start: 'base', sandbox: makeSandbox() }, { worktrees: wm });

@@ -93,6 +93,18 @@ describe('deliverChange', () => {
     expect(Object.values(seen[0] ?? {})).toContain(`AUTHORIZATION: basic ${Buffer.from('x-access-token:PROVIDED').toString('base64')}`);
   });
 
+  it('forwards forceWithLease to the existing-branch push', async () => {
+    const calls: string[][] = [];
+    await withWork('hello', async (ctx) => {
+      await deliverChange(ctx, {
+        taskId: 'T-3',
+        commitMessage: 'feat: x',
+        target: { kind: 'existing-branch', prHeadRef: 'pr-head', forceWithLease: 'abc123', runner: async (_f, a) => { calls.push(a); return ''; } },
+      });
+    });
+    expect(calls[0]).toContain('--force-with-lease=refs/heads/pr-head:abc123');
+  });
+
   describe('a file the worktree .gitattributes renders as binary', () => {
     const credential = 'opaque-credential-92837';
     afterEach(() => {
