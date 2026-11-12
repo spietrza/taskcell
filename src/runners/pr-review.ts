@@ -200,7 +200,9 @@ const MAX_SINCE_DIFF_CHARS = 100_000;
 async function fetchReReviewContext(target: PullRequestReviewTarget, view: GhPullRequestView, gh: GhRunner, log?: (line: string) => void): Promise<ReReviewContext | undefined> {
   const previous = (view.reviews ?? [])
     .map((r) => ({ body: r.body ?? '', login: r.author?.login ?? '', submittedAt: r.submittedAt ?? '' }))
-    .filter((r) => isTrustedBotLogin(r.login) && r.body.startsWith(PR_REVIEW_HEADING) && !MAIN_LOOP_REVIEW_RE.test(r.body) && pullRequestReviewMarkerShas(r.body).length > 0)
+    // Exactly one distinct marker SHA, latest submittedAt wins: the same selection the approver makes (approver/facts.ts).
+    .filter((r) => isTrustedBotLogin(r.login) && r.body.startsWith(PR_REVIEW_HEADING) && !MAIN_LOOP_REVIEW_RE.test(r.body) && new Set(pullRequestReviewMarkerShas(r.body)).size === 1)
+    .sort((a, b) => a.submittedAt.localeCompare(b.submittedAt))
     .at(-1);
   if (previous === undefined) return undefined;
   const previousBody = previous.body;

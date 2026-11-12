@@ -86,3 +86,28 @@ describe('reReviewInstructions', () => {
     expect(untrusted.join('\n')).toContain('&lt;x>');
   });
 });
+
+describe('applyReReviewRules previous-blocking coverage', () => {
+  const twoBlocking = '## Vanguard Review\n\nVerdict: BLOCKING\n\n1. [high] a\n2. [high] b';
+  const row = (id: string, blocking: boolean, status: string): object => ({ id, title: id, blocking, status, evidence: 'e' });
+
+  it('dropping one of several labelled blocking findings keeps the stated verdict', () => {
+    const r = applyReReviewRules(`Verdict: BLOCKING\n${block({ previous: [row('1', true, 'resolved')], new: [] })}`, { previousBody: twoBlocking });
+    expect(r.text.startsWith('Verdict: BLOCKING')).toBe(true);
+    expect(r.text).toContain(REREVIEW_MALFORMED_NOTE);
+  });
+
+  it('re-rating an open blocking row of a previous re-review keeps the stated verdict', () => {
+    const prevTable = '## Vanguard Review\n\nVerdict: BLOCKING\n\n| Previous finding | Status | Evidence |\n| --- | --- | --- |\n| 1: a (blocking) | resolved | e |\n| N1: b (blocking) | new | x.ts |';
+    const rerated = applyReReviewRules(`Verdict: BLOCKING\n${block({ previous: [row('1', true, 'resolved'), row('N1', false, 'not resolved')], new: [] })}`, { previousBody: prevTable });
+    expect(rerated.text.startsWith('Verdict: BLOCKING')).toBe(true);
+    expect(rerated.text).toContain(REREVIEW_MALFORMED_NOTE);
+    const tracked = applyReReviewRules(`Verdict: BLOCKING\n${block({ previous: [row('1', true, 'resolved'), row('N1', true, 'resolved')], new: [] })}`, { previousBody: prevTable });
+    expect(tracked.text.startsWith('Verdict: NO BLOCKING FINDINGS')).toBe(true);
+  });
+
+  it('renders an accepted new blocking finding as a tracked row', () => {
+    const r = applyReReviewRules(`Verdict: BLOCKING\n${block({ previous: [], new: [newBlocking('src/auth.ts')] })}`, { sinceDiff: since });
+    expect(r.text).toContain('| N1: n (blocking) | new | src/auth.ts |');
+  });
+});

@@ -63,7 +63,7 @@ function normalizeFile(file: string): string {
 export function reReviewInstructions(ctx: ReReviewContext): { rules: string[]; untrusted: string[] } {
   const rules = [
     `This is a RE-REVIEW: the PR was already reviewed at head ${ctx.previousSha.slice(0, 7)}. Reviews must converge, so:`,
-    '- Start with the `Verdict:` and `Risk:` lines, then emit a <rereview> JSON block (the host renders it as a table of every previous finding, resolved / not resolved / no longer applies, with one line of evidence each, and strips the block from the posted review): {"previous":[{"id","title","blocking":bool,"status":"resolved"|"not resolved"|"no longer applies","evidence":"one line"}],"new":[{"title","file","blocking":bool,"basis":"changed-since-last-review"|"missed-blocking-class"}]}. List EVERY finding of the previous review in "previous", with the blocking flag it had there.',
+    '- Start with the `Verdict:` and `Risk:` lines, then emit a <rereview> JSON block (the host renders it as a table of every previous finding, resolved / not resolved / no longer applies, with one line of evidence each, and strips the block from the posted review): {"previous":[{"id","title","blocking":bool,"status":"resolved"|"not resolved"|"no longer applies","evidence":"one line"}],"new":[{"title","file","blocking":bool,"basis":"changed-since-last-review"|"missed-blocking-class"}]}. List EVERY finding of the previous review in "previous", with the blocking flag it had there; when the previous review has a findings table, reuse its ids (including `N1`-style rows) exactly. The host keeps the reviewer\'s own verdict when a blocking finding the previous review left open is missing or re-rated.',
     '- A finding the previous review rated non-blocking keeps that rating on code that did not change since. Never re-rate unchanged code.',
     '- A NEW blocking finding is allowed only for code changed since the last reviewed head (basis `changed-since-last-review`, `file` must be a file in the diff since that head), or for a blocking-class problem per the repository review guidelines that the previous review missed (basis `missed-blocking-class`). Anything else is non-blocking. The host downgrades a new blocking finding that does not meet this.',
     '- The verdict is BLOCKING only if at least one blocking finding is not resolved; the host recomputes it from the <rereview> block.',
@@ -108,12 +108,31 @@ function peelVerdict(text: string): { verdict?: string; risk?: string; rest: str
   return { ...(verdict !== undefined ? { verdict } : {}), ...(risk !== undefined ? { risk } : {}), rest: rest.join('\n').trim() };
 }
 
+// An open blocking row of a previous re-review's table: `| <id>: <title> (blocking) | not resolved|new | …`.
+const OPEN_BLOCKING_ROW_RE = /^\| (.+?): .*\(blocking\) \| (?:not resolved|new) \|/gm;
+// A blocking finding in the reviewer's own layout: a `[high]`/`[critical]` label opening a line or list item.
+const BLOCKING_LABEL_RE = /^[ \t]*(?:[-*]|\d+[.)])?[ \t]*\[(?:high|critical)\]/gim;
+
+/**
+ * Does the table account for every blocking finding the previous review left open? Its open blocking rows
+ * (when it was itself a re-review) must reappear by id as blocking, and there must be at least as many
+ * blocking rows as it had labelled blocking findings — at least one when its verdict was BLOCKING.
+ */
+function coversPreviousBlocking(previous: ReadonlyArray<{ id: string; blocking: boolean }>, previousBody: string): boolean {
+  const listed = previous.filter((p) => p.blocking).map((p) => cell(p.id));
+  const openIds = [...previousBody.matchAll(OPEN_BLOCKING_ROW_RE)].map((m) => m[1]!);
+  if (openIds.some((id) => !listed.includes(id))) return false;
+  const labelled = previousBody.match(BLOCKING_LABEL_RE)?.length ?? 0;
+  const verdictBlocking = extractReviewVerdict(peelVerdict(previousBody).verdict ?? '') === 'blocking';
+  return listed.length >= Math.max(labelled, verdictBlocking ? 1 : 0);
+}
+
 /**
  * Enforce the re-review rules on the reviewer's reply. A missing, repeated or malformed <rereview> block
  * (exactly one is valid, so a quoted second one cannot override the real one) leaves the reviewer's stated
- * verdict untouched — a formatting slip never flips it — and is noted; so does a block listing no blocking
- * previous finding when the previous review (`previousBody`) was BLOCKING. `downgraded` counts new blocking
- * findings rejected by the rules.
+ * verdict untouched — a formatting slip never flips it — and is noted; so does a block that drops or re-rates
+ * a blocking finding the previous review (`previousBody`) left open (coversPreviousBlocking). `downgraded`
+ * counts new blocking findings rejected by the rules.
  */
 export function applyReReviewRules(
   text: string,
@@ -126,10 +145,9 @@ export function applyReReviewRules(
   } catch {
     parsed = undefined;
   }
-  // A BLOCKING previous review had a blocking finding: a table listing none dropped it, and deriving the verdict
-  // from that table would turn BLOCKING into clean by omission (fail-open past the approver). Malformed instead.
-  const previousBlocking = ctx.previousBody !== undefined && extractReviewVerdict(peelVerdict(ctx.previousBody).verdict ?? '') === 'blocking';
-  if (previousBlocking && parsed?.previous.some((p) => p.blocking) !== true) parsed = undefined;
+  // Deriving the verdict from the table must never turn BLOCKING into clean by omission or re-rating (fail-open
+  // past the approver): a table that does not account for the previous review's open blocking findings is malformed.
+  if (parsed !== undefined && ctx.previousBody !== undefined && !coversPreviousBlocking(parsed.previous, ctx.previousBody)) parsed = undefined;
   if (parsed === undefined) {
     return {
       text: [...(peeled.verdict !== undefined ? [peeled.verdict] : []), ...(peeled.risk !== undefined ? [peeled.risk] : []), '', peeled.rest, '', REREVIEW_MALFORMED_NOTE].join('\n').trim(),
@@ -139,25 +157,28 @@ export function applyReReviewRules(
 
   const changed = ctx.sinceDiff !== undefined ? changedFilesOf(ctx.sinceDiff) : undefined;
   const rejected: string[] = [];
-  let acceptedBlocking = 0;
+  const accepted: typeof parsed.new = [];
   for (const f of parsed.new) {
     if (!f.blocking) continue;
     const file = f.file === undefined ? undefined : normalizeFile(f.file);
     const ok =
       f.basis === 'missed-blocking-class' ||
       (f.basis === 'changed-since-last-review' && (changed === undefined || (file !== undefined && changed.some((c) => c === file || c.endsWith(`/${file}`)))));
-    if (ok) acceptedBlocking++;
+    if (ok) accepted.push(f);
     else rejected.push(f.title);
   }
   const unresolvedBlocking = parsed.previous.filter((p) => p.blocking && p.status === 'not resolved').length;
-  const blocking = unresolvedBlocking + acceptedBlocking > 0;
+  const blocking = unresolvedBlocking + accepted.length > 0;
 
+  // Accepted new blocking findings are rows too, so the next round must track them like any previous finding.
+  const rows = [
+    ...parsed.previous.map((p) => `| ${cell(p.id)}: ${cell(p.title)}${p.blocking ? ' (blocking)' : ''} | ${p.status} | ${cell(p.evidence)} |`),
+    ...accepted.map((f, i) => `| N${i + 1}: ${cell(f.title)} (blocking) | new | ${cell(f.file ?? f.basis ?? '')} |`),
+  ];
   const table = [
     '| Previous finding | Status | Evidence |',
     '| --- | --- | --- |',
-    ...(parsed.previous.length === 0
-      ? ['| (none) | - | The previous review had no findings. |']
-      : parsed.previous.map((p) => `| ${cell(p.id)}: ${cell(p.title)}${p.blocking ? ' (blocking)' : ''} | ${p.status} | ${cell(p.evidence)} |`)),
+    ...(rows.length === 0 ? ['| (none) | - | The previous review had no findings. |'] : rows),
   ];
   const notes = rejected.map((t) => `- Not blocking: "${cell(t)}" — a new blocking finding must be on code changed since the last reviewed head or a blocking-class problem the previous review missed.`);
   return {
