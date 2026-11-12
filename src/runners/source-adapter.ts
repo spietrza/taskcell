@@ -418,7 +418,10 @@ export async function runSourcedIssue(
   // comment / issue link-back are suppressed. Off by default — everything stays branded as Vanguard.
   const whiteLabel = deps.commitAuthor !== undefined;
 
-  const agents = selectAgents(deps, deps.providerEnv ?? process.env, { proxyMode: deps.llmProxy !== undefined });
+  // A hub run reads every provider key (agents, fork scorer, difficulty probe) from its resolved
+  // credential env, so a `user` run never spends the host's key.
+  const providerEnv = deps.providerEnv ?? process.env;
+  const agents = selectAgents(deps, providerEnv, { proxyMode: deps.llmProxy !== undefined });
 
   // Per-run provider sidecars (e.g. OpenAI for Codex) hold the real key out of the sandbox. Created
   // before prepareContext so the finally below tears them down even if context provisioning throws.
@@ -447,7 +450,7 @@ export async function runSourcedIssue(
     // A decision-model fork scorer needs credentials; resolve them BEFORE the sandbox is built so a
     // missing key fails in a second, not after a full implementer run.
     const forkScore =
-      deps.forkN !== undefined && deps.forkScorer === 'decision' ? decisionDiffScorer(resolveForkScorerConfig(whiteLabel), deps.signal !== undefined ? { signal: deps.signal } : {}) : undefined;
+      deps.forkN !== undefined && deps.forkScorer === 'decision' ? decisionDiffScorer(resolveForkScorerConfig(whiteLabel, providerEnv), deps.signal !== undefined ? { signal: deps.signal } : {}) : undefined;
     const retrospectiveMemory = await loadRetrospectiveMemory(deps.repoPath, { taskText: `${task.title}\n${task.description}` });
     // Log-only difficulty probe (decision model, opt-in via env): kicked off here so its round trip
     // hides under sandbox + worktree provisioning; awaited once the pipeline is assembled. Recorded
@@ -456,7 +459,7 @@ export async function runSourcedIssue(
       console.warn(`taskcell: ${task.id} ignoring malformed model label ${JSON.stringify(label)}`),
     );
     const probePromise = probeTaskDifficulty(task, labelModel ?? deps.providerModel, {
-      config: decisionProbeConfig(process.env, { whiteLabel }),
+      config: decisionProbeConfig(providerEnv, { whiteLabel }),
       ...(deps.signal !== undefined ? { signal: deps.signal } : {}),
     });
     const ctx = await prepareContext(
