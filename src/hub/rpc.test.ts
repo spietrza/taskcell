@@ -106,6 +106,20 @@ afterEach(() => {
   cleanups.length = 0;
 });
 
+describe('dispatchRpc teams', () => {
+  test('list_teams / get_team return the default team and track project changes', async () => {
+    const repo = await tmpGitRepo();
+    const { ctx } = await makeCtx(repo);
+    await savePaths(ctx.configDir, [repo]);
+    const teams = (await dispatchRpc(ctx, 'list_teams', {})) as { id: string; repositories: string[] }[];
+    expect(teams).toHaveLength(1);
+    expect(teams[0]!.repositories).toEqual([repo]);
+    await dispatchRpc(ctx, 'remove_project', { path: repo });
+    expect(await dispatchRpc(ctx, 'get_team', { id: teams[0]!.id })).toMatchObject({ repositories: [] });
+    expect(await dispatchRpc(ctx, 'get_team', { id: 'nope' })).toBeNull();
+  });
+});
+
 describe('dispatchRpc', () => {
   test('T-54 dispatches commands with their exact camelCase args to the right handler', async () => {
     const repo = await tmpRepo();

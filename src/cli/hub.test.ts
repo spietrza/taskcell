@@ -6,6 +6,7 @@ import { Agent, request } from 'node:http';
 import { afterEach, beforeEach, describe, expect, test, vi } from 'vitest';
 import { hubCommand, hubRotateTokenCommand } from './hub.js';
 import { loadPaths } from '../hub/projects.js';
+import { loadTeams } from '../hub/teams.js';
 import type { Command } from './args.js';
 
 vi.mock('execa', () => ({ execa: vi.fn(() => Promise.resolve({})) }));
@@ -278,6 +279,18 @@ describe('hubCommand', () => {
       expect(lines.some((l) => l.startsWith('Vanguard Hub → http://127.0.0.1:'))).toBe(true);
       expect(lines).toContain('Projects:');
       expect(lines.some((l) => l.trim() === repo)).toBe(true);
+    } finally {
+      logSpy.mockRestore();
+      process.emit('SIGINT');
+      await new Promise((r) => setTimeout(r, 0));
+    }
+  });
+
+  test('startup migrates the seeded project into the default team', async () => {
+    const logSpy = vi.spyOn(console, 'log').mockImplementation(() => undefined);
+    try {
+      await hubCommand(command());
+      expect(await loadTeams(configDir)).toMatchObject([{ id: 'default', repositories: [repo] }]);
     } finally {
       logSpy.mockRestore();
       process.emit('SIGINT');

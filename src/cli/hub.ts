@@ -8,6 +8,7 @@ import { createHubServer, splitHostPort } from '../hub/server.js';
 import { injectHubMarker } from '../hub/static.js';
 import { assertGitWorkTreeDir } from '../hub/allowlist.js';
 import { HUB_TOKEN_FRAGMENT_PARAM } from '../hub-wire.js';
+import { ensureTeams } from '../hub/teams.js';
 import { loadPaths, add as addProject } from '../hub/projects.js';
 import { loadOrCreateToken, rotateToken } from '../hub/token-file.js';
 import type { Command } from './args.js';
@@ -117,6 +118,10 @@ export async function hubCommand(command: Extract<Command, { kind: 'hub' }>): Pr
       await addProject(configDir, seededRepoPath);
     }
   }
+
+  // Migrate existing projects into the default team. Best-effort: a corrupt projects.json must not
+  // stop the hub starting (it is surfaced on the first project read instead).
+  await ensureTeams(configDir).catch((e: unknown) => console.warn(`teams migration skipped: ${e instanceof Error ? e.message : String(e)}`));
 
   // After the startup checks above, so a failed first launch leaves no file behind.
   const token = command.tokenFile !== undefined ? await loadOrCreateToken(command.tokenFile) : undefined;
