@@ -2258,9 +2258,10 @@ describe('runRevisePullRequest — taskcell GitHub App', () => {
     const { readyEnvs, pushEnvs, logs, fetched } = await run(200);
     expect(Object.values(pushEnvs[0] ?? {})).toContain(`AUTHORIZATION: basic ${Buffer.from('x-access-token:ghs_app_token_1_Zx9Qw8Er7Ty6Ui5Op4').toString('base64')}`);
     expect(readyEnvs[0]).toEqual({ GH_TOKEN: 'ghs_app_token_2_Zx9Qw8Er7Ty6Ui5Op4' });
-    // Push, undraft and the re-review label each mint (and revoke) their own token.
-    expect(fetched.filter((c) => c.startsWith('DELETE'))).toHaveLength(3);
-    expect(logs.some((l) => /re-review \(ready for vanguard review\) \(taskcell App token\)/.test(l))).toBe(true);
+    // Push and undraft each mint (and revoke) their own token; the re-review label never uses the App
+    // (a `labeled` event from taskcell[bot] fails the review's allowed-actors gate).
+    expect(fetched.filter((c) => c.startsWith('DELETE'))).toHaveLength(2);
+    expect(logs.some((l) => /re-review \(ready for vanguard review\)$/.test(l))).toBe(true);
     expect(logs.some((l) => /pushed -> feature-branch \(taskcell App token\)/.test(l))).toBe(true);
     expect(logs.some((l) => /undraft -> pr ready \(taskcell App token\)/.test(l))).toBe(true);
   });

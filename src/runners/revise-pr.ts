@@ -231,14 +231,15 @@ async function ghAsPushTokenOwner(
 /**
  * After a push, re-request the review: drop the reviewed marker and the trigger label, then add the
  * trigger back so a fresh `labeled` event starts the review of the new head. The add goes out as the
- * push token's owner, like markReady: a `labeled` event from the ambient GITHUB_TOKEN starts no
- * workflow, so the review would never run. Refused → the ambient credential still sets the label. Best-effort.
+ * VANGUARD_PUSH_TOKEN (PAT) owner, never the taskcell App: a `labeled` event from the ambient GITHUB_TOKEN
+ * starts no workflow, and one sent by `taskcell[bot]` fails the review's allowed-actors gate
+ * (taskcell-pr-review.yml labels App PRs with the PAT for the same reason). Without the PAT, or refused,
+ * the ambient credential still sets the label but no review run starts. Best-effort.
  */
 async function requestReReview(
   gh: GhRunner,
   repoSlug: string,
   number: number,
-  tokenProvider: () => Promise<string | undefined>,
   log: (line: string) => void,
 ): Promise<void> {
   try {
@@ -247,7 +248,7 @@ async function requestReReview(
     await ghAsPushTokenOwner(
       gh,
       ['pr', 'edit', String(number), '--repo', repoSlug, '--add-label', REVIEW_TRIGGER_LABEL],
-      tokenProvider,
+      async () => process.env.VANGUARD_PUSH_TOKEN || undefined,
       log,
       `revise-pr ${repoSlug}#${number}: labels -> re-review (${REVIEW_TRIGGER_LABEL})`,
       `revise-pr ${repoSlug}#${number}: re-review label with the push token failed, retrying with the ambient credential (no review run will start)`,
@@ -899,7 +900,7 @@ export async function runRevisePullRequest(prRef: string, deps: ReviseGithubPrDe
       await markReady(gh, target.repoSlug, target.number, tokenProvider, log);
 
       await handBackPrLabels(gh, target.repoSlug, target.number, log);
-      await requestReReview(gh, target.repoSlug, target.number, tokenProvider, log);
+      await requestReReview(gh, target.repoSlug, target.number, log);
 
       await stepSummary(verificationFailed ? 'verify-failed' : 'completed');
       return {
