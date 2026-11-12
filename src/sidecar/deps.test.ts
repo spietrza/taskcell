@@ -406,3 +406,32 @@ describe('production run-store forwards', () => {
     await expect(productionDeps().readRun({ repoPath, taskId: 'missing', timestamp })).rejects.toThrow(join(runsRoot(repoPath), 'missing'));
   });
 });
+
+describe('createRun with a hub run credential', () => {
+  it('a `user` credential replaces the host provider credentials everywhere the run reads them', async () => {
+    const repoPath = await plainRepo();
+    setEnv({ CLAUDE_CODE_OAUTH_TOKEN: 'sk-ant-oat01-HOST-TOKEN', ANTHROPIC_API_KEY: undefined, OPENAI_API_KEY: 'sk-host-openai' });
+    await productionDeps().createRun({ issueRef: 'o/r#1', repoPath, provider: 'claude' }, () => {}, {
+      source: 'user',
+      env: { ANTHROPIC_API_KEY: 'sk-ant-api03-USER-KEY' },
+    });
+    expect(startSandboxContext).toHaveBeenCalledWith(expect.objectContaining({ auth: { mode: 'api', apiKey: 'sk-ant-api03-USER-KEY' } }));
+    const env = (githubDepsFromEnv.mock.calls[0] as unknown[] | undefined)?.[3] as NodeJS.ProcessEnv;
+    expect(env.ANTHROPIC_API_KEY).toBe('sk-ant-api03-USER-KEY');
+    expect(env.CLAUDE_CODE_OAUTH_TOKEN).toBeUndefined();
+    expect(env.OPENAI_API_KEY).toBeUndefined();
+    const [, opts] = runGithubIssue.mock.calls[0] ?? [];
+    expect(opts).toMatchObject({ credentialSource: 'user', providerEnv: env });
+  });
+
+  it('an `instance` credential overlays the host env', async () => {
+    const repoPath = await plainRepo();
+    setEnv({ CLAUDE_CODE_OAUTH_TOKEN: undefined, ANTHROPIC_API_KEY: undefined, OPENAI_API_KEY: 'sk-host-openai' });
+    await productionDeps().createRun({ issueRef: 'o/r#1', repoPath, provider: 'claude' }, () => {}, {
+      source: 'instance',
+      env: { ANTHROPIC_API_KEY: 'sk-ant-api03-INSTANCE' },
+    });
+    const env = (githubDepsFromEnv.mock.calls[0] as unknown[] | undefined)?.[3] as NodeJS.ProcessEnv;
+    expect(env).toMatchObject({ ANTHROPIC_API_KEY: 'sk-ant-api03-INSTANCE', OPENAI_API_KEY: 'sk-host-openai' });
+  });
+});

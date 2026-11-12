@@ -21,6 +21,8 @@ import { gitlabDepsFromEnv, runGitlabIssue } from '../runners/gitlab.js';
 import { runLinearIssue } from '../runners/linear.js';
 import { agentAuthFromEnv } from '../agents/auth.js';
 import { BadRequestError } from './sidecar.js';
+import { CREDENTIAL_NAMES } from '../hub/credentials.js';
+import { forgetInjectedSecretValue, registerInjectedSecretValue } from '../core/secret-scan.js';
 import { AgentError } from '../core/errors.js';
 import type { ProviderChoice } from '../agents/registry.js';
 import type { SandboxContext } from '../sandbox/sandbox-context.js';
@@ -29,6 +31,18 @@ import type { RunLinearIssueDeps } from '../runners/linear.js';
 import type { RunEvent } from '../pipeline/events.js';
 import type { SidecarDeps, CreateRunParams, CreateRunResult } from './sidecar.js';
 import type { RunCredential } from '../wire.js';
+
+/**
+ * The env a hub run reads its provider keys from. A `user` credential replaces every host provider
+ * credential (so a run funded by the starter never silently falls back to the instance's), an
+ * `instance` one overlays the host env; no credential (desktop) is the host env as before.
+ */
+function credentialEnv(credential: RunCredential | undefined): NodeJS.ProcessEnv {
+  if (credential === undefined) return process.env;
+  const env: NodeJS.ProcessEnv = { ...process.env };
+  if (credential.source === 'user') for (const name of CREDENTIAL_NAMES) delete env[name];
+  return Object.assign(env, credential.env);
+}
 
 /**
  * Resolve the run's provider choice against the target repo's customs (S6): load, validate the
@@ -189,8 +203,9 @@ export function productionDeps(): SidecarDeps {
     listRuns: ({ repoPath }) => listRunSummaries(runsRoot(repoPath)),
     readRun: ({ repoPath, taskId, timestamp }) => readRunDetail(runsRoot(repoPath), taskId, timestamp),
     createRun: async (params: CreateRunParams, onEvent: (e: RunEvent) => void, credential?: RunCredential): Promise<CreateRunResult> => {
-      // A hub run's per-user/instance credential overlays the host env for the AUTH lookup only.
-      const authEnv = credential !== undefined ? { ...process.env, ...credential.env } : process.env;
+      // A hub run reads every provider key from its resolved credential env. A `user` run must never
+      // fall back to the host's provider credentials, so those are dropped before its own overlay.
+      const authEnv = credentialEnv(credential);
       // FIRST statements, before beginRun() and the sandbox: an unresolvable flow (typo, broken or
       // duplicate .hcl) or provider (unknown name, broken customs entry, http custom on this
       // always-egress path) must cost nothing and classify bad-request — and must not leave an
@@ -252,6 +267,10 @@ export function productionDeps(): SidecarDeps {
       if (exposed !== undefined) {
         onEvent({ type: 'warning', message: `${exposed} to the agent inside the sandbox for this run.` });
       }
+      // The credential values live in no host env var, so register them for the run: every redaction
+      // pass (PR body, comments, run record) then scrubs them like any injected secret.
+      const runSecrets = Object.values(credential?.env ?? {});
+      for (const v of runSecrets) registerInjectedSecretValue(v);
       try {
         // The RunOptions the sidecar exposes + the sandbox wiring + the event seam, shared across transports.
         const common = {
@@ -265,7 +284,7 @@ export function productionDeps(): SidecarDeps {
           // resolves it via FLOWS[flow].build() (Subsystem 2). Any registered FLOWS entry works with
           // no per-flow wiring here; validation happened in sidecar.ts::validateCreateRun.
           ...(params.flow !== undefined ? { flow: params.flow } : {}),
-          ...(credential !== undefined ? { credentialSource: credential.source } : {}),
+          ...(credential !== undefined ? { credentialSource: credential.source, providerEnv: authEnv } : {}),
           ...(ctx.proxyUrl !== undefined ? { proxyUrl: ctx.proxyUrl } : {}),
           ...(ctx.network !== undefined ? { network: ctx.network } : {}),
           ...(ctx.llmProxy !== undefined ? { llmProxy: ctx.llmProxy } : {}),
@@ -275,16 +294,17 @@ export function productionDeps(): SidecarDeps {
           ...(customProviders !== undefined ? { customProviders } : {}),
         };
         if (transport === 'gitlab') {
-          const deps = await gitlabDepsFromEnv(repoPath, undefined, authChoice);
+          const deps = await gitlabDepsFromEnv(repoPath, undefined, authChoice, authEnv);
           return await runGitlabIssue(params.issueRef, { ...deps, ...common });
         }
         if (transport === 'linear') {
           return await runLinearIssue(params.issueRef, { ...common, ...linearExtras(repoPath, auth) });
         }
-        const deps = await githubDepsFromEnv(repoPath, undefined, authChoice);
+        const deps = await githubDepsFromEnv(repoPath, undefined, authChoice, authEnv);
         return await runGithubIssue(params.issueRef, { ...deps, ...common });
       } finally {
         await ctx.destroy();
+        for (const v of runSecrets) forgetInjectedSecretValue(v);
         endRun();
       }
     },

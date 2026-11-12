@@ -169,6 +169,8 @@ export function pickRunOptions(cmd: Readonly<Partial<RunOptions>>): RunOptions {
 export interface RunIssueDeps extends RunOptions {
   /** Which kind of credential funded the run (hub per-user credentials); recorded on the run record, never the value. */
   credentialSource?: 'instance' | 'user';
+  /** Env the provider keys are read from (default process.env): a hub run's resolved credential env. */
+  providerEnv?: NodeJS.ProcessEnv;
   auth?: AgentAuth;
   repoPath: string;
   proxyUrl?: string;
@@ -416,7 +418,7 @@ export async function runSourcedIssue(
   // comment / issue link-back are suppressed. Off by default — everything stays branded as Vanguard.
   const whiteLabel = deps.commitAuthor !== undefined;
 
-  const agents = selectAgents(deps, process.env, { proxyMode: deps.llmProxy !== undefined });
+  const agents = selectAgents(deps, deps.providerEnv ?? process.env, { proxyMode: deps.llmProxy !== undefined });
 
   // Per-run provider sidecars (e.g. OpenAI for Codex) hold the real key out of the sandbox. Created
   // before prepareContext so the finally below tears them down even if context provisioning throws.
