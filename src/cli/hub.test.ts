@@ -1,10 +1,10 @@
 import { execa } from 'execa';
-import { mkdir, mkdtemp, rm, writeFile } from 'node:fs/promises';
+import { access, mkdir, mkdtemp, rm, writeFile } from 'node:fs/promises';
 import { hostname, tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { Agent, request } from 'node:http';
 import { afterEach, beforeEach, describe, expect, test, vi } from 'vitest';
-import { hubCommand } from './hub.js';
+import { hubCommand, hubRotateTokenCommand } from './hub.js';
 import { loadPaths } from '../hub/projects.js';
 import type { Command } from './args.js';
 
@@ -72,6 +72,41 @@ function httpGet(printedUrl: string, path: string): Promise<{ status: number; bo
     req.end();
   });
 }
+
+describe('hubCommand --token-file', () => {
+  const launch = async (tokenFile: string): Promise<string> => {
+    const logSpy = vi.spyOn(console, 'log').mockImplementation(() => undefined);
+    try {
+      await hubCommand(command({ tokenFile }));
+      return logSpy.mock.calls.map((c) => String(c[0])).find((s) => s.startsWith('Vanguard Hub → '))!;
+    } finally {
+      logSpy.mockRestore();
+      process.emit('SIGINT');
+      await new Promise((r) => setTimeout(r, 0));
+    }
+  };
+
+  test('two launches print the same token; rotate-token changes it for the next launch', async () => {
+    const tokenFile = join(await mkdtemp(join(tmpdir(), 'vanguard-hub-cli-tok-')), 'hub.key');
+    const first = await launch(tokenFile);
+    const second = await launch(tokenFile);
+    expect(first).toMatch(/#token=[a-f0-9]{64}$/);
+    expect(second.split('#')[1]).toBe(first.split('#')[1]);
+    // The default browser open gets the token-bearing URL too.
+    expect(vi.mocked(execa).mock.calls.at(-1)![1]).toEqual([second.slice('Vanguard Hub → '.length)]);
+
+    await hubRotateTokenCommand({ kind: 'hub-rotate-token', tokenFile });
+    const third = await launch(tokenFile);
+    expect(third).toMatch(/#token=[a-f0-9]{64}$/);
+    expect(third.split('#')[1]).not.toBe(first.split('#')[1]);
+  });
+
+  test('a failed start (unbuilt UI) does not create the token file', async () => {
+    const tokenFile = join(await mkdtemp(join(tmpdir(), 'vanguard-hub-cli-tok-')), 'hub.key');
+    await expect(hubCommand(command({ tokenFile, uiDir: join(uiDir, 'missing') }))).rejects.toThrow(/cannot read/);
+    await expect(access(tokenFile)).rejects.toThrow();
+  });
+});
 
 describe('hubCommand', () => {
   test('passes CLI and environment allowed Hosts to the server', async () => {
