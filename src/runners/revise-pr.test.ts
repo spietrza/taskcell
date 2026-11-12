@@ -2258,7 +2258,9 @@ describe('runRevisePullRequest — taskcell GitHub App', () => {
     const { readyEnvs, pushEnvs, logs, fetched } = await run(200);
     expect(Object.values(pushEnvs[0] ?? {})).toContain(`AUTHORIZATION: basic ${Buffer.from('x-access-token:ghs_app_token_1_Zx9Qw8Er7Ty6Ui5Op4').toString('base64')}`);
     expect(readyEnvs[0]).toEqual({ GH_TOKEN: 'ghs_app_token_2_Zx9Qw8Er7Ty6Ui5Op4' });
-    expect(fetched.filter((c) => c.startsWith('DELETE'))).toHaveLength(2);
+    // Push, undraft and the re-review label each mint (and revoke) their own token.
+    expect(fetched.filter((c) => c.startsWith('DELETE'))).toHaveLength(3);
+    expect(logs.some((l) => /re-review \(ready for vanguard review\) \(taskcell App token\)/.test(l))).toBe(true);
     expect(logs.some((l) => /pushed -> feature-branch \(taskcell App token\)/.test(l))).toBe(true);
     expect(logs.some((l) => /undraft -> pr ready \(taskcell App token\)/.test(l))).toBe(true);
   });
@@ -2527,11 +2529,13 @@ describe('runRevisePullRequest blocking-item checklist', () => {
     };
   }
 
-  async function run(text: string, opts: { noChange?: boolean } = {}): Promise<{ ghCalls: string[][]; pushes: string[][]; prompt: string; result: Promise<unknown> }> {
+  async function run(text: string, opts: { noChange?: boolean } = {}): Promise<{ ghCalls: string[][]; ghEnvs: Array<Record<string, string> | undefined>; pushes: string[][]; prompt: string; result: Promise<unknown> }> {
+    const ghEnvs: Array<Record<string, string> | undefined> = [];
     const ghCalls: string[][] = [];
     const pushes: string[][] = [];
     const inputs: AgentRunInput[] = [];
-    const gh: GhRunner = async (args) => {
+    const gh: GhRunner = async (args, env) => {
+      ghEnvs.push(env);
       ghCalls.push(args);
       if (args[0] === 'pr' && args[1] === 'view') return makePrViewJson();
       if (args[0] === 'pr' && args[1] === 'diff') return 'diff --git a/fix.txt';
@@ -2550,7 +2554,7 @@ describe('runRevisePullRequest blocking-item checklist', () => {
       _pushRunner: async (file, args) => { if (file === 'git') pushes.push(args); return ''; },
     });
     await result.catch(() => undefined);
-    return { ghCalls, pushes, prompt: inputs[0]?.prompt ?? '', result };
+    return { ghCalls, ghEnvs, pushes, prompt: inputs[0]?.prompt ?? '', result };
   }
 
   const reReview = (calls: string[][]): boolean =>
@@ -2566,6 +2570,21 @@ describe('runRevisePullRequest blocking-item checklist', () => {
     expect(summary(ghCalls)).toContain('1. `parse()` drops the last row — **fixed**: parse() in src/a.ts');
     expect(reReview(ghCalls)).toBe(true);
     expect(ghCalls.some((a) => a[0] === 'pr' && a[1] === 'edit' && a.includes('--remove-label') && a.includes('vanguard:reviewed'))).toBe(true);
+  });
+
+  it('adds the re-review label with the push token, so the labeled event starts a review run', async () => {
+    const original = process.env.VANGUARD_PUSH_TOKEN;
+    process.env.VANGUARD_PUSH_TOKEN = 'test-pat';
+    try {
+      const { ghCalls, ghEnvs, result } = await run('1. FIXED: src/a.ts — done\n2. FIXED: src/a.test.ts — added');
+      await expect(result).resolves.toMatchObject({ pushed: true });
+      const at = ghCalls.findIndex((a) => a[0] === 'pr' && a[1] === 'edit' && a.includes('--add-label') && a.includes('ready for vanguard review'));
+      expect(at).toBeGreaterThanOrEqual(0);
+      expect(ghEnvs[at]).toEqual({ GH_TOKEN: 'test-pat' });
+    } finally {
+      if (original === undefined) delete process.env.VANGUARD_PUSH_TOKEN;
+      else process.env.VANGUARD_PUSH_TOKEN = original;
+    }
   });
 
   it('reports a not-fixed item in the summary', async () => {

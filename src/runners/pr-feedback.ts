@@ -2,7 +2,7 @@ import { classifyAuthor, isBotLogin } from '../tasks/comment-trust.js';
 import { hasPullRequestReviewIncompleteMarker, hasPullRequestReviewMarker, pullRequestReviewMarkerShas } from './pr-review.js';
 import { extractFindings } from '../structured/findings.js';
 import { defaultGhRunner } from '../tasks/github.js';
-import { AUTHORITATIVE_BLOCK_INSTRUCTION, neutralizePromptTags } from './review-prompt.js';
+import { AUTHORITATIVE_BLOCK_INSTRUCTION, extractCommentVerdict, neutralizePromptTags, stripReviewMarkers } from './review-prompt.js';
 import type { PullRequestReviewTarget } from './pr-review.js';
 import type { GhRunner } from '../tasks/github.js';
 import { redactForPublish } from '../core/secret-scan.js';
@@ -299,6 +299,47 @@ export function buildRevisionPrompt(
 const FINDINGS_TO_ADDRESS_RE = /Findings to address:/i;
 const LIST_ITEM_RE = /^\s*(?:[-*]|\d+[.)])\s+(.+)$/;
 const oneLine = (text: string): string => text.replace(/\s+/g, ' ').trim();
+const HEADING_RE = /^\s*#{1,6}\s+(.+)$/;
+// Top-level items only: an indented sub-bullet is detail of the finding above it, not a finding.
+const TOP_LIST_ITEM_RE = /^(?:[-*]|\d+[.)])\s+(.+)$/;
+const isBlockingLabel = (text: string): boolean => /\bblocking\b/i.test(text.replace(/\b(?:non|not|no)[- ]?blocking\b/gi, ''));
+
+/**
+ * Blocking findings of a Markdown review: the top-level list items under a heading that names them
+ * blocking (up to the next heading), plus any other top-level item labelled blocking itself.
+ */
+function proseBlockingFindings(body: string): string[] {
+  const out: string[] = [];
+  let inBlockingSection = false;
+  for (const line of stripReviewMarkers(body).split('\n')) {
+    const heading = HEADING_RE.exec(line)?.[1];
+    if (heading !== undefined) {
+      inBlockingSection = isBlockingLabel(heading);
+      continue;
+    }
+    const item = TOP_LIST_ITEM_RE.exec(line)?.[1];
+    if (item !== undefined && (inBlockingSection || isBlockingLabel(item))) out.push(oneLine(item));
+  }
+  return out;
+}
+
+/** Blocking findings of a bot review: its structured (high/critical) findings, else those in its Markdown. */
+function reviewBlockingFindings(body: string): string[] {
+  try {
+    const { findings } = extractFindings(body);
+    if (findings.length > 0) {
+      return findings
+        .filter((f) => f.severity === 'high' || f.severity === 'critical')
+        .map((f) => oneLine(`[${f.severity}] ${f.title} — ${f.evidence}`));
+    }
+  } catch {
+    // No structured findings block — the PR review posts Markdown (buildPullRequestReviewComment).
+  }
+  if (extractCommentVerdict(body) !== 'blocking') return [];
+  const prose = proseBlockingFindings(body);
+  // A blocking verdict whose findings cannot be told apart still has to be answered, as one item.
+  return prose.length > 0 ? prose : ['Every blocking finding of the latest Vanguard review (answer each one it lists)'];
+}
 
 /**
  * Every item the revision must answer: the blocking (high/critical) findings of the latest completed
@@ -310,15 +351,7 @@ export function buildRevisionChecklist(fb: PullRequestFeedback, actionable: read
     .sort((a, b) => a.createdAt.localeCompare(b.createdAt));
   const latest = reviews[reviews.length - 1];
   const out: string[] = [];
-  if (latest !== undefined) {
-    try {
-      for (const f of extractFindings(latest.body).findings) {
-        if (f.severity === 'high' || f.severity === 'critical') out.push(oneLine(`[${f.severity}] ${f.title} — ${f.evidence}`));
-      }
-    } catch {
-      // No structured findings block: nothing machine-readable to list.
-    }
-  }
+  if (latest !== undefined) out.push(...reviewBlockingFindings(latest.body));
   for (const item of actionable) {
     const at = item.body.search(FINDINGS_TO_ADDRESS_RE);
     if (at === -1) continue;

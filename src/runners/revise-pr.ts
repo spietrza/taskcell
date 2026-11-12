@@ -201,15 +201,57 @@ async function handBackPrLabels(
 }
 
 /**
- * After a push, re-request the review: drop the reviewed marker and the trigger label, then add the
- * trigger back so a fresh `labeled` event starts the review of the new head. Best-effort.
+ * Run one gh call as the push token's owner first (GH_TOKEN for this call only), logging `action` with
+ * the credential actually resolved, not with which env vars are set. Refused → log `refused` and retry
+ * with the ambient credential.
  */
-async function requestReReview(gh: GhRunner, repoSlug: string, number: number, log: (line: string) => void): Promise<void> {
+async function ghAsPushTokenOwner(
+  gh: GhRunner,
+  args: string[],
+  tokenProvider: () => Promise<string | undefined>,
+  log: (line: string) => void,
+  action: string,
+  refused: string,
+): Promise<void> {
+  const pushToken = await resolveToken(tokenProvider, undefined, log);
+  log(`${action}${credentialLabel(pushToken)}`);
+  if (pushToken) {
+    try {
+      await gh(args, { GH_TOKEN: pushToken });
+      return;
+    } catch {
+      log(refused);
+    } finally {
+      await releaseToken(pushToken);
+    }
+  }
+  await gh(args);
+}
+
+/**
+ * After a push, re-request the review: drop the reviewed marker and the trigger label, then add the
+ * trigger back so a fresh `labeled` event starts the review of the new head. The add goes out as the
+ * push token's owner, like markReady: a `labeled` event from the ambient GITHUB_TOKEN starts no
+ * workflow, so the review would never run. Refused → the ambient credential still sets the label. Best-effort.
+ */
+async function requestReReview(
+  gh: GhRunner,
+  repoSlug: string,
+  number: number,
+  tokenProvider: () => Promise<string | undefined>,
+  log: (line: string) => void,
+): Promise<void> {
   try {
     await gh(['label', 'create', REVIEW_TRIGGER_LABEL, '--repo', repoSlug, '--force']).catch(() => undefined);
     await editPrLabels(gh, repoSlug, number, { remove: [REVIEWED_LABEL, REVIEW_TRIGGER_LABEL] }).catch(() => undefined);
-    log(`revise-pr ${repoSlug}#${number}: labels -> re-review (${REVIEW_TRIGGER_LABEL})`);
-    await editPrLabels(gh, repoSlug, number, { add: [REVIEW_TRIGGER_LABEL] });
+    await ghAsPushTokenOwner(
+      gh,
+      ['pr', 'edit', String(number), '--repo', repoSlug, '--add-label', REVIEW_TRIGGER_LABEL],
+      tokenProvider,
+      log,
+      `revise-pr ${repoSlug}#${number}: labels -> re-review (${REVIEW_TRIGGER_LABEL})`,
+      `revise-pr ${repoSlug}#${number}: re-review label with the push token failed, retrying with the ambient credential (no review run will start)`,
+    );
   } catch (err) {
     log(`revise-pr ${repoSlug}#${number}: re-review label -> manual label check (${err instanceof Error ? err.message : String(err)})`);
   }
@@ -250,21 +292,14 @@ async function markReady(
   tokenProvider: () => Promise<string | undefined>,
   log: (line: string) => void,
 ): Promise<void> {
-  const args = ['pr', 'ready', String(number), '--repo', repoSlug];
-  const pushToken = await resolveToken(tokenProvider, undefined, log);
-  // Labelled from the credential actually resolved, not from which env vars are set.
-  log(`revise-pr ${repoSlug}#${number}: undraft -> pr ready${credentialLabel(pushToken)}`);
-  if (pushToken) {
-    try {
-      await gh(args, { GH_TOKEN: pushToken });
-      return;
-    } catch {
-      log(`revise-pr ${repoSlug}#${number}: pr ready with the push token failed, retrying with the ambient credential`);
-    } finally {
-      await releaseToken(pushToken);
-    }
-  }
-  await gh(args);
+  await ghAsPushTokenOwner(
+    gh,
+    ['pr', 'ready', String(number), '--repo', repoSlug],
+    tokenProvider,
+    log,
+    `revise-pr ${repoSlug}#${number}: undraft -> pr ready`,
+    `revise-pr ${repoSlug}#${number}: pr ready with the push token failed, retrying with the ambient credential`,
+  );
 }
 
 /**
@@ -864,7 +899,7 @@ export async function runRevisePullRequest(prRef: string, deps: ReviseGithubPrDe
       await markReady(gh, target.repoSlug, target.number, tokenProvider, log);
 
       await handBackPrLabels(gh, target.repoSlug, target.number, log);
-      await requestReReview(gh, target.repoSlug, target.number, log);
+      await requestReReview(gh, target.repoSlug, target.number, tokenProvider, log);
 
       await stepSummary(verificationFailed ? 'verify-failed' : 'completed');
       return {

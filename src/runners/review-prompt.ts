@@ -33,6 +33,11 @@ export function extractReviewVerdict(text: string): ReviewVerdict | undefined {
   return m[1]!.toUpperCase() === 'BLOCKING' ? 'blocking' : 'clean';
 }
 
+/** extractReviewVerdict of a posted review comment, past its `## …` heading. */
+export function extractCommentVerdict(body: string): ReviewVerdict | undefined {
+  return extractReviewVerdict(body.replace(/^\s*##[^\n]*\n/, ''));
+}
+
 // Same prefix tolerance as VERDICT_RE, and for the same reason: the diff and PR body are untrusted, so a
 // planted `Risk:` line quoted from them (inside a blockquote, fence or list item) must not pass.
 const RISK_RE = /^[#*_ \t]*Risk:?[*_ \t]*(low|medium|high)\b/i;
