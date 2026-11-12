@@ -57,7 +57,7 @@ interface GhPrLite extends GhIssueLite {
 /** `owner/repo`, the only shape that may reach a `--repo` flag: no leading `-`, no path traversal. */
 const REPO_SLUG_RE = /^[A-Za-z0-9._][A-Za-z0-9._-]*\/[A-Za-z0-9._-]+$/;
 
-function assertRepoSlug(repoSlug: string): void {
+export function assertRepoSlug(repoSlug: string): void {
   if (!REPO_SLUG_RE.test(repoSlug)) throw new TaskcellError(`Invalid repo slug: ${repoSlug}`);
 }
 
@@ -205,7 +205,7 @@ function itemNumber(repoSlug: string, id: string): string {
 }
 
 /** Create `label` if missing. No `--force`: it would reset an existing label's color. */
-async function ensureLabel(repoSlug: string, label: string, gh: GhRunner): Promise<void> {
+export async function ensureLabel(repoSlug: string, label: string, gh: GhRunner): Promise<void> {
   await gh(['label', 'create', label, '--repo', repoSlug]).catch(() => undefined);
 }
 
