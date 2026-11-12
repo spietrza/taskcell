@@ -3,8 +3,8 @@ import { render, screen, within } from '@testing-library/react';
 import { TaskBoard } from './TaskBoard';
 import type { BoardTask } from '../../wire';
 
-vi.mock('../../ipc', () => ({ listTasks: vi.fn() }));
-import { listTasks } from '../../ipc';
+vi.mock('../../ipc', () => ({ listTasks: vi.fn(), listTasksAll: vi.fn() }));
+import { listTasks, listTasksAll } from '../../ipc';
 const mockListTasks = vi.mocked(listTasks);
 
 // A lane is the column container carrying `rounded-xl`; scope queries to it so a task asserted
@@ -136,4 +136,18 @@ test('T26: a running card without a stage has no stage line', async () => {
   render(<TaskBoard project="/repo" onOpenTask={() => {}} onNewTask={() => {}} />);
   await screen.findByText('Running one');
   expect(within(lane('Running')).queryByText(/^stage:/)).not.toBeInTheDocument();
+});
+
+describe('TaskBoard all repositories', () => {
+  test('lists every repository, names it on each card, and names a failing one', async () => {
+    vi.mocked(listTasksAll).mockResolvedValue({
+      tasks: [{ id: 't-1', title: 'From alpha', column: 'queued', state: 'Todo', repoPath: '/r/alpha', repoName: 'alpha' }],
+      capped: false,
+      failures: [{ repoPath: '/r/beta', repoName: 'beta', error: 'tracker down' }],
+    });
+    render(<TaskBoard project="/r/alpha" allRepos onOpenTask={() => {}} onNewTask={() => {}} />);
+    await screen.findByText('From alpha');
+    expect(screen.getByText('alpha')).toBeInTheDocument();
+    expect(screen.getByRole('alert')).toHaveTextContent('beta (tracker down)');
+  });
 });

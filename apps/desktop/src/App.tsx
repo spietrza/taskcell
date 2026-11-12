@@ -15,6 +15,7 @@ import { listProjects, addProject, cloneProject, removeProject, listActive } fro
 import { projectColor, contrastColor } from './color';
 import { createNavGuardRegistry, NavGuardContext } from './navGuard';
 import { ProjectCombobox } from './ProjectCombobox';
+import { ALL_REPOS, canUseAllRepos, loadRepoFilter, saveRepoFilter } from './repoFilter';
 import { isHubMode, onHubRestart, onHubConnectionIssue } from './transport';
 import { applyTheme, initialTheme, saveTheme } from './theme';
 import type { Project, ActiveRun } from './taskcell-output';
@@ -22,6 +23,8 @@ import type { Project, ActiveRun } from './taskcell-output';
 export default function App() {
   const [projects, setProjects] = useState<Project[]>([]);
   const [activeProject, setActiveProject] = useState<string | null>(null);
+  // The repository filter Board, Runs and Needs you share (persisted): ALL_REPOS or the active project's path.
+  const [repoFilter, setRepoFilter] = useState<string>(loadRepoFilter);
   const [screen, setScreen] = useState<Screen>('dashboard');
   const [railRunning, setRailRunning] = useState<ActiveRun[]>([]);
   const [focusRunning, setFocusRunning] = useState<ActiveRun | null>(null);
@@ -72,10 +75,26 @@ export default function App() {
     };
   }, []);
 
-  // Default the current project to the first once projects load.
+  // Default the current project to the persisted filter's repository, else the first, once projects load.
   useEffect(() => {
-    if (!activeProject && projects.length) setActiveProject(projects[0].path);
-  }, [projects, activeProject]);
+    if (!activeProject && projects.length) {
+      setActiveProject(projects.find((p) => p.path === repoFilter)?.path ?? projects[0].path);
+    }
+  }, [projects, activeProject, repoFilter]);
+
+  // A persisted filter naming a repository that is gone falls back to every repository.
+  useEffect(() => {
+    if (repoFilter !== ALL_REPOS && projects.length && !projects.some((p) => p.path === repoFilter)) {
+      setRepoFilter(ALL_REPOS);
+      saveRepoFilter(ALL_REPOS);
+    }
+  }, [projects, repoFilter]);
+
+  const chooseRepo = (value: string): void => {
+    if (value !== ALL_REPOS) setActiveProject(value);
+    setRepoFilter(value);
+    saveRepoFilter(value);
+  };
 
   // Poll the current project's in-flight runs for the rail's Running section.
   useEffect(() => {
@@ -194,7 +213,7 @@ export default function App() {
 
   const enterProject = (path: string): void => {
     navigate(() => {
-      setActiveProject(path);
+      chooseRepo(path);
       setScreen('runs');
     });
   };
@@ -230,9 +249,19 @@ export default function App() {
       crumbs.push({ label: SCREEN_LABEL[screen] });
     }
   }
+  // Board, Runs and Needs you offer "All repositories" in the one switcher; other screens list repositories only.
+  const allowAll = canUseAllRepos();
+  const allRepos = allowAll && repoFilter === ALL_REPOS;
+  const filtered = screen === 'board' || screen === 'runs' || screen === 'needs';
   const projectSwitcher =
     active && screen !== 'dashboard' ? (
-      <ProjectCombobox projects={projects} active={active} onSelect={(path) => navigate(() => setActiveProject(path))} />
+      <ProjectCombobox
+        projects={projects}
+        active={active}
+        allOption={filtered && allowAll}
+        all={allRepos}
+        onSelect={(v) => navigate(() => chooseRepo(v))}
+      />
     ) : null;
 
   return (
@@ -304,6 +333,8 @@ export default function App() {
               <Inspector
                 key={active.path}
                 project={active.path}
+                allRepos={allRepos}
+                projects={projects}
                 screen={screen}
                 focusRunning={focusRunning}
                 clearNonce={clearNonce}

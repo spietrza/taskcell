@@ -1,6 +1,7 @@
 import { Combobox } from '@/ui';
 import { Check, ChevronsUpDown } from 'lucide-react';
 import { projectColor } from './color';
+import { ALL_REPOS } from './repoFilter';
 import type { Project } from './taskcell-output';
 
 interface Item {
@@ -15,13 +16,23 @@ export function ProjectCombobox({
   projects,
   active,
   onSelect,
+  allOption = false,
+  all = false,
 }: {
   projects: Project[];
   active: Project;
-  onSelect: (path: string) => void;
+  /** A path, or ALL_REPOS when `allOption` is on and "All repositories" is picked. */
+  onSelect: (pathOrAll: string) => void;
+  /** Offer "All repositories" first (the Board / Runs / Needs you filter). */
+  allOption?: boolean;
+  /** "All repositories" is the current choice. */
+  all?: boolean;
 }) {
-  const items: Item[] = projects.map((p) => ({ value: p.path, label: p.name, color: projectColor(p) }));
-  const selected = items.find((i) => i.value === active.path) ?? null;
+  const items: Item[] = [
+    ...(allOption ? [{ value: ALL_REPOS, label: 'All repositories', color: 'var(--muted-foreground)' }] : []),
+    ...projects.map((p) => ({ value: p.path, label: p.name, color: projectColor(p) })),
+  ];
+  const selected = items.find((i) => i.value === (all && allOption ? ALL_REPOS : active.path)) ?? null;
 
   return (
     <Combobox.Root
@@ -33,7 +44,7 @@ export function ProjectCombobox({
       itemToStringLabel={(item: Item) => item.label}
     >
       <div className="relative inline-flex items-center gap-1.5 rounded hover:bg-muted">
-        <span className="ml-1.5 size-2.5 shrink-0 rounded-sm" style={{ backgroundColor: projectColor(active) }} />
+        <span className="ml-1.5 size-2.5 shrink-0 rounded-sm" style={{ backgroundColor: selected?.color ?? projectColor(active) }} />
         <Combobox.Input
           placeholder="Project…"
           title={active.name}

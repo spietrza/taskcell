@@ -26,3 +26,13 @@ test('renders an empty-state only when there are no runs and nothing in-flight',
   render(<RunList runs={[]} active={[]} onSelect={noop} onOpenActive={noop} />);
   expect(screen.getByText(/No runs found/)).toBeInTheDocument();
 });
+
+test('names the repository on each row only under "All repositories"', () => {
+  const runs = [
+    { taskId: 'task-7', timestamp: '2026-07-06T19:12:02.123Z', stages: ['implement'], totalCostUsd: 0.1, anyFailed: false, repoPath: '/r/alpha', repoName: 'alpha' },
+  ];
+  const { rerender } = render(<RunList runs={runs} active={[]} showRepo onSelect={noop} onOpenActive={noop} />);
+  expect(screen.getByText('alpha')).toBeInTheDocument();
+  rerender(<RunList runs={runs} active={[]} onSelect={noop} onOpenActive={noop} />);
+  expect(screen.queryByText('alpha')).not.toBeInTheDocument();
+});

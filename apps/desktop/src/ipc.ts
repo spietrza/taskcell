@@ -25,7 +25,7 @@ import type {
   StartTaskResult,
 } from './wire';
 
-export type { NeedsYouItem } from './wire';
+export type { NeedsYouItem, RepoReadFailure, RepoStamp } from './wire';
 
 /**
  * The one typed seam over the transport (S7): `cmd` must name a command in the wire's `Commands`
@@ -42,6 +42,11 @@ function call<K extends keyof Commands>(cmd: K, args: Commands[K]['args']): Prom
 
 export function listRuns(repoPath: string): Promise<RunSummary[]> {
   return call('list_runs', { repoPath });
+}
+
+/** HUB_ONLY: every repository's runs, each stamped with its repository; unreadable ones in `failures`. */
+export function listRunsAll(): Promise<Commands['list_runs_all']['result']> {
+  return call('list_runs_all', undefined);
 }
 
 /** Read one run record under `repoPath`. `ref.source` names WHICH tree it lives in (the project's
@@ -101,6 +106,11 @@ export function listNeedsYou(repoPath: string): Promise<{ items: NeedsYouItem[] 
   return call('list_needs_you', { repoPath });
 }
 
+/** HUB_ONLY: `listNeedsYou` for every repository. */
+export function listNeedsYouAll(): Promise<Commands['list_needs_you_all']['result']> {
+  return call('list_needs_you_all', undefined);
+}
+
 /** Hub-only: post `body` as the caller's own comment on the item, then move it on (issue: `needs
  *  info` -> `ready for agent`; PR: adds `needs revision`). Throws with no label change when the item
  *  is no longer in a waiting state. */
@@ -158,6 +168,11 @@ export function importRemoteRun(repoPath: string, runId: number): Promise<Remote
 /** Board read path (S9): served by core over the sidecar query pipe; capped drives the banner. */
 export function listTasks(repoPath: string): Promise<{ tasks: BoardTask[]; capped: boolean }> {
   return call('list_tasks', { repoPath });
+}
+
+/** HUB_ONLY: every repository's board cards, each stamped with its repository. */
+export function listTasksAll(): Promise<Commands['list_tasks_all']['result']> {
+  return call('list_tasks_all', undefined);
 }
 
 export async function fetchSpec(repoPath: string, taskId: string): Promise<string> {
