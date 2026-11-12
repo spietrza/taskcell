@@ -5,6 +5,8 @@ import { Credentials } from './Credentials';
 import { writeAppConfig } from '../../ipc';
 import { useAppConfig } from '../../hooks';
 import { useDiscardGuard } from '../../navGuard';
+import { isHubMode } from '../../transport';
+import { CredentialsPanel } from './CredentialsPanel';
 import { SOURCES } from '../../sources';
 import { projectColor } from '../../color';
 import { customProviderRowError, customProviderRows, PROVIDERS } from './customProviders';
@@ -329,6 +331,7 @@ export function Settings({ project }: { project: string }) {
         </div>
       </div>
       )}
+      {isHubMode() && <CredentialsPanel />}
     </div>
   );
 }

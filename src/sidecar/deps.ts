@@ -28,6 +28,7 @@ import type { AgentAuth } from '../agents/auth.js';
 import type { RunLinearIssueDeps } from '../runners/linear.js';
 import type { RunEvent } from '../pipeline/events.js';
 import type { SidecarDeps, CreateRunParams, CreateRunResult } from './sidecar.js';
+import type { RunCredential } from '../wire.js';
 
 /**
  * Resolve the run's provider choice against the target repo's customs (S6): load, validate the
@@ -187,7 +188,9 @@ export function productionDeps(): SidecarDeps {
     // the proof fallback and the skip-not-abort listing are shared instead of re-derived in Rust.
     listRuns: ({ repoPath }) => listRunSummaries(runsRoot(repoPath)),
     readRun: ({ repoPath, taskId, timestamp }) => readRunDetail(runsRoot(repoPath), taskId, timestamp),
-    createRun: async (params: CreateRunParams, onEvent: (e: RunEvent) => void): Promise<CreateRunResult> => {
+    createRun: async (params: CreateRunParams, onEvent: (e: RunEvent) => void, credential?: RunCredential): Promise<CreateRunResult> => {
+      // A hub run's per-user/instance credential overlays the host env for the AUTH lookup only.
+      const authEnv = credential !== undefined ? { ...process.env, ...credential.env } : process.env;
       // FIRST statements, before beginRun() and the sandbox: an unresolvable flow (typo, broken or
       // duplicate .hcl) or provider (unknown name, broken customs entry, http custom on this
       // always-egress path) must cost nothing and classify bad-request — and must not leave an
@@ -205,7 +208,7 @@ export function productionDeps(): SidecarDeps {
       // without the wrap it is the ONE dispatch-time failure that classified `internal`.
       let auth: AgentAuth | undefined;
       try {
-        auth = agentAuthFromEnv(choice);
+        auth = agentAuthFromEnv(choice, authEnv);
       } catch (error) {
         throw new BadRequestError(error instanceof Error ? error.message : String(error));
       }
@@ -225,7 +228,7 @@ export function productionDeps(): SidecarDeps {
       // still cannot route to a sidecar lands in the sandbox verbatim — e.g. llmProxy off, or a
       // non-chatgpt-shaped auth.json even with it on. A ChatGPT-plan credential under an active proxy
       // is fronted by its own chatgpt sidecar instead, so it no longer shows up here.
-      const subscriptionProvider = subscriptionCredentialProvider(choice, process.env, { proxyMode: llmProxy });
+      const subscriptionProvider = subscriptionCredentialProvider(choice, authEnv, { proxyMode: llmProxy });
       const signal = beginRun();
       let ctx: SandboxContext;
       try {
@@ -262,6 +265,7 @@ export function productionDeps(): SidecarDeps {
           // resolves it via FLOWS[flow].build() (Subsystem 2). Any registered FLOWS entry works with
           // no per-flow wiring here; validation happened in sidecar.ts::validateCreateRun.
           ...(params.flow !== undefined ? { flow: params.flow } : {}),
+          ...(credential !== undefined ? { credentialSource: credential.source } : {}),
           ...(ctx.proxyUrl !== undefined ? { proxyUrl: ctx.proxyUrl } : {}),
           ...(ctx.network !== undefined ? { network: ctx.network } : {}),
           ...(ctx.llmProxy !== undefined ? { llmProxy: ctx.llmProxy } : {}),

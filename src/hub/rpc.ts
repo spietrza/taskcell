@@ -34,6 +34,15 @@ import * as projects from './projects.js';
 import * as teams from './teams.js';
 import * as remote from './remote.js';
 import { startGithubTask, triggerLabelsFor } from './start-task.js';
+import {
+  USER_SCOPE,
+  CREDENTIAL_POLICIES,
+  parseCredentialInput,
+  parseCredentialName,
+  type CredentialPolicy,
+  type CredentialService,
+  type HubUser,
+} from './credentials.js';
 import { enableFactory, factoryPlanTargets, noScripts, type FactoryPlan, type FactoryProviderId } from './enable-factory.js';
 
 /** GitHub's cap on a label name. */
@@ -62,6 +71,28 @@ export interface RpcContext {
   credentials: CredentialStore;
   /** Publish a server->client event (wired to the hub's EventBus). */
   publish: (name: string, payload: unknown) => void;
+  /** Per-user credential switch + encrypted store; absent, runs use the host environment as before. */
+  credentials?: CredentialService;
+  /** The signed-in user behind THIS request (set per request by the server); undefined when none. */
+  user?: HubUser;
+}
+
+function requireCredentials(ctx: RpcContext): CredentialService {
+  if (ctx.credentials === undefined) throw new BadRequestError('per-user credentials are not configured on this hub');
+  return ctx.credentials;
+}
+
+/** Credential RPCs act on the CALLER's own scope only — no RPC takes a user id, so there is no way to
+ * name another user's credentials. */
+function requireUser(ctx: RpcContext): HubUser {
+  if (ctx.user === undefined) throw new BadRequestError('Sign in to the hub first — per-user credentials need to know who you are.');
+  return ctx.user;
+}
+
+function requirePolicy(args: Record<string, unknown>): CredentialPolicy {
+  const v = args.policy;
+  if (!(CREDENTIAL_POLICIES as readonly unknown[]).includes(v)) throw new BadRequestError(`policy must be one of: ${CREDENTIAL_POLICIES.join(', ')}`);
+  return v as CredentialPolicy;
 }
 
 function obj(rawArgs: unknown): Record<string, unknown> {
@@ -398,7 +429,58 @@ export async function dispatchRpc(ctx: RpcContext, cmd: string, rawArgs: unknown
       // The run session (not deps.createRun) owns single-in-flight gating and event
       // buffering/publishing — validate via the table row, then call it directly.
       const validated = validateCoreMethod('createRun', { ...params, repoPath: real });
-      return ctx.runSession.createRun(validated as CreateRunParams);
+      // The credential is resolved from the server-side switch and the caller's identity, BEFORE the
+      // run is queued or claims the slot: a `user only` run with no saved credential is refused here.
+      const credential = ctx.credentials !== undefined ? await ctx.credentials.resolveForRun(ctx.user) : undefined;
+      return ctx.runSession.createRun(validated as CreateRunParams, credential);
+    }
+    case 'get_credential_policy': {
+      const svc = requireCredentials(ctx);
+      svc.assertAdmin(ctx.user);
+      return { policy: await svc.policy() };
+    }
+    case 'set_credential_policy': {
+      const svc = requireCredentials(ctx);
+      svc.assertAdmin(ctx.user);
+      await svc.setPolicy(requirePolicy(args));
+      return null;
+    }
+    case 'instance_credentials_status': {
+      const svc = requireCredentials(ctx);
+      svc.assertAdmin(ctx.user);
+      return { names: await svc.store.names('instance') };
+    }
+    case 'save_instance_credential': {
+      const svc = requireCredentials(ctx);
+      svc.assertAdmin(ctx.user);
+      const { name, value } = parseCredentialInput(args);
+      await svc.store.put('instance', name, value);
+      return null;
+    }
+    case 'delete_instance_credential': {
+      const svc = requireCredentials(ctx);
+      svc.assertAdmin(ctx.user);
+      await svc.store.remove('instance', parseCredentialName(args));
+      return null;
+    }
+    case 'user_credentials_status': {
+      const svc = requireCredentials(ctx);
+      const enabled = (await svc.policy()) !== 'off';
+      const names = ctx.user !== undefined && enabled ? await svc.store.names(USER_SCOPE(ctx.user)) : [];
+      return { enabled, admin: svc.isAdmin(ctx.user), names };
+    }
+    case 'save_user_credential': {
+      const svc = requireCredentials(ctx);
+      const user = requireUser(ctx);
+      if ((await svc.policy()) === 'off') throw new BadRequestError('per-user credentials are turned off on this hub');
+      const { name, value } = parseCredentialInput(args);
+      await svc.store.put(USER_SCOPE(user), name, value);
+      return null;
+    }
+    case 'delete_user_credential': {
+      const svc = requireCredentials(ctx);
+      await svc.store.remove(USER_SCOPE(requireUser(ctx)), parseCredentialName(args));
+      return null;
     }
     case 'api_active_run': {
       return ctx.runSession.activeRun();

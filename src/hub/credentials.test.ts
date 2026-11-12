@@ -1,95 +1,220 @@
-import { mkdtemp, readFile, rm } from 'node:fs/promises';
+import { mkdtemp, readFile, rm, writeFile } from 'node:fs/promises';
+import type { AddressInfo } from 'node:net';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-import { randomBytes } from 'node:crypto';
-import { afterEach, describe, expect, it } from 'vitest';
-import { CredentialStore } from './credentials.js';
-import { dispatchRpc, type RpcContext } from './rpc.js';
+import { execa } from 'execa';
+import { afterEach, beforeEach, describe, expect, test, vi } from 'vitest';
+import { createHubServer, type HubServer } from './server.js';
+import { HUB_TOKEN_HEADER } from '../hub-wire.js';
+import type { SidecarDeps } from '../sidecar/sidecar.js';
+import type { RunCredential } from '../wire.js';
 
-const dirs: string[] = [];
-async function dir(): Promise<string> {
-  const d = await mkdtemp(join(tmpdir(), 'vanguard-hub-cred-'));
-  dirs.push(d);
-  return d;
+const SECRET_A = 'sk-ant-alice-secret';
+const SECRET_B = 'sk-ant-bob-secret';
+const SECRET_INSTANCE = 'sk-ant-instance-secret';
+
+/* eslint-disable @typescript-eslint/no-explicit-any -- loosely-typed JSON envelope in tests */
+let dirs: string[] = [];
+let hub: HubServer;
+let baseUrl: string;
+let configDir: string;
+const createRun = vi.fn(async (_p: unknown, _e: unknown, _c?: RunCredential) => ({}));
+
+function deps(): SidecarDeps {
+  const unimplemented = (): never => {
+    throw new Error('not implemented in this fake');
+  };
+  return {
+    capabilities: unimplemented,
+    createRun: createRun as unknown as SidecarDeps['createRun'],
+    createTask: unimplemented,
+    listFlows: unimplemented,
+    listProviders: unimplemented,
+    readFlow: unimplemented,
+    writeFlow: unimplemented,
+    deleteFlow: unimplemented,
+    listTasks: unimplemented,
+    fetchSpec: unimplemented,
+    listRepoFiles: unimplemented,
+    readRepoFile: unimplemented,
+    listRuns: unimplemented,
+    readRun: unimplemented,
+  };
 }
+
+beforeEach(async () => {
+  createRun.mockClear();
+  const repo = await mkdtemp(join(tmpdir(), 'vanguard-cred-repo-'));
+  configDir = await mkdtemp(join(tmpdir(), 'vanguard-cred-cfg-'));
+  const uiDir = await mkdtemp(join(tmpdir(), 'vanguard-cred-ui-'));
+  dirs = [repo, configDir, uiDir];
+  await execa('git', ['init', '-q', repo]);
+  await writeFile(join(uiDir, 'index.html'), '<html><head></head></html>');
+  hub = createHubServer({
+    uiDir,
+    configDir,
+    browseRoot: repo,
+    bind: { isLoopback: true, allowAdd: false },
+    seedRepoPath: repo,
+    deps: deps(),
+    adminGithubLogins: ['Root'],
+    identify: (req) => {
+      const raw = req.headers['x-test-user'];
+      if (typeof raw !== 'string') return undefined;
+      const [id, login] = raw.split(':');
+      return { id: id!, login: login! };
+    },
+  });
+  await hub.listen(0, '127.0.0.1');
+  baseUrl = `http://127.0.0.1:${(hub.server.address() as AddressInfo).port}`;
+  repoPath = repo;
+});
+
 afterEach(async () => {
-  await Promise.all(dirs.splice(0).map((d) => rm(d, { recursive: true, force: true })));
+  await hub.close();
+  for (const d of dirs) await rm(d, { recursive: true, force: true });
 });
-const secret = (): string => randomBytes(32).toString('base64');
-const SECRET_VALUE = 'sk-ant-oat01-SUPERSECRETVALUE1234';
 
-describe('CredentialStore', () => {
-  it('is disabled without a secret and says why', async () => {
-    const store = new CredentialStore(await dir(), undefined, {});
-    const s = await store.summary();
-    expect(s.enabled).toBe(false);
-    expect(s.reason).toContain('VANGUARD_HUB_SECRET');
-    await expect(store.set('claude', 'x')).rejects.toThrow('VANGUARD_HUB_SECRET');
+let repoPath: string;
+
+const alice = '1:alice';
+const bob = '2:bob';
+const root = '99:root';
+
+async function rpc(as: string | undefined, cmd: string, args: unknown = {}): Promise<{ status: number; body: { error: { message: string }; result: any } }> {
+  const res = await fetch(`${baseUrl}/rpc/${cmd}`, {
+    method: 'POST',
+    headers: {
+      'content-type': 'application/json',
+      origin: baseUrl,
+      [HUB_TOKEN_HEADER]: hub.token,
+      ...(as !== undefined ? { 'x-test-user': as } : {}),
+    },
+    body: JSON.stringify(args),
+  });
+  return { status: res.status, body: await res.json() };
+}
+
+const run = (as: string | undefined) => rpc(as, 'api_create_run', { params: { issueRef: '#1', repoPath } });
+const setPolicy = (policy: string) => rpc(root, 'set_credential_policy', { policy });
+
+describe('admin gating', () => {
+  const adminCalls: [string, unknown][] = [
+    ['get_credential_policy', {}],
+    ['set_credential_policy', { policy: 'user-only' }],
+    ['instance_credentials_status', {}],
+    ['save_instance_credential', { name: 'ANTHROPIC_API_KEY', value: SECRET_INSTANCE }],
+    ['delete_instance_credential', { name: 'ANTHROPIC_API_KEY' }],
+  ];
+
+  test.each(adminCalls)('%s is 403 for a non-admin and for nobody', async (cmd, args) => {
+    expect((await rpc(alice, cmd, args)).status).toBe(403);
+    expect((await rpc(undefined, cmd, args)).status).toBe(403);
+    expect((await rpc(root, cmd, args)).status).toBe(200);
   });
 
-  it('rejects a secret that is not 32 bytes', async () => {
-    const s = await new CredentialStore(await dir(), 'c2hvcnQ=', {}).summary();
-    expect(s.enabled).toBe(false);
-    expect(s.reason).toContain('32 bytes');
+  test('admin match is by login, case-insensitively', async () => {
+    expect((await rpc('5:ROOT', 'get_credential_policy')).status).toBe(200);
   });
 
-  it('encrypts at rest, overrides env, and restores env on delete', async () => {
-    const d = await dir();
-    const env: NodeJS.ProcessEnv = { CLAUDE_CODE_OAUTH_TOKEN: 'from-env' };
-    const key = secret();
-    const store = new CredentialStore(d, key, env);
-    const s = await store.set('claude', SECRET_VALUE);
-    expect(env.CLAUDE_CODE_OAUTH_TOKEN).toBe(SECRET_VALUE);
-    expect(s.providers.find((p) => p.provider === 'claude')).toEqual({ provider: 'claude', set: true, last4: '1234', env: true });
-    expect(JSON.stringify(s)).not.toContain(SECRET_VALUE);
-    const raw = await readFile(join(d, '.vanguard-hub', 'credentials.enc'));
-    expect(raw.includes(SECRET_VALUE)).toBe(false);
-    expect(raw.toString('base64').includes(SECRET_VALUE)).toBe(false);
-
-    // A fresh process with the same key sees it; a wrong key is a clear error.
-    const env2: NodeJS.ProcessEnv = {};
-    await new CredentialStore(d, key, env2).applyStored();
-    expect(env2.CLAUDE_CODE_OAUTH_TOKEN).toBe(SECRET_VALUE);
-    const wrong = new CredentialStore(d, secret(), {});
-    await expect(wrong.applyStored()).rejects.toThrow('cannot be decrypted');
-    expect((await wrong.summary()).reason).toContain('cannot be decrypted');
-    await expect(wrong.set('zai', 'k')).rejects.toThrow('cannot be decrypted');
-
-    await store.delete('claude');
-    expect(env.CLAUDE_CODE_OAUTH_TOKEN).toBe('from-env');
-  });
-
-  it('keeps every concurrent write, rejects an empty value, and hides last4 of a short value', async () => {
-    const store = new CredentialStore(await dir(), secret(), {});
-    await Promise.all([store.set('claude', SECRET_VALUE), store.set('zai', 'shortkey'), store.set('openrouter', SECRET_VALUE)]);
-    const s = await store.summary();
-    expect(s.providers.filter((p) => p.set).map((p) => p.provider)).toEqual(['claude', 'zai', 'openrouter']);
-    expect(s.providers.find((p) => p.provider === 'zai')).toEqual({ provider: 'zai', set: true, env: false });
-    await expect(store.set('codex', '')).rejects.toThrow('empty');
+  test('the switch defaults to off', async () => {
+    expect((await rpc(root, 'get_credential_policy')).body.result).toEqual({ policy: 'off' });
   });
 });
 
-describe('credential RPCs never return a stored value', () => {
-  it('get/set/delete responses and errors hold only set + last4', async () => {
-    const store = new CredentialStore(await dir(), secret(), {});
-    const published: unknown[] = [];
-    const ctx = {
-      credentials: store,
-      bind: { isLoopback: true, allowAdd: false },
-      publish: (n: string, p: unknown) => published.push([n, p]),
-    } as unknown as RpcContext;
-    const out = [
-      await dispatchRpc(ctx, 'set_credential', { provider: 'openrouter', value: SECRET_VALUE }),
-      await dispatchRpc(ctx, 'get_credentials', {}),
-      await dispatchRpc(ctx, 'delete_credential', { provider: 'openrouter' }),
-    ];
-    const err = await dispatchRpc(ctx, 'set_credential', { provider: 'nope', value: SECRET_VALUE }).catch((e: Error) => e.message);
-    expect(JSON.stringify([out, err, published])).not.toContain(SECRET_VALUE);
-    expect(out[1]).toMatchObject({ enabled: true });
+describe('run credential choice', () => {
+  test('off: the run uses the instance credential and a user save is refused', async () => {
+    expect((await rpc(alice, 'save_user_credential', { name: 'ANTHROPIC_API_KEY', value: SECRET_A })).status).toBe(400);
+    expect((await run(alice)).status).toBe(200);
+    expect(createRun.mock.calls[0]![2]!.source).toBe('instance');
   });
 
-  it('refuses mutations on a non-loopback bind', async () => {
-    const ctx = { credentials: new CredentialStore(await dir(), secret(), {}), bind: { isLoopback: false, allowAdd: false } } as unknown as RpcContext;
-    await expect(dispatchRpc(ctx, 'set_credential', { provider: 'claude', value: 'x' })).rejects.toThrow();
+  test('user only: a user with no saved credential is refused before claiming, with a message to add one', async () => {
+    await setPolicy('user-only');
+    const res = await run(alice);
+    expect(res.status).toBe(400);
+    expect(res.body.error.message).toMatch(/add one in Settings/);
+    expect(createRun).not.toHaveBeenCalled();
+    expect((await rpc(alice, 'api_active_run')).body.result).toBeNull();
+    expect((await rpc(alice, 'api_queue')).body.result).toEqual([]);
+  });
+
+  test('user only: runs with the saved credential, recorded as `user`', async () => {
+    await setPolicy('user-only');
+    await rpc(alice, 'save_user_credential', { name: 'ANTHROPIC_API_KEY', value: SECRET_A });
+    expect((await run(alice)).status).toBe(200);
+    const cred = createRun.mock.calls[0]![2]!;
+    expect(cred.source).toBe('user');
+    expect(cred.env).toEqual({ ANTHROPIC_API_KEY: SECRET_A });
+  });
+
+  test('user first: falls back to the instance credential', async () => {
+    await setPolicy('user-first');
+    await rpc(root, 'save_instance_credential', { name: 'ANTHROPIC_API_KEY', value: SECRET_INSTANCE });
+    expect((await run(alice)).status).toBe(200);
+    const cred = createRun.mock.calls[0]![2]!;
+    expect(cred.source).toBe('instance');
+    expect(cred.env).toEqual({ ANTHROPIC_API_KEY: SECRET_INSTANCE });
+  });
+
+  test('the run record notes the kind (run-accepted event), never the value', async () => {
+    await setPolicy('user-only');
+    await rpc(alice, 'save_user_credential', { name: 'ANTHROPIC_API_KEY', value: SECRET_A });
+    await run(alice);
+    const backlog = (await rpc(alice, 'api_run_backlog', { runId: 'run-0' })).body.result as { event: { type: string; credentialSource?: string } }[];
+    expect(backlog[0]!.event).toMatchObject({ type: 'run-accepted', credentialSource: 'user' });
+    expect(JSON.stringify(backlog)).not.toContain(SECRET_A);
+  });
+});
+
+describe('user isolation', () => {
+  beforeEach(async () => {
+    await setPolicy('user-only');
+    await rpc(alice, 'save_user_credential', { name: 'ANTHROPIC_API_KEY', value: SECRET_A });
+  });
+
+  test('status never returns a value, only names, and only the caller\'s own', async () => {
+    const a = await rpc(alice, 'user_credentials_status');
+    expect(a.body.result).toEqual({ enabled: true, admin: false, names: ['ANTHROPIC_API_KEY'] });
+    expect(JSON.stringify(a.body)).not.toContain(SECRET_A);
+    expect((await rpc(bob, 'user_credentials_status')).body.result.names).toEqual([]);
+  });
+
+  test('a user id in the args is ignored: no RPC can name another user', async () => {
+    const res = await rpc(bob, 'user_credentials_status', { userId: '1', user: alice });
+    expect(res.body.result.names).toEqual([]);
+  });
+
+  test('bob cannot overwrite alice (his save lands in his own scope)', async () => {
+    await rpc(bob, 'save_user_credential', { name: 'ANTHROPIC_API_KEY', value: SECRET_B, userId: '1' });
+    await run(alice);
+    expect(createRun.mock.calls[0]![2]!.env.ANTHROPIC_API_KEY).toBe(SECRET_A);
+    await run(bob);
+    expect(createRun.mock.calls[1]![2]!.env.ANTHROPIC_API_KEY).toBe(SECRET_B);
+  });
+
+  test('bob cannot delete alice\'s credential', async () => {
+    await rpc(bob, 'delete_user_credential', { name: 'ANTHROPIC_API_KEY', userId: '1' });
+    expect((await rpc(alice, 'user_credentials_status')).body.result.names).toEqual(['ANTHROPIC_API_KEY']);
+  });
+
+  test('bob cannot use alice\'s credential to run', async () => {
+    expect((await run(bob)).status).toBe(400);
+    expect(createRun).not.toHaveBeenCalled();
+  });
+
+  test('nobody signed in cannot save, delete or run under user only', async () => {
+    expect((await rpc(undefined, 'save_user_credential', { name: 'ANTHROPIC_API_KEY', value: 'x' })).status).toBe(400);
+    expect((await rpc(undefined, 'delete_user_credential', { name: 'ANTHROPIC_API_KEY' })).status).toBe(400);
+    expect((await run(undefined)).status).toBe(400);
+  });
+
+  test('values are encrypted at rest', async () => {
+    const onDisk = await readFile(join(configDir, 'credentials.enc.json'), 'utf8');
+    expect(onDisk).not.toContain(SECRET_A);
+  });
+
+  test('only known provider variables are storable', async () => {
+    expect((await rpc(alice, 'save_user_credential', { name: 'PATH', value: '/evil' })).status).toBe(400);
   });
 });

@@ -9,7 +9,7 @@ import { DockerSandboxProvider, sandboxImage } from '../sandbox/docker.js';
 import { pnpmStoreConfig, sandboxNetworkConfig } from '../sandbox/limits.js';
 import { selectAgents, forcedProviderModel, providerKeyEnvNames } from '../agents/registry.js';
 import { tokenProviderFor } from '../core/push-token.js';
-import { resolveTargetBase } from '../core/base-branch.js';
+import { DEFAULT_BASE_BRANCH } from '../core/base-branch.js';
 import { prepareContext, disposeContext } from '../core/taskcell.js';
 import { probeTaskDifficulty, decisionProbeConfig } from '../core/decision-probe.js';
 import { decisionModelConfig, decisionEgressAllowed, decisionModelMissing, DECISION_MODEL_DEFAULT, type DecisionModelConfig } from '../core/decision-model.js';
@@ -167,6 +167,8 @@ export function pickRunOptions(cmd: Readonly<Partial<RunOptions>>): RunOptions {
 
 /** Shared dependencies for all source-backed issue runners. */
 export interface RunIssueDeps extends RunOptions {
+  /** Which kind of credential funded the run (hub per-user credentials); recorded on the run record, never the value. */
+  credentialSource?: 'instance' | 'user';
   auth?: AgentAuth;
   repoPath: string;
   proxyUrl?: string;
@@ -423,9 +425,6 @@ export async function runSourcedIssue(
     ...(deps.network !== undefined ? { network: deps.network } : {}),
   });
   try {
-    // The target branch: --base, else the card's `vanguard:base=` label, else app.json's default. An unsafe
-    // value is refused here, before the sandbox, so nothing runs against the wrong branch.
-    const baseBranch = await resolveTargetBase(deps.repoPath, task.labels, deps.baseBranch);
     const env = llmProxySandboxEnv(deps.proxyUrl, deps.llmProxy, providerProxies);
     // Keyed on the local repo path: every source (github/linear/gitlab) has one, and it is already
     // the one thing that pins "this target repo" regardless of tracker.
@@ -469,7 +468,7 @@ export async function runSourcedIssue(
         // Cut from origin's copy of the base when it is ahead of the local one (on Actions the checkout is
         // the event SHA and main may already have moved), so the sandbox, verification and review see the
         // tree the PR will land on (#423). A reused branch keeps its own history.
-        baseBranch,
+        baseBranch: deps.baseBranch ?? DEFAULT_BASE_BRANCH,
         start: deps.reuse === true ? 'reuse' : 'base',
         ...(deps.keepLocalIfAhead !== undefined ? { keepLocalIfAhead: deps.keepLocalIfAhead } : {}),
         ...(whiteLabel ? { branchPrefix: 'feat/', branchId: branchIdFromTaskId(adapter.taskId(task)) } : {}),
@@ -537,7 +536,9 @@ export async function runSourcedIssue(
         );
       }
       const imageDigest = await ctx.sandbox.imageDigest?.();
-      const runMeta = { flow: flow ?? 'default', provider: agents.agent.name, baseBranch, ...(imageDigest !== undefined ? { imageDigest } : {}) };
+      const runMeta = { flow: flow ?? 'default', provider: agents.agent.name, ...(imageDigest !== undefined ? { imageDigest } : {}),
+        ...(deps.credentialSource !== undefined ? { credentialSource: deps.credentialSource } : {}),
+      };
       // One RunWriter for the whole run: it owns the timestamp, so proof.json, visual-proof.json and
       // every stage record share one prefix and the hub/desktop readers can match a run's proof to
       // its stage records by name.
@@ -788,7 +789,7 @@ export async function runSourcedIssue(
       // deliverChange owns the order: secret scan → commit → closing-keyword scan → rebase/push → PR.
       // The body is built after the commit so a partial result can carry commit-level `Closes #N`
       // leaks as a blocking warning. Gate-config disclosure is included in white-label mode too.
-      const extraGlobs = await loadGateConfigExtraGlobs(deps.repoPath, baseBranch);
+      const extraGlobs = await loadGateConfigExtraGlobs(deps.repoPath, deps.baseBranch ?? DEFAULT_BASE_BRANCH);
       const scope = primaryModuleScope(manifest);
       const bugLabel = task.labels.includes('bug');
       // The LAST reviewer outcome: after a re-review the first review is kept for the cost table only —

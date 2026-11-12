@@ -451,10 +451,33 @@ Mirror `docker/compose.yaml`'s `mem_limit: 1024m` pattern. The hub runs agent sa
 process as the HTTP server, so give the container the same RAM headroom, and keep
 `VANGUARD_MAX_SANDBOXES=1` on a small host.
 
+## Per-user provider credentials
+
+Off by default: every run uses the instance credential (the hub's environment, or an instance
+credential an admin saved). An **admin** — a GitHub login listed in `--admin-github-login`
+(repeatable) or `VANGUARD_HUB_ADMIN_GITHUB_LOGINS` (comma-separated) — can change the
+`per-user credentials` switch in Settings:
+
+| Setting | A run uses |
+|---|---|
+| `off` | the instance credential |
+| `user-first` | the starter's own credential, else the instance credential |
+| `user-only` | the starter's own credential; with none saved the run is refused before it is queued |
+
+When the switch is on, each signed-in user saves their own provider credentials in Settings. They are
+keyed by GitHub user id and stored encrypted (AES-256-GCM) in `credentials.enc.json` in the hub
+config dir, with the key in `credentials.key` (mode 0600) beside it. Credentials are write-only:
+the hub lists which variable names are saved, never a value, and no RPC takes a user id, so one user
+cannot read, overwrite or use another's. Only admins see the switch and the instance credentials
+(anyone else gets 403). The run record carries `credentialSource: 'instance' | 'user'`, never the value.
+
+This needs the hub's GitHub sign-in to identify the caller (`HubServerOptions.identify`); without a
+signed-in user there is no admin and no per-user credential.
+
 ## CLI flags
 
 ```
-taskcell hub [--repo <path>] [--host <addr>] [--port <n>] [--ui-dir <dir>] [--no-open] [--allowed-host <host[:port]>] [--token-file <path>]
+taskcell hub [--repo <path>] [--host <addr>] [--port <n>] [--ui-dir <dir>] [--no-open] [--allowed-host <host[:port]>] [--token-file <path>] [--admin-github-login <login>]
 taskcell hub rotate-token --token-file <path>
 ```
 

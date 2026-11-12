@@ -71,10 +71,13 @@ async function recordFiles(taskId: string): Promise<string[]> {
 }
 
 describe('beginRun — writing', () => {
-  it('records the target branch on every stage record', async () => {
-    await beginRun(repo, 'TES-1', TS).writeStages([{ name: 'implementer', result }], { baseBranch: 'dev' });
-    const record = JSON.parse(await readFile(join(runsRoot(repo), 'TES-1', `${PREFIX}-implementer.json`), 'utf8'));
-    expect(record.baseBranch).toBe('dev');
+  it('records credentialSource on the stage record when given, and omits it otherwise', async () => {
+    await beginRun(repo, 'TES-1', TS).writeStages([{ name: 'implementer', result }], { credentialSource: 'user' });
+    const file = join(runsRoot(repo), 'TES-1', `${PREFIX}-implementer.json`);
+    expect(JSON.parse(await readFile(file, 'utf8')).credentialSource).toBe('user');
+    await beginRun(repo, 'TES-2', TS).writeStages([{ name: 'implementer', result }]);
+    const other = JSON.parse(await readFile(join(runsRoot(repo), 'TES-2', `${PREFIX}-implementer.json`), 'utf8'));
+    expect('credentialSource' in other).toBe(false);
   });
 
   it('writes a per-stage JSON (without the diff) and appends a metric line', async () => {

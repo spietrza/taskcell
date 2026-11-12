@@ -4,8 +4,8 @@
 // See that file for the original Rust implementation and its "why" comments.
 import { cancelCurrent } from '../sidecar/cancel.js';
 import { BadRequestError } from '../sidecar/sidecar.js';
-import { RunEventLog } from './run-events.js';
 import type { SidecarDeps, CreateRunParams, CreateRunResult } from '../sidecar/sidecar.js';
+import type { RunCredential } from '../wire.js';
 
 /**
  * Single-in-flight only, for now. Documents the gate rather than driving it: the session holds one
@@ -26,6 +26,7 @@ export const DEFAULT_MAX_QUEUE = 10;
 interface QueuedRun {
   runId: string;
   params: CreateRunParams;
+  credential?: RunCredential;
   resolve: (result: CreateRunResult) => void;
   reject: (error: unknown) => void;
 }
@@ -41,7 +42,7 @@ function eventType(entry: BufferedEvent): string | undefined {
 }
 
 export interface RunSession {
-  createRun(params: CreateRunParams): Promise<CreateRunResult>;
+  createRun(params: CreateRunParams, credential?: RunCredential): Promise<CreateRunResult>;
   activeRun(): { runId: string; repoPath: string } | null;
   /** Runs waiting behind the active one, in start order — `position` is 1-based (1 = next to run). */
   queued(): { runId: string; repoPath: string; position: number }[];
@@ -70,14 +71,12 @@ function maxQueueLimit(): number {
  */
 export function createRunSession(
   deps: SidecarDeps,
-  publish: (name: string, payload: unknown) => number | void,
+  publish: (name: string, payload: unknown) => void,
   assertStart?: (params: CreateRunParams) => Promise<void>,
 ): RunSession {
   let active: { runId: string; repoPath: string } | null = null;
   let counter = 0;
   const buffer = new Map<string, BufferedEvent[]>();
-  /** The running run's durable event log (one active run at a time). */
-  let eventLog: { runId: string; log: RunEventLog } | null = null;
   /** Completed-run ids in finish order, for bounded eviction. */
   const order: string[] = [];
   /** A runId for which cancel was requested — its terminal is `run-cancelled`, not `run-error`. */
@@ -113,16 +112,10 @@ export function createRunSession(
   function emit(runId: string, event: unknown): void {
     const payload: BufferedEvent = { runId, event };
     bufferPush(runId, payload);
-    let id: number | void = undefined;
     try {
-      id = publish('api:event', payload);
+      publish('api:event', payload);
     } catch {
       // A broken publisher must not break the run itself.
-    }
-    if (typeof id === 'number' && eventLog?.runId === runId) {
-      const e = event as { type?: unknown; taskId?: unknown } | null;
-      const taskId = e?.type === 'run-start' && typeof e.taskId === 'string' ? e.taskId : undefined;
-      eventLog.log.append({ id, ts: new Date().toISOString(), event: 'api:event', data: payload }, taskId);
     }
   }
 
@@ -164,7 +157,7 @@ export function createRunSession(
    * call has already returned the entry's runId to its caller. Starts the next queued entry, if
    * any, once this slot frees up. */
   async function execute(entry: QueuedRun): Promise<void> {
-    const { runId, params, resolve, reject } = entry;
+    const { runId, params, credential, resolve, reject } = entry;
     const repoPath = params.repoPath;
     active = { runId, repoPath }; // hold the slot across the start-time check below
 
@@ -178,9 +171,8 @@ export function createRunSession(
       // Drop the queued-phase `run-queued` so `run-accepted` is index 0 — the eviction invariant in
       // bufferPush, and the only event a strip re-attach may adopt from.
       buffer.delete(runId);
-      eventLog = { runId, log: new RunEventLog(repoPath) };
-      emit(runId, { type: 'run-accepted', repoPath });
-      result = await deps.createRun(params, (e) => emit(runId, e));
+      emit(runId, { type: 'run-accepted', repoPath, ...(credential !== undefined ? { credentialSource: credential.source } : {}) });
+      result = await deps.createRun(params, (e) => emit(runId, e), credential);
     } catch (error) {
       errMessage = error instanceof Error ? error.message : String(error);
     }
@@ -194,27 +186,19 @@ export function createRunSession(
 
       if (result !== undefined) {
         // The pipeline already streamed `run-end`; no terminal to synthesize.
-        await flushLog(runId);
         resolve(result);
       } else {
         const terminal = wasCancelled ? { type: 'run-cancelled' } : { type: 'run-error', message: errMessage ?? 'run failed' };
         // Only synthesize if no terminal was already streamed (e.g. run-end emitted, then a teardown
         // throw) — "exactly one terminal" must hold even on that path.
         if (!hasTerminal(runId)) emit(runId, terminal);
-        await flushLog(runId);
         reject(new Error(errMessage ?? 'run failed'));
       }
     } finally {
-      if (eventLog?.runId === runId) eventLog = null;
       // Unconditional: a throw above must not leave `active` set and wedge every queued run behind it.
       finishRun(runId);
       startNext();
     }
-  }
-
-  /** Settle the run's pending event-log writes (never rejects) so a settled run's log is complete on disk. */
-  async function flushLog(runId: string): Promise<void> {
-    if (eventLog?.runId === runId) await eventLog.log.flush();
   }
 
   /** Promote the head of the queue into the active slot, if the slot is free and the queue is
@@ -250,7 +234,7 @@ export function createRunSession(
       if (active !== null) cancelledRunId = active.runId;
       cancelCurrent();
     },
-    async createRun(params: CreateRunParams): Promise<CreateRunResult> {
+    async createRun(params: CreateRunParams, credential?: RunCredential): Promise<CreateRunResult> {
       // repoPath is required BEFORE minting a runId, so `run-accepted`'s payload is always a string
       // and a rejected call never burns an id.
       const repoPath = params.repoPath;
@@ -273,7 +257,7 @@ export function createRunSession(
       const runId = `run-${counter}`;
       counter += 1;
       return new Promise<CreateRunResult>((resolve, reject) => {
-        const entry: QueuedRun = { runId, params, resolve, reject };
+        const entry: QueuedRun = { runId, params, ...(credential !== undefined ? { credential } : {}), resolve, reject };
         if (active === null) {
           void execute(entry);
           return;

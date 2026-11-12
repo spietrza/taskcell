@@ -337,7 +337,7 @@ export type Command =
     }
   | { kind: 'sidecar' }
   | { kind: 'complete' }
-  | { kind: 'hub'; repoPath: string; host: string; port: number; uiDir?: string; open: boolean; allowedHosts?: string[]; tokenFile?: string }
+  | { kind: 'hub'; repoPath: string; host: string; port: number; uiDir?: string; open: boolean; allowedHosts?: string[]; tokenFile?: string; adminGithubLogins?: string[] }
   | { kind: 'hub-rotate-token'; tokenFile: string }
   | { kind: 'help' }
   | { kind: 'error'; message: string };
@@ -498,6 +498,7 @@ function parseCommitAuthor(raw: string | boolean | undefined): { name: string; e
 export function parseCli(argv: string[], cwd: string): Command {
   let values: Record<string, string | boolean | undefined>;
   let allowedHosts: string[] | undefined;
+  let adminGithubLogins: string[] | undefined;
   let positionals: string[];
   try {
     const parsed = parseArgs({
@@ -632,11 +633,13 @@ export function parseCli(argv: string[], cwd: string): Command {
         'no-open': { type: 'boolean' },
         'token-file': { type: 'string' },
         'allowed-host': { type: 'string', multiple: true },
+        'admin-github-login': { type: 'string', multiple: true },
         help: { type: 'boolean' },
       },
     });
-    const { 'allowed-host': hosts, ...singleValues } = parsed.values;
+    const { 'allowed-host': hosts, 'admin-github-login': admins, ...singleValues } = parsed.values;
     allowedHosts = hosts;
+    adminGithubLogins = admins;
     values = singleValues;
     positionals = parsed.positionals;
   } catch {
@@ -903,6 +906,7 @@ export function parseCli(argv: string[], cwd: string): Command {
       ...(typeof values['ui-dir'] === 'string' ? { uiDir: values['ui-dir'] } : {}),
       open: values['no-open'] !== true,
       ...(allowedHosts?.length ? { allowedHosts } : {}),
+      ...(adminGithubLogins?.length ? { adminGithubLogins } : {}),
     };
   }
 

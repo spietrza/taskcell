@@ -15,8 +15,7 @@ import type {
   BoardTask,
   Commands,
   CompleteResponse,
-  CredentialProvider,
-  CredentialsSummary,
+  CredentialPolicy,
   FactoryApplyResult,
   FactoryPlan,
   FactoryProviderId,
@@ -27,7 +26,7 @@ import type {
   StartTaskResult,
 } from './wire';
 
-export type { NeedsYouItem, RepoReadFailure, RepoStamp } from './wire';
+export type { NeedsYouItem } from './wire';
 
 /**
  * The one typed seam over the transport (S7): `cmd` must name a command in the wire's `Commands`
@@ -44,11 +43,6 @@ function call<K extends keyof Commands>(cmd: K, args: Commands[K]['args']): Prom
 
 export function listRuns(repoPath: string): Promise<RunSummary[]> {
   return call('list_runs', { repoPath });
-}
-
-/** HUB_ONLY: every repository's runs, each stamped with its repository; unreadable ones in `failures`. */
-export function listRunsAll(): Promise<Commands['list_runs_all']['result']> {
-  return call('list_runs_all', undefined);
 }
 
 /** Read one run record under `repoPath`. `ref.source` names WHICH tree it lives in (the project's
@@ -108,11 +102,6 @@ export function listNeedsYou(repoPath: string): Promise<{ items: NeedsYouItem[] 
   return call('list_needs_you', { repoPath });
 }
 
-/** HUB_ONLY: `listNeedsYou` for every repository. */
-export function listNeedsYouAll(): Promise<Commands['list_needs_you_all']['result']> {
-  return call('list_needs_you_all', undefined);
-}
-
 /** Hub-only: post `body` as the caller's own comment on the item, then move it on (issue: `needs
  *  info` -> `ready for agent`; PR: adds `needs revision`). Throws with no label change when the item
  *  is no longer in a waiting state. */
@@ -151,18 +140,6 @@ export function readAppConfigStrict(repoPath: string): Promise<AppConfig> {
   return call('read_app_config_strict', { repoPath });
 }
 
-export function getCredentials(): Promise<CredentialsSummary> {
-  return call('get_credentials', undefined);
-}
-
-export function setCredential(provider: CredentialProvider, value: string): Promise<CredentialsSummary> {
-  return call('set_credential', { provider, value });
-}
-
-export function deleteCredential(provider: CredentialProvider): Promise<CredentialsSummary> {
-  return call('delete_credential', { provider });
-}
-
 export function writeAppConfig(repoPath: string, config: AppConfig): Promise<void> {
   return call('write_app_config', { repoPath, config });
 }
@@ -182,11 +159,6 @@ export function importRemoteRun(repoPath: string, runId: number): Promise<Remote
 /** Board read path (S9): served by core over the sidecar query pipe; capped drives the banner. */
 export function listTasks(repoPath: string): Promise<{ tasks: BoardTask[]; capped: boolean }> {
   return call('list_tasks', { repoPath });
-}
-
-/** HUB_ONLY: every repository's board cards, each stamped with its repository. */
-export function listTasksAll(): Promise<Commands['list_tasks_all']['result']> {
-  return call('list_tasks_all', undefined);
 }
 
 export async function fetchSpec(repoPath: string, taskId: string): Promise<string> {
@@ -310,13 +282,8 @@ export function apiCancelComplete(callId: string): Promise<void> {
  * Only title/body cross: `source`, `team` and `label` are read from app.json in Rust. The renderer does
  * not choose which tracker gets written to. (Same rule as CompleteCallArgs — and it matters more here.)
  */
-export function apiCreateTask(repoPath: string, title: string, body: string, baseBranch?: string): Promise<import('./wire').CreatedTask> {
-  return call('api_create_task', { repoPath, title, body, ...(baseBranch !== undefined ? { baseBranch } : {}) });
-}
-
-/** HUB_ONLY: the target branches a card may name and the configured default, for the new-card form. */
-export function apiListBranches(repoPath: string): Promise<{ branches: string[]; default?: string }> {
-  return call('list_branches', { repoPath });
+export function apiCreateTask(repoPath: string, title: string, body: string): Promise<import('./wire').CreatedTask> {
+  return call('api_create_task', { repoPath, title, body });
 }
 
 /** Composer `@`-mention autocomplete (Editor UX 7/7): the project repo's tracked files, capped. */
@@ -404,4 +371,38 @@ export function apiCancel(runId?: string): Promise<void> {
 /** Click-time pre-flight: is `repoPath` a git work tree? */
 export function apiRepoOk(repoPath: string): Promise<boolean> {
   return call('api_repo_ok', { repoPath });
+}
+
+// Per-user provider credentials (hub-only, write-only: status returns names, never values). The
+// instance/policy calls are admin-only — the hub answers 403 to anyone else.
+export function userCredentialsStatus(): Promise<{ enabled: boolean; admin: boolean; names: string[] }> {
+  return call('user_credentials_status', undefined);
+}
+
+export function saveUserCredential(name: string, value: string): Promise<void> {
+  return call('save_user_credential', { name, value });
+}
+
+export function deleteUserCredential(name: string): Promise<void> {
+  return call('delete_user_credential', { name });
+}
+
+export function getCredentialPolicy(): Promise<{ policy: CredentialPolicy }> {
+  return call('get_credential_policy', undefined);
+}
+
+export function setCredentialPolicy(policy: CredentialPolicy): Promise<void> {
+  return call('set_credential_policy', { policy });
+}
+
+export function instanceCredentialsStatus(): Promise<{ names: string[] }> {
+  return call('instance_credentials_status', undefined);
+}
+
+export function saveInstanceCredential(name: string, value: string): Promise<void> {
+  return call('save_instance_credential', { name, value });
+}
+
+export function deleteInstanceCredential(name: string): Promise<void> {
+  return call('delete_instance_credential', { name });
 }

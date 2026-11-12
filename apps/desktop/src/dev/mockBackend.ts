@@ -138,6 +138,15 @@ const commandHandlers = {
   enable_factory_apply: () => factoryApplyResult,
   enable_factory_secret: () => factorySecret,
   enable_factory_verify: () => factoryVerify,
+  // Hub-only per-user credentials (CredentialsPanel): the dev mock is a signed-in admin with none saved.
+  user_credentials_status: () => ({ enabled: true, admin: true, names: [] as string[] }),
+  save_user_credential: () => undefined,
+  delete_user_credential: () => undefined,
+  get_credential_policy: () => ({ policy: 'off' as const }),
+  set_credential_policy: () => undefined,
+  instance_credentials_status: () => ({ names: [] as string[] }),
+  save_instance_credential: () => undefined,
+  delete_instance_credential: () => undefined,
 } satisfies Partial<{
   [K in keyof Commands]: (args: Commands[K]['args']) => Promise<Commands[K]['result']> | Commands[K]['result'];
 }>;

@@ -17,7 +17,6 @@ import { injectedSecretValues, redactForPublish, scanForInjectedSecrets, scanFor
 import { redactVerificationOutput } from '../pipeline/verify.js';
 import type { VerificationResult } from '../pipeline/verify.js';
 import type { VisualProofResult } from '../pipeline/visual-proof.js';
-import { ciRunUrl, diffUrlFor, httpsUrl } from './links.js';
 import { reviewVerdictOf } from '../pipeline/review-verdict.js';
 import type { DecisionProbeResult } from './decision-probe.js';
 import type { Finding, Proof, RunDetail, RunRecord, RunSummary, StageDetail, VisualProof } from '../wire.js';
@@ -203,8 +202,7 @@ async function parseRunSummaries(root: string): Promise<RunSummary[]> {
       const stages = records.map((r) => r.stage ?? 'run').sort();
       const totalCostUsd = records.reduce((sum, r) => sum + (r.costUsd ?? 0), 0);
       const anyFailed = records.some((r) => !r.completed);
-      const prUrl = httpsUrl(records.find((r) => r.prUrl !== undefined)?.prUrl);
-      const ciUrl = httpsUrl(records.find((r) => r.ciUrl !== undefined)?.ciUrl);
+      const prUrl = records.find((r) => r.prUrl !== undefined)?.prUrl;
       summaries.push({
         taskId: first.taskId,
         timestamp,
@@ -212,7 +210,6 @@ async function parseRunSummaries(root: string): Promise<RunSummary[]> {
         totalCostUsd,
         anyFailed,
         ...(prUrl !== undefined ? { prUrl } : {}),
-        ...(ciUrl !== undefined ? { ciUrl } : {}),
       });
     }
   }
@@ -316,16 +313,10 @@ export async function readRunRecords(root: string, taskId: string, timestamp: st
   const proof = await readProofFile<Proof>('.proof.json');
   const visualProof = await readProofFile<VisualProof>('.visual-proof.json');
 
-  const prUrl = httpsUrl(stages.find((s) => s.record.prUrl !== undefined)?.record.prUrl);
-  const diffUrl = diffUrlFor(prUrl);
-  const ciUrl = httpsUrl(stages.find((s) => s.record.ciUrl !== undefined)?.record.ciUrl);
   return {
     taskId,
     timestamp,
     stages,
-    ...(prUrl !== undefined ? { prUrl } : {}),
-    ...(diffUrl !== undefined ? { diffUrl } : {}),
-    ...(ciUrl !== undefined ? { ciUrl } : {}),
     ...(proof !== undefined ? { proof } : {}),
     ...(visualProof !== undefined ? { visualProof } : {}),
   };
@@ -341,11 +332,11 @@ export interface WriteStagesOptions {
   /** Flow and provider names of the run, recorded on the exported trace (see otlp-sink). */
   flow?: string;
   provider?: string;
-  /** The branch this run's PR targets (card label / repo default / --base), recorded on every stage. */
-  baseBranch?: string;
   /** The sandbox image's content digest (IsolatedSandboxProvider.imageDigest), recorded on every
    *  stage of the run so a run record can be traced back to the exact image it executed against. */
   imageDigest?: string;
+  /** `instance` or `user`: which kind of credential funded the run (never the value). */
+  credentialSource?: 'instance' | 'user';
   /**
    * Leave the `.diff`, `.bundle` and `.transcript.log` off disk and stub `finalText`; only the JSON
    * record (marked `diffOmitted: 'secret-blocked'`) and the metric line are written for every stage.
@@ -382,7 +373,7 @@ interface WriteRecordOptions {
   requestedModel?: string;
   omitDiff?: boolean;
   imageDigest?: string;
-  baseBranch?: string;
+  credentialSource?: 'instance' | 'user';
 }
 
 /**
@@ -427,7 +418,6 @@ async function writeRecord(repoPath: string, taskId: string, timestamp: string, 
   // on the record as well as the metric line, so the run's own file names the routed model even when
   // the provider reported none.
   const requested = opts.requestedModel !== undefined ? { requestedModel: opts.requestedModel } : {};
-  const ciUrl = ciRunUrl();
   const record = {
     ...meta,
     ...(review !== undefined ? { verdict: review.verdict } : {}),
@@ -437,9 +427,8 @@ async function writeRecord(repoPath: string, taskId: string, timestamp: string, 
     timestamp,
     ...(opts.label !== undefined ? { stage: opts.label } : {}),
     ...(opts.prUrl !== undefined ? { prUrl: opts.prUrl } : {}),
-    ...(ciUrl !== undefined ? { ciUrl } : {}),
     ...(opts.imageDigest !== undefined ? { imageDigest: opts.imageDigest } : {}),
-    ...(opts.baseBranch !== undefined ? { baseBranch: opts.baseBranch } : {}),
+    ...(opts.credentialSource !== undefined ? { credentialSource: opts.credentialSource } : {}),
     ...(diffOmitted !== undefined ? { diffOmitted } : {}),
   };
   const suffix = opts.label !== undefined ? `-${opts.label}` : '';
@@ -520,12 +509,12 @@ export function beginRun(
           ...(outcome.model !== undefined ? { requestedModel: outcome.model } : {}),
           ...(opts.omitDiff ? { omitDiff: opts.omitDiff } : {}),
           ...(opts.imageDigest !== undefined ? { imageDigest: opts.imageDigest } : {}),
-          ...(opts.baseBranch !== undefined ? { baseBranch: opts.baseBranch } : {}),
+          ...(opts.credentialSource !== undefined ? { credentialSource: opts.credentialSource } : {}),
         });
       }
       const first = outcomes[0];
       if (first === undefined) return;
-      const { omitDiff: _omitDiff, baseBranch: _baseBranch, ...trace } = opts;
+      const { omitDiff: _omitDiff, ...trace } = opts;
       await exportRunTrace({
         taskId,
         timestamp,
