@@ -58,6 +58,15 @@ describe('CredentialStore', () => {
     await store.delete('claude');
     expect(env.CLAUDE_CODE_OAUTH_TOKEN).toBe('from-env');
   });
+
+  it('keeps every concurrent write, rejects an empty value, and hides last4 of a short value', async () => {
+    const store = new CredentialStore(await dir(), secret(), {});
+    await Promise.all([store.set('claude', SECRET_VALUE), store.set('zai', 'shortkey'), store.set('openrouter', SECRET_VALUE)]);
+    const s = await store.summary();
+    expect(s.providers.filter((p) => p.set).map((p) => p.provider)).toEqual(['claude', 'zai', 'openrouter']);
+    expect(s.providers.find((p) => p.provider === 'zai')).toEqual({ provider: 'zai', set: true, env: false });
+    await expect(store.set('codex', '')).rejects.toThrow('empty');
+  });
 });
 
 describe('credential RPCs never return a stored value', () => {

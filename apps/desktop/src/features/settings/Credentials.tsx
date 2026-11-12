@@ -50,7 +50,7 @@ export function Credentials(): ReactElement {
               <div className="text-sm">
                 {LABELS[p.provider]}{' '}
                 <span className="text-xs text-muted-foreground">
-                  {p.set ? `set (…${p.last4 ?? ''})` : p.env ? 'from environment' : 'not set'}
+                  {p.last4 !== undefined ? `set (…${p.last4})` : p.set ? 'set' : p.env ? 'from environment' : 'not set'}
                 </span>
               </div>
               {summary.enabled && (

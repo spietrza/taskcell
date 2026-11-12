@@ -73,6 +73,8 @@ export class CredentialStore {
   private readonly reason: string | undefined;
   /** Env values as the process started with them, so a deleted credential falls back to them. */
   private readonly original = new Map<string, string | undefined>();
+  /** Serialises load-modify-save so concurrent set/delete calls neither lose an update nor share the tmp file. */
+  private queue: Promise<unknown> = Promise.resolve();
 
   constructor(configDir: string, secret: string | undefined = process.env.VANGUARD_HUB_SECRET, private readonly env: NodeJS.ProcessEnv = process.env) {
     this.file = join(configDir, '.vanguard-hub', 'credentials.enc');
@@ -134,7 +136,8 @@ export class CredentialStore {
         const set = value !== undefined && value !== '';
         const name = CREDENTIAL_ENV[provider];
         const startEnv = this.original.has(name) ? this.original.get(name) : this.env[name];
-        return { provider, set, ...(set ? { last4: value.slice(-4) } : {}), env: startEnv !== undefined };
+        // A short value would be revealed whole by its last four characters, so it gets none.
+        return { provider, set, ...(set && value.length > 8 ? { last4: value.slice(-4) } : {}), env: startEnv !== undefined };
       });
     if (this.key === undefined) return { enabled: false, reason: this.reason ?? DISABLED_REASON, providers: base({}) };
     try {
@@ -144,19 +147,28 @@ export class CredentialStore {
     }
   }
 
-  async set(provider: CredentialProvider, value: string): Promise<CredentialsSummary> {
-    const data = await this.load();
-    data[provider] = value;
-    await this.save(data);
-    this.apply(data);
-    return this.summary();
+  private mutate(change: (data: Record<string, string>) => void): Promise<CredentialsSummary> {
+    const next = this.queue.then(async () => {
+      const data = await this.load();
+      change(data);
+      await this.save(data);
+      this.apply(data);
+      return this.summary();
+    });
+    this.queue = next.catch(() => undefined);
+    return next;
   }
 
-  async delete(provider: CredentialProvider): Promise<CredentialsSummary> {
-    const data = await this.load();
-    delete data[provider];
-    await this.save(data);
-    this.apply(data);
-    return this.summary();
+  set(provider: CredentialProvider, value: string): Promise<CredentialsSummary> {
+    if (value === '') return Promise.reject(new BadRequestError('credential value is empty'));
+    return this.mutate((data) => {
+      data[provider] = value;
+    });
+  }
+
+  delete(provider: CredentialProvider): Promise<CredentialsSummary> {
+    return this.mutate((data) => {
+      delete data[provider];
+    });
   }
 }
