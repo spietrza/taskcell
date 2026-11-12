@@ -15,6 +15,7 @@ import { WatchRegistry, type WatchOptions } from './watch.js';
 import { createRunSession } from './run-session.js';
 import { CompleteBusyError, CompleteRegistry, type SpawnComplete } from './complete.js';
 import { loadPaths } from './projects.js';
+import { SpawnRegistry } from './spawn.js';
 import { productionDeps } from '../sidecar/deps.js';
 import type { SidecarDeps } from '../sidecar/sidecar.js';
 import { localOnlyIdentity, signInPage, type HubIdentity, type HubUser } from './auth.js';
@@ -47,6 +48,9 @@ export interface HubServerOptions {
   token?: string;
   /** Sign-in (Better Auth) and the owner user (src/hub/auth.ts). Omitted: token-only, local owner. */
   identity?: HubIdentity;
+  /** Enable the Fleet spawn commands (`spawn_run` et al). Loopback binds only — the desktop app's
+   * local hub sets it; a hub reachable by others must never run arbitrary programs. */
+  fleet?: boolean;
 }
 
 export interface HubServer {
@@ -347,7 +351,7 @@ async function handleRequest(
     return;
   }
 
-  const handled = await serveStatic({ uiDir: opts.uiDir }, req, res);
+  const handled = await serveStatic({ uiDir: opts.uiDir, fleet: opts.fleet === true }, req, res);
   if (!handled) notFound(res);
 }
 
@@ -366,6 +370,8 @@ export function createHubServer(opts: HubServerOptions): HubServer {
   const watchRegistry = new WatchRegistry(opts.watch);
   const publish = (name: string, payload: unknown): void => eventBus.publish(name, payload);
   const completeRegistry = new CompleteRegistry(opts.spawnComplete);
+  if (opts.fleet === true && !opts.bind.isLoopback) throw new Error('fleet requires a loopback bind');
+  const spawnRegistry = opts.fleet === true ? new SpawnRegistry(publish) : undefined;
   const allowlist = new ProjectAllowlist(() => loadPaths(opts.configDir), opts.seedRepoPath);
   // Re-check the allowlist when a run STARTS, not only at enqueue: a queued run can wait long
   // enough for its project to be unbound.
@@ -378,6 +384,7 @@ export function createHubServer(opts: HubServerOptions): HubServer {
     watchRegistry,
     runSession,
     completeRegistry,
+    ...(spawnRegistry !== undefined ? { spawnRegistry } : {}),
     deps,
     configDir: opts.configDir,
     browseRoot: opts.browseRoot,
@@ -409,6 +416,7 @@ export function createHubServer(opts: HubServerOptions): HubServer {
     close: () =>
       new Promise<void>((resolve) => {
         watchRegistry.closeAll();
+        spawnRegistry?.killAll();
         eventBus.close();
         server.closeAllConnections();
         server.close(() => {

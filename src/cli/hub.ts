@@ -97,17 +97,19 @@ export async function hubCommand(command: Extract<Command, { kind: 'hub' }>): Pr
   ];
   assertPlainHosts(allowedHosts);
 
-  const uiDir = resolve(command.uiDir ?? process.env.VANGUARD_HUB_UI_DIR ?? join(pkgRoot(), 'apps/desktop/dist'));
-  // The desktop app's own local hub (apps/desktop/src-tauri) sets this; only ever on a loopback bind.
-  const fleet = process.env.VANGUARD_HUB_ALLOW_FLEET === '1' && LOOPBACK_HOSTS.includes(command.host);
-  await assertUiDirBuilt(uiDir, fleet);
-
-  const configDir =
-    process.env.VANGUARD_HUB_CONFIG_DIR ?? join(process.env.XDG_CONFIG_HOME ?? join(homedir(), '.config'), 'vanguard-hub');
   const isLoopback = LOOPBACK_HOSTS.includes(command.host);
   // Server mode = sign-in required: any non-loopback bind, or a loopback bind behind a same-host
   // reverse proxy that sets VANGUARD_HUB_SERVER_MODE=1. Only a plain loopback bind is local mode.
   const serverMode = !isLoopback || process.env.VANGUARD_HUB_SERVER_MODE === '1';
+
+  const uiDir = resolve(command.uiDir ?? process.env.VANGUARD_HUB_UI_DIR ?? join(pkgRoot(), 'apps/desktop/dist'));
+  // The desktop app's own local hub (apps/desktop/src-tauri) sets this; honoured in local mode only
+  // (a server-mode hub, reachable by others, must never run arbitrary programs).
+  const fleet = process.env.VANGUARD_HUB_ALLOW_FLEET === '1' && !serverMode;
+  await assertUiDirBuilt(uiDir, fleet);
+
+  const configDir =
+    process.env.VANGUARD_HUB_CONFIG_DIR ?? join(process.env.XDG_CONFIG_HOME ?? join(homedir(), '.config'), 'vanguard-hub');
 
   // Seed the project store with --repo, same rule add_project uses: must be a git work tree, and
   // only persisted once (a restart must not keep re-adding an already-removed project).
