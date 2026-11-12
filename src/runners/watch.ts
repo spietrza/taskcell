@@ -910,7 +910,16 @@ export function githubSpecPrimitives(opts: WatchGithubSpecOptions): SpecWatchPri
         opts.issueRef !== undefined
           ? await fetchHintedIssue(fetcher, opts.issueRef, specLabels, opts.claimedLabel)
           : await fetcher.list({ labels: specLabels });
-      return (await withTrustedIssueAuthors(repo, listed, opts.deps.feedbackAuthors, opts.gh)).map((task) => ({ id: task.id }));
+      const trusted = await withTrustedIssueAuthors(repo, listed, opts.deps.feedbackAuthors, opts.gh);
+      // Gate here too: a blocked issue must never be specced or advanced (a --once run carries
+      // advanced ids straight into the agent pass, past its own gate).
+      const tasks = await applyDependencyGate(trusted, {
+        repo,
+        trigger: opts.specLabel,
+        needsInfoLabel: opts.needsInfoLabel,
+        ...(opts.gh !== undefined ? { gh: opts.gh } : {}),
+      });
+      return tasks.map((task) => ({ id: task.id }));
     },
     claim: (id) => editGithubLabels(repo, id, { remove: [opts.specLabel], add: [opts.claimedLabel] }, opts.gh),
     runSpec: async (id) => {

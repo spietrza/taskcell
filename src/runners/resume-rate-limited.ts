@@ -18,6 +18,11 @@ export interface ResumeRateLimitedOptions {
   repoSlug: string;
   /** Labels a marker may name (a pasted marker must not apply any other label). Default: DEFAULT_TRIGGER_LABELS. */
   triggerLabels?: readonly string[];
+  /**
+   * Labels meaning a waiting issue already started (claimed, in review, spec-claimed); must match the
+   * watch's --claimed-state / --review-state / --spec-claimed-label. Default: the built-in labels.
+   */
+  startedLabels?: readonly string[];
   /** Report what would be re-triggered and edit nothing. */
   dryRun?: boolean;
   /** Clock for the `until` comparison (injected by tests). */
@@ -105,6 +110,8 @@ async function retrigger(item: { kind: ParkedKind; repoSlug: string; number: num
  */
 async function resumeWaiting(ctx: { opts: ResumeRateLimitedOptions; gh: GhRunner; log: (line: string) => void; now: Date; allowed: ReadonlySet<string>; report: ResumeRateLimitedReport }): Promise<void> {
   const { opts, gh, log, now, allowed, report } = ctx;
+  const started = opts.startedLabels ?? [GITHUB_CLAIMED_LABEL, GITHUB_REVIEW_LABEL, GITHUB_SPEC_CLAIMED_LABEL];
+  const labelsOf = (view: { labels?: { name?: string }[] }): string[] => (view.labels ?? []).flatMap((label) => (label.name === undefined ? [] : [label.name]));
   const listed = JSON.parse(
     await gh(['issue', 'list', '--repo', opts.repoSlug, '--state', 'open', '--label', GITHUB_WAITING_LABEL, '--limit', LIST_LIMIT, '--json', 'number']),
   ) as { number?: number }[];
@@ -122,10 +129,10 @@ async function resumeWaiting(ctx: { opts: ResumeRateLimitedOptions; gh: GhRunner
         labels?: { name?: string }[];
         comments?: GhCommentBody[];
       };
-      const labels = (view.labels ?? []).flatMap((label) => (label.name === undefined ? [] : [label.name]));
+      const labels = labelsOf(view);
       if (!labels.includes(GITHUB_WAITING_LABEL)) continue;
       // Already started (or in review): the label is stale. Drop it; re-triggering would run the issue twice.
-      if (labels.includes(GITHUB_CLAIMED_LABEL) || labels.includes(GITHUB_REVIEW_LABEL) || labels.includes(GITHUB_SPEC_CLAIMED_LABEL)) {
+      if (started.some((label) => labels.includes(label))) {
         if (opts.dryRun !== true) await gh(['issue', 'edit', String(number), '--repo', opts.repoSlug, '--remove-label', GITHUB_WAITING_LABEL]);
         record('skipped', `skip -> already started, ${opts.dryRun === true ? 'would drop' : 'dropped'} stale ${GITHUB_WAITING_LABEL}`);
         continue;
@@ -144,6 +151,12 @@ async function resumeWaiting(ctx: { opts: ResumeRateLimitedOptions; gh: GhRunner
       } else if (opts.dryRun === true) {
         record('resumed', `would re-apply "${trigger}" and drop ${GITHUB_WAITING_LABEL} (dry-run)`);
       } else {
+        // The dependency lookups take a while: re-read the labels so a claim that landed meanwhile is not run twice.
+        const fresh = labelsOf(JSON.parse(await gh(['issue', 'view', String(number), '--repo', opts.repoSlug, '--json', 'labels'])) as { labels?: { name?: string }[] });
+        if (!fresh.includes(GITHUB_WAITING_LABEL) || started.some((label) => fresh.includes(label))) {
+          record('skipped', `skip -> labels changed during the check (${fresh.join(', ') || 'none'})`);
+          continue;
+        }
         await retrigger({ kind: 'issue', repoSlug: opts.repoSlug, number }, trigger, GITHUB_WAITING_LABEL, gh);
         record('resumed', `resumed -> re-applied "${trigger}", dropped ${GITHUB_WAITING_LABEL}`);
       }

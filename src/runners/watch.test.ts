@@ -1746,6 +1746,7 @@ describe('GitHub watch dependency gate', () => {
         if (args[0] === 'api' && args[1] === 'repos/owner/repo/issues/1') return JSON.stringify({ user: { login: 'm' }, author_association: 'MEMBER' });
         if (args[0] === 'api' && args[1] === 'repos/owner/repo/issues/2') return JSON.stringify({ state: 'open' });
         if (args[0] === 'api') return '[]';
+        if (args[0] === 'issue' && args[1] === 'view') return '{"comments":[]}';
         return '';
       };
       const primitives = githubIssueWatchPrimitives({

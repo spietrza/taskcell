@@ -5,10 +5,11 @@ import type { GhRunner } from '../tasks/github.js';
 const marker = '<!-- vanguard:waiting trigger="ready for agent" -->';
 const bot = { author: { login: 'github-actions[bot]' }, authorAssociation: 'NONE', createdAt: '2030-01-01T00:00:00Z' };
 
-function setup(opts: { labels?: string[]; comments?: object[]; blocker?: object; body?: string } = {}) {
+function setup(opts: { labels?: string[]; comments?: object[]; blocker?: object; body?: string; recheckLabels?: string[] } = {}) {
   const calls: string[] = [];
   const gh: GhRunner = async (args) => {
     calls.push(args.join(' '));
+    if (args[1] === 'view' && args.at(-1) === 'labels') return JSON.stringify({ labels: (opts.recheckLabels ?? opts.labels ?? ['vanguard:waiting']).map((name) => ({ name })) });
     if (args[0] === 'issue' && args[1] === 'list') return args.includes('vanguard:waiting') ? '[{"number":7}]' : '[]';
     if (args[0] === 'pr') return '[]';
     if (args[0] === 'issue' && args[1] === 'view') {
@@ -61,6 +62,16 @@ describe('resume of dependency-waiting issues', () => {
       return gh(args);
     };
     expect((await run(failing)).failed).toEqual(['o/r#7']);
+  });
+  it('honours custom started labels', async () => {
+    const { gh, calls } = setup({ labels: ['vanguard:waiting', 'wip'] });
+    expect((await run(gh, { startedLabels: ['wip'] })).skipped).toEqual(['o/r#7']);
+    expect(calls.some((c) => c.includes('--add-label'))).toBe(false);
+  });
+  it('does not re-trigger when a claim landed during the dependency check', async () => {
+    const { gh, calls } = setup({ recheckLabels: ['vanguard:waiting', 'vanguard:running'] });
+    expect((await run(gh)).skipped).toEqual(['o/r#7']);
+    expect(calls.some((c) => c.startsWith('issue edit'))).toBe(false);
   });
   it('only drops a stale waiting label on an issue that already started', async () => {
     const { gh, calls } = setup({ labels: ['vanguard:waiting', 'vanguard:needs-human-review'] });

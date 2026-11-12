@@ -7,9 +7,10 @@ const task = (number: number, description = '', labels: string[] = ['ready for a
   id: `o/r#${number}`, title: 't', description, labels, children: [], comments: [], ref: String(number),
 });
 
-/** issues: number -> api JSON; blocked: number -> native blocker numbers. */
-function fakeGh(issues: Record<string, object>, blocked: Record<string, number[]> = {}): GhRunner {
+/** issues: number -> api JSON; blocked: number -> native blocker numbers; comments: the issue's comments. */
+function fakeGh(issues: Record<string, object>, blocked: Record<string, number[]> = {}, comments: object[] = []): GhRunner {
   return vi.fn(async (args: string[]) => {
+    if (args[0] === 'issue' && args[1] === 'view') return JSON.stringify({ comments });
     const path = args[1] ?? '';
     const native = /repos\/o\/r\/issues\/(\d+)\/dependencies\/blocked_by/.exec(path);
     if (native) return JSON.stringify((blocked[native[1]!] ?? []).map((number) => ({ number, repository_url: 'https://api.github.com/repos/o/r' })));
@@ -43,6 +44,19 @@ describe('parsing', () => {
     expect(parseStartDate('Start: soon')).toBeUndefined();
     expect(parseStartDate('nothing')).toBeUndefined();
   });
+  it('ignores prose Start lines and directives in code fences or quotes', () => {
+    expect(parseStartDate('Start: 3 workers')).toBeUndefined();
+    expect(parseStartDate('Start: 10:30')).toBeUndefined();
+    expect(parseStartDate('```\nStart: 2030-02-31\n```\nStart: 2030-01-02')).toEqual({ date: new Date('2030-01-02T00:00:00Z') });
+    expect(parseBodyDependencies('o/r', '```md\nDepends on #3\n```\n> Depends on #4\nDepends on #5')).toEqual([{ repo: 'o/r', number: 5 }]);
+  });
+  it('parses pathological bodies quickly', () => {
+    const t0 = Date.now();
+    parseBodyDependencies('o/r', `Depends on${'*'.repeat(60_000)}`);
+    parseStartDate(`Start: 1${' '.repeat(60_000)}x`);
+    parseStartDate('\n'.repeat(60_000));
+    expect(Date.now() - t0).toBeLessThan(500);
+  });
 });
 
 describe('checkDependencies', () => {
@@ -54,6 +68,7 @@ describe('checkDependencies', () => {
     expect(await checkDependencies('o/r', t, fakeGh({ 'o/r#2': { state: 'open' } }))).toMatchObject({ status: 'waiting', blockers: [{ repo: 'o/r', number: 2 }] });
     expect((await checkDependencies('o/r', task(1, 'Depends on #2'), fakeGh({ 'o/r#2': { state: 'closed', state_reason: 'completed' } }))).status).toBe('ready');
     expect((await checkDependencies('o/r', task(1, 'Depends on #2'), fakeGh({ 'o/r#2': { state: 'closed', state_reason: 'not_planned' } }))).status).toBe('invalid');
+    expect(await checkDependencies('o/r', task(1, 'Depends on #2'), fakeGh({ 'o/r#2': { state: 'closed', state_reason: 'duplicate' } }))).toMatchObject({ status: 'invalid', reason: expect.stringContaining('duplicate') });
     expect((await checkDependencies('o/r', task(1, 'Depends on #2'), fakeGh({ 'o/r#2': { state: 'closed', state_reason: null } }))).status).toBe('ready');
   });
   it('treats a merged PR as met and a closed unmerged PR as unmet', async () => {
@@ -73,13 +88,27 @@ describe('checkDependencies', () => {
     expect((await checkDependencies('o/r', task(1, 'Start: 2029-06-01'), fakeGh({}), now)).status).toBe('ready');
   });
   it('flags cycles and missing references as invalid', async () => {
-    const cyc = fakeGh({ 'o/r#2': { state: 'open', body: 'Depends on #1' } });
+    const cyc = fakeGh({ 'o/r#2': { state: 'open' } }, { 2: [1] });
     expect(await checkDependencies('o/r', task(1, 'Depends on #2'), cyc)).toMatchObject({ status: 'invalid', reason: expect.stringContaining('cycle') });
     expect(await checkDependencies('o/r', task(1, 'Depends on #9'), fakeGh({}))).toMatchObject({ status: 'invalid', reason: expect.stringContaining('does not exist') });
   });
-  it('reports a failed lookup as error, not ready', async () => {
-    const gh: GhRunner = async () => { throw new Error('HTTP 403 SAML'); };
+  it('flags a deleted dependency (HTTP 410) as invalid', async () => {
+    const gh: GhRunner = async (args) => {
+      if ((args[1] ?? '').endsWith('/dependencies/blocked_by')) return '[]';
+      throw new Error('gh: This issue was deleted (HTTP 410)');
+    };
+    expect(await checkDependencies('o/r', task(1, 'Depends on #2'), gh)).toMatchObject({ status: 'invalid', reason: expect.stringContaining('deleted') });
+  });
+  it('ignores Depends on lines in a dependency body (untrusted text cannot fake a cycle or point lookups elsewhere)', async () => {
+    const gh = fakeGh({ 'o/r#2': { state: 'open', body: 'Depends on #1\nDepends on evil/repo#1' } });
+    expect(await checkDependencies('o/r', task(1, 'Depends on #2'), gh)).toMatchObject({ status: 'waiting' });
+    const paths = (gh as ReturnType<typeof vi.fn>).mock.calls.map((c) => (c[0] as string[])[1]);
+    expect(paths.some((p) => p?.includes('evil/repo'))).toBe(false);
+  });
+  it('reports a failed lookup as error, not ready, without retrying a 4xx', async () => {
+    const gh = vi.fn(async () => { throw new Error('HTTP 403 SAML'); });
     expect((await checkDependencies('o/r', task(1, 'Depends on #2'), gh)).status).toBe('error');
+    expect(gh).toHaveBeenCalledTimes(1);
   });
 });
 
@@ -100,7 +129,7 @@ describe('applyDependencyGate', () => {
     expect(await applyDependencyGate([t], { repo: 'o/r', trigger: 'x', gh: fakeGh({}) })).toEqual([{ ...t, dependsOn: [] }]);
   });
   it('sends a cycle to needs info', async () => {
-    const gh = fakeGh({ 'o/r#2': { state: 'open', body: 'Depends on #1' } });
+    const gh = fakeGh({ 'o/r#2': { state: 'open' } }, { 2: [1] });
     await applyDependencyGate([task(1, 'Depends on #2')], { repo: 'o/r', trigger: 'ready for agent', needsInfoLabel: 'needs info', gh, log: vi.fn() });
     expect((gh as ReturnType<typeof vi.fn>).mock.calls.some((c) => (c[0] as string[]).includes('needs info'))).toBe(true);
   });
@@ -110,9 +139,41 @@ describe('applyDependencyGate', () => {
     expect(out).toHaveLength(1);
     expect((gh as ReturnType<typeof vi.fn>).mock.calls.some((c) => (c[0] as string[]).join(' ').includes('--remove-label vanguard:waiting'))).toBe(true);
   });
+  it('does not repeat a comment identical to the newest trusted one (label edit failed last poll)', async () => {
+    const first = fakeGh({ 'o/r#2': { state: 'open' } });
+    await applyDependencyGate([task(1, 'Depends on #2')], { repo: 'o/r', trigger: 'ready for agent', gh: first, log: vi.fn() });
+    const posted = (first as ReturnType<typeof vi.fn>).mock.calls.map((c) => c[0] as string[]).find((a) => a[1] === 'comment')!;
+    const body = posted[posted.indexOf('--body') + 1]!;
+    const again = fakeGh({ 'o/r#2': { state: 'open' } }, {}, [{ author: { login: 'github-actions[bot]' }, authorAssociation: 'NONE', body }]);
+    await applyDependencyGate([task(1, 'Depends on #2')], { repo: 'o/r', trigger: 'ready for agent', gh: again, log: vi.fn() });
+    const calls = (again as ReturnType<typeof vi.fn>).mock.calls.map((c) => (c[0] as string[]).join(' '));
+    expect(calls.some((c) => c.startsWith('issue comment'))).toBe(false);
+    expect(calls.some((c) => c.includes('--add-label vanguard:waiting'))).toBe(true);
+  });
+  it('sends a lookup that fails again right after a resume to needs info instead of looping', async () => {
+    const marker = '<!-- vanguard:waiting trigger="ready for agent" kind="error" -->';
+    const gh = vi.fn(async (args: string[]) => {
+      if (args[0] === 'api') throw new Error('HTTP 403 SAML');
+      if (args[1] === 'view') return JSON.stringify({ comments: [{ author: { login: 'github-actions[bot]' }, authorAssociation: 'NONE', body: `x ${marker}` }] });
+      return '';
+    }) as unknown as GhRunner;
+    await applyDependencyGate([task(1, 'Depends on #2')], { repo: 'o/r', trigger: 'ready for agent', needsInfoLabel: 'needs info', gh, log: vi.fn() });
+    const calls = (gh as ReturnType<typeof vi.fn>).mock.calls.map((c) => (c[0] as string[]).join(' '));
+    expect(calls.some((c) => c.includes('--add-label needs info'))).toBe(true);
+    expect(calls.some((c) => c.includes('vanguard:waiting'))).toBe(false);
+  });
+  it('leaves an issue with no declared dependencies triggered when only the blocked-by probe fails', async () => {
+    const gh = vi.fn(async (args: string[]) => {
+      if (args[0] === 'api') throw new Error('HTTP 403');
+      return '';
+    }) as unknown as GhRunner;
+    expect(await applyDependencyGate([task(1, 'no deps here')], { repo: 'o/r', trigger: 'ready for agent', gh, log: vi.fn() })).toEqual([]);
+    expect((gh as ReturnType<typeof vi.fn>).mock.calls.every((c) => (c[0] as string[])[0] === 'api')).toBe(true);
+  });
   it('comments once on a lookup error and promises only the resume mechanism', async () => {
     const gh = vi.fn(async (args: string[]) => {
       if (args[0] === 'api') throw new Error('HTTP 403 SAML');
+      if (args[1] === 'view') return '{"comments":[]}';
       return '';
     }) as unknown as GhRunner;
     await applyDependencyGate([task(1, 'Depends on #2')], { repo: 'o/r', trigger: 'ready for agent', gh, log: vi.fn() });
@@ -123,6 +184,7 @@ describe('applyDependencyGate', () => {
   it('does not park the issue when the comment fails (trigger stays)', async () => {
     const gh = vi.fn(async (args: string[]) => {
       if (args[0] === 'issue' && args[1] === 'comment') throw new Error('boom');
+      if (args[0] === 'issue' && args[1] === 'view') return '{"comments":[]}';
       if (args[0] === 'api') return JSON.stringify({ state: 'open' });
       return '';
     }) as unknown as GhRunner;
