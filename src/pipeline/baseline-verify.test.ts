@@ -15,7 +15,8 @@ const RED: ExecResult = { stdout: 'FAILED one.test.ts', stderr: '', exitCode: 1 
 function countingSandbox(result: ExecResult): { sandbox: IsolatedSandboxProvider; calls: () => number } {
   let calls = 0;
   const sandbox = {
-    exec: async (): Promise<ExecResult> => {
+    exec: async (cmd: string): Promise<ExecResult> => {
+      if (cmd.includes('memory.events')) return { stdout: '', stderr: '', exitCode: 0 };
       calls += 1;
       return result;
     },

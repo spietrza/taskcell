@@ -18,6 +18,19 @@ export interface VerificationResult {
    * or no marker was found.
    */
   firstErrorLines?: string;
+  /**
+   * Whether the sandbox cgroup's `memory.events` `oom_kill` counter rose during a failed verify
+   * (a killed worker leaves the container alive, so `OOMKilled` is unreliable). Absent when
+   * `passed` or the counter could not be read.
+   */
+  oomKilled?: boolean;
+}
+
+/** The one wording for the OOM evidence, shared by the run log and the proof block. */
+function oomNote(oomKilled: boolean): string {
+  return oomKilled
+    ? 'yes — the verify run was OOM-killed in the sandbox (raise `VANGUARD_SANDBOX_MEMORY_MB`)'
+    : 'no OOM kill during the verify run (memory.events oom_kill did not change)';
 }
 
 const WORKDIR = '/workspace';
@@ -133,12 +146,38 @@ export async function runVerification(
   signal?: AbortSignal,
 ): Promise<VerificationResult> {
   const sh = sandbox.exec.bind(sandbox);
+  // The counter is cumulative over the container's life (baseline, agent sessions, earlier verifies),
+  // so read it before the command too and report only the delta.
+  const oomBefore = await readOomKillCount(sh);
   const res = await sh(command, { cwd: WORKDIR, ...(signal !== undefined ? { signal } : {}) });
   const output = `${res.stdout}\n${res.stderr}`;
   const sha256 = createHash('sha256').update(output).digest('hex');
   const outputTail = output.split('\n').slice(-40).join('\n').trimEnd();
   const passed = res.exitCode === 0;
-  return { command, exitCode: res.exitCode, passed, sha256, outputTail, firstErrorLines: passed ? '' : extractFirstErrorLines(output) };
+  const oomAfter = passed ? undefined : await readOomKillCount(sh);
+  const oomKilled = oomBefore !== undefined && oomAfter !== undefined ? oomAfter > oomBefore : undefined;
+  const result: VerificationResult = {
+    command,
+    exitCode: res.exitCode,
+    passed,
+    sha256,
+    outputTail,
+    firstErrorLines: passed ? '' : extractFirstErrorLines(output),
+    ...(oomKilled !== undefined ? { oomKilled } : {}),
+  };
+  if (oomKilled !== undefined) console.log(`taskcell: verify failed — OOM kill: ${oomNote(oomKilled)}`);
+  return result;
+}
+
+/** The sandbox cgroup's `oom_kill` counter (cgroup v2 `memory.events`); undefined if unreadable. */
+async function readOomKillCount(sh: IsolatedSandboxProvider['exec']): Promise<number | undefined> {
+  try {
+    const r = await sh('cat /sys/fs/cgroup/memory.events 2>/dev/null');
+    const m = /^oom_kill\s+(\d+)/m.exec(r.stdout);
+    return m ? Number(m[1]) : undefined;
+  } catch {
+    return undefined;
+  }
 }
 
 /**
@@ -192,6 +231,7 @@ export function proofBlock(result: VerificationResult): string {
     `- exit code: ${result.exitCode}`,
     `- sha256(output): \`${result.sha256}\``,
     ...(task !== undefined ? [`- failing task/package: \`${task}\``] : []),
+    ...(result.oomKilled !== undefined ? [`- OOM kill: ${oomNote(result.oomKilled)}`] : []),
     '',
   ];
   // The tail alone can be a screen of passing output on a monorepo runner — show the failure itself too.
