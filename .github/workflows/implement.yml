@@ -61,6 +61,10 @@ on:
         description: 'Model for the conformance pass (--conformance-model). Empty = CLI default.'
         type: string
         default: ''
+      sandbox-memory-mb:
+        description: 'Sandbox memory cap in MB (VANGUARD_SANDBOX_MEMORY_MB). Empty = the CLI default (2048, or 8192 with a read-only rootfs). A GitHub-hosted runner has 16 GB, so a long agent session or a full test suite inside the sandbox may want 8192.'
+        type: string
+        default: ''
       llm-proxy:
         description: 'Keep the model credential in a sidecar proxy, out of the sandbox (--llm-proxy).'
         type: boolean
@@ -248,6 +252,7 @@ jobs:
           IN_MAX_TASKS: ${{ inputs.max-tasks }}
           IN_ISSUE: ${{ inputs.issue }}
           IN_LLM_PROXY: ${{ inputs.llm-proxy }}
+          IN_SANDBOX_MEMORY_MB: ${{ inputs.sandbox-memory-mb }}
           IN_SKILLS: ${{ inputs.skills }}
           IN_ALLOWED_ACTORS: ${{ inputs.allowed-actors }}
         run: |
@@ -270,6 +275,9 @@ jobs:
           [ -n "$IN_MAX_TASKS" ] && args+=(--max-tasks "$IN_MAX_TASKS")
           [ -n "$IN_ISSUE" ] && args+=(--issue "$IN_ISSUE")
           [ "$IN_LLM_PROXY" = "true" ] && args+=(--llm-proxy)
+          [ -z "$IN_SANDBOX_MEMORY_MB" ] || [[ "$IN_SANDBOX_MEMORY_MB" =~ ^[1-9][0-9]*$ ]] || { echo "::error::sandbox-memory-mb must be a positive integer, got '$IN_SANDBOX_MEMORY_MB'"; exit 1; }
+          # Exported only when set: an empty VANGUARD_SANDBOX_MEMORY_MB would drop the cap entirely.
+          if [ -n "$IN_SANDBOX_MEMORY_MB" ]; then export VANGUARD_SANDBOX_MEMORY_MB="$IN_SANDBOX_MEMORY_MB"; fi
           node .vanguard-src/dist/cli/index.js "${args[@]}"
 
       - name: Persist run metrics
