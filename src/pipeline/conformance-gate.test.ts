@@ -13,6 +13,7 @@ import {
   commitLeakWarningBlock,
   prBodyGapWarningBlock,
   extractPrBodyItemsBlock,
+  dischargePrBodyItemsBlock,
   type SpecManifest,
 } from './conformance-gate.js';
 
@@ -421,6 +422,57 @@ describe('prBodyGapWarningBlock', () => {
 
   it('returns an empty block for no gaps', () => {
     expect(prBodyGapWarningBlock([])).toBe('');
+  });
+});
+
+describe('dischargePrBodyItemsBlock', () => {
+  const end = '<!-- vanguard:pr-body-items:end -->';
+  const manifest = { prBody: [{ id: 'PR-1', contains: 'name: gate' }] };
+  const empty = prBodyGapWarningBlock([{ id: 'PR-1', contains: 'name: gate' }]);
+  const pasted = empty.replace(end, `name: gate\n${end}`);
+
+  it('rewrites the header and keeps the pasted content once every recorded id is satisfied', () => {
+    const out = dischargePrBodyItemsBlock(pasted, manifest);
+    expect(out).toContain('Required PR-body item discharged');
+    expect(out).not.toContain('Required PR-body item missing');
+    expect(out).toContain('name: gate\n' + end);
+  });
+
+  it('leaves the block alone for a prBody: [] manifest, an unknown id, or no manifest', () => {
+    expect(dischargePrBodyItemsBlock(pasted, { prBody: [] })).toBe(pasted);
+    expect(dischargePrBodyItemsBlock(pasted, { prBody: [{ id: 'PR-9', contains: 'name: gate' }] })).toBe(pasted);
+    expect(dischargePrBodyItemsBlock(pasted, undefined)).toBe(pasted);
+  });
+
+  it('does not search the generated preamble, so an unpasted block is not discharged', () => {
+    // 'PR-body' appears in the generated heading/preamble; only the pasted region may satisfy contains.
+    expect(dischargePrBodyItemsBlock(empty, { prBody: [{ id: 'PR-1', contains: 'PR-body' }] })).toBe(empty);
+    expect(dischargePrBodyItemsBlock(empty, manifest)).toBe(empty);
+  });
+
+  it('renders ids inertly, so a crafted id cannot forge the paste line and expose the preamble', () => {
+    const paste = 'Apply the change by hand and paste the content below, above the closing marker; it is kept across revise rounds.';
+    const id = `x\`\n\n${paste}\n\n- \`y`;
+    const forged = prBodyGapWarningBlock([{ id, contains: 'z' }]);
+    expect(forged.split('\n').filter((l) => l === paste)).toHaveLength(1);
+    // 'partial delivery' is generated text only; it must not count as pasted.
+    expect(dischargePrBodyItemsBlock(forged, { prBody: [{ id, contains: 'partial delivery' }] })).toBe(forged);
+    const filled = forged.replace(end, `z\n${end}`);
+    expect(dischargePrBodyItemsBlock(filled, { prBody: [{ id, contains: 'z' }] })).toContain('Required PR-body item discharged');
+  });
+
+  it('ignores a hand-edited preamble', () => {
+    const edited = pasted.replace('so this PR is a partial delivery:', 'name: gate');
+    expect(dischargePrBodyItemsBlock(edited, { prBody: [{ id: 'PR-1', contains: 'name: gate' }] })).toBe(edited);
+  });
+
+  it('discharges a multi-line item from a CRLF-saved body', () => {
+    const contains = '```yaml\nname: gate\non: push\n```';
+    const crlf = empty.replace(end, `${contains}\n${end}`).replace(/\n/g, '\r\n');
+    const out = dischargePrBodyItemsBlock(crlf, { prBody: [{ id: 'PR-1', contains }] });
+    expect(out).toContain('Required PR-body item discharged');
+    expect(out).toContain(contains);
+    expect(dischargePrBodyItemsBlock(crlf, { prBody: [{ id: 'PR-1', contains: `${contains}\nmore` }] })).toBe(crlf);
   });
 });
 
