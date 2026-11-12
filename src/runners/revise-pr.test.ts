@@ -2508,3 +2508,83 @@ describe('runRevisePullRequest base conflicts', () => {
     expect(comments(ghCalls)).not.toContain('Could not resolve');
   });
 });
+
+describe('runRevisePullRequest blocking-item checklist', () => {
+  const findingsComment = {
+    author: { login: 'alice' }, authorAssociation: 'COLLABORATOR',
+    body: 'Findings to address:\n- `parse()` drops the last row\n- missing test for empty input',
+    createdAt: '2024-01-11T10:02:00Z',
+  };
+
+  function agentWithText(text: string, received: AgentRunInput[] = []): AgentProvider {
+    return {
+      name: 'claude-code',
+      async *run(input: AgentRunInput): AsyncGenerator<AgentTurn, AgentRunOutput, void> {
+        received.push(input);
+        yield { text: 'applying fix' };
+        return { finalText: `${text}\n<promise>COMPLETE</promise>`, turns: 1, sessionId: 'sess-1' };
+      },
+    };
+  }
+
+  async function run(text: string, opts: { noChange?: boolean } = {}): Promise<{ ghCalls: string[][]; pushes: string[][]; prompt: string; result: Promise<unknown> }> {
+    const ghCalls: string[][] = [];
+    const pushes: string[][] = [];
+    const inputs: AgentRunInput[] = [];
+    const gh: GhRunner = async (args) => {
+      ghCalls.push(args);
+      if (args[0] === 'pr' && args[1] === 'view') return makePrViewJson();
+      if (args[0] === 'pr' && args[1] === 'diff') return 'diff --git a/fix.txt';
+      if (args[0] === 'api' && args[1] === 'graphql') {
+        const query = args.find((a) => a.startsWith('query=')) ?? '';
+        if (query.includes('reviewThreads')) return makeFeedbackJson({ comments: { nodes: [findingsComment] } });
+        return JSON.stringify({ data: {} });
+      }
+      return '';
+    };
+    const sandbox = makeSandbox();
+    if (opts.noChange === true) sandbox.copyFileOut = async (p: string, host: string): Promise<void> => { if (p === '/workspace') await mkdir(host, { recursive: true }); };
+    const result = runRevisePullRequest('7', {
+      repoPath: repo, repoSlug: 'o/r', gh, _sandbox: sandbox, _agent: agentWithText(text, inputs),
+      _worktrees: new WorktreeManager(repo), _baseBranch: 'feature-branch', provider: 'claude', log: () => {},
+      _pushRunner: async (file, args) => { if (file === 'git') pushes.push(args); return ''; },
+    });
+    await result.catch(() => undefined);
+    return { ghCalls, pushes, prompt: inputs[0]?.prompt ?? '', result };
+  }
+
+  const reReview = (calls: string[][]): boolean =>
+    calls.some((a) => a[0] === 'pr' && a[1] === 'edit' && a.includes('--add-label') && a.includes('ready for vanguard review'));
+  const summary = (calls: string[][]): string =>
+    calls.filter((a) => a[0] === 'pr' && a[1] === 'comment').map((a) => a[a.indexOf('--body') + 1] ?? '').find((b) => b.includes('Revision Summary')) ?? '';
+
+  it('lists the items as a numbered checklist, records all fixed, and re-requests review after the push', async () => {
+    const { ghCalls, pushes, prompt, result } = await run('<checklist_answers>\n1. FIXED: parse() in src/a.ts — keeps the last row\n2. FIXED: src/a.test.ts — empty-input case\n</checklist_answers>');
+    await expect(result).resolves.toMatchObject({ pushed: true });
+    expect(prompt).toContain('<blocking_checklist>\n1. `parse()` drops the last row\n2. missing test for empty input\n</blocking_checklist>');
+    expect(pushes.some((a) => a[0] === 'push')).toBe(true);
+    expect(summary(ghCalls)).toContain('1. `parse()` drops the last row — **fixed**: parse() in src/a.ts');
+    expect(reReview(ghCalls)).toBe(true);
+    expect(ghCalls.some((a) => a[0] === 'pr' && a[1] === 'edit' && a.includes('--remove-label') && a.includes('vanguard:reviewed'))).toBe(true);
+  });
+
+  it('reports a not-fixed item in the summary', async () => {
+    const { ghCalls, result } = await run('1. FIXED: src/a.ts — done\n2. NOT FIXED: needs a fixture that does not exist yet');
+    await expect(result).resolves.toMatchObject({ pushed: true });
+    expect(summary(ghCalls)).toContain('2. missing test for empty input — **not fixed**: needs a fixture that does not exist yet');
+  });
+
+  it('fails the revision when an item has no answer, pushing and re-reviewing nothing', async () => {
+    const { ghCalls, pushes, result } = await run('1. FIXED: src/a.ts — done');
+    await expect(result).rejects.toThrow(/no answer/);
+    expect(pushes.some((a) => a[0] === 'push')).toBe(false);
+    expect(summary(ghCalls)).toBe('');
+    expect(reReview(ghCalls)).toBe(false);
+  });
+
+  it('does not report success or re-request review when nothing was pushed with items open', async () => {
+    const { ghCalls, result } = await run('1. DISPUTED: src/a.ts — already handled\n2. NOT FIXED: out of scope', { noChange: true });
+    await expect(result).rejects.toThrow(/pushed nothing/);
+    expect(reReview(ghCalls)).toBe(false);
+  });
+});
