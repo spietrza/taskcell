@@ -2,7 +2,7 @@
 # Moves the sandbox's agent CLI pins (claude, codex) to the newest npm release that is at least
 # SOAK_DAYS old (default 3), so a bad or hijacked publish has time to be pulled before it reaches the
 # image. docker/Dockerfile's ARG is the source of truth; every other copy of the old pin (build.sh,
-# SANDBOX_CLAUDE_VERSION, docs, test fixtures) is rewritten with it. Prints one "package old -> new" line
+# SANDBOX_CLAUDE_VERSION, SANDBOX_CODEX_VERSION, docs, test fixtures) is rewritten with it. Prints one "package old -> new" line
 # per bump, nothing when current. Never touches .github/: eval.yml reads the pin from the Dockerfile,
 # and the bot token cannot push workflows.
 set -euo pipefail

@@ -549,6 +549,25 @@ export interface CompleteCallArgs {
   attachments?: CompleteRequest['attachments'];
 }
 
+/** One agent CLI in the local sandbox image: installed vs latest (src/sandbox/cli-versions.ts). */
+export interface CliVersionInfo {
+  name: 'claude' | 'codex' | 'cursor';
+  installed?: string;
+  latest?: string;
+  /** Newest version past the 3-day soak, when it is newer than the installed one: what the next bump PR would pin. Nothing installs it. */
+  target?: string;
+  publishedAt?: string;
+  changelog: string;
+  outdated: boolean;
+  /** Outdated and a soaked, verifiable newer version exists — a bump candidate. Report only: `doctor --fix` installs the repo pin, not `target`. */
+  updatable: boolean;
+  reason?: string;
+}
+export interface CliVersionReport {
+  enabled: boolean;
+  clis: CliVersionInfo[];
+}
+
 /**
  * Shared command catalogue for the Tauri, hub and mock adapters. Adapter integration is separate:
  * the existing invoke wrappers and dispatchers do not yet enforce these argument/result types.
@@ -629,6 +648,8 @@ export interface Commands {
   enable_factory_secret: { args: { repoPath: string; plan: FactoryPlan }; result: FactorySecretStep };
   /** HUB_ONLY: dispatch the doctor workflow (once the PR above is merged) and report the run that dispatch created. */
   enable_factory_verify: { args: { repoPath: string; plan: FactoryPlan }; result: FactoryVerifyResult };
+  /** HUB_ONLY, read-only: installed vs latest claude/codex/cursor CLI in the local sandbox image (3-day soak applied; `enabled: false`, and no lookups, when VANGUARD_CLI_VERSION_CHECK is off). Refused on a non-loopback bind without VANGUARD_HUB_ALLOW_ADD. */
+  agent_cli_versions: { args: undefined; result: CliVersionReport };
 }
 
 /** Commands the hub does not implement for real: absent from `src/hub/rpc.ts`'s dispatch cases (the
@@ -637,7 +658,8 @@ export const TAURI_ONLY = ['spawn_run', 'kill_run', 'list_spawns'] as const sati
 
 /** Commands with no `#[tauri::command]` in `src-tauri/src/lib.rs` — browser-only stand-ins for
  * native capability the webview doesn't need (no folder-picker dialog), plus the enable-factory
- * seam (shells out to `gh`/`git`, which only the hub's Node process does today), plus `api_queue`:
+ * seam (shells out to `gh`/`git`, which only the hub's Node process does today), plus
+ * `agent_cli_versions` (probes the sandbox image through `docker`, likewise), plus `api_queue`:
  * Tauri stays strictly single-in-flight (no queue to read) so it has nothing to implement either. */
 export const HUB_ONLY = [
   'browse_dirs',
@@ -646,6 +668,7 @@ export const HUB_ONLY = [
   'enable_factory_apply',
   'enable_factory_secret',
   'enable_factory_verify',
+  'agent_cli_versions',
   'list_needs_you',
   'reply_needs_you',
   'api_queue',
@@ -706,6 +729,7 @@ export const COMMAND_NAMES = [
   'enable_factory_apply',
   'enable_factory_secret',
   'enable_factory_verify',
+  'agent_cli_versions',
 ] as const satisfies readonly (keyof Commands)[];
 type _Exhaustive = keyof Commands extends (typeof COMMAND_NAMES)[number]
   ? true
