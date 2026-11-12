@@ -248,6 +248,18 @@ export async function prepareContext(opts: PrepareOptions, deps: RunDeps = {}): 
 }
 
 /**
+ * Replace the sandbox workspace with the worktree after the host changed it (e.g. a base merge). copyIn
+ * overlays, so the workspace is emptied first: a file the merge deleted must not survive in the sandbox
+ * and be copied back as a new file.
+ */
+export async function refreshSandboxWorkspace(ctx: RunContext): Promise<void> {
+  const wipe = await ctx.sandbox.exec(`find ${WORKDIR} -mindepth 1 -delete`);
+  if (wipe.exitCode !== 0) throw new WorktreeError(`Could not clear the sandbox workspace: ${wipe.stderr}`);
+  await ctx.sandbox.copyIn(ctx.worktreePath, WORKDIR);
+  await seedSandboxGit(ctx.sandbox);
+}
+
+/**
  * Reseed an in-sandbox, self-contained git repo at the workspace root so the agent's own
  * `git diff` / `git status` work. copyIn brings the host's linked-worktree `.git` *file pointer*
  * (`gitdir: <host path>`), which resolves to a host path that does not exist in the container — so
