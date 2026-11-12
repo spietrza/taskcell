@@ -47,13 +47,13 @@ interface FakeOptions {
   localCallers?: string;
 }
 
-const doctorRun = (id: number, event = 'workflow_dispatch'): unknown => ({
+const doctorRun = (id: number, event = 'workflow_dispatch', name = 'Vanguard Doctor'): unknown => ({
   databaseId: id,
   status: 'completed',
   conclusion: 'success',
-  displayTitle: 'Vanguard Doctor',
+  displayTitle: name,
   headBranch: 'main',
-  workflowName: 'Vanguard Doctor',
+  workflowName: name,
   createdAt: '2026-01-01T00:00:00Z',
   event,
   url: `https://github.com/acme/widgets/actions/runs/${id}`,
@@ -69,7 +69,7 @@ function fakeExec(calls: Call[], opts: FakeOptions = {}): FactoryExec {
     if (file === 'git' && args[0] === 'status') {
       if (args.includes('--untracked-files=all')) return { stdout: opts.localCallers ?? '', stderr: '' };
       // With a pathspec: did the callers change. Without: the up-front dirty-tree check.
-      if (args.includes('--')) return { stdout: opts.status ?? 'M  .github/workflows/vanguard-implement.yml\n', stderr: '' };
+      if (args.includes('--')) return { stdout: opts.status ?? 'M  .github/workflows/taskcell-implement.yml\n', stderr: '' };
       return { stdout: opts.dirty ?? '', stderr: '' };
     }
     if (file === 'git' && args[0] === 'ls-tree') {
@@ -150,7 +150,40 @@ describe('applyGithubFactory', () => {
     await writeFile(own, 'name: my own implement\n');
     await applyGithubFactory(repoPath, plan, { exec: fakeExec(calls, { lsTree: '.github/workflows/vanguard-implement.yml\n' }) });
     expect(await readFile(own, 'utf8')).toBe('name: my own implement\n');
-    expect(await readFile(join(repoPath, '.github', 'workflows', 'vanguard-doctor.yml'), 'utf8')).toContain('octocat');
+    expect(await readFile(join(repoPath, '.github', 'workflows', 'taskcell-doctor.yml'), 'utf8')).toContain('octocat');
+  });
+
+  it('writes taskcell-* callers for a fresh repo and no vanguard-* ones', async () => {
+    const { repoPath, plan, calls } = await plannedRepo();
+    await applyGithubFactory(repoPath, plan, { exec: fakeExec(calls) });
+    for (const name of CALLER_NAMES) {
+      await expect(readFile(join(repoPath, '.github', 'workflows', `taskcell-${name}.yml`), 'utf8')).resolves.toContain('octocat');
+      await expect(readFile(join(repoPath, '.github', 'workflows', `vanguard-${name}.yml`))).rejects.toThrow();
+    }
+  });
+
+  it('adds no taskcell-* twin next to an existing vanguard-* caller, and the plan names the file found', async () => {
+    const { repoPath, calls } = await plannedRepo();
+    const lsTree = '.github/workflows/vanguard-implement.yml\n';
+    const plan = await planGithubFactory(repoPath, { exec: fakeExec([], { lsTree }) });
+    expect(plan.existingCallerFiles).toEqual(['.github/workflows/vanguard-implement.yml']);
+    await applyGithubFactory(repoPath, plan, { exec: fakeExec(calls, { lsTree }) });
+    await expect(readFile(join(repoPath, '.github', 'workflows', 'taskcell-implement.yml'))).rejects.toThrow();
+    await expect(readFile(join(repoPath, '.github', 'workflows', 'taskcell-doctor.yml'), 'utf8')).resolves.toContain('octocat');
+    // git add/commit fail on a pathspec that matches nothing, so the skipped caller must not be named.
+    const staged = calls.filter((c) => c.file === 'git' && (c.args[0] === 'add' || c.args[0] === 'commit')).flatMap((c) => c.args);
+    expect(staged).not.toContain('.github/workflows/taskcell-implement.yml');
+    expect(staged).toContain('.github/workflows/taskcell-doctor.yml');
+  });
+
+  it('with both names present, reports the taskcell-* one and adds nothing', async () => {
+    const { repoPath, calls } = await plannedRepo();
+    const lsTree = '.github/workflows/vanguard-implement.yml\n.github/workflows/taskcell-implement.yml\n';
+    const plan = await planGithubFactory(repoPath, { exec: fakeExec([], { lsTree }) });
+    expect(plan.existingCallerFiles).toEqual(['.github/workflows/taskcell-implement.yml']);
+    await applyGithubFactory(repoPath, plan, { exec: fakeExec(calls, { lsTree }) });
+    await expect(readFile(join(repoPath, '.github', 'workflows', 'taskcell-implement.yml'))).rejects.toThrow();
+    await expect(readFile(join(repoPath, '.github', 'workflows', 'vanguard-implement.yml'))).rejects.toThrow();
   });
 
   it('creates a branch from origin/<default>, commits the callers, opens a PR and creates the labels', async () => {
@@ -186,7 +219,7 @@ describe('applyGithubFactory', () => {
 
     // The five callers landed on disk with the author gate set to the signed-in login.
     for (const name of CALLER_NAMES) {
-      const content = await readFile(join(repoPath, '.github', 'workflows', `vanguard-${name}.yml`), 'utf8');
+      const content = await readFile(join(repoPath, '.github', 'workflows', `taskcell-${name}.yml`), 'utf8');
       expect(content).toContain('octocat');
       expect(content).not.toContain('YOUR_LOGIN');
     }
@@ -240,11 +273,11 @@ describe('applyGithubFactory re-runs', () => {
   it('refuses an untracked local caller file instead of overwriting and then deleting it', async () => {
     const repoPath = await repo();
     const calls: Call[] = [];
-    const exec = fakeExec(calls, { localCallers: '?? .github/workflows/vanguard-implement.yml\n' });
+    const exec = fakeExec(calls, { localCallers: '?? .github/workflows/taskcell-implement.yml\n' });
     const plan = await planGithubFactory(repoPath, { exec });
-    await expect(applyGithubFactory(repoPath, plan, { exec })).rejects.toThrow(/vanguard-implement\.yml/);
+    await expect(applyGithubFactory(repoPath, plan, { exec })).rejects.toThrow(/taskcell-implement\.yml/);
     expect(calls.some((c) => c.file === 'git' && (c.args[0] === 'checkout' || c.args[0] === 'fetch'))).toBe(false);
-    await expect(readFile(join(repoPath, '.github', 'workflows', 'vanguard-implement.yml'))).rejects.toThrow();
+    await expect(readFile(join(repoPath, '.github', 'workflows', 'taskcell-implement.yml'))).rejects.toThrow();
   });
 
   it('restores the original branch when a step after checkout fails', async () => {
@@ -285,6 +318,19 @@ describe('githubSecretCommand', () => {
 });
 
 describe('verifyGithubFactory', () => {
+  it('dispatches the legacy vanguard-doctor.yml when that is what the repo has, matching a Taskcell Doctor run', async () => {
+    const repoPath = await repo();
+    const calls: Call[] = [];
+    const plan = await planGithubFactory(repoPath, { exec: fakeExec([]) });
+    const lsTree = '.github/workflows/vanguard-doctor.yml\n';
+    const result = await verifyGithubFactory(repoPath, plan, {
+      exec: fakeExec(calls, { lsTree, runLists: [[], [doctorRun(1, 'workflow_dispatch', 'Taskcell Doctor')]] }),
+      sleep: noSleep,
+    });
+    expect(calls.find((c) => c.file === 'gh' && c.args[0] === 'workflow')?.args).toEqual(['workflow', 'run', 'vanguard-doctor.yml']);
+    expect(result.run?.url).toBe('https://github.com/acme/widgets/actions/runs/1');
+  });
+
   it('dispatches the doctor workflow and reports the run that dispatch created', async () => {
     const repoPath = await repo();
     const calls: Call[] = [];
@@ -301,7 +347,7 @@ describe('verifyGithubFactory', () => {
 
     const listIdx = calls.findIndex((c) => c.file === 'gh' && c.args[0] === 'run' && c.args[1] === 'list');
     const dispatchIdx = calls.findIndex((c) => c.file === 'gh' && c.args[0] === 'workflow' && c.args[1] === 'run');
-    expect(calls[dispatchIdx]?.args).toEqual(['workflow', 'run', 'vanguard-doctor.yml']);
+    expect(calls[dispatchIdx]?.args).toEqual(['workflow', 'run', 'taskcell-doctor.yml']);
     expect(listIdx).toBeLessThan(dispatchIdx);
   });
 

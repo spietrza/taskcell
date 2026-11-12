@@ -512,9 +512,9 @@ export interface FactoryPlan {
   packageManager: string;
   verifyCommand?: string;
   scripts: { typecheck: boolean; lint: boolean; test: boolean; build: boolean };
-  /** Repo-relative paths `apply` will add, e.g. `.github/workflows/vanguard-implement.yml`. */
+  /** Repo-relative paths `apply` will add, e.g. `.github/workflows/taskcell-implement.yml`. */
   callerFiles: string[];
-  /** The subset of `callerFiles` already on the default branch — `apply` leaves those untouched. */
+  /** The callers already on the default branch, under the `taskcell-` or legacy `vanguard-` name — `apply` leaves those untouched. */
   existingCallerFiles?: string[];
   labels: string[];
 }
