@@ -56,6 +56,13 @@ describe('migration', () => {
     expect(teams[1]!.members).toEqual([{ login: 'bob', role: 'member' }]);
   });
 
+  it('reads never write the teams file', async () => {
+    await savePaths(cfg, ['/a']);
+    expect(await listTeams(cfg)).toEqual([{ id: 'default', name: 'Default', members: [], repositories: ['/a'] }]);
+    expect(await getTeam(cfg, 'default')).toMatchObject({ repositories: ['/a'] });
+    await expect(readFile(join(cfg, 'teams.json'), 'utf8')).rejects.toThrow();
+  });
+
   it('survives concurrent first reads', async () => {
     await savePaths(cfg, ['/a']);
     const r = await Promise.all(Array.from({ length: 8 }, () => listTeams(cfg)));

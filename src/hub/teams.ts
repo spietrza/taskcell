@@ -57,13 +57,20 @@ export async function saveTeams(configDir: string, teams: Team[]): Promise<void>
   await rename(tmp, teamsFile(configDir));
 }
 
-/** Serialises ensureTeams per process so concurrent first reads don't race on the write. */
+/** Project paths are only read here, never written; non-string entries are dropped. */
+async function projectPaths(configDir: string): Promise<string[]> {
+  return (await loadPaths(configDir)).filter((p) => typeof p === 'string');
+}
+
+function defaultTeam(paths: string[]): Team {
+  return { id: DEFAULT_TEAM_ID, name: 'Default', members: [], repositories: paths };
+}
+
+/** Serialises ensureTeams per process so concurrent migrations do not race on the write. */
 let queue: Promise<unknown> = Promise.resolve();
 
 async function ensure(configDir: string): Promise<Team[]> {
-  const existing = await loadTeams(configDir);
-  // Project paths are only read here, never written; non-string entries are dropped.
-  const paths = (await loadPaths(configDir)).filter((p) => typeof p === 'string');
+  const [existing, paths] = await Promise.all([loadTeams(configDir), projectPaths(configDir)]);
   if (existing !== undefined && existing.length > 0) {
     // The default team mirrors the project list, so add/clone/remove never leave it stale.
     const def = existing.find((t) => t.id === DEFAULT_TEAM_ID);
@@ -77,7 +84,7 @@ async function ensure(configDir: string): Promise<Team[]> {
     // Keep an unusable file for inspection instead of silently destroying it.
     await copyFile(teamsFile(configDir), `${teamsFile(configDir)}.corrupt`).catch(() => undefined);
   }
-  const teams: Team[] = [{ id: DEFAULT_TEAM_ID, name: 'Default', members: [], repositories: paths }];
+  const teams = [defaultTeam(paths)];
   await saveTeams(configDir, teams);
   return teams;
 }
@@ -93,9 +100,18 @@ export function ensureTeams(configDir: string): Promise<Team[]> {
   return run;
 }
 
-/** Token-only mode (no sign-in) has exactly one team and acts as its admin. */
-export const listTeams = ensureTeams;
+/**
+ * Read-only view (never writes, so a read on a bind that refuses mutations has no side effects):
+ * the stored teams with the default team's repositories taken from the live project list, or just
+ * the default team while the file is absent/unusable (`ensureTeams` at hub startup persists it).
+ * Token-only mode (no sign-in) has exactly one team and acts as its admin.
+ */
+export async function listTeams(configDir: string): Promise<Team[]> {
+  const [stored, paths] = await Promise.all([loadTeams(configDir), projectPaths(configDir)]);
+  if (stored === undefined || stored.length === 0) return [defaultTeam(paths)];
+  return stored.map((t) => (t.id === DEFAULT_TEAM_ID ? { ...t, repositories: paths } : t));
+}
 
 export async function getTeam(configDir: string, id: string): Promise<Team | undefined> {
-  return (await ensureTeams(configDir)).find((t) => t.id === id);
+  return (await listTeams(configDir)).find((t) => t.id === id);
 }
