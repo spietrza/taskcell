@@ -1,0 +1,87 @@
+name: Taskcell CLI bump
+
+# Twice a month: if npm has a newer claude or codex CLI (at least 3 days old) than docker/Dockerfile pins,
+# open one PR that moves the pins. Never auto-merged. Gate before merging: CI, then the `run eval` label
+# (Eval runs the real claude CLI on the bumped pin; docker/Dockerfile is in its paths), then a human merge.
+# A new CLI reaches callers with the next release (they build the image at @v1).
+#
+# This is the server-side path for the GitHub Actions factory. A local or self-hosted install sees new
+# CLI versions in the hub instead.
+#
+# Pushed with VANGUARD_PUSH_TOKEN so the PR gets CI (a GITHUB_TOKEN push fires no workflows). The script
+# never edits .github/, so that token needs no workflow scope.
+
+on:
+  schedule:
+    - cron: '17 5 1,15 * *'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: taskcell-cli-bump
+  cancel-in-progress: false
+
+jobs:
+  bump:
+    if: github.event_name == 'schedule' || github.actor == 'spietrza'
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    env:
+      BRANCH: chore/agent-cli-bump
+      GH_TOKEN: ${{ secrets.VANGUARD_PUSH_TOKEN }}
+      BASE: ${{ github.event.repository.default_branch }}
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+        with:
+          persist-credentials: false
+
+      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v6
+        with:
+          node-version: 24
+
+      - name: Bump pins
+        id: bump
+        run: |
+          out=$(scripts/bump-agent-clis.sh)
+          echo "$out"
+          { echo 'summary<<EOF'; echo "$out"; echo 'EOF'; } >> "$GITHUB_OUTPUT"
+
+      - name: Open or refresh the PR
+        if: ${{ steps.bump.outputs.summary != '' }}
+        env:
+          SUMMARY: ${{ steps.bump.outputs.summary }}
+        run: |
+          title="fix(sandbox): bump agent CLIs ($(echo "$SUMMARY" | awk '{print $1 " " $4}' | paste -sd, - | sed 's/,/, /g'))"
+          # A maintainer who closed this exact bump unmerged has skipped that release: do not reopen it.
+          if gh pr list --repo "$GITHUB_REPOSITORY" --head "$BRANCH" --state closed --json title,mergedAt \
+               -q '.[] | select(.mergedAt == null) | .title' | grep -qxF "$title"; then
+            echo "closed unmerged before: $title"; exit 0
+          fi
+          remote="https://x-access-token:${GH_TOKEN}@github.com/${GITHUB_REPOSITORY}.git"
+          if git fetch -q --depth 1 "$remote" "$BRANCH:refs/remotes/bump" 2>/dev/null \
+             && [ "$(git log -1 --format=%an bump)" != 'github-actions[bot]' ]; then
+            # Hand fixes on the bot branch win: never force-push over them.
+            # shortcut: checks the tip commit only, enough while a hand fix lands on top; walk the range if not.
+            echo "::warning::$BRANCH has a commit not made by this job; leaving it alone"; exit 0
+          fi
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git switch -qc "$BRANCH"
+          git commit -qam "$title" -m "$SUMMARY"
+          # Same content already pushed: no new push, no CI rerun, review stays valid.
+          if git rev-parse -q --verify bump >/dev/null && [ "$(git rev-parse 'HEAD^{tree}')" = "$(git rev-parse 'bump^{tree}')" ]; then
+            echo "already up to date"; exit 0
+          fi
+          git push -qf "$remote" "$BRANCH"
+          body=$(printf "Newer agent CLIs on npm (each at least 3 days old):\n\n%s\n\nBefore merging: CI green, then add the \`run eval\` label and wait for Eval. Changelogs: https://github.com/anthropics/claude-code/releases , https://github.com/openai/codex/releases\n" "$SUMMARY")
+          pr=$(gh pr list --repo "$GITHUB_REPOSITORY" --head "$BRANCH" --json number -q '.[0].number')
+          if [ -z "$pr" ]; then
+            gh pr create --repo "$GITHUB_REPOSITORY" --base "$BASE" --head "$BRANCH" --title "$title" --body "$body" --label "ready for vanguard review"
+          else
+            # New versions on an open PR: the earlier review covered other versions, so ask for a fresh one.
+            gh pr edit "$pr" --repo "$GITHUB_REPOSITORY" --title "$title" --body "$body"
+            gh pr edit "$pr" --repo "$GITHUB_REPOSITORY" --remove-label "vanguard:reviewed" --remove-label "ready for vanguard review" >/dev/null 2>&1 || true
+            gh pr edit "$pr" --repo "$GITHUB_REPOSITORY" --add-label "ready for vanguard review"
+          fi

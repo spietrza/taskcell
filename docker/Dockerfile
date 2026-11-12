@@ -30,7 +30,7 @@ RUN /tmp/retry.sh 5 15 -- npm install -g pnpm@${PNPM_VERSION} && npm cache clean
 ARG BUN_VERSION=1.4.4
 RUN /tmp/retry.sh 5 15 -- npm install -g bun@${BUN_VERSION} && npm cache clean --force && rm -rf /root/.npm
 
-ARG CODEX_CLI_VERSION=0.167.0
+ARG CODEX_CLI_VERSION=0.167.2
 RUN /tmp/retry.sh 5 15 -- npm install -g @openai/codex@${CODEX_CLI_VERSION} && npm cache clean --force && rm -rf /root/.npm
 
 # linear-cli's postinstall downloads its binary from GitHub Releases, which can return 5xx for long
