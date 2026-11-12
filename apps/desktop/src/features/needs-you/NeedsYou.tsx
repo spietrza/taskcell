@@ -6,7 +6,7 @@ import { listNeedsYou, listNeedsYouAll, mergeNeedsYou, replyNeedsYou, type Needs
 import { RepoFailures, RepoLabel } from '../../RepoViews';
 import { isHubMode } from '../../transport';
 
-/** `list_needs_you`/`reply_needs_you` are HUB_ONLY (no Tauri command); only the browser dev build's mock serves them outside the hub. */
+/** `list_needs_you`/`reply_needs_you` are served by the hub only; outside it only the browser dev build's mock answers them. */
 export function canUseNeedsYou(): boolean {
   return isHubMode() || (import.meta.env.DEV && !isTauri());
 }

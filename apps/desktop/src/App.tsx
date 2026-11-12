@@ -2,7 +2,6 @@ import { useEffect, useRef, useState } from 'react';
 import { isTauri } from '@tauri-apps/api/core';
 import { getCurrentWindow } from '@tauri-apps/api/window';
 import { type Theme } from '@/ui';
-import { open } from '@tauri-apps/plugin-dialog';
 import { TopBar, type Crumb } from './TopBar';
 import { Rail, type Screen } from './Rail';
 import { CommandPalette } from './CommandPalette';
@@ -16,7 +15,7 @@ import { projectColor, contrastColor } from './color';
 import { createNavGuardRegistry, NavGuardContext } from './navGuard';
 import { ProjectCombobox } from './ProjectCombobox';
 import { ALL_REPOS, canUseAllRepos, loadRepoFilter, saveRepoFilter } from './repoFilter';
-import { isHubMode, onHubRestart, onHubConnectionIssue } from './transport';
+import { onHubRestart, onHubConnectionIssue } from './transport';
 import { applyTheme, initialTheme, saveTheme } from './theme';
 import type { Project, ActiveRun } from './taskcell-output';
 
@@ -179,19 +178,10 @@ export default function App() {
   const [showRepoPicker, setShowRepoPicker] = useState(false);
   const [factoryProject, setFactoryProject] = useState<{ path: string; name: string } | null>(null);
 
-  const add = async (): Promise<void> => {
-    // Hub mode has no native OS file dialog (no Tauri plugin in a browser) — RepoPicker (over
-    // browse_dirs) stands in for it.
-    if (isHubMode()) {
-      setShowRepoPicker(true);
-      return;
-    }
-    try {
-      const dir = await open({ directory: true, title: 'Add a repo (contains .taskcell/)' });
-      if (typeof dir === 'string') setProjects(await addProject(dir));
-    } catch {
-      /* ignore */
-    }
+  const add = (): void => {
+    // One picker everywhere (the desktop window shows the same hub-served UI as a browser): RepoPicker,
+    // over the hub's browse_dirs.
+    setShowRepoPicker(true);
   };
 
   const remove = async (path: string): Promise<void> => {
@@ -325,8 +315,7 @@ export default function App() {
               onOpen={(p) => enterProject(p.path)}
               onAdd={add}
               onRemove={remove}
-              // enable_factory_* are HUB_ONLY: offered in a browser (the hub, or the dev mock), never in Tauri.
-              onEnableFactory={isTauri() ? undefined : setFactoryProject}
+              onEnableFactory={setFactoryProject}
             />
           ) : (
             <NavGuardContext.Provider value={navGuard.current}>
