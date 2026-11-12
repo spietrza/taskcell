@@ -32,6 +32,7 @@ jobs:
       number: ${{ github.event.pull_request.number || inputs.pr }}
       llm-proxy: true
       upload-run-records: true
+      sandbox-memory-mb: '8192'
     secrets:
       CLAUDE_CODE_OAUTH_TOKEN: ${{ secrets.CLAUDE_CODE_OAUTH_TOKEN }}
       # PAT for revision pushes: GITHUB_TOKEN events fire no workflows (recursion guard), so
