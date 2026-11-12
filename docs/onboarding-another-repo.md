@@ -198,7 +198,7 @@ Same shape: a caller with its triggers, permissions, `concurrency` and `if:`, pl
 | Workflow | Inputs | Secrets |
 |---|---|---|
 | `research.yml` | `allowed-actors`, `number` (issue number, required), `provider`, `research-model`, `vanguard-ref` | `CLAUDE_CODE_OAUTH_TOKEN`, `CODEX_AUTH_JSON` |
-| `revise.yml` | `allowed-actors`, `number` (PR number, required), `provider`, `llm-proxy`, `upload-run-records`, `skills` (default `.vanguard-src/skills`; keep it, a missing custom path fails the run), `sandbox-memory-mb` (as for `implement.yml`), `max-rounds` (default 2, allowed 1–5: revise rounds before a human takes over; raise it only from a trusted caller), `timeout-minutes` (default 90), `vanguard-ref` | `CLAUDE_CODE_OAUTH_TOKEN`, `CODEX_AUTH_JSON`, `VANGUARD_PUSH_TOKEN`, `TASKCELL_APP_PRIVATE_KEY` ([App](#alternative-the-taskcell-github-app)) |
+| `revise.yml` | `allowed-actors`, `number` (PR number, required), `provider`, `llm-proxy`, `upload-run-records`, `skills` (default `.vanguard-src/skills`; keep it, a missing custom path fails the run), `sandbox-memory-mb` (as for `implement.yml`), `max-rounds` (default 2, allowed 1–5: revise rounds before a human takes over; raise it only from a trusted caller), `timeout-minutes` (default 90), `vanguard-ref` | `CLAUDE_CODE_OAUTH_TOKEN`, `CODEX_AUTH_JSON`, `VANGUARD_PUSH_TOKEN` |
 
 Inside a called workflow the `inputs` context means the `workflow_call` inputs, not your `workflow_dispatch` ones, so the caller passes the number in: `number: ${{ github.event.issue.number || inputs.issue }}` for research, `number: ${{ github.event.pull_request.number || inputs.pr }}` for revise. Revise runs at most 2 rounds.
 
@@ -360,13 +360,20 @@ With the App, factory PRs show `<your-app-slug>[bot]` as their author instead of
    ```
 
    The secret holds the PEM as-is (or with `\n` escapes). Delete the downloaded file afterwards, or move it to a password manager.
-4. **Callers.** The reusable `implement.yml` and `revise.yml` read the client ID from the variable and accept the key as an optional secret. Map it in `taskcell-implement.yml` and `taskcell-revise.yml`:
+4. **Workflow edit (by hand — CI config).** The shipped reusable workflows do not yet carry these values, so the App path is inert until a maintainer applies this edit:
+   - `.github/workflows/implement.yml` and `.github/workflows/revise.yml`: declare `TASKCELL_APP_PRIVATE_KEY: { required: false }` under `on.workflow_call.secrets`, next to `VANGUARD_PUSH_TOKEN`, and add to the `env:` of the step that runs the CLI (where `VANGUARD_PUSH_TOKEN` is mapped):
 
-   ```yaml
-       secrets:
-         # ...existing secrets...
-         TASKCELL_APP_PRIVATE_KEY: ${{ secrets.TASKCELL_APP_PRIVATE_KEY }}
-   ```
+     ```yaml
+     TASKCELL_APP_CLIENT_ID: ${{ vars.TASKCELL_APP_CLIENT_ID }}
+     TASKCELL_APP_PRIVATE_KEY: ${{ secrets.TASKCELL_APP_PRIVATE_KEY }}
+     ```
+   - Only then map the key in your callers, `taskcell-implement.yml` and `taskcell-revise.yml`. GitHub rejects a caller that passes a secret the called workflow does not declare:
+
+     ```yaml
+         secrets:
+           # ...existing secrets...
+           TASKCELL_APP_PRIVATE_KEY: ${{ secrets.TASKCELL_APP_PRIVATE_KEY }}
+     ```
 5. **Actor gates.** The bot is now the PR author, and the sender of the `opened` and `ready_for_review` events the CLI causes, so your existing gates would skip those PRs. Admit it as a **separate** condition, never in the human list. Use your App's actual slug: allow-listing someone else's slug admits their App.
    - **`taskcell-revise.yml`:** add `<your-app-slug>[bot]` to the **PR-author** list, next to `github-actions[bot]`. Leave the sender list human-only, because `needs revision` is still added by a human.
    - **`taskcell-pr-review.yml`:** in `label-factory-pr`, accept the bot as both author and sender. The same-repo and `chore/vanguard-` branch checks still apply. Add the label with the PAT for that case, so the resulting `labeled` event starts its own review run with a human sender:
@@ -387,11 +394,11 @@ With the App, factory PRs show `<your-app-slug>[bot]` as their author instead of
                GH_TOKEN: ${{ github.event.sender.login == '<your-app-slug>[bot]' && secrets.VANGUARD_PUSH_TOKEN || github.token }}
      ```
 
-     In `review`, skip the in-run path for a bot sender: `(needs.label-factory-pr.result == 'success' && github.event.sender.login != '<your-app-slug>[bot]')`. On the `labeled` path, accept either a human PR author or the bot on a same-repo `chore/vanguard-*` branch. Taskcell's own [`taskcell-pr-review.yml`](../.github/workflows/taskcell-pr-review.yml) is a working example.
+     In `review`, skip the in-run path for a bot sender: `(needs.label-factory-pr.result == 'success' && github.event.sender.login != '<your-app-slug>[bot]')`. On the `labeled` path, accept either a human PR author or the bot on a same-repo `chore/vanguard-*` branch. Taskcell's own `taskcell-pr-review.yml` does not carry this edit yet.
    - **Keep `allowed-actors` human-only.** It is also passed as `--feedback-authors`, so adding the bot would make its text trusted review feedback.
 
    So keep `VANGUARD_PUSH_TOKEN` alongside the App: the review label and the resume sweep still run on it.
-6. Check the result. The next factory PR's author is `<your-app-slug>[bot]`. If a mint fails, the run log says so and the PR falls back to the PAT owner.
+6. Until steps 4–5 land, keep using `VANGUARD_PUSH_TOKEN`; the App variables are ignored when absent. Once they land, check the result: the next factory PR's author is `<your-app-slug>[bot]`. If a mint fails, the run log says so and the PR falls back to the PAT owner.
 
 **App trust note.** The private key is more powerful than the PAT: it can mint tokens for **every** installation of the App with **all** of the App's granted permissions; the per-repo, per-permission scoping is applied by the CLI, not by GitHub. Hence a dedicated App, minimal permissions and minimal installations. The CLI reads the key once at start and removes it from its process environment, so the sandbox and the `docker`/`git`/`gh` children never inherit it; the key and every minted token are redacted from logs, comments and run records. Rotate the key from the App settings if it may have leaked.
 
