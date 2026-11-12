@@ -7,6 +7,7 @@ import { spawn, type ChildProcess } from 'node:child_process';
 import { join } from 'node:path';
 import { readAppConfig } from './app-config.js';
 import { BadRequestError } from '../sidecar/sidecar.js';
+import { stateDir } from '../core/state-path.js';
 
 /** Allowlist, deliberately not an Omit<> of some wider type: every field here is one the caller is
  * permitted to send. A new field must be added HERE to cross the RPC boundary (mirrors ipc.ts's
@@ -137,7 +138,7 @@ export class CompleteRegistry {
         model: params.model,
         ...(params.attachments !== undefined ? { attachments: params.attachments } : {}),
         ...(trusted !== undefined ? { baseUrl: trusted } : {}),
-        assetRoot: join(repoPath, '.vanguard', 'drafts'),
+        assetRoot: join(stateDir(repoPath), 'drafts'),
       };
       return await exchange(child, req, this.timeoutMs);
     } finally {

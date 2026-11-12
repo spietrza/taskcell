@@ -9,6 +9,9 @@ coverage/
 # ...and the committed approver policy: the approver reads it from the BASE branch
 # (git show origin/<base>:.vanguard/approver.json), so it must be tracked.
 !.vanguard/approver.json
+# Same for the current state dir name (.vanguard/ is the legacy one).
+.taskcell/*
+!.taskcell/approver.json
 *.log
 docker/sbom.spdx.json
 package-lock.json

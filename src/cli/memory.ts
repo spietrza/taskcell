@@ -9,7 +9,7 @@ import type { Command } from './args.js';
 
 type MemoryCommand = Extract<Command, { kind: 'memory' }>;
 
-/** Refresh .vanguard/memory/retrospective.md from run artifacts, then print it (or the raw report with --json). */
+/** Refresh .taskcell/memory/retrospective.md from run artifacts, then print it (or the raw report with --json). */
 export async function memoryCommand(cmd: MemoryCommand): Promise<void> {
   // exactOptionalPropertyTypes: omit `limit` entirely when absent so the builder default applies.
   const opts = cmd.limit !== undefined ? { limit: cmd.limit } : {};

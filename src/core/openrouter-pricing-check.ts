@@ -2,6 +2,7 @@ import { readFile } from 'node:fs/promises';
 import { join } from 'node:path';
 import { OPENROUTER_PRICING, PRICED_MODELS } from './openrouter-pricing.js';
 import { parseJsonlLines } from './stats.js';
+import { stateDir } from './state-path.js';
 
 /** OpenRouter /models response subset we depend on. Prices are USD-per-TOKEN strings. */
 export interface OpenRouterModel {
@@ -165,11 +166,11 @@ export function scanUsedModelsFromMetricsText(text: string): Set<string> {
   return used;
 }
 
-/** Read .vanguard/runs/metrics.jsonl and return distinct used-model strings; empty if absent. */
+/** Read .taskcell/runs/metrics.jsonl and return distinct used-model strings; empty if absent. */
 export async function scanUsedModels(repoPath: string): Promise<Set<string>> {
   let text: string;
   try {
-    text = await readFile(join(repoPath, '.vanguard', 'runs', 'metrics.jsonl'), 'utf8');
+    text = await readFile(join(stateDir(repoPath), 'runs', 'metrics.jsonl'), 'utf8');
   } catch {
     return new Set();
   }

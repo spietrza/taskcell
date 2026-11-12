@@ -1,6 +1,6 @@
 import { readdir, readFile, rename, unlink, writeFile } from 'node:fs/promises';
 import { join } from 'node:path';
-import { assertStatePath, ensureStateDir } from '../core/state-path.js';
+import { assertStatePath, ensureStateDir, stateDir } from '../core/state-path.js';
 import { FLOWS } from '../api/capabilities.js';
 import type { PipelineStage } from '../pipeline/pipeline.js';
 import { emitFlowDoc } from './emit-doc.js';
@@ -10,7 +10,7 @@ import type { CustomProviderEntry } from '../agents/registry.js';
 import type { FlowDoc, LoopDecl, StageDecl, StageOverrides } from './types.js';
 
 /**
- * Repo flow discovery + resolution over `<repoPath>/.vanguard/flows/*.hcl` (S5). The parser is
+ * Repo flow discovery + resolution over `<repoPath>/.taskcell/flows/*.hcl` (S5). The parser is
  * imported LAZILY inside each function — @cdktf/hcl2json gunzips and instantiates its WASM at
  * module load, and neither the CLI (a run with no `--flow`) nor sidecar startup may pay that
  * (S5 Constraint 5; guarded by lazy-imports.test.ts).
@@ -35,7 +35,7 @@ export const FLOW_FILE_RE = /^[a-z0-9][a-z0-9._-]*\.hcl$/;
 export { FLOW_NAME_RE } from '../wire.js';
 import { FLOW_NAME_RE } from '../wire.js';
 
-const flowsDir = (repoPath: string): string => join(repoPath, '.vanguard', 'flows');
+const flowsDir = (repoPath: string): string => join(stateDir(repoPath), 'flows');
 
 /**
  * The ONE semantic validity predicate — list, write, and the run fail-fast all apply it, so a flow
@@ -212,7 +212,7 @@ export async function writeRepoFlow(repoPath: string, file: string, doc: FlowDoc
   } catch (err) {
     throw new FlowError(err instanceof Error ? err.message : String(err));
   }
-  // A repo-committed symlink under `.vanguard` must not redirect the write out of the checkout.
+  // A repo-committed symlink under `.taskcell` must not redirect the write out of the checkout.
   const dir = await ensureStateDir(repoPath, flowsDir(repoPath));
   const tmp = join(dir, `.${file}.tmp`);
   // writeFile follows a leaf symlink, rename replaces one without following it: guard the temp file only.

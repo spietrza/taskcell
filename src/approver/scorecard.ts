@@ -90,7 +90,7 @@ export function parseDecisions(text: string): ShadowDecision[] {
 
 const PATH_RULE_RE = /^path:(.+)$/;
 
-/** Risk classes signalled by the decision's own `path:<key>` rules (see `.vanguard/approver.json`'s
+/** Risk classes signalled by the decision's own `path:<key>` rules (see `.taskcell/approver.json`'s
  * `pathRules`), or `['general']` when none fired — which, by construction, is every APPROVE. */
 export function riskClassesOf(rulesFired: ReadonlyArray<string>): string[] {
   const classes = [...new Set(rulesFired.map((rule) => PATH_RULE_RE.exec(rule)?.[1]).filter((c): c is string => c !== undefined))];

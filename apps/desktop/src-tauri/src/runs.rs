@@ -1,11 +1,25 @@
 use std::fs;
 use std::io;
-use std::path::Path;
+use std::path::{Path, PathBuf};
 
 use crate::sidecar::{board_request, Sidecar};
 
-pub fn runs_dir(repo_path: &Path) -> std::path::PathBuf {
-    repo_path.join(".vanguard").join("runs")
+/// Per-repo state dir names: current first, then the legacy name still read and written.
+pub const STATE_DIR_NAMES: [&str; 2] = [".taskcell", ".vanguard"];
+
+/// The repo's state dir: `.taskcell/`, or the legacy `.vanguard/` while only that one exists
+/// (same rule as the CLI's `stateDir`).
+pub fn state_dir(repo_path: &Path) -> PathBuf {
+    let current = repo_path.join(STATE_DIR_NAMES[0]);
+    let legacy = repo_path.join(STATE_DIR_NAMES[1]);
+    if current.symlink_metadata().is_err() && legacy.symlink_metadata().is_ok() {
+        return legacy;
+    }
+    current
+}
+
+pub fn runs_dir(repo_path: &Path) -> PathBuf {
+    state_dir(repo_path).join("runs")
 }
 
 /// Read a file's text but refuse a symlinked leaf: a repo under inspection could plant a
@@ -41,6 +55,16 @@ pub fn read_run(state: &Sidecar, root: &Path, task_id: &str, timestamp: &str) ->
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn state_dir_prefers_taskcell_and_falls_back_to_legacy() {
+        let tmp = tempfile::tempdir().unwrap();
+        assert_eq!(state_dir(tmp.path()), tmp.path().join(".taskcell"));
+        fs::create_dir(tmp.path().join(".vanguard")).unwrap();
+        assert_eq!(state_dir(tmp.path()), tmp.path().join(".vanguard"));
+        fs::create_dir(tmp.path().join(".taskcell")).unwrap();
+        assert_eq!(state_dir(tmp.path()), tmp.path().join(".taskcell"));
+    }
 
     #[test]
     fn forwards_params_verbatim() {

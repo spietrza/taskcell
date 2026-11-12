@@ -70,10 +70,10 @@ function makeFakeWatch(): {
 
 describe('isDraftPath', () => {
   it('matches structurally, with adjacency required', () => {
-    expect(isDraftPath('/r/.vanguard/drafts/draft-a.json')).toBe(true);
-    expect(isDraftPath('/r/.vanguard/drafts/.gitignore')).toBe(true);
-    expect(isDraftPath('/r/.vanguard/runs/x.json')).toBe(false);
-    expect(isDraftPath('/r/drafts/.vanguard/x')).toBe(false);
+    expect(isDraftPath('/r/.taskcell/drafts/draft-a.json')).toBe(true);
+    expect(isDraftPath('/r/.taskcell/drafts/.gitignore')).toBe(true);
+    expect(isDraftPath('/r/.taskcell/runs/x.json')).toBe(false);
+    expect(isDraftPath('/r/drafts/.taskcell/x')).toBe(false);
     expect(isDraftPath('/r/src/drafts/a.json')).toBe(false);
     expect(isDraftPath('/r/.vanguard')).toBe(false);
   });
@@ -85,15 +85,15 @@ describe('WatchRegistry — fs.watch mode (real fs smoke test)', () => {
   // run it where that platform noise would make it flaky. The deterministic cases below drive
   // WatchRegistry through an injected fake watcher instead.
   it.skipIf(process.platform !== 'linux')(
-    'T-71: a write under .vanguard/runs causes exactly one debounced onChange with the right repoPath',
+    'T-71: a write under .taskcell/runs causes exactly one debounced onChange with the right repoPath',
     async () => {
-      await mkdir(join(tmp, '.vanguard', 'runs'), { recursive: true });
+      await mkdir(join(tmp, '.taskcell', 'runs'), { recursive: true });
       const registry = new WatchRegistry();
       const onChange = vi.fn();
       registry.watchProject(tmp, onChange);
 
-      await write(join(tmp, '.vanguard', 'runs', 'task-1', 'run.json'), '{}');
-      await write(join(tmp, '.vanguard', 'runs', 'task-1', 'run.json'), '{"a":1}');
+      await write(join(tmp, '.taskcell', 'runs', 'task-1', 'run.json'), '{}');
+      await write(join(tmp, '.taskcell', 'runs', 'task-1', 'run.json'), '{"a":1}');
 
       await waitPastDebounce();
 
@@ -115,8 +115,8 @@ describe('WatchRegistry — fs.watch mode (fake watcher, deterministic)', () => 
   });
 
   it('T-72: drafts-only bursts are suppressed; a mixed burst with a non-draft path triggers', async () => {
-    await mkdir(join(tmp, '.vanguard', 'drafts'), { recursive: true });
-    await mkdir(join(tmp, '.vanguard', 'runs'), { recursive: true });
+    await mkdir(join(tmp, '.taskcell', 'drafts'), { recursive: true });
+    await mkdir(join(tmp, '.taskcell', 'runs'), { recursive: true });
     const fake = makeFakeWatch();
     const registry = new WatchRegistry({ watchFn: fake.watchFn });
     const onChange = vi.fn();
@@ -139,7 +139,7 @@ describe('WatchRegistry — fs.watch mode (fake watcher, deterministic)', () => 
   });
 
   it('T-73: re-watchProject replaces (no duplicate callbacks); unwatchProject stops further callbacks', async () => {
-    await mkdir(join(tmp, '.vanguard', 'runs'), { recursive: true });
+    await mkdir(join(tmp, '.taskcell', 'runs'), { recursive: true });
     const fake = makeFakeWatch();
     const registry = new WatchRegistry({ watchFn: fake.watchFn });
     const onChange = vi.fn();
@@ -173,14 +173,14 @@ describe('WatchRegistry — polling mode', () => {
   });
 
   it('T-74: forcePoll detects a new run record file once the fingerprint changes', async () => {
-    await mkdir(join(tmp, '.vanguard', 'runs'), { recursive: true });
+    await mkdir(join(tmp, '.taskcell', 'runs'), { recursive: true });
     const registry = new WatchRegistry({ forcePoll: true, pollIntervalMs: 2000 });
     const onChange = vi.fn();
 
     registry.watchProject(tmp, onChange);
     await flushAsync(); // let the immediate baseline poll settle before anything changes
 
-    await write(join(tmp, '.vanguard', 'runs', 'task-4', 'run.json'), '{}');
+    await write(join(tmp, '.taskcell', 'runs', 'task-4', 'run.json'), '{}');
 
     vi.advanceTimersByTime(2000);
     await flushAsync();
@@ -199,7 +199,7 @@ describe('WatchRegistry — polling mode', () => {
     await flushAsync();
 
     // The repo (and a run) appears later — the polling fallback should still pick it up.
-    await write(join(missingRepo, '.vanguard', 'runs', 'task-5', 'run.json'), '{}');
+    await write(join(missingRepo, '.taskcell', 'runs', 'task-5', 'run.json'), '{}');
 
     vi.advanceTimersByTime(2000);
     await flushAsync();

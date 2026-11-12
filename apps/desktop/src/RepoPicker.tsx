@@ -73,7 +73,7 @@ export function RepoPicker({
     try {
       await onAdd(listing.path);
     } catch (err) {
-      setError(`Could not add this repo: ${errorMessage(err)} — check it has a .vanguard directory and try again.`);
+      setError(`Could not add this repo: ${errorMessage(err)} — check it has a .taskcell directory and try again.`);
     }
   };
 
@@ -160,7 +160,7 @@ export function RepoPicker({
                     <span className="rounded border border-border px-1.5 py-0.5 text-[10px] text-muted-foreground">git</span>
                   )}
                   {entry.hasVanguard && (
-                    <span className="rounded border border-border px-1.5 py-0.5 text-[10px] text-muted-foreground">.vanguard</span>
+                    <span className="rounded border border-border px-1.5 py-0.5 text-[10px] text-muted-foreground">.taskcell</span>
                   )}
                 </span>
               </button>

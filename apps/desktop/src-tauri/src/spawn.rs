@@ -60,7 +60,7 @@ pub fn list_spawns(state: &SpawnState) -> Vec<SpawnInfo> {
 }
 
 /// Build the child for `argv` (program first) in `cwd` — run directly, NO shell. The argv is built
-/// from project config (`.vanguard/app.json` is repo content), so each element must stay one
+/// from project config (`.taskcell/app.json` is repo content), so each element must stay one
 /// argument: shell metacharacters in a value are passed through literally, never interpreted.
 /// `argv[0]` resolves on the inherited PATH, as it would in a shell. stdout and stderr are both piped
 /// and merged by the readers (what `2>&1` did under the old `sh -c` launcher).

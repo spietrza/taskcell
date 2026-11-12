@@ -13,6 +13,7 @@ import { columnFor, mintBoardId, resolveTaskRef, taskRefKey, toBoardTask } from 
 import type { BoardSource } from './board.js';
 import type { TaskFetcher } from './fetcher.js';
 import type { BoardTask } from '../wire.js';
+import { stateDir } from '../core/state-path.js';
 
 export { columnFor, mintBoardId, resolveTaskRef, toBoardTask };
 
@@ -20,7 +21,7 @@ export { columnFor, mintBoardId, resolveTaskRef, toBoardTask };
 export const BOARD_FETCH_CAP = 50;
 
 /**
- * The board's slice of `.vanguard/app.json` (`source`/`team`/`label`), read leniently like
+ * The board's slice of `.taskcell/app.json` (`source`/`team`/`label`), read leniently like
  * `loadCustomProviders` — the desktop owns the file; core reads exactly what it needs.
  */
 export interface BoardConfig {
@@ -32,7 +33,7 @@ export interface BoardConfig {
 export async function readBoardConfig(repoPath: string): Promise<BoardConfig> {
   let raw: string;
   try {
-    raw = await readFile(join(repoPath, '.vanguard', 'app.json'), 'utf8');
+    raw = await readFile(join(stateDir(repoPath), 'app.json'), 'utf8');
   } catch {
     return {};
   }
@@ -197,7 +198,7 @@ export async function listBoardTasks(
  * id is DISCARDED — `gh-other-repo-904` fetches issue 904 of THIS repo, because `other-repo-904`
  * cannot be split back into owner/repo deterministically (hyphens are ambiguous) and the retired
  * spec.rs shelled `gh` in the repo cwd with exactly the same semantics. Cross-repo run records
- * only arise when .vanguard state is copied between repos.
+ * only arise when .taskcell state is copied between repos.
  */
 export async function fetchTaskSpec(repoPath: string, taskId: string): Promise<{ spec: string }> {
   const resolved = resolveTaskRef(taskId);

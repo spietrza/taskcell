@@ -8,7 +8,7 @@ use serde::{Deserialize, Serialize};
 use crate::runs;
 use crate::sidecar::Sidecar;
 
-/// Artifact name the factory workflows upload `.vanguard/runs/` under (`upload-run-records`).
+/// Artifact name the factory workflows upload `.taskcell/runs/` under (`upload-run-records`).
 const ARTIFACT: &str = "vanguard-runs";
 
 #[derive(Debug, Clone, Serialize)]
@@ -27,7 +27,7 @@ pub struct RemoteRun {
     pub cached: bool,
 }
 
-/// A CI run's downloaded `vanguard-runs` artifact, parsed like a local `.vanguard/runs`. Mirrors
+/// A CI run's downloaded `vanguard-runs` artifact, parsed like a local `.taskcell/runs`. Mirrors
 /// the hub's `RemoteImport` (src/hub/remote.ts) byte-for-shape — same TS type on the wire.
 #[derive(Debug, Clone, Serialize)]
 #[serde(rename_all = "camelCase")]
@@ -100,7 +100,7 @@ fn repo_slug(repo_path: &Path) -> String {
         .unwrap_or_else(|| "repo".into())
 }
 
-/// `<cache_root>/remote-runs/<slug>/<run_id>` — a fake repo root whose `.vanguard/runs` is the
+/// `<cache_root>/remote-runs/<slug>/<run_id>` — a fake repo root whose `.taskcell/runs` is the
 /// downloaded artifact, so core derives the same runs root.
 fn cache_repo_dir(cache_root: &Path, slug: &str, run_id: u64) -> PathBuf {
     cache_root.join("remote-runs").join(slug).join(run_id.to_string())
@@ -153,7 +153,7 @@ pub fn list_remote_runs(cache_root: &Path, repo_path: &Path) -> Result<Vec<Remot
 
 fn fetch_artifact(repo_path: &Path, run_id: u64, dest: &Path) -> Result<(), String> {
     fs::create_dir_all(dest).map_err(|e| e.to_string())?;
-    // A single `-n` makes gh extract straight into `-D`; upload-artifact strips the `.vanguard/runs/`
+    // A single `-n` makes gh extract straight into `-D`; upload-artifact strips the `.taskcell/runs/`
     // prefix, so `<dest>/<taskId>/<record>.json` lands exactly where runs.rs looks.
     let out = Command::new("gh")
         .args(download_args(run_id, dest))
@@ -218,10 +218,10 @@ mod tests {
         let repo = cache_repo_dir(Path::new("/cfg"), "SebaBoler-vanguard", 42);
         assert_eq!(repo, Path::new("/cfg/remote-runs/SebaBoler-vanguard/42"));
         let dest = runs::runs_dir(&repo);
-        assert_eq!(dest, Path::new("/cfg/remote-runs/SebaBoler-vanguard/42/.vanguard/runs"));
+        assert_eq!(dest, Path::new("/cfg/remote-runs/SebaBoler-vanguard/42/.taskcell/runs"));
         assert_eq!(
             download_args(42, &dest),
-            ["run", "download", "42", "-n", "vanguard-runs", "-D", "/cfg/remote-runs/SebaBoler-vanguard/42/.vanguard/runs"]
+            ["run", "download", "42", "-n", "vanguard-runs", "-D", "/cfg/remote-runs/SebaBoler-vanguard/42/.taskcell/runs"]
         );
     }
 
@@ -291,6 +291,6 @@ mod tests {
         let root = resolve_root(tmp.path(), &repo, &RunSource::Ci { run_id: 42 });
         let params = runs::read_run_params(&root, "task", "ts");
         assert_eq!(params["repoPath"], tmp.path().join("remote-runs/proj/42").to_string_lossy().as_ref());
-        assert_eq!(runs::runs_dir(&root), root.join(".vanguard/runs"));
+        assert_eq!(runs::runs_dir(&root), root.join(".taskcell/runs"));
     }
 }

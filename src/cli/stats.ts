@@ -8,6 +8,7 @@ import { collectApproverScorecard } from '../approver/outcome.js';
 import { leadTimeRollupForPrUrls } from '../core/lead-time-github.js';
 import { formatLeadTime } from '../core/lead-time.js';
 import type { Command } from './args.js';
+import { stateDir } from '../core/state-path.js';
 
 type StatsCommand = Extract<Command, { kind: 'stats' }>;
 
@@ -31,7 +32,7 @@ async function approverScorecardCommand(cmd: StatsCommand): Promise<void> {
 }
 
 /**
- * Read metrics.jsonl — the local .vanguard/runs copy, or with --branch the durable copy `metrics push`
+ * Read metrics.jsonl — the local .taskcell/runs copy, or with --branch the durable copy `metrics push`
  * keeps on the metrics branch — and print an aggregated cost/token/time rollup. `--approver` prints the
  * shadow approver scorecard instead.
  */
@@ -48,7 +49,7 @@ export async function statsCommand(cmd: StatsCommand): Promise<void> {
       return;
     }
   } else {
-    const file = join(cmd.repoPath, '.vanguard', 'runs', 'metrics.jsonl');
+    const file = join(stateDir(cmd.repoPath), 'runs', 'metrics.jsonl');
     try {
       text = await readFile(file, 'utf8');
     } catch {

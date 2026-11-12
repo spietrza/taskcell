@@ -8,10 +8,10 @@ import type { AgentProvider, AgentRunInput } from './provider.js';
 /**
  * Custom providers (Subsystem 6): named, repo-configured, KEYED Anthropic-Messages-compatible
  * endpoints driven by the in-sandbox `claude` CLI — a generalized zai. Configured under
- * `customProviders` in `<repoPath>/.vanguard/app.json`; the key itself is never stored, only the
+ * `customProviders` in `<repoPath>/.taskcell/app.json`; the key itself is never stored, only the
  * NAME of the host env var holding it (spec §2 — the credentials invariant).
  *
- * Trust model (spec §2): `.vanguard/` is trusted-as-code — flow refs already execute repo TS on the
+ * Trust model (spec §2): `.taskcell/` is trusted-as-code — flow refs already execute repo TS on the
  * host — so this loader treats the file as trusted input and validates shape, not intent.
  */
 export type { CustomProviderSpec };
@@ -31,6 +31,7 @@ export interface CustomProviderEntry {
 import { FLOW_NAME_RE as NAME_RE, KEY_ENV_RE, CUSTOM_PROVIDER_KEYS } from '../wire.js';
 import type { CustomProviderSpec } from '../wire.js';
 import { INJECTED_SECRET_ENV_VARS } from '../core/secret-scan.js';
+import { stateDir } from '../core/state-path.js';
 
 const ENTRY_KEYS: ReadonlySet<string> = new Set(CUSTOM_PROVIDER_KEYS);
 
@@ -81,7 +82,7 @@ function isUrl(value: string): boolean {
 }
 
 /**
- * Read `customProviders` from `<repoPath>/.vanguard/app.json`. Lenient at the edges, loud at
+ * Read `customProviders` from `<repoPath>/.taskcell/app.json`. Lenient at the edges, loud at
  * resolution (spec §5): missing file / missing key / null / [] ⇒ [] (the desktop's emit-all serde
  * writes `"customProviders": null` for absent). An unreadable file or non-array value yields ONE
  * error-flagged pseudo-entry (index -1) — never a throw, so a broken config cannot break
@@ -90,7 +91,7 @@ function isUrl(value: string): boolean {
 export async function loadCustomProviders(repoPath: string): Promise<CustomProviderEntry[]> {
   let raw: string;
   try {
-    raw = await readFile(join(repoPath, '.vanguard', 'app.json'), 'utf8');
+    raw = await readFile(join(stateDir(repoPath), 'app.json'), 'utf8');
   } catch {
     return []; // no config file — every repo without customs pays nothing
   }
@@ -99,7 +100,7 @@ export async function loadCustomProviders(repoPath: string): Promise<CustomProvi
     parsed = JSON.parse(raw);
   } catch (error) {
     const message = error instanceof Error ? error.message : String(error);
-    return [{ index: -1, error: `.vanguard/app.json is not valid JSON: ${message}` }];
+    return [{ index: -1, error: `.taskcell/app.json is not valid JSON: ${message}` }];
   }
   const value = typeof parsed === 'object' && parsed !== null && !Array.isArray(parsed)
     ? (parsed as Record<string, unknown>).customProviders

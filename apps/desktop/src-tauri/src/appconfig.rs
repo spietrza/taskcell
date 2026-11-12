@@ -4,7 +4,7 @@ use std::path::{Path, PathBuf};
 
 use serde::{Deserialize, Serialize};
 
-/// The app's per-project config (`.vanguard/app.json`, spec §6). All optional; the CLI does not read
+/// The app's per-project config (`.taskcell/app.json`, spec §6). All optional; the CLI does not read
 /// this — the app translates it into flags / a launch command.
 #[derive(Debug, Clone, Default, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase", default)]
@@ -36,7 +36,7 @@ pub struct AppConfig {
 }
 
 fn config_path(repo: &Path) -> PathBuf {
-    repo.join(".vanguard").join("app.json")
+    crate::runs::state_dir(repo).join("app.json")
 }
 
 pub fn read(repo: &Path) -> AppConfig {
@@ -55,13 +55,13 @@ pub fn read_strict(repo: &Path) -> Result<AppConfig, String> {
         // "a file exists that we could not read" — Save must stay blocked, or a later write clobbers
         // the file this guard exists to protect (review #341 obs 1).
         Err(e) if e.kind() == io::ErrorKind::NotFound => Ok(AppConfig::default()),
-        Err(e) => Err(format!(".vanguard/app.json is unreadable: {e}")),
-        Ok(s) => serde_json::from_str(&s).map_err(|e| format!(".vanguard/app.json is unreadable: {e}")),
+        Err(e) => Err(format!(".taskcell/app.json is unreadable: {e}")),
+        Ok(s) => serde_json::from_str(&s).map_err(|e| format!(".taskcell/app.json is unreadable: {e}")),
     }
 }
 
 pub fn write(repo: &Path, cfg: &AppConfig) -> io::Result<()> {
-    fs::create_dir_all(repo.join(".vanguard"))?;
+    fs::create_dir_all(crate::runs::state_dir(repo))?;
     let json = serde_json::to_string_pretty(cfg).map_err(io::Error::other)?;
     fs::write(config_path(repo), json)
 }
@@ -97,7 +97,7 @@ mod tests {
     fn read_strict_distinguishes_unreadable_from_absent() {
         let tmp = tempfile::tempdir().unwrap();
         assert!(read_strict(tmp.path()).is_ok()); // absent -> defaults
-        fs::create_dir_all(tmp.path().join(".vanguard")).unwrap();
+        fs::create_dir_all(tmp.path().join(".taskcell")).unwrap();
         fs::write(config_path(tmp.path()), "{not json").unwrap();
         assert!(read_strict(tmp.path()).is_err()); // unreadable -> error, NOT Default
         assert!(read(tmp.path()).source.is_none()); // passive read keeps collapse-to-default
@@ -117,7 +117,7 @@ mod tests {
         // The S6 invariant: a read→write cycle (any Settings save) must preserve hand-written
         // customProviders byte-content — including entry keys this binary has never heard of.
         let tmp = tempfile::tempdir().unwrap();
-        fs::create_dir_all(tmp.path().join(".vanguard")).unwrap();
+        fs::create_dir_all(tmp.path().join(".taskcell")).unwrap();
         fs::write(
             config_path(tmp.path()),
             r#"{"label":"x","customProviders":[{"name":"my-proxy","baseUrl":"https://llm.example.com/api","keyEnv":"MY_KEY","model":"glm-5.2","futureKey":{"nested":true}}]}"#,

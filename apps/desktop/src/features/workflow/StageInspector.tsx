@@ -54,7 +54,7 @@ export function StageInspector({
       <Field label="Stage">
         <EnumSelect value={stage.name} onValueChange={onSetName} options={nameOptions} />
       </Field>
-      <Field label="ref (custom TS step, relpath#export under .vanguard/)">
+      <Field label="ref (custom TS step, relpath#export under .taskcell/)">
         <Input
           value={stage.ref ?? ''}
           onChange={(e) => onSetRef(e.target.value)}

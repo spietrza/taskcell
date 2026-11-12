@@ -12,6 +12,7 @@
 
 # VCS, run records, worktrees, local tool state
 .git
+.taskcell
 .vanguard
 .claude
 .gstack

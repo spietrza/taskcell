@@ -22,6 +22,8 @@ describe('gate config detection', () => {
     '.coveragerc',
     '.vanguard/gate-config.json',
     '.vanguard/approver.json',
+    '.taskcell/gate-config.json',
+    '.taskcell/approver.json',
   ])('matches the built-in glob for %s', (path) => {
     expect(gateConfigPaths([{ path }])).toEqual([path]);
   });

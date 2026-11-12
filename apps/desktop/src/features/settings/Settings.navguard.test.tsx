@@ -89,7 +89,7 @@ test('an edit made while the write is in flight keeps dirty true', async () => {
 
 test('dirty-but-unsavable is still guarded: unreadable config', async () => {
   const registry = createNavGuardRegistry();
-  read.mockRejectedValueOnce(new Error('.vanguard/app.json is unreadable'));
+  read.mockRejectedValueOnce(new Error('.taskcell/app.json is unreadable'));
   renderSettings(registry);
   await waitFor(() => expect(screen.getByText(/app\.json is unreadable/i)).toBeInTheDocument());
   fireEvent.change(screen.getByPlaceholderText('vanguard-ready'), { target: { value: 'x' } });

@@ -42,9 +42,9 @@ describe('RepoPicker', () => {
     const gitRow = screen.getByText('git-repo').closest('button')!;
     const plainRow = screen.getByText('plain').closest('button')!;
     expect(within(gitRow).getByText('git')).toBeInTheDocument();
-    expect(within(gitRow).getByText('.vanguard')).toBeInTheDocument();
+    expect(within(gitRow).getByText('.taskcell')).toBeInTheDocument();
     expect(within(plainRow).queryByText('git')).not.toBeInTheDocument();
-    expect(within(plainRow).queryByText('.vanguard')).not.toBeInTheDocument();
+    expect(within(plainRow).queryByText('.taskcell')).not.toBeInTheDocument();
 
     // Root itself isn't known to be a git repo — Add starts disabled.
     expect(screen.getByRole('button', { name: /add this repo/i })).toBeDisabled();

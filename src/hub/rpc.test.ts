@@ -273,7 +273,7 @@ describe('dispatchRpc', () => {
     await promise;
     const payload = JSON.parse(sent.trim()) as Record<string, unknown>;
     expect(payload.baseUrl).toBe('https://proxy.internal');
-    expect(payload.assetRoot).toBe(join(repo, '.vanguard', 'drafts'));
+    expect(payload.assetRoot).toBe(join(repo, '.taskcell', 'drafts'));
   });
 
   test('T-62 api_complete forwards only the CompleteParams allowlist fields', async () => {

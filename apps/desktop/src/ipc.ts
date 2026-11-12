@@ -136,7 +136,7 @@ export function listRemoteRuns(repoPath: string): Promise<RemoteRun[]> {
 
 /** Import a CI run's record artifact (once; a cache hit skips `gh`) and group it into run summaries.
  *  Both backends implement it — the desktop caches under the app config dir, the hub under the
- *  project's `.vanguard/remote-runs/<id>`. Open one with `readRun(project, { source: { kind: 'ci',
+ *  project's `.taskcell/remote-runs/<id>`. Open one with `readRun(project, { source: { kind: 'ci',
  *  runId }, … })`: the root stays on whichever side imported it. */
 export function importRemoteRun(repoPath: string, runId: number): Promise<RemoteImport> {
   return call('import_remote_run', { repoPath, runId });
@@ -292,7 +292,7 @@ export function clearDraftAssets(repoPath: string, id: string): Promise<void> {
   return call('clear_draft_assets', { repoPath, id });
 }
 
-// Task drafts (S10): one JSON file per draft under `.vanguard/drafts/`; the webview owns the shape
+// Task drafts (S10): one JSON file per draft under `.taskcell/drafts/`; the webview owns the shape
 // (see features/task/draftStore.ts), Rust is dumb storage.
 export function listDrafts(repoPath: string): Promise<string[]> {
   return call('list_drafts', { repoPath });

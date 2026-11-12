@@ -61,7 +61,7 @@ export function Settings({ project }: { project: string }) {
   const [saved, setSaved] = useState(false);
 
   // Shell navigation unmounts this screen — see useDiscardGuard (S8 seam, #339 follow-up).
-  useDiscardGuard(dirty, () => window.confirm('Discard unsaved changes to .vanguard/app.json?'));
+  useDiscardGuard(dirty, () => window.confirm('Discard unsaved changes to .taskcell/app.json?'));
 
   const set = <K extends keyof AppConfig>(k: K, v: AppConfig[K]): void => {
     setCfg((c) => ({ ...c, [k]: v }));
@@ -104,7 +104,7 @@ export function Settings({ project }: { project: string }) {
     <div className="mx-auto max-w-2xl space-y-5">
       <div className="flex items-center gap-3">
         <h2 className="text-xl font-semibold">Settings</h2>
-        <code className="text-xs text-muted-foreground">.vanguard/app.json</code>
+        <code className="text-xs text-muted-foreground">.taskcell/app.json</code>
         <Button className="ml-auto" onClick={save} disabled={!savable}>
           {saved ? 'Saved' : 'Save'}
         </Button>
@@ -112,7 +112,7 @@ export function Settings({ project }: { project: string }) {
 
       {cfgStatus === 'error' && (
         <div role="alert" className="rounded-md border border-destructive/40 bg-destructive/10 p-3 text-sm text-muted-foreground">
-          <span className="font-semibold text-destructive-text">.vanguard/app.json is unreadable</span> — fix
+          <span className="font-semibold text-destructive-text">.taskcell/app.json is unreadable</span> — fix
           its JSON by hand before editing here; saving now would replace the whole file.
         </div>
       )}

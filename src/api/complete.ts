@@ -122,7 +122,7 @@ export async function runComplete(req: unknown, deps: CompleteDeps): Promise<Com
     return { error: { message: `attached files exceed the ${MAX_INLINE_TOTAL_BYTES}-byte inline limit (${inlineTotal} bytes)` } };
   }
 
-  // baseUrl comes from the project's `.vanguard/app.json` (repo content) and the inherited credential
+  // baseUrl comes from the project's `.taskcell/app.json` (repo content) and the inherited credential
   // follows it, so only an origin the operator allowed in their own environment may receive it.
   if (parsed.baseUrl !== undefined) {
     const refused = baseUrlRefusal(parsed.baseUrl, process.env[CHAT_ALLOWED_ORIGINS_ENV]);

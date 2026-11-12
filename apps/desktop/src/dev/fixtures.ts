@@ -85,7 +85,7 @@ const baseRecord: RunRecord = {
   exitReason: 'complete',
   turns: 12,
   sessionId: 'sess-abc123',
-  worktreePath: `${REPO_PATH}/.vanguard/worktrees/task-001`,
+  worktreePath: `${REPO_PATH}/.taskcell/worktrees/task-001`,
   worktreePreserved: false,
   finalText: 'Implemented the requested feature successfully.',
   usage: { inputTokens: 45000, outputTokens: 8200, cacheReadInputTokens: 12000 },
@@ -152,7 +152,7 @@ export const runDetail: RunDetail = {
 export const activeRuns: ActiveRun[] = [
   {
     taskId: 'task-active-001',
-    sessionFile: `${REPO_PATH}/.vanguard/sessions/task-active-001.jsonl`,
+    sessionFile: `${REPO_PATH}/.taskcell/sessions/task-active-001.jsonl`,
     lastActivityMs: 1752530000000,
   },
 ];
@@ -241,8 +241,8 @@ export const capabilities: Capabilities = {
 };
 
 export const repoFlows: RepoFlowInfo[] = [
-  { file: '.vanguard/flows/plan-implement-review.hcl', name: 'plan-implement-review', label: 'Plan → Implement → Review' },
-  { file: '.vanguard/flows/quick-fix.hcl', name: 'quick-fix', label: 'Quick Fix' },
+  { file: '.taskcell/flows/plan-implement-review.hcl', name: 'plan-implement-review', label: 'Plan → Implement → Review' },
+  { file: '.taskcell/flows/quick-fix.hcl', name: 'quick-fix', label: 'Quick Fix' },
 ];
 
 export const repoProviders: RepoProviderInfo[] = [
@@ -288,7 +288,7 @@ export const createdTask: CreatedTask = {
   url: 'https://linear.app/org/issue/LINEAR-999',
 };
 
-/** RepoPicker (hub mode): one `browse_dirs` page — a mix of plain, git-only and git+.vanguard dirs. */
+/** RepoPicker (hub mode): one `browse_dirs` page — a mix of plain, git-only and git+.taskcell dirs. */
 export const dirListing: DirListing = {
   path: '/home/user/projects',
   parent: '/home/user',

@@ -665,7 +665,7 @@ describe('runSpecGenerator', () => {
 
     // Persisted with the 'spec' label (no PR/publish: runSpecGenerator imports neither
     // publishForReview nor commitStage, so no .diff/PR record is produced).
-    const runsDir = join(repo, '.vanguard', 'runs', 'spec-eng-7');
+    const runsDir = join(repo, '.taskcell', 'runs', 'spec-eng-7');
     const files = await readdir(runsDir);
     expect(files.some((f) => f.endsWith('-spec.json'))).toBe(true);
   });

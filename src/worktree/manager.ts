@@ -1,8 +1,8 @@
 import { execa } from 'execa';
 import { randomUUID } from 'node:crypto';
-import { join, relative } from 'node:path';
+import { join } from 'node:path';
 import { assertSafeBaseBranch } from '../core/base-branch.js';
-import { assertStatePath, stateDir } from '../core/state-path.js';
+import { assertStatePath, isUnderStateDir, stateDir } from '../core/state-path.js';
 import { WorktreeError } from '../core/errors.js';
 import { hostGitArgs } from './host-git.js';
 
@@ -51,7 +51,7 @@ function parseWorktreeList(output: string): Array<{ path: string; branch: string
 export class WorktreeManager {
   constructor(
     private readonly repoPath: string,
-    private readonly baseDir: string = join(repoPath, '.vanguard', 'worktrees'),
+    private readonly baseDir: string = join(stateDir(repoPath), 'worktrees'),
     private readonly newRunId: () => string = defaultRunId,
   ) {}
 
@@ -77,10 +77,10 @@ export class WorktreeManager {
     }
   }
 
-  /** The default baseDir is under `.vanguard`: a repo-committed symlink there must not place the
+  /** The default baseDir is under `.taskcell`: a repo-committed symlink there must not place the
    * worktree (and every later copy-back write into it) outside the checkout. */
   private async assertInsideCheckout(path: string): Promise<void> {
-    if (relative(stateDir(this.repoPath), path).startsWith('..')) return; // a caller-chosen baseDir elsewhere
+    if (!isUnderStateDir(this.repoPath, path)) return; // a caller-chosen baseDir elsewhere
     try {
       await assertStatePath(this.repoPath, path);
     } catch (cause) {

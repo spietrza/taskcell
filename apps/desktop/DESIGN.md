@@ -253,7 +253,7 @@ code, stage names, diffs, transcripts.
   uppercase, 0.06em, caption teal): the landing's caption voice (`.eyebrow`, `.chip`). The rail's
   "Running" group, summary tile labels, panel captions, Callout labels and table headers. Labels a
   group of controls or a column; never sits above a page heading.
-- **Micro** (400, 10px): inline tags inside a row ("git", ".vanguard", a stage's "review" badge,
+- **Micro** (400, 10px): inline tags inside a row ("git", ".taskcell", a stage's "review" badge,
   the code block's language and copy labels). Never body text.
 - **Title bar** (700, 13px): the window title strip only.
 - **Wordmark** (Schibsted 700, `font-heading`): "Taskcell Hub" next to the mark in the top bar.

@@ -2,19 +2,20 @@
 import { lstat, mkdir, readdir, readFile, rename, rm, stat, unlink, writeFile } from 'node:fs/promises';
 import { join } from 'node:path';
 import { BadRequestError } from '../sidecar/sidecar.js';
+import { stateDir } from '../core/state-path.js';
 
-/** Task drafts live under `<repo>/.vanguard/drafts/` (Subsystem 10) — one JSON file per draft,
+/** Task drafts live under `<repo>/.taskcell/drafts/` (Subsystem 10) — one JSON file per draft,
  * body + chat transcript + meta together. We stay dumb: raw strings in and out, the webview owns
  * the JSON shape. Repo-local so a draft travels with the repo it plans to change. */
 function draftsDir(repoPath: string): string {
-  return join(repoPath, '.vanguard', 'drafts');
+  return join(stateDir(repoPath), 'drafts');
 }
 
-/** The drafts dir must be a real directory: a cloned repo can commit `.vanguard/drafts` — or
- * `.vanguard` itself (review #349 r1: following only the leaf misses a symlinked parent) — as a
+/** The drafts dir must be a real directory: a cloned repo can commit `.taskcell/drafts` — or
+ * `.taskcell` itself (review #349 r1: following only the leaf misses a symlinked parent) — as a
  * symlink, and following either would redirect writes/deletes outside the checkout. */
 async function assertNotSymlink(repoPath: string): Promise<void> {
-  for (const dir of [join(repoPath, '.vanguard'), draftsDir(repoPath)]) {
+  for (const dir of [stateDir(repoPath), draftsDir(repoPath)]) {
     try {
       const meta = await lstat(dir);
       if (meta.isSymbolicLink()) {
@@ -102,7 +103,7 @@ export async function read(repoPath: string, id: string): Promise<string> {
 
 /** Atomic write: tmp + rename, so a torn write can never degrade a draft (body, transcript, and
  * created-issue link all live in this one file) to unreadable. Also self-seeds a `.gitignore`
- * containing `*`: user repos TRACK `.vanguard/` (flows are committed artifacts since S5.1), and
+ * containing `*`: user repos TRACK `.taskcell/` (flows are committed artifacts since S5.1), and
  * chat transcripts must never ride a `git add -A` into a commit. */
 export async function write(repoPath: string, id: string, content: string): Promise<void> {
   writableId(id);
@@ -132,7 +133,7 @@ export async function write(repoPath: string, id: string, content: string): Prom
 }
 
 /** Composer image attachments (Editor UX 7/7) live beside the draft they belong to, under
- * `<repo>/.vanguard/drafts/<id>-assets/`. Same tree, same `.gitignore` (`.vanguard/drafts/*` is
+ * `<repo>/.taskcell/drafts/<id>-assets/`. Same tree, same `.gitignore` (`.taskcell/drafts/*` is
  * already ignored via the drafts `.gitignore`'s `*`), so a pasted image never rides a commit. */
 function assetsDir(repoPath: string, id: string): string {
   return join(draftsDir(repoPath), `${id}-assets`);

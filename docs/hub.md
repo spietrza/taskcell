@@ -3,7 +3,7 @@
 `vanguard` is the old name of `taskcell` and still works.
 
 `taskcell hub` serves the same Inspector UI the Tauri desktop app ships (`apps/desktop`) over plain
-HTTP/SSE, backed by a real `.vanguard/` directory. Useful when you want the cockpit without installing
+HTTP/SSE, backed by a real `.taskcell/` directory. Useful when you want the cockpit without installing
 a native app, or running it on a server. See `src/hub/*.ts` and `src/cli/hub.ts` for the implementation.
 
 ## Quick start
@@ -28,7 +28,7 @@ the terminal, or `docker logs` in container mode) rather than the bare address.
   provider's own variable. The hub passes its environment to the run; a launcher without a shell
   (an IDE "launch" entry, a Compose file without `environment:`) has no token, and the first run
   fails at start.
-- A project is a git work tree. Its `.vanguard/app.json` (task source, labels, provider, budget) is
+- A project is a git work tree. Its `.taskcell/app.json` (task source, labels, provider, budget) is
   what the Settings screen edits; a repo without one works with the defaults.
 
 ## Three ways to use it
@@ -40,7 +40,7 @@ the terminal, or `docker logs` in container mode) rather than the bare address.
 2. **Observe the CI factory.** Keep running Taskcell in GitHub Actions (see
    [onboarding-another-repo.md](onboarding-another-repo.md); the callers must pass
    `upload-run-records: true`) and use the hub read-only: Remote lists the repo's CI runs,
-   **Fetch records** imports a run's `vanguard-runs` artifact into `.vanguard/remote-runs/<id>`, and
+   **Fetch records** imports a run's `vanguard-runs` artifact into `.taskcell/remote-runs/<id>`, and
    the records open like local ones. No token, no Docker, no sandbox on this machine. The Task board
    header counts the factory's work from issue labels — `Running N` (claimed or running) and
    `Waiting K` (labelled `ready for agent`/`ready for spec`, not yet picked up) — so it shows the CI
@@ -68,7 +68,7 @@ trusted sidecar can hold — a Claude subscription token or `ANTHROPIC_API_KEY`,
 key when that provider implements. The sidecar on the host keeps the real credential and the sandbox
 gets a per-run nonce instead, so agent code never sees the token. Unlike the CLI's opt-in
 `--llm-proxy`, this path has **no switch to turn this off** — no flag, no env var, no
-`.vanguard/app.json` setting.
+`.taskcell/app.json` setting.
 
 Three kinds of run go without it. There the credential *is* in the sandbox, so the run view shows a
 warning naming the provider rather than leaving the exposure silent:
@@ -81,7 +81,7 @@ warning naming the provider rather than leaving the exposure silent:
   cannot start; exporting `CLAUDE_CODE_OAUTH_TOKEN` as well does not change that, because the run never
   uses it. The key is injected into the sandbox and the run starts.
 - **Direct-mode-only providers** — Meridian ([MERIDIAN-provider.md](MERIDIAN-provider.md)) and repo
-  custom providers (`.vanguard/app.json` `customProviders`). They point the Claude CLI at their own
+  custom providers (`.taskcell/app.json` `customProviders`). They point the Claude CLI at their own
   endpoint and authenticate on that host, exposing no upstream a sidecar could target, so their key
   is injected into the sandbox.
 
@@ -254,7 +254,7 @@ capped at 100; only the first 30 items fetch their last comment, and a failed fe
 comment, not the list.
 
 `reply_needs_you` posts the reply as the hub's `gh` user, then hands the item back to the factory:
-a Task moves from `needs info` to the project's trigger label (`label` in `.vanguard/app.json`, else
+a Task moves from `needs info` to the project's trigger label (`label` in `.taskcell/app.json`, else
 `ready for agent`); a PR gets `needs revision`. Either way it leaves the list. An item that is no
 longer waiting is refused with no comment and no label change. The `needs info` label itself is not
 configurable here: a repo that runs the factory with a custom `--needs-info-label` shows no Tasks.
@@ -296,7 +296,7 @@ comment. Run `gh auth login` or set `GH_TOKEN`.
 ## CI run import
 
 The reusable `implement.yml` and `revise.yml` workflows take an `upload-run-records` input (boolean,
-off by default). When a caller passes `upload-run-records: true`, the job uploads `.vanguard/runs/` as
+off by default). When a caller passes `upload-run-records: true`, the job uploads `.taskcell/runs/` as
 a `vanguard-runs` artifact kept for 14 days, with `**/*.bundle` excluded (git bundles are large and the
 reader ignores them). The step runs under the same gate as `persist-metrics`: only once the run step
 finished, pass or fail. This repo's own callers (`taskcell-implement.yml`, `taskcell-revise.yml`) opt
