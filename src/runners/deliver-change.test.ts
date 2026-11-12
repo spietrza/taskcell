@@ -75,6 +75,24 @@ describe('deliverChange', () => {
     expect(calls).toEqual([]);
   });
 
+  it('passes tokenProvider through to the existing-branch push', async () => {
+    const seen: Array<Record<string, string> | undefined> = [];
+    await withWork('hello', async (ctx) => {
+      const r = await deliverChange(ctx, {
+        taskId: 'T-2',
+        commitMessage: 'feat: x',
+        target: {
+          kind: 'existing-branch',
+          prHeadRef: 'pr-head',
+          tokenProvider: async () => 'PROVIDED',
+          runner: async (_f, _a, _c, env) => { seen.push(env); return ''; },
+        },
+      });
+      expect(r.kind).toBe('delivered-push');
+    });
+    expect(Object.values(seen[0] ?? {})).toContain(`AUTHORIZATION: basic ${Buffer.from('x-access-token:PROVIDED').toString('base64')}`);
+  });
+
   describe('a file the worktree .gitattributes renders as binary', () => {
     const credential = 'opaque-credential-92837';
     afterEach(() => {

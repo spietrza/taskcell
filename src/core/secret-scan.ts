@@ -242,7 +242,7 @@ function isPlausibleInjectedSecret(value: string): boolean {
  * Env var names Vanguard reads to build the credentials it injects into the sandbox, or uses to push on
  * an agent's behalf: agents/auth.ts (SUBSCRIPTION_ENV/API_ENV), the built-in providers' hostEnv in
  * agents/registry.ts, the tokens glab accepts (cli/preflight.ts GLAB_TOKEN_VARS), tasks/linear-cli.ts /
- * LINEAR_API_KEY, and VANGUARD_PUSH_TOKEN in runners/revise-pr.ts and source-adapter.ts. Named here
+ * LINEAR_API_KEY, and VANGUARD_PUSH_TOKEN / TASKCELL_APP_PRIVATE_KEY via core/push-token.ts. Named here
  * directly rather than reading the sandbox secrets map, which is assembled per-run deep in the runner
  * call graph and unavailable where the outgoing diff is scanned. A custom provider's `keyEnv` is
  * repo-configured, so no static list can hold it: callers pass those names to injectedSecretValues.
@@ -265,6 +265,7 @@ export const INJECTED_SECRET_ENV_VARS = [
   'OAUTH_TOKEN',
   'CI_JOB_TOKEN',
   'VANGUARD_PUSH_TOKEN',
+  'TASKCELL_APP_PRIVATE_KEY',
 ] as const;
 
 /**
@@ -274,6 +275,30 @@ export const INJECTED_SECRET_ENV_VARS = [
  * Only names live here; values are still read from the env at each call.
  */
 const registeredSecretEnvVars = new Set<string>();
+
+/**
+ * Secret values no env var holds: taskcell App installation tokens minted at run time, and the App
+ * private key once it is taken out of process.env. A minted token leaves the set when it is revoked.
+ */
+const registeredSecretValues = new Set<string>();
+
+/**
+ * Register a credential so every injectedSecretValues() call made from now on redacts it. A snapshot
+ * taken earlier does not see it: pass such a snapshot through withRegisteredSecretValues at use.
+ */
+export function registerInjectedSecretValue(value: string): void {
+  registeredSecretValues.add(value);
+}
+
+/** Drop a registered value (a revoked token grants nothing, and the set must not grow for the whole process). */
+export function forgetInjectedSecretValue(value: string): void {
+  registeredSecretValues.delete(value);
+}
+
+/** `snapshot` plus the values registered since it was taken. */
+export function withRegisteredSecretValues(snapshot: readonly string[]): string[] {
+  return [...new Set([...snapshot, ...[...registeredSecretValues].filter(isPlausibleInjectedSecret)])];
+}
 
 /** Register a run's extra credential env var names (see registeredSecretEnvVars). Called from selectAgents. */
 export function registerInjectedSecretEnvVars(names: readonly string[]): void {
@@ -290,6 +315,13 @@ export function injectedSecretValues(env: NodeJS.ProcessEnv = process.env, extra
   const values = [...INJECTED_SECRET_ENV_VARS, ...registeredSecretEnvVars, ...extraEnvVars]
     .map((name) => env[name])
     .filter((v): v is string => v !== undefined && isPlausibleInjectedSecret(v));
+  values.push(...[...registeredSecretValues].filter(isPlausibleInjectedSecret));
+  // The PEM key arrives verbatim or \n-escaped, and can leak a line at a time: cover the unescaped
+  // form and each base64 body line, not just the env value as written.
+  const pem = env.TASKCELL_APP_PRIVATE_KEY?.replace(/\\n/g, '\n');
+  if (pem !== undefined) {
+    values.push(...[pem, ...pem.split('\n').map((l) => l.trim()).filter((l) => l !== '' && !l.startsWith('-----'))].filter(isPlausibleInjectedSecret));
+  }
   // Codex writes auth.json; agents can copy individual credentials out of it.
   if (env.CODEX_AUTH_JSON !== undefined) {
     try {
