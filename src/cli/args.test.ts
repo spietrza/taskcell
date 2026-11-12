@@ -229,6 +229,17 @@ describe('parseCli', () => {
     expect(bad.kind === 'error' && bad.message).toMatch(/metrics expects a subcommand/);
   });
 
+  it('parses lessons record/list/dismiss and rejects bad input', () => {
+    expect(parseCli(['lessons', 'record', '--pr', '9', '--github-repo', 'o/r', '--provider-model', 'sonnet', '--dry-run'], '/work')).toEqual({
+      kind: 'lessons', action: 'record', repoPath: '/work', repoSlug: 'o/r', prNumber: 9, dryRun: true, model: 'sonnet',
+    });
+    expect(parseCli(['lessons', 'list', '--json', '--branch', 'm'], '/work')).toEqual({ kind: 'lessons', action: 'list', repoPath: '/work', json: true, branch: 'm' });
+    expect(parseCli(['lessons', 'dismiss', 'abcdef012345'], '/work')).toEqual({ kind: 'lessons', action: 'dismiss', repoPath: '/work', id: 'abcdef012345' });
+    expect(parseCli(['lessons', 'dismiss', 'nope'], '/work')).toMatchObject({ kind: 'error' });
+    expect(parseCli(['lessons', 'record', '--pr', '9'], '/work')).toMatchObject({ kind: 'error' });
+    expect(parseCli(['lessons'], '/work')).toMatchObject({ kind: 'error' });
+  });
+
   it('parses approve --pr with --github-repo and an optional --mode, and rejects a non-numeric --pr', () => {
     expect(parseCli(['approve', '--pr', '7', '--github-repo', 'o/r'], '/work')).toEqual({
       kind: 'approve', prNumber: 7, repoSlug: 'o/r', repoPath: '/work', mode: 'shadow', json: false, dryRun: false,

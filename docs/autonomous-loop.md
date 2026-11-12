@@ -328,6 +328,14 @@ taskcell memory --json          # machine-readable report
 taskcell memory --limit 20      # keep the 20 most recent entries
 ```
 
+### Per-PR lessons
+
+That digest dies with a CI job, so closed factory PRs also leave **lessons** on the metrics branch. `taskcell lessons record --pr <n> --github-repo <o/r>` reads the PR's history: blocking review verdicts, revise rounds, a `vanguard:verify-failed` label and the diff stats. A clean first-round merge records nothing and makes no model call. Otherwise one cheap completion (`haiku` by default, `--provider-model` to change, no tools) writes 0-3 lessons. Each lesson has a rule the next run can act on, why it matters, an evidence link (the PR or a comment) and an optional scope of path globs and stage. Lessons are redacted and appended to `lessons.jsonl` on `taskcell-metrics`, deduplicated by rule. The command then comments them on the PR. Only comments from trusted authors (repo association, bots, `--feedback-authors`) reach the prompt.
+
+Later `run`, `watch` and spec runs read the live lessons back into the retrospective block. A lesson qualifies when it is repo-wide or when one of its globs matches a path that the issue text mentions, and the block is capped at 2 KB. A wrong lesson is dismissed with `taskcell lessons dismiss <id>` (the id is in the PR comment and in `taskcell lessons list`), and runs no longer receive it.
+
+This repo runs the step from `.github/workflows/taskcell-lessons.yml` when a `chore/vanguard-*` PR is closed. The job needs `CLAUDE_CODE_OAUTH_TOKEN`.
+
 ## Proof of work
 
 After the agent finishes, the host (not the agent) runs a verification command inside the sandbox, captures its stdout and stderr, computes a SHA-256 over the combined output, and stamps a Proof of Work block into the PR body and the run record. The agent cannot fake it.

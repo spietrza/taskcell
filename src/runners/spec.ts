@@ -133,7 +133,7 @@ export async function runSpecGenerator(id: string, deps: RunSpecGeneratorDeps): 
   try {
     const sandbox = (deps.sandboxFactory ?? ((s) => defaultSandboxFactory(deps, s, providerProxies, injectAnthropicAuth)))(secrets);
 
-    const [retrospectiveMemory, skills] = await Promise.all([loadRetrospectiveMemory(deps.repoPath), skillRegistryForRun(deps.skillsDir, deps.repoPath, { includeSpecSkills: true })]);
+    const [retrospectiveMemory, skills] = await Promise.all([loadRetrospectiveMemory(deps.repoPath, { taskText: `${task.title}\n${task.description}` }), skillRegistryForRun(deps.skillsDir, deps.repoPath, { includeSpecSkills: true })]);
     const ctx = await prepareContext(
       {
         taskId: `spec-${task.id.replace(/[^a-zA-Z0-9]/g, '-').toLowerCase()}`,
