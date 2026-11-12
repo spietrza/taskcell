@@ -186,6 +186,13 @@ jobs:
         if: ${{ always() }}
         run: rm -f "$RUNNER_TEMP/git-credentials"
 
+      # The state dir is `.taskcell/` unless only a legacy `.vanguard/` exists (same rule as the CLI's stateDir()).
+      - name: Resolve state dir
+        id: state
+        if: ${{ always() && inputs.upload-run-records }}
+        run: |
+          if [ -e .taskcell ] || [ ! -e .vanguard ]; then echo "dir=.taskcell" >> "$GITHUB_OUTPUT"; else echo "dir=.vanguard" >> "$GITHUB_OUTPUT"; fi
+
       - name: Upload run records
         # Only once the revise step ran. Artifacts are readable by anyone with read access to the repo.
         if: ${{ always() && inputs.upload-run-records && contains(fromJSON('["success","failure"]'), steps.revise.conclusion) }}
@@ -194,7 +201,7 @@ jobs:
           name: vanguard-runs
           # Bundles carry the branch's whole history and the PR already holds that content.
           path: |
-            .vanguard/runs/
-            !.vanguard/runs/**/*.bundle
+            ${{ steps.state.outputs.dir }}/runs/
+            !${{ steps.state.outputs.dir }}/runs/**/*.bundle
           if-no-files-found: ignore
           retention-days: 14
