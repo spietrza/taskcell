@@ -55,6 +55,12 @@ describe('injectHubMarker', () => {
     expect(out).toContain('__VANGUARD_HUB__');
   });
 
+  test('adds the fleet marker only when asked', () => {
+    const html = '<html><head></head></html>';
+    expect(injectHubMarker(html)).not.toContain('__VANGUARD_HUB_FLEET__');
+    expect(injectHubMarker(html, true)).toContain('__VANGUARD_HUB_FLEET__');
+  });
+
   test('throws when there is no <head> to inject after', () => {
     expect(() => injectHubMarker('<html><body>no head here</body></html>')).toThrow(/<head>/);
   });

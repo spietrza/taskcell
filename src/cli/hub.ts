@@ -57,10 +57,10 @@ function pkgRoot(): string {
 
 /** Fails loudly and actionably at startup, not on the first request: an unbuilt or stale UI bundle
  * must never reach `createHubServer`, where the same failure would otherwise surface per-request. */
-async function assertUiDirBuilt(uiDir: string): Promise<void> {
+async function assertUiDirBuilt(uiDir: string, fleet: boolean): Promise<void> {
   const indexPath = join(uiDir, 'index.html');
   try {
-    injectHubMarker(await readFile(indexPath, 'utf8'));
+    injectHubMarker(await readFile(indexPath, 'utf8'), fleet);
   } catch (error) {
     const reason = error instanceof Error ? error.message : String(error);
     throw new Error(
@@ -98,7 +98,9 @@ export async function hubCommand(command: Extract<Command, { kind: 'hub' }>): Pr
   assertPlainHosts(allowedHosts);
 
   const uiDir = resolve(command.uiDir ?? process.env.VANGUARD_HUB_UI_DIR ?? join(pkgRoot(), 'apps/desktop/dist'));
-  await assertUiDirBuilt(uiDir);
+  // The desktop app's own local hub (apps/desktop/src-tauri) sets this; only ever on a loopback bind.
+  const fleet = process.env.VANGUARD_HUB_ALLOW_FLEET === '1' && LOOPBACK_HOSTS.includes(command.host);
+  await assertUiDirBuilt(uiDir, fleet);
 
   const configDir =
     process.env.VANGUARD_HUB_CONFIG_DIR ?? join(process.env.XDG_CONFIG_HOME ?? join(homedir(), '.config'), 'vanguard-hub');
@@ -148,6 +150,7 @@ export async function hubCommand(command: Extract<Command, { kind: 'hub' }>): Pr
     identity,
     uiDir,
     allowedHosts,
+    fleet,
     configDir,
     browseRoot: process.env.VANGUARD_HUB_BROWSE_ROOT ?? homedir(),
     ...(process.env.VANGUARD_HUB_CLONE_HOSTS ? { cloneHosts: parseHostList(process.env.VANGUARD_HUB_CLONE_HOSTS) } : {}),
@@ -175,10 +178,18 @@ export async function hubCommand(command: Extract<Command, { kind: 'hub' }>): Pr
   const shutdown = (): void => {
     process.off('SIGINT', shutdown);
     process.off('SIGTERM', shutdown);
+    process.stdin.destroy(); // a live stdin pipe (desktop app) would keep the process up
     void hub.close();
   };
   process.on('SIGINT', shutdown);
   process.on('SIGTERM', shutdown);
+  // The desktop app's local hub: its stdin is a pipe from the app, so EOF means the app is gone
+  // (quit or killed) — shut down rather than outlive it.
+  if (process.env.VANGUARD_HUB_EXIT_ON_STDIN_EOF === '1') {
+    process.stdin.on('end', shutdown);
+    process.stdin.on('close', shutdown);
+    process.stdin.resume();
+  }
 
   // Print the socket's actual bound port (relevant when command.port is 0, e.g. in tests) rather
   // than echoing the requested value back.

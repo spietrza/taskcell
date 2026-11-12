@@ -15,6 +15,10 @@
  * invoke/listen. */
 export const HUB_MARKER = '<script>window.__VANGUARD_HUB__=true</script>';
 
+/** Injected beside HUB_MARKER only by the desktop app's own local hub (loopback bind, fleet enabled):
+ * `transport.ts`'s `canUseFleet()` reads it to show the Fleet screen. */
+export const HUB_FLEET_MARKER = '<script>window.__VANGUARD_HUB_FLEET__=true</script>';
+
 /** Per-launch auth token (src/hub/server.ts), carried on every `/rpc/*` request as this header.
  * An `EventSource` cannot set headers, and a token in the `/events` URL would land in access logs,
  * so the browser first `POST`s this path with the header; the hub answers with an HttpOnly,
