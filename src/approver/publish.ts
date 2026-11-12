@@ -1,6 +1,6 @@
 import { defaultGhRunner } from '../tasks/github.js';
 import type { GhRunner } from '../tasks/github.js';
-import { VanguardError } from '../core/errors.js';
+import { TaskcellError } from '../core/errors.js';
 import { classifyAuthor } from '../tasks/comment-trust.js';
 import type { Decision, DecisionRecord } from './types.js';
 
@@ -56,7 +56,7 @@ export function assertShadowSafeGhArgs(args: string[]): void {
     const { method, endpoints } = parseApiCall(args);
     if (endpoints.length === 1 && ALLOWED_API[method]?.test(endpoints[0]!) === true) return;
   }
-  throw new VanguardError(`shadow mode: refusing gh call "${args.join(' ')}"`);
+  throw new TaskcellError(`shadow mode: refusing gh call "${args.join(' ')}"`);
 }
 
 /** Wrap a GhRunner so any shadow-unsafe argv throws before it reaches gh — the second, independent guard layer. */

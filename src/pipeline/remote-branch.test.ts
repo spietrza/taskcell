@@ -3,7 +3,7 @@ import { mkdtemp, rm, writeFile, mkdir } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { execa } from 'execa';
-import { prepareContext, disposeContext } from '../core/vanguard.js';
+import { prepareContext, disposeContext } from '../core/taskcell.js';
 import { publishForReview, rebaseOntoRemoteBase, pushToExistingBranch, pushAuthEnv } from './remote-branch.js';
 import { WorktreeManager } from '../worktree/manager.js';
 import type { IsolatedSandboxProvider, ExecResult } from '../sandbox/provider.js';

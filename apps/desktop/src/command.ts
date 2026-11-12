@@ -1,4 +1,4 @@
-import type { AppConfig } from './vanguard-output';
+import type { AppConfig } from './taskcell-output';
 import { FLOW_NAME_RE } from './wire';
 import { SOURCES } from './sources';
 

@@ -159,7 +159,7 @@ export const DISABLED_COMMANDS = ['spawn_run', 'kill_run', 'list_spawns'] as con
 
 /**
  * Dispatch one RPC command. Returns the raw result (never `undefined` — void commands resolve
- * `null`) or throws: `BadRequestError`/`FlowError`/`VanguardError` classify `bad-request`,
+ * `null`) or throws: `BadRequestError`/`FlowError`/`TaskcellError` classify `bad-request`,
  * `UnknownCommandError` (a BadRequestError subtype) is additionally mapped to 404 by the caller,
  * anything else classifies `internal`. See `classifyError` below.
  */

@@ -2,7 +2,7 @@ import { readdir, lstat, stat, readFile, mkdtemp, writeFile, rm, realpath } from
 import { join, sep } from 'node:path';
 import { tmpdir } from 'node:os';
 import { agentFamily } from '../agents/provider.js';
-import { VanguardError } from '../core/errors.js';
+import { TaskcellError } from '../core/errors.js';
 import type { IsolatedSandboxProvider } from '../sandbox/provider.js';
 
 const SKILLS_DIR = '/workspace/.vanguard/skills';
@@ -100,7 +100,7 @@ async function readSkillMeta(hostPath: string, fallbackId: string): Promise<Skil
   }
 }
 
-function stripVanguardSkillsBlock(content: string): string {
+function stripTaskcellSkillsBlock(content: string): string {
   return content
     .replace(/<!-- vanguard-skills:start -->[\s\S]*?<!-- vanguard-skills:end -->\n*/g, '')
     .trimEnd();
@@ -137,9 +137,9 @@ function buildCodexAgentsBlock(entries: Array<{ id: string; meta: SkillMeta }>):
   ].join('\n');
 }
 
-function mergeCodexAgentsMd(existing: string, vanguardBlock: string): string {
-  const preserved = stripVanguardSkillsBlock(existing);
-  return [preserved, vanguardBlock].filter(Boolean).join('\n\n') + '\n';
+function mergeCodexAgentsMd(existing: string, taskcellBlock: string): string {
+  const preserved = stripTaskcellSkillsBlock(existing);
+  return [preserved, taskcellBlock].filter(Boolean).join('\n\n') + '\n';
 }
 
 async function resolveCodexHome(sandbox: IsolatedSandboxProvider, fallbackHome: string): Promise<string> {
@@ -239,7 +239,7 @@ export class SkillRegistry {
   async inject(ids: string[], sandbox: IsolatedSandboxProvider): Promise<void> {
     const resolved = ids.map((id) => {
       const hostPath = this.skills[id];
-      if (hostPath === undefined) throw new VanguardError(`Unknown skill: ${id}`);
+      if (hostPath === undefined) throw new TaskcellError(`Unknown skill: ${id}`);
       return { id, hostPath };
     });
     await Promise.all(resolved.map(({ id, hostPath }) => sandbox.copyIn(hostPath, `${SKILLS_DIR}/${id}`)));
@@ -318,10 +318,10 @@ async function repoSkills(repoPath: string): Promise<Record<string, string>> {
   }
   // Repo content is copied in from the host: a symlink on the path must not reach files outside the repo.
   if (!dir.startsWith(`${await realpath(repoPath)}${sep}`)) {
-    throw new VanguardError(`${REPO_SKILLS_DIR} resolves outside the repo (${dir}); keep the skills in the repo itself.`);
+    throw new TaskcellError(`${REPO_SKILLS_DIR} resolves outside the repo (${dir}); keep the skills in the repo itself.`);
   }
   if (!(await stat(dir)).isDirectory()) {
-    throw new VanguardError(`${REPO_SKILLS_DIR} is not a directory; make it a directory of <name>/SKILL.md skills or remove it.`);
+    throw new TaskcellError(`${REPO_SKILLS_DIR} is not a directory; make it a directory of <name>/SKILL.md skills or remove it.`);
   }
   return skillsIn(dir);
 }

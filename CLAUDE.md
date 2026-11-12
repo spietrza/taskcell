@@ -4,7 +4,7 @@ Vanguard is a standalone TypeScript framework — an autonomous software factory
 
 ## Hard constraints
 
-- **Never modify CI config: `.github/workflows/`, `.github/actions/`, `.gitlab-ci.yml`, `.gitlab/**.yml`** (authoritative check: `workflowPaths()` in `src/core/vanguard.ts`, which also covers `.gitlab/**/*.yaml` at any depth and files standing in for those directories). This is a security boundary: an agent that can commit CI config can run arbitrary code with the repo's secrets on the next event. It is also enforced mechanically — copy-back drops those paths, and the CI `GITHUB_TOKEN` cannot push workflow changes, so such a push is rejected and the run's work is lost. If a task seems to need a CI-config change, make the code/doc change instead and describe the needed edit in the PR body for a human to apply by hand.
+- **Never modify CI config: `.github/workflows/`, `.github/actions/`, `.gitlab-ci.yml`, `.gitlab/**.yml`** (authoritative check: `workflowPaths()` in `src/core/taskcell.ts`, which also covers `.gitlab/**/*.yaml` at any depth and files standing in for those directories). This is a security boundary: an agent that can commit CI config can run arbitrary code with the repo's secrets on the next event. It is also enforced mechanically — copy-back drops those paths, and the CI `GITHUB_TOKEN` cannot push workflow changes, so such a push is rejected and the run's work is lost. If a task seems to need a CI-config change, make the code/doc change instead and describe the needed edit in the PR body for a human to apply by hand.
 - Run `pnpm typecheck` and `pnpm test` before signalling completion.
 
 ## Style

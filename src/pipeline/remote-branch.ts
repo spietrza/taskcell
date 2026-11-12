@@ -2,7 +2,7 @@ import { execa } from 'execa';
 import { redactTokens } from '../core/secret-scan.js';
 import { assertSafeBaseBranch } from '../core/base-branch.js';
 import { neutralizeQuickActions } from '../tasks/gitlab.js';
-import type { RunContext } from '../core/vanguard.js';
+import type { RunContext } from '../core/taskcell.js';
 import { hostGitArgs, hostGitEnv } from '../worktree/host-git.js';
 
 /**

@@ -1,6 +1,6 @@
 import { describe, expect, it, vi } from 'vitest';
 import { tmpdir } from 'node:os';
-import { VanguardError } from '../core/errors.js';
+import { TaskcellError } from '../core/errors.js';
 import { assertFlowResolvable, FlowError } from '../flows/repo.js';
 import { runSidecar, type SidecarDeps } from './sidecar.js';
 import type { RunEvent } from '../pipeline/events.js';
@@ -251,7 +251,7 @@ describe('flow-file methods over the protocol (S5)', () => {
     expect(called).toBe(false);
   });
 
-  it('classifies FlowError and VanguardError as bad-request and other errors as internal', async () => {
+  it('classifies FlowError and TaskcellError as bad-request and other errors as internal', async () => {
     const { write, out } = collect();
     await runSidecar(
       lines(req('readFlow', { repoPath: '/abs', file: 'a.hcl' }), req('readFlow', { repoPath: '/abs', file: 'b.hcl' }), req('readFlow', { repoPath: '/abs', file: 'c.hcl' })),
@@ -259,7 +259,7 @@ describe('flow-file methods over the protocol (S5)', () => {
       stubDeps({
         readFlow: async ({ file }): Promise<never> => {
           if (file === 'a.hcl') throw new FlowError('expected exactly one flow block, found none');
-          if (file === 'c.hcl') throw new VanguardError('unknown provider');
+          if (file === 'c.hcl') throw new TaskcellError('unknown provider');
           throw new Error('EACCES: permission denied');
         },
       }),

@@ -1,7 +1,7 @@
 import { isAbsolute } from 'node:path';
 import { FLOWS, TRANSPORTS } from '../api/capabilities.js';
 import { assertSafeBaseBranch } from '../core/base-branch.js';
-import { VanguardError } from '../core/errors.js';
+import { TaskcellError } from '../core/errors.js';
 import { isSafeTaskId } from '../core/state-path.js';
 import { coerceFlowDoc, flowDocError, FlowError, FLOW_FILE_RE } from '../flows/repo.js';
 import type { RepoFlowInfo } from '../flows/repo.js';
@@ -11,7 +11,7 @@ import type { Capabilities } from '../api/capabilities.js';
 import type { CreatedTask } from '../tasks/create.js';
 
 /** A caller mistake in a request (bad params, unknown method) — classified `kind: "bad-request"`. */
-export class BadRequestError extends VanguardError {}
+export class BadRequestError extends TaskcellError {}
 
 /** Typed projection of a run request — a subset of RunOptions plus the issue ref and transport. */
 // CreateRunParams lives in src/wire.ts (the shared desktop contract — S7).
@@ -411,10 +411,10 @@ export async function invokeCoreMethod(
 }
 
 /** Classify a thrown value the way both `runSidecar` and `dispatchRpc` report it on the wire:
- * BadRequestError (incl. UnknownCommandError)/FlowError/VanguardError are caller-correctable
+ * BadRequestError (incl. UnknownCommandError)/FlowError/TaskcellError are caller-correctable
  * (`bad-request`); anything else is a real fault (`internal`). */
 export function classifyCoreError(err: unknown): { message: string; kind: 'bad-request' | 'internal' } {
-  const kind = err instanceof VanguardError || err instanceof FlowError ? 'bad-request' : 'internal';
+  const kind = err instanceof TaskcellError || err instanceof FlowError ? 'bad-request' : 'internal';
   const message = err instanceof Error ? err.message : String(err);
   return { message, kind };
 }

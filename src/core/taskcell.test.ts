@@ -11,14 +11,14 @@ import {
   disposeContext,
   workflowPaths,
   assertNoWorkflowChanges,
-} from './vanguard.js';
+} from './taskcell.js';
 import { WorktreeManager } from '../worktree/manager.js';
 import { skillRegistryForRun } from '../context/skill-registry.js';
 import { WorkflowGuardError } from './errors.js';
 import type { RunOptions } from './types.js';
 import type { IsolatedSandboxProvider, ExecResult } from '../sandbox/provider.js';
 import type { AgentProvider, AgentRunInput, AgentTurn, AgentRunOutput } from '../agents/provider.js';
-import type { VanguardLogger } from './logger.js';
+import type { TaskcellLogger } from './logger.js';
 
 interface LogEntry {
   obj: Record<string, unknown>;
@@ -26,7 +26,7 @@ interface LogEntry {
 }
 
 interface CaptureLogger {
-  logger: VanguardLogger;
+  logger: TaskcellLogger;
   entries: LogEntry[];
 }
 
@@ -41,7 +41,7 @@ function captureLogger(): CaptureLogger {
     warn: record,
     error: record,
     debug: record,
-  } as unknown as VanguardLogger;
+  } as unknown as TaskcellLogger;
   return { logger, entries };
 }
 

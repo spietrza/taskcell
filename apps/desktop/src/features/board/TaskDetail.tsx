@@ -1,6 +1,6 @@
 import { Button, Card, Chip } from '@/ui';
 import { ArrowLeft, Play } from 'lucide-react';
-import type { RunSummary } from '../../vanguard-output';
+import type { RunSummary } from '../../taskcell-output';
 import { SpecPane } from '../inspector/SpecPane';
 import { taskRefKey } from './taskref';
 

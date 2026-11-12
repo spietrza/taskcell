@@ -1,8 +1,8 @@
 import { execa } from 'execa';
-import { VanguardError } from './errors.js';
+import { TaskcellError } from './errors.js';
 import { createLogger } from './logger.js';
 import { redactTokens } from './secret-scan.js';
-import type { VanguardLogger } from './logger.js';
+import type { TaskcellLogger } from './logger.js';
 
 /**
  * Reject a base branch git would misread when it is passed as a bare argument. A leading "-" parses
@@ -11,14 +11,14 @@ import type { VanguardLogger } from './logger.js';
  * git never allows a control character in a ref, which would otherwise reach log lines raw.
  */
 export function assertSafeBaseBranch(base: string): void {
-  if (base.trim() === '') throw new VanguardError('Invalid base branch: it cannot be empty');
+  if (base.trim() === '') throw new TaskcellError('Invalid base branch: it cannot be empty');
   if (base.startsWith('-') || base.startsWith('+') || base.includes(':') || /[\x00-\x1f\x7f]/.test(base)) {
-    throw new VanguardError(`Invalid base branch ${JSON.stringify(base)}: it cannot start with "-" or "+", or contain ":" or a control character`);
+    throw new TaskcellError(`Invalid base branch ${JSON.stringify(base)}: it cannot start with "-" or "+", or contain ":" or a control character`);
   }
   // Refspec globs and ref-syntax characters: `*` would turn `+refs/heads/<base>:refs/remotes/origin/<base>`
   // into a wildcard fetch of every branch; the rest can never name a branch (git check-ref-format).
   if (/[\s*?\[\]~^\\]|\.\.|@\{|\/$|\.lock$/.test(base)) {
-    throw new VanguardError(`Invalid base branch ${JSON.stringify(base)}: it cannot contain whitespace, "*", "?", "[", "]", "~", "^", "\\", "..", "@{", or end with "/" or ".lock"`);
+    throw new TaskcellError(`Invalid base branch ${JSON.stringify(base)}: it cannot contain whitespace, "*", "?", "[", "]", "~", "^", "\\", "..", "@{", or end with "/" or ".lock"`);
   }
 }
 
@@ -36,7 +36,7 @@ export function baseBranchOrDefault(base: string, what: string): string {
 }
 
 export interface ResolveRemoteBaseRefOptions {
-  logger?: VanguardLogger;
+  logger?: TaskcellLogger;
   /** Log-line prefix naming the pass ('spec', 'worktree'). */
   label?: string;
   /**
@@ -61,7 +61,7 @@ const FETCH_TIMEOUT_MS = 60_000;
  * remote does not carry, it logs and returns the local base so the run still happens. The fetch
  * names its destination ref, so a single-branch clone (actions/checkout) tracks the base too.
  *
- * @throws VanguardError when git would misread `base` (see assertSafeBaseBranch).
+ * @throws TaskcellError when git would misread `base` (see assertSafeBaseBranch).
  */
 export async function resolveRemoteBaseRef(repoPath: string, base: string, opts: ResolveRemoteBaseRefOptions = {}): Promise<string> {
   assertSafeBaseBranch(base);
@@ -131,7 +131,7 @@ const LOCK_BACKOFF_MS = 250;
  */
 interface FetchResult { exitCode: number | undefined; stderr: string; timedOut: boolean; lockLost: boolean }
 
-async function fetchWithLockRetry(repoPath: string, refspec: string, remoteRef: string, log: VanguardLogger, label: string): Promise<FetchResult> {
+async function fetchWithLockRetry(repoPath: string, refspec: string, remoteRef: string, log: TaskcellLogger, label: string): Promise<FetchResult> {
   let last = await runFetch(repoPath, refspec);
   // A timed-out fetch is never retried: it already spent the full budget, and its partial stderr may
   // happen to contain a lock line.

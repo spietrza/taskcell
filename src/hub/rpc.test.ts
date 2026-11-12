@@ -15,7 +15,7 @@ import { createRunSession } from './run-session.js';
 import { CompleteRegistry } from './complete.js';
 import { writeAppConfig } from './app-config.js';
 import { BadRequestError, runSidecar, type SidecarDeps } from '../sidecar/sidecar.js';
-import { VanguardError } from '../core/errors.js';
+import { TaskcellError } from '../core/errors.js';
 import type { ChildProcess } from 'node:child_process';
 import type { FactoryPlan } from './enable-factory.js';
 
@@ -311,12 +311,12 @@ describe('dispatchRpc', () => {
     }
   });
 
-  test('BadRequestError, VanguardError and a generic Error classify identically on the sidecar and hub paths', async () => {
+  test('BadRequestError, TaskcellError and a generic Error classify identically on the sidecar and hub paths', async () => {
     const repo = await tmpRepo();
     async function* lines(...ls: string[]): AsyncIterable<string> {
       for (const l of ls) yield l;
     }
-    const cases = [new BadRequestError('bad request'), new VanguardError('vanguard failure'), new Error('generic failure')];
+    const cases = [new BadRequestError('bad request'), new TaskcellError('vanguard failure'), new Error('generic failure')];
     for (const err of cases) {
       const out: string[] = [];
       await runSidecar(

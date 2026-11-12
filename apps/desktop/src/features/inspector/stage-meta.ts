@@ -1,4 +1,4 @@
-import type { RunRecord } from '../../vanguard-output'
+import type { RunRecord } from '../../taskcell-output'
 
 export function buildStageMeta(r: RunRecord): string[] {
   const seconds = r.durationMs ? Math.round(r.durationMs / 1000) : 0

@@ -228,7 +228,7 @@ describe('remote redaction in board errors', () => {
 
 // review #346 r3 obs 2: gh/glab failures must be board-visible (Linear already was).
 describe('board-visible errors', () => {
-  it('a raw fetcher failure surfaces its first line as a VanguardError (bad-request downstream)', async () => {
+  it('a raw fetcher failure surfaces its first line as a TaskcellError (bad-request downstream)', async () => {
     const repo = await mkdtemp(join(tmpdir(), 'vg-autherr-'));
     await mkdir(join(repo, '.vanguard'), { recursive: true });
     await writeFile(join(repo, '.vanguard', 'app.json'), JSON.stringify({ source: 'github' }));
@@ -236,9 +236,9 @@ describe('board-visible errors', () => {
       fetch: async () => { throw new Error('To get started with GitHub CLI, please run: gh auth login\nlong tail'); },
       list: async () => { throw new Error('To get started with GitHub CLI, please run: gh auth login\nlong tail'); },
     };
-    const { VanguardError } = await import('../core/errors.js');
+    const { TaskcellError } = await import('../core/errors.js');
     const err = await listBoardTasks(repo, async () => failing).catch((e: unknown) => e);
-    expect(err).toBeInstanceOf(VanguardError);
+    expect(err).toBeInstanceOf(TaskcellError);
     expect((err as Error).message).toBe('To get started with GitHub CLI, please run: gh auth login');
   });
 });

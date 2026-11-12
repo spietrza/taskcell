@@ -1,6 +1,6 @@
 import type { InstructionOverlay } from '../context/instruction-files.js';
 import { instructionSourceNote } from './review-prompt.js';
-import { VanguardError } from '../core/errors.js';
+import { TaskcellError } from '../core/errors.js';
 import type { GlabRunner } from '../tasks/gitlab.js';
 import { defaultGlabRunner, encodeProject, glabUser, neutralizeQuickActions } from '../tasks/gitlab.js';
 import { GITLAB_GATE_CONFIG_LABEL } from '../gitlab-labels.js';
@@ -240,7 +240,7 @@ export async function postMergeRequestNote(
  * CI caller surfaces this failure with its own note (no marker), and a retried job can review the head
  * again instead of being permanently skipped by the per-head dedupe.
  */
-export class MergeRequestReviewIncompleteError extends VanguardError {
+export class MergeRequestReviewIncompleteError extends TaskcellError {
   constructor(readonly mr: MergeRequestForReview) {
     super(`Vanguard review of ${mr.project}!${mr.iid} did not complete: no verdict for head ${mr.sha.slice(0, 7)}.`);
   }

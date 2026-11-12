@@ -39,9 +39,9 @@ pub fn start(app: AppHandle, state: &WatchState, repo_path: String) -> notify::R
     // drowning in node_modules/.git writes and re-fetching on every unrelated file save.
     // ponytail: a repo opened before `.taskcell` exists won't deep-watch until re-opened;
     // real projects are added with `.taskcell/` already present, so this is rare.
-    let vanguard_dir = crate::runs::state_dir(Path::new(&repo_path));
-    let (target, mode) = if vanguard_dir.exists() {
-        (vanguard_dir, RecursiveMode::Recursive)
+    let state_dir_path = crate::runs::state_dir(Path::new(&repo_path));
+    let (target, mode) = if state_dir_path.exists() {
+        (state_dir_path, RecursiveMode::Recursive)
     } else {
         (Path::new(&repo_path).to_path_buf(), RecursiveMode::NonRecursive)
     };

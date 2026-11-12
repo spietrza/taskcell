@@ -17,7 +17,7 @@ import { createNavGuardRegistry, NavGuardContext } from './navGuard';
 import { ProjectCombobox } from './ProjectCombobox';
 import { isHubMode, onHubRestart, onHubConnectionIssue } from './transport';
 import { applyTheme, initialTheme, saveTheme } from './theme';
-import type { Project, ActiveRun } from './vanguard-output';
+import type { Project, ActiveRun } from './taskcell-output';
 
 export default function App() {
   const [projects, setProjects] = useState<Project[]>([]);

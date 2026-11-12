@@ -121,7 +121,7 @@ it('list() with limit adds -L and the state field to --json (the board call)', a
 });
 
 import { githubDefaultBranch } from './github.js';
-import { VanguardError } from '../core/errors.js';
+import { TaskcellError } from '../core/errors.js';
 describe('githubDefaultBranch', () => {
   it('reads the API default branch with the exact argv', async () => {
     const calls: string[][] = [];
@@ -129,6 +129,6 @@ describe('githubDefaultBranch', () => {
     expect(calls).toEqual([['repo', 'view', 'o/r', '--json', 'defaultBranchRef']]);
   });
   it.each([{}, { defaultBranchRef: null }, { defaultBranchRef: { name: '' } }])('fails closed on %j', async (data) => {
-    await expect(githubDefaultBranch('o/r', async () => JSON.stringify(data))).rejects.toThrow(VanguardError);
+    await expect(githubDefaultBranch('o/r', async () => JSON.stringify(data))).rejects.toThrow(TaskcellError);
   });
 });

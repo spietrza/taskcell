@@ -6,7 +6,7 @@ import { useDiscardGuard } from '../../navGuard';
 import { SOURCES } from '../../sources';
 import { projectColor } from '../../color';
 import { customProviderRowError, customProviderRows, PROVIDERS } from './customProviders';
-import type { AppConfig } from '../../vanguard-output';
+import type { AppConfig } from '../../taskcell-output';
 import type { CustomProviderSpec } from '../../wire';
 
 function Field({ label, hint, children }: { label: string; hint?: string; children: ReactNode }) {

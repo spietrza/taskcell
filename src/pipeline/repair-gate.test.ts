@@ -4,7 +4,7 @@ import type { RepairGateOptions, GateResult } from './repair-gate.js';
 import { STAGE } from './pipeline.js';
 import { AgentError } from '../core/errors.js';
 import type { PipelineStage, StageOutcome } from './pipeline.js';
-import type { RunContext } from '../core/vanguard.js';
+import type { RunContext } from '../core/taskcell.js';
 import type { RunResult } from '../core/types.js';
 
 type Run = NonNullable<RepairGateOptions<GateResult>['run']>;

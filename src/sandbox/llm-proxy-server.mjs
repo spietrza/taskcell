@@ -582,7 +582,7 @@ export function createLlmProxyServer(secretText, options = {}) {
   });
 
   // Exposed for the CLI bootstrap's banner only; not part of the public contract.
-  server.vanguardUpstream = upstreamKind;
+  server.taskcellUpstream = upstreamKind;
   return server;
 }
 
@@ -612,5 +612,5 @@ if (pathToFileURL(process.argv[1] ?? '').href === import.meta.url) {
     console.error(`llm-proxy: ${err instanceof Error ? err.message : 'invalid secret file'}`);
     process.exit(1);
   }
-  server.listen(PORT, () => console.log(`llm-proxy on ${PORT}; upstream=${server.vanguardUpstream}`));
+  server.listen(PORT, () => console.log(`llm-proxy on ${PORT}; upstream=${server.taskcellUpstream}`));
 }

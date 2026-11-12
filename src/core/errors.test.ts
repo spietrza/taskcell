@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { isRateLimitError, rateLimitResetDelayMs, failureReason, formatFailureComment, visibleError, VanguardError, AgentError } from './errors.js';
+import { isRateLimitError, rateLimitResetDelayMs, failureReason, formatFailureComment, visibleError, TaskcellError, AgentError } from './errors.js';
 
 describe('failureReason', () => {
   it('masks credentials and collapses the message to one line, since it lands in a public CI log', () => {
@@ -62,8 +62,8 @@ describe('formatFailureComment', () => {
 });
 
 describe('visibleError', () => {
-  it('passes a VanguardError through untouched', () => {
-    const error = new VanguardError('already visible');
+  it('passes a TaskcellError through untouched', () => {
+    const error = new TaskcellError('already visible');
 
     expect(visibleError(error)).toBe(error);
   });

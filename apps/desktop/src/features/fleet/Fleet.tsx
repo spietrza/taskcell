@@ -7,7 +7,7 @@ import { useAppConfig, useAsync } from '../../hooks';
 import { watchArgv } from '../../command';
 import { boardCountLabels } from '../board/counts';
 import { LaunchPanel, type Spawn } from '../inspector/LaunchPanel';
-import type { ActiveRun } from '../../vanguard-output';
+import type { ActiveRun } from '../../taskcell-output';
 
 export function Fleet({ project, active }: { project: string; active: ActiveRun[] }) {
   const [cfg] = useAppConfig(project);

@@ -20,8 +20,8 @@ import {
   guardedPoint,
 } from './pr-feedback.js';
 import type { FeedbackItem } from './pr-feedback.js';
-import { prepareContext, disposeContext } from '../core/vanguard.js';
-import type { RunContext } from '../core/vanguard.js';
+import { prepareContext, disposeContext } from '../core/taskcell.js';
+import type { RunContext } from '../core/taskcell.js';
 import { baseBranchOrDefault } from '../core/base-branch.js';
 import { literalPrompt } from '../context/prompt-engine.js';
 import { skillRegistryForRun } from '../context/skill-registry.js';
@@ -62,7 +62,7 @@ import { authSecrets } from '../agents/auth.js';
 import { selectAgents, providerKeyEnvNames } from '../agents/registry.js';
 import { GITHUB_REVIEW_LABEL } from '../github-labels.js';
 import { WorktreeManager } from '../worktree/manager.js';
-import { VanguardError } from '../core/errors.js';
+import { TaskcellError } from '../core/errors.js';
 import type { GhRunner } from '../tasks/github.js';
 import type { PullRequestForReview } from './pr-review.js';
 import type { CommandRunner } from '../pipeline/remote-branch.js';
@@ -346,7 +346,7 @@ export async function runRevisePullRequest(prRef: string, deps: ReviseGithubPrDe
 
   if (pr.isCrossRepository) {
     // A fork PR's head branch is not on origin: fetching refs/heads/<headRefName> there (resolveStartRef
-    // in vanguard.ts) would silently land on a same-named base-repo branch instead, and the push below
+    // in taskcell.ts) would silently land on a same-named base-repo branch instead, and the push below
     // would land on it too. Refuse before any fetch, worktree or push — there is no safe revise path
     // for a fork head. Placed after the early returns above so a re-run with nothing actionable left,
     // or one past the round cap, stays as quiet here as it is for a same-repo PR.
@@ -428,7 +428,7 @@ export async function runRevisePullRequest(prRef: string, deps: ReviseGithubPrDe
     let ctx: RunContext;
     try {
       if (deps._baseBranch === undefined && (pr.headRefName === '' || pr.headRefOid === '')) {
-        throw new VanguardError(`PR ${target.repoSlug}#${target.number} has no head ref to fetch`);
+        throw new TaskcellError(`PR ${target.repoSlug}#${target.number} has no head ref to fetch`);
       }
       ctx = await prepareContext(
         {
@@ -625,14 +625,14 @@ export async function runRevisePullRequest(prRef: string, deps: ReviseGithubPrDe
         // The gate above scanned the same worktree before the --out branch and handled the block
         // (comment, labels). Reaching here means the worktree changed in between — fail loudly rather
         // than strand the PR silently.
-        throw new VanguardError(`revise-pr ${target.repoSlug}#${target.number}: secret found at delivery after a clean pre-scan`);
+        throw new TaskcellError(`revise-pr ${target.repoSlug}#${target.number}: secret found at delivery after a clean pre-scan`);
       }
       if (delivery.kind === 'no-changes') {
         log(`revise-pr ${target.repoSlug}#${target.number}: no changes — skipping push`);
         await stepSummary('no-changes');
         return { pr, ignoredFeedback, addressed: 0, committed: false, pushed: false, undrafted: false };
       }
-      if (delivery.kind !== 'delivered-push') throw new VanguardError(`unexpected delivery outcome ${delivery.kind} for an existing-branch target`);
+      if (delivery.kind !== 'delivered-push') throw new TaskcellError(`unexpected delivery outcome ${delivery.kind} for an existing-branch target`);
       log(`revise-pr ${target.repoSlug}#${target.number}: pushed -> ${pr.headRefName}${pushToken ? ' (VANGUARD_PUSH_TOKEN)' : ''}`);
       const sha = delivery.sha;
 

@@ -8,8 +8,8 @@ vi.mock('../sandbox/llm-proxy.js', async (importOriginal) => ({
   ...(await importOriginal<typeof import('../sandbox/llm-proxy.js')>()),
   startProviderProxies: vi.fn(async () => ({ destroy: async () => undefined })),
 }));
-vi.mock('../core/vanguard.js', async (importOriginal) => ({
-  ...(await importOriginal<typeof import('../core/vanguard.js')>()),
+vi.mock('../core/taskcell.js', async (importOriginal) => ({
+  ...(await importOriginal<typeof import('../core/taskcell.js')>()),
   prepareContext: vi.fn(async () => ({})),
   runAgent: vi.fn(),
   disposeContext: vi.fn(async () => undefined),
@@ -19,7 +19,7 @@ import { mkdir, mkdtemp, realpath, rm, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { startSandboxContext } from '../sandbox/sandbox-context.js';
-import { prepareContext, runAgent } from '../core/vanguard.js';
+import { prepareContext, runAgent } from '../core/taskcell.js';
 import { mergeRequestReviewMarker, reviewMergeRequest } from '../runners/mr-review.js';
 import { reviewMrCommand } from './review-mr.js';
 import type { GlabRunner } from '../tasks/gitlab.js';

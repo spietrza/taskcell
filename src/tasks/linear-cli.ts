@@ -1,5 +1,5 @@
 import { execa } from 'execa';
-import { VanguardError } from '../core/errors.js';
+import { TaskcellError } from '../core/errors.js';
 import type { Task, TaskComment, TaskFetcher, TaskFilter } from './fetcher.js';
 import { redactForPublish } from '../core/secret-scan.js';
 
@@ -107,9 +107,9 @@ async function linearToken(run: LinearCliRunner): Promise<string> {
   } catch {
     // Non-zero exit = not logged in. Without this map the raw execa error ("Command failed…")
     // reaches the board on every load (S9 — the Rust board had the actionable message; core didn't).
-    throw new VanguardError('Not logged in to Linear — run `linear auth login` or set LINEAR_API_KEY.');
+    throw new TaskcellError('Not logged in to Linear — run `linear auth login` or set LINEAR_API_KEY.');
   }
-  if (token === '') throw new VanguardError('No Linear credential — set LINEAR_API_KEY or run `linear auth login`.');
+  if (token === '') throw new TaskcellError('No Linear credential — set LINEAR_API_KEY or run `linear auth login`.');
   return token;
 }
 
@@ -129,7 +129,7 @@ async function postGraphql(token: string, body: { query: string; variables: Reco
     // Linear puts the actionable reason (bad key, missing scope) in the BODY. Throwing on the status
     // line alone turns a fixable auth problem into a bare "401 Unauthorized" on every watch poll.
     const detail = await res.text().catch(() => '');
-    throw new VanguardError(`Linear API request failed: ${res.status} ${res.statusText}${detail === '' ? '' : ` — ${detail.slice(0, 300)}`}`);
+    throw new TaskcellError(`Linear API request failed: ${res.status} ${res.statusText}${detail === '' ? '' : ` — ${detail.slice(0, 300)}`}`);
   }
   return res.json();
 }
@@ -195,7 +195,7 @@ export class LinearCliTaskFetcher implements TaskFetcher {
   async fetch(id: string): Promise<Task> {
     const issue = JSON.parse(await this.run(['issue', 'view', id, '--json'])) as LinearCliIssue;
     if (issue.identifier === undefined && issue.id === undefined) {
-      throw new VanguardError(`Linear issue not found: ${id}`);
+      throw new TaskcellError(`Linear issue not found: ${id}`);
     }
     const labels = issue.labels ?? (await this.fetchLabels(issue.identifier ?? issue.id ?? id));
     return toTask({ ...issue, ...(labels !== undefined ? { labels } : {}) });
@@ -251,7 +251,7 @@ export class LinearCliTaskFetcher implements TaskFetcher {
       // grow `issues` without bound — a hung watcher is strictly worse than the crash this replaced,
       // and removing the old --limit took away the accidental backstop. Fail loudly instead.
       if (page >= MAX_PAGES) {
-        throw new VanguardError(`Linear list exceeded ${MAX_PAGES} pages (${MAX_PAGES * PAGE_SIZE}+ issues) — refusing to page further.`);
+        throw new TaskcellError(`Linear list exceeded ${MAX_PAGES} pages (${MAX_PAGES * PAGE_SIZE}+ issues) — refusing to page further.`);
       }
       const response = (await send({
         query: LIST_QUERY,
@@ -261,7 +261,7 @@ export class LinearCliTaskFetcher implements TaskFetcher {
       // from "no work to do" — the watcher would idle forever against a broken query.
       const errors = response.errors;
       if (errors !== undefined && errors.length > 0) {
-        throw new VanguardError(`Linear API error: ${errors.map((e) => e.message ?? '').join('; ')}`);
+        throw new TaskcellError(`Linear API error: ${errors.map((e) => e.message ?? '').join('; ')}`);
       }
       const connection = response.data?.issues;
       // Valid JSON, no `errors`, but no issue connection either (`{"data":{"issues":null}}`, or a proxy
@@ -269,7 +269,7 @@ export class LinearCliTaskFetcher implements TaskFetcher {
       // indistinguishable from "no work to do", idling the watcher forever. That is the failure mode
       // this whole change exists to kill, so it must not survive in the malformed-SUCCESS case either.
       if (connection === undefined || connection === null) {
-        throw new VanguardError('Linear API returned no issue connection — refusing to report an empty list.');
+        throw new TaskcellError('Linear API returned no issue connection — refusing to report an empty list.');
       }
       issues.push(...(connection.nodes ?? []));
       if (filter?.limit !== undefined && issues.length >= filter.limit) break; // board cap — one page
@@ -277,7 +277,7 @@ export class LinearCliTaskFetcher implements TaskFetcher {
       if (next?.hasNextPage !== true || next.endCursor === null || next.endCursor === undefined) break;
       // The cursor must ADVANCE. `hasNextPage: true` with a repeating cursor is the infinite loop.
       if (next.endCursor === after) {
-        throw new VanguardError('Linear pagination cursor did not advance — refusing to loop forever.');
+        throw new TaskcellError('Linear pagination cursor did not advance — refusing to loop forever.');
       }
       after = next.endCursor;
     }

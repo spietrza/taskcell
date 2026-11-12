@@ -2,7 +2,7 @@ import { describe, it, expect } from 'vitest';
 import {
   assessTaskReadiness,
   hasRealAcceptanceCriteria,
-  isVanguardSpec,
+  isTaskcellSpec,
   stripHtmlComments,
   MIN_DESCRIPTION_CHARS,
   SPEC_TAG,
@@ -126,24 +126,24 @@ describe('SPEC_TAG', () => {
 });
 
 // ---------------------------------------------------------------------------
-// isVanguardSpec (strict — only <tech_spec marker, not AC heading)
+// isTaskcellSpec (strict — only <tech_spec marker, not AC heading)
 // ---------------------------------------------------------------------------
 
-describe('isVanguardSpec', () => {
+describe('isTaskcellSpec', () => {
   it('returns true for a comment containing the <tech_spec opening tag', () => {
-    expect(isVanguardSpec({ author: 'vanguard', authorAssociation: 'COLLABORATOR', body: `<${SPEC_TAG}>\ncontent\n</${SPEC_TAG}>` })).toBe(true);
+    expect(isTaskcellSpec({ author: 'vanguard', authorAssociation: 'COLLABORATOR', body: `<${SPEC_TAG}>\ncontent\n</${SPEC_TAG}>` })).toBe(true);
   });
 
   it('returns false for a comment with only an Acceptance Criteria heading (no <tech_spec tag)', () => {
-    expect(isVanguardSpec({ author: 'human', authorAssociation: 'COLLABORATOR', body: '## Acceptance Criteria\n- [ ] Something.' })).toBe(false);
+    expect(isTaskcellSpec({ author: 'human', authorAssociation: 'COLLABORATOR', body: '## Acceptance Criteria\n- [ ] Something.' })).toBe(false);
   });
 
   it('returns false for an ordinary comment', () => {
-    expect(isVanguardSpec({ author: 'alice', authorAssociation: 'COLLABORATOR', body: 'LGTM' })).toBe(false);
+    expect(isTaskcellSpec({ author: 'alice', authorAssociation: 'COLLABORATOR', body: 'LGTM' })).toBe(false);
   });
 
   it('returns false for an empty body', () => {
-    expect(isVanguardSpec({ author: 'alice', authorAssociation: 'COLLABORATOR', body: '' })).toBe(false);
+    expect(isTaskcellSpec({ author: 'alice', authorAssociation: 'COLLABORATOR', body: '' })).toBe(false);
   });
 });
 

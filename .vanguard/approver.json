@@ -12,7 +12,7 @@
     "ci-config": [".github/**", ".gitlab-ci.yml", ".gitlab/**"],
     "dependencies": ["**/package.json", "**/pnpm-lock.yaml", "**/Cargo.*", "apps/desktop/src-tauri/**"],
     "migration-deploy": ["docker/**", "**/*migration*"],
-    "security-surface": ["src/sandbox/**", "src/core/vanguard.ts", "src/core/secret-scan.ts", "src/context/**", "src/agents/**"],
+    "security-surface": ["src/sandbox/**", "src/core/taskcell.ts", "src/core/secret-scan.ts", "src/context/**", "src/agents/**"],
     "review-pipeline": [
       "src/runners/pr-review.ts", "src/runners/pr-watch.ts", "src/runners/pr-feedback.ts",
       "src/runners/revise-pr.ts", "src/runners/review-prompt.ts", "src/runners/deliver-change.ts",

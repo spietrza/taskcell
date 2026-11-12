@@ -1693,7 +1693,7 @@ describe('pushToExistingBranch', () => {
       localRepoPath: '/repo',
       wm: {} as WorktreeManager,
       log: { info: () => {}, warn: () => {}, error: () => {}, child: () => ({}) },
-    } as unknown as import('../core/vanguard.js').RunContext;
+    } as unknown as import('../core/taskcell.js').RunContext;
 
     await pushToExistingBranch(fakeCtx, { prHeadRef: 'fix-auth', runner });
 
@@ -1719,7 +1719,7 @@ describe('pushToExistingBranch', () => {
       localRepoPath: '/r',
       wm: {} as WorktreeManager,
       log: { info: () => {}, warn: () => {}, error: () => {}, child: () => ({}) },
-    } as unknown as import('../core/vanguard.js').RunContext;
+    } as unknown as import('../core/taskcell.js').RunContext;
 
     await pushToExistingBranch(fakeCtx, { prHeadRef: 'my-branch', remote: 'upstream', runner });
     expect(calls[0]?.args).toEqual(['push', '--no-verify', 'upstream', 'HEAD:refs/heads/my-branch']);

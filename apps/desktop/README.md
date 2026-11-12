@@ -115,7 +115,7 @@ the test immediately.
 
 ## Architecture
 
-Typed JSON over Tauri IPC is the only boundary. `src/vanguard-output.d.ts` hand-mirrors the persisted
+Typed JSON over Tauri IPC is the only boundary. `src/taskcell-output.d.ts` hand-mirrors the persisted
 shapes (kept decoupled from Vanguard's build, per the design spec §4).
 
 **Rust (`src-tauri/src/`)** — one module per concern, each with pure functions + unit tests, thin

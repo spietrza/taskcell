@@ -2,7 +2,7 @@ import { useMemo, useState } from 'react';
 import { Table, Chip, Empty, Input, ScrollTable, Timestamp } from '@/ui';
 import { Inbox, RefreshCw, Search } from 'lucide-react';
 import { verdictColor, verdictWord } from '../../status';
-import type { ActiveRun, RunSummary } from '../../vanguard-output';
+import type { ActiveRun, RunSummary } from '../../taskcell-output';
 
 type Filter = 'all' | 'passed' | 'failed';
 

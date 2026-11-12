@@ -1,8 +1,8 @@
 import { execa } from 'execa';
 import { hostGitArgs } from '../worktree/host-git.js';
-import { runAgent } from '../core/vanguard.js';
+import { runAgent } from '../core/taskcell.js';
 import { roundUsd } from '../core/usd.js';
-import type { RunContext, StageInput } from '../core/vanguard.js';
+import type { RunContext, StageInput } from '../core/taskcell.js';
 import type { RunResult } from '../core/types.js';
 import type { EvalVerdict } from '../evals/types.js';
 import type { PipelineStage } from './pipeline.js';

@@ -1,9 +1,9 @@
 import { execa } from 'execa';
 import { assertSafeBaseBranch, resolveRemoteBaseRef } from '../core/base-branch.js';
-import { VanguardError } from '../core/errors.js';
+import { TaskcellError } from '../core/errors.js';
 import { createLogger } from '../core/logger.js';
 import { hostGitArgs } from '../worktree/host-git.js';
-import type { VanguardLogger } from '../core/logger.js';
+import type { TaskcellLogger } from '../core/logger.js';
 
 /**
  * Repository files that instruct the agent rather than being reviewed by it. The review reads these
@@ -39,7 +39,7 @@ export interface OverlayInstructionFilesOptions {
   worktreePath: string;
   /** The default branch name, from the forge API. */
   ref: string;
-  logger?: VanguardLogger;
+  logger?: TaskcellLogger;
 }
 
 /** `git ls-tree -r -z --name-only <tree>` in `cwd`, split on NUL, filtered through instructionPaths(). */
@@ -67,7 +67,7 @@ export async function overlayInstructionFiles(opts: OverlayInstructionFilesOptio
 
   const resolved = await resolveRemoteBaseRef(repoPath, opts.ref, { label: 'instructions', keepLocalIfAhead: false, logger: log });
   const sha = (await execa('git', ['rev-parse', '--verify', '--quiet', `${resolved}^{commit}`], { cwd: repoPath, reject: false })).stdout.trim();
-  if (sha === '') throw new VanguardError(`cannot resolve instruction ref ${opts.ref} in ${repoPath}`);
+  if (sha === '') throw new TaskcellError(`cannot resolve instruction ref ${opts.ref} in ${repoPath}`);
 
   const [defaultPaths, basePaths] = await Promise.all([
     instructionPathsInTree(repoPath, sha),

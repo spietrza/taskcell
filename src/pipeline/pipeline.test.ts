@@ -3,7 +3,7 @@ import { mkdtemp, rm, writeFile, mkdir } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { execa } from 'execa';
-import { prepareContext, disposeContext } from '../core/vanguard.js';
+import { prepareContext, disposeContext } from '../core/taskcell.js';
 import { DIFF_ESCAPING_NOTE, diffForPrompt } from '../context/escape.js';
 import {
   runStages,

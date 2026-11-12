@@ -1,4 +1,4 @@
-import type { AppConfig } from '../../vanguard-output';
+import type { AppConfig } from '../../taskcell-output';
 import { WIRE_PROVIDER_NAMES, FLOW_NAME_RE, KEY_ENV_RE, CUSTOM_PROVIDER_KEYS } from '../../wire';
 import type { CustomProviderSpec } from '../../wire';
 

@@ -1,7 +1,7 @@
 import { setTimeout as timeout } from 'node:timers/promises';
 import { execa } from 'execa';
 import { hostGitArgs } from '../worktree/host-git.js';
-import { runAgent } from '../core/vanguard.js';
+import { runAgent } from '../core/taskcell.js';
 import { mergeAttempts } from '../core/run-metric.js';
 import { forkAndSelect } from './fork-select.js';
 import { buildXmlPrompt } from '../context/xml-prompt.js';
@@ -11,7 +11,7 @@ import { verdictSchema } from '../evals/judges.js';
 import { AgentError, isRateLimitError, rateLimitResetDelayMs } from '../core/errors.js';
 import { enforceUsageCap, UsageCapError } from '../core/usage-cap.js';
 import { roundUsd } from '../core/usd.js';
-import type { RunContext } from '../core/vanguard.js';
+import type { RunContext } from '../core/taskcell.js';
 import type { ReasoningEffort, RunResult } from '../core/types.js';
 import type { AgentProvider } from '../agents/provider.js';
 import type { Complete } from '../evals/judges.js';

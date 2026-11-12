@@ -463,7 +463,7 @@ export interface DirEntry {
   name: string;
   path: string;
   isGitRepo: boolean;
-  hasVanguard: boolean;
+  hasTaskcell: boolean;
 }
 
 /** Hub-only (src/hub/browse.ts) — one `browse_dirs` page: the listed directory plus its children. */

@@ -1,5 +1,5 @@
 import { Card, Chip } from '@/ui';
-import type { Proof } from '../../vanguard-output';
+import type { Proof } from '../../taskcell-output';
 
 export function ProofGate({ proof }: { proof?: Proof }) {
   if (!proof) {

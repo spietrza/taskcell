@@ -3,7 +3,7 @@ import { tmpdir } from 'node:os';
 import { dirname, join } from 'node:path';
 import { execa } from 'execa';
 import { afterEach, describe, expect, it } from 'vitest';
-import { VanguardError } from '../core/errors.js';
+import { TaskcellError } from '../core/errors.js';
 import { instructionPaths, overlayInstructionFiles } from './instruction-files.js';
 
 const roots: string[] = [];
@@ -139,6 +139,6 @@ describe('instruction files', () => {
     await f.put('CLAUDE.md', 'rules');
     await f.commit();
     await f.worktree();
-    await expect(overlayInstructionFiles({ ...f, ref: 'missing' })).rejects.toThrow(VanguardError);
+    await expect(overlayInstructionFiles({ ...f, ref: 'missing' })).rejects.toThrow(TaskcellError);
   });
 });

@@ -198,7 +198,7 @@ describe('linearSpecPrimitives', () => {
 
   it('task with only an AC-heading comment (no <tech_spec tag) is NOT treated as already-specced', async () => {
     // A human-written comment with an "Acceptance Criteria" heading must NOT trigger the idempotency
-    // skip (isVanguardSpec is strict; isSpecComment broad is only used for the agent gate).
+    // skip (isTaskcellSpec is strict; isSpecComment broad is only used for the agent gate).
     const task = readyTask('ENG-11');
     const acOnlyComment = '## Acceptance Criteria\n- [ ] Retry works.';
     let generateCalled = false;

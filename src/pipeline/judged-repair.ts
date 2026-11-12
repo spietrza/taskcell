@@ -1,8 +1,8 @@
-import { runAgent } from '../core/vanguard.js';
+import { runAgent } from '../core/taskcell.js';
 import { roundUsd } from '../core/usd.js';
 import { diffForPrompt } from '../context/escape.js';
 import { enforceUsageCap } from '../core/usage-cap.js';
-import type { RunContext, StageInput } from '../core/vanguard.js';
+import type { RunContext, StageInput } from '../core/taskcell.js';
 import { makeFrozenRun } from './pipeline.js';
 import type { PipelineStage, PipelineResult, StageOutcome } from './pipeline.js';
 import type { AgentProvider } from '../agents/provider.js';
