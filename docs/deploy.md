@@ -85,6 +85,9 @@ GH_TOKEN=ghp_...
 # Optional for GitHub Actions revise flow: fine-grained, repo-scoped PAT with Contents: Read and write.
 # Expose this as VANGUARD_PUSH_TOKEN in taskcell-revise.yml so revision pushes use a PAT and trigger CI.
 VANGUARD_PUSH_TOKEN=<your-fine-grained-pat>
+# Or the taskcell GitHub App (takes precedence; the PAT stays the fallback). See docs/onboarding-another-repo.md.
+# TASKCELL_APP_CLIENT_ID=Iv1.xxxxxxxx
+# TASKCELL_APP_PRIVATE_KEY="-----BEGIN PRIVATE KEY-----\n...\n-----END PRIVATE KEY-----"
 VANGUARD_SANDBOX_CPUS=0        # required: kernel without CFS scheduler
 VANGUARD_SANDBOX_PIDS=0        # silences a harmless pids-limit warning
 # VANGUARD_SANDBOX_INIT=0      # only if `docker run --init` fails here (no docker-init binary)

@@ -7,6 +7,7 @@ import { prepareContext, disposeContext } from '../core/taskcell.js';
 import { publishForReview, rebaseOntoRemoteBase, pushToExistingBranch, pushAuthEnv } from './remote-branch.js';
 import { WorktreeManager } from '../worktree/manager.js';
 import type { IsolatedSandboxProvider, ExecResult } from '../sandbox/provider.js';
+import type { RunContext } from '../core/taskcell.js';
 
 let repo: string;
 
@@ -380,5 +381,54 @@ describe('rebaseOntoRemoteBase', () => {
     const runner = stub([], (a) => (a[0] === 'fetch' ? new Error('fatal: could not read Username') : ''));
     expect(await rebaseOntoRemoteBase(runner, '/wt', { ...opts, log: (l) => lines.push(l) })).toBe(false);
     expect(lines[0]).toMatch(/could not fetch origin\/main, pushing as-is \(fatal: could not read Username\)/);
+  });
+});
+
+describe('tokenProvider', () => {
+  const setup = async (): Promise<RunContext> => {
+    const wm = new WorktreeManager(repo, undefined, () => 'r1');
+    return prepareContext({ taskId: 'provider', localRepoPath: repo, baseBranch: 'main', start: 'base', sandbox: makeSandbox() }, { worktrees: wm });
+  };
+
+  it('publishForReview pushes with the ambient credential and opens the PR with a freshly resolved token', async () => {
+    const ctx = await setup();
+    const calls: Array<{ file: string; args: string[]; env?: Record<string, string> }> = [];
+    const runner = async (file: string, args: string[], _cwd: string, env?: Record<string, string>): Promise<string> => {
+      calls.push({ file, args, ...(env !== undefined ? { env } : {}) });
+      return file === 'gh' ? 'https://github.com/o/r/pull/7' : '';
+    };
+    let n = 0;
+    await publishForReview(ctx, { title: 'PR', tokenProvider: async () => `tok${++n}`, runner });
+    await publishForReview(ctx, { title: 'PR', tokenProvider: async () => `tok${++n}`, runner });
+    expect(calls.filter((c) => c.args[0] === 'push').every((c) => c.env === undefined)).toBe(true);
+    expect(calls.filter((c) => c.file === 'gh').map((c) => c.env)).toEqual([{ GH_TOKEN: 'tok1' }, { GH_TOKEN: 'tok2' }]);
+    await disposeContext(ctx);
+  });
+
+  it('a provider that throws falls back to the ambient credential for the PR and the push', async () => {
+    const ctx = await setup();
+    const calls: Array<{ file: string; args: string[]; env?: Record<string, string> }> = [];
+    const runner = async (file: string, args: string[], _cwd: string, env?: Record<string, string>): Promise<string> => {
+      calls.push({ file, args, ...(env !== undefined ? { env } : {}) });
+      return file === 'gh' ? 'https://github.com/o/r/pull/7' : '';
+    };
+    const tokenProvider = async (): Promise<string | undefined> => { throw new Error('mint failed'); };
+    expect((await publishForReview(ctx, { title: 'PR', tokenProvider, runner })).prUrl).toBe('https://github.com/o/r/pull/7');
+    await pushToExistingBranch(ctx, { prHeadRef: 'b', tokenProvider, runner });
+    expect(calls.filter((c) => c.file === 'gh').every((c) => c.env === undefined)).toBe(true);
+    expect(calls.filter((c) => c.args[0] === 'push').every((c) => c.env === undefined)).toBe(true);
+    await disposeContext(ctx);
+  });
+
+  it('pushToExistingBranch resolves the provider at call time', async () => {
+    const ctx = await setup();
+    const envs: Array<Record<string, string> | undefined> = [];
+    const runner = async (_f: string, _a: string[], _c: string, env?: Record<string, string>): Promise<string> => { envs.push(env); return ''; };
+    await pushToExistingBranch(ctx, { prHeadRef: 'b', tokenProvider: async () => 'A', runner });
+    await pushToExistingBranch(ctx, { prHeadRef: 'b', tokenProvider: async () => 'B', runner });
+    const b64 = (t: string): string => `AUTHORIZATION: basic ${Buffer.from(`x-access-token:${t}`).toString('base64')}`;
+    expect(Object.values(envs[0] ?? {})).toContain(b64('A'));
+    expect(Object.values(envs[1] ?? {})).toContain(b64('B'));
+    await disposeContext(ctx);
   });
 });

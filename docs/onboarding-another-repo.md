@@ -336,6 +336,28 @@ Both runs pick it up automatically when present, on the host only (it never ente
 
 **Trust note.** The PAT acts as you, limited to `contents: write` and `pull_requests: write` on the selected repos. It cannot edit workflows (no `workflow` scope) and cannot bypass branch protection required checks.
 
+### Alternative: the taskcell GitHub App
+
+Instead of a PAT, the CLI can mint a short-lived GitHub App installation token right before each use: the PR creation, the revise push and the undraft. Each token is scoped to this one repo with **Contents** and **Pull requests** write only (whatever else the App is granted), and is revoked right after its one use. When the App is configured it takes precedence over `VANGUARD_PUSH_TOKEN`; if a mint fails (after one retry) the run warns and uses `VANGUARD_PUSH_TOKEN` when set, otherwise the ambient credential, rather than losing its work. The new-branch push of an implement run still uses the checkout's credential (a second Authorization header would be rejected); the PR itself is opened with the App token.
+
+1. Create a **dedicated** GitHub App for the factory (do not reuse one that serves anything else). Repository permissions: **Contents → Read and write**, **Pull requests → Read and write**; nothing else (no Workflows, no Administration, no Issues). No webhook needed. Install it **only** on the repos that run Taskcell.
+2. Store its client ID as repo **variable** `TASKCELL_APP_CLIENT_ID` and a private key as repo **secret** `TASKCELL_APP_PRIVATE_KEY` (the PEM as-is, or with `\n` escapes).
+3. **Workflow edit (by hand — CI config).** The shipped reusable workflows do not yet carry these values, so the App path is inert until a maintainer applies this edit:
+   - `.github/workflows/implement.yml` and `.github/workflows/revise.yml`: declare `TASKCELL_APP_PRIVATE_KEY: { required: false }` under `on.workflow_call.secrets`, next to `VANGUARD_PUSH_TOKEN`, and add to the `env:` of the step that runs the CLI (where `VANGUARD_PUSH_TOKEN` is mapped):
+
+     ```yaml
+     TASKCELL_APP_CLIENT_ID: ${{ vars.TASKCELL_APP_CLIENT_ID }}
+     TASKCELL_APP_PRIVATE_KEY: ${{ secrets.TASKCELL_APP_PRIVATE_KEY }}
+     ```
+   - The callers (`taskcell-implement.yml`, `taskcell-revise.yml`): map `TASKCELL_APP_PRIVATE_KEY: ${{ secrets.TASKCELL_APP_PRIVATE_KEY }}` in their `secrets:` block.
+4. **Actor gates (by hand — CI config).** With the App, a factory PR's author is the App's bot login, `<your-app-slug>[bot]` (use your App's actual slug, never a hard-coded name: allow-listing another slug admits someone else's App), and so is the event sender of the `opened` and `ready_for_review` events the CLI causes. The existing gates then skip those PRs:
+   - `taskcell-pr-review.yml` (`label-factory-pr` and `review`): both `pull_request.user.login` and `sender.login` must be in the human list, so neither the first review nor the review after a revise round starts. Admit `<your-app-slug>[bot]` there **only together with** the existing `head.ref` starts-with `chore/vanguard-` and same-repo checks, as a separate condition — do not add it to the human list itself. That list is what the review policy in `CLAUDE.md` calls the author gate ("bots do not" pass it), which exempts CI-config edits from being a finding; a bot must never pass it.
+   - `taskcell-revise.yml`: add `<your-app-slug>[bot]` to the **PR-author** list (next to `github-actions[bot]`), not to the sender list — `needs revision` is still added by a human.
+   - The reusable workflows' "Enforce allowed-actors" step (`pr-review.yml`, `revise.yml`) checks the event sender. For the `ready_for_review`-triggered review the sender is the bot, so it would fail; but `allowed-actors` is also passed as `--feedback-authors`, so adding the bot there would make its text trusted review feedback. Prefer leaving `allowed-actors` human-only and having the caller's `review` job re-dispatch for bot-sent events, or accept that a revised PR needs a human to re-add `ready for vanguard review`.
+5. Until steps 3–4 land, keep using `VANGUARD_PUSH_TOKEN`; the App variables are ignored when absent.
+
+**App trust note.** The private key is more powerful than the PAT: it can mint tokens for **every** installation of the App with **all** of the App's granted permissions; the per-repo, per-permission scoping is applied by the CLI, not by GitHub. Hence a dedicated App, minimal permissions and minimal installations. The CLI reads the key once at start and removes it from its process environment, so the sandbox and the `docker`/`git`/`gh` children never inherit it; the key and every minted token are redacted from logs, comments and run records. Rotate the key from the App settings if it may have leaked.
+
 ---
 
 ## 3. Validate, then use it
