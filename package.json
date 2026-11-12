@@ -42,6 +42,7 @@
   "dependencies": {
     "@anthropic-ai/claude-agent-sdk": "^0.3.309",
     "@cdktf/hcl2json": "0.21.0",
+    "better-auth": "^1.7.22",
     "execa": "^10.2.0",
     "pino": "^10.4.0",
     "zod": "^4.6.7"

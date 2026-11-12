@@ -13,6 +13,7 @@ import {
   HUB_EVENTS_SESSION_PATH,
   HUB_TOKEN_FRAGMENT_PARAM,
   isHubTokenRejected,
+  isHubSignInRequired,
 } from './hub-wire';
 import { invoke as tauriInvoke } from '@tauri-apps/api/core';
 import { listen as tauriListen, type UnlistenFn } from '@tauri-apps/api/event';
@@ -83,6 +84,28 @@ function hubToken(): string {
   }
 }
 
+/** Server mode: the session is gone (expired, revoked, signed out) — go to the sign-in page. */
+function redirectToSignIn(): void {
+  window.location.assign('/sign-in');
+}
+
+/** Server mode only: is someone signed in? Better Auth answers `/api/auth/get-session` with the
+ * session or null; loopback mounts no OAuth, so it 404s and there is nothing to sign out of. */
+export async function hubSignedIn(): Promise<boolean> {
+  if (!isHubMode()) return false;
+  try {
+    const response = await fetch('/api/auth/get-session');
+    return response.ok && (await response.json()) !== null;
+  } catch {
+    return false;
+  }
+}
+
+export async function hubSignOut(): Promise<void> {
+  await fetch('/api/auth/sign-out', { method: 'POST', headers: { 'content-type': 'application/json' }, body: '{}' }).catch(() => undefined);
+  redirectToSignIn();
+}
+
 function notify(handlers: Set<() => void>): void {
   for (const h of handlers) h();
 }
@@ -127,7 +150,9 @@ async function probeHubRestart(): Promise<boolean> {
       void response.body?.cancel();
       return false;
     }
-    return isHubTokenRejected(await response.json());
+    const body: unknown = await response.json();
+    if (isHubSignInRequired(body)) redirectToSignIn();
+    return isHubTokenRejected(body);
   } catch {
     return false;
   }
@@ -154,6 +179,7 @@ async function hubInvoke<T>(cmd: string, args?: Record<string, unknown>): Promis
   // Only the hub's own 401 envelope means "this page's token is dead"; a reverse proxy's 401 is a
   // different problem, and telling the operator to reload would be wrong (docs/hub.md).
   if (response.status === 401 && isHubTokenRejected(body)) notifyHubRestarted();
+  if (response.status === 401 && isHubSignInRequired(body)) redirectToSignIn();
   return decodeResponse<T>(response.status, body);
 }
 
@@ -188,7 +214,11 @@ async function openEventsSession(): Promise<'ok' | 'restarted' | 'issue'> {
       void response.body?.cancel();
       return 'ok';
     }
-    if (response.status === 401 && isHubTokenRejected(await response.json().catch(() => undefined))) return 'restarted';
+    if (response.status === 401) {
+      const body: unknown = await response.json().catch(() => undefined);
+      if (isHubSignInRequired(body)) redirectToSignIn();
+      if (isHubTokenRejected(body)) return 'restarted';
+    }
     // A 401 body was already read above (stream locked/disturbed); cancelling it would reject unhandled.
     if (!response.bodyUsed) void response.body?.cancel().catch(() => undefined);
     return 'issue';
