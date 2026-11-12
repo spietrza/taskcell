@@ -166,7 +166,7 @@ export function NeedsYou({ project, allRepos = false }: { project: string; allRe
               <Chip color="warning" variant="outlined" title={item.reason}>
                 {REASON_TEXT[item.reason] ?? item.reason}
               </Chip>
-              <a href={item.url} target="_blank" rel="noreferrer" className="min-w-0 truncate font-medium hover:underline">
+              <a href={item.url || undefined} target="_blank" rel="noreferrer" className="min-w-0 truncate font-medium hover:underline">
                 {item.title}
               </a>
               <ExternalLink href={item.url} className="ml-auto shrink-0">Open in GitHub</ExternalLink>

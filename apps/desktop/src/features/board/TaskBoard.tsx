@@ -126,7 +126,7 @@ export function TaskBoard({
                         </Card.Content>
                       </Card.Root>
                     </button>
-                    {t.source !== undefined && (
+                    {t.source !== undefined && t.url !== undefined && (
                       <div className="px-3 pt-1">
                         <ExternalLink href={t.url}>{`Open in ${TRACKER_NAME[t.source]}`}</ExternalLink>
                       </div>

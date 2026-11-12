@@ -93,6 +93,18 @@ describe('listNeedsYou', () => {
     expect(items.every((i) => i.kind === 'pr')).toBe(true);
   });
 
+  it('passes on only an https url (else empty, so the UI renders no link)', async () => {
+    const gh = stubGh({
+      issueList: [],
+      prList: [
+        { number: 1, title: 'A', url: 'https://github.com/o/r/pull/1', labels: [{ name: 'vanguard:needs-human-review' }] },
+        { number: 2, title: 'B', url: 'javascript:alert(1)', labels: [{ name: 'vanguard:needs-human-review' }] },
+      ],
+    });
+    const items = await listNeedsYou('o/r', gh);
+    expect(items.map((i) => i.url)).toEqual(['https://github.com/o/r/pull/1', '']);
+  });
+
   it('fetches comments for the waiting items only', async () => {
     const calls: string[][] = [];
     const gh = stubGh(
