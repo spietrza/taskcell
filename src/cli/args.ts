@@ -27,6 +27,8 @@ export type Command =
       maxTurns?: number;
       /** Write the review to this local file instead of posting a PR comment (no trace on the tracker). */
       out?: string;
+      /** Review even if this head already has a factory review (set by watch-prs, which dedupes its own sweep). */
+      force?: boolean;
     }
   | {
       kind: 'research';
