@@ -1,5 +1,6 @@
 import { execa } from 'execa';
 import { redactTokens } from '../core/secret-scan.js';
+import { releaseToken } from '../core/push-token.js';
 import { assertSafeBaseBranch } from '../core/base-branch.js';
 import { neutralizeQuickActions } from '../tasks/gitlab.js';
 import type { RunContext } from '../core/taskcell.js';
@@ -36,6 +37,8 @@ export interface PublishOptions {
    * until someone pushes. Refused (e.g. no Pull requests: write) → opens with the ambient credential.
    */
   prToken?: string;
+  /** Resolved right before the PR is opened, so a short-lived token is fresh at that use. Overrides prToken. A failure falls back to the ambient credential. */
+  tokenProvider?: () => Promise<string | undefined>;
   /** Injected for tests; defaults to running git/gh via execa. */
   runner?: CommandRunner;
 }
@@ -59,6 +62,8 @@ export interface PushToExistingBranchOptions {
   pushToken?: string;
   /** GitHub host for the credential scope; default 'github.com'. */
   host?: string;
+  /** Resolved right before the push (overrides pushToken). */
+  tokenProvider?: () => Promise<string | undefined>;
   /** Injected for tests; defaults to running git via execa. */
   runner?: CommandRunner;
 }
@@ -90,6 +95,34 @@ function redactPushAuthError(err: unknown, token: string): Error {
 }
 
 /**
+ * Resolve the credential for one use. A provider failure (e.g. the App token could not be minted)
+ * must not lose the run's work: warn and fall back to the ambient credential (undefined).
+ */
+export async function resolveToken(
+  provider: (() => Promise<string | undefined>) | undefined,
+  fallback: string | undefined,
+  warn: (msg: string) => void,
+): Promise<string | undefined> {
+  if (!provider) return fallback;
+  try {
+    return await provider();
+  } catch (cause) {
+    warn(`push token unavailable, using the ambient credential: ${errorMessage(cause)}`);
+    return undefined;
+  }
+}
+
+/** Run a git push, authenticated with `token` when given; the token is scrubbed from any error. */
+async function gitPush(run: CommandRunner, args: string[], cwd: string, token: string | undefined, host?: string): Promise<void> {
+  try {
+    if (token) await run('git', args, cwd, pushAuthEnv(token, host));
+    else await run('git', args, cwd);
+  } catch (err) {
+    throw token ? redactPushAuthError(err, token) : err;
+  }
+}
+
+/**
  * Push the worktree's current HEAD to an existing remote branch (the PR head ref), updating
  * the PR in place. Unlike publishForReview, this never creates a new PR.
  * Runs: `git push <remote> HEAD:refs/heads/<prHeadRef>` in ctx.worktreePath.
@@ -98,14 +131,11 @@ export async function pushToExistingBranch(ctx: RunContext, opts: PushToExisting
   const run = opts.runner ?? defaultRunner;
   // Fully qualified destination: an unqualified one could resolve to a same-named tag on the remote.
   const args = ['push', '--no-verify', opts.remote ?? 'origin', `HEAD:refs/heads/${opts.prHeadRef}`];
+  const pushToken = await resolveToken(opts.tokenProvider, opts.pushToken, (m) => ctx.log.warn({ branch: ctx.branch }, m));
   try {
-    if (opts.pushToken) await run('git', args, ctx.worktreePath, pushAuthEnv(opts.pushToken, opts.host));
-    else await run('git', args, ctx.worktreePath);
-  } catch (err) {
-    if (opts.pushToken) {
-      throw redactPushAuthError(err, opts.pushToken);
-    }
-    throw err;
+    await gitPush(run, args, ctx.worktreePath, pushToken, opts.host);
+  } finally {
+    await releaseToken(pushToken);
   }
 }
 
@@ -203,12 +233,16 @@ export function rebasedNote(remote: string, base: string): string {
 
 /** Open the PR/MR. With a prToken (gh only) try as the token's owner first: a refused token must not lose the run's work. */
 async function openReview(run: CommandRunner, tool: string, args: string[], ctx: RunContext, opts: PublishOptions): Promise<string> {
-  if (tool !== 'gh' || opts.prToken === undefined || opts.prToken === '') return run(tool, args, ctx.worktreePath);
+  const prToken = tool === 'gh' ? await resolveToken(opts.tokenProvider, opts.prToken, (m) => ctx.log.warn({ branch: ctx.branch }, `publish: ${m}`)) : undefined;
+  if (tool !== 'gh' || prToken === undefined || prToken === '') return run(tool, args, ctx.worktreePath);
   try {
-    return await run(tool, args, ctx.worktreePath, { GH_TOKEN: opts.prToken });
+    return await run(tool, args, ctx.worktreePath, { GH_TOKEN: prToken });
   } catch (cause) {
     ctx.log.warn({ branch: ctx.branch }, `publish: opening the PR with the push token failed, using the ambient credential (the PR gets no CI until a push): ${errorMessage(cause)}`);
     return run(tool, args, ctx.worktreePath);
+  } finally {
+    // A minted App token is revoked right after its one use; a PAT is left alone.
+    await releaseToken(prToken);
   }
 }
 
@@ -241,7 +275,10 @@ export async function publishForReview(ctx: RunContext, opts: PublishOptions): P
   if (rebased && headSha === '') {
     ctx.log.warn({ branch: ctx.branch }, 'publish: rebased but could not resolve the branch head; the review marker will name the pre-rebase commit');
   }
-  await run('git', ['push', '--no-verify', '-u', remote, `refs/heads/${ctx.branch}:refs/heads/${ctx.branch}`], ctx.worktreePath);
+  const pushArgs = ['push', '--no-verify', '-u', remote, `refs/heads/${ctx.branch}:refs/heads/${ctx.branch}`];
+  // Ambient credential on purpose: the checkout's persisted extraheader plus an env extraheader sends
+  // two Authorization headers (HTTP 400). The PR itself is opened with the token below.
+  await gitPush(run, pushArgs, ctx.worktreePath, undefined);
   const body = [opts.body, droppedCiPathsNote(ctx.droppedCiPaths), rebased ? rebasedNote(remote, base) : undefined]
     .filter((part) => part !== undefined && part !== '').join('\n\n');
   let args: string[];
