@@ -12,7 +12,13 @@ jobs:
   release-please:
     runs-on: ubuntu-latest
     steps:
+      # The release PR is opened by the taskcell App bot, like factory PRs. An App token also fires
+      # workflows (a GITHUB_TOKEN-opened PR gets no CI). Merging it still needs Seba's explicit go.
+      - id: app-token
+        uses: actions/create-github-app-token@64ab729a6294000f5aa4a4bc0b73d1f32bc45510 # v3.3.0
+        with:
+          client-id: ${{ vars.TASKCELL_APP_CLIENT_ID }}
+          private-key: ${{ secrets.TASKCELL_APP_PRIVATE_KEY }}
       - uses: googleapis/release-please-action@45996ed1f6d02564a971a2fa1b5860e934307cf7 # v5.0.0
         with:
-          # PAT: a PR opened with GITHUB_TOKEN fires no workflows, so the release PR got no CI.
-          token: ${{ secrets.VANGUARD_PUSH_TOKEN }}
+          token: ${{ steps.app-token.outputs.token }}
