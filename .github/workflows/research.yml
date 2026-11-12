@@ -1,4 +1,4 @@
-name: Vanguard Research (reusable)
+name: Taskcell Research (reusable)
 
 # Reusable body of the issue research workflow. A caller owns the triggers (`issues` labeled
 # "needs research" + `workflow_dispatch`), `permissions` (contents: read, issues: write),

@@ -1,4 +1,4 @@
-name: Vanguard Resume
+name: Taskcell Resume
 
 # Brings factory work back after a provider rate or session limit (#682). A run that ends on such a limit
 # marks the issue/PR with `vanguard:rate-limited` and a reset time; this sweep re-adds the trigger label
@@ -13,7 +13,7 @@ permissions:
   contents: read
 
 concurrency:
-  group: vanguard-resume-${{ github.repository }}
+  group: taskcell-resume-${{ github.repository }}
   cancel-in-progress: false
 
 jobs:

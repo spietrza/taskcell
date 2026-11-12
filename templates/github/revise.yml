@@ -1,4 +1,4 @@
-name: Vanguard Revise
+name: Taskcell Revise
 
 # Thin caller of the reusable workflow (revise.yml), which holds the steps.
 #
@@ -31,7 +31,7 @@ jobs:
     # On the job and per PR: skipped label events never enter a group, and revisions of
     # different PRs do not queue behind each other.
     concurrency:
-      group: vanguard-revise-${{ github.repository }}-${{ github.event.pull_request.number || inputs.pr }}
+      group: taskcell-revise-${{ github.repository }}-${{ github.event.pull_request.number || inputs.pr }}
       cancel-in-progress: false
     uses: spietrza/taskcell/.github/workflows/revise.yml@v1
     with:

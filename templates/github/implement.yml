@@ -1,4 +1,4 @@
-name: Vanguard Implement
+name: Taskcell Implement
 
 # Thin caller of the reusable workflow (implement.yml), which holds the steps — checkout, build,
 # label bootstrap, the CLI call. See docs/onboarding-another-repo.md.
@@ -34,7 +34,7 @@ jobs:
     # labels) then never enters a group, so it cannot cancel a pending real run. Each labelled issue
     # gets its own group and run; max-parallel caps how many work at once. A dispatch sweeps.
     concurrency:
-      group: vanguard-implement-${{ github.repository }}-${{ github.event.issue.number || 'sweep' }}
+      group: taskcell-implement-${{ github.repository }}-${{ github.event.issue.number || 'sweep' }}
       cancel-in-progress: false
     uses: spietrza/taskcell/.github/workflows/implement.yml@v1
     with:

@@ -1,4 +1,4 @@
-name: Vanguard Approver (shadow)
+name: Taskcell Approver (shadow)
 
 # Deterministic APPROVE / ESCALATE for a factory PR, in shadow mode: it decides from typed facts, appends
 # the decision to decisions.jsonl on the taskcell-metrics branch, and posts a neutral `vanguard/approver`
@@ -16,7 +16,7 @@ name: Vanguard Approver (shadow)
 
 on:
   workflow_run:
-    workflows: ["Vanguard PR Review"]
+    workflows: ["Taskcell PR Review"]
     types: [completed]
   workflow_dispatch:
     inputs:
@@ -39,7 +39,7 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 45
     concurrency:
-      group: vanguard-approver-${{ github.event.workflow_run.head_branch || inputs.pr }}
+      group: taskcell-approver-${{ github.event.workflow_run.head_branch || inputs.pr }}
       cancel-in-progress: false
     env:
       GH_TOKEN: ${{ github.token }}

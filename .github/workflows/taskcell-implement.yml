@@ -1,4 +1,4 @@
-name: Vanguard Implement
+name: Taskcell Implement
 
 # Loop v1 from GitHub Actions:
 #   "ready for spec"  -> plan, then build it in the same run
@@ -39,7 +39,7 @@ jobs:
     # knock a pending run out of a shared group; `max-parallel` below caps how many work at once. A
     # dispatch has no issue and sweeps every ready one, in a group of its own.
     concurrency:
-      group: vanguard-implement-${{ github.repository }}-${{ github.event.issue.number || 'sweep' }}
+      group: taskcell-implement-${{ github.repository }}-${{ github.event.issue.number || 'sweep' }}
       cancel-in-progress: false
     uses: ./.github/workflows/implement.yml
     with:

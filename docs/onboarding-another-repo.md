@@ -43,7 +43,7 @@ The reusable workflows declare no `permissions:` of their own — they run with 
 | `revise.yml` | write (pushes the revision commit) | write | write |
 
 
-### `.github/workflows/vanguard-implement.yml` — does the work
+### `.github/workflows/taskcell-implement.yml` — does the work
 
 The **minimal** form: Claude does plan/implement/review/simplify, and the model credential stays in a sidecar (`llm-proxy`). Replace every `YOUR_LOGIN`.
 
@@ -68,7 +68,7 @@ jobs:
     # On the job, not the workflow: a label event the `if:` skips (the factory's own vanguard:*
     # labels) then never enters the group, so it cannot cancel a pending real run.
     concurrency:
-      group: vanguard-implement-${{ github.repository }}
+      group: taskcell-implement-${{ github.repository }}
       cancel-in-progress: false
     uses: spietrza/taskcell/.github/workflows/implement.yml@v1
     with:
@@ -107,6 +107,7 @@ The reusable workflow installs Taskcell with `pnpm install --ignore-workspace`, 
 | `issue` | string | `''` (sweep) | `--issue`: run only this issue. The template passes the labelled issue, so every issue gets its own run and its own concurrency group instead of queueing behind one shared group |
 | `max-parallel` | string | `''` (no limit) | with `issue`: at most this many runs work at once; later runs wait for a slot, first come first served (the cap can overshoot by one when two runs start in the same minute). The caller needs `actions: read` |
 | `sandbox-memory-mb` | string | `''` (CLI default: 2048, 8192 with a read-only rootfs) | sandbox memory cap in MB (`VANGUARD_SANDBOX_MEMORY_MB`). A GitHub-hosted runner has 16 GB; long agent sessions or a full test suite inside the sandbox may need `'8192'` (at 2048 MB they can die with exit 134). Also on `revise.yml` |
+| `sandbox-readonly` | boolean | `false` | read-only root filesystem for the sandbox (`VANGUARD_SANDBOX_READONLY=1`); the default sandbox memory then rises to 8192 MB. Also on `revise.yml` and `pr-review.yml` |
 | `timeout-minutes` | number | `90` | job timeout. It also covers the wait for a free slot under `max-parallel`, so raise it for large tasks or a long queue (GitHub's ceiling is 360) |
 | `vanguard-ref` | string | `''` (the workflow's own ref) | Taskcell source ref to build |
 
@@ -122,7 +123,7 @@ Empty model inputs mean "use the CLI default", so the defaults live in one place
 
 Taskcell's own callers turn all three on; client repos should decide deliberately.
 
-### `.github/workflows/vanguard-doctor.yml` — validate before your first issue
+### `.github/workflows/taskcell-doctor.yml` — validate before your first issue
 
 ```yaml
 name: Vanguard Doctor
@@ -133,7 +134,7 @@ permissions:
   issues: write
   pull-requests: read
 concurrency:
-  group: vanguard-doctor-${{ github.repository }}
+  group: taskcell-doctor-${{ github.repository }}
   cancel-in-progress: true
 jobs:
   doctor:
@@ -149,7 +150,7 @@ Inputs: `allowed-actors` (required), `provider`, `review-provider`, `vanguard-re
 
 Run it from **Actions → Vanguard Doctor → Run workflow** (clickable from the GitHub mobile app). It processes no issues; it just checks Node, auth, labels, Docker, the sandbox image, and the repo remote, then goes green or red. Run it once on a fresh repo before you label anything.
 
-### `.github/workflows/vanguard-pr-review.yml` — review a PR (optional)
+### `.github/workflows/taskcell-pr-review.yml` — review a PR (optional)
 
 Adds a visible, adversarial `gh pr review` when you put `ready for taskcell review` on your own PR. This example reviews with Codex and falls back to Claude if Codex fails (a usage limit, a bad model name). `watch-prs` has no provider fallback of its own, so `pr-review.yml` retries with `fallback-provider` / `fallback-model` when you set them.
 
@@ -164,7 +165,7 @@ permissions:
   pull-requests: write
   issues: write
 concurrency:
-  group: vanguard-pr-review-${{ github.repository }}
+  group: taskcell-pr-review-${{ github.repository }}
   cancel-in-progress: false
 jobs:
   review:
@@ -190,7 +191,7 @@ jobs:
 
 Inputs: `allowed-actors` (required), `provider`, `review-model`, `fallback-provider`, `fallback-model`, `author` (`--author`), `llm-proxy`, `skills` (default `.vanguard-src/skills`, as for `implement.yml`: keep the default; a custom path that does not exist fails the review step), `vanguard-ref`. Leave the fallback inputs empty for no fallback. The fallback provider is preflighted too; if its *credential* is missing the job warns (step annotation + run summary) and reviews without a fallback rather than failing before the primary provider runs, so a Codex primary keeps working while the Claude secret is unset. Any other fallback preflight failure — an unknown provider name, a malformed `CODEX_AUTH_JSON` — fails the run, as for the primary. The fallback fires whenever the first attempt exits non-zero. It keeps the event hint, so the just-labeled PR is found even when the label search lags behind the label restore the failed attempt made; a head the first attempt already reviewed no longer carries the trigger label and is skipped. The one residual: a review that posted but whose label update then failed gets a second review. Do not combine `llm-proxy` with a Codex subscription (see the Full tier below).
 
-### `vanguard-research.yml` and `vanguard-revise.yml` (optional)
+### `taskcell-research.yml` and `taskcell-revise.yml` (optional)
 
 Same shape: a caller with its triggers, permissions, `concurrency` and `if:`, plus `uses: spietrza/taskcell/.github/workflows/research.yml@v1` or `.../revise.yml@v1`.
 
@@ -226,9 +227,9 @@ and in the `Revise the PR from review comments` step, add the two inputs to its 
           [ -n "$IN_FALLBACK_MODEL" ] && args+=(--fallback-model "$IN_FALLBACK_MODEL")
 ```
 
-Then set them on your `vanguard-revise.yml` caller the same way as `pr-review.yml`'s (e.g. `fallback-provider: claude`, `fallback-model: opus` behind a `codex` primary).
+Then set them on your `taskcell-revise.yml` caller the same way as `pr-review.yml`'s (e.g. `fallback-provider: claude`, `fallback-model: opus` behind a `codex` primary).
 
-**Separately, this repo's own `vanguard-pr-review.yml` caller already could set a fallback and doesn't.** `pr-review.yml` has accepted `fallback-provider`/`fallback-model` since before this change (see the example above) — no code or schema edit needed there, only a `with:` value. The Claude-subscription 429 that stalled #609 would have retried immediately on a fallback provider/model if one had been configured on that caller. This is a plain config value, not a workflow-structure change, but it still lives under `.github/workflows/` and so still needs a human to add it.
+**Separately, this repo's own `taskcell-pr-review.yml` caller already could set a fallback and doesn't.** `pr-review.yml` has accepted `fallback-provider`/`fallback-model` since before this change (see the example above) — no code or schema edit needed there, only a `with:` value. The Claude-subscription 429 that stalled #609 would have retried immediately on a fallback provider/model if one had been configured on that caller. This is a plain config value, not a workflow-structure change, but it still lives under `.github/workflows/` and so still needs a human to add it.
 
 The revise gate differs from the PR-review one: Taskcell's own PRs are authored by `github-actions[bot]`, so the **author** list must include it while the **sender** list stays human. A caller that copies the PR-review gate (`pull_request.user.login == 'YOUR_LOGIN'`) can never run:
 
@@ -254,7 +255,7 @@ jobs:
     # On the job and per PR: skipped label events never enter a group, and revisions of
     # different PRs do not queue behind each other.
     concurrency:
-      group: vanguard-revise-${{ github.repository }}-${{ github.event.pull_request.number || inputs.pr }}
+      group: taskcell-revise-${{ github.repository }}-${{ github.event.pull_request.number || inputs.pr }}
       cancel-in-progress: false
     uses: spietrza/taskcell/.github/workflows/revise.yml@v1
     with:
@@ -416,7 +417,7 @@ So: do whatever you like for issue authoring (template, your own, freehand) — 
 | `needs info` | **Taskcell triage** (`assessTaskReadiness`) | — | Ticket is too vague to proceed — **rejected/parked** | Post clarification comment, stop | No — human must add content |
 | `needs research` | **Human** (manually) | `vanguard:researching` | Ticket is a valid idea needing **external context** before speccing | Run external research, post findings comment, **REST** | No — human sets `ready for spec` or `ready for agent` next |
 
-The labels above go on **issues**. Two more go on a **pull request** and fire the `pull_request_target: labeled` workflows — these need the `vanguard-pr-review.yml` and `vanguard-revise.yml` callers added alongside the implement/doctor pair.
+The labels above go on **issues**. Two more go on a **pull request** and fire the `pull_request_target: labeled` workflows — these need the `taskcell-pr-review.yml` and `taskcell-revise.yml` callers added alongside the implement/doctor pair.
 
 | Label | On | Set by | Bot state | Bot action |
 |---|---|---|---|---|

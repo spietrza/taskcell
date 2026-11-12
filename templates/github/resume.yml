@@ -1,4 +1,4 @@
-name: Vanguard Resume
+name: Taskcell Resume
 
 # Brings factory work back after a provider rate or session limit. A run that ends on such a limit
 # marks the issue/PR with `vanguard:rate-limited` and a reset time; this sweep re-adds the trigger
@@ -7,7 +7,7 @@ name: Vanguard Resume
 #
 # No reusable workflow backs this one (unlike implement/doctor/pr-review/revise) — it checks out
 # Taskcell's source directly and runs the CLI's `resume-rate-limited` command, same as Taskcell's own
-# `vanguard-resume.yml`. No `pull_request_target`: this is a scheduled sweep, not a PR-triggered run.
+# `taskcell-resume.yml`. No `pull_request_target`: this is a scheduled sweep, not a PR-triggered run.
 
 on:
   schedule:
@@ -18,7 +18,7 @@ permissions:
   contents: read
 
 concurrency:
-  group: vanguard-resume-${{ github.repository }}
+  group: taskcell-resume-${{ github.repository }}
   cancel-in-progress: false
 
 jobs:

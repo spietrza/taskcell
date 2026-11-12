@@ -1,4 +1,4 @@
-name: Vanguard PR Review
+name: Taskcell PR Review
 
 # Thin caller of the reusable workflow (pr-review.yml), which holds the steps.
 #
@@ -17,7 +17,7 @@ permissions:
   issues: write
 
 concurrency:
-  group: vanguard-pr-review-${{ github.repository }}
+  group: taskcell-pr-review-${{ github.repository }}
   cancel-in-progress: false
 
 jobs:

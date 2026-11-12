@@ -1,4 +1,4 @@
-name: Vanguard Research
+name: Taskcell Research
 
 # Thin caller of the reusable workflow (research.yml), which holds the steps.
 
@@ -14,7 +14,7 @@ permissions:
   issues: write
 
 concurrency:
-  group: vanguard-research-${{ github.repository }}
+  group: taskcell-research-${{ github.repository }}
   cancel-in-progress: false
 
 jobs:
