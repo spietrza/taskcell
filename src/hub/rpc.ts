@@ -20,6 +20,7 @@ import { cloneProject } from './clone.js';
 import { listNeedsYou, replyNeedsYou } from './needs-you.js';
 import { detectRepoSlug } from '../runners/github.js';
 import type { ErrorKind } from '../hub-wire.js';
+import { readRunEvents } from './event-log.js';
 import { defaultRunsRoot, remoteRunsRoot, listRunSummaries, readRunDetail } from './runs.js';
 import { listActive, readSession } from './active.js';
 import { readAppConfig, readAppConfigStrict, writeAppConfig, type AppConfig } from './app-config.js';
@@ -181,6 +182,17 @@ export async function dispatchRpc(ctx: RpcContext, cmd: string, rawArgs: unknown
       const taskId = requireString(args, 'taskId');
       const timestamp = requireString(args, 'timestamp');
       return readRunDetail(runSourceRoot(real, args.source), taskId, timestamp);
+    }
+    case 'read_run_events': {
+      const real = await ctx.allowlist.assertAllowed(requireString(args, 'repoPath'));
+      const timestamp = optionalString(args, 'timestamp');
+      const after = optionalNumber(args, 'after');
+      const limit = optionalNumber(args, 'limit');
+      return readRunEvents(real, requireString(args, 'taskId'), {
+        ...(timestamp !== undefined ? { timestamp } : {}),
+        ...(after !== undefined ? { after } : {}),
+        ...(limit !== undefined ? { limit } : {}),
+      });
     }
     case 'list_projects': {
       return projects.list(ctx.configDir);

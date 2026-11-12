@@ -72,6 +72,17 @@ describe('EventBus', () => {
     expect(frame).toContain('event: stream-reset');
   });
 
+  test('a Last-Event-ID from before a restart (ids seeded from the clock) emits stream-reset', () => {
+    const bus = new EventBus({ firstId: 5_000 });
+    const res = new FakeRes();
+    bus.subscribe(fakeReq('900'), res as unknown as ServerResponse);
+    expect(res.chunks.join('')).toContain('event: stream-reset');
+    bus.publish('api:event', { n: 1 });
+    const later = new FakeRes();
+    bus.subscribe(fakeReq('900'), later as unknown as ServerResponse);
+    expect(later.chunks.join('')).toContain('event: stream-reset'); // not an unrelated ring slice
+  });
+
   test('T-39 keepalive comment emitted on the interval', () => {
     vi.useFakeTimers();
     const bus = new EventBus();

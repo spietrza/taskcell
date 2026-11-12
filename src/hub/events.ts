@@ -26,11 +26,25 @@ interface ClientState {
   pendingWrites: number;
 }
 
+export interface EventBusOptions {
+  /** First event id. The hub passes a clock value so ids stay increasing across restarts: a
+   * pre-restart `Last-Event-ID` is then always older than the new ring and gets a `stream-reset`. */
+  firstId?: number;
+  /** Called with every published entry (the durable run log). Must not throw. */
+  onPublish?: (entry: { id: number; event: string; data: unknown }) => void;
+}
+
 export class EventBus {
-  private nextId = 1;
+  private nextId: number;
+  private readonly onPublish: EventBusOptions['onPublish'];
   private readonly ring: BufferedEvent[] = [];
   private readonly clients = new Map<ServerResponse, ClientState>();
   private keepaliveTimer: ReturnType<typeof setInterval> | undefined;
+
+  constructor(opts: EventBusOptions = {}) {
+    this.nextId = opts.firstId ?? 1;
+    this.onPublish = opts.onPublish;
+  }
 
   get clientCount(): number {
     return this.clients.size;
@@ -39,6 +53,7 @@ export class EventBus {
   /** Publish one event to every connected client and the replay ring. */
   publish(event: string, data: unknown): void {
     const entry: BufferedEvent = { id: this.nextId++, event, data };
+    this.onPublish?.(entry);
     this.ring.push(entry);
     if (this.ring.length > MAX_REPLAY_EVENTS) this.ring.shift();
     for (const client of this.clients.values()) this.writeEntry(client, entry);
@@ -99,8 +114,11 @@ export class EventBus {
     const lastEventIdRaw = Array.isArray(lastEventIdHeader) ? lastEventIdHeader[0] : lastEventIdHeader;
     const lastEventId = typeof lastEventIdRaw === 'string' ? Number(lastEventIdRaw) : undefined;
     if (lastEventId !== undefined && Number.isFinite(lastEventId)) {
-      const oldest = this.ring[0]?.id;
-      if (oldest !== undefined && lastEventId < oldest - 1) {
+      const oldest = this.ring[0]?.id ?? this.nextId;
+      // Older than the ring (incl. an id from before a restart, see `firstId`) or newer than any id
+      // minted: replay cannot be gap-free, so reset. The client then resyncs; `read_run_events`
+      // with `after` = its last id returns what the ring lost.
+      if (lastEventId < oldest - 1 || lastEventId >= this.nextId) {
         if (this.tryWrite(res, encodeEvent(undefined, STREAM_RESET_EVENT, {})) === undefined) return true;
       } else {
         for (const entry of this.ring) {

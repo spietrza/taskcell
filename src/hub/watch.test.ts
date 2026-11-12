@@ -128,6 +128,10 @@ describe('WatchRegistry — fs.watch mode (fake watcher, deterministic)', () => 
     await vi.advanceTimersByTimeAsync(300);
     expect(onChange).not.toHaveBeenCalled();
 
+    fake.emit(join('runs', 'task-2', '2026-01-01T00-00-00-000Z.events.jsonl')); // a run-log append
+    await vi.advanceTimersByTimeAsync(300);
+    expect(onChange).not.toHaveBeenCalled();
+
     fake.emit(join('drafts', 'draft-b.json'));
     fake.emit(join('runs', 'task-2', 'run.json'));
 

@@ -91,6 +91,15 @@ function withHost(path: string, host: string): Promise<{ status: number; body: s
 }
 
 describe('hub server', () => {
+  test('published run events are persisted to the run log', async () => {
+    const { readRunEvents } = await import('./event-log.js');
+    hub.eventBus.publish('api:event', { runId: 'run-0', event: { type: 'run-accepted', repoPath: repo } });
+    hub.eventBus.publish('api:event', { runId: 'run-0', event: { type: 'run-start', taskId: 'T-5', flow: 'f', provider: 'p', stages: [] } });
+    hub.eventBus.publish('api:event', { runId: 'run-0', event: { type: 'run-end' } });
+    await new Promise((r) => setTimeout(r, 100));
+    expect((await readRunEvents(repo, 'T-5')).events).toHaveLength(3);
+  });
+
   test('rejects untrusted Hosts before disclosing the SPA token, allows explicit proxy Hosts', async () => {
     for (const path of ['/', '/healthz', '/rpc/list_runs', '/events']) {
       const res = await withHost(path, 'evil.example');

@@ -2,6 +2,7 @@
 import { existsSync, watch, type FSWatcher } from 'node:fs';
 import { readdir, stat } from 'node:fs/promises';
 import { join } from 'node:path';
+import { EVENTS_FILE_SUFFIX } from './event-log.js';
 import { defaultRunsRoot, fnv1a, runsFingerprint } from './runs.js';
 import { stateDir, STATE_DIR_NAMES } from '../core/state-path.js';
 
@@ -164,7 +165,7 @@ export class WatchRegistry {
         // Node doesn't guarantee `filename` on every platform — fail open so a real change is
         // never silently dropped.
         sawNonDraft = true;
-      } else if (!isDraftPath(join(target, filename))) {
+      } else if (!isDraftPath(join(target, filename)) && !filename.endsWith(EVENTS_FILE_SUFFIX)) {
         // `filename` is relative to the watched root, which in recursive mode IS `.taskcell`
         // itself — rejoin against `target` so the structural `.taskcell`/`drafts` check (which
         // mirrors the Rust version's full absolute paths) sees that path component at all.

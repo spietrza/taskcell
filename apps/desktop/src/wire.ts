@@ -569,6 +569,23 @@ export interface CliVersionReport {
   clis: CliVersionInfo[];
 }
 
+/** One persisted hub event: the SSE frame's id/name/data plus when the hub wrote it. */
+export interface RunEventLine {
+  id: number;
+  ts: string;
+  event: string;
+  data: unknown;
+}
+
+/** A page of {@link RunEventLine}s. `truncated`: the run hit the per-run size cap and later events were dropped. */
+export interface RunEventsPage {
+  events: RunEventLine[];
+  hasMore: boolean;
+  truncated: boolean;
+  /** The resolved log's name prefix (sanitized start time); absent when the task has no log. Pass it back as `timestamp` to pin later pages to this log. */
+  timestamp?: string;
+}
+
 /**
  * Shared command catalogue for the Tauri, hub and mock adapters. Adapter integration is separate:
  * the existing invoke wrappers and dispatchers do not yet enforce these argument/result types.
@@ -577,6 +594,8 @@ export interface CliVersionReport {
 export interface Commands {
   list_runs: { args: { repoPath: string }; result: RunSummary[] };
   read_run: { args: { repoPath: string; taskId: string; timestamp: string; source: RunSource }; result: RunDetail };
+  /** HUB_ONLY, read-only: a run's persisted event log (`.taskcell/runs/<taskId>/<timestamp>.events.jsonl`), events with `id > after`, oldest first. `timestamp` (a run record's `RunSummary.timestamp`) resolves to the newest log started at or before it; omitted = the task's newest log. Continue on the live SSE stream with `Last-Event-ID` = the last returned id. */
+  read_run_events: { args: { repoPath: string; taskId: string; timestamp?: string; after?: number; limit?: number }; result: RunEventsPage };
   list_projects: { args: undefined; result: Project[] };
   add_project: { args: { path: string }; result: Project[] };
   remove_project: { args: { path: string }; result: Project[] };
@@ -663,6 +682,7 @@ export const TAURI_ONLY = ['spawn_run', 'kill_run', 'list_spawns'] as const sati
  * `agent_cli_versions` (probes the sandbox image through `docker`, likewise), plus `api_queue`:
  * Tauri stays strictly single-in-flight (no queue to read) so it has nothing to implement either. */
 export const HUB_ONLY = [
+  'read_run_events',
   'browse_dirs',
   'clone_project',
   'enable_factory_plan',
@@ -682,6 +702,7 @@ export const HUB_ONLY = [
 export const COMMAND_NAMES = [
   'list_runs',
   'read_run',
+  'read_run_events',
   'list_projects',
   'add_project',
   'remove_project',

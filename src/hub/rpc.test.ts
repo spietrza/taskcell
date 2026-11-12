@@ -1,5 +1,5 @@
 import { EventEmitter } from 'node:events';
-import { mkdir, mkdtemp, realpath } from 'node:fs/promises';
+import { mkdir, mkdtemp, realpath, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { PassThrough } from 'node:stream';
@@ -217,6 +217,24 @@ describe('dispatchRpc', () => {
     for (const args of [{}, { runId: 123 }, { runId: null }, { runId: '  ' }]) {
       await expect(dispatchRpc(ctx, 'api_cancel', args)).rejects.toThrow(/runId is required/);
     }
+  });
+
+  test('read_run_events pages a run log, is allowlisted and validates after/limit', async () => {
+    const repo = await tmpRepo();
+    const { ctx } = await makeCtx(repo);
+    const dir = join(repo, '.taskcell', 'runs', 'T-9');
+    await mkdir(dir, { recursive: true });
+    const lines = [1, 2, 3].map((id) => JSON.stringify({ id, ts: 't', event: 'api:event', data: { id } }));
+    await writeFile(join(dir, '2026-01-01T00-00-00-000Z.events.jsonl'), lines.join('\n') + '\n');
+    const page = (await dispatchRpc(ctx, 'read_run_events', { repoPath: repo, taskId: 'T-9', after: 1, limit: 1 })) as { events: { id: number }[]; hasMore: boolean };
+    expect(page.events.map((e) => e.id)).toEqual([2]);
+    expect(page.hasMore).toBe(true);
+    const byRecord = (await dispatchRpc(ctx, 'read_run_events', { repoPath: repo, taskId: 'T-9', timestamp: '2026-01-01T00:00:05.000Z' })) as { events: unknown[]; timestamp: string };
+    expect(byRecord.events).toHaveLength(3);
+    expect(byRecord.timestamp).toBe('2026-01-01T00-00-00-000Z');
+    await expect(dispatchRpc(ctx, 'read_run_events', { repoPath: repo, taskId: 'T-9', after: -1 })).rejects.toThrow('after');
+    await expect(dispatchRpc(ctx, 'read_run_events', { repoPath: repo, taskId: 'T-9', limit: 0 })).rejects.toThrow('limit');
+    await expect(dispatchRpc(ctx, 'read_run_events', { repoPath: await tmpRepo(), taskId: 'T-9' })).rejects.toThrow();
   });
 
   test('api_queue returns the session queue', async () => {

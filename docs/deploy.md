@@ -220,5 +220,6 @@ A cron line, for reference: `0 */4 * * * taskcell gc --remote owner/repo --repo 
 ## Operational notes
 
 - Run records and metrics land in `<repo>/.taskcell/runs/` (a mounted volume): per-stage transcript, a git bundle of the changes, the diff, and a `run_complete` metric line. `taskcell stats --repo /work/repo` rolls them up across the fleet.
+- In hub (server) mode each run also writes `<timestamp>.events.jsonl` beside its records (see [hub.md](hub.md#run-event-log)): up to 5 MB per run, usually far less. It is never pruned by the hub, so budget disk on the `.taskcell/runs/` volume.
 - RAM is the real cap. Each sandbox is roughly 1.5 to 2 GB plus small sidecars. Keep `VANGUARD_MAX_SANDBOXES` at 1 on a 5 to 6 GB host.
 - Updating the deployed code: rebuild `vanguard-runner` for amd64, transfer and load it (Synology) or rebuild on the box (Hetzner), then `docker compose up -d --force-recreate`. The `vanguard-gc` pull keeps the edited repo current on its own.

@@ -7,6 +7,7 @@ import { createServer, type IncomingMessage, type Server, type ServerResponse } 
 import { isIP } from 'node:net';
 import { serveStatic } from './static.js';
 import { EventBus } from './events.js';
+import { createEventLog } from './event-log.js';
 import { writeJson, jsonError } from './json-response.js';
 import { dispatchRpc, classifyError, type RpcContext } from './rpc.js';
 import { encodeError, encodeResult, HUB_EVENTS_SESSION_PATH, HUB_TOKEN_HEADER, HUB_TOKEN_REJECTED } from '../hub-wire.js';
@@ -321,7 +322,8 @@ export function createHubServer(opts: HubServerOptions): HubServer {
     eventsSecret: randomBytes(32).toString('hex'),
   };
   const deps = opts.deps ?? productionDeps();
-  const eventBus = new EventBus();
+  const eventLog = createEventLog();
+  const eventBus = new EventBus({ firstId: Date.now(), onPublish: eventLog.record });
   eventBus.startKeepalive();
   const watchRegistry = new WatchRegistry(opts.watch);
   const publish = (name: string, payload: unknown): void => eventBus.publish(name, payload);
@@ -371,7 +373,7 @@ export function createHubServer(opts: HubServerOptions): HubServer {
         watchRegistry.closeAll();
         eventBus.close();
         server.closeAllConnections();
-        server.close(() => resolve());
+        server.close(() => void eventLog.flush().then(resolve));
       }),
   };
 }
