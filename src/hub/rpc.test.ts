@@ -435,6 +435,20 @@ test('reply_needs_you enforces mutation permissions before touching GitHub', asy
     .rejects.toThrow('disabled on a non-loopback bind');
 });
 
+test('merge_needs_you is refused when mutations are not allowed', async () => {
+  const repo = await tmpGitRepo('https://github.com/allowed/repo.git');
+  const { ctx } = await makeCtx(repo, { bind: { isLoopback: false, allowAdd: false } });
+  await expect(dispatchRpc(ctx, 'merge_needs_you', { repoPath: repo, id: 'allowed/repo#1' }))
+    .rejects.toThrow('disabled on a non-loopback bind');
+});
+
+test('merge_needs_you refuses an id naming another repo', async () => {
+  const repo = await tmpGitRepo('https://github.com/allowed/repo.git');
+  const { ctx } = await makeCtx(repo);
+  await expect(dispatchRpc(ctx, 'merge_needs_you', { repoPath: repo, id: 'other/repo#1' }))
+    .rejects.toThrow('other/repo#1 is not an item of allowed/repo');
+});
+
 test('list_needs_you is empty on a project with no GitHub remote', async () => {
   const repo = await tmpRepo();
   await execa('git', ['init', '-q', '-b', 'main'], { cwd: repo });
@@ -442,6 +456,7 @@ test('list_needs_you is empty on a project with no GitHub remote', async () => {
   expect(await dispatchRpc(ctx, 'list_needs_you', { repoPath: repo })).toEqual({ items: [] });
   await expect(dispatchRpc(ctx, 'reply_needs_you', { repoPath: repo, id: 'o/r#1', kind: 'issue', body: 'hi' }))
     .rejects.toThrow('no GitHub remote');
+  await expect(dispatchRpc(ctx, 'merge_needs_you', { repoPath: repo, id: 'o/r#1' })).rejects.toThrow('no GitHub remote');
 });
 
 describe('enable_factory RPCs', () => {
@@ -675,5 +690,43 @@ test('list_runs_all isolates a repository outside the allowlist', async () => {
   test('list_needs_you_all is empty for repositories without a GitHub remote', async () => {
     const { ctx } = await twoRepoCtx(async () => ({ tasks: [], capped: false }));
     expect(await dispatchRpc(ctx, 'list_needs_you_all', {})).toEqual({ items: [], failures: [] });
+  });
+});
+
+describe('start_task', () => {
+  const call = (ctx: RpcContext, repo: string, extra: Record<string, unknown> = {}): Promise<unknown> =>
+    dispatchRpc(ctx, 'start_task', { repoPath: repo, number: 1, label: 'ready for agent', ...extra });
+
+  test('refuses on a non-loopback bind without mutations allowed', async () => {
+    const repo = await tmpGitRepo('https://github.com/allowed/repo.git');
+    const { ctx } = await makeCtx(repo, { bind: { isLoopback: false, allowAdd: false } });
+    await expect(call(ctx, repo)).rejects.toThrow('disabled on a non-loopback bind');
+  });
+
+  test.each(['gitlab', 'linear'])('says %s is not supported yet', async (source) => {
+    const repo = await tmpGitRepo('https://github.com/allowed/repo.git');
+    await writeAppConfig(repo, { source });
+    const { ctx } = await makeCtx(repo);
+    await expect(call(ctx, repo)).rejects.toThrow(`start_task: ${source} is not supported yet`);
+  });
+
+  test('refuses a project with no GitHub remote', async () => {
+    const repo = await tmpRepo();
+    await execa('git', ['init', '-q', '-b', 'main'], { cwd: repo });
+    const { ctx } = await makeCtx(repo);
+    await expect(call(ctx, repo)).rejects.toThrow('no GitHub remote');
+  });
+
+  test('requires a numeric issue number', async () => {
+    const repo = await tmpGitRepo('https://github.com/allowed/repo.git');
+    const { ctx } = await makeCtx(repo);
+    await expect(call(ctx, repo, { number: '1' })).rejects.toThrow('number is required and must be a number');
+  });
+
+  test("offers the project's configured trigger label alongside the defaults", async () => {
+    const repo = await tmpGitRepo('https://github.com/allowed/repo.git');
+    await writeAppConfig(repo, { label: 'go' });
+    const { ctx } = await makeCtx(repo);
+    await expect(call(ctx, repo, { label: 'bug' })).rejects.toThrow('"bug" is not a trigger label of this project (ready for agent, ready for spec, go)');
   });
 });

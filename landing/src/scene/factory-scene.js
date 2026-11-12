@@ -20,6 +20,16 @@ export const STATIONS = [
   { id: 'outbound', name: 'PR out', x: 9.4, z: 0, detail: 'The host, not the agent, pushes the branch and opens the PR. CI config edits are dropped. You merge.' },
 ];
 
+/** The six labelled stops, named as the page's "How it works" steps. A stop sits on the station of the same id; Spec and Gates bring their own place and copy. */
+const STOPS = [
+  { id: 'intake', name: 'Card' },
+  { id: 'plan', name: 'Spec', x: -7.6, y: 0.9, z: 0, detail: 'A planner reads the code and writes a tech spec with acceptance criteria. It is posted on the issue before the build starts.' },
+  { id: 'cells', name: 'Sealed cell' },
+  { id: 'gates', name: 'Gates', x: 1.2, y: 2.2, z: 0, detail: 'Your verify script runs, the host scans the diff for secrets, and the change is checked against the spec. A red gate sends the card back for a repair, at most twice.' },
+  { id: 'review', name: 'Review' },
+  { id: 'outbound', name: 'Pull request' },
+];
+
 /** Swappable modules, as the product has them: task sources (src/tasks) and coding agents (src/agents). */
 export const MODULES = {
   source: ['GitHub', 'GitLab', 'Linear', 'Projects'],
@@ -754,7 +764,8 @@ export function createFactoryScene(container, options = {}) {
   tip.hidden = true;
   layer.append(tip);
   const labels = o.labels
-    ? STATIONS.map((st) => {
+    ? STOPS.map((stop) => {
+        const st = { ...station(stop.id), ...stop };
         const b = document.createElement('button');
         b.type = 'button';
         b.className = 'fs-label';
@@ -776,7 +787,7 @@ export function createFactoryScene(container, options = {}) {
         b.addEventListener('mouseleave', () => showTip(null));
         b.addEventListener('blur', () => showTip(null));
         layer.append(b);
-        return { st, el: b, stat: b.querySelector('.fs-stat'), anchor: new THREE.Vector3(st.x, st.gate ? 2.2 : st.id === 'review' ? 2.5 : st.id === 'egress' ? 2.3 : 1.7, st.z), last: '' };
+        return { st, el: b, stat: b.querySelector('.fs-stat'), anchor: new THREE.Vector3(st.x, st.y ?? (st.id === 'review' ? 2.5 : 1.7), st.z), last: '' };
       })
     : [];
   // Module labels: mono captions under the source module and the cells; a click swaps the module.
@@ -803,7 +814,7 @@ export function createFactoryScene(container, options = {}) {
       tip.hidden = true;
       return;
     }
-    tip.textContent = station(id).detail;
+    tip.textContent = (labels.find((l) => l.st.id === id)?.st ?? station(id)).detail;
     tip.hidden = false;
     placeTip();
   }
@@ -872,8 +883,7 @@ export function createFactoryScene(container, options = {}) {
     if (id === 'cells') return `${cells.filter((c) => c.card).length} of 4 busy`;
     if (id === 'outbound') return opened ? `${opened} opened` : '';
     if (id === 'review') return lineBusy && lineBusy.stage === 'review' ? `TC-${lineBusy.id}` : '';
-    const g = gates.find((x) => x.id === id);
-    if (g && lineBusy && lineBusy.stage === id) return `TC-${lineBusy.id}`;
+    if (id === 'gates') return lineBusy && gates.some((g) => g.id === lineBusy.stage) ? `TC-${lineBusy.id}` : '';
     return '';
   }
 

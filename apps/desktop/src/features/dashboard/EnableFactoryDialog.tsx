@@ -145,6 +145,10 @@ export function EnableFactoryDialog({ project, onClose }: { project: { path: str
                 <p className="text-xs text-muted-foreground">
                   Sets <code>{secret.secretName}</code>; <code>gh</code> prompts for the value. The hub never sees it.
                 </p>
+                <p className="text-xs text-muted-foreground">
+                  Optional — use a GitHub App: the generated revise caller already lists <code>YOUR_APP_SLUG[bot]</code> as a PR author (replace it with your App's slug).
+                  The rest of the App path needs a maintainer's workflow edits; see docs/onboarding-another-repo.md (&quot;Alternative: the taskcell GitHub App&quot;).
+                </p>
                 <CodeBlock code={secret.command} lang="bash" />
               </Section>
             )}

@@ -483,6 +483,13 @@ export interface DirListing {
   entries: DirEntry[];
 }
 
+/** What `start_task` did (src/hub/start-task.ts). `waitingOn` names the unmet dependencies (`owner/repo#N`) of a dependency-parked issue. */
+export interface StartTaskResult {
+  status: 'labelled' | 'retried';
+  label: string;
+  waitingOn: string[];
+}
+
 /**
  * One GitHub issue/PR waiting for a human (Hub "Needs you" — hub-only, src/hub/needs-you.ts): an
  * issue at `needs info`, or a PR at `vanguard:needs-human-review`/`vanguard:verify-failed` or with a
@@ -498,6 +505,8 @@ export interface NeedsYouItem {
   url: string;
   /** Why this item waits: the label name, or `'changes requested'` for a PR review verdict. */
   reason: string;
+  /** A PR's base (target) branch, which a merge lands on. Absent for an issue. */
+  baseRef?: string;
   /** The factory's own last comment, redacted; untrusted, render as plain text. Absent when it never commented. */
   lastComment?: { author: string; body: string };
 }
@@ -645,6 +654,10 @@ export interface Commands {
   list_needs_you_all: { args: undefined; result: { items: (NeedsYouItem & RepoStamp)[]; failures: RepoReadFailure[] } };
   /** HUB_ONLY: post a reply with the caller's own `gh` identity and move the item on. */
   reply_needs_you: { args: { repoPath: string; id: string; kind: 'issue' | 'pr'; body: string }; result: void };
+  /** HUB_ONLY: merge a waiting PR (refused when not in "Needs you" or required checks are not green). */
+  merge_needs_you: { args: { repoPath: string; id: string }; result: void };
+  /** HUB_ONLY: apply a trigger label to a GitHub issue of the project (src/hub/start-task.ts). */
+  start_task: { args: { repoPath: string; number: number; label: string }; result: StartTaskResult };
   /** TAURI_ONLY: the Fleet screen's shell-spawn surface — disabled in hub mode (remote code
    * execution on a reachable server). `argv[0]` is the program, run WITHOUT a shell: values built
    * from repo config travel as single arguments and can never introduce shell syntax. */
@@ -691,6 +704,8 @@ export const HUB_ONLY = [
   'list_tasks_all',
   'list_runs_all',
   'reply_needs_you',
+  'merge_needs_you',
+  'start_task',
   'api_queue',
 ] as const satisfies readonly (keyof Commands)[];
 
@@ -745,6 +760,8 @@ export const COMMAND_NAMES = [
   'list_tasks_all',
   'list_runs_all',
   'reply_needs_you',
+  'merge_needs_you',
+  'start_task',
   'spawn_run',
   'kill_run',
   'list_spawns',

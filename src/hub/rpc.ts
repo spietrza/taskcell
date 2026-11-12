@@ -17,7 +17,7 @@ import type { RunSession } from './run-session.js';
 import { CompleteRegistry, type CompleteParams } from './complete.js';
 import { assertWithinBrowseRoot, browseDirs } from './browse.js';
 import { cloneProject } from './clone.js';
-import { listNeedsYou, replyNeedsYou, MAX_COMMENT_FETCHES } from './needs-you.js';
+import { listNeedsYou, mergeNeedsYou, replyNeedsYou, MAX_COMMENT_FETCHES } from './needs-you.js';
 import { detectRepoSlug } from '../runners/github.js';
 import type { ErrorKind } from '../hub-wire.js';
 import { defaultRunsRoot, remoteRunsRoot, listRunSummaries, readRunDetail } from './runs.js';
@@ -27,6 +27,7 @@ import { checkCliVersions } from '../sandbox/cli-versions.js';
 import * as drafts from './drafts.js';
 import * as projects from './projects.js';
 import * as remote from './remote.js';
+import { startGithubTask, triggerLabelsFor } from './start-task.js';
 import { enableFactory, factoryPlanTargets, noScripts, type FactoryPlan, type FactoryProviderId } from './enable-factory.js';
 
 export class UnknownCommandError extends BadRequestError {}
@@ -459,6 +460,30 @@ export async function dispatchRpc(ctx: RpcContext, cmd: string, rawArgs: unknown
       const { label } = await readAppConfig(real);
       await replyNeedsYou(repoSlug, id, kind, body, undefined, label?.trim() ? label : undefined);
       return null;
+    }
+    case 'merge_needs_you': {
+      // Merges under the hub's `gh` identity — a remote mutation.
+      assertMutationsAllowed(ctx.bind);
+      const real = await ctx.allowlist.assertAllowed(requireString(args, 'repoPath'));
+      const id = requireString(args, 'id');
+      const repoSlug = await githubSlug(real);
+      if (repoSlug === undefined) throw new BadRequestError('merge_needs_you: this project has no GitHub remote');
+      await mergeNeedsYou(repoSlug, id);
+      return null;
+    }
+    case 'start_task': {
+      // Adds a trigger label as the hub's `gh` identity — a remote mutation.
+      assertMutationsAllowed(ctx.bind);
+      const real = await ctx.allowlist.assertAllowed(requireString(args, 'repoPath'));
+      const label = requireString(args, 'label');
+      const number = optionalNumber(args, 'number');
+      if (number === undefined) throw new BadRequestError('number is required and must be a number');
+      const cfg = await readAppConfig(real);
+      const source = cfg.source ?? 'github';
+      if (source !== 'github') throw new BadRequestError(`start_task: ${source} is not supported yet`);
+      const repoSlug = await githubSlug(real);
+      if (repoSlug === undefined) throw new BadRequestError('start_task: this project has no GitHub remote');
+      return startGithubTask(repoSlug, number, label, triggerLabelsFor(cfg.label));
     }
     case 'agent_cli_versions':
       // Starts a container on the host and makes outbound lookups — gated like the other side effects.

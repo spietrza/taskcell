@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { listNeedsYou, replyNeedsYou, NEEDS_REVISION_LABEL } from './needs-you.js';
+import { listNeedsYou, mergeNeedsYou, replyNeedsYou, NEEDS_REVISION_LABEL } from './needs-you.js';
 import { DEFAULT_GITHUB_AGENT_LABEL, DEFAULT_GITHUB_NEEDS_INFO_LABEL } from '../cli/args.js';
 import type { GhRunner } from '../tasks/github.js';
 
@@ -299,5 +299,77 @@ describe('replyNeedsYou', () => {
     const gh = stubGh({ issueView: { state: 'OPEN', labels: [{ name: DEFAULT_GITHUB_NEEDS_INFO_LABEL }] } }, calls);
     await expect(replyNeedsYou('o/r', 'other/repo#1', 'issue', 'x', gh)).rejects.toThrow(/not an item of o\/r/);
     expect(calls).toEqual([]);
+  });
+});
+
+describe('listNeedsYou base branch', () => {
+  it('lists a PR with its base branch', async () => {
+    const gh = stubGh({ prList: [{ number: 5, title: 't', url: 'u', labels: [{ name: 'vanguard:needs-human-review' }], baseRefName: 'develop' }] });
+    expect((await listNeedsYou('o/r', gh)).find((i) => i.kind === 'pr')?.baseRef).toBe('develop');
+  });
+});
+
+describe('mergeNeedsYou', () => {
+  const waitingPr = { state: 'OPEN', labels: [{ name: 'vanguard:needs-human-review' }], reviewDecision: null, headRefOid: 'abc123' };
+  const allMethods = { squashMergeAllowed: true, mergeCommitAllowed: true, rebaseMergeAllowed: true };
+
+  function mergeGh(opts: { pr?: unknown; checks?: string | Error; methods?: Record<string, boolean> }, calls: string[][]): GhRunner {
+    const base = stubGh({ prView: opts.pr ?? waitingPr }, calls);
+    return async (args) => {
+      if (args[0] === 'pr' && args[1] === 'checks') {
+        calls.push(args);
+        if (opts.checks instanceof Error) throw opts.checks;
+        return opts.checks ?? '[{"bucket":"pass"}]';
+      }
+      if (args[0] === 'repo') {
+        calls.push(args);
+        return JSON.stringify(opts.methods ?? allMethods);
+      }
+      return base(args);
+    };
+  }
+  const merged = (calls: string[][]): boolean => calls.some((c) => c[1] === 'merge');
+
+  it('merges a waiting PR, preferring squash and pinning the checked head commit', async () => {
+    const calls: string[][] = [];
+    await mergeNeedsYou('o/r', 'o/r#5', mergeGh({}, calls));
+    expect(calls.at(-1)).toEqual(['pr', 'merge', '5', '--repo', 'o/r', '--squash', '--match-head-commit', 'abc123']);
+  });
+
+  it('uses the next allowed method, and refuses when none is allowed', async () => {
+    const calls: string[][] = [];
+    await mergeNeedsYou('o/r', 'o/r#5', mergeGh({ methods: { squashMergeAllowed: false, mergeCommitAllowed: false, rebaseMergeAllowed: true } }, calls));
+    expect(calls.at(-1)).toContain('--rebase');
+    const none: string[][] = [];
+    await expect(mergeNeedsYou('o/r', 'o/r#5', mergeGh({ methods: {} }, none))).rejects.toThrow('allows no merge method');
+    expect(merged(none)).toBe(false);
+  });
+
+  it('refuses a PR outside the Needs you list', async () => {
+    const calls: string[][] = [];
+    await expect(mergeNeedsYou('o/r', 'o/r#5', mergeGh({ pr: { state: 'OPEN', labels: [] } }, calls))).rejects.toThrow('not waiting');
+    expect(merged(calls)).toBe(false);
+  });
+
+  it('refuses a failing or pending required check', async () => {
+    for (const checks of ['[{"bucket":"fail"}]', '[{"bucket":"pending"}]', '[{"bucket":"pass"},{"bucket":"cancel"}]']) {
+      const calls: string[][] = [];
+      await expect(mergeNeedsYou('o/r', 'o/r#5', mergeGh({ checks }, calls))).rejects.toThrow('failing or pending required checks');
+      expect(merged(calls)).toBe(false);
+    }
+  });
+
+  it('merges when checks are skipped or none are reported', async () => {
+    for (const checks of ['[{"bucket":"skipping"},{"bucket":"pass"}]', new Error("no checks reported on the 'x' branch"), new Error('no required checks reported on the x branch')]) {
+      const calls: string[][] = [];
+      await mergeNeedsYou('o/r', 'o/r#5', mergeGh({ checks }, calls));
+      expect(merged(calls)).toBe(true);
+    }
+  });
+
+  it('surfaces other gh errors as themselves, not as failing checks', async () => {
+    const calls: string[][] = [];
+    await expect(mergeNeedsYou('o/r', 'o/r#5', mergeGh({ checks: new Error('HTTP 401: bad credentials') }, calls))).rejects.toThrow('bad credentials');
+    expect(merged(calls)).toBe(false);
   });
 });
