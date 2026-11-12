@@ -4,8 +4,9 @@ name: Taskcell Revise
 #
 # Triggers on `pull_request_target` (as docs/onboarding-another-repo.md prescribes): the workflow
 # definition — this `if:` gate and the `secrets:` block — is read from the base branch, so a PR's
-# head branch cannot edit the gate away. The gate admits only same-repo PRs by the signed-in user. Revises only the signed-in user's own PRs (the author gate below) — or
-# Taskcell's own bot commits, which carry the `github-actions[bot]` author.
+# head branch cannot edit the gate away. The gate admits only same-repo PRs labelled by the signed-in user
+# whose author (the author gate below) is the signed-in user, Taskcell's own bot (`github-actions[bot]`)
+# or the optional GitHub App's bot.
 #
 # Optional GitHub App (docs/onboarding-another-repo.md): replace YOUR_APP_SLUG with your App's slug so PRs it
 # opened can be revised. PR-author list only — never the sender check or `allowed-actors`.

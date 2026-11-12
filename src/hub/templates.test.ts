@@ -83,7 +83,10 @@ describe('templates/github/ caller templates', () => {
   it('admits the optional App bot only as a revise PR author, never as a sender or in allowed-actors', async () => {
     const BOT = 'YOUR_APP_SLUG[bot]';
     for (const file of EXPECTED_FILES) {
-      const doc = parse(await readFile(new URL(file, TEMPLATES_DIR), 'utf8')) as {
+      const raw = await read(file);
+      // No reusable workflow declares the App secret yet, so no caller may map it.
+      expect(raw).not.toContain('TASKCELL_APP_PRIVATE_KEY:');
+      const doc = parse(raw) as {
         jobs?: Record<string, { if?: unknown; with?: Record<string, unknown> }>;
       };
       for (const job of Object.values(doc.jobs ?? {})) {
@@ -95,11 +98,7 @@ describe('templates/github/ caller templates', () => {
         }
       }
     }
-    const revise = parse(await readFile(new URL('revise.yml', TEMPLATES_DIR), 'utf8')) as { jobs: Record<string, { if: string }> };
+    const revise = parse(await read('revise.yml')) as { jobs: Record<string, { if: string }> };
     expect(revise.jobs.revise?.if).toContain(BOT);
-    // No reusable workflow declares the App secret yet, so no caller may map it.
-    for (const file of EXPECTED_FILES) {
-      expect(await readFile(new URL(file, TEMPLATES_DIR), 'utf8')).not.toContain('TASKCELL_APP_PRIVATE_KEY:');
-    }
   });
 });

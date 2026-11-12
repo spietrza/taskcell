@@ -252,7 +252,7 @@ jobs:
       (github.event.label.name == 'needs revision' &&
        contains(fromJSON('["YOUR_LOGIN","github-actions[bot]"]'), github.event.pull_request.user.login) &&
        github.event.sender.login == 'YOUR_LOGIN')
-    # (With the App, `templates/github/revise.yml` also lists `YOUR_APP_SLUG[bot]` as a PR author; see step 4 below.)
+    # (With the App, `templates/github/revise.yml` also lists `YOUR_APP_SLUG[bot]` as a PR author; see step 4 of "Alternative: the taskcell GitHub App" below.)
     # On the job and per PR: skipped label events never enter a group, and revisions of
     # different PRs do not queue behind each other.
     concurrency:
@@ -353,7 +353,7 @@ Instead of a PAT, the CLI can mint a short-lived GitHub App installation token r
    - The callers (`taskcell-implement.yml`, `taskcell-revise.yml`): map `TASKCELL_APP_PRIVATE_KEY: ${{ secrets.TASKCELL_APP_PRIVATE_KEY }}` in their `secrets:` block.
 4. **Actor gates (by hand — CI config).** With the App, a factory PR's author is the App's bot login, `<your-app-slug>[bot]` (use your App's actual slug, never a hard-coded name: allow-listing another slug admits someone else's App), and so is the event sender of the `opened` and `ready_for_review` events the CLI causes. The existing gates then skip those PRs:
    - `taskcell-pr-review.yml` (`label-factory-pr` and `review`): both `pull_request.user.login` and `sender.login` must be in the human list, so neither the first review nor the review after a revise round starts. Admit `<your-app-slug>[bot]` there **only together with** the existing `head.ref` starts-with `chore/vanguard-` and same-repo checks, as a separate condition — do not add it to the human list itself. That list is what the review policy in `CLAUDE.md` calls the author gate ("bots do not" pass it), which exempts CI-config edits from being a finding; a bot must never pass it.
-   - `taskcell-revise.yml`: add `<your-app-slug>[bot]` to the **PR-author** list (next to `github-actions[bot]`), not to the sender list — `needs revision` is still added by a human.
+   - `taskcell-revise.yml`: add `<your-app-slug>[bot]` to the **PR-author** list (next to `github-actions[bot]`), not to the sender list — `needs revision` is still added by a human. The caller Enable factory generates (`templates/github/revise.yml`) already has the placeholder `YOUR_APP_SLUG[bot]` there: replace it with your App's slug. Until you do, it matches no account, because GitHub logins cannot contain `_`.
    - The reusable workflows' "Enforce allowed-actors" step (`pr-review.yml`, `revise.yml`) checks the event sender. For the `ready_for_review`-triggered review the sender is the bot, so it would fail; but `allowed-actors` is also passed as `--feedback-authors`, so adding the bot there would make its text trusted review feedback. Prefer leaving `allowed-actors` human-only and having the caller's `review` job re-dispatch for bot-sent events, or accept that a revised PR needs a human to re-add `ready for vanguard review`.
 5. Until steps 3–4 land, keep using `VANGUARD_PUSH_TOKEN`; the App variables are ignored when absent.
 
