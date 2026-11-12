@@ -76,6 +76,10 @@ function logResult(result: ReviseGithubPrResult, log: (line: string) => void): v
     log(`revise-pr ${id}: BLOCKED — the revision diff carries a secret; nothing pushed (${result.addressed} item(s) abandoned)`);
     return;
   }
+  if (result.conflictUnresolved !== undefined) {
+    log(`revise-pr ${id}: FAILED — could not resolve the conflict with the base (${result.conflictUnresolved.join(', ') || 'files not determined'}); nothing pushed, \`needs revision\` left for a human`);
+    throw new Error(`revise-pr ${id}: could not resolve the conflict with the base`);
+  }
   if (result.dryRunOut !== undefined) {
     log(`revise-pr ${id}: dry-run written to ${result.dryRunOut} (nothing pushed or commented)`);
     return;
