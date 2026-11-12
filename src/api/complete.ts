@@ -134,6 +134,7 @@ export async function runComplete(req: unknown, deps: CompleteDeps): Promise<Com
       prompt: buildPrompt(parsed),
       options: {
         allowedTools: [], // completion, not an agent — no filesystem/tool access
+        tools: [], // and no built-in tools at all: untrusted text (PR history for lessons) must not reach a tool
         settingSources: [], // don't load project/user CLAUDE.md or settings
         // NOT 1 (dogfood 2026-07-14): the SDK counts internal assistant steps (thinking, a
         // hallucinated tool call it then refuses) as turns, so maxTurns:1 intermittently dies

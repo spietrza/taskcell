@@ -308,7 +308,7 @@ export async function replyAndResolveThread(
 const REVISION_MARKER_PRESENT_RE = /<!--\s*(?:vanguard-)?revision:/;
 const REVISION_MARKER_RE = /<!--\s*(?:vanguard-)?revision:\s*([^>\s]+)\s*-->/g;
 
-function hasRevisionMarker(body: string): boolean {
+export function hasRevisionMarker(body: string): boolean {
   return REVISION_MARKER_PRESENT_RE.test(body);
 }
 

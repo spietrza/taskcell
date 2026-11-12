@@ -2,6 +2,7 @@ import { parseArgs } from 'node:util';
 import { isProviderName, validateProviderChoice, PROVIDER_NAMES } from '../agents/registry.js';
 import type { ProviderName } from '../agents/registry.js';
 import type { RunOptions } from '../runners/source-adapter.js';
+import type { LessonsCommand } from './lessons.js';
 import { assertSafeBaseBranch } from '../core/base-branch.js';
 import { parseUsageCap } from '../core/usage-cap.js';
 
@@ -304,6 +305,7 @@ export type Command =
   | { kind: 'metrics'; action: 'push'; repoPath: string; branch?: string }
   | { kind: 'approve'; prNumber: number; repoSlug: string; repoPath: string; mode: 'shadow'; json: boolean; dryRun: boolean; branch?: string }
   | { kind: 'memory'; repoPath: string; limit?: number; json: boolean }
+  | LessonsCommand
   | {
       kind: 'eval';
       json: boolean;
@@ -762,6 +764,37 @@ export function parseCli(argv: string[], cwd: string): Command {
   if (positionals[0] === 'metrics') {
     if (positionals[1] !== 'push') return fail('metrics expects a subcommand: taskcell metrics push [--repo <path>] [--branch <name>].');
     return { kind: 'metrics', action: 'push', repoPath, ...(typeof values.branch === 'string' ? { branch: values.branch } : {}) };
+  }
+
+  if (positionals[0] === 'lessons') {
+    const branch = typeof values.branch === 'string' ? { branch: values.branch } : {};
+    const action = positionals[1];
+    if (action === 'list') return { kind: 'lessons', action, repoPath, json: values.json === true, ...branch };
+    if (action === 'dismiss') {
+      const id = positionals[2];
+      if (id === undefined || !/^[0-9a-f]{12}$/.test(id)) return fail('lessons dismiss expects a lesson id (12 hex chars, see `taskcell lessons list`).');
+      return { kind: 'lessons', action, repoPath, id, ...branch };
+    }
+    if (action === 'record') {
+      const prRaw = typeof values.pr === 'string' ? values.pr : positionals[2];
+      const prNumber = prRaw !== undefined ? Number(prRaw) : NaN;
+      const repoSlug = typeof values['github-repo'] === 'string' ? values['github-repo'] : undefined;
+      if (repoSlug === undefined) return fail('lessons record requires --github-repo <owner/repo>.');
+      if (!Number.isInteger(prNumber) || prNumber < 1) return fail(`lessons record requires a positive --pr <n>, got "${String(prRaw)}".`);
+      const feedbackAuthors = parseFeedbackAuthors(values['feedback-authors']);
+      return {
+        kind: 'lessons',
+        action,
+        repoPath,
+        repoSlug,
+        prNumber,
+        dryRun: values['dry-run'] === true,
+        ...(typeof values['provider-model'] === 'string' ? { model: values['provider-model'] } : {}),
+        ...(feedbackAuthors !== undefined ? { feedbackAuthors } : {}),
+        ...branch,
+      };
+    }
+    return fail('lessons expects a subcommand: record --pr <n> --github-repo <o/r> | list | dismiss <id>.');
   }
 
   if (positionals[0] === 'memory') {
@@ -1364,6 +1397,10 @@ Commands:
          base-branch policy; publish a neutral check run + PR comment and record the decision
          (shadow mode: never merges, approves, or edits labels).
   memory Refresh .taskcell/memory/retrospective.md from run artifacts and print it.
+  lessons record  Distil 0-3 lessons from a closed factory PR (one cheap model call; none for a clean
+         first-round merge), append them to lessons.jsonl on the metrics branch and comment them on
+         the PR. Later runs read the relevant ones into their retrospective memory.
+  lessons list | dismiss <id>  Show the live lessons, or dismiss a wrong one so no run gets it again.
   eval   Run the committed eval corpus and print a per-kind pass-rate report; --baseline gates the run
          against a saved result instead of an absolute number, --save-baseline publishes one.
   resume-rate-limited Re-apply the trigger label on issues/PRs a provider limit parked, once the reset passed (--trigger-labels a,b names custom triggers).
@@ -1642,6 +1679,16 @@ ${MAX_REPAIR_ITERATIONS_USAGE}
     --branch <name>        Metrics branch override (default: taskcell-metrics)
     --json                 Print the decision record to stdout
     --dry-run              Compute and print the decision; publish and record nothing (backtest/local inspection)
+
+  lessons options:
+    --pr <n>               record: PR number (bare positional also accepted)
+    --github-repo <o/r>    record: required repo slug
+    --provider-model <m>   record: model for the lesson call (default: haiku)
+    --feedback-authors <a,b>  record: extra trusted logins whose PR comments may inform a lesson
+    --dry-run              record: print the lessons, store and post nothing
+    --repo <path>          Local git repo whose origin holds the metrics branch (default: cwd)
+    --branch <name>        Metrics branch override (default: taskcell-metrics)
+    --json                 list: print JSON
 
   memory options:
     --repo <path>          Repo to read run artifacts from (default: cwd)

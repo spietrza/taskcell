@@ -443,7 +443,7 @@ export async function runSourcedIssue(
     // missing key fails in a second, not after a full implementer run.
     const forkScore =
       deps.forkN !== undefined && deps.forkScorer === 'decision' ? decisionDiffScorer(resolveForkScorerConfig(whiteLabel), deps.signal !== undefined ? { signal: deps.signal } : {}) : undefined;
-    const retrospectiveMemory = await loadRetrospectiveMemory(deps.repoPath);
+    const retrospectiveMemory = await loadRetrospectiveMemory(deps.repoPath, { taskText: `${task.title}\n${task.description}` });
     // Log-only difficulty probe (decision model, opt-in via env): kicked off here so its round trip
     // hides under sandbox + worktree provisioning; awaited once the pipeline is assembled. Recorded
     // next to the run so stats can later tell whether it predicts repairs/escalation. Never routes.

@@ -24,6 +24,8 @@ export interface BuildOptions {
 export interface LoadOptions {
   /** Cap the returned markdown to this many bytes. Default 4096. */
   maxBytes?: number;
+  /** The task's title + description: when set, relevant lessons from the metrics branch are prepended (#765). */
+  taskText?: string;
 }
 
 // ─── Constants ───────────────────────────────────────────────────────────────
@@ -340,7 +342,14 @@ export async function refreshRetrospectiveMemory(repoPath: string, opts?: BuildO
 
 /** Read `.taskcell/memory/retrospective.md` capped to maxBytes; returns fallback message when absent/empty. */
 export async function loadRetrospectiveMemory(repoPath: string, opts?: LoadOptions): Promise<string> {
-  const maxBytes = opts?.maxBytes ?? DEFAULT_MAX_BYTES;
+  const local = await loadLocalRetrospectiveMemory(repoPath, opts?.maxBytes ?? DEFAULT_MAX_BYTES);
+  if (opts?.taskText === undefined) return local;
+  const { loadLessonsForTask } = await import('./lessons.js');
+  const lessons = await loadLessonsForTask(repoPath, opts.taskText);
+  return lessons === '' ? local : `${lessons}\n\n${local}`;
+}
+
+async function loadLocalRetrospectiveMemory(repoPath: string, maxBytes: number): Promise<string> {
   const filePath = join(stateDir(repoPath), 'memory', 'retrospective.md');
   let content: string;
   try {

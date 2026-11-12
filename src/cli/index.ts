@@ -110,6 +110,11 @@ async function main(): Promise<void> {
     await statsCommand(command);
     return;
   }
+  if (command.kind === 'lessons') {
+    const { lessonsCommand } = await import('./lessons.js');
+    await lessonsCommand(command);
+    return;
+  }
   if (command.kind === 'memory') {
     await memoryCommand(command);
     return;
