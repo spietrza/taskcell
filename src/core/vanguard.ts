@@ -8,7 +8,7 @@ import { hasTerminationSignal } from '../structured/extract.js';
 import { captureSession, hostSessionFile, isSafeSessionId, restoreSession, sessionPath } from '../agents/session-store.js';
 import { agentFamily, cacheEfficiency } from '../agents/provider.js';
 import { stageMetric } from './run-metric.js';
-import { assertStatePath, ensureStateDir } from './state-path.js';
+import { assertStatePath, ensureStateDir, stateDir } from './state-path.js';
 import { createLogger } from './logger.js';
 import { installSignalCleanup, trackSandbox, untrackSandbox } from './cleanup.js';
 import { acquireSandboxSlot, releaseSandboxSlot } from './concurrency.js';
@@ -293,7 +293,7 @@ const DROPPED_CI_LOGGED = 20;
 
 /** Copy the sandbox workspace back onto the worktree via a staging dir, then return the resulting diff. */
 async function syncSandboxToWorktree(ctx: RunContext): Promise<string> {
-  const staging = await ensureStateDir(ctx.localRepoPath, join(ctx.localRepoPath, '.vanguard', 'staging', ctx.taskId));
+  const staging = await ensureStateDir(ctx.localRepoPath, join(stateDir(ctx.localRepoPath), 'staging', ctx.taskId));
   try {
     const { dropped } = await exportWorkspace(ctx.sandbox, WORKDIR, staging, ctx.worktreePath);
     if (dropped.length > 0) {
@@ -345,7 +345,7 @@ export async function runAgent(ctx: RunContext, input: StageInput): Promise<RunR
       // read, breaking resume. Only restore for a true cross-run resume, when it is not present.
       const present = await ctx.sandbox.exists(sessionPath(ctx.home, WORKDIR, resumeSessionId));
       if (!present) {
-        const hostFile = hostSessionFile(join(ctx.localRepoPath, '.vanguard', 'sessions', ctx.taskId), resumeSessionId);
+        const hostFile = hostSessionFile(join(stateDir(ctx.localRepoPath), 'sessions', ctx.taskId), resumeSessionId);
         await assertStatePath(ctx.localRepoPath, hostFile);
         await restoreSession(ctx.sandbox, { home: ctx.home, cwd: WORKDIR, sessionId: resumeSessionId, hostFile });
       }
@@ -426,7 +426,7 @@ export async function runAgent(ctx: RunContext, input: StageInput): Promise<RunR
     // does not, that is a real signal, so log at warn (still non-fatal: capture is an optimization).
     if (sessionId !== undefined && claudeFamily) {
       try {
-        const hostDir = await ensureStateDir(ctx.localRepoPath, join(ctx.localRepoPath, '.vanguard', 'sessions', ctx.taskId));
+        const hostDir = await ensureStateDir(ctx.localRepoPath, join(stateDir(ctx.localRepoPath), 'sessions', ctx.taskId));
         await captureSession(ctx.sandbox, { home: ctx.home, cwd: WORKDIR, sessionId, hostDir });
       } catch (cause) {
         ctx.log.warn({ taskId: ctx.taskId, sessionId, err: String(cause) }, 'session capture failed');

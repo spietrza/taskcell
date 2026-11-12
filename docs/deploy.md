@@ -33,7 +33,7 @@ Vanguard reads auth from the environment. `authFromEnv()` prefers `CLAUDE_CODE_O
 
 1Password is a local-dev convenience and is not part of Vanguard. On a server you populate the env some other way. The simplest is a root-only `.env` (chmod 600) next to the compose file.
 
-Secrets are passed at **runtime only**: compose reads that `.env` to fill the `${VAR}` references in `environment:` (or use `env_file:`), and plain `docker run` takes `-e VAR` / `--env-file`. Never put them in a Dockerfile `ARG`/`ENV` or in an image layer. The runner and hub images are built with `COPY . .`, so the repo-root `.dockerignore` keeps `.env*`, `.git`, `.vanguard`, `node_modules`, local tool state, build output and `docker/target-repo` out of the image; the sandbox build context (`docker/`) sends nothing. Keep the `.env` and the target-repo clone in those excluded places, or outside the checkout entirely.
+Secrets are passed at **runtime only**: compose reads that `.env` to fill the `${VAR}` references in `environment:` (or use `env_file:`), and plain `docker run` takes `-e VAR` / `--env-file`. Never put them in a Dockerfile `ARG`/`ENV` or in an image layer. The runner and hub images are built with `COPY . .`, so the repo-root `.dockerignore` keeps `.env*`, `.git`, `.taskcell`, `node_modules`, local tool state, build output and `docker/target-repo` out of the image; the sandbox build context (`docker/`) sends nothing. Keep the `.env` and the target-repo clone in those excluded places, or outside the checkout entirely.
 
 ---
 
@@ -188,7 +188,7 @@ Coolify deploys a Docker Compose resource straight from a Git repo, which fits V
 2. Set the secrets as **environment variables** in the Coolify UI: `CLAUDE_CODE_OAUTH_TOKEN`, `LINEAR_API_KEY`, `GH_TOKEN`. Coolify injects them into the compose `${VAR}` references.
 3. The controller needs the host Docker socket. Confirm Coolify allows the `/var/run/docker.sock` bind mount in the compose (some hardened setups block host mounts; you may need to allow it for this resource). Without the socket the controller cannot start sandboxes.
 4. The **sandbox image must be present on the same Docker host** Coolify uses. Coolify builds `vanguard-runner` from the Dockerfile, but not the sandbox. Build or load `vanguard-sandbox:latest` on that host once (SSH in and `docker build -t vanguard-sandbox:latest docker/`, or `docker load`).
-5. Make `docker/target-repo` and `.vanguard/runs` **persistent volumes** in Coolify so the clone and the run records survive redeploys. Seed `docker/target-repo` with a clone the first time (a one-off `docker run` like the Synology step, or an init command).
+5. Make `docker/target-repo` and `.taskcell/runs` **persistent volumes** in Coolify so the clone and the run records survive redeploys. Seed `docker/target-repo` with a clone the first time (a one-off `docker run` like the Synology step, or an init command).
 6. Deploy. Watch the logs in Coolify for the `watch[...]: polling` line. To run the optional PR-review loop, enable the compose profile `pr-review` or create a second compose resource for `vanguard-watch-prs`, then preflight it with `doctor-prs`.
 
 Caveats: Coolify redeploys may recreate the controller, which is fine (the watch loop is stateless beyond the mounted volumes). The `vanguard-gc` service runs the same as anywhere. If Coolify refuses the socket mount, fall back to Recipe B (plain compose over SSH) on the same Hetzner box; Coolify can still manage other apps alongside it.
@@ -213,6 +213,6 @@ A cron line, for reference: `0 */4 * * * taskcell gc --remote owner/repo --repo 
 
 ## Operational notes
 
-- Run records and metrics land in `<repo>/.vanguard/runs/` (a mounted volume): per-stage transcript, a git bundle of the changes, the diff, and a `run_complete` metric line. `taskcell stats --repo /work/repo` rolls them up across the fleet.
+- Run records and metrics land in `<repo>/.taskcell/runs/` (a mounted volume): per-stage transcript, a git bundle of the changes, the diff, and a `run_complete` metric line. `taskcell stats --repo /work/repo` rolls them up across the fleet.
 - RAM is the real cap. Each sandbox is roughly 1.5 to 2 GB plus small sidecars. Keep `VANGUARD_MAX_SANDBOXES` at 1 on a 5 to 6 GB host.
 - Updating the deployed code: rebuild `vanguard-runner` for amd64, transfer and load it (Synology) or rebuild on the box (Hetzner), then `docker compose up -d --force-recreate`. The `vanguard-gc` pull keeps the edited repo current on its own.

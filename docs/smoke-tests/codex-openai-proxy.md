@@ -100,7 +100,7 @@ review-pr OWNER/REPO#PR: done
 
 After the run, confirm the invariant by inspecting what the sandbox received. The proxy nonce model ensures that:
 
-1. `OPENAI_API_KEY` inside the sandbox is a short random nonce, not the real key. You can verify this by checking the run transcript under `.vanguard/runs/` — the sandbox env printed there (if debug logging is on) will show a short token, not a live key.
+1. `OPENAI_API_KEY` inside the sandbox is a short random nonce, not the real key. You can verify this by checking the run transcript under `.taskcell/runs/` — the sandbox env printed there (if debug logging is on) will show a short token, not a live key.
 2. `api.openai.com` was removed from the sandbox allowlist (implied by `--egress`). The sandbox had no direct route to OpenAI; all traffic went through the sidecar.
 3. The `codex config.toml` written into the sandbox points `baseUrl` at the proxy sidecar URL, not at `api.openai.com`.
 

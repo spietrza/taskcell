@@ -16,7 +16,7 @@ describe('drafts', () => {
   });
 
   function draftsDir(): string {
-    return join(repoPath, '.vanguard', 'drafts');
+    return join(repoPath, '.taskcell', 'drafts');
   }
 
   it('T-24 write then read round-trips; write is atomic (no leftover .tmp); .gitignore seeded', async () => {
@@ -56,7 +56,7 @@ describe('drafts', () => {
       const target = await mkdtemp(join(tmpdir(), 'vanguard-drafts-target-'));
       try {
         await mkdir(join(target, 'drafts'), { recursive: true });
-        await symlink(target, join(repo, '.vanguard'));
+        await symlink(target, join(repo, '.taskcell'));
         await expect(write(repo, 'draft-a', '{}')).rejects.toThrow(/symlink/);
         await expect(read(repo, 'draft-a')).rejects.toThrow(/symlink/);
         await expect(del(repo, 'draft-a')).rejects.toThrow(/symlink/);
@@ -73,8 +73,8 @@ describe('drafts', () => {
       const repo = await mkdtemp(join(tmpdir(), 'vanguard-drafts-dirlink-'));
       const target = await mkdtemp(join(tmpdir(), 'vanguard-drafts-target2-'));
       try {
-        await mkdir(join(repo, '.vanguard'), { recursive: true });
-        await symlink(target, join(repo, '.vanguard', 'drafts'));
+        await mkdir(join(repo, '.taskcell'), { recursive: true });
+        await symlink(target, join(repo, '.taskcell', 'drafts'));
         await expect(write(repo, 'draft-a', '{}')).rejects.toThrow(/symlink/);
         await expect(read(repo, 'draft-a')).rejects.toThrow(/symlink/);
         await expect(del(repo, 'draft-a')).rejects.toThrow(/symlink/);

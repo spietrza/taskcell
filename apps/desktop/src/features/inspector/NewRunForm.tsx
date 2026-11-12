@@ -62,7 +62,7 @@ export function NewRunForm({
   const [flow, setFlow] = useState(capabilities.flows[0]?.name ?? 'default');
   const [maxTurns, setMaxTurns] = useState(String(capabilities.defaults.maxTurns));
   const [baseBranch, setBaseBranch] = useState(capabilities.defaults.baseBranch);
-  // Repo .vanguard/flows/*.hcl flows (S5 §21). Fetched fresh on every form open — deliberately NOT
+  // Repo .taskcell/flows/*.hcl flows (S5 §21). Fetched fresh on every form open — deliberately NOT
   // session-cached like capabilities: repo flows are mutable state, and a flow saved in the
   // Workflow screen must be runnable here immediately. 'error' = degraded: built-ins still work,
   // the form must never disappear the way the caps-failure path hides it.

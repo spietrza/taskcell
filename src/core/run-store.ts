@@ -12,7 +12,7 @@ import { BadRequestError } from '../sidecar/sidecar.js';
 import type { RunResult } from './types.js';
 import { stageMetric } from './run-metric.js';
 import { exportRunTrace } from './otlp-sink.js';
-import { assertStatePath, ensureStateDir, isSafeTaskId } from './state-path.js';
+import { assertStatePath, ensureStateDir, isSafeTaskId, stateDir } from './state-path.js';
 import { injectedSecretValues, redactForPublish, scanForInjectedSecrets, scanForSecrets } from './secret-scan.js';
 import { redactVerificationOutput } from '../pipeline/verify.js';
 import type { VerificationResult } from '../pipeline/verify.js';
@@ -36,13 +36,13 @@ export type { AgentUsage, Proof, RunDetail, RunRecord, RunSummary, StageDetail, 
 // ---------------------------------------------------------------------------
 
 /**
- * `<runsRoot>` is the directory directly containing per-task subdirectories: `.vanguard/runs` for a
- * repo's own history, or `.vanguard/remote-runs/<origin>` for an imported CI run's records.
+ * `<runsRoot>` is the directory directly containing per-task subdirectories: `.taskcell/runs` for a
+ * repo's own history, or `.taskcell/remote-runs/<origin>` for an imported CI run's records.
  */
 export function runsRoot(repoPath: string, origin?: number): string {
   return origin === undefined
-    ? join(repoPath, '.vanguard', 'runs')
-    : join(repoPath, '.vanguard', 'remote-runs', String(origin));
+    ? join(stateDir(repoPath), 'runs')
+    : join(stateDir(repoPath), 'remote-runs', String(origin));
 }
 
 /** Filesystem-safe form of an ISO timestamp, shared by every record filename. */
@@ -374,12 +374,12 @@ interface WriteRecordOptions {
 }
 
 /**
- * Persist a run's metadata to `.vanguard/runs/<taskId>/<ts>[-label].json` and append one compact
- * metric line to `.vanguard/runs/metrics.jsonl`, so an AFK fleet leaves a cost/usage/exit trace. Free
+ * Persist a run's metadata to `.taskcell/runs/<taskId>/<ts>[-label].json` and append one compact
+ * metric line to `.taskcell/runs/metrics.jsonl`, so an AFK fleet leaves a cost/usage/exit trace. Free
  * text in the record (`finalText`, the sibling `.transcript.log`) is masked by redactForPublish; the (potentially
  * large) diff goes to a sibling `.diff` file plus a `.bundle` of the worktree HEAD, both skipped under
  * `omitDiff`. Every path is checked with assertStatePath first: a repo-committed symlink under
- * `.vanguard` must not redirect these writes out of the checkout. Returns the written JSON path.
+ * `.taskcell` must not redirect these writes out of the checkout. Returns the written JSON path.
  */
 async function writeRecord(repoPath: string, taskId: string, timestamp: string, result: RunResult, opts: WriteRecordOptions): Promise<string> {
   const root = runsRoot(repoPath);
@@ -471,7 +471,7 @@ async function writeRecord(repoPath: string, taskId: string, timestamp: string, 
   return file;
 }
 
-/** Append one line to `.vanguard/runs/metrics.jsonl`, refusing a symlinked leaf or parent. */
+/** Append one line to `.taskcell/runs/metrics.jsonl`, refusing a symlinked leaf or parent. */
 async function appendMetric(repoPath: string, metric: object): Promise<void> {
   const path = join(runsRoot(repoPath), 'metrics.jsonl');
   await assertStatePath(repoPath, path);

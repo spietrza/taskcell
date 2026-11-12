@@ -3,6 +3,7 @@ import { lstat, readdir, stat } from 'node:fs/promises';
 import { join } from 'node:path';
 import { OPENROUTER_PRICING } from '../core/openrouter-pricing.js';
 import { readTextNoSymlink } from './runs.js';
+import { stateDir, STATE_DIR_NAMES } from '../core/state-path.js';
 
 export interface ActiveRun {
   taskId: string;
@@ -104,8 +105,8 @@ async function newestRecordMtime(runsTaskDir: string): Promise<number | undefine
  * NOT just written a completed run record (a fresh record means the run finished — show it as done).
  */
 export async function listActive(repoPath: string): Promise<ActiveRun[]> {
-  const sessions = join(repoPath, '.vanguard', 'sessions');
-  const runs = join(repoPath, '.vanguard', 'runs');
+  const sessions = join(stateDir(repoPath), 'sessions');
+  const runs = join(stateDir(repoPath), 'runs');
   const now = Date.now();
   const out: ActiveRun[] = [];
 
@@ -137,15 +138,15 @@ export async function listActive(repoPath: string): Promise<ActiveRun[]> {
 
 /**
  * Path is caller-supplied — only read Vanguard session logs
- * (`…/.vanguard/sessions/<task>/<file>.jsonl`). A substring check on "sessions"
- * would read any `.jsonl` anywhere; require the real `.vanguard/sessions` segments.
+ * (`…/.taskcell/sessions/<task>/<file>.jsonl`). A substring check on "sessions"
+ * would read any `.jsonl` anywhere; require the real `.taskcell/sessions` segments.
  */
 export function isSessionPath(p: string): boolean {
   if (p.includes('..')) return false;
   if (!p.endsWith('.jsonl')) return false;
   const comps = p.split(/[\\/]+/).filter((c) => c.length > 0);
   for (let i = 0; i + 1 < comps.length; i += 1) {
-    if (comps[i] === '.vanguard' && comps[i + 1] === 'sessions') return true;
+    if (STATE_DIR_NAMES.includes(comps[i] as string) && comps[i + 1] === 'sessions') return true;
   }
   return false;
 }

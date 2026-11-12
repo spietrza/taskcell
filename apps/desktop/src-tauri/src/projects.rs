@@ -47,7 +47,7 @@ pub fn save_paths(config_dir: &Path, paths: &[String]) -> io::Result<()> {
     fs::write(projects_file(config_dir), json)
 }
 
-/// Aggregate a repo's `.vanguard/runs` into a dashboard summary (+ live running count).
+/// Aggregate a repo's `.taskcell/runs` into a dashboard summary (+ live running count).
 pub fn aggregate(state: &Sidecar, repo_path: &Path) -> Project {
     let summaries = crate::runs::list_runs(state, repo_path).unwrap_or_default();
     aggregate_at(repo_path, &summaries, Utc::now())

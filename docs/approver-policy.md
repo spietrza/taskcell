@@ -1,9 +1,9 @@
-# Approver policy (`.vanguard/approver.json`)
+# Approver policy (`.taskcell/approver.json`)
 
 The approver stage decides `APPROVE` or `ESCALATE` for a factory PR from typed facts only, with no
-LLM in the loop. Everything it is allowed to accept is declared in `.vanguard/approver.json`. The
+LLM in the loop. Everything it is allowed to accept is declared in `.taskcell/approver.json`. The
 schema lives in `src/approver/policy.ts`, the pure decision function in `src/approver/rules.ts`, and
-the committed policy this repo runs under is at the repo root (`.vanguard/approver.json` — tracked on
+the committed policy this repo runs under is at the repo root (`.taskcell/approver.json` — tracked on
 purpose, see `.gitignore`).
 
 v1 is **shadow mode**: the decision is published as a `neutral` check run plus a PR comment and
@@ -15,7 +15,7 @@ labelled. See [Approver (shadow mode)](autonomous-loop.md#approver-shadow-mode) 
 **The base branch only.** `loadPolicy` resolves `origin/<base>` and reads the file with
 
 ```
-git show refs/remotes/origin/<base>:.vanguard/approver.json
+git show refs/remotes/origin/<base>:.taskcell/approver.json
 ```
 
 — never the working tree, never a local-only branch, and never the PR head. A PR cannot widen the
@@ -23,7 +23,7 @@ policy it is judged by: the bytes that decide it are the bytes already on the br
 
 Two consequences:
 
-- **A PR that touches `.vanguard/approver.json` always ESCALATEs.** The file is listed under the
+- **A PR that touches `.taskcell/approver.json` always ESCALATEs.** The file is listed under the
   `review-pipeline` path rule, so the `path:review-pipeline` rule fires on any diff that includes it
   and the verdict can never be `APPROVE`. A policy change is therefore always a human decision.
 - **An unreadable or invalid policy fails closed.** A missing file, malformed JSON, or a body that
@@ -61,7 +61,7 @@ engine, as long as `schemaVersion` still matches.
 | `dependencies` | `**/package.json`, `**/pnpm-lock.yaml`, `**/Cargo.*`, `apps/desktop/src-tauri/**` | Supply chain: a new or moved dependency is a human call. |
 | `migration-deploy` | `docker/**`, `**/*migration*` | Deploy and data-shape changes are not safely reversible by a revert. |
 | `security-surface` | `src/sandbox/**`, `src/core/vanguard.ts`, `src/core/secret-scan.ts`, `src/context/**`, `src/agents/**` | The isolation and secret-handling boundaries. |
-| `review-pipeline` | the review/revise runners, the publish and gate pipeline, `src/approver/**`, `.vanguard/approver.json` | The machinery that produces and checks the factory's own output, including this policy — it must never approve a change to itself. |
+| `review-pipeline` | the review/revise runners, the publish and gate pipeline, `src/approver/**`, `.taskcell/approver.json` | The machinery that produces and checks the factory's own output, including this policy — it must never approve a change to itself. |
 | `gate-config` | `vitest.config.ts`, `eslint.config.js`, `tsconfig*.json` | Loosening a gate would invalidate every later green check. |
 | `agent-instructions` | `skills/**`, `CLAUDE.md`, `AGENTS.md` | The prompts and constraints the agents run under. |
 | `release-config` | `release-please-config.json`, `.release-please-manifest.json` | Publishing behaviour. |
@@ -81,6 +81,6 @@ rule firing makes the verdict `ESCALATE`; `APPROVE` means the rule list came bac
 
 ## Changing the policy
 
-Edit `.vanguard/approver.json` and open a PR. That PR escalates by construction (`path:review-pipeline`),
+Edit `.taskcell/approver.json` and open a PR. That PR escalates by construction (`path:review-pipeline`),
 and the new values only take effect once it is merged into the base branch — the run deciding a PR
 reads the policy from `origin/<base>`, so nothing takes effect mid-flight.

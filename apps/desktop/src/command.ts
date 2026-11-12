@@ -13,7 +13,7 @@ import { SOURCES } from './sources';
  * openrouter user adds `--llm-proxy` by hand.
  * ponytail: no per-provider proxy gating until a validated provider→proxy classification exists.
  *
- * `provider` and `source` come from the project's `.vanguard/app.json`, which is repo content: both
+ * `provider` and `source` come from the project's `.taskcell/app.json`, which is repo content: both
  * are checked against a strict grammar here, before any command is built.
  */
 

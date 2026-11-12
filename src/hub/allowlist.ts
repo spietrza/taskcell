@@ -6,25 +6,26 @@
 import { lstat, realpath, stat } from 'node:fs/promises';
 import { join, sep } from 'node:path';
 import { BadRequestError } from '../sidecar/sidecar.js';
+import { STATE_DIR_NAMES } from '../core/state-path.js';
 
-/** Mirror of active.rs `is_session_path`: only a real `.vanguard/sessions/**.jsonl` path qualifies. */
+/** Mirror of active.rs `is_session_path`: only a real `.taskcell/sessions/**.jsonl` path qualifies. */
 export function isSessionPathGrammar(p: string): boolean {
   if (p.includes('..')) return false;
   if (!p.toLowerCase().endsWith('.jsonl')) return false;
   const parts = p.split(/[\\/]+/).filter((s) => s.length > 0);
   for (let i = 0; i + 1 < parts.length; i++) {
-    if (parts[i] === '.vanguard' && parts[i + 1] === 'sessions') return true;
+    if (STATE_DIR_NAMES.includes(parts[i] as string) && parts[i + 1] === 'sessions') return true;
   }
   return false;
 }
 
-/** Index of the `.vanguard` segment of a `.vanguard/sessions/...` path, or -1 if absent. Operates on
- * the REALPATH'd string, so a symlinked `.vanguard` (whose name would disappear under realpath)
+/** Index of the `.taskcell` segment of a `.taskcell/sessions/...` path, or -1 if absent. Operates on
+ * the REALPATH'd string, so a symlinked `.taskcell` (whose name would disappear under realpath)
  * cannot be used to smuggle a path outside an allowed project. */
 function vanguardSessionsSegmentIndex(realPath: string): number {
   const parts = realPath.split(sep);
   for (let i = 0; i + 1 < parts.length; i++) {
-    if (parts[i] === '.vanguard' && parts[i + 1] === 'sessions') return i;
+    if (STATE_DIR_NAMES.includes(parts[i] as string) && parts[i + 1] === 'sessions') return i;
   }
   return -1;
 }

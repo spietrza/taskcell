@@ -102,11 +102,11 @@ describe('WorktreeManager', () => {
 });
 
 describe('WorktreeManager — committed symlink under .vanguard', () => {
-  it('refuses to create a worktree through a symlinked .vanguard/worktrees', async () => {
+  it('refuses to create a worktree through a symlinked .taskcell/worktrees', async () => {
     const outside = await mkdtemp(join(tmpdir(), 'vg-wt-outside-'));
     try {
-      await mkdir(join(repo, '.vanguard'));
-      await symlink(outside, join(repo, '.vanguard', 'worktrees'));
+      await mkdir(join(repo, '.taskcell'));
+      await symlink(outside, join(repo, '.taskcell', 'worktrees'));
       await expect(wm.create('task-1', 'main')).rejects.toBeInstanceOf(WorktreeError);
       expect(await readdir(outside)).toEqual([]);
     } finally {

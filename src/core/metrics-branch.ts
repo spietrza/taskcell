@@ -2,10 +2,11 @@ import { readFile } from 'node:fs/promises';
 import { join } from 'node:path';
 import { execa } from 'execa';
 import { parseJsonlLines } from './stats.js';
+import { stateDir } from './state-path.js';
 
 /**
  * Durable run metrics for hosts whose checkout does not survive the run (GitHub Actions): the
- * `metrics.jsonl` lines a run wrote under `.vanguard/runs/` are appended to a single file on an
+ * `metrics.jsonl` lines a run wrote under `.taskcell/runs/` are appended to a single file on an
  * orphan branch of the repo, with git plumbing only — no checkout, no worktree, no merge. The branch
  * can hold more than one file (e.g. the approver's decisions.jsonl); appendBranchLines preserves every
  * tree entry it does not touch, so unrelated files never conflict with each other. `taskcell stats
@@ -161,7 +162,7 @@ export async function pushMetrics(repoPath: string, opts: MetricsBranchOptions =
   const remote = opts.remote ?? 'origin';
   let localText = '';
   try {
-    localText = await readFile(join(repoPath, '.vanguard', 'runs', METRICS_FILE), 'utf8');
+    localText = await readFile(join(stateDir(repoPath), 'runs', METRICS_FILE), 'utf8');
   } catch {
     return { branch, pushed: 0, total: 0 };
   }

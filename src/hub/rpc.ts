@@ -127,7 +127,7 @@ function requirePlan(args: Record<string, unknown>, key: string): FactoryPlan {
 }
 
 /** `read_run`'s `source` (wire's `RunSource`) → the root the records live under: the project's own
- * `.vanguard/runs`, or a CI run's imported `.vanguard/remote-runs/<id>`. The client never names a
+ * `.taskcell/runs`, or a CI run's imported `.taskcell/remote-runs/<id>`. The client never names a
  * root — the same discriminant resolves against the Tauri cache dir on the desktop side. */
 function runSourceRoot(repoPath: string, raw: unknown): string {
   const source = (raw ?? {}) as Record<string, unknown>;

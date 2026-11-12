@@ -36,7 +36,7 @@ native design language: the UI is React + Tailwind v4 + the `chunks-ui` kit in b
 ## Product Purpose
 
 Make the factory legible. Turn "why did this run fail, what did it cost, what is it doing now" from
-reading JSON under `.vanguard/runs/` into a glance, and let the operator act on it: open the PR,
+reading JSON under `.taskcell/runs/` into a glance, and let the operator act on it: open the PR,
 re-run, draft the next task, enable the factory on a repo.
 
 Success: the operator trusts what the factory did without opening the raw records, and spots the
@@ -50,11 +50,11 @@ of work, review, verify result, cost per run), not an agent chat front-end.
 
 ## Operating Context
 
-- Runs against a local `.vanguard/` directory (desktop or `taskcell hub --repo`), or imports CI run
+- Runs against a local `.taskcell/` directory (desktop or `taskcell hub --repo`), or imports CI run
   records ("Fetch records") from GitHub Actions artifacts.
 - Screens: Home (projects and totals), Runs (list, run detail with Overview / Spec / Diff /
   Transcript, live run), Task board, New Task (doc editor + chat), Fleet (desktop only), Remote (CI
-  runs), Workflow (flow editor), Settings (`.vanguard/app.json`), command palette (⌘K).
+  runs), Workflow (flow editor), Settings (`.taskcell/app.json`), command palette (⌘K).
 - Hub mode has a per-launch token in the URL fragment; a restarted hub invalidates open tabs.
   Fleet is disabled in hub mode because it spawns shell commands.
 - **(assumption)** Typical session is a laptop-width window next to an editor and a terminal, used
@@ -66,7 +66,7 @@ of work, review, verify result, cost per run), not an agent chat front-end.
   Claim, Watch Loop, Proof of Work, Stage, PR (GitHub) vs MR (GitLab). UI copy uses these exact
   words.
 - `vanguard` is the old name of `taskcell` and still works; on-screen copy says Taskcell /
-  `taskcell`. Paths and labels keep `.vanguard/` and `vanguard:*`.
+  `taskcell`. Paths and labels keep `.taskcell/` and `vanguard:*`.
 - Irreversible writes (creating a real issue, enabling the factory on a repo) are confirmed in a
   dialog that states what will happen and where.
 - All visual primitives come through `src/ui/index.ts` (the `@/ui` seam over `chunks-ui`).

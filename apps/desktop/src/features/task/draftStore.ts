@@ -3,7 +3,7 @@ import { titleFromDoc } from './docTask.js';
 import type { ChatMsg } from './useDocChat.js';
 
 /**
- * The draft model (S10): one JSON file per draft under `.vanguard/drafts/<id>.json` — body, chat
+ * The draft model (S10): one JSON file per draft under `.taskcell/drafts/<id>.json` — body, chat
  * transcript, and meta together, so a filed draft's re-file protection and its transcript can
  * never diverge. The webview owns this shape; Rust is dumb storage.
  */

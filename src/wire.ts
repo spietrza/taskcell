@@ -87,7 +87,7 @@ export interface StageOverrides {
 /** One `stage {}` block: a name (library key), an optional `ref` (Layer-2 escape hatch), and overrides. */
 export interface StageDecl {
   name: string;
-  /** `"relpath#export"` resolved under `<repoPath>/.vanguard/`. Present ⇒ record comes from TS, not the library. */
+  /** `"relpath#export"` resolved under `<repoPath>/.taskcell/`. Present ⇒ record comes from TS, not the library. */
   ref?: string;
   overrides: StageOverrides;
   /** Freeform pass-through block; never interpreted. */
@@ -132,7 +132,7 @@ export interface RepoProviderInfo {
  * One composer attachment forwarded with a doc-chat completion (Editor UX 7/7). Additive on the
  * wire — a caller that sends none is byte-identical to the pre-attachment protocol.
  *
- * `kind: 'image'` → a pasted/dropped image persisted under `.vanguard/drafts/<id>-assets/`; `path`
+ * `kind: 'image'` → a pasted/dropped image persisted under `.taskcell/drafts/<id>-assets/`; `path`
  * is its absolute path and `mediaType` its IANA type (e.g. `image/png`). `__complete` reads the
  * file and forwards it to the agent SDK as an image content block.
  *
@@ -382,7 +382,7 @@ export interface RemoteImport {
 /**
  * Where one run's records live, resolved to a root by whichever backend answers `read_run` —
  * Tauri's own per-run cache dir (`src-tauri/src/remote.rs`), the hub's
- * `<project>/.vanguard/remote-runs/<runId>` (`src/hub/runs.ts`). The UI never sees either root: it
+ * `<project>/.taskcell/remote-runs/<runId>` (`src/hub/runs.ts`). The UI never sees either root: it
  * only carries this discriminant (see `RunRef`).
  */
 export type RunSource = { kind: 'local' } | { kind: 'ci'; runId: number };
@@ -573,7 +573,7 @@ export interface Commands {
   clear_draft_assets: { args: { repoPath: string; id: string }; result: void };
   list_remote_runs: { args: { repoPath: string }; result: RemoteRun[] };
   /** Both backends implement this: Tauri downloads+caches under the app config dir, the hub under
-   * the project's `.vanguard/remote-runs/<id>` — each resolves `source: { kind: 'ci', runId }` for
+   * the project's `.taskcell/remote-runs/<id>` — each resolves `source: { kind: 'ci', runId }` for
    * a later `read_run` to its own root. A cache hit skips `gh run download` on both sides. */
   import_remote_run: { args: { repoPath: string; runId: number }; result: RemoteImport };
   list_tasks: { args: { repoPath: string }; result: { tasks: BoardTask[]; capped: boolean } };

@@ -294,7 +294,7 @@ export type Command =
       kind: 'stats';
       repoPath: string;
       json: boolean;
-      /** Read the metrics file from this remote branch instead of the local .vanguard/runs. */
+      /** Read the metrics file from this remote branch instead of the local .taskcell/runs. */
       branch?: string;
       /** Shadow approver scorecard instead of the cost/token rollup: verdict vs human outcome, per risk class. */
       approver: boolean;
@@ -685,7 +685,7 @@ export function parseCli(argv: string[], cwd: string): Command {
   const builtinProvider: ProviderName | undefined =
     provider !== undefined && isProviderName(provider) ? provider : undefined;
 
-  // Named flow (run + watch). --flow selects a FLOWS entry or a repo `.vanguard/flows/*.hcl` flow
+  // Named flow (run + watch). --flow selects a FLOWS entry or a repo `.taskcell/flows/*.hcl` flow
   // (S5); --plan stays the alias for flow 'plan'. No name check here: this parser is synchronous
   // and cannot see the repo's flow files — an unknown name fails in the async dispatch, which
   // lists built-ins + discovered repo flows.
@@ -1321,7 +1321,7 @@ export function parseCli(argv: string[], cwd: string): Command {
 /** Option lines run and watch print verbatim — one source, so the two usage blocks cannot drift either. */
 const SHARED_RUN_OPTIONS_USAGE = `    --provider <claude|codex|cursor|zai|openrouter|meridian>          Provider that runs every stage (default: claude)
                            run/watch/doctor also accept a custom provider name from the repo's
-                           .vanguard/app.json customProviders (S6) — direct mode only.
+                           .taskcell/app.json customProviders (S6) — direct mode only.
     --review-provider <claude|codex|cursor|zai|openrouter|meridian>   Run only the review stage on this provider (cross-provider review)
     --fallback-provider <name>  Retry on this provider when the primary one fails (outage, limit, revoked credential) — the implementer and every other stage on its provider; must sit on a different transport (e.g. codex for a claude implementer)
     --fallback-model <model>    Model for every stage that fell back (default: that provider's default)
@@ -1355,7 +1355,7 @@ Commands:
   review-mr Review an existing GitLab MR and post a non-blocking Taskcell review comment.
   watch-mrs Poll GitLab MRs by label and run the non-blocking Taskcell review loop.
   doctor-mrs Check whether watch-mrs can run AFK before any MR is claimed.
-  stats  Aggregate .vanguard/runs/metrics.jsonl into a cost/token/time rollup (per task, per stage,
+  stats  Aggregate .taskcell/runs/metrics.jsonl into a cost/token/time rollup (per task, per stage,
          per model, probe); --branch reads the durable copy from the metrics branch instead.
          --approver prints the shadow approver scorecard instead (verdict vs human outcome).
   metrics push  Append this checkout's metrics.jsonl lines to the orphan taskcell-metrics branch and
@@ -1363,13 +1363,13 @@ Commands:
   approve Compute a deterministic APPROVE/ESCALATE decision for a factory PR from typed facts and the
          base-branch policy; publish a neutral check run + PR comment and record the decision
          (shadow mode: never merges, approves, or edits labels).
-  memory Refresh .vanguard/memory/retrospective.md from run artifacts and print it.
+  memory Refresh .taskcell/memory/retrospective.md from run artifacts and print it.
   eval   Run the committed eval corpus and print a per-kind pass-rate report; --baseline gates the run
          against a saved result instead of an absolute number, --save-baseline publishes one.
   resume-rate-limited Re-apply the trigger label on issues/PRs a provider limit parked, once the reset passed (--trigger-labels a,b names custom triggers).
   gc     Reap stale sandbox containers, prune worktrees, and (with --remote) delete merged
          remote chore/vanguard-* branches.
-  hub    Serve the Inspector UI over HTTP/SSE (node:http), backed by a real .vanguard/ directory.
+  hub    Serve the Inspector UI over HTTP/SSE (node:http), backed by a real .taskcell/ directory.
 
   watch options (trigger = state/label + label):
     --source <linear|github|project|gitlab>  Task source (default: linear)
@@ -1620,7 +1620,7 @@ ${MAX_REPAIR_ITERATIONS_USAGE}
     --abandoned            Also delete branches whose PR is closed-unmerged (not just merged)
 
   stats options:
-    --repo <path>          Repo whose .vanguard/runs/metrics.jsonl to read (default: cwd)
+    --repo <path>          Repo whose .taskcell/runs/metrics.jsonl to read (default: cwd)
     --branch <name>        Read metrics.jsonl from this remote branch instead (what 'metrics push' wrote;
                            default name: taskcell-metrics)
     --json                 Emit the aggregated report as JSON instead of tables
@@ -1631,7 +1631,7 @@ ${MAX_REPAIR_ITERATIONS_USAGE}
                            the metrics branch plus live PR/revert history)
 
   metrics push options:
-    --repo <path>          Repo whose .vanguard/runs/metrics.jsonl to persist (default: cwd)
+    --repo <path>          Repo whose .taskcell/runs/metrics.jsonl to persist (default: cwd)
     --branch <name>        Target branch (default: taskcell-metrics)
 
   approve options:

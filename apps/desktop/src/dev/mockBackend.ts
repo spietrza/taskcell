@@ -91,7 +91,7 @@ const commandHandlers = {
   },
   write_draft_asset: (args: { id?: string; name?: string } | undefined) => {
     const { id = 'draft-001', name = 'pic.png' } = args ?? {};
-    return `/mock/.vanguard/drafts/${id}-assets/${name}`;
+    return `/mock/.taskcell/drafts/${id}-assets/${name}`;
   },
   clear_draft_assets: () => undefined,
   api_list_flows: () => ({ flows: repoFlows }),

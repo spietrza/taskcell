@@ -226,7 +226,7 @@ describe('fetchRemoteRun', () => {
     expect(summaries).toHaveLength(1);
     expect(summaries[0]?.taskId).toBe('task-first');
 
-    const remoteRunsBase = join(repo, '.vanguard', 'remote-runs');
+    const remoteRunsBase = join(repo, '.taskcell', 'remote-runs');
     await expect(lstat(join(remoteRunsBase, '105.tmp'))).rejects.toThrow();
 
     const gitignore = await readFile(join(remoteRunsBase, '.gitignore'), 'utf8');
@@ -254,23 +254,23 @@ describe('fetchRemoteRun — committed symlinks under .vanguard', () => {
     await rm(outside, { recursive: true, force: true });
   });
 
-  it('refuses a symlinked .vanguard/remote-runs and deletes nothing behind it', async () => {
-    await mkdir(join(repo, '.vanguard'));
-    await symlink(outside, join(repo, '.vanguard', 'remote-runs'));
+  it('refuses a symlinked .taskcell/remote-runs and deletes nothing behind it', async () => {
+    await mkdir(join(repo, '.taskcell'));
+    await symlink(outside, join(repo, '.taskcell', 'remote-runs'));
     await expect(fetchRemoteRun(repo, 123, exec)).rejects.toThrow(/symlink/);
     expect(await readFile(join(outside, '123', 'keep.txt'), 'utf8')).toBe('keep');
     await expect(access(join(outside, '.gitignore'))).rejects.toThrow();
   });
 
   it('refuses a symlinked .vanguard', async () => {
-    await symlink(outside, join(repo, '.vanguard'));
+    await symlink(outside, join(repo, '.taskcell'));
     await expect(fetchRemoteRun(repo, 123, exec)).rejects.toThrow(/symlink/);
     expect(await readFile(join(outside, '123', 'keep.txt'), 'utf8')).toBe('keep');
   });
 
   it('refuses a symlinked <runId> leaf', async () => {
-    await mkdir(join(repo, '.vanguard', 'remote-runs'), { recursive: true });
-    await symlink(join(outside, '123'), join(repo, '.vanguard', 'remote-runs', '123'));
+    await mkdir(join(repo, '.taskcell', 'remote-runs'), { recursive: true });
+    await symlink(join(outside, '123'), join(repo, '.taskcell', 'remote-runs', '123'));
     await expect(fetchRemoteRun(repo, 123, exec)).rejects.toThrow(/symlink/);
     expect(await readFile(join(outside, '123', 'keep.txt'), 'utf8')).toBe('keep');
   });

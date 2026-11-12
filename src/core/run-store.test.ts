@@ -517,9 +517,9 @@ describe('committed symlinks under .vanguard', () => {
     await rm(outside, { recursive: true, force: true });
   });
 
-  it('refuses to write records through a symlinked .vanguard/runs and leaves the target untouched', async () => {
-    await mkdir(join(repo, '.vanguard'));
-    await symlink(outside, join(repo, '.vanguard', 'runs'));
+  it('refuses to write records through a symlinked .taskcell/runs and leaves the target untouched', async () => {
+    await mkdir(join(repo, '.taskcell'));
+    await symlink(outside, join(repo, '.taskcell', 'runs'));
     await expect(beginRun(repo, 'gh-o-r-1', TS).writeProof(proof)).rejects.toThrow(/symlink/);
     await expect(beginRun(repo, 'gh-o-r-1', TS).writeStages([{ name: 'implementer', result }])).rejects.toThrow(/symlink/);
     expect(await readdir(outside)).toEqual([]);
@@ -528,15 +528,15 @@ describe('committed symlinks under .vanguard', () => {
   it('refuses to append through a symlinked metrics.jsonl', async () => {
     const victim = join(outside, 'victim.rc');
     await writeFile(victim, 'export X=1\n');
-    await mkdir(join(repo, '.vanguard', 'runs'), { recursive: true });
-    await symlink(victim, join(repo, '.vanguard', 'runs', 'metrics.jsonl'));
+    await mkdir(join(repo, '.taskcell', 'runs'), { recursive: true });
+    await symlink(victim, join(repo, '.taskcell', 'runs', 'metrics.jsonl'));
     await expect(beginRun(repo, 'gh-o-r-2', TS).writeProof(proof)).rejects.toThrow(/symlink/);
     expect(await readFile(victim, 'utf8')).toBe('export X=1\n');
   });
 
-  it('still writes on a real .vanguard/runs', async () => {
+  it('still writes on a real .taskcell/runs', async () => {
     const file = await beginRun(repo, 'gh-o-r-3', TS).writeProof(proof);
-    expect(file.startsWith(join(repo, '.vanguard', 'runs', 'gh-o-r-3'))).toBe(true);
+    expect(file.startsWith(join(repo, '.taskcell', 'runs', 'gh-o-r-3'))).toBe(true);
   });
 });
 

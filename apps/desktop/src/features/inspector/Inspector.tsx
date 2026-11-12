@@ -333,7 +333,7 @@ export function Inspector({
       {screen === 'runs' && (
       <div className="flex shrink-0 items-center gap-3">
         {watching && (
-          <span className="flex items-center gap-1 text-xs text-muted-foreground" title="Watching .vanguard for changes">
+          <span className="flex items-center gap-1 text-xs text-muted-foreground" title="Watching .taskcell for changes">
             <span className="size-2 animate-pulse rounded-full bg-success" />
             live
           </span>

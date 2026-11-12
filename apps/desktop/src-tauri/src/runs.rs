@@ -1,11 +1,25 @@
 use std::fs;
 use std::io;
-use std::path::Path;
+use std::path::{Path, PathBuf};
 
 use crate::sidecar::{board_request, Sidecar};
 
-pub fn runs_dir(repo_path: &Path) -> std::path::PathBuf {
-    repo_path.join(".vanguard").join("runs")
+/// Per-repo state dir names: current first, then the legacy name still read and written.
+pub const STATE_DIR_NAMES: [&str; 2] = [".taskcell", ".vanguard"];
+
+/// The repo's state dir: `.taskcell/`, or the legacy `.vanguard/` while only that one exists
+/// (same rule as the CLI's `stateDir`).
+pub fn state_dir(repo_path: &Path) -> PathBuf {
+    let current = repo_path.join(STATE_DIR_NAMES[0]);
+    let legacy = repo_path.join(STATE_DIR_NAMES[1]);
+    if current.symlink_metadata().is_err() && legacy.symlink_metadata().is_ok() {
+        return legacy;
+    }
+    current
+}
+
+pub fn runs_dir(repo_path: &Path) -> PathBuf {
+    state_dir(repo_path).join("runs")
 }
 
 /// Read a file's text but refuse a symlinked leaf: a repo under inspection could plant a

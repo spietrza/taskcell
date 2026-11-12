@@ -384,7 +384,7 @@ fn set_base_url(req: &mut serde_json::Value, trusted: Option<String>) -> Result<
 /// drafts dir, and the renderer must not be able to choose the root it is checked against.
 fn set_asset_root(req: &mut serde_json::Value, repo_path: &str) -> Result<(), String> {
     let obj = req.as_object_mut().ok_or("invalid request")?;
-    let root = std::path::Path::new(repo_path).join(".vanguard").join("drafts");
+    let root = crate::runs::state_dir(std::path::Path::new(repo_path)).join("drafts");
     obj.insert(
         "assetRoot".to_string(),
         serde_json::Value::String(root.to_string_lossy().into_owned()),
@@ -775,7 +775,7 @@ fn flow_request(state: &Sidecar, method: &str, params: serde_json::Value) -> Res
     resp.get("result").cloned().ok_or_else(|| format!("{method} returned no result"))
 }
 
-/// List `.vanguard/flows/*.hcl` — the flow editor's rail + the run builder's repo-flow dropdown.
+/// List `.taskcell/flows/*.hcl` — the flow editor's rail + the run builder's repo-flow dropdown.
 #[tauri::command(async)]
 pub fn api_list_flows(state: State<'_, Sidecar>, repo_path: String) -> Result<serde_json::Value, String> {
     flow_request(&state, "listFlows", serde_json::json!({ "repoPath": repo_path }))
@@ -982,7 +982,7 @@ mod tests {
         assert_eq!(
             req["assetRoot"],
             json!(std::path::Path::new("/repo")
-                .join(".vanguard")
+                .join(".taskcell")
                 .join("drafts")
                 .to_string_lossy()
                 .into_owned())

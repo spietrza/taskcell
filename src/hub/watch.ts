@@ -3,6 +3,7 @@ import { existsSync, watch, type FSWatcher } from 'node:fs';
 import { readdir, stat } from 'node:fs/promises';
 import { join } from 'node:path';
 import { defaultRunsRoot, fnv1a, runsFingerprint } from './runs.js';
+import { stateDir, STATE_DIR_NAMES } from '../core/state-path.js';
 
 const DEBOUNCE_MS = 300;
 const DEFAULT_POLL_INTERVAL_MS = 2000;
@@ -26,13 +27,13 @@ export interface WatchOptions {
 }
 
 /**
- * True for paths under `<repo>/.vanguard/drafts/` — matched structurally (adjacent components)
+ * True for paths under `<repo>/.taskcell/drafts/` — matched structurally (adjacent components)
  * so a repo directory that happens to be NAMED `drafts` elsewhere is not filtered.
  */
 export function isDraftPath(p: string): boolean {
   const comps = p.split(/[/\\]/).filter((c) => c.length > 0);
   for (let i = 0; i < comps.length; i += 1) {
-    if (comps[i] === '.vanguard') {
+    if (STATE_DIR_NAMES.includes(comps[i] as string)) {
       return comps[i + 1] === 'drafts';
     }
   }
@@ -79,7 +80,7 @@ interface WatchEntry {
 }
 
 /**
- * Watch a repo's `.vanguard/` (or the repo root, non-recursively, if `.vanguard` doesn't exist yet)
+ * Watch a repo's `.taskcell/` (or the repo root, non-recursively, if `.taskcell` doesn't exist yet)
  * for changes, debounced 300ms, calling `onChange(repoPath)` once per debounced burst.
  */
 export class WatchRegistry {
@@ -104,7 +105,7 @@ export class WatchRegistry {
       return;
     }
 
-    const vanguardDir = join(repoPath, '.vanguard');
+    const vanguardDir = stateDir(repoPath);
     const recursive = existsSync(vanguardDir);
     const target = recursive ? vanguardDir : repoPath;
 
@@ -164,8 +165,8 @@ export class WatchRegistry {
         // never silently dropped.
         sawNonDraft = true;
       } else if (!isDraftPath(join(target, filename))) {
-        // `filename` is relative to the watched root, which in recursive mode IS `.vanguard`
-        // itself — rejoin against `target` so the structural `.vanguard`/`drafts` check (which
+        // `filename` is relative to the watched root, which in recursive mode IS `.taskcell`
+        // itself — rejoin against `target` so the structural `.taskcell`/`drafts` check (which
         // mirrors the Rust version's full absolute paths) sees that path component at all.
         sawNonDraft = true;
       }
@@ -193,7 +194,7 @@ export class WatchRegistry {
 
   private startPolling(repoPath: string, onChange: (repoPath: string) => void): WatchEntry {
     const runsRoot = defaultRunsRoot(repoPath);
-    const sessionsRoot = join(repoPath, '.vanguard', 'sessions');
+    const sessionsRoot = join(stateDir(repoPath), 'sessions');
 
     let prevRuns = 0;
     let prevSessions = 0;

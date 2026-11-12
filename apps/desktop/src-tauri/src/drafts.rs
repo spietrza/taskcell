@@ -1,19 +1,19 @@
 use std::fs;
 use std::path::{Path, PathBuf};
 
-/// Task drafts live under `<repo>/.vanguard/drafts/` (Subsystem 10) — one JSON file per draft,
+/// Task drafts live under `<repo>/.taskcell/drafts/` (Subsystem 10) — one JSON file per draft,
 /// body + chat transcript + meta together. Rust stays dumb: raw strings in and out, the webview
 /// owns the JSON shape. Repo-local so a draft travels with the repo it plans to change.
 fn drafts_dir(repo: &Path) -> PathBuf {
-    repo.join(".vanguard").join("drafts")
+    crate::runs::state_dir(repo).join("drafts")
 }
 
-/// The drafts dir must be a real directory: a cloned repo can commit `.vanguard/drafts` — or
-/// `.vanguard` itself (review #349 r1: symlink_metadata follows intermediate components, so
+/// The drafts dir must be a real directory: a cloned repo can commit `.taskcell/drafts` — or
+/// `.taskcell` itself (review #349 r1: symlink_metadata follows intermediate components, so
 /// checking only the leaf misses a symlinked parent) — as a symlink, and following either would
 /// redirect writes/deletes outside the checkout.
 fn assert_not_symlink(repo: &Path) -> Result<(), String> {
-    for dir in [repo.join(".vanguard"), drafts_dir(repo)] {
+    for dir in [crate::runs::state_dir(repo), drafts_dir(repo)] {
         if let Ok(meta) = fs::symlink_metadata(&dir) {
             if meta.file_type().is_symlink() {
                 return Err(format!("{} is a symlink — refusing to operate on it", dir.display()));
@@ -94,7 +94,7 @@ pub fn read(repo: &Path, id: &str) -> Result<String, String> {
 
 /// Atomic write: tmp + rename, so a torn write can never degrade a draft (body, transcript, and
 /// created-issue link all live in this one file) to unreadable. Also self-seeds a `.gitignore`
-/// containing `*`: user repos TRACK `.vanguard/` (flows are committed artifacts since S5.1), and
+/// containing `*`: user repos TRACK `.taskcell/` (flows are committed artifacts since S5.1), and
 /// chat transcripts must never ride a `git add -A` into a commit.
 pub fn write(repo: &Path, id: &str, content: &str) -> Result<(), String> {
     writable_id(id)?;
@@ -117,7 +117,7 @@ pub fn write(repo: &Path, id: &str, content: &str) -> Result<(), String> {
 }
 
 /// Composer image attachments (Editor UX 7/7) live beside the draft they belong to, under
-/// `<repo>/.vanguard/drafts/<id>-assets/`. Same tree, same `.gitignore` (`.vanguard/drafts/*` is
+/// `<repo>/.taskcell/drafts/<id>-assets/`. Same tree, same `.gitignore` (`.taskcell/drafts/*` is
 /// already ignored via the drafts `.gitignore`'s `*`), so a pasted image never rides a commit.
 fn assets_dir(repo: &Path, id: &str) -> PathBuf {
     drafts_dir(repo).join(format!("{id}-assets"))
@@ -323,7 +323,7 @@ mod tests {
     fn refuses_symlinked_drafts_dir() {
         let tmp = tempfile::tempdir().unwrap();
         let target = tempfile::tempdir().unwrap();
-        fs::create_dir_all(tmp.path().join(".vanguard")).unwrap();
+        fs::create_dir_all(tmp.path().join(".taskcell")).unwrap();
         std::os::unix::fs::symlink(target.path(), drafts_dir(tmp.path())).unwrap();
         assert!(write(tmp.path(), "draft-a", "{}").is_err());
         assert!(read(tmp.path(), "draft-a").is_err());
@@ -363,12 +363,12 @@ mod tests {
 
     #[test]
     fn refuses_symlinked_vanguard_parent() {
-        // review #349 r1: a repo can commit `.vanguard` itself as the symlink; the leaf check
+        // review #349 r1: a repo can commit `.taskcell` itself as the symlink; the leaf check
         // alone resolves through it and passes.
         let tmp = tempfile::tempdir().unwrap();
         let target = tempfile::tempdir().unwrap();
         fs::create_dir_all(target.path().join("drafts")).unwrap();
-        std::os::unix::fs::symlink(target.path(), tmp.path().join(".vanguard")).unwrap();
+        std::os::unix::fs::symlink(target.path(), tmp.path().join(".taskcell")).unwrap();
         assert!(write(tmp.path(), "draft-a", "{}").is_err());
         assert!(read(tmp.path(), "draft-a").is_err());
         assert!(delete(tmp.path(), "draft-a").is_err());

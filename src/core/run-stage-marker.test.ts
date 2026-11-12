@@ -44,10 +44,10 @@ describe('run-stage-marker (T10-T14)', () => {
   });
 
   it('T13: a symlinked marker file reads as absent; a traversal taskId is rejected before any FS access', async () => {
-    await mkdir(join(repo, '.vanguard', 'stage'), { recursive: true });
+    await mkdir(join(repo, '.taskcell', 'stage'), { recursive: true });
     const outside = join(repo, 'outside.json');
     await writeFile(outside, JSON.stringify({ taskId: 'gh-4', stage: 'implementer', index: 0, of: 1, updatedAt: new Date().toISOString() }));
-    await symlink(outside, join(repo, '.vanguard', 'stage', 'gh-4.json'));
+    await symlink(outside, join(repo, '.taskcell', 'stage', 'gh-4.json'));
     expect((await readStageMarkers(repo)).has('gh-4')).toBe(false);
 
     await expect(writeStageMarker(repo, { taskId: '../escape', stage: 'x', index: 0, of: 1, updatedAt: new Date().toISOString() })).resolves.toBeUndefined();
@@ -64,7 +64,7 @@ describe('run-stage-marker (T10-T14)', () => {
       join(taskDir, '2026-01-01T00-00-00-000Z-implementer.json'),
       JSON.stringify({ taskId, completed: true, exitReason: 'done', turns: 1, worktreePath: '/tmp', worktreePreserved: false, finalText: '', timestamp: '2026-01-01T00:00:00.000Z', stage: 'implementer' }),
     );
-    const sessionsDir = join(repo, '.vanguard', 'sessions', taskId);
+    const sessionsDir = join(repo, '.taskcell', 'sessions', taskId);
     await mkdir(sessionsDir, { recursive: true });
     await writeFile(join(sessionsDir, 'session.jsonl'), '{}\n');
 

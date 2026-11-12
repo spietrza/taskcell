@@ -45,7 +45,7 @@ describe('CompleteRegistry', () => {
     const sent = JSON.parse(written.trim()) as Record<string, unknown>;
     expect(sent.messages).toEqual([{ role: 'user', content: 'hi' }]);
     expect(sent.model).toBe('claude-sonnet-5');
-    expect(sent.assetRoot).toBe(join(repoPath, '.vanguard', 'drafts'));
+    expect(sent.assetRoot).toBe(join(repoPath, '.taskcell', 'drafts'));
     expect(sent.baseUrl).toBeUndefined();
   });
 
