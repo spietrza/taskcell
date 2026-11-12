@@ -88,11 +88,21 @@ function notify(handlers: Set<() => void>): void {
   for (const h of handlers) h();
 }
 
+/** Set by `signOutOfHub`: the logout ends this tab's `/events` stream, and the probe's `sign-in required`
+ * must not reload — a reload goes back through GitHub, which signs an authorized user straight back in. */
+let signingOut = false;
+
 /** With GitHub sign-in on, the hub answers 401 `sign-in required` once the 12 h session is gone (or the
  * hub restarted): reloading sends the browser back through GitHub, which is the fix — there is no launch
  * URL to open. */
 function reloadForSignIn(): void {
-  window.location.reload();
+  if (!signingOut) window.location.reload();
+}
+
+/** Ends the GitHub sign-in session on the hub (src/hub/github-auth.ts) and lands on the signed-out page. */
+export function signOutOfHub(): void {
+  signingOut = true;
+  void fetch('/auth/logout', { method: 'POST' }).finally(() => window.location.assign('/auth/signed-out'));
 }
 
 function notifyHubRestarted(): void {

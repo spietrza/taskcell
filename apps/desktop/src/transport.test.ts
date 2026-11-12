@@ -1,6 +1,6 @@
 import { test, expect, afterEach, vi } from 'vitest';
 import { mockIPC, clearMocks } from '@tauri-apps/api/mocks';
-import { invoke, isHubMode, subscribe, onStreamReset, onHubRestart, onHubConnectionIssue, captureHubToken } from './transport';
+import { invoke, isHubMode, subscribe, onStreamReset, onHubRestart, onHubConnectionIssue, captureHubToken, signOutOfHub } from './transport';
 
 /** Minimal fake EventSource — jsdom doesn't implement one. Tracks every instance so a test can
  * assert how many were actually constructed (the "one shared EventSource" guarantee). */
@@ -450,4 +450,28 @@ test('T-97 onStreamReset is a no-op outside hub mode', async () => {
     throw new Error('must not be called under Tauri');
   });
   expect(() => unlisten()).not.toThrow();
+});
+
+// Last in the file: signOutOfHub's flag is module state and stays set for the rest of the run.
+test('a sign-in-required 401 reloads the page, except once the tab is signing out', async () => {
+  window.__VANGUARD_HUB__ = true;
+  const reload = vi.fn();
+  const assign = vi.fn();
+  vi.spyOn(window, 'location', 'get').mockReturnValue({ ...window.location, reload, assign } as Location);
+  const fetchMock = vi.fn(async (url: string) =>
+    url === '/auth/logout'
+      ? new Response(JSON.stringify({ ok: true }), { status: 200 })
+      : new Response(JSON.stringify({ error: { message: 'sign-in required', kind: 'bad-request' } }), { status: 401 }),
+  );
+  vi.stubGlobal('fetch', fetchMock);
+
+  await expect(invoke('list_runs', {})).rejects.toBeDefined();
+  expect(reload).toHaveBeenCalledTimes(1);
+
+  signOutOfHub();
+  await expect(invoke('list_runs', {})).rejects.toBeDefined();
+  expect(reload).toHaveBeenCalledTimes(1);
+  await vi.waitFor(() => expect(assign).toHaveBeenCalledWith('/auth/signed-out'));
+  expect(fetchMock).toHaveBeenCalledWith('/auth/logout', { method: 'POST' });
+  vi.restoreAllMocks();
 });
