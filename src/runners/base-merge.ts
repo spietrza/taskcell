@@ -73,10 +73,11 @@ export async function mergeBaseIntoWorktree(worktreePath: string, base: string, 
     const hold: BaseMerge = { status: 'conflicted', files: probed, unresolvable: ciPaths };
     if (opts.factoryOwned !== true || tree === undefined) return hold;
     // Any commit of the branch that touched CI config (even one later reverted) would be replayed, and so would
-    // human commits, which a rewrite must not drop the signature of: both stay with a human.
-    const range = ['log', '--no-merges', 'FETCH_HEAD..HEAD'];
+    // human commits (merge commits included, which a rebase drops), which a rewrite must not drop the signature of:
+    // both stay with a human.
+    const range = ['log', 'FETCH_HEAD..HEAD'];
     const authors = String((await git(worktreePath, [...range, '--format=%ae'])).stdout).split('\n').filter((l) => l !== '');
-    const ownCi = (await gitPaths(worktreePath, [...range, '--no-renames', '--name-only', '--format=', '-z'])).filter((p) => isCiConfigPath(p));
+    const ownCi = (await gitPaths(worktreePath, [...range, '--no-merges', '--no-renames', '--name-only', '--format=', '-z'])).filter((p) => isCiConfigPath(p));
     if (authors.some((e) => e !== (opts.authorEmail ?? 'vanguard@local')) || ownCi.length > 0) return hold;
     return rebaseOntoBase(worktreePath, identity, probed, tree, hold);
   }
@@ -110,7 +111,9 @@ export async function mergeBaseIntoWorktree(worktreePath: string, base: string, 
 /**
  * Replay the branch onto FETCH_HEAD, keeping the branch's side at every conflicted stop. The conflict-marked
  * text comes from the probe's merge tree (the merge of the final states, which a per-commit stop is not) and
- * is put back as uncommitted edits for the agent. Any failure aborts the rebase and holds like a base CI change.
+ * is put back as uncommitted edits for the agent. Taking a commit's side at a per-commit stop can drop base
+ * changes the final merge keeps, and a rebase drops merge commits: unless the result matches the merge tree
+ * outside the conflicted files, the branch is reset to where it was. Any failure holds like a base CI change.
  */
 async function rebaseOntoBase(worktreePath: string, identity: string[], files: string[], tree: string, hold: BaseMerge): Promise<BaseMerge> {
   const marked = new Map<string, string>();
@@ -119,19 +122,29 @@ async function rebaseOntoBase(worktreePath: string, identity: string[], files: s
     if (!MARKER_RE.test(text)) return hold;
     marked.set(file, text);
   }
+  const origHead = String((await git(worktreePath, ['rev-parse', 'HEAD'])).stdout).trim();
   const run = async (args: string[]): Promise<{ exitCode?: number | undefined }> =>
     execa('git', hostGitArgs([...identity, ...args]), { cwd: worktreePath, reject: false, env: { GIT_EDITOR: 'true' } });
-  let result = await run(['rebase', '--empty=drop', 'FETCH_HEAD']);
-  while (result.exitCode !== 0) {
-    const stopped = await gitPaths(worktreePath, ['diff', '--name-only', '--diff-filter=U', '-z']);
-    const markerless = (await Promise.all(stopped.map((f) => readFile(join(worktreePath, f), 'utf8').catch(() => '')))).some((t) => !MARKER_RE.test(t));
-    if (stopped.length === 0 || markerless) {
-      await git(worktreePath, ['rebase', '--abort']).catch(() => undefined);
-      return hold;
+  const restore = async (): Promise<BaseMerge> => {
+    await git(worktreePath, ['rebase', '--abort']).catch(() => undefined);
+    await git(worktreePath, ['reset', '--hard', origHead]).catch(() => undefined);
+    return hold;
+  };
+  try {
+    let result = await run(['rebase', '--empty=drop', 'FETCH_HEAD']);
+    while (result.exitCode !== 0) {
+      const stopped = await gitPaths(worktreePath, ['diff', '--name-only', '--diff-filter=U', '-z']);
+      const markerless = (await Promise.all(stopped.map((f) => readFile(join(worktreePath, f), 'utf8').catch(() => '')))).some((t) => !MARKER_RE.test(t));
+      if (stopped.length === 0 || markerless) return await restore();
+      await git(worktreePath, ['checkout', '--theirs', '--', ...stopped]);
+      await git(worktreePath, ['add', '--', ...stopped]);
+      result = await run(['rebase', '--continue']);
     }
-    await git(worktreePath, ['checkout', '--theirs', '--', ...stopped]);
-    await git(worktreePath, ['add', '--', ...stopped]);
-    result = await run(['rebase', '--continue']);
+    // The pushed tree must be the merge of the final states (bar the conflicted files the agent resolves).
+    const drifted = (await gitPaths(worktreePath, ['diff', '--no-renames', '--name-only', '-z', tree, 'HEAD'])).some((p) => !marked.has(p));
+    if (drifted) return await restore();
+  } catch {
+    return await restore();
   }
   for (const [file, text] of marked) await writeFile(join(worktreePath, file), text);
   return { status: 'conflicted', files, unresolvable: [], rebased: true };

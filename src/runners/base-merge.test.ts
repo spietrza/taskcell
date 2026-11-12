@@ -128,6 +128,44 @@ describe('mergeBaseIntoWorktree', () => {
     expect((await g(['show', 'HEAD:shared.txt'])).stdout).toContain('FIX');
   });
 
+  it('a rebase whose result drops a base change the merge keeps is undone and held', async () => {
+    await writeFile(join(repo, 'shared.txt'), 'feature\n');
+    await writeFile(join(repo, 'gone.txt'), 'f\n');
+    await commit('touch gone');
+    await writeFile(join(repo, 'gone.txt'), 'x\n');
+    await commit('revert gone');
+    await landOnMain(async () => {
+      await writeFile(join(repo, 'shared.txt'), 'main\n');
+      await writeFile(join(repo, 'gone.txt'), 'main\n');
+      await mkdir(join(repo, '.github', 'workflows'), { recursive: true });
+      await writeFile(join(repo, '.github', 'workflows', 'ci.yml'), 'on: push\n');
+    });
+    const head = (await g(['rev-parse', 'HEAD'])).stdout;
+    expect(await mergeBaseIntoWorktree(repo, 'main', { factoryOwned: true, authorEmail: 't@t' })).toEqual({
+      status: 'conflicted', files: ['shared.txt'], unresolvable: ['.github/workflows/ci.yml'],
+    });
+    expect((await g(['rev-parse', 'HEAD'])).stdout).toBe(head);
+    expect((await g(['status', '--porcelain'])).stdout).toBe('');
+  });
+
+  it('a merge commit by someone else on the branch is not rebased away', async () => {
+    await writeFile(join(repo, 'shared.txt'), 'feature\n');
+    await commit('feature');
+    await g(['checkout', '-b', 'side', 'main']);
+    await writeFile(join(repo, 'side.txt'), 's\n');
+    await commit('side');
+    await g(['checkout', 'feature']);
+    await execa('git', ['-c', 'user.email=human@x', '-c', 'user.name=h', 'merge', '--no-ff', '-m', 'merge side', 'side'], { cwd: repo });
+    await landOnMain(async () => {
+      await writeFile(join(repo, 'shared.txt'), 'main\n');
+      await mkdir(join(repo, '.github', 'workflows'), { recursive: true });
+      await writeFile(join(repo, '.github', 'workflows', 'ci.yml'), 'on: push\n');
+    });
+    const head = (await g(['rev-parse', 'HEAD'])).stdout;
+    expect(await mergeBaseIntoWorktree(repo, 'main', { factoryOwned: true, authorEmail: 't@t' })).toMatchObject({ unresolvable: ['.github/workflows/ci.yml'] });
+    expect((await g(['rev-parse', 'HEAD'])).stdout).toBe(head);
+  });
+
   it('a branch commit by someone else, or one that touched CI config (even reverted), is not rebased', async () => {
     await writeFile(join(repo, 'shared.txt'), 'feature\n');
     await commit('feature');
