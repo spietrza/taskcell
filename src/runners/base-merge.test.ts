@@ -1,5 +1,5 @@
 import { describe, it, expect, beforeEach, afterEach } from 'vitest';
-import { mkdtemp, rm, writeFile, readFile } from 'node:fs/promises';
+import { mkdtemp, mkdir, rm, writeFile, readFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { execa } from 'execa';
@@ -78,6 +78,20 @@ describe('mergeBaseIntoWorktree', () => {
     await landOnMain(() => rm(join(repo, 'gone.txt')));
     const head = (await g(['rev-parse', 'HEAD'])).stdout;
     expect(await mergeBaseIntoWorktree(repo, 'main')).toEqual({ status: 'conflicted', files: ['gone.txt'], unresolvable: ['gone.txt'] });
+    expect((await g(['rev-parse', 'HEAD'])).stdout).toBe(head);
+    expect((await g(['status', '--porcelain'])).stdout).toBe('');
+  });
+
+  it('a base that changed CI config is unresolvable: nothing is merged', async () => {
+    await writeFile(join(repo, 'shared.txt'), 'feature\n');
+    await commit('feature');
+    await landOnMain(async () => {
+      await writeFile(join(repo, 'shared.txt'), 'main\n');
+      await mkdir(join(repo, '.github', 'workflows'), { recursive: true });
+      await writeFile(join(repo, '.github', 'workflows', 'ci.yml'), 'on: push\n');
+    });
+    const head = (await g(['rev-parse', 'HEAD'])).stdout;
+    expect(await mergeBaseIntoWorktree(repo, 'main')).toEqual({ status: 'conflicted', files: ['shared.txt'], unresolvable: ['.github/workflows/ci.yml'] });
     expect((await g(['rev-parse', 'HEAD'])).stdout).toBe(head);
     expect((await g(['status', '--porcelain'])).stdout).toBe('');
   });

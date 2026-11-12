@@ -3,6 +3,7 @@ import { customEgressHosts } from '../agents/registry.js';
 import { agentAuthFromEnv } from '../agents/auth.js';
 import { startSandboxContext } from '../sandbox/sandbox-context.js';
 import { runRevisePullRequest } from '../runners/revise-pr.js';
+import { formatConflictFiles } from '../runners/base-merge.js';
 import type { ReviseGithubPrDeps, ReviseGithubPrResult } from '../runners/revise-pr.js';
 import type { Command } from './args.js';
 
@@ -77,7 +78,7 @@ function logResult(result: ReviseGithubPrResult, log: (line: string) => void): v
     return;
   }
   if (result.conflictUnresolved !== undefined) {
-    log(`revise-pr ${id}: FAILED — could not resolve the conflict with the base (${result.conflictUnresolved.join(', ') || 'files not determined'}); nothing pushed, \`needs revision\` left for a human`);
+    log(`revise-pr ${id}: FAILED — could not resolve the conflict with the base ${formatConflictFiles(result.conflictUnresolved)}; nothing pushed, \`needs revision\` left for a human`);
     throw new Error(`revise-pr ${id}: could not resolve the conflict with the base`);
   }
   if (result.dryRunOut !== undefined) {

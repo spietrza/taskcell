@@ -548,7 +548,7 @@ export async function runRevisePullRequest(prRef: string, deps: ReviseGithubPrDe
       // Never report success on a PR that still conflicts: say so on the PR and leave `needs revision`
       // for a human (only the in-flight label goes, as for a rate limit).
       const holdForConflict = async (files: string[]): Promise<ReviseGithubPrResult> => {
-        const notice = `Could not resolve the conflict with ${baseName}: ${formatConflictFiles(files)}. No changes were pushed; please merge \`${baseName}\` into this branch by hand.`;
+        const notice = `Could not resolve the conflict with \`${baseName}\`: ${formatConflictFiles(files)}. No changes were pushed; please merge \`${baseName}\` into this branch by hand.`;
         log(`revise-pr ${target.repoSlug}#${target.number}: ${notice}`);
         if (deps.out !== undefined) {
           const dryRunOut = await writeDryRun(deps.out, `# Revision dry run: ${target.repoSlug}#${target.number}\n\n${notice}\n`);

@@ -258,7 +258,7 @@ export function buildRevisionPrompt(
     'Apply the requested fixes in the repo. Keep changes minimal and scoped to the feedback. Run typecheck/tests after making changes.',
     ...(merge !== undefined
       ? [
-          neutralizePromptTags(`The branch is mid-merge with its base \`${merge.base}\` and these files carry git conflict markers: ${merge.files.join(', ')}.`),
+          neutralizePromptTags(`The branch is mid-merge with its base \`${merge.base}\` and these files carry git conflict markers: ${formatConflictFiles(merge.files)}.`),
           'Resolve every conflict, keeping the intent of both sides, and remove all <<<<<<<, ======= and >>>>>>> markers. Do not run git commands that rewrite history or commit.',
         ]
       : []),

@@ -3,6 +3,7 @@ import { join } from 'node:path';
 import { execa } from 'execa';
 import { hostGitArgs } from '../worktree/host-git.js';
 import { assertSafeBaseBranch, redactGitError } from '../core/base-branch.js';
+import { isCiConfigPath } from '../sandbox/copy-back.js';
 
 /** Outcome of checking a PR branch against a fresh fetch of its base. */
 export type BaseMerge =
@@ -13,12 +14,15 @@ export type BaseMerge =
    * The base conflicts with the branch. With `unresolvable` empty, the base was merged into the branch
    * as a local commit that keeps the branch's side of each conflicted file, and the worktree holds the
    * conflict-marked versions of `files` as uncommitted edits for the agent to resolve. Otherwise (modify/
-   * delete, rename or binary conflicts, which have no markers an agent could resolve) nothing was merged.
+   * delete, rename or binary conflicts, which have no markers an agent could resolve, or a base that
+   * changed CI config, which the push token may not carry into the branch) nothing was merged.
    */
   | { status: 'conflicted'; files: string[]; unresolvable: string[] };
 
 const FETCH_TIMEOUT_MS = 60_000;
 const git = (cwd: string, args: string[]): ReturnType<typeof execa> => execa('git', hostGitArgs(args), { cwd });
+/** The paths a NUL-separated (`-z`) git listing prints. */
+const gitPaths = async (cwd: string, args: string[]): Promise<string[]> => String((await git(cwd, args)).stdout).split('\0').filter((p) => p !== '');
 const MARKER_RE = /^<{7}( |$)/m;
 const CLOSING_MARKER_RE = /^>{7}( |$)/m;
 
@@ -54,10 +58,13 @@ export async function mergeBaseIntoWorktree(worktreePath: string, base: string, 
   const identity = ['-c', `user.name=${opts.authorName ?? 'Vanguard'}`, '-c', `user.email=${opts.authorEmail ?? 'vanguard@local'}`];
   const probe = await probeBase(worktreePath, base, opts.remote ?? 'origin');
   if (probe.status !== 'conflicted') return probe;
+  // A merge commit carrying the base's CI-config changes into the branch is a workflow update the push
+  // token may not make (GitHub rejects the push and the run's work is lost): leave it to a human.
+  const ciPaths = (await gitPaths(worktreePath, ['diff', '--name-only', '-z', 'HEAD...FETCH_HEAD'])).filter((p) => isCiConfigPath(p));
+  if (ciPaths.length > 0) return { ...probe, unresolvable: ciPaths };
 
   const merge = await execa('git', hostGitArgs([...identity, 'merge', '--no-commit', '--no-ff', 'FETCH_HEAD']), { cwd: worktreePath, reject: false });
-  const { stdout } = await git(worktreePath, ['diff', '--name-only', '--diff-filter=U', '-z']);
-  const files = String(stdout).split('\0').filter((p) => p !== '');
+  const files = await gitPaths(worktreePath, ['diff', '--name-only', '--diff-filter=U', '-z']);
   if (files.length === 0) {
     await abortMerge(worktreePath);
     return { status: 'skipped', reason: `merge of ${base} failed: ${redactGitError({ stderr: merge.stderr })}` };

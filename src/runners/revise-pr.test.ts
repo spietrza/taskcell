@@ -2387,7 +2387,7 @@ describe('runRevisePullRequest base conflicts', () => {
     expect(result.conflictUnresolved).toEqual(['shared.txt']);
     expect(result.pushed).toBe(false);
     expect(pushed).toEqual([]);
-    expect(comments(ghCalls)).toMatch(/Could not resolve the conflict with main: `shared\.txt`/);
+    expect(comments(ghCalls)).toMatch(/Could not resolve the conflict with `main`: `shared\.txt`/);
     expect(ghCalls.some((a) => a[1] === 'ready')).toBe(false);
     const edits = ghCalls.filter((a) => a[0] === 'pr' && a[1] === 'edit');
     expect(edits.some((a) => a.includes('vanguard:revising') && a.includes('--remove-label'))).toBe(true);
@@ -2400,7 +2400,7 @@ describe('runRevisePullRequest base conflicts', () => {
     expect(result.pushed).toBe(false);
     expect(result.conflictUnresolved).toEqual([]);
     expect(pushed).toEqual([]);
-    expect(comments(ghCalls)).toContain('Could not resolve the conflict with main');
+    expect(comments(ghCalls)).toContain('Could not resolve the conflict with `main`');
     expect(ghCalls.some((a) => a[1] === 'ready')).toBe(false);
   });
 
@@ -2442,7 +2442,7 @@ describe('runRevisePullRequest base conflicts', () => {
     expect(prompt).toBe('');
     expect(result.conflictUnresolved).toEqual(['README.md']);
     expect(pushed).toEqual([]);
-    expect(comments(ghCalls)).toContain('Could not resolve the conflict with main: `README.md`');
+    expect(comments(ghCalls)).toContain('Could not resolve the conflict with `main`: `README.md`');
   });
 
   it('--out: an unresolved conflict is written to the preview file and nothing is posted', async () => {
@@ -2450,7 +2450,7 @@ describe('runRevisePullRequest base conflicts', () => {
     const out = join(repo, 'preview', 'out.md');
     const { result, ghCalls, pushed } = await run({ 'shared.txt': '<<<<<<< HEAD\nx\n=======\ny\n>>>>>>> m\n' }, { out });
     expect(result.conflictUnresolved).toEqual(['shared.txt']);
-    expect(await readFile(out, 'utf8')).toContain('Could not resolve the conflict with main');
+    expect(await readFile(out, 'utf8')).toContain('Could not resolve the conflict with `main`');
     expect(pushed).toEqual([]);
     expect(ghCalls.some((a) => a[1] === 'comment' || a[1] === 'review' || a[1] === 'edit')).toBe(false);
   });
