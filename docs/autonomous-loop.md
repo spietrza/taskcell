@@ -297,6 +297,25 @@ VANGUARD_APPROVER_STOP=1 taskcell approve --pr 557 --github-repo spietrza/taskce
 # or, repo-wide: set "enabled": false in .vanguard/approver.json on the base branch
 ```
 
+### Scorecard: shadow verdict vs what the human did
+
+`taskcell stats --approver` turns the recorded decisions into the thing shadow mode exists to answer: was the verdict right? For every factory PR with a decision on `decisions.jsonl`, it joins the shadow verdict and the rules that fired to what actually happened to the PR — read from `gh pr list` (state, merge, the final head SHA) and a scan of the default branch's revert commits, never guessed:
+
+- **merged with no commits after the verdict** — the PR's final head SHA is exactly the one the decision judged.
+- **merged after revision** — more commits landed after the decision's head SHA before it merged; the verdict is stale regardless of what it said.
+- **closed unmerged**.
+- **reverted** — a revert commit targeting the merge commit landed on the default branch within 7 days of the merge; this overrides either merged outcome above, since a later-reverted merge was never a correct `APPROVE`.
+
+A PR with no decision at all (the approver never ran, or hasn't yet) is listed with no verdict and excluded from every count, same as a decision whose outcome isn't resolved yet (still open). The risk class per row is whichever `path:<key>` rules fired (see `pathRules` in [approver-policy.md](approver-policy.md)), or `general` when none did — true of every `APPROVE` by construction, since any matched path rule escalates.
+
+Per risk class, the report counts how many `APPROVE` verdicts were right (merged as-is, not reverted within the window), how many `ESCALATE` verdicts the human merged unchanged anyway (a signal the escalation was unnecessary), and the current streak of correct `APPROVE` verdicts in a row — reset to 0 by a wrong one, left untouched by an `ESCALATE` landing in between. **30 correct `APPROVE` verdicts in a row in one risk class** is the documented bar this report measures progress toward, shown as `streak/30` per class — the point at which that class of PR could be considered for opt-in auto-merge. Reaching it does nothing by itself; this command only reports, it never flips a switch.
+
+```bash
+taskcell stats --approver                                        # text report: per-PR rows, then per-risk-class rollup
+taskcell stats --approver --json                                 # the same ApproverScorecardReport, machine-readable
+taskcell stats --approver --branch vanguard-metrics               # read decisions.jsonl from a non-default metrics branch
+```
+
 ## Retrospective memory
 
 `taskcell memory` reads `.vanguard/runs` artifacts — failed runs, failed proofs, and reviewer notes (not diffs or transcripts) — and refreshes a short, redacted digest at `.vanguard/memory/retrospective.md`. It is deterministic (no LLM): a host-side rollup, advisory only.

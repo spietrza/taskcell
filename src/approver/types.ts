@@ -99,6 +99,9 @@ export interface Decision {
 
 export type Mode = 'shadow';
 
+/** What the human did with a factory PR, from PR state and revert history alone — see `scorecard.ts`. */
+export type HumanOutcome = 'merged-as-is' | 'merged-after-changes' | 'closed' | 'reverted' | null;
+
 export interface DecisionRecord {
   schemaVersion: 1;
   mode: Mode;
@@ -125,5 +128,5 @@ export interface DecisionRecord {
   verdict: 'APPROVE' | 'ESCALATE';
   policyHash: string;
   timestamp: string;
-  humanOutcome: 'merged-as-is' | 'merged-after-changes' | 'closed' | 'reverted' | null;
+  humanOutcome: HumanOutcome;
 }

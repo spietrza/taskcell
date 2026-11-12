@@ -829,8 +829,9 @@ describe('parseCli', () => {
   });
 
   it('parses stats with defaults and flags', () => {
-    expect(parseCli(['stats'], '/work')).toEqual({ kind: 'stats', repoPath: '/work', json: false });
-    expect(parseCli(['stats', '--repo', '/r', '--json'], '/work')).toEqual({ kind: 'stats', repoPath: '/r', json: true });
+    expect(parseCli(['stats'], '/work')).toEqual({ kind: 'stats', repoPath: '/work', json: false, approver: false });
+    expect(parseCli(['stats', '--repo', '/r', '--json'], '/work')).toEqual({ kind: 'stats', repoPath: '/r', json: true, approver: false });
+    expect(parseCli(['stats', '--approver'], '/work')).toEqual({ kind: 'stats', repoPath: '/work', json: false, approver: true });
   });
 
   it('parses stats --github-repo (lead-time rollup)', () => {
@@ -838,6 +839,7 @@ describe('parseCli', () => {
       kind: 'stats',
       repoPath: '/work',
       json: false,
+      approver: false,
       githubRepo: 'acme/widgets',
     });
     expect(parseCli(['stats'], '/work')).not.toHaveProperty('githubRepo');
