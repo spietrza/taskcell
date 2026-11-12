@@ -1,6 +1,6 @@
 import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
 
-vi.mock('../core/metrics-branch.js', () => ({ readBranchFile: vi.fn(), readBranchMetrics: vi.fn() }));
+vi.mock('../core/metrics-branch.js', () => ({ readBranchFile: vi.fn(), readBranchMetrics: vi.fn(), METRICS_BRANCH_DEFAULT: 'taskcell-metrics' }));
 vi.mock('../approver/outcome.js', () => ({ collectApproverScorecard: vi.fn() }));
 
 import { readBranchFile } from '../core/metrics-branch.js';
