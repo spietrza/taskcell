@@ -19,7 +19,7 @@ jobs:
     if: >-
       github.event_name == 'workflow_dispatch' ||
       (github.event.label.name == 'needs revision' &&
-       contains(fromJSON('["spietrza","github-actions[bot]","pawelkrystkiewicz"]'), github.event.pull_request.user.login) &&
+       contains(fromJSON('["spietrza","github-actions[bot]","taskcell[bot]","pawelkrystkiewicz"]'), github.event.pull_request.user.login) &&
        contains(fromJSON('["spietrza","pawelkrystkiewicz"]'), github.event.sender.login))
     # Job-level and per PR: skipped label events never enter a group, and a revision of one PR no
     # longer waits behind (or cancels the pending revision of) another PR.
@@ -38,3 +38,4 @@ jobs:
       # PAT for revision pushes: GITHUB_TOKEN events fire no workflows (recursion guard), so
       # revised PRs would never get CI and stay BLOCKED under branch protection (#256).
       VANGUARD_PUSH_TOKEN: ${{ secrets.VANGUARD_PUSH_TOKEN }}
+      TASKCELL_APP_PRIVATE_KEY: ${{ secrets.TASKCELL_APP_PRIVATE_KEY }}

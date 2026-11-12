@@ -125,6 +125,9 @@ on:
       VANGUARD_PUSH_TOKEN:
         description: 'PAT that opens the PR (needs Pull requests: write). A PR opened with GITHUB_TOKEN fires no workflows (recursion guard), so it gets no CI until a push. Falls back to the workflow token.'
         required: false
+      TASKCELL_APP_PRIVATE_KEY:
+        description: 'Private key of the taskcell GitHub App (with repo variable TASKCELL_APP_CLIENT_ID). When both are set, factory PRs are opened by the App bot instead of the PAT owner; the CLI mints a short-lived token right before each use.'
+        required: false
 
 jobs:
   implement:
@@ -243,6 +246,8 @@ jobs:
           CODEX_AUTH_JSON: ${{ secrets.CODEX_AUTH_JSON }}
           # Host-side only (never forwarded into the sandbox): `gh pr create` runs as its owner.
           VANGUARD_PUSH_TOKEN: ${{ secrets.VANGUARD_PUSH_TOKEN }}
+          TASKCELL_APP_CLIENT_ID: ${{ vars.TASKCELL_APP_CLIENT_ID }}
+          TASKCELL_APP_PRIVATE_KEY: ${{ secrets.TASKCELL_APP_PRIVATE_KEY }}
           # The decision probe ships issue text off the host; its credentials only reach the run when opted in.
           CLOUDFLARE_ACCOUNT_ID: ${{ inputs.decision-probe && secrets.CLOUDFLARE_ACCOUNT_ID || '' }}
           CLOUDFLARE_AUTH_TOKEN: ${{ inputs.decision-probe && secrets.CLOUDFLARE_AUTH_TOKEN || '' }}
