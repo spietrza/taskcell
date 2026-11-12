@@ -112,6 +112,14 @@ describe('runClaudeCli', () => {
     await expectRunRejects(fakeSandbox(partial, 1), /exit 1/);
   });
 
+  it('names the signal and keeps both streams when the CLI is killed mid-run (exit 134)', async () => {
+    const partial = JSON.stringify({ type: 'assistant', session_id: 'sess-1', message: { content: [{ type: 'text', text: 'working' }] } });
+    const sandbox = {
+      exec: async (): Promise<ExecResult> => ({ stdout: partial, stderr: 'Aborted (core dumped)', exitCode: 134 }),
+    } as unknown as IsolatedSandboxProvider;
+    await expectRunRejects(sandbox, /\(exit 134, SIGABRT\): stderr: Aborted \(core dumped\) \| stdout: .*working/);
+  });
+
   it('salvages a cut stream (exit 0 + assistant turns + session, no result) as an incomplete resumable run', async () => {
     const cut = [
       JSON.stringify({ type: 'system', subtype: 'init', session_id: 'sess-1' }),

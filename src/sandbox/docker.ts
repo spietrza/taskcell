@@ -270,6 +270,7 @@ export class DockerSandboxProvider implements IsolatedSandboxProvider {
     // Decided once by the caller (`resolveSandboxProfile`), never re-derived here — see
     // SandboxConfig.profile.
     const { security } = this.profile;
+    if (security.init) args.push('--init');
     for (const cap of security.capDrop) args.push('--cap-drop', cap);
     // Added back on top of capDrop ALL: copyIn's `docker exec -u 0 chown -R` needs CAP_CHOWN (and,
     // to retarget files the exec'd root doesn't own, CAP_FOWNER/CAP_DAC_OVERRIDE) — cap-drop fixes

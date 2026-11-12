@@ -87,6 +87,7 @@ GH_TOKEN=ghp_...
 VANGUARD_PUSH_TOKEN=<your-fine-grained-pat>
 VANGUARD_SANDBOX_CPUS=0        # required: kernel without CFS scheduler
 VANGUARD_SANDBOX_PIDS=0        # silences a harmless pids-limit warning
+# VANGUARD_SANDBOX_INIT=0      # only if `docker run --init` fails here (no docker-init binary)
 VANGUARD_SANDBOX_MEMORY_MB=1536  # too small for the opt-in read-only rootfs (VANGUARD_SANDBOX_READONLY=1) — see docs/cli.md
 # VANGUARD_VERIFY_CMD=pnpm install --frozen-lockfile && pnpm typecheck && pnpm test
 # VANGUARD_VISUAL_PROOF_CMD=pnpm exec playwright test --project=chromium

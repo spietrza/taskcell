@@ -54,7 +54,14 @@ describe('sandboxSecurityOpts', () => {
       capAdd: ['CHOWN', 'FOWNER', 'DAC_OVERRIDE'],
       noNewPrivileges: true,
       readOnlyRootfs: false,
+      init: true,
     });
+  });
+
+  it('drops --init only when VANGUARD_SANDBOX_INIT is 0 or empty', () => {
+    expect(sandboxSecurityOpts({ VANGUARD_SANDBOX_INIT: '0' } as NodeJS.ProcessEnv).init).toBe(false);
+    expect(sandboxSecurityOpts({ VANGUARD_SANDBOX_INIT: '' } as NodeJS.ProcessEnv).init).toBe(false);
+    expect(sandboxSecurityOpts({ VANGUARD_SANDBOX_INIT: '1' } as NodeJS.ProcessEnv).init).toBe(true);
   });
 
   it('omits no-new-privileges when VANGUARD_SANDBOX_NO_NEW_PRIVILEGES=0', () => {

@@ -1,4 +1,6 @@
+import { constants } from 'node:os';
 import { AgentError } from '../core/errors.js';
+import { redactForPublish } from '../core/secret-scan.js';
 import type { AgentRunInput, AgentTurn, AgentRunOutput, AgentUsage } from './provider.js';
 import { shellQuote, assistantText } from './shell.js';
 import { isSafeSessionId } from './session-store.js';
@@ -37,6 +39,12 @@ function summarizeBlock(block: StreamContentBlock): string {
 /** The last assistant message's content, whatever shape it took — the only evidence left when no text reached finalText. */
 function summarizeAssistantMessage(msg: StreamMessage): string {
   return (msg.message?.content ?? []).map(summarizeBlock).join(' ').trim();
+}
+
+/** `exit 134` → `exit 134, SIGABRT`: a shell reports a child killed by signal N as 128+N. */
+export function describeExit(exitCode: number): string {
+  const signal = Object.entries(constants.signals).find(([, n]) => n === exitCode - 128)?.[0];
+  return signal !== undefined ? `exit ${exitCode}, ${signal}` : `exit ${exitCode}`;
 }
 
 function toUsage(raw: StreamMessage['usage']): AgentUsage | undefined {
@@ -135,8 +143,16 @@ export async function* runClaudeCli(
 
   // Only a genuine crash (no result produced) is an error. The CLI returns a non-zero exit code
   // for graceful stops too (max_turns, max_budget), so do not treat exit code alone as failure.
-  const detail = (): string => (res.stderr.trim() !== '' ? res.stderr.trim() : res.stdout.trim().slice(-600));
-  if (!parsedAny) throw new AgentError(`Agent produced no parseable output (exit ${res.exitCode}): ${detail()}`);
+  // Both streams, as in codex.ts: a CLI killed by a signal leaves only the shell's one-line "Aborted" on
+  // stderr, which used to hide the stdout tail showing what it was doing. Redacted: this text is posted
+  // as an issue comment.
+  const detail = (): string => {
+    const err = redactForPublish(res.stderr.trim()).slice(-1500);
+    const out = redactForPublish(res.stdout.trim()).slice(-600);
+    return [err !== '' ? `stderr: ${err}` : '', out !== '' ? `stdout: ${out}` : ''].filter(Boolean).join(' | ') || '(no output)';
+  };
+  const exit = describeExit(res.exitCode);
+  if (!parsedAny) throw new AgentError(`Agent produced no parseable output (${exit}): ${detail()}`);
   if (!sawResult) {
     // A missing terminal `result` event after real work already streamed (assistant turns + a session id)
     // and a clean exit is a truncated/cut stream — a long SSE severed by a corp MITM proxy, or the CLI
@@ -144,7 +160,14 @@ export async function* runClaudeCli(
     // the resume loop can continue the SAME session, instead of throwing away an expensive run. A non-zero
     // exit, zero turns, or no session id (nothing to resume) stays a genuine crash.
     if (res.exitCode !== 0 || turns === 0 || sessionId === undefined) {
-      throw new AgentError(`Agent exited without a result (exit ${res.exitCode}): ${detail()}`);
+      // The run record is only written for a stage that returns, so the partial transcript of a crashed
+      // one would be lost: keep its tail in the run log.
+      // shortcut: tail only (a full stream-json transcript is megabytes), persist it in the run store if a crash needs more.
+      console.error(
+        `taskcell: claude exited without a result (${exit}, ${turns} turns${sessionId !== undefined ? `, session ${sessionId}` : ''})\n` +
+          `--- claude stdout (tail) ---\n${redactForPublish(res.stdout.slice(-20_000))}\n--- claude stderr ---\n${redactForPublish(res.stderr.slice(-5000))}`,
+      );
+      throw new AgentError(`Agent exited without a result (${exit}): ${detail()}`);
     }
     console.warn(
       `taskcell: claude stream ended without a result event (exit 0, ${turns} turns) — treating the stage as incomplete and resumable`,
