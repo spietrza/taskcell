@@ -241,6 +241,14 @@ CLAUDE_CLI_VERSION=2.1.322 ./docker/build.sh
 
 The check is deliberately **not** an auto-update. Refreshing an image needs the network at run start and rewrites an image that concurrent sandboxes share — on the machines where this drift actually bites, the build is itself the unreliable step, so doing it automatically would turn a rare manual command into a recurring mid-run failure. `VANGUARD_SKIP_IMAGE_CHECK=1` bypasses the gate if you are deliberately running an older image.
 
+**How the pins move.** The Claude CLI and Codex CLI pins (`ARG CLAUDE_CLI_VERSION` / `ARG CODEX_CLI_VERSION` in `docker/Dockerfile`) are moved by `scripts/bump-agent-clis.sh`. The script picks the newest npm release that is at least 3 days old (`SOAK_DAYS`). It rewrites every other copy of the old pin (`docker/build.sh`, `SANDBOX_CLAUDE_VERSION`, docs and test fixtures), and it never moves a pin backwards. In this repo, `.github/workflows/taskcell-cli-bump.yml` runs it on the 1st and 15th of each month and opens one PR. That PR is never auto-merged: it waits for CI, then a maintainer adds the `run eval` label so Eval runs the real CLI on the new pin (`docker/Dockerfile` is in Eval's paths), and only then a human merges it. The Cursor CLI (opt-in, sha256-pinned) is not covered.
+
+What that means for you:
+
+- **Callers of the reusable workflows (`@v1`).** You get new CLIs with the next Taskcell release, when `v1` moves. The image is built from Taskcell's `docker/` at the ref you pin, so there is nothing to do on your side.
+- **Self-hosted (laptop, NAS, VPS).** After you update Taskcell, `taskcell doctor` flags an image older than the pin, and `taskcell doctor --fix` installs the pinned Claude CLI into it (above). A full `./docker/build.sh` also picks up the Codex pin.
+- **A fork that wants its own cadence.** Run `scripts/bump-agent-clis.sh` yourself, or copy `taskcell-cli-bump.yml`. It pushes with a PAT so the PR gets CI, and it never edits `.github/`.
+
 `VANGUARD_SANDBOX_IMAGE` overrides the image name used everywhere the sandbox runs (main sandbox, preflight, and the llm-proxy/egress sidecars) — set it to an image ID (`sha256:...`) in CI so a job pins the exact image it just built instead of the mutable `vanguard-sandbox:latest` tag, which another pipeline on a shared Docker host could overwrite between build and run.
 
 ## Cost and limits

@@ -152,7 +152,7 @@ Run it from **Actions → Taskcell Doctor → Run workflow** (clickable from the
 
 ### `.github/workflows/taskcell-pr-review.yml` — review a PR (optional)
 
-Adds a visible, adversarial `gh pr review` when you put `ready for taskcell review` on your own PR. This example reviews with Codex and falls back to Claude if Codex fails (a usage limit, a bad model name). `watch-prs` has no provider fallback of its own, so `pr-review.yml` retries with `fallback-provider` / `fallback-model` when you set them.
+Adds a visible, adversarial `gh pr review` when you put `ready for vanguard review` on your own PR. This example reviews with Codex and falls back to Claude if Codex fails (a usage limit, a bad model name). `watch-prs` has no provider fallback of its own, so `pr-review.yml` retries with `fallback-provider` / `fallback-model` when you set them.
 
 ```yaml
 name: Taskcell PR Review
@@ -172,7 +172,7 @@ jobs:
     if: >-
       (github.event_name == 'workflow_dispatch' && github.actor == 'YOUR_LOGIN') ||
       (github.event_name == 'pull_request_target' &&
-      github.event.label.name == 'ready for taskcell review' &&
+      github.event.label.name == 'ready for vanguard review' &&
       github.event.pull_request.draft == false &&
       github.event.pull_request.user.login == 'YOUR_LOGIN' &&
       github.event.sender.login == 'YOUR_LOGIN')
@@ -198,7 +198,7 @@ Same shape: a caller with its triggers, permissions, `concurrency` and `if:`, pl
 | Workflow | Inputs | Secrets |
 |---|---|---|
 | `research.yml` | `allowed-actors`, `number` (issue number, required), `provider`, `research-model`, `vanguard-ref` | `CLAUDE_CODE_OAUTH_TOKEN`, `CODEX_AUTH_JSON` |
-| `revise.yml` | `allowed-actors`, `number` (PR number, required), `provider`, `llm-proxy`, `upload-run-records`, `skills` (default `.vanguard-src/skills`; keep it, a missing custom path fails the run), `sandbox-memory-mb` (as for `implement.yml`), `max-rounds` (default 2, allowed 1–5: revise rounds before a human takes over; raise it only from a trusted caller), `timeout-minutes` (default 90), `vanguard-ref` | `CLAUDE_CODE_OAUTH_TOKEN`, `CODEX_AUTH_JSON`, `VANGUARD_PUSH_TOKEN` |
+| `revise.yml` | `allowed-actors`, `number` (PR number, required), `provider`, `llm-proxy`, `upload-run-records`, `skills` (default `.vanguard-src/skills`; keep it, a missing custom path fails the run), `sandbox-memory-mb` (as for `implement.yml`), `max-rounds` (default 2, allowed 1–5: revise rounds before a human takes over; raise it only from a trusted caller), `timeout-minutes` (default 90), `vanguard-ref` | `CLAUDE_CODE_OAUTH_TOKEN`, `CODEX_AUTH_JSON`, `VANGUARD_PUSH_TOKEN`, `TASKCELL_APP_PRIVATE_KEY` ([App](#alternative-the-taskcell-github-app)) |
 
 Inside a called workflow the `inputs` context means the `workflow_call` inputs, not your `workflow_dispatch` ones, so the caller passes the number in: `number: ${{ github.event.issue.number || inputs.issue }}` for research, `number: ${{ github.event.pull_request.number || inputs.pr }}` for revise. Revise runs at most 2 rounds.
 
@@ -309,6 +309,8 @@ assignees: ''
 2. **Repo setting** — Settings → Actions → General → Workflow permissions → enable **"Allow GitHub Actions to create and approve pull requests"**. Without it the agent does all the work and then `gh pr create` fails. (CLI: `gh api -X PUT repos/OWNER/REPO/actions/permissions/workflow -F can_approve_pull_request_reviews=true`.)
 3. (Full tier only) **Secret `CODEX_AUTH_JSON`** — see below.
 4. (Recommended) **Secret `VANGUARD_PUSH_TOKEN`** — see [CI on factory PRs and revision pushes](#optional-vanguard_push_token--ci-on-factory-prs-and-revision-pushes).
+5. (Optional) **The taskcell GitHub App**, so factory PRs are authored by a bot rather than by you. See [the taskcell GitHub App](#alternative-the-taskcell-github-app).
+6. (Recommended) **The resume sweep `taskcell-resume.yml`**, which brings back rate-limited work and dependency-waiting issues. See [Bringing parked work back](#bringing-parked-work-back-taskcell-resumeyml).
 
 Replace `YOUR_LOGIN` in the callers with your GitHub login, and set `allowed-actors` to the logins that may trigger runs. The `if:` gate restricts runs to your own issues, so a stranger labelling an issue cannot start a run; `allowed-actors` is the second lock behind it.
 
@@ -320,7 +322,7 @@ Replace `YOUR_LOGIN` in the callers with your GitHub login, and set `allowed-act
 
 **The fix.** A fine-grained Personal Access Token: a PR opened and pushes made with a PAT count as user events, so `pull_request: opened` / `synchronize` fire and CI runs normally. The factory PR then shows the PAT's owner as its author (the commit author is unchanged), and that account cannot approve it if your branch protection requires approvals. This is **provider-independent** — it is about the git push, not about which model (Claude, Codex, …) wrote the revision. Do not confuse it with `CODEX_AUTH_JSON` (LLM auth for the Codex reviewer); they are unrelated secrets.
 
-1. Create the PAT: github.com → Settings → Developer settings → Personal access tokens → **Fine-grained tokens** → Generate. Repository access: **Only select repositories** → this repo (add every repo that runs Taskcell if you want one token for all of them). Permissions: **Contents → Read and write** and **Pull requests → Read and write** (to open the factory PR) — nothing else (Metadata: Read is added automatically). Do **not** grant Workflows: that would let the autonomous reviser rewrite the very workflows that carry its actor gates and secrets. A revision that touches `.github/workflows/` is rejected by GitHub by design; apply such edits by hand. Set an expiration (e.g. 90 days).
+1. Create the PAT: github.com → Settings → Developer settings → Personal access tokens → **Fine-grained tokens** → Generate. Repository access: **Only select repositories** → this repo (add every repo that runs Taskcell if you want one token for all of them). Permissions: **Contents → Read and write** and **Pull requests → Read and write** (to open the factory PR), plus **Issues → Read and write** if you run the [resume sweep](#bringing-parked-work-back-taskcell-resumeyml), which relabels issues (without it the sweep fails with "Resource not accessible by integration"). Nothing else; Metadata: Read is added automatically. Do **not** grant Workflows: that would let the autonomous reviser rewrite the very workflows that carry its actor gates and secrets. A revision that touches `.github/workflows/` is rejected by GitHub by design; apply such edits by hand. Set an expiration (e.g. 90 days).
 2. Store it: `gh secret set VANGUARD_PUSH_TOKEN --repo OWNER/REPO` (repeat per repo — Actions secrets are per-repo, even when the PAT itself covers several).
 3. Map it in the `secrets:` block of your implement and revise callers:
 
@@ -334,31 +336,83 @@ Both runs pick it up automatically when present, on the host only (it never ente
 
 **Renewal.** Fine-grained PATs expire; GitHub emails you before expiry. Renew = generate a new token with the same scope and re-run `gh secret set` for each repo. Nothing else to change.
 
-**Trust note.** The PAT acts as you, limited to `contents: write` and `pull_requests: write` on the selected repos. It cannot edit workflows (no `workflow` scope) and cannot bypass branch protection required checks.
+**Trust note.** The PAT acts as you, limited to `contents: write`, `pull_requests: write` and, for the resume sweep, `issues: write` on the selected repos. It cannot edit workflows (no `workflow` scope) and cannot bypass branch protection required checks.
 
 ### Alternative: the taskcell GitHub App
 
 Instead of a PAT, the CLI can mint a short-lived GitHub App installation token right before each use: the PR creation, the revise push and the undraft. Each token is scoped to this one repo with **Contents** and **Pull requests** write only (whatever else the App is granted), and is revoked right after its one use. When the App is configured it takes precedence over `VANGUARD_PUSH_TOKEN`; if a mint fails (after one retry) the run warns and uses `VANGUARD_PUSH_TOKEN` when set, otherwise the ambient credential, rather than losing its work. The new-branch push of an implement run still uses the checkout's credential (a second Authorization header would be rejected); the PR itself is opened with the App token.
 
-1. Create a **dedicated** GitHub App for the factory (do not reuse one that serves anything else). Repository permissions: **Contents → Read and write**, **Pull requests → Read and write**; nothing else (no Workflows, no Administration, no Issues). No webhook needed. Install it **only** on the repos that run Taskcell.
-2. Store its client ID as repo **variable** `TASKCELL_APP_CLIENT_ID` and a private key as repo **secret** `TASKCELL_APP_PRIVATE_KEY` (the PEM as-is, or with `\n` escapes).
-3. **Workflow edit (by hand — CI config).** The shipped reusable workflows do not yet carry these values, so the App path is inert until a maintainer applies this edit:
-   - `.github/workflows/implement.yml` and `.github/workflows/revise.yml`: declare `TASKCELL_APP_PRIVATE_KEY: { required: false }` under `on.workflow_call.secrets`, next to `VANGUARD_PUSH_TOKEN`, and add to the `env:` of the step that runs the CLI (where `VANGUARD_PUSH_TOKEN` is mapped):
+With the App, factory PRs show `<your-app-slug>[bot]` as their author instead of the PAT owner. Setup, once per account:
+
+1. **Create the App.** GitHub → your avatar → **Settings → Developer settings → GitHub Apps → New GitHub App**. Use a **dedicated** App for the factory, never one that serves anything else. Set:
+   - **Homepage URL:** any URL, e.g. your repo.
+   - **Webhook:** untick **Active**. No webhook is needed.
+   - **Repository permissions:** **Contents → Read and write** and **Pull requests → Read and write**. Leave everything else at **No access**, including Workflows, Administration and Issues.
+   - **Where can this App be installed:** **Only on this account**.
+
+   Optionally upload a logo under **Display information**; it becomes the bot's avatar on PRs.
+2. **Key and install.** On the App page, note the **Client ID**. Under **Private keys**, click **Generate a private key**; a `.pem` file downloads once, so keep it. Under **Install App**, install the App **only** on the repos that run Taskcell.
+3. **Repo settings.** In each of those repos:
+
+   ```bash
+   gh variable set TASKCELL_APP_CLIENT_ID --repo <owner>/<repo> --body <client-id>
+   gh secret set TASKCELL_APP_PRIVATE_KEY --repo <owner>/<repo> < ~/Downloads/<app>.*.private-key.pem
+   ```
+
+   The secret holds the PEM as-is (or with `\n` escapes). Delete the downloaded file afterwards, or move it to a password manager.
+4. **Callers.** The reusable `implement.yml` and `revise.yml` read the client ID from the variable and accept the key as an optional secret. Map it in `taskcell-implement.yml` and `taskcell-revise.yml`:
+
+   ```yaml
+       secrets:
+         # ...existing secrets...
+         TASKCELL_APP_PRIVATE_KEY: ${{ secrets.TASKCELL_APP_PRIVATE_KEY }}
+   ```
+5. **Actor gates.** The bot is now the PR author, and the sender of the `opened` and `ready_for_review` events the CLI causes, so your existing gates would skip those PRs. Admit it as a **separate** condition, never in the human list. Use your App's actual slug: allow-listing someone else's slug admits their App.
+   - **`taskcell-revise.yml`:** add `<your-app-slug>[bot]` to the **PR-author** list, next to `github-actions[bot]`. Leave the sender list human-only, because `needs revision` is still added by a human.
+   - **`taskcell-pr-review.yml`:** in `label-factory-pr`, accept the bot as both author and sender. The same-repo and `chore/vanguard-` branch checks still apply. Add the label with the PAT for that case, so the resulting `labeled` event starts its own review run with a human sender:
 
      ```yaml
-     TASKCELL_APP_CLIENT_ID: ${{ vars.TASKCELL_APP_CLIENT_ID }}
-     TASKCELL_APP_PRIVATE_KEY: ${{ secrets.TASKCELL_APP_PRIVATE_KEY }}
+       label-factory-pr:
+         if: >-
+           contains(fromJSON('["opened","ready_for_review"]'), github.event.action) &&
+           github.event.pull_request.draft == false &&
+           github.event.pull_request.head.repo.full_name == github.repository &&
+           startsWith(github.event.pull_request.head.ref, 'chore/vanguard-') && (
+           (contains(fromJSON('["you"]'), github.event.pull_request.user.login) &&
+           contains(fromJSON('["you"]'), github.event.sender.login)) ||
+           (github.event.pull_request.user.login == '<your-app-slug>[bot]' &&
+           github.event.sender.login == '<your-app-slug>[bot]'))
+         # ...
+             env:
+               GH_TOKEN: ${{ github.event.sender.login == '<your-app-slug>[bot]' && secrets.VANGUARD_PUSH_TOKEN || github.token }}
      ```
-   - The callers (`taskcell-implement.yml`, `taskcell-revise.yml`): map `TASKCELL_APP_PRIVATE_KEY: ${{ secrets.TASKCELL_APP_PRIVATE_KEY }}` in their `secrets:` block.
-4. **Actor gates (by hand — CI config).** With the App, a factory PR's author is the App's bot login, `<your-app-slug>[bot]` (use your App's actual slug, never a hard-coded name: allow-listing another slug admits someone else's App), and so is the event sender of the `opened` and `ready_for_review` events the CLI causes. The existing gates then skip those PRs:
-   - `taskcell-pr-review.yml` (`label-factory-pr` and `review`): both `pull_request.user.login` and `sender.login` must be in the human list, so neither the first review nor the review after a revise round starts. Admit `<your-app-slug>[bot]` there **only together with** the existing `head.ref` starts-with `chore/vanguard-` and same-repo checks, as a separate condition — do not add it to the human list itself. That list is what the review policy in `CLAUDE.md` calls the author gate ("bots do not" pass it), which exempts CI-config edits from being a finding; a bot must never pass it.
-   - `taskcell-revise.yml`: add `<your-app-slug>[bot]` to the **PR-author** list (next to `github-actions[bot]`), not to the sender list — `needs revision` is still added by a human.
-   - The reusable workflows' "Enforce allowed-actors" step (`pr-review.yml`, `revise.yml`) checks the event sender. For the `ready_for_review`-triggered review the sender is the bot, so it would fail; but `allowed-actors` is also passed as `--feedback-authors`, so adding the bot there would make its text trusted review feedback. Prefer leaving `allowed-actors` human-only and having the caller's `review` job re-dispatch for bot-sent events, or accept that a revised PR needs a human to re-add `ready for vanguard review`.
-5. Until steps 3–4 land, keep using `VANGUARD_PUSH_TOKEN`; the App variables are ignored when absent.
+
+     In `review`, skip the in-run path for a bot sender: `(needs.label-factory-pr.result == 'success' && github.event.sender.login != '<your-app-slug>[bot]')`. On the `labeled` path, accept either a human PR author or the bot on a same-repo `chore/vanguard-*` branch. Taskcell's own [`taskcell-pr-review.yml`](../.github/workflows/taskcell-pr-review.yml) is a working example.
+   - **Keep `allowed-actors` human-only.** It is also passed as `--feedback-authors`, so adding the bot would make its text trusted review feedback.
+
+   So keep `VANGUARD_PUSH_TOKEN` alongside the App: the review label and the resume sweep still run on it.
+6. Check the result. The next factory PR's author is `<your-app-slug>[bot]`. If a mint fails, the run log says so and the PR falls back to the PAT owner.
 
 **App trust note.** The private key is more powerful than the PAT: it can mint tokens for **every** installation of the App with **all** of the App's granted permissions; the per-repo, per-permission scoping is applied by the CLI, not by GitHub. Hence a dedicated App, minimal permissions and minimal installations. The CLI reads the key once at start and removes it from its process environment, so the sandbox and the `docker`/`git`/`gh` children never inherit it; the key and every minted token are redacted from logs, comments and run records. Rotate the key from the App settings if it may have leaked.
 
 ---
+
+### Bringing parked work back (`taskcell-resume.yml`)
+
+Two kinds of issue stop with the trigger label off and need something to start them again:
+
+- **Rate-limited.** The provider's plan or rate limit hit mid-run. The issue gets `vanguard:rate-limited` and a reset time.
+- **Waiting on dependencies.** The issue has `Depends on #N` (also `owner/repo#N` or a full issue URL), a native GitHub "blocked by" relation, or a `Start: YYYY-MM-DD` line. The implement run does not start it while a blocker is open or before the date. Instead it comments once with the blockers and swaps the trigger label for `vanguard:waiting`. Details are in [cli.md](cli.md#task-dependencies-github).
+
+A scheduled sweep, `taskcell resume-rate-limited`, re-applies the trigger label once the reset has passed, the blockers are closed or merged, or the date has arrived. Without the sweep, re-add the label by hand.
+
+To set it up:
+
+1. Copy [`templates/github/resume.yml`](../templates/github/resume.yml) to `.github/workflows/taskcell-resume.yml`. The hub's **Enable factory** writes it for you.
+2. Replace `YOUR_LOGIN`.
+3. Make sure `VANGUARD_PUSH_TOKEN` has **Issues → Read and write**.
+
+The sweep runs every 30 minutes on the PAT, because a label added with `GITHUB_TOKEN` starts no workflow. Without the secret it skips with a notice. It has no reusable body: it checks out Taskcell at `v1` and runs the CLI directly.
 
 ## 3. Validate, then use it
 
@@ -443,10 +497,10 @@ The labels above go on **issues**. Two more go on a **pull request** and fire th
 
 | Label | On | Set by | Bot state | Bot action |
 |---|---|---|---|---|
-| `ready for taskcell review` | PR (trusted author's, non-draft) | Human | `vanguard:reviewing` → `vanguard:reviewed` | Adversarial **read-only** review — posts a comment, never edits code. Re-apply for a fresh pass. |
+| `ready for vanguard review` | PR (trusted author's, non-draft) | Human | `vanguard:reviewing` → `vanguard:reviewed` | Adversarial **read-only** review — posts a comment, never edits code. Re-apply for a fresh pass. |
 | `needs revision` | PR (trusted author's) | Human | `vanguard:revising` | Reads your review → pushes fix commits to the PR branch → un-drafts → back to `vanguard:needs-human-review`. Iterative: re-apply to loop. Needs `VANGUARD_PUSH_TOKEN` (section above) or the revised PR gets no CI. |
 
-`ready for taskcell review` reviews *your* PR (read-only); `needs revision` has Taskcell *edit* a trusted author's draft per your review. Both gate on a trusted PR author **and** label-setter, same allowlist as the issue workflows.
+`ready for vanguard review` reviews *your* PR (read-only); `needs revision` has Taskcell *edit* a trusted author's draft per your review. Both gate on a trusted PR author **and** label-setter, same allowlist as the issue workflows.
 
 ### `needs research` vs `needs info`
 
