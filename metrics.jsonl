@@ -478,3 +478,4 @@
 {"evt":"decision_probe","ts":"2026-11-12T01:36:28.317Z","taskId":"gh-spietrza-taskcell-795","model":"clef","completesFirstTry":0.0767,"difficulty":2.8346,"difficultyConfidence":0.3805,"specClear":0.7701,"latencyMs":452,"inputTokens":748}
 {"evt":"decision_probe","ts":"2026-11-12T04:07:57.906Z","taskId":"gh-spietrza-taskcell-795","model":"clef","completesFirstTry":0.0359,"difficulty":2.8286,"difficultyConfidence":0.4603,"specClear":0.8108,"latencyMs":327,"inputTokens":1116}
 {"evt":"decision_probe","ts":"2026-11-12T05:46:11.862Z","taskId":"gh-spietrza-taskcell-795","model":"clef","completesFirstTry":0.0382,"difficulty":2.9242,"difficultyConfidence":0.4172,"specClear":0.783,"latencyMs":500,"inputTokens":2344}
+{"evt":"decision_probe","ts":"2026-11-12T06:52:18.226Z","taskId":"gh-spietrza-taskcell-796","model":"clef","completesFirstTry":0.1498,"difficulty":2.389,"difficultyConfidence":0.238,"specClear":0.766,"latencyMs":492,"inputTokens":669}
