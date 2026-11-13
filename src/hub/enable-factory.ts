@@ -20,6 +20,9 @@ import type { FactoryApplyResult, FactoryPlan, FactoryProviderId, FactorySecretS
 // them from './enable-factory.js'.
 export type { FactoryApplyResult, FactoryPlan, FactoryProviderId, FactorySecretStep, FactoryVerifyResult } from '../wire.js';
 
+/** GitHub `owner/repo` shape: the slug reaches argv, the displayed `gh secret set` command and the persisted checklist. */
+export const GITHUB_REPO_SLUG = /^[A-Za-z0-9_-]+\/[A-Za-z0-9._-]+$/;
+
 /** The caller templates this adapter copies into a target repo (see templates/github/). */
 export const CALLER_NAMES = ['implement', 'doctor', 'pr-review', 'revise', 'resume'] as const;
 export type CallerName = (typeof CALLER_NAMES)[number];
@@ -44,7 +47,7 @@ export interface FactoryExec {
   (file: string, args: string[], options?: { cwd?: string; timeout?: number }): Promise<{ stdout: string; stderr: string }>;
 }
 
-const defaultExec: FactoryExec = (file, args, options) => execa(file, args, options);
+export const defaultExec: FactoryExec = (file, args, options) => execa(file, args, options);
 
 export interface GithubFactoryDeps {
   exec?: FactoryExec;
