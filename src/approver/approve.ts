@@ -70,7 +70,7 @@ export async function runApprover(input: RunApproverInput, state: { updated: boo
     return { record };
   };
 
-  let prFacts = await collectPrFacts(gh, input.repoSlug, input.prNumber);
+  const prFacts = await collectPrFacts(gh, input.repoSlug, input.prNumber);
   const base = prFacts.baseRefName !== '' ? prFacts.baseRefName : 'main';
   const loaded = await loadPolicy(input.repoPath, base);
   if (loaded === undefined) {
