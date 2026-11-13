@@ -173,7 +173,7 @@ describe('openApproverModePr', () => {
     };
     const card = { status: 'ok', period: '90d', judged: 114, approves: 1, escalates: 113, approvesRight: 1, approvesWrong: 0, approvesPending: 0, barMet: false, threshold: 30, byRiskClass: [{ riskClass: 'general', approveTotal: 1, approveCorrect: 1, streak: 1 }] } as ApproverScorecard;
     const result = await approverCard.openApproverModePr({ repoPath: repo, mode: 'act', card, exec });
-    expect(result).toEqual({ branch: 'vanguard/approver-mode', prUrl: 'https://github.com/acme/widgets/pull/9', mode: 'act' });
+    expect(result).toEqual({ branch: 'taskcell/approver-mode', prUrl: 'https://github.com/acme/widgets/pull/9', mode: 'act' });
     const create = calls.find((c) => c[1] === 'pr' && c[2] === 'create')!;
     const body = create[create.indexOf('--body') + 1]!;
     expect(body).toContain('114 pull requests judged');

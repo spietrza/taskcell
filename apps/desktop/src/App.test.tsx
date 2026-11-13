@@ -97,7 +97,7 @@ function stubTeamHub(
   listProjects: (teamId: string | undefined) => Promise<unknown[]> | unknown[],
 ): { cmds: string[] } {
   const cmds: string[] = [];
-  window.__VANGUARD_HUB__ = true;
+  window.__TASKCELL_HUB__ = true;
   // The project screens subscribe to the hub's event stream.
   vi.stubGlobal('EventSource', class { addEventListener(): void {} removeEventListener(): void {} close(): void {} });
   vi.stubGlobal(

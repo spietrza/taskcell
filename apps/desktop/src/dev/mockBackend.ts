@@ -64,7 +64,7 @@ const commandHandlers = {
     judged: 0, approves: 0, escalates: 0, approvesRight: 0, approvesWrong: 0, approvesPending: 0, barMet: false, byRiskClass: [], topReasons: [],
   }),
   read_approver_decisions: () => ({ decisions: [] }),
-  set_approver_mode: (args: { mode?: 'off' | 'shadow' | 'act' } | undefined) => ({ branch: 'vanguard/approver-mode', prUrl: 'https://github.com/acme/widgets/pull/1', mode: args?.mode ?? 'off' }),
+  set_approver_mode: (args: { mode?: 'off' | 'shadow' | 'act' } | undefined) => ({ branch: 'taskcell/approver-mode', prUrl: 'https://github.com/acme/widgets/pull/1', mode: args?.mode ?? 'off' }),
   list_projects: () => projects,
   list_teams: () => [{ ...mockTeam, repositories: projects.map((p) => p.path) }],
   team_role: () => 'admin' as const,

@@ -6,7 +6,7 @@ import type { ApproverScorecard } from '../../wire';
 
 afterEach(() => {
   clearMocks();
-  delete window.__VANGUARD_HUB__;
+  delete window.__TASKCELL_HUB__;
 });
 
 const card = (o: Partial<ApproverScorecard> = {}): ApproverScorecard => ({

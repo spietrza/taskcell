@@ -127,7 +127,7 @@ describe('serveStatic', () => {
 
   test('the page’s inline scripts are allowed by hash, CRLF or LF, and nothing else inline is', async () => {
     const sha = (text: string): string => `'sha256-${createHash('sha256').update(text).digest('base64')}'`;
-    const marker = sha('window.__VANGUARD_HUB__=true');
+    const marker = sha('window.__TASKCELL_HUB__=true');
     for (const eol of ['\n', '\r\n']) {
       await writeFile(join(uiDir, 'index.html'), `<html><head><script>${eol}  theme();${eol}</script></head><body></body></html>`);
       const res = new FakeRes();
