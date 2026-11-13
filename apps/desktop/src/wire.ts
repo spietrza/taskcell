@@ -892,7 +892,7 @@ export interface Commands {
   import_remote_run: { args: { repoPath: string; runId: number }; result: RemoteImport };
   list_active: { args: { repoPath: string }; result: ActiveRun[] };
   read_session: { args: { sessionFile: string }; result: SessionRead };
-  /** HUB_ONLY, read-only: whether `gh`, `glab`, a Linear key and a model credential are present on the hub host. Booleans only — never a secret value. */
+  /** HUB_ONLY, owner only, read-only: whether `gh`, `glab`, a Linear key and a model credential are present on the hub host. Booleans only — never a secret value. Spawns `gh`/`glab` on the host, so it is refused on a non-loopback bind without VANGUARD_HUB_ALLOW_ADD. */
   setup_status: { args: undefined; result: SetupStatus };
   list_tasks: { args: { repoPath: string }; result: { tasks: BoardTask[]; capped: boolean } };
   /** HUB_ONLY: `list_tasks` across every hub repository, each card stamped with its repository. */
