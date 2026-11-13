@@ -7,6 +7,18 @@ directory. It is the only backend: the desktop app is a client of a hub (see
 [the desktop app's local hub](#the-desktop-apps-local-hub)), and a browser can use one directly — useful
 without a native app, or on a server. See `src/hub/*.ts` and `src/cli/hub.ts` for the implementation.
 
+## Install the desktop app
+
+Installers (macOS `.dmg`, Windows `.msi`/`-setup.exe`, Linux `.AppImage`/`.deb`) are attached to the
+[`desktop-latest` release](https://github.com/spietrza/taskcell/releases/tag/desktop-latest) once the desktop release job is enabled
+(see `apps/desktop/README.md`). The app checks for updates on start and offers a new version; it downloads on consent and installs when you quit, so running tasks are not interrupted.
+
+**macOS, unsigned builds.** Unsigned apps are blocked on first open. On macOS 14 and earlier, right-click the app
+and choose **Open**. On macOS 15 and later, try to open it once, then go to **System Settings > Privacy & Security**
+and click **Open Anyway**. If macOS says the app "is damaged", run `xattr -cr /Applications/Taskcell.app` and open it again.
+
+**Linux.** `chmod +x Taskcell_*.AppImage && ./Taskcell_*.AppImage`, or `sudo apt install ./Taskcell_*.deb`.
+
 ## Quick start
 
 ```bash
@@ -427,6 +439,10 @@ four steps, following [onboarding-another-repo.md](onboarding-another-repo.md)
 Apply and verify change the remote, so they are gated like `clone_project`: loopback only, unless
 `VANGUARD_HUB_ALLOW_ADD=1`. The `gh` login must be able to push workflow files (classic `repo` and
 `workflow` scopes), create labels, open a PR and dispatch a workflow.
+
+## Audit log
+
+Every state-changing action appends one JSON line to `<config dir>/audit.jsonl` (time, login or `token`, action, target, outcome `ok`/`refused`/`failed`): sign-in, project add/remove, clone, run start/queue/cancel, task start, settings changes. Targets and detail are names only — never a credential value, token, cookie or URL userinfo/query. The file rotates at 10 MB and keeps 5 files. Runs started from the hub carry `startedBy` in their records (shown in the Runs table). Admins read the log in the Audit view (`read_audit`); non-admins get 403. The owner (header token, or local mode) acts as the shared `token` admin identity; any other signed-in user is logged under their e-mail and is not an admin until roles land (`actorFor` in `createHubServer` overrides this).
 
 ## `gh` auth
 

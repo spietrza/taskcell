@@ -167,6 +167,8 @@ export function pickRunOptions(cmd: Readonly<Partial<RunOptions>>): RunOptions {
 
 /** Shared dependencies for all source-backed issue runners. */
 export interface RunIssueDeps extends RunOptions {
+  /** The hub login (or `token`) that started this run; stamped on its run records. */
+  startedBy?: string;
   auth?: AgentAuth;
   repoPath: string;
   proxyUrl?: string;
@@ -541,7 +543,10 @@ export async function runSourcedIssue(
       // One RunWriter for the whole run: it owns the timestamp, so proof.json, visual-proof.json and
       // every stage record share one prefix and the hub/desktop readers can match a run's proof to
       // its stage records by name.
-      const writer = beginRun(deps.repoPath, adapter.taskId(task), undefined, { secretEnvVars: providerKeyEnvNames(deps) });
+      const writer = beginRun(deps.repoPath, adapter.taskId(task), undefined, {
+        secretEnvVars: providerKeyEnvNames(deps),
+        ...(deps.startedBy !== undefined ? { startedBy: deps.startedBy } : {}),
+      });
       const onEvent = (event: RunEvent): void => {
         markerWrites = markerWrites.then(async () => {
           if (event.type === 'stage-start') {

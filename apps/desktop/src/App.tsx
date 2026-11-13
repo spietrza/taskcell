@@ -266,6 +266,7 @@ export default function App() {
     remote: 'Remote',
     workflow: 'Workflow',
     settings: 'Settings',
+    audit: 'Audit',
   };
   // Home lives on the logo now; the project lives in the switcher — so the breadcrumb is just the screen.
   const crumbs: Crumb[] = [];
