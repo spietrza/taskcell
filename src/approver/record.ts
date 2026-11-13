@@ -1,3 +1,4 @@
+import { createHash } from 'node:crypto';
 import { appendAudit, branchAdapter, BOT_ACTOR, STREAMS } from '../core/audit.js';
 import { DECISIONS_FILE } from './ledger.js';
 import type { ApproverFacts, Decision, DecisionRecord, Mode } from './types.js';
@@ -63,6 +64,11 @@ export function buildDecisionRecord(input: BuildDecisionRecordInput): DecisionRe
   };
 }
 
+/** Short stable id of an action's reason, for the dedupe key and the comment marker. */
+export function reasonKey(reason: unknown): string {
+  return createHash('sha256').update(typeof reason === 'string' ? reason : '', 'utf8').digest('hex').slice(0, 8);
+}
+
 const SHORT_CIRCUIT_RULES = new Set(['stopped', 'policy-unreadable']);
 
 /**
@@ -71,7 +77,8 @@ const SHORT_CIRCUIT_RULES = new Set(['stopped', 'policy-unreadable']);
  */
 export function decisionKey(r: Record<string, unknown>): string {
   if (r.actMerge === true) return `${String(r.prNumber)}:${String(r.headSha)}:act-merge`;
-  if (typeof r.action === 'string') return `${String(r.prNumber)}:${String(r.headSha)}:action:${r.action}`;
+  // The reason is part of the key: a different reason on the same head is a new fact and is reported.
+  if (typeof r.action === 'string') return `${String(r.prNumber)}:${String(r.headSha)}:action:${r.action}:${reasonKey(r.reasonCode ?? r.reason)}`;
   const rules = Array.isArray(r.rulesFired) ? r.rulesFired : [];
   const kind = rules.some((id) => typeof id === 'string' && SHORT_CIRCUIT_RULES.has(id)) ? 'short' : 'full';
   return `${String(r.prNumber)}:${String(r.headSha)}:${kind}`;
@@ -90,7 +97,7 @@ async function appendRecord(repoPath: string, record: DecisionRecord | ActionRec
   await appendAudit(STREAMS.decisions, adapter, { ...record }, { actor: BOT_ACTOR, subject: { repo: record.repo, pr: record.prNumber } });
 }
 
-export type ActionKind = 'update-branch' | 'merge' | 'merge-failed' | 'merge-log-failed' | 'left-for-human' | 'checks-failed' | 'base-moved';
+export type ActionKind = 'update-branch' | 'merge' | 'merge-failed' | 'left-for-human' | 'checks-failed' | 'base-moved' | 'error';
 
 export interface ActionRecord {
   schemaVersion: 1;
@@ -101,6 +108,8 @@ export interface ActionRecord {
   headSha: string;
   action: ActionKind;
   reason: string;
+  /** Stable part of `reason` (when it carries free-form detail): keys the dedupe, so only a different code on the same head is a new record. */
+  reasonCode?: string;
   timestamp: string;
 }
 
