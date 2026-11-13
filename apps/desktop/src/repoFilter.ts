@@ -25,3 +25,8 @@ export function saveRepoFilter(filter: string): void {
 export function canUseAllRepos(): boolean {
   return isHubMode() || (import.meta.env.DEV && !isTauri());
 }
+
+/** Rows of the hub's all-repositories lists that belong to the selected team's repositories. */
+export function inRepos<T extends { repoPath: string }>(rows: T[], repos: string[]): T[] {
+  return rows.filter((r) => repos.includes(r.repoPath));
+}

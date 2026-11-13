@@ -712,6 +712,8 @@ export interface Commands {
   list_teams: { args: undefined; result: Team[] };
   /** HUB_ONLY: one team by id (`null` when unknown). */
   get_team: { args: { id: string }; result: Team | null };
+  /** HUB_ONLY: the caller's role in a team they belong to (`null` otherwise); the hub owner is an admin of every team. */
+  team_role: { args: { id: string }; result: TeamRole | null };
   /** HUB_ONLY, team admin only (a member is refused). */
   add_team_member: { args: { teamId: string; login: string; role: TeamRole }; result: Team };
   /** HUB_ONLY, team admin only. */
@@ -828,6 +830,7 @@ export const COMMAND_NAMES = [
   'list_projects',
   'list_teams',
   'get_team',
+  'team_role',
   'add_team_member',
   'remove_team_member',
   'add_team_repository',
