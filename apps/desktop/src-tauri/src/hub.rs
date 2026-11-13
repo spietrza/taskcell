@@ -118,7 +118,8 @@ fn spawn_hub(app: &AppHandle) -> Result<Child, String> {
         cmd.env_remove(key);
     }
     // The native folder picker may land anywhere, so browse (and add) from the filesystem root, not
-    // the home directory (on Windows: the home drive). Hubs served to a browser keep their own default.
+    // the home directory. A filesystem root admits every path (on Windows: every drive). Hubs served to
+    // a browser keep their own default.
     let browse_root = app.path().home_dir().ok().and_then(|h| h.ancestors().last().map(Path::to_path_buf));
     cmd.args(&launch.args)
         .args(["hub", "--host", "127.0.0.1", "--port", &port.to_string(), "--no-open", "--repo"])

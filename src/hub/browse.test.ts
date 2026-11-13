@@ -1,8 +1,8 @@
 import { mkdir, mkdtemp, realpath, rm, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
-import { dirname, join } from 'node:path';
+import { dirname, join, parse } from 'node:path';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
-import { browseDirs, MAX_BROWSE_ENTRIES } from './browse.js';
+import { assertWithinBrowseRoot, browseDirs, isWithinRoot, MAX_BROWSE_ENTRIES } from './browse.js';
 import { BadRequestError } from '../sidecar/sidecar.js';
 
 let tmp: string;
@@ -111,5 +111,22 @@ describe('browseDirs', () => {
     await mkdir(join(root, 'child'), { recursive: true });
     const listing = await browseDirs(root, join(root, 'child'));
     expect(listing.parent).toBe(root);
+  });
+});
+
+describe('isWithinRoot', () => {
+  it('a filesystem root contains every path (path.dirname of a drive root is itself, so on Windows every drive)', () => {
+    expect(isWithinRoot('/', '/')).toBe(true);
+    expect(isWithinRoot('/', '/home/me/repo')).toBe(true);
+  });
+
+  it('a non-root browse root still confines', () => {
+    expect(isWithinRoot('/home/me', '/home/me/repo')).toBe(true);
+    expect(isWithinRoot('/home/me', '/home/meow')).toBe(false);
+    expect(isWithinRoot('/home/me', '/etc')).toBe(false);
+  });
+
+  it('assertWithinBrowseRoot accepts a path outside home when the root is the filesystem root', async () => {
+    await expect(assertWithinBrowseRoot(parse(root).root, root)).resolves.toBe(root);
   });
 });

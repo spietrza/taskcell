@@ -24,9 +24,11 @@ export interface DirListing {
   entries: DirEntry[];
 }
 
-/** True if `child` is `root` itself or a real descendant of it (both already realpath'd). */
+/** True if `child` is `root` itself or a real descendant of it (both already realpath'd, so absolute).
+ * A filesystem root (`/`, `C:\`) contains every path, including, on Windows, the other drives: the
+ * desktop app browses from there because its native folder picker may land anywhere. */
 export function isWithinRoot(root: string, child: string): boolean {
-  return child === root || child.startsWith(root + sep);
+  return dirname(root) === root || child === root || child.startsWith(root + sep);
 }
 
 /** `add_project`'s confinement: the same realpath-both-sides guard `browseDirs` applies, so a
