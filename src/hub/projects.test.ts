@@ -32,6 +32,21 @@ async function oneRunRepo(repo: string): Promise<void> {
   );
 }
 
+describe('per-project platform', () => {
+  it('reports taskSource and runLocation from app.json, ignoring unknown values', async () => {
+    const repo = join(repoRoot, 'proj-platform');
+    await mkdir(join(repo, '.taskcell'), { recursive: true });
+    await writeFile(join(repo, '.taskcell', 'app.json'), JSON.stringify({ taskSource: 'linear', runLocation: 'watch' }));
+    const p = await aggregate(repo);
+    expect([p.taskSource, p.runLocation]).toEqual(['linear', 'watch']);
+
+    await writeFile(join(repo, '.taskcell', 'app.json'), JSON.stringify({ taskSource: 'jira', runLocation: 7 }));
+    const bad = await aggregate(repo);
+    expect(bad.taskSource).toBeUndefined();
+    expect(bad.runLocation).toBeUndefined();
+  });
+});
+
 describe('add/list/remove', () => {
   it('T-16 round-trips through the store file, de-duping and emptying out', async () => {
     const repo = join(repoRoot, 'proj-a');

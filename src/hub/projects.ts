@@ -6,7 +6,7 @@ import { defaultRunsRoot, listRunSummaries } from './runs.js';
 import { listActive } from './active.js';
 import { fanOut } from '../pipeline/fan-out.js';
 import { redactForPublish } from '../core/secret-scan.js';
-import type { RepoReadFailure, RepoStamp } from '../wire.js';
+import type { RepoReadFailure, RepoStamp, RunLocationId, TaskSourceId } from '../wire.js';
 
 export interface Project {
   path: string;
@@ -22,7 +22,16 @@ export interface Project {
   runsLast24h: number;
   /** Configured per-project color (`#rrggbb`), or undefined -> the UI derives one from the path. */
   color?: string;
+  /** Per-project task source / run location from `app.json`; undefined = the defaults (GitHub Issues, GitHub Actions). */
+  taskSource?: TaskSourceId;
+  runLocation?: RunLocationId;
 }
+
+const TASK_SOURCES: readonly string[] = ['github', 'github-project', 'gitlab', 'linear', 'hub'];
+const RUN_LOCATIONS: readonly string[] = ['github-actions', 'gitlab-ci', 'watch', 'local'];
+// A hand-edited app.json may hold anything: only known ids reach the wire.
+const isTaskSource = (v: unknown): v is TaskSourceId => typeof v === 'string' && TASK_SOURCES.includes(v);
+const isRunLocation = (v: unknown): v is RunLocationId => typeof v === 'string' && RUN_LOCATIONS.includes(v);
 
 function projectsFile(configDir: string): string {
   return join(configDir, 'projects.json');
@@ -54,7 +63,7 @@ const repoDisplayName = (repoPath: string): string => basename(repoPath) || repo
 /** Aggregate a repo's `.taskcell/runs` into a dashboard summary (+ live running count). */
 export async function aggregate(repoPath: string, now: Date = new Date()): Promise<Project> {
   const name = repoDisplayName(repoPath);
-  const [summaries, runningCount, { color }] = await Promise.all([
+  const [summaries, runningCount, { color, taskSource, runLocation }] = await Promise.all([
     listRunSummaries(defaultRunsRoot(repoPath)),
     listActive(repoPath).then((active) => active.length),
     readAppConfig(repoPath),
@@ -92,6 +101,8 @@ export async function aggregate(repoPath: string, now: Date = new Date()): Promi
     runningCount,
     runsLast24h,
     ...(color !== undefined ? { color } : {}),
+    ...(isTaskSource(taskSource) ? { taskSource } : {}),
+    ...(isRunLocation(runLocation) ? { runLocation } : {}),
   };
 }
 

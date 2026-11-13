@@ -24,6 +24,9 @@ pub struct Project {
     pub runs_last_24h: usize,
     /// Configured per-project color (`#rrggbb`), or None → the UI derives one from the path.
     pub color: Option<String>,
+    /// Per-project task source / run location from `app.json`; None = the defaults (GitHub Issues, GitHub Actions).
+    pub task_source: Option<String>,
+    pub run_location: Option<String>,
 }
 
 fn projects_file(config_dir: &Path) -> PathBuf {
@@ -86,6 +89,7 @@ fn aggregate_at(repo_path: &Path, summaries: &[serde_json::Value], now: DateTime
 
     let running_count = crate::active::list_active(repo_path).map(|a| a.len()).unwrap_or(0);
 
+    let cfg = crate::appconfig::read(repo_path);
     Project {
         path: repo_path.to_string_lossy().into_owned(),
         name,
@@ -96,7 +100,9 @@ fn aggregate_at(repo_path: &Path, summaries: &[serde_json::Value], now: DateTime
         last_run,
         running_count,
         runs_last_24h,
-        color: crate::appconfig::read(repo_path).color,
+        color: cfg.color,
+        task_source: cfg.task_source,
+        run_location: cfg.run_location,
     }
 }
 
@@ -178,6 +184,21 @@ mod tests {
         assert!((p.total_cost_usd - 0.3).abs() < 1e-9);
         assert_eq!(p.last_run.as_deref(), Some("2026-07-06T19:00:00Z"));
         assert_eq!((p.name.as_str(), p.path.as_str()), ("proj", "/repo/proj"));
+    }
+
+    #[test]
+    fn reports_platform_from_app_config() {
+        let tmp = tempfile::tempdir().unwrap();
+        let cfg = crate::appconfig::AppConfig {
+            task_source: Some("gitlab".into()),
+            run_location: Some("gitlab-ci".into()),
+            ..Default::default()
+        };
+        crate::appconfig::write(tmp.path(), &cfg).unwrap();
+        let p = aggregate_at(tmp.path(), &[], Utc::now());
+        assert_eq!(p.task_source.as_deref(), Some("gitlab"));
+        assert_eq!(p.run_location.as_deref(), Some("gitlab-ci"));
+        assert_eq!(aggregate_at(Path::new("/repo/none"), &[], Utc::now()).task_source, None);
     }
 
     #[test]
