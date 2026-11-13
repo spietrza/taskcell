@@ -675,7 +675,7 @@ export interface SpawnInfo {
 }
 
 /** Enable-factory provider seam (hub § "Enable factory"): GitHub Actions is implemented; GitLab and
- * Linear are "coming soon" in the UI and never reach `enable_factory_*` (see docs/task-sources.md,
+ * Linear are "planned" in the UI and never reach `enable_factory_*` (see docs/task-sources.md,
  * docs/onboarding-linear.md). */
 export type FactoryProviderId = 'github' | 'gitlab' | 'linear';
 
