@@ -74,6 +74,7 @@ test('removing asks first and only then removes', async () => {
   expect(servers.removeServer).not.toHaveBeenCalled();
   fireEvent.click(screen.getByRole('button', { name: 'Remove Team hub' }));
   expect(servers.removeServer).toHaveBeenCalledWith('s1');
+  await waitFor(() => expect(servers.listServers).toHaveBeenCalledTimes(2));
   confirm.mockRestore();
 });
 

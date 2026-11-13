@@ -394,7 +394,16 @@ const PR_BODY_ITEMS_PASTE_LINE = 'Apply the change by hand and paste the content
  * so wiring this in is a no-op for a manifest that declares no `prBody` entries.
  */
 export function prBodyGapWarningBlock(missing: { id: string; contains: string }[]): string {
-  if (missing.length === 0) return '';
+  return renderPrBodyItemsBlock(missing.map((m) => encodeId(m.id)));
+}
+
+/** Percent-encode an id; a lone surrogate is replaced with U+FFFD first so this never throws. */
+function encodeId(id: string): string {
+  return encodeURIComponent(id.replace(/[\ud800-\udbff](?![\udc00-\udfff])|(?<![\ud800-\udbff])[\udc00-\udfff]/g, '\ufffd'));
+}
+
+function renderPrBodyItemsBlock(lines: string[]): string {
+  if (lines.length === 0) return '';
   return [
     PR_BODY_ITEMS_START,
     PR_BODY_ITEMS_HEADING,
@@ -403,7 +412,7 @@ export function prBodyGapWarningBlock(missing: { id: string; contains: string }[
     '',
     // Percent-encoded so a manifest id (reporter-controllable at implement time) stays one inert line:
     // no newline, backtick or forged paste line can move where the human-pasted region starts.
-    ...missing.map((m) => `- \`${encodeURIComponent(m.id)}\``),
+    ...lines.map((l) => `- \`${l}\``),
     '',
     PR_BODY_ITEMS_PASTE_LINE,
     '',
@@ -435,20 +444,16 @@ export function dischargePrBodyItemsBlock(block: string, manifest: SpecManifest 
   const text = block.replace(/\r\n/g, '\n');
   const pasteAt = text.indexOf(`\n${PR_BODY_ITEMS_PASTE_LINE}\n`);
   if (pasteAt === -1 || !text.endsWith(PR_BODY_ITEMS_END)) return block;
-  let recorded: string[];
-  try {
-    recorded = [...text.slice(0, pasteAt).matchAll(/^- `([^`\n]+)`$/gm)].map((m) => decodeURIComponent(m[1] ?? ''));
-  } catch {
-    return block;
-  }
+  // Listed lines are matched verbatim: blocks written before ids were percent-encoded carry raw ids.
+  const recorded = [...text.slice(0, pasteAt).matchAll(/^- `([^`\n]+)`$/gm)].map((m) => m[1] ?? '');
   if (recorded.length === 0) return block;
-  const generated = prBodyGapWarningBlock(recorded.map((id) => ({ id, contains: '' })));
+  const generated = renderPrBodyItemsBlock(recorded);
   const preamble = generated.slice(0, generated.lastIndexOf(PR_BODY_ITEMS_PASTE_LINE) + PR_BODY_ITEMS_PASTE_LINE.length);
   if (!text.startsWith(preamble)) return block;
   const pasted = text.slice(preamble.length, text.length - PR_BODY_ITEMS_END.length);
   const items = manifest.prBody ?? [];
   const done = recorded.every((id) => {
-    const item = items.find((p) => p.id === id);
+    const item = items.find((p) => p.id === id || encodeId(p.id) === id);
     if (item === undefined || item.contains.trim() === '') return false;
     return pasted.includes(item.contains.replace(/\r\n/g, '\n'));
   });
