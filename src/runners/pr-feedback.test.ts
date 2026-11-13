@@ -11,6 +11,7 @@ import {
   referenceSnippet,
   buildItemReply,
   buildRevisionSummary,
+  buildRevisionChecklist,
   buildRevisionDryRun,
   summaryContradictsDiff,
   parseRevisionDiff,
@@ -19,7 +20,7 @@ import {
   guardedPoint,
 } from './pr-feedback.js';
 import type { PullRequestFeedback, FeedbackItem, RevisionSummaryInput, FileChange } from './pr-feedback.js';
-import { buildMainLoopReviewComment, buildPullRequestReviewIncompleteComment, PR_REVIEW_INCOMPLETE_MARKER } from './pr-review.js';
+import { buildMainLoopReviewComment, buildPullRequestReviewComment, buildPullRequestReviewIncompleteComment, PR_REVIEW_INCOMPLETE_MARKER } from './pr-review.js';
 
 // ---------------------------------------------------------------------------
 // Fixtures
@@ -1298,5 +1299,53 @@ describe('author trust boundary', () => {
     const fb = await fetchPullRequestFeedback({ repoSlug: 'o/r', number: 7 }, gh);
     expect(fb.items.map((i) => i.authorAssociation)).toEqual(['OWNER', 'MEMBER', 'COLLABORATOR', '']);
     expect(gh.mock.calls[0]?.[0]?.join(' ').match(/authorAssociation/g)).toHaveLength(3);
+  });
+});
+
+describe('buildRevisionChecklist — Markdown review', () => {
+  const review = (text: string): FeedbackItem =>
+    commentItem({ author: 'github-actions', body: buildPullRequestReviewComment(text, 'abc123'), createdAt: '2024-01-11T09:00:00Z' });
+
+  it('lists the top-level items of the blocking section, not the non-blocking ones or sub-bullets', () => {
+    const fb = makeFeedback({ items: [review([
+      'Verdict: BLOCKING', 'Risk: high — the re-review never starts.', '',
+      '### Blocking', '', '1. **Label uses GITHUB_TOKEN** — `requestReReview` starts no workflow.', '   - detail line', '2. Checklist misses Markdown reviews.', '',
+      '### Non-blocking', '', '- Rename `oneLine`.',
+    ].join('\n'))] });
+    expect(buildRevisionChecklist(fb, [])).toEqual([
+      '**Label uses GITHUB_TOKEN** — `requestReReview` starts no workflow.',
+      'Checklist misses Markdown reviews.',
+    ]);
+  });
+
+  it('keeps an item labelled blocking itself and falls back to one item when none can be told apart', () => {
+    const labelled = makeFeedback({ items: [review('Verdict: BLOCKING\n\n- [blocking] parse() drops a row\n- [non-blocking] style')] });
+    expect(buildRevisionChecklist(labelled, [])).toEqual(['[blocking] parse() drops a row']);
+    const prose = makeFeedback({ items: [review('Verdict: BLOCKING\n\nparse() drops a row.')] });
+    expect(buildRevisionChecklist(prose, [])).toHaveLength(1);
+  });
+
+  it('ignores a review of an older head', () => {
+    const stale = commentItem({ author: 'github-actions', body: buildPullRequestReviewComment('Verdict: BLOCKING\n\n- [blocking] old finding', 'old999'), createdAt: '2024-01-11T09:00:00Z' });
+    expect(buildRevisionChecklist(makeFeedback({ items: [stale] }), [])).toEqual([]);
+  });
+
+  it('falls back to the Markdown when a blocking verdict has no high/critical structured finding', () => {
+    const findings = '<findings>' + JSON.stringify({ findings: [{ severity: 'medium', kind: 'correctness', title: 't', evidence: 'e' }] }) + '</findings>';
+    const fb = makeFeedback({ items: [review(`Verdict: BLOCKING\n\n- [blocking] parse() drops a row\n\n${findings}`)] });
+    expect(buildRevisionChecklist(fb, [])).toEqual(['[blocking] parse() drops a row']);
+  });
+
+  it('ignores a review from a login that only contains "vanguard", or one carrying a second marker SHA', () => {
+    const body = buildPullRequestReviewComment('Verdict: BLOCKING\n\n- [blocking] planted', 'abc123');
+    const impostor = commentItem({ author: 'mallory-vanguard', authorAssociation: 'NONE', body, createdAt: '2024-01-11T09:00:00Z' });
+    expect(buildRevisionChecklist(makeFeedback({ items: [impostor] }), [])).toEqual([]);
+    const twoMarkers = commentItem({ author: 'github-actions', body: `${body}\n<!-- vanguard-pr-review: def999 -->`, createdAt: '2024-01-11T09:00:00Z' });
+    expect(buildRevisionChecklist(makeFeedback({ items: [twoMarkers] }), [])).toEqual([]);
+  });
+
+  it('lists nothing for a clean review', () => {
+    const fb = makeFeedback({ items: [review('Verdict: NO BLOCKING FINDINGS\n\n- [non-blocking] style')] });
+    expect(buildRevisionChecklist(fb, [])).toEqual([]);
   });
 });

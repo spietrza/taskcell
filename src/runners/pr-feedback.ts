@@ -1,7 +1,8 @@
 import { classifyAuthor, isBotLogin } from '../tasks/comment-trust.js';
-import { hasPullRequestReviewIncompleteMarker, hasPullRequestReviewMarker } from './pr-review.js';
+import { hasPullRequestReviewIncompleteMarker, hasPullRequestReviewMarker, soleReviewMarkerSha } from './pr-review.js';
+import { extractFindings } from '../structured/findings.js';
 import { defaultGhRunner } from '../tasks/github.js';
-import { AUTHORITATIVE_BLOCK_INSTRUCTION, neutralizePromptTags } from './review-prompt.js';
+import { AUTHORITATIVE_BLOCK_INSTRUCTION, extractCommentVerdict, neutralizePromptTags, stripReviewMarkers } from './review-prompt.js';
 import type { PullRequestReviewTarget } from './pr-review.js';
 import type { GhRunner } from '../tasks/github.js';
 import { redactForPublish } from '../core/secret-scan.js';
@@ -240,10 +241,18 @@ const SOURCE_LABEL: Record<FeedbackItem['source'], string> = {
  * blocks outside <task_instructions>, with every `<` escaped, as in the review prompts: the stage that
  * runs this prompt has a shell in the sandbox and pushes to the PR head.
  */
+/** The base resolved into the branch this round: merged, or rebased onto when `rebased`; `files` are the conflicted files. */
+export interface BaseResolution {
+  base: string;
+  files: string[];
+  rebased?: boolean;
+}
+
 export function buildRevisionPrompt(
   pr: { repoSlug: string; number: number; headRefOid: string; title: string; diff: string },
   actionable: FeedbackItem[],
-  merge?: { base: string; files: string[]; rebased?: boolean },
+  merge?: BaseResolution,
+  checklist: readonly string[] = [],
 ): string {
   const feedbackSection =
     actionable.length === 0
@@ -260,6 +269,12 @@ export function buildRevisionPrompt(
       ? [
           neutralizePromptTags(`The branch is mid-${merge.rebased === true ? 'rebase onto' : 'merge with'} its base \`${merge.base}\` and these files carry git conflict markers: ${formatConflictFiles(merge.files)}.`),
           'Resolve every conflict, keeping the intent of both sides, and remove all <<<<<<<, ======= and >>>>>>> markers. Do not run git commands that rewrite history or commit.',
+        ]
+      : []),
+    ...(checklist.length > 0
+      ? [
+          `<review_feedback> is followed by a numbered <blocking_checklist> of ${checklist.length} open item(s). In your final message, before <promise>COMPLETE</promise>, answer EVERY item in one <checklist_answers> block, one line per item, in this exact form:`,
+          '`N. FIXED: <file/function and how>`, `N. NOT FIXED: <why>` or `N. DISPUTED: <evidence>`. An item with no answer fails the revision.',
         ]
       : []),
     'When done, write exactly <promise>COMPLETE</promise>.',
@@ -279,10 +294,99 @@ export function buildRevisionPrompt(
     neutralizePromptTags(feedbackSection),
     '</review_feedback>',
     '',
+    ...(checklist.length > 0
+      ? ['<blocking_checklist>', neutralizePromptTags(checklist.map((text, i) => `${i + 1}. ${text}`).join('\n')), '</blocking_checklist>', '']
+      : []),
     '<diff>',
     neutralizePromptTags(pr.diff),
     '</diff>',
   ].join('\n');
+}
+
+const FINDINGS_TO_ADDRESS_RE = /Findings to address:/i;
+const LIST_ITEM_RE = /^\s*(?:[-*]|\d+[.)])\s+(.+)$/;
+const oneLine = (text: string): string => text.replace(/\s+/g, ' ').trim();
+const HEADING_RE = /^\s*#{1,6}\s+(.+)$/;
+// Top-level items only: an indented sub-bullet is detail of the finding above it, not a finding.
+const TOP_LIST_ITEM_RE = /^(?:[-*]|\d+[.)])\s+(.+)$/;
+const isBlockingLabel = (text: string): boolean => /\bblocking\b/i.test(text.replace(/\b(?:non|not|no)[- ]?blocking\b/gi, ''));
+
+/**
+ * Blocking findings of a Markdown review: the top-level list items under a heading that names them
+ * blocking (up to the next heading), plus any other top-level item labelled blocking itself.
+ */
+function proseBlockingFindings(body: string): string[] {
+  const out: string[] = [];
+  let inBlockingSection = false;
+  for (const line of stripReviewMarkers(body).split('\n')) {
+    const heading = HEADING_RE.exec(line)?.[1];
+    if (heading !== undefined) {
+      inBlockingSection = isBlockingLabel(heading);
+      continue;
+    }
+    const item = TOP_LIST_ITEM_RE.exec(line)?.[1];
+    if (item !== undefined && (inBlockingSection || isBlockingLabel(item))) out.push(oneLine(item));
+  }
+  return out;
+}
+
+/** Blocking findings of a bot review: its structured (high/critical) findings, else those in its Markdown. */
+function reviewBlockingFindings(body: string): string[] {
+  const blockingVerdict = extractCommentVerdict(body) === 'blocking';
+  try {
+    const { findings } = extractFindings(body);
+    const blocking = findings
+      .filter((f) => f.severity === 'high' || f.severity === 'critical')
+      .map((f) => oneLine(`[${f.severity}] ${f.title} — ${f.evidence}`));
+    // A BLOCKING verdict whose structured findings are all below high still has items to answer: fall through.
+    if (blocking.length > 0 || (findings.length > 0 && !blockingVerdict)) return blocking;
+  } catch {
+    // No structured findings block — the PR review posts Markdown (buildPullRequestReviewComment).
+  }
+  if (!blockingVerdict) return [];
+  const prose = proseBlockingFindings(body);
+  // A blocking verdict whose findings cannot be told apart still has to be answered, as one item.
+  return prose.length > 0 ? prose : ['Every blocking finding of the latest Vanguard review (answer each one it lists)'];
+}
+
+/**
+ * Every item the revision must answer: the blocking (high/critical) findings of the latest completed
+ * bot review of the current head (one of an older head is stale), plus the list items under a
+ * "Findings to address:" line in the actionable comments.
+ */
+export function buildRevisionChecklist(fb: PullRequestFeedback, actionable: readonly FeedbackItem[], botLogins: string[] = []): string[] {
+  const reviews = fb.items
+    // Exact bot logins only (classifyAuthor, not the substring isBotLogin): an outsider named `mallory-vanguard`
+    // must not plant checklist items. Exactly one marker SHA, the head's (soleReviewMarkerSha, as in the approver).
+    .filter((i) => classifyAuthor(i.author, i.authorAssociation, { botLogins }) === 'bot' && i.body.startsWith('## Vanguard Review') && soleReviewMarkerSha(i.body) === fb.headRefOid)
+    .sort((a, b) => a.createdAt.localeCompare(b.createdAt));
+  const latest = reviews[reviews.length - 1];
+  const out: string[] = [];
+  if (latest !== undefined) out.push(...reviewBlockingFindings(latest.body));
+  for (const item of actionable) {
+    const at = item.body.search(FINDINGS_TO_ADDRESS_RE);
+    if (at === -1) continue;
+    for (const line of item.body.slice(at).split('\n').slice(1)) {
+      const m = LIST_ITEM_RE.exec(line);
+      if (m?.[1] !== undefined) out.push(oneLine(m[1]));
+    }
+  }
+  return out;
+}
+
+export type ChecklistStatus = 'fixed' | 'not fixed' | 'disputed';
+export interface ChecklistAnswer { status: ChecklistStatus; detail: string }
+
+const ANSWER_RE = /^\s*(\d+)[.)]\s*(FIXED|NOT FIXED|DISPUTED)\s*[:—-]\s*(\S.*)$/gim;
+
+/** Parse the agent's `N. FIXED|NOT FIXED|DISPUTED: detail` lines; index i answers checklist item i+1 (undefined = unanswered). */
+export function parseChecklistAnswers(text: string, count: number): Array<ChecklistAnswer | undefined> {
+  const answers: Array<ChecklistAnswer | undefined> = Array.from({ length: count }, () => undefined);
+  for (const m of text.matchAll(ANSWER_RE)) {
+    const n = Number(m[1]);
+    if (n >= 1 && n <= count) answers[n - 1] = { status: (m[2] ?? '').toLowerCase() as ChecklistStatus, detail: oneLine(m[3] ?? '') };
+  }
+  return answers;
 }
 
 const REPLY_MUTATION = [
@@ -433,10 +537,12 @@ export interface RevisionSummaryInput {
   verification: { typecheck: 'pass' | 'fail' | 'unknown'; test: 'pass' | 'fail' | 'unknown' };
   /** When true, use the neutral (no-"vanguard") revision marker. */
   whiteLabel?: boolean;
-  /** The base was merged into the branch this round; `files` are the conflicted files that were resolved. */
-  mergedBase?: { base: string; files: string[]; rebased?: boolean };
+  /** The base was merged into the branch this round (or, when `rebased`, the branch was rebased onto it); `files` are the conflicted files that were resolved. */
+  mergedBase?: BaseResolution;
   /** The base could not be checked for conflicts this round (e.g. the fetch failed). */
   baseCheckSkipped?: { base: string; reason: string };
+  /** Per-item answers to the blocking checklist (unanswered items fail the revision before this is built). */
+  checklist?: Array<{ text: string; answer: ChecklistAnswer }>;
 }
 
 /** Build the single wrap-up summary comment posted at the end of a revision round. */
@@ -457,6 +563,11 @@ export function buildRevisionSummary(input: RevisionSummaryInput): string {
       const detail = point.trim() !== '' ? ` — ${point.trim()}` : '';
       lines.push(`- ${referenceSnippet(item)}${detail}`);
     }
+  }
+
+  if (input.checklist !== undefined && input.checklist.length > 0) {
+    lines.push('', '### Checklist', '');
+    input.checklist.forEach(({ text, answer }, i) => lines.push(`${i + 1}. ${text} — **${answer.status}**: ${answer.detail}`));
   }
 
   lines.push('', '### Deferred / not addressed', '');

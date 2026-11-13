@@ -1,7 +1,7 @@
 import { defaultGhRunner } from '../tasks/github.js';
 import type { GhRunner } from '../tasks/github.js';
 import { extractReviewVerdict, VERDICT_WITHOUT_COMPLETION_NOTE } from '../runners/review-prompt.js';
-import { pullRequestReviewMarkerShas } from '../runners/pr-review.js';
+import { soleReviewMarkerSha } from '../runners/pr-review.js';
 import type { ApproverPolicy, CheckFact, PrFacts, ReviewFacts } from './types.js';
 
 /** Typed-facts collectors: gh JSON only, never free text from an issue/PR/comment body into the engine. */
@@ -165,14 +165,14 @@ function peelReviewPrefix(body: string): string | undefined {
  */
 export function collectReviewFacts(pr: PrFacts, policy: ApproverPolicy): ReviewFacts {
   const candidates = pr.reviews.flatMap((r) => {
-    const shas = [...new Set(pullRequestReviewMarkerShas(r.body))];
+    const sha = soleReviewMarkerSha(r.body);
     const peeled = peelReviewPrefix(r.body);
-    if (shas.length !== 1 || peeled === undefined) return [];
+    if (sha === undefined || peeled === undefined) return [];
     // The external review only ever posts with `gh pr review --comment`: an approval, a change request or a
     // dismissed review in the same shape is some other writer (or a withdrawn verdict), never the verdict.
     if (r.state !== 'COMMENTED') return [];
     if (!policy.reviewAuthors.includes(r.author)) return [];
-    return [{ author: r.author, submittedAt: r.submittedAt, sha: shas[0]!, peeled }];
+    return [{ author: r.author, submittedAt: r.submittedAt, sha, peeled }];
   });
   if (candidates.length === 0) return { verdict: null, sha: null, author: null };
   candidates.sort((a, b) => a.submittedAt.localeCompare(b.submittedAt));

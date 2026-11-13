@@ -244,6 +244,12 @@ export function pullRequestReviewMarkerShas(body: string): string[] {
   return Array.from(body.matchAll(PR_REVIEW_MARKER_RE)).map((marker) => marker[1]!);
 }
 
+/** The body's marker SHA when it carries exactly one distinct one; undefined for none or a planted second. */
+export function soleReviewMarkerSha(body: string): string | undefined {
+  const shas = new Set(pullRequestReviewMarkerShas(body));
+  return shas.size === 1 ? [...shas][0] : undefined;
+}
+
 export const PR_REVIEW_INCOMPLETE_NOTICE =
   'Vanguard review did not complete; PR likely too large for a single pass. Please split or review manually.';
 export const PR_REVIEW_NO_OUTPUT_NOTICE =
