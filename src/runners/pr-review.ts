@@ -112,7 +112,7 @@ interface GhPullRequestView {
   isCrossRepository?: boolean;
   headRepositoryOwner?: { login?: string } | null;
   labels?: Array<{ name?: string }> | null;
-  reviews?: Array<{ author?: { login?: string } | null; body?: string | null; submittedAt?: string | null }> | null;
+  reviews?: Array<{ author?: { login?: string } | null; body?: string | null; submittedAt?: string | null; state?: string | null }> | null;
   comments?: Array<{ author?: { login?: string } | null; body?: string | null; createdAt?: string | null }> | null;
 }
 
@@ -195,13 +195,17 @@ export async function fetchPullRequestForReview(target: PullRequestReviewTarget,
 // not independent (approver/facts.ts excludes it the same way), so it is neither "already reviewed" nor a previous review.
 const MAIN_LOOP_REVIEW_RE = /^## Vanguard Review\s+Reviewed by\b/;
 const MAX_SINCE_DIFF_CHARS = 100_000;
+// The identity the external review posts as in CI (the approver's default reviewAuthors). Exact login only: any
+// `[bot]` App could plant a "previous review" whose marker picks the since-diff baseline and so downgrades real findings.
+const FACTORY_REVIEW_AUTHOR = 'github-actions';
 
 /** The previous factory review (last one with a head-SHA marker), the Revision Summaries since, and the diff since its head. */
 async function fetchReReviewContext(target: PullRequestReviewTarget, view: GhPullRequestView, gh: GhRunner, log?: (line: string) => void): Promise<ReReviewContext | undefined> {
   const previous = (view.reviews ?? [])
-    .map((r) => ({ body: r.body ?? '', login: r.author?.login ?? '', submittedAt: r.submittedAt ?? '' }))
-    // Exactly one distinct marker SHA, latest submittedAt wins: the same selection the approver makes (approver/facts.ts).
-    .filter((r) => isTrustedBotLogin(r.login) && r.body.startsWith(PR_REVIEW_HEADING) && !MAIN_LOOP_REVIEW_RE.test(r.body) && new Set(pullRequestReviewMarkerShas(r.body)).size === 1)
+    .map((r) => ({ body: r.body ?? '', login: r.author?.login ?? '', submittedAt: r.submittedAt ?? '', state: r.state ?? '' }))
+    // Exact author, a plain COMMENTED review, exactly one distinct marker SHA, latest submittedAt wins: the same
+    // selection the approver makes (approver/facts.ts) with its default reviewAuthors.
+    .filter((r) => r.login === FACTORY_REVIEW_AUTHOR && r.state === 'COMMENTED' && r.body.startsWith(PR_REVIEW_HEADING) && !MAIN_LOOP_REVIEW_RE.test(r.body) && new Set(pullRequestReviewMarkerShas(r.body)).size === 1)
     .sort((a, b) => a.submittedAt.localeCompare(b.submittedAt))
     .at(-1);
   if (previous === undefined) return undefined;

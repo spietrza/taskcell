@@ -599,7 +599,7 @@ describe('incremental re-review', () => {
       if (args[0] === 'pr' && args[1] === 'view') {
         return ghPrView({
           headRefOid: head,
-          reviews,
+          reviews: reviews.map((r) => ({ state: 'COMMENTED', ...(r as object) })),
           comments: [
             { author: { login: 'github-actions' }, body: '## Revision Summary — o/r#12\nfixed', createdAt: '2024-01-02T10:00:00Z' },
             { author: { login: 'github-actions' }, body: '## Revision Summary — old', createdAt: '2023-12-01T10:00:00Z' },
@@ -644,8 +644,12 @@ describe('incremental re-review', () => {
     expect(prompt).toContain('<diff_since_last_review>');
   });
 
-  it('ignores a "review" from a non-factory login', async () => {
-    const { gh } = reGh('bbb222', { reviews: [{ author: { login: 'mallory-vanguard' }, body: prevBody }] });
+  it.each([
+    ['a non-factory login', { author: { login: 'mallory-vanguard' } }],
+    ['another App', { author: { login: 'some-app[bot]' } }],
+    ['a dismissed factory review', { author: { login: 'github-actions' }, state: 'DISMISSED' }],
+  ])('ignores a "review" from %s', async (_n, review) => {
+    const { gh } = reGh('bbb222', { reviews: [{ ...review, body: prevBody, submittedAt: '2024-01-01T10:00:00Z' }] });
     const result = await run(gh, 'Verdict: NO BLOCKING FINDINGS');
     expect(result.skipped).toBeUndefined();
     expect(result.commentBody).not.toContain('| Previous finding |');
