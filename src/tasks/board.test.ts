@@ -184,6 +184,21 @@ describe('listBoardTasks', () => {
     await expect(listBoardTasks(repo)).rejects.toThrow(/Set a Task Source in Settings/);
   });
 
+  it('a task source the board does not read is named, not re-prompted for', async () => {
+    const repo = await repoWith({ taskSource: 'hub' });
+    await expect(listBoardTasks(repo)).rejects.toThrow(/task source \(Hub board\) is not listed on this board/);
+  });
+
+  it('taskSource wins over a stale legacy source', async () => {
+    const repo = await repoWith({ taskSource: 'linear', source: 'github', team: 'DEV' });
+    let used: string | undefined;
+    await listBoardTasks(repo, async (source) => {
+      used = source;
+      return fake([]);
+    });
+    expect(used).toBe('linear');
+  });
+
   it('maps fetched tasks through toBoardTask and reports capped at the fetch cap', async () => {
     const repo = await repoWith({ source: 'github' });
     const tasks: Task[] = Array.from({ length: BOARD_FETCH_CAP }, (_, i) => ({

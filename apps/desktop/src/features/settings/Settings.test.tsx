@@ -31,6 +31,22 @@ test('the form does not render until the read resolves — a mid-load edit canno
   expect(screen.getByRole('button', { name: /save/i })).toBeDisabled(); // still clean — not dirty
 });
 
+test('an unset task source shows "—" (not a default the board would reject); picking GitHub saves it', async () => {
+  read.mockResolvedValueOnce({});
+  render(<Settings project="/repo" />);
+  await waitFor(() => expect(screen.getByPlaceholderText('vanguard-ready')).toBeInTheDocument());
+  expect(screen.getByLabelText('Task source')).toHaveValue('');
+  fireEvent.change(screen.getByLabelText('Task source'), { target: { value: 'github' } });
+  fireEvent.click(screen.getByRole('button', { name: /save/i }));
+  await waitFor(() => expect(write).toHaveBeenLastCalledWith('/repo', expect.objectContaining({ taskSource: 'github', source: 'github' })));
+});
+
+test('a project configured before taskSource shows its legacy source', async () => {
+  read.mockResolvedValueOnce({ source: 'gitlab' });
+  render(<Settings project="/repo" />);
+  await waitFor(() => expect(screen.getByLabelText('Task source')).toHaveValue('gitlab'));
+});
+
 test('task source and run location are editable, saved per project, and bad pairs are explained', async () => {
   read.mockResolvedValueOnce({});
   render(<Settings project="/repo" />);

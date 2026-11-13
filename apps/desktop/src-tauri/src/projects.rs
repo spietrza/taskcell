@@ -29,6 +29,19 @@ pub struct Project {
     pub run_location: Option<String>,
 }
 
+const TASK_SOURCES: &[&str] = &["github", "github-project", "gitlab", "linear", "hub"];
+const RUN_LOCATIONS: &[&str] = &["github-actions", "gitlab-ci", "watch", "local"];
+
+/// A hand-edited app.json may hold anything: only known ids reach the wire.
+fn known(v: Option<String>, ids: &[&str]) -> Option<String> {
+    v.filter(|v| ids.contains(&v.as_str()))
+}
+
+/// `taskSource`, else the pre-`taskSource` `source` (github | gitlab | linear): the resolution Settings uses.
+fn resolve_task_source(cfg: &crate::appconfig::AppConfig) -> Option<String> {
+    known(cfg.task_source.clone(), TASK_SOURCES).or_else(|| known(cfg.source.clone(), TASK_SOURCES))
+}
+
 fn projects_file(config_dir: &Path) -> PathBuf {
     config_dir.join("projects.json")
 }
@@ -100,9 +113,9 @@ fn aggregate_at(repo_path: &Path, summaries: &[serde_json::Value], now: DateTime
         last_run,
         running_count,
         runs_last_24h,
+        task_source: resolve_task_source(&cfg),
+        run_location: known(cfg.run_location, RUN_LOCATIONS),
         color: cfg.color,
-        task_source: cfg.task_source,
-        run_location: cfg.run_location,
     }
 }
 
@@ -199,6 +212,25 @@ mod tests {
         assert_eq!(p.task_source.as_deref(), Some("gitlab"));
         assert_eq!(p.run_location.as_deref(), Some("gitlab-ci"));
         assert_eq!(aggregate_at(Path::new("/repo/none"), &[], Utc::now()).task_source, None);
+    }
+
+    #[test]
+    fn falls_back_to_legacy_source_and_drops_unknown_ids() {
+        let tmp = tempfile::tempdir().unwrap();
+        let legacy = crate::appconfig::AppConfig { source: Some("gitlab".into()), ..Default::default() };
+        crate::appconfig::write(tmp.path(), &legacy).unwrap();
+        assert_eq!(aggregate_at(tmp.path(), &[], Utc::now()).task_source.as_deref(), Some("gitlab"));
+
+        let bad = crate::appconfig::AppConfig {
+            source: Some("linear".into()),
+            task_source: Some("jira".into()),
+            run_location: Some("nope".into()),
+            ..Default::default()
+        };
+        crate::appconfig::write(tmp.path(), &bad).unwrap();
+        let p = aggregate_at(tmp.path(), &[], Utc::now());
+        assert_eq!(p.task_source.as_deref(), Some("linear"));
+        assert_eq!(p.run_location, None);
     }
 
     #[test]

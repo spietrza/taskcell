@@ -1,5 +1,5 @@
 import { describe, expect, test } from 'vitest';
-import { combinationNote, legacySource, runLocationLabel, runLocationOf, taskSourceLabel, taskSourceOf } from './platform';
+import { combinationNote, legacySource, resolveTaskSource, runLocationLabel, runLocationOf, taskSourceLabel, taskSourceOf } from './platform';
 
 describe('platform', () => {
   test('unset or unknown values fall back to GitHub Issues + GitHub Actions', () => {
@@ -8,6 +8,14 @@ describe('platform', () => {
     expect(runLocationOf(null)).toBe('github-actions');
     expect(taskSourceLabel('github-project')).toBe('GitHub Projects');
     expect(runLocationLabel('watch')).toBe('Self-hosted (watch)');
+  });
+
+  test('resolveTaskSource: taskSource, else legacy source, else unset', () => {
+    expect(resolveTaskSource({})).toBeUndefined();
+    expect(resolveTaskSource({ source: 'gitlab' })).toBe('gitlab');
+    expect(resolveTaskSource({ taskSource: 'hub', source: 'github' })).toBe('hub');
+    expect(resolveTaskSource({ taskSource: 'jira', source: 'linear' })).toBe('linear');
+    expect(resolveTaskSource({ source: 'jira' })).toBeUndefined();
   });
 
   test('legacy source maps only the sources the board reads', () => {

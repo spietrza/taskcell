@@ -24,10 +24,18 @@ export const DEFAULT_RUN_LOCATION: RunLocationId = 'github-actions';
 
 const taskSourceIds: readonly string[] = TASK_SOURCES.map((s) => s.id);
 const runLocationIds: readonly string[] = RUN_LOCATIONS.map((r) => r.id);
+const isTaskSourceId = (v: string | null | undefined): v is TaskSourceId => v != null && taskSourceIds.includes(v);
 
 /** Stored values come from a hand-editable file: anything unknown falls back to the default. */
 export function taskSourceOf(v: string | null | undefined): TaskSourceId {
-  return v != null && taskSourceIds.includes(v) ? (v as TaskSourceId) : DEFAULT_TASK_SOURCE;
+  return isTaskSourceId(v) ? v : DEFAULT_TASK_SOURCE;
+}
+/**
+ * The configured task source: `taskSource`, else the pre-`taskSource` `source`; undefined when neither
+ * holds a known id. Same resolution as the dashboard aggregators (`src/hub/projects.ts`, `projects.rs`).
+ */
+export function resolveTaskSource(cfg: { taskSource?: string | null; source?: string | null }): TaskSourceId | undefined {
+  return isTaskSourceId(cfg.taskSource) ? cfg.taskSource : isTaskSourceId(cfg.source) ? cfg.source : undefined;
 }
 export function runLocationOf(v: string | null | undefined): RunLocationId {
   return v != null && runLocationIds.includes(v) ? (v as RunLocationId) : DEFAULT_RUN_LOCATION;

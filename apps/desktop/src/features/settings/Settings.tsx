@@ -5,7 +5,7 @@ import { Credentials } from './Credentials';
 import { writeAppConfig } from '../../ipc';
 import { useAppConfig } from '../../hooks';
 import { useDiscardGuard } from '../../navGuard';
-import { combinationNote, legacySource, RUN_LOCATIONS, runLocationOf, TASK_SOURCES, taskSourceOf } from '../../platform';
+import { combinationNote, legacySource, resolveTaskSource, RUN_LOCATIONS, runLocationOf, TASK_SOURCES, taskSourceOf } from '../../platform';
 import { projectColor } from '../../color';
 import { customProviderRowError, customProviderRows, PROVIDERS } from './customProviders';
 import type { AppConfig } from '../../taskcell-output';
@@ -102,7 +102,8 @@ export function Settings({ project }: { project: string }) {
     setSaved(true);
   };
 
-  const taskSource = taskSourceOf(cfg.taskSource ?? cfg.source);
+  // Unset stays unset ("—"): the board needs an explicit source, so Settings must not display a default it never saves.
+  const taskSource = resolveTaskSource(cfg);
   const note = combinationNote(taskSource, cfg.runLocation);
 
   return (
@@ -162,15 +163,16 @@ export function Settings({ project }: { project: string }) {
         <div className="grid grid-cols-2 gap-4">
           <Field label="Task source">
             <select
-              value={taskSource}
+              value={taskSource ?? ''}
               onChange={(e) => {
-                const v = taskSourceOf(e.target.value);
+                const v = e.target.value === '' ? undefined : taskSourceOf(e.target.value);
                 set('taskSource', v);
                 // `source` keeps feeding the board/transport/CLI; sources it does not read clear it.
-                set('source', legacySource(v));
+                set('source', v && legacySource(v));
               }}
               className="h-9 w-full rounded border border-border bg-background px-2 text-sm"
             >
+              <option value="">—</option>
               {TASK_SOURCES.map((s) => (
                 <option key={s.id} value={s.id}>
                   {s.label}

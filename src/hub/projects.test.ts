@@ -45,6 +45,16 @@ describe('per-project platform', () => {
     expect(bad.taskSource).toBeUndefined();
     expect(bad.runLocation).toBeUndefined();
   });
+
+  it('falls back to the legacy source for projects configured before taskSource', async () => {
+    const repo = join(repoRoot, 'proj-legacy-source');
+    await mkdir(join(repo, '.taskcell'), { recursive: true });
+    await writeFile(join(repo, '.taskcell', 'app.json'), JSON.stringify({ source: 'gitlab' }));
+    expect((await aggregate(repo)).taskSource).toBe('gitlab');
+
+    await writeFile(join(repo, '.taskcell', 'app.json'), JSON.stringify({ taskSource: 'jira', source: 'linear' }));
+    expect((await aggregate(repo)).taskSource).toBe('linear');
+  });
 });
 
 describe('add/list/remove', () => {
