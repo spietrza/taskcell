@@ -71,6 +71,7 @@ export const COMMAND_NAMES = [
   'browse_dirs',
   'clear_draft_assets',
   'clone_project',
+  'conflict_stats',
   'delete_credential',
   'delete_draft',
   'delete_instance_credential',
