@@ -13,6 +13,7 @@ import {
   revisionCapMarker,
   revisionMarker,
   buildItemReply,
+  isConflictItem,
   buildRevisionSummary,
   buildRevisionChecklist,
   parseChecklistAnswers,
@@ -35,7 +36,7 @@ import { skillRegistryForRun } from '../context/skill-registry.js';
 import { resolveVerifyCommand, runVerification, renderVerificationFeedback } from '../pipeline/verify.js';
 import { reviewRequestBody } from './review-body.js';
 import { repairUntilGreen } from '../pipeline/repair-gate.js';
-import { beginRun } from '../core/run-store.js';
+import { beginRun, persistBaseMerge } from '../core/run-store.js';
 import { appendStepSummary } from '../core/step-summary.js';
 import type { StepSummary, StepSummaryExit } from '../core/step-summary.js';
 import type { StageOutcome } from '../pipeline/pipeline.js';
@@ -444,11 +445,18 @@ export async function runRevisePullRequest(prRef: string, deps: ReviseGithubPrDe
   // (automated or bot) leaves the cutoff undefined and the cap holds.
   const resetAt = revisionBudgetResetAt(fb, deps);
   const rounds = countRevisionRoundsFromFeedback(fb, deps, resetAt);
-  if (rounds >= maxRounds) {
+  // A round asked for nothing but the conflict with the base (no checklist item) may still run at the cap and
+  // merges a base that git merges cleanly. Whether it WAS merge-only (uncounted, see revisionMarker) is decided
+  // below from what it changed, never from the wording of the feedback: the agent still gets every item.
+  const checklist = buildRevisionChecklist(fb, actionable, deps.botLogins);
+  const mergeOnlyAsk = checklist.length === 0 && actionable.every(isConflictItem);
+  const atCap = rounds >= maxRounds;
+  const refuseAtCap = async (): Promise<ReviseGithubPrResult> => {
     await handBackWithNotice(`cap -> ${rounds} rounds`,
       `Revision cap reached (${rounds}/${maxRounds} rounds). No further automated revisions will be applied.\n\n${revisionCapMarker()}`);
     return { pr, ignoredFeedback, addressed: 0, committed: false, pushed: false, undrafted: false };
-  }
+  };
+  if (atCap && !mergeOnlyAsk) return await refuseAtCap();
 
   if (pr.isCrossRepository) {
     // A fork PR's head branch is not on origin: fetching refs/heads/<headRefName> there (resolveStartRef
@@ -607,7 +615,21 @@ export async function runRevisePullRequest(prRef: string, deps: ReviseGithubPrDe
         ...(deps.commitAuthor !== undefined ? { authorName: deps.commitAuthor.name, authorEmail: deps.commitAuthor.email } : {}),
         // Only a factory branch (its prefix) may be rewritten; base-merge also requires every commit on it to carry the factory identity.
         factoryOwned: pr.headRefName.startsWith(VANGUARD_BRANCH_PREFIX),
+        // Asked only to bring the branch up to its base: merge a base that git merges cleanly too.
+        mergeClean: mergeOnlyAsk && deps.out === undefined,
       });
+      const cleanMerged = baseMerge.status === 'clean' && baseMerge.merged === true;
+      // One `base_merge` metric per check that ran (not for a dry run, which touches nothing); telemetry is best-effort.
+      const recordBaseMerge = async (conflictedFiles: string[], resolvedBy?: 'agent' | 'human'): Promise<void> => {
+        if (deps.out !== undefined || baseMerge.status === 'skipped') return;
+        await persistBaseMerge(deps.repoPath, {
+          repo: target.repoSlug, pr: target.number, base: baseName,
+          outcome: baseMerge.status, conflictedFiles, ...(resolvedBy !== undefined ? { resolvedBy } : {}),
+          // Recorded before the round's diff exists: what the round was asked for.
+          round: mergeOnlyAsk ? 'merge-only' : 'mixed',
+        }).catch(() => undefined);
+      };
+      if (baseMerge.status === 'clean') await recordBaseMerge([]);
       if (baseMerge.status === 'skipped') log(`revise-pr ${target.repoSlug}#${target.number}: base merge check skipped (${baseMerge.reason})`);
       const conflicted = baseMerge.status === 'conflicted' ? baseMerge.files : [];
       const mergedBase = baseMerge.status === 'conflicted' && baseMerge.unresolvable.length === 0 ? { base: baseName, files: conflicted, ...(baseMerge.rebased === true ? { rebased: true } : {}) } : undefined;
@@ -628,7 +650,14 @@ export async function runRevisePullRequest(prRef: string, deps: ReviseGithubPrDe
       };
 
       // Conflicts with no markers to resolve (modify/delete, rename, binary) are left to a human.
-      if (baseMerge.status === 'conflicted' && baseMerge.unresolvable.length > 0) return await holdForConflict(baseMerge.unresolvable, baseMerge.reason);
+      if (baseMerge.status === 'conflicted' && baseMerge.unresolvable.length > 0) {
+        await recordBaseMerge(baseMerge.files, 'human');
+        return await holdForConflict(baseMerge.unresolvable, baseMerge.reason);
+      }
+      if (cleanMerged) {
+        log(`revise-pr ${target.repoSlug}#${target.number}: ${baseName} merged cleanly`);
+        await refreshSandboxWorkspace(ctx);
+      }
       if (mergedBase !== undefined) {
         log(`revise-pr ${target.repoSlug}#${target.number}: ${baseName} conflicts with the branch (${formatConflictFiles(conflicted)}) -> ${mergedBase.rebased === true ? 'rebased' : 'merged'}, agent resolves`);
         await refreshSandboxWorkspace(ctx);
@@ -636,7 +665,6 @@ export async function runRevisePullRequest(prRef: string, deps: ReviseGithubPrDe
 
       // Override the implementer's promptTemplate with the revision prompt. It holds review comments and
       // the diff, so it goes in as a variable and is never expanded as a template (see literalPrompt).
-      const checklist = buildRevisionChecklist(fb, actionable, deps.botLogins);
       // Lessons for the files the PR actually changes (the diff is known here), recorded on the run.
       const lessons = await loadLessonsForTask(deps.repoPath, '', { files: changedFilesOf(pr.diff) });
       const { promptTemplate, variables } = literalPrompt(buildRevisionPrompt(pr, actionable, mergedBase, checklist, lessons.text));
@@ -648,6 +676,7 @@ export async function runRevisePullRequest(prRef: string, deps: ReviseGithubPrDe
       if (lessons.ids.length > 0) revisionStageMeta.lessonIds = lessons.ids;
       outcomes = await runStages(ctx, pipeline, { agent: agents.agent, variables });
       const stillConflicted = await filesWithConflictMarkers(ctx.worktreePath, conflicted);
+      if (baseMerge.status === 'conflicted') await recordBaseMerge(conflicted, stillConflicted.length > 0 ? 'human' : 'agent');
       if (stillConflicted.length > 0) {
         await writeStagesWithoutDiff();
         return await holdForConflict(stillConflicted);
@@ -778,6 +807,14 @@ export async function runRevisePullRequest(prRef: string, deps: ReviseGithubPrDe
         return { pr, ignoredFeedback, addressed: actionable.length, committed: false, pushed: false, undrafted: false, dryRunOut };
       }
 
+      // Merge-only is what the round did: the base was merged and the agent changed nothing outside the files that
+      // conflicted (nothing at all after a clean merge). Anything else is an ordinary round: counted, re-reviewed in full.
+      const mergeOnlyDiff = mergeOnlyAsk && (cleanMerged || mergedBase !== undefined) && (await ctx.wm.changedPaths(ctx.worktreePath)).every((f) => conflicted.includes(f));
+      if (atCap && !mergeOnlyDiff) {
+        await stepSummary('no-changes');
+        return await refuseAtCap();
+      }
+
       log(`revise-pr ${target.repoSlug}#${target.number}: commit -> staging`);
       // Resolved at each use (push, undraft): an App installation token is minted then, not now.
       const resolvePushToken = tokenProviderFor(deps.repoPath, target.repoSlug);
@@ -808,7 +845,7 @@ export async function runRevisePullRequest(prRef: string, deps: ReviseGithubPrDe
         // than strand the PR silently.
         throw new TaskcellError(`revise-pr ${target.repoSlug}#${target.number}: secret found at delivery after a clean pre-scan`);
       }
-      if (delivery.kind === 'no-changes' && mergedBase === undefined) {
+      if (delivery.kind === 'no-changes' && mergedBase === undefined && !cleanMerged) {
         // A conflict finding that changed nothing, with no way to tell whether the branch still conflicts
         // (the base check was skipped), is a failure, not a quiet success.
         if (baseMerge.status === 'skipped' && actionable.some((item) => /\bconflict/i.test(item.body))) return await holdForConflict([]);
@@ -819,6 +856,8 @@ export async function runRevisePullRequest(prRef: string, deps: ReviseGithubPrDe
         await stepSummary('no-changes');
         return { pr, ignoredFeedback, addressed: 0, committed: false, pushed: false, undrafted: false };
       }
+      // After a clean merge the round is merge-only only if nothing but the merge commit goes out.
+      const mergeOnly = mergeOnlyDiff && (!cleanMerged || delivery.kind === 'no-changes');
       let sha: string;
       if (delivery.kind === 'delivered-push') {
         sha = delivery.sha;
@@ -870,14 +909,14 @@ export async function runRevisePullRequest(prRef: string, deps: ReviseGithubPrDe
         [...threadIdToItem.entries()].map(([threadId, item]) => {
           const p = pointFor(item);
           const detail = p ? `: ${p}` : '.';
-          return replyAndResolveThread(threadId, `Addressed in commit ${sha}${detail}\n\n${revisionMarker(pr.headRefOid, whiteLabel)}`, gh);
+          return replyAndResolveThread(threadId, `Addressed in commit ${sha}${detail}\n\n${revisionMarker(pr.headRefOid, whiteLabel, mergeOnly)}`, gh);
         }),
       );
 
       // Post a per-item referencing reply for each non-threadable feedback item.
       const nonThreadItems = actionable.filter((item) => item.source !== 'thread');
       await Promise.all(
-        nonThreadItems.map((item) => commentPullRequest(target, buildItemReply(item, pointFor(item), sha, pr.headRefOid, whiteLabel), gh)),
+        nonThreadItems.map((item) => commentPullRequest(target, buildItemReply(item, pointFor(item), sha, pr.headRefOid, whiteLabel, mergeOnly), gh)),
       );
 
       // Post the single final round summary.
@@ -892,7 +931,8 @@ export async function runRevisePullRequest(prRef: string, deps: ReviseGithubPrDe
         verification: { typecheck: verificationStatus, test: verificationStatus },
         whiteLabel,
         ...(checklistAnswers.length > 0 ? { checklist: checklistAnswers } : {}),
-        ...(mergedBase !== undefined ? { mergedBase } : {}),
+        ...(mergedBase !== undefined ? { mergedBase } : cleanMerged ? { mergedBase: { base: baseName, files: [] } } : {}),
+        ...(mergeOnly ? { mergeOnly } : {}),
         ...(baseMerge.status === 'skipped' ? { baseCheckSkipped: { base: baseName, reason: baseMerge.reason } } : {}),
       });
       // The gate on checker config is per-push, not per-PR (#627): a weakening introduced in a later
@@ -912,7 +952,10 @@ export async function runRevisePullRequest(prRef: string, deps: ReviseGithubPrDe
       await markReady(gh, target.repoSlug, target.number, tokenProvider, log);
 
       await handBackPrLabels(gh, target.repoSlug, target.number, log);
-      await requestReReview(gh, target.repoSlug, target.number, log);
+      // A merge-only round that resolved no conflict markers changed nothing the review covered: the previous
+      // verdict stands (reviewed label kept, no review run; the approver's patch-id check sees the same change).
+      if (mergeOnly && cleanMerged) log(`revise-pr ${target.repoSlug}#${target.number}: merge-only, clean merge -> keeping the previous review verdict`);
+      else await requestReReview(gh, target.repoSlug, target.number, log);
 
       await stepSummary(verificationFailed ? 'verify-failed' : 'completed');
       return {

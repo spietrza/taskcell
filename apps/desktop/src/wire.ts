@@ -120,6 +120,20 @@ export interface FlowDoc {
   meta?: Record<string, unknown>;
 }
 
+/** One live lesson (src/core/lessons.ts) on the wire. */
+export interface RepoLesson {
+  id: string;
+  rule: string;
+  why: string;
+  /** PR or comment URL the lesson came from. */
+  evidence: string;
+  /** Path globs the lesson applies to; empty = repo-wide. */
+  paths: string[];
+  stage?: 'spec' | 'implement' | 'review' | 'verify';
+  prNumber: number;
+  timestamp: string;
+}
+
 /** One discovered flow file. `name` present ⇔ parsed (openable); `error` present ⇔ not runnable. */
 export interface RepoFlowInfo {
   file: string;
@@ -766,6 +780,13 @@ export interface CliVersionInfo {
   updatable: boolean;
   reason?: string;
 }
+/** Base-merge (conflict) rollup from the `base_merge` metric lines: per week, plus the most-conflicted files. */
+export interface ConflictStats {
+  weeks: Array<{ week: string; merges: number; conflicts: number; autoResolved: number; leftForHuman: number }>;
+  total: { merges: number; conflicts: number; autoResolved: number; leftForHuman: number };
+  topFiles: Array<{ file: string; conflicts: number }>;
+}
+
 export interface CliVersionReport {
   enabled: boolean;
   clis: CliVersionInfo[];
@@ -891,6 +912,11 @@ export interface Commands {
   /** HUB_ONLY, read-only: one issue's history over the audit streams, run records and Git host events
    *  (docs/audit.md § Issue history). The hub's own audit lines are included for an admin only. */
   read_issue_history: { args: { repoPath: string; issue: number }; result: IssueHistory };
+  /** HUB_ONLY, read-only: the live lessons of a repo, newest first. With `taskText`, only those a task with that text would receive.
+   *  `branchFound` is false when the repo has no metrics branch (or no lessons file on it) yet. */
+  list_lessons: { args: { repoPath: string; taskText?: string }; result: { lessons: RepoLesson[]; branchFound: boolean } };
+  /** HUB_ONLY: dismiss a lesson (same effect as `taskcell lessons dismiss <id>`): later runs no longer receive it. */
+  dismiss_lesson: { args: { repoPath: string; id: string }; result: void };
   /** HUB_ONLY: rename the repo's old `vanguard:*` labels to `taskcell:*` (as `taskcell migrate-labels`). Dry-run unless `apply`. */
   migrate_labels: { args: { repoPath: string; apply?: boolean }; result: MigrateLabelsReport };
   /** HUB_ONLY: the hub "Needs you" read model (src/hub/needs-you.ts) — `gh` and labels only, no model call. */
@@ -938,6 +964,8 @@ export interface Commands {
   import_remote_run: { args: { repoPath: string; runId: number }; result: RemoteImport };
   list_active: { args: { repoPath: string }; result: ActiveRun[] };
   read_session: { args: { sessionFile: string }; result: SessionRead };
+  /** HUB_ONLY, read-only: conflicts with the base per week (total, auto-resolved, left for a human) and the top conflicted files, as `taskcell stats` prints them. */
+  conflict_stats: { args: { repoPath: string }; result: ConflictStats };
   /** HUB_ONLY, owner only, read-only: whether `gh`, `glab`, a Linear key and a model credential (Claude, or a Codex key or sign-in file) are present on the hub host. Booleans only — never a secret value. Spawns `gh`/`glab` on the host, so it is refused on a non-loopback bind without VANGUARD_HUB_ALLOW_ADD. */
   setup_status: { args: undefined; result: SetupStatus };
   list_tasks: { args: { repoPath: string }; result: { tasks: BoardTask[]; capped: boolean } };
@@ -994,10 +1022,12 @@ export const COMMAND_NAMES = [
   'browse_dirs',
   'clear_draft_assets',
   'clone_project',
+  'conflict_stats',
   'delete_credential',
   'delete_draft',
   'delete_instance_credential',
   'delete_user_credential',
+  'dismiss_lesson',
   'enable_factory_apply',
   'enable_factory_plan',
   'enable_factory_secret',
@@ -1015,6 +1045,7 @@ export const COMMAND_NAMES = [
   'list_active',
   'list_branches',
   'list_drafts',
+  'list_lessons',
   'list_needs_you',
   'list_needs_you_all',
   'list_projects',

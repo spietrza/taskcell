@@ -7,7 +7,8 @@ import { isCiConfigPath } from '../sandbox/copy-back.js';
 
 /** Outcome of checking a PR branch against a fresh fetch of its base. */
 export type BaseMerge =
-  | { status: 'clean' }
+  /** Git merges the base without conflicts. `merged`: a merge commit was made (only with `mergeClean`). */
+  | { status: 'clean'; merged?: true }
   /** The check could not run (no remote, unrelated histories, fetch failed): nothing was changed. */
   | { status: 'skipped'; reason: string }
   /**
@@ -51,6 +52,8 @@ export interface MergeBaseOptions {
   authorEmail?: string;
   /** The branch is the factory's (the caller checked its name); a rebase also requires every commit on it to be authored as the factory. */
   factoryOwned?: boolean;
+  /** A branch that merges cleanly is still merged (a merge commit), instead of being left untouched. */
+  mergeClean?: boolean;
 }
 
 /**
@@ -63,6 +66,7 @@ export async function mergeBaseIntoWorktree(worktreePath: string, base: string, 
   assertSafeBaseBranch(base);
   const identity = ['-c', `user.name=${opts.authorName ?? 'Vanguard'}`, '-c', `user.email=${opts.authorEmail ?? 'vanguard@local'}`];
   const probe = await probeBase(worktreePath, base, opts.remote ?? 'origin');
+  if (probe.status === 'clean' && opts.mergeClean === true) return await mergeCleanBase(worktreePath, identity);
   if (probe.status !== 'conflicted') return probe;
   const { tree, files: probed } = probe;
   // A merge commit carrying the base's CI-config changes into the branch is a workflow update the push
@@ -117,6 +121,18 @@ export async function mergeBaseIntoWorktree(worktreePath: string, base: string, 
   ]);
   for (const [file, text] of marked) await writeFile(join(worktreePath, file), text);
   return { status: 'conflicted', files, unresolvable: [] };
+}
+
+/** Merge FETCH_HEAD (already probed as conflict-free) into the branch; a failed merge is aborted and reported as a plain clean check. */
+async function mergeCleanBase(worktreePath: string, identity: string[]): Promise<BaseMerge> {
+  const before = String((await git(worktreePath, ['rev-parse', 'HEAD'])).stdout).trim();
+  const merge = await execa('git', hostGitArgs([...identity, 'merge', '--no-edit', '--no-verify', 'FETCH_HEAD']), { cwd: worktreePath, reject: false });
+  if (merge.exitCode !== 0) {
+    await abortMerge(worktreePath);
+    return { status: 'clean' };
+  }
+  const after = String((await git(worktreePath, ['rev-parse', 'HEAD'])).stdout).trim();
+  return after === before ? { status: 'clean' } : { status: 'clean', merged: true };
 }
 
 /**

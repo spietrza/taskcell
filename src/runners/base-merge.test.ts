@@ -53,6 +53,15 @@ describe('mergeBaseIntoWorktree', () => {
     expect((await g(['status', '--porcelain'])).stdout).toBe('');
   });
 
+  it('mergeClean: a cleanly merging branch gets a merge commit and no conflict', async () => {
+    await writeFile(join(repo, 'a.txt'), 'a\n');
+    await commit('feature');
+    await landOnMain(() => writeFile(join(repo, 'b.txt'), 'b\n'));
+    expect(await mergeBaseIntoWorktree(repo, 'main', { mergeClean: true })).toEqual({ status: 'clean', merged: true });
+    expect((await g(['rev-list', '--merges', '--count', 'HEAD'])).stdout).toBe('1');
+    expect((await g(['status', '--porcelain'])).stdout).toBe('');
+  });
+
   it('conflict: commits a merge taking the branch side, leaving only the marked file as an uncommitted edit', async () => {
     await writeFile(join(repo, 'shared.txt'), 'feature\n');
     await commit('feature');

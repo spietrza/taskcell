@@ -51,6 +51,11 @@ export function listRuns(repoPath: string): Promise<RunSummary[]> {
   return call('list_runs', { repoPath });
 }
 
+/** HUB_ONLY: conflicts with the base per week for one repository, as `taskcell stats` prints them. */
+export function conflictStats(repoPath: string): Promise<Commands['conflict_stats']['result']> {
+  return call('conflict_stats', { repoPath });
+}
+
 /** HUB_ONLY: every repository's runs, each stamped with its repository; unreadable ones in `failures`. */
 export function listRunsAll(teamId?: string): Promise<Commands['list_runs_all']['result']> {
   return call('list_runs_all', teamArgs(teamId));
@@ -499,4 +504,14 @@ export function teamRemoveRepository(teamId: string, path: string): Promise<Team
 /** HUB_ONLY, read-only: what first-run setup can see on the hub host (booleans, never a secret value). */
 export function setupStatus(): Promise<SetupStatus> {
   return call('setup_status', undefined);
+}
+
+/** Hub-only: the live lessons of a repo (newest first); with `taskText`, only those a task with that text would receive. */
+export function listLessons(repoPath: string, taskText?: string): Promise<Commands['list_lessons']['result']> {
+  return call('list_lessons', { repoPath, ...(taskText !== undefined ? { taskText } : {}) });
+}
+
+/** Hub-only, a mutation: dismiss a lesson so later runs no longer receive it. */
+export function dismissLesson(repoPath: string, id: string): Promise<void> {
+  return call('dismiss_lesson', { repoPath, id });
 }

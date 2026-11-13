@@ -4,7 +4,7 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { createHash } from 'node:crypto';
 import { execa } from 'execa';
-import { VERDICT_STAGES, beginRun, listRuns, readRun, runsRoot, persistDecisionProbe, persistRunRecord, persistStageOutcomes } from './run-store.js';
+import { VERDICT_STAGES, beginRun, listRuns, readRun, runsRoot, persistBaseMerge, persistDecisionProbe, persistRunRecord, persistStageOutcomes } from './run-store.js';
 import { STAGE } from '../pipeline/pipeline.js';
 import type { RunResult } from './types.js';
 
@@ -390,6 +390,12 @@ describe('beginRun — writing', () => {
     await persistDecisionProbe(repo, 'task-1', { model: 'clef-flash', completesFirstTry: 0.7, difficulty: 1.5, difficultyConfidence: 0.6, specClear: 0.9, latencyMs: 120 }, { timestamp: TS });
     const metrics = (await readFile(join(runsRoot(repo), 'metrics.jsonl'), 'utf8')).trim().split('\n');
     expect(JSON.parse(metrics.at(-1)!)).toMatchObject({ evt: 'decision_probe', ts: TS, taskId: 'task-1', model: 'clef-flash', completesFirstTry: 0.7, difficulty: 1.5, difficultyConfidence: 0.6, specClear: 0.9, latencyMs: 120 });
+  });
+
+  it('persistBaseMerge appends one base_merge line', async () => {
+    await persistBaseMerge(repo, { repo: 'o/r', pr: 7, base: 'main', outcome: 'conflicted', conflictedFiles: ['a.ts'], resolvedBy: 'agent', round: 'merge-only' }, { timestamp: TS });
+    const metrics = (await readFile(join(runsRoot(repo), 'metrics.jsonl'), 'utf8')).trim().split('\n');
+    expect(JSON.parse(metrics.at(-1)!)).toMatchObject({ evt: 'base_merge', ts: TS, repo: 'o/r', pr: 7, base: 'main', outcome: 'conflicted', conflictedFiles: ['a.ts'], resolvedBy: 'agent', round: 'merge-only' });
   });
 
   it('writeStages records the configured model next to the served one', async () => {
