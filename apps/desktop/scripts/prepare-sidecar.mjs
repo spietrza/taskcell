@@ -34,5 +34,6 @@ for (const entry of ['package.json', 'pnpm-lock.yaml', 'dist', 'templates', 'ski
 }
 mkdirSync(join(stage, 'apps/desktop'), { recursive: true });
 cpSync(join(desktop, 'dist'), join(stage, 'apps/desktop/dist'), { recursive: true });
-run('pnpm', ['install', '--prod', '--frozen-lockfile', '--ignore-scripts'], stage);
+// --ignore-workspace: apps/desktop has a pnpm-workspace.yaml, so without it pnpm installs there (pruning the dev tools) and leaves the stage empty.
+run('pnpm', ['install', '--prod', '--frozen-lockfile', '--ignore-scripts', '--ignore-workspace'], stage);
 console.log(`staged ${stage} and ${nodeDest}`);
