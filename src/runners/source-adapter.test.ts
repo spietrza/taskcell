@@ -978,32 +978,48 @@ describe('runSourcedIssue', () => {
     runStages.mockResolvedValueOnce([stageOutcome('implementer', 'sess-1'), stageOutcome('reviewer')]);
     vi.mocked(resolveVerifyCommand).mockResolvedValue('npm test');
     vi.mocked(runVerification).mockResolvedValue({ passed: true } as never);
-    // gate-time tree, then a different tree after the reviewer/simplifier
-    wmDiff.mockResolvedValueOnce('tree-1').mockResolvedValue('tree-2');
+    // pre-review secret scan and gate-time tree, then a different tree after the reviewer/simplifier
+    wmDiff.mockResolvedValueOnce('tree-1').mockResolvedValueOnce('tree-1').mockResolvedValue('tree-2');
 
     await runSourcedIssue('group/project#1', { repoPath: '/repo' }, fakeAdapter([], STAGES));
 
     expect(runVerification).toHaveBeenCalledTimes(2);
   });
 
-  it('a secret found before review is repaired, naming file and pattern but never the secret; a scan error is not repaired', async () => {
+  it.each(['findings', 'scan-error'])('a secret (%s) found before review is a hard stop: secret-blocked, no repair, no reviewer, record withheld', async (kind) => {
     const fakeJwt = 'eyJhbGciOiJSUzI1Ni19.eyJzdWIiOiIxMjM0NTY3ODkwIn0.abc-DEF_123';
     const consoleError = vi.spyOn(console, 'error').mockImplementation(() => {});
     runStages.mockResolvedValueOnce([stageOutcome('implementer', 'sess-1'), stageOutcome('reviewer')]);
+    vi.mocked(resolveVerifyCommand).mockResolvedValue('npm test');
     runAgent.mockResolvedValue({ sessionId: 'sess-2', completed: true, exitReason: 'completed' } as never);
-    wmDiff.mockResolvedValueOnce(`diff --git a/src/x.ts b/src/x.ts\n+++ b/src/x.ts\n+const t = "${fakeJwt}";`).mockResolvedValue('');
-    await runSourcedIssue('group/project#1', { repoPath: '/repo' }, fakeAdapter([], STAGES));
-    expect(runAgent).toHaveBeenCalledTimes(1);
-    const prompt = runAgent.mock.calls[0]?.[1]?.variables?.PROMPT as string;
-    expect(prompt).toContain('src/x.ts');
-    expect(prompt).not.toContain(fakeJwt);
+    wmDiff.mockResolvedValue(`diff --git a/src/x.ts b/src/x.ts\n+++ b/src/x.ts\n+const t = "${fakeJwt}";`);
+    if (kind === 'scan-error') scanForSecrets.mockImplementation(() => { throw new Error('boom'); });
+    const order: string[] = [];
+    const adapter = fakeAdapter(order, STAGES);
 
-    runAgent.mockClear();
-    runStages.mockResolvedValueOnce([stageOutcome('implementer', 'sess-1'), stageOutcome('reviewer')]);
-    scanForSecrets.mockImplementation(() => { throw new Error('boom'); });
-    await runSourcedIssue('group/project#1', { repoPath: '/repo' }, fakeAdapter([], STAGES));
+    const result = await runSourcedIssue('group/project#1', { repoPath: '/repo' }, adapter);
+
+    expect(result.secretBlocked).toBe(true);
+    // The implementer is never resumed and neither verify nor the reviewer runs on the blocked tree.
     expect(runAgent).not.toHaveBeenCalled();
+    expect(runVerification).not.toHaveBeenCalled();
+    expect(reviewFinalDiff).not.toHaveBeenCalled();
+    expect(commitStage).not.toHaveBeenCalled();
+    expect(publishForReview).not.toHaveBeenCalled();
+    // The gate stopped runStages before the reviewer: only the implementer is recorded, diff/transcript/finalText withheld.
+    expect(writeStages).toHaveBeenCalledTimes(1);
+    expect(writeStages.mock.calls[0]).toEqual([[stageOutcome('implementer', 'sess-1')], { flow: 'default', provider: 'claude', baseBranch: 'main', omitDiff: true }]);
+    expect(order).toEqual(['signalSecretBlock']);
+    expect(adapter.signalSecretBlock).toHaveBeenCalledWith('group/project#1', expect.anything(), expect.objectContaining({ reason: kind }));
+    expect(adapter.publishVerdict).not.toHaveBeenCalled();
     consoleError.mockRestore();
+  });
+
+  it('still hands a missing reviewer outcome to publishVerdict when the gate passed (no-silence guarantee)', async () => {
+    runStages.mockResolvedValueOnce([stageOutcome('implementer', 'sess-1')]);
+    const adapter = fakeAdapter([], STAGES);
+    await runSourcedIssue('group/project#1', { repoPath: '/repo' }, adapter);
+    expect(adapter.publishVerdict).toHaveBeenCalledWith(expect.objectContaining({ reviewerOutcome: undefined }));
   });
 
   it('a red verify never reaches the reviewer', async () => {

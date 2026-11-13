@@ -268,12 +268,6 @@ export interface RunIssueResult {
 /** Cap on implement-session resumes triggered by a failing conformance/verify gate, before falling back to a declared-partial PR. */
 const MAX_REPAIR_ITERATIONS = 2;
 
-/** Secret-scan failure as repair feedback: file and pattern names only, never the matched text. */
-function renderSecretFeedback(block: Extract<SecretBlock, { reason: 'findings' }>): string {
-  const where = [...block.findings.map((f) => `${f.file} [${f.patternName}]`), ...(block.injected ?? []).map((f) => f.file)].join(', ');
-  return `The secret scan found credentials in your change (${where}). Remove them from the diff (read them from the environment instead) and make sure none is committed.`;
-}
-
 /**
  * The report-only reviewer's blocking findings, as repair feedback for the implementer (#673): the
  * structured `<findings>` block when it parses, else the reply's prose with the review markers
@@ -622,14 +616,15 @@ export async function runSourcedIssue(
         ...(adapter.variables?.(issueRef, task) ?? {}),
         RETROSPECTIVE_MEMORY: escapePromptTags(retrospectiveMemory),
       };
-      // Deterministic spec-manifest vs diff conformance gate, joined with the verify command and a
-      // secret scan into a single shared-cap repair loop: any gate failing resumes the implementer's own
-      // session with a combined gap report (bounded, budget/turn caps already apply to the resumed
+      // Deterministic spec-manifest vs diff conformance gate, joined with the verify command into a
+      // single shared-cap repair loop: either gate failing resumes the implementer's own session with a
+      // combined gap report (bounded, budget/turn caps already apply to the resumed
       // stage) — "iterate the implement loop", not "open PR and hope". It runs on the implementer's
       // output BEFORE the reviewer, so the review is never spent on code a repair round would change
       // (runStages' `gateBeforeReview`). Exhausting the cap (or having no resumable session) skips the
       // reviewer and falls through to a declared-partial PR (reviewRequestBody below), never a silent
-      // `Closes` with any gate red.
+      // `Closes` with any gate red. The secret scan also runs before the reviewer but is never repaired:
+      // a hit ends the run as secret-blocked, exactly like the delivery-time scan.
       const trust = { allowedAuthors: deps.feedbackAuthors, issueAuthor: task.author };
       const specText = trustedSpecText(task, trust);
       const manifest = parseSpecManifest(specText);
@@ -664,9 +659,6 @@ export async function runSourcedIssue(
         gateDiff = manifest !== undefined ? await ctx.wm.diff(ctx.worktreePath) : '';
         conformance = checkConformance(manifest, gateDiff);
         gatedTree = await ctx.wm.outgoingDiff(ctx.worktreePath);
-        const secretBlock = scanOutgoingForSecrets(gatedTree, task.id, 'pre-review gate', providerKeyEnvNames(deps));
-        // A scan that itself errored is not something the implementer can repair: delivery blocks on it.
-        const secrets = secretBlock?.reason === 'findings' ? secretBlock : undefined;
         verification = verifyCmd !== undefined ? await runVerification(ctx.sandbox, verifyCmd) : undefined;
         // Completion is part of the gate (dogfood #352): an implementer that hit its turn cap or timeout
         // mid-task can leave residue that still typechecks and tests green. Gate on `completed`, NOT on
@@ -676,14 +668,13 @@ export async function runSourcedIssue(
         // auto-close the issue.
         const implementerIdx = outcomes.findIndex((o) => o.name === STAGE.IMPLEMENTER);
         implementerDone = implementerIdx === -1 || outcomes[implementerIdx]?.result.completed === true;
-        const pass = conformance.pass && (verification === undefined || verification.passed) && implementerDone && secrets === undefined;
+        const pass = conformance.pass && (verification === undefined || verification.passed) && implementerDone;
         const feedback = [
           !implementerDone
             ? 'The previous session ended before the task was finished (turn cap or timeout). Continue and complete the remaining work.'
             : undefined,
           !conformance.pass ? renderConformanceFeedback(conformance) : undefined,
           verification !== undefined && !verification.passed ? renderVerificationFeedback(verification) : undefined,
-          secrets !== undefined ? renderSecretFeedback(secrets) : undefined,
         ].filter((part): part is string => part !== undefined).join('\n\n');
         return { pass, feedback };
       };
@@ -713,7 +704,26 @@ export async function runSourcedIssue(
       };
       const reviewerStage = pipeline.find((s) => s.name === STAGE.REVIEWER);
       let gatedBeforeReview = false;
+      // The pre-review gate stayed red, so runStages never ran the reviewer: there is no verdict to publish.
+      let reviewerSkipped = false;
       let gateIterations = 0;
+      // A secret in the tree the reviewer would see is a hard stop, never repair feedback: the implementer
+      // is not resumed, the reviewer never runs and the run ends as secret-blocked (endSecretBlocked).
+      let preReviewSecretBlock: SecretBlock | undefined;
+      const scanBeforeReview = async (): Promise<boolean> => {
+        preReviewSecretBlock = scanOutgoingForSecrets(await ctx.wm.outgoingDiff(ctx.worktreePath), task.id, 'pre-review gate', providerKeyEnvNames(deps));
+        return preReviewSecretBlock === undefined;
+      };
+      const endSecretBlocked = async (block: SecretBlock): Promise<RunIssueResult> => {
+        // The blocked diff holds the secret the scan caught: keep it (and the bundle) off disk.
+        await writer.writeStages(outcomes, { ...runMeta, omitDiff: true });
+        await stepSummary('secret-blocked');
+        // White-label runs keep the automation invisible in the client repo: no secret-blocked label,
+        // no branded comment. The operator still gets the masked findings on stderr + run record.
+        if (!whiteLabel) await adapter.signalSecretBlock(issueRef, task, block);
+        onEvent({ type: 'run-end', secretBlocked: true });
+        return { task, secretBlocked: true };
+      };
       // try/finally so the per-stage cost table is printed even when a repair call throws or the run
       // is cancelled mid-loop — and, on the happy path, after the loop so repairs show up in it.
       try {
@@ -728,9 +738,13 @@ export async function runSourcedIssue(
           gateBeforeReview: async (outs) => {
             outcomes = outs;
             gatedBeforeReview = true;
+            if (!(await scanBeforeReview())) return { pass: false };
             const repair = await repairUntilGreen(ctx, { ...repairOpts(), gate });
             gatePassed = repair.passed;
             gateIterations = repair.iterations;
+            // A repair round may have written a secret of its own: the reviewer must not see that either.
+            if (repair.iterations > 0 && !(await scanBeforeReview())) return { pass: false };
+            reviewerSkipped = !repair.passed;
             return {
               pass: repair.passed,
               // A repair changed the tree: the reviewer must see the repaired diff, not the implementer's.
@@ -738,6 +752,7 @@ export async function runSourcedIssue(
             };
           },
         });
+        if (preReviewSecretBlock !== undefined) return await endSecretBlocked(preReviewSecretBlock);
         if (!gatedBeforeReview) {
           // No reviewer stage: nothing to run the gate ahead of, so it runs on the final tree.
           gatePassed = (await repairUntilGreen(ctx, { ...repairOpts(), gate })).passed;
@@ -899,16 +914,7 @@ export async function runSourcedIssue(
           },
         },
       });
-      if (delivery.kind === 'secret-blocked') {
-        // The blocked diff holds the secret the scan caught: keep it (and the bundle) off disk.
-        await writer.writeStages(outcomes, { ...runMeta, omitDiff: true });
-        await stepSummary('secret-blocked');
-        // White-label runs keep the automation invisible in the client repo: no secret-blocked label,
-        // no branded comment. The operator still gets the masked findings on stderr + run record.
-        if (!whiteLabel) await adapter.signalSecretBlock(issueRef, task, delivery.block);
-        onEvent({ type: 'run-end', secretBlocked: true });
-        return { task, secretBlocked: true };
-      }
+      if (delivery.kind === 'secret-blocked') return await endSecretBlocked(delivery.block);
       if (delivery.kind === 'no-changes') {
         await writer.writeStages(outcomes, runMeta);
         await stepSummary('no-changes');
@@ -922,13 +928,13 @@ export async function runSourcedIssue(
       const configPaths = gateConfigPaths(diffFilesWithPatches(delivery.outgoingDiff), extraGlobs);
       // White-label mode delivers a plain PR: no Vanguard review comment and no issue link-back comment.
       // A flow without a `reviewer` stage (e.g. flow-b: adversary+repairer) has no verdict to surface,
-      // so skip the verdict comment entirely. A red pre-review gate skips the reviewer, so there is no
-      // outcome to publish (the partial draft PR carries the failed proof instead); once a reviewer ran,
-      // publishReviewVerdict still throws on a missing outcome. (A
+      // so skip the verdict comment entirely. So does a red pre-review gate, which skipped the reviewer (the
+      // partial draft PR carries the failed proof instead). Otherwise the no-silence guarantee still fires
+      // for reviewer-bearing flows: publishReviewVerdict throws if the reviewer produced no outcome. (A
       // conformance stage can only reach here alongside a reviewer — the assembly check above rejects
       // conformance on a reviewer-less flow — so this skip can never swallow a conformance narrative.)
       const pipelineHasReviewer = pipeline.some((s) => s.name === STAGE.REVIEWER);
-      if (!whiteLabel && pipelineHasReviewer && reviewerOutcome !== undefined) {
+      if (!whiteLabel && pipelineHasReviewer && !reviewerSkipped) {
         const conformanceOutcome = outcomes.find((o) => o.name === STAGE.CONFORMANCE);
         await adapter.publishVerdict({
           prUrl: pr.prUrl,
