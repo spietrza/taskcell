@@ -256,11 +256,37 @@ token, `--no-open`), loads the launch URL into its window, restarts the hub if i
 (the hub also exits when the app's stdin pipe closes, `VANGUARD_HUB_EXIT_ON_STDIN_EOF=1`, so it is never
 orphaned). Its project list lives in the app config dir (`VANGUARD_HUB_CONFIG_DIR`). Installed apps bundle a
 Node runtime and the CLI; a source checkout (`pnpm start`) runs the TypeScript CLI — details in
-[apps/desktop/README.md](../apps/desktop/README.md#local-hub-the-desktop-backend). Connecting the app to a
-remote hub is a separate follow-up.
+[apps/desktop/README.md](../apps/desktop/README.md#local-hub-the-desktop-backend). To use a remote hub instead, see
+[Connect the desktop app to a server](#connect-the-desktop-app-to-a-server).
 
 Only this hub enables **Fleet** (`spawn_run`/`kill_run`/`list_spawns`, `VANGUARD_HUB_ALLOW_FLEET=1`, honoured on
 a loopback bind only); every other hub rejects those commands.
+
+## Connect the desktop app to a server
+
+Besides its own local hub, the desktop app can join a `taskcell hub` running on a VPS or NAS (server mode, see
+"Server mode sign-in"), like a chat desktop client joining a workspace.
+
+1. Run the server hub with sign-in enabled (a bind beyond loopback, or `VANGUARD_HUB_SERVER_MODE=1` behind a
+   reverse proxy) and reach it over HTTPS.
+2. In the app, open the **server switcher** at the top of the left rail (it shows **Local** by default) →
+   **Add server…**. Enter a name and the hub URL (`https://hub.example.com`; no username or password in the URL).
+   Plain `http://` is accepted only for `localhost`.
+3. The window loads the server's UI. Sign in there (#617). Runs now execute **on the server**; the sign-in
+   screen is shown only in this mode, and the server's team, shared-credential and audit-log features appear
+   as the hub provides them. Fleet stays Local-only.
+4. Switch between **Local** and any saved server from the same menu, with no restart. The local hub keeps
+   running in the background; the trash icon removes a saved server (after a confirmation). From any page —
+   even one without the rail, such as a sign-in page or a proxy error — **Server ▸ Switch to Local Hub**
+   (Ctrl/Cmd+Shift+L) in the app menu takes you back. The app always starts on Local.
+
+The app stores no password or token. You sign in on the hub's own page and the session cookie stays in the
+webview's cookie store (the OS webview's per-app storage); `servers.json` in the app config dir holds only names
+and URLs. A saved server's origin (and only that origin) may call the switcher commands.
+
+If the server becomes unreachable, the window says "Lost connection to <name> — reconnecting…" and the app
+retries every few seconds; when the server answers it reloads the page. Reconnecting only reloads the UI: no
+request is replayed, so a run is never started twice.
 
 ## Env vars
 

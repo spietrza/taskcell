@@ -16,6 +16,7 @@ import type { Project, ActiveRun } from './taskcell-output';
 import { relTime } from './time';
 import { RailTip } from './RailTip';
 import { canUseFleet } from './transport';
+import { ServerSwitcher } from './ServerSwitcher';
 import { canUseNeedsYou } from './features/needs-you/NeedsYou';
 
 // 'task' (S10) is reached by intent — the New Task button on the board and Runs toolbars — so it
@@ -71,6 +72,7 @@ export function Rail({
       )}
     >
       <Tooltip.Provider delay={200}>
+        <ServerSwitcher collapsed={collapsed} />
         <nav className="space-y-0.5 px-2">
           {NAV.map((n) => {
             const count = n.key === 'runs' ? active?.runCount : undefined;

@@ -6,12 +6,14 @@ use std::io::{BufRead, BufReader};
 use std::net::TcpListener;
 use std::path::{Path, PathBuf};
 use std::process::{Child, Command, Stdio};
-use std::sync::atomic::{AtomicBool, Ordering};
+use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
 use std::sync::{Arc, Mutex};
 use std::thread;
 use std::time::{Duration, Instant};
 
 use tauri::{AppHandle, Manager};
+
+use crate::servers;
 
 const WINDOW: &str = "main";
 /// The hub prints `Vanguard Hub → <launch URL>` once it listens (src/cli/hub.ts).
@@ -26,6 +28,13 @@ pub struct Hub {
     started: AtomicBool,
     stopping: AtomicBool,
     child: Mutex<Option<Child>>,
+    /// The local hub's launch URL once it printed it (so switching back to Local needs no restart).
+    local_url: Mutex<Option<String>>,
+    /// The saved server the window shows (`None` = the local hub).
+    active: Mutex<Option<String>>,
+    /// Bumped on every switch; a reconnect loop of an older generation ends itself, so one switch
+    /// never leaves two loops navigating the window.
+    generation: AtomicU64,
 }
 
 /// How to launch the hub. A bundled install runs its own Node runtime (the `node` sidecar next to the
@@ -166,13 +175,18 @@ impl Hub {
                     let url = read_launch_url(&mut child);
                     *self.child.lock().unwrap() = Some(child);
                     match url {
-                        Some(url) if !self.stopping.load(Ordering::SeqCst) => open_hub(app, &url),
+                        Some(url) if !self.stopping.load(Ordering::SeqCst) => {
+                            *self.local_url.lock().unwrap() = Some(url.clone());
+                            if self.active().is_none() {
+                                open_hub(app, &url);
+                            }
+                        }
                         Some(_) => {}
-                        None => show_status(app, "The hub did not start — retrying…"),
+                        None => self.local_status(app, "The hub did not start — retrying…"),
                     }
                     self.wait_for_exit();
                 }
-                Err(e) => show_status(app, &format!("Cannot start the hub: {e}")),
+                Err(e) => self.local_status(app, &format!("Cannot start the hub: {e}")),
             }
             if self.stopping.load(Ordering::SeqCst) {
                 break;
@@ -180,9 +194,95 @@ impl Hub {
             if began.elapsed() >= HEALTHY_AFTER {
                 backoff = Duration::from_secs(1);
             }
-            show_status(app, "The hub stopped — restarting…");
+            *self.local_url.lock().unwrap() = None;
+            self.local_status(app, "The hub stopped — restarting…");
             thread::sleep(backoff);
             backoff = (backoff * 2).min(MAX_BACKOFF);
+        }
+    }
+
+    /// The saved server the window shows, or `None` for the local hub.
+    pub fn active(&self) -> Option<String> {
+        self.active.lock().unwrap().clone()
+    }
+
+    /// Local-hub status text is only for the window while it shows the local hub.
+    fn local_status(&self, app: &AppHandle, message: &str) {
+        if self.active().is_none() {
+            show_status(app, message);
+        }
+    }
+
+    /// Show the local hub (`None`) or a saved server without restarting anything. The local hub keeps
+    /// running in the background. A server gets one reconnect loop (`follow`); switching again ends it.
+    pub fn switch(self: &Arc<Self>, app: &AppHandle, id: Option<String>) -> Result<(), String> {
+        let server = match &id {
+            None => None,
+            Some(id) => {
+                let dir = servers::config_dir(app)?;
+                Some(servers::load(&dir)?.into_iter().find(|s| &s.id == id).ok_or("Unknown server")?)
+            }
+        };
+        // Generation and active change together under the lock `follow` acts under, so a stale loop
+        // can never navigate or overlay the window after this returns.
+        let generation = {
+            let mut active = self.active.lock().unwrap();
+            *active = id;
+            self.generation.fetch_add(1, Ordering::SeqCst) + 1
+        };
+        match server {
+            None => {
+                // Not up yet: the supervisor navigates when it is (it checks `active`).
+                if let Some(url) = self.local_url.lock().unwrap().clone() {
+                    open_hub(app, &url);
+                }
+            }
+            Some(server) => {
+                let hub = Arc::clone(self);
+                let app = app.clone();
+                thread::spawn(move || hub.follow(&app, generation, &server));
+            }
+        }
+        Ok(())
+    }
+
+    fn current(&self, generation: u64) -> bool {
+        self.generation.load(Ordering::SeqCst) == generation && !self.stopping.load(Ordering::SeqCst)
+    }
+
+    /// Open `server` once it answers, then watch it: when it goes away say so, and when it comes back
+    /// load it again. Only ever navigates the window (never replays a request), so nothing a run
+    /// started is started twice; the generation check keeps a stale loop from touching the window.
+    fn follow(&self, app: &AppHandle, generation: u64, server: &servers::Server) {
+        let target = format!("{}/", server.url);
+        let mut up = false;
+        let mut shown = false;
+        let mut misses = 0;
+        while self.current(generation) {
+            let now_up = servers::reachable(&server.url);
+            // One failed probe is a blip, not an outage: it would blank and reload a healthy page.
+            misses = if now_up { 0 } else { misses + 1 };
+            let down = !now_up && (misses >= 2 || !up);
+            // Probing blocks, so re-check under the lock `switch` holds before touching the window.
+            let _guard = self.active.lock().unwrap();
+            if self.generation.load(Ordering::SeqCst) != generation {
+                return;
+            }
+            if now_up && !up {
+                open_hub(app, &target);
+                shown = true;
+                up = true;
+            } else if down && (up || !shown) {
+                let msg = if up { "Lost connection to" } else { "Cannot reach" };
+                show_status(
+                    app,
+                    &format!("{msg} {} — reconnecting… (Server menu ▸ Switch to Local Hub, or Ctrl/Cmd+Shift+L)", server.name),
+                );
+                shown = true;
+                up = false;
+            }
+            drop(_guard);
+            thread::sleep(Duration::from_secs(if up { 5 } else { 2 }));
         }
     }
 

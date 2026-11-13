@@ -1,8 +1,8 @@
 {
   "$schema": "../gen/schemas/desktop-schema.json",
   "identifier": "local-hub",
-  "description": "The UI the local hub serves (loopback only): window chrome, nothing else. Product features go over the hub API, never Tauri commands.",
+  "description": "The UI the local hub serves (loopback only): window chrome, nothing else. Product features go over the hub API; the only app commands are the server switcher's. Saved remote hubs get the same grant for their own origin at runtime (servers.rs).",
   "windows": ["main"],
   "remote": { "urls": ["http://127.0.0.1:*/*", "http://localhost:*/*"] },
-  "permissions": ["core:window:allow-start-dragging", "core:window:allow-destroy", "core:event:allow-listen", "core:event:allow-unlisten"]
+  "permissions": ["core:window:allow-start-dragging", "core:window:allow-destroy", "core:event:allow-listen", "core:event:allow-unlisten", "allow-servers-list", "allow-servers-add", "allow-servers-remove", "allow-servers-switch"]
 }

@@ -73,6 +73,16 @@ ESM with many dependencies and runtime-resolved assets/child scripts (`__complet
 single executable would have to embed and patch, and it re-runs itself as a child process; shipping `node`
 plus the plain `dist/` keeps one code path with the source checkout at the cost of a larger installer.
 
+## Server mode (remote hub)
+
+The rail's server switcher (`src/ServerSwitcher.tsx`) swaps the window between the local hub and saved remote
+hubs; the app menu's **Server ▸ Switch to Local Hub** is the way back from pages without a rail.
+`src-tauri/src/servers.rs` keeps the list (`servers.json`, names and URLs; no credentials — the hub's session
+cookie lives in the webview). `Hub::switch` (`hub.rs`) navigates the window and runs one reconnect loop per
+selected server. The only Tauri commands are `servers_*`: `capabilities/hub.json` grants them to the loopback
+UI, and `servers::grant` adds a capability at runtime for each saved server's own origin (never every http(s)
+page). Users: [../../docs/hub.md](../../docs/hub.md#connect-the-desktop-app-to-a-server).
+
 ## Hub mode (browser)
 
 The same frontend runs in a browser against any hub.
