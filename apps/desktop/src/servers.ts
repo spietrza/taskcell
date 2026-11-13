@@ -26,3 +26,6 @@ export const removeServer = (id: string): Promise<void> => invoke<void>('servers
 
 /** Navigates the window; null = back to the local hub. */
 export const switchServer = (id: string | null): Promise<void> => invoke<void>('servers_switch', { id });
+
+/** Adding and removing servers is for the local hub's UI only; a saved server's page may list and switch. */
+export const canEditServers = (): boolean => ['127.0.0.1', 'localhost'].includes(window.location.hostname);

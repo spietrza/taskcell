@@ -5,6 +5,7 @@ import * as servers from './servers';
 
 vi.mock('./servers', () => ({
   canSwitchServers: vi.fn(() => true),
+  canEditServers: vi.fn(() => true),
   listServers: vi.fn(),
   addServer: vi.fn(),
   removeServer: vi.fn(),
@@ -16,6 +17,7 @@ const state = { servers: [{ id: 's1', name: 'Team hub', url: 'https://hub.exampl
 beforeEach(() => {
   vi.clearAllMocks();
   vi.mocked(servers.canSwitchServers).mockReturnValue(true);
+  vi.mocked(servers.canEditServers).mockReturnValue(true);
   vi.mocked(servers.listServers).mockResolvedValue(state);
 });
 
@@ -83,4 +85,13 @@ test('Escape and an outside click close the menu', async () => {
   fireEvent.click(screen.getByRole('button', { name: 'Server: Local' }));
   fireEvent.click(screen.getByTestId('server-menu-backdrop'));
   expect(screen.queryByRole('menu')).not.toBeInTheDocument();
+});
+
+test("a saved server's page can switch but not add or remove servers", async () => {
+  vi.mocked(servers.canEditServers).mockReturnValue(false);
+  render(<ServerSwitcher collapsed={false} />);
+  fireEvent.click(await screen.findByRole('button', { name: 'Server: Local' }));
+  expect(screen.getByRole('menuitem', { name: 'Team hub' })).toBeInTheDocument();
+  expect(screen.queryByRole('menuitem', { name: /Add server/ })).not.toBeInTheDocument();
+  expect(screen.queryByRole('button', { name: 'Remove Team hub' })).not.toBeInTheDocument();
 });

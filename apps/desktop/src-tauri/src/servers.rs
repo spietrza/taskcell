@@ -62,6 +62,14 @@ fn is_loopback(host: &str) -> bool {
 pub fn normalize_url(raw: &str) -> Result<String, String> {
     let mut url = Url::parse(raw.trim()).map_err(|_| "Enter a full URL such as https://hub.example.com".to_string())?;
     let Some(host) = url.host_str() else { return Err("The hub URL needs a host".into()) };
+    // The origin becomes a Tauri URLPattern (`grant`): a host with `*`, `(` or `{` would match other hosts.
+    // `[...]` is an IPv6 literal the parser already validated.
+    let plain = host.starts_with('[')
+        || (!host.is_empty()
+            && host.bytes().all(|b| matches!(b, b'a'..=b'z' | b'0'..=b'9' | b'.' | b'-')));
+    if !plain {
+        return Err("The hub URL's host may only use letters, digits, dots and dashes".into());
+    }
     match url.scheme() {
         "https" => {}
         "http" if is_loopback(host) => {}
@@ -84,16 +92,19 @@ pub fn reachable(url: &str) -> bool {
         .unwrap_or(false)
 }
 
-/// Let a saved server's own pages use the switcher commands and the window chrome the local hub's
-/// UI has — and only that origin (never every http(s) page; capabilities/hub.json covers loopback).
+/// Let a saved server's own pages list and switch servers (the way back to Local) and use the window
+/// chrome the local hub's UI has — and only that origin (never every http(s) page; capabilities/hub.json
+/// covers loopback). Adding and removing servers stays with the local UI: a remote hub is untrusted.
 pub fn grant(app: &AppHandle, server: &Server) -> Result<(), String> {
-    let origin = Url::parse(&server.url).map_err(|e| e.to_string())?.origin().ascii_serialization();
+    // Re-checked: servers.json may be hand-edited or predate the host check in `normalize_url`.
+    let url = normalize_url(&server.url)?;
+    let origin = Url::parse(&url).map_err(|e| e.to_string())?.origin().ascii_serialization();
     let capability = serde_json::json!({
         "identifier": format!("server-{}", server.id),
         "windows": ["main"],
         "remote": { "urls": [format!("{origin}/*")] },
         "permissions": [
-            "allow-servers-list", "allow-servers-add", "allow-servers-remove", "allow-servers-switch",
+            "allow-servers-list", "allow-servers-switch",
             "core:window:allow-start-dragging", "core:window:allow-destroy",
             "core:event:allow-listen", "core:event:allow-unlisten"
         ]
@@ -178,6 +189,16 @@ mod tests {
         // Built at runtime so no credential-shaped literal sits in the source (secret scan).
         let with_userinfo = format!("https://{}@hub.example.com", "user:pass");
         assert!(normalize_url(&with_userinfo).is_err());
+    }
+
+    #[test]
+    fn normalize_rejects_pattern_hosts() {
+        // These would become wildcard URLPatterns in `grant`.
+        for raw in ["https://*", "https://*.example.com", "https://(.*)", "https://{a,b}.example.com"] {
+            assert!(normalize_url(raw).is_err(), "{raw}");
+        }
+        assert_eq!(normalize_url("https://[::1]:8443").unwrap(), "https://[::1]:8443");
+        assert_eq!(normalize_url("https://Hub-1.Example.com").unwrap(), "https://hub-1.example.com");
     }
 
     #[test]

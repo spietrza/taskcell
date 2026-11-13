@@ -5,6 +5,7 @@ import { cn } from '@/ui';
 import { errorMessage } from './errors';
 import {
   addServer,
+  canEditServers,
   canSwitchServers,
   listServers,
   removeServer,
@@ -39,6 +40,7 @@ export function ServerSwitcher({ collapsed }: { collapsed: boolean }): ReactNode
 
   const current = state.servers.find((s) => s.id === state.active);
   const label = current?.name ?? 'Local';
+  const editable = canEditServers();
   const toggle = (): void => {
     // The rail scrolls and clips, so the menu is portalled and fixed under the trigger.
     const r = trigger.current?.getBoundingClientRect();
@@ -100,17 +102,19 @@ export function ServerSwitcher({ collapsed }: { collapsed: boolean }): ReactNode
                     <MenuItem active={s.id === state.active} onClick={() => run(() => switchServer(s.id))} icon={<ServerIcon className="size-4" />} title={s.url}>
                       {s.name}
                     </MenuItem>
-                    <button
-                      type="button"
-                      aria-label={`Remove ${s.name}`}
-                      onClick={() => remove(s.id, s.name)}
-                      className="rounded p-1.5 text-muted-foreground hover:bg-muted/60 hover:text-foreground"
-                    >
-                      <Trash2 className="size-3.5" />
-                    </button>
+                    {editable && (
+                      <button
+                        type="button"
+                        aria-label={`Remove ${s.name}`}
+                        onClick={() => remove(s.id, s.name)}
+                        className="rounded p-1.5 text-muted-foreground hover:bg-muted/60 hover:text-foreground"
+                      >
+                        <Trash2 className="size-3.5" />
+                      </button>
+                    )}
                   </div>
                 ))}
-                {!adding && (
+                {editable && !adding && (
                   <MenuItem active={false} onClick={() => setAdding(true)} icon={<Plus className="size-4" />}>
                     Add server…
                   </MenuItem>

@@ -294,7 +294,8 @@ Besides its own local hub, the desktop app can join a `taskcell hub` running on 
 
 The app stores no password or token. You sign in on the hub's own page and the session cookie stays in the
 webview's cookie store (the OS webview's per-app storage); `servers.json` in the app config dir holds only names
-and URLs. A saved server's origin (and only that origin) may call the switcher commands.
+and URLs. A saved server's origin (and only that origin) may list saved servers and switch between them; adding
+or removing a server is only possible from the Local UI.
 
 If the server becomes unreachable, the window says "Lost connection to <name> — reconnecting…" and the app
 retries every few seconds; when the server answers it reloads the page. Reconnecting only reloads the UI: no
