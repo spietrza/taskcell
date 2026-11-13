@@ -1,5 +1,5 @@
 import { Fragment, useMemo, useState, type ReactElement } from 'react';
-import { Table, Chip, Empty, Input, ScrollTable, Timestamp } from '@/ui';
+import { Table, Button, Chip, Empty, Input, ScrollTable, Timestamp } from '@/ui';
 import { Inbox, RefreshCw, Search } from 'lucide-react';
 import { verdictColor, verdictWord } from '../../status';
 import { RepoLabel } from '../../RepoViews';
@@ -24,6 +24,7 @@ export function RunList({
   projects = [],
   onSelect,
   onOpenActive,
+  onNewTask,
 }: {
   runs: Run[];
   /** In-flight runs discovered from `.taskcell` state, rendered as running rows at the top. */
@@ -37,6 +38,8 @@ export function RunList({
   projects?: { path: string; name: string }[];
   onSelect: (r: Run) => void;
   onOpenActive: (a: Active) => void;
+  /** Where an empty list sends the user: authoring a task, whose runs show here. */
+  onNewTask?: () => void;
 }) {
   const [query, setQuery] = useState('');
   const [filter, setFilter] = useState<Filter>('all');
@@ -136,8 +139,13 @@ export function RunList({
         </Empty.Media>
         <Empty.Title>No runs found</Empty.Title>
         <Empty.Description>
-          This repo has no <code>.taskcell/runs</code> yet.
+          No runs to show here. Create a task and the factory's runs show up on this page.
         </Empty.Description>
+        {onNewTask && (
+          <Empty.Actions>
+            <Button onClick={onNewTask}>Create a task</Button>
+          </Empty.Actions>
+        )}
       </Empty.Root>
     );
   }

@@ -10,6 +10,9 @@ import { TailwindDebugScreens } from './components/TailwindDebugScreens';
 import { Dashboard } from './features/dashboard/Dashboard';
 import { NeedsYou, canUseNeedsYou } from './features/needs-you/NeedsYou';
 import { Inspector } from './features/inspector/Inspector';
+import { Onboarding } from './features/onboarding/Onboarding';
+import { StarterTaskDialog } from './features/onboarding/StarterTaskDialog';
+import { loadOnboarding, saveOnboarding, showOnFirstRun, type OnboardingStored } from './features/onboarding/steps';
 import { EnableFactoryDialog } from './features/dashboard/EnableFactoryDialog';
 import { listProjects, addProject, cloneProject, removeProject, listActive, listNeedsYou, listNeedsYouAll, listTeams, teamAddRepository, factoryState } from './ipc';
 import { loadTeamId, resolveTeam, saveTeamId, teamProjects } from './teams';
@@ -29,6 +32,8 @@ export default function App() {
   const [teamId, setTeamId] = useState<string | null>(loadTeamId);
   // Nothing is picked (active project, repository filter) before the first teams answer, or the unscoped list would win.
   const [teamsLoaded, setTeamsLoaded] = useState(false);
+  // The first unscoped project list has answered: "no projects" is only believed after that.
+  const [projectsLoaded, setProjectsLoaded] = useState(false);
   // Bumped by every local team edit so an older in-flight listTeams cannot overwrite it.
   const teamsGen = useRef(0);
   const team = resolveTeam(teams, teamId);
@@ -88,7 +93,9 @@ export default function App() {
     const tick = (): void => {
       listProjects()
         .then((p) => {
-          if (alive) setProjects(p);
+          if (!alive) return;
+          setProjects(p);
+          setProjectsLoaded(true);
         })
         .catch(() => {});
       const gen = teamsGen.current;
@@ -256,6 +263,25 @@ export default function App() {
 
   const [showRepoPicker, setShowRepoPicker] = useState(false);
   const [factoryProject, setFactoryProject] = useState<{ path: string; name: string } | null>(null);
+  // First-run guide: shown on a fresh hub, and reopened from Settings. A first project earns a starter task offer.
+  const [onboarding, setOnboarding] = useState<OnboardingStored>(loadOnboarding);
+  const [setupOpen, setSetupOpen] = useState(false);
+  const [starterFor, setStarterFor] = useState<{ path: string; name: string } | null>(null);
+  const changeOnboarding = (s: OnboardingStored): void => {
+    setOnboarding(s);
+    saveOnboarding(s);
+  };
+  // Once opened on a first run it stays until the user finishes, so the repo step can show Done.
+  // A hub is fresh only when it has no project in any team (a team can be empty on an established hub).
+  const firstRun = teamsLoaded && projectsLoaded && showOnFirstRun(onboarding, allProjects.length);
+  useEffect(() => {
+    if (firstRun) setSetupOpen(true);
+  }, [firstRun]);
+  const showSetup = setupOpen || firstRun;
+  const offerStarter = (project: { path: string; name: string } | undefined): void => {
+    if (project && allProjects.length === 0) setStarterFor({ path: project.path, name: project.name });
+  };
+
   // Each project's factory checklist for its card; re-read when the dialog closes (it may have advanced).
   const [factoryStates, setFactoryStates] = useState<Record<string, FactoryState>>({});
   // Keyed by the path list, not `projects`: the 5s project poll replaces that array every tick.
@@ -300,11 +326,11 @@ export default function App() {
   // Old entries to the Needs you screen open Home, which starts with that section.
   const goto = (s: Screen | 'needs'): void => navigate(() => setScreen(resolveScreen(s).screen));
 
-  const enterProject = (path: string): void => {
+  const enterProject = (path: string, to: Screen = 'runs'): void => {
     navigate(() => {
       setActiveProject(path);
       changeFilter({ ...filter, repos: [path] });
-      setScreen('runs');
+      setScreen(to);
     });
   };
 
@@ -444,10 +470,20 @@ export default function App() {
               <div className={cn(PAGE_CLASS, 'space-y-4')}>
                 {/* Home starts with what needs the user; with nothing waiting it says so in one line. */}
                 {needsYou && (
-                  <NeedsYou project={active.path} allRepos={allRepos} repos={repoPaths} teamId={scopeId} onCount={setNeedsCount} />
+                  <NeedsYou project={active.path} allRepos={allRepos} repos={repoPaths} teamId={scopeId} onCount={setNeedsCount} onOpenBoard={() => goto('board')} />
+                )}
+                {showSetup && (
+                  <Onboarding
+                    projectCount={projects.length}
+                    stored={onboarding}
+                    onStored={changeOnboarding}
+                    onAddRepo={add}
+                    onClose={() => setSetupOpen(false)}
+                  />
                 )}
                 <Dashboard
                   projects={projects}
+                  onOpenSetup={() => setSetupOpen(true)}
                   onOpen={(p) => enterProject(p.path)}
                   onAdd={add}
                   onRemove={remove}
@@ -490,6 +526,10 @@ export default function App() {
                   })
                 }
                 onOpenBoard={() => navigate(() => setScreen('board'))}
+                onOpenSetup={() => navigate(() => {
+                  setSetupOpen(true);
+                  setScreen('home');
+                })}
               />
             </NavGuardContext.Provider>
           )}
@@ -521,17 +561,30 @@ export default function App() {
       {showRepoPicker && (
         <RepoPicker
           onAdd={async (path) => {
-            setProjects(await addProject(path));
+            const list = await addProject(path);
+            setProjects(list);
             await adoptProject(path);
             setShowRepoPicker(false);
+            offerStarter(list.find((p) => p.path === path));
           }}
           onClone={async (url, parentDir, name) => {
             const project = await cloneProject(url, parentDir, name);
             setProjects((prev) => [...prev, project]);
             await adoptProject(project.path);
             setShowRepoPicker(false);
+            offerStarter(project);
           }}
           onClose={() => setShowRepoPicker(false)}
+        />
+      )}
+      {starterFor && (
+        <StarterTaskDialog
+          project={starterFor}
+          onCreated={() => {
+            setStarterFor(null);
+            enterProject(starterFor.path, 'board');
+          }}
+          onClose={() => setStarterFor(null)}
         />
       )}
       {factoryProject && <EnableFactoryDialog project={factoryProject} onClose={() => setFactoryProject(null)} />}

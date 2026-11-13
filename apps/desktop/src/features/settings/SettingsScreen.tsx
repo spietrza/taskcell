@@ -1,5 +1,5 @@
 import { useState, type ReactNode } from 'react';
-import { cn } from '@/ui';
+import { Button, cn } from '@/ui';
 import { useNavGuardRegistry } from '../../navGuard';
 import { canUseNeedsYou } from '../needs-you/NeedsYou';
 import { Settings } from './Settings';
@@ -16,12 +16,15 @@ type Section = 'general' | 'line' | 'runners' | 'audit';
 export function SettingsScreen({
   project,
   teamScreen,
+  onOpenSetup,
   fleet,
   remote,
 }: {
   project: string;
   /** The selected team's Members section (hub), shown under General. */
   teamScreen?: TeamScreen;
+  /** Reopens the first-run guide. */
+  onOpenSetup?: () => void;
   fleet: ReactNode;
   remote: ReactNode;
 }) {
@@ -60,6 +63,14 @@ export function SettingsScreen({
       </div>
       {section === 'general' ? (
         <div className="min-h-0 flex-1 overflow-y-auto">
+          {onOpenSetup && (
+            <div className="mb-4 flex items-center gap-3 rounded-lg border border-border p-3 text-sm">
+              <span>Setup guide: sign-ins, model credential and first repository.</span>
+              <Button className="ml-auto" variant="outlined" onClick={onOpenSetup}>
+                Reopen setup guide
+              </Button>
+            </div>
+          )}
           <Settings project={project} {...(teamScreen ? { teamScreen } : {})} />
         </div>
       ) : section === 'line' ? (

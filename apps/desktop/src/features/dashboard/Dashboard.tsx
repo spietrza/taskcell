@@ -36,6 +36,7 @@ export function Dashboard({
   onAdd,
   onRemove,
   onEnableFactory,
+  onOpenSetup,
   factory,
 }: {
   projects: Project[];
@@ -44,6 +45,8 @@ export function Dashboard({
   onRemove: (path: string) => void;
   /** Hub-only (the `enable_factory_*` commands are HUB_ONLY): omitted, the card has no button. */
   onEnableFactory?: (p: { path: string; name: string }) => void;
+  /** Opens the first-run guide; offered in the empty state. */
+  onOpenSetup?: () => void;
   /** Each project's factory checklist state by path (hub-only); a project without an entry shows no factory line. */
   factory?: Record<string, FactoryState>;
 }) {
@@ -73,12 +76,17 @@ export function Dashboard({
           </Empty.Media>
           <Empty.Title>No projects yet</Empty.Title>
           <Empty.Description>
-            Add any git repository to track its factory runs, tasks and spend.
+            Add a git repository (an existing folder, or clone one) to track its factory runs, tasks and spend. The setup guide also checks your sign-ins.
           </Empty.Description>
           <Empty.Actions>
             <Button onClick={onAdd} startIcon={<FolderPlus className="size-4" />}>
               Add project
             </Button>
+            {onOpenSetup && (
+              <Button variant="outlined" onClick={onOpenSetup}>
+                Open setup guide
+              </Button>
+            )}
             <Button variant="outlined" onClick={() => window.location.assign('/?demo=1')}>
               Try the demo project
             </Button>

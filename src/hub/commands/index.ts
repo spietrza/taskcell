@@ -14,6 +14,7 @@ import { commands as projects, type ProjectsCommands } from './projects.js';
 import { commands as repoFiles, type RepoFilesCommands } from './repo-files.js';
 import { commands as runSession, type RunSessionCommands } from './run-session.js';
 import { commands as runs, type RunsCommands } from './runs.js';
+import { commands as setup, type SetupCommands } from './setup.js';
 import { commands as tasks, type TasksCommands } from './tasks.js';
 import { commands as teams, type TeamsCommands } from './teams.js';
 import { commands as watch, type WatchCommands } from './watch.js';
@@ -36,6 +37,7 @@ export interface Commands extends
   RepoFilesCommands,
   RunSessionCommands,
   RunsCommands,
+  SetupCommands,
   TasksCommands,
   TeamsCommands,
   WatchCommands {}
@@ -115,6 +117,7 @@ export const COMMAND_NAMES = [
   'save_user_credential',
   'set_credential',
   'set_credential_policy',
+  'setup_status',
   'spawn_run',
   'start_task',
   'team_role',
@@ -148,6 +151,7 @@ export const HUB_COMMANDS: { readonly [K in keyof Commands]: CommandHandler } = 
   ...repoFiles.handlers,
   ...runSession.handlers,
   ...runs.handlers,
+  ...setup.handlers,
   ...tasks.handlers,
   ...teams.handlers,
   ...watch.handlers,
@@ -170,6 +174,7 @@ export const HUB_AUDITED: { readonly [K in keyof Commands]?: AuditSpec } = {
   ...repoFiles.audit,
   ...runSession.audit,
   ...runs.audit,
+  ...setup.audit,
   ...tasks.audit,
   ...teams.audit,
   ...watch.audit,

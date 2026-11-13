@@ -70,6 +70,19 @@ describe('Dashboard project card', () => {
   });
 });
 
+describe('Dashboard empty state', () => {
+  test('says what to do next and links to adding a project and the setup guide', () => {
+    const onAdd = vi.fn();
+    const onOpenSetup = vi.fn();
+    render(<Dashboard projects={[]} onOpen={() => {}} onAdd={onAdd} onRemove={() => {}} onOpenSetup={onOpenSetup} />);
+    expect(screen.getByText('No projects yet')).toBeInTheDocument();
+    fireEvent.click(screen.getByRole('button', { name: 'Open setup guide' }));
+    expect(onOpenSetup).toHaveBeenCalled();
+    fireEvent.click(screen.getAllByRole('button', { name: 'Add project' })[0]!);
+    expect(onAdd).toHaveBeenCalled();
+  });
+});
+
 describe('Dashboard factory state', () => {
   const label = (f: FactoryState): string => {
     const { unmount } = render(<Dashboard projects={[first!]} onOpen={() => {}} onAdd={() => {}} onRemove={() => {}} factory={{ [first!.path]: f }} />);

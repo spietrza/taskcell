@@ -1,5 +1,5 @@
 import { invoke } from './transport';
-import type { Team, TeamRole } from './wire';
+import type { SetupStatus, Team, TeamRole } from './wire';
 import type {
   RunSummary,
   RunDetail,
@@ -494,4 +494,9 @@ export function teamAddRepository(teamId: string, path: string): Promise<Team> {
 
 export function teamRemoveRepository(teamId: string, path: string): Promise<Team> {
   return call('remove_team_repository', { teamId, path });
+}
+
+/** HUB_ONLY, read-only: what first-run setup can see on the hub host (booleans, never a secret value). */
+export function setupStatus(): Promise<SetupStatus> {
+  return call('setup_status', undefined);
 }
