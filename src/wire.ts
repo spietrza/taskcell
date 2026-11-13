@@ -660,6 +660,13 @@ export interface CliVersionInfo {
   updatable: boolean;
   reason?: string;
 }
+/** Base-merge (conflict) rollup from the `base_merge` metric lines: per week, plus the most-conflicted files. */
+export interface ConflictStats {
+  weeks: Array<{ week: string; merges: number; conflicts: number; autoResolved: number; leftForHuman: number }>;
+  total: { merges: number; conflicts: number; autoResolved: number; leftForHuman: number };
+  topFiles: Array<{ file: string; conflicts: number }>;
+}
+
 export interface CliVersionReport {
   enabled: boolean;
   clis: CliVersionInfo[];
@@ -796,6 +803,8 @@ export interface Commands {
   list_branches: { args: { repoPath: string }; result: { branches: string[]; default?: string } };
   /** HUB_ONLY, read-only: installed vs latest claude/codex/cursor CLI in the local sandbox image (3-day soak applied; `enabled: false`, and no lookups, when VANGUARD_CLI_VERSION_CHECK is off). Refused on a non-loopback bind without VANGUARD_HUB_ALLOW_ADD. */
   agent_cli_versions: { args: undefined; result: CliVersionReport };
+  /** HUB_ONLY, read-only: conflicts with the base per week (total, auto-resolved, left for a human) and the top conflicted files, as `taskcell stats` prints them. */
+  conflict_stats: { args: { repoPath: string }; result: ConflictStats };
   /** HUB_ONLY, admin-only (403 otherwise): the audit log newest first, optionally for one login. */
   read_audit: { args: { login?: string; limit?: number }; result: AuditEntry[] };
 }
@@ -872,6 +881,7 @@ export const COMMAND_NAMES = [
   'enable_factory_verify',
   'agent_cli_versions',
   'list_branches',
+  'conflict_stats',
   'read_audit',
 ] as const satisfies readonly (keyof Commands)[];
 type _Exhaustive = keyof Commands extends (typeof COMMAND_NAMES)[number]

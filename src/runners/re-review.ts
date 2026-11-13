@@ -252,3 +252,32 @@ export function applyReReviewRules(
     downgraded: rejected.length,
   };
 }
+
+const MERGE_ONLY_FILES_RE = /^<!-- merge-only-files: (\[.*\]) -->$/m;
+
+/** Machine-readable list of the files a merge-only round resolved, for the incremental re-review. */
+export const mergeOnlyFilesMarker = (files: readonly string[]): string => `<!-- merge-only-files: ${JSON.stringify(files).replace(/-->/g, '--\\u003e')} -->`;
+
+/** The files resolved across the Revision Summaries, when every summary is a merge-only one; undefined otherwise. */
+export function mergeOnlyResolvedFiles(summaries: readonly string[]): string[] | undefined {
+  if (summaries.length === 0) return undefined;
+  const files = new Set<string>();
+  for (const body of summaries) {
+    const raw = MERGE_ONLY_FILES_RE.exec(body)?.[1];
+    if (raw === undefined) return undefined;
+    try {
+      const parsed: unknown = JSON.parse(raw);
+      if (!Array.isArray(parsed)) return undefined;
+      for (const f of parsed) if (typeof f === 'string') files.add(f);
+    } catch {
+      return undefined;
+    }
+  }
+  return [...files];
+}
+
+/** Keep only the `diff --git` blocks of `files` (a block starts at a line-initial header, split on \n only). */
+export function restrictDiffToFiles(diff: string, files: readonly string[]): string {
+  const keep = new Set(files);
+  return diff.split(/(?<=\n)(?=diff --git )/).filter((block) => changedFilesOf(block).some((f) => keep.has(f))).join('');
+}

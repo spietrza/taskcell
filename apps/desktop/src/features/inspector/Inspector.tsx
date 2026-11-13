@@ -20,6 +20,7 @@ import {
   type CreateRunParams,
 } from '../../ipc';
 import { RunList } from './RunList';
+import { ConflictStats } from './ConflictStats';
 import { RunDetail } from './RunDetail';
 import { LiveRun } from './LiveRun';
 import { RemoteRuns } from './RemoteRuns';
@@ -515,6 +516,7 @@ export function Inspector({
         // In-flight runs render as running rows at the top of the RunList table.
         <div className="flex min-h-0 flex-1 flex-col">
           <RepoFailures failures={failures} />
+          {!allRepos && <ConflictStats repoPath={project} refreshKey={tick} />}
           <RunList runs={runs} active={active} showRepo={allRepos} onSelect={open} onOpenActive={setLiveRun} />
         </div>
       ) : screen === 'board' ? (

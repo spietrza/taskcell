@@ -43,6 +43,7 @@ const mockStamp = (): { repoPath: string; repoName: string } => ({ repoPath: pro
 
 const commandHandlers = {
   list_runs: () => runs,
+  conflict_stats: () => ({ weeks: [], total: { merges: 0, conflicts: 0, autoResolved: 0, leftForHuman: 0 }, topFiles: [] }),
   list_runs_all: () => ({ runs: runs.map((r) => ({ ...r, ...mockStamp() })), failures: [] }),
   read_run: () => runDetail,
   list_projects: () => projects,

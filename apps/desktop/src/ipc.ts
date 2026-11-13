@@ -46,6 +46,11 @@ export function listRuns(repoPath: string): Promise<RunSummary[]> {
   return call('list_runs', { repoPath });
 }
 
+/** HUB_ONLY: conflicts with the base per week for one repository, as `taskcell stats` prints them. */
+export function conflictStats(repoPath: string): Promise<Commands['conflict_stats']['result']> {
+  return call('conflict_stats', { repoPath });
+}
+
 /** HUB_ONLY: every repository's runs, each stamped with its repository; unreadable ones in `failures`. */
 export function listRunsAll(): Promise<Commands['list_runs_all']['result']> {
   return call('list_runs_all', undefined);

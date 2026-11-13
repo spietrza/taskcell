@@ -274,6 +274,7 @@ describe('dispatchRpc', () => {
     await dispatchRpc(ctx, 'api_list_flows', { repoPath: repo });
     const runs = await dispatchRpc(ctx, 'list_runs', { repoPath: repo });
     expect(runs).toEqual([]);
+    expect(await dispatchRpc(ctx, 'conflict_stats', { repoPath: repo })).toEqual({ weeks: [], total: { merges: 0, conflicts: 0, autoResolved: 0, leftForHuman: 0 }, topFiles: [] });
   });
 
   test('agent_cli_versions reports a disabled check without any lookup when the switch is off', async () => {

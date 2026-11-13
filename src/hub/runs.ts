@@ -1,3 +1,7 @@
+import { readFile } from 'node:fs/promises';
+import { join } from 'node:path';
+import { aggregateConflicts, parseBaseMerges } from '../core/conflict-stats.js';
+import type { ConflictStats } from '../wire.js';
 // Thin forwarding shim: the on-disk run-record format — naming, writing, listing (fingerprint-cached),
 // reading (incl. the closest-proof fallback) and the fingerprint itself — all live in
 // src/core/run-store.ts now. This file only re-exports under the hub's historical names, so
@@ -21,3 +25,9 @@ export function remoteRunsRoot(repoPath: string, remoteRunId: number): string {
 export const runsFingerprint = fingerprint;
 export const listRunSummaries = listRuns;
 export const readRunDetail = readRun;
+
+/** The `base_merge` rollup of a repository's local metrics.jsonl (empty when there is none yet). */
+export async function readConflictStats(repoPath: string): Promise<ConflictStats> {
+  const text = await readFile(join(defaultRunsRoot(repoPath), 'metrics.jsonl'), 'utf8').catch(() => '');
+  return aggregateConflicts(parseBaseMerges(text));
+}

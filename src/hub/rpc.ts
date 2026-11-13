@@ -22,7 +22,7 @@ import { listNeedsYou, mergeNeedsYou, replyNeedsYou, MAX_COMMENT_FETCHES } from 
 import { detectRepoSlug } from '../runners/github.js';
 import { BASE_LABEL_PREFIX, assertAllowedBase, assertSafeBaseBranch, readAllowedBases, readRepoBaseBranch } from '../core/base-branch.js';
 import type { ErrorKind } from '../hub-wire.js';
-import { defaultRunsRoot, remoteRunsRoot, listRunSummaries, readRunDetail } from './runs.js';
+import { defaultRunsRoot, remoteRunsRoot, listRunSummaries, readRunDetail, readConflictStats } from './runs.js';
 import { readRunEvents } from './run-events.js';
 import { isSafeTaskId } from '../core/state-path.js';
 import { listActive, readSession } from './active.js';
@@ -253,6 +253,8 @@ async function dispatchInner(ctx: RpcContext, cmd: string, rawArgs: unknown, cal
       const real = await allow(requireString(args, 'repoPath'));
       return listRunSummaries(defaultRunsRoot(real));
     }
+    case 'conflict_stats':
+      return readConflictStats(await allow(requireString(args, 'repoPath')));
     case 'list_runs_all': {
       const { items, failures } = await projects.listAcrossProjects(
         ctx.configDir,

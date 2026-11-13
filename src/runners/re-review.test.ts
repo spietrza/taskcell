@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { applyReReviewRules, changedFilesOf, REREVIEW_MALFORMED_NOTE, reReviewInstructions } from './re-review.js';
+import { applyReReviewRules, changedFilesOf, mergeOnlyFilesMarker, mergeOnlyResolvedFiles, restrictDiffToFiles, REREVIEW_MALFORMED_NOTE, reReviewInstructions } from './re-review.js';
 import { extractReviewRisk, extractReviewVerdict } from './review-prompt.js';
 
 const block = (o: unknown): string => `<rereview>${JSON.stringify(o)}</rereview>`;
@@ -167,5 +167,20 @@ describe('applyReReviewRules file matching (git-quoted and unusual names)', () =
     expect(r.text.startsWith('Verdict: BLOCKING')).toBe(true);
     expect(r.text).toContain('could not be matched to any path in the PR');
     expect(r.downgraded).toBe(0);
+  });
+});
+
+describe('merge-only re-review scope', () => {
+  const summary = (files: string[]): string => `## Revision Summary — o/r#1\n\n${mergeOnlyFilesMarker(files)}`;
+
+  it('reads the resolved files only when every summary is merge-only', () => {
+    expect(mergeOnlyResolvedFiles([summary(['a.ts']), summary(['b.ts'])])).toEqual(['a.ts', 'b.ts']);
+    expect(mergeOnlyResolvedFiles([summary(['a.ts']), '## Revision Summary — o/r#1'])).toBeUndefined();
+    expect(mergeOnlyResolvedFiles([])).toBeUndefined();
+  });
+
+  it('keeps only the resolved files in the since-diff', () => {
+    const diff = 'diff --git a/a.ts b/a.ts\n+a\ndiff --git a/base.ts b/base.ts\n+base\n';
+    expect(restrictDiffToFiles(diff, ['a.ts'])).toBe('diff --git a/a.ts b/a.ts\n+a\n');
   });
 });

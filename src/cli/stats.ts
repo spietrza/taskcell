@@ -1,6 +1,7 @@
 import { readFile } from 'node:fs/promises';
 import { join } from 'node:path';
 import { parseMetrics, parseProbes, aggregateMetrics, formatStats } from '../core/stats.js';
+import { parseBaseMerges, aggregateConflicts, formatConflictStats } from '../core/conflict-stats.js';
 import { readBranchFile, readBranchMetrics, METRICS_BRANCH_DEFAULT } from '../core/metrics-branch.js';
 import { DECISIONS_FILE } from '../approver/ledger.js';
 import { parseDecisions, formatApproverScorecard } from '../approver/scorecard.js';
@@ -63,14 +64,18 @@ export async function statsCommand(cmd: StatsCommand): Promise<void> {
     cmd.githubRepo !== undefined
       ? await leadTimeRollupForPrUrls(cmd.githubRepo, records.flatMap((r) => (r.prUrl !== undefined ? [r.prUrl] : [])))
       : undefined;
+  const merges = parseBaseMerges(text);
+  const conflicts = merges.length > 0 ? aggregateConflicts(merges) : undefined;
   if (cmd.json) {
-    console.log(JSON.stringify(leadTime !== undefined ? { ...report, leadTime } : report, null, 2));
+    console.log(JSON.stringify({ ...report, ...(leadTime !== undefined ? { leadTime } : {}), ...(conflicts !== undefined ? { conflicts } : {}) }, null, 2));
     return;
   }
   if (records.length === 0) {
-    console.log('No run_complete metrics yet.');
+    // Base merges can exist before any run completed: show them alone.
+    console.log(conflicts !== undefined ? formatConflictStats(conflicts) : 'No run_complete metrics yet.');
     return;
   }
   console.log(formatStats(report));
+  if (conflicts !== undefined) console.log(`\n${formatConflictStats(conflicts)}`);
   if (leadTime !== undefined) console.log(`\n${formatLeadTime(leadTime)}`);
 }
