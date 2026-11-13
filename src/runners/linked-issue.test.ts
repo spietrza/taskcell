@@ -121,6 +121,22 @@ describe('wiring', () => {
     expect((await fetchPullRequestForReview({ repoSlug: 'o/r', number: 12 }, prGh('Closes #774', untrusted), undefined, ['rando'])).linkedIssue).toBeDefined();
   });
 
+  it('a factory PR opened by the App bot reads an issue that bot filed; other bots and other PRs do not', async () => {
+    const byBot = ghStub({ association: 'NONE', login: 'taskcell[bot]' });
+    const prView = (login: string, headRefName: string, cross = false): GhRunner => async (args) => {
+      if (args[0] === 'pr' && args[1] === 'view') return JSON.stringify({ number: 12, title: 'T', body: 'Closes #774', url: 'u', author: { login }, headRefName, headRefOid: 'abc', baseRefName: 'main', isCrossRepository: cross });
+      if (args[0] === 'pr' && args[1] === 'diff') return 'diff --git a/x b/x';
+      return byBot(args);
+    };
+    const factoryBranch = 'chore/vanguard-gh-o-r-774-abcd1234';
+    const linked = async (gh: GhRunner): Promise<unknown> => (await fetchPullRequestForReview({ repoSlug: 'o/r', number: 12 }, gh)).linkedIssue;
+    expect(await linked(prView('app/taskcell', factoryBranch))).toMatchObject({ ref: 'o/r#774' });
+    expect(await linked(prView('app/dependabot', factoryBranch))).toBeUndefined();
+    expect(await linked(prView('app/taskcell', 'fix'))).toBeUndefined();
+    expect(await linked(prView('app/taskcell', factoryBranch, true))).toBeUndefined();
+    expect(await linked(prView('someone', factoryBranch))).toBeUndefined();
+  });
+
   it('reviewPullRequest passes allowedAuthors through and survives a failed issue fetch', async () => {
     const seen: PullRequestForReview[] = [];
     const reviewer = async (p: PullRequestForReview): Promise<string> => { seen.push(p); return '**Verdict: APPROVE**\nNo blocking findings.\n<promise>COMPLETE</promise>'; };
