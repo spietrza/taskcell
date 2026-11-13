@@ -96,6 +96,8 @@ export interface ReviewPullRequestDeps {
   publish?: boolean;
   /** Logins trusted beyond OWNER/MEMBER/COLLABORATOR as authors of the linked issue (--feedback-authors). */
   allowedAuthors?: readonly string[];
+  /** Actions run id of the PR-review workflow posting this review; stamped next to the head marker (see postPullRequestReview). */
+  runId?: string;
 }
 
 export interface ReviewPullRequestResult {
@@ -352,6 +354,18 @@ export function soleReviewMarkerSha(body: string): string | undefined {
   return shas.size === 1 ? [...shas][0] : undefined;
 }
 
+const PR_REVIEW_RUN_MARKER_RE = /^<!--[ \t]*taskcell-pr-review-run:[ \t]*([a-fA-F0-9]+):(\d+)[ \t]*-->$/gm;
+
+/** Host-stamped on a review the PR-review workflow posts: binds the review's head SHA to the workflow run that posted it. */
+export function pullRequestReviewRunMarker(headRefOid: string, runId: string): string {
+  return `<!-- taskcell-pr-review-run: ${headRefOid}:${runId} -->`;
+}
+
+/** The workflow run ids a body stamps for `headRefOid` (whole-line markers only). */
+export function pullRequestReviewRunIds(body: string, headRefOid: string): string[] {
+  return Array.from(body.matchAll(PR_REVIEW_RUN_MARKER_RE)).filter((m) => m[1] === headRefOid).map((m) => m[2]!);
+}
+
 export const PR_REVIEW_INCOMPLETE_NOTICE =
   'Vanguard review did not complete; PR likely too large for a single pass. Please split or review manually.';
 export const PR_REVIEW_NO_OUTPUT_NOTICE =
@@ -470,9 +484,14 @@ export async function postPullRequestReview(
   commentBody: string,
   action: PullRequestReviewAction = 'comment',
   gh: GhRunner = defaultGhRunner,
+  runId = '',
 ): Promise<void> {
+  // Only the PR-review workflow's `review-pr` passes a run id. The stamp is a host-written marker the approver's act mode
+  // requires; it is not authentication (any job that can post as github-actions could write one), so no such job may handle untrusted input.
+  const sha = soleReviewMarkerSha(commentBody);
+  const stamped = /^\d+$/.test(runId) && sha !== undefined ? `${commentBody}\n\n${pullRequestReviewRunMarker(sha, runId)}` : commentBody;
   const flag = action === 'request-changes' ? '--request-changes' : action === 'approve' ? '--approve' : '--comment';
-  await gh(['pr', 'review', String(target.number), '--repo', target.repoSlug, flag, '--body', redactForPublish(commentBody)]);
+  await gh(['pr', 'review', String(target.number), '--repo', target.repoSlug, flag, '--body', redactForPublish(stamped)]);
 }
 
 /**
@@ -546,7 +565,7 @@ export async function reviewPullRequest(ref: string, deps: ReviewPullRequestDeps
     const detail = `Diff: ${diffLineCount(pr.diff)} lines; last pass produced ${outcome.text.trim().length} characters of output.${modelLine}`;
     const commentBody = buildPullRequestReviewIncompleteComment(reason, detail);
     if (deps.publish !== false) {
-      await postPullRequestReview(target, commentBody, 'comment', gh);
+      await postPullRequestReview(target, commentBody, 'comment', gh, deps.runId);
       deps.log?.(`review-pr ${id}: posted -> incomplete notice (${reason})`);
     }
     throw new PullRequestReviewIncompleteError(pr, commentBody);
@@ -559,7 +578,7 @@ export async function reviewPullRequest(ref: string, deps: ReviewPullRequestDeps
   const reviewed = pr.reReview !== undefined ? applyReReviewRules(outcome.text, { ...pr.reReview, prFiles: changedFilesOf(pr.diff) }) : { text: outcome.text, downgraded: 0 };
   const commentBody = buildPullRequestReviewComment(reviewed.text, pr.headRefOid, { completed: outcome.completed, linkedIssueNote: linkedIssueNote(pr) });
   if (deps.publish !== false) {
-    await postPullRequestReview(target, commentBody, 'comment', gh);
+    await postPullRequestReview(target, commentBody, 'comment', gh, deps.runId);
     deps.log?.(`review-pr ${id}: posted -> pr review`);
   }
   // The signal this exists to collect must also show in dry-run/local (`--out`) runs; the suffix says

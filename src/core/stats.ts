@@ -69,16 +69,21 @@ function num(value: unknown): number {
   return typeof value === 'number' && Number.isFinite(value) ? value : 0;
 }
 
-/** Parse JSONL text into objects, tolerating blank lines and malformed JSON. */
-export function parseJsonlLines(text: string): Record<string, unknown>[] {
+/** Parse JSONL text into objects, tolerating blank lines and malformed JSON. `onSkip` gets each non-blank line that is not a JSON object. */
+export function parseJsonlLines(text: string, onSkip?: (line: string) => void): Record<string, unknown>[] {
   const lines: Record<string, unknown>[] = [];
   for (const line of text.split('\n')) {
     const trimmed = line.trim();
     if (trimmed === '') continue;
     try {
-      lines.push(JSON.parse(trimmed) as Record<string, unknown>);
+      const parsed: unknown = JSON.parse(trimmed);
+      if (parsed === null || typeof parsed !== 'object' || Array.isArray(parsed)) {
+        onSkip?.(trimmed);
+        continue;
+      }
+      lines.push(parsed as Record<string, unknown>);
     } catch {
-      continue;
+      onSkip?.(trimmed);
     }
   }
   return lines;

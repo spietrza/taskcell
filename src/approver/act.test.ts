@@ -4,9 +4,13 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { execa } from 'execa';
 import { runApprover } from './approve.js';
-import { assertActSafeGhArgs, isReleasePr } from './act.js';
+import { mergeTree, collectDiffFacts } from './diff-facts.js';
+import { loadPolicy } from './policy.js';
+import { resolveRemoteBaseRef } from '../core/base-branch.js';
+import { assertActSafeGhArgs, isReleasePr, hardExclusions, escapeForComment } from './act.js';
 import { readBranchFile } from '../core/metrics-branch.js';
 import type { GhRunner } from '../tasks/github.js';
+import type { ApproverPolicy } from './types.js';
 
 let root: string;
 let origin: string;
@@ -65,7 +69,7 @@ afterEach(async () => {
   await rm(root, { recursive: true, force: true });
 });
 
-const reviewBody = (sha: string): string => `## Taskcell Review\n\nVerdict: NO BLOCKING FINDINGS\n\nLooks good.\n\n<!-- taskcell-pr-review: ${sha} -->`;
+const reviewBody = (sha: string): string => `## Taskcell Review\n\nVerdict: NO BLOCKING FINDINGS\n\nLooks good.\n\n<!-- taskcell-pr-review: ${sha} -->\n\n<!-- taskcell-pr-review-run: ${sha}:42 -->`;
 
 interface PrState {
   head: string;
@@ -76,7 +80,9 @@ interface PrState {
   build: string | null;
   author: string;
   labels: string[];
-  humanReviews: Array<{ login: string; state: string }>;
+  humanReviews: Array<{ login: string; state: string; at?: string }>;
+  /** The verdict review carries the host's run stamp (default true). */
+  stamped?: boolean;
 }
 
 function fakeGh(calls: string[][], pr: PrState, onUpdate?: () => Promise<void>): GhRunner {
@@ -90,8 +96,8 @@ function fakeGh(calls: string[][], pr: PrState, onUpdate?: () => Promise<void>):
         headRepository: { name: 'r' }, headRepositoryOwner: { login: 'o' },
         author: { login: pr.author }, labels: pr.labels.map((name) => ({ name })),
         reviews: [
-          { author: { login: 'bot' }, body: reviewBody(headSha), submittedAt: '2026-10-20T00:00:00Z', state: 'COMMENTED' },
-          ...pr.humanReviews.map((r) => ({ author: { login: r.login }, body: 'please fix', submittedAt: '2026-10-21T00:00:00Z', state: r.state })),
+          { author: { login: 'bot' }, body: pr.stamped === false ? reviewBody(headSha).replace(/\n\n<!-- taskcell-pr-review-run.*$/, '') : reviewBody(headSha), submittedAt: '2026-10-20T00:00:00Z', state: 'COMMENTED' },
+          ...pr.humanReviews.map((r) => ({ author: { login: r.login }, body: 'please fix', submittedAt: r.at ?? '2026-10-21T00:00:00Z', state: r.state })),
         ],
       });
     }
@@ -116,6 +122,8 @@ const records = async (): Promise<Array<Record<string, unknown>>> =>
   (await readBranchFile(repo, { file: 'decisions.jsonl' })).trim().split('\n').filter((l) => l !== '').map((l) => JSON.parse(l) as Record<string, unknown>);
 const actions = async (): Promise<string[]> =>
   (await readBranchFile(repo, { file: 'decisions.jsonl' })).trim().split('\n').map((l) => JSON.parse(l) as { action?: string }).flatMap((r) => (r.action !== undefined ? [r.action] : []));
+
+const loaded = POLICY as unknown as ApproverPolicy;
 
 describe('approver act mode', () => {
   describe('clean PR', () => {
@@ -405,6 +413,208 @@ describe('approver act mode', () => {
       expect(writes(calls, 'comment').some((a) => a.join(' ').includes('not opened by the factory'))).toBe(true);
     });
 
+    it('an empty requiredChecks acts on nothing', async () => {
+      await rm(root, { recursive: true, force: true });
+      await setup({ ...POLICY, requiredChecks: [] }, { 'src.ts': 'export const x = 1;\n' });
+      const calls: string[][] = [];
+      await run(fakeGh(calls, pr()));
+      expect(writes(calls, 'merge')).toEqual([]);
+      expect(writes(calls, 'comment').some((a) => a.join(' ').includes('no required checks'))).toBe(true);
+    });
+
+    it('state is re-read before the merge: a hold label added meanwhile stops it', async () => {
+      const state = pr();
+      const calls: string[][] = [];
+      const base = fakeGh(calls, state);
+      let views = 0;
+      const gh: GhRunner = async (args) => {
+        if (args[0] === 'pr' && args[1] === 'view' && !args.includes('comments')) {
+          views += 1;
+          if (views >= 2) state.labels = ['taskcell:hold'];
+        }
+        return base(args);
+      };
+      await run(gh);
+      expect(views).toBeGreaterThanOrEqual(2);
+      expect(writes(calls, 'merge')).toEqual([]);
+      expect(writes(calls, 'comment').some((a) => a.join(' ').includes('changed before the merge'))).toBe(true);
+    });
+
+    it('the policy is re-read before the merge: enabled:false pushed meanwhile stops it', async () => {
+      const calls: string[][] = [];
+      const base = fakeGh(calls, pr());
+      let views = 0;
+      const gh: GhRunner = async (args) => {
+        if (args[0] === 'pr' && args[1] === 'view' && !args.includes('comments')) {
+          views += 1;
+          if (views === 2) {
+            const seed = join(root, 'seed');
+            await git(seed, ['checkout', '--quiet', 'main']);
+            await writeFile(join(seed, '.taskcell', 'approver.json'), JSON.stringify({ ...POLICY, enabled: false }));
+            await git(seed, ['commit', '--quiet', '-am', 'stop']);
+            await git(seed, ['push', '--quiet', origin, 'main']);
+          }
+        }
+        return base(args);
+      };
+      await run(gh);
+      expect(writes(calls, 'merge')).toEqual([]);
+      expect(writes(calls, 'comment').some((a) => a.join(' ').includes('changed before the merge'))).toBe(true);
+      // The stale check runs before the act-merge APPROVE record is written.
+      expect((await records()).some((r) => r.actMerge === true)).toBe(false);
+    });
+
+    it('a comment that cannot be posted fails the run instead of passing silently', async () => {
+      const calls: string[][] = [];
+      const base = fakeGh(calls, pr({ labels: ['taskcell:hold'] }));
+      const gh: GhRunner = async (args) => {
+        if (args[0] === 'pr' && args[1] === 'comment') throw new Error('HTTP 403');
+        return base(args);
+      };
+      await expect(run(gh)).rejects.toThrow(/could not be reported/);
+      expect(await actions()).toEqual(['left-for-human']);
+    });
+
+    it('a failed fetch of the base is git-facts-failed in act mode, a stale local base otherwise', async () => {
+      await git(repo, ['branch', 'main', 'origin/main']);
+      await execa('git', ['remote', 'set-url', 'origin', join(root, 'nowhere.git')], { cwd: repo });
+      const input = { repoPath: repo, prNumber: 1, baseRefName: 'main', apiHeadSha: headSha, reviewedSha: null, policy: loaded };
+      expect((await collectDiffFacts(input)).baseSha).not.toBe('');
+      const strict = await collectDiffFacts({ ...input, requireRemoteBase: true });
+      expect(strict).toMatchObject({ gitFactsFailed: true, baseSha: '' });
+      await expect(resolveRemoteBaseRef(repo, 'main', { requireRemote: true, keepLocalIfAhead: false })).rejects.toThrow(/cannot use the remote main/);
+      expect(await loadPolicy(repo, 'main')).toBeDefined();
+      expect(await loadPolicy(repo, 'main', { requireRemote: true })).toBeUndefined();
+    });
+
+    it('UNKNOWN mergeStateStatus is retried before the PR is left for a human', async () => {
+      const state = pr({ merge: 'UNKNOWN' });
+      const calls: string[][] = [];
+      const base = fakeGh(calls, state);
+      let views = 0;
+      const gh: GhRunner = async (args) => {
+        if (args[0] === 'pr' && args[1] === 'view' && !args.includes('comments')) {
+          views += 1;
+          if (views >= 3) state.merge = 'CLEAN';
+        }
+        return base(args);
+      };
+      await run(gh);
+      expect(writes(calls, 'merge')).toHaveLength(1);
+    });
+
+    it('a different reason on the same head is reported again', async () => {
+      const calls: string[][] = [];
+      await run(fakeGh(calls, pr({ merge: 'BLOCKED' })));
+      await run(fakeGh(calls, pr({ labels: ['taskcell:hold'] })));
+      expect(writes(calls, 'comment')).toHaveLength(2);
+      const markers = writes(calls, 'comment').map((a) => /taskcell-approver-act: \S+/.exec(a.join(' '))?.[0]);
+      expect(new Set(markers).size).toBe(2);
+      expect(await actions()).toEqual(['left-for-human', 'left-for-human']);
+    });
+
+    it('an approval after a change request releases the hold', async () => {
+      const calls: string[][] = [];
+      await run(fakeGh(calls, pr({ humanReviews: [
+        { login: 'alice', state: 'CHANGES_REQUESTED', at: '2026-10-21T00:00:00Z' },
+        { login: 'alice', state: 'APPROVED', at: '2026-10-22T00:00:00Z' },
+      ] })));
+      expect(writes(calls, 'merge')).toHaveLength(1);
+      const held: string[][] = [];
+      await run(fakeGh(held, pr({ humanReviews: [
+        { login: 'alice', state: 'APPROVED', at: '2026-10-21T00:00:00Z' },
+        { login: 'alice', state: 'CHANGES_REQUESTED', at: '2026-10-22T00:00:00Z' },
+      ] })));
+      expect(writes(held, 'merge')).toEqual([]);
+    });
+
+    it('a dismissed review and an unnamed reviewer do not release a change request', () => {
+      const facts = { pr: { isDraft: false, labels: [], author: 'app/taskcell', headRefName: 'chore/vanguard-1', title: 'x', mergeStateStatus: 'CLEAN' }, diff: { paths: [] } } as never;
+      const r = (author: string, state: string, at: string) => ({ author, body: '', submittedAt: at, state });
+      expect(hardExclusions(facts, loaded, [r('alice', 'CHANGES_REQUESTED', '1'), r('alice', 'DISMISSED', '2')])).toContain('a review requests changes');
+      expect(hardExclusions(facts, loaded, [r('', 'CHANGES_REQUESTED', '1'), r('', 'APPROVED', '2')])).toContain('a review requests changes');
+      expect(hardExclusions(facts, loaded, [r('alice', 'DISMISSED', '1')])).not.toContain('a review requests changes');
+    });
+
+    it('hardExclusions: one reviewer approving does not release another reviewer\'s change request', () => {
+      const facts = { pr: { isDraft: false, labels: [], author: 'app/taskcell', headRefName: 'chore/vanguard-1', title: 'x', mergeStateStatus: 'CLEAN' }, diff: { paths: [] } } as never;
+      const reviews = [
+        { author: 'alice', body: '', submittedAt: '1', state: 'CHANGES_REQUESTED' },
+        { author: 'bob', body: '', submittedAt: '2', state: 'APPROVED' },
+      ];
+      expect(hardExclusions(facts, loaded, reviews)).toContain('a review requests changes');
+    });
+
+    it('only the verdict review the PR-review workflow stamped counts in act mode', async () => {
+      const unstamped: string[][] = [];
+      await run(fakeGh(unstamped, pr({ stamped: false })));
+      expect(writes(unstamped, 'merge')).toEqual([]);
+      const shadow: string[][] = [];
+      expect((await run(fakeGh(shadow, pr({ stamped: false })), 'shadow')).record.verdict).toBe('APPROVE');
+      const other: string[][] = [];
+      await runApprover({ repoPath: repo, repoSlug: 'o/r', prNumber: 1, mode: 'act', gh: fakeGh(other, pr()), sleep: async () => {}, reviewRunId: '99' });
+      expect(writes(other, 'merge')).toEqual([]);
+      const same: string[][] = [];
+      await runApprover({ repoPath: repo, repoSlug: 'o/r', prNumber: 1, mode: 'act', gh: fakeGh(same, pr()), sleep: async () => {}, reviewRunId: '42' });
+      expect(writes(same, 'merge')).toHaveLength(1);
+    });
+
+    it('an initial BEHIND state is updated, then merged after the checks', async () => {
+      const state = pr({ merge: 'BEHIND' });
+      const calls: string[][] = [];
+      await moveBase('other.txt');
+      await run(fakeGh(calls, state, () => updateBranch(state, 'success')));
+      expect(writes(calls, 'update-branch')).toHaveLength(1);
+      expect(writes(calls, 'merge')).toHaveLength(1);
+    });
+
+    it('a failed update-branch is commented and logged, not thrown', async () => {
+      const state = pr({ merge: 'BEHIND' });
+      const calls: string[][] = [];
+      await moveBase('other.txt');
+      await run(fakeGh(calls, state, async () => { throw new Error('HTTP 422: merge conflict @evil'); }));
+      expect(writes(calls, 'merge')).toEqual([]);
+      const comment = writes(calls, 'comment').map((a) => a.join(' ')).join('\n');
+      expect(comment).toContain('the branch update failed');
+      expect(comment).not.toContain('@evil');
+      expect(await actions()).toEqual(['error']);
+    });
+
+    it('a gh error while polling the updated head is commented and logged, not thrown', async () => {
+      const state = pr();
+      const calls: string[][] = [];
+      await moveBase('other.txt');
+      const base = fakeGh(calls, state, () => updateBranch(state, null));
+      let updated = false;
+      const gh: GhRunner = async (args) => {
+        if (args[1] === 'update-branch') updated = true;
+        if (updated && args[0] === 'pr' && args[1] === 'view' && !args.includes('comments')) throw new Error('gh: HTTP 502');
+        return base(args);
+      };
+      await run(gh);
+      expect(writes(calls, 'merge')).toEqual([]);
+      expect(await actions()).toEqual(['update-branch', 'error']);
+    });
+
+    it('the comment escapes mentions, markup and CI-config paths in the reason', () => {
+      const out = escapeForComment('touches CI config (.github/workflows/x.yml) @evil <img src=x> #12');
+      expect(out).not.toMatch(/@evil|<img|\.github\/workflows|#12/);
+      expect(out).toContain('@\u200bevil');
+    });
+
+    it('a merge rejection with markup in the gh error is escaped in the comment', async () => {
+      const calls: string[][] = [];
+      const base = fakeGh(calls, pr());
+      const gh: GhRunner = async (args) => {
+        if (args[1] === 'merge') throw new Error('rejected @evil <script>');
+        return base(args);
+      };
+      await expect(run(gh)).rejects.toThrow(/rejected/);
+      const comment = writes(calls, 'comment').map((a) => a.join(' ')).join('\n');
+      expect(comment).toContain('merge was rejected');
+      expect(comment).not.toMatch(/@evil|<script>/);
+    });
+
     it('a policy without factoryAuthors acts on nothing', async () => {
       await rm(root, { recursive: true, force: true });
       const { factoryAuthors: _f, ...noAuthors } = POLICY;
@@ -489,3 +699,25 @@ async function updateBranch(state: PrState, build: string | null, extra?: string
   state.merge = 'CLEAN';
   state.build = build;
 }
+
+describe('mergeTree', () => {
+  beforeEach(() => setup(POLICY, { 'src.ts': 'export const x = 1;\n' }));
+
+  it('parses a clean merge (the tree oid), a conflict, and a failure', async () => {
+    await execa('git', ['fetch', '--quiet', 'origin', 'refs/pull/1/head'], { cwd: repo });
+    const clean = await mergeTree(repo, baseSha, headSha);
+    expect(clean.clean).toBe(true);
+    expect(clean.tree).toMatch(/^[0-9a-f]{40}$/);
+    expect(clean.tree).not.toContain('\n');
+    const seed = join(root, 'seed');
+    await git(seed, ['checkout', '--quiet', 'main']);
+    await writeFile(join(seed, 'src.ts'), 'export const x = 2;\n');
+    await git(seed, ['add', '.']);
+    await git(seed, ['commit', '--quiet', '-m', 'conflicting']);
+    const tip = await git(seed, ['rev-parse', 'HEAD']);
+    await git(seed, ['push', '--quiet', origin, 'main']);
+    await execa('git', ['fetch', '--quiet', 'origin', 'main'], { cwd: repo });
+    expect(await mergeTree(repo, tip, headSha)).toEqual({ clean: false, tree: undefined });
+    expect((await mergeTree(repo, 'deadbeef'.repeat(5), headSha)).clean).not.toBe(true);
+  });
+});

@@ -40,6 +40,35 @@ export function isReleasePr(pr: Pick<PrFacts, 'headRefName' | 'title'>): boolean
 /** mergeStateStatus values act mode proceeds on: CLEAN, or BEHIND (it updates first, and the re-decision then needs CLEAN). */
 const ACTABLE_MERGE_STATES = new Set(['CLEAN', 'BEHIND']);
 
+/** A change request holds until the same reviewer's later approval (or the review is dismissed): only each author's latest verdict-bearing review counts. */
+export function holdsChanges(reviews: PrFacts['reviews']): boolean {
+  const latest = new Map<string, { at: string; state: string }>();
+  for (const r of reviews) {
+    // A dismissed review no longer counts either way; an author we cannot name cannot be released by anyone's approval.
+    if (r.state !== 'CHANGES_REQUESTED' && r.state !== 'APPROVED') continue;
+    if (r.author === '') {
+      if (r.state === 'CHANGES_REQUESTED') return true;
+      continue;
+    }
+    const prev = latest.get(r.author);
+    if (prev === undefined || r.submittedAt >= prev.at) latest.set(r.author, { at: r.submittedAt, state: r.state });
+  }
+  return [...latest.values()].some((v) => v.state === 'CHANGES_REQUESTED');
+}
+
+/** A reason as it is safe to put in a bot comment: no HTML, markdown links or images, bare URLs, mentions, issue links, `.github/` path prefixes or newlines; capped. */
+export function escapeForComment(text: string): string {
+  const flat = text.replace(/\s+/g, ' ').trim().slice(0, 400);
+  return flat
+    .replace(/[<>&`|]/g, (c) => ({ '<': '&lt;', '>': '&gt;', '&': '&amp;', '`': "'", '|': '/' })[c]!)
+    .replace(/[[\]()!]/g, (c) => `\\${c}`)
+    .replace(/:\/\//g, ':\u200b//')
+    .replace(/\bwww\./gi, 'www\u200b.')
+    .replace(/@/g, '@\u200b')
+    .replace(/#(?=\d)/g, '#\u200b')
+    .replace(/(^|[\s(])(\.(?:github|gitlab))\//g, '$1$2\u200b/');
+}
+
 /**
  * Why act mode must leave this PR to a human, beyond `decide()`: a draft (never promoted — a draft can be a hold),
  * a human hold (a CHANGES_REQUESTED review or the hold label), a PR not opened by a factory login, a release PR,
@@ -48,7 +77,8 @@ const ACTABLE_MERGE_STATES = new Set(['CLEAN', 'BEHIND']);
 export function hardExclusions(facts: ApproverFacts, policy: ApproverPolicy, reviews: PrFacts['reviews']): string[] {
   const reasons: string[] = [];
   if (facts.pr.isDraft) reasons.push('draft PR (act mode never marks a draft ready)');
-  if (reviews.some((r) => r.state === 'CHANGES_REQUESTED')) reasons.push('a review requests changes');
+  if (holdsChanges(reviews)) reasons.push('a review requests changes');
+  if (policy.requiredChecks.length === 0) reasons.push('the policy lists no required checks (act mode acts on nothing)');
   const holdLabel = policy.holdLabel ?? 'taskcell:hold';
   if (hasLabel(facts.pr.labels ?? [], holdLabel)) reasons.push(`hold label ${holdLabel}`);
   const author = facts.pr.author ?? '';
