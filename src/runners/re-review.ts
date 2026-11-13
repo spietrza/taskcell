@@ -16,6 +16,8 @@ export interface ReReviewContext {
   revisionSummaries: string[];
   /** Diff from the previously reviewed head to the current one; absent when it could not be fetched (e.g. force-push). */
   sinceDiff?: string;
+  /** Files touched since the last reviewed head, from the untruncated since-diff (`sinceDiff` may be cut for the prompt). */
+  changedFiles?: string[];
 }
 
 const PREVIOUS_STATUSES = ['resolved', 'not resolved', 'no longer applies'] as const;
@@ -46,7 +48,7 @@ const reReviewSchema = z.object({
 });
 
 /** Paths touched by a unified diff (the `b/` side of each `diff --git` header, quoted ones included). Lines split on \n only, like git. */
-function changedFilesOf(diff: string): string[] {
+export function changedFilesOf(diff: string): string[] {
   return diff.split('\n').flatMap((line) => {
     const quoted = /^diff --git "a\/.*" "b\/(.+)"$/.exec(line)?.[1];
     const path = quoted ?? DIFF_GIT_HEADER_RE.exec(line)?.[1];
@@ -136,7 +138,7 @@ function coversPreviousBlocking(previous: ReadonlyArray<{ id: string; blocking: 
  */
 export function applyReReviewRules(
   text: string,
-  ctx: Pick<ReReviewContext, 'sinceDiff'> & Partial<Pick<ReReviewContext, 'previousBody'>>,
+  ctx: Pick<ReReviewContext, 'sinceDiff'> & Partial<Pick<ReReviewContext, 'previousBody' | 'changedFiles'>>,
 ): { text: string; downgraded: number } {
   const peeled = peelVerdict(text.replace(REREVIEW_STRIP_RE, ''));
   let parsed: z.infer<typeof reReviewSchema> | undefined;
@@ -155,7 +157,7 @@ export function applyReReviewRules(
     };
   }
 
-  const changed = ctx.sinceDiff !== undefined ? changedFilesOf(ctx.sinceDiff) : undefined;
+  const changed = ctx.changedFiles ?? (ctx.sinceDiff !== undefined ? changedFilesOf(ctx.sinceDiff) : undefined);
   const rejected: string[] = [];
   const accepted: typeof parsed.new = [];
   for (const f of parsed.new) {

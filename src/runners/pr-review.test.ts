@@ -780,4 +780,14 @@ describe('incremental re-review', () => {
     await reviewPullRequest('12', { repoSlug: 'o/r', gh, reviewer, log: () => {} });
     expect((reviewer.mock.calls[0]![0] as PullRequestForReview).reReview?.sinceDiff).toBeUndefined();
   });
+
+  it('accepts a new blocking finding on a changed file past the since-diff truncation cut', async () => {
+    const since = `diff --git a/big.ts b/big.ts\n+${'x'.repeat(120_000)}\ndiff --git a/late.ts b/late.ts\n+bug\n`;
+    const { gh } = reGh('bbb222', { since });
+    const result = await run(gh, `Verdict: BLOCKING\n${rereview({ previous: [prevRow('resolved')], new: [{ title: 'late bug', file: 'late.ts', blocking: true, basis: 'changed-since-last-review' }] })}`);
+    expect(result.verdict).toBe('blocking');
+    expect(result.commentBody).not.toContain('Downgraded by the re-review rules');
+    expect(result.pr.reReview?.sinceDiff).toContain('(since-diff truncated)');
+    expect(result.pr.reReview?.sinceDiff).not.toContain('late.ts');
+  });
 });

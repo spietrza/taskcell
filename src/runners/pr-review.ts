@@ -27,7 +27,7 @@ import {
 import type { ReviewRisk, ReviewVerdict } from './review-prompt.js';
 import type { GhRunner } from '../tasks/github.js';
 import { redactForPublish } from '../core/secret-scan.js';
-import { applyReReviewRules, RE_REVIEW_UNTRUSTED_TAGS, reReviewInstructions } from './re-review.js';
+import { applyReReviewRules, changedFilesOf, RE_REVIEW_UNTRUSTED_TAGS, reReviewInstructions } from './re-review.js';
 import { isTrustedBotLogin } from '../tasks/comment-trust.js';
 import type { ReReviewContext } from './re-review.js';
 
@@ -218,16 +218,19 @@ async function fetchReReviewContext(target: PullRequestReviewTarget, view: GhPul
   const head = view.headRefOid ?? '';
   // Same head: nothing changed since, so the since-diff is empty (a re-label re-review must not accept new blocking findings).
   let sinceDiff: string | undefined = previousSha === head ? '' : undefined;
+  let changedFiles: string[] | undefined;
   if (sinceDiff === undefined) {
     try {
       const raw = omitGeneratedFiles(await gh(['api', `repos/${target.repoSlug}/compare/${previousSha}...${head}`, '-H', 'Accept: application/vnd.github.diff']));
+      // From the untruncated diff: a finding on a file past the prompt cut is still on changed code.
+      changedFiles = changedFilesOf(raw);
       sinceDiff = raw.length > MAX_SINCE_DIFF_CHARS ? `${raw.slice(0, MAX_SINCE_DIFF_CHARS)}\n(since-diff truncated)\n` : raw;
     } catch (error) {
       // A force-push can drop the old head from the repo; the review then falls back to the full diff.
       log?.(`review-pr ${target.repoSlug}#${target.number}: since-diff ${previousSha.slice(0, 7)}...${head.slice(0, 7)} unavailable (${error instanceof Error ? error.message : String(error)}); using the full diff`);
     }
   }
-  return { previousBody, previousSha, revisionSummaries, ...(sinceDiff !== undefined ? { sinceDiff } : {}) };
+  return { previousBody, previousSha, revisionSummaries, ...(sinceDiff !== undefined ? { sinceDiff } : {}), ...(changedFiles !== undefined ? { changedFiles } : {}) };
 }
 
 export function buildPullRequestReviewPrompt(pr: PullRequestForReview, opts: { retryTriage?: boolean; instructions?: InstructionOverlay } = {}): string {
