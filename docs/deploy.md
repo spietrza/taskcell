@@ -136,7 +136,7 @@ command:
 
 GitHub mode watches the `ready for spec`, `ready for agent`, and `needs info` labels in that repo. It does **not** need `--label=vanguard` by default; add `--label=vanguard` only if you want an extra ownership filter on top of the routing labels.
 
-Set the `gc --remote OWNER/REPO` slug to match your repo. Keep `TASKCELL_MAX_SANDBOXES: "1"` on a small NAS.
+Set the `gc --remote OWNER/REPO` slug to match your repo. Keep the cap at 1 on a small NAS (the template sets it under the old name `VANGUARD_MAX_SANDBOXES` so an override file using either name wins).
 
 The same compose file also ships an optional **external PR review loop** under the `pr-review` profile. It watches PRs carrying the trigger label, posts a non-blocking Taskcell review, and marks the PR with `vanguard:reviewed`. Run its preflight first:
 

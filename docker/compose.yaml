@@ -17,7 +17,8 @@ services:
       # ANTHROPIC_API_KEY: ${ANTHROPIC_API_KEY}           # API alternative (pay-per-use)
       LINEAR_API_KEY: ${LINEAR_API_KEY:-} # required only when --source=linear
       GH_TOKEN: ${GH_TOKEN}
-      TASKCELL_MAX_SANDBOXES: "1" # cap to host RAM (1 per ~3GB free; one task at a time on a small NAS)
+      # Old spelling on purpose: a TASKCELL_ default here would beat a VANGUARD_MAX_SANDBOXES set in an override file.
+      VANGUARD_MAX_SANDBOXES: "1" # cap to host RAM (1 per ~3GB free; one task at a time on a small NAS)
       # TASKCELL_VERIFY_CMD: pnpm install --frozen-lockfile && pnpm typecheck && pnpm test
       # TASKCELL_VISUAL_PROOF_CMD: pnpm exec playwright test --project=chromium
       # Per-host sandbox + sidecar limits. Set CPUS=0 on kernels without the CPU CFS scheduler (e.g.
@@ -58,7 +59,7 @@ services:
       CLAUDE_CODE_OAUTH_TOKEN: ${CLAUDE_CODE_OAUTH_TOKEN}
       # ANTHROPIC_API_KEY: ${ANTHROPIC_API_KEY}
       GH_TOKEN: ${GH_TOKEN}
-      TASKCELL_MAX_SANDBOXES: "1"
+      VANGUARD_MAX_SANDBOXES: "1"
       # TASKCELL_SANDBOX_CPUS: "0"
       # TASKCELL_SANDBOX_PIDS: "0"
       # TASKCELL_SANDBOX_MEMORY_MB: "2560"
