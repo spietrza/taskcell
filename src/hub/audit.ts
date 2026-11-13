@@ -1,16 +1,16 @@
 // Append-only audit log of state-changing hub actions: one JSON line per action in
 // `<configDir>/audit.jsonl`. Lines carry only the whitelisted fields below — never a request body,
 // credential, token, cookie or error message — so a line cannot leak what the action carried.
-import { appendFile, mkdir, readFile, rename, rm, stat } from 'node:fs/promises';
+import { homedir } from 'node:os';
 import { join } from 'node:path';
+import { parseJsonlLines } from '../core/stats.js';
+import { appendAudit, localAdapter, STREAMS, TOKEN_AUDIT_ACTOR, type AuditActor, type AuditAdapter, type AuditSubject } from '../core/audit.js';
 import type { AuditAction, AuditEntry, AuditOutcome } from '../wire.js';
 
 export type { AuditAction, AuditEntry, AuditOutcome };
 
-/** Rotate once the live file reaches this size. */
+/** Rotate once the live file reaches this size (rotated files are pruned by age: docs/audit.md). */
 export const AUDIT_MAX_BYTES = 10 * 1024 * 1024;
-/** Files kept in total: the live file plus the newest rotated ones. */
-export const AUDIT_KEEP_FILES = 5;
 const DEFAULT_READ_LIMIT = 500;
 const MAX_READ_LIMIT = 5000;
 
@@ -18,6 +18,9 @@ const MAX_READ_LIMIT = 5000;
 export interface Actor {
   login: string;
   admin: boolean;
+  /** Better Auth user id and display name, when the actor is a signed-in user. */
+  id?: string;
+  name?: string;
 }
 export const TOKEN_ACTOR: Actor = { login: 'token', admin: true };
 
@@ -48,21 +51,24 @@ function cleanTarget(raw: string): string {
 const NAME = /^[\w.-]{1,64}$/;
 
 export class AuditLog {
-  private readonly file: string;
-  private readonly maxBytes: number;
-  /** Serialises appends so concurrent requests cannot interleave a rotation with a write. */
-  private queue: Promise<unknown> = Promise.resolve();
+  private readonly adapter: AuditAdapter;
 
   constructor(
-    private readonly configDir: string,
-    opts: { maxBytes?: number } = {},
+    configDir: string,
+    opts: { maxBytes?: number; retentionDays?: number } = {},
   ) {
-    this.file = join(configDir, 'audit.jsonl');
-    this.maxBytes = opts.maxBytes ?? AUDIT_MAX_BYTES;
+    this.adapter = localAdapter({
+      file: join(configDir, 'audit.jsonl'),
+      maxBytes: opts.maxBytes ?? AUDIT_MAX_BYTES,
+      ...(opts.retentionDays !== undefined ? { retentionDays: opts.retentionDays } : {}),
+    });
   }
 
-  /** Append one line. Never throws: an unwritable log must not fail the action it records. */
-  record(input: AuditRecordInput): Promise<void> {
+  /**
+   * Append one chained, fsynced line. Fails closed: an unwritable log rejects with AuditWriteError, so
+   * the caller reports the failure instead of carrying on unrecorded.
+   */
+  record(input: AuditRecordInput & { actor?: AuditActor; subject?: AuditSubject }): Promise<void> {
     const entry: AuditEntry = {
       time: new Date().toISOString(),
       login: input.login,
@@ -71,43 +77,47 @@ export class AuditLog {
       outcome: input.outcome,
       ...(input.detail !== undefined ? { detail: input.detail.filter((d) => NAME.test(d)).sort() } : {}),
     };
-    const next = this.queue.then(() => this.append(`${JSON.stringify(entry)}\n`));
-    this.queue = next.catch((e: unknown) => console.error(`audit log write failed: ${e instanceof Error ? e.message : String(e)}`));
-    return this.queue as Promise<void>;
-  }
-
-  private async append(line: string): Promise<void> {
-    await mkdir(this.configDir, { recursive: true });
-    const size = await stat(this.file).then((s) => s.size, () => 0);
-    if (size >= this.maxBytes) await this.rotate();
-    await appendFile(this.file, line, { mode: 0o600 });
-  }
-
-  private async rotate(): Promise<void> {
-    const oldest = AUDIT_KEEP_FILES - 1;
-    await rm(`${this.file}.${oldest}`, { force: true });
-    for (let i = oldest - 1; i >= 1; i--) await rename(`${this.file}.${i}`, `${this.file}.${i + 1}`).catch(() => undefined);
-    await rename(this.file, `${this.file}.1`);
+    const actor = input.actor ?? auditActorOf({ login: input.login, admin: false });
+    const subject = input.subject ?? subjectOf(input.action, entry.target);
+    // The adapter serialises appends per file, so concurrent requests keep the chain in order.
+    return appendAudit(STREAMS.hub, this.adapter, { ...entry }, { actor, ...(subject !== undefined ? { subject } : {}) }).then(() => undefined);
   }
 
   /** Newest first across the live and rotated files, optionally for one login. */
   async read(opts: { login?: string; limit?: number } = {}): Promise<AuditEntry[]> {
     const limit = Math.min(Math.max(1, Math.floor(opts.limit ?? DEFAULT_READ_LIMIT)), MAX_READ_LIMIT);
-    await this.queue;
     const out: AuditEntry[] = [];
-    for (let i = 0; i < AUDIT_KEEP_FILES && out.length < limit; i++) {
-      const raw = await readFile(i === 0 ? this.file : `${this.file}.${i}`, 'utf8').catch(() => '');
-      const lines = raw.split('\n');
-      for (let j = lines.length - 1; j >= 0 && out.length < limit; j--) {
-        if (lines[j] === '') continue;
-        try {
-          const entry = JSON.parse(lines[j]!) as AuditEntry;
-          if (opts.login === undefined || entry.login === opts.login) out.push(entry);
-        } catch {
-          // a torn line is skipped, not fatal
-        }
+    // Newest file first, newest line first, stopping as soon as `limit` entries are found.
+    for await (const f of this.adapter.newestFirst()) {
+      const records = parseJsonlLines(f.text) as unknown as AuditEntry[];
+      for (let i = records.length - 1; i >= 0 && out.length < limit; i--) {
+        if (opts.login === undefined || records[i]!.login === opts.login) out.push(records[i]!);
       }
+      if (out.length >= limit) break;
     }
     return out;
   }
+}
+
+/** Run actions subject a run id; project actions a repo path. */
+function subjectOf(action: string, target: string | undefined): AuditSubject | undefined {
+  if (target === undefined) return undefined;
+  if (target.startsWith('/')) return { repo: target };
+  return action.startsWith('run-') ? { runId: target } : undefined;
+}
+
+/** Report an audit write that could not be made without failing the request that triggered it. */
+export function reportAuditFailure(err: unknown): void {
+  console.error(`audit log write failed: ${err instanceof Error ? err.message : String(err)}`);
+}
+
+/** The hub's config dir when `VANGUARD_HUB_CONFIG_DIR` is unset. */
+export function defaultHubConfigDir(): string {
+  return process.env.VANGUARD_HUB_CONFIG_DIR ?? join(process.env.XDG_CONFIG_HOME ?? join(homedir(), '.config'), 'vanguard-hub');
+}
+
+/** The audit actor for a hub request: Better Auth id + display name, the shared token, or a login. */
+export function auditActorOf(actor: Actor): AuditActor {
+  if (actor.login === TOKEN_ACTOR.login) return TOKEN_AUDIT_ACTOR;
+  return { kind: 'user', ...(actor.id !== undefined ? { id: actor.id } : {}), name: actor.name ?? actor.login };
 }

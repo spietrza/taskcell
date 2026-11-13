@@ -20,7 +20,7 @@ export type AuthorTrust = 'association' | 'allowed' | 'issue-author' | 'bot' | '
  * No bare `vanguard`: that GitHub login is unclaimed, so anyone could register it. Vanguard comments as
  * `github-actions` in CI and as the token's user locally; a dedicated bot account goes in botLogins.
  */
-function isTrustedBotLogin(login: string, extraBotLogins?: readonly string[]): boolean {
+export function isTrustedBotLogin(login: string, extraBotLogins?: readonly string[]): boolean {
   const lower = login.toLowerCase();
   return (
     lower.endsWith('[bot]') ||

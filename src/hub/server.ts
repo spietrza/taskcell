@@ -5,13 +5,14 @@
 import { randomBytes, timingSafeEqual } from 'node:crypto';
 import { createServer, type IncomingMessage, type Server, type ServerResponse } from 'node:http';
 import { isIP } from 'node:net';
+import { join } from 'node:path';
 import { serveStatic } from './static.js';
 import { EventBus } from './events.js';
 import { writeJson, jsonError } from './json-response.js';
 import { CredentialStore } from './credentials.js';
 import { callerRepoRoots, repoInRoots, type Caller } from './teams.js';
 import { dispatchRpc, classifyError, ForbiddenError, type RpcContext } from './rpc.js';
-import { AuditLog, TOKEN_ACTOR, type Actor } from './audit.js';
+import { AuditLog, TOKEN_ACTOR, auditActorOf, reportAuditFailure, type Actor } from './audit.js';
 import { encodeError, encodeResult, HUB_EVENTS_SESSION_PATH, HUB_SIGN_IN_REQUIRED, HUB_TOKEN_HEADER, HUB_TOKEN_REJECTED } from '../hub-wire.js';
 import { ProjectAllowlist, type BindOptions } from './allowlist.js';
 import { WatchRegistry, type WatchOptions } from './watch.js';
@@ -98,7 +99,7 @@ async function auditRefusedSignIn(ctx: RpcContext, auth: HubAuth): Promise<void>
   const now = Date.now();
   if (now - auth.lastRefusedAuditMs < REFUSED_AUDIT_INTERVAL_MS) return;
   auth.lastRefusedAuditMs = now;
-  await ctx.audit?.record({ login: 'unknown', action: 'sign-in', outcome: 'refused' });
+  await ctx.audit?.record({ login: 'unknown', action: 'sign-in', outcome: 'refused' }).catch(reportAuditFailure);
 }
 
 function eventsCookieOk(header: string | undefined, auth: HubAuth): boolean {
@@ -302,7 +303,7 @@ async function handleRequest(
   };
   // The owner (token, or local mode) is the shared `token` admin; other signed-in users are non-admins.
   const actorOf = (user: HubUser): Actor =>
-    opts.actorFor?.(req) ?? (user.id === identity.owner.id ? TOKEN_ACTOR : { login: user.email, admin: false });
+    opts.actorFor?.(req) ?? (user.id === identity.owner.id ? TOKEN_ACTOR : { login: user.email, admin: false, id: user.id, name: user.name });
 
   if (pathname === '/api/auth' || pathname.startsWith('/api/auth/')) {
     // No OAuth on loopback: there the hub is one automatic owner.
@@ -336,7 +337,8 @@ async function handleRequest(
       jsonError(res, 400, 'cross-origin request rejected', 'bad-request');
       return;
     }
-    await ctx.audit?.record({ login: actorOf(user).login, action: 'sign-in', outcome: 'ok' });
+    // A sign-in is not refused for an unwritable log (that would lock everyone out): it is reported on stderr.
+    await ctx.audit?.record({ login: actorOf(user).login, actor: auditActorOf(actorOf(user)), action: 'sign-in', outcome: 'ok' }).catch(reportAuditFailure);
     // A signed-in session needs no events cookie: `/events` takes the session cookie itself, so
     // sign-out or revocation ends the stream's auth. The shared secret goes to token holders only.
     if (!tokenValid) {
@@ -447,7 +449,7 @@ export function createHubServer(opts: HubServerOptions): HubServer {
   // enough for its project to be unbound.
   const runSession = createRunSession(deps, publish, async (p) => {
     await allowlist.assertAllowed(p.repoPath);
-  });
+  }, join(opts.configDir, 'run-counter'));
 
   const credentials = new CredentialStore(opts.configDir, opts.hubSecret);
   // An unreadable store (wrong secret) is reported in Settings and on stderr; runs keep the env credentials.

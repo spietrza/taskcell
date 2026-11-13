@@ -366,7 +366,7 @@ export default function App() {
         onToggleTheme={toggleTheme}
         {...(signedIn ? { onSignOut: () => void hubSignOut() } : {})}
       />
-      <div className="flex min-h-0 flex-1">
+      <div className="flex min-h-0 flex-1 max-md:flex-col">
         <Rail
           projects={projects}
           activePath={activeProject}

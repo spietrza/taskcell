@@ -67,6 +67,7 @@ describe('watchPrsCommand', () => {
     expect(reviewPr).toHaveBeenCalledWith(
       expect.objectContaining({
         kind: 'review-pr',
+        force: true,
         prRef: '12',
         repoSlug: 'o/r',
         repoPath: '/repo',
