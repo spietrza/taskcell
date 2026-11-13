@@ -151,3 +151,24 @@ describe('TaskBoard all repositories', () => {
     expect(screen.getByRole('alert')).toHaveTextContent('beta (tracker down)');
   });
 });
+
+describe('TaskBoard open-in-tracker links', () => {
+  test.each([
+    ['github', 'Open in GitHub', 'https://github.com/o/r/issues/1'],
+    ['gitlab', 'Open in GitLab', 'https://gitlab.com/g/p/-/issues/1'],
+    ['linear', 'Open in Linear', 'https://linear.app/x/issue/DEV-1'],
+  ] as const)('%s card links to its issue in a new tab', async (source, text, url) => {
+    mockListTasks.mockResolvedValue({ tasks: [{ id: 't1', title: 'T', column: 'queued', state: 'Todo', source, url }], capped: false });
+    render(<TaskBoard project="/repo" onOpenTask={() => {}} onNewTask={() => {}} />);
+    const link = await screen.findByRole('link', { name: text });
+    expect(link).toHaveAttribute('href', url);
+    expect(link).toHaveAttribute('target', '_blank');
+  });
+
+  test('no link when the server sent no address', async () => {
+    mockListTasks.mockResolvedValue({ tasks: [{ id: 't1', title: 'T', column: 'queued', state: 'Todo', source: 'github' }], capped: false });
+    render(<TaskBoard project="/repo" onOpenTask={() => {}} onNewTask={() => {}} />);
+    await screen.findByText('T');
+    expect(screen.queryByRole('link')).toBeNull();
+  });
+});

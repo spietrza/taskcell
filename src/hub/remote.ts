@@ -5,6 +5,7 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { BadRequestError } from '../sidecar/sidecar.js';
 import { assertStatePath, ensureStateDir, stateDir } from '../core/state-path.js';
+import { httpsUrl } from '../core/links.js';
 import { isRunRecordFile, listRunSummaries, remoteRunsRoot } from './runs.js';
 import type { RemoteImport, RemoteRun, RunSummary } from '../wire.js';
 
@@ -46,7 +47,7 @@ function parseRuns(json: unknown): Omit<RemoteRun, 'cached'>[] {
       workflow: strOf(r, 'workflowName'),
       createdAt: strOf(r, 'createdAt'),
       event: strOf(r, 'event'),
-      url: strOf(r, 'url'),
+      url: httpsUrl(strOf(r, 'url')) ?? '',
     };
   });
 }

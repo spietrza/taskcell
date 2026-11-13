@@ -9,6 +9,7 @@ import { DEFAULT_GITHUB_AGENT_LABEL, DEFAULT_GITHUB_NEEDS_INFO_LABEL } from '../
 import { GITHUB_REVIEW_LABEL, GITHUB_VERIFY_FAILED_LABEL } from '../github-labels.js';
 import { TaskcellError } from '../core/errors.js';
 import { fanOut } from '../pipeline/fan-out.js';
+import { httpsUrl } from '../core/links.js';
 
 /** The revise-pr trigger (DEFAULT_TRIGGER_LABELS in src/runners/resume-rate-limited.ts). */
 export const NEEDS_REVISION_LABEL = 'needs revision';
@@ -138,7 +139,8 @@ function toItem(
     number: raw.number,
     repoSlug,
     title: raw.title,
-    url: raw.url,
+    // Only an https address is a link (docs/hub.md § Open in the original system); '' ⇒ the UI renders none.
+    url: httpsUrl(raw.url) ?? '',
     reason,
     ...(raw.baseRefName !== undefined ? { baseRef: raw.baseRefName } : {}),
     ...(lastComment !== undefined ? { lastComment } : {}),

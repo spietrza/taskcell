@@ -5,6 +5,7 @@ import { MessageCircleQuestionMark, RefreshCw } from 'lucide-react';
 import { listNeedsYou, listNeedsYouAll, mergeNeedsYou, replyNeedsYou, type NeedsYouItem, type RepoReadFailure, type RepoStamp } from '../../ipc';
 import { RepoFailures, RepoLabel } from '../../RepoViews';
 import { isHubMode } from '../../transport';
+import { ExternalLink } from '../../components/ExternalLink';
 
 /** `list_needs_you`/`reply_needs_you` are served by the hub only; outside it only the browser dev build's mock answers them. */
 export function canUseNeedsYou(): boolean {
@@ -165,9 +166,10 @@ export function NeedsYou({ project, allRepos = false }: { project: string; allRe
               <Chip color="warning" variant="outlined" title={item.reason}>
                 {REASON_TEXT[item.reason] ?? item.reason}
               </Chip>
-              <a href={item.url} target="_blank" rel="noreferrer" className="min-w-0 truncate font-medium hover:underline">
+              <a href={item.url || undefined} target="_blank" rel="noreferrer" className="min-w-0 truncate font-medium hover:underline">
                 {item.title}
               </a>
+              <ExternalLink href={item.url} className="ml-auto shrink-0">Open in GitHub</ExternalLink>
             </div>
             {item.lastComment && (
               // Untrusted GitHub text, rendered as a plain text node (React escapes it), never as HTML/Markdown.
