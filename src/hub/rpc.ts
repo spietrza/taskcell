@@ -666,6 +666,9 @@ function changedKeys(prev: Args, next: Args): string[] {
   return [...new Set([...Object.keys(prev), ...Object.keys(next)])].filter((k) => JSON.stringify(prev[k]) !== JSON.stringify(next[k]));
 }
 
+/** A credential write names the provider only — the value never reaches the log. */
+const CREDENTIAL_AUDIT: AuditSpec = { action: 'settings-change', target: (a) => `credential:${optionalString(a, 'provider') ?? ''}` };
+
 /** Audited commands: the action each logs, and the target/detail it names (never a value). */
 const AUDITED: Record<string, AuditSpec> = {
   add_project: { action: 'project-add', target: (a) => optionalString(a, 'path') },
@@ -694,6 +697,8 @@ const AUDITED: Record<string, AuditSpec> = {
       }
     },
   },
+  set_credential: CREDENTIAL_AUDIT,
+  delete_credential: CREDENTIAL_AUDIT,
   api_write_flow: { action: 'settings-change', target: (a) => `${repoTarget(a) ?? ''}:${optionalString(a, 'file') ?? ''}` },
   api_delete_flow: { action: 'settings-change', target: (a) => `${repoTarget(a) ?? ''}:${optionalString(a, 'file') ?? ''}` },
   api_create_task: { action: 'task-create', target: repoTarget },

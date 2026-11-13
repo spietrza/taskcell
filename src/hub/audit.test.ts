@@ -8,6 +8,7 @@ import { ProjectAllowlist } from './allowlist.js';
 import { WatchRegistry } from './watch.js';
 import { createRunSession } from './run-session.js';
 import { CompleteRegistry } from './complete.js';
+import { CredentialStore } from './credentials.js';
 import type { SidecarDeps } from '../sidecar/sidecar.js';
 
 const CANARY = 'CANARY-credential-value-123';
@@ -18,6 +19,7 @@ async function setup(actor?: { login: string; admin: boolean }, createRun?: Side
   const deps = { createRun: createRun ?? (async () => ({})) } as unknown as SidecarDeps;
   const audit = new AuditLog(configDir);
   const ctx: RpcContext = {
+    credentials: new CredentialStore(configDir, undefined, {}),
     allowlist: new ProjectAllowlist(async () => [], repo),
     watchRegistry: new WatchRegistry(),
     runSession: createRunSession(deps, () => undefined),
@@ -118,6 +120,15 @@ describe('audit log', () => {
     expect(out[0]).toMatchObject({ outcome: 'refused' });
     expect(out[0]!.target.length).toBeLessThan(300);
     expect(out[1]!.target).toBe('https://h.example/p');
+  });
+
+  test('a credential write is a settings-change naming the provider, never the value', async () => {
+    const { ctx, configDir } = await setup();
+    ctx.bind = { isLoopback: true, allowAdd: true };
+    await dispatchRpc(ctx, 'set_credential', { provider: 'claude', value: CANARY }).catch(() => undefined);
+    const raw = await readFile(join(configDir, 'audit.jsonl'), 'utf8');
+    expect(JSON.parse(raw.trim())).toMatchObject({ action: 'settings-change', target: 'credential:claude' });
+    expect(raw).not.toContain(CANARY);
   });
 
   test('settings-change detail lists only keys that changed', async () => {

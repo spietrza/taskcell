@@ -3,10 +3,13 @@ import { Table, Chip, Empty, Input, ScrollTable, Timestamp } from '@/ui';
 import { Inbox, RefreshCw, Search } from 'lucide-react';
 import { verdictColor, verdictWord } from '../../status';
 import { RepoLabel } from '../../RepoViews';
+import { ExternalLink, hostName } from '../../components/ExternalLink';
 import type { ActiveRun, RunSummary } from '../../taskcell-output';
 import type { RepoStamp } from '../../wire';
 
 type Filter = 'all' | 'passed' | 'failed';
+type Run = RunSummary & Partial<RepoStamp>;
+type Active = ActiveRun & Partial<RepoStamp>;
 
 export function RunList({
   runs,
@@ -15,13 +18,13 @@ export function RunList({
   onSelect,
   onOpenActive,
 }: {
-  runs: (RunSummary & Partial<RepoStamp>)[];
+  runs: Run[];
   /** In-flight runs discovered from `.taskcell` state, rendered as running rows at the top. */
-  active: (ActiveRun & Partial<RepoStamp>)[];
+  active: Active[];
   /** "All repositories": each row names its repository. */
   showRepo?: boolean;
-  onSelect: (r: RunSummary & Partial<RepoStamp>) => void;
-  onOpenActive: (a: ActiveRun & Partial<RepoStamp>) => void;
+  onSelect: (r: Run) => void;
+  onOpenActive: (a: Active) => void;
 }) {
   const [query, setQuery] = useState('');
   const [filter, setFilter] = useState<Filter>('all');
@@ -102,6 +105,7 @@ export function RunList({
               <Table.Head>Stages</Table.Head>
               <Table.Head className="text-right">Cost</Table.Head>
               <Table.Head>Status</Table.Head>
+              <Table.Head>Links</Table.Head>
             </Table.Row>
           </Table.Header>
           <Table.Body>
@@ -112,7 +116,7 @@ export function RunList({
                 className="cursor-pointer bg-primary/5"
               >
                 <Table.Cell className="font-medium">{a.taskId}</Table.Cell>
-                {showRepo && <Table.Cell>{a.repoName !== undefined && <RepoLabel name={a.repoName} />}</Table.Cell>}
+                {showRepo && <Table.Cell><RepoLabel name={a.repoName} /></Table.Cell>}
                 {showStartedBy && <Table.Cell className="text-muted-foreground">—</Table.Cell>}
                 <Table.Cell className="tabular-nums text-muted-foreground">
                   <Timestamp ms={a.lastActivityMs} />
@@ -128,6 +132,7 @@ export function RunList({
                     </span>
                   </Chip>
                 </Table.Cell>
+                <Table.Cell />
               </Table.Row>
             ))}
             {shown.map((r) => (
@@ -137,7 +142,7 @@ export function RunList({
                 className="cursor-pointer"
               >
                 <Table.Cell className="font-medium">{r.taskId}</Table.Cell>
-                {showRepo && <Table.Cell>{r.repoName !== undefined && <RepoLabel name={r.repoName} />}</Table.Cell>}
+                {showRepo && <Table.Cell><RepoLabel name={r.repoName} /></Table.Cell>}
                 {showStartedBy && <Table.Cell className="text-muted-foreground">{r.startedBy ?? '—'}</Table.Cell>}
                 <Table.Cell className="tabular-nums text-muted-foreground">
                   <Timestamp ms={Date.parse(r.timestamp)} />
@@ -148,6 +153,12 @@ export function RunList({
                   <Chip color={verdictColor(!r.anyFailed)} variant="outlined">
                     {verdictWord(!r.anyFailed)}
                   </Chip>
+                </Table.Cell>
+                <Table.Cell>
+                  <div className="flex flex-col gap-0.5">
+                    {r.prUrl !== undefined && <ExternalLink href={r.prUrl}>{`Open in ${hostName(r.prUrl)}`}</ExternalLink>}
+                    <ExternalLink href={r.ciUrl}>CI run</ExternalLink>
+                  </div>
                 </Table.Cell>
               </Table.Row>
             ))}

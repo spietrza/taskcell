@@ -8,6 +8,7 @@ import { isIP } from 'node:net';
 import { serveStatic } from './static.js';
 import { EventBus } from './events.js';
 import { writeJson, jsonError } from './json-response.js';
+import { CredentialStore } from './credentials.js';
 import { dispatchRpc, classifyError, ForbiddenError, type RpcContext } from './rpc.js';
 import { AuditLog, TOKEN_ACTOR, type Actor } from './audit.js';
 import { encodeError, encodeResult, HUB_EVENTS_SESSION_PATH, HUB_SIGN_IN_REQUIRED, HUB_TOKEN_HEADER, HUB_TOKEN_REJECTED } from '../hub-wire.js';
@@ -56,6 +57,8 @@ export interface HubServerOptions {
   /** Enable the Fleet spawn commands (`spawn_run` et al). Loopback binds only — the desktop app's
    * local hub sets it; a hub reachable by others must never run arbitrary programs. */
   fleet?: boolean;
+  /** `VANGUARD_HUB_SECRET` (base64, 32 bytes) keying the credential store; defaults to the env var. */
+  hubSecret?: string;
 }
 
 export interface HubServer {
@@ -348,8 +351,7 @@ async function handleRequest(
 
   if (pathname === '/events') {
     if (req.method !== 'GET') return methodNotAllowed(res, 'GET');
-    const authorized =
-      eventsCookieOk(singleHeader(req.headers.cookie), auth) || (await resolveUser()) !== undefined;
+    const authorized = eventsCookieOk(singleHeader(req.headers.cookie), auth) || (await resolveUser()) !== undefined;
     if (!authorized) return unauthorized();
     eventBus.subscribe(req, res);
     res.flushHeaders();
@@ -394,7 +396,7 @@ export function createHubServer(opts: HubServerOptions): HubServer {
   const eventBus = new EventBus();
   eventBus.startKeepalive();
   const watchRegistry = new WatchRegistry(opts.watch);
-  const publish = (name: string, payload: unknown): void => eventBus.publish(name, payload);
+  const publish = (name: string, payload: unknown): number => eventBus.publish(name, payload);
   const completeRegistry = new CompleteRegistry(opts.spawnComplete);
   if (opts.fleet === true && !opts.bind.isLoopback) throw new Error('fleet requires a loopback bind');
   const spawnRegistry = opts.fleet === true ? new SpawnRegistry(publish) : undefined;
@@ -405,7 +407,12 @@ export function createHubServer(opts: HubServerOptions): HubServer {
     await allowlist.assertAllowed(p.repoPath);
   });
 
+  const credentials = new CredentialStore(opts.configDir, opts.hubSecret);
+  // An unreadable store (wrong secret) is reported in Settings and on stderr; runs keep the env credentials.
+  const credentialsReady = credentials.applyStored().catch((e: unknown) => console.error(`vanguard-hub: ${(e as Error).message}`));
+
   const ctx: RpcContext = {
+    credentials,
     allowlist,
     watchRegistry,
     runSession,
@@ -433,13 +440,13 @@ export function createHubServer(opts: HubServerOptions): HubServer {
     eventBus,
     allowlist,
     listen: (port, host) =>
-      new Promise<void>((resolve, reject) => {
+      credentialsReady.then(() => new Promise<void>((resolve, reject) => {
         server.once('error', reject);
         server.listen(port, host, () => {
           server.off('error', reject);
           resolve();
         });
-      }),
+      })),
     close: () =>
       new Promise<void>((resolve) => {
         watchRegistry.closeAll();

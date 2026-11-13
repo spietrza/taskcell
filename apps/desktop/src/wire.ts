@@ -248,6 +248,12 @@ export interface BoardTask {
   stage?: string;
   /** Latest run's per-stage/gate verdicts. Absent ⇒ no run record for this task. */
   chips?: BoardChip[];
+  /** The branch this card's PR targets: its `vanguard:base=` label, else the repo default. Absent when neither is set (`main`). */
+  baseBranch?: string;
+  /** The tracker the card came from; names the "Open in …" link. */
+  source?: 'github' | 'gitlab' | 'linear';
+  /** The issue's address in that tracker, as the tracker returned it. Absent ⇒ no link. */
+  url?: string;
 }
 
 /** The reviewer's persisted verdict: `changes` ⇔ the merge gate would request changes. */
@@ -300,6 +306,8 @@ export interface RunRecord {
   timestamp: string;
   stage?: string;
   prUrl?: string;
+  /** The CI run (GitHub Actions run / GitLab pipeline) this record was written in. Absent ⇒ a local run. */
+  ciUrl?: string;
   /** The sandbox image's content digest/ID (DockerSandboxProvider.imageDigest), so a run can be
    *  traced back to the exact image it executed against — pulled from GHCR or built locally. */
   imageDigest?: string;
@@ -313,6 +321,8 @@ export interface RunRecord {
   /** The `<findings>` block this stage emitted (the shape the repair gate consumes). Absent when
    *  the stage emitted none, and withheld entirely when `diffOmitted` is set. */
   findings?: Finding[];
+  /** The branch the run's PR targets. Absent on records written before the target branch was recorded. */
+  baseBranch?: string;
 }
 
 export interface Proof {
@@ -356,6 +366,7 @@ export interface RunSummary {
   totalCostUsd: number;
   anyFailed: boolean;
   prUrl?: string;
+  ciUrl?: string;
   /** Hub login (or `token`) that started the run; absent for runs not started from the hub. */
   startedBy?: string;
 }
@@ -372,6 +383,11 @@ export interface RunDetail {
   stages: StageDetail[];
   proof?: Proof;
   visualProof?: VisualProof;
+  /** Addresses in the Git host, computed by the server; each absent when unknown. */
+  prUrl?: string;
+  /** The pull/merge request's diff page ("Files changed" / "Changes"). */
+  diffUrl?: string;
+  ciUrl?: string;
 }
 
 /** A CI run, as returned by `gh run list` (src/hub/remote.ts) / Tauri's `list_remote_runs`. */
@@ -513,6 +529,10 @@ export interface AppConfig {
   /** Doc-editor chat model (Subsystem 3), e.g. `claude-sonnet-5`. Non-secret; key is env-only. */
   chatModel?: string | null;
   chatBaseUrl?: string | null;
+  /** Repository default target branch for pull requests; unset = `main`. */
+  baseBranch?: string | null;
+  /** Extra branches a card's `vanguard:base=` label may select, besides the default. Unset = only the default. */
+  baseBranches?: string[] | null;
   /** Opaque JSON preserved by Rust and the hub, including invalid entries and unknown keys — see
    * `CustomProviderSpec` for the shape a valid entry has. */
   customProviders?: unknown;
@@ -560,6 +580,8 @@ export interface NeedsYouItem {
   baseRef?: string;
   /** The factory's own last comment, redacted; untrusted, render as plain text. Absent when it never commented. */
   lastComment?: { author: string; body: string };
+  /** The branch the PR targets (a PR's base), or the one the card asks for (`vanguard:base=`). Absent when unknown. */
+  baseBranch?: string;
 }
 
 /** A Fleet-screen spawned process (Fleet is enabled only on the desktop app's local hub). */
@@ -639,6 +661,20 @@ export interface CliVersionReport {
   clis: CliVersionInfo[];
 }
 
+/** Instance provider credentials (hub only, write-only: a value is never returned). */
+export type CredentialProvider = 'claude' | 'codex' | 'zai' | 'openrouter';
+export interface CredentialStatus {
+  provider: CredentialProvider;
+  set: boolean;
+  last4?: string;
+  env: boolean;
+}
+export interface CredentialsSummary {
+  enabled: boolean;
+  reason?: string;
+  providers: CredentialStatus[];
+}
+
 /**
  * Shared command catalogue for the Tauri, hub and mock adapters. Adapter integration is separate:
  * the existing invoke wrappers and dispatchers do not yet enforce these argument/result types.
@@ -647,6 +683,12 @@ export interface CliVersionReport {
 export interface Commands {
   list_runs: { args: { repoPath: string }; result: RunSummary[] };
   read_run: { args: { repoPath: string; taskId: string; timestamp: string; source: RunSource }; result: RunDetail };
+  /** HUB_ONLY, read-only: a run's persisted event log (`.taskcell/runs/<taskId>/events-*.jsonl`), events with
+   *  `id > after` (the SSE `id:`), at most `limit`; `timestamp` (a run record's, from `list_runs`) picks that run, default the newest. */
+  read_run_events: {
+    args: { repoPath: string; taskId: string; timestamp?: string; after?: number; limit?: number };
+    result: { events: { id: number; ts: string; event: string; data: unknown }[]; nextAfter: number; hasMore: boolean; truncated: boolean };
+  };
   list_projects: { args: undefined; result: Project[] };
   /** HUB_ONLY: token-only mode has exactly one team and the caller acts as its admin. */
   list_teams: { args: undefined; result: Team[] };
@@ -659,6 +701,10 @@ export interface Commands {
   read_app_config: { args: { repoPath: string }; result: AppConfig };
   read_app_config_strict: { args: { repoPath: string }; result: AppConfig };
   write_app_config: { args: { repoPath: string; config: AppConfig }; result: void };
+  /** HUB_ONLY: instance provider credentials (src/hub/credentials.ts) — write-only; reads return set + last four. */
+  get_credentials: { args: undefined; result: CredentialsSummary };
+  set_credential: { args: { provider: CredentialProvider; value: string }; result: CredentialsSummary };
+  delete_credential: { args: { provider: CredentialProvider }; result: CredentialsSummary };
   list_drafts: { args: { repoPath: string }; result: string[] };
   read_draft: { args: { repoPath: string; id: string }; result: string };
   write_draft: { args: { repoPath: string; id: string; content: string }; result: void };
@@ -688,7 +734,7 @@ export interface Commands {
   /** `runId` cancels exactly that run (active or queued). The hub REQUIRES it (an id-less cancel
    * could hit another project's run); Tauri ignores it and cancels its one active run (no queue). */
   api_cancel: { args: { runId?: string }; result: void };
-  api_create_task: { args: { repoPath: string; title: string; body: string }; result: CreatedTask };
+  api_create_task: { args: { repoPath: string; title: string; body: string; baseBranch?: string }; result: CreatedTask };
   api_list_flows: { args: { repoPath: string }; result: { flows: RepoFlowInfo[] } };
   api_list_providers: { args: { repoPath: string }; result: { providers: RepoProviderInfo[] } };
   api_read_flow: { args: { repoPath: string; file: string }; result: { doc: FlowDoc; source: string } };
@@ -718,9 +764,9 @@ export interface Commands {
    * WITHOUT a shell: values built from repo config travel as single arguments and can never
    * introduce shell syntax. */
   spawn_run: { args: { cwd: string; argv: string[] }; result: number };
-  /** see spawn_run. */
+  /** See spawn_run. */
   kill_run: { args: { pid: number }; result: void };
-  /** see spawn_run. */
+  /** See spawn_run. */
   list_spawns: { args: undefined; result: SpawnInfo[] };
   /** HUB_ONLY: read the repo (default branch, package manager, verify command) and report what
    *  `enable_factory_apply` would change — no writes yet. GitHub only; `provider` is accepted for
@@ -734,6 +780,8 @@ export interface Commands {
   enable_factory_secret: { args: { repoPath: string; plan: FactoryPlan }; result: FactorySecretStep };
   /** HUB_ONLY: dispatch the doctor workflow (once the PR above is merged) and report the run that dispatch created. */
   enable_factory_verify: { args: { repoPath: string; plan: FactoryPlan }; result: FactoryVerifyResult };
+  /** HUB_ONLY, read-only: the target branches a card may name (repo default + `baseBranches` allowlist) and the configured default, for the new-card form. */
+  list_branches: { args: { repoPath: string }; result: { branches: string[]; default?: string } };
   /** HUB_ONLY, read-only: installed vs latest claude/codex/cursor CLI in the local sandbox image (3-day soak applied; `enabled: false`, and no lookups, when VANGUARD_CLI_VERSION_CHECK is off). Refused on a non-loopback bind without VANGUARD_HUB_ALLOW_ADD. */
   agent_cli_versions: { args: undefined; result: CliVersionReport };
   /** HUB_ONLY, admin-only (403 otherwise): the audit log newest first, optionally for one login. */
@@ -746,7 +794,11 @@ export interface Commands {
  * compile error. */
 export const COMMAND_NAMES = [
   'list_runs',
+  'get_credentials',
+  'set_credential',
+  'delete_credential',
   'read_run',
+  'read_run_events',
   'list_projects',
   'list_teams',
   'get_team',
@@ -803,6 +855,7 @@ export const COMMAND_NAMES = [
   'enable_factory_secret',
   'enable_factory_verify',
   'agent_cli_versions',
+  'list_branches',
   'read_audit',
 ] as const satisfies readonly (keyof Commands)[];
 type _Exhaustive = keyof Commands extends (typeof COMMAND_NAMES)[number]
