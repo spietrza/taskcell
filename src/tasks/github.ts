@@ -151,19 +151,20 @@ export async function linkPullRequest(
 }
 
 /**
- * Ensure a label exists and add it to a PR, surfacing a failed add. For labels that are themselves a
+ * Add a label to a PR under the spelling the repo has, surfacing a failed add. For labels that are themselves a
  * review gate (see SourceAdapter#addGateConfigLabel): an unflagged PR reaching a human is worse than
- * a failing run. Creating the label (in resolveAdds) is tolerant; `gh pr edit --add-label` must succeed.
+ * a failing run. resolveAdds creates a `taskcell:` label the repo lacks in both spellings (tolerantly; a label
+ * with no legacy twin is not created); `gh pr edit --add-label` must succeed.
  */
 export async function addPrGateLabel(repoPath: string, prUrl: string, label: string): Promise<void> {
   const gh = async (args: string[]): Promise<string> => (await execa('gh', args, { cwd: repoPath })).stdout;
   // A repo that has only the legacy spelling gets that one, not a second label beside it (`--repo` takes the repo URL).
-  const [name = label] = await resolveAdds([label], prUrl.replace(/\/pull\/\d+.*$/, ''), gh);
+  const [name = label] = await resolveAdds([label], prUrl.replace(/\/pull\/\d+.*$/, ''), gh, [label]);
   await gh(['pr', 'edit', prUrl, '--add-label', name]);
 }
 
 /**
- * Best-effort: ensure a label exists and add it to a PR (used to flag failed proofs for triage).
+ * Best-effort: add a label to a PR (used to flag failed proofs for triage).
  * The same two steps as addPrGateLabel, with the add swallowed too — labeling a draft PR must never
  * block the run.
  */
@@ -177,19 +178,23 @@ async function issueLabelNames(repo: string, issueRef: string, gh: GhRunner): Pr
   return (view.labels ?? []).map((l) => l.name);
 }
 
-/** Add/remove labels on a GitHub issue (used to claim/advance it in the watch loop). */
+/**
+ * Add/remove labels on a GitHub issue (used to claim/advance it in the watch loop). `ensure` names the added
+ * labels to force-create when the repo's labels cannot be listed (see resolveAdds).
+ */
 export async function editGithubLabels(
   repo: string,
   issueRef: string,
-  labels: { add?: string[]; remove?: string[] },
+  labels: { add?: string[]; remove?: string[]; ensure?: string[] },
   gh: GhRunner = defaultGhRunner,
   log: (line: string) => void = console.log,
 ): Promise<void> {
   const args = ['issue', 'edit', issueNumber(issueRef), '--repo', repo];
-  for (const label of await resolveAdds(labels.add ?? [], repo, gh)) args.push('--add-label', label);
+  for (const label of await resolveAdds(labels.add ?? [], repo, gh, labels.ensure)) args.push('--add-label', label);
   const remove = await resolveRemovals(labels.remove ?? [], () => issueLabelNames(repo, issueRef, gh), (label) => log(`taskcell: ${repo}#${issueNumber(issueRef)}: not removing ${label} -> the issue's labels do not show it`));
   for (const label of remove) args.push('--remove-label', label);
-  if (args.length > 4) await gh(args);
+  // Nothing left to change (the issue lacks every label to remove): `gh issue edit` without a field flag fails.
+  if (args.length > 5) await gh(args);
 }
 
 /** The default branch is the only branch whose instruction files a review trusts. */

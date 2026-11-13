@@ -172,15 +172,24 @@ async function editPrLabels(
   gh: GhRunner,
   repoSlug: string,
   number: number,
-  labels: { add?: string[]; remove?: string[] },
+  labels: { add?: string[]; remove?: string[]; ensure?: string[] },
   log: (line: string) => void = console.log,
 ): Promise<string> {
   const args = ['pr', 'edit', String(number), '--repo', repoSlug];
+  const ensure = labels.ensure ?? [];
   // The PR may still carry a pre-rename `vanguard:*` label (older workflows add them): remove the spelling it has.
-  const present = async (): Promise<string[]> =>
-    ((JSON.parse(await gh(['pr', 'view', String(number), '--repo', repoSlug, '--json', 'labels'])) as { labels?: { name: string }[] }).labels ?? []).map((l) => l.name);
+  const present = async (): Promise<string[]> => {
+    try {
+      return ((JSON.parse(await gh(['pr', 'view', String(number), '--repo', repoSlug, '--json', 'labels'])) as { labels?: { name: string }[] }).labels ?? []).map((l) => l.name);
+    } catch (err) {
+      // The removals then go out as given, and a `--remove-label` for a label the repo never created fails
+      // the whole edit: make sure the ensured ones exist.
+      for (const label of labels.remove ?? []) if (ensure.includes(label)) await gh(['label', 'create', label, '--repo', repoSlug, '--force']).catch(() => undefined);
+      throw err;
+    }
+  };
   for (const label of await resolveRemovals(labels.remove ?? [], present, (label) => log(`revise-pr ${repoSlug}#${number}: not removing ${label} -> the PR's labels do not show it`))) args.push('--remove-label', label);
-  for (const label of await resolveAdds(labels.add ?? [], repoSlug, gh)) args.push('--add-label', label);
+  for (const label of await resolveAdds(labels.add ?? [], repoSlug, gh, ensure)) args.push('--add-label', label);
   // Nothing left to change (the PR lacks every label to remove): `gh pr edit` without a field flag fails.
   if (args.length === 5) return '';
   return gh(args);
@@ -194,7 +203,7 @@ async function handBackPrLabels(
 ): Promise<void> {
   try {
     log(`revise-pr ${repoSlug}#${number}: labels -> needs-human-review`);
-    await editPrLabels(gh, repoSlug, number, HAND_BACK_LABELS, log);
+    await editPrLabels(gh, repoSlug, number, { ...HAND_BACK_LABELS, ensure: [GITHUB_REVIEW_LABEL, GITHUB_RATE_LIMITED_LABEL] }, log);
   } catch (err) {
     log(`revise-pr ${repoSlug}#${number}: labels -> manual label check (${err instanceof Error ? err.message : String(err)})`);
   }
@@ -263,7 +272,7 @@ async function requestReReview(
  * human gate the first delivery raises (source-adapter.ts). Unlike the hand-back labels this is NOT
  * best-effort: the label IS the gate, so a failed flip is reported (it propagates to the caller's
  * error path) rather than swallowed, which would hand an unflagged PR back for review. The
- * label is created (tolerantly) by resolveAdds.
+ * label is created (tolerantly) by resolveAdds, forced when the repo's labels cannot be listed.
  */
 async function addGateConfigLabel(
   gh: GhRunner,
@@ -272,7 +281,7 @@ async function addGateConfigLabel(
   log: (line: string) => void,
 ): Promise<void> {
   log(`revise-pr ${repoSlug}#${number}: labels -> ${GITHUB_GATE_CONFIG_LABEL}`);
-  await editPrLabels(gh, repoSlug, number, { add: [GITHUB_GATE_CONFIG_LABEL] }, log);
+  await editPrLabels(gh, repoSlug, number, { add: [GITHUB_GATE_CONFIG_LABEL], ensure: [GITHUB_GATE_CONFIG_LABEL] }, log);
 }
 
 /**
@@ -765,7 +774,7 @@ export async function runRevisePullRequest(prRef: string, deps: ReviseGithubPrDe
             await commentPullRequest(target, notice, gh).catch(() => undefined);
             // Same marker as the first delivery, so the board maps it to verify-failed, not to a clean hand-back.
             // A repo that has only the legacy spelling gets that one, not a second label beside it.
-            const [blocked = GITHUB_SECRET_BLOCKED_LABEL] = await resolveAdds([GITHUB_SECRET_BLOCKED_LABEL], target.repoSlug, gh);
+            const [blocked = GITHUB_SECRET_BLOCKED_LABEL] = await resolveAdds([GITHUB_SECRET_BLOCKED_LABEL], target.repoSlug, gh, [GITHUB_SECRET_BLOCKED_LABEL]);
             await gh(['pr', 'edit', String(target.number), '--repo', target.repoSlug, '--add-label', blocked]).catch(() => undefined);
           }
         }
@@ -972,7 +981,7 @@ export async function runRevisePullRequest(prRef: string, deps: ReviseGithubPrDe
       if (isRateLimitHold(error) && deps.out === undefined) {
         const { until, comment } = rateLimitHold(error, NEEDS_REVISION_LABEL);
         log(`revise-pr ${target.repoSlug}#${target.number}: ${error instanceof UsageCapError ? 'at the usage cap' : 'provider rate-limited'}, marking vanguard:rate-limited until ${until.toISOString()}`);
-        await editPrLabels(gh, target.repoSlug, target.number, { remove: [VANGUARD_REVISING_LABEL], add: [GITHUB_RATE_LIMITED_LABEL] }, log).catch(() => undefined);
+        await editPrLabels(gh, target.repoSlug, target.number, { remove: [VANGUARD_REVISING_LABEL], add: [GITHUB_RATE_LIMITED_LABEL], ensure: [GITHUB_RATE_LIMITED_LABEL] }, log).catch(() => undefined);
         await postPullRequestReview(target, comment, 'comment', gh).catch(() => undefined);
       }
       throw error;

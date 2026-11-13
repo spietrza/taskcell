@@ -297,7 +297,7 @@ export async function applyDependencyGate(tasks: Task[], opts: DependencyGateOpt
     }
     if (verdict.status === 'ready') {
       ready.push({ ...task, dependsOn: verdict.dependsOn, labels: withoutLabel(task.labels, GITHUB_WAITING_LABEL) });
-      if (waitingBefore) await editGithubLabels(opts.repo, task.id, { remove: [GITHUB_WAITING_LABEL] }, gh).catch(() => undefined);
+      if (waitingBefore) await editGithubLabels(opts.repo, task.id, { remove: [GITHUB_WAITING_LABEL] }, gh, log).catch(() => undefined);
       continue;
     }
     if (verdict.status === 'error' && parseBodyDependencies(opts.repo, task.description).length === 0 && parseStartDate(task.description) === undefined) {
@@ -315,7 +315,7 @@ export async function applyDependencyGate(tasks: Task[], opts: DependencyGateOpt
       // A body identical to the newest trusted comment is not posted again (a label edit that failed last poll).
       const park = async (add: string | undefined, body: string | undefined, remove: string[]): Promise<void> => {
         if (body !== undefined && redactForPublish(body) !== comments[0]) await commentGithubIssue(opts.repo, task.id, body, gh);
-        await editGithubLabels(opts.repo, task.id, { remove: [opts.trigger, ...remove], ...(add !== undefined ? { add: [add] } : {}) }, gh);
+        await editGithubLabels(opts.repo, task.id, { remove: [opts.trigger, ...remove], ...(add !== undefined ? { add: [add] } : {}), ensure: [GITHUB_WAITING_LABEL] }, gh, log);
       };
       log(`taskcell: ${task.id} skipped -> ${verdict.status === 'waiting' ? '' : verdict.status === 'invalid' ? 'needs info: ' : ''}${verdict.reason}`);
       if (verdict.status === 'invalid') {
@@ -356,7 +356,7 @@ async function holdForOverlap(task: Task, holds: OverlapHold[], ctx: { opts: Dep
       const until = marker?.until ?? new Date(now.getTime() + holdMs);
       await commentGithubIssue(opts.repo, task.id, `Vanguard will not start this issue yet: its planned files overlap open factory work: ${holds.map(describeHold).join('; ')}. It is labelled \`${GITHUB_WAITING_LABEL}\` and starts when that work merges or closes, or after at most ${holdMs / 3_600_000} h. ${RESUME_NOTE(opts.trigger)}\n\n${overlapMarker(until, holds)}`, gh);
     }
-    await editGithubLabels(opts.repo, task.id, { remove: [opts.trigger], add: [GITHUB_WAITING_LABEL] }, gh).catch((error: unknown) => {
+    await editGithubLabels(opts.repo, task.id, { remove: [opts.trigger], add: [GITHUB_WAITING_LABEL], ensure: [GITHUB_WAITING_LABEL] }, gh, log).catch((error: unknown) => {
       log(`taskcell: ${task.id} overlap hold label edit failed, retrying next poll: ${failureReason(error)}`);
     });
     return true;

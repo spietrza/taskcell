@@ -68,11 +68,42 @@ describe('a legacy-only repo', () => {
     expect(calls.some((c) => c[1] === 'create')).toBe(false);
   });
 
-  it('logs a twin removal skipped because the item does not show the label', async () => {
-    const gh: GhRunner = async (args) => (args[0] === 'issue' && args[1] === 'view' ? JSON.stringify({ labels: [] }) : '');
+  it('logs an in-flight removal skipped because the item does not show the label, and sends no empty edit', async () => {
+    const calls: string[][] = [];
+    const gh: GhRunner = async (args) => {
+      calls.push(args);
+      return args[0] === 'issue' && args[1] === 'view' ? JSON.stringify({ labels: [] }) : '';
+    };
     const log = vi.fn();
-    await editGithubLabels('o/r', '7', { remove: ['taskcell:running'] }, gh, log);
-    expect(log).toHaveBeenCalledWith(expect.stringContaining('taskcell:running'));
+    await editGithubLabels('o/r', '7', { remove: ['taskcell:running', 'taskcell:waiting'] }, gh, log);
+    expect(log.mock.calls).toEqual([[expect.stringContaining('not removing taskcell:running')]]);
+    expect(calls.some((c) => c[1] === 'edit')).toBe(false);
+  });
+});
+
+describe('editGithubLabels when the repo labels cannot be listed', () => {
+  const run = async (labels: Parameters<typeof editGithubLabels>[2]): Promise<string[][]> => {
+    const calls: string[][] = [];
+    const gh: GhRunner = async (args) => {
+      calls.push(args);
+      if (args[0] === 'label' && args[1] === 'list') throw new Error('gh: 403');
+      return args[1] === 'view' ? JSON.stringify({ labels: [{ name: 'ready for agent' }, { name: 'taskcell:running' }] }) : '';
+    };
+    await editGithubLabels('o/r', '7', labels, gh, () => {});
+    return calls.filter((c) => c[1] === 'create' || c[1] === 'edit');
+  };
+
+  it('adds the label as given without creating it (a claim never pre-created)', async () => {
+    expect(await run({ remove: ['ready for agent'], add: ['taskcell:running'] })).toEqual([
+      ['issue', 'edit', '7', '--repo', 'o/r', '--add-label', 'taskcell:running', '--remove-label', 'ready for agent'],
+    ]);
+  });
+
+  it('force-creates a label the caller ensures before adding it (a hold label)', async () => {
+    expect(await run({ remove: ['taskcell:running'], add: ['taskcell:rate-limited'], ensure: ['taskcell:rate-limited'] })).toEqual([
+      ['label', 'create', 'taskcell:rate-limited', '--repo', 'o/r', '--force'],
+      ['issue', 'edit', '7', '--repo', 'o/r', '--add-label', 'taskcell:rate-limited', '--remove-label', 'taskcell:running'],
+    ]);
   });
 });
 

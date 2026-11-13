@@ -1,6 +1,7 @@
 import { describe, it, expect, vi } from 'vitest';
 import { getEventListeners } from 'node:events';
 import { editPullRequestLabels, githubPullRequestWatchPrimitives, watchPullRequests, watchPullRequestsOnce } from './pr-watch.js';
+import { UsageCapError } from '../core/usage-cap.js';
 import type { GhRunner } from '../tasks/github.js';
 import type { PullRequestWatchItem, PullRequestWatchPrimitives } from './pr-watch.js';
 
@@ -388,6 +389,64 @@ describe('githubPullRequestWatchPrimitives', () => {
     await editPullRequestLabels(gh, 'o/r', 12, { remove: ['taskcell:reviewing'] }, (line) => logs.push(line));
     expect(calls.some((c) => c[1] === 'edit')).toBe(false);
     expect(logs).toEqual([expect.stringContaining('taskcell:reviewing')]);
+  });
+
+  it('does not log a skipped removal of a label that is not in flight', async () => {
+    const logs: string[] = [];
+    const gh: GhRunner = async (args) => (args[1] === 'view' ? JSON.stringify({ labels: [] }) : '');
+    await editPullRequestLabels(gh, 'o/r', 12, { remove: ['taskcell:rate-limited', 'taskcell:reviewed'] }, (line) => logs.push(line));
+    expect(logs).toEqual([]);
+  });
+
+  it('sends the skipped-removal line to the injected logger from claim, mark-reviewed and failure', async () => {
+    const logs: string[] = [];
+    const gh: GhRunner = async (args) => (args[1] === 'view' ? JSON.stringify({ labels: [] }) : args[1] === 'list' ? '[]' : '');
+    const primitives = githubPullRequestWatchPrimitives({
+      repoSlug: 'o/r',
+      label: 'taskcell:running',
+      reviewingLabel: 'taskcell:reviewing',
+      reviewedLabel: 'taskcell:reviewed',
+      gh,
+      reviewOne: async () => {},
+      log: (line) => logs.push(line),
+    });
+    const spy = vi.spyOn(console, 'log').mockImplementation(() => undefined);
+    await primitives.claim(pr(12));
+    await primitives.markReviewed(pr(12));
+    await primitives.onFailure(pr(12), new Error('boom'));
+    expect(spy).not.toHaveBeenCalled();
+    spy.mockRestore();
+    expect(logs).toEqual([
+      expect.stringContaining('not removing taskcell:running'),
+      expect.stringContaining('not removing taskcell:reviewing'),
+      expect.stringContaining('not removing taskcell:reviewing'),
+    ]);
+  });
+
+  it('creates a label on a failed label list only for the rate-limit hold, not for claim, mark-reviewed or restore', async () => {
+    const calls: string[][] = [];
+    const gh: GhRunner = async (args) => {
+      calls.push(args);
+      if (args[0] === 'label' && args[1] === 'list') throw new Error('gh: 403');
+      return args[1] === 'view' ? JSON.stringify({ labels: [{ name: 'ready for taskcell review' }, { name: 'taskcell:reviewing' }] }) : '';
+    };
+    const primitives = githubPullRequestWatchPrimitives({
+      repoSlug: 'o/r',
+      label: 'ready for taskcell review',
+      reviewingLabel: 'taskcell:reviewing',
+      reviewedLabel: 'taskcell:reviewed',
+      gh,
+      reviewOne: async () => {},
+    });
+    const creates = (): string[][] => calls.filter((c) => c[1] === 'create');
+
+    await primitives.claim(pr(12));
+    await primitives.markReviewed(pr(12));
+    await primitives.onFailure(pr(12), new Error('boom'));
+    expect(creates()).toEqual([]);
+
+    await primitives.onFailure(pr(12), new UsageCapError('claude', 95, 90, new Date('2026-11-09T05:00:00Z')));
+    expect(creates()).toEqual([['label', 'create', 'taskcell:rate-limited', '--repo', 'o/r', '--force']]);
   });
 
   it('logs why a scanned PR is skipped when its head is already reviewed', async () => {
