@@ -428,6 +428,10 @@ Apply and verify change the remote, so they are gated like `clone_project`: loop
 `VANGUARD_HUB_ALLOW_ADD=1`. The `gh` login must be able to push workflow files (classic `repo` and
 `workflow` scopes), create labels, open a PR and dispatch a workflow.
 
+## Audit log
+
+Every state-changing action appends one JSON line to `<config dir>/audit.jsonl` (time, login or `token`, action, target, outcome `ok`/`refused`/`failed`): sign-in, project add/remove, clone, run start/queue/cancel, task start, settings changes. Targets and detail are names only — never a credential value, token, cookie or URL userinfo/query. The file rotates at 10 MB and keeps 5 files. Runs started from the hub carry `startedBy` in their records (shown in the Runs table). Admins read the log in the Audit view (`read_audit`); non-admins get 403. The owner (header token, or local mode) acts as the shared `token` admin identity; any other signed-in user is logged under their e-mail and is not an admin until roles land (`actorFor` in `createHubServer` overrides this).
+
 ## `gh` auth
 
 The hub shells out to `gh` for the Remote screen (listing GitHub Actions runs), CI-run import and

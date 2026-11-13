@@ -205,6 +205,7 @@ async function parseRunSummaries(root: string): Promise<RunSummary[]> {
       const anyFailed = records.some((r) => !r.completed);
       const prUrl = httpsUrl(records.find((r) => r.prUrl !== undefined)?.prUrl);
       const ciUrl = httpsUrl(records.find((r) => r.ciUrl !== undefined)?.ciUrl);
+      const startedBy = records.find((r) => r.startedBy !== undefined)?.startedBy;
       summaries.push({
         taskId: first.taskId,
         timestamp,
@@ -213,6 +214,7 @@ async function parseRunSummaries(root: string): Promise<RunSummary[]> {
         anyFailed,
         ...(prUrl !== undefined ? { prUrl } : {}),
         ...(ciUrl !== undefined ? { ciUrl } : {}),
+        ...(startedBy !== undefined ? { startedBy } : {}),
       });
     }
   }
@@ -372,6 +374,8 @@ export interface RunWriter {
 export interface BeginRunOptions {
   /** Env var names of credentials the static injected-secret list cannot know (a custom provider's `keyEnv`). */
   secretEnvVars?: readonly string[];
+  /** Who started the run (hub login, or `token`); written to every stage record. */
+  startedBy?: string;
 }
 
 interface WriteRecordOptions {
@@ -383,6 +387,7 @@ interface WriteRecordOptions {
   omitDiff?: boolean;
   imageDigest?: string;
   baseBranch?: string;
+  startedBy?: string;
 }
 
 /**
@@ -441,6 +446,7 @@ async function writeRecord(repoPath: string, taskId: string, timestamp: string, 
     ...(opts.imageDigest !== undefined ? { imageDigest: opts.imageDigest } : {}),
     ...(opts.baseBranch !== undefined ? { baseBranch: opts.baseBranch } : {}),
     ...(diffOmitted !== undefined ? { diffOmitted } : {}),
+    ...(opts.startedBy !== undefined ? { startedBy: opts.startedBy } : {}),
   };
   const suffix = opts.label !== undefined ? `-${opts.label}` : '';
   const base = join(taskDir, `${sanitizeTimestamp(timestamp)}${suffix}`);
@@ -521,6 +527,7 @@ export function beginRun(
           ...(opts.omitDiff ? { omitDiff: opts.omitDiff } : {}),
           ...(opts.imageDigest !== undefined ? { imageDigest: opts.imageDigest } : {}),
           ...(opts.baseBranch !== undefined ? { baseBranch: opts.baseBranch } : {}),
+          ...(runOpts.startedBy !== undefined ? { startedBy: runOpts.startedBy } : {}),
         });
       }
       const first = outcomes[0];

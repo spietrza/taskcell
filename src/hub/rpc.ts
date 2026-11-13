@@ -33,6 +33,7 @@ import * as drafts from './drafts.js';
 import * as projects from './projects.js';
 import * as teams from './teams.js';
 import * as remote from './remote.js';
+import { AuditLog, TOKEN_ACTOR, type Actor, type AuditAction, type AuditOutcome } from './audit.js';
 import { startGithubTask, triggerLabelsFor } from './start-task.js';
 import { enableFactory, factoryPlanTargets, noScripts, type FactoryPlan, type FactoryProviderId } from './enable-factory.js';
 
@@ -40,6 +41,9 @@ import { enableFactory, factoryPlanTargets, noScripts, type FactoryPlan, type Fa
 const MAX_LABEL_LENGTH = 50;
 
 export class UnknownCommandError extends BadRequestError {}
+
+/** The caller is known but not allowed (non-admin reading the audit log) — the HTTP layer maps it to 403. */
+export class ForbiddenError extends BadRequestError {}
 
 /** The Fleet screen (`spawn_run` et al) is off unless the hub is the desktop app's own local hub:
  * `spawn_run` executes arbitrary programs, which is remote code execution on a reachable server. */
@@ -62,6 +66,10 @@ export interface RpcContext {
   credentials: CredentialStore;
   /** Publish a server->client event (wired to the hub's EventBus). */
   publish: (name: string, payload: unknown) => void;
+  /** Audit log; absent in tests that do not exercise it. */
+  audit?: AuditLog;
+  /** Who is calling; the shared `token` identity when absent. */
+  actor?: Actor;
 }
 
 function obj(rawArgs: unknown): Record<string, unknown> {
@@ -173,8 +181,11 @@ async function repoOk(repoPath: string): Promise<boolean> {
   }
 }
 
-/** The Fleet screen's shell-spawn surface — rejected unless `ctx.spawnRegistry` is set. */
-export const FLEET_COMMANDS = ['spawn_run', 'kill_run', 'list_spawns'] as const;
+/** The Fleet screen's shell-spawn surface — refused unless `ctx.spawnRegistry` is set. */
+function requireFleet(ctx: RpcContext): SpawnRegistry {
+  if (ctx.spawnRegistry === undefined) throw new BadRequestError(FLEET_DISABLED_MESSAGE);
+  return ctx.spawnRegistry;
+}
 
 /**
  * Dispatch one RPC command. Returns the raw result (never `undefined` — void commands resolve
@@ -182,31 +193,28 @@ export const FLEET_COMMANDS = ['spawn_run', 'kill_run', 'list_spawns'] as const;
  * `UnknownCommandError` (a BadRequestError subtype) is additionally mapped to 404 by the caller,
  * anything else classifies `internal`. See `classifyError` below.
  */
-export async function dispatchRpc(ctx: RpcContext, cmd: string, rawArgs: unknown): Promise<unknown> {
+async function dispatchInner(ctx: RpcContext, cmd: string, rawArgs: unknown): Promise<unknown> {
   const args = obj(rawArgs);
-
-  if ((FLEET_COMMANDS as readonly string[]).includes(cmd) && ctx.spawnRegistry === undefined) {
-    throw new BadRequestError(FLEET_DISABLED_MESSAGE);
-  }
 
   switch (cmd) {
     case 'spawn_run': {
+      const spawns = requireFleet(ctx);
       const real = await ctx.allowlist.assertAllowed(requireString(args, 'cwd'));
       const argv = args.argv;
       if (!Array.isArray(argv) || argv.length === 0 || argv.some((a) => typeof a !== 'string')) {
         throw new BadRequestError('argv is required and must be a non-empty array of strings');
       }
-      return ctx.spawnRegistry!.spawn(real, argv as string[]);
+      return spawns.spawn(real, argv as string[]);
     }
     case 'kill_run': {
+      const spawns = requireFleet(ctx);
       const pid = optionalNumber(args, 'pid');
       if (pid === undefined) throw new BadRequestError('pid is required and must be a number');
-      ctx.spawnRegistry!.kill(pid);
+      spawns.kill(pid);
       return null;
     }
-    case 'list_spawns': {
-      return ctx.spawnRegistry!.list();
-    }
+    case 'list_spawns':
+      return requireFleet(ctx).list();
     case 'list_runs': {
       const real = await ctx.allowlist.assertAllowed(requireString(args, 'repoPath'));
       return listRunSummaries(defaultRunsRoot(real));
@@ -394,11 +402,38 @@ export async function dispatchRpc(ctx: RpcContext, cmd: string, rawArgs: unknown
     }
     case 'api_create_run': {
       const params = (args.params ?? {}) as Record<string, unknown>;
-      const real = await ctx.allowlist.assertAllowed(requireString(params, 'repoPath'));
-      // The run session (not deps.createRun) owns single-in-flight gating and event
-      // buffering/publishing — validate via the table row, then call it directly.
-      const validated = validateCoreMethod('createRun', { ...params, repoPath: real });
-      return ctx.runSession.createRun(validated as CreateRunParams);
+      // startedBy comes from the request's actor, never from the client's params.
+      const startedBy = (ctx.actor ?? TOKEN_ACTOR).login;
+      // One audit line: at acceptance (the call then stays pending until the run ends), or, when the
+      // run is refused before that, one refusal line.
+      let accepted = false;
+      try {
+        const real = await ctx.allowlist.assertAllowed(requireString(params, 'repoPath'));
+        // The run session (not deps.createRun) owns single-in-flight gating and event
+        // buffering/publishing — validate via the table row, then call it directly.
+        const validated = validateCoreMethod('createRun', { ...params, repoPath: real }) as CreateRunParams;
+        const log = (action: AuditAction, runId: string, outcome: AuditOutcome): void => {
+          accepted = true;
+          void ctx.audit?.record({ login: startedBy, action, target: runId, outcome });
+        };
+        return await ctx.runSession.createRun({ ...validated, startedBy }, {
+          onStarted: (id) => log('run-start', id, 'ok'),
+          onQueued: (id) => log('run-queue', id, 'ok'),
+          onRefused: (id) => log('run-start', id, 'refused'),
+        });
+      } catch (err) {
+        if (!accepted) {
+          const repoPath = optionalString(params, 'repoPath');
+          await ctx.audit?.record({ login: startedBy, action: 'run-start', ...(repoPath !== undefined ? { target: repoPath } : {}), outcome: outcomeOf(err) });
+        }
+        throw err;
+      }
+    }
+    case 'read_audit': {
+      if (!(ctx.actor ?? TOKEN_ACTOR).admin) throw new ForbiddenError('the audit log is admin-only');
+      const login = optionalString(args, 'login');
+      const limit = optionalNumber(args, 'limit');
+      return ctx.audit === undefined ? [] : ctx.audit.read({ ...(login !== undefined && login !== '' ? { login } : {}), ...(limit !== undefined ? { limit } : {}) });
     }
     case 'api_active_run': {
       return ctx.runSession.activeRun();
@@ -610,6 +645,98 @@ export async function dispatchRpc(ctx: RpcContext, cmd: string, rawArgs: unknown
     }
     default:
       throw new UnknownCommandError(`unknown command: ${cmd}`);
+  }
+}
+
+type Args = Record<string, unknown>;
+
+interface AuditSpec {
+  action: AuditAction;
+  target: (a: Args) => string | undefined;
+  /** Names only — computed before the command runs. */
+  detail?: (ctx: RpcContext, a: Args) => Promise<string[]>;
+  /** Outcome of a call that did not throw (default `ok`). */
+  okOutcome?: (ctx: RpcContext, a: Args) => AuditOutcome;
+}
+
+const repoTarget = (a: Args): string | undefined => optionalString(a, 'repoPath');
+
+/** Top-level keys of `next` whose value differs from `prev` — names, never values. */
+function changedKeys(prev: Args, next: Args): string[] {
+  return [...new Set([...Object.keys(prev), ...Object.keys(next)])].filter((k) => JSON.stringify(prev[k]) !== JSON.stringify(next[k]));
+}
+
+/** A credential write names the provider only — the value never reaches the log. */
+const CREDENTIAL_AUDIT: AuditSpec = { action: 'settings-change', target: (a) => `credential:${optionalString(a, 'provider') ?? ''}` };
+
+/** Audited commands: the action each logs, and the target/detail it names (never a value). */
+const AUDITED: Record<string, AuditSpec> = {
+  add_project: { action: 'project-add', target: (a) => optionalString(a, 'path') },
+  remove_project: { action: 'project-remove', target: (a) => optionalString(a, 'path') },
+  clone_project: { action: 'clone', target: (a) => optionalString(a, 'url') },
+  api_cancel: {
+    action: 'run-cancel',
+    target: (a) => optionalString(a, 'runId'),
+    // Cancelling an id that is neither active nor queued does nothing: logged as refused, not ok.
+    okOutcome: (ctx, a) => {
+      const id = optionalString(a, 'runId');
+      return ctx.runSession.activeRun()?.runId === id || ctx.runSession.queued().some((q) => q.runId === id) ? 'ok' : 'refused';
+    },
+  },
+  start_task: { action: 'task-start', target: (a) => `${repoTarget(a) ?? ''}#${String(optionalNumber(a, 'number') ?? '')}` },
+  write_app_config: {
+    action: 'settings-change',
+    target: repoTarget,
+    detail: async (ctx, a) => {
+      if (typeof a.config !== 'object' || a.config === null) return [];
+      try {
+        const prev = await readAppConfig(await ctx.allowlist.assertAllowed(requireString(a, 'repoPath')));
+        return changedKeys(prev as Args, a.config as Args);
+      } catch {
+        return [];
+      }
+    },
+  },
+  set_credential: CREDENTIAL_AUDIT,
+  delete_credential: CREDENTIAL_AUDIT,
+  api_write_flow: { action: 'settings-change', target: (a) => `${repoTarget(a) ?? ''}:${optionalString(a, 'file') ?? ''}` },
+  api_delete_flow: { action: 'settings-change', target: (a) => `${repoTarget(a) ?? ''}:${optionalString(a, 'file') ?? ''}` },
+  api_create_task: { action: 'task-create', target: repoTarget },
+  reply_needs_you: { action: 'needs-reply', target: (a) => `${repoTarget(a) ?? ''}:${optionalString(a, 'id') ?? ''}` },
+  merge_needs_you: { action: 'needs-merge', target: (a) => `${repoTarget(a) ?? ''}:${optionalString(a, 'id') ?? ''}` },
+  enable_factory_apply: { action: 'enable-factory', target: repoTarget },
+  enable_factory_verify: { action: 'enable-factory', target: repoTarget },
+};
+
+/** A caller-correctable error is `refused` (the HTTP 400 class); anything else, and a git clone that ran and failed, is `failed`. */
+function outcomeOf(err: unknown): AuditOutcome {
+  const { kind, message } = classifyError(err);
+  return kind === 'bad-request' && !message.startsWith('git clone failed') ? 'refused' : 'failed';
+}
+
+/**
+ * Dispatch one RPC command, writing exactly one audit line for an audited action — success, refusal
+ * or failure. A run start/queue logs itself once the run is admitted (the call then stays pending
+ * until the run ends), so it is not wrapped here.
+ */
+export async function dispatchRpc(ctx: RpcContext, cmd: string, rawArgs: unknown): Promise<unknown> {
+  const spec = AUDITED[cmd];
+  const audit = ctx.audit;
+  if (spec === undefined || audit === undefined) return dispatchInner(ctx, cmd, rawArgs);
+  const args = obj(rawArgs);
+  const login = (ctx.actor ?? TOKEN_ACTOR).login;
+  const target = spec.target(args);
+  const detail = await spec.detail?.(ctx, args);
+  const okOutcome = spec.okOutcome?.(ctx, args) ?? 'ok';
+  const line = (outcome: AuditOutcome): Promise<void> =>
+    audit.record({ login, action: spec.action, ...(target !== undefined ? { target } : {}), outcome, ...(detail !== undefined ? { detail } : {}) });
+  try {
+    const result = await dispatchInner(ctx, cmd, rawArgs);
+    await line(okOutcome);
+    return result;
+  } catch (err) {
+    await line(outcomeOf(err));
+    throw err;
   }
 }
 
