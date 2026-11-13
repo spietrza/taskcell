@@ -1,5 +1,5 @@
 import { invoke } from './transport';
-import type { CostBreakdown, CostPeriod, SetupStatus, Team, TeamRole } from './wire';
+import type { ApproverMode, ApproverModeChange, ApproverPeriod, ApproverPrDecision, ApproverScorecard, CostBreakdown, CostPeriod, SetupStatus, Team, TeamRole } from './wire';
 import type {
   RunSummary,
   RunDetail,
@@ -519,4 +519,19 @@ export function listLessons(repoPath: string, taskText?: string): Promise<Comman
 /** Hub-only, a mutation: dismiss a lesson so later runs no longer receive it. */
 export function dismissLesson(repoPath: string, id: string): Promise<void> {
   return call('dismiss_lesson', { repoPath, id });
+}
+
+/** HUB_ONLY: the approver's scorecard and current mode for a project (metrics branch + base-branch policy). */
+export function readApproverScorecard(repoPath: string, period: ApproverPeriod): Promise<ApproverScorecard> {
+  return call('read_approver_scorecard', { repoPath, period });
+}
+
+/** HUB_ONLY: what the approver decided for each PR on the metrics branch. */
+export function readApproverDecisions(repoPath: string): Promise<{ decisions: ApproverPrDecision[] }> {
+  return call('read_approver_decisions', { repoPath });
+}
+
+/** HUB_ONLY: open a PR that changes `.taskcell/approver.json` (never writes the mode directly). */
+export function setApproverMode(repoPath: string, mode: ApproverMode, confirmBelowBar?: boolean): Promise<ApproverModeChange> {
+  return call('set_approver_mode', { repoPath, mode, ...(confirmBelowBar === true ? { confirmBelowBar } : {}) });
 }
