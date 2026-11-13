@@ -108,6 +108,15 @@ describe('fetchNeedsHumanReviewCandidates', () => {
     ],
   };
 
+  it('also lists PRs carrying the legacy label, once each', async () => {
+    const calls: string[][] = [];
+    const gh = makeGh({ labeled: [LABELED_PR] }, calls);
+    const candidates = await fetchNeedsHumanReviewCandidates('o/r', SINCE, gh);
+    const labels = calls.filter((a) => a[1] === 'list').map((a) => a[a.indexOf('--label') + 1]);
+    expect(labels).toContain('vanguard:needs-human-review');
+    expect(candidates).toHaveLength(1);
+  });
+
   it('drafts an edge candidate carrying the last review verdict', async () => {
     const calls: string[][] = [];
     const gh = makeGh({ labeled: [LABELED_PR, { ...LABELED_PR, number: 52, url: 'https://github.com/o/r/pull/52', headRefName: 'feature/human' }] }, calls);

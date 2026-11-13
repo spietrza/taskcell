@@ -27,6 +27,11 @@ describe('countLabelEvents', () => {
     expect(countLabelEvents(fixture.prTimeline, 'needs revision')).toBe(2);
   });
 
+  it('counts a label applied under its legacy spelling', () => {
+    const labeled = (name: string): TimelineEvent => ({ event: 'labeled', created_at: '2026-01-01T00:00:00Z', label: { name } });
+    expect(countLabelEvents([labeled('vanguard:revising'), labeled('taskcell:revising'), labeled('bug')], 'taskcell:revising')).toBe(2);
+  });
+
   it('is 0 for a label that never appears', () => {
     expect(countLabelEvents(fixture.prTimeline, 'nonexistent')).toBe(0);
   });

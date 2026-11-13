@@ -1127,9 +1127,9 @@ describe('githubSpecPrimitives ownerLabel', () => {
 describe('githubIssueWatchPrimitives ownerLabel', () => {
   function makeGhSpy(): GhRunner {
     // gh issue list returns GitHubIssue[] where labels are objects with a name field
-    return vi.fn().mockResolvedValue(
-      JSON.stringify([{ number: 1, title: 'T', body: '', labels: [{ name: 'vanguard' }, { name: 'ready for agent' }] }]),
-    );
+    const list = JSON.stringify([{ number: 1, title: 'T', body: '', labels: [{ name: 'vanguard' }, { name: 'ready for agent' }] }]);
+    // `issue view --json labels` is the label read before a removal: a claimed issue carries the claimed label.
+    return vi.fn(async (args: string[]) => (args.at(-1) === 'labels' ? JSON.stringify({ labels: [{ name: 'ready for agent' }, { name: GITHUB_CLAIMED_LABEL }] }) : list));
   }
 
   it('listReady requests BOTH ownerLabel and label when ownerLabel is set', async () => {
@@ -1209,7 +1209,9 @@ describe('githubIssueWatchPrimitives ownerLabel', () => {
     const gh: GhRunner = vi.fn(async (args: string[]) =>
       args[0] === 'api'
         ? JSON.stringify({ user: { login: 'maintainer' }, author_association: 'MEMBER' })
-        : JSON.stringify([
+        : args.at(-1) === 'labels'
+          ? JSON.stringify({ labels: [{ name: 'ready for agent' }, ...(args[2] === '1' ? [{ name: GITHUB_SECRET_BLOCKED_LABEL }] : [])] })
+          : JSON.stringify([
           { number: 1, title: 'retried', body: '', labels: [{ name: 'ready for agent' }, { name: GITHUB_SECRET_BLOCKED_LABEL }] },
           { number: 2, title: 'fresh', body: '', labels: [{ name: 'ready for agent' }] },
         ]),
