@@ -3,6 +3,7 @@ import { cn } from '@/ui';
 import { useNavGuardRegistry } from '../../navGuard';
 import { canUseNeedsYou } from '../needs-you/NeedsYou';
 import { Settings } from './Settings';
+import type { TeamScreen } from './Members';
 import { WorkflowEditor } from '../workflow/WorkflowEditor';
 import { AuditLog } from '../audit/AuditLog';
 
@@ -12,7 +13,18 @@ type Section = 'general' | 'line' | 'runners' | 'audit';
  * Settings, with the sections the prototype puts under it: General (the project's settings), Line (the
  * workflow editor) and Runners (Fleet where available, and Remote). Audit (hub only) lives here too.
  */
-export function SettingsScreen({ project, fleet, remote }: { project: string; fleet: ReactNode; remote: ReactNode }) {
+export function SettingsScreen({
+  project,
+  teamScreen,
+  fleet,
+  remote,
+}: {
+  project: string;
+  /** The selected team's Members section (hub), shown under General. */
+  teamScreen?: TeamScreen;
+  fleet: ReactNode;
+  remote: ReactNode;
+}) {
   const [section, setSection] = useState<Section>('general');
   const registry = useNavGuardRegistry();
   const sections: { key: Section; label: string }[] = [
@@ -48,7 +60,7 @@ export function SettingsScreen({ project, fleet, remote }: { project: string; fl
       </div>
       {section === 'general' ? (
         <div className="min-h-0 flex-1 overflow-y-auto">
-          <Settings project={project} />
+          <Settings project={project} {...(teamScreen ? { teamScreen } : {})} />
         </div>
       ) : section === 'line' ? (
         <div className="flex min-h-0 flex-1 flex-col">

@@ -46,7 +46,7 @@ test('shows the factory question as text; a reply to an issue and to a PR each r
   const question = '<img src=x onerror=alert(1)> Which browser?';
   const [issue, pr] = [{ ...needsYouItems[0], lastComment: { author: 'vanguard[bot]', body: question } }, needsYouItems[1]];
   const calls = stubHub([issue, pr]);
-  const { container } = render(<NeedsYou project="/repo" />);
+  const { container } = render(<NeedsYou project="/repo" repos={[]} />);
 
   // Untrusted text renders verbatim as a text node, never as markup.
   expect(await screen.findByText(question)).toBeInTheDocument();
@@ -68,7 +68,7 @@ test('shows the factory question as text; a reply to an issue and to a PR each r
 test('a refused reply keeps the item and says why', async () => {
   const item = needsYouItems[0];
   stubHub([item], true);
-  render(<NeedsYou project="/repo" />);
+  render(<NeedsYou project="/repo" repos={[]} />);
   await screen.findByText(item.title);
   reply(item, 'late answer');
   expect(await screen.findByRole('alert')).toHaveTextContent('Reply not sent');
@@ -77,7 +77,7 @@ test('a refused reply keeps the item and says why', async () => {
 
 test('a known factory label reads as plain words; an unknown one shows as-is', async () => {
   stubHub([needsYouItems[1], { ...needsYouItems[1], id: 'acme/my-app#58', number: 58, reason: 'custom:label' }]);
-  render(<NeedsYou project="/repo" />);
+  render(<NeedsYou project="/repo" repos={[]} />);
   expect(await screen.findByText('needs a human review')).toHaveAttribute('title', 'vanguard:needs-human-review');
   expect(screen.queryByText('vanguard:needs-human-review')).toBeNull();
   expect(screen.getByText('custom:label')).toBeInTheDocument();
@@ -86,7 +86,7 @@ test('a known factory label reads as plain words; an unknown one shows as-is', a
 test('under "All repositories" an item names its repository and a reply targets that repository', async () => {
   const item = { ...needsYouItems[0], repoPath: '/r/beta', repoName: 'beta' };
   const calls = stubHub([item]);
-  render(<NeedsYou project="/r/alpha" allRepos />);
+  render(<NeedsYou project="/r/alpha" allRepos repos={['/r/alpha', '/r/beta']} />);
   await screen.findByText(item.title);
   expect(screen.getByText('beta')).toBeInTheDocument();
   reply(item, 'go ahead');
@@ -98,7 +98,7 @@ test('under "All repositories" an item names its repository and a reply targets 
 test('Merge names the PR base branch, merges, and the item leaves the list', async () => {
   const pr = { ...needsYouItems[1], baseRef: 'release/2' };
   const calls = stubHub([pr]);
-  render(<NeedsYou project="/repo" />);
+  render(<NeedsYou project="/repo" repos={[]} />);
   fireEvent.click(await screen.findByRole('button', { name: 'Merge into release/2' }));
   fireEvent.click(screen.getByRole('button', { name: 'Confirm merge into release/2' }));
   expect(await screen.findByText(/Nothing needs you/)).toBeInTheDocument();
@@ -108,7 +108,7 @@ test('Merge names the PR base branch, merges, and the item leaves the list', asy
 test('a refused merge keeps the item and says why; an issue has no Merge button', async () => {
   const [issue, pr] = [needsYouItems[0], needsYouItems[1]];
   stubHub([issue, pr], false, true);
-  render(<NeedsYou project="/repo" />);
+  render(<NeedsYou project="/repo" repos={[]} />);
   await screen.findByText(pr.title);
   expect(screen.getAllByRole('button').filter((b) => b.textContent?.startsWith('Merge'))).toHaveLength(1);
   fireEvent.click(screen.getByRole('button', { name: /^Merge/ }));
@@ -120,8 +120,16 @@ test('a refused merge keeps the item and says why; an issue has no Merge button'
 test('the Home section reports how many items wait, and says so in one line when none do', async () => {
   stubHub([needsYouItems[0], needsYouItems[1]]);
   const onCount = vi.fn();
-  render(<NeedsYou project="/repo" onCount={onCount} />);
+  render(<NeedsYou project="/repo" repos={[]} onCount={onCount} />);
   expect(await screen.findByRole('heading', { name: 'Needs you' })).toBeInTheDocument();
   await vi.waitFor(() => expect(onCount).toHaveBeenLastCalledWith(2));
   expect(screen.getByRole('status')).toHaveTextContent('2 waiting');
+});
+
+test('under "All repositories" the selected team is sent to the hub, so a second team is not read as the first', async () => {
+  const item = { ...needsYouItems[0], repoPath: '/r/beta', repoName: 'beta' };
+  const calls = stubHub([item]);
+  render(<NeedsYou project="/r/beta" allRepos repos={['/r/beta']} teamId="b" />);
+  await screen.findByText(item.title);
+  expect(calls.find((c) => c.cmd === 'list_needs_you_all')?.body).toEqual({ teamId: 'b' });
 });

@@ -3,6 +3,7 @@ import { isTauri } from '@tauri-apps/api/core';
 import { Button, Card, Chip, Textarea } from '@/ui';
 import { RefreshCw } from 'lucide-react';
 import { listNeedsYou, listNeedsYouAll, mergeNeedsYou, replyNeedsYou, type NeedsYouItem, type RepoReadFailure, type RepoStamp } from '../../ipc';
+import { inRepos } from '../../repoFilter';
 import { RepoFailures, RepoLabel } from '../../RepoViews';
 import { isHubMode } from '../../transport';
 import { ExternalLink } from '../../components/ExternalLink';
@@ -102,7 +103,20 @@ function MergeButton({ project, item, onMerged }: { project: string; item: Needs
 }
 
 /** Home's "Needs you" section: what the factory waits on, with a reply per item. `onCount` reports the list length. */
-export function NeedsYou({ project, allRepos = false, onCount }: { project: string; allRepos?: boolean; onCount?: (n: number) => void }) {
+export function NeedsYou({
+  project,
+  allRepos = false,
+  repos,
+  teamId,
+  onCount,
+}: {
+  project: string;
+  allRepos?: boolean;
+  repos: string[];
+  /** The selected team (hub): "All repositories" is read for it. */
+  teamId?: string;
+  onCount?: (n: number) => void;
+}) {
   const [items, setItems] = useState<(NeedsYouItem & Partial<RepoStamp>)[] | null>(null);
   const [failures, setFailures] = useState<RepoReadFailure[]>([]);
   const [error, setError] = useState<string | null>(null);
@@ -111,7 +125,7 @@ export function NeedsYou({ project, allRepos = false, onCount }: { project: stri
 
   useEffect(() => {
     let alive = true;
-    (allRepos ? listNeedsYouAll() : listNeedsYou(project).then((r) => ({ ...r, failures: [] })))
+    (allRepos ? listNeedsYouAll(teamId).then((l) => ({ items: inRepos(l.items, repos), failures: inRepos(l.failures, repos) })) : listNeedsYou(project).then((r) => ({ ...r, failures: [] })))
       .then((r) => {
         if (!alive) return;
         setItems(r.items);
@@ -125,7 +139,8 @@ export function NeedsYou({ project, allRepos = false, onCount }: { project: stri
     return () => {
       alive = false;
     };
-  }, [project, allRepos, nonce]);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [project, allRepos, nonce, teamId, repos.join('\n')]);
 
   return (
     <section id="needs-you" aria-label="Needs you" className="mx-auto w-full max-w-3xl space-y-3">

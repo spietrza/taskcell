@@ -32,14 +32,18 @@ import { NewRunForm } from './NewRunForm';
 import { RunStrip } from './RunStrip';
 import { foldLiveEvent, reduceTypedRun, initialTypedRun, type TypedRunState, type RunEvent, type AppRunEvent } from './typedRunReducer';
 import { useAppConfig } from '../../hooks';
+import { inRepos } from '../../repoFilter';
 import { RepoFailures } from '../../RepoViews';
 import type { RepoReadFailure, RepoStamp } from '../../wire';
+import type { TeamScreen } from '../settings/Members';
 import type { Project } from '../../taskcell-output';
 import type { RunSummary, RunDetail as RunDetailT, ActiveRun, RunRef, RunSource } from '../../taskcell-output';
 
 export function Inspector({
   project,
   projects,
+  teamScreen,
+  teamId,
   allRepos,
   screen,
   focusRunning,
@@ -53,6 +57,10 @@ export function Inspector({
   project: string;
   /** Every hub repository: "All repositories" watches and lists running runs for each. */
   projects: Project[];
+  /** The selected team (hub), for the members screen under Settings. */
+  teamScreen?: TeamScreen;
+  /** The selected team (hub): the all-repositories lists are read for it. */
+  teamId?: string;
   /** The shared repository filter is "All repositories": Board, Runs and Needs you list every repository. */
   allRepos: boolean;
   screen: 'runs' | 'board' | 'task' | 'settings';
@@ -131,11 +139,14 @@ export function Inspector({
     }
   }, [clearNonce]);
 
+  // `projects` is the selected team's repositories; the hub's all-repositories lists span every team.
+  const repos = projects.map((p) => p.path);
+
   const loadRuns = async (): Promise<void> => {
     const gen = ++runsGen.current;
     if (allRepos) {
       const [r, a] = await Promise.all([
-        listRunsAll(),
+        listRunsAll(teamId).then((l) => ({ runs: inRepos(l.runs, repos), failures: inRepos(l.failures, repos) })),
         Promise.all(
           projects.map((p) =>
             listActive(p.path).then(
@@ -191,7 +202,7 @@ export function Inspector({
   useEffect(() => {
     void load();
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [project, allRepos]);
+  }, [project, allRepos, teamId]);
 
   // The listener is registered once, so it reaches the latest render's `refresh` through a ref.
   const refreshRef = useRef(refresh);
@@ -518,6 +529,8 @@ export function Inspector({
         <TaskBoard
           project={project}
           allRepos={allRepos}
+          repos={repos}
+          teamId={teamId}
           onOpenTask={(id, repo) => {
             setTaskDetailRepo(repo ?? project);
             setTaskDetailId(id);
@@ -527,6 +540,7 @@ export function Inspector({
       ) : screen === 'settings' ? (
         <SettingsScreen
           project={project}
+          {...(teamScreen ? { teamScreen } : {})}
           fleet={canUseFleet() ? <Fleet project={project} active={active} /> : null}
           remote={<RemoteRuns project={project} onOpenRun={open} />}
         />
