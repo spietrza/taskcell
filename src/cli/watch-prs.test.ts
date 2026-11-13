@@ -35,6 +35,7 @@ describe('watchPrsCommand', () => {
       provider: 'codex',
       reviewModel: 'gpt-5',
       maxTurns: 48,
+      feedbackAuthors: ['trusted-dev'],
     };
 
     await watchPrsCommand(cmd, {
@@ -76,6 +77,7 @@ describe('watchPrsCommand', () => {
         provider: 'codex',
         reviewModel: 'gpt-5',
         maxTurns: 48,
+        feedbackAuthors: ['trusted-dev'],
       }),
     );
     expect(logs).toEqual([
