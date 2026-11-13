@@ -68,7 +68,7 @@ test('every main screen opens in demo mode without errors', async () => {
   expect(await screen.findByText('Fix cart total rounding')).toBeInTheDocument();
   expect(screen.getByText('Add wishlist to the account page')).toBeInTheDocument();
 
-  fireEvent.click(screen.getByRole('button', { name: /Needs you/ }));
+  fireEvent.click(screen.getAllByRole('button', { name: /Needs you/ })[0]); // the rail's, before the filter bar's triage
   expect(await screen.findByText('Case-insensitive product search')).toBeInTheDocument();
 
   fireEvent.click(screen.getByRole('button', { name: /Workflow/ }));

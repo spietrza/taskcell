@@ -1,6 +1,6 @@
 // Hub commands: run history: persisted run records, events, CI imports, live sessions. One module per feature — contract, validation and handler live here;
 // `pnpm gen:wire` derives Commands, COMMAND_NAMES and dispatch from it (see CONTRIBUTING.md).
-import { BadRequestError } from '../../sidecar/sidecar.js';
+import { BadRequestError, invokeCoreMethod } from '../../sidecar/sidecar.js';
 import { defaultRunsRoot, remoteRunsRoot, listRunSummaries, readRunDetail } from '../runs.js';
 import { readRunEvents } from '../run-events.js';
 import { isSafeTaskId } from '../../core/state-path.js';
@@ -8,6 +8,7 @@ import { listActive, readSession } from '../active.js';
 import * as projects from '../projects.js';
 import * as teams from '../teams.js';
 import * as remote from '../remote.js';
+import { taskRefKey } from '../../tasks/board.js';
 import type { ActiveRun, RemoteImport, RemoteRun, RepoReadFailure, RepoStamp, RunDetail, RunSource, RunSummary, SessionRead } from '../../wire.js';
 import { defineCommands, requireString, optionalString, optionalNumber } from '../command-kit.js';
 
@@ -41,16 +42,37 @@ function runSourceRoot(repoPath: string, raw: unknown): string {
   throw new BadRequestError("source is required and must be { kind: 'local' } or { kind: 'ci', runId: number }");
 }
 
+/** The board's done cards per repository, kept briefly: a tracker read per listing would slow every Runs refresh. */
+const DONE_TTL_MS = 30_000;
+const doneCache = new Map<string, { at: number; done: Set<string> }>();
+
+/** Runs whose card sits in the board's Done column are marked merged. Best effort: a tracker that cannot be read leaves them unmarked. */
+export async function markMerged<T extends RunSummary>(deps: Parameters<typeof invokeCoreMethod>[0], repoPath: string, runs: T[]): Promise<T[]> {
+  if (!runs.some((r) => r.prUrl !== undefined)) return runs;
+  try {
+    let entry = doneCache.get(repoPath);
+    if (entry === undefined || Date.now() - entry.at > DONE_TTL_MS) {
+      const { tasks } = (await invokeCoreMethod(deps, 'listTasks', { repoPath })) as { tasks: { id: string; column: string }[] };
+      entry = { at: Date.now(), done: new Set(tasks.filter((t) => t.column === 'done').map((t) => taskRefKey(t.id))) };
+      doneCache.set(repoPath, entry);
+    }
+    const { done } = entry;
+    return runs.map((r) => (r.prUrl !== undefined && done.has(taskRefKey(r.taskId)) ? { ...r, prState: 'merged' as const } : r));
+  } catch {
+    return runs;
+  }
+}
+
 export const commands = defineCommands<RunsCommands>({
-  list_runs: async ({ args, allow }) => {
+  list_runs: async ({ ctx, args, allow }) => {
     const real = await allow(requireString(args, 'repoPath'));
-    return listRunSummaries(defaultRunsRoot(real));
+    return markMerged(ctx.deps, real, await listRunSummaries(defaultRunsRoot(real)));
   },
   list_runs_all: async ({ ctx, allow, scope }) => {
     const { items, failures } = await projects.listAcrossProjects(
       ctx.configDir,
       allow,
-      (real) => listRunSummaries(defaultRunsRoot(real)),
+      async (real) => markMerged(ctx.deps, real, await listRunSummaries(defaultRunsRoot(real))),
       await scope(),
     );
     // Newest first across repositories, as each repository's own list is.

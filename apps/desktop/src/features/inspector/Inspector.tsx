@@ -36,6 +36,7 @@ import { RunStrip } from './RunStrip';
 import { foldLiveEvent, reduceTypedRun, initialTypedRun, type TypedRunState, type RunEvent, type AppRunEvent } from './typedRunReducer';
 import { useAppConfig } from '../../hooks';
 import { inRepos } from '../../repoFilter';
+import type { HubFilter } from '../../filterState';
 import { RepoFailures } from '../../RepoViews';
 import type { RepoReadFailure, RepoStamp } from '../../wire';
 import type { TeamScreen } from '../settings/Members';
@@ -48,6 +49,8 @@ export function Inspector({
   teamScreen,
   teamId,
   allRepos,
+  filter,
+  onFilter,
   screen,
   focusRunning,
   clearNonce,
@@ -64,8 +67,11 @@ export function Inspector({
   teamScreen?: TeamScreen;
   /** The selected team (hub): the all-repositories lists are read for it. */
   teamId?: string;
-  /** The shared repository filter is "All repositories": Board, Runs and Needs you list every repository. */
+  /** Board, Runs and Needs you list every repository of the team (hub); the filter narrows them. */
   allRepos: boolean;
+  /** The filter Board and Runs share, and its setter (persisted by the app). */
+  filter: HubFilter;
+  onFilter: (f: HubFilter) => void;
   screen: 'runs' | 'board' | 'task' | 'fleet' | 'remote' | 'workflow' | 'settings' | 'needs' | 'audit';
   focusRunning: ActiveRun | null;
   clearNonce: number;
@@ -526,7 +532,7 @@ export function Inspector({
         // In-flight runs render as running rows at the top of the RunList table.
         <div className="flex min-h-0 flex-1 flex-col">
           <RepoFailures failures={failures} />
-          <RunList runs={runs} active={active} showRepo={allRepos} onSelect={open} onOpenActive={setLiveRun} />
+          <RunList runs={runs} active={active} showRepo={allRepos} hub={filter} onHub={onFilter} projects={allRepos ? projects : []} onSelect={open} onOpenActive={setLiveRun} />
         </div>
       ) : screen === 'board' ? (
         <TaskBoard
@@ -534,6 +540,9 @@ export function Inspector({
           allRepos={allRepos}
           repos={repos}
           teamId={teamId}
+          filter={filter}
+          onFilter={onFilter}
+          projects={projects}
           onOpenTask={(id, repo) => {
             setTaskDetailRepo(repo ?? project);
             setTaskDetailId(id);
@@ -542,7 +551,7 @@ export function Inspector({
         />
       ) : screen === 'needs' ? (
         <div className="min-h-0 flex-1 overflow-y-auto">
-          <NeedsYou project={project} allRepos={allRepos} repos={repos} teamId={teamId} />
+          <NeedsYou project={project} allRepos={allRepos} repos={filter.repos.length > 0 ? repos.filter((r) => filter.repos.includes(r)) : repos} teamId={teamId} />
         </div>
       ) : screen === 'audit' ? (
         <div className="flex min-h-0 flex-1 flex-col">
