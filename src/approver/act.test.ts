@@ -18,6 +18,7 @@ const POLICY = {
   schemaVersion: 1,
   enabled: true,
   act: true,
+  factoryAuthors: ['app/taskcell'],
   factoryBranchPrefix: 'chore/vanguard-',
   requiredChecks: [{ name: 'build', appId: 15368 }],
   reviewAuthors: ['bot'],
@@ -73,6 +74,9 @@ interface PrState {
   headRefName: string;
   title: string;
   build: string | null;
+  author: string;
+  labels: string[];
+  humanReviews: Array<{ login: string; state: string }>;
 }
 
 function fakeGh(calls: string[][], pr: PrState, onUpdate?: () => Promise<void>): GhRunner {
@@ -84,10 +88,13 @@ function fakeGh(calls: string[][], pr: PrState, onUpdate?: () => Promise<void>):
         number: 1, title: pr.title, state: 'OPEN', isDraft: pr.isDraft, mergeStateStatus: pr.merge,
         headRefName: pr.headRefName, headRefOid: pr.head, baseRefName: 'main', baseRefOid: baseSha,
         headRepository: { name: 'r' }, headRepositoryOwner: { login: 'o' },
-        reviews: [{ author: { login: 'bot' }, body: reviewBody(headSha), submittedAt: '2026-10-20T00:00:00Z', state: 'COMMENTED' }],
+        author: { login: pr.author }, labels: pr.labels.map((name) => ({ name })),
+        reviews: [
+          { author: { login: 'bot' }, body: reviewBody(headSha), submittedAt: '2026-10-20T00:00:00Z', state: 'COMMENTED' },
+          ...pr.humanReviews.map((r) => ({ author: { login: r.login }, body: 'please fix', submittedAt: '2026-10-21T00:00:00Z', state: r.state })),
+        ],
       });
     }
-    if (args[0] === 'pr' && args[1] === 'ready') pr.isDraft = false;
     if (args[0] === 'pr' && args[1] === 'update-branch') {
       await onUpdate?.();
       return '';
@@ -101,7 +108,7 @@ function fakeGh(calls: string[][], pr: PrState, onUpdate?: () => Promise<void>):
   };
 }
 
-const pr = (over: Partial<PrState> = {}): PrState => ({ head: headSha, isDraft: false, merge: 'CLEAN', headRefName: 'chore/vanguard-1', title: 'feat: x', build: 'success', ...over });
+const pr = (over: Partial<PrState> = {}): PrState => ({ head: headSha, isDraft: false, merge: 'CLEAN', headRefName: 'chore/vanguard-1', title: 'feat: x', build: 'success', author: 'app/taskcell', labels: [], humanReviews: [], ...over });
 const run = (gh: GhRunner, mode: 'shadow' | 'act' = 'act'): ReturnType<typeof runApprover> =>
   runApprover({ repoPath: repo, repoSlug: 'o/r', prNumber: 1, mode, gh, sleep: async () => {} });
 const writes = (calls: string[][], sub: string): string[][] => calls.filter((a) => a[0] === 'pr' && a[1] === sub);
@@ -159,7 +166,7 @@ describe('approver act mode', () => {
       expect(writes(calls, 'merge')).toEqual([['pr', 'merge', '1', '--repo', 'o/r', '--squash', '--match-head-commit', state.head]]);
       expect(await actions()).toEqual(['update-branch', 'merge']);
       const verdicts = (await records()).filter((r) => r.verdict !== undefined);
-      expect(verdicts.map((r) => [r.verdict, r.mode, r.headSha])).toEqual([['APPROVE', 'act', headSha], ['APPROVE', 'act', state.head]]);
+      expect(verdicts.map((r) => [r.verdict, r.mode, r.headSha, r.actMerge ?? false])).toEqual([['APPROVE', 'act', headSha, false], ['APPROVE', 'act', state.head, false], ['APPROVE', 'act', state.head, true]]);
       expect(writes(calls, 'comment')).toEqual([]); // act mode posts no decision comment
     });
 
@@ -306,27 +313,110 @@ describe('approver act mode', () => {
       expect(writes(calls, 'comment').some((a) => a.join(' ').includes('merge-conflict'))).toBe(true);
     });
 
-    it('a draft whose verify passed is marked ready with no stale draft decision recorded; the next run merges on an APPROVE record', async () => {
-      const state = pr({ isDraft: true });
+    it('a draft is never marked ready, even with green checks: left for a human with one comment', async () => {
       const calls: string[][] = [];
-      const first = await run(fakeGh(calls, state));
-      expect(writes(calls, 'ready')).toEqual([['pr', 'ready', '1', '--repo', 'o/r']]);
-      expect(first.record.rulesFired).toContain('draft');
+      await run(fakeGh(calls, pr({ isDraft: true })));
+      expect(writes(calls, 'ready')).toEqual([]);
       expect(writes(calls, 'merge')).toEqual([]);
-      expect((await records()).filter((r) => r.verdict !== undefined)).toEqual([]);
-      await run(fakeGh(calls, state)); // now ready, same head
-      expect(writes(calls, 'merge')).toHaveLength(1);
-      expect(await actions()).toEqual(['mark-ready', 'merge']);
-      expect((await records()).filter((r) => r.verdict !== undefined).map((r) => r.verdict)).toEqual(['APPROVE']);
+      expect(writes(calls, 'comment')).toHaveLength(1);
+      expect(writes(calls, 'comment')[0]!.join(' ')).toContain('draft PR');
+      expect(await actions()).toEqual(['left-for-human']);
     });
 
-    it('a draft whose verify failed gets one human comment and nothing else', async () => {
+    it('a draft whose checks failed also gets exactly one comment', async () => {
       const calls: string[][] = [];
       await run(fakeGh(calls, pr({ isDraft: true, build: 'failure' })));
       expect(writes(calls, 'ready')).toEqual([]);
       expect(writes(calls, 'comment')).toHaveLength(1);
-      expect(writes(calls, 'comment')[0]!.join(' ')).toContain('a human must look');
-      expect(await actions()).toEqual(['verify-failed']);
+      expect(await actions()).toEqual(['left-for-human']);
+    });
+
+    it('a human review requesting changes is a hold: no update, no merge, a comment', async () => {
+      const calls: string[][] = [];
+      await moveBase('other.txt');
+      await run(fakeGh(calls, pr({ humanReviews: [{ login: 'spietrza', state: 'CHANGES_REQUESTED' }] })));
+      expect(writes(calls, 'update-branch')).toEqual([]);
+      expect(writes(calls, 'merge')).toEqual([]);
+      expect(writes(calls, 'comment').some((a) => a.join(' ').includes('a review requests changes'))).toBe(true);
+      expect(await actions()).toEqual(['left-for-human']);
+    });
+
+    it('the hold label (default taskcell:hold) is a hold: no merge, a comment', async () => {
+      const calls: string[][] = [];
+      await run(fakeGh(calls, pr({ labels: ['taskcell:hold'] })));
+      expect(writes(calls, 'merge')).toEqual([]);
+      expect(writes(calls, 'comment').some((a) => a.join(' ').includes('hold label taskcell:hold'))).toBe(true);
+    });
+
+    it('the policy can rename the hold label', async () => {
+      await rm(root, { recursive: true, force: true });
+      await setup({ ...POLICY, holdLabel: 'wait' }, { 'src.ts': 'export const x = 1;\n' });
+      const calls: string[][] = [];
+      await run(fakeGh(calls, pr({ labels: ['wait'] })));
+      expect(writes(calls, 'merge')).toEqual([]);
+      expect(writes(calls, 'comment').some((a) => a.join(' ').includes('hold label wait'))).toBe(true);
+    });
+
+    it.each(['BLOCKED', 'UNSTABLE', 'UNKNOWN', 'DIRTY'])('mergeStateStatus %s is left for a human', async (merge) => {
+      const calls: string[][] = [];
+      await run(fakeGh(calls, pr({ merge })));
+      expect(writes(calls, 'merge')).toEqual([]);
+      expect(writes(calls, 'update-branch')).toEqual([]);
+      expect(await actions()).toEqual(['left-for-human']);
+    });
+
+    it('a mergeStateStatus other than CLEAN after the update is left for a human', async () => {
+      const state = pr();
+      const calls: string[][] = [];
+      await moveBase('other.txt');
+      await run(fakeGh(calls, state, async () => {
+        await updateBranch(state, 'success');
+        state.merge = 'BLOCKED';
+      }));
+      expect(writes(calls, 'merge')).toEqual([]);
+      expect(writes(calls, 'comment').some((a) => a.join(' ').includes('mergeStateStatus BLOCKED'))).toBe(true);
+      expect(await actions()).toEqual(['update-branch', 'left-for-human']);
+    });
+
+    it('equal patch-id is not enough: a head whose tree differs from base merged into the reviewed commit is not merged', async () => {
+      const state = pr();
+      const calls: string[][] = [];
+      await moveBase('other.txt');
+      // A whitespace-only edit after the base merge: patch-id (whitespace-blind) still equals the reviewed one, the tree does not.
+      await run(fakeGh(calls, state, () => updateBranch(state, 'success', { 'src.ts': 'export const x  = 1;\n' })));
+      const verdicts = (await records()).filter((r) => r.verdict !== undefined);
+      expect(verdicts.at(-1)).toMatchObject({ verdict: 'APPROVE', headSha: state.head }); // the shadow (patch-id) rule still approves
+      expect(writes(calls, 'merge')).toEqual([]);
+      expect(writes(calls, 'comment').some((a) => a.join(' ').includes('review-stale'))).toBe(true);
+      expect(await actions()).toEqual(['update-branch', 'left-for-human']);
+    });
+
+    it.each([['another login', 'someone'], ['no author', '']])('a factory-branch PR with %s as API author is left for a human', async (_n, author) => {
+      const calls: string[][] = [];
+      await run(fakeGh(calls, pr({ author })));
+      expect(writes(calls, 'merge')).toEqual([]);
+      expect(writes(calls, 'comment').some((a) => a.join(' ').includes('not opened by the factory'))).toBe(true);
+    });
+
+    it('a policy without factoryAuthors acts on nothing', async () => {
+      await rm(root, { recursive: true, force: true });
+      const { factoryAuthors: _f, ...noAuthors } = POLICY;
+      await setup(noAuthors, { 'src.ts': 'export const x = 1;\n' });
+      const calls: string[][] = [];
+      await run(fakeGh(calls, pr()));
+      expect(writes(calls, 'merge')).toEqual([]);
+    });
+
+    it('a merge after an earlier ESCALATE for the same head is preceded by an APPROVE record', async () => {
+      const state = pr({ build: 'failure' });
+      const calls: string[][] = [];
+      await run(fakeGh(calls, state));
+      state.build = 'success'; // checks re-run green on the same head
+      await run(fakeGh(calls, state));
+      expect(writes(calls, 'merge')).toHaveLength(1);
+      const log = (await records()).map((r) => r.action ?? r.verdict);
+      expect(log).toEqual(['ESCALATE', 'left-for-human', 'APPROVE', 'merge']);
+      expect((await records())[2]).toMatchObject({ verdict: 'APPROVE', headSha, actMerge: true });
     });
 
     it('a draft release PR is not marked ready', async () => {
@@ -336,13 +426,13 @@ describe('approver act mode', () => {
       expect(writes(calls, 'comment').some((a) => a.join(' ').includes('release PR'))).toBe(true);
     });
 
-    it('act-mode guard allows only the three writes and shadow calls', () => {
+    it('act-mode guard allows only the two writes and shadow calls', () => {
       expect(() => assertActSafeGhArgs(['pr', 'merge', '1', '--repo', 'o/r', '--squash', '--match-head-commit', 'a'.repeat(40)])).not.toThrow();
       expect(() => assertActSafeGhArgs(['pr', 'merge', '1', '--repo', 'o/r', '--admin', '--squash', '--match-head-commit', 'a'.repeat(40)])).toThrow();
       expect(() => assertActSafeGhArgs(['pr', 'merge', '1', '--repo', 'o/r', '--rebase'])).toThrow();
       expect(() => assertActSafeGhArgs(['pr', 'update-branch', '1', '--repo', 'o/r', '--rebase'])).toThrow();
       expect(() => assertActSafeGhArgs(['pr', 'close', '1', '--repo', 'o/r'])).toThrow();
-      expect(() => assertActSafeGhArgs(['pr', 'ready', '1', '--repo', 'o/r'])).not.toThrow();
+      expect(() => assertActSafeGhArgs(['pr', 'ready', '1', '--repo', 'o/r'])).toThrow();
     });
 
     it('release detection', () => {
@@ -377,12 +467,12 @@ async function moveBase(file: string): Promise<void> {
 }
 
 /** What update-branch does: a real `git merge main` into the PR branch (plus, optionally, an extra commit), pushed as the PR head. */
-async function updateBranch(state: PrState, build: string | null, extraFile?: string): Promise<void> {
+async function updateBranch(state: PrState, build: string | null, extra?: string | Record<string, string>): Promise<void> {
   const seed = join(root, 'seed');
   await git(seed, ['checkout', '--quiet', 'chore/vanguard-1']);
   await git(seed, ['merge', '--quiet', '--no-edit', 'main']);
-  if (extraFile !== undefined) {
-    await writeFile(join(seed, extraFile), 'export const y = 2;\n');
+  if (extra !== undefined) {
+    for (const [file, body] of Object.entries(typeof extra === 'string' ? { [extra]: 'export const y = 2;\n' } : extra)) await writeFile(join(seed, file), body);
     await git(seed, ['add', '.']);
     await git(seed, ['commit', '--quiet', '-m', 'extra']);
   }

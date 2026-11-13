@@ -8,7 +8,7 @@ import { decide } from './rules.js';
 import { buildDecisionRecord, appendDecision, appendAction } from './record.js';
 import type { ActionKind } from './record.js';
 import { publishCheckRun, commentDecision, commentOnce, shadowSafeGhRunner } from './publish.js';
-import { actSafeGhRunner, actExclusions, hardExclusions } from './act.js';
+import { actSafeGhRunner, actExclusions, reviewExact } from './act.js';
 import { TaskcellError } from '../core/errors.js';
 import type { ApproverFacts, Decision, DecisionRecord } from './types.js';
 
@@ -131,24 +131,10 @@ export async function runApprover(input: RunApproverInput, state: { updated: boo
   const facts: ApproverFacts = { pr: prWithoutReviews, isFactoryPr: factory, checks, review, diff, ledger, thisPrLines: diff.lines };
   const decision = decide(facts, policy, seed);
 
-  // A draft factory PR whose verify passed is not left as a draft. The draft-only decision is not recorded: it would
-  // dedupe the real decision for this head (the review runs once the PR is ready).
-  const draftOnly = acting && factory && decision.rulesFired.includes('draft') && decision.rulesFired.every((r) => r === 'draft' || r === 'review-missing');
-  if (draftOnly && hardExclusions(facts).length === 0 && checks.length > 0 && checks.every((c) => c.conclusion === 'success')) {
-    await actGh(['pr', 'ready', String(input.prNumber), '--repo', input.repoSlug]);
-    await logAction('mark-ready', 'required checks green on a draft factory PR', diff.headSha);
-    return { record: buildDecisionRecord({ mode: 'act', repo: input.repoSlug, prNumber: input.prNumber, headSha: diff.headSha, facts, decision, policyHash, timestamp }) };
-  }
-
   const result = await finish(facts, decision, policyHash, diff.headSha);
   if (!acting || facts.pr.state !== 'OPEN') return result;
 
-  if (factory && decision.rulesFired.includes('draft') && checks.some((c) => c.conclusion !== null && c.conclusion !== 'success') && hardExclusions(facts).length === 0) {
-    await tell('verify-failed', `verify failed on this draft (${checks.filter((c) => c.conclusion !== 'success').map((c) => c.name).join(', ')}); a human must look`, diff.headSha);
-    return result;
-  }
-
-  const excluded = actExclusions(facts, decision);
+  const excluded = actExclusions(facts, decision, policy, prFacts.reviews);
   if (excluded.length > 0) {
     await tell('left-for-human', excluded.join('; '), diff.headSha);
     return result;
@@ -185,6 +171,12 @@ export async function runApprover(input: RunApproverInput, state: { updated: boo
     return result;
   }
 
+  if (!reviewExact(facts)) {
+    await tell('left-for-human', 'review-stale: the head tree is not the reviewed commit merged with the base; a new review is needed', diff.headSha);
+    return result;
+  }
+  // The decision a merge is made on is always on the log before the merge, even when this head already has a record.
+  await appendDecision(input.repoPath, { ...result.record, actMerge: true }, input.branch !== undefined ? { branch: input.branch } : {});
   try {
     await actGh(['pr', 'merge', String(input.prNumber), '--repo', input.repoSlug, '--squash', '--match-head-commit', diff.headSha]);
   } catch (err) {

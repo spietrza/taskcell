@@ -24,7 +24,8 @@ export interface ReadLedgerInput {
 /**
  * Trailing `windowDays` sum of would-approve lines per module this PR touches, read from
  * `decisions.jsonl` on the metrics branch. Only APPROVE records count; a record for the same PR
- * number is skipped (a re-decision must not double count); malformed lines are dropped by
+ * number is skipped (a re-decision must not double count), and of every other PR only the latest
+ * APPROVE counts (act mode appends a second one before a merge); malformed lines are dropped by
  * parseJsonlLines. Each kept record contributes its `signals.lines` to every module in its own
  * `signals.paths` (not per-path lines — see risk R10 in the tech spec).
  */
@@ -33,9 +34,13 @@ export async function readLedger(input: ReadLedgerInput): Promise<Record<string,
   const cutoff = input.now.getTime() - input.policy.ledger.windowDays * 24 * 60 * 60 * 1000;
   const relevantModules = new Set(input.touchedPaths.map(moduleOf));
   const totals: Record<string, number> = {};
+  const latestPerPr = new Map<string, Record<string, unknown>>();
   for (const record of parseJsonlLines(text)) {
     if (record.verdict !== 'APPROVE') continue;
     if (record.prNumber === input.prNumber) continue;
+    latestPerPr.set(`${String(record.repo)}:${String(record.prNumber)}`, record);
+  }
+  for (const record of latestPerPr.values()) {
     const ts = typeof record.timestamp === 'string' ? Date.parse(record.timestamp) : NaN;
     if (!Number.isFinite(ts) || ts < cutoff) continue;
     const signals = record.signals as { lines?: unknown; paths?: unknown } | undefined;

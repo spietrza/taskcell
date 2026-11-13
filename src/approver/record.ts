@@ -70,6 +70,7 @@ const SHORT_CIRCUIT_RULES = new Set(['stopped', 'policy-unreadable']);
  * its own kind, so once the stop is lifted the full decision for the same head is still recorded.
  */
 export function decisionKey(r: Record<string, unknown>): string {
+  if (r.actMerge === true) return `${String(r.prNumber)}:${String(r.headSha)}:act-merge`;
   if (typeof r.action === 'string') return `${String(r.prNumber)}:${String(r.headSha)}:action:${r.action}`;
   const rules = Array.isArray(r.rulesFired) ? r.rulesFired : [];
   const kind = rules.some((id) => typeof id === 'string' && SHORT_CIRCUIT_RULES.has(id)) ? 'short' : 'full';
@@ -89,7 +90,7 @@ async function appendRecord(repoPath: string, record: DecisionRecord | ActionRec
   await appendAudit(STREAMS.decisions, adapter, { ...record }, { actor: BOT_ACTOR, subject: { repo: record.repo, pr: record.prNumber } });
 }
 
-export type ActionKind = 'mark-ready' | 'update-branch' | 'merge' | 'merge-failed' | 'left-for-human' | 'verify-failed' | 'checks-failed' | 'base-moved';
+export type ActionKind = 'update-branch' | 'merge' | 'merge-failed' | 'left-for-human' | 'checks-failed' | 'base-moved';
 
 export interface ActionRecord {
   schemaVersion: 1;

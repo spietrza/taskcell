@@ -24,6 +24,10 @@ export const approverPolicySchema = z.object({
   auditSample: z.object({ p: z.number().min(0).max(1) }),
   /** Act mode: off by default; `taskcell approve --mode act` only acts when this is true on the base branch. */
   act: z.boolean().optional(),
+  /** Act mode: a PR with this label is left for a human (default `taskcell:hold`). */
+  holdLabel: z.string().min(1).optional(),
+  /** Act mode: the PR author logins (as `gh pr view --json author` reports them) the factory opens PRs as. Empty = act on nothing. */
+  factoryAuthors: z.array(z.string().min(1)).optional(),
 });
 
 export interface LoadedPolicy {

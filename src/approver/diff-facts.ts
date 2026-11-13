@@ -136,11 +136,16 @@ async function isAncestor(cwd: string, ancestor: string, descendant: string): Pr
   return undefined;
 }
 
-export async function mergeTreeClean(cwd: string, a: string, b: string): Promise<boolean | undefined> {
+/** `git merge-tree --write-tree a b`: whether it merges cleanly (undefined on failure) and, when clean, the merged tree oid. */
+async function mergeTree(cwd: string, a: string, b: string): Promise<{ clean: boolean | undefined; tree: string | undefined }> {
   const r = await gitOk(cwd, ['merge-tree', '--write-tree', '--name-only', a, b]);
-  if (r.exitCode === 0) return true;
-  if (r.exitCode === 1) return false;
-  return undefined;
+  if (r.exitCode !== 0) return { clean: r.exitCode === 1 ? false : undefined, tree: undefined };
+  const tree = r.stdout.split('\n')[0]?.trim() ?? '';
+  return { clean: true, tree: tree !== '' ? tree : undefined };
+}
+
+export async function mergeTreeClean(cwd: string, a: string, b: string): Promise<boolean | undefined> {
+  return (await mergeTree(cwd, a, b)).clean;
 }
 
 export interface CollectDiffFactsInput {
@@ -210,6 +215,7 @@ export async function collectDiffFacts(input: CollectDiffFactsInput): Promise<Di
   let reviewedPatchId: string | undefined;
   let reviewedIsAncestor: boolean | undefined;
   let mergeTreeReviewedClean: boolean | undefined;
+  let reviewedMergedTree: string | undefined;
   if (reviewedSha !== null && reviewedSha === headSha) {
     reviewedIsAncestor = true;
   } else if (reviewedSha !== null) {
@@ -217,8 +223,10 @@ export async function collectDiffFacts(input: CollectDiffFactsInput): Promise<Di
     const reviewedBase = await gitOk(repoPath, ['merge-base', baseTip, reviewedSha]);
     reviewedPatchId = reviewedBase.exitCode === 0 ? await patchId(repoPath, reviewedBase.stdout.trim(), reviewedSha) : undefined;
     reviewedIsAncestor = await isAncestor(repoPath, reviewedSha, headSha);
-    mergeTreeReviewedClean = await mergeTreeClean(repoPath, baseTip, reviewedSha);
+    ({ clean: mergeTreeReviewedClean, tree: reviewedMergedTree } = await mergeTree(repoPath, baseTip, reviewedSha));
   }
+  const headTreeResult = await gitOk(repoPath, ['rev-parse', `${headSha}^{tree}`]);
+  const headTree = headTreeResult.exitCode === 0 ? headTreeResult.stdout.trim() : undefined;
   const mergeTreeHeadClean = await mergeTreeClean(repoPath, baseTip, headSha);
 
   return {
@@ -226,6 +234,8 @@ export async function collectDiffFacts(input: CollectDiffFactsInput): Promise<Di
     files, lines, paths, testFilesDeleted, testCasesDelta, exportsRemoved, newDependency,
     baseSha: baseTip, headSha, mergeBase,
     headPatchId, reviewedPatchId, reviewedIsAncestor, mergeTreeHeadClean, mergeTreeReviewedClean,
+    ...(headTree !== undefined ? { headTree } : {}),
+    ...(reviewedMergedTree !== undefined ? { reviewedMergedTree } : {}),
     headMoved, gitFactsFailed: false,
   };
 }

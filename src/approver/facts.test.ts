@@ -54,6 +54,8 @@ describe('collectPrFacts', () => {
         baseRefOid: 'base7',
         headRepository: { name: 'r' },
         headRepositoryOwner: { login: 'o' },
+        author: { login: 'app/taskcell' },
+        labels: [{ name: 'taskcell:hold' }],
         reviews: [{ author: { login: 'github-actions' }, body: 'b', submittedAt: '2026-10-20T00:00:00Z', state: 'COMMENTED' }],
       });
     const facts = await collectPrFacts(gh, 'o/r', 7);
@@ -67,6 +69,8 @@ describe('collectPrFacts', () => {
       baseRefName: 'main',
       apiBaseSha: 'base7',
       headRepo: 'o/r',
+      author: 'app/taskcell',
+      labels: ['taskcell:hold'],
       reviews: [{ author: 'github-actions', body: 'b', submittedAt: '2026-10-20T00:00:00Z', state: 'COMMENTED' }],
     });
   });

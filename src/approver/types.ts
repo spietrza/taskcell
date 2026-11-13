@@ -17,6 +17,10 @@ export interface ApproverPolicy {
   auditSample: { p: number };
   /** Act mode (merge APPROVEd factory PRs); off unless the base branch's policy turns it on. */
   act?: boolean;
+  /** Act mode: a PR carrying this label is left for a human (default `taskcell:hold`). */
+  holdLabel?: string;
+  /** Act mode: API-sourced PR author logins the factory opens PRs as; a PR by anyone else is never acted on. */
+  factoryAuthors?: string[];
 }
 
 export interface PrFacts {
@@ -33,6 +37,9 @@ export interface PrFacts {
   title?: string;
   /** GitHub's mergeStateStatus (BEHIND, DIRTY, CLEAN, ...); absent when the API omits it. */
   mergeStateStatus?: string;
+  /** API-sourced PR author login ('' when the API omits it). */
+  author?: string;
+  labels?: string[];
   reviews: Array<{ author: string; body: string; submittedAt: string; state: string }>;
 }
 
@@ -72,6 +79,10 @@ export interface DiffFacts {
   mergeTreeHeadClean: boolean | undefined;
   /** merge-tree(baseSha, reviewedSha), computed only when reviewedSha !== headSha. */
   mergeTreeReviewedClean: boolean | undefined;
+  /** Tree of headSha; act mode's exact review check compares it with `reviewedMergedTree`. */
+  headTree?: string;
+  /** Tree of `git merge-tree --write-tree <baseSha> <reviewedSha>` (clean merges only), computed only when reviewedSha !== headSha. */
+  reviewedMergedTree?: string;
   /** The fetched refs/pull/<n>/head did not match the API head SHA. */
   headMoved: boolean;
   /** Any required git fact could not be computed (fetch/merge-base/numstat failure). */
@@ -134,4 +145,6 @@ export interface DecisionRecord {
   policyHash: string;
   timestamp: string;
   humanOutcome: HumanOutcome;
+  /** Act mode: the APPROVE a merge is made on, appended even when the head already has a decision. */
+  actMerge?: true;
 }
