@@ -1318,6 +1318,26 @@ describe('buildRevisionChecklist — Markdown review', () => {
     ]);
   });
 
+  it('counts a finding heading once and treats the bullets below it as detail', () => {
+    const fb = makeFeedback({ items: [review([
+      'Verdict: BLOCKING', '', '## Blocking', '',
+      '### B1. Conflict word forces a merge-only round (blocking: x)', '- **Base:** a', '- **Cap:** b', 'Fix: c', '',
+      '### 2. Re-review is skipped', '- one', '- two', '- three', '',
+      '## Non-blocking', '', '### N1. style', '- nit',
+    ].join('\n'))] });
+    expect(buildRevisionChecklist(fb, [])).toEqual([
+      'B1. Conflict word forces a merge-only round (blocking: x)',
+      '2. Re-review is skipped',
+    ]);
+  });
+
+  it('keeps one item per top-level item directly under the heading, and mixes with finding headings', () => {
+    const list = makeFeedback({ items: [review('Verdict: BLOCKING\n\n## Blocking\n\n- first\n  - sub\n- second\n\n## Non-blocking\n\n- nit')] });
+    expect(buildRevisionChecklist(list, [])).toEqual(['first', 'second']);
+    const mixed = makeFeedback({ items: [review('Verdict: BLOCKING\n\n## Blocking\n\n- first\n- second\n\n### B3. Third\n- d1\n- d2')] });
+    expect(buildRevisionChecklist(mixed, [])).toEqual(['first', 'second', 'B3. Third']);
+  });
+
   it('keeps an item labelled blocking itself and falls back to one item when none can be told apart', () => {
     const labelled = makeFeedback({ items: [review('Verdict: BLOCKING\n\n- [blocking] parse() drops a row\n- [non-blocking] style')] });
     expect(buildRevisionChecklist(labelled, [])).toEqual(['[blocking] parse() drops a row']);
