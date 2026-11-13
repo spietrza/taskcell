@@ -89,6 +89,22 @@ To run the factory from GitHub Actions instead, with no host of your own, follow
 
 Any stage can run on a different provider or model: `--review-provider codex` for cross-provider review, `--provider-model`, `--review-model`, `--escalate-model` for a stronger model after a failed repair, and `--fallback-provider` for outages. See [docs/task-sources.md](docs/task-sources.md) and [docs/cli.md](docs/cli.md).
 
+### Which model for which stage
+
+A starting point, not a rule. Aliases (`sonnet`, `opus`) follow the newest model; a full id pins one.
+
+| Stage | Use | How | Why |
+|---|---|---|---|
+| Spec and plan | The strongest reasoning model you have | `--spec-model opus`, `--plan` | A wrong spec costs every later stage. This stage is short, so the strong model is cheap here. |
+| Implement | A mid-tier coding model | `--provider-model sonnet` | Most of a run's tokens are spent here. |
+| Implement, easy issues on a budget (experimental) | A flat-rate plan or a cheap model | `--provider zai`, or `--provider openrouter --provider-model <model>` | Works on small, well-specified issues. Keep `--escalate-model` on. |
+| Repair escalation | A pinned top model | `--escalate-model claude-fable-5-2` | Only runs after a second failed gate repair, so it costs nothing on a clean run. |
+| Review | **A different model family from the implementer** | `--review-provider codex` | A model shares its blind spots with itself. If you have one provider only, review on a stronger model than the one that wrote the code: `--review-model claude-fable-5-2`. |
+| Conformance (opt-in) | A strong model | `--conformance --conformance-model opus` | It checks the diff against the acceptance criteria, where a miss means the wrong thing ships. |
+| Outage fallback | Another vendor | `--fallback-provider codex` | Rate limits and outages are per vendor. |
+
+Never let the cheapest model in the run be the reviewer: the review is what makes a cheap implementer safe.
+
 ## Security
 
 Taskcell runs coding agents on untrusted input and treats the agent as hostile. These controls sit around it:
