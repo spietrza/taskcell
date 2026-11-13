@@ -1695,6 +1695,8 @@ describe('parseCli doctor-mrs', () => {
 
 describe('parseCli hub', () => {
   it('preserves repeated allowed Hosts', () => {
+    expect(parseCli(['hub', '--demo'], '/repo')).toMatchObject({ kind: 'hub', demo: true });
+    expect(parseCli(['hub'], '/repo')).not.toHaveProperty('demo');
     expect(parseCli(['hub', '--allowed-host', 'hub.example', '--allowed-host', 'other.example:8080'], '/repo'))
       .toMatchObject({ kind: 'hub', allowedHosts: ['hub.example', 'other.example:8080'] });
   });

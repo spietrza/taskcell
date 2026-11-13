@@ -41,6 +41,12 @@ afterEach(async () => {
 });
 
 describe('injectHubMarker', () => {
+  test('adds the demo marker only when asked', () => {
+    const html = '<html><head></head></html>';
+    expect(injectHubMarker(html, false, true)).toContain('__VANGUARD_DEMO__=true');
+    expect(injectHubMarker(html)).not.toContain('__VANGUARD_DEMO__');
+  });
+
   test('T-67 injects the marker exactly once right after <head>, leaving the rest byte-identical', () => {
     const html = '<!doctype html><html><head><title>x</title></head><body>hi</body></html>';
     const out = injectHubMarker(html);

@@ -74,6 +74,9 @@ export function Dashboard({
             <Button onClick={onAdd} startIcon={<FolderPlus className="size-4" />}>
               Add project
             </Button>
+            <Button variant="outlined" onClick={() => window.location.assign('/?demo=1')}>
+              Try the demo project
+            </Button>
           </Empty.Actions>
         </Empty.Root>
       ) : (
