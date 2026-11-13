@@ -1355,6 +1355,36 @@ describe('buildRevisionChecklist — Markdown review', () => {
     expect(buildRevisionChecklist(mixed, [])).toEqual(['first', 'second', 'B3. Third']);
   });
 
+  it('reads the real findings under a section heading', () => {
+    const ck = (text: string): string[] => buildRevisionChecklist(makeFeedback({ items: [review(`Verdict: BLOCKING\n\n${text}`)] }), []);
+    expect(ck('## Findings (2 blocking, 1 non-blocking)\n### Blocking\n- a\n- b\n### Non-blocking\n- n')).toEqual(['a', 'b']);
+    expect(ck('## 1. Blocking findings\n\n- a\n- b')).toEqual(['a', 'b']);
+    expect(ck('## Blocking\n### Security\n- [blocking] x')).toEqual(['[blocking] x']);
+  });
+
+  it('handles heading variants, finding headings with blocking detail, and categories', () => {
+    const ck = (text: string): string[] => buildRevisionChecklist(makeFeedback({ items: [review(`Verdict: BLOCKING\n\n${text}`)] }), []);
+    expect(ck('## Findings (2 blocking, 1 non-blocking)\n### Blocking (2)\n- a\n- b')).toEqual(['a', 'b']);
+    expect(ck('## 1. Blocking issues\n- a')).toEqual(['a']);
+    expect(ck('## Blocking\n### parse() drops the last row\n- **Severity:** blocking\n- **Where:** x.ts:12\n### Second\n- d')).toEqual(['parse() drops the last row', 'Second']);
+    expect(ck('## Blocking\n### Last one\n- d')).toEqual(['Last one']);
+    expect(ck('## Blocking\n### Security\n- token leaks\n- [blocking] injection')).toEqual(['token leaks', '[blocking] injection']);
+    expect(ck('## Blocking\n### Security\n- [blocking] injection\n- token leaks')).toEqual(['[blocking] injection', 'token leaks']);
+  });
+
+  it('follows CommonMark fences: ~~~, longer closers, and never-closed or malformed openers', () => {
+    const ck = (text: string): string[] => buildRevisionChecklist(makeFeedback({ items: [review(`Verdict: BLOCKING\n\n${text}`)] }), []);
+    expect(ck('## Blocking\n- a\n~~~\n# h\n- fake\n~~~\n- b')).toEqual(['a', 'b']);
+    expect(ck('## Blocking\n- a\n````\n```\n- fake\n```\n````\n- b')).toEqual(['a', 'b']);
+    expect(ck('## Blocking\n- a\n```foo()``` returns null\n- b\n- c')).toEqual(['a', 'b', 'c']);
+    expect(ck('## Blocking\n- a\n```ts\n- b')).toEqual(['a', 'b']);
+  });
+
+  it('never reads lines inside a fenced block as headings or findings', () => {
+    const fb = makeFeedback({ items: [review('Verdict: BLOCKING\n\n## Blocking\n- a\n```\n# not heading\n- fake\n```\n- b')] });
+    expect(buildRevisionChecklist(fb, [])).toEqual(['a', 'b']);
+  });
+
   it('keeps an item labelled blocking itself and falls back to one item when none can be told apart', () => {
     const labelled = makeFeedback({ items: [review('Verdict: BLOCKING\n\n- [blocking] parse() drops a row\n- [non-blocking] style')] });
     expect(buildRevisionChecklist(labelled, [])).toEqual(['[blocking] parse() drops a row']);

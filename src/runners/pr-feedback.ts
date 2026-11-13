@@ -315,41 +315,74 @@ const HEADING_RE = /^\s*(#{1,6})\s+(.+)$/;
 const TOP_LIST_ITEM_RE = /^(?:[-*]|\d+[.)])\s+(.+)$/;
 const isBlockingLabel = (text: string): boolean => /\bblocking\b/i.test(text.replace(/\b(?:non|not|no)[- ]?blocking\b/gi, ''));
 
+/** A heading that only names the blocking section (`Blocking`, `1. Blocking findings (2)`), not a finding. */
+const isSectionLabel = (text: string): boolean =>
+  /^\W*(?:\d+[.)]\s*)?blocking(?:\s+(?:findings?|issues?))?\W*$/i.test(text.replace(/\([^)]*\)/g, ''));
+
 /** A heading that is itself one finding: numbered like `1.`, `B1.` or `B1:`. */
 const isNumberedHeading = (text: string): boolean => /^[A-Za-z]{0,2}\d+[.):]\s/.test(text);
 
+/** An item that starts with its own blocking label (`[blocking] x`, `**Blocking:** x`), not one that mentions it. */
+const hasLeadingBlockingLabel = (text: string): boolean => /^(?:\[blocking\]|\*{0,2}blocking\*{0,2}:)/i.test(text);
+
+/** The lines outside fenced code blocks (CommonMark fences; an opening fence that never closes is plain text). */
+function stripFences(lines: string[]): string[] {
+  const out: string[] = [];
+  for (let i = 0; i < lines.length; i++) {
+    const open = /^ {0,3}(`{3,}|~{3,})(.*)$/.exec(lines[i]!);
+    const closeAt = open === null || (open[1]![0] === '`' && open[2]!.includes('`'))
+      ? -1
+      : lines.findIndex((l, j) => j > i && new RegExp(`^ {0,3}${open[1]![0] === '`' ? '`' : '~'}{${open[1]!.length},}\\s*$`).test(l));
+    if (closeAt < 0) out.push(lines[i]!);
+    else i = closeAt;
+  }
+  return out;
+}
+
 /**
- * Blocking findings of a Markdown review: the top-level list items under a heading that names them
- * blocking (up to the next heading), plus any other top-level item labelled blocking itself. A finding
- * heading (a sub-heading of the blocking section, or a numbered heading labelled blocking) is one item
- * itself and the list items below it are detail.
+ * Blocking findings of a Markdown review (fenced code blocks ignored): the top-level list items under a
+ * heading that names them blocking (up to the next heading), plus any other top-level item labelled
+ * blocking itself. A numbered sub-heading is one finding with the items below it as detail. An unnumbered
+ * sub-heading is a category when one of its items starts with a blocking label (the items are the
+ * findings), else a finding itself.
  */
 function proseBlockingFindings(body: string): string[] {
   const out: string[] = [];
   let inBlockingSection = false;
   let sectionLevel = 0;
-  let inFindingHeading = false;
-  for (const line of stripReviewMarkers(body).split('\n')) {
+  let detailOnly = false;
+  let group: { heading: string; items: string[] } | undefined;
+  const flush = (): void => {
+    if (group !== undefined) out.push(...(group.items.some(hasLeadingBlockingLabel) ? group.items : [group.heading]));
+    group = undefined;
+  };
+  for (const line of stripFences(stripReviewMarkers(body).split('\n'))) {
     const match = HEADING_RE.exec(line);
     if (match !== null) {
+      flush();
       const level = match[1]!.length;
-      const heading = match[2]!;
+      const heading = oneLine(match[2]!);
       const blocking = isBlockingLabel(heading);
-      const subFinding = inBlockingSection && level > sectionLevel && !/\bnon[- ]?blocking\b/i.test(heading);
-      inFindingHeading = subFinding || (blocking && isNumberedHeading(heading));
-      if (inFindingHeading) {
-        out.push(oneLine(heading));
+      const sectionLabel = isSectionLabel(heading);
+      const subFinding = !sectionLabel && inBlockingSection && level > sectionLevel && !/\bnon[- ]?blocking\b/i.test(heading);
+      const numbered = isNumberedHeading(heading);
+      detailOnly = subFinding || (blocking && !sectionLabel && numbered);
+      if (detailOnly) {
+        if (subFinding && !blocking && !numbered) group = { heading, items: [] };
+        else out.push(heading);
         if (!subFinding) inBlockingSection = false;
       } else {
-        inBlockingSection = blocking;
+        inBlockingSection = blocking && !/\bnon[- ]?blocking\b/i.test(heading);
         sectionLevel = level;
       }
       continue;
     }
-    if (inFindingHeading) continue;
     const item = TOP_LIST_ITEM_RE.exec(line)?.[1];
-    if (item !== undefined && (inBlockingSection || isBlockingLabel(item))) out.push(oneLine(item));
+    if (item === undefined) continue;
+    if (group !== undefined) group.items.push(oneLine(item));
+    else if (!detailOnly && (inBlockingSection || isBlockingLabel(item))) out.push(oneLine(item));
   }
+  flush();
   return out;
 }
 
