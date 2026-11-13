@@ -174,17 +174,19 @@ export function parsePullRequestUrl(url: string): PullRequestReviewTarget {
   return target;
 }
 
-export async function fetchPullRequestForReview(target: PullRequestReviewTarget, gh: GhRunner = defaultGhRunner, log?: (line: string) => void, allowedAuthors?: readonly string[]): Promise<PullRequestForReview> {
+export async function fetchPullRequestForReview(target: PullRequestReviewTarget, gh: GhRunner = defaultGhRunner, log?: (line: string) => void, allowedAuthors?: readonly string[], opts: { linkedIssue?: boolean } = {}): Promise<PullRequestForReview> {
   const number = String(target.number);
   const view = JSON.parse(
     await gh(['pr', 'view', number, '--repo', target.repoSlug, '--json', 'number,title,body,url,author,headRefName,headRefOid,baseRefName,isCrossRepository,headRepositoryOwner,labels,reviews,comments']),
   ) as GhPullRequestView;
   const diff = omitGeneratedFiles(await gh(['pr', 'diff', number, '--repo', target.repoSlug]));
   const reReview = await fetchReReviewContext(target, view, gh, log);
-  const linkedIssue = await resolveLinkedIssue(
-    { repoSlug: target.repoSlug, body: view.body ?? '', headRefName: view.headRefName ?? '' },
-    { gh, ...(allowedAuthors !== undefined ? { allowedAuthors } : {}), ...(log !== undefined ? { log } : {}) },
-  );
+  const linkedIssue = opts.linkedIssue === false
+    ? undefined
+    : await resolveLinkedIssue(
+        { repoSlug: target.repoSlug, body: view.body ?? '', headRefName: view.headRefName ?? '' },
+        { gh, ...(allowedAuthors !== undefined ? { allowedAuthors } : {}), ...(log !== undefined ? { log } : {}) },
+      );
   return {
     repoSlug: target.repoSlug,
     number: view.number ?? target.number,
@@ -421,13 +423,21 @@ function reviewBody(agentText: string): string {
 export function buildPullRequestReviewComment(
   agentText: string,
   headRefOid?: string,
-  opts: { completed?: boolean } = {},
+  opts: { completed?: boolean; linkedIssueNote?: string } = {},
 ): string {
   const body = reviewBody(agentText);
   // A stated verdict without the completion signal still carries the head marker: the verdict is the
   // review; the note tells the reader the findings may stop short.
   const note = opts.completed === false ? `${VERDICT_WITHOUT_COMPLETION_NOTE}\n\n` : '';
-  return appendMarker(`${PR_REVIEW_HEADING}\n\n${note}${body === '' ? 'No blocking findings.' : body}`, headRefOid);
+  const issueNote = opts.linkedIssueNote !== undefined ? `\n\n${opts.linkedIssueNote}` : '';
+  return appendMarker(`${PR_REVIEW_HEADING}\n\n${note}${body === '' ? 'No blocking findings.' : body}${issueNote}`, headRefOid);
+}
+
+/** Host-stamped line naming the issue whose criteria the review read (never model text), and any body/branch disagreement. */
+export function linkedIssueNote(pr: PullRequestForReview): string {
+  if (pr.linkedIssue === undefined) return '_Linked issue: none readable; its acceptance criteria were not checked._';
+  const other = pr.linkedIssue.bodyRef !== undefined ? ` The PR description names a different issue (${pr.linkedIssue.bodyRef}); it was not used.` : '';
+  return `_Linked issue checked: ${pr.linkedIssue.ref}.${other}_`;
 }
 
 export type PullRequestReviewAction = 'comment' | 'request-changes' | 'approve';
@@ -534,7 +544,7 @@ export async function reviewPullRequest(ref: string, deps: ReviewPullRequestDeps
   }
   // A re-review's verdict and table are derived on the host from the <rereview> block, not taken as stated.
   const reviewed = pr.reReview !== undefined ? applyReReviewRules(outcome.text, { ...pr.reReview, prFiles: changedFilesOf(pr.diff) }) : { text: outcome.text, downgraded: 0 };
-  const commentBody = buildPullRequestReviewComment(reviewed.text, pr.headRefOid, { completed: outcome.completed });
+  const commentBody = buildPullRequestReviewComment(reviewed.text, pr.headRefOid, { completed: outcome.completed, linkedIssueNote: linkedIssueNote(pr) });
   if (deps.publish !== false) {
     await postPullRequestReview(target, commentBody, 'comment', gh);
     deps.log?.(`review-pr ${id}: posted -> pr review`);

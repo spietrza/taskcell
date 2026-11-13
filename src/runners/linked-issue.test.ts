@@ -6,7 +6,7 @@ import type { GhRunner } from '../tasks/github.js';
 
 const pr = { repoSlug: 'o/r', body: '', headRefName: 'fix' };
 
-interface StubOpts { login?: string; association?: string; title?: string; body?: string | null; fail?: boolean; calls?: string[][] }
+interface StubOpts { pull?: boolean; login?: string; association?: string; title?: string; body?: string | null; fail?: boolean; calls?: string[][] }
 
 /** gh stub for the single REST call that returns the issue with its author and association. */
 function ghStub(opts: StubOpts = {}): GhRunner {
@@ -18,6 +18,7 @@ function ghStub(opts: StubOpts = {}): GhRunner {
       body: opts.body === undefined ? '## Acceptance criteria\n- a' : opts.body,
       user: { login: opts.login ?? 'maint' },
       author_association: opts.association ?? 'OWNER',
+      ...(opts.pull ? { pull_request: { url: 'u' } } : {}),
     });
   };
 }
@@ -41,6 +42,45 @@ describe('linkedIssueNumber', () => {
   it('resolves a factory branch name', () => {
     expect(linkedIssueNumber({ ...pr, headRefName: 'chore/vanguard-gh-o-r-774-ab12cd' })).toBe(774);
     expect(linkedIssueNumber({ ...pr, headRefName: 'feature/x' })).toBeUndefined();
+  });
+});
+
+describe('linked issue steering', () => {
+  const branch = 'chore/vanguard-gh-o-r-774-ab12cd';
+  it('the factory branch number wins over the body', () => {
+    expect(linkedIssueNumber({ ...pr, body: 'Closes #5', headRefName: branch })).toBe(774);
+  });
+  it('flags a body that names a different issue, not the same one', async () => {
+    expect(await resolveLinkedIssue({ ...pr, body: 'Closes #5', headRefName: branch }, { gh: ghStub() })).toMatchObject({ ref: 'o/r#774', bodyRef: 'o/r#5' });
+    expect(await resolveLinkedIssue({ ...pr, body: 'Closes #774', headRefName: branch }, { gh: ghStub() })).not.toHaveProperty('bodyRef');
+  });
+  it('rejects a reference that resolves to a pull request', async () => {
+    expect(await resolveLinkedIssue({ ...pr, body: 'Closes #774' }, { gh: ghStub({ pull: true }) })).toBeUndefined();
+  });
+  it('trusts only the factory bot, not any [bot]', async () => {
+    const body = 'Closes #774';
+    expect(await resolveLinkedIssue({ ...pr, body }, { gh: ghStub({ association: 'NONE', login: 'evil-app[bot]' }) })).toBeUndefined();
+    expect(await resolveLinkedIssue({ ...pr, body }, { gh: ghStub({ association: 'NONE', login: 'github-actions[bot]' }) })).toMatchObject({ ref: 'o/r#774' });
+    expect(await resolveLinkedIssue({ ...pr, body }, { gh: ghStub({ association: 'NONE', login: 'my-bot[bot]' }), botLogins: ['my-bot[bot]'] })).toMatchObject({ ref: 'o/r#774' });
+  });
+  it('the posted review states the issue checked, stamped by the host', async () => {
+    const prGh: GhRunner = async (args) => {
+      if (args[0] === 'pr' && args[1] === 'view') return JSON.stringify({ number: 12, title: 'T', body: 'Closes #5', url: 'u', author: { login: 'a' }, headRefName: branch, headRefOid: 'abc', baseRefName: 'main' });
+      if (args[0] === 'pr' && args[1] === 'diff') return 'diff --git a/x b/x';
+      return ghStub()(args);
+    };
+    const reviewer = async (): Promise<string> => '**Verdict: APPROVE**\nNo blocking findings.\n<promise>COMPLETE</promise>';
+    const withIssue = await reviewPullRequest('12', { repoSlug: 'o/r', gh: prGh, reviewer, publish: false });
+    expect(withIssue.commentBody).toContain('Linked issue checked: o/r#774.');
+    expect(withIssue.commentBody).toContain('names a different issue (o/r#5)');
+    const none = await reviewPullRequest('12', { repoSlug: 'o/r', gh: async (a) => (a[0] === 'api' && a[1]?.includes('/issues/') ? Promise.reject(new Error('x')) : prGh(a)), reviewer, publish: false });
+    expect(none.commentBody).toContain('none readable');
+  });
+  it('fetchPullRequestForReview can skip the lookup', async () => {
+    const calls: string[][] = [];
+    const g: GhRunner = async (args) => { calls.push(args); if (args[1] === 'view') return JSON.stringify({ number: 12, body: 'Closes #5', headRefName: 'fix' }); return args[0] === 'pr' ? 'd' : '{}'; };
+    await fetchPullRequestForReview({ repoSlug: 'o/r', number: 12 }, g, undefined, undefined, { linkedIssue: false });
+    expect(calls.some((c) => c[0] === 'api')).toBe(false);
   });
 });
 

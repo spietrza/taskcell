@@ -1021,8 +1021,10 @@ export function parseCli(argv: string[], cwd: string): Command {
     if (prRef === undefined) {
       return fail('review-pr requires a PR reference: a URL, owner/repo#number, --github <ref>, or --github-pr <number>.');
     }
+    const reviewFeedbackAuthors = parseFeedbackAuthors(values['feedback-authors']);
     return {
       kind: 'review-pr',
+      ...(reviewFeedbackAuthors !== undefined ? { feedbackAuthors: reviewFeedbackAuthors } : {}),
       prRef,
       repoPath,
       ...(typeof values.skills === 'string' ? { skillsDir: values.skills } : {}),
@@ -1652,6 +1654,7 @@ ${MAX_REPAIR_ITERATIONS_USAGE}
     --review-model <m>     Model for the PR review
     --max-turns <n>        Agent CLI turn cap for the first review attempt (default: ${DEFAULT_REVIEW_MAX_TURNS}; opt-in, higher cost).
                            Tool calls count as turns. The retry after an incomplete review gets 1.5x
+    --feedback-authors <a,b> Extra logins trusted beyond OWNER/MEMBER/COLLABORATOR as authors of the linked issue the review checks (pass the workflow's allowed-actors here)
     --out <file>           Write the review to this local file instead of posting a PR comment (no trace on the tracker)
     --egress --llm-proxy --skills <dir> --repo <path>  As for run/watch (--skills: the repo's .github/vanguard-skills/ is merged in)
 
@@ -1704,8 +1707,9 @@ ${MAX_REPAIR_ITERATIONS_USAGE}
     --reviewing-label <l>  Label added while a PR is being reviewed (default: "taskcell:reviewing")
     --reviewed-label <l>   Label added after review succeeds (default: "taskcell:reviewed")
     --author <login>       Only review PRs opened by this GitHub login (self-review-only when set)
-    --feedback-authors <a,b> PR authors trusted beyond OWNER/MEMBER/COLLABORATOR; a PR by anyone else
-                           is skipped (pass the workflow's allowed-actors here)
+    --feedback-authors <a,b> Logins trusted beyond OWNER/MEMBER/COLLABORATOR: PR authors (a PR by anyone else
+                           is skipped) and authors of the linked issue the review checks (pass the
+                           workflow's allowed-actors here)
     --pr <number>          Also review this PR even if the label scan misses it (label-triggered
                            CI runs pin the event's PR automatically via GITHUB_EVENT_PATH)
     --interval <seconds>   Poll interval (default: 60); --once does a single pass
