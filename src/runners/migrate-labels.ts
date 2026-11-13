@@ -1,6 +1,9 @@
 import { currentLabel } from '../core/labels.js';
 import { defaultGhRunner } from '../tasks/github.js';
 import type { GhRunner } from '../tasks/github.js';
+import type { MigrateLabelsReport } from '../wire.js';
+
+export type { MigrateLabelsReport };
 
 export interface MigrateLabelsOptions {
   repoSlug: string;
@@ -8,15 +11,6 @@ export interface MigrateLabelsOptions {
   apply?: boolean;
   gh?: GhRunner;
   log?: (line: string) => void;
-}
-
-export interface MigrateLabelsReport {
-  /** `old -> new` pairs renamed (or that would be, in a dry-run). */
-  renamed: { from: string; to: string }[];
-  /** Old labels left alone because the new name already exists in the repo (both keep working). */
-  skipped: { from: string; to: string }[];
-  failed: { from: string; reason: string }[];
-  dryRun: boolean;
 }
 
 /**

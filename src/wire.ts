@@ -800,6 +800,16 @@ export type CredentialPolicy = 'off' | 'user-first' | 'user-only';
 /** Named realtime channels the wire carries (`src/hub/rpc.ts`'s `publish`, Rust's `emit_event`).
  * The desktop additionally sees a Rust-minted `run-accepted` `api:event` variant core never emits —
  * that is a desktop extension of `RunEvent`, declared desktop-side (see typedRunReducer.ts), not here. */
+/** What `migrate_labels` / `taskcell migrate-labels` did (or would do, in a dry-run). */
+export interface MigrateLabelsReport {
+  /** `old -> new` pairs renamed (or that would be, in a dry-run). */
+  renamed: { from: string; to: string }[];
+  /** Old labels left alone because the new name already exists in the repo (both keep working). */
+  skipped: { from: string; to: string }[];
+  failed: { from: string; reason: string }[];
+  dryRun: boolean;
+}
+
 export interface Events {
   'api:event': { runId: string; event: RunEvent };
   'vanguard:changed': string;

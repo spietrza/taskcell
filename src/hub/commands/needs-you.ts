@@ -5,8 +5,8 @@ import { assertMutationsAllowed } from '../allowlist.js';
 import { listNeedsYou, mergeNeedsYou, replyNeedsYou, MAX_COMMENT_FETCHES } from '../needs-you.js';
 import { readAppConfig } from '../app-config.js';
 import * as projects from '../projects.js';
-import type { NeedsYouItem, RepoReadFailure, RepoStamp } from '../../wire.js';
-import { migrateLabels, type MigrateLabelsReport } from '../../runners/migrate-labels.js';
+import type { MigrateLabelsReport, NeedsYouItem, RepoReadFailure, RepoStamp } from '../../wire.js';
+import { migrateLabels } from '../../runners/migrate-labels.js';
 import { defineCommands, requireString, githubSlug, repoItemTarget } from '../command-kit.js';
 
 export interface NeedsYouCommands {
