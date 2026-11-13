@@ -3,20 +3,21 @@ import { isTauri } from '@tauri-apps/api/core';
 import { getCurrentWindow } from '@tauri-apps/api/window';
 import { type Theme } from '@/ui';
 import { TopBar, type Crumb } from './TopBar';
-import { Rail, type Screen } from './Rail';
+import { Rail, resolveScreen, type Screen } from './Rail';
 import { CommandPalette } from './CommandPalette';
 import { RepoPicker } from './RepoPicker';
 import { TailwindDebugScreens } from './components/TailwindDebugScreens';
 import { Dashboard } from './features/dashboard/Dashboard';
+import { NeedsYou, canUseNeedsYou } from './features/needs-you/NeedsYou';
 import { Inspector } from './features/inspector/Inspector';
 import { EnableFactoryDialog } from './features/dashboard/EnableFactoryDialog';
-import { listProjects, addProject, cloneProject, removeProject, listActive, listTeams, teamAddRepository } from './ipc';
+import { listProjects, addProject, cloneProject, removeProject, listActive, listNeedsYou, listNeedsYouAll, listTeams, teamAddRepository } from './ipc';
 import { loadTeamId, resolveTeam, saveTeamId, teamProjects } from './teams';
 import type { Team } from './wire';
 import { projectColor, contrastColor } from './color';
 import { createNavGuardRegistry, NavGuardContext } from './navGuard';
 import { ProjectCombobox } from './ProjectCombobox';
-import { canUseAllRepos } from './repoFilter';
+import { canUseAllRepos, inRepos } from './repoFilter';
 import { loadFilter, saveFilter, type HubFilter } from './filterState';
 import { hubSignedIn, isDemoMode, hubSignOut, onHubRestart, onHubConnectionIssue } from './transport';
 import { applyTheme, initialTheme, saveTheme } from './theme';
@@ -43,9 +44,11 @@ export default function App() {
     [scoped, scopeId, allProjects, team],
   );
   const [activeProject, setActiveProject] = useState<string | null>(null);
-  // The filter Board and Runs share (persisted): triage, projects, card source, search, grouping.
+  // The filter Home, Board and Runs share (persisted): triage, projects, card source, search, grouping.
   const [filter, setFilter] = useState<HubFilter>(loadFilter);
-  const [screen, setScreen] = useState<Screen>('dashboard');
+  const [screen, setScreen] = useState<Screen>('home');
+  // How many items wait on the user (Home's Needs you section); badges Home in the rail.
+  const [needsCount, setNeedsCount] = useState(0);
   const [railRunning, setRailRunning] = useState<ActiveRun[]>([]);
   const [focusRunning, setFocusRunning] = useState<ActiveRun | null>(null);
   const [crumb, setCrumb] = useState<string | null>(null);
@@ -145,13 +148,19 @@ export default function App() {
     setScopedNonce((n) => n + 1);
   };
 
+  // Re-read the teams and the selected team's projects after a local add/remove.
+  const reloadTeams = async (): Promise<void> => {
+    teamsGen.current++;
+    setTeams(await listTeams().catch(() => teams));
+    setScopedNonce((n) => n + 1);
+  };
+
   // A project just added or cloned: a non-default team lists only what an admin put in it, so try to put
   // it there (a member is refused, and the project then shows on the default team only); then re-read.
   const adoptProject = async (path: string): Promise<void> => {
     teamsGen.current++;
     if (team && team.id !== 'default') await teamAddRepository(team.id, path).catch(() => undefined);
-    setTeams(await listTeams().catch(() => teams));
-    setScopedNonce((n) => n + 1);
+    await reloadTeams();
   };
 
   const chooseTeam = (id: string): void =>
@@ -259,9 +268,7 @@ export default function App() {
     if (activeProject === path && !navGuard.current.confirm()) return;
     try {
       setProjects(await removeProject(path));
-      teamsGen.current++;
-      setTeams(await listTeams().catch(() => teams));
-      setScopedNonce((n) => n + 1);
+      await reloadTeams();
       if (activeProject === path) setActiveProject(null);
     } catch {
       /* ignore */
@@ -274,6 +281,9 @@ export default function App() {
     saveTheme(next);
   };
 
+  // Old entries to the Needs you screen open Home, which starts with that section.
+  const goto = (s: Screen | 'needs'): void => navigate(() => setScreen(resolveScreen(s).screen));
+
   const enterProject = (path: string): void => {
     navigate(() => {
       setActiveProject(path);
@@ -283,20 +293,44 @@ export default function App() {
   };
 
   const active = projects.find((p) => p.path === activeProject) ?? null;
-  const showDashboard = screen === 'dashboard' || !active;
-  const titleBar = !showDashboard && active ? projectColor(active) : null;
+  const showHome = screen === 'home' || !active;
+  const titleBar = !showHome && active ? projectColor(active) : null;
+  const allowAll = canUseAllRepos();
+  const needsYou = canUseNeedsYou() && active !== null;
+  // The selected team's repositories the filter's Projects keep (none picked = all): Home's section and the
+  // badge poll read "All repositories" for them only, as Board and Runs do.
+  const repoPaths = projects.map((p) => p.path).filter((p) => filter.repos.length === 0 || filter.repos.includes(p));
+  const repoKey = repoPaths.join('\n');
+
+  // Keep the rail badge current: Home's section reports its own changes, this catches new items elsewhere.
+  useEffect(() => {
+    if (!needsYou || !activeProject) {
+      setNeedsCount(0);
+      return;
+    }
+    let alive = true;
+    const repos = repoKey.split('\n');
+    const tick = (): void => {
+      (allowAll ? listNeedsYouAll(scopeId).then((l) => inRepos(l.items, repos)) : listNeedsYou(activeProject).then((r) => r.items))
+        .then((items) => {
+          if (alive) setNeedsCount(items.length);
+        })
+        .catch(() => {});
+    };
+    tick();
+    const id = setInterval(tick, 30000);
+    return () => {
+      alive = false;
+      clearInterval(id);
+    };
+  }, [needsYou, activeProject, allowAll, scopeId, repoKey]);
 
   const SCREEN_LABEL: Record<Screen, string> = {
-    dashboard: 'Home',
+    home: 'Home',
     runs: 'Runs',
-    board: 'Task board',
-    needs: 'Needs you',
+    board: 'Board',
     task: 'New Task',
-    fleet: 'Fleet',
-    remote: 'Remote',
-    workflow: 'Workflow',
     settings: 'Settings',
-    audit: 'Audit',
   };
   // Home lives on the logo now; the project lives in the switcher — so the breadcrumb is just the screen.
   const crumbs: Crumb[] = [];
@@ -306,7 +340,7 @@ export default function App() {
       label: taskCrumb.name,
       edit: { placeholder: 'Name this conversation…', ariaLabel: 'rename conversation', onCommit: taskCrumb.onRename },
     });
-  } else if (active && screen !== 'dashboard') {
+  } else if (active && screen !== 'home') {
     if (crumb) {
       crumbs.push({ label: SCREEN_LABEL[screen], onClick: () => setClearNonce((n) => n + 1) });
       crumbs.push({ label: crumb });
@@ -314,10 +348,10 @@ export default function App() {
       crumbs.push({ label: SCREEN_LABEL[screen] });
     }
   }
-  // Where the hub lists every repository (Board, Runs, Needs you), the filter bar narrows them; the switcher still names the active project (New Task, the rail).
-  const allRepos = canUseAllRepos() && (screen === 'board' || screen === 'runs' || screen === 'needs');
+  // Where the hub lists every repository (Home, Board, Runs), the filter bar narrows them; the switcher still names the active project (New Task, the rail).
+  const allRepos = allowAll && (screen === 'home' || screen === 'board' || screen === 'runs');
   const projectSwitcher =
-    active && screen !== 'dashboard' ? (
+    active ? (
       <ProjectCombobox projects={projects} active={active} onSelect={(v) => navigate(() => setActiveProject(v))} />
     ) : null;
 
@@ -362,18 +396,20 @@ export default function App() {
       <TopBar
         crumbs={crumbs}
         projectSwitcher={projectSwitcher}
-        onHome={() => navigate(() => setScreen('dashboard'))}
+        onHome={() => goto('home')}
         onCommandK={() => setPalette(true)}
         theme={theme}
         onToggleTheme={toggleTheme}
         {...(signedIn ? { onSignOut: () => void hubSignOut() } : {})}
       />
       <div className="flex min-h-0 flex-1 max-md:flex-col">
+        {/* Always shown: the server and team switchers live here, even when the selected team has no project yet. */}
         <Rail
           projects={projects}
           activePath={activeProject}
-          screen={screen}
+          screen={showHome ? 'home' : screen}
           running={railRunning}
+          needsCount={needsCount}
           teams={teams}
           team={team}
           onTeam={chooseTeam}
@@ -387,14 +423,22 @@ export default function App() {
           }}
         />
         <main className="flex min-w-0 flex-1 flex-col overflow-hidden">
-          {showDashboard ? (
-            <Dashboard
-              projects={projects}
-              onOpen={(p) => enterProject(p.path)}
-              onAdd={add}
-              onRemove={remove}
-              onEnableFactory={setFactoryProject}
-            />
+          {showHome ? (
+            <div className="h-full overflow-y-auto">
+              {/* Home starts with what needs the user; with nothing waiting it says so in one line. */}
+              {needsYou && (
+                <div className="px-6 pt-6 max-md:px-3 max-md:pt-3">
+                  <NeedsYou project={active.path} allRepos={allRepos} repos={repoPaths} teamId={scopeId} onCount={setNeedsCount} />
+                </div>
+              )}
+              <Dashboard
+                projects={projects}
+                onOpen={(p) => enterProject(p.path)}
+                onAdd={add}
+                onRemove={remove}
+                onEnableFactory={setFactoryProject}
+              />
+            </div>
           ) : (
             <NavGuardContext.Provider value={navGuard.current}>
               <Inspector
@@ -438,7 +482,8 @@ export default function App() {
         <CommandPalette
           projects={projects}
           onOpenProject={(p) => enterProject(p.path)}
-          onHome={() => navigate(() => setScreen('dashboard'))}
+          onHome={() => goto('home')}
+          {...(needsYou ? { onNeedsYou: () => goto('needs') } : {})}
           onAddProject={add}
           onToggleTheme={toggleTheme}
           onClose={() => setPalette(false)}
