@@ -18,13 +18,15 @@ interface GhPrView {
   baseRefOid?: string;
   headRepository?: { name?: string } | null;
   headRepositoryOwner?: { login?: string } | null;
+  title?: string;
+  mergeStateStatus?: string;
   reviews?: Array<{ author?: { login?: string } | null; body?: string; submittedAt?: string; state?: string }>;
 }
 
 export async function collectPrFacts(gh: GhRunner, repoSlug: string, prNumber: number): Promise<PrFacts> {
   const out = await gh([
     'pr', 'view', String(prNumber), '--repo', repoSlug, '--json',
-    'number,isDraft,headRefName,headRefOid,baseRefName,baseRefOid,url,headRepository,headRepositoryOwner,state,reviews',
+    'number,isDraft,headRefName,headRefOid,baseRefName,baseRefOid,url,headRepository,headRepositoryOwner,state,title,mergeStateStatus,reviews',
   ]);
   const view = JSON.parse(out) as GhPrView;
   const owner = view.headRepositoryOwner?.login;
@@ -40,6 +42,8 @@ export async function collectPrFacts(gh: GhRunner, repoSlug: string, prNumber: n
     baseRefName: view.baseRefName ?? '',
     apiBaseSha: view.baseRefOid ?? '',
     headRepo,
+    ...(view.title !== undefined ? { title: view.title } : {}),
+    ...(view.mergeStateStatus !== undefined ? { mergeStateStatus: view.mergeStateStatus } : {}),
     reviews: (view.reviews ?? []).map((r) => ({
       author: r.author?.login ?? '',
       body: r.body ?? '',

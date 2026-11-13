@@ -70,6 +70,7 @@ const SHORT_CIRCUIT_RULES = new Set(['stopped', 'policy-unreadable']);
  * its own kind, so once the stop is lifted the full decision for the same head is still recorded.
  */
 export function decisionKey(r: Record<string, unknown>): string {
+  if (typeof r.action === 'string') return `${String(r.prNumber)}:${String(r.headSha)}:action:${r.action}`;
   const rules = Array.isArray(r.rulesFired) ? r.rulesFired : [];
   const kind = rules.some((id) => typeof id === 'string' && SHORT_CIRCUIT_RULES.has(id)) ? 'short' : 'full';
   return `${String(r.prNumber)}:${String(r.headSha)}:${kind}`;
@@ -80,6 +81,29 @@ export function decisionKey(r: Record<string, unknown>): string {
  * the factory bot, subject = repo + PR; a failed write throws). A rerun for the same (PR, head SHA, kind) appends nothing.
  */
 export async function appendDecision(repoPath: string, record: DecisionRecord, opts: { branch?: string } = {}): Promise<void> {
+  await appendRecord(repoPath, record, opts);
+}
+
+async function appendRecord(repoPath: string, record: DecisionRecord | ActionRecord, opts: { branch?: string }): Promise<void> {
   const adapter = branchAdapter(repoPath, { ...(opts.branch !== undefined ? { branch: opts.branch } : {}), file: DECISIONS_FILE, key: decisionKey });
   await appendAudit(STREAMS.decisions, adapter, { ...record }, { actor: BOT_ACTOR, subject: { repo: record.repo, pr: record.prNumber } });
+}
+
+export type ActionKind = 'mark-ready' | 'update-branch' | 'merge' | 'merge-failed' | 'left-for-human' | 'verify-failed' | 'checks-failed' | 'base-moved';
+
+export interface ActionRecord {
+  schemaVersion: 1;
+  kind: 'action';
+  mode: 'act';
+  repo: string;
+  prNumber: number;
+  headSha: string;
+  action: ActionKind;
+  reason: string;
+  timestamp: string;
+}
+
+/** An act-mode action on decisions.jsonl. It has no `verdict`, so the ledger and scorecard readers skip it. */
+export async function appendAction(repoPath: string, record: ActionRecord, opts: { branch?: string } = {}): Promise<void> {
+  await appendRecord(repoPath, record, opts);
 }

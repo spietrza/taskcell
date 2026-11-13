@@ -22,6 +22,8 @@ export const approverPolicySchema = z.object({
   shape: z.object({ maxLines: z.number().int().positive(), maxFiles: z.number().int().positive() }),
   ledger: z.object({ windowDays: z.number().int().positive(), maxLines: z.number().int().positive() }),
   auditSample: z.object({ p: z.number().min(0).max(1) }),
+  /** Act mode: off by default; `taskcell approve --mode act` only acts when this is true on the base branch. */
+  act: z.boolean().optional(),
 });
 
 export interface LoadedPolicy {

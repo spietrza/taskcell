@@ -213,7 +213,9 @@ export async function collectDiffFacts(input: CollectDiffFactsInput): Promise<Di
   if (reviewedSha !== null && reviewedSha === headSha) {
     reviewedIsAncestor = true;
   } else if (reviewedSha !== null) {
-    reviewedPatchId = await patchId(repoPath, mergeBase, reviewedSha);
+    // From the reviewed commit's own merge-base: after a base move (update-branch) the head's merge-base is newer, and diffing from it would include the inverse of the base's new commits.
+    const reviewedBase = await gitOk(repoPath, ['merge-base', baseTip, reviewedSha]);
+    reviewedPatchId = reviewedBase.exitCode === 0 ? await patchId(repoPath, reviewedBase.stdout.trim(), reviewedSha) : undefined;
     reviewedIsAncestor = await isAncestor(repoPath, reviewedSha, headSha);
     mergeTreeReviewedClean = await mergeTreeClean(repoPath, baseTip, reviewedSha);
   }

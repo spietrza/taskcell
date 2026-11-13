@@ -189,7 +189,7 @@ export function buildIssueHistory(input: HistoryInput): IssueHistory {
       if (!sameIssue && !samePr && !sameRun) continue;
       if (unit.stream === 'decisions') {
         const rules = Array.isArray(rec.rulesFired) ? (rec.rulesFired as unknown[]).filter((r): r is string => typeof r === 'string') : [];
-        add({ ...base, time: timeOf(rec), kind: 'approver', what: `approver ${str(rec.verdict) ?? '?'} (${str(rec.mode) ?? '?'})${rules.length > 0 ? `: ${rules.join(', ')}` : ''}`, source: { stream: 'decisions', ref } });
+        add({ ...base, time: timeOf(rec), kind: 'approver', what: str(rec.action) !== undefined ? `approver ${str(rec.action)}: ${str(rec.reason) ?? ''}`.trim() : `approver ${str(rec.verdict) ?? '?'} (${str(rec.mode) ?? '?'})${rules.length > 0 ? `: ${rules.join(', ')}` : ''}`, source: { stream: 'decisions', ref } });
       } else {
         add({ ...base, time: timeOf(rec), kind: 'hub', what: `${str(rec.action) ?? 'action'} ${str(rec.outcome) ?? ''}`.trim(), source: { stream: unit.stream, ref } });
       }

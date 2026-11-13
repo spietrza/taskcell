@@ -82,8 +82,8 @@ interface GhCheckRunsLookup {
 }
 
 /**
- * `vanguard/approver` check run on the head SHA, conclusion `neutral` in shadow mode regardless of
- * verdict. Idempotent per (PR, head SHA) via `external_id`: PATCHes an existing run, else POSTs.
+ * `vanguard/approver` check run on the head SHA, conclusion `neutral` in both modes regardless of
+ * verdict (the title says which mode). Idempotent per (PR, head SHA) via `external_id`: PATCHes an existing run, else POSTs.
  * A failure throws; runApprover still records the decision and then reports it.
  */
 export async function publishCheckRun(
@@ -93,10 +93,11 @@ export async function publishCheckRun(
   prNumber: number,
   decision: Decision,
   record: DecisionRecord,
+  acting = false,
 ): Promise<void> {
   const safeGh = shadowSafeGhRunner(gh);
   const externalId = `${prNumber}:${headSha}`;
-  const title = `${decision.verdict} (shadow)`;
+  const title = `${decision.verdict} (${acting ? 'act' : 'shadow'})`;
   const summary = summaryBody(decision, record);
   const existing = await safeGh(['api', `repos/${repoSlug}/commits/${headSha}/check-runs?check_name=vanguard%2Fapprover`]);
   const parsed = JSON.parse(existing) as GhCheckRunsLookup;
@@ -142,6 +143,19 @@ interface GhComment {
   authorAssociation?: string;
 }
 
+/** Post `body` unless a trusted author already posted `marker` (anyone can post the marker text to suppress a comment, so an untrusted one does not dedupe). */
+export async function commentOnce(gh: GhRunner, repoSlug: string, prNumber: number, marker: string, body: string): Promise<void> {
+  try {
+    const out = await gh(['pr', 'view', String(prNumber), '--repo', repoSlug, '--json', 'comments']);
+    const parsed = JSON.parse(out) as { comments?: GhComment[] };
+    const trusted = (c: GhComment): boolean => classifyAuthor(c.author?.login ?? '', c.authorAssociation ?? '') !== 'untrusted';
+    if ((parsed.comments ?? []).some((c) => (c.body?.includes(marker) === true || c.body?.includes(marker.replace('taskcell-', 'vanguard-')) === true) && trusted(c))) return;
+  } catch {
+    // best-effort dedupe lookup; fall through and post
+  }
+  await gh(['pr', 'comment', String(prNumber), '--repo', repoSlug, '--body', body]);
+}
+
 /** A human-readable copy of the decision, deduped per head SHA by a hidden marker. Nothing ever parses this comment. */
 export async function commentDecision(
   gh: GhRunner,
@@ -150,18 +164,7 @@ export async function commentDecision(
   decision: Decision,
   record: DecisionRecord,
 ): Promise<void> {
-  const safeGh = shadowSafeGhRunner(gh);
-  const marker = `<!-- taskcell-approver: ${record.headSha ?? 'none'} -->`;
-  try {
-    const out = await safeGh(['pr', 'view', String(prNumber), '--repo', repoSlug, '--json', 'comments']);
-    const parsed = JSON.parse(out) as { comments?: GhComment[] };
-    // Only a trusted author's marker dedupes: anyone can post the marker text to suppress the decision comment.
-    const trusted = (c: GhComment): boolean => classifyAuthor(c.author?.login ?? '', c.authorAssociation ?? '') !== 'untrusted';
-    if ((parsed.comments ?? []).some((c) => (c.body?.includes(marker) === true || c.body?.includes(marker.replace('taskcell-', 'vanguard-')) === true) && trusted(c))) return;
-  } catch {
-    // best-effort dedupe lookup; fall through and post
-  }
-  await safeGh(['pr', 'comment', String(prNumber), '--repo', repoSlug, '--body', commentBody(decision, record)]);
+  await commentOnce(shadowSafeGhRunner(gh), repoSlug, prNumber, `<!-- taskcell-approver: ${record.headSha ?? 'none'} -->`, commentBody(decision, record));
 }
 
 export { defaultGhRunner };

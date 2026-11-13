@@ -284,7 +284,7 @@ taskcell approve --pr 557 --github-repo spietrza/taskcell --json      # print th
 taskcell approve --pr 557 --github-repo spietrza/taskcell --dry-run   # decide and print only — publish and record nothing
 ```
 
-`--github-repo` is required (the approver never infers the repo it judges), `--repo <path>` points at a local checkout of the base branch (default: cwd), and `--mode` accepts `shadow` only in v1.
+`--github-repo` is required (the approver never infers the repo it judges), `--repo <path>` points at a local checkout of the base branch (default: cwd), and `--mode` is `shadow` (default) or `act` (below).
 
 **In CI (this repo).** `.github/workflows/taskcell-approver.yml` runs it after the external review of a factory PR finishes (`workflow_run` on `Taskcell PR Review`), and waits for the required CI checks before deciding. That way the decision sees complete inputs once; triggering on CI as well would record a premature `review-missing` that the per-head dedupe then keeps. It builds the CLI from the default branch and never checks out PR code. Run it by hand from Actions → Taskcell Approver (shadow) with a PR number. Drafts get no decision, since the review does not run on them.
 
@@ -296,6 +296,24 @@ Two kill switches, either one short-circuits to `ESCALATE` (`stopped`) before an
 VANGUARD_APPROVER_STOP=1 taskcell approve --pr 557 --github-repo spietrza/taskcell   # per-run, env
 # or, repo-wide: set "enabled": false in .taskcell/approver.json on the base branch
 ```
+
+### Act mode (opt-in)
+
+Off by default: with `act` absent or `false`, behaviour is exactly the shadow mode above. It needs **both** `"act": true` in `.taskcell/approver.json` on the base branch **and** `--mode act` on the command line (the approver job's workflow); either one missing means shadow.
+
+For a factory PR whose latest review on the current head says `NO BLOCKING FINDINGS`, whose required checks are green and whose decision is `APPROVE`, act mode:
+
+1. if the base moved (the merge-base is not the base tip, or GitHub says `BEHIND`), runs `gh pr update-branch` — a merge of the base into the head, never a rebase or force-push;
+2. waits (polling, 30 min cap, one update per run) for the required checks on the new head, then decides again on it. The review still covers a head that is the reviewed commit plus a merge of the base (same patch). A head that changed in any way other than that merge needs a new review first, and ends as `ESCALATE` (`review-stale`);
+3. squash-merges with `--match-head-commit <sha>`, so a head that moved after the decision is never merged.
+
+In act mode the decision itself goes to the check run (`vanguard/approver`, titled `(act)`) and the log, not a comment; a comment is posted only when a human has to act. A factory PR that is still a draft once its required checks (verify) are green, and is not otherwise excluded, is marked ready (that draft-only decision is not recorded; the review and the next run decide); a draft whose checks failed gets a comment saying a human must look.
+
+**Never acted on**, left for a human with one comment per head saying why: a PR that touches CI config or any path matched by `pathRules`, a PR with a merge conflict, a release PR (head branch or title says release), a PR not opened by the factory, and any decision other than `APPROVE`. A base that moves again after an update, checks that fail or time out on the updated head, and a rejected merge are left for a human too. **Token caveat:** a push made with the workflow's `GITHUB_TOKEN` starts no workflows, so if the updated head gets no checks the wait times out and the PR is left for a human; use a token that triggers CI for the update if this matters. PRs merged by act mode are left out of `taskcell stats --approver`, so the approver's own merges never validate its verdicts.
+
+Every action (`mark-ready`, `update-branch`, `merge`, `left-for-human`, `merge-failed`, `verify-failed`, `checks-failed`, `base-moved`) is appended to `decisions.jsonl` with the PR, head SHA, reason and timestamp (records with an `action` field and no `verdict`; the ledger and scorecard skip them). The code allow-lists exactly three `gh` writes on top of shadow's (`pr ready`, `pr update-branch`, `pr merge --squash --match-head-commit`) and requests no new permission; the token must be able to merge but cannot push `.github/**` changes, and act mode refuses such PRs anyway.
+
+**Turning it off:** set `"act": false` (or remove it) in `.taskcell/approver.json` on the base branch, or `"enabled": false`, or set `VANGUARD_APPROVER_STOP=1`; the next run is shadow or stopped. Switching the approver job to act is a workflow edit (`--mode act`) for a human to apply.
 
 ### Scorecard: shadow verdict vs what the human did
 

@@ -15,6 +15,8 @@ export interface ApproverPolicy {
   shape: { maxLines: number; maxFiles: number };
   ledger: { windowDays: number; maxLines: number };
   auditSample: { p: number };
+  /** Act mode (merge APPROVEd factory PRs); off unless the base branch's policy turns it on. */
+  act?: boolean;
 }
 
 export interface PrFacts {
@@ -28,6 +30,9 @@ export interface PrFacts {
   apiBaseSha: string;
   /** owner/name of the head repo, '' when the API omits it. */
   headRepo: string;
+  title?: string;
+  /** GitHub's mergeStateStatus (BEHIND, DIRTY, CLEAN, ...); absent when the API omits it. */
+  mergeStateStatus?: string;
   reviews: Array<{ author: string; body: string; submittedAt: string; state: string }>;
 }
 
@@ -97,7 +102,7 @@ export interface Decision {
   reviewValid: boolean;
 }
 
-export type Mode = 'shadow';
+export type Mode = 'shadow' | 'act';
 
 /** What the human did with a factory PR, from PR state and revert history alone — see `scorecard.ts`. */
 export type HumanOutcome = 'merged-as-is' | 'merged-after-changes' | 'closed' | 'reverted' | null;

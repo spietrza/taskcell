@@ -267,8 +267,10 @@ describe('parseCli', () => {
     expect(noPr.kind === 'error' && noPr.message).toMatch(/approve requires a positive --pr/);
     const noRepo = parseCli(['approve', '--pr', '7'], '/work');
     expect(noRepo.kind === 'error' && noRepo.message).toMatch(/approve requires --github-repo/);
+    const act = parseCli(['approve', '--pr', '7', '--github-repo', 'o/r', '--mode', 'act'], '/work');
+    expect(act.kind === 'approve' && act.mode).toBe('act');
     const live = parseCli(['approve', '--pr', '7', '--github-repo', 'o/r', '--mode', 'live'], '/work');
-    expect(live.kind === 'error' && live.message).toMatch(/live mode is not implemented/);
+    expect(live.kind === 'error' && live.message).toMatch(/unknown --mode "live"/);
     const unknownMode = parseCli(['approve', '--pr', '7', '--github-repo', 'o/r', '--mode', 'loud'], '/work');
     expect(unknownMode.kind === 'error' && unknownMode.message).toMatch(/unknown --mode "loud"/);
   });
