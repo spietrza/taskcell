@@ -274,9 +274,8 @@ export default function App() {
   // Once opened on a first run it stays until the user finishes, so the repo step can show Done.
   // A hub is fresh only when it has no project in any team (a team can be empty on an established hub).
   const firstRun = teamsLoaded && projectsLoaded && showOnFirstRun(onboarding, allProjects.length);
-  useEffect(() => {
-    if (firstRun) setSetupOpen(true);
-  }, [firstRun]);
+  // Set during render, not in an effect: a late effect could reopen the guide after Dismiss.
+  if (firstRun && !setupOpen) setSetupOpen(true);
   const showSetup = setupOpen || firstRun;
   const offerStarter = (project: { path: string; name: string } | undefined): void => {
     if (project && allProjects.length === 0) setStarterFor({ path: project.path, name: project.name });
