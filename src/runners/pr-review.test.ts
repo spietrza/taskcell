@@ -1,4 +1,5 @@
 import { describe, it, expect, vi } from 'vitest';
+import { postPullRequestReview, pullRequestReviewRunIds } from './pr-review.js';
 import {
   buildPullRequestReviewComment,
   buildPullRequestReviewIncompleteComment,
@@ -800,5 +801,22 @@ describe('incremental re-review', () => {
     expect(result.commentBody).not.toContain('Downgraded by the re-review rules');
     expect(result.pr.reReview?.sinceDiff).toContain('(since-diff truncated)');
     expect(result.pr.reReview?.sinceDiff).not.toContain('late.ts');
+  });
+});
+
+describe('postPullRequestReview run stamp', () => {
+  const target = { repoSlug: 'o/r', number: 3 } as never;
+  const body = '## Vanguard Review\n\nNo blocking findings.\n\n<!-- taskcell-pr-review: abc123 -->';
+  it('stamps the head marker with the run id only when one is passed', async () => {
+    const calls: string[][] = [];
+    const gh: GhRunner = async (args) => { calls.push(args); return ''; };
+    await postPullRequestReview(target, body, 'comment', gh);
+    await postPullRequestReview(target, body, 'comment', gh, '987');
+    await postPullRequestReview(target, body, 'comment', gh, 'not-a-number');
+    expect(calls[0]!.at(-1)).toBe(body);
+    expect(calls[1]!.at(-1)).toBe(`${body}\n\n<!-- taskcell-pr-review-run: abc123:987 -->`);
+    expect(calls[2]!.at(-1)).toBe(body);
+    expect(pullRequestReviewRunIds(calls[1]!.at(-1)!, 'abc123')).toEqual(['987']);
+    expect(pullRequestReviewMarkerShas(calls[1]!.at(-1)!)).toEqual(['abc123']);
   });
 });
