@@ -10,6 +10,7 @@ import { assertGitWorkTreeDir } from '../hub/allowlist.js';
 import { HUB_TOKEN_FRAGMENT_PARAM } from '../hub-wire.js';
 import { createHubIdentity, localOnlyIdentity, parsePublicUrl, parseSignupAllowlist, providersFromEnv } from '../hub/auth.js';
 import { ensureTeams } from '../hub/teams.js';
+import { defaultHubConfigDir } from '../hub/audit.js';
 import { loadPaths, add as addProject } from '../hub/projects.js';
 import { loadOrCreateToken, rotateToken } from '../hub/token-file.js';
 import type { Command } from './args.js';
@@ -113,8 +114,7 @@ export async function hubCommand(command: Extract<Command, { kind: 'hub' }>): Pr
   const fleet = process.env.VANGUARD_HUB_ALLOW_FLEET === '1' && !serverMode;
   await assertUiDirBuilt(uiDir, fleet);
 
-  const configDir =
-    process.env.VANGUARD_HUB_CONFIG_DIR ?? join(process.env.XDG_CONFIG_HOME ?? join(homedir(), '.config'), 'vanguard-hub');
+  const configDir = defaultHubConfigDir();
 
   // Seed the project store with --repo, same rule add_project uses: must be a git work tree, and
   // only persisted once (a restart must not keep re-adding an already-removed project).

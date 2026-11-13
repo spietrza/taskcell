@@ -123,6 +123,11 @@ async function main(): Promise<void> {
     await lessonsCommand(command);
     return;
   }
+  if (command.kind === 'audit') {
+    const { auditCommand } = await import('./audit.js');
+    process.exitCode = await auditCommand(command);
+    return;
+  }
   if (command.kind === 'memory') {
     await memoryCommand(command);
     return;

@@ -1,8 +1,9 @@
 import { mkdtemp, readFile, readdir, stat, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-import { describe, expect, test } from 'vitest';
+import { describe, expect, test, vi } from 'vitest';
 import { AuditLog, safeUrl } from './audit.js';
+import { localAdapter, verifyAudit } from '../core/audit.js';
 import { dispatchRpc as dispatch, ForbiddenError, type RpcContext } from './rpc.js';
 import { ProjectAllowlist } from './allowlist.js';
 import { WatchRegistry } from './watch.js';
@@ -96,12 +97,14 @@ describe('audit log', () => {
     expect(only.map((e) => e.login)).toEqual(['b']);
   });
 
-  test('rotates at the size cap and keeps at most 5 files', async () => {
+  test('rotates at the size cap, keeps the chain, and prunes rotated files by age', async () => {
     const dir = await mkdtemp(join(tmpdir(), 'vg-audit-rot-'));
     const audit = new AuditLog(dir, { maxBytes: 100 });
     for (let i = 0; i < 40; i++) await audit.record({ login: 'a', action: 'clone', target: `t${i}`, outcome: 'ok' });
     const files = (await readdir(dir)).filter((f) => f.startsWith('audit.jsonl')).sort();
-    expect(files).toEqual(['audit.jsonl', 'audit.jsonl.1', 'audit.jsonl.2', 'audit.jsonl.3', 'audit.jsonl.4']);
+    expect(files.length).toBeGreaterThan(1);
+    expect(files).toContain('audit.jsonl');
+    expect((await verifyAudit(localAdapter({ file: join(dir, 'audit.jsonl') }))).ok).toBe(true);
     expect((await audit.read({ limit: 1 }))[0]!.target).toBe('t39');
   });
 
@@ -111,7 +114,7 @@ describe('audit log', () => {
       throw new Error('unbound');
     });
     await expect(dispatchRpc(ctx, 'api_create_run', { params: { repoPath: repo, issueRef: '1' } })).rejects.toThrow('unbound');
-    await ctx.audit!.read(); // drains the write queue
+    await vi.waitFor(async () => expect(await lines(configDir)).toHaveLength(1)); // the refusal line is written fire-and-forget
     const out = (await lines(configDir)).map((l) => JSON.parse(l) as { action: string; outcome: string });
     expect(out).toEqual([expect.objectContaining({ action: 'run-start', outcome: 'refused' })]);
   });
@@ -159,5 +162,31 @@ describe('audit log', () => {
     const dir = await mkdtemp(join(tmpdir(), 'vg-audit-torn-'));
     await writeFile(join(dir, 'audit.jsonl'), '{"bad\n');
     expect(await new AuditLog(dir).read()).toEqual([]);
+  });
+});
+
+describe('audit log fail-closed', () => {
+  test('an unwritable log rejects the record and the action is reported', async () => {
+    const dir = await mkdtemp(join(tmpdir(), 'vg-audit-bad-'));
+    await writeFile(join(dir, 'blocker'), 'x');
+    const audit = new AuditLog(join(dir, 'blocker'));
+    await expect(audit.record({ login: 'a', action: 'clone', target: 't', outcome: 'ok' })).rejects.toThrow(/write failed/);
+  });
+});
+
+describe('audit log failure paths', () => {
+  test('an applied action whose audit line cannot be written is reported, not silently dropped', async () => {
+    const { ctx, configDir, repo } = await setup({ login: 'alice', admin: true });
+    await writeFile(join(configDir, 'blocker'), 'x');
+    ctx.audit = new AuditLog(join(configDir, 'blocker'));
+    await expect(dispatchRpc(ctx, 'remove_project', { path: repo })).rejects.toThrow(/was applied but its audit line could not be written/);
+  });
+
+  test('a refused run start is subjected to the repo, not a run id', async () => {
+    const { ctx, configDir } = await setup({ login: 'alice', admin: true });
+    await expect(dispatchRpc(ctx, 'api_create_run', { params: { repoPath: '/not/allowed', issueRef: '1' } })).rejects.toThrow();
+    const last = JSON.parse((await lines(configDir)).at(-1)!) as { subject?: Record<string, string>; actor: { kind: string; name: string } };
+    expect(last.subject).toEqual({ repo: '/not/allowed' });
+    expect(last.actor).toMatchObject({ kind: 'user', name: 'alice' });
   });
 });
