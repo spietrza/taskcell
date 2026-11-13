@@ -6,6 +6,7 @@ import { execa } from 'execa';
 import { afterEach, beforeEach, describe, expect, test, vi } from 'vitest';
 import { createHubServer, type HubServer } from './server.js';
 import { localOnlyIdentity } from './auth.js';
+import { saveTeams } from './teams.js';
 import { HUB_TOKEN_HEADER } from '../hub-wire.js';
 import type { SidecarDeps } from '../sidecar/sidecar.js';
 import type { RunCredential } from '../wire.js';
@@ -51,6 +52,8 @@ beforeEach(async () => {
   dirs = [repo, configDir, uiDir];
   await execa('git', ['init', '-q', repo]);
   await writeFile(join(uiDir, 'index.html'), '<html><head></head></html>');
+  // Session users only reach repositories of their teams: alice and bob are members of the repo's.
+  await saveTeams(configDir, [{ id: 'cred', name: 'Cred', members: [{ login: '1', role: 'member' }, { login: '2', role: 'member' }], repositories: [repo] }]);
   hub = createHubServer({
     uiDir,
     configDir,
@@ -173,7 +176,7 @@ describe('run credential choice', () => {
     await setPolicy('user-only');
     await rpc(alice, 'save_user_credential', { name: 'ANTHROPIC_API_KEY', value: SECRET_A });
     await run(alice);
-    const backlog = (await rpc(alice, 'api_run_backlog', { runId: 'run-0' })).body.result as { event: { type: string; credentialSource?: string } }[];
+    const backlog = (await rpc(OWNER, 'api_run_backlog', { runId: 'run-0' })).body.result as { event: { type: string; credentialSource?: string } }[];
     expect(backlog[0]!.event).toMatchObject({ type: 'run-accepted', credentialSource: 'user' });
     expect(JSON.stringify(backlog)).not.toContain(SECRET_A);
   });

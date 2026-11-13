@@ -18,6 +18,8 @@ export interface HubUser {
   /** `github:<login>` / `gitlab:<username>` captured at sign-up (absent for the owner and Google): per-user
    * credential admins (`--admin-github-login`) match on it. */
   login?: string;
+  /** Provider-verified e-mail: only then does a team member `login` match the address. */
+  emailVerified?: boolean;
 }
 
 export type AuthProviderId = 'github' | 'gitlab' | 'google';
@@ -215,9 +217,9 @@ export async function createHubIdentity(opts: CreateIdentityOptions): Promise<Hu
         throw error;
       }
       if (session === null) return undefined;
-      const { id, email, name } = session.user;
+      const { id, email, name, emailVerified } = session.user;
       const login = (session.user as { providerLogin?: unknown }).providerLogin;
-      return { id, email, name, ...(typeof login === 'string' && login !== '' ? { login } : {}) };
+      return { id, email, name, emailVerified, ...(typeof login === 'string' && login !== '' ? { login } : {}) };
     },
     close: () => db.close(),
   };

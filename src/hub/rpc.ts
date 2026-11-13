@@ -31,6 +31,7 @@ import { checkCliVersions } from '../sandbox/cli-versions.js';
 import * as drafts from './drafts.js';
 import * as projects from './projects.js';
 import * as teams from './teams.js';
+import type { TeamRole } from '../wire.js';
 import * as remote from './remote.js';
 import { TOKEN_ACTOR, type AuditLog, type Actor, type AuditAction, type AuditOutcome } from './audit.js';
 import { startGithubTask, triggerLabelsFor } from './start-task.js';
@@ -88,7 +89,7 @@ export interface RpcContext {
   actor?: Actor;
 }
 
-/** Who is calling; the shared `token` identity when the request carried none. */
+/** Who is calling: the request's actor, or the shared `token` identity. */
 function actorOf(ctx: RpcContext): Actor {
   return ctx.actor ?? TOKEN_ACTOR;
 }
@@ -220,8 +221,9 @@ async function repoOk(repoPath: string): Promise<boolean> {
   }
 }
 
-/** The Fleet screen's shell-spawn surface — refused unless `ctx.spawnRegistry` is set. */
-function requireFleet(ctx: RpcContext): SpawnRegistry {
+/** The Fleet screen's shell-spawn surface — the owner's only, and refused unless `ctx.spawnRegistry` is set. */
+function requireFleet(ctx: RpcContext, caller: teams.Caller): SpawnRegistry {
+  teams.assertOwner(caller);
   if (ctx.spawnRegistry === undefined) throw new BadRequestError(FLEET_DISABLED_MESSAGE);
   return ctx.spawnRegistry;
 }
@@ -232,13 +234,39 @@ function requireFleet(ctx: RpcContext): SpawnRegistry {
  * `UnknownCommandError` (a BadRequestError subtype) is additionally mapped to 404 by the caller,
  * anything else classifies `internal`. See `classifyError` below.
  */
-async function dispatchInner(ctx: RpcContext, cmd: string, rawArgs: unknown): Promise<unknown> {
+async function dispatchInner(ctx: RpcContext, cmd: string, rawArgs: unknown, caller: teams.Caller): Promise<unknown> {
   const args = obj(rawArgs);
+
+  // The allowlist, then the caller's teams: a repository outside every team of the caller is refused
+  // for every command that reads or writes one (runs, files, drafts, flows, ...). The team roots are
+  // read once per request.
+  let rootsOnce: Promise<string[] | undefined> | undefined;
+  const roots = (): Promise<string[] | undefined> => (rootsOnce ??= teams.callerRepoRoots(ctx.configDir, caller));
+  const allow = async (repoPath: string): Promise<string> => {
+    const real = await ctx.allowlist.assertAllowed(repoPath);
+    teams.assertRepoInRoots(await roots(), real);
+    return real;
+  };
+  // The repositories a list is limited to: the selected team's. Undefined (no limit) for the owner
+  // without a `teamId` — token-only mode, one team — which keeps the pre-teams behaviour.
+  const scope = async (): Promise<string[] | undefined> => {
+    const teamId = optionalString(args, 'teamId');
+    // Without a `teamId`: the caller's first team, and nothing to list (not an error) for a signed-in
+    // user in no team. An explicit foreign `teamId` is refused.
+    if (teamId === undefined) return caller.owner ? undefined : ((await teams.callerTeams(ctx.configDir, caller))[0]?.repositories ?? []);
+    return (await teams.selectTeam(ctx.configDir, caller, teamId)).repositories;
+  };
+  // A run known to the session: its repository must be the caller's. Unknown (finished) runs: owner only.
+  const assertRunVisible = async (runId: string, unknownOk: boolean): Promise<void> => {
+    const known = [ctx.runSession.activeRun(), ...ctx.runSession.queued()].find((r) => r !== null && r.runId === runId);
+    if (known != null) teams.assertRepoInRoots(await roots(), known.repoPath);
+    else if (!unknownOk) teams.assertOwner(caller);
+  };
 
   switch (cmd) {
     case 'spawn_run': {
-      const spawns = requireFleet(ctx);
-      const real = await ctx.allowlist.assertAllowed(requireString(args, 'cwd'));
+      const spawns = requireFleet(ctx, caller);
+      const real = await allow(requireString(args, 'cwd'));
       const argv = args.argv;
       if (!Array.isArray(argv) || argv.length === 0 || argv.some((a) => typeof a !== 'string')) {
         throw new BadRequestError('argv is required and must be a non-empty array of strings');
@@ -246,37 +274,38 @@ async function dispatchInner(ctx: RpcContext, cmd: string, rawArgs: unknown): Pr
       return spawns.spawn(real, argv as string[]);
     }
     case 'kill_run': {
-      const spawns = requireFleet(ctx);
+      const spawns = requireFleet(ctx, caller);
       const pid = optionalNumber(args, 'pid');
       if (pid === undefined) throw new BadRequestError('pid is required and must be a number');
       spawns.kill(pid);
       return null;
     }
     case 'list_spawns':
-      return requireFleet(ctx).list();
+      return requireFleet(ctx, caller).list();
     case 'list_runs': {
-      const real = await ctx.allowlist.assertAllowed(requireString(args, 'repoPath'));
+      const real = await allow(requireString(args, 'repoPath'));
       return listRunSummaries(defaultRunsRoot(real));
     }
     case 'list_runs_all': {
       const { items, failures } = await projects.listAcrossProjects(
         ctx.configDir,
-        (p) => ctx.allowlist.assertAllowed(p),
+        allow,
         (real) => listRunSummaries(defaultRunsRoot(real)),
+        await scope(),
       );
       // Newest first across repositories, as each repository's own list is.
       items.sort((x, y) => (x.timestamp < y.timestamp ? 1 : x.timestamp > y.timestamp ? -1 : 0));
       return { runs: items, failures };
     }
     case 'read_run': {
-      const real = await ctx.allowlist.assertAllowed(requireString(args, 'repoPath'));
+      const real = await allow(requireString(args, 'repoPath'));
       const taskId = requireString(args, 'taskId');
       const timestamp = requireString(args, 'timestamp');
       return readRunDetail(runSourceRoot(real, args.source), taskId, timestamp);
     }
     case 'read_run_events': {
       // Read-only: allowed in server mode like read_run.
-      const real = await ctx.allowlist.assertAllowed(requireString(args, 'repoPath'));
+      const real = await allow(requireString(args, 'repoPath'));
       const taskId = requireString(args, 'taskId');
       if (!isSafeTaskId(taskId)) throw new BadRequestError('taskId must name a single direct child of the runs root');
       const timestamp = optionalString(args, 'timestamp');
@@ -289,22 +318,43 @@ async function dispatchInner(ctx: RpcContext, cmd: string, rawArgs: unknown): Pr
       });
     }
     case 'list_projects': {
-      return projects.list(ctx.configDir);
+      return projects.list(ctx.configDir, await scope());
     }
     case 'list_teams': {
-      return teams.listTeams(ctx.configDir);
+      return teams.callerTeams(ctx.configDir, caller);
     }
     case 'get_team': {
-      return (await teams.getTeam(ctx.configDir, requireString(args, 'id'))) ?? null;
+      const id = requireString(args, 'id');
+      return (await teams.callerTeams(ctx.configDir, caller)).find((t) => t.id === id) ?? null;
+    }
+    case 'add_team_member': {
+      const role = requireOneOf(args, 'role', ['admin', 'member']) as TeamRole;
+      return teams.addMember(ctx.configDir, caller, requireString(args, 'teamId'), { login: requireString(args, 'login').trim(), role });
+    }
+    case 'remove_team_member': {
+      return teams.removeMember(ctx.configDir, caller, requireString(args, 'teamId'), requireString(args, 'login').trim());
+    }
+    case 'add_team_repository': {
+      // Only a project registered on the hub that the caller already holds can be attached.
+      const real = await allow(requireString(args, 'path'));
+      const path = (await projects.registeredPath(ctx.configDir, real)) ?? real;
+      return teams.addRepository(ctx.configDir, caller, requireString(args, 'teamId'), path);
+    }
+    case 'remove_team_repository': {
+      const input = requireString(args, 'path');
+      const path = (await projects.registeredPath(ctx.configDir, input)) ?? input;
+      return teams.removeRepository(ctx.configDir, caller, requireString(args, 'teamId'), path);
     }
     case 'add_project': {
       assertMutationsAllowed(ctx.bind);
+      teams.assertOwner(caller);
       const real = await assertWithinBrowseRoot(ctx.browseRoot, requireString(args, 'path'));
       await assertGitWorkTreeDir(real);
       return projects.add(ctx.configDir, real);
     }
     case 'clone_project': {
       assertMutationsAllowed(ctx.bind);
+      teams.assertOwner(caller);
       const url = requireString(args, 'url');
       const parentDir = requireString(args, 'parentDir');
       const name = optionalString(args, 'name');
@@ -318,28 +368,31 @@ async function dispatchInner(ctx: RpcContext, cmd: string, rawArgs: unknown): Pr
       return projects.aggregate(target);
     }
     case 'remove_project': {
+      teams.assertOwner(caller);
       const path = requireString(args, 'path');
+      await teams.purgeRepository(ctx.configDir, path);
       return projects.remove(ctx.configDir, path);
     }
     case 'list_active': {
-      const real = await ctx.allowlist.assertAllowed(requireString(args, 'repoPath'));
+      const real = await allow(requireString(args, 'repoPath'));
       return listActive(real);
     }
     case 'read_session': {
       const sessionFile = requireString(args, 'sessionFile');
       const real = await ctx.allowlist.assertSessionPath(sessionFile);
+      teams.assertRepoInRoots(await roots(), real);
       return readSession(real);
     }
     case 'read_app_config': {
-      const real = await ctx.allowlist.assertAllowed(requireString(args, 'repoPath'));
+      const real = await allow(requireString(args, 'repoPath'));
       return readAppConfig(real);
     }
     case 'read_app_config_strict': {
-      const real = await ctx.allowlist.assertAllowed(requireString(args, 'repoPath'));
+      const real = await allow(requireString(args, 'repoPath'));
       return readAppConfigStrict(real);
     }
     case 'write_app_config': {
-      const real = await ctx.allowlist.assertAllowed(requireString(args, 'repoPath'));
+      const real = await allow(requireString(args, 'repoPath'));
       const config = args.config;
       if (typeof config !== 'object' || config === null) throw new BadRequestError('config is required');
       // A repository default or label-allowlist entry that git would misread is refused before it is saved,
@@ -352,37 +405,40 @@ async function dispatchInner(ctx: RpcContext, cmd: string, rawArgs: unknown): Pr
       return null;
     }
     case 'get_credentials': {
+      teams.assertOwner(caller);
       return ctx.credentials.summary();
     }
     case 'set_credential': {
+      teams.assertOwner(caller);
       assertMutationsAllowed(ctx.bind);
       const provider = requireCredentialProvider(args);
       return ctx.credentials.set(provider, requireString(args, 'value').trim());
     }
     case 'delete_credential': {
+      teams.assertOwner(caller);
       assertMutationsAllowed(ctx.bind);
       return ctx.credentials.delete(requireCredentialProvider(args));
     }
     case 'list_drafts': {
-      const real = await ctx.allowlist.assertAllowed(requireString(args, 'repoPath'));
+      const real = await allow(requireString(args, 'repoPath'));
       return drafts.list(real);
     }
     case 'read_draft': {
-      const real = await ctx.allowlist.assertAllowed(requireString(args, 'repoPath'));
+      const real = await allow(requireString(args, 'repoPath'));
       return drafts.read(real, requireString(args, 'id'));
     }
     case 'write_draft': {
-      const real = await ctx.allowlist.assertAllowed(requireString(args, 'repoPath'));
+      const real = await allow(requireString(args, 'repoPath'));
       await drafts.write(real, requireString(args, 'id'), requireString(args, 'content'));
       return null;
     }
     case 'delete_draft': {
-      const real = await ctx.allowlist.assertAllowed(requireString(args, 'repoPath'));
+      const real = await allow(requireString(args, 'repoPath'));
       await drafts.del(real, requireString(args, 'id'));
       return null;
     }
     case 'write_draft_asset': {
-      const real = await ctx.allowlist.assertAllowed(requireString(args, 'repoPath'));
+      const real = await allow(requireString(args, 'repoPath'));
       const id = requireString(args, 'id');
       const name = requireString(args, 'name');
       const bytesRaw = args.bytes;
@@ -390,49 +446,50 @@ async function dispatchInner(ctx: RpcContext, cmd: string, rawArgs: unknown): Pr
       return drafts.writeAsset(real, id, name, Uint8Array.from(bytesRaw as number[]));
     }
     case 'clear_draft_assets': {
-      const real = await ctx.allowlist.assertAllowed(requireString(args, 'repoPath'));
+      const real = await allow(requireString(args, 'repoPath'));
       await drafts.clearAssets(real, requireString(args, 'id'));
       return null;
     }
     case 'list_remote_runs': {
-      const real = await ctx.allowlist.assertAllowed(requireString(args, 'repoPath'));
+      const real = await allow(requireString(args, 'repoPath'));
       return remote.listRemoteRuns(real);
     }
     case 'import_remote_run': {
-      const real = await ctx.allowlist.assertAllowed(requireString(args, 'repoPath'));
+      const real = await allow(requireString(args, 'repoPath'));
       const runId = optionalNumber(args, 'runId');
       if (runId === undefined) throw new BadRequestError('runId is required and must be a number');
       return remote.fetchRemoteRun(real, runId);
     }
     case 'list_tasks': {
-      const real = await ctx.allowlist.assertAllowed(requireString(args, 'repoPath'));
+      const real = await allow(requireString(args, 'repoPath'));
       return invokeCoreMethod(ctx.deps, 'listTasks', { repoPath: real });
     }
     case 'list_tasks_all': {
       let capped = false;
       const { items, failures } = await projects.listAcrossProjects(
         ctx.configDir,
-        (p) => ctx.allowlist.assertAllowed(p),
+        allow,
         async (real) => {
           const r = (await invokeCoreMethod(ctx.deps, 'listTasks', { repoPath: real })) as { tasks: object[]; capped: boolean };
           capped ||= r.capped;
           return r.tasks;
         },
+        await scope(),
       );
       return { tasks: items, capped, failures };
     }
     case 'fetch_spec': {
-      const real = await ctx.allowlist.assertAllowed(requireString(args, 'repoPath'));
+      const real = await allow(requireString(args, 'repoPath'));
       const taskId = requireString(args, 'taskId');
       return invokeCoreMethod(ctx.deps, 'fetchSpec', { repoPath: real, taskId });
     }
     case 'watch_project': {
-      const real = await ctx.allowlist.assertAllowed(requireString(args, 'repoPath'));
+      const real = await allow(requireString(args, 'repoPath'));
       ctx.watchRegistry.watchProject(real, (p) => ctx.publish('vanguard:changed', p));
       return null;
     }
     case 'unwatch_project': {
-      const real = await ctx.allowlist.assertAllowed(requireString(args, 'repoPath'));
+      const real = await allow(requireString(args, 'repoPath'));
       ctx.watchRegistry.unwatchProject(real);
       return null;
     }
@@ -447,7 +504,7 @@ async function dispatchInner(ctx: RpcContext, cmd: string, rawArgs: unknown): Pr
       // run is refused before that, one refusal line.
       let accepted = false;
       try {
-        const real = await ctx.allowlist.assertAllowed(requireString(params, 'repoPath'));
+        const real = await allow(requireString(params, 'repoPath'));
         // The run session (not deps.createRun) owns single-in-flight gating and event
         // buffering/publishing — validate via the table row, then call it directly.
         const validated = validateCoreMethod('createRun', { ...params, repoPath: real }) as CreateRunParams;
@@ -526,22 +583,28 @@ async function dispatchInner(ctx: RpcContext, cmd: string, rawArgs: unknown): Pr
       return ctx.audit === undefined ? [] : ctx.audit.read({ ...(login ? { login } : {}), ...(limit !== undefined ? { limit } : {}) });
     }
     case 'api_active_run': {
-      return ctx.runSession.activeRun();
+      const active = ctx.runSession.activeRun();
+      return active !== null && teams.repoInRoots(await roots(), active.repoPath) ? active : null;
     }
     case 'api_run_backlog': {
-      return ctx.runSession.backlog(requireString(args, 'runId'));
+      const runId = requireString(args, 'runId');
+      await assertRunVisible(runId, false);
+      return ctx.runSession.backlog(runId);
     }
     case 'api_queue': {
-      return ctx.runSession.queued();
+      const visible = await roots();
+      return ctx.runSession.queued().filter((q) => teams.repoInRoots(visible, q.repoPath));
     }
     case 'api_cancel': {
       // Required on the hub: with a queue, an id-less "cancel the active run" can hit another
       // project's run, or the successor promoted after the clicked run ended.
-      ctx.runSession.cancel(requireString(args, 'runId'));
+      const runId = requireString(args, 'runId');
+      await assertRunVisible(runId, true);
+      ctx.runSession.cancel(runId);
       return null;
     }
     case 'api_create_task': {
-      const real = await ctx.allowlist.assertAllowed(requireString(args, 'repoPath'));
+      const real = await allow(requireString(args, 'repoPath'));
       const title = requireString(args, 'title');
       const body = typeof args.body === 'string' ? args.body : '';
       // The client never chooses the tracker: source/team/label are read server-side from app.json.
@@ -573,52 +636,52 @@ async function dispatchInner(ctx: RpcContext, cmd: string, rawArgs: unknown): Pr
       return invokeCoreMethod(ctx.deps, 'createTask', params);
     }
     case 'list_branches': {
-      const real = await ctx.allowlist.assertAllowed(requireString(args, 'repoPath'));
+      const real = await allow(requireString(args, 'repoPath'));
       return listBranches(real);
     }
     case 'api_list_flows': {
-      const real = await ctx.allowlist.assertAllowed(requireString(args, 'repoPath'));
+      const real = await allow(requireString(args, 'repoPath'));
       return invokeCoreMethod(ctx.deps, 'listFlows', { repoPath: real });
     }
     case 'api_list_providers': {
-      const real = await ctx.allowlist.assertAllowed(requireString(args, 'repoPath'));
+      const real = await allow(requireString(args, 'repoPath'));
       return invokeCoreMethod(ctx.deps, 'listProviders', { repoPath: real });
     }
     case 'api_read_flow': {
-      const real = await ctx.allowlist.assertAllowed(requireString(args, 'repoPath'));
+      const real = await allow(requireString(args, 'repoPath'));
       const file = requireString(args, 'file');
       return invokeCoreMethod(ctx.deps, 'readFlow', { repoPath: real, file });
     }
     case 'api_write_flow': {
-      const real = await ctx.allowlist.assertAllowed(requireString(args, 'repoPath'));
+      const real = await allow(requireString(args, 'repoPath'));
       const file = requireString(args, 'file');
       return invokeCoreMethod(ctx.deps, 'writeFlow', { repoPath: real, file, doc: args.doc });
     }
     case 'api_delete_flow': {
-      const real = await ctx.allowlist.assertAllowed(requireString(args, 'repoPath'));
+      const real = await allow(requireString(args, 'repoPath'));
       const file = requireString(args, 'file');
       return invokeCoreMethod(ctx.deps, 'deleteFlow', { repoPath: real, file });
     }
     case 'api_list_repo_files': {
-      const real = await ctx.allowlist.assertAllowed(requireString(args, 'repoPath'));
+      const real = await allow(requireString(args, 'repoPath'));
       return invokeCoreMethod(ctx.deps, 'listRepoFiles', { repoPath: real });
     }
     case 'api_read_repo_file': {
-      const real = await ctx.allowlist.assertAllowed(requireString(args, 'repoPath'));
+      const real = await allow(requireString(args, 'repoPath'));
       const path = requireString(args, 'path');
       return invokeCoreMethod(ctx.deps, 'readRepoFile', { repoPath: real, path });
     }
     case 'api_repo_ok': {
       const repoPath = requireString(args, 'repoPath');
       try {
-        const real = await ctx.allowlist.assertAllowed(repoPath);
+        const real = await allow(repoPath);
         return repoOk(real);
       } catch {
         return false;
       }
     }
     case 'api_complete': {
-      const real = await ctx.allowlist.assertAllowed(requireString(args, 'repoPath'));
+      const real = await allow(requireString(args, 'repoPath'));
       const reqRaw = args.req;
       if (typeof reqRaw !== 'object' || reqRaw === null) throw new BadRequestError('req is required');
       const reqObj = reqRaw as Record<string, unknown>;
@@ -639,10 +702,12 @@ async function dispatchInner(ctx: RpcContext, cmd: string, rawArgs: unknown): Pr
     }
     case 'browse_dirs': {
       assertMutationsAllowed(ctx.bind);
+      // Feeds add_project / clone_project only, which are the owner's: a member must not list the host.
+      teams.assertOwner(caller);
       return browseDirs(ctx.browseRoot, optionalString(args, 'path'));
     }
     case 'list_needs_you': {
-      const real = await ctx.allowlist.assertAllowed(requireString(args, 'repoPath'));
+      const real = await allow(requireString(args, 'repoPath'));
       const repoSlug = await githubSlug(real);
       // Not a GitHub remote — nothing for this read model to show.
       return { items: repoSlug === undefined ? [] : await listNeedsYou(repoSlug) };
@@ -652,18 +717,19 @@ async function dispatchInner(ctx: RpcContext, cmd: string, rawArgs: unknown): Pr
       const commentBudget = { remaining: MAX_COMMENT_FETCHES };
       const { items, failures } = await projects.listAcrossProjects(
         ctx.configDir,
-        (p) => ctx.allowlist.assertAllowed(p),
+        allow,
         async (real) => {
           const repoSlug = await githubSlug(real);
           return repoSlug === undefined ? [] : listNeedsYou(repoSlug, undefined, { commentBudget });
         },
+        await scope(),
       );
       return { items, failures };
     }
     case 'reply_needs_you': {
       // Comments under the hub's `gh` identity and adds a trigger label — a remote mutation.
       assertMutationsAllowed(ctx.bind);
-      const real = await ctx.allowlist.assertAllowed(requireString(args, 'repoPath'));
+      const real = await allow(requireString(args, 'repoPath'));
       const id = requireString(args, 'id');
       const kind = requireString(args, 'kind');
       if (kind !== 'issue' && kind !== 'pr') throw new BadRequestError("kind must be 'issue' or 'pr'");
@@ -680,7 +746,7 @@ async function dispatchInner(ctx: RpcContext, cmd: string, rawArgs: unknown): Pr
     case 'merge_needs_you': {
       // Merges under the hub's `gh` identity — a remote mutation.
       assertMutationsAllowed(ctx.bind);
-      const real = await ctx.allowlist.assertAllowed(requireString(args, 'repoPath'));
+      const real = await allow(requireString(args, 'repoPath'));
       const id = requireString(args, 'id');
       const repoSlug = await githubSlug(real);
       if (repoSlug === undefined) throw new BadRequestError('merge_needs_you: this project has no GitHub remote');
@@ -690,7 +756,7 @@ async function dispatchInner(ctx: RpcContext, cmd: string, rawArgs: unknown): Pr
     case 'start_task': {
       // Adds a trigger label as the hub's `gh` identity — a remote mutation.
       assertMutationsAllowed(ctx.bind);
-      const real = await ctx.allowlist.assertAllowed(requireString(args, 'repoPath'));
+      const real = await allow(requireString(args, 'repoPath'));
       const label = requireString(args, 'label');
       const number = optionalNumber(args, 'number');
       if (number === undefined) throw new BadRequestError('number is required and must be a number');
@@ -706,13 +772,13 @@ async function dispatchInner(ctx: RpcContext, cmd: string, rawArgs: unknown): Pr
       assertMutationsAllowed(ctx.bind);
       return checkCliVersions({ cwd: ctx.configDir });
     case 'enable_factory_plan': {
-      const real = await ctx.allowlist.assertAllowed(requireString(args, 'repoPath'));
+      const real = await allow(requireString(args, 'repoPath'));
       return enableFactory(real, requireProvider(args, 'provider')).plan();
     }
     case 'enable_factory_apply': {
       // Writes a branch, a commit and a PR in the target repo — a mutation, like clone_project.
       assertMutationsAllowed(ctx.bind);
-      const real = await ctx.allowlist.assertAllowed(requireString(args, 'repoPath'));
+      const real = await allow(requireString(args, 'repoPath'));
       const shown = requirePlan(args, 'plan');
       const provider = enableFactory(real, 'github');
       // `login` becomes the callers' actor gate: apply a plan re-derived here, never the client's echo,
@@ -724,13 +790,13 @@ async function dispatchInner(ctx: RpcContext, cmd: string, rawArgs: unknown): Pr
       return provider.apply(plan);
     }
     case 'enable_factory_secret': {
-      const real = await ctx.allowlist.assertAllowed(requireString(args, 'repoPath'));
+      const real = await allow(requireString(args, 'repoPath'));
       return enableFactory(real, 'github').secretCommand(requirePlan(args, 'plan'));
     }
     case 'enable_factory_verify': {
       // Dispatches the doctor workflow, so it mutates the remote too.
       assertMutationsAllowed(ctx.bind);
-      const real = await ctx.allowlist.assertAllowed(requireString(args, 'repoPath'));
+      const real = await allow(requireString(args, 'repoPath'));
       return enableFactory(real, 'github').verify(requirePlan(args, 'plan'));
     }
     default:
@@ -750,8 +816,8 @@ interface AuditSpec {
 }
 
 const repoTarget = (a: Args): string | undefined => optionalString(a, 'repoPath');
-/** `<repoPath>:<key>` — e.g. a flow file or a needs-you item within a project. */
-const repoItemTarget = (key: string) => (a: Args): string => `${repoTarget(a) ?? ''}:${optionalString(a, key) ?? ''}`;
+/** `<repoPath>:<a[key]>` — a file or item within a repository. */
+const repoItemTarget = (key: string): AuditSpec['target'] => (a) => `${repoTarget(a) ?? ''}:${optionalString(a, key) ?? ''}`;
 
 /** Top-level keys of `next` whose value differs from `prev` — names, never values. */
 function changedKeys(prev: Args, next: Args): string[] {
@@ -811,10 +877,10 @@ function outcomeOf(err: unknown): AuditOutcome {
  * or failure. A run start/queue logs itself once the run is admitted (the call then stays pending
  * until the run ends), so it is not wrapped here.
  */
-export async function dispatchRpc(ctx: RpcContext, cmd: string, rawArgs: unknown): Promise<unknown> {
+export async function dispatchRpc(ctx: RpcContext, cmd: string, rawArgs: unknown, caller: teams.Caller): Promise<unknown> {
   const spec = AUDITED[cmd];
   const audit = ctx.audit;
-  if (spec === undefined || audit === undefined) return dispatchInner(ctx, cmd, rawArgs);
+  if (spec === undefined || audit === undefined) return dispatchInner(ctx, cmd, rawArgs, caller);
   const args = obj(rawArgs);
   const login = actorOf(ctx).login;
   const target = spec.target(args);
@@ -823,7 +889,7 @@ export async function dispatchRpc(ctx: RpcContext, cmd: string, rawArgs: unknown
   const line = (outcome: AuditOutcome): Promise<void> =>
     audit.record({ login, action: spec.action, ...(target !== undefined ? { target } : {}), outcome, ...(detail !== undefined ? { detail } : {}) });
   try {
-    const result = await dispatchInner(ctx, cmd, rawArgs);
+    const result = await dispatchInner(ctx, cmd, rawArgs, caller);
     await line(okOutcome);
     return result;
   } catch (err) {
