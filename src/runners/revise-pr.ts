@@ -13,6 +13,8 @@ import {
   revisionMarker,
   buildItemReply,
   buildRevisionSummary,
+  buildRevisionChecklist,
+  parseChecklistAnswers,
   buildRevisionDryRun,
   parseRevisionDiff,
   formatFileChanges,
@@ -81,6 +83,9 @@ import type { AgentProvider } from '../agents/provider.js';
 const NEEDS_REVISION_LABEL = 'needs revision';
 const VANGUARD_REVISING_LABEL = 'vanguard:revising';
 const DEFAULT_MAX_ROUNDS = 2;
+// The trigger the PR-review workflow listens for (taskcell-pr-review.yml) and the marker a finished review leaves.
+const REVIEW_TRIGGER_LABEL = 'ready for vanguard review';
+const REVIEWED_LABEL = 'vanguard:reviewed';
 // secret-blocked is removed too: a round that pushes cleanly after the human stripped the secret must
 // not leave the PR mapped to verify-failed on the board.
 // rate-limited too: a round that ran must not be re-triggered by the resume sweep.
@@ -196,6 +201,64 @@ async function handBackPrLabels(
 }
 
 /**
+ * Run one gh call as the push token's owner first (GH_TOKEN for this call only), logging `action` with
+ * the credential actually resolved, not with which env vars are set. Refused → log `refused` and retry
+ * with the ambient credential.
+ */
+async function ghAsPushTokenOwner(
+  gh: GhRunner,
+  args: string[],
+  tokenProvider: () => Promise<string | undefined>,
+  log: (line: string) => void,
+  action: string,
+  refused: string,
+): Promise<void> {
+  const pushToken = await resolveToken(tokenProvider, undefined, log);
+  log(`${action}${credentialLabel(pushToken)}`);
+  if (pushToken) {
+    try {
+      await gh(args, { GH_TOKEN: pushToken });
+      return;
+    } catch {
+      log(refused);
+    } finally {
+      await releaseToken(pushToken);
+    }
+  }
+  await gh(args);
+}
+
+/**
+ * After a push, re-request the review: drop the reviewed marker and the trigger label, then add the
+ * trigger back so a fresh `labeled` event starts the review of the new head. The add goes out as the
+ * VANGUARD_PUSH_TOKEN (PAT) owner, never the taskcell App: a `labeled` event from the ambient GITHUB_TOKEN
+ * starts no workflow, and one sent by `taskcell[bot]` fails the review's allowed-actors gate
+ * (taskcell-pr-review.yml labels App PRs with the PAT for the same reason). Without the PAT, or refused,
+ * the ambient credential still sets the label but no review run starts. Best-effort.
+ */
+async function requestReReview(
+  gh: GhRunner,
+  repoSlug: string,
+  number: number,
+  log: (line: string) => void,
+): Promise<void> {
+  try {
+    await gh(['label', 'create', REVIEW_TRIGGER_LABEL, '--repo', repoSlug, '--force']).catch(() => undefined);
+    await editPrLabels(gh, repoSlug, number, { remove: [REVIEWED_LABEL, REVIEW_TRIGGER_LABEL] }).catch(() => undefined);
+    await ghAsPushTokenOwner(
+      gh,
+      ['pr', 'edit', String(number), '--repo', repoSlug, '--add-label', REVIEW_TRIGGER_LABEL],
+      async () => process.env.VANGUARD_PUSH_TOKEN || undefined,
+      log,
+      `revise-pr ${repoSlug}#${number}: labels -> re-review (${REVIEW_TRIGGER_LABEL})`,
+      `revise-pr ${repoSlug}#${number}: re-review label with the push token failed, retrying with the ambient credential (no review run will start)`,
+    );
+  } catch (err) {
+    log(`revise-pr ${repoSlug}#${number}: re-review label -> manual label check (${err instanceof Error ? err.message : String(err)})`);
+  }
+}
+
+/**
  * Flag the PR as touching gate config, so a weakening pushed in a revise round reaches the same
  * human gate the first delivery raises (source-adapter.ts). Unlike the hand-back labels this is NOT
  * best-effort: the label IS the gate, so a failed flip is reported (it propagates to the caller's
@@ -230,21 +293,14 @@ async function markReady(
   tokenProvider: () => Promise<string | undefined>,
   log: (line: string) => void,
 ): Promise<void> {
-  const args = ['pr', 'ready', String(number), '--repo', repoSlug];
-  const pushToken = await resolveToken(tokenProvider, undefined, log);
-  // Labelled from the credential actually resolved, not from which env vars are set.
-  log(`revise-pr ${repoSlug}#${number}: undraft -> pr ready${credentialLabel(pushToken)}`);
-  if (pushToken) {
-    try {
-      await gh(args, { GH_TOKEN: pushToken });
-      return;
-    } catch {
-      log(`revise-pr ${repoSlug}#${number}: pr ready with the push token failed, retrying with the ambient credential`);
-    } finally {
-      await releaseToken(pushToken);
-    }
-  }
-  await gh(args);
+  await ghAsPushTokenOwner(
+    gh,
+    ['pr', 'ready', String(number), '--repo', repoSlug],
+    tokenProvider,
+    log,
+    `revise-pr ${repoSlug}#${number}: undraft -> pr ready`,
+    `revise-pr ${repoSlug}#${number}: pr ready with the push token failed, retrying with the ambient credential`,
+  );
 }
 
 /**
@@ -575,7 +631,8 @@ export async function runRevisePullRequest(prRef: string, deps: ReviseGithubPrDe
 
       // Override the implementer's promptTemplate with the revision prompt. It holds review comments and
       // the diff, so it goes in as a variable and is never expanded as a template (see literalPrompt).
-      const { promptTemplate, variables } = literalPrompt(buildRevisionPrompt(pr, actionable, mergedBase));
+      const checklist = buildRevisionChecklist(fb, actionable, deps.botLogins);
+      const { promptTemplate, variables } = literalPrompt(buildRevisionPrompt(pr, actionable, mergedBase, checklist));
       pipeline = pipeline.map((stage) =>
         stage.name === STAGE.IMPLEMENTER ? { ...stage, promptTemplate } : stage,
       );
@@ -587,6 +644,28 @@ export async function runRevisePullRequest(prRef: string, deps: ReviseGithubPrDe
         await writeStagesWithoutDiff();
         return await holdForConflict(stillConflicted);
       }
+
+      // Every checklist item needs an answer from the agent; a missing one fails the revision rather than
+      // reporting success. Only the implementer is given the checklist: a reviewer or simplifier line shaped
+      // like an answer must not stand in for one. --out is a dry run and never posts.
+      const answers = parseChecklistAnswers(
+        outcomes.filter((o) => o.name === STAGE.IMPLEMENTER).map((o) => o.result.finalText).join('\n'),
+        checklist.length,
+      );
+      const unanswered = checklist.filter((_, i) => answers[i] === undefined);
+      const failOpenItems = async (notice: string): Promise<never> => {
+        log(`revise-pr ${target.repoSlug}#${target.number}: ${notice}`);
+        if (deps.out === undefined) {
+          await postPullRequestReview(target, notice, 'comment', gh).catch(() => undefined);
+          await editPrLabels(gh, target.repoSlug, target.number, { remove: [VANGUARD_REVISING_LABEL] }).catch(() => undefined);
+        }
+        throw new TaskcellError(`revise-pr ${target.repoSlug}#${target.number}: ${notice}`);
+      };
+      if (unanswered.length > 0) {
+        await writeStagesWithoutDiff();
+        return await failOpenItems(`Revision failed: ${unanswered.length} blocking item(s) have no answer (fixed / not fixed / disputed), nothing was pushed:\n${unanswered.map((t) => `- ${t}`).join('\n')}`);
+      }
+      const checklistAnswers = checklist.map((text, i) => ({ text, answer: answers[i]! }));
 
       // Run the resolved verification command after applying changes and before pushing, with one
       // bounded repair iteration on red — reusing renderVerificationFeedback and the same resume
@@ -725,6 +804,9 @@ export async function runRevisePullRequest(prRef: string, deps: ReviseGithubPrDe
         // A conflict finding that changed nothing, with no way to tell whether the branch still conflicts
         // (the base check was skipped), is a failure, not a quiet success.
         if (baseMerge.status === 'skipped' && actionable.some((item) => /\bconflict/i.test(item.body))) return await holdForConflict([]);
+        if (checklist.length > 0) {
+          return await failOpenItems(`Revision pushed nothing although ${checklist.length} blocking item(s) were open:\n${checklistAnswers.map(({ text, answer }, i) => `${i + 1}. ${text} — ${answer.status}: ${answer.detail}`).join('\n')}`);
+        }
         log(`revise-pr ${target.repoSlug}#${target.number}: no changes — skipping push`);
         await stepSummary('no-changes');
         return { pr, ignoredFeedback, addressed: 0, committed: false, pushed: false, undrafted: false };
@@ -801,6 +883,7 @@ export async function runRevisePullRequest(prRef: string, deps: ReviseGithubPrDe
         deferred: [],
         verification: { typecheck: verificationStatus, test: verificationStatus },
         whiteLabel,
+        ...(checklistAnswers.length > 0 ? { checklist: checklistAnswers } : {}),
         ...(mergedBase !== undefined ? { mergedBase } : {}),
         ...(baseMerge.status === 'skipped' ? { baseCheckSkipped: { base: baseName, reason: baseMerge.reason } } : {}),
       });
@@ -821,6 +904,7 @@ export async function runRevisePullRequest(prRef: string, deps: ReviseGithubPrDe
       await markReady(gh, target.repoSlug, target.number, tokenProvider, log);
 
       await handBackPrLabels(gh, target.repoSlug, target.number, log);
+      await requestReReview(gh, target.repoSlug, target.number, log);
 
       await stepSummary(verificationFailed ? 'verify-failed' : 'completed');
       return {

@@ -2,6 +2,7 @@ import { useState, type CSSProperties } from 'react';
 import { Button, Card, Chip, Empty } from '@/ui';
 import { Factory, FolderPlus, LayoutGrid, X } from 'lucide-react';
 import { projectColor } from '../../color';
+import { combinationNote, runLocationLabel, taskSourceLabel } from '../../platform';
 import { relTime } from '../../time';
 import type { Project } from '../../taskcell-output';
 
@@ -52,7 +53,7 @@ export function Dashboard({
   };
 
   return (
-    <div className="mx-auto h-full w-full max-w-5xl space-y-4 overflow-y-auto p-6">
+    <div className="mx-auto h-full w-full max-w-5xl space-y-4 overflow-y-auto p-6 max-md:p-3">
       <div className="flex items-center gap-3">
         <h2 className="text-xl font-semibold">Projects</h2>
         <Button className="ml-auto" onClick={onAdd} startIcon={<FolderPlus className="size-4" />}>
@@ -87,6 +88,7 @@ export function Dashboard({
 
           <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
             {projects.map((p) => {
+              const note = combinationNote(p.taskSource, p.runLocation);
               const last = p.lastRun ? relTime(new Date(p.lastRun).getTime()) : null;
               const color = projectColor(p);
               return (
@@ -170,6 +172,13 @@ export function Dashboard({
                       {p.runsLast24h > 0 && <Chip color="secondary" variant="outlined">{p.runsLast24h} in 24h</Chip>}
                       {last && <span className="ml-auto">{last}</span>}
                     </div>
+                    {/* Platform: where tasks come from and where work runs, so projects set up differently read side by side. */}
+                    <div className="mt-2 flex flex-wrap items-center gap-1.5">
+                      <Chip color="secondary" variant="outlined">{taskSourceLabel(p.taskSource)}</Chip>
+                      <span className="text-xs text-muted-foreground" aria-hidden>→</span>
+                      <Chip color="secondary" variant="outlined">{runLocationLabel(p.runLocation)}</Chip>
+                    </div>
+                    {note && <p className="mt-1 text-xs text-muted-foreground">{note}</p>}
                     {onEnableFactory && (
                       <Button
                         className="relative z-10 mt-3 h-7 px-2 text-xs"

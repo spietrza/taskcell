@@ -30,7 +30,7 @@ export function TopBar({
   onSignOut?: () => void;
 }) {
   return (
-    <header className="flex items-center gap-3 border-b border-border px-4 py-2.5">
+    <header className="flex items-center gap-3 border-b border-border px-4 py-2.5 max-md:gap-2 max-md:px-3">
       {/* Logo + wordmark is the home affordance — clicking returns to the dashboard. */}
       <button
         onClick={onHome}
@@ -39,11 +39,11 @@ export function TopBar({
         title="Back to dashboard"
       >
         <Logo className="size-5" />
-        <span className="font-heading font-bold tracking-tight">Taskcell Hub</span>
+        <span className="font-heading font-bold tracking-tight max-md:hidden">Taskcell Hub</span>
       </button>
       {(projectSwitcher || crumbs.length > 0) && (
         <>
-          <span className="text-border">|</span>
+          <span className="text-border max-md:hidden">|</span>
           <Breadcrumb.Root>
             <Breadcrumb.List>
               {projectSwitcher && <Breadcrumb.Item>{projectSwitcher}</Breadcrumb.Item>}
@@ -81,7 +81,7 @@ export function TopBar({
           className="flex items-center gap-2 rounded border border-border px-2 py-1 text-xs text-muted-foreground transition-colors hover:bg-muted"
         >
           <Search className="size-3.5" />
-          <span className="font-mono">⌘K</span>
+          <span className="font-mono max-md:hidden">⌘K</span>
         </button>
         <ThemeToggle theme={theme} onClick={onToggleTheme} />
         {onSignOut && (

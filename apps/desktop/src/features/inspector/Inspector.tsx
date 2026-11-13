@@ -398,7 +398,7 @@ export function Inspector({
     // Centered + width-capped, except the board which needs full width for horizontal column scroll.
     <div
       className={cn(
-        'mx-auto flex h-full w-full min-h-0 flex-col gap-4 p-6',
+        'mx-auto flex h-full w-full min-h-0 flex-col gap-4 p-6 max-md:p-3',
         screen !== 'board' && screen !== 'task' && 'max-w-5xl',
       )}
     >

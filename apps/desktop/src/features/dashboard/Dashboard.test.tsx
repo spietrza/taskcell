@@ -13,6 +13,22 @@ function setup(): { onOpen: ReturnType<typeof vi.fn>; onRemove: ReturnType<typeo
   return { onOpen, onRemove, onEnableFactory };
 }
 
+describe('Dashboard platform', () => {
+  test('projects with different platforms show side by side, with defaults when unset', () => {
+    const [a, b] = projects;
+    render(<Dashboard projects={[{ ...a!, taskSource: undefined, runLocation: undefined }, b!]} onOpen={() => {}} onAdd={() => {}} onRemove={() => {}} />);
+    expect(screen.getByText('GitHub Issues')).toBeInTheDocument();
+    expect(screen.getByText('GitHub Actions')).toBeInTheDocument();
+    expect(screen.getByText('GitLab Issues')).toBeInTheDocument();
+    expect(screen.getByText('GitLab CI')).toBeInTheDocument();
+  });
+
+  test('an invalid combination is explained on the card', () => {
+    render(<Dashboard projects={[{ ...first!, taskSource: 'linear', runLocation: 'github-actions' }]} onOpen={() => {}} onAdd={() => {}} onRemove={() => {}} />);
+    expect(screen.getByText(/Linear only supplies tasks/)).toBeInTheDocument();
+  });
+});
+
 describe('Dashboard project card', () => {
   test('opens from the keyboard: the project name is a focusable button', () => {
     const { onOpen } = setup();

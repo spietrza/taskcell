@@ -65,6 +65,9 @@ export async function reviewPrCommand(cmd: ReviewPrCommand, deps: ReviewPrComman
   // --out routes the review to a local file and suppresses the PR comment — a no-trace review for
   // client repos (nothing is posted to the tracker). Default posts the comment, as before.
   const deliver = async (result: ReviewPullRequestResult): Promise<void> => {
+    if (result.skipped === true) {
+      return; // reviewPullRequest already logged "already reviewed at <sha>"
+    }
     await stepSummary(`${result.pr.repoSlug}#${result.pr.number}`, 'completed', {
       prUrl: result.pr.url,
       ...(result.verdict !== undefined ? { verdict: result.verdict } : {}),
@@ -87,6 +90,7 @@ export async function reviewPrCommand(cmd: ReviewPrCommand, deps: ReviewPrComman
           ...(deps.gh !== undefined ? { gh: deps.gh } : {}),
           log,
           publish: !toFile,
+          ...(cmd.force === true ? { force: true } : {}),
           ...(cmd.repoSlug !== undefined ? { repoSlug: cmd.repoSlug } : {}),
         }),
       );
