@@ -744,6 +744,18 @@ export interface CliVersionReport {
   clis: CliVersionInfo[];
 }
 
+/** First-run setup detection (hub only): what the hub host can see, never a secret value. */
+export type SetupToolState = 'ready' | 'needs-login' | 'missing';
+export interface SetupToolStatus {
+  id: 'gh' | 'glab' | 'linear';
+  state: SetupToolState;
+}
+export interface SetupStatus {
+  tools: SetupToolStatus[];
+  /** Whether a model credential is already present for each provider (a boolean, not the value). */
+  models: { claude: boolean; codex: boolean };
+}
+
 /** Instance provider credentials (hub only, write-only: a value is never returned). */
 export type CredentialProvider = 'claude' | 'codex' | 'zai' | 'openrouter';
 export interface CredentialStatus {
@@ -880,6 +892,8 @@ export interface Commands {
   import_remote_run: { args: { repoPath: string; runId: number }; result: RemoteImport };
   list_active: { args: { repoPath: string }; result: ActiveRun[] };
   read_session: { args: { sessionFile: string }; result: SessionRead };
+  /** HUB_ONLY, read-only: whether `gh`, `glab`, a Linear key and a model credential are present on the hub host. Booleans only — never a secret value. */
+  setup_status: { args: undefined; result: SetupStatus };
   list_tasks: { args: { repoPath: string }; result: { tasks: BoardTask[]; capped: boolean } };
   /** HUB_ONLY: `list_tasks` across every hub repository, each card stamped with its repository. */
   list_tasks_all: { args: { teamId?: string } | undefined; result: { tasks: (BoardTask & RepoStamp)[]; capped: boolean; failures: RepoReadFailure[] } };
@@ -979,6 +993,7 @@ export const COMMAND_NAMES = [
   'save_user_credential',
   'set_credential',
   'set_credential_policy',
+  'setup_status',
   'spawn_run',
   'start_task',
   'team_role',

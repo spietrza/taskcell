@@ -133,3 +133,12 @@ test('under "All repositories" the selected team is sent to the hub, so a second
   await screen.findByText(item.title);
   expect(calls.find((c) => c.cmd === 'list_needs_you_all')?.body).toEqual({ teamId: 'b' });
 });
+
+test('the empty state links to the Board', async () => {
+  stubHub([]);
+  const onOpenBoard = vi.fn();
+  render(<NeedsYou project="/repo" repos={[]} onOpenBoard={onOpenBoard} />);
+  await screen.findByText(/Nothing needs you/);
+  fireEvent.click(screen.getByRole('button', { name: 'Board' }));
+  expect(onOpenBoard).toHaveBeenCalled();
+});

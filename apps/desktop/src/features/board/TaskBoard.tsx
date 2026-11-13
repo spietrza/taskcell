@@ -158,6 +158,13 @@ export function TaskBoard({
     <div className="flex min-h-0 flex-1 flex-col">
       {header}
       <RepoFailures failures={data?.failures ?? []} />
+      {allTasks?.length === 0 && (data?.failures.length ?? 0) === 0 && (
+        <div className="mb-3 shrink-0 rounded-lg border border-dashed border-border/60 p-4 text-sm">
+          <div className="font-medium">No tasks yet</div>
+          <p className="mt-1 text-muted-foreground">Create a task with acceptance criteria. The factory picks it up and its card moves across this board.</p>
+          <Button className="mt-2" onClick={onNewTask}>Create a task</Button>
+        </div>
+      )}
       {capped && (
         <div className="mb-2 shrink-0 text-xs text-muted-foreground">
           {allRepos

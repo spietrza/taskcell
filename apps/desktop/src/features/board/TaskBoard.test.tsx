@@ -231,3 +231,14 @@ describe('TaskBoard quick view', () => {
     expect(card).toHaveFocus();
   });
 });
+
+describe('TaskBoard empty state', () => {
+  test('an empty board says what to do next and links to creating a task', async () => {
+    mockListTasks.mockResolvedValue({ tasks: [], capped: false });
+    const onNewTask = vi.fn();
+    render(<TaskBoard project="/r/alpha" repos={['/r/alpha']} onOpenTask={() => {}} onNewTask={onNewTask} />);
+    await screen.findByText('No tasks yet');
+    fireEvent.click(screen.getByRole('button', { name: 'Create a task' }));
+    expect(onNewTask).toHaveBeenCalled();
+  });
+});

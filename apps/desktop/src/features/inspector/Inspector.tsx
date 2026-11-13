@@ -56,6 +56,7 @@ export function Inspector({
   onTaskCrumb,
   onNewTask,
   onOpenBoard,
+  onOpenSetup,
 }: {
   project: string;
   /** Every hub repository: "All repositories" watches and lists running runs for each. */
@@ -78,6 +79,8 @@ export function Inspector({
   onTaskCrumb: (c: { name: string; onRename: (v: string) => void } | null) => void;
   onNewTask: () => void;
   onOpenBoard: () => void;
+  /** Reopen the first-run guide (Settings). */
+  onOpenSetup?: () => void;
 }) {
   const [runs, setRuns] = useState<(RunSummary & Partial<RepoStamp>)[]>([]);
   const [failures, setFailures] = useState<RepoReadFailure[]>([]);
@@ -531,7 +534,7 @@ export function Inspector({
         // In-flight runs render as running rows at the top of the RunList table.
         <div className="flex min-h-0 flex-1 flex-col">
           <RepoFailures failures={failures} />
-          <RunList runs={runs} active={active} showRepo={allRepos} hub={filter} onHub={onFilter} projects={allRepos ? projects : []} onSelect={open} onOpenActive={setLiveRun} />
+          <RunList runs={runs} active={active} showRepo={allRepos} hub={filter} onHub={onFilter} projects={allRepos ? projects : []} onSelect={open} onOpenActive={setLiveRun} onNewTask={onNewTask} />
         </div>
       ) : screen === 'board' ? (
         <TaskBoard
@@ -552,6 +555,7 @@ export function Inspector({
         <SettingsScreen
           project={project}
           {...(teamScreen ? { teamScreen } : {})}
+          {...(onOpenSetup ? { onOpenSetup } : {})}
           fleet={canUseFleet() ? <Fleet project={project} active={active} /> : null}
           remote={<RemoteRuns project={project} onOpenRun={open} />}
         />

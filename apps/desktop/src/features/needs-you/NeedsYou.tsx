@@ -109,6 +109,7 @@ export function NeedsYou({
   repos,
   teamId,
   onCount,
+  onOpenBoard,
 }: {
   project: string;
   allRepos?: boolean;
@@ -116,6 +117,8 @@ export function NeedsYou({
   /** The selected team (hub): "All repositories" is read for it. */
   teamId?: string;
   onCount?: (n: number) => void;
+  /** Where the empty state sends the user to start work. */
+  onOpenBoard?: () => void;
 }) {
   const [items, setItems] = useState<(NeedsYouItem & Partial<RepoStamp>)[] | null>(null);
   const [failures, setFailures] = useState<RepoReadFailure[]>([]);
@@ -162,7 +165,19 @@ export function NeedsYou({
       <RepoFailures failures={failures} />
       {items === null && !error && <div className="text-sm text-muted-foreground">Loading…</div>}
       {items?.length === 0 && (
-        <p className="text-sm text-muted-foreground">Nothing needs you — the factory is not waiting on an answer for any Task or PR.</p>
+        <p className="text-sm text-muted-foreground">
+          Nothing needs you — the factory is not waiting on an answer for any Task or PR. To start something, create a task
+          {onOpenBoard && (
+            <>
+              {' '}
+              on the{' '}
+              <button type="button" className="underline" onClick={onOpenBoard}>
+                Board
+              </button>
+            </>
+          )}
+          .
+        </p>
       )}
       {items?.map((item) => (
         // py-0: Card.Root's own vertical padding doubled Card.Content's p-4 into a gap above the chips.

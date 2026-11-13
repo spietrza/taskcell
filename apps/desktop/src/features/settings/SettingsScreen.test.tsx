@@ -35,3 +35,12 @@ test('switching sections goes through the unsaved-changes guard', () => {
   fireEvent.click(screen.getByRole('tab', { name: 'Line' }));
   expect(screen.getByText('general content')).toBeInTheDocument();
 });
+
+test('General offers to reopen the setup guide only when given a handler', () => {
+  const onOpenSetup = vi.fn();
+  const { rerender } = render(<SettingsScreen project="/r" fleet={null} remote={null} />);
+  expect(screen.queryByRole('button', { name: 'Reopen setup guide' })).toBeNull();
+  rerender(<SettingsScreen project="/r" fleet={null} remote={null} onOpenSetup={onOpenSetup} />);
+  fireEvent.click(screen.getByRole('button', { name: 'Reopen setup guide' }));
+  expect(onOpenSetup).toHaveBeenCalled();
+});

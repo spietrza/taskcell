@@ -743,6 +743,18 @@ export interface CliVersionReport {
   clis: CliVersionInfo[];
 }
 
+/** First-run setup detection (hub only): what the hub host can see, never a secret value. */
+export type SetupToolState = 'ready' | 'needs-login' | 'missing';
+export interface SetupToolStatus {
+  id: 'gh' | 'glab' | 'linear';
+  state: SetupToolState;
+}
+export interface SetupStatus {
+  tools: SetupToolStatus[];
+  /** Whether a model credential is already present for each provider (a boolean, not the value). */
+  models: { claude: boolean; codex: boolean };
+}
+
 /** Instance provider credentials (hub only, write-only: a value is never returned). */
 export type CredentialProvider = 'claude' | 'codex' | 'zai' | 'openrouter';
 export interface CredentialStatus {
