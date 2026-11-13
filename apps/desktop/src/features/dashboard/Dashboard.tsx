@@ -5,6 +5,8 @@ import { projectColor } from '../../color';
 import { combinationNote, runLocationLabel, taskSourceLabel } from '../../platform';
 import { relTime } from '../../time';
 import type { Project } from '../../taskcell-output';
+import type { FactoryState } from '../../wire';
+import { factoryLabel } from './factoryLabel';
 
 function Stat({
   label,
@@ -34,6 +36,7 @@ export function Dashboard({
   onAdd,
   onRemove,
   onEnableFactory,
+  factory,
 }: {
   projects: Project[];
   onOpen: (p: { path: string; name: string }) => void;
@@ -41,6 +44,8 @@ export function Dashboard({
   onRemove: (path: string) => void;
   /** Hub-only (the `enable_factory_*` commands are HUB_ONLY): omitted, the card has no button. */
   onEnableFactory?: (p: { path: string; name: string }) => void;
+  /** Each project's factory checklist state by path (hub-only); a project without an entry shows no factory line. */
+  factory?: Record<string, FactoryState>;
 }) {
   // Path of the card whose × was clicked: removal waits for a second, explicit click.
   const [confirmRemove, setConfirmRemove] = useState<string | null>(null);
@@ -92,6 +97,7 @@ export function Dashboard({
           <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
             {projects.map((p) => {
               const note = combinationNote(p.taskSource, p.runLocation);
+              const fs = factory?.[p.path];
               const last = p.lastRun ? relTime(new Date(p.lastRun).getTime()) : null;
               const color = projectColor(p);
               return (
@@ -182,6 +188,14 @@ export function Dashboard({
                       <Chip color="secondary" variant="outlined">{runLocationLabel(p.runLocation)}</Chip>
                     </div>
                     {note && <p className="mt-1 text-xs text-muted-foreground">{note}</p>}
+                    {fs && (
+                      <p
+                        data-testid="factory-state"
+                        className={`mt-1 text-xs ${fs.state === 'broken' ? 'text-destructive-text' : fs.state === 'ready' ? 'text-success-text' : 'text-muted-foreground'}`}
+                      >
+                        {factoryLabel(fs)}
+                      </p>
+                    )}
                     {onEnableFactory && (
                       <Button
                         className="relative z-10 mt-3 h-7 px-2 text-xs"
@@ -193,7 +207,7 @@ export function Dashboard({
                           onEnableFactory({ path: p.path, name: p.name });
                         }}
                       >
-                        Enable factory
+                        {fs && fs.state !== 'none' ? 'Factory checklist' : 'Enable factory'}
                       </Button>
                     )}
                   </Card.Content>

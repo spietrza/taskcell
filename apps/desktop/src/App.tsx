@@ -11,9 +11,9 @@ import { Dashboard } from './features/dashboard/Dashboard';
 import { NeedsYou, canUseNeedsYou } from './features/needs-you/NeedsYou';
 import { Inspector } from './features/inspector/Inspector';
 import { EnableFactoryDialog } from './features/dashboard/EnableFactoryDialog';
-import { listProjects, addProject, cloneProject, removeProject, listActive, listNeedsYou, listNeedsYouAll, listTeams, teamAddRepository } from './ipc';
+import { listProjects, addProject, cloneProject, removeProject, listActive, listNeedsYou, listNeedsYouAll, listTeams, teamAddRepository, factoryState } from './ipc';
 import { loadTeamId, resolveTeam, saveTeamId, teamProjects } from './teams';
-import type { Team } from './wire';
+import type { FactoryState, Team } from './wire';
 import { projectColor, contrastColor } from './color';
 import { createNavGuardRegistry, NavGuardContext } from './navGuard';
 import { ProjectCombobox } from './ProjectCombobox';
@@ -256,6 +256,22 @@ export default function App() {
 
   const [showRepoPicker, setShowRepoPicker] = useState(false);
   const [factoryProject, setFactoryProject] = useState<{ path: string; name: string } | null>(null);
+  // Each project's factory checklist for its card; re-read when the dialog closes (it may have advanced).
+  const [factoryStates, setFactoryStates] = useState<Record<string, FactoryState>>({});
+  // Keyed by the path list, not `projects`: the 5s project poll replaces that array every tick.
+  const projectPaths = projects.map((p) => p.path).join('\n');
+  useEffect(() => {
+    if (factoryProject !== null || projectPaths === '') return;
+    let alive = true;
+    void Promise.all(
+      projectPaths.split('\n').map((path) => factoryState(path).then((s) => [path, s] as const, () => null)),
+    ).then((entries) => {
+      if (alive) setFactoryStates(Object.fromEntries(entries.filter((e) => e !== null)));
+    });
+    return () => {
+      alive = false;
+    };
+  }, [projectPaths, factoryProject]);
 
   const add = (): void => {
     // One picker everywhere (the desktop window shows the same hub-served UI as a browser): RepoPicker,
@@ -436,6 +452,7 @@ export default function App() {
                   onAdd={add}
                   onRemove={remove}
                   onEnableFactory={setFactoryProject}
+                  factory={factoryStates}
                 />
               </div>
             </div>

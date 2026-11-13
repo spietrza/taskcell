@@ -20,8 +20,9 @@ import {
   needsYouItems,
   factoryPlan,
   factoryApplyResult,
-  factorySecret,
   factoryVerify,
+  factoryStateNone,
+  factoryStateSettingUp,
 } from './fixtures';
 import { demoProject, demoRuns, demoRunDetails, demoActiveRuns, demoBoardTasks, demoNeedsYou, DEMO_REPO_PATH, DEMO_WRITE_COMMANDS } from './demoData';
 
@@ -149,8 +150,10 @@ const commandHandlers = {
   // Hub-only Enable factory flow (EnableFactoryDialog).
   enable_factory_plan: () => factoryPlan,
   enable_factory_apply: () => factoryApplyResult,
-  enable_factory_secret: () => factorySecret,
   enable_factory_verify: () => factoryVerify,
+  enable_factory_start: () => factoryStateSettingUp,
+  factory_state: () => factoryStateNone,
+  factory_refresh: () => factoryStateSettingUp,
   // Hub-only per-user credentials (CredentialsPanel): the dev mock is a signed-in admin with none saved.
   user_credentials_status: () => ({ enabled: true, admin: true, names: [] as string[] }),
   save_user_credential: () => undefined,

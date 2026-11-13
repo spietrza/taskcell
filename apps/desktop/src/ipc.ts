@@ -22,7 +22,7 @@ import type {
   FactoryApplyResult,
   FactoryPlan,
   FactoryProviderId,
-  FactorySecretStep,
+  FactoryState,
   FactoryVerifyResult,
   NeedsYouItem,
   SpawnInfo,
@@ -94,13 +94,23 @@ export function enableFactoryApply(repoPath: string, plan: FactoryPlan): Promise
   return call('enable_factory_apply', { repoPath, plan });
 }
 
-/** Command text only — the hub never reads, prints or stores the secret value. */
-export function enableFactorySecret(repoPath: string, plan: FactoryPlan): Promise<FactorySecretStep> {
-  return call('enable_factory_secret', { repoPath, plan });
-}
-
 export function enableFactoryVerify(repoPath: string, plan: FactoryPlan): Promise<FactoryVerifyResult> {
   return call('enable_factory_verify', { repoPath, plan });
+}
+
+/** The project's persisted factory checklist (no network). */
+export function factoryState(repoPath: string): Promise<FactoryState> {
+  return call('factory_state', { repoPath });
+}
+
+/** Re-check the secret (by name), the PR merge and the doctor run; persists and returns the checklist. */
+export function factoryRefresh(repoPath: string): Promise<FactoryState> {
+  return call('factory_refresh', { repoPath });
+}
+
+/** Start the checklist when the callers are already on the default branch (no PR to open). */
+export function enableFactoryStart(repoPath: string, plan: FactoryPlan): Promise<FactoryState> {
+  return call('enable_factory_start', { repoPath, plan });
 }
 
 /** Hub-only, admin-only (403 otherwise): the audit log, newest first. */

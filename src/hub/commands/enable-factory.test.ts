@@ -1,10 +1,18 @@
-import { describe, expect, test, vi } from 'vitest';
+import { mkdtemp } from 'node:fs/promises';
+import { tmpdir } from 'node:os';
+import { join } from 'node:path';
+import { beforeEach, describe, expect, test, vi } from 'vitest';
 import * as enableFactoryModule from '../enable-factory.js';
 import { BadRequestError } from '../../sidecar/sidecar.js';
 import type { FactoryPlan } from '../enable-factory.js';
 import { dispatchRpc, makeCtx, tmpRepo } from '../test-kit.js';
 
 describe('enable_factory RPCs', () => {
+  // The checklist is persisted in the hub config dir.
+  beforeEach(async () => {
+    process.env.VANGUARD_HUB_CONFIG_DIR = await mkdtemp(join(tmpdir(), 'factory-cfg-'));
+  });
+
   const validPlan = {
     provider: 'github',
     repoSlug: 'acme/widgets',
@@ -14,13 +22,13 @@ describe('enable_factory RPCs', () => {
     scripts: { typecheck: true, lint: true, test: true, build: true },
   };
 
-  function spyProvider(): { seen: FactoryPlan[]; mock: ReturnType<typeof vi.spyOn> } {
+  function spyProvider(existing?: string[]): { seen: FactoryPlan[]; mock: ReturnType<typeof vi.spyOn> } {
     const seen: FactoryPlan[] = [];
     const mock = vi.spyOn(enableFactoryModule, 'enableFactory').mockImplementation(() => ({
-      plan: async () => ({ ...validPlan, ...enableFactoryModule.factoryPlanTargets() }) as FactoryPlan,
+      plan: async () => ({ ...validPlan, ...enableFactoryModule.factoryPlanTargets(), ...(existing ? { existingCallerFiles: existing } : {}) }) as FactoryPlan,
       apply: async (plan) => {
         seen.push(plan);
-        return { branch: 'vanguard/enable-factory', prUrl: 'https://example/pr/1', labelsCreated: [] };
+        return { branch: 'vanguard/enable-factory', prUrl: 'https://github.com/acme/widgets/pull/1', labelsCreated: [] };
       },
       secretCommand: (plan) => {
         seen.push(plan);
@@ -28,7 +36,7 @@ describe('enable_factory RPCs', () => {
       },
       verify: async (plan) => {
         seen.push(plan);
-        return { dispatched: true };
+        return { dispatched: true, run: { url: 'https://github.com/acme/widgets/actions/runs/5', status: 'queued', conclusion: '' } };
       },
     }));
     return { seen, mock };
@@ -127,7 +135,7 @@ describe('enable_factory RPCs', () => {
     }
   });
 
-  test.each(['enable_factory_apply', 'enable_factory_verify'])('%s enforces mutation permissions', async (cmd) => {
+  test.each(['enable_factory_apply', 'enable_factory_verify', 'enable_factory_start'])('%s enforces mutation permissions', async (cmd) => {
     const repo = await tmpRepo();
     const { ctx } = await makeCtx(repo, { bind: { isLoopback: false, allowAdd: false } });
     const { mock } = spyProvider();
@@ -137,5 +145,82 @@ describe('enable_factory RPCs', () => {
     } finally {
       mock.mockRestore();
     }
+  });
+
+  test('apply and verify persist the checklist; factory_state reads it back', async () => {
+    const repo = await tmpRepo();
+    const { ctx } = await makeCtx(repo);
+    const { mock } = spyProvider();
+    try {
+      expect(await dispatchRpc(ctx, 'factory_state', { repoPath: repo })).toMatchObject({ state: 'none' });
+      await dispatchRpc(ctx, 'enable_factory_apply', { repoPath: repo, plan: validPlan });
+      expect(await dispatchRpc(ctx, 'factory_state', { repoPath: repo })).toMatchObject({
+        state: 'setting-up',
+        step: 'secret',
+        prUrl: 'https://github.com/acme/widgets/pull/1',
+      });
+    } finally {
+      mock.mockRestore();
+    }
+  });
+
+  test('verify records the dispatched run and marks the callers as on the base', async () => {
+    const repo = await tmpRepo();
+    const { ctx } = await makeCtx(repo);
+    const { mock } = spyProvider();
+    try {
+      await dispatchRpc(ctx, 'enable_factory_verify', { repoPath: repo, plan: validPlan });
+      const state = (await dispatchRpc(ctx, 'factory_state', { repoPath: repo })) as { steps: Array<{ id: string; status: string }>; doctor?: { status: string } };
+      expect(state.doctor?.status).toBe('queued');
+      expect(state.steps.find((x) => x.id === 'merged')?.status).toBe('done');
+    } finally {
+      mock.mockRestore();
+    }
+  });
+
+  test('verify with a foreign slug is refused and never changes the stored slug or secret command', async () => {
+    const repo = await tmpRepo();
+    const { ctx } = await makeCtx(repo);
+    const { seen, mock } = spyProvider();
+    try {
+      const foreign = { ...validPlan, repoSlug: 'attacker/sink' };
+      // No record yet: nothing is seeded from the client slug.
+      await expect(dispatchRpc(ctx, 'enable_factory_verify', { repoPath: repo, plan: foreign })).rejects.toThrow('the plan no longer matches');
+      expect(await dispatchRpc(ctx, 'factory_state', { repoPath: repo })).toMatchObject({ state: 'none' });
+      // An existing record keeps its slug and command.
+      await dispatchRpc(ctx, 'enable_factory_apply', { repoPath: repo, plan: validPlan });
+      await expect(dispatchRpc(ctx, 'enable_factory_verify', { repoPath: repo, plan: foreign })).rejects.toThrow('the plan no longer matches');
+      expect(seen.every((p) => p.repoSlug === 'acme/widgets')).toBe(true);
+      expect(await dispatchRpc(ctx, 'factory_state', { repoPath: repo })).toMatchObject({
+        plan: { repoSlug: 'acme/widgets' },
+        secret: { command: 'gh secret set CLAUDE_CODE_OAUTH_TOKEN --repo acme/widgets' },
+      });
+    } finally {
+      mock.mockRestore();
+    }
+  });
+
+  test('enable_factory_start needs every caller on the base, then starts at the secret step', async () => {
+    const repo = await tmpRepo();
+    const { ctx } = await makeCtx(repo);
+    let { mock } = spyProvider();
+    try {
+      await expect(dispatchRpc(ctx, 'enable_factory_start', { repoPath: repo, plan: validPlan })).rejects.toThrow('not all on the default branch');
+      expect(await dispatchRpc(ctx, 'factory_state', { repoPath: repo })).toMatchObject({ state: 'none' });
+    } finally {
+      mock.mockRestore();
+    }
+    ({ mock } = spyProvider(enableFactoryModule.factoryPlanTargets().callerFiles));
+    try {
+      expect(await dispatchRpc(ctx, 'enable_factory_start', { repoPath: repo, plan: validPlan })).toMatchObject({ state: 'setting-up', step: 'secret' });
+    } finally {
+      mock.mockRestore();
+    }
+  });
+
+  test('factory_refresh with no checklist is a no-op', async () => {
+    const repo = await tmpRepo();
+    const { ctx } = await makeCtx(repo);
+    expect(await dispatchRpc(ctx, 'factory_refresh', { repoPath: repo })).toMatchObject({ state: 'none' });
   });
 });
