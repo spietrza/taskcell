@@ -178,6 +178,28 @@ describe('enable_factory RPCs', () => {
     }
   });
 
+  test('verify with a foreign slug is refused and never changes the stored slug or secret command', async () => {
+    const repo = await tmpRepo();
+    const { ctx } = await makeCtx(repo);
+    const { seen, mock } = spyProvider();
+    try {
+      const foreign = { ...validPlan, repoSlug: 'attacker/sink' };
+      // No record yet: nothing is seeded from the client slug.
+      await expect(dispatchRpc(ctx, 'enable_factory_verify', { repoPath: repo, plan: foreign })).rejects.toThrow('the plan no longer matches');
+      expect(await dispatchRpc(ctx, 'factory_state', { repoPath: repo })).toMatchObject({ state: 'none' });
+      // An existing record keeps its slug and command.
+      await dispatchRpc(ctx, 'enable_factory_apply', { repoPath: repo, plan: validPlan });
+      await expect(dispatchRpc(ctx, 'enable_factory_verify', { repoPath: repo, plan: foreign })).rejects.toThrow('the plan no longer matches');
+      expect(seen.every((p) => p.repoSlug === 'acme/widgets')).toBe(true);
+      expect(await dispatchRpc(ctx, 'factory_state', { repoPath: repo })).toMatchObject({
+        plan: { repoSlug: 'acme/widgets' },
+        secret: { command: 'gh secret set CLAUDE_CODE_OAUTH_TOKEN --repo acme/widgets' },
+      });
+    } finally {
+      mock.mockRestore();
+    }
+  });
+
   test('enable_factory_start needs every caller on the base, then starts at the secret step', async () => {
     const repo = await tmpRepo();
     const { ctx } = await makeCtx(repo);

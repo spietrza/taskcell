@@ -107,8 +107,15 @@ export const commands = defineCommands<EnableFactoryCommands>({
     // Dispatches the doctor workflow, so it mutates the remote too.
     assertMutationsAllowed(ctx.bind);
     const real = await allow(requireString(args, 'repoPath'));
-    const plan = requirePlan(args, 'plan');
-    const result = await enableFactory(real, 'github').verify(plan);
+    const shown = requirePlan(args, 'plan');
+    // Re-derive the plan server-side, as apply and start do: the record (and its copy-ready
+    // `gh secret set --repo <slug>` command) must never be seeded from a client-supplied slug.
+    const provider = enableFactory(real, 'github');
+    const plan = await provider.plan();
+    if (plan.repoSlug !== shown.repoSlug) {
+      throw new BadRequestError('the plan no longer matches the repository (repo changed); review the new plan and verify again');
+    }
+    const result = await provider.verify(plan);
     // A dispatched doctor means the callers are on the default branch.
     await updateFactoryRecord(real, plan, (r) => {
       const { doctor: _old, ...rest } = r;
