@@ -177,6 +177,13 @@ export interface RunStagesOptions {
    * (see MAX_RATE_LIMIT_WAIT_MS). Defaults to a real abortable timer; a test supplies its own.
    */
   sleep?: (ms: number, signal?: AbortSignal) => Promise<void>;
+  /**
+   * Deterministic gate (verify, secret scan, repair loop) run once, before the first reviewer stage, on
+   * the implementer's output. `pass: false` stops the pipeline there: the reviewer (and every later stage)
+   * never runs on a change that is still red. `diff` replaces the diff the reviewer is shown when the
+   * gate's repairs changed the tree. Never called when the pipeline has no reviewer stage.
+   */
+  gateBeforeReview?: (outcomes: StageOutcome[]) => Promise<{ pass: boolean; diff?: string }>;
 }
 
 /**
@@ -292,9 +299,21 @@ export async function runBudgetedStages(
   const emit = opts.onEvent ?? ((): void => {});
   let index = 0;
   const of = stages.length;
+  let gated = false;
   for (const stage of stages) {
     if (spentUsd >= maxCostUsd) {
       return makeFrozenRun(ctx, 'budget_exceeded', spentUsd, outcomes);
+    }
+    if (stage.name === STAGE.REVIEWER && !gated && opts.gateBeforeReview !== undefined) {
+      gated = true;
+      const gate = await opts.gateBeforeReview(outcomes);
+      if (!gate.pass) break;
+      if (gate.diff !== undefined) {
+        // A repair changed the tree: the reviewer must not see the pre-repair implementer result.
+        previousDiff = gate.diff;
+        const repaired = outcomes.find((o) => o.name === STAGE.IMPLEMENTER);
+        if (repaired !== undefined) previous = repaired.result;
+      }
     }
     emit({ type: 'stage-start', name: stage.name, index, of });
     const agent = stage.provider ?? opts.agent;
