@@ -346,6 +346,8 @@ export interface RunRecord {
   baseBranch?: string;
   /** Agent calls folded into this stage (auto-resumes and gate repairs); absent when the stage ran once. */
   attempts?: number;
+  /** Ids of the lessons injected into this run's prompts (`taskcell lessons list` counts them). */
+  lessonIds?: string[];
 }
 
 export interface Proof {
@@ -394,6 +396,41 @@ export interface RunSummary {
   startedBy?: string;
   /** `'merged'` when the run's card is done (its pull request merged); set by the hub's list commands, absent when unknown or not merged. */
   prState?: 'merged';
+  /** `'ci'` for a run known only from the metrics branch (no local record to open); `prUrl` links its PR/MR. */
+  source?: 'ci';
+  /** The run's metrics carry no cost data, so `totalCostUsd` (0) is not a cost: show "unknown", not $0. */
+  costUnknown?: true;
+}
+
+/** Period a cost breakdown covers: the last 7 / 30 days, or everything on the branch. */
+export type CostPeriod = '7d' | '30d' | 'all';
+
+/** One row of a cost breakdown (a model or a stage). */
+export interface CostRow {
+  key: string;
+  entries: number;
+  costUsd: number;
+  /** Entries without cost data (counted in `entries`, add nothing to `costUsd`). */
+  unknownEntries: number;
+}
+
+/**
+ * A project's CI run cost from its metrics branch (the data `taskcell stats --branch` reads).
+ * `no-branch`: the repo has no metrics branch yet (`hint` says how to set it up).
+ * `costKind`: `estimated` (token usage priced at API rates; on a subscription nothing is billed per
+ * token), `billed` (every costed record says so), `mixed`, or `unknown` (no record carries cost data).
+ */
+export interface CostBreakdown {
+  status: 'ok' | 'no-branch';
+  branch: string;
+  period: CostPeriod;
+  hint?: string;
+  costKind: 'estimated' | 'billed' | 'mixed' | 'unknown';
+  runs: number;
+  totalCostUsd: number;
+  unknownEntries: number;
+  byModel: CostRow[];
+  byStage: CostRow[];
 }
 
 export interface StageDetail {
@@ -571,6 +608,8 @@ export interface Project {
   lastRun?: string | null;
   runningCount: number;
   runsLast24h: number;
+  /** Of `runCount`, the runs known only from the metrics branch (CI). */
+  ciRunCount?: number;
   color?: string | null;
   /** Where this project's tasks come from (`app.json` `taskSource`); unset = GitHub Issues. */
   taskSource?: TaskSourceId | null;
@@ -849,6 +888,8 @@ export interface Commands {
   write_app_config: { args: { repoPath: string; config: AppConfig }; result: void };
   /** HUB_ONLY, admin-only (403 otherwise): the audit log newest first, optionally for one login. */
   read_audit: { args: { login?: string; limit?: number }; result: AuditEntry[] };
+  /** HUB_ONLY, read-only: a project's cost by model and by stage for a period (default `all`), read from the metrics branch like `taskcell stats --branch`; cached, never a model call. A repo without the branch answers `status: 'no-branch'` with a setup hint. */
+  read_cost_breakdown: { args: { repoPath: string; period?: CostPeriod }; result: CostBreakdown };
   /** HUB_ONLY, read-only: installed vs latest claude/codex/cursor CLI in the local sandbox image (3-day soak applied; `enabled: false`, and no lookups, when VANGUARD_CLI_VERSION_CHECK is off). Refused on a non-loopback bind without VANGUARD_HUB_ALLOW_ADD. */
   agent_cli_versions: { args: undefined; result: CliVersionReport };
   api_complete: { args: { repoPath: string; req: CompleteCallArgs; callId?: string }; result: CompleteResponse };
@@ -1059,6 +1100,7 @@ export const COMMAND_NAMES = [
   'read_app_config',
   'read_app_config_strict',
   'read_audit',
+  'read_cost_breakdown',
   'read_draft',
   'read_issue_history',
   'read_run',

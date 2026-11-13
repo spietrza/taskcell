@@ -28,6 +28,7 @@ import { injectedSecretValues, redactForPublish } from '../core/secret-scan.js';
 import { summarizeOutcomes } from '../core/run-summary.js';
 import { appendStepSummary } from '../core/step-summary.js';
 import type { StepSummary, StepSummaryExit } from '../core/step-summary.js';
+import { loadLessonsForTask } from '../core/lessons.js';
 import { loadRetrospectiveMemory, refreshRetrospectiveMemory } from '../core/retrospective-memory.js';
 import { llmProxySandboxEnv } from '../sandbox/egress-proxy.js';
 import { resolveVerifyCommand, runVerification, renderVerificationFeedback, proofBlock, verifySkippedBlock, baseRedBlock } from '../pipeline/verify.js';
@@ -42,6 +43,7 @@ import {
   parseSpecManifest,
   primaryModuleScope,
   checkConformance,
+  extractDiffFiles,
   renderConformanceFeedback,
   commitLeakWarningBlock,
   prBodyGapWarningBlock,
@@ -458,7 +460,18 @@ export async function runSourcedIssue(
     // missing key fails in a second, not after a full implementer run.
     const forkScore =
       deps.forkN !== undefined && deps.forkScorer === 'decision' ? decisionDiffScorer(resolveForkScorerConfig(whiteLabel, providerEnv), deps.signal !== undefined ? { signal: deps.signal } : {}) : undefined;
-    const retrospectiveMemory = await loadRetrospectiveMemory(deps.repoPath, { taskText: `${task.title}\n${task.description}` });
+    // Lessons are picked by the files the spec plans to change as well as the paths the issue names;
+    // the ids actually injected (first delivery + gate repairs) land on the run record.
+    const lessonIds = new Set<string>();
+    const trust = { allowedAuthors: deps.feedbackAuthors, issueAuthor: task.author };
+    const specText = trustedSpecText(task, trust);
+    const manifest = parseSpecManifest(specText);
+    const plannedFiles = manifest?.files?.map((x) => x.path);
+    const retrospectiveMemory = await loadRetrospectiveMemory(deps.repoPath, {
+      taskText: `${task.title}\n${task.description}`,
+      ...(plannedFiles !== undefined ? { files: plannedFiles } : {}),
+      onLessons: (ids) => ids.forEach((id) => lessonIds.add(id)),
+    });
     // Log-only difficulty probe (decision model, opt-in via env): kicked off here so its round trip
     // hides under sandbox + worktree provisioning; awaited once the pipeline is assembled. Recorded
     // next to the run so stats can later tell whether it predicts repairs/escalation. Never routes.
@@ -555,6 +568,8 @@ export async function runSourcedIssue(
         ...(imageDigest !== undefined ? { imageDigest } : {}),
         ...(deps.credentialSource !== undefined ? { credentialSource: deps.credentialSource } : {}),
       };
+      // Lessons are only all known once the gate repairs have run, so read them at write time.
+      const stageMeta = (): typeof runMeta & { lessonIds?: string[] } => ({ ...runMeta, ...(lessonIds.size > 0 ? { lessonIds: [...lessonIds] } : {}) });
       // One RunWriter for the whole run: it owns the timestamp, so proof.json, visual-proof.json and
       // every stage record share one prefix and the hub/desktop readers can match a run's proof to
       // its stage records by name.
@@ -625,9 +640,6 @@ export async function runSourcedIssue(
       // reviewer and falls through to a declared-partial PR (reviewRequestBody below), never a silent
       // `Closes` with any gate red. The secret scan also runs before the reviewer but is never repaired:
       // a hit ends the run as secret-blocked, exactly like the delivery-time scan.
-      const trust = { allowedAuthors: deps.feedbackAuthors, issueAuthor: task.author };
-      const specText = trustedSpecText(task, trust);
-      const manifest = parseSpecManifest(specText);
       // A *parseable* manifest only: prose that merely names the tag must not downgrade delivery.
       const untrustedManifestDropped = manifest === undefined && task.comments.some(
         (c) => !isTrustedComment(c, trust) && parseSpecManifest(c.body) !== undefined,
@@ -669,12 +681,20 @@ export async function runSourcedIssue(
         const implementerIdx = outcomes.findIndex((o) => o.name === STAGE.IMPLEMENTER);
         implementerDone = implementerIdx === -1 || outcomes[implementerIdx]?.result.completed === true;
         const pass = conformance.pass && (verification === undefined || verification.passed) && implementerDone;
+        // A red gate: hand the implementer the lessons for the files the diff actually touches.
+        let repairLessons: string | undefined;
+        if (!pass) {
+          const repair = await loadLessonsForTask(deps.repoPath, `${task.title}\n${task.description}`, { files: extractDiffFiles(gateDiff !== '' ? gateDiff : await ctx.wm.diff(ctx.worktreePath)) });
+          repair.ids.forEach((id) => lessonIds.add(id));
+          repairLessons = repair.text !== '' ? repair.text : undefined;
+        }
         const feedback = [
           !implementerDone
             ? 'The previous session ended before the task was finished (turn cap or timeout). Continue and complete the remaining work.'
             : undefined,
           !conformance.pass ? renderConformanceFeedback(conformance) : undefined,
           verification !== undefined && !verification.passed ? renderVerificationFeedback(verification) : undefined,
+          repairLessons,
         ].filter((part): part is string => part !== undefined).join('\n\n');
         return { pass, feedback };
       };
@@ -716,7 +736,7 @@ export async function runSourcedIssue(
       };
       const endSecretBlocked = async (block: SecretBlock): Promise<RunIssueResult> => {
         // The blocked diff holds the secret the scan caught: keep it (and the bundle) off disk.
-        await writer.writeStages(outcomes, { ...runMeta, omitDiff: true });
+        await writer.writeStages(outcomes, { ...stageMeta(), omitDiff: true });
         await stepSummary('secret-blocked');
         // White-label runs keep the automation invisible in the client repo: no secret-blocked label,
         // no branded comment. The operator still gets the masked findings on stderr + run record.
@@ -916,7 +936,7 @@ export async function runSourcedIssue(
       });
       if (delivery.kind === 'secret-blocked') return await endSecretBlocked(delivery.block);
       if (delivery.kind === 'no-changes') {
-        await writer.writeStages(outcomes, runMeta);
+        await writer.writeStages(outcomes, stageMeta());
         await stepSummary('no-changes');
         onEvent({ type: 'run-end' });
         return { task };
@@ -946,7 +966,7 @@ export async function runSourcedIssue(
           ...(deps.reviewGate === true ? { gate: true } : {}),
         });
       }
-      await writer.writeStages(outcomes, { ...runMeta, prUrl: pr.prUrl });
+      await writer.writeStages(outcomes, { ...stageMeta(), prUrl: pr.prUrl });
       await stepSummary(verificationFailed ? 'verify-failed' : 'completed', { prUrl: pr.prUrl });
       if (verification !== undefined && !verification.passed) await adapter.addFailureLabel(pr.prUrl, 'verify');
       if (visualProofFailed) await adapter.addFailureLabel(pr.prUrl, 'visual-proof');

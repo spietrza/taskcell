@@ -1,10 +1,12 @@
 import { describe, it, expect, beforeEach, afterEach } from 'vitest';
-import { mkdtemp, rm, writeFile } from 'node:fs/promises';
+import { mkdir, mkdtemp, rm, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { execa } from 'execa';
 import {
   appendLessonRecords,
+  capLessons,
+  countLessonRuns,
   finalizeLessons,
   lessonId,
   loadLessonsForTask,
@@ -14,6 +16,7 @@ import {
   selectLessons,
 } from './lessons.js';
 import type { Lesson } from './lessons.js';
+import { changedFilesOf } from '../runners/re-review.js';
 import { loadRetrospectiveMemory } from './retrospective-memory.js';
 
 const lesson = (rule: string, paths: string[] = [], ts = '2026-11-12T10:00:00.000Z'): Lesson => ({
@@ -68,8 +71,8 @@ describe('parseLessons / selectLessons / renderLessons', () => {
 
   it('keeps repo-wide lessons and path-scoped ones whose glob matches a path the task mentions', () => {
     const all = [lesson('repo-wide'), lesson('core', ['src/core/**']), lesson('docs', ['docs/*.md'])];
-    expect(selectLessons(all, 'Fix the cache in src/core/state-path.ts').map((l) => l.rule)).toEqual(['repo-wide', 'core']);
-    expect(selectLessons(all, 'Touch src/core and docs/cli.md').map((l) => l.rule)).toEqual(['repo-wide', 'core', 'docs']);
+    expect(selectLessons(all, 'Fix the cache in src/core/state-path.ts').map((l) => l.rule)).toEqual(['core', 'repo-wide']);
+    expect(selectLessons(all, 'Touch src/core and docs/cli.md').map((l) => l.rule)).toEqual(['core', 'docs', 'repo-wide']);
   });
 
   it('renders within the byte cap, whole lines only', () => {
@@ -78,6 +81,52 @@ describe('parseLessons / selectLessons / renderLessons', () => {
     expect(md).toContain('x'.repeat(100));
     expect(md).not.toContain('y'.repeat(100));
     expect(renderLessons([])).toBe('');
+  });
+});
+
+describe('selection by files and cap ordering', () => {
+  const wire = lesson('wire', ['src/wire.ts']);
+
+  it('selects a lesson by a planned file even when the task text names no path', () => {
+    expect(selectLessons([wire], 'Rename the label')).toEqual([]);
+    expect(selectLessons([wire], 'Rename the label', ['src/wire.ts']).map((l) => l.rule)).toEqual(['wire']);
+  });
+
+  it('selects by the files of a diff', () => {
+    const all = [lesson('desk', ['apps/desktop/**']), wire];
+    expect(selectLessons(all, '', changedFilesOf('diff --git a/apps/desktop/src/x.ts b/apps/desktop/src/x.ts\n')).map((l) => l.rule)).toEqual(['desk']);
+  });
+
+  it('ranks by glob specificity, then violations, then newest', () => {
+    const broad = lesson('broad', ['src/**'], '2026-11-12T12:00:00.000Z');
+    const exact = lesson('exact', ['src/wire.ts'], '2026-11-12T08:00:00.000Z');
+    const often = { ...lesson('often', ['src/*.ts'], '2026-11-12T09:00:00.000Z'), violations: 3 };
+    const rarely = lesson('rarely', ['src/*.ts'], '2026-11-12T11:00:00.000Z');
+    const ranked = selectLessons([broad, rarely, often, exact], '', ['src/wire.ts']).map((l) => l.rule);
+    expect(ranked).toEqual(['exact', 'often', 'rarely', 'broad']);
+    // the cap keeps the head of the ranking, not the newest
+    expect(capLessons(selectLessons([broad, exact], '', ['src/wire.ts']), 100).map((l) => l.rule)).toEqual(['exact']);
+  });
+
+  it('cuts repo-wide lessons first under the cap', () => {
+    const ranked = selectLessons([lesson('repo-wide'), wire], '', ['src/wire.ts']).map((l) => l.rule);
+    expect(ranked).toEqual(['wire', 'repo-wide']);
+  });
+
+  it('counts the runs that received each lesson', async () => {
+    const dir = await mkdtemp(join(tmpdir(), 'vg-lesson-runs-'));
+    try {
+      const task = join(dir, '.taskcell', 'runs', 't1');
+      await mkdir(task, { recursive: true });
+      const rec = (ts: string, ids: string[]) => JSON.stringify({ timestamp: ts, lessonIds: ids });
+      await writeFile(join(task, 'a-implementer.json'), rec('a', ['x', 'y']));
+      await writeFile(join(task, 'a-reviewer.json'), rec('a', ['x']));
+      await writeFile(join(task, 'b-implementer.json'), rec('b', ['x']));
+      await writeFile(join(task, 'c.json'), '{}');
+      expect(Object.fromEntries(await countLessonRuns(dir))).toEqual({ x: 2, y: 1 });
+    } finally {
+      await rm(dir, { recursive: true, force: true });
+    }
   });
 });
 
@@ -119,11 +168,21 @@ describe('metrics-branch round trip', () => {
     expect(await loadRetrospectiveMemory(repo)).not.toContain('Lessons from past PRs');
 
     await appendLessonRecords(repo, [{ kind: 'dismiss', id: core.id, timestamp: '2026-11-12T11:00:00.000Z' }]);
-    expect(await loadLessonsForTask(repo, 'Bug in src/core/state-path.ts')).toBe('');
+    expect(await loadLessonsForTask(repo, 'Bug in src/core/state-path.ts')).toEqual({ text: '', ids: [] });
+  });
+
+  it('injects a lesson by planned file and reports the injected ids', async () => {
+    const wire = lesson('Regenerate the mirrored wire copy', ['src/wire.ts']);
+    await appendLessonRecords(repo, [wire]);
+    let ids: string[] = [];
+    const memory = await loadRetrospectiveMemory(repo, { taskText: 'Rename the label', files: ['src/wire.ts'], onLessons: (got) => (ids = got) });
+    expect(memory).toContain('Regenerate the mirrored wire copy');
+    expect(ids).toEqual([wire.id]);
+    expect((await loadLessonsForTask(repo, 'Rename the label')).ids).toEqual([]);
   });
 
   it('yields no lessons (never throws) when there is no remote branch or no repo', async () => {
-    expect(await loadLessonsForTask(repo, 'src/core/x.ts')).toBe('');
-    expect(await loadLessonsForTask(join(root, 'missing'), 'src/core/x.ts')).toBe('');
+    expect(await loadLessonsForTask(repo, 'src/core/x.ts')).toEqual({ text: '', ids: [] });
+    expect(await loadLessonsForTask(join(root, 'missing'), 'src/core/x.ts')).toEqual({ text: '', ids: [] });
   });
 });

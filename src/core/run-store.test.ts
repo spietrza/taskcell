@@ -71,6 +71,12 @@ async function recordFiles(taskId: string): Promise<string[]> {
 }
 
 describe('beginRun — writing', () => {
+  it('records the injected lesson ids on the stage record', async () => {
+    await beginRun(repo, 'TES-L', TS).writeStages([{ name: 'implementer', result }], { lessonIds: ['abc123def456'] });
+    const record = JSON.parse(await readFile(join(runsRoot(repo), 'TES-L', `${PREFIX}-implementer.json`), 'utf8'));
+    expect(record.lessonIds).toEqual(['abc123def456']);
+  });
+
   it('records the target branch on every stage record', async () => {
     await beginRun(repo, 'TES-1', TS).writeStages([{ name: 'implementer', result }], { baseBranch: 'dev' });
     const record = JSON.parse(await readFile(join(runsRoot(repo), 'TES-1', `${PREFIX}-implementer.json`), 'utf8'));
@@ -118,7 +124,17 @@ describe('beginRun — writing', () => {
       inputTokens: 100,
       model: 'actual-model',
       prUrl: 'https://pr/1',
+      costKind: 'estimated',
     });
+    expect(line.costUnknown).toBeUndefined();
+  });
+
+  it('marks a stage whose agent reported no cost as costUnknown on the metric line (not a $0 cost)', async () => {
+    const { costUsd: _omit, ...unpriced } = result;
+    await beginRun(repo, 'TES-1', TS).writeStages([{ name: 'implementer', result: unpriced }]);
+    const line = JSON.parse((await readFile(join(runsRoot(repo), 'metrics.jsonl'), 'utf8')).trim());
+    expect(line).toMatchObject({ costUsd: 0, costUnknown: true });
+    expect(line.costKind).toBeUndefined();
   });
 
   it('writes a sibling transcript.log and keeps the transcript out of the JSON', async () => {

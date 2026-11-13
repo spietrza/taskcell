@@ -361,6 +361,8 @@ export interface WriteStagesOptions {
    * flags is withheld with `diffOmitted: 'secret-scan'`.
    */
   omitDiff?: boolean;
+  /** Ids of the lessons injected into the run's prompts, recorded on every stage. */
+  lessonIds?: readonly string[];
 }
 
 /** A handle for one run: owns its timestamp, so every record it writes shares one prefix. */
@@ -393,6 +395,7 @@ interface WriteRecordOptions {
   baseBranch?: string;
   credentialSource?: 'instance' | 'user';
   startedBy?: string;
+  lessonIds?: readonly string[];
 }
 
 /**
@@ -453,6 +456,7 @@ async function writeRecord(repoPath: string, taskId: string, timestamp: string, 
     ...(opts.credentialSource !== undefined ? { credentialSource: opts.credentialSource } : {}),
     ...(diffOmitted !== undefined ? { diffOmitted } : {}),
     ...(opts.startedBy !== undefined ? { startedBy: opts.startedBy } : {}),
+    ...(opts.lessonIds !== undefined && opts.lessonIds.length > 0 ? { lessonIds: [...opts.lessonIds] } : {}),
   };
   const suffix = opts.label !== undefined ? `-${opts.label}` : '';
   const base = join(taskDir, `${sanitizeTimestamp(timestamp)}${suffix}`);
@@ -492,6 +496,9 @@ async function writeRecord(repoPath: string, taskId: string, timestamp: string, 
     evt: 'run_complete',
     ts: timestamp,
     ...stageMetric(result, opts.label, requested),
+    // `costUsd` reads 0 when the agent reported no cost: say so, so a reader shows "unknown", not $0.
+    // A reported cost is the agent CLI's own figure at list prices, never a provider's invoice.
+    ...(result.costUsd === undefined ? { costUnknown: true } : { costKind: 'estimated' }),
     ...(opts.prUrl !== undefined ? { prUrl: opts.prUrl } : {}),
   };
   await appendMetric(repoPath, metric);
@@ -535,11 +542,12 @@ export function beginRun(
           ...(opts.baseBranch !== undefined ? { baseBranch: opts.baseBranch } : {}),
           ...(opts.credentialSource !== undefined ? { credentialSource: opts.credentialSource } : {}),
           ...(runOpts.startedBy !== undefined ? { startedBy: runOpts.startedBy } : {}),
+          ...(opts.lessonIds !== undefined ? { lessonIds: opts.lessonIds } : {}),
         });
       }
       const first = outcomes[0];
       if (first === undefined) return;
-      const { omitDiff: _omitDiff, baseBranch: _baseBranch, ...trace } = opts;
+      const { omitDiff: _omitDiff, baseBranch: _baseBranch, lessonIds: _lessonIds, ...trace } = opts;
       await exportRunTrace({
         taskId,
         timestamp,
