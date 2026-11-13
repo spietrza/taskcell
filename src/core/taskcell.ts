@@ -307,7 +307,16 @@ const DROPPED_CI_LOGGED = 20;
 async function syncSandboxToWorktree(ctx: RunContext): Promise<string> {
   const staging = await ensureStateDir(ctx.localRepoPath, join(stateDir(ctx.localRepoPath), 'staging', ctx.taskId));
   try {
-    const { dropped } = await exportWorkspace(ctx.sandbox, WORKDIR, staging, ctx.worktreePath);
+    const { dropped, ignoredDeletions, deletionsSkipped } = await exportWorkspace(ctx.sandbox, WORKDIR, staging, ctx.worktreePath);
+    if (deletionsSkipped !== undefined) {
+      ctx.log.warn({ taskId: ctx.taskId, reason: deletionsSkipped }, 'copy-back: file deletions were not synced to the worktree');
+    }
+    if (ignoredDeletions.length > 0) {
+      ctx.log.warn(
+        { taskId: ctx.taskId, count: ignoredDeletions.length, paths: ignoredDeletions.slice(0, DROPPED_CI_LOGGED) },
+        'copy-back: ignored deletion paths that are not relative paths inside the worktree',
+      );
+    }
     if (dropped.length > 0) {
       ctx.log.warn(
         { taskId: ctx.taskId, count: dropped.length, paths: dropped.slice(0, DROPPED_CI_LOGGED) },
