@@ -296,9 +296,9 @@ export interface Finding {
 }
 
 /**
- * Persisted run-record shapes. ONE producer: src/core/run-store.ts — the hub reads it directly and
- * the desktop forwards `listRuns`/`readRun` over the sidecar pipe, so src-tauri/src/runs.rs keeps no
- * reader and no hand-mirror of these structs (pinned by `src/wire.test.ts`).
+ * Persisted run-record shapes. ONE producer: src/core/run-store.ts — the hub reads it directly, and
+ * the desktop window is a client of a hub, so there is no second reader and no hand-mirror of these
+ * structs (pinned by `src/wire.test.ts`).
  */
 export interface AgentUsage {
   inputTokens: number;
@@ -531,8 +531,8 @@ export interface RemoteImport {
 }
 
 /**
- * Where one run's records live, resolved to a root by whichever backend answers `read_run` —
- * Tauri's own per-run cache dir (`src-tauri/src/remote.rs`), the hub's
+ * Where one run's records live, resolved to a root by the hub that answers `read_run`: the
+ * project's own run records, or an imported CI run under
  * `<project>/.taskcell/remote-runs/<runId>` (`src/hub/runs.ts`). The UI never sees either root: it
  * only carries this discriminant (see `RunRef`).
  */
@@ -743,6 +743,7 @@ export interface DirEntry {
 export interface DirListing {
   path: string;
   parent?: string;
+  isGitRepo?: boolean;
   entries: DirEntry[];
 }
 
