@@ -15,6 +15,8 @@ export interface HubUser {
   id: string;
   email: string;
   name: string;
+  /** Provider-verified e-mail: only then does a team member `login` match the address. */
+  emailVerified?: boolean;
 }
 
 export type AuthProviderId = 'github' | 'gitlab' | 'google';
@@ -209,8 +211,8 @@ export async function createHubIdentity(opts: CreateIdentityOptions): Promise<Hu
         throw error;
       }
       if (session === null) return undefined;
-      const { id, email, name } = session.user;
-      return { id, email, name };
+      const { id, email, name, emailVerified } = session.user;
+      return { id, email, name, emailVerified };
     },
     close: () => db.close(),
   };
