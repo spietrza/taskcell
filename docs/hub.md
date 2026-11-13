@@ -482,6 +482,14 @@ four steps, following [onboarding-another-repo.md](onboarding-another-repo.md)
    run. The hub never reads, prints or stores a secret value.
 4. **Verify**, once the PR is merged, dispatches the doctor workflow and links the run it started.
 
+The dialog is a persistent per-project checklist: **callers PR opened → secret set → PR merged →
+doctor passed**, saved in the hub's config dir (`factory/<hash>.json`, never inside the repo) so it survives closing the dialog
+and restarting the hub (`src/hub/factory-checklist.ts`). While it is open it polls `factory_refresh`:
+the secret step has a copy button and "Check again" (`gh secret list`, names only), the merge step
+detects the merged PR on its own and links it, and the verify step dispatches the doctor and shows
+the linked run's status live. The project card shows the state: not enabled, setting up (current
+step), ready, or broken (the reason: a closed PR or a failed doctor run).
+
 Apply and verify change the remote, so they are gated like `clone_project`: loopback only, unless
 `VANGUARD_HUB_ALLOW_ADD=1`. The `gh` login must be able to push workflow files (classic `repo` and
 `workflow` scopes), create labels, open a PR and dispatch a workflow.
@@ -584,7 +592,7 @@ taskcell hub rotate-token --token-file <path>
 A missing or unbuilt `--ui-dir` fails at startup, naming `pnpm --dir apps/desktop build`
 (run `pnpm build:ui`) rather than failing on the first request. Binding a non-loopback host
 requires sign-in (warning at startup if no provider or allowlist is configured) and disables `add_project`/`browse_dirs`/`clone_project`,
-`enable_factory_apply`/`enable_factory_verify`, `reply_needs_you`, `merge_needs_you` and `start_task` unless
+`enable_factory_apply`/`enable_factory_verify`/`enable_factory_start`, `reply_needs_you`, `merge_needs_you` and `start_task` unless
 `VANGUARD_HUB_ALLOW_ADD=1`. `SIGINT`/`SIGTERM` close the listener, every connected SSE client,
 and the project file watchers.
 

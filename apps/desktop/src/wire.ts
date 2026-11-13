@@ -712,6 +712,31 @@ export interface FactoryVerifyResult {
   run?: { url: string; status: string; conclusion: string };
 }
 
+/** The four steps of the in-app Enable factory checklist, in order. */
+export type FactoryStepId = 'pr' | 'secret' | 'merged' | 'doctor';
+
+export interface FactoryStep {
+  id: FactoryStepId;
+  status: 'done' | 'current' | 'pending' | 'failed';
+}
+
+/** A project's factory checklist as shown by the dialog and the project card. `none` = never
+ * started; `setting-up` carries the current `step`; `broken` carries the `reason`. Persisted per
+ * project (`factory.json` in the state dir) so progress survives the dialog and a hub restart. */
+export interface FactoryState {
+  state: 'none' | 'setting-up' | 'ready' | 'broken';
+  /** The first step not yet done; absent when `none` or `ready`. */
+  step?: FactoryStepId;
+  reason?: string;
+  steps: FactoryStep[];
+  plan?: FactoryPlan;
+  prUrl?: string;
+  secret?: FactorySecretStep;
+  doctor?: { url: string; status: string; conclusion: string };
+  /** The doctor was dispatched but its run is not listed yet. */
+  doctorPending?: boolean;
+}
+
 /**
  * Allowlisted fields for `api_complete`'s `req` (S3/Editor UX 7/7). Deliberately NOT
  * `Omit<CompleteRequest, 'baseUrl' | 'assetRoot'>`: every field here is one the renderer is
@@ -830,6 +855,13 @@ export interface Commands {
   enable_factory_secret: { args: { repoPath: string; plan: FactoryPlan }; result: FactorySecretStep };
   /** HUB_ONLY: dispatch the doctor workflow (once the PR above is merged) and report the run that dispatch created. */
   enable_factory_verify: { args: { repoPath: string; plan: FactoryPlan }; result: FactoryVerifyResult };
+  /** HUB_ONLY: start (or restart) the project's persisted checklist from a freshly derived plan —
+   *  used when the callers are already on the default branch and there is no PR to open. */
+  enable_factory_start: { args: { repoPath: string; plan: FactoryPlan }; result: FactoryState };
+  /** The project's persisted checklist (callers PR, secret, merge, doctor) — no network. */
+  factory_state: { args: { repoPath: string }; result: FactoryState };
+  /** Re-check the outstanding steps (secret by name only, PR merged, doctor run status), persist and return the checklist. */
+  factory_refresh: { args: { repoPath: string }; result: FactoryState };
   /** The Fleet screen's shell-spawn surface — enabled only on the desktop app's local (loopback) hub,
    * refused elsewhere (remote code execution on a reachable server). `argv[0]` is the program, run
    * WITHOUT a shell: values built from repo config travel as single arguments and can never
@@ -955,7 +987,10 @@ export const COMMAND_NAMES = [
   'enable_factory_apply',
   'enable_factory_plan',
   'enable_factory_secret',
+  'enable_factory_start',
   'enable_factory_verify',
+  'factory_refresh',
+  'factory_state',
   'fetch_spec',
   'get_credential_policy',
   'get_credentials',

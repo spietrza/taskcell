@@ -711,6 +711,31 @@ export interface FactoryVerifyResult {
   run?: { url: string; status: string; conclusion: string };
 }
 
+/** The four steps of the in-app Enable factory checklist, in order. */
+export type FactoryStepId = 'pr' | 'secret' | 'merged' | 'doctor';
+
+export interface FactoryStep {
+  id: FactoryStepId;
+  status: 'done' | 'current' | 'pending' | 'failed';
+}
+
+/** A project's factory checklist as shown by the dialog and the project card. `none` = never
+ * started; `setting-up` carries the current `step`; `broken` carries the `reason`. Persisted per
+ * project (`factory.json` in the state dir) so progress survives the dialog and a hub restart. */
+export interface FactoryState {
+  state: 'none' | 'setting-up' | 'ready' | 'broken';
+  /** The first step not yet done; absent when `none` or `ready`. */
+  step?: FactoryStepId;
+  reason?: string;
+  steps: FactoryStep[];
+  plan?: FactoryPlan;
+  prUrl?: string;
+  secret?: FactorySecretStep;
+  doctor?: { url: string; status: string; conclusion: string };
+  /** The doctor was dispatched but its run is not listed yet. */
+  doctorPending?: boolean;
+}
+
 /**
  * Allowlisted fields for `api_complete`'s `req` (S3/Editor UX 7/7). Deliberately NOT
  * `Omit<CompleteRequest, 'baseUrl' | 'assetRoot'>`: every field here is one the renderer is

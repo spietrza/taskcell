@@ -1,7 +1,8 @@
 import { describe, expect, test, vi } from 'vitest';
 import { fireEvent, render, screen } from '@testing-library/react';
 import { Dashboard } from './Dashboard';
-import { projects } from '../../dev/fixtures';
+import { factoryStateNone, factoryStateSettingUp, projects } from '../../dev/fixtures';
+import type { FactoryState } from '../../wire';
 
 const [first] = projects;
 
@@ -79,5 +80,26 @@ describe('Dashboard empty state', () => {
     expect(onOpenSetup).toHaveBeenCalled();
     fireEvent.click(screen.getAllByRole('button', { name: 'Add project' })[0]!);
     expect(onAdd).toHaveBeenCalled();
+  });
+});
+
+describe('Dashboard factory state', () => {
+  const label = (f: FactoryState): string => {
+    const { unmount } = render(<Dashboard projects={[first!]} onOpen={() => {}} onAdd={() => {}} onRemove={() => {}} factory={{ [first!.path]: f }} />);
+    const text = screen.getByTestId('factory-state').textContent ?? '';
+    unmount();
+    return text;
+  };
+
+  test('shows not enabled / setting up with the step / ready / broken with the reason', () => {
+    expect(label(factoryStateNone)).toBe('Factory: not enabled');
+    expect(label(factoryStateSettingUp)).toBe('Factory: setting up — Secret set');
+    expect(label({ ...factoryStateNone, state: 'ready' })).toBe('Factory: ready');
+    expect(label({ ...factoryStateNone, state: 'broken', reason: 'the doctor run failure' })).toBe('Factory: broken — the doctor run failure');
+  });
+
+  test('without factory data the card has no factory line', () => {
+    render(<Dashboard projects={[first!]} onOpen={() => {}} onAdd={() => {}} onRemove={() => {}} />);
+    expect(screen.queryByTestId('factory-state')).not.toBeInTheDocument();
   });
 });
