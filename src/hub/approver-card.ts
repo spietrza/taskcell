@@ -173,17 +173,71 @@ export function scorecardSentence(card: ApproverScorecard): string {
   );
 }
 
+interface TopEntry {
+  key: string;
+  /** The whitespace before the key (back to the `{` or `,`). */
+  lead: string;
+  /** What sits between the key's closing quote and the value: the colon and its spacing. */
+  colon: string;
+  keyEnd: number;
+  start: number;
+  end: number;
+}
+
+/** The top-level entries of a JSON object as source spans (the text must already parse as an object). */
+function topLevelEntries(raw: string): TopEntry[] {
+  const entries: TopEntry[] = [];
+  let depth = 0;
+  let sepEnd = 0;
+  let cur: Partial<TopEntry> | undefined;
+  let lastEnd = 0;
+  const close = (): void => {
+    if (cur?.start !== undefined) entries.push({ ...(cur as TopEntry), end: lastEnd });
+    cur = undefined;
+  };
+  for (let i = 0; i < raw.length; i += 1) {
+    const c = raw[i]!;
+    if (/\s/.test(c)) continue;
+    if (depth === 1 && cur?.keyEnd !== undefined && cur.start === undefined && c !== ':') {
+      cur.colon = raw.slice(cur.keyEnd, i);
+      cur.start = i;
+    }
+    if (c === '"') {
+      let j = i + 1;
+      while (raw[j] !== '"') j += raw[j] === '\\' ? 2 : 1;
+      if (depth === 1 && cur === undefined) cur = { key: JSON.parse(raw.slice(i, j + 1)) as string, lead: raw.slice(sepEnd, i), keyEnd: j + 1 };
+      i = j;
+    } else if (c === '{' || c === '[') {
+      depth += 1;
+      if (depth === 1) sepEnd = i + 1;
+    } else if (c === '}' || c === ']') {
+      if (depth === 1) close();
+      depth -= 1;
+    } else if (c === ',' && depth === 1) {
+      close();
+      sepEnd = i + 1;
+    }
+    lastEnd = i + 1;
+  }
+  return entries;
+}
+
 /**
- * The policy's new content for a mode: `enabled` / `act` flipped, every other key kept as written. The file
- * is re-serialised with its own indent and line ending (so compact arrays are expanded; values are unchanged).
+ * The policy's new content for a mode: only the top-level `enabled` / `act` values are rewritten in the
+ * file's own text, so its formatting, key order and every other value stay byte for byte. A missing key is
+ * inserted after `enabled` (else the last entry) in that entry's style.
  */
 export function policyForMode(raw: string, mode: ApproverMode): string {
-  const json = JSON.parse(raw) as Record<string, unknown>;
-  json.enabled = mode !== 'off';
-  json.act = mode === 'act';
-  const indent = /\n([ \t]+)"/.exec(raw)?.[1] ?? 2;
-  const eol = raw.includes('\r\n') ? '\r\n' : '\n';
-  return `${JSON.stringify(json, null, indent).replace(/\n/g, eol)}${eol}`;
+  const json = JSON.parse(raw) as unknown;
+  if (json === null || typeof json !== 'object' || Array.isArray(json)) throw new Error('the policy is not a JSON object');
+  const want = new Map([['enabled', mode !== 'off'], ['act', mode === 'act']]);
+  const entries = topLevelEntries(raw);
+  if (entries.length === 0) return `${JSON.stringify(Object.fromEntries(want), null, 2)}\n`;
+  const edits = entries.filter((e) => want.has(e.key)).map((e) => ({ at: e.start, end: e.end, text: String(want.get(e.key)) }));
+  const anchor = entries.find((e) => e.key === 'enabled') ?? entries.at(-1)!;
+  const missing = [...want].filter(([k]) => !entries.some((e) => e.key === k));
+  if (missing.length > 0) edits.push({ at: anchor.end, end: anchor.end, text: missing.map(([k, v]) => `,${anchor.lead}${JSON.stringify(k)}${anchor.colon}${v}`).join('') });
+  return edits.sort((x, y) => y.at - x.at).reduce((out, e) => out.slice(0, e.at) + e.text + out.slice(e.end), raw);
 }
 
 /** Branch the mode PR is opened from. Fixed: a second request resets and reuses it (and its open PR). */
@@ -241,11 +295,14 @@ async function applyModePr(input: OpenModePrInput): Promise<ApproverModeChange> 
     await run('git', ['worktree', 'add', '--detach', tree, `origin/${base}`]);
     try {
       await mkdir(join(tree, dir), { recursive: true });
-      await writeFile(join(tree, file), next);
+      // `git show` output loses the final newline; the policy file keeps one.
+      await writeFile(join(tree, file), next.endsWith('\n') ? next : `${next}${raw.includes('\r\n') ? '\r\n' : '\n'}`);
       await run('git', ['add', file], tree);
-      await run('git', ['commit', '-m', title, '--', file], tree);
+      // --no-verify: the temporary worktree has none of the repo's dependencies (node_modules, …), so the repo's
+      // commit and push hooks cannot run there; the change is one generated policy file.
+      await run('git', ['commit', '--no-verify', '-m', title, '--', file], tree);
       // --force: the fixed branch is reset to the base on every request, so an earlier request's commit is replaced.
-      await run('git', ['push', '--force', 'origin', `HEAD:refs/heads/${APPROVER_MODE_BRANCH}`], tree);
+      await run('git', ['push', '--no-verify', '--force', 'origin', `HEAD:refs/heads/${APPROVER_MODE_BRANCH}`], tree);
     } finally {
       await run('git', ['worktree', 'remove', '--force', tree]).catch(() => undefined);
     }

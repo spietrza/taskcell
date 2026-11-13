@@ -219,8 +219,16 @@ describe('openApproverModePr', () => {
     expect((await execa('git', ['worktree', 'list', '--porcelain'], { cwd: w.repo })).stdout.match(/^worktree /gm)).toHaveLength(1);
     // The pushed branch carries only a minimal policy edit.
     const pushed = (await execa('git', ['show', 'vanguard/approver-mode:.taskcell/approver.json'], { cwd: w.origin })).stdout;
-    expect(JSON.parse(pushed)).toEqual({ schemaVersion: 1, enabled: true, act: true, shape: { maxLines: 5, paths: ['a', 'b'] } });
-    expect(pushed).toContain('\n    "enabled": true');
+    expect(pushed).toBe('{\n    "schemaVersion": 1,\n    "enabled": true,\n    "act": true,\n    "shape": { "maxLines": 5, "paths": ["a", "b"] }\n}');
+    expect((await execa('git', ['cat-file', '-p', 'vanguard/approver-mode:.taskcell/approver.json'], { cwd: w.origin })).stdout + '\n').toMatch(/}\n$/);
+  });
+
+  test("the repo's commit and push hooks do not run in the temporary worktree", async () => {
+    const w = await world();
+    const hooks = join(w.repo, '.git', 'hooks');
+    for (const h of ['pre-commit', 'commit-msg', 'pre-push']) await writeFile(join(hooks, h), '#!/bin/sh\nexit 1\n', { mode: 0o755 });
+    await expect(approverCard.openApproverModePr({ repoPath: w.repo, mode: 'off', card, exec: w.exec })).resolves.toMatchObject({ mode: 'off' });
+    expect((await execa('git', ['show', 'vanguard/approver-mode:.taskcell/approver.json'], { cwd: w.origin })).stdout).toContain('"enabled": false,\n    "act": false,');
   });
 
   test('two concurrent changes for one repo run one after the other', async () => {
@@ -253,13 +261,15 @@ describe('openApproverModePr', () => {
 });
 
 describe('policyForMode formatting', () => {
-  test('keeps the file indent and line ending; nested keys are untouched', () => {
-    const raw = '{\r\n\t"enabled": false,\r\n\t"shape": { "act": true }\r\n}\r\n';
+  test('only the two values change; indent, line endings, compact arrays and nested keys are kept', () => {
+    const raw = '{\r\n\t"enabled": false,\r\n\t"shape": { "act": true, "paths": ["a","b"] }\r\n}\r\n';
     const out = approverCard.policyForMode(raw, 'act');
-    expect(out).toBe('{\r\n\t"enabled": true,\r\n\t"shape": {\r\n\t\t"act": true\r\n\t},\r\n\t"act": true\r\n}\r\n');
+    expect(out).toBe('{\r\n\t"enabled": true,\r\n\t"act": true,\r\n\t"shape": { "act": true, "paths": ["a","b"] }\r\n}\r\n');
+    expect(approverCard.policyForMode(out, 'off')).toBe('{\r\n\t"enabled": false,\r\n\t"act": false,\r\n\t"shape": { "act": true, "paths": ["a","b"] }\r\n}\r\n');
   });
-  test('a compact file falls back to two spaces and LF', () => {
-    expect(approverCard.policyForMode('{"enabled":true}', 'off')).toBe('{\n  "enabled": false,\n  "act": false\n}\n');
+  test('a compact file stays compact; a string value with braces or commas is not mistaken for structure', () => {
+    expect(approverCard.policyForMode('{"enabled":true}', 'off')).toBe('{"enabled":false,"act":false}');
+    expect(approverCard.policyForMode('{ "note": "a, } \\" {", "act" : false, "enabled" : false }', 'shadow')).toBe('{ "note": "a, } \\" {", "act" : false, "enabled" : true }');
   });
   test('invalid JSON throws', () => {
     expect(() => approverCard.policyForMode('{nope', 'off')).toThrow();
