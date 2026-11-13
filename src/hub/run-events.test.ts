@@ -70,7 +70,7 @@ describe('run event log', () => {
   });
 
   test('past the cap events are dropped with one marker and nothing throws', async () => {
-    const log = new RunEventLog(repo, '2026-01-01T00:00:00.000Z', 400);
+    const log = new RunEventLog(repo, '2026-01-01T00:00:00.000Z', 1500);
     log.append(ev(1), 'T-1');
     for (let i = 2; i <= 50; i += 1) log.append(ev(i, { pad: 'x'.repeat(50) }));
     await log.flush();
@@ -98,5 +98,20 @@ describe('run event log', () => {
 
   test('a missing log is an empty page', async () => {
     expect(await readRunEvents(repo, 'nope', { after: 3 })).toEqual({ events: [], nextAfter: 3, hasMore: false, truncated: false });
+  });
+});
+
+describe('run event log audit envelope', () => {
+  test('lines carry actor/subject and a verifiable chain, while readers get the bare event', async () => {
+    const log = new RunEventLog(repo, undefined, undefined, { actor: { kind: 'user', name: 'ada' }, subject: { repo, runId: 'run-3' } });
+    log.append(ev(1), 'T-1');
+    log.append(ev(2));
+    await log.flush();
+    const file = await logFile();
+    const lines = (await readFile(file, 'utf8')).trim().split('\n').map((l) => JSON.parse(l) as Record<string, unknown>);
+    expect(lines[0]).toMatchObject({ actor: { kind: 'user', name: 'ada' }, subject: { runId: 'run-3' } });
+    expect(lines[1]!.prev).toBe(lines[0]!.hash);
+    const page = await readRunEvents(repo, 'T-1');
+    expect(Object.keys(page.events[0]!).sort()).toEqual(['data', 'event', 'id', 'ts']);
   });
 });

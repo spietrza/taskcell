@@ -461,6 +461,11 @@ export interface AuditEntry {
   outcome: AuditOutcome;
   /** Names only, e.g. the settings keys a change touched. */
   detail?: string[];
+  /** Who acted and on what (src/core/audit.ts); with `prev`/`hash` it is one link of the tamper-evident chain. */
+  actor?: { kind: 'user' | 'local' | 'token' | 'bot'; id?: string; name?: string };
+  subject?: { repo?: string; issue?: number; pr?: number; runId?: string };
+  prev?: string;
+  hash?: string;
 }
 
 /** A hub team (src/hub/teams.ts). `repositories` are project paths. */

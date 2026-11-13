@@ -99,7 +99,12 @@ async function sidelinedEntries(cwd: string, tip: string | undefined, file: stri
 export async function appendBranchLines(
   repoPath: string,
   lines: string[],
-  opts: BranchFileOptions & { file: string; key?: (record: Record<string, unknown>) => string | undefined },
+  opts: BranchFileOptions & {
+    file: string;
+    key?: (record: Record<string, unknown>) => string | undefined;
+    /** Rewrites the records about to be appended (after dedupe), given what the branch already holds: the audit chain hooks in here, inside the retry loop. */
+    seal?: (fresh: Record<string, unknown>[], existing: Record<string, unknown>[]) => Record<string, unknown>[];
+  },
 ): Promise<PushMetricsResult> {
   const branch = opts.branch ?? METRICS_BRANCH_DEFAULT;
   const remote = opts.remote ?? 'origin';
@@ -116,7 +121,7 @@ export async function appendBranchLines(
         : existingLines,
     );
 
-    const fresh: string[] = [];
+    const freshRecords: Record<string, unknown>[] = [];
     for (const line of lines) {
       let parsed: Record<string, unknown>;
       try {
@@ -128,8 +133,9 @@ export async function appendBranchLines(
       const dedupeKey = opts.key !== undefined ? opts.key(parsed) : JSON.stringify(parsed);
       if (dedupeKey === undefined || seenKeys.has(dedupeKey)) continue;
       seenKeys.add(dedupeKey);
-      fresh.push(JSON.stringify(parsed));
+      freshRecords.push(parsed);
     }
+    const fresh = (opts.seal !== undefined && freshRecords.length > 0 ? opts.seal(freshRecords, existingRecords) : freshRecords).map((r) => JSON.stringify(r));
     if (fresh.length === 0) return { branch, pushed: 0, total: existingLines.length };
 
     const content = `${[...existingLines, ...fresh].join('\n')}\n`;

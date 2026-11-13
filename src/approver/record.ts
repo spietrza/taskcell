@@ -1,4 +1,4 @@
-import { appendBranchLines } from '../core/metrics-branch.js';
+import { appendAudit, branchAdapter, BOT_ACTOR, STREAMS } from '../core/audit.js';
 import { DECISIONS_FILE } from './ledger.js';
 import type { ApproverFacts, Decision, DecisionRecord, Mode } from './types.js';
 
@@ -75,11 +75,11 @@ export function decisionKey(r: Record<string, unknown>): string {
   return `${String(r.prNumber)}:${String(r.headSha)}:${kind}`;
 }
 
-/** Append one decision record to decisions.jsonl on the metrics branch; a rerun for the same (PR, head SHA, kind) appends nothing. */
+/**
+ * Append one decision record to decisions.jsonl on the metrics branch (an audit stream: chained, actor =
+ * the factory bot, subject = repo + PR; a failed write throws). A rerun for the same (PR, head SHA, kind) appends nothing.
+ */
 export async function appendDecision(repoPath: string, record: DecisionRecord, opts: { branch?: string } = {}): Promise<void> {
-  await appendBranchLines(repoPath, [JSON.stringify(record)], {
-    ...(opts.branch !== undefined ? { branch: opts.branch } : {}),
-    file: DECISIONS_FILE,
-    key: decisionKey,
-  });
+  const adapter = branchAdapter(repoPath, { ...(opts.branch !== undefined ? { branch: opts.branch } : {}), file: DECISIONS_FILE, key: decisionKey });
+  await appendAudit(STREAMS.decisions, adapter, { ...record }, { actor: BOT_ACTOR, subject: { repo: record.repo, pr: record.prNumber } });
 }
