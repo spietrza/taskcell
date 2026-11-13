@@ -46,7 +46,7 @@ describe('EnableFactoryDialog', () => {
     expect(screen.getAllByText('planned')).toHaveLength(3);
     const links = screen.getAllByRole('link', { name: /Tracking issue/ });
     expect(links).toHaveLength(3);
-    for (const l of links) expect(l.getAttribute('href')).toMatch(/^https:\/\/github\.com\/spietrza\/taskcell\/issues\?q=/);
+    expect(links.map((l) => l.getAttribute('href'))).toEqual([911, 912, 913].map((n) => `https://github.com/spietrza/taskcell/issues/${n}`));
     expect(screen.queryByText('coming soon')).not.toBeInTheDocument();
     expect(await screen.findByRole('button', { name: /GitHub Actions/ })).toBeEnabled();
   });
