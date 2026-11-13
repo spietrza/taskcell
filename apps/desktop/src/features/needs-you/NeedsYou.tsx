@@ -19,7 +19,7 @@ const REASON_TEXT: Record<string, string> = {
   'vanguard:verify-failed': 'verify failed',
 };
 
-function ReplyBox({ project, item, onReplied }: { project: string; item: NeedsYouItem; onReplied: () => void }) {
+export function ReplyBox({ project, item, onReplied }: { project: string; item: NeedsYouItem; onReplied: () => void }) {
   const [body, setBody] = useState('');
   const [sending, setSending] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -63,7 +63,7 @@ function ReplyBox({ project, item, onReplied }: { project: string; item: NeedsYo
 }
 
 /** Merge a waiting PR into its real base branch; a refusal (not waiting, checks not green) shows inline. */
-function MergeButton({ project, item, onMerged }: { project: string; item: NeedsYouItem; onMerged: () => void }) {
+export function MergeButton({ project, item, onMerged }: { project: string; item: NeedsYouItem; onMerged: () => void }) {
   const [merging, setMerging] = useState(false);
   const [confirming, setConfirming] = useState(false);
   const [error, setError] = useState<string | null>(null);

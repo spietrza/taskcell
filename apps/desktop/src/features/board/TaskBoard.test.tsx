@@ -1,9 +1,15 @@
 import { describe, expect, test, vi } from 'vitest';
-import { render, screen, within } from '@testing-library/react';
+import { fireEvent, render, screen, within } from '@testing-library/react';
 import { TaskBoard } from './TaskBoard';
 import type { BoardTask } from '../../wire';
 
-vi.mock('../../ipc', () => ({ listTasks: vi.fn(), listTasksAll: vi.fn() }));
+vi.mock('../../ipc', () => ({
+  listTasks: vi.fn(),
+  listTasksAll: vi.fn(),
+  listRuns: vi.fn().mockResolvedValue([]),
+  readRun: vi.fn(),
+  listNeedsYou: vi.fn().mockResolvedValue({ items: [] }),
+}));
 import { listTasks, listTasksAll } from '../../ipc';
 const mockListTasks = vi.mocked(listTasks);
 
@@ -193,5 +199,35 @@ describe('TaskBoard open-in-tracker links', () => {
     render(<TaskBoard project="/repo" repos={[]} onOpenTask={() => {}} onNewTask={() => {}} />);
     await screen.findByText('T');
     expect(screen.queryByRole('link')).toBeNull();
+  });
+});
+
+describe('TaskBoard quick view', () => {
+  const setup = async (): Promise<{ card: HTMLElement; onOpenTask: ReturnType<typeof vi.fn> }> => {
+    mockListTasks.mockResolvedValue({ tasks: [{ id: 'gh-7', title: 'Seven', column: 'review', state: 'review' }], capped: false });
+    const onOpenTask = vi.fn();
+    render(<TaskBoard project="/repo" repos={[]} onOpenTask={onOpenTask} onNewTask={() => {}} />);
+    return { card: (await screen.findByText('Seven')).closest('button') as HTMLElement, onOpenTask };
+  };
+
+  test('a click opens the panel beside the board; Escape closes it and focus returns to the card', async () => {
+    const { card, onOpenTask } = await setup();
+    fireEvent.click(card);
+    expect(await screen.findByRole('complementary', { name: /Quick view: Seven/ })).toBeInTheDocument();
+    expect(onOpenTask).not.toHaveBeenCalled();
+    expect(screen.queryByText('Receipt')).not.toBeInTheDocument(); // no pull request yet
+    fireEvent.keyDown(document, { key: 'Escape' });
+    expect(screen.queryByRole('complementary')).not.toBeInTheDocument();
+    expect(card).toHaveFocus();
+  });
+
+  test('a click outside closes it; "Full page" opens the task detail', async () => {
+    const { card, onOpenTask } = await setup();
+    fireEvent.click(card);
+    fireEvent.click(await screen.findByRole('button', { name: 'Full page' }));
+    expect(onOpenTask).toHaveBeenCalledWith('gh-7', undefined);
+    fireEvent.mouseDown(document.body);
+    expect(screen.queryByRole('complementary')).not.toBeInTheDocument();
+    expect(card).toHaveFocus();
   });
 });

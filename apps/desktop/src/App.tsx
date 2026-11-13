@@ -18,7 +18,7 @@ import { projectColor, contrastColor } from './color';
 import { createNavGuardRegistry, NavGuardContext } from './navGuard';
 import { ProjectCombobox } from './ProjectCombobox';
 import { ALL_REPOS, canUseAllRepos, inRepos, loadRepoFilter, saveRepoFilter } from './repoFilter';
-import { hubSignedIn, hubSignOut, onHubRestart, onHubConnectionIssue } from './transport';
+import { hubSignedIn, isDemoMode, hubSignOut, onHubRestart, onHubConnectionIssue } from './transport';
 import { applyTheme, initialTheme, saveTheme } from './theme';
 import type { Project, ActiveRun } from './taskcell-output';
 
@@ -387,6 +387,16 @@ export default function App() {
       {!hubRestarted && hubConnectionIssue && (
         <div role="alert" className="shrink-0 border-b border-border bg-muted px-4 py-2 text-sm text-muted-foreground">
           Lost connection to the hub — check your network and reload if it doesn't come back.
+        </div>
+      )}
+      {isDemoMode() && (
+        <div role="status" className="shrink-0 border-b border-border bg-muted px-4 py-2 text-sm text-muted-foreground">
+          Demo project — sample data, read-only. Nothing is written to any repository or remote.
+          {!window.__VANGUARD_DEMO__ && (
+            <a className="ml-2 underline" href="/">
+              Exit demo
+            </a>
+          )}
         </div>
       )}
       <TopBar
