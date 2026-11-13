@@ -32,12 +32,12 @@ const CODE_REFERENCE_PREFIX =
 // `jwt` pattern covers them regardless of this refinement).
 const IDENTIFIER_CHAIN = /^[A-Za-z_$][\w$]*(?:\.[A-Za-z_$][\w$]*)+$/;
 const UPPER_SNAKE_IDENTIFIER = /^[A-Z][A-Z0-9_]*$/;
-// A bare camelCase identifier (`callbackToken`, `optionalNonEmptyEnvVar`) as an UNQUOTED RHS is a
+// A bare camelCase/PascalCase identifier (`callbackToken`, `ProviderAuthState`) as an UNQUOTED RHS is a
 // code reference, not a literal credential — the assignment regex makes the quote optional, so an
 // object entry like `WORKFLOW_CALLBACK_TOKEN: callbackToken,` matches and often clears the entropy
 // bar. Letters-only with internal case humps is the identifier signature; digit-bearing values fall
 // through to the entropy check, and quoted values (real string literals) never take this branch.
-const CAMEL_IDENTIFIER = /^[a-z_$][a-z_$]*(?:[A-Z][A-Za-z_$]*)+$/;
+const CAMEL_IDENTIFIER = /^(?:[a-z_$][a-z_$]*|[A-Z][a-z_$]+)(?:[A-Z][A-Za-z_$]*)+$/;
 // Suffix restricted to digits-only, letters-only, or separator-led continuation — real secrets
 // mix letters and digits together (e.g. 'testAbc123Secret...'), which this deliberately excludes
 // so mixed-content values fall through to the entropy check instead of being dismissed outright.
