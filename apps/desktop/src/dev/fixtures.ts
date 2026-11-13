@@ -51,6 +51,8 @@ export const projects: Project[] = [
     runningCount: 0,
     runsLast24h: 2,
     color: '#059669',
+    taskSource: 'gitlab',
+    runLocation: 'gitlab-ci',
   },
 ];
 
