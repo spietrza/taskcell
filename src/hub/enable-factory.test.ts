@@ -331,6 +331,16 @@ describe('verifyGithubFactory', () => {
     expect(result.run?.url).toBe('https://github.com/acme/widgets/actions/runs/1');
   });
 
+  it.each(['Taskcell Doctor', 'Vanguard Doctor'])('matches a "%s" run for the dispatched doctor workflow', async (name) => {
+    const repoPath = await repo();
+    const plan = await planGithubFactory(repoPath, { exec: fakeExec([]) });
+    const result = await verifyGithubFactory(repoPath, plan, {
+      exec: fakeExec([], { runLists: [[], [doctorRun(1, 'workflow_dispatch', name)]] }),
+      sleep: noSleep,
+    });
+    expect(result.run?.url).toBe('https://github.com/acme/widgets/actions/runs/1');
+  });
+
   it('dispatches the doctor workflow and reports the run that dispatch created', async () => {
     const repoPath = await repo();
     const calls: Call[] = [];
