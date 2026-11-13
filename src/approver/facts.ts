@@ -2,7 +2,7 @@ import { isReviewHeading } from '../core/labels.js';
 import { defaultGhRunner } from '../tasks/github.js';
 import type { GhRunner } from '../tasks/github.js';
 import { extractReviewVerdict, VERDICT_WITHOUT_COMPLETION_NOTE } from '../runners/review-prompt.js';
-import { soleReviewMarkerSha } from '../runners/pr-review.js';
+import { soleReviewMarkerSha, pullRequestReviewRunIds } from '../runners/pr-review.js';
 import type { ApproverPolicy, CheckFact, PrFacts, ReviewFacts } from './types.js';
 
 /** Typed-facts collectors: gh JSON only, never free text from an issue/PR/comment body into the engine. */
@@ -168,10 +168,10 @@ function peelReviewPrefix(body: string): string | undefined {
  * reviews in the external review format (see peelReviewPrefix) whose body carries exactly one
  * distinct marker SHA (zero = no marker, more than one = a planted marker, both rejected), which was
  * posted as a plain COMMENTED review, and whose author is exactly a login on `policy.reviewAuthors`
- * (an empty list accepts nobody); the latest `submittedAt` among
+ * (an empty list accepts nobody), and in act mode carries the host's run stamp; the latest `submittedAt` among
  * survivors wins. Returns all-null when there is none.
  */
-export function collectReviewFacts(pr: PrFacts, policy: ApproverPolicy): ReviewFacts {
+export function collectReviewFacts(pr: PrFacts, policy: ApproverPolicy, opts: { requireRunStamp?: boolean; runId?: string } = {}): ReviewFacts {
   const candidates = pr.reviews.flatMap((r) => {
     const sha = soleReviewMarkerSha(r.body);
     const peeled = peelReviewPrefix(r.body);
@@ -180,6 +180,12 @@ export function collectReviewFacts(pr: PrFacts, policy: ApproverPolicy): ReviewF
     // dismissed review in the same shape is some other writer (or a withdrawn verdict), never the verdict.
     if (r.state !== 'COMMENTED') return [];
     if (!policy.reviewAuthors.includes(r.author)) return [];
+    // Act mode: `github-actions` is every workflow's login, so the review must also carry the host stamp binding this
+    // head to the PR-review workflow run (and to the run that triggered the approver, when it says which).
+    if (opts.requireRunStamp === true) {
+      const runs = pullRequestReviewRunIds(r.body, sha);
+      if (runs.length === 0 || (opts.runId !== undefined && !runs.includes(opts.runId))) return [];
+    }
     return [{ author: r.author, submittedAt: r.submittedAt, sha, peeled }];
   });
   if (candidates.length === 0) return { verdict: null, sha: null, author: null };

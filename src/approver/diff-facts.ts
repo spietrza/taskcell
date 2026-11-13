@@ -137,7 +137,7 @@ async function isAncestor(cwd: string, ancestor: string, descendant: string): Pr
 }
 
 /** `git merge-tree --write-tree a b`: whether it merges cleanly (undefined on failure) and, when clean, the merged tree oid. */
-async function mergeTree(cwd: string, a: string, b: string): Promise<{ clean: boolean | undefined; tree: string | undefined }> {
+export async function mergeTree(cwd: string, a: string, b: string): Promise<{ clean: boolean | undefined; tree: string | undefined }> {
   const r = await gitOk(cwd, ['merge-tree', '--write-tree', '--name-only', a, b]);
   if (r.exitCode !== 0) return { clean: r.exitCode === 1 ? false : undefined, tree: undefined };
   const tree = r.stdout.split('\n')[0]?.trim() ?? '';
@@ -155,6 +155,8 @@ export interface CollectDiffFactsInput {
   apiHeadSha: string;
   reviewedSha: string | null;
   policy: ApproverPolicy;
+  /** Act mode: a failed fetch of the base is `git-facts-failed`, never a stale local base. */
+  requireRemoteBase?: boolean;
 }
 
 /**
@@ -169,7 +171,7 @@ export async function collectDiffFacts(input: CollectDiffFactsInput): Promise<Di
   try {
     // Same as loadPolicy: the remote base always wins, so a local branch that is ahead (a dev box,
     // the backtest) cannot shrink or grow the diff the decision is about.
-    const ref = await resolveRemoteBaseRef(repoPath, baseRefName, { label: 'approver', keepLocalIfAhead: false });
+    const ref = await resolveRemoteBaseRef(repoPath, baseRefName, { label: 'approver', keepLocalIfAhead: false, ...(input.requireRemoteBase === true ? { requireRemote: true } : {}) });
     baseTip = (await git(repoPath, ['rev-parse', ref])).trim();
   } catch {
     return emptyDiffFacts(apiHeadSha);

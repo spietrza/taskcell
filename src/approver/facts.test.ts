@@ -218,3 +218,18 @@ describe('collectReviewFacts', () => {
     expect(collectReviewFacts(prFacts({ reviews: [review(body, { author: 'anyone' })] }), empty)).toEqual({ verdict: null, sha: null, author: null });
   });
 });
+
+describe('collectReviewFacts act-mode run stamp', () => {
+  const sha = 'a'.repeat(40);
+  const body = (stamp: string): string => `## Vanguard Review\n\nVerdict: NO BLOCKING FINDINGS\n\n<!-- taskcell-pr-review: ${sha} -->${stamp}`;
+  const prWith = (b: string): PrFacts => ({ reviews: [{ author: 'github-actions', body: b, submittedAt: '1', state: 'COMMENTED' }] }) as unknown as PrFacts;
+  const pol = { reviewAuthors: ['github-actions'] } as ApproverPolicy;
+  it('requires the stamp bound to the head, and the triggering run when given', () => {
+    const stamped = body(`\n\n<!-- taskcell-pr-review-run: ${sha}:42 -->`);
+    expect(collectReviewFacts(prWith(body('')), pol, { requireRunStamp: true }).sha).toBeNull();
+    expect(collectReviewFacts(prWith(body('')), pol).sha).toBe(sha);
+    expect(collectReviewFacts(prWith(stamped), pol, { requireRunStamp: true }).sha).toBe(sha);
+    expect(collectReviewFacts(prWith(stamped), pol, { requireRunStamp: true, runId: '7' }).sha).toBeNull();
+    expect(collectReviewFacts(prWith(body(`\n\n<!-- taskcell-pr-review-run: ${'b'.repeat(40)}:42 -->`)), pol, { requireRunStamp: true }).sha).toBeNull();
+  });
+});
