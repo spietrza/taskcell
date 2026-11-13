@@ -41,11 +41,11 @@ export function RunStrip({ state, onCancel }: { state: TypedRunState; onCancel: 
               data-phase={phase}
               className={`inline-flex items-center gap-1 rounded border px-2 py-0.5 text-xs ${
                 phase === 'done'
-                  ? 'border-emerald-600 text-emerald-500'
+                  ? 'border-success text-success-text'
                   : phase === 'failed'
-                    ? 'border-rose-600 text-rose-500'
+                    ? 'border-destructive text-destructive-text'
                     : phase === 'running'
-                      ? 'border-blue-600 text-blue-500'
+                      ? 'border-foreground text-foreground'
                       : 'border-border text-muted-foreground opacity-60'
               }`}
             >
@@ -63,7 +63,7 @@ export function RunStrip({ state, onCancel }: { state: TypedRunState; onCancel: 
             <div
               key={i}
               data-testid="run-warning"
-              className="rounded border border-amber-600/40 bg-amber-500/10 px-2 py-1 text-xs text-amber-600"
+              className="rounded border border-warning/40 bg-warning/10 px-2 py-1 text-xs text-warning-text"
             >
               {message}
             </div>
@@ -73,7 +73,7 @@ export function RunStrip({ state, onCancel }: { state: TypedRunState; onCancel: 
       {terminal !== undefined && (
         <div className="text-xs">
           {terminal.kind === 'success' && terminal.prUrl !== undefined && (
-            <a href={terminal.prUrl} className="text-blue-500 underline">
+            <a href={terminal.prUrl} className="text-primary-text underline">
               View PR
             </a>
           )}

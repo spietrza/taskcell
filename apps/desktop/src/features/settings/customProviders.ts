@@ -28,12 +28,12 @@ export function customProviderRowError(row: Row, index: number, all: Row[]): str
   // the run refuses (review #341 obs 2). Unknown keys survive save untouched (Rust raw Value).
   const unknown = Object.keys(row).find((k) => !ROW_KEYS.has(k));
   if (unknown !== undefined) return `unknown key "${unknown}" — remove it from app.json (allowed: name, baseUrl, keyEnv, model)`;
-  if (!NAME_RE.test(row.name)) return 'name must be lowercase letters/digits/._- (start with a letter or digit)';
+  if (!NAME_RE.test(row.name)) return 'Provider name must be lowercase letters/digits/._- (start with a letter or digit)';
   if (PROVIDERS.includes(row.name)) return `"${row.name}" is a built-in provider name`;
   if (all.findIndex((r) => r.name === row.name) !== index) return `duplicate provider name "${row.name}"`;
-  if (!/^https?:\/\//.test(row.baseUrl) || !isUrl(row.baseUrl)) return 'base URL must be an absolute http:// or https:// URL';
-  if (!KEY_ENV_RE.test(row.keyEnv)) return 'key env var must be a valid environment variable name';
-  if (row.model === '') return 'model must be non-empty when set';
+  if (!/^https?:\/\//.test(row.baseUrl) || !isUrl(row.baseUrl)) return 'Endpoint URL must be an absolute http:// or https:// URL';
+  if (!KEY_ENV_RE.test(row.keyEnv)) return 'API key variable must be a valid environment variable name';
+  if (row.model === '') return 'Model must be non-empty when set';
   return undefined;
 }
 
