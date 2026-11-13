@@ -281,7 +281,7 @@ export const needsYouItems: NeedsYouItem[] = [
     repoSlug: 'acme/my-app',
     title: 'Refactor auth middleware',
     url: 'https://github.com/acme/my-app/pull/57',
-    reason: 'vanguard:needs-human-review',
+    reason: 'taskcell:needs-human-review',
     baseRef: 'main',
     lastComment: { author: 'vanguard[bot]', body: 'Review complete — one finding needs a human call on scope.' },
   },

@@ -168,12 +168,12 @@ export { neutralizePromptTags } from '../context/escape.js';
 // rescan every following blank line from each line start, which is quadratic on a long blank run.
 export const MARKER_PAD = String.raw`[^\S\n\r\u2028\u2029]*`;
 const REVIEW_MARKER_LINE_RE = new RegExp(
-  String.raw`^${MARKER_PAD}<!--[ \t]*vanguard-(?:(?:mr|pr)-review:[ \t]*[a-fA-F0-9]+|pr-review-incomplete)[ \t]*-->${MARKER_PAD}$`,
+  String.raw`^${MARKER_PAD}<!--[ \t]*(?:taskcell|vanguard)-(?:(?:mr|pr)-review:[ \t]*[a-fA-F0-9]+|pr-review-incomplete)[ \t]*-->${MARKER_PAD}$`,
   'gm',
 );
 
 // Same opener as pr-feedback.ts REVISION_MARKER_PRESENT_RE, plus the rest of a well-formed marker when present.
-const REVISION_MARKER_OPEN_RE = /<!--\s*(?:vanguard-)?revision:(?:[^>]*-->)?/g;
+const REVISION_MARKER_OPEN_RE = /<!--\s*(?:(?:taskcell|vanguard)-)?revision:(?:[^>]*-->)?/g;
 
 /**
  * Remove review dedupe markers and revise-pr's revision marker from text the bot posts but did not write (verdicts, conformance sections,

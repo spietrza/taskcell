@@ -24,9 +24,9 @@ describe('watchPrsCommand', () => {
       kind: 'watch-prs',
       repoSlug: 'o/r',
       repoPath: '/repo',
-      label: 'ready for vanguard review',
-      reviewingLabel: 'vanguard:reviewing',
-      reviewedLabel: 'vanguard:reviewed',
+      label: 'ready for taskcell review',
+      reviewingLabel: 'taskcell:reviewing',
+      reviewedLabel: 'taskcell:reviewed',
       concurrency: 1,
       intervalMs: 1000,
       once: true,
@@ -60,7 +60,7 @@ describe('watchPrsCommand', () => {
       isDraft: false,
       author: 'alice',
       headRefOid: 'aaa',
-      labels: ['ready for vanguard review'],
+      labels: ['ready for taskcell review'],
     };
     await capturedPrimitives?.review(item);
 
@@ -79,7 +79,7 @@ describe('watchPrsCommand', () => {
       }),
     );
     expect(logs).toEqual([
-      'watch-prs[github]: polling every 1s for PRs labeled "ready for vanguard review". Ctrl-C to stop.',
+      'watch-prs[github]: polling every 1s for PRs labeled "ready for taskcell review". Ctrl-C to stop.',
       'watch-prs: poll -> 0 ready',
     ]);
   });
@@ -92,9 +92,9 @@ describe('watchPrsCommand', () => {
       kind: 'watch-prs',
       repoSlug: 'o/r',
       repoPath: '/repo',
-      label: 'ready for vanguard review',
-      reviewingLabel: 'vanguard:reviewing',
-      reviewedLabel: 'vanguard:reviewed',
+      label: 'ready for taskcell review',
+      reviewingLabel: 'taskcell:reviewing',
+      reviewedLabel: 'taskcell:reviewed',
       pr: 316,
       concurrency: 1,
       intervalMs: 1000,
@@ -114,35 +114,35 @@ describe('watchPrsCommand', () => {
 
 describe('eventPullRequestHint', () => {
   it('returns the PR number when the event label matches the trigger label', () => {
-    const read = (): string => JSON.stringify({ label: { name: 'ready for vanguard review' }, pull_request: { number: 316 } });
-    expect(eventPullRequestHint('ready for vanguard review', '/event.json', read)).toBe(316);
+    const read = (): string => JSON.stringify({ label: { name: 'ready for taskcell review' }, pull_request: { number: 316 } });
+    expect(eventPullRequestHint('ready for taskcell review', '/event.json', read)).toBe(316);
   });
 
   it('returns the PR number for a just-opened or just-readied PR (labelled by an earlier job)', () => {
     for (const action of ['opened', 'ready_for_review']) {
       const read = (): string => JSON.stringify({ action, pull_request: { number: 548 } });
-      expect(eventPullRequestHint('ready for vanguard review', '/event.json', read)).toBe(548);
+      expect(eventPullRequestHint('ready for taskcell review', '/event.json', read)).toBe(548);
     }
     const synchronize = (): string => JSON.stringify({ action: 'synchronize', pull_request: { number: 548 } });
-    expect(eventPullRequestHint('ready for vanguard review', '/event.json', synchronize)).toBeUndefined();
+    expect(eventPullRequestHint('ready for taskcell review', '/event.json', synchronize)).toBeUndefined();
   });
 
   it('ignores other labels, missing paths, junk payloads, and non-PR events', () => {
     expect(
-      eventPullRequestHint('ready for vanguard review', '/event.json', () =>
+      eventPullRequestHint('ready for taskcell review', '/event.json', () =>
         JSON.stringify({ label: { name: 'bug' }, pull_request: { number: 316 } }),
       ),
     ).toBeUndefined();
-    expect(eventPullRequestHint('ready for vanguard review', undefined)).toBeUndefined();
-    expect(eventPullRequestHint('ready for vanguard review', '')).toBeUndefined();
-    expect(eventPullRequestHint('ready for vanguard review', '/event.json', () => 'not json')).toBeUndefined();
+    expect(eventPullRequestHint('ready for taskcell review', undefined)).toBeUndefined();
+    expect(eventPullRequestHint('ready for taskcell review', '')).toBeUndefined();
+    expect(eventPullRequestHint('ready for taskcell review', '/event.json', () => 'not json')).toBeUndefined();
     expect(
-      eventPullRequestHint('ready for vanguard review', '/event.json', () =>
-        JSON.stringify({ label: { name: 'ready for vanguard review' } }),
+      eventPullRequestHint('ready for taskcell review', '/event.json', () =>
+        JSON.stringify({ label: { name: 'ready for taskcell review' } }),
       ),
     ).toBeUndefined();
     expect(
-      eventPullRequestHint('ready for vanguard review', '/event.json', () => {
+      eventPullRequestHint('ready for taskcell review', '/event.json', () => {
         throw new Error('ENOENT');
       }),
     ).toBeUndefined();

@@ -20,7 +20,7 @@ function fakeGh(items: Item[]): { gh: GhRunner; edits: string[][] } {
       const comments = (item?.comments ?? []).map((c, n) => ({
         body: c.body, author: { login: c.login }, authorAssociation: c.association, createdAt: `2026-11-09T0${n}:00:00Z`,
       }));
-      const labels = item?.held === false ? [] : [{ name: 'vanguard:rate-limited' }];
+      const labels = item?.held === false ? [] : [{ name: 'taskcell:rate-limited' }];
       return JSON.stringify({ comments, reviews: [], labels });
     }
     if (verb === 'edit') { edits.push(args); return ''; }
@@ -42,7 +42,7 @@ describe('resumeRateLimited', () => {
     expect(report.resumed).toEqual(['o/r#1']);
     expect(report.waiting).toEqual(['o/r#2']);
     expect(edits).toEqual([
-      ['issue', 'edit', '1', '--repo', 'o/r', '--remove-label', 'vanguard:rate-limited'],
+      ['issue', 'edit', '1', '--repo', 'o/r', '--remove-label', 'taskcell:rate-limited'],
       ['issue', 'edit', '1', '--repo', 'o/r', '--remove-label', 'ready for agent'],
       ['issue', 'edit', '1', '--repo', 'o/r', '--add-label', 'ready for agent'],
     ]);

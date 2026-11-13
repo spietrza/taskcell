@@ -43,10 +43,10 @@ export interface RateLimitedMarker {
 
 /** Hidden marker recording when a stage may retry and which label starts it again. */
 export function rateLimitedMarker(until: Date, trigger: string): string {
-  return `<!-- vanguard-rate-limited until=${until.toISOString()} trigger="${trigger}" -->`;
+  return `<!-- taskcell-rate-limited until=${until.toISOString()} trigger="${trigger}" -->`;
 }
 
-const RATE_LIMITED_MARKER_RE = /<!--\s*vanguard-rate-limited\s+until=(\S+)\s+trigger="([^"]*)"\s*-->/;
+const RATE_LIMITED_MARKER_RE = /<!--\s*(?:taskcell|vanguard)-rate-limited\s+until=(\S+)\s+trigger="([^"]*)"\s*-->/;
 
 /** Parse a single rate-limited marker out of a comment body, or undefined when absent or malformed. */
 export function parseRateLimitedMarker(body: string): RateLimitedMarker | undefined {
@@ -70,8 +70,8 @@ export function latestRateLimitedMarker(bodies: readonly string[]): RateLimitedM
 export function rateLimitedComment(until: Date, trigger: string): string {
   return [
     "This run ended because the AI provider hit a rate limit or session limit — a temporary condition, not a problem with this change.",
-    `Vanguard will not retry automatically until ${until.toISOString()}. Once that time has passed, \`taskcell resume-rate-limited\` (scheduled every 30 minutes) removes \`vanguard:rate-limited\` and re-applies \`${trigger}\` to retry.`,
-    `To retry sooner, remove \`vanguard:rate-limited\` and re-apply \`${trigger}\` yourself.`,
+    `Vanguard will not retry automatically until ${until.toISOString()}. Once that time has passed, \`taskcell resume-rate-limited\` (scheduled every 30 minutes) removes \`taskcell:rate-limited\` and re-applies \`${trigger}\` to retry.`,
+    `To retry sooner, remove \`taskcell:rate-limited\` and re-apply \`${trigger}\` yourself.`,
     '',
     rateLimitedMarker(until, trigger),
   ].join('\n\n');
@@ -86,7 +86,7 @@ export function isRateLimitHold(error: unknown): error is AgentError {
 export function usageCapComment(error: UsageCapError, trigger: string): string {
   return [
     `Vanguard ${usageCapMessage(error.pct, error.cap, error.until)} (\`VANGUARD_USAGE_CAP_PCT\`). This is the configured reserve, not a provider rate limit and not a problem with this change; no running stage was interrupted.`,
-    `\`taskcell resume-rate-limited\` removes \`vanguard:rate-limited\` and re-applies \`${trigger}\` once ${error.until.toISOString()} has passed.`,
+    `\`taskcell resume-rate-limited\` removes \`taskcell:rate-limited\` and re-applies \`${trigger}\` once ${error.until.toISOString()} has passed.`,
     '',
     rateLimitedMarker(error.until, trigger),
   ].join('\n\n');

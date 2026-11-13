@@ -1,6 +1,8 @@
 import { describe, it, expect } from 'vitest';
 import { readdir, readFile } from 'node:fs/promises';
 import { parse } from 'yaml';
+import { REVIEW_TRIGGER_LABEL, labelForms } from '../core/labels.js';
+import { FACTORY_LABELS } from './enable-factory.js';
 
 // The shared caller templates (docs/onboarding-another-repo.md, enable-factory.ts's `apply` step):
 // thin `@v1` callers for implement, pr-review, revise, doctor and resume, living OUTSIDE `.github/`
@@ -29,6 +31,13 @@ function collectRunValues(node: unknown, out: string[]): void {
 }
 
 describe('templates/github/ caller templates', () => {
+  it('pr-review listens for both review trigger names, and Enable factory creates the one the factory writes', async () => {
+    const gate = await read('pr-review.yml');
+    for (const name of labelForms(REVIEW_TRIGGER_LABEL)) expect(gate).toContain(`"${name}"`);
+    expect(FACTORY_LABELS.map((l) => l.name)).toContain(REVIEW_TRIGGER_LABEL);
+    expect(REVIEW_TRIGGER_LABEL).toBe('ready for vanguard review');
+  });
+
   it('contains exactly the five expected callers', async () => {
     const entries = (await readdir(TEMPLATES_DIR)).filter((f) => f.endsWith('.yml'));
     expect(entries.sort()).toEqual([...EXPECTED_FILES].sort());

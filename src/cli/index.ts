@@ -14,6 +14,7 @@ import { researchCommand } from './research.js';
 import { specCommand } from './spec.js';
 import { revisePrCommand } from './revise-pr.js';
 import { watchPrsCommand } from './watch-prs.js';
+import { migrateLabels } from '../runners/migrate-labels.js';
 import { resumeRateLimited } from '../runners/resume-rate-limited.js';
 import { reviewMrCommand } from './review-mr.js';
 import { watchMrsCommand } from './watch-mrs.js';
@@ -77,6 +78,12 @@ async function main(): Promise<void> {
   }
   if (command.kind === 'revise-pr') {
     await revisePrCommand(command);
+    return;
+  }
+  if (command.kind === 'migrate-labels') {
+    const report = await migrateLabels({ repoSlug: command.repoSlug, apply: command.apply });
+    console.log(`migrate-labels: ${report.renamed.length} ${report.dryRun ? 'to rename (dry-run; pass --apply)' : 'renamed'}, ${report.skipped.length} skipped, ${report.failed.length} failed`);
+    if (report.failed.length > 0) process.exitCode = 1;
     return;
   }
   if (command.kind === 'resume-rate-limited') {

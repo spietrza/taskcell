@@ -1,3 +1,4 @@
+import { hasLabel, withoutLabel } from '../core/labels.js';
 import { failureReason } from '../core/errors.js';
 import { redactForPublish } from '../core/secret-scan.js';
 import { fanOut } from '../pipeline/fan-out.js';
@@ -235,8 +236,8 @@ export async function checkDependencies(repo: string, task: Task, gh: GhRunner =
  * Hidden marker on the wait comment: names the label the resume sweep restores. `kind="error"` marks a
  * park for a failed lookup, so the gate can tell when a resumed issue fails the same way again.
  */
-export const waitingMarker = (trigger: string, kind?: 'error'): string => `<!-- vanguard:waiting trigger="${trigger}"${kind === 'error' ? ' kind="error"' : ''} -->`;
-export const WAITING_MARKER_RE = /<!-- vanguard:waiting trigger="([^"]+)"( kind="error")? -->/;
+export const waitingMarker = (trigger: string, kind?: 'error'): string => `<!-- taskcell:waiting trigger="${trigger}"${kind === 'error' ? ' kind="error"' : ''} -->`;
+export const WAITING_MARKER_RE = /<!-- (?:taskcell|vanguard):waiting trigger="([^"]+)"( kind="error")? -->/;
 
 export interface DependencyGateOptions {
   repo: string;
@@ -249,7 +250,7 @@ export interface DependencyGateOptions {
   log?: (line: string) => void;
   /**
    * Overlap hold: an otherwise-ready issue whose planned files overlap open factory work waits under
-   * `vanguard:waiting` for at most `holdMs`, then starts anyway. A check that throws lets the issue pass.
+   * `taskcell:waiting` for at most `holdMs`, then starts anyway. A check that throws lets the issue pass.
    */
   overlap?: { check: (task: Task) => Promise<OverlapHold[]>; holdMs: number };
 }
@@ -270,7 +271,7 @@ async function trustedComments(repo: string, task: Task, gh: GhRunner): Promise<
 
 /**
  * Keep issues whose dependencies are unmet (or whose `Start:` date is ahead) from starting. Waiting and
- * lookup-failed issues swap the trigger label for `vanguard:waiting` (one comment, not repeated while the
+ * lookup-failed issues swap the trigger label for `taskcell:waiting` (one comment, not repeated while the
  * label is present or when the newest trusted comment already says the same); `resume-rate-limited`
  * swaps it back once the blockers are done. Cycles and missing references go to needs-info, as does a
  * lookup that fails again right after the sweep resumed an earlier failed lookup (the sweep may read
@@ -286,7 +287,7 @@ export async function applyDependencyGate(tasks: Task[], opts: DependencyGateOpt
   for (const outcome of checked) {
     const task = outcome.item;
     let verdict: DependencyVerdict = outcome.status === 'fulfilled' ? outcome.value : { status: 'error', reason: failureReason(outcome.reason) };
-    const waitingBefore = task.labels.includes(GITHUB_WAITING_LABEL);
+    const waitingBefore = hasLabel(task.labels, GITHUB_WAITING_LABEL);
     if (verdict.status === 'ready' && opts.overlap !== undefined && opts.overlap.holdMs > 0) {
       const holds = await opts.overlap.check(task).catch((error: unknown) => {
         log(`taskcell: ${task.id} overlap check failed, not holding -> ${failureReason(error)}`);
@@ -295,7 +296,7 @@ export async function applyDependencyGate(tasks: Task[], opts: DependencyGateOpt
       if (holds.length > 0 && (await holdForOverlap(task, holds, { opts, gh, log, now: opts.now ?? new Date(), holdMs: opts.overlap.holdMs }))) continue;
     }
     if (verdict.status === 'ready') {
-      ready.push({ ...task, dependsOn: verdict.dependsOn, labels: task.labels.filter((l) => l !== GITHUB_WAITING_LABEL) });
+      ready.push({ ...task, dependsOn: verdict.dependsOn, labels: withoutLabel(task.labels, GITHUB_WAITING_LABEL) });
       if (waitingBefore) await editGithubLabels(opts.repo, task.id, { remove: [GITHUB_WAITING_LABEL] }, gh).catch(() => undefined);
       continue;
     }
@@ -338,7 +339,7 @@ export async function applyDependencyGate(tasks: Task[], opts: DependencyGateOpt
 
 /**
  * Parks an issue whose planned files overlap `holds` (one comment naming them, trigger swapped for
- * `vanguard:waiting`). True when held; false when the hold's deadline (fixed in its marker at the
+ * `taskcell:waiting`). True when held; false when the hold's deadline (fixed in its marker at the
  * first hold) has passed, so the issue starts. A failed label edit keeps it held: the trigger is still
  * on, the next poll retries, and the comment is not repeated.
  */

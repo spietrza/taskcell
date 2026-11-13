@@ -33,7 +33,7 @@ test('labels an open issue with no status label with exactly the trigger label',
 });
 
 test('a model pin or a secret-blocked hold does not block a start', async () => {
-  for (const labels of [['vanguard:model=opus'], ['vanguard:secret-blocked']]) {
+  for (const labels of [['taskcell:model=opus'], ['taskcell:secret-blocked']]) {
     const { gh } = fakeGh({ labels });
     expect((await startGithubTask('o/r', 7, 'ready for agent', triggers, gh)).status).toBe('labelled');
   }
@@ -43,7 +43,7 @@ test.each([
   ['a non-trigger label', {}, 'bug', /"bug" is not a trigger label/],
   ['a closed issue', { state: 'closed' }, 'ready for agent', /#7 is closed/],
   ['a pull request', { pull_request: {} }, 'ready for agent', /pull request/],
-  ['an issue already running', { labels: ['vanguard:running'] }, 'ready for agent', /already running or queued \(vanguard:running\)/],
+  ['an issue already running', { labels: ['taskcell:running'] }, 'ready for agent', /already running or queued \(taskcell:running\)/],
   ['an issue already labelled', { labels: ['ready for spec'] }, 'ready for agent', /already running or queued \(ready for spec\)/],
 ])('refuses %s without a write', async (_n, issue, label, message) => {
   const { gh, calls } = fakeGh(issue);
@@ -65,7 +65,7 @@ test('rejects a bad number or slug before any call', async () => {
 });
 
 test('a parked rate-limited issue still carrying the trigger is re-triggered, other triggers dropped', async () => {
-  const { gh, calls } = fakeGh({ labels: ['vanguard:rate-limited', 'ready for agent', 'ready for spec'] });
+  const { gh, calls } = fakeGh({ labels: ['taskcell:rate-limited', 'ready for agent', 'ready for spec'] });
   const res = await startGithubTask('o/r', 7, 'ready for agent', triggers, gh);
   expect(res).toMatchObject({ status: 'retried', waitingOn: [] });
   expect(writes(calls).filter((c) => c[1] === 'edit').map((c) => c.slice(5))).toEqual([
@@ -77,7 +77,7 @@ test('a parked rate-limited issue still carrying the trigger is re-triggered, ot
 
 test('a parked waiting issue reports only its unmet dependencies', async () => {
   const dep = (state: string): string => JSON.stringify({ state, state_reason: 'completed', labels: [] });
-  const { gh, calls } = fakeGh({ labels: ['vanguard:waiting'], body: 'Depends on #3, #4' }, (args) => {
+  const { gh, calls } = fakeGh({ labels: ['taskcell:waiting'], body: 'Depends on #3, #4' }, (args) => {
     if (args[0] !== 'api') return undefined;
     if (args[1] === 'repos/o/r/issues/3') return dep('open');
     if (args[1] === 'repos/o/r/issues/4') return dep('closed');

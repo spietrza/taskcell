@@ -457,9 +457,9 @@ describe('runSourcedIssue', () => {
     }
   });
 
-  it('a vanguard:model=<m> label pins the implementer model for that task, over --provider-model', async () => {
+  it('a taskcell:model=<m> label pins the implementer model for that task, over --provider-model', async () => {
     const labelled = fakeAdapter([], STAGES);
-    labelled.prepare = vi.fn(async () => ({ task: { ...task, labels: ['ready for agent', 'vanguard:model=claude-fable-5'] } }));
+    labelled.prepare = vi.fn(async () => ({ task: { ...task, labels: ['ready for agent', 'taskcell:model=claude-fable-5'] } }));
     await runSourcedIssue('group/project#1', { repoPath: '/repo', providerModel: 'claude-sonnet-5', reviewModel: 'claude-opus-4-8' }, labelled);
 
     const assembled = runStages.mock.calls[0]?.[1] as PipelineStage[];
@@ -470,7 +470,7 @@ describe('runSourcedIssue', () => {
 
   it('the label routes like --provider-model: a same-provider reviewer without --review-model takes it too', async () => {
     const labelled = fakeAdapter([], STAGES);
-    labelled.prepare = vi.fn(async () => ({ task: { ...task, labels: ['vanguard:model=claude-fable-5'] } }));
+    labelled.prepare = vi.fn(async () => ({ task: { ...task, labels: ['taskcell:model=claude-fable-5'] } }));
     await runSourcedIssue('group/project#1', { repoPath: '/repo', provider: 'claude' }, labelled);
     const assembled = runStages.mock.calls[0]?.[1] as PipelineStage[];
     expect(assembled.every((s) => s.model === 'claude-fable-5')).toBe(true);
@@ -478,7 +478,7 @@ describe('runSourcedIssue', () => {
 
   it('--escalate-model does not override a per-task model label on later repairs', async () => {
     const labelled = fakeAdapter([], STAGES);
-    labelled.prepare = vi.fn(async () => ({ task: { ...task, labels: ['vanguard:model=claude-fable-5'] } }));
+    labelled.prepare = vi.fn(async () => ({ task: { ...task, labels: ['taskcell:model=claude-fable-5'] } }));
     runStages.mockResolvedValueOnce([
       { ...stageOutcome('implementer', 'sess-1'), model: 'claude-fable-5' },
       stageOutcome('reviewer'),
@@ -543,18 +543,18 @@ describe('runSourcedIssue', () => {
   });
 
   it('modelFromLabels: last matching label wins, blanks ignored, none → undefined', () => {
-    expect(modelFromLabels(['bug', 'vanguard:model=opus', 'vanguard:model=claude-fable-5'])).toBe('claude-fable-5');
-    expect(modelFromLabels(['vanguard:model= '])).toBeUndefined();
+    expect(modelFromLabels(['bug', 'taskcell:model=opus', 'taskcell:model=claude-fable-5'])).toBe('claude-fable-5');
+    expect(modelFromLabels(['taskcell:model= '])).toBeUndefined();
     expect(modelFromLabels(['ready for agent'])).toBeUndefined();
   });
 
   it('modelFromLabels: malformed values are ignored and reported, well-formed slugs pass', () => {
     const bad: string[] = [];
-    const labels = ['vanguard:model=opus; rm -rf /', 'vanguard:model=$(id)', 'vanguard:model=anthropic/claude-sonnet-4.6'];
+    const labels = ['taskcell:model=opus; rm -rf /', 'taskcell:model=$(id)', 'taskcell:model=anthropic/claude-sonnet-4.6'];
     expect(modelFromLabels(labels, (l) => bad.push(l))).toBe('anthropic/claude-sonnet-4.6');
-    expect(bad).toEqual(['vanguard:model=opus; rm -rf /', 'vanguard:model=$(id)']);
-    expect(modelFromLabels(['vanguard:model=gpt-5.6-sol'])).toBe('gpt-5.6-sol');
-    expect(modelFromLabels([`vanguard:model=${'a'.repeat(81)}`])).toBeUndefined();
+    expect(bad).toEqual(['taskcell:model=opus; rm -rf /', 'taskcell:model=$(id)']);
+    expect(modelFromLabels(['taskcell:model=gpt-5.6-sol'])).toBe('gpt-5.6-sol');
+    expect(modelFromLabels([`taskcell:model=${'a'.repeat(81)}`])).toBeUndefined();
   });
 
   it('builds the sandbox with the shared sandboxImage() resolver, so a VANGUARD_SANDBOX_IMAGE override reaches it too', async () => {
@@ -1068,13 +1068,13 @@ describe('runSourcedIssue', () => {
     expect(result.prUrl).toBe(MR_URL);
   });
 
-  it('the vanguard:base-red-ok label skips the base-red check, so a task can fix the red base', async () => {
+  it('the taskcell:base-red-ok label skips the base-red check, so a task can fix the red base', async () => {
     runStages.mockResolvedValueOnce([stageOutcome('implementer', 'sess-1'), stageOutcome('reviewer')]);
     vi.mocked(resolveVerifyCommand).mockResolvedValue('npm install --frozen-lockfile && npm test');
     vi.mocked(runVerification).mockResolvedValue({ passed: true } as never);
 
     const adapter = fakeAdapter([], STAGES);
-    vi.mocked(adapter.prepare).mockResolvedValueOnce({ task: { ...task, labels: ['vanguard:base-red-ok'] } } as never);
+    vi.mocked(adapter.prepare).mockResolvedValueOnce({ task: { ...task, labels: ['taskcell:base-red-ok'] } } as never);
     const result = await runSourcedIssue('group/project#1', { repoPath: '/repo' }, adapter);
 
     expect(resolveBaselineVerify).not.toHaveBeenCalled();

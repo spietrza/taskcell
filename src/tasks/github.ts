@@ -2,6 +2,7 @@ import { execa } from 'execa';
 import { TaskcellError } from '../core/errors.js';
 import { classifyAuthor } from './comment-trust.js';
 import type { Task, TaskComment, TaskFetcher, TaskFilter } from './fetcher.js';
+import { resolveAdds, resolveRemovals } from '../core/labels.js';
 import { redactForPublish } from '../core/secret-scan.js';
 
 export interface GitHubLabel {
@@ -171,6 +172,12 @@ export async function addPrFailureLabel(repoPath: string, prUrl: string, label: 
   await addPrGateLabel(repoPath, prUrl, label).catch(() => undefined);
 }
 
+/** The label names currently on a GitHub issue. */
+async function issueLabelNames(repo: string, issueRef: string, gh: GhRunner): Promise<string[]> {
+  const view = JSON.parse(await gh(['issue', 'view', issueNumber(issueRef), '--repo', repo, '--json', 'labels'])) as { labels?: GitHubLabel[] };
+  return (view.labels ?? []).map((l) => l.name);
+}
+
 /** Add/remove labels on a GitHub issue (used to claim/advance it in the watch loop). */
 export async function editGithubLabels(
   repo: string,
@@ -179,8 +186,9 @@ export async function editGithubLabels(
   gh: GhRunner = defaultGhRunner,
 ): Promise<void> {
   const args = ['issue', 'edit', issueNumber(issueRef), '--repo', repo];
-  for (const label of labels.add ?? []) args.push('--add-label', label);
-  for (const label of labels.remove ?? []) args.push('--remove-label', label);
+  for (const label of await resolveAdds(labels.add ?? [], repo, gh)) args.push('--add-label', label);
+  const remove = await resolveRemovals(labels.remove ?? [], () => issueLabelNames(repo, issueRef, gh));
+  for (const label of remove) args.push('--remove-label', label);
   if (args.length > 4) await gh(args);
 }
 

@@ -46,7 +46,7 @@ Run the same check for the PR-watch path:
 ```bash
 taskcell doctor-prs \
   --github-repo OWNER/REPO \
-  --label "ready for taskcell review" \
+  --label "ready for vanguard review" \
   --provider codex \
   --llm-proxy \
   --repo /path/to/repo
@@ -152,10 +152,10 @@ The sidecar is started automatically by `taskcell review-pr --llm-proxy`. If you
 
 Run `gh auth login` or set `GH_TOKEN` in your shell, then rerun the doctor command.
 
-**`preflight: github labels missing ready for taskcell review -> stop before claim`**
+**`preflight: github labels missing ready for vanguard review -> stop before claim`**
 
 The `doctor-prs` preflight checks that the trigger label exists in the repo. Create it:
 
 ```bash
-gh label create "ready for taskcell review" --repo OWNER/REPO --color 0075ca
+gh label create "ready for vanguard review" --repo OWNER/REPO --color 0075ca
 ```

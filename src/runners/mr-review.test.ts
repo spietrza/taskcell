@@ -40,13 +40,13 @@ describe('fetchMergeRequestForReview', () => {
 
   it('carries the MR labels as names, dropping unnamed ones, so the gate-config label reaches the prompt', async () => {
     const glab: GlabRunner = async (args) => {
-      if (args[1] === 'view') return JSON.stringify({ iid: 5, labels: ['bug', { name: 'vanguard::gate-config-changed' }, {}] });
+      if (args[1] === 'view') return JSON.stringify({ iid: 5, labels: ['bug', { name: 'taskcell::gate-config-changed' }, {}] });
       return 'diff';
     };
 
     const mr = await fetchMergeRequestForReview({ project: 'g/p', iid: 5 }, glab);
 
-    expect(mr.labels).toEqual(['bug', 'vanguard::gate-config-changed']);
+    expect(mr.labels).toEqual(['bug', 'taskcell::gate-config-changed']);
   });
 
   it('reports no labels when glab omits them', async () => {
@@ -80,10 +80,10 @@ describe('buildMergeRequestReviewPrompt', () => {
     expect(instructions).toContain('severity levels');
   });
 
-  it('adds the gate-config instruction only when the MR carries vanguard::gate-config-changed', () => {
+  it('adds the gate-config instruction only when the MR carries taskcell::gate-config-changed', () => {
     expect(buildMergeRequestReviewPrompt({ ...BASE_MR, labels: ['bug'] })).not.toContain('labelled as touching gate config');
 
-    const flagged = buildMergeRequestReviewPrompt({ ...BASE_MR, labels: ['bug', 'vanguard::gate-config-changed'] });
+    const flagged = buildMergeRequestReviewPrompt({ ...BASE_MR, labels: ['bug', 'taskcell::gate-config-changed'] });
     const instructions = flagged.slice(flagged.indexOf('<task_instructions>'), flagged.indexOf('</task_instructions>'));
     expect(instructions).toContain('labelled as touching gate config');
   });
@@ -148,31 +148,31 @@ describe('parseMergeRequestRef', () => {
 describe('mergeRequestReviewMarker', () => {
   it('produces hidden HTML comment with sha', () => {
     const marker = mergeRequestReviewMarker('abc123');
-    expect(marker).toContain('vanguard-mr-review');
+    expect(marker).toContain('taskcell-mr-review');
     expect(marker).toContain('abc123');
   });
 });
 
 describe('hasMergeRequestReviewMarker', () => {
   it('detects matching marker', () => {
-    const body = 'some text\n<!-- vanguard-mr-review: abc123 -->\nmore';
+    const body = 'some text\n<!-- taskcell-mr-review: abc123 -->\nmore';
     expect(hasMergeRequestReviewMarker(body, 'abc123')).toBe(true);
   });
   it('returns false for different sha', () => {
-    const body = '<!-- vanguard-mr-review: abc123 -->';
+    const body = '<!-- taskcell-mr-review: abc123 -->';
     expect(hasMergeRequestReviewMarker(body, 'def456')).toBe(false);
   });
 });
 
 describe('buildMergeRequestReviewComment', () => {
-  it('wraps text in Vanguard Review header', () => {
+  it('wraps text in Taskcell Review header', () => {
     const comment = buildMergeRequestReviewComment('No blocking findings.');
-    expect(comment).toContain('## Vanguard Review');
+    expect(comment).toContain('## Taskcell Review');
     expect(comment).toContain('No blocking findings.');
   });
   it('appends marker when sha provided', () => {
     const comment = buildMergeRequestReviewComment('ok', 'deadbeef');
-    expect(comment).toContain('vanguard-mr-review');
+    expect(comment).toContain('taskcell-mr-review');
     expect(comment).toContain('deadbeef');
   });
   it('drops a marker the reviewer quoted from untrusted input, so it cannot pre-approve another head', () => {
@@ -207,7 +207,7 @@ describe('reviewMergeRequest head dedupe', () => {
 
   it('skips a head it already reviewed: no reviewer run, nothing posted', async () => {
     const notes = JSON.stringify([
-      { system: false, author: { username: BOT }, body: `## Vanguard Review\n\nok\n\n${mergeRequestReviewMarker(HEAD)}` },
+      { system: false, author: { username: BOT }, body: `## Taskcell Review\n\nok\n\n${mergeRequestReviewMarker(HEAD)}` },
     ]);
     const { glab, calls } = makeGlab(notes);
     const reviewer = vi.fn(async () => 'No blocking findings.');
@@ -327,7 +327,7 @@ describe('reviewMergeRequest head dedupe', () => {
     expect(reviewer).toHaveBeenCalledOnce();
     expect(calls.some((c) => c[0] === 'api')).toBe(false);
     expect(posted(calls)).toHaveLength(1);
-    expect(result.commentBody).not.toContain('vanguard-mr-review');
+    expect(result.commentBody).not.toContain('taskcell-mr-review');
   });
 });
 

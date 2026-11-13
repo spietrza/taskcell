@@ -1,3 +1,4 @@
+import { hasLabel } from '../core/labels.js';
 import type { Task, TaskFetcher, TaskFilter } from './fetcher.js';
 import { defaultGhRunner, issueNumber, toTask } from './github.js';
 import type { GhRunner, GitHubIssue } from './github.js';
@@ -75,7 +76,7 @@ export class GitHubProjectFetcher implements TaskFetcher {
     // Label filtering is still honoured below.
     const wanted = filter?.labels;
     if (wanted !== undefined && wanted.length > 0) {
-      return tasks.filter((task) => wanted.some((label) => task.labels.includes(label)));
+      return tasks.filter((task) => wanted.some((label) => hasLabel(task.labels, label)));
     }
     return tasks;
   }
