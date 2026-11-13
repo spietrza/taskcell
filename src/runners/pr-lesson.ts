@@ -11,6 +11,9 @@ import { extractJson } from '../structured/extract.js';
 import { classifyAuthor } from '../tasks/comment-trust.js';
 import { defaultGhRunner } from '../tasks/github.js';
 import type { GhRunner } from '../tasks/github.js';
+import { defaultGlabRunner, encodeProject, glabUser } from '../tasks/gitlab.js';
+import type { GlabRunner } from '../tasks/gitlab.js';
+import { GITLAB_VERIFY_FAILED_LABEL } from '../gitlab-labels.js';
 import { hasRevisionMarker } from './pr-feedback.js';
 import { extractCommentVerdict } from './review-prompt.js';
 
@@ -94,6 +97,76 @@ export async function fetchPrHistory(
     notes,
     // Any author: a forged marker only suppresses a duplicate comment, never adds content.
     hasLessonComment: (pr.comments ?? []).some((c) => (c.body ?? '').includes(LESSON_MARKER)),
+  };
+}
+
+interface GlabLessonMr {
+  iid: number;
+  web_url: string;
+  title?: string;
+  state?: string;
+  labels?: Array<string | { name?: string }> | null;
+}
+
+interface GlabLessonNote {
+  id?: number;
+  body?: string | null;
+  system?: boolean;
+  author?: { username?: string } | null;
+}
+
+/** File paths and +/- line counts from a unified diff (`glab mr diff`). */
+function diffStats(diff: string): { files: string[]; additions: number; deletions: number } {
+  const files: string[] = [];
+  let additions = 0;
+  let deletions = 0;
+  for (const line of diff.split('\n')) {
+    const m = /^diff --git a\/(.+) b\/(.+)$/.exec(line);
+    if (m?.[2] !== undefined) files.push(m[2]);
+    else if (line.startsWith('+') && !line.startsWith('+++')) additions++;
+    else if (line.startsWith('-') && !line.startsWith('---')) deletions++;
+  }
+  return { files, additions, deletions };
+}
+
+/**
+ * Read a merge request's history through glab. GitLab notes carry no association, so only the glab
+ * user (Vanguard's own reviews and revise notes) and `allowedAuthors` are trusted; everyone else fails closed.
+ */
+export async function fetchMrHistory(
+  project: string,
+  iid: number,
+  opts: { allowedAuthors?: readonly string[]; glab?: GlabRunner } = {},
+): Promise<PrHistory> {
+  const glab = opts.glab ?? defaultGlabRunner;
+  const self = await glabUser(glab);
+  const mr = JSON.parse(await glab(['mr', 'view', String(iid), '--repo', project, '--output', 'json'])) as GlabLessonMr;
+  const notes = JSON.parse(
+    await glab(['api', `projects/${encodeProject(project)}/merge_requests/${iid}/notes?per_page=100&sort=asc&order_by=created_at`]),
+  ) as GlabLessonNote[];
+  const stats = diffStats(await glab(['mr', 'diff', String(iid), '--repo', project]));
+  const human = notes.filter((n) => n.system !== true);
+  const trusted = human.filter(
+    (n) => classifyAuthor(n.author?.username ?? '', undefined, { allowedAuthors: opts.allowedAuthors, botLogins: [self] }) !== 'untrusted',
+  );
+  const body = (n: GlabLessonNote): string => n.body ?? '';
+  const noteUrl = (n: GlabLessonNote): string => (n.id !== undefined ? `${mr.web_url}#note_${n.id}` : mr.web_url);
+  const labels = (mr.labels ?? []).map((l) => (typeof l === 'string' ? l : (l.name ?? '')));
+  return {
+    repo: project,
+    number: mr.iid,
+    url: mr.web_url,
+    title: mr.title ?? '',
+    state: mr.state ?? '',
+    blockingReviews: trusted.filter((n) => isBlocking(body(n), undefined)).length,
+    reviseRounds: trusted.filter((n) => hasRevisionMarker(body(n))).length,
+    verifyFailed: labels.some((l) => l === GITLAB_VERIFY_FAILED_LABEL || l === VERIFY_FAILED_LABEL),
+    ...stats,
+    notes: trusted
+      .filter((n) => body(n).trim() !== '' && !body(n).includes(LESSON_MARKER))
+      .map((n) => ({ url: noteUrl(n), body: body(n) }))
+      .slice(-NOTES_MAX),
+    hasLessonComment: human.some((n) => body(n).includes(LESSON_MARKER)),
   };
 }
 

@@ -1,7 +1,9 @@
 import { appendLessonRecords, readLessons } from '../core/lessons.js';
 import { defaultGhRunner } from '../tasks/github.js';
 import type { GhRunner } from '../tasks/github.js';
-import { distilLessons, fetchPrHistory, hasSomethingToLearn, renderLessonComment } from '../runners/pr-lesson.js';
+import { defaultGlabRunner, neutralizeQuickActions } from '../tasks/gitlab.js';
+import type { GlabRunner } from '../tasks/gitlab.js';
+import { distilLessons, fetchMrHistory, fetchPrHistory, hasSomethingToLearn, renderLessonComment } from '../runners/pr-lesson.js';
 import type { LessonModel } from '../runners/pr-lesson.js';
 
 /** Cheap by default: the lesson is one short completion over text already reviewed. */
@@ -14,6 +16,8 @@ export type LessonsCommand =
       repoPath: string;
       repoSlug: string;
       prNumber: number;
+      /** repoSlug is a GitLab project path and prNumber an MR iid. */
+      gitlab?: true;
       model?: string;
       feedbackAuthors?: string[];
       dryRun: boolean;
@@ -24,6 +28,7 @@ export type LessonsCommand =
 
 export interface LessonsDeps {
   gh?: GhRunner;
+  glab?: GlabRunner;
   model?: LessonModel;
   now?: Date;
 }
@@ -61,10 +66,12 @@ export async function lessonsCommand(cmd: LessonsCommand, deps: LessonsDeps = {}
   }
 
   const gh = deps.gh ?? defaultGhRunner;
-  const history = await fetchPrHistory(cmd.repoSlug, cmd.prNumber, {
-    gh,
-    ...(cmd.feedbackAuthors !== undefined ? { allowedAuthors: cmd.feedbackAuthors } : {}),
-  });
+  const glab = deps.glab ?? defaultGlabRunner;
+  const authorOpt = cmd.feedbackAuthors !== undefined ? { allowedAuthors: cmd.feedbackAuthors } : {};
+  const history =
+    cmd.gitlab === true
+      ? await fetchMrHistory(cmd.repoSlug, cmd.prNumber, { glab, ...authorOpt })
+      : await fetchPrHistory(cmd.repoSlug, cmd.prNumber, { gh, ...authorOpt });
   if (!hasSomethingToLearn(history)) {
     console.log(`PR #${history.number}: clean first-round merge, no lesson.`);
     return;
@@ -83,6 +90,8 @@ export async function lessonsCommand(cmd: LessonsCommand, deps: LessonsDeps = {}
   console.log(`PR #${history.number}: ${lessons.length} lesson(s), ${res.pushed} new on ${res.branch}.`);
   // A re-run (or a reopened-and-closed PR) must not post a second comment.
   if (!history.hasLessonComment) {
-    await gh(['pr', 'comment', String(history.number), '--repo', cmd.repoSlug, '--body', renderLessonComment(lessons)]);
+    const body = renderLessonComment(lessons);
+    if (cmd.gitlab === true) await glab(['mr', 'note', 'create', String(history.number), '--repo', cmd.repoSlug, '-m', neutralizeQuickActions(body)]);
+    else await gh(['pr', 'comment', String(history.number), '--repo', cmd.repoSlug, '--body', body]);
   }
 }
