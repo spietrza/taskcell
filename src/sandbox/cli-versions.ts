@@ -1,5 +1,6 @@
 import { defaultDockerRunner, isOlderVersion, resolveSandboxImageVia, type DockerRunner } from './docker.js';
 import type { CliVersionInfo, CliVersionReport } from '../wire.js';
+import { readEnv } from '../core/env.js';
 
 /** Same soak as scripts/bump-agent-clis.sh. */
 const SOAK_DAYS = 3;
@@ -21,9 +22,9 @@ const defaultFetch: Fetcher = (url) => fetch(url, { signal: AbortSignal.timeout(
 /** Cap on the probe container: the docker client is killed on expiry, and `--init` lets the container stop with it. */
 const PROBE_TIMEOUT_MS = 30_000;
 
-/** The check is on unless VANGUARD_CLI_VERSION_CHECK is `off`/`0`/`false`/`no`. */
+/** The check is on unless TASKCELL_CLI_VERSION_CHECK is `off`/`0`/`false`/`no`. */
 function cliVersionCheckEnabled(env: NodeJS.ProcessEnv): boolean {
-  return !['off', '0', 'false', 'no'].includes((env.VANGUARD_CLI_VERSION_CHECK ?? '').trim().toLowerCase());
+  return !['off', '0', 'false', 'no'].includes((readEnv('TASKCELL_CLI_VERSION_CHECK', env) ?? '').trim().toLowerCase());
 }
 
 export interface CheckCliVersionsOptions {
@@ -120,7 +121,7 @@ async function cursorLatest(fetcher: Fetcher): Promise<string> {
 
 /**
  * Installed vs latest for the claude, codex and cursor CLIs in the local sandbox image. Report only:
- * nothing here installs anything. When the VANGUARD_CLI_VERSION_CHECK switch is off it returns at once
+ * nothing here installs anything. When the TASKCELL_CLI_VERSION_CHECK switch is off it returns at once
  * with no lookups of any kind, and a CLI that is not installed in the image is not looked up. Never
  * throws: a failed lookup leaves `latest` unset with a `reason`. `target` is the newest version past
  * the 3-day soak (what the next bump PR would pin); `latest` may be newer.

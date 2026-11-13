@@ -2,7 +2,7 @@
 // `pnpm gen:wire` derives Commands, COMMAND_NAMES and dispatch from it (see CONTRIBUTING.md).
 import { BadRequestError } from '../../sidecar/sidecar.js';
 import { assertMutationsAllowed } from '../allowlist.js';
-import { ACT_BLOCKING_ISSUES, approverPrDecisions, approverScorecard, openApproverModePr } from '../approver-card.js';
+import { ACT_BLOCKING_ISSUES, approverPrDecisions, approverScorecard, openApproverModePr, unreadScorecard } from '../approver-card.js';
 import type { ApproverModeChange, ApproverPeriod, ApproverPrDecision, ApproverScorecard } from '../../wire.js';
 import { defineCommands, requireString, optionalString, repoTarget } from '../command-kit.js';
 
@@ -11,7 +11,7 @@ export interface ApproverCommands {
   read_approver_scorecard: { args: { repoPath: string; period?: ApproverPeriod }; result: ApproverScorecard };
   /** HUB_ONLY, read-only: what the approver decided for each PR on the metrics branch (merged, would merge, left for a human and why); no gh call. */
   read_approver_decisions: { args: { repoPath: string }; result: { decisions: ApproverPrDecision[] } };
-  /** HUB_ONLY: open a pull request that sets `.taskcell/approver.json` to `mode` — never writes the setting itself. `act` is refused while the act switch is not offered, and below the bar unless `confirmBelowBar` is true; the PR body states the 90-day scorecard numbers at that moment. */
+  /** HUB_ONLY: open a pull request that sets `.taskcell/approver.json` to `mode` — never writes the setting itself. `act` is refused while the act switch is not offered, and below the bar unless `confirmBelowBar` is true; the PR body states the 90-day scorecard numbers at that moment (for `off`, a scorecard that cannot be read is left out rather than blocking the change). Only decisions for the project's own repository count. */
   set_approver_mode: { args: { repoPath: string; mode: 'off' | 'shadow' | 'act'; confirmBelowBar?: boolean }; result: ApproverModeChange };
 }
 
@@ -33,16 +33,20 @@ export const commands = defineCommands<ApproverCommands>({
     const mode = requireString(args, 'mode');
     if (!(MODES as readonly string[]).includes(mode)) throw new BadRequestError("mode must be 'off', 'shadow' or 'act'");
     const target = mode as (typeof MODES)[number];
-    // Always the server's own scorecard: the PR states the numbers as they are now, not what a client claims.
-    const card = await approverScorecard(real, '90d');
+    // Switching off survives a failing scorecard read (it must never keep the approver on). Otherwise always the
+    // server's own scorecard: the PR states the numbers as they are now, not what a client claims.
+    const card = target === 'off' ? await approverScorecard(real, '90d').catch(() => unreadScorecard('90d')) : await approverScorecard(real, '90d');
     if (target === 'act') {
       if (ACT_BLOCKING_ISSUES.length > 0) throw new BadRequestError(`act mode is not available yet: waiting on ${ACT_BLOCKING_ISSUES.map((n) => `#${n}`).join(', ')}`);
       if (!card.barMet && args.confirmBelowBar !== true) {
-        throw new BadRequestError('the approver has not met the bar (30 correct APPROVEs in a row in one risk class); confirm to open the PR anyway');
+        throw new BadRequestError(`the approver has not met the bar (${card.threshold} correct APPROVEs in a row in one risk class); confirm to open the PR anyway`);
       }
     }
     return openApproverModePr({ repoPath: real, mode: target, card });
   },
 }, {
-  set_approver_mode: { action: 'approver-mode', target: repoTarget },
+  set_approver_mode: { action: 'approver-mode', target: repoTarget, detail: async (_ctx, a) => {
+      const mode = optionalString(a, 'mode');
+      return mode !== undefined && (MODES as readonly string[]).includes(mode) ? [`mode=${mode}`] : [];
+    } },
 });

@@ -732,16 +732,16 @@ describe('runRevisePullRequest happy path', () => {
   });
 });
 
-describe('runRevisePullRequest — VANGUARD_PUSH_TOKEN', () => {
-  const ORIGINAL_TOKEN = process.env.VANGUARD_PUSH_TOKEN;
+describe('runRevisePullRequest — TASKCELL_PUSH_TOKEN', () => {
+  const ORIGINAL_TOKEN = process.env.TASKCELL_PUSH_TOKEN;
 
   afterEach(() => {
-    if (ORIGINAL_TOKEN === undefined) delete process.env.VANGUARD_PUSH_TOKEN;
-    else process.env.VANGUARD_PUSH_TOKEN = ORIGINAL_TOKEN;
+    if (ORIGINAL_TOKEN === undefined) delete process.env.TASKCELL_PUSH_TOKEN;
+    else process.env.TASKCELL_PUSH_TOKEN = ORIGINAL_TOKEN;
   });
 
   it('when set, the push env carries the extraheader override (not argv) and still targets the PR head', async () => {
-    process.env.VANGUARD_PUSH_TOKEN = 'test-pat';
+    process.env.TASKCELL_PUSH_TOKEN = 'test-pat';
     const pushCalls: Array<{ file: string; args: string[]; cwd: string; env?: Record<string, string> }> = [];
     const gh: GhRunner = async (args) => {
       if (args[0] === 'pr' && args[1] === 'view' && args.some((a) => a.includes('headRefName'))) return makePrViewJson();
@@ -781,7 +781,7 @@ describe('runRevisePullRequest — VANGUARD_PUSH_TOKEN', () => {
   });
 
   it('when unset, the push argv is unchanged (no -c prefix)', async () => {
-    delete process.env.VANGUARD_PUSH_TOKEN;
+    delete process.env.TASKCELL_PUSH_TOKEN;
     const pushCalls: Array<{ file: string; args: string[]; cwd: string; env?: Record<string, string> }> = [];
     const gh: GhRunner = async (args) => {
       if (args[0] === 'pr' && args[1] === 'view' && args.some((a) => a.includes('headRefName'))) return makePrViewJson();
@@ -819,7 +819,7 @@ describe('runRevisePullRequest — VANGUARD_PUSH_TOKEN', () => {
   });
 
   it('when set, pr ready runs with GH_TOKEN set to the push token', async () => {
-    process.env.VANGUARD_PUSH_TOKEN = 'test-pat';
+    process.env.TASKCELL_PUSH_TOKEN = 'test-pat';
     const readyCalls: Array<{ args: string[]; env?: Record<string, string> }> = [];
     const gh: GhRunner = async (args, env) => {
       if (args[0] === 'pr' && args[1] === 'view' && args.some((a) => a.includes('headRefName'))) return makePrViewJson();
@@ -858,7 +858,7 @@ describe('runRevisePullRequest — VANGUARD_PUSH_TOKEN', () => {
   });
 
   it.each([`ghp_${'B'.repeat(36)}`, 'unrecognized-token-value'])('when token %s is refused, pr ready retries without leaking it', async (pat) => {
-    process.env.VANGUARD_PUSH_TOKEN = pat;
+    process.env.TASKCELL_PUSH_TOKEN = pat;
     const readyCalls: Array<{ args: string[]; env?: Record<string, string> }> = [];
     const logs: string[] = [];
     const gh: GhRunner = async (args, env) => {
@@ -904,7 +904,7 @@ describe('runRevisePullRequest — VANGUARD_PUSH_TOKEN', () => {
   });
 
   it('when unset, pr ready runs with no env override', async () => {
-    delete process.env.VANGUARD_PUSH_TOKEN;
+    delete process.env.TASKCELL_PUSH_TOKEN;
     const readyCalls: Array<{ args: string[]; env?: Record<string, string> }> = [];
     const gh: GhRunner = async (args, env) => {
       if (args[0] === 'pr' && args[1] === 'view' && args.some((a) => a.includes('headRefName'))) return makePrViewJson();
@@ -943,15 +943,15 @@ describe('runRevisePullRequest — VANGUARD_PUSH_TOKEN', () => {
   });
 
   it('is never forwarded into the sandbox secrets map (host-only credential)', () => {
-    process.env.VANGUARD_PUSH_TOKEN = 'test-pat';
+    process.env.TASKCELL_PUSH_TOKEN = 'test-pat';
     const selected = selectAgents({ provider: 'claude' }, process.env);
-    expect(Object.keys(selected.secrets)).not.toContain('VANGUARD_PUSH_TOKEN');
+    expect(Object.keys(selected.secrets)).not.toContain('TASKCELL_PUSH_TOKEN');
     expect(Object.values(selected.secrets)).not.toContain('test-pat');
-    expect(Object.keys(selected.proxySecrets)).not.toContain('VANGUARD_PUSH_TOKEN');
+    expect(Object.keys(selected.proxySecrets)).not.toContain('TASKCELL_PUSH_TOKEN');
   });
 
-  it('does not pass VANGUARD_PUSH_TOKEN to the constructed sandbox provider', async () => {
-    process.env.VANGUARD_PUSH_TOKEN = 'test-pat';
+  it('does not pass TASKCELL_PUSH_TOKEN to the constructed sandbox provider', async () => {
+    process.env.TASKCELL_PUSH_TOKEN = 'test-pat';
     dockerSandboxConfigs.length = 0;
     const gh: GhRunner = async (args) => {
       if (args[0] === 'pr' && args[1] === 'view' && args.some((a) => a.includes('headRefName'))) return makePrViewJson();
@@ -981,7 +981,7 @@ describe('runRevisePullRequest — VANGUARD_PUSH_TOKEN', () => {
     });
 
     expect(dockerSandboxConfigs).toHaveLength(1);
-    expect(dockerSandboxConfigs[0]?.secrets ?? {}).not.toHaveProperty('VANGUARD_PUSH_TOKEN');
+    expect(dockerSandboxConfigs[0]?.secrets ?? {}).not.toHaveProperty('TASKCELL_PUSH_TOKEN');
     expect(Object.values(dockerSandboxConfigs[0]?.secrets ?? {})).not.toContain('test-pat');
   });
 });
@@ -993,8 +993,8 @@ describe('runRevisePullRequest — VANGUARD_PUSH_TOKEN', () => {
 describe('runRevisePullRequest — hardened sandbox', () => {
   // Pin both vars so the host env cannot opt in or resize under the test.
   beforeEach(() => {
-    vi.stubEnv('VANGUARD_SANDBOX_READONLY', undefined);
-    vi.stubEnv('VANGUARD_SANDBOX_MEMORY_MB', undefined);
+    vi.stubEnv('TASKCELL_SANDBOX_READONLY', undefined);
+    vi.stubEnv('TASKCELL_SANDBOX_MEMORY_MB', undefined);
   });
   afterEach(() => vi.unstubAllEnvs());
 
@@ -1020,13 +1020,13 @@ describe('runRevisePullRequest — hardened sandbox', () => {
     expect((await revise('vg-egr-1'))?.profile?.security.readOnlyRootfs).toBe(false);
   });
 
-  it('--egress/--llm-proxy with VANGUARD_SANDBOX_READONLY=1: the sandbox gets a read-only rootfs', async () => {
-    vi.stubEnv('VANGUARD_SANDBOX_READONLY', '1');
+  it('--egress/--llm-proxy with TASKCELL_SANDBOX_READONLY=1: the sandbox gets a read-only rootfs', async () => {
+    vi.stubEnv('TASKCELL_SANDBOX_READONLY', '1');
     expect((await revise('vg-egr-1'))?.profile?.security.readOnlyRootfs).toBe(true);
   });
 
-  it('VANGUARD_SANDBOX_READONLY=0 keeps it off in hardened mode', async () => {
-    vi.stubEnv('VANGUARD_SANDBOX_READONLY', '0');
+  it('TASKCELL_SANDBOX_READONLY=0 keeps it off in hardened mode', async () => {
+    vi.stubEnv('TASKCELL_SANDBOX_READONLY', '0');
     expect((await revise('vg-egr-1'))?.profile?.security.readOnlyRootfs).toBe(false);
   });
 
@@ -1605,7 +1605,7 @@ describe('runRevisePullRequest — revise-pass verification', () => {
     const prBody = [
       configBlock,
       'Closes o/r#42',
-      'Automated implementation of o/r#42 by Vanguard.',
+      'Automated implementation of o/r#42 by Taskcell.',
       '## Proof of work\n\nPASS',
     ].join('\n\n');
 
@@ -1634,7 +1634,7 @@ describe('runRevisePullRequest — revise-pass verification', () => {
     const editBodies: string[] = [];
     const itemsBlock = prBodyGapWarningBlock([{ id: 'PR-1', contains: 'name: gate' }])
       .replace('<!-- vanguard:pr-body-items:end -->', '```yaml\nname: gate\n```\n<!-- vanguard:pr-body-items:end -->');
-    const prBody = ['Part of o/r#42', 'Automated implementation of o/r#42 by Vanguard.', itemsBlock].join('\n\n');
+    const prBody = ['Part of o/r#42', 'Automated implementation of o/r#42 by Taskcell.', itemsBlock].join('\n\n');
 
     await runRevisePullRequest('7', {
       repoPath: repo,
@@ -1911,7 +1911,7 @@ it('T10: all-untrusted feedback explains itself on the PR and hands the labels b
   // The maintainer sees why, and the PR leaves taskcell:revising for a human.
   const notice = gh.mock.calls.map(([args]) => args).find((args) => args[0] === 'pr' && args[1] === 'review' && args.includes('--comment'));
   expect(notice?.at(-1)).toContain('@mallory (NONE)');
-  expect(notice?.at(-1)).not.toContain('Vanguard');
+  expect(notice?.at(-1)).not.toContain('Taskcell');
   const editCall = gh.mock.calls.map(([args]) => args).find((args) => args[0] === 'pr' && args[1] === 'edit');
   expect(editCall?.join(' ')).toContain('taskcell:needs-human-review');
   expect(editCall?.join(' ')).toContain('taskcell:revising');
@@ -2294,7 +2294,7 @@ describe('runRevisePullRequest — gate-config signal', () => {
 });
 
 describe('runRevisePullRequest — taskcell GitHub App', () => {
-  const KEYS = ['TASKCELL_APP_CLIENT_ID', 'TASKCELL_APP_PRIVATE_KEY', 'VANGUARD_PUSH_TOKEN'] as const;
+  const KEYS = ['TASKCELL_APP_CLIENT_ID', 'TASKCELL_APP_PRIVATE_KEY', 'TASKCELL_PUSH_TOKEN'] as const;
   const saved = Object.fromEntries(KEYS.map((k) => [k, process.env[k]]));
   afterEach(() => {
     vi.unstubAllGlobals();
@@ -2362,7 +2362,7 @@ describe('runRevisePullRequest — taskcell GitHub App', () => {
   });
 
   it('a failed mint without a PAT pushes and undrafts with the ambient credential, and the logs say so', async () => {
-    delete process.env.VANGUARD_PUSH_TOKEN;
+    delete process.env.TASKCELL_PUSH_TOKEN;
     const { readyEnvs, pushEnvs, logs } = await run(500);
     expect(pushEnvs).toEqual([undefined]);
     expect(readyEnvs).toEqual([undefined]);
@@ -2804,8 +2804,8 @@ describe('runRevisePullRequest blocking-item checklist', () => {
   });
 
   it('adds the re-review label with the push token, so the labeled event starts a review run', async () => {
-    const original = process.env.VANGUARD_PUSH_TOKEN;
-    process.env.VANGUARD_PUSH_TOKEN = 'test-pat';
+    const original = process.env.TASKCELL_PUSH_TOKEN;
+    process.env.TASKCELL_PUSH_TOKEN = 'test-pat';
     try {
       const { ghCalls, ghEnvs, result } = await run('1. FIXED: src/a.ts — done\n2. FIXED: src/a.test.ts — added');
       await expect(result).resolves.toMatchObject({ pushed: true });
@@ -2813,8 +2813,8 @@ describe('runRevisePullRequest blocking-item checklist', () => {
       expect(at).toBeGreaterThanOrEqual(0);
       expect(ghEnvs[at]).toEqual({ GH_TOKEN: 'test-pat' });
     } finally {
-      if (original === undefined) delete process.env.VANGUARD_PUSH_TOKEN;
-      else process.env.VANGUARD_PUSH_TOKEN = original;
+      if (original === undefined) delete process.env.TASKCELL_PUSH_TOKEN;
+      else process.env.TASKCELL_PUSH_TOKEN = original;
     }
   });
 

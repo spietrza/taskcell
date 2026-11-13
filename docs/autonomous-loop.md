@@ -95,7 +95,7 @@ taskcell watch --loop-v1 --label vanguard \
 
 ## Shared behaviour (both sources)
 
-- `taskcell doctor` runs the AFK preflight without claiming work. It checks Node 24+, LLM auth, repo remote, Docker daemon, the sandbox image, `vanguard-sandbox:latest` or `VANGUARD_SANDBOX_IMAGE` when set (including the Claude CLI version inside it — see [Keeping the sandbox image current](cli.md#keeping-the-sandbox-image-current)), source auth, GitHub routing labels, and Linear env/skills setup. On a GitHub repo it also verifies the "Allow GitHub Actions to create and approve pull requests" setting (best-effort — skipped if the token cannot read it) and, when Codex is selected with a `CODEX_AUTH_JSON` subscription credential, validates its shape before the run.
+- `taskcell doctor` runs the AFK preflight without claiming work. It checks Node 24+, LLM auth, repo remote, Docker daemon, the sandbox image, `vanguard-sandbox:latest` or `TASKCELL_SANDBOX_IMAGE` when set (including the Claude CLI version inside it — see [Keeping the sandbox image current](cli.md#keeping-the-sandbox-image-current)), source auth, GitHub routing labels, and Linear env/skills setup. On a GitHub repo it also verifies the "Allow GitHub Actions to create and approve pull requests" setting (best-effort — skipped if the token cannot read it) and, when Codex is selected with a `CODEX_AUTH_JSON` subscription credential, validates its shape before the run.
 - Triage is deterministic (`assessTaskReadiness`) and rejects under-specified tickets before spending any model tokens.
 - The spec stage is read-only: it posts a `<tech_spec>` comment but never writes code or opens a PR.
 - In continuous mode, a freshly-specced ticket is implemented on the **next poll** (human intervention window). In `--once` mode spec and build complete in the same invocation.
@@ -199,9 +199,9 @@ Each run appends a `run_complete` metric line per stage to `.taskcell/runs/metri
 
 | Variable | Value |
 | --- | --- |
-| `VANGUARD_OTLP_ENDPOINT` (or the standard `OTEL_EXPORTER_OTLP_ENDPOINT`, honored only with `VANGUARD_OTEL=1`, so an inherited host-wide OTel config never starts an export) | OTLP base; for Langfuse `https://<your-langfuse>/api/public/otel` (`/v1/traces` is appended) |
-| `LANGFUSE_PUBLIC_KEY` + `LANGFUSE_SECRET_KEY` | a Langfuse project key pair — Basic auth and the `x-langfuse-ingestion-version: 4` real-time header are derived; used only for a Langfuse-shaped endpoint (`VANGUARD_OTLP_ENDPOINT`, or a path containing `/api/public/otel`), so a host-wide `OTEL_EXPORTER_OTLP_ENDPOINT` never receives them |
-| `VANGUARD_OTLP_HEADERS` (or `OTEL_EXPORTER_OTLP_HEADERS`, again only with `VANGUARD_OTEL=1`) | alternative for any other collector: the OTel `k=v,k2=v2` list, which must include `Authorization=…` |
+| `TASKCELL_OTLP_ENDPOINT` (or the standard `OTEL_EXPORTER_OTLP_ENDPOINT`, honored only with `TASKCELL_OTEL=1`, so an inherited host-wide OTel config never starts an export) | OTLP base; for Langfuse `https://<your-langfuse>/api/public/otel` (`/v1/traces` is appended) |
+| `LANGFUSE_PUBLIC_KEY` + `LANGFUSE_SECRET_KEY` | a Langfuse project key pair — Basic auth and the `x-langfuse-ingestion-version: 4` real-time header are derived; used only for a Langfuse-shaped endpoint (`TASKCELL_OTLP_ENDPOINT`, or a path containing `/api/public/otel`), so a host-wide `OTEL_EXPORTER_OTLP_ENDPOINT` never receives them |
+| `TASKCELL_OTLP_HEADERS` (or `OTEL_EXPORTER_OTLP_HEADERS`, again only with `TASKCELL_OTEL=1`) | alternative for any other collector: the OTel `k=v,k2=v2` list, which must include `Authorization=…` |
 
 The export is a hand-rolled OTLP/HTTP JSON POST from the host process (no OpenTelemetry SDK, nothing reaches the sandbox), fired from the same place the metric line is written so local and CI runs behave the same; a failure is reported once on stderr and never fails the run — `metrics.jsonl` stays the record of truth. **Self-hosting on Coolify:** deploy Langfuse from Coolify's one-click service template, create a project, copy its public/secret keys, and set the three variables where Taskcell runs (on GitHub Actions: a repository variable for the endpoint, two secrets for the keys, passed through the workflow's `env`).
 
@@ -293,7 +293,7 @@ taskcell approve --pr 557 --github-repo spietrza/taskcell --dry-run   # decide a
 Two kill switches, either one short-circuits to `ESCALATE` (`stopped`) before any diff or ledger collection:
 
 ```bash
-VANGUARD_APPROVER_STOP=1 taskcell approve --pr 557 --github-repo spietrza/taskcell   # per-run, env
+TASKCELL_APPROVER_STOP=1 taskcell approve --pr 557 --github-repo spietrza/taskcell   # per-run, env
 # or, repo-wide: set "enabled": false in .taskcell/approver.json on the base branch
 ```
 
@@ -315,7 +315,7 @@ In act mode the decision itself goes to the check run (`vanguard/approver`, titl
 - **No human hold.** No reviewer's latest approval/change-request review is `CHANGES_REQUESTED` (an approval after a change request releases it), and the PR does not carry the policy's `holdLabel` (default `taskcell:hold`).
 - **Opened by the factory.** The API-sourced PR author (`gh pr view --json author`) is one of the policy's `factoryAuthors` logins, **and** the head is a same-repo branch with `factoryBranchPrefix`. No `factoryAuthors` in the policy means act mode acts on nothing, and neither does an empty `requiredChecks` (there would be no check gate).
 - **`mergeStateStatus` is `CLEAN`** (after the update, if one was made). `BEHIND` triggers the one update; `UNKNOWN` is re-read a few times (GitHub computes it lazily) before it counts; `BLOCKED`, `UNSTABLE`, `DIRTY` or an absent status are left for a human.
-- **Nothing changed since the decision.** `--mode act` reads the policy strictly from the fetched base from the start (an unreachable remote is `policy-unreadable`, never a stale local copy), and takes the base, the policy and the audit seed from the PR read after the `UNKNOWN` retries. Immediately before the merge the PR (labels, reviews, draft, state, head), the policy (strictly from the fetched base, so `enabled: false` and `act` are re-read; the `VANGUARD_APPROVER_STOP` repo variable reaches the job as env at start and is not), the base tip (`origin/<base>` as just fetched, compared to the tip the diff was computed against) and the required checks are re-read, the decision is made again on them (it must still be `APPROVE`) and the same exclusions re-run; any change leaves the PR for a human. The decision is written to the log before the merge; if that write fails nothing is merged (`error`, code `decision-log-failed`). `gh` error text in comments, the log and the error the command exits with has tokens redacted. A failed fetch of the base is `git-facts-failed` in act mode (no action), never a stale local base.
+- **Nothing changed since the decision.** `--mode act` reads the policy strictly from the fetched base from the start (an unreachable remote is `policy-unreadable`, never a stale local copy), and takes the base, the policy and the audit seed from the PR read after the `UNKNOWN` retries. Immediately before the merge the PR (labels, reviews, draft, state, head), the policy (strictly from the fetched base, so `enabled: false` and `act` are re-read; the `TASKCELL_APPROVER_STOP` repo variable reaches the job as env at start and is not), the base tip (`origin/<base>` as just fetched, compared to the tip the diff was computed against) and the required checks are re-read, the decision is made again on them (it must still be `APPROVE`) and the same exclusions re-run; any change leaves the PR for a human. The decision is written to the log before the merge; if that write fails nothing is merged (`error`, code `decision-log-failed`). `gh` error text in comments, the log and the error the command exits with has tokens redacted. A failed fetch of the base is `git-facts-failed` in act mode (no action), never a stale local base.
 - **Review identity.** `github-actions` is the login every workflow with `pull-requests: write` posts under, so in act mode the latest verdict review must also carry the host's stamp: `review-pr` (the PR-review workflow's step, when `GITHUB_RUN_ID` is set) appends `<!-- taskcell-pr-review-run: <sha>:<runId> -->` to the review it posts, where `<sha>` is the head the host read right before it fetched the diff the reviewer was given. The approver takes a verdict only from a review that carries **exactly one** such stamp (a second mention of it anywhere in the body, and a stamp for another SHA than the review's head marker, both mean no verdict), **and** whose GitHub commit id (the head when the review was submitted) equals the stamped SHA. A push while the review ran therefore leaves no usable verdict: the review is filed under the new head but read the old diff. The run id in the stamp says which run posted it and is not compared to anything: one PR-review run reviews every labelled PR, and a run can trigger the approver without posting a review (the `opened` run of a PR the App bot opened only adds the label). When there is no usable review for the head, act mode does nothing and posts no comment (the decision, `review-missing`, is in the check run and the log); the run of the real review acts. **The stamp is not authentication**: it is a public-format comment, so any job able to post a review as `github-actions` could write one. The real boundary is that **no job handling untrusted input may hold a token that can post a review**.
 - **Exact review validity.** The head is the reviewed commit, or the head's tree equals the tree of `git merge-tree --write-tree <base> <reviewedSha>` (the base merged into the reviewed commit). An equal patch-id is not enough to merge (shadow mode keeps the patch-id rule for its verdict); anything else needs a new review.
 - Not a release PR (head branch or title says release), touches no CI config and no path matched by `pathRules`, and the decision is `APPROVE`.
@@ -326,7 +326,7 @@ A base that moves again after an update, checks that fail or time out on the upd
 
 Every action (`update-branch`, `merge`, `left-for-human`, `merge-failed`, `checks-failed`, `base-moved`, `error`) is appended to `decisions.jsonl` with the PR, head SHA, reason and timestamp (records with an `action` field and no `verdict`; the ledger and scorecard skip them). The code allow-lists exactly two `gh` writes on top of shadow's (`pr update-branch`, `pr merge --squash --match-head-commit`) and requests no new permission; the token must be able to merge but cannot push `.github/**` changes, and act mode refuses such PRs anyway.
 
-**Turning it off:** set `"act": false` (or remove it) in `.taskcell/approver.json` on the base branch, or `"enabled": false`, or set `VANGUARD_APPROVER_STOP=1`; the next run is shadow or stopped. Switching the approver job to act is a workflow edit for a human to apply: in `.github/workflows/taskcell-approver.yml`, change the last step to `node dist/cli/index.js approve --pr "$PR" --github-repo "$GITHUB_REPOSITORY" --mode act`. Nothing else: there is no run id to pass (`--review-run-id` no longer exists), and the PR-review workflow needs no edit, since `review-pr` already stamps its reviews when `GITHUB_RUN_ID` is set.
+**Turning it off:** set `"act": false` (or remove it) in `.taskcell/approver.json` on the base branch, or `"enabled": false`, or set `TASKCELL_APPROVER_STOP=1`; the next run is shadow or stopped. Switching the approver job to act is a workflow edit for a human to apply: in `.github/workflows/taskcell-approver.yml`, change the last step to `node dist/cli/index.js approve --pr "$PR" --github-repo "$GITHUB_REPOSITORY" --mode act`. Nothing else: there is no run id to pass (`--review-run-id` no longer exists), and the PR-review workflow needs no edit, since `review-pr` already stamps its reviews when `GITHUB_RUN_ID` is set.
 
 #### Before you turn act mode on
 
@@ -336,7 +336,7 @@ Every action (`update-branch`, `merge`, `left-for-human`, `merge-failed`, `check
 - [ ] The approver workflow passes `--mode act` (human edit, above) and no `--review-run-id`: the verdict is bound to the stamped head SHA, not to the triggering run, because one PR-review run reviews many PRs and a run can finish without posting a review. Its `timeout-minutes` exceeds the checks wait plus the 30 min poll.
 - [ ] You know whether you need a merge/update token that starts workflows (`github.token` does not).
 - [ ] Branch protection requires the same checks as `requiredChecks`.
-- [ ] Set `"act": true` last, and know how to turn it off (`act: false`, `enabled: false`, `VANGUARD_APPROVER_STOP`).
+- [ ] Set `"act": true` last, and know how to turn it off (`act: false`, `enabled: false`, `TASKCELL_APPROVER_STOP`).
 
 ### Scorecard: shadow verdict vs what the human did
 
@@ -375,7 +375,7 @@ That digest dies with a CI job, so closed factory PRs also leave **lessons** on 
 
 Later `run`, `watch` and spec runs read the live lessons back into the retrospective block. A lesson qualifies when it is repo-wide or when one of its globs matches a path that the issue text mentions or a file the run changes: the spec's planned files at implement time, the diff's files when a failed gate is repaired, and the PR's diff files in a revise round. The block is capped at 2 KB; when more lessons match than fit, the most specific glob wins, then the lesson with the most `violations` (an optional count on the stored lesson), then the newest, so repo-wide lessons are cut first. The ids injected are recorded as `lessonIds` on the run's stage records, and `taskcell lessons list` shows how many local runs received each lesson. A wrong lesson is dismissed with `taskcell lessons dismiss <id>` (the id is in the PR comment and in `taskcell lessons list`), and runs no longer receive it.
 
-On GitLab, `taskcell lessons record --gitlab-project <group/project> --mr <n>` does the same through `glab`: the history comes from the MR's notes and the `taskcell::verify-failed` label, and the lesson note is posted on the MR. GitLab notes carry no association, so only notes by the user `glab` runs as (Vanguard's own reviews and revise notes) and `--feedback-authors` logins reach the model; the model runs with tools disabled. `lessons list` and `lessons dismiss` work the same for a GitLab repo. Add the job to `.gitlab-ci.yml` by hand (agents never edit CI config):
+On GitLab, `taskcell lessons record --gitlab-project <group/project> --mr <n>` does the same through `glab`: the history comes from the MR's notes and the `taskcell::verify-failed` label, and the lesson note is posted on the MR. GitLab notes carry no association, so only notes by the user `glab` runs as (Taskcell's own reviews and revise notes) and `--feedback-authors` logins reach the model; the model runs with tools disabled. `lessons list` and `lessons dismiss` work the same for a GitLab repo. Add the job to `.gitlab-ci.yml` by hand (agents never edit CI config):
 
 ```yaml
 taskcell-lessons:
@@ -396,21 +396,21 @@ This repo runs the step from `.github/workflows/taskcell-lessons.yml` when a `ch
 
 After the agent finishes, the host (not the agent) runs a verification command inside the sandbox, captures its stdout and stderr, computes a SHA-256 over the combined output, and stamps a Proof of Work block into the PR body and the run record. The agent cannot fake it.
 
-Command precedence: `--verify "<cmd>"` flag > `VANGUARD_VERIFY_CMD` env > a `verify` script in the worktree `package.json` (the host builds `<pm> install --frozen-lockfile && <pm> run verify`) > auto-detect from `package.json` (if a `test` script exists, the host builds `<pm> install --frozen-lockfile [&& <pm> run typecheck] && <pm> test`) > skip (no command resolved means no block, PR body unchanged). The root `verify` script is `pnpm typecheck && pnpm lint && pnpm test:coverage && pnpm verify:desktop`; the last step installs `apps/desktop`, runs its tests and builds it (`tsc` + vite), like CI's `build` job, so a stale `apps/desktop/src/wire.ts` or a desktop break fails the gate. A repo that declares its own `verify` script (e.g. mirroring what its CI build job runs) gets exactly that gate instead of the typecheck/test guess, so verify matches CI.
+Command precedence: `--verify "<cmd>"` flag > `TASKCELL_VERIFY_CMD` env > a `verify` script in the worktree `package.json` (the host builds `<pm> install --frozen-lockfile && <pm> run verify`) > auto-detect from `package.json` (if a `test` script exists, the host builds `<pm> install --frozen-lockfile [&& <pm> run typecheck] && <pm> test`) > skip (no command resolved means no block, PR body unchanged). The root `verify` script is `pnpm typecheck && pnpm lint && pnpm test:coverage && pnpm verify:desktop`; the last step installs `apps/desktop`, runs its tests and builds it (`tsc` + vite), like CI's `build` job, so a stale `apps/desktop/src/wire.ts` or a desktop break fails the gate. A repo that declares its own `verify` script (e.g. mirroring what its CI build job runs) gets exactly that gate instead of the typecheck/test guess, so verify matches CI.
 
 On failure the PR always opens, the body carries a `FAIL` Proof of Work block (command, exit code, SHA-256, and an output tail), and a `vanguard:verify-failed` label is added to the PR (best-effort).
 
 ```bash
 taskcell run --linear TES-1 --verify "pnpm typecheck && pnpm test"
 # or set for all runs:
-VANGUARD_VERIFY_CMD="pnpm typecheck && pnpm test" taskcell watch --label vanguard
+TASKCELL_VERIFY_CMD="pnpm typecheck && pnpm test" taskcell watch --label vanguard
 ```
 
 ## Visual proof
 
 After the agent finishes, the host (not the agent) optionally runs a user-supplied visual proof command inside the sandbox — for UI changes that produce screenshots or visual artifacts (e.g. Playwright). It captures stdout and stderr, computes a SHA-256 over the combined output, lists the artifacts the command wrote under `/workspace/.vanguard/visual-proof`, hashes each one (a manifest of path + SHA-256 + byte size — artifacts are not copied out in this version), and stamps a Visual Proof block into the PR body and the run record.
 
-Command precedence: `--visual-proof "<cmd>"` flag > `VANGUARD_VISUAL_PROOF_CMD` env > skip. Unlike Proof of work, there is no auto-detect — if no command is resolved, there is no visual proof and the PR body is unchanged.
+Command precedence: `--visual-proof "<cmd>"` flag > `TASKCELL_VISUAL_PROOF_CMD` env > skip. Unlike Proof of work, there is no auto-detect — if no command is resolved, there is no visual proof and the PR body is unchanged.
 
 Allowed artifact extensions: `.png`, `.jpg`, `.jpeg`, `.webp`, `.gif`, `.svg`, `.html`, `.json`.
 
@@ -419,5 +419,5 @@ Visual proof failure never blocks the PR: the PR always opens, and on a non-zero
 ```bash
 taskcell run --github 123 --visual-proof "pnpm exec playwright test --project=chromium"
 # or set for all runs:
-VANGUARD_VISUAL_PROOF_CMD="pnpm exec playwright test --project=chromium" taskcell watch --label vanguard
+TASKCELL_VISUAL_PROOF_CMD="pnpm exec playwright test --project=chromium" taskcell watch --label vanguard
 ```

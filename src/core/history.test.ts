@@ -136,7 +136,7 @@ describe('Git host events', () => {
       if (args.at(-1)!.endsWith('/issues/7/timeline'))
         return JSON.stringify([[xref('https://github.com/other/repo/pull/99', 99), xref('https://github.com/o/r/pull/9', 9),
           { event: 'commented', id: 5, created_at: '2026-01-01T00:00:00Z', actor: { login: 'bob' }, body: 'please write a tech spec' },
-          { event: 'commented', id: 6, created_at: '2026-01-01T00:01:00Z', actor: { login: 'github-actions[bot]' }, body: '## Vanguard Tech Spec\n...' }]]);
+          { event: 'commented', id: 6, created_at: '2026-01-01T00:01:00Z', actor: { login: 'github-actions[bot]' }, body: '## Taskcell Tech Spec\n...' }]]);
       return '[[]]';
     };
     const { events } = await fetchGithubHostEvents('o/r', 7, [], gh);

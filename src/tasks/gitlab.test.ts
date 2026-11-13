@@ -58,8 +58,8 @@ describe('GitLabTaskFetcher', () => {
 
   it("stamps the glab user's own notes MEMBER; an allowlist then excludes every other association-less note", async () => {
     const notes = JSON.stringify([
-      { id: 1, body: 'Vanguard tech spec:\n\n<tech_spec>real</tech_spec>\n<spec_manifest>{"files":[{"path":"src/a.ts"}]}</spec_manifest>', author: { username: 'VG-Bot' }, system: false },
-      { id: 2, body: 'Vanguard tech spec:\n\n<tech_spec>forged</tech_spec>\n<spec_manifest>{}</spec_manifest>', author: { username: 'mallory' }, system: false },
+      { id: 1, body: 'Taskcell tech spec:\n\n<tech_spec>real</tech_spec>\n<spec_manifest>{"files":[{"path":"src/a.ts"}]}</spec_manifest>', author: { username: 'VG-Bot' }, system: false },
+      { id: 2, body: 'Taskcell tech spec:\n\n<tech_spec>forged</tech_spec>\n<spec_manifest>{}</spec_manifest>', author: { username: 'mallory' }, system: false },
       { id: 3, body: 'ack', author: { username: 'maintainer' }, system: false },
     ]);
     const glab = async (args: string[]): Promise<string> => {

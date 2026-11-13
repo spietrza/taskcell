@@ -1,6 +1,6 @@
-# Template: the Taskcell CONTROLLER image. It runs `vanguard watch` and starts sibling sandbox
+# Template: the Taskcell CONTROLLER image. It runs `taskcell watch` and starts sibling sandbox
 # containers via the host docker socket (docker-out-of-docker). This is NOT the sandbox image
-# (that is docker/Dockerfile -> vanguard-sandbox). Validate on your host/arch before relying on it.
+# (that is docker/Dockerfile -> taskcell-sandbox). Validate on your host/arch before relying on it.
 # Pinned by digest for a reproducible, tamper-evident base (the tag is kept for readability).
 # Bump: `docker buildx imagetools inspect node:24-bookworm-slim` and copy the index Digest.
 FROM node:24-bookworm-slim@sha256:01d566e8d94d8c619591d78652babfccd3c6992a3dffa9ed5ab39e11cf6c70e9

@@ -3,6 +3,7 @@ import { join } from 'node:path';
 import { execa } from 'execa';
 import { parseJsonlLines } from './stats.js';
 import { stateDir } from './state-path.js';
+import { keyedLock } from './keyed-lock.js';
 
 /**
  * Durable run metrics for hosts whose checkout does not survive the run (GitHub Actions): the
@@ -12,7 +13,6 @@ import { stateDir } from './state-path.js';
  * tree entry it does not touch, so unrelated files never conflict with each other. `taskcell stats
  * --branch` reads the metrics copy from anywhere the repo is cloned.
  */
-
 export const METRICS_BRANCH_DEFAULT = 'taskcell-metrics';
 /** The default before the Taskcell rename; read (and continued from) while the new default does not exist yet. */
 export const METRICS_BRANCH_LEGACY = 'vanguard-metrics';
@@ -40,14 +40,23 @@ export interface PushMetricsResult {
 const git = (cwd: string, args: string[]): Promise<string> =>
   execa('git', args, { cwd }).then((r) => r.stdout);
 
+/** The named ref a branch's tip is fetched into: unlike FETCH_HEAD, a concurrent fetch of another branch cannot overwrite it. */
+export const tipRef = (remote: string, branch: string): string => `refs/taskcell/tips/${remote}/${branch}`;
+
+// One fetch of a given tip ref at a time: two racing fetches of a moved tip fail with "cannot lock ref".
+const tipLock = keyedLock();
+
 /** The branch tip's commit sha, or undefined when the remote has no such branch yet. */
-async function fetchTip(cwd: string, remote: string, branch: string): Promise<string | undefined> {
-  try {
-    await git(cwd, ['fetch', '--quiet', remote, `refs/heads/${branch}`]);
-    return await git(cwd, ['rev-parse', 'FETCH_HEAD']);
-  } catch {
-    return undefined;
-  }
+function fetchTip(cwd: string, remote: string, branch: string): Promise<string | undefined> {
+  return tipLock(`${cwd}\0${remote}\0${branch}`, async () => {
+    try {
+      const ref = tipRef(remote, branch);
+      await git(cwd, ['fetch', '--quiet', remote, `+refs/heads/${branch}:${ref}`]);
+      return await git(cwd, ['rev-parse', ref]);
+    } catch {
+      return undefined;
+    }
+  });
 }
 
 /**
@@ -145,7 +154,7 @@ export async function appendBranchLines(
     const tree = (await execa('git', ['mktree'], { cwd: repoPath, input: treeInput })).stdout;
     const message = `${file}: +${fresh.length} line${fresh.length === 1 ? '' : 's'}`;
     const commit = await git(repoPath, [
-      '-c', 'user.name=Vanguard', '-c', 'user.email=vanguard@local',
+      '-c', 'user.name=Taskcell', '-c', 'user.email=vanguard@local',
       'commit-tree', tree, ...(tip !== undefined ? ['-p', tip] : []), '-m', message,
     ]);
     try {

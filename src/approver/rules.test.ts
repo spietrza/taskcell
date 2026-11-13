@@ -174,12 +174,12 @@ describe('auditSample', () => {
     const hits = new Set([auditSample('seed-a', 0.5).hit, auditSample('seed-b', 0.5).hit, auditSample('seed-c', 0.5).hit, auditSample('seed-d', 0.5).hit]);
     expect(hits.size).toBeGreaterThanOrEqual(1);
   });
-  it('VANGUARD_APPROVER_AUDIT_SEED overrides the computed seed for replay', () => {
-    process.env.VANGUARD_APPROVER_AUDIT_SEED = 'fixed-seed';
+  it('TASKCELL_APPROVER_AUDIT_SEED overrides the computed seed for replay', () => {
+    process.env.TASKCELL_APPROVER_AUDIT_SEED = 'fixed-seed';
     try {
       expect(auditSample('irrelevant', 0.1).seed).toBe('fixed-seed');
     } finally {
-      delete process.env.VANGUARD_APPROVER_AUDIT_SEED;
+      delete process.env.TASKCELL_APPROVER_AUDIT_SEED;
     }
   });
 });

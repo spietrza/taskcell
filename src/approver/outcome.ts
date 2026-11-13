@@ -6,7 +6,7 @@
  */
 import { defaultGhRunner } from '../tasks/github.js';
 import type { GhRunner } from '../tasks/github.js';
-import { VANGUARD_BRANCH_PREFIX } from '../worktree/manager.js';
+import { isFactoryBranch } from '../worktree/manager.js';
 import { buildScorecard } from './scorecard.js';
 import type { ApproverScorecardReport, BuildScorecardOptions, FactoryPrRef, RevertRecord, ShadowDecision } from './scorecard.js';
 
@@ -19,7 +19,7 @@ interface GhPrListItem {
   mergeCommit?: { oid?: string } | null;
 }
 
-/** Every same-repo `chore/vanguard-*` PR, any state, from one bulk list call. */
+/** Every same-repo `chore/taskcell-*` (or pre-rename `chore/vanguard-*`) PR, any state, from one bulk list call. */
 export async function fetchFactoryPrs(repoSlug: string, gh: GhRunner = defaultGhRunner): Promise<FactoryPrRef[]> {
   const out = await gh([
     'pr', 'list', '--repo', repoSlug, '--state', 'all', '--limit', '300',
@@ -27,7 +27,7 @@ export async function fetchFactoryPrs(repoSlug: string, gh: GhRunner = defaultGh
   ]);
   const items = JSON.parse(out) as GhPrListItem[];
   return items
-    .filter((pr) => typeof pr.headRefName === 'string' && pr.headRefName.startsWith(VANGUARD_BRANCH_PREFIX))
+    .filter((pr) => isFactoryBranch(pr.headRefName))
     .map((pr) => ({
       repo: repoSlug,
       prNumber: pr.number,

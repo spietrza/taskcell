@@ -226,7 +226,7 @@ test('fenced inlining is fence-safe: content with a ``` run gets a longer fence 
 });
 
 describe('chatBaseUrl origin allowlist', () => {
-  const ENV = 'VANGUARD_CHAT_ALLOWED_ORIGINS';
+  const ENV = 'TASKCELL_CHAT_ALLOWED_ORIGINS';
   let saved: string | undefined;
   beforeEach(() => {
     saved = process.env[ENV];

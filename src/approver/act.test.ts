@@ -401,7 +401,7 @@ describe('approver act mode', () => {
     });
 
     it('kill switch under --mode act: stopped, nothing acted on', async () => {
-      process.env.VANGUARD_APPROVER_STOP = '1';
+      process.env.TASKCELL_APPROVER_STOP = '1';
       try {
         const calls: string[][] = [];
         const { record } = await run(fakeGh(calls, pr()));
@@ -409,7 +409,7 @@ describe('approver act mode', () => {
         expect(calls.some((a) => a[0] === 'pr' && ['merge', 'ready', 'update-branch'].includes(a[1]!))).toBe(false);
         expect(await actions()).toEqual([]);
       } finally {
-        delete process.env.VANGUARD_APPROVER_STOP;
+        delete process.env.TASKCELL_APPROVER_STOP;
       }
     });
 

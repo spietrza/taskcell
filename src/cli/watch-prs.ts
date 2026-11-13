@@ -53,7 +53,7 @@ export interface WatchPrsCommandDeps {
   log?: (line: string) => void;
 }
 
-/** Poll GitHub pull requests by label and run Vanguard's non-blocking review on each claimed PR. */
+/** Poll GitHub pull requests by label and run Taskcell's non-blocking review on each claimed PR. */
 export async function watchPrsCommand(cmd: WatchPrsCommand, deps: WatchPrsCommandDeps = {}): Promise<void> {
   const log = deps.log ?? console.log;
   const reviewPr = deps.reviewPr ?? ((reviewCmd: ReviewPrCommand) => reviewPrCommand(reviewCmd));

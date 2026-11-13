@@ -4,7 +4,7 @@ import { dispatchRpc, makeCtx, tmpRepo } from '../test-kit.js';
 
 describe('cli-versions', () => {
   test('agent_cli_versions reports a disabled check without any lookup when the switch is off', async () => {
-    vi.stubEnv('VANGUARD_CLI_VERSION_CHECK', 'off');
+    vi.stubEnv('TASKCELL_CLI_VERSION_CHECK', 'off');
     try {
       const { ctx } = await makeCtx(await tmpRepo());
       expect(await dispatchRpc(ctx, 'agent_cli_versions', {})).toEqual({ enabled: false, clis: [] });

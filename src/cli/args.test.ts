@@ -140,12 +140,12 @@ describe('parseCli', () => {
     expect(cmd.kind === 'run' && cmd.reviewProvider).toBe('codex');
   });
 
-  it('validates --usage-cap and exports it as VANGUARD_USAGE_CAP_PCT', () => {
-    delete process.env['VANGUARD_USAGE_CAP_PCT'];
+  it('validates --usage-cap and exports it as TASKCELL_USAGE_CAP_PCT', () => {
+    delete process.env['TASKCELL_USAGE_CAP_PCT'];
     expect(parseCli(['run', '--linear', 'TES-1', '--usage-cap', '0'], '/work').kind).toBe('error');
     expect(parseCli(['run', '--linear', 'TES-1', '--usage-cap', '80'], '/work').kind).not.toBe('error');
-    expect(process.env['VANGUARD_USAGE_CAP_PCT']).toBe('80');
-    delete process.env['VANGUARD_USAGE_CAP_PCT'];
+    expect(process.env['TASKCELL_USAGE_CAP_PCT']).toBe('80');
+    delete process.env['TASKCELL_USAGE_CAP_PCT'];
   });
 
   it('parses --fallback-provider / --fallback-model on run and watch, and rejects an unknown one or a model without a provider', () => {
@@ -1725,29 +1725,29 @@ describe('parseCli hub', () => {
       .toMatchObject({ kind: 'hub', adminGithubLogins: ['alice', 'bob'] });
   });
 
-  const originalHost = process.env.VANGUARD_HUB_HOST;
-  const originalPort = process.env.VANGUARD_HUB_PORT;
+  const originalHost = process.env.TASKCELL_HUB_HOST;
+  const originalPort = process.env.TASKCELL_HUB_PORT;
 
   afterEach(() => {
-    if (originalHost === undefined) delete process.env.VANGUARD_HUB_HOST;
-    else process.env.VANGUARD_HUB_HOST = originalHost;
-    if (originalPort === undefined) delete process.env.VANGUARD_HUB_PORT;
-    else process.env.VANGUARD_HUB_PORT = originalPort;
+    if (originalHost === undefined) delete process.env.TASKCELL_HUB_HOST;
+    else process.env.TASKCELL_HUB_HOST = originalHost;
+    if (originalPort === undefined) delete process.env.TASKCELL_HUB_PORT;
+    else process.env.TASKCELL_HUB_PORT = originalPort;
   });
 
   it('T-86 parses --repo/--port/--host/--ui-dir/--no-open, defaulting host/port when absent', () => {
-    delete process.env.VANGUARD_HUB_HOST;
-    delete process.env.VANGUARD_HUB_PORT;
+    delete process.env.TASKCELL_HUB_HOST;
+    delete process.env.TASKCELL_HUB_PORT;
     expect(parseCli(['hub', '--token-file', '/s/k'], '/repo')).toMatchObject({ kind: 'hub', tokenFile: '/s/k' });
     expect(parseCli(['hub', 'rotate-token', '--token-file', '/s/k'], '/repo')).toEqual({ kind: 'hub-rotate-token', tokenFile: '/s/k' });
     expect(parseCli(['hub', 'rotate-token'], '/repo')).toMatchObject({ kind: 'error', message: expect.stringContaining('--token-file') });
     expect(parseCli(['hub', 'bogus'], '/repo')).toMatchObject({ kind: 'error', message: expect.stringContaining('bogus') });
-    process.env.VANGUARD_HUB_TOKEN_FILE = '/env/k';
+    process.env.TASKCELL_HUB_TOKEN_FILE = '/env/k';
     try {
       expect(parseCli(['hub'], '/repo')).toMatchObject({ tokenFile: '/env/k' });
       expect(parseCli(['hub', 'rotate-token'], '/repo')).toEqual({ kind: 'hub-rotate-token', tokenFile: '/env/k' });
     } finally {
-      delete process.env.VANGUARD_HUB_TOKEN_FILE;
+      delete process.env.TASKCELL_HUB_TOKEN_FILE;
     }
     expect(parseCli(['hub'], '/repo')).toEqual({
       kind: 'hub',
@@ -1768,9 +1768,9 @@ describe('parseCli hub', () => {
     });
   });
 
-  it('T-86 falls back to VANGUARD_HUB_HOST/VANGUARD_HUB_PORT when the flags are absent', () => {
-    process.env.VANGUARD_HUB_HOST = '0.0.0.0';
-    process.env.VANGUARD_HUB_PORT = '9000';
+  it('T-86 falls back to TASKCELL_HUB_HOST/TASKCELL_HUB_PORT when the flags are absent', () => {
+    process.env.TASKCELL_HUB_HOST = '0.0.0.0';
+    process.env.TASKCELL_HUB_PORT = '9000';
     const cmd = parseCli(['hub'], '/repo');
     assert(cmd.kind === 'hub');
     expect(cmd.host).toBe('0.0.0.0');

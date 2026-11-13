@@ -2,7 +2,7 @@
   "schema_version": 1,
   "diagram_type": "architecture",
   "meta": {
-    "title": "Vanguard factory loop",
+    "title": "Taskcell factory loop",
     "locale": "en",
     "quality_profile": "showcase",
     "legend": { "mode": "hidden" },
@@ -17,13 +17,13 @@
     { "id": "pr", "type": "backend", "label": "PR / MR", "sublabel": "draft if a gate failed", "pos": [380, 188], "size": [140, 56] },
     { "id": "spec", "type": "backend", "label": "Tech spec", "sublabel": "read-only planner", "pos": [36, 324], "size": [140, 56] },
     { "id": "build", "type": "backend", "label": "Build", "sublabel": "implement · review · simplify", "pos": [208, 324], "size": [140, 56] },
-    { "id": "autoreview", "type": "backend", "label": "Vanguard review", "sublabel": "opt-in, GitHub only", "pos": [380, 324], "size": [140, 56] },
+    { "id": "autoreview", "type": "backend", "label": "Taskcell review", "sublabel": "opt-in, GitHub only", "pos": [380, 324], "size": [140, 56] },
     { "id": "revise", "type": "backend", "label": "Revise (GitHub)", "sublabel": "fix review comments", "pos": [552, 324], "size": [140, 56] },
     { "id": "approver", "type": "security", "label": "Approver (shadow)", "sublabel": "records, never merges", "pos": [380, 460], "size": [140, 56] }
   ],
   "boundaries": [
     { "kind": "region", "label": "Human", "wraps": ["issue", "merge", "review"] },
-    { "kind": "region", "label": "Vanguard host: CI job or watch loop", "wraps": ["triage", "info", "pr"] },
+    { "kind": "region", "label": "Taskcell host: CI job or watch loop", "wraps": ["triage", "info", "pr"] },
     { "kind": "security-group", "label": "Agent in Docker sandbox", "wraps": ["spec", "build", "autoreview", "revise"] },
     { "kind": "region", "label": "GitHub only, opt-in", "wraps": ["approver"] }
   ],

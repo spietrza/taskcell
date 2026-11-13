@@ -7,6 +7,7 @@ import { DockerSandboxProvider, isBenignTarExit } from './docker.js';
 import { resolveSandboxProfile } from './limits.js';
 import { prunedNames } from './copy-back.js';
 import { WorktreeManager } from '../worktree/manager.js';
+import { readEnv } from '../core/env.js';
 
 /**
  * Contract suite for the sandbox interface (1.15.2 follow-ups #745-#748, which all lived in this gap):
@@ -15,16 +16,16 @@ import { WorktreeManager } from '../worktree/manager.js';
  * Everything below runs against the real taskcell-sandbox image, in both rootfs modes, so a GNU-tar- or
  * non-root-specific regression shows up here instead of in a live run.
  *
- * Opt-in via `VANGUARD_CONTRACT=1`: these tests need the real image to already exist locally. They never
+ * Opt-in via `TASKCELL_CONTRACT=1`: these tests need the real image to already exist locally. They never
  * build or pull it — `docker/build.sh` retags local images, which is not a test's business — so build it
  * by hand first. Without the opt-in the file says why it skipped and runs nothing; with it, a missing
  * image fails the run rather than quietly passing an empty suite.
  */
 
-const CONTRACT_ENV = 'VANGUARD_CONTRACT';
+const CONTRACT_ENV = 'TASKCELL_CONTRACT';
 const TASKCELL_IMAGE = 'taskcell-sandbox:latest';
 
-const optedIn = process.env[CONTRACT_ENV] === '1';
+const optedIn = readEnv(CONTRACT_ENV) === '1';
 
 const probe = (args: string[]): boolean => {
   try {
@@ -119,7 +120,7 @@ for (const readOnly of [false, true]) {
       sb = new DockerSandboxProvider({
         image: TASKCELL_IMAGE,
         workdir: '/workspace',
-        profile: resolveSandboxProfile({ VANGUARD_SANDBOX_READONLY: readOnly ? '1' : '0' } as NodeJS.ProcessEnv),
+        profile: resolveSandboxProfile({ TASKCELL_SANDBOX_READONLY: readOnly ? '1' : '0' } as NodeJS.ProcessEnv),
       });
       await sb.start();
     }, 120_000);

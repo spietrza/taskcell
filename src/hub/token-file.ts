@@ -1,4 +1,4 @@
-// Persistent hub token (server mode): `--token-file` / `VANGUARD_HUB_TOKEN_FILE`. The file holds one
+// Persistent hub token (server mode): `--token-file` / `TASKCELL_HUB_TOKEN_FILE`. The file holds one
 // token, at least 32 random bytes as hex or base64url, readable by the owner only.
 import { randomBytes } from 'node:crypto';
 import { link, mkdir, readFile, rename, stat, unlink, writeFile } from 'node:fs/promises';
@@ -38,13 +38,13 @@ export async function loadOrCreateToken(path: string): Promise<string> {
   // Windows reports 0o666 for every regular file; POSIX permission bits mean nothing there.
   if (process.platform !== 'win32' && (mode & 0o077) !== 0) {
     throw new Error(
-      `Vanguard Hub: token file ${path} is readable by group or others (mode ${(mode & 0o777).toString(8)}) — run: chmod 600 ${path}`,
+      `Taskcell Hub: token file ${path} is readable by group or others (mode ${(mode & 0o777).toString(8)}) — run: chmod 600 ${path}`,
     );
   }
   const token = (await readFile(path, 'utf8')).trim();
   if (!TOKEN_RE.test(token)) {
     throw new Error(
-      `Vanguard Hub: token file ${path} must hold at least 32 bytes of entropy as hex or base64url — run: taskcell hub rotate-token --token-file ${path}`,
+      `Taskcell Hub: token file ${path} must hold at least 32 bytes of entropy as hex or base64url — run: taskcell hub rotate-token --token-file ${path}`,
     );
   }
   return token;

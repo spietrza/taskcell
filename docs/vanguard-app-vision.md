@@ -1,8 +1,8 @@
-# Vanguard App — Vision Map
+# Taskcell App — Vision Map
 
 **Status:** vision / umbrella spec. Not an implementation plan.
 **Date:** 2026-07-10
-**Purpose:** Turn the current "Run Vanguard in CLI" desktop experience into a proper,
+**Purpose:** Turn the current "Run Taskcell in CLI" desktop experience into a proper,
 structured, workflow-driven task runner. This document maps the whole idea into
 independently-shippable subsystems, fixes the load-bearing architectural decisions,
 and sets a build order. Each subsystem gets its own spec → plan → implementation
@@ -12,9 +12,9 @@ cycle later.
 
 ## Problem
 
-Today the desktop app's "New run" is effectively **"Run Vanguard in CLI"**: a single
+Today the desktop app's "New run" is effectively **"Run Taskcell in CLI"**: a single
 raw `<Textarea>` holding a `taskcell run …` command string. The user must already
-know Vanguard's CLI surface — args aren't proposed, aren't validated, aren't
+know Taskcell's CLI surface — args aren't proposed, aren't validated, aren't
 discoverable in the UI. There is no real API; the desktop shells out to the `vanguard`
 CLI via `sh -c "<cmd>"` and parses stdout.
 
@@ -27,7 +27,7 @@ run it through a **named workflow** — all from the app, without touching the C
 
 ### 1. API boundary — typed API over the same core, CLI frozen
 
-Vanguard core is already a library: `runSourcedIssue`, `assembleReviewPipeline`,
+Taskcell core is already a library: `runSourcedIssue`, `assembleReviewPipeline`,
 `TaskFetcher`, `SourceAdapter` are plain TS functions; the CLI is a thin arg-parser
 over them.
 
@@ -46,7 +46,7 @@ For app-authored, visually-editable workflows we adopt **HCL** (Terraform's form
 using Terraform's own escape-hatch discipline:
 
 - **Layer 1 — HCL is composition only.** A flow = an ordered list of *stage-name
-  references* + routing + budgets + loops. Vanguard's Flow A / Flow B are pure
+  references* + routing + budgets + loops. Taskcell's Flow A / Flow B are pure
   composition of stages that already exist in the `STAGE` table
   (`planner, implementer, reviewer, adversary, repairer, …`). No new logic — just
   ordering. HCL expresses this cleanly.

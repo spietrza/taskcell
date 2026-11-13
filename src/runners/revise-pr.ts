@@ -1,4 +1,5 @@
 import { REVIEW_TRIGGER_LABEL, resolveAdds, resolveRemovals } from '../core/labels.js';
+import { readEnv } from '../core/env.js';
 import { describeIgnoredAuthor, isTrustedNonAuthorComment } from '../tasks/comment-trust.js';
 import { mkdir, writeFile } from 'node:fs/promises';
 import { dirname, resolve } from 'node:path';
@@ -27,7 +28,7 @@ import type { FeedbackItem } from './pr-feedback.js';
 import { prepareContext, disposeContext, refreshSandboxWorkspace } from '../core/taskcell.js';
 import { mergeBaseIntoWorktree, filesWithConflictMarkers, formatConflictFiles } from './base-merge.js';
 import type { RunContext } from '../core/taskcell.js';
-import { VANGUARD_BRANCH_PREFIX } from '../worktree/manager.js';
+import { isFactoryBranch } from '../worktree/manager.js';
 import { baseBranchOrDefault } from '../core/base-branch.js';
 import { loadLessonsForTask } from '../core/lessons.js';
 import { changedFilesOf } from './re-review.js';
@@ -85,14 +86,14 @@ import type { IsolatedSandboxProvider } from '../sandbox/provider.js';
 import type { AgentProvider } from '../agents/provider.js';
 
 const NEEDS_REVISION_LABEL = 'needs revision';
-const VANGUARD_REVISING_LABEL = 'taskcell:revising';
+const TASKCELL_REVISING_LABEL = 'taskcell:revising';
 const DEFAULT_MAX_ROUNDS = 2;
 // The marker a finished review leaves; the trigger the PR-review workflow listens for is REVIEW_TRIGGER_LABEL (core/labels.ts).
 const REVIEWED_LABEL = 'taskcell:reviewed';
 // secret-blocked is removed too: a round that pushes cleanly after the human stripped the secret must
 // not leave the PR mapped to verify-failed on the board.
 // rate-limited too: a round that ran must not be re-triggered by the resume sweep.
-const HAND_BACK_LABELS = { remove: [NEEDS_REVISION_LABEL, VANGUARD_REVISING_LABEL, GITHUB_SECRET_BLOCKED_LABEL, GITHUB_RATE_LIMITED_LABEL], add: [GITHUB_REVIEW_LABEL] };
+const HAND_BACK_LABELS = { remove: [NEEDS_REVISION_LABEL, TASKCELL_REVISING_LABEL, GITHUB_SECRET_BLOCKED_LABEL, GITHUB_RATE_LIMITED_LABEL], add: [GITHUB_REVIEW_LABEL] };
 
 /** Cap on implement-session resumes triggered by a red verification in the revise pass — one bounded repair. */
 const MAX_VERIFY_REPAIRS = 1;
@@ -240,7 +241,7 @@ async function ghAsPushTokenOwner(
 /**
  * After a push, re-request the review: drop the reviewed marker and the trigger label, then add the
  * trigger back so a fresh `labeled` event starts the review of the new head. The add goes out as the
- * VANGUARD_PUSH_TOKEN (PAT) owner, never the taskcell App: a `labeled` event from the ambient GITHUB_TOKEN
+ * TASKCELL_PUSH_TOKEN (PAT) owner, never the taskcell App: a `labeled` event from the ambient GITHUB_TOKEN
  * starts no workflow, and one sent by `taskcell[bot]` fails the review's allowed-actors gate
  * (taskcell-pr-review.yml labels App PRs with the PAT for the same reason). Without the PAT, or refused,
  * the ambient credential still sets the label but no review run starts. Best-effort.
@@ -257,7 +258,7 @@ async function requestReReview(
     await ghAsPushTokenOwner(
       gh,
       ['pr', 'edit', String(number), '--repo', repoSlug, '--add-label', REVIEW_TRIGGER_LABEL],
-      async () => process.env.VANGUARD_PUSH_TOKEN || undefined,
+      async () => readEnv('TASKCELL_PUSH_TOKEN') || undefined,
       log,
       `revise-pr ${repoSlug}#${number}: labels -> re-review (${REVIEW_TRIGGER_LABEL})`,
       `revise-pr ${repoSlug}#${number}: re-review label with the push token failed, retrying with the ambient credential (no review run will start)`,
@@ -612,7 +613,7 @@ export async function runRevisePullRequest(prRef: string, deps: ReviseGithubPrDe
       const baseMerge = await mergeBaseIntoWorktree(ctx.worktreePath, baseName, {
         ...(deps.commitAuthor !== undefined ? { authorName: deps.commitAuthor.name, authorEmail: deps.commitAuthor.email } : {}),
         // Only a factory branch (its prefix) may be rewritten; base-merge also requires every commit on it to carry the factory identity.
-        factoryOwned: pr.headRefName.startsWith(VANGUARD_BRANCH_PREFIX),
+        factoryOwned: isFactoryBranch(pr.headRefName),
         // Asked only to bring the branch up to its base: merge a base that git merges cleanly too.
         mergeClean: mergeOnlyAsk && deps.out === undefined,
       });
@@ -642,7 +643,7 @@ export async function runRevisePullRequest(prRef: string, deps: ReviseGithubPrDe
           return { pr, ignoredFeedback, addressed: 0, committed: false, pushed: false, undrafted: false, conflictUnresolved: files, dryRunOut };
         }
         await postPullRequestReview(target, notice, 'comment', gh);
-        await editPrLabels(gh, target.repoSlug, target.number, { remove: [VANGUARD_REVISING_LABEL] }, log).catch(() => undefined);
+        await editPrLabels(gh, target.repoSlug, target.number, { remove: [TASKCELL_REVISING_LABEL] }, log).catch(() => undefined);
         await stepSummary('error', { error: notice });
         return { pr, ignoredFeedback, addressed: 0, committed: false, pushed: false, undrafted: false, conflictUnresolved: files };
       };
@@ -692,7 +693,7 @@ export async function runRevisePullRequest(prRef: string, deps: ReviseGithubPrDe
         log(`revise-pr ${target.repoSlug}#${target.number}: ${notice}`);
         if (deps.out === undefined) {
           await postPullRequestReview(target, notice, 'comment', gh).catch(() => undefined);
-          await editPrLabels(gh, target.repoSlug, target.number, { remove: [VANGUARD_REVISING_LABEL] }, log).catch(() => undefined);
+          await editPrLabels(gh, target.repoSlug, target.number, { remove: [TASKCELL_REVISING_LABEL] }, log).catch(() => undefined);
         }
         throw new TaskcellError(`revise-pr ${target.repoSlug}#${target.number}: ${notice}`);
       };
@@ -981,7 +982,7 @@ export async function runRevisePullRequest(prRef: string, deps: ReviseGithubPrDe
       if (isRateLimitHold(error) && deps.out === undefined) {
         const { until, comment } = rateLimitHold(error, NEEDS_REVISION_LABEL);
         log(`revise-pr ${target.repoSlug}#${target.number}: ${error instanceof UsageCapError ? 'at the usage cap' : 'provider rate-limited'}, marking vanguard:rate-limited until ${until.toISOString()}`);
-        await editPrLabels(gh, target.repoSlug, target.number, { remove: [VANGUARD_REVISING_LABEL], add: [GITHUB_RATE_LIMITED_LABEL], ensure: [GITHUB_RATE_LIMITED_LABEL] }, log).catch(() => undefined);
+        await editPrLabels(gh, target.repoSlug, target.number, { remove: [TASKCELL_REVISING_LABEL], add: [GITHUB_RATE_LIMITED_LABEL], ensure: [GITHUB_RATE_LIMITED_LABEL] }, log).catch(() => undefined);
         await postPullRequestReview(target, comment, 'comment', gh).catch(() => undefined);
       }
       throw error;

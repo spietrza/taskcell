@@ -83,20 +83,21 @@ CLAUDE_CODE_OAUTH_TOKEN=sk-ant-oat01-...
 LINEAR_API_KEY=lin_api_...
 GH_TOKEN=ghp_...
 # Optional for GitHub Actions revise flow: fine-grained, repo-scoped PAT with Contents: Read and write.
-# Expose this as VANGUARD_PUSH_TOKEN in taskcell-revise.yml so revision pushes use a PAT and trigger CI.
-VANGUARD_PUSH_TOKEN=<your-fine-grained-pat>
+# The shipped taskcell-revise.yml passes it as the VANGUARD_PUSH_TOKEN secret so revision pushes use a PAT
+# and trigger CI. The CLI reads TASKCELL_PUSH_TOKEN first and VANGUARD_PUSH_TOKEN as the old name.
+TASKCELL_PUSH_TOKEN=<your-fine-grained-pat>
 # Or the taskcell GitHub App (takes precedence; the PAT stays the fallback). See docs/onboarding-another-repo.md.
 # TASKCELL_APP_CLIENT_ID=Iv1.xxxxxxxx
 # TASKCELL_APP_PRIVATE_KEY="-----BEGIN PRIVATE KEY-----\n...\n-----END PRIVATE KEY-----"
-VANGUARD_SANDBOX_CPUS=0        # required: kernel without CFS scheduler
-VANGUARD_SANDBOX_PIDS=0        # silences a harmless pids-limit warning
-# VANGUARD_SANDBOX_INIT=0      # only if `docker run --init` fails here (no docker-init binary)
-VANGUARD_SANDBOX_MEMORY_MB=1536  # too small for the opt-in read-only rootfs (VANGUARD_SANDBOX_READONLY=1) — see docs/cli.md
-# VANGUARD_VERIFY_CMD=pnpm install --frozen-lockfile && pnpm typecheck && pnpm test
-# VANGUARD_VISUAL_PROOF_CMD=pnpm exec playwright test --project=chromium
+TASKCELL_SANDBOX_CPUS=0        # required: kernel without CFS scheduler
+TASKCELL_SANDBOX_PIDS=0        # silences a harmless pids-limit warning
+# TASKCELL_SANDBOX_INIT=0      # only if `docker run --init` fails here (no docker-init binary)
+TASKCELL_SANDBOX_MEMORY_MB=1536  # too small for the opt-in read-only rootfs (TASKCELL_SANDBOX_READONLY=1) — see docs/cli.md
+# TASKCELL_VERIFY_CMD=pnpm install --frozen-lockfile && pnpm typecheck && pnpm test
+# TASKCELL_VISUAL_PROOF_CMD=pnpm exec playwright test --project=chromium
 ```
 
-When `VANGUARD_SANDBOX_MEMORY_MB` is unset, the sandbox memory cap defaults to `clamp(host RAM / 4, 2048, 4096)` MB per sandbox (4096 on a 16 GB runner, 2048 on 8 GB or less); setting it always wins, and parallel sandboxes (`--concurrency`) each get that much. A failed in-sandbox verify reports whether it was an OOM kill. See docs/cli.md.
+When `TASKCELL_SANDBOX_MEMORY_MB` is unset, the sandbox memory cap defaults to `clamp(host RAM / 4, 2048, 4096)` MB per sandbox (4096 on a 16 GB runner, 2048 on 8 GB or less); setting it always wins, and parallel sandboxes (`--concurrency`) each get that much. A failed in-sandbox verify reports whether it was an OOM kill. See docs/cli.md.
 
 ### 4. Clone the target repo (the NAS has no git, so use the runner image)
 
@@ -135,7 +136,7 @@ command:
 
 GitHub mode watches the `ready for spec`, `ready for agent`, and `needs info` labels in that repo. It does **not** need `--label=vanguard` by default; add `--label=vanguard` only if you want an extra ownership filter on top of the routing labels.
 
-Set the `gc --remote OWNER/REPO` slug to match your repo. Keep `VANGUARD_MAX_SANDBOXES: "1"` on a small NAS.
+Set the `gc --remote OWNER/REPO` slug to match your repo. Keep `TASKCELL_MAX_SANDBOXES: "1"` on a small NAS.
 
 The same compose file also ships an optional **external PR review loop** under the `pr-review` profile. It watches PRs carrying the trigger label, posts a non-blocking Taskcell review, and marks the PR with `vanguard:reviewed`. Run its preflight first:
 
@@ -169,14 +170,14 @@ Stop with `sudo /usr/local/bin/docker compose down`.
 
 ## Recipe B: Hetzner native Docker
 
-A Hetzner CX/CPX/CCX box is simpler than Synology: it is amd64, has git, and its kernel has the CFS scheduler, so no `VANGUARD_SANDBOX_CPUS` override is needed.
+A Hetzner CX/CPX/CCX box is simpler than Synology: it is amd64, has git, and its kernel has the CFS scheduler, so no `TASKCELL_SANDBOX_CPUS` override is needed.
 
 ```bash
 apt update && apt install -y docker.io docker-compose-plugin git
 git clone https://github.com/OWNER/REPO.git /opt/vanguard && cd /opt/vanguard
 git clone https://github.com/OWNER/REPO.git docker/target-repo   # the repo the agent edits (mounted, never baked)
 # secrets next to docker/compose.yaml, read by compose at runtime; .dockerignore keeps them out of the image
-printf 'CLAUDE_CODE_OAUTH_TOKEN=...\nLINEAR_API_KEY=...\nGH_TOKEN=...\n# VANGUARD_VERIFY_CMD=pnpm install --frozen-lockfile && pnpm typecheck && pnpm test\n' > docker/.env && chmod 600 docker/.env
+printf 'CLAUDE_CODE_OAUTH_TOKEN=...\nLINEAR_API_KEY=...\nGH_TOKEN=...\n# TASKCELL_VERIFY_CMD=pnpm install --frozen-lockfile && pnpm typecheck && pnpm test\n' > docker/.env && chmod 600 docker/.env
 docker compose -f docker/compose.yaml up -d --build         # builds runner; build the sandbox too
 docker build -t vanguard-sandbox:latest docker/             # sandbox image on the same daemon
 docker compose -f docker/compose.yaml logs -f vanguard-watch
@@ -221,5 +222,5 @@ A cron line, for reference: `0 */4 * * * taskcell gc --remote owner/repo --repo 
 
 - Run records and metrics land in `<repo>/.taskcell/runs/` (a mounted volume): per-stage transcript, a git bundle of the changes, the diff, and a `run_complete` metric line. `taskcell stats --repo /work/repo` rolls them up across the fleet.
 - In server mode the hub also writes a per-run event log (`<repo>/.taskcell/runs/<taskId>/events-*.jsonl`, see [hub.md](hub.md#run-event-log)): up to 5 MB per run, typically a few tens of KB, and kept until you delete it, so budget disk for it on the mounted volume.
-- RAM is the real cap. Each sandbox is roughly 1.5 to 2 GB plus small sidecars. Keep `VANGUARD_MAX_SANDBOXES` at 1 on a 5 to 6 GB host.
+- RAM is the real cap. Each sandbox is roughly 1.5 to 2 GB plus small sidecars. Keep `TASKCELL_MAX_SANDBOXES` at 1 on a 5 to 6 GB host.
 - Updating the deployed code: rebuild `vanguard-runner` for amd64, transfer and load it (Synology) or rebuild on the box (Hetzner), then `docker compose up -d --force-recreate`. The `vanguard-gc` pull keeps the edited repo current on its own.

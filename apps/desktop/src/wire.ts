@@ -948,13 +948,13 @@ export interface Commands {
   read_approver_scorecard: { args: { repoPath: string; period?: ApproverPeriod }; result: ApproverScorecard };
   /** HUB_ONLY, read-only: what the approver decided for each PR on the metrics branch (merged, would merge, left for a human and why); no gh call. */
   read_approver_decisions: { args: { repoPath: string }; result: { decisions: ApproverPrDecision[] } };
-  /** HUB_ONLY: open a pull request that sets `.taskcell/approver.json` to `mode` — never writes the setting itself. `act` is refused while the act switch is not offered, and below the bar unless `confirmBelowBar` is true; the PR body states the 90-day scorecard numbers at that moment. */
+  /** HUB_ONLY: open a pull request that sets `.taskcell/approver.json` to `mode` — never writes the setting itself. `act` is refused while the act switch is not offered, and below the bar unless `confirmBelowBar` is true; the PR body states the 90-day scorecard numbers at that moment (for `off`, a scorecard that cannot be read is left out rather than blocking the change). Only decisions for the project's own repository count. */
   set_approver_mode: { args: { repoPath: string; mode: 'off' | 'shadow' | 'act'; confirmBelowBar?: boolean }; result: ApproverModeChange };
   /** HUB_ONLY, admin-only (403 otherwise): the audit log newest first, optionally for one login. */
   read_audit: { args: { login?: string; limit?: number }; result: AuditEntry[] };
   /** HUB_ONLY, read-only: a project's cost by model and by stage for a period (default `all`), read from the metrics branch like `taskcell stats --branch`; cached, never a model call. A repo without the branch answers `status: 'no-branch'` with a setup hint. */
   read_cost_breakdown: { args: { repoPath: string; period?: CostPeriod }; result: CostBreakdown };
-  /** HUB_ONLY, read-only: installed vs latest claude/codex/cursor CLI in the local sandbox image (3-day soak applied; `enabled: false`, and no lookups, when VANGUARD_CLI_VERSION_CHECK is off). Refused on a non-loopback bind without VANGUARD_HUB_ALLOW_ADD. */
+  /** HUB_ONLY, read-only: installed vs latest claude/codex/cursor CLI in the local sandbox image (3-day soak applied; `enabled: false`, and no lookups, when TASKCELL_CLI_VERSION_CHECK is off). Refused on a non-loopback bind without TASKCELL_HUB_ALLOW_ADD. */
   agent_cli_versions: { args: undefined; result: CliVersionReport };
   api_complete: { args: { repoPath: string; req: CompleteCallArgs; callId?: string }; result: CompleteResponse };
   api_cancel_complete: { args: { callId: string }; result: void };
@@ -1069,7 +1069,7 @@ export interface Commands {
   read_session: { args: { sessionFile: string }; result: SessionRead };
   /** HUB_ONLY, read-only: conflicts with the base per week (total, auto-resolved, left for a human) and the top conflicted files, as `taskcell stats` prints them. */
   conflict_stats: { args: { repoPath: string }; result: ConflictStats };
-  /** HUB_ONLY, owner only, read-only: whether `gh`, `glab`, a Linear key and a model credential (Claude, or a Codex key or sign-in file) are present on the hub host. Booleans only — never a secret value. Spawns `gh`/`glab` on the host, so it is refused on a non-loopback bind without VANGUARD_HUB_ALLOW_ADD. */
+  /** HUB_ONLY, owner only, read-only: whether `gh`, `glab`, a Linear key and a model credential (Claude, or a Codex key or sign-in file) are present on the hub host. Booleans only — never a secret value. Spawns `gh`/`glab` on the host, so it is refused on a non-loopback bind without TASKCELL_HUB_ALLOW_ADD. */
   setup_status: { args: undefined; result: SetupStatus };
   list_tasks: { args: { repoPath: string }; result: { tasks: BoardTask[]; capped: boolean } };
   /** HUB_ONLY: `list_tasks` across every hub repository, each card stamped with its repository. */

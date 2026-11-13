@@ -38,8 +38,8 @@ test('the proxy runs as PID 1 under a restart policy — not an exec into a slee
   expect(calls.filter((c) => c[0] === 'rm' || c[1] === 'rm').length).toBeGreaterThan(0);
 });
 
-test('the proxy sidecar runs on VANGUARD_SANDBOX_IMAGE when set — it is the sandbox image, not a dedicated proxy image', async () => {
-  const ENV_VAR = 'VANGUARD_SANDBOX_IMAGE';
+test('the proxy sidecar runs on TASKCELL_SANDBOX_IMAGE when set — it is the sandbox image, not a dedicated proxy image', async () => {
+  const ENV_VAR = 'TASKCELL_SANDBOX_IMAGE';
   const prev = process.env[ENV_VAR];
   process.env[ENV_VAR] = 'sha256:deadbeef';
   try {
@@ -53,9 +53,9 @@ test('the proxy sidecar runs on VANGUARD_SANDBOX_IMAGE when set — it is the sa
   }
 });
 
-test('adds the vanguard.owner label to both the network and the proxy container when VANGUARD_OWNER_LABEL is set', async () => {
-  const prev = process.env.VANGUARD_OWNER_LABEL;
-  process.env.VANGUARD_OWNER_LABEL = 'ci-job-42';
+test('adds the vanguard.owner label to both the network and the proxy container when TASKCELL_OWNER_LABEL is set', async () => {
+  const prev = process.env.TASKCELL_OWNER_LABEL;
+  process.env.TASKCELL_OWNER_LABEL = 'ci-job-42';
   try {
     const { calls, docker } = recordingDocker();
     await startEgressEnclave({ allowlist: ['a.example'], docker });
@@ -64,8 +64,8 @@ test('adds the vanguard.owner label to both the network and the proxy container 
     expect(networkCreate).toContain('vanguard.owner=ci-job-42');
     expect(proxyCreate).toContain('vanguard.owner=ci-job-42');
   } finally {
-    if (prev === undefined) delete process.env.VANGUARD_OWNER_LABEL;
-    else process.env.VANGUARD_OWNER_LABEL = prev;
+    if (prev === undefined) delete process.env.TASKCELL_OWNER_LABEL;
+    else process.env.TASKCELL_OWNER_LABEL = prev;
   }
 });
 

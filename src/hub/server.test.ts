@@ -127,7 +127,7 @@ describe('hub server', () => {
     ]) {
       const res = await withHost('/', host);
       expect(res.status, host).toBe(200);
-      expect(res.body, host).toContain('__VANGUARD_HUB__');
+      expect(res.body, host).toContain('__TASKCELL_HUB__');
     }
     for (const host of [
       '::1', // an IPv6 literal must be bracketed to be a Host
@@ -144,7 +144,7 @@ describe('hub server', () => {
       const res = await withHost(path, 'localhost:' + (hub.server.address() as AddressInfo).port);
       expect(res.status, path).toBe(200);
       expect(res.body, path).not.toContain(hub.token);
-      expect(res.body, path).not.toContain('__VANGUARD_HUB_TOKEN__');
+      expect(res.body, path).not.toContain('__TASKCELL_HUB_TOKEN__');
     }
     for (const token of ['', 'wrong', 'x'.repeat(64)]) {
       const rpc = await fetch(baseUrl + '/rpc/list_runs', {
@@ -209,7 +209,7 @@ describe('hub server', () => {
   test('serves the SPA and survives malformed URL escapes', async () => {
     const page = await fetch(baseUrl);
     expect(page.status).toBe(200);
-    expect(await page.text()).toContain('__VANGUARD_HUB__');
+    expect(await page.text()).toContain('__TASKCELL_HUB__');
     expect((await fetch(baseUrl + '/%ZZ')).status).toBe(404);
     expect((await fetch(baseUrl + '/healthz')).status).toBe(200);
   });

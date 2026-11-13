@@ -3,6 +3,7 @@ import { z } from 'zod';
 import { resolveRemoteBaseRef } from '../core/base-branch.js';
 import type { ApproverPolicy } from './types.js';
 import { showStateFile } from '../core/state-path.js';
+import { LEGACY_BRANCH_PREFIX } from '../worktree/manager.js';
 
 /**
  * `.taskcell/approver.json`, read from the base branch only (never the working tree or the PR
@@ -13,7 +14,7 @@ import { showStateFile } from '../core/state-path.js';
 export const approverPolicySchema = z.object({
   schemaVersion: z.literal(1),
   enabled: z.boolean(),
-  factoryBranchPrefix: z.string().default('chore/vanguard-'),
+  factoryBranchPrefix: z.string().default(LEGACY_BRANCH_PREFIX),
   requiredChecks: z.array(z.object({ name: z.string(), appId: z.number().int() })),
   /** Login allow-list for the review that carries the marker. Required and non-empty: a missing list fails closed (policy-unreadable). */
   reviewAuthors: z.array(z.string().min(1)).min(1),

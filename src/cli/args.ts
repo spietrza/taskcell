@@ -7,6 +7,7 @@ import type { LessonsCommand } from './lessons.js';
 import { assertSafeBaseBranch } from '../core/base-branch.js';
 import { parseUsageCap } from '../core/usage-cap.js';
 import { GITHUB_CLAIMED_LABEL, GITHUB_REVIEW_LABEL, GITHUB_SPEC_CLAIMED_LABEL } from '../github-labels.js';
+import { readEnv } from '../core/env.js';
 
 type WatchSource = 'linear' | 'github' | 'project' | 'gitlab';
 
@@ -46,7 +47,7 @@ export type Command =
       webAccess?: boolean;
       provider?: ProviderName;
       researchModel?: string;
-      /** White-label the research comment (drop "Vanguard" heading/marker). Presence toggles it; the author value is unused (no commit). */
+      /** White-label the research comment (drop "Taskcell" heading/marker). Presence toggles it; the author value is unused (no commit). */
       commitAuthor?: { name: string; email: string };
     }
   | {
@@ -68,7 +69,7 @@ export type Command =
       baseBranch?: string;
       /** Write the spec to this local file instead of posting an issue comment (no trace on the tracker; pairs with `run --spec-file`). */
       out?: string;
-      /** White-label the spec comment (drop the "Vanguard" heading). Presence toggles it; the author value is unused (no commit). */
+      /** White-label the spec comment (drop the "Taskcell" heading). Presence toggles it; the author value is unused (no commit). */
       commitAuthor?: { name: string; email: string };
     }
   | {
@@ -465,9 +466,9 @@ const DEFAULT_PR_REVIEWING_LABEL = 'taskcell:reviewing';
 const DEFAULT_PR_REVIEWED_LABEL = 'taskcell:reviewed';
 const DEFAULT_GITLAB_MR_REVIEWING_LABEL = 'taskcell::reviewing';
 const DEFAULT_GITLAB_MR_REVIEWED_LABEL = 'taskcell::reviewed';
-/** VANGUARD_HUB_HOST default (spec §2.10) — loopback-only, so a fresh install binds nothing reachable off-box. */
+/** TASKCELL_HUB_HOST default (spec §2.10) — loopback-only, so a fresh install binds nothing reachable off-box. */
 const DEFAULT_HUB_HOST = '127.0.0.1';
-/** VANGUARD_HUB_PORT default (spec §2.10). */
+/** TASKCELL_HUB_PORT default (spec §2.10). */
 const DEFAULT_HUB_PORT = 7777;
 
 function fail(message: string): Command {
@@ -602,7 +603,7 @@ export function parseCli(argv: string[], cwd: string): Command {
         // conformance review pass (opt-in; planner-tier model checks diff against spec)
         conformance: { type: 'boolean' },
         'conformance-model': { type: 'string' },
-        // git author for the commit (run + watch); default `Vanguard <vanguard@local>`
+        // git author for the commit (run + watch); default `Taskcell <vanguard@local>`
         'commit-author': { type: 'string' },
         // run a dedicated opus planning stage before implement/review (run + watch)
         plan: { type: 'boolean' },
@@ -750,8 +751,8 @@ export function parseCli(argv: string[], cwd: string): Command {
   const usageCapRaw = values['usage-cap'];
   if (typeof usageCapRaw === 'string') {
     if (parseUsageCap(usageCapRaw) === undefined) return fail(`--usage-cap must be a number from 1 to 100, got "${usageCapRaw}".`);
-    // The cap is read from the environment at stage start, so the flag and VANGUARD_USAGE_CAP_PCT share one path.
-    process.env['VANGUARD_USAGE_CAP_PCT'] = usageCapRaw;
+    // The cap is read from the environment at stage start, so the flag and TASKCELL_USAGE_CAP_PCT share one path.
+    process.env['TASKCELL_USAGE_CAP_PCT'] = usageCapRaw;
   }
 
   // Opt-in overrides to let a single run finish a large task (run + watch). Positive integers only;
@@ -951,7 +952,7 @@ export function parseCli(argv: string[], cwd: string): Command {
   }
 
   if (positionals[0] === 'hub') {
-    const hostRaw = typeof values.host === 'string' ? values.host : process.env.VANGUARD_HUB_HOST;
+    const hostRaw = typeof values.host === 'string' ? values.host : readEnv('TASKCELL_HUB_HOST');
     const host = hostRaw !== undefined && hostRaw.trim() !== '' ? hostRaw : DEFAULT_HUB_HOST;
 
     const portRaw = typeof values.port === 'string' ? values.port : undefined;
@@ -963,14 +964,14 @@ export function parseCli(argv: string[], cwd: string): Command {
       }
       port = parsed;
     } else {
-      const envPort = Number(process.env.VANGUARD_HUB_PORT);
+      const envPort = Number(readEnv('TASKCELL_HUB_PORT'));
       port = Number.isInteger(envPort) && envPort >= 1 && envPort <= 65535 ? envPort : DEFAULT_HUB_PORT;
     }
 
-    const tokenFileRaw = typeof values['token-file'] === 'string' ? values['token-file'] : process.env.VANGUARD_HUB_TOKEN_FILE;
+    const tokenFileRaw = typeof values['token-file'] === 'string' ? values['token-file'] : readEnv('TASKCELL_HUB_TOKEN_FILE');
     const tokenFile = tokenFileRaw !== undefined && tokenFileRaw.trim() !== '' ? tokenFileRaw : undefined;
     if (positionals[1] === 'rotate-token') {
-      if (tokenFile === undefined) return fail('hub rotate-token requires --token-file <path> (or VANGUARD_HUB_TOKEN_FILE).');
+      if (tokenFile === undefined) return fail('hub rotate-token requires --token-file <path> (or TASKCELL_HUB_TOKEN_FILE).');
       return { kind: 'hub-rotate-token', tokenFile };
     }
     if (positionals[1] !== undefined) return fail(`Unknown hub subcommand '${positionals[1]}'. Expected: rotate-token.`);
@@ -1465,14 +1466,14 @@ const SHARED_RUN_OPTIONS_USAGE = `    --provider <claude|codex|cursor|zai|openro
     --review-provider <claude|codex|cursor|zai|openrouter|meridian>   Run only the review stage on this provider (cross-provider review)
     --fallback-provider <name>  Retry on this provider when the primary one fails (outage, limit, revoked credential) — the implementer and every other stage on its provider; must sit on a different transport (e.g. codex for a claude implementer)
     --fallback-model <model>    Model for every stage that fell back (default: that provider's default)
-    --usage-cap <pct>        Stop starting tasks/stages once the provider's plan window is at/over this % (1-100; env VANGUARD_USAGE_CAP_PCT; default: no cap)
+    --usage-cap <pct>        Stop starting tasks/stages once the provider's plan window is at/over this % (1-100; env TASKCELL_USAGE_CAP_PCT; default: no cap)
     --provider-model <m>     Model for the implementer/simplifier stages (default: provider's default; zai -> glm-5.2)
     --review-model <m>       Model for the review stage (default: provider's default)
     --escalate-model <m>     Model for the 2nd and later gate repairs, once a repair on the implementer
                              model has failed (default: stay on the implementer model)
     --no-simplify            Skip the simplifier stage (lean: implement -> review only)
-    --verify <cmd>           Verification command for Proof of Work (overrides VANGUARD_VERIFY_CMD and auto-detect)
-    --visual-proof <cmd>     Visual proof command for UI artifacts (overrides VANGUARD_VISUAL_PROOF_CMD)
+    --verify <cmd>           Verification command for Proof of Work (overrides TASKCELL_VERIFY_CMD and auto-detect)
+    --visual-proof <cmd>     Visual proof command for UI artifacts (overrides TASKCELL_VISUAL_PROOF_CMD)
     --conformance            Run the conformance pass (planner-tier model checks diff against spec; opt-in)
     --conformance-model <m>  Model for the conformance stage (default: same as implementer; 'opus' for planner-tier)
     --commit-author <a>      Git author for the commit, "Name <email>" (also enables white-label mode: feat/<n> branch, no Taskcell branding/review comment)
@@ -1521,9 +1522,9 @@ Commands:
          parked as taskcell:waiting (unmet Depends on #N / native blocked-by, future Start: YYYY-MM-DD) once they are clear
          (--trigger-labels a,b names custom triggers; --claimed-state, --review-state, --spec-claimed-label as given to watch).
   gc     Reap stale sandbox containers, prune worktrees, and (with --remote) delete merged
-         remote chore/vanguard-* branches.
+         remote chore/taskcell-* (or pre-rename chore/vanguard-*) branches.
   hub    Serve the Inspector UI over HTTP/SSE (node:http), backed by a real .taskcell/ directory.
-         --token-file <path> (VANGUARD_HUB_TOKEN_FILE) keeps one token across restarts (created 0600 if missing);
+         --token-file <path> (TASKCELL_HUB_TOKEN_FILE) keeps one token across restarts (created 0600 if missing);
          "hub rotate-token --token-file <path>" writes a new one, picked up on the next restart.
          --demo opens a read-only demo project on bundled sample data (no repo, remote or hub store is touched).
 
@@ -1641,7 +1642,7 @@ ${SHARED_RUN_OPTIONS_USAGE}
 ${MAX_REPAIR_ITERATIONS_USAGE}
     --fork <n>               Run the implementer as n variants (n>=2) and keep the best-scored diff
     --fork-scorer <llm|decision>  How --fork variants are scored: a one-shot LLM verdict (default) or a
-                             decision model (clef; needs CLOUDFLARE_ACCOUNT_ID+CLOUDFLARE_AUTH_TOKEN or VANGUARD_DECISION_URL)
+                             decision model (clef; needs CLOUDFLARE_ACCOUNT_ID+CLOUDFLARE_AUTH_TOKEN or TASKCELL_DECISION_URL)
     --feedback-authors <a,b> Extra GitHub/GitLab logins whose PR feedback and <spec_manifest>/<tech_spec> comments are trusted, beyond OWNER/MEMBER/COLLABORATOR and the issue author (pass the workflow's allowed-actors here)
     --spec-file <file>       Inject a local spec file as a virtual issue comment (implementer + conformance read it; nothing is posted to the tracker)
 
@@ -1684,7 +1685,7 @@ ${MAX_REPAIR_ITERATIONS_USAGE}
     <url-or-number>        GitHub PR URL, owner/repo#number, or bare number with --github-repo
     --github <ref>         PR ref (alternative to positional; same as spec/run/review-pr)
     --github-pr <n>        PR number (alternative to positional)
-    --commit-author <a>    White-label: author the revision commits as this identity and drop the "vanguard" token from the revision marker (for client repos)
+    --commit-author <a>    White-label: author the revision commits as this identity and drop the "taskcell" token from the revision marker (for client repos)
     --out <file>           Dry-run: write the diff + proposed thread replies to this file; push and comment NOTHING (review, then re-run without --out to apply)
     --github-repo <o/r>    Required for bare PR numbers
     --provider <claude|codex|cursor|zai|openrouter|meridian>          Provider for the implementer/review stages (default: claude)
@@ -1703,7 +1704,7 @@ ${MAX_REPAIR_ITERATIONS_USAGE}
 
   watch-prs options:
     --github-repo <o/r>    Required repo slug
-    --label <name>         Required trigger label (e.g. "ready for vanguard review")
+    --label <name>         Required trigger label (e.g. "ready for taskcell review")
     --reviewing-label <l>  Label added while a PR is being reviewed (default: "taskcell:reviewing")
     --reviewed-label <l>   Label added after review succeeds (default: "taskcell:reviewed")
     --author <login>       Only review PRs opened by this GitHub login (self-review-only when set)
@@ -1721,7 +1722,7 @@ ${MAX_REPAIR_ITERATIONS_USAGE}
     --egress --llm-proxy --skills <dir> --repo <path>  As for run/watch (--skills: the repo's .github/vanguard-skills/ is merged in)
 
     Example:
-      taskcell watch-prs --github-repo owner/repo --label "ready for vanguard review"
+      taskcell watch-prs --github-repo owner/repo --label "ready for taskcell review"
 
     Dedupe: successful Taskcell reviews include a hidden head SHA marker; watch-prs skips
       the same PR commit if the trigger label is re-added accidentally. The PR pinned by --pr or
@@ -1732,7 +1733,7 @@ ${MAX_REPAIR_ITERATIONS_USAGE}
   doctor-prs options:
     Uses the same repo and label routing flags as watch-prs, but only runs AFK preflight checks and exits.
     Example:
-      taskcell doctor-prs --github-repo owner/repo --label "ready for vanguard review"
+      taskcell doctor-prs --github-repo owner/repo --label "ready for taskcell review"
 
   review-mr options:
     --mr <iid>               GitLab MR IID (integer)
@@ -1773,7 +1774,7 @@ ${MAX_REPAIR_ITERATIONS_USAGE}
     --repo <path>          Git repo to prune worktrees / reap branches in (default: cwd)
     --max-age-hours <n>    Only reap resources older than n hours (default: 6). Does not apply
                            to empty egress networks: they are reaped after 10 minutes
-    --remote <owner/repo>  Also delete merged remote chore/vanguard-* branches (needs gh)
+    --remote <owner/repo>  Also delete merged remote chore/taskcell-* (or pre-rename chore/vanguard-*) branches (needs gh)
     --dry-run              List what would be reaped without removing anything
     --abandoned            Also delete branches whose PR is closed-unmerged (not just merged)
 
@@ -1875,6 +1876,6 @@ Env: CLAUDE_CODE_OAUTH_TOKEN or ANTHROPIC_API_KEY (auth); LINEAR_API_KEY (for --
      ZAI_API_KEY (when --provider/--review-provider selects zai; runs the Claude Code CLI against
        z.ai's GLM Coding Plan endpoint, so no Anthropic token is required. Under --llm-proxy the
        z.ai key is held by the sidecar and the sandbox gets a nonce);
-     VANGUARD_VERIFY_CMD (verification command for Proof of Work; overridden by --verify);
-     VANGUARD_VISUAL_PROOF_CMD (visual proof command for UI artifacts; overridden by --visual-proof).
+     TASKCELL_VERIFY_CMD (verification command for Proof of Work; overridden by --verify);
+     TASKCELL_VISUAL_PROOF_CMD (visual proof command for UI artifacts; overridden by --visual-proof).
 `;

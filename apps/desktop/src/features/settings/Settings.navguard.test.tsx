@@ -28,10 +28,10 @@ test('guards while dirty and releases on a clean read', async () => {
   const registry = createNavGuardRegistry();
   read.mockResolvedValueOnce({});
   renderSettings(registry);
-  await waitFor(() => expect(screen.getByPlaceholderText('vanguard-ready')).toBeInTheDocument());
+  await waitFor(() => expect(screen.getByPlaceholderText('taskcell-ready')).toBeInTheDocument());
   expect(registry.guarded()).toBe(false);
 
-  fireEvent.change(screen.getByPlaceholderText('vanguard-ready'), { target: { value: 'ready-label' } });
+  fireEvent.change(screen.getByPlaceholderText('taskcell-ready'), { target: { value: 'ready-label' } });
   expect(registry.guarded()).toBe(true);
 });
 
@@ -39,8 +39,8 @@ test('the guard proxies window.confirm', async () => {
   const registry = createNavGuardRegistry();
   read.mockResolvedValueOnce({});
   renderSettings(registry);
-  await waitFor(() => expect(screen.getByPlaceholderText('vanguard-ready')).toBeInTheDocument());
-  fireEvent.change(screen.getByPlaceholderText('vanguard-ready'), { target: { value: 'ready-label' } });
+  await waitFor(() => expect(screen.getByPlaceholderText('taskcell-ready')).toBeInTheDocument());
+  fireEvent.change(screen.getByPlaceholderText('taskcell-ready'), { target: { value: 'ready-label' } });
 
   const confirmSpy = vi.spyOn(window, 'confirm').mockReturnValue(false);
   expect(registry.confirm()).toBe(false);
@@ -53,8 +53,8 @@ test('a successful save releases the guard', async () => {
   const registry = createNavGuardRegistry();
   read.mockResolvedValueOnce({});
   renderSettings(registry);
-  await waitFor(() => expect(screen.getByPlaceholderText('vanguard-ready')).toBeInTheDocument());
-  fireEvent.change(screen.getByPlaceholderText('vanguard-ready'), { target: { value: 'ready-label' } });
+  await waitFor(() => expect(screen.getByPlaceholderText('taskcell-ready')).toBeInTheDocument());
+  fireEvent.change(screen.getByPlaceholderText('taskcell-ready'), { target: { value: 'ready-label' } });
   expect(registry.guarded()).toBe(true);
 
   fireEvent.click(screen.getByRole('button', { name: /save/i }));
@@ -70,13 +70,13 @@ test('an edit made while the write is in flight keeps dirty true', async () => {
   const gate = deferred<void>();
   write.mockReturnValueOnce(gate.promise);
   renderSettings(registry);
-  await waitFor(() => expect(screen.getByPlaceholderText('vanguard-ready')).toBeInTheDocument());
-  fireEvent.change(screen.getByPlaceholderText('vanguard-ready'), { target: { value: 'ready-label' } });
+  await waitFor(() => expect(screen.getByPlaceholderText('taskcell-ready')).toBeInTheDocument());
+  fireEvent.change(screen.getByPlaceholderText('taskcell-ready'), { target: { value: 'ready-label' } });
 
   const save = screen.getByRole('button', { name: /save/i });
   fireEvent.click(save);
   expect(write).toHaveBeenLastCalledWith('/repo', { label: 'ready-label' });
-  fireEvent.change(screen.getByPlaceholderText('vanguard-ready'), { target: { value: 'ready-label-2' } });
+  fireEvent.change(screen.getByPlaceholderText('taskcell-ready'), { target: { value: 'ready-label-2' } });
   await act(async () => {
     gate.resolve();
     await gate.promise;
@@ -92,7 +92,7 @@ test('dirty-but-unsavable is still guarded: unreadable config', async () => {
   read.mockRejectedValueOnce(new Error('.taskcell/app.json is unreadable'));
   renderSettings(registry);
   await waitFor(() => expect(screen.getByText(/app\.json is unreadable/i)).toBeInTheDocument());
-  fireEvent.change(screen.getByPlaceholderText('vanguard-ready'), { target: { value: 'x' } });
+  fireEvent.change(screen.getByPlaceholderText('taskcell-ready'), { target: { value: 'x' } });
   expect(screen.getByRole('button', { name: /save/i })).toBeDisabled();
   expect(registry.guarded()).toBe(true);
 });
@@ -101,7 +101,7 @@ test('dirty-but-unsavable is still guarded: invalid custom-provider row', async 
   const registry = createNavGuardRegistry();
   read.mockResolvedValueOnce({});
   renderSettings(registry);
-  await screen.findByPlaceholderText('vanguard-ready');
+  await screen.findByPlaceholderText('taskcell-ready');
   fireEvent.click(screen.getByRole('button', { name: /add/i }));
   expect(await screen.findByText(/name must be lowercase/)).toBeInTheDocument();
   expect(screen.getByRole('button', { name: /save/i })).toBeDisabled();
@@ -112,8 +112,8 @@ test('unmounting while dirty releases the guard', async () => {
   const registry = createNavGuardRegistry();
   read.mockResolvedValueOnce({});
   const { unmount } = renderSettings(registry);
-  await waitFor(() => expect(screen.getByPlaceholderText('vanguard-ready')).toBeInTheDocument());
-  fireEvent.change(screen.getByPlaceholderText('vanguard-ready'), { target: { value: 'x' } });
+  await waitFor(() => expect(screen.getByPlaceholderText('taskcell-ready')).toBeInTheDocument());
+  fireEvent.change(screen.getByPlaceholderText('taskcell-ready'), { target: { value: 'x' } });
   expect(registry.guarded()).toBe(true);
   unmount();
   expect(registry.guarded()).toBe(false);

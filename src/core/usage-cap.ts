@@ -1,11 +1,12 @@
 /**
  * User-set usage cap: stop starting work once a provider's own plan window (e.g. Claude's 5-hour
- * window) is at or above `VANGUARD_USAGE_CAP_PCT`, leaving the rest as the user's reserve. Utilization
+ * window) is at or above `TASKCELL_USAGE_CAP_PCT`, leaving the rest as the user's reserve. Utilization
  * is only what the provider CLI already reports during a run — no extra API calls. A stage in flight
  * always finishes; the cap is checked before a stage starts.
  */
 
 import { AgentError } from './errors.js';
+import { readEnv } from './env.js';
 
 /** What the last run of a provider reported about its plan window. */
 export interface Utilization {
@@ -102,9 +103,9 @@ export function parseCodexUtilization(event: unknown, now: Date = new Date(), de
   return best;
 }
 
-/** The configured cap (1–100) from `VANGUARD_USAGE_CAP_PCT`, or undefined when unset/invalid. */
+/** The configured cap (1–100) from `TASKCELL_USAGE_CAP_PCT`, or undefined when unset/invalid. */
 export function usageCapPct(env: NodeJS.ProcessEnv = process.env): number | undefined {
-  const raw = env['VANGUARD_USAGE_CAP_PCT']?.trim();
+  const raw = readEnv('TASKCELL_USAGE_CAP_PCT', env)?.trim();
   if (raw === undefined || raw === '') return undefined;
   const n = Number(raw);
   return Number.isFinite(n) && n >= 1 && n <= 100 ? n : undefined;
@@ -112,7 +113,7 @@ export function usageCapPct(env: NodeJS.ProcessEnv = process.env): number | unde
 
 /** Parse a `--usage-cap` value: a number 1–100, else undefined. */
 export function parseUsageCap(raw: string | undefined): number | undefined {
-  return raw === undefined ? undefined : usageCapPct({ VANGUARD_USAGE_CAP_PCT: raw });
+  return raw === undefined ? undefined : usageCapPct({ TASKCELL_USAGE_CAP_PCT: raw });
 }
 
 export type UsageCapStatus =

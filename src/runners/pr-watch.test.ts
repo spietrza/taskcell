@@ -104,7 +104,7 @@ function trustedAuthorApi(args: string[], association = 'MEMBER'): string {
   return args[0] === 'api' ? JSON.stringify({ user: { login: 'alice' }, author_association: association }) : '';
 }
 
-/** Vanguard's own review identity, as gh reports it. */
+/** Taskcell's own review identity, as gh reports it. */
 const BOT = { author: { login: 'github-actions' }, authorAssociation: 'CONTRIBUTOR' };
 
 describe('githubPullRequestWatchPrimitives', () => {
@@ -228,7 +228,7 @@ describe('githubPullRequestWatchPrimitives', () => {
     expect(calls[0]).toContain('SebaBoler');
   });
 
-  it('skips a PR when Vanguard already reviewed the same head commit', async () => {
+  it('skips a PR when Taskcell already reviewed the same head commit', async () => {
     const calls: string[][] = [];
     const gh: GhRunner = async (args) => {
       calls.push(args);

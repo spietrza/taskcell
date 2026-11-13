@@ -10,17 +10,17 @@
  */
 
 /** Injected by `src/hub/static.ts` right after `<head>`; `apps/desktop/src/transport.ts`'s
- * `isHubMode()` reads `window.__VANGUARD_HUB__` to pick the hub (fetch/SSE) branch over Tauri's
+ * `isHubMode()` reads `window.__TASKCELL_HUB__` to pick the hub (fetch/SSE) branch over Tauri's
  * invoke/listen. */
-export const HUB_MARKER = '<script>window.__VANGUARD_HUB__=true</script>';
+export const HUB_MARKER = '<script>window.__TASKCELL_HUB__=true</script>';
 
 /** Injected beside HUB_MARKER only by the desktop app's own local hub (loopback bind, fleet enabled):
  * `transport.ts`'s `canUseFleet()` reads it to show the Fleet screen. */
-export const HUB_FLEET_MARKER = '<script>window.__VANGUARD_HUB_FLEET__=true</script>';
+export const HUB_FLEET_MARKER = '<script>window.__TASKCELL_HUB_FLEET__=true</script>';
 
 /** Injected by `taskcell hub --demo`: the UI answers every command from its bundled fixture backend
  * (apps/desktop/src/dev/demoData.ts) — no repo, remote or hub store is read or written. */
-export const HUB_DEMO_MARKER = '<script>window.__VANGUARD_DEMO__=true</script>';
+export const HUB_DEMO_MARKER = '<script>window.__TASKCELL_DEMO__=true</script>';
 
 /** Per-launch auth token (src/hub/server.ts), carried on every `/rpc/*` request as this header.
  * An `EventSource` cannot set headers, and a token in the `/events` URL would land in access logs,

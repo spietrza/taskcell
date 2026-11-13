@@ -1,5 +1,5 @@
 import { execa } from 'execa';
-import { VANGUARD_BRANCH_PREFIX } from '../worktree/manager.js';
+import { FACTORY_BRANCH_PREFIXES } from '../worktree/manager.js';
 
 export interface ContainerInfo {
   id: string;
@@ -12,7 +12,7 @@ export type ContainerRemover = (id: string) => Promise<void>;
 const DEFAULT_MAX_AGE_MS = 6 * 60 * 60 * 1000;
 
 /**
- * Remove vanguard-labeled sandbox containers older than maxAgeMs. Lister/remover are
+ * Remove labeled sandbox containers older than maxAgeMs. Lister/remover are
  * injected so this is unit-testable without Docker. Returns the removed container ids.
  */
 export async function reapContainers(
@@ -26,7 +26,7 @@ export async function reapContainers(
   return ids;
 }
 
-/** Docker-backed lister of vanguard-labeled containers with their age in ms. */
+/** Docker-backed lister of taskcell-labeled containers with their age in ms. */
 export function dockerContainerLister(now: () => number = Date.now): ContainerLister {
   return async (): Promise<ContainerInfo[]> => {
     const { stdout } = await execa('docker', [
@@ -171,7 +171,7 @@ async function mapLimit<T, R>(items: T[], limit: number, fn: (item: T) => Promis
 }
 
 /**
- * Delete stale remote `vanguard/*` branches left behind by merged runs (each run uses a unique
+ * Delete stale remote factory branches (current and pre-rename prefix) left behind by merged runs (each run uses a unique
  * branch, so they accumulate). A branch is reaped only when it is older than maxAgeMs AND its PR was
  * MERGED — a branch that was never merged (closed/abandoned, or still under review with no PR yet) is
  * always kept. The merged check runs only for aged candidates, bounded to a small concurrency.
@@ -204,14 +204,14 @@ export function gitRemoteBranchLister(
   opts: { remote?: string; prefix?: string; now?: () => number } = {},
 ): RemoteBranchLister {
   const remote = opts.remote ?? 'origin';
-  const prefix = opts.prefix ?? VANGUARD_BRANCH_PREFIX;
+  const prefixes = opts.prefix !== undefined ? [opts.prefix] : FACTORY_BRANCH_PREFIXES;
   const now = opts.now ?? Date.now;
   return async (): Promise<RemoteBranchInfo[]> => {
-    // Trailing `*` makes this an fnmatch glob: the `vanguard-` marker sits mid-component (chore/vanguard-…),
+    // Trailing `*` makes this an fnmatch glob: the marker sits mid-component (chore/taskcell-…),
     // so a plain prefix would not match on a slash boundary the way the old `vanguard/` prefix did.
     const { stdout } = await execa(
       'git',
-      ['for-each-ref', '--format', '%(refname:short)\t%(committerdate:unix)\t%(objectname)', `refs/remotes/${remote}/${prefix}*`],
+      ['for-each-ref', '--format', '%(refname:short)\t%(committerdate:unix)\t%(objectname)', ...prefixes.map((p) => `refs/remotes/${remote}/${p}*`)],
       { cwd: repoPath },
     );
     // Tracking refs can be stale: the tip a PR is matched against (and the delete lease) comes from the
@@ -227,7 +227,7 @@ export function gitRemoteBranchLister(
       .split('\n')
       .map((line): RemoteBranchInfo | undefined => {
         const [short = '', unix, localSha] = line.split('\t');
-        // refname:short is `<remote>/vanguard/<x>`; strip the remote so the name works with gh/push.
+        // refname:short is `<remote>/<branch>`; strip the remote so the name works with gh/push.
         const name = short.startsWith(`${remote}/`) ? short.slice(remote.length + 1) : short;
         const sha = liveTips.get(name);
         if (name === '' || sha === undefined) return undefined; // already gone on the remote

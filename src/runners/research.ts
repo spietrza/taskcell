@@ -16,7 +16,7 @@ export interface ResearchDeps {
   repoSlug: string;
   researcher: Researcher;
   webAccess?: boolean;
-  /** White-label: drop "Vanguard" from the heading and use the neutral marker. Set via --commit-author. */
+  /** White-label: drop "Taskcell" from the heading and use the neutral marker. Set via --commit-author. */
   whiteLabel?: boolean;
   gh?: GhRunner;
   log?: (line: string) => void;
@@ -149,7 +149,7 @@ export function formatResearchComment(
   const { webAccess, iteration, whiteLabel } = opts;
   const body = agentText.replace(PROMISE_RE, '').trim();
   const modeLabel = webAccess ? 'web research' : 'model-knowledge only (no web egress)';
-  // White-label drops "Vanguard" from the visible heading and uses a neutral hidden marker.
+  // White-label drops "Taskcell" from the visible heading and uses a neutral hidden marker.
   const heading = whiteLabel === true ? `## Research (iteration ${iteration})` : `## Taskcell Research (iteration ${iteration})`;
   const modeLine = `_Mode: ${modeLabel}_`;
   const content = body === '' ? 'No findings produced.' : body;

@@ -441,7 +441,7 @@ describe('beginRun — writing', () => {
   });
 
   it('writeStages mirrors the run as one OTLP trace when an exporter is configured', async () => {
-    vi.stubEnv('VANGUARD_OTLP_ENDPOINT', 'https://lf.example/api/public/otel');
+    vi.stubEnv('TASKCELL_OTLP_ENDPOINT', 'https://lf.example/api/public/otel');
     vi.stubEnv('LANGFUSE_PUBLIC_KEY', 'pk');
     vi.stubEnv('LANGFUSE_SECRET_KEY', 'sk');
     const fetchMock = vi.fn(async () => new Response('{}', { status: 200 }));

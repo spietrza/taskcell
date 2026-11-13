@@ -27,8 +27,8 @@ describe('CredentialStore', () => {
     const store = new CredentialStore(await dir(), undefined, {});
     const s = await store.summary();
     expect(s.enabled).toBe(false);
-    expect(s.reason).toContain('VANGUARD_HUB_SECRET');
-    await expect(store.set('claude', 'x')).rejects.toThrow('VANGUARD_HUB_SECRET');
+    expect(s.reason).toContain('TASKCELL_HUB_SECRET');
+    await expect(store.set('claude', 'x')).rejects.toThrow('TASKCELL_HUB_SECRET');
   });
 
   it('rejects a secret that is not 32 bytes', async () => {

@@ -158,3 +158,24 @@ describe('legacy metrics branch (pre-rename vanguard-metrics)', () => {
     expect(await readBranchMetrics(repo, { branch: 'other' })).toBe('');
   });
 });
+
+describe('tip fetch', () => {
+  it('reads through a named ref, so a fetch that rewrites FETCH_HEAD cannot blank the read', async () => {
+    await appendBranchLines(repo, ['{"id":1}'], { file: 'decisions.jsonl' });
+    const reads = Promise.all([1, 2, 3, 4].map(() => readBranchFile(repo, { file: 'decisions.jsonl' })));
+    await Promise.all([1, 2, 3, 4].map(() => execa('git', ['-C', repo, 'fetch', '--quiet', 'origin', 'main'])));
+    for (const text of await reads) expect(text.trim()).toBe('{"id":1}');
+    const ref = await execa('git', ['-C', repo, 'rev-parse', `refs/taskcell/tips/origin/${METRICS_BRANCH_DEFAULT}`]);
+    expect(ref.stdout).toMatch(/^[0-9a-f]{40}$/);
+  });
+
+  it('concurrent reads never come back blank while the remote tip keeps moving', async () => {
+    const other = await clone('other');
+    await appendBranchLines(other, ['{"id":0}'], { file: 'decisions.jsonl' });
+    for (let n = 1; n <= 8; n += 1) {
+      await appendBranchLines(other, [`{"id":${n}}`], { file: 'decisions.jsonl' });
+      const texts = await Promise.all([1, 2, 3].map(() => readBranchFile(repo, { file: 'decisions.jsonl' })));
+      for (const text of texts) expect(text).toContain(`{"id":${n}}`);
+    }
+  });
+});

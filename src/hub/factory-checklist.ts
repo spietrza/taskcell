@@ -7,6 +7,7 @@
 import { createHash } from 'node:crypto';
 import { mkdir, readFile, rename, writeFile } from 'node:fs/promises';
 import { join, resolve } from 'node:path';
+import { keyedLock } from '../core/keyed-lock.js';
 import { defaultHubConfigDir } from './audit.js';
 import { defaultExec, GITHUB_REPO_SLUG, githubSecretCommand, type FactoryExec } from './enable-factory.js';
 import { listRemoteRuns } from './remote.js';
@@ -120,14 +121,8 @@ async function writeFactoryRecordFile(repoPath: string, rec: FactoryRecord): Pro
 }
 
 // Read-modify-write is serialised per repo, so a refresh cannot clobber a concurrent apply/verify.
-const locks = new Map<string, Promise<unknown>>();
-
-function withLock<T>(repoPath: string, fn: () => Promise<T>): Promise<T> {
-  const key = resolve(repoPath);
-  const run = (locks.get(key) ?? Promise.resolve()).then(fn, fn);
-  locks.set(key, run.catch(() => undefined));
-  return run;
-}
+const lock = keyedLock();
+const withLock = <T>(repoPath: string, fn: () => Promise<T>): Promise<T> => lock(resolve(repoPath), fn);
 
 export function writeFactoryRecord(repoPath: string, rec: FactoryRecord): Promise<void> {
   return withLock(repoPath, () => writeFactoryRecordFile(repoPath, rec));

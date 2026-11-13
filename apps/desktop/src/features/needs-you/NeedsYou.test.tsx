@@ -8,14 +8,14 @@ import { NeedsYou } from './NeedsYou';
 afterEach(() => {
   clearMocks();
   vi.unstubAllGlobals();
-  delete window.__VANGUARD_HUB__;
+  delete window.__TASKCELL_HUB__;
 });
 
 /** A hub stub: a reply hands the item back to the factory, so it leaves the next list (issue or PR). */
 function stubHub(initial: NeedsYouItem[], failReply = false, failMerge = false): { cmd: string; body: unknown }[] {
   let items = initial;
   const calls: { cmd: string; body: unknown }[] = [];
-  window.__VANGUARD_HUB__ = true;
+  window.__TASKCELL_HUB__ = true;
   vi.stubGlobal(
     'fetch',
     vi.fn(async (url: string, init?: RequestInit) => {

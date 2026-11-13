@@ -197,8 +197,8 @@ describe('run-session', () => {
     expect((session.backlog('run-0') as { event: { type: string } }[]).at(-1)?.event).toEqual({ type: 'run-cancelled' });
   });
 
-  test('T-44g a blank VANGUARD_HUB_MAX_QUEUE falls back to the default instead of disabling the queue', () => {
-    vi.stubEnv('VANGUARD_HUB_MAX_QUEUE', '');
+  test('T-44g a blank TASKCELL_HUB_MAX_QUEUE falls back to the default instead of disabling the queue', () => {
+    vi.stubEnv('TASKCELL_HUB_MAX_QUEUE', '');
     try {
       const session = createRunSession(fakeDeps(() => new Promise<CreateRunResult>(() => {})), () => {});
       void session.createRun({ issueRef: '1', repoPath: '/repo' } as CreateRunParams);
@@ -221,7 +221,7 @@ describe('run-session', () => {
   });
 
   test('T-44c past the cap createRun is rejected with a message naming the limit', async () => {
-    vi.stubEnv('VANGUARD_HUB_MAX_QUEUE', '1');
+    vi.stubEnv('TASKCELL_HUB_MAX_QUEUE', '1');
     try {
       const session = createRunSession(fakeDeps(() => new Promise<CreateRunResult>(() => {})), () => {});
       void session.createRun({ issueRef: '1', repoPath: '/repo' } as CreateRunParams);

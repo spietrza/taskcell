@@ -71,12 +71,12 @@ export function assertRepoSlug(repoSlug: string): void {
   if (!REPO_SLUG_RE.test(repoSlug)) throw new TaskcellError(`Invalid repo slug: ${repoSlug}`);
 }
 
-/** The login Vanguard comments under from CI (see src/tasks/comment-trust.ts). */
+/** The login Taskcell comments under from CI (see src/tasks/comment-trust.ts). */
 const CI_LOGINS = ['github-actions', 'github-actions[bot]'];
 
 /**
  * The logins that are the factory's *own* voice: the `gh` user the hub acts as, the CI identity
- * Vanguard comments under, and any bot logins the operator configured. Deliberately not
+ * Taskcell comments under, and any bot logins the operator configured. Deliberately not
  * `isBotLogin`, whose wide `[bot]` match would show Dependabot/Renovate chatter as something the
  * factory is asking. A failed `gh api user` only drops the local identity.
  */

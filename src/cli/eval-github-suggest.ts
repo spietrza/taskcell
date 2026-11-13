@@ -4,7 +4,7 @@ import { labelForms } from '../core/labels.js';
 import { GITHUB_REVIEW_LABEL } from '../github-labels.js';
 import { defaultGhRunner, githubDefaultBranch } from '../tasks/github.js';
 import type { GhRunner } from '../tasks/github.js';
-import { VANGUARD_BRANCH_PREFIX } from '../worktree/manager.js';
+import { isFactoryBranch } from '../worktree/manager.js';
 import type { EvalKind } from '../evals/types.js';
 import { EXPECTATION, candidateIdFromUrl } from './eval-candidate.js';
 import type { EvalCaseCandidate, GitHubCandidateKind } from './eval-candidate.js';
@@ -37,10 +37,6 @@ function guessGithubKind(kind: GitHubCandidateKind): Exclude<EvalKind, 'refusal'
       return exhaustive;
     }
   }
-}
-
-function isFactoryBranch(ref: string | null | undefined): boolean {
-  return typeof ref === 'string' && ref.startsWith(VANGUARD_BRANCH_PREFIX);
 }
 
 interface BuildArgs {

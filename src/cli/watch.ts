@@ -76,7 +76,7 @@ export function specOnlyReviewNote(cmd: WatchCommand): string | undefined {
     return `watch: --spec-only moves specced issues to state "${cmd.agentState ?? DEFAULT_LINEAR_AGENT_STATE}". Its state type must differ from the --spec-state type, or the spec pass specs them again on every poll, and from the build job's trigger type (unstarted by default), or there is no review window.`;
   }
   return cmd.agentLabel !== undefined
-    ? `watch: --spec-only moves specced issues to label "${cmd.agentLabel}". For a review window the build job must not trigger on it. Vanguard only checks that it is not the default build label "${DEFAULT_GITHUB_AGENT_LABEL}"; it cannot see a build job on another label. The build job's --label must be the approval label a human applies, not the loop-v1 ownership --label, which stays on every issue.`
+    ? `watch: --spec-only moves specced issues to label "${cmd.agentLabel}". For a review window the build job must not trigger on it. Taskcell only checks that it is not the default build label "${DEFAULT_GITHUB_AGENT_LABEL}"; it cannot see a build job on another label. The build job's --label must be the approval label a human applies, not the loop-v1 ownership --label, which stays on every issue.`
     : undefined;
 }
 
@@ -88,7 +88,7 @@ export async function watchLinearSource(
 ): Promise<void> {
   const linearKey = process.env.LINEAR_API_KEY;
   if (linearKey === undefined || linearKey === '') {
-    throw new Error('Set LINEAR_API_KEY so Vanguard can read and update Linear issues.');
+    throw new Error('Set LINEAR_API_KEY so Taskcell can read and update Linear issues.');
   }
   const skillsDir = cmd.skillsDir ?? process.env.SKILLS_DIR;
   if (skillsDir === undefined) {
