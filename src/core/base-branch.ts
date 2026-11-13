@@ -145,6 +145,8 @@ export interface ResolveRemoteBaseRefOptions {
    * event SHA and can never hold unpushed work, so there the remote copy always wins.
    */
   keepLocalIfAhead?: boolean;
+  /** Throw instead of falling back to the local base when the remote copy cannot be fetched (a decision that acts must not read a stale base). */
+  requireRemote?: boolean;
 }
 
 /** Git never prompts for credentials from a daemon; an unreachable origin fails fast instead. */
@@ -173,10 +175,15 @@ export async function resolveRemoteBaseRef(repoPath: string, base: string, opts:
   const localRef = `refs/heads/${base}`;
   const hasLocal = (await execa('git', ['rev-parse', '--verify', '--quiet', localRef], { cwd: repoPath, reject: false })).exitCode === 0;
   const local = hasLocal ? localRef : base;   // the full ref: a same-named tag must not shadow the branch
+  // With requireRemote every "use the local base" fallback below is an error.
+  const fallback = (why: string): string => {
+    if (opts.requireRemote === true) throw new TaskcellError(`${label}: cannot use the remote ${base} (${why})`);
+    return local;
+  };
   const hasOrigin = await execa('git', ['remote', 'get-url', 'origin'], { cwd: repoPath }).then(() => true, () => false);
   if (!hasOrigin) {
     log.info({ base }, `${label}: no origin remote — using local ${base}`);
-    return local;
+    return fallback('no origin remote');
   }
   const remoteRef = `refs/remotes/origin/${base}`;
   const fetch = await fetchWithLockRetry(repoPath, `+${localRef}:${remoteRef}`, remoteRef, log, label);
@@ -186,19 +193,19 @@ export async function resolveRemoteBaseRef(repoPath: string, base: string, opts:
     const held = (await execa('git', ['rev-parse', '--verify', '--quiet', remoteRef], { cwd: repoPath, reject: false })).stdout.trim();
     if (held !== '') log.warn({ base, sha: held }, `${label}: ${remoteRef} stayed locked by concurrent fetches — using the value they wrote`);
     else log.warn({ base }, `${label}: ${remoteRef} stayed locked by concurrent fetches and is empty — using local ${base}`);
-    if (held === '') return local;
+    if (held === '') return fallback('locked by concurrent fetches');
   } else if (fetch.exitCode !== 0) {
     if (/couldn't find remote ref|remote ref does not exist/i.test(fetch.stderr)) {
       log.warn({ base }, `${label}: origin has no ${base} — using local ${base}`);
     } else {
       log.warn({ base, reason: redactGitError(fetch) }, `${label}: git fetch origin ${base} failed — using local ${base} (may be stale)`);
     }
-    return local;
+    return fallback('fetch failed');
   }
   const sha = (await execa('git', ['rev-parse', '--verify', '--quiet', remoteRef], { cwd: repoPath, reject: false })).stdout.trim();
   if (sha === '') {
     log.warn({ base }, `${label}: ${remoteRef} missing after the fetch — using local ${base}`);
-    return local;
+    return fallback('missing after the fetch');
   }
   if (hasLocal && keepLocal) {
     // Exit 1 = local is ahead of or diverged from origin: keep it, it may carry unpushed commits.

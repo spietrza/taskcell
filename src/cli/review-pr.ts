@@ -93,6 +93,7 @@ export async function reviewPrCommand(cmd: ReviewPrCommand, deps: ReviewPrComman
           ...(cmd.force === true ? { force: true } : {}),
           ...(cmd.feedbackAuthors !== undefined ? { allowedAuthors: cmd.feedbackAuthors } : {}),
           ...(cmd.repoSlug !== undefined ? { repoSlug: cmd.repoSlug } : {}),
+          ...(/^\d+$/.test(process.env.GITHUB_RUN_ID ?? '') ? { runId: process.env.GITHUB_RUN_ID! } : {}),
         }),
       );
     } catch (error) {

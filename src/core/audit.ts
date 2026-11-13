@@ -323,7 +323,9 @@ async function pruneRotated(file: string, days: number, maxRotated: number): Pro
   const excess = all.length - maxRotated;
   for (const [i, f] of all.entries()) {
     const info = await stat(f).catch(() => undefined);
-    if (info !== undefined && (i < excess || info.mtimeMs < cutoff)) await rm(f, { force: true });
+    // Legacy numeric suffixes are count-retained only; the age prune applies to timestamped files.
+    const aged = info !== undefined && !/\.\d+$/.test(f) && info.mtimeMs < cutoff;
+    if (info !== undefined && (i < excess || aged)) await rm(f, { force: true });
   }
 }
 
@@ -336,8 +338,13 @@ async function withFileLock<T>(file: string, fn: () => Promise<T>): Promise<T> {
       break;
     } catch (err) {
       if ((err as NodeJS.ErrnoException).code !== 'EEXIST') throw err;
-      const age = await stat(lock).then((s) => Date.now() - s.mtimeMs, () => 0);
-      if (age > 10_000 || waited > 15_000) await rm(lock, { force: true });
+      const info = await stat(lock).catch(() => undefined);
+      const age = info !== undefined ? Date.now() - info.mtimeMs : 0;
+      // A lock that is a directory can never be a live lock (ours is a file): clear it at once.
+      if (info?.isDirectory() === true) {
+        console.warn(`taskcell: audit lock ${lock} is a directory; removing it`);
+        await rm(lock, { force: true, recursive: true });
+      } else if (age > 10_000 || waited > 15_000) await rm(lock, { force: true });
       else await sleep(10);
     }
   }
@@ -346,6 +353,16 @@ async function withFileLock<T>(file: string, fn: () => Promise<T>): Promise<T> {
   } finally {
     await rm(lock, { force: true });
   }
+}
+
+/** An audit file's text; a missing file is empty, any other read error is reported and read as empty. */
+async function readText(p: string): Promise<string> {
+  return readFile(p, 'utf8').catch((err: unknown) => {
+    if ((err as NodeJS.ErrnoException).code !== 'ENOENT') {
+      console.warn(`taskcell: cannot read audit file ${p}: ${err instanceof Error ? err.message : String(err)}`);
+    }
+    return '';
+  });
 }
 
 function remember<K, V>(map: Map<K, V>, key: K, value: V): void {
@@ -373,12 +390,21 @@ export function localAdapter(opts: LocalAdapterOptions): AuditAdapter {
   // The directory/symlink guard is checked once per adapter; every later append only re-checks the leaf.
   let dirReady = false;
 
-  const readAll = async (): Promise<AuditFile[]> => {
+  /** Every retained file with its text. `skipBad` (the append path's chain-tail lookup only) drops a rotated sibling that fails the state-path guard, with a warning; readers keep the guard's error. */
+  const readAll = async (skipBad = false): Promise<AuditFile[]> => {
     const paths = [...(await rotatedFiles(file)), file];
     const out: AuditFile[] = [];
     for (const p of paths) {
-      if (opts.repoPath !== undefined) await assertStatePath(opts.repoPath, p);
-      out.push({ name: p, text: await readFile(p, 'utf8').catch(() => '') });
+      if (opts.repoPath !== undefined) {
+        try {
+          await assertStatePath(opts.repoPath, p);
+        } catch (err) {
+          if (!skipBad || p === file) throw err;
+          console.warn(`taskcell: skipping audit file ${p}: ${err instanceof Error ? err.message : String(err)}`);
+          continue;
+        }
+      }
+      out.push({ name: p, text: await readText(p) });
     }
     return out;
   };
@@ -386,9 +412,10 @@ export function localAdapter(opts: LocalAdapterOptions): AuditAdapter {
   const currentTail = async (size: number): Promise<string | undefined> => {
     const cached = tails.get(file);
     if (cached !== undefined && cached.size === size) return cached.hash;
-    const all = await readAll();
+    const all = await readAll(true);
     for (let i = all.length - 1; i >= 0; i--) {
-      const h = tailHash(parseJsonlLines(all[i]!.text));
+      const { name, text } = all[i]!;
+      const h = tailHash(parseJsonlLines(text, () => console.warn(`taskcell: ignoring a line in ${name} that is not a JSON object`)));
       if (h !== undefined) return h;
     }
     return undefined;
@@ -438,12 +465,12 @@ export function localAdapter(opts: LocalAdapterOptions): AuditAdapter {
   };
 
   return {
-    files: readAll,
+    files: () => readAll(),
     newestFirst: async function* () {
       const paths = [file, ...(await rotatedFiles(file)).reverse()];
       for (const p of paths) {
         if (opts.repoPath !== undefined) await assertStatePath(opts.repoPath, p);
-        yield { name: p, text: await readFile(p, 'utf8').catch(() => '') };
+        yield { name: p, text: await readText(p) };
       }
     },
     append: (payloads, ctx, durable) => {

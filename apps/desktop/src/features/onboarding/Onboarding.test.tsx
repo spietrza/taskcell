@@ -43,6 +43,7 @@ describe('Onboarding', () => {
     const onStored = vi.fn();
     const onClose = vi.fn();
     render(<Onboarding projectCount={0} stored={EMPTY_STORED} onStored={onStored} onAddRepo={onAddRepo} onClose={onClose} />);
+    await waitFor(() => expect(screen.getByText('signed in')).toBeInTheDocument());
     fireEvent.click(screen.getByRole('button', { name: 'Add a repository' }));
     expect(onAddRepo).toHaveBeenCalled();
     fireEvent.click(screen.getByRole('button', { name: 'Dismiss' }));

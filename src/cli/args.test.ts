@@ -271,6 +271,11 @@ describe('parseCli', () => {
     expect(noPr.kind === 'error' && noPr.message).toMatch(/approve requires a positive --pr/);
     const noRepo = parseCli(['approve', '--pr', '7'], '/work');
     expect(noRepo.kind === 'error' && noRepo.message).toMatch(/approve requires --github-repo/);
+    for (const id of ['', 'abc', '0', '1.5']) {
+      const badRun = parseCli(['approve', '--pr', '7', '--github-repo', 'o/r', '--review-run-id', id], '/work');
+      expect(badRun.kind === 'error' && badRun.message).toMatch(/--review-run-id must be a workflow run id/);
+    }
+    expect(parseCli(['approve', '--pr', '7', '--github-repo', 'o/r', '--review-run-id', '42'], '/work')).toMatchObject({ reviewRunId: '42' });
     const act = parseCli(['approve', '--pr', '7', '--github-repo', 'o/r', '--mode', 'act'], '/work');
     expect(act.kind === 'approve' && act.mode).toBe('act');
     const live = parseCli(['approve', '--pr', '7', '--github-repo', 'o/r', '--mode', 'live'], '/work');

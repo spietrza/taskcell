@@ -432,6 +432,62 @@ export interface CostBreakdown {
   byStage: CostRow[];
 }
 
+/** Period an approver scorecard covers: the last 30 / 90 days, or everything on the metrics branch. */
+export type ApproverPeriod = '30d' | '90d' | 'all';
+
+/** The approver's mode on the base branch: `off` (disabled or no policy), `shadow` (judges, never merges), `act` (merges its APPROVEs). */
+export type ApproverMode = 'off' | 'shadow' | 'act';
+
+/** One risk class of the scorecard: APPROVE verdicts that were right, and the current run of right ones. */
+export interface ApproverClassRow {
+  riskClass: string;
+  approveTotal: number;
+  approveCorrect: number;
+  streak: number;
+}
+
+/**
+ * The approver's shadow scorecard for a project over a period, from the metrics branch's decisions.jsonl and
+ * GitHub PR state (the numbers `taskcell stats --approver` prints). `no-data`: no metrics branch, no
+ * decisions, or none in the period (`hint` says which) — never zeros that look like data.
+ * `approvesRight`: merged unchanged and not reverted. `approvesWrong`: merged after changes, closed or reverted.
+ * `approvesPending`: no human outcome yet. `barMet`: some risk class has `threshold` correct APPROVEs in a row.
+ * `actOffered`: false while the act switch must not be offered (see ACT_BLOCKING_ISSUES in src/hub/approver-card.ts).
+ */
+export interface ApproverScorecard {
+  status: 'ok' | 'no-data';
+  period: ApproverPeriod;
+  hint?: string;
+  mode: ApproverMode;
+  /** False when `.taskcell/approver.json` is missing or unreadable on the base branch (mode is then `off`). */
+  policyFound: boolean;
+  actOffered: boolean;
+  threshold: number;
+  judged: number;
+  approves: number;
+  escalates: number;
+  approvesRight: number;
+  approvesWrong: number;
+  approvesPending: number;
+  barMet: boolean;
+  byRiskClass: ApproverClassRow[];
+  topReasons: { reason: string; count: number }[];
+}
+
+/** What the approver decided for one PR: `merged` it did, `would-merge` it APPROVEd in shadow mode, `left` it escalated to a human. */
+export interface ApproverPrDecision {
+  prNumber: number;
+  outcome: 'merged' | 'would-merge' | 'left';
+  /** The rule ids that fired (empty for an APPROVE). */
+  reasons: string[];
+}
+
+export interface ApproverModeChange {
+  branch: string;
+  prUrl: string;
+  mode: ApproverMode;
+}
+
 export interface StageDetail {
   record: RunRecord;
   diff?: string;
@@ -510,7 +566,8 @@ export type AuditAction =
   | 'needs-reply'
   | 'needs-merge'
   | 'task-create'
-  | 'enable-factory';
+  | 'enable-factory'
+  | 'approver-mode';
 export type AuditOutcome = 'ok' | 'refused' | 'failed';
 
 /** One line of `audit.jsonl`. `login` is a GitHub login, or `token` for header access. */

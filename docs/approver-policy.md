@@ -6,9 +6,9 @@ schema lives in `src/approver/policy.ts`, the pure decision function in `src/app
 the committed policy this repo runs under is at the repo root (`.taskcell/approver.json` — tracked on
 purpose, see `.gitignore`).
 
-v1 is **shadow mode**: the decision is published as a `neutral` check run plus a PR comment and
-appended to `decisions.jsonl` on the `taskcell-metrics` branch. Nothing is ever merged, approved or
-labelled. See [Approver (shadow mode)](autonomous-loop.md#approver-shadow-mode) for how to run it.
+Shadow mode (the default): the decision is published as a `neutral` check run plus a PR comment and
+appended to `decisions.jsonl` on the `taskcell-metrics` branch. Nothing is merged, approved or
+labelled. With `act: true` and `--mode act` it can also update and squash-merge (see [Act mode](autonomous-loop.md#act-mode-opt-in)). See [Approver (shadow mode)](autonomous-loop.md#approver-shadow-mode) for how to run it.
 
 ## Where the file is read from
 
@@ -46,7 +46,7 @@ engine, as long as `schemaVersion` still matches.
 | `holdLabel` | no | `"taskcell:hold"` | absent | Act mode: a PR carrying this label is left for a human. |
 | `factoryAuthors` | no | `[]` | absent | Act mode: the PR author logins (as `gh pr view --json author` reports them, e.g. `app/<name>` for a GitHub App) the factory opens PRs as. Act mode only merges a PR whose API-sourced author is listed; empty or absent acts on nothing. |
 | `factoryBranchPrefix` | no | `"chore/vanguard-"` | `"chore/vanguard-"` | A PR only qualifies when its head is a same-repo branch with this prefix. Anything else (a human branch, a fork) fires `not-factory-pr`: the approver judges the factory's own output, nothing else. |
-| `requiredChecks[].name` / `.appId` | yes | — | `build` and `dependency-review`, both `appId: 15368` | Each entry must resolve, on the head SHA, to a check run matching **both** name and app id, with conclusion `success`; anything else fires `check-missing:<name>`. The app id is what stops another app — or a raw token — from posting a green check under a trusted name. `15368` is the GitHub Actions app. |
+| `requiredChecks[].name` / `.appId` | yes | — | `build` and `dependency-review`, both `appId: 15368` | Each entry must resolve, on the head SHA, to a check run matching **both** name and app id, with conclusion `success`; anything else fires `check-missing:<name>`. In act mode an empty list acts on nothing (no check gate). The app id is what stops another app — or a raw token — from posting a green check under a trusted name. `15368` is the GitHub Actions app. |
 | `reviewAuthors` | yes | — | `["github-actions"]` | Login allow-list for the review the verdict is taken from. Required and non-empty: any GitHub user can post a review, so a missing or empty list would let anyone forge the verdict; instead the policy fails validation and every decision is `ESCALATE` `policy-unreadable`. The shipped value pins the review to the external review workflow's identity (the login `gh pr view --json reviews` reports, with no `[bot]` suffix). |
 | `testGlobs` | no | `["**/*.test.ts"]` | `["**/*.test.ts"]` | Which paths count as tests, for the `test-file-deleted` and `test-cases-lost` rules, and which are excluded from the removed-exports count. Matches this repo's co-located Vitest convention. |
 | `pathRules` | yes | — | see below | Map of rule id to globs. Any changed path matching a rule's globs fires `path:<id>` — the sensitive-surface escalations. Required with no default: an empty or absent map would silently approve changes to the riskiest files. |
