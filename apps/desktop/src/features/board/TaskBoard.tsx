@@ -1,3 +1,4 @@
+import { useEffect, useRef, useState } from 'react';
 import { Button, Card, cn } from '@/ui';
 import { FilePlus } from 'lucide-react';
 import { listTasks, listTasksAll } from '../../ipc';
@@ -5,10 +6,9 @@ import { inRepos } from '../../repoFilter';
 import { RepoFailures, RepoLabel } from '../../RepoViews';
 import type { BoardTask, RepoReadFailure, RepoStamp } from '../../wire';
 import { useAsync } from '../../hooks';
+import { QuickView, TRACKER_NAME, type QuickTask } from './QuickView';
 import { boardCountLabels } from './counts';
 import { ExternalLink } from '../../components/ExternalLink';
-
-const TRACKER_NAME = { github: 'GitHub', gitlab: 'GitLab', linear: 'Linear' } as const;
 
 // Each column owns a color identity used across its header dot, count pill and card
 // hover border. Classes are spelled out (not interpolated) so Tailwind's JIT keeps them — a
@@ -65,6 +65,39 @@ export function TaskBoard({
   );
   const tasks = data?.tasks;
 
+  // The quick view opens beside the Board; Escape or a click outside closes it and focus returns to the card.
+  const [selected, setSelected] = useState<QuickTask | null>(null);
+  const panelRef = useRef<HTMLElement>(null);
+  const cardRef = useRef<HTMLElement | null>(null);
+  const close = (): void => {
+    setSelected(null);
+    cardRef.current?.focus();
+  };
+  // A card of another repository must not linger when the project (or "all repositories") changes.
+  useEffect(() => setSelected(null), [project, allRepos]);
+  useEffect(() => {
+    if (selected === null) return;
+    panelRef.current?.focus();
+    // A reply being typed is not thrown away by a stray Escape or click.
+    const typing = (): boolean => (panelRef.current?.querySelector('textarea')?.value ?? '') !== '';
+    const onKey = (e: KeyboardEvent): void => {
+      if (e.key === 'Escape' && !typing()) close();
+    };
+    const onDown = (e: MouseEvent): void => {
+      const target = e.target as Node;
+      if (panelRef.current?.contains(target) || typing()) return;
+      // Another card re-targets the panel; its own click handler opens it.
+      if (target instanceof Element && target.closest('[data-board-card]')) return;
+      close();
+    };
+    document.addEventListener('keydown', onKey);
+    document.addEventListener('mousedown', onDown);
+    return () => {
+      document.removeEventListener('keydown', onKey);
+      document.removeEventListener('mousedown', onDown);
+    };
+  }, [selected]);
+
   // Capped comes from the response now (S9) — no more synced literal; the core fetch cap decides.
   const capped = data?.capped === true;
   const counts = boardCountLabels(data);
@@ -108,7 +141,8 @@ export function TaskBoard({
             : `Showing the first ${tasks?.length ?? 0} tasks — narrow with a label filter in Settings to see the rest.`}
         </div>
       )}
-      <div className="flex min-h-0 flex-1 gap-3 overflow-x-auto pb-4">
+      <div className="flex min-h-0 flex-1 gap-3 pb-4">
+      <div className="flex min-h-0 min-w-0 flex-1 gap-3 overflow-x-auto">
         {COLUMNS.map((col) => {
           const items = (tasks ?? []).filter((t) => t.column === col.key);
           return (
@@ -131,7 +165,15 @@ export function TaskBoard({
                 ) : (
                   items.map((t) => (
                     <div key={`${t.repoPath ?? ''}:${t.id}`}>
-                    <button onClick={() => onOpenTask(t.id, t.repoPath)} className="block w-full text-left">
+                    <button
+                      data-board-card
+                      aria-expanded={selected?.id === t.id && selected.repoPath === t.repoPath}
+                      onClick={(e) => {
+                        cardRef.current = e.currentTarget;
+                        setSelected(t);
+                      }}
+                      className="block w-full text-left"
+                    >
                       <Card.Root className={cn('bg-background/80 py-0 shadow-sm transition-all hover:shadow-md', col.cardHover)}>
                         <Card.Content className="space-y-1.5 p-3">
                           <div className="flex items-center gap-1.5 font-mono text-[11px] font-medium text-muted-foreground">
@@ -166,6 +208,16 @@ export function TaskBoard({
             </div>
           );
         })}
+      </div>
+      {selected !== null && (
+        <QuickView
+          ref={panelRef}
+          task={selected}
+          project={project}
+          onClose={close}
+          onFullPage={() => onOpenTask(selected.id, selected.repoPath)}
+        />
+      )}
       </div>
     </div>
   );
