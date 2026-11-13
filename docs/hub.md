@@ -643,7 +643,7 @@ every address (`BoardTask.url`/`source`, `RunSummary`/`RunDetail` `prUrl`/`ciUrl
 `NeedsYouItem.url`); the UI never builds one, and renders no link when the field is absent (e.g. a
 local run with no pull request). `diffUrl` is `…/pull/N/files` ("Files changed") on GitHub and
 `…/-/merge_requests/N/diffs` ("Changes") on GitLab. `ciUrl` is recorded on a run record written inside
-GitHub Actions or GitLab CI. Only `https:` addresses are passed on. Links open in a new tab.
+GitHub Actions or GitLab CI. Only `http:` and `https:` addresses are passed on. Links open in a new tab.
 
 ## First-run setup guide
 

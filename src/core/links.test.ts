@@ -9,6 +9,9 @@ describe('diffUrlFor', () => {
     expect(diffUrlFor('https://gitlab.com/g/p/-/merge_requests/3')).toBe('https://gitlab.com/g/p/-/merge_requests/3/diffs');
     expect(diffUrlFor('https://gl.example.com/a/b/c/-/merge_requests/3/')).toBe('https://gl.example.com/a/b/c/-/merge_requests/3/diffs');
   });
+  it('a self-hosted forge on plain http keeps its diff link', () => {
+    expect(diffUrlFor('http://ghe.local/o/r/pull/1')).toBe('http://ghe.local/o/r/pull/1/files');
+  });
   it.each([undefined, '', 'not a url', 'https://github.com/o/r/issues/1'])('no address for %j', (v) => {
     expect(diffUrlFor(v)).toBeUndefined();
   });

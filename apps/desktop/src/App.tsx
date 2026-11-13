@@ -136,11 +136,14 @@ export default function App() {
   // a project that left the selected team (team switch, repository removed) is replaced the same way.
   useEffect(() => {
     if (!teamsLoaded) return;
-    if (activeProject && !projects.some((p) => p.path === activeProject)) setActiveProject(null);
+    // An empty list is believed only once it is the team's own answer (or the team has no repositories):
+    // the stand-in used while that answer is in flight can be empty for a team that has some.
+    const known = projects.length > 0 || (scoped !== null && scoped.teamId === scopeId) || team?.repositories.length === 0;
+    if (activeProject && known && !projects.some((p) => p.path === activeProject)) setActiveProject(null);
     else if (!activeProject && projects.length) {
       setActiveProject(projects.find((p) => filter.repos.includes(p.path))?.path ?? projects[0].path);
     }
-  }, [teamsLoaded, projects, activeProject, filter.repos]);
+  }, [teamsLoaded, projects, activeProject, filter.repos, scoped, scopeId, team]);
 
   // A persisted filter naming repositories that are gone drops them.
   useEffect(() => {

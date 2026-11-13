@@ -93,9 +93,11 @@ export function Rail({
               <button
                 type="button"
                 onClick={() => onScreen(n.key)}
+                // Board, Runs and Settings are a project's screens: with none (an empty team) they have nothing to open.
+                disabled={n.key !== 'home' && !active}
                 aria-current={screen === n.key ? 'page' : undefined}
                 className={cn(
-                  'flex w-full items-center rounded py-1.5 text-sm transition-colors max-md:min-h-11 max-md:min-w-16 max-md:flex-col max-md:justify-center max-md:gap-0.5 max-md:px-2 max-md:text-[10px]',
+                  'flex w-full items-center rounded py-1.5 text-sm transition-colors disabled:pointer-events-none disabled:opacity-50 max-md:min-h-11 max-md:min-w-16 max-md:flex-col max-md:justify-center max-md:gap-0.5 max-md:px-2 max-md:text-[10px]',
                   collapsed ? 'justify-center px-0' : 'gap-2 px-2',
                   screen === n.key ? 'bg-muted font-medium' : 'text-muted-foreground hover:bg-muted/60',
                 )}

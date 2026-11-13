@@ -28,18 +28,22 @@ export interface StaticOptions {
   demo?: boolean;
 }
 
-/** The SPA holds a live per-launch token once opened, so no other page may frame it: a framed hub
- * page would run on the hub's own origin and could be driven by clickjacking. Sent with every static
- * response (both headers — `X-Frame-Options` for anything that predates `frame-ancestors`). */
-const CSP_BASE = "default-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data:; font-src 'self' data:; connect-src 'self'; object-src 'none'; base-uri 'self'; frame-ancestors 'none'";
+// Tauri's IPC sources are listed because the desktop window loads this same page and calls its shell from it.
+const CSP_BASE = "default-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data:; font-src 'self' data:; connect-src 'self' ipc: http://ipc.localhost; object-src 'none'; base-uri 'self'; frame-ancestors 'none'";
 
 /** The page's own scripts plus the hub markers and the theme bootstrap: bundled code is `'self'`, each
- * inline script is allowed by its hash, so nothing injected can run. */
+ * inline script is allowed by its hash, so nothing injected can run. Hashed as the browser does, with
+ * line endings normalised to LF (an index.html built from a CRLF checkout would otherwise be blocked). */
 export function contentSecurityPolicy(html?: string): string {
-  const hashes = [...(html ?? '').matchAll(/<script>([\s\S]*?)<\/script>/g)].map((m) => `'sha256-${createHash('sha256').update(m[1]!).digest('base64')}'`);
+  const hashes = [...(html ?? '').matchAll(/<script>([\s\S]*?)<\/script>/g)].map(
+    (m) => `'sha256-${createHash('sha256').update(m[1]!.replace(/\r\n?/g, '\n')).digest('base64')}'`,
+  );
   return `${CSP_BASE}; script-src 'self'${hashes.map((h) => ' ' + h).join('')}`;
 }
 
+/** The SPA holds a live per-launch token once opened, so no other page may frame it: a framed hub
+ * page would run on the hub's own origin and could be driven by clickjacking. Sent with every static
+ * response (both headers — `X-Frame-Options` for anything that predates `frame-ancestors`). */
 const frameDenyHeaders = (html?: string): Record<string, string> => ({
   'x-frame-options': 'DENY',
   'content-security-policy': contentSecurityPolicy(html),
