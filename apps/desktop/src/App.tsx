@@ -294,7 +294,7 @@ export default function App() {
         onToggleTheme={toggleTheme}
         {...(signedIn ? { onSignOut: () => void hubSignOut() } : {})}
       />
-      <div className="flex min-h-0 flex-1">
+      <div className="flex min-h-0 flex-1 max-md:flex-col">
         {/* The rail is project-context navigation; the dashboard is generic and stays sidebar-less. */}
         {!showDashboard && (
           <Rail
