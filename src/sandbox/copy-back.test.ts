@@ -1,7 +1,7 @@
 import { describe, it, expect } from 'vitest';
-import { mkdir, mkdtemp, readFile, rm, stat, symlink, writeFile } from 'node:fs/promises';
+import { cp, mkdir, mkdtemp, readFile, rm, stat, symlink, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
-import { dirname, join } from 'node:path';
+import { dirname, join, sep } from 'node:path';
 import { execa } from 'execa';
 import { assertWorkspaceWithinCeiling, classifyPath, copyBackBudget, exportWorkspace, prunedNames, CI_CONFIG_RULE } from './copy-back.js';
 import { WorktreeManager } from '../worktree/manager.js';
@@ -218,6 +218,165 @@ describe('exportWorkspace', () => {
       expect(await new WorktreeManager(worktree).changedPaths(worktree)).toEqual(['src/app.ts']);
     } finally {
       await rm(base, { recursive: true, force: true });
+    }
+  });
+});
+
+describe('exportWorkspace deletion sync', () => {
+  /** A real sandbox repo (baseline commit "vanguard baseline") exported into a worktree holding the same files. */
+  const run = async (
+    files: Tree,
+    act: (sandboxDir: string) => Promise<void>,
+    { baseline = true, hostOnly = {} }: { baseline?: boolean; hostOnly?: Tree } = {},
+  ): Promise<{ base: string; worktree: string; report: Awaited<ReturnType<typeof exportWorkspace>>; changed: string[] }> => {
+    const base = await mkdtemp(join(tmpdir(), 'vg-copyback-del-'));
+    const [sandboxDir, worktree, staging] = ['sb', 'wt', 'staging'].map((n) => join(base, n)) as [string, string, string];
+    for (const d of [sandboxDir, worktree, staging]) await mkdir(d, { recursive: true });
+    await writeTree(sandboxDir, files);
+    const gitInit = 'git init -q && git config user.email a@b && git config user.name n && git add -A';
+    await execa('sh', ['-c', `${gitInit} && git commit -q -m "${baseline ? 'vanguard baseline' : 'something else'}"`], { cwd: sandboxDir });
+    await seedRepo(worktree);
+    await writeTree(worktree, files);
+    await execa('git', ['add', '-A'], { cwd: worktree });
+    await execa('git', ['commit', '-q', '-m', 'files'], { cwd: worktree });
+    await writeTree(worktree, hostOnly);
+    await act(sandboxDir);
+    const sandbox: Pick<IsolatedSandboxProvider, 'exec' | 'copyFileOut'> = {
+      exec: async (command: string) => {
+        const r = await execa('sh', ['-c', command], { reject: false });
+        return { exitCode: r.exitCode ?? 1, stdout: String(r.stdout), stderr: String(r.stderr) };
+      },
+      copyFileOut: async (src: string, host: string) => {
+        await cp(src, host, { recursive: true, filter: (p) => !p.split(sep).includes('.git') });
+      },
+    };
+    const report = await exportWorkspace(sandbox, sandboxDir, staging, worktree);
+    return { base, worktree, report, changed: await new WorktreeManager(worktree).changedPaths(worktree) };
+  };
+  const cleanup = (base: string): Promise<void> => rm(base, { recursive: true, force: true });
+
+  it('deletes a file and the files of a deleted directory, shown as deletions in the diff', async () => {
+    const { base, worktree, changed } = await run({ 'a.txt': 'a', 'dir/x.ts': 'x', 'dir/sub/y.ts': 'y', 'keep.txt': 'k' }, async (sb) => {
+      await rm(join(sb, 'a.txt'));
+      await rm(join(sb, 'dir'), { recursive: true });
+    });
+    try {
+      await expect(stat(join(worktree, 'a.txt'))).rejects.toThrow();
+      await expect(stat(join(worktree, 'dir'))).rejects.toThrow();
+      expect(changed).toEqual(['a.txt', 'dir/sub/y.ts', 'dir/x.ts']);
+    } finally {
+      await cleanup(base);
+    }
+  });
+
+  it('deletes the old path of a renamed file, staged or committed in the sandbox', async () => {
+    const { base, worktree, changed } = await run({ 'old.ts': 'export const v = 1;\n', 'old2.ts': 'export const w = 2;\n' }, async (sb) => {
+      await execa('sh', ['-c', 'git mv old.ts new.ts && git mv old2.ts new2.ts && git commit -q -m move'], { cwd: sb });
+    });
+    try {
+      await expect(stat(join(worktree, 'old.ts'))).rejects.toThrow();
+      await expect(stat(join(worktree, 'old2.ts'))).rejects.toThrow();
+      expect(changed).toEqual(['new.ts', 'new2.ts', 'old.ts', 'old2.ts']);
+    } finally {
+      await cleanup(base);
+    }
+  });
+
+  it('copes with a file replaced by a directory and a directory replaced by a file', async () => {
+    const { base, worktree } = await run({ f: 'file', 'd/x.ts': 'x' }, async (sb) => {
+      await rm(join(sb, 'f'));
+      await rm(join(sb, 'd'), { recursive: true });
+      await writeTree(sb, { 'f/inner.ts': 'i', d: 'now a file' });
+    });
+    try {
+      expect(await readFile(join(worktree, 'f/inner.ts'), 'utf8')).toBe('i');
+      expect(await readFile(join(worktree, 'd'), 'utf8')).toBe('now a file');
+    } finally {
+      await cleanup(base);
+    }
+  });
+
+  it('does not apply a CI config deletion and reports it', async () => {
+    const { base, worktree, report, changed } = await run({ '.github/workflows/ci.yml': 'on: push\n', '.github/CODEOWNERS': '* @me\n' }, async (sb) => {
+      await rm(join(sb, '.github'), { recursive: true });
+    });
+    try {
+      expect(await readFile(join(worktree, '.github/workflows/ci.yml'), 'utf8')).toBe('on: push\n');
+      expect(report.dropped).toEqual(['.github/workflows/ci.yml']);
+      await expect(stat(join(worktree, '.github/CODEOWNERS'))).rejects.toThrow();
+      expect(changed).toEqual(['.github/CODEOWNERS']);
+    } finally {
+      await cleanup(base);
+    }
+  });
+
+  it('never deletes a file that was not in the baseline (pruned names stay on the host)', async () => {
+    const { base, worktree } = await run({ 'keep.txt': 'k' }, async () => undefined, { hostOnly: { 'node_modules/p/i.js': 'n' } });
+    try {
+      await stat(join(worktree, 'node_modules/p/i.js'));
+      await stat(join(worktree, 'keep.txt'));
+    } finally {
+      await cleanup(base);
+    }
+  });
+
+  it('skips deletion sync and says why when there is no baseline commit', async () => {
+    const { base, worktree, report } = await run({ 'a.txt': 'a' }, async (sb) => rm(join(sb, 'a.txt')), { baseline: false });
+    try {
+      await stat(join(worktree, 'a.txt'));
+      expect(report.deletionsSkipped).toContain('baseline commit not found');
+    } finally {
+      await cleanup(base);
+    }
+  });
+
+  /** Export with a sandbox that reports exactly `stdout` as its deleted-file list. */
+  const exportListing = async (stdout: string, outside: boolean): Promise<{ base: string; worktree: string; report: Awaited<ReturnType<typeof exportWorkspace>> }> => {
+    const base = await mkdtemp(join(tmpdir(), 'vg-copyback-list-'));
+    const [worktree, staging] = [join(base, 'wt'), join(base, 'staging')] as [string, string];
+    await mkdir(worktree);
+    await seedRepo(worktree);
+    await writeTree(worktree, { 'node_modules/p/i.js': 'n', link: { link: '../outside' } });
+    if (outside) await writeTree(base, { 'outside/victim.txt': 'v' });
+    const sandbox: Pick<IsolatedSandboxProvider, 'exec' | 'copyFileOut'> = {
+      exec: async (command: string) => (command.includes('git rev-list') ? { exitCode: 0, stdout, stderr: '' } : { exitCode: 1, stdout: '', stderr: '' }),
+      copyFileOut: async (_s: string, host: string) => writeTree(host, { 'README.md': '# r\n' }),
+    };
+    return { base, worktree, report: await exportWorkspace(sandbox, '/workspace', staging, worktree) };
+  };
+
+  it('ignores absolute, .. , symlink-escaping and .git paths (any case), removing nothing outside the worktree', async () => {
+    const listed = ['/etc/hostname', '../outside/victim.txt', 'a/../../outside/victim.txt', 'link/victim.txt', '.git/HEAD', '.GIT/HEAD'];
+    const { base, worktree, report } = await exportListing(listed.join('\0') + '\0node_modules/p/i.js\0', true);
+    try {
+      expect(await readFile(join(base, 'outside/victim.txt'), 'utf8')).toBe('v');
+      await stat(join(worktree, '.git/HEAD'));
+      await stat(join(worktree, 'node_modules/p/i.js'));
+      expect(report.ignoredDeletions).toEqual(listed);
+    } finally {
+      await cleanup(base);
+    }
+  });
+
+  it('is quiet about a listed file whose directory is already gone, and reports a failed listing with its stderr', async () => {
+    const { base, report } = await exportListing('gone/dir/f.ts\0', false);
+    try {
+      expect(report.ignoredDeletions).toEqual([]);
+    } finally {
+      await cleanup(base);
+    }
+    const failing: Pick<IsolatedSandboxProvider, 'exec' | 'copyFileOut'> = {
+      exec: async (command: string) => (command.includes('git rev-list') ? { exitCode: 128, stdout: '', stderr: 'fatal: boom\n' } : { exitCode: 1, stdout: '', stderr: '' }),
+      copyFileOut: async (_s: string, host: string) => writeTree(host, { 'README.md': '# r\n' }),
+    };
+    const dir = await mkdtemp(join(tmpdir(), 'vg-copyback-fail-'));
+    try {
+      const wt = join(dir, 'wt');
+      await mkdir(wt);
+      const r = await exportWorkspace(failing, '/workspace', join(dir, 'st'), wt);
+      expect(r.deletionsSkipped).toContain('fatal: boom');
+    } finally {
+      await cleanup(dir);
     }
   });
 });
