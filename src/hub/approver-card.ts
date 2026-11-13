@@ -3,16 +3,19 @@
 // `.taskcell/approver.json` on the base branch; never a model call. The mode is never written in place:
 // `openApproverModePr` opens a pull request a human merges, like Enable factory does.
 import { DECISIONS_FILE } from '../approver/ledger.js';
-import { mkdir, writeFile } from 'node:fs/promises';
+import { mkdir, mkdtemp, rm, writeFile } from 'node:fs/promises';
+import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { collectApproverScorecard } from '../approver/outcome.js';
 import { loadPolicy } from '../approver/policy.js';
 import { AUTO_MERGE_STREAK_THRESHOLD, parseDecisions } from '../approver/scorecard.js';
-import { DEFAULT_BASE_BRANCH, readRepoBaseBranch } from '../core/base-branch.js';
+import { assertSafeBaseBranch, DEFAULT_BASE_BRANCH, readRepoBaseBranch } from '../core/base-branch.js';
 import { readBranchFile } from '../core/metrics-branch.js';
 import { parseJsonlLines } from '../core/stats.js';
 import { STATE_DIR_NAME, LEGACY_STATE_DIR_NAME } from '../core/state-path.js';
+import { keyedLock } from '../core/keyed-lock.js';
 import { BadRequestError } from '../sidecar/sidecar.js';
+import { githubSlug } from './command-kit.js';
 import { defaultExec, type FactoryExec } from './enable-factory.js';
 import type { ApproverMode, ApproverModeChange, ApproverPeriod, ApproverPrDecision, ApproverScorecard } from '../wire.js';
 
@@ -34,9 +37,34 @@ export interface ApproverModeInfo {
   base: string;
 }
 
+/**
+ * The base branch the approver's policy lives on, resolved like Enable factory's default branch: the repo's
+ * configured `baseBranch`, else the branch `origin/HEAD` points at (what `gh repo view` calls the default
+ * branch; local, no network), else `main`.
+ */
+export async function approverBaseBranch(repoPath: string, exec: FactoryExec = defaultExec): Promise<string> {
+  const configured = await readRepoBaseBranch(repoPath);
+  if (configured !== undefined) return configured;
+  try {
+    const ref = (await exec('git', ['symbolic-ref', '--short', 'refs/remotes/origin/HEAD'], { cwd: repoPath })).stdout.trim();
+    const name = ref.startsWith('origin/') ? ref.slice('origin/'.length) : '';
+    if (name !== '') {
+      assertSafeBaseBranch(name);
+      return name;
+    }
+  } catch {
+    // no origin/HEAD, or a name that is not a safe branch: fall through
+  }
+  return DEFAULT_BASE_BRANCH;
+}
+
+/** Whether a decision's recorded `repo` is the project's own slug (GitHub slugs are case-insensitive). */
+const isOwnRepo = (repo: unknown, slug: string | undefined): boolean =>
+  slug !== undefined && typeof repo === 'string' && repo.toLowerCase() === slug.toLowerCase();
+
 /** The approver's mode as `.taskcell/approver.json` on the base branch says: no valid file or `enabled: false` is off. */
 export async function readApproverMode(repoPath: string): Promise<ApproverModeInfo> {
-  const base = (await readRepoBaseBranch(repoPath)) ?? DEFAULT_BASE_BRANCH;
+  const base = await approverBaseBranch(repoPath);
   const loaded = await loadPolicy(repoPath, base);
   if (loaded === undefined) return { mode: 'off', policyFound: false, base };
   const { enabled, act } = loaded.policy;
@@ -62,13 +90,22 @@ const empty = (period: ApproverPeriod, info: ApproverModeInfo, hint: string): Ap
   topReasons: [],
 });
 
+/** The card for a switch-off request, which never reads the scorecard: turning the approver off must not depend on it. */
+export const unreadScorecard = (period: ApproverPeriod): ApproverScorecard =>
+  empty(period, { mode: 'off', policyFound: true, base: '' }, 'The scorecard was not read: the approver is being switched off.');
+
 /** The scorecard `taskcell stats --approver` prints, restricted to decisions made in the period, summarised. */
 export async function approverScorecard(repoPath: string, period: ApproverPeriod, now: number = Date.now()): Promise<ApproverScorecard> {
-  // Sequential, never Promise.all: both fetch, and readBranchFile reads the tip back from FETCH_HEAD, which a
-  // concurrent fetch of the base branch would overwrite (no or the wrong decisions.jsonl, so a false `no-data`).
+  // Sequential on purpose: the policy read and the metrics-branch read both fetch.
   const info = await readApproverMode(repoPath);
   const text = await readBranchFile(repoPath, { file: DECISIONS_FILE }).catch(() => '');
-  const all = parseDecisions(text);
+  // Only the project's own repository: decisions.jsonl may name others, and each would cost a `gh` call.
+  const slug = await githubSlug(repoPath);
+  const recorded = parseDecisions(text);
+  const all = recorded.filter((d) => isOwnRepo(d.repo, slug));
+  if (all.length === 0 && recorded.length > 0) {
+    return empty(period, info, `The metrics branch has approver decisions, but none for this project's repository (${slug ?? 'no GitHub origin remote'}).`);
+  }
   if (all.length === 0) return empty(period, info, `No approver decisions on the metrics branch yet. ${NO_DECISIONS_HINT}`);
   const since = period === 'all' ? undefined : now - PERIOD_DAYS[period] * DAY_MS;
   const decisions = since === undefined ? all : all.filter((d) => Date.parse(d.timestamp) >= since);
@@ -102,10 +139,12 @@ export async function approverScorecard(repoPath: string, period: ApproverPeriod
 /** The approver's standing decision per PR (the latest record; a recorded merge wins): for task cards and their detail. No gh call. */
 export async function approverPrDecisions(repoPath: string): Promise<ApproverPrDecision[]> {
   const text = await readBranchFile(repoPath, { file: DECISIONS_FILE }).catch(() => '');
+  // Keyed by PR number, so only the project's own repository: another repo's #7 must not stand in for this one's.
+  const slug = await githubSlug(repoPath);
   const merged = new Set<number>();
   const latest = new Map<number, { verdict: 'APPROVE' | 'ESCALATE'; rules: string[]; ts: string }>();
   for (const line of parseJsonlLines(text)) {
-    if (typeof line.prNumber !== 'number') continue;
+    if (typeof line.prNumber !== 'number' || !isOwnRepo(line.repo, slug)) continue;
     if (line.action === 'merge') merged.add(line.prNumber);
     if (line.verdict !== 'APPROVE' && line.verdict !== 'ESCALATE') continue;
     if (typeof line.timestamp !== 'string') continue;
@@ -128,18 +167,23 @@ export function scorecardSentence(card: ApproverScorecard): string {
   if (card.status === 'no-data') return `No approver data (${card.hint ?? 'none recorded'}).`;
   const best = card.byRiskClass.reduce((m, c) => Math.max(m, c.streak), 0);
   return (
-    `Last ${card.period === 'all' ? 'all-time' : card.period}: ${card.judged} pull requests judged, ${card.approves} APPROVE ` +
+    `${card.period === 'all' ? 'All time' : `Last ${PERIOD_DAYS[card.period]} days`}: ${card.judged} pull requests judged, ${card.approves} APPROVE ` +
     `(${card.approvesRight} right, ${card.approvesWrong} wrong, ${card.approvesPending} pending), ${card.escalates} ESCALATE. ` +
-    `Best streak ${best} of ${card.threshold} correct APPROVEs in a row in one risk class; the bar is ${card.barMet ? 'met' : 'not met'}.`
+    `Best streak so far: ${best} of ${card.threshold} correct APPROVEs in a row in one risk class; the bar is ${card.barMet ? 'met' : 'not met'}.`
   );
 }
 
-/** The policy's new content for a mode: `enabled` / `act` flipped, every other key kept as written. */
+/**
+ * The policy's new content for a mode: `enabled` / `act` flipped, every other key kept as written. The file
+ * is re-serialised with its own indent and line ending (so compact arrays are expanded; values are unchanged).
+ */
 export function policyForMode(raw: string, mode: ApproverMode): string {
   const json = JSON.parse(raw) as Record<string, unknown>;
   json.enabled = mode !== 'off';
   json.act = mode === 'act';
-  return `${JSON.stringify(json, null, 2)}\n`;
+  const indent = /\n([ \t]+)"/.exec(raw)?.[1] ?? 2;
+  const eol = raw.includes('\r\n') ? '\r\n' : '\n';
+  return `${JSON.stringify(json, null, indent).replace(/\n/g, eol)}${eol}`;
 }
 
 /** Branch the mode PR is opened from. Fixed: a second request resets and reuses it (and its open PR). */
@@ -152,20 +196,25 @@ export interface OpenModePrInput {
   exec?: FactoryExec;
 }
 
+/** One mode change at a time per repository: they share a branch, a push and a PR. */
+const serialise = keyedLock();
+
 /**
- * Branch from `origin/<base>`, change `.taskcell/approver.json`, push the branch and open a PR against
- * the base — never a push to the base itself. The user's checkout is restored afterwards.
+ * Branch from `origin/<base>` in a temporary worktree, change `.taskcell/approver.json`, push the branch and
+ * open a PR against the base — never a push to the base itself, and never a touch of the user's checkout
+ * (index, working tree and HEAD stay as they are). One change at a time per repository.
  */
-export async function openApproverModePr(input: OpenModePrInput): Promise<ApproverModeChange> {
+export function openApproverModePr(input: OpenModePrInput): Promise<ApproverModeChange> {
+  return serialise(input.repoPath, () => applyModePr(input));
+}
+
+async function applyModePr(input: OpenModePrInput): Promise<ApproverModeChange> {
   const exec = input.exec ?? defaultExec;
   const { repoPath, mode } = input;
-  const run = async (file: string, args: string[]): Promise<string> => (await exec(file, args, { cwd: repoPath })).stdout.trim();
-  const base = (await readRepoBaseBranch(repoPath)) ?? DEFAULT_BASE_BRANCH;
+  const run = async (file: string, args: string[], cwd: string = repoPath): Promise<string> => (await exec(file, args, { cwd })).stdout.trim();
+  const base = await approverBaseBranch(repoPath, exec);
   if (base === APPROVER_MODE_BRANCH) throw new BadRequestError('refusing to use the base branch as the approver-mode branch');
 
-  if ((await run('git', ['status', '--porcelain', '--untracked-files=no'])) !== '') {
-    throw new BadRequestError('the working tree has uncommitted changes; commit or stash them before changing the approver mode');
-  }
   await run('git', ['fetch', 'origin', base]);
   const dir = (await exec('git', ['cat-file', '-e', `origin/${base}:${STATE_DIR_NAME}/approver.json`], { cwd: repoPath }).then(() => true, () => false))
     ? STATE_DIR_NAME
@@ -185,17 +234,24 @@ export async function openApproverModePr(input: OpenModePrInput): Promise<Approv
   }
   if (next.trim() === raw.trim()) throw new BadRequestError(`the approver is already in ${mode} mode on ${base}`);
 
-  const head = await run('git', ['rev-parse', '--abbrev-ref', 'HEAD']);
-  const original = head === 'HEAD' ? await run('git', ['rev-parse', 'HEAD']) : head;
-  await run('git', ['checkout', '-B', APPROVER_MODE_BRANCH, `origin/${base}`]);
+  const title = `chore: set the approver to ${mode} mode`;
+  const tmp = await mkdtemp(join(tmpdir(), 'taskcell-approver-'));
+  const tree = join(tmp, 'wt');
   try {
-    await mkdir(join(repoPath, dir), { recursive: true });
-    await writeFile(join(repoPath, file), next);
-    await run('git', ['add', file]);
-    await run('git', ['commit', '-m', `chore: set the approver to ${mode} mode`, '--', file]);
-    await run('git', ['push', '--force', '-u', 'origin', APPROVER_MODE_BRANCH]);
+    await run('git', ['worktree', 'add', '--detach', tree, `origin/${base}`]);
+    try {
+      await mkdir(join(tree, dir), { recursive: true });
+      await writeFile(join(tree, file), next);
+      await run('git', ['add', file], tree);
+      await run('git', ['commit', '-m', title, '--', file], tree);
+      // --force: the fixed branch is reset to the base on every request, so an earlier request's commit is replaced.
+      await run('git', ['push', '--force', 'origin', `HEAD:refs/heads/${APPROVER_MODE_BRANCH}`], tree);
+    } finally {
+      await run('git', ['worktree', 'remove', '--force', tree]).catch(() => undefined);
+    }
   } finally {
-    await run('git', ['checkout', '-f', original]);
+    await rm(tmp, { recursive: true, force: true });
+    await run('git', ['worktree', 'prune']).catch(() => undefined);
   }
 
   const existing = await run('gh', ['pr', 'list', '--head', APPROVER_MODE_BRANCH, '--base', base, '--state', 'open', '--json', 'url', '--jq', '.[0].url // ""']);
@@ -207,9 +263,9 @@ export async function openApproverModePr(input: OpenModePrInput): Promise<Approv
     ...(mode === 'act' && !input.card.barMet ? ['', '**The bar is not met** — the requester confirmed turning act mode on anyway.'] : []),
   ].join('\n');
   if (existing !== '') {
-    await run('gh', ['pr', 'edit', existing, '--body', body]);
+    await run('gh', ['pr', 'edit', existing, '--title', title, '--body', body]);
     return { branch: APPROVER_MODE_BRANCH, prUrl: existing, mode };
   }
-  const prUrl = await run('gh', ['pr', 'create', '--title', `chore: set the approver to ${mode} mode`, '--body', body, '--base', base, '--head', APPROVER_MODE_BRANCH]);
+  const prUrl = await run('gh', ['pr', 'create', '--title', title, '--body', body, '--base', base, '--head', APPROVER_MODE_BRANCH]);
   return { branch: APPROVER_MODE_BRANCH, prUrl, mode };
 }

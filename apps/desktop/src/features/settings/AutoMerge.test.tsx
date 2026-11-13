@@ -56,5 +56,5 @@ test('act is not offered while it is blocked, and nothing is written directly', 
   mockIPC((cmd) => (cmd === 'read_approver_scorecard' ? card({ actOffered: false }) : undefined));
   render(<AutoMerge project="/repo" />);
   await waitFor(() => expect(screen.getByRole('button', { name: 'Act' })).toBeDisabled());
-  expect(screen.getByText(/Act mode is not available yet/)).toBeInTheDocument();
+  expect(screen.getByText(/Act mode, where the approver merges pull requests by itself, can't be turned on yet/)).toBeInTheDocument();
 });
