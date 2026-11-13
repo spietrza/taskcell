@@ -2,8 +2,11 @@
 // supporting functions: emit_event, finish_run, resolve_terminal, has_terminal, buffer eviction) —
 // minus the child process and its pipe mutex, since the hub calls the sidecar's typed deps IN-PROCESS.
 // See that file for the original Rust implementation and its "why" comments.
+import { readFileSync, writeFileSync } from 'node:fs';
 import { cancelCurrent } from '../sidecar/cancel.js';
 import { BadRequestError } from '../sidecar/sidecar.js';
+import type { AuditActor } from '../core/audit.js';
+import { auditActorOf } from './audit.js';
 import { RunEventLog } from './run-events.js';
 import type { SidecarDeps, CreateRunParams, CreateRunResult } from '../sidecar/sidecar.js';
 
@@ -28,6 +31,9 @@ interface QueuedRun {
   params: CreateRunParams;
   resolve: (result: CreateRunResult) => void;
   reject: (error: unknown) => void;
+  hooks?: RunHooks;
+  /** Waited in the queue first: its admission was already reported by `onQueued`. */
+  wasQueued?: boolean;
 }
 
 interface BufferedEvent {
@@ -40,8 +46,17 @@ function eventType(entry: BufferedEvent): string | undefined {
   return typeof event?.type === 'string' ? event.type : undefined;
 }
 
+export interface RunHooks {
+  onStarted?: (runId: string) => void;
+  onQueued?: (runId: string) => void;
+  onRefused?: (runId: string) => void;
+}
+
 export interface RunSession {
-  createRun(params: CreateRunParams): Promise<CreateRunResult>;
+  /** `hooks` report the run's admission, each at most once, before it ends: `onStarted` once a run that
+   * did not queue passes the start-time check, `onQueued` when it waits, `onRefused` when that check
+   * (the allowlist re-check) refuses it — including a queued run's, once promoted. */
+  createRun(params: CreateRunParams, hooks?: RunHooks): Promise<CreateRunResult>;
   activeRun(): { runId: string; repoPath: string } | null;
   /** Runs waiting behind the active one, in start order — `position` is 1-based (1 = next to run). */
   queued(): { runId: string; repoPath: string; position: number }[];
@@ -50,6 +65,29 @@ export interface RunSession {
    * pre-queue call shape every existing caller still uses). Unknown/already-settled id is a no-op. */
   cancel(runId?: string): void;
 }
+
+/** The next run number persisted by a previous hub process (0 when none). */
+function loadCounter(file: string | undefined): number {
+  if (file === undefined) return 0;
+  try {
+    const n = Number.parseInt(readFileSync(file, 'utf8'), 10);
+    return Number.isSafeInteger(n) && n >= 0 ? n : 0;
+  } catch {
+    return 0;
+  }
+}
+
+function saveCounter(file: string | undefined, next: number): void {
+  if (file === undefined) return;
+  try {
+    writeFileSync(file, String(next), { mode: 0o600 });
+  } catch {
+    // Best-effort: a hub that cannot persist the counter still runs; ids then restart after a restart.
+  }
+}
+
+const actorFor = (startedBy: string | undefined): AuditActor =>
+  startedBy === undefined ? { kind: 'local' } : auditActorOf({ login: startedBy, admin: false });
 
 function maxQueueLimit(): number {
   const raw = process.env.VANGUARD_HUB_MAX_QUEUE;
@@ -72,9 +110,11 @@ export function createRunSession(
   deps: SidecarDeps,
   publish: (name: string, payload: unknown) => number | void,
   assertStart?: (params: CreateRunParams) => Promise<void>,
+  /** File holding the next run number, so run ids stay unique across hub restarts (they key the audit trail). */
+  counterFile?: string,
 ): RunSession {
   let active: { runId: string; repoPath: string } | null = null;
-  let counter = 0;
+  let counter = loadCounter(counterFile);
   const buffer = new Map<string, BufferedEvent[]>();
   /** The running run's durable event log (one active run at a time). */
   let eventLog: { runId: string; log: RunEventLog } | null = null;
@@ -172,13 +212,21 @@ export function createRunSession(
     let errMessage: string | undefined;
     try {
       // Before `run-accepted`: a run refused here is never announced as started.
-      if (assertStart !== undefined) await assertStart(params);
+      if (assertStart !== undefined) {
+        try {
+          await assertStart(params);
+        } catch (error) {
+          entry.hooks?.onRefused?.(runId);
+          throw error;
+        }
+      }
       // A cancel landing during that await armed no controller yet — honour it here, not in the run.
       if (cancelledRunId === runId) throw new Error('run cancelled');
+      if (entry.wasQueued !== true) entry.hooks?.onStarted?.(runId);
       // Drop the queued-phase `run-queued` so `run-accepted` is index 0 — the eviction invariant in
       // bufferPush, and the only event a strip re-attach may adopt from.
       buffer.delete(runId);
-      eventLog = { runId, log: new RunEventLog(repoPath) };
+      eventLog = { runId, log: new RunEventLog(repoPath, undefined, undefined, { actor: actorFor(params.startedBy), subject: { repo: repoPath, runId } }) };
       emit(runId, { type: 'run-accepted', repoPath });
       result = await deps.createRun(params, (e) => emit(runId, e));
     } catch (error) {
@@ -250,7 +298,7 @@ export function createRunSession(
       if (active !== null) cancelledRunId = active.runId;
       cancelCurrent();
     },
-    async createRun(params: CreateRunParams): Promise<CreateRunResult> {
+    async createRun(params, hooks): Promise<CreateRunResult> {
       // repoPath is required BEFORE minting a runId, so `run-accepted`'s payload is always a string
       // and a rejected call never burns an id.
       const repoPath = params.repoPath;
@@ -272,13 +320,16 @@ export function createRunSession(
       }
       const runId = `run-${counter}`;
       counter += 1;
+      saveCounter(counterFile, counter);
       return new Promise<CreateRunResult>((resolve, reject) => {
-        const entry: QueuedRun = { runId, params, resolve, reject };
+        const entry: QueuedRun = { runId, params, resolve, reject, ...(hooks !== undefined ? { hooks } : {}) };
         if (active === null) {
           void execute(entry);
           return;
         }
+        entry.wasQueued = true;
         queue.push(entry);
+        hooks?.onQueued?.(runId);
         emitQueued(entry, queue.length);
       });
     },

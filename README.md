@@ -65,6 +65,8 @@ taskcell run --github owner/repo#123 --repo /path/to/repo --skills ./skills --ll
 
 `--llm-proxy` keeps the model credential in a sidecar and limits the sandbox's network to an allowlist. `pnpm link --global` puts `taskcell` on your PATH.
 
+Prefer a native app? See [Install the desktop app](docs/hub.md#install-the-desktop-app).
+
 To run the factory from GitHub Actions instead, with no host of your own, follow [docs/onboarding-another-repo.md](docs/onboarding-another-repo.md). For an always-on host, see [docs/deploy.md](docs/deploy.md). For a browser cockpit with a task board, live transcripts and run records, run `pnpm hub --repo /path/to/repo` ([docs/hub.md](docs/hub.md)).
 
 ## Task sources and providers

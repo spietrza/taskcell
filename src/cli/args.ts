@@ -1,4 +1,5 @@
 import { parseArgs } from 'node:util';
+import { STREAMS } from '../core/audit.js';
 import { isProviderName, validateProviderChoice, PROVIDER_NAMES } from '../agents/registry.js';
 import type { ProviderName } from '../agents/registry.js';
 import type { RunOptions } from '../runners/source-adapter.js';
@@ -306,6 +307,19 @@ export type Command =
   | { kind: 'metrics'; action: 'push'; repoPath: string; branch?: string }
   | { kind: 'approve'; prNumber: number; repoSlug: string; repoPath: string; mode: 'shadow'; json: boolean; dryRun: boolean; branch?: string }
   | { kind: 'memory'; repoPath: string; limit?: number; json: boolean }
+  | {
+      kind: 'audit';
+      action: 'verify' | 'export';
+      repoPath: string;
+      /** One stream (hub, run-events, metrics, decisions, lessons); omitted = every stream. */
+      stream?: string;
+      /** The hub's config dir (holds the hub audit log); default: the hub's own default. */
+      configDir?: string;
+      branch?: string;
+      since?: string;
+      until?: string;
+      format: 'jsonl' | 'csv';
+    }
   | LessonsCommand
   | {
       kind: 'eval';
@@ -619,6 +633,11 @@ export function parseCli(argv: string[], cwd: string): Command {
         suggest: { type: 'boolean' },
         out: { type: 'string' },
         since: { type: 'string' },
+        // audit verify|export
+        stream: { type: 'string' },
+        until: { type: 'string' },
+        format: { type: 'string' },
+        'config-dir': { type: 'string' },
         markdown: { type: 'boolean' },
         // eval --baseline
         baseline: { type: 'string' },
@@ -798,6 +817,29 @@ export function parseCli(argv: string[], cwd: string): Command {
       };
     }
     return fail('lessons expects a subcommand: record --pr <n> --github-repo <o/r> | list | dismiss <id>.');
+  }
+
+  if (positionals[0] === 'audit') {
+    const action = positionals[1];
+    if (action !== 'verify' && action !== 'export') return fail('audit expects a subcommand: taskcell audit verify [--stream <name>] | taskcell audit export [--stream <name>] [--since <date>] [--until <date>] [--format jsonl|csv].');
+    if (typeof values.stream === 'string' && !Object.keys(STREAMS).includes(values.stream)) return fail(`audit --stream must be one of ${Object.keys(STREAMS).join(', ')}, got '${values.stream}'.`);
+    const format = typeof values.format === 'string' ? values.format : 'jsonl';
+    if (format !== 'jsonl' && format !== 'csv') return fail(`audit --format must be jsonl or csv, got '${format}'.`);
+    for (const key of ['since', 'until'] as const) {
+      const v = values[key];
+      if (typeof v === 'string' && Number.isNaN(Date.parse(v))) return fail(`audit --${key} must be a date, got '${v}'.`);
+    }
+    return {
+      kind: 'audit',
+      action,
+      repoPath,
+      format,
+      ...(typeof values.stream === 'string' ? { stream: values.stream } : {}),
+      ...(typeof values['config-dir'] === 'string' ? { configDir: values['config-dir'] } : {}),
+      ...(typeof values.branch === 'string' ? { branch: values.branch } : {}),
+      ...(typeof values.since === 'string' ? { since: values.since } : {}),
+      ...(typeof values.until === 'string' ? { until: values.until } : {}),
+    };
   }
 
   if (positionals[0] === 'memory') {
@@ -1418,6 +1460,8 @@ Commands:
   approve Compute a deterministic APPROVE/ESCALATE decision for a factory PR from typed facts and the
          base-branch policy; publish a neutral check run + PR comment and record the decision
          (shadow mode: never merges, approves, or edits labels).
+  audit verify | export  Check the hash chains of the audit streams (hub, run-events, metrics, decisions,
+         lessons) or export them with --since/--until as jsonl or csv; see docs/audit.md.
   memory Refresh .taskcell/memory/retrospective.md from run artifacts and print it.
   lessons record  Distil 0-3 lessons from a closed factory PR (one cheap model call; none for a clean
          first-round merge), append them to lessons.jsonl on the metrics branch and comment them on
@@ -1692,6 +1736,13 @@ ${MAX_REPAIR_ITERATIONS_USAGE}
                            how many APPROVEs were right, how many ESCALATEs the human merged unchanged,
                            and the current correct-APPROVE streak (needs gh; reads decisions.jsonl from
                            the metrics branch plus live PR/revert history)
+
+  audit options:
+    --repo <path>          Repo whose state dir and metrics branch to check (default: cwd)
+    --stream <name>        One of hub, run-events, metrics, decisions, lessons (default: all)
+    --config-dir <dir>     The hub config dir holding the hub audit log (default: the hub's)
+    --branch <name>        Metrics-branch override for decisions/lessons
+    --since <date> --until <date> --format jsonl|csv   (export) time window and format
 
   metrics push options:
     --repo <path>          Repo whose .taskcell/runs/metrics.jsonl to persist (default: cwd)

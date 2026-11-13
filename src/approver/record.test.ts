@@ -110,7 +110,7 @@ describe('appendDecision', () => {
     await appendDecision(repo, record());
     const lines = await branchLines();
     expect(lines).toHaveLength(1);
-    expect(JSON.parse(lines[0]!)).toEqual(record());
+    expect(JSON.parse(lines[0]!)).toMatchObject(record());
   });
 
   it('appends nothing for a rerun at the same (PR, head SHA), even with different content', async () => {
