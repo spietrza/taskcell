@@ -65,7 +65,7 @@ function normalizeFile(file: string): string {
 export function reReviewInstructions(ctx: ReReviewContext): { rules: string[]; untrusted: string[] } {
   const rules = [
     `This is a RE-REVIEW: the PR was already reviewed at head ${ctx.previousSha.slice(0, 7)}. Reviews must converge, so:`,
-    '- Start with the `Verdict:` and `Risk:` lines, then emit a <rereview> JSON block (the host renders it as a table of every previous finding, resolved / not resolved / no longer applies, with one line of evidence each, and strips the block from the posted review): {"previous":[{"id","title","blocking":bool,"status":"resolved"|"not resolved"|"no longer applies","evidence":"one line"}],"new":[{"title","file","blocking":bool,"basis":"changed-since-last-review"|"missed-blocking-class"}]}. List EVERY finding of the previous review in "previous", with the blocking flag it had there; when the previous review has a findings table, reuse its ids (including `N1`-style rows) exactly. The host keeps the reviewer\'s own verdict when a blocking finding the previous review left open is missing or re-rated.',
+    '- Start with the `Verdict:` and `Risk:` lines, then IMMEDIATELY emit a <rereview> JSON block at the start of a line, not inside a quote or code fence (the host renders it as a table of every previous finding, resolved / not resolved / no longer applies, with one line of evidence each, and strips the block from the posted review): {"previous":[{"id","title","blocking":bool,"status":"resolved"|"not resolved"|"no longer applies","evidence":"one line"}],"new":[{"title","file","blocking":bool,"basis":"changed-since-last-review"|"missed-blocking-class"}]}. List EVERY finding of the previous review in "previous", with the blocking flag it had there; when the previous review has a findings table, reuse its ids (including `N1`-style rows) exactly. The host keeps the reviewer\'s own verdict when a blocking finding the previous review left open is missing or re-rated.',
     '- A finding the previous review rated non-blocking keeps that rating on code that did not change since. Never re-rate unchanged code.',
     '- A NEW blocking finding is allowed only for code changed since the last reviewed head (basis `changed-since-last-review`, `file` must be a file in the diff since that head), or for a blocking-class problem per the repository review guidelines that the previous review missed (basis `missed-blocking-class`). Anything else is non-blocking. The host downgrades a new blocking finding that does not meet this.',
     '- The verdict is BLOCKING only if at least one blocking finding is not resolved; the host recomputes it from the <rereview> block.',
@@ -91,24 +91,47 @@ export const REREVIEW_MALFORMED_NOTE = '_Re-review: the re-review block was miss
 
 const cell = (s: string): string => s.replace(/\|/g, '\\|').replace(/\s*\n\s*/g, ' ').trim();
 
-/** Split a reply into its first verdict line, the risk line after it, and everything else (all verdict lines dropped). */
-function peelVerdict(text: string): { verdict?: string; risk?: string; rest: string } {
-  const lines = text.trim().split('\n');
-  const rest: string[] = [];
-  let verdict: string | undefined;
-  let risk: string | undefined;
-  for (let i = 0; i < lines.length; i++) {
-    if (!VERDICT_RE.test(lines[i]!)) { rest.push(lines[i]!); continue; }
-    verdict ??= lines[i]!;
-    let j = i + 1;
-    while (j < lines.length && lines[j]!.trim() === '') j++;
-    if (j < lines.length && RISK_RE.test(lines[j]!)) {
-      risk ??= lines[j]!;
-      i = j;
-    }
-  }
-  return { ...(verdict !== undefined ? { verdict } : {}), ...(risk !== undefined ? { risk } : {}), rest: rest.join('\n').trim() };
+/**
+ * The reply's header: the verdict line only when it is the FIRST non-blank line, and the risk line only when it
+ * is the next non-blank one (the positions extractReviewVerdict/extractReviewRisk accept). A `Verdict:`/`Risk:`
+ * line anywhere else (e.g. quoted from the untrusted diff) decides nothing. `next` indexes the line after the header.
+ */
+function readHeader(lines: readonly string[]): { verdict?: string; risk?: string; next: number } {
+  const nonBlank = (from: number): number => {
+    let i = from;
+    while (i < lines.length && lines[i]!.trim() === '') i++;
+    return i;
+  };
+  const i = nonBlank(0);
+  if (i >= lines.length || !VERDICT_RE.test(lines[i]!)) return { next: 0 };
+  const verdict = lines[i]!;
+  const j = nonBlank(i + 1);
+  if (j < lines.length && RISK_RE.test(lines[j]!)) return { verdict, risk: lines[j]!, next: j + 1 };
+  return { verdict, next: i + 1 };
 }
+
+/** Split a reply into its header verdict/risk lines and everything else (later verdict lines dropped, so the posted review states one). */
+function peelVerdict(text: string): { verdict?: string; risk?: string; rest: string } {
+  const lines = text.split('\n');
+  const { next, ...header } = readHeader(lines);
+  return { ...header, rest: lines.slice(next).filter((l) => !VERDICT_RE.test(l)).join('\n').trim() };
+}
+
+/**
+ * The reply from its <rereview> block on, when that block sits at its fixed position: directly after the header
+ * verdict/risk lines, at the start of a line. A block anywhere else (inside a quote, fence or later prose) is not
+ * the reviewer's own and is never accepted.
+ */
+function headerBlock(text: string): string | undefined {
+  const lines = text.split('\n');
+  const { verdict, next } = readHeader(lines);
+  if (verdict === undefined) return undefined;
+  const after = lines.slice(next).join('\n').trimStart();
+  return /^<rereview>/i.test(after) ? after : undefined;
+}
+
+// The previous comment opens with the review heading (and, when it ended without completion, a one-line note).
+const PREVIOUS_PREAMBLE_RE = /^\s*## Vanguard Review[ \t]*\n(?:\s*_[^\n]*_[ \t]*\n)?/;
 
 // An open blocking row of a previous re-review's table: `| <id>: <title> (blocking) | not resolved|new | …`.
 const OPEN_BLOCKING_ROW_RE = /^\| (.+?): .*\(blocking\) \| (?:not resolved|new) \|/gm;
@@ -125,13 +148,14 @@ function coversPreviousBlocking(previous: ReadonlyArray<{ id: string; blocking: 
   const openIds = [...previousBody.matchAll(OPEN_BLOCKING_ROW_RE)].map((m) => m[1]!);
   if (openIds.some((id) => !listed.includes(id))) return false;
   const labelled = previousBody.match(BLOCKING_LABEL_RE)?.length ?? 0;
-  const verdictBlocking = extractReviewVerdict(peelVerdict(previousBody).verdict ?? '') === 'blocking';
+  const verdictBlocking = extractReviewVerdict(previousBody.replace(PREVIOUS_PREAMBLE_RE, '')) === 'blocking';
   return listed.length >= Math.max(labelled, verdictBlocking ? 1 : 0);
 }
 
 /**
- * Enforce the re-review rules on the reviewer's reply. A missing, repeated or malformed <rereview> block
- * (exactly one is valid, so a quoted second one cannot override the real one) leaves the reviewer's stated
+ * Enforce the re-review rules on the reviewer's reply. A missing, repeated, misplaced or malformed <rereview>
+ * block (exactly one is valid, directly after the header verdict/risk lines, so a quoted one can neither stand in
+ * for nor override the real one) leaves the reviewer's stated
  * verdict untouched — a formatting slip never flips it — and is noted; so does a block that drops or re-rates
  * a blocking finding the previous review (`previousBody`) left open (coversPreviousBlocking). `downgraded`
  * counts new blocking findings rejected by the rules.
@@ -143,7 +167,8 @@ export function applyReReviewRules(
   const peeled = peelVerdict(text.replace(REREVIEW_STRIP_RE, ''));
   let parsed: z.infer<typeof reReviewSchema> | undefined;
   try {
-    if ((text.match(REREVIEW_OPEN_RE) ?? []).length === 1) parsed = extractJson(text, 'rereview', reReviewSchema);
+    const block = headerBlock(text);
+    if (block !== undefined && (text.match(REREVIEW_OPEN_RE) ?? []).length === 1) parsed = extractJson(block, 'rereview', reReviewSchema);
   } catch {
     parsed = undefined;
   }
