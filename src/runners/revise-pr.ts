@@ -646,8 +646,12 @@ export async function runRevisePullRequest(prRef: string, deps: ReviseGithubPrDe
       }
 
       // Every checklist item needs an answer from the agent; a missing one fails the revision rather than
-      // reporting success. --out is a dry run and never posts.
-      const answers = parseChecklistAnswers(outcomes.map((o) => o.result.finalText).join('\n'), checklist.length);
+      // reporting success. Only the implementer is given the checklist: a reviewer or simplifier line shaped
+      // like an answer must not stand in for one. --out is a dry run and never posts.
+      const answers = parseChecklistAnswers(
+        outcomes.filter((o) => o.name === STAGE.IMPLEMENTER).map((o) => o.result.finalText).join('\n'),
+        checklist.length,
+      );
       const unanswered = checklist.filter((_, i) => answers[i] === undefined);
       const failOpenItems = async (notice: string): Promise<never> => {
         log(`revise-pr ${target.repoSlug}#${target.number}: ${notice}`);

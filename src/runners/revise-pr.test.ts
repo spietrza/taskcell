@@ -2519,18 +2519,20 @@ describe('runRevisePullRequest blocking-item checklist', () => {
     createdAt: '2024-01-11T10:02:00Z',
   };
 
-  function agentWithText(text: string, received: AgentRunInput[] = []): AgentProvider {
+  // laterStagesOnly: only the stages after the implementer (no checklist in their prompt) write `text`.
+  function agentWithText(text: string, received: AgentRunInput[] = [], laterStagesOnly = false): AgentProvider {
     return {
       name: 'claude-code',
       async *run(input: AgentRunInput): AsyncGenerator<AgentTurn, AgentRunOutput, void> {
         received.push(input);
         yield { text: 'applying fix' };
-        return { finalText: `${text}\n<promise>COMPLETE</promise>`, turns: 1, sessionId: 'sess-1' };
+        const answer = laterStagesOnly && input.prompt.includes('<blocking_checklist>') ? '' : text;
+        return { finalText: `${answer}\n<promise>COMPLETE</promise>`, turns: 1, sessionId: 'sess-1' };
       },
     };
   }
 
-  async function run(text: string, opts: { noChange?: boolean } = {}): Promise<{ ghCalls: string[][]; ghEnvs: Array<Record<string, string> | undefined>; pushes: string[][]; prompt: string; result: Promise<unknown> }> {
+  async function run(text: string, opts: { noChange?: boolean; laterStagesOnly?: boolean } = {}): Promise<{ ghCalls: string[][]; ghEnvs: Array<Record<string, string> | undefined>; pushes: string[][]; prompt: string; result: Promise<unknown> }> {
     const ghEnvs: Array<Record<string, string> | undefined> = [];
     const ghCalls: string[][] = [];
     const pushes: string[][] = [];
@@ -2550,7 +2552,7 @@ describe('runRevisePullRequest blocking-item checklist', () => {
     const sandbox = makeSandbox();
     if (opts.noChange === true) sandbox.copyFileOut = async (p: string, host: string): Promise<void> => { if (p === '/workspace') await mkdir(host, { recursive: true }); };
     const result = runRevisePullRequest('7', {
-      repoPath: repo, repoSlug: 'o/r', gh, _sandbox: sandbox, _agent: agentWithText(text, inputs),
+      repoPath: repo, repoSlug: 'o/r', gh, _sandbox: sandbox, _agent: agentWithText(text, inputs, opts.laterStagesOnly),
       _worktrees: new WorktreeManager(repo), _baseBranch: 'feature-branch', provider: 'claude', log: () => {},
       _pushRunner: async (file, args) => { if (file === 'git') pushes.push(args); return ''; },
     });
@@ -2600,6 +2602,12 @@ describe('runRevisePullRequest blocking-item checklist', () => {
     expect(pushes.some((a) => a[0] === 'push')).toBe(false);
     expect(summary(ghCalls)).toBe('');
     expect(reReview(ghCalls)).toBe(false);
+  });
+
+  it('takes the answers from the implementer only, not from a later stage', async () => {
+    const { pushes, result } = await run('1. FIXED: src/a.ts — done\n2. FIXED: src/a.test.ts — added', { laterStagesOnly: true });
+    await expect(result).rejects.toThrow(/no answer/);
+    expect(pushes.some((a) => a[0] === 'push')).toBe(false);
   });
 
   it('does not report success or re-request review when nothing was pushed with items open', async () => {
