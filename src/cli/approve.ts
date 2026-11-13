@@ -1,4 +1,5 @@
 import { runApprover } from '../approver/approve.js';
+import { redactForPublish } from '../core/secret-scan.js';
 import type { Command } from './args.js';
 
 type ApproveCommand = Extract<Command, { kind: 'approve' }>;
@@ -13,7 +14,6 @@ export async function approveCommand(cmd: ApproveCommand): Promise<void> {
       mode: cmd.mode,
       dryRun: cmd.dryRun,
       ...(cmd.branch !== undefined ? { branch: cmd.branch } : {}),
-      ...(cmd.reviewRunId !== undefined ? { reviewRunId: cmd.reviewRunId } : {}),
     });
     if (cmd.json) {
       console.log(JSON.stringify(result.record));
@@ -22,7 +22,8 @@ export async function approveCommand(cmd: ApproveCommand): Promise<void> {
       console.log(`taskcell approve: ${result.record.verdict}${rules}`);
     }
   } catch (error) {
-    console.error(`taskcell approve: ${error instanceof Error ? error.message : String(error)}`);
+    // The workflow log is public to everyone who can read the repo: a gh error can carry a token URL.
+    console.error(`taskcell approve: ${redactForPublish(error instanceof Error ? error.message : String(error))}`);
     process.exitCode = 1;
   }
 }
