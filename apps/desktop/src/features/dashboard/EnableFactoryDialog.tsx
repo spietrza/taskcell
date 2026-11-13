@@ -1,13 +1,12 @@
 import { useEffect, useState, type ReactNode } from 'react';
 import { Button, Chip, CodeBlock } from '@/ui';
 import { enableFactoryApply, enableFactoryPlan, enableFactorySecret, enableFactoryVerify } from '../../ipc';
-import type { FactoryApplyResult, FactoryPlan, FactoryProviderId, FactorySecretStep, FactoryVerifyResult } from '../../wire';
+import { ExternalLink } from '../../components/ExternalLink';
+import { RUN_LOCATIONS } from '../../platform';
+import type { FactoryApplyResult, RunLocationId, FactoryPlan, FactoryProviderId, FactorySecretStep, FactoryVerifyResult } from '../../wire';
 
-const PLATFORMS: { id: FactoryProviderId; label: string; available: boolean }[] = [
-  { id: 'github', label: 'GitHub Actions', available: true },
-  { id: 'gitlab', label: 'GitLab CI', available: false },
-  { id: 'linear', label: 'Linear', available: false },
-];
+/** Only GitHub Actions has an `enable_factory_*` adapter; every other run location is listed as planned. */
+const PROVIDER_OF: Partial<Record<RunLocationId, FactoryProviderId>> = { 'github-actions': 'github' };
 
 type Busy = 'plan' | 'apply' | 'verify' | null;
 
@@ -86,21 +85,28 @@ export function EnableFactoryDialog({ project, onClose }: { project: { path: str
           <>
             <p className="mt-2 text-sm text-muted-foreground">Pick where the factory runs. Nothing is written until you confirm.</p>
             <div className="mt-3 space-y-2">
-              {PLATFORMS.map((p) => (
+              {RUN_LOCATIONS.map((p) => {
+                const provider = PROVIDER_OF[p.id];
+                return p.implemented && provider ? (
                 <button
                   key={p.id}
-                  disabled={!p.available || busy !== null}
-                  onClick={() => void loadPlan(p.id)}
+                  disabled={busy !== null}
+                  onClick={() => void loadPlan(provider)}
                   className="flex w-full items-center justify-between rounded-md border border-border px-3 py-2 text-left text-sm transition-colors enabled:hover:bg-muted disabled:cursor-not-allowed disabled:opacity-60"
                 >
                   <span className="font-medium">{p.label}</span>
-                  {p.available ? (
-                    <span className="text-xs text-muted-foreground">{busy === 'plan' ? 'Reading repo…' : 'Plan →'}</span>
-                  ) : (
-                    <Chip color="secondary" variant="outlined">coming soon</Chip>
-                  )}
+                  <span className="text-xs text-muted-foreground">{busy === 'plan' ? 'Reading repo…' : 'Plan →'}</span>
                 </button>
-              ))}
+                ) : (
+                  <div key={p.id} className="flex w-full items-center justify-between rounded-md border border-border px-3 py-2 text-sm opacity-80">
+                    <span className="font-medium">{p.label}</span>
+                    <span className="flex items-center gap-2">
+                      <Chip color="secondary" variant="outlined">planned</Chip>
+                      <ExternalLink href={p.trackingUrl}>Tracking issue</ExternalLink>
+                    </span>
+                  </div>
+                );
+              })}
             </div>
           </>
         ) : (

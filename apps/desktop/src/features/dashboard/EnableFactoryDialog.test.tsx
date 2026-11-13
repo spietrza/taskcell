@@ -21,11 +21,14 @@ beforeEach(() => {
 });
 
 describe('EnableFactoryDialog', () => {
-  test('GitLab and Linear are coming soon and disabled; only GitHub Actions plans', () => {
+  test('unimplemented run locations are planned with a tracking link; only GitHub Actions plans', () => {
     render(<EnableFactoryDialog project={project} onClose={() => {}} />);
-    expect(screen.getByRole('button', { name: /GitLab CI/ })).toBeDisabled();
-    expect(screen.getByRole('button', { name: /Linear/ })).toBeDisabled();
-    expect(screen.getAllByText('coming soon')).toHaveLength(2);
+    expect(screen.queryByRole('button', { name: /GitLab CI/ })).not.toBeInTheDocument();
+    expect(screen.getAllByText('planned')).toHaveLength(3);
+    const links = screen.getAllByRole('link', { name: /Tracking issue/ });
+    expect(links).toHaveLength(3);
+    for (const l of links) expect(l.getAttribute('href')).toMatch(/^https:\/\/github\.com\/spietrza\/taskcell\/issues\?q=/);
+    expect(screen.queryByText('coming soon')).not.toBeInTheDocument();
     expect(screen.getByRole('button', { name: /GitHub Actions/ })).toBeEnabled();
   });
 

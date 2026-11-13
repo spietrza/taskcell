@@ -27,6 +27,8 @@ export const BOARD_FETCH_CAP = 50;
  */
 export interface BoardConfig {
   source?: string;
+  /** Per-project task source (desktop `platform.ts`); wins over `source` when set. */
+  taskSource?: string;
   team?: string;
   label?: string;
 }
@@ -44,6 +46,7 @@ export async function readBoardConfig(repoPath: string): Promise<BoardConfig> {
     const rec = parsed as Record<string, unknown>;
     const out: BoardConfig = {};
     if (typeof rec.source === 'string' && rec.source !== '') out.source = rec.source;
+    if (typeof rec.taskSource === 'string' && rec.taskSource !== '') out.taskSource = rec.taskSource;
     if (typeof rec.team === 'string' && rec.team !== '') out.team = rec.team;
     if (typeof rec.label === 'string' && rec.label !== '') out.label = rec.label;
     return out;
@@ -52,9 +55,17 @@ export async function readBoardConfig(repoPath: string): Promise<BoardConfig> {
   }
 }
 
+const isBoardSource = (v: string | undefined): v is BoardSource => v === 'github' || v === 'gitlab' || v === 'linear';
+
 function requireBoardSource(cfg: BoardConfig): BoardSource {
-  const source = cfg.source;
-  if (source === 'github' || source === 'gitlab' || source === 'linear') return source;
+  if (isBoardSource(cfg.taskSource)) return cfg.taskSource;
+  if (cfg.taskSource === 'hub' || cfg.taskSource === 'github-project') {
+    // A source IS chosen in Settings: say why the board cannot show it rather than asking for one.
+    throw new TaskcellError(
+      `This project's task source (${cfg.taskSource === 'hub' ? 'Hub board' : 'GitHub Projects'}) is not listed on this board, which reads GitHub Issues, GitLab Issues or Linear.`,
+    );
+  }
+  if (isBoardSource(cfg.source)) return cfg.source;
   // Explicit prompt, NOT createTask's github default: a board silently reading the wrong tracker
   // is worse than asking (S9 spec §2.7).
   throw new TaskcellError('Set a Task Source in Settings to load the board.');
