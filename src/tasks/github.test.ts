@@ -1,5 +1,6 @@
 import { describe, it, expect, vi } from 'vitest';
-import { GitHubTaskFetcher, linkPullRequest } from './github.js';
+import { execa } from 'execa';
+import { addPrGateLabel, GitHubTaskFetcher, linkPullRequest } from './github.js';
 import { isTrustedComment } from './comment-trust.js';
 import type { GhRunner } from './github.js';
 
@@ -8,6 +9,39 @@ function fakeGh(): GhRunner {
   return async (args: string[]): Promise<string> =>
     args.includes('view') ? JSON.stringify(issue) : JSON.stringify([issue]);
 }
+
+vi.mock('execa', () => ({ execa: vi.fn() }));
+
+describe('addPrGateLabel', () => {
+  const PR = 'https://github.com/o/r/pull/7';
+  const TASKCELL = 'taskcell:gate-config-changed';
+  const VANGUARD = 'vanguard:gate-config-changed';
+  /** Runs it against a repo whose labels are `repoLabels` (an Error: the list fails); returns the gh argvs after the list. */
+  const run = async (repoLabels: string[] | Error): Promise<string[][]> => {
+    const calls: string[][] = [];
+    vi.mocked(execa).mockReset().mockImplementation((async (_file: string, args: string[]) => {
+      calls.push(args);
+      if (args[1] !== 'list') return { stdout: '' };
+      if (repoLabels instanceof Error) throw repoLabels;
+      return { stdout: JSON.stringify(repoLabels.map((name) => ({ name }))) };
+    }) as never);
+    await addPrGateLabel('/repo', PR, TASKCELL);
+    expect(calls[0]).toEqual(['label', 'list', '--repo', 'https://github.com/o/r', '--limit', '1000', '--json', 'name']);
+    return calls.slice(1);
+  };
+
+  it('adds the legacy spelling on a repo that has only that one, without creating a twin', async () => {
+    expect(await run([VANGUARD])).toEqual([['pr', 'edit', PR, '--add-label', VANGUARD]]);
+  });
+
+  it('adds the current spelling when the repo has it, has both, has neither, or cannot be listed', async () => {
+    const ensureAndAdd = [['label', 'create', TASKCELL, '--force'], ['pr', 'edit', PR, '--add-label', TASKCELL]];
+    expect(await run([TASKCELL])).toEqual(ensureAndAdd);
+    expect(await run([TASKCELL, VANGUARD])).toEqual(ensureAndAdd);
+    expect(await run([])).toEqual([['label', 'create', TASKCELL, '--repo', 'https://github.com/o/r'], ...ensureAndAdd]);
+    expect(await run(new Error('gh: 403'))).toEqual(ensureAndAdd);
+  });
+});
 
 describe('GitHubTaskFetcher', () => {
   it('maps an issue to a Task (id = repo#number)', async () => {

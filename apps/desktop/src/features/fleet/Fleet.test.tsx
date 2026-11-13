@@ -55,6 +55,14 @@ describe('Fleet slot meter — waiting count (T18–T20)', () => {
     expect(mockListTasks).toHaveBeenCalledWith('/repo');
   });
 
+  test('another repository’s running runs do not take this project’s slots', async () => {
+    mockListTasks.mockResolvedValue({ tasks: [], capped: false });
+    const run = (taskId: string, repoPath?: string) => ({ taskId, sessionFile: '/s', lastActivityMs: 0, ...(repoPath ? { repoPath } : {}) });
+    render(<Fleet project="/repo" active={[run('MINE', '/repo'), run('OTHER', '/other'), run('LOCAL')]} />);
+    expect(await screen.findByText('Slots 2 / 3 in use · 0 waiting')).toBeInTheDocument();
+    expect(screen.queryByText('OTHER')).toBeNull();
+  });
+
   test('T18b: a capped list makes the count a lower bound', async () => {
     mockListTasks.mockResolvedValue({ tasks: WAITING_FOUR, capped: true });
     render(<Fleet project="/repo" active={[]} />);

@@ -9,7 +9,9 @@ import { boardCountLabels } from '../board/counts';
 import { LaunchPanel, type Spawn } from '../inspector/LaunchPanel';
 import type { ActiveRun } from '../../taskcell-output';
 
-export function Fleet({ project, active }: { project: string; active: ActiveRun[] }) {
+export function Fleet({ project, active: allActive }: { project: string; active: (ActiveRun & { repoPath?: string })[] }) {
+  // The hub hands over every repository's running runs; the slots are this project's only.
+  const active = allActive.filter((a) => a.repoPath === undefined || a.repoPath === project);
   const [cfg] = useAppConfig(project);
   const [concurrency, setConcurrency] = useState(3);
   const [loopV1, setLoopV1] = useState(false);

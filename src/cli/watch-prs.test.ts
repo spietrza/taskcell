@@ -120,6 +120,11 @@ describe('eventPullRequestHint', () => {
     expect(eventPullRequestHint('ready for taskcell review', '/event.json', read)).toBe(316);
   });
 
+  it('matches the event label across the legacy and current spellings', () => {
+    const read = (): string => JSON.stringify({ label: { name: 'vanguard:needs-human-review' }, pull_request: { number: 7 } });
+    expect(eventPullRequestHint('taskcell:needs-human-review', '/event.json', read)).toBe(7);
+  });
+
   it('returns the PR number for a just-opened or just-readied PR (labelled by an earlier job)', () => {
     for (const action of ['opened', 'ready_for_review']) {
       const read = (): string => JSON.stringify({ action, pull_request: { number: 548 } });
