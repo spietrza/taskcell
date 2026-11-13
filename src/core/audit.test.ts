@@ -166,6 +166,52 @@ describe('audit record module', () => {
     await expect(appendAudit(STREAMS.hub, adapter, { n: 1 }, ctx)).rejects.toBeInstanceOf(AuditWriteError);
   });
 
+  it('keeps old legacy numeric-suffix files past the age prune', async () => {
+    const { adapter, dir, file } = await setup();
+    const old = new Date(Date.now() - 200 * 86_400_000);
+    for (const n of [1, 2, 3, 4]) {
+      await writeFile(`${file}.${n}`, '{"old":1}\n');
+      await utimes(`${file}.${n}`, old, old);
+    }
+    await appendAudit(audit, adapter, { n: 0 }, ctx);
+    expect((await readdir(dir)).filter((n) => /\.\d$/.test(n)).sort()).toEqual(['a.jsonl.1', 'a.jsonl.2', 'a.jsonl.3', 'a.jsonl.4']);
+  });
+
+  it('applies the count limit to legacy numeric files, oldest first', async () => {
+    const { dir, file } = await setup();
+    for (const n of [1, 2, 3]) await writeFile(`${file}.${n}`, '{"old":1}\n');
+    await appendAudit(audit, localAdapter({ file, maxRotated: 2 }), { n: 0 }, ctx);
+    expect((await readdir(dir)).filter((n) => /\.\d$/.test(n)).sort()).toEqual(['a.jsonl.1', 'a.jsonl.2']);
+  });
+
+  it('appends when the lock path is a directory', async () => {
+    const { adapter, dir, file } = await setup();
+    await mkdir(join(dir, 'a.jsonl.lock'));
+    await writeFile(join(dir, 'a.jsonl.lock', 'x'), '');
+    await expect(appendAudit(audit, adapter, { n: 0 }, ctx)).resolves.toBe(1);
+    expect(await readFile(file, 'utf8')).toContain('"n":0');
+  });
+
+  it('skips a symlinked rotated sibling and keeps appending', async () => {
+    const repo = await mkdtemp(join(tmpdir(), 'audit-repo-'));
+    const state = join(repo, '.taskcell', 'runs');
+    await mkdir(state, { recursive: true });
+    await writeFile(join(repo, 'elsewhere'), '{"hash":"evil"}\n');
+    await symlink(join(repo, 'elsewhere'), join(state, 'metrics.jsonl.1'));
+    const adapter = localAdapter({ file: join(state, 'metrics.jsonl'), repoPath: repo });
+    await expect(appendAudit(STREAMS.hub, adapter, { n: 1 }, ctx)).resolves.toBe(1);
+    await expect(appendAudit(STREAMS.hub, adapter, { n: 2 }, ctx)).resolves.toBe(1);
+    // readers keep refusing the symlink rather than silently dropping its records
+    await expect(verifyAudit(adapter)).rejects.toThrow(/symlink/);
+  });
+
+  it('skips a null or non-object line and keeps appending', async () => {
+    const { adapter, file } = await setup();
+    await writeFile(file, 'null\n[1]\n42\n');
+    await expect(appendAudit(audit, adapter, { n: 0 }, ctx)).resolves.toBe(1);
+    expect(await readAudit(adapter)).toHaveLength(1);
+  });
+
   it('exports a time window as jsonl and csv', () => {
     const recs = [
       { ts: '2026-01-01T00:00:00Z', actor: BOT_ACTOR, v: '=cmd' },

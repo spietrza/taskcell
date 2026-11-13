@@ -76,7 +76,9 @@ export function parseJsonlLines(text: string): Record<string, unknown>[] {
     const trimmed = line.trim();
     if (trimmed === '') continue;
     try {
-      lines.push(JSON.parse(trimmed) as Record<string, unknown>);
+      const parsed: unknown = JSON.parse(trimmed);
+      if (parsed === null || typeof parsed !== 'object' || Array.isArray(parsed)) continue;
+      lines.push(parsed as Record<string, unknown>);
     } catch {
       continue;
     }
