@@ -105,6 +105,45 @@ A starting point, not a rule. Aliases (`sonnet`, `opus`) follow the newest model
 
 Never let the cheapest model in the run be the reviewer: the review is what makes a cheap implementer safe.
 
+#### Three setups to copy
+
+The flags work on `run` and `watch`; in the GitHub Actions workflows the same names are the inputs of the `with:` block.
+
+| | 1. Recommended | 2. One subscription | 3. Budget (experimental) |
+|---|---|---|---|
+| Spec | Claude Opus | Claude Opus | Claude Opus |
+| Implement | Claude Sonnet | Claude Sonnet | DeepSeek V4.1 Flash on OpenRouter |
+| Review | GPT-5.6 Sol on Codex | Claude Fable 5.2 | Claude Fable 5.2 |
+| Escalation | Claude Fable 5.2 | Claude Fable 5.2 | Claude Fable 5.2 |
+| You pay for | Claude plan + ChatGPT plan | Claude plan | Claude plan + OpenRouter credit |
+| How far we tested it | Ran this repo's factory for five weeks | Runs this repo's factory today | Two issues replayed locally |
+
+**1. Recommended: the reviewer is from another vendor.**
+
+```bash
+--spec-model opus --provider claude --provider-model sonnet \
+--review-provider codex --review-model gpt-5.6-sol \
+--escalate-model claude-fable-5-2
+```
+
+**2. One subscription: the reviewer is a stronger model from the same vendor.** Use it when you have a Claude plan only, or when the second plan runs out of quota.
+
+```bash
+--spec-model opus --provider claude --provider-model sonnet \
+--review-model claude-fable-5-2 \
+--escalate-model claude-fable-5-2 --fallback-provider codex
+```
+
+**3. Budget: a cheap implementer under a strong reviewer.** On an easy issue it passed review where Sonnet's change did not; on a harder one it needed three repairs and left four times as many review notes. Use it on small, well-specified issues.
+
+```bash
+--spec-model opus --provider openrouter --provider-model deepseek/deepseek-v4.1-flash-1017 \
+--review-provider claude --review-model claude-fable-5-2 \
+--escalate-model claude-fable-5-2
+```
+
+`--provider zai` (z.ai GLM Coding Plan, flat rate) fits the same slot as OpenRouter in setup 3. We have not tested the full GLM 5.3 yet; GLM 5.3 Flash did not pass review on the easy issue.
+
 ## Security
 
 Taskcell runs coding agents on untrusted input and treats the agent as hostile. These controls sit around it:
