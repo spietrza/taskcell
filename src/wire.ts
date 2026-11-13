@@ -247,6 +247,10 @@ export interface BoardTask {
   chips?: BoardChip[];
   /** The branch this card's PR targets: its `vanguard:base=` label, else the repo default. Absent when neither is set (`main`). */
   baseBranch?: string;
+  /** The tracker the card came from; names the "Open in …" link. */
+  source?: 'github' | 'gitlab' | 'linear';
+  /** The issue's address in that tracker, as the tracker returned it. Absent ⇒ no link. */
+  url?: string;
 }
 
 /** The reviewer's persisted verdict: `changes` ⇔ the merge gate would request changes. */
@@ -299,6 +303,8 @@ export interface RunRecord {
   timestamp: string;
   stage?: string;
   prUrl?: string;
+  /** The CI run (GitHub Actions run / GitLab pipeline) this record was written in. Absent ⇒ a local run. */
+  ciUrl?: string;
   /** The sandbox image's content digest/ID (DockerSandboxProvider.imageDigest), so a run can be
    *  traced back to the exact image it executed against — pulled from GHCR or built locally. */
   imageDigest?: string;
@@ -355,6 +361,7 @@ export interface RunSummary {
   totalCostUsd: number;
   anyFailed: boolean;
   prUrl?: string;
+  ciUrl?: string;
 }
 
 export interface StageDetail {
@@ -369,6 +376,11 @@ export interface RunDetail {
   stages: StageDetail[];
   proof?: Proof;
   visualProof?: VisualProof;
+  /** Addresses in the Git host, computed by the server; each absent when unknown. */
+  prUrl?: string;
+  /** The pull/merge request's diff page ("Files changed" / "Changes"). */
+  diffUrl?: string;
+  ciUrl?: string;
 }
 
 /** A CI run, as returned by `gh run list` (src/hub/remote.ts) / Tauri's `list_remote_runs`. */
@@ -613,6 +625,20 @@ export interface CliVersionReport {
   clis: CliVersionInfo[];
 }
 
+/** Instance provider credentials (hub only, write-only: a value is never returned). */
+export type CredentialProvider = 'claude' | 'codex' | 'zai' | 'openrouter';
+export interface CredentialStatus {
+  provider: CredentialProvider;
+  set: boolean;
+  last4?: string;
+  env: boolean;
+}
+export interface CredentialsSummary {
+  enabled: boolean;
+  reason?: string;
+  providers: CredentialStatus[];
+}
+
 /**
  * Shared command catalogue for the Tauri, hub and mock adapters. Adapter integration is separate:
  * the existing invoke wrappers and dispatchers do not yet enforce these argument/result types.
@@ -639,6 +665,10 @@ export interface Commands {
   read_app_config: { args: { repoPath: string }; result: AppConfig };
   read_app_config_strict: { args: { repoPath: string }; result: AppConfig };
   write_app_config: { args: { repoPath: string; config: AppConfig }; result: void };
+  /** HUB_ONLY: instance provider credentials (src/hub/credentials.ts) — write-only; reads return set + last four. */
+  get_credentials: { args: undefined; result: CredentialsSummary };
+  set_credential: { args: { provider: CredentialProvider; value: string }; result: CredentialsSummary };
+  delete_credential: { args: { provider: CredentialProvider }; result: CredentialsSummary };
   list_drafts: { args: { repoPath: string }; result: string[] };
   read_draft: { args: { repoPath: string; id: string }; result: string };
   write_draft: { args: { repoPath: string; id: string; content: string }; result: void };
@@ -726,6 +756,9 @@ export interface Commands {
  * compile error. */
 export const COMMAND_NAMES = [
   'list_runs',
+  'get_credentials',
+  'set_credential',
+  'delete_credential',
   'read_run',
   'read_run_events',
   'list_projects',
