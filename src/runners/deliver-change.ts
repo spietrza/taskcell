@@ -115,7 +115,7 @@ export function conventionalPrTitle(title: string, opts: { bugLabel?: boolean; s
 export function scanOutgoingForSecrets(
   outgoing: string,
   taskId: string,
-  phase: 'publish' | 'revise push' = 'publish',
+  phase: 'publish' | 'revise push' | 'pre-review gate' = 'publish',
   secretEnvVars: readonly string[] = [],
 ): SecretBlock | undefined {
   try {
