@@ -30,6 +30,9 @@ interface QueuedRun {
   credential?: RunCredential;
   resolve: (result: CreateRunResult) => void;
   reject: (error: unknown) => void;
+  hooks?: RunHooks;
+  /** Waited in the queue first: its admission was already reported by `onQueued`. */
+  wasQueued?: boolean;
 }
 
 interface BufferedEvent {
@@ -42,8 +45,18 @@ function eventType(entry: BufferedEvent): string | undefined {
   return typeof event?.type === 'string' ? event.type : undefined;
 }
 
+export interface RunHooks {
+  onStarted?: (runId: string) => void;
+  onQueued?: (runId: string) => void;
+  onRefused?: (runId: string) => void;
+}
+
 export interface RunSession {
-  createRun(params: CreateRunParams, credential?: RunCredential): Promise<CreateRunResult>;
+  /** `hooks` report the run's admission, each at most once, before it ends: `onStarted` once a run that
+   * did not queue passes the start-time check, `onQueued` when it waits, `onRefused` when that check
+   * (the allowlist re-check) refuses it — including a queued run's, once promoted. `credential` (hub
+   * per-user credentials) is server-resolved and handed to `deps.createRun`. */
+  createRun(params: CreateRunParams, hooks?: RunHooks, credential?: RunCredential): Promise<CreateRunResult>;
   activeRun(): { runId: string; repoPath: string } | null;
   /** Runs waiting behind the active one, in start order — `position` is 1-based (1 = next to run). */
   queued(): { runId: string; repoPath: string; position: number }[];
@@ -174,9 +187,17 @@ export function createRunSession(
     let errMessage: string | undefined;
     try {
       // Before `run-accepted`: a run refused here is never announced as started.
-      if (assertStart !== undefined) await assertStart(params);
+      if (assertStart !== undefined) {
+        try {
+          await assertStart(params);
+        } catch (error) {
+          entry.hooks?.onRefused?.(runId);
+          throw error;
+        }
+      }
       // A cancel landing during that await armed no controller yet — honour it here, not in the run.
       if (cancelledRunId === runId) throw new Error('run cancelled');
+      if (entry.wasQueued !== true) entry.hooks?.onStarted?.(runId);
       // Drop the queued-phase `run-queued` so `run-accepted` is index 0 — the eviction invariant in
       // bufferPush, and the only event a strip re-attach may adopt from.
       buffer.delete(runId);
@@ -252,7 +273,7 @@ export function createRunSession(
       if (active !== null) cancelledRunId = active.runId;
       cancelCurrent();
     },
-    async createRun(params: CreateRunParams, credential?: RunCredential): Promise<CreateRunResult> {
+    async createRun(params, hooks, credential): Promise<CreateRunResult> {
       // repoPath is required BEFORE minting a runId, so `run-accepted`'s payload is always a string
       // and a rejected call never burns an id.
       const repoPath = params.repoPath;
@@ -275,12 +296,14 @@ export function createRunSession(
       const runId = `run-${counter}`;
       counter += 1;
       return new Promise<CreateRunResult>((resolve, reject) => {
-        const entry: QueuedRun = { runId, params, ...(credential !== undefined ? { credential } : {}), resolve, reject };
+        const entry: QueuedRun = { runId, params, ...(credential !== undefined ? { credential } : {}), resolve, reject, ...(hooks !== undefined ? { hooks } : {}) };
         if (active === null) {
           void execute(entry);
           return;
         }
+        entry.wasQueued = true;
         queue.push(entry);
+        hooks?.onQueued?.(runId);
         emitQueued(entry, queue.length);
       });
     },

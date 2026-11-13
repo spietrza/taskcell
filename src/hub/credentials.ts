@@ -206,8 +206,8 @@ export const CREDENTIAL_NAMES = [
   'MERIDIAN_API_KEY',
 ] as const;
 
-/** Maps to HTTP 403 (src/hub/server.ts). */
-export class ForbiddenError extends Error {}
+/** The caller is known but not allowed (non-admin) — maps to HTTP 403 (src/hub/server.ts). */
+export class ForbiddenError extends BadRequestError {}
 
 type Scope = 'instance' | `user:${string}`;
 type Secrets = Record<string, Record<string, string>>;

@@ -9,6 +9,7 @@ import { serveStatic } from './static.js';
 import { EventBus } from './events.js';
 import { writeJson, jsonError } from './json-response.js';
 import { dispatchRpc, classifyError, type RpcContext } from './rpc.js';
+import { AuditLog, TOKEN_ACTOR, type Actor } from './audit.js';
 import { encodeError, encodeResult, HUB_EVENTS_SESSION_PATH, HUB_SIGN_IN_REQUIRED, HUB_TOKEN_HEADER, HUB_TOKEN_REJECTED } from '../hub-wire.js';
 import { ProjectAllowlist, type BindOptions } from './allowlist.js';
 import { WatchRegistry, type WatchOptions } from './watch.js';
@@ -52,6 +53,10 @@ export interface HubServerOptions {
   /** GitHub logins allowed to see/change the per-user-credentials switch and the instance
    * credentials (`--admin-github-login`), matched against the signed-in user's GitHub login. */
   adminGithubLogins?: readonly string[];
+  /** Overrides who an authenticated request acts as. Default: the owner (token, or local mode) is the
+   * shared `token` admin identity; any other signed-in user is a non-admin under their e-mail until
+   * roles land (#841). */
+  actorFor?: (req: IncomingMessage) => Actor;
   /** Enable the Fleet spawn commands (`spawn_run` et al). Loopback binds only — the desktop app's
    * local hub sets it; a hub reachable by others must never run arbitrary programs. */
   fleet?: boolean;
@@ -83,6 +88,19 @@ interface HubAuth {
   token: string;
   eventsCookieName: string;
   eventsSecret: string;
+  /** When a refused sign-in was last audited (epoch ms). */
+  lastRefusedAuditMs: number;
+}
+
+/** At most one refused-sign-in line per minute: the endpoint is unauthenticated, so an unthrottled
+ * line per bad request would let anyone who can reach the port rotate real entries out of the log. */
+const REFUSED_AUDIT_INTERVAL_MS = 60_000;
+
+async function auditRefusedSignIn(ctx: RpcContext, auth: HubAuth): Promise<void> {
+  const now = Date.now();
+  if (now - auth.lastRefusedAuditMs < REFUSED_AUDIT_INTERVAL_MS) return;
+  auth.lastRefusedAuditMs = now;
+  await ctx.audit?.record({ login: 'unknown', action: 'sign-in', outcome: 'refused' });
 }
 
 function eventsCookieOk(header: string | undefined, auth: HubAuth): boolean {
@@ -243,15 +261,15 @@ async function handleRpcRequest(ctx: RpcContext, req: IncomingMessage, res: Serv
     writeJson(res, 200, encodeResult(result));
   } catch (err) {
     const classified = classifyError(err);
-    const status = err instanceof ForbiddenError
-      ? 403
-      : classified.notFound
+    const status = classified.notFound
       ? 404
-      : err instanceof CompleteBusyError
-        ? 429
-        : classified.kind === 'bad-request'
-          ? 400
-          : 500;
+      : err instanceof ForbiddenError
+        ? 403
+        : err instanceof CompleteBusyError
+          ? 429
+          : classified.kind === 'bad-request'
+            ? 400
+            : 500;
     jsonError(res, status, classified.message, classified.kind);
   }
 }
@@ -276,9 +294,16 @@ async function handleRequest(
   const tokenValid = tokenOk(offeredToken, auth.token);
   // The token (CLI, scripts) maps to the owner; otherwise the Better Auth session (server mode only).
   const resolveUser = async (): Promise<HubUser | undefined> => (tokenValid ? identity.owner : identity.sessionUser(req));
-  // A server-mode request that offered no token and has no session is "sign in", not "token dead".
-  const unauthorized = (): void =>
-    jsonError(res, 401, identity.handler !== undefined && !offeredToken ? HUB_SIGN_IN_REQUIRED : HUB_TOKEN_REJECTED, 'bad-request');
+  // A wrong token is audited (throttled) and is "token dead"; a server-mode request that offered none
+  // is a sign-in prompt, not a refusal.
+  const unauthorized = async (): Promise<void> => {
+    const offered = Boolean(offeredToken);
+    if (offered) await auditRefusedSignIn(ctx, auth);
+    jsonError(res, 401, identity.handler !== undefined && !offered ? HUB_SIGN_IN_REQUIRED : HUB_TOKEN_REJECTED, 'bad-request');
+  };
+  // The owner (token, or local mode) is the shared `token` admin; other signed-in users are non-admins.
+  const actorOf = (user: HubUser): Actor =>
+    opts.actorFor?.(req) ?? (user.id === identity.owner.id ? TOKEN_ACTOR : { login: user.email, admin: false });
 
   if (pathname === '/api/auth' || pathname.startsWith('/api/auth/')) {
     // No OAuth on loopback: there the hub is one automatic owner.
@@ -306,11 +331,13 @@ async function handleRequest(
 
   if (pathname === HUB_EVENTS_SESSION_PATH) {
     if (req.method !== 'POST') return methodNotAllowed(res, 'POST');
-    if ((await resolveUser()) === undefined) return unauthorized();
+    const user = await resolveUser();
+    if (user === undefined) return unauthorized();
     if (!sameOriginOk(req)) {
       jsonError(res, 400, 'cross-origin request rejected', 'bad-request');
       return;
     }
+    await ctx.audit?.record({ login: actorOf(user).login, action: 'sign-in', outcome: 'ok' });
     // A signed-in session needs no events cookie: `/events` takes the session cookie itself, so
     // sign-out or revocation ends the stream's auth. The shared secret goes to token holders only.
     if (!tokenValid) {
@@ -339,7 +366,7 @@ async function handleRequest(
     const user = await resolveUser();
     if (user === undefined) return unauthorized();
     // The caller's identity rides on a per-request context: credential RPCs act on THIS user only.
-    await handleRpcRequest({ ...ctx, user }, req, res, pathname.slice('/rpc/'.length));
+    await handleRpcRequest({ ...ctx, user, actor: actorOf(user) }, req, res, pathname.slice('/rpc/'.length));
     return;
   }
 
@@ -366,6 +393,7 @@ export function createHubServer(opts: HubServerOptions): HubServer {
     token,
     eventsCookieName: `vanguard_hub_events_${randomBytes(4).toString('hex')}`,
     eventsSecret: randomBytes(32).toString('hex'),
+    lastRefusedAuditMs: 0,
   };
   const identity = opts.identity ?? localOnlyIdentity();
   const deps = opts.deps ?? productionDeps();
@@ -400,6 +428,7 @@ export function createHubServer(opts: HubServerOptions): HubServer {
     ...(opts.cloneHosts !== undefined ? { cloneHosts: opts.cloneHosts } : {}),
     bind: opts.bind,
     publish,
+    audit: new AuditLog(opts.configDir),
     userCredentials: createCredentialService(opts.configDir, opts.adminGithubLogins),
   };
 
