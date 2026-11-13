@@ -19,6 +19,7 @@ import { TeamSwitcher } from './TeamSwitcher';
 import { relTime } from './time';
 import { RailTip } from './RailTip';
 import { canUseFleet } from './transport';
+import { ServerSwitcher } from './ServerSwitcher';
 import { canUseNeedsYou } from './features/needs-you/NeedsYou';
 
 // 'task' (S10) is reached by intent — the New Task button on the board and Runs toolbars — so it
@@ -83,6 +84,7 @@ export function Rail({
       )}
     >
       <Tooltip.Provider delay={200}>
+        <ServerSwitcher collapsed={collapsed} />
         {team && (
           <div className="mb-2 px-2">
             <TeamSwitcher teams={teams} active={team} onSelect={onTeam} collapsed={collapsed} onExpand={() => onOpenChange(true)} />
