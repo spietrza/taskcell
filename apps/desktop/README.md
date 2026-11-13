@@ -17,6 +17,55 @@ environment (LLM/platform credentials) — see **Launching runs** below.
 
 Gates: `cd src-tauri && cargo test` · `pnpm vitest run` · `pnpm build`.
 
+## Install the desktop app
+
+See [Install the desktop app](../../docs/hub.md#install-the-desktop-app) for download and first-open steps.
+
+### Build installers locally
+
+```bash
+cd apps/desktop
+pnpm install
+pnpm bundle                       # installers land in src-tauri/target/release/bundle/
+```
+
+Never use a bare `pnpm tauri build`: `bundle` also stages the Node sidecar and the `taskcell` resource (see
+**Which hub runs** below), without which the installed app has no hub to start. Each platform builds only its own
+formats, for the host architecture only (the sidecar is the Node running the build), so macOS arm64 and x64
+installers come from separate runners, not one universal build. The build version comes from `tauri.conf.json`;
+releases override it with `pnpm bundle --config '{"version":"X.Y.Z"}'`, which Tauri merges over
+`tauri.bundle.conf.json`. Updater artifacts are off by default, so a local build needs no key.
+
+### Auto-update keys
+
+The updater verifies signed artifacts. The maintainer creates the key pair once:
+
+```bash
+pnpm tauri signer generate -w ~/.tauri/taskcell.key
+```
+
+- Put the **public** key (`taskcell.key.pub` contents) in `plugins.updater.pubkey` of `src-tauri/tauri.conf.json` (a `REPLACE_` placeholder until then; the app skips the update check).
+- Store the **private** key as the CI secret `TAURI_SIGNING_PRIVATE_KEY` (and its password as `TAURI_SIGNING_PRIVATE_KEY_PASSWORD`). Never commit it.
+
+### Release job (CI, applied by a human)
+
+The factory cannot edit `.github/`, so the matrix job (macOS arm64 and x64, Windows, Linux via `tauri-apps/tauri-action`)
+is described in the PR that introduced it and must be added to the release workflow by hand. It must:
+
+- stage the hub first (Node ≥ 24, then `node scripts/prepare-sidecar.mjs` in `apps/desktop`) and add
+  `--config src-tauri/tauri.bundle.conf.json` to the build args, the same as `pnpm bundle`, so each installer carries the hub;
+- pass `--config '{"version":"X.Y.Z","bundle":{"createUpdaterArtifacts":true}}'` and the signing secrets above;
+- upload the installers and `latest.json` to a **dedicated rolling release tagged `desktop-latest`**, replacing the
+  previous assets, not to the CLI release stream, which has no desktop assets on most tags. The updater endpoint
+  (`releases/download/desktop-latest/latest.json`), the landing page and the docs all point at that release.
+
+Until `plugins.updater.pubkey` is a real key, the app skips the update check.
+
+### Optional macOS signing and notarization
+
+Builds work unsigned. When these secrets are present the release job signs and notarizes: `APPLE_CERTIFICATE`
+(base64 .p12), `APPLE_CERTIFICATE_PASSWORD`, `APPLE_SIGNING_IDENTITY`, `APPLE_ID`, `APPLE_PASSWORD` (app-specific), `APPLE_TEAM_ID`.
+
 ## Driving the UI with an agent
 
 The frontend is a plain Vite + React app that can run in any browser with a mocked backend — no Rust build,
