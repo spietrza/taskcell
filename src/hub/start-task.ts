@@ -14,6 +14,7 @@ import {
   GITHUB_SPEC_CLAIMED_LABEL,
   GITHUB_WAITING_LABEL,
 } from '../github-labels.js';
+import { hasLabel, sameLabel } from '../core/labels.js';
 import { isTriggerLabel } from '../tasks/board.js';
 import { assertRepoSlug, ensureLabel } from './needs-you.js';
 import type { StartTaskResult } from '../wire.js';
@@ -59,9 +60,9 @@ export async function startGithubTask(
   if (issue.state !== 'open') throw new BadRequestError(`#${n} is closed; the factory only starts open issues.`);
 
   const names = issue.labels.map((l) => l.name);
-  const started = names.filter((x) => STARTED_LABELS.includes(x));
+  const started = names.filter((x) => STARTED_LABELS.some((s) => sameLabel(s, x)));
   const present = names.filter((x) => triggerLabels.some((t) => same(t, x)) || isTriggerLabel(x));
-  const parked = names.some((x) => x === GITHUB_WAITING_LABEL || x === GITHUB_RATE_LIMITED_LABEL);
+  const parked = names.some((x) => sameLabel(x, GITHUB_WAITING_LABEL) || sameLabel(x, GITHUB_RATE_LIMITED_LABEL));
   const blocking = [...started, ...(parked ? [] : present)];
   if (blocking.length > 0) throw new BadRequestError(`#${n} is already running or queued (${blocking.join(', ')}); nothing was changed.`);
 
@@ -73,7 +74,7 @@ export async function startGithubTask(
   await edit('--add-label', label);
 
   let waitingOn: string[] = [];
-  if (names.includes(GITHUB_WAITING_LABEL)) {
+  if (hasLabel(names, GITHUB_WAITING_LABEL)) {
     const verdict = await checkDependencies(repoSlug, { id: `${repoSlug}#${n}`, ref: n, title: issue.title ?? '', description: issue.body ?? '', labels: names, children: [], comments: [] }, gh);
     if (verdict.status === 'waiting') waitingOn = verdict.blockers.map(refText);
   }

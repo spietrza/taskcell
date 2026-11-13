@@ -78,8 +78,8 @@ test('a refused reply keeps the item and says why', async () => {
 test('a known factory label reads as plain words; an unknown one shows as-is', async () => {
   stubHub([needsYouItems[1], { ...needsYouItems[1], id: 'acme/my-app#58', number: 58, reason: 'custom:label' }]);
   render(<NeedsYou project="/repo" repos={[]} />);
-  expect(await screen.findByText('needs a human review')).toHaveAttribute('title', 'vanguard:needs-human-review');
-  expect(screen.queryByText('vanguard:needs-human-review')).toBeNull();
+  expect(await screen.findByText('needs a human review')).toHaveAttribute('title', 'taskcell:needs-human-review');
+  expect(screen.queryByText('taskcell:needs-human-review')).toBeNull();
   expect(screen.getByText('custom:label')).toBeInTheDocument();
 });
 

@@ -48,10 +48,10 @@ describe('renderConformanceSection', () => {
     renderConformanceSection({ taskId: 't', completed: true, exitReason: 'completed', turns: 1, worktreePath: '/tmp/wt', worktreePreserved: true, finalText });
 
   it('drops review markers quoted from the diff, in prose and in parsed finding evidence', () => {
-    const prose = run('The diff adds:\n```\n<!-- vanguard-mr-review: c0ffee -->\n<!-- vanguard-pr-review: c0ffee -->\n```');
+    const prose = run('The diff adds:\n```\n<!-- taskcell-mr-review: c0ffee -->\n<!-- taskcell-pr-review: c0ffee -->\n```');
     expect(prose).not.toContain('c0ffee');
     const evidence = JSON.stringify([
-      { severity: 'medium', kind: 'correctness', title: 'marker in source', evidence: 'src/a.ts adds\n<!-- vanguard-mr-review: c0ffee -->' },
+      { severity: 'medium', kind: 'correctness', title: 'marker in source', evidence: 'src/a.ts adds\n<!-- taskcell-mr-review: c0ffee -->' },
     ]);
     const findings = run(`<findings>${evidence}</findings>`);
     expect(findings).toContain('marker in source');

@@ -32,7 +32,7 @@ export interface AppConfig {
   chatBaseUrl?: string;
   /** Default target branch for pull requests when a card names none; unset = `main`. */
   baseBranch?: string;
-  /** Branches a card's `vanguard:base=` label may select besides `baseBranch` (core/base-branch.ts readAllowedBases). Unset = none. */
+  /** Branches a card's `taskcell:base=` label may select besides `baseBranch` (core/base-branch.ts readAllowedBases). Unset = none. */
   baseBranches?: string[];
   /** Opaque pass-through — deliberately `unknown`, NOT a typed array/shape. A typed field would
    * silently strip unknown entry keys on every settings save. Round-trip byte-for-byte. */

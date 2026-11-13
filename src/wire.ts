@@ -254,7 +254,7 @@ export interface BoardTask {
   stage?: string;
   /** Latest run's per-stage/gate verdicts. Absent ⇒ no run record for this task. */
   chips?: BoardChip[];
-  /** The branch this card's PR targets: its `vanguard:base=` label, else the repo default. Absent when neither is set (`main`). */
+  /** The branch this card's PR targets: its `taskcell:base=` label, else the repo default. Absent when neither is set (`main`). */
   baseBranch?: string;
   /** The tracker the card came from; names the "Open in …" link. */
   source?: 'github' | 'gitlab' | 'linear';
@@ -613,7 +613,7 @@ export interface AppConfig {
   chatBaseUrl?: string | null;
   /** Repository default target branch for pull requests; unset = `main`. */
   baseBranch?: string | null;
-  /** Extra branches a card's `vanguard:base=` label may select, besides the default. Unset = only the default. */
+  /** Extra branches a card's `taskcell:base=` label may select, besides the default. Unset = only the default. */
   baseBranches?: string[] | null;
   /** Opaque JSON preserved by Rust and the hub, including invalid entries and unknown keys — see
    * `CustomProviderSpec` for the shape a valid entry has. */
@@ -645,7 +645,7 @@ export interface StartTaskResult {
 
 /**
  * One GitHub issue/PR waiting for a human (Hub "Needs you" — hub-only, src/hub/needs-you.ts): an
- * issue at `needs info`, or a PR at `vanguard:needs-human-review`/`vanguard:verify-failed` or with a
+ * issue at `needs info`, or a PR at `taskcell:needs-human-review`/`taskcell:verify-failed` or with a
  * review requesting changes.
  */
 export interface NeedsYouItem {
@@ -662,7 +662,7 @@ export interface NeedsYouItem {
   baseRef?: string;
   /** The factory's own last comment, redacted; untrusted, render as plain text. Absent when it never commented. */
   lastComment?: { author: string; body: string };
-  /** The branch the PR targets (a PR's base), or the one the card asks for (`vanguard:base=`). Absent when unknown. */
+  /** The branch the PR targets (a PR's base), or the one the card asks for (`taskcell:base=`). Absent when unknown. */
   baseBranch?: string;
 }
 

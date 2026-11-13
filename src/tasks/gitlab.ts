@@ -1,6 +1,7 @@
 import { execa } from 'execa';
 import { TaskcellError } from '../core/errors.js';
 import type { Task, TaskComment, TaskFetcher, TaskFilter } from './fetcher.js';
+import { labelForms } from '../core/labels.js';
 import { redactForPublish } from '../core/secret-scan.js';
 
 export interface GitLabNote {
@@ -208,7 +209,7 @@ export async function editGitlabLabels(
 ): Promise<void> {
   const args = ['issue', 'update', issueIID(issueRef), '--repo', project];
   for (const label of labels.add ?? []) args.push('--label', label);
-  for (const label of labels.remove ?? []) args.push('--unlabel', label);
+  for (const label of new Set((labels.remove ?? []).flatMap(labelForms))) args.push('--unlabel', label); // GitLab ignores an absent label
   if (args.length > 5) await glab(args);
 }
 

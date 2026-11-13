@@ -44,7 +44,7 @@ function fakeResult(): ReviewPullRequestResult {
       diff: 'diff',
       labels: [],
     },
-    commentBody: '## Vanguard Review\n\nNo blocking findings.',
+    commentBody: '## Taskcell Review\n\nNo blocking findings.',
   };
 }
 
@@ -235,7 +235,7 @@ describe('reviewPrCommand', () => {
     try {
       await reviewPrCommand(cmd, { reviewer: vi.fn(), reviewPullRequest, log: () => {} });
       expect(seenPublish).toBe(false);
-      expect(await readFile(outPath, 'utf8')).toBe('## Vanguard Review\n\nNo blocking findings.');
+      expect(await readFile(outPath, 'utf8')).toBe('## Taskcell Review\n\nNo blocking findings.');
     } finally {
       await rm(outPath, { force: true });
     }
@@ -243,7 +243,7 @@ describe('reviewPrCommand', () => {
 
   it('--out writes the incomplete notice and rethrows so the exit code stays truthful', async () => {
     const outPath = join(tmpdir(), `vanguard-review-out-${process.pid}-${Math.random().toString(36).slice(2)}.md`);
-    const incomplete = new PullRequestReviewIncompleteError(fakeResult().pr, '## Vanguard Review\n\nnotice');
+    const incomplete = new PullRequestReviewIncompleteError(fakeResult().pr, '## Taskcell Review\n\nnotice');
     const reviewPullRequest = vi.fn(async (): Promise<ReviewPullRequestResult> => {
       throw incomplete;
     });
@@ -257,7 +257,7 @@ describe('reviewPrCommand', () => {
     };
     try {
       await expect(reviewPrCommand(cmd, { reviewer: vi.fn(), reviewPullRequest, log: () => {} })).rejects.toBe(incomplete);
-      expect(await readFile(outPath, 'utf8')).toBe('## Vanguard Review\n\nnotice');
+      expect(await readFile(outPath, 'utf8')).toBe('## Taskcell Review\n\nnotice');
     } finally {
       await rm(outPath, { force: true });
     }

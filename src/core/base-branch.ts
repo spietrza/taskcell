@@ -1,6 +1,7 @@
 import { readFile } from 'node:fs/promises';
 import { join } from 'node:path';
 import { execa } from 'execa';
+import { labelValue } from './labels.js';
 import { TaskcellError } from './errors.js';
 import { createLogger } from './logger.js';
 import { redactTokens } from './secret-scan.js';
@@ -29,26 +30,26 @@ export function assertSafeBaseBranch(base: string): void {
 export const DEFAULT_BASE_BRANCH = 'main';
 
 /**
- * Issue label that carries a card's target branch: `vanguard:base=<branch>` (like `vanguard:model=<m>`).
+ * Issue label that carries a card's target branch: `taskcell:base=<branch>` (like `taskcell:model=<m>`).
  * Trust: anyone who can label the issue (GitHub triage) can set it, so it only SELECTS among the targets a
  * maintainer committed — the repo default plus `baseBranches` in `.taskcell/app.json` (see readAllowedBases).
  */
-export const BASE_LABEL_PREFIX = 'vanguard:base=';
+export const BASE_LABEL_PREFIX = 'taskcell:base=';
 
-/** True for a `vanguard:base=` label. It names a branch, not a lifecycle state, so board column/chip reads skip it. */
+/** True for a `taskcell:base=` label. It names a branch, not a lifecycle state, so board column/chip reads skip it. */
 export function isBaseLabel(label: string): boolean {
-  return label.startsWith(BASE_LABEL_PREFIX);
+  return labelValue(label, BASE_LABEL_PREFIX) !== undefined;
 }
 
 /**
  * The target branch a card names, from its labels, or undefined when it names none. The one reader of
- * `vanguard:base=` labels. A label with an empty or unsafe value, or two labels naming different branches,
+ * `taskcell:base=` labels. A label with an empty or unsafe value, or two labels naming different branches,
  * is refused, not ignored: opening the PR against some other branch than the one the card asked for is
  * worse than not running.
  * @throws TaskcellError (see assertSafeBaseBranch).
  */
 export function baseFromLabels(labels: ReadonlyArray<string>): string | undefined {
-  const values = [...new Set(labels.filter(isBaseLabel).map((l) => l.slice(BASE_LABEL_PREFIX.length).trim()))];
+  const values = [...new Set(labels.filter(isBaseLabel).map((l) => (labelValue(l, BASE_LABEL_PREFIX) ?? '').trim()))];
   if (values.length > 1) throw new TaskcellError(`Conflicting target branches: the card carries ${values.map((v) => `${BASE_LABEL_PREFIX}${v}`).join(', ')} — keep exactly one`);
   const value = values[0];
   if (value === undefined) return undefined;
@@ -93,7 +94,7 @@ export async function readRepoBaseBranch(repoPath: string): Promise<string | und
 }
 
 /**
- * The branches a `vanguard:base=` label may select: the repo default (`baseBranch`, else `main`) plus the
+ * The branches a `taskcell:base=` label may select: the repo default (`baseBranch`, else `main`) plus the
  * `baseBranches` list in `.taskcell/app.json`. With no list, only the default — a label can never point a
  * PR anywhere a maintainer did not commit. An unsafe entry is refused.
  * @throws TaskcellError (see assertSafeBaseBranch).

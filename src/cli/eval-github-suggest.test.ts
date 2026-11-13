@@ -120,7 +120,7 @@ describe('fetchNeedsHumanReviewCandidates', () => {
     expect(c!.reason).toMatch(/^CHANGES_REQUESTED: Still broken after 3 rounds\./);
     expect(c!.reason).not.toContain(RAW_TOKEN);
     expect(c!.reason).not.toContain('<');
-    expect(calls[0]).toContain('vanguard:needs-human-review');
+    expect(calls[0]).toContain('taskcell:needs-human-review');
     expect(calls[0]).toContain(`updated:>=${SINCE}`);
   });
 

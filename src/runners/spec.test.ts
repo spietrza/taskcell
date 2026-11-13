@@ -316,7 +316,7 @@ describe('githubSpecPrimitives', () => {
       specLabel: 'vanguard:spec',
       claimedLabel: GITHUB_SPEC_CLAIMED_LABEL,
       agentLabel: 'vanguard',
-      needsInfoLabel: 'vanguard:needs-info',
+      needsInfoLabel: 'taskcell:needs-info',
       gh: ghRecorder(calls),
       generateSpec: generate,
     });
@@ -347,7 +347,7 @@ describe('githubSpecPrimitives', () => {
       specLabel: 'vanguard:spec',
       claimedLabel: GITHUB_SPEC_CLAIMED_LABEL,
       agentLabel: 'vanguard',
-      needsInfoLabel: 'vanguard:needs-info',
+      needsInfoLabel: 'taskcell:needs-info',
       gh: async (args) => { calls.push(args); return ''; },
       generateSpec: generate,
     });
@@ -376,7 +376,7 @@ describe('githubSpecPrimitives', () => {
       specLabel: 'vanguard:spec',
       claimedLabel: GITHUB_SPEC_CLAIMED_LABEL,
       agentLabel: 'vanguard',
-      needsInfoLabel: 'vanguard:needs-info',
+      needsInfoLabel: 'taskcell:needs-info',
       gh: ghRecorder(calls),
       generateSpec: generate,
     });
@@ -403,7 +403,7 @@ describe('githubSpecPrimitives', () => {
       specLabel: 'vanguard:spec',
       claimedLabel: GITHUB_SPEC_CLAIMED_LABEL,
       agentLabel: 'vanguard',
-      needsInfoLabel: 'vanguard:needs-info',
+      needsInfoLabel: 'taskcell:needs-info',
       gh: ghRecorder(calls),
       generateSpec: generate,
     });
@@ -411,7 +411,7 @@ describe('githubSpecPrimitives', () => {
     const outcome = await primitives.runSpec(task.id);
     expect(outcome).toBe('needs_info');
     expect(generateCalled).toBe(false);
-    const needsInfo = calls.find((a) => a[0] === 'issue' && a[1] === 'edit' && a.includes('vanguard:needs-info'));
+    const needsInfo = calls.find((a) => a[0] === 'issue' && a[1] === 'edit' && a.includes('taskcell:needs-info'));
     expect(needsInfo).toBeDefined();
   });
 
@@ -423,7 +423,7 @@ describe('githubSpecPrimitives', () => {
       specLabel: 'vanguard:spec',
       claimedLabel: GITHUB_SPEC_CLAIMED_LABEL,
       agentLabel: 'vanguard',
-      needsInfoLabel: 'vanguard:needs-info',
+      needsInfoLabel: 'taskcell:needs-info',
       gh: ghRecorder(calls),
     });
 
@@ -449,7 +449,7 @@ describe('agent-pass triage gate', () => {
       label: 'vanguard',
       claimedLabel: GITHUB_CLAIMED_LABEL,
       reviewLabel: GITHUB_REVIEW_LABEL,
-      needsInfoLabel: 'vanguard:needs-info',
+      needsInfoLabel: 'taskcell:needs-info',
       gh,
     });
 
@@ -457,7 +457,7 @@ describe('agent-pass triage gate', () => {
     expect(result.prUrl).toBeUndefined(); // noChange: no implement budget spent
     const comment = calls.find((a) => a[0] === 'issue' && a[1] === 'comment');
     expect(comment?.join(' ')).toContain('acceptance criteria');
-    const needsInfo = calls.find((a) => a[0] === 'issue' && a[1] === 'edit' && a.includes('vanguard:needs-info'));
+    const needsInfo = calls.find((a) => a[0] === 'issue' && a[1] === 'edit' && a.includes('taskcell:needs-info'));
     expect(needsInfo).toBeDefined();
   });
 
@@ -477,14 +477,14 @@ describe('agent-pass triage gate', () => {
       label: 'vanguard',
       claimedLabel: GITHUB_CLAIMED_LABEL,
       reviewLabel: GITHUB_REVIEW_LABEL,
-      needsInfoLabel: 'vanguard:needs-info',
+      needsInfoLabel: 'taskcell:needs-info',
       gh,
     });
 
     await expect(primitives.runOne('owner/repo#10')).rejects.toBeDefined();
     // Delegated: no clarification comment, no needs-info label swap.
     expect(calls.find((a) => a[0] === 'issue' && a[1] === 'comment')).toBeUndefined();
-    expect(calls.find((a) => a.includes('vanguard:needs-info'))).toBeUndefined();
+    expect(calls.find((a) => a.includes('taskcell:needs-info'))).toBeUndefined();
   });
 
   it('linear: vague agent ticket -> comment + needs-info, no implement (noChange)', async () => {

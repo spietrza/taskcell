@@ -281,7 +281,7 @@ export const needsYouItems: NeedsYouItem[] = [
     repoSlug: 'acme/my-app',
     title: 'Refactor auth middleware',
     url: 'https://github.com/acme/my-app/pull/57',
-    reason: 'vanguard:needs-human-review',
+    reason: 'taskcell:needs-human-review',
     baseRef: 'main',
     lastComment: { author: 'vanguard[bot]', body: 'Review complete — one finding needs a human call on scope.' },
   },
@@ -321,7 +321,7 @@ export const factoryPlan: FactoryPlan = {
   verifyCommand: 'pnpm typecheck && pnpm lint && pnpm test',
   scripts: { typecheck: true, lint: true, test: true, build: true },
   callerFiles: ['implement', 'doctor', 'pr-review', 'revise', 'resume'].map((n) => `.github/workflows/taskcell-${n}.yml`),
-  labels: ['ready for agent', 'needs revision', 'needs info', 'ready for spec', 'ready for vanguard review'],
+  labels: ['ready for agent', 'needs revision', 'needs info', 'ready for spec', 'ready for taskcell review'],
 };
 
 export const factoryApplyResult: FactoryApplyResult = {

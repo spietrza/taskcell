@@ -34,7 +34,7 @@ export const FACTORY_LABELS = [
   { name: 'needs revision', color: 'D93F0B' },
   { name: 'needs info', color: 'FBCA04' },
   { name: 'ready for spec', color: '1D76DB' },
-  { name: 'ready for vanguard review', color: '5319E7' },
+  { name: 'ready for taskcell review', color: '5319E7' },
 ] as const;
 
 const TEMPLATES_DIR = new URL('../../templates/github/', import.meta.url);

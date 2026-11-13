@@ -4,6 +4,7 @@ import { isRateLimitHold, rateLimitHold } from '../core/rate-limit-marker.js';
 import { hasPullRequestReviewMarker, commentPullRequest } from './pr-review.js';
 import { defaultGhRunner, isTrustedIssueAuthor } from '../tasks/github.js';
 import { classifyAuthor, describeIgnoredAuthor, isBotLogin } from '../tasks/comment-trust.js';
+import { hasLabel, labelForms, resolveRemovals } from '../core/labels.js';
 import { GITHUB_RATE_LIMITED_LABEL } from '../github-labels.js';
 import type { GhRunner } from '../tasks/github.js';
 
@@ -129,19 +130,20 @@ function eligiblePullRequests(
     if (pr.isDraft) return [];
     if (isBotLogin(author)) return [];
     if (onlyAuthor !== undefined && author !== onlyAuthor) return [];
-    if (!labels.includes(triggerLabel)) return [];
+    if (!hasLabel(labels, triggerLabel)) return [];
     return [pr];
   });
 }
 
-function editPullRequestLabels(
+async function editPullRequestLabels(
   gh: GhRunner,
   repoSlug: string,
   number: number,
   labels: { add?: string[]; remove?: string[] },
 ): Promise<string> {
   const args = ['pr', 'edit', String(number), '--repo', repoSlug];
-  for (const label of labels.remove ?? []) args.push('--remove-label', label);
+  const present = async (): Promise<string[]> => labelNames((JSON.parse(await gh(['pr', 'view', String(number), '--repo', repoSlug, '--json', 'labels'])) as GhPullRequestListItem).labels);
+  for (const label of await resolveRemovals(labels.remove ?? [], present)) args.push('--remove-label', label);
   for (const label of labels.add ?? []) args.push('--add-label', label);
   return gh(args);
 }
@@ -205,23 +207,28 @@ export function githubPullRequestWatchPrimitives(opts: GitHubPullRequestWatchOpt
   return {
     takeListFailures: () => listFailures,
     listReady: async () => {
-      const listArgs = [
-        'pr',
-        'list',
-        '--repo',
-        opts.repoSlug,
-        '--state',
-        'open',
-        '--label',
-        opts.label,
-        ...(opts.author !== undefined ? ['--author', opts.author] : []),
-        '--limit',
-        '100',
-        '--json',
-        'number,title,isDraft,author,headRefOid,labels',
-      ];
+      // A trigger label renamed from `vanguard` to `taskcell`: list under both spellings, so a PR still carrying the old one runs.
+      const listed = new Map<number, GhPullRequestListItem>();
+      for (const form of labelForms(opts.label)) {
+        const listArgs = [
+          'pr',
+          'list',
+          '--repo',
+          opts.repoSlug,
+          '--state',
+          'open',
+          '--label',
+          form,
+          ...(opts.author !== undefined ? ['--author', opts.author] : []),
+          '--limit',
+          '100',
+          '--json',
+          'number,title,isDraft,author,headRefOid,labels',
+        ];
+        for (const item of JSON.parse(await gh(listArgs)) as GhPullRequestListItem[]) if (item.number !== undefined) listed.set(item.number, item);
+      }
       const candidates = eligiblePullRequests(
-        JSON.parse(await gh(listArgs)) as GhPullRequestListItem[],
+        [...listed.values()],
         opts.repoSlug,
         opts.label,
         opts.author,
@@ -258,7 +265,7 @@ export function githubPullRequestWatchPrimitives(opts: GitHubPullRequestWatchOpt
     },
     claim: (item) =>
       editPullRequestLabels(gh, item.repoSlug, item.number, {
-        remove: item.labels.includes(GITHUB_RATE_LIMITED_LABEL) ? [opts.label, GITHUB_RATE_LIMITED_LABEL] : [opts.label],
+        remove: hasLabel(item.labels, GITHUB_RATE_LIMITED_LABEL) ? [opts.label, GITHUB_RATE_LIMITED_LABEL] : [opts.label],
         add: [opts.reviewingLabel],
       }).then(() => {}),
     review: (item) => opts.reviewOne(item),

@@ -45,10 +45,10 @@ describe('tasks', () => {
       return Object.assign(out, { call: dispatchRpc(ctx, 'api_create_task', { repoPath: repo, title: 't', body: 'b', ...extra }) });
     }
 
-    test('api_create_task carries baseBranch as a vanguard:base= label next to the trigger label', async () => {
+    test('api_create_task carries baseBranch as a taskcell:base= label next to the trigger label', async () => {
       const r = await createWith({ label: 'ready', baseBranch: 'dev' }, { baseBranch: ' dev ' });
       await r.call;
-      expect(r.captured).toMatchObject({ labels: ['ready', 'vanguard:base=dev'] });
+      expect(r.captured).toMatchObject({ labels: ['ready', 'taskcell:base=dev'] });
     });
 
     test('api_create_task adds no base label when baseBranch is absent or blank', async () => {

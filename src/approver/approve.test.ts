@@ -63,7 +63,7 @@ afterEach(async () => {
   await rm(root, { recursive: true, force: true });
 });
 
-const reviewBody = (sha: string): string => `## Vanguard Review\n\nVerdict: NO BLOCKING FINDINGS\n\nLooks good.\n\n<!-- vanguard-pr-review: ${sha} -->`;
+const reviewBody = (sha: string): string => `## Taskcell Review\n\nVerdict: NO BLOCKING FINDINGS\n\nLooks good.\n\n<!-- taskcell-pr-review: ${sha} -->`;
 
 function fakeGh(calls: string[][]): GhRunner {
   return async (args: string[]): Promise<string> => {
