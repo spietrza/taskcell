@@ -4,6 +4,7 @@ import { GITHUB_CLAIMED_LABEL, GITHUB_RATE_LIMITED_LABEL, GITHUB_REVIEW_LABEL, G
 import { classifyAuthor } from '../tasks/comment-trust.js';
 import { checkDependencies, WAITING_MARKER_RE } from '../tasks/dependencies.js';
 import { defaultGhRunner } from '../tasks/github.js';
+import { findOverlapMarker } from '../tasks/overlap.js';
 import type { RateLimitedMarker } from '../core/rate-limit-marker.js';
 import type { GhRunner } from '../tasks/github.js';
 
@@ -103,6 +104,22 @@ async function retrigger(item: { kind: ParkedKind; repoSlug: string; number: num
 }
 
 /**
+ * An overlap hold (see holdForOverlap) lasts until its deadline (in its marker) or until every PR/run it
+ * names is over: a PR closed/merged, a run's issue closed or no longer `vanguard:running` (failed,
+ * needs-info, in review). Returns why it still holds, undefined when it is over.
+ */
+async function overlapStillHolds(repo: string, bodies: string[], gh: GhRunner, now: Date): Promise<string | undefined> {
+  const marker = findOverlapMarker([...bodies].reverse());
+  if (marker === undefined || now.getTime() >= marker.until.getTime()) return undefined;
+  for (const ref of marker.refs) {
+    const view = JSON.parse(await gh(['api', `repos/${repo}/issues/${ref.number}`])) as { state?: string; labels?: { name?: string }[] };
+    const open = view.state?.toLowerCase() === 'open';
+    if (open && (ref.kind === 'pr' || (view.labels ?? []).some((label) => label.name === GITHUB_CLAIMED_LABEL))) return `overlapping ${ref.kind} #${ref.number} is still open`;
+  }
+  return undefined;
+}
+
+/**
  * Dependency-waiting issues (`vanguard:waiting`, see applyDependencyGate): once every blocker is done and
  * the `Start:` date has passed, drop the hold and re-apply the trigger label named in the wait comment,
  * which starts the per-issue implement run. An invalid dependency is re-triggered too, so that run
@@ -144,10 +161,13 @@ async function resumeWaiting(ctx: { opts: ResumeRateLimitedOptions; gh: GhRunner
       }
       const task = { id, title: view.title ?? '', description: view.body ?? '', labels, children: [], comments: [], ref: String(number) };
       const verdict = await checkDependencies(opts.repoSlug, task, gh, now);
+      const overlapWait = verdict.status === 'ready' ? await overlapStillHolds(opts.repoSlug, trustedBodies(view.comments ?? []), gh, now) : undefined;
       if (verdict.status === 'error') {
         record('failed', `failed -> ${verdict.reason}`);
       } else if (verdict.status === 'waiting') {
         record('waiting', `waiting -> ${verdict.reason}`);
+      } else if (overlapWait !== undefined) {
+        record('waiting', `waiting -> ${overlapWait}`);
       } else if (opts.dryRun === true) {
         record('resumed', `would re-apply "${trigger}" and drop ${GITHUB_WAITING_LABEL} (dry-run)`);
       } else {
