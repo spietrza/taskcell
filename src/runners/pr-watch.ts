@@ -4,7 +4,7 @@ import { isRateLimitHold, rateLimitHold } from '../core/rate-limit-marker.js';
 import { hasPullRequestReviewMarker, commentPullRequest } from './pr-review.js';
 import { defaultGhRunner, isTrustedIssueAuthor } from '../tasks/github.js';
 import { classifyAuthor, describeIgnoredAuthor, isBotLogin } from '../tasks/comment-trust.js';
-import { hasLabel, labelForms, resolveRemovals } from '../core/labels.js';
+import { hasLabel, labelForms, resolveAdds, resolveRemovals } from '../core/labels.js';
 import { GITHUB_RATE_LIMITED_LABEL } from '../github-labels.js';
 import type { GhRunner } from '../tasks/github.js';
 
@@ -144,7 +144,7 @@ async function editPullRequestLabels(
   const args = ['pr', 'edit', String(number), '--repo', repoSlug];
   const present = async (): Promise<string[]> => labelNames((JSON.parse(await gh(['pr', 'view', String(number), '--repo', repoSlug, '--json', 'labels'])) as GhPullRequestListItem).labels);
   for (const label of await resolveRemovals(labels.remove ?? [], present)) args.push('--remove-label', label);
-  for (const label of labels.add ?? []) args.push('--add-label', label);
+  for (const label of await resolveAdds(labels.add ?? [], repoSlug, gh)) args.push('--add-label', label);
   return gh(args);
 }
 

@@ -1,6 +1,6 @@
 import { failureReason } from '../core/errors.js';
 import { latestRateLimitedMarker } from '../core/rate-limit-marker.js';
-import { hasLabel, labelForms, resolveRemovals, sameLabel } from '../core/labels.js';
+import { hasLabel, labelForms, resolveAdds, resolveRemovals, sameLabel } from '../core/labels.js';
 import { GITHUB_CLAIMED_LABEL, GITHUB_RATE_LIMITED_LABEL, GITHUB_REVIEW_LABEL, GITHUB_SPEC_CLAIMED_LABEL, GITHUB_WAITING_LABEL } from '../github-labels.js';
 import { classifyAuthor } from '../tasks/comment-trust.js';
 import { checkDependencies, WAITING_MARKER_RE } from '../tasks/dependencies.js';
@@ -111,8 +111,10 @@ async function retrigger(item: { kind: ParkedKind; repoSlug: string; number: num
   // re-trigger the same marker even if the trigger edits below fail.
   const present = async (): Promise<readonly string[]> => labels ?? labelsOfView(JSON.parse(await gh([item.kind, 'view', String(item.number), '--repo', item.repoSlug, '--json', 'labels'])) as { labels?: { name?: string }[] });
   await edit(removeFlags(await resolveRemovals([hold], present)));
-  await edit(['--remove-label', trigger]);
-  await edit(['--add-label', trigger]);
+  // The marker may name a spelling this repo never created; both edits fail on a label the repo lacks.
+  const [name = trigger] = await resolveAdds([trigger], item.repoSlug, gh);
+  await edit(['--remove-label', name]);
+  await edit(['--add-label', name]);
 }
 
 /**

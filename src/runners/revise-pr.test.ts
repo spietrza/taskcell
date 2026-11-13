@@ -2261,7 +2261,7 @@ describe('runRevisePullRequest — taskcell GitHub App', () => {
     // Push and undraft each mint (and revoke) their own token; the re-review label never uses the App
     // (a `labeled` event from taskcell[bot] fails the review's allowed-actors gate).
     expect(fetched.filter((c) => c.startsWith('DELETE'))).toHaveLength(2);
-    expect(logs.some((l) => /re-review \(ready for taskcell review\)$/.test(l))).toBe(true);
+    expect(logs.some((l) => /re-review \(ready for vanguard review\)$/.test(l))).toBe(true);
     expect(logs.some((l) => /pushed -> feature-branch \(taskcell App token\)/.test(l))).toBe(true);
     expect(logs.some((l) => /undraft -> pr ready \(taskcell App token\)/.test(l))).toBe(true);
   });
@@ -2560,8 +2560,9 @@ describe('runRevisePullRequest blocking-item checklist', () => {
     return { ghCalls, ghEnvs, pushes, prompt: inputs[0]?.prompt ?? '', result };
   }
 
+  // The pre-rename name: GitHub fires the review workflow on the label's name, and the shipped callers listen for this one.
   const reReview = (calls: string[][]): boolean =>
-    calls.some((a) => a[0] === 'pr' && a[1] === 'edit' && a.includes('--add-label') && a.includes('ready for taskcell review'));
+    calls.some((a) => a[0] === 'pr' && a[1] === 'edit' && a.includes('--add-label') && a.includes('ready for vanguard review'));
   const summary = (calls: string[][]): string =>
     calls.filter((a) => a[0] === 'pr' && a[1] === 'comment').map((a) => a[a.indexOf('--body') + 1] ?? '').find((b) => b.includes('Revision Summary')) ?? '';
 
@@ -2581,7 +2582,7 @@ describe('runRevisePullRequest blocking-item checklist', () => {
     try {
       const { ghCalls, ghEnvs, result } = await run('1. FIXED: src/a.ts — done\n2. FIXED: src/a.test.ts — added');
       await expect(result).resolves.toMatchObject({ pushed: true });
-      const at = ghCalls.findIndex((a) => a[0] === 'pr' && a[1] === 'edit' && a.includes('--add-label') && a.includes('ready for taskcell review'));
+      const at = ghCalls.findIndex((a) => a[0] === 'pr' && a[1] === 'edit' && a.includes('--add-label') && a.includes('ready for vanguard review'));
       expect(at).toBeGreaterThanOrEqual(0);
       expect(ghEnvs[at]).toEqual({ GH_TOKEN: 'test-pat' });
     } finally {

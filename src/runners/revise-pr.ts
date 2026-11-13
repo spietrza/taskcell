@@ -1,4 +1,4 @@
-import { resolveRemovals } from '../core/labels.js';
+import { REVIEW_TRIGGER_LABEL, resolveRemovals } from '../core/labels.js';
 import { describeIgnoredAuthor, isTrustedNonAuthorComment } from '../tasks/comment-trust.js';
 import { mkdir, writeFile } from 'node:fs/promises';
 import { dirname, resolve } from 'node:path';
@@ -84,8 +84,7 @@ import type { AgentProvider } from '../agents/provider.js';
 const NEEDS_REVISION_LABEL = 'needs revision';
 const VANGUARD_REVISING_LABEL = 'taskcell:revising';
 const DEFAULT_MAX_ROUNDS = 2;
-// The trigger the PR-review workflow listens for (taskcell-pr-review.yml) and the marker a finished review leaves.
-const REVIEW_TRIGGER_LABEL = 'ready for taskcell review';
+// The marker a finished review leaves; the trigger the PR-review workflow listens for is REVIEW_TRIGGER_LABEL (core/labels.ts).
 const REVIEWED_LABEL = 'taskcell:reviewed';
 // secret-blocked is removed too: a round that pushes cleanly after the human stripped the secret must
 // not leave the PR mapped to verify-failed on the board.

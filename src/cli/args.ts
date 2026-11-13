@@ -1505,8 +1505,9 @@ Commands:
   lessons list | dismiss <id>  Show the live lessons, or dismiss a wrong one so no run gets it again.
   eval   Run the committed eval corpus and print a per-kind pass-rate report; --baseline gates the run
          against a saved result instead of an absolute number, --save-baseline publishes one.
-  migrate-labels Rename a repo's old vanguard:* labels (and "ready for vanguard review") to taskcell:*: --github-repo <owner/repo>;
-         dry-run by default, --apply renames. The old names stay recognised either way.
+  migrate-labels Rename a repo's old vanguard:* labels to taskcell:*: --github-repo <owner/repo>;
+         dry-run by default, --apply renames. The old names stay recognised either way. "ready for vanguard review"
+         is kept: the PR-review workflows trigger on that name.
   resume-rate-limited Re-apply the trigger label on issues/PRs a provider limit parked, once the reset passed, and on issues
          parked as taskcell:waiting (unmet Depends on #N / native blocked-by, future Start: YYYY-MM-DD) once they are clear
          (--trigger-labels a,b names custom triggers; --claimed-state, --review-state, --spec-claimed-label as given to watch).
@@ -1692,7 +1693,7 @@ ${MAX_REPAIR_ITERATIONS_USAGE}
 
   watch-prs options:
     --github-repo <o/r>    Required repo slug
-    --label <name>         Required trigger label (e.g. "ready for taskcell review")
+    --label <name>         Required trigger label (e.g. "ready for vanguard review")
     --reviewing-label <l>  Label added while a PR is being reviewed (default: "taskcell:reviewing")
     --reviewed-label <l>   Label added after review succeeds (default: "taskcell:reviewed")
     --author <login>       Only review PRs opened by this GitHub login (self-review-only when set)
@@ -1709,7 +1710,7 @@ ${MAX_REPAIR_ITERATIONS_USAGE}
     --egress --llm-proxy --skills <dir> --repo <path>  As for run/watch (--skills: the repo's .github/vanguard-skills/ is merged in)
 
     Example:
-      taskcell watch-prs --github-repo owner/repo --label "ready for taskcell review"
+      taskcell watch-prs --github-repo owner/repo --label "ready for vanguard review"
 
     Dedupe: successful Taskcell reviews include a hidden head SHA marker; watch-prs skips
       the same PR commit if the trigger label is re-added accidentally. The PR pinned by --pr or
@@ -1720,7 +1721,7 @@ ${MAX_REPAIR_ITERATIONS_USAGE}
   doctor-prs options:
     Uses the same repo and label routing flags as watch-prs, but only runs AFK preflight checks and exits.
     Example:
-      taskcell doctor-prs --github-repo owner/repo --label "ready for taskcell review"
+      taskcell doctor-prs --github-repo owner/repo --label "ready for vanguard review"
 
   review-mr options:
     --mr <iid>               GitLab MR IID (integer)

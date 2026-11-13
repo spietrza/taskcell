@@ -373,7 +373,8 @@ describe('githubPullRequestWatchPrimitives', () => {
     expect(calls.filter((c) => c[1] === 'edit')).toEqual([
       ['pr', 'edit', '12', '--repo', 'o/r', '--remove-label', 'ready for vanguard review', '--add-label', 'taskcell:reviewing'],
       ['pr', 'edit', '12', '--repo', 'o/r', '--remove-label', 'taskcell:reviewing', '--add-label', 'taskcell:reviewed'],
-      ['pr', 'edit', '12', '--repo', 'o/r', '--remove-label', 'taskcell:reviewing', '--add-label', 'ready for taskcell review'],
+      // The repo has neither spelling of the trigger: it is restored under the name the review workflows fire on.
+      ['pr', 'edit', '12', '--repo', 'o/r', '--remove-label', 'taskcell:reviewing', '--add-label', 'ready for vanguard review'],
     ]);
   });
 

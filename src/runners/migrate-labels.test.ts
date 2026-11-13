@@ -22,7 +22,6 @@ describe('migrateLabels', () => {
     expect(report.renamed).toEqual([
       { from: 'vanguard:running', to: 'taskcell:running' },
       { from: 'vanguard:model=opus', to: 'taskcell:model=opus' },
-      { from: 'ready for vanguard review', to: 'ready for taskcell review' },
     ]);
     expect(report.skipped).toEqual([{ from: 'vanguard:waiting', to: 'taskcell:waiting' }]);
     expect(calls.filter((c) => c[1] === 'edit')).toEqual([]);
@@ -35,8 +34,17 @@ describe('migrateLabels', () => {
     expect(calls.filter((c) => c[1] === 'edit')).toEqual([
       ['label', 'edit', 'vanguard:running', '--repo', 'o/r', '--name', 'taskcell:running'],
       ['label', 'edit', 'vanguard:model=opus', '--repo', 'o/r', '--name', 'taskcell:model=opus'],
-      ['label', 'edit', 'ready for vanguard review', '--repo', 'o/r', '--name', 'ready for taskcell review'],
     ]);
+  });
+
+  it('leaves the review trigger alone and says why: the PR-review workflows fire on its name', async () => {
+    const { gh, calls } = makeGh();
+    const logs: string[] = [];
+    const report = await migrateLabels({ repoSlug: 'o/r', apply: true, gh, log: (line) => logs.push(line) });
+    expect(calls.some((c) => c.includes('ready for vanguard review'))).toBe(false);
+    expect([...report.renamed, ...report.skipped].some((r) => r.from === 'ready for vanguard review')).toBe(false);
+    expect(report.failed).toEqual([]);
+    expect(logs.some((l) => l.includes('keep "ready for vanguard review"'))).toBe(true);
   });
 
   it('records a failed rename and carries on', async () => {
@@ -47,6 +55,6 @@ describe('migrateLabels', () => {
     };
     const report = await migrateLabels({ repoSlug: 'o/r', apply: true, gh: failing, log: () => {} });
     expect(report.failed).toEqual([{ from: 'vanguard:running', reason: '403' }]);
-    expect(report.renamed).toHaveLength(2);
+    expect(report.renamed).toHaveLength(1);
   });
 });

@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { currentLabel, hasLabel, hasReviewHeading, labelForms, labelValue, legacyLabel, resolveRemovals, sameLabel, withoutLabel } from './labels.js';
+import { currentLabel, hasLabel, hasReviewHeading, labelForms, labelValue, legacyLabel, resolveAdds, resolveRemovals, sameLabel, withoutLabel } from './labels.js';
 
 describe('label spellings (taskcell written, vanguard still read)', () => {
   it('maps between the current and legacy spelling, GitHub and GitLab scoped', () => {
@@ -42,5 +42,53 @@ describe('label spellings (taskcell written, vanguard still read)', () => {
     let fetched = false;
     expect(await resolveRemovals(['needs info'], async () => { fetched = true; return []; })).toEqual(['needs info']);
     expect(fetched).toBe(false);
+  });
+
+  describe('resolveAdds', () => {
+    const repo = (names: string[] | Error): { gh: (args: string[]) => Promise<string>; calls: string[][] } => {
+      const calls: string[][] = [];
+      return {
+        calls,
+        gh: async (args) => {
+          calls.push(args);
+          if (args[1] !== 'list') return '';
+          if (names instanceof Error) throw names;
+          return JSON.stringify(names.map((name) => ({ name })));
+        },
+      };
+    };
+    const creates = (calls: string[][]): string[][] => calls.filter((c) => c[1] === 'create');
+
+    it('adds the legacy spelling on a repo that has only the old labels', async () => {
+      const { gh, calls } = repo(['vanguard:running', 'needs info']);
+      expect(await resolveAdds(['taskcell:running', 'needs info'], 'o/r', gh)).toEqual(['vanguard:running', 'needs info']);
+      expect(creates(calls)).toEqual([]);
+    });
+
+    it('adds the current spelling when the repo has it, also next to the legacy one or when asked by the old name', async () => {
+      expect(await resolveAdds(['taskcell:running'], 'o/r', repo(['taskcell:running']).gh)).toEqual(['taskcell:running']);
+      expect(await resolveAdds(['vanguard:running'], 'o/r', repo(['taskcell:running', 'vanguard:running']).gh)).toEqual(['taskcell:running']);
+    });
+
+    it('creates the current label first when the repo has neither spelling', async () => {
+      const { gh, calls } = repo([]);
+      expect(await resolveAdds(['taskcell:waiting'], 'o/r', gh)).toEqual(['taskcell:waiting']);
+      expect(creates(calls)).toEqual([['label', 'create', 'taskcell:waiting', '--repo', 'o/r']]);
+    });
+
+    it('keeps the review trigger on the name the workflows fire on', async () => {
+      expect(await resolveAdds(['ready for taskcell review'], 'o/r', repo(['ready for taskcell review', 'ready for vanguard review']).gh)).toEqual(['ready for vanguard review']);
+      expect(await resolveAdds(['ready for vanguard review'], 'o/r', repo(['ready for taskcell review']).gh)).toEqual(['ready for taskcell review']);
+      const { gh, calls } = repo([]);
+      expect(await resolveAdds(['ready for taskcell review'], 'o/r', gh)).toEqual(['ready for vanguard review']);
+      expect(creates(calls)).toEqual([['label', 'create', 'ready for vanguard review', '--repo', 'o/r']]);
+    });
+
+    it('lists the repo labels only for a label with a legacy twin, and falls back to the names as given', async () => {
+      const plain = repo([]);
+      expect(await resolveAdds(['needs info'], 'o/r', plain.gh)).toEqual(['needs info']);
+      expect(plain.calls).toEqual([]);
+      expect(await resolveAdds(['taskcell:waiting'], 'o/r', repo(new Error('gh down')).gh)).toEqual(['taskcell:waiting']);
+    });
   });
 });

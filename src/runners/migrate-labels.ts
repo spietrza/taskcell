@@ -1,4 +1,4 @@
-import { currentLabel } from '../core/labels.js';
+import { REVIEW_TRIGGER_LABEL, currentLabel } from '../core/labels.js';
 import { defaultGhRunner } from '../tasks/github.js';
 import type { GhRunner } from '../tasks/github.js';
 import type { MigrateLabelsReport } from '../wire.js';
@@ -14,8 +14,8 @@ export interface MigrateLabelsOptions {
 }
 
 /**
- * One-shot migration: rename a repo's pre-rename `vanguard:*` labels (and `ready for vanguard review`) to their
- * `taskcell` names. `gh label edit --name` renames in place, so issues and PRs keep the label. Dry-run by default.
+ * One-shot migration: rename a repo's pre-rename `vanguard:*` labels to their `taskcell` names. The review
+ * trigger `ready for vanguard review` is left alone (see REVIEW_TRIGGER_LABEL). `gh label edit --name` renames in place, so issues and PRs keep the label. Dry-run by default.
  */
 export async function migrateLabels(opts: MigrateLabelsOptions): Promise<MigrateLabelsReport> {
   const gh = opts.gh ?? defaultGhRunner;
@@ -27,6 +27,11 @@ export async function migrateLabels(opts: MigrateLabelsOptions): Promise<Migrate
   for (const from of names) {
     const to = currentLabel(from);
     if (to === from) continue;
+    if (from === REVIEW_TRIGGER_LABEL) {
+      // GitHub starts the PR-review workflow on this label's name, and existing callers listen for the old one only.
+      log(`migrate-labels ${opts.repoSlug}: keep "${from}" (the PR-review workflows trigger on this name; it is renamed once they accept "${to}")`);
+      continue;
+    }
     if (existing.has(to)) {
       log(`migrate-labels ${opts.repoSlug}: skip "${from}" -> "${to}" already exists (the old label is still recognised)`);
       report.skipped.push({ from, to });

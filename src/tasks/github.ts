@@ -2,7 +2,7 @@ import { execa } from 'execa';
 import { TaskcellError } from '../core/errors.js';
 import { classifyAuthor } from './comment-trust.js';
 import type { Task, TaskComment, TaskFetcher, TaskFilter } from './fetcher.js';
-import { resolveRemovals } from '../core/labels.js';
+import { resolveAdds, resolveRemovals } from '../core/labels.js';
 import { redactForPublish } from '../core/secret-scan.js';
 
 export interface GitHubLabel {
@@ -186,7 +186,7 @@ export async function editGithubLabels(
   gh: GhRunner = defaultGhRunner,
 ): Promise<void> {
   const args = ['issue', 'edit', issueNumber(issueRef), '--repo', repo];
-  for (const label of labels.add ?? []) args.push('--add-label', label);
+  for (const label of await resolveAdds(labels.add ?? [], repo, gh)) args.push('--add-label', label);
   const remove = await resolveRemovals(labels.remove ?? [], () => issueLabelNames(repo, issueRef, gh));
   for (const label of remove) args.push('--remove-label', label);
   if (args.length > 4) await gh(args);
