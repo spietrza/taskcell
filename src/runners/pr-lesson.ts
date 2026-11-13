@@ -12,7 +12,7 @@ import { classifyAuthor } from '../tasks/comment-trust.js';
 import { defaultGhRunner } from '../tasks/github.js';
 import type { GhRunner } from '../tasks/github.js';
 import { hasRevisionMarker } from './pr-feedback.js';
-import { extractReviewVerdict } from './review-prompt.js';
+import { extractCommentVerdict } from './review-prompt.js';
 
 export const LESSON_MARKER = '<!-- taskcell-lesson -->';
 export const VERIFY_FAILED_LABEL = 'vanguard:verify-failed';
@@ -57,10 +57,8 @@ export interface PrHistory {
   hasLessonComment: boolean;
 }
 
-const stripHeading = (body: string): string => body.replace(/^\s*##[^\n]*\n/, '');
-
 function isBlocking(body: string, state: string | undefined): boolean {
-  return state === 'CHANGES_REQUESTED' || extractReviewVerdict(stripHeading(body)) === 'blocking';
+  return state === 'CHANGES_REQUESTED' || extractCommentVerdict(body) === 'blocking';
 }
 
 /** Read a PR's history and keep only what trusted authors (association, allowlist, bots) wrote. */
