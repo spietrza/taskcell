@@ -8,7 +8,7 @@ import { RemoteRuns } from './RemoteRuns';
 afterEach(() => {
   clearMocks();
   vi.unstubAllGlobals();
-  delete window.__VANGUARD_HUB__;
+  delete window.__TASKCELL_HUB__;
 });
 
 test('Fetch records imports the artifact, expands the row, and opens a record by its CI source', async () => {
@@ -38,7 +38,7 @@ test('Fetch records imports the artifact, expands the row, and opens a record by
 });
 
 test('hub mode: the same screen imports via import_remote_run and opens the record by its CI source', async () => {
-  window.__VANGUARD_HUB__ = true;
+  window.__TASKCELL_HUB__ = true;
   const uncached = remoteRuns.find((r) => !r.cached)!;
   const calls: string[] = [];
   vi.stubGlobal(

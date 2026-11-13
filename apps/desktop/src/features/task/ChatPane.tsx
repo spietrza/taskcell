@@ -160,7 +160,7 @@ export function ChatPane({
   disabled?: boolean;
   /** Per-conversation override; `undefined` ⇒ the app-wide default. */
   model: string | undefined;
-  /** Distinct models found in the project's vanguard configuration. */
+  /** Distinct models found in the project's taskcell configuration. */
   modelOptions: string[];
   /** What "default" resolves to right now (shown in the selector). */
   defaultModel: string;

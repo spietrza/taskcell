@@ -5,7 +5,7 @@ import { AppliedLessons, Lessons } from './Lessons';
 
 afterEach(() => {
   vi.unstubAllGlobals();
-  delete window.__VANGUARD_HUB__;
+  delete window.__TASKCELL_HUB__;
 });
 
 const lesson = (id: string, paths: string[], over: Partial<RepoLesson> = {}): RepoLesson => ({
@@ -15,7 +15,7 @@ const lesson = (id: string, paths: string[], over: Partial<RepoLesson> = {}): Re
 function stubHub(initial: RepoLesson[], opts: { branchFound?: boolean; fail?: boolean; failDismiss?: boolean } = {}): { cmd: string; body: unknown }[] {
   let lessons = initial;
   const calls: { cmd: string; body: unknown }[] = [];
-  window.__VANGUARD_HUB__ = true;
+  window.__TASKCELL_HUB__ = true;
   vi.stubGlobal('fetch', vi.fn(async (url: string, init?: RequestInit) => {
     const cmd = url.slice(url.indexOf('/rpc/') + 5);
     const body = (init?.body ? JSON.parse(String(init.body)) : undefined) as { id?: string } | undefined;

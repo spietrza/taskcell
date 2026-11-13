@@ -44,7 +44,7 @@ export function gitlabAdapter(deps: RunGitlabIssueDeps, glab?: GlabRunner): Sour
     },
     async signalSecretBlock(issueRef: string, _task: Task, block: SecretBlock) {
       // `glab issue update --label` is a silent no-op on a project lacking the label (see
-      // addMrFailureLabel), which would leave the held issue with no Vanguard label at all. Ensure
+      // addMrFailureLabel), which would leave the held issue with no Taskcell label at all. Ensure
       // it first; every step stays best-effort.
       const label = (glab ?? defaultGlabRunner)(['label', 'create', '--repo', deps.project, '--name', GITLAB_SECRET_BLOCKED_LABEL])
         .catch(() => undefined)

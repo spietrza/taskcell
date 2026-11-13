@@ -120,7 +120,7 @@ describe('hasRealAcceptanceCriteria', () => {
 // ---------------------------------------------------------------------------
 
 describe('SPEC_TAG', () => {
-  it('equals tech_spec (the XML tag name used by Vanguard)', () => {
+  it('equals tech_spec (the XML tag name used by Taskcell)', () => {
     expect(SPEC_TAG).toBe('tech_spec');
   });
 });

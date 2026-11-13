@@ -205,7 +205,7 @@ describe('openApproverModePr', () => {
     await writeFile(join(w.repo, 'README.md'), 'dirty\n');
     await writeFile(join(w.repo, 'scratch.txt'), 'untracked\n');
     const result = await approverCard.openApproverModePr({ repoPath: w.repo, mode: 'act', card, exec: w.exec });
-    expect(result).toEqual({ branch: 'vanguard/approver-mode', prUrl: 'https://github.com/acme/widgets/pull/9', mode: 'act' });
+    expect(result).toEqual({ branch: 'taskcell/approver-mode', prUrl: 'https://github.com/acme/widgets/pull/9', mode: 'act' });
     const create = w.calls.find((c) => c[1] === 'pr' && c[2] === 'create')!;
     const body = create[create.indexOf('--body') + 1]!;
     expect(body).toContain('114 pull requests judged');
@@ -218,9 +218,9 @@ describe('openApproverModePr', () => {
     expect(await readFile(join(w.repo, '.taskcell', 'approver.json'), 'utf8')).not.toContain('"act"');
     expect((await execa('git', ['worktree', 'list', '--porcelain'], { cwd: w.repo })).stdout.match(/^worktree /gm)).toHaveLength(1);
     // The pushed branch carries only a minimal policy edit.
-    const pushed = (await execa('git', ['show', 'vanguard/approver-mode:.taskcell/approver.json'], { cwd: w.origin })).stdout;
+    const pushed = (await execa('git', ['show', 'taskcell/approver-mode:.taskcell/approver.json'], { cwd: w.origin })).stdout;
     expect(pushed).toBe('{\n    "schemaVersion": 1,\n    "enabled": true,\n    "act": true,\n    "shape": { "maxLines": 5, "paths": ["a", "b"] }\n}');
-    expect((await execa('git', ['cat-file', '-p', 'vanguard/approver-mode:.taskcell/approver.json'], { cwd: w.origin })).stdout + '\n').toMatch(/}\n$/);
+    expect((await execa('git', ['cat-file', '-p', 'taskcell/approver-mode:.taskcell/approver.json'], { cwd: w.origin })).stdout + '\n').toMatch(/}\n$/);
   });
 
   test("the repo's commit and push hooks do not run in the temporary worktree", async () => {
@@ -228,7 +228,7 @@ describe('openApproverModePr', () => {
     const hooks = join(w.repo, '.git', 'hooks');
     for (const h of ['pre-commit', 'commit-msg', 'pre-push', 'post-checkout', 'prepare-commit-msg']) await writeFile(join(hooks, h), '#!/bin/sh\nexit 1\n', { mode: 0o755 });
     await expect(approverCard.openApproverModePr({ repoPath: w.repo, mode: 'off', card, exec: w.exec })).resolves.toMatchObject({ mode: 'off' });
-    expect((await execa('git', ['show', 'vanguard/approver-mode:.taskcell/approver.json'], { cwd: w.origin })).stdout).toContain('"enabled": false,\n    "act": false,');
+    expect((await execa('git', ['show', 'taskcell/approver-mode:.taskcell/approver.json'], { cwd: w.origin })).stdout).toContain('"enabled": false,\n    "act": false,');
   });
 
   test('two concurrent changes for one repo run one after the other', async () => {

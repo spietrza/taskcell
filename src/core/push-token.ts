@@ -2,13 +2,14 @@ import { createSign } from 'node:crypto';
 import { execa } from 'execa';
 import { forgetInjectedSecretValue, registerInjectedSecretValue } from './secret-scan.js';
 import { hostGitArgs } from '../worktree/host-git.js';
+import { readEnv } from './env.js';
 
 /**
  * The credential for opening/updating PRs and pushing PR branches. When the taskcell GitHub App is
  * configured (TASKCELL_APP_CLIENT_ID + TASKCELL_APP_PRIVATE_KEY) a fresh installation token is minted
  * on every call: it lives 1 hour and an implement run lasts far longer, so it can't be minted at
- * process start. A failed mint (after one retry) falls back to VANGUARD_PUSH_TOKEN; without the App,
- * VANGUARD_PUSH_TOKEN, otherwise undefined (the ambient credential). Callers release a minted token
+ * process start. A failed mint (after one retry) falls back to TASKCELL_PUSH_TOKEN; without the App,
+ * TASKCELL_PUSH_TOKEN, otherwise undefined (the ambient credential). Callers release a minted token
  * (releaseToken) right after its one use, which revokes it.
  */
 
@@ -17,7 +18,7 @@ export interface PushTokenDeps {
   fetch?: typeof fetch;
   /** Injected clock (ms since epoch). */
   now?: () => number;
-  /** Where a mint failure that falls back to VANGUARD_PUSH_TOKEN is reported; default stderr. */
+  /** Where a mint failure that falls back to TASKCELL_PUSH_TOKEN is reported; default stderr. */
   warn?: (msg: string) => void;
 }
 
@@ -147,11 +148,11 @@ export async function releaseToken(token: string | undefined): Promise<void> {
   } catch { /* still expires within the hour, and stays redacted */ }
 }
 
-/** Which credential `token` is, for logs (never its value): ' (taskcell App token)', ' (VANGUARD_PUSH_TOKEN)' or ''. */
+/** Which credential `token` is, for logs (never its value): ' (taskcell App token)', ' (TASKCELL_PUSH_TOKEN)' or ''. */
 export function credentialLabel(token: string | undefined, env: NodeJS.ProcessEnv = process.env): string {
   if (token === undefined || token === '') return '';
   if (minted.has(token)) return ' (taskcell App token)';
-  return token === env.VANGUARD_PUSH_TOKEN ? ' (VANGUARD_PUSH_TOKEN)' : '';
+  return token === readEnv('TASKCELL_PUSH_TOKEN', env) ? ' (TASKCELL_PUSH_TOKEN)' : '';
 }
 
 /** `owner/repo` for the checkout: parsed from its origin URL (where `gh pr create` opens the PR), else GITHUB_REPOSITORY. */
@@ -169,7 +170,7 @@ export async function pushToken(repoSlug: string | undefined, deps: PushTokenDep
   const env = deps.env ?? process.env;
   const clientId = env.TASKCELL_APP_CLIENT_ID;
   const key = clientId ? appKeyOf(env) : undefined;
-  const pat = env.VANGUARD_PUSH_TOKEN || undefined;
+  const pat = readEnv('TASKCELL_PUSH_TOKEN', env) || undefined;
   if (!clientId || !key) return pat;
   let lastError: unknown;
   if (repoSlug === undefined || !SLUG_RE.test(repoSlug) || repoSlug.split('/').some((s) => s === '.' || s === '..')) {
@@ -186,7 +187,7 @@ export async function pushToken(repoSlug: string | undefined, deps: PushTokenDep
   }
   if (pat === undefined) throw lastError;
   (deps.warn ?? ((m: string): void => console.error(`taskcell: ${m}`)))(
-    `${lastError instanceof Error ? lastError.message : String(lastError)}; using VANGUARD_PUSH_TOKEN`,
+    `${lastError instanceof Error ? lastError.message : String(lastError)}; using TASKCELL_PUSH_TOKEN`,
   );
   return pat;
 }

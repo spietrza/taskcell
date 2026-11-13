@@ -43,7 +43,7 @@ afterEach(async () => {
 describe('renderStepSummary', () => {
   it('renders the run header, one table row per stage, the cost total and the trailer', () => {
     const md = renderStepSummary(summary);
-    expect(md).toContain('### Vanguard run `o/r#7` — completed');
+    expect(md).toContain('### Taskcell run `o/r#7` — completed');
     expect(md).toContain('flow `default` · provider `claude` · model `claude-sonnet-5-5`');
     expect(md).toContain('| stage | exit | turns | time | $cost |');
     expect(md).toContain('| implementer | completed | 12 | 90.0s | 1.2500 |');
@@ -55,7 +55,7 @@ describe('renderStepSummary', () => {
 
   it('says so when no stage ran and carries the error on an error exit', () => {
     const md = renderStepSummary({ taskId: 't', flow: 'default', provider: 'claude', outcomes: [], exit: 'error', error: 'boom' });
-    expect(md).toContain('### Vanguard run `t` — error');
+    expect(md).toContain('### Taskcell run `t` — error');
     expect(md).toContain('_no stage ran_');
     expect(md).toContain('- Error: boom');
     expect(md).not.toContain('model');

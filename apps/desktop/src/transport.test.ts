@@ -60,7 +60,7 @@ function probeOnly(probe: () => Promise<Response>): (url: string) => Promise<Res
 
 afterEach(() => {
   clearMocks();
-  delete window.__VANGUARD_HUB__;
+  delete window.__TASKCELL_HUB__;
   window.sessionStorage.clear();
   window.history.replaceState(null, '', '/');
   FakeEventSource.instances = [];
@@ -68,8 +68,8 @@ afterEach(() => {
   vi.unstubAllGlobals();
 });
 
-test('T-89 mode resolution: window.__VANGUARD_HUB__ === true selects hub mode', () => {
-  window.__VANGUARD_HUB__ = true;
+test('T-89 mode resolution: window.__TASKCELL_HUB__ === true selects hub mode', () => {
+  window.__TASKCELL_HUB__ = true;
   expect(isHubMode()).toBe(true);
 });
 
@@ -87,7 +87,7 @@ test('T-89 mode resolution: the marker absent selects the Tauri branch', async (
 
 test('T-90 hub invoke POSTs to /rpc/<cmd> with the args object and resolves result', async () => {
   window.sessionStorage.setItem('vanguard-hub-token', 'test-token');
-  window.__VANGUARD_HUB__ = true;
+  window.__TASKCELL_HUB__ = true;
   const calls: { url: string; init: RequestInit }[] = [];
   vi.stubGlobal(
     'fetch',
@@ -112,7 +112,7 @@ test('T-90 hub invoke POSTs to /rpc/<cmd> with the args object and resolves resu
 test('the launch URL fragment token moves into sessionStorage, leaves the address bar, and is sent', async () => {
   window.history.replaceState(null, '', '/runs?x=1#token=frag%26tok&keep=1');
   window.sessionStorage.setItem('vanguard-hub-token', 'stale-from-old-launch');
-  window.__VANGUARD_HUB__ = true;
+  window.__TASKCELL_HUB__ = true;
   captureHubToken();
   expect(window.sessionStorage.getItem('vanguard-hub-token')).toBe('frag&tok');
   expect(window.location.pathname + window.location.search + window.location.hash).toBe('/runs?x=1#keep=1');
@@ -131,7 +131,7 @@ test('the launch URL fragment token moves into sessionStorage, leaves the addres
 });
 
 test('without a launch fragment or stored token, hub calls send an empty token', async () => {
-  window.__VANGUARD_HUB__ = true;
+  window.__TASKCELL_HUB__ = true;
   const headers: string[] = [];
   vi.stubGlobal(
     'fetch',
@@ -145,7 +145,7 @@ test('without a launch fragment or stored token, hub calls send an empty token',
 });
 
 test('T-91 an error body rejects with the message string', async () => {
-  window.__VANGUARD_HUB__ = true;
+  window.__TASKCELL_HUB__ = true;
   vi.stubGlobal(
     'fetch',
     vi.fn(async () =>
@@ -162,7 +162,7 @@ test('T-91 an error body rejects with the message string', async () => {
 });
 
 test('T-92 a network failure rejects with a string', async () => {
-  window.__VANGUARD_HUB__ = true;
+  window.__TASKCELL_HUB__ = true;
   vi.stubGlobal(
     'fetch',
     vi.fn(async () => {
@@ -178,7 +178,7 @@ test('T-92 a network failure rejects with a string', async () => {
 });
 
 test('T-92b a non-JSON response also rejects with a string', async () => {
-  window.__VANGUARD_HUB__ = true;
+  window.__TASKCELL_HUB__ = true;
   vi.stubGlobal(
     'fetch',
     vi.fn(async () => new Response('<html>not json</html>', { status: 200 })),
@@ -192,7 +192,7 @@ test('T-92b a non-JSON response also rejects with a string', async () => {
 
 test('T-93 one shared EventSource, handlers routed by event name', async () => {
   window.sessionStorage.setItem('vanguard-hub-token', 'a&b');
-  window.__VANGUARD_HUB__ = true;
+  window.__TASKCELL_HUB__ = true;
   vi.stubGlobal('EventSource', FakeEventSource);
   const sessionCalls = stubSessionFetch();
   const aEvents: unknown[] = [];
@@ -217,7 +217,7 @@ test('T-93 one shared EventSource, handlers routed by event name', async () => {
 });
 
 test('T-94 unsubscribe closes the source when the last handler leaves', async () => {
-  window.__VANGUARD_HUB__ = true;
+  window.__TASKCELL_HUB__ = true;
   vi.stubGlobal('EventSource', FakeEventSource);
   stubSessionFetch();
   const unlistenA = await subscribe('event-a', () => {});
@@ -232,19 +232,19 @@ test('T-94 unsubscribe closes the source when the last handler leaves', async ()
 });
 
 test.each([null, {}, { projects: [] }])('hub invoke rejects malformed success body %j', async (body) => {
-  window.__VANGUARD_HUB__ = true;
+  window.__TASKCELL_HUB__ = true;
   vi.stubGlobal('fetch', vi.fn(async () => new Response(JSON.stringify(body), { status: 200 })));
   await expect(invoke('list_projects')).rejects.toBe('hub response body is missing "result"');
 });
 
 test.each([false, 0, '', null])('hub invoke preserves result %j', async (result) => {
-  window.__VANGUARD_HUB__ = true;
+  window.__TASKCELL_HUB__ = true;
   vi.stubGlobal('fetch', vi.fn(async () => new Response(JSON.stringify({ result }), { status: 200 })));
   await expect(invoke('list_projects')).resolves.toBe(result);
 });
 
 test('T-95 a stream-reset frame triggers every registered resync callback (#491)', async () => {
-  window.__VANGUARD_HUB__ = true;
+  window.__TASKCELL_HUB__ = true;
   vi.stubGlobal('EventSource', FakeEventSource);
   stubSessionFetch();
   const calls: string[] = [];
@@ -260,7 +260,7 @@ test('T-95 a stream-reset frame triggers every registered resync callback (#491)
 });
 
 test('T-96 a stream-reset also reaches a named subscription\'s resync sibling, not its own handler', async () => {
-  window.__VANGUARD_HUB__ = true;
+  window.__TASKCELL_HUB__ = true;
   vi.stubGlobal('EventSource', FakeEventSource);
   stubSessionFetch();
   const changed: unknown[] = [];
@@ -282,7 +282,7 @@ test('T-96 a stream-reset also reaches a named subscription\'s resync sibling, n
 });
 
 test('a permanently closed SSE stream probes before deciding: the hub\'s own token rejection notifies onHubRestart', async () => {
-  window.__VANGUARD_HUB__ = true;
+  window.__TASKCELL_HUB__ = true;
   vi.stubGlobal('EventSource', FakeEventSource);
   vi.stubGlobal(
     'fetch',
@@ -308,7 +308,7 @@ test('a permanently closed SSE stream probes before deciding: the hub\'s own tok
 });
 
 test('a 403 on /events (the Host check, not the hub\'s own token) notifies onHubConnectionIssue, not onHubRestart', async () => {
-  window.__VANGUARD_HUB__ = true;
+  window.__TASKCELL_HUB__ = true;
   vi.stubGlobal('EventSource', FakeEventSource);
   vi.stubGlobal(
     'fetch',
@@ -335,7 +335,7 @@ test('a 403 on /events (the Host check, not the hub\'s own token) notifies onHub
 });
 
 test('a network error probing /events (a proxy 502, connection dropped) notifies onHubConnectionIssue, not onHubRestart', async () => {
-  window.__VANGUARD_HUB__ = true;
+  window.__TASKCELL_HUB__ = true;
   vi.stubGlobal('EventSource', FakeEventSource);
   vi.stubGlobal('fetch', probeOnly(async () => { throw new TypeError('network error'); }));
   const restarts: number[] = [];
@@ -361,7 +361,7 @@ test.each([
   ['a reverse proxy 401', 401, { message: 'proxy login required' }],
   ['a proxy 502', 502, {}],
 ])('a failed events-session request (%s) notifies onHubConnectionIssue and opens no stream', async (_label, status, body) => {
-  window.__VANGUARD_HUB__ = true;
+  window.__TASKCELL_HUB__ = true;
   vi.stubGlobal('EventSource', FakeEventSource);
   vi.stubGlobal('fetch', vi.fn(async () => new Response(JSON.stringify(body), { status })));
   const restarts: number[] = [];
@@ -379,7 +379,7 @@ test.each([
 });
 
 test('the hub\'s own token rejection on the events-session request notifies onHubRestart', async () => {
-  window.__VANGUARD_HUB__ = true;
+  window.__TASKCELL_HUB__ = true;
   vi.stubGlobal('EventSource', FakeEventSource);
   vi.stubGlobal(
     'fetch',
@@ -407,7 +407,7 @@ test('onHubConnectionIssue is a no-op outside hub mode', async () => {
 });
 
 test('a 401 from /rpc/<cmd> also notifies onHubRestart, and still rejects with the message', async () => {
-  window.__VANGUARD_HUB__ = true;
+  window.__TASKCELL_HUB__ = true;
   vi.stubGlobal(
     'fetch',
     vi.fn(async () =>
@@ -424,7 +424,7 @@ test('a 401 from /rpc/<cmd> also notifies onHubRestart, and still rejects with t
 });
 
 test("a 401 that isn't the hub's own envelope (a reverse proxy's) does not claim the hub restarted", async () => {
-  window.__VANGUARD_HUB__ = true;
+  window.__TASKCELL_HUB__ = true;
   vi.stubGlobal(
     'fetch',
     vi.fn(async () => new Response(JSON.stringify({ error: { message: 'Unauthorized', kind: 'bad-request' } }), { status: 401 })),

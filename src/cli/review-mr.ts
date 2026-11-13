@@ -40,7 +40,7 @@ export interface ReviewMrCommandDeps {
   headDedupe?: boolean;
 }
 
-/** Review an existing GitLab MR and post a non-blocking Vanguard review note. */
+/** Review an existing GitLab MR and post a non-blocking Taskcell review note. */
 export async function reviewMrCommand(cmd: ReviewMrCommand, deps: ReviewMrCommandDeps = {}): Promise<void> {
   const log = deps.log ?? console.log;
   const runReview = deps.reviewMergeRequest ?? reviewMergeRequest;

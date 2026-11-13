@@ -103,7 +103,7 @@ export async function isTrustedIssueAuthor(
   }
 }
 
-/** Fetches GitHub issues (via the gh CLI) and maps them to Vanguard tasks. */
+/** Fetches GitHub issues (via the gh CLI) and maps them to Taskcell tasks. */
 export class GitHubTaskFetcher implements TaskFetcher {
   constructor(
     private readonly repo: string,
@@ -147,7 +147,7 @@ export async function linkPullRequest(
   prUrl: string,
   gh: GhRunner = defaultGhRunner,
 ): Promise<void> {
-  await commentGithubIssue(repo, issueRef, `Vanguard opened a PR for review: ${prUrl}`, gh);
+  await commentGithubIssue(repo, issueRef, `Taskcell opened a PR for review: ${prUrl}`, gh);
 }
 
 /**

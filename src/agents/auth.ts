@@ -22,7 +22,7 @@ export function llmProxyAuth(auth: AgentAuth): { mode: 'subscription' | 'api'; s
     : { mode: 'api', secret: auth.apiKey };
 }
 
-/** Resolve Anthropic auth from the environment, preferring the subscription token (Vanguard default). */
+/** Resolve Anthropic auth from the environment, preferring the subscription token (Taskcell default). */
 export function authFromEnv(env: NodeJS.ProcessEnv = process.env): AgentAuth | undefined {
   const token = env[SUBSCRIPTION_ENV];
   if (token !== undefined && token !== '') return { mode: 'subscription', token };

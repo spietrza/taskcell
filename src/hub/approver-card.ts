@@ -242,7 +242,7 @@ export function policyForMode(raw: string, mode: ApproverMode): string {
 }
 
 /** Branch the mode PR is opened from. Fixed: a second request resets and reuses it (and its open PR). */
-export const APPROVER_MODE_BRANCH = 'vanguard/approver-mode';
+export const APPROVER_MODE_BRANCH = 'taskcell/approver-mode';
 
 export interface OpenModePrInput {
   repoPath: string;

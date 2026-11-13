@@ -7,7 +7,7 @@ import type { CostBreakdown as Breakdown } from '../../wire';
 
 afterEach(() => {
   clearMocks();
-  delete window.__VANGUARD_HUB__;
+  delete window.__TASKCELL_HUB__;
 });
 
 const ok = (period: string): Breakdown => ({

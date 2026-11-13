@@ -154,7 +154,7 @@ export async function appendBranchLines(
     const tree = (await execa('git', ['mktree'], { cwd: repoPath, input: treeInput })).stdout;
     const message = `${file}: +${fresh.length} line${fresh.length === 1 ? '' : 's'}`;
     const commit = await git(repoPath, [
-      '-c', 'user.name=Vanguard', '-c', 'user.email=vanguard@local',
+      '-c', 'user.name=Taskcell', '-c', 'user.email=vanguard@local',
       'commit-tree', tree, ...(tip !== undefined ? ['-p', tip] : []), '-m', message,
     ]);
     try {

@@ -3,7 +3,7 @@ import { render, screen, waitFor } from '@testing-library/react';
 import { Credentials } from './Credentials';
 
 vi.mock('../../ipc', () => ({
-  getCredentials: vi.fn(async () => ({ enabled: false, reason: 'VANGUARD_HUB_SECRET is not set', providers: [{ provider: 'claude', set: false, env: true }] })),
+  getCredentials: vi.fn(async () => ({ enabled: false, reason: 'TASKCELL_HUB_SECRET is not set', providers: [{ provider: 'claude', set: false, env: true }] })),
   setCredential: vi.fn(),
   deleteCredential: vi.fn(),
 }));

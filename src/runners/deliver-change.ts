@@ -59,7 +59,7 @@ export interface DeliverChangeOptions {
   /** Task id for log lines and the closing-keyword scan. */
   taskId: string;
   commitMessage: string;
-  /** White-label identity for the commit and the pre-push rebase; default Vanguard. */
+  /** White-label identity for the commit and the pre-push rebase; default Taskcell. */
   commitAuthor?: CommitAuthor;
   target: DeliveryTarget;
   /** Scan the new commits (`ctx.startRef..HEAD`) for `Closes #N` (a partial delivery must not auto-close). */
@@ -108,7 +108,7 @@ export function conventionalPrTitle(title: string, opts: { bugLabel?: boolean; s
  * caller that must gate earlier than the commit (revise's --out preview) runs the same scan.
  *
  * Two layers run here: the pattern scan (scanForSecrets — exempts TEST_PATH_RULES and allowlist
- * markers) and an exact-value check against every secret Vanguard itself injected into the sandbox for
+ * markers) and an exact-value check against every secret Taskcell itself injected into the sandbox for
  * this run (scanForInjectedSecrets — ignores both exemptions, since a value match IS the credential).
  * `secretEnvVars` names credentials the static list cannot know (a custom provider's `keyEnv`).
  */

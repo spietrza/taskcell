@@ -124,9 +124,9 @@ describe('overlap hold', () => {
 describe('overlapHoldMs', () => {
   it('defaults to 6 h when unset or empty, 0 turns it off', () => {
     expect(overlapHoldMs({})).toBe(6 * HOUR);
-    expect(overlapHoldMs({ VANGUARD_OVERLAP_HOLD_HOURS: '' })).toBe(6 * HOUR);
-    expect(overlapHoldMs({ VANGUARD_OVERLAP_HOLD_HOURS: '12' })).toBe(12 * HOUR);
-    expect(overlapHoldMs({ VANGUARD_OVERLAP_HOLD_HOURS: '0' })).toBe(0);
+    expect(overlapHoldMs({ TASKCELL_OVERLAP_HOLD_HOURS: '' })).toBe(6 * HOUR);
+    expect(overlapHoldMs({ TASKCELL_OVERLAP_HOLD_HOURS: '12' })).toBe(12 * HOUR);
+    expect(overlapHoldMs({ TASKCELL_OVERLAP_HOLD_HOURS: '0' })).toBe(0);
   });
 });
 

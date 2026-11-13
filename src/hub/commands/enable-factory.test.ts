@@ -10,7 +10,7 @@ import { dispatchRpc, makeCtx, tmpRepo } from '../test-kit.js';
 describe('enable_factory RPCs', () => {
   // The checklist is persisted in the hub config dir.
   beforeEach(async () => {
-    process.env.VANGUARD_HUB_CONFIG_DIR = await mkdtemp(join(tmpdir(), 'factory-cfg-'));
+    process.env.TASKCELL_HUB_CONFIG_DIR = await mkdtemp(join(tmpdir(), 'factory-cfg-'));
   });
 
   const validPlan = {

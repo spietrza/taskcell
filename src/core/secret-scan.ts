@@ -223,7 +223,7 @@ export function scanForSecrets(diff: string): SecretFinding[] {
 /**
  * Smallest length worth treating as a real secret for the exact-value check below — guards against a
  * short or near-empty env var producing spurious substring hits across an entire diff. Same floor as
- * the `assignment` pattern's value length; every credential Vanguard injects is far longer.
+ * the `assignment` pattern's value length; every credential Taskcell injects is far longer.
  */
 const MIN_INJECTED_SECRET_LENGTH = 12;
 
@@ -239,10 +239,10 @@ function isPlausibleInjectedSecret(value: string): boolean {
 }
 
 /**
- * Env var names Vanguard reads to build the credentials it injects into the sandbox, or uses to push on
+ * Env var names Taskcell reads to build the credentials it injects into the sandbox, or uses to push on
  * an agent's behalf: agents/auth.ts (SUBSCRIPTION_ENV/API_ENV), the built-in providers' hostEnv in
  * agents/registry.ts, the tokens glab accepts (cli/preflight.ts GLAB_TOKEN_VARS), tasks/linear-cli.ts /
- * LINEAR_API_KEY, and VANGUARD_PUSH_TOKEN / TASKCELL_APP_PRIVATE_KEY via core/push-token.ts. Named here
+ * LINEAR_API_KEY, and TASKCELL_PUSH_TOKEN / TASKCELL_APP_PRIVATE_KEY via core/push-token.ts. Named here
  * directly rather than reading the sandbox secrets map, which is assembled per-run deep in the runner
  * call graph and unavailable where the outgoing diff is scanned. A custom provider's `keyEnv` is
  * repo-configured, so no static list can hold it: callers pass those names to injectedSecretValues.
@@ -264,7 +264,8 @@ export const INJECTED_SECRET_ENV_VARS = [
   'GITLAB_ACCESS_TOKEN',
   'OAUTH_TOKEN',
   'CI_JOB_TOKEN',
-  'VANGUARD_PUSH_TOKEN',
+  'TASKCELL_PUSH_TOKEN',
+  'VANGUARD_PUSH_TOKEN', // pre-rename name, still set by @v1 workflow callers
   'TASKCELL_APP_PRIVATE_KEY',
 ] as const;
 
@@ -306,7 +307,7 @@ export function registerInjectedSecretEnvVars(names: readonly string[]): void {
 }
 
 /**
- * Collect the secret values Vanguard itself injected into this run's sandbox (or used to push on its
+ * Collect the secret values Taskcell itself injected into this run's sandbox (or used to push on its
  * behalf), from the env vars it reads to build them plus any `extraEnvVars` the caller resolved for
  * this run (a custom provider's configured `keyEnv`). Exported so a caller snapshots process.env once;
  * tests pass explicit values straight to scanForInjectedSecrets instead of mutating the environment.
@@ -371,7 +372,7 @@ export function redactInjectedSecrets(text: string, secretValues: readonly strin
 
 /**
  * Mask agent text before it leaves the host (an issue/PR/MR comment, a run record that may become a CI
- * artifact): exact values of the credentials Vanguard injected first — the patterns cannot recognize an
+ * artifact): exact values of the credentials Taskcell injected first — the patterns cannot recognize an
  * opaque token such as the Codex refresh_token — then the pattern mask. `secretValues` defaults to a
  * fresh snapshot of process.env; a caller that knows a run's custom provider `keyEnv` passes its own.
  */
@@ -397,7 +398,7 @@ const DIFF_GIT_PREFIX = 'diff --git ';
 const DIFF_GIT_HEADER = /^diff --git a\/.+ b\/(.+)$/;
 
 /**
- * Exact-value gate on the outgoing diff: does an added line contain a secret Vanguard itself injected
+ * Exact-value gate on the outgoing diff: does an added line contain a secret Taskcell itself injected
  * into the sandbox (or used to push), byte-for-byte or in an obvious encoding? Unlike scanForSecrets,
  * this is unconditional — it ignores TEST_PATH_RULES and ALLOWLIST_MARKER, because a value match here
  * IS the credential, not a pattern that might merely resemble one. The file PATH is checked too: a
@@ -482,12 +483,12 @@ export function renderSecretBlockComment(block: SecretBlock, stage: SecretBlockS
   const outcome = OUTCOME[stage];
   if (block.reason === 'scan-error') {
     const header =
-      '🔒 Vanguard blocked publish as a precaution — the secret scan itself failed to run, so the outgoing ' +
+      '🔒 Taskcell blocked publish as a precaution — the secret scan itself failed to run, so the outgoing ' +
       `diff could not be verified clean. ${outcome}`;
     return [header, '', `Error: ${block.message}`].join('\n');
   }
   const header =
-    '🔒 Vanguard blocked publish — the secret scan found credential-shaped content in the outgoing diff. ' +
+    '🔒 Taskcell blocked publish — the secret scan found credential-shaped content in the outgoing diff. ' +
     `${outcome} Findings are **masked**; review the listed lines.`;
   const lines = [
     ...block.findings.map((f) => `- \`${f.file}\` [${f.patternName}] ${f.masked}`),

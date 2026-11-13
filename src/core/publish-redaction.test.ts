@@ -43,15 +43,15 @@ describe('redactForPublish', () => {
 
 describe('failure comments', () => {
   it('formatFailureComment masks the headline and the stack of an agent error carrying raw CLI output', () => {
-    const body = formatFailureComment('Vanguard run failed', new AgentError(`Agent exited without a result (exit 1): ${agentText}`));
-    expect(body).toContain('Vanguard run failed: AgentError: Agent exited without a result');
+    const body = formatFailureComment('Taskcell run failed', new AgentError(`Agent exited without a result (exit 1): ${agentText}`));
+    expect(body).toContain('Taskcell run failed: AgentError: Agent exited without a result');
     expect(body).toContain('<summary>stack</summary>');
     expect(body).not.toContain(refresh);
     expect(body).not.toContain(ghToken);
   });
 
   it('formatFailureComment masks a non-Error throw', () => {
-    expect(formatFailureComment('Vanguard spec failed', agentText)).not.toContain(refresh);
+    expect(formatFailureComment('Taskcell spec failed', agentText)).not.toContain(refresh);
   });
 
   it('failureReason masks the operator log line', () => {
@@ -108,6 +108,6 @@ describe('a custom provider keyEnv resolved at run start', () => {
     const after = recorder();
     await commentGithubIssue('o/r', '#3', `key ${customKey}`, after.run);
     expect(JSON.stringify(after.calls)).not.toContain(customKey);
-    expect(formatFailureComment('Vanguard run failed', new Error(customKey))).not.toContain(customKey);
+    expect(formatFailureComment('Taskcell run failed', new Error(customKey))).not.toContain(customKey);
   });
 });

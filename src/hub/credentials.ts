@@ -1,5 +1,5 @@
 // Instance-level provider credentials, encrypted at rest (AES-256-GCM) in `.vanguard-hub/credentials.enc`
-// under the hub's config dir. The key is `VANGUARD_HUB_SECRET` (32 bytes, base64). Write-only API: callers
+// under the hub's config dir. The key is `TASKCELL_HUB_SECRET` (32 bytes, base64). Write-only API: callers
 // only ever see "set" + the last four characters. A stored value is applied to `process.env` (overriding the
 // same variable from the start-up environment), so the next run picks it up and the LLM proxy sidecar
 // still injects it — the sandbox never sees it — and it stays in the injected-secret redaction list.
@@ -9,6 +9,7 @@ import { dirname, join } from 'node:path';
 import { BadRequestError } from '../sidecar/sidecar.js';
 import type { RunCredential } from '../wire.js';
 import type { HubUser } from './auth.js';
+import { readEnv } from '../core/env.js';
 
 export const CREDENTIAL_PROVIDERS = ['claude', 'codex', 'zai', 'openrouter'] as const;
 export type CredentialProvider = (typeof CREDENTIAL_PROVIDERS)[number];
@@ -37,13 +38,13 @@ export interface CredentialsSummary {
   providers: CredentialStatus[];
 }
 
-const DISABLED_REASON = 'VANGUARD_HUB_SECRET is not set; provider credentials come from the hub environment';
+const DISABLED_REASON = 'TASKCELL_HUB_SECRET is not set; provider credentials come from the hub environment';
 const MAGIC = 'VHC1';
 
 function parseKey(raw: string | undefined): { key?: Buffer; reason?: string } {
   if (raw === undefined || raw.trim() === '') return { reason: DISABLED_REASON };
   const key = Buffer.from(raw.trim(), 'base64');
-  if (key.length !== 32) return { reason: 'VANGUARD_HUB_SECRET must be 32 bytes, base64-encoded (e.g. `openssl rand -base64 32`)' };
+  if (key.length !== 32) return { reason: 'TASKCELL_HUB_SECRET must be 32 bytes, base64-encoded (e.g. `openssl rand -base64 32`)' };
   return { key };
 }
 
@@ -56,7 +57,7 @@ function encrypt(key: Buffer, data: Record<string, string>): Buffer {
 
 function decrypt(key: Buffer, blob: Buffer): Record<string, string> {
   const fail = (): never => {
-    throw new Error('credentials.enc cannot be decrypted: VANGUARD_HUB_SECRET is wrong or the file is corrupt');
+    throw new Error('credentials.enc cannot be decrypted: TASKCELL_HUB_SECRET is wrong or the file is corrupt');
   };
   if (blob.length < 4 + 12 + 16 || blob.subarray(0, 4).toString() !== MAGIC) return fail();
   try {
@@ -79,7 +80,7 @@ export class CredentialStore {
   /** Serialises load-modify-save so concurrent set/delete calls neither lose an update nor share the tmp file. */
   private queue: Promise<unknown> = Promise.resolve();
 
-  constructor(configDir: string, secret: string | undefined = process.env.VANGUARD_HUB_SECRET, private readonly env: NodeJS.ProcessEnv = process.env) {
+  constructor(configDir: string, secret: string | undefined = readEnv('TASKCELL_HUB_SECRET'), private readonly env: NodeJS.ProcessEnv = process.env) {
     this.file = join(configDir, '.vanguard-hub', 'credentials.enc');
     const parsed = parseKey(secret);
     this.key = parsed.key;

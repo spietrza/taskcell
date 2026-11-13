@@ -1,5 +1,6 @@
 import { totalmem } from 'node:os';
 import type { IsolatedSandboxProvider } from '../sandbox/provider.js';
+import { readEnv } from './env.js';
 
 const PER_RUN_GB = 2;
 
@@ -9,7 +10,7 @@ const waiters: Array<() => void> = [];
 const releases = new Map<IsolatedSandboxProvider, () => void>();
 
 function defaultLimit(): number {
-  const env = Number(process.env.VANGUARD_MAX_SANDBOXES);
+  const env = Number(readEnv('TASKCELL_MAX_SANDBOXES'));
   if (Number.isFinite(env) && env >= 1) return Math.floor(env);
   // Half of (host RAM / per-run budget), so concurrent sandboxes can't exhaust memory; at least 1.
   return Math.max(1, Math.floor(totalmem() / 1024 ** 3 / PER_RUN_GB / 2));

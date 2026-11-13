@@ -15,12 +15,12 @@ import { createCredentialService } from './credentials.js';
 describe('providersFromEnv', () => {
   test('enables only providers with both id and secret; GitLab takes an issuer', () => {
     const p = providersFromEnv({
-      VANGUARD_HUB_AUTH_GITHUB_CLIENT_ID: 'id',
-      VANGUARD_HUB_AUTH_GITHUB_CLIENT_SECRET: 's',
-      VANGUARD_HUB_AUTH_GITLAB_CLIENT_ID: 'gid',
-      VANGUARD_HUB_AUTH_GITLAB_CLIENT_SECRET: 'gs',
-      VANGUARD_HUB_AUTH_GITLAB_ISSUER: 'https://gitlab.example.com/',
-      VANGUARD_HUB_AUTH_GOOGLE_CLIENT_ID: 'only-id',
+      TASKCELL_HUB_AUTH_GITHUB_CLIENT_ID: 'id',
+      TASKCELL_HUB_AUTH_GITHUB_CLIENT_SECRET: 's',
+      TASKCELL_HUB_AUTH_GITLAB_CLIENT_ID: 'gid',
+      TASKCELL_HUB_AUTH_GITLAB_CLIENT_SECRET: 'gs',
+      TASKCELL_HUB_AUTH_GITLAB_ISSUER: 'https://gitlab.example.com/',
+      TASKCELL_HUB_AUTH_GOOGLE_CLIENT_ID: 'only-id',
     });
     expect(Object.keys(p)).toEqual(['github', 'gitlab']);
     expect(p.gitlab?.issuer).toBe('https://gitlab.example.com');

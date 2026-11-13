@@ -320,15 +320,15 @@ export async function applyDependencyGate(tasks: Task[], opts: DependencyGateOpt
       };
       log(`taskcell: ${task.id} skipped -> ${verdict.status === 'waiting' ? '' : verdict.status === 'invalid' ? 'needs info: ' : ''}${verdict.reason}`);
       if (verdict.status === 'invalid') {
-        await park(opts.needsInfoLabel, `Vanguard cannot start this issue: ${verdict.reason}. Fix it and re-apply \`${opts.trigger}\`.`, waitingBefore ? [GITHUB_WAITING_LABEL] : []);
+        await park(opts.needsInfoLabel, `Taskcell cannot start this issue: ${verdict.reason}. Fix it and re-apply \`${opts.trigger}\`.`, waitingBefore ? [GITHUB_WAITING_LABEL] : []);
       } else if (verdict.status === 'error') {
-        await park(GITHUB_WAITING_LABEL, waitingBefore ? undefined : `Vanguard could not check this issue's dependencies: ${verdict.reason}. It is labelled \`${GITHUB_WAITING_LABEL}\` and will not start until the check succeeds and its dependencies are met. ${RESUME_NOTE(opts.trigger, 'error')}`, []);
+        await park(GITHUB_WAITING_LABEL, waitingBefore ? undefined : `Taskcell could not check this issue's dependencies: ${verdict.reason}. It is labelled \`${GITHUB_WAITING_LABEL}\` and will not start until the check succeeds and its dependencies are met. ${RESUME_NOTE(opts.trigger, 'error')}`, []);
       } else {
         const what = [
           ...(verdict.blockers.length > 0 ? [`is blocked by ${verdict.blockers.map(refText).join(', ')}`] : []),
           ...(verdict.startsAt !== undefined ? [`has a start date of ${verdict.startsAt.toISOString().slice(0, 10)}`] : []),
         ].join(' and ');
-        await park(GITHUB_WAITING_LABEL, waitingBefore ? undefined : `Vanguard will not start this issue yet: it ${what}. It is labelled \`${GITHUB_WAITING_LABEL}\`. ${RESUME_NOTE(opts.trigger)}`, []);
+        await park(GITHUB_WAITING_LABEL, waitingBefore ? undefined : `Taskcell will not start this issue yet: it ${what}. It is labelled \`${GITHUB_WAITING_LABEL}\`. ${RESUME_NOTE(opts.trigger)}`, []);
       }
     } catch (error) {
       log(`taskcell: ${task.id} dependency hold could not be recorded: ${failureReason(error)}`);
@@ -355,7 +355,7 @@ async function holdForOverlap(task: Task, holds: OverlapHold[], ctx: { opts: Dep
     log(`taskcell: ${task.id} skipped -> overlaps ${holds.map(describeHold).join('; ')}`);
     if (findOverlapMarker(comments.slice(0, 1)) === undefined) {
       const until = marker?.until ?? new Date(now.getTime() + holdMs);
-      await commentGithubIssue(opts.repo, task.id, `Vanguard will not start this issue yet: its planned files overlap open factory work: ${holds.map(describeHold).join('; ')}. It is labelled \`${GITHUB_WAITING_LABEL}\` and starts when that work merges or closes, or after at most ${holdMs / 3_600_000} h. ${RESUME_NOTE(opts.trigger)}\n\n${overlapMarker(until, holds)}`, gh);
+      await commentGithubIssue(opts.repo, task.id, `Taskcell will not start this issue yet: its planned files overlap open factory work: ${holds.map(describeHold).join('; ')}. It is labelled \`${GITHUB_WAITING_LABEL}\` and starts when that work merges or closes, or after at most ${holdMs / 3_600_000} h. ${RESUME_NOTE(opts.trigger)}\n\n${overlapMarker(until, holds)}`, gh);
     }
     await gh(['label', 'create', GITHUB_WAITING_LABEL, '--repo', opts.repo, '--force']).catch(() => undefined);
     await editGithubLabels(opts.repo, task.id, { remove: [opts.trigger], add: [GITHUB_WAITING_LABEL] }, gh).catch((error: unknown) => {

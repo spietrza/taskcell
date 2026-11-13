@@ -895,7 +895,7 @@ describe('techSpecStage', () => {
 describe('retrospectiveMemoryBlock', () => {
   it('returns a string containing the advisory sentence and the placeholder', () => {
     const block = retrospectiveMemoryBlock();
-    expect(block).toContain('Retrospective memory from prior Vanguard runs');
+    expect(block).toContain('Retrospective memory from prior Taskcell runs');
     expect(block).toContain('{{RETROSPECTIVE_MEMORY}}');
     expect(block).toContain('<retrospective_memory>');
     expect(block).toContain('</retrospective_memory>');
@@ -907,7 +907,7 @@ describe('retrospective memory placeholders', () => {
     const stages = implementReviewSimplifyStages();
     const implementer = stages.find((s) => s.name === 'implementer');
     expect(implementer?.promptTemplate).toContain('{{RETROSPECTIVE_MEMORY}}');
-    expect(implementer?.promptTemplate).toContain('Retrospective memory from prior Vanguard runs');
+    expect(implementer?.promptTemplate).toContain('Retrospective memory from prior Taskcell runs');
   });
 
   it('reviewer stage does NOT contain {{RETROSPECTIVE_MEMORY}}', () => {
@@ -925,7 +925,7 @@ describe('retrospective memory placeholders', () => {
   it('techSpecStage promptTemplate contains {{RETROSPECTIVE_MEMORY}}', () => {
     const stages = techSpecStage();
     expect(stages[0]?.promptTemplate).toContain('{{RETROSPECTIVE_MEMORY}}');
-    expect(stages[0]?.promptTemplate).toContain('Retrospective memory from prior Vanguard runs');
+    expect(stages[0]?.promptTemplate).toContain('Retrospective memory from prior Taskcell runs');
   });
 });
 
@@ -1500,12 +1500,12 @@ describe('usage cap', () => {
   afterEach(async () => {
     const { resetUtilization } = await import('../core/usage-cap.js');
     resetUtilization();
-    delete process.env['VANGUARD_USAGE_CAP_PCT'];
+    delete process.env['TASKCELL_USAGE_CAP_PCT'];
   });
 
   it('refuses to start a stage on a provider at the cap, with the reset as until', async () => {
     const { recordUtilization, UsageCapError } = await import('../core/usage-cap.js');
-    process.env['VANGUARD_USAGE_CAP_PCT'] = '80';
+    process.env['TASKCELL_USAGE_CAP_PCT'] = '80';
     recordUtilization('p1', { pct: 82, resetsAt: reset });
     const ctx = await prepareContext({ taskId: 'cap1', localRepoPath: repo, baseBranch: 'main', start: 'base', sandbox: makeSandbox() }, { worktrees: new WorktreeManager(repo) });
     const err = await runStages(ctx, [{ name: 'implementer', promptTemplate: 'x' }], { agent: capped('p1') }).catch((e: unknown) => e);
@@ -1516,7 +1516,7 @@ describe('usage cap', () => {
 
   it('falls back only when the fallback is under its own cap', async () => {
     const { recordUtilization, UsageCapError } = await import('../core/usage-cap.js');
-    process.env['VANGUARD_USAGE_CAP_PCT'] = '80';
+    process.env['TASKCELL_USAGE_CAP_PCT'] = '80';
     recordUtilization('p1', { pct: 90, resetsAt: reset });
     recordUtilization('fb', { pct: 10, resetsAt: reset });
     const ctx = await prepareContext({ taskId: 'cap2', localRepoPath: repo, baseBranch: 'main', start: 'base', sandbox: makeSandbox() }, { worktrees: new WorktreeManager(repo) });
@@ -1532,7 +1532,7 @@ describe('usage cap', () => {
 
   it('runs when under the cap or utilization is unknown', async () => {
     const { recordUtilization } = await import('../core/usage-cap.js');
-    process.env['VANGUARD_USAGE_CAP_PCT'] = '80';
+    process.env['TASKCELL_USAGE_CAP_PCT'] = '80';
     recordUtilization('p1', { pct: 50, resetsAt: reset });
     const ctx = await prepareContext({ taskId: 'cap3', localRepoPath: repo, baseBranch: 'main', start: 'base', sandbox: makeSandbox() }, { worktrees: new WorktreeManager(repo) });
     expect(await runStages(ctx, [{ name: 'implementer', promptTemplate: 'x' }], { agent: capped('p1') })).toHaveLength(1);

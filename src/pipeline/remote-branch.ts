@@ -210,7 +210,7 @@ export async function rebaseOntoRemoteBase(run: CommandRunner, cwd: string, opts
   const behindCount = Number.parseInt(behind, 10);
   if (Number.isNaN(behindCount) || behindCount <= 0) return false;
   // The host worktree has no git identity; rebase replays commits and needs one (same as commitStage).
-  const name = opts.authorName ?? 'Vanguard';
+  const name = opts.authorName ?? 'Taskcell';
   const email = opts.authorEmail ?? 'vanguard@local';
   try {
     await run('git', ['-c', `user.name=${name}`, '-c', `user.email=${email}`, 'rebase', '--no-verify', 'FETCH_HEAD'], cwd);
@@ -258,8 +258,8 @@ export async function publishForReview(ctx: RunContext, opts: PublishOptions): P
   const run = opts.runner ?? defaultRunner;
   const tool = opts.cli ?? 'gh';
   // --no-verify skips the target repo's pre-push hook (e.g. a Conventional-Branch name check that
-  // rejects Vanguard's `vanguard/…` branch prefix). The remote enforces no such rule; this is a local
-  // husky gate, redundant with Vanguard's own review + the PR's CI.
+  // rejects Taskcell's `vanguard/…` branch prefix). The remote enforces no such rule; this is a local
+  // husky gate, redundant with Taskcell's own review + the PR's CI.
   const remote = opts.remote ?? 'origin';
   // The base comes from the context: the same branch the worktree was prepared for, no default here.
   const base = ctx.baseBranch;

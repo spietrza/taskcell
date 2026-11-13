@@ -26,7 +26,7 @@ describe('specCommand', () => {
     expect(posted[0]).toContain('<tech_spec>\nGoal: build it\n</tech_spec>');
   });
 
-  it('white-labels the comment under --commit-author (no "Vanguard" token), keeping the tech_spec tag', async () => {
+  it('white-labels the comment under --commit-author (no "Taskcell" token), keeping the tech_spec tag', async () => {
     const posted: string[] = [];
     await specCommand(cmd({ commitAuthor: { name: 'S', email: 's@p.co' } }), {
       generateSpec: async () => 'Goal: build it',
@@ -54,7 +54,7 @@ describe('specCommand', () => {
       expect(posted).toHaveLength(0);
       const written = await readFile(outPath, 'utf8');
       expect(written).toContain('<tech_spec>\nGoal: build it\n</tech_spec>');
-      expect(written).not.toContain('Vanguard');
+      expect(written).not.toContain('Taskcell');
     } finally {
       await rm(outPath, { force: true });
     }

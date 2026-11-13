@@ -146,9 +146,9 @@ async function main(): Promise<void> {
   }
   if (command.kind === 'sidecar') {
     // The JSON protocol owns stdout. Route everything else to stderr so a stray log line can't
-    // corrupt the stream the desktop parses: pino via VANGUARD_SIDECAR (see logger.ts), and the
+    // corrupt the stream the desktop parses: pino via TASKCELL_SIDECAR (see logger.ts), and the
     // runner's console.log/info (e.g. summarizeOutcomes, gate messages) redirected here.
-    process.env.VANGUARD_SIDECAR = '1';
+    process.env.TASKCELL_SIDECAR = '1';
     console.log = (...args: unknown[]): void => console.error(...args);
     console.info = (...args: unknown[]): void => console.error(...args);
     const { runSidecar } = await import('../sidecar/sidecar.js');
@@ -163,7 +163,7 @@ async function main(): Promise<void> {
   if (command.kind === 'complete') {
     // Same stdout discipline as the sidecar: the single JSON response line owns stdout, so a stray
     // log can't corrupt it. Set the gate BEFORE importing the SDK.
-    process.env.VANGUARD_SIDECAR = '1';
+    process.env.TASKCELL_SIDECAR = '1';
     console.log = (...args: unknown[]): void => console.error(...args);
     console.info = (...args: unknown[]): void => console.error(...args);
     console.debug = (...args: unknown[]): void => console.error(...args);

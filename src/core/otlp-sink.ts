@@ -1,9 +1,10 @@
 import { createHash } from 'node:crypto';
 import type { StageMetric } from './run-metric.js';
+import { readEnv } from './env.js';
 
 /**
  * Opt-in OTLP/HTTP JSON trace export: one trace per run, one span per stage, so Langfuse (or any OTLP
- * collector) becomes the cross-run ledger without Vanguard growing a UI of its own. Hand-rolled on
+ * collector) becomes the cross-run ledger without Taskcell growing a UI of its own. Hand-rolled on
  * purpose — the payload is the protobuf-JSON form of ExportTraceServiceRequest, a few object literals;
  * the OpenTelemetry SDK would add a dependency tree for nothing.
  *
@@ -58,30 +59,30 @@ function langfusePath(endpoint: string): boolean {
 /**
  * Resolve the exporter from the host env; undefined = disabled (the default).
  *
- * Endpoint: VANGUARD_OTLP_ENDPOINT, else OTEL_EXPORTER_OTLP_ENDPOINT only with VANGUARD_OTEL=1 — the OTLP base
+ * Endpoint: TASKCELL_OTLP_ENDPOINT, else OTEL_EXPORTER_OTLP_ENDPOINT only with TASKCELL_OTEL=1 — the OTLP base
  * (`https://<langfuse>/api/public/otel` for Langfuse); `/v1/traces` is appended unless already there.
  * Auth, one of:
  * - LANGFUSE_PUBLIC_KEY + LANGFUSE_SECRET_KEY → `Authorization: Basic base64(pk:sk)` plus the
  *   `x-langfuse-ingestion-version: 4` header Langfuse v4 needs for real-time ingestion — attached only
- *   to a Langfuse-shaped endpoint (VANGUARD_OTLP_ENDPOINT, or a path containing `/api/public/otel`),
+ *   to a Langfuse-shaped endpoint (TASKCELL_OTLP_ENDPOINT, or a path containing `/api/public/otel`),
  *   so a generic OTEL_EXPORTER_OTLP_ENDPOINT on the host never receives Langfuse keys, and never over
  *   an Authorization the header list already carries;
- * - VANGUARD_OTLP_HEADERS, else OTEL_EXPORTER_OTLP_HEADERS (only with VANGUARD_OTEL=1) — the OTel `k=v,k2=v2` list, which must
+ * - TASKCELL_OTLP_HEADERS, else OTEL_EXPORTER_OTLP_HEADERS (only with TASKCELL_OTEL=1) — the OTel `k=v,k2=v2` list, which must
  *   carry an `Authorization` entry.
  * An endpoint without auth stays off: OTEL_EXPORTER_OTLP_* are generic names other tooling on the host
  * (Claude Code's own telemetry) may export, and that must not silently start shipping run data.
  */
 export function otlpSinkConfig(env: NodeJS.ProcessEnv = process.env): OtlpSinkConfig | undefined {
-  const own = env['VANGUARD_OTLP_ENDPOINT'];
-  // Explicit opt-in: VANGUARD_OTLP_ENDPOINT, or VANGUARD_OTEL=1 to reuse the generic OTEL_* vars. An
+  const own = readEnv('TASKCELL_OTLP_ENDPOINT', env);
+  // Explicit opt-in: TASKCELL_OTLP_ENDPOINT, or TASKCELL_OTEL=1 to reuse the generic OTEL_* vars. An
   // inherited OTEL_EXPORTER_OTLP_* pair (endpoint + Authorization header) alone never starts an export.
-  const optIn = env['VANGUARD_OTEL'] === '1';
+  const optIn = readEnv('TASKCELL_OTEL', env) === '1';
   if (own === undefined && !optIn) return undefined;
   const endpoint = (own ?? env['OTEL_EXPORTER_OTLP_ENDPOINT'] ?? '').trim().replace(/\/+$/, '');
   if (endpoint === '') return undefined;
   // Same rule for the headers: an inherited OTEL_EXPORTER_OTLP_HEADERS (a corp collector's credential)
-  // never rides to VANGUARD_OTLP_ENDPOINT unless VANGUARD_OTEL=1.
-  const headers = parseHeaderList(env['VANGUARD_OTLP_HEADERS'] ?? (optIn ? env['OTEL_EXPORTER_OTLP_HEADERS'] : undefined) ?? '');
+  // never rides to TASKCELL_OTLP_ENDPOINT unless TASKCELL_OTEL=1.
+  const headers = parseHeaderList(readEnv('TASKCELL_OTLP_HEADERS', env) ?? (optIn ? env['OTEL_EXPORTER_OTLP_HEADERS'] : undefined) ?? '');
   const pk = env['LANGFUSE_PUBLIC_KEY'];
   const sk = env['LANGFUSE_SECRET_KEY'];
   const langfuseShaped = own !== undefined || langfusePath(endpoint);

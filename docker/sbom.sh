@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Generate an SBOM (SPDX JSON) for the vanguard sandbox image with syft.
+# Generate an SBOM (SPDX JSON) for the taskcell sandbox image with syft.
 #   docker/sbom.sh [image] [output]
 set -euo pipefail
 IMAGE="${1:-taskcell-sandbox:latest}"
