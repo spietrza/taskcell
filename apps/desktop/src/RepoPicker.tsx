@@ -8,10 +8,11 @@ import type { DirListing } from './taskcell-output';
 
 type Mode = 'existing' | 'clone';
 
-/** Hub-mode stand-in for the native "Add a repo" folder dialog (no Tauri plugin in a browser):
- * walks `browse_dirs`, confined server-side to the hub's browse root. Two modes share the same
- * browser: **Existing folder** adds whichever git work tree is currently shown (unchanged
- * behavior); **Clone repository** clones a pasted URL into the shown folder as the parent dir. */
+/** The "Add a repo" folder picker: walks `browse_dirs`, or jumps straight to a typed path (the only
+ * way to a folder the tree cannot reach, e.g. another Windows drive). The hub decides what is
+ * allowed: a hub served to a browser confines both to its browse root, the desktop app's own hub
+ * does not. Two modes share the same browser: **Existing folder** adds whichever git work tree is
+ * currently shown; **Clone repository** clones a pasted URL into the shown folder as the parent dir. */
 export function RepoPicker({
   onAdd,
   onClone,
@@ -26,10 +27,10 @@ export function RepoPicker({
   const [mode, setMode] = useState<Mode>('existing');
   const [listing, setListing] = useState<DirListing | null>(null);
   const [error, setError] = useState<string | null>(null);
-  // Whether the CURRENTLY SHOWN directory is itself a git work tree — browse_dirs only reports that
-  // flag for a listing's children, so this is captured from the row that was clicked to get here
-  // (unknown, hence false, at the root and after "up", which the API doesn't flag either).
+  // Whether the CURRENTLY SHOWN directory is itself a git work tree: the listing's own flag, or (a
+  // hub that predates it) the flag of the row that was clicked to get here.
   const [currentIsGit, setCurrentIsGit] = useState(false);
+  const [typedPath, setTypedPath] = useState('');
 
   const [url, setUrl] = useState('');
   const [folderName, setFolderName] = useState('');
@@ -38,8 +39,10 @@ export function RepoPicker({
 
   const navigate = async (path?: string, isGitRepo = false): Promise<void> => {
     try {
-      setListing(await browseDirs(path));
-      setCurrentIsGit(isGitRepo);
+      const next = await browseDirs(path);
+      setListing(next);
+      setCurrentIsGit(next.isGitRepo ?? isGitRepo);
+      setError(null);
     } catch (err) {
       setError(`Could not open that folder: ${errorMessage(err)}`);
     }
@@ -143,6 +146,24 @@ export function RepoPicker({
               {mode === 'clone' ? `Clone into: ${listing?.path ?? 'Loading…'}` : listing?.path ?? 'Loading…'}
             </span>
           </div>
+          <form
+            className="flex items-center gap-2 border-b border-border px-3 py-2"
+            onSubmit={(e) => {
+              e.preventDefault();
+              if (typedPath.trim() !== '') void navigate(typedPath.trim());
+            }}
+          >
+            <Input
+              value={typedPath}
+              onChange={(e) => setTypedPath(e.target.value)}
+              placeholder="Or type a folder path (e.g. D:\code\repo)"
+              aria-label="Folder path"
+              disabled={cloning}
+            />
+            <Button type="submit" variant="text" disabled={typedPath.trim() === '' || cloning}>
+              Go
+            </Button>
+          </form>
           <div className="max-h-80 overflow-auto p-1">
             {error && <div role="alert" className="px-3 py-2 text-sm text-destructive-text">{error}</div>}
             {listing?.entries.map((entry) => (

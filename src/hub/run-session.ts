@@ -1,4 +1,4 @@
-// Port of the run-state machine in apps/desktop/src-tauri/src/sidecar.rs (api_create_run and its
+// Port of the run-state machine in the removed desktop Rust sidecar module (api_create_run and its
 // supporting functions: emit_event, finish_run, resolve_terminal, has_terminal, buffer eviction) —
 // minus the child process and its pipe mutex, since the hub calls the sidecar's typed deps IN-PROCESS.
 // See that file for the original Rust implementation and its "why" comments.
