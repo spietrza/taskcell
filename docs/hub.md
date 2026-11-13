@@ -175,6 +175,25 @@ profile can link to it) created on first start. Every request resolves a user �
 the hub token, or the owner — so teams, roles (#841) and "who started this run" share one code path;
 server-mode user ids are Better Auth's.
 
+**Teams and roles.** A signed-in user sees only the repositories of their teams. A member `login` is the
+user's Better Auth id or their provider-verified e-mail — never the display name, which the user can
+edit. `list_projects`, `list_tasks_all`, `list_runs_all` and `list_needs_you_all` take an optional `teamId`
+(default: the user's first team; a user in no team gets empty lists). Any command naming a repository
+outside the user's teams — reading a run, a session or a file included — is refused, and the run queue,
+active run, run backlog, cancel and the `/events` stream only carry the user's repositories.
+`add_team_member`, `remove_team_member`, `add_team_repository` (a project the admin already holds) and
+`remove_team_repository` need the team's `admin` role; a `member` is refused. A team keeps at least one
+admin. The token holder is the owner, admin of every team, and alone may `add_project` / `remove_project` /
+`clone_project` / `browse_dirs` (a hub-wide remove also leaves every team), use the credential commands and the Fleet
+commands. Token-only mode is unchanged: one default team, the token its admin.
+
+*Adding the first members.* On a fresh server-mode hub the default team has no members, so signed-in users
+see an empty hub until the owner adds them (there is no UI for it yet; use the token):
+
+    curl -X POST "$HUB/rpc/add_team_member" -H "x-vanguard-hub-token: $TOKEN" \
+      -H 'content-type: application/json' -H "origin: $HUB" \
+      -d '{"teamId":"default","login":"alice@example.com","role":"admin"}'
+
 **Token.** `x-vanguard-hub-token` keeps working for the CLI and scripts and maps to the owner user, in
 both modes. In server mode the CLI prints the bare URL (a token in the fragment cannot load a page).
 
