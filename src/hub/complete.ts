@@ -1,4 +1,4 @@
-// Port of the doc-chat one-shot completion path in apps/desktop/src-tauri/src/sidecar.rs
+// Port of the doc-chat one-shot completion path in the removed desktop Rust sidecar module
 // (api_complete / api_cancel_complete / set_base_url / set_asset_root / complete_exchange) — minus
 // the Tauri wrapper. Kept as a per-turn CHILD PROCESS (`vanguard __complete`), not an in-process call:
 // src/api/complete.ts's `runComplete` takes no AbortSignal, so in-process cancellation would require

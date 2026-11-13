@@ -1,4 +1,4 @@
-// listRemoteRuns ports apps/desktop/src-tauri/src/remote.rs; fetchRemoteRun is new (CI artifact import).
+// listRemoteRuns ports the former desktop Rust remote module; fetchRemoteRun is new (CI artifact import).
 import { execa } from 'execa';
 import { cp, lstat, mkdtemp, readdir, rename, rm, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';

@@ -1,4 +1,4 @@
-// Port of apps/desktop/src-tauri/src/active.rs — see that file for the original Rust implementation.
+// Hub-side project/config logic (ported from the removed desktop Rust module).
 import { lstat, readdir, stat } from 'node:fs/promises';
 import { join } from 'node:path';
 import { OPENROUTER_PRICING } from '../core/openrouter-pricing.js';

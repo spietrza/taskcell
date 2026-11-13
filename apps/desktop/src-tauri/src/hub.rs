@@ -86,13 +86,41 @@ fn free_port() -> Result<u16, String> {
     listener.local_addr().map(|a| a.port()).map_err(|e| e.to_string())
 }
 
+/// Hub settings that are the user's own and stay inherited: the credential-store secret, extra clone
+/// hosts, queue size and file-watch tuning.
+const KEPT_HUB_VARS: [&str; 5] = [
+    "VANGUARD_HUB_SECRET",
+    "VANGUARD_HUB_CLONE_HOSTS",
+    "VANGUARD_HUB_MAX_QUEUE",
+    "VANGUARD_HUB_WATCH_POLL",
+    "VANGUARD_HUB_WATCH_INTERVAL_MS",
+];
+
+/// The inherited `VANGUARD_HUB_*` names to remove (case-insensitive: Windows env names are).
+fn inherited_hub_vars_to_drop(names: impl Iterator<Item = std::ffi::OsString>) -> Vec<std::ffi::OsString> {
+    names
+        .filter(|n| {
+            let up = n.to_string_lossy().to_ascii_uppercase();
+            up.starts_with("VANGUARD_HUB_") && !KEPT_HUB_VARS.contains(&up.as_str())
+        })
+        .collect()
+}
+
 fn spawn_hub(app: &AppHandle) -> Result<Child, String> {
     let launch = launch_for(app)?;
     let config_dir = servers::config_dir(app)?;
     std::fs::create_dir_all(&config_dir).map_err(|e| e.to_string())?;
     let port = free_port()?;
-    Command::new(&launch.program)
-        .args(&launch.args)
+    let mut cmd = Command::new(&launch.program);
+    // Start from a fixed set of hub variables: drop every inherited `VANGUARD_HUB_*` (token file, allowed
+    // hosts, UI dir, allow-add, server mode ...) except the few that are the user's own hub settings.
+    for key in inherited_hub_vars_to_drop(std::env::vars_os().map(|(k, _)| k)) {
+        cmd.env_remove(key);
+    }
+    // The native folder picker may land anywhere, so browse (and add) from the filesystem root, not
+    // the home directory (on Windows: the home drive). Hubs served to a browser keep their own default.
+    let browse_root = app.path().home_dir().ok().and_then(|h| h.ancestors().last().map(Path::to_path_buf));
+    cmd.args(&launch.args)
         .args(["hub", "--host", "127.0.0.1", "--port", &port.to_string(), "--no-open", "--repo"])
         .arg(&config_dir)
         .current_dir(&launch.cwd)
@@ -103,8 +131,11 @@ fn spawn_hub(app: &AppHandle) -> Result<Child, String> {
         .env("VANGUARD_HUB_EXIT_ON_STDIN_EOF", "1")
         .stdin(Stdio::piped())
         .stdout(Stdio::piped())
-        .stderr(Stdio::inherit())
-        .spawn()
+        .stderr(Stdio::inherit());
+    if let Some(root) = browse_root {
+        cmd.env("VANGUARD_HUB_BROWSE_ROOT", root);
+    }
+    cmd.spawn()
         .map_err(|e| format!("start {}: {e}", launch.program.display()))
 }
 
@@ -338,6 +369,13 @@ mod tests {
         let port = free_port().unwrap();
         assert!(port > 0);
         assert!(TcpListener::bind(("127.0.0.1", port)).is_ok());
+    }
+
+    #[test]
+    fn scrub_drops_hub_vars_but_keeps_user_settings() {
+        let names = ["VANGUARD_HUB_TOKEN_FILE", "vanguard_hub_allowed_hosts", "VANGUARD_HUB_SECRET", "VANGUARD_HUB_MAX_QUEUE", "PATH"];
+        let dropped = inherited_hub_vars_to_drop(names.iter().map(std::ffi::OsString::from));
+        assert_eq!(dropped, vec![std::ffi::OsString::from("VANGUARD_HUB_TOKEN_FILE"), "vanguard_hub_allowed_hosts".into()]);
     }
 
     #[test]

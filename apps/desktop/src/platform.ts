@@ -30,7 +30,7 @@ export function taskSourceOf(v: string | null | undefined): TaskSourceId {
 }
 /**
  * The configured task source: `taskSource`, else the pre-`taskSource` `source`; undefined when neither
- * holds a known id. Same resolution as the dashboard aggregators (`src/hub/projects.ts`, `projects.rs`).
+ * holds a known id. Same resolution as the dashboard aggregators (`src/hub/projects.ts`).
  */
 export function resolveTaskSource(cfg: { taskSource?: string | null; source?: string | null }): TaskSourceId | undefined {
   return isTaskSourceId(cfg.taskSource) ? cfg.taskSource : isTaskSourceId(cfg.source) ? cfg.source : undefined;

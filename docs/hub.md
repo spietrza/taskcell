@@ -343,7 +343,7 @@ request is replayed, so a run is never started twice.
 | `VANGUARD_HUB_WATCH_POLL` | — |
 | `VANGUARD_HUB_WATCH_INTERVAL_MS` | `2000` |
 | `VANGUARD_HUB_SECRET` | — (32 bytes, base64: `openssl rand -base64 32`. Enables the Settings credential store, `<config dir>/.vanguard-hub/credentials.enc`, AES-256-GCM. A stored Claude/Codex/z.ai/OpenRouter key overrides the same env var; the API is write-only (set + last four characters). Without it the store is disabled and env credentials apply) |
-| `VANGUARD_HUB_BROWSE_ROOT` | `$HOME` |
+| `VANGUARD_HUB_BROWSE_ROOT` | `$HOME` (the desktop app sets the filesystem root of the home drive for its own hub) |
 | `VANGUARD_HUB_ALLOW_ADD` | — |
 | `VANGUARD_HUB_SERVER_MODE` | — (`1` = require sign-in on a loopback bind, for a same-host reverse proxy) |
 | `VANGUARD_HUB_PUBLIC_URL` | `http://<host>:<port>` (server mode: the OAuth callback base) |

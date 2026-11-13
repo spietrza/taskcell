@@ -1,4 +1,4 @@
-// Port of apps/desktop/src-tauri/src/watch.rs — see that file for the original Rust implementation; adds a polling fallback for Docker bind mounts.
+// Hub-side project/config logic (ported from the removed desktop Rust module); adds a polling fallback for Docker bind mounts.
 import { existsSync, watch, type FSWatcher } from 'node:fs';
 import { readdir, stat } from 'node:fs/promises';
 import { join } from 'node:path';

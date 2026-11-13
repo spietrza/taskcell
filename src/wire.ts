@@ -297,7 +297,7 @@ export interface Finding {
 
 /**
  * Persisted run-record shapes. ONE producer: src/core/run-store.ts — the hub reads it directly and
- * the desktop forwards `listRuns`/`readRun` over the sidecar pipe, so src-tauri/src/runs.rs keeps no
+ * the desktop forwards `listRuns`/`readRun` over the sidecar pipe, so the desktop shell keeps no
  * reader and no hand-mirror of these structs (pinned by `src/wire.test.ts`).
  */
 export interface AgentUsage {
@@ -476,7 +476,7 @@ export interface RemoteImport {
 
 /**
  * Where one run's records live, resolved to a root by whichever backend answers `read_run` —
- * Tauri's own per-run cache dir (`src-tauri/src/remote.rs`), the hub's
+ * Tauri's own per-run cache dir (formerly in the desktop shell), the hub's
  * `<project>/.taskcell/remote-runs/<runId>` (`src/hub/runs.ts`). The UI never sees either root: it
  * only carries this discriminant (see `RunRef`).
  */

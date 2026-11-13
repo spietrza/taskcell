@@ -1,4 +1,4 @@
-// Port of apps/desktop/src-tauri/src/drafts.rs — see that file for the original Rust implementation.
+// Hub-side project/config logic (ported from the removed desktop Rust module).
 import { lstat, mkdir, readdir, readFile, rename, rm, stat, unlink, writeFile } from 'node:fs/promises';
 import { join } from 'node:path';
 import { BadRequestError } from '../sidecar/sidecar.js';
