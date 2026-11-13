@@ -2258,7 +2258,10 @@ describe('runRevisePullRequest — taskcell GitHub App', () => {
     const { readyEnvs, pushEnvs, logs, fetched } = await run(200);
     expect(Object.values(pushEnvs[0] ?? {})).toContain(`AUTHORIZATION: basic ${Buffer.from('x-access-token:ghs_app_token_1_Zx9Qw8Er7Ty6Ui5Op4').toString('base64')}`);
     expect(readyEnvs[0]).toEqual({ GH_TOKEN: 'ghs_app_token_2_Zx9Qw8Er7Ty6Ui5Op4' });
+    // Push and undraft each mint (and revoke) their own token; the re-review label never uses the App
+    // (a `labeled` event from taskcell[bot] fails the review's allowed-actors gate).
     expect(fetched.filter((c) => c.startsWith('DELETE'))).toHaveLength(2);
+    expect(logs.some((l) => /re-review \(ready for vanguard review\)$/.test(l))).toBe(true);
     expect(logs.some((l) => /pushed -> feature-branch \(taskcell App token\)/.test(l))).toBe(true);
     expect(logs.some((l) => /undraft -> pr ready \(taskcell App token\)/.test(l))).toBe(true);
   });
@@ -2271,5 +2274,345 @@ describe('runRevisePullRequest — taskcell GitHub App', () => {
     expect(logs.some((l) => /push token unavailable, using the ambient credential/.test(l))).toBe(true);
     expect(logs.some((l) => /pushed -> feature-branch$/.test(l))).toBe(true);
     expect(logs.some((l) => /undraft -> pr ready$/.test(l))).toBe(true);
+  });
+});
+
+describe('runRevisePullRequest base conflicts', () => {
+  let origin: string;
+
+  afterEach(async () => {
+    await rm(origin, { recursive: true, force: true });
+  });
+
+  const commitAll = async (msg: string): Promise<void> => {
+    await execa('git', ['add', '.'], { cwd: repo });
+    await execa('git', ['-c', 'user.email=t@t', '-c', 'user.name=t', 'commit', '-m', msg], { cwd: repo });
+  };
+
+  /** feature-branch and main both change `file`; main is published to a local origin. */
+  async function diverge(file: string): Promise<void> {
+    origin = await mkdtemp(join(tmpdir(), 'vg-origin-'));
+    await execa('git', ['init', '--bare', '-b', 'main'], { cwd: origin });
+    await execa('git', ['remote', 'add', 'origin', origin], { cwd: repo });
+    await execa('git', ['checkout', 'feature-branch'], { cwd: repo });
+    await writeFile(join(repo, file), 'feature line\n');
+    await commitAll('feature change');
+    await execa('git', ['checkout', 'main'], { cwd: repo });
+    await writeFile(join(repo, file), 'main line\n');
+    await commitAll('main change');
+    await execa('git', ['push', 'origin', 'main'], { cwd: repo });
+  }
+
+  async function run(sandboxFiles: Record<string, string>, opts: { body?: string; noop?: boolean; out?: string; headRef?: string } = {}): Promise<{
+    result: Awaited<ReturnType<typeof runRevisePullRequest>>;
+    ghCalls: string[][];
+    pushed: string[];
+    parents: string[];
+    prompt: string;
+    sandboxCalls: string[];
+    tree: string;
+  }> {
+    const ghCalls: string[][] = [];
+    const pushed: string[] = [];
+    const parents: string[] = [];
+    const sandboxCalls: string[] = [];
+    let tree = '';
+    const inputs: AgentRunInput[] = [];
+    const base = makeGh();
+    const gh: GhRunner = async (args) => {
+      ghCalls.push(args);
+      if (args[0] === 'pr' && args[1] === 'review') return '';
+      if (opts.headRef !== undefined && args[0] === 'pr' && args[1] === 'view' && args.some((a) => a.includes('headRefName'))) return makePrViewJson({ headRefName: opts.headRef });
+      if (args[0] === 'api' && opts.body !== undefined && (args.find((a) => a.startsWith('query=')) ?? '').includes('reviewThreads')) {
+        return makeFeedbackJson().replace('Please rename this.', opts.body);
+      }
+      return base(args);
+    };
+    const sandbox = makeSandbox();
+    const copyOut = sandbox.copyFileOut.bind(sandbox);
+    const exec = sandbox.exec.bind(sandbox);
+    sandbox.exec = async (command: string, options?: Parameters<typeof exec>[1]) => { if (command.includes('-delete')) sandboxCalls.push('wipe'); return exec(command, options); };
+    sandbox.copyIn = async () => { sandboxCalls.push('copyIn'); };
+    sandbox.copyFileOut = async (sandboxPath: string, hostPath: string): Promise<void> => {
+      if (opts.noop === true) return mkdir(hostPath, { recursive: true }).then(() => undefined);
+      await copyOut(sandboxPath, hostPath);
+      if (sandboxPath === '/workspace') for (const [f, c] of Object.entries(sandboxFiles)) await writeFile(join(hostPath, f), c);
+    };
+    const result = await runRevisePullRequest('7', {
+      repoPath: repo, repoSlug: 'o/r', gh, _sandbox: sandbox, _agent: agentThatCompletes(inputs),
+      _worktrees: new WorktreeManager(repo), _baseBranch: opts.headRef ?? 'feature-branch', provider: 'claude',
+      ...(opts.out !== undefined ? { out: opts.out } : {}),
+      _pushRunner: async (_f, args, cwd) => {
+        if (args[0] === 'push') {
+          tree = (await execa('git', ['ls-tree', '-r', '--name-only', 'HEAD'], { cwd })).stdout;
+          pushed.push(args.join(' '));
+          parents.push((await execa('git', ['rev-list', '--merges', '--count', 'HEAD'], { cwd })).stdout);
+        }
+        return '';
+      },
+    });
+    return { result, ghCalls, pushed, parents, prompt: inputs[0]?.prompt ?? '', sandboxCalls, tree };
+  }
+
+  const comments = (calls: string[][]): string => calls.filter((a) => a[1] === 'comment' || a[1] === 'review').map((a) => a.join(' ')).join('\n');
+
+  it('clean branch: merges nothing, pushes an ordinary commit, no Merged base section', async () => {
+    await diverge('shared.txt');
+    // Undo the shared edit on the feature side so only main touches shared.txt: the branch merges cleanly.
+    await execa('git', ['checkout', 'feature-branch'], { cwd: repo });
+    await execa('git', ['-c', 'user.email=t@t', '-c', 'user.name=t', 'revert', '--no-edit', 'HEAD'], { cwd: repo });
+    await execa('git', ['checkout', 'main'], { cwd: repo });
+    const { result, pushed, parents, ghCalls, prompt } = await run({});
+    expect(result.pushed).toBe(true);
+    expect(result.conflictUnresolved).toBeUndefined();
+    expect(pushed).toHaveLength(1);
+    expect(parents[0]).toBe('0'); // no merge commit in the pushed history
+    expect(prompt).not.toContain('mid-merge');
+    expect(comments(ghCalls)).not.toContain('Merged base');
+  });
+
+  it('conflicting branch: merges the base, the agent resolves, one merge commit is pushed and the summary lists the files', async () => {
+    await diverge('shared.txt');
+    const { result, pushed, parents, ghCalls, prompt } = await run({ 'shared.txt': 'both lines\n' });
+    expect(prompt).toContain('mid-merge with its base `main`');
+    expect(prompt).toContain('shared.txt');
+    expect(result.pushed).toBe(true);
+    expect(result.conflictUnresolved).toBeUndefined();
+    expect(pushed).toHaveLength(1);
+    expect(parents[0]).toBe('1'); // the base was merged, history not rewritten
+    const text = comments(ghCalls);
+    expect(text).toContain('### Merged base');
+    expect(text).toContain('Merged `main` into the branch; resolved conflicts in: `shared.txt`');
+  });
+
+  describe('a base that changed CI config', () => {
+    /** diverge(), then main also gains a workflow file; the feature commit is re-authored as `email` on branch `head`. */
+    async function divergeWithWorkflow(head: string, email: string): Promise<void> {
+      await diverge('shared.txt');
+      await mkdir(join(repo, '.github', 'workflows'), { recursive: true });
+      await writeFile(join(repo, '.github', 'workflows', 'ci.yml'), 'on: push\n');
+      await commitAll('main workflow');
+      await execa('git', ['push', 'origin', 'main'], { cwd: repo });
+      await execa('git', ['checkout', '-B', head, 'feature-branch'], { cwd: repo });
+      await execa('git', ['-c', `user.email=${email}`, '-c', 'user.name=x', 'commit', '--amend', '--reset-author', '--no-edit'], { cwd: repo });
+      await execa('git', ['checkout', 'main'], { cwd: repo });
+    }
+
+    it('factory branch: rebased, force-pushed with a lease on the PR head, the summary says rebased', async () => {
+      await divergeWithWorkflow('chore/vanguard-x', 'vanguard@local');
+      const { result, pushed, parents, ghCalls, prompt } = await run({ 'shared.txt': 'both lines\n' }, { headRef: 'chore/vanguard-x' });
+      expect(prompt).toContain('mid-rebase onto its base `main`');
+      expect(result.pushed).toBe(true);
+      expect(pushed).toEqual(['push --no-verify --force-with-lease=refs/heads/chore/vanguard-x:deadbeef origin HEAD:refs/heads/chore/vanguard-x']);
+      expect(parents[0]).toBe('0');
+      const text = comments(ghCalls);
+      expect(text).toContain('### Rebased onto base');
+      expect(text).toContain('Rebased the branch onto `main`');
+      expect(text).not.toContain('### Merged base');
+    });
+
+    it.each([
+      ['a same-prefix branch with human commits', 'chore/vanguard-x', 't@t'],
+      ['a human-named branch', 'feature-branch', 'vanguard@local'],
+    ])('%s: no rebase, no push, held for a human', async (_label, head, email) => {
+      await divergeWithWorkflow(head, email);
+      const { result, pushed, ghCalls } = await run({}, { headRef: head });
+      expect(pushed).toEqual([]);
+      expect(result.conflictUnresolved).toEqual(['shared.txt']);
+      expect(comments(ghCalls)).toContain('Could not resolve the conflict with `main`');
+    });
+  });
+
+  it('conflict the agent could not resolve: nothing pushed, "could not resolve" comment, needs revision kept', async () => {
+    await diverge('shared.txt');
+    const { result, pushed, ghCalls } = await run({ 'shared.txt': '<<<<<<< HEAD\nfeature line\n=======\nmain line\n>>>>>>> FETCH_HEAD\n' });
+    expect(result.conflictUnresolved).toEqual(['shared.txt']);
+    expect(result.pushed).toBe(false);
+    expect(pushed).toEqual([]);
+    expect(comments(ghCalls)).toMatch(/Could not resolve the conflict with `main`: `shared\.txt`/);
+    expect(ghCalls.some((a) => a[1] === 'ready')).toBe(false);
+    const edits = ghCalls.filter((a) => a[0] === 'pr' && a[1] === 'edit');
+    expect(edits.some((a) => a.includes('vanguard:revising') && a.includes('--remove-label'))).toBe(true);
+    expect(edits.some((a) => a.includes('needs revision'))).toBe(false);
+    // The agent ran: its cost trace is kept, without a diff (the secret scan never ran).
+    const recordFiles = await readdir(join(repo, '.taskcell', 'runs'), { recursive: true });
+    expect(recordFiles.some((f) => f.endsWith('.json'))).toBe(true);
+    expect(recordFiles.some((f) => f.endsWith('.diff') || f.endsWith('.bundle'))).toBe(false);
+  });
+
+  it('no-op revision on a conflict finding: nothing pushed, not reported as success', async () => {
+    origin = await mkdtemp(join(tmpdir(), 'vg-origin-')); // satisfies afterEach; no remote, so the probe is skipped
+    const { result, pushed, ghCalls } = await run({}, { body: 'The branch conflicts with main. Rebase on main and resolve the conflicts.', noop: true });
+    expect(result.pushed).toBe(false);
+    expect(result.conflictUnresolved).toEqual([]);
+    expect(pushed).toEqual([]);
+    expect(comments(ghCalls)).toContain('Could not resolve the conflict with `main`');
+    expect(ghCalls.some((a) => a[1] === 'ready')).toBe(false);
+  });
+
+  it('refreshes the sandbox from the merged worktree (wipe, then copyIn) and the merge commit drops files the base deleted', async () => {
+    await diverge('shared.txt');
+    await execa('git', ['checkout', 'main'], { cwd: repo });
+    await execa('git', ['rm', '-q', 'README.md'], { cwd: repo });
+    await commitAll('main deletes README');
+    await execa('git', ['push', 'origin', 'main'], { cwd: repo });
+    const { result, sandboxCalls, tree } = await run({ 'shared.txt': 'both lines\n' });
+    expect(result.pushed).toBe(true);
+    expect(sandboxCalls).toEqual(['copyIn', 'wipe', 'copyIn']); // prepare, then wipe + re-copy after the merge
+    expect(tree).not.toContain('README.md');
+    expect(tree).toContain('shared.txt');
+  });
+
+  it('a revision diff on a conflicted branch carries the resolution, not the base-only changes', async () => {
+    await diverge('shared.txt');
+    await execa('git', ['checkout', 'main'], { cwd: repo });
+    await writeFile(join(repo, 'baseonly.txt'), 'b\n');
+    await commitAll('base only');
+    await execa('git', ['push', 'origin', 'main'], { cwd: repo });
+    const { ghCalls } = await run({ 'shared.txt': 'both lines\n' });
+    expect(comments(ghCalls)).not.toContain('baseonly.txt');
+  });
+
+  it('a modify/delete conflict is held for a human before the agent runs', async () => {
+    origin = await mkdtemp(join(tmpdir(), 'vg-origin-'));
+    await execa('git', ['init', '--bare', '-b', 'main'], { cwd: origin });
+    await execa('git', ['remote', 'add', 'origin', origin], { cwd: repo });
+    await execa('git', ['checkout', 'feature-branch'], { cwd: repo });
+    await writeFile(join(repo, 'README.md'), 'changed on the PR\n');
+    await commitAll('feature edits README');
+    await execa('git', ['checkout', 'main'], { cwd: repo });
+    await execa('git', ['rm', '-q', 'README.md'], { cwd: repo });
+    await commitAll('main deletes README');
+    await execa('git', ['push', 'origin', 'main'], { cwd: repo });
+    const { result, pushed, prompt, ghCalls } = await run({});
+    expect(prompt).toBe('');
+    expect(result.conflictUnresolved).toEqual(['README.md']);
+    expect(pushed).toEqual([]);
+    expect(comments(ghCalls)).toContain('Could not resolve the conflict with `main`: `README.md`');
+  });
+
+  it('--out: an unresolved conflict is written to the preview file and nothing is posted', async () => {
+    await diverge('shared.txt');
+    const out = join(repo, 'preview', 'out.md');
+    const { result, ghCalls, pushed } = await run({ 'shared.txt': '<<<<<<< HEAD\nx\n=======\ny\n>>>>>>> m\n' }, { out });
+    expect(result.conflictUnresolved).toEqual(['shared.txt']);
+    expect(await readFile(out, 'utf8')).toContain('Could not resolve the conflict with `main`');
+    expect(pushed).toEqual([]);
+    expect(ghCalls.some((a) => a[1] === 'comment' || a[1] === 'review' || a[1] === 'edit')).toBe(false);
+  });
+
+  it('a no-op round on a cleanly merging branch is not reported as a conflict even if a comment says "conflicts"', async () => {
+    await diverge('shared.txt');
+    await execa('git', ['checkout', 'feature-branch'], { cwd: repo });
+    await execa('git', ['-c', 'user.email=t@t', '-c', 'user.name=t', 'revert', '--no-edit', 'HEAD'], { cwd: repo });
+    await execa('git', ['checkout', 'main'], { cwd: repo });
+    const { result, ghCalls } = await run({}, { body: 'This conflicts with our naming convention.', noop: true });
+    expect(result.conflictUnresolved).toBeUndefined();
+    expect(comments(ghCalls)).not.toContain('Could not resolve');
+  });
+});
+
+describe('runRevisePullRequest blocking-item checklist', () => {
+  const findingsComment = {
+    author: { login: 'alice' }, authorAssociation: 'COLLABORATOR',
+    body: 'Findings to address:\n- `parse()` drops the last row\n- missing test for empty input',
+    createdAt: '2024-01-11T10:02:00Z',
+  };
+
+  // laterStagesOnly: only the stages after the implementer (no checklist in their prompt) write `text`.
+  function agentWithText(text: string, received: AgentRunInput[] = [], laterStagesOnly = false): AgentProvider {
+    return {
+      name: 'claude-code',
+      async *run(input: AgentRunInput): AsyncGenerator<AgentTurn, AgentRunOutput, void> {
+        received.push(input);
+        yield { text: 'applying fix' };
+        const answer = laterStagesOnly && input.prompt.includes('<blocking_checklist>') ? '' : text;
+        return { finalText: `${answer}\n<promise>COMPLETE</promise>`, turns: 1, sessionId: 'sess-1' };
+      },
+    };
+  }
+
+  async function run(text: string, opts: { noChange?: boolean; laterStagesOnly?: boolean } = {}): Promise<{ ghCalls: string[][]; ghEnvs: Array<Record<string, string> | undefined>; pushes: string[][]; prompt: string; result: Promise<unknown> }> {
+    const ghEnvs: Array<Record<string, string> | undefined> = [];
+    const ghCalls: string[][] = [];
+    const pushes: string[][] = [];
+    const inputs: AgentRunInput[] = [];
+    const gh: GhRunner = async (args, env) => {
+      ghEnvs.push(env);
+      ghCalls.push(args);
+      if (args[0] === 'pr' && args[1] === 'view') return makePrViewJson();
+      if (args[0] === 'pr' && args[1] === 'diff') return 'diff --git a/fix.txt';
+      if (args[0] === 'api' && args[1] === 'graphql') {
+        const query = args.find((a) => a.startsWith('query=')) ?? '';
+        if (query.includes('reviewThreads')) return makeFeedbackJson({ comments: { nodes: [findingsComment] } });
+        return JSON.stringify({ data: {} });
+      }
+      return '';
+    };
+    const sandbox = makeSandbox();
+    if (opts.noChange === true) sandbox.copyFileOut = async (p: string, host: string): Promise<void> => { if (p === '/workspace') await mkdir(host, { recursive: true }); };
+    const result = runRevisePullRequest('7', {
+      repoPath: repo, repoSlug: 'o/r', gh, _sandbox: sandbox, _agent: agentWithText(text, inputs, opts.laterStagesOnly),
+      _worktrees: new WorktreeManager(repo), _baseBranch: 'feature-branch', provider: 'claude', log: () => {},
+      _pushRunner: async (file, args) => { if (file === 'git') pushes.push(args); return ''; },
+    });
+    await result.catch(() => undefined);
+    return { ghCalls, ghEnvs, pushes, prompt: inputs[0]?.prompt ?? '', result };
+  }
+
+  const reReview = (calls: string[][]): boolean =>
+    calls.some((a) => a[0] === 'pr' && a[1] === 'edit' && a.includes('--add-label') && a.includes('ready for vanguard review'));
+  const summary = (calls: string[][]): string =>
+    calls.filter((a) => a[0] === 'pr' && a[1] === 'comment').map((a) => a[a.indexOf('--body') + 1] ?? '').find((b) => b.includes('Revision Summary')) ?? '';
+
+  it('lists the items as a numbered checklist, records all fixed, and re-requests review after the push', async () => {
+    const { ghCalls, pushes, prompt, result } = await run('<checklist_answers>\n1. FIXED: parse() in src/a.ts — keeps the last row\n2. FIXED: src/a.test.ts — empty-input case\n</checklist_answers>');
+    await expect(result).resolves.toMatchObject({ pushed: true });
+    expect(prompt).toContain('<blocking_checklist>\n1. `parse()` drops the last row\n2. missing test for empty input\n</blocking_checklist>');
+    expect(pushes.some((a) => a[0] === 'push')).toBe(true);
+    expect(summary(ghCalls)).toContain('1. `parse()` drops the last row — **fixed**: parse() in src/a.ts');
+    expect(reReview(ghCalls)).toBe(true);
+    expect(ghCalls.some((a) => a[0] === 'pr' && a[1] === 'edit' && a.includes('--remove-label') && a.includes('vanguard:reviewed'))).toBe(true);
+  });
+
+  it('adds the re-review label with the push token, so the labeled event starts a review run', async () => {
+    const original = process.env.VANGUARD_PUSH_TOKEN;
+    process.env.VANGUARD_PUSH_TOKEN = 'test-pat';
+    try {
+      const { ghCalls, ghEnvs, result } = await run('1. FIXED: src/a.ts — done\n2. FIXED: src/a.test.ts — added');
+      await expect(result).resolves.toMatchObject({ pushed: true });
+      const at = ghCalls.findIndex((a) => a[0] === 'pr' && a[1] === 'edit' && a.includes('--add-label') && a.includes('ready for vanguard review'));
+      expect(at).toBeGreaterThanOrEqual(0);
+      expect(ghEnvs[at]).toEqual({ GH_TOKEN: 'test-pat' });
+    } finally {
+      if (original === undefined) delete process.env.VANGUARD_PUSH_TOKEN;
+      else process.env.VANGUARD_PUSH_TOKEN = original;
+    }
+  });
+
+  it('reports a not-fixed item in the summary', async () => {
+    const { ghCalls, result } = await run('1. FIXED: src/a.ts — done\n2. NOT FIXED: needs a fixture that does not exist yet');
+    await expect(result).resolves.toMatchObject({ pushed: true });
+    expect(summary(ghCalls)).toContain('2. missing test for empty input — **not fixed**: needs a fixture that does not exist yet');
+  });
+
+  it('fails the revision when an item has no answer, pushing and re-reviewing nothing', async () => {
+    const { ghCalls, pushes, result } = await run('1. FIXED: src/a.ts — done');
+    await expect(result).rejects.toThrow(/no answer/);
+    expect(pushes.some((a) => a[0] === 'push')).toBe(false);
+    expect(summary(ghCalls)).toBe('');
+    expect(reReview(ghCalls)).toBe(false);
+  });
+
+  it('takes the answers from the implementer only, not from a later stage', async () => {
+    const { pushes, result } = await run('1. FIXED: src/a.ts — done\n2. FIXED: src/a.test.ts — added', { laterStagesOnly: true });
+    await expect(result).rejects.toThrow(/no answer/);
+    expect(pushes.some((a) => a[0] === 'push')).toBe(false);
+  });
+
+  it('does not report success or re-request review when nothing was pushed with items open', async () => {
+    const { ghCalls, result } = await run('1. DISPUTED: src/a.ts — already handled\n2. NOT FIXED: out of scope', { noChange: true });
+    await expect(result).rejects.toThrow(/pushed nothing/);
+    expect(reReview(ghCalls)).toBe(false);
   });
 });

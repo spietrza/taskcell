@@ -96,6 +96,13 @@ describe('revisePrCommand', () => {
     expect(logs.some((l) => l.includes('no changes') || l.includes('dry-run written'))).toBe(false);
   });
 
+  it('logs FAILED and rejects (non-zero exit) when the PR still conflicts with its base', async () => {
+    const logs: string[] = [];
+    const revisePullRequest = vi.fn(async (): Promise<ReviseGithubPrResult> => ({ ...makeResult(false), conflictUnresolved: ['a.ts'] }));
+    await expect(revisePrCommand(makeCmd(), { revisePullRequest, log: (line) => logs.push(line) })).rejects.toThrow(/could not resolve the conflict/);
+    expect(logs.some((l) => /FAILED .*conflict.*a\.ts/.test(l))).toBe(true);
+  });
+
   it('passes prRef from --github-pr via cmd.prRef', async () => {
     const revisePullRequest = vi.fn(async (): Promise<ReviseGithubPrResult> => makeResult());
     await revisePrCommand(makeCmd({ prRef: 'https://github.com/o/r/pull/42' }), { revisePullRequest });

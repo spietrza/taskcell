@@ -13,6 +13,8 @@ import {
   revisionMarker,
   buildItemReply,
   buildRevisionSummary,
+  buildRevisionChecklist,
+  parseChecklistAnswers,
   buildRevisionDryRun,
   parseRevisionDiff,
   formatFileChanges,
@@ -20,8 +22,10 @@ import {
   guardedPoint,
 } from './pr-feedback.js';
 import type { FeedbackItem } from './pr-feedback.js';
-import { prepareContext, disposeContext } from '../core/taskcell.js';
+import { prepareContext, disposeContext, refreshSandboxWorkspace } from '../core/taskcell.js';
+import { mergeBaseIntoWorktree, filesWithConflictMarkers, formatConflictFiles } from './base-merge.js';
 import type { RunContext } from '../core/taskcell.js';
+import { VANGUARD_BRANCH_PREFIX } from '../worktree/manager.js';
 import { baseBranchOrDefault } from '../core/base-branch.js';
 import { literalPrompt } from '../context/prompt-engine.js';
 import { skillRegistryForRun } from '../context/skill-registry.js';
@@ -40,6 +44,8 @@ import { renderSecretBlockComment } from '../core/secret-scan.js';
 import { credentialLabel, releaseToken, tokenProviderFor } from '../core/push-token.js';
 import { resolveToken } from '../pipeline/remote-branch.js';
 import { deliverChange, scanOutgoingForSecrets } from './deliver-change.js';
+import { execa } from 'execa';
+import { hostGitArgs } from '../worktree/host-git.js';
 import { dischargePrBodyItemsBlock, extractPrBodyItemsBlock, parseSpecManifest, extractTaskIdFromPrBody, scanCommitClosingKeywords } from '../pipeline/conformance-gate.js';
 import type { VerificationResult } from '../pipeline/verify.js';
 import {
@@ -53,7 +59,7 @@ import {
   withPrimaryFallback,
   STAGE,
 } from '../pipeline/pipeline.js';
-import { droppedCiPathsNote } from '../pipeline/remote-branch.js';
+import { droppedCiPathsNote, pushToExistingBranch } from '../pipeline/remote-branch.js';
 import { defaultGhRunner, GitHubTaskFetcher } from '../tasks/github.js';
 import { modelFromLabels } from './source-adapter.js';
 import { DockerSandboxProvider, sandboxImage } from '../sandbox/docker.js';
@@ -77,6 +83,9 @@ import type { AgentProvider } from '../agents/provider.js';
 const NEEDS_REVISION_LABEL = 'needs revision';
 const VANGUARD_REVISING_LABEL = 'vanguard:revising';
 const DEFAULT_MAX_ROUNDS = 2;
+// The trigger the PR-review workflow listens for (taskcell-pr-review.yml) and the marker a finished review leaves.
+const REVIEW_TRIGGER_LABEL = 'ready for vanguard review';
+const REVIEWED_LABEL = 'vanguard:reviewed';
 // secret-blocked is removed too: a round that pushes cleanly after the human stripped the secret must
 // not leave the PR mapped to verify-failed on the board.
 // rate-limited too: a round that ran must not be re-triggered by the resume sweep.
@@ -152,6 +161,8 @@ export interface ReviseGithubPrResult {
   dryRunOut?: string;
   /** The revision diff carried a secret (or the scan failed): nothing was committed or pushed; `addressed` counts the items abandoned. */
   secretBlocked?: boolean;
+  /** The PR still conflicts with its base (the agent left markers, or a conflict finding produced no change): nothing was pushed and `needs revision` stays for a human. */
+  conflictUnresolved?: string[];
 }
 
 function editPrLabels(
@@ -190,6 +201,64 @@ async function handBackPrLabels(
 }
 
 /**
+ * Run one gh call as the push token's owner first (GH_TOKEN for this call only), logging `action` with
+ * the credential actually resolved, not with which env vars are set. Refused → log `refused` and retry
+ * with the ambient credential.
+ */
+async function ghAsPushTokenOwner(
+  gh: GhRunner,
+  args: string[],
+  tokenProvider: () => Promise<string | undefined>,
+  log: (line: string) => void,
+  action: string,
+  refused: string,
+): Promise<void> {
+  const pushToken = await resolveToken(tokenProvider, undefined, log);
+  log(`${action}${credentialLabel(pushToken)}`);
+  if (pushToken) {
+    try {
+      await gh(args, { GH_TOKEN: pushToken });
+      return;
+    } catch {
+      log(refused);
+    } finally {
+      await releaseToken(pushToken);
+    }
+  }
+  await gh(args);
+}
+
+/**
+ * After a push, re-request the review: drop the reviewed marker and the trigger label, then add the
+ * trigger back so a fresh `labeled` event starts the review of the new head. The add goes out as the
+ * VANGUARD_PUSH_TOKEN (PAT) owner, never the taskcell App: a `labeled` event from the ambient GITHUB_TOKEN
+ * starts no workflow, and one sent by `taskcell[bot]` fails the review's allowed-actors gate
+ * (taskcell-pr-review.yml labels App PRs with the PAT for the same reason). Without the PAT, or refused,
+ * the ambient credential still sets the label but no review run starts. Best-effort.
+ */
+async function requestReReview(
+  gh: GhRunner,
+  repoSlug: string,
+  number: number,
+  log: (line: string) => void,
+): Promise<void> {
+  try {
+    await gh(['label', 'create', REVIEW_TRIGGER_LABEL, '--repo', repoSlug, '--force']).catch(() => undefined);
+    await editPrLabels(gh, repoSlug, number, { remove: [REVIEWED_LABEL, REVIEW_TRIGGER_LABEL] }).catch(() => undefined);
+    await ghAsPushTokenOwner(
+      gh,
+      ['pr', 'edit', String(number), '--repo', repoSlug, '--add-label', REVIEW_TRIGGER_LABEL],
+      async () => process.env.VANGUARD_PUSH_TOKEN || undefined,
+      log,
+      `revise-pr ${repoSlug}#${number}: labels -> re-review (${REVIEW_TRIGGER_LABEL})`,
+      `revise-pr ${repoSlug}#${number}: re-review label with the push token failed, retrying with the ambient credential (no review run will start)`,
+    );
+  } catch (err) {
+    log(`revise-pr ${repoSlug}#${number}: re-review label -> manual label check (${err instanceof Error ? err.message : String(err)})`);
+  }
+}
+
+/**
  * Flag the PR as touching gate config, so a weakening pushed in a revise round reaches the same
  * human gate the first delivery raises (source-adapter.ts). Unlike the hand-back labels this is NOT
  * best-effort: the label IS the gate, so a failed flip is reported (it propagates to the caller's
@@ -224,21 +293,14 @@ async function markReady(
   tokenProvider: () => Promise<string | undefined>,
   log: (line: string) => void,
 ): Promise<void> {
-  const args = ['pr', 'ready', String(number), '--repo', repoSlug];
-  const pushToken = await resolveToken(tokenProvider, undefined, log);
-  // Labelled from the credential actually resolved, not from which env vars are set.
-  log(`revise-pr ${repoSlug}#${number}: undraft -> pr ready${credentialLabel(pushToken)}`);
-  if (pushToken) {
-    try {
-      await gh(args, { GH_TOKEN: pushToken });
-      return;
-    } catch {
-      log(`revise-pr ${repoSlug}#${number}: pr ready with the push token failed, retrying with the ambient credential`);
-    } finally {
-      await releaseToken(pushToken);
-    }
-  }
-  await gh(args);
+  await ghAsPushTokenOwner(
+    gh,
+    ['pr', 'ready', String(number), '--repo', repoSlug],
+    tokenProvider,
+    log,
+    `revise-pr ${repoSlug}#${number}: undraft -> pr ready`,
+    `revise-pr ${repoSlug}#${number}: pr ready with the push token failed, retrying with the ambient credential`,
+  );
 }
 
 /**
@@ -439,11 +501,13 @@ export async function runRevisePullRequest(prRef: string, deps: ReviseGithubPrDe
       });
 
     const taskId = `revise-pr-${target.repoSlug.replace(/[^a-zA-Z0-9]/g, '-')}-${target.number}`;
-    // One RunWriter for the whole revision round, shared by the two (mutually exclusive) writeStages
+    // One RunWriter for the whole revision round, shared by the (mutually exclusive) writeStages
     // calls below, for consistency with runSourcedIssue's writer.
     const writer = beginRun(deps.repoPath, taskId, undefined, { secretEnvVars: providerKeyEnvNames(deps) });
     const revisionStageMeta = { flow: 'revise', provider: agents.agent.name };
     let outcomes: StageOutcome[] = [];
+    // For paths where the secret scan never ran: keep the cost trace, keep the diff off disk.
+    const writeStagesWithoutDiff = (): Promise<void> => writer.writeStages(outcomes, { ...revisionStageMeta, omitDiff: true });
     // One block per revision in the Actions job's Summary tab (no GITHUB_STEP_SUMMARY ⇒ no-op).
     const stepSummary = (exit: StepSummaryExit, extra: Pick<StepSummary, 'error'> = {}): Promise<void> => {
       const model = outcomes.find((o) => o.name === STAGE.IMPLEMENTER)?.result.model ?? effectiveModel;
@@ -531,15 +595,77 @@ export async function runRevisePullRequest(prRef: string, deps: ReviseGithubPrDe
         });
       }
 
+      // A branch that no longer merges into its base is merged here (a merge commit), or, when the base changed CI config and the branch is the factory's, rebased onto it:
+      // conflict markers are left in the worktree for the agent, and the gate below runs on the result.
+      const baseName = baseBranchOrDefault(pr.baseRefName, `PR ${target.repoSlug}#${target.number}`);
+      const baseMerge = await mergeBaseIntoWorktree(ctx.worktreePath, baseName, {
+        ...(deps.commitAuthor !== undefined ? { authorName: deps.commitAuthor.name, authorEmail: deps.commitAuthor.email } : {}),
+        // Only a factory branch (its prefix) may be rewritten; base-merge also requires every commit on it to carry the factory identity.
+        factoryOwned: pr.headRefName.startsWith(VANGUARD_BRANCH_PREFIX),
+      });
+      if (baseMerge.status === 'skipped') log(`revise-pr ${target.repoSlug}#${target.number}: base merge check skipped (${baseMerge.reason})`);
+      const conflicted = baseMerge.status === 'conflicted' ? baseMerge.files : [];
+      const mergedBase = baseMerge.status === 'conflicted' && baseMerge.unresolvable.length === 0 ? { base: baseName, files: conflicted, ...(baseMerge.rebased === true ? { rebased: true } : {}) } : undefined;
+      const forceWithLease = mergedBase?.rebased === true ? pr.headRefOid : undefined;
+      // Never report success on a PR that still conflicts: say so on the PR and leave `needs revision`
+      // for a human (only the in-flight label goes, as for a rate limit).
+      const holdForConflict = async (files: string[], reason?: string): Promise<ReviseGithubPrResult> => {
+        const notice = `Could not resolve the conflict with \`${baseName}\`: ${formatConflictFiles(files)}${reason !== undefined ? ` (${reason})` : ''}. No changes were pushed; please merge \`${baseName}\` into this branch by hand.`;
+        log(`revise-pr ${target.repoSlug}#${target.number}: ${notice}`);
+        if (deps.out !== undefined) {
+          const dryRunOut = await writeDryRun(deps.out, `# Revision dry run: ${target.repoSlug}#${target.number}\n\n${notice}\n`);
+          return { pr, ignoredFeedback, addressed: 0, committed: false, pushed: false, undrafted: false, conflictUnresolved: files, dryRunOut };
+        }
+        await postPullRequestReview(target, notice, 'comment', gh);
+        await editPrLabels(gh, target.repoSlug, target.number, { remove: [VANGUARD_REVISING_LABEL] }).catch(() => undefined);
+        await stepSummary('error', { error: notice });
+        return { pr, ignoredFeedback, addressed: 0, committed: false, pushed: false, undrafted: false, conflictUnresolved: files };
+      };
+
+      // Conflicts with no markers to resolve (modify/delete, rename, binary) are left to a human.
+      if (baseMerge.status === 'conflicted' && baseMerge.unresolvable.length > 0) return await holdForConflict(baseMerge.unresolvable, baseMerge.reason);
+      if (mergedBase !== undefined) {
+        log(`revise-pr ${target.repoSlug}#${target.number}: ${baseName} conflicts with the branch (${formatConflictFiles(conflicted)}) -> ${mergedBase.rebased === true ? 'rebased' : 'merged'}, agent resolves`);
+        await refreshSandboxWorkspace(ctx);
+      }
+
       // Override the implementer's promptTemplate with the revision prompt. It holds review comments and
       // the diff, so it goes in as a variable and is never expanded as a template (see literalPrompt).
-      const { promptTemplate, variables } = literalPrompt(buildRevisionPrompt(pr, actionable));
+      const checklist = buildRevisionChecklist(fb, actionable, deps.botLogins);
+      const { promptTemplate, variables } = literalPrompt(buildRevisionPrompt(pr, actionable, mergedBase, checklist));
       pipeline = pipeline.map((stage) =>
         stage.name === STAGE.IMPLEMENTER ? { ...stage, promptTemplate } : stage,
       );
 
       log(`revise-pr ${target.repoSlug}#${target.number}: agent -> implementing`);
       outcomes = await runStages(ctx, pipeline, { agent: agents.agent, variables });
+      const stillConflicted = await filesWithConflictMarkers(ctx.worktreePath, conflicted);
+      if (stillConflicted.length > 0) {
+        await writeStagesWithoutDiff();
+        return await holdForConflict(stillConflicted);
+      }
+
+      // Every checklist item needs an answer from the agent; a missing one fails the revision rather than
+      // reporting success. Only the implementer is given the checklist: a reviewer or simplifier line shaped
+      // like an answer must not stand in for one. --out is a dry run and never posts.
+      const answers = parseChecklistAnswers(
+        outcomes.filter((o) => o.name === STAGE.IMPLEMENTER).map((o) => o.result.finalText).join('\n'),
+        checklist.length,
+      );
+      const unanswered = checklist.filter((_, i) => answers[i] === undefined);
+      const failOpenItems = async (notice: string): Promise<never> => {
+        log(`revise-pr ${target.repoSlug}#${target.number}: ${notice}`);
+        if (deps.out === undefined) {
+          await postPullRequestReview(target, notice, 'comment', gh).catch(() => undefined);
+          await editPrLabels(gh, target.repoSlug, target.number, { remove: [VANGUARD_REVISING_LABEL] }).catch(() => undefined);
+        }
+        throw new TaskcellError(`revise-pr ${target.repoSlug}#${target.number}: ${notice}`);
+      };
+      if (unanswered.length > 0) {
+        await writeStagesWithoutDiff();
+        return await failOpenItems(`Revision failed: ${unanswered.length} blocking item(s) have no answer (fixed / not fixed / disputed), nothing was pushed:\n${unanswered.map((t) => `- ${t}`).join('\n')}`);
+      }
+      const checklistAnswers = checklist.map((text, i) => ({ text, answer: answers[i]! }));
 
       // Run the resolved verification command after applying changes and before pushing, with one
       // bounded repair iteration on red — reusing renderVerificationFeedback and the same resume
@@ -576,8 +702,7 @@ export async function runRevisePullRequest(prRef: string, deps: ReviseGithubPrDe
         revisionDiff = await ctx.wm.diff(ctx.worktreePath);
         gateDiff = await ctx.wm.outgoingDiff(ctx.worktreePath);
       } catch (err) {
-        // Nothing is known about the content on this path (the scan never ran): keep the payloads off disk.
-        await writer.writeStages(outcomes, { ...revisionStageMeta, omitDiff: true });
+        await writeStagesWithoutDiff();
         throw err;
       }
       const whiteLabel = deps.commitAuthor !== undefined;
@@ -658,13 +783,14 @@ export async function runRevisePullRequest(prRef: string, deps: ReviseGithubPrDe
       // deliverChange owns the order: secret scan on the revision diff → commit → push onto the PR branch.
       const delivery = await deliverChange(ctx, {
         taskId: `${target.repoSlug}#${target.number}`,
-        commitMessage: `fix: address review feedback (${target.repoSlug}#${target.number})`,
+        commitMessage: `fix: address review feedback${mergedBase !== undefined ? ` and ${mergedBase.rebased === true ? 'rebase onto' : 'merge'} ${baseName}` : ''} (${target.repoSlug}#${target.number})`,
         ...(deps.commitAuthor !== undefined ? { commitAuthor: deps.commitAuthor } : {}),
         secretEnvVars,
         target: {
           kind: 'existing-branch',
           prHeadRef: pr.headRefName,
           tokenProvider,
+          ...(forceWithLease !== undefined ? { forceWithLease } : {}),
           ...(deps._pushRunner !== undefined ? { runner: deps._pushRunner } : {}),
         },
       });
@@ -674,14 +800,29 @@ export async function runRevisePullRequest(prRef: string, deps: ReviseGithubPrDe
         // than strand the PR silently.
         throw new TaskcellError(`revise-pr ${target.repoSlug}#${target.number}: secret found at delivery after a clean pre-scan`);
       }
-      if (delivery.kind === 'no-changes') {
+      if (delivery.kind === 'no-changes' && mergedBase === undefined) {
+        // A conflict finding that changed nothing, with no way to tell whether the branch still conflicts
+        // (the base check was skipped), is a failure, not a quiet success.
+        if (baseMerge.status === 'skipped' && actionable.some((item) => /\bconflict/i.test(item.body))) return await holdForConflict([]);
+        if (checklist.length > 0) {
+          return await failOpenItems(`Revision pushed nothing although ${checklist.length} blocking item(s) were open:\n${checklistAnswers.map(({ text, answer }, i) => `${i + 1}. ${text} — ${answer.status}: ${answer.detail}`).join('\n')}`);
+        }
         log(`revise-pr ${target.repoSlug}#${target.number}: no changes — skipping push`);
         await stepSummary('no-changes');
         return { pr, ignoredFeedback, addressed: 0, committed: false, pushed: false, undrafted: false };
       }
-      if (delivery.kind !== 'delivered-push') throw new TaskcellError(`unexpected delivery outcome ${delivery.kind} for an existing-branch target`);
+      let sha: string;
+      if (delivery.kind === 'delivered-push') {
+        sha = delivery.sha;
+      } else if (delivery.kind === 'no-changes') {
+        // The agent kept the branch's side of every conflict and changed nothing else: the local merge
+        // (or rebased) HEAD itself is what goes out.
+        await pushToExistingBranch(ctx, { prHeadRef: pr.headRefName, host: 'github.com', tokenProvider, ...(forceWithLease !== undefined ? { forceWithLease } : {}), ...(deps._pushRunner !== undefined ? { runner: deps._pushRunner } : {}) });
+        sha = (await execa('git', hostGitArgs(['rev-parse', 'HEAD']), { cwd: ctx.worktreePath })).stdout.trim();
+      } else {
+        throw new TaskcellError(`unexpected delivery outcome ${delivery.kind} for an existing-branch target`);
+      }
       log(`revise-pr ${target.repoSlug}#${target.number}: pushed -> ${pr.headRefName}${pushedWith}`);
-      const sha = delivery.sha;
 
       // Re-derive the PR body from the CURRENT diff on every cycle so a stale `Closes #N` can never
       // survive a revision that regressed (alpha-window#901 kept a stale Closes through two review
@@ -742,6 +883,9 @@ export async function runRevisePullRequest(prRef: string, deps: ReviseGithubPrDe
         deferred: [],
         verification: { typecheck: verificationStatus, test: verificationStatus },
         whiteLabel,
+        ...(checklistAnswers.length > 0 ? { checklist: checklistAnswers } : {}),
+        ...(mergedBase !== undefined ? { mergedBase } : {}),
+        ...(baseMerge.status === 'skipped' ? { baseCheckSkipped: { base: baseName, reason: baseMerge.reason } } : {}),
       });
       // The gate on checker config is per-push, not per-PR (#627): a weakening introduced in a later
       // revise round must carry the same disclosure and label as one present when the PR was opened,
@@ -760,6 +904,7 @@ export async function runRevisePullRequest(prRef: string, deps: ReviseGithubPrDe
       await markReady(gh, target.repoSlug, target.number, tokenProvider, log);
 
       await handBackPrLabels(gh, target.repoSlug, target.number, log);
+      await requestReReview(gh, target.repoSlug, target.number, log);
 
       await stepSummary(verificationFailed ? 'verify-failed' : 'completed');
       return {

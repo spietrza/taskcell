@@ -1,5 +1,7 @@
 import { useRef, useState, type ReactNode } from 'react';
 import { Button, Input } from '@/ui';
+import { isHubMode } from '../../transport';
+import { Credentials } from './Credentials';
 import { writeAppConfig } from '../../ipc';
 import { useAppConfig } from '../../hooks';
 import { useDiscardGuard } from '../../navGuard';
@@ -110,6 +112,8 @@ export function Settings({ project }: { project: string }) {
         </Button>
       </div>
 
+      {isHubMode() && <Credentials />}
+
       {cfgStatus === 'error' && (
         <div role="alert" className="rounded-md border border-destructive/40 bg-destructive/10 p-3 text-sm text-muted-foreground">
           <span className="font-semibold text-destructive-text">.taskcell/app.json is unreadable</span> — fix
@@ -201,6 +205,14 @@ export function Settings({ project }: { project: string }) {
             onChange={(e) => set('verifyCmd', e.target.value || undefined)}
             className="w-full font-mono text-xs"
             placeholder="pnpm typecheck && pnpm test"
+          />
+        </Field>
+        <Field label="Default target branch" hint="— where pull requests go when a card names none (default main)">
+          <Input
+            value={cfg.baseBranch ?? ''}
+            onChange={(e) => set('baseBranch', e.target.value || undefined)}
+            className="w-full font-mono text-xs"
+            placeholder="main"
           />
         </Field>
         <div className="grid grid-cols-2 gap-4">

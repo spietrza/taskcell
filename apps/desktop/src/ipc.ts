@@ -15,6 +15,8 @@ import type {
   BoardTask,
   Commands,
   CompleteResponse,
+  CredentialProvider,
+  CredentialsSummary,
   FactoryApplyResult,
   FactoryPlan,
   FactoryProviderId,
@@ -96,6 +98,11 @@ export function enableFactoryVerify(repoPath: string, plan: FactoryPlan): Promis
   return call('enable_factory_verify', { repoPath, plan });
 }
 
+/** Hub-only, admin-only (403 otherwise): the audit log, newest first. */
+export function readAudit(login?: string): Promise<AuditEntry[]> {
+  return call('read_audit', { login });
+}
+
 export function removeProject(path: string): Promise<Project[]> {
   return call('remove_project', { path });
 }
@@ -147,6 +154,18 @@ export function readAppConfig(repoPath: string): Promise<AppConfig> {
  *  that will write the whole object back. */
 export function readAppConfigStrict(repoPath: string): Promise<AppConfig> {
   return call('read_app_config_strict', { repoPath });
+}
+
+export function getCredentials(): Promise<CredentialsSummary> {
+  return call('get_credentials', undefined);
+}
+
+export function setCredential(provider: CredentialProvider, value: string): Promise<CredentialsSummary> {
+  return call('set_credential', { provider, value });
+}
+
+export function deleteCredential(provider: CredentialProvider): Promise<CredentialsSummary> {
+  return call('delete_credential', { provider });
 }
 
 export function writeAppConfig(repoPath: string, config: AppConfig): Promise<void> {
@@ -231,7 +250,7 @@ export type {
   CompleteCallArgs,
   CompleteCallArgs as CompleteParams,
 } from './wire';
-import type { Capabilities, CreateRunParams, CreateRunResult, FlowDoc, RepoFlowInfo, RepoProviderInfo, CompleteCallArgs } from './wire';
+import type { AuditEntry, Capabilities, CreateRunParams, CreateRunResult, FlowDoc, RepoFlowInfo, RepoProviderInfo, CompleteCallArgs } from './wire';
 
 export function apiCapabilities(): Promise<Capabilities> {
   return call('api_capabilities', undefined);
@@ -296,8 +315,13 @@ export function apiCancelComplete(callId: string): Promise<void> {
  * Only title/body cross: `source`, `team` and `label` are read from app.json in Rust. The renderer does
  * not choose which tracker gets written to. (Same rule as CompleteCallArgs — and it matters more here.)
  */
-export function apiCreateTask(repoPath: string, title: string, body: string): Promise<import('./wire').CreatedTask> {
-  return call('api_create_task', { repoPath, title, body });
+export function apiCreateTask(repoPath: string, title: string, body: string, baseBranch?: string): Promise<import('./wire').CreatedTask> {
+  return call('api_create_task', { repoPath, title, body, ...(baseBranch !== undefined ? { baseBranch } : {}) });
+}
+
+/** HUB_ONLY: the target branches a card may name and the configured default, for the new-card form. */
+export function apiListBranches(repoPath: string): Promise<{ branches: string[]; default?: string }> {
+  return call('list_branches', { repoPath });
 }
 
 /** Composer `@`-mention autocomplete (Editor UX 7/7): the project repo's tracked files, capped. */

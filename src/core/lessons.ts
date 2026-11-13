@@ -1,7 +1,7 @@
 import { createHash } from 'node:crypto';
 import { matchGlob } from '../approver/policy.js';
-import { appendBranchLines, readBranchFile } from './metrics-branch.js';
-import type { PushMetricsResult } from './metrics-branch.js';
+import { appendAudit, branchAdapter, defaultActor, STREAMS } from './audit.js';
+import { METRICS_BRANCH_DEFAULT, readBranchFile } from './metrics-branch.js';
 import { redactForPublish } from './secret-scan.js';
 import { parseJsonlLines } from './stats.js';
 import { redact } from './retrospective-memory.js';
@@ -165,16 +165,20 @@ const lessonKey = (r: Record<string, unknown>): string | undefined =>
   typeof r.id !== 'string' ? undefined : r.kind === 'lesson' ? `lesson:${r.id}` : r.kind === 'dismiss' ? `dismiss:${r.id}` : undefined;
 
 /** Append lessons/dismissals to the metrics branch; a rule already stored (same id) is skipped. */
-export function appendLessonRecords(
+export async function appendLessonRecords(
   repoPath: string,
   records: ReadonlyArray<Lesson | LessonDismissal>,
   opts: { branch?: string } = {},
-): Promise<PushMetricsResult> {
-  return appendBranchLines(repoPath, records.map((r) => JSON.stringify(r)), {
-    ...(opts.branch !== undefined ? { branch: opts.branch } : {}),
-    file: LESSONS_FILE,
-    key: lessonKey,
+): Promise<{ branch: string; pushed: number }> {
+  const adapter = branchAdapter(repoPath, { ...(opts.branch !== undefined ? { branch: opts.branch } : {}), file: LESSONS_FILE, key: lessonKey });
+  // One subject only when every lesson in the batch is from the same PR.
+  const lessons = records.filter((r): r is Lesson => r.kind === 'lesson');
+  const first = lessons.every((l) => l.repo === lessons[0]!.repo && l.prNumber === lessons[0]!.prNumber) ? lessons[0] : undefined;
+  const pushed = await appendAudit(STREAMS.lessons, adapter, records.map((r) => ({ ...r })), {
+    actor: defaultActor(),
+    ...(first !== undefined ? { subject: { repo: first.repo, pr: first.prNumber } } : {}),
   });
+  return { branch: opts.branch ?? METRICS_BRANCH_DEFAULT, pushed };
 }
 
 export async function readLessons(repoPath: string, opts: { branch?: string } = {}): Promise<Lesson[]> {

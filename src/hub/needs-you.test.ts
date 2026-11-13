@@ -75,6 +75,15 @@ describe('listNeedsYou', () => {
     }
   });
 
+  it('reports the target branch: a PR\'s base, an issue\'s vanguard:base= label', async () => {
+    const gh = stubGh({
+      issueList: [{ number: 1, title: 'I', url: 'u1', labels: [{ name: 'needs info' }, { name: 'vanguard:base=uat' }] }],
+      prList: [{ number: 2, title: 'P', url: 'u2', labels: [{ name: 'vanguard:needs-human-review' }], baseRefName: 'dev' }],
+    });
+    const items = await listNeedsYou('o/r', gh);
+    expect(items.map((i) => [i.number, i.baseBranch])).toEqual([[1, 'uat'], [2, 'dev']]);
+  });
+
   it('lists a PR at vanguard:needs-human-review, vanguard:verify-failed, or with changes requested', async () => {
     const gh = stubGh({
       issueList: [],
@@ -91,6 +100,18 @@ describe('listNeedsYou', () => {
     expect(items.map((i) => i.number)).toEqual([1, 2, 3]);
     expect(items.map((i) => i.reason)).toEqual(['vanguard:needs-human-review', 'vanguard:verify-failed', 'changes requested']);
     expect(items.every((i) => i.kind === 'pr')).toBe(true);
+  });
+
+  it('passes on only an https url (else empty, so the UI renders no link)', async () => {
+    const gh = stubGh({
+      issueList: [],
+      prList: [
+        { number: 1, title: 'A', url: 'https://github.com/o/r/pull/1', labels: [{ name: 'vanguard:needs-human-review' }] },
+        { number: 2, title: 'B', url: 'javascript:alert(1)', labels: [{ name: 'vanguard:needs-human-review' }] },
+      ],
+    });
+    const items = await listNeedsYou('o/r', gh);
+    expect(items.map((i) => i.url)).toEqual(['https://github.com/o/r/pull/1', '']);
   });
 
   it('fetches comments for the waiting items only', async () => {

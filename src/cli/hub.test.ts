@@ -143,11 +143,10 @@ describe('hubCommand', () => {
       await hubCommand(command({ host: '0.0.0.0' }));
       const line = logSpy.mock.calls.map((c) => String(c[0])).find((s) => s.startsWith('Vanguard Hub → '))!;
       const url = line.slice('Vanguard Hub → '.length);
-      expect(url).toMatch(/^http:\/\/0\.0\.0\.0:\d+\/#token=[a-f0-9]{64}$/);
-      const page = await httpGet(url, '/');
-      expect(page.status).toBe(200);
-      expect(page.body).toContain('__VANGUARD_HUB__');
-      expect(page.body).not.toContain(new URL(url).hash.slice('#token='.length));
+      // Server mode requires sign-in: the URL carries no token, and pages redirect to the sign-in page.
+      expect(url).toMatch(/^http:\/\/0\.0\.0\.0:\d+$/);
+      expect((await httpGet(url, '/')).status).toBe(302);
+      expect((await httpGet(url, '/sign-in')).status).toBe(200);
       expect((await httpGet(url, '/healthz')).status).toBe(200);
     } finally {
       logSpy.mockRestore();
@@ -165,7 +164,7 @@ describe('hubCommand', () => {
       await hubCommand(command({ host }));
       const line = logSpy.mock.calls.map((c) => String(c[0])).find((s) => s.startsWith('Vanguard Hub → '))!;
       const url = line.slice('Vanguard Hub → '.length);
-      expect(url).toMatch(new RegExp(`^http://${host}:\\d+/#token=[0-9a-f]+$`));
+      expect(url).toMatch(new RegExp(`^http://${host}:\\d+$`));
       // The hub actually bound to this machine's own hostname (a real address on the sandbox's
       // interface), so — unlike the `127.0.0.1`-bound tests — connect to the hostname itself, not
       // to loopback, to reach the socket the printed URL names.
@@ -189,9 +188,7 @@ describe('hubCommand', () => {
           req.on('error', reject);
           req.end();
         });
-      const page = await get('/');
-      expect(page.status).toBe(200);
-      expect(page.body).not.toContain('__VANGUARD_HUB_TOKEN__'); // the token only travels in the launch URL fragment
+      expect((await get('/sign-in')).status).toBe(200); // not 403: the Host was seeded
       expect((await get('/healthz')).status).toBe(200);
     } finally {
       logSpy.mockRestore();

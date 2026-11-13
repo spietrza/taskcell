@@ -5,6 +5,9 @@ import { RepoFailures, RepoLabel } from '../../RepoViews';
 import type { BoardTask, RepoReadFailure, RepoStamp } from '../../wire';
 import { useAsync } from '../../hooks';
 import { boardCountLabels } from './counts';
+import { ExternalLink } from '../../components/ExternalLink';
+
+const TRACKER_NAME = { github: 'GitHub', gitlab: 'GitLab', linear: 'Linear' } as const;
 
 // Each column owns a color identity used across its header dot, count pill and card
 // hover border. Classes are spelled out (not interpolated) so Tailwind's JIT keeps them — a
@@ -33,6 +36,9 @@ const COLUMNS: Column[] = [
   { key: 'done', label: 'Done', dot: 'bg-emerald-500', pill: 'bg-emerald-500/15 text-emerald-700 dark:text-emerald-300', cardHover: 'hover:border-emerald-500' },
 ];
 
+/** One repository's board, or every repository's (cards stamped with their repository). */
+type BoardList = { tasks: (BoardTask & Partial<RepoStamp>)[]; capped: boolean; failures: RepoReadFailure[] };
+
 export function TaskBoard({
   project,
   allRepos = false,
@@ -46,7 +52,7 @@ export function TaskBoard({
   onNewTask: () => void;
 }) {
   const { data, error, loading } = useAsync(
-    (): Promise<{ tasks: (BoardTask & Partial<RepoStamp>)[]; capped: boolean; failures: RepoReadFailure[] }> =>
+    (): Promise<BoardList> =>
       allRepos ? listTasksAll() : listTasks(project).then((r) => ({ ...r, failures: [] })),
     [project, allRepos],
   );
@@ -117,12 +123,13 @@ export function TaskBoard({
                   </div>
                 ) : (
                   items.map((t) => (
-                    <button key={`${t.repoPath ?? ''}:${t.id}`} onClick={() => onOpenTask(t.id, t.repoPath)} className="block w-full text-left">
+                    <div key={`${t.repoPath ?? ''}:${t.id}`}>
+                    <button onClick={() => onOpenTask(t.id, t.repoPath)} className="block w-full text-left">
                       <Card.Root className={cn('bg-background/80 py-0 shadow-sm transition-all hover:shadow-md', col.cardHover)}>
                         <Card.Content className="space-y-1.5 p-3">
                           <div className="flex items-center gap-1.5 font-mono text-[11px] font-medium text-muted-foreground">
                             {t.id}
-                            {allRepos && t.repoName !== undefined && <RepoLabel name={t.repoName} />}
+                            {allRepos && <RepoLabel name={t.repoName} />}
                           </div>
                           <div className="text-sm leading-snug">{t.title}</div>
                           {t.column === 'running' && t.stage && <div className="font-mono text-[11px]">stage: {t.stage}</div>}
@@ -131,12 +138,21 @@ export function TaskBoard({
                               {t.chips.map((chip) => <span key={chip.key} className={cn('rounded px-1.5 py-0.5 text-[11px]', Object.hasOwn(CHIP_TONE, chip.tone) ? CHIP_TONE[chip.tone] : 'bg-slate-400/15 text-muted-foreground')}>{chip.label}</span>)}
                             </div>
                           )}
+                          {t.baseBranch && (
+                            <div className="pt-0.5 font-mono text-[11px] text-muted-foreground">→ {t.baseBranch}</div>
+                          )}
                           {t.state && t.state !== col.key && (
                             <div className="pt-0.5 text-[11px] text-muted-foreground">{t.state}</div>
                           )}
                         </Card.Content>
                       </Card.Root>
                     </button>
+                    {t.source !== undefined && t.url !== undefined && (
+                      <div className="px-3 pt-1">
+                        <ExternalLink href={t.url}>{`Open in ${TRACKER_NAME[t.source]}`}</ExternalLink>
+                      </div>
+                    )}
+                    </div>
                   ))
                 )}
               </div>

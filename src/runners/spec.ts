@@ -23,7 +23,7 @@ import type { IsolatedSandboxProvider } from '../sandbox/provider.js';
 import type { AgentProvider } from '../agents/provider.js';
 import type { RunDeps } from '../core/taskcell.js';
 import type { TaskcellLogger } from '../core/logger.js';
-import { DEFAULT_BASE_BRANCH } from '../core/base-branch.js';
+import { resolveTargetBase } from '../core/base-branch.js';
 import { skillRegistryForRun } from '../context/skill-registry.js';
 
 /**
@@ -142,7 +142,7 @@ export async function runSpecGenerator(id: string, deps: RunSpecGeneratorDeps): 
         agentName: agent.name,
         // The spec is researched against origin's view of the base, never a local copy that is ahead of
         // it (the very reason a spec diverges from a branch someone else is actively pushing to).
-        baseBranch: deps.baseBranch ?? DEFAULT_BASE_BRANCH,
+        baseBranch: await resolveTargetBase(deps.repoPath, task.labels, deps.baseBranch),
         start: 'base',
         keepLocalIfAhead: false,
         ...(deps.logger !== undefined ? { logger: deps.logger } : {}),
