@@ -348,6 +348,13 @@ describe('approver act mode', () => {
       expect(writes(calls, 'comment').some((a) => a.join(' ').includes('hold label taskcell:hold'))).toBe(true);
     });
 
+    it('the legacy spelling vanguard:hold is a hold too', async () => {
+      const calls: string[][] = [];
+      await run(fakeGh(calls, pr({ labels: ['vanguard:hold'] })));
+      expect(writes(calls, 'merge')).toEqual([]);
+      expect(writes(calls, 'comment').some((a) => a.join(' ').includes('hold label taskcell:hold'))).toBe(true);
+    });
+
     it('the policy can rename the hold label', async () => {
       await rm(root, { recursive: true, force: true });
       await setup({ ...POLICY, holdLabel: 'wait' }, { 'src.ts': 'export const x = 1;\n' });

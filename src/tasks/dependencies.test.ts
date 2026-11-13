@@ -134,7 +134,8 @@ describe('applyDependencyGate', () => {
     expect((gh as ReturnType<typeof vi.fn>).mock.calls.some((c) => (c[0] as string[]).includes('needs info'))).toBe(true);
   });
   it('removes a stale waiting label from a ready issue', async () => {
-    const gh = fakeGh({});
+    const base = fakeGh({});
+    const gh: GhRunner = vi.fn(async (args: string[]) => (args.at(-1) === 'labels' ? JSON.stringify({ labels: [{ name: 'taskcell:waiting' }] }) : base(args)));
     const out = await applyDependencyGate([task(1, '', ['ready for agent', 'taskcell:waiting'])], { repo: 'o/r', trigger: 'ready for agent', gh });
     expect(out).toHaveLength(1);
     expect((gh as ReturnType<typeof vi.fn>).mock.calls.some((c) => (c[0] as string[]).join(' ').includes('--remove-label taskcell:waiting'))).toBe(true);

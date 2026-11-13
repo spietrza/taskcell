@@ -123,6 +123,13 @@ describe('fetchMrHistory (GitLab)', () => {
     expect(hasSomethingToLearn(h)).toBe(true);
   });
 
+  it('reads the legacy verify-failed label on an MR, scoped or not', async () => {
+    for (const label of ['vanguard::verify-failed', 'vanguard:verify-failed']) {
+      expect((await fetchMrHistory('g/p', 4, { glab: fakeGlab([], [label]) })).verifyFailed).toBe(true);
+    }
+    expect((await fetchMrHistory('g/p', 4, { glab: fakeGlab([], ['bug']) })).verifyFailed).toBe(false);
+  });
+
   it('a clean MR has nothing to learn, and the lesson marker is detected', async () => {
     const h = await fetchMrHistory('g/p', 4, { glab: fakeGlab([note('vanguard-bot', `${LESSON_MARKER}\n## Lesson`)]) });
     expect(hasSomethingToLearn(h)).toBe(false);

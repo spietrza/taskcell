@@ -77,4 +77,23 @@ describe('resumeRateLimited', () => {
     expect(report.skipped).toEqual(['o/r#4']);
     expect(edits).toEqual([]);
   });
+
+  it('releases the hold under the spelling the item carries, and sends no empty edit when it is already gone', async () => {
+    // The hold is re-read just before the release: `after` is what that second view returns.
+    const run = async (after: string[]): Promise<{ report: Awaited<ReturnType<typeof resumeRateLimited>>; edits: string[][] }> => {
+      const { gh: base, edits } = fakeGh([{ kind: 'issue', number: 5, comments: [owner(rateLimitedMarker(PAST, 'ready for agent'))] }]);
+      let views = 0;
+      const gh: GhRunner = async (args) => (args[1] === 'view' && ++views > 1 ? JSON.stringify({ labels: after.map((name) => ({ name })) }) : base(args));
+      return { report: await resumeRateLimited({ repoSlug: 'o/r', now: NOW, gh, log: () => {} }), edits };
+    };
+    const retriggers = [['issue', 'edit', '5', '--repo', 'o/r', '--remove-label', 'ready for agent'], ['issue', 'edit', '5', '--repo', 'o/r', '--add-label', 'ready for agent']];
+
+    expect((await run(['vanguard:rate-limited'])).edits).toEqual([['issue', 'edit', '5', '--repo', 'o/r', '--remove-label', 'vanguard:rate-limited'], ...retriggers]);
+    for (const after of [['ready for agent'], []]) {
+      const { report, edits } = await run(after);
+      expect(report.resumed).toEqual(['o/r#5']);
+      expect(report.failed).toEqual([]);
+      expect(edits).toEqual(retriggers);
+    }
+  });
 });

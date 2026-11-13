@@ -324,6 +324,32 @@ describe('runRevisePullRequest secret gate', () => {
     expect(ghCalls.some((a) => a[0] === 'pr' && a[1] === 'edit' && a.includes('--add-label') && a.includes('taskcell:secret-blocked'))).toBe(true);
   });
 
+  it('a secret block on a repo with only the legacy labels adds vanguard:secret-blocked and creates no twin', async () => {
+    const ghCalls: string[][] = [];
+    const gh: GhRunner = async (args) => {
+      ghCalls.push(args);
+      if (args[0] === 'pr' && args[1] === 'view') return makePrViewJson({ labels: [{ name: 'needs revision' }, { name: 'vanguard:revising' }] });
+      if (args[0] === 'pr' && args[1] === 'diff') return 'diff --git a/fix.txt';
+      if (args[0] === 'api' && args[1] === 'graphql') return (args.find((a) => a.startsWith('query=')) ?? '').includes('reviewThreads') ? makeFeedbackJson() : JSON.stringify({ data: {} });
+      if (args[0] === 'label' && args[1] === 'list') return JSON.stringify([{ name: 'vanguard:secret-blocked' }, { name: 'vanguard:needs-human-review' }]);
+      return '';
+    };
+    const spy = vi.spyOn(console, 'error').mockImplementation(() => {});
+    try {
+      const result = await runRevisePullRequest('7', {
+        repoPath: repo, repoSlug: 'o/r', gh, _sandbox: makeSandbox('token = "ghp_' + 'A'.repeat(40) + '"\n'), _agent: agentThatCompletes([]),
+        _worktrees: new WorktreeManager(repo), _pushRunner: async () => '', _baseBranch: 'feature-branch', provider: 'claude',
+      });
+      expect(result.secretBlocked).toBe(true);
+    } finally {
+      spy.mockRestore();
+    }
+    expect(ghCalls).toContainEqual(['pr', 'edit', '7', '--repo', 'o/r', '--add-label', 'vanguard:secret-blocked']);
+    expect(ghCalls.filter((a) => a.includes('taskcell:secret-blocked'))).toEqual([]);
+    // The hand-back removes only what the PR carries, under the spelling it carries.
+    expect(ghCalls).toContainEqual(['pr', 'edit', '7', '--repo', 'o/r', '--remove-label', 'needs revision', '--remove-label', 'vanguard:revising', '--add-label', 'vanguard:needs-human-review']);
+  });
+
   it('--out: a secret in the revision diff is reported but the dry-run touches neither the PR nor the labels and writes no preview', async () => {
     const ghCalls: string[][] = [];
     const gh: GhRunner = async (args) => {
@@ -1814,7 +1840,7 @@ describe('runRevisePullRequest — skills', () => {
 it('T10: all-untrusted feedback explains itself on the PR and hands the labels back, without a push', async () => {
   const push = vi.fn(async () => '');
   const gh = vi.fn(async (args: string[]) => {
-    if (args[0] === 'pr' && args[1] === 'view') return makePrViewJson();
+    if (args[0] === 'pr' && args[1] === 'view') return makePrViewJson({ labels: [{ name: 'taskcell:revising' }] });
     if (args[0] === 'pr' && args[1] === 'diff') return '';
     if (args[0] === 'api' && args[1] === 'graphql') return makeFeedbackJson().replaceAll('"alice"', '"mallory"').replaceAll('COLLABORATOR', 'NONE');
     if (args[0] === 'pr' && args[1] === 'review') return '';
@@ -1840,7 +1866,7 @@ it('T10: all-untrusted feedback explains itself on the PR and hands the labels b
 
 it('T11: a rate-limited provider with no fallback says so on the PR and drops the in-flight label', async () => {
   const gh = vi.fn(async (args: string[]) => {
-    if (args[0] === 'pr' && args[1] === 'view') return makePrViewJson();
+    if (args[0] === 'pr' && args[1] === 'view') return makePrViewJson({ labels: [{ name: 'taskcell:revising' }] });
     if (args[0] === 'pr' && args[1] === 'diff') return '';
     if (args[0] === 'api' && args[1] === 'graphql') return makeFeedbackJson();
     if (args[0] === 'pr' && args[1] === 'review') return '';
@@ -2662,7 +2688,7 @@ describe('runRevisePullRequest blocking-item checklist', () => {
     };
   }
 
-  async function run(text: string, opts: { noChange?: boolean; laterStagesOnly?: boolean } = {}): Promise<{ ghCalls: string[][]; ghEnvs: Array<Record<string, string> | undefined>; pushes: string[][]; prompt: string; result: Promise<unknown> }> {
+  async function run(text: string, opts: { noChange?: boolean; laterStagesOnly?: boolean; prLabels?: string[] } = {}): Promise<{ ghCalls: string[][]; ghEnvs: Array<Record<string, string> | undefined>; pushes: string[][]; prompt: string; result: Promise<unknown> }> {
     const ghEnvs: Array<Record<string, string> | undefined> = [];
     const ghCalls: string[][] = [];
     const pushes: string[][] = [];
@@ -2670,7 +2696,7 @@ describe('runRevisePullRequest blocking-item checklist', () => {
     const gh: GhRunner = async (args, env) => {
       ghEnvs.push(env);
       ghCalls.push(args);
-      if (args[0] === 'pr' && args[1] === 'view') return makePrViewJson();
+      if (args[0] === 'pr' && args[1] === 'view') return makePrViewJson({ labels: (opts.prLabels ?? ['taskcell:reviewed']).map((name) => ({ name })) });
       if (args[0] === 'pr' && args[1] === 'diff') return 'diff --git a/fix.txt';
       if (args[0] === 'api' && args[1] === 'graphql') {
         const query = args.find((a) => a.startsWith('query=')) ?? '';
@@ -2704,6 +2730,21 @@ describe('runRevisePullRequest blocking-item checklist', () => {
     expect(summary(ghCalls)).toContain('1. `parse()` drops the last row — **fixed**: parse() in src/a.ts');
     expect(reReview(ghCalls)).toBe(true);
     expect(ghCalls.some((a) => a[0] === 'pr' && a[1] === 'edit' && a.includes('--remove-label') && a.includes('taskcell:reviewed'))).toBe(true);
+  });
+
+  it('re-review removes the labels under the spelling the PR carries, and sends no empty edit when it carries none of them', async () => {
+    const answers = '<checklist_answers>\n1. FIXED: a\n2. FIXED: b\n</checklist_answers>';
+    const removals = async (prLabels: string[]): Promise<string[][]> => {
+      const { ghCalls } = await run(answers, { prLabels });
+      expect(reReview(ghCalls)).toBe(true);
+      // Every `pr edit` names a field: `gh pr edit 7 --repo o/r` alone fails.
+      expect(ghCalls.filter((a) => a[0] === 'pr' && a[1] === 'edit').every((a) => a.length > 5)).toBe(true);
+      return ghCalls.filter((a) => a.includes('--remove-label') && !a.includes('--add-label')).map((a) => a.slice(5));
+    };
+    expect(await removals(['vanguard:reviewed', 'ready for vanguard review'])).toEqual([['--remove-label', 'vanguard:reviewed', '--remove-label', 'ready for vanguard review']]);
+    expect(await removals(['taskcell:reviewed', 'vanguard:reviewed'])).toEqual([['--remove-label', 'taskcell:reviewed', '--remove-label', 'vanguard:reviewed']]);
+    expect(await removals(['bug'])).toEqual([]);
+    expect(await removals([])).toEqual([]);
   });
 
   it('adds the re-review label with the push token, so the labeled event starts a review run', async () => {

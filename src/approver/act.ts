@@ -1,4 +1,5 @@
 import { TaskcellError } from '../core/errors.js';
+import { hasLabel } from '../core/labels.js';
 import { workflowPaths } from '../core/taskcell.js';
 import type { GhRunner } from '../tasks/github.js';
 import { assertShadowSafeGhArgs } from './publish.js';
@@ -49,7 +50,7 @@ export function hardExclusions(facts: ApproverFacts, policy: ApproverPolicy, rev
   if (facts.pr.isDraft) reasons.push('draft PR (act mode never marks a draft ready)');
   if (reviews.some((r) => r.state === 'CHANGES_REQUESTED')) reasons.push('a review requests changes');
   const holdLabel = policy.holdLabel ?? 'taskcell:hold';
-  if ((facts.pr.labels ?? []).includes(holdLabel)) reasons.push(`hold label ${holdLabel}`);
+  if (hasLabel(facts.pr.labels ?? [], holdLabel)) reasons.push(`hold label ${holdLabel}`);
   const author = facts.pr.author ?? '';
   if (author === '' || !(policy.factoryAuthors ?? []).includes(author)) reasons.push(`not opened by the factory (author "${author}")`);
   if (isReleasePr(facts.pr)) reasons.push('release PR');

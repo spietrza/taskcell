@@ -58,9 +58,10 @@ export const MARKER_PREFIX_RE = '(?:taskcell|vanguard)';
 
 /**
  * What to pass to `--remove-label` for `remove`: a label with a legacy twin is removed under whichever spelling
- * the item actually carries (`present`, fetched lazily — only when needed). A blind remove of a label the item
- * lacks makes `gh ... edit` fail, so such a label is dropped (a no-op). Falls back to the names as given when
- * `present` fails.
+ * the item actually carries (`present`, fetched lazily — only when needed; GitHub label names are
+ * case-insensitive). A blind remove of a label the repo never created makes `gh ... edit` fail, so a label the
+ * item lacks is dropped (a no-op) — the result can be empty, and the caller must then skip the edit. Falls back
+ * to the names as given when `present` fails.
  */
 export async function resolveRemovals(remove: ReadonlyArray<string>, present: () => Promise<ReadonlyArray<string>>): Promise<string[]> {
   if (!remove.some((l) => labelForms(l).length > 1)) return [...remove];
@@ -71,12 +72,9 @@ export async function resolveRemovals(remove: ReadonlyArray<string>, present: ()
     return [...remove];
   }
   return [...new Set(remove.flatMap((l) => {
-    const forms = labelForms(l);
-    const seen = forms.filter((form) => have.includes(form));
-    // A label without a twin, or an empty view, gives nothing to check against: the name passes through.
-    // Otherwise a label the item lacks is dropped (a no-op).
-    if (seen.length > 0) return seen;
-    return forms.length < 2 || have.length === 0 ? [l] : [];
+    const forms = labelForms(l).map((form) => form.toLowerCase());
+    // A label without a twin passes through unchecked; one with a twin is removed as the item spells it.
+    return forms.length < 2 ? [l] : have.filter((name) => forms.includes(name.toLowerCase()));
   }))];
 }
 
