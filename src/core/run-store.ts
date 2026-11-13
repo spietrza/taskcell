@@ -17,6 +17,7 @@ import { injectedSecretValues, redactForPublish, scanForInjectedSecrets, scanFor
 import { redactVerificationOutput } from '../pipeline/verify.js';
 import type { VerificationResult } from '../pipeline/verify.js';
 import type { VisualProofResult } from '../pipeline/visual-proof.js';
+import { ciRunUrl, diffUrlFor, httpsUrl } from './links.js';
 import { reviewVerdictOf } from '../pipeline/review-verdict.js';
 import type { DecisionProbeResult } from './decision-probe.js';
 import type { Finding, Proof, RunDetail, RunRecord, RunSummary, StageDetail, VisualProof } from '../wire.js';
@@ -202,7 +203,8 @@ async function parseRunSummaries(root: string): Promise<RunSummary[]> {
       const stages = records.map((r) => r.stage ?? 'run').sort();
       const totalCostUsd = records.reduce((sum, r) => sum + (r.costUsd ?? 0), 0);
       const anyFailed = records.some((r) => !r.completed);
-      const prUrl = records.find((r) => r.prUrl !== undefined)?.prUrl;
+      const prUrl = httpsUrl(records.find((r) => r.prUrl !== undefined)?.prUrl);
+      const ciUrl = httpsUrl(records.find((r) => r.ciUrl !== undefined)?.ciUrl);
       summaries.push({
         taskId: first.taskId,
         timestamp,
@@ -210,6 +212,7 @@ async function parseRunSummaries(root: string): Promise<RunSummary[]> {
         totalCostUsd,
         anyFailed,
         ...(prUrl !== undefined ? { prUrl } : {}),
+        ...(ciUrl !== undefined ? { ciUrl } : {}),
       });
     }
   }
@@ -313,10 +316,16 @@ export async function readRunRecords(root: string, taskId: string, timestamp: st
   const proof = await readProofFile<Proof>('.proof.json');
   const visualProof = await readProofFile<VisualProof>('.visual-proof.json');
 
+  const prUrl = httpsUrl(stages.find((s) => s.record.prUrl !== undefined)?.record.prUrl);
+  const diffUrl = diffUrlFor(prUrl);
+  const ciUrl = httpsUrl(stages.find((s) => s.record.ciUrl !== undefined)?.record.ciUrl);
   return {
     taskId,
     timestamp,
     stages,
+    ...(prUrl !== undefined ? { prUrl } : {}),
+    ...(diffUrl !== undefined ? { diffUrl } : {}),
+    ...(ciUrl !== undefined ? { ciUrl } : {}),
     ...(proof !== undefined ? { proof } : {}),
     ...(visualProof !== undefined ? { visualProof } : {}),
   };
@@ -418,6 +427,7 @@ async function writeRecord(repoPath: string, taskId: string, timestamp: string, 
   // on the record as well as the metric line, so the run's own file names the routed model even when
   // the provider reported none.
   const requested = opts.requestedModel !== undefined ? { requestedModel: opts.requestedModel } : {};
+  const ciUrl = ciRunUrl();
   const record = {
     ...meta,
     ...(review !== undefined ? { verdict: review.verdict } : {}),
@@ -427,6 +437,7 @@ async function writeRecord(repoPath: string, taskId: string, timestamp: string, 
     timestamp,
     ...(opts.label !== undefined ? { stage: opts.label } : {}),
     ...(opts.prUrl !== undefined ? { prUrl: opts.prUrl } : {}),
+    ...(ciUrl !== undefined ? { ciUrl } : {}),
     ...(opts.imageDigest !== undefined ? { imageDigest: opts.imageDigest } : {}),
     ...(opts.baseBranch !== undefined ? { baseBranch: opts.baseBranch } : {}),
     ...(diffOmitted !== undefined ? { diffOmitted } : {}),

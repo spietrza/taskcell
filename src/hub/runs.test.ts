@@ -43,7 +43,8 @@ async function fixture(repo: string): Promise<string> {
       model: 'claude-opus-4',
       timestamp: '2026-07-06T19:12:02.123Z',
       stage: 'implement',
-      prUrl: 'http://pr/1',
+      prUrl: 'https://github.com/o/r/pull/1',
+      ciUrl: 'https://github.com/o/r/actions/runs/7',
     }),
   );
   await write(
@@ -86,7 +87,8 @@ describe('listRunSummaries', () => {
     expect(s.stages).toEqual(['implement', 'review']);
     expect(s.totalCostUsd).toBeCloseTo(0.17, 9);
     expect(s.anyFailed).toBe(false);
-    expect(s.prUrl).toBe('http://pr/1');
+    expect(s.prUrl).toBe('https://github.com/o/r/pull/1');
+    expect(s.ciUrl).toBe('https://github.com/o/r/actions/runs/7');
   });
 
   it('T-04 returns [] for a missing runsRoot, not an error', async () => {
@@ -147,6 +149,9 @@ describe('readRunDetail', () => {
     expect(implement?.transcript).toBe('line1\nline2');
     expect(detail.proof?.passed).toBe(false);
     expect(detail.proof?.exitCode).toBe(1);
+    expect(detail.prUrl).toBe('https://github.com/o/r/pull/1');
+    expect(detail.diffUrl).toBe('https://github.com/o/r/pull/1/files');
+    expect(detail.ciUrl).toBe('https://github.com/o/r/actions/runs/7');
   });
 
   it('T-03 rejects ../task-7, a/b, and empty string as taskId before touching the filesystem', async () => {
@@ -330,5 +335,23 @@ describe('readTextNoSymlink', () => {
     const fifo = join(tmp, 'pipe.diff');
     execFileSync('mkfifo', [fifo]);
     await expect(readTextNoSymlink(fifo)).rejects.toThrow('refusing to read a non-regular file');
+  });
+});
+
+describe('no address', () => {
+  it('a run without a pull request has no prUrl, diffUrl or ciUrl', async () => {
+    const root = join(tmp, 'noaddr', '.vanguard', 'runs');
+    const dir = join(root, 'task-8');
+    await write(
+      join(dir, '2026-07-06T19-12-02-123Z.json'),
+      JSON.stringify({ taskId: 'task-8', completed: true, exitReason: 'ok', turns: 1, worktreePath: '/w', worktreePreserved: false, finalText: '', timestamp: '2026-07-06T19:12:02.123Z' }),
+    );
+    const [summary] = await listRunSummaries(root);
+    expect(summary).not.toHaveProperty('prUrl');
+    expect(summary).not.toHaveProperty('ciUrl');
+    const detail = await readRunDetail(root, 'task-8', '2026-07-06T19:12:02.123Z');
+    expect(detail).not.toHaveProperty('prUrl');
+    expect(detail).not.toHaveProperty('diffUrl');
+    expect(detail).not.toHaveProperty('ciUrl');
   });
 });

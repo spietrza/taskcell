@@ -1,5 +1,7 @@
 import { useRef, useState, type ReactNode } from 'react';
 import { Button, Input } from '@/ui';
+import { isHubMode } from '../../transport';
+import { Credentials } from './Credentials';
 import { writeAppConfig } from '../../ipc';
 import { useAppConfig } from '../../hooks';
 import { useDiscardGuard } from '../../navGuard';
@@ -109,6 +111,8 @@ export function Settings({ project }: { project: string }) {
           {saved ? 'Saved' : 'Save'}
         </Button>
       </div>
+
+      {isHubMode() && <Credentials />}
 
       {cfgStatus === 'error' && (
         <div role="alert" className="rounded-md border border-destructive/40 bg-destructive/10 p-3 text-sm text-muted-foreground">

@@ -32,6 +32,8 @@ export interface Task {
   ref?: string;
   /** Provider lifecycle state (`open`/`closed`/`opened`/Linear state name) — the board's column input (S9). */
   state?: string;
+  /** The issue's address in its tracker (board "Open in …" link). Absent when the provider returned none. */
+  url?: string;
   /** Issue/PR author login (GitHub `author.login`, GitLab `author.username`). Absent ⇒ no issue-author trust. */
   author?: string;
   /** Issues/PRs that must be done first (GitHub: native blocked-by plus `Depends on` body lines). Absent or empty ⇒ none. */

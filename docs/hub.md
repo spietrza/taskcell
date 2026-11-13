@@ -272,6 +272,7 @@ a loopback bind only); every other hub rejects those commands.
 | `VANGUARD_HUB_CONFIG_DIR` | `$XDG_CONFIG_HOME/vanguard-hub` else `~/.config/vanguard-hub` |
 | `VANGUARD_HUB_WATCH_POLL` | — |
 | `VANGUARD_HUB_WATCH_INTERVAL_MS` | `2000` |
+| `VANGUARD_HUB_SECRET` | — (32 bytes, base64: `openssl rand -base64 32`. Enables the Settings credential store, `<config dir>/.vanguard-hub/credentials.enc`, AES-256-GCM. A stored Claude/Codex/z.ai/OpenRouter key overrides the same env var; the API is write-only (set + last four characters). Without it the store is disabled and env credentials apply) |
 | `VANGUARD_HUB_BROWSE_ROOT` | `$HOME` |
 | `VANGUARD_HUB_ALLOW_ADD` | — |
 | `VANGUARD_HUB_SERVER_MODE` | — (`1` = require sign-in on a loopback bind, for a same-host reverse proxy) |
@@ -496,3 +497,12 @@ group or world readable (`chmod 600 <path>`) or holds fewer than 32 bytes of ent
 base64url). `taskcell hub rotate-token --token-file <path>` writes a new token; a running hub keeps
 the old one until it restarts, after which the old token is rejected. The events cookie secret stays
 per launch, so a restart still ends old SSE sessions.
+
+## Open in the original system
+
+Cards, runs, the diff view and Needs-you items link out to where the thing lives. The server returns
+every address (`BoardTask.url`/`source`, `RunSummary`/`RunDetail` `prUrl`/`ciUrl`/`diffUrl`,
+`NeedsYouItem.url`); the UI never builds one, and renders no link when the field is absent (e.g. a
+local run with no pull request). `diffUrl` is `…/pull/N/files` ("Files changed") on GitHub and
+`…/-/merge_requests/N/diffs` ("Changes") on GitLab. `ciUrl` is recorded on a run record written inside
+GitHub Actions or GitLab CI. Only `https:` addresses are passed on. Links open in a new tab.

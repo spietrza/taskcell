@@ -62,6 +62,9 @@ const commandHandlers = {
   read_app_config: () => appConfig,
   read_app_config_strict: () => appConfig,
   write_app_config: () => undefined,
+  get_credentials: () => ({ enabled: false, reason: 'VANGUARD_HUB_SECRET is not set', providers: [] }),
+  set_credential: () => ({ enabled: false, providers: [] }),
+  delete_credential: () => ({ enabled: false, providers: [] }),
   list_remote_runs: () => remoteRuns,
   import_remote_run: (args: { runId?: number } | undefined) => {
     const { runId = remoteImport.runId } = args ?? {};

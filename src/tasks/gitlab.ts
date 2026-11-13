@@ -17,6 +17,7 @@ export interface GitLabIssue {
   labels: string[];
   /** glab always includes it; carried for the board (S9). */
   state?: string;
+  web_url?: string;
   author?: { username: string };
 }
 
@@ -83,6 +84,7 @@ function toGitLabTask(project: string, issue: GitLabIssue, notes: GitLabNote[] =
     comments,
     ref: String(issue.iid),
     ...(issue.state !== undefined ? { state: issue.state } : {}),
+    ...(issue.web_url !== undefined ? { url: issue.web_url } : {}),
     ...(issue.author?.username !== undefined ? { author: issue.author.username } : {}),
   };
 }
