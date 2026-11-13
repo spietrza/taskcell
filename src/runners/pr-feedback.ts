@@ -306,24 +306,43 @@ export function buildRevisionPrompt(
 const FINDINGS_TO_ADDRESS_RE = /Findings to address:/i;
 const LIST_ITEM_RE = /^\s*(?:[-*]|\d+[.)])\s+(.+)$/;
 const oneLine = (text: string): string => text.replace(/\s+/g, ' ').trim();
-const HEADING_RE = /^\s*#{1,6}\s+(.+)$/;
+const HEADING_RE = /^\s*(#{1,6})\s+(.+)$/;
 // Top-level items only: an indented sub-bullet is detail of the finding above it, not a finding.
 const TOP_LIST_ITEM_RE = /^(?:[-*]|\d+[.)])\s+(.+)$/;
 const isBlockingLabel = (text: string): boolean => /\bblocking\b/i.test(text.replace(/\b(?:non|not|no)[- ]?blocking\b/gi, ''));
 
+/** A heading that is itself one finding: numbered like `1.`, `B1.` or `B1:`. */
+const isNumberedHeading = (text: string): boolean => /^[A-Za-z]{0,2}\d+[.):]\s/.test(text);
+
 /**
  * Blocking findings of a Markdown review: the top-level list items under a heading that names them
- * blocking (up to the next heading), plus any other top-level item labelled blocking itself.
+ * blocking (up to the next heading), plus any other top-level item labelled blocking itself. A finding
+ * heading (a sub-heading of the blocking section, or a numbered heading labelled blocking) is one item
+ * itself and the list items below it are detail.
  */
 function proseBlockingFindings(body: string): string[] {
   const out: string[] = [];
   let inBlockingSection = false;
+  let sectionLevel = 0;
+  let inFindingHeading = false;
   for (const line of stripReviewMarkers(body).split('\n')) {
-    const heading = HEADING_RE.exec(line)?.[1];
-    if (heading !== undefined) {
-      inBlockingSection = isBlockingLabel(heading);
+    const match = HEADING_RE.exec(line);
+    if (match !== null) {
+      const level = match[1]!.length;
+      const heading = match[2]!;
+      const blocking = isBlockingLabel(heading);
+      const subFinding = inBlockingSection && level > sectionLevel && !/\bnon[- ]?blocking\b/i.test(heading);
+      inFindingHeading = subFinding || (blocking && isNumberedHeading(heading));
+      if (inFindingHeading) {
+        out.push(oneLine(heading));
+        if (!subFinding) inBlockingSection = false;
+      } else {
+        inBlockingSection = blocking;
+        sectionLevel = level;
+      }
       continue;
     }
+    if (inFindingHeading) continue;
     const item = TOP_LIST_ITEM_RE.exec(line)?.[1];
     if (item !== undefined && (inBlockingSection || isBlockingLabel(item))) out.push(oneLine(item));
   }

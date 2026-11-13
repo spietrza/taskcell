@@ -19,7 +19,7 @@ test('Home, Needs you and run detail fit 390 px', async ({ page }) => {
   const box = await nav.boundingBox();
   expect(box!.y).toBeGreaterThan(400);
 
-  await nav.getByRole('button', { name: 'Needs you' }).click();
+  await nav.getByRole('button', { name: /^Home/ }).click();
   await expect(page.getByRole('heading', { name: 'Needs you' })).toBeVisible();
   await expect(page.getByRole('link', { name: 'Open in GitHub' }).first()).toBeVisible();
   await expect(page.getByRole('textbox').first()).toBeVisible();
