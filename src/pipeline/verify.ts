@@ -139,6 +139,11 @@ export function failingTaskName(excerpt: string | undefined): string | undefined
   return undefined;
 }
 
+/** The last `n` lines of `text`, ignoring trailing whitespace. */
+function lastLines(text: string, n: number): string {
+  return text.trimEnd().split('\n').slice(-n).join('\n');
+}
+
 /** Run the command inside the sandbox (host-driven) and attest the result. */
 export async function runVerification(
   sandbox: IsolatedSandboxProvider,
@@ -153,9 +158,12 @@ export async function runVerification(
   const output = `${res.stdout}\n${res.stderr}`;
   const sha256 = createHash('sha256').update(output).digest('hex');
   const passed = res.exitCode === 0;
-  // A passing run's summary is on stdout; stderr noise (e.g. React act() warnings) must not push it out of the tail.
-  const tailSource = passed && res.stdout.trim() !== '' ? res.stdout : output;
-  const outputTail = tailSource.split('\n').slice(-40).join('\n').trimEnd();
+  // On a pass neither stream may evict the other: stderr noise (React act() warnings) must not hide a stdout
+  // summary (Vitest), and stdout banners (pnpm install) must not hide a stderr summary (Jest).
+  const outputTail =
+    passed && res.stdout.trim() !== '' && res.stderr.trim() !== ''
+      ? `${lastLines(res.stderr, 10)}\n${lastLines(res.stdout, 30)}`
+      : lastLines(output, 40);
   const oomAfter = passed ? undefined : await readOomKillCount(sh);
   const oomKilled = oomBefore !== undefined && oomAfter !== undefined ? oomAfter > oomBefore : undefined;
   const result: VerificationResult = {

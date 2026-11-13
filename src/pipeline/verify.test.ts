@@ -230,12 +230,21 @@ describe('runVerification', () => {
     expect(tailLines.length).toBeLessThanOrEqual(40);
   });
 
-  it('a passing run takes its tail from stdout so stderr noise cannot hide the summary', async () => {
+  it('a passing run keeps a stdout summary despite stderr noise', async () => {
     const stderr = Array.from({ length: 50 }, (_, i) => `Warning: act ${i}`).join('\n');
     const passed = await runVerification(fakeSandbox('Tests 42 passed', stderr, 0), 'cmd');
-    expect(passed.outputTail).toBe('Tests 42 passed');
+    expect(passed.outputTail.split('\n').at(-1)).toBe('Tests 42 passed');
+    expect(passed.outputTail).not.toContain('Warning: act 39\n');
     const failed = await runVerification(fakeSandbox('Tests 1 failed', stderr, 1), 'cmd');
     expect(failed.outputTail).toContain('Warning: act 49');
+  });
+
+  it('a passing run keeps a stderr summary (Jest) after a stdout banner (pnpm)', async () => {
+    const stdout = '> pkg@1.0.0 test\n> jest\n';
+    const stderr = 'PASS src/a.test.js\nTests:       3 passed, 3 total\nTime:        1.2 s\n';
+    const result = await runVerification(fakeSandbox(stdout, stderr, 0), 'cmd');
+    expect(result.outputTail).toContain('Tests:       3 passed, 3 total');
+    expect(result.outputTail).toContain('> jest');
   });
 
   it('sha256 is a 64-char hex string', async () => {
