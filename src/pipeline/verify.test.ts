@@ -234,7 +234,7 @@ describe('runVerification', () => {
     const stderr = Array.from({ length: 50 }, (_, i) => `Warning: act ${i}`).join('\n');
     const passed = await runVerification(fakeSandbox('Tests 42 passed', stderr, 0), 'cmd');
     expect(passed.outputTail.split('\n').at(-1)).toBe('Tests 42 passed');
-    expect(passed.outputTail).not.toContain('Warning: act 39\n');
+    expect(passed.outputTail.split('\n')).toHaveLength(40);
     const failed = await runVerification(fakeSandbox('Tests 1 failed', stderr, 1), 'cmd');
     expect(failed.outputTail).toContain('Warning: act 49');
   });
@@ -243,6 +243,13 @@ describe('runVerification', () => {
     const stdout = '> pkg@1.0.0 test\n> jest\n';
     const stderr = 'PASS src/a.test.js\nTests:       3 passed, 3 total\nTime:        1.2 s\n';
     const result = await runVerification(fakeSandbox(stdout, stderr, 0), 'cmd');
+    expect(result.outputTail).toContain('Tests:       3 passed, 3 total');
+    expect(result.outputTail).toContain('> jest');
+  });
+
+  it('a passing run keeps a stderr summary followed by trailing stderr lines when stdout is short', async () => {
+    const stderr = `Tests:       3 passed, 3 total\n${Array.from({ length: 20 }, (_, i) => `note ${i}`).join('\n')}`;
+    const result = await runVerification(fakeSandbox('> jest', stderr, 0), 'cmd');
     expect(result.outputTail).toContain('Tests:       3 passed, 3 total');
     expect(result.outputTail).toContain('> jest');
   });

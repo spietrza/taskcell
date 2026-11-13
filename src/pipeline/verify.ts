@@ -161,9 +161,11 @@ export async function runVerification(
   const passed = res.exitCode === 0;
   // On a pass neither stream may evict the other: stderr noise (React act() warnings) must not hide a stdout
   // summary (Vitest), and stdout banners (pnpm install) must not hide a stderr summary (Jest).
+  // stderr gets every line of the 40 that stdout does not use.
+  const stdoutTail = lastLines(res.stdout, 30);
   const outputTail =
     passed && res.stdout.trim() !== '' && res.stderr.trim() !== ''
-      ? `${lastLines(res.stderr, 10)}\n${lastLines(res.stdout, 30)}`
+      ? `${lastLines(res.stderr, 40 - stdoutTail.split('\n').length)}\n${stdoutTail}`
       : lastLines(output, 40);
   const oomAfter = passed ? undefined : await readOomKillCount(sh);
   const oomKilled = oomBefore !== undefined && oomAfter !== undefined ? oomAfter > oomBefore : undefined;
