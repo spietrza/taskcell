@@ -5,6 +5,7 @@ import { defaultGlabRunner, neutralizeQuickActions } from '../tasks/gitlab.js';
 import type { GlabRunner } from '../tasks/gitlab.js';
 import { distilLessons, fetchMrHistory, fetchPrHistory, hasSomethingToLearn, renderLessonComment } from '../runners/pr-lesson.js';
 import type { LessonModel } from '../runners/pr-lesson.js';
+import { VANGUARD_BRANCH_PREFIX } from '../worktree/manager.js';
 
 /** Cheap by default: the lesson is one short completion over text already reviewed. */
 export const LESSON_MODEL_DEFAULT = 'haiku';
@@ -72,6 +73,11 @@ export async function lessonsCommand(cmd: LessonsCommand, deps: LessonsDeps = {}
     cmd.gitlab === true
       ? await fetchMrHistory(cmd.repoSlug, cmd.prNumber, { glab, ...authorOpt })
       : await fetchPrHistory(cmd.repoSlug, cmd.prNumber, { gh, ...authorOpt });
+  // A fork or human MR's reviews quote text its author controls; only factory MRs may teach later runs.
+  if ('factory' in history && !history.factory) {
+    console.log(`MR !${history.number}: not a same-project ${VANGUARD_BRANCH_PREFIX}* MR, no lesson.`);
+    return;
+  }
   if (!hasSomethingToLearn(history)) {
     console.log(`PR #${history.number}: clean first-round merge, no lesson.`);
     return;

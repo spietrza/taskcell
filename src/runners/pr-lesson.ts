@@ -14,6 +14,7 @@ import type { GhRunner } from '../tasks/github.js';
 import { defaultGlabRunner, encodeProject, glabUser } from '../tasks/gitlab.js';
 import type { GlabRunner } from '../tasks/gitlab.js';
 import { GITLAB_VERIFY_FAILED_LABEL } from '../gitlab-labels.js';
+import { VANGUARD_BRANCH_PREFIX } from '../worktree/manager.js';
 import { hasRevisionMarker } from './pr-feedback.js';
 import { extractCommentVerdict } from './review-prompt.js';
 
@@ -23,6 +24,9 @@ const ITEM_MAX = 4000;
 const FILES_MAX = 60;
 /** The newest trusted notes only: the late rounds carry what finally got fixed. */
 const NOTES_MAX = 20;
+const MR_NOTES_PER_PAGE = 100;
+/** Enough for any factory MR; a longer history keeps its oldest 2000 notes. */
+const MR_NOTE_PAGES = 20;
 
 interface GhAuthored {
   author?: { login?: string } | null;
@@ -106,6 +110,9 @@ interface GlabLessonMr {
   title?: string;
   state?: string;
   labels?: Array<string | { name?: string }> | null;
+  source_branch?: string;
+  source_project_id?: number;
+  target_project_id?: number;
 }
 
 interface GlabLessonNote {
@@ -129,21 +136,34 @@ function diffStats(diff: string): { files: string[]; additions: number; deletion
   return { files, additions, deletions };
 }
 
+/** Every note of an MR, oldest first, paged so a long review history is not cut at the first page. */
+async function fetchMrNotes(glab: GlabRunner, project: string, iid: number): Promise<GlabLessonNote[]> {
+  const endpoint = `projects/${encodeProject(project)}/merge_requests/${iid}/notes?per_page=${MR_NOTES_PER_PAGE}&sort=asc&order_by=created_at`;
+  const all: GlabLessonNote[] = [];
+  for (let page = 1; page <= MR_NOTE_PAGES; page++) {
+    const notes: unknown = JSON.parse(await glab(['api', `${endpoint}&page=${page}`]));
+    if (!Array.isArray(notes)) throw new Error('cannot read the MR notes: the response is not a list of notes');
+    all.push(...(notes as GlabLessonNote[]));
+    if (notes.length < MR_NOTES_PER_PAGE) break;
+  }
+  return all;
+}
+
 /**
  * Read a merge request's history through glab. GitLab notes carry no association, so only the glab
  * user (Vanguard's own reviews and revise notes) and `allowedAuthors` are trusted; everyone else fails closed.
+ * `factory` is false unless the MR is a same-project `chore/vanguard-*` branch: a review of a fork or human
+ * MR quotes text its author controls, so no lesson may be drawn from it.
  */
 export async function fetchMrHistory(
   project: string,
   iid: number,
   opts: { allowedAuthors?: readonly string[]; glab?: GlabRunner } = {},
-): Promise<PrHistory> {
+): Promise<PrHistory & { factory: boolean }> {
   const glab = opts.glab ?? defaultGlabRunner;
   const self = await glabUser(glab);
   const mr = JSON.parse(await glab(['mr', 'view', String(iid), '--repo', project, '--output', 'json'])) as GlabLessonMr;
-  const notes = JSON.parse(
-    await glab(['api', `projects/${encodeProject(project)}/merge_requests/${iid}/notes?per_page=100&sort=asc&order_by=created_at`]),
-  ) as GlabLessonNote[];
+  const notes = await fetchMrNotes(glab, project, iid);
   const stats = diffStats(await glab(['mr', 'diff', String(iid), '--repo', project]));
   const human = notes.filter((n) => n.system !== true);
   const trusted = human.filter(
@@ -167,6 +187,10 @@ export async function fetchMrHistory(
       .map((n) => ({ url: noteUrl(n), body: body(n) }))
       .slice(-NOTES_MAX),
     hasLessonComment: human.some((n) => body(n).includes(LESSON_MARKER)),
+    factory:
+      mr.source_project_id !== undefined &&
+      mr.source_project_id === mr.target_project_id &&
+      mr.source_branch?.startsWith(VANGUARD_BRANCH_PREFIX) === true,
   };
 }
 
