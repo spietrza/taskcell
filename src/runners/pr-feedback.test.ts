@@ -1325,6 +1325,17 @@ describe('buildRevisionChecklist — Markdown review', () => {
     expect(buildRevisionChecklist(prose, [])).toHaveLength(1);
   });
 
+  it('ignores a review of an older head', () => {
+    const stale = commentItem({ author: 'github-actions', body: buildPullRequestReviewComment('Verdict: BLOCKING\n\n- [blocking] old finding', 'old999'), createdAt: '2024-01-11T09:00:00Z' });
+    expect(buildRevisionChecklist(makeFeedback({ items: [stale] }), [])).toEqual([]);
+  });
+
+  it('falls back to the Markdown when a blocking verdict has no high/critical structured finding', () => {
+    const findings = '<findings>' + JSON.stringify({ findings: [{ severity: 'medium', kind: 'correctness', title: 't', evidence: 'e' }] }) + '</findings>';
+    const fb = makeFeedback({ items: [review(`Verdict: BLOCKING\n\n- [blocking] parse() drops a row\n\n${findings}`)] });
+    expect(buildRevisionChecklist(fb, [])).toEqual(['[blocking] parse() drops a row']);
+  });
+
   it('lists nothing for a clean review', () => {
     const fb = makeFeedback({ items: [review('Verdict: NO BLOCKING FINDINGS\n\n- [non-blocking] style')] });
     expect(buildRevisionChecklist(fb, [])).toEqual([]);

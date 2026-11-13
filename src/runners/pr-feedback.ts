@@ -273,7 +273,7 @@ export function buildRevisionPrompt(
       : []),
     ...(checklist.length > 0
       ? [
-          `<review_feedback> is followed by a numbered <blocking_checklist> of ${checklist.length} open item(s). Before <promise>COMPLETE</promise>, answer EVERY item in one <checklist_answers> block, one line per item, in this exact form:`,
+          `<review_feedback> is followed by a numbered <blocking_checklist> of ${checklist.length} open item(s). In your final message, before <promise>COMPLETE</promise>, answer EVERY item in one <checklist_answers> block, one line per item, in this exact form:`,
           '`N. FIXED: <file/function and how>`, `N. NOT FIXED: <why>` or `N. DISPUTED: <evidence>`. An item with no answer fails the revision.',
         ]
       : []),
@@ -332,17 +332,18 @@ function proseBlockingFindings(body: string): string[] {
 
 /** Blocking findings of a bot review: its structured (high/critical) findings, else those in its Markdown. */
 function reviewBlockingFindings(body: string): string[] {
+  const blockingVerdict = extractCommentVerdict(body) === 'blocking';
   try {
     const { findings } = extractFindings(body);
-    if (findings.length > 0) {
-      return findings
-        .filter((f) => f.severity === 'high' || f.severity === 'critical')
-        .map((f) => oneLine(`[${f.severity}] ${f.title} — ${f.evidence}`));
-    }
+    const blocking = findings
+      .filter((f) => f.severity === 'high' || f.severity === 'critical')
+      .map((f) => oneLine(`[${f.severity}] ${f.title} — ${f.evidence}`));
+    // A BLOCKING verdict whose structured findings are all below high still has items to answer: fall through.
+    if (blocking.length > 0 || (findings.length > 0 && !blockingVerdict)) return blocking;
   } catch {
     // No structured findings block — the PR review posts Markdown (buildPullRequestReviewComment).
   }
-  if (extractCommentVerdict(body) !== 'blocking') return [];
+  if (!blockingVerdict) return [];
   const prose = proseBlockingFindings(body);
   // A blocking verdict whose findings cannot be told apart still has to be answered, as one item.
   return prose.length > 0 ? prose : ['Every blocking finding of the latest Vanguard review (answer each one it lists)'];
@@ -350,11 +351,12 @@ function reviewBlockingFindings(body: string): string[] {
 
 /**
  * Every item the revision must answer: the blocking (high/critical) findings of the latest completed
- * bot review, plus the list items under a "Findings to address:" line in the actionable comments.
+ * bot review of the current head (one of an older head is stale), plus the list items under a
+ * "Findings to address:" line in the actionable comments.
  */
 export function buildRevisionChecklist(fb: PullRequestFeedback, actionable: readonly FeedbackItem[], botLogins: string[] = []): string[] {
   const reviews = fb.items
-    .filter((i) => isBotLogin(i.author, botLogins) && i.body.startsWith('## Vanguard Review') && pullRequestReviewMarkerShas(i.body).length > 0)
+    .filter((i) => isBotLogin(i.author, botLogins) && i.body.startsWith('## Vanguard Review') && pullRequestReviewMarkerShas(i.body).includes(fb.headRefOid))
     .sort((a, b) => a.createdAt.localeCompare(b.createdAt));
   const latest = reviews[reviews.length - 1];
   const out: string[] = [];
