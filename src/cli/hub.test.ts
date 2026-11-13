@@ -23,6 +23,7 @@ const envKeys = [
   'VANGUARD_HUB_UI_DIR',
   'VANGUARD_HUB_CONFIG_DIR',
   'VANGUARD_HUB_BROWSE_ROOT',
+  'VANGUARD_HUB_BROWSE_ANYWHERE',
   'VANGUARD_HUB_ALLOW_ADD',
   'VANGUARD_HUB_WATCH_POLL',
   'VANGUARD_HUB_WATCH_INTERVAL_MS',
@@ -361,6 +362,31 @@ describe('hubCommand', () => {
       process.emit('SIGINT');
       await new Promise((r) => setTimeout(r, 0));
     }
+  });
+
+  test('the browse root confines browse_dirs unless VANGUARD_HUB_BROWSE_ANYWHERE=1 (the desktop app sets it)', async () => {
+    const browseOutside = async (): Promise<number> => {
+      vi.mocked(execa).mockClear();
+      const logSpy = vi.spyOn(console, 'log').mockImplementation(() => undefined);
+      try {
+        await hubCommand(command({ open: true }));
+        const opened = new URL((vi.mocked(execa).mock.calls[0]![1] as readonly string[])[0]!);
+        const token = new URLSearchParams(opened.hash.slice(1)).get('token')!;
+        const res = await fetch(`${opened.origin}/rpc/browse_dirs`, {
+          method: 'POST',
+          headers: { 'content-type': 'application/json', 'x-vanguard-hub-token': token, origin: opened.origin },
+          body: JSON.stringify({ path: repo }), // a sibling temp dir, outside VANGUARD_HUB_BROWSE_ROOT
+        });
+        return res.status;
+      } finally {
+        logSpy.mockRestore();
+        process.emit('SIGINT');
+        await new Promise((r) => setTimeout(r, 0));
+      }
+    };
+    expect(await browseOutside()).toBe(400);
+    process.env.VANGUARD_HUB_BROWSE_ANYWHERE = '1';
+    expect(await browseOutside()).toBe(200);
   });
 
   test('GET /healthz answers with a constant body, and SIGINT shuts the server down', async () => {

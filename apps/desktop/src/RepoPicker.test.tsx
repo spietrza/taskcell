@@ -16,11 +16,14 @@ const ROOT: DirListing = {
 };
 const GIT_REPO: DirListing = { path: '/root/git-repo', parent: '/root', entries: [] };
 const PLAIN: DirListing = { path: '/root/plain', parent: '/root', entries: [] };
+// Not reachable by walking down from ROOT: another Windows drive.
+const OTHER_DRIVE: DirListing = { path: 'D:\\code\\repo', parent: 'D:\\code', isGitRepo: true, entries: [] };
 
 function install(): void {
   mockBrowseDirs.mockImplementation(async (path?: string) => {
     if (path === GIT_REPO.path) return GIT_REPO;
     if (path === PLAIN.path) return PLAIN;
+    if (path === OTHER_DRIVE.path) return OTHER_DRIVE;
     if (path === ROOT.path || path === undefined) return ROOT;
     throw new Error(`unexpected path ${path}`);
   });
@@ -69,6 +72,36 @@ describe('RepoPicker', () => {
 
     fireEvent.click(screen.getByRole('button', { name: /add this repo/i }));
     expect(onAdd).toHaveBeenCalledWith('/root/git-repo');
+  });
+
+  test('a typed path opens a folder outside the root listing (another drive) and adds it', async () => {
+    install();
+    const onAdd = vi.fn().mockResolvedValue(undefined);
+    render(<RepoPicker onAdd={onAdd} onClone={vi.fn()} onClose={() => {}} />);
+    await screen.findByText('git-repo');
+
+    fireEvent.change(screen.getByLabelText('Folder path'), { target: { value: ` ${OTHER_DRIVE.path} ` } });
+    fireEvent.click(screen.getByRole('button', { name: 'Go' }));
+    await screen.findByText(OTHER_DRIVE.path);
+    expect(mockBrowseDirs).toHaveBeenLastCalledWith(OTHER_DRIVE.path);
+
+    fireEvent.click(screen.getByRole('button', { name: /add this repo/i }));
+    expect(onAdd).toHaveBeenCalledWith(OTHER_DRIVE.path);
+  });
+
+  test('a typed path the hub refuses shows the error and keeps the current folder; the next successful move clears it', async () => {
+    install();
+    render(<RepoPicker onAdd={vi.fn()} onClone={vi.fn()} onClose={() => {}} />);
+    await screen.findByText('git-repo');
+
+    fireEvent.change(screen.getByLabelText('Folder path'), { target: { value: '/etc' } });
+    fireEvent.click(screen.getByRole('button', { name: 'Go' }));
+    expect(await screen.findByRole('alert')).toHaveTextContent('Could not open that folder');
+    expect(screen.getByText('/root')).toBeInTheDocument();
+
+    fireEvent.click(screen.getByText('plain'));
+    await screen.findByText('/root/plain');
+    expect(screen.queryByRole('alert')).not.toBeInTheDocument();
   });
 
   test('T-96 Escape dismisses the picker', async () => {

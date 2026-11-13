@@ -84,16 +84,15 @@ function assertSafeFolderName(name: string): void {
 /** Resolve `name` under `parentDir`, confined to `browseRoot` — mirrors `browseDirs`'s traversal
  * guard (realpath both sides). Refuses a target outside the root, and an existing non-empty dir
  * (an existing EMPTY dir, e.g. one the user just mkdir'd, is fine to clone into). */
-async function resolveCloneTarget(browseRoot: string, parentDir: string, name: string): Promise<string> {
+async function resolveCloneTarget(browseRoot: string, parentDir: string, name: string, anywhere: boolean): Promise<string> {
   assertSafeFolderName(name);
-  const realRoot = await realpath(browseRoot);
   let realParent: string;
   try {
     realParent = await realpath(parentDir);
   } catch {
     throw new BadRequestError(`parent directory does not exist: ${parentDir}`);
   }
-  if (!isWithinRoot(realRoot, realParent)) {
+  if (!anywhere && !isWithinRoot(await realpath(browseRoot), realParent)) {
     throw new BadRequestError('parent directory escapes the browse root');
   }
   const target = join(realParent, name);
@@ -133,6 +132,8 @@ export interface CloneProjectParams {
 export interface CloneProjectDeps {
   exec?: CloneExec;
   allowedHosts?: readonly string[] | undefined;
+  /** The desktop app's own hub: the parent directory may be anywhere, not only under `browseRoot`. */
+  anywhere?: boolean | undefined;
   onProgress?: (line: string) => void;
 }
 
@@ -152,7 +153,7 @@ export async function cloneProject(browseRoot: string, params: CloneProjectParam
   }
 
   const name = params.name?.trim() || repoNameFromUrl(url);
-  const target = await resolveCloneTarget(browseRoot, params.parentDir, name);
+  const target = await resolveCloneTarget(browseRoot, params.parentDir, name, deps.anywhere === true);
 
   const useGh = host === 'github.com' && (await ghAuthenticated(exec));
   const command = useGh ? 'gh' : 'git';

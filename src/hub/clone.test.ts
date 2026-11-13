@@ -1,6 +1,6 @@
 import { mkdtemp, mkdir, realpath, rm, symlink, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
-import { join } from 'node:path';
+import { join, parse } from 'node:path';
 import { afterEach, expect, test, vi } from 'vitest';
 import { cloneProject, cloneUrlHost, repoNameFromUrl, type CloneExec } from './clone.js';
 
@@ -96,4 +96,15 @@ test('streams progress and surfaces subprocess failures', async () => {
   await expect(cloneProject(browseRoot, { url: 'https://gitlab.com/org/repo.git', parentDir: browseRoot }, { exec, onProgress }))
     .rejects.toThrow('git clone failed: repository not found');
   expect(onProgress).toHaveBeenCalledWith('receiving objects');
+});
+
+test('the parent directory is confined to the browse root; a filesystem root admits what is below it; `anywhere` lifts it', async () => {
+  const browseRoot = await root();
+  const elsewhere = await root();
+  const exec = vi.fn<CloneExec>().mockResolvedValue(result);
+  const params = { url: 'https://gitlab.com/org/repo.git', parentDir: elsewhere };
+  await expect(cloneProject(browseRoot, params, { exec })).rejects.toThrow('parent directory escapes the browse root');
+  expect(exec).not.toHaveBeenCalled();
+  await expect(cloneProject(parse(browseRoot).root, params, { exec })).resolves.toBe(join(elsewhere, 'repo'));
+  await expect(cloneProject(browseRoot, params, { exec, anywhere: true })).resolves.toBe(join(elsewhere, 'repo'));
 });

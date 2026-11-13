@@ -25,7 +25,7 @@ export const commands = defineCommands<ProjectsCommands>({
   add_project: async ({ ctx, args, caller }) => {
     assertMutationsAllowed(ctx.bind);
     teams.assertOwner(caller);
-    const real = await assertWithinBrowseRoot(ctx.browseRoot, requireString(args, 'path'));
+    const real = await assertWithinBrowseRoot(ctx.browseRoot, requireString(args, 'path'), ctx.browseAnywhere);
     await assertGitWorkTreeDir(real);
     return projects.add(ctx.configDir, real);
   },
@@ -38,7 +38,7 @@ export const commands = defineCommands<ProjectsCommands>({
     const target = await cloneProject(
       ctx.browseRoot,
       { url, parentDir, name },
-      { allowedHosts: ctx.cloneHosts, onProgress: (line) => ctx.publish('vanguard:clone-progress', { line }) },
+      { allowedHosts: ctx.cloneHosts, anywhere: ctx.browseAnywhere, onProgress: (line) => ctx.publish('vanguard:clone-progress', { line }) },
     );
     await assertGitWorkTreeDir(target);
     await projects.add(ctx.configDir, target);
@@ -54,7 +54,7 @@ export const commands = defineCommands<ProjectsCommands>({
     assertMutationsAllowed(ctx.bind);
     // Feeds add_project / clone_project only, which are the owner's: a member must not list the host.
     teams.assertOwner(caller);
-    return browseDirs(ctx.browseRoot, optionalString(args, 'path'));
+    return browseDirs(ctx.browseRoot, optionalString(args, 'path'), ctx.browseAnywhere);
   },
 }, {
   add_project: { action: 'project-add', target: (a) => optionalString(a, 'path') },
