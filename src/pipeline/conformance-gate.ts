@@ -322,7 +322,7 @@ export function renderScopeChecklist(manifest: SpecManifest, result: Conformance
 }
 
 /** Keywords GitHub/GitLab treat as auto-closing on merge — deliberately excludes `part of`. */
-const CLOSING_KEYWORDS = 'closes|close|closed|fix|fixes|fixed|resolve|resolves|resolved';
+export const CLOSING_KEYWORDS = 'closes|close|closed|fix|fixes|fixed|resolve|resolves|resolved';
 
 const TASK_REF_RE = new RegExp(`\\b(?:${CLOSING_KEYWORDS}|part of)\\s+([^\\s,;]+#\\d+)`, 'i');
 

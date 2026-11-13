@@ -26,6 +26,10 @@ export interface LoadOptions {
   maxBytes?: number;
   /** The task's title + description: when set, relevant lessons from the metrics branch are prepended (#765). */
   taskText?: string;
+  /** Paths the run plans to change (the spec's files): lessons scoped to them are included too. */
+  files?: readonly string[];
+  /** Called with the ids of the lessons injected, so the run record can list them. */
+  onLessons?: (ids: string[]) => void;
 }
 
 // ─── Constants ───────────────────────────────────────────────────────────────
@@ -345,8 +349,9 @@ export async function loadRetrospectiveMemory(repoPath: string, opts?: LoadOptio
   const local = await loadLocalRetrospectiveMemory(repoPath, opts?.maxBytes ?? DEFAULT_MAX_BYTES);
   if (opts?.taskText === undefined) return local;
   const { loadLessonsForTask } = await import('./lessons.js');
-  const lessons = await loadLessonsForTask(repoPath, opts.taskText);
-  return lessons === '' ? local : `${lessons}\n\n${local}`;
+  const lessons = await loadLessonsForTask(repoPath, opts.taskText, opts.files !== undefined ? { files: opts.files } : {});
+  opts.onLessons?.(lessons.ids);
+  return lessons.text === '' ? local : `${lessons.text}\n\n${local}`;
 }
 
 async function loadLocalRetrospectiveMemory(repoPath: string, maxBytes: number): Promise<string> {

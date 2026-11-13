@@ -91,6 +91,7 @@ export async function reviewPrCommand(cmd: ReviewPrCommand, deps: ReviewPrComman
           log,
           publish: !toFile,
           ...(cmd.force === true ? { force: true } : {}),
+          ...(cmd.feedbackAuthors !== undefined ? { allowedAuthors: cmd.feedbackAuthors } : {}),
           ...(cmd.repoSlug !== undefined ? { repoSlug: cmd.repoSlug } : {}),
         }),
       );

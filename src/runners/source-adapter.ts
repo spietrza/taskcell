@@ -28,6 +28,7 @@ import { injectedSecretValues, redactForPublish } from '../core/secret-scan.js';
 import { summarizeOutcomes } from '../core/run-summary.js';
 import { appendStepSummary } from '../core/step-summary.js';
 import type { StepSummary, StepSummaryExit } from '../core/step-summary.js';
+import { loadLessonsForTask } from '../core/lessons.js';
 import { loadRetrospectiveMemory, refreshRetrospectiveMemory } from '../core/retrospective-memory.js';
 import { llmProxySandboxEnv } from '../sandbox/egress-proxy.js';
 import { resolveVerifyCommand, runVerification, renderVerificationFeedback, proofBlock, verifySkippedBlock, baseRedBlock } from '../pipeline/verify.js';
@@ -37,11 +38,12 @@ import { resolveAndRunVisualProof, visualProofBlock } from '../pipeline/visual-p
 import { startProviderProxies } from '../sandbox/llm-proxy.js';
 import { reviewRequestBody } from './review-body.js';
 import { repairUntilGreen } from '../pipeline/repair-gate.js';
-import { deliverChange, conventionalPrTitle } from './deliver-change.js';
+import { deliverChange, conventionalPrTitle, scanOutgoingForSecrets } from './deliver-change.js';
 import {
   parseSpecManifest,
   primaryModuleScope,
   checkConformance,
+  extractDiffFiles,
   renderConformanceFeedback,
   commitLeakWarningBlock,
   prBodyGapWarningBlock,
@@ -54,7 +56,7 @@ import type { Task } from '../tasks/fetcher.js';
 import type { AgentAuth } from '../agents/auth.js';
 import type { ProviderChoice, CustomProviderEntry } from '../agents/registry.js';
 import type { PipelineStage, StageOutcome } from '../pipeline/pipeline.js';
-import type { GateResult } from '../pipeline/repair-gate.js';
+import type { GateResult, RepairGateOptions } from '../pipeline/repair-gate.js';
 import type { RunResult } from '../core/types.js';
 import type { RunEvent } from '../pipeline/events.js';
 import { skillRegistryForRun } from '../context/skill-registry.js';
@@ -458,7 +460,18 @@ export async function runSourcedIssue(
     // missing key fails in a second, not after a full implementer run.
     const forkScore =
       deps.forkN !== undefined && deps.forkScorer === 'decision' ? decisionDiffScorer(resolveForkScorerConfig(whiteLabel, providerEnv), deps.signal !== undefined ? { signal: deps.signal } : {}) : undefined;
-    const retrospectiveMemory = await loadRetrospectiveMemory(deps.repoPath, { taskText: `${task.title}\n${task.description}` });
+    // Lessons are picked by the files the spec plans to change as well as the paths the issue names;
+    // the ids actually injected (first delivery + gate repairs) land on the run record.
+    const lessonIds = new Set<string>();
+    const trust = { allowedAuthors: deps.feedbackAuthors, issueAuthor: task.author };
+    const specText = trustedSpecText(task, trust);
+    const manifest = parseSpecManifest(specText);
+    const plannedFiles = manifest?.files?.map((x) => x.path);
+    const retrospectiveMemory = await loadRetrospectiveMemory(deps.repoPath, {
+      taskText: `${task.title}\n${task.description}`,
+      ...(plannedFiles !== undefined ? { files: plannedFiles } : {}),
+      onLessons: (ids) => ids.forEach((id) => lessonIds.add(id)),
+    });
     // Log-only difficulty probe (decision model, opt-in via env): kicked off here so its round trip
     // hides under sandbox + worktree provisioning; awaited once the pipeline is assembled. Recorded
     // next to the run so stats can later tell whether it predicts repairs/escalation. Never routes.
@@ -555,6 +568,8 @@ export async function runSourcedIssue(
         ...(imageDigest !== undefined ? { imageDigest } : {}),
         ...(deps.credentialSource !== undefined ? { credentialSource: deps.credentialSource } : {}),
       };
+      // Lessons are only all known once the gate repairs have run, so read them at write time.
+      const stageMeta = (): typeof runMeta & { lessonIds?: string[] } => ({ ...runMeta, ...(lessonIds.size > 0 ? { lessonIds: [...lessonIds] } : {}) });
       // One RunWriter for the whole run: it owns the timestamp, so proof.json, visual-proof.json and
       // every stage record share one prefix and the hub/desktop readers can match a run's proof to
       // its stage records by name.
@@ -616,54 +631,46 @@ export async function runSourcedIssue(
         ...(adapter.variables?.(issueRef, task) ?? {}),
         RETROSPECTIVE_MEMORY: escapePromptTags(retrospectiveMemory),
       };
-      outcomes = await runStages(ctx, pipeline, {
-        agent: agents.agent,
-        variables,
-        ...(deps.forkN !== undefined
-          ? { fork: { n: deps.forkN, complete: sandboxComplete(ctx, agents.agent), ...(forkScore !== undefined ? { score: forkScore } : {}) } }
-          : {}),
-        onEvent,
-        ...(deps.signal !== undefined ? { signal: deps.signal } : {}),
-      });
-      // Re-resolved after implement: a task that adds the `test`/`verify` script must still be gated
-      // by it, even though the base tree had none.
-      const verifyCmd = await resolveVerifyCommand(ctx.worktreePath, verifyOpts);
       // Deterministic spec-manifest vs diff conformance gate, joined with the verify command into a
-      // single shared-cap repair loop: either gate failing resumes the implementer's own session with
-      // a combined gap report (bounded, budget/turn caps already apply to the resumed stage) —
-      // "iterate the implement loop", not "open PR and hope". Exhausting the cap (or having no
-      // resumable session) falls through to a declared-partial PR (reviewRequestBody below), never a
-      // silent `Closes` with either gate red.
-      const trust = { allowedAuthors: deps.feedbackAuthors, issueAuthor: task.author };
-      const specText = trustedSpecText(task, trust);
-      const manifest = parseSpecManifest(specText);
+      // single shared-cap repair loop: either gate failing resumes the implementer's own session with a
+      // combined gap report (bounded, budget/turn caps already apply to the resumed
+      // stage) — "iterate the implement loop", not "open PR and hope". It runs on the implementer's
+      // output BEFORE the reviewer, so the review is never spent on code a repair round would change
+      // (runStages' `gateBeforeReview`). Exhausting the cap (or having no resumable session) skips the
+      // reviewer and falls through to a declared-partial PR (reviewRequestBody below), never a silent
+      // `Closes` with any gate red. The secret scan also runs before the reviewer but is never repaired:
+      // a hit ends the run as secret-blocked, exactly like the delivery-time scan.
       // A *parseable* manifest only: prose that merely names the tag must not downgrade delivery.
       const untrustedManifestDropped = manifest === undefined && task.comments.some(
         (c) => !isTrustedComment(c, trust) && parseSpecManifest(c.body) !== undefined,
       );
       if (untrustedManifestDropped) console.log(`taskcell: ${task.id} ignoring <spec_manifest> from untrusted comment author(s) — declaring partial scope (Part of)`);
 
-      // The implementer's position in `outcomes` is fixed while its session is resumable (repairUntilGreen
-      // merges each repair into that entry in place).
-      const implementerIdx = outcomes.findIndex((o) => o.name === STAGE.IMPLEMENTER);
       let conformance: ConformanceResult = PASSING_RESULT;
       // The diff the last gate run checked — reused at delivery so the published verdict is derived
       // from exactly what the gate judged, without a second `wm.diff` round-trip.
       let gateDiff = '';
+      // The outgoing diff the last gate run checked: a tree that still matches it needs no second gate.
+      let gatedTree = '';
       let verification: VerificationResult | undefined;
+      // Re-resolved on every gate run: a task that adds the `test`/`verify` script must still be gated
+      // by it, even though the base tree had none.
+      let verifyCmd: string | undefined;
       let implementerDone = false;
       let gatePassed = false;
-      let repairIterations = 0;
+      // Repairs after the reviewer ran: only those make its verdict stale (the gate-first repairs
+      // happened before it saw the diff).
+      let repairsAfterReview = 0;
       // A re-review that never produced a verdict: published as an incomplete review on a draft PR
       // rather than losing the (already gate-green) work.
       let reviewUnavailable = false;
-      const fallbackHolder = agents.fallbackAgent !== undefined && outcomes[implementerIdx]?.providerName === agents.fallbackAgent.name ? agents.fallbackAgent : undefined;
-      const onFallback = fallbackHolder !== undefined;
       const gate = async (): Promise<GateResult> => {
+        verifyCmd = await resolveVerifyCommand(ctx.worktreePath, verifyOpts);
         // Only touch the worktree diff when there is a manifest to check against — a legacy/no-manifest
         // spec skips the conformance half of the gate entirely.
         gateDiff = manifest !== undefined ? await ctx.wm.diff(ctx.worktreePath) : '';
         conformance = checkConformance(manifest, gateDiff);
+        gatedTree = await ctx.wm.outgoingDiff(ctx.worktreePath);
         verification = verifyCmd !== undefined ? await runVerification(ctx.sandbox, verifyCmd) : undefined;
         // Completion is part of the gate (dogfood #352): an implementer that hit its turn cap or timeout
         // mid-task can leave residue that still typechecks and tests green. Gate on `completed`, NOT on
@@ -671,53 +678,121 @@ export async function runSourcedIssue(
         // ones. A provider that finishes but never emits <promise>COMPLETE</promise> is re-nudged and,
         // if it still won't signal, downgraded to a Part-of PR — an unverifiable "done" must not
         // auto-close the issue.
+        const implementerIdx = outcomes.findIndex((o) => o.name === STAGE.IMPLEMENTER);
         implementerDone = implementerIdx === -1 || outcomes[implementerIdx]?.result.completed === true;
         const pass = conformance.pass && (verification === undefined || verification.passed) && implementerDone;
+        // A red gate: hand the implementer the lessons for the files the diff actually touches.
+        let repairLessons: string | undefined;
+        if (!pass) {
+          const repair = await loadLessonsForTask(deps.repoPath, `${task.title}\n${task.description}`, { files: extractDiffFiles(gateDiff !== '' ? gateDiff : await ctx.wm.diff(ctx.worktreePath)) });
+          repair.ids.forEach((id) => lessonIds.add(id));
+          repairLessons = repair.text !== '' ? repair.text : undefined;
+        }
         const feedback = [
           !implementerDone
             ? 'The previous session ended before the task was finished (turn cap or timeout). Continue and complete the remaining work.'
             : undefined,
           !conformance.pass ? renderConformanceFeedback(conformance) : undefined,
           verification !== undefined && !verification.passed ? renderVerificationFeedback(verification) : undefined,
+          repairLessons,
         ].filter((part): part is string => part !== undefined).join('\n\n');
         return { pass, feedback };
       };
       // Shared by the gate loop and the review-findings round below, so the caps, the escalation rule
       // and the provider the implementer's session belongs to cannot drift between them.
-      const repairOpts = {
-        label: task.id,
-        // Resume on the provider that actually ran the stage: after a fallback the session belongs to it.
-        agent: fallbackHolder ?? agents.agent,
-        outcomes,
-        pipeline,
-        // NOTE: with an explicit --max-repair-iterations N, an incomplete implementer can be resumed up
-        // to ~2N times total — N in-stage (resumeUntilComplete inside runStages) plus N here.
-        maxIterations: deps.maxRepairIterations ?? MAX_REPAIR_ITERATIONS,
-        // --escalate-model names a model of the implementer's provider; handed to the fallback CLI it is
-        // an AgentError, so the fallback repairs on its own model only.
-        ...(deps.escalateModel !== undefined && !onFallback ? { escalateModel: deps.escalateModel } : {}),
-        // A per-task label is the human's own escalation call; the fleet-wide --escalate-model does not
-        // override it (it could even downgrade).
-        modelPinned: labelModel !== undefined,
-        ...(deps.signal !== undefined ? { signal: deps.signal } : {}),
+      const repairOpts = (spentIterations = 0): Omit<RepairGateOptions<GateResult>, 'gate'> => {
+        const implementerIdx = outcomes.findIndex((o) => o.name === STAGE.IMPLEMENTER);
+        const fallbackHolder = agents.fallbackAgent !== undefined && outcomes[implementerIdx]?.providerName === agents.fallbackAgent.name ? agents.fallbackAgent : undefined;
+        return {
+          label: task.id,
+          // Resume on the provider that actually ran the stage: after a fallback the session belongs to it.
+          agent: fallbackHolder ?? agents.agent,
+          outcomes,
+          pipeline,
+          // One cap for the whole run: later gate runs get what the pre-review gate left over.
+          // NOTE: with an explicit --max-repair-iterations N, an incomplete implementer can be resumed up
+          // to ~2N times total — N in-stage (resumeUntilComplete inside runStages) plus N here.
+          maxIterations: Math.max(0, (deps.maxRepairIterations ?? MAX_REPAIR_ITERATIONS) - spentIterations),
+          // --escalate-model names a model of the implementer's provider; handed to the fallback CLI it is
+          // an AgentError, so the fallback repairs on its own model only.
+          ...(deps.escalateModel !== undefined && fallbackHolder === undefined ? { escalateModel: deps.escalateModel } : {}),
+          // A per-task label is the human's own escalation call; the fleet-wide --escalate-model does not
+          // override it (it could even downgrade).
+          modelPinned: labelModel !== undefined,
+          ...(deps.signal !== undefined ? { signal: deps.signal } : {}),
+        };
       };
       const reviewerStage = pipeline.find((s) => s.name === STAGE.REVIEWER);
+      let gatedBeforeReview = false;
+      // The pre-review gate stayed red, so runStages never ran the reviewer: there is no verdict to publish.
+      let reviewerSkipped = false;
+      let gateIterations = 0;
+      // A secret in the tree the reviewer would see is a hard stop, never repair feedback: the implementer
+      // is not resumed, the reviewer never runs and the run ends as secret-blocked (endSecretBlocked).
+      let preReviewSecretBlock: SecretBlock | undefined;
+      const scanBeforeReview = async (): Promise<boolean> => {
+        preReviewSecretBlock = scanOutgoingForSecrets(await ctx.wm.outgoingDiff(ctx.worktreePath), task.id, 'pre-review gate', providerKeyEnvNames(deps));
+        return preReviewSecretBlock === undefined;
+      };
+      const endSecretBlocked = async (block: SecretBlock): Promise<RunIssueResult> => {
+        // The blocked diff holds the secret the scan caught: keep it (and the bundle) off disk.
+        await writer.writeStages(outcomes, { ...stageMeta(), omitDiff: true });
+        await stepSummary('secret-blocked');
+        // White-label runs keep the automation invisible in the client repo: no secret-blocked label,
+        // no branded comment. The operator still gets the masked findings on stderr + run record.
+        if (!whiteLabel) await adapter.signalSecretBlock(issueRef, task, block);
+        onEvent({ type: 'run-end', secretBlocked: true });
+        return { task, secretBlocked: true };
+      };
       // try/finally so the per-stage cost table is printed even when a repair call throws or the run
       // is cancelled mid-loop — and, on the happy path, after the loop so repairs show up in it.
       try {
-        const repair = await repairUntilGreen(ctx, { ...repairOpts, gate });
-        gatePassed = repair.passed;
-        repairIterations = repair.iterations;
+        outcomes = await runStages(ctx, pipeline, {
+          agent: agents.agent,
+          variables,
+          ...(deps.forkN !== undefined
+            ? { fork: { n: deps.forkN, complete: sandboxComplete(ctx, agents.agent), ...(forkScore !== undefined ? { score: forkScore } : {}) } }
+            : {}),
+          onEvent,
+          ...(deps.signal !== undefined ? { signal: deps.signal } : {}),
+          gateBeforeReview: async (outs) => {
+            outcomes = outs;
+            gatedBeforeReview = true;
+            if (!(await scanBeforeReview())) return { pass: false };
+            const repair = await repairUntilGreen(ctx, { ...repairOpts(), gate });
+            gatePassed = repair.passed;
+            gateIterations = repair.iterations;
+            // A repair round may have written a secret of its own: the reviewer must not see that either.
+            if (repair.iterations > 0 && !(await scanBeforeReview())) return { pass: false };
+            reviewerSkipped = !repair.passed;
+            return {
+              pass: repair.passed,
+              // A repair changed the tree: the reviewer must see the repaired diff, not the implementer's.
+              ...(repair.iterations > 0 ? { diff: await ctx.wm.diff(ctx.worktreePath) } : {}),
+            };
+          },
+        });
+        if (preReviewSecretBlock !== undefined) return await endSecretBlocked(preReviewSecretBlock);
+        if (!gatedBeforeReview) {
+          // No reviewer stage: nothing to run the gate ahead of, so it runs on the final tree.
+          gatePassed = (await repairUntilGreen(ctx, { ...repairOpts(), gate })).passed;
+        } else if (await ctx.wm.outgoingDiff(ctx.worktreePath) !== gatedTree) {
+          // Reviewer fixes or the simplifier changed files after the first pass: verify the final tree,
+          // so the proof stamped into the PR body is the one for what ships.
+          const final = await repairUntilGreen(ctx, { ...repairOpts(gateIterations), gate });
+          gatePassed = final.passed;
+          repairsAfterReview += final.iterations;
+        }
         // The reviewer is report-only (#673), so nobody acts on its findings unless they are handed
         // back here: one repair round on the implementer's own session, through the same loop, so the
         // conformance/verify gate still has to be green after the fix. Only once the gate is green —
-        // a gate that is still red already exhausted the cap, and a partial PR discloses the findings.
+        // a gate that is still red already exhausted the cap, and a partial PR declares the gap.
         const firstReview = outcomes.find((o) => o.name === STAGE.REVIEWER);
         if (gatePassed && firstReview !== undefined && hasBlockingFinding(firstReview.result.finalText)) {
           const feedback = reviewRepairFeedback(firstReview.result.finalText);
           let reported = false;
           const reviewRepair = await repairUntilGreen(ctx, {
-            ...repairOpts,
+            ...repairOpts(),
             gate: async () => {
               if (!reported) {
                 reported = true;
@@ -728,17 +803,17 @@ export async function runSourcedIssue(
             maxIterations: 1,
           });
           gatePassed = reviewRepair.passed;
-          repairIterations += reviewRepair.iterations;
+          repairsAfterReview += reviewRepair.iterations;
         }
       } finally {
         console.log(summarizeOutcomes(outcomes));
       }
       console.log(`taskcell: gate ${gatePassed ? 'PASSED' : 'FAILED — declaring partial scope'} for ${task.id}`);
 
-      // The reviewer ran once, before the repair loop. When a repair actually resumed the implementer
-      // (iterations > 0), the diff it reviewed no longer matches what ships (#665) — re-review the
+      // The reviewer ran once, after the first gate. When a later repair actually resumed the implementer
+      // (repairsAfterReview > 0), the diff it reviewed no longer matches what ships (#665) — re-review the
       // final diff so the published verdict is never stale. No repairs ⇒ the original verdict stands.
-      if (reviewerStage !== undefined && repairIterations > 0) {
+      if (reviewerStage !== undefined && repairsAfterReview > 0) {
         let rereviewed: RunResult;
         try {
           rereviewed = await reviewFinalDiff(ctx, reviewerStage, {
@@ -859,18 +934,9 @@ export async function runSourcedIssue(
           },
         },
       });
-      if (delivery.kind === 'secret-blocked') {
-        // The blocked diff holds the secret the scan caught: keep it (and the bundle) off disk.
-        await writer.writeStages(outcomes, { ...runMeta, omitDiff: true });
-        await stepSummary('secret-blocked');
-        // White-label runs keep the automation invisible in the client repo: no secret-blocked label,
-        // no branded comment. The operator still gets the masked findings on stderr + run record.
-        if (!whiteLabel) await adapter.signalSecretBlock(issueRef, task, delivery.block);
-        onEvent({ type: 'run-end', secretBlocked: true });
-        return { task, secretBlocked: true };
-      }
+      if (delivery.kind === 'secret-blocked') return await endSecretBlocked(delivery.block);
       if (delivery.kind === 'no-changes') {
-        await writer.writeStages(outcomes, runMeta);
+        await writer.writeStages(outcomes, stageMeta());
         await stepSummary('no-changes');
         onEvent({ type: 'run-end' });
         return { task };
@@ -882,12 +948,13 @@ export async function runSourcedIssue(
       const configPaths = gateConfigPaths(diffFilesWithPatches(delivery.outgoingDiff), extraGlobs);
       // White-label mode delivers a plain PR: no Vanguard review comment and no issue link-back comment.
       // A flow without a `reviewer` stage (e.g. flow-b: adversary+repairer) has no verdict to surface,
-      // so skip the verdict comment entirely. The no-silence guarantee still fires for reviewer-bearing
-      // flows: publishReviewVerdict throws if a `reviewer` stage ran but produced no outcome. (A
+      // so skip the verdict comment entirely. So does a red pre-review gate, which skipped the reviewer (the
+      // partial draft PR carries the failed proof instead). Otherwise the no-silence guarantee still fires
+      // for reviewer-bearing flows: publishReviewVerdict throws if the reviewer produced no outcome. (A
       // conformance stage can only reach here alongside a reviewer — the assembly check above rejects
       // conformance on a reviewer-less flow — so this skip can never swallow a conformance narrative.)
       const pipelineHasReviewer = pipeline.some((s) => s.name === STAGE.REVIEWER);
-      if (!whiteLabel && pipelineHasReviewer) {
+      if (!whiteLabel && pipelineHasReviewer && !reviewerSkipped) {
         const conformanceOutcome = outcomes.find((o) => o.name === STAGE.CONFORMANCE);
         await adapter.publishVerdict({
           prUrl: pr.prUrl,
@@ -899,7 +966,7 @@ export async function runSourcedIssue(
           ...(deps.reviewGate === true ? { gate: true } : {}),
         });
       }
-      await writer.writeStages(outcomes, { ...runMeta, prUrl: pr.prUrl });
+      await writer.writeStages(outcomes, { ...stageMeta(), prUrl: pr.prUrl });
       await stepSummary(verificationFailed ? 'verify-failed' : 'completed', { prUrl: pr.prUrl });
       if (verification !== undefined && !verification.passed) await adapter.addFailureLabel(pr.prUrl, 'verify');
       if (visualProofFailed) await adapter.addFailureLabel(pr.prUrl, 'visual-proof');

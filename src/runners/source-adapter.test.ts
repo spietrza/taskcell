@@ -199,7 +199,16 @@ vi.mock('../pipeline/pipeline.js', async (importActual) => {
   const actual = await importActual<typeof import('../pipeline/pipeline.js')>();
   return {
     ...actual,
-    runStages: (...args: unknown[]) => runStages(...(args as [])),
+    // Mirrors runBudgetedStages: the gate runs once before the first reviewer; a red gate drops the
+    // reviewer (and everything after it) from the outcomes.
+    runStages: async (...args: unknown[]) => {
+      const outcomes = (await runStages(...(args as []))) as Array<{ name: string }>;
+      const opts = args[2] as { gateBeforeReview?: (o: unknown[]) => Promise<{ pass: boolean }> };
+      const at = outcomes.findIndex((o) => o.name === 'reviewer');
+      if (at === -1 || opts.gateBeforeReview === undefined) return outcomes;
+      const gate = await opts.gateBeforeReview(outcomes);
+      return gate.pass ? outcomes : outcomes.slice(0, at);
+    },
     commitStage: (...args: unknown[]) => commitStage(...(args as [])),
     reviewFinalDiff: (...args: unknown[]) => reviewFinalDiff(...(args as [])),
   };
@@ -391,8 +400,8 @@ describe('runSourcedIssue', () => {
     );
   });
 
-  it('fires publishVerdict → addFailureLabel → linkPr in order and reaches the conformance stage', async () => {
-    // A failing verification triggers exactly one addFailureLabel('verify') between publish and link.
+  it('skips the reviewer on a red verify, then fires addFailureLabel → linkPr and reaches the conformance stage', async () => {
+    // A failing verification triggers exactly one addFailureLabel('verify') before link.
     vi.mocked(resolveVerifyCommand).mockResolvedValue('npm test');
     vi.mocked(runVerification).mockResolvedValueOnce({ passed: false } as never);
 
@@ -402,9 +411,9 @@ describe('runSourcedIssue', () => {
     const result = await runSourcedIssue('group/project#1', deps, adapter);
 
     expect(result.prUrl).toBe(MR_URL);
-    expect(order).toEqual(['publishVerdict', 'addFailureLabel', 'linkPr']);
-    // publishForReview returned no headSha: the commit's SHA is the review marker.
-    expect(adapter.publishVerdict).toHaveBeenCalledWith(expect.objectContaining({ headSha: 'abc1234' }));
+    // The gate runs before the reviewer: a red verify never reaches it, so there is no verdict to publish.
+    expect(order).toEqual(['addFailureLabel', 'linkPr']);
+    expect(adapter.publishVerdict).not.toHaveBeenCalled();
     expect(adapter.addFailureLabel).toHaveBeenCalledWith(MR_URL, 'verify');
     // assembleReviewPipeline appends the conformance stage when deps.conformance is true.
     const assembled = runStages.mock.calls[0]?.[1] as PipelineStage[];
@@ -844,7 +853,7 @@ describe('runSourcedIssue', () => {
 
   it('blocks commit/push/PR, never leaks the raw secret, and signals the block on the issue', async () => {
     const fakeJwt = 'eyJhbGciOiJSUzI1Ni19.eyJzdWIiOiIxMjM0NTY3ODkwIn0.abc-DEF_123';
-    wmDiff.mockResolvedValueOnce(['diff --git a/src/x.ts b/src/x.ts', '+++ b/src/x.ts', `+const t = "${fakeJwt}";`].join('\n'));
+    wmDiff.mockResolvedValue(['diff --git a/src/x.ts b/src/x.ts', '+++ b/src/x.ts', `+const t = "${fakeJwt}";`].join('\n'));
     const consoleError = vi.spyOn(console, 'error').mockImplementation(() => {});
 
     const order: string[] = [];
@@ -855,7 +864,7 @@ describe('runSourcedIssue', () => {
     expect(commitStage).not.toHaveBeenCalled();
     expect(publishForReview).not.toHaveBeenCalled();
     expect(writeStages).toHaveBeenCalledTimes(1);
-    expect(writeStages.mock.calls[0]).toEqual([[stageOutcome('reviewer')], { flow: 'default', provider: 'claude', baseBranch: 'main', omitDiff: true }]);
+    expect(writeStages.mock.calls[0]).toEqual([[], { flow: 'default', provider: 'claude', baseBranch: 'main', omitDiff: true }]);
 
     expect(order).toEqual(['signalSecretBlock']);
     expect(adapter.signalSecretBlock).toHaveBeenCalledTimes(1);
@@ -875,8 +884,8 @@ describe('runSourcedIssue', () => {
   });
 
   it('signals a scan-error precautionary block when scanForSecrets throws', async () => {
-    wmDiff.mockResolvedValueOnce('diff --git a/src/x.ts b/src/x.ts\n+++ b/src/x.ts\n+const t = 1;');
-    scanForSecrets.mockImplementationOnce(() => {
+    wmDiff.mockResolvedValue('diff --git a/src/x.ts b/src/x.ts\n+++ b/src/x.ts\n+const t = 1;');
+    scanForSecrets.mockImplementation(() => {
       throw new Error('scan blew up');
     });
     const consoleError = vi.spyOn(console, 'error').mockImplementation(() => {});
@@ -899,7 +908,7 @@ describe('runSourcedIssue', () => {
 
   it('white-label mode suppresses the issue signal (no label/comment leak) but still blocks the PR', async () => {
     const fakeJwt = 'eyJhbGciOiJSUzI1Ni19.eyJzdWIiOiIxMjM0NTY3ODkwIn0.abc-DEF_123';
-    wmDiff.mockResolvedValueOnce(['diff --git a/src/x.ts b/src/x.ts', '+++ b/src/x.ts', `+const t = "${fakeJwt}";`].join('\n'));
+    wmDiff.mockResolvedValue(['diff --git a/src/x.ts b/src/x.ts', '+++ b/src/x.ts', `+const t = "${fakeJwt}";`].join('\n'));
     const consoleError = vi.spyOn(console, 'error').mockImplementation(() => {});
 
     const adapter = fakeAdapter([], STAGES);
@@ -920,7 +929,7 @@ describe('runSourcedIssue', () => {
 
   it('does not throw when signalSecretBlock itself rejects (best-effort)', async () => {
     const fakeJwt = 'eyJhbGciOiJSUzI1Ni19.eyJzdWIiOiIxMjM0NTY3ODkwIn0.abc-DEF_123';
-    wmDiff.mockResolvedValueOnce(`+const t = "${fakeJwt}";`);
+    wmDiff.mockResolvedValue(`+const t = "${fakeJwt}";`);
     const consoleError = vi.spyOn(console, 'error').mockImplementation(() => {});
 
     const adapter = fakeAdapter([], STAGES);
@@ -949,27 +958,81 @@ describe('runSourcedIssue', () => {
     expect(body).toContain(`Closes ${task.id}`);
   });
 
-  it('re-reviews the final diff when the repair loop changed it (#665: a stale verdict must never ship)', async () => {
+  it('a red verify is repaired before the reviewer runs, so the reviewer is not re-run on the repaired diff', async () => {
     runStages.mockResolvedValueOnce([stageOutcome('implementer', 'sess-1'), stageOutcome('reviewer')]);
     vi.mocked(resolveVerifyCommand).mockResolvedValue('npm test');
     vi.mocked(runVerification)
       .mockResolvedValueOnce({ passed: false } as never)
       .mockResolvedValueOnce({ passed: true } as never);
     runAgent.mockResolvedValueOnce({ sessionId: 'sess-2', completed: true, exitReason: 'completed' } as never);
-    reviewFinalDiff.mockResolvedValueOnce({
-      taskId: 'gl-1', completed: true, exitReason: 'completed', turns: 1,
-      worktreePath: '/wt', worktreePreserved: true,
-      finalText: '<findings>' + JSON.stringify({ findings: [{ severity: 'high', kind: 'correctness', title: 'still broken', evidence: 'x' }] }) + '</findings>',
-    } as never);
 
+    await runSourcedIssue('group/project#1', { repoPath: '/repo' }, fakeAdapter([], STAGES));
+
+    expect(runAgent).toHaveBeenCalledTimes(1);
+    expect(reviewFinalDiff).not.toHaveBeenCalled();
+    // Unchanged after the first (repaired) pass: verify ran twice (red, then green), never a third time.
+    expect(runVerification).toHaveBeenCalledTimes(2);
+  });
+
+  it('verifies the final tree again when a stage changed files after the first gate', async () => {
+    runStages.mockResolvedValueOnce([stageOutcome('implementer', 'sess-1'), stageOutcome('reviewer')]);
+    vi.mocked(resolveVerifyCommand).mockResolvedValue('npm test');
+    vi.mocked(runVerification).mockResolvedValue({ passed: true } as never);
+    // pre-review secret scan and gate-time tree, then a different tree after the reviewer/simplifier
+    wmDiff.mockResolvedValueOnce('tree-1').mockResolvedValueOnce('tree-1').mockResolvedValue('tree-2');
+
+    await runSourcedIssue('group/project#1', { repoPath: '/repo' }, fakeAdapter([], STAGES));
+
+    expect(runVerification).toHaveBeenCalledTimes(2);
+  });
+
+  it.each(['findings', 'scan-error'])('a secret (%s) found before review is a hard stop: secret-blocked, no repair, no reviewer, record withheld', async (kind) => {
+    const fakeJwt = 'eyJhbGciOiJSUzI1Ni19.eyJzdWIiOiIxMjM0NTY3ODkwIn0.abc-DEF_123';
+    const consoleError = vi.spyOn(console, 'error').mockImplementation(() => {});
+    runStages.mockResolvedValueOnce([stageOutcome('implementer', 'sess-1'), stageOutcome('reviewer')]);
+    vi.mocked(resolveVerifyCommand).mockResolvedValue('npm test');
+    runAgent.mockResolvedValue({ sessionId: 'sess-2', completed: true, exitReason: 'completed' } as never);
+    wmDiff.mockResolvedValue(`diff --git a/src/x.ts b/src/x.ts\n+++ b/src/x.ts\n+const t = "${fakeJwt}";`);
+    if (kind === 'scan-error') scanForSecrets.mockImplementation(() => { throw new Error('boom'); });
+    const order: string[] = [];
+    const adapter = fakeAdapter(order, STAGES);
+
+    const result = await runSourcedIssue('group/project#1', { repoPath: '/repo' }, adapter);
+
+    expect(result.secretBlocked).toBe(true);
+    // The implementer is never resumed and neither verify nor the reviewer runs on the blocked tree.
+    expect(runAgent).not.toHaveBeenCalled();
+    expect(runVerification).not.toHaveBeenCalled();
+    expect(reviewFinalDiff).not.toHaveBeenCalled();
+    expect(commitStage).not.toHaveBeenCalled();
+    expect(publishForReview).not.toHaveBeenCalled();
+    // The gate stopped runStages before the reviewer: only the implementer is recorded, diff/transcript/finalText withheld.
+    expect(writeStages).toHaveBeenCalledTimes(1);
+    expect(writeStages.mock.calls[0]).toEqual([[stageOutcome('implementer', 'sess-1')], { flow: 'default', provider: 'claude', baseBranch: 'main', omitDiff: true }]);
+    expect(order).toEqual(['signalSecretBlock']);
+    expect(adapter.signalSecretBlock).toHaveBeenCalledWith('group/project#1', expect.anything(), expect.objectContaining({ reason: kind }));
+    expect(adapter.publishVerdict).not.toHaveBeenCalled();
+    consoleError.mockRestore();
+  });
+
+  it('still hands a missing reviewer outcome to publishVerdict when the gate passed (no-silence guarantee)', async () => {
+    runStages.mockResolvedValueOnce([stageOutcome('implementer', 'sess-1')]);
+    const adapter = fakeAdapter([], STAGES);
+    await runSourcedIssue('group/project#1', { repoPath: '/repo' }, adapter);
+    expect(adapter.publishVerdict).toHaveBeenCalledWith(expect.objectContaining({ reviewerOutcome: undefined }));
+  });
+
+  it('a red verify never reaches the reviewer', async () => {
+    runStages.mockResolvedValueOnce([stageOutcome('implementer', 'sess-1'), stageOutcome('reviewer')]);
+    vi.mocked(resolveVerifyCommand).mockResolvedValue('npm test');
+    vi.mocked(runVerification).mockResolvedValue({ passed: false } as never);
+
+    runAgent.mockResolvedValue({ sessionId: 'sess-2', completed: true, exitReason: 'completed' } as never);
     const adapter = fakeAdapter([], STAGES);
     await runSourcedIssue('group/project#1', { repoPath: '/repo' }, adapter);
 
-    expect(reviewFinalDiff).toHaveBeenCalledTimes(1);
-    expect(reviewFinalDiff.mock.calls[0]?.[1]).toMatchObject({ name: 'reviewer' });
-    // The published verdict reflects the fresh re-review's findings, not the original (now-stale) pass.
-    const body = publishForReview.mock.calls[0]?.[1]?.body as string;
-    expect(body).toMatch(/^Review: CHANGES \(1 finding\)$/m);
+    expect(adapter.publishVerdict).not.toHaveBeenCalled();
+    expect(reviewFinalDiff).not.toHaveBeenCalled();
   });
 
   it('does not re-review when the repair loop never resumed the implementer', async () => {
@@ -1013,11 +1076,11 @@ describe('runSourcedIssue', () => {
     const consoleError = vi.spyOn(console, 'error').mockImplementation(() => {});
     // A stated pass from the first review: only the failed re-review can make the verdict incomplete.
     const clean = stageOutcome('reviewer');
-    clean.result.finalText = 'No blocking issues.';
+    clean.result.finalText = '<findings>' + JSON.stringify({ findings: [{ severity: 'high', kind: 'correctness', title: 'x', evidence: 'y' }] }) + '</findings>';
     runStages.mockResolvedValueOnce([stageOutcome('implementer', 'sess-1'), clean]);
     vi.mocked(resolveVerifyCommand).mockResolvedValue('npm test');
     vi.mocked(runVerification)
-      .mockResolvedValueOnce({ passed: false } as never)
+      .mockResolvedValueOnce({ passed: true } as never)
       .mockResolvedValueOnce({ passed: true } as never);
     runAgent.mockResolvedValueOnce({ sessionId: 'sess-2', completed: true, exitReason: 'completed' } as never);
     const token = `ghp_${'a'.repeat(36)}`;
@@ -1386,7 +1449,7 @@ describe('runSourcedIssue', () => {
   });
 
   it.each(['skills/review/SKILL.md', '.github/vanguard-skills/review/SKILL.md', 'skills.lock.json'])('labels and discloses protected config %s', async (path) => {
-    wmDiff.mockResolvedValueOnce(`diff --git a/${path} b/${path}\n--- a/${path}\n+++ b/${path}\n@@ -1 +1 @@\n-old\n+new\n`);
+    wmDiff.mockResolvedValue(`diff --git a/${path} b/${path}\n--- a/${path}\n+++ b/${path}\n@@ -1 +1 @@\n-old\n+new\n`);
     const adapter = fakeAdapter([], STAGES);
     await runSourcedIssue('group/project#1', { repoPath: '/repo' }, adapter);
     expect(adapter.addGateConfigLabel).toHaveBeenCalledWith(MR_URL);

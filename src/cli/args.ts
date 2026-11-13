@@ -31,6 +31,8 @@ export type Command =
       out?: string;
       /** Review even if this head already has a factory review (set by watch-prs, which dedupes its own sweep). */
       force?: boolean;
+      /** Logins trusted beyond OWNER/MEMBER/COLLABORATOR as authors of the issue the PR implements (set by watch-prs). */
+      feedbackAuthors?: string[];
     }
   | {
       kind: 'research';

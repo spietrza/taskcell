@@ -109,6 +109,28 @@ describe('runStages', () => {
     await disposeContext(ctx);
   });
 
+  it('gateBeforeReview runs before the reviewer; a red gate stops the pipeline before it', async () => {
+    const stages: PipelineStage[] = [
+      { name: 'implementer', promptTemplate: 'do' },
+      { name: 'reviewer', promptTemplate: 'review' },
+      { name: 'simplifier', promptTemplate: 'simplify' },
+    ];
+    for (const pass of [true, false]) {
+      const wm = new WorktreeManager(repo);
+      const received: AgentRunInput[] = [];
+      const ctx = await prepareContext({ taskId: `g${pass}`, localRepoPath: repo, baseBranch: 'main', start: 'base', sandbox: makeSandbox() }, { worktrees: wm });
+      const gate = vi.fn(async (outs: unknown[]) => {
+        expect(received).toHaveLength(1);
+        expect(outs).toHaveLength(1);
+        return { pass };
+      });
+      const outcomes = await runStages(ctx, stages, { agent: recordingAgent(received), gateBeforeReview: gate });
+      expect(gate).toHaveBeenCalledTimes(1);
+      expect(outcomes.map((o) => o.name)).toEqual(pass ? ['implementer', 'reviewer', 'simplifier'] : ['implementer']);
+      await disposeContext(ctx);
+    }
+  });
+
   it('neutralizes prompt tags in the previous diff before the next stage sees it', async () => {
     const wm = new WorktreeManager(repo);
     const received: AgentRunInput[] = [];
