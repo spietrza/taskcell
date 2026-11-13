@@ -99,6 +99,7 @@ describe('reviewPrCommand', () => {
       egress: false,
       provider: 'codex',
       reviewModel: 'gpt-5',
+      feedbackAuthors: ['trusted-dev'],
     };
 
     await reviewPrCommand(cmd, {
@@ -112,6 +113,7 @@ describe('reviewPrCommand', () => {
       expect.objectContaining({
         repoSlug: 'o/r',
         reviewer,
+        allowedAuthors: ['trusted-dev'],
         log: expect.any(Function),
       }),
     );

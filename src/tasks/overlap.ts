@@ -9,6 +9,11 @@ import type { Task } from './fetcher.js';
 const DEFAULT_OVERLAP_HOLD_HOURS = 6;
 const LIST_LIMIT = 100;
 
+/** Branch-name prefix of factory runs for a GitHub task id (`owner/repo#N` or a slug): `chore/vanguard-gh-owner-repo-N-`. */
+export function githubBranchPrefix(taskId: string): string {
+  return `${VANGUARD_BRANCH_PREFIX}gh-${taskId.replace(/[^a-zA-Z0-9]/g, '-')}-`;
+}
+
 /**
  * Wait cap in ms from `VANGUARD_OVERLAP_HOLD_HOURS` (default 6; unset or empty also means the default);
  * `0` turns the overlap hold off.
@@ -115,7 +120,7 @@ export function createOverlapChecker(opts: OverlapCheckerOptions): (task: Task) 
     if (files === undefined) return [];
     const mine = new Set(files.filter((f) => !isSharedPath(f)));
     const self = numberOf(task);
-    const ownBranch = `${VANGUARD_BRANCH_PREFIX}gh-${task.id.replace(/[^a-zA-Z0-9]/g, '-')}-`;
+    const ownBranch = githubBranchPrefix(task.id);
     const holds = [...(await load()), ...admitted].flatMap((work) => {
       if (work.kind === 'run' && work.number === self) return [];
       if (work.branch?.startsWith(ownBranch) === true) return [];
