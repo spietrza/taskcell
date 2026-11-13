@@ -1,5 +1,5 @@
-import { cp, lstat, readFile, readdir, readlink } from 'node:fs/promises';
-import { join, relative } from 'node:path';
+import { cp, lstat, readFile, readdir, readlink, realpath, rm, rmdir } from 'node:fs/promises';
+import { dirname, isAbsolute, join, relative, sep } from 'node:path';
 import { SandboxError } from '../core/errors.js';
 import type { IsolatedSandboxProvider } from './provider.js';
 
@@ -136,9 +136,10 @@ const MAX_COMPARED_BYTES = 4 * 1024 * 1024;
 /**
  * Collect the files under a dropped CI config path whose sandbox copy is new or differs from the
  * worktree. Unchanged files are dropped on every copy-back; only these mean the agent's work is
- * missing from the diff. A file the agent deleted is not in staging, so it is not reported. The walk
- * is sequential: the sandbox chose how many files there are, and a parallel walk can run out of file
- * descriptors.
+ * missing from the diff. A file the agent deleted is not in staging, so it is not reported — except
+ * a deleted CI config path, which `syncDeletions` adds to `dropped` and the failed lstat here reports.
+ * The walk is sequential: the sandbox chose how many files there are, and a parallel walk can run out
+ * of file descriptors.
  */
 async function collectChangedFiles(staging: string, worktree: string, rel: string, changed: string[]): Promise<void> {
   const src = join(staging, rel);
@@ -165,11 +166,82 @@ export interface CopyBackReport {
   /** CI config paths (see CI_CONFIG_RULE) whose sandbox copy is new or differs from what was already
    * in the worktree — dropped, but worth a human's attention. What synced is the worktree itself. */
   dropped: string[];
+  /** Deletion paths the sandbox listed that were not relative paths inside the worktree — ignored. */
+  ignoredDeletions: string[];
+  /** Why the deletion sync did not run (no baseline commit, or the listing failed); absent when it ran. */
+  deletionsSkipped?: string;
 }
 
 export interface ExportWorkspaceOptions {
   maxBytes?: number;
   maxFiles?: number;
+}
+
+/** Exit code of DELETED_FILES_COMMAND when the sandbox has no "vanguard baseline" commit. */
+const NO_BASELINE_EXIT = 3;
+
+/** Lists, NUL-separated, the baseline files (`seedSandboxGit`'s root commit) that no longer exist in
+ * the sandbox workspace. `--no-renames`: a renamed file's old path must still be listed as deleted. */
+const DELETED_FILES_COMMAND =
+  `git rev-list --max-parents=0 HEAD | tail -n 1 | { read -r base && [ "$(git log -1 --format=%s "$base")" = 'vanguard baseline' ] || exit ${NO_BASELINE_EXIT}; git diff --no-renames --name-only -z --diff-filter=D "$base"; }`;
+
+/** Remove the empty directories left above a deleted file, so a directory the agent replaced with a
+ * file does not block the copy. Stops at the first non-empty one (or the worktree root). */
+async function pruneEmptyParents(root: string, abs: string): Promise<void> {
+  for (let dir = dirname(abs); dir !== root; dir = dirname(dir)) {
+    try {
+      await rmdir(dir);
+    } catch {
+      return;
+    }
+  }
+}
+
+/**
+ * Apply the sandbox's file deletions to the worktree, before the copy so a file that became a
+ * directory (or the reverse) does not abort it. The list comes from the sandbox, so it is untrusted:
+ * only relative paths that stay inside the worktree are removed, never `.git`, and never a path the
+ * policy drops (CI config is added to `dropped`, pruned names are left alone).
+ */
+async function syncDeletions(
+  sandbox: Pick<IsolatedSandboxProvider, 'exec'>,
+  workdir: string,
+  stagingDir: string,
+  worktreePath: string,
+  dropped: string[],
+): Promise<Pick<CopyBackReport, 'ignoredDeletions' | 'deletionsSkipped'>> {
+  const ignoredDeletions: string[] = [];
+  const res = await sandbox.exec(`cd ${workdir} && ${DELETED_FILES_COMMAND}`).catch((err: unknown) => ({ exitCode: -1, stdout: '', stderr: String(err) }));
+  if (res.exitCode !== 0) {
+    const reason = res.exitCode === NO_BASELINE_EXIT ? 'sandbox baseline commit not found' : `listing deleted files failed (${res.exitCode}): ${res.stderr.trim()}`;
+    return { ignoredDeletions, deletionsSkipped: reason };
+  }
+  const root = await realpath(worktreePath);
+  for (const rel of res.stdout.split('\0').filter((p) => p !== '')) {
+    const segments = rel.split(/[\\/]/);
+    // `.git` case-insensitively: a case-insensitive host filesystem would resolve `.GIT` to it.
+    if (isAbsolute(rel) || segments.includes('..') || segments.some((s) => s.toLowerCase() === '.git')) {
+      ignoredDeletions.push(rel);
+      continue;
+    }
+    const abs = join(root, rel);
+    // A parent that is gone means the file is already gone; one that resolves elsewhere is a symlink escape.
+    const realParent = await realpath(dirname(abs)).catch(() => undefined);
+    if (realParent === undefined) continue;
+    if (realParent !== root && !realParent.startsWith(root + sep)) {
+      ignoredDeletions.push(rel);
+      continue;
+    }
+    if (isCiConfigPath(rel)) {
+      dropped.push(rel);
+      continue;
+    }
+    // The file is gone from staging, so a stand-in lstat there can fail: treat that as no rule.
+    if ((await classifyPath(stagingDir, rel).catch(() => undefined)) !== undefined) continue;
+    await rm(abs, { force: true });
+    await pruneEmptyParents(root, abs);
+  }
+  return { ignoredDeletions };
 }
 
 /**
@@ -193,6 +265,7 @@ export async function exportWorkspace(
 
   const charge = copyBackBudget(maxBytes, maxFiles);
   const dropped: string[] = [];
+  const deletions = await syncDeletions(sandbox, workdir, stagingDir, worktreePath, dropped);
   await cp(stagingDir, worktreePath, {
     recursive: true,
     force: true,
@@ -215,7 +288,7 @@ export async function exportWorkspace(
   for (const rel of dropped) {
     await collectChangedFiles(stagingDir, worktreePath, rel, changed).catch(() => changed.push(rel));
   }
-  return { dropped: changed };
+  return { dropped: changed, ...deletions };
 }
 
 /** True when `path` is CI config by CI_CONFIG_RULE (`.github/workflows`, `.github/actions`,
