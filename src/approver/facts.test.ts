@@ -232,4 +232,18 @@ describe('collectReviewFacts act-mode run stamp', () => {
     expect(collectReviewFacts(prWith(stamped), pol, { requireRunStamp: true, runId: '7' }).sha).toBeNull();
     expect(collectReviewFacts(prWith(body(`\n\n<!-- taskcell-pr-review-run: ${'b'.repeat(40)}:42 -->`)), pol, { requireRunStamp: true }).sha).toBeNull();
   });
+  it('a newer review without a matching stamp is not skipped in favour of an older stamped one', () => {
+    const stamped = body(`\n\n<!-- taskcell-pr-review-run: ${sha}:42 -->`);
+    const blocking = `## Vanguard Review\n\nVerdict: BLOCKING FINDINGS\n\n<!-- taskcell-pr-review: ${sha} -->`;
+    const pr = { reviews: [
+      { author: 'github-actions', body: stamped, submittedAt: '1', state: 'COMMENTED' },
+      { author: 'github-actions', body: blocking, submittedAt: '2', state: 'COMMENTED' },
+    ] } as unknown as PrFacts;
+    expect(collectReviewFacts(pr, pol, { requireRunStamp: true })).toEqual({ verdict: null, sha: null, author: null });
+    const newerOtherRun = { reviews: [
+      { author: 'github-actions', body: stamped, submittedAt: '1', state: 'COMMENTED' },
+      { author: 'github-actions', body: blocking.replace(/-->$/, `-->\n\n<!-- taskcell-pr-review-run: ${sha}:43 -->`), submittedAt: '2', state: 'COMMENTED' },
+    ] } as unknown as PrFacts;
+    expect(collectReviewFacts(newerOtherRun, pol, { requireRunStamp: true, runId: '42' }).verdict).toBeNull();
+  });
 });
