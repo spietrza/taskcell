@@ -1,4 +1,5 @@
 import { EventEmitter } from 'node:events';
+import { CredentialStore } from './credentials.js';
 import { mkdir, mkdtemp, realpath, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
@@ -74,6 +75,7 @@ async function makeCtx(
     published.push({ name, payload });
   };
   const ctx: RpcContext = {
+    credentials: new CredentialStore(configDir, undefined, {}),
     allowlist: new ProjectAllowlist(async () => [], repoPath),
     watchRegistry: new WatchRegistry(),
     runSession: createRunSession(deps, publish),
@@ -648,6 +650,7 @@ describe('all-repositories lists', () => {
     return { ctx, a, b };
   }
   const task = (id: string): { id: string; title: string; column: 'queued'; state: string } => ({ id, title: id, column: 'queued', state: 'queued' });
+  const noTasks: SidecarDeps['listTasks'] = async () => ({ tasks: [], capped: false });
 
   test('list_tasks_all stamps every card with its repository', async () => {
     const { ctx, a, b } = await twoRepoCtx(async (p) => ({ tasks: [task(p.repoPath.includes('x') ? 'x' : 't')], capped: false }));
@@ -669,36 +672,32 @@ describe('all-repositories lists', () => {
     expect(out.failures[0]).toMatchObject({ repoPath: b, error: 'tracker down' });
   });
 
+  const writeRun = async (repo: string, taskId: string, timestamp: string): Promise<void> => {
+    const dir = join(repo, '.taskcell', 'runs', taskId);
+    await mkdir(dir, { recursive: true });
+    await writeFile(
+      join(dir, `${timestamp.replace(/[:.]/g, '-')}-implement.json`),
+      JSON.stringify({ taskId, completed: true, exitReason: 'completed', turns: 1, worktreePath: '/tmp/wt', worktreePreserved: false, finalText: 'ok', costUsd: 0.1, timestamp, stage: 'implement' }),
+    );
+  };
+
   test('list_runs_all stamps each run with its repository', async () => {
-  const a = await tmpRepo();
-  const { ctx } = await makeCtx(a);
-  await savePaths(ctx.configDir, [a]);
-  ctx.allowlist = new ProjectAllowlist(() => loadPaths(ctx.configDir), a);
-  const dir = join(a, '.taskcell', 'runs', 'task-1');
-  await mkdir(dir, { recursive: true });
-  await writeFile(
-    join(dir, '2026-07-06T19-12-02-123Z-implement.json'),
-    JSON.stringify({ taskId: 'task-1', completed: true, exitReason: 'completed', turns: 1, worktreePath: '/tmp/wt', worktreePreserved: false, finalText: 'ok', costUsd: 0.1, timestamp: '2026-07-06T19:12:02.123Z', stage: 'implement' }),
-  );
-  const out = (await dispatchRpc(ctx, 'list_runs_all', {})) as { runs: { taskId: string; repoPath: string; repoName: string }[] };
-  expect(out.runs).toHaveLength(1);
-  expect(out.runs[0]).toMatchObject({ taskId: 'task-1', repoPath: a });
-  expect(out.runs[0]?.repoName.length).toBeGreaterThan(0);
-});
+    const a = await tmpRepo();
+    const { ctx } = await makeCtx(a);
+    await savePaths(ctx.configDir, [a]);
+    ctx.allowlist = new ProjectAllowlist(() => loadPaths(ctx.configDir), a);
+    await writeRun(a, 'task-1', '2026-07-06T19:12:02.123Z');
+    const out = (await dispatchRpc(ctx, 'list_runs_all', {})) as { runs: { taskId: string; repoPath: string; repoName: string }[] };
+    expect(out.runs).toHaveLength(1);
+    expect(out.runs[0]).toMatchObject({ taskId: 'task-1', repoPath: a });
+    expect(out.runs[0]?.repoName.length).toBeGreaterThan(0);
+  });
 
   test('list_runs_all lists every repository newest-first', async () => {
-    const { ctx, a, b } = await twoRepoCtx(async () => ({ tasks: [], capped: false }));
-    const run = async (repo: string, taskId: string, timestamp: string): Promise<void> => {
-      const dir = join(repo, '.taskcell', 'runs', taskId);
-      await mkdir(dir, { recursive: true });
-      await writeFile(
-        join(dir, `${timestamp.replace(/[:.]/g, '-')}-implement.json`),
-        JSON.stringify({ taskId, completed: true, exitReason: 'completed', turns: 1, worktreePath: '/tmp/wt', worktreePreserved: false, finalText: 'ok', costUsd: 0.1, timestamp, stage: 'implement' }),
-      );
-    };
-    await run(a, 'old-a', '2026-07-01T10:00:00.000Z');
-    await run(b, 'mid-b', '2026-07-02T10:00:00.000Z');
-    await run(a, 'new-a', '2026-07-03T10:00:00.000Z');
+    const { ctx, a, b } = await twoRepoCtx(noTasks);
+    await writeRun(a, 'old-a', '2026-07-01T10:00:00.000Z');
+    await writeRun(b, 'mid-b', '2026-07-02T10:00:00.000Z');
+    await writeRun(a, 'new-a', '2026-07-03T10:00:00.000Z');
     const out = (await dispatchRpc(ctx, 'list_runs_all', {})) as { runs: { taskId: string; repoPath: string }[] };
     expect(out.runs.map((r) => [r.taskId, r.repoPath])).toEqual([
       ['new-a', a],
@@ -707,7 +706,7 @@ describe('all-repositories lists', () => {
     ]);
   });
 
-test('list_runs_all isolates a repository outside the allowlist', async () => {
+  test('list_runs_all isolates a repository outside the allowlist', async () => {
     const a = await tmpRepo();
     const { ctx } = await makeCtx(a);
     await savePaths(ctx.configDir, [a, '/not/allowed/anywhere']);
@@ -717,7 +716,7 @@ test('list_runs_all isolates a repository outside the allowlist', async () => {
   });
 
   test('list_needs_you_all is empty for repositories without a GitHub remote', async () => {
-    const { ctx } = await twoRepoCtx(async () => ({ tasks: [], capped: false }));
+    const { ctx } = await twoRepoCtx(noTasks);
     expect(await dispatchRpc(ctx, 'list_needs_you_all', {})).toEqual({ items: [], failures: [] });
   });
 });

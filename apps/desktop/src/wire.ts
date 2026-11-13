@@ -616,6 +616,20 @@ export interface CliVersionReport {
   clis: CliVersionInfo[];
 }
 
+/** Instance provider credentials (hub only, write-only: a value is never returned). */
+export type CredentialProvider = 'claude' | 'codex' | 'zai' | 'openrouter';
+export interface CredentialStatus {
+  provider: CredentialProvider;
+  set: boolean;
+  last4?: string;
+  env: boolean;
+}
+export interface CredentialsSummary {
+  enabled: boolean;
+  reason?: string;
+  providers: CredentialStatus[];
+}
+
 /**
  * Shared command catalogue for the Tauri, hub and mock adapters. Adapter integration is separate:
  * the existing invoke wrappers and dispatchers do not yet enforce these argument/result types.
@@ -642,6 +656,10 @@ export interface Commands {
   read_app_config: { args: { repoPath: string }; result: AppConfig };
   read_app_config_strict: { args: { repoPath: string }; result: AppConfig };
   write_app_config: { args: { repoPath: string; config: AppConfig }; result: void };
+  /** HUB_ONLY: instance provider credentials (src/hub/credentials.ts) — write-only; reads return set + last four. */
+  get_credentials: { args: undefined; result: CredentialsSummary };
+  set_credential: { args: { provider: CredentialProvider; value: string }; result: CredentialsSummary };
+  delete_credential: { args: { provider: CredentialProvider }; result: CredentialsSummary };
   list_drafts: { args: { repoPath: string }; result: string[] };
   read_draft: { args: { repoPath: string; id: string }; result: string };
   write_draft: { args: { repoPath: string; id: string; content: string }; result: void };
@@ -727,6 +745,9 @@ export interface Commands {
  * compile error. */
 export const COMMAND_NAMES = [
   'list_runs',
+  'get_credentials',
+  'set_credential',
+  'delete_credential',
   'read_run',
   'read_run_events',
   'list_projects',

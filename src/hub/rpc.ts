@@ -27,6 +27,7 @@ import { isSafeTaskId } from '../core/state-path.js';
 import { listActive, readSession } from './active.js';
 import { readAppConfig, readAppConfigStrict, writeAppConfig, type AppConfig } from './app-config.js';
 import { checkCliVersions } from '../sandbox/cli-versions.js';
+import { CREDENTIAL_PROVIDERS, type CredentialProvider, type CredentialStore } from './credentials.js';
 import * as drafts from './drafts.js';
 import * as projects from './projects.js';
 import * as teams from './teams.js';
@@ -53,6 +54,8 @@ export interface RpcContext {
   bind: BindOptions;
   /** Hosts `clone_project` accepts beyond `DEFAULT_CLONE_HOSTS` (a self-hosted GitHub/GitLab). */
   cloneHosts?: readonly string[];
+  /** Instance provider credentials (write-only; see credentials.ts). */
+  credentials: CredentialStore;
   /** Publish a server->client event (wired to the hub's EventBus). */
   publish: (name: string, payload: unknown) => void;
 }
@@ -102,6 +105,10 @@ function requireOneOf(args: Record<string, unknown>, key: string, allowed: reado
   const v = requireString(args, key);
   if (!allowed.includes(v)) throw new BadRequestError(`${key} must be one of ${allowed.join(', ')}`);
   return v;
+}
+
+function requireCredentialProvider(args: Record<string, unknown>): CredentialProvider {
+  return requireOneOf(args, 'provider', CREDENTIAL_PROVIDERS) as CredentialProvider;
 }
 
 function requireScripts(raw: unknown): FactoryPlan['scripts'] {
@@ -286,6 +293,18 @@ export async function dispatchRpc(ctx: RpcContext, cmd: string, rawArgs: unknown
       if (typeof config !== 'object' || config === null) throw new BadRequestError('config is required');
       await writeAppConfig(real, config as AppConfig);
       return null;
+    }
+    case 'get_credentials': {
+      return ctx.credentials.summary();
+    }
+    case 'set_credential': {
+      assertMutationsAllowed(ctx.bind);
+      const provider = requireCredentialProvider(args);
+      return ctx.credentials.set(provider, requireString(args, 'value').trim());
+    }
+    case 'delete_credential': {
+      assertMutationsAllowed(ctx.bind);
+      return ctx.credentials.delete(requireCredentialProvider(args));
     }
     case 'list_drafts': {
       const real = await ctx.allowlist.assertAllowed(requireString(args, 'repoPath'));
