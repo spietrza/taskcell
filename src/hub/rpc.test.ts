@@ -211,7 +211,7 @@ describe('dispatchRpc team scoping', () => {
     const { ctx, b } = await setup();
     const ann = user('ann');
     const owner = /only the hub owner/;
-    for (const [cmd, args] of [['add_project', { path: b }], ['remove_project', { path: b }], ['clone_project', { url: 'u', parentDir: 'p' }], ['get_credentials', {}], ['set_credential', { provider: 'claude', value: 'x' }], ['delete_credential', { provider: 'claude' }], ['list_spawns', {}]] as const) {
+    for (const [cmd, args] of [['add_project', { path: b }], ['remove_project', { path: b }], ['clone_project', { url: 'u', parentDir: 'p' }], ['get_credentials', {}], ['set_credential', { provider: 'claude', value: 'x' }], ['delete_credential', { provider: 'claude' }], ['list_spawns', {}], ['browse_dirs', {}]] as const) {
       await expect(dispatchRpc(ctx, cmd, args, ann)).rejects.toThrow(owner);
     }
     await dispatchRpc(ctx, 'remove_project', { path: b });

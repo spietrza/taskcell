@@ -7,7 +7,7 @@ import { request } from 'node:http';
 import { PassThrough } from 'node:stream';
 import type { ChildProcess } from 'node:child_process';
 import { afterEach, beforeEach, describe, expect, test } from 'vitest';
-import { createHubServer, MAX_RPC_BODY_BYTES, type HubServer } from './server.js';
+import { createHubServer, eventRepoPath, MAX_RPC_BODY_BYTES, type HubServer } from './server.js';
 import { listRunSummaries, defaultRunsRoot } from './runs.js';
 import { MAX_CONCURRENT_COMPLETES } from './complete.js';
 import type { SidecarDeps } from '../sidecar/sidecar.js';
@@ -431,5 +431,17 @@ describe('team caller wiring', () => {
     } finally {
       await h.close();
     }
+  });
+});
+
+describe('eventRepoPath', () => {
+  test('reads a bare path, a repoPath/path field, or a run event\'s repository by runId', () => {
+    const runs = new Map([['r1', '/a']]);
+    expect(eventRepoPath('/a', runs)).toBe('/a');
+    expect(eventRepoPath({ repoPath: '/b' }, runs)).toBe('/b');
+    expect(eventRepoPath({ path: '/c' }, runs)).toBe('/c');
+    expect(eventRepoPath({ runId: 'r1', event: { type: 'log' } }, runs)).toBe('/a');
+    expect(eventRepoPath({ runId: 'r2', event: { type: 'log' } }, runs)).toBeUndefined();
+    expect(eventRepoPath({ line: 'x' }, runs)).toBeUndefined();
   });
 });

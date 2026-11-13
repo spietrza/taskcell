@@ -577,6 +577,8 @@ export async function dispatchRpc(ctx: RpcContext, cmd: string, rawArgs: unknown
     }
     case 'browse_dirs': {
       assertMutationsAllowed(ctx.bind);
+      // Feeds add_project / clone_project only, which are the owner's: a member must not list the host.
+      teams.assertOwner(caller);
       return browseDirs(ctx.browseRoot, optionalString(args, 'path'));
     }
     case 'list_needs_you': {

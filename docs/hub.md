@@ -172,7 +172,7 @@ active run, run backlog, cancel and the `/events` stream only carry the user's r
 `add_team_member`, `remove_team_member`, `add_team_repository` (a project the admin already holds) and
 `remove_team_repository` need the team's `admin` role; a `member` is refused. A team keeps at least one
 admin. The token holder is the owner, admin of every team, and alone may `add_project` / `remove_project` /
-`clone_project` (a hub-wide remove also leaves every team), use the credential commands and the Fleet
+`clone_project` / `browse_dirs` (a hub-wide remove also leaves every team), use the credential commands and the Fleet
 commands. Token-only mode is unchanged: one default team, the token its admin.
 
 *Adding the first members.* On a fresh server-mode hub the default team has no members, so signed-in users
