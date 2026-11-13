@@ -156,7 +156,7 @@ describe('providerSecrets', () => {
   it('subscription mode ignores OPENAI_BASE_URL (mutually exclusive with passthrough)', () => {
     const env = { CODEX_AUTH_JSON: '{"auth_mode":"chatgpt"}', OPENAI_BASE_URL: 'https://openrouter.ai/api/v1' } as NodeJS.ProcessEnv;
     const { sandboxSecrets } = providerSecrets(['codex'], env);
-    expect(sandboxSecrets).not.toHaveProperty('VANGUARD_OPENAI_BASE_URL');
+    expect(sandboxSecrets).not.toHaveProperty('TASKCELL_OPENAI_BASE_URL');
     expect(sandboxSecrets).toEqual({ CODEX_AUTH_JSON: '{"auth_mode":"chatgpt"}' });
   });
 
@@ -172,10 +172,10 @@ describe('providerSecrets', () => {
     });
   });
 
-  it('forwards OPENAI_BASE_URL into the sandbox as VANGUARD_OPENAI_BASE_URL (custom endpoint, direct mode)', () => {
+  it('forwards OPENAI_BASE_URL into the sandbox as TASKCELL_OPENAI_BASE_URL (custom endpoint, direct mode)', () => {
     const env = { CODEX_API_KEY: 'c-key', OPENAI_BASE_URL: 'https://openrouter.ai/api/v1' } as NodeJS.ProcessEnv;
     expect(providerSecrets(['codex'], env)).toEqual({
-      sandboxSecrets: { OPENAI_API_KEY: 'c-key', VANGUARD_OPENAI_BASE_URL: 'https://openrouter.ai/api/v1' },
+      sandboxSecrets: { OPENAI_API_KEY: 'c-key', TASKCELL_OPENAI_BASE_URL: 'https://openrouter.ai/api/v1' },
       proxySecrets: {},
     });
   });
@@ -183,7 +183,7 @@ describe('providerSecrets', () => {
   it('does not forward OPENAI_BASE_URL under --llm-proxy (the sidecar owns the upstream)', () => {
     const env = { CODEX_API_KEY: 'c-key', OPENAI_BASE_URL: 'https://openrouter.ai/api/v1' } as NodeJS.ProcessEnv;
     const { sandboxSecrets } = providerSecrets(['codex'], env, { proxyMode: true });
-    expect(sandboxSecrets).not.toHaveProperty('VANGUARD_OPENAI_BASE_URL');
+    expect(sandboxSecrets).not.toHaveProperty('TASKCELL_OPENAI_BASE_URL');
   });
 
   it('proxy mode holds the codex key back from the sandbox', () => {

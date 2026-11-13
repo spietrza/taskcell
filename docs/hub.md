@@ -1,6 +1,6 @@
 # Taskcell Hub
 
-`vanguard` is the old name of `taskcell` and still works.
+`vanguard` is the old name of `taskcell` and still works (variables: [environment-variables.md](environment-variables.md)).
 
 `taskcell hub` serves the Inspector UI (`apps/desktop`) over plain HTTP/SSE, backed by a real `.taskcell/`
 directory. It is the only backend: the desktop app is a client of a hub (see
@@ -66,10 +66,10 @@ including the container hub) has no launch URL: open its public URL and sign in 
 3. **Self-hosted.** Build `docker/hub.Dockerfile`, run it on a VPS (Coolify, Hetzner) behind Tailscale
    or an authenticating reverse proxy, and reach it from a laptop or a phone. Agent code runs on
    that host, so it needs Docker and the token there. Local mode has no login of its own: never
-   publish the port. `VANGUARD_HUB_ALLOW_ADD=1` enables Add project and Clone repository on a
+   publish the port. `TASKCELL_HUB_ALLOW_ADD=1` enables Add project and Clone repository on a
    non-loopback bind (see [Modes](#modes) and [Coolify / Docker Compose](#coolify--docker-compose)).
    Reaching it under a hostname (rather than an IP address) needs that hostname allowed:
-   `VANGUARD_HUB_ALLOWED_HOSTS=hub.example.com` (or `--allowed-host hub.example.com`).
+   `TASKCELL_HUB_ALLOWED_HOSTS=hub.example.com` (or `--allowed-host hub.example.com`).
 
 ## Runs always use the LLM proxy
 
@@ -106,14 +106,14 @@ If the proxy's trusted sidecar itself fails to start — usually a missing or st
 it runs inside `taskcell-sandbox:latest` like the egress enclave — the run fails fast rather than
 silently falling back to direct mode or hanging. The run view shows: `Failed to start llm proxy
 <id>: rebuild the sandbox image (docker/build.sh builds taskcell-sandbox:latest), or check
-VANGUARD_SANDBOX_IMAGE if set.`
+TASKCELL_SANDBOX_IMAGE if set.`
 
 ## Modes
 
 - **Local mode** — no sign-in screen (the hub acts as one automatic owner user), binds `127.0.0.1` by default. Intended for running on your own
   machine, reachable only from itself.
 - **Container mode** — binds `0.0.0.0` because Docker port-mapping requires it. Reached under a
-  hostname, set `VANGUARD_HUB_ALLOWED_HOSTS=hub.example.com` (every hostname the browser uses,
+  hostname, set `TASKCELL_HUB_ALLOWED_HOSTS=hub.example.com` (every hostname the browser uses,
   including a non-default port).
 
 A hub bound beyond loopback is **server mode** and requires sign-in (see "Server mode sign-in" below).
@@ -125,16 +125,16 @@ Whenever the hub binds beyond loopback (`--host 0.0.0.0`, a LAN/Tailscale addres
 with a single user — every page and every RPC/SSE route requires a signed-in user. Sign-in is
 [Better Auth](https://www.better-auth.com) mounted on the hub's own HTTP server under `/api/auth/*`;
 its data (users, sessions, linked accounts) lives in `auth.sqlite` in the hub state dir
-(`VANGUARD_HUB_CONFIG_DIR`) via Node's built-in `node:sqlite` — no native module. The schema is created
-or migrated on start. The signing secret is `VANGUARD_HUB_AUTH_SECRET`, or a random one persisted to
+(`TASKCELL_HUB_CONFIG_DIR`) via Node's built-in `node:sqlite` — no native module. The schema is created
+or migrated on start. The signing secret is `TASKCELL_HUB_AUTH_SECRET`, or a random one persisted to
 `auth-secret` (mode 0600) in the same directory. Signed-out browsers requesting a page are redirected
 to `/sign-in`; API calls (`/rpc/*`, `/events`) answer `401` (`sign-in required`, which the web UI turns
 into a redirect to `/sign-in`; the top bar has a **Sign out** button). `auth.sqlite` is created mode 0600.
 
 **Behind a reverse proxy on the same host.** A hub bound to `127.0.0.1` behind nginx/Caddy is still
-reachable by everyone the proxy serves, so set `VANGUARD_HUB_SERVER_MODE=1`: the loopback bind then runs
-in server mode (sign-in required, `add_project` and the other writes need `VANGUARD_HUB_ALLOW_ADD=1`).
-Also set `VANGUARD_HUB_PUBLIC_URL` and `--allowed-host` to the public name.
+reachable by everyone the proxy serves, so set `TASKCELL_HUB_SERVER_MODE=1`: the loopback bind then runs
+in server mode (sign-in required, `add_project` and the other writes need `TASKCELL_HUB_ALLOW_ADD=1`).
+Also set `TASKCELL_HUB_PUBLIC_URL` and `--allowed-host` to the public name.
 
 **Providers.** Each is enabled by the operator from env; a provider without both halves is hidden from
 the sign-in page. Any enabled provider can sign in — one hub may hold GitHub and GitLab projects, and
@@ -143,29 +143,29 @@ hub's repositories, but that is only a suggestion. (Apple arrives with the iOS a
 
 | Provider | Env vars |
 |---|---|
-| GitHub | `VANGUARD_HUB_AUTH_GITHUB_CLIENT_ID`, `VANGUARD_HUB_AUTH_GITHUB_CLIENT_SECRET` |
-| GitLab | `VANGUARD_HUB_AUTH_GITLAB_CLIENT_ID`, `VANGUARD_HUB_AUTH_GITLAB_CLIENT_SECRET`, optional `VANGUARD_HUB_AUTH_GITLAB_ISSUER` (self-managed base URL, e.g. `https://gitlab.example.com`; default `https://gitlab.com`) |
-| Google | `VANGUARD_HUB_AUTH_GOOGLE_CLIENT_ID`, `VANGUARD_HUB_AUTH_GOOGLE_CLIENT_SECRET` |
+| GitHub | `TASKCELL_HUB_AUTH_GITHUB_CLIENT_ID`, `TASKCELL_HUB_AUTH_GITHUB_CLIENT_SECRET` |
+| GitLab | `TASKCELL_HUB_AUTH_GITLAB_CLIENT_ID`, `TASKCELL_HUB_AUTH_GITLAB_CLIENT_SECRET`, optional `TASKCELL_HUB_AUTH_GITLAB_ISSUER` (self-managed base URL, e.g. `https://gitlab.example.com`; default `https://gitlab.com`) |
+| Google | `TASKCELL_HUB_AUTH_GOOGLE_CLIENT_ID`, `TASKCELL_HUB_AUTH_GOOGLE_CLIENT_SECRET` |
 
-Also set `VANGUARD_HUB_PUBLIC_URL` to the URL users open: a bare origin such as `https://hub.example.com`
+Also set `TASKCELL_HUB_PUBLIC_URL` to the URL users open: a bare origin such as `https://hub.example.com`
 (a path or query is a startup error). It is the base of the OAuth callback URLs and must match the `Host`
 you allow (`--allowed-host`). Unset, it falls back to the bind address — which a provider cannot
 redirect to (`0.0.0.0`) — and the hub warns at startup when a provider is configured without it.
 
 **Creating the OAuth apps.** The callback (redirect) URL is always
-`<VANGUARD_HUB_PUBLIC_URL>/api/auth/callback/<provider>`, with `<provider>` = `github`, `gitlab` or `google`.
+`<TASKCELL_HUB_PUBLIC_URL>/api/auth/callback/<provider>`, with `<provider>` = `github`, `gitlab` or `google`.
 
 - *GitHub*: Settings → Developer settings → OAuth Apps → New OAuth App. Homepage = the public URL;
   authorization callback URL = `…/api/auth/callback/github`. Generate a client secret.
 - *GitLab* (gitlab.com or **self-managed**): User Settings (or Admin → Applications for an
   instance-wide app) → Applications → Add new application. Redirect URI = `…/api/auth/callback/gitlab`;
   scopes `read_user`. Untick "Confidential" only if your GitLab version requires it. For a
-  self-managed instance also set `VANGUARD_HUB_AUTH_GITLAB_ISSUER=https://gitlab.example.com`, and add
-  that host to `VANGUARD_HUB_CLONE_HOSTS` if projects are cloned from it.
+  self-managed instance also set `TASKCELL_HUB_AUTH_GITLAB_ISSUER=https://gitlab.example.com`, and add
+  that host to `TASKCELL_HUB_CLONE_HOSTS` if projects are cloned from it.
 - *Google*: Google Cloud console → APIs & Services → Credentials → Create credentials → OAuth client ID
   (Web application). Authorized redirect URI = `…/api/auth/callback/google`; configure the consent screen.
 
-**Sign-up allowlist.** Sign-up is not open. `VANGUARD_HUB_SIGNUP_ALLOW` is a comma-separated list that
+**Sign-up allowlist.** Sign-up is not open. `TASKCELL_HUB_SIGNUP_ALLOW` is a comma-separated list that
 decides who may *create* an account on first sign-in; anyone else is refused with "Sign-up is not open
 on this hub". Entries: `alice@example.com` (an e-mail), `@example.com` (a domain), `github:login`,
 `gitlab:login`. E-mail and domain entries only match an address the provider reports as verified. A
@@ -223,7 +223,7 @@ the socket the hub actually bound, so `docker run -p 8080:7777`, `ssh -L 8080:lo
 produced.
 
 Any other hostname — a reverse proxy's public name, a container's service name — must be opted in
-with `--allowed-host <host[:port]>` (repeatable) or `VANGUARD_HUB_ALLOWED_HOSTS` (comma-separated).
+with `--allowed-host <host[:port]>` (repeatable) or `TASKCELL_HUB_ALLOWED_HOSTS` (comma-separated).
 Each value is matched against the `Host` header exactly, case-insensitively, so include the port
 whenever the browser's URL has a non-default one. It takes a bare `host[:port]`, with the port between
 1 and 65535: a scheme, a path, a wildcard, an unbracketed IPv6 literal or a non-numeric/out-of-range
@@ -232,12 +232,12 @@ seeded into the allowlist automatically, on the bound port, so the URL the CLI p
 never refused.
 
 A **Tailscale MagicDNS name** (`host.tailnet.ts.net`) is a hostname, not an IP literal, so it needs
-`--allowed-host host.tailnet.ts.net` / `VANGUARD_HUB_ALLOWED_HOSTS=host.tailnet.ts.net` like any other
+`--allowed-host host.tailnet.ts.net` / `TASKCELL_HUB_ALLOWED_HOSTS=host.tailnet.ts.net` like any other
 hostname. A bare **Tailscale IP** (`100.x.y.z`) is an IP literal and needs no flag.
 
 > **Upgrading:** before this allowlist existed, any `Host` reached the hub. A deployment reached by
 > hostname — a Tailscale MagicDNS name, a reverse proxy's public name, a container's service name —
-> now needs `--allowed-host`/`VANGUARD_HUB_ALLOWED_HOSTS` added, or it 403s. One reached only by IP
+> now needs `--allowed-host`/`TASKCELL_HUB_ALLOWED_HOSTS` added, or it 403s. One reached only by IP
 > literal or `localhost` needs no change.
 
 The same-origin check (`sameOriginOk` in `src/hub/server.ts`) compares the request's `Origin` header
@@ -300,34 +300,35 @@ id is greater than `nextAfter` — no gap, no duplicate.
 
 The desktop app (`apps/desktop`) starts `taskcell hub` itself on `127.0.0.1` (a free port, a fresh per-launch
 token, `--no-open`), loads the launch URL into its window, restarts the hub if it dies, and stops it on quit
-(the hub also exits when the app's stdin pipe closes, `VANGUARD_HUB_EXIT_ON_STDIN_EOF=1`, so it is never
-orphaned). Its project list lives in the app config dir (`VANGUARD_HUB_CONFIG_DIR`). Installed apps bundle a
+(the hub also exits when the app's stdin pipe closes, `TASKCELL_HUB_EXIT_ON_STDIN_EOF=1`, so it is never
+orphaned). Its project list lives in the app config dir (`TASKCELL_HUB_CONFIG_DIR`). Installed apps bundle a
 Node runtime and the CLI; a source checkout (`pnpm start`) runs the TypeScript CLI — details in
 [apps/desktop/README.md](../apps/desktop/README.md#local-hub-the-desktop-backend). To use a remote hub instead, see
 [Connect the desktop app to a server](#connect-the-desktop-app-to-a-server).
 
-Only this hub enables **Fleet** (`spawn_run`/`kill_run`/`list_spawns`, `VANGUARD_HUB_ALLOW_FLEET=1`, honoured on
+Only this hub enables **Fleet** (`spawn_run`/`kill_run`/`list_spawns`, `TASKCELL_HUB_ALLOW_FLEET=1`, honoured on
 a loopback bind only); every other hub rejects those commands.
 
-**Add a repository from any folder.** The app's hub runs with `VANGUARD_HUB_BROWSE_ANYWHERE=1`: the Add-project
+**Add a repository from any folder.** The app's hub runs with `TASKCELL_HUB_BROWSE_ANYWHERE=1`: the Add-project
 picker opens at your home directory, **Parent directory** goes up to the filesystem root, and the **Folder path**
 field opens any folder you type or paste, which is how you reach another drive on Windows (`D:\code\repo`) or
 a network share. A hub served to a browser keeps its browse-root limit.
 
-**Hub variables from your shell are ignored.** The app starts its hub from a fixed set of `VANGUARD_HUB_*`
+**Hub variables from your shell are ignored.** The app starts its hub from a fixed set of `TASKCELL_HUB_*`
 variables (`CONFIG_DIR`, `ALLOW_FLEET`, `BROWSE_ANYWHERE`, `EXIT_ON_STDIN_EOF`) and removes every other one it
-inherited from the shell that launched it, so a `VANGUARD_HUB_TOKEN_FILE`, `ALLOWED_HOSTS`, `UI_DIR`, `ALLOW_ADD`,
+inherited from the shell that launched it, so a `TASKCELL_HUB_TOKEN_FILE`, `ALLOWED_HOSTS`, `UI_DIR`, `ALLOW_ADD`,
 `SERVER_MODE`, `BROWSE_ROOT`, `PUBLIC_URL`, `AUTH_*` or `SIGNUP_ALLOW` meant for a server hub never reaches it.
-Five settings are kept because they are yours rather than the server's: `VANGUARD_HUB_SECRET`,
-`VANGUARD_HUB_CLONE_HOSTS`, `VANGUARD_HUB_MAX_QUEUE`, `VANGUARD_HUB_WATCH_POLL` and
-`VANGUARD_HUB_WATCH_INTERVAL_MS`. Other variables (provider credentials, `PATH`) are inherited as before.
+Five settings are kept because they are yours rather than the server's: `TASKCELL_HUB_SECRET`,
+`TASKCELL_HUB_CLONE_HOSTS`, `TASKCELL_HUB_MAX_QUEUE`, `TASKCELL_HUB_WATCH_POLL` and
+`TASKCELL_HUB_WATCH_INTERVAL_MS`. The old `VANGUARD_HUB_*` spelling of every hub variable is treated the same way: removed, or kept for
+those five. Other variables (provider credentials, `PATH`) are inherited as before.
 
 ## Connect the desktop app to a server
 
 Besides its own local hub, the desktop app can join a `taskcell hub` running on a VPS or NAS (server mode, see
 "Server mode sign-in"), like a chat desktop client joining a workspace.
 
-1. Run the server hub with sign-in enabled (a bind beyond loopback, or `VANGUARD_HUB_SERVER_MODE=1` behind a
+1. Run the server hub with sign-in enabled (a bind beyond loopback, or `TASKCELL_HUB_SERVER_MODE=1` behind a
    reverse proxy) and reach it over HTTPS.
 2. In the app, open the **server switcher** at the top of the left rail (it shows **Local** by default) →
    **Add server…**. Enter a name and the hub URL (`https://hub.example.com`; no username or password in the URL).
@@ -353,28 +354,28 @@ request is replayed, so a run is never started twice.
 
 | Variable | Default |
 |---|---|
-| `VANGUARD_HUB_HOST` | `127.0.0.1` |
-| `VANGUARD_HUB_PORT` | `7777` |
-| `VANGUARD_HUB_UI_DIR` | `<pkg>/apps/desktop/dist` |
-| `VANGUARD_HUB_CONFIG_DIR` | `$XDG_CONFIG_HOME/vanguard-hub` else `~/.config/vanguard-hub` |
-| `VANGUARD_HUB_WATCH_POLL` | — |
-| `VANGUARD_HUB_WATCH_INTERVAL_MS` | `2000` |
-| `VANGUARD_HUB_SECRET` | — (32 bytes, base64: `openssl rand -base64 32`. Enables the Settings credential store, `<config dir>/.vanguard-hub/credentials.enc`, AES-256-GCM. A stored Claude/Codex/z.ai/OpenRouter key overrides the same env var; the API is write-only (set + last four characters). Without it the store is disabled and env credentials apply) |
-| `VANGUARD_HUB_BROWSE_ROOT` | `$HOME` (where the Add-project picker opens, and the limit of what it can browse, add or clone into. A drive or share root such as `D:\` confines to that drive or share) |
-| `VANGUARD_HUB_BROWSE_ANYWHERE` | — (`1` on a loopback bind without server mode lifts that limit: the browse root is then only where the picker opens. Set by the desktop app for its own hub) |
-| `VANGUARD_HUB_ALLOW_ADD` | — |
-| `VANGUARD_HUB_SERVER_MODE` | — (`1` = require sign-in on a loopback bind, for a same-host reverse proxy) |
-| `VANGUARD_HUB_PUBLIC_URL` | `http://<host>:<port>` (server mode: the OAuth callback base) |
-| `VANGUARD_HUB_AUTH_{GITHUB,GITLAB,GOOGLE}_CLIENT_ID` / `_CLIENT_SECRET` | — (provider hidden unless both set; see "Server mode sign-in") |
-| `VANGUARD_HUB_AUTH_GITLAB_ISSUER` | `https://gitlab.com` |
-| `VANGUARD_HUB_AUTH_SECRET` | random, persisted to `auth-secret` in the state dir |
-| `VANGUARD_HUB_SIGNUP_ALLOW` | — (comma-separated e-mails, `@domains`, `github:login`, `gitlab:login`) |
-| `VANGUARD_HUB_ALLOW_FLEET` | — (`1` on a loopback bind enables Fleet; set by the desktop app) |
-| `VANGUARD_HUB_EXIT_ON_STDIN_EOF` | — (`1`: shut down when stdin closes; set by the desktop app) |
-| `VANGUARD_HUB_ALLOWED_HOSTS` | — (comma-separated exact Host values, added to `localhost`/any IP literal on any port) |
-| `VANGUARD_HUB_MAX_QUEUE` | `10` (runs that may wait behind the one running run; past it a new run is refused. The queue is in memory only: a hub restart drops queued runs) |
-| `VANGUARD_HUB_CLONE_HOSTS` | — (comma-separated hosts, added to `github.com`/`gitlab.com`) |
-| `VANGUARD_CHAT_ALLOWED_ORIGINS` | — (comma-separated origins a project's `chatBaseUrl` may use; doc chat refuses any other origin than `https://api.anthropic.com`, since the inherited credential is sent there) |
+| `TASKCELL_HUB_HOST` | `127.0.0.1` |
+| `TASKCELL_HUB_PORT` | `7777` |
+| `TASKCELL_HUB_UI_DIR` | `<pkg>/apps/desktop/dist` |
+| `TASKCELL_HUB_CONFIG_DIR` | `$XDG_CONFIG_HOME/vanguard-hub` else `~/.config/vanguard-hub` |
+| `TASKCELL_HUB_WATCH_POLL` | — |
+| `TASKCELL_HUB_WATCH_INTERVAL_MS` | `2000` |
+| `TASKCELL_HUB_SECRET` | — (32 bytes, base64: `openssl rand -base64 32`. Enables the Settings credential store, `<config dir>/.vanguard-hub/credentials.enc`, AES-256-GCM. A stored Claude/Codex/z.ai/OpenRouter key overrides the same env var; the API is write-only (set + last four characters). Without it the store is disabled and env credentials apply) |
+| `TASKCELL_HUB_BROWSE_ROOT` | `$HOME` (where the Add-project picker opens, and the limit of what it can browse, add or clone into. A drive or share root such as `D:\` confines to that drive or share) |
+| `TASKCELL_HUB_BROWSE_ANYWHERE` | — (`1` on a loopback bind without server mode lifts that limit: the browse root is then only where the picker opens. Set by the desktop app for its own hub) |
+| `TASKCELL_HUB_ALLOW_ADD` | — |
+| `TASKCELL_HUB_SERVER_MODE` | — (`1` = require sign-in on a loopback bind, for a same-host reverse proxy) |
+| `TASKCELL_HUB_PUBLIC_URL` | `http://<host>:<port>` (server mode: the OAuth callback base) |
+| `TASKCELL_HUB_AUTH_{GITHUB,GITLAB,GOOGLE}_CLIENT_ID` / `_CLIENT_SECRET` | — (provider hidden unless both set; see "Server mode sign-in") |
+| `TASKCELL_HUB_AUTH_GITLAB_ISSUER` | `https://gitlab.com` |
+| `TASKCELL_HUB_AUTH_SECRET` | random, persisted to `auth-secret` in the state dir |
+| `TASKCELL_HUB_SIGNUP_ALLOW` | — (comma-separated e-mails, `@domains`, `github:login`, `gitlab:login`) |
+| `TASKCELL_HUB_ALLOW_FLEET` | — (`1` on a loopback bind enables Fleet; set by the desktop app) |
+| `TASKCELL_HUB_EXIT_ON_STDIN_EOF` | — (`1`: shut down when stdin closes; set by the desktop app) |
+| `TASKCELL_HUB_ALLOWED_HOSTS` | — (comma-separated exact Host values, added to `localhost`/any IP literal on any port) |
+| `TASKCELL_HUB_MAX_QUEUE` | `10` (runs that may wait behind the one running run; past it a new run is refused. The queue is in memory only: a hub restart drops queued runs) |
+| `TASKCELL_HUB_CLONE_HOSTS` | — (comma-separated hosts, added to `github.com`/`gitlab.com`) |
+| `TASKCELL_CHAT_ALLOWED_ORIGINS` | — (comma-separated origins a project's `chatBaseUrl` may use; doc chat refuses any other origin than `https://api.anthropic.com`, since the inherited credential is sent there) |
 
 ## Add project: existing folder or clone a URL
 
@@ -383,7 +384,7 @@ The **Add project** dialog has two modes:
 - **Existing folder** — browse (`browse_dirs`, confined to the browse root) to a directory that's
   already a git work tree and add it, exactly as before. `add_project` applies the same browse-root
   confinement, so a project outside the browse root cannot be added. To add one outside `$HOME`
-  (the default root), start the hub with `VANGUARD_HUB_BROWSE_ROOT` set to a directory containing it.
+  (the default root), start the hub with `TASKCELL_HUB_BROWSE_ROOT` set to a directory containing it.
   The **Folder path** field jumps straight to a typed or pasted path, under the same limit. The
   desktop app's own hub has no such limit (see [its section](#the-desktop-apps-local-hub)).
 - **Clone repository** — paste a repository URL, pick the parent folder with the same browser, and
@@ -395,7 +396,7 @@ The **Add project** dialog has two modes:
 second mode:
 
 - The URL must be `https://` or `ssh://`/`git@` to `github.com`, `gitlab.com`, or a host listed in
-  `VANGUARD_HUB_CLONE_HOSTS` — no local paths, no `file://`.
+  `TASKCELL_HUB_CLONE_HOSTS` — no local paths, no `file://`.
 - The target is resolved under the browse root, exactly like `browse_dirs`'s traversal guard (both
   sides realpath'd); a target outside the root, or an existing non-empty directory, is refused before
   anything is written.
@@ -408,7 +409,7 @@ second mode:
 - On failure (bad URL, disallowed host, path outside the browse root, non-empty target, or `git`/`gh`
   itself failing) nothing is written and the error comes back as `bad-request` with git's message.
 
-Gated exactly like `add_project`: loopback only, unless `VANGUARD_HUB_ALLOW_ADD=1` — a non-loopback
+Gated exactly like `add_project`: loopback only, unless `TASKCELL_HUB_ALLOW_ADD=1` — a non-loopback
 bind (server mode) must not let anyone clone onto the host.
 
 ## Coolify / Docker Compose
@@ -427,18 +428,18 @@ services:
     volumes:
       - /var/run/docker.sock:/var/run/docker.sock # sibling-sandbox execution; see risk note below
       - ./target-repo:/work/repo                  # the repo the hub serves + agent edits
-      - vanguard-hub-config:/config                # VANGUARD_HUB_CONFIG_DIR
+      - vanguard-hub-config:/config                # TASKCELL_HUB_CONFIG_DIR
       - taskcell-hub-state:/state                  # holds the token file (below)
     environment:
       GH_TOKEN: ${GH_TOKEN}
-      VANGUARD_MAX_SANDBOXES: "1"
-      VANGUARD_HUB_TOKEN_FILE: /state/hub.key      # same token across restarts and redeploys
-      VANGUARD_HUB_ALLOWED_HOSTS: hub.example.com # every Host the browser uses; loopback only by default
-      VANGUARD_HUB_PUBLIC_URL: https://hub.example.com # the URL users open; OAuth callbacks are built from it
-      VANGUARD_HUB_AUTH_SECRET: ${HUB_AUTH_SECRET}   # signing secret; else a random one is kept in /config
-      VANGUARD_HUB_AUTH_GITHUB_CLIENT_ID: ${GITHUB_CLIENT_ID}         # at least one sign-in provider
-      VANGUARD_HUB_AUTH_GITHUB_CLIENT_SECRET: ${GITHUB_CLIENT_SECRET}
-      VANGUARD_HUB_SIGNUP_ALLOW: you@example.com  # who may create an account; empty means nobody
+      TASKCELL_MAX_SANDBOXES: "1"
+      TASKCELL_HUB_TOKEN_FILE: /state/hub.key      # same token across restarts and redeploys
+      TASKCELL_HUB_ALLOWED_HOSTS: hub.example.com # every Host the browser uses; loopback only by default
+      TASKCELL_HUB_PUBLIC_URL: https://hub.example.com # the URL users open; OAuth callbacks are built from it
+      TASKCELL_HUB_AUTH_SECRET: ${HUB_AUTH_SECRET}   # signing secret; else a random one is kept in /config
+      TASKCELL_HUB_AUTH_GITHUB_CLIENT_ID: ${GITHUB_CLIENT_ID}         # at least one sign-in provider
+      TASKCELL_HUB_AUTH_GITHUB_CLIENT_SECRET: ${GITHUB_CLIENT_SECRET}
+      TASKCELL_HUB_SIGNUP_ALLOW: you@example.com  # who may create an account; empty means nobody
 
 volumes:
   vanguard-hub-config:
@@ -453,8 +454,8 @@ keep it. Rotate it with
 the hub.
 
 **Upgrading an existing container hub.** Earlier versions were opened with the logged `/#token=…` URL.
-Now every page redirects to `/sign-in` until you set `VANGUARD_HUB_PUBLIC_URL`, a sign-in provider
-(`VANGUARD_HUB_AUTH_<GITHUB|GITLAB|GOOGLE>_CLIENT_ID`/`_CLIENT_SECRET`) and `VANGUARD_HUB_SIGNUP_ALLOW`
+Now every page redirects to `/sign-in` until you set `TASKCELL_HUB_PUBLIC_URL`, a sign-in provider
+(`TASKCELL_HUB_AUTH_<GITHUB|GITLAB|GOOGLE>_CLIENT_ID`/`_CLIENT_SECRET`) and `TASKCELL_HUB_SIGNUP_ALLOW`
 in the Compose file, then redeploy. Old bookmarks of the launch URL no longer work; bookmark the public URL.
 
 Mounting the Docker socket is equivalent to root on the host — a process with access to it can start a
@@ -490,7 +491,7 @@ all green, with a message the UI shows; the item leaves the list once merged. Th
 names the PR's base branch (`baseRef`) and asks for a second click to confirm. The merge is pinned to the checked head commit (`--match-head-commit`). A PR with no required checks passes the check gate. The button sits on the Needs you card and in the Board card's quick view (a side panel; a bottom drawer on phones). "Ask for changes" stays `reply_needs_you`.
 
 Replies and merges are a remote mutation, gated like `clone_project`: loopback only, unless
-`VANGUARD_HUB_ALLOW_ADD=1`.
+`TASKCELL_HUB_ALLOW_ADD=1`.
 
 `start_task` labels an issue to start the factory on it; see [Starting the factory from the hub](cli.md#starting-the-factory-from-the-hub).
 
@@ -522,7 +523,7 @@ the linked run's status live. The project card shows the state: not enabled, set
 step), ready, or broken (the reason: a closed PR or a failed doctor run).
 
 Apply and verify change the remote, so they are gated like `clone_project`: loopback only, unless
-`VANGUARD_HUB_ALLOW_ADD=1`. The `gh` login must be able to push workflow files (classic `repo` and
+`TASKCELL_HUB_ALLOW_ADD=1`. The `gh` login must be able to push workflow files (classic `repo` and
 `workflow` scopes), create labels, open a PR and dispatch a workflow.
 
 ## Approver card
@@ -583,13 +584,13 @@ empty-artifact case does not arise, because `if-no-files-found: ignore` skips th
 
 Mirror `docker/compose.yaml`'s `mem_limit: 1024m` pattern. The hub runs agent sandboxes in the same
 process as the HTTP server, so give the container the same RAM headroom, and keep
-`VANGUARD_MAX_SANDBOXES=1` on a small host.
+`TASKCELL_MAX_SANDBOXES=1` on a small host.
 
 ## Per-user provider credentials
 
 Off by default: every run uses the instance credential (the hub's environment, or an instance
 credential an admin saved). An **admin** — a GitHub login listed in `--admin-github-login`
-(repeatable) or `VANGUARD_HUB_ADMIN_GITHUB_LOGINS` (comma-separated) — can change the
+(repeatable) or `TASKCELL_HUB_ADMIN_GITHUB_LOGINS` (comma-separated) — can change the
 `per-user credentials` switch in Settings:
 
 | Setting | A run uses |
@@ -627,18 +628,18 @@ taskcell hub rotate-token --token-file <path>
 | Flag | Overrides | Default |
 |---|---|---|
 | `--repo <path>` | — | cwd; seeded into the project store on startup if it's a git work tree and not already present |
-| `--allowed-host <host[:port]>` (repeatable) | `VANGUARD_HUB_ALLOWED_HOSTS` (comma-separated, additive) | `localhost` / any IP literal on any port |
-| `--host <addr>` | `VANGUARD_HUB_HOST` | `127.0.0.1` |
-| `--port <n>` | `VANGUARD_HUB_PORT` | `7777` (1-65535; an invalid explicit `--port` is a startup error) |
-| `--ui-dir <dir>` | `VANGUARD_HUB_UI_DIR` | `<pkg>/apps/desktop/dist` |
-| `--token-file <path>` | `VANGUARD_HUB_TOKEN_FILE` | unset: a fresh token per launch |
+| `--allowed-host <host[:port]>` (repeatable) | `TASKCELL_HUB_ALLOWED_HOSTS` (comma-separated, additive) | `localhost` / any IP literal on any port |
+| `--host <addr>` | `TASKCELL_HUB_HOST` | `127.0.0.1` |
+| `--port <n>` | `TASKCELL_HUB_PORT` | `7777` (1-65535; an invalid explicit `--port` is a startup error) |
+| `--ui-dir <dir>` | `TASKCELL_HUB_UI_DIR` | `<pkg>/apps/desktop/dist` |
+| `--token-file <path>` | `TASKCELL_HUB_TOKEN_FILE` | unset: a fresh token per launch |
 | `--no-open` | — | opens the printed URL (loopback: the launch URL `/#token=…`; server mode: the bare URL) in a browser unless passed |
 
 A missing or unbuilt `--ui-dir` fails at startup, naming `pnpm --dir apps/desktop build`
 (run `pnpm build:ui`) rather than failing on the first request. Binding a non-loopback host
 requires sign-in (warning at startup if no provider or allowlist is configured) and disables `add_project`/`browse_dirs`/`clone_project`,
 `enable_factory_apply`/`enable_factory_verify`/`enable_factory_start`, `reply_needs_you`, `merge_needs_you` and `start_task` unless
-`VANGUARD_HUB_ALLOW_ADD=1`. `SIGINT`/`SIGTERM` close the listener, every connected SSE client,
+`TASKCELL_HUB_ALLOW_ADD=1`. `SIGINT`/`SIGTERM` close the listener, every connected SSE client,
 and the project file watchers.
 
 Each launch mints a fresh token. RPC requests require `x-vanguard-hub-token` and a same-origin
@@ -656,7 +657,7 @@ but the token is a launch secret, not per-user authentication: it does not repla
 the reverse proxy. It is regenerated on every hub launch, so an already-open page must be given the
 new launch URL once the hub restarts.
 
-With `--token-file <path>` (or `VANGUARD_HUB_TOKEN_FILE`) the token persists instead: an existing file
+With `--token-file <path>` (or `TASKCELL_HUB_TOKEN_FILE`) the token persists instead: an existing file
 is read, a missing one is created with a fresh token and mode `0600` (every launch prints the
 launch URL, with the token in its fragment, same as without the flag). The hub refuses to start when the file is
 group or world readable (`chmod 600 <path>`) or holds fewer than 32 bytes of entropy (hex or

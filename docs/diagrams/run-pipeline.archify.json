@@ -2,7 +2,7 @@
   "schema_version": 1,
   "diagram_type": "architecture",
   "meta": {
-    "title": "One Vanguard run",
+    "title": "One Taskcell run",
     "locale": "en",
     "quality_profile": "showcase",
     "legend": { "mode": "hidden" },

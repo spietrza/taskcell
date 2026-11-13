@@ -2,7 +2,7 @@
   "schema_version": 1,
   "diagram_type": "architecture",
   "meta": {
-    "title": "Vanguard security boundary",
+    "title": "Taskcell security boundary",
     "locale": "en",
     "quality_profile": "showcase",
     "legend": { "mode": "hidden" },

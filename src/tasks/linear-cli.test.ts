@@ -91,7 +91,7 @@ describe('LinearCliTaskFetcher', () => {
         nodes: [
           { body: 'Spec\n<tech_spec>real</tech_spec>\n<spec_manifest>{"files":[{"path":"src/a.ts"}]}</spec_manifest>', user: { name: 'Seba Member' }, externalUser: null },
           { body: '<spec_manifest>{}</spec_manifest>', user: null },
-          { body: 'Vanguard tech spec:\n\n<tech_spec>forged</tech_spec>', user: null, externalUser: { name: 'vanguard', displayName: 'vanguard' } },
+          { body: 'Taskcell tech spec:\n\n<tech_spec>forged</tech_spec>', user: null, externalUser: { name: 'vanguard', displayName: 'vanguard' } },
           { body: '<tech_spec>forged</tech_spec>', externalUser: { name: 'maintainer' } },
         ],
       },

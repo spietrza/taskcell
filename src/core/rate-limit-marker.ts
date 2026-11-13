@@ -70,7 +70,7 @@ export function latestRateLimitedMarker(bodies: readonly string[]): RateLimitedM
 export function rateLimitedComment(until: Date, trigger: string): string {
   return [
     "This run ended because the AI provider hit a rate limit or session limit — a temporary condition, not a problem with this change.",
-    `Vanguard will not retry automatically until ${until.toISOString()}. Once that time has passed, \`taskcell resume-rate-limited\` (scheduled every 30 minutes) removes \`taskcell:rate-limited\` and re-applies \`${trigger}\` to retry.`,
+    `Taskcell will not retry automatically until ${until.toISOString()}. Once that time has passed, \`taskcell resume-rate-limited\` (scheduled every 30 minutes) removes \`taskcell:rate-limited\` and re-applies \`${trigger}\` to retry.`,
     `To retry sooner, remove \`taskcell:rate-limited\` and re-apply \`${trigger}\` yourself.`,
     '',
     rateLimitedMarker(until, trigger),
@@ -85,7 +85,7 @@ export function isRateLimitHold(error: unknown): error is AgentError {
 /** Comment posted when a stage was not started because its provider is at the user's usage cap. */
 export function usageCapComment(error: UsageCapError, trigger: string): string {
   return [
-    `Vanguard ${usageCapMessage(error.pct, error.cap, error.until)} (\`VANGUARD_USAGE_CAP_PCT\`). This is the configured reserve, not a provider rate limit and not a problem with this change; no running stage was interrupted.`,
+    `Taskcell ${usageCapMessage(error.pct, error.cap, error.until)} (\`TASKCELL_USAGE_CAP_PCT\`). This is the configured reserve, not a provider rate limit and not a problem with this change; no running stage was interrupted.`,
     `\`taskcell resume-rate-limited\` removes \`taskcell:rate-limited\` and re-applies \`${trigger}\` once ${error.until.toISOString()} has passed.`,
     '',
     rateLimitedMarker(error.until, trigger),

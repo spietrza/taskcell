@@ -40,7 +40,7 @@ export interface BindOptions {
 export function assertMutationsAllowed(opts: BindOptions): void {
   if (!opts.isLoopback && !opts.allowAdd) {
     throw new BadRequestError(
-      'add_project, browse_dirs and the remote writes (reply, merge, start task, enable factory) are disabled on a non-loopback bind — set VANGUARD_HUB_ALLOW_ADD=1 to allow them',
+      'add_project, browse_dirs and the remote writes (reply, merge, start task, enable factory) are disabled on a non-loopback bind — set TASKCELL_HUB_ALLOW_ADD=1 to allow them',
     );
   }
 }
@@ -102,7 +102,7 @@ export class ProjectAllowlist {
     return real;
   }
 
-  /** `read_session`'s extra rule: the path must look like a Vanguard session log AND live under an
+  /** `read_session`'s extra rule: the path must look like a Taskcell session log AND live under an
    * allowed project. Returns the realpath of the session file. */
   async assertSessionPath(sessionFile: string): Promise<string> {
     if (!isSessionPathGrammar(sessionFile)) {

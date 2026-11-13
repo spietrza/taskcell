@@ -12,17 +12,34 @@ export interface Worktree {
 }
 
 /**
- * Branch prefix for every Vanguard run. Conventional-Branch compliant (`<type>/<description>`, lowercase,
- * hyphens): the type is `chore` and `vanguard-` marks the namespace so `gc` reaps only Vanguard branches,
- * not humans' `chore/*`. A plain `vanguard/` prefix is rejected by repos that enforce Conventional Branch
- * (the type must be one of feat/fix/bugfix/hotfix/release/chore/refactor/docs/test/ci).
+ * Branch prefix for every Taskcell run. Conventional-Branch compliant (`<type>/<description>`, lowercase,
+ * hyphens): the type is `chore` and `taskcell-` marks the namespace so `gc` reaps only Taskcell branches,
+ * not humans' `chore/*`.
  */
-export const VANGUARD_BRANCH_PREFIX = 'chore/vanguard-';
+export const TASKCELL_BRANCH_PREFIX = 'chore/taskcell-';
+
+/** Prefix of runs minted before the rename; branches and open PRs under it are still recognised. */
+export const LEGACY_BRANCH_PREFIX = 'chore/vanguard-';
+
+/**
+ * Prefix new branches are minted under. Still the pre-rename one: the CI gates in .github/workflows (pr-review,
+ * lessons, approver) and the shipped approver policy match `chore/vanguard-`; switch to TASKCELL_BRANCH_PREFIX once
+ * those are updated. Both prefixes are recognised everywhere regardless.
+ */
+export const MINT_BRANCH_PREFIX = LEGACY_BRANCH_PREFIX;
+
+/** Both factory prefixes, new first. */
+export const FACTORY_BRANCH_PREFIXES: readonly string[] = [TASKCELL_BRANCH_PREFIX, LEGACY_BRANCH_PREFIX];
+
+/** True for a branch minted by the factory, under the current or the pre-rename prefix. */
+export function isFactoryBranch(branch: string | null | undefined): boolean {
+  return typeof branch === 'string' && FACTORY_BRANCH_PREFIXES.some((p) => branch.startsWith(p));
+}
 
 export interface CreateOptions {
   /** Reuse an existing <prefix><id>-* branch instead of minting a new run id. */
   reuse?: boolean;
-  /** Override the branch prefix (default VANGUARD_BRANCH_PREFIX). White-label mode uses e.g. `feat/`. */
+  /** Override the branch prefix (default TASKCELL_BRANCH_PREFIX). White-label mode uses e.g. `feat/`. */
   branchPrefix?: string;
   /** Override the branch/path id (default taskId). White-label mode uses the bare issue number. */
   branchId?: string;
@@ -57,11 +74,15 @@ export class WorktreeManager {
 
   async create(taskId: string, baseBranch: string = 'main', opts: CreateOptions = {}): Promise<Worktree> {
     assertSafeBaseBranch(baseBranch);
-    const prefix = opts.branchPrefix ?? VANGUARD_BRANCH_PREFIX;
+    const prefix = opts.branchPrefix ?? MINT_BRANCH_PREFIX;
     const id = opts.branchId ?? taskId;
     if (opts.reuse) {
       const existing = await this.findExistingBranch(id, prefix);
       if (existing) return existing;
+      if (prefix === MINT_BRANCH_PREFIX) {
+        const other = await this.findExistingBranch(id, TASKCELL_BRANCH_PREFIX);
+        if (other) return other;
+      }
     }
     // Append a unique run id: disposeContext removes the worktree but not the branch, and a prior
     // run also leaves a remote branch, so reusing `<prefix><id>` collides on re-run.
@@ -88,7 +109,7 @@ export class WorktreeManager {
     }
   }
 
-  private async findExistingBranch(id: string, prefix: string = VANGUARD_BRANCH_PREFIX): Promise<Worktree | null> {
+  private async findExistingBranch(id: string, prefix: string = MINT_BRANCH_PREFIX): Promise<Worktree | null> {
     let branchOut: string;
     let wtOut: string;
     try {

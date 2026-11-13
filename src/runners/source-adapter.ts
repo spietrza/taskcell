@@ -60,6 +60,7 @@ import type { GateResult, RepairGateOptions } from '../pipeline/repair-gate.js';
 import type { RunResult } from '../core/types.js';
 import type { RunEvent } from '../pipeline/events.js';
 import { skillRegistryForRun } from '../context/skill-registry.js';
+import { readEnv } from '../core/env.js';
 
 /** Issue label that skips the base-red check: the task is meant to fix the red base. */
 export const BASE_RED_OK_LABEL = 'taskcell:base-red-ok';
@@ -83,7 +84,7 @@ export interface RunOptions extends ProviderChoice {
   conformance?: boolean;
   /** Model override for the conformance stage (e.g. 'opus'). */
   conformanceModel?: string;
-  /** Git author for the commit (default: `Vanguard <vanguard@local>`). Set via --commit-author. */
+  /** Git author for the commit (default: `Taskcell <vanguard@local>`). Set via --commit-author. */
   commitAuthor?: { name: string; email: string };
   /**
    * When true, run a dedicated planning stage first (opus, high effort) before implement/review — the
@@ -117,7 +118,7 @@ export interface RunOptions extends ProviderChoice {
   specFile?: string;
   feedbackAuthors?: string[];
   /**
-   * Skills directory injected into the sandbox (Vanguard's bundled `skills/` in the factory), merged
+   * Skills directory injected into the sandbox (Taskcell's bundled `skills/` in the factory), merged
    * with the target repo's own `.github/vanguard-skills/`. Set via --skills.
    */
   skillsDir?: string;
@@ -126,7 +127,7 @@ export interface RunOptions extends ProviderChoice {
    * `npm_config_store_dir`, so the base-red install and the post-implement reinstall (#655) stop
    * re-downloading a repo's dependencies from scratch. One store per repo, never shared — see
    * `pnpmStoreConfig` in sandbox/limits.ts and docs/cli.md for the store-poisoning tradeoff. Set via
-   * --pnpm-store / VANGUARD_PNPM_STORE.
+   * --pnpm-store / TASKCELL_PNPM_STORE.
    */
   pnpmStore?: boolean;
 }
@@ -378,17 +379,17 @@ async function resolveBaseStages(
 /**
  * Credentials and consent for `--fork-scorer decision`. Checked by the CLI before anything runs and
  * again here as a backstop. A white-label run ships the CLIENT's diff to the decision model, so it
- * needs the same explicit consent as the difficulty probe (VANGUARD_DECISION_PROBE=all).
+ * needs the same explicit consent as the difficulty probe (TASKCELL_DECISION_PROBE=all).
  */
 export function resolveForkScorerConfig(whiteLabel: boolean, env: NodeJS.ProcessEnv = process.env): DecisionModelConfig {
   if (!decisionEgressAllowed(whiteLabel, env)) {
     throw new TaskcellError(
-      '--fork-scorer decision on a white-label run (--commit-author) sends the client diff to the decision model; set VANGUARD_DECISION_PROBE=all to allow that.',
+      '--fork-scorer decision on a white-label run (--commit-author) sends the client diff to the decision model; set TASKCELL_DECISION_PROBE=all to allow that.',
     );
   }
   const config = decisionModelConfig(env);
   if (config === undefined) {
-    throw new TaskcellError(`--fork-scorer decision: ${decisionModelMissing(env['VANGUARD_DECISION_MODEL'] ?? DECISION_MODEL_DEFAULT, env)}`);
+    throw new TaskcellError(`--fork-scorer decision: ${decisionModelMissing(readEnv('TASKCELL_DECISION_MODEL', env) ?? DECISION_MODEL_DEFAULT, env)}`);
   }
   return config;
 }
@@ -420,8 +421,8 @@ export async function runSourcedIssue(
         };
 
   // White-label mode (triggered by --commit-author): the PR is delivered as a plain, human-looking PR.
-  // Branch becomes `feat/<issue-number>-<hash>`, the "by Vanguard" attribution and the Vanguard review
-  // comment / issue link-back are suppressed. Off by default — everything stays branded as Vanguard.
+  // Branch becomes `feat/<issue-number>-<hash>`, the "by Taskcell" attribution and the Taskcell review
+  // comment / issue link-back are suppressed. Off by default — everything stays branded as Taskcell.
   const whiteLabel = deps.commitAuthor !== undefined;
 
   // A hub run reads every provider key (agents, fork scorer, difficulty probe) from its resolved
@@ -946,7 +947,7 @@ export async function runSourcedIssue(
       // Read back from the delivered diff, not a binding the `body` callback above would have to mutate
       // as a side effect: a future reorder or target kind can never leave this silently empty.
       const configPaths = gateConfigPaths(diffFilesWithPatches(delivery.outgoingDiff), extraGlobs);
-      // White-label mode delivers a plain PR: no Vanguard review comment and no issue link-back comment.
+      // White-label mode delivers a plain PR: no Taskcell review comment and no issue link-back comment.
       // A flow without a `reviewer` stage (e.g. flow-b: adversary+repairer) has no verdict to surface,
       // so skip the verdict comment entirely. So does a red pre-review gate, which skipped the reviewer (the
       // partial draft PR carries the failed proof instead). Otherwise the no-silence guarantee still fires

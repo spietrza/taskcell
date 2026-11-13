@@ -1,6 +1,6 @@
 // Port of the doc-chat one-shot completion path in the removed desktop Rust sidecar module
 // (api_complete / api_cancel_complete / set_base_url / set_asset_root / complete_exchange) — minus
-// the Tauri wrapper. Kept as a per-turn CHILD PROCESS (`vanguard __complete`), not an in-process call:
+// the Tauri wrapper. Kept as a per-turn CHILD PROCESS (`taskcell __complete`), not an in-process call:
 // src/api/complete.ts's `runComplete` takes no AbortSignal, so in-process cancellation would require
 // editing it; the proven per-turn child + registry gives Stop-button cancellation for free.
 import { spawn, type ChildProcess } from 'node:child_process';
@@ -41,15 +41,15 @@ export class CompleteBusyError extends BadRequestError {
   }
 }
 
-/** Resolve the `vanguard __complete` entry point without assuming `vanguard` is on PATH: the hub may
+/** Resolve the `taskcell __complete` entry point without assuming `taskcell` is on PATH: the hub may
  * run from `dist/cli/index.js` or under `tsx`, so re-invoke the current process's own entry script.
- * Falls back to `vanguard` on PATH when the current script path is unknown (e.g. a REPL). */
+ * Falls back to `taskcell` on PATH when the current script path is unknown (e.g. a REPL). */
 function defaultSpawnComplete(): ChildProcess {
   const selfScript = process.argv[1];
   if (selfScript !== undefined) {
     return spawn(process.execPath, [selfScript, '__complete'], { stdio: ['pipe', 'pipe', 'inherit'] });
   }
-  return spawn('vanguard', ['__complete'], { stdio: ['pipe', 'pipe', 'inherit'] });
+  return spawn('taskcell', ['__complete'], { stdio: ['pipe', 'pipe', 'inherit'] });
 }
 
 function exchange(child: ChildProcess, req: unknown, timeoutMs: number): Promise<CompleteResult> {
@@ -89,7 +89,7 @@ function exchange(child: ChildProcess, req: unknown, timeoutMs: number): Promise
       if (settled) return;
       settled = true;
       clearTimeout(timer);
-      reject(new Error('vanguard __complete produced no response'));
+      reject(new Error('taskcell __complete produced no response'));
     });
     child.on('error', (err) => {
       if (settled) return;

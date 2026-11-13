@@ -13,6 +13,7 @@ import { actSafeGhRunner, actExclusions, reviewExact, escapeForComment } from '.
 import { redactForPublish } from '../core/secret-scan.js';
 import { TaskcellError } from '../core/errors.js';
 import type { ApproverFacts, Decision, DecisionRecord, PrFacts } from './types.js';
+import { readEnv } from '../core/env.js';
 
 export interface RunApproverInput {
   repoPath: string;
@@ -104,7 +105,7 @@ export async function runApprover(input: RunApproverInput, state: { updated: boo
   const { policy, policyHash } = loaded;
   const seed = `${input.repoSlug}:${input.prNumber}:${prFacts.headSha}:${policyHash}`;
 
-  const stopped = policy.enabled === false || (process.env.VANGUARD_APPROVER_STOP ?? '') !== '';
+  const stopped = policy.enabled === false || (readEnv('TASKCELL_APPROVER_STOP') ?? '') !== '';
   if (stopped) {
     // Kill switch short-circuits before any diff/ledger collection (no head fetch, no merge-tree).
     const { reviews: _reviews, ...prWithoutReviews } = prFacts;
@@ -233,7 +234,7 @@ export async function runApprover(input: RunApproverInput, state: { updated: boo
   }
   // Before the merge: the state read at the start is minutes old (checks wait, polls). Re-read the PR, the policy (strictly
   // from the remote base) and the in-repo kill switch, and hold the same exclusions against what is true now. (The
-  // VANGUARD_APPROVER_STOP repo variable reaches the job as env at start; it is not re-read, `enabled` in the policy is.)
+  // TASKCELL_APPROVER_STOP repo variable reaches the job as env at start; it is not re-read, `enabled` in the policy is.)
   const stale = await staleBeforeMerge();
   if (stale.reasons.length > 0) {
     await tell('left-for-human', `changed before the merge: ${stale.reasons.join('; ')}`, diff.headSha, stale.code);
@@ -278,7 +279,7 @@ export async function runApprover(input: RunApproverInput, state: { updated: boo
     if (latest.baseRefName !== prFacts.baseRefName) return ['the base branch changed'];
     const reloaded = await loadPolicy(input.repoPath, base, { requireRemote: true });
     if (reloaded === undefined) return ['the policy could not be re-read from the base branch'];
-    if (reloaded.policy.enabled === false || (process.env.VANGUARD_APPROVER_STOP ?? '') !== '') return ['the kill switch is on'];
+    if (reloaded.policy.enabled === false || (readEnv('TASKCELL_APPROVER_STOP') ?? '') !== '') return ['the kill switch is on'];
     if (reloaded.policy.act !== true) return ['act mode is off in the policy'];
     if (reloaded.policyHash !== policyHash) return ['the policy changed'];
     // The strict policy read above just fetched the base, so this is its tip now (the API's baseRefOid can lag); an empty one fails closed.

@@ -23,18 +23,18 @@ test('the form does not render until the read resolves — a mid-load edit canno
   render(<Settings project="/repo" />);
   // While loading: no editable fields at all (an edit here would be discarded by the resolving
   // setCfg while dirty stayed true — review #341 r3), and Save is disabled.
-  expect(screen.queryByPlaceholderText('vanguard-ready')).not.toBeInTheDocument();
+  expect(screen.queryByPlaceholderText('taskcell-ready')).not.toBeInTheDocument();
   expect(screen.getByText('Loading…')).toBeInTheDocument();
   expect(screen.getByRole('button', { name: /save/i })).toBeDisabled();
   gate.resolve({});
-  await waitFor(() => expect(screen.getByPlaceholderText('vanguard-ready')).toBeInTheDocument());
+  await waitFor(() => expect(screen.getByPlaceholderText('taskcell-ready')).toBeInTheDocument());
   expect(screen.getByRole('button', { name: /save/i })).toBeDisabled(); // still clean — not dirty
 });
 
 test('an unset task source shows "—" (not a default the board would reject); picking GitHub saves it', async () => {
   read.mockResolvedValueOnce({});
   render(<Settings project="/repo" />);
-  await waitFor(() => expect(screen.getByPlaceholderText('vanguard-ready')).toBeInTheDocument());
+  await waitFor(() => expect(screen.getByPlaceholderText('taskcell-ready')).toBeInTheDocument());
   expect(screen.getByLabelText('Task source')).toHaveValue('');
   fireEvent.change(screen.getByLabelText('Task source'), { target: { value: 'github' } });
   fireEvent.click(screen.getByRole('button', { name: /save/i }));
@@ -50,7 +50,7 @@ test('a project configured before taskSource shows its legacy source', async () 
 test('task source and run location are editable, saved per project, and bad pairs are explained', async () => {
   read.mockResolvedValueOnce({});
   render(<Settings project="/repo" />);
-  await waitFor(() => expect(screen.getByPlaceholderText('vanguard-ready')).toBeInTheDocument());
+  await waitFor(() => expect(screen.getByPlaceholderText('taskcell-ready')).toBeInTheDocument());
   expect(screen.queryByRole('note')).not.toBeInTheDocument();
   fireEvent.change(screen.getByLabelText('Task source'), { target: { value: 'linear' } });
   fireEvent.change(screen.getByLabelText('Runs on'), { target: { value: 'watch' } });
@@ -64,7 +64,7 @@ test('an unreadable config surfaces an error and blocks save instead of silently
   read.mockRejectedValueOnce(new Error('.taskcell/app.json is unreadable: expected value at line 1'));
   render(<Settings project="/repo" />);
   await waitFor(() => expect(screen.getByText(/app\.json is unreadable/i)).toBeInTheDocument());
-  fireEvent.change(screen.getByPlaceholderText('vanguard-ready'), { target: { value: 'x' } });
+  fireEvent.change(screen.getByPlaceholderText('taskcell-ready'), { target: { value: 'x' } });
   expect(screen.getByRole('button', { name: /save/i })).toBeDisabled();
   expect(write).not.toHaveBeenCalled();
 });
@@ -128,8 +128,8 @@ test('a dirty Settings with no nav-guard provider is inert — no throw, no conf
   const confirmSpy = vi.spyOn(window, 'confirm');
   read.mockResolvedValueOnce({});
   const { unmount } = render(<Settings project="/repo" />);
-  await waitFor(() => expect(screen.getByPlaceholderText('vanguard-ready')).toBeInTheDocument());
-  fireEvent.change(screen.getByPlaceholderText('vanguard-ready'), { target: { value: 'x' } });
+  await waitFor(() => expect(screen.getByPlaceholderText('taskcell-ready')).toBeInTheDocument());
+  fireEvent.change(screen.getByPlaceholderText('taskcell-ready'), { target: { value: 'x' } });
   expect(screen.getByRole('button', { name: /save/i })).not.toBeDisabled();
   expect(() => unmount()).not.toThrow();
   expect(confirmSpy).not.toHaveBeenCalled();

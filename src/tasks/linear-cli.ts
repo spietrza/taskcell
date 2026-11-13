@@ -47,7 +47,7 @@ interface LinearCliIssue {
 /**
  * Accepts comments as either an array or a { nodes: [...] } connection; unknown shapes -> [].
  * Only a comment Linear attributes to a workspace `user` is stamped `authorAssociation: 'MEMBER'`.
- * Vanguard's own spec comment is posted under the API key owner's user, so it keeps MEMBER (its
+ * Taskcell's own spec comment is posted under the API key owner's user, so it keeps MEMBER (its
  * human name does not match isBotLogin; without the stamp every Linear run would fall back to
  * Part of). A comment an integration posted (Slack sync, Intercom, Asks) carries `externalUser` or
  * no user at all: it gets author '' and association '', which fails closed like GitHub's omitted
@@ -306,5 +306,5 @@ export async function commentLinearIssue(issueId: string, body: string, runner: 
 
 /** Comment a PR link back onto a Linear issue via the CLI (closes the loop). */
 export async function linkLinearIssue(issueId: string, prUrl: string, runner: LinearCliRunner = defaultRunner): Promise<void> {
-  await commentLinearIssue(issueId, `Vanguard opened a PR for review: ${prUrl}`, runner);
+  await commentLinearIssue(issueId, `Taskcell opened a PR for review: ${prUrl}`, runner);
 }

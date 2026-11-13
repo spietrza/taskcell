@@ -135,7 +135,7 @@ describe('llmProxySandboxEnv', () => {
     expect(env?.ANTHROPIC_BASE_URL).toBe(anthropic.url);
     expect(env?.ANTHROPIC_AUTH_TOKEN).toBe(anthropic.nonce);
     expect(env?.OPENAI_API_KEY).toBe(openai.nonce);
-    expect(env?.VANGUARD_OPENAI_BASE_URL).toBe(`${openai.url}/v1`);
+    expect(env?.TASKCELL_OPENAI_BASE_URL).toBe(`${openai.url}/v1`);
     expect(env?.CODEX_AUTH_JSON).toBeUndefined(); // API-key mode has no auth.json at all
   });
 
@@ -143,7 +143,7 @@ describe('llmProxySandboxEnv', () => {
     const env = llmProxySandboxEnv(proxyUrl, undefined, { openai });
     expect(env?.NO_PROXY).toBe('localhost,127.0.0.1,vg-llm-oai');
     expect(env?.OPENAI_API_KEY).toBe(openai.nonce);
-    expect(env?.VANGUARD_OPENAI_BASE_URL).toBe(`${openai.url}/v1`);
+    expect(env?.TASKCELL_OPENAI_BASE_URL).toBe(`${openai.url}/v1`);
     expect(env?.ANTHROPIC_BASE_URL).toBeUndefined();
     expect(env?.ANTHROPIC_AUTH_TOKEN).toBeUndefined();
   });
@@ -153,7 +153,7 @@ describe('llmProxySandboxEnv', () => {
     expect(env?.NO_PROXY).toBe('localhost,127.0.0.1,vg-llm-ant,vg-llm-cgp');
     expect(env?.OPENAI_API_KEY).toBe(chatgpt.nonce);
     // No `/v1`: the chatgpt sidecar's inbound model path is a bare /responses.
-    expect(env?.VANGUARD_OPENAI_BASE_URL).toBe(chatgpt.url);
+    expect(env?.TASKCELL_OPENAI_BASE_URL).toBe(chatgpt.url);
     expect(env?.CODEX_REFRESH_TOKEN_URL_OVERRIDE).toBe(`${chatgpt.url}/oauth/token`);
     expect(env?.CODEX_REVOKE_TOKEN_URL_OVERRIDE).toBe(`${chatgpt.url}/oauth/revoke`);
     expect(env?.ANTHROPIC_BASE_URL).toBe(anthropic.url);
@@ -188,7 +188,7 @@ describe('llmProxySandboxEnv', () => {
     expect(env?.ANTHROPIC_BASE_URL).toBe(anthropic.url);
     expect(env?.ANTHROPIC_AUTH_TOKEN).toBe(anthropic.nonce);
     expect(env?.OPENAI_API_KEY).toBeUndefined();
-    expect(env?.VANGUARD_OPENAI_BASE_URL).toBeUndefined();
+    expect(env?.TASKCELL_OPENAI_BASE_URL).toBeUndefined();
   });
 
   it('returns plain egress env when neither sidecar is given (existing behavior)', () => {

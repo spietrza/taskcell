@@ -55,7 +55,7 @@ function chatgptSandboxEnv(chatgptProxy: ChatgptProxyDep): Record<string, string
   const { url, nonce, refreshPlaceholder, accountId, planType } = chatgptProxy;
   return {
     OPENAI_API_KEY: nonce,
-    VANGUARD_OPENAI_BASE_URL: url,
+    TASKCELL_OPENAI_BASE_URL: url,
     CODEX_AUTH_JSON: buildCodexAuthJson(nonce, refreshPlaceholder, accountId, planType),
     CODEX_REFRESH_TOKEN_URL_OVERRIDE: `${url}${CODEX_REFRESH_PATH}`,
     CODEX_REVOKE_TOKEN_URL_OVERRIDE: `${url}${CODEX_REVOKE_PATH}`,
@@ -69,7 +69,7 @@ function chatgptSandboxEnv(chatgptProxy: ChatgptProxyDep): Record<string, string
  * secret). `providerProxies` adds the per-provider sidecars (from startProviderProxies), each of which
  * puts its host in NO_PROXY too:
  * - `openai` (Codex on an API key under --llm-proxy): OPENAI_API_KEY (the per-run nonce, not the real
- *   key) + VANGUARD_OPENAI_BASE_URL pointing CodexProvider at the sidecar's `/v1`.
+ *   key) + TASKCELL_OPENAI_BASE_URL pointing CodexProvider at the sidecar's `/v1`.
  * - `chatgpt` (Codex on a ChatGPT plan under --llm-proxy): the nonce, base URL, placeholder
  *   CODEX_AUTH_JSON and IdP overrides of `chatgptSandboxEnv` above. The real credential stays in the
  *   sidecar.
@@ -97,7 +97,7 @@ export function llmProxySandboxEnv(
     ...egressEnv(proxyUrl, noProxy.length > 0 ? { noProxy } : {}),
     ...(llmProxy !== undefined ? { ANTHROPIC_BASE_URL: llmProxy.url, ANTHROPIC_AUTH_TOKEN: llmProxy.nonce } : {}),
     // Neither codex nonce is secret — each only authenticates against its own sidecar, never upstream.
-    ...(openaiProxy !== undefined ? { OPENAI_API_KEY: openaiProxy.nonce, VANGUARD_OPENAI_BASE_URL: `${openaiProxy.url}/v1` } : {}),
+    ...(openaiProxy !== undefined ? { OPENAI_API_KEY: openaiProxy.nonce, TASKCELL_OPENAI_BASE_URL: `${openaiProxy.url}/v1` } : {}),
     ...(chatgptProxy !== undefined ? chatgptSandboxEnv(chatgptProxy) : {}),
   };
 }

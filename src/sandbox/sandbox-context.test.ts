@@ -82,47 +82,47 @@ describe('startSandboxContext llm-proxy upstream follows the provider table', ()
 });
 
 describe('startSandboxContext reports the hardened read-only rootfs decision', () => {
-  beforeEach(() => vi.stubEnv('VANGUARD_SANDBOX_READONLY', undefined));
+  beforeEach(() => vi.stubEnv('TASKCELL_SANDBOX_READONLY', undefined));
   afterEach(() => {
     vi.unstubAllEnvs();
     vi.restoreAllMocks();
   });
 
-  it('logs the opt-in note on console.log when VANGUARD_SANDBOX_READONLY is unset', async () => {
-    vi.stubEnv('VANGUARD_SANDBOX_MEMORY_MB', undefined);
+  it('logs the opt-in note on console.log when TASKCELL_SANDBOX_READONLY is unset', async () => {
+    vi.stubEnv('TASKCELL_SANDBOX_MEMORY_MB', undefined);
     const log = vi.spyOn(console, 'log').mockImplementation(() => {});
     const warn = vi.spyOn(console, 'warn').mockImplementation(() => {});
     await startSandboxContext({ egress: true, llmProxy: false });
-    expect(log).toHaveBeenCalledWith(expect.stringContaining('read-only rootfs off (opt-in: VANGUARD_SANDBOX_READONLY=1'));
+    expect(log).toHaveBeenCalledWith(expect.stringContaining('read-only rootfs off (opt-in: TASKCELL_SANDBOX_READONLY=1'));
     expect(warn).not.toHaveBeenCalled();
   });
 
   it('logs the opted-in rootfs on console.log', async () => {
-    vi.stubEnv('VANGUARD_SANDBOX_READONLY', '1');
-    vi.stubEnv('VANGUARD_SANDBOX_MEMORY_MB', undefined);
+    vi.stubEnv('TASKCELL_SANDBOX_READONLY', '1');
+    vi.stubEnv('TASKCELL_SANDBOX_MEMORY_MB', undefined);
     const log = vi.spyOn(console, 'log').mockImplementation(() => {});
     const warn = vi.spyOn(console, 'warn').mockImplementation(() => {});
     await startSandboxContext({ egress: true, llmProxy: false });
-    expect(log).toHaveBeenCalledWith(expect.stringContaining('read-only rootfs on (VANGUARD_SANDBOX_READONLY=1)'));
+    expect(log).toHaveBeenCalledWith(expect.stringContaining('read-only rootfs on (TASKCELL_SANDBOX_READONLY=1)'));
     expect(warn).not.toHaveBeenCalled();
   });
 
   it('warns on console.warn when forced on with no memory limit', async () => {
-    vi.stubEnv('VANGUARD_SANDBOX_READONLY', '1');
-    vi.stubEnv('VANGUARD_SANDBOX_MEMORY_MB', '0');
+    vi.stubEnv('TASKCELL_SANDBOX_READONLY', '1');
+    vi.stubEnv('TASKCELL_SANDBOX_MEMORY_MB', '0');
     vi.spyOn(console, 'log').mockImplementation(() => {});
     const warn = vi.spyOn(console, 'warn').mockImplementation(() => {});
     await startSandboxContext({ egress: true, llmProxy: false });
     expect(warn).toHaveBeenCalledTimes(1);
-    expect(warn).toHaveBeenCalledWith(expect.stringContaining('VANGUARD_SANDBOX_MEMORY_MB=0'));
+    expect(warn).toHaveBeenCalledWith(expect.stringContaining('TASKCELL_SANDBOX_MEMORY_MB=0'));
   });
 
   it('logs the opted-in rootfs decision even with neither --egress nor --llm-proxy', async () => {
-    vi.stubEnv('VANGUARD_SANDBOX_READONLY', '1');
-    vi.stubEnv('VANGUARD_SANDBOX_MEMORY_MB', undefined);
+    vi.stubEnv('TASKCELL_SANDBOX_READONLY', '1');
+    vi.stubEnv('TASKCELL_SANDBOX_MEMORY_MB', undefined);
     const log = vi.spyOn(console, 'log').mockImplementation(() => {});
     await startSandboxContext({ egress: false, llmProxy: false });
-    expect(log).toHaveBeenCalledWith(expect.stringContaining('read-only rootfs on (VANGUARD_SANDBOX_READONLY=1)'));
+    expect(log).toHaveBeenCalledWith(expect.stringContaining('read-only rootfs on (TASKCELL_SANDBOX_READONLY=1)'));
   });
 
   it('stays silent with neither --egress nor --llm-proxy when the rootfs is not opted in', async () => {

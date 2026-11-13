@@ -2,7 +2,7 @@ import { CLOSING_KEYWORDS } from '../pipeline/conformance-gate.js';
 import { classifyAuthor } from '../tasks/comment-trust.js';
 import { defaultGhRunner } from '../tasks/github.js';
 import type { GhRunner } from '../tasks/github.js';
-import { githubBranchPrefix } from '../tasks/overlap.js';
+import { githubBranchPrefixes } from '../tasks/overlap.js';
 
 /** The issue a PR implements: untrusted text the reviewer checks the diff against. */
 export interface LinkedIssue {
@@ -29,8 +29,8 @@ function bodyIssueNumber(pr: LinkSource): number | undefined {
 }
 
 function branchIssueNumber(pr: LinkSource): number | undefined {
-  const prefix = githubBranchPrefix(pr.repoSlug);
-  if (!pr.headRefName.startsWith(prefix)) return undefined;
+  const prefix = githubBranchPrefixes(pr.repoSlug).find((p) => pr.headRefName.startsWith(p));
+  if (prefix === undefined) return undefined;
   const number = /^(\d+)-/.exec(pr.headRefName.slice(prefix.length))?.[1];
   return number === undefined ? undefined : Number(number);
 }

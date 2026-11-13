@@ -113,7 +113,7 @@ hub: on launch it starts one on `127.0.0.1` (random free port, per-launch token,
 sign-in), loads the UI the hub serves into its window, and stops it on quit. The window therefore shows
 exactly what a browser pointed at the same hub shows, and the UI makes no Tauri command calls for product
 features. `src/transport.ts` is the seam: `invoke()`/`subscribe()` use the hub's `POST /rpc/<cmd>` + `/events`
-SSE stream, selected by the `window.__VANGUARD_HUB__` marker the hub injects into `index.html`. (Its Tauri
+SSE stream, selected by the `window.__TASKCELL_HUB__` marker the hub injects into `index.html`. (Its Tauri
 branch only serves `dev/mockBackend.ts` and `vitest`.)
 
 **What the Rust code does** (`src-tauri/src/hub.rs`, `lib.rs`): open the window (a splash page,
@@ -123,7 +123,7 @@ if the app dies (its stdin, a pipe from the app, closes). Projects stay in the a
 installs keep their list. Capabilities: `capabilities/hub.json` grants the loopback-served UI only window
 chrome (drag, close flush) — no commands.
 
-**Fleet** works here because this hub is loopback-only and started with `VANGUARD_HUB_ALLOW_FLEET=1`; any
+**Fleet** works here because this hub is loopback-only and started with `TASKCELL_HUB_ALLOW_FLEET=1`; any
 other hub rejects `spawn_run`/`kill_run`/`list_spawns`.
 
 **Which hub runs:** a source checkout (`pnpm start`, which builds the UI first) runs `src/cli/index.ts` through
@@ -154,7 +154,7 @@ The hub requires a **per-launch token** on every `/rpc/<cmd>` and on `/events`. 
 (`http://127.0.0.1:7777/#token=…`, never sent to the server). `transport.ts` moves it into
 `sessionStorage` (key `vanguard-hub-token`), strips it from the address bar, and sends it from there
 — so a reload keeps working, but a new tab opened on the bare URL has no token until it is given the
-launch URL. **The page must be served by the hub**: `VITE_VANGUARD_HUB=1` on Vite's own dev server
+launch URL. **The page must be served by the hub**: `VITE_TASKCELL_HUB=1` on Vite's own dev server
 (`http://localhost:1420`) is a dead end, since its same-origin `/rpc/<cmd>` goes to the dev server
 (which proxies nothing to the hub). There is no escape hatch; to see a change against a real hub,
 rebuild and let the hub serve it (first recipe below). The token is minted per launch, so restarting
@@ -236,7 +236,7 @@ shapes (kept decoupled from Taskcell's build, per the design spec §4).
 - **Launch command**: the Fleet watch loop is built from `.taskcell/app.json` (repo content), so its
   `provider`/`source` must be plain names (built-in or custom provider) and the argv is spawned in the project dir **without a shell**.
 - **Doc chat `chatBaseUrl`** (also from `app.json`) only receives the inherited Anthropic credential when
-  it is `https://api.anthropic.com` or an origin listed in `VANGUARD_CHAT_ALLOWED_ORIGINS`
+  it is `https://api.anthropic.com` or an origin listed in `TASKCELL_CHAT_ALLOWED_ORIGINS`
   (comma-separated, set in the environment the app is launched from).
 - **Spec / remote** fetches require an authed `gh` / `linear` on `PATH`; they fail gracefully otherwise.
 

@@ -37,9 +37,9 @@ describe('resolveVerifyCommand', () => {
     expect(result).toBe('my-custom-cmd');
   });
 
-  it('returns env VANGUARD_VERIFY_CMD when no explicit cmd', async () => {
+  it('returns env TASKCELL_VERIFY_CMD when no explicit cmd', async () => {
     const result = await resolveVerifyCommand('/nonexistent', {
-      env: { VANGUARD_VERIFY_CMD: 'env-cmd' },
+      env: { TASKCELL_VERIFY_CMD: 'env-cmd' },
     });
     expect(result).toBe('env-cmd');
   });
@@ -50,7 +50,7 @@ describe('resolveVerifyCommand', () => {
       JSON.stringify({ scripts: { test: 'vitest' }, packageManager: 'pnpm@8.0.0' }),
     );
     const result = await resolveVerifyCommand(tmpDir, {
-      env: { VANGUARD_VERIFY_CMD: 'env-cmd' },
+      env: { TASKCELL_VERIFY_CMD: 'env-cmd' },
     });
     expect(result).toBe('env-cmd');
   });
@@ -144,7 +144,7 @@ describe('resolveVerifyCommand', () => {
       join(tmpDir, 'package.json'),
       JSON.stringify({ scripts: { verify: 'pnpm run verify' } }),
     );
-    const result = await resolveVerifyCommand(tmpDir, { env: { VANGUARD_VERIFY_CMD: 'env-cmd' } });
+    const result = await resolveVerifyCommand(tmpDir, { env: { TASKCELL_VERIFY_CMD: 'env-cmd' } });
     expect(result).toBe('env-cmd');
   });
 

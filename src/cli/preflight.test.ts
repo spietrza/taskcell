@@ -137,7 +137,7 @@ describe('runPreflight', () => {
     expect(report.checks.find((c) => c.name === 'sandbox claude cli')?.ok).toBe(true);
   });
 
-  it('inspects VANGUARD_SANDBOX_IMAGE, not the mutable tag, when the override is set', async () => {
+  it('inspects TASKCELL_SANDBOX_IMAGE, not the mutable tag, when the override is set', async () => {
     const inspected: string[] = [];
     const run: PreflightRunner = async (cmd, args) => {
       if (cmd === 'git' && args.join(' ') === 'rev-parse --show-toplevel') return { stdout: '/repo' };
@@ -157,7 +157,7 @@ describe('runPreflight', () => {
     };
 
     const report = await runPreflight(githubDoctor(), {
-      env: { GH_TOKEN: 'gh', CLAUDE_CODE_OAUTH_TOKEN: 'token', VANGUARD_SANDBOX_IMAGE: 'sha256:deadbeef' },
+      env: { GH_TOKEN: 'gh', CLAUDE_CODE_OAUTH_TOKEN: 'token', TASKCELL_SANDBOX_IMAGE: 'sha256:deadbeef' },
       nodeVersion: '24.11.1',
       run,
     });
@@ -333,7 +333,7 @@ describe('runPreflight', () => {
     });
   });
 
-  it('reports an invalid VANGUARD_SANDBOX_IMAGE as a failed check and runs no docker command with it', async () => {
+  it('reports an invalid TASKCELL_SANDBOX_IMAGE as a failed check and runs no docker command with it', async () => {
     const calls: string[] = [];
     const base = makeRunner();
     const run: PreflightRunner = async (cmd, args, opts) => {
@@ -341,14 +341,14 @@ describe('runPreflight', () => {
       return await base(cmd, args, opts);
     };
     const report = await runPreflight(githubDoctor(), {
-      env: { GH_TOKEN: 'gh', CLAUDE_CODE_OAUTH_TOKEN: 'token', VANGUARD_SANDBOX_IMAGE: '--privileged' },
+      env: { GH_TOKEN: 'gh', CLAUDE_CODE_OAUTH_TOKEN: 'token', TASKCELL_SANDBOX_IMAGE: '--privileged' },
       nodeVersion: '24.11.1',
       run,
     });
 
     expect(report.ok).toBe(false);
     expect(formatPreflightReport(report)).toContain(
-      'preflight: sandbox image VANGUARD_SANDBOX_IMAGE is not an image reference: "--privileged" -> stop before claim',
+      'preflight: sandbox image TASKCELL_SANDBOX_IMAGE is not an image reference: "--privileged" -> stop before claim',
     );
     expect(calls.some((c) => c.includes('--privileged'))).toBe(false);
   });

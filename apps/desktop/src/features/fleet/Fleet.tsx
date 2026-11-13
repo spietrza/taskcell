@@ -36,7 +36,7 @@ export function Fleet({ project, active: allActive }: { project: string; active:
     listSpawns()
       .then((spawns) => {
         const existing = spawns.find(
-          (s) => s.cwd === project && s.command.includes('vanguard watch'),
+          (s) => s.cwd === project && (s.command.includes('taskcell watch') || s.command.includes('vanguard watch')),
         );
         if (existing) {
           setSpawn((prev) =>

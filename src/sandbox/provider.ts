@@ -119,7 +119,7 @@ export interface SandboxConfig {
    */
   profile?: SandboxProfile;
   /**
-   * Opt-in persistent pnpm store (`--pnpm-store` / VANGUARD_PNPM_STORE; off by default — see
+   * Opt-in persistent pnpm store (`--pnpm-store` / TASKCELL_PNPM_STORE; off by default — see
    * docs/cli.md). Undefined: no mount, pnpm's default in-tmpfs store-dir, every install
    * re-downloads. Set: mounts a per-repo store at `/pnpm-store` and sets `npm_config_store_dir`,
    * so a repeat install on the SAME repo skips the network fetch.

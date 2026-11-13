@@ -33,7 +33,7 @@ import { applyReReviewRules, changedFilesOf, mergeOnlyResolvedFiles, restrictDif
 import { isTrustedBotLogin } from '../tasks/comment-trust.js';
 import type { ReReviewContext } from './re-review.js';
 import { resolveLinkedIssue } from './linked-issue.js';
-import { githubBranchPrefix } from '../tasks/overlap.js';
+import { githubBranchPrefixes } from '../tasks/overlap.js';
 import type { LinkedIssue } from './linked-issue.js';
 
 export interface PullRequestReviewTarget {
@@ -185,7 +185,7 @@ export function parsePullRequestUrl(url: string): PullRequestReviewTarget {
 function ownFactoryBot(repoSlug: string, view: GhPullRequestView): string[] {
   const login = view.author?.login ?? '';
   const bot = login.startsWith('app/') ? `${login.slice(4)}[bot]` : login;
-  const factoryBranch = view.isCrossRepository !== true && (view.headRefName ?? '').startsWith(githubBranchPrefix(repoSlug));
+  const factoryBranch = view.isCrossRepository !== true && githubBranchPrefixes(repoSlug).some((p) => (view.headRefName ?? '').startsWith(p));
   return factoryBranch && bot.endsWith('[bot]') ? [bot] : [];
 }
 
@@ -375,13 +375,13 @@ export function soleReviewRunStampSha(body: string): string | undefined {
 }
 
 export const PR_REVIEW_INCOMPLETE_NOTICE =
-  'Vanguard review did not complete; PR likely too large for a single pass. Please split or review manually.';
+  'Taskcell review did not complete; PR likely too large for a single pass. Please split or review manually.';
 export const PR_REVIEW_NO_OUTPUT_NOTICE =
-  'Vanguard review did not complete: the model returned no output (provider error or rate limit). Retry once the provider recovers.';
+  'Taskcell review did not complete: the model returned no output (provider error or rate limit). Retry once the provider recovers.';
 export const PR_REVIEW_EMPTY_RESULT_NOTICE =
-  'Vanguard review did not complete: the model spent tokens but its final reply was empty (a streaming/output bug — the reply likely went into thinking or a tool call and never reached a final message). This is not a provider outage or rate limit. Remove and re-add the trigger label to retry; if it repeats, review manually.';
+  'Taskcell review did not complete: the model spent tokens but its final reply was empty (a streaming/output bug — the reply likely went into thinking or a tool call and never reached a final message). This is not a provider outage or rate limit. Remove and re-add the trigger label to retry; if it repeats, review manually.';
 export const PR_REVIEW_NO_VERDICT_NOTICE =
-  'Vanguard review did not complete: two passes ended without a verdict line. This is the reviewer stopping short, not the size of the PR — remove and re-add the trigger label (or run the review workflow by hand) to retry; if it repeats, review manually.';
+  'Taskcell review did not complete: two passes ended without a verdict line. This is the reviewer stopping short, not the size of the PR — remove and re-add the trigger label (or run the review workflow by hand) to retry; if it repeats, review manually.';
 
 export { VERDICT_CONTRADICTION_LOG };
 
@@ -413,7 +413,7 @@ function appendMarker(visible: string, headRefOid?: string): string {
 }
 
 /**
- * Marks Vanguard's own incomplete review so revise-pr does not take it for human feedback when the posting
+ * Marks Taskcell's own incomplete review so revise-pr does not take it for human feedback when the posting
  * login is not recognised as a bot. The head dedupe does not count it (no SHA).
  */
 export const PR_REVIEW_INCOMPLETE_MARKER = '<!-- taskcell-pr-review-incomplete -->';
@@ -446,7 +446,7 @@ export class PullRequestReviewIncompleteError extends TaskcellError {
     readonly pr: PullRequestForReview,
     readonly commentBody: string,
   ) {
-    super(`Vanguard review of ${pr.repoSlug}#${pr.number} did not complete: no verdict for head ${pr.headRefOid.slice(0, 7)}.`);
+    super(`Taskcell review of ${pr.repoSlug}#${pr.number} did not complete: no verdict for head ${pr.headRefOid.slice(0, 7)}.`);
   }
 }
 
@@ -486,7 +486,7 @@ export async function commentPullRequest(
   await gh(['pr', 'comment', String(target.number), '--repo', target.repoSlug, '--body', redactForPublish(body)]);
 }
 
-/** Post a Vanguard review verdict to a PR via `gh pr review`. Reused by review-pr and the main agent loop. */
+/** Post a Taskcell review verdict to a PR via `gh pr review`. Reused by review-pr and the main agent loop. */
 export async function postPullRequestReview(
   target: PullRequestReviewTarget,
   commentBody: string,

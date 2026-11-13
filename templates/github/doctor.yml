@@ -1,7 +1,7 @@
 name: Taskcell Doctor
 
-# One-click preflight: validates that this repo is ready for Vanguard (secrets, labels, Docker,
-# sandbox image, provider auth) WITHOUT processing any issue. Run it from Actions -> Vanguard Doctor
+# One-click preflight: validates that this repo is ready for Taskcell (secrets, labels, Docker,
+# sandbox image, provider auth) WITHOUT processing any issue. Run it from Actions -> Taskcell Doctor
 # -> Run workflow (clickable from the GitHub mobile app). Green = ready to label an issue.
 # Thin caller of the reusable workflow (doctor.yml), which holds the steps.
 

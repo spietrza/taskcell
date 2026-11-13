@@ -61,10 +61,10 @@ export function customProviderError(entry: unknown, seen: ReadonlySet<string>): 
   if (typeof keyEnv !== 'string' || !KEY_ENV_RE.test(keyEnv)) {
     return `"keyEnv" must name an environment variable (${KEY_ENV_RE.source})`;
   }
-  // A repo-defined provider must not borrow a credential Vanguard itself holds: its baseUrl is repo-chosen,
+  // A repo-defined provider must not borrow a credential Taskcell itself holds: its baseUrl is repo-chosen,
   // so naming e.g. CLAUDE_CODE_OAUTH_TOKEN here would send the operator's token to that host.
   if ((INJECTED_SECRET_ENV_VARS as readonly string[]).includes(keyEnv)) {
-    return `"keyEnv" must not name a credential Vanguard uses itself (${keyEnv}); give the provider its own variable`;
+    return `"keyEnv" must not name a credential Taskcell uses itself (${keyEnv}); give the provider its own variable`;
   }
   if (model !== undefined && (typeof model !== 'string' || model === '')) {
     return '"model" must be a non-empty string when present';

@@ -17,7 +17,7 @@ export type AuthorTrust = 'association' | 'allowed' | 'issue-author' | 'bot' | '
 /**
  * Bot recognition for *granting* trust: exact logins only. An outsider can pick a username such as
  * `mallory-vanguard`, so the substring match of isBotLogin must never make a comment authoritative.
- * No bare `vanguard`: that GitHub login is unclaimed, so anyone could register it. Vanguard comments as
+ * No bare `vanguard`: that GitHub login is unclaimed, so anyone could register it. Taskcell comments as
  * `github-actions` in CI and as the token's user locally; a dedicated bot account goes in botLogins.
  */
 export function isTrustedBotLogin(login: string, extraBotLogins?: readonly string[]): boolean {
@@ -39,7 +39,7 @@ export function isBotLogin(login: string, extraBotLogins?: readonly string[]): b
 }
 
 /**
- * Bot check first (so Vanguard's own comments classify as 'bot', never 'association'). The built-in
+ * Bot check first (so Taskcell's own comments classify as 'bot', never 'association'). The built-in
  * names are GitHub logins: on a provider with no association model (GitLab) anyone can register
  * `vanguard` or `github-actions`, so there only the operator's explicit botLogins count.
  */
@@ -56,7 +56,7 @@ export function classifyAuthor(author: string, association: string | undefined, 
   // An absent association means the provider models none at all (GitLab notes). With no identity
   // signal configured there is nothing to fail closed on, so those providers keep their pre-gate
   // behaviour. Once the operator names trusted logins (allowlist or bot logins), an unlisted author
-  // fails closed, or the allowlist would not be a boundary. Vanguard's own GitLab notes stay trusted
+  // fails closed, or the allowlist would not be a boundary. Taskcell's own GitLab notes stay trusted
   // because the fetcher stamps the glab user's notes. A *supplied* association, '' included, is a
   // real signal and fails closed.
   if (association === undefined) {

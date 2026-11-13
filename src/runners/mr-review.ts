@@ -60,7 +60,7 @@ export interface ReviewMergeRequestDeps {
 
 export interface ReviewMergeRequestResult {
   mr: MergeRequestForReview;
-  /** Absent when the head SHA already carries a Vanguard review, so nothing was posted. */
+  /** Absent when the head SHA already carries a Taskcell review, so nothing was posted. */
   commentBody?: string;
 }
 
@@ -181,7 +181,7 @@ export function hasMergeRequestReviewMarker(body: string, sha: string): boolean 
 }
 
 /**
- * Whether one of the MR's latest 500 notes carries the Vanguard review marker for `sha` and was written by
+ * Whether one of the MR's latest 500 notes carries the Taskcell review marker for `sha` and was written by
  * the user glab runs as. Only that author counts: anyone on the MR can post an invisible marker note to
  * suppress the review. Throws when the user or the notes cannot be read.
  */
@@ -222,7 +222,7 @@ export function buildMergeRequestReviewComment(agentText: string, sha?: string, 
   return sha === undefined || sha === '' ? visible : `${visible}\n\n${mergeRequestReviewMarker(sha)}`;
 }
 
-/** Post a Vanguard review as a note on a GitLab MR. */
+/** Post a Taskcell review as a note on a GitLab MR. */
 export async function postMergeRequestNote(
   target: MergeRequestReviewTarget,
   body: string,
@@ -244,7 +244,7 @@ export async function postMergeRequestNote(
  */
 export class MergeRequestReviewIncompleteError extends TaskcellError {
   constructor(readonly mr: MergeRequestForReview) {
-    super(`Vanguard review of ${mr.project}!${mr.iid} did not complete: no verdict for head ${mr.sha.slice(0, 7)}.`);
+    super(`Taskcell review of ${mr.project}!${mr.iid} did not complete: no verdict for head ${mr.sha.slice(0, 7)}.`);
   }
 }
 

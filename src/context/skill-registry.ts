@@ -127,7 +127,7 @@ function buildCodexAgentsBlock(entries: Array<{ id: string; meta: SkillMeta }>):
 
   return [
     AGENTS_MD_SENTINEL_START,
-    '## Vanguard Skills',
+    '## Taskcell Skills',
     '',
     `The following skills are available. Read a skill's SKILL.md for full instructions when it is relevant to the task.`,
     '',
@@ -327,7 +327,7 @@ async function repoSkills(repoPath: string): Promise<Record<string, string>> {
 }
 
 /**
- * The registry for one run: every skill in `skillsDir` (`--skills`, e.g. Vanguard's bundled set)
+ * The registry for one run: every skill in `skillsDir` (`--skills`, e.g. Taskcell's bundled set)
  * plus the target repo's own REPO_SKILLS_DIR, so a repo adds skills without replacing the bundled
  * ones the review and simplify stages use. On an id clash the repo's skill wins. SPEC_ONLY_SKILLS
  * are dropped unless `includeSpecSkills` is set (the spec pass alone), so a new caller cannot get them by accident.

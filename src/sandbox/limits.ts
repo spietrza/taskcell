@@ -1,5 +1,6 @@
 import { totalmem } from 'node:os';
 import type { SandboxConfig, SandboxProfile, SandboxSecurityOpts } from './provider.js';
+import { readEnv } from '../core/env.js';
 
 export type SandboxResourceLimits = Pick<SandboxProfile, 'memoryMb' | 'cpus' | 'pidsLimit'>;
 
@@ -8,9 +9,9 @@ type PnpmStoreConfig = SandboxConfig['pnpmStore'];
 /** $HOME inside every sandbox — part of the resolved profile, not a value docker.ts hard-codes. */
 export const DEFAULT_SANDBOX_HOME = '/home/agent';
 
-/** Parse one VANGUARD_SANDBOX_* limit: unset ⇒ `fallback`; "0", invalid or empty ⇒ undefined (omit the flag). */
+/** Parse one TASKCELL_SANDBOX_* limit: unset ⇒ `fallback`; "0", invalid or empty ⇒ undefined (omit the flag). */
 function envLimit(env: NodeJS.ProcessEnv, name: string, fallback: number): number | undefined {
-  const raw = env[name];
+  const raw = readEnv(name, env);
   if (raw === undefined) return fallback;
   const n = Number(raw);
   return Number.isFinite(n) && n > 0 ? n : undefined;
@@ -23,14 +24,14 @@ function envLimit(env: NodeJS.ProcessEnv, name: string, fallback: number): numbe
  * build, where a 2048 MB cap would leave `/workspace` at 768 MB. It is also the default for a
  * hardened (`--egress`/`--llm-proxy`) run, whose in-sandbox test suite can die at 2048 MB; a cgroup
  * bigger than the host's free RAM bounds nothing, so a host without ~8 GB to spare per concurrent
- * sandbox wants VANGUARD_SANDBOX_MEMORY_MB set lower.
+ * sandbox wants TASKCELL_SANDBOX_MEMORY_MB set lower.
  */
 export const READONLY_SANDBOX_MEMORY_MB = 8192;
 
 /**
  * Host-aware memory default (MB): `clamp(totalmem / 4, 2048, 4096)` rounded to 256 MB, so a 16 GB
  * runner (whose reported RAM is a little under 16 GiB) gets 4096 and a host with 8 GB or less gets 2048.
- * It is per sandbox: with several sandboxes in parallel, set VANGUARD_SANDBOX_MEMORY_MB lower.
+ * It is per sandbox: with several sandboxes in parallel, set TASKCELL_SANDBOX_MEMORY_MB lower.
  */
 export function hostMemoryDefaultMb(totalBytes: number = totalmem()): number {
   const share = Math.round(totalBytes / 1024 / 1024 / 4 / 256) * 256;
@@ -39,21 +40,21 @@ export function hostMemoryDefaultMb(totalBytes: number = totalmem()): number {
 
 /**
  * Env-overridable sandbox resource limits. Defaults: memory hostMemoryDefaultMb() (2048–4096 MB), 2 CPUs, 512 pids. Each
- * VANGUARD_SANDBOX_* var overrides its default; set it to "0" (or an invalid/empty value) to OMIT
+ * TASKCELL_SANDBOX_* var overrides its default; set it to "0" (or an invalid/empty value) to OMIT
  * that limit entirely, so no `--memory`/`--cpus`/`--pids-limit` flag is passed. This is required on
  * hosts whose kernel lacks a cgroup — e.g. Synology DSM has no CPU CFS scheduler, so `--cpus` is
- * fatal there and must be disabled with VANGUARD_SANDBOX_CPUS=0.
+ * fatal there and must be disabled with TASKCELL_SANDBOX_CPUS=0.
  *
  * The memory default rises to READONLY_SANDBOX_MEMORY_MB only when the rootfs is read-only
- * (VANGUARD_SANDBOX_READONLY=1), which charges the three tmpfs mounts to this same cgroup (see
+ * (TASKCELL_SANDBOX_READONLY=1), which charges the three tmpfs mounts to this same cgroup (see
  * readOnlyTmpfsSizesMb). `--egress`/`--llm-proxy` alone keep the host-aware default: a cgroup bigger than the host's
  * free RAM bounds nothing, and small hosts (NAS) run the hardened path too.
  */
 export function sandboxResourceLimits(env: NodeJS.ProcessEnv = process.env): SandboxResourceLimits {
   const memoryFallback = sandboxSecurityOpts(env).readOnlyRootfs ? READONLY_SANDBOX_MEMORY_MB : hostMemoryDefaultMb();
-  const memoryMb = envLimit(env, 'VANGUARD_SANDBOX_MEMORY_MB', memoryFallback);
-  const cpus = envLimit(env, 'VANGUARD_SANDBOX_CPUS', 2);
-  const pidsLimit = envLimit(env, 'VANGUARD_SANDBOX_PIDS', 512);
+  const memoryMb = envLimit(env, 'TASKCELL_SANDBOX_MEMORY_MB', memoryFallback);
+  const cpus = envLimit(env, 'TASKCELL_SANDBOX_CPUS', 2);
+  const pidsLimit = envLimit(env, 'TASKCELL_SANDBOX_PIDS', 512);
   return {
     ...(memoryMb !== undefined ? { memoryMb } : {}),
     ...(cpus !== undefined ? { cpus } : {}),
@@ -63,34 +64,34 @@ export function sandboxResourceLimits(env: NodeJS.ProcessEnv = process.env): San
 
 /**
  * `docker run` args capping a sidecar's memory (the egress and llm-proxy proxies). Default 256 MB,
- * overridable with VANGUARD_SIDECAR_MEMORY_MB; "0" (or invalid/empty) omits the cap. These proxies are
+ * overridable with TASKCELL_SIDECAR_MEMORY_MB; "0" (or invalid/empty) omits the cap. These proxies are
  * small node servers, but an unbounded container can still pressure a small host (e.g. a 5.6 GB NAS).
  */
 export function sidecarMemoryArgs(env: NodeJS.ProcessEnv = process.env): string[] {
-  const raw = env.VANGUARD_SIDECAR_MEMORY_MB;
+  const raw = readEnv('TASKCELL_SIDECAR_MEMORY_MB', env);
   const mb = raw === undefined ? 256 : Number(raw);
   return Number.isFinite(mb) && mb > 0 ? ['--memory', `${Math.floor(mb)}m`] : [];
 }
 
 /**
- * `--label vanguard.owner=<value>` for every container and network Vanguard creates, when
- * VANGUARD_OWNER_LABEL is set. Lets a CI job tear down exactly its own leftovers in an after_script
+ * `--label vanguard.owner=<value>` for every container and network Taskcell creates, when
+ * TASKCELL_OWNER_LABEL is set. Lets a CI job tear down exactly its own leftovers in an after_script
  * without touching another job's; the README gives the commands, piped through `xargs -r` so an empty
  * match does not fail.
  * Empty (no flag) when the variable is unset or empty, same as the other sidecar arg helpers here.
  */
 export function ownerLabelArgs(env: NodeJS.ProcessEnv = process.env): string[] {
-  const owner = env.VANGUARD_OWNER_LABEL;
+  const owner = readEnv('TASKCELL_OWNER_LABEL', env);
   return owner === undefined || owner === '' ? [] : ['--label', `vanguard.owner=${owner}`];
 }
 
 /**
- * Resolve the opt-in persistent pnpm store for one target repo (`--pnpm-store` / VANGUARD_PNPM_STORE;
+ * Resolve the opt-in persistent pnpm store for one target repo (`--pnpm-store` / TASKCELL_PNPM_STORE;
  * off by default). `cliFlag` is the parsed `--pnpm-store` (undefined when the flag was not passed);
- * VANGUARD_PNPM_STORE=1/true is the env equivalent, so CI can turn it on without touching argv.
+ * TASKCELL_PNPM_STORE=1/true is the env equivalent, so CI can turn it on without touching argv.
  * Disabled (the common case) returns undefined: nothing is mounted and `buildRunArgs` is unchanged.
- * Enabled, with VANGUARD_PNPM_STORE_DIR unset: a named Docker volume keyed by `repoKey` (local/NAS/hub
- * — the volume outlives the container). With VANGUARD_PNPM_STORE_DIR set: that host directory is
+ * Enabled, with TASKCELL_PNPM_STORE_DIR unset: a named Docker volume keyed by `repoKey` (local/NAS/hub
+ * — the volume outlives the container). With TASKCELL_PNPM_STORE_DIR set: that host directory is
  * bind-mounted instead (the CI shape — GitHub-hosted runners are fresh, so a volume would never
  * survive between runs; `actions/cache` restores/saves that directory around the job instead — see
  * docs/cli.md for why only the pre-agent baseline install may save it).
@@ -100,9 +101,9 @@ export function pnpmStoreConfig(
   cliFlag: boolean | undefined,
   env: NodeJS.ProcessEnv = process.env,
 ): PnpmStoreConfig {
-  const enabled = cliFlag === true || env.VANGUARD_PNPM_STORE === '1' || env.VANGUARD_PNPM_STORE === 'true';
+  const enabled = cliFlag === true || readEnv('TASKCELL_PNPM_STORE', env) === '1' || readEnv('TASKCELL_PNPM_STORE', env) === 'true';
   if (!enabled) return undefined;
-  const hostDir = env.VANGUARD_PNPM_STORE_DIR;
+  const hostDir = readEnv('TASKCELL_PNPM_STORE_DIR', env);
   return hostDir !== undefined && hostDir !== '' ? { repoKey, hostDir } : { repoKey };
 }
 
@@ -111,8 +112,8 @@ export function pnpmStoreConfig(
  * sandbox (least-privilege by default) and are overridable per the same "0"/empty ⇒ disable idiom.
  * `init` rides along here for the same idiom, though it is process hygiene rather than hardening.
  *
- * The exception is `readOnlyRootfs`, which is opt-in: on only with VANGUARD_SANDBOX_READONLY set to a
- * non-empty value other than "0". An EMPTY VANGUARD_SANDBOX_READONLY counts as unset (an unset CI
+ * The exception is `readOnlyRootfs`, which is opt-in: on only with TASKCELL_SANDBOX_READONLY set to a
+ * non-empty value other than "0". An EMPTY TASKCELL_SANDBOX_READONLY counts as unset (an unset CI
  * variable passed through `env:` arrives as ""). `resolveSandboxProfile`'s `note` reports the decision
  * at run start.
  */
@@ -127,19 +128,19 @@ export function sandboxSecurityOpts(env: NodeJS.ProcessEnv = process.env): Sandb
   const flag = (raw: string | undefined, fallback: boolean): boolean =>
     raw === undefined ? fallback : !(raw === '0' || raw === '');
   return {
-    capDrop: list(env.VANGUARD_SANDBOX_CAP_DROP, ['ALL']),
-    capAdd: list(env.VANGUARD_SANDBOX_CAP_ADD, ['CHOWN', 'FOWNER', 'DAC_OVERRIDE']),
-    noNewPrivileges: flag(env.VANGUARD_SANDBOX_NO_NEW_PRIVILEGES, true),
-    // Opt-in only (VANGUARD_SANDBOX_READONLY=1): it moves the workspace into RAM under an 8 GB
+    capDrop: list(readEnv('TASKCELL_SANDBOX_CAP_DROP', env), ['ALL']),
+    capAdd: list(readEnv('TASKCELL_SANDBOX_CAP_ADD', env), ['CHOWN', 'FOWNER', 'DAC_OVERRIDE']),
+    noNewPrivileges: flag(readEnv('TASKCELL_SANDBOX_NO_NEW_PRIVILEGES', env), true),
+    // Opt-in only (TASKCELL_SANDBOX_READONLY=1): it moves the workspace into RAM under an 8 GB
     // limit, which a smaller host or a large monorepo cannot take, and reusable-workflow callers
     // had no way to turn a default off.
-    readOnlyRootfs: flag(env.VANGUARD_SANDBOX_READONLY || undefined, false),
+    readOnlyRootfs: flag(readEnv('TASKCELL_SANDBOX_READONLY', env) || undefined, false),
     // Without an init, PID 1 is `sleep infinity`, which never reaps: every orphan a build or test run
     // leaves behind stays a zombie and keeps its slot in the pids cgroup until the container dies (one
     // `pnpm test` of this repo leaves ~90). A few runs fill --pids-limit, then thread creation fails and
-    // the agent CLI aborts (exit 134) or spawn returns EAGAIN. VANGUARD_SANDBOX_INIT=0 is for a runtime
+    // the agent CLI aborts (exit 134) or spawn returns EAGAIN. TASKCELL_SANDBOX_INIT=0 is for a runtime
     // with no init binary (docker-init / catatonit), where `--init` fails the container start.
-    init: flag(env.VANGUARD_SANDBOX_INIT, true),
+    init: flag(readEnv('TASKCELL_SANDBOX_INIT', env), true),
   };
 }
 
@@ -153,17 +154,17 @@ export function sandboxSecurityOpts(env: NodeJS.ProcessEnv = process.env): Sandb
  * so the note can't drift from the profile it describes.
  */
 function hardenedRootfsNote(env: NodeJS.ProcessEnv, readOnlyRootfs: boolean, memoryMb: number | undefined): { warn: boolean; message: string } {
-  const explicit = env.VANGUARD_SANDBOX_READONLY;
+  const explicit = readEnv('TASKCELL_SANDBOX_READONLY', env);
   if (explicit !== undefined && explicit !== '') {
-    const message = `sandbox: read-only rootfs ${readOnlyRootfs ? 'on' : 'off'} (VANGUARD_SANDBOX_READONLY=${explicit}).`;
+    const message = `sandbox: read-only rootfs ${readOnlyRootfs ? 'on' : 'off'} (TASKCELL_SANDBOX_READONLY=${explicit}).`;
     // Forced on with no memory limit (the fixed-size tmpfs mounts have no cgroup to bound them), or
     // under a limit the mounts cannot be sized from comfortably (they are shares of it).
     if (readOnlyRootfs && (memoryMb === undefined || memoryMb < READONLY_SANDBOX_MEMORY_MB)) {
       const { workspace, home, tmp } = readOnlyTmpfsSizesMb(memoryMb);
       const why =
         memoryMb === undefined
-          ? `No memory limit (VANGUARD_SANDBOX_MEMORY_MB=${env.VANGUARD_SANDBOX_MEMORY_MB ?? ''}), so /workspace, $HOME and /tmp are tmpfs of ${workspace}/${home}/${tmp} MB backed by host RAM, risking an OOM kill of the sandbox.`
-          : `VANGUARD_SANDBOX_MEMORY_MB=${memoryMb} is below ${READONLY_SANDBOX_MEMORY_MB}, so /workspace, $HOME and /tmp are tmpfs of only ${workspace}/${home}/${tmp} MB — an install or build may hit ENOSPC on those mounts or an OOM kill of the sandbox.`;
+          ? `No memory limit (TASKCELL_SANDBOX_MEMORY_MB=${readEnv('TASKCELL_SANDBOX_MEMORY_MB', env) ?? ''}), so /workspace, $HOME and /tmp are tmpfs of ${workspace}/${home}/${tmp} MB backed by host RAM, risking an OOM kill of the sandbox.`
+          : `TASKCELL_SANDBOX_MEMORY_MB=${memoryMb} is below ${READONLY_SANDBOX_MEMORY_MB}, so /workspace, $HOME and /tmp are tmpfs of only ${workspace}/${home}/${tmp} MB — an install or build may hit ENOSPC on those mounts or an OOM kill of the sandbox.`;
       return { warn: true, message: `${message} ${why}` };
     }
     return { warn: false, message };
@@ -171,8 +172,8 @@ function hardenedRootfsNote(env: NodeJS.ProcessEnv, readOnlyRootfs: boolean, mem
   return {
     warn: false,
     message:
-      `sandbox: read-only rootfs off (opt-in: VANGUARD_SANDBOX_READONLY=1; /workspace, $HOME and /tmp then live in RAM, ` +
-      `sized for VANGUARD_SANDBOX_MEMORY_MB of ${READONLY_SANDBOX_MEMORY_MB} or more).`,
+      `sandbox: read-only rootfs off (opt-in: TASKCELL_SANDBOX_READONLY=1; /workspace, $HOME and /tmp then live in RAM, ` +
+      `sized for TASKCELL_SANDBOX_MEMORY_MB of ${READONLY_SANDBOX_MEMORY_MB} or more).`,
   };
 }
 
@@ -214,9 +215,9 @@ export function sandboxNetworkConfig(network: string | undefined, env: NodeJS.Pr
  * fixed sizes larger than `--memory` would just turn a full workspace into an OOM kill of the whole
  * sandbox: the sizes are derived from the resolved `memoryMb` instead, split 3:2:1 over three quarters
  * of the limit, with the last quarter left for the processes. With the memory limit omitted entirely
- * (VANGUARD_SANDBOX_MEMORY_MB=0) there is nothing to size against, so the mounts fall back to fixed
+ * (TASKCELL_SANDBOX_MEMORY_MB=0) there is nothing to size against, so the mounts fall back to fixed
  * sizes. Either way a repo whose install or build needs more than that wants a bigger
- * VANGUARD_SANDBOX_MEMORY_MB — see docs/cli.md.
+ * TASKCELL_SANDBOX_MEMORY_MB — see docs/cli.md.
  */
 export function readOnlyTmpfsSizesMb(memoryMb: number | undefined): { workspace: number; home: number; tmp: number } {
   if (memoryMb === undefined) return { workspace: 4096, home: 2048, tmp: 1024 };

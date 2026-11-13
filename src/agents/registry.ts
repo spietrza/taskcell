@@ -77,7 +77,7 @@ interface ProviderKeySpec {
    * Host→sandbox env passthrough applied in NORMAL mode only (never under --llm-proxy, whose sidecar
    * owns the upstream): when the host env var (the map key) is set, its value is forwarded verbatim into
    * the sandbox under the mapped name. Used to point Codex at a custom OpenAI-compatible endpoint via
-   * OPENAI_BASE_URL → VANGUARD_OPENAI_BASE_URL (CodexProvider then writes a config.toml provider for it).
+   * OPENAI_BASE_URL → TASKCELL_OPENAI_BASE_URL (CodexProvider then writes a config.toml provider for it).
    */
   passthroughEnv?: Record<string, string>;
 }
@@ -151,7 +151,7 @@ const PROVIDERS = {
       // content. Under --llm-proxy this is fronted by its own chatgpt sidecar (see providerSecrets).
       subscriptionEnv: 'CODEX_AUTH_JSON',
       // Set OPENAI_BASE_URL to run Codex against any OpenAI-compatible endpoint (Responses API) — direct mode only.
-      passthroughEnv: { OPENAI_BASE_URL: 'VANGUARD_OPENAI_BASE_URL' },
+      passthroughEnv: { OPENAI_BASE_URL: 'TASKCELL_OPENAI_BASE_URL' },
     },
   },
   cursor: {

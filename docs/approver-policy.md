@@ -54,7 +54,7 @@ engine, as long as `schemaVersion` still matches.
 | `shape.maxFiles` | yes | — | `5` | Changed files above which `size-files` fires, same reasoning and the same exclusive boundary. |
 | `ledger.windowDays` | yes | — | `7` | Trailing window, in days, of earlier `APPROVE` records read from `decisions.jsonl` for the velocity rule. One week is short enough to be about current activity and long enough to catch a drip of small changes. |
 | `ledger.maxLines` | yes | — | `300` | Per-module ceiling: if the trailing approved lines for any module this PR touches, plus this PR's own lines, exceed it, `velocity` fires. Caps how much unreviewed change can accumulate in one area even when every single PR looks small. |
-| `auditSample.p` | yes | — | `0.1` | Probability that an otherwise-clean decision is escalated anyway as `audit-sample`, so a share of approvals still gets human eyes. The draw is deterministic — `sha256(repo:pr:headSha:policyHash)` read as a fraction, overridable for replay with `VANGUARD_APPROVER_AUDIT_SEED` — so a decision is reproducible, never a coin flip at run time. `0` disables sampling, `1` escalates everything. |
+| `auditSample.p` | yes | — | `0.1` | Probability that an otherwise-clean decision is escalated anyway as `audit-sample`, so a share of approvals still gets human eyes. The draw is deterministic — `sha256(repo:pr:headSha:policyHash)` read as a fraction, overridable for replay with `TASKCELL_APPROVER_AUDIT_SEED` — so a decision is reproducible, never a coin flip at run time. `0` disables sampling, `1` escalates everything. |
 
 ### `pathRules` as shipped
 

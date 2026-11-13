@@ -214,7 +214,7 @@ export function Settings({ project, teamScreen }: { project: string; teamScreen?
               value={cfg.label ?? ''}
               onChange={(e) => set('label', e.target.value || undefined)}
               className="w-full"
-              placeholder="vanguard-ready"
+              placeholder="taskcell-ready"
             />
           </Field>
         </div>

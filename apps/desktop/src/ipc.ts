@@ -257,7 +257,7 @@ export function unwatchProject(repoPath: string): Promise<void> {
   return call('unwatch_project', { repoPath });
 }
 
-// Typed core API over the `vanguard __sidecar` child (no stdout scraping). Run events arrive on the
+// Typed core API over the `taskcell __sidecar` child (no stdout scraping). Run events arrive on the
 // `api:event` Tauri channel — subscribe with `listen('api:event', …)` where the run UI needs them
 // (that consumption is Subsystem 1; this only exposes the wrappers).
 // Wire types come from the GENERATED src/wire.ts (S7) — no more hand-mirrors. Feature code keeps

@@ -64,7 +64,7 @@ function versionRunner(codex: string, installs: string[], install: 'ok' | 'fail'
 }
 
 describe('doctorCommand cli versions', () => {
-  const base = { env: { VANGUARD_CLI_VERSION_CHECK: 'off', GH_TOKEN: 'gh', CLAUDE_CODE_OAUTH_TOKEN: 'token', CODEX_API_KEY: 'k' }, nodeVersion: '24.11.1' };
+  const base = { env: { TASKCELL_CLI_VERSION_CHECK: 'off', GH_TOKEN: 'gh', CLAUDE_CODE_OAUTH_TOKEN: 'token', CODEX_API_KEY: 'k' }, nodeVersion: '24.11.1' };
   const fix: DoctorCommand = { ...cmd, fix: true, provider: 'codex' };
 
   it('prints installed vs latest from the lookup', async () => {
@@ -125,7 +125,7 @@ describe('doctorCommand', () => {
     const logs: string[] = [];
 
     await doctorCommand(cmd, {
-      env: { VANGUARD_CLI_VERSION_CHECK: 'off', GH_TOKEN: 'gh', CLAUDE_CODE_OAUTH_TOKEN: 'token' },
+      env: { TASKCELL_CLI_VERSION_CHECK: 'off', GH_TOKEN: 'gh', CLAUDE_CODE_OAUTH_TOKEN: 'token' },
       nodeVersion: '24.11.1',
       run: runner,
       log: (line) => logs.push(line),
@@ -140,7 +140,7 @@ describe('doctorCommand', () => {
 
     await expect(
       doctorCommand(cmd, {
-        env: { VANGUARD_CLI_VERSION_CHECK: 'off', GH_TOKEN: 'gh' },
+        env: { TASKCELL_CLI_VERSION_CHECK: 'off', GH_TOKEN: 'gh' },
         nodeVersion: '24.11.1',
         run: runner,
         log: (line) => logs.push(line),
@@ -156,7 +156,7 @@ describe('doctorCommand', () => {
 
     await expect(
       doctorCommand(codexCmd, {
-        env: { VANGUARD_CLI_VERSION_CHECK: 'off', GH_TOKEN: 'gh', CLAUDE_CODE_OAUTH_TOKEN: 'token' },
+        env: { TASKCELL_CLI_VERSION_CHECK: 'off', GH_TOKEN: 'gh', CLAUDE_CODE_OAUTH_TOKEN: 'token' },
         nodeVersion: '24.11.1',
         run: runner,
         log: (line) => logs.push(line),
@@ -176,7 +176,7 @@ describe('doctorCommand --fix', () => {
 
     await doctorCommand(
       { ...cmd, fix: true },
-      { env: { VANGUARD_CLI_VERSION_CHECK: 'off', GH_TOKEN: 'gh', CLAUDE_CODE_OAUTH_TOKEN: 'token' }, nodeVersion: '24.11.1', run, log: (l) => lines.push(l) },
+      { env: { TASKCELL_CLI_VERSION_CHECK: 'off', GH_TOKEN: 'gh', CLAUDE_CODE_OAUTH_TOKEN: 'token' }, nodeVersion: '24.11.1', run, log: (l) => lines.push(l) },
     );
 
     expect(calls.some((c) => c.includes('npm install -g @anthropic-ai/claude-code@2.1.322'))).toBe(true);
@@ -191,7 +191,7 @@ describe('doctorCommand --fix', () => {
 
     await expect(
       doctorCommand(cmd, {
-        env: { VANGUARD_CLI_VERSION_CHECK: 'off', GH_TOKEN: 'gh', CLAUDE_CODE_OAUTH_TOKEN: 'token' },
+        env: { TASKCELL_CLI_VERSION_CHECK: 'off', GH_TOKEN: 'gh', CLAUDE_CODE_OAUTH_TOKEN: 'token' },
         nodeVersion: '24.11.1',
         run,
         log: () => undefined,

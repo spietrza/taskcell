@@ -3,7 +3,7 @@
 > **Label rename.** Labels and comment markers are now `taskcell:*` / `taskcell-*`. The old `vanguard:*` labels and `<!-- vanguard-... -->` markers are still accepted everywhere they are read, and on a repo that has only the old labels Taskcell keeps using them. `taskcell migrate-labels --github-repo <owner/repo>` renames a repo's old labels (dry-run by default; `--apply` to rename). One exception: the PR-review trigger stays `ready for vanguard review` for now. GitHub starts the review workflow on the label's name, so Taskcell still writes that name and `migrate-labels` leaves it alone; `ready for taskcell review` is read too, but it starts a review only where the caller workflow listens for it (the current `templates/github/pr-review.yml` does).
 
 
-`vanguard` is the old name of `taskcell` and still works.
+`vanguard` is the old name of `taskcell` and still works (variables: [environment-variables.md](environment-variables.md)).
 
 Label a GitHub issue, get back a reviewed draft PR. The target repo does not need Taskcell installed and does not carry the workflow steps: each workflow in your repo is a **thin caller** (triggers, permissions, an actor gate, a `uses:` line) of a **reusable workflow** that lives in `spietrza/taskcell`. The reusable workflow checks Taskcell out beside your code, builds it, and runs it in a Docker sandbox on the GitHub runner (`taskcell-sandbox:latest` for local builds; CI pins the built image ID).
 
@@ -109,8 +109,8 @@ The reusable workflow installs Taskcell with `pnpm install --ignore-workspace`, 
 | `max-tasks` | string | `''` (no cap) | `--max-tasks`: cap ready issues claimed per phase in one run |
 | `issue` | string | `''` (sweep) | `--issue`: run only this issue. The template passes the labelled issue, so every issue gets its own run and its own concurrency group instead of queueing behind one shared group |
 | `max-parallel` | string | `''` (no limit) | with `issue`: at most this many runs work at once; later runs wait for a slot, first come first served (the cap can overshoot by one when two runs start in the same minute). The caller needs `actions: read` |
-| `sandbox-memory-mb` | string | `''` (CLI default: 2048–4096 by host RAM, 8192 with a read-only rootfs) | sandbox memory cap in MB (`VANGUARD_SANDBOX_MEMORY_MB`). A GitHub-hosted runner has 16 GB; long agent sessions or a full test suite inside the sandbox may need `'8192'` (at 2048 MB they can die with exit 134). Also on `revise.yml` |
-| `sandbox-readonly` | boolean | `false` | read-only root filesystem for the sandbox (`VANGUARD_SANDBOX_READONLY=1`); the default sandbox memory then rises to 8192 MB. Also on `revise.yml` and `pr-review.yml` |
+| `sandbox-memory-mb` | string | `''` (CLI default: 2048–4096 by host RAM, 8192 with a read-only rootfs) | sandbox memory cap in MB (`TASKCELL_SANDBOX_MEMORY_MB`). A GitHub-hosted runner has 16 GB; long agent sessions or a full test suite inside the sandbox may need `'8192'` (at 2048 MB they can die with exit 134). Also on `revise.yml` |
+| `sandbox-readonly` | boolean | `false` | read-only root filesystem for the sandbox (`TASKCELL_SANDBOX_READONLY=1`); the default sandbox memory then rises to 8192 MB. Also on `revise.yml` and `pr-review.yml` |
 | `timeout-minutes` | number | `90` | job timeout. It also covers the wait for a free slot under `max-parallel`, so raise it for large tasks or a long queue (GitHub's ceiling is 360) |
 | `vanguard-ref` | string | `''` (the workflow's own ref) | Taskcell source ref to build |
 
@@ -420,7 +420,7 @@ The stored `CODEX_AUTH_JSON` is a snapshot; Codex refreshes the access token fro
 
 ### Keeping a reserve of your plan (usage cap)
 
-If the factory shares your Claude or ChatGPT subscription with your own work, cap it: `--usage-cap 80` (env `VANGUARD_USAGE_CAP_PCT=80`, or the hub's Settings **Usage cap %**) lets it spend up to 80% of the provider's window and leaves the last 20% to you. The factory stops *starting* tasks and stages at the cap (running stages finish), labels the task `taskcell:rate-limited` and `resume-rate-limited` retries it after the window resets. See [cli.md](cli.md#cost-and-limits). The reusable workflows have no `usage-cap` input yet — Taskcell cannot edit `.github/workflows/**`, so add the input by hand (passing it as `--usage-cap` to the CLI call) or set `VANGUARD_USAGE_CAP_PCT` in the job env.
+If the factory shares your Claude or ChatGPT subscription with your own work, cap it: `--usage-cap 80` (env `TASKCELL_USAGE_CAP_PCT=80`, or the hub's Settings **Usage cap %**) lets it spend up to 80% of the provider's window and leaves the last 20% to you. The factory stops *starting* tasks and stages at the cap (running stages finish), labels the task `taskcell:rate-limited` and `resume-rate-limited` retries it after the window resets. See [cli.md](cli.md#cost-and-limits). The reusable workflows have no `usage-cap` input yet — Taskcell cannot edit `.github/workflows/**`, so add the input by hand (passing it as `--usage-cap` to the CLI call) or set `TASKCELL_USAGE_CAP_PCT` in the job env.
 
 ## One run, spec and build
 

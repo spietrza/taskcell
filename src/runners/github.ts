@@ -49,7 +49,7 @@ export function githubAdapter(deps: RunGithubIssueDeps, gh: GhRunner = defaultGh
     },
     async signalSecretBlock(issueRef: string, _task: Task, block: SecretBlock) {
       // `gh issue edit --add-label` fails on a repo that never created the label, which would leave
-      // the held issue with no Vanguard label at all. Ensure it first (the same pre-step as
+      // the held issue with no Taskcell label at all. Ensure it first (the same pre-step as
       // addPrFailureLabel and the revise path); every step stays best-effort.
       const label = gh(['label', 'create', GITHUB_SECRET_BLOCKED_LABEL, '--repo', deps.repoSlug, '--force'])
         .catch(() => undefined)

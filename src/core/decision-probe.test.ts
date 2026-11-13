@@ -30,26 +30,26 @@ describe('decisionProbeConfig', () => {
   it('is disabled without the explicit switch, even when Cloudflare credentials are exported', () => {
     expect(decisionProbeConfig({})).toBeUndefined();
     expect(decisionProbeConfig(cf)).toBeUndefined();
-    expect(decisionProbeConfig({ ...cf, VANGUARD_DECISION_PROBE: '0' })).toBeUndefined();
-    expect(decisionProbeConfig({ VANGUARD_DECISION_PROBE: '1', CLOUDFLARE_ACCOUNT_ID: 'acc' })).toBeUndefined();
+    expect(decisionProbeConfig({ ...cf, TASKCELL_DECISION_PROBE: '0' })).toBeUndefined();
+    expect(decisionProbeConfig({ TASKCELL_DECISION_PROBE: '1', CLOUDFLARE_ACCOUNT_ID: 'acc' })).toBeUndefined();
   });
 
   it('builds the Workers AI URL from the Cloudflare pair, defaulting to clef, and refuses other models there', () => {
-    const cfg = decisionProbeConfig({ ...cf, VANGUARD_DECISION_PROBE: '1' });
+    const cfg = decisionProbeConfig({ ...cf, TASKCELL_DECISION_PROBE: '1' });
     expect(cfg).toEqual({ url: 'https://api.cloudflare.com/client/v4/accounts/acc/ai/run/@cf/cloudflare/clef', token: 't', model: 'clef' });
-    expect(decisionProbeConfig({ ...cf, VANGUARD_DECISION_PROBE: '1', VANGUARD_DECISION_MODEL: 'clef' })?.model).toBe('clef');
-    expect(decisionProbeConfig({ ...cf, VANGUARD_DECISION_PROBE: '1', VANGUARD_DECISION_MODEL: 'jev' })).toBeUndefined();
-    expect(decisionProbeConfig({ VANGUARD_DECISION_PROBE: '1', CLOUDFLARE_ACCOUNT_ID: 'a/../b', CLOUDFLARE_AUTH_TOKEN: 't' })?.url).toContain('/accounts/a%2F..%2Fb/');
+    expect(decisionProbeConfig({ ...cf, TASKCELL_DECISION_PROBE: '1', TASKCELL_DECISION_MODEL: 'clef' })?.model).toBe('clef');
+    expect(decisionProbeConfig({ ...cf, TASKCELL_DECISION_PROBE: '1', TASKCELL_DECISION_MODEL: 'jev' })).toBeUndefined();
+    expect(decisionProbeConfig({ TASKCELL_DECISION_PROBE: '1', CLOUDFLARE_ACCOUNT_ID: 'a/../b', CLOUDFLARE_AUTH_TOKEN: 't' })?.url).toContain('/accounts/a%2F..%2Fb/');
   });
 
   it('a generic System-One endpoint wins and never receives the Cloudflare token', () => {
-    expect(decisionProbeConfig({ ...cf, VANGUARD_DECISION_PROBE: '1', VANGUARD_DECISION_URL: 'http://ai-box:8080/decide' }))
+    expect(decisionProbeConfig({ ...cf, TASKCELL_DECISION_PROBE: '1', TASKCELL_DECISION_URL: 'http://ai-box:8080/decide' }))
       .toEqual({ url: 'http://ai-box:8080/decide', model: 'clef' });
   });
 
   it('white-label runs are skipped unless the switch is `all`', () => {
-    expect(decisionProbeConfig({ ...cf, VANGUARD_DECISION_PROBE: '1' }, { whiteLabel: true })).toBeUndefined();
-    expect(decisionProbeConfig({ ...cf, VANGUARD_DECISION_PROBE: 'all' }, { whiteLabel: true })?.model).toBe('clef');
+    expect(decisionProbeConfig({ ...cf, TASKCELL_DECISION_PROBE: '1' }, { whiteLabel: true })).toBeUndefined();
+    expect(decisionProbeConfig({ ...cf, TASKCELL_DECISION_PROBE: 'all' }, { whiteLabel: true })?.model).toBe('clef');
   });
 });
 

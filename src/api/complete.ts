@@ -4,6 +4,7 @@ import { sep } from 'node:path';
 export type { CompleteRequest, CompleteResponse } from '../wire.js';
 import type { CompleteRequest, CompleteResponse, CompleteAttachment } from '../wire.js';
 import { MAX_INLINE_TOTAL_BYTES, MAX_IMAGE_BYTES, MAX_IMAGE_TOTAL_BYTES } from '../wire.js';
+import { readEnv } from '../core/env.js';
 
 /** The async-iterable subset of the agent SDK's `query()` result we consume. */
 type QueryStream = AsyncIterable<{ type: string; subtype?: string; result?: string }>;
@@ -125,7 +126,7 @@ export async function runComplete(req: unknown, deps: CompleteDeps): Promise<Com
   // baseUrl comes from the project's `.taskcell/app.json` (repo content) and the inherited credential
   // follows it, so only an origin the operator allowed in their own environment may receive it.
   if (parsed.baseUrl !== undefined) {
-    const refused = baseUrlRefusal(parsed.baseUrl, process.env[CHAT_ALLOWED_ORIGINS_ENV]);
+    const refused = baseUrlRefusal(parsed.baseUrl, readEnv(CHAT_ALLOWED_ORIGINS_ENV));
     if (refused !== undefined) return { error: { message: refused } };
   }
 
@@ -159,14 +160,14 @@ export async function runComplete(req: unknown, deps: CompleteDeps): Promise<Com
 }
 
 /** Operator-local allowlist (comma-separated origins) for a non-Anthropic `chatBaseUrl`. */
-export const CHAT_ALLOWED_ORIGINS_ENV = 'VANGUARD_CHAT_ALLOWED_ORIGINS';
+export const CHAT_ALLOWED_ORIGINS_ENV = 'TASKCELL_CHAT_ALLOWED_ORIGINS';
 
 /** The origin the inherited Anthropic credential may always be sent to. */
 const ANTHROPIC_ORIGIN = 'https://api.anthropic.com';
 
 /**
  * Why `baseUrl` may not receive the inherited credential, or undefined when it may. Allowed: the
- * Anthropic API origin, or an origin listed in `allowList` (VANGUARD_CHAT_ALLOWED_ORIGINS, the
+ * Anthropic API origin, or an origin listed in `allowList` (TASKCELL_CHAT_ALLOWED_ORIGINS, the
  * operator's own environment — never repo content, which is where `chatBaseUrl` comes from).
  */
 export function baseUrlRefusal(baseUrl: string, allowList: string | undefined): string | undefined {
@@ -180,7 +181,7 @@ export function baseUrlRefusal(baseUrl: string, allowList: string | undefined): 
   if (allowed.includes(origin)) return undefined;
   return (
     `doc chat refused: chatBaseUrl origin ${origin} is not allowed to receive your Anthropic credential. ` +
-    `To allow it, add it to ${CHAT_ALLOWED_ORIGINS_ENV} (comma-separated origins) in the environment Vanguard runs in.`
+    `To allow it, add it to ${CHAT_ALLOWED_ORIGINS_ENV} (comma-separated origins) in the environment Taskcell runs in.`
   );
 }
 

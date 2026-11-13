@@ -152,8 +152,8 @@ describe('runApprover — end to end', () => {
     expect(record.rulesFired).toContain('path:ci-config');
   });
 
-  it('VANGUARD_APPROVER_STOP gives ESCALATE stopped, recorded, with no diff/ledger collection', async () => {
-    process.env.VANGUARD_APPROVER_STOP = '1';
+  it('TASKCELL_APPROVER_STOP gives ESCALATE stopped, recorded, with no diff/ledger collection', async () => {
+    process.env.TASKCELL_APPROVER_STOP = '1';
     try {
       const calls: string[][] = [];
       const { record } = await runApprover({ repoPath: repo, repoSlug: 'o/r', prNumber: 1, mode: 'shadow', gh: fakeGh(calls) });
@@ -161,7 +161,7 @@ describe('runApprover — end to end', () => {
       expect(record.verdict).toBe('ESCALATE');
       expect(calls.some((a) => a[0] === 'api' && a[1]?.includes('check-runs?per_page'))).toBe(false);
     } finally {
-      delete process.env.VANGUARD_APPROVER_STOP;
+      delete process.env.TASKCELL_APPROVER_STOP;
     }
   });
 
@@ -187,7 +187,7 @@ describe('runApprover — end to end', () => {
   });
 
   it('a short-circuited decision is keyed by its head SHA, so a new head gets its own record', async () => {
-    process.env.VANGUARD_APPROVER_STOP = '1';
+    process.env.TASKCELL_APPROVER_STOP = '1';
     try {
       const { record } = await runApprover({ repoPath: repo, repoSlug: 'o/r', prNumber: 1, mode: 'shadow', gh: fakeGh([]) });
       expect(record.headSha).toBe(headSha);
@@ -197,16 +197,16 @@ describe('runApprover — end to end', () => {
       const lines = (await readBranchFile(repo, { file: 'decisions.jsonl' })).trim().split('\n');
       expect(lines.map((l) => (JSON.parse(l) as { headSha: string }).headSha)).toEqual([previous, headSha]);
     } finally {
-      delete process.env.VANGUARD_APPROVER_STOP;
+      delete process.env.TASKCELL_APPROVER_STOP;
     }
   });
 
   it('a stop placeholder does not block the full decision for the same head once the stop is lifted', async () => {
-    process.env.VANGUARD_APPROVER_STOP = '1';
+    process.env.TASKCELL_APPROVER_STOP = '1';
     try {
       await runApprover({ repoPath: repo, repoSlug: 'o/r', prNumber: 1, mode: 'shadow', gh: fakeGh([]) });
     } finally {
-      delete process.env.VANGUARD_APPROVER_STOP;
+      delete process.env.TASKCELL_APPROVER_STOP;
     }
     await runApprover({ repoPath: repo, repoSlug: 'o/r', prNumber: 1, mode: 'shadow', gh: fakeGh([]) });
     const lines = (await readBranchFile(repo, { file: 'decisions.jsonl' })).trim().split('\n');

@@ -196,9 +196,9 @@ export async function fetchPullRequestFeedback(
 }
 
 /**
- * Filter PullRequestFeedback down to items Vanguard should act on this round.
+ * Filter PullRequestFeedback down to items Taskcell should act on this round.
  * Drops: bot-authored items, items carrying the current head's PR-review marker,
- * Vanguard's incomplete-review notices (the bot heading plus the marker on its own line),
+ * Taskcell's incomplete-review notices (the bot heading plus the marker on its own line),
  * items in resolved threads, and items older than the head commit (watermark).
  */
 export interface FeedbackPartition {
@@ -419,7 +419,7 @@ function reviewBlockingFindings(body: string): string[] {
   if (!blockingVerdict) return [];
   const prose = proseBlockingFindings(body);
   // A blocking verdict whose findings cannot be told apart still has to be answered, as one item.
-  return prose.length > 0 ? prose : ['Every blocking finding of the latest Vanguard review (answer each one it lists)'];
+  return prose.length > 0 ? prose : ['Every blocking finding of the latest Taskcell review (answer each one it lists)'];
 }
 
 /**
@@ -513,7 +513,7 @@ function classifyFeedbackAuthor(item: FeedbackItem, opts: FeedbackTrustOptions) 
 }
 
 /**
- * Count how many revision rounds Vanguard has already completed on this PR.
+ * Count how many revision rounds Taskcell has already completed on this PR.
  * `afterCreatedAt`, when given, drops every item at or before it — used to start a fresh budget from
  * a trusted human's comment that followed a cap notice (revisionBudgetResetAt).
  */

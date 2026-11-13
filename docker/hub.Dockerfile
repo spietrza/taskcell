@@ -1,5 +1,5 @@
 # The Taskcell HUB image. Serves the desktop Inspector UI (apps/desktop) over plain HTTP/SSE via
-# `vanguard hub` (src/hub/*.ts, src/cli/hub.ts) for local/VPS use without Tauri. Runs agent sandboxes
+# `taskcell hub` (src/hub/*.ts, src/cli/hub.ts) for local/VPS use without Tauri. Runs agent sandboxes
 # via the host docker socket (docker-out-of-docker), same as docker/runner.Dockerfile.
 # Pinned by digest for a reproducible, tamper-evident base (the tag is kept for readability).
 # Bump: `docker buildx imagetools inspect node:24-bookworm-slim` and copy the index Digest.
@@ -22,6 +22,8 @@ COPY . .
 RUN pnpm install --frozen-lockfile && pnpm build \
  && pnpm --dir apps/desktop install --frozen-lockfile && pnpm --dir apps/desktop build
 
+# Image defaults stay under the old names on purpose: the hub reads TASKCELL_HUB_* first, so a default baked
+# under the new name would silently beat a VANGUARD_HUB_* value in an existing compose file.
 ENV VANGUARD_HUB_HOST=0.0.0.0 \
     VANGUARD_HUB_PORT=7777 \
     VANGUARD_HUB_UI_DIR=/app/apps/desktop/dist \

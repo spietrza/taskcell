@@ -29,9 +29,9 @@ describe('formatFailureComment', () => {
   it('carries the throwing site, so a bare TypeError is diagnosable from the comment alone', () => {
     const error = new TypeError("Cannot read properties of undefined (reading 'split')");
 
-    const comment = formatFailureComment('Vanguard run failed', error);
+    const comment = formatFailureComment('Taskcell run failed', error);
 
-    expect(comment).toContain("Vanguard run failed: TypeError: Cannot read properties of undefined (reading 'split')");
+    expect(comment).toContain("Taskcell run failed: TypeError: Cannot read properties of undefined (reading 'split')");
     expect(comment).toContain('<details><summary>stack</summary>');
     expect(comment).toContain('errors.test.ts');
   });
@@ -42,7 +42,7 @@ describe('formatFailureComment', () => {
       '\n',
     );
 
-    const fenced = formatFailureComment('Vanguard run failed', error).split('```')[1] ?? '';
+    const fenced = formatFailureComment('Taskcell run failed', error).split('```')[1] ?? '';
 
     expect(fenced.trim().split('\n')).toHaveLength(25);
     expect(fenced).toContain('at frame23');
@@ -50,14 +50,14 @@ describe('formatFailureComment', () => {
   });
 
   it('falls back to the one-line shape for a non-Error throw', () => {
-    expect(formatFailureComment('Vanguard spec failed', 'plain string')).toBe('Vanguard spec failed: plain string');
+    expect(formatFailureComment('Taskcell spec failed', 'plain string')).toBe('Taskcell spec failed: plain string');
   });
 
   it('falls back to the one-line shape when an Error carries no stack', () => {
     const error = new Error('no stack here');
     error.stack = '';
 
-    expect(formatFailureComment('Vanguard run failed', error)).toBe('Vanguard run failed: Error: no stack here');
+    expect(formatFailureComment('Taskcell run failed', error)).toBe('Taskcell run failed: Error: no stack here');
   });
 });
 
@@ -154,7 +154,7 @@ describe('formatFailureComment for a failed fallback', () => {
   it('says the fallback failed and why, not only the primary rate limit', () => {
     const error = new FallbackFailedError('claude', 'codex', "You've hit your session limit", 'failed to spawn code-mode host: Resource temporarily unavailable (os error 11)');
 
-    const comment = formatFailureComment('Vanguard run failed', error);
+    const comment = formatFailureComment('Taskcell run failed', error);
 
     expect(comment).toContain('fallback provider codex failed (not a rate limit)');
     expect(comment).toContain('Resource temporarily unavailable (os error 11)');

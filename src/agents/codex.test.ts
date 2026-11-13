@@ -129,8 +129,8 @@ describe('CodexProvider', () => {
     const setup = commands[0];
 
     // branches at runtime on the runner-provided base URL
-    expect(setup).toContain('VANGUARD_OPENAI_BASE_URL');
-    expect(setup).toContain('if [ -n "${VANGUARD_OPENAI_BASE_URL:-}" ]; then');
+    expect(setup).toContain('TASKCELL_OPENAI_BASE_URL');
+    expect(setup).toContain('if [ -n "${TASKCELL_OPENAI_BASE_URL:-}" ]; then');
 
     // writes config.toml under $CODEX_HOME (falling back to ~/.codex)
     expect(setup).toContain('mkdir -p "${CODEX_HOME:-$HOME/.codex}"');
@@ -141,7 +141,7 @@ describe('CodexProvider', () => {
     expect(setup).toContain('wire_api = "responses"');
     expect(setup).toContain('env_key = "OPENAI_API_KEY"');
     expect(setup).toContain('base_url = "%s"');
-    expect(setup).toContain('"$VANGUARD_OPENAI_BASE_URL"'); // base url fed via printf %s, expanded in-sandbox
+    expect(setup).toContain('"$TASKCELL_OPENAI_BASE_URL"'); // base url fed via printf %s, expanded in-sandbox
 
     // literal backslash-n reaches the sandbox so printf interprets the format string
     expect(setup).toContain('printf \'model_provider = "vanguardproxy"\\n[model_providers.vanguardproxy]');
@@ -173,14 +173,14 @@ describe('CodexProvider', () => {
 
     // subscription branch is checked FIRST and writes the auth.json the runner forwarded via env
     expect(setup).toContain('if [ -n "${CODEX_AUTH_JSON:-}" ]; then');
-    expect(setup.indexOf('CODEX_AUTH_JSON')).toBeLessThan(setup.indexOf('VANGUARD_OPENAI_BASE_URL'));
+    expect(setup.indexOf('CODEX_AUTH_JSON')).toBeLessThan(setup.indexOf('TASKCELL_OPENAI_BASE_URL'));
     expect(setup).toContain('> "${CODEX_HOME:-$HOME/.codex}/auth.json"');
     expect(setup).toContain('printf %s "$CODEX_AUTH_JSON"'); // content from env, never embedded on argv
     expect(setup).toContain('chmod 600 "${CODEX_HOME:-$HOME/.codex}/auth.json"');
 
     // the auth.json write is its own `if`, not a chain: chatgpt-plan proxy mode needs it AND the
     // base-URL branch below, so the latter must not be an `elif` hanging off this one.
-    expect(setup).toContain('chmod 600 "${CODEX_HOME:-$HOME/.codex}/auth.json"; fi; if [ -n "${VANGUARD_OPENAI_BASE_URL:-}" ]; then');
+    expect(setup).toContain('chmod 600 "${CODEX_HOME:-$HOME/.codex}/auth.json"; fi; if [ -n "${TASKCELL_OPENAI_BASE_URL:-}" ]; then');
     // login is the fallback only when there is no auth.json at all.
     expect(setup).toContain('elif [ -z "${CODEX_AUTH_JSON:-}" ]; then printf %s "$OPENAI_API_KEY" | codex login --with-api-key');
   });

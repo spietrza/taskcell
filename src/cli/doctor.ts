@@ -14,7 +14,7 @@ type DoctorCommand = Extract<Command, { kind: 'doctor' }>;
 
 export interface DoctorOptions extends PreflightOptions {
   log?: (line: string) => void;
-  /** Version lookup, injectable for tests; honours the VANGUARD_CLI_VERSION_CHECK off switch. */
+  /** Version lookup, injectable for tests; honours the TASKCELL_CLI_VERSION_CHECK off switch. */
   cliVersions?: typeof checkCliVersions;
 }
 

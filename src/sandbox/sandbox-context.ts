@@ -65,7 +65,7 @@ export async function startSandboxContext(opts: SandboxContextOptions): Promise<
   // --llm-proxy implies the egress enclave; in that mode the sandbox loses its direct route to the
   // sidecar-owned upstream providers.
   if (!opts.egress && !opts.llmProxy) {
-    // A read-only rootfs can be opted into without --egress/--llm-proxy too (VANGUARD_SANDBOX_READONLY=1
+    // A read-only rootfs can be opted into without --egress/--llm-proxy too (TASKCELL_SANDBOX_READONLY=1
     // alone): that run gets no other sandbox-posture log line, so report the decision here as well.
     const profile = resolveSandboxProfile(process.env);
     if (profile.security.readOnlyRootfs) logRootfsNote(profile.note);

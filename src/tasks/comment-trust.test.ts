@@ -36,7 +36,7 @@ describe('comment trust', () => {
   });
   it('T5: built-in GitHub bot names grant nothing where the provider has no association (GitLab)', () => {
     // Anyone can register `vanguard` or `github-actions` on GitLab; only explicit botLogins count there.
-    for (const author of ['vanguard', 'github-actions', 'Vanguard']) {
+    for (const author of ['vanguard', 'github-actions', 'Taskcell']) {
       expect(classifyAuthor(author, undefined, { allowedAuthors: ['maintainer'] })).toBe('untrusted');
     }
     expect(classifyAuthor('vg-bot', undefined, { botLogins: ['vg-bot'] })).toBe('bot');

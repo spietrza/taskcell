@@ -28,7 +28,7 @@
 
 Taskcell turns a well-written ticket into a reviewed pull request. You label an issue; Taskcell checks that the ticket is clear enough, writes a tech spec if needed, runs a coding agent inside a locked-down Docker container, has a second model review the change, runs your tests, and opens a PR. It runs on your own machine, a server, or GitHub Actions, with your own model subscription or API key. The agent is treated as untrusted: it never holds your repository token, and nothing it writes reaches your repository without passing host-side checks and a human review.
 
-> **Naming.** `vanguard` is the old name of `taskcell` and still works. The repository moved from `spietrza/vanguard` to `spietrza/taskcell` (old links redirect); `VANGUARD_*` environment variables, `vanguard:*` labels keep their existing names. Per-repo state now lives in `.taskcell/`; a repo that still has only `.vanguard/` keeps using it (with a deprecation warning) until you rename it. Migrating: add `.taskcell/` to `.gitignore`. Website: [taskcell.dev](https://taskcell.dev).
+> **Naming.** `vanguard` is the old name of `taskcell` and still works. The repository moved from `spietrza/vanguard` to `spietrza/taskcell` (old links redirect). Every `VANGUARD_*` environment variable has a `TASKCELL_*` name and the old name is still read (table: [docs/environment-variables.md](docs/environment-variables.md)). Per-repo state now lives in `.taskcell/`; a repo that still has only `.vanguard/` keeps using it (with a deprecation warning) until you rename it. Migrating: add `.taskcell/` to `.gitignore`. Website: [taskcell.dev](https://taskcell.dev).
 
 ## How it works
 

@@ -63,7 +63,7 @@ export function glabUser(glab: GlabRunner): Promise<string> {
 }
 
 /**
- * GitLab notes carry no association. A note by the user glab runs as (Vanguard's own spec, research
+ * GitLab notes carry no association. A note by the user glab runs as (Taskcell's own spec, research
  * and manifest notes) is stamped MEMBER, so it stays trusted when --feedback-authors makes every other
  * association-less note fail closed. Everyone else keeps an absent association (see classifyAuthor).
  */
@@ -90,7 +90,7 @@ function toGitLabTask(project: string, issue: GitLabIssue, notes: GitLabNote[] =
   };
 }
 
-/** Fetches GitLab issues (via the glab CLI) and maps them to Vanguard tasks. */
+/** Fetches GitLab issues (via the glab CLI) and maps them to Taskcell tasks. */
 export class GitLabTaskFetcher implements TaskFetcher {
   constructor(
     private readonly project: string,
@@ -113,7 +113,7 @@ export class GitLabTaskFetcher implements TaskFetcher {
     try {
       return await glabUser(this.glab);
     } catch (error) {
-      console.warn(`taskcell: ${error instanceof Error ? error.message : String(error)}; Vanguard's own notes on ${this.project} are not recognised`);
+      console.warn(`taskcell: ${error instanceof Error ? error.message : String(error)}; Taskcell's own notes on ${this.project} are not recognised`);
       return undefined;
     }
   }
@@ -165,7 +165,7 @@ export async function linkMergeRequest(
   mrUrl: string,
   glab: GlabRunner = defaultGlabRunner,
 ): Promise<void> {
-  await commentGitlabIssue(project, issueRef, `Vanguard opened an MR for review: ${mrUrl}`, glab);
+  await commentGitlabIssue(project, issueRef, `Taskcell opened an MR for review: ${mrUrl}`, glab);
 }
 
 /**

@@ -6,7 +6,7 @@ import type { CliVersionReport } from '../../wire.js';
 import { defineCommands } from '../command-kit.js';
 
 export interface CliVersionsCommands {
-  /** HUB_ONLY, read-only: installed vs latest claude/codex/cursor CLI in the local sandbox image (3-day soak applied; `enabled: false`, and no lookups, when VANGUARD_CLI_VERSION_CHECK is off). Refused on a non-loopback bind without VANGUARD_HUB_ALLOW_ADD. */
+  /** HUB_ONLY, read-only: installed vs latest claude/codex/cursor CLI in the local sandbox image (3-day soak applied; `enabled: false`, and no lookups, when TASKCELL_CLI_VERSION_CHECK is off). Refused on a non-loopback bind without TASKCELL_HUB_ALLOW_ADD. */
   agent_cli_versions: { args: undefined; result: CliVersionReport };
 }
 

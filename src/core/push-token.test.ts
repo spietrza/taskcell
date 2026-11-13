@@ -45,8 +45,8 @@ describe('pushToken', () => {
     expect(p.exp).toBe(p.iat + 540);
   });
 
-  it('falls back to VANGUARD_PUSH_TOKEN, then undefined', async () => {
-    expect(await pushToken('o/r', { env: { VANGUARD_PUSH_TOKEN: 'pat' } })).toBe('pat');
+  it('falls back to TASKCELL_PUSH_TOKEN, then undefined', async () => {
+    expect(await pushToken('o/r', { env: { TASKCELL_PUSH_TOKEN: 'pat' } })).toBe('pat');
     expect(await pushToken('o/r', { env: {} })).toBeUndefined();
     expect(await pushToken('o/r', { env: { TASKCELL_APP_CLIENT_ID: 'x' } })).toBeUndefined();
   });
@@ -91,13 +91,13 @@ describe('pushToken', () => {
     expect(JSON.parse(bodies[0] ?? '{}')).toEqual({ repositories: ['r'], permissions: { contents: 'write', pull_requests: 'write' } });
   });
 
-  it('a failed mint is retried once, then falls back to VANGUARD_PUSH_TOKEN with a warning', async () => {
+  it('a failed mint is retried once, then falls back to TASKCELL_PUSH_TOKEN with a warning', async () => {
     const calls: string[] = [];
     const warnings: string[] = [];
     const f = (async (url: string) => { calls.push(String(url)); return new Response('{"message":"boom"}', { status: 500 }); }) as typeof fetch;
-    expect(await pushToken('o/r', { env: { ...env, VANGUARD_PUSH_TOKEN: 'pat' }, fetch: f, warn: (m) => warnings.push(m) })).toBe('pat');
+    expect(await pushToken('o/r', { env: { ...env, TASKCELL_PUSH_TOKEN: 'pat' }, fetch: f, warn: (m) => warnings.push(m) })).toBe('pat');
     expect(calls).toHaveLength(2);
-    expect(warnings[0]).toMatch(/boom.*VANGUARD_PUSH_TOKEN/);
+    expect(warnings[0]).toMatch(/boom.*TASKCELL_PUSH_TOKEN/);
   });
 
   it('rejects a malformed repo slug before calling the API', async () => {
@@ -128,7 +128,7 @@ describe('pushToken', () => {
     expect(credentialLabel(token, {})).toBe('');
     await releaseToken('pat');
     expect(calls.filter((c) => c.startsWith('DELETE'))).toHaveLength(1);
-    expect(credentialLabel('pat', { VANGUARD_PUSH_TOKEN: 'pat' })).toBe(' (VANGUARD_PUSH_TOKEN)');
+    expect(credentialLabel('pat', { TASKCELL_PUSH_TOKEN: 'pat' })).toBe(' (TASKCELL_PUSH_TOKEN)');
   });
 
   it('wraps network errors and null bodies, and reports 401 as a credential problem', async () => {
@@ -154,7 +154,7 @@ describe('pushToken', () => {
     expect(await provider()).not.toBe(await provider());
     expect(calls).toHaveLength(4);
     await expect(tokenProviderFor('/nonexistent', undefined, { env: { ...env, GITHUB_REPOSITORY: '' } })()).rejects.toThrow(/owner\/repo/);
-    expect(await tokenProviderFor('/nonexistent', undefined, { env: { VANGUARD_PUSH_TOKEN: 'pat' } })()).toBe('pat');
+    expect(await tokenProviderFor('/nonexistent', undefined, { env: { TASKCELL_PUSH_TOKEN: 'pat' } })()).toBe('pat');
   });
 
   it('repoSlugOf parses the origin URL first, then falls back to GITHUB_REPOSITORY', async () => {

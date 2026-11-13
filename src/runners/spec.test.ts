@@ -172,7 +172,7 @@ describe('linearSpecPrimitives', () => {
           identifier: 'ENG-9',
           title: 'Add retry to the uploader',
           description: 'The uploader should retry transient 5xx errors up to three times with backoff.',
-          comments: { nodes: [{ body: 'Vanguard tech spec:\n<tech_spec>\n## Problem\n</tech_spec>', user: { name: 'vanguard' } }] },
+          comments: { nodes: [{ body: 'Taskcell tech spec:\n<tech_spec>\n## Problem\n</tech_spec>', user: { name: 'vanguard' } }] },
         });
       }
       return '[]';
@@ -693,7 +693,7 @@ describe('runSpecGenerator', () => {
 
     // End-to-end: parseSpecManifest must read the manifest back out of the comment the caller posts
     // (watch.ts's specComment wraps `spec` in <tech_spec>...</tech_spec>, so nest it the same way here).
-    const comment = `Vanguard tech spec:\n\n<tech_spec>\n${spec}\n</tech_spec>`;
+    const comment = `Taskcell tech spec:\n\n<tech_spec>\n${spec}\n</tech_spec>`;
     const manifest = parseSpecManifest(comment);
     expect(manifest?.files?.[0]?.path).toBe('src/foo.ts');
   });
@@ -798,8 +798,8 @@ describe('runSpecGenerator', () => {
 describe('defaultSandboxFactory wires the opt-in read-only rootfs', () => {
   // Pin both vars so the host env cannot opt in or resize under the test.
   beforeEach(() => {
-    vi.stubEnv('VANGUARD_SANDBOX_READONLY', undefined);
-    vi.stubEnv('VANGUARD_SANDBOX_MEMORY_MB', undefined);
+    vi.stubEnv('TASKCELL_SANDBOX_READONLY', undefined);
+    vi.stubEnv('TASKCELL_SANDBOX_MEMORY_MB', undefined);
   });
   afterEach(() => vi.unstubAllEnvs());
   const runArgs = (deps: Partial<RunSpecGeneratorDeps>): string[] => {
@@ -812,16 +812,16 @@ describe('defaultSandboxFactory wires the opt-in read-only rootfs', () => {
     expect(runArgs({ network: 'vg-egr-1' })).not.toContain('--read-only');
   });
 
-  it('--egress/--llm-proxy with VANGUARD_SANDBOX_READONLY=1: --read-only plus the three tmpfs mounts', () => {
-    vi.stubEnv('VANGUARD_SANDBOX_READONLY', '1');
+  it('--egress/--llm-proxy with TASKCELL_SANDBOX_READONLY=1: --read-only plus the three tmpfs mounts', () => {
+    vi.stubEnv('TASKCELL_SANDBOX_READONLY', '1');
     const args = runArgs({ network: 'vg-egr-1' });
     expect(args).toContain('--read-only');
     const tmpfs = args.filter((_, i) => args[i - 1] === '--tmpfs');
     for (const path of ['/workspace:', '/home/agent:', '/tmp:']) expect(tmpfs.some((t) => t.startsWith(path))).toBe(true);
   });
 
-  it('VANGUARD_SANDBOX_READONLY=0 keeps it off in hardened mode', () => {
-    vi.stubEnv('VANGUARD_SANDBOX_READONLY', '0');
+  it('TASKCELL_SANDBOX_READONLY=0 keeps it off in hardened mode', () => {
+    vi.stubEnv('TASKCELL_SANDBOX_READONLY', '0');
     expect(runArgs({ network: 'vg-egr-1' })).not.toContain('--read-only');
   });
 
