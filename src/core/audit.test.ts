@@ -1,4 +1,4 @@
-import { lutimes, mkdir, mkdtemp, readFile, readdir, symlink, utimes, writeFile } from 'node:fs/promises';
+import { lutimes, mkdir, mkdtemp, readFile, readdir, rm, stat, symlink, utimes, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { execa } from 'execa';
@@ -18,6 +18,18 @@ import {
   BOT_ACTOR,
   type AuditStream,
 } from './audit.js';
+
+// Runs after each real `lstat`, so a test can change the path between the lock's check and its re-check.
+const fsHooks = vi.hoisted(() => ({ afterLstat: undefined as ((path: string) => Promise<void>) | undefined }));
+vi.mock('node:fs/promises', async (importOriginal) => {
+  const real = await importOriginal<typeof import('node:fs/promises')>();
+  const lstat = async (path: string): Promise<unknown> => {
+    const info = await real.lstat(path);
+    await fsHooks.afterLstat?.(path);
+    return info;
+  };
+  return { ...real, lstat };
+});
 
 const ctx = { actor: { kind: 'user' as const, id: 'u1', name: 'Ada' }, subject: { repo: 'o/r', pr: 7 } };
 const audit: AuditStream = { name: 't', class: 'audit' };
@@ -197,6 +209,65 @@ describe('audit record module', () => {
     expect(await readFile(file, 'utf8')).toContain('"n":0');
   });
 
+  it('waits on a fresh directory lock instead of removing it', async () => {
+    const { adapter, dir, file } = await setup();
+    const lock = join(dir, 'a.jsonl.lock');
+    await mkdir(lock);
+    let done = false;
+    const appended = appendAudit(audit, adapter, { n: 0 }, ctx).then((n) => {
+      done = true;
+      return n;
+    });
+    await new Promise((resolve) => setTimeout(resolve, 150));
+    expect(done).toBe(false);
+    expect((await stat(lock)).isDirectory()).toBe(true);
+    await rm(lock, { recursive: true });
+    await expect(appended).resolves.toBe(1);
+    expect(await readFile(file, 'utf8')).toContain('"n":0');
+  });
+
+  it('does not remove a lock file that replaced a stale directory lock between the check and the re-check', async () => {
+    const { adapter, dir, file } = await setup();
+    const lock = join(dir, 'a.jsonl.lock');
+    await mkdir(lock);
+    const old = new Date(Date.now() - 60_000);
+    await utimes(lock, old, old);
+    let swapped = false;
+    fsHooks.afterLstat = async (path): Promise<void> => {
+      if (path !== lock || swapped) return;
+      swapped = true;
+      // another process cleared the directory and took the lock
+      await rm(lock, { recursive: true });
+      await writeFile(lock, 'live');
+    };
+    try {
+      const appended = appendAudit(audit, adapter, { n: 0 }, ctx);
+      await new Promise((resolve) => setTimeout(resolve, 150));
+      expect(await readFile(lock, 'utf8')).toBe('live');
+      await rm(lock);
+      await expect(appended).resolves.toBe(1);
+      expect(await readFile(file, 'utf8')).toContain('"n":0');
+    } finally {
+      fsHooks.afterLstat = undefined;
+    }
+  });
+
+  it('warns once about a symlinked rotated sibling, however often the tail is looked up', async () => {
+    const repo = await mkdtemp(join(tmpdir(), 'audit-repo-'));
+    const state = join(repo, '.taskcell', 'runs');
+    await mkdir(state, { recursive: true });
+    await writeFile(join(repo, 'elsewhere'), '{"hash":"evil"}\n');
+    await symlink(join(repo, 'elsewhere'), join(state, 'metrics.jsonl.1'));
+    const file = join(state, 'metrics.jsonl');
+    const adapter = localAdapter({ file, repoPath: repo });
+    const warn = vi.spyOn(console, 'warn').mockImplementation(() => undefined);
+    await expect(appendAudit(STREAMS.hub, adapter, { n: 1 }, ctx)).resolves.toBe(1);
+    await writeFile(file, ''); // a size the tail cache does not know: the next append reads the siblings again
+    await expect(appendAudit(STREAMS.hub, adapter, { n: 2 }, ctx)).resolves.toBe(1);
+    expect(warn.mock.calls.filter(([m]) => String(m).includes('skipping audit file'))).toHaveLength(1);
+    warn.mockRestore();
+  });
+
   it('skips a symlinked rotated sibling and keeps appending', async () => {
     const repo = await mkdtemp(join(tmpdir(), 'audit-repo-'));
     const state = join(repo, '.taskcell', 'runs');
@@ -223,13 +294,17 @@ describe('audit record module', () => {
   });
 
   it('prunes a stale directory sibling on rotation instead of throwing', async () => {
-    const { dir, file } = await setup();
+    const { adapter, dir } = await setup(300);
+    // the first append runs the tolerant first-append prune; the sibling appears after it
+    await expect(appendAudit(audit, adapter, { n: 0, pad: 'x'.repeat(100) }, ctx)).resolves.toBe(1);
     await mkdir(join(dir, 'a.jsonl.20200101T000000000Z'));
     await writeFile(join(dir, 'a.jsonl.20200101T000000000Z', 'x'), '');
     const old = new Date('2020-01-01');
     await utimes(join(dir, 'a.jsonl.20200101T000000000Z'), old, old);
-    await expect(appendAudit(audit, localAdapter({ file }), { n: 0 }, ctx)).resolves.toBe(1);
-    expect((await readdir(dir)).filter((n) => n.startsWith('a.jsonl.2020'))).toEqual([]);
+    for (let i = 1; i < 6; i++) await expect(appendAudit(audit, adapter, { n: i, pad: 'x'.repeat(100) }, ctx)).resolves.toBe(1);
+    const names = await readdir(dir);
+    expect(names.filter((n) => n.startsWith('a.jsonl.2020'))).toEqual([]);
+    expect(names.filter((n) => /^a\.jsonl\.\d{8}T/.test(n)).length).toBeGreaterThan(0); // a rotation did happen
   });
 
   it('warns once about an unreadable sibling and keeps appending', async () => {
@@ -239,8 +314,24 @@ describe('audit record module', () => {
     const warn = vi.spyOn(console, 'warn').mockImplementation(() => undefined);
     const adapter = localAdapter({ file, maxRotated: 5 });
     await expect(appendAudit(audit, adapter, { n: 0 }, ctx)).resolves.toBe(1);
+    await writeFile(file, ''); // a size the tail cache does not know: the next append reads the sibling again
     await expect(appendAudit(audit, adapter, { n: 1 }, ctx)).resolves.toBe(1);
     expect(warn.mock.calls.filter(([m]) => String(m).includes('cannot read audit file'))).toHaveLength(1);
+    warn.mockRestore();
+  });
+
+  it('keeps the once-per-stream warning deduped after a flood of other warnings', async () => {
+    const { dir, file } = await setup();
+    const failing = { ...localAdapter({ file }), append: async (): Promise<number> => { throw new Error('disk full'); } };
+    const telemetry: AuditStream = { name: 'flooded', class: 'telemetry' };
+    const warn = vi.spyOn(console, 'warn').mockImplementation(() => undefined);
+    await expect(appendAudit(telemetry, failing, { n: 0 }, ctx)).resolves.toBe(0);
+    // over a thousand distinct warnings: the bounded message set is cleared along the way
+    for (let n = 1; n <= 1001; n++) await mkdir(`${file}.${n}`);
+    await expect(appendAudit(audit, localAdapter({ file, maxRotated: 5000 }), { n: 0 }, ctx)).resolves.toBe(1);
+    expect((await readdir(dir)).length).toBeGreaterThan(1001);
+    await expect(appendAudit(telemetry, failing, { n: 1 }, ctx)).resolves.toBe(0);
+    expect(warn.mock.calls.filter(([m]) => String(m).includes('flooded records are not being written'))).toHaveLength(1);
     warn.mockRestore();
   });
 

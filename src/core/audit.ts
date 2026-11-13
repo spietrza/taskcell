@@ -67,12 +67,14 @@ export function defaultActor(env: NodeJS.ProcessEnv = process.env): AuditActor {
 }
 
 const warned = new Set<string>();
+/** Kept apart from `warned`: clearing this bounded set must not re-arm the once-per-stream warning. */
+const warnedMessages = new Set<string>();
 
 /** Warn once per distinct message: a repo-controlled sibling or line would otherwise flood the log on every append. */
 function warnOnce(message: string): void {
-  if (warned.has(message)) return;
-  if (warned.size >= 1000) warned.clear();
-  warned.add(message);
+  if (warnedMessages.has(message)) return;
+  if (warnedMessages.size >= 1000) warnedMessages.clear();
+  warnedMessages.add(message);
   console.warn(message);
 }
 
@@ -351,7 +353,9 @@ async function withFileLock<T>(file: string, fn: () => Promise<T>): Promise<T> {
       if (age <= 10_000 && waited <= 15_000) await sleep(10);
       // A lock that is a directory can never be a live lock (ours is a file): clear it once stale, re-checking
       // that it is still a real directory (not swapped for a symlink) so the recursive remove never follows a link.
-      else if (info?.isDirectory() === true && (await lstat(lock).catch(() => undefined))?.isDirectory() === true) {
+      // If it no longer is one, the path may be another process's fresh lock file: look again, do not remove it.
+      else if (info?.isDirectory() === true) {
+        if ((await lstat(lock).catch(() => undefined))?.isDirectory() !== true) continue;
         warnOnce(`taskcell: audit lock ${lock} is a directory; removing it`);
         await rm(lock, { force: true, recursive: true });
       } else await rm(lock, { force: true });
