@@ -70,7 +70,7 @@ function isEnoentFlavored(message: string): boolean {
   return /ENOENT|not found/i.test(message);
 }
 
-/** List recent CI runs for a repo via `gh run list` (GitHub Actions). Mirrors remote.rs's list_remote_runs. */
+/** List recent CI runs for a repo via `gh run list` (GitHub Actions). */
 export async function listRemoteRuns(repoPath: string, exec: Exec = defaultExec): Promise<RemoteRun[]> {
   let result;
   try {

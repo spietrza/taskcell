@@ -1,4 +1,4 @@
-// Hub-side project/config logic (ported from the removed desktop Rust module).
+// Active runs and sessions of a project: what is running now, and each session's cost so far.
 import { lstat, readdir, stat } from 'node:fs/promises';
 import { join } from 'node:path';
 import { OPENROUTER_PRICING } from '../core/openrouter-pricing.js';

@@ -24,7 +24,7 @@ export interface CompleteResult {
   error?: { message: string };
 }
 
-/** Wall-clock cap on one doc-chat turn — mirrors sidecar.rs's COMPLETE_TIMEOUT. */
+/** Wall-clock cap on one doc-chat turn — the same cap the desktop's former Rust sidecar used. */
 export const COMPLETE_TIMEOUT_MS = 180_000;
 
 export type SpawnComplete = () => ChildProcess;

@@ -307,6 +307,19 @@ Node runtime and the CLI; a source checkout (`pnpm start`) runs the TypeScript C
 Only this hub enables **Fleet** (`spawn_run`/`kill_run`/`list_spawns`, `VANGUARD_HUB_ALLOW_FLEET=1`, honoured on
 a loopback bind only); every other hub rejects those commands.
 
+**Add a repository from any folder.** The app's hub runs with `VANGUARD_HUB_BROWSE_ANYWHERE=1`: the Add-project
+picker opens at your home directory, **Parent directory** goes up to the filesystem root, and the **Folder path**
+field opens any folder you type or paste, which is how you reach another drive on Windows (`D:\code\repo`) or
+a network share. A hub served to a browser keeps its browse-root limit.
+
+**Hub variables from your shell are ignored.** The app starts its hub from a fixed set of `VANGUARD_HUB_*`
+variables (`CONFIG_DIR`, `ALLOW_FLEET`, `BROWSE_ANYWHERE`, `EXIT_ON_STDIN_EOF`) and removes every other one it
+inherited from the shell that launched it, so a `VANGUARD_HUB_TOKEN_FILE`, `ALLOWED_HOSTS`, `UI_DIR`, `ALLOW_ADD`,
+`SERVER_MODE`, `BROWSE_ROOT`, `PUBLIC_URL`, `AUTH_*` or `SIGNUP_ALLOW` meant for a server hub never reaches it.
+Five settings are kept because they are yours rather than the server's: `VANGUARD_HUB_SECRET`,
+`VANGUARD_HUB_CLONE_HOSTS`, `VANGUARD_HUB_MAX_QUEUE`, `VANGUARD_HUB_WATCH_POLL` and
+`VANGUARD_HUB_WATCH_INTERVAL_MS`. Other variables (provider credentials, `PATH`) are inherited as before.
+
 ## Connect the desktop app to a server
 
 Besides its own local hub, the desktop app can join a `taskcell hub` running on a VPS or NAS (server mode, see
@@ -345,7 +358,8 @@ request is replayed, so a run is never started twice.
 | `VANGUARD_HUB_WATCH_POLL` | — |
 | `VANGUARD_HUB_WATCH_INTERVAL_MS` | `2000` |
 | `VANGUARD_HUB_SECRET` | — (32 bytes, base64: `openssl rand -base64 32`. Enables the Settings credential store, `<config dir>/.vanguard-hub/credentials.enc`, AES-256-GCM. A stored Claude/Codex/z.ai/OpenRouter key overrides the same env var; the API is write-only (set + last four characters). Without it the store is disabled and env credentials apply) |
-| `VANGUARD_HUB_BROWSE_ROOT` | `$HOME` (the desktop app sets the filesystem root for its own hub; a filesystem root admits every path, on Windows every drive) |
+| `VANGUARD_HUB_BROWSE_ROOT` | `$HOME` (where the Add-project picker opens, and the limit of what it can browse, add or clone into. A drive or share root such as `D:\` confines to that drive or share) |
+| `VANGUARD_HUB_BROWSE_ANYWHERE` | — (`1` on a loopback bind without server mode lifts that limit: the browse root is then only where the picker opens. Set by the desktop app for its own hub) |
 | `VANGUARD_HUB_ALLOW_ADD` | — |
 | `VANGUARD_HUB_SERVER_MODE` | — (`1` = require sign-in on a loopback bind, for a same-host reverse proxy) |
 | `VANGUARD_HUB_PUBLIC_URL` | `http://<host>:<port>` (server mode: the OAuth callback base) |
@@ -368,6 +382,8 @@ The **Add project** dialog has two modes:
   already a git work tree and add it, exactly as before. `add_project` applies the same browse-root
   confinement, so a project outside the browse root cannot be added. To add one outside `$HOME`
   (the default root), start the hub with `VANGUARD_HUB_BROWSE_ROOT` set to a directory containing it.
+  The **Folder path** field jumps straight to a typed or pasted path, under the same limit. The
+  desktop app's own hub has no such limit (see [its section](#the-desktop-apps-local-hub)).
 - **Clone repository** — paste a repository URL, pick the parent folder with the same browser, and
   optionally override the folder name (default: the repo name from the URL). The hub clones it under
   the chosen parent and adds it, so a fresh install or a VPS hub with nothing to browse yet doesn't

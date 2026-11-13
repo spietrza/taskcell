@@ -1,4 +1,4 @@
-// Hub-side project/config logic (ported from the removed desktop Rust module).
+// Run-builder drafts: saved under the project's `.taskcell/` and validated on read.
 import { lstat, mkdir, readdir, readFile, rename, rm, stat, unlink, writeFile } from 'node:fs/promises';
 import { join } from 'node:path';
 import { BadRequestError } from '../sidecar/sidecar.js';

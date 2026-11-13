@@ -1,6 +1,6 @@
 import { mkdir, mkdtemp, realpath, rm, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
-import { dirname, join, parse } from 'node:path';
+import { dirname, join, parse, win32 } from 'node:path';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import { assertWithinBrowseRoot, browseDirs, isWithinRoot, MAX_BROWSE_ENTRIES } from './browse.js';
 import { BadRequestError } from '../sidecar/sidecar.js';
@@ -115,18 +115,70 @@ describe('browseDirs', () => {
 });
 
 describe('isWithinRoot', () => {
-  it('a filesystem root contains every path (path.dirname of a drive root is itself, so on Windows every drive)', () => {
+  it('is pure containment: a root contains itself and its descendants only', () => {
+    expect(isWithinRoot('/home/me', '/home/me')).toBe(true);
+    expect(isWithinRoot('/home/me', '/home/me/repo')).toBe(true);
+    expect(isWithinRoot('/home/me', '/home/meow')).toBe(false);
+    expect(isWithinRoot('/home/me', '/etc')).toBe(false);
+    // A root that already ends in the separator: no doubled separator, so its descendants match.
     expect(isWithinRoot('/', '/')).toBe(true);
     expect(isWithinRoot('/', '/home/me/repo')).toBe(true);
   });
 
-  it('a non-root browse root still confines', () => {
-    expect(isWithinRoot('/home/me', '/home/me/repo')).toBe(true);
-    expect(isWithinRoot('/home/me', '/home/meow')).toBe(false);
-    expect(isWithinRoot('/home/me', '/etc')).toBe(false);
+  it('win32: a drive root or UNC share root confines to that drive or share', () => {
+    const within = (r: string, c: string): boolean => isWithinRoot(r, c, win32.sep);
+    expect(within('D:\\', 'D:\\')).toBe(true);
+    expect(within('D:\\', 'D:\\code\\repo')).toBe(true);
+    expect(within('D:\\', 'C:\\Windows')).toBe(false);
+    expect(within('C:\\Users\\me', 'C:\\Users\\me\\repo')).toBe(true);
+    expect(within('C:\\Users\\me', 'C:\\Users\\meow')).toBe(false);
+    expect(within('C:\\Users\\me', 'D:\\repo')).toBe(false);
+    expect(within('\\\\srv\\share\\', '\\\\srv\\share\\repo')).toBe(true);
+    expect(within('\\\\srv\\share\\', 'C:\\x')).toBe(false);
+    expect(within('\\\\srv\\share\\', '\\\\srv\\other\\repo')).toBe(false);
+    // The roots above are what win32 path resolution yields for a drive / share root.
+    expect(win32.parse('D:\\code\\repo').root).toBe('D:\\');
+    expect(win32.parse('\\\\srv\\share\\repo').root).toBe('\\\\srv\\share\\');
+  });
+});
+
+describe('a filesystem root as the browse root', () => {
+  it('assertWithinBrowseRoot and browseDirs accept what is below it (not: reject everything)', async () => {
+    const fsRoot = parse(root).root;
+    await expect(assertWithinBrowseRoot(fsRoot, root)).resolves.toBe(root);
+    const listing = await browseDirs(fsRoot, root);
+    expect(listing.path).toBe(root);
+    expect(listing.parent).toBe(dirname(root));
+    // The root itself has no parent to go up to.
+    expect((await browseDirs(fsRoot)).parent).toBeUndefined();
+  });
+});
+
+describe('anywhere (the desktop app\'s own hub)', () => {
+  it('confined by default; with `anywhere` a path outside the root is listed and accepted', async () => {
+    const outside = join(tmp, 'outside');
+    await mkdir(join(outside, 'repo', '.git'), { recursive: true });
+    await expect(browseDirs(root, outside)).rejects.toThrow('path escapes the browse root');
+    await expect(assertWithinBrowseRoot(root, outside)).rejects.toThrow('path escapes the browse root');
+
+    const listing = await browseDirs(root, outside, true);
+    expect(listing.entries.map((e) => e.name)).toEqual(['repo']);
+    await expect(assertWithinBrowseRoot(root, join(outside, 'repo'), true)).resolves.toBe(await realpath(join(outside, 'repo')));
+    await expect(assertWithinBrowseRoot(root, join(outside, 'missing'), true)).rejects.toThrow('path does not exist');
   });
 
-  it('assertWithinBrowseRoot accepts a path outside home when the root is the filesystem root', async () => {
-    await expect(assertWithinBrowseRoot(parse(root).root, root)).resolves.toBe(root);
+  it('opens at the root but can go up from it, until the filesystem root', async () => {
+    const atRoot = await browseDirs(root, undefined, true);
+    expect(atRoot.path).toBe(root);
+    expect(atRoot.parent).toBe(dirname(root));
+    expect((await browseDirs(root, parse(root).root, true)).parent).toBeUndefined();
+    // Confined: the root is the top.
+    expect((await browseDirs(root)).parent).toBeUndefined();
+  });
+
+  it('reports whether the listed directory is itself a git work tree', async () => {
+    await mkdir(join(root, 'repo', '.git'), { recursive: true });
+    expect((await browseDirs(root, join(root, 'repo'))).isGitRepo).toBe(true);
+    expect((await browseDirs(root)).isGitRepo).toBe(false);
   });
 });

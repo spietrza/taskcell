@@ -1,7 +1,6 @@
 // The one implementation of the on-disk run-record format: naming, writing, listing and reading.
-// Both readers that used to re-derive this format now forward here — src/hub/runs.ts (thin
-// re-export shim) and the Tauri desktop app (formerly a Rust module), which forwards
-// `list_runs`/`read_run` over the sidecar query pipe the way `list_tasks` already does.
+// The reader that used to re-derive this format now forwards here: src/hub/runs.ts (thin re-export
+// shim). The desktop app has no reader of its own; its window is a client of the local hub.
 import { createHash } from 'node:crypto';
 import { constants } from 'node:fs';
 import { writeFile, unlink, readdir, lstat, open, stat } from 'node:fs/promises';

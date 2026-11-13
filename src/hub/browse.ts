@@ -1,4 +1,4 @@
-// New in the web hub — no Rust/Tauri equivalent (the desktop app used a native OS file dialog).
+// The hub's folder browser behind the Add-project picker (`browse_dirs`) and its confinement guard.
 import { lstat, readdir, realpath } from 'node:fs/promises';
 import { dirname, join, resolve, sep } from 'node:path';
 import { BadRequestError } from '../sidecar/sidecar.js';
@@ -21,28 +21,30 @@ export interface DirListing {
   path: string;
   /** Absolute path of the parent directory, or undefined if `path` IS the confinement root (no further up). */
   parent?: string;
+  /** true if the listed directory itself directly contains a `.git` entry. */
+  isGitRepo?: boolean;
   entries: DirEntry[];
 }
 
 /** True if `child` is `root` itself or a real descendant of it (both already realpath'd, so absolute).
- * A filesystem root (`/`, `C:\`) contains every path, including, on Windows, the other drives: the
- * desktop app browses from there because its native folder picker may land anywhere. */
-export function isWithinRoot(root: string, child: string): boolean {
-  return dirname(root) === root || child === root || child.startsWith(root + sep);
+ * Pure containment: a root that already ends in a separator (`/`, `D:\`, a UNC share root) holds
+ * what is below it and nothing else, so `D:\` never admits `C:\`. `pathSep` is a parameter so
+ * Windows semantics can be tested on any host. */
+export function isWithinRoot(root: string, child: string, pathSep: string = sep): boolean {
+  return child === root || child.startsWith(root.endsWith(pathSep) ? root : root + pathSep);
 }
 
 /** `add_project`'s confinement: the same realpath-both-sides guard `browseDirs` applies, so a
  * project can only come from somewhere the browse picker could have reached. Returns the realpath,
- * which is what the caller should store. */
-export async function assertWithinBrowseRoot(root: string, path: string): Promise<string> {
-  const realRoot = await realpath(root);
+ * which is what the caller should store. `anywhere` (the desktop app's own hub) lifts the confinement. */
+export async function assertWithinBrowseRoot(root: string, path: string, anywhere = false): Promise<string> {
   let target: string;
   try {
     target = await realpath(resolve(path));
   } catch {
     throw new BadRequestError('path does not exist');
   }
-  if (!isWithinRoot(realRoot, target)) throw new BadRequestError('path escapes the browse root');
+  if (!anywhere && !isWithinRoot(await realpath(root), target)) throw new BadRequestError('path escapes the browse root');
   return target;
 }
 
@@ -60,9 +62,11 @@ async function hasMarker(dir: string, name: string): Promise<boolean> {
  * List the subdirectories of `requestedPath` (default: `root` itself), confined to `root`.
  * Both `root` and the requested path are realpath'd before comparison — this is the traversal
  * guard: joining a `..`-laden path and realpath-ing it catches both literal `..` segments and
- * symlink escapes. Requests that resolve outside `root` throw `BadRequestError`.
+ * symlink escapes. Requests that resolve outside `root` throw `BadRequestError`. With `anywhere`
+ * (the desktop app's own hub) `root` is only where the picker opens: any directory may be listed,
+ * and `parent` goes up to the filesystem root.
  */
-export async function browseDirs(root: string, requestedPath?: string): Promise<DirListing> {
+export async function browseDirs(root: string, requestedPath?: string, anywhere = false): Promise<DirListing> {
   const realRoot = await realpath(root);
   const requested = requestedPath ? resolve(requestedPath) : realRoot;
   let target: string;
@@ -72,7 +76,7 @@ export async function browseDirs(root: string, requestedPath?: string): Promise<
     throw new BadRequestError('path does not exist');
   }
 
-  if (!isWithinRoot(realRoot, target)) {
+  if (!anywhere && !isWithinRoot(realRoot, target)) {
     throw new BadRequestError('path escapes the browse root');
   }
 
@@ -93,9 +97,9 @@ export async function browseDirs(root: string, requestedPath?: string): Promise<
     }),
   );
 
-  const listing: DirListing = { path: target, entries };
+  const listing: DirListing = { path: target, entries, isGitRepo: await hasMarker(target, '.git') };
 
-  if (target !== realRoot) {
+  if (anywhere || target !== realRoot) {
     const parentDir = dirname(target);
     const realParent = await realpath(parentDir);
     if (realParent !== target) {
