@@ -3,6 +3,7 @@ import { isTauri } from '@tauri-apps/api/core';
 import { Button, Card, Chip, Empty, Textarea } from '@/ui';
 import { MessageCircleQuestionMark, RefreshCw } from 'lucide-react';
 import { listNeedsYou, listNeedsYouAll, mergeNeedsYou, replyNeedsYou, type NeedsYouItem, type RepoReadFailure, type RepoStamp } from '../../ipc';
+import { inRepos } from '../../repoFilter';
 import { RepoFailures, RepoLabel } from '../../RepoViews';
 import { isHubMode } from '../../transport';
 import { ExternalLink } from '../../components/ExternalLink';
@@ -102,7 +103,18 @@ function MergeButton({ project, item, onMerged }: { project: string; item: Needs
 }
 
 /** The hub "Needs you" screen: what the factory waits on for this project, with a reply per item. */
-export function NeedsYou({ project, allRepos = false }: { project: string; allRepos?: boolean }) {
+export function NeedsYou({
+  project,
+  allRepos = false,
+  repos,
+  teamId,
+}: {
+  project: string;
+  allRepos?: boolean;
+  repos: string[];
+  /** The selected team (hub): "All repositories" is read for it. */
+  teamId?: string;
+}) {
   const [items, setItems] = useState<(NeedsYouItem & Partial<RepoStamp>)[] | null>(null);
   const [failures, setFailures] = useState<RepoReadFailure[]>([]);
   const [error, setError] = useState<string | null>(null);
@@ -111,7 +123,7 @@ export function NeedsYou({ project, allRepos = false }: { project: string; allRe
 
   useEffect(() => {
     let alive = true;
-    (allRepos ? listNeedsYouAll() : listNeedsYou(project).then((r) => ({ ...r, failures: [] })))
+    (allRepos ? listNeedsYouAll(teamId).then((l) => ({ items: inRepos(l.items, repos), failures: inRepos(l.failures, repos) })) : listNeedsYou(project).then((r) => ({ ...r, failures: [] })))
       .then((r) => {
         if (!alive) return;
         setItems(r.items);
@@ -124,7 +136,8 @@ export function NeedsYou({ project, allRepos = false }: { project: string; allRe
     return () => {
       alive = false;
     };
-  }, [project, allRepos, nonce]);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [project, allRepos, nonce, teamId, repos.join('\n')]);
 
   return (
     <div className="mx-auto w-full max-w-3xl space-y-3 overflow-y-auto">

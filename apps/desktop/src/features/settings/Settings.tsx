@@ -2,6 +2,7 @@ import { useRef, useState, type ReactNode } from 'react';
 import { Button, Input } from '@/ui';
 import { isHubMode } from '../../transport';
 import { Credentials } from './Credentials';
+import { Members, type TeamScreen } from './Members';
 import { writeAppConfig } from '../../ipc';
 import { useAppConfig } from '../../hooks';
 import { useDiscardGuard } from '../../navGuard';
@@ -58,7 +59,7 @@ function Select({
   );
 }
 
-export function Settings({ project }: { project: string }) {
+export function Settings({ project, teamScreen }: { project: string; teamScreen?: TeamScreen }) {
   // Inspector is keyed by project, so this component remounts on project switch —
   // config loads once and `dirty`/`saved` start clean without a reset effect.
   const [cfg, setCfg, cfgStatus] = useAppConfig(project);
@@ -118,6 +119,8 @@ export function Settings({ project }: { project: string }) {
           {saved ? 'Saved' : 'Save'}
         </Button>
       </div>
+
+      {isHubMode() && teamScreen && <Members {...teamScreen} />}
 
       {isHubMode() && <Credentials />}
 

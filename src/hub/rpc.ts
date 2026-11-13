@@ -328,6 +328,9 @@ async function dispatchInner(ctx: RpcContext, cmd: string, rawArgs: unknown, cal
       const id = requireString(args, 'id');
       return (await teams.callerTeams(ctx.configDir, caller)).find((t) => t.id === id) ?? null;
     }
+    case 'team_role': {
+      return (await teams.callerRole(ctx.configDir, caller, requireString(args, 'id'))) ?? null;
+    }
     case 'add_team_member': {
       const role = requireOneOf(args, 'role', ['admin', 'member']) as TeamRole;
       return teams.addMember(ctx.configDir, caller, requireString(args, 'teamId'), { login: requireString(args, 'login').trim(), role });

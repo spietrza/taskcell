@@ -966,3 +966,20 @@ describe('start_task', () => {
     await expect(call(ctx, repo, { label: 'bug' })).rejects.toThrow('"bug" is not a trigger label of this project (ready for agent, ready for spec, go)');
   });
 });
+
+describe('team_role', () => {
+  test('a member reads their role, the owner is admin everywhere, a stranger gets null', async () => {
+    const repo = await tmpGitRepo();
+    const { ctx } = await makeCtx(repo);
+    await saveTeams(ctx.configDir, [
+      { id: 't', name: 'T', members: [{ login: 'ann', role: 'admin' }, { login: 'bob', role: 'member' }], repositories: [] },
+    ]);
+    const as = (id: string): Caller => ({ user: { id, email: `${id}@x.test`, name: 'ann' }, owner: false });
+    expect(await dispatchRpc(ctx, 'team_role', { id: 't' }, as('bob'))).toBe('member');
+    expect(await dispatchRpc(ctx, 'team_role', { id: 't' }, as('ann'))).toBe('admin');
+    expect(await dispatchRpc(ctx, 'team_role', { id: 't' })).toBe('admin');
+    // The display name "ann" grants nothing; an unknown team is null too.
+    expect(await dispatchRpc(ctx, 'team_role', { id: 't' }, as('mallory'))).toBeNull();
+    expect(await dispatchRpc(ctx, 'team_role', { id: 'nope' }, as('ann'))).toBeNull();
+  });
+});

@@ -14,9 +14,12 @@ import {
 } from 'lucide-react';
 import { Collapsible, Tooltip, cn } from '@/ui';
 import type { Project, ActiveRun } from './taskcell-output';
+import type { Team } from './wire';
+import { TeamSwitcher } from './TeamSwitcher';
 import { relTime } from './time';
 import { RailTip } from './RailTip';
 import { canUseFleet } from './transport';
+import { ServerSwitcher } from './ServerSwitcher';
 import { canUseNeedsYou } from './features/needs-you/NeedsYou';
 
 // 'task' (S10) is reached by intent — the New Task button on the board and Runs toolbars — so it
@@ -44,6 +47,9 @@ export function Rail({
   running,
   onScreen,
   onOpenRunning,
+  teams,
+  team,
+  onTeam,
 }: {
   projects: Project[];
   activePath: string | null;
@@ -51,6 +57,9 @@ export function Rail({
   running: ActiveRun[];
   onScreen: (s: Screen) => void;
   onOpenRunning: (r: ActiveRun) => void;
+  teams: Team[];
+  team: Team | undefined;
+  onTeam: (id: string) => void;
 }) {
   const active = projects.find((p) => p.path === activePath);
   // Base UI Collapsible owns the open/closed state (the trigger gets aria-expanded for free); we persist
@@ -75,6 +84,12 @@ export function Rail({
       )}
     >
       <Tooltip.Provider delay={200}>
+        <ServerSwitcher collapsed={collapsed} />
+        {team && (
+          <div className="mb-2 px-2">
+            <TeamSwitcher teams={teams} active={team} onSelect={onTeam} collapsed={collapsed} onExpand={() => onOpenChange(true)} />
+          </div>
+        )}
         <nav className="space-y-0.5 px-2 max-md:flex max-md:gap-1 max-md:space-y-0 max-md:py-1">
           {NAV.map((n) => {
             const count = n.key === 'runs' ? active?.runCount : undefined;
