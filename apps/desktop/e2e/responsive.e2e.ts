@@ -26,7 +26,10 @@ test('Home, Needs you and run detail fit 390 px', async ({ page }) => {
   await noHorizontalScroll(page);
 
   await nav.getByRole('button', { name: 'Runs' }).click();
-  await page.locator('main li button, main tbody tr').first().click();
+  // Running rows sort first and open LiveRun (no tabs); the Passed filter leaves only finished runs.
+  const main = page.locator('main');
+  await main.getByRole('button', { name: /^passed$/i }).click();
+  await main.locator('tbody tr').first().click();
   await expect(page.getByRole('tab', { name: 'Overview' })).toBeVisible();
   await noHorizontalScroll(page);
 });
