@@ -48,7 +48,7 @@ describe('first run and persistence', () => {
   test('shows only with no projects and onboarding not completed', () => {
     expect(showOnFirstRun(EMPTY_STORED, 0)).toBe(true);
     expect(showOnFirstRun(EMPTY_STORED, 1)).toBe(false);
-    expect(showOnFirstRun({ completed: true, skipped: [] }, 0)).toBe(false);
+    expect(showOnFirstRun({ completed: true, skipped: [], model: 'claude' }, 0)).toBe(false);
   });
 
   test('withSkipped adds and removes a step once', () => {
@@ -58,10 +58,10 @@ describe('first run and persistence', () => {
   });
 
   test('save/load round-trips and ignores junk', () => {
-    saveOnboarding({ completed: true, skipped: ['repo'] });
-    expect(loadOnboarding()).toEqual({ completed: true, skipped: ['repo'] });
+    saveOnboarding({ completed: true, skipped: ['repo'], model: 'claude' });
+    expect(loadOnboarding()).toEqual({ completed: true, skipped: ['repo'], model: 'claude' });
     localStorage.setItem('vanguard.onboarding', '{"completed":1,"skipped":["x","model"]}');
-    expect(loadOnboarding()).toEqual({ completed: false, skipped: ['model'] });
+    expect(loadOnboarding()).toEqual({ completed: false, skipped: ['model'], model: 'claude' });
     localStorage.setItem('vanguard.onboarding', 'not json');
     expect(loadOnboarding()).toEqual(EMPTY_STORED);
   });
@@ -69,5 +69,15 @@ describe('first run and persistence', () => {
   test('the starter task carries acceptance criteria', () => {
     expect(STARTER_TASK.body).toContain('## Acceptance criteria');
     expect(STARTER_TASK.body).toContain('- [ ]');
+  });
+});
+
+describe('model choice', () => {
+  beforeEach(() => localStorage.clear());
+  test('is remembered across a reload and defaults to claude', () => {
+    saveOnboarding({ ...EMPTY_STORED, model: 'codex' });
+    expect(loadOnboarding().model).toBe('codex');
+    localStorage.setItem('vanguard.onboarding', '{"model":"x"}');
+    expect(loadOnboarding().model).toBe('claude');
   });
 });

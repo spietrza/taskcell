@@ -776,7 +776,7 @@ export interface SetupToolStatus {
 }
 export interface SetupStatus {
   tools: SetupToolStatus[];
-  /** Whether a model credential is already present for each provider (a boolean, not the value). */
+  /** Whether a model credential is already present for each provider (a boolean, not the value). Codex counts an `OPENAI_API_KEY` or a Codex sign-in (the auth file exists; never read). */
   models: { claude: boolean; codex: boolean };
 }
 

@@ -7,7 +7,7 @@ import type { SetupStatus } from '../../wire.js';
 import { defineCommands } from '../command-kit.js';
 
 export interface SetupCommands {
-  /** HUB_ONLY, owner only, read-only: whether `gh`, `glab`, a Linear key and a model credential are present on the hub host. Booleans only — never a secret value. Spawns `gh`/`glab` on the host, so it is refused on a non-loopback bind without VANGUARD_HUB_ALLOW_ADD. */
+  /** HUB_ONLY, owner only, read-only: whether `gh`, `glab`, a Linear key and a model credential (Claude, or a Codex key or sign-in file) are present on the hub host. Booleans only — never a secret value. Spawns `gh`/`glab` on the host, so it is refused on a non-loopback bind without VANGUARD_HUB_ALLOW_ADD. */
   setup_status: { args: undefined; result: SetupStatus };
 }
 

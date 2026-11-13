@@ -21,9 +21,12 @@ export const STEP_STATE_LABEL: Record<StepState, string> = {
 export interface OnboardingStored {
   completed: boolean;
   skipped: StepId[];
+  /** The model credential the user picked in the model step. */
+  model: ModelChoice;
 }
 
-export const EMPTY_STORED: OnboardingStored = { completed: false, skipped: [] };
+export type ModelChoice = 'claude' | 'codex';
+export const EMPTY_STORED: OnboardingStored = { completed: false, skipped: [], model: 'claude' };
 
 const KEY = 'vanguard.onboarding';
 
@@ -34,6 +37,7 @@ export function loadOnboarding(): OnboardingStored {
     const r = raw as Partial<OnboardingStored>;
     return {
       completed: r.completed === true,
+      model: r.model === 'codex' ? 'codex' : 'claude',
       skipped: Array.isArray(r.skipped) ? r.skipped.filter((s): s is StepId => STEP_IDS.includes(s as StepId)) : [],
     };
   } catch {
@@ -82,14 +86,18 @@ export function withSkipped(stored: OnboardingStored, id: StepId, skip: boolean)
   return { ...stored, skipped: skip ? [...rest, id] : rest };
 }
 
+/** Shown after each `export` line (the indexes in `restartNote`). */
+export const RESTART_NOTE =
+  'The hub reads this when it starts: restart the hub (or save the key in Settings → credentials, where that exists), then press Check again.';
+
 /** The "you run this" lines per tool or credential; the hub never reads or stores the value. */
 export type RunStepId = 'gh' | 'glab' | 'linear' | 'claude' | 'codex';
-export const RUN_STEPS: Record<RunStepId, { label: string; commands: string[] }> = {
+export const RUN_STEPS: Record<RunStepId, { label: string; commands: string[]; restartNote?: number[] }> = {
   gh: { label: 'GitHub (gh)', commands: ['gh auth login'] },
   glab: { label: 'GitLab (glab)', commands: ['glab auth login'] },
   linear: { label: 'Linear', commands: ['export LINEAR_API_KEY=<your key>   # on the machine running the hub'] },
-  claude: { label: 'Claude subscription', commands: ['claude setup-token', 'export CLAUDE_CODE_OAUTH_TOKEN=<the token it prints>   # on the machine running the hub'] },
-  codex: { label: 'Codex', commands: ['codex login   # sign in with ChatGPT', '# or, instead of signing in:', 'export OPENAI_API_KEY=<your key>   # on the machine running the hub'] },
+  claude: { label: 'Claude subscription', commands: ['claude setup-token', 'export CLAUDE_CODE_OAUTH_TOKEN=<the token it prints>   # on the machine running the hub'], restartNote: [1] },
+  codex: { label: 'Codex', commands: ['codex login   # sign in with ChatGPT', '# or, instead of signing in:', 'export OPENAI_API_KEY=<your key>   # on the machine running the hub'], restartNote: [2] },
 };
 
 /** A small first task the factory can deliver quickly, with acceptance criteria. */
