@@ -44,7 +44,7 @@ export const commands = defineCommands<RunSessionCommands>({
       };
       // The credential is resolved from the server-side switch and the caller's identity, BEFORE the
       // run is queued or claims the slot: a `user only` run with no saved credential is refused here.
-      const credential = ctx.userCredentials !== undefined ? await ctx.userCredentials.resolveForRun(ctx.user) : undefined;
+      const credential = ctx.userCredentials !== undefined ? await ctx.userCredentials.resolveForRun(ctx.user, validated.provider) : undefined;
       return await ctx.runSession.createRun({ ...validated, startedBy }, {
         onStarted: (id) => log('run-start', id, 'ok'),
         onQueued: (id) => log('run-queue', id, 'ok'),
