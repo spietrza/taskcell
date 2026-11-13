@@ -1,6 +1,7 @@
 // A project's CI factory runs, read from its metrics branch (`taskcell metrics push`; the data
 // `taskcell stats --branch` reads). Cached per repository; never a model call.
 import { readBranchMetrics, METRICS_BRANCH_DEFAULT } from '../core/metrics-branch.js';
+import { httpsUrl } from '../core/links.js';
 import { aggregateMetrics, modelKey, parseJsonlLines, parseMetrics, type Bucket, type MetricRecord } from '../core/stats.js';
 import type { CostBreakdown, CostPeriod, CostRow, RunSummary } from '../wire.js';
 
@@ -11,7 +12,11 @@ export const NO_BRANCH_HINT = 'Run `taskcell metrics push` from your CI workflow
 
 interface CiRecord {
   record: MetricRecord;
-  /** The line carried a numeric `costUsd` (the parsed record reads a missing one as 0). */
+  /**
+   * The line carries a real cost. Taskcell stamps `costUnknown` when the agent reported none (`costUsd`
+   * still reads 0) and `costKind` when it did; an older, unstamped line with `costUsd: 0` reads as
+   * unknown too, since that writer wrote 0 for "no cost reported".
+   */
   costKnown: boolean;
   costKind?: 'estimated' | 'billed';
 }
@@ -28,7 +33,11 @@ function parseCiRecords(text: string): CiRecord[] {
     if (record === undefined) return [];
     return [{
       record,
-      costKnown: typeof line.costUsd === 'number' && Number.isFinite(line.costUsd),
+      costKnown:
+        line.costUnknown !== true &&
+        typeof line.costUsd === 'number' &&
+        Number.isFinite(line.costUsd) &&
+        !(line.costUsd === 0 && line.costKind === undefined),
       ...(line.costKind === 'billed' || line.costKind === 'estimated' ? { costKind: line.costKind } : {}),
     }];
   });
@@ -56,7 +65,8 @@ export function ciRunSummaries(records: ReadonlyArray<CiRecord>): RunSummary[] {
   }
   return [...byTask.entries()].map(([taskId, rs]) => {
     const stamps = rs.flatMap((r) => (r.record.ts !== undefined ? [r.record.ts] : [])).sort();
-    const prUrl = rs.find((r) => r.record.prUrl !== undefined)?.record.prUrl;
+    // Branch data is never trusted to be a link: only an https URL reaches the UI, as for local records.
+    const prUrl = httpsUrl(rs.find((r) => r.record.prUrl !== undefined)?.record.prUrl);
     const known = rs.some((r) => r.costKnown);
     return {
       taskId,

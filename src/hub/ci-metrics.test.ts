@@ -87,6 +87,21 @@ describe('costBreakdown', () => {
     expect(await kind([line({ ts: '2026-11-12T10:01:00.000Z', taskId: 'B', costUsd: 1, costKind: 'billed' })])).toBe('mixed');
   });
 
+  it('reads the stamps Taskcell writes: costUnknown (costUsd 0) is unknown, costKind estimated; an unstamped $0 line is unknown', async () => {
+    await push([
+      line({ ts: '2026-11-12T10:00:00.000Z', taskId: 'A', model: 'gpt-5', costUsd: 0, costUnknown: true }),
+      line({ ts: '2026-11-12T10:01:00.000Z', taskId: 'B', model: 'claude-sonnet-5-5', costUsd: 0.4, costKind: 'estimated' }),
+      line({ ts: '2026-11-12T10:02:00.000Z', taskId: 'C', model: 'gpt-5', costUsd: 0 }),
+    ]);
+    const b = await costBreakdown(repo, 'all', NOW);
+    expect(b).toMatchObject({ costKind: 'estimated', unknownEntries: 2 });
+    expect(b.byModel.find((r) => r.key === 'gpt-5')).toMatchObject({ entries: 2, unknownEntries: 2 });
+    const runs = await withCiRuns(repo, []);
+    expect(runs.find((r) => r.taskId === 'A')?.costUnknown).toBe(true);
+    expect(runs.find((r) => r.taskId === 'C')?.costUnknown).toBe(true);
+    expect(runs.find((r) => r.taskId === 'B')?.costUnknown).toBeUndefined();
+  });
+
   it('only unpriced records: costKind is unknown', async () => {
     await push([line({ ts: '2026-11-12T10:00:00.000Z', taskId: 'A' })]);
     expect((await costBreakdown(repo, 'all', NOW)).costKind).toBe('unknown');
@@ -105,6 +120,15 @@ describe('withCiRuns / projects.aggregate', () => {
     expect(runs.find((r) => r.taskId === 'T-2')?.anyFailed).toBe(true);
     expect(runs.find((r) => r.taskId === 'T-4')?.costUnknown).toBe(true);
     expect(runs.find((r) => r.taskId === 'T-1')?.costUnknown).toBeUndefined();
+  });
+
+  it('drops a prUrl that is not https (the same link gate as local records)', async () => {
+    await push([
+      line({ ts: '2026-11-12T10:00:00.000Z', taskId: 'X', costUsd: 1, prUrl: 'javascript:alert(1)' }),
+      line({ ts: '2026-11-12T10:00:00.000Z', taskId: 'Y', costUsd: 1, prUrl: 'http://github.com/o/r/pull/2' }),
+    ]);
+    const runs = await withCiRuns(repo, []);
+    expect(runs.every((r) => r.prUrl === undefined)).toBe(true);
   });
 
   it('a run present both locally and on the branch is counted once (the local record wins)', async () => {
