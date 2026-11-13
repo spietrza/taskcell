@@ -230,6 +230,14 @@ describe('runVerification', () => {
     expect(tailLines.length).toBeLessThanOrEqual(40);
   });
 
+  it('a passing run takes its tail from stdout so stderr noise cannot hide the summary', async () => {
+    const stderr = Array.from({ length: 50 }, (_, i) => `Warning: act ${i}`).join('\n');
+    const passed = await runVerification(fakeSandbox('Tests 42 passed', stderr, 0), 'cmd');
+    expect(passed.outputTail).toBe('Tests 42 passed');
+    const failed = await runVerification(fakeSandbox('Tests 1 failed', stderr, 1), 'cmd');
+    expect(failed.outputTail).toContain('Warning: act 49');
+  });
+
   it('sha256 is a 64-char hex string', async () => {
     const sandbox = fakeSandbox('hello', 'world', 0);
     const result = await runVerification(sandbox, 'cmd');

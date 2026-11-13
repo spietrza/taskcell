@@ -152,8 +152,10 @@ export async function runVerification(
   const res = await sh(command, { cwd: WORKDIR, ...(signal !== undefined ? { signal } : {}) });
   const output = `${res.stdout}\n${res.stderr}`;
   const sha256 = createHash('sha256').update(output).digest('hex');
-  const outputTail = output.split('\n').slice(-40).join('\n').trimEnd();
   const passed = res.exitCode === 0;
+  // A passing run's summary is on stdout; stderr noise (e.g. React act() warnings) must not push it out of the tail.
+  const tailSource = passed && res.stdout.trim() !== '' ? res.stdout : output;
+  const outputTail = tailSource.split('\n').slice(-40).join('\n').trimEnd();
   const oomAfter = passed ? undefined : await readOomKillCount(sh);
   const oomKilled = oomBefore !== undefined && oomAfter !== undefined ? oomAfter > oomBefore : undefined;
   const result: VerificationResult = {
