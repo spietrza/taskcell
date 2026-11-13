@@ -392,7 +392,7 @@ export class DockerSandboxProvider implements IsolatedSandboxProvider {
     throw new SandboxError(
       `Sandbox image ${image} has claude ${found}, but this repo pins ${SANDBOX_CLAUDE_VERSION}. ` +
         `A stale CLI fails mid-run against a gateway. Fix it with:\n` +
-        `  vanguard doctor --fix\n` +
+        `  taskcell doctor --fix\n` +
         `or rebuild: CLAUDE_CLI_VERSION=${SANDBOX_CLAUDE_VERSION} ./docker/build.sh. ` +
         `Set TASKCELL_SKIP_IMAGE_CHECK=1 to bypass.`,
     );
