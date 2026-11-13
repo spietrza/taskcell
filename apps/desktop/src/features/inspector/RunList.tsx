@@ -28,6 +28,8 @@ export function RunList({
 }) {
   const [query, setQuery] = useState('');
   const [filter, setFilter] = useState<Filter>('all');
+  // Only hub-started runs carry `startedBy`; elsewhere the column would be a column of dashes.
+  const showStartedBy = runs.some((r) => r.startedBy !== undefined);
 
   const shown = useMemo(() => {
     const q = query.trim().toLowerCase();
@@ -98,6 +100,7 @@ export function RunList({
             <Table.Row>
               <Table.Head>Task</Table.Head>
               {showRepo && <Table.Head>Repository</Table.Head>}
+              {showStartedBy && <Table.Head>Started by</Table.Head>}
               <Table.Head>When</Table.Head>
               <Table.Head>Stages</Table.Head>
               <Table.Head className="text-right">Cost</Table.Head>
@@ -114,6 +117,7 @@ export function RunList({
               >
                 <Table.Cell className="font-medium">{a.taskId}</Table.Cell>
                 {showRepo && <Table.Cell><RepoLabel name={a.repoName} /></Table.Cell>}
+                {showStartedBy && <Table.Cell className="text-muted-foreground">—</Table.Cell>}
                 <Table.Cell className="tabular-nums text-muted-foreground">
                   <Timestamp ms={a.lastActivityMs} />
                 </Table.Cell>
@@ -139,6 +143,7 @@ export function RunList({
               >
                 <Table.Cell className="font-medium">{r.taskId}</Table.Cell>
                 {showRepo && <Table.Cell><RepoLabel name={r.repoName} /></Table.Cell>}
+                {showStartedBy && <Table.Cell className="text-muted-foreground">{r.startedBy ?? '—'}</Table.Cell>}
                 <Table.Cell className="tabular-nums text-muted-foreground">
                   <Timestamp ms={Date.parse(r.timestamp)} />
                 </Table.Cell>

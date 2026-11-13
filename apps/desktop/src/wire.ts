@@ -68,6 +68,8 @@ export interface CreateRunParams {
   transport?: string;
   maxTurns?: number;
   baseBranch?: string;
+  /** Hub only: who started the run. Set server-side from the request's actor, never from the client. */
+  startedBy?: string;
 }
 
 /** Result of the sidecar `createRun` method. */
@@ -311,6 +313,8 @@ export interface RunRecord {
   imageDigest?: string;
   /** Why no `.diff` / `.bundle` / transcript sit next to this record (see core run-store.ts). */
   diffOmitted?: 'secret-blocked' | 'secret-scan';
+  /** Hub login (or `token`) that started the run from the hub; absent for CLI/CI runs. */
+  startedBy?: string;
   /** Verdict-bearing stages (reviewer, conformance) only: the merge gate's own reading of this
    *  stage's reply, persisted so the hub and the PR body never re-derive it. */
   verdict?: ReviewVerdict;
@@ -363,6 +367,8 @@ export interface RunSummary {
   anyFailed: boolean;
   prUrl?: string;
   ciUrl?: string;
+  /** Hub login (or `token`) that started the run; absent for runs not started from the hub. */
+  startedBy?: string;
 }
 
 export interface StageDetail {
@@ -427,6 +433,35 @@ export type TeamRole = 'admin' | 'member';
 export interface TeamMember {
   login: string;
   role: TeamRole;
+}
+
+/** What a hub audit line records (src/hub/audit.ts). */
+export type AuditAction =
+  | 'sign-in'
+  | 'project-add'
+  | 'project-remove'
+  | 'clone'
+  | 'run-start'
+  | 'run-queue'
+  | 'run-cancel'
+  | 'task-start'
+  | 'settings-change'
+  | 'needs-reply'
+  | 'needs-merge'
+  | 'task-create'
+  | 'enable-factory';
+export type AuditOutcome = 'ok' | 'refused' | 'failed';
+
+/** One line of `audit.jsonl`. `login` is a GitHub login, or `token` for header access. */
+export interface AuditEntry {
+  time: string;
+  login: string;
+  action: AuditAction;
+  /** Project path, run id or setting name — never a value. */
+  target?: string;
+  outcome: AuditOutcome;
+  /** Names only, e.g. the settings keys a change touched. */
+  detail?: string[];
 }
 
 /** A hub team (src/hub/teams.ts). `repositories` are project paths. */
@@ -757,6 +792,8 @@ export interface Commands {
   list_branches: { args: { repoPath: string }; result: { branches: string[]; default?: string } };
   /** HUB_ONLY, read-only: installed vs latest claude/codex/cursor CLI in the local sandbox image (3-day soak applied; `enabled: false`, and no lookups, when VANGUARD_CLI_VERSION_CHECK is off). Refused on a non-loopback bind without VANGUARD_HUB_ALLOW_ADD. */
   agent_cli_versions: { args: undefined; result: CliVersionReport };
+  /** HUB_ONLY, admin-only (403 otherwise): the audit log newest first, optionally for one login. */
+  read_audit: { args: { login?: string; limit?: number }; result: AuditEntry[] };
 }
 
 /** Every command name, for the hub dispatch parity test and friends. TYPE-CHECKED (not just asserted)
@@ -831,6 +868,7 @@ export const COMMAND_NAMES = [
   'enable_factory_verify',
   'agent_cli_versions',
   'list_branches',
+  'read_audit',
 ] as const satisfies readonly (keyof Commands)[];
 type _Exhaustive = keyof Commands extends (typeof COMMAND_NAMES)[number]
   ? true
