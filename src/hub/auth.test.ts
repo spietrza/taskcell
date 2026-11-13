@@ -3,11 +3,14 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { createServer, type IncomingMessage } from 'node:http';
 import type { AddressInfo } from 'node:net';
+import { DatabaseSync } from 'node:sqlite';
 import { afterEach, beforeEach, describe, expect, test, vi } from 'vitest';
 import { createHubIdentity, localOnlyIdentity, OWNER_EMAIL, parsePublicUrl, parseSignupAllowlist, providersFromEnv, type HubIdentity } from './auth.js';
+import { saveTeams } from './teams.js';
 import { createHubServer, type HubServer } from './server.js';
 import { HUB_SIGN_IN_REQUIRED, HUB_TOKEN_HEADER } from '../hub-wire.js';
 import type { SidecarDeps } from '../sidecar/sidecar.js';
+import { createCredentialService } from './credentials.js';
 
 describe('providersFromEnv', () => {
   test('enables only providers with both id and secret; GitLab takes an issuer', () => {
@@ -114,6 +117,22 @@ describe('server mode', () => {
   }
   const rpc = (headers: Record<string, string>): Promise<Response> => post('/rpc/list_projects', headers);
 
+  test('team_role over HTTP: a session keys on the user id, never the display name; the token is the owner', async () => {
+    await start(['github:octo']);
+    const { cookie } = await signIn();
+    const user = await identity!.sessionUser({ headers: { cookie } } as IncomingMessage);
+    expect(user).toMatchObject({ name: 'Octo Cat' });
+    const role = async (headers: Record<string, string>): Promise<unknown> =>
+      ((await (await post('/rpc/team_role', headers, JSON.stringify({ id: 'default' }))).json()) as { result: unknown }).result;
+    await saveTeams(dir, [
+      { id: 'default', name: 'Default', members: [{ login: user!.id, role: 'member' }, { login: 'Octo Cat', role: 'admin' }], repositories: [] },
+    ]);
+    expect(await role({ cookie })).toBe('member');
+    expect(await role({ [HUB_TOKEN_HEADER]: TOKEN })).toBe('admin');
+    await saveTeams(dir, [{ id: 'default', name: 'Default', members: [{ login: 'Octo Cat', role: 'admin' }], repositories: [] }]);
+    expect(await role({ cookie })).toBeNull();
+  });
+
   test('a login on the allowlist signs in; the session authorises RPC and SSE until sign-out', async () => {
     await start(['github:octo']);
     const { callback, cookie } = await signIn();
@@ -180,6 +199,30 @@ describe('server mode', () => {
     const events = await post('/events/session', { [HUB_TOKEN_HEADER]: TOKEN });
     expect(events.headers.get('set-cookie')).toContain('HttpOnly');
     expect((await post('/events/session', { [HUB_TOKEN_HEADER]: 'wrong' })).status).toBe(401);
+  });
+
+  test('the admin login comes from the GitHub account row, not the user-writable providerLogin', async () => {
+    await start(['github:octo']);
+    const { cookie } = await signIn();
+    const req = { headers: { cookie } } as IncomingMessage;
+    const admins = createCredentialService(dir, ['root', 'octo']);
+    expect(await identity!.sessionUser(req)).toMatchObject({ login: 'github:Octo' });
+    // A row poisoned through `/update-user` before it was disabled: providerLogin claims the operator.
+    const db = new DatabaseSync(join(dir, 'auth.sqlite'));
+    try {
+      db.prepare("UPDATE user SET providerLogin = 'github:root'").run();
+      const poisoned = await identity!.sessionUser(req);
+      expect(poisoned?.login).toBe('github:Octo');
+      expect(createCredentialService(dir, ['root']).isAdmin(poisoned)).toBe(false);
+      expect(admins.isAdmin(poisoned)).toBe(true);
+      // No verified login recorded for the account's GitHub id (signed in before the upgrade): no login, no admin.
+      db.exec('DELETE FROM hub_github_login');
+      const unverified = await identity!.sessionUser(req);
+      expect(unverified?.login).toBeUndefined();
+      expect(admins.isAdmin(unverified)).toBe(false);
+    } finally {
+      db.close();
+    }
   });
 
   test('the auth db is private to the operator', async () => {

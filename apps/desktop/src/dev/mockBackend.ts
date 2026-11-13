@@ -41,11 +41,19 @@ const READ_DRAFT = JSON.stringify({ id: 'draft-001', title: 'Draft task', body: 
  */
 const mockStamp = (): { repoPath: string; repoName: string } => ({ repoPath: projects[0]!.path, repoName: projects[0]!.name });
 
+const mockTeam = { id: 'default', name: 'Default', members: [{ login: 'you', role: 'admin' as const }], repositories: [] as string[] };
+
 const commandHandlers = {
   list_runs: () => runs,
   list_runs_all: () => ({ runs: runs.map((r) => ({ ...r, ...mockStamp() })), failures: [] }),
   read_run: () => runDetail,
   list_projects: () => projects,
+  list_teams: () => [{ ...mockTeam, repositories: projects.map((p) => p.path) }],
+  team_role: () => 'admin' as const,
+  add_team_member: () => mockTeam,
+  remove_team_member: () => mockTeam,
+  add_team_repository: () => mockTeam,
+  remove_team_repository: () => mockTeam,
   add_project: (args: { path?: string } | undefined) => {
     const { path = '/dev/null' } = args ?? {};
     return [
@@ -141,6 +149,15 @@ const commandHandlers = {
   enable_factory_apply: () => factoryApplyResult,
   enable_factory_secret: () => factorySecret,
   enable_factory_verify: () => factoryVerify,
+  // Hub-only per-user credentials (CredentialsPanel): the dev mock is a signed-in admin with none saved.
+  user_credentials_status: () => ({ enabled: true, admin: true, names: [] as string[] }),
+  save_user_credential: () => undefined,
+  delete_user_credential: () => undefined,
+  get_credential_policy: () => ({ policy: 'off' as const }),
+  set_credential_policy: () => undefined,
+  instance_credentials_status: () => ({ names: [] as string[] }),
+  save_instance_credential: () => undefined,
+  delete_instance_credential: () => undefined,
 } satisfies Partial<{
   [K in keyof Commands]: (args: Commands[K]['args']) => Promise<Commands[K]['result']> | Commands[K]['result'];
 }>;

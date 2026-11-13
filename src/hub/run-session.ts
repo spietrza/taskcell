@@ -9,6 +9,7 @@ import type { AuditActor } from '../core/audit.js';
 import { auditActorOf } from './audit.js';
 import { RunEventLog } from './run-events.js';
 import type { SidecarDeps, CreateRunParams, CreateRunResult } from '../sidecar/sidecar.js';
+import type { RunCredential } from '../wire.js';
 
 /**
  * Single-in-flight only, for now. Documents the gate rather than driving it: the session holds one
@@ -29,6 +30,7 @@ export const DEFAULT_MAX_QUEUE = 10;
 interface QueuedRun {
   runId: string;
   params: CreateRunParams;
+  credential?: RunCredential;
   resolve: (result: CreateRunResult) => void;
   reject: (error: unknown) => void;
   hooks?: RunHooks;
@@ -55,8 +57,9 @@ export interface RunHooks {
 export interface RunSession {
   /** `hooks` report the run's admission, each at most once, before it ends: `onStarted` once a run that
    * did not queue passes the start-time check, `onQueued` when it waits, `onRefused` when that check
-   * (the allowlist re-check) refuses it — including a queued run's, once promoted. */
-  createRun(params: CreateRunParams, hooks?: RunHooks): Promise<CreateRunResult>;
+   * (the allowlist re-check) refuses it — including a queued run's, once promoted. `credential` (hub
+   * per-user credentials) is server-resolved and handed to `deps.createRun`. */
+  createRun(params: CreateRunParams, hooks?: RunHooks, credential?: RunCredential): Promise<CreateRunResult>;
   activeRun(): { runId: string; repoPath: string } | null;
   /** Runs waiting behind the active one, in start order — `position` is 1-based (1 = next to run). */
   queued(): { runId: string; repoPath: string; position: number }[];
@@ -204,7 +207,7 @@ export function createRunSession(
    * call has already returned the entry's runId to its caller. Starts the next queued entry, if
    * any, once this slot frees up. */
   async function execute(entry: QueuedRun): Promise<void> {
-    const { runId, params, resolve, reject } = entry;
+    const { runId, params, credential, resolve, reject } = entry;
     const repoPath = params.repoPath;
     active = { runId, repoPath }; // hold the slot across the start-time check below
 
@@ -227,8 +230,8 @@ export function createRunSession(
       // bufferPush, and the only event a strip re-attach may adopt from.
       buffer.delete(runId);
       eventLog = { runId, log: new RunEventLog(repoPath, undefined, undefined, { actor: actorFor(params.startedBy), subject: { repo: repoPath, runId } }) };
-      emit(runId, { type: 'run-accepted', repoPath });
-      result = await deps.createRun(params, (e) => emit(runId, e));
+      emit(runId, { type: 'run-accepted', repoPath, ...(credential !== undefined ? { credentialSource: credential.source } : {}) });
+      result = await deps.createRun(params, (e) => emit(runId, e), credential);
     } catch (error) {
       errMessage = error instanceof Error ? error.message : String(error);
     }
@@ -298,7 +301,7 @@ export function createRunSession(
       if (active !== null) cancelledRunId = active.runId;
       cancelCurrent();
     },
-    async createRun(params, hooks): Promise<CreateRunResult> {
+    async createRun(params, hooks, credential): Promise<CreateRunResult> {
       // repoPath is required BEFORE minting a runId, so `run-accepted`'s payload is always a string
       // and a rejected call never burns an id.
       const repoPath = params.repoPath;
@@ -322,7 +325,7 @@ export function createRunSession(
       counter += 1;
       saveCounter(counterFile, counter);
       return new Promise<CreateRunResult>((resolve, reject) => {
-        const entry: QueuedRun = { runId, params, resolve, reject, ...(hooks !== undefined ? { hooks } : {}) };
+        const entry: QueuedRun = { runId, params, ...(credential !== undefined ? { credential } : {}), resolve, reject, ...(hooks !== undefined ? { hooks } : {}) };
         if (active === null) {
           void execute(entry);
           return;

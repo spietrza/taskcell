@@ -8,6 +8,10 @@ import { assertStatePath, ensureStateDir, stateDir } from '../core/state-path.js
  * git-ignored by default, so a run in CI sees `baseBranch` only if the repo commits `.taskcell/app.json`. */
 export interface AppConfig {
   source?: string;
+  /** Per-project task source: github | github-project | gitlab | linear | hub. Unset = github. */
+  taskSource?: string;
+  /** Per-project run location: github-actions | gitlab-ci | watch | local. Unset = github-actions. */
+  runLocation?: string;
   label?: string;
   /** Linear team key (e.g. `DEV`) — selects which team's issues the board lists. Linear-only;
    * GitHub/GitLab scope by repo + `label`. */

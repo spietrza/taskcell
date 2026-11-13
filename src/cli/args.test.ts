@@ -1699,6 +1699,11 @@ describe('parseCli hub', () => {
       .toMatchObject({ kind: 'hub', allowedHosts: ['hub.example', 'other.example:8080'] });
   });
 
+  it('preserves repeated admin GitHub logins', () => {
+    expect(parseCli(['hub', '--admin-github-login', 'alice', '--admin-github-login', 'bob'], '/repo'))
+      .toMatchObject({ kind: 'hub', adminGithubLogins: ['alice', 'bob'] });
+  });
+
   const originalHost = process.env.VANGUARD_HUB_HOST;
   const originalPort = process.env.VANGUARD_HUB_PORT;
 

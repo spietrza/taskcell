@@ -2,10 +2,12 @@ import { useRef, useState, type ReactNode } from 'react';
 import { Button, Input } from '@/ui';
 import { isHubMode } from '../../transport';
 import { Credentials } from './Credentials';
+import { Members, type TeamScreen } from './Members';
 import { writeAppConfig } from '../../ipc';
 import { useAppConfig } from '../../hooks';
 import { useDiscardGuard } from '../../navGuard';
-import { SOURCES } from '../../sources';
+import { CredentialsPanel } from './CredentialsPanel';
+import { combinationNote, legacySource, resolveTaskSource, RUN_LOCATIONS, runLocationOf, TASK_SOURCES, taskSourceOf } from '../../platform';
 import { projectColor } from '../../color';
 import { customProviderRowError, customProviderRows, PROVIDERS } from './customProviders';
 import type { AppConfig } from '../../taskcell-output';
@@ -22,6 +24,8 @@ function Field({ label, hint, children }: { label: string; hint?: string; childr
     </label>
   );
 }
+
+const SELECT_CLASS = 'h-9 w-full rounded border border-border bg-background px-2 text-sm';
 
 function Select({
   value,
@@ -40,7 +44,7 @@ function Select({
     <select
       value={value}
       onChange={(e) => onChange(e.target.value)}
-      className="h-9 w-full rounded border border-border bg-background px-2 text-sm"
+      className={SELECT_CLASS}
     >
       <option value="">—</option>
       {dangling && (
@@ -55,7 +59,7 @@ function Select({
   );
 }
 
-export function Settings({ project }: { project: string }) {
+export function Settings({ project, teamScreen }: { project: string; teamScreen?: TeamScreen }) {
   // Inspector is keyed by project, so this component remounts on project switch —
   // config loads once and `dirty`/`saved` start clean without a reset effect.
   const [cfg, setCfg, cfgStatus] = useAppConfig(project);
@@ -102,6 +106,10 @@ export function Settings({ project }: { project: string }) {
     setSaved(true);
   };
 
+  // Unset stays unset ("—"): the board needs an explicit source, so Settings must not display a default it never saves.
+  const taskSource = resolveTaskSource(cfg);
+  const note = combinationNote(taskSource, cfg.runLocation);
+
   return (
     <div className="mx-auto max-w-2xl space-y-5">
       <div className="flex items-center gap-3">
@@ -111,6 +119,8 @@ export function Settings({ project }: { project: string }) {
           {saved ? 'Saved' : 'Save'}
         </Button>
       </div>
+
+      {isHubMode() && teamScreen && <Members {...teamScreen} />}
 
       {isHubMode() && <Credentials />}
 
@@ -157,9 +167,45 @@ export function Settings({ project }: { project: string }) {
           </div>
         </div>
         <div className="grid grid-cols-2 gap-4">
-          <Field label="Task Source">
-            <Select value={cfg.source ?? ''} onChange={(v) => set('source', v || undefined)} options={SOURCES} />
+          <Field label="Task source">
+            <select
+              value={taskSource ?? ''}
+              onChange={(e) => {
+                const v = e.target.value === '' ? undefined : taskSourceOf(e.target.value);
+                set('taskSource', v);
+                // `source` keeps feeding the board/transport/CLI; sources it does not read clear it.
+                set('source', v && legacySource(v));
+              }}
+              className={SELECT_CLASS}
+            >
+              <option value="">—</option>
+              {TASK_SOURCES.map((s) => (
+                <option key={s.id} value={s.id}>
+                  {s.label}
+                </option>
+              ))}
+            </select>
           </Field>
+          <Field label="Runs on">
+            <select
+              value={runLocationOf(cfg.runLocation)}
+              onChange={(e) => set('runLocation', runLocationOf(e.target.value))}
+              className={SELECT_CLASS}
+            >
+              {RUN_LOCATIONS.map((r) => (
+                <option key={r.id} value={r.id}>
+                  {r.label}
+                </option>
+              ))}
+            </select>
+          </Field>
+        </div>
+        {note && (
+          <p role="note" className="text-xs text-muted-foreground">
+            {note}
+          </p>
+        )}
+        <div className="grid grid-cols-2 gap-4">
           <Field label="Label filter">
             <Input
               value={cfg.label ?? ''}
@@ -169,7 +215,7 @@ export function Settings({ project }: { project: string }) {
             />
           </Field>
         </div>
-        {cfg.source === 'linear' && (
+        {taskSource === 'linear' && (
           <Field label="Linear team key" hint="— selects the board's team (e.g. DEV)">
             <Input
               value={cfg.team ?? ''}
@@ -329,6 +375,7 @@ export function Settings({ project }: { project: string }) {
         </div>
       </div>
       )}
+      {isHubMode() && <CredentialsPanel />}
     </div>
   );
 }

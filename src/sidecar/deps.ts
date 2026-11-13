@@ -12,6 +12,9 @@ import {
   assertEgressCompatible,
   llmProxySupported,
   subscriptionCredentialProvider,
+  claudeCliKeyEnv,
+  providerKeyEnvNames,
+  usedProviderNames,
 } from '../agents/registry.js';
 import { createGithubIssue, createGitlabIssue, createLinearIssue } from '../tasks/create.js';
 import { beginRun, endRun } from './cancel.js';
@@ -21,6 +24,8 @@ import { gitlabDepsFromEnv, runGitlabIssue } from '../runners/gitlab.js';
 import { runLinearIssue } from '../runners/linear.js';
 import { agentAuthFromEnv } from '../agents/auth.js';
 import { BadRequestError } from './sidecar.js';
+import { CREDENTIAL_NAMES } from '../hub/credentials.js';
+import { codexAuthSecretValues, forgetInjectedSecretValue, registerInjectedSecretValue } from '../core/secret-scan.js';
 import { AgentError } from '../core/errors.js';
 import type { ProviderChoice } from '../agents/registry.js';
 import type { SandboxContext } from '../sandbox/sandbox-context.js';
@@ -28,6 +33,36 @@ import type { AgentAuth } from '../agents/auth.js';
 import type { RunLinearIssueDeps } from '../runners/linear.js';
 import type { RunEvent } from '../pipeline/events.js';
 import type { SidecarDeps, CreateRunParams, CreateRunResult } from './sidecar.js';
+import type { RunCredential } from '../wire.js';
+
+/**
+ * The env a hub run reads its provider keys from. A `user` credential replaces every host provider
+ * credential — the storable names AND every key env the run's providers read (a repo custom's
+ * `keyEnv`, meridian's `MERIDIAN_BASE_URL`) — so a run funded by the starter never silently falls
+ * back to the instance's; a provider whose key the user has not saved (or cannot save) is refused.
+ * An `instance` one overlays the host env; no credential (desktop) is the host env as before.
+ */
+export function credentialEnv(credential: RunCredential | undefined, choice: ProviderChoice): NodeJS.ProcessEnv {
+  if (credential === undefined) return process.env;
+  const env: NodeJS.ProcessEnv = { ...process.env };
+  if (credential.source === 'user') {
+    for (const name of [...CREDENTIAL_NAMES, ...providerKeyEnvNames(choice)]) delete env[name];
+    for (const name of usedProviderNames(choice)) {
+      const keyEnvs = claudeCliKeyEnv(name, choice.customProviders);
+      if (keyEnvs !== undefined && !keyEnvs.some((k) => credential.env[k] !== undefined)) {
+        throw new BadRequestError(`provider "${name}" cannot run on your own credentials: save ${keyEnvs.join(' or ')} in Settings → Credentials, or pick another provider`);
+      }
+    }
+  }
+  return Object.assign(env, credential.env);
+}
+
+/** A run credential's values to register for redaction, including the individual tokens inside a
+ * `CODEX_AUTH_JSON` (an agent can copy one out of auth.json). */
+export function credentialSecretValues(credential: RunCredential | undefined): string[] {
+  const env = credential?.env ?? {};
+  return [...new Set([...Object.values(env), ...(env.CODEX_AUTH_JSON !== undefined ? codexAuthSecretValues(env.CODEX_AUTH_JSON) : [])])];
+}
 
 /**
  * Resolve the run's provider choice against the target repo's customs (S6): load, validate the
@@ -187,7 +222,7 @@ export function productionDeps(): SidecarDeps {
     // the proof fallback and the skip-not-abort listing are shared instead of re-derived in Rust.
     listRuns: ({ repoPath }) => listRunSummaries(runsRoot(repoPath)),
     readRun: ({ repoPath, taskId, timestamp }) => readRunDetail(runsRoot(repoPath), taskId, timestamp),
-    createRun: async (params: CreateRunParams, onEvent: (e: RunEvent) => void): Promise<CreateRunResult> => {
+    createRun: async (params: CreateRunParams, onEvent: (e: RunEvent) => void, credential?: RunCredential): Promise<CreateRunResult> => {
       // FIRST statements, before beginRun() and the sandbox: an unresolvable flow (typo, broken or
       // duplicate .hcl) or provider (unknown name, broken customs entry, http custom on this
       // always-egress path) must cost nothing and classify bad-request — and must not leave an
@@ -195,6 +230,9 @@ export function productionDeps(): SidecarDeps {
       // checks: no lowering, no ref import — repo TS must not execute on the untimed run pipe (S5 D6).
       if (params.flow !== undefined) await assertFlowResolvable(params.flow, params.repoPath);
       const choice = await resolveRunChoice(params);
+      // A hub run reads every provider key from its resolved credential env. A `user` run must never
+      // fall back to the host's provider credentials, so those are dropped before its own overlay.
+      const authEnv = credentialEnv(credential, choice);
       const transport = params.transport ?? 'github';
       const provider = params.provider;
       const customProviders = choice.customProviders;
@@ -205,7 +243,7 @@ export function productionDeps(): SidecarDeps {
       // without the wrap it is the ONE dispatch-time failure that classified `internal`.
       let auth: AgentAuth | undefined;
       try {
-        auth = agentAuthFromEnv(choice);
+        auth = agentAuthFromEnv(choice, authEnv);
       } catch (error) {
         throw new BadRequestError(error instanceof Error ? error.message : String(error));
       }
@@ -225,7 +263,7 @@ export function productionDeps(): SidecarDeps {
       // still cannot route to a sidecar lands in the sandbox verbatim — e.g. llmProxy off, or a
       // non-chatgpt-shaped auth.json even with it on. A ChatGPT-plan credential under an active proxy
       // is fronted by its own chatgpt sidecar instead, so it no longer shows up here.
-      const subscriptionProvider = subscriptionCredentialProvider(choice, process.env, { proxyMode: llmProxy });
+      const subscriptionProvider = subscriptionCredentialProvider(choice, authEnv, { proxyMode: llmProxy });
       const signal = beginRun();
       let ctx: SandboxContext;
       try {
@@ -249,6 +287,10 @@ export function productionDeps(): SidecarDeps {
       if (exposed !== undefined) {
         onEvent({ type: 'warning', message: `${exposed} to the agent inside the sandbox for this run.` });
       }
+      // The credential values live in no host env var, so register them for the run: the outgoing-diff
+      // gate and every redaction pass (PR body, comments, run record) then treat them like any injected secret.
+      const runSecrets = credentialSecretValues(credential);
+      for (const v of runSecrets) registerInjectedSecretValue(v);
       try {
         // The RunOptions the sidecar exposes + the sandbox wiring + the event seam, shared across transports.
         const common = {
@@ -263,6 +305,7 @@ export function productionDeps(): SidecarDeps {
           // resolves it via FLOWS[flow].build() (Subsystem 2). Any registered FLOWS entry works with
           // no per-flow wiring here; validation happened in sidecar.ts::validateCreateRun.
           ...(params.flow !== undefined ? { flow: params.flow } : {}),
+          ...(credential !== undefined ? { credentialSource: credential.source, providerEnv: authEnv } : {}),
           ...(ctx.proxyUrl !== undefined ? { proxyUrl: ctx.proxyUrl } : {}),
           ...(ctx.network !== undefined ? { network: ctx.network } : {}),
           ...(ctx.llmProxy !== undefined ? { llmProxy: ctx.llmProxy } : {}),
@@ -272,16 +315,17 @@ export function productionDeps(): SidecarDeps {
           ...(customProviders !== undefined ? { customProviders } : {}),
         };
         if (transport === 'gitlab') {
-          const deps = await gitlabDepsFromEnv(repoPath, undefined, authChoice);
+          const deps = await gitlabDepsFromEnv(repoPath, undefined, authChoice, authEnv);
           return await runGitlabIssue(params.issueRef, { ...deps, ...common });
         }
         if (transport === 'linear') {
           return await runLinearIssue(params.issueRef, { ...common, ...linearExtras(repoPath, auth) });
         }
-        const deps = await githubDepsFromEnv(repoPath, undefined, authChoice);
+        const deps = await githubDepsFromEnv(repoPath, undefined, authChoice, authEnv);
         return await runGithubIssue(params.issueRef, { ...deps, ...common });
       } finally {
         await ctx.destroy();
+        for (const v of runSecrets) forgetInjectedSecretValue(v);
         endRun();
       }
     },

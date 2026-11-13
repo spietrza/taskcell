@@ -98,6 +98,11 @@ export async function hubCommand(command: Extract<Command, { kind: 'hub' }>): Pr
   ];
   assertPlainHosts(allowedHosts);
 
+  const adminGithubLogins = [
+    ...trimHosts(command.adminGithubLogins ?? []),
+    ...parseHostList(process.env.VANGUARD_HUB_ADMIN_GITHUB_LOGINS),
+  ];
+
   const isLoopback = LOOPBACK_HOSTS.includes(command.host);
   // Server mode = sign-in required: any non-loopback bind, or a loopback bind behind a same-host
   // reverse proxy that sets VANGUARD_HUB_SERVER_MODE=1. Only a plain loopback bind is local mode.
@@ -137,13 +142,12 @@ export async function hubCommand(command: Extract<Command, { kind: 'hub' }>): Pr
   // Sign-in (server mode); local mode is the automatic owner with no database and no OAuth.
   const hostForUrl = command.host.includes(':') ? `[${command.host}]` : command.host;
   const signupEntries = parseHostList(process.env.VANGUARD_HUB_SIGNUP_ALLOW);
-  const publicUrl = process.env.VANGUARD_HUB_PUBLIC_URL;
-  const providers = providersFromEnv(process.env);
+  const publicUrl = process.env.VANGUARD_HUB_PUBLIC_URL?.trim() || undefined;
   const identity = serverMode
     ? await createHubIdentity({
         configDir,
-        baseURL: publicUrl !== undefined && publicUrl.trim() !== '' ? parsePublicUrl(publicUrl.trim()) : `http://${hostForUrl}:${command.port}`,
-        providers,
+        baseURL: publicUrl !== undefined ? parsePublicUrl(publicUrl) : `http://${hostForUrl}:${command.port}`,
+        providers: providersFromEnv(process.env),
         allowlist: parseSignupAllowlist(signupEntries),
       })
     : localOnlyIdentity();
@@ -152,6 +156,7 @@ export async function hubCommand(command: Extract<Command, { kind: 'hub' }>): Pr
     identity,
     uiDir,
     allowedHosts,
+    adminGithubLogins,
     fleet,
     configDir,
     browseRoot: process.env.VANGUARD_HUB_BROWSE_ROOT ?? homedir(),
@@ -221,7 +226,7 @@ export async function hubCommand(command: Extract<Command, { kind: 'hub' }>): Pr
 
   if (serverMode) {
     if (identity.providers.length === 0) console.error(NO_PROVIDER_WARNING);
-    else if (publicUrl === undefined || publicUrl.trim() === '') console.error(NO_PUBLIC_URL_WARNING);
+    else if (publicUrl === undefined) console.error(NO_PUBLIC_URL_WARNING);
     if (signupEntries.length === 0) console.error(NO_ALLOWLIST_WARNING);
   }
 
