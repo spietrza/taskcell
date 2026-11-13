@@ -28,6 +28,8 @@ import { mergeBaseIntoWorktree, filesWithConflictMarkers, formatConflictFiles } 
 import type { RunContext } from '../core/taskcell.js';
 import { VANGUARD_BRANCH_PREFIX } from '../worktree/manager.js';
 import { baseBranchOrDefault } from '../core/base-branch.js';
+import { loadLessonsForTask } from '../core/lessons.js';
+import { changedFilesOf } from './re-review.js';
 import { literalPrompt } from '../context/prompt-engine.js';
 import { skillRegistryForRun } from '../context/skill-registry.js';
 import { resolveVerifyCommand, runVerification, renderVerificationFeedback } from '../pipeline/verify.js';
@@ -507,7 +509,7 @@ export async function runRevisePullRequest(prRef: string, deps: ReviseGithubPrDe
     // One RunWriter for the whole revision round, shared by the (mutually exclusive) writeStages
     // calls below, for consistency with runSourcedIssue's writer.
     const writer = beginRun(deps.repoPath, taskId, undefined, { secretEnvVars: providerKeyEnvNames(deps) });
-    const revisionStageMeta = { flow: 'revise', provider: agents.agent.name };
+    const revisionStageMeta: { flow: string; provider: string; lessonIds?: string[] } = { flow: 'revise', provider: agents.agent.name };
     let outcomes: StageOutcome[] = [];
     // For paths where the secret scan never ran: keep the cost trace, keep the diff off disk.
     const writeStagesWithoutDiff = (): Promise<void> => writer.writeStages(outcomes, { ...revisionStageMeta, omitDiff: true });
@@ -635,12 +637,15 @@ export async function runRevisePullRequest(prRef: string, deps: ReviseGithubPrDe
       // Override the implementer's promptTemplate with the revision prompt. It holds review comments and
       // the diff, so it goes in as a variable and is never expanded as a template (see literalPrompt).
       const checklist = buildRevisionChecklist(fb, actionable, deps.botLogins);
-      const { promptTemplate, variables } = literalPrompt(buildRevisionPrompt(pr, actionable, mergedBase, checklist));
+      // Lessons for the files the PR actually changes (the diff is known here), recorded on the run.
+      const lessons = await loadLessonsForTask(deps.repoPath, '', { files: changedFilesOf(pr.diff) });
+      const { promptTemplate, variables } = literalPrompt(buildRevisionPrompt(pr, actionable, mergedBase, checklist, lessons.text));
       pipeline = pipeline.map((stage) =>
         stage.name === STAGE.IMPLEMENTER ? { ...stage, promptTemplate } : stage,
       );
 
       log(`revise-pr ${target.repoSlug}#${target.number}: agent -> implementing`);
+      if (lessons.ids.length > 0) revisionStageMeta.lessonIds = lessons.ids;
       outcomes = await runStages(ctx, pipeline, { agent: agents.agent, variables });
       const stillConflicted = await filesWithConflictMarkers(ctx.worktreePath, conflicted);
       if (stillConflicted.length > 0) {

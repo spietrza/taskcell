@@ -254,6 +254,7 @@ export function buildRevisionPrompt(
   actionable: FeedbackItem[],
   merge?: BaseResolution,
   checklist: readonly string[] = [],
+  lessons = '',
 ): string {
   const feedbackSection =
     actionable.length === 0
@@ -295,6 +296,7 @@ export function buildRevisionPrompt(
     neutralizePromptTags(feedbackSection),
     '</review_feedback>',
     '',
+    ...(lessons !== '' ? ['<lessons>', neutralizePromptTags(lessons), '</lessons>', '']  : []),
     ...(checklist.length > 0
       ? ['<blocking_checklist>', neutralizePromptTags(checklist.map((text, i) => `${i + 1}. ${text}`).join('\n')), '</blocking_checklist>', '']
       : []),

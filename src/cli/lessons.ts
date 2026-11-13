@@ -1,4 +1,4 @@
-import { appendLessonRecords, readLessons } from '../core/lessons.js';
+import { appendLessonRecords, countLessonRuns, readLessons } from '../core/lessons.js';
 import { defaultGhRunner } from '../tasks/github.js';
 import type { GhRunner } from '../tasks/github.js';
 import { distilLessons, fetchPrHistory, hasSomethingToLearn, renderLessonComment } from '../runners/pr-lesson.js';
@@ -44,12 +44,13 @@ export async function lessonsCommand(cmd: LessonsCommand, deps: LessonsDeps = {}
   const branchOpt = cmd.branch !== undefined ? { branch: cmd.branch } : {};
   if (cmd.action === 'list') {
     const lessons = await readLessons(cmd.repoPath, branchOpt);
+    const received = await countLessonRuns(cmd.repoPath);
     if (cmd.json) {
-      console.log(JSON.stringify(lessons, null, 2));
+      console.log(JSON.stringify(lessons.map((l) => ({ ...l, runs: received.get(l.id) ?? 0 })), null, 2));
       return;
     }
     if (lessons.length === 0) console.log('No lessons yet.');
-    for (const l of lessons) console.log(`${l.id}  #${l.prNumber}  ${l.rule}${l.paths.length > 0 ? `  [${l.paths.join(', ')}]` : ''}`);
+    for (const l of lessons) console.log(`${l.id}  #${l.prNumber}  ${received.get(l.id) ?? 0} run(s)  ${l.rule}${l.paths.length > 0 ? `  [${l.paths.join(', ')}]` : ''}`);
     return;
   }
   if (cmd.action === 'dismiss') {

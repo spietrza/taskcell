@@ -331,6 +331,8 @@ export interface RunRecord {
   baseBranch?: string;
   /** Agent calls folded into this stage (auto-resumes and gate repairs); absent when the stage ran once. */
   attempts?: number;
+  /** Ids of the lessons injected into this run's prompts (`taskcell lessons list` counts them). */
+  lessonIds?: string[];
 }
 
 export interface Proof {
