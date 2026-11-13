@@ -108,6 +108,11 @@ export function readAudit(login?: string): Promise<AuditEntry[]> {
   return call('read_audit', { login });
 }
 
+/** Hub-only: one issue's history over the audit streams, run records and Git host events. */
+export function readIssueHistory(repoPath: string, issue: number): Promise<Commands['read_issue_history']['result']> {
+  return call('read_issue_history', { repoPath, issue });
+}
+
 export function removeProject(path: string): Promise<Project[]> {
   return call('remove_project', { path });
 }

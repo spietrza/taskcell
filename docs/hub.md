@@ -490,6 +490,17 @@ Apply and verify change the remote, so they are gated like `clone_project`: loop
 
 Every state-changing action appends one JSON line to `<config dir>/audit.jsonl` (time, login or `token`, action, target, outcome `ok`/`refused`/`failed`): sign-in, project add/remove, clone, run start/queue/cancel, task start, settings changes. Targets and detail are names only — never a credential value, token, cookie or URL userinfo/query. Each line is chained (sha256 of the previous record) and carries an actor and subject; the file rotates at 10 MB and rotated files are pruned after 90 days (at most 50 kept); `taskcell audit verify` checks the chain (see [audit.md](audit.md)). A line that cannot be written is reported to the caller instead of being dropped. Runs started from the hub carry `startedBy` in their records (shown in the Runs table). Admins read the log in the Audit view (`read_audit`); non-admins get 403. The owner (header token, or local mode) acts as the shared `token` admin identity; any other signed-in user is logged under their e-mail and is not an admin until roles land (`actorFor` in `createHubServer` overrides this).
 
+## Issue history
+
+The card's full page (the task detail) has a **History** section below the run history: every record of the
+issue, oldest to newest, each with time, actor (person or `taskcell[bot]`), what happened and a link to its
+source (run record, PR comment, audit line). At 390 px it is the same section in the bottom drawer's full
+page, with no extra navigation. The card has no tabs. It is read by the `read_issue_history` command, a read
+model over the audit streams, run records and the Git host (docs/audit.md § Issue history); the hub's own
+audit lines are included for an admin only. A banner names any chain that did not verify, and entries from
+sources without a chain are marked "no chain". The desktop app has no separate quick view yet, so there is no
+"History" link to add there.
+
 ## `gh` auth
 
 The hub shells out to `gh` for the Remote section (Settings → Runners) (listing GitHub Actions runs), CI-run import and

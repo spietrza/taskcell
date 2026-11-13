@@ -134,6 +134,7 @@ const commandHandlers = {
   read_audit: () => [
     { time: '2026-07-06T19:12:02.123Z', login: 'token', action: 'run-start', target: 'run-0', outcome: 'ok' },
   ],
+  read_issue_history: () => ({ repo: 'acme/app', issue: 1, prs: [], entries: [], chains: [], unavailable: [] }),
   list_needs_you: () => ({ items: waitingNeedsYou }),
   list_needs_you_all: () => ({ items: waitingNeedsYou.map((i) => ({ ...i, ...mockStamp() })), failures: [] }),
   // A reply hands the item back to the factory (issue: trigger label; PR: `needs revision`), so it

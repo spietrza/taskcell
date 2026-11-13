@@ -28,7 +28,7 @@ export function parsePrUrl(url: string): { repoSlug: string; number: number } | 
 
 /** One issue/PR's timeline, every page (`--paginate --slurp` keeps pages in one JSON array). PRs are
  * issues in this endpoint, so the same call fetches a PR's own timeline (labeled/unlabeled/merged…). */
-async function fetchTimeline(repoSlug: string, number: number, gh: GhRunner): Promise<TimelineEvent[]> {
+export async function fetchTimeline(repoSlug: string, number: number, gh: GhRunner): Promise<TimelineEvent[]> {
   const pages = JSON.parse(
     await gh(['api', '--paginate', '--slurp', `repos/${repoSlug}/issues/${number}/timeline`]),
   ) as TimelineEvent[][];

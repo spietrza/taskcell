@@ -3,6 +3,7 @@ import { verdictColor, verdictWord } from '../../status';
 import { ArrowLeft, Play } from 'lucide-react';
 import type { RunSummary } from '../../taskcell-output';
 import { SpecPane } from '../inspector/SpecPane';
+import { IssueHistory } from './IssueHistory';
 import { taskRefKey } from './taskref';
 
 export function TaskDetail({
@@ -78,6 +79,8 @@ export function TaskDetail({
           </div>
         </div>
       </div>
+
+      <IssueHistory project={project} taskId={taskId} />
     </div>
   );
 }
