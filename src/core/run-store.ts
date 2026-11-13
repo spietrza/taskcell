@@ -4,7 +4,7 @@
 // `list_runs`/`read_run` over the sidecar query pipe the way `list_tasks` already does.
 import { createHash } from 'node:crypto';
 import { constants } from 'node:fs';
-import { writeFile, appendFile, unlink, readdir, lstat, open, stat } from 'node:fs/promises';
+import { writeFile, unlink, readdir, lstat, open, stat } from 'node:fs/promises';
 import { join } from 'node:path';
 import { execa } from 'execa';
 import { hostGitArgs } from '../worktree/host-git.js';
@@ -12,6 +12,7 @@ import { BadRequestError } from '../sidecar/sidecar.js';
 import type { RunResult } from './types.js';
 import { stageMetric } from './run-metric.js';
 import { exportRunTrace } from './otlp-sink.js';
+import { appendAudit, defaultActor, localAdapter, STREAMS } from './audit.js';
 import { assertStatePath, ensureStateDir, isSafeTaskId, stateDir } from './state-path.js';
 import { injectedSecretValues, redactForPublish, scanForInjectedSecrets, scanForSecrets, withRegisteredSecretValues } from './secret-scan.js';
 import { redactVerificationOutput } from '../pipeline/verify.js';
@@ -205,6 +206,7 @@ async function parseRunSummaries(root: string): Promise<RunSummary[]> {
       const anyFailed = records.some((r) => !r.completed);
       const prUrl = httpsUrl(records.find((r) => r.prUrl !== undefined)?.prUrl);
       const ciUrl = httpsUrl(records.find((r) => r.ciUrl !== undefined)?.ciUrl);
+      const startedBy = records.find((r) => r.startedBy !== undefined)?.startedBy;
       summaries.push({
         taskId: first.taskId,
         timestamp,
@@ -213,6 +215,7 @@ async function parseRunSummaries(root: string): Promise<RunSummary[]> {
         anyFailed,
         ...(prUrl !== undefined ? { prUrl } : {}),
         ...(ciUrl !== undefined ? { ciUrl } : {}),
+        ...(startedBy !== undefined ? { startedBy } : {}),
       });
     }
   }
@@ -372,6 +375,8 @@ export interface RunWriter {
 export interface BeginRunOptions {
   /** Env var names of credentials the static injected-secret list cannot know (a custom provider's `keyEnv`). */
   secretEnvVars?: readonly string[];
+  /** Who started the run (hub login, or `token`); written to every stage record. */
+  startedBy?: string;
 }
 
 interface WriteRecordOptions {
@@ -383,6 +388,7 @@ interface WriteRecordOptions {
   omitDiff?: boolean;
   imageDigest?: string;
   baseBranch?: string;
+  startedBy?: string;
 }
 
 /**
@@ -441,6 +447,7 @@ async function writeRecord(repoPath: string, taskId: string, timestamp: string, 
     ...(opts.imageDigest !== undefined ? { imageDigest: opts.imageDigest } : {}),
     ...(opts.baseBranch !== undefined ? { baseBranch: opts.baseBranch } : {}),
     ...(diffOmitted !== undefined ? { diffOmitted } : {}),
+    ...(opts.startedBy !== undefined ? { startedBy: opts.startedBy } : {}),
   };
   const suffix = opts.label !== undefined ? `-${opts.label}` : '';
   const base = join(taskDir, `${sanitizeTimestamp(timestamp)}${suffix}`);
@@ -486,11 +493,11 @@ async function writeRecord(repoPath: string, taskId: string, timestamp: string, 
   return file;
 }
 
-/** Append one line to `.taskcell/runs/metrics.jsonl`, refusing a symlinked leaf or parent. */
+/** Append one chained record to `.taskcell/runs/metrics.jsonl` (telemetry: best-effort, but a refused path throws; never rotated, since `stats` and `metrics push` read only the live file). */
 async function appendMetric(repoPath: string, metric: object): Promise<void> {
-  const path = join(runsRoot(repoPath), 'metrics.jsonl');
-  await assertStatePath(repoPath, path);
-  await appendFile(path, `${JSON.stringify(metric)}\n`);
+  const file = join(runsRoot(repoPath), 'metrics.jsonl');
+  await assertStatePath(repoPath, file); // a symlinked leaf or parent is refused loudly, not swallowed as telemetry
+  await appendAudit(STREAMS.metrics, localAdapter({ file, repoPath, maxBytes: Number.POSITIVE_INFINITY }), metric as Record<string, unknown>, { actor: defaultActor() });
 }
 
 /**
@@ -521,6 +528,7 @@ export function beginRun(
           ...(opts.omitDiff ? { omitDiff: opts.omitDiff } : {}),
           ...(opts.imageDigest !== undefined ? { imageDigest: opts.imageDigest } : {}),
           ...(opts.baseBranch !== undefined ? { baseBranch: opts.baseBranch } : {}),
+          ...(runOpts.startedBy !== undefined ? { startedBy: runOpts.startedBy } : {}),
         });
       }
       const first = outcomes[0];

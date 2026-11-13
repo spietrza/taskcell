@@ -1,5 +1,5 @@
 import { EventEmitter } from 'node:events';
-import { mkdir, mkdtemp, rm, writeFile } from 'node:fs/promises';
+import { mkdir, mkdtemp, readFile, rm, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import type { AddressInfo } from 'node:net';
@@ -7,9 +7,10 @@ import { request } from 'node:http';
 import { PassThrough } from 'node:stream';
 import type { ChildProcess } from 'node:child_process';
 import { afterEach, beforeEach, describe, expect, test } from 'vitest';
-import { createHubServer, MAX_RPC_BODY_BYTES, type HubServer } from './server.js';
+import { createHubServer, eventRepoPath, MAX_RPC_BODY_BYTES, type HubServer } from './server.js';
 import { listRunSummaries, defaultRunsRoot } from './runs.js';
 import { MAX_CONCURRENT_COMPLETES } from './complete.js';
+import { localOnlyIdentity } from './auth.js';
 import type { SidecarDeps } from '../sidecar/sidecar.js';
 
 function unimplementedDeps(): SidecarDeps {
@@ -163,6 +164,46 @@ describe('hub server', () => {
     // The token is never accepted from the URL, where access logs would keep it.
     expect((await fetch(baseUrl + '/events?token=' + hub.token)).status).toBe(401);
     expect(hub.eventBus.clientCount).toBe(0);
+  });
+
+  test('refused sign-ins are audited at most once per minute, however many bad requests arrive', async () => {
+    for (let i = 0; i < 20; i++) {
+      await fetch(baseUrl + '/events/session', { method: 'POST', headers: { 'x-vanguard-hub-token': 'bad', origin: baseUrl } });
+      await fetch(baseUrl + '/rpc/list_runs', { method: 'POST', headers: { 'content-type': 'application/json', 'x-vanguard-hub-token': 'bad' }, body: '{}' });
+    }
+    const raw = await readFile(join(configDir, 'audit.jsonl'), 'utf8');
+    const lines = raw.trim().split('\n').map((l) => JSON.parse(l) as { action: string; outcome: string });
+    expect(lines).toEqual([expect.objectContaining({ action: 'sign-in', outcome: 'refused' })]);
+    expect(raw).not.toContain('bad"');
+  });
+
+  test('read_audit answers 403 to a non-admin actor and the log to an admin', async () => {
+    await hub.close();
+    let admin = false;
+    hub = createHubServer({
+      uiDir, configDir, browseRoot, bind: { isLoopback: true, allowAdd: false }, seedRepoPath: repo, deps: unimplementedDeps(),
+      actorFor: () => ({ login: 'dave', admin }),
+    });
+    await hub.listen(0, '127.0.0.1');
+    baseUrl = `http://127.0.0.1:${(hub.server.address() as AddressInfo).port}`;
+    const call = (): Promise<Response> =>
+      fetch(baseUrl + '/rpc/read_audit', { method: 'POST', headers: { 'content-type': 'application/json', 'x-vanguard-hub-token': hub.token, origin: baseUrl }, body: '{}' });
+    expect((await call()).status).toBe(403);
+    admin = true;
+    const ok = await call();
+    expect(ok.status).toBe(200);
+  });
+
+  test('a signed-in user other than the owner is a non-admin: read_audit answers 403', async () => {
+    await hub.close();
+    const identity = { ...localOnlyIdentity(), sessionUser: async () => ({ id: 'u1', email: 'erin@example.com', name: 'Erin' }) };
+    hub = createHubServer({
+      uiDir, configDir, browseRoot, bind: { isLoopback: true, allowAdd: false }, seedRepoPath: repo, deps: unimplementedDeps(), identity,
+    });
+    await hub.listen(0, '127.0.0.1');
+    baseUrl = `http://127.0.0.1:${(hub.server.address() as AddressInfo).port}`;
+    const res = await fetch(baseUrl + '/rpc/read_audit', { method: 'POST', headers: { 'content-type': 'application/json', origin: baseUrl }, body: '{}' });
+    expect(res.status).toBe(403);
   });
 
   test('serves the SPA and survives malformed URL escapes', async () => {
@@ -390,5 +431,58 @@ describe('hub server', () => {
     await expect(fetch(`${baseUrl}/healthz`)).rejects.toThrow();
     controller.abort();
 
+  });
+});
+
+describe('team caller wiring', () => {
+  const TOKEN = 't'.repeat(64);
+  const post = (h: HubServer, cmd: string, headers: Record<string, string>, body: unknown = {}): Promise<{ status: number; json: { result?: unknown; error?: string } }> => {
+    const { port } = h.server.address() as AddressInfo;
+    const origin = `http://127.0.0.1:${port}`;
+    return fetch(`${origin}/rpc/${cmd}`, { method: 'POST', headers: { 'content-type': 'application/json', origin, ...headers }, body: JSON.stringify(body) }).then(async (r) => ({ status: r.status, json: (await r.json()) as { result?: unknown; error?: string } }));
+  };
+
+  test('the token is the owner (unfiltered, admin); a session user is limited to their teams and roles', async () => {
+    const { saveTeams } = await import('./teams.js');
+    const { savePaths } = await import('./projects.js');
+    await savePaths(configDir, [repo]);
+    await saveTeams(configDir, [{ id: 'default', name: 'D', members: [{ login: 'ann', role: 'admin' }, { login: 'mia', role: 'member' }], repositories: [repo] }]);
+    const identity = {
+      owner: { id: 'local-owner', email: 'owner@hub.invalid', name: 'Owner' },
+      providers: [],
+      handler: undefined,
+      sessionUser: async (req: { headers: Record<string, string | string[] | undefined> }) => {
+        const id = req.headers['x-test-user'];
+        return typeof id === 'string' ? { id, email: `${id}@x.test`, name: id } : undefined;
+      },
+      close: () => undefined,
+    };
+    const h = createHubServer({ uiDir, configDir, browseRoot, bind: { isLoopback: true, allowAdd: false }, seedRepoPath: repo, deps: unimplementedDeps(), token: TOKEN, identity });
+    await h.listen(0, '127.0.0.1');
+    try {
+      const tok = { 'x-vanguard-hub-token': TOKEN };
+      expect(((await post(h, 'list_projects', tok)).json.result as unknown[]).length).toBe(1);
+      expect(((await post(h, 'list_projects', { 'x-test-user': 'ann' })).json.result as unknown[]).length).toBe(1);
+      expect((await post(h, 'list_projects', { 'x-test-user': 'stranger' })).json.result).toEqual([]);
+      const add = { teamId: 'default', login: 'zed', role: 'member' };
+      expect((await post(h, 'add_team_member', { 'x-test-user': 'mia' }, add)).status).toBe(400);
+      expect((await post(h, 'add_team_member', { 'x-test-user': 'ann' }, add)).status).toBe(200);
+      expect((await post(h, 'get_credentials', { 'x-test-user': 'ann' })).status).toBe(400);
+      expect((await post(h, 'get_credentials', tok)).status).toBe(200);
+    } finally {
+      await h.close();
+    }
+  });
+});
+
+describe('eventRepoPath', () => {
+  test('reads a bare path, a repoPath/path field, or a run event\'s repository by runId', () => {
+    const runs = new Map([['r1', '/a']]);
+    expect(eventRepoPath('/a', runs)).toBe('/a');
+    expect(eventRepoPath({ repoPath: '/b' }, runs)).toBe('/b');
+    expect(eventRepoPath({ path: '/c' }, runs)).toBe('/c');
+    expect(eventRepoPath({ runId: 'r1', event: { type: 'log' } }, runs)).toBe('/a');
+    expect(eventRepoPath({ runId: 'r2', event: { type: 'log' } }, runs)).toBeUndefined();
+    expect(eventRepoPath({ line: 'x' }, runs)).toBeUndefined();
   });
 });

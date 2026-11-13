@@ -23,6 +23,7 @@ import { RunList } from './RunList';
 import { RunDetail } from './RunDetail';
 import { LiveRun } from './LiveRun';
 import { RemoteRuns } from './RemoteRuns';
+import { AuditLog } from '../audit/AuditLog';
 import { Fleet } from '../fleet/Fleet';
 import { Settings } from '../settings/Settings';
 import { TaskBoard } from '../board/TaskBoard';
@@ -57,7 +58,7 @@ export function Inspector({
   projects: Project[];
   /** The shared repository filter is "All repositories": Board, Runs and Needs you list every repository. */
   allRepos: boolean;
-  screen: 'runs' | 'board' | 'task' | 'fleet' | 'remote' | 'workflow' | 'settings' | 'needs';
+  screen: 'runs' | 'board' | 'task' | 'fleet' | 'remote' | 'workflow' | 'settings' | 'needs' | 'audit';
   focusRunning: ActiveRun | null;
   clearNonce: number;
   newTaskNonce: number;
@@ -397,7 +398,7 @@ export function Inspector({
     // Centered + width-capped, except the board which needs full width for horizontal column scroll.
     <div
       className={cn(
-        'mx-auto flex h-full w-full min-h-0 flex-col gap-4 p-6',
+        'mx-auto flex h-full w-full min-h-0 flex-col gap-4 p-6 max-md:p-3',
         screen !== 'board' && screen !== 'task' && 'max-w-5xl',
       )}
     >
@@ -529,6 +530,10 @@ export function Inspector({
       ) : screen === 'needs' ? (
         <div className="min-h-0 flex-1 overflow-y-auto">
           <NeedsYou project={project} allRepos={allRepos} />
+        </div>
+      ) : screen === 'audit' ? (
+        <div className="flex min-h-0 flex-1 flex-col">
+          <AuditLog />
         </div>
       ) : screen === 'remote' ? (
         <div className="flex min-h-0 flex-1 flex-col">

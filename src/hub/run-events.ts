@@ -3,17 +3,20 @@
 // and a busy run pushing events out of EventBus's 500-event ring. The `id` is the SSE `id:` the bus
 // assigned, so a client can read history with `readRunEvents` and then continue on the live stream
 // (skipping ids it already has) without a gap or a duplicate.
-import { appendFile, readdir } from 'node:fs/promises';
+import { readdir } from 'node:fs/promises';
 import { join } from 'node:path';
 import { readTextNoSymlink, sanitizeTimestamp } from '../core/run-store.js';
-import { injectedSecretValues, redactForPublish } from '../core/secret-scan.js';
-import { assertStatePath, ensureStateDir, isSafeTaskId, stateDir } from '../core/state-path.js';
+import { appendAudit, BOT_ACTOR, localAdapter, STREAMS, type AuditAdapter, type AuditContext } from '../core/audit.js';
+import { parseJsonlLines } from '../core/stats.js';
+import { assertStatePath, isSafeTaskId, stateDir } from '../core/state-path.js';
 
 /** Per-run size cap (bytes): a runaway run's events are dropped past it, the run itself carries on. */
 export const MAX_RUN_EVENT_LOG_BYTES = 5 * 1024 * 1024;
 export const DEFAULT_EVENTS_LIMIT = 500;
 export const MAX_EVENTS_LIMIT = 2000;
 
+/** What the audit envelope (actor, subject, prev, hash) adds to a line, counted against the size cap. */
+const ENVELOPE_BYTES = 400;
 const FILE_PREFIX = 'events-';
 const FILE_SUFFIX = '.jsonl';
 /** A run's log file name; sanitized ISO times are fixed-width, so name order is time order. */
@@ -35,22 +38,12 @@ export interface RunEventsPage {
   truncated: boolean;
 }
 
-/** Mask secrets in every string of a JSON-like value (structure-preserving, so the line stays valid JSON). */
-function redactDeep(value: unknown, secrets: readonly string[]): unknown {
-  if (typeof value === 'string') return redactForPublish(value, secrets);
-  if (Array.isArray(value)) return value.map((v) => redactDeep(v, secrets));
-  if (value !== null && typeof value === 'object') {
-    return Object.fromEntries(Object.entries(value).map(([k, v]) => [k, redactDeep(v, secrets)]));
-  }
-  return value;
-}
-
-/** Appends one run's events to its file. Writes are chained so lines stay in publish order. */
+/** Appends one run's events to its file (a telemetry stream: chained, never fatal). Writes are chained so lines stay in publish order. */
 export class RunEventLog {
   private chain: Promise<void> = Promise.resolve();
   private bytes = 0;
   private capped = false;
-  private ready: Promise<string | undefined> | undefined;
+  private adapter: AuditAdapter | undefined;
   /** The task id is only known once `run-start` arrives; events before it are held, then flushed in order. */
   private held: RunLogEvent[] = [];
   private taskId: string | undefined;
@@ -59,6 +52,8 @@ export class RunEventLog {
     private readonly repoPath: string,
     private readonly startedAt: string = new Date().toISOString(),
     private readonly maxBytes: number = MAX_RUN_EVENT_LOG_BYTES,
+    /** Who ran it and which hub run this is (the persistent run id); defaults to the factory bot. */
+    private readonly context: AuditContext = { actor: BOT_ACTOR },
   ) {}
 
   append(entry: RunLogEvent, taskId?: string): void {
@@ -77,33 +72,25 @@ export class RunEventLog {
     return this.chain;
   }
 
-  private file(): Promise<string | undefined> {
-    this.ready ??= (async () => {
-      const dir = await ensureStateDir(this.repoPath, join(stateDir(this.repoPath), 'runs', this.taskId as string));
-      const file = join(dir, logFileName(this.startedAt));
-      await assertStatePath(this.repoPath, file);
-      return file;
-    })().catch(() => undefined);
-    return this.ready;
+  private file(): AuditAdapter {
+    this.adapter ??= localAdapter({
+      file: join(stateDir(this.repoPath), 'runs', this.taskId as string, logFileName(this.startedAt)),
+      repoPath: this.repoPath,
+    });
+    return this.adapter;
   }
 
   private async write(entry: RunLogEvent): Promise<void> {
     if (this.capped) return;
-    try {
-      const file = await this.file();
-      if (file === undefined) return;
-      const line = `${JSON.stringify({ ...entry, data: redactDeep(entry.data, injectedSecretValues()) })}\n`;
-      const size = Buffer.byteLength(line);
-      if (this.bytes + size > this.maxBytes) {
-        this.capped = true;
-        await appendFile(file, `${JSON.stringify({ truncated: true, ts: entry.ts, maxBytes: this.maxBytes })}\n`);
-        return;
-      }
-      this.bytes += size;
-      await appendFile(file, line);
-    } catch {
-      // A failing log must never fail the run.
+    // appendAudit never rejects for a telemetry stream: a failing log must never fail the run.
+    const size = Buffer.byteLength(JSON.stringify(entry)) + ENVELOPE_BYTES;
+    if (this.bytes + size > this.maxBytes) {
+      this.capped = true;
+      await appendAudit(STREAMS['run-events'], this.file(), { truncated: true, ts: entry.ts, maxBytes: this.maxBytes }, this.context);
+      return;
     }
+    this.bytes += size;
+    await appendAudit(STREAMS['run-events'], this.file(), { ...entry }, this.context);
   }
 }
 
@@ -137,14 +124,7 @@ export async function readRunEvents(
   const events: RunLogEvent[] = [];
   let hasMore = false;
   let truncated = false;
-  for (const line of text.split('\n')) {
-    if (line === '') continue;
-    let parsed: unknown;
-    try {
-      parsed = JSON.parse(line);
-    } catch {
-      continue; // a torn final line from a crash mid-write
-    }
+  for (const parsed of parseJsonlLines(text)) {
     const rec = parsed as Partial<RunLogEvent> & { truncated?: boolean };
     if (rec.truncated === true) {
       truncated = true;
@@ -155,7 +135,8 @@ export async function readRunEvents(
       hasMore = true;
       break;
     }
-    events.push(rec as RunLogEvent);
+    // The audit envelope (actor, prev, hash) is for `audit verify`; readers get the event as published.
+    events.push({ id: rec.id, ts: rec.ts as string, event: rec.event as string, data: rec.data });
   }
   return { events, nextAfter: events.at(-1)?.id ?? after, hasMore, truncated };
 }

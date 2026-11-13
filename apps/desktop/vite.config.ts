@@ -9,5 +9,5 @@ export default defineConfig({
   clearScreen: false,
   resolve: { alias: { '@': fileURLToPath(new URL('./src', import.meta.url)) } },
   server: { port: 1420, strictPort: true, watch: { ignored: ['**/src-tauri/**'] } },
-  test: { environment: 'jsdom', globals: true, setupFiles: './src/test-setup.ts' },
+  test: { exclude: ['e2e/**', 'node_modules/**'], environment: 'jsdom', globals: true, setupFiles: './src/test-setup.ts' },
 });

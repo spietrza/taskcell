@@ -1,8 +1,0 @@
-{
-  "$schema": "../gen/schemas/desktop-schema.json",
-  "identifier": "servers",
-  "description": "The server switcher: the local hub's UI and a saved remote hub's UI may list, add, remove and switch saved servers (never read their tokens). Nothing else.",
-  "windows": ["main"],
-  "remote": { "urls": ["http://*/*", "http://*:*/*", "https://*/*", "https://*:*/*"] },
-  "permissions": ["allow-servers-list", "allow-servers-add", "allow-servers-remove", "allow-servers-switch"]
-}

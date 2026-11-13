@@ -411,3 +411,17 @@ describe('run-session event log', () => {
     }
   });
 });
+
+describe('run-session persistent run ids', () => {
+  test('the next run number survives a restart via the counter file', async () => {
+    const { mkdtemp } = await import('node:fs/promises');
+    const { tmpdir } = await import('node:os');
+    const { join } = await import('node:path');
+    const file = join(await mkdtemp(join(tmpdir(), 'vg-counter-')), 'run-counter');
+    const ids: string[] = [];
+    const mk = () => createRunSession(fakeDeps(async () => ({})), (_n, p) => { ids.push((p as { runId: string }).runId); }, undefined, file);
+    await mk().createRun({ issueRef: '1', repoPath: '/repo' } as CreateRunParams);
+    await mk().createRun({ issueRef: '2', repoPath: '/repo' } as CreateRunParams);
+    expect([...new Set(ids)]).toEqual(['run-0', 'run-1']);
+  });
+});
