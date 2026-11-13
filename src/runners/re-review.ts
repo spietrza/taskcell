@@ -252,3 +252,41 @@ export function applyReReviewRules(
     downgraded: rejected.length,
   };
 }
+
+const MERGE_ONLY_RE = /^<!-- merge-only: (\{.*\}) -->$/m;
+const mergeOnlySchema = z.object({ from: z.string(), to: z.string(), files: z.array(z.string()) });
+
+/** Machine-readable record of a merge-only round for the incremental re-review: the head it started from, the commit it pushed and the conflicted files it resolved. */
+export const mergeOnlyMarker = (round: { from: string; to: string; files: readonly string[] }): string =>
+  `<!-- merge-only: ${JSON.stringify({ from: round.from, to: round.to, files: round.files }).replace(/-->/g, '--\\u003e')} -->`;
+
+/**
+ * The files resolved by merge-only rounds, when the Revision Summaries (oldest first) are all merge-only and
+ * their commits chain exactly from `from` (the last reviewed head) to `to` (the current head). Undefined
+ * otherwise: any other push in that range (a human commit, an ordinary round) is reviewed in full.
+ */
+export function mergeOnlyResolvedFiles(summaries: readonly string[], from: string, to: string): string[] | undefined {
+  if (summaries.length === 0) return undefined;
+  const files = new Set<string>();
+  let at = from;
+  for (const body of summaries) {
+    const raw = MERGE_ONLY_RE.exec(body)?.[1];
+    if (raw === undefined) return undefined;
+    let round: z.infer<typeof mergeOnlySchema>;
+    try {
+      round = mergeOnlySchema.parse(JSON.parse(raw));
+    } catch {
+      return undefined;
+    }
+    if (round.from !== at) return undefined;
+    at = round.to;
+    for (const f of round.files) files.add(f);
+  }
+  return at === to ? [...files] : undefined;
+}
+
+/** Keep only the `diff --git` blocks of `files` (a block starts at a line-initial header, split on \n only). */
+export function restrictDiffToFiles(diff: string, files: readonly string[]): string {
+  const keep = new Set(files);
+  return diff.split(/(?<=\n)(?=diff --git )/).filter((block) => changedFilesOf(block).some((f) => keep.has(f))).join('');
+}

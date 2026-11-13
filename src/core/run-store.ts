@@ -21,6 +21,7 @@ import type { VisualProofResult } from '../pipeline/visual-proof.js';
 import { ciRunUrl, diffUrlFor, httpsUrl } from './links.js';
 import { reviewVerdictOf } from '../pipeline/review-verdict.js';
 import type { DecisionProbeResult } from './decision-probe.js';
+import type { BaseMergeEvent } from './conflict-stats.js';
 import type { Finding, Proof, RunDetail, RunRecord, RunSummary, StageDetail, VisualProof } from '../wire.js';
 
 /**
@@ -491,6 +492,9 @@ async function writeRecord(repoPath: string, taskId: string, timestamp: string, 
     evt: 'run_complete',
     ts: timestamp,
     ...stageMetric(result, opts.label, requested),
+    // `costUsd` reads 0 when the agent reported no cost: say so, so a reader shows "unknown", not $0.
+    // A reported cost is the agent CLI's own figure at list prices, never a provider's invoice.
+    ...(result.costUsd === undefined ? { costUnknown: true } : { costKind: 'estimated' }),
     ...(opts.prUrl !== undefined ? { prUrl: opts.prUrl } : {}),
   };
   await appendMetric(repoPath, metric);
@@ -653,4 +657,17 @@ export async function persistDecisionProbe(
   await ensureStateDir(localRepoPath, runsRoot(localRepoPath));
   const metric = { evt: 'decision_probe', ts: opts.timestamp ?? new Date().toISOString(), taskId, ...probe };
   await appendMetric(localRepoPath, metric);
+}
+
+/**
+ * Append one `base_merge` line to `.taskcell/runs/metrics.jsonl`: how a reviser's check of a PR branch
+ * against its base ended. `taskcell stats` and the hub's `conflict_stats` command (shown on the Runs page) roll these up as conflicts per week.
+ */
+export async function persistBaseMerge(
+  localRepoPath: string,
+  event: Omit<BaseMergeEvent, 'ts'>,
+  opts: { timestamp?: string } = {},
+): Promise<void> {
+  await ensureStateDir(localRepoPath, runsRoot(localRepoPath));
+  await appendMetric(localRepoPath, { evt: 'base_merge', ts: opts.timestamp ?? new Date().toISOString(), ...event });
 }

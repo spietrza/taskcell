@@ -119,6 +119,20 @@ export interface FlowDoc {
   meta?: Record<string, unknown>;
 }
 
+/** One live lesson (src/core/lessons.ts) on the wire. */
+export interface RepoLesson {
+  id: string;
+  rule: string;
+  why: string;
+  /** PR or comment URL the lesson came from. */
+  evidence: string;
+  /** Path globs the lesson applies to; empty = repo-wide. */
+  paths: string[];
+  stage?: 'spec' | 'implement' | 'review' | 'verify';
+  prNumber: number;
+  timestamp: string;
+}
+
 /** One discovered flow file. `name` present ⇔ parsed (openable); `error` present ⇔ not runnable. */
 export interface RepoFlowInfo {
   file: string;
@@ -379,6 +393,41 @@ export interface RunSummary {
   startedBy?: string;
   /** `'merged'` when the run's card is done (its pull request merged); set by the hub's list commands, absent when unknown or not merged. */
   prState?: 'merged';
+  /** `'ci'` for a run known only from the metrics branch (no local record to open); `prUrl` links its PR/MR. */
+  source?: 'ci';
+  /** The run's metrics carry no cost data, so `totalCostUsd` (0) is not a cost: show "unknown", not $0. */
+  costUnknown?: true;
+}
+
+/** Period a cost breakdown covers: the last 7 / 30 days, or everything on the branch. */
+export type CostPeriod = '7d' | '30d' | 'all';
+
+/** One row of a cost breakdown (a model or a stage). */
+export interface CostRow {
+  key: string;
+  entries: number;
+  costUsd: number;
+  /** Entries without cost data (counted in `entries`, add nothing to `costUsd`). */
+  unknownEntries: number;
+}
+
+/**
+ * A project's CI run cost from its metrics branch (the data `taskcell stats --branch` reads).
+ * `no-branch`: the repo has no metrics branch yet (`hint` says how to set it up).
+ * `costKind`: `estimated` (token usage priced at API rates; on a subscription nothing is billed per
+ * token), `billed` (every costed record says so), `mixed`, or `unknown` (no record carries cost data).
+ */
+export interface CostBreakdown {
+  status: 'ok' | 'no-branch';
+  branch: string;
+  period: CostPeriod;
+  hint?: string;
+  costKind: 'estimated' | 'billed' | 'mixed' | 'unknown';
+  runs: number;
+  totalCostUsd: number;
+  unknownEntries: number;
+  byModel: CostRow[];
+  byStage: CostRow[];
 }
 
 export interface StageDetail {
@@ -556,6 +605,8 @@ export interface Project {
   lastRun?: string | null;
   runningCount: number;
   runsLast24h: number;
+  /** Of `runCount`, the runs known only from the metrics branch (CI). */
+  ciRunCount?: number;
   color?: string | null;
   /** Where this project's tasks come from (`app.json` `taskSource`); unset = GitHub Issues. */
   taskSource?: TaskSourceId | null;
@@ -763,6 +814,13 @@ export interface CliVersionInfo {
   updatable: boolean;
   reason?: string;
 }
+/** Base-merge (conflict) rollup from the `base_merge` metric lines: per week, plus the most-conflicted files. */
+export interface ConflictStats {
+  weeks: Array<{ week: string; merges: number; conflicts: number; autoResolved: number; leftForHuman: number }>;
+  total: { merges: number; conflicts: number; autoResolved: number; leftForHuman: number };
+  topFiles: Array<{ file: string; conflicts: number }>;
+}
+
 export interface CliVersionReport {
   enabled: boolean;
   clis: CliVersionInfo[];

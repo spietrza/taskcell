@@ -120,6 +120,20 @@ export interface FlowDoc {
   meta?: Record<string, unknown>;
 }
 
+/** One live lesson (src/core/lessons.ts) on the wire. */
+export interface RepoLesson {
+  id: string;
+  rule: string;
+  why: string;
+  /** PR or comment URL the lesson came from. */
+  evidence: string;
+  /** Path globs the lesson applies to; empty = repo-wide. */
+  paths: string[];
+  stage?: 'spec' | 'implement' | 'review' | 'verify';
+  prNumber: number;
+  timestamp: string;
+}
+
 /** One discovered flow file. `name` present ⇔ parsed (openable); `error` present ⇔ not runnable. */
 export interface RepoFlowInfo {
   file: string;
@@ -380,6 +394,41 @@ export interface RunSummary {
   startedBy?: string;
   /** `'merged'` when the run's card is done (its pull request merged); set by the hub's list commands, absent when unknown or not merged. */
   prState?: 'merged';
+  /** `'ci'` for a run known only from the metrics branch (no local record to open); `prUrl` links its PR/MR. */
+  source?: 'ci';
+  /** The run's metrics carry no cost data, so `totalCostUsd` (0) is not a cost: show "unknown", not $0. */
+  costUnknown?: true;
+}
+
+/** Period a cost breakdown covers: the last 7 / 30 days, or everything on the branch. */
+export type CostPeriod = '7d' | '30d' | 'all';
+
+/** One row of a cost breakdown (a model or a stage). */
+export interface CostRow {
+  key: string;
+  entries: number;
+  costUsd: number;
+  /** Entries without cost data (counted in `entries`, add nothing to `costUsd`). */
+  unknownEntries: number;
+}
+
+/**
+ * A project's CI run cost from its metrics branch (the data `taskcell stats --branch` reads).
+ * `no-branch`: the repo has no metrics branch yet (`hint` says how to set it up).
+ * `costKind`: `estimated` (token usage priced at API rates; on a subscription nothing is billed per
+ * token), `billed` (every costed record says so), `mixed`, or `unknown` (no record carries cost data).
+ */
+export interface CostBreakdown {
+  status: 'ok' | 'no-branch';
+  branch: string;
+  period: CostPeriod;
+  hint?: string;
+  costKind: 'estimated' | 'billed' | 'mixed' | 'unknown';
+  runs: number;
+  totalCostUsd: number;
+  unknownEntries: number;
+  byModel: CostRow[];
+  byStage: CostRow[];
 }
 
 export interface StageDetail {
@@ -557,6 +606,8 @@ export interface Project {
   lastRun?: string | null;
   runningCount: number;
   runsLast24h: number;
+  /** Of `runCount`, the runs known only from the metrics branch (CI). */
+  ciRunCount?: number;
   color?: string | null;
   /** Where this project's tasks come from (`app.json` `taskSource`); unset = GitHub Issues. */
   taskSource?: TaskSourceId | null;
@@ -764,6 +815,13 @@ export interface CliVersionInfo {
   updatable: boolean;
   reason?: string;
 }
+/** Base-merge (conflict) rollup from the `base_merge` metric lines: per week, plus the most-conflicted files. */
+export interface ConflictStats {
+  weeks: Array<{ week: string; merges: number; conflicts: number; autoResolved: number; leftForHuman: number }>;
+  total: { merges: number; conflicts: number; autoResolved: number; leftForHuman: number };
+  topFiles: Array<{ file: string; conflicts: number }>;
+}
+
 export interface CliVersionReport {
   enabled: boolean;
   clis: CliVersionInfo[];
@@ -828,6 +886,8 @@ export interface Commands {
   write_app_config: { args: { repoPath: string; config: AppConfig }; result: void };
   /** HUB_ONLY, admin-only (403 otherwise): the audit log newest first, optionally for one login. */
   read_audit: { args: { login?: string; limit?: number }; result: AuditEntry[] };
+  /** HUB_ONLY, read-only: a project's cost by model and by stage for a period (default `all`), read from the metrics branch like `taskcell stats --branch`; cached, never a model call. A repo without the branch answers `status: 'no-branch'` with a setup hint. */
+  read_cost_breakdown: { args: { repoPath: string; period?: CostPeriod }; result: CostBreakdown };
   /** HUB_ONLY, read-only: installed vs latest claude/codex/cursor CLI in the local sandbox image (3-day soak applied; `enabled: false`, and no lookups, when VANGUARD_CLI_VERSION_CHECK is off). Refused on a non-loopback bind without VANGUARD_HUB_ALLOW_ADD. */
   agent_cli_versions: { args: undefined; result: CliVersionReport };
   api_complete: { args: { repoPath: string; req: CompleteCallArgs; callId?: string }; result: CompleteResponse };
@@ -889,6 +949,11 @@ export interface Commands {
   /** HUB_ONLY, read-only: one issue's history over the audit streams, run records and Git host events
    *  (docs/audit.md § Issue history). The hub's own audit lines are included for an admin only. */
   read_issue_history: { args: { repoPath: string; issue: number }; result: IssueHistory };
+  /** HUB_ONLY, read-only: the live lessons of a repo, newest first. With `taskText`, only those a task with that text would receive.
+   *  `branchFound` is false when the repo has no metrics branch (or no lessons file on it) yet. */
+  list_lessons: { args: { repoPath: string; taskText?: string }; result: { lessons: RepoLesson[]; branchFound: boolean } };
+  /** HUB_ONLY: dismiss a lesson (same effect as `taskcell lessons dismiss <id>`): later runs no longer receive it. */
+  dismiss_lesson: { args: { repoPath: string; id: string }; result: void };
   /** HUB_ONLY: rename the repo's old `vanguard:*` labels to `taskcell:*` (as `taskcell migrate-labels`). Dry-run unless `apply`. */
   migrate_labels: { args: { repoPath: string; apply?: boolean }; result: MigrateLabelsReport };
   /** HUB_ONLY: the hub "Needs you" read model (src/hub/needs-you.ts) — `gh` and labels only, no model call. */
@@ -936,6 +1001,8 @@ export interface Commands {
   import_remote_run: { args: { repoPath: string; runId: number }; result: RemoteImport };
   list_active: { args: { repoPath: string }; result: ActiveRun[] };
   read_session: { args: { sessionFile: string }; result: SessionRead };
+  /** HUB_ONLY, read-only: conflicts with the base per week (total, auto-resolved, left for a human) and the top conflicted files, as `taskcell stats` prints them. */
+  conflict_stats: { args: { repoPath: string }; result: ConflictStats };
   /** HUB_ONLY, owner only, read-only: whether `gh`, `glab`, a Linear key and a model credential (Claude, or a Codex key or sign-in file) are present on the hub host. Booleans only — never a secret value. Spawns `gh`/`glab` on the host, so it is refused on a non-loopback bind without VANGUARD_HUB_ALLOW_ADD. */
   setup_status: { args: undefined; result: SetupStatus };
   list_tasks: { args: { repoPath: string }; result: { tasks: BoardTask[]; capped: boolean } };
@@ -992,10 +1059,12 @@ export const COMMAND_NAMES = [
   'browse_dirs',
   'clear_draft_assets',
   'clone_project',
+  'conflict_stats',
   'delete_credential',
   'delete_draft',
   'delete_instance_credential',
   'delete_user_credential',
+  'dismiss_lesson',
   'enable_factory_apply',
   'enable_factory_plan',
   'enable_factory_secret',
@@ -1013,6 +1082,7 @@ export const COMMAND_NAMES = [
   'list_active',
   'list_branches',
   'list_drafts',
+  'list_lessons',
   'list_needs_you',
   'list_needs_you_all',
   'list_projects',
@@ -1028,6 +1098,7 @@ export const COMMAND_NAMES = [
   'read_app_config',
   'read_app_config_strict',
   'read_audit',
+  'read_cost_breakdown',
   'read_draft',
   'read_issue_history',
   'read_run',

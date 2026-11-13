@@ -10,6 +10,8 @@ import { loadTeams } from '../hub/teams.js';
 import type { Command } from './args.js';
 
 vi.mock('execa', () => ({ execa: vi.fn(() => Promise.resolve({})) }));
+// The hub's project listing reads each repo's metrics branch with git; these tests count execa calls (the browser open).
+vi.mock('../hub/ci-metrics.js', () => ({ withCiRuns: async (_repo: string, local: unknown[]) => local }));
 
 type HubCommand = Extract<Command, { kind: 'hub' }>;
 

@@ -1,5 +1,5 @@
 import { mockIPC, mockWindows } from '@tauri-apps/api/mocks';
-import type { Commands } from '../wire';
+import type { Commands, RepoLesson } from '../wire';
 import {
   projects,
   runs,
@@ -27,6 +27,9 @@ import {
 import { demoProject, demoRuns, demoRunDetails, demoActiveRuns, demoBoardTasks, demoNeedsYou, DEMO_REPO_PATH, DEMO_WRITE_COMMANDS } from './demoData';
 
 let waitingNeedsYou = [...needsYouItems];
+let mockLessons: RepoLesson[] = [
+  { id: 'l1', rule: 'Add a test for every new link.', why: 'Links shipped untested.', evidence: 'https://github.com/acme/app/pull/12', paths: ['apps/desktop/**'], stage: 'review', prNumber: 12, timestamp: '2026-07-01T10:00:00Z' },
+];
 
 const READ_DRAFT = JSON.stringify({ id: 'draft-001', title: 'Draft task', body: 'Some draft content here.' });
 
@@ -47,8 +50,14 @@ const mockTeam = { id: 'default', name: 'Default', members: [{ login: 'you', rol
 
 const commandHandlers = {
   list_runs: () => runs,
+  conflict_stats: () => ({ weeks: [], total: { merges: 0, conflicts: 0, autoResolved: 0, leftForHuman: 0 }, topFiles: [] }),
   list_runs_all: () => ({ runs: runs.map((r) => ({ ...r, ...mockStamp() })), failures: [] }),
   read_run: () => runDetail,
+  read_cost_breakdown: (args: unknown) => ({
+    status: 'no-branch' as const, branch: 'taskcell-metrics', period: (args as { period?: 'all' } | undefined)?.period ?? 'all',
+    hint: 'Run `taskcell metrics push` from your CI workflow (it writes the taskcell-metrics branch) and CI runs will show up here.',
+    costKind: 'unknown' as const, runs: 0, totalCostUsd: 0, unknownEntries: 0, byModel: [], byStage: [],
+  }),
   list_projects: () => projects,
   list_teams: () => [{ ...mockTeam, repositories: projects.map((p) => p.path) }],
   team_role: () => 'admin' as const,
@@ -138,6 +147,10 @@ const commandHandlers = {
   ],
   read_issue_history: () => ({ repo: 'acme/app', issue: 1, prs: [], entries: [], chains: [], unavailable: [] }),
   list_needs_you: () => ({ items: waitingNeedsYou }),
+  list_lessons: () => ({ lessons: mockLessons, branchFound: true }),
+  dismiss_lesson: (args: { id?: string } | undefined) => {
+    mockLessons = mockLessons.filter((l) => l.id !== args?.id);
+  },
   list_needs_you_all: () => ({ items: waitingNeedsYou.map((i) => ({ ...i, ...mockStamp() })), failures: [] }),
   // A reply hands the item back to the factory (issue: trigger label; PR: `needs revision`), so it
   // drops out of the next list for either kind — as on a real repo.

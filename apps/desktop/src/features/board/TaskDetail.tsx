@@ -1,9 +1,11 @@
 import { Button, Card, Chip, Timestamp } from '@/ui';
 import { verdictColor, verdictWord } from '../../status';
+import { costLabel } from '../../cost';
 import { ArrowLeft, Play } from 'lucide-react';
 import type { RunSummary } from '../../taskcell-output';
 import { SpecPane } from '../inspector/SpecPane';
 import { IssueHistory } from './IssueHistory';
+import { AppliedLessons } from '../lessons/Lessons';
 import { taskRefKey } from './taskref';
 
 export function TaskDetail({
@@ -71,7 +73,7 @@ export function TaskDetail({
                   </div>
                   <div className="mt-1 flex items-center justify-between text-xs text-muted-foreground">
                     <span>{r.stages.join(', ')}</span>
-                    <span className="tabular-nums">${r.totalCostUsd.toFixed(2)}</span>
+                    <span className="tabular-nums">{costLabel(r)}</span>
                   </div>
                 </div>
               ))
@@ -79,6 +81,8 @@ export function TaskDetail({
           </div>
         </div>
       </div>
+
+      <AppliedLessons project={project} taskId={taskId} />
 
       <IssueHistory project={project} taskId={taskId} />
     </div>

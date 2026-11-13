@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { applyReReviewRules, changedFilesOf, REREVIEW_MALFORMED_NOTE, reReviewInstructions } from './re-review.js';
+import { applyReReviewRules, changedFilesOf, mergeOnlyMarker, mergeOnlyResolvedFiles, restrictDiffToFiles, REREVIEW_MALFORMED_NOTE, reReviewInstructions } from './re-review.js';
 import { extractReviewRisk, extractReviewVerdict } from './review-prompt.js';
 
 const block = (o: unknown): string => `<rereview>${JSON.stringify(o)}</rereview>`;
@@ -167,5 +167,35 @@ describe('applyReReviewRules file matching (git-quoted and unusual names)', () =
     expect(r.text.startsWith('Verdict: BLOCKING')).toBe(true);
     expect(r.text).toContain('could not be matched to any path in the PR');
     expect(r.downgraded).toBe(0);
+  });
+});
+
+describe('merge-only re-review scope', () => {
+  const summary = (from: string, to: string, files: string[]): string => `## Revision Summary — o/r#1\n\n${mergeOnlyMarker({ from, to, files })}`;
+
+  it('reads the resolved files only when every summary is merge-only', () => {
+    expect(mergeOnlyResolvedFiles([summary('s1', 's2', ['a.ts']), summary('s2', 's3', ['b.ts'])], 's1', 's3')).toEqual(['a.ts', 'b.ts']);
+    expect(mergeOnlyResolvedFiles([summary('s1', 's2', ['a.ts']), '## Revision Summary — o/r#1'], 's1', 's2')).toBeUndefined();
+    expect(mergeOnlyResolvedFiles([], 's1', 's1')).toBeUndefined();
+  });
+
+  it('a clean merge-only round (no files) keeps the chain', () => {
+    expect(mergeOnlyResolvedFiles([summary('s1', 's2', []), summary('s2', 's3', ['a.ts'])], 's1', 's3')).toEqual(['a.ts']);
+  });
+
+  it('does not scope when the rounds do not span exactly the reviewed head to the current one', () => {
+    // A commit pushed before, between or after the merge-only rounds must be reviewed.
+    expect(mergeOnlyResolvedFiles([summary('s2', 's3', ['a.ts'])], 's1', 's3')).toBeUndefined();
+    expect(mergeOnlyResolvedFiles([summary('s1', 's2', ['a.ts']), summary('s3', 's4', ['b.ts'])], 's1', 's4')).toBeUndefined();
+    expect(mergeOnlyResolvedFiles([summary('s1', 's2', ['a.ts'])], 's1', 's3')).toBeUndefined();
+  });
+
+  it('a malformed marker does not scope', () => {
+    expect(mergeOnlyResolvedFiles(['<!-- merge-only: {"from":"s1","to":"s2","files":"a.ts"} -->'], 's1', 's2')).toBeUndefined();
+  });
+
+  it('keeps only the resolved files in the since-diff', () => {
+    const diff = 'diff --git a/a.ts b/a.ts\n+a\ndiff --git a/base.ts b/base.ts\n+base\n';
+    expect(restrictDiffToFiles(diff, ['a.ts'])).toBe('diff --git a/a.ts b/a.ts\n+a\n');
   });
 });
