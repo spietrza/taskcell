@@ -89,6 +89,62 @@ To run the factory from GitHub Actions instead, with no host of your own, follow
 
 Any stage can run on a different provider or model: `--review-provider codex` for cross-provider review, `--provider-model`, `--review-model`, `--escalate-model` for a stronger model after a failed repair, and `--fallback-provider` for outages. See [docs/task-sources.md](docs/task-sources.md) and [docs/cli.md](docs/cli.md).
 
+### Which model for which stage
+
+A starting point, not a rule. Aliases (`sonnet`, `opus`) follow the newest model; a full id pins one.
+
+| Stage | Use | How | Why |
+|---|---|---|---|
+| 🧠 **Spec and plan** | The strongest reasoning model you have | `--spec-model opus`, `--plan` | A wrong spec costs every later stage. This stage is short, so the strong model is cheap here. |
+| ⚙️ **Implement** | A mid-tier coding model | `--provider-model sonnet` | Most of a run's tokens are spent here. |
+| 💸 **Implement on a budget** (easy issues, experimental) | A flat-rate plan or a cheap model | `--provider zai`, or `--provider openrouter --provider-model <model>` | Works on small, well-specified issues. Keep `--escalate-model` on. |
+| 🚑 **Repair escalation** | A pinned top model | `--escalate-model claude-fable-5-2` | Only runs after a second failed gate repair, so it costs nothing on a clean run. |
+| 🔍 **Review** | **A different model family from the implementer** | `--review-provider codex` | A model shares its blind spots with itself. If you have one provider only, review on a stronger model than the one that wrote the code: `--review-model claude-fable-5-2`. |
+| ✅ **Conformance** (opt-in) | A strong model | `--conformance --conformance-model opus` | It checks the diff against the acceptance criteria, where a miss means the wrong thing ships. |
+| 🔁 **Outage fallback** | Another vendor | `--fallback-provider codex` | Rate limits and outages are per vendor. |
+
+> [!TIP]
+> Never let the cheapest model in the run be the reviewer: the review is what makes a cheap implementer safe.
+
+#### Three setups to copy
+
+The flags work on `run` and `watch`; in the GitHub Actions workflows the same names are the inputs of the `with:` block.
+
+| | ⭐ 1. Recommended | 2. One subscription | 🧪 3. Budget (experimental) |
+|---|:---:|:---:|:---:|
+| 🧠 **Spec** | Claude Opus | Claude Opus | Claude Opus |
+| ⚙️ **Implement** | Claude Sonnet | Claude Sonnet | DeepSeek V4.1 Flash on OpenRouter |
+| 🔍 **Review** | **GPT-5.6 Sol on Codex** | Claude Fable 5.2 | Claude Fable 5.2 |
+| 🚑 **Escalation** | Claude Fable 5.2 | Claude Fable 5.2 | Claude Fable 5.2 |
+| 💳 **You pay for** | Claude plan + ChatGPT plan | Claude plan | Claude plan + OpenRouter credit |
+| 📈 **Track record** | In production here from June to November 2026: 90+ merged pull requests reviewed | In production here since November 2026: nearly 80 merged pull requests reviewed | Early pilot: passed review on an easy issue where Sonnet's change did not |
+
+**1. Recommended: the reviewer is from another vendor.** Taskcell's own factory ran on this setup for four and a half months.
+
+```bash
+--spec-model opus --provider claude --provider-model sonnet \
+--review-provider codex --review-model gpt-5.6-sol \
+--escalate-model claude-fable-5-2
+```
+
+**2. One subscription: the reviewer is a stronger model from the same vendor.** Use it when you have a Claude plan only, or when the second plan runs out of quota.
+
+```bash
+--spec-model opus --provider claude --provider-model sonnet \
+--review-model claude-fable-5-2 \
+--escalate-model claude-fable-5-2 --fallback-provider codex
+```
+
+**3. Budget: a cheap implementer under a strong reviewer.** On an easy issue it passed review where Sonnet's change did not; on a harder one it needed three repairs and left four times as many review notes. Use it on small, well-specified issues.
+
+```bash
+--spec-model opus --provider openrouter --provider-model deepseek/deepseek-v4.1-flash-1017 \
+--review-provider claude --review-model claude-fable-5-2 \
+--escalate-model claude-fable-5-2
+```
+
+`--provider zai` (z.ai GLM Coding Plan, flat rate) fits the same slot as OpenRouter in setup 3. We have not tested the full GLM 5.3 yet; GLM 5.3 Flash did not pass review on the easy issue.
+
 ## Security
 
 Taskcell runs coding agents on untrusted input and treats the agent as hostile. These controls sit around it:
