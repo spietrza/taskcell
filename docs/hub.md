@@ -510,6 +510,9 @@ cannot read, overwrite or use another's. Only admins see the switch and the inst
 
 This needs the hub's GitHub sign-in to identify the caller (`HubServerOptions.identify`); without a
 signed-in user there is no admin and no per-user credential.
+The admin match uses the login GitHub reports for the account's numeric id at each GitHub sign-in (kept
+in `hub_github_login` in `auth.sqlite`), never a profile field a user can edit: after upgrading, an
+admin signs out and in with GitHub once before the switch appears.
 
 ## CLI flags
 
