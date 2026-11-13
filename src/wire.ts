@@ -477,6 +477,60 @@ export interface AuditEntry {
   hash?: string;
 }
 
+/** Per-issue history (src/core/history.ts, docs/audit.md). */
+export type HistoryKind =
+  | 'label'
+  | 'spec'
+  | 'run-start'
+  | 'stage'
+  | 'run-end'
+  | 'review'
+  | 'revision'
+  | 'approver'
+  | 'merge'
+  | 'close'
+  | 'hub'
+  | 'comment';
+
+/** `verified`: a hashed line of a chain that checked out. `failed`: its chain did not verify. `none`: no chain (run records, Git host). */
+export type HistoryChain = 'verified' | 'failed' | 'none';
+
+export interface HistoryEntry {
+  time: string;
+  kind: HistoryKind;
+  /** Undefined when the source does not say who. */
+  actor?: NonNullable<AuditEntry['actor']>;
+  what: string;
+  /** Where it came from: the stream (or `run-record`, `github`), a stable ref into it, and a link when one exists. */
+  source: { stream: string; ref: string; url?: string };
+  chain: HistoryChain;
+}
+
+export interface ChainStatus {
+  /** The stream: `hub`, `decisions`, `run-events`. */
+  stream: string;
+  /** The chain read: the stream, or one run's log for run-events. */
+  name: string;
+  ok: boolean;
+  records: number;
+  /** Unchained lines written before the chain began (tolerated, but not verified). */
+  legacy: number;
+  torn: number;
+  problems: { file: string; line: number; reason: string }[];
+}
+
+export interface IssueHistory {
+  repo: string;
+  issue: number;
+  prs: number[];
+  /** Oldest first. */
+  entries: HistoryEntry[];
+  chains: ChainStatus[];
+  /** Sources that could not be read; the history is incomplete without them. */
+  unavailable: string[];
+}
+
+
 /** A hub team (src/hub/teams.ts). `repositories` are project paths. */
 export interface Team {
   id: string;

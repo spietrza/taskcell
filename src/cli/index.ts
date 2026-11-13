@@ -128,6 +128,11 @@ async function main(): Promise<void> {
     process.exitCode = await auditCommand(command);
     return;
   }
+  if (command.kind === 'history') {
+    const { historyCommand } = await import('./history.js');
+    await historyCommand(command);
+    return;
+  }
   if (command.kind === 'memory') {
     await memoryCommand(command);
     return;

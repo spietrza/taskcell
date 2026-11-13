@@ -309,6 +309,7 @@ export type Command =
   | { kind: 'metrics'; action: 'push'; repoPath: string; branch?: string }
   | { kind: 'approve'; prNumber: number; repoSlug: string; repoPath: string; mode: 'shadow'; json: boolean; dryRun: boolean; branch?: string }
   | { kind: 'memory'; repoPath: string; limit?: number; json: boolean }
+  | { kind: 'history'; repoPath: string; repoSlug: string; issue: number; json: boolean; configDir?: string; branch?: string; offline: boolean }
   | {
       kind: 'audit';
       action: 'verify' | 'export';
@@ -641,6 +642,8 @@ export function parseCli(argv: string[], cwd: string): Command {
         until: { type: 'string' },
         format: { type: 'string' },
         'config-dir': { type: 'string' },
+        // history
+        offline: { type: 'boolean' },
         markdown: { type: 'boolean' },
         // eval --baseline
         baseline: { type: 'string' },
@@ -845,6 +848,21 @@ export function parseCli(argv: string[], cwd: string): Command {
       ...(typeof values.branch === 'string' ? { branch: values.branch } : {}),
       ...(typeof values.since === 'string' ? { since: values.since } : {}),
       ...(typeof values.until === 'string' ? { until: values.until } : {}),
+    };
+  }
+
+  if (positionals[0] === 'history') {
+    const groups = /^(?<repo>[^\s#/]+\/[^\s#/]+)#(?<number>\d+)$/.exec(positionals[1] ?? '')?.groups;
+    if (groups === undefined || Number(groups['number']) < 1) return fail('history expects an issue reference: taskcell history owner/repo#N [--json].');
+    return {
+      kind: 'history',
+      repoPath,
+      repoSlug: groups['repo']!,
+      issue: Number(groups['number']),
+      json: values.json === true,
+      offline: values.offline === true,
+      ...(typeof values['config-dir'] === 'string' ? { configDir: values['config-dir'] } : {}),
+      ...(typeof values.branch === 'string' ? { branch: values.branch } : {}),
     };
   }
 
@@ -1470,6 +1488,8 @@ Commands:
          (shadow mode: never merges, approves, or edits labels).
   audit verify | export  Check the hash chains of the audit streams (hub, run-events, metrics, decisions,
          lessons) or export them with --since/--until as jsonl or csv; see docs/audit.md.
+  history <owner/repo#N>  One issue's history over the audit streams (trigger, runs, reviews, approver,
+         merge) with actor and source per entry, and whether the chains verify; --json; see docs/audit.md.
   memory Refresh .taskcell/memory/retrospective.md from run artifacts and print it.
   lessons record  Distil 0-3 lessons from a closed factory PR (one cheap model call; none for a clean
          first-round merge), append them to lessons.jsonl on the metrics branch and comment them on
@@ -1752,6 +1772,13 @@ ${MAX_REPAIR_ITERATIONS_USAGE}
     --config-dir <dir>     The hub config dir holding the hub audit log (default: the hub's)
     --branch <name>        Metrics-branch override for decisions/lessons
     --since <date> --until <date> --format jsonl|csv   (export) time window and format
+
+  history options:
+    --repo <path>          Repo whose state dir and metrics branch to read (default: cwd)
+    --config-dir <dir>     The hub config dir holding the hub audit log (default: the hub's)
+    --branch <name>        Metrics-branch override for decisions
+    --offline              Do not ask the Git host (no label/comment/merge events)
+    --json                 Machine-readable history
 
   metrics push options:
     --repo <path>          Repo whose .taskcell/runs/metrics.jsonl to persist (default: cwd)

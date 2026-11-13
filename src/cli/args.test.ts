@@ -1805,6 +1805,15 @@ describe('parseCli hub', () => {
   });
 });
 
+describe('history command', () => {
+  it('parses owner/repo#N', () => {
+    expect(parseCli(['history', 'o/r#7', '--json'], '/w')).toMatchObject({ kind: 'history', repoSlug: 'o/r', issue: 7, json: true, offline: false });
+  });
+  it('rejects a bare number', () => {
+    expect(parseCli(['history', '7'], '/w')).toMatchObject({ kind: 'error' });
+  });
+});
+
 describe('audit command', () => {
   it('parses verify and export', () => {
     expect(parseCli(['audit', 'verify', '--stream', 'hub'], '/w')).toMatchObject({ kind: 'audit', action: 'verify', stream: 'hub', format: 'jsonl' });

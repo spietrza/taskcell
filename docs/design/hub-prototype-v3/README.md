@@ -13,6 +13,7 @@ Board and Runs
 - Projects is a searchable multi-select, built for 70+ projects, with shortcuts for projects that have cards.
 - Swimlanes: group the Board by project, card source, runner or triage. Runs groups its table the same way.
 - A card opens in a quick view first, with a vertical stage line. "Full page" opens the run page.
+- The card's full page has a "History" section below the stage line (time, actor, what happened, oldest first). The quick view shows at most a "History" link to it. On a phone it is the same section in the drawer's full page.
 
 Links out
 

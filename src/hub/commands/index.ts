@@ -8,6 +8,7 @@ import { commands as drafts, type DraftsCommands } from './drafts.js';
 import { commands as enableFactory, type EnableFactoryCommands } from './enable-factory.js';
 import { commands as fleet, type FleetCommands } from './fleet.js';
 import { commands as flows, type FlowsCommands } from './flows.js';
+import { commands as history, type HistoryCommands } from './history.js';
 import { commands as needsYou, type NeedsYouCommands } from './needs-you.js';
 import { commands as projects, type ProjectsCommands } from './projects.js';
 import { commands as repoFiles, type RepoFilesCommands } from './repo-files.js';
@@ -29,6 +30,7 @@ export interface Commands extends
   EnableFactoryCommands,
   FleetCommands,
   FlowsCommands,
+  HistoryCommands,
   NeedsYouCommands,
   ProjectsCommands,
   RepoFilesCommands,
@@ -98,6 +100,7 @@ export const COMMAND_NAMES = [
   'read_app_config_strict',
   'read_audit',
   'read_draft',
+  'read_issue_history',
   'read_run',
   'read_run_events',
   'read_session',
@@ -136,6 +139,7 @@ export const HUB_COMMANDS: { readonly [K in keyof Commands]: CommandHandler } = 
   ...enableFactory.handlers,
   ...fleet.handlers,
   ...flows.handlers,
+  ...history.handlers,
   ...needsYou.handlers,
   ...projects.handlers,
   ...repoFiles.handlers,
@@ -157,6 +161,7 @@ export const HUB_AUDITED: { readonly [K in keyof Commands]?: AuditSpec } = {
   ...enableFactory.audit,
   ...fleet.audit,
   ...flows.audit,
+  ...history.audit,
   ...needsYou.audit,
   ...projects.audit,
   ...repoFiles.audit,
