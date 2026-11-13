@@ -315,7 +315,6 @@ export async function applyDependencyGate(tasks: Task[], opts: DependencyGateOpt
       // A body identical to the newest trusted comment is not posted again (a label edit that failed last poll).
       const park = async (add: string | undefined, body: string | undefined, remove: string[]): Promise<void> => {
         if (body !== undefined && redactForPublish(body) !== comments[0]) await commentGithubIssue(opts.repo, task.id, body, gh);
-        if (add === GITHUB_WAITING_LABEL) await gh(['label', 'create', add, '--repo', opts.repo, '--force']).catch(() => undefined);
         await editGithubLabels(opts.repo, task.id, { remove: [opts.trigger, ...remove], ...(add !== undefined ? { add: [add] } : {}) }, gh);
       };
       log(`taskcell: ${task.id} skipped -> ${verdict.status === 'waiting' ? '' : verdict.status === 'invalid' ? 'needs info: ' : ''}${verdict.reason}`);
@@ -357,7 +356,6 @@ async function holdForOverlap(task: Task, holds: OverlapHold[], ctx: { opts: Dep
       const until = marker?.until ?? new Date(now.getTime() + holdMs);
       await commentGithubIssue(opts.repo, task.id, `Vanguard will not start this issue yet: its planned files overlap open factory work: ${holds.map(describeHold).join('; ')}. It is labelled \`${GITHUB_WAITING_LABEL}\` and starts when that work merges or closes, or after at most ${holdMs / 3_600_000} h. ${RESUME_NOTE(opts.trigger)}\n\n${overlapMarker(until, holds)}`, gh);
     }
-    await gh(['label', 'create', GITHUB_WAITING_LABEL, '--repo', opts.repo, '--force']).catch(() => undefined);
     await editGithubLabels(opts.repo, task.id, { remove: [opts.trigger], add: [GITHUB_WAITING_LABEL] }, gh).catch((error: unknown) => {
       log(`taskcell: ${task.id} overlap hold label edit failed, retrying next poll: ${failureReason(error)}`);
     });

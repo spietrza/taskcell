@@ -700,7 +700,6 @@ async function markGithubIssueRateLimited(
   gh?: GhRunner,
 ): Promise<void> {
   const hold = rateLimitHold(error, trigger);
-  await (gh ?? defaultGhRunner)(['label', 'create', GITHUB_RATE_LIMITED_LABEL, '--repo', repo, '--force']).catch(() => undefined);
   await editGithubLabels(repo, id, { remove: [claimedLabel], add: [GITHUB_RATE_LIMITED_LABEL] }, gh);
   // A usage-cap pause is not a failure: only the hold notice, no "run failed" text.
   await commentGithubIssue(repo, id, error instanceof UsageCapError ? hold.comment : `${failureComment}\n\n${hold.comment}`, gh);
@@ -854,7 +853,6 @@ export function githubIssueWatchPrimitives(opts: WatchGithubOptions): WatchPrimi
     // label is already the watch's own marker, and a white-label adapter posts no findings, so this
     // comment is the human's only signal.
     onSecretBlocked: async (id) => {
-      await (opts.gh ?? defaultGhRunner)(['label', 'create', GITHUB_SECRET_BLOCKED_LABEL, '--repo', repo, '--force']).catch(() => undefined);
       await editGithubLabels(repo, id, { remove: [opts.claimedLabel], add: [GITHUB_SECRET_BLOCKED_LABEL] }, opts.gh);
       await commentGithubIssue(
         repo,

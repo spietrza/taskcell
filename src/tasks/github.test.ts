@@ -1,6 +1,6 @@
 import { describe, it, expect, vi } from 'vitest';
 import { execa } from 'execa';
-import { addPrGateLabel, GitHubTaskFetcher, linkPullRequest } from './github.js';
+import { addPrGateLabel, editGithubLabels, GitHubTaskFetcher, linkPullRequest } from './github.js';
 import { isTrustedComment } from './comment-trust.js';
 import type { GhRunner } from './github.js';
 
@@ -35,11 +35,44 @@ describe('addPrGateLabel', () => {
   });
 
   it('adds the current spelling when the repo has it, has both, has neither, or cannot be listed', async () => {
-    const ensureAndAdd = [['label', 'create', TASKCELL, '--force'], ['pr', 'edit', PR, '--add-label', TASKCELL]];
-    expect(await run([TASKCELL])).toEqual(ensureAndAdd);
-    expect(await run([TASKCELL, VANGUARD])).toEqual(ensureAndAdd);
-    expect(await run([])).toEqual([['label', 'create', TASKCELL, '--repo', 'https://github.com/o/r'], ...ensureAndAdd]);
-    expect(await run(new Error('gh: 403'))).toEqual(ensureAndAdd);
+    const add = [['pr', 'edit', PR, '--add-label', TASKCELL]];
+    expect(await run([TASKCELL])).toEqual(add);
+    expect(await run([TASKCELL, VANGUARD])).toEqual(add);
+    expect(await run([])).toEqual([['label', 'create', TASKCELL, '--repo', 'https://github.com/o/r'], ...add]);
+    expect(await run(new Error('gh: 403'))).toEqual([['label', 'create', TASKCELL, '--repo', 'https://github.com/o/r', '--force'], ...add]);
+  });
+
+  it('matches the repo label case-insensitively and adds it under the repo spelling', async () => {
+    expect(await run(['Vanguard:Gate-Config-Changed'])).toEqual([['pr', 'edit', PR, '--add-label', 'Vanguard:Gate-Config-Changed']]);
+  });
+});
+
+describe('a legacy-only repo', () => {
+  it('runs the claim / review / hold label edits without ever creating a taskcell: label', async () => {
+    const onItem = ['ready for agent', 'vanguard:running', 'vanguard:rate-limited', 'vanguard:secret-blocked', 'vanguard:waiting'];
+    const calls: string[][] = [];
+    const gh: GhRunner = async (args) => {
+      calls.push(args);
+      if (args[0] === 'label' && args[1] === 'create') throw new Error('label create must not run');
+      if (args[0] === 'label') return JSON.stringify(['vanguard:running', 'vanguard:needs-human-review', 'vanguard:rate-limited', 'vanguard:secret-blocked', 'vanguard:waiting'].map((name) => ({ name })));
+      return JSON.stringify({ labels: onItem.map((name) => ({ name })) });
+    };
+    const log = vi.fn();
+    await editGithubLabels('o/r', '7', { remove: ['ready for agent', 'taskcell:secret-blocked'], add: ['taskcell:running'] }, gh, log);
+    await editGithubLabels('o/r', '7', { remove: ['taskcell:running'], add: ['taskcell:needs-human-review'] }, gh, log);
+    await editGithubLabels('o/r', '7', { remove: ['taskcell:running'], add: ['taskcell:rate-limited'] }, gh, log);
+    await editGithubLabels('o/r', '7', { remove: ['taskcell:waiting'], add: ['taskcell:secret-blocked'] }, gh, log);
+    const edits = calls.filter((c) => c[0] === 'issue' && c[1] === 'edit').flat();
+    expect(edits).not.toContain('taskcell:running');
+    expect(edits).toContain('vanguard:needs-human-review');
+    expect(calls.some((c) => c[1] === 'create')).toBe(false);
+  });
+
+  it('logs a twin removal skipped because the item does not show the label', async () => {
+    const gh: GhRunner = async (args) => (args[0] === 'issue' && args[1] === 'view' ? JSON.stringify({ labels: [] }) : '');
+    const log = vi.fn();
+    await editGithubLabels('o/r', '7', { remove: ['taskcell:running'] }, gh, log);
+    expect(log).toHaveBeenCalledWith(expect.stringContaining('taskcell:running'));
   });
 });
 

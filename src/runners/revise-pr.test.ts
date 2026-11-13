@@ -1421,12 +1421,9 @@ describe('runRevisePullRequest — best-effort label hand-back', () => {
     expect(result.addressed).toBeGreaterThan(0);
   });
 
-  it('ensures the rate-limited hold label exists before the hand-back removes it', async () => {
+  it('does not create the rate-limited hold label just to remove it', async () => {
     const { ghCalls } = await runWithLabelFailure();
-    const createIndex = ghCalls.findIndex((a) => a[0] === 'label' && a[1] === 'create' && a.includes('taskcell:rate-limited'));
-    const editIndex = ghCalls.findIndex((a) => a[0] === 'pr' && a[1] === 'edit');
-    expect(createIndex).toBeGreaterThanOrEqual(0);
-    expect(editIndex).toBeGreaterThan(createIndex);
+    expect(ghCalls.some((a) => a[0] === 'label' && a[1] === 'create' && a.includes('taskcell:rate-limited'))).toBe(false);
   });
 
   it('calls label create --force before the label flip', async () => {

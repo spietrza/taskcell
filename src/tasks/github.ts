@@ -153,16 +153,12 @@ export async function linkPullRequest(
 /**
  * Ensure a label exists and add it to a PR, surfacing a failed add. For labels that are themselves a
  * review gate (see SourceAdapter#addGateConfigLabel): an unflagged PR reaching a human is worse than
- * a failing run. The pre-create stays tolerant — it already exists on a repo that flagged a PR before,
- * and `gh pr edit --add-label` is the step that must succeed.
+ * a failing run. Creating the label (in resolveAdds) is tolerant; `gh pr edit --add-label` must succeed.
  */
 export async function addPrGateLabel(repoPath: string, prUrl: string, label: string): Promise<void> {
   const gh = async (args: string[]): Promise<string> => (await execa('gh', args, { cwd: repoPath })).stdout;
   // A repo that has only the legacy spelling gets that one, not a second label beside it (`--repo` takes the repo URL).
   const [name = label] = await resolveAdds([label], prUrl.replace(/\/pull\/\d+.*$/, ''), gh);
-  try {
-    if (name === label) await gh(['label', 'create', label, '--force']);
-  } catch { /* the add below is the step that must succeed */ }
   await gh(['pr', 'edit', prUrl, '--add-label', name]);
 }
 
@@ -187,10 +183,11 @@ export async function editGithubLabels(
   issueRef: string,
   labels: { add?: string[]; remove?: string[] },
   gh: GhRunner = defaultGhRunner,
+  log: (line: string) => void = console.log,
 ): Promise<void> {
   const args = ['issue', 'edit', issueNumber(issueRef), '--repo', repo];
   for (const label of await resolveAdds(labels.add ?? [], repo, gh)) args.push('--add-label', label);
-  const remove = await resolveRemovals(labels.remove ?? [], () => issueLabelNames(repo, issueRef, gh));
+  const remove = await resolveRemovals(labels.remove ?? [], () => issueLabelNames(repo, issueRef, gh), (label) => log(`taskcell: ${repo}#${issueNumber(issueRef)}: not removing ${label} -> the issue's labels do not show it`));
   for (const label of remove) args.push('--remove-label', label);
   if (args.length > 4) await gh(args);
 }

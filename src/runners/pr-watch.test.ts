@@ -1,6 +1,6 @@
 import { describe, it, expect, vi } from 'vitest';
 import { getEventListeners } from 'node:events';
-import { githubPullRequestWatchPrimitives, watchPullRequests, watchPullRequestsOnce } from './pr-watch.js';
+import { editPullRequestLabels, githubPullRequestWatchPrimitives, watchPullRequests, watchPullRequestsOnce } from './pr-watch.js';
 import type { GhRunner } from '../tasks/github.js';
 import type { PullRequestWatchItem, PullRequestWatchPrimitives } from './pr-watch.js';
 
@@ -376,6 +376,18 @@ describe('githubPullRequestWatchPrimitives', () => {
       // The repo has neither spelling of the trigger: it is restored under the name the review workflows fire on.
       ['pr', 'edit', '12', '--repo', 'o/r', '--remove-label', 'taskcell:reviewing', '--add-label', 'ready for vanguard review'],
     ]);
+  });
+
+  it('skips the edit and logs when the PR shows none of the labels to remove', async () => {
+    const calls: string[][] = [];
+    const logs: string[] = [];
+    const gh: GhRunner = async (args) => {
+      calls.push(args);
+      return args[1] === 'view' ? JSON.stringify({ labels: [] }) : '';
+    };
+    await editPullRequestLabels(gh, 'o/r', 12, { remove: ['taskcell:reviewing'] }, (line) => logs.push(line));
+    expect(calls.some((c) => c[1] === 'edit')).toBe(false);
+    expect(logs).toEqual([expect.stringContaining('taskcell:reviewing')]);
   });
 
   it('logs why a scanned PR is skipped when its head is already reviewed', async () => {

@@ -1,4 +1,4 @@
-import { mkdir, mkdtemp, readFile, readdir, symlink, utimes, writeFile } from 'node:fs/promises';
+import { lutimes, mkdir, mkdtemp, readFile, readdir, symlink, utimes, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { execa } from 'execa';
@@ -188,6 +188,8 @@ describe('audit record module', () => {
     const { adapter, dir, file } = await setup();
     await mkdir(join(dir, 'a.jsonl.lock'));
     await writeFile(join(dir, 'a.jsonl.lock', 'x'), '');
+    const old = new Date(Date.now() - 60_000);
+    await utimes(join(dir, 'a.jsonl.lock'), old, old);
     const warn = vi.spyOn(console, 'warn').mockImplementation(() => undefined);
     await expect(appendAudit(audit, adapter, { n: 0 }, ctx)).resolves.toBe(1);
     expect(warn).toHaveBeenCalledWith(expect.stringContaining('is a directory; removing it'));
@@ -208,15 +210,50 @@ describe('audit record module', () => {
     await expect(verifyAudit(adapter)).rejects.toThrow(/symlink/);
   });
 
+  it('clears a stale symlink-to-directory lock without following it', async () => {
+    const { adapter, dir, file } = await setup();
+    await mkdir(join(dir, 'target'));
+    await writeFile(join(dir, 'target', 'keep'), 'x');
+    await symlink(join(dir, 'target'), join(dir, 'a.jsonl.lock'));
+    const old = new Date(Date.now() - 60_000);
+    await lutimes(join(dir, 'a.jsonl.lock'), old, old);
+    await expect(appendAudit(audit, adapter, { n: 0 }, ctx)).resolves.toBe(1);
+    expect(await readFile(join(dir, 'target', 'keep'), 'utf8')).toBe('x');
+    expect(await readFile(file, 'utf8')).toContain('"n":0');
+  });
+
+  it('prunes a stale directory sibling on rotation instead of throwing', async () => {
+    const { dir, file } = await setup();
+    await mkdir(join(dir, 'a.jsonl.20200101T000000000Z'));
+    await writeFile(join(dir, 'a.jsonl.20200101T000000000Z', 'x'), '');
+    const old = new Date('2020-01-01');
+    await utimes(join(dir, 'a.jsonl.20200101T000000000Z'), old, old);
+    await expect(appendAudit(audit, localAdapter({ file }), { n: 0 }, ctx)).resolves.toBe(1);
+    expect((await readdir(dir)).filter((n) => n.startsWith('a.jsonl.2020'))).toEqual([]);
+  });
+
+  it('warns once about an unreadable sibling and keeps appending', async () => {
+    const { dir, file } = await setup();
+    const sibling = join(dir, 'a.jsonl.1');
+    await mkdir(sibling); // readFile on a directory fails with EISDIR
+    const warn = vi.spyOn(console, 'warn').mockImplementation(() => undefined);
+    const adapter = localAdapter({ file, maxRotated: 5 });
+    await expect(appendAudit(audit, adapter, { n: 0 }, ctx)).resolves.toBe(1);
+    await expect(appendAudit(audit, adapter, { n: 1 }, ctx)).resolves.toBe(1);
+    expect(warn.mock.calls.filter(([m]) => String(m).includes('cannot read audit file'))).toHaveLength(1);
+    warn.mockRestore();
+  });
+
   it('skips a null or non-object line and keeps appending', async () => {
     const { adapter, file } = await setup();
     await writeFile(file, 'null\n[1]\n42\n');
     const warn = vi.spyOn(console, 'warn').mockImplementation(() => undefined);
     await expect(appendAudit(audit, adapter, { n: 0 }, ctx)).resolves.toBe(1);
-    expect(warn).toHaveBeenCalledTimes(3);
+    await expect(appendAudit(audit, adapter, { n: 1 }, ctx)).resolves.toBe(1);
+    expect(warn).toHaveBeenCalledTimes(1); // once per file, however many lines or appends
     expect(warn).toHaveBeenCalledWith(expect.stringContaining('not a JSON object'));
     warn.mockRestore();
-    expect(await readAudit(adapter)).toHaveLength(1);
+    expect(await readAudit(adapter)).toHaveLength(2);
   });
 
   it('exports a time window as jsonl and csv', () => {

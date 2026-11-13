@@ -8,7 +8,7 @@
 // proves records were not altered after writing — not that a host admin could not rewrite the whole
 // file plus chain (docs/audit.md).
 import { createHash } from 'node:crypto';
-import { mkdir, open, readFile, readdir, rename, rm, stat } from 'node:fs/promises';
+import { lstat, mkdir, open, readFile, readdir, rename, rm, stat } from 'node:fs/promises';
 import { setTimeout as sleep } from 'node:timers/promises';
 import { userInfo } from 'node:os';
 import { basename, dirname } from 'node:path';
@@ -67,6 +67,14 @@ export function defaultActor(env: NodeJS.ProcessEnv = process.env): AuditActor {
 }
 
 const warned = new Set<string>();
+
+/** Warn once per distinct message: a repo-controlled sibling or line would otherwise flood the log on every append. */
+function warnOnce(message: string): void {
+  if (warned.has(message)) return;
+  if (warned.size >= 1000) warned.clear();
+  warned.add(message);
+  console.warn(message);
+}
 
 export class AuditWriteError extends TaskcellError {}
 
@@ -322,10 +330,10 @@ async function pruneRotated(file: string, days: number, maxRotated: number): Pro
   const all = await rotatedFiles(file);
   const excess = all.length - maxRotated;
   for (const [i, f] of all.entries()) {
-    const info = await stat(f).catch(() => undefined);
+    const info = await lstat(f).catch(() => undefined);
     // Legacy numeric suffixes are count-retained only; the age prune applies to timestamped files.
     const aged = info !== undefined && !/\.\d+$/.test(f) && info.mtimeMs < cutoff;
-    if (info !== undefined && (i < excess || aged)) await rm(f, { force: true });
+    if (info !== undefined && (i < excess || aged)) await rm(f, { force: true, recursive: true });
   }
 }
 
@@ -338,14 +346,15 @@ async function withFileLock<T>(file: string, fn: () => Promise<T>): Promise<T> {
       break;
     } catch (err) {
       if ((err as NodeJS.ErrnoException).code !== 'EEXIST') throw err;
-      const info = await stat(lock).catch(() => undefined);
+      const info = await lstat(lock).catch(() => undefined);
       const age = info !== undefined ? Date.now() - info.mtimeMs : 0;
-      // A lock that is a directory can never be a live lock (ours is a file): clear it at once.
-      if (info?.isDirectory() === true) {
-        console.warn(`taskcell: audit lock ${lock} is a directory; removing it`);
+      if (age <= 10_000 && waited <= 15_000) await sleep(10);
+      // A lock that is a directory can never be a live lock (ours is a file): clear it once stale, re-checking
+      // that it is still a real directory (not swapped for a symlink) so the recursive remove never follows a link.
+      else if (info?.isDirectory() === true && (await lstat(lock).catch(() => undefined))?.isDirectory() === true) {
+        warnOnce(`taskcell: audit lock ${lock} is a directory; removing it`);
         await rm(lock, { force: true, recursive: true });
-      } else if (age > 10_000 || waited > 15_000) await rm(lock, { force: true });
-      else await sleep(10);
+      } else await rm(lock, { force: true });
     }
   }
   try {
@@ -359,7 +368,7 @@ async function withFileLock<T>(file: string, fn: () => Promise<T>): Promise<T> {
 async function readText(p: string): Promise<string> {
   return readFile(p, 'utf8').catch((err: unknown) => {
     if ((err as NodeJS.ErrnoException).code !== 'ENOENT') {
-      console.warn(`taskcell: cannot read audit file ${p}: ${err instanceof Error ? err.message : String(err)}`);
+      warnOnce(`taskcell: cannot read audit file ${p}: ${err instanceof Error ? err.message : String(err)}`);
     }
     return '';
   });
@@ -400,7 +409,7 @@ export function localAdapter(opts: LocalAdapterOptions): AuditAdapter {
           await assertStatePath(opts.repoPath, p);
         } catch (err) {
           if (!skipBad || p === file) throw err;
-          console.warn(`taskcell: skipping audit file ${p}: ${err instanceof Error ? err.message : String(err)}`);
+          warnOnce(`taskcell: skipping audit file ${p}: ${err instanceof Error ? err.message : String(err)}`);
           continue;
         }
       }
@@ -415,7 +424,7 @@ export function localAdapter(opts: LocalAdapterOptions): AuditAdapter {
     const all = await readAll(true);
     for (let i = all.length - 1; i >= 0; i--) {
       const { name, text } = all[i]!;
-      const h = tailHash(parseJsonlLines(text, () => console.warn(`taskcell: ignoring a line in ${name} that is not a JSON object`)));
+      const h = tailHash(parseJsonlLines(text, () => warnOnce(`taskcell: ignoring a line in ${name} that is not a JSON object`)));
       if (h !== undefined) return h;
     }
     return undefined;

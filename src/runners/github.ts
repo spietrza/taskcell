@@ -51,9 +51,7 @@ export function githubAdapter(deps: RunGithubIssueDeps, gh: GhRunner = defaultGh
       // `gh issue edit --add-label` fails on a repo that never created the label, which would leave
       // the held issue with no Vanguard label at all. Ensure it first (the same pre-step as
       // addPrFailureLabel and the revise path); every step stays best-effort.
-      const label = gh(['label', 'create', GITHUB_SECRET_BLOCKED_LABEL, '--repo', deps.repoSlug, '--force'])
-        .catch(() => undefined)
-        .then(() => editGithubLabels(deps.repoSlug, issueRef, { add: [GITHUB_SECRET_BLOCKED_LABEL] }, gh))
+      const label = editGithubLabels(deps.repoSlug, issueRef, { add: [GITHUB_SECRET_BLOCKED_LABEL] }, gh)
         .catch(() => undefined);
       // No recovery procedure here: this adapter also serves one-shot `taskcell run` and Projects,
       // whose release steps differ. The watch primitive that holds the issue posts the resume line.
