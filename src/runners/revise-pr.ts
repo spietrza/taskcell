@@ -378,7 +378,7 @@ export async function runRevisePullRequest(prRef: string, deps: ReviseGithubPrDe
   const target = parsePullRequestRef(prRef, deps.repoSlug);
   log(`revise-pr ${target.repoSlug}#${target.number}: fetch -> pr & feedback`);
   const [pr, fb] = await Promise.all([
-    fetchPullRequestForReview(target, gh),
+    fetchPullRequestForReview(target, gh, undefined, undefined, { linkedIssue: false }),
     fetchPullRequestFeedback(target, gh, log),
   ]);
 

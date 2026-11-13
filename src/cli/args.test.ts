@@ -444,6 +444,11 @@ describe('parseCli', () => {
     expect(wp.kind === 'watch-prs' && wp.maxTurns).toBe(48);
   });
 
+  it('parses --feedback-authors on review-pr', () => {
+    expect(parseCli(['review-pr', 'o/r#1', '--feedback-authors', 'a, B'], '/work')).toMatchObject({ kind: 'review-pr', feedbackAuthors: ['a', 'B'] });
+    expect(parseCli(['review-pr', 'o/r#1'], '/work')).not.toHaveProperty('feedbackAuthors');
+  });
+
   it('parses --feedback-authors on watch-prs (PR-author allowlist) and omits it by default', () => {
     const wp = parseCli(['watch-prs', '--github-repo', 'o/r', '--label', 'l', '--feedback-authors', 'a, B'], '/work');
     expect(wp.kind === 'watch-prs' && wp.feedbackAuthors).toEqual(['a', 'B']);
