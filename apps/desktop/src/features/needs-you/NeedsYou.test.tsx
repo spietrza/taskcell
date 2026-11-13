@@ -116,3 +116,11 @@ test('a refused merge keeps the item and says why; an issue has no Merge button'
   expect(await screen.findByRole('alert')).toHaveTextContent('Not merged');
   expect(screen.getByText(pr.title)).toBeInTheDocument();
 });
+
+test('under "All repositories" the selected team is sent to the hub, so a second team is not read as the first', async () => {
+  const item = { ...needsYouItems[0], repoPath: '/r/beta', repoName: 'beta' };
+  const calls = stubHub([item]);
+  render(<NeedsYou project="/r/beta" allRepos repos={['/r/beta']} teamId="b" />);
+  await screen.findByText(item.title);
+  expect(calls.find((c) => c.cmd === 'list_needs_you_all')?.body).toEqual({ teamId: 'b' });
+});

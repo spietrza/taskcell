@@ -30,8 +30,17 @@ export default function App() {
   // Bumped by every local team edit so an older in-flight listTeams cannot overwrite it.
   const teamsGen = useRef(0);
   const team = resolveTeam(teams, teamId);
-  // Home, Board and Runs see only the selected team's repositories (no teams loaded = every project).
-  const projects = useMemo(() => teamProjects(allProjects, team), [allProjects, team]);
+  // The selected team's projects as the hub lists them for its id: a signed-in user's unscoped list is
+  // their first team's, so it cannot stand in for another team. Bumped to re-read after an add/remove.
+  const [scoped, setScoped] = useState<{ teamId: string; list: Project[] } | null>(null);
+  const [scopedNonce, setScopedNonce] = useState(0);
+  const scopeId = team?.id;
+  // Home, Board and Runs see only the selected team's repositories (no teams loaded = every project);
+  // until the team's own list answers, the unscoped one filtered by the team's repositories stands in.
+  const projects = useMemo(
+    () => (scoped !== null && scoped.teamId === scopeId ? scoped.list : teamProjects(allProjects, team)),
+    [scoped, scopeId, allProjects, team],
+  );
   const [activeProject, setActiveProject] = useState<string | null>(null);
   // The repository filter Board, Runs and Needs you share (persisted): ALL_REPOS or the active project's path.
   const [repoFilter, setRepoFilter] = useState<string>(loadRepoFilter);
@@ -94,6 +103,24 @@ export default function App() {
     };
   }, []);
 
+  useEffect(() => {
+    if (scopeId === undefined) return;
+    let alive = true;
+    const tick = (): void => {
+      listProjects(scopeId)
+        .then((list) => {
+          if (alive) setScoped({ teamId: scopeId, list });
+        })
+        .catch(() => {});
+    };
+    tick();
+    const id = setInterval(tick, 5000);
+    return () => {
+      alive = false;
+      clearInterval(id);
+    };
+  }, [scopeId, scopedNonce]);
+
   // Default the current project to the persisted filter's repository, else the first, once projects load;
   // a project that left the selected team (team switch, repository removed) is replaced the same way.
   useEffect(() => {
@@ -115,6 +142,7 @@ export default function App() {
   const updateTeam = (t: Team): void => {
     teamsGen.current++;
     setTeams((all) => all.map((x) => (x.id === t.id ? t : x)));
+    setScopedNonce((n) => n + 1);
   };
 
   // A project just added or cloned: a non-default team lists only what an admin put in it, so try to put
@@ -123,6 +151,7 @@ export default function App() {
     teamsGen.current++;
     if (team && team.id !== 'default') await teamAddRepository(team.id, path).catch(() => undefined);
     setTeams(await listTeams().catch(() => teams));
+    setScopedNonce((n) => n + 1);
   };
 
   const chooseTeam = (id: string): void =>
@@ -233,6 +262,7 @@ export default function App() {
       setProjects(await removeProject(path));
       teamsGen.current++;
       setTeams(await listTeams().catch(() => teams));
+      setScopedNonce((n) => n + 1);
       if (activeProject === path) setActiveProject(null);
     } catch {
       /* ignore */
@@ -370,6 +400,7 @@ export default function App() {
                 project={active.path}
                 allRepos={allRepos}
                 projects={projects}
+                teamId={scopeId}
                 {...(team
                   ? {
                       teamScreen: {

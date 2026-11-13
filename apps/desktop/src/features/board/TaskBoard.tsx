@@ -44,6 +44,7 @@ export function TaskBoard({
   project,
   allRepos = false,
   repos,
+  teamId,
   onOpenTask,
   onNewTask,
 }: {
@@ -52,13 +53,15 @@ export function TaskBoard({
   allRepos?: boolean;
   /** The selected team's repositories: "All repositories" lists only these. */
   repos: string[];
+  /** The selected team (hub): "All repositories" is read for it. */
+  teamId?: string;
   onOpenTask: (taskId: string, repoPath?: string) => void;
   onNewTask: () => void;
 }) {
   const { data, error, loading } = useAsync(
     (): Promise<BoardList> =>
-      allRepos ? listTasksAll().then((l) => ({ ...l, tasks: inRepos(l.tasks, repos), failures: inRepos(l.failures, repos) })) : listTasks(project).then((r) => ({ ...r, failures: [] })),
-    [project, allRepos, repos.join('\n')],
+      allRepos ? listTasksAll(teamId).then((l) => ({ ...l, tasks: inRepos(l.tasks, repos), failures: inRepos(l.failures, repos) })) : listTasks(project).then((r) => ({ ...r, failures: [] })),
+    [project, allRepos, teamId, repos.join('\n')],
   );
   const tasks = data?.tasks;
 

@@ -46,6 +46,7 @@ export function Inspector({
   project,
   projects,
   teamScreen,
+  teamId,
   allRepos,
   screen,
   focusRunning,
@@ -61,6 +62,8 @@ export function Inspector({
   projects: Project[];
   /** The selected team (hub), for the members screen under Settings. */
   teamScreen?: TeamScreen;
+  /** The selected team (hub): the all-repositories lists are read for it. */
+  teamId?: string;
   /** The shared repository filter is "All repositories": Board, Runs and Needs you list every repository. */
   allRepos: boolean;
   screen: 'runs' | 'board' | 'task' | 'fleet' | 'remote' | 'workflow' | 'settings' | 'needs' | 'audit';
@@ -146,7 +149,7 @@ export function Inspector({
     const gen = ++runsGen.current;
     if (allRepos) {
       const [r, a] = await Promise.all([
-        listRunsAll().then((l) => ({ runs: inRepos(l.runs, repos), failures: inRepos(l.failures, repos) })),
+        listRunsAll(teamId).then((l) => ({ runs: inRepos(l.runs, repos), failures: inRepos(l.failures, repos) })),
         Promise.all(
           projects.map((p) =>
             listActive(p.path).then(
@@ -202,7 +205,7 @@ export function Inspector({
   useEffect(() => {
     void load();
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [project, allRepos]);
+  }, [project, allRepos, teamId]);
 
   // The listener is registered once, so it reaches the latest render's `refresh` through a ref.
   const refreshRef = useRef(refresh);
@@ -530,6 +533,7 @@ export function Inspector({
           project={project}
           allRepos={allRepos}
           repos={repos}
+          teamId={teamId}
           onOpenTask={(id, repo) => {
             setTaskDetailRepo(repo ?? project);
             setTaskDetailId(id);
@@ -538,7 +542,7 @@ export function Inspector({
         />
       ) : screen === 'needs' ? (
         <div className="min-h-0 flex-1 overflow-y-auto">
-          <NeedsYou project={project} allRepos={allRepos} repos={repos} />
+          <NeedsYou project={project} allRepos={allRepos} repos={repos} teamId={teamId} />
         </div>
       ) : screen === 'audit' ? (
         <div className="flex min-h-0 flex-1 flex-col">

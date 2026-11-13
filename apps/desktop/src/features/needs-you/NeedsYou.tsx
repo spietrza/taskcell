@@ -103,7 +103,18 @@ function MergeButton({ project, item, onMerged }: { project: string; item: Needs
 }
 
 /** The hub "Needs you" screen: what the factory waits on for this project, with a reply per item. */
-export function NeedsYou({ project, allRepos = false, repos }: { project: string; allRepos?: boolean; repos: string[] }) {
+export function NeedsYou({
+  project,
+  allRepos = false,
+  repos,
+  teamId,
+}: {
+  project: string;
+  allRepos?: boolean;
+  repos: string[];
+  /** The selected team (hub): "All repositories" is read for it. */
+  teamId?: string;
+}) {
   const [items, setItems] = useState<(NeedsYouItem & Partial<RepoStamp>)[] | null>(null);
   const [failures, setFailures] = useState<RepoReadFailure[]>([]);
   const [error, setError] = useState<string | null>(null);
@@ -112,7 +123,7 @@ export function NeedsYou({ project, allRepos = false, repos }: { project: string
 
   useEffect(() => {
     let alive = true;
-    (allRepos ? listNeedsYouAll().then((l) => ({ items: inRepos(l.items, repos), failures: inRepos(l.failures, repos) })) : listNeedsYou(project).then((r) => ({ ...r, failures: [] })))
+    (allRepos ? listNeedsYouAll(teamId).then((l) => ({ items: inRepos(l.items, repos), failures: inRepos(l.failures, repos) })) : listNeedsYou(project).then((r) => ({ ...r, failures: [] })))
       .then((r) => {
         if (!alive) return;
         setItems(r.items);
@@ -126,7 +137,7 @@ export function NeedsYou({ project, allRepos = false, repos }: { project: string
       alive = false;
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [project, allRepos, nonce, repos.join('\n')]);
+  }, [project, allRepos, nonce, teamId, repos.join('\n')]);
 
   return (
     <div className="mx-auto w-full max-w-3xl space-y-3 overflow-y-auto">

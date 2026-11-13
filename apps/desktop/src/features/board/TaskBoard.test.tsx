@@ -166,6 +166,13 @@ describe('TaskBoard team scope', () => {
     await screen.findByText('Mine');
     expect(screen.queryByText('Other team')).not.toBeInTheDocument();
   });
+
+  test('the selected team is sent with the all-repositories read', async () => {
+    vi.mocked(listTasksAll).mockResolvedValue({ tasks: [], capped: false, failures: [] });
+    render(<TaskBoard project="/r/alpha" allRepos repos={['/r/alpha']} teamId="b" onOpenTask={() => {}} onNewTask={() => {}} />);
+    await screen.findByText('Queued');
+    expect(listTasksAll).toHaveBeenCalledWith('b');
+  });
 });
 
 describe('TaskBoard open-in-tracker links', () => {

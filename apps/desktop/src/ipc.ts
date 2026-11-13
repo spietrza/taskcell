@@ -43,6 +43,9 @@ function call<K extends keyof Commands>(cmd: K, args: Commands[K]['args']): Prom
   return invoke<Commands[K]['result']>(cmd, args as Record<string, unknown> | undefined);
 }
 
+/** The optional team scope of the hub's list commands: no id = the server's default. */
+const teamArgs = (teamId?: string): { teamId: string } | undefined => (teamId === undefined ? undefined : { teamId });
+
 export function listRuns(repoPath: string): Promise<RunSummary[]> {
   return call('list_runs', { repoPath });
 }
