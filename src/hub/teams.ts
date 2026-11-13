@@ -121,13 +121,17 @@ export async function getTeam(configDir: string, id: string): Promise<Team | und
 export class TeamError extends TaskcellError {}
 
 const normLogin = (login: string): string => login.trim().replace(/^@/, '');
-const sameLogin = (a: string, b: string): boolean => a.toLowerCase() === b.toLowerCase();
+/** A member login may name its provider (`gitlab:ann`); a bare login is a GitHub login. */
+const loginKey = (login: string): string => (login.includes(':') ? login : `github:${login}`).toLowerCase();
+const sameLogin = (a: string, b: string): boolean => loginKey(a) === loginKey(b);
 
-/** The caller's role in `team`, matched on the provider login (`github:octocat` -> `octocat`) the hub stored at sign-up. */
+/**
+ * The caller's role in `team`, matched on the provider login the hub stored at sign-up, provider
+ * included: `github:octocat` matches the member `octocat`, `gitlab:octocat` (someone else) does not.
+ */
 export function roleOf(team: Team, providerLogin: string | undefined): TeamRole | undefined {
-  const login = providerLogin?.slice(providerLogin.indexOf(':') + 1);
-  if (login === undefined || login === '') return undefined;
-  return team.members.find((m) => sameLogin(m.login, login))?.role;
+  if (providerLogin === undefined || !providerLogin.includes(':')) return undefined;
+  return team.members.find((m) => sameLogin(m.login, providerLogin))?.role;
 }
 
 /** Teams a caller may see: those they belong to, plus teams with no members yet (the migrated default team). */

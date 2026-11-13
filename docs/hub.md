@@ -215,7 +215,7 @@ the public `Host` even though the proxy connects to the hub over HTTP.
 
 A team is a name, members (login + role `admin` or `member`) and repositories, stored in `teams.json` next to `projects.json`. The first start creates a `Default` team holding every project; it mirrors the project list, so its repositories cannot be edited.
 
-**Who is who.** A signed-in user is matched to a member by the provider login the hub stored at sign-up (`github:octocat` matches the member `octocat`) — never by display name or e-mail, which the user controls. The owner (the hub token, or local mode) is an admin of every team.
+**Who is who.** A signed-in user is matched to a member by the provider login the hub stored at sign-up (`github:octocat` matches the member `octocat`; a GitLab member is added as `gitlab:<login>`, a bare login is always a GitHub login, so a same-named account on another provider matches nothing) — never by display name or e-mail, which the user controls. The owner (the hub token, or local mode) is an admin of every team.
 
 **What a caller sees.** `list_teams` and `get_team` return the teams the caller belongs to, plus teams with no members (the default team until someone is added); the owner sees all. `list_runs_all`, `list_tasks_all` and `list_needs_you_all` are limited to those teams' repositories. Per-repository commands (`repoPath` arguments) are still guarded by the project allowlist only, not by team.
 

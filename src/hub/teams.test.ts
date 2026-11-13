@@ -119,9 +119,14 @@ describe('team edits', () => {
     await expect(updateTeam(cfg, 't', (t) => withoutMember(t, 'ann'))).rejects.toThrow(/last admin/);
   });
 
-  it('roleOf matches the provider login case-insensitively, and nothing else', () => {
+  it('roleOf matches the provider login case-insensitively, provider included, and nothing else', () => {
     expect(roleOf(team, 'github:BOB')).toBe('member');
-    expect(roleOf(team, 'gitlab:ann')).toBe('admin');
+    // A bare member login is a GitHub login: a GitLab account of the same name is someone else.
+    expect(roleOf(team, 'gitlab:ann')).toBeUndefined();
+    const gl = withMember(team, 'gitlab:dee', 'member');
+    expect(roleOf(gl, 'gitlab:Dee')).toBe('member');
+    expect(roleOf(gl, 'github:dee')).toBeUndefined();
+    expect(() => withMember(team, 'github:ANN', 'member')).toThrow(/already/);
     expect(roleOf(team, 'github:zed')).toBeUndefined();
     expect(roleOf(team, undefined)).toBeUndefined();
   });
