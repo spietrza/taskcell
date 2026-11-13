@@ -206,7 +206,7 @@ describe('TaskBoard quick view', () => {
   const setup = async (): Promise<{ card: HTMLElement; onOpenTask: ReturnType<typeof vi.fn> }> => {
     mockListTasks.mockResolvedValue({ tasks: [{ id: 'gh-7', title: 'Seven', column: 'review', state: 'review' }], capped: false });
     const onOpenTask = vi.fn();
-    render(<TaskBoard project="/repo" onOpenTask={onOpenTask} onNewTask={() => {}} />);
+    render(<TaskBoard project="/repo" repos={[]} onOpenTask={onOpenTask} onNewTask={() => {}} />);
     return { card: (await screen.findByText('Seven')).closest('button') as HTMLElement, onOpenTask };
   };
 
