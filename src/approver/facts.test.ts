@@ -224,7 +224,7 @@ describe('collectReviewFacts act-mode run stamp', () => {
   const sha = 'a'.repeat(40);
   const other = 'b'.repeat(40);
   const stamp = (s: string, run = '42'): string => `\n\n<!-- taskcell-pr-review-run: ${s}:${run} -->`;
-  const body = (stamps: string): string => `## Vanguard Review\n\nVerdict: NO BLOCKING FINDINGS\n\n<!-- taskcell-pr-review: ${sha} -->${stamps}`;
+  const body = (stamps: string): string => `## Taskcell Review\n\nVerdict: NO BLOCKING FINDINGS\n\n<!-- taskcell-pr-review: ${sha} -->${stamps}`;
   const prWith = (b: string, commitSha: string | null = sha): PrFacts =>
     ({ reviews: [{ author: 'github-actions', body: b, submittedAt: '1', state: 'COMMENTED', ...(commitSha !== null ? { commitSha } : {}) }] }) as unknown as PrFacts;
   const pol = { reviewAuthors: ['github-actions'] } as ApproverPolicy;
@@ -259,7 +259,7 @@ describe('collectReviewFacts act-mode run stamp', () => {
   });
 
   it('a newer review without a usable stamp is not skipped in favour of an older stamped one', () => {
-    const blocking = `## Vanguard Review\n\nVerdict: BLOCKING FINDINGS\n\n<!-- taskcell-pr-review: ${sha} -->`;
+    const blocking = `## Taskcell Review\n\nVerdict: BLOCKING FINDINGS\n\n<!-- taskcell-pr-review: ${sha} -->`;
     const pr = { reviews: [
       { author: 'github-actions', body: body(stamp(sha)), submittedAt: '1', state: 'COMMENTED', commitSha: sha },
       { author: 'github-actions', body: blocking, submittedAt: '2', state: 'COMMENTED', commitSha: sha },
