@@ -499,6 +499,8 @@ credential an admin saved). An **admin** — a GitHub login listed in `--admin-g
 | `user-first` | the starter's own credential, else the instance credential |
 | `user-only` | the starter's own credential; with none saved the run is refused before it is queued |
 
+A run on the starter's own credential never reads the hub's provider keys: a provider whose key the user cannot save (a repo custom provider's `keyEnv`, meridian's `MERIDIAN_BASE_URL`) is refused for it.
+
 When the switch is on, each signed-in user saves their own provider credentials in Settings. They are
 keyed by GitHub user id and stored encrypted (AES-256-GCM) in `credentials.enc.json` in the hub
 config dir, with the key in `credentials.key` (mode 0600) beside it. Credentials are write-only:

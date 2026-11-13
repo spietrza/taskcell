@@ -32,7 +32,8 @@ vi.mock('../runners/github.js', () => ({
     runGithubIssue(...(args as [string, Record<string, unknown>])),
 }));
 
-const { productionDeps } = await import('./deps.js');
+const { productionDeps, credentialEnv } = await import('./deps.js');
+const { injectedSecretValues } = await import('../core/secret-scan.js');
 const { BadRequestError } = await import('./sidecar.js');
 const { SandboxError } = await import('../core/errors.js');
 
@@ -433,5 +434,56 @@ describe('createRun with a hub run credential', () => {
     });
     const env = (githubDepsFromEnv.mock.calls[0] as unknown[] | undefined)?.[3] as NodeJS.ProcessEnv;
     expect(env).toMatchObject({ ANTHROPIC_API_KEY: 'sk-ant-api03-INSTANCE', OPENAI_API_KEY: 'sk-host-openai' });
+  });
+});
+
+describe('createRun with a `user` credential: no instance key fallback (user-only bypass)', () => {
+  it('a repo custom provider is refused (its keyEnv is not storable), before the sandbox', async () => {
+    const repoPath = await repoWith([ENTRY]);
+    setEnv({ MY_PROXY_API_KEY: 'sk-host-proxy-key-123456' });
+    await expect(
+      productionDeps().createRun({ issueRef: 'o/r#1', repoPath, provider: 'my-proxy' }, () => {}, {
+        source: 'user',
+        env: { ANTHROPIC_API_KEY: 'sk-ant-api03-USER-KEY' },
+      }),
+    ).rejects.toBeInstanceOf(BadRequestError);
+    expect(beginRun).not.toHaveBeenCalled();
+    expect(startSandboxContext).not.toHaveBeenCalled();
+  });
+
+  it('meridian is refused: its host MERIDIAN_BASE_URL is the instance\'s', async () => {
+    const repoPath = await plainRepo();
+    setEnv({ MERIDIAN_BASE_URL: 'http://meridian.host:3456' });
+    await expect(
+      productionDeps().createRun({ issueRef: 'o/r#1', repoPath, provider: 'meridian' }, () => {}, {
+        source: 'user',
+        env: { MERIDIAN_API_KEY: 'user-meridian-key-123456' },
+      }),
+    ).rejects.toBeInstanceOf(BadRequestError);
+    expect(startSandboxContext).not.toHaveBeenCalled();
+  });
+
+  it('an instance credential may still use the host key of a custom provider', async () => {
+    setEnv({ MY_PROXY_API_KEY: 'sk-host-proxy-key-123456' });
+    const choice = { provider: 'my-proxy', customProviders: [{ ...ENTRY, index: 0 }] };
+    expect(credentialEnv({ source: 'instance', env: {} }, choice).MY_PROXY_API_KEY).toBe('sk-host-proxy-key-123456');
+  });
+});
+
+describe('createRun registers a stored CODEX_AUTH_JSON\'s inner tokens for the secret gate', () => {
+  it('the inner tokens are injected secret values for the run, and forgotten after it', async () => {
+    const tokens = { access_token: 'eyJhbGciOi.Xk92mQ7vLp3Rt8.Zw4Nb6', refresh_token: 'rt_9fK2xQm7LpZ3vB8nW4cJ', id_token: 'eyJpZCI6.Hq5Tn2Wk8Rm.Pz7Lc3' };
+    const json = JSON.stringify({ OPENAI_API_KEY: 'sk-proj-Ab3Xy9Qm2Kp7Lz4Vw8', tokens });
+    const repoPath = await plainRepo();
+    setEnv({ CODEX_AUTH_JSON: undefined, OPENAI_API_KEY: undefined, CLAUDE_CODE_OAUTH_TOKEN: undefined, ANTHROPIC_API_KEY: undefined });
+    let during: string[] = [];
+    runGithubIssue.mockImplementationOnce(async () => {
+      during = injectedSecretValues({});
+      return { prUrl: 'https://example/pr/1' };
+    });
+    await productionDeps().createRun({ issueRef: 'o/r#1', repoPath, provider: 'codex' }, () => {}, { source: 'user', env: { CODEX_AUTH_JSON: json } });
+    expect(during).toEqual(expect.arrayContaining(['sk-proj-Ab3Xy9Qm2Kp7Lz4Vw8', ...Object.values(tokens)]));
+    const after = injectedSecretValues({});
+    for (const v of Object.values(tokens)) expect(after).not.toContain(v);
   });
 });

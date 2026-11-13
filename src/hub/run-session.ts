@@ -2,8 +2,11 @@
 // supporting functions: emit_event, finish_run, resolve_terminal, has_terminal, buffer eviction) —
 // minus the child process and its pipe mutex, since the hub calls the sidecar's typed deps IN-PROCESS.
 // See that file for the original Rust implementation and its "why" comments.
+import { readFileSync, writeFileSync } from 'node:fs';
 import { cancelCurrent } from '../sidecar/cancel.js';
 import { BadRequestError } from '../sidecar/sidecar.js';
+import type { AuditActor } from '../core/audit.js';
+import { auditActorOf } from './audit.js';
 import { RunEventLog } from './run-events.js';
 import type { SidecarDeps, CreateRunParams, CreateRunResult } from '../sidecar/sidecar.js';
 import type { RunCredential } from '../wire.js';
@@ -66,6 +69,29 @@ export interface RunSession {
   cancel(runId?: string): void;
 }
 
+/** The next run number persisted by a previous hub process (0 when none). */
+function loadCounter(file: string | undefined): number {
+  if (file === undefined) return 0;
+  try {
+    const n = Number.parseInt(readFileSync(file, 'utf8'), 10);
+    return Number.isSafeInteger(n) && n >= 0 ? n : 0;
+  } catch {
+    return 0;
+  }
+}
+
+function saveCounter(file: string | undefined, next: number): void {
+  if (file === undefined) return;
+  try {
+    writeFileSync(file, String(next), { mode: 0o600 });
+  } catch {
+    // Best-effort: a hub that cannot persist the counter still runs; ids then restart after a restart.
+  }
+}
+
+const actorFor = (startedBy: string | undefined): AuditActor =>
+  startedBy === undefined ? { kind: 'local' } : auditActorOf({ login: startedBy, admin: false });
+
 function maxQueueLimit(): number {
   const raw = process.env.VANGUARD_HUB_MAX_QUEUE;
   // Unset or blank falls back to the default — `Number('')` is 0, which would silently disable queueing.
@@ -87,9 +113,11 @@ export function createRunSession(
   deps: SidecarDeps,
   publish: (name: string, payload: unknown) => number | void,
   assertStart?: (params: CreateRunParams) => Promise<void>,
+  /** File holding the next run number, so run ids stay unique across hub restarts (they key the audit trail). */
+  counterFile?: string,
 ): RunSession {
   let active: { runId: string; repoPath: string } | null = null;
-  let counter = 0;
+  let counter = loadCounter(counterFile);
   const buffer = new Map<string, BufferedEvent[]>();
   /** The running run's durable event log (one active run at a time). */
   let eventLog: { runId: string; log: RunEventLog } | null = null;
@@ -201,7 +229,7 @@ export function createRunSession(
       // Drop the queued-phase `run-queued` so `run-accepted` is index 0 — the eviction invariant in
       // bufferPush, and the only event a strip re-attach may adopt from.
       buffer.delete(runId);
-      eventLog = { runId, log: new RunEventLog(repoPath) };
+      eventLog = { runId, log: new RunEventLog(repoPath, undefined, undefined, { actor: actorFor(params.startedBy), subject: { repo: repoPath, runId } }) };
       emit(runId, { type: 'run-accepted', repoPath, ...(credential !== undefined ? { credentialSource: credential.source } : {}) });
       result = await deps.createRun(params, (e) => emit(runId, e), credential);
     } catch (error) {
@@ -295,6 +323,7 @@ export function createRunSession(
       }
       const runId = `run-${counter}`;
       counter += 1;
+      saveCounter(counterFile, counter);
       return new Promise<CreateRunResult>((resolve, reject) => {
         const entry: QueuedRun = { runId, params, ...(credential !== undefined ? { credential } : {}), resolve, reject, ...(hooks !== undefined ? { hooks } : {}) };
         if (active === null) {
