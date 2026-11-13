@@ -134,8 +134,12 @@ fn show_status(app: &AppHandle, message: &str) {
     );
 }
 
+/// Navigate from the embedder, never by script in the current page: that page may be a remote hub, which
+/// could read the destination (the local hub's `#token=`) from a Navigation API `navigate` event, or
+/// cancel the navigation (`navigate`/`beforeunload`) and so block a switch back to Local.
 fn open_hub(app: &AppHandle, url: &str) {
-    eval(app, &format!("window.location.replace({})", js_string(url)));
+    let (Some(win), Ok(url)) = (app.get_webview_window(WINDOW), tauri::Url::parse(url)) else { return };
+    let _ = win.navigate(url);
 }
 
 /// Read the hub's stdout until it prints the launch URL (then keep draining so the pipe never fills).
