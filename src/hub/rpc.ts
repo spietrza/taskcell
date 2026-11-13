@@ -32,6 +32,8 @@ import { CREDENTIAL_PROVIDERS, type CredentialProvider, type CredentialStore } f
 import * as drafts from './drafts.js';
 import * as projects from './projects.js';
 import * as teams from './teams.js';
+import type { HubUser } from './auth.js';
+import type { Team, TeamRole } from '../wire.js';
 import * as remote from './remote.js';
 import { startGithubTask, triggerLabelsFor } from './start-task.js';
 import { enableFactory, factoryPlanTargets, noScripts, type FactoryPlan, type FactoryProviderId } from './enable-factory.js';
@@ -176,13 +178,56 @@ async function repoOk(repoPath: string): Promise<boolean> {
 /** The Fleet screen's shell-spawn surface — rejected unless `ctx.spawnRegistry` is set. */
 export const FLEET_COMMANDS = ['spawn_run', 'kill_run', 'list_spawns'] as const;
 
+/** Who is calling: the signed-in user, and whether they are the hub owner (token / local mode), who administers every team. */
+export interface RpcCaller {
+  user: HubUser;
+  owner: boolean;
+}
+
+/** The owner administers every team; anyone else is matched on their stored provider login (never the free-text name). */
+function callerRole(team: Team, caller: RpcCaller | undefined): TeamRole | undefined {
+  if (caller?.owner === true) return 'admin';
+  return caller === undefined ? undefined : teams.roleOf(team, caller.user.providerLogin);
+}
+
+/** Teams the caller may see; the owner (and a call without a caller, i.e. in-process) sees all. */
+function visibleTo(all: Team[], caller: RpcCaller | undefined): Team[] {
+  return caller === undefined || caller.owner ? all : teams.visibleTeams(all, caller.user.providerLogin);
+}
+
+/** The repositories a non-owner may list across (`undefined` = no restriction). */
+async function repoScope(ctx: RpcContext, caller: RpcCaller | undefined): Promise<string[] | undefined> {
+  if (caller === undefined || caller.owner) return undefined;
+  return [...new Set(visibleTo(await teams.listTeams(ctx.configDir), caller).flatMap((t) => t.repositories))];
+}
+
+/** Gate (bind, then admin role, both checked inside the team write queue) and apply one team edit. */
+function adminTeamEdit(
+  ctx: RpcContext,
+  caller: RpcCaller | undefined,
+  args: Record<string, unknown>,
+  edit: (t: Team) => Team,
+): Promise<Team> {
+  assertMutationsAllowed(ctx.bind);
+  return teams.updateTeam(ctx.configDir, requireString(args, 'teamId'), (t) => {
+    if (callerRole(t, caller) !== 'admin') throw new BadRequestError('only a team admin can change the team');
+    return edit(t);
+  });
+}
+
+function requireRole(args: Record<string, unknown>): TeamRole {
+  const r = args.role;
+  if (r !== 'admin' && r !== 'member') throw new BadRequestError("role must be 'admin' or 'member'");
+  return r;
+}
+
 /**
  * Dispatch one RPC command. Returns the raw result (never `undefined` — void commands resolve
  * `null`) or throws: `BadRequestError`/`FlowError`/`TaskcellError` classify `bad-request`,
  * `UnknownCommandError` (a BadRequestError subtype) is additionally mapped to 404 by the caller,
  * anything else classifies `internal`. See `classifyError` below.
  */
-export async function dispatchRpc(ctx: RpcContext, cmd: string, rawArgs: unknown): Promise<unknown> {
+export async function dispatchRpc(ctx: RpcContext, cmd: string, rawArgs: unknown, caller?: RpcCaller): Promise<unknown> {
   const args = obj(rawArgs);
 
   if ((FLEET_COMMANDS as readonly string[]).includes(cmd) && ctx.spawnRegistry === undefined) {
@@ -216,6 +261,7 @@ export async function dispatchRpc(ctx: RpcContext, cmd: string, rawArgs: unknown
         ctx.configDir,
         (p) => ctx.allowlist.assertAllowed(p),
         (real) => listRunSummaries(defaultRunsRoot(real)),
+        await repoScope(ctx, caller),
       );
       // Newest first across repositories, as each repository's own list is.
       items.sort((x, y) => (x.timestamp < y.timestamp ? 1 : x.timestamp > y.timestamp ? -1 : 0));
@@ -245,10 +291,35 @@ export async function dispatchRpc(ctx: RpcContext, cmd: string, rawArgs: unknown
       return projects.list(ctx.configDir);
     }
     case 'list_teams': {
-      return teams.listTeams(ctx.configDir);
+      return visibleTo(await teams.listTeams(ctx.configDir), caller);
     }
     case 'get_team': {
-      return (await teams.getTeam(ctx.configDir, requireString(args, 'id'))) ?? null;
+      return visibleTo(await teams.listTeams(ctx.configDir), caller).find((t) => t.id === requireString(args, 'id')) ?? null;
+    }
+    case 'team_role': {
+      const team = await teams.getTeam(ctx.configDir, requireString(args, 'id'));
+      return (team === undefined ? undefined : callerRole(team, caller)) ?? null;
+    }
+    case 'team_add_member': {
+      return adminTeamEdit(ctx, caller, args, (t) => teams.withMember(t, requireString(args, 'login'), requireRole(args)));
+    }
+    case 'team_set_role': {
+      return adminTeamEdit(ctx, caller, args, (t) => teams.withRole(t, requireString(args, 'login'), requireRole(args)));
+    }
+    case 'team_remove_member': {
+      return adminTeamEdit(ctx, caller, args, (t) => teams.withoutMember(t, requireString(args, 'login')));
+    }
+    case 'team_add_repository': {
+      const path = requireString(args, 'path');
+      // Read before the gate, acted on only inside it: a refused caller learns nothing.
+      const known = (await projects.loadPaths(ctx.configDir)).includes(path);
+      return adminTeamEdit(ctx, caller, args, (t) => {
+        if (!known) throw new BadRequestError('repository is not a hub project');
+        return teams.withRepository(t, path);
+      });
+    }
+    case 'team_remove_repository': {
+      return adminTeamEdit(ctx, caller, args, (t) => teams.withoutRepository(t, requireString(args, 'path')));
     }
     case 'add_project': {
       assertMutationsAllowed(ctx.bind);
@@ -371,6 +442,7 @@ export async function dispatchRpc(ctx: RpcContext, cmd: string, rawArgs: unknown
           capped ||= r.capped;
           return r.tasks;
         },
+        await repoScope(ctx, caller),
       );
       return { tasks: items, capped, failures };
     }
@@ -532,6 +604,7 @@ export async function dispatchRpc(ctx: RpcContext, cmd: string, rawArgs: unknown
           const repoSlug = await githubSlug(real);
           return repoSlug === undefined ? [] : listNeedsYou(repoSlug, undefined, { commentBudget });
         },
+        await repoScope(ctx, caller),
       );
       return { items, failures };
     }

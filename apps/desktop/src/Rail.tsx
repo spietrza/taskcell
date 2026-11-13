@@ -13,6 +13,8 @@ import {
 } from 'lucide-react';
 import { Collapsible, Tooltip, cn } from '@/ui';
 import type { Project, ActiveRun } from './taskcell-output';
+import type { Team } from './wire';
+import { TeamSwitcher } from './TeamSwitcher';
 import { relTime } from './time';
 import { RailTip } from './RailTip';
 import { canUseFleet } from './transport';
@@ -42,6 +44,9 @@ export function Rail({
   running,
   onScreen,
   onOpenRunning,
+  teams,
+  team,
+  onTeam,
 }: {
   projects: Project[];
   activePath: string | null;
@@ -49,6 +54,9 @@ export function Rail({
   running: ActiveRun[];
   onScreen: (s: Screen) => void;
   onOpenRunning: (r: ActiveRun) => void;
+  teams: Team[];
+  team: Team | undefined;
+  onTeam: (id: string) => void;
 }) {
   const active = projects.find((p) => p.path === activePath);
   // Base UI Collapsible owns the open/closed state (the trigger gets aria-expanded for free); we persist
@@ -71,6 +79,11 @@ export function Rail({
       )}
     >
       <Tooltip.Provider delay={200}>
+        {team && (
+          <div className="mb-2 px-2">
+            <TeamSwitcher teams={teams} active={team} onSelect={onTeam} collapsed={collapsed} onExpand={() => onOpenChange(true)} />
+          </div>
+        )}
         <nav className="space-y-0.5 px-2">
           {NAV.map((n) => {
             const count = n.key === 'runs' ? active?.runCount : undefined;

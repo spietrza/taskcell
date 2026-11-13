@@ -1,4 +1,5 @@
 import { invoke } from './transport';
+import type { Team, TeamRole } from './wire';
 import type {
   RunSummary,
   RunDetail,
@@ -404,4 +405,34 @@ export function apiCancel(runId?: string): Promise<void> {
 /** Click-time pre-flight: is `repoPath` a git work tree? */
 export function apiRepoOk(repoPath: string): Promise<boolean> {
   return call('api_repo_ok', { repoPath });
+}
+
+/** Hub-only: the teams the caller can see. */
+export function listTeams(): Promise<Team[]> {
+  return call('list_teams', undefined);
+}
+
+/** Hub-only: the caller's role in a team (`null` for a non-member). */
+export function teamRole(id: string): Promise<TeamRole | null> {
+  return call('team_role', { id });
+}
+
+export function teamAddMember(teamId: string, login: string, role: TeamRole): Promise<Team> {
+  return call('team_add_member', { teamId, login, role });
+}
+
+export function teamSetRole(teamId: string, login: string, role: TeamRole): Promise<Team> {
+  return call('team_set_role', { teamId, login, role });
+}
+
+export function teamRemoveMember(teamId: string, login: string): Promise<Team> {
+  return call('team_remove_member', { teamId, login });
+}
+
+export function teamAddRepository(teamId: string, path: string): Promise<Team> {
+  return call('team_add_repository', { teamId, path });
+}
+
+export function teamRemoveRepository(teamId: string, path: string): Promise<Team> {
+  return call('team_remove_repository', { teamId, path });
 }

@@ -12,6 +12,7 @@ import * as clone from './clone.js';
 import * as enableFactoryModule from './enable-factory.js';
 import * as cliVersions from '../sandbox/cli-versions.js';
 import { loadPaths, savePaths } from './projects.js';
+import { saveTeams } from './teams.js';
 import { ProjectAllowlist } from './allowlist.js';
 import { WatchRegistry } from './watch.js';
 import { createRunSession } from './run-session.js';
@@ -834,5 +835,58 @@ describe('start_task', () => {
     await writeAppConfig(repo, { label: 'go' });
     const { ctx } = await makeCtx(repo);
     await expect(call(ctx, repo, { label: 'bug' })).rejects.toThrow('"bug" is not a trigger label of this project (ready for agent, ready for spec, go)');
+  });
+});
+
+describe('dispatchRpc team edits', () => {
+  const owner = { user: { id: 'o', email: 'owner@hub.invalid', name: 'Owner' }, owner: true };
+  const bob = { user: { id: 'b', email: 'bob@x.io', name: 'Bob', providerLogin: 'github:bob' }, owner: false };
+  const ann = { user: { id: 'a', email: 'ann@x.io', name: 'Ann', providerLogin: 'github:ann' }, owner: false };
+  // Same display name, e-mail local part and id shape as the admin, but a different provider login.
+  const impostor = { user: { id: 'x', email: 'ann@evil.io', name: 'ann', providerLogin: 'github:mallory' }, owner: false };
+
+  test('only an admin edits; a member and a stranger are refused; the last admin stays', async () => {
+    const repo = await tmpGitRepo();
+    const { ctx } = await makeCtx(repo);
+    await savePaths(ctx.configDir, [repo]);
+    await saveTeams(ctx.configDir, [
+      { id: 't', name: 'T', members: [{ login: 'ann', role: 'admin' }, { login: 'bob', role: 'member' }], repositories: [] },
+    ]);
+    expect(await dispatchRpc(ctx, 'team_role', { id: 't' }, bob)).toBe('member');
+    expect(await dispatchRpc(ctx, 'team_role', { id: 't' }, ann)).toBe('admin');
+    expect(await dispatchRpc(ctx, 'team_role', { id: 't' }, owner)).toBe('admin');
+    await expect(dispatchRpc(ctx, 'team_add_member', { teamId: 't', login: 'cy', role: 'member' }, bob)).rejects.toThrow(/only a team admin/);
+    // A display name or e-mail equal to the admin's login grants nothing.
+    expect(await dispatchRpc(ctx, 'team_role', { id: 't' }, impostor)).toBeNull();
+    await expect(dispatchRpc(ctx, 'team_add_member', { teamId: 't', login: 'mallory', role: 'admin' }, impostor)).rejects.toThrow(/only a team admin/);
+    await expect(dispatchRpc(ctx, 'team_add_repository', { teamId: 't', path: '/nope' }, impostor)).rejects.toThrow(/only a team admin/);
+    const t = (await dispatchRpc(ctx, 'team_add_member', { teamId: 't', login: 'cy', role: 'member' }, ann)) as { members: unknown[] };
+    expect(t.members).toHaveLength(3);
+    await expect(dispatchRpc(ctx, 'team_remove_member', { teamId: 't', login: 'ann' }, ann)).rejects.toThrow(/last admin/);
+    await expect(dispatchRpc(ctx, 'team_set_role', { teamId: 't', login: 'ann', role: 'member' }, ann)).rejects.toThrow(/last admin/);
+    const r = (await dispatchRpc(ctx, 'team_add_repository', { teamId: 't', path: repo }, ann)) as { repositories: string[] };
+    expect(r.repositories).toEqual([repo]);
+    await expect(dispatchRpc(ctx, 'team_add_repository', { teamId: 't', path: '/nope' }, ann)).rejects.toThrow(/not a hub project/);
+    expect(((await dispatchRpc(ctx, 'team_remove_repository', { teamId: 't', path: repo }, ann)) as { repositories: string[] }).repositories).toEqual([]);
+  });
+
+  test('a non-owner sees only their teams and their teams\' repositories; the owner sees all', async () => {
+    const a = await tmpGitRepo();
+    const b = await tmpGitRepo();
+    const { ctx } = await makeCtx(a);
+    await savePaths(ctx.configDir, [a, b]);
+    await saveTeams(ctx.configDir, [
+      { id: 'one', name: 'One', members: [{ login: 'ann', role: 'admin' }], repositories: [a] },
+      { id: 'two', name: 'Two', members: [{ login: 'bob', role: 'admin' }], repositories: [b] },
+    ]);
+    const ids = async (c: typeof ann | typeof owner): Promise<string[]> =>
+      ((await dispatchRpc(ctx, 'list_teams', {}, c)) as { id: string }[]).map((t) => t.id);
+    expect(await ids(ann)).toEqual(['one']);
+    expect(await ids(owner)).toEqual(['one', 'two']);
+    expect(await dispatchRpc(ctx, 'get_team', { id: 'two' }, ann)).toBeNull();
+    const runs = (await dispatchRpc(ctx, 'list_runs_all', {}, ann)) as { failures: { repoPath: string }[]; runs: unknown[] };
+    expect(runs.failures.every((f) => f.repoPath === a)).toBe(true);
+    const tasks = (await dispatchRpc(ctx, 'list_tasks_all', {}, ann)) as { failures: { repoPath: string }[] };
+    expect(tasks.failures.every((f) => f.repoPath === a)).toBe(true);
   });
 });

@@ -3,7 +3,7 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { beforeEach, describe, expect, it } from 'vitest';
 import { savePaths } from './projects.js';
-import { ensureTeams, getTeam, listTeams, loadTeams, saveTeams } from './teams.js';
+import { ensureTeams, getTeam, listTeams, loadTeams, roleOf, saveTeams, updateTeam, visibleTeams, withMember, withoutMember, withoutRepository, withRepository, withRole } from './teams.js';
 
 let cfg: string;
 beforeEach(async () => {
@@ -76,5 +76,64 @@ describe('migration', () => {
 
   it('works with no projects and no teams file', async () => {
     expect(await ensureTeams(cfg)).toEqual([{ id: 'default', name: 'Default', members: [], repositories: [] }]);
+  });
+});
+
+describe('team edits', () => {
+  const team = {
+    id: 't',
+    name: 'T',
+    members: [
+      { login: 'ann', role: 'admin' as const },
+      { login: 'bob', role: 'member' as const },
+    ],
+    repositories: ['/a'],
+  };
+
+  it('adds, re-roles and removes members', () => {
+    const added = withMember(team, '@cy', 'member');
+    expect(added.members.map((m) => m.login)).toEqual(['ann', 'bob', 'cy']);
+    expect(() => withMember(added, 'CY', 'member')).toThrow(/already/);
+    expect(withRole(team, 'bob', 'admin').members[1]!.role).toBe('admin');
+    expect(withoutMember(team, 'bob').members).toHaveLength(1);
+  });
+
+  it('never removes or demotes the last admin', () => {
+    expect(() => withoutMember(team, 'ann')).toThrow(/last admin/);
+    expect(() => withRole(team, 'ann', 'member')).toThrow(/last admin/);
+    const two = withRole(team, 'bob', 'admin');
+    expect(withoutMember(two, 'ann').members).toEqual([{ login: 'bob', role: 'admin' }]);
+    expect(withRole(two, 'ann', 'member').members[0]!.role).toBe('member');
+  });
+
+  it('adds and removes repositories, except on the default team', () => {
+    expect(withRepository(team, '/b').repositories).toEqual(['/a', '/b']);
+    expect(withoutRepository(team, '/a').repositories).toEqual([]);
+    expect(() => withRepository({ ...team, id: 'default' }, '/b')).toThrow(/default team/);
+  });
+
+  it('updateTeam persists the edit', async () => {
+    await saveTeams(cfg, [team]);
+    await updateTeam(cfg, 't', (t) => withMember(t, 'cy', 'member'));
+    expect((await getTeam(cfg, 't'))!.members).toHaveLength(3);
+    await expect(updateTeam(cfg, 't', (t) => withoutMember(t, 'ann'))).rejects.toThrow(/last admin/);
+  });
+
+  it('roleOf matches the provider login case-insensitively, and nothing else', () => {
+    expect(roleOf(team, 'github:BOB')).toBe('member');
+    expect(roleOf(team, 'gitlab:ann')).toBe('admin');
+    expect(roleOf(team, 'github:zed')).toBeUndefined();
+    expect(roleOf(team, undefined)).toBeUndefined();
+  });
+
+  it('visibleTeams: member teams plus teams with no members', () => {
+    const empty = { ...team, id: 'e', members: [] };
+    expect(visibleTeams([team, empty], 'github:bob').map((t) => t.id)).toEqual(['t', 'e']);
+    expect(visibleTeams([team, empty], 'github:zed').map((t) => t.id)).toEqual(['e']);
+  });
+
+  it('login edits normalise like adds', () => {
+    expect(withRole(team, '@BOB', 'admin').members[1]!.role).toBe('admin');
+    expect(withoutMember(team, ' @bob ').members).toHaveLength(1);
   });
 });

@@ -2,7 +2,8 @@
 import { randomUUID } from 'node:crypto';
 import { copyFile, mkdir, readFile, rename, writeFile } from 'node:fs/promises';
 import { join } from 'node:path';
-import type { Team, TeamMember } from '../wire.js';
+import type { Team, TeamMember, TeamRole } from '../wire.js';
+import { TaskcellError } from '../core/errors.js';
 import { loadPaths } from './projects.js';
 
 const DEFAULT_TEAM_ID = 'default';
@@ -114,4 +115,76 @@ export async function listTeams(configDir: string): Promise<Team[]> {
 
 export async function getTeam(configDir: string, id: string): Promise<Team | undefined> {
   return (await listTeams(configDir)).find((t) => t.id === id);
+}
+
+/** A caller-correctable team edit failure (unknown member, last admin, ...). */
+export class TeamError extends TaskcellError {}
+
+const normLogin = (login: string): string => login.trim().replace(/^@/, '');
+const sameLogin = (a: string, b: string): boolean => a.toLowerCase() === b.toLowerCase();
+
+/** The caller's role in `team`, matched on the provider login (`github:octocat` -> `octocat`) the hub stored at sign-up. */
+export function roleOf(team: Team, providerLogin: string | undefined): TeamRole | undefined {
+  const login = providerLogin?.slice(providerLogin.indexOf(':') + 1);
+  if (login === undefined || login === '') return undefined;
+  return team.members.find((m) => sameLogin(m.login, login))?.role;
+}
+
+/** Teams a caller may see: those they belong to, plus teams with no members yet (the migrated default team). */
+export function visibleTeams(all: Team[], providerLogin: string | undefined): Team[] {
+  return all.filter((t) => t.members.length === 0 || roleOf(t, providerLogin) !== undefined);
+}
+
+function adminCount(members: TeamMember[]): number {
+  return members.filter((m) => m.role === 'admin').length;
+}
+
+/** Pure edits: each returns the new team or throws TeamError. The last admin can never leave or be demoted. */
+export function withMember(team: Team, login: string, role: TeamRole): Team {
+  const l = normLogin(login);
+  if (l === '') throw new TeamError('login is required');
+  if (team.members.some((m) => sameLogin(m.login, l))) throw new TeamError(`${l} is already a member`);
+  return { ...team, members: [...team.members, { login: l, role }] };
+}
+
+export function withRole(team: Team, login: string, role: TeamRole): Team {
+  const m = team.members.find((x) => sameLogin(x.login, normLogin(login)));
+  if (m === undefined) throw new TeamError(`${login} is not a member`);
+  if (m.role === 'admin' && role !== 'admin' && adminCount(team.members) <= 1) {
+    throw new TeamError('the last admin cannot be demoted');
+  }
+  return { ...team, members: team.members.map((x) => (x === m ? { ...x, role } : x)) };
+}
+
+export function withoutMember(team: Team, login: string): Team {
+  const m = team.members.find((x) => sameLogin(x.login, normLogin(login)));
+  if (m === undefined) throw new TeamError(`${login} is not a member`);
+  if (m.role === 'admin' && adminCount(team.members) <= 1) throw new TeamError('the last admin cannot be removed');
+  return { ...team, members: team.members.filter((x) => x !== m) };
+}
+
+export function withRepository(team: Team, path: string): Team {
+  if (team.id === DEFAULT_TEAM_ID) throw new TeamError('the default team lists every project');
+  if (team.repositories.includes(path)) throw new TeamError('repository is already in the team');
+  return { ...team, repositories: [...team.repositories, path] };
+}
+
+export function withoutRepository(team: Team, path: string): Team {
+  if (team.id === DEFAULT_TEAM_ID) throw new TeamError('the default team lists every project');
+  if (!team.repositories.includes(path)) throw new TeamError('repository is not in the team');
+  return { ...team, repositories: team.repositories.filter((p) => p !== path) };
+}
+
+/** Persisted edit of one team, serialised with `ensureTeams` so writes do not interleave. */
+export function updateTeam(configDir: string, id: string, edit: (t: Team) => Team): Promise<Team> {
+  const run = queue.then(async () => {
+    const all = await ensure(configDir);
+    const team = all.find((t) => t.id === id);
+    if (team === undefined) throw new TeamError(`unknown team ${id}`);
+    const next = edit(team);
+    await saveTeams(configDir, all.map((t) => (t.id === id ? next : t)));
+    return next;
+  });
+  queue = run.catch(() => undefined);
+  return run;
 }

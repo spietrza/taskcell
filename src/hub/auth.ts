@@ -15,6 +15,8 @@ export interface HubUser {
   id: string;
   email: string;
   name: string;
+  /** The provider login Better Auth stored at account creation (`github:octocat`); absent for the owner and for providers without one. Team roles match on it, never on the free-text name. */
+  providerLogin?: string;
 }
 
 export type AuthProviderId = 'github' | 'gitlab' | 'google';
@@ -210,7 +212,8 @@ export async function createHubIdentity(opts: CreateIdentityOptions): Promise<Hu
       }
       if (session === null) return undefined;
       const { id, email, name } = session.user;
-      return { id, email, name };
+      const login = (session.user as { providerLogin?: unknown }).providerLogin;
+      return { id, email, name, ...(typeof login === 'string' && login !== '' ? { providerLogin: login } : {}) };
     },
     close: () => db.close(),
   };

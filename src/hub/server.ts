@@ -9,7 +9,7 @@ import { serveStatic } from './static.js';
 import { EventBus } from './events.js';
 import { writeJson, jsonError } from './json-response.js';
 import { CredentialStore } from './credentials.js';
-import { dispatchRpc, classifyError, type RpcContext } from './rpc.js';
+import { dispatchRpc, classifyError, type RpcCaller, type RpcContext } from './rpc.js';
 import { encodeError, encodeResult, HUB_EVENTS_SESSION_PATH, HUB_SIGN_IN_REQUIRED, HUB_TOKEN_HEADER, HUB_TOKEN_REJECTED } from '../hub-wire.js';
 import { ProjectAllowlist, type BindOptions } from './allowlist.js';
 import { WatchRegistry, type WatchOptions } from './watch.js';
@@ -210,7 +210,7 @@ function respondBodyTooLarge(res: ServerResponse): void {
   writeJson(res, encoded.status, encoded.body, { connection: 'close' }, () => res.socket?.destroy());
 }
 
-async function handleRpcRequest(ctx: RpcContext, req: IncomingMessage, res: ServerResponse, cmd: string): Promise<void> {
+async function handleRpcRequest(ctx: RpcContext, req: IncomingMessage, res: ServerResponse, cmd: string, caller: RpcCaller): Promise<void> {
   if (!sameOriginOk(req)) {
     jsonError(res, 400, 'cross-origin request rejected', 'bad-request');
     return;
@@ -234,7 +234,7 @@ async function handleRpcRequest(ctx: RpcContext, req: IncomingMessage, res: Serv
   }
 
   try {
-    const result = await dispatchRpc(ctx, cmd, body);
+    const result = await dispatchRpc(ctx, cmd, body, caller);
     // Spec §2.3: success is `{ result }` (null for void commands); apps/desktop/src/transport.ts reads
     // `body.result`. A bare body here left the UI with `undefined` projects on first paint.
     writeJson(res, 200, encodeResult(result));
@@ -331,8 +331,9 @@ async function handleRequest(
 
   if (pathname.startsWith('/rpc/')) {
     if (req.method !== 'POST') return methodNotAllowed(res, 'POST');
-    if ((await resolveUser()) === undefined) return unauthorized();
-    await handleRpcRequest(ctx, req, res, pathname.slice('/rpc/'.length));
+    const user = await resolveUser();
+    if (user === undefined) return unauthorized();
+    await handleRpcRequest(ctx, req, res, pathname.slice('/rpc/'.length), { user, owner: user.id === identity.owner.id });
     return;
   }
 

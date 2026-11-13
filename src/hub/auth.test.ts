@@ -5,6 +5,7 @@ import { createServer, type IncomingMessage } from 'node:http';
 import type { AddressInfo } from 'node:net';
 import { afterEach, beforeEach, describe, expect, test, vi } from 'vitest';
 import { createHubIdentity, localOnlyIdentity, OWNER_EMAIL, parsePublicUrl, parseSignupAllowlist, providersFromEnv, type HubIdentity } from './auth.js';
+import { saveTeams } from './teams.js';
 import { createHubServer, type HubServer } from './server.js';
 import { HUB_SIGN_IN_REQUIRED, HUB_TOKEN_HEADER } from '../hub-wire.js';
 import type { SidecarDeps } from '../sidecar/sidecar.js';
@@ -113,6 +114,23 @@ describe('server mode', () => {
     return { callback, cookie: [cookieOf(begin), cookieOf(callback)].filter(Boolean).join('; ') };
   }
   const rpc = (headers: Record<string, string>): Promise<Response> => post('/rpc/list_projects', headers);
+
+  test('team roles key on the stored provider login: a session is not the owner, the token is', async () => {
+    await start(['github:octo']);
+    const { cookie } = await signIn();
+    const user = await identity!.sessionUser({ headers: { cookie } } as IncomingMessage);
+    // The display name ("Octo Cat") is free text; the login is what the hub recorded at sign-up.
+    expect(user).toMatchObject({ name: 'Octo Cat', providerLogin: 'github:Octo' });
+    const role = async (headers: Record<string, string>): Promise<unknown> =>
+      ((await (await post('/rpc/team_role', headers, JSON.stringify({ id: 'default' }))).json()) as { result: unknown }).result;
+    await saveTeams(dir, [
+      { id: 'default', name: 'Default', members: [{ login: 'octo', role: 'member' }, { login: 'Octo Cat', role: 'admin' }], repositories: [] },
+    ]);
+    expect(await role({ cookie })).toBe('member');
+    expect(await role({ [HUB_TOKEN_HEADER]: TOKEN })).toBe('admin');
+    await saveTeams(dir, [{ id: 'default', name: 'Default', members: [{ login: 'Octo Cat', role: 'admin' }], repositories: [] }]);
+    expect(await role({ cookie })).toBeNull();
+  });
 
   test('a login on the allowlist signs in; the session authorises RPC and SSE until sign-out', async () => {
     await start(['github:octo']);

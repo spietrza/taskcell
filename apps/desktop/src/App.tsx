@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 import { isTauri } from '@tauri-apps/api/core';
 import { getCurrentWindow } from '@tauri-apps/api/window';
 import { type Theme } from '@/ui';
@@ -10,7 +10,9 @@ import { TailwindDebugScreens } from './components/TailwindDebugScreens';
 import { Dashboard } from './features/dashboard/Dashboard';
 import { Inspector } from './features/inspector/Inspector';
 import { EnableFactoryDialog } from './features/dashboard/EnableFactoryDialog';
-import { listProjects, addProject, cloneProject, removeProject, listActive } from './ipc';
+import { listProjects, addProject, cloneProject, removeProject, listActive, listTeams, teamAddRepository } from './ipc';
+import { loadTeamId, resolveTeam, saveTeamId, teamProjects } from './teams';
+import type { Team } from './wire';
 import { projectColor, contrastColor } from './color';
 import { createNavGuardRegistry, NavGuardContext } from './navGuard';
 import { ProjectCombobox } from './ProjectCombobox';
@@ -20,7 +22,16 @@ import { applyTheme, initialTheme, saveTheme } from './theme';
 import type { Project, ActiveRun } from './taskcell-output';
 
 export default function App() {
-  const [projects, setProjects] = useState<Project[]>([]);
+  const [allProjects, setProjects] = useState<Project[]>([]);
+  const [teams, setTeams] = useState<Team[]>([]);
+  const [teamId, setTeamId] = useState<string | null>(loadTeamId);
+  // Nothing is picked (active project, repository filter) before the first teams answer, or the unscoped list would win.
+  const [teamsLoaded, setTeamsLoaded] = useState(false);
+  // Bumped by every local team edit so an older in-flight listTeams cannot overwrite it.
+  const teamsGen = useRef(0);
+  const team = resolveTeam(teams, teamId);
+  // Home, Board and Runs see only the selected team's repositories (no teams loaded = every project).
+  const projects = useMemo(() => teamProjects(allProjects, team), [allProjects, team]);
   const [activeProject, setActiveProject] = useState<string | null>(null);
   // The repository filter Board, Runs and Needs you share (persisted): ALL_REPOS or the active project's path.
   const [repoFilter, setRepoFilter] = useState<string>(loadRepoFilter);
@@ -67,6 +78,13 @@ export default function App() {
           if (alive) setProjects(p);
         })
         .catch(() => {});
+      const gen = teamsGen.current;
+      listTeams()
+        .then((t) => {
+          if (alive && gen === teamsGen.current) setTeams(t);
+        })
+        .catch(() => {})
+        .finally(() => alive && setTeamsLoaded(true));
     };
     tick();
     const id = setInterval(tick, 5000);
@@ -76,20 +94,42 @@ export default function App() {
     };
   }, []);
 
-  // Default the current project to the persisted filter's repository, else the first, once projects load.
+  // Default the current project to the persisted filter's repository, else the first, once projects load;
+  // a project that left the selected team (team switch, repository removed) is replaced the same way.
   useEffect(() => {
-    if (!activeProject && projects.length) {
+    if (!teamsLoaded) return;
+    if (activeProject && projects.length && !projects.some((p) => p.path === activeProject)) setActiveProject(null);
+    else if (!activeProject && projects.length) {
       setActiveProject(projects.find((p) => p.path === repoFilter)?.path ?? projects[0].path);
     }
-  }, [projects, activeProject, repoFilter]);
+  }, [teamsLoaded, projects, activeProject, repoFilter]);
 
   // A persisted filter naming a repository that is gone falls back to every repository.
   useEffect(() => {
-    if (repoFilter !== ALL_REPOS && projects.length && !projects.some((p) => p.path === repoFilter)) {
+    if (teamsLoaded && repoFilter !== ALL_REPOS && projects.length && !projects.some((p) => p.path === repoFilter)) {
       setRepoFilter(ALL_REPOS);
       saveRepoFilter(ALL_REPOS);
     }
-  }, [projects, repoFilter]);
+  }, [teamsLoaded, projects, repoFilter]);
+
+  const updateTeam = (t: Team): void => {
+    teamsGen.current++;
+    setTeams((all) => all.map((x) => (x.id === t.id ? t : x)));
+  };
+
+  // A project just added or cloned: a non-default team lists only what an admin put in it, so try to put
+  // it there (a member is refused, and the project then shows on the default team only); then re-read.
+  const adoptProject = async (path: string): Promise<void> => {
+    teamsGen.current++;
+    if (team && team.id !== 'default') await teamAddRepository(team.id, path).catch(() => undefined);
+    setTeams(await listTeams().catch(() => teams));
+  };
+
+  const chooseTeam = (id: string): void =>
+    navigate(() => {
+      setTeamId(id);
+      saveTeamId(id);
+    });
 
   const chooseRepo = (value: string): void => {
     if (value !== ALL_REPOS) setActiveProject(value);
@@ -191,6 +231,8 @@ export default function App() {
     if (activeProject === path && !navGuard.current.confirm()) return;
     try {
       setProjects(await removeProject(path));
+      teamsGen.current++;
+      setTeams(await listTeams().catch(() => teams));
       if (activeProject === path) setActiveProject(null);
     } catch {
       /* ignore */
@@ -294,23 +336,23 @@ export default function App() {
         {...(signedIn ? { onSignOut: () => void hubSignOut() } : {})}
       />
       <div className="flex min-h-0 flex-1">
-        {/* The rail is project-context navigation; the dashboard is generic and stays sidebar-less. */}
-        {!showDashboard && (
-          <Rail
-            projects={projects}
-            activePath={activeProject}
-            screen={screen}
-            running={railRunning}
-            onScreen={(sc) => navigate(() => setScreen(sc))}
-            onOpenRunning={(r) => {
-              // The sixth navigation path (review round 1) — also discards a dirty editor.
-              navigate(() => {
-                setScreen('runs');
-                setFocusRunning(r);
-              });
-            }}
-          />
-        )}
+        <Rail
+          projects={projects}
+          activePath={activeProject}
+          screen={screen}
+          running={railRunning}
+          teams={teams}
+          team={team}
+          onTeam={chooseTeam}
+          onScreen={(sc) => navigate(() => setScreen(sc))}
+          onOpenRunning={(r) => {
+            // The sixth navigation path (review round 1) — also discards a dirty editor.
+            navigate(() => {
+              setScreen('runs');
+              setFocusRunning(r);
+            });
+          }}
+        />
         <main className="flex min-w-0 flex-1 flex-col overflow-hidden">
           {showDashboard ? (
             <Dashboard
@@ -327,6 +369,17 @@ export default function App() {
                 project={active.path}
                 allRepos={allRepos}
                 projects={projects}
+                {...(team
+                  ? {
+                      teamScreen: {
+                        team,
+                        allProjects,
+                        onTeam: updateTeam,
+                        // Removing the open project's repository unmounts it: ask like any navigation.
+                        confirmRemoveRepo: (path: string) => path !== activeProject || navGuard.current.confirm(),
+                      },
+                    }
+                  : {})}
                 screen={screen}
                 focusRunning={focusRunning}
                 clearNonce={clearNonce}
@@ -359,11 +412,13 @@ export default function App() {
         <RepoPicker
           onAdd={async (path) => {
             setProjects(await addProject(path));
+            await adoptProject(path);
             setShowRepoPicker(false);
           }}
           onClone={async (url, parentDir, name) => {
             const project = await cloneProject(url, parentDir, name);
             setProjects((prev) => [...prev, project]);
+            await adoptProject(project.path);
             setShowRepoPicker(false);
           }}
           onClose={() => setShowRepoPicker(false)}

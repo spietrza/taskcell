@@ -659,6 +659,18 @@ export interface Commands {
   list_teams: { args: undefined; result: Team[] };
   /** HUB_ONLY: one team by id (`null` when unknown). */
   get_team: { args: { id: string }; result: Team | null };
+  /** HUB_ONLY: the caller's role in a team (`null` for a non-member). The hub owner (token / local mode) is an admin everywhere. */
+  team_role: { args: { id: string }; result: TeamRole | null };
+  /** HUB_ONLY, admin only: add a member by login. Each team edit returns the updated team. */
+  team_add_member: { args: { teamId: string; login: string; role: TeamRole }; result: Team };
+  /** HUB_ONLY, admin only: the last admin cannot be demoted. */
+  team_set_role: { args: { teamId: string; login: string; role: TeamRole }; result: Team };
+  /** HUB_ONLY, admin only: the last admin cannot be removed. */
+  team_remove_member: { args: { teamId: string; login: string }; result: Team };
+  /** HUB_ONLY, admin only: add a hub project to a team (the default team mirrors every project and refuses). */
+  team_add_repository: { args: { teamId: string; path: string }; result: Team };
+  /** HUB_ONLY, admin only. */
+  team_remove_repository: { args: { teamId: string; path: string }; result: Team };
   add_project: { args: { path: string }; result: Project[] };
   remove_project: { args: { path: string }; result: Project[] };
   list_active: { args: { repoPath: string }; result: ActiveRun[] };
@@ -765,6 +777,12 @@ export const COMMAND_NAMES = [
   'list_projects',
   'list_teams',
   'get_team',
+  'team_role',
+  'team_add_member',
+  'team_set_role',
+  'team_remove_member',
+  'team_add_repository',
+  'team_remove_repository',
   'add_project',
   'remove_project',
   'list_active',

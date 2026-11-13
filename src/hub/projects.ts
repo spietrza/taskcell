@@ -127,8 +127,10 @@ export async function listAcrossProjects<T extends object>(
   configDir: string,
   resolve: (repoPath: string) => Promise<string>,
   read: (repoPath: string) => Promise<T[]>,
+  /** Only these repositories (a caller's teams); omitted = every project. */
+  scope?: readonly string[],
 ): Promise<{ items: (T & RepoStamp)[]; failures: RepoReadFailure[] }> {
-  const paths = await loadPaths(configDir);
+  const paths = (await loadPaths(configDir)).filter((p) => scope === undefined || scope.includes(p));
   const outcomes = await fanOut(paths, async (repoPath) => read(await resolve(repoPath)), { concurrency: 4 });
   const items: (T & RepoStamp)[] = [];
   const failures: RepoReadFailure[] = [];

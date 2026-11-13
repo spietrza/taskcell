@@ -1,6 +1,7 @@
 import { Button, Card, cn } from '@/ui';
 import { FilePlus } from 'lucide-react';
 import { listTasks, listTasksAll } from '../../ipc';
+import { inRepos } from '../../repoFilter';
 import { RepoFailures, RepoLabel } from '../../RepoViews';
 import type { BoardTask, RepoReadFailure, RepoStamp } from '../../wire';
 import { useAsync } from '../../hooks';
@@ -42,19 +43,22 @@ type BoardList = { tasks: (BoardTask & Partial<RepoStamp>)[]; capped: boolean; f
 export function TaskBoard({
   project,
   allRepos = false,
+  repos,
   onOpenTask,
   onNewTask,
 }: {
   project: string;
   /** "All repositories": list every repository's cards, each naming its repository. */
   allRepos?: boolean;
+  /** The selected team's repositories: "All repositories" lists only these. */
+  repos: string[];
   onOpenTask: (taskId: string, repoPath?: string) => void;
   onNewTask: () => void;
 }) {
   const { data, error, loading } = useAsync(
     (): Promise<BoardList> =>
-      allRepos ? listTasksAll() : listTasks(project).then((r) => ({ ...r, failures: [] })),
-    [project, allRepos],
+      allRepos ? listTasksAll().then((l) => ({ ...l, tasks: inRepos(l.tasks, repos), failures: inRepos(l.failures, repos) })) : listTasks(project).then((r) => ({ ...r, failures: [] })),
+    [project, allRepos, repos.join('\n')],
   );
   const tasks = data?.tasks;
 

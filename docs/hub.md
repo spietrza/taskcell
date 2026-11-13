@@ -211,6 +211,18 @@ when `--allowed-host <public-host[:port]>` permits the public Host and the proxy
 non-default port). Only HTTP(S) origins are accepted; the browser's `https://` Origin matches
 the public `Host` even though the proxy connects to the hub over HTTP.
 
+## Teams
+
+A team is a name, members (login + role `admin` or `member`) and repositories, stored in `teams.json` next to `projects.json`. The first start creates a `Default` team holding every project; it mirrors the project list, so its repositories cannot be edited.
+
+**Who is who.** A signed-in user is matched to a member by the provider login the hub stored at sign-up (`github:octocat` matches the member `octocat`) — never by display name or e-mail, which the user controls. The owner (the hub token, or local mode) is an admin of every team.
+
+**What a caller sees.** `list_teams` and `get_team` return the teams the caller belongs to, plus teams with no members (the default team until someone is added); the owner sees all. `list_runs_all`, `list_tasks_all` and `list_needs_you_all` are limited to those teams' repositories. Per-repository commands (`repoPath` arguments) are still guarded by the project allowlist only, not by team.
+
+**Editing.** `team_add_member`, `team_set_role`, `team_remove_member`, `team_add_repository` and `team_remove_repository` need an admin and the same bind permission as `add_project`. The last admin of a team can be neither removed nor demoted.
+
+**UI.** The team switcher sits at the top of the rail (a menu with more than one team, the plain name with one) and the choice is remembered in the browser. Home, Board, Runs and Needs you list the selected team's repositories. Settings has a Members section: an admin edits, a member reads.
+
 ## Wire format
 
 The UI talks to the hub with `POST /rpc/<command>` (JSON body = the command's camelCase args, `{}` when
