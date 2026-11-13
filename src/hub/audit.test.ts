@@ -3,13 +3,17 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { describe, expect, test } from 'vitest';
 import { AuditLog, safeUrl } from './audit.js';
-import { dispatchRpc, ForbiddenError, type RpcContext } from './rpc.js';
+import { dispatchRpc as dispatch, ForbiddenError, type RpcContext } from './rpc.js';
 import { ProjectAllowlist } from './allowlist.js';
 import { WatchRegistry } from './watch.js';
 import { createRunSession } from './run-session.js';
 import { CompleteRegistry } from './complete.js';
 import { CredentialStore } from './credentials.js';
 import type { SidecarDeps } from '../sidecar/sidecar.js';
+import type { Caller } from './teams.js';
+
+const OWNER: Caller = { user: { id: 'local-owner', email: 'owner@hub.invalid', name: 'Owner' }, owner: true };
+const dispatchRpc = (ctx: RpcContext, cmd: string, args: unknown, caller: Caller = OWNER): Promise<unknown> => dispatch(ctx, cmd, args, caller);
 
 const CANARY = 'CANARY-credential-value-123';
 
