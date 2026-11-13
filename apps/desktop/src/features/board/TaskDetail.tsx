@@ -7,6 +7,8 @@ import { SpecPane } from '../inspector/SpecPane';
 import { IssueHistory } from './IssueHistory';
 import { AppliedLessons } from '../lessons/Lessons';
 import { taskRefKey } from './taskref';
+import { useApproverDecisions } from './useApproverDecisions';
+import { decisionForTask, decisionWords } from './approverDecision';
 
 export function TaskDetail({
   project,
@@ -28,6 +30,8 @@ export function TaskDetail({
   // Match on the normalized source-ref key so history isn't silently empty.
   const key = taskRefKey(taskId);
   const history = runs.filter((r) => taskRefKey(r.taskId) === key);
+  const approver = useApproverDecisions(project);
+  const decision = decisionForTask(taskId, runs, approver.decisions);
 
   return (
     <div className="space-y-4">
@@ -56,6 +60,12 @@ export function TaskDetail({
         </Card.Root>
 
         <div>
+          {decision !== undefined && (
+            <div className="mb-3 rounded-lg border border-border p-3 text-sm" data-approver={decision.outcome}>
+              <div className="caption">Approver</div>
+              {decisionWords(decision)}
+            </div>
+          )}
           <div className="mb-2 caption">
             Run history
           </div>
