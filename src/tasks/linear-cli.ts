@@ -35,6 +35,7 @@ interface LinearCliIssue {
   id?: string;
   identifier?: string;
   title?: string;
+  url?: string;
   description?: string | null;
   labels?: { nodes?: Array<{ name?: string }> };
   state?: { name?: string; type?: string };
@@ -82,6 +83,7 @@ function toTask(issue: LinearCliIssue): Task {
     ref: issue.identifier ?? issue.id ?? '',
     // The LIST query has always fetched state — it was dropped here. The board needs it (S9).
     ...(stateName !== undefined ? { state: stateName } : {}),
+    ...(issue.url !== undefined ? { url: issue.url } : {}),
   };
 }
 
@@ -144,7 +146,7 @@ const MAX_PAGES = 100;
 const LIST_QUERY = `query($f: IssueFilter, $after: String, $first: Int!) {
   issues(first: $first, after: $after, filter: $f) {
     pageInfo { hasNextPage endCursor }
-    nodes { identifier title description state { name type } labels { nodes { name } } }
+    nodes { identifier title url description state { name type } labels { nodes { name } } }
   }
 }`;
 

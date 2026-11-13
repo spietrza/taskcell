@@ -5,7 +5,7 @@ use std::path::{Path, PathBuf};
 use serde::{Deserialize, Serialize};
 
 /// The app's per-project config (`.taskcell/app.json`, spec §6). All optional; the CLI does not read
-/// this — the app translates it into flags / a launch command.
+/// this, except `baseBranch`/`baseBranches` (the repo default target branch and the label allowlist) — the app translates the rest into flags / a launch command.
 #[derive(Debug, Clone, Default, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase", default)]
 pub struct AppConfig {
@@ -28,6 +28,12 @@ pub struct AppConfig {
     /// stored here (env only). Optional Anthropic-compatible base URL for a self-hosted proxy.
     pub chat_model: Option<String>,
     pub chat_base_url: Option<String>,
+    /// Repository default target branch for pull requests; unset = `main`.
+    pub base_branch: Option<String>,
+    /// Extra branches a card's `vanguard:base=` label may select besides `base_branch`; unset = none.
+    /// A raw `Value` for the same reason as `custom_providers`: one hand-edited non-string entry must
+    /// not collapse the whole config. The core reader (src/core/base-branch.ts) validates entries.
+    pub base_branches: Option<serde_json::Value>,
     /// Custom providers (Subsystem 6). Deliberately a raw `Value`, NOT a typed Vec: Rust is a dumb
     /// pipe here — a typed struct would silently strip unknown entry keys on every Settings save
     /// and collapse the whole config to `Default` on one type-mismatched entry. The core loader

@@ -688,7 +688,7 @@ describe('runSourcedIssue', () => {
 
     expect(beginRun.mock.calls[0]).toEqual(['/repo', 'gl-1', undefined, { secretEnvVars: [] }]);
     expect(writeStages).toHaveBeenCalledTimes(1);
-    expect(writeStages.mock.calls[0]).toEqual([[stageOutcome('reviewer')], { flow: 'default', provider: 'claude', prUrl: MR_URL }]);
+    expect(writeStages.mock.calls[0]).toEqual([[stageOutcome('reviewer')], { flow: 'default', provider: 'claude', baseBranch: 'main', prUrl: MR_URL }]);
   });
 
   it('white-label (--commit-author): no review comment, no issue link-back, clean PR body', async () => {
@@ -801,7 +801,7 @@ describe('runSourcedIssue', () => {
 
     expect(result.prUrl).toBeUndefined();
     expect(writeStages).toHaveBeenCalledTimes(1);
-    expect(writeStages.mock.calls[0]).toEqual([[stageOutcome('reviewer')], { flow: 'default', provider: 'claude' }]);
+    expect(writeStages.mock.calls[0]).toEqual([[stageOutcome('reviewer')], { flow: 'default', provider: 'claude', baseBranch: 'main' }]);
     expect(publishForReview).not.toHaveBeenCalled();
     expect(order).toEqual([]);
     expect(resolveAndRunVisualProof).toHaveBeenCalled();
@@ -848,7 +848,7 @@ describe('runSourcedIssue', () => {
     expect(commitStage).not.toHaveBeenCalled();
     expect(publishForReview).not.toHaveBeenCalled();
     expect(writeStages).toHaveBeenCalledTimes(1);
-    expect(writeStages.mock.calls[0]).toEqual([[stageOutcome('reviewer')], { flow: 'default', provider: 'claude', omitDiff: true }]);
+    expect(writeStages.mock.calls[0]).toEqual([[stageOutcome('reviewer')], { flow: 'default', provider: 'claude', baseBranch: 'main', omitDiff: true }]);
 
     expect(order).toEqual(['signalSecretBlock']);
     expect(adapter.signalSecretBlock).toHaveBeenCalledTimes(1);

@@ -62,6 +62,9 @@ const commandHandlers = {
   read_app_config: () => appConfig,
   read_app_config_strict: () => appConfig,
   write_app_config: () => undefined,
+  get_credentials: () => ({ enabled: false, reason: 'VANGUARD_HUB_SECRET is not set', providers: [] }),
+  set_credential: () => ({ enabled: false, providers: [] }),
+  delete_credential: () => ({ enabled: false, providers: [] }),
   list_remote_runs: () => remoteRuns,
   import_remote_run: (args: { runId?: number } | undefined) => {
     const { runId = remoteImport.runId } = args ?? {};
@@ -80,6 +83,7 @@ const commandHandlers = {
   api_complete: () => ({ text: 'Here is my analysis of the requested change. The implementation looks sound.' }),
   api_cancel_complete: () => undefined,
   api_create_task: () => createdTask,
+  list_branches: () => ({ branches: ['dev', 'main'], default: 'main' }),
   list_drafts: () => ['draft-001'],
   read_draft: () => READ_DRAFT,
   write_draft: () => undefined,

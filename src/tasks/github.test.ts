@@ -113,11 +113,11 @@ it('list() with limit adds -L and the state field to --json (the board call)', a
   const calls: string[][] = [];
   const gh = async (args: string[]): Promise<string> => {
     calls.push(args);
-    return JSON.stringify([{ number: 9, title: 't', body: null, labels: [], state: 'closed' }]);
+    return JSON.stringify([{ number: 9, title: 't', body: null, labels: [], state: 'closed', url: 'https://github.com/o/r/issues/9' }]);
   };
   const tasks = await new GitHubTaskFetcher('o/r', gh).list({ state: 'all', limit: 50 });
-  expect(calls[0]).toEqual(['issue', 'list', '--repo', 'o/r', '--json', 'number,title,body,labels,state', '--state', 'all', '-L', '50']);
-  expect(tasks[0]).toMatchObject({ ref: '9', state: 'closed' });
+  expect(calls[0]).toEqual(['issue', 'list', '--repo', 'o/r', '--json', 'number,title,body,labels,state,url', '--state', 'all', '-L', '50']);
+  expect(tasks[0]).toMatchObject({ ref: '9', state: 'closed', url: 'https://github.com/o/r/issues/9' });
 });
 
 import { githubDefaultBranch } from './github.js';

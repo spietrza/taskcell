@@ -15,7 +15,7 @@ import { projectColor, contrastColor } from './color';
 import { createNavGuardRegistry, NavGuardContext } from './navGuard';
 import { ProjectCombobox } from './ProjectCombobox';
 import { ALL_REPOS, canUseAllRepos, loadRepoFilter, saveRepoFilter } from './repoFilter';
-import { onHubRestart, onHubConnectionIssue } from './transport';
+import { hubSignedIn, hubSignOut, onHubRestart, onHubConnectionIssue } from './transport';
 import { applyTheme, initialTheme, saveTheme } from './theme';
 import type { Project, ActiveRun } from './taskcell-output';
 
@@ -38,6 +38,8 @@ export default function App() {
   const [palette, setPalette] = useState(false);
   const [hubRestarted, setHubRestarted] = useState(false);
   const [hubConnectionIssue, setHubConnectionIssue] = useState(false);
+  const [signedIn, setSignedIn] = useState(false);
+  useEffect(() => void hubSignedIn().then(setSignedIn), []);
   // Navigation guard (S8, #339): a dirty screen registers a confirm; ALL App-owned navigation
   // routes through navigate(), because a project switch REMOUNTS Inspector (key below) and a
   // screen switch unmounts the editor — component-local confirms never fire for either.
@@ -289,6 +291,7 @@ export default function App() {
         onCommandK={() => setPalette(true)}
         theme={theme}
         onToggleTheme={toggleTheme}
+        {...(signedIn ? { onSignOut: () => void hubSignOut() } : {})}
       />
       <div className="flex min-h-0 flex-1">
         {/* The rail is project-context navigation; the dashboard is generic and stays sidebar-less. */}

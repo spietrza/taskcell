@@ -54,7 +54,6 @@ test('Run calls onRun with repoPath=project and defaulted fields', async () => {
       transport: 'github',
       flow: 'default',
       maxTurns: 30,
-      baseBranch: 'main',
     }),
   );
 });

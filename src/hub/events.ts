@@ -6,6 +6,8 @@
 import { encodeEvent, STREAM_RESET_EVENT } from '../hub-wire.js';
 import type { IncomingMessage, ServerResponse } from 'node:http';
 
+/** The RPC a client falls back to for history the ring no longer holds (src/hub/run-events.ts). */
+export const RUN_EVENTS_COMMAND = 'read_run_events';
 /** Ring buffer size: covers several runs' reconnect window without unbounded memory growth. */
 export const MAX_REPLAY_EVENTS = 500;
 /** A browser left open in many tabs must not exhaust server file descriptors. */
@@ -36,12 +38,13 @@ export class EventBus {
     return this.clients.size;
   }
 
-  /** Publish one event to every connected client and the replay ring. */
-  publish(event: string, data: unknown): void {
+  /** Publish one event to every connected client and the replay ring. Returns the SSE id it was given. */
+  publish(event: string, data: unknown): number {
     const entry: BufferedEvent = { id: this.nextId++, event, data };
     this.ring.push(entry);
     if (this.ring.length > MAX_REPLAY_EVENTS) this.ring.shift();
     for (const client of this.clients.values()) this.writeEntry(client, entry);
+    return entry.id;
   }
 
   private writeEntry(client: ClientState, entry: BufferedEvent): void {
@@ -100,8 +103,10 @@ export class EventBus {
     const lastEventId = typeof lastEventIdRaw === 'string' ? Number(lastEventIdRaw) : undefined;
     if (lastEventId !== undefined && Number.isFinite(lastEventId)) {
       const oldest = this.ring[0]?.id;
-      if (oldest !== undefined && lastEventId < oldest - 1) {
-        if (this.tryWrite(res, encodeEvent(undefined, STREAM_RESET_EVENT, {})) === undefined) return true;
+      // Older than the ring, or newer than any id issued (a restarted hub numbers from 1 again): the
+      // ring cannot replay the gap. The reset names the durable per-run log to read instead.
+      if ((oldest !== undefined && lastEventId < oldest - 1) || lastEventId >= this.nextId) {
+        if (this.tryWrite(res, encodeEvent(undefined, STREAM_RESET_EVENT, { fallback: RUN_EVENTS_COMMAND })) === undefined) return true;
       } else {
         for (const entry of this.ring) {
           if (entry.id > lastEventId) this.writeEntry(client, entry);

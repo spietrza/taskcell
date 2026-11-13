@@ -11,6 +11,7 @@ export function RepoFailures({ failures }: { failures: RepoReadFailure[] }) {
 }
 
 /** The repository a card / run row / item belongs to; shown only under "All repositories". */
-export function RepoLabel({ name }: { name: string }) {
+export function RepoLabel({ name }: { name: string | undefined }) {
+  if (name === undefined) return null;
   return <span className="rounded bg-muted px-1.5 py-0.5 text-[11px] text-muted-foreground">{name}</span>;
 }

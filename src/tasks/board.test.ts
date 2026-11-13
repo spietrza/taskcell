@@ -60,17 +60,36 @@ describe('isTriggerLabel', () => {
 });
 
 // ── toBoardTask waiting flag: label-sourced, present only for trigger-labelled + queued ─────────
+describe('toBoardTask target branch', () => {
+  const base: Task = { id: 'x', title: 'T', description: '', labels: [], children: [], comments: [] };
+  it('shows the card\'s vanguard:base= label', () => {
+    expect(toBoardTask('github', { ...base, ref: '1', state: 'open', labels: ['vanguard:base=uat'] }).baseBranch).toBe('uat');
+  });
+  it('shows none for conflicting labels (the run refuses them)', () => {
+    expect(toBoardTask('github', { ...base, ref: '1', state: 'open', labels: ['vanguard:base=dev', 'vanguard:base=uat'] }).baseBranch).toBeUndefined();
+  });
+  it('keeps the base label out of the column and the state chip', () => {
+    const t = toBoardTask('github', { ...base, ref: '1', state: 'open', labels: ['vanguard:base=review/done', 'bug'] });
+    expect(t.column).toBe('queued');
+    expect(t.state).toBe('bug');
+    expect(toBoardTask('github', { ...base, ref: '1', state: 'open', labels: ['vanguard:base=dev'] }).state).toBe('open');
+  });
+  it('shows none when the card names none', () => {
+    expect(toBoardTask('github', { ...base, ref: '1', state: 'open' }).baseBranch).toBeUndefined();
+  });
+});
+
 describe('toBoardTask waiting flag', () => {
   const base: Task = { id: 'x', title: 'T', description: '', labels: [], children: [], comments: [] };
 
   it('a trigger-labelled queued task is waiting', () => {
     const t = toBoardTask('github', { ...base, ref: '904', state: 'open', labels: ['ready for spec'] });
-    expect(t).toEqual({ id: 'gh-904', title: 'T', column: 'queued', state: 'ready for spec', waiting: true });
+    expect(t).toEqual({ id: 'gh-904', title: 'T', column: 'queued', state: 'ready for spec', source: 'github', waiting: true });
   });
 
   it('an unlabelled open issue has no waiting property', () => {
     const t = toBoardTask('github', { ...base, ref: '905', state: 'open' });
-    expect(t).toEqual({ id: 'gh-905', title: 'T', column: 'queued', state: 'open' });
+    expect(t).toEqual({ id: 'gh-905', title: 'T', column: 'queued', state: 'open', source: 'github' });
     expect('waiting' in t).toBe(false);
   });
 
@@ -172,7 +191,7 @@ describe('listBoardTasks', () => {
     }));
     const { tasks: board, capped } = await listBoardTasks(repo, async () => fake(tasks));
     expect(board).toHaveLength(BOARD_FETCH_CAP);
-    expect(board[3]).toEqual({ id: 'gh-3', title: 't3', column: 'queued', state: 'open' });
+    expect(board[3]).toEqual({ id: 'gh-3', title: 't3', column: 'queued', state: 'open', source: 'github' });
     expect(capped).toBe(true);
   });
 
@@ -181,7 +200,7 @@ describe('listBoardTasks', () => {
     const one: Task = { id: 'DEV-1', title: 'a', description: '', labels: [], children: [], comments: [], ref: 'DEV-1', state: 'Todo' };
     const { capped, tasks } = await listBoardTasks(repo, async () => fake([one]));
     expect(capped).toBe(false);
-    expect(tasks[0]).toEqual({ id: 'linear-dev-1', title: 'a', column: 'queued', state: 'Todo' });
+    expect(tasks[0]).toEqual({ id: 'linear-dev-1', title: 'a', column: 'queued', state: 'Todo', source: 'linear' });
   });
 });
 
@@ -275,5 +294,25 @@ describe('taskRefKey (T19)', () => {
   it('T19: unresolvable input is returned lowercased, never thrown', () => {
     expect(taskRefKey('Unknown')).toBe('unknown');
     expect(taskRefKey('gh-')).toBe('gh-');
+  });
+});
+
+// ── toBoardTask url: the tracker's own address, per source ──────────────────────────────────────
+describe('toBoardTask url', () => {
+  const base: Task = { id: 'x', title: 'T', description: '', labels: [], children: [], comments: [], state: 'open' };
+
+  it.each([
+    ['github', 'gh-1', 'https://github.com/o/r/issues/1'],
+    ['gitlab', 'gl-1', 'https://gitlab.com/g/p/-/issues/1'],
+    ['linear', 'linear-dev-1', 'https://linear.app/x/issue/DEV-1'],
+  ] as const)('%s card carries its issue address and source', (source, id, url) => {
+    const ref = source === 'linear' ? 'DEV-1' : '1';
+    const t = toBoardTask(source, { ...base, ref, url });
+    expect(t).toMatchObject({ id, source, url });
+  });
+
+  it('has no url when the tracker returned none or a non-https one', () => {
+    expect('url' in toBoardTask('github', { ...base, ref: '1' })).toBe(false);
+    expect('url' in toBoardTask('github', { ...base, ref: '1', url: 'javascript:alert(1)' })).toBe(false);
   });
 });

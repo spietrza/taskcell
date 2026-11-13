@@ -1,9 +1,9 @@
-import { mkdtemp, rm, writeFile } from 'node:fs/promises';
+import { mkdir, mkdtemp, rm, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { execa } from 'execa';
 import { afterEach, describe, it, expect } from 'vitest';
-import { assertSafeBaseBranch, redactGitError, resolveRemoteBaseRef } from './base-branch.js';
+import { assertSafeBaseBranch, baseFromLabels, redactGitError, resolveRemoteBaseRef, resolveTargetBase } from './base-branch.js';
 
 describe('assertSafeBaseBranch', () => {
   it.each(['', '   ', '-dev', '--upload-pack=false', '+main', 'feature:main', '+refs/heads/x:refs/heads/main'])('rejects %s', (base) => {
@@ -161,5 +161,61 @@ describe('resolveRemoteBaseRef', () => {
     // `*` would make the explicit refspec a wildcard fetch of every branch.
     await expect(resolveRemoteBaseRef('/nowhere', '*')).rejects.toThrow(/Invalid base branch/);
     await expect(resolveRemoteBaseRef('/nowhere', 'rel[1]')).rejects.toThrow(/Invalid base branch/);
+  });
+});
+
+describe('target branch per card', () => {
+  const dirs: string[] = [];
+  afterEach(async () => {
+    await Promise.all(dirs.splice(0).map((d) => rm(d, { recursive: true, force: true })));
+  });
+  async function repoWith(appJson?: object): Promise<string> {
+    const dir = await mkdtemp(join(tmpdir(), 'base-target-'));
+    dirs.push(dir);
+    if (appJson !== undefined) {
+      await mkdir(join(dir, '.taskcell'));
+      await writeFile(join(dir, '.taskcell', 'app.json'), JSON.stringify(appJson));
+    }
+    return dir;
+  }
+
+  it('reads the card label, tolerates a repeat of the same branch, and ignores other labels', () => {
+    expect(baseFromLabels(['bug', 'vanguard:base=uat', 'vanguard:base=uat'])).toBe('uat');
+    expect(baseFromLabels(['bug', 'vanguard:model=opus'])).toBeUndefined();
+  });
+
+  it('refuses two labels naming different branches', () => {
+    expect(() => baseFromLabels(['vanguard:base=dev', 'vanguard:base=uat'])).toThrow('Conflicting target branches');
+  });
+
+  it.each(['vanguard:base=', 'vanguard:base=--upload-pack=x', 'vanguard:base=a:b'])('refuses %s', (label) => {
+    expect(() => baseFromLabels([label])).toThrow('Invalid base branch');
+  });
+
+  it('defaults to main when nothing is set', async () => {
+    expect(await resolveTargetBase(await repoWith(), [])).toBe('main');
+  });
+
+  it('uses the repository default from app.json when the card names none', async () => {
+    expect(await resolveTargetBase(await repoWith({ baseBranch: 'dev' }), ['bug'])).toBe('dev');
+  });
+
+  it('lets the card select an allowlisted branch, and --base override the card', async () => {
+    const repo = await repoWith({ baseBranch: 'dev', baseBranches: ['uat'] });
+    expect(await resolveTargetBase(repo, ['vanguard:base=uat'])).toBe('uat');
+    expect(await resolveTargetBase(repo, ['vanguard:base=uat'], 'release')).toBe('release');
+  });
+
+  it('allows a label naming only the default when no allowlist is committed', async () => {
+    expect(await resolveTargetBase(await repoWith(), ['vanguard:base=main'])).toBe('main');
+    expect(await resolveTargetBase(await repoWith({ baseBranch: 'dev' }), ['vanguard:base=dev'])).toBe('dev');
+    await expect(resolveTargetBase(await repoWith(), ['vanguard:base=uat'])).rejects.toThrow('is not allowed');
+    await expect(resolveTargetBase(await repoWith({ baseBranch: 'dev', baseBranches: ['uat'] }), ['vanguard:base=main'])).rejects.toThrow('is not allowed');
+  });
+
+  it('refuses an unsafe card label or repository default before any run starts', async () => {
+    await expect(resolveTargetBase(await repoWith(), ['vanguard:base=-x'])).rejects.toThrow('Invalid base branch');
+    await expect(resolveTargetBase(await repoWith({ baseBranch: 'a b' }), [])).rejects.toThrow('Invalid base branch');
+    await expect(resolveTargetBase(await repoWith({ baseBranches: ['-x'] }), ['vanguard:base=main'])).rejects.toThrow('Invalid base branch');
   });
 });
