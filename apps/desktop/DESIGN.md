@@ -124,7 +124,33 @@ components:
 ## Overview
 
 **Creative North Star: "The Night Shift Floor"** *(the factory floor of taskcell.dev, seen from
-the operator's desk)*
+the operator's desk; direction: the Taskcell prototype, see `../../docs/design/hub-direction.md`)*
+
+**Direction.** The hub follows Paweł's prototype (`docs/design/hub-prototype-v3/`, with
+`hub-prototype-v1.html` for readable source; v3 wins where they differ) on desktop and phone.
+Taskcell is a factory, not an agent workstation: the unit of work is a **card** with acceptance
+criteria, trust comes from gates and an independent review, and the human approves at the end.
+
+**Stages.** Every card moves through six stages: Card, Spec, Sealed cell, Gates, Review, Pull
+request.
+
+**Vocabulary:** card, needs you, receipt, line, runner. Not "task", "dashboard", "task board",
+"workflow", "proof of work".
+
+**Navigation:** Home, Board, Runs, Settings. Line and Runners live under Settings. Sign-off lives
+on Home (needs-you items: approvals, questions, cards sent back as too vague). On a phone,
+navigation is a bottom tab bar.
+
+**Card quick view.** A card opens in a quick view with a vertical stage line; "Full page" opens the
+run page. On a phone it is a bottom drawer: receipt first, Merge and "Open in GitHub/GitLab"
+pinned to the bottom edge. Filters fold into one Filters drawer.
+
+**Receipt.** Four plain facts: tests, second-AI review, secret scan, cost.
+
+**No transcript or diff tabs.** Code opens in the Git host ("Open in GitHub" / "Open in GitLab").
+
+**Colour rule.** Orange means "needs you" only. Self-repair is calm (neutral ink, no alarm
+colour). Red means something is broken.
 
 The hub is the product the landing page shows: the same near-black floor (`#0d1013`), cool ink,
 teal-tinted hairlines and one amber accent, set in the landing's three faces. It is still a tool
@@ -132,13 +158,14 @@ people check, not a page they browse, so it takes the landing's palette and type
 display sizes, glow or 3D scene. Dark is the default; light is a derived theme for operators who
 pick it.
 
-Amber is the only accent. It marks the one main action per screen, focus, selection and live
-state (the running chip, an active filter, the running run row, at a 5% tint). It is never decoration. The
-other colors are status (green passed/running dot, yellow warning, red failed) and the project's
-own identity color in the title bar. When a screen is all ink and hairline, nothing needs the
-operator.
+Amber (orange) is the only accent and means "needs you": an approval, a question, a card held for
+a human. It is not used for ordinary primary buttons, active filters, running state or decoration;
+self-repair and retries are calm, and red means broken. The other colors are status (green
+passed/running dot, red broken) and the project's own identity color in the title bar. When a
+screen is all ink and hairline, nothing needs the operator. (Focus ring and text selection keep
+the accent for accessibility.)
 
-Density follows content. Tables, the task board, transcripts and diffs are packed (`text-xs` and
+Density follows content. Tables and the board are packed (`text-xs` and
 `text-sm`, 4–8px gaps); page headers and dialogs get more air. There is no display size in the
 hub; the largest text is a 24px number in a summary tile.
 
@@ -148,8 +175,8 @@ live only in `src/styles.css`.
 
 **Key Characteristics:**
 - Near-black floor, cool ink, teal-tinted hairlines (landing palette).
-- One amber accent with dark ink on it, for action, focus and live state only.
-- One primary (filled) button per screen; everything else is outlined or text.
+- One amber accent with dark ink on it, for "needs you" (plus focus and selection).
+- Ordinary primary actions are not orange; everything else is outlined or text.
 - Hairline 1px borders and tonal steps instead of shadows; small, tight radii.
 - Schibsted Grotesk headings, Atkinson Hyperlegible text, IBM Plex Mono for machine text, all
   self-hosted (`src/fonts`), so the Tauri window and an offline hub render the same.
@@ -163,9 +190,8 @@ class on `<html>`. Dark is applied before first paint (`class="dark"` in `index.
 ### Primary
 - **Signal Amber** (`primary`): `#f99a2c` in dark (the landing's `--accent`), deepened to `#c8730f`
   in light so a tab underline, the focus ring and the logo card keep 3:1 on the page. Ink on it is
-  always the landing's `--accent-ink` `#14100a`. Used for the main action on a screen, the logo's
-  card, active tab indicators, focus ring (solid, as on the landing), text selection, the active
-  run filter and the running chip. Links and colored text use `text-primary-text`. Never a
+  always the landing's `--accent-ink` `#14100a`. Means "needs you" only. Also the logo's
+  card, focus ring (solid, as on the landing) and text selection. Links and colored text use `text-primary-text`. Never a
   surface fill.
 
 ### Status
@@ -217,11 +243,12 @@ class on `<html>`. Dark is applied before first paint (`class="dark"` in `index.
 | ink on amber button | 8.7 | 5.3 |
 
 ### Named Rules
-**The Ink-At-Rest Rule.** A screen with nothing wrong and nothing running is ink, hairlines and
-one amber button. Status color appears only when its state is true.
+**The Ink-At-Rest Rule.** A screen with nothing wrong and nothing needing a human is ink and
+hairlines. Status color appears only when its state is true.
 
-**The One-Amber Rule.** Amber means "act here" or "live". Do not use it for decoration, headings
-or illustration; do not use Tailwind `amber-*` for new status.
+**The Orange Rule.** Orange means "needs you" only. Self-repair (retries, loop-backs, fallbacks)
+is calm: neutral ink, no alarm colour. Red means broken. Do not use orange for primary buttons,
+filters, running state, decoration or headings; do not use Tailwind `amber-*` for new status.
 
 **The Text-Shade Rule.** Colored text uses the `*-text` token (`text-success-text`,
 `text-warning-text`, `text-destructive-text`, `text-primary-text`), which keeps 4.5:1 in both
@@ -304,7 +331,8 @@ wider edge is the dashboard card's 6px project-color strip, which is identity, n
 ## Components
 
 ### Buttons (chunks `Button`, 35px tall)
-- **Primary** (`contained`, default): one per screen, the action the screen exists for.
+- **Primary** (`contained`, default): one per screen, the action the screen exists for. Orange is
+  reserved for "needs you" (see The Orange Rule), so an ordinary primary should not be orange.
 - **Outlined** (`variant="outlined"`): secondary actions in toolbars (New Task next to a primary,
   Fetch records).
 - **Text** (`variant="text"`, often `color="secondary"`): Cancel, Reload, Remove, icon-only
@@ -329,7 +357,9 @@ wider edge is the dashboard card's 6px project-color strip, which is identity, n
   label.
 
 ### Navigation
-- **Rail** (`Rail.tsx`): icon + label rows, active = `bg-muted font-medium`, inactive =
+- **Destinations:** Home, Board, Runs, Settings (Line and Runners inside Settings). On a phone the
+  same four are a bottom tab bar, and cards open as bottom drawers.
+- **Rail** (`Rail.tsx`, desktop): icon + label rows, active = `bg-muted font-medium`, inactive =
   `text-muted-foreground hover:bg-muted/60`, `aria-current="page"` on the active row. Collapsed it
   shows icons with right-side tooltips (`RailTip`). A "Running" group lists live runs with a pulsing
   dot.
@@ -379,12 +409,14 @@ wider edge is the dashboard card's 6px project-color strip, which is identity, n
 - **Do** use semantic tokens (`bg-success`, `text-destructive-text`, `border-border`) so both themes
   work; check new UI in light and dark.
 - **Do** keep one primary button per screen and put it at the right end of the page header row.
-- **Do** use the glossary words (Task, Run, Proof of Work, Stage, PR/MR) exactly.
+- **Do** use the vocabulary (card, needs you, receipt, line, runner; the six stages) exactly.
 - **Do** give icon-only buttons an `aria-label` and every overlay dialog semantics.
 - **Do** use `tabular-nums` on numbers and monospace on ids, commands and code.
 - **Do** run the design detector over changed UI before committing (below).
 
 ### Don't:
+- **Don't** use orange for anything but "needs you", or red for anything but broken.
+- **Don't** add transcript or diff tabs; link to the Git host.
 - **Don't** use raw Tailwind palette colors (`text-green-600`, `bg-rose-500/5`) for status; only
   the board's column hues and sky info lines are allowed, and only where they already live.
 - **Don't** put a thick colored left border on cards, callouts or alerts (`border-l-4`).
