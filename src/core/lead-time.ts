@@ -62,7 +62,7 @@ export function earliestLabelAt(events: ReadonlyArray<TimelineEvent>, labels: Re
 
 /** Number of times `labelName` was applied (each `labeled` event is one round the label drove). */
 export function countLabelEvents(events: ReadonlyArray<TimelineEvent>, labelName: string): number {
-  return events.filter((e) => e.event === 'labeled' && e.label?.name === labelName).length;
+  return events.filter((e) => e.event === 'labeled' && e.label?.name !== undefined && sameLabel(e.label.name, labelName)).length;
 }
 
 function diffMs(laterIso: string, earlierIso: string): number | undefined {

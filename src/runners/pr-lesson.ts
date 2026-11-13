@@ -14,6 +14,7 @@ import type { GhRunner } from '../tasks/github.js';
 import { defaultGlabRunner, encodeProject, glabUser } from '../tasks/gitlab.js';
 import type { GlabRunner } from '../tasks/gitlab.js';
 import { GITLAB_VERIFY_FAILED_LABEL } from '../gitlab-labels.js';
+import { sameLabel } from '../core/labels.js';
 import { VANGUARD_BRANCH_PREFIX } from '../worktree/manager.js';
 import { hasRevisionMarker } from './pr-feedback.js';
 import { extractCommentVerdict } from './review-prompt.js';
@@ -94,7 +95,7 @@ export async function fetchPrHistory(
     state: pr.state ?? '',
     blockingReviews: reviews.filter((r) => isBlocking(r.body ?? '', r.state)).length + comments.filter((c) => isBlocking(c.body ?? '', undefined)).length,
     reviseRounds: comments.filter((c) => hasRevisionMarker(c.body ?? '')).length,
-    verifyFailed: (pr.labels ?? []).some((l) => l.name === VERIFY_FAILED_LABEL),
+    verifyFailed: (pr.labels ?? []).some((l) => sameLabel(l.name ?? '', VERIFY_FAILED_LABEL)),
     files: (pr.files ?? []).map((f) => f.path ?? '').filter((p) => p !== ''),
     additions: pr.additions ?? 0,
     deletions: pr.deletions ?? 0,
@@ -180,7 +181,7 @@ export async function fetchMrHistory(
     state: mr.state ?? '',
     blockingReviews: trusted.filter((n) => isBlocking(body(n), undefined)).length,
     reviseRounds: trusted.filter((n) => hasRevisionMarker(body(n))).length,
-    verifyFailed: labels.some((l) => l === GITLAB_VERIFY_FAILED_LABEL || l === VERIFY_FAILED_LABEL),
+    verifyFailed: labels.some((l) => sameLabel(l, GITLAB_VERIFY_FAILED_LABEL) || sameLabel(l, VERIFY_FAILED_LABEL)),
     ...stats,
     notes: trusted
       .filter((n) => body(n).trim() !== '' && !body(n).includes(LESSON_MARKER))

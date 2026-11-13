@@ -110,7 +110,9 @@ async function retrigger(item: { kind: ParkedKind; repoSlug: string; number: num
   // Hold first: if releasing it fails nothing has fired, and once it is gone no later sweep can
   // re-trigger the same marker even if the trigger edits below fail.
   const present = async (): Promise<readonly string[]> => labels ?? labelsOfView(JSON.parse(await gh([item.kind, 'view', String(item.number), '--repo', item.repoSlug, '--json', 'labels'])) as { labels?: { name?: string }[] });
-  await edit(removeFlags(await resolveRemovals([hold], present)));
+  // Already released (nothing to remove): `gh ... edit` without a field flag fails, so skip it.
+  const held = await resolveRemovals([hold], present);
+  if (held.length > 0) await edit(removeFlags(held));
   // The marker may name a spelling this repo never created; both edits fail on a label the repo lacks.
   const [name = trigger] = await resolveAdds([trigger], item.repoSlug, gh);
   await edit(['--remove-label', name]);

@@ -1,4 +1,5 @@
 import { TaskcellError } from '../core/errors.js';
+import { hasLabel } from '../core/labels.js';
 import { workflowPaths } from '../core/taskcell.js';
 import type { GhRunner } from '../tasks/github.js';
 import { assertShadowSafeGhArgs } from './publish.js';
@@ -79,7 +80,7 @@ export function hardExclusions(facts: ApproverFacts, policy: ApproverPolicy, rev
   if (holdsChanges(reviews)) reasons.push('a review requests changes');
   if (policy.requiredChecks.length === 0) reasons.push('the policy lists no required checks (act mode acts on nothing)');
   const holdLabel = policy.holdLabel ?? 'taskcell:hold';
-  if ((facts.pr.labels ?? []).includes(holdLabel)) reasons.push(`hold label ${holdLabel}`);
+  if (hasLabel(facts.pr.labels ?? [], holdLabel)) reasons.push(`hold label ${holdLabel}`);
   const author = facts.pr.author ?? '';
   if (author === '' || !(policy.factoryAuthors ?? []).includes(author)) reasons.push(`not opened by the factory (author "${author}")`);
   if (isReleasePr(facts.pr)) reasons.push('release PR');
