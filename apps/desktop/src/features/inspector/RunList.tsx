@@ -6,6 +6,7 @@ import { RepoLabel } from '../../RepoViews';
 import { FilterBar } from '../../FilterBar';
 import { DEFAULT_FILTER, filterActive, filterRuns, groupRows, runKeys, type HubFilter } from '../../filterState';
 import { ExternalLink, hostName } from '../../components/ExternalLink';
+import { costLabel } from '../../cost';
 import type { ActiveRun, RunSummary } from '../../taskcell-output';
 import type { RepoStamp } from '../../wire';
 
@@ -106,17 +107,21 @@ export function RunList({
   const runRow = (r: Run): ReactElement => (
     <Table.Row
                   key={`${r.repoPath ?? ''}:${r.taskId}:${r.timestamp}`}
-                  onClick={() => onSelect(r)}
-                  className="cursor-pointer"
+                  // A CI run has no local record to open: its PR/MR link is the way in.
+                  onClick={r.source === 'ci' ? undefined : () => onSelect(r)}
+                  className={r.source === 'ci' ? '' : 'cursor-pointer'}
                 >
-                  <Table.Cell className="font-medium">{r.taskId}</Table.Cell>
+                  <Table.Cell className="font-medium">
+                    {r.taskId}
+                    {r.source === 'ci' && <Chip color="secondary" variant="outlined" className="ml-2">run in CI</Chip>}
+                  </Table.Cell>
                   {showRepo && <Table.Cell><RepoLabel name={r.repoName} /></Table.Cell>}
                   {showStartedBy && <Table.Cell className="text-muted-foreground">{r.startedBy ?? '—'}</Table.Cell>}
                   <Table.Cell className="tabular-nums text-muted-foreground">
                     <Timestamp ms={Date.parse(r.timestamp)} />
                   </Table.Cell>
                   <Table.Cell className="text-muted-foreground">{r.stages.join(', ')}</Table.Cell>
-                  <Table.Cell className="text-right tabular-nums">${r.totalCostUsd.toFixed(2)}</Table.Cell>
+                  <Table.Cell className="text-right tabular-nums">{costLabel(r)}</Table.Cell>
                   <Table.Cell>
                     <Chip color={verdictColor(!r.anyFailed)} variant="outlined">
                       {verdictWord(!r.anyFailed)}
@@ -125,7 +130,7 @@ export function RunList({
                   <Table.Cell>
                     <div className="flex flex-col gap-0.5">
                       {r.prUrl !== undefined && <ExternalLink href={r.prUrl}>{`Open in ${hostName(r.prUrl)}`}</ExternalLink>}
-                      <ExternalLink href={r.ciUrl}>CI run</ExternalLink>
+                      {r.source !== 'ci' && <ExternalLink href={r.ciUrl}>CI run</ExternalLink>}
                     </div>
                   </Table.Cell>
                 </Table.Row>

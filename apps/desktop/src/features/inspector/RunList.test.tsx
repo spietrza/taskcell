@@ -1,5 +1,5 @@
-import { test, expect } from 'vitest';
-import { render, screen } from '@testing-library/react';
+import { test, expect, vi } from 'vitest';
+import { render, screen, fireEvent } from '@testing-library/react';
 import { RunList } from './RunList';
 import type { ActiveRun, RunSummary } from '../../taskcell-output';
 
@@ -44,4 +44,20 @@ test('names the repository on each row only under "All repositories"', () => {
   expect(screen.getByText('alpha')).toBeInTheDocument();
   rerender(<RunList runs={runs} active={[]} onSelect={noop} onOpenActive={noop} />);
   expect(screen.queryByText('alpha')).not.toBeInTheDocument();
+});
+
+test('a CI run is marked, links its PR/MR, is not openable, and an unpriced one reads "unknown" not $0', () => {
+  const onSelect = vi.fn();
+  const ci: RunSummary = { taskId: 'ci-1', timestamp: '2026-07-06T19:12:02.123Z', stages: ['implementer'], totalCostUsd: 0, anyFailed: false, source: 'ci', costUnknown: true, prUrl: 'https://github.com/o/r/pull/5' };
+  const priced: RunSummary = { ...ci, taskId: 'ci-2', costUnknown: undefined, totalCostUsd: 1.5, prUrl: 'https://gitlab.com/o/r/-/merge_requests/9' } as RunSummary;
+  render(<RunList runs={[ci, priced]} active={[]} onSelect={onSelect} onOpenActive={noop} />);
+  expect(screen.getAllByText('run in CI')).toHaveLength(2);
+  expect(screen.getByText('unknown')).toBeInTheDocument();
+  expect(screen.queryByText('$0.00')).toBeNull();
+  expect(screen.getByText('$1.50')).toBeInTheDocument();
+  expect(screen.getByRole('link', { name: /Open in GitHub/ })).toHaveAttribute('href', 'https://github.com/o/r/pull/5');
+  expect(screen.getByRole('link', { name: /Open in GitLab/ })).toHaveAttribute('href', 'https://gitlab.com/o/r/-/merge_requests/9');
+  expect(screen.queryByText('CI run')).toBeNull();
+  fireEvent.click(screen.getByText('ci-1'));
+  expect(onSelect).not.toHaveBeenCalled();
 });

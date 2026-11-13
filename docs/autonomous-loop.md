@@ -352,6 +352,19 @@ That digest dies with a CI job, so closed factory PRs also leave **lessons** on 
 
 Later `run`, `watch` and spec runs read the live lessons back into the retrospective block. A lesson qualifies when it is repo-wide or when one of its globs matches a path that the issue text mentions, and the block is capped at 2 KB. A wrong lesson is dismissed with `taskcell lessons dismiss <id>` (the id is in the PR comment and in `taskcell lessons list`), and runs no longer receive it.
 
+On GitLab, `taskcell lessons record --gitlab-project <group/project> --mr <n>` does the same through `glab`: the history comes from the MR's notes and the `taskcell::verify-failed` label, and the lesson note is posted on the MR. GitLab notes carry no association, so only notes by the user `glab` runs as (Vanguard's own reviews and revise notes) and `--feedback-authors` logins reach the model; the model runs with tools disabled. `lessons list` and `lessons dismiss` work the same for a GitLab repo. Add the job to `.gitlab-ci.yml` by hand (agents never edit CI config):
+
+```yaml
+taskcell-lessons:
+  stage: .post
+  rules:
+    - if: $MR_IID
+  script:
+    - taskcell lessons record --gitlab-project "$CI_PROJECT_PATH" --mr "$MR_IID"
+```
+
+Run it for a closed factory MR with `MR_IID` set (for example from a pipeline trigger on MR close). An MR from a fork, or on a branch other than `chore/vanguard-*`, is skipped with no model call, since its reviews quote text its author controls. The job needs `CLAUDE_CODE_OAUTH_TOKEN`, a `GITLAB_TOKEN` that can read and comment on MRs and push the metrics branch.
+
 This repo runs the step from `.github/workflows/taskcell-lessons.yml` when a `chore/vanguard-*` PR is closed. The job needs `CLAUDE_CODE_OAUTH_TOKEN`.
 
 ## Proof of work

@@ -808,11 +808,16 @@ export function parseCli(argv: string[], cwd: string): Command {
       return { kind: 'lessons', action, repoPath, id, ...branch };
     }
     if (action === 'record') {
-      const prRaw = typeof values.pr === 'string' ? values.pr : positionals[2];
+      const gitlabProject = typeof values['gitlab-project'] === 'string' ? values['gitlab-project'] : undefined;
+      const numFlagName = gitlabProject !== undefined ? 'mr' : 'pr';
+      const numFlag = values[numFlagName];
+      const prRaw = typeof numFlag === 'string' ? numFlag : positionals[2];
       const prNumber = prRaw !== undefined ? Number(prRaw) : NaN;
-      const repoSlug = typeof values['github-repo'] === 'string' ? values['github-repo'] : undefined;
-      if (repoSlug === undefined) return fail('lessons record requires --github-repo <owner/repo>.');
-      if (!Number.isInteger(prNumber) || prNumber < 1) return fail(`lessons record requires a positive --pr <n>, got "${String(prRaw)}".`);
+      const repoSlug = gitlabProject ?? (typeof values['github-repo'] === 'string' ? values['github-repo'] : undefined);
+      if (repoSlug === undefined) return fail('lessons record requires --github-repo <owner/repo> or --gitlab-project <group/project>.');
+      if (!Number.isInteger(prNumber) || prNumber < 1) {
+        return fail(`lessons record requires a positive --${numFlagName} <n>, got "${String(prRaw)}".`);
+      }
       const feedbackAuthors = parseFeedbackAuthors(values['feedback-authors']);
       return {
         kind: 'lessons',
@@ -820,13 +825,14 @@ export function parseCli(argv: string[], cwd: string): Command {
         repoPath,
         repoSlug,
         prNumber,
+        ...(gitlabProject !== undefined ? { gitlab: true as const } : {}),
         dryRun: values['dry-run'] === true,
         ...(typeof values['provider-model'] === 'string' ? { model: values['provider-model'] } : {}),
         ...(feedbackAuthors !== undefined ? { feedbackAuthors } : {}),
         ...branch,
       };
     }
-    return fail('lessons expects a subcommand: record --pr <n> --github-repo <o/r> | list | dismiss <id>.');
+    return fail('lessons expects a subcommand: record --pr <n> --github-repo <o/r> (or --mr <n> --gitlab-project <g/p>) | list | dismiss <id>.');
   }
 
   if (positionals[0] === 'audit') {
@@ -1498,7 +1504,7 @@ Commands:
   history <owner/repo#N>  One issue's history over the audit streams (trigger, runs, reviews, approver,
          merge) with actor and source per entry, and whether the chains verify; --json; see docs/audit.md.
   memory Refresh .taskcell/memory/retrospective.md from run artifacts and print it.
-  lessons record  Distil 0-3 lessons from a closed factory PR (one cheap model call; none for a clean
+  lessons record  Distil 0-3 lessons from a closed factory PR or GitLab MR (one cheap model call; none for a clean
          first-round merge), append them to lessons.jsonl on the metrics branch and comment them on
          the PR. Later runs read the relevant ones into their retrospective memory.
   lessons list | dismiss <id>  Show the live lessons, or dismiss a wrong one so no run gets it again.
@@ -1805,7 +1811,8 @@ ${MAX_REPAIR_ITERATIONS_USAGE}
 
   lessons options:
     --pr <n>               record: PR number (bare positional also accepted)
-    --github-repo <o/r>    record: required repo slug
+    --github-repo <o/r>    record: required repo slug (GitHub)
+    --gitlab-project <g/p> record: GitLab project instead; with --mr <n> (needs glab)
     --provider-model <m>   record: model for the lesson call (default: haiku)
     --feedback-authors <a,b>  record: extra trusted logins whose PR comments may inform a lesson
     --dry-run              record: print the lessons, store and post nothing
