@@ -528,6 +528,13 @@ describe('runSourcedIssue', () => {
     expect(assembled.find((s) => s.name === 'implementer')?.model).toBe('claude-sonnet-5');
   });
 
+  it('the difficulty probe reads keys from the run\'s providerEnv (a hub `user` run), not the host env', async () => {
+    const { decisionProbeConfig } = await import('../core/decision-probe.js');
+    const providerEnv = { ANTHROPIC_API_KEY: 'sk-ant-user' };
+    await runSourcedIssue('group/project#1', { repoPath: '/repo', providerEnv }, fakeAdapter([], STAGES));
+    expect(vi.mocked(decisionProbeConfig)).toHaveBeenLastCalledWith(providerEnv, expect.anything());
+  });
+
   it('a probe that is disabled or fails leaves no trace and does not block the run', async () => {
     probeTaskDifficulty.mockResolvedValueOnce(undefined as never);
     const result = await runSourcedIssue('group/project#1', { repoPath: '/repo' }, fakeAdapter([], STAGES));

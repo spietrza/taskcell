@@ -72,6 +72,13 @@ export interface CreateRunParams {
   startedBy?: string;
 }
 
+/** Hub-only, server-set (never part of the client's params): the credential a run uses. `env` holds
+ * the secret values and must never be persisted or logged; only `source` reaches the run record. */
+export interface RunCredential {
+  source: 'instance' | 'user';
+  env: Record<string, string>;
+}
+
 /** Result of the sidecar `createRun` method. */
 export interface CreateRunResult {
   prUrl?: string;
@@ -812,9 +819,23 @@ export interface Commands {
   list_branches: { args: { repoPath: string }; result: { branches: string[]; default?: string } };
   /** HUB_ONLY, read-only: installed vs latest claude/codex/cursor CLI in the local sandbox image (3-day soak applied; `enabled: false`, and no lookups, when VANGUARD_CLI_VERSION_CHECK is off). Refused on a non-loopback bind without VANGUARD_HUB_ALLOW_ADD. */
   agent_cli_versions: { args: undefined; result: CliVersionReport };
+  /** HUB_ONLY, admin only (403 otherwise): the `per-user credentials` switch. */
+  get_credential_policy: { args: undefined; result: { policy: CredentialPolicy } };
+  set_credential_policy: { args: { policy: CredentialPolicy }; result: void };
+  /** HUB_ONLY, admin only: instance provider credentials. Write-only — status lists names, never values. */
+  instance_credentials_status: { args: undefined; result: { names: string[] } };
+  save_instance_credential: { args: { name: string; value: string }; result: void };
+  delete_instance_credential: { args: { name: string }; result: void };
+  /** HUB_ONLY: the signed-in user's OWN credentials (no RPC takes a user id). Write-only. */
+  user_credentials_status: { args: undefined; result: { enabled: boolean; admin: boolean; names: string[] } };
+  save_user_credential: { args: { name: string; value: string }; result: void };
+  delete_user_credential: { args: { name: string }; result: void };
   /** HUB_ONLY, admin-only (403 otherwise): the audit log newest first, optionally for one login. */
   read_audit: { args: { login?: string; limit?: number }; result: AuditEntry[] };
 }
+
+/** The admin `per-user credentials` switch: off, user's own first then the instance's, or user's own only. */
+export type CredentialPolicy = 'off' | 'user-first' | 'user-only';
 
 /** Every command name, for the hub dispatch parity test and friends. TYPE-CHECKED (not just asserted)
  * against `Commands`: the `satisfies` below rejects a typo or a name not in `Commands`, and
@@ -889,6 +910,14 @@ export const COMMAND_NAMES = [
   'enable_factory_verify',
   'agent_cli_versions',
   'list_branches',
+  'get_credential_policy',
+  'set_credential_policy',
+  'instance_credentials_status',
+  'save_instance_credential',
+  'delete_instance_credential',
+  'user_credentials_status',
+  'save_user_credential',
+  'delete_user_credential',
   'read_audit',
 ] as const satisfies readonly (keyof Commands)[];
 type _Exhaustive = keyof Commands extends (typeof COMMAND_NAMES)[number]

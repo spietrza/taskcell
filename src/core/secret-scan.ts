@@ -323,18 +323,23 @@ export function injectedSecretValues(env: NodeJS.ProcessEnv = process.env, extra
     values.push(...[pem, ...pem.split('\n').map((l) => l.trim()).filter((l) => l !== '' && !l.startsWith('-----'))].filter(isPlausibleInjectedSecret));
   }
   // Codex writes auth.json; agents can copy individual credentials out of it.
-  if (env.CODEX_AUTH_JSON !== undefined) {
-    try {
-      const auth = JSON.parse(env.CODEX_AUTH_JSON) as {
-        OPENAI_API_KEY?: unknown;
-        tokens?: { access_token?: unknown; refresh_token?: unknown; id_token?: unknown };
-      } | null;
-      for (const value of [auth?.OPENAI_API_KEY, auth?.tokens?.access_token, auth?.tokens?.refresh_token, auth?.tokens?.id_token]) {
-        if (typeof value === 'string' && isPlausibleInjectedSecret(value)) values.push(value);
-      }
-    } catch { /* Invalid auth JSON is still checked as a raw value. */ }
-  }
+  if (env.CODEX_AUTH_JSON !== undefined) values.push(...codexAuthSecretValues(env.CODEX_AUTH_JSON));
   return [...new Set(values)];
+}
+
+/** The individual credentials inside a Codex auth.json (`CODEX_AUTH_JSON`); [] when it does not parse. */
+export function codexAuthSecretValues(json: string): string[] {
+  try {
+    const auth = JSON.parse(json) as {
+      OPENAI_API_KEY?: unknown;
+      tokens?: { access_token?: unknown; refresh_token?: unknown; id_token?: unknown };
+    } | null;
+    return [auth?.OPENAI_API_KEY, auth?.tokens?.access_token, auth?.tokens?.refresh_token, auth?.tokens?.id_token].filter(
+      (value): value is string => typeof value === 'string' && isPlausibleInjectedSecret(value),
+    );
+  } catch {
+    return []; // Invalid auth JSON is still checked as a raw value.
+  }
 }
 
 /**

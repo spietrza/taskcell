@@ -18,6 +18,7 @@ import type {
   CompleteResponse,
   CredentialProvider,
   CredentialsSummary,
+  CredentialPolicy,
   FactoryApplyResult,
   FactoryPlan,
   FactoryProviderId,
@@ -413,6 +414,40 @@ export function apiCancel(runId?: string): Promise<void> {
 /** Click-time pre-flight: is `repoPath` a git work tree? */
 export function apiRepoOk(repoPath: string): Promise<boolean> {
   return call('api_repo_ok', { repoPath });
+}
+
+// Per-user provider credentials (hub-only, write-only: status returns names, never values). The
+// instance/policy calls are admin-only — the hub answers 403 to anyone else.
+export function userCredentialsStatus(): Promise<{ enabled: boolean; admin: boolean; names: string[] }> {
+  return call('user_credentials_status', undefined);
+}
+
+export function saveUserCredential(name: string, value: string): Promise<void> {
+  return call('save_user_credential', { name, value });
+}
+
+export function deleteUserCredential(name: string): Promise<void> {
+  return call('delete_user_credential', { name });
+}
+
+export function getCredentialPolicy(): Promise<{ policy: CredentialPolicy }> {
+  return call('get_credential_policy', undefined);
+}
+
+export function setCredentialPolicy(policy: CredentialPolicy): Promise<void> {
+  return call('set_credential_policy', { policy });
+}
+
+export function instanceCredentialsStatus(): Promise<{ names: string[] }> {
+  return call('instance_credentials_status', undefined);
+}
+
+export function saveInstanceCredential(name: string, value: string): Promise<void> {
+  return call('save_instance_credential', { name, value });
+}
+
+export function deleteInstanceCredential(name: string): Promise<void> {
+  return call('delete_instance_credential', { name });
 }
 
 /** Hub-only: the teams the caller can see. */

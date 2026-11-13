@@ -28,15 +28,27 @@ import { isSafeTaskId } from '../core/state-path.js';
 import { listActive, readSession } from './active.js';
 import { readAppConfig, readAppConfigStrict, writeAppConfig, type AppConfig } from './app-config.js';
 import { checkCliVersions } from '../sandbox/cli-versions.js';
-import { CREDENTIAL_PROVIDERS, type CredentialProvider, type CredentialStore } from './credentials.js';
 import * as drafts from './drafts.js';
 import * as projects from './projects.js';
 import * as teams from './teams.js';
 import type { TeamRole } from '../wire.js';
 import * as remote from './remote.js';
 import { AuditWriteError } from '../core/audit.js';
-import { AuditLog, TOKEN_ACTOR, auditActorOf, reportAuditFailure, type Actor, type AuditAction, type AuditOutcome } from './audit.js';
+import { TOKEN_ACTOR, auditActorOf, reportAuditFailure, type AuditLog, type Actor, type AuditAction, type AuditOutcome } from './audit.js';
 import { startGithubTask, triggerLabelsFor } from './start-task.js';
+import {
+  USER_SCOPE,
+  CREDENTIAL_POLICIES,
+  CREDENTIAL_PROVIDERS,
+  ForbiddenError,
+  type CredentialProvider,
+  type CredentialStore,
+  parseCredentialInput,
+  parseCredentialName,
+  type CredentialPolicy,
+  type CredentialService,
+  type HubUser,
+} from './credentials.js';
 import { enableFactory, factoryPlanTargets, noScripts, type FactoryPlan, type FactoryProviderId } from './enable-factory.js';
 
 /** GitHub's cap on a label name. */
@@ -44,8 +56,8 @@ const MAX_LABEL_LENGTH = 50;
 
 export class UnknownCommandError extends BadRequestError {}
 
-/** The caller is known but not allowed (non-admin reading the audit log) — the HTTP layer maps it to 403. */
-export class ForbiddenError extends BadRequestError {}
+/** Re-exported from credentials.ts so RPC callers need not import it from there. */
+export { ForbiddenError };
 
 /** The Fleet screen (`spawn_run` et al) is off unless the hub is the desktop app's own local hub:
  * `spawn_run` executes arbitrary programs, which is remote code execution on a reachable server. */
@@ -68,6 +80,10 @@ export interface RpcContext {
   credentials: CredentialStore;
   /** Publish a server->client event (wired to the hub's EventBus). */
   publish: (name: string, payload: unknown) => void;
+  /** Per-user credential switch + encrypted store; absent, runs use the host environment as before. */
+  userCredentials?: CredentialService;
+  /** The signed-in user behind THIS request (set per request by the server); undefined when none. */
+  user?: HubUser;
   /** Audit log; absent in tests that do not exercise it. */
   audit?: AuditLog;
   /** Who is calling; the shared `token` identity when absent. */
@@ -77,6 +93,24 @@ export interface RpcContext {
 /** Who is calling: the request's actor, or the shared `token` identity. */
 function actorOf(ctx: RpcContext): Actor {
   return ctx.actor ?? TOKEN_ACTOR;
+}
+
+function requireCredentials(ctx: RpcContext): CredentialService {
+  if (ctx.userCredentials === undefined) throw new BadRequestError('per-user credentials are not configured on this hub');
+  return ctx.userCredentials;
+}
+
+/** Credential RPCs act on the CALLER's own scope only — no RPC takes a user id, so there is no way to
+ * name another user's credentials. */
+function requireUser(ctx: RpcContext): HubUser {
+  if (ctx.user === undefined) throw new BadRequestError('Sign in to the hub first — per-user credentials need to know who you are.');
+  return ctx.user;
+}
+
+function requirePolicy(args: Record<string, unknown>): CredentialPolicy {
+  const v = args.policy;
+  if (!(CREDENTIAL_POLICIES as readonly unknown[]).includes(v)) throw new BadRequestError(`policy must be one of: ${CREDENTIAL_POLICIES.join(', ')}`);
+  return v as CredentialPolicy;
 }
 
 function obj(rawArgs: unknown): Record<string, unknown> {
@@ -218,9 +252,9 @@ async function dispatchInner(ctx: RpcContext, cmd: string, rawArgs: unknown, cal
   // without a `teamId` — token-only mode, one team — which keeps the pre-teams behaviour.
   const scope = async (): Promise<string[] | undefined> => {
     const teamId = optionalString(args, 'teamId');
-    if (caller.owner && teamId === undefined) return undefined;
-    // A signed-in user in no team has nothing to list (not an error); an explicit foreign `teamId` is refused.
-    if (teamId === undefined && (await teams.callerTeams(ctx.configDir, caller)).length === 0) return [];
+    // Without a `teamId`: the caller's first team, and nothing to list (not an error) for a signed-in
+    // user in no team. An explicit foreign `teamId` is refused.
+    if (teamId === undefined) return caller.owner ? undefined : ((await teams.callerTeams(ctx.configDir, caller))[0]?.repositories ?? []);
     return (await teams.selectTeam(ctx.configDir, caller, teamId)).repositories;
   };
   // A run known to the session: its repository must be the caller's. Unknown (finished) runs: owner only.
@@ -469,8 +503,9 @@ async function dispatchInner(ctx: RpcContext, cmd: string, rawArgs: unknown, cal
     case 'api_create_run': {
       const params = (args.params ?? {}) as Record<string, unknown>;
       // startedBy comes from the request's actor, never from the client's params.
-      const startedBy = actorOf(ctx).login;
-      const actor = auditActorOf(actorOf(ctx));
+      const requester = actorOf(ctx);
+      const startedBy = requester.login;
+      const actor = auditActorOf(requester);
       // One audit line: at acceptance (the call then stays pending until the run ends), or, when the
       // run is refused before that, one refusal line.
       let accepted = false;
@@ -484,11 +519,14 @@ async function dispatchInner(ctx: RpcContext, cmd: string, rawArgs: unknown, cal
           // The run is already admitted (this call stays pending until it ends): an unwritable audit log is reported, not thrown.
           void ctx.audit?.record({ login: startedBy, actor, action, target: runId, outcome }).catch(reportAuditFailure);
         };
+        // The credential is resolved from the server-side switch and the caller's identity, BEFORE the
+        // run is queued or claims the slot: a `user only` run with no saved credential is refused here.
+        const credential = ctx.userCredentials !== undefined ? await ctx.userCredentials.resolveForRun(ctx.user) : undefined;
         return await ctx.runSession.createRun({ ...validated, startedBy }, {
           onStarted: (id) => log('run-start', id, 'ok'),
           onQueued: (id) => log('run-queue', id, 'ok'),
           onRefused: (id) => log('run-start', id, 'refused'),
-        });
+        }, credential);
       } catch (err) {
         if (!accepted) {
           const repoPath = optionalString(params, 'repoPath');
@@ -497,11 +535,59 @@ async function dispatchInner(ctx: RpcContext, cmd: string, rawArgs: unknown, cal
         throw err;
       }
     }
+    case 'get_credential_policy': {
+      const svc = requireCredentials(ctx);
+      svc.assertAdmin(ctx.user);
+      return { policy: await svc.policy() };
+    }
+    case 'set_credential_policy': {
+      const svc = requireCredentials(ctx);
+      svc.assertAdmin(ctx.user);
+      await svc.setPolicy(requirePolicy(args));
+      return null;
+    }
+    case 'instance_credentials_status': {
+      const svc = requireCredentials(ctx);
+      svc.assertAdmin(ctx.user);
+      return { names: await svc.store.names('instance') };
+    }
+    case 'save_instance_credential': {
+      const svc = requireCredentials(ctx);
+      svc.assertAdmin(ctx.user);
+      const { name, value } = parseCredentialInput(args);
+      await svc.store.put('instance', name, value);
+      return null;
+    }
+    case 'delete_instance_credential': {
+      const svc = requireCredentials(ctx);
+      svc.assertAdmin(ctx.user);
+      await svc.store.remove('instance', parseCredentialName(args));
+      return null;
+    }
+    case 'user_credentials_status': {
+      const svc = requireCredentials(ctx);
+      const enabled = (await svc.policy()) !== 'off';
+      const names = ctx.user !== undefined && enabled ? await svc.store.names(USER_SCOPE(ctx.user)) : [];
+      return { enabled, admin: svc.isAdmin(ctx.user), names };
+    }
+    case 'save_user_credential': {
+      const svc = requireCredentials(ctx);
+      const user = requireUser(ctx);
+      if ((await svc.policy()) === 'off') throw new BadRequestError('per-user credentials are turned off on this hub');
+      const { name, value } = parseCredentialInput(args);
+      await svc.store.put(USER_SCOPE(user), name, value);
+      return null;
+    }
+    case 'delete_user_credential': {
+      const svc = requireCredentials(ctx);
+      await svc.store.remove(USER_SCOPE(requireUser(ctx)), parseCredentialName(args));
+      return null;
+    }
     case 'read_audit': {
       if (!actorOf(ctx).admin) throw new ForbiddenError('the audit log is admin-only');
       const login = optionalString(args, 'login');
       const limit = optionalNumber(args, 'limit');
-      return ctx.audit === undefined ? [] : ctx.audit.read({ ...(login !== undefined && login !== '' ? { login } : {}), ...(limit !== undefined ? { limit } : {}) });
+      return ctx.audit === undefined ? [] : ctx.audit.read({ ...(login ? { login } : {}), ...(limit !== undefined ? { limit } : {}) });
     }
     case 'api_active_run': {
       const active = ctx.runSession.activeRun();
@@ -803,12 +889,12 @@ export async function dispatchRpc(ctx: RpcContext, cmd: string, rawArgs: unknown
   const audit = ctx.audit;
   if (spec === undefined || audit === undefined) return dispatchInner(ctx, cmd, rawArgs, caller);
   const args = obj(rawArgs);
-  const login = actorOf(ctx).login;
+  const actor = actorOf(ctx);
   const target = spec.target(args);
   const detail = await spec.detail?.(ctx, args);
   const okOutcome = spec.okOutcome?.(ctx, args) ?? 'ok';
   const line = (outcome: AuditOutcome): Promise<void> =>
-    audit.record({ login, actor: auditActorOf(ctx.actor ?? TOKEN_ACTOR), action: spec.action, ...(target !== undefined ? { target } : {}), outcome, ...(detail !== undefined ? { detail } : {}) });
+    audit.record({ login: actor.login, actor: auditActorOf(actor), action: spec.action, ...(target !== undefined ? { target } : {}), outcome, ...(detail !== undefined ? { detail } : {}) });
   try {
     const result = await dispatchInner(ctx, cmd, rawArgs, caller);
     // Fail closed: the change is already applied, so the caller is told it went unrecorded rather than that it failed.
@@ -817,7 +903,7 @@ export async function dispatchRpc(ctx: RpcContext, cmd: string, rawArgs: unknown
     });
     return result;
   } catch (err) {
-    // Fail closed on success (the caller is told the action went unrecorded); on a failed action keep the original error.
+    // On a failed action keep the original error: an unwritable log is only reported.
     await line(outcomeOf(err)).catch(reportAuditFailure);
     throw err;
   }

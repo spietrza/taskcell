@@ -6,6 +6,7 @@ import { Members, type TeamScreen } from './Members';
 import { writeAppConfig } from '../../ipc';
 import { useAppConfig } from '../../hooks';
 import { useDiscardGuard } from '../../navGuard';
+import { CredentialsPanel } from './CredentialsPanel';
 import { combinationNote, legacySource, resolveTaskSource, RUN_LOCATIONS, runLocationOf, TASK_SOURCES, taskSourceOf } from '../../platform';
 import { projectColor } from '../../color';
 import { customProviderRowError, customProviderRows, PROVIDERS } from './customProviders';
@@ -24,6 +25,8 @@ function Field({ label, hint, children }: { label: string; hint?: string; childr
   );
 }
 
+const SELECT_CLASS = 'h-9 w-full rounded border border-border bg-background px-2 text-sm';
+
 function Select({
   value,
   onChange,
@@ -41,7 +44,7 @@ function Select({
     <select
       value={value}
       onChange={(e) => onChange(e.target.value)}
-      className="h-9 w-full rounded border border-border bg-background px-2 text-sm"
+      className={SELECT_CLASS}
     >
       <option value="">—</option>
       {dangling && (
@@ -173,7 +176,7 @@ export function Settings({ project, teamScreen }: { project: string; teamScreen?
                 // `source` keeps feeding the board/transport/CLI; sources it does not read clear it.
                 set('source', v && legacySource(v));
               }}
-              className="h-9 w-full rounded border border-border bg-background px-2 text-sm"
+              className={SELECT_CLASS}
             >
               <option value="">—</option>
               {TASK_SOURCES.map((s) => (
@@ -187,7 +190,7 @@ export function Settings({ project, teamScreen }: { project: string; teamScreen?
             <select
               value={runLocationOf(cfg.runLocation)}
               onChange={(e) => set('runLocation', runLocationOf(e.target.value))}
-              className="h-9 w-full rounded border border-border bg-background px-2 text-sm"
+              className={SELECT_CLASS}
             >
               {RUN_LOCATIONS.map((r) => (
                 <option key={r.id} value={r.id}>
@@ -372,6 +375,7 @@ export function Settings({ project, teamScreen }: { project: string; teamScreen?
         </div>
       </div>
       )}
+      {isHubMode() && <CredentialsPanel />}
     </div>
   );
 }
