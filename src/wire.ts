@@ -245,6 +245,10 @@ export interface BoardTask {
   stage?: string;
   /** Latest run's per-stage/gate verdicts. Absent ⇒ no run record for this task. */
   chips?: BoardChip[];
+  /** The tracker the card came from; names the "Open in …" link. */
+  source?: 'github' | 'gitlab' | 'linear';
+  /** The issue's address in that tracker, as the tracker returned it. Absent ⇒ no link. */
+  url?: string;
 }
 
 /** The reviewer's persisted verdict: `changes` ⇔ the merge gate would request changes. */
@@ -297,6 +301,8 @@ export interface RunRecord {
   timestamp: string;
   stage?: string;
   prUrl?: string;
+  /** The CI run (GitHub Actions run / GitLab pipeline) this record was written in. Absent ⇒ a local run. */
+  ciUrl?: string;
   /** The sandbox image's content digest/ID (DockerSandboxProvider.imageDigest), so a run can be
    *  traced back to the exact image it executed against — pulled from GHCR or built locally. */
   imageDigest?: string;
@@ -351,6 +357,7 @@ export interface RunSummary {
   totalCostUsd: number;
   anyFailed: boolean;
   prUrl?: string;
+  ciUrl?: string;
 }
 
 export interface StageDetail {
@@ -365,6 +372,11 @@ export interface RunDetail {
   stages: StageDetail[];
   proof?: Proof;
   visualProof?: VisualProof;
+  /** Addresses in the Git host, computed by the server; each absent when unknown. */
+  prUrl?: string;
+  /** The pull/merge request's diff page ("Files changed" / "Changes"). */
+  diffUrl?: string;
+  ciUrl?: string;
 }
 
 /** A CI run, as returned by `gh run list` (src/hub/remote.ts) / Tauri's `list_remote_runs`. */
