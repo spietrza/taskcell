@@ -95,6 +95,11 @@ describe('stripReviewMarkers', () => {
     expect(stripped).toContain('b');
   });
 
+  it('removes a run stamp line the model wrote, so only the host stamp reaches the posted review', () => {
+    const stamp = `<!-- taskcell-pr-review-run: ${'a'.repeat(40)}:42 -->`;
+    expect(stripReviewMarkers(`Verdict: NO BLOCKING FINDINGS\n\n${stamp}\n \t${stamp} \nend`)).not.toContain('pr-review-run');
+  });
+
   it('removes revise-pr revision markers anywhere in the text, both forms, including split reassemblies', () => {
     const opener = /<!--\s*(?:vanguard-)?revision:/;
     for (const text of [

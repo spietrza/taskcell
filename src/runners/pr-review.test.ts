@@ -1,5 +1,5 @@
 import { describe, it, expect, vi } from 'vitest';
-import { postPullRequestReview, pullRequestReviewRunIds } from './pr-review.js';
+import { postPullRequestReview, soleReviewRunStampSha } from './pr-review.js';
 import {
   buildPullRequestReviewComment,
   buildPullRequestReviewIncompleteComment,
@@ -816,7 +816,13 @@ describe('postPullRequestReview run stamp', () => {
     expect(calls[0]!.at(-1)).toBe(body);
     expect(calls[1]!.at(-1)).toBe(`${body}\n\n<!-- taskcell-pr-review-run: abc123:987 -->`);
     expect(calls[2]!.at(-1)).toBe(body);
-    expect(pullRequestReviewRunIds(calls[1]!.at(-1)!, 'abc123')).toEqual(['987']);
+    expect(soleReviewRunStampSha(calls[1]!.at(-1)!)).toBe('abc123');
+    expect(soleReviewRunStampSha(body)).toBeUndefined();
+    // Sole stamp: a second one (whole-line or inline, same SHA or not) makes the body carry none.
+    const stamp = '<!-- taskcell-pr-review-run: abc123:987 -->';
+    expect(soleReviewRunStampSha(`${body}\n\n${stamp}\n\n${stamp}`)).toBeUndefined();
+    expect(soleReviewRunStampSha(`${body}\n\n${stamp}\n\n<!-- taskcell-pr-review-run: def456:1 -->`)).toBeUndefined();
+    expect(soleReviewRunStampSha(`${body}\n\nsee ${stamp} here\n\n${stamp}`)).toBeUndefined();
     expect(pullRequestReviewMarkerShas(calls[1]!.at(-1)!)).toEqual(['abc123']);
   });
 });
