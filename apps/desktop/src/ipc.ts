@@ -1,5 +1,5 @@
 import { invoke } from './transport';
-import type { SetupStatus, Team, TeamRole } from './wire';
+import type { CostBreakdown, CostPeriod, SetupStatus, Team, TeamRole } from './wire';
 import type {
   RunSummary,
   RunDetail,
@@ -49,6 +49,11 @@ const teamArgs = (teamId?: string): { teamId: string } | undefined => (teamId ==
 
 export function listRuns(repoPath: string): Promise<RunSummary[]> {
   return call('list_runs', { repoPath });
+}
+
+/** HUB_ONLY: a project's CI run cost by model and stage (its metrics branch) for a period. */
+export function readCostBreakdown(repoPath: string, period: CostPeriod): Promise<CostBreakdown> {
+  return call('read_cost_breakdown', { repoPath, period });
 }
 
 /** HUB_ONLY: every repository's runs, each stamped with its repository; unreadable ones in `failures`. */

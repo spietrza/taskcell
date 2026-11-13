@@ -49,6 +49,11 @@ const commandHandlers = {
   list_runs: () => runs,
   list_runs_all: () => ({ runs: runs.map((r) => ({ ...r, ...mockStamp() })), failures: [] }),
   read_run: () => runDetail,
+  read_cost_breakdown: (args: unknown) => ({
+    status: 'no-branch' as const, branch: 'taskcell-metrics', period: (args as { period?: 'all' } | undefined)?.period ?? 'all',
+    hint: 'Run `taskcell metrics push` from your CI workflow (it writes the taskcell-metrics branch) and CI runs will show up here.',
+    costKind: 'unknown' as const, runs: 0, totalCostUsd: 0, unknownEntries: 0, byModel: [], byStage: [],
+  }),
   list_projects: () => projects,
   list_teams: () => [{ ...mockTeam, repositories: projects.map((p) => p.path) }],
   team_role: () => 'admin' as const,

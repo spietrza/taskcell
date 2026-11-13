@@ -3,6 +3,7 @@ import { mkdir, readFile, realpath, writeFile } from 'node:fs/promises';
 import { basename, join } from 'node:path';
 import { readAppConfig } from './app-config.js';
 import { defaultRunsRoot, listRunSummaries } from './runs.js';
+import { withCiRuns } from './ci-metrics.js';
 import { listActive } from './active.js';
 import { fanOut } from '../pipeline/fan-out.js';
 import { redactForPublish } from '../core/secret-scan.js';
@@ -14,6 +15,8 @@ export interface Project {
   runCount: number;
   taskCount: number;
   totalCostUsd: number;
+  /** Of `runCount`, the runs known only from the metrics branch (CI). */
+  ciRunCount?: number;
   failedCount: number;
   lastRun?: string;
   /** In-flight runs right now (from active sessions). */
@@ -67,7 +70,7 @@ const repoDisplayName = (repoPath: string): string => basename(repoPath) || repo
 export async function aggregate(repoPath: string, now: Date = new Date()): Promise<Project> {
   const name = repoDisplayName(repoPath);
   const [summaries, runningCount, appConfig] = await Promise.all([
-    listRunSummaries(defaultRunsRoot(repoPath)),
+    listRunSummaries(defaultRunsRoot(repoPath)).then((local) => withCiRuns(repoPath, local)),
     listActive(repoPath).then((active) => active.length),
     readAppConfig(repoPath),
   ]);
@@ -79,10 +82,12 @@ export async function aggregate(repoPath: string, now: Date = new Date()): Promi
   let totalCostUsd = 0;
   let failedCount = 0;
   let runsLast24h = 0;
+  let ciRunCount = 0;
   let lastRun: string | undefined;
   for (const s of summaries) {
     tasks.add(s.taskId);
     totalCostUsd += s.totalCostUsd;
+    if (s.source === 'ci') ciRunCount += 1;
     if (s.anyFailed) {
       failedCount += 1;
     }
@@ -101,6 +106,7 @@ export async function aggregate(repoPath: string, now: Date = new Date()): Promi
     runCount: summaries.length,
     taskCount: tasks.size,
     totalCostUsd,
+    ...(ciRunCount > 0 ? { ciRunCount } : {}),
     failedCount,
     ...(lastRun !== undefined ? { lastRun } : {}),
     runningCount,
