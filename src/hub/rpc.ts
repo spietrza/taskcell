@@ -28,7 +28,6 @@ import { isSafeTaskId } from '../core/state-path.js';
 import { listActive, readSession } from './active.js';
 import { readAppConfig, readAppConfigStrict, writeAppConfig, type AppConfig } from './app-config.js';
 import { checkCliVersions } from '../sandbox/cli-versions.js';
-import { CREDENTIAL_PROVIDERS, type CredentialProvider, type CredentialStore } from './credentials.js';
 import * as drafts from './drafts.js';
 import * as projects from './projects.js';
 import * as teams from './teams.js';
@@ -37,6 +36,9 @@ import { startGithubTask, triggerLabelsFor } from './start-task.js';
 import {
   USER_SCOPE,
   CREDENTIAL_POLICIES,
+  CREDENTIAL_PROVIDERS,
+  type CredentialProvider,
+  type CredentialStore,
   parseCredentialInput,
   parseCredentialName,
   type CredentialPolicy,
@@ -72,14 +74,14 @@ export interface RpcContext {
   /** Publish a server->client event (wired to the hub's EventBus). */
   publish: (name: string, payload: unknown) => void;
   /** Per-user credential switch + encrypted store; absent, runs use the host environment as before. */
-  credentials?: CredentialService;
+  userCredentials?: CredentialService;
   /** The signed-in user behind THIS request (set per request by the server); undefined when none. */
   user?: HubUser;
 }
 
 function requireCredentials(ctx: RpcContext): CredentialService {
-  if (ctx.credentials === undefined) throw new BadRequestError('per-user credentials are not configured on this hub');
-  return ctx.credentials;
+  if (ctx.userCredentials === undefined) throw new BadRequestError('per-user credentials are not configured on this hub');
+  return ctx.userCredentials;
 }
 
 /** Credential RPCs act on the CALLER's own scope only — no RPC takes a user id, so there is no way to
@@ -431,7 +433,7 @@ export async function dispatchRpc(ctx: RpcContext, cmd: string, rawArgs: unknown
       const validated = validateCoreMethod('createRun', { ...params, repoPath: real });
       // The credential is resolved from the server-side switch and the caller's identity, BEFORE the
       // run is queued or claims the slot: a `user only` run with no saved credential is refused here.
-      const credential = ctx.credentials !== undefined ? await ctx.credentials.resolveForRun(ctx.user) : undefined;
+      const credential = ctx.userCredentials !== undefined ? await ctx.userCredentials.resolveForRun(ctx.user) : undefined;
       return ctx.runSession.createRun(validated as CreateRunParams, credential);
     }
     case 'get_credential_policy': {

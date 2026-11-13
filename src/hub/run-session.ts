@@ -4,6 +4,7 @@
 // See that file for the original Rust implementation and its "why" comments.
 import { cancelCurrent } from '../sidecar/cancel.js';
 import { BadRequestError } from '../sidecar/sidecar.js';
+import { RunEventLog } from './run-events.js';
 import type { SidecarDeps, CreateRunParams, CreateRunResult } from '../sidecar/sidecar.js';
 import type { RunCredential } from '../wire.js';
 
@@ -71,12 +72,14 @@ function maxQueueLimit(): number {
  */
 export function createRunSession(
   deps: SidecarDeps,
-  publish: (name: string, payload: unknown) => void,
+  publish: (name: string, payload: unknown) => number | void,
   assertStart?: (params: CreateRunParams) => Promise<void>,
 ): RunSession {
   let active: { runId: string; repoPath: string } | null = null;
   let counter = 0;
   const buffer = new Map<string, BufferedEvent[]>();
+  /** The running run's durable event log (one active run at a time). */
+  let eventLog: { runId: string; log: RunEventLog } | null = null;
   /** Completed-run ids in finish order, for bounded eviction. */
   const order: string[] = [];
   /** A runId for which cancel was requested — its terminal is `run-cancelled`, not `run-error`. */
@@ -112,10 +115,16 @@ export function createRunSession(
   function emit(runId: string, event: unknown): void {
     const payload: BufferedEvent = { runId, event };
     bufferPush(runId, payload);
+    let id: number | void = undefined;
     try {
-      publish('api:event', payload);
+      id = publish('api:event', payload);
     } catch {
       // A broken publisher must not break the run itself.
+    }
+    if (typeof id === 'number' && eventLog?.runId === runId) {
+      const e = event as { type?: unknown; taskId?: unknown } | null;
+      const taskId = e?.type === 'run-start' && typeof e.taskId === 'string' ? e.taskId : undefined;
+      eventLog.log.append({ id, ts: new Date().toISOString(), event: 'api:event', data: payload }, taskId);
     }
   }
 
@@ -171,6 +180,7 @@ export function createRunSession(
       // Drop the queued-phase `run-queued` so `run-accepted` is index 0 — the eviction invariant in
       // bufferPush, and the only event a strip re-attach may adopt from.
       buffer.delete(runId);
+      eventLog = { runId, log: new RunEventLog(repoPath) };
       emit(runId, { type: 'run-accepted', repoPath, ...(credential !== undefined ? { credentialSource: credential.source } : {}) });
       result = await deps.createRun(params, (e) => emit(runId, e), credential);
     } catch (error) {
@@ -186,19 +196,27 @@ export function createRunSession(
 
       if (result !== undefined) {
         // The pipeline already streamed `run-end`; no terminal to synthesize.
+        await flushLog(runId);
         resolve(result);
       } else {
         const terminal = wasCancelled ? { type: 'run-cancelled' } : { type: 'run-error', message: errMessage ?? 'run failed' };
         // Only synthesize if no terminal was already streamed (e.g. run-end emitted, then a teardown
         // throw) — "exactly one terminal" must hold even on that path.
         if (!hasTerminal(runId)) emit(runId, terminal);
+        await flushLog(runId);
         reject(new Error(errMessage ?? 'run failed'));
       }
     } finally {
+      if (eventLog?.runId === runId) eventLog = null;
       // Unconditional: a throw above must not leave `active` set and wedge every queued run behind it.
       finishRun(runId);
       startNext();
     }
+  }
+
+  /** Settle the run's pending event-log writes (never rejects) so a settled run's log is complete on disk. */
+  async function flushLog(runId: string): Promise<void> {
+    if (eventLog?.runId === runId) await eventLog.log.flush();
   }
 
   /** Promote the head of the queue into the active slot, if the slot is free and the queue is

@@ -12,7 +12,7 @@ import { dispatchRpc, classifyError, type RpcContext } from './rpc.js';
 import { encodeError, encodeResult, HUB_EVENTS_SESSION_PATH, HUB_SIGN_IN_REQUIRED, HUB_TOKEN_HEADER, HUB_TOKEN_REJECTED } from '../hub-wire.js';
 import { ProjectAllowlist, type BindOptions } from './allowlist.js';
 import { WatchRegistry, type WatchOptions } from './watch.js';
-import { createCredentialService, ForbiddenError } from './credentials.js';
+import { createCredentialService, CredentialStore, ForbiddenError } from './credentials.js';
 import { createRunSession } from './run-session.js';
 import { CompleteBusyError, CompleteRegistry, type SpawnComplete } from './complete.js';
 import { loadPaths } from './projects.js';
@@ -55,6 +55,8 @@ export interface HubServerOptions {
   /** Enable the Fleet spawn commands (`spawn_run` et al). Loopback binds only — the desktop app's
    * local hub sets it; a hub reachable by others must never run arbitrary programs. */
   fleet?: boolean;
+  /** `VANGUARD_HUB_SECRET` (base64, 32 bytes) keying the credential store; defaults to the env var. */
+  hubSecret?: string;
 }
 
 export interface HubServer {
@@ -271,9 +273,9 @@ async function handleRequest(
   const pathname = url.pathname;
 
   const offeredToken = singleHeader(req.headers[HUB_TOKEN_HEADER]);
-  const hasToken = tokenOk(offeredToken, auth.token);
+  const tokenValid = tokenOk(offeredToken, auth.token);
   // The token (CLI, scripts) maps to the owner; otherwise the Better Auth session (server mode only).
-  const resolveUser = async (): Promise<HubUser | undefined> => (hasToken ? identity.owner : identity.sessionUser(req));
+  const resolveUser = async (): Promise<HubUser | undefined> => (tokenValid ? identity.owner : identity.sessionUser(req));
   // A server-mode request that offered no token and has no session is "sign in", not "token dead".
   const unauthorized = (): void =>
     jsonError(res, 401, identity.handler !== undefined && !offeredToken ? HUB_SIGN_IN_REQUIRED : HUB_TOKEN_REJECTED, 'bad-request');
@@ -304,15 +306,14 @@ async function handleRequest(
 
   if (pathname === HUB_EVENTS_SESSION_PATH) {
     if (req.method !== 'POST') return methodNotAllowed(res, 'POST');
-    const user = await resolveUser();
-    if (user === undefined) return unauthorized();
+    if ((await resolveUser()) === undefined) return unauthorized();
     if (!sameOriginOk(req)) {
       jsonError(res, 400, 'cross-origin request rejected', 'bad-request');
       return;
     }
     // A signed-in session needs no events cookie: `/events` takes the session cookie itself, so
     // sign-out or revocation ends the stream's auth. The shared secret goes to token holders only.
-    if (!hasToken) {
+    if (!tokenValid) {
       writeJson(res, 200, encodeResult(null), { 'cache-control': 'no-store' });
       return;
     }
@@ -326,8 +327,7 @@ async function handleRequest(
 
   if (pathname === '/events') {
     if (req.method !== 'GET') return methodNotAllowed(res, 'GET');
-    const authorized =
-      eventsCookieOk(singleHeader(req.headers.cookie), auth) || (await resolveUser()) !== undefined;
+    const authorized = eventsCookieOk(singleHeader(req.headers.cookie), auth) || (await resolveUser()) !== undefined;
     if (!authorized) return unauthorized();
     eventBus.subscribe(req, res);
     res.flushHeaders();
@@ -372,7 +372,7 @@ export function createHubServer(opts: HubServerOptions): HubServer {
   const eventBus = new EventBus();
   eventBus.startKeepalive();
   const watchRegistry = new WatchRegistry(opts.watch);
-  const publish = (name: string, payload: unknown): void => eventBus.publish(name, payload);
+  const publish = (name: string, payload: unknown): number => eventBus.publish(name, payload);
   const completeRegistry = new CompleteRegistry(opts.spawnComplete);
   if (opts.fleet === true && !opts.bind.isLoopback) throw new Error('fleet requires a loopback bind');
   const spawnRegistry = opts.fleet === true ? new SpawnRegistry(publish) : undefined;
@@ -383,7 +383,12 @@ export function createHubServer(opts: HubServerOptions): HubServer {
     await allowlist.assertAllowed(p.repoPath);
   });
 
+  const credentials = new CredentialStore(opts.configDir, opts.hubSecret);
+  // An unreadable store (wrong secret) is reported in Settings and on stderr; runs keep the env credentials.
+  const credentialsReady = credentials.applyStored().catch((e: unknown) => console.error(`vanguard-hub: ${(e as Error).message}`));
+
   const ctx: RpcContext = {
+    credentials,
     allowlist,
     watchRegistry,
     runSession,
@@ -395,7 +400,7 @@ export function createHubServer(opts: HubServerOptions): HubServer {
     ...(opts.cloneHosts !== undefined ? { cloneHosts: opts.cloneHosts } : {}),
     bind: opts.bind,
     publish,
-    credentials: createCredentialService(opts.configDir, opts.adminGithubLogins),
+    userCredentials: createCredentialService(opts.configDir, opts.adminGithubLogins),
   };
 
   const server = createServer((req, res) => {
@@ -411,13 +416,13 @@ export function createHubServer(opts: HubServerOptions): HubServer {
     eventBus,
     allowlist,
     listen: (port, host) =>
-      new Promise<void>((resolve, reject) => {
+      credentialsReady.then(() => new Promise<void>((resolve, reject) => {
         server.once('error', reject);
         server.listen(port, host, () => {
           server.off('error', reject);
           resolve();
         });
-      }),
+      })),
     close: () =>
       new Promise<void>((resolve) => {
         watchRegistry.closeAll();
