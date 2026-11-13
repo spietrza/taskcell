@@ -505,3 +505,13 @@ export function teamRemoveRepository(teamId: string, path: string): Promise<Team
 export function setupStatus(): Promise<SetupStatus> {
   return call('setup_status', undefined);
 }
+
+/** Hub-only: the live lessons of a repo (newest first); with `taskText`, only those a task with that text would receive. */
+export function listLessons(repoPath: string, taskText?: string): Promise<Commands['list_lessons']['result']> {
+  return call('list_lessons', { repoPath, ...(taskText !== undefined ? { taskText } : {}) });
+}
+
+/** Hub-only, a mutation: dismiss a lesson so later runs no longer receive it. */
+export function dismissLesson(repoPath: string, id: string): Promise<void> {
+  return call('dismiss_lesson', { repoPath, id });
+}
