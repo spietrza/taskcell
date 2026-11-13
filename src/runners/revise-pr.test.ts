@@ -2175,6 +2175,19 @@ describe('runRevisePullRequest — gate-config signal', () => {
     expect(ghCalls.some((a) => a[0] === 'pr' && a[1] === 'edit' && a.includes('--add-label') && a.includes('taskcell:gate-config-changed'))).toBe(true);
   });
 
+  it('adds the gate-config label under the legacy spelling when that is the one the repo has', async () => {
+    const ghCalls: string[][] = [];
+    const inner = makeGh(ghCalls, []);
+    const gh: GhRunner = async (args) =>
+      args[0] === 'label' && args[1] === 'list' ? JSON.stringify([{ name: 'vanguard:gate-config-changed' }]) : inner(args);
+
+    await run(gh, makeGateConfigSandbox());
+
+    const edit = ghCalls.find((a) => a[0] === 'pr' && a[1] === 'edit' && a.includes('--add-label'));
+    expect(edit).toContain('vanguard:gate-config-changed');
+    expect(edit).not.toContain('taskcell:gate-config-changed');
+  });
+
   it('stays silent on a revise round that touches no gate config', async () => {
     const ghCalls: string[][] = [];
     const commentBodies: string[] = [];

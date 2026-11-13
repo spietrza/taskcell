@@ -27,6 +27,11 @@ const cleanReview = { ...blockingReview, body: '## Taskcell Review\n\nVerdict: N
 const MODEL_REPLY = `<lessons>{"lessons":[{"rule":"Exclude every state dir from .dockerignore","why":"run transcripts leaked into images","evidence":"${URL}","paths":["src/core/**"],"stage":"implement"}]}</lessons>`;
 
 describe('fetchPrHistory', () => {
+  it('reads the legacy verify-failed label on a GitHub PR', async () => {
+    const h = await fetchPrHistory('o/r', 9, { gh: gh(prJson({ labels: [{ name: 'vanguard:verify-failed' }] })) });
+    expect(h.verifyFailed).toBe(true);
+  });
+
   it('counts blocking reviews and revise rounds from trusted authors only', async () => {
     const h = await fetchPrHistory('o/r', 9, {
       gh: gh(

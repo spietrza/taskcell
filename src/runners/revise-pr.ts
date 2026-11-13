@@ -1,4 +1,4 @@
-import { REVIEW_TRIGGER_LABEL, resolveRemovals } from '../core/labels.js';
+import { REVIEW_TRIGGER_LABEL, resolveAdds, resolveRemovals } from '../core/labels.js';
 import { describeIgnoredAuthor, isTrustedNonAuthorComment } from '../tasks/comment-trust.js';
 import { mkdir, writeFile } from 'node:fs/promises';
 import { dirname, resolve } from 'node:path';
@@ -179,7 +179,7 @@ async function editPrLabels(
   const present = async (): Promise<string[]> =>
     ((JSON.parse(await gh(['pr', 'view', String(number), '--repo', repoSlug, '--json', 'labels'])) as { labels?: { name: string }[] }).labels ?? []).map((l) => l.name);
   for (const label of await resolveRemovals(labels.remove ?? [], present)) args.push('--remove-label', label);
-  for (const label of labels.add ?? []) args.push('--add-label', label);
+  for (const label of await resolveAdds(labels.add ?? [], repoSlug, gh)) args.push('--add-label', label);
   return gh(args);
 }
 
