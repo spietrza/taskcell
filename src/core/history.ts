@@ -58,20 +58,34 @@ export interface HistoryRun {
 
 const RUN_END = new Set(['run-end', 'run-error', 'run-cancelled']);
 
+/** A repo slug sanitised the way the runners build task ids (`o/r` -> `o-r`). */
+const slugId = (repo: string): string => repo.replace(/[^a-zA-Z0-9]/g, '-');
+
+/** The number after `prefix` (case-insensitive) when `taskId` is exactly `<prefix><N>`. */
+function numberAfter(taskId: string, prefix: string): number | undefined {
+  const rest = taskId.toLowerCase().startsWith(prefix.toLowerCase()) ? taskId.slice(prefix.length) : '';
+  return /^\d+$/.test(rest) ? Number(rest) : undefined;
+}
+
 /**
- * The issue a run record belongs to: `gh-owner-repo-904` and the spec run's `spec-gh-…` -> 904.
- * A PR review run (`pr-review-<slug>-<N>`) belongs to a PR, not an issue: see {@link prReviewOf}.
+ * The issue a run record belongs to: `gh-owner-repo-904` -> 904, and `repo`'s spec run
+ * (`spec-<sanitised slug>-904`, lowercased by src/runners/spec.ts) -> 904.
+ * PR review and revise runs belong to a PR, not an issue: see {@link prRunOf}.
  */
-export function issueOfTaskId(taskId: string): number | undefined {
-  const ref = resolveTaskRef(taskId.replace(/^spec-/i, ''));
+export function issueOfTaskId(taskId: string, repo: string): number | undefined {
+  const spec = numberAfter(taskId, `spec-${slugId(repo)}-`);
+  if (spec !== undefined) return spec;
+  const ref = resolveTaskRef(taskId);
   return ref !== undefined && ref.source !== 'linear' ? Number(ref.reference) : undefined;
 }
 
-/** `pr-review-o-r-9` -> the PR number when the slug is `repo`'s (sanitised the way the runner does). */
-export function prReviewOf(taskId: string, repo: string): number | undefined {
-  const prefix = `pr-review-${repo.replace(/[^a-zA-Z0-9]/g, '-')}-`;
-  const rest = taskId.startsWith(prefix) ? taskId.slice(prefix.length) : '';
-  return /^\d+$/.test(rest) ? Number(rest) : undefined;
+/**
+ * `pr-review-o-r-9` (src/cli/review-pr.ts) or `revise-pr-o-r-9` (src/runners/revise-pr.ts) -> the PR number
+ * when the slug is `repo`'s, sanitised the way those runners do.
+ */
+export function prRunOf(taskId: string, repo: string): number | undefined {
+  const slug = slugId(repo);
+  return numberAfter(taskId, `pr-review-${slug}-`) ?? numberAfter(taskId, `revise-pr-${slug}-`);
 }
 
 /** The PR number of a pull request URL of `repo`; undefined for any other address. */
@@ -193,7 +207,7 @@ export function buildIssueHistory(input: HistoryInput): IssueHistory {
     const actor: AuditActor =
       run.startedBy === 'token' ? { kind: 'token', name: 'token' } : run.startedBy !== undefined ? { kind: 'user', name: run.startedBy } : run.ciUrl !== undefined ? botActor : { kind: 'local' };
     const source = { stream: 'run-record', ref, ...(run.prUrl !== undefined ? { url: run.prUrl } : run.ciUrl !== undefined ? { url: run.ciUrl } : {}) };
-    const revision = (run.prUrl !== undefined && seenPrs.has(run.prUrl)) || run.stages.some((s) => /revis/i.test(s.name));
+    const revision = /^revise-pr-/i.test(run.taskId) || (run.prUrl !== undefined && seenPrs.has(run.prUrl)) || run.stages.some((s) => /revis/i.test(s.name));
     if (run.prUrl !== undefined) seenPrs.add(run.prUrl);
     const spec = /^spec-/i.test(run.taskId);
     const label = revision ? 'revise round' : spec ? 'spec run' : /^pr-review-/.test(run.taskId) ? 'PR review run' : 'run';
@@ -301,13 +315,13 @@ export interface ReadHistoryOptions {
   localRepo?: string;
 }
 
-/** The issue's runs and its spec runs, then the review runs of the PRs those opened. */
+/** The issue's runs and its spec runs, then the review and revise runs of the PRs those opened. */
 async function runSources(repoPath: string, repo: string, issue: number): Promise<{ runs: HistoryRun[]; taskIds: string[] }> {
   const root = runsRoot(repoPath);
   const all = await listRuns(root);
-  const own = all.filter((s) => issueOfTaskId(s.taskId) === issue);
+  const own = all.filter((s) => issueOfTaskId(s.taskId, repo) === issue);
   const prs = new Set(own.map((s) => prNumberOf(s.prUrl, repo)).filter((n): n is number => n !== undefined));
-  const summaries = [...own, ...all.filter((s) => prs.has(prReviewOf(s.taskId, repo) ?? -1))];
+  const summaries = [...own, ...all.filter((s) => prs.has(prRunOf(s.taskId, repo) ?? -1))];
   const runs: HistoryRun[] = [];
   for (const s of summaries) {
     const detail = await readRunRecords(root, s.taskId, s.timestamp).catch(() => undefined);

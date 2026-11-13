@@ -72,7 +72,7 @@ stream has a record (a human applying a label, a comment, a merge) it asks the G
 
 Every chain it read is verified as `audit verify` does and listed (with its unchained pre-audit count); entries from a chain that fails are marked
 `chain failed` and the command exits 1. Unchained legacy lines, run records and Git host events have no chain and are
-marked `no chain`. Run records, run-event logs and `decisions` are this checkout's: when its origin is not `owner/repo`, they are skipped and listed under `unavailable`. Spec runs (`spec-gh-…`) and the review runs of the issue's PRs (`pr-review-<slug>-<N>`) are included; a cross-reference from a PR of another repo is not. A spec comment is a bot comment that opens with `Vanguard Tech Spec`. A revise round is a run record whose PR an earlier run already opened, or whose task or
+marked `no chain`. Run records, run-event logs and `decisions` are this checkout's: when its origin is not `owner/repo`, they are skipped and listed under `unavailable`. Spec runs (`spec-<slug>-<N>`) and the review and revise runs of the issue's PRs (`pr-review-<slug>-<PR>`, `revise-pr-<slug>-<PR>`; the slug with every non-alphanumeric as `-`) are included; a cross-reference from a PR of another repo is not. A spec comment is a bot comment that opens with `Vanguard Tech Spec`. A revise round is a `revise-pr-` run, a run record whose PR an earlier run already opened, or whose task or
 stage name says revise. A source that could not be read is listed under `unavailable`.
 
 ## Retention
