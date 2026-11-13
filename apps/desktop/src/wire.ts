@@ -433,6 +433,62 @@ export interface CostBreakdown {
   byStage: CostRow[];
 }
 
+/** Period an approver scorecard covers: the last 30 / 90 days, or everything on the metrics branch. */
+export type ApproverPeriod = '30d' | '90d' | 'all';
+
+/** The approver's mode on the base branch: `off` (disabled or no policy), `shadow` (judges, never merges), `act` (merges its APPROVEs). */
+export type ApproverMode = 'off' | 'shadow' | 'act';
+
+/** One risk class of the scorecard: APPROVE verdicts that were right, and the current run of right ones. */
+export interface ApproverClassRow {
+  riskClass: string;
+  approveTotal: number;
+  approveCorrect: number;
+  streak: number;
+}
+
+/**
+ * The approver's shadow scorecard for a project over a period, from the metrics branch's decisions.jsonl and
+ * GitHub PR state (the numbers `taskcell stats --approver` prints). `no-data`: no metrics branch, no
+ * decisions, or none in the period (`hint` says which) — never zeros that look like data.
+ * `approvesRight`: merged unchanged and not reverted. `approvesWrong`: merged after changes, closed or reverted.
+ * `approvesPending`: no human outcome yet. `barMet`: some risk class has `threshold` correct APPROVEs in a row.
+ * `actOffered`: false while the act switch must not be offered (see ACT_BLOCKING_ISSUES in src/hub/approver-card.ts).
+ */
+export interface ApproverScorecard {
+  status: 'ok' | 'no-data';
+  period: ApproverPeriod;
+  hint?: string;
+  mode: ApproverMode;
+  /** False when `.taskcell/approver.json` is missing or unreadable on the base branch (mode is then `off`). */
+  policyFound: boolean;
+  actOffered: boolean;
+  threshold: number;
+  judged: number;
+  approves: number;
+  escalates: number;
+  approvesRight: number;
+  approvesWrong: number;
+  approvesPending: number;
+  barMet: boolean;
+  byRiskClass: ApproverClassRow[];
+  topReasons: { reason: string; count: number }[];
+}
+
+/** What the approver decided for one PR: `merged` it did, `would-merge` it APPROVEd in shadow mode, `left` it escalated to a human. */
+export interface ApproverPrDecision {
+  prNumber: number;
+  outcome: 'merged' | 'would-merge' | 'left';
+  /** The rule ids that fired (empty for an APPROVE). */
+  reasons: string[];
+}
+
+export interface ApproverModeChange {
+  branch: string;
+  prUrl: string;
+  mode: ApproverMode;
+}
+
 export interface StageDetail {
   record: RunRecord;
   diff?: string;
@@ -511,7 +567,8 @@ export type AuditAction =
   | 'needs-reply'
   | 'needs-merge'
   | 'task-create'
-  | 'enable-factory';
+  | 'enable-factory'
+  | 'approver-mode';
 export type AuditOutcome = 'ok' | 'refused' | 'failed';
 
 /** One line of `audit.jsonl`. `login` is a GitHub login, or `token` for header access. */
@@ -886,6 +943,12 @@ export interface Commands {
   read_app_config: { args: { repoPath: string }; result: AppConfig };
   read_app_config_strict: { args: { repoPath: string }; result: AppConfig };
   write_app_config: { args: { repoPath: string; config: AppConfig }; result: void };
+  /** HUB_ONLY, read-only: the approver's scorecard for a project over a period (default `90d`) — PRs judged, APPROVE/ESCALATE counts, right and wrong APPROVEs, the streak per risk class against the bar, the top escalation reasons — plus the current mode from `.taskcell/approver.json` on the base branch. Read from the metrics branch and GitHub PR state like `taskcell stats --approver`; never a model call. */
+  read_approver_scorecard: { args: { repoPath: string; period?: ApproverPeriod }; result: ApproverScorecard };
+  /** HUB_ONLY, read-only: what the approver decided for each PR on the metrics branch (merged, would merge, left for a human and why); no gh call. */
+  read_approver_decisions: { args: { repoPath: string }; result: { decisions: ApproverPrDecision[] } };
+  /** HUB_ONLY: open a pull request that sets `.taskcell/approver.json` to `mode` — never writes the setting itself. `act` is refused while the act switch is not offered, and below the bar unless `confirmBelowBar` is true; the PR body states the 90-day scorecard numbers at that moment. */
+  set_approver_mode: { args: { repoPath: string; mode: 'off' | 'shadow' | 'act'; confirmBelowBar?: boolean }; result: ApproverModeChange };
   /** HUB_ONLY, admin-only (403 otherwise): the audit log newest first, optionally for one login. */
   read_audit: { args: { login?: string; limit?: number }; result: AuditEntry[] };
   /** HUB_ONLY, read-only: a project's cost by model and by stage for a period (default `all`), read from the metrics branch like `taskcell stats --branch`; cached, never a model call. A repo without the branch answers `status: 'no-branch'` with a setup hint. */
@@ -1099,6 +1162,8 @@ export const COMMAND_NAMES = [
   'migrate_labels',
   'read_app_config',
   'read_app_config_strict',
+  'read_approver_decisions',
+  'read_approver_scorecard',
   'read_audit',
   'read_cost_breakdown',
   'read_draft',
@@ -1112,6 +1177,7 @@ export const COMMAND_NAMES = [
   'reply_needs_you',
   'save_instance_credential',
   'save_user_credential',
+  'set_approver_mode',
   'set_credential',
   'set_credential_policy',
   'setup_status',

@@ -31,12 +31,13 @@ interface SeedRecord {
   timestamp?: string;
   lines?: number;
   paths?: string[];
+  headSha?: string;
 }
 
 function decision(r: SeedRecord): string {
   return JSON.stringify({
     prNumber: r.prNumber,
-    headSha: `sha${r.prNumber}`,
+    headSha: r.headSha ?? `sha${r.prNumber}`,
     verdict: r.verdict ?? 'APPROVE',
     timestamp: r.timestamp ?? '2026-10-21T12:00:00.000Z',
     signals: { lines: r.lines ?? 0, paths: r.paths ?? [] },
@@ -103,6 +104,15 @@ describe('readLedger', () => {
     expect(await readLedger({ repoPath: repo, policy, now: NOW, prNumber: 7, touchedPaths: ['src/approver/e.ts'] })).toEqual({
       'src/approver': 5,
     });
+  });
+
+  it('counts only the latest APPROVE of a PR (act mode appends a second one before a merge)', async () => {
+    await seed([
+      decision({ prNumber: 10, headSha: 'a', lines: 100, paths: ['src/approver/a.ts'] }),
+      decision({ prNumber: 10, headSha: 'b', lines: 30, paths: ['src/approver/a.ts'] }),
+      decision({ prNumber: 11, lines: 5, paths: ['src/approver/a.ts'] }),
+    ]);
+    expect(await readLedger({ repoPath: repo, policy, now: NOW, prNumber: 1, touchedPaths: ['src/approver/a.ts'] })).toEqual({ 'src/approver': 35 });
   });
 
   it('drops malformed lines, a missing/odd timestamp, and non-string paths', async () => {

@@ -1,9 +1,10 @@
+import { createHash } from 'node:crypto';
 import { EventEmitter } from 'node:events';
 import { mkdir, mkdtemp, rm, symlink, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { afterEach, beforeEach, describe, expect, test } from 'vitest';
-import { injectHubMarker, serveStatic } from './static.js';
+import { contentSecurityPolicy, injectHubMarker, serveStatic } from './static.js';
 import type { IncomingMessage, ServerResponse } from 'node:http';
 
 class FakeRes extends EventEmitter {
@@ -116,8 +117,26 @@ describe('serveStatic', () => {
       await serveStatic({ uiDir }, fakeReq(path), res as unknown as ServerResponse);
       expect(res.statusCode, path).toBe(200);
       expect(res.headers['x-frame-options'], path).toBe('DENY');
-      expect(res.headers['content-security-policy'], path).toBe("frame-ancestors 'none'");
+      const csp = String(res.headers['content-security-policy']);
+      expect(csp, path).toContain("frame-ancestors 'none'");
+      expect(csp, path).toContain("script-src 'self'");
+      expect(csp, path).toContain("connect-src 'self'");
+      expect(csp, path).not.toContain('unsafe-eval');
     }
+  });
+
+  test('the page’s inline scripts are allowed by hash, CRLF or LF, and nothing else inline is', async () => {
+    const sha = (text: string): string => `'sha256-${createHash('sha256').update(text).digest('base64')}'`;
+    const marker = sha('window.__VANGUARD_HUB__=true');
+    for (const eol of ['\n', '\r\n']) {
+      await writeFile(join(uiDir, 'index.html'), `<html><head><script>${eol}  theme();${eol}</script></head><body></body></html>`);
+      const res = new FakeRes();
+      await serveStatic({ uiDir }, fakeReq('/'), res as unknown as ServerResponse);
+      // The browser hashes the script text with line endings normalised to LF.
+      expect(res.headers['content-security-policy'], JSON.stringify(eol)).toBe(contentSecurityPolicy('') + ` ${marker} ${sha('\n  theme();\n')}`);
+    }
+    expect(contentSecurityPolicy('')).toMatch(/; script-src 'self'$/);
+    expect(contentSecurityPolicy('')).not.toContain("script-src 'self' 'unsafe-inline'");
   });
 
   test('T-69 a traversal-style request is refused, not resolved outside uiDir', async () => {

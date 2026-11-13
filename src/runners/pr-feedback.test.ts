@@ -1322,6 +1322,7 @@ describe('author trust boundary', () => {
 describe('buildRevisionChecklist — Markdown review', () => {
   const review = (text: string): FeedbackItem =>
     commentItem({ author: 'github-actions', body: buildPullRequestReviewComment(text, 'abc123'), createdAt: '2024-01-11T09:00:00Z' });
+  const ck = (text: string): string[] => buildRevisionChecklist(makeFeedback({ items: [review(`Verdict: BLOCKING\n\n${text}`)] }), []);
 
   it('lists the top-level items of the blocking section, not the non-blocking ones or sub-bullets', () => {
     const fb = makeFeedback({ items: [review([
@@ -1353,6 +1354,59 @@ describe('buildRevisionChecklist — Markdown review', () => {
     expect(buildRevisionChecklist(list, [])).toEqual(['first', 'second']);
     const mixed = makeFeedback({ items: [review('Verdict: BLOCKING\n\n## Blocking\n\n- first\n- second\n\n### B3. Third\n- d1\n- d2')] });
     expect(buildRevisionChecklist(mixed, [])).toEqual(['first', 'second', 'B3. Third']);
+  });
+
+  it('reads the blocking items under a Blocking sub-heading of a findings section (case 1)', () => {
+    expect(ck('## Findings (2 blocking, 1 non-blocking)\n### Blocking\n- a\n- b\n### Non-blocking\n- n')).toEqual(['a', 'b']);
+  });
+
+  it('reads the items under a numbered blocking section heading (case 2)', () => {
+    expect(ck('## 1. Blocking findings\n\n- a\n- b')).toEqual(['a', 'b']);
+  });
+
+  it('reads the labelled items of a category sub-heading, prefixed with it (case 3)', () => {
+    expect(ck('## Blocking\n### Security\n- [blocking] x')).toEqual(['Security: [blocking] x']);
+  });
+
+  it('keeps same-level numbered findings after a Blocking sub-heading of a findings section', () => {
+    expect(ck('## Findings (2 blocking, 1 non-blocking)\n### Blocking\n### 1. first\n- d\n### 2. second\n- d')).toEqual(['1. first', '2. second']);
+  });
+
+  it('keeps a finding heading as the prefix of its labelled detail bullets', () => {
+    expect(ck('## Blocking\n### parse() drops the last row\n- **Blocking** — loses the last row\n- **Where:** x.ts:12')).toEqual([
+      'parse() drops the last row: **Blocking** — loses the last row',
+      'parse() drops the last row: **Where:** x.ts:12',
+    ]);
+  });
+
+  it('handles heading variants, finding headings with blocking detail, and categories', () => {
+    expect(ck('## Findings (2 blocking, 1 non-blocking)\n### Blocking (2)\n- a\n- b')).toEqual(['a', 'b']);
+    expect(ck('## 1. Blocking issues\n- a')).toEqual(['a']);
+    expect(ck('## Blocking\n### parse() drops the last row\n- **Severity:** blocking\n- **Where:** x.ts:12\n### Second\n- d')).toEqual(['parse() drops the last row', 'Second']);
+    expect(ck('## Blocking\n### Last one\n- d')).toEqual(['Last one']);
+    expect(ck('## Blocking\n### Security\n- token leaks\n- [blocking] injection')).toEqual(['Security: token leaks', 'Security: [blocking] injection']);
+    expect(ck('## Blocking\n### Security\n- [blocking] injection\n- token leaks')).toEqual(['Security: [blocking] injection', 'Security: token leaks']);
+  });
+
+  it('follows CommonMark fences: ~~~, longer closers, and never-closed or malformed openers', () => {
+    expect(ck('## Blocking\n- a\n~~~\n# h\n- fake\n~~~\n- b')).toEqual(['a', 'b']);
+    expect(ck('## Blocking\n- a\n````\n```\n- fake\n```\n````\n- b')).toEqual(['a', 'b']);
+    expect(ck('## Blocking\n- a\n```foo()``` returns null\n- b\n- c')).toEqual(['a', 'b', 'c']);
+    expect(ck('## Blocking\n- a\n```ts\n- b')).toEqual(['a', 'b']);
+  });
+
+  it('handles indented fences, Blocking: detail fields, mixed-count parents, label forms and section names', () => {
+    expect(ck('## Blocking\n- a\n    ```\n    # h\n    - fake\n    ```\n- b')).toEqual(['a', 'b']);
+    expect(ck('## Blocking\n### parse() drops the last row\n- Blocking: yes\n- **Blocking:** x.ts:12')).toEqual(['parse() drops the last row']);
+    expect(ck('## Findings (2 blocking, 1 non-blocking)\n### 1. first\n- d\n### 2. second\n- d')).toEqual(['1. first', '2. second']);
+    expect(ck('## Blocking\n### Security\n- [blocking] a\n- [non-blocking] nit\n- b')).toEqual(['Security: [blocking] a', 'Security: b']);
+    expect(ck('## Blocking\n### S\n- **[blocking]** a\n### T\n- **Blocking** — b\n### U\n- (blocking) c')).toEqual(['S: **[blocking]** a', 'T: **Blocking** — b', 'U: (blocking) c']);
+    expect(ck('## Blocking\n### Blocking items\n- a\n### Blocking problems\n- b')).toEqual(['a', 'b']);
+  });
+
+  it('never reads lines inside a fenced block as headings or findings', () => {
+    const fb = makeFeedback({ items: [review('Verdict: BLOCKING\n\n## Blocking\n- a\n```\n# not heading\n- fake\n```\n- b')] });
+    expect(buildRevisionChecklist(fb, [])).toEqual(['a', 'b']);
   });
 
   it('keeps an item labelled blocking itself and falls back to one item when none can be told apart', () => {

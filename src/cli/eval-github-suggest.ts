@@ -1,5 +1,6 @@
 import { escapePromptTags, neutralizeMentions } from '../context/escape.js';
 import { redact } from '../core/retrospective-memory.js';
+import { labelForms } from '../core/labels.js';
 import { GITHUB_REVIEW_LABEL } from '../github-labels.js';
 import { defaultGhRunner, githubDefaultBranch } from '../tasks/github.js';
 import type { GhRunner } from '../tasks/github.js';
@@ -138,13 +139,16 @@ export async function fetchNeedsHumanReviewCandidates(
   since: string,
   gh: GhRunner = defaultGhRunner,
 ): Promise<EvalCaseCandidate[]> {
-  const args = [
-    'pr', 'list', '--repo', repoSlug, '--state', 'all', '--limit', '100',
-    '--label', GITHUB_REVIEW_LABEL,
-    '--search', `updated:>=${since}`,
-    '--json', 'number,title,url,headRefName,reviews',
-  ];
-  const prs = JSON.parse(await gh(args)) as GhLabeledPr[];
+  const lists = await Promise.all(labelForms(GITHUB_REVIEW_LABEL).map(async (label) => {
+    const args = [
+      'pr', 'list', '--repo', repoSlug, '--state', 'all', '--limit', '100',
+      '--label', label,
+      '--search', `updated:>=${since}`,
+      '--json', 'number,title,url,headRefName,reviews',
+    ];
+    return JSON.parse(await gh(args)) as GhLabeledPr[];
+  }));
+  const prs = [...new Map(lists.flat().map((pr) => [pr.number, pr])).values()];
   return prs
     .filter((pr) => isFactoryBranch(pr.headRefName))
     .map((pr) =>

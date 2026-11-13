@@ -25,9 +25,11 @@ and click **Open Anyway**. If macOS says the app "is damaged", run `xattr -cr /A
 pnpm hub --repo /path/to/your/repo
 ```
 
-This opens a browser at the printed launch URL, `http://127.0.0.1:7777/#token=…`. The fragment holds
-the per-launch token the UI needs; the served page itself carries none, so open that exact URL (from
-the terminal, or `docker logs` in container mode) rather than the bare address.
+On a loopback bind this opens a browser at the printed launch URL, `http://127.0.0.1:7777/#token=…`. The
+fragment holds the per-launch token the UI needs; the served page itself carries none, so open that
+exact URL from the terminal rather than the bare address. A hub bound beyond loopback (server mode,
+including the container hub) has no launch URL: open its public URL and sign in at `/sign-in`
+(see Server mode sign-in).
 
 ### Prerequisites
 
@@ -414,17 +416,28 @@ services:
       TASKCELL_MAX_SANDBOXES: "1"
       TASKCELL_HUB_TOKEN_FILE: /state/hub.key      # same token across restarts and redeploys
       TASKCELL_HUB_ALLOWED_HOSTS: hub.example.com # every Host the browser uses; loopback only by default
+      TASKCELL_HUB_PUBLIC_URL: https://hub.example.com # the URL users open; OAuth callbacks are built from it
+      TASKCELL_HUB_AUTH_SECRET: ${HUB_AUTH_SECRET}   # signing secret; else a random one is kept in /config
+      TASKCELL_HUB_AUTH_GITHUB_CLIENT_ID: ${GITHUB_CLIENT_ID}         # at least one sign-in provider
+      TASKCELL_HUB_AUTH_GITHUB_CLIENT_SECRET: ${GITHUB_CLIENT_SECRET}
+      TASKCELL_HUB_SIGNUP_ALLOW: you@example.com  # who may create an account; empty means nobody
 
 volumes:
   vanguard-hub-config:
   taskcell-hub-state:
 ```
 
-On first start the hub creates `/state/hub.key` and prints the launch URL; read it from the logs and
-save that URL (the page strips `#token=…` from the address bar, so bookmarking the open page won't
-keep it). Later restarts keep the token. Rotate it with
+Open the public URL: the hub redirects every page to `/sign-in`, and after signing in you land in the
+UI. The container binds beyond loopback, so there is no `/#token=…` launch URL to open. On first start
+the hub creates `/state/hub.key`, the token for non-browser clients (the CLI, scripts); later restarts
+keep it. Rotate it with
 `docker compose exec vanguard-hub taskcell hub rotate-token --token-file /state/hub.key`, then restart
-the hub and read the new launch URL from its logs.
+the hub.
+
+**Upgrading an existing container hub.** Earlier versions were opened with the logged `/#token=…` URL.
+Now every page redirects to `/sign-in` until you set `TASKCELL_HUB_PUBLIC_URL`, a sign-in provider
+(`TASKCELL_HUB_AUTH_<GITHUB|GITLAB|GOOGLE>_CLIENT_ID`/`_CLIENT_SECRET`) and `TASKCELL_HUB_SIGNUP_ALLOW`
+in the Compose file, then redeploy. Old bookmarks of the launch URL no longer work; bookmark the public URL.
 
 Mounting the Docker socket is equivalent to root on the host — a process with access to it can start a
 privileged container and read or write anything the host can. Only do this when you trust everything
@@ -606,11 +619,11 @@ URL: the UI first `POST`s `/events/session` with the header, and the hub answers
 `SameSite=Strict` cookie scoped to `/events` (an events-only secret, not the token) that the
 `EventSource` sends on every connect and reconnect; a non-browser client can send the header on
 `GET /events` instead. `/healthz` stays unauthenticated for container health checks and answers a
-constant `{"ok":true}`. No route serves the token — not `index.html`, not `/healthz`. The CLI
+constant `{"ok":true}`. No route serves the token — not `index.html`, not `/healthz`. On a loopback bind the CLI
 prints and opens a launch URL carrying it in the fragment (`/#token=…`), which browsers never send to
 the server; the UI moves it into `sessionStorage` and strips it from the address bar, so a reload
-keeps working but a new tab on the bare URL needs the launch URL again. Behind a reverse proxy, append
-the same `/#token=…` to the public URL. Reaching the port is therefore not enough to drive the hub,
+keeps working but a new tab on the bare URL needs the launch URL again. A hub bound beyond loopback
+has no launch URL: browsers sign in at `/sign-in`, also behind a reverse proxy. Reaching the port is therefore not enough to drive the hub,
 but the token is a launch secret, not per-user authentication: it does not replace authentication at
 the reverse proxy. It is regenerated on every hub launch, so an already-open page must be given the
 new launch URL once the hub restarts.
@@ -630,7 +643,7 @@ every address (`BoardTask.url`/`source`, `RunSummary`/`RunDetail` `prUrl`/`ciUrl
 `NeedsYouItem.url`); the UI never builds one, and renders no link when the field is absent (e.g. a
 local run with no pull request). `diffUrl` is `…/pull/N/files` ("Files changed") on GitHub and
 `…/-/merge_requests/N/diffs` ("Changes") on GitLab. `ciUrl` is recorded on a run record written inside
-GitHub Actions or GitLab CI. Only `https:` addresses are passed on. Links open in a new tab.
+GitHub Actions or GitLab CI. Only `http:` and `https:` addresses are passed on. Links open in a new tab.
 
 ## First-run setup guide
 

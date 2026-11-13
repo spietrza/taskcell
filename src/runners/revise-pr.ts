@@ -1,4 +1,4 @@
-import { REVIEW_TRIGGER_LABEL, resolveRemovals } from '../core/labels.js';
+import { REVIEW_TRIGGER_LABEL, resolveAdds, resolveRemovals } from '../core/labels.js';
 import { readEnv } from '../core/env.js';
 import { describeIgnoredAuthor, isTrustedNonAuthorComment } from '../tasks/comment-trust.js';
 import { mkdir, writeFile } from 'node:fs/promises';
@@ -180,7 +180,9 @@ async function editPrLabels(
   const present = async (): Promise<string[]> =>
     ((JSON.parse(await gh(['pr', 'view', String(number), '--repo', repoSlug, '--json', 'labels'])) as { labels?: { name: string }[] }).labels ?? []).map((l) => l.name);
   for (const label of await resolveRemovals(labels.remove ?? [], present)) args.push('--remove-label', label);
-  for (const label of labels.add ?? []) args.push('--add-label', label);
+  for (const label of await resolveAdds(labels.add ?? [], repoSlug, gh)) args.push('--add-label', label);
+  // Nothing left to change (the PR lacks every label to remove): `gh pr edit` without a field flag fails.
+  if (args.length === 5) return '';
   return gh(args);
 }
 
@@ -776,8 +778,10 @@ export async function runRevisePullRequest(prRef: string, deps: ReviseGithubPrDe
             ].filter((part) => part !== '').join('\n\n');
             await commentPullRequest(target, notice, gh).catch(() => undefined);
             // Same marker as the first delivery, so the board maps it to verify-failed, not to a clean hand-back.
-            await gh(['label', 'create', GITHUB_SECRET_BLOCKED_LABEL, '--repo', target.repoSlug, '--force']).catch(() => undefined);
-            await gh(['pr', 'edit', String(target.number), '--repo', target.repoSlug, '--add-label', GITHUB_SECRET_BLOCKED_LABEL]).catch(() => undefined);
+            // A repo that has only the legacy spelling gets that one, not a second label beside it.
+            const [blocked = GITHUB_SECRET_BLOCKED_LABEL] = await resolveAdds([GITHUB_SECRET_BLOCKED_LABEL], target.repoSlug, gh);
+            if (blocked === GITHUB_SECRET_BLOCKED_LABEL) await gh(['label', 'create', blocked, '--repo', target.repoSlug, '--force']).catch(() => undefined);
+            await gh(['pr', 'edit', String(target.number), '--repo', target.repoSlug, '--add-label', blocked]).catch(() => undefined);
           }
         }
         await stepSummary('secret-blocked');

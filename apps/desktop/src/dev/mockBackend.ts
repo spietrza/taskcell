@@ -58,6 +58,13 @@ const commandHandlers = {
     hint: 'Run `taskcell metrics push` from your CI workflow (it writes the taskcell-metrics branch) and CI runs will show up here.',
     costKind: 'unknown' as const, runs: 0, totalCostUsd: 0, unknownEntries: 0, byModel: [], byStage: [],
   }),
+  read_approver_scorecard: (args: unknown) => ({
+    status: 'no-data' as const, period: (args as { period?: '90d' } | undefined)?.period ?? '90d',
+    hint: 'No approver decisions on the metrics branch yet.', mode: 'off' as const, policyFound: false, actOffered: false, threshold: 30,
+    judged: 0, approves: 0, escalates: 0, approvesRight: 0, approvesWrong: 0, approvesPending: 0, barMet: false, byRiskClass: [], topReasons: [],
+  }),
+  read_approver_decisions: () => ({ decisions: [] }),
+  set_approver_mode: (args: { mode?: 'off' | 'shadow' | 'act' } | undefined) => ({ branch: 'vanguard/approver-mode', prUrl: 'https://github.com/acme/widgets/pull/1', mode: args?.mode ?? 'off' }),
   list_projects: () => projects,
   list_teams: () => [{ ...mockTeam, repositories: projects.map((p) => p.path) }],
   team_role: () => 'admin' as const,

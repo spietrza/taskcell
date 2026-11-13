@@ -27,6 +27,11 @@ const cleanReview = { ...blockingReview, body: '## Taskcell Review\n\nVerdict: N
 const MODEL_REPLY = `<lessons>{"lessons":[{"rule":"Exclude every state dir from .dockerignore","why":"run transcripts leaked into images","evidence":"${URL}","paths":["src/core/**"],"stage":"implement"}]}</lessons>`;
 
 describe('fetchPrHistory', () => {
+  it('reads the legacy verify-failed label on a GitHub PR', async () => {
+    const h = await fetchPrHistory('o/r', 9, { gh: gh(prJson({ labels: [{ name: 'vanguard:verify-failed' }] })) });
+    expect(h.verifyFailed).toBe(true);
+  });
+
   it('counts blocking reviews and revise rounds from trusted authors only', async () => {
     const h = await fetchPrHistory('o/r', 9, {
       gh: gh(
@@ -116,6 +121,13 @@ describe('fetchMrHistory (GitLab)', () => {
     expect(h).toMatchObject({ number: 4, blockingReviews: 1, reviseRounds: 1, verifyFailed: true, files: ['src/a.ts'], additions: 2, deletions: 1 });
     expect(buildLessonPrompt(h)).not.toContain('IGNORE PREVIOUS');
     expect(hasSomethingToLearn(h)).toBe(true);
+  });
+
+  it('reads the legacy verify-failed label on an MR, scoped or not', async () => {
+    for (const label of ['vanguard::verify-failed', 'vanguard:verify-failed']) {
+      expect((await fetchMrHistory('g/p', 4, { glab: fakeGlab([], [label]) })).verifyFailed).toBe(true);
+    }
+    expect((await fetchMrHistory('g/p', 4, { glab: fakeGlab([], ['bug']) })).verifyFailed).toBe(false);
   });
 
   it('a clean MR has nothing to learn, and the lesson marker is detected', async () => {

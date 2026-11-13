@@ -1,4 +1,5 @@
 import { readFileSync } from 'node:fs';
+import { sameLabel } from '../core/labels.js';
 import { githubPullRequestWatchPrimitives, watchPullRequests } from '../runners/pr-watch.js';
 import { reviewPrCommand } from './review-pr.js';
 import type { Command } from './args.js';
@@ -37,7 +38,7 @@ export function eventPullRequestHint(
   if (eventPath === undefined || eventPath === '') return undefined;
   try {
     const payload = JSON.parse(readFile(eventPath)) as PullRequestEventPayload;
-    if (payload.label?.name !== label && !READY_ACTIONS.has(payload.action ?? '')) return undefined;
+    if (!sameLabel(payload.label?.name ?? '', label) && !READY_ACTIONS.has(payload.action ?? '')) return undefined;
     const number = payload.pull_request?.number;
     return typeof number === 'number' && Number.isInteger(number) && number >= 1 ? number : undefined;
   } catch {

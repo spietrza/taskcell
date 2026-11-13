@@ -7,6 +7,7 @@ import { writeAppConfig } from '../../ipc';
 import { useAppConfig } from '../../hooks';
 import { useDiscardGuard } from '../../navGuard';
 import { CredentialsPanel } from './CredentialsPanel';
+import { AutoMerge } from './AutoMerge';
 import { combinationNote, legacySource, resolveTaskSource, RUN_LOCATIONS, runLocationOf, TASK_SOURCES, taskSourceOf } from '../../platform';
 import { projectColor } from '../../color';
 import { customProviderRowError, customProviderRows, PROVIDERS } from './customProviders';
@@ -123,6 +124,8 @@ export function Settings({ project, teamScreen }: { project: string; teamScreen?
       {isHubMode() && teamScreen && <Members {...teamScreen} />}
 
       {isHubMode() && <Credentials />}
+
+      {isHubMode() && <AutoMerge project={project} />}
 
       {cfgStatus === 'error' && (
         <div role="alert" className="rounded-md border border-destructive/40 bg-destructive/10 p-3 text-sm text-muted-foreground">

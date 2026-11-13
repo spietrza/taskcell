@@ -157,10 +157,13 @@ export async function linkPullRequest(
  * and `gh pr edit --add-label` is the step that must succeed.
  */
 export async function addPrGateLabel(repoPath: string, prUrl: string, label: string): Promise<void> {
+  const gh = async (args: string[]): Promise<string> => (await execa('gh', args, { cwd: repoPath })).stdout;
+  // A repo that has only the legacy spelling gets that one, not a second label beside it (`--repo` takes the repo URL).
+  const [name = label] = await resolveAdds([label], prUrl.replace(/\/pull\/\d+.*$/, ''), gh);
   try {
-    await execa('gh', ['label', 'create', label, '--force'], { cwd: repoPath });
+    if (name === label) await gh(['label', 'create', label, '--force']);
   } catch { /* the add below is the step that must succeed */ }
-  await execa('gh', ['pr', 'edit', prUrl, '--add-label', label], { cwd: repoPath });
+  await gh(['pr', 'edit', prUrl, '--add-label', name]);
 }
 
 /**

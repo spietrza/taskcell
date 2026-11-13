@@ -122,10 +122,10 @@ describe('withCiRuns / projects.aggregate', () => {
     expect(runs.find((r) => r.taskId === 'T-1')?.costUnknown).toBeUndefined();
   });
 
-  it('drops a prUrl that is not https (the same link gate as local records)', async () => {
+  it('drops a prUrl that is not http(s) (the same link gate as local records)', async () => {
     await push([
       line({ ts: '2026-11-12T10:00:00.000Z', taskId: 'X', costUsd: 1, prUrl: 'javascript:alert(1)' }),
-      line({ ts: '2026-11-12T10:00:00.000Z', taskId: 'Y', costUsd: 1, prUrl: 'http://github.com/o/r/pull/2' }),
+      line({ ts: '2026-11-12T10:00:00.000Z', taskId: 'Y', costUsd: 1, prUrl: 'ftp://github.com/o/r/pull/2' }),
     ]);
     const runs = await withCiRuns(repo, []);
     expect(runs.every((r) => r.prUrl === undefined)).toBe(true);

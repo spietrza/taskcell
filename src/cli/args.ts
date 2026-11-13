@@ -311,7 +311,7 @@ export type Command =
       githubRepo?: string;
     }
   | { kind: 'metrics'; action: 'push'; repoPath: string; branch?: string }
-  | { kind: 'approve'; prNumber: number; repoSlug: string; repoPath: string; mode: 'shadow' | 'act'; json: boolean; dryRun: boolean; branch?: string }
+  | { kind: 'approve'; prNumber: number; repoSlug: string; repoPath: string; mode: 'shadow' | 'act'; json: boolean; dryRun: boolean; branch?: string; reviewRunId?: string }
   | { kind: 'memory'; repoPath: string; limit?: number; json: boolean }
   | { kind: 'history'; repoPath: string; repoSlug: string; issue: number; json: boolean; configDir?: string; branch?: string; offline: boolean }
   | {
@@ -635,6 +635,7 @@ export function parseCli(argv: string[], cwd: string): Command {
         limit: { type: 'string' },
         // approve
         mode: { type: 'string' },
+        'review-run-id': { type: 'string' },
         // eval
         'judge-model': { type: 'string' },
         'produce-model': { type: 'string' },
@@ -784,6 +785,8 @@ export function parseCli(argv: string[], cwd: string): Command {
     if (!Number.isInteger(prNumber) || prNumber < 1) return fail(`approve requires a positive --pr <n>, got "${String(prRaw)}".`);
     const modeRaw = typeof values.mode === 'string' ? values.mode : 'shadow';
     if (modeRaw !== 'shadow' && modeRaw !== 'act') return fail(`approve: unknown --mode "${modeRaw}" (shadow or act).`);
+    const runIdRaw = typeof values['review-run-id'] === 'string' ? values['review-run-id'] : undefined;
+    if (runIdRaw !== undefined && !/^[1-9]\d*$/.test(runIdRaw)) return fail(`approve: --review-run-id must be a workflow run id (digits), got "${runIdRaw}"; omit the flag when there is no triggering run.`);
     return {
       kind: 'approve',
       prNumber,
@@ -793,6 +796,7 @@ export function parseCli(argv: string[], cwd: string): Command {
       json: values.json === true,
       dryRun: values['dry-run'] === true,
       ...(typeof values.branch === 'string' ? { branch: values.branch } : {}),
+      ...(runIdRaw !== undefined ? { reviewRunId: runIdRaw } : {}),
     };
   }
 
@@ -1811,6 +1815,7 @@ ${MAX_REPAIR_ITERATIONS_USAGE}
     --pr <n>               Required: PR number (bare positional also accepted)
     --github-repo <o/r>    Required repo slug — the approver never infers the repo it judges
     --mode <shadow|act>   "act" merges APPROVEd factory PRs, only if approver.json sets act:true (default: shadow)
+    --review-run-id <id>   Act mode: accept the verdict only from the review the PR-review run <id> stamped (omit when there is no triggering run)
     --repo <path>          Local git repo checked out from the base branch (default: cwd)
     --branch <name>        Metrics branch override (default: taskcell-metrics)
     --json                 Print the decision record to stdout

@@ -374,7 +374,7 @@ function makeFakeGh(issueJson?: object): { gh: GhRunner; calls: string[][] } {
     number: 42,
     title: 'Add OAuth device-flow login',
     body: 'We need OAuth device-flow.',
-    labels: [{ name: 'needs research' }],
+    labels: [{ name: 'needs research' }, { name: 'taskcell:researching' }],
     comments: [],
   };
   const gh: GhRunner = async (args) => {
