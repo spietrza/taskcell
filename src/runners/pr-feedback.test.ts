@@ -1380,6 +1380,16 @@ describe('buildRevisionChecklist — Markdown review', () => {
     expect(ck('## Blocking\n- a\n```ts\n- b')).toEqual(['a', 'b']);
   });
 
+  it('handles indented fences, Blocking: detail fields, mixed-count parents, label forms and section names', () => {
+    const ck = (text: string): string[] => buildRevisionChecklist(makeFeedback({ items: [review(`Verdict: BLOCKING\n\n${text}`)] }), []);
+    expect(ck('## Blocking\n- a\n    ```\n    # h\n    - fake\n    ```\n- b')).toEqual(['a', 'b']);
+    expect(ck('## Blocking\n### parse() drops the last row\n- Blocking: yes\n- **Blocking:** x.ts:12')).toEqual(['parse() drops the last row']);
+    expect(ck('## Findings (2 blocking, 1 non-blocking)\n### 1. first\n- d\n### 2. second\n- d')).toEqual(['1. first', '2. second']);
+    expect(ck('## Blocking\n### Security\n- [blocking] a\n- [non-blocking] nit\n- b')).toEqual(['[blocking] a', 'b']);
+    expect(ck('## Blocking\n### S\n- **[blocking]** a\n### T\n- **Blocking** — b\n### U\n- (blocking) c')).toEqual(['**[blocking]** a', '**Blocking** — b', '(blocking) c']);
+    expect(ck('## Blocking\n### Blocking items\n- a\n### Blocking problems\n- b')).toEqual(['a', 'b']);
+  });
+
   it('never reads lines inside a fenced block as headings or findings', () => {
     const fb = makeFeedback({ items: [review('Verdict: BLOCKING\n\n## Blocking\n- a\n```\n# not heading\n- fake\n```\n- b')] });
     expect(buildRevisionChecklist(fb, [])).toEqual(['a', 'b']);

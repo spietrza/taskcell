@@ -317,22 +317,32 @@ const isBlockingLabel = (text: string): boolean => /\bblocking\b/i.test(text.rep
 
 /** A heading that only names the blocking section (`Blocking`, `1. Blocking findings (2)`), not a finding. */
 const isSectionLabel = (text: string): boolean =>
-  /^\W*(?:\d+[.)]\s*)?blocking(?:\s+(?:findings?|issues?))?\W*$/i.test(text.replace(/\([^)]*\)/g, ''));
+  /^\W*(?:\d+[.)]\s*)?blocking(?:\s+(?:findings?|issues?|items?|problems?|concerns?|changes?|comments?|points?))?\W*$/i.test(text.replace(/\([^)]*\)/g, ''));
 
 /** A heading that is itself one finding: numbered like `1.`, `B1.` or `B1:`. */
 const isNumberedHeading = (text: string): boolean => /^[A-Za-z]{0,2}\d+[.):]\s/.test(text);
 
-/** An item that starts with its own blocking label (`[blocking] x`, `**Blocking:** x`), not one that mentions it. */
-const hasLeadingBlockingLabel = (text: string): boolean => /^(?:\[blocking\]|\*{0,2}blocking\*{0,2}:)/i.test(text);
+const LABEL = String.raw`((?:no[nt][- ]?)?blocking)`;
+const LEADING_LABEL_RE = new RegExp(String.raw`^(?:\[\s*${LABEL}\s*\]|\(\s*${LABEL}\s*\)|${LABEL}[*_]*\s+[—–-]\s)`, 'i');
 
-/** The lines outside fenced code blocks (CommonMark fences; an opening fence that never closes is plain text). */
+/**
+ * The label an item starts with (`[blocking] x`, `**[blocking]** x`, `(non-blocking) x`, `**Blocking** — x`),
+ * not one it mentions. A `Blocking: yes` key/value is a finding's detail field, not a label.
+ */
+function leadingLabel(text: string): 'blocking' | 'non-blocking' | undefined {
+  const label = LEADING_LABEL_RE.exec(text.replace(/^[*_]+/, ''))?.slice(1).find((g) => g !== undefined);
+  if (label === undefined) return undefined;
+  return /^no/i.test(label) ? 'non-blocking' : 'blocking';
+}
+
+/** The lines outside fenced code blocks (CommonMark fences at any indent, so list-nested ones count; an opening fence that never closes is plain text). */
 function stripFences(lines: string[]): string[] {
   const out: string[] = [];
   for (let i = 0; i < lines.length; i++) {
-    const open = /^ {0,3}(`{3,}|~{3,})(.*)$/.exec(lines[i]!);
+    const open = /^\s*(`{3,}|~{3,})(.*)$/.exec(lines[i]!);
     const closeAt = open === null || (open[1]![0] === '`' && open[2]!.includes('`'))
       ? -1
-      : lines.findIndex((l, j) => j > i && new RegExp(`^ {0,3}${open[1]![0] === '`' ? '`' : '~'}{${open[1]!.length},}\\s*$`).test(l));
+      : lines.findIndex((l, j) => j > i && new RegExp(`^\\s*${open[1]![0] === '`' ? '`' : '~'}{${open[1]!.length},}\\s*$`).test(l));
     if (closeAt < 0) out.push(lines[i]!);
     else i = closeAt;
   }
@@ -343,8 +353,8 @@ function stripFences(lines: string[]): string[] {
  * Blocking findings of a Markdown review (fenced code blocks ignored): the top-level list items under a
  * heading that names them blocking (up to the next heading), plus any other top-level item labelled
  * blocking itself. A numbered sub-heading is one finding with the items below it as detail. An unnumbered
- * sub-heading is a category when one of its items starts with a blocking label (the items are the
- * findings), else a finding itself.
+ * sub-heading is a category when one of its items starts with a blocking label (its items not labelled
+ * non-blocking are the findings), else a finding itself.
  */
 function proseBlockingFindings(body: string): string[] {
   const out: string[] = [];
@@ -353,7 +363,9 @@ function proseBlockingFindings(body: string): string[] {
   let detailOnly = false;
   let group: { heading: string; items: string[] } | undefined;
   const flush = (): void => {
-    if (group !== undefined) out.push(...(group.items.some(hasLeadingBlockingLabel) ? group.items : [group.heading]));
+    if (group === undefined) return;
+    const labels = group.items.map(leadingLabel);
+    out.push(...(labels.includes('blocking') ? group.items.filter((_, i) => labels[i] !== 'non-blocking') : [group.heading]));
     group = undefined;
   };
   for (const line of stripFences(stripReviewMarkers(body).split('\n'))) {
@@ -372,7 +384,7 @@ function proseBlockingFindings(body: string): string[] {
         else out.push(heading);
         if (!subFinding) inBlockingSection = false;
       } else {
-        inBlockingSection = blocking && !/\bnon[- ]?blocking\b/i.test(heading);
+        inBlockingSection = blocking;
         sectionLevel = level;
       }
       continue;
