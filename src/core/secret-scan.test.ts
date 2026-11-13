@@ -127,6 +127,30 @@ describe('scanForSecrets', () => {
     expect(scanForSecrets(diff).some((f) => f.patternName === 'assignment')).toBe(false);
   });
 
+  it('does NOT flag an unquoted PascalCase type name after auth:/token:', () => {
+    const diff = diffOf([
+      { path: 'apps/desktop/src/steps.ts', lines: ['+  auth: ProviderAuthState | null;', '+  token: AccessTokenKind;'] },
+    ]);
+    expect(scanForSecrets(diff)).toEqual([]);
+  });
+
+  it('judges a quoted PascalCase value as before (still flagged)', () => {
+    const diff = diffOf([{ path: 'src/config.ts', lines: ["+  auth: 'ProviderAuthState'"] }]);
+    expect(scanForSecrets(diff).some((f) => f.patternName === 'assignment')).toBe(true);
+  });
+
+  it('still flags an unquoted mixed letter/digit value after auth:', () => {
+    const diff = diffOf([{ path: 'src/config.ts', lines: ['+  auth: Ab3dEf9hIj2kLm5n'] }]);
+    expect(scanForSecrets(diff).some((f) => f.patternName === 'assignment')).toBe(true);
+  });
+
+  it('keeps today\'s result for UPPER_SNAKE and a single-word capitalised value', () => {
+    const diff = diffOf([{ path: 'src/config.ts', lines: ['+  auth: PROVIDER_AUTH_STATE;'] }]);
+    expect(scanForSecrets(diff).some((f) => f.patternName === 'assignment')).toBe(false);
+    const single = diffOf([{ path: 'src/config.ts', lines: ['+  token: Abcdefghijklmnop;'] }]);
+    expect(scanForSecrets(single).some((f) => f.patternName === 'assignment')).toBe(true);
+  });
+
   it('still flags a QUOTED camelCase-shaped value (a string literal, not an identifier)', () => {
     const diff = diffOf([{ path: 'src/config.ts', lines: ['+const token = "mySecretValueAbc";'] }]);
     expect(scanForSecrets(diff).some((f) => f.patternName === 'assignment')).toBe(true);

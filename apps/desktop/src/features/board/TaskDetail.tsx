@@ -1,7 +1,9 @@
-import { Button, Card, Chip } from '@/ui';
+import { Button, Card, Chip, Timestamp } from '@/ui';
+import { verdictColor, verdictWord } from '../../status';
 import { ArrowLeft, Play } from 'lucide-react';
 import type { RunSummary } from '../../taskcell-output';
 import { SpecPane } from '../inspector/SpecPane';
+import { IssueHistory } from './IssueHistory';
 import { taskRefKey } from './taskref';
 
 export function TaskDetail({
@@ -62,11 +64,9 @@ export function TaskDetail({
               history.map((r) => (
                 <div key={r.timestamp} className="rounded-lg border border-border p-3">
                   <div className="flex items-center justify-between">
-                    <span className="tabular-nums text-sm text-muted-foreground">
-                      {r.timestamp.replace('T', ' ').slice(0, 16)}
-                    </span>
-                    <Chip color={r.anyFailed ? 'destructive' : 'success'} variant="outlined">
-                      {r.anyFailed ? 'failed' : 'passed'}
+                    <Timestamp ms={Date.parse(r.timestamp)} className="tabular-nums text-sm text-muted-foreground" />
+                    <Chip color={verdictColor(!r.anyFailed)} variant="outlined">
+                      {verdictWord(!r.anyFailed)}
                     </Chip>
                   </div>
                   <div className="mt-1 flex items-center justify-between text-xs text-muted-foreground">
@@ -79,6 +79,8 @@ export function TaskDetail({
           </div>
         </div>
       </div>
+
+      <IssueHistory project={project} taskId={taskId} />
     </div>
   );
 }

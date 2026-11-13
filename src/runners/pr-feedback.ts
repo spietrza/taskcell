@@ -1,3 +1,4 @@
+import { hasReviewHeading } from '../core/labels.js';
 import { classifyAuthor, isBotLogin } from '../tasks/comment-trust.js';
 import { hasPullRequestReviewIncompleteMarker, hasPullRequestReviewMarker, soleReviewMarkerSha } from './pr-review.js';
 import { extractFindings } from '../structured/findings.js';
@@ -307,24 +308,43 @@ export function buildRevisionPrompt(
 const FINDINGS_TO_ADDRESS_RE = /Findings to address:/i;
 const LIST_ITEM_RE = /^\s*(?:[-*]|\d+[.)])\s+(.+)$/;
 const oneLine = (text: string): string => text.replace(/\s+/g, ' ').trim();
-const HEADING_RE = /^\s*#{1,6}\s+(.+)$/;
+const HEADING_RE = /^\s*(#{1,6})\s+(.+)$/;
 // Top-level items only: an indented sub-bullet is detail of the finding above it, not a finding.
 const TOP_LIST_ITEM_RE = /^(?:[-*]|\d+[.)])\s+(.+)$/;
 const isBlockingLabel = (text: string): boolean => /\bblocking\b/i.test(text.replace(/\b(?:non|not|no)[- ]?blocking\b/gi, ''));
 
+/** A heading that is itself one finding: numbered like `1.`, `B1.` or `B1:`. */
+const isNumberedHeading = (text: string): boolean => /^[A-Za-z]{0,2}\d+[.):]\s/.test(text);
+
 /**
  * Blocking findings of a Markdown review: the top-level list items under a heading that names them
- * blocking (up to the next heading), plus any other top-level item labelled blocking itself.
+ * blocking (up to the next heading), plus any other top-level item labelled blocking itself. A finding
+ * heading (a sub-heading of the blocking section, or a numbered heading labelled blocking) is one item
+ * itself and the list items below it are detail.
  */
 function proseBlockingFindings(body: string): string[] {
   const out: string[] = [];
   let inBlockingSection = false;
+  let sectionLevel = 0;
+  let inFindingHeading = false;
   for (const line of stripReviewMarkers(body).split('\n')) {
-    const heading = HEADING_RE.exec(line)?.[1];
-    if (heading !== undefined) {
-      inBlockingSection = isBlockingLabel(heading);
+    const match = HEADING_RE.exec(line);
+    if (match !== null) {
+      const level = match[1]!.length;
+      const heading = match[2]!;
+      const blocking = isBlockingLabel(heading);
+      const subFinding = inBlockingSection && level > sectionLevel && !/\bnon[- ]?blocking\b/i.test(heading);
+      inFindingHeading = subFinding || (blocking && isNumberedHeading(heading));
+      if (inFindingHeading) {
+        out.push(oneLine(heading));
+        if (!subFinding) inBlockingSection = false;
+      } else {
+        inBlockingSection = blocking;
+        sectionLevel = level;
+      }
       continue;
     }
+    if (inFindingHeading) continue;
     const item = TOP_LIST_ITEM_RE.exec(line)?.[1];
     if (item !== undefined && (inBlockingSection || isBlockingLabel(item))) out.push(oneLine(item));
   }
@@ -359,7 +379,7 @@ export function buildRevisionChecklist(fb: PullRequestFeedback, actionable: read
   const reviews = fb.items
     // Exact bot logins only (classifyAuthor, not the substring isBotLogin): an outsider named `mallory-vanguard`
     // must not plant checklist items. Exactly one marker SHA, the head's (soleReviewMarkerSha, as in the approver).
-    .filter((i) => classifyAuthor(i.author, i.authorAssociation, { botLogins }) === 'bot' && i.body.startsWith('## Vanguard Review') && soleReviewMarkerSha(i.body) === fb.headRefOid)
+    .filter((i) => classifyAuthor(i.author, i.authorAssociation, { botLogins }) === 'bot' && hasReviewHeading(i.body) && soleReviewMarkerSha(i.body) === fb.headRefOid)
     .sort((a, b) => a.createdAt.localeCompare(b.createdAt));
   const latest = reviews[reviews.length - 1];
   const out: string[] = [];
@@ -418,20 +438,20 @@ export async function replyAndResolveThread(
 
 // Match both the default (`vanguard-revision:`) and the white-label (`revision:`) marker so
 // round-counting / non-recursion work identically whether or not --commit-author was passed.
-const REVISION_MARKER_PRESENT_RE = /<!--\s*(?:vanguard-)?revision:/;
-const REVISION_MARKER_RE = /<!--\s*(?:vanguard-)?revision:\s*([^>\s]+)\s*-->/g;
+const REVISION_MARKER_PRESENT_RE = /<!--\s*(?:(?:taskcell|vanguard)-)?revision:/;
+const REVISION_MARKER_RE = /<!--\s*(?:(?:taskcell|vanguard)-)?revision:\s*([^>\s]+)\s*-->/g;
 
 export function hasRevisionMarker(body: string): boolean {
   return REVISION_MARKER_PRESENT_RE.test(body);
 }
 
 /** Hidden marker on the round-cap notice, so a later run can tell whether a human commented since. */
-const REVISION_CAP_MARKER = '<!-- vanguard-revision-cap -->';
+const REVISION_CAP_MARKER = '<!-- taskcell-revision-cap -->';
 
 export const revisionCapMarker = (): string => REVISION_CAP_MARKER;
 
 function hasRevisionCapMarker(body: string): boolean {
-  return body.includes(REVISION_CAP_MARKER);
+  return body.includes(REVISION_CAP_MARKER) || body.includes(REVISION_CAP_MARKER.replace('taskcell-', 'vanguard-'));
 }
 
 type FeedbackTrustOptions = Pick<ActionableOptions, 'feedbackAuthors' | 'botLogins'>;
@@ -496,7 +516,7 @@ export function revisionBudgetResetAt(fb: PullRequestFeedback, opts: FeedbackTru
 export const revisionMarker = (headRefOid: string, whiteLabel = false, mergeOnly = false): string => {
   // The extra token keeps REVISION_MARKER_RE from matching (so the round is not counted toward the cap) while hasRevisionMarker still does.
   const tail = mergeOnly ? `${headRefOid} merge-only` : headRefOid;
-  return whiteLabel ? `<!-- revision: ${tail} -->` : `<!-- vanguard-revision: ${tail} -->`;
+  return whiteLabel ? `<!-- revision: ${tail} -->` : `<!-- taskcell-revision: ${tail} -->`;
 };
 
 /** Feedback that asks for nothing but a merge with the base (the same test revise-pr uses for a conflict finding). */

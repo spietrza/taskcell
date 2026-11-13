@@ -1,8 +1,10 @@
 import { readFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { describe, expect, expectTypeOf, it } from 'vitest';
-import { COMMAND_NAMES, WIRE_PROVIDER_NAMES } from './wire.js';
-import type { AppConfig, BoardChip, BoardTask, CompleteCallArgs, Commands, Finding, Project, ReviewVerdict, RunRecord } from './wire.js';
+import { WIRE_PROVIDER_NAMES } from './wire.js';
+import type { Commands } from './hub/commands/index.js';
+import { commandIndexSource, desktopCommandsSource, readCommandModules } from './hub/command-codegen.js';
+import type { AppConfig, BoardChip, BoardTask, CompleteCallArgs, Finding, Project, ReviewVerdict, RunRecord } from './wire.js';
 import { PROVIDER_NAMES } from './agents/registry.js';
 import { isCoreMethod, type SidecarDeps } from './sidecar/sidecar.js';
 
@@ -13,12 +15,14 @@ function readSource(relPath: string): string {
 
 // Mirrors scripts/gen-desktop-wire.ts (which cannot be imported from src/ — rootDir). The
 // duplication is self-checking: if either side changes header or paths, the byte compare fails.
-function assertByteIdenticalCopy(file: string): void {
+function assertByteIdenticalCopy(file: string, tail = ''): void {
   const header = `// GENERATED from src/${file} — do not edit; run pnpm gen:wire\n`;
   const core = join(__dirname, file);
   const desktop = join(__dirname, '..', 'apps', 'desktop', 'src', file);
-  expect(readFileSync(desktop, 'utf8')).toBe(header + readFileSync(core, 'utf8'));
+  expect(readFileSync(desktop, 'utf8')).toBe(header + readFileSync(core, 'utf8') + tail);
 }
+
+const commandModules = (): ReturnType<typeof readCommandModules> => readCommandModules(join(__dirname, 'hub', 'commands'));
 
 function assertZeroImports(file: string): void {
   const source = readSource(file);
@@ -29,12 +33,6 @@ function assertZeroImports(file: string): void {
 }
 
 describe('wire contract (S7)', () => {
-  it('catalogue matches the implemented hub dispatch cases', () => {
-    const rpc = readSource('hub/rpc.ts');
-    const names = [...rpc.matchAll(/case '([^']+)':/g)].map((match) => match[1]);
-    expect(names.sort()).toEqual([...COMMAND_NAMES].sort());
-  });
-
   it('models nullable Rust options and opaque config without widening completion permissions', () => {
     expectTypeOf<null>().toExtend<Project['lastRun']>();
     expectTypeOf<null>().toExtend<Project['color']>();
@@ -45,7 +43,11 @@ describe('wire contract (S7)', () => {
   });
 
   it('desktop copy is byte-identical to header + core source (codegen drift guard — run pnpm gen:wire)', () => {
-    assertByteIdenticalCopy('wire.ts');
+    assertByteIdenticalCopy('wire.ts', desktopCommandsSource(commandModules()));
+  });
+
+  it('the hub command index is the generated one (run pnpm gen:wire)', () => {
+    expect(readSource('hub/commands/index.ts')).toBe(commandIndexSource(commandModules()));
   });
 
   it('BoardTask.waiting is an optional boolean, present in both core and the regenerated desktop copy (T11)', () => {

@@ -1,7 +1,8 @@
 import { describe, expect, test, vi } from 'vitest';
 import { fireEvent, render, screen } from '@testing-library/react';
 import { Dashboard } from './Dashboard';
-import { projects } from '../../dev/fixtures';
+import { factoryStateNone, factoryStateSettingUp, projects } from '../../dev/fixtures';
+import type { FactoryState } from '../../wire';
 
 const [first] = projects;
 
@@ -12,6 +13,22 @@ function setup(): { onOpen: ReturnType<typeof vi.fn>; onRemove: ReturnType<typeo
   render(<Dashboard projects={[first]} onOpen={onOpen} onAdd={() => {}} onRemove={onRemove} onEnableFactory={onEnableFactory} />);
   return { onOpen, onRemove, onEnableFactory };
 }
+
+describe('Dashboard platform', () => {
+  test('projects with different platforms show side by side, with defaults when unset', () => {
+    const [a, b] = projects;
+    render(<Dashboard projects={[{ ...a!, taskSource: undefined, runLocation: undefined }, b!]} onOpen={() => {}} onAdd={() => {}} onRemove={() => {}} />);
+    expect(screen.getByText('GitHub Issues')).toBeInTheDocument();
+    expect(screen.getByText('GitHub Actions')).toBeInTheDocument();
+    expect(screen.getByText('GitLab Issues')).toBeInTheDocument();
+    expect(screen.getByText('GitLab CI')).toBeInTheDocument();
+  });
+
+  test('an invalid combination is explained on the card', () => {
+    render(<Dashboard projects={[{ ...first!, taskSource: 'linear', runLocation: 'github-actions' }]} onOpen={() => {}} onAdd={() => {}} onRemove={() => {}} />);
+    expect(screen.getByText(/Linear only supplies tasks/)).toBeInTheDocument();
+  });
+});
 
 describe('Dashboard project card', () => {
   test('opens from the keyboard: the project name is a focusable button', () => {
@@ -50,5 +67,39 @@ describe('Dashboard project card', () => {
     for (const name of [`Remove ${first.name}`, /Enable factory/]) {
       expect(screen.getByRole('button', { name })).toHaveClass('relative', 'z-10');
     }
+  });
+});
+
+describe('Dashboard empty state', () => {
+  test('says what to do next and links to adding a project and the setup guide', () => {
+    const onAdd = vi.fn();
+    const onOpenSetup = vi.fn();
+    render(<Dashboard projects={[]} onOpen={() => {}} onAdd={onAdd} onRemove={() => {}} onOpenSetup={onOpenSetup} />);
+    expect(screen.getByText('No projects yet')).toBeInTheDocument();
+    fireEvent.click(screen.getByRole('button', { name: 'Open setup guide' }));
+    expect(onOpenSetup).toHaveBeenCalled();
+    fireEvent.click(screen.getAllByRole('button', { name: 'Add project' })[0]!);
+    expect(onAdd).toHaveBeenCalled();
+  });
+});
+
+describe('Dashboard factory state', () => {
+  const label = (f: FactoryState): string => {
+    const { unmount } = render(<Dashboard projects={[first!]} onOpen={() => {}} onAdd={() => {}} onRemove={() => {}} factory={{ [first!.path]: f }} />);
+    const text = screen.getByTestId('factory-state').textContent ?? '';
+    unmount();
+    return text;
+  };
+
+  test('shows not enabled / setting up with the step / ready / broken with the reason', () => {
+    expect(label(factoryStateNone)).toBe('Factory: not enabled');
+    expect(label(factoryStateSettingUp)).toBe('Factory: setting up — Secret set');
+    expect(label({ ...factoryStateNone, state: 'ready' })).toBe('Factory: ready');
+    expect(label({ ...factoryStateNone, state: 'broken', reason: 'the doctor run failure' })).toBe('Factory: broken — the doctor run failure');
+  });
+
+  test('without factory data the card has no factory line', () => {
+    render(<Dashboard projects={[first!]} onOpen={() => {}} onAdd={() => {}} onRemove={() => {}} />);
+    expect(screen.queryByTestId('factory-state')).not.toBeInTheDocument();
   });
 });

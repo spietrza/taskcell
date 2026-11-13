@@ -9,18 +9,18 @@ import type { Task, TaskFetcher } from './fetcher.js';
 // ── columnFor: the tasks.rs test table, ported verbatim (S9 spec §2.6 / AC 1) ──────────────────
 describe('columnFor (Rust table 1:1)', () => {
   it.each([
-    ['vanguard:running', 'running'],
-    ['vanguard:needs-human-review', 'review'],
-    ['vanguard::verify-failed', 'verify-failed'],
-    ['vanguard::secret-blocked', 'verify-failed'],
-    ['vanguard:speccing', 'claimed'],
+    ['taskcell:running', 'running'],
+    ['taskcell:needs-human-review', 'review'],
+    ['taskcell::verify-failed', 'verify-failed'],
+    ['taskcell::secret-blocked', 'verify-failed'],
+    ['taskcell:speccing', 'claimed'],
     ['Speccing', 'claimed'],
     ['Done', 'done'],
     ['closed', 'done'],
     ['In Progress', 'claimed'],
     ['Todo', 'queued'],
     // A terminal state wins over a stale active label.
-    ['vanguard:running closed', 'done'],
+    ['taskcell:running closed', 'done'],
     // A generic dependency-`blocked` label is NOT a verify failure.
     ['blocked', 'queued'],
     // Whole-token matching: adjacent vocabulary must NOT collide with a keyword substring.
@@ -28,13 +28,13 @@ describe('columnFor (Rust table 1:1)', () => {
     ['preview', 'queued'],
     ['inspection', 'queued'],
     ['In Review', 'review'],
-    ['vanguard::reviewing', 'review'],
-    ['vanguard::reviewed', 'review'],
+    ['taskcell::reviewing', 'review'],
+    ['taskcell::reviewed', 'review'],
     ['completed', 'done'],
     // Trigger labels are a human request, not a claim (S10 / waiting feature).
     ['ready for spec', 'queued'],
     ['ready for agent', 'queued'],
-    ['ready for spec vanguard:running', 'running'],
+    ['ready for spec taskcell:running', 'running'],
     ['ready for spec closed', 'done'],
     ['ready for speccing', 'claimed'],
     ['ready for spec review', 'review'],
@@ -49,7 +49,7 @@ describe('isTriggerLabel', () => {
     ['ready for agent', true],
     ['Ready For Spec', true],
     ['ready-for-spec', true],
-    ['vanguard:speccing', false],
+    ['taskcell:speccing', false],
     ['ready for speccing', false],
     ['', false],
   ])('%s → %s', (label, expected) => {
@@ -62,17 +62,17 @@ describe('isTriggerLabel', () => {
 // ── toBoardTask waiting flag: label-sourced, present only for trigger-labelled + queued ─────────
 describe('toBoardTask target branch', () => {
   const base: Task = { id: 'x', title: 'T', description: '', labels: [], children: [], comments: [] };
-  it('shows the card\'s vanguard:base= label', () => {
-    expect(toBoardTask('github', { ...base, ref: '1', state: 'open', labels: ['vanguard:base=uat'] }).baseBranch).toBe('uat');
+  it('shows the card\'s taskcell:base= label', () => {
+    expect(toBoardTask('github', { ...base, ref: '1', state: 'open', labels: ['taskcell:base=uat'] }).baseBranch).toBe('uat');
   });
   it('shows none for conflicting labels (the run refuses them)', () => {
-    expect(toBoardTask('github', { ...base, ref: '1', state: 'open', labels: ['vanguard:base=dev', 'vanguard:base=uat'] }).baseBranch).toBeUndefined();
+    expect(toBoardTask('github', { ...base, ref: '1', state: 'open', labels: ['taskcell:base=dev', 'taskcell:base=uat'] }).baseBranch).toBeUndefined();
   });
   it('keeps the base label out of the column and the state chip', () => {
-    const t = toBoardTask('github', { ...base, ref: '1', state: 'open', labels: ['vanguard:base=review/done', 'bug'] });
+    const t = toBoardTask('github', { ...base, ref: '1', state: 'open', labels: ['taskcell:base=review/done', 'bug'] });
     expect(t.column).toBe('queued');
     expect(t.state).toBe('bug');
-    expect(toBoardTask('github', { ...base, ref: '1', state: 'open', labels: ['vanguard:base=dev'] }).state).toBe('open');
+    expect(toBoardTask('github', { ...base, ref: '1', state: 'open', labels: ['taskcell:base=dev'] }).state).toBe('open');
   });
   it('shows none when the card names none', () => {
     expect(toBoardTask('github', { ...base, ref: '1', state: 'open' }).baseBranch).toBeUndefined();
@@ -94,7 +94,7 @@ describe('toBoardTask waiting flag', () => {
   });
 
   it('a trigger-labelled task that is also running is not waiting', () => {
-    const t = toBoardTask('github', { ...base, ref: '906', state: 'open', labels: ['ready for spec', 'vanguard:running'] });
+    const t = toBoardTask('github', { ...base, ref: '906', state: 'open', labels: ['ready for spec', 'taskcell:running'] });
     expect(t.column).toBe('running');
     expect('waiting' in t).toBe(false);
   });
@@ -129,17 +129,17 @@ describe('toBoardTask chips', () => {
   const base: Task = { id: 'x', title: 'T', description: '', labels: [], children: [], comments: [] };
 
   it('github/gitlab: first label else provider state', () => {
-    expect(toBoardTask('github', { ...base, ref: '904', state: 'open', labels: ['vanguard:running'] }).state).toBe('vanguard:running');
+    expect(toBoardTask('github', { ...base, ref: '904', state: 'open', labels: ['taskcell:running'] }).state).toBe('taskcell:running');
     expect(toBoardTask('github', { ...base, ref: '904', state: 'open' }).state).toBe('open');
-    expect(toBoardTask('gitlab', { ...base, ref: '5', state: 'opened', labels: ['vanguard::verify-failed'] })).toMatchObject({
+    expect(toBoardTask('gitlab', { ...base, ref: '5', state: 'opened', labels: ['taskcell::verify-failed'] })).toMatchObject({
       id: 'gl-5',
       column: 'verify-failed',
-      state: 'vanguard::verify-failed',
+      state: 'taskcell::verify-failed',
     });
   });
 
   it('linear: ALWAYS the workflow state, even with labels present (the chip the ported table missed)', () => {
-    const t = toBoardTask('linear', { ...base, ref: 'DEV-700', state: 'In Progress', labels: ['vanguard::verify-failed'] });
+    const t = toBoardTask('linear', { ...base, ref: 'DEV-700', state: 'In Progress', labels: ['taskcell::verify-failed'] });
     expect(t.state).toBe('In Progress'); // chip = workflow state
     expect(t.column).toBe('verify-failed'); // column = label overrides state
   });
@@ -182,6 +182,21 @@ describe('listBoardTasks', () => {
   it('no source → the actionable Settings prompt (never a github default)', async () => {
     const repo = await repoWith({});
     await expect(listBoardTasks(repo)).rejects.toThrow(/Set a Task Source in Settings/);
+  });
+
+  it('a task source the board does not read is named, not re-prompted for', async () => {
+    const repo = await repoWith({ taskSource: 'hub' });
+    await expect(listBoardTasks(repo)).rejects.toThrow(/task source \(Hub board\) is not listed on this board/);
+  });
+
+  it('taskSource wins over a stale legacy source', async () => {
+    const repo = await repoWith({ taskSource: 'linear', source: 'github', team: 'DEV' });
+    let used: string | undefined;
+    await listBoardTasks(repo, async (source) => {
+      used = source;
+      return fake([]);
+    });
+    expect(used).toBe('linear');
   });
 
   it('maps fetched tasks through toBoardTask and reports capped at the fetch cap', async () => {

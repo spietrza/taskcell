@@ -14,6 +14,7 @@ import { researchCommand } from './research.js';
 import { specCommand } from './spec.js';
 import { revisePrCommand } from './revise-pr.js';
 import { watchPrsCommand } from './watch-prs.js';
+import { migrateLabels } from '../runners/migrate-labels.js';
 import { resumeRateLimited } from '../runners/resume-rate-limited.js';
 import { reviewMrCommand } from './review-mr.js';
 import { watchMrsCommand } from './watch-mrs.js';
@@ -79,6 +80,12 @@ async function main(): Promise<void> {
     await revisePrCommand(command);
     return;
   }
+  if (command.kind === 'migrate-labels') {
+    const report = await migrateLabels({ repoSlug: command.repoSlug, apply: command.apply });
+    console.log(`migrate-labels: ${report.renamed.length} ${report.dryRun ? 'to rename (dry-run; pass --apply)' : 'renamed'}, ${report.skipped.length} skipped, ${report.failed.length} failed`);
+    if (report.failed.length > 0) process.exitCode = 1;
+    return;
+  }
   if (command.kind === 'resume-rate-limited') {
     const report = await resumeRateLimited({ repoSlug: command.repoSlug, dryRun: command.dryRun, ...(command.triggerLabels !== undefined ? { triggerLabels: command.triggerLabels } : {}), ...(command.startedLabels !== undefined ? { startedLabels: command.startedLabels } : {}) });
     console.log(`resume-rate-limited: ${report.resumed.length} resumed, ${report.waiting.length} waiting, ${report.skipped.length} skipped, ${report.failed.length} failed`);
@@ -126,6 +133,11 @@ async function main(): Promise<void> {
   if (command.kind === 'audit') {
     const { auditCommand } = await import('./audit.js');
     process.exitCode = await auditCommand(command);
+    return;
+  }
+  if (command.kind === 'history') {
+    const { historyCommand } = await import('./history.js');
+    await historyCommand(command);
     return;
   }
   if (command.kind === 'memory') {

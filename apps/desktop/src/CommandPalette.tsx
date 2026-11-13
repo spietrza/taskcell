@@ -1,5 +1,6 @@
 import { useEffect, useMemo, useRef, useState, type ReactNode } from 'react';
-import { Home, FolderPlus, FolderGit2, SunMoon } from 'lucide-react';
+import { Home, MessageCircleQuestionMark, FolderPlus, FolderGit2, SunMoon, Columns3, List, Settings as SettingsIcon, FilePlus, Factory } from 'lucide-react';
+import { useFocusTrap } from '@/ui';
 import type { Project } from './taskcell-output';
 
 interface Cmd {
@@ -14,6 +15,11 @@ export function CommandPalette({
   projects,
   onOpenProject,
   onHome,
+  onNeedsYou,
+  projectName,
+  onScreen,
+  onNewTask,
+  onEnableFactory,
   onAddProject,
   onToggleTheme,
   onClose,
@@ -21,6 +27,15 @@ export function CommandPalette({
   projects: Project[];
   onOpenProject: (p: { path: string; name: string }) => void;
   onHome: () => void;
+  /** Hub only: opens Home at its Needs you section (the old Needs you screen). */
+  onNeedsYou?: () => void;
+  /** The open project, named in the commands that act on it. */
+  projectName?: string;
+  /** Screens of the open project (Board, Runs, Settings); omitted while none is open. */
+  onScreen?: (s: 'board' | 'runs' | 'settings') => void;
+  onNewTask?: () => void;
+  /** Hub only: opens the Enable factory dialog for the open project. */
+  onEnableFactory?: () => void;
   onAddProject: () => void;
   onToggleTheme: () => void;
   onClose: () => void;
@@ -28,6 +43,8 @@ export function CommandPalette({
   const [q, setQ] = useState('');
   const [sel, setSel] = useState(0);
   const inputRef = useRef<HTMLInputElement>(null);
+  const dialogRef = useRef<HTMLDivElement>(null);
+  useFocusTrap(dialogRef);
   useEffect(() => {
     inputRef.current?.focus();
   }, []);
@@ -35,6 +52,16 @@ export function CommandPalette({
   const cmds = useMemo<Cmd[]>(
     () => [
       { id: 'home', label: 'All projects', icon: <Home className="size-4" />, run: onHome },
+      ...(onNeedsYou ? [{ id: 'needs', label: 'Needs you', icon: <MessageCircleQuestionMark className="size-4" />, run: onNeedsYou }] : []),
+      ...(onScreen
+        ? [
+            { id: 'board', label: `Board · ${projectName}`, icon: <Columns3 className="size-4" />, run: () => onScreen('board') },
+            { id: 'runs', label: `Runs · ${projectName}`, icon: <List className="size-4" />, run: () => onScreen('runs') },
+            { id: 'settings', label: `Settings · ${projectName}`, icon: <SettingsIcon className="size-4" />, run: () => onScreen('settings') },
+          ]
+        : []),
+      ...(onNewTask ? [{ id: 'new-task', label: `New task · ${projectName}`, icon: <FilePlus className="size-4" />, run: onNewTask }] : []),
+      ...(onEnableFactory ? [{ id: 'factory', label: `Enable factory · ${projectName}`, icon: <Factory className="size-4" />, run: onEnableFactory }] : []),
       { id: 'add', label: 'Add project', icon: <FolderPlus className="size-4" />, run: onAddProject },
       { id: 'theme', label: 'Toggle theme', icon: <SunMoon className="size-4" />, run: onToggleTheme },
       ...projects.map((p) => ({
@@ -45,7 +72,7 @@ export function CommandPalette({
         run: () => onOpenProject({ path: p.path, name: p.name }),
       })),
     ],
-    [projects, onHome, onAddProject, onToggleTheme, onOpenProject],
+    [projects, projectName, onHome, onNeedsYou, onScreen, onNewTask, onEnableFactory, onAddProject, onToggleTheme, onOpenProject],
   );
 
   const filtered = useMemo(() => {
@@ -83,6 +110,7 @@ export function CommandPalette({
   return (
     <div className="fixed inset-0 z-50 flex items-start justify-center bg-black/40 pt-[15vh]" onClick={onClose}>
       <div
+        ref={dialogRef}
         role="dialog"
         aria-modal="true"
         aria-label="Command palette"

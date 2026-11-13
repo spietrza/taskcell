@@ -20,6 +20,7 @@ import type {
   NeedsYouItem,
   FactoryApplyResult,
   FactoryPlan,
+  FactoryState,
   FactorySecretStep,
   FactoryVerifyResult,
 } from '../wire';
@@ -51,6 +52,8 @@ export const projects: Project[] = [
     runningCount: 0,
     runsLast24h: 2,
     color: '#059669',
+    taskSource: 'gitlab',
+    runLocation: 'gitlab-ci',
   },
 ];
 
@@ -278,7 +281,7 @@ export const needsYouItems: NeedsYouItem[] = [
     repoSlug: 'acme/my-app',
     title: 'Refactor auth middleware',
     url: 'https://github.com/acme/my-app/pull/57',
-    reason: 'vanguard:needs-human-review',
+    reason: 'taskcell:needs-human-review',
     baseRef: 'main',
     lastComment: { author: 'vanguard[bot]', body: 'Review complete — one finding needs a human call on scope.' },
   },
@@ -330,6 +333,27 @@ export const factoryApplyResult: FactoryApplyResult = {
 export const factorySecret: FactorySecretStep = {
   secretName: 'CLAUDE_CODE_OAUTH_TOKEN',
   command: 'gh secret set CLAUDE_CODE_OAUTH_TOKEN --repo acme/my-app',
+};
+
+/** A project with the callers PR open and the secret not yet set. */
+export const factoryStateSettingUp: FactoryState = {
+  state: 'setting-up',
+  step: 'secret',
+  reason: 'waiting to set the secret',
+  steps: [
+    { id: 'pr', status: 'done' },
+    { id: 'secret', status: 'current' },
+    { id: 'merged', status: 'pending' },
+    { id: 'doctor', status: 'pending' },
+  ],
+  plan: factoryPlan,
+  prUrl: 'https://github.com/acme/my-app/pull/42',
+  secret: factorySecret,
+};
+
+export const factoryStateNone: FactoryState = {
+  state: 'none',
+  steps: (['pr', 'secret', 'merged', 'doctor'] as const).map((id) => ({ id, status: 'pending' as const })),
 };
 
 export const factoryVerify: FactoryVerifyResult = {

@@ -12,6 +12,7 @@ type WatchSource = 'linear' | 'github' | 'project' | 'gitlab';
 
 export type Command =
   | { kind: 'gc'; repoPath: string; maxAgeMs: number; remoteRepo?: string; dryRun: boolean; abandoned: boolean }
+  | { kind: 'migrate-labels'; repoSlug: string; apply: boolean }
   | { kind: 'resume-rate-limited'; repoSlug: string; dryRun: boolean; triggerLabels?: string[]; startedLabels?: string[] }
   | {
       kind: 'review-pr';
@@ -86,7 +87,7 @@ export type Command =
       fallbackProvider?: ProviderName;
       /** Model for every stage that fell back (default: that provider's default). */
       fallbackModel?: string;
-      /** Model for the implementer/simplifier stages, as in `run`/`watch`. Overridden by a `vanguard:model=<m>` label on the issue the PR references. */
+      /** Model for the implementer/simplifier stages, as in `run`/`watch`. Overridden by a `taskcell:model=<m>` label on the issue the PR references. */
       providerModel?: string;
       reviewModel?: string;
       maxRounds?: number;
@@ -226,7 +227,7 @@ export type Command =
       needsInfoLabel?: string;
       /**
        * (github loop-v1) Label the spec pass moves a claimed ticket to while speccing
-       * (default: 'vanguard:speccing'). Omitted when absent — the default is used.
+       * (default: 'taskcell:speccing'). Omitted when absent — the default is used.
        */
       specClaimedLabel?: string;
       // Linear loop-v1
@@ -309,6 +310,7 @@ export type Command =
   | { kind: 'metrics'; action: 'push'; repoPath: string; branch?: string }
   | { kind: 'approve'; prNumber: number; repoSlug: string; repoPath: string; mode: 'shadow'; json: boolean; dryRun: boolean; branch?: string }
   | { kind: 'memory'; repoPath: string; limit?: number; json: boolean }
+  | { kind: 'history'; repoPath: string; repoSlug: string; issue: number; json: boolean; configDir?: string; branch?: string; offline: boolean }
   | {
       kind: 'audit';
       action: 'verify' | 'export';
@@ -353,7 +355,7 @@ export type Command =
     }
   | { kind: 'sidecar' }
   | { kind: 'complete' }
-  | { kind: 'hub'; repoPath: string; host: string; port: number; uiDir?: string; open: boolean; allowedHosts?: string[]; tokenFile?: string }
+  | { kind: 'hub'; repoPath: string; host: string; port: number; uiDir?: string; open: boolean; allowedHosts?: string[]; tokenFile?: string; adminGithubLogins?: string[]; demo?: boolean }
   | { kind: 'hub-rotate-token'; tokenFile: string }
   | { kind: 'help' }
   | { kind: 'error'; message: string };
@@ -457,10 +459,10 @@ const DEFAULT_LINEAR_NEEDS_INFO_STATE = 'Needs Info';
 export const DEFAULT_LINEAR_AGENT_STATE = 'Todo';
 /** First-attempt turn cap of a review-pr or review-mr run without --max-turns; the retry gets 1.5x. */
 export const DEFAULT_REVIEW_MAX_TURNS = 16;
-const DEFAULT_PR_REVIEWING_LABEL = 'vanguard:reviewing';
-const DEFAULT_PR_REVIEWED_LABEL = 'vanguard:reviewed';
-const DEFAULT_GITLAB_MR_REVIEWING_LABEL = 'vanguard::reviewing';
-const DEFAULT_GITLAB_MR_REVIEWED_LABEL = 'vanguard::reviewed';
+const DEFAULT_PR_REVIEWING_LABEL = 'taskcell:reviewing';
+const DEFAULT_PR_REVIEWED_LABEL = 'taskcell:reviewed';
+const DEFAULT_GITLAB_MR_REVIEWING_LABEL = 'taskcell::reviewing';
+const DEFAULT_GITLAB_MR_REVIEWED_LABEL = 'taskcell::reviewed';
 /** VANGUARD_HUB_HOST default (spec §2.10) — loopback-only, so a fresh install binds nothing reachable off-box. */
 const DEFAULT_HUB_HOST = '127.0.0.1';
 /** VANGUARD_HUB_PORT default (spec §2.10). */
@@ -514,6 +516,7 @@ function parseCommitAuthor(raw: string | boolean | undefined): { name: string; e
 export function parseCli(argv: string[], cwd: string): Command {
   let values: Record<string, string | boolean | undefined>;
   let allowedHosts: string[] | undefined;
+  let adminGithubLogins: string[] | undefined;
   let positionals: string[];
   try {
     const parsed = parseArgs({
@@ -525,6 +528,7 @@ export function parseCli(argv: string[], cwd: string): Command {
         'max-age-hours': { type: 'string' },
         remote: { type: 'string' },
         'dry-run': { type: 'boolean' },
+        apply: { type: 'boolean' },
         abandoned: { type: 'boolean' },
         // run
         linear: { type: 'string' },
@@ -640,6 +644,8 @@ export function parseCli(argv: string[], cwd: string): Command {
         until: { type: 'string' },
         format: { type: 'string' },
         'config-dir': { type: 'string' },
+        // history
+        offline: { type: 'boolean' },
         markdown: { type: 'boolean' },
         // eval --baseline
         baseline: { type: 'string' },
@@ -651,13 +657,16 @@ export function parseCli(argv: string[], cwd: string): Command {
         host: { type: 'string' },
         'ui-dir': { type: 'string' },
         'no-open': { type: 'boolean' },
+        demo: { type: 'boolean' },
         'token-file': { type: 'string' },
         'allowed-host': { type: 'string', multiple: true },
+        'admin-github-login': { type: 'string', multiple: true },
         help: { type: 'boolean' },
       },
     });
-    const { 'allowed-host': hosts, ...singleValues } = parsed.values;
+    const { 'allowed-host': hosts, 'admin-github-login': admins, ...singleValues } = parsed.values;
     allowedHosts = hosts;
+    adminGithubLogins = admins;
     values = singleValues;
     positionals = parsed.positionals;
   } catch {
@@ -844,6 +853,21 @@ export function parseCli(argv: string[], cwd: string): Command {
     };
   }
 
+  if (positionals[0] === 'history') {
+    const groups = /^(?<repo>[^\s#/]+\/[^\s#/]+)#(?<number>\d+)$/.exec(positionals[1] ?? '')?.groups;
+    if (groups === undefined || Number(groups['number']) < 1) return fail('history expects an issue reference: taskcell history owner/repo#N [--json].');
+    return {
+      kind: 'history',
+      repoPath,
+      repoSlug: groups['repo']!,
+      issue: Number(groups['number']),
+      json: values.json === true,
+      offline: values.offline === true,
+      ...(typeof values['config-dir'] === 'string' ? { configDir: values['config-dir'] } : {}),
+      ...(typeof values.branch === 'string' ? { branch: values.branch } : {}),
+    };
+  }
+
   if (positionals[0] === 'memory') {
     const limit = parseLimit(values.limit);
     return {
@@ -875,6 +899,12 @@ export function parseCli(argv: string[], cwd: string): Command {
       saveBaseline: values['save-baseline'] === true,
       ...(typeof values.branch === 'string' ? { branch: values.branch } : {}),
     };
+  }
+
+  if (positionals[0] === 'migrate-labels') {
+    const repoSlug = typeof values['github-repo'] === 'string' ? values['github-repo'] : undefined;
+    if (repoSlug === undefined) return fail('migrate-labels requires --github-repo <owner/repo>.');
+    return { kind: 'migrate-labels', repoSlug, apply: values.apply === true };
   }
 
   if (positionals[0] === 'resume-rate-limited') {
@@ -946,7 +976,9 @@ export function parseCli(argv: string[], cwd: string): Command {
       port,
       ...(typeof values['ui-dir'] === 'string' ? { uiDir: values['ui-dir'] } : {}),
       open: values['no-open'] !== true,
+      ...(values.demo === true ? { demo: true } : {}),
       ...(allowedHosts?.length ? { allowedHosts } : {}),
+      ...(adminGithubLogins?.length ? { adminGithubLogins } : {}),
     };
   }
 
@@ -1464,6 +1496,8 @@ Commands:
          (shadow mode: never merges, approves, or edits labels).
   audit verify | export  Check the hash chains of the audit streams (hub, run-events, metrics, decisions,
          lessons) or export them with --since/--until as jsonl or csv; see docs/audit.md.
+  history <owner/repo#N>  One issue's history over the audit streams (trigger, runs, reviews, approver,
+         merge) with actor and source per entry, and whether the chains verify; --json; see docs/audit.md.
   memory Refresh .taskcell/memory/retrospective.md from run artifacts and print it.
   lessons record  Distil 0-3 lessons from a closed factory PR (one cheap model call; none for a clean
          first-round merge), append them to lessons.jsonl on the metrics branch and comment them on
@@ -1471,14 +1505,18 @@ Commands:
   lessons list | dismiss <id>  Show the live lessons, or dismiss a wrong one so no run gets it again.
   eval   Run the committed eval corpus and print a per-kind pass-rate report; --baseline gates the run
          against a saved result instead of an absolute number, --save-baseline publishes one.
+  migrate-labels Rename a repo's old vanguard:* labels to taskcell:*: --github-repo <owner/repo>;
+         dry-run by default, --apply renames. The old names stay recognised either way. "ready for vanguard review"
+         is kept: the PR-review workflows trigger on that name.
   resume-rate-limited Re-apply the trigger label on issues/PRs a provider limit parked, once the reset passed, and on issues
-         parked as vanguard:waiting (unmet Depends on #N / native blocked-by, future Start: YYYY-MM-DD) once they are clear
+         parked as taskcell:waiting (unmet Depends on #N / native blocked-by, future Start: YYYY-MM-DD) once they are clear
          (--trigger-labels a,b names custom triggers; --claimed-state, --review-state, --spec-claimed-label as given to watch).
   gc     Reap stale sandbox containers, prune worktrees, and (with --remote) delete merged
          remote chore/vanguard-* branches.
   hub    Serve the Inspector UI over HTTP/SSE (node:http), backed by a real .taskcell/ directory.
          --token-file <path> (VANGUARD_HUB_TOKEN_FILE) keeps one token across restarts (created 0600 if missing);
          "hub rotate-token --token-file <path>" writes a new one, picked up on the next restart.
+         --demo opens a read-only demo project on bundled sample data (no repo, remote or hub store is touched).
 
   watch options (trigger = state/label + label):
     --source <linear|github|project|gitlab>  Task source (default: linear)
@@ -1492,9 +1530,9 @@ Commands:
                            Linear display state name matching --trigger-state; used to restore
                            no-change issues (default for Linear single-pass: "Todo")
     --claimed-state <x>    Status/label set on claim (project default: "In Progress";
-                           linear: state default "In Progress"; github: label "vanguard:running")
+                           linear: state default "In Progress"; github: label "taskcell:running")
     --review-state <x>     Status/label set after a PR opens (project default: "In Review";
-                           linear: "In Review"; github: "vanguard:needs-human-review")
+                           linear: "In Review"; github: "taskcell:needs-human-review")
     --interval <seconds>   Poll interval (default: 60); --once does a single pass
     --max-tasks <n>        Cap the ready tasks claimed and processed per poll, for each phase
                            (spec, then agent); the rest stay unclaimed for the next poll
@@ -1527,7 +1565,7 @@ ${MAX_REPAIR_ITERATIONS_USAGE}
                                  (e.g. "vanguard"; optional for repo-scoped GitHub watch).
                                  --claimed-state / --review-state still apply to the agent pass.
       --spec-claimed-label <l>   Label the spec pass moves a claimed issue to while speccing
-                                 (default: "vanguard:speccing"); use this if your workspace uses a different label.
+                                 (default: "taskcell:speccing"); use this if your workspace uses a different label.
 
     Linear loop-v1 (--source linear):
       --spec-state <type>        State TYPE that triggers the spec pass (e.g. "triage")
@@ -1642,7 +1680,7 @@ ${MAX_REPAIR_ITERATIONS_USAGE}
     --provider <claude|codex|cursor|zai|openrouter|meridian>          Provider for the implementer/review stages (default: claude)
     --fallback-provider <name>  Retry on this provider when the primary one fails (outage, limit, revoked credential, rate limit) — must sit on a different transport
     --fallback-model <model>    Model for every stage that fell back (default: that provider's default)
-    --provider-model <m>   Model for the implementer/simplifier stages, as for run (default: provider's default); a vanguard:model=<m> label on the issue the PR references overrides it
+    --provider-model <m>   Model for the implementer/simplifier stages, as for run (default: provider's default); a taskcell:model=<m> label on the issue the PR references overrides it
     --review-model <m>     Model for the review stage
     --feedback-authors <a,b> Extra GitHub/GitLab logins whose PR feedback and <spec_manifest>/<tech_spec> comments are trusted, beyond OWNER/MEMBER/COLLABORATOR and the issue author (pass the workflow's allowed-actors here)
     --max-rounds <n>       Maximum revision rounds (default: 2)
@@ -1651,13 +1689,13 @@ ${MAX_REPAIR_ITERATIONS_USAGE}
     Triggered by the "needs revision" label on a Taskcell draft PR. Reads feedback from
     review threads, review summaries, and PR comments; applies fixes to the existing PR branch;
     replies to and resolves addressed threads; un-drafts the PR; and sets the label to
-    "vanguard:needs-human-review" for the next human action.
+    "taskcell:needs-human-review" for the next human action.
 
   watch-prs options:
     --github-repo <o/r>    Required repo slug
     --label <name>         Required trigger label (e.g. "ready for vanguard review")
-    --reviewing-label <l>  Label added while a PR is being reviewed (default: "vanguard:reviewing")
-    --reviewed-label <l>   Label added after review succeeds (default: "vanguard:reviewed")
+    --reviewing-label <l>  Label added while a PR is being reviewed (default: "taskcell:reviewing")
+    --reviewed-label <l>   Label added after review succeeds (default: "taskcell:reviewed")
     --author <login>       Only review PRs opened by this GitHub login (self-review-only when set)
     --feedback-authors <a,b> PR authors trusted beyond OWNER/MEMBER/COLLABORATOR; a PR by anyone else
                            is skipped (pass the workflow's allowed-actors here)
@@ -1693,8 +1731,8 @@ ${MAX_REPAIR_ITERATIONS_USAGE}
   watch-mrs options:
     --gitlab-project <g/p>   Required project path (e.g. group/project)
     --label <name>           Required trigger label (e.g. "ready for review")
-    --reviewing-label <l>    Label added while an MR is being reviewed (default: "vanguard::reviewing")
-    --reviewed-label <l>     Label added after review succeeds (default: "vanguard::reviewed")
+    --reviewing-label <l>    Label added while an MR is being reviewed (default: "taskcell::reviewing")
+    --reviewed-label <l>     Label added after review succeeds (default: "taskcell::reviewed")
     --author <username>      Only review MRs opened by this GitLab username
     --interval <seconds>     Poll interval (default: 60); --once does a single pass
     --concurrency <n>        Max MRs reviewed at once (default: 2)
@@ -1745,6 +1783,13 @@ ${MAX_REPAIR_ITERATIONS_USAGE}
     --config-dir <dir>     The hub config dir holding the hub audit log (default: the hub's)
     --branch <name>        Metrics-branch override for decisions/lessons
     --since <date> --until <date> --format jsonl|csv   (export) time window and format
+
+  history options:
+    --repo <path>          Repo whose state dir and metrics branch to read (default: cwd)
+    --config-dir <dir>     The hub config dir holding the hub audit log (default: the hub's)
+    --branch <name>        Metrics-branch override for decisions
+    --offline              Do not ask the Git host (no label/comment/merge events)
+    --json                 Machine-readable history
 
   metrics push options:
     --repo <path>          Repo whose .taskcell/runs/metrics.jsonl to persist (default: cwd)

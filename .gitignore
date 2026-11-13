@@ -29,3 +29,5 @@ id_rsa*
 .claude/settings.local.json
 .gstack/
 .idea/
+
+test-results/

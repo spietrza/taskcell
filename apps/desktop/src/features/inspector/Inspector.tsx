@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState } from 'react';
-import { Button, Chip, cn } from '@/ui';
+import { Button, Chip, PAGE_CLASS, cn } from '@/ui';
 import { ArrowLeft, FilePlus, RefreshCw } from 'lucide-react';
 import { canUseFleet, isHubMode, subscribe, onStreamReset } from '../../transport';
 import {
@@ -24,27 +24,31 @@ import { ConflictStats } from './ConflictStats';
 import { RunDetail } from './RunDetail';
 import { LiveRun } from './LiveRun';
 import { RemoteRuns } from './RemoteRuns';
-import { AuditLog } from '../audit/AuditLog';
 import { Fleet } from '../fleet/Fleet';
-import { Settings } from '../settings/Settings';
+import { SettingsScreen } from '../settings/SettingsScreen';
 import { TaskBoard } from '../board/TaskBoard';
 import { TaskDetail } from '../board/TaskDetail';
-import { WorkflowEditor } from '../workflow/WorkflowEditor';
 import { TaskDraftScreen } from '../task/TaskDraftScreen';
-import { NeedsYou } from '../needs-you/NeedsYou';
 import { NewRunForm } from './NewRunForm';
 import { RunStrip } from './RunStrip';
 import { foldLiveEvent, reduceTypedRun, initialTypedRun, type TypedRunState, type RunEvent, type AppRunEvent } from './typedRunReducer';
 import { useAppConfig } from '../../hooks';
+import { inRepos } from '../../repoFilter';
+import type { HubFilter } from '../../filterState';
 import { RepoFailures } from '../../RepoViews';
 import type { RepoReadFailure, RepoStamp } from '../../wire';
+import type { TeamScreen } from '../settings/Members';
 import type { Project } from '../../taskcell-output';
 import type { RunSummary, RunDetail as RunDetailT, ActiveRun, RunRef, RunSource } from '../../taskcell-output';
 
 export function Inspector({
   project,
   projects,
+  teamScreen,
+  teamId,
   allRepos,
+  filter,
+  onFilter,
   screen,
   focusRunning,
   clearNonce,
@@ -53,13 +57,21 @@ export function Inspector({
   onTaskCrumb,
   onNewTask,
   onOpenBoard,
+  onOpenSetup,
 }: {
   project: string;
   /** Every hub repository: "All repositories" watches and lists running runs for each. */
   projects: Project[];
-  /** The shared repository filter is "All repositories": Board, Runs and Needs you list every repository. */
+  /** The selected team (hub), for the members screen under Settings. */
+  teamScreen?: TeamScreen;
+  /** The selected team (hub): the all-repositories lists are read for it. */
+  teamId?: string;
+  /** Board and Runs list every repository of the team (hub); the filter narrows them. */
   allRepos: boolean;
-  screen: 'runs' | 'board' | 'task' | 'fleet' | 'remote' | 'workflow' | 'settings' | 'needs' | 'audit';
+  /** The filter Board and Runs share, and its setter (persisted by the app). */
+  filter: HubFilter;
+  onFilter: (f: HubFilter) => void;
+  screen: 'runs' | 'board' | 'task' | 'settings';
   focusRunning: ActiveRun | null;
   clearNonce: number;
   newTaskNonce: number;
@@ -68,6 +80,8 @@ export function Inspector({
   onTaskCrumb: (c: { name: string; onRename: (v: string) => void } | null) => void;
   onNewTask: () => void;
   onOpenBoard: () => void;
+  /** Reopen the first-run guide (Settings). */
+  onOpenSetup?: () => void;
 }) {
   const [runs, setRuns] = useState<(RunSummary & Partial<RepoStamp>)[]>([]);
   const [failures, setFailures] = useState<RepoReadFailure[]>([]);
@@ -135,11 +149,14 @@ export function Inspector({
     }
   }, [clearNonce]);
 
+  // `projects` is the selected team's repositories; the hub's all-repositories lists span every team.
+  const repos = projects.map((p) => p.path);
+
   const loadRuns = async (): Promise<void> => {
     const gen = ++runsGen.current;
     if (allRepos) {
       const [r, a] = await Promise.all([
-        listRunsAll(),
+        listRunsAll(teamId).then((l) => ({ runs: inRepos(l.runs, repos), failures: inRepos(l.failures, repos) })),
         Promise.all(
           projects.map((p) =>
             listActive(p.path).then(
@@ -195,7 +212,7 @@ export function Inspector({
   useEffect(() => {
     void load();
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [project, allRepos]);
+  }, [project, allRepos, teamId]);
 
   // The listener is registered once, so it reaches the latest render's `refresh` through a ref.
   const refreshRef = useRef(refresh);
@@ -399,8 +416,10 @@ export function Inspector({
     // Centered + width-capped, except the board which needs full width for horizontal column scroll.
     <div
       className={cn(
-        'mx-auto flex h-full w-full min-h-0 flex-col gap-4 p-6',
-        screen !== 'board' && screen !== 'task' && 'max-w-5xl',
+        'flex h-full min-h-0 flex-col gap-4',
+        PAGE_CLASS,
+        // The board's columns scroll sideways, so it (and the task screen) drop the width cap only.
+        (screen === 'board' || screen === 'task') && 'max-w-none',
       )}
     >
       {screen === 'runs' && (
@@ -517,49 +536,31 @@ export function Inspector({
         <div className="flex min-h-0 flex-1 flex-col">
           <RepoFailures failures={failures} />
           {!allRepos && <ConflictStats repoPath={project} refreshKey={tick} />}
-          <RunList runs={runs} active={active} showRepo={allRepos} onSelect={open} onOpenActive={setLiveRun} />
+          <RunList runs={runs} active={active} showRepo={allRepos} hub={filter} onHub={onFilter} projects={allRepos ? projects : []} onSelect={open} onOpenActive={setLiveRun} onNewTask={onNewTask} />
         </div>
       ) : screen === 'board' ? (
         <TaskBoard
           project={project}
           allRepos={allRepos}
+          repos={repos}
+          teamId={teamId}
+          filter={filter}
+          onFilter={onFilter}
+          projects={projects}
           onOpenTask={(id, repo) => {
             setTaskDetailRepo(repo ?? project);
             setTaskDetailId(id);
           }}
           onNewTask={onNewTask}
         />
-      ) : screen === 'needs' ? (
-        <div className="min-h-0 flex-1 overflow-y-auto">
-          <NeedsYou project={project} allRepos={allRepos} />
-        </div>
-      ) : screen === 'audit' ? (
-        <div className="flex min-h-0 flex-1 flex-col">
-          <AuditLog />
-        </div>
-      ) : screen === 'remote' ? (
-        <div className="flex min-h-0 flex-1 flex-col">
-          <RemoteRuns project={project} onOpenRun={open} />
-        </div>
-      ) : screen === 'fleet' ? (
-        <div className="min-h-0 flex-1 overflow-y-auto">
-          {canUseFleet() ? (
-            <Fleet project={project} active={active} />
-          ) : (
-            <div className="rounded border border-border bg-muted/30 px-3 py-2 text-sm text-muted-foreground">
-              Fleet is not available in hub mode — it spawns shell commands, which is remote code execution
-              on a reachable server.
-            </div>
-          )}
-        </div>
-      ) : screen === 'workflow' ? (
-        <div className="flex min-h-0 flex-1 flex-col">
-          <WorkflowEditor project={project} />
-        </div>
       ) : screen === 'settings' ? (
-        <div className="min-h-0 flex-1 overflow-y-auto">
-          <Settings project={project} />
-        </div>
+        <SettingsScreen
+          project={project}
+          {...(teamScreen ? { teamScreen } : {})}
+          {...(onOpenSetup ? { onOpenSetup } : {})}
+          fleet={canUseFleet() ? <Fleet project={project} active={active} /> : null}
+          remote={<RemoteRuns project={project} onOpenRun={open} />}
+        />
       ) : screen === 'task' ? (
         <div className="flex min-h-0 flex-1 flex-col">
           <TaskDraftScreen

@@ -60,6 +60,16 @@ Use `pnpm coverage:ratchet --write` to apply them to `vitest.config.ts` after a
 successful suite. Each threshold stays at least its current value, with new floors
 set to the measured percentage rounded down minus two points.
 
+## Adding a hub command
+
+A hub RPC command (`POST /rpc/:cmd`) lives in ONE module per feature, `src/hub/commands/<feature>.ts`, so unrelated features never edit the same lines. The module holds:
+
+1. `export interface <Feature>Commands { name: { args: ...; result: ... } }` — the wire contract (doc comments included). Types come from `src/wire.ts`; the module imports them, never the reverse.
+2. `export const commands = defineCommands<<Feature>Commands>({ name: async ({ ctx, args, caller, allow, scope, roots, assertRunVisible }) => { ... } }, { name: auditSpec })` — validation (the `require*` helpers in `src/hub/command-kit.ts`) and the handler, plus an optional audit spec. The handler map must have exactly the interface's keys (type-checked). Resolve every `repoPath` through `allow`.
+3. A neighbouring `<feature>.test.ts`, using the fixtures in `src/hub/test-kit.ts`.
+
+Then run `pnpm gen:wire`. It regenerates `src/hub/commands/index.ts` (merged `Commands`, the sorted `COMMAND_NAMES`, the dispatch and audit lookups `dispatchRpc` uses) and the desktop copy `apps/desktop/src/wire.ts` (which gets `Commands`/`COMMAND_NAMES` inlined). Commit those generated files; the drift test in `src/wire.test.ts` fails when they are stale. Do not edit `rpc.ts`, `wire.ts`'s catalogue or `server.ts` to add a command. A command needing new request-wide state adds a field to `RpcContext` (`src/hub/rpc.ts`, built in `server.ts`).
+
 ## Workflow
 
 1. Fork the repo (external contributors) or create a branch (collaborators).

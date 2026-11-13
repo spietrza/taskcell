@@ -248,7 +248,7 @@ export function baseRedBlock(baseBranch: string, sha: string, result: Verificati
   const lines = [
     `🚧 Vanguard stopped before implementing: \`${baseBranch}\` (${sha.slice(0, 7)}) already fails \`${result.command}\` (exit ${result.exitCode}).`,
     '',
-    'Fixing it would mean repairing failures that have nothing to do with this issue, so no implement run was started. Fix the base branch, then re-apply the trigger label. If this issue is the fix for the red base, add the `vanguard:base-red-ok` label and re-apply the trigger label to skip this check.',
+    'Fixing it would mean repairing failures that have nothing to do with this issue, so no implement run was started. Fix the base branch, then re-apply the trigger label. If this issue is the fix for the red base, add the `taskcell:base-red-ok` label and re-apply the trigger label to skip this check.',
     ...(task !== undefined ? ['', `- failing task/package: \`${task}\``] : []),
   ];
   const hasFirstError = result.firstErrorLines !== undefined && result.firstErrorLines !== '';

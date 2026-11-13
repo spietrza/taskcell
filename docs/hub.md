@@ -33,7 +33,7 @@ the terminal, or `docker logs` in container mode) rather than the bare address.
 
 - Node 24 and pnpm; `pnpm install` at the repo root (the UI bundle is a separate pnpm project that
   `pnpm build:ui` installs and builds).
-- `gh auth login` — the Task board, Remote and cloning private repositories go through `gh`.
+- `gh auth login` — the Board, Remote (under Settings → Runners) and cloning private repositories go through `gh`.
 - For runs started from the hub: Docker with the sandbox image (`docker/build.sh` builds
   `taskcell-sandbox:latest`; the egress proxy sidecar uses the same image, so a missing image
   surfaces as "Failed to start egress enclave"), and the provider credential exported in the shell
@@ -46,7 +46,7 @@ the terminal, or `docker logs` in container mode) rather than the bare address.
 
 ## Three ways to use it
 
-1. **Local factory.** Add the project, open the Task board, click **New Run** on an issue. The
+1. **Local factory.** Add the project, open the Board, click **New Run** on an issue. The
    pipeline runs in the sandbox on this machine; the Runs screen shows the live transcript and, when
    it ends, every stage's record, diff, transcript, proof of work and visual proof. The PR lands on
    GitHub/GitLab like any other Taskcell run.
@@ -54,7 +54,7 @@ the terminal, or `docker logs` in container mode) rather than the bare address.
    [onboarding-another-repo.md](onboarding-another-repo.md); the callers must pass
    `upload-run-records: true`) and use the hub read-only: Remote lists the repo's CI runs,
    **Fetch records** imports a run's `vanguard-runs` artifact into `.taskcell/remote-runs/<id>`, and
-   the records open like local ones. No token, no Docker, no sandbox on this machine. The Task board
+   the records open like local ones. No token, no Docker, no sandbox on this machine. The Board
    header counts the factory's work from issue labels — `Running N` (claimed or running) and
    `Waiting K` (labelled `ready for agent`/`ready for spec`, not yet picked up) — so it shows the CI
    backlog too. A `+` (`12+`) means the board holds only its first page of issues and the count is a
@@ -184,7 +184,7 @@ active run, run backlog, cancel and the `/events` stream only carry the user's r
 `add_team_member`, `remove_team_member`, `add_team_repository` (a project the admin already holds) and
 `remove_team_repository` need the team's `admin` role; a `member` is refused. A team keeps at least one
 admin. The token holder is the owner, admin of every team, and alone may `add_project` / `remove_project` /
-`clone_project` / `browse_dirs` (a hub-wide remove also leaves every team), use the credential commands and the Fleet
+`clone_project` / `browse_dirs` (a hub-wide remove also leaves every team), use the credential commands and the Fleet (Settings → Runners)
 commands. Token-only mode is unchanged: one default team, the token its admin.
 
 *Adding the first members.* On a fresh server-mode hub the default team has no members, so signed-in users
@@ -242,6 +242,18 @@ when `--allowed-host <public-host[:port]>` permits the public Host and the proxy
 non-default port). Only HTTP(S) origins are accepted; the browser's `https://` Origin matches
 the public `Host` even though the proxy connects to the hub over HTTP.
 
+## Teams
+
+A team is a name, members (login + role `admin` or `member`) and repositories, stored in `teams.json` next to `projects.json`. The first start creates a `Default` team holding every project; it mirrors the project list, so its repositories cannot be edited.
+
+**Who is who.** A signed-in user is matched to a member by the provider login the hub stored at sign-up (`github:octocat` matches the member `octocat`; a GitLab member is added as `gitlab:<login>`, a bare login is always a GitHub login, so a same-named account on another provider matches nothing) — never by display name or e-mail, which the user controls. The owner (the hub token, or local mode) is an admin of every team.
+
+**What a caller sees.** `list_teams` and `get_team` return the teams the caller belongs to, plus teams with no members (the default team until someone is added); the owner sees all. `list_runs_all`, `list_tasks_all` and `list_needs_you_all` are limited to those teams' repositories. Per-repository commands (`repoPath` arguments) are still guarded by the project allowlist only, not by team.
+
+**Editing.** `team_add_member`, `team_set_role`, `team_remove_member`, `team_add_repository` and `team_remove_repository` need an admin and the same bind permission as `add_project`. The last admin of a team can be neither removed nor demoted.
+
+**UI.** The team switcher sits at the top of the rail (a menu with more than one team, the plain name with one) and the choice is remembered in the browser. Home, Board, Runs and Needs you list the selected team's repositories. Settings has a Members section: an admin edits, a member reads.
+
 ## Wire format
 
 The UI talks to the hub with `POST /rpc/<command>` (JSON body = the command's camelCase args, `{}` when
@@ -287,11 +299,38 @@ token, `--no-open`), loads the launch URL into its window, restarts the hub if i
 (the hub also exits when the app's stdin pipe closes, `VANGUARD_HUB_EXIT_ON_STDIN_EOF=1`, so it is never
 orphaned). Its project list lives in the app config dir (`VANGUARD_HUB_CONFIG_DIR`). Installed apps bundle a
 Node runtime and the CLI; a source checkout (`pnpm start`) runs the TypeScript CLI — details in
-[apps/desktop/README.md](../apps/desktop/README.md#local-hub-the-desktop-backend). Connecting the app to a
-remote hub is a separate follow-up.
+[apps/desktop/README.md](../apps/desktop/README.md#local-hub-the-desktop-backend). To use a remote hub instead, see
+[Connect the desktop app to a server](#connect-the-desktop-app-to-a-server).
 
 Only this hub enables **Fleet** (`spawn_run`/`kill_run`/`list_spawns`, `VANGUARD_HUB_ALLOW_FLEET=1`, honoured on
 a loopback bind only); every other hub rejects those commands.
+
+## Connect the desktop app to a server
+
+Besides its own local hub, the desktop app can join a `taskcell hub` running on a VPS or NAS (server mode, see
+"Server mode sign-in"), like a chat desktop client joining a workspace.
+
+1. Run the server hub with sign-in enabled (a bind beyond loopback, or `VANGUARD_HUB_SERVER_MODE=1` behind a
+   reverse proxy) and reach it over HTTPS.
+2. In the app, open the **server switcher** at the top of the left rail (it shows **Local** by default) →
+   **Add server…**. Enter a name and the hub URL (`https://hub.example.com`; no username or password in the URL).
+   Plain `http://` is accepted only for `localhost`.
+3. The window loads the server's UI. Sign in there (#617). Runs now execute **on the server**; the sign-in
+   screen is shown only in this mode, and the server's team, shared-credential and audit-log features appear
+   as the hub provides them. Fleet stays Local-only.
+4. Switch between **Local** and any saved server from the same menu, with no restart. The local hub keeps
+   running in the background; the trash icon removes a saved server (after a confirmation). From any page —
+   even one without the rail, such as a sign-in page or a proxy error — **Server ▸ Switch to Local Hub**
+   (Ctrl/Cmd+Shift+L) in the app menu takes you back. The app always starts on Local.
+
+The app stores no password or token. You sign in on the hub's own page and the session cookie stays in the
+webview's cookie store (the OS webview's per-app storage); `servers.json` in the app config dir holds only names
+and URLs. A saved server's origin (and only that origin) may list saved servers and switch between them; adding
+or removing a server is only possible from the Local UI.
+
+If the server becomes unreachable, the window says "Lost connection to <name> — reconnecting…" and the app
+retries every few seconds; when the server answers it reloads the page. Reconnecting only reloads the UI: no
+request is replayed, so a run is never started twice.
 
 ## Env vars
 
@@ -396,7 +435,7 @@ is the usual reference for "don't mount the docker socket without justification.
 
 ## Needs you
 
-The **Needs you** screen (hub only) lists what the factory is waiting on a human for in the current
+The **Needs you** section at the top of **Home** (hub only; the old separate screen and its ⌘K entry now open Home there, and the count badges Home in the rail) lists what the factory is waiting on a human for in the current
 project, using `gh` and labels only — no model call (`src/hub/needs-you.ts`):
 
 - Tasks (GitHub issues) at `needs info`.
@@ -417,7 +456,7 @@ configurable here: a repo that runs the factory with a custom `--needs-info-labe
 `merge_needs_you` merges a waiting PR with the repository's allowed merge method (squash, else merge
 commit, else rebase). It refuses a PR that is not in the list and one whose required checks are not
 all green, with a message the UI shows; the item leaves the list once merged. The UI's Merge button
-names the PR's base branch (`baseRef`) and asks for a second click to confirm. The merge is pinned to the checked head commit (`--match-head-commit`). A PR with no required checks passes the check gate. The button sits on the Needs you card: the card quick view/drawer of the v3 prototype does not exist in the app yet. "Ask for changes" stays `reply_needs_you`.
+names the PR's base branch (`baseRef`) and asks for a second click to confirm. The merge is pinned to the checked head commit (`--match-head-commit`). A PR with no required checks passes the check gate. The button sits on the Needs you card and in the Board card's quick view (a side panel; a bottom drawer on phones). "Ask for changes" stays `reply_needs_you`.
 
 Replies and merges are a remote mutation, gated like `clone_project`: loopback only, unless
 `VANGUARD_HUB_ALLOW_ADD=1`.
@@ -443,6 +482,14 @@ four steps, following [onboarding-another-repo.md](onboarding-another-repo.md)
    run. The hub never reads, prints or stores a secret value.
 4. **Verify**, once the PR is merged, dispatches the doctor workflow and links the run it started.
 
+The dialog is a persistent per-project checklist: **callers PR opened → secret set → PR merged →
+doctor passed**, saved in the hub's config dir (`factory/<hash>.json`, never inside the repo) so it survives closing the dialog
+and restarting the hub (`src/hub/factory-checklist.ts`). While it is open it polls `factory_refresh`:
+the secret step has a copy button and "Check again" (`gh secret list`, names only), the merge step
+detects the merged PR on its own and links it, and the verify step dispatches the doctor and shows
+the linked run's status live. The project card shows the state: not enabled, setting up (current
+step), ready, or broken (the reason: a closed PR or a failed doctor run).
+
 Apply and verify change the remote, so they are gated like `clone_project`: loopback only, unless
 `VANGUARD_HUB_ALLOW_ADD=1`. The `gh` login must be able to push workflow files (classic `repo` and
 `workflow` scopes), create labels, open a PR and dispatch a workflow.
@@ -451,9 +498,20 @@ Apply and verify change the remote, so they are gated like `clone_project`: loop
 
 Every state-changing action appends one JSON line to `<config dir>/audit.jsonl` (time, login or `token`, action, target, outcome `ok`/`refused`/`failed`): sign-in, project add/remove, clone, run start/queue/cancel, task start, settings changes. Targets and detail are names only — never a credential value, token, cookie or URL userinfo/query. Each line is chained (sha256 of the previous record) and carries an actor and subject; the file rotates at 10 MB and rotated files are pruned after 90 days (at most 50 kept); `taskcell audit verify` checks the chain (see [audit.md](audit.md)). A line that cannot be written is reported to the caller instead of being dropped. Runs started from the hub carry `startedBy` in their records (shown in the Runs table). Admins read the log in the Audit view (`read_audit`); non-admins get 403. The owner (header token, or local mode) acts as the shared `token` admin identity; any other signed-in user is logged under their e-mail and is not an admin until roles land (`actorFor` in `createHubServer` overrides this).
 
+## Issue history
+
+The card's full page (the task detail) has a **History** section below the run history: every record of the
+issue, oldest to newest, each with time, actor (person or `taskcell[bot]`), what happened and a link to its
+source (run record, PR comment, audit line). At 390 px it is the same section in the bottom drawer's full
+page, with no extra navigation. The card has no tabs. It is read by the `read_issue_history` command, a read
+model over the audit streams, run records and the Git host (docs/audit.md § Issue history); the hub's own
+audit lines are included for an admin only. A banner names any chain that did not verify, and entries from
+sources without a chain are marked "no chain". The desktop app has no separate quick view yet, so there is no
+"History" link to add there.
+
 ## `gh` auth
 
-The hub shells out to `gh` for the Remote screen (listing GitHub Actions runs), CI-run import and
+The hub shells out to `gh` for the Remote section (Settings → Runners) (listing GitHub Actions runs), CI-run import and
 Needs you. Reading needs a token with `actions:read`, `issues:read` and `pull_requests:read`
 (fine-grained PAT) or classic `repo` scope. Replying from Needs you also needs `issues:write` and
 `pull_requests:write` (comments and labels), and merging also needs `contents:write`; with a read-only token a reply fails when it posts the
@@ -486,10 +544,42 @@ Mirror `docker/compose.yaml`'s `mem_limit: 1024m` pattern. The hub runs agent sa
 process as the HTTP server, so give the container the same RAM headroom, and keep
 `VANGUARD_MAX_SANDBOXES=1` on a small host.
 
+## Per-user provider credentials
+
+Off by default: every run uses the instance credential (the hub's environment, or an instance
+credential an admin saved). An **admin** — a GitHub login listed in `--admin-github-login`
+(repeatable) or `VANGUARD_HUB_ADMIN_GITHUB_LOGINS` (comma-separated) — can change the
+`per-user credentials` switch in Settings:
+
+| Setting | A run uses |
+|---|---|
+| `off` | the instance credential |
+| `user-first` | per provider: the starter's own credential for the provider the run uses, else the instance credential for that provider |
+| `user-only` | the starter's own credential for the provider the run uses; with none saved for it the run is refused before it is queued |
+
+Resolution is per provider: a user who saved only `OPENAI_API_KEY` runs Codex on their key and Claude on the
+instance's `CLAUDE_CODE_OAUTH_TOKEN` (`credentialSource` records `user` / `instance` for the run's provider).
+A run never receives keys of providers it does not use.
+
+A run on the starter's own credential never reads the hub's provider keys: a provider whose key the user cannot save (a repo custom provider's `keyEnv`, meridian's `MERIDIAN_BASE_URL`) is refused for it.
+
+When the switch is on, each signed-in user saves their own provider credentials in Settings. They are
+keyed by GitHub user id and stored encrypted (AES-256-GCM) in `credentials.enc.json` in the hub
+config dir, with the key in `credentials.key` (mode 0600) beside it. Credentials are write-only:
+the hub lists which variable names are saved, never a value, and no RPC takes a user id, so one user
+cannot read, overwrite or use another's. Only admins see the switch and the instance credentials
+(anyone else gets 403). The run record carries `credentialSource: 'instance' | 'user'`, never the value.
+
+This needs the hub's GitHub sign-in to identify the caller (`HubServerOptions.identify`); without a
+signed-in user there is no admin and no per-user credential.
+The admin match uses the login GitHub reports for the account's numeric id at each GitHub sign-in (kept
+in `hub_github_login` in `auth.sqlite`), never a profile field a user can edit: after upgrading, an
+admin signs out and in with GitHub once before the switch appears.
+
 ## CLI flags
 
 ```
-taskcell hub [--repo <path>] [--host <addr>] [--port <n>] [--ui-dir <dir>] [--no-open] [--allowed-host <host[:port]>] [--token-file <path>]
+taskcell hub [--repo <path>] [--host <addr>] [--port <n>] [--ui-dir <dir>] [--no-open] [--allowed-host <host[:port]>] [--token-file <path>] [--admin-github-login <login>]
 taskcell hub rotate-token --token-file <path>
 ```
 
@@ -506,7 +596,7 @@ taskcell hub rotate-token --token-file <path>
 A missing or unbuilt `--ui-dir` fails at startup, naming `pnpm --dir apps/desktop build`
 (run `pnpm build:ui`) rather than failing on the first request. Binding a non-loopback host
 requires sign-in (warning at startup if no provider or allowlist is configured) and disables `add_project`/`browse_dirs`/`clone_project`,
-`enable_factory_apply`/`enable_factory_verify`, `reply_needs_you`, `merge_needs_you` and `start_task` unless
+`enable_factory_apply`/`enable_factory_verify`/`enable_factory_start`, `reply_needs_you`, `merge_needs_you` and `start_task` unless
 `VANGUARD_HUB_ALLOW_ADD=1`. `SIGINT`/`SIGTERM` close the listener, every connected SSE client,
 and the project file watchers.
 
@@ -541,3 +631,17 @@ every address (`BoardTask.url`/`source`, `RunSummary`/`RunDetail` `prUrl`/`ciUrl
 local run with no pull request). `diffUrl` is `…/pull/N/files` ("Files changed") on GitHub and
 `…/-/merge_requests/N/diffs` ("Changes") on GitLab. `ciUrl` is recorded on a run record written inside
 GitHub Actions or GitLab CI. Only `https:` addresses are passed on. Links open in a new tab.
+
+## First-run setup guide
+
+On a hub with no projects the app opens a "Get started" guide: Git host and tasks, model
+credential, first repository. Detection is one read-only owner command, `setup_status`, that
+returns booleans only. The model step is Done when a Claude credential (`CLAUDE_CODE_OAUTH_TOKEN`
+or one saved in Settings → credentials) or a Codex credential is present; Codex counts either
+`OPENAI_API_KEY` or a Codex sign-in, detected as the existence of `$CODEX_HOME/auth.json` (default
+`~/.codex/auth.json`) — the file is never read. The step has a Claude / Codex choice, shows only
+that option's commands, and remembers the choice in the browser with the rest of the onboarding state.
+
+An `export` line only takes effect for a hub started after it: the hub reads its environment at
+start. After exporting, restart the hub (or save the key in Settings → credentials, where that
+exists) and then press **Check again**. `codex login` needs no restart.

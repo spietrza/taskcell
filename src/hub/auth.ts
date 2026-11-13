@@ -15,6 +15,10 @@ export interface HubUser {
   id: string;
   email: string;
   name: string;
+  /** `github:<login>` of the user's linked GitHub account (absent otherwise): per-user credential admins
+   * (`--admin-github-login`) match on it. Resolved from the `account` row's numeric GitHub id and the login
+   * GitHub last reported for that id at an OAuth callback — never from the user-writable `providerLogin`. */
+  login?: string;
   /** Provider-verified e-mail: only then does a team member `login` match the address. */
   emailVerified?: boolean;
 }
@@ -143,11 +147,27 @@ export async function createHubIdentity(opts: CreateIdentityOptions): Promise<Hu
   await writeFile(dbPath, '', { flag: 'a', mode: 0o600 });
   await chmod(dbPath, 0o600);
   const db = new DatabaseSync(dbPath);
+  // GitHub numeric id -> login, written only from the provider-verified profile at each GitHub OAuth
+  // callback. Hub-owned: Better Auth's `/update-user` cannot reach it.
+  db.exec('CREATE TABLE IF NOT EXISTS hub_github_login (github_id TEXT PRIMARY KEY, login TEXT NOT NULL)');
+  const recordGithubLogin = db.prepare(
+    'INSERT INTO hub_github_login (github_id, login) VALUES (?, ?) ON CONFLICT(github_id) DO UPDATE SET login = excluded.login',
+  );
   const allowed = opts.allowlist ?? parseSignupAllowlist([]);
   const configs = opts.providers ?? {};
 
   const socialProviders: NonNullable<BetterAuthOptions['socialProviders']> = {};
-  if (configs.github) socialProviders.github = { ...configs.github, mapProfileToUser: loginOf('github', 'login') };
+  if (configs.github) {
+    const mapLogin = loginOf('github', 'login');
+    socialProviders.github = {
+      ...configs.github,
+      mapProfileToUser: (profile) => {
+        const { id, login } = profile as { id?: unknown; login?: unknown };
+        if ((typeof id === 'number' || typeof id === 'string') && typeof login === 'string' && login !== '') recordGithubLogin.run(String(id), login);
+        return mapLogin(profile);
+      },
+    };
+  }
   if (configs.gitlab) socialProviders.gitlab = { ...configs.gitlab, mapProfileToUser: loginOf('gitlab', 'username') };
   if (configs.google) socialProviders.google = { ...configs.google };
 
@@ -159,7 +179,8 @@ export async function createHubIdentity(opts: CreateIdentityOptions): Promise<Hu
     database: db,
     socialProviders,
     // `input` must stay true: Better Auth drops input:false keys of a provider profile before the
-    // create hook sees them. The field is only ever read by that hook, at account creation.
+    // create hook sees them. Only that hook (sign-up allowlist) reads it: rows written before
+    // `/update-user` was disabled may hold a rewritten value, so it is never trusted for identity.
     user: { additionalFields: { providerLogin: { type: 'string', required: false } } },
     // Sign-up is closed: an OAuth profile creates an account only when the allowlist names it.
     // Returning false (not throwing) makes the callback redirect to the error URL below with
@@ -177,9 +198,15 @@ export async function createHubIdentity(opts: CreateIdentityOptions): Promise<Hu
       },
     },
     onAPIError: { errorURL: '/sign-in' },
+    // `providerLogin` is an input field, so `/update-user` would let a signed-in user rewrite it to
+    // `github:<an admin>` and pass the credential admin check. The hub never edits a profile.
+    disabledPaths: ['/update-user'],
   };
 
   await (await getMigrations(options)).runMigrations();
+  const githubLoginOf = db.prepare(
+    "SELECT l.login AS login FROM account a JOIN hub_github_login l ON l.github_id = a.accountId WHERE a.userId = ? AND a.providerId = 'github' LIMIT 1",
+  );
   const auth = betterAuth(options);
   const ctx = await auth.$context;
   // Unverified on purpose: Better Auth only links a provider account to an existing user whose e-mail
@@ -212,7 +239,8 @@ export async function createHubIdentity(opts: CreateIdentityOptions): Promise<Hu
       }
       if (session === null) return undefined;
       const { id, email, name, emailVerified } = session.user;
-      return { id, email, name, emailVerified };
+      const login = (githubLoginOf.get(id) as { login?: unknown } | undefined)?.login;
+      return { id, email, name, emailVerified, ...(typeof login === 'string' && login !== '' ? { login: `github:${login}` } : {}) };
     },
     close: () => db.close(),
   };

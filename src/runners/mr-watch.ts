@@ -1,3 +1,4 @@
+import { labelForms } from '../core/labels.js';
 import { fanOut } from '../pipeline/fan-out.js';
 import { failureReason } from '../core/errors.js';
 import { defaultGlabRunner, neutralizeQuickActions } from '../tasks/gitlab.js';
@@ -103,7 +104,7 @@ function editMrLabels(
   labels: { add?: string[]; remove?: string[] },
 ): Promise<string> {
   const args = ['mr', 'update', String(iid), '--repo', project];
-  for (const label of labels.remove ?? []) args.push('--unlabel', label);
+  for (const label of new Set((labels.remove ?? []).flatMap(labelForms))) args.push('--unlabel', label); // GitLab ignores an absent label
   for (const label of labels.add ?? []) args.push('--label', label);
   return glab(args);
 }
@@ -128,8 +129,8 @@ async function hasExistingReviewForHead(
 }
 
 /**
- * GitLab-backed MR review watch primitives. Scoped labels (`vanguard::reviewing`,
- * `vanguard::reviewed`) replace each other automatically on the GitLab side.
+ * GitLab-backed MR review watch primitives. Scoped labels (`taskcell::reviewing`,
+ * `taskcell::reviewed`) replace each other automatically on the GitLab side.
  */
 export function gitlabMergeRequestWatchPrimitives(
   opts: GitLabMergeRequestWatchOptions,

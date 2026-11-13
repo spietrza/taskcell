@@ -1,6 +1,6 @@
 import { test, expect, afterEach } from 'vitest';
 import { mockIPC, clearMocks } from '@tauri-apps/api/mocks';
-import { apiCapabilitiesCached, apiListFlows, apiReadFlow, apiWriteFlow, browseDirs, importRemoteRun, listRuns, readRun } from './ipc';
+import { apiCapabilitiesCached, apiListFlows, apiReadFlow, apiWriteFlow, browseDirs, importRemoteRun, listProjects, listRuns, listRunsAll, readRun } from './ipc';
 import type { RunSummary } from './taskcell-output';
 
 afterEach(() => clearMocks());
@@ -74,4 +74,18 @@ test('apiCapabilitiesCached does not pin a rejected promise — a transient fail
   await expect(apiCapabilitiesCached()).rejects.toThrow(/briefly unavailable/);
   fail = false;
   await expect(apiCapabilitiesCached()).resolves.toMatchObject({ providers: ['claude'] }); // NOT the pinned rejection
+});
+
+test('the hub list wrappers send the selected team id, and nothing without one', async () => {
+  const calls: { cmd: unknown; args: unknown }[] = [];
+  mockIPC((cmd, args) => {
+    calls.push({ cmd, args });
+    return cmd === 'list_projects' ? [] : { runs: [], failures: [] };
+  });
+  await listProjects('b');
+  await listRunsAll('b');
+  await listProjects();
+  expect(calls[0]).toMatchObject({ cmd: 'list_projects', args: { teamId: 'b' } });
+  expect(calls[1]).toMatchObject({ cmd: 'list_runs_all', args: { teamId: 'b' } });
+  expect((calls[2]!.args as { teamId?: string } | undefined)?.teamId).toBeUndefined();
 });

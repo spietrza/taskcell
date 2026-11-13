@@ -157,7 +157,7 @@ function headerBlock(text: string): string | undefined {
 }
 
 // The previous comment opens with the review heading (and, when it ended without completion, a one-line note).
-const PREVIOUS_PREAMBLE_RE = /^\s*## Vanguard Review[ \t]*\n(?:\s*_[^\n]*_[ \t]*\n)?/;
+const PREVIOUS_PREAMBLE_RE = /^\s*## (?:Taskcell|Vanguard) Review[ \t]*\n(?:\s*_[^\n]*_[ \t]*\n)?/;
 
 // An open blocking row of a previous re-review's table: `| <id>: <title> (blocking) | not resolved|new | …`.
 const OPEN_BLOCKING_ROW_RE = /^\| (.+?): .*\(blocking\) \| (?:not resolved|new) \|/gm;

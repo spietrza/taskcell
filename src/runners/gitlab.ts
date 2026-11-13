@@ -1,3 +1,4 @@
+import { REVIEW_HEADING } from '../core/labels.js';
 import { execa } from 'execa';
 import { agentAuthFromEnv } from '../agents/auth.js';
 import { GitLabTaskFetcher, linkMergeRequest, addMrFailureLabel, addMrGateLabel, editGitlabLabels, commentGitlabIssue, defaultGlabRunner } from '../tasks/gitlab.js';
@@ -77,10 +78,10 @@ export async function publishGitlabVerdict(project: string, input: PublishVerdic
   // incomplete review gets none.
   const completed = input.reviewerOutcome.result.completed;
   const visible = !completed
-    ? `## Vanguard Review\n\n${header}: ${REVIEW_INCOMPLETE}${body === '' ? '' : `\n\n${body}`}`
+    ? `${REVIEW_HEADING}\n\n${header}: ${REVIEW_INCOMPLETE}${body === '' ? '' : `\n\n${body}`}`
     : body === ''
-      ? `## Vanguard Review\n\n${header}: no blocking issues`
-      : `## Vanguard Review\n\n${header}:\n\n${body}`;
+      ? `${REVIEW_HEADING}\n\n${header}: no blocking issues`
+      : `${REVIEW_HEADING}\n\n${header}:\n\n${body}`;
   let commentBody = completed ? `${visible}\n\n${mergeRequestReviewMarker(input.headSha)}` : visible;
 
   const conformanceResult = input.conformanceOutcome?.result;
@@ -226,12 +227,12 @@ export async function knownGitlabProjectFromOrigin(repoPath: string): Promise<st
 }
 
 /** Assemble `RunGitlabIssueDeps` from environment + CLI flags (mirrors `githubDepsFromEnv`). */
-export async function gitlabDepsFromEnv(repoPath: string, project: string | undefined, choice: ProviderChoice = {}): Promise<RunGitlabIssueDeps> {
+export async function gitlabDepsFromEnv(repoPath: string, project: string | undefined, choice: ProviderChoice = {}, env: NodeJS.ProcessEnv = process.env): Promise<RunGitlabIssueDeps> {
   // Resolve auth first (mirrors githubDepsFromEnv order), so a missing-credential error surfaces
   // before git-remote detection. Without this, deps.auth is undefined and runSourcedIssue injects
   // no token into the sandbox — `run --gitlab` agents fail "Not logged in". The whole choice, so a
   // claude fallback behind a codex implementer gets its credential too.
-  const auth = agentAuthFromEnv(choice);
+  const auth = agentAuthFromEnv(choice, env);
   let resolvedProject = project;
   if (resolvedProject === undefined) {
     const { stdout } = await execa('git', ['remote', 'get-url', 'origin'], { cwd: repoPath });

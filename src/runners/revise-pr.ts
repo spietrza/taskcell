@@ -1,3 +1,4 @@
+import { REVIEW_TRIGGER_LABEL, resolveRemovals } from '../core/labels.js';
 import { describeIgnoredAuthor, isTrustedNonAuthorComment } from '../tasks/comment-trust.js';
 import { mkdir, writeFile } from 'node:fs/promises';
 import { dirname, resolve } from 'node:path';
@@ -82,11 +83,10 @@ import type { IsolatedSandboxProvider } from '../sandbox/provider.js';
 import type { AgentProvider } from '../agents/provider.js';
 
 const NEEDS_REVISION_LABEL = 'needs revision';
-const VANGUARD_REVISING_LABEL = 'vanguard:revising';
+const VANGUARD_REVISING_LABEL = 'taskcell:revising';
 const DEFAULT_MAX_ROUNDS = 2;
-// The trigger the PR-review workflow listens for (taskcell-pr-review.yml) and the marker a finished review leaves.
-const REVIEW_TRIGGER_LABEL = 'ready for vanguard review';
-const REVIEWED_LABEL = 'vanguard:reviewed';
+// The marker a finished review leaves; the trigger the PR-review workflow listens for is REVIEW_TRIGGER_LABEL (core/labels.ts).
+const REVIEWED_LABEL = 'taskcell:reviewed';
 // secret-blocked is removed too: a round that pushes cleanly after the human stripped the secret must
 // not leave the PR mapped to verify-failed on the board.
 // rate-limited too: a round that ran must not be re-triggered by the resume sweep.
@@ -109,7 +109,7 @@ export interface ReviseGithubPrDeps extends ProviderChoice {
   network?: string;
   /**
    * Model for the implementer/simplifier stages, as in `implement`. Overridden by a
-   * `vanguard:model=<m>` label on the issue the PR body references (Closes/Part of #N) — same
+   * `taskcell:model=<m>` label on the issue the PR body references (Closes/Part of #N) — same
    * precedence as implement's label vs. --provider-model.
    */
   providerModel?: string;
@@ -166,14 +166,17 @@ export interface ReviseGithubPrResult {
   conflictUnresolved?: string[];
 }
 
-function editPrLabels(
+async function editPrLabels(
   gh: GhRunner,
   repoSlug: string,
   number: number,
   labels: { add?: string[]; remove?: string[] },
 ): Promise<string> {
   const args = ['pr', 'edit', String(number), '--repo', repoSlug];
-  for (const label of labels.remove ?? []) args.push('--remove-label', label);
+  // The PR may still carry a pre-rename `vanguard:*` label (older workflows add them): remove the spelling it has.
+  const present = async (): Promise<string[]> =>
+    ((JSON.parse(await gh(['pr', 'view', String(number), '--repo', repoSlug, '--json', 'labels'])) as { labels?: { name: string }[] }).labels ?? []).map((l) => l.name);
+  for (const label of await resolveRemovals(labels.remove ?? [], present)) args.push('--remove-label', label);
   for (const label of labels.add ?? []) args.push('--add-label', label);
   return gh(args);
 }
@@ -305,7 +308,7 @@ async function markReady(
 }
 
 /**
- * Model pinned by a `vanguard:model=<m>` label on the issue the PR body references via a closing
+ * Model pinned by a `taskcell:model=<m>` label on the issue the PR body references via a closing
  * keyword or `Part of` (extractTaskIdFromPrBody) — same override as implement's label vs.
  * --provider-model. Best-effort: a PR with no referenced issue, or a lookup that fails (deleted
  * issue, missing scope), must not block the revision — it just leaves --provider-model in place.
@@ -403,7 +406,7 @@ export async function runRevisePullRequest(prRef: string, deps: ReviseGithubPrDe
 
   /**
    * Explain on the PR why no revision was applied and hand the routing labels back to a human, so the
-   * PR never sits in `vanguard:revising` with no trace. Notices stay unbranded: a white-label run must
+   * PR never sits in `taskcell:revising` with no trace. Notices stay unbranded: a white-label run must
    * not name the automation (or its flags) in a client repo.
    */
   const handBackWithNotice = async (reason: string, message: string): Promise<void> => {
@@ -531,7 +534,7 @@ export async function runRevisePullRequest(prRef: string, deps: ReviseGithubPrDe
     // Starting the worktree can fail before there is a context to dispose: gh reported no head ref or
     // no head sha, or the head moved between `gh pr view` and the fetch (resolveStartRef pins the PR's
     // own sha, so a moved head is refused rather than revised). Report it and hand the labels back like
-    // every other giving-up path, instead of leaving the PR in `vanguard:revising` with no comment.
+    // every other giving-up path, instead of leaving the PR in `taskcell:revising` with no comment.
     let ctx: RunContext;
     try {
       if (deps._baseBranch === undefined && (pr.headRefName === '' || pr.headRefOid === '')) {
@@ -737,7 +740,7 @@ export async function runRevisePullRequest(prRef: string, deps: ReviseGithubPrDe
       // Same gate as the first delivery (runSourcedIssue): a secret in the agent's diff must never reach
       // a commit, the PR branch, or the --out preview a human will read and share. A scan error blocks
       // too. The block is made visible the same way: masked comment on the PR (not in white-label mode)
-      // and the routing labels handed back, so the PR does not sit in `vanguard:revising`. Residual gaps,
+      // and the routing labels handed back, so the PR does not sit in `taskcell:revising`. Residual gaps,
       // shared with the first delivery: scanForSecrets skips `*.test.ts` / `tests/**` (isTestPath).
       // A custom provider's key env var is repo-configured: the secret gate cannot know its name.
       const secretEnvVars = providerKeyEnvNames(deps);
@@ -918,7 +921,7 @@ export async function runRevisePullRequest(prRef: string, deps: ReviseGithubPrDe
       // The gate on checker config is per-push, not per-PR (#627): a weakening introduced in a later
       // revise round must carry the same disclosure and label as one present when the PR was opened,
       // or the human gate is bypassed by simply pushing it a round later. Both go out before the
-      // hand-back below, so a failure to post leaves the PR in `vanguard:revising` with the round's
+      // hand-back below, so a failure to post leaves the PR in `taskcell:revising` with the round's
       // error rather than silently handing an unflagged change back for review.
       const configFiles = diffFilesWithPatches(gateDiff);
       const configPaths = gateConfigPaths(
@@ -949,7 +952,7 @@ export async function runRevisePullRequest(prRef: string, deps: ReviseGithubPrDe
     } catch (error) {
       await stepSummary('error', { error: String(error) });
       // A rate or session limit (or the usage cap) that no fallback rescued ends the round with the PR still carrying
-      // `vanguard:revising` and nothing said on it, so the work sits until someone notices (#615,
+      // `taskcell:revising` and nothing said on it, so the work sits until someone notices (#615,
       // #656). Mark it `vanguard:rate-limited` with a notice carrying the parsed reset time (posted
       // as a review comment, like the other hand-back notices here), and drop the in-flight label,
       // leaving `needs revision` in place: `taskcell resume-rate-limited` re-triggers that label

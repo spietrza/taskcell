@@ -9,6 +9,7 @@ import { DockerSandboxProvider, sandboxImage } from '../sandbox/docker.js';
 import { pnpmStoreConfig, sandboxNetworkConfig } from '../sandbox/limits.js';
 import { selectAgents, forcedProviderModel, providerKeyEnvNames } from '../agents/registry.js';
 import { tokenProviderFor } from '../core/push-token.js';
+import { hasLabel, labelValue } from '../core/labels.js';
 import { resolveTargetBase } from '../core/base-branch.js';
 import { prepareContext, disposeContext } from '../core/taskcell.js';
 import { probeTaskDifficulty, decisionProbeConfig } from '../core/decision-probe.js';
@@ -59,7 +60,7 @@ import type { RunEvent } from '../pipeline/events.js';
 import { skillRegistryForRun } from '../context/skill-registry.js';
 
 /** Issue label that skips the base-red check: the task is meant to fix the red base. */
-export const BASE_RED_OK_LABEL = 'vanguard:base-red-ok';
+export const BASE_RED_OK_LABEL = 'taskcell:base-red-ok';
 /** A verify command that installs its dependencies before running anything (the auto-detected JS shape). */
 const SELF_INSTALLING_VERIFY_RE = /^\s*(?:pnpm|yarn|npm) install --frozen-lockfile\s*&&/;
 
@@ -167,6 +168,10 @@ export function pickRunOptions(cmd: Readonly<Partial<RunOptions>>): RunOptions {
 
 /** Shared dependencies for all source-backed issue runners. */
 export interface RunIssueDeps extends RunOptions {
+  /** Which kind of credential funded the run (hub per-user credentials); recorded on the run record, never the value. */
+  credentialSource?: 'instance' | 'user';
+  /** Env the provider keys are read from (default process.env): a hub run's resolved credential env. */
+  providerEnv?: NodeJS.ProcessEnv;
   /** The hub login (or `token`) that started this run; stamped on its run records. */
   startedBy?: string;
   auth?: AgentAuth;
@@ -298,8 +303,8 @@ function branchIdFromTaskId(taskId: string): string {
   return slug === '' ? 'task' : slug;
 }
 
-/** Issue label that pins the implementer-tier model for ONE task: `vanguard:model=<model>`. */
-export const MODEL_LABEL_PREFIX = 'vanguard:model=';
+/** Issue label that pins the implementer-tier model for ONE task: `taskcell:model=<model>`. */
+export const MODEL_LABEL_PREFIX = 'taskcell:model=';
 
 /**
  * Model ids/aliases/slugs as every supported provider spells them (`opus`, `claude-sonnet-5`,
@@ -317,8 +322,9 @@ const MODEL_NAME_RE = /^[A-Za-z0-9][A-Za-z0-9._:/-]{0,79}$/;
 export function modelFromLabels(labels: ReadonlyArray<string>, onInvalid?: (label: string) => void): string | undefined {
   let model: string | undefined;
   for (const label of labels) {
-    if (!label.startsWith(MODEL_LABEL_PREFIX)) continue;
-    const value = label.slice(MODEL_LABEL_PREFIX.length).trim();
+    const raw = labelValue(label, MODEL_LABEL_PREFIX);
+    if (raw === undefined) continue;
+    const value = raw.trim();
     if (value === '') continue;
     if (!MODEL_NAME_RE.test(value)) {
       onInvalid?.(label);
@@ -416,7 +422,10 @@ export async function runSourcedIssue(
   // comment / issue link-back are suppressed. Off by default — everything stays branded as Vanguard.
   const whiteLabel = deps.commitAuthor !== undefined;
 
-  const agents = selectAgents(deps, process.env, { proxyMode: deps.llmProxy !== undefined });
+  // A hub run reads every provider key (agents, fork scorer, difficulty probe) from its resolved
+  // credential env, so a `user` run never spends the host's key.
+  const providerEnv = deps.providerEnv ?? process.env;
+  const agents = selectAgents(deps, providerEnv, { proxyMode: deps.llmProxy !== undefined });
 
   // Per-run provider sidecars (e.g. OpenAI for Codex) hold the real key out of the sandbox. Created
   // before prepareContext so the finally below tears them down even if context provisioning throws.
@@ -425,7 +434,7 @@ export async function runSourcedIssue(
     ...(deps.network !== undefined ? { network: deps.network } : {}),
   });
   try {
-    // The target branch: --base, else the card's `vanguard:base=` label, else app.json's default. An unsafe
+    // The target branch: --base, else the card's `taskcell:base=` label, else app.json's default. An unsafe
     // value is refused here, before the sandbox, so nothing runs against the wrong branch.
     const baseBranch = await resolveTargetBase(deps.repoPath, task.labels, deps.baseBranch);
     const env = llmProxySandboxEnv(deps.proxyUrl, deps.llmProxy, providerProxies);
@@ -448,7 +457,7 @@ export async function runSourcedIssue(
     // A decision-model fork scorer needs credentials; resolve them BEFORE the sandbox is built so a
     // missing key fails in a second, not after a full implementer run.
     const forkScore =
-      deps.forkN !== undefined && deps.forkScorer === 'decision' ? decisionDiffScorer(resolveForkScorerConfig(whiteLabel), deps.signal !== undefined ? { signal: deps.signal } : {}) : undefined;
+      deps.forkN !== undefined && deps.forkScorer === 'decision' ? decisionDiffScorer(resolveForkScorerConfig(whiteLabel, providerEnv), deps.signal !== undefined ? { signal: deps.signal } : {}) : undefined;
     const retrospectiveMemory = await loadRetrospectiveMemory(deps.repoPath, { taskText: `${task.title}\n${task.description}` });
     // Log-only difficulty probe (decision model, opt-in via env): kicked off here so its round trip
     // hides under sandbox + worktree provisioning; awaited once the pipeline is assembled. Recorded
@@ -457,7 +466,7 @@ export async function runSourcedIssue(
       console.warn(`taskcell: ${task.id} ignoring malformed model label ${JSON.stringify(label)}`),
     );
     const probePromise = probeTaskDifficulty(task, labelModel ?? deps.providerModel, {
-      config: decisionProbeConfig(process.env, { whiteLabel }),
+      config: decisionProbeConfig(providerEnv, { whiteLabel }),
       ...(deps.signal !== undefined ? { signal: deps.signal } : {}),
     });
     const ctx = await prepareContext(
@@ -539,7 +548,13 @@ export async function runSourcedIssue(
         );
       }
       const imageDigest = await ctx.sandbox.imageDigest?.();
-      const runMeta = { flow: flow ?? 'default', provider: agents.agent.name, baseBranch, ...(imageDigest !== undefined ? { imageDigest } : {}) };
+      const runMeta = {
+        flow: flow ?? 'default',
+        provider: agents.agent.name,
+        baseBranch,
+        ...(imageDigest !== undefined ? { imageDigest } : {}),
+        ...(deps.credentialSource !== undefined ? { credentialSource: deps.credentialSource } : {}),
+      };
       // One RunWriter for the whole run: it owns the timestamp, so proof.json, visual-proof.json and
       // every stage record share one prefix and the hub/desktop readers can match a run's proof to
       // its stage records by name.
@@ -575,8 +590,8 @@ export async function runSourcedIssue(
       // Only a command that installs its own dependencies first: the base worktree is a fresh copy with
       // no node_modules, so an operator-supplied `pnpm typecheck && pnpm test` (or a bare `pytest`)
       // would fail there on a perfectly green base and stop every task.
-      // `vanguard:base-red-ok` on the issue is the escape hatch for tasks whose job IS fixing the red base.
-      const skipBaseline = deps.reuse === true || task.labels.includes(BASE_RED_OK_LABEL);
+      // `taskcell:base-red-ok` on the issue is the escape hatch for tasks whose job IS fixing the red base.
+      const skipBaseline = deps.reuse === true || hasLabel(task.labels, BASE_RED_OK_LABEL);
       const resolvedBase = skipBaseline ? undefined : await resolveVerifyCommand(ctx.worktreePath, verifyOpts);
       const baselineCmd = resolvedBase !== undefined && SELF_INSTALLING_VERIFY_RE.test(resolvedBase) ? resolvedBase : undefined;
       if (baselineCmd !== undefined) {

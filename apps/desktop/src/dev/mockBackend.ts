@@ -20,9 +20,11 @@ import {
   needsYouItems,
   factoryPlan,
   factoryApplyResult,
-  factorySecret,
   factoryVerify,
+  factoryStateNone,
+  factoryStateSettingUp,
 } from './fixtures';
+import { demoProject, demoRuns, demoRunDetails, demoActiveRuns, demoBoardTasks, demoNeedsYou, DEMO_REPO_PATH, DEMO_WRITE_COMMANDS } from './demoData';
 
 let waitingNeedsYou = [...needsYouItems];
 
@@ -41,12 +43,20 @@ const READ_DRAFT = JSON.stringify({ id: 'draft-001', title: 'Draft task', body: 
  */
 const mockStamp = (): { repoPath: string; repoName: string } => ({ repoPath: projects[0]!.path, repoName: projects[0]!.name });
 
+const mockTeam = { id: 'default', name: 'Default', members: [{ login: 'you', role: 'admin' as const }], repositories: [] as string[] };
+
 const commandHandlers = {
   list_runs: () => runs,
   conflict_stats: () => ({ weeks: [], total: { merges: 0, conflicts: 0, autoResolved: 0, leftForHuman: 0 }, topFiles: [] }),
   list_runs_all: () => ({ runs: runs.map((r) => ({ ...r, ...mockStamp() })), failures: [] }),
   read_run: () => runDetail,
   list_projects: () => projects,
+  list_teams: () => [{ ...mockTeam, repositories: projects.map((p) => p.path) }],
+  team_role: () => 'admin' as const,
+  add_team_member: () => mockTeam,
+  remove_team_member: () => mockTeam,
+  add_team_repository: () => mockTeam,
+  remove_team_repository: () => mockTeam,
   add_project: (args: { path?: string } | undefined) => {
     const { path = '/dev/null' } = args ?? {};
     return [
@@ -64,6 +74,7 @@ const commandHandlers = {
   read_app_config_strict: () => appConfig,
   write_app_config: () => undefined,
   get_credentials: () => ({ enabled: false, reason: 'VANGUARD_HUB_SECRET is not set', providers: [] }),
+  setup_status: () => ({ tools: [{ id: 'gh', state: 'ready' }, { id: 'glab', state: 'missing' }, { id: 'linear', state: 'needs-login' }], models: { claude: false, codex: false } }),
   set_credential: () => ({ enabled: false, providers: [] }),
   delete_credential: () => ({ enabled: false, providers: [] }),
   list_remote_runs: () => remoteRuns,
@@ -126,6 +137,7 @@ const commandHandlers = {
   read_audit: () => [
     { time: '2026-07-06T19:12:02.123Z', login: 'token', action: 'run-start', target: 'run-0', outcome: 'ok' },
   ],
+  read_issue_history: () => ({ repo: 'acme/app', issue: 1, prs: [], entries: [], chains: [], unavailable: [] }),
   list_needs_you: () => ({ items: waitingNeedsYou }),
   list_needs_you_all: () => ({ items: waitingNeedsYou.map((i) => ({ ...i, ...mockStamp() })), failures: [] }),
   // A reply hands the item back to the factory (issue: trigger label; PR: `needs revision`), so it
@@ -140,8 +152,19 @@ const commandHandlers = {
   // Hub-only Enable factory flow (EnableFactoryDialog).
   enable_factory_plan: () => factoryPlan,
   enable_factory_apply: () => factoryApplyResult,
-  enable_factory_secret: () => factorySecret,
   enable_factory_verify: () => factoryVerify,
+  enable_factory_start: () => factoryStateSettingUp,
+  factory_state: () => factoryStateNone,
+  factory_refresh: () => factoryStateSettingUp,
+  // Hub-only per-user credentials (CredentialsPanel): the dev mock is a signed-in admin with none saved.
+  user_credentials_status: () => ({ enabled: true, admin: true, names: [] as string[] }),
+  save_user_credential: () => undefined,
+  delete_user_credential: () => undefined,
+  get_credential_policy: () => ({ policy: 'off' as const }),
+  set_credential_policy: () => undefined,
+  instance_credentials_status: () => ({ names: [] as string[] }),
+  save_instance_credential: () => undefined,
+  delete_instance_credential: () => undefined,
 } satisfies Partial<{
   [K in keyof Commands]: (args: Commands[K]['args']) => Promise<Commands[K]['result']> | Commands[K]['result'];
 }>;
@@ -171,4 +194,35 @@ export function handle(cmd: string, args: unknown): unknown {
 export function install(): void {
   mockWindows('main');
   mockIPC(handle);
+}
+
+/** Demo-mode overrides (`hub --demo`, `?demo=1`): the one seeded project, served in-browser. Reads
+ *  fall through to the fixtures above; every command that could write to a repo, remote or hub
+ *  store is refused. */
+const demoOverrides: Record<string, (args: unknown) => unknown> = {
+  list_projects: () => [demoProject],
+  list_teams: () => [{ ...mockTeam, repositories: [DEMO_REPO_PATH] }],
+  list_runs: () => demoRuns,
+  list_runs_all: () => ({ runs: demoRuns.map((r) => ({ ...r, repoPath: DEMO_REPO_PATH, repoName: demoProject.name })), failures: [] }),
+  read_run: (args) => demoRunDetails[(args as { taskId?: string } | undefined)?.taskId ?? ''] ?? demoRunDetails['DEMO-101'],
+  list_active: () => demoActiveRuns,
+  list_tasks: () => ({ tasks: demoBoardTasks, capped: false }),
+  list_tasks_all: () => ({ tasks: demoBoardTasks.map((t) => ({ ...t, repoPath: DEMO_REPO_PATH, repoName: demoProject.name })), capped: false, failures: [] }),
+  list_needs_you: () => ({ items: demoNeedsYou }),
+  list_needs_you_all: () => ({ items: demoNeedsYou.map((i) => ({ ...i, repoPath: DEMO_REPO_PATH, repoName: demoProject.name })), failures: [] }),
+  list_remote_runs: () => [],
+  api_active_run: () => ({ runId: 'demo-run-1', repoPath: DEMO_REPO_PATH }),
+  api_queue: () => [],
+  api_repo_ok: () => true,
+  read_app_config: () => ({ ...appConfig, label: 'storefront (demo)' }),
+  read_app_config_strict: () => ({ ...appConfig, label: 'storefront (demo)' }),
+  ...Object.fromEntries(
+    DEMO_WRITE_COMMANDS.map((cmd) => [cmd, (): never => { throw 'Demo project is read-only — nothing is written to any repository.'; }]),
+  ),
+};
+
+/** `handle` for demo mode: the overrides first, then the shared fixtures. */
+export function handleDemo(cmd: string, args: unknown): unknown {
+  const override = demoOverrides[cmd];
+  return override ? override(args) : handle(cmd, args);
 }

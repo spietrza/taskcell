@@ -31,6 +31,35 @@ test('the form does not render until the read resolves — a mid-load edit canno
   expect(screen.getByRole('button', { name: /save/i })).toBeDisabled(); // still clean — not dirty
 });
 
+test('an unset task source shows "—" (not a default the board would reject); picking GitHub saves it', async () => {
+  read.mockResolvedValueOnce({});
+  render(<Settings project="/repo" />);
+  await waitFor(() => expect(screen.getByPlaceholderText('vanguard-ready')).toBeInTheDocument());
+  expect(screen.getByLabelText('Task source')).toHaveValue('');
+  fireEvent.change(screen.getByLabelText('Task source'), { target: { value: 'github' } });
+  fireEvent.click(screen.getByRole('button', { name: /save/i }));
+  await waitFor(() => expect(write).toHaveBeenLastCalledWith('/repo', expect.objectContaining({ taskSource: 'github', source: 'github' })));
+});
+
+test('a project configured before taskSource shows its legacy source', async () => {
+  read.mockResolvedValueOnce({ source: 'gitlab' });
+  render(<Settings project="/repo" />);
+  await waitFor(() => expect(screen.getByLabelText('Task source')).toHaveValue('gitlab'));
+});
+
+test('task source and run location are editable, saved per project, and bad pairs are explained', async () => {
+  read.mockResolvedValueOnce({});
+  render(<Settings project="/repo" />);
+  await waitFor(() => expect(screen.getByPlaceholderText('vanguard-ready')).toBeInTheDocument());
+  expect(screen.queryByRole('note')).not.toBeInTheDocument();
+  fireEvent.change(screen.getByLabelText('Task source'), { target: { value: 'linear' } });
+  fireEvent.change(screen.getByLabelText('Runs on'), { target: { value: 'watch' } });
+  expect(screen.getByRole('note')).toHaveTextContent(/still need a code host/);
+  fireEvent.click(screen.getByRole('button', { name: /save/i }));
+  await waitFor(() => expect(write).toHaveBeenCalled());
+  expect(write).toHaveBeenLastCalledWith('/repo', expect.objectContaining({ taskSource: 'linear', source: 'linear', runLocation: 'watch' }));
+});
+
 test('an unreadable config surfaces an error and blocks save instead of silently defaulting (S6 guard b)', async () => {
   read.mockRejectedValueOnce(new Error('.taskcell/app.json is unreadable: expected value at line 1'));
   render(<Settings project="/repo" />);
@@ -55,7 +84,7 @@ test('a valid custom-provider row saves through writeAppConfig with only name/ba
   render(<Settings project="/repo" />);
   await waitFor(() => expect(read).toHaveBeenCalled());
   fireEvent.click(screen.getByRole('button', { name: /add/i }));
-  fireEvent.change(screen.getAllByRole('textbox').find((el) => el.closest('label')?.textContent?.startsWith('name'))!, {
+  fireEvent.change(screen.getAllByRole('textbox').find((el) => el.closest('label')?.textContent?.startsWith('Provider name'))!, {
     target: { value: 'my-proxy' },
   });
   fireEvent.change(screen.getByPlaceholderText('MY_PROXY_API_KEY'), { target: { value: 'MY_KEY' } });
@@ -85,8 +114,8 @@ test('the provider dropdown offers healthy customs; reviewProvider stays built-i
   });
   render(<Settings project="/repo" />);
   await waitFor(() => expect(read).toHaveBeenCalled());
-  const providerSelect = screen.getByText('provider').closest('label')!.querySelector('select')!;
-  const reviewSelect = screen.getByText('reviewProvider').closest('label')!.querySelector('select')!;
+  const providerSelect = screen.getByText('AI provider').closest('label')!.querySelector('select')!;
+  const reviewSelect = screen.getByText('Review provider').closest('label')!.querySelector('select')!;
   const values = (sel: HTMLSelectElement): string[] => [...sel.options].map((o) => o.value).filter(Boolean);
   expect(values(providerSelect)).toContain('my-proxy');
   expect(values(reviewSelect)).not.toContain('my-proxy');

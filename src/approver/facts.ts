@@ -1,3 +1,4 @@
+import { isReviewHeading } from '../core/labels.js';
 import { defaultGhRunner } from '../tasks/github.js';
 import type { GhRunner } from '../tasks/github.js';
 import { extractReviewVerdict, VERDICT_WITHOUT_COMPLETION_NOTE } from '../runners/review-prompt.js';
@@ -122,7 +123,6 @@ export async function collectCheckFacts(
   });
 }
 
-const REVIEW_HEADING = '## Vanguard Review';
 // `Reviewed by <attribution>[ @ <sha7>]:` — the main loop's own in-pipeline review
 // (buildMainLoopReviewComment), posted by the same identity and carrying the same head marker.
 // Word boundary, not `\S`: an empty attribution (`Reviewed by :` or a bare `Reviewed by`) is still the main loop's.
@@ -141,7 +141,7 @@ const REVIEWED_BY_RE = /^Reviewed by\b/;
  */
 function peelReviewPrefix(body: string): string | undefined {
   const lines = body.split('\n');
-  if (lines[0] !== REVIEW_HEADING) return undefined;
+  if (!isReviewHeading(lines[0] ?? '')) return undefined;
   let i = 1;
   const skipBlank = (): void => {
     while (i < lines.length && lines[i]!.trim() === '') i += 1;

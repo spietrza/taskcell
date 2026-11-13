@@ -101,6 +101,8 @@ const RATE_LIMIT_PATTERNS: readonly RegExp[] = [
   // reached" is prose an agent can write about its own work, and would classify a hard failure as transient.
   /\bclaude(?: ai)? usage limit reached(?:\|\d+|\.?\s+your limit will reset)/i,
   /\byou(?:'ve|’ve| have) hit your (?:session|usage|weekly|5-hour) limit\b/i,
+  // Per-model allowance: `You've reached your Fable limit. Switch to another model to continue.`
+  /\byou(?:'ve|’ve| have) reached your [\w.-]+(?: [\w.-]+)? limit\b/i,
   // Anthropic's overload refusal: the CLI's short form (`API Error: overloaded`) and the raw envelope
   // it relays, `API Error: 529 {"type":"error","error":{"type":"overloaded_error",...}}`.
   /\bapi error:\s*(?:overloaded\b|529\b[^\n]*"type"\s*:\s*"overloaded_error")/i,

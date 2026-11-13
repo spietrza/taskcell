@@ -1,8 +1,8 @@
-import { homedir } from 'node:os';
+import { homedir, tmpdir } from 'node:os';
 import { isIP } from 'node:net';
 import { resolve, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { readFile } from 'node:fs/promises';
+import { mkdtemp, readFile } from 'node:fs/promises';
 import { execa } from 'execa';
 import { createHubServer, splitHostPort } from '../hub/server.js';
 import { injectHubMarker } from '../hub/static.js';
@@ -58,10 +58,10 @@ function pkgRoot(): string {
 
 /** Fails loudly and actionably at startup, not on the first request: an unbuilt or stale UI bundle
  * must never reach `createHubServer`, where the same failure would otherwise surface per-request. */
-async function assertUiDirBuilt(uiDir: string, fleet: boolean): Promise<void> {
+async function assertUiDirBuilt(uiDir: string, fleet: boolean, demo: boolean): Promise<void> {
   const indexPath = join(uiDir, 'index.html');
   try {
-    injectHubMarker(await readFile(indexPath, 'utf8'), fleet);
+    injectHubMarker(await readFile(indexPath, 'utf8'), fleet, demo);
   } catch (error) {
     const reason = error instanceof Error ? error.message : String(error);
     throw new Error(
@@ -98,6 +98,11 @@ export async function hubCommand(command: Extract<Command, { kind: 'hub' }>): Pr
   ];
   assertPlainHosts(allowedHosts);
 
+  const adminGithubLogins = [
+    ...trimHosts(command.adminGithubLogins ?? []),
+    ...parseHostList(process.env.VANGUARD_HUB_ADMIN_GITHUB_LOGINS),
+  ];
+
   const isLoopback = LOOPBACK_HOSTS.includes(command.host);
   // Server mode = sign-in required: any non-loopback bind, or a loopback bind behind a same-host
   // reverse proxy that sets VANGUARD_HUB_SERVER_MODE=1. Only a plain loopback bind is local mode.
@@ -107,18 +112,22 @@ export async function hubCommand(command: Extract<Command, { kind: 'hub' }>): Pr
   // The desktop app's own local hub (apps/desktop/src-tauri) sets this; honoured in local mode only
   // (a server-mode hub, reachable by others, must never run arbitrary programs).
   const fleet = process.env.VANGUARD_HUB_ALLOW_FLEET === '1' && !serverMode;
-  await assertUiDirBuilt(uiDir, fleet);
+  const demo = command.demo === true;
+  await assertUiDirBuilt(uiDir, fleet, demo);
 
-  const configDir = defaultHubConfigDir();
+  // Demo: a throwaway config dir, so nothing the hub stores can touch (or expose) the real one.
+  const configDir = demo ? await mkdtemp(join(tmpdir(), 'taskcell-hub-demo-')) : defaultHubConfigDir();
 
   // Seed the project store with --repo, same rule add_project uses: must be a git work tree, and
   // only persisted once (a restart must not keep re-adding an already-removed project).
   let seededRepoPath: string | undefined;
-  try {
-    await assertGitWorkTreeDir(command.repoPath);
-    seededRepoPath = command.repoPath;
-  } catch {
-    seededRepoPath = undefined;
+  if (!demo) {
+    try {
+      await assertGitWorkTreeDir(command.repoPath);
+      seededRepoPath = command.repoPath;
+    } catch {
+      seededRepoPath = undefined;
+    }
   }
   if (seededRepoPath !== undefined) {
     const existing = await loadPaths(configDir);
@@ -137,13 +146,12 @@ export async function hubCommand(command: Extract<Command, { kind: 'hub' }>): Pr
   // Sign-in (server mode); local mode is the automatic owner with no database and no OAuth.
   const hostForUrl = command.host.includes(':') ? `[${command.host}]` : command.host;
   const signupEntries = parseHostList(process.env.VANGUARD_HUB_SIGNUP_ALLOW);
-  const publicUrl = process.env.VANGUARD_HUB_PUBLIC_URL;
-  const providers = providersFromEnv(process.env);
+  const publicUrl = process.env.VANGUARD_HUB_PUBLIC_URL?.trim() || undefined;
   const identity = serverMode
     ? await createHubIdentity({
         configDir,
-        baseURL: publicUrl !== undefined && publicUrl.trim() !== '' ? parsePublicUrl(publicUrl.trim()) : `http://${hostForUrl}:${command.port}`,
-        providers,
+        baseURL: publicUrl !== undefined ? parsePublicUrl(publicUrl) : `http://${hostForUrl}:${command.port}`,
+        providers: providersFromEnv(process.env),
         allowlist: parseSignupAllowlist(signupEntries),
       })
     : localOnlyIdentity();
@@ -152,7 +160,9 @@ export async function hubCommand(command: Extract<Command, { kind: 'hub' }>): Pr
     identity,
     uiDir,
     allowedHosts,
+    adminGithubLogins,
     fleet,
+    demo,
     configDir,
     browseRoot: process.env.VANGUARD_HUB_BROWSE_ROOT ?? homedir(),
     ...(process.env.VANGUARD_HUB_CLONE_HOSTS ? { cloneHosts: parseHostList(process.env.VANGUARD_HUB_CLONE_HOSTS) } : {}),
@@ -209,7 +219,7 @@ export async function hubCommand(command: Extract<Command, { kind: 'hub' }>): Pr
   // Server mode requires sign-in for pages, so the token-carrying launch URL would only redirect.
   const origin = `http://${hostForUrl}:${boundPort}`;
   const url = serverMode ? origin : hubLaunchUrl(origin, hub.token);
-  console.log(`Vanguard Hub → ${url}`);
+  console.log(`Vanguard Hub → ${url}${demo ? ' (demo: sample data, read-only)' : ''}`);
 
   const projects = await loadPaths(configDir);
   if (projects.length > 0) {
@@ -221,7 +231,7 @@ export async function hubCommand(command: Extract<Command, { kind: 'hub' }>): Pr
 
   if (serverMode) {
     if (identity.providers.length === 0) console.error(NO_PROVIDER_WARNING);
-    else if (publicUrl === undefined || publicUrl.trim() === '') console.error(NO_PUBLIC_URL_WARNING);
+    else if (publicUrl === undefined) console.error(NO_PUBLIC_URL_WARNING);
     if (signupEntries.length === 0) console.error(NO_ALLOWLIST_WARNING);
   }
 

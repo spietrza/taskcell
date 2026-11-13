@@ -350,6 +350,8 @@ export interface WriteStagesOptions {
   /** The sandbox image's content digest (IsolatedSandboxProvider.imageDigest), recorded on every
    *  stage of the run so a run record can be traced back to the exact image it executed against. */
   imageDigest?: string;
+  /** `instance` or `user`: which kind of credential funded the run (never the value). */
+  credentialSource?: 'instance' | 'user';
   /**
    * Leave the `.diff`, `.bundle` and `.transcript.log` off disk and stub `finalText`; only the JSON
    * record (marked `diffOmitted: 'secret-blocked'`) and the metric line are written for every stage.
@@ -389,6 +391,7 @@ interface WriteRecordOptions {
   omitDiff?: boolean;
   imageDigest?: string;
   baseBranch?: string;
+  credentialSource?: 'instance' | 'user';
   startedBy?: string;
 }
 
@@ -447,6 +450,7 @@ async function writeRecord(repoPath: string, taskId: string, timestamp: string, 
     ...(ciUrl !== undefined ? { ciUrl } : {}),
     ...(opts.imageDigest !== undefined ? { imageDigest: opts.imageDigest } : {}),
     ...(opts.baseBranch !== undefined ? { baseBranch: opts.baseBranch } : {}),
+    ...(opts.credentialSource !== undefined ? { credentialSource: opts.credentialSource } : {}),
     ...(diffOmitted !== undefined ? { diffOmitted } : {}),
     ...(opts.startedBy !== undefined ? { startedBy: opts.startedBy } : {}),
   };
@@ -529,6 +533,7 @@ export function beginRun(
           ...(opts.omitDiff ? { omitDiff: opts.omitDiff } : {}),
           ...(opts.imageDigest !== undefined ? { imageDigest: opts.imageDigest } : {}),
           ...(opts.baseBranch !== undefined ? { baseBranch: opts.baseBranch } : {}),
+          ...(opts.credentialSource !== undefined ? { credentialSource: opts.credentialSource } : {}),
           ...(runOpts.startedBy !== undefined ? { startedBy: runOpts.startedBy } : {}),
         });
       }

@@ -43,7 +43,7 @@ describe('applyReReviewRules', () => {
   });
 
   it('a BLOCKING previous review needs a blocking row: dropping it is malformed, not a flip to clean', () => {
-    const previousBody = '## Vanguard Review\n\nVerdict: BLOCKING\n\n1. [high] x';
+    const previousBody = '## Taskcell Review\n\nVerdict: BLOCKING\n\n1. [high] x';
     const dropped = applyReReviewRules(`Verdict: BLOCKING\n${block({ previous: [], new: [] })}`, { previousBody });
     expect(dropped.text.startsWith('Verdict: BLOCKING')).toBe(true);
     expect(dropped.text).toContain(REREVIEW_MALFORMED_NOTE);
@@ -112,7 +112,7 @@ describe('reReviewInstructions', () => {
 });
 
 describe('applyReReviewRules previous-blocking coverage', () => {
-  const twoBlocking = '## Vanguard Review\n\nVerdict: BLOCKING\n\n1. [high] a\n2. [high] b';
+  const twoBlocking = '## Taskcell Review\n\nVerdict: BLOCKING\n\n1. [high] a\n2. [high] b';
   const row = (id: string, blocking: boolean, status: string): object => ({ id, title: id, blocking, status, evidence: 'e' });
 
   it('dropping one of several labelled blocking findings keeps the stated verdict', () => {
@@ -122,7 +122,7 @@ describe('applyReReviewRules previous-blocking coverage', () => {
   });
 
   it('re-rating an open blocking row of a previous re-review keeps the stated verdict', () => {
-    const prevTable = '## Vanguard Review\n\nVerdict: BLOCKING\n\n| Previous finding | Status | Evidence |\n| --- | --- | --- |\n| 1: a (blocking) | resolved | e |\n| N1: b (blocking) | new | x.ts |';
+    const prevTable = '## Taskcell Review\n\nVerdict: BLOCKING\n\n| Previous finding | Status | Evidence |\n| --- | --- | --- |\n| 1: a (blocking) | resolved | e |\n| N1: b (blocking) | new | x.ts |';
     const rerated = applyReReviewRules(`Verdict: BLOCKING\n${block({ previous: [row('1', true, 'resolved'), row('N1', false, 'not resolved')], new: [] })}`, { previousBody: prevTable });
     expect(rerated.text.startsWith('Verdict: BLOCKING')).toBe(true);
     expect(rerated.text).toContain(REREVIEW_MALFORMED_NOTE);

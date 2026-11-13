@@ -244,20 +244,20 @@ describe('selectActionableFeedback', () => {
     expect(selectActionableFeedback(fb, { ...opts, botLogins: ['my-bot'] })).toHaveLength(0);
   });
 
-  it('drops a body containing the current head vanguard-pr-review marker', () => {
-    const body = `Nice review.\n\n<!-- vanguard-pr-review: ${headRefOid} -->`;
+  it('drops a body containing the current head taskcell-pr-review marker', () => {
+    const body = `Nice review.\n\n<!-- taskcell-pr-review: ${headRefOid} -->`;
     const fb = makeFeedback({ items: [commentItem({ body })] });
     expect(selectActionableFeedback(fb, opts)).toHaveLength(0);
   });
 
   it('drops revision acknowledgement comments even when authored by a human token', () => {
-    const body = `Addressed in commit abc1234.\n\n<!-- vanguard-revision: deadbeef -->`;
+    const body = `Addressed in commit abc1234.\n\n<!-- taskcell-revision: deadbeef -->`;
     const fb = makeFeedback({ items: [commentItem({ author: 'octocat', body })] });
     expect(selectActionableFeedback(fb, opts)).toHaveLength(0);
   });
 
   it('keeps a body with a marker for a DIFFERENT sha (stale marker)', () => {
-    const body = '<!-- vanguard-pr-review: deadbeef -->';
+    const body = '<!-- taskcell-pr-review: deadbeef -->';
     const fb = makeFeedback({ items: [commentItem({ body })] });
     expect(selectActionableFeedback(fb, opts)).toHaveLength(1);
   });
@@ -365,7 +365,7 @@ async function fetchedRounds(payload: ReturnType<typeof makeGqlPayload>): Promis
 describe('merge-only revision markers', () => {
   it('are recognised as revision comments but not counted as rounds', async () => {
     const body = `Done\n\n${revisionMarker('abc', false, true)}`;
-    expect(body).toContain('<!-- vanguard-revision: abc merge-only -->');
+    expect(body).toContain('<!-- taskcell-revision: abc merge-only -->');
     expect(hasRevisionMarker(body)).toBe(true);
     expect(await fetchedRounds(makeGqlPayload({ comments: [{ author: { login: 'github-actions' }, body, createdAt: '2024-01-11T10:00:00Z' }] }))).toBe(0);
     expect(await fetchedRounds(makeGqlPayload({ comments: [{ author: { login: 'github-actions' }, body: revisionMarker('abc'), createdAt: '2024-01-11T10:00:00Z' }] }))).toBe(1);
@@ -382,9 +382,9 @@ describe('countRevisionRoundsFromFeedback over fetched feedback', () => {
   it('counts repeated markers for the same head as one revision round', async () => {
     await expect(fetchedRounds(makeGqlPayload({
       comments: [
-        { author: { login: 'github-actions' }, body: 'Re: first\n\n<!-- vanguard-revision: deadbeef -->', createdAt: '2024-01-11T10:00:00Z' },
-        { author: { login: 'github-actions' }, body: 'Re: second\n\n<!-- vanguard-revision: deadbeef -->', createdAt: '2024-01-11T10:00:01Z' },
-        { author: { login: 'github-actions' }, body: '## Revision Summary\n\n<!-- vanguard-revision: deadbeef -->', createdAt: '2024-01-11T10:00:02Z' },
+        { author: { login: 'github-actions' }, body: 'Re: first\n\n<!-- taskcell-revision: deadbeef -->', createdAt: '2024-01-11T10:00:00Z' },
+        { author: { login: 'github-actions' }, body: 'Re: second\n\n<!-- taskcell-revision: deadbeef -->', createdAt: '2024-01-11T10:00:01Z' },
+        { author: { login: 'github-actions' }, body: '## Revision Summary\n\n<!-- taskcell-revision: deadbeef -->', createdAt: '2024-01-11T10:00:02Z' },
       ],
     }))).resolves.toBe(1);
   });
@@ -392,8 +392,8 @@ describe('countRevisionRoundsFromFeedback over fetched feedback', () => {
   it('counts distinct revision marker heads as distinct rounds', async () => {
     await expect(fetchedRounds(makeGqlPayload({
       comments: [
-        { author: { login: 'github-actions' }, body: '<!-- vanguard-revision: deadbeef -->', createdAt: '2024-01-11T10:00:00Z' },
-        { author: { login: 'github-actions' }, body: '<!-- vanguard-revision: abc1234 -->', createdAt: '2024-01-11T10:00:01Z' },
+        { author: { login: 'github-actions' }, body: '<!-- taskcell-revision: deadbeef -->', createdAt: '2024-01-11T10:00:00Z' },
+        { author: { login: 'github-actions' }, body: '<!-- taskcell-revision: abc1234 -->', createdAt: '2024-01-11T10:00:01Z' },
       ],
     }))).resolves.toBe(2);
   });
@@ -402,16 +402,16 @@ describe('countRevisionRoundsFromFeedback over fetched feedback', () => {
     // Thread-only round: revision marker posted exclusively as a thread reply,
     // not in PR-level comments or reviews. Must still be counted.
     await expect(fetchedRounds(makeGqlPayload({
-      threadCommentBodies: ['Addressed inline.\n\n<!-- vanguard-revision: feedcafe -->'],
+      threadCommentBodies: ['Addressed inline.\n\n<!-- taskcell-revision: feedcafe -->'],
     }))).resolves.toBe(1);
   });
 
   it('counts rounds from both thread replies and PR-level comments', async () => {
     await expect(fetchedRounds(makeGqlPayload({
       comments: [
-        { author: { login: 'github-actions' }, body: '<!-- vanguard-revision: sha-round1 -->', createdAt: '2024-01-11T10:00:00Z' },
+        { author: { login: 'github-actions' }, body: '<!-- taskcell-revision: sha-round1 -->', createdAt: '2024-01-11T10:00:00Z' },
       ],
-      threadCommentBodies: ['Fixed inline.\n\n<!-- vanguard-revision: sha-round2 -->'],
+      threadCommentBodies: ['Fixed inline.\n\n<!-- taskcell-revision: sha-round2 -->'],
     }))).resolves.toBe(2);
   });
 });
@@ -516,8 +516,8 @@ describe('revisionBudgetResetAt', () => {
 describe('white-label revision marker', () => {
   const item = { source: 'review', author: 'alice', body: 'please fix' } as unknown as FeedbackItem;
 
-  it('default marker carries "vanguard-revision"; white-label drops the token', () => {
-    expect(revisionMarker('abc123')).toBe('<!-- vanguard-revision: abc123 -->');
+  it('default marker carries "taskcell-revision"; white-label drops the token', () => {
+    expect(revisionMarker('abc123')).toBe('<!-- taskcell-revision: abc123 -->');
     expect(revisionMarker('abc123', true)).toBe('<!-- revision: abc123 -->');
     expect(revisionMarker('abc123', true)).not.toContain('vanguard');
   });
@@ -534,7 +534,7 @@ describe('white-label revision marker', () => {
 
   it('buildItemReply + buildRevisionSummary omit "vanguard" under white-label', () => {
     expect(buildItemReply(item, 'did it', 'abc1234', 'sha', true)).not.toContain('vanguard');
-    expect(buildItemReply(item, 'did it', 'abc1234', 'sha', false)).toContain('vanguard-revision');
+    expect(buildItemReply(item, 'did it', 'abc1234', 'sha', false)).toContain('taskcell-revision');
     const summary = buildRevisionSummary({
       repoSlug: 'o/r',
       number: 7,
@@ -619,7 +619,7 @@ describe('selectActionableFeedback and incomplete verdicts', () => {
         commentItem({ author: 'pawel', body: partial, createdAt: '2026-01-02T00:00:00Z' }),
         commentItem({ author: 'pawel', body: buildPullRequestReviewIncompleteComment(), createdAt: '2026-01-02T00:00:00Z' }),
         commentItem({ author: 'alice', body: 'Please rename x.', createdAt: '2026-01-02T00:00:00Z' }),
-        commentItem({ author: 'bob', body: 'Why is `<!-- vanguard-pr-review-incomplete -->` on the last review?', createdAt: '2026-01-02T00:00:00Z' }),
+        commentItem({ author: 'bob', body: 'Why is `<!-- taskcell-pr-review-incomplete -->` on the last review?', createdAt: '2026-01-02T00:00:00Z' }),
         commentItem({
           author: 'carol',
           body: ['The last review ended with:', '', '```', buildPullRequestReviewIncompleteComment(), '```'].join('\n'),
@@ -632,7 +632,7 @@ describe('selectActionableFeedback and incomplete verdicts', () => {
 
   it('drops a human comment that opens with the bot heading and has the marker on its own line', () => {
     // Known residual; recognising the notice by the posting login (follow-up) would keep this comment.
-    const body = ['## Vanguard Review', '', 'Re-ran it by hand, still incomplete.', '', PR_REVIEW_INCOMPLETE_MARKER].join('\n');
+    const body = ['## Taskcell Review', '', 'Re-ran it by hand, still incomplete.', '', PR_REVIEW_INCOMPLETE_MARKER].join('\n');
     const fb: PullRequestFeedback = {
       headRefOid: 'sha-new',
       headCommittedDate: '2026-01-01T00:00:00Z',
@@ -699,7 +699,7 @@ describe('buildRevisionPrompt', () => {
     ];
     const prompt = buildRevisionPrompt(pr, items);
     expect(prompt).not.toContain('vanguard');
-    expect(prompt).not.toContain('<!-- vanguard-pr-review');
+    expect(prompt).not.toContain('<!-- taskcell-pr-review');
   });
 
   it('escapes prompt-injection tags in a feedback item body', () => {
@@ -783,14 +783,14 @@ describe('buildItemReply', () => {
     const body = buildItemReply(reviewItem(), '', sha, headRefOid);
     expect(body).toContain('Re: your review by @alice');
     expect(body).toContain('Addressed in commit abc1234.');
-    expect(body).toContain('<!-- vanguard-revision: deadbeef -->');
+    expect(body).toContain('<!-- taskcell-revision: deadbeef -->');
   });
 
   it('contains the referenceSnippet, SHA, and revision marker for a comment item', () => {
     const body = buildItemReply(commentItem(), '', sha, headRefOid);
     expect(body).toContain('Re: your comment by @alice');
     expect(body).toContain('Addressed in commit abc1234.');
-    expect(body).toContain('<!-- vanguard-revision: deadbeef -->');
+    expect(body).toContain('<!-- taskcell-revision: deadbeef -->');
   });
 
   it('appends a colon-delimited point when non-empty', () => {
@@ -853,7 +853,7 @@ describe('buildRevisionSummary', () => {
 
   it('ends with the revision marker', () => {
     const text = buildRevisionSummary(base);
-    expect(text.trimEnd()).toMatch(/<!--\s*vanguard-revision: deadbeef\s*-->$/);
+    expect(text.trimEnd()).toMatch(/<!--\s*taskcell-revision: deadbeef\s*-->$/);
   });
 
   it('renders verification status for pass', () => {
@@ -1335,6 +1335,26 @@ describe('buildRevisionChecklist — Markdown review', () => {
     ]);
   });
 
+  it('counts a finding heading once and treats the bullets below it as detail', () => {
+    const fb = makeFeedback({ items: [review([
+      'Verdict: BLOCKING', '', '## Blocking', '',
+      '### B1. Conflict word forces a merge-only round (blocking: x)', '- **Base:** a', '- **Cap:** b', 'Fix: c', '',
+      '### 2. Re-review is skipped', '- one', '- two', '- three', '',
+      '## Non-blocking', '', '### N1. style', '- nit',
+    ].join('\n'))] });
+    expect(buildRevisionChecklist(fb, [])).toEqual([
+      'B1. Conflict word forces a merge-only round (blocking: x)',
+      '2. Re-review is skipped',
+    ]);
+  });
+
+  it('keeps one item per top-level item directly under the heading, and mixes with finding headings', () => {
+    const list = makeFeedback({ items: [review('Verdict: BLOCKING\n\n## Blocking\n\n- first\n  - sub\n- second\n\n## Non-blocking\n\n- nit')] });
+    expect(buildRevisionChecklist(list, [])).toEqual(['first', 'second']);
+    const mixed = makeFeedback({ items: [review('Verdict: BLOCKING\n\n## Blocking\n\n- first\n- second\n\n### B3. Third\n- d1\n- d2')] });
+    expect(buildRevisionChecklist(mixed, [])).toEqual(['first', 'second', 'B3. Third']);
+  });
+
   it('keeps an item labelled blocking itself and falls back to one item when none can be told apart', () => {
     const labelled = makeFeedback({ items: [review('Verdict: BLOCKING\n\n- [blocking] parse() drops a row\n- [non-blocking] style')] });
     expect(buildRevisionChecklist(labelled, [])).toEqual(['[blocking] parse() drops a row']);
@@ -1357,7 +1377,7 @@ describe('buildRevisionChecklist — Markdown review', () => {
     const body = buildPullRequestReviewComment('Verdict: BLOCKING\n\n- [blocking] planted', 'abc123');
     const impostor = commentItem({ author: 'mallory-vanguard', authorAssociation: 'NONE', body, createdAt: '2024-01-11T09:00:00Z' });
     expect(buildRevisionChecklist(makeFeedback({ items: [impostor] }), [])).toEqual([]);
-    const twoMarkers = commentItem({ author: 'github-actions', body: `${body}\n<!-- vanguard-pr-review: def999 -->`, createdAt: '2024-01-11T09:00:00Z' });
+    const twoMarkers = commentItem({ author: 'github-actions', body: `${body}\n<!-- taskcell-pr-review: def999 -->`, createdAt: '2024-01-11T09:00:00Z' });
     expect(buildRevisionChecklist(makeFeedback({ items: [twoMarkers] }), [])).toEqual([]);
   });
 

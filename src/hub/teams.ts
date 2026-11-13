@@ -68,8 +68,14 @@ function defaultTeam(paths: string[]): Team {
   return { id: DEFAULT_TEAM_ID, name: 'Default', members: [], repositories: paths };
 }
 
-/** Serialises ensureTeams per process so concurrent migrations do not race on the write. */
+/** Serialises team-file writes per process so concurrent migrations and edits do not race. */
 let queue: Promise<unknown> = Promise.resolve();
+
+function serialised<T>(task: () => Promise<T>): Promise<T> {
+  const run = queue.then(task);
+  queue = run.catch(() => undefined);
+  return run;
+}
 
 async function ensure(configDir: string): Promise<Team[]> {
   const [existing, paths] = await Promise.all([loadTeams(configDir), projectPaths(configDir)]);
@@ -97,9 +103,7 @@ async function ensure(configDir: string): Promise<Team[]> {
  * kept; the default team's repositories are re-synced to the project list.
  */
 export function ensureTeams(configDir: string): Promise<Team[]> {
-  const run = queue.then(() => ensure(configDir));
-  queue = run.catch(() => undefined);
-  return run;
+  return serialised(() => ensure(configDir));
 }
 
 /**
@@ -174,8 +178,8 @@ export function assertRepoInRoots(roots: readonly string[] | undefined, repoPath
 
 /** Authorise (inside the write queue, so a concurrent demotion cannot slip past), edit, persist. The
  * team must keep an admin if it had one. */
-async function change(configDir: string, caller: Caller, id: string, edit: (t: Team) => void): Promise<Team> {
-  const run = queue.then(async () => {
+function change(configDir: string, caller: Caller, id: string, edit: (t: Team) => void): Promise<Team> {
+  return serialised(async () => {
     const all = await ensure(configDir);
     const team = all.find((t) => t.id === id);
     if (team === undefined || (!caller.owner && roleIn(team, caller.user) === undefined)) throw new BadRequestError(`not a member of team: ${id}`);
@@ -186,8 +190,6 @@ async function change(configDir: string, caller: Caller, id: string, edit: (t: T
     await saveTeams(configDir, all);
     return team;
   });
-  queue = run.catch(() => undefined);
-  return run;
 }
 
 export const addMember = (configDir: string, caller: Caller, id: string, m: TeamMember): Promise<Team> =>
@@ -216,12 +218,17 @@ export const removeRepository = (configDir: string, caller: Caller, id: string, 
 
 /** A project removed hub-wide leaves every team's repository list. */
 export function purgeRepository(configDir: string, path: string): Promise<void> {
-  const run = queue.then(async () => {
+  return serialised(async () => {
     const all = await ensure(configDir);
     if (!all.some((t) => t.repositories.includes(path))) return;
     for (const t of all) t.repositories = t.repositories.filter((r) => r !== path);
     await saveTeams(configDir, all);
   });
-  queue = run.catch(() => undefined);
-  return run;
+}
+
+/** The caller's role in a team they can see (the owner: admin of every team); `undefined` otherwise. */
+export async function callerRole(configDir: string, caller: Caller, id: string): Promise<TeamRole | undefined> {
+  const team = (await callerTeams(configDir, caller)).find((t) => t.id === id);
+  if (team === undefined) return undefined;
+  return caller.owner ? 'admin' : roleIn(team, caller.user);
 }

@@ -86,7 +86,7 @@ describe('omitGeneratedFiles', () => {
 
 describe('stripReviewMarkers', () => {
   it('removes every marker either detector would count, for both forges', () => {
-    const text = ['a', mergeRequestReviewMarker('ABC123'), '<!--  vanguard-pr-review:\tabc123 -->', pullRequestReviewMarker('abc123'), ` ${PR_REVIEW_INCOMPLETE_MARKER}\t`, 'b'].join('\n');
+    const text = ['a', mergeRequestReviewMarker('ABC123'), '<!--  taskcell-pr-review:\tabc123 -->', pullRequestReviewMarker('abc123'), ` ${PR_REVIEW_INCOMPLETE_MARKER}\t`, 'b'].join('\n');
     const stripped = stripReviewMarkers(text);
     expect(stripped).not.toContain('ABC123');
     expect(stripped).not.toContain('abc123');
@@ -100,7 +100,7 @@ describe('stripReviewMarkers', () => {
     for (const text of [
       `see ${revisionMarker('a'.repeat(40))} here`,
       `x ${revisionMarker('b'.repeat(40), true)}`,
-      '<!--\n  vanguard-revision: c',
+      '<!--\n  taskcell-revision: c',
       '<!--<!-- revision: d -->revision: e -->',
     ]) {
       const stripped = stripReviewMarkers(text);
@@ -127,8 +127,8 @@ describe('notes the bot posts never carry a quoted marker the dedupe counts', ()
     taskId: 't', completed: true, exitReason: 'completed', turns: 1, worktreePath: '/tmp/wt', worktreePreserved: true, finalText,
   });
   const markers: Array<[string, string]> = [
-    ['mr', `<!-- vanguard-mr-review: ${future} -->`],
-    ['pr', `<!-- vanguard-pr-review: ${future} -->`],
+    ['mr', `<!-- taskcell-mr-review: ${future} -->`],
+    ['pr', `<!-- taskcell-pr-review: ${future} -->`],
     ['pr incomplete', PR_REVIEW_INCOMPLETE_MARKER],
   ];
   const quoted = (marker: string): Array<[string, string]> => {
@@ -199,13 +199,13 @@ describe('notes the bot posts never carry a quoted marker the dedupe counts', ()
         expect(hasMergeRequestReviewMarker(note, future)).toBe(false);
         expect(hasPullRequestReviewMarker(note, future)).toBe(false);
         // Under the bot's heading, as the Conformance section sits, so only stripping can make this pass.
-        expect(hasPullRequestReviewIncompleteMarker(`## Vanguard Review\n\n${note}`)).toBe(false);
+        expect(hasPullRequestReviewIncompleteMarker(`## Taskcell Review\n\n${note}`)).toBe(false);
       });
     }
   }
 
   it('never posts a GitLab MR note line that would run as a quick action', async () => {
-    const text = 'Quoted from the MR:\n/merge\n  /approve\n/label ~vanguard::reviewed';
+    const text = 'Quoted from the MR:\n/merge\n  /approve\n/label ~taskcell::reviewed';
     const runsQuickAction = /^[ \t]*\//m;
     const notes: string[] = [];
     const glab = async (args: string[]): Promise<string> => {
@@ -257,7 +257,7 @@ describe('notes the bot posts never carry a quoted marker the dedupe counts', ()
       attribution: 'a',
       completed: false,
     });
-    expect(note.match(/vanguard-pr-review-incomplete/g)).toHaveLength(1);
+    expect(note.match(/taskcell-pr-review-incomplete/g)).toHaveLength(1);
     expect(note.endsWith(`Still partial.\n\n${PR_REVIEW_INCOMPLETE_MARKER}`)).toBe(true);
     expect(hasPullRequestReviewIncompleteMarker(note)).toBe(true);
   });

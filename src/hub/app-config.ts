@@ -8,6 +8,10 @@ import { assertStatePath, ensureStateDir, stateDir } from '../core/state-path.js
  * git-ignored by default, so a run in CI sees `baseBranch` only if the repo commits `.taskcell/app.json`. */
 export interface AppConfig {
   source?: string;
+  /** Per-project task source: github | github-project | gitlab | linear | hub. Unset = github. */
+  taskSource?: string;
+  /** Per-project run location: github-actions | gitlab-ci | watch | local. Unset = github-actions. */
+  runLocation?: string;
   label?: string;
   /** Linear team key (e.g. `DEV`) — selects which team's issues the board lists. Linear-only;
    * GitHub/GitLab scope by repo + `label`. */
@@ -28,7 +32,7 @@ export interface AppConfig {
   chatBaseUrl?: string;
   /** Default target branch for pull requests when a card names none; unset = `main`. */
   baseBranch?: string;
-  /** Branches a card's `vanguard:base=` label may select besides `baseBranch` (core/base-branch.ts readAllowedBases). Unset = none. */
+  /** Branches a card's `taskcell:base=` label may select besides `baseBranch` (core/base-branch.ts readAllowedBases). Unset = none. */
   baseBranches?: string[];
   /** Opaque pass-through — deliberately `unknown`, NOT a typed array/shape. A typed field would
    * silently strip unknown entry keys on every settings save. Round-trip byte-for-byte. */

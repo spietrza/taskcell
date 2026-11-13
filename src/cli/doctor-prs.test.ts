@@ -9,9 +9,9 @@ const cmd: DoctorPrsCommand = {
   kind: 'doctor-prs',
   repoPath: '/repo',
   repoSlug: 'owner/repo',
-  label: 'ready for vanguard review',
-  reviewingLabel: 'vanguard:reviewing',
-  reviewedLabel: 'vanguard:reviewed',
+  label: 'ready for taskcell review',
+  reviewingLabel: 'taskcell:reviewing',
+  reviewedLabel: 'taskcell:reviewed',
 };
 
 const runner: PreflightRunner = async (name, args) => {
@@ -21,7 +21,7 @@ const runner: PreflightRunner = async (name, args) => {
   if (name === 'docker') return { stdout: '' };
   if (name === 'gh' && args[0] === 'label') {
     return {
-      stdout: JSON.stringify(['ready for vanguard review', 'vanguard:reviewing', 'vanguard:reviewed'].map((label) => ({ name: label }))),
+      stdout: JSON.stringify(['ready for taskcell review', 'taskcell:reviewing', 'taskcell:reviewed'].map((label) => ({ name: label }))),
     };
   }
   return { stdout: '' };

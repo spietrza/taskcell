@@ -53,6 +53,28 @@ taskcell audit export [--stream <name>] [--since <date>] [--until <date>] [--for
 the export can be re-verified) or as CSV (`ts,stream,actor,subject,record`; cells starting with `=+-@` are
 neutralised).
 
+## Issue history
+
+```
+taskcell history owner/repo#N [--json] [--offline] [--repo <path>] [--config-dir <dir>] [--branch <name>]
+```
+
+One history for an issue, oldest first: trigger label, spec, each run (start, stages, outcome), reviews and
+verdicts, revise rounds, the approver decision, merge or close. Each entry has a time, an actor (person or
+factory bot) and a source (stream or run record plus a ref such as `audit.jsonl:12`, and a link when one exists).
+The hub shows the same list as the History section of a card (docs/hub.md).
+
+It is a read model, not a new copy: it reads the streams and joins them by subject (`repo`, `issue`, `pr`,
+`runId`). Run-event logs belong to the issue by their task directory; their run ids pull in hub audit lines
+for those runs; PR numbers come from run records and Git host events and pull in `decisions` lines. Where no
+stream has a record (a human applying a label, a comment, a merge) it asks the Git host (`gh api
+.../timeline`; GitHub only, GitLab events are not read yet; `--offline` skips it).
+
+Every chain it read is verified as `audit verify` does and listed (with its unchained pre-audit count); entries from a chain that fails are marked
+`chain failed` and the command exits 1. Unchained legacy lines, run records and Git host events have no chain and are
+marked `no chain`. Run records, run-event logs and `decisions` are this checkout's: when its origin is not `owner/repo`, they are skipped and listed under `unavailable`. Spec runs (`spec-<slug>-<N>`) and the review and revise runs of the issue's PRs (`pr-review-<slug>-<PR>`, `revise-pr-<slug>-<PR>`; the slug with every non-alphanumeric as `-`) are included; a cross-reference from a PR of another repo is not. A spec comment is a bot comment that opens with `Vanguard Tech Spec`. A revise round is a `revise-pr-` run, a run record whose PR an earlier run already opened, or whose task or
+stage name says revise. A source that could not be read is listed under `unavailable`.
+
 ## Retention
 
 Rotated local files older than the retention are deleted: default 90 days, `TASKCELL_AUDIT_RETENTION_DAYS` to

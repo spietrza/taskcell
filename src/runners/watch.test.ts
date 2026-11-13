@@ -1596,8 +1596,8 @@ describe('gitlabWatchPrimitives', () => {
         project,
       } as unknown as WatchGitlabOptions['deps'],
       label: 'vanguard',
-      claimedLabel: 'vanguard::running',
-      reviewLabel: 'vanguard::review',
+      claimedLabel: 'taskcell::running',
+      reviewLabel: 'taskcell::review',
     };
   }
 
@@ -1621,7 +1621,7 @@ describe('gitlabWatchPrimitives', () => {
     await primitives.claim('g/p#1');
     const updateCall = calls.find((c) => c[0] === 'issue' && c[1] === 'update');
     expect(updateCall).toBeDefined();
-    expect(updateCall).toContain('vanguard::running');
+    expect(updateCall).toContain('taskcell::running');
     expect(updateCall).toContain('vanguard');
   });
 
@@ -1631,7 +1631,7 @@ describe('gitlabWatchPrimitives', () => {
     const primitives = gitlabWatchPrimitives({ ...opts, gl: glab });
     await primitives.review('g/p#1');
     const updateCall = calls.find((c) => c[0] === 'issue' && c[1] === 'update');
-    expect(updateCall).toContain('vanguard::review');
+    expect(updateCall).toContain('taskcell::review');
   });
 
   it('onFailure posts a comment', async () => {
@@ -1661,8 +1661,8 @@ describe('gitlabWatchPrimitives', () => {
     const updates = calls.filter((c) => c[0] === 'issue' && c[1] === 'update');
     expect(updates).toHaveLength(2); // claim, then ONE swap running -> secret-blocked
     const release = updates[1];
-    expect(release?.[release.indexOf('--unlabel') + 1]).toBe('vanguard::running');
-    expect(release?.[release.indexOf('--label') + 1]).toBe('vanguard::secret-blocked');
+    expect(release?.[release.indexOf('--unlabel') + 1]).toBe('taskcell::running');
+    expect(release?.[release.indexOf('--label') + 1]).toBe('taskcell::secret-blocked');
     expect(release).not.toContain('--label vanguard');
     expect(tick.secretBlocked).toEqual(['g/p#1']);
     expect(tick.noChange).toEqual([]);
@@ -1671,7 +1671,7 @@ describe('gitlabWatchPrimitives', () => {
   it('claim clears a stale secret-blocked label only on issues listReady saw carrying it', async () => {
     const { glab, calls } = makeGlab({
       'issue:list': JSON.stringify([
-        { iid: 1, title: 'retried', description: null, labels: ['vanguard', 'vanguard::secret-blocked'] },
+        { iid: 1, title: 'retried', description: null, labels: ['vanguard', 'taskcell::secret-blocked'] },
         { iid: 2, title: 'fresh', description: null, labels: ['vanguard'] },
       ]),
     });
@@ -1684,7 +1684,7 @@ describe('gitlabWatchPrimitives', () => {
     expect(updates).toHaveLength(2);
     const unlabelled = (u: string[] | undefined): string[] =>
       (u ?? []).flatMap((arg, i, a) => (arg === '--unlabel' ? [a[i + 1] as string] : []));
-    expect(unlabelled(updates.find((u) => u[2] === '1'))).toEqual(['vanguard', 'vanguard::secret-blocked']);
+    expect(unlabelled(updates.find((u) => u[2] === '1'))).toEqual(['vanguard', 'taskcell::secret-blocked', 'vanguard::secret-blocked']);
     expect(unlabelled(updates.find((u) => u[2] === '2'))).toEqual(['vanguard']);
   });
 
@@ -1704,10 +1704,10 @@ describe('gitlabWatchPrimitives', () => {
 
     const updates = calls.filter((c) => c[0] === 'issue' && c[1] === 'update');
     expect(updates).toHaveLength(2); // claim, then the swap running -> secret-blocked
-    expect(updates[1]?.[updates[1].indexOf('--label') + 1]).toBe('vanguard::secret-blocked');
+    expect(updates[1]?.[updates[1].indexOf('--label') + 1]).toBe('taskcell::secret-blocked');
     // `glab issue update --label` is a silent no-op on an unknown label while `--unlabel` in the
     // same call lands; the primitive ensures the label before the swap (the white-label adapter never did).
-    const created = calls.findIndex((c) => c[0] === 'label' && c[1] === 'create' && c.includes('vanguard::secret-blocked'));
+    const created = calls.findIndex((c) => c[0] === 'label' && c[1] === 'create' && c.includes('taskcell::secret-blocked'));
     expect(created).toBeGreaterThan(-1);
     expect(created).toBeLessThan(calls.indexOf(updates[1] as string[]));
     const notes = calls.filter((c) => c[0] === 'issue' && c[1] === 'note');
@@ -1725,7 +1725,7 @@ describe('gitlabWatchPrimitives', () => {
     const updateCall = calls.find((c) => c[0] === 'issue' && c[1] === 'update');
     expect(updateCall).toBeDefined();
     expect(updateCall).toContain('--unlabel');
-    expect(updateCall?.[(updateCall?.indexOf('--unlabel') ?? -1) + 1]).toBe('vanguard::running');
+    expect(updateCall?.[(updateCall?.indexOf('--unlabel') ?? -1) + 1]).toBe('taskcell::running');
     expect(updateCall).not.toContain('--label');
 
     const noteCall = calls.find((c) => c[0] === 'issue' && c[1] === 'note');

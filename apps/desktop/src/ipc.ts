@@ -1,4 +1,5 @@
 import { invoke } from './transport';
+import type { SetupStatus, Team, TeamRole } from './wire';
 import type {
   RunSummary,
   RunDetail,
@@ -17,10 +18,11 @@ import type {
   CompleteResponse,
   CredentialProvider,
   CredentialsSummary,
+  CredentialPolicy,
   FactoryApplyResult,
   FactoryPlan,
   FactoryProviderId,
-  FactorySecretStep,
+  FactoryState,
   FactoryVerifyResult,
   NeedsYouItem,
   SpawnInfo,
@@ -42,6 +44,9 @@ function call<K extends keyof Commands>(cmd: K, args: Commands[K]['args']): Prom
   return invoke<Commands[K]['result']>(cmd, args as Record<string, unknown> | undefined);
 }
 
+/** The optional team scope of the hub's list commands: no id = the server's default. */
+const teamArgs = (teamId?: string): { teamId: string } | undefined => (teamId === undefined ? undefined : { teamId });
+
 export function listRuns(repoPath: string): Promise<RunSummary[]> {
   return call('list_runs', { repoPath });
 }
@@ -52,8 +57,8 @@ export function conflictStats(repoPath: string): Promise<Commands['conflict_stat
 }
 
 /** HUB_ONLY: every repository's runs, each stamped with its repository; unreadable ones in `failures`. */
-export function listRunsAll(): Promise<Commands['list_runs_all']['result']> {
-  return call('list_runs_all', undefined);
+export function listRunsAll(teamId?: string): Promise<Commands['list_runs_all']['result']> {
+  return call('list_runs_all', teamArgs(teamId));
 }
 
 /** Read one run record under `repoPath`. `ref.source` names WHICH tree it lives in (the project's
@@ -69,8 +74,8 @@ export function browseDirs(path?: string): Promise<DirListing> {
   return call('browse_dirs', { path });
 }
 
-export function listProjects(): Promise<Project[]> {
-  return call('list_projects', undefined);
+export function listProjects(teamId?: string): Promise<Project[]> {
+  return call('list_projects', teamArgs(teamId));
 }
 
 export function addProject(path: string): Promise<Project[]> {
@@ -94,18 +99,33 @@ export function enableFactoryApply(repoPath: string, plan: FactoryPlan): Promise
   return call('enable_factory_apply', { repoPath, plan });
 }
 
-/** Command text only — the hub never reads, prints or stores the secret value. */
-export function enableFactorySecret(repoPath: string, plan: FactoryPlan): Promise<FactorySecretStep> {
-  return call('enable_factory_secret', { repoPath, plan });
-}
-
 export function enableFactoryVerify(repoPath: string, plan: FactoryPlan): Promise<FactoryVerifyResult> {
   return call('enable_factory_verify', { repoPath, plan });
+}
+
+/** The project's persisted factory checklist (no network). */
+export function factoryState(repoPath: string): Promise<FactoryState> {
+  return call('factory_state', { repoPath });
+}
+
+/** Re-check the secret (by name), the PR merge and the doctor run; persists and returns the checklist. */
+export function factoryRefresh(repoPath: string): Promise<FactoryState> {
+  return call('factory_refresh', { repoPath });
+}
+
+/** Start the checklist when the callers are already on the default branch (no PR to open). */
+export function enableFactoryStart(repoPath: string, plan: FactoryPlan): Promise<FactoryState> {
+  return call('enable_factory_start', { repoPath, plan });
 }
 
 /** Hub-only, admin-only (403 otherwise): the audit log, newest first. */
 export function readAudit(login?: string): Promise<AuditEntry[]> {
   return call('read_audit', { login });
+}
+
+/** Hub-only: one issue's history over the audit streams, run records and Git host events. */
+export function readIssueHistory(repoPath: string, issue: number): Promise<Commands['read_issue_history']['result']> {
+  return call('read_issue_history', { repoPath, issue });
 }
 
 export function removeProject(path: string): Promise<Project[]> {
@@ -119,8 +139,8 @@ export function listNeedsYou(repoPath: string): Promise<{ items: NeedsYouItem[] 
 }
 
 /** HUB_ONLY: `listNeedsYou` for every repository. */
-export function listNeedsYouAll(): Promise<Commands['list_needs_you_all']['result']> {
-  return call('list_needs_you_all', undefined);
+export function listNeedsYouAll(teamId?: string): Promise<Commands['list_needs_you_all']['result']> {
+  return call('list_needs_you_all', teamArgs(teamId));
 }
 
 /** Hub-only: post `body` as the caller's own comment on the item, then move it on (issue: `needs
@@ -195,8 +215,8 @@ export function listTasks(repoPath: string): Promise<{ tasks: BoardTask[]; cappe
 }
 
 /** HUB_ONLY: every repository's board cards, each stamped with its repository. */
-export function listTasksAll(): Promise<Commands['list_tasks_all']['result']> {
-  return call('list_tasks_all', undefined);
+export function listTasksAll(teamId?: string): Promise<Commands['list_tasks_all']['result']> {
+  return call('list_tasks_all', teamArgs(teamId));
 }
 
 export async function fetchSpec(repoPath: string, taskId: string): Promise<string> {
@@ -414,4 +434,74 @@ export function apiCancel(runId?: string): Promise<void> {
 /** Click-time pre-flight: is `repoPath` a git work tree? */
 export function apiRepoOk(repoPath: string): Promise<boolean> {
   return call('api_repo_ok', { repoPath });
+}
+
+// Per-user provider credentials (hub-only, write-only: status returns names, never values). The
+// instance/policy calls are admin-only — the hub answers 403 to anyone else.
+export function userCredentialsStatus(): Promise<{ enabled: boolean; admin: boolean; names: string[] }> {
+  return call('user_credentials_status', undefined);
+}
+
+export function saveUserCredential(name: string, value: string): Promise<void> {
+  return call('save_user_credential', { name, value });
+}
+
+export function deleteUserCredential(name: string): Promise<void> {
+  return call('delete_user_credential', { name });
+}
+
+export function getCredentialPolicy(): Promise<{ policy: CredentialPolicy }> {
+  return call('get_credential_policy', undefined);
+}
+
+export function setCredentialPolicy(policy: CredentialPolicy): Promise<void> {
+  return call('set_credential_policy', { policy });
+}
+
+export function instanceCredentialsStatus(): Promise<{ names: string[] }> {
+  return call('instance_credentials_status', undefined);
+}
+
+export function saveInstanceCredential(name: string, value: string): Promise<void> {
+  return call('save_instance_credential', { name, value });
+}
+
+export function deleteInstanceCredential(name: string): Promise<void> {
+  return call('delete_instance_credential', { name });
+}
+
+/** Hub-only: the teams the caller can see. */
+export function listTeams(): Promise<Team[]> {
+  return call('list_teams', undefined);
+}
+
+/** Hub-only: the caller's role in a team (`null` for a non-member). */
+export function teamRole(id: string): Promise<TeamRole | null> {
+  return call('team_role', { id });
+}
+
+export function teamAddMember(teamId: string, login: string, role: TeamRole): Promise<Team> {
+  return call('add_team_member', { teamId, login, role });
+}
+
+/** `add_team_member` replaces an existing member's role; the team must keep an admin. */
+export function teamSetRole(teamId: string, login: string, role: TeamRole): Promise<Team> {
+  return call('add_team_member', { teamId, login, role });
+}
+
+export function teamRemoveMember(teamId: string, login: string): Promise<Team> {
+  return call('remove_team_member', { teamId, login });
+}
+
+export function teamAddRepository(teamId: string, path: string): Promise<Team> {
+  return call('add_team_repository', { teamId, path });
+}
+
+export function teamRemoveRepository(teamId: string, path: string): Promise<Team> {
+  return call('remove_team_repository', { teamId, path });
+}
+
+/** HUB_ONLY, read-only: what first-run setup can see on the hub host (booleans, never a secret value). */
+export function setupStatus(): Promise<SetupStatus> {
+  return call('setup_status', undefined);
 }

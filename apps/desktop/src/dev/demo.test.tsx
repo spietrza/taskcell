@@ -1,0 +1,81 @@
+import { test, expect, afterEach, vi } from 'vitest';
+import { render, screen, fireEvent, waitFor, cleanup } from '@testing-library/react';
+import App from '../App';
+import { Dashboard } from '../features/dashboard/Dashboard';
+import { handleDemo } from './mockBackend';
+import { isDemoMode, isHubMode, invoke } from '../transport';
+import { DEMO_REPO_PATH, DEMO_WRITE_COMMANDS, demoBoardTasks, demoNeedsYou } from './demoData';
+
+afterEach(() => {
+  cleanup(); // unmount while demo mode is still on, so effect cleanups stay in-browser
+  delete window.__VANGUARD_DEMO__;
+  window.history.replaceState(null, '', '/');
+  vi.restoreAllMocks();
+});
+
+test('the marker and ?demo=1 both select demo mode, which also counts as hub mode', () => {
+  expect(isDemoMode()).toBe(false);
+  window.history.replaceState(null, '', '/?demo=1');
+  expect(isDemoMode()).toBe(true);
+  expect(isHubMode()).toBe(true);
+  window.history.replaceState(null, '', '/');
+  window.__VANGUARD_DEMO__ = true;
+  expect(isDemoMode()).toBe(true);
+});
+
+test('demo data covers the lanes, Needs you and a dependency chain', () => {
+  const lanes = new Set(demoBoardTasks.map((t) => t.column));
+  expect(lanes.size).toBeGreaterThanOrEqual(5);
+  expect(lanes).toContain('running');
+  expect(demoNeedsYou.length).toBeGreaterThanOrEqual(2);
+  expect(demoBoardTasks.filter((t) => t.state.startsWith('Blocked by')).length).toBeGreaterThanOrEqual(2);
+});
+
+test('demo mode refuses every write command and never fetches', async () => {
+  window.__VANGUARD_DEMO__ = true;
+  const fetchSpy = vi.spyOn(globalThis, 'fetch');
+  for (const cmd of DEMO_WRITE_COMMANDS) {
+    // eslint-disable-next-line no-await-in-loop
+    await expect(invoke(cmd, { repoPath: DEMO_REPO_PATH })).rejects.toMatch(/read-only/);
+  }
+  expect(fetchSpy).not.toHaveBeenCalled();
+  expect(() => handleDemo('read_run', { taskId: 'DEMO-101' })).not.toThrow();
+});
+
+test('the empty Home offers "Try the demo project", linking to ?demo=1', () => {
+  const assign = vi.fn();
+  vi.stubGlobal('location', { ...window.location, assign });
+  render(<Dashboard projects={[]} onOpen={() => {}} onAdd={() => {}} onRemove={() => {}} />);
+  fireEvent.click(screen.getByRole('button', { name: 'Try the demo project' }));
+  expect(assign).toHaveBeenCalledWith('/?demo=1');
+  vi.unstubAllGlobals();
+});
+
+test('every main screen opens in demo mode without errors', async () => {
+  window.__VANGUARD_DEMO__ = true;
+  vi.stubGlobal('matchMedia', (q: string) => ({ matches: false, media: q, addEventListener: () => {}, removeEventListener: () => {}, addListener: () => {}, removeListener: () => {} }));
+  const error = vi.spyOn(console, 'error').mockImplementation(() => {});
+  render(<App />);
+  expect(await screen.findByRole('status')).toHaveTextContent(/Demo project/);
+  fireEvent.click(await screen.findByText('storefront (demo)', { selector: '*' }));
+
+  fireEvent.click(await screen.findByRole('button', { name: /^Runs/ }));
+  fireEvent.click(await screen.findByRole('button', { name: /Back to runs/ })); // the run in progress opens first
+  fireEvent.click(await screen.findByText('DEMO-101'));
+  expect(await screen.findByText('reviewer')).toBeInTheDocument();
+
+  fireEvent.click(screen.getByRole('button', { name: /^Board/ }));
+  expect(await screen.findByText('Fix cart total rounding')).toBeInTheDocument();
+  expect(screen.getByText('Add wishlist to the account page')).toBeInTheDocument();
+
+  fireEvent.click(screen.getByRole('button', { name: /^Settings/ }));
+  fireEvent.click(await screen.findByRole('tab', { name: 'Line' }));
+  await waitFor(() => expect(screen.getByRole('tab', { name: 'Line' })).toHaveAttribute('aria-selected', 'true'));
+
+  // Home carries both the Needs you section and the project list.
+  fireEvent.click(screen.getByRole('button', { name: /^Home/ }));
+  expect(await screen.findByText('Case-insensitive product search')).toBeInTheDocument();
+  expect(await screen.findByRole('heading', { name: 'Projects' })).toBeInTheDocument();
+  expect(error).not.toHaveBeenCalled();
+  vi.unstubAllGlobals();
+}, 30000);

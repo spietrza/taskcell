@@ -107,10 +107,10 @@ export async function runGithubProject(
 }
 
 /** Read the run dependencies from the environment (+ flag overrides), resolving the repo slug from origin. */
-export async function githubDepsFromEnv(repoPath: string, repoSlug?: string, choice: ProviderChoice = {}): Promise<RunGithubIssueDeps> {
+export async function githubDepsFromEnv(repoPath: string, repoSlug?: string, choice: ProviderChoice = {}, env: NodeJS.ProcessEnv = process.env): Promise<RunGithubIssueDeps> {
   // The whole choice, so every provider that may run (reviewer, implementer fallback) is counted
   // when deciding whether the Anthropic credential must be injected.
-  const auth = agentAuthFromEnv(choice);
+  const auth = agentAuthFromEnv(choice, env);
   const slug = repoSlug ?? process.env.GITHUB_REPO ?? (await detectRepoSlug(repoPath));
   return { ...(auth !== undefined ? { auth } : {}), repoPath, repoSlug: slug };
 }

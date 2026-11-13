@@ -9,13 +9,13 @@ import { join } from 'node:path';
 import { serveStatic } from './static.js';
 import { EventBus } from './events.js';
 import { writeJson, jsonError } from './json-response.js';
-import { CredentialStore } from './credentials.js';
 import { callerRepoRoots, repoInRoots, type Caller } from './teams.js';
-import { dispatchRpc, classifyError, ForbiddenError, type RpcContext } from './rpc.js';
+import { dispatchRpc, classifyError, type RpcContext } from './rpc.js';
 import { AuditLog, TOKEN_ACTOR, auditActorOf, reportAuditFailure, type Actor } from './audit.js';
 import { encodeError, encodeResult, HUB_EVENTS_SESSION_PATH, HUB_SIGN_IN_REQUIRED, HUB_TOKEN_HEADER, HUB_TOKEN_REJECTED } from '../hub-wire.js';
 import { ProjectAllowlist, type BindOptions } from './allowlist.js';
 import { WatchRegistry, type WatchOptions } from './watch.js';
+import { createCredentialService, CredentialStore, ForbiddenError } from './credentials.js';
 import { createRunSession } from './run-session.js';
 import { CompleteBusyError, CompleteRegistry, type SpawnComplete } from './complete.js';
 import { loadPaths } from './projects.js';
@@ -52,6 +52,9 @@ export interface HubServerOptions {
   token?: string;
   /** Sign-in (Better Auth) and the owner user (src/hub/auth.ts). Omitted: token-only, local owner. */
   identity?: HubIdentity;
+  /** GitHub logins allowed to see/change the per-user-credentials switch and the instance
+   * credentials (`--admin-github-login`), matched against the signed-in user's GitHub login. */
+  adminGithubLogins?: readonly string[];
   /** Overrides who an authenticated request acts as. Default: the owner (token, or local mode) is the
    * shared `token` admin identity; any other signed-in user is a non-admin under their e-mail until
    * roles land (#841). */
@@ -59,6 +62,8 @@ export interface HubServerOptions {
   /** Enable the Fleet spawn commands (`spawn_run` et al). Loopback binds only — the desktop app's
    * local hub sets it; a hub reachable by others must never run arbitrary programs. */
   fleet?: boolean;
+  /** `hub --demo`: the served page runs on bundled fixtures only. */
+  demo?: boolean;
   /** `VANGUARD_HUB_SECRET` (base64, 32 bytes) keying the credential store; defaults to the env var. */
   hubSecret?: string;
 }
@@ -338,7 +343,8 @@ async function handleRequest(
       return;
     }
     // A sign-in is not refused for an unwritable log (that would lock everyone out): it is reported on stderr.
-    await ctx.audit?.record({ login: actorOf(user).login, actor: auditActorOf(actorOf(user)), action: 'sign-in', outcome: 'ok' }).catch(reportAuditFailure);
+    const actor = actorOf(user);
+    await ctx.audit?.record({ login: actor.login, actor: auditActorOf(actor), action: 'sign-in', outcome: 'ok' }).catch(reportAuditFailure);
     // A signed-in session needs no events cookie: `/events` takes the session cookie itself, so
     // sign-out or revocation ends the stream's auth. The shared secret goes to token holders only.
     if (!tokenValid) {
@@ -377,8 +383,9 @@ async function handleRequest(
     if (req.method !== 'POST') return methodNotAllowed(res, 'POST');
     const user = await resolveUser();
     if (user === undefined) return unauthorized();
-    // The token holder is the owner (admin of every team); a session user is limited to their teams.
-    await handleRpcRequest({ ...ctx, actor: actorOf(user) }, req, res, pathname.slice('/rpc/'.length), { user, owner: tokenValid });
+    // The caller's identity rides on a per-request context: credential RPCs act on THIS user only. The
+    // token holder is the owner (admin of every team); a session user is limited to their teams.
+    await handleRpcRequest({ ...ctx, user, actor: actorOf(user) }, req, res, pathname.slice('/rpc/'.length), { user, owner: tokenValid });
     return;
   }
 
@@ -394,7 +401,7 @@ async function handleRequest(
     return;
   }
 
-  const handled = await serveStatic({ uiDir: opts.uiDir, fleet: opts.fleet === true }, req, res);
+  const handled = await serveStatic({ uiDir: opts.uiDir, fleet: opts.fleet === true, demo: opts.demo === true }, req, res);
   if (!handled) notFound(res);
 }
 
@@ -469,6 +476,7 @@ export function createHubServer(opts: HubServerOptions): HubServer {
     bind: opts.bind,
     publish,
     audit: new AuditLog(opts.configDir),
+    userCredentials: createCredentialService(opts.configDir, opts.adminGithubLogins),
   };
 
   const server = createServer((req, res) => {

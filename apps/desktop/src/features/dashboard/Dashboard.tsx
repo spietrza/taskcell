@@ -2,8 +2,11 @@ import { useState, type CSSProperties } from 'react';
 import { Button, Card, Chip, Empty } from '@/ui';
 import { Factory, FolderPlus, LayoutGrid, X } from 'lucide-react';
 import { projectColor } from '../../color';
+import { combinationNote, runLocationLabel, taskSourceLabel } from '../../platform';
 import { relTime } from '../../time';
 import type { Project } from '../../taskcell-output';
+import type { FactoryState } from '../../wire';
+import { factoryLabel } from './factoryLabel';
 
 function Stat({
   label,
@@ -33,6 +36,8 @@ export function Dashboard({
   onAdd,
   onRemove,
   onEnableFactory,
+  onOpenSetup,
+  factory,
 }: {
   projects: Project[];
   onOpen: (p: { path: string; name: string }) => void;
@@ -40,6 +45,10 @@ export function Dashboard({
   onRemove: (path: string) => void;
   /** Hub-only (the `enable_factory_*` commands are HUB_ONLY): omitted, the card has no button. */
   onEnableFactory?: (p: { path: string; name: string }) => void;
+  /** Opens the first-run guide; offered in the empty state. */
+  onOpenSetup?: () => void;
+  /** Each project's factory checklist state by path (hub-only); a project without an entry shows no factory line. */
+  factory?: Record<string, FactoryState>;
 }) {
   // Path of the card whose × was clicked: removal waits for a second, explicit click.
   const [confirmRemove, setConfirmRemove] = useState<string | null>(null);
@@ -52,7 +61,7 @@ export function Dashboard({
   };
 
   return (
-    <div className="mx-auto h-full w-full max-w-5xl space-y-4 overflow-y-auto p-6">
+    <div className="space-y-4">
       <div className="flex items-center gap-3">
         <h2 className="text-xl font-semibold">Projects</h2>
         <Button className="ml-auto" onClick={onAdd} startIcon={<FolderPlus className="size-4" />}>
@@ -67,11 +76,19 @@ export function Dashboard({
           </Empty.Media>
           <Empty.Title>No projects yet</Empty.Title>
           <Empty.Description>
-            Add any git repository to track its factory runs, tasks and spend.
+            Add a git repository (an existing folder, or clone one) to track its factory runs, tasks and spend. The setup guide also checks your sign-ins.
           </Empty.Description>
           <Empty.Actions>
             <Button onClick={onAdd} startIcon={<FolderPlus className="size-4" />}>
               Add project
+            </Button>
+            {onOpenSetup && (
+              <Button variant="outlined" onClick={onOpenSetup}>
+                Open setup guide
+              </Button>
+            )}
+            <Button variant="outlined" onClick={() => window.location.assign('/?demo=1')}>
+              Try the demo project
             </Button>
           </Empty.Actions>
         </Empty.Root>
@@ -87,6 +104,8 @@ export function Dashboard({
 
           <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
             {projects.map((p) => {
+              const note = combinationNote(p.taskSource, p.runLocation);
+              const fs = factory?.[p.path];
               const last = p.lastRun ? relTime(new Date(p.lastRun).getTime()) : null;
               const color = projectColor(p);
               return (
@@ -170,6 +189,21 @@ export function Dashboard({
                       {p.runsLast24h > 0 && <Chip color="secondary" variant="outlined">{p.runsLast24h} in 24h</Chip>}
                       {last && <span className="ml-auto">{last}</span>}
                     </div>
+                    {/* Platform: where tasks come from and where work runs, so projects set up differently read side by side. */}
+                    <div className="mt-2 flex flex-wrap items-center gap-1.5">
+                      <Chip color="secondary" variant="outlined">{taskSourceLabel(p.taskSource)}</Chip>
+                      <span className="text-xs text-muted-foreground" aria-hidden>→</span>
+                      <Chip color="secondary" variant="outlined">{runLocationLabel(p.runLocation)}</Chip>
+                    </div>
+                    {note && <p className="mt-1 text-xs text-muted-foreground">{note}</p>}
+                    {fs && (
+                      <p
+                        data-testid="factory-state"
+                        className={`mt-1 text-xs ${fs.state === 'broken' ? 'text-destructive-text' : fs.state === 'ready' ? 'text-success-text' : 'text-muted-foreground'}`}
+                      >
+                        {factoryLabel(fs)}
+                      </p>
+                    )}
                     {onEnableFactory && (
                       <Button
                         className="relative z-10 mt-3 h-7 px-2 text-xs"
@@ -181,7 +215,7 @@ export function Dashboard({
                           onEnableFactory({ path: p.path, name: p.name });
                         }}
                       >
-                        Enable factory
+                        {fs && fs.state !== 'none' ? 'Factory checklist' : 'Enable factory'}
                       </Button>
                     )}
                   </Card.Content>

@@ -178,8 +178,8 @@ function makeFeedbackJsonWithRevisions(): string {
   return makeFeedbackJson({
     comments: {
       nodes: [
-        { author: { login: 'github-actions' }, body: '<!-- vanguard-revision: deadbeef -->', createdAt: '2024-01-09T00:00:00Z' },
-        { author: { login: 'github-actions' }, body: '<!-- vanguard-revision: abc1234 -->', createdAt: '2024-01-09T00:00:01Z' },
+        { author: { login: 'github-actions' }, body: '<!-- taskcell-revision: deadbeef -->', createdAt: '2024-01-09T00:00:00Z' },
+        { author: { login: 'github-actions' }, body: '<!-- taskcell-revision: abc1234 -->', createdAt: '2024-01-09T00:00:01Z' },
       ],
     },
   });
@@ -321,7 +321,7 @@ describe('runRevisePullRequest secret gate', () => {
     expect(errors.join('\n')).not.toContain('ghp_' + 'A'.repeat(40));
     expect(comment?.join(' ')).toMatch(/Nothing was pushed to this branch/);
     expect(comment?.join(' ')).not.toContain('No PR was opened');
-    expect(ghCalls.some((a) => a[0] === 'pr' && a[1] === 'edit' && a.includes('--add-label') && a.includes('vanguard:secret-blocked'))).toBe(true);
+    expect(ghCalls.some((a) => a[0] === 'pr' && a[1] === 'edit' && a.includes('--add-label') && a.includes('taskcell:secret-blocked'))).toBe(true);
   });
 
   it('--out: a secret in the revision diff is reported but the dry-run touches neither the PR nor the labels and writes no preview', async () => {
@@ -436,7 +436,7 @@ describe('runRevisePullRequest happy path', () => {
     expect(readyCall).toContain('7');
 
     // label flip
-    const editCall = ghCalls.find((a) => a[0] === 'pr' && a[1] === 'edit' && a.includes('vanguard:needs-human-review'));
+    const editCall = ghCalls.find((a) => a[0] === 'pr' && a[1] === 'edit' && a.includes('taskcell:needs-human-review'));
     expect(editCall).toBeDefined();
     expect(editCall).toContain('--remove-label');
     expect(editCall).toContain('needs revision');
@@ -537,7 +537,7 @@ describe('runRevisePullRequest happy path', () => {
     const notice = calls.find((args) => args[1] === 'review')?.join(' ') ?? '';
     expect(notice).toContain('Cannot revise:');
     expect(notice).toContain(`head branch is on ${expected}`);
-    expect(calls.find((args) => args[1] === 'edit')).toContain('vanguard:needs-human-review');
+    expect(calls.find((args) => args[1] === 'edit')).toContain('taskcell:needs-human-review');
   });
 
   it('fetches refs/heads/<head> with --end-of-options, so a dash-led head ref cannot act as a git option', async () => {
@@ -613,7 +613,7 @@ describe('runRevisePullRequest happy path', () => {
     ).rejects.toThrow(/expected PR head/);
 
     expect(calls.find((args) => args[1] === 'review')?.join(' ')).toContain('Cannot revise:');
-    expect(calls.find((args) => args[1] === 'edit')).toContain('vanguard:needs-human-review');
+    expect(calls.find((args) => args[1] === 'edit')).toContain('taskcell:needs-human-review');
   });
 
   it('revises the PR head, not main, when the head branch name starts with "+"', async () => {
@@ -699,7 +699,7 @@ describe('runRevisePullRequest happy path', () => {
       expect(content).toContain('dry-run');
       expect(content).toContain('## Code changes');
       expect(content).toContain('## Proposed replies');
-      expect(content).not.toContain('vanguard-revision');
+      expect(content).not.toContain('taskcell-revision');
     } finally {
       await rm(outPath, { force: true });
     }
@@ -1075,7 +1075,7 @@ describe('runRevisePullRequest — round cap', () => {
   ])('resumes after a cap only for a human comment: $author', async ({ author, resumes }) => {
     const feedback = JSON.parse(makeFeedbackJsonWithRevisions());
     feedback.data.repository.pullRequest.comments.nodes.push(
-      { author: { login: 'github-actions' }, body: '<!-- vanguard-revision-cap -->', createdAt: '2024-01-11T11:00:00Z' },
+      { author: { login: 'github-actions' }, body: '<!-- taskcell-revision-cap -->', createdAt: '2024-01-11T11:00:00Z' },
       { author: { login: author }, authorAssociation: 'OWNER', body: 'Please continue.', createdAt: '2024-01-11T12:00:00Z' },
     );
     const ghCalls: string[][] = [];
@@ -1136,7 +1136,7 @@ describe('runRevisePullRequest — round cap', () => {
     expect(reviewPost).toBeDefined();
 
     // Labels were still flipped
-    const editCall = ghCalls.find((a) => a[0] === 'pr' && a[1] === 'edit' && a.includes('vanguard:needs-human-review'));
+    const editCall = ghCalls.find((a) => a[0] === 'pr' && a[1] === 'edit' && a.includes('taskcell:needs-human-review'));
     expect(editCall).toBeDefined();
     expect(ghCalls.filter((a) => a[0] === 'api' && a[1] === 'graphql')).toHaveLength(1);
   });
@@ -1316,16 +1316,16 @@ describe('runRevisePullRequest — per-item replies for non-thread feedback', ()
 
     // Each per-item body contains "Addressed in commit" and the revision marker
     expect(aliceBody).toContain('Addressed in commit');
-    expect(aliceBody).toContain('<!-- vanguard-revision:');
+    expect(aliceBody).toContain('<!-- taskcell-revision:');
     expect(bobBody).toContain('Addressed in commit');
-    expect(bobBody).toContain('<!-- vanguard-revision:');
+    expect(bobBody).toContain('<!-- taskcell-revision:');
 
     // Final summary exists and has required sections
     const summaryBody = prCommentBodies.find((b) => b.includes('## Revision Summary'));
     expect(summaryBody).toBeDefined();
     expect(summaryBody).toContain('Deferred / not addressed');
     expect(summaryBody).toContain('Verification');
-    expect(summaryBody).toContain('<!-- vanguard-revision:');
+    expect(summaryBody).toContain('<!-- taskcell-revision:');
 
     // No lumped "Addressed N review comment(s)" review was posted
     const hasLumpedReview = ghCalls.some(
@@ -1397,7 +1397,7 @@ describe('runRevisePullRequest — best-effort label hand-back', () => {
 
   it('ensures the rate-limited hold label exists before the hand-back removes it', async () => {
     const { ghCalls } = await runWithLabelFailure();
-    const createIndex = ghCalls.findIndex((a) => a[0] === 'label' && a[1] === 'create' && a.includes('vanguard:rate-limited'));
+    const createIndex = ghCalls.findIndex((a) => a[0] === 'label' && a[1] === 'create' && a.includes('taskcell:rate-limited'));
     const editIndex = ghCalls.findIndex((a) => a[0] === 'pr' && a[1] === 'edit');
     expect(createIndex).toBeGreaterThanOrEqual(0);
     expect(editIndex).toBeGreaterThan(createIndex);
@@ -1406,7 +1406,7 @@ describe('runRevisePullRequest — best-effort label hand-back', () => {
   it('calls label create --force before the label flip', async () => {
     const { ghCalls } = await runWithLabelFailure();
     const createCallIndex = ghCalls.findIndex(
-      (a) => a[0] === 'label' && a[1] === 'create' && a.includes('vanguard:needs-human-review'),
+      (a) => a[0] === 'label' && a[1] === 'create' && a.includes('taskcell:needs-human-review'),
     );
     const editCallIndex = ghCalls.findIndex((a) => a[0] === 'pr' && a[1] === 'edit');
     expect(createCallIndex).toBeGreaterThanOrEqual(0);
@@ -1686,12 +1686,12 @@ describe('runRevisePullRequest — revise-pass verification', () => {
     expect(await readRunRecordModels()).toEqual([]);
   });
 
-  it('a vanguard:model=<m> label on the source issue overrides --provider-model', async () => {
+  it('a taskcell:model=<m> label on the source issue overrides --provider-model', async () => {
     const agentInputs: AgentRunInput[] = [];
     const ghCalls: string[][] = [];
     const logs: string[] = [];
     await runRevisePullRequest('12', {
-      repoPath: repo, repoSlug: 'o/r', gh: makeGhWithIssueLabels(['bug', 'vanguard:model=opus'], ghCalls), log: (l) => logs.push(l),
+      repoPath: repo, repoSlug: 'o/r', gh: makeGhWithIssueLabels(['bug', 'taskcell:model=opus'], ghCalls), log: (l) => logs.push(l),
       _sandbox: makeSandbox(), _agent: agentThatCompletes(agentInputs), _worktrees: new WorktreeManager(repo),
       _pushRunner: async () => '', _baseBranch: 'feature-branch', provider: 'claude', providerModel: 'sonnet',
     });
@@ -1826,13 +1826,13 @@ it('T10: all-untrusted feedback explains itself on the PR and hands the labels b
   const result = await runRevisePullRequest('7', { repoPath: repo, repoSlug: 'o/r', gh, _pushRunner: push, log: (line) => logs.push(line) });
   expect(result).toMatchObject({ addressed: 0, committed: false, pushed: false, undrafted: false, ignoredFeedback: [{ author: 'mallory', association: 'NONE' }] });
   expect(push).not.toHaveBeenCalled();
-  // The maintainer sees why, and the PR leaves vanguard:revising for a human.
+  // The maintainer sees why, and the PR leaves taskcell:revising for a human.
   const notice = gh.mock.calls.map(([args]) => args).find((args) => args[0] === 'pr' && args[1] === 'review' && args.includes('--comment'));
   expect(notice?.at(-1)).toContain('@mallory (NONE)');
   expect(notice?.at(-1)).not.toContain('Vanguard');
   const editCall = gh.mock.calls.map(([args]) => args).find((args) => args[0] === 'pr' && args[1] === 'edit');
-  expect(editCall?.join(' ')).toContain('vanguard:needs-human-review');
-  expect(editCall?.join(' ')).toContain('vanguard:revising');
+  expect(editCall?.join(' ')).toContain('taskcell:needs-human-review');
+  expect(editCall?.join(' ')).toContain('taskcell:revising');
   // Still no thread reply/resolve mutation and no undraft.
   expect(gh.mock.calls.every(([args]) => !(args.includes('ready') || args.some((arg) => arg.includes('mutation'))))).toBe(true);
   expect(logs.filter((line) => /ignored feedback from @mallory \(NONE\)/.test(line))).toHaveLength(1);
@@ -1872,7 +1872,7 @@ it('T11: a rate-limited provider with no fallback says so on the PR and drops th
   expect(notice?.at(-1)).toContain('rate limit');
   expect(notice?.at(-1)).toContain('needs revision');
   const editCall = gh.mock.calls.map(([args]) => args).find((args) => args[0] === 'pr' && args[1] === 'edit');
-  expect(editCall?.join(' ')).toContain('--remove-label vanguard:revising');
+  expect(editCall?.join(' ')).toContain('--remove-label taskcell:revising');
   expect(editCall?.join(' ')).not.toContain('needs-human-review');
 });
 
@@ -2140,7 +2140,7 @@ describe('runRevisePullRequest — gate-config signal', () => {
         return '';
       }
       if (args[0] === 'pr' && args[1] === 'edit') {
-        if (opts.failLabelFlip === true && args.includes('vanguard:gate-config-changed')) throw new Error('label flip refused');
+        if (opts.failLabelFlip === true && args.includes('taskcell:gate-config-changed')) throw new Error('label flip refused');
         return '';
       }
       return '';
@@ -2171,8 +2171,8 @@ describe('runRevisePullRequest — gate-config signal', () => {
     const summary = commentBodies.find((b) => b.includes('## Revision Summary'));
     expect(summary).toContain('## Gate config changed');
     expect(summary).toContain('vitest.config.ts');
-    expect(ghCalls.some((a) => a[0] === 'label' && a[1] === 'create' && a.includes('vanguard:gate-config-changed'))).toBe(true);
-    expect(ghCalls.some((a) => a[0] === 'pr' && a[1] === 'edit' && a.includes('--add-label') && a.includes('vanguard:gate-config-changed'))).toBe(true);
+    expect(ghCalls.some((a) => a[0] === 'label' && a[1] === 'create' && a.includes('taskcell:gate-config-changed'))).toBe(true);
+    expect(ghCalls.some((a) => a[0] === 'pr' && a[1] === 'edit' && a.includes('--add-label') && a.includes('taskcell:gate-config-changed'))).toBe(true);
   });
 
   it('stays silent on a revise round that touches no gate config', async () => {
@@ -2182,7 +2182,7 @@ describe('runRevisePullRequest — gate-config signal', () => {
     await run(makeGh(ghCalls, commentBodies), makeSandbox());
 
     expect(commentBodies.every((b) => !b.includes('## Gate config changed'))).toBe(true);
-    expect(ghCalls.some((a) => a.includes('vanguard:gate-config-changed'))).toBe(false);
+    expect(ghCalls.some((a) => a.includes('taskcell:gate-config-changed'))).toBe(false);
   });
 
   it('reports a failed gate-config label flip instead of handing the PR back unflagged', async () => {
@@ -2191,7 +2191,7 @@ describe('runRevisePullRequest — gate-config signal', () => {
 
     await expect(run(makeGh(ghCalls, commentBodies, { failLabelFlip: true }), makeGateConfigSandbox())).rejects.toThrow('label flip refused');
     // The disclosure still went out, and the round never reached the hand-back: the PR keeps
-    // `vanguard:revising` rather than silently returning for review without the gate label.
+    // `taskcell:revising` rather than silently returning for review without the gate label.
     expect(commentBodies.some((b) => b.includes('## Gate config changed'))).toBe(true);
     expect(ghCalls.some((a) => a[0] === 'pr' && a[1] === 'ready')).toBe(false);
     expect(ghCalls.some((a) => a[0] === 'pr' && a[1] === 'edit' && a.includes('--remove-label'))).toBe(false);
@@ -2379,7 +2379,7 @@ describe('runRevisePullRequest base conflicts', () => {
     expect(text).toContain('### Merge-only round');
     expect(text).toContain('does not count toward the revision cap');
     expect(text).toContain('<!-- merge-only-files: ["shared.txt"] -->');
-    expect(text).toContain('<!-- vanguard-revision: deadbeef merge-only -->');
+    expect(text).toContain('<!-- taskcell-revision: deadbeef merge-only -->');
     expect(reReviewed(ghCalls)).toBe(true);
     expect(await baseMerges()).toEqual([expect.objectContaining({ repo: 'o/r', pr: 7, base: 'main', outcome: 'conflicted', conflictedFiles: ['shared.txt'], resolvedBy: 'agent', round: 'merge-only' })]);
   });
@@ -2400,7 +2400,7 @@ describe('runRevisePullRequest base conflicts', () => {
     expect(comments(ghCalls)).toContain('git merged it cleanly');
     expect(comments(ghCalls)).toContain('### Merge-only round');
     expect(reReviewed(ghCalls)).toBe(false);
-    expect(ghCalls.some((a) => a.includes('--remove-label') && a.includes('vanguard:reviewed'))).toBe(false);
+    expect(ghCalls.some((a) => a.includes('--remove-label') && (a.includes('taskcell:reviewed') || a.includes('vanguard:reviewed')))).toBe(false);
     expect(await baseMerges()).toEqual([expect.objectContaining({ outcome: 'clean', conflictedFiles: [], round: 'merge-only' })]);
   });
 
@@ -2494,7 +2494,7 @@ describe('runRevisePullRequest base conflicts', () => {
     expect(comments(ghCalls)).toMatch(/Could not resolve the conflict with `main`: `shared\.txt`/);
     expect(ghCalls.some((a) => a[1] === 'ready')).toBe(false);
     const edits = ghCalls.filter((a) => a[0] === 'pr' && a[1] === 'edit');
-    expect(edits.some((a) => a.includes('vanguard:revising') && a.includes('--remove-label'))).toBe(true);
+    expect(edits.some((a) => a.includes('taskcell:revising') && a.includes('--remove-label'))).toBe(true);
     expect(edits.some((a) => a.includes('needs revision'))).toBe(false);
     // The agent ran: its cost trace is kept, without a diff (the secret scan never ran).
     const recordFiles = await readdir(join(repo, '.taskcell', 'runs'), { recursive: true });
@@ -2622,6 +2622,7 @@ describe('runRevisePullRequest blocking-item checklist', () => {
     return { ghCalls, ghEnvs, pushes, prompt: inputs[0]?.prompt ?? '', result };
   }
 
+  // The pre-rename name: GitHub fires the review workflow on the label's name, and the shipped callers listen for this one.
   const reReview = (calls: string[][]): boolean =>
     calls.some((a) => a[0] === 'pr' && a[1] === 'edit' && a.includes('--add-label') && a.includes('ready for vanguard review'));
   const summary = (calls: string[][]): string =>
@@ -2634,7 +2635,7 @@ describe('runRevisePullRequest blocking-item checklist', () => {
     expect(pushes.some((a) => a[0] === 'push')).toBe(true);
     expect(summary(ghCalls)).toContain('1. `parse()` drops the last row — **fixed**: parse() in src/a.ts');
     expect(reReview(ghCalls)).toBe(true);
-    expect(ghCalls.some((a) => a[0] === 'pr' && a[1] === 'edit' && a.includes('--remove-label') && a.includes('vanguard:reviewed'))).toBe(true);
+    expect(ghCalls.some((a) => a[0] === 'pr' && a[1] === 'edit' && a.includes('--remove-label') && a.includes('taskcell:reviewed'))).toBe(true);
   });
 
   it('adds the re-review label with the push token, so the labeled event starts a review run', async () => {

@@ -32,12 +32,12 @@ const CODE_REFERENCE_PREFIX =
 // `jwt` pattern covers them regardless of this refinement).
 const IDENTIFIER_CHAIN = /^[A-Za-z_$][\w$]*(?:\.[A-Za-z_$][\w$]*)+$/;
 const UPPER_SNAKE_IDENTIFIER = /^[A-Z][A-Z0-9_]*$/;
-// A bare camelCase identifier (`callbackToken`, `optionalNonEmptyEnvVar`) as an UNQUOTED RHS is a
+// A bare camelCase/PascalCase identifier (`callbackToken`, `ProviderAuthState`) as an UNQUOTED RHS is a
 // code reference, not a literal credential — the assignment regex makes the quote optional, so an
 // object entry like `WORKFLOW_CALLBACK_TOKEN: callbackToken,` matches and often clears the entropy
 // bar. Letters-only with internal case humps is the identifier signature; digit-bearing values fall
 // through to the entropy check, and quoted values (real string literals) never take this branch.
-const CAMEL_IDENTIFIER = /^[a-z_$][a-z_$]*(?:[A-Z][A-Za-z_$]*)+$/;
+const CAMEL_IDENTIFIER = /^(?:[a-z_$][a-z_$]*|[A-Z][a-z_$]+)(?:[A-Z][A-Za-z_$]*)+$/;
 // Suffix restricted to digits-only, letters-only, or separator-led continuation — real secrets
 // mix letters and digits together (e.g. 'testAbc123Secret...'), which this deliberately excludes
 // so mixed-content values fall through to the entropy check instead of being dismissed outright.
@@ -323,18 +323,23 @@ export function injectedSecretValues(env: NodeJS.ProcessEnv = process.env, extra
     values.push(...[pem, ...pem.split('\n').map((l) => l.trim()).filter((l) => l !== '' && !l.startsWith('-----'))].filter(isPlausibleInjectedSecret));
   }
   // Codex writes auth.json; agents can copy individual credentials out of it.
-  if (env.CODEX_AUTH_JSON !== undefined) {
-    try {
-      const auth = JSON.parse(env.CODEX_AUTH_JSON) as {
-        OPENAI_API_KEY?: unknown;
-        tokens?: { access_token?: unknown; refresh_token?: unknown; id_token?: unknown };
-      } | null;
-      for (const value of [auth?.OPENAI_API_KEY, auth?.tokens?.access_token, auth?.tokens?.refresh_token, auth?.tokens?.id_token]) {
-        if (typeof value === 'string' && isPlausibleInjectedSecret(value)) values.push(value);
-      }
-    } catch { /* Invalid auth JSON is still checked as a raw value. */ }
-  }
+  if (env.CODEX_AUTH_JSON !== undefined) values.push(...codexAuthSecretValues(env.CODEX_AUTH_JSON));
   return [...new Set(values)];
+}
+
+/** The individual credentials inside a Codex auth.json (`CODEX_AUTH_JSON`); [] when it does not parse. */
+export function codexAuthSecretValues(json: string): string[] {
+  try {
+    const auth = JSON.parse(json) as {
+      OPENAI_API_KEY?: unknown;
+      tokens?: { access_token?: unknown; refresh_token?: unknown; id_token?: unknown };
+    } | null;
+    return [auth?.OPENAI_API_KEY, auth?.tokens?.access_token, auth?.tokens?.refresh_token, auth?.tokens?.id_token].filter(
+      (value): value is string => typeof value === 'string' && isPlausibleInjectedSecret(value),
+    );
+  } catch {
+    return []; // Invalid auth JSON is still checked as a raw value.
+  }
 }
 
 /**
