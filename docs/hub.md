@@ -627,3 +627,17 @@ every address (`BoardTask.url`/`source`, `RunSummary`/`RunDetail` `prUrl`/`ciUrl
 local run with no pull request). `diffUrl` is `…/pull/N/files` ("Files changed") on GitHub and
 `…/-/merge_requests/N/diffs` ("Changes") on GitLab. `ciUrl` is recorded on a run record written inside
 GitHub Actions or GitLab CI. Only `https:` addresses are passed on. Links open in a new tab.
+
+## First-run setup guide
+
+On a hub with no projects the app opens a "Get started" guide: Git host and tasks, model
+credential, first repository. Detection is one read-only owner command, `setup_status`, that
+returns booleans only. The model step is Done when a Claude credential (`CLAUDE_CODE_OAUTH_TOKEN`
+or one saved in Settings → credentials) or a Codex credential is present; Codex counts either
+`OPENAI_API_KEY` or a Codex sign-in, detected as the existence of `$CODEX_HOME/auth.json` (default
+`~/.codex/auth.json`) — the file is never read. The step has a Claude / Codex choice, shows only
+that option's commands, and remembers the choice in the browser with the rest of the onboarding state.
+
+An `export` line only takes effect for a hub started after it: the hub reads its environment at
+start. After exporting, restart the hub (or save the key in Settings → credentials, where that
+exists) and then press **Check again**. `codex login` needs no restart.

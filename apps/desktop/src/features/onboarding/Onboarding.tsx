@@ -3,6 +3,7 @@ import { Button, Card, Chip, CodeBlock } from '@/ui';
 import { setupStatus } from '../../ipc';
 import type { SetupStatus, SetupToolState } from '../../wire';
 import {
+  RESTART_NOTE,
   RUN_STEPS,
   STEP_IDS,
   STEP_STATE_LABEL,
@@ -24,11 +25,21 @@ const TOOL_STATE_TEXT: Record<SetupToolState, string> = {
 
 function Commands({ id }: { id: RunStepId }) {
   const r = RUN_STEPS[id];
+  const { restartNote } = r;
   return (
     <div className="space-y-1">
       <div className="text-sm font-medium">{r.label}</div>
       <p className="text-xs text-muted-foreground">You run this — the hub never reads or stores the secret value:</p>
-      <CodeBlock code={r.commands.join('\n')} />
+      {restartNote ? (
+        r.commands.map((c, i) => (
+          <div key={i} className="space-y-1">
+            <CodeBlock code={c} />
+            {restartNote.includes(i) && <p className="text-xs text-muted-foreground">{RESTART_NOTE}</p>}
+          </div>
+        ))
+      ) : (
+        <CodeBlock code={r.commands.join('\n')} />
+      )}
     </div>
   );
 }
@@ -127,12 +138,21 @@ export function Onboarding({
                   <p className="text-sm text-muted-foreground">
                     Claude subscription: {found(status?.models.claude)} · Codex: {found(status?.models.codex)}
                   </p>
-                  {state !== 'done' && (
-                    <>
-                      <Commands id="claude" />
-                      <Commands id="codex" />
-                    </>
-                  )}
+                  <div role="radiogroup" aria-label="Model credential" className="flex gap-2">
+                    {(['claude', 'codex'] as const).map((m) => (
+                      <Button
+                        key={m}
+                        role="radio"
+                        aria-checked={stored.model === m}
+                        variant={stored.model === m ? 'outlined' : 'text'}
+                        color="secondary"
+                        onClick={() => onStored({ ...stored, model: m })}
+                      >
+                        {RUN_STEPS[m].label}
+                      </Button>
+                    ))}
+                  </div>
+                  {state !== 'done' && <Commands id={stored.model} />}
                 </div>
               )}
               {id === 'repo' && (
