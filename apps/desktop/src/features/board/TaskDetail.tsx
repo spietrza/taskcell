@@ -5,6 +5,7 @@ import { ArrowLeft, Play } from 'lucide-react';
 import type { RunSummary } from '../../taskcell-output';
 import { SpecPane } from '../inspector/SpecPane';
 import { IssueHistory } from './IssueHistory';
+import { AppliedLessons } from '../lessons/Lessons';
 import { taskRefKey } from './taskref';
 
 export function TaskDetail({
@@ -80,6 +81,8 @@ export function TaskDetail({
           </div>
         </div>
       </div>
+
+      <AppliedLessons project={project} taskId={taskId} />
 
       <IssueHistory project={project} taskId={taskId} />
     </div>

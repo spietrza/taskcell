@@ -1,7 +1,7 @@
 // Hub commands: run history: persisted run records, events, CI imports, live sessions. One module per feature — contract, validation and handler live here;
 // `pnpm gen:wire` derives Commands, COMMAND_NAMES and dispatch from it (see CONTRIBUTING.md).
 import { BadRequestError, invokeCoreMethod } from '../../sidecar/sidecar.js';
-import { defaultRunsRoot, remoteRunsRoot, listRunSummaries, readRunDetail } from '../runs.js';
+import { defaultRunsRoot, remoteRunsRoot, listRunSummaries, readRunDetail, readConflictStats } from '../runs.js';
 import { withCiRuns } from '../ci-metrics.js';
 import { readRunEvents } from '../run-events.js';
 import { isSafeTaskId } from '../../core/state-path.js';
@@ -10,7 +10,7 @@ import * as projects from '../projects.js';
 import * as teams from '../teams.js';
 import * as remote from '../remote.js';
 import { taskRefKey } from '../../tasks/board.js';
-import type { ActiveRun, RemoteImport, RemoteRun, RepoReadFailure, RepoStamp, RunDetail, RunSource, RunSummary, SessionRead } from '../../wire.js';
+import type { ActiveRun, ConflictStats, RemoteImport, RemoteRun, RepoReadFailure, RepoStamp, RunDetail, RunSource, RunSummary, SessionRead } from '../../wire.js';
 import { defineCommands, requireString, optionalString, optionalNumber } from '../command-kit.js';
 
 export interface RunsCommands {
@@ -31,6 +31,8 @@ export interface RunsCommands {
   import_remote_run: { args: { repoPath: string; runId: number }; result: RemoteImport };
   list_active: { args: { repoPath: string }; result: ActiveRun[] };
   read_session: { args: { sessionFile: string }; result: SessionRead };
+  /** HUB_ONLY, read-only: conflicts with the base per week (total, auto-resolved, left for a human) and the top conflicted files, as `taskcell stats` prints them. */
+  conflict_stats: { args: { repoPath: string }; result: ConflictStats };
 }
 
 /** `read_run`'s `source` (wire's `RunSource`) → the root the records live under: the project's own
@@ -120,4 +122,5 @@ export const commands = defineCommands<RunsCommands>({
     teams.assertRepoInRoots(await roots(), real);
     return readSession(real);
   },
+  conflict_stats: async ({ args, allow }) => readConflictStats(await allow(requireString(args, 'repoPath'))),
 });

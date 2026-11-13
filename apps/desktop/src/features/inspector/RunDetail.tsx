@@ -5,6 +5,7 @@ import { StageCard } from './StageCard';
 import { DiffView } from './DiffView';
 import { TranscriptView } from './TranscriptView';
 import { SpecPane } from './SpecPane';
+import { AppliedLessons } from '../lessons/Lessons';
 import { ExternalLink, hostName } from '../../components/ExternalLink';
 import type { RunDetail as RunDetailT } from '../../taskcell-output';
 
@@ -43,6 +44,7 @@ export function RunDetail({ detail, project }: { detail: RunDetailT; project: st
           </div>
         )}
         <ProofGate proof={detail.proof} />
+        <AppliedLessons project={project} taskId={detail.taskId} />
         <div className="space-y-2">
           {detail.stages.map((s, i) => (
             <StageCard key={i} stage={s} />

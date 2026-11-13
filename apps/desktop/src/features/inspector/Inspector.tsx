@@ -21,6 +21,7 @@ import {
 } from '../../ipc';
 import { RunList } from './RunList';
 import { CostBreakdown } from './CostBreakdown';
+import { ConflictStats } from './ConflictStats';
 import { RunDetail } from './RunDetail';
 import { LiveRun } from './LiveRun';
 import { RemoteRuns } from './RemoteRuns';
@@ -536,6 +537,7 @@ export function Inspector({
         <div className="flex min-h-0 flex-1 flex-col">
           <RepoFailures failures={failures} />
           {!allRepos && <CostBreakdown project={project} />}
+          {!allRepos && <ConflictStats repoPath={project} refreshKey={tick} />}
           <RunList runs={runs} active={active} showRepo={allRepos} hub={filter} onHub={onFilter} projects={allRepos ? projects : []} onSelect={open} onOpenActive={setLiveRun} onNewTask={onNewTask} />
         </div>
       ) : screen === 'board' ? (

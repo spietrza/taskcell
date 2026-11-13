@@ -3,7 +3,7 @@ import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
 vi.mock('../core/metrics-branch.js', () => ({ readBranchFile: vi.fn(), readBranchMetrics: vi.fn(), METRICS_BRANCH_DEFAULT: 'taskcell-metrics' }));
 vi.mock('../approver/outcome.js', () => ({ collectApproverScorecard: vi.fn() }));
 
-import { readBranchFile } from '../core/metrics-branch.js';
+import { readBranchFile, readBranchMetrics } from '../core/metrics-branch.js';
 import { collectApproverScorecard } from '../approver/outcome.js';
 import { parseCli } from './args.js';
 import { statsCommand } from './stats.js';
@@ -80,5 +80,28 @@ describe('stats --approver', () => {
     vi.mocked(readBranchFile).mockResolvedValue('');
     await runCli(['stats', '--approver', '--branch', 'custom-metrics']);
     expect(readBranchFile).toHaveBeenCalledWith('/work', expect.objectContaining({ branch: 'custom-metrics' }));
+  });
+});
+
+describe('stats base merges', () => {
+  const merge = JSON.stringify({ evt: 'base_merge', ts: '2026-11-10T10:00:00Z', repo: 'o/r', pr: 1, base: 'main', outcome: 'conflicted', conflictedFiles: ['a.ts'], resolvedBy: 'agent', round: 'merge-only' });
+  const run = JSON.stringify({ evt: 'run_complete', taskId: 't', stage: 'implementer', costUsd: 1, inputTokens: 1, outputTokens: 1, cacheReadInputTokens: 0, durationMs: 1000 });
+
+  it('prints the conflict tables on their own when only base_merge lines exist', async () => {
+    vi.mocked(readBranchMetrics).mockResolvedValue(`${merge}\n`);
+    await runCli(['stats', '--branch', 'm']);
+    const out = logs.join('\n');
+    expect(out).toContain('BASE MERGES');
+    expect(out).toContain('TOP CONFLICTED FILES');
+    expect(out).not.toContain('BY TASK');
+  });
+
+  it('prints them after the run tables, and adds a conflicts key to --json', async () => {
+    vi.mocked(readBranchMetrics).mockResolvedValue(`${run}\n${merge}\n`);
+    await runCli(['stats', '--branch', 'm']);
+    expect(logs.join('\n')).toMatch(/BY TASK[\s\S]*BASE MERGES/);
+    logs.length = 0;
+    await runCli(['stats', '--branch', 'm', '--json']);
+    expect(JSON.parse(logs.join('\n')).conflicts.total).toEqual({ merges: 1, conflicts: 1, autoResolved: 1, leftForHuman: 0 });
   });
 });

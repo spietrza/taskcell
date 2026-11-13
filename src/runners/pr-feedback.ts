@@ -8,6 +8,7 @@ import type { PullRequestReviewTarget } from './pr-review.js';
 import type { GhRunner } from '../tasks/github.js';
 import { redactForPublish } from '../core/secret-scan.js';
 import { formatConflictFiles } from './base-merge.js';
+import { mergeOnlyMarker } from './re-review.js';
 
 export interface FeedbackItem {
   source: 'thread' | 'review' | 'comment';
@@ -512,8 +513,14 @@ export function revisionBudgetResetAt(fb: PullRequestFeedback, opts: FeedbackTru
  * "vanguard" token from the visible source of a client-repo comment; both forms are recognised by
  * REVISION_MARKER_RE, so dedup/round-counting are unaffected.
  */
-export const revisionMarker = (headRefOid: string, whiteLabel = false): string =>
-  whiteLabel ? `<!-- revision: ${headRefOid} -->` : `<!-- taskcell-revision: ${headRefOid} -->`;
+export const revisionMarker = (headRefOid: string, whiteLabel = false, mergeOnly = false): string => {
+  // The extra token keeps REVISION_MARKER_RE from matching (so the round is not counted toward the cap) while hasRevisionMarker still does.
+  const tail = mergeOnly ? `${headRefOid} merge-only` : headRefOid;
+  return whiteLabel ? `<!-- revision: ${tail} -->` : `<!-- taskcell-revision: ${tail} -->`;
+};
+
+/** Feedback that mentions a conflict. Wording only: it may let a round merge the base, never decide what the round did. */
+export const isConflictItem = (item: FeedbackItem): boolean => /\bconflict/i.test(item.body);
 
 const REFERENCE_KIND: Record<FeedbackItem['source'], string> = {
   review: 'review',
@@ -542,9 +549,10 @@ export function buildItemReply(
   commitSha: string,
   headRefOid: string,
   whiteLabel = false,
+  mergeOnly = false,
 ): string {
   const detail = point.trim() !== '' ? `: ${point.trim()}` : '.';
-  return [referenceSnippet(item), '', `Addressed in commit ${commitSha}${detail}`, '', revisionMarker(headRefOid, whiteLabel)].join('\n');
+  return [referenceSnippet(item), '', `Addressed in commit ${commitSha}${detail}`, '', revisionMarker(headRefOid, whiteLabel, mergeOnly)].join('\n');
 }
 
 export interface RevisionSummaryInput {
@@ -559,6 +567,8 @@ export interface RevisionSummaryInput {
   whiteLabel?: boolean;
   /** The base was merged into the branch this round (or, when `rebased`, the branch was rebased onto it); `files` are the conflicted files that were resolved. */
   mergedBase?: BaseResolution;
+  /** The round changed nothing but the merge of the base (and the conflicted files it resolved): it does not count toward the revision cap. */
+  mergeOnly?: boolean;
   /** The base could not be checked for conflicts this round (e.g. the fetch failed). */
   baseCheckSkipped?: { base: string; reason: string };
   /** Per-item answers to the blocking checklist (unanswered items fail the revision before this is built). */
@@ -603,9 +613,16 @@ export function buildRevisionSummary(input: RevisionSummaryInput): string {
     const { base, files, rebased } = input.mergedBase;
     if (rebased === true) {
       lines.push('', '### Rebased onto base', '', `- Rebased the branch onto \`${base}\` (force-pushed with a lease) instead of merging it: \`${base}\` changed CI config, which the push token may not merge into a branch; resolved conflicts in: ${formatConflictFiles(files)}`);
+    } else if (files.length === 0) {
+      lines.push('', '### Merged base', '', `- Merged \`${base}\` into the branch; git merged it cleanly (no conflicts).`);
     } else {
       lines.push('', '### Merged base', '', `- Merged \`${base}\` into the branch; resolved conflicts in: ${formatConflictFiles(files)}`);
     }
+  }
+
+  if (input.mergeOnly === true) {
+    lines.push('', '### Merge-only round', '', '- This round only merged the base into the branch, so it does not count toward the revision cap.');
+    lines.push('', mergeOnlyMarker({ from: input.headRefOid, to: input.commitSha, files: input.mergedBase?.files ?? [] }));
   }
 
   if (input.baseCheckSkipped !== undefined) {
@@ -619,7 +636,7 @@ export function buildRevisionSummary(input: RevisionSummaryInput): string {
     `- Typecheck: ${input.verification.typecheck}`,
     `- Tests: ${input.verification.test}`,
     '',
-    revisionMarker(input.headRefOid, input.whiteLabel === true),
+    revisionMarker(input.headRefOid, input.whiteLabel === true, input.mergeOnly === true),
   );
 
   return lines.join('\n');

@@ -8,6 +8,7 @@ import {
   revisionBudgetResetAt,
   revisionCapMarker,
   revisionMarker,
+  hasRevisionMarker,
   referenceSnippet,
   buildItemReply,
   buildRevisionSummary,
@@ -360,6 +361,22 @@ async function fetchedRounds(payload: ReturnType<typeof makeGqlPayload>): Promis
   const gh = vi.fn().mockResolvedValue(JSON.stringify(payload));
   return countRevisionRoundsFromFeedback(await fetchPullRequestFeedback({ repoSlug: 'o/r', number: 7 }, gh));
 }
+
+describe('merge-only revision markers', () => {
+  it('are recognised as revision comments but not counted as rounds', async () => {
+    const body = `Done\n\n${revisionMarker('abc', false, true)}`;
+    expect(body).toContain('<!-- taskcell-revision: abc merge-only -->');
+    expect(hasRevisionMarker(body)).toBe(true);
+    expect(await fetchedRounds(makeGqlPayload({ comments: [{ author: { login: 'github-actions' }, body, createdAt: '2024-01-11T10:00:00Z' }] }))).toBe(0);
+    expect(await fetchedRounds(makeGqlPayload({ comments: [{ author: { login: 'github-actions' }, body: revisionMarker('abc'), createdAt: '2024-01-11T10:00:00Z' }] }))).toBe(1);
+  });
+
+  it('the summary states the round does not count toward the cap', () => {
+    const text = buildRevisionSummary({ repoSlug: 'o/r', number: 1, headRefOid: 'abc', commitSha: 'def', addressed: [], deferred: [], verification: { typecheck: 'pass', test: 'pass' }, mergeOnly: true, mergedBase: { base: 'main', files: ['a.ts'] } });
+    expect(text).toContain('does not count toward the revision cap');
+    expect(text).toContain('<!-- merge-only: {"from":"abc","to":"def","files":["a.ts"]} -->');
+  });
+});
 
 describe('countRevisionRoundsFromFeedback over fetched feedback', () => {
   it('counts repeated markers for the same head as one revision round', async () => {
