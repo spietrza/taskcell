@@ -64,10 +64,10 @@ const empty = (period: ApproverPeriod, info: ApproverModeInfo, hint: string): Ap
 
 /** The scorecard `taskcell stats --approver` prints, restricted to decisions made in the period, summarised. */
 export async function approverScorecard(repoPath: string, period: ApproverPeriod, now: number = Date.now()): Promise<ApproverScorecard> {
-  const [info, text] = await Promise.all([
-    readApproverMode(repoPath),
-    readBranchFile(repoPath, { file: DECISIONS_FILE }).catch(() => ''),
-  ]);
+  // Sequential, never Promise.all: both fetch, and readBranchFile reads the tip back from FETCH_HEAD, which a
+  // concurrent fetch of the base branch would overwrite (no or the wrong decisions.jsonl, so a false `no-data`).
+  const info = await readApproverMode(repoPath);
+  const text = await readBranchFile(repoPath, { file: DECISIONS_FILE }).catch(() => '');
   const all = parseDecisions(text);
   if (all.length === 0) return empty(period, info, `No approver decisions on the metrics branch yet. ${NO_DECISIONS_HINT}`);
   const since = period === 'all' ? undefined : now - PERIOD_DAYS[period] * DAY_MS;

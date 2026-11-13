@@ -81,6 +81,24 @@ describe('approver commands', () => {
     expect(old.hint).toMatch(/last 30 days/);
   });
 
+  test('the policy read and the metrics-branch read never overlap (both fetch, and the metrics read uses FETCH_HEAD)', async () => {
+    mockWorld(DECISIONS, { act: false });
+    let policyDone = false;
+    let overlapped = false;
+    vi.spyOn(policy, 'loadPolicy').mockImplementation(async () => {
+      await new Promise((r) => setTimeout(r, 5));
+      policyDone = true;
+      return { policy: { enabled: true, act: false } as ApproverPolicy, policyHash: 'h', raw: '{}' };
+    });
+    vi.spyOn(metricsBranch, 'readBranchFile').mockImplementation(async () => {
+      if (!policyDone) overlapped = true;
+      return DECISIONS;
+    });
+    const card = await approverCard.approverScorecard(await tmpGitRepo(), '90d', NOW);
+    expect(overlapped).toBe(false);
+    expect(card.status).toBe('ok');
+  });
+
   test('mode comes from the policy: enabled+act is act', async () => {
     mockWorld(DECISIONS, { act: true });
     expect((await approverCard.readApproverMode(await tmpGitRepo())).mode).toBe('act');
