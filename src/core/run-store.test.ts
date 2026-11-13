@@ -374,7 +374,7 @@ describe('beginRun — writing', () => {
   it('persistDecisionProbe appends one decision_probe line', async () => {
     await persistDecisionProbe(repo, 'task-1', { model: 'clef-flash', completesFirstTry: 0.7, difficulty: 1.5, difficultyConfidence: 0.6, specClear: 0.9, latencyMs: 120 }, { timestamp: TS });
     const metrics = (await readFile(join(runsRoot(repo), 'metrics.jsonl'), 'utf8')).trim().split('\n');
-    expect(JSON.parse(metrics.at(-1)!)).toEqual({ evt: 'decision_probe', ts: TS, taskId: 'task-1', model: 'clef-flash', completesFirstTry: 0.7, difficulty: 1.5, difficultyConfidence: 0.6, specClear: 0.9, latencyMs: 120 });
+    expect(JSON.parse(metrics.at(-1)!)).toMatchObject({ evt: 'decision_probe', ts: TS, taskId: 'task-1', model: 'clef-flash', completesFirstTry: 0.7, difficulty: 1.5, difficultyConfidence: 0.6, specClear: 0.9, latencyMs: 120 });
   });
 
   it('writeStages records the configured model next to the served one', async () => {

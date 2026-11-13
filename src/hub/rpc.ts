@@ -34,7 +34,8 @@ import * as projects from './projects.js';
 import * as teams from './teams.js';
 import type { TeamRole } from '../wire.js';
 import * as remote from './remote.js';
-import { AuditLog, TOKEN_ACTOR, type Actor, type AuditAction, type AuditOutcome } from './audit.js';
+import { AuditWriteError } from '../core/audit.js';
+import { AuditLog, TOKEN_ACTOR, auditActorOf, reportAuditFailure, type Actor, type AuditAction, type AuditOutcome } from './audit.js';
 import { startGithubTask, triggerLabelsFor } from './start-task.js';
 import { enableFactory, factoryPlanTargets, noScripts, type FactoryPlan, type FactoryProviderId } from './enable-factory.js';
 
@@ -466,6 +467,7 @@ async function dispatchInner(ctx: RpcContext, cmd: string, rawArgs: unknown, cal
       const params = (args.params ?? {}) as Record<string, unknown>;
       // startedBy comes from the request's actor, never from the client's params.
       const startedBy = actorOf(ctx).login;
+      const actor = auditActorOf(actorOf(ctx));
       // One audit line: at acceptance (the call then stays pending until the run ends), or, when the
       // run is refused before that, one refusal line.
       let accepted = false;
@@ -476,7 +478,8 @@ async function dispatchInner(ctx: RpcContext, cmd: string, rawArgs: unknown, cal
         const validated = validateCoreMethod('createRun', { ...params, repoPath: real }) as CreateRunParams;
         const log = (action: AuditAction, runId: string, outcome: AuditOutcome): void => {
           accepted = true;
-          void ctx.audit?.record({ login: startedBy, action, target: runId, outcome });
+          // The run is already admitted (this call stays pending until it ends): an unwritable audit log is reported, not thrown.
+          void ctx.audit?.record({ login: startedBy, actor, action, target: runId, outcome }).catch(reportAuditFailure);
         };
         return await ctx.runSession.createRun({ ...validated, startedBy }, {
           onStarted: (id) => log('run-start', id, 'ok'),
@@ -486,7 +489,7 @@ async function dispatchInner(ctx: RpcContext, cmd: string, rawArgs: unknown, cal
       } catch (err) {
         if (!accepted) {
           const repoPath = optionalString(params, 'repoPath');
-          await ctx.audit?.record({ login: startedBy, action: 'run-start', ...(repoPath !== undefined ? { target: repoPath } : {}), outcome: outcomeOf(err) });
+          await ctx.audit?.record({ login: startedBy, actor, action: 'run-start', ...(repoPath !== undefined ? { target: repoPath, subject: { repo: repoPath } } : {}), outcome: outcomeOf(err) }).catch(reportAuditFailure);
         }
         throw err;
       }
@@ -802,13 +805,17 @@ export async function dispatchRpc(ctx: RpcContext, cmd: string, rawArgs: unknown
   const detail = await spec.detail?.(ctx, args);
   const okOutcome = spec.okOutcome?.(ctx, args) ?? 'ok';
   const line = (outcome: AuditOutcome): Promise<void> =>
-    audit.record({ login, action: spec.action, ...(target !== undefined ? { target } : {}), outcome, ...(detail !== undefined ? { detail } : {}) });
+    audit.record({ login, actor: auditActorOf(ctx.actor ?? TOKEN_ACTOR), action: spec.action, ...(target !== undefined ? { target } : {}), outcome, ...(detail !== undefined ? { detail } : {}) });
   try {
     const result = await dispatchInner(ctx, cmd, rawArgs, caller);
-    await line(okOutcome);
+    // Fail closed: the change is already applied, so the caller is told it went unrecorded rather than that it failed.
+    await line(okOutcome).catch((e: unknown) => {
+      throw new AuditWriteError(`${cmd} was applied but its audit line could not be written: ${e instanceof Error ? e.message : String(e)}`, { cause: e });
+    });
     return result;
   } catch (err) {
-    await line(outcomeOf(err));
+    // Fail closed on success (the caller is told the action went unrecorded); on a failed action keep the original error.
+    await line(outcomeOf(err)).catch(reportAuditFailure);
     throw err;
   }
 }
