@@ -10,6 +10,10 @@ use serde::{Deserialize, Serialize};
 #[serde(rename_all = "camelCase", default)]
 pub struct AppConfig {
     pub source: Option<String>, // github | gitlab | linear
+    /// Per-project task source: github | github-project | gitlab | linear | hub. Unset = github.
+    pub task_source: Option<String>,
+    /// Per-project run location: github-actions | gitlab-ci | watch | local. Unset = github-actions.
+    pub run_location: Option<String>,
     pub label: Option<String>,
     /// Linear team key (e.g. `DEV`) — selects which team's issues the board lists. Linear-only;
     /// GitHub/GitLab scope by repo + `label`.

@@ -493,7 +493,16 @@ export interface Project {
   runningCount: number;
   runsLast24h: number;
   color?: string | null;
+  /** Where this project's tasks come from (`app.json` `taskSource`); unset = GitHub Issues. */
+  taskSource?: TaskSourceId | null;
+  /** Where this project's work runs (`app.json` `runLocation`); unset = GitHub Actions. */
+  runLocation?: RunLocationId | null;
 }
+
+/** Per-project task source: GitHub Issues, GitHub Projects v2, GitLab Issues, Linear or the hub board. */
+export type TaskSourceId = 'github' | 'github-project' | 'gitlab' | 'linear' | 'hub';
+/** Per-project run location: GitHub Actions, GitLab CI, the user's own server (`watch`) or the local hub. */
+export type RunLocationId = 'github-actions' | 'gitlab-ci' | 'watch' | 'local';
 
 export interface ActiveRun {
   taskId: string;
@@ -520,6 +529,10 @@ export interface SessionRead {
  * `Option`, and a hand-edited `app.json` may spell a default that way too. */
 export interface AppConfig {
   source?: string | null;
+  /** Per-project task source (see `TaskSourceId`); unset = GitHub Issues. */
+  taskSource?: string | null;
+  /** Per-project run location (see `RunLocationId`); unset = GitHub Actions. */
+  runLocation?: string | null;
   label?: string | null;
   team?: string | null;
   color?: string | null;
