@@ -116,9 +116,9 @@ The flags work on `run` and `watch`; in the GitHub Actions workflows the same na
 | Review | GPT-5.6 Sol on Codex | Claude Fable 5.2 | Claude Fable 5.2 |
 | Escalation | Claude Fable 5.2 | Claude Fable 5.2 | Claude Fable 5.2 |
 | You pay for | Claude plan + ChatGPT plan | Claude plan | Claude plan + OpenRouter credit |
-| How far we tested it | Ran this repo's factory for five weeks | Runs this repo's factory today | Two issues replayed locally |
+| Track record | In production here from June to November 2026: 90+ merged pull requests reviewed | In production here since November 2026: nearly 80 merged pull requests reviewed | Early pilot: passed review on an easy issue where Sonnet's change did not |
 
-**1. Recommended: the reviewer is from another vendor.**
+**1. Recommended: the reviewer is from another vendor.** This is the setup Taskcell was built with: most of this repository was written by Sonnet and reviewed by Codex.
 
 ```bash
 --spec-model opus --provider claude --provider-model sonnet \
