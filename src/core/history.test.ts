@@ -144,6 +144,14 @@ describe('Git host events', () => {
     expect(events.filter((e) => e.kind === 'spec')).toHaveLength(1);
     expect(events.filter((e) => e.kind === 'comment' && e.what.startsWith('commented'))).toHaveLength(1);
   });
+  it.each(['## Taskcell Tech Spec', '## Vanguard Tech Spec'])('parses a "%s" comment as a spec event', async (heading) => {
+    const gh = async (args: string[]): Promise<string> =>
+      args.at(-1)!.endsWith('/issues/7/timeline')
+        ? JSON.stringify([[{ event: 'commented', id: 6, created_at: '2026-01-01T00:01:00Z', actor: { login: 'github-actions[bot]' }, body: `${heading}\n...` }]])
+        : '[[]]';
+    const { events } = await fetchGithubHostEvents('o/r', 7, [], gh);
+    expect(events.filter((e) => e.kind === 'spec')).toHaveLength(1);
+  });
   it('reports an unreadable host as unavailable', async () => {
     const r = await fetchGithubHostEvents('o/r', 7, [], async () => { throw new Error('x'); });
     expect(r.unavailable).toEqual(['github']);
