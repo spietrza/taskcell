@@ -1,5 +1,6 @@
 import { describe, it, expect } from 'vitest';
 import { execa } from 'execa';
+import { readEnv } from '../core/env.js';
 
 /**
  * The test that would have caught the bug this file exists because of.
@@ -15,7 +16,7 @@ import { execa } from 'execa';
  * Opt-in — it needs the real `linear` binary and a login, which CI has neither of. Run with:
  *   TASKCELL_LINEAR_IT=1 pnpm vitest run src/tasks/linear-contract.test.ts
  */
-const IT = process.env['TASKCELL_LINEAR_IT'] === '1';
+const IT = readEnv('TASKCELL_LINEAR_IT') === '1';
 
 /** Exit code only — never capture the output of `auth token`, which prints a live credential. */
 async function exitCode(args: string[]): Promise<number> {

@@ -7,6 +7,7 @@ import { DockerSandboxProvider, isBenignTarExit } from './docker.js';
 import { resolveSandboxProfile } from './limits.js';
 import { prunedNames } from './copy-back.js';
 import { WorktreeManager } from '../worktree/manager.js';
+import { readEnv } from '../core/env.js';
 
 /**
  * Contract suite for the sandbox interface (1.15.2 follow-ups #745-#748, which all lived in this gap):
@@ -24,7 +25,7 @@ import { WorktreeManager } from '../worktree/manager.js';
 const CONTRACT_ENV = 'TASKCELL_CONTRACT';
 const TASKCELL_IMAGE = 'taskcell-sandbox:latest';
 
-const optedIn = process.env[CONTRACT_ENV] === '1';
+const optedIn = readEnv(CONTRACT_ENV) === '1';
 
 const probe = (args: string[]): boolean => {
   try {
