@@ -1,8 +1,10 @@
 // Teams: a name, members (login + role) and repositories, stored next to projects.json.
 import { randomUUID } from 'node:crypto';
-import { copyFile, mkdir, readFile, rename, writeFile } from 'node:fs/promises';
-import { join } from 'node:path';
-import type { Team, TeamMember } from '../wire.js';
+import { copyFile, mkdir, readFile, realpath, rename, writeFile } from 'node:fs/promises';
+import { join, sep } from 'node:path';
+import { BadRequestError } from '../sidecar/sidecar.js';
+import type { Team, TeamMember, TeamRole } from '../wire.js';
+import type { HubUser } from './auth.js';
 import { loadPaths } from './projects.js';
 
 const DEFAULT_TEAM_ID = 'default';
@@ -112,6 +114,114 @@ export async function listTeams(configDir: string): Promise<Team[]> {
   return stored.map((t) => (t.id === DEFAULT_TEAM_ID ? { ...t, repositories: paths } : t));
 }
 
-export async function getTeam(configDir: string, id: string): Promise<Team | undefined> {
-  return (await listTeams(configDir)).find((t) => t.id === id);
+/** Who is calling: a hub user, and whether they hold the hub token (the owner — admin of every team,
+ * which in token-only mode is the single default team). A request without a caller does not exist:
+ * the server always resolves one, so access can never fail open. */
+export interface Caller {
+  user: HubUser;
+  owner: boolean;
+}
+
+const same = (a: string, b: string): boolean => a.toLowerCase() === b.toLowerCase();
+
+/** A member `login` is the user's Better Auth id or provider-VERIFIED e-mail. The display name is
+ * deliberately not matched: it comes from the provider profile and the user can edit it. */
+function roleIn(team: Team, user: HubUser): TeamRole | undefined {
+  const keys = [user.id, ...(user.emailVerified === true ? [user.email] : [])].filter((k) => k !== '');
+  return team.members.find((m) => keys.some((k) => same(m.login, k)))?.role;
+}
+
+/** The teams the caller belongs to (the owner: all of them). */
+export async function callerTeams(configDir: string, caller: Caller): Promise<Team[]> {
+  const all = await listTeams(configDir);
+  return caller.owner ? all : all.filter((t) => roleIn(t, caller.user) !== undefined);
+}
+
+/** The selected team (`teamId`, else the caller's first), refused when the caller is not in it. */
+export async function selectTeam(configDir: string, caller: Caller, teamId?: string): Promise<Team> {
+  const mine = await callerTeams(configDir, caller);
+  const team = teamId === undefined ? mine[0] : mine.find((t) => t.id === teamId);
+  if (team === undefined) throw new BadRequestError(teamId === undefined ? 'you are not a member of any team' : `not a member of team: ${teamId}`);
+  return team;
+}
+
+/** The hub-wide commands (credentials, fleet, project registry) are the owner's. */
+export function assertOwner(caller: Caller): void {
+  if (!caller.owner) throw new BadRequestError('only the hub owner can do this');
+}
+
+function assertAdmin(team: Team, caller: Caller): void {
+  if (!caller.owner && roleIn(team, caller.user) !== 'admin') throw new BadRequestError(`only a team admin can change team ${team.id}`);
+}
+
+/** The realpath'd repositories of the caller's teams; `undefined` = unrestricted (the owner). Compute
+ * once per request and pass to `repoInRoots`. */
+export async function callerRepoRoots(configDir: string, caller: Caller): Promise<string[] | undefined> {
+  if (caller.owner) return undefined;
+  const repos = (await callerTeams(configDir, caller)).flatMap((t) => t.repositories);
+  return Promise.all(repos.map((r) => realpath(r).catch(() => r)));
+}
+
+/** `path` is one of `roots` or lies inside one. */
+export function repoInRoots(roots: readonly string[] | undefined, path: string): boolean {
+  return roots === undefined || roots.some((r) => path === r || path.startsWith(r.endsWith(sep) ? r : r + sep));
+}
+
+/** Refuse a repository (or a path inside one) that none of the caller's teams holds. */
+export function assertRepoInRoots(roots: readonly string[] | undefined, repoPath: string): void {
+  if (!repoInRoots(roots, repoPath)) throw new BadRequestError(`repository is not in any of your teams: ${repoPath}`);
+}
+
+/** Authorise (inside the write queue, so a concurrent demotion cannot slip past), edit, persist. The
+ * team must keep an admin if it had one. */
+async function change(configDir: string, caller: Caller, id: string, edit: (t: Team) => void): Promise<Team> {
+  const run = queue.then(async () => {
+    const all = await ensure(configDir);
+    const team = all.find((t) => t.id === id);
+    if (team === undefined || (!caller.owner && roleIn(team, caller.user) === undefined)) throw new BadRequestError(`not a member of team: ${id}`);
+    assertAdmin(team, caller);
+    const hadAdmin = team.members.some((m) => m.role === 'admin');
+    edit(team);
+    if (hadAdmin && !team.members.some((m) => m.role === 'admin')) throw new BadRequestError('a team must keep at least one admin');
+    await saveTeams(configDir, all);
+    return team;
+  });
+  queue = run.catch(() => undefined);
+  return run;
+}
+
+export const addMember = (configDir: string, caller: Caller, id: string, m: TeamMember): Promise<Team> =>
+  change(configDir, caller, id, (t) => {
+    t.members = [...t.members.filter((x) => !same(x.login, m.login)), m];
+  });
+
+export const removeMember = (configDir: string, caller: Caller, id: string, login: string): Promise<Team> =>
+  change(configDir, caller, id, (t) => {
+    t.members = t.members.filter((x) => !same(x.login, login));
+  });
+
+const DEFAULT_MIRRORS = 'the default team mirrors the project list; use add_project / remove_project';
+
+export const addRepository = (configDir: string, caller: Caller, id: string, path: string): Promise<Team> =>
+  change(configDir, caller, id, (t) => {
+    if (t.id === DEFAULT_TEAM_ID) throw new BadRequestError(DEFAULT_MIRRORS);
+    if (!t.repositories.includes(path)) t.repositories.push(path);
+  });
+
+export const removeRepository = (configDir: string, caller: Caller, id: string, path: string): Promise<Team> =>
+  change(configDir, caller, id, (t) => {
+    if (t.id === DEFAULT_TEAM_ID) throw new BadRequestError(DEFAULT_MIRRORS);
+    t.repositories = t.repositories.filter((r) => r !== path);
+  });
+
+/** A project removed hub-wide leaves every team's repository list. */
+export function purgeRepository(configDir: string, path: string): Promise<void> {
+  const run = queue.then(async () => {
+    const all = await ensure(configDir);
+    if (!all.some((t) => t.repositories.includes(path))) return;
+    for (const t of all) t.repositories = t.repositories.filter((r) => r !== path);
+    await saveTeams(configDir, all);
+  });
+  queue = run.catch(() => undefined);
+  return run;
 }

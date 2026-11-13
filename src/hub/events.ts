@@ -26,6 +26,8 @@ interface BufferedEvent {
 interface ClientState {
   res: ServerResponse;
   pendingWrites: number;
+  /** Per-subscriber filter (a team member sees only their repositories' events); absent = everything. */
+  visible?: (data: unknown) => boolean;
 }
 
 export class EventBus {
@@ -48,6 +50,7 @@ export class EventBus {
   }
 
   private writeEntry(client: ClientState, entry: BufferedEvent): void {
+    if (client.visible !== undefined && !client.visible(entry.data)) return;
     const flushed = this.tryWrite(client.res, encodeEvent(entry.id, entry.event, entry.data));
     if (flushed === undefined) return; // write threw; client already dropped
     if (flushed) {
@@ -83,7 +86,7 @@ export class EventBus {
    * client cap is hit. `req`'s `Last-Event-ID` header, when present, replays buffered events newer than
    * it, or emits a single `stream-reset` frame when the gap exceeds the ring's retention.
    */
-  subscribe(req: IncomingMessage, res: ServerResponse): boolean {
+  subscribe(req: IncomingMessage, res: ServerResponse, visible?: (data: unknown) => boolean): boolean {
     if (this.clients.size >= MAX_SSE_CLIENTS) {
       res.writeHead(503, { 'content-type': 'text/plain' });
       res.end('too many connected event-stream clients');
@@ -95,7 +98,7 @@ export class EventBus {
       connection: 'keep-alive',
       'x-accel-buffering': 'no',
     });
-    const client: ClientState = { res, pendingWrites: 0 };
+    const client: ClientState = { res, pendingWrites: 0, ...(visible !== undefined ? { visible } : {}) };
     this.clients.set(res, client);
 
     const lastEventIdHeader = req.headers['last-event-id'];

@@ -4,7 +4,11 @@ import { join } from 'node:path';
 import { randomBytes } from 'node:crypto';
 import { afterEach, describe, expect, it } from 'vitest';
 import { CredentialStore } from './credentials.js';
-import { dispatchRpc, type RpcContext } from './rpc.js';
+import { dispatchRpc as dispatch, type RpcContext } from './rpc.js';
+import type { Caller } from './teams.js';
+
+const OWNER: Caller = { user: { id: 'local-owner', email: 'owner@hub.invalid', name: 'Owner' }, owner: true };
+const dispatchRpc = (ctx: RpcContext, cmd: string, args: unknown, caller: Caller = OWNER): Promise<unknown> => dispatch(ctx, cmd, args, caller);
 
 const dirs: string[] = [];
 async function dir(): Promise<string> {
