@@ -2,7 +2,7 @@ import { mkdir, mkdtemp, readFile, readdir, symlink, utimes, writeFile } from 'n
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { execa } from 'execa';
-import { describe, expect, it } from 'vitest';
+import { describe, expect, it, vi } from 'vitest';
 import {
   appendAudit,
   AuditWriteError,
@@ -188,7 +188,10 @@ describe('audit record module', () => {
     const { adapter, dir, file } = await setup();
     await mkdir(join(dir, 'a.jsonl.lock'));
     await writeFile(join(dir, 'a.jsonl.lock', 'x'), '');
+    const warn = vi.spyOn(console, 'warn').mockImplementation(() => undefined);
     await expect(appendAudit(audit, adapter, { n: 0 }, ctx)).resolves.toBe(1);
+    expect(warn).toHaveBeenCalledWith(expect.stringContaining('is a directory; removing it'));
+    warn.mockRestore();
     expect(await readFile(file, 'utf8')).toContain('"n":0');
   });
 
@@ -208,7 +211,11 @@ describe('audit record module', () => {
   it('skips a null or non-object line and keeps appending', async () => {
     const { adapter, file } = await setup();
     await writeFile(file, 'null\n[1]\n42\n');
+    const warn = vi.spyOn(console, 'warn').mockImplementation(() => undefined);
     await expect(appendAudit(audit, adapter, { n: 0 }, ctx)).resolves.toBe(1);
+    expect(warn).toHaveBeenCalledTimes(3);
+    expect(warn).toHaveBeenCalledWith(expect.stringContaining('not a JSON object'));
+    warn.mockRestore();
     expect(await readAudit(adapter)).toHaveLength(1);
   });
 
