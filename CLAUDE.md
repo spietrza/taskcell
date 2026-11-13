@@ -22,6 +22,7 @@ Severity: a finding is **blocking** only if merging the PR as is would do one of
 - lose or corrupt user data or state;
 - open a real security hole: leak a secret or token, let an untrusted actor (issue author, labeller, PR content) run code, push, or widen access, or bypass an existing gate;
 - do something other than what the issue asked for, or miss one of its acceptance criteria.
+- regress: remove or weaken something that works on the base branch (a behaviour, a check, a supported input) when the issue did not ask for that. A regression is blocking even when it fails closed or looks unlikely to be hit; say what worked before and what stops working.
 
 Everything else (hardening, edge cases, performance, missing tests for non-critical paths, style, docs gaps) is **non-blocking**: list it so it can go to a follow-up issue. When unsure, it is non-blocking. On a re-review, judge the same things the same way: a finding you rated non-blocking before does not become blocking on unchanged code.
 

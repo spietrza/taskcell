@@ -33,6 +33,7 @@ import { applyReReviewRules, changedFilesOf, mergeOnlyResolvedFiles, restrictDif
 import { isTrustedBotLogin } from '../tasks/comment-trust.js';
 import type { ReReviewContext } from './re-review.js';
 import { resolveLinkedIssue } from './linked-issue.js';
+import { githubBranchPrefix } from '../tasks/overlap.js';
 import type { LinkedIssue } from './linked-issue.js';
 
 export interface PullRequestReviewTarget {
@@ -174,6 +175,18 @@ export function parsePullRequestUrl(url: string): PullRequestReviewTarget {
   return target;
 }
 
+/**
+ * The bot that opened this factory PR (same-repo head on a factory branch), as the issues API spells it
+ * (`gh pr view` says `app/<slug>`, an issue's author is `<slug>[bot]`). Its own issues are readable as the
+ * linked issue; a PR author cannot make a PR come from someone else's bot. Empty for any other PR.
+ */
+function ownFactoryBot(repoSlug: string, view: GhPullRequestView): string[] {
+  const login = view.author?.login ?? '';
+  const bot = login.startsWith('app/') ? `${login.slice(4)}[bot]` : login;
+  const factoryBranch = view.isCrossRepository !== true && (view.headRefName ?? '').startsWith(githubBranchPrefix(repoSlug));
+  return factoryBranch && bot.endsWith('[bot]') ? [bot] : [];
+}
+
 export async function fetchPullRequestForReview(target: PullRequestReviewTarget, gh: GhRunner = defaultGhRunner, log?: (line: string) => void, allowedAuthors?: readonly string[], opts: { linkedIssue?: boolean } = {}): Promise<PullRequestForReview> {
   const number = String(target.number);
   const view = JSON.parse(
@@ -185,7 +198,7 @@ export async function fetchPullRequestForReview(target: PullRequestReviewTarget,
     ? undefined
     : await resolveLinkedIssue(
         { repoSlug: target.repoSlug, body: view.body ?? '', headRefName: view.headRefName ?? '' },
-        { gh, ...(allowedAuthors !== undefined ? { allowedAuthors } : {}), ...(log !== undefined ? { log } : {}) },
+        { gh, botLogins: ownFactoryBot(target.repoSlug, view), ...(allowedAuthors !== undefined ? { allowedAuthors } : {}), ...(log !== undefined ? { log } : {}) },
       );
   return {
     repoSlug: target.repoSlug,
