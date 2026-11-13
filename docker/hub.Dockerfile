@@ -22,10 +22,12 @@ COPY . .
 RUN pnpm install --frozen-lockfile && pnpm build \
  && pnpm --dir apps/desktop install --frozen-lockfile && pnpm --dir apps/desktop build
 
-ENV TASKCELL_HUB_HOST=0.0.0.0 \
-    TASKCELL_HUB_PORT=7777 \
-    TASKCELL_HUB_UI_DIR=/app/apps/desktop/dist \
-    TASKCELL_HUB_CONFIG_DIR=/config
+# Image defaults stay under the old names on purpose: the hub reads TASKCELL_HUB_* first, so a default baked
+# under the new name would silently beat a VANGUARD_HUB_* value in an existing compose file.
+ENV VANGUARD_HUB_HOST=0.0.0.0 \
+    VANGUARD_HUB_PORT=7777 \
+    VANGUARD_HUB_UI_DIR=/app/apps/desktop/dist \
+    VANGUARD_HUB_CONFIG_DIR=/config
 
 EXPOSE 7777
 
