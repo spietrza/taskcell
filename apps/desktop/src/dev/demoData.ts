@@ -183,7 +183,7 @@ export const demoNeedsYou: NeedsYouItem[] = [
 export const DEMO_WRITE_COMMANDS: readonly string[] = [
   'add_project', 'remove_project', 'clone_project', 'write_app_config', 'spawn_run', 'kill_run',
   'api_create_run', 'api_create_task', 'api_write_flow', 'api_delete_flow', 'api_cancel',
-  'reply_needs_you', 'merge_needs_you', 'start_task', 'import_remote_run',
+  'reply_needs_you', 'merge_needs_you', 'dismiss_lesson', 'start_task', 'import_remote_run',
   'enable_factory_plan', 'enable_factory_apply', 'enable_factory_secret', 'enable_factory_verify', 'enable_factory_start',
   'set_credential', 'delete_credential', 'save_user_credential', 'delete_user_credential',
   'set_credential_policy', 'save_instance_credential', 'delete_instance_credential',

@@ -9,6 +9,7 @@ import { commands as enableFactory, type EnableFactoryCommands } from './enable-
 import { commands as fleet, type FleetCommands } from './fleet.js';
 import { commands as flows, type FlowsCommands } from './flows.js';
 import { commands as history, type HistoryCommands } from './history.js';
+import { commands as lessons, type LessonsCommands } from './lessons.js';
 import { commands as needsYou, type NeedsYouCommands } from './needs-you.js';
 import { commands as projects, type ProjectsCommands } from './projects.js';
 import { commands as repoFiles, type RepoFilesCommands } from './repo-files.js';
@@ -32,6 +33,7 @@ export interface Commands extends
   FleetCommands,
   FlowsCommands,
   HistoryCommands,
+  LessonsCommands,
   NeedsYouCommands,
   ProjectsCommands,
   RepoFilesCommands,
@@ -73,6 +75,7 @@ export const COMMAND_NAMES = [
   'delete_draft',
   'delete_instance_credential',
   'delete_user_credential',
+  'dismiss_lesson',
   'enable_factory_apply',
   'enable_factory_plan',
   'enable_factory_secret',
@@ -90,6 +93,7 @@ export const COMMAND_NAMES = [
   'list_active',
   'list_branches',
   'list_drafts',
+  'list_lessons',
   'list_needs_you',
   'list_needs_you_all',
   'list_projects',
@@ -147,6 +151,7 @@ export const HUB_COMMANDS: { readonly [K in keyof Commands]: CommandHandler } = 
   ...fleet.handlers,
   ...flows.handlers,
   ...history.handlers,
+  ...lessons.handlers,
   ...needsYou.handlers,
   ...projects.handlers,
   ...repoFiles.handlers,
@@ -170,6 +175,7 @@ export const HUB_AUDITED: { readonly [K in keyof Commands]?: AuditSpec } = {
   ...fleet.audit,
   ...flows.audit,
   ...history.audit,
+  ...lessons.audit,
   ...needsYou.audit,
   ...projects.audit,
   ...repoFiles.audit,

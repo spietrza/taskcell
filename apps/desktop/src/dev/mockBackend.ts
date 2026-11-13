@@ -1,5 +1,5 @@
 import { mockIPC, mockWindows } from '@tauri-apps/api/mocks';
-import type { Commands } from '../wire';
+import type { Commands, RepoLesson } from '../wire';
 import {
   projects,
   runs,
@@ -27,6 +27,9 @@ import {
 import { demoProject, demoRuns, demoRunDetails, demoActiveRuns, demoBoardTasks, demoNeedsYou, DEMO_REPO_PATH, DEMO_WRITE_COMMANDS } from './demoData';
 
 let waitingNeedsYou = [...needsYouItems];
+let mockLessons: RepoLesson[] = [
+  { id: 'l1', rule: 'Add a test for every new link.', why: 'Links shipped untested.', evidence: 'https://github.com/acme/app/pull/12', paths: ['apps/desktop/**'], stage: 'review', prNumber: 12, timestamp: '2026-07-01T10:00:00Z' },
+];
 
 const READ_DRAFT = JSON.stringify({ id: 'draft-001', title: 'Draft task', body: 'Some draft content here.' });
 
@@ -138,6 +141,10 @@ const commandHandlers = {
   ],
   read_issue_history: () => ({ repo: 'acme/app', issue: 1, prs: [], entries: [], chains: [], unavailable: [] }),
   list_needs_you: () => ({ items: waitingNeedsYou }),
+  list_lessons: () => ({ lessons: mockLessons, branchFound: true }),
+  dismiss_lesson: (args: { id?: string } | undefined) => {
+    mockLessons = mockLessons.filter((l) => l.id !== args?.id);
+  },
   list_needs_you_all: () => ({ items: waitingNeedsYou.map((i) => ({ ...i, ...mockStamp() })), failures: [] }),
   // A reply hands the item back to the factory (issue: trigger label; PR: `needs revision`), so it
   // drops out of the next list for either kind — as on a real repo.

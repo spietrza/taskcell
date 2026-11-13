@@ -120,6 +120,20 @@ export interface FlowDoc {
   meta?: Record<string, unknown>;
 }
 
+/** One live lesson (src/core/lessons.ts) on the wire. */
+export interface RepoLesson {
+  id: string;
+  rule: string;
+  why: string;
+  /** PR or comment URL the lesson came from. */
+  evidence: string;
+  /** Path globs the lesson applies to; empty = repo-wide. */
+  paths: string[];
+  stage?: 'spec' | 'implement' | 'review' | 'verify';
+  prNumber: number;
+  timestamp: string;
+}
+
 /** One discovered flow file. `name` present ⇔ parsed (openable); `error` present ⇔ not runnable. */
 export interface RepoFlowInfo {
   file: string;
@@ -889,6 +903,11 @@ export interface Commands {
   /** HUB_ONLY, read-only: one issue's history over the audit streams, run records and Git host events
    *  (docs/audit.md § Issue history). The hub's own audit lines are included for an admin only. */
   read_issue_history: { args: { repoPath: string; issue: number }; result: IssueHistory };
+  /** HUB_ONLY, read-only: the live lessons of a repo, newest first. With `taskText`, only those a task with that text would receive.
+   *  `branchFound` is false when the repo has no metrics branch (or no lessons file on it) yet. */
+  list_lessons: { args: { repoPath: string; taskText?: string }; result: { lessons: RepoLesson[]; branchFound: boolean } };
+  /** HUB_ONLY: dismiss a lesson (same effect as `taskcell lessons dismiss <id>`): later runs no longer receive it. */
+  dismiss_lesson: { args: { repoPath: string; id: string }; result: void };
   /** HUB_ONLY: rename the repo's old `vanguard:*` labels to `taskcell:*` (as `taskcell migrate-labels`). Dry-run unless `apply`. */
   migrate_labels: { args: { repoPath: string; apply?: boolean }; result: MigrateLabelsReport };
   /** HUB_ONLY: the hub "Needs you" read model (src/hub/needs-you.ts) — `gh` and labels only, no model call. */
@@ -996,6 +1015,7 @@ export const COMMAND_NAMES = [
   'delete_draft',
   'delete_instance_credential',
   'delete_user_credential',
+  'dismiss_lesson',
   'enable_factory_apply',
   'enable_factory_plan',
   'enable_factory_secret',
@@ -1013,6 +1033,7 @@ export const COMMAND_NAMES = [
   'list_active',
   'list_branches',
   'list_drafts',
+  'list_lessons',
   'list_needs_you',
   'list_needs_you_all',
   'list_projects',
