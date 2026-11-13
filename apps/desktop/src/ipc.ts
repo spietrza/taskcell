@@ -48,8 +48,8 @@ export function listRuns(repoPath: string): Promise<RunSummary[]> {
 }
 
 /** HUB_ONLY: every repository's runs, each stamped with its repository; unreadable ones in `failures`. */
-export function listRunsAll(): Promise<Commands['list_runs_all']['result']> {
-  return call('list_runs_all', undefined);
+export function listRunsAll(teamId?: string): Promise<Commands['list_runs_all']['result']> {
+  return call('list_runs_all', teamArgs(teamId));
 }
 
 /** Read one run record under `repoPath`. `ref.source` names WHICH tree it lives in (the project's
@@ -65,8 +65,8 @@ export function browseDirs(path?: string): Promise<DirListing> {
   return call('browse_dirs', { path });
 }
 
-export function listProjects(): Promise<Project[]> {
-  return call('list_projects', undefined);
+export function listProjects(teamId?: string): Promise<Project[]> {
+  return call('list_projects', teamArgs(teamId));
 }
 
 export function addProject(path: string): Promise<Project[]> {
@@ -115,8 +115,8 @@ export function listNeedsYou(repoPath: string): Promise<{ items: NeedsYouItem[] 
 }
 
 /** HUB_ONLY: `listNeedsYou` for every repository. */
-export function listNeedsYouAll(): Promise<Commands['list_needs_you_all']['result']> {
-  return call('list_needs_you_all', undefined);
+export function listNeedsYouAll(teamId?: string): Promise<Commands['list_needs_you_all']['result']> {
+  return call('list_needs_you_all', teamArgs(teamId));
 }
 
 /** Hub-only: post `body` as the caller's own comment on the item, then move it on (issue: `needs
@@ -191,8 +191,8 @@ export function listTasks(repoPath: string): Promise<{ tasks: BoardTask[]; cappe
 }
 
 /** HUB_ONLY: every repository's board cards, each stamped with its repository. */
-export function listTasksAll(): Promise<Commands['list_tasks_all']['result']> {
-  return call('list_tasks_all', undefined);
+export function listTasksAll(teamId?: string): Promise<Commands['list_tasks_all']['result']> {
+  return call('list_tasks_all', teamArgs(teamId));
 }
 
 export async function fetchSpec(repoPath: string, taskId: string): Promise<string> {
@@ -423,21 +423,22 @@ export function teamRole(id: string): Promise<TeamRole | null> {
 }
 
 export function teamAddMember(teamId: string, login: string, role: TeamRole): Promise<Team> {
-  return call('team_add_member', { teamId, login, role });
+  return call('add_team_member', { teamId, login, role });
 }
 
+/** `add_team_member` replaces an existing member's role; the team must keep an admin. */
 export function teamSetRole(teamId: string, login: string, role: TeamRole): Promise<Team> {
-  return call('team_set_role', { teamId, login, role });
+  return call('add_team_member', { teamId, login, role });
 }
 
 export function teamRemoveMember(teamId: string, login: string): Promise<Team> {
-  return call('team_remove_member', { teamId, login });
+  return call('remove_team_member', { teamId, login });
 }
 
 export function teamAddRepository(teamId: string, path: string): Promise<Team> {
-  return call('team_add_repository', { teamId, path });
+  return call('add_team_repository', { teamId, path });
 }
 
 export function teamRemoveRepository(teamId: string, path: string): Promise<Team> {
-  return call('team_remove_repository', { teamId, path });
+  return call('remove_team_repository', { teamId, path });
 }

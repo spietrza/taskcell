@@ -689,23 +689,21 @@ export interface Commands {
     args: { repoPath: string; taskId: string; timestamp?: string; after?: number; limit?: number };
     result: { events: { id: number; ts: string; event: string; data: unknown }[]; nextAfter: number; hasMore: boolean; truncated: boolean };
   };
-  list_projects: { args: undefined; result: Project[] };
+  list_projects: { args: { teamId?: string } | undefined; result: Project[] };
   /** HUB_ONLY: token-only mode has exactly one team and the caller acts as its admin. */
   list_teams: { args: undefined; result: Team[] };
   /** HUB_ONLY: one team by id (`null` when unknown). */
   get_team: { args: { id: string }; result: Team | null };
-  /** HUB_ONLY: the caller's role in a team (`null` for a non-member). The hub owner (token / local mode) is an admin everywhere. */
+  /** HUB_ONLY: the caller's role in a team they belong to (`null` otherwise); the hub owner is an admin of every team. */
   team_role: { args: { id: string }; result: TeamRole | null };
-  /** HUB_ONLY, admin only: add a member by login. Each team edit returns the updated team. */
-  team_add_member: { args: { teamId: string; login: string; role: TeamRole }; result: Team };
-  /** HUB_ONLY, admin only: the last admin cannot be demoted. */
-  team_set_role: { args: { teamId: string; login: string; role: TeamRole }; result: Team };
-  /** HUB_ONLY, admin only: the last admin cannot be removed. */
-  team_remove_member: { args: { teamId: string; login: string }; result: Team };
-  /** HUB_ONLY, admin only: add a hub project to a team (the default team mirrors every project and refuses). */
-  team_add_repository: { args: { teamId: string; path: string }; result: Team };
-  /** HUB_ONLY, admin only. */
-  team_remove_repository: { args: { teamId: string; path: string }; result: Team };
+  /** HUB_ONLY, team admin only (a member is refused). */
+  add_team_member: { args: { teamId: string; login: string; role: TeamRole }; result: Team };
+  /** HUB_ONLY, team admin only. */
+  remove_team_member: { args: { teamId: string; login: string }; result: Team };
+  /** HUB_ONLY, team admin only: attach an existing hub project to a non-default team. */
+  add_team_repository: { args: { teamId: string; path: string }; result: Team };
+  /** HUB_ONLY, team admin only. */
+  remove_team_repository: { args: { teamId: string; path: string }; result: Team };
   add_project: { args: { path: string }; result: Project[] };
   remove_project: { args: { path: string }; result: Project[] };
   list_active: { args: { repoPath: string }; result: ActiveRun[] };
@@ -730,9 +728,9 @@ export interface Commands {
   import_remote_run: { args: { repoPath: string; runId: number }; result: RemoteImport };
   list_tasks: { args: { repoPath: string }; result: { tasks: BoardTask[]; capped: boolean } };
   /** HUB_ONLY: `list_tasks` across every hub repository, each card stamped with its repository. */
-  list_tasks_all: { args: undefined; result: { tasks: (BoardTask & RepoStamp)[]; capped: boolean; failures: RepoReadFailure[] } };
+  list_tasks_all: { args: { teamId?: string } | undefined; result: { tasks: (BoardTask & RepoStamp)[]; capped: boolean; failures: RepoReadFailure[] } };
   /** HUB_ONLY: `list_runs` across every hub repository, each row stamped with its repository. */
-  list_runs_all: { args: undefined; result: { runs: (RunSummary & RepoStamp)[]; failures: RepoReadFailure[] } };
+  list_runs_all: { args: { teamId?: string } | undefined; result: { runs: (RunSummary & RepoStamp)[]; failures: RepoReadFailure[] } };
   fetch_spec: { args: { repoPath: string; taskId: string }; result: { spec: string } };
   watch_project: { args: { repoPath: string }; result: void };
   unwatch_project: { args: { repoPath: string }; result: void };
@@ -764,7 +762,7 @@ export interface Commands {
   /** HUB_ONLY: the hub "Needs you" read model (src/hub/needs-you.ts) — `gh` and labels only, no model call. */
   list_needs_you: { args: { repoPath: string }; result: { items: NeedsYouItem[] } };
   /** HUB_ONLY: `list_needs_you` across every hub repository, each item stamped with its repository. */
-  list_needs_you_all: { args: undefined; result: { items: (NeedsYouItem & RepoStamp)[]; failures: RepoReadFailure[] } };
+  list_needs_you_all: { args: { teamId?: string } | undefined; result: { items: (NeedsYouItem & RepoStamp)[]; failures: RepoReadFailure[] } };
   /** HUB_ONLY: post a reply with the caller's own `gh` identity and move the item on. */
   reply_needs_you: { args: { repoPath: string; id: string; kind: 'issue' | 'pr'; body: string }; result: void };
   /** HUB_ONLY: merge a waiting PR (refused when not in "Needs you" or required checks are not green). */
@@ -815,11 +813,10 @@ export const COMMAND_NAMES = [
   'list_teams',
   'get_team',
   'team_role',
-  'team_add_member',
-  'team_set_role',
-  'team_remove_member',
-  'team_add_repository',
-  'team_remove_repository',
+  'add_team_member',
+  'remove_team_member',
+  'add_team_repository',
+  'remove_team_repository',
   'add_project',
   'remove_project',
   'list_active',

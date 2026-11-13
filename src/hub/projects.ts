@@ -1,5 +1,5 @@
 // Port of apps/desktop/src-tauri/src/projects.rs — see that file for the original Rust implementation.
-import { mkdir, readFile, writeFile } from 'node:fs/promises';
+import { mkdir, readFile, realpath, writeFile } from 'node:fs/promises';
 import { basename, join } from 'node:path';
 import { readAppConfig } from './app-config.js';
 import { defaultRunsRoot, listRunSummaries } from './runs.js';
@@ -95,8 +95,14 @@ export async function aggregate(repoPath: string, now: Date = new Date()): Promi
   };
 }
 
-export async function list(configDir: string): Promise<Project[]> {
+/** The hub's project paths, limited to `only` when given. */
+async function loadScopedPaths(configDir: string, only?: readonly string[]): Promise<string[]> {
   const paths = await loadPaths(configDir);
+  return only === undefined ? paths : paths.filter((p) => only.includes(p));
+}
+
+export async function list(configDir: string, only?: readonly string[]): Promise<Project[]> {
+  const paths = await loadScopedPaths(configDir, only);
   return Promise.all(paths.map((p) => aggregate(p)));
 }
 
@@ -127,10 +133,9 @@ export async function listAcrossProjects<T extends object>(
   configDir: string,
   resolve: (repoPath: string) => Promise<string>,
   read: (repoPath: string) => Promise<T[]>,
-  /** Only these repositories (a caller's teams); omitted = every project. */
-  scope?: readonly string[],
+  only?: readonly string[],
 ): Promise<{ items: (T & RepoStamp)[]; failures: RepoReadFailure[] }> {
-  const paths = (await loadPaths(configDir)).filter((p) => scope === undefined || scope.includes(p));
+  const paths = await loadScopedPaths(configDir, only);
   const outcomes = await fanOut(paths, async (repoPath) => read(await resolve(repoPath)), { concurrency: 4 });
   const items: (T & RepoStamp)[] = [];
   const failures: RepoReadFailure[] = [];
@@ -147,4 +152,15 @@ const MAX_FAILURE_ERROR = 300;
 function failureMessage(reason: unknown): string {
   const text = redactForPublish(reason instanceof Error ? reason.message : String(reason));
   return text.length > MAX_FAILURE_ERROR ? `${text.slice(0, MAX_FAILURE_ERROR)}…` : text;
+}
+
+/** The registered project path `input` names (exact, or the same directory through a symlink), as
+ * stored in projects.json — teams store that string so list filters and removals match it. */
+export async function registeredPath(configDir: string, input: string): Promise<string | undefined> {
+  const paths = await loadPaths(configDir);
+  if (paths.includes(input)) return input;
+  const real = await realpath(input).catch(() => undefined);
+  if (real === undefined) return undefined;
+  for (const p of paths) if ((await realpath(p).catch(() => undefined)) === real) return p;
+  return undefined;
 }

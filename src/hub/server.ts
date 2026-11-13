@@ -9,7 +9,8 @@ import { serveStatic } from './static.js';
 import { EventBus } from './events.js';
 import { writeJson, jsonError } from './json-response.js';
 import { CredentialStore } from './credentials.js';
-import { dispatchRpc, classifyError, ForbiddenError, type RpcCaller, type RpcContext } from './rpc.js';
+import { callerRepoRoots, repoInRoots, type Caller } from './teams.js';
+import { dispatchRpc, classifyError, ForbiddenError, type RpcContext } from './rpc.js';
 import { AuditLog, TOKEN_ACTOR, type Actor } from './audit.js';
 import { encodeError, encodeResult, HUB_EVENTS_SESSION_PATH, HUB_SIGN_IN_REQUIRED, HUB_TOKEN_HEADER, HUB_TOKEN_REJECTED } from '../hub-wire.js';
 import { ProjectAllowlist, type BindOptions } from './allowlist.js';
@@ -228,7 +229,7 @@ function respondBodyTooLarge(res: ServerResponse): void {
   writeJson(res, encoded.status, encoded.body, { connection: 'close' }, () => res.socket?.destroy());
 }
 
-async function handleRpcRequest(ctx: RpcContext, req: IncomingMessage, res: ServerResponse, cmd: string, caller: RpcCaller): Promise<void> {
+async function handleRpcRequest(ctx: RpcContext, req: IncomingMessage, res: ServerResponse, cmd: string, caller: Caller): Promise<void> {
   if (!sameOriginOk(req)) {
     jsonError(res, 400, 'cross-origin request rejected', 'bad-request');
     return;
@@ -277,6 +278,7 @@ async function handleRequest(
   opts: HubServerOptions,
   auth: HubAuth,
   identity: HubIdentity,
+  runRepos: ReadonlyMap<string, string>,
   req: IncomingMessage,
   res: ServerResponse,
 ): Promise<void> {
@@ -351,9 +353,20 @@ async function handleRequest(
 
   if (pathname === '/events') {
     if (req.method !== 'GET') return methodNotAllowed(res, 'GET');
-    const authorized = eventsCookieOk(singleHeader(req.headers.cookie), auth) || (await resolveUser()) !== undefined;
-    if (!authorized) return unauthorized();
-    eventBus.subscribe(req, res);
+    const cookieOk = eventsCookieOk(singleHeader(req.headers.cookie), auth);
+    const user = cookieOk ? undefined : await resolveUser();
+    if (!cookieOk && user === undefined) return unauthorized();
+    // A signed-in team member is streamed only events of a repository of their teams; token holders
+    // (and the events cookie they buy) see everything.
+    let visible: ((data: unknown) => boolean) | undefined;
+    if (user !== undefined && !tokenValid) {
+      const roots = await callerRepoRoots(ctx.configDir, { user, owner: false });
+      visible = (data) => {
+        const p = eventRepoPath(data, runRepos);
+        return p !== undefined && repoInRoots(roots, p);
+      };
+    }
+    eventBus.subscribe(req, res, visible);
     res.flushHeaders();
     return;
   }
@@ -362,10 +375,8 @@ async function handleRequest(
     if (req.method !== 'POST') return methodNotAllowed(res, 'POST');
     const user = await resolveUser();
     if (user === undefined) return unauthorized();
-    await handleRpcRequest({ ...ctx, actor: actorOf(user) }, req, res, pathname.slice('/rpc/'.length), {
-      user,
-      owner: user.id === identity.owner.id,
-    });
+    // The token holder is the owner (admin of every team); a session user is limited to their teams.
+    await handleRpcRequest({ ...ctx, actor: actorOf(user) }, req, res, pathname.slice('/rpc/'.length), { user, owner: tokenValid });
     return;
   }
 
@@ -385,6 +396,28 @@ async function handleRequest(
   if (!handled) notFound(res);
 }
 
+/** Most runs whose repository the `/events` filter remembers (oldest forgotten first). */
+const MAX_RUN_REPOS = 1000;
+
+/** The repository an event belongs to: a bare path (`vanguard:changed`), a `repoPath`/`path` field, or
+ * — for a run event (`{ runId, event }`) — the repository its `run-queued`/`run-accepted` named. */
+export function eventRepoPath(data: unknown, runRepos: ReadonlyMap<string, string>): string | undefined {
+  if (typeof data === 'string') return data;
+  if (typeof data !== 'object' || data === null) return undefined;
+  const d = data as Record<string, unknown>;
+  const p = d.repoPath ?? d.path;
+  if (typeof p === 'string') return p;
+  return typeof d.runId === 'string' ? runRepos.get(d.runId) : undefined;
+}
+
+/** Remember the repository a run event (`{ runId, event: { repoPath } }`) first names; bounded. */
+function recordRunRepo(runRepos: Map<string, string>, payload: unknown): void {
+  const run = payload as { runId?: unknown; event?: { repoPath?: unknown } } | null;
+  if (typeof run?.runId !== 'string' || typeof run.event?.repoPath !== 'string' || runRepos.has(run.runId)) return;
+  runRepos.set(run.runId, run.event.repoPath);
+  if (runRepos.size > MAX_RUN_REPOS) runRepos.delete(runRepos.keys().next().value as string);
+}
+
 /** Build (but do not start) the hub's HTTP server. `listen`/`close` drive its lifecycle. */
 export function createHubServer(opts: HubServerOptions): HubServer {
   const token = opts.token ?? randomBytes(32).toString('hex');
@@ -399,7 +432,13 @@ export function createHubServer(opts: HubServerOptions): HubServer {
   const eventBus = new EventBus();
   eventBus.startKeepalive();
   const watchRegistry = new WatchRegistry(opts.watch);
-  const publish = (name: string, payload: unknown): number => eventBus.publish(name, payload);
+  // runId -> repository, recorded before publishing so a run's later events (which name only the
+  // runId) reach the members of that repository's teams.
+  const runRepos = new Map<string, string>();
+  const publish = (name: string, payload: unknown): number => {
+    if (name === 'api:event') recordRunRepo(runRepos, payload);
+    return eventBus.publish(name, payload);
+  };
   const completeRegistry = new CompleteRegistry(opts.spawnComplete);
   if (opts.fleet === true && !opts.bind.isLoopback) throw new Error('fleet requires a loopback bind');
   const spawnRegistry = opts.fleet === true ? new SpawnRegistry(publish) : undefined;
@@ -431,7 +470,7 @@ export function createHubServer(opts: HubServerOptions): HubServer {
   };
 
   const server = createServer((req, res) => {
-    void handleRequest(ctx, eventBus, opts, auth, identity, req, res).catch(() => {
+    void handleRequest(ctx, eventBus, opts, auth, identity, runRepos, req, res).catch(() => {
       if (res.headersSent) res.destroy();
       else jsonError(res, 500, 'internal server error', 'internal');
     });

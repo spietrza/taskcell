@@ -50,11 +50,10 @@ const commandHandlers = {
   list_projects: () => projects,
   list_teams: () => [{ ...mockTeam, repositories: projects.map((p) => p.path) }],
   team_role: () => 'admin' as const,
-  team_add_member: () => mockTeam,
-  team_set_role: () => mockTeam,
-  team_remove_member: () => mockTeam,
-  team_add_repository: () => mockTeam,
-  team_remove_repository: () => mockTeam,
+  add_team_member: () => mockTeam,
+  remove_team_member: () => mockTeam,
+  add_team_repository: () => mockTeam,
+  remove_team_repository: () => mockTeam,
   add_project: (args: { path?: string } | undefined) => {
     const { path = '/dev/null' } = args ?? {};
     return [

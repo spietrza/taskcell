@@ -115,16 +115,15 @@ describe('server mode', () => {
   }
   const rpc = (headers: Record<string, string>): Promise<Response> => post('/rpc/list_projects', headers);
 
-  test('team roles key on the stored provider login: a session is not the owner, the token is', async () => {
+  test('team_role over HTTP: a session keys on the user id, never the display name; the token is the owner', async () => {
     await start(['github:octo']);
     const { cookie } = await signIn();
     const user = await identity!.sessionUser({ headers: { cookie } } as IncomingMessage);
-    // The display name ("Octo Cat") is free text; the login is what the hub recorded at sign-up.
-    expect(user).toMatchObject({ name: 'Octo Cat', providerLogin: 'github:Octo' });
+    expect(user).toMatchObject({ name: 'Octo Cat' });
     const role = async (headers: Record<string, string>): Promise<unknown> =>
       ((await (await post('/rpc/team_role', headers, JSON.stringify({ id: 'default' }))).json()) as { result: unknown }).result;
     await saveTeams(dir, [
-      { id: 'default', name: 'Default', members: [{ login: 'octo', role: 'member' }, { login: 'Octo Cat', role: 'admin' }], repositories: [] },
+      { id: 'default', name: 'Default', members: [{ login: user!.id, role: 'member' }, { login: 'Octo Cat', role: 'admin' }], repositories: [] },
     ]);
     expect(await role({ cookie })).toBe('member');
     expect(await role({ [HUB_TOKEN_HEADER]: TOKEN })).toBe('admin');
