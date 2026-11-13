@@ -11,6 +11,7 @@
     "preview": "vite preview",
     "tauri": "tauri",
     "test": "vitest run",
+    "test:rust": "cargo test --locked --manifest-path src-tauri/Cargo.toml",
     "test:e2e": "playwright test"
   },
   "dependencies": {

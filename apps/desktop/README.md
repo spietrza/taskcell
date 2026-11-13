@@ -15,7 +15,7 @@ First launch compiles the Rust crate (a few minutes), then opens the window. Add
 repo that contains a `.taskcell/` directory. Launch from a terminal so the app inherits your shell
 environment (LLM/platform credentials) — see **Launching runs** below.
 
-Gates: `cd src-tauri && cargo test` · `pnpm vitest run` · `pnpm build`.
+Gates: `pnpm test:rust` (`cargo test --locked`, which also compiles the crate and fails on a stale lock) · `pnpm vitest run` · `pnpm build`.
 
 ## Install the desktop app
 
@@ -35,6 +35,15 @@ formats, for the host architecture only (the sidecar is the Node running the bui
 installers come from separate runners, not one universal build. The build version comes from `tauri.conf.json`;
 releases override it with `pnpm bundle --config '{"version":"X.Y.Z"}'`, which Tauri merges over
 `tauri.bundle.conf.json`. Updater artifacts are off by default, so a local build needs no key.
+
+Release builds must use the committed `Cargo.lock` (see the release job below). `tauri-plugin-updater` is required at
+`>= 2.14.1` in `Cargo.toml`, which depends on `zip` ^9 (Windows installer only). That range still admits `zip`
+9.0.0–9.0.4, vulnerable to GHSA-m665-v7pm-7grj, so only the committed lock guarantees `zip` >= 9.0.5: keep it
+resolved there. Updater 2.14.1 needs `tauri` >= 2.12, so `@tauri-apps/api` (and `pnpm-lock.yaml`) must be on 2.12.x
+too, or `tauri build` fails its version-mismatch check. The Rust toolchain must be >= 1.90.
+
+Before publishing a desktop build, check the `zip` version in the last published build (`desktop-latest`); if it is
+below 9.0.5, re-publish.
 
 ### Auto-update keys
 
@@ -58,6 +67,10 @@ is described in the PR that introduced it and must be added to the release workf
 - upload the installers and `latest.json` to a **dedicated rolling release tagged `desktop-latest`**, replacing the
   previous assets, not to the CLI release stream, which has no desktop assets on most tags. The updater endpoint
   (`releases/download/desktop-latest/latest.json`), the landing page and the docs all point at that release.
+
+- build with the committed lock: pass `--locked` to cargo (tauri-action `args`: `-- --locked`), so versions never re-resolve.
+
+Separately, a CI job should run `pnpm --dir apps/desktop test:rust` on changes under `apps/desktop/src-tauri/**` (Rust ≥ 1.90 and, on Linux, the Tauri system libraries); no workflow builds the Rust today.
 
 Until `plugins.updater.pubkey` is a real key, the app skips the update check.
 
