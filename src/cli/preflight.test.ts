@@ -45,9 +45,9 @@ function doctorPrs(overrides: Partial<DoctorPrsCommand> = {}): DoctorPrsCommand 
     kind: 'doctor-prs',
     repoPath: '/repo',
     repoSlug: 'owner/repo',
-    label: 'ready for vanguard review',
-    reviewingLabel: 'vanguard:reviewing',
-    reviewedLabel: 'vanguard:reviewed',
+    label: 'ready for taskcell review',
+    reviewingLabel: 'taskcell:reviewing',
+    reviewedLabel: 'taskcell:reviewed',
     ...overrides,
   };
 }
@@ -72,7 +72,7 @@ describe('runPreflight', () => {
     });
 
     expect(report.ok).toBe(false);
-    expect(formatPreflightReport(report)).toContain('preflight: github labels missing vanguard:needs-human-review -> stop before claim');
+    expect(formatPreflightReport(report)).toContain('preflight: github labels missing taskcell:needs-human-review -> stop before claim');
   });
 
   it('reports unreadable GitHub labels instead of throwing on malformed gh output', async () => {
@@ -171,11 +171,25 @@ describe('runPreflight', () => {
     const report = await runPreflight(doctorPrs(), {
       env: { GH_TOKEN: 'gh', CLAUDE_CODE_OAUTH_TOKEN: 'token' },
       nodeVersion: '24.11.1',
-      run: makeRunner(['ready for vanguard review', 'vanguard:reviewing']),
+      run: makeRunner(['ready for taskcell review', 'taskcell:reviewing']),
     });
 
     expect(report.ok).toBe(false);
-    expect(formatPreflightReport(report)).toContain('preflight: github labels missing vanguard:reviewed -> stop before claim');
+    expect(formatPreflightReport(report)).toContain('preflight: github labels missing taskcell:reviewed -> stop before claim');
+  });
+
+  it.each([
+    ['only the pre-rename labels', ['ready for spec', 'ready for agent', 'needs info', 'vanguard:speccing', 'vanguard:running', 'vanguard:needs-human-review'], ['ready for vanguard review', 'vanguard:reviewing', 'vanguard:reviewed']],
+    ['only the new labels', ['ready for spec', 'ready for agent', 'needs info', 'taskcell:speccing', 'taskcell:running', 'taskcell:needs-human-review'], ['ready for taskcell review', 'taskcell:reviewing', 'taskcell:reviewed']],
+  ])('passes the GitHub label check on a repo with %s, whichever spelling the command names', async (_name, loopLabels, reviewLabels) => {
+    const opts = { env: { GH_TOKEN: 'gh', CLAUDE_CODE_OAUTH_TOKEN: 'token' }, nodeVersion: '24.11.1' };
+    const labelsOk = (report: Awaited<ReturnType<typeof runPreflight>>): boolean | undefined => report.checks.find((c) => c.name === 'github labels')?.ok;
+
+    expect(labelsOk(await runPreflight(githubDoctor(), { ...opts, run: makeRunner(loopLabels) }))).toBe(true);
+    expect(labelsOk(await runPreflight(doctorPrs(), { ...opts, run: makeRunner(reviewLabels) }))).toBe(true);
+    // The shipped pr-review workflow still passes the old names on the command line.
+    const legacyNames = doctorPrs({ label: 'ready for vanguard review', reviewingLabel: 'vanguard:reviewing', reviewedLabel: 'vanguard:reviewed' });
+    expect(labelsOk(await runPreflight(legacyNames, { ...opts, run: makeRunner(reviewLabels) }))).toBe(true);
   });
 
   it('checks Linear API and skills before a Linear loop can run', async () => {
@@ -430,7 +444,7 @@ describe('runPreflight', () => {
     const report = await runPreflight(doctorPrs({ provider: 'codex', llmProxy: true }), {
       env: { GH_TOKEN: 'gh', CLAUDE_CODE_OAUTH_TOKEN: 'token' },
       nodeVersion: '24.11.1',
-      run: makeRunner(['ready for vanguard review', 'vanguard:reviewing', 'vanguard:reviewed']),
+      run: makeRunner(['ready for taskcell review', 'taskcell:reviewing', 'taskcell:reviewed']),
     });
 
     expect(report.ok).toBe(false);
@@ -442,7 +456,7 @@ describe('runPreflight', () => {
     const report = await runPreflight(doctorPrs({ provider: 'codex' }), {
       env: { GH_TOKEN: 'gh', CODEX_API_KEY: 'sk-test' },
       nodeVersion: '24.11.1',
-      run: makeRunner(['ready for vanguard review', 'vanguard:reviewing', 'vanguard:reviewed']),
+      run: makeRunner(['ready for taskcell review', 'taskcell:reviewing', 'taskcell:reviewed']),
     });
 
     expect(report.checks.find((c) => c.name === 'llm auth')?.ok).toBe(true);
@@ -453,7 +467,7 @@ describe('runPreflight', () => {
     const report = await runPreflight(doctorPrs({ provider: 'codex', llmProxy: true }), {
       env: { GH_TOKEN: 'gh', OPENAI_API_KEY: 'sk-test' },
       nodeVersion: '24.11.1',
-      run: makeRunner(['ready for vanguard review', 'vanguard:reviewing', 'vanguard:reviewed']),
+      run: makeRunner(['ready for taskcell review', 'taskcell:reviewing', 'taskcell:reviewed']),
     });
 
     expect(formatPreflightReport(report)).toContain('preflight: llm auth missing -> stop before claim');

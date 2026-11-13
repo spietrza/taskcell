@@ -15,7 +15,7 @@ import { hasRevisionMarker } from './pr-feedback.js';
 import { extractCommentVerdict } from './review-prompt.js';
 
 export const LESSON_MARKER = '<!-- taskcell-lesson -->';
-export const VERIFY_FAILED_LABEL = 'vanguard:verify-failed';
+export const VERIFY_FAILED_LABEL = 'taskcell:verify-failed';
 const ITEM_MAX = 4000;
 const FILES_MAX = 60;
 /** The newest trusted notes only: the late rounds carry what finally got fixed. */

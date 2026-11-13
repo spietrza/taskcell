@@ -1,3 +1,4 @@
+import { hasLabel } from '../core/labels.js';
 import { execa } from 'execa';
 import { TaskcellError } from '../core/errors.js';
 import type { Task, TaskComment, TaskFetcher, TaskFilter } from './fetcher.js';
@@ -190,7 +191,7 @@ export class LinearCliTaskFetcher implements TaskFetcher {
 
   /**
    * `issue view <id> --json` (includes the description) plus the issue's labels over GraphQL, which
-   * `view` does not return. Labels drive routing (`vanguard:model=<m>`), so they are fetched for real;
+   * `view` does not return. Labels drive routing (`taskcell:model=<m>`), so they are fetched for real;
    * a failed label query degrades to `labels: []` rather than failing the run — the view already
    * proved the issue exists, and label-less is how fetch() always behaved before.
    */
@@ -287,7 +288,7 @@ export class LinearCliTaskFetcher implements TaskFetcher {
     const tasks = issues.map(toTask);
     const wanted = filter?.labels;
     if (wanted !== undefined && wanted.length > 0) {
-      return tasks.filter((task) => wanted.some((label) => task.labels.includes(label)));
+      return tasks.filter((task) => wanted.some((label) => hasLabel(task.labels, label)));
     }
     return tasks;
   }

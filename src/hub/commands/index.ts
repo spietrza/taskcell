@@ -105,6 +105,7 @@ export const COMMAND_NAMES = [
   'list_tasks_all',
   'list_teams',
   'merge_needs_you',
+  'migrate_labels',
   'read_app_config',
   'read_app_config_strict',
   'read_audit',

@@ -31,7 +31,7 @@ describe('rateLimitedMarker / parseRateLimitedMarker', () => {
   it('round-trips the until timestamp and trigger label', () => {
     const until = new Date('2026-11-08T21:00:00.000Z');
     const marker = rateLimitedMarker(until, 'ready for agent');
-    expect(marker).toBe('<!-- vanguard-rate-limited until=2026-11-08T21:00:00.000Z trigger="ready for agent" -->');
+    expect(marker).toBe('<!-- taskcell-rate-limited until=2026-11-08T21:00:00.000Z trigger="ready for agent" -->');
     expect(parseRateLimitedMarker(marker)).toEqual({ until, trigger: 'ready for agent' });
   });
 

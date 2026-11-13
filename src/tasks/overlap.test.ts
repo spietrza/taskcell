@@ -32,7 +32,7 @@ function setup(prs: object[], opts: { running?: Task[]; existing?: object[]; fai
     return '';
   });
   const check = createOverlapChecker({
-    repo: 'o/r', claimedLabel: 'vanguard:running', gh,
+    repo: 'o/r', claimedLabel: 'taskcell:running', gh,
     fetch: async (id) => (opts.running ?? []).find((t) => t.id === id)!,
     list: async () => {
       if (opts.failList === true) throw new Error('boom');
@@ -59,7 +59,7 @@ describe('overlap hold', () => {
     expect(comments(s)).toHaveLength(1);
     expect(comments(s)[0]).toContain('PR #9 (`src/a.ts`)');
     expect(comments(s)[0]).not.toContain('#10');
-    expect(s.calls.some((c) => c[0] === 'issue' && c[1] === 'edit' && c.includes('vanguard:waiting'))).toBe(true);
+    expect(s.calls.some((c) => c[0] === 'issue' && c[1] === 'edit' && c.includes('taskcell:waiting'))).toBe(true);
   });
 
   it('holds on an in-flight run, but never on itself', async () => {
@@ -136,8 +136,8 @@ describe('resume of an overlap hold', () => {
       if (args[0] === 'issue' && args[1] === 'list') return JSON.stringify([{ number: 1 }]);
       if (args[0] === 'issue' && args[1] === 'view') {
         return JSON.stringify({
-          title: 't', body: invalid ? 'Start: 2026-13-45' : '', labels: [{ name: 'vanguard:waiting' }],
-          comments: [{ body: `${overlapMarker(deadline, [{ ...ref, files: [] }])}\n<!-- vanguard:waiting trigger="ready for agent" -->`, author: { login: 'github-actions' }, authorAssociation: 'NONE' }],
+          title: 't', body: invalid ? 'Start: 2026-13-45' : '', labels: [{ name: 'taskcell:waiting' }],
+          comments: [{ body: `${overlapMarker(deadline, [{ ...ref, files: [] }])}\n<!-- taskcell:waiting trigger="ready for agent" -->`, author: { login: 'github-actions' }, authorAssociation: 'NONE' }],
         });
       }
       if (args[0] === 'api' && args[1] === `repos/o/r/issues/${ref.number}`) return JSON.stringify(api);
@@ -154,7 +154,7 @@ describe('resume of an overlap hold', () => {
   });
   it('releases a run that is no longer running even though its issue is open', async () => {
     const run = { kind: 'run', number: 9 } as const;
-    expect((await resume(run, { state: 'open', labels: [{ name: 'vanguard:running' }] }, until(2))).waiting).toContain('o/r#1');
+    expect((await resume(run, { state: 'open', labels: [{ name: 'taskcell:running' }] }, until(2))).waiting).toContain('o/r#1');
     expect((await resume(run, { state: 'open', labels: [{ name: 'needs info' }] }, until(2))).resumed).toContain('o/r#1');
   });
   it('does not apply a stale marker to an invalid verdict', async () => {
@@ -177,7 +177,7 @@ describe('watch wiring', () => {
       return '{}';
     };
     const prims = githubIssueWatchPrimitives({
-      deps: { repoSlug: 'o/r', feedbackAuthors: ['alice'] } as never, label: 'ready for agent', claimedLabel: 'vanguard:running', reviewLabel: 'vanguard:needs-human-review', gh,
+      deps: { repoSlug: 'o/r', feedbackAuthors: ['alice'] } as never, label: 'ready for agent', claimedLabel: 'taskcell:running', reviewLabel: 'taskcell:needs-human-review', gh,
     });
     await prims.listReady();
     expect(calls.some((c) => c[0] === 'pr' && c[1] === 'list')).toBe(true);

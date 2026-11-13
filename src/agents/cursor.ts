@@ -35,7 +35,7 @@ const AUTO_MODE: Readonly<Record<string, string>> = {
 };
 
 /**
- * Short names for the Auto modes, so a workflow input or a `vanguard:model=` label (GitHub caps labels at
+ * Short names for the Auto modes, so a workflow input or a `taskcell:model=` label (GitHub caps labels at
  * 50 characters) need not carry `auto-smart[optimize_for=…]`. A Map: the keys come from user input.
  */
 const AUTO_SHORT = new Map([

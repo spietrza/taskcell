@@ -1,5 +1,8 @@
 # Run Taskcell on your own repo (GitHub Actions)
 
+> **Label rename.** Labels and comment markers are now `taskcell:*` / `taskcell-*`. The old `vanguard:*` labels and `<!-- vanguard-... -->` markers are still accepted everywhere they are read, and on a repo that has only the old labels Taskcell keeps using them. `taskcell migrate-labels --github-repo <owner/repo>` renames a repo's old labels (dry-run by default; `--apply` to rename). One exception: the PR-review trigger stays `ready for vanguard review` for now. GitHub starts the review workflow on the label's name, so Taskcell still writes that name and `migrate-labels` leaves it alone; `ready for taskcell review` is read too, but it starts a review only where the caller workflow listens for it (the current `templates/github/pr-review.yml` does).
+
+
 `vanguard` is the old name of `taskcell` and still works.
 
 Label a GitHub issue, get back a reviewed draft PR. The target repo does not need Taskcell installed and does not carry the workflow steps: each workflow in your repo is a **thin caller** (triggers, permissions, an actor gate, a `uses:` line) of a **reusable workflow** that lives in `spietrza/taskcell`. The reusable workflow checks Taskcell out beside your code, builds it, and runs it in a Docker sandbox on the GitHub runner (`taskcell-sandbox:latest` for local builds; CI pins the built image ID).
@@ -152,7 +155,7 @@ Run it from **Actions → Taskcell Doctor → Run workflow** (clickable from the
 
 ### `.github/workflows/taskcell-pr-review.yml` — review a PR (optional)
 
-Adds a visible, adversarial `gh pr review` when you put `ready for taskcell review` on your own PR. This example reviews with Codex and falls back to Claude if Codex fails (a usage limit, a bad model name). `watch-prs` has no provider fallback of its own, so `pr-review.yml` retries with `fallback-provider` / `fallback-model` when you set them.
+Adds a visible, adversarial `gh pr review` when you put `ready for vanguard review` on your own PR. This example reviews with Codex and falls back to Claude if Codex fails (a usage limit, a bad model name). `watch-prs` has no provider fallback of its own, so `pr-review.yml` retries with `fallback-provider` / `fallback-model` when you set them.
 
 ```yaml
 name: Taskcell PR Review
@@ -172,7 +175,7 @@ jobs:
     if: >-
       (github.event_name == 'workflow_dispatch' && github.actor == 'YOUR_LOGIN') ||
       (github.event_name == 'pull_request_target' &&
-      github.event.label.name == 'ready for taskcell review' &&
+      contains(fromJSON('["ready for vanguard review","ready for taskcell review"]'), github.event.label.name) &&
       github.event.pull_request.draft == false &&
       github.event.pull_request.user.login == 'YOUR_LOGIN' &&
       github.event.sender.login == 'YOUR_LOGIN')
@@ -206,6 +209,9 @@ Inside a called workflow the `inputs` context means the `workflow_call` inputs, 
 
 ```yaml
 # workflow_call.inputs: add alongside `provider`
+
+> **Label rename.** Labels and comment markers are now `taskcell:*` / `taskcell-*`. The old `vanguard:*` labels and `<!-- vanguard-... -->` markers are still accepted everywhere they are read, and on a repo that has only the old labels Taskcell keeps using them. `taskcell migrate-labels --github-repo <owner/repo>` renames a repo's old labels (dry-run by default; `--apply` to rename). One exception: the PR-review trigger stays `ready for vanguard review` for now. GitHub starts the review workflow on the label's name, so Taskcell still writes that name and `migrate-labels` leaves it alone; `ready for taskcell review` is read too, but it starts a review only where the caller workflow listens for it (the current `templates/github/pr-review.yml` does).
+
       fallback-provider:
         description: 'Provider to retry revision stages on when the primary one throws (outage, usage limit, rate limit, revoked credential). Empty = no fallback. Must be on a different transport than `provider`.'
         type: string
@@ -368,7 +374,7 @@ Instead of a PAT, the CLI can mint a short-lived GitHub App installation token r
 3. **Label it:**
    - `ready for agent` — the task is precisely scoped (you wrote the criteria); Taskcell builds it directly.
    - `ready for spec` — a rough idea; Taskcell writes a Tech Spec first, then builds it.
-4. Taskcell opens a **draft PR** and moves the issue through `vanguard:running` → `vanguard:needs-human-review`. Its title is prefixed with a Conventional-Commits type (`fix:` for an issue carrying a `bug` label, `feat:` otherwise, plus an optional scope) — if your repo runs [release-please](https://github.com/googleapis/release-please) with squash-merge set to **"Default to pull request title"**, that prefix is what lands in the squash commit release-please reads, so the PR's changes reach the changelog and version bump without a human retitling it by hand first.
+4. Taskcell opens a **draft PR** and moves the issue through `taskcell:running` → `taskcell:needs-human-review`. Its title is prefixed with a Conventional-Commits type (`fix:` for an issue carrying a `bug` label, `feat:` otherwise, plus an optional scope) — if your repo runs [release-please](https://github.com/googleapis/release-please) with squash-merge set to **"Default to pull request title"**, that prefix is what lands in the squash commit release-please reads, so the PR's changes reach the changelog and version bump without a human retitling it by hand first.
 
 ---
 
@@ -414,7 +420,7 @@ The stored `CODEX_AUTH_JSON` is a snapshot; Codex refreshes the access token fro
 
 ### Keeping a reserve of your plan (usage cap)
 
-If the factory shares your Claude or ChatGPT subscription with your own work, cap it: `--usage-cap 80` (env `VANGUARD_USAGE_CAP_PCT=80`, or the hub's Settings **Usage cap %**) lets it spend up to 80% of the provider's window and leaves the last 20% to you. The factory stops *starting* tasks and stages at the cap (running stages finish), labels the task `vanguard:rate-limited` and `resume-rate-limited` retries it after the window resets. See [cli.md](cli.md#cost-and-limits). The reusable workflows have no `usage-cap` input yet — Taskcell cannot edit `.github/workflows/**`, so add the input by hand (passing it as `--usage-cap` to the CLI call) or set `VANGUARD_USAGE_CAP_PCT` in the job env.
+If the factory shares your Claude or ChatGPT subscription with your own work, cap it: `--usage-cap 80` (env `VANGUARD_USAGE_CAP_PCT=80`, or the hub's Settings **Usage cap %**) lets it spend up to 80% of the provider's window and leaves the last 20% to you. The factory stops *starting* tasks and stages at the cap (running stages finish), labels the task `taskcell:rate-limited` and `resume-rate-limited` retries it after the window resets. See [cli.md](cli.md#cost-and-limits). The reusable workflows have no `usage-cap` input yet — Taskcell cannot edit `.github/workflows/**`, so add the input by hand (passing it as `--usage-cap` to the CLI call) or set `VANGUARD_USAGE_CAP_PCT` in the job env.
 
 ## One run, spec and build
 
@@ -435,19 +441,19 @@ So: do whatever you like for issue authoring (template, your own, freehand) — 
 
 | Label | Set by | Bot state | Meaning | Bot action | Auto-advance? |
 |---|---|---|---|---|---|
-| `ready for spec` | Human | `vanguard:speccing` | Ticket is ready to be specced | Generate tech spec, post `<tech_spec>` comment, advance to `ready for agent` | Yes → `ready for agent` |
-| `ready for agent` | Human or spec pass | `vanguard:running` | Ticket is ready to implement | Implement and open a draft PR | Yes → `vanguard:needs-human-review` |
+| `ready for spec` | Human | `taskcell:speccing` | Ticket is ready to be specced | Generate tech spec, post `<tech_spec>` comment, advance to `ready for agent` | Yes → `ready for agent` |
+| `ready for agent` | Human or spec pass | `taskcell:running` | Ticket is ready to implement | Implement and open a draft PR | Yes → `taskcell:needs-human-review` |
 | `needs info` | **Taskcell triage** (`assessTaskReadiness`) | — | Ticket is too vague to proceed — **rejected/parked** | Post clarification comment, stop | No — human must add content |
-| `needs research` | **Human** (manually) | `vanguard:researching` | Ticket is a valid idea needing **external context** before speccing | Run external research, post findings comment, **REST** | No — human sets `ready for spec` or `ready for agent` next |
+| `needs research` | **Human** (manually) | `taskcell:researching` | Ticket is a valid idea needing **external context** before speccing | Run external research, post findings comment, **REST** | No — human sets `ready for spec` or `ready for agent` next |
 
 The labels above go on **issues**. Two more go on a **pull request** and fire the `pull_request_target: labeled` workflows — these need the `taskcell-pr-review.yml` and `taskcell-revise.yml` callers added alongside the implement/doctor pair.
 
 | Label | On | Set by | Bot state | Bot action |
 |---|---|---|---|---|
-| `ready for taskcell review` | PR (trusted author's, non-draft) | Human | `vanguard:reviewing` → `vanguard:reviewed` | Adversarial **read-only** review — posts a comment, never edits code. Re-apply for a fresh pass. |
-| `needs revision` | PR (trusted author's) | Human | `vanguard:revising` | Reads your review → pushes fix commits to the PR branch → un-drafts → back to `vanguard:needs-human-review`. Iterative: re-apply to loop. Needs `VANGUARD_PUSH_TOKEN` (section above) or the revised PR gets no CI. |
+| `ready for vanguard review` | PR (trusted author's, non-draft) | Human | `taskcell:reviewing` → `taskcell:reviewed` | Adversarial **read-only** review — posts a comment, never edits code. Re-apply for a fresh pass. |
+| `needs revision` | PR (trusted author's) | Human | `taskcell:revising` | Reads your review → pushes fix commits to the PR branch → un-drafts → back to `taskcell:needs-human-review`. Iterative: re-apply to loop. Needs `VANGUARD_PUSH_TOKEN` (section above) or the revised PR gets no CI. |
 
-`ready for taskcell review` reviews *your* PR (read-only); `needs revision` has Taskcell *edit* a trusted author's draft per your review. Both gate on a trusted PR author **and** label-setter, same allowlist as the issue workflows.
+`ready for vanguard review` reviews *your* PR (read-only); `needs revision` has Taskcell *edit* a trusted author's draft per your review. Both gate on a trusted PR author **and** label-setter, same allowlist as the issue workflows.
 
 ### `needs research` vs `needs info`
 

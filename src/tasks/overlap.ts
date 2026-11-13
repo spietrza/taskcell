@@ -1,3 +1,4 @@
+import { labelForms } from '../core/labels.js';
 import { parseSpecManifest } from '../pipeline/conformance-gate.js';
 import { VANGUARD_BRANCH_PREFIX } from '../worktree/manager.js';
 import { trustedSpecText } from './comment-trust.js';
@@ -45,8 +46,8 @@ export function isSharedPath(path: string): boolean {
 
 /** Marker on the hold comment: `until` is when the hold stops (fixed at the first hold), `refs` the `pr:N` / `run:N` it waits for. */
 export const overlapMarker = (until: Date, holds: readonly OverlapHold[]): string =>
-  `<!-- vanguard:overlap until="${until.toISOString()}" refs="${holds.map((h) => `${h.kind}:${h.number}`).join(',')}" -->`;
-const OVERLAP_MARKER_RE = /<!-- vanguard:overlap until="([^"]+)" refs="([^"]*)" -->/;
+  `<!-- taskcell:overlap until="${until.toISOString()}" refs="${holds.map((h) => `${h.kind}:${h.number}`).join(',')}" -->`;
+const OVERLAP_MARKER_RE = /<!-- (?:taskcell|vanguard):overlap until="([^"]+)" refs="([^"]*)" -->/;
 
 /** The first overlap marker among comment bodies (pass newest first for the latest). */
 export function findOverlapMarker(bodies: readonly string[]): { until: Date; refs: { kind: 'pr' | 'run'; number: number }[] } | undefined {
@@ -72,7 +73,7 @@ const manifestFiles = (task: Task): string[] | undefined => parseSpecManifest(tr
 
 export interface OverlapCheckerOptions {
   repo: string;
-  /** Label of in-flight runs, e.g. `vanguard:running`. */
+  /** Label of in-flight runs, e.g. `taskcell:running`. */
   claimedLabel: string;
   /** Full task (comments, author) for an issue id; list() carries neither. */
   fetch: (id: string) => Promise<Task>;
@@ -99,7 +100,9 @@ export function createOverlapChecker(opts: OverlapCheckerOptions): (task: Task) 
       const work: Work[] = prs
         .filter((pr) => pr.isCrossRepository !== true && pr.headRefName?.startsWith(VANGUARD_BRANCH_PREFIX) === true)
         .map((pr) => ({ kind: 'pr' as const, number: pr.number, files: (pr.files ?? []).map((f) => f.path), branch: pr.headRefName! }));
-      for (const run of await opts.list([opts.claimedLabel], LIST_LIMIT)) {
+      const runs = new Map<string, Task>();
+      for (const form of labelForms(opts.claimedLabel)) for (const run of await opts.list([form], LIST_LIMIT)) runs.set(run.id, run);
+      for (const run of runs.values()) {
         const files = manifestFiles(await opts.fetch(run.id));
         if (files !== undefined) work.push({ kind: 'run', number: numberOf(run), files });
       }

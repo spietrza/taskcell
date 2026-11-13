@@ -61,7 +61,7 @@ export const commands = defineCommands<TasksCommands>({
     // The client never chooses the tracker: source/team/label are read server-side from app.json.
     // `createTask`'s own validator (not a re-typed check here) rejects a bad source/missing team.
     const cfg = await readAppConfig(real);
-    // The target branch rides on the card as a `vanguard:base=<branch>` label, so a run started from CI
+    // The target branch rides on the card as a `taskcell:base=<branch>` label, so a run started from CI
     // or `watch` sees it too. Refused here when unsafe or not allowlisted (the run would refuse it) — before
     // anything is created, with no undo.
     // Blank means unset (as in app.json). The label must survive the tracker: GitHub caps a label name at

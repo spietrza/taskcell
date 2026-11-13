@@ -75,30 +75,30 @@ describe('listNeedsYou', () => {
     }
   });
 
-  it('reports the target branch: a PR\'s base, an issue\'s vanguard:base= label', async () => {
+  it('reports the target branch: a PR\'s base, an issue\'s taskcell:base= label', async () => {
     const gh = stubGh({
-      issueList: [{ number: 1, title: 'I', url: 'u1', labels: [{ name: 'needs info' }, { name: 'vanguard:base=uat' }] }],
-      prList: [{ number: 2, title: 'P', url: 'u2', labels: [{ name: 'vanguard:needs-human-review' }], baseRefName: 'dev' }],
+      issueList: [{ number: 1, title: 'I', url: 'u1', labels: [{ name: 'needs info' }, { name: 'taskcell:base=uat' }] }],
+      prList: [{ number: 2, title: 'P', url: 'u2', labels: [{ name: 'taskcell:needs-human-review' }], baseRefName: 'dev' }],
     });
     const items = await listNeedsYou('o/r', gh);
     expect(items.map((i) => [i.number, i.baseBranch])).toEqual([[1, 'uat'], [2, 'dev']]);
   });
 
-  it('lists a PR at vanguard:needs-human-review, vanguard:verify-failed, or with changes requested', async () => {
+  it('lists a PR at taskcell:needs-human-review, taskcell:verify-failed, or with changes requested', async () => {
     const gh = stubGh({
       issueList: [],
       prList: [
-        { number: 1, title: 'A', url: 'u1', labels: [{ name: 'vanguard:needs-human-review' }] },
-        { number: 2, title: 'B', url: 'u2', labels: [{ name: 'vanguard:verify-failed' }] },
+        { number: 1, title: 'A', url: 'u1', labels: [{ name: 'taskcell:needs-human-review' }] },
+        { number: 2, title: 'B', url: 'u2', labels: [{ name: 'taskcell:verify-failed' }] },
         { number: 3, title: 'C', url: 'u3', labels: [], reviewDecision: 'CHANGES_REQUESTED' },
         { number: 4, title: 'D', url: 'u4', labels: [], reviewDecision: 'APPROVED' },
         // Already handed back to the factory (a reply added `needs revision`): not waiting on a human.
-        { number: 5, title: 'E', url: 'u5', labels: [{ name: 'vanguard:needs-human-review' }, { name: NEEDS_REVISION_LABEL }] },
+        { number: 5, title: 'E', url: 'u5', labels: [{ name: 'taskcell:needs-human-review' }, { name: NEEDS_REVISION_LABEL }] },
       ],
     });
     const items = await listNeedsYou('o/r', gh);
     expect(items.map((i) => i.number)).toEqual([1, 2, 3]);
-    expect(items.map((i) => i.reason)).toEqual(['vanguard:needs-human-review', 'vanguard:verify-failed', 'changes requested']);
+    expect(items.map((i) => i.reason)).toEqual(['taskcell:needs-human-review', 'taskcell:verify-failed', 'changes requested']);
     expect(items.every((i) => i.kind === 'pr')).toBe(true);
   });
 
@@ -106,8 +106,8 @@ describe('listNeedsYou', () => {
     const gh = stubGh({
       issueList: [],
       prList: [
-        { number: 1, title: 'A', url: 'https://github.com/o/r/pull/1', labels: [{ name: 'vanguard:needs-human-review' }] },
-        { number: 2, title: 'B', url: 'javascript:alert(1)', labels: [{ name: 'vanguard:needs-human-review' }] },
+        { number: 1, title: 'A', url: 'https://github.com/o/r/pull/1', labels: [{ name: 'taskcell:needs-human-review' }] },
+        { number: 2, title: 'B', url: 'javascript:alert(1)', labels: [{ name: 'taskcell:needs-human-review' }] },
       ],
     });
     const items = await listNeedsYou('o/r', gh);
@@ -258,7 +258,7 @@ describe('replyNeedsYou', () => {
 
   it('on a waiting PR: posts the comment and adds needs revision', async () => {
     const calls: string[][] = [];
-    const gh = stubGh({ prView: { state: 'OPEN', labels: [{ name: 'vanguard:needs-human-review' }] } }, calls);
+    const gh = stubGh({ prView: { state: 'OPEN', labels: [{ name: 'taskcell:needs-human-review' }] } }, calls);
     await replyNeedsYou('o/r', 'o/r#9', 'pr', 'pushed a fix', gh);
 
     const comment = calls.find((c) => c[0] === 'pr' && c[1] === 'comment');
@@ -297,7 +297,7 @@ describe('replyNeedsYou', () => {
   it('on a PR already at needs revision: refuses a second reply', async () => {
     const calls: string[][] = [];
     const gh = stubGh(
-      { prView: { state: 'OPEN', labels: [{ name: 'vanguard:needs-human-review' }, { name: NEEDS_REVISION_LABEL }] } },
+      { prView: { state: 'OPEN', labels: [{ name: 'taskcell:needs-human-review' }, { name: NEEDS_REVISION_LABEL }] } },
       calls,
     );
     await expect(replyNeedsYou('o/r', 'o/r#9', 'pr', 'again', gh)).rejects.toThrow(/not waiting/);
@@ -325,13 +325,13 @@ describe('replyNeedsYou', () => {
 
 describe('listNeedsYou base branch', () => {
   it('lists a PR with its base branch', async () => {
-    const gh = stubGh({ prList: [{ number: 5, title: 't', url: 'u', labels: [{ name: 'vanguard:needs-human-review' }], baseRefName: 'develop' }] });
+    const gh = stubGh({ prList: [{ number: 5, title: 't', url: 'u', labels: [{ name: 'taskcell:needs-human-review' }], baseRefName: 'develop' }] });
     expect((await listNeedsYou('o/r', gh)).find((i) => i.kind === 'pr')?.baseRef).toBe('develop');
   });
 });
 
 describe('mergeNeedsYou', () => {
-  const waitingPr = { state: 'OPEN', labels: [{ name: 'vanguard:needs-human-review' }], reviewDecision: null, headRefOid: 'abc123' };
+  const waitingPr = { state: 'OPEN', labels: [{ name: 'taskcell:needs-human-review' }], reviewDecision: null, headRefOid: 'abc123' };
   const allMethods = { squashMergeAllowed: true, mergeCommitAllowed: true, rebaseMergeAllowed: true };
 
   function mergeGh(opts: { pr?: unknown; checks?: string | Error; methods?: Record<string, boolean> }, calls: string[][]): GhRunner {

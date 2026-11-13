@@ -5,7 +5,8 @@ import { escapePromptTags } from '../context/escape.js';
 import type { GhRunner } from '../tasks/github.js';
 import type { Task, TaskComment } from '../tasks/fetcher.js';
 const PROMISE_RE = /<promise>\s*COMPLETE\s*<\/promise>/gi;
-const RESEARCH_MARKER = 'vanguard-research';
+const RESEARCH_MARKER = 'taskcell-research';
+const LEGACY_RESEARCH_MARKER = 'vanguard-research';
 /** Neutral marker used in white-label mode so the comment source carries no "vanguard" token. */
 const WHITE_LABEL_RESEARCH_MARKER = 'research-iter';
 
@@ -29,7 +30,7 @@ export interface ResearchResult {
 
 export function isResearchComment(comment: TaskComment): boolean {
   // Match either marker so iteration/watermark logic works across default and white-label comments.
-  return comment.body.includes(`<!-- ${RESEARCH_MARKER}:`) || comment.body.includes(`<!-- ${WHITE_LABEL_RESEARCH_MARKER}:`);
+  return comment.body.includes(`<!-- ${RESEARCH_MARKER}:`) || comment.body.includes(`<!-- ${LEGACY_RESEARCH_MARKER}:`) || comment.body.includes(`<!-- ${WHITE_LABEL_RESEARCH_MARKER}:`);
 }
 
 /**
@@ -149,7 +150,7 @@ export function formatResearchComment(
   const body = agentText.replace(PROMISE_RE, '').trim();
   const modeLabel = webAccess ? 'web research' : 'model-knowledge only (no web egress)';
   // White-label drops "Vanguard" from the visible heading and uses a neutral hidden marker.
-  const heading = whiteLabel === true ? `## Research (iteration ${iteration})` : `## Vanguard Research (iteration ${iteration})`;
+  const heading = whiteLabel === true ? `## Research (iteration ${iteration})` : `## Taskcell Research (iteration ${iteration})`;
   const modeLine = `_Mode: ${modeLabel}_`;
   const content = body === '' ? 'No findings produced.' : body;
   const markerName = whiteLabel === true ? WHITE_LABEL_RESEARCH_MARKER : RESEARCH_MARKER;
@@ -176,7 +177,7 @@ export async function runResearch(issueRef: string, deps: ResearchDeps): Promise
     throw new Error(`research ${issueRef}: issue must have the "${GITHUB_NEEDS_RESEARCH_LABEL}" label`);
   }
 
-  // Claim: swap needs-research → vanguard:researching
+  // Claim: swap needs-research → taskcell:researching
   logR('claim');
   await editGithubLabels(deps.repoSlug, issueRef, { remove: [GITHUB_NEEDS_RESEARCH_LABEL], add: [GITHUB_RESEARCHING_LABEL] }, gh);
 
@@ -197,7 +198,7 @@ export async function runResearch(issueRef: string, deps: ResearchDeps): Promise
     logR('posting findings');
     await commentGithubIssue(deps.repoSlug, issueRef, commentBody, gh);
 
-    // Declaim: remove vanguard:researching — REST (no routing label added, human drives next step).
+    // Declaim: remove taskcell:researching — REST (no routing label added, human drives next step).
     logR('declaim (resting)');
     await editGithubLabels(deps.repoSlug, issueRef, { remove: [GITHUB_RESEARCHING_LABEL] }, gh);
 
@@ -212,7 +213,7 @@ export async function runResearch(issueRef: string, deps: ResearchDeps): Promise
       commentGithubIssue(
         deps.repoSlug,
         issueRef,
-        `## Vanguard Research — Error\n\nThe research run failed:\n\n\`\`\`\n${errMsg}\n\`\`\`\n\nRe-apply \`${GITHUB_NEEDS_RESEARCH_LABEL}\` to retry.`,
+        `## Taskcell Research — Error\n\nThe research run failed:\n\n\`\`\`\n${errMsg}\n\`\`\`\n\nRe-apply \`${GITHUB_NEEDS_RESEARCH_LABEL}\` to retry.`,
         gh,
       ).catch(() => undefined),
     ]);

@@ -119,9 +119,9 @@ describe('applyDependencyGate', () => {
     expect(await applyDependencyGate([task(1, 'Depends on #2')], { repo: 'o/r', trigger: 'ready for agent', gh, log })).toEqual([]);
     const calls = (gh as ReturnType<typeof vi.fn>).mock.calls.map((c) => (c[0] as string[]).join(' '));
     expect(calls.filter((c) => c.startsWith('issue comment'))).toHaveLength(1);
-    expect(calls.some((c) => c.includes('--add-label vanguard:waiting') && c.includes('--remove-label ready for agent'))).toBe(true);
+    expect(calls.some((c) => c.includes('--add-label taskcell:waiting') && c.includes('--remove-label ready for agent'))).toBe(true);
     const again = fakeGh({ 'o/r#2': { state: 'open' } });
-    await applyDependencyGate([task(1, 'Depends on #2', ['ready for agent', 'vanguard:waiting'])], { repo: 'o/r', trigger: 'ready for agent', gh: again, log });
+    await applyDependencyGate([task(1, 'Depends on #2', ['ready for agent', 'taskcell:waiting'])], { repo: 'o/r', trigger: 'ready for agent', gh: again, log });
     expect((again as ReturnType<typeof vi.fn>).mock.calls.some((c) => (c[0] as string[])[1] === 'comment')).toBe(false);
   });
   it('passes through issues with no dependencies', async () => {
@@ -135,9 +135,9 @@ describe('applyDependencyGate', () => {
   });
   it('removes a stale waiting label from a ready issue', async () => {
     const gh = fakeGh({});
-    const out = await applyDependencyGate([task(1, '', ['ready for agent', 'vanguard:waiting'])], { repo: 'o/r', trigger: 'ready for agent', gh });
+    const out = await applyDependencyGate([task(1, '', ['ready for agent', 'taskcell:waiting'])], { repo: 'o/r', trigger: 'ready for agent', gh });
     expect(out).toHaveLength(1);
-    expect((gh as ReturnType<typeof vi.fn>).mock.calls.some((c) => (c[0] as string[]).join(' ').includes('--remove-label vanguard:waiting'))).toBe(true);
+    expect((gh as ReturnType<typeof vi.fn>).mock.calls.some((c) => (c[0] as string[]).join(' ').includes('--remove-label taskcell:waiting'))).toBe(true);
   });
   it('does not repeat a comment identical to the newest trusted one (label edit failed last poll)', async () => {
     const first = fakeGh({ 'o/r#2': { state: 'open' } });
@@ -148,10 +148,10 @@ describe('applyDependencyGate', () => {
     await applyDependencyGate([task(1, 'Depends on #2')], { repo: 'o/r', trigger: 'ready for agent', gh: again, log: vi.fn() });
     const calls = (again as ReturnType<typeof vi.fn>).mock.calls.map((c) => (c[0] as string[]).join(' '));
     expect(calls.some((c) => c.startsWith('issue comment'))).toBe(false);
-    expect(calls.some((c) => c.includes('--add-label vanguard:waiting'))).toBe(true);
+    expect(calls.some((c) => c.includes('--add-label taskcell:waiting'))).toBe(true);
   });
   it('sends a lookup that fails again right after a resume to needs info instead of looping', async () => {
-    const marker = '<!-- vanguard:waiting trigger="ready for agent" kind="error" -->';
+    const marker = '<!-- taskcell:waiting trigger="ready for agent" kind="error" -->';
     const gh = vi.fn(async (args: string[]) => {
       if (args[0] === 'api') throw new Error('HTTP 403 SAML');
       if (args[1] === 'view') return JSON.stringify({ comments: [{ author: { login: 'github-actions[bot]' }, authorAssociation: 'NONE', body: `x ${marker}` }] });
@@ -160,7 +160,7 @@ describe('applyDependencyGate', () => {
     await applyDependencyGate([task(1, 'Depends on #2')], { repo: 'o/r', trigger: 'ready for agent', needsInfoLabel: 'needs info', gh, log: vi.fn() });
     const calls = (gh as ReturnType<typeof vi.fn>).mock.calls.map((c) => (c[0] as string[]).join(' '));
     expect(calls.some((c) => c.includes('--add-label needs info'))).toBe(true);
-    expect(calls.some((c) => c.includes('vanguard:waiting'))).toBe(false);
+    expect(calls.some((c) => c.includes('taskcell:waiting'))).toBe(false);
   });
   it('leaves an issue with no declared dependencies triggered when only the blocked-by probe fails', async () => {
     const gh = vi.fn(async (args: string[]) => {
@@ -179,7 +179,7 @@ describe('applyDependencyGate', () => {
     await applyDependencyGate([task(1, 'Depends on #2')], { repo: 'o/r', trigger: 'ready for agent', gh, log: vi.fn() });
     const calls = (gh as ReturnType<typeof vi.fn>).mock.calls.map((c) => (c[0] as string[]).join(' '));
     expect(calls.filter((c) => c.startsWith('issue comment'))).toHaveLength(1);
-    expect(calls.some((c) => c.includes('--add-label vanguard:waiting'))).toBe(true);
+    expect(calls.some((c) => c.includes('--add-label taskcell:waiting'))).toBe(true);
   });
   it('does not park the issue when the comment fails (trigger stays)', async () => {
     const gh = vi.fn(async (args: string[]) => {

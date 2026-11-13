@@ -15,7 +15,7 @@ export type BoardSource = 'github' | 'gitlab' | 'linear';
 /**
  * True if `word` appears in `t` as a whole token (bounded by non-alphanumerics), not a substring.
  * Keeps `incomplete` out of `complete`, `preview` out of `review`, `inspection` out of `spec`.
- * Hyphens/colons/spaces are boundaries, so `vanguard::verify-failed` yields `verify` and `failed`.
+ * Hyphens/colons/spaces are boundaries, so `taskcell::verify-failed` yields `verify` and `failed`.
  */
 function hasWord(t: string, word: string): boolean {
   return t.split(/[^a-z0-9]+/).includes(word);
@@ -37,14 +37,14 @@ export function isTriggerLabel(label: string): boolean {
 
 /**
  * Best-effort mapping of a task's state/labels to a board column, following Vanguard's real label
- * vocabulary (`vanguard:running`, `vanguard::verify-failed`, `vanguard:speccing`,
- * `vanguard::secret-blocked`, Linear states). A TERMINAL state wins first: a closed issue whose
- * active label was never cleared (`"vanguard:running closed"`) belongs in Done, not Running.
+ * vocabulary (`taskcell:running`, `taskcell::verify-failed`, `taskcell:speccing`,
+ * `taskcell::secret-blocked`, Linear states). A TERMINAL state wins first: a closed issue whose
+ * active label was never cleared (`"taskcell:running closed"`) belongs in Done, not Running.
  * `secret-blocked` stays a qualified `includes` so a generic dependency-`blocked` label is ignored.
  */
 export function columnFor(text: string): 'queued' | 'claimed' | 'running' | 'verify-failed' | 'review' | 'done' {
   // Trigger labels are a HUMAN request, not a claim: drop them before the word scan, or
-  // `ready for spec` matches the `spec` rule meant for `vanguard:speccing` and a waiting task
+  // `ready for spec` matches the `spec` rule meant for `taskcell:speccing` and a waiting task
   // reads as taken. Lifecycle labels and terminal states still win — they survive the strip.
   const t = text.toLowerCase().replace(TRIGGER_STRIP, ' ');
   const w = (word: string): boolean => hasWord(t, word);
@@ -110,7 +110,7 @@ export function resolveTaskRef(taskId: string): ResolvedTaskRef | undefined {
  */
 export function toBoardTask(source: BoardSource, task: Task): BoardTask {
   const state = task.state ?? '';
-  // A `vanguard:base=` label names a branch (`uat`, `review/x`), not a state: it must not move the card or be its chip.
+  // A `taskcell:base=` label names a branch (`uat`, `review/x`), not a state: it must not move the card or be its chip.
   const stateLabels = task.labels.filter((l) => !isBaseLabel(l));
   const combined = `${stateLabels.join(' ')} ${state}`;
   const column = columnFor(combined);

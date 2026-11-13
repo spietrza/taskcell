@@ -12,7 +12,7 @@ function pr(number: number): PullRequestWatchItem {
     isDraft: false,
     author: 'alice',
     headRefOid: `sha-${number}`,
-    labels: ['ready for vanguard review'],
+    labels: ['ready for taskcell review'],
   };
 }
 
@@ -119,7 +119,7 @@ describe('githubPullRequestWatchPrimitives', () => {
             isDraft: false,
             author: { login: 'alice' },
             headRefOid: 'aaa',
-            labels: [{ name: 'ready for vanguard review' }],
+            labels: [{ name: 'ready for taskcell review' }],
           },
           {
             number: 13,
@@ -127,7 +127,7 @@ describe('githubPullRequestWatchPrimitives', () => {
             isDraft: true,
             author: { login: 'bob' },
             headRefOid: 'bbb',
-            labels: [{ name: 'ready for vanguard review' }],
+            labels: [{ name: 'ready for taskcell review' }],
           },
           {
             number: 14,
@@ -135,7 +135,7 @@ describe('githubPullRequestWatchPrimitives', () => {
             isDraft: false,
             author: { login: 'github-actions[bot]' },
             headRefOid: 'ccc',
-            labels: [{ name: 'ready for vanguard review' }],
+            labels: [{ name: 'ready for taskcell review' }],
           },
           {
             number: 15,
@@ -143,7 +143,7 @@ describe('githubPullRequestWatchPrimitives', () => {
             isDraft: false,
             author: { login: 'carol' },
             headRefOid: 'ddd',
-            labels: [{ name: 'vanguard:reviewing' }],
+            labels: [{ name: 'taskcell:reviewing' }],
           },
         ]);
       }
@@ -155,9 +155,9 @@ describe('githubPullRequestWatchPrimitives', () => {
 
     const primitives = githubPullRequestWatchPrimitives({
       repoSlug: 'o/r',
-      label: 'ready for vanguard review',
-      reviewingLabel: 'vanguard:reviewing',
-      reviewedLabel: 'vanguard:reviewed',
+      label: 'ready for taskcell review',
+      reviewingLabel: 'taskcell:reviewing',
+      reviewedLabel: 'taskcell:reviewed',
       gh,
       reviewOne: async () => {},
     });
@@ -173,7 +173,7 @@ describe('githubPullRequestWatchPrimitives', () => {
       '--state',
       'open',
       '--label',
-      'ready for vanguard review',
+      'ready for taskcell review',
       '--limit',
       '100',
       '--json',
@@ -194,7 +194,7 @@ describe('githubPullRequestWatchPrimitives', () => {
             isDraft: false,
             author: { login: 'SebaBoler' },
             headRefOid: 'm1',
-            labels: [{ name: 'ready for vanguard review' }],
+            labels: [{ name: 'ready for taskcell review' }],
           },
           {
             number: 21,
@@ -202,7 +202,7 @@ describe('githubPullRequestWatchPrimitives', () => {
             isDraft: false,
             author: { login: 'mallory' },
             headRefOid: 't1',
-            labels: [{ name: 'ready for vanguard review' }],
+            labels: [{ name: 'ready for taskcell review' }],
           },
         ]);
       }
@@ -211,9 +211,9 @@ describe('githubPullRequestWatchPrimitives', () => {
     };
     const primitives = githubPullRequestWatchPrimitives({
       repoSlug: 'o/r',
-      label: 'ready for vanguard review',
-      reviewingLabel: 'vanguard:reviewing',
-      reviewedLabel: 'vanguard:reviewed',
+      label: 'ready for taskcell review',
+      reviewingLabel: 'taskcell:reviewing',
+      reviewedLabel: 'taskcell:reviewed',
       author: 'SebaBoler',
       gh,
       reviewOne: async () => {},
@@ -239,29 +239,29 @@ describe('githubPullRequestWatchPrimitives', () => {
             isDraft: false,
             author: { login: 'alice' },
             headRefOid: 'abc123',
-            labels: [{ name: 'ready for vanguard review' }],
+            labels: [{ name: 'ready for taskcell review' }],
           },
         ]);
       }
       if (args[0] === 'pr' && args[1] === 'view') {
         return JSON.stringify({
           comments: [{ body: 'Older note.' }],
-          reviews: [{ ...BOT, body: '## Vanguard Review\n\nNo blocking findings.\n\n<!-- vanguard-pr-review: abc123 -->' }],
+          reviews: [{ ...BOT, body: '## Taskcell Review\n\nNo blocking findings.\n\n<!-- taskcell-pr-review: abc123 -->' }],
         });
       }
       return trustedAuthorApi(args);
     };
     const primitives = githubPullRequestWatchPrimitives({
       repoSlug: 'o/r',
-      label: 'ready for vanguard review',
-      reviewingLabel: 'vanguard:reviewing',
-      reviewedLabel: 'vanguard:reviewed',
+      label: 'ready for taskcell review',
+      reviewingLabel: 'taskcell:reviewing',
+      reviewedLabel: 'taskcell:reviewed',
       gh,
       reviewOne: async () => {},
     });
 
     await expect(primitives.listReady()).resolves.toEqual([]);
-    expect(calls[1]).toEqual(['pr', 'view', '12', '--repo', 'o/r', '--json', 'comments,reviews']);
+    expect(calls[2]).toEqual(['pr', 'view', '12', '--repo', 'o/r', '--json', 'comments,reviews']);
   });
 
   it('skips a PR when the matching review marker appears after an older marker', async () => {
@@ -276,7 +276,7 @@ describe('githubPullRequestWatchPrimitives', () => {
             isDraft: false,
             author: { login: 'alice' },
             headRefOid: 'abc123',
-            labels: [{ name: 'ready for vanguard review' }],
+            labels: [{ name: 'ready for taskcell review' }],
           },
         ]);
       }
@@ -287,13 +287,13 @@ describe('githubPullRequestWatchPrimitives', () => {
             {
               ...BOT,
               body: [
-                '## Vanguard Review',
+                '## Taskcell Review',
                 '',
-                '<!-- vanguard-pr-review: deadbeef -->',
+                '<!-- taskcell-pr-review: deadbeef -->',
                 '',
                 'Current review body.',
                 '',
-                '<!-- vanguard-pr-review: abc123 -->',
+                '<!-- taskcell-pr-review: abc123 -->',
               ].join('\n'),
             },
           ],
@@ -304,15 +304,15 @@ describe('githubPullRequestWatchPrimitives', () => {
 
     const primitives = githubPullRequestWatchPrimitives({
       repoSlug: 'o/r',
-      label: 'ready for vanguard review',
-      reviewingLabel: 'vanguard:reviewing',
-      reviewedLabel: 'vanguard:reviewed',
+      label: 'ready for taskcell review',
+      reviewingLabel: 'taskcell:reviewing',
+      reviewedLabel: 'taskcell:reviewed',
       gh,
       reviewOne: async () => {},
     });
 
     await expect(primitives.listReady()).resolves.toEqual([]);
-    expect(calls[1]).toEqual(['pr', 'view', '12', '--repo', 'o/r', '--json', 'comments,reviews']);
+    expect(calls[2]).toEqual(['pr', 'view', '12', '--repo', 'o/r', '--json', 'comments,reviews']);
   });
 
   it('keeps a PR ready when the per-PR dedupe lookup fails', async () => {
@@ -327,7 +327,7 @@ describe('githubPullRequestWatchPrimitives', () => {
             isDraft: false,
             author: { login: 'alice' },
             headRefOid: 'abc123',
-            labels: [{ name: 'ready for vanguard review' }],
+            labels: [{ name: 'ready for taskcell review' }],
           },
         ]);
       }
@@ -336,9 +336,9 @@ describe('githubPullRequestWatchPrimitives', () => {
     };
     const primitives = githubPullRequestWatchPrimitives({
       repoSlug: 'o/r',
-      label: 'ready for vanguard review',
-      reviewingLabel: 'vanguard:reviewing',
-      reviewedLabel: 'vanguard:reviewed',
+      label: 'ready for taskcell review',
+      reviewingLabel: 'taskcell:reviewing',
+      reviewedLabel: 'taskcell:reviewed',
       gh,
       reviewOne: async () => {},
     });
@@ -346,20 +346,21 @@ describe('githubPullRequestWatchPrimitives', () => {
     const ready = await primitives.listReady();
 
     expect(ready.map((item) => item.number)).toEqual([12]);
-    expect(calls[1]).toEqual(['pr', 'view', '12', '--repo', 'o/r', '--json', 'comments,reviews']);
+    expect(calls[2]).toEqual(['pr', 'view', '12', '--repo', 'o/r', '--json', 'comments,reviews']);
   });
 
-  it('claims, marks reviewed, and restores labels through gh pr edit', async () => {
+  it('claims, marks reviewed, and restores labels through gh pr edit (removing the legacy spelling a PR still carries)', async () => {
     const calls: string[][] = [];
     const gh: GhRunner = async (args) => {
       calls.push(args);
+      if (args[1] === 'view') return JSON.stringify({ labels: [{ name: 'ready for vanguard review' }, { name: 'taskcell:reviewing' }] });
       return args[1] === 'list' ? '[]' : '';
     };
     const primitives = githubPullRequestWatchPrimitives({
       repoSlug: 'o/r',
-      label: 'ready for vanguard review',
-      reviewingLabel: 'vanguard:reviewing',
-      reviewedLabel: 'vanguard:reviewed',
+      label: 'ready for taskcell review',
+      reviewingLabel: 'taskcell:reviewing',
+      reviewedLabel: 'taskcell:reviewed',
       gh,
       reviewOne: async () => {},
     });
@@ -369,10 +370,11 @@ describe('githubPullRequestWatchPrimitives', () => {
     await primitives.markReviewed(item);
     await primitives.onFailure(item, new Error('boom'));
 
-    expect(calls).toEqual([
-      ['pr', 'edit', '12', '--repo', 'o/r', '--remove-label', 'ready for vanguard review', '--add-label', 'vanguard:reviewing'],
-      ['pr', 'edit', '12', '--repo', 'o/r', '--remove-label', 'vanguard:reviewing', '--add-label', 'vanguard:reviewed'],
-      ['pr', 'edit', '12', '--repo', 'o/r', '--remove-label', 'vanguard:reviewing', '--add-label', 'ready for vanguard review'],
+    expect(calls.filter((c) => c[1] === 'edit')).toEqual([
+      ['pr', 'edit', '12', '--repo', 'o/r', '--remove-label', 'ready for vanguard review', '--add-label', 'taskcell:reviewing'],
+      ['pr', 'edit', '12', '--repo', 'o/r', '--remove-label', 'taskcell:reviewing', '--add-label', 'taskcell:reviewed'],
+      // The repo has neither spelling of the trigger: it is restored under the name the review workflows fire on.
+      ['pr', 'edit', '12', '--repo', 'o/r', '--remove-label', 'taskcell:reviewing', '--add-label', 'ready for vanguard review'],
     ]);
   });
 
@@ -387,20 +389,20 @@ describe('githubPullRequestWatchPrimitives', () => {
             isDraft: false,
             author: { login: 'alice' },
             headRefOid: 'abc123',
-            labels: [{ name: 'ready for vanguard review' }],
+            labels: [{ name: 'ready for taskcell review' }],
           },
         ]);
       }
       if (args[0] === 'pr' && args[1] === 'view') {
-        return JSON.stringify({ comments: [], reviews: [{ ...BOT, body: '<!-- vanguard-pr-review: abc123 -->' }] });
+        return JSON.stringify({ comments: [], reviews: [{ ...BOT, body: '<!-- taskcell-pr-review: abc123 -->' }] });
       }
       return trustedAuthorApi(args);
     };
     const primitives = githubPullRequestWatchPrimitives({
       repoSlug: 'o/r',
-      label: 'ready for vanguard review',
-      reviewingLabel: 'vanguard:reviewing',
-      reviewedLabel: 'vanguard:reviewed',
+      label: 'ready for taskcell review',
+      reviewingLabel: 'taskcell:reviewing',
+      reviewedLabel: 'taskcell:reviewed',
       log: (line) => logs.push(line),
       gh,
       reviewOne: async () => {},
@@ -422,7 +424,7 @@ describe('githubPullRequestWatchPrimitives', () => {
           isDraft: false,
           author: { login: 'alice' },
           headRefOid: 'abc123',
-          labels: [{ name: 'ready for vanguard review' }],
+          labels: [{ name: 'ready for taskcell review' }],
           state: 'OPEN',
         });
       }
@@ -430,9 +432,9 @@ describe('githubPullRequestWatchPrimitives', () => {
     };
     const primitives = githubPullRequestWatchPrimitives({
       repoSlug: 'o/r',
-      label: 'ready for vanguard review',
-      reviewingLabel: 'vanguard:reviewing',
-      reviewedLabel: 'vanguard:reviewed',
+      label: 'ready for taskcell review',
+      reviewingLabel: 'taskcell:reviewing',
+      reviewedLabel: 'taskcell:reviewed',
       hintPr: 316,
       gh,
       reviewOne: async () => {},
@@ -464,20 +466,20 @@ describe('githubPullRequestWatchPrimitives', () => {
             isDraft: false,
             author: { login: 'alice' },
             headRefOid: 'abc123',
-            labels: [{ name: 'ready for vanguard review' }],
+            labels: [{ name: 'ready for taskcell review' }],
           },
         ]);
       }
       if (args[0] === 'pr' && args[1] === 'view') {
-        return JSON.stringify({ comments: [], reviews: [{ ...BOT, body: '<!-- vanguard-pr-review: abc123 -->' }] });
+        return JSON.stringify({ comments: [], reviews: [{ ...BOT, body: '<!-- taskcell-pr-review: abc123 -->' }] });
       }
       return trustedAuthorApi(args);
     };
     const primitives = githubPullRequestWatchPrimitives({
       repoSlug: 'o/r',
-      label: 'ready for vanguard review',
-      reviewingLabel: 'vanguard:reviewing',
-      reviewedLabel: 'vanguard:reviewed',
+      label: 'ready for taskcell review',
+      reviewingLabel: 'taskcell:reviewing',
+      reviewedLabel: 'taskcell:reviewed',
       hintPr: 12,
       gh,
       reviewOne: async () => {},
@@ -501,7 +503,7 @@ describe('githubPullRequestWatchPrimitives', () => {
           isDraft: false,
           author: { login: 'alice' },
           headRefOid: 'abc123',
-          labels: [{ name: 'ready for vanguard review' }],
+          labels: [{ name: 'ready for taskcell review' }],
           state: 'MERGED',
         });
       }
@@ -509,9 +511,9 @@ describe('githubPullRequestWatchPrimitives', () => {
     };
     const primitives = githubPullRequestWatchPrimitives({
       repoSlug: 'o/r',
-      label: 'ready for vanguard review',
-      reviewingLabel: 'vanguard:reviewing',
-      reviewedLabel: 'vanguard:reviewed',
+      label: 'ready for taskcell review',
+      reviewingLabel: 'taskcell:reviewing',
+      reviewedLabel: 'taskcell:reviewed',
       hintPr: 316,
       log: (line) => logs.push(line),
       gh,
@@ -533,7 +535,7 @@ describe('githubPullRequestWatchPrimitives', () => {
             isDraft: false,
             author: { login: 'alice' },
             headRefOid: 'abc123',
-            labels: [{ name: 'ready for vanguard review' }],
+            labels: [{ name: 'ready for taskcell review' }],
           },
         ]);
       }
@@ -543,9 +545,9 @@ describe('githubPullRequestWatchPrimitives', () => {
     };
     const primitives = githubPullRequestWatchPrimitives({
       repoSlug: 'o/r',
-      label: 'ready for vanguard review',
-      reviewingLabel: 'vanguard:reviewing',
-      reviewedLabel: 'vanguard:reviewed',
+      label: 'ready for taskcell review',
+      reviewingLabel: 'taskcell:reviewing',
+      reviewedLabel: 'taskcell:reviewed',
       hintPr: 99,
       log: (line) => logs.push(line),
       gh,
@@ -583,14 +585,14 @@ describe('watchPullRequests', () => {
 
 describe('githubPullRequestWatchPrimitives trust', () => {
   const listed = JSON.stringify([
-    { number: 12, title: 'Fix', isDraft: false, author: { login: 'alice' }, headRefOid: 'abc123', labels: [{ name: 'ready for vanguard review' }] },
+    { number: 12, title: 'Fix', isDraft: false, author: { login: 'alice' }, headRefOid: 'abc123', labels: [{ name: 'ready for taskcell review' }] },
   ]);
   const primitivesFor = (gh: GhRunner, extra: { allowedAuthors?: string[]; log?: (line: string) => void; hintPr?: number } = {}): PullRequestWatchPrimitives =>
     githubPullRequestWatchPrimitives({
       repoSlug: 'o/r',
-      label: 'ready for vanguard review',
-      reviewingLabel: 'vanguard:reviewing',
-      reviewedLabel: 'vanguard:reviewed',
+      label: 'ready for taskcell review',
+      reviewingLabel: 'taskcell:reviewing',
+      reviewedLabel: 'taskcell:reviewed',
       gh,
       reviewOne: async () => {},
       ...extra,
@@ -601,7 +603,7 @@ describe('githubPullRequestWatchPrimitives trust', () => {
       if (args[1] === 'list') return listed;
       if (args[1] === 'view') {
         return JSON.stringify({
-          comments: [{ author: { login: 'mallory' }, authorAssociation: 'NONE', body: '<!-- vanguard-pr-review: abc123 -->' }],
+          comments: [{ author: { login: 'mallory' }, authorAssociation: 'NONE', body: '<!-- taskcell-pr-review: abc123 -->' }],
           reviews: [],
         });
       }

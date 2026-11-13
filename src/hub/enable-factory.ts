@@ -11,6 +11,7 @@ import { execa } from 'execa';
 import { mkdir, readFile, writeFile } from 'node:fs/promises';
 import { basename, join } from 'node:path';
 import { BadRequestError } from '../sidecar/sidecar.js';
+import { REVIEW_TRIGGER_LABEL } from '../core/labels.js';
 import { packageManagerOf, resolveVerifyCommand } from '../pipeline/verify.js';
 import { listRemoteRuns } from './remote.js';
 import type { FactoryApplyResult, FactoryPlan, FactoryProviderId, FactorySecretStep, FactoryVerifyResult } from '../wire.js';
@@ -34,7 +35,8 @@ export const FACTORY_LABELS = [
   { name: 'needs revision', color: 'D93F0B' },
   { name: 'needs info', color: 'FBCA04' },
   { name: 'ready for spec', color: '1D76DB' },
-  { name: 'ready for vanguard review', color: '5319E7' },
+  // The pre-rename name on purpose: it is the one the reusable workflows write (see REVIEW_TRIGGER_LABEL).
+  { name: REVIEW_TRIGGER_LABEL, color: '5319E7' },
 ] as const;
 
 const TEMPLATES_DIR = new URL('../../templates/github/', import.meta.url);

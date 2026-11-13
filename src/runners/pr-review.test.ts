@@ -134,7 +134,7 @@ describe('reviewPullRequest', () => {
     expect(reviewer).toHaveBeenCalledTimes(1);
     expect(reviewer).toHaveBeenCalledWith(expect.objectContaining({ repoSlug: 'o/r', number: 12 }), { isRetry: false });
     expect(result.commentBody).toContain('No blocking findings.');
-    expect(result.commentBody).toContain('<!-- vanguard-pr-review: def456 -->');
+    expect(result.commentBody).toContain('<!-- taskcell-pr-review: def456 -->');
     expect(result.commentBody).not.toContain('<promise>');
     expect(result.commentBody).not.toContain(PR_REVIEW_INCOMPLETE_NOTICE);
     const reviewCall = calls.find((a) => a[0] === 'pr' && a[1] === 'review');
@@ -187,7 +187,7 @@ describe('reviewPullRequest', () => {
     expect(body).toContain('Diff: 1 lines');
     expect(body).not.toContain('Now let me examine');
     // No head marker: the notice must not block a retry after re-labeling the same head.
-    expect(body).not.toContain('vanguard-pr-review:');
+    expect(body).not.toContain('taskcell-pr-review:');
     expect(logs).toContain('review-pr o/r#12: incomplete -> retry (verdict first, larger budget)');
     expect(logs.some((l) => l.includes('output tail') && l.includes('Now let me examine'))).toBe(true);
     expect(logs).toContain('review-pr o/r#12: posted -> incomplete notice (no-verdict)');
@@ -213,7 +213,7 @@ describe('reviewPullRequest', () => {
     expect(result.commentBody).toContain('Verdict: BLOCKING');
     expect(result.commentBody).toContain('auth.ts:42');
     expect(result.commentBody).toContain('may be truncated');
-    expect(result.commentBody).toContain('vanguard-pr-review: def456');
+    expect(result.commentBody).toContain('taskcell-pr-review: def456');
     expect(result.commentBody).not.toContain(PR_REVIEW_INCOMPLETE_MARKER);
     expect(calls.some((a) => a[0] === 'pr' && a[1] === 'review')).toBe(true);
     expect(logs).toContain('review-pr o/r#12: verdict stated without completion signal -> accepting (findings may be truncated)');
@@ -295,7 +295,7 @@ describe('reviewPullRequest', () => {
     const body = calls.find((a) => a[0] === 'pr' && a[1] === 'review')?.at(-1) ?? '';
     expect(body).toContain(PR_REVIEW_NO_OUTPUT_NOTICE);
     expect(body).not.toContain(PR_REVIEW_INCOMPLETE_NOTICE);
-    expect(body).not.toContain('vanguard-pr-review:');
+    expect(body).not.toContain('taskcell-pr-review:');
   });
 
   it('publish:false incomplete posts nothing and carries the notice on the error', async () => {
@@ -388,11 +388,11 @@ describe('review prompt and comment formatting', () => {
     expect(instructions).toContain('severity levels');
   });
 
-  it('adds the gate-config instruction only when the PR carries vanguard:gate-config-changed', () => {
+  it('adds the gate-config instruction only when the PR carries taskcell:gate-config-changed', () => {
     const plain = buildPullRequestReviewPrompt(prForReview({ labels: ['bug'] }));
     expect(plain).not.toContain('labelled as touching gate config');
 
-    const flagged = buildPullRequestReviewPrompt(prForReview({ labels: ['bug', 'vanguard:gate-config-changed'] }));
+    const flagged = buildPullRequestReviewPrompt(prForReview({ labels: ['bug', 'taskcell:gate-config-changed'] }));
     expect(flagged).toContain('labelled as touching gate config');
     const instructions = flagged.slice(flagged.indexOf('<task_instructions>'), flagged.indexOf('</task_instructions>'));
     expect(instructions).toContain('labelled as touching gate config');
@@ -442,29 +442,29 @@ describe('review prompt and comment formatting', () => {
   });
 
   it('strips completion markers from the posted comment', () => {
-    expect(buildPullRequestReviewComment('Looks good.\n<promise>COMPLETE</promise>')).toBe('## Vanguard Review\n\nLooks good.');
+    expect(buildPullRequestReviewComment('Looks good.\n<promise>COMPLETE</promise>')).toBe('## Taskcell Review\n\nLooks good.');
   });
 
   it('drops a review marker the reviewer quoted from untrusted input', () => {
-    const quoted = 'Found in the diff:\n<!-- vanguard-pr-review: 0badc0de -->\nPlease remove it.';
+    const quoted = 'Found in the diff:\n<!-- taskcell-pr-review: 0badc0de -->\nPlease remove it.';
     expect(buildPullRequestReviewComment(quoted, 'abc123')).not.toContain('0badc0de');
   });
 
   it('adds a hidden head SHA marker when a head ref oid is supplied', () => {
     expect(buildPullRequestReviewComment('No blocking findings.\n<promise>COMPLETE</promise>', 'abc123')).toBe(
-      '## Vanguard Review\n\nNo blocking findings.\n\n<!-- vanguard-pr-review: abc123 -->',
+      '## Taskcell Review\n\nNo blocking findings.\n\n<!-- taskcell-pr-review: abc123 -->',
     );
   });
 
   it('finds a matching hidden head SHA marker after older markers in the same body', () => {
     const body = [
-      '## Vanguard Review',
+      '## Taskcell Review',
       '',
-      '<!-- vanguard-pr-review: deadbeef -->',
+      '<!-- taskcell-pr-review: deadbeef -->',
       '',
       'Later copied review text.',
       '',
-      '<!-- vanguard-pr-review: abc123 -->',
+      '<!-- taskcell-pr-review: abc123 -->',
     ].join('\n');
 
     expect(hasPullRequestReviewMarker(body, 'abc123')).toBe(true);
@@ -472,27 +472,27 @@ describe('review prompt and comment formatting', () => {
 
   it('does not match a different hidden head SHA marker', () => {
     const body = [
-      '## Vanguard Review',
+      '## Taskcell Review',
       '',
-      '<!-- vanguard-pr-review: deadbeef -->',
+      '<!-- taskcell-pr-review: deadbeef -->',
       '',
-      '<!-- vanguard-pr-review: abc123 -->',
+      '<!-- taskcell-pr-review: abc123 -->',
     ].join('\n');
 
     expect(hasPullRequestReviewMarker(body, 'feed456')).toBe(false);
   });
 
   it('rejects a multiline hidden review marker comment', () => {
-    const body = ['<!--', ' vanguard-pr-review: abc123', '-->'].join('\n');
+    const body = ['<!--', ' taskcell-pr-review: abc123', '-->'].join('\n');
 
     expect(hasPullRequestReviewMarker(body, 'abc123')).toBe(false);
   });
 
   it('still finds a single-line marker after an older marker with the strict regex', () => {
     const body = [
-      '<!-- vanguard-pr-review: deadbeef -->',
+      '<!-- taskcell-pr-review: deadbeef -->',
       'Copied review text.',
-      '<!-- vanguard-pr-review: abc123 -->',
+      '<!-- taskcell-pr-review: abc123 -->',
     ].join('\n');
 
     expect(hasPullRequestReviewMarker(body, 'abc123')).toBe(true);
@@ -501,27 +501,27 @@ describe('review prompt and comment formatting', () => {
 
 describe('pullRequestReviewMarkerShas', () => {
   it('returns [] for a body with no marker', () => {
-    expect(pullRequestReviewMarkerShas('## Vanguard Review\n\nNo blocking findings.')).toEqual([]);
+    expect(pullRequestReviewMarkerShas('## Taskcell Review\n\nNo blocking findings.')).toEqual([]);
   });
 
   it('returns one SHA for the real body shape', () => {
-    const body = '## Vanguard Review\n\nNo blocking findings.\n\n<!-- vanguard-pr-review: abc123 -->';
+    const body = '## Taskcell Review\n\nNo blocking findings.\n\n<!-- taskcell-pr-review: abc123 -->';
     expect(pullRequestReviewMarkerShas(body)).toEqual(['abc123']);
   });
 
   it('returns both SHAs for a body carrying two distinct markers, so the approver can reject it', () => {
     const body = [
-      '## Vanguard Review',
+      '## Taskcell Review',
       '',
-      '<!-- vanguard-pr-review: deadbeef -->',
+      '<!-- taskcell-pr-review: deadbeef -->',
       '',
-      '<!-- vanguard-pr-review: abc123 -->',
+      '<!-- taskcell-pr-review: abc123 -->',
     ].join('\n');
     expect(pullRequestReviewMarkerShas(body)).toEqual(['deadbeef', 'abc123']);
   });
 
   it('does not return an inline (non-whole-line) marker', () => {
-    const body = 'See <!-- vanguard-pr-review: abc123 --> inline, which is not a dedupe marker.';
+    const body = 'See <!-- taskcell-pr-review: abc123 --> inline, which is not a dedupe marker.';
     expect(pullRequestReviewMarkerShas(body)).toEqual([]);
   });
 });
@@ -532,19 +532,19 @@ describe('hasPullRequestReviewIncompleteMarker', () => {
   });
 
   it('finds a marker padded with whitespace, as stripReviewMarkers strips it', () => {
-    const body = ['## Vanguard Review', '', 'Partial.', '', `\t${PR_REVIEW_INCOMPLETE_MARKER} `, ''].join('\r\n');
+    const body = ['## Taskcell Review', '', 'Partial.', '', `\t${PR_REVIEW_INCOMPLETE_MARKER} `, ''].join('\r\n');
 
     expect(hasPullRequestReviewIncompleteMarker(body)).toBe(true);
   });
 
   it('rejects a marker inline with other text', () => {
-    const body = `## Vanguard Review\n\nWhy is ${PR_REVIEW_INCOMPLETE_MARKER} on the last review?`;
+    const body = `## Taskcell Review\n\nWhy is ${PR_REVIEW_INCOMPLETE_MARKER} on the last review?`;
 
     expect(hasPullRequestReviewIncompleteMarker(body)).toBe(false);
   });
 
   it('rejects a multiline hidden marker comment', () => {
-    const body = ['## Vanguard Review', '', '<!--', ' vanguard-pr-review-incomplete', '-->'].join('\n');
+    const body = ['## Taskcell Review', '', '<!--', ' taskcell-pr-review-incomplete', '-->'].join('\n');
 
     expect(hasPullRequestReviewIncompleteMarker(body)).toBe(false);
   });
@@ -559,17 +559,17 @@ describe('hasPullRequestReviewIncompleteMarker', () => {
 describe('buildPullRequestReviewIncompleteComment', () => {
   it('defaults to the too-large notice without any head marker', () => {
     const comment = buildPullRequestReviewIncompleteComment();
-    expect(comment).toContain('## Vanguard Review');
+    expect(comment).toContain('## Taskcell Review');
     expect(comment).toContain(PR_REVIEW_INCOMPLETE_NOTICE);
     // A marker would make watch-prs treat the failed attempt as a delivered verdict for the head.
-    expect(comment).not.toContain('vanguard-pr-review:');
+    expect(comment).not.toContain('taskcell-pr-review:');
   });
 
   it('names the provider failure for the no-output reason', () => {
     const comment = buildPullRequestReviewIncompleteComment('no-output');
     expect(comment).toContain(PR_REVIEW_NO_OUTPUT_NOTICE);
     expect(comment).not.toContain(PR_REVIEW_INCOMPLETE_NOTICE);
-    expect(comment).not.toContain('vanguard-pr-review:');
+    expect(comment).not.toContain('taskcell-pr-review:');
   });
 });
 
@@ -587,7 +587,7 @@ it('places trusted instruction disclosure in the first authoritative block only 
 });
 
 describe('incremental re-review', () => {
-  const prevBody = '## Vanguard Review\n\nVerdict: BLOCKING\n\n1. [high] null deref in auth.ts\n\n<!-- vanguard-pr-review: aaa111 -->';
+  const prevBody = '## Taskcell Review\n\nVerdict: BLOCKING\n\n1. [high] null deref in auth.ts\n\n<!-- taskcell-pr-review: aaa111 -->';
   const rereview = (obj: unknown): string => `<rereview>${JSON.stringify(obj)}</rereview>`;
   const prevRow = (status: string, blocking = true): object => ({ id: '1', title: 'null deref', blocking, status, evidence: 'see auth.ts' });
 
@@ -702,7 +702,7 @@ describe('incremental re-review', () => {
   });
 
   it('does not take the main loop in-pipeline review for the previous review (no skip, no seeded findings)', async () => {
-    const mainLoop = '## Vanguard Review\n\nReviewed by claude @ aaa111:\n\nlooks fine\n\n<!-- vanguard-pr-review: aaa111 -->';
+    const mainLoop = '## Taskcell Review\n\nReviewed by claude @ aaa111:\n\nlooks fine\n\n<!-- taskcell-pr-review: aaa111 -->';
     const { gh } = reGh('aaa111', { reviews: [{ author: { login: 'github-actions' }, body: mainLoop }] });
     const reviewer = vi.fn().mockResolvedValue({ text: 'Verdict: NO BLOCKING FINDINGS', completed: true });
     const result = await reviewPullRequest('12', { repoSlug: 'o/r', gh, reviewer, log: () => {} });

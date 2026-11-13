@@ -24,8 +24,8 @@ describe('gitlabMergeRequestWatchPrimitives', () => {
     const primitives = gitlabMergeRequestWatchPrimitives({
       project: 'g/p',
       label: 'ready for review',
-      reviewingLabel: 'vanguard::reviewing',
-      reviewedLabel: 'vanguard::reviewed',
+      reviewingLabel: 'taskcell::reviewing',
+      reviewedLabel: 'taskcell::reviewed',
       glab,
       reviewOne: async () => {},
     });
@@ -39,15 +39,15 @@ describe('gitlabMergeRequestWatchPrimitives', () => {
     const primitives = gitlabMergeRequestWatchPrimitives({
       project: 'g/p',
       label: 'ready for review',
-      reviewingLabel: 'vanguard::reviewing',
-      reviewedLabel: 'vanguard::reviewed',
+      reviewingLabel: 'taskcell::reviewing',
+      reviewedLabel: 'taskcell::reviewed',
       glab,
       reviewOne: async () => {},
     });
     await primitives.claim({ project: 'g/p', iid: 1, title: 'T', draft: false, author: 'alice', sha: 'abc', labels: [] });
     const updateCall = calls.find((c) => c[0] === 'mr' && c[1] === 'update');
     expect(updateCall).toBeDefined();
-    expect(updateCall).toContain('vanguard::reviewing');
+    expect(updateCall).toContain('taskcell::reviewing');
   });
 
   describe('onFailure', () => {
@@ -56,8 +56,8 @@ describe('gitlabMergeRequestWatchPrimitives', () => {
       gitlabMergeRequestWatchPrimitives({
         project: 'g/p',
         label: 'ready for review',
-        reviewingLabel: 'vanguard::reviewing',
-        reviewedLabel: 'vanguard::reviewed',
+        reviewingLabel: 'taskcell::reviewing',
+        reviewedLabel: 'taskcell::reviewed',
         glab,
         reviewOne: async () => {},
       });
@@ -66,14 +66,14 @@ describe('gitlabMergeRequestWatchPrimitives', () => {
     it('restores the trigger label after an ordinary failure, so the next poll retries', async () => {
       const { glab, calls } = makeGlab();
       await primitivesWith(glab).onFailure(item, new Error('sandbox died'));
-      expect(update(calls)).toEqual(['mr', 'update', '1', '--repo', 'g/p', '--unlabel', 'vanguard::reviewing', '--label', 'ready for review']);
+      expect(update(calls)).toEqual(['mr', 'update', '1', '--repo', 'g/p', '--unlabel', 'taskcell::reviewing', '--unlabel', 'vanguard::reviewing', '--label', 'ready for review']);
     });
 
     it('leaves the trigger label off after an incomplete review, so the MR is not reviewed again every poll', async () => {
       const { glab, calls } = makeGlab();
       const incomplete = new MergeRequestReviewIncompleteError({ ...item, description: '', webUrl: '', sourceBranch: 'b', targetBranch: 'main', diff: '' });
       await primitivesWith(glab).onFailure(item, incomplete);
-      expect(update(calls)).toEqual(['mr', 'update', '1', '--repo', 'g/p', '--unlabel', 'vanguard::reviewing']);
+      expect(update(calls)).toEqual(['mr', 'update', '1', '--repo', 'g/p', '--unlabel', 'taskcell::reviewing', '--unlabel', 'vanguard::reviewing']);
       const note = calls.find((c) => c[0] === 'mr' && c[1] === 'note');
       expect(note?.at(-1)).toContain('Re-add the "ready for review" label to retry.');
     });
@@ -86,15 +86,15 @@ describe('gitlabMergeRequestWatchPrimitives', () => {
       };
       const incomplete = new MergeRequestReviewIncompleteError({ ...item, description: '', webUrl: '', sourceBranch: 'b', targetBranch: 'main', diff: '' });
       await primitivesWith(glab).onFailure(item, incomplete);
-      expect(update(calls)).toEqual(['mr', 'update', '1', '--repo', 'g/p', '--unlabel', 'vanguard::reviewing', '--label', 'ready for review']);
+      expect(update(calls)).toEqual(['mr', 'update', '1', '--repo', 'g/p', '--unlabel', 'taskcell::reviewing', '--unlabel', 'vanguard::reviewing', '--label', 'ready for review']);
     });
 
     it('strips a review marker quoted in the error, since the note counts for the head dedupe', async () => {
       const { glab, calls } = makeGlab();
-      await primitivesWith(glab).onFailure(item, new Error(`glab said:\n<!-- vanguard-mr-review: ${'a'.repeat(40)} -->\nbye`));
+      await primitivesWith(glab).onFailure(item, new Error(`glab said:\n<!-- taskcell-mr-review: ${'a'.repeat(40)} -->\nbye`));
       const note = calls.find((c) => c[0] === 'mr' && c[1] === 'note');
       expect(note?.at(-1)).toContain('glab said:');
-      expect(note?.at(-1)).not.toContain('vanguard-mr-review');
+      expect(note?.at(-1)).not.toContain('taskcell-mr-review');
     });
   });
 });

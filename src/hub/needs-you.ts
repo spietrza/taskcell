@@ -6,6 +6,7 @@ import type { GhRunner } from '../tasks/github.js';
 import { commentPullRequest } from '../runners/pr-review.js';
 import { redactForPublish } from '../core/secret-scan.js';
 import { DEFAULT_GITHUB_AGENT_LABEL, DEFAULT_GITHUB_NEEDS_INFO_LABEL } from '../cli/args.js';
+import { hasLabel, labelForms } from '../core/labels.js';
 import { GITHUB_REVIEW_LABEL, GITHUB_VERIFY_FAILED_LABEL } from '../github-labels.js';
 import { shownBaseFromLabels } from '../core/base-branch.js';
 import { TaskcellError } from '../core/errors.js';
@@ -29,7 +30,7 @@ export interface NeedsYouItem {
   baseRef?: string;
   /** The factory's own last comment on the item, redacted; untrusted text the UI renders as plain text. Absent when it never commented. */
   lastComment?: { author: string; body: string };
-  /** The branch the PR targets (a PR's base), or the one the card asks for (`vanguard:base=`). Absent when unknown. */
+  /** The branch the PR targets (a PR's base), or the one the card asks for (`taskcell:base=`). Absent when unknown. */
   baseBranch?: string;
 }
 
@@ -111,10 +112,10 @@ async function lastOwnComment(
  * A PR at `needs revision` is the factory's turn — a human (or a hub reply) already asked for one.
  */
 function prReason(pr: { labels: GhLabelLite[]; reviewDecision?: string | null }): string | undefined {
-  const labels = new Set(pr.labels.map((l) => l.name));
-  if (labels.has(NEEDS_REVISION_LABEL)) return undefined;
-  if (labels.has(GITHUB_REVIEW_LABEL)) return GITHUB_REVIEW_LABEL;
-  if (labels.has(GITHUB_VERIFY_FAILED_LABEL)) return GITHUB_VERIFY_FAILED_LABEL;
+  const labels = pr.labels.map((l) => l.name);
+  if (labels.includes(NEEDS_REVISION_LABEL)) return undefined;
+  if (hasLabel(labels, GITHUB_REVIEW_LABEL)) return GITHUB_REVIEW_LABEL;
+  if (hasLabel(labels, GITHUB_VERIFY_FAILED_LABEL)) return GITHUB_VERIFY_FAILED_LABEL;
   if (pr.reviewDecision === 'CHANGES_REQUESTED') return 'changes requested';
   return undefined;
 }
@@ -154,7 +155,7 @@ function toItem(
 
 /**
  * List the items of `repoSlug` waiting for a human: issues at `needs info`, and PRs at
- * `vanguard:needs-human-review`/`vanguard:verify-failed` or with a review requesting changes.
+ * `taskcell:needs-human-review`/`taskcell:verify-failed` or with a review requesting changes.
  * Uses the default `needs info` label: the hub has no config for `--needs-info-label`, so a repo
  * running the factory with a custom one shows no issues here. A failed comment fetch drops only that
  * item's `lastComment`, never the list.
@@ -170,7 +171,7 @@ export async function listNeedsYou(
   const notRevising = `-label:"${NEEDS_REVISION_LABEL}"`;
   const [issuesOut, labelledPrsOut, changesPrsOut] = await Promise.all([
     gh(['issue', 'list', ...scope, '--label', DEFAULT_GITHUB_NEEDS_INFO_LABEL, '--json', ISSUE_FIELDS]),
-    gh(['pr', 'list', ...scope, '--search', `label:"${GITHUB_REVIEW_LABEL}","${GITHUB_VERIFY_FAILED_LABEL}" ${notRevising}`, '--json', PR_FIELDS]),
+    gh(['pr', 'list', ...scope, '--search', `label:${[GITHUB_REVIEW_LABEL, GITHUB_VERIFY_FAILED_LABEL].flatMap(labelForms).map((l) => `"${l}"`).join(',')} ${notRevising}`, '--json', PR_FIELDS]),
     gh(['pr', 'list', ...scope, '--search', `review:changes_requested ${notRevising}`, '--json', PR_FIELDS]),
   ]);
   // A PR can match both searches; keep it once.

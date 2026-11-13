@@ -149,7 +149,7 @@ describe('collectReviewFacts', () => {
   });
 
   it.each(['Reviewed by :', 'Reviewed by', 'Reviewed by  @ abc1234:'])('treats an empty main-loop attribution "%s" as the main loop too', (line) => {
-    const body = `## Vanguard Review\n\n${line}\n\nVerdict: NO BLOCKING FINDINGS\n\n${pullRequestReviewMarker(SHA)}`;
+    const body = `## Taskcell Review\n\n${line}\n\nVerdict: NO BLOCKING FINDINGS\n\n${pullRequestReviewMarker(SHA)}`;
     expect(collectReviewFacts(prFacts({ reviews: [review(body)] }), policy)).toEqual({ verdict: null, sha: null, author: null });
   });
 

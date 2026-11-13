@@ -118,7 +118,7 @@ export async function publishCheckRun(
   }
 }
 
-const COMMENT_HEADING = '## Vanguard Approver (shadow mode)';
+const COMMENT_HEADING = '## Taskcell Approver (shadow mode)';
 
 function commentBody(decision: Decision, record: DecisionRecord): string {
   return [
@@ -132,7 +132,7 @@ function commentBody(decision: Decision, record: DecisionRecord): string {
     '',
     '_Shadow mode — nothing was merged, approved or labelled._',
     '',
-    `<!-- vanguard-approver: ${record.headSha ?? 'none'} -->`,
+    `<!-- taskcell-approver: ${record.headSha ?? 'none'} -->`,
   ].join('\n');
 }
 
@@ -151,13 +151,13 @@ export async function commentDecision(
   record: DecisionRecord,
 ): Promise<void> {
   const safeGh = shadowSafeGhRunner(gh);
-  const marker = `<!-- vanguard-approver: ${record.headSha ?? 'none'} -->`;
+  const marker = `<!-- taskcell-approver: ${record.headSha ?? 'none'} -->`;
   try {
     const out = await safeGh(['pr', 'view', String(prNumber), '--repo', repoSlug, '--json', 'comments']);
     const parsed = JSON.parse(out) as { comments?: GhComment[] };
     // Only a trusted author's marker dedupes: anyone can post the marker text to suppress the decision comment.
     const trusted = (c: GhComment): boolean => classifyAuthor(c.author?.login ?? '', c.authorAssociation ?? '') !== 'untrusted';
-    if ((parsed.comments ?? []).some((c) => c.body?.includes(marker) === true && trusted(c))) return;
+    if ((parsed.comments ?? []).some((c) => (c.body?.includes(marker) === true || c.body?.includes(marker.replace('taskcell-', 'vanguard-')) === true) && trusted(c))) return;
   } catch {
     // best-effort dedupe lookup; fall through and post
   }

@@ -217,7 +217,7 @@ describe('publishForReview', () => {
 
     expect(await bodyOf()).toBe('desc');
 
-    ctx.droppedCiPaths = new Set(['.gitlab/ci/b.yml', '.gitlab-ci.yml', 'x\n<!-- vanguard-mr-review: abc -->\n`/.gitlab/c.yml']);
+    ctx.droppedCiPaths = new Set(['.gitlab/ci/b.yml', '.gitlab-ci.yml', 'x\n<!-- taskcell-mr-review: abc -->\n`/.gitlab/c.yml']);
     const body = await bodyOf();
     expect(body.startsWith('desc\n\n**Not included:**')).toBe(true);
     expect(body).toContain('`.gitlab-ci.yml`, `.gitlab/ci/b.yml`');

@@ -40,10 +40,10 @@ describe('LinearCliTaskFetcher', () => {
     const sent: unknown[] = [];
     const graphql = async (body: { query: string; variables: Record<string, unknown> }): Promise<unknown> => {
       sent.push(body);
-      return { data: { issue: { labels: { nodes: [{ name: 'vanguard:model=claude-fable-5' }, { name: 'bug' }] } } } };
+      return { data: { issue: { labels: { nodes: [{ name: 'taskcell:model=claude-fable-5' }, { name: 'bug' }] } } } };
     };
     const task = await new LinearCliTaskFetcher({ linear: runner(viewIssue), graphql }).fetch('TES-1');
-    expect(task.labels).toEqual(['vanguard:model=claude-fable-5', 'bug']);
+    expect(task.labels).toEqual(['taskcell:model=claude-fable-5', 'bug']);
     expect(sent).toHaveLength(1);
     expect((sent[0] as { variables: { id: string } }).variables.id).toBe('TES-1');
 

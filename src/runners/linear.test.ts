@@ -60,7 +60,7 @@ describe('linearAdapter on a GitLab remote', () => {
     });
     expect(calls).toHaveLength(1);
     expect(calls[0]?.slice(0, 6)).toEqual(['mr', 'note', 'create', '7', '--repo', 'group/project']);
-    expect(calls[0]?.at(-1)).toContain('<!-- vanguard-mr-review: abcdef1234567890 -->');
+    expect(calls[0]?.at(-1)).toContain('<!-- taskcell-mr-review: abcdef1234567890 -->');
   });
 
   it('labels a failed proof on the MR with the GitLab scoped label', async () => {
@@ -68,8 +68,8 @@ describe('linearAdapter on a GitLab remote', () => {
     const adapter = linearAdapter(makeDeps(), 'group/project', glab);
     await adapter.addFailureLabel('https://gitlab.com/group/project/-/merge_requests/7', 'verify');
     expect(calls).toEqual([
-      ['label', 'create', '--repo', 'group/project', '--name', 'vanguard::verify-failed'],
-      ['mr', 'update', '7', '--repo', 'group/project', '--label', 'vanguard::verify-failed'],
+      ['label', 'create', '--repo', 'group/project', '--name', 'taskcell::verify-failed'],
+      ['mr', 'update', '7', '--repo', 'group/project', '--label', 'taskcell::verify-failed'],
     ]);
     expect(addPrFailureLabel).not.toHaveBeenCalled();
   });
@@ -79,8 +79,8 @@ describe('linearAdapter on a GitLab remote', () => {
     const adapter = linearAdapter(makeDeps(), 'group/project', glab);
     await adapter.addGateConfigLabel('https://gitlab.com/group/project/-/merge_requests/7');
     expect(calls).toEqual([
-      ['label', 'create', '--repo', 'group/project', '--name', 'vanguard::gate-config-changed'],
-      ['mr', 'update', '7', '--repo', 'group/project', '--label', 'vanguard::gate-config-changed'],
+      ['label', 'create', '--repo', 'group/project', '--name', 'taskcell::gate-config-changed'],
+      ['mr', 'update', '7', '--repo', 'group/project', '--label', 'taskcell::gate-config-changed'],
     ]);
     expect(addPrGateLabel).not.toHaveBeenCalled();
   });

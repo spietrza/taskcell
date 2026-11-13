@@ -15,7 +15,7 @@ beforeEach(async () => {
 });
 afterEach(async () => { await rm(repo, { recursive: true, force: true }); });
 const tasks: Task[] = [
-  { id: '1', title: 'running', description: '', children: [], comments: [], labels: ['vanguard:running'], state: 'open' },
+  { id: '1', title: 'running', description: '', children: [], comments: [], labels: ['taskcell:running'], state: 'open' },
   { id: '2', title: 'review', description: '', children: [], comments: [], labels: ['review'], state: 'open' },
   { id: '3', title: 'queued', description: '', children: [], comments: [], labels: ['ready for agent'], state: 'open' },
 ];

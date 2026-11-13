@@ -5,10 +5,13 @@ import { assertMutationsAllowed } from '../allowlist.js';
 import { listNeedsYou, mergeNeedsYou, replyNeedsYou, MAX_COMMENT_FETCHES } from '../needs-you.js';
 import { readAppConfig } from '../app-config.js';
 import * as projects from '../projects.js';
-import type { NeedsYouItem, RepoReadFailure, RepoStamp } from '../../wire.js';
+import type { MigrateLabelsReport, NeedsYouItem, RepoReadFailure, RepoStamp } from '../../wire.js';
+import { migrateLabels } from '../../runners/migrate-labels.js';
 import { defineCommands, requireString, githubSlug, repoItemTarget } from '../command-kit.js';
 
 export interface NeedsYouCommands {
+  /** HUB_ONLY: rename the repo's old `vanguard:*` labels to `taskcell:*` (as `taskcell migrate-labels`). Dry-run unless `apply`. */
+  migrate_labels: { args: { repoPath: string; apply?: boolean }; result: MigrateLabelsReport };
   /** HUB_ONLY: the hub "Needs you" read model (src/hub/needs-you.ts) — `gh` and labels only, no model call. */
   list_needs_you: { args: { repoPath: string }; result: { items: NeedsYouItem[] } };
   /** HUB_ONLY: `list_needs_you` across every hub repository, each item stamped with its repository. */
@@ -20,6 +23,15 @@ export interface NeedsYouCommands {
 }
 
 export const commands = defineCommands<NeedsYouCommands>({
+  migrate_labels: async ({ ctx, args, allow }) => {
+    const real = await allow(requireString(args, 'repoPath'));
+    const apply = args.apply === true;
+    // A dry-run only lists labels; renaming them is a remote mutation.
+    if (apply) assertMutationsAllowed(ctx.bind);
+    const repoSlug = await githubSlug(real);
+    if (repoSlug === undefined) throw new BadRequestError('migrate_labels: this project has no GitHub remote');
+    return migrateLabels({ repoSlug, apply, log: () => {} });
+  },
   list_needs_you: async ({ args, allow }) => {
     const real = await allow(requireString(args, 'repoPath'));
     const repoSlug = await githubSlug(real);
