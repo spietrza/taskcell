@@ -392,3 +392,44 @@ describe('hub server', () => {
 
   });
 });
+
+describe('team caller wiring', () => {
+  const TOKEN = 't'.repeat(64);
+  const post = (h: HubServer, cmd: string, headers: Record<string, string>, body: unknown = {}): Promise<{ status: number; json: { result?: unknown; error?: string } }> => {
+    const { port } = h.server.address() as AddressInfo;
+    const origin = `http://127.0.0.1:${port}`;
+    return fetch(`${origin}/rpc/${cmd}`, { method: 'POST', headers: { 'content-type': 'application/json', origin, ...headers }, body: JSON.stringify(body) }).then(async (r) => ({ status: r.status, json: (await r.json()) as { result?: unknown; error?: string } }));
+  };
+
+  test('the token is the owner (unfiltered, admin); a session user is limited to their teams and roles', async () => {
+    const { saveTeams } = await import('./teams.js');
+    const { savePaths } = await import('./projects.js');
+    await savePaths(configDir, [repo]);
+    await saveTeams(configDir, [{ id: 'default', name: 'D', members: [{ login: 'ann', role: 'admin' }, { login: 'mia', role: 'member' }], repositories: [repo] }]);
+    const identity = {
+      owner: { id: 'local-owner', email: 'owner@hub.invalid', name: 'Owner' },
+      providers: [],
+      handler: undefined,
+      sessionUser: async (req: { headers: Record<string, string | string[] | undefined> }) => {
+        const id = req.headers['x-test-user'];
+        return typeof id === 'string' ? { id, email: `${id}@x.test`, name: id } : undefined;
+      },
+      close: () => undefined,
+    };
+    const h = createHubServer({ uiDir, configDir, browseRoot, bind: { isLoopback: true, allowAdd: false }, seedRepoPath: repo, deps: unimplementedDeps(), token: TOKEN, identity });
+    await h.listen(0, '127.0.0.1');
+    try {
+      const tok = { 'x-vanguard-hub-token': TOKEN };
+      expect(((await post(h, 'list_projects', tok)).json.result as unknown[]).length).toBe(1);
+      expect(((await post(h, 'list_projects', { 'x-test-user': 'ann' })).json.result as unknown[]).length).toBe(1);
+      expect((await post(h, 'list_projects', { 'x-test-user': 'stranger' })).json.result).toEqual([]);
+      const add = { teamId: 'default', login: 'zed', role: 'member' };
+      expect((await post(h, 'add_team_member', { 'x-test-user': 'mia' }, add)).status).toBe(400);
+      expect((await post(h, 'add_team_member', { 'x-test-user': 'ann' }, add)).status).toBe(200);
+      expect((await post(h, 'get_credentials', { 'x-test-user': 'ann' })).status).toBe(400);
+      expect((await post(h, 'get_credentials', tok)).status).toBe(200);
+    } finally {
+      await h.close();
+    }
+  });
+});

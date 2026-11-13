@@ -9,6 +9,7 @@ import { serveStatic } from './static.js';
 import { EventBus } from './events.js';
 import { writeJson, jsonError } from './json-response.js';
 import { CredentialStore } from './credentials.js';
+import { callerRepoRoots, repoInRoots, type Caller } from './teams.js';
 import { dispatchRpc, classifyError, type RpcContext } from './rpc.js';
 import { encodeError, encodeResult, HUB_EVENTS_SESSION_PATH, HUB_SIGN_IN_REQUIRED, HUB_TOKEN_HEADER, HUB_TOKEN_REJECTED } from '../hub-wire.js';
 import { ProjectAllowlist, type BindOptions } from './allowlist.js';
@@ -210,7 +211,7 @@ function respondBodyTooLarge(res: ServerResponse): void {
   writeJson(res, encoded.status, encoded.body, { connection: 'close' }, () => res.socket?.destroy());
 }
 
-async function handleRpcRequest(ctx: RpcContext, req: IncomingMessage, res: ServerResponse, cmd: string): Promise<void> {
+async function handleRpcRequest(ctx: RpcContext, req: IncomingMessage, res: ServerResponse, cmd: string, caller: Caller): Promise<void> {
   if (!sameOriginOk(req)) {
     jsonError(res, 400, 'cross-origin request rejected', 'bad-request');
     return;
@@ -234,7 +235,7 @@ async function handleRpcRequest(ctx: RpcContext, req: IncomingMessage, res: Serv
   }
 
   try {
-    const result = await dispatchRpc(ctx, cmd, body);
+    const result = await dispatchRpc(ctx, cmd, body, caller);
     // Spec §2.3: success is `{ result }` (null for void commands); apps/desktop/src/transport.ts reads
     // `body.result`. A bare body here left the UI with `undefined` projects on first paint.
     writeJson(res, 200, encodeResult(result));
@@ -322,17 +323,31 @@ async function handleRequest(
 
   if (pathname === '/events') {
     if (req.method !== 'GET') return methodNotAllowed(res, 'GET');
-    const authorized = eventsCookieOk(singleHeader(req.headers.cookie), auth) || (await resolveUser()) !== undefined;
-    if (!authorized) return unauthorized();
-    eventBus.subscribe(req, res);
+    const cookieOk = eventsCookieOk(singleHeader(req.headers.cookie), auth);
+    const user = cookieOk ? undefined : await resolveUser();
+    if (!cookieOk && user === undefined) return unauthorized();
+    // A signed-in team member is streamed only events naming a repository (`repoPath`/`path`) of their
+    // teams; token holders (and the events cookie they buy) see everything.
+    let visible: ((data: unknown) => boolean) | undefined;
+    if (user !== undefined && !tokenValid) {
+      const roots = await callerRepoRoots(ctx.configDir, { user, owner: false });
+      visible = (data) => {
+        const d = (typeof data === 'object' && data !== null ? data : {}) as Record<string, unknown>;
+        const p = d.repoPath ?? d.path;
+        return typeof p === 'string' && repoInRoots(roots, p);
+      };
+    }
+    eventBus.subscribe(req, res, visible);
     res.flushHeaders();
     return;
   }
 
   if (pathname.startsWith('/rpc/')) {
     if (req.method !== 'POST') return methodNotAllowed(res, 'POST');
-    if ((await resolveUser()) === undefined) return unauthorized();
-    await handleRpcRequest(ctx, req, res, pathname.slice('/rpc/'.length));
+    const user = await resolveUser();
+    if (user === undefined) return unauthorized();
+    // The token holder is the owner (admin of every team); a session user is limited to their teams.
+    await handleRpcRequest(ctx, req, res, pathname.slice('/rpc/'.length), { user, owner: tokenValid });
     return;
   }
 

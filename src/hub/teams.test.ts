@@ -3,7 +3,7 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { beforeEach, describe, expect, it } from 'vitest';
 import { savePaths } from './projects.js';
-import { ensureTeams, getTeam, listTeams, loadTeams, saveTeams } from './teams.js';
+import { ensureTeams, listTeams, loadTeams, saveTeams } from './teams.js';
 
 let cfg: string;
 beforeEach(async () => {
@@ -15,8 +15,7 @@ describe('teams storage', () => {
     const t = [{ id: 'a', name: 'A', members: [{ login: 'bob', role: 'admin' as const }], repositories: ['/r'] }];
     await saveTeams(cfg, t);
     expect(await loadTeams(cfg)).toEqual(t);
-    expect(await getTeam(cfg, 'a')).toEqual(t[0]);
-    expect(await getTeam(cfg, 'zz')).toBeUndefined();
+    expect((await listTeams(cfg)).find((x) => x.id === 'a')).toEqual(t[0]);
   });
 });
 
@@ -59,7 +58,7 @@ describe('migration', () => {
   it('reads never write the teams file', async () => {
     await savePaths(cfg, ['/a']);
     expect(await listTeams(cfg)).toEqual([{ id: 'default', name: 'Default', members: [], repositories: ['/a'] }]);
-    expect(await getTeam(cfg, 'default')).toMatchObject({ repositories: ['/a'] });
+    expect((await listTeams(cfg)).find((x) => x.id === 'default')).toMatchObject({ repositories: ['/a'] });
     await expect(readFile(join(cfg, 'teams.json'), 'utf8')).rejects.toThrow();
   });
 
