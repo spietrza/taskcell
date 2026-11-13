@@ -1,4 +1,4 @@
-// Port of apps/desktop/src-tauri/src/active.rs — see that file for the original Rust implementation.
+// Active runs and sessions of a project: what is running now, and each session's cost so far.
 import { lstat, readdir, stat } from 'node:fs/promises';
 import { join } from 'node:path';
 import { OPENROUTER_PRICING } from '../core/openrouter-pricing.js';

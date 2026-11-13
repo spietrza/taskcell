@@ -1,4 +1,4 @@
-// Port of apps/desktop/src-tauri/src/appconfig.rs — see that file for the original Rust implementation.
+// Hub-side project/config logic (ported from the removed desktop Rust module).
 import { readFile, writeFile } from 'node:fs/promises';
 import { join } from 'node:path';
 import { assertStatePath, ensureStateDir, stateDir } from '../core/state-path.js';

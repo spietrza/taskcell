@@ -8,7 +8,7 @@ import { join, sep } from 'node:path';
 import { BadRequestError } from '../sidecar/sidecar.js';
 import { STATE_DIR_NAMES } from '../core/state-path.js';
 
-/** Mirror of active.rs `is_session_path`: only a real `.taskcell/sessions/**.jsonl` path qualifies. */
+/** Mirror of the former desktop Rust `is_session_path`: only a real `.taskcell/sessions/**.jsonl` path qualifies. */
 export function isSessionPathGrammar(p: string): boolean {
   if (p.includes('..')) return false;
   if (!p.toLowerCase().endsWith('.jsonl')) return false;

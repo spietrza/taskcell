@@ -356,14 +356,22 @@ export function soleReviewMarkerSha(body: string): string | undefined {
 
 const PR_REVIEW_RUN_MARKER_RE = /^<!--[ \t]*taskcell-pr-review-run:[ \t]*([a-fA-F0-9]+):(\d+)[ \t]*-->$/gm;
 
-/** Host-stamped on a review the PR-review workflow posts: binds the review's head SHA to the workflow run that posted it. */
+/**
+ * Host-stamped on a review the PR-review workflow posts. Its SHA is the head the host read right before it fetched the
+ * diff the reviewer was given (never GitHub's commit id for the review, which is the head at submit time); the run id
+ * only says which run posted it.
+ */
 export function pullRequestReviewRunMarker(headRefOid: string, runId: string): string {
   return `<!-- taskcell-pr-review-run: ${headRefOid}:${runId} -->`;
 }
 
-/** The workflow run ids a body stamps for `headRefOid` (whole-line markers only). */
-export function pullRequestReviewRunIds(body: string, headRefOid: string): string[] {
-  return Array.from(body.matchAll(PR_REVIEW_RUN_MARKER_RE)).filter((m) => m[1] === headRefOid).map((m) => m[2]!);
+/**
+ * The SHA of the body's run stamp when it carries exactly one (a whole-line marker); undefined for none, and for any
+ * second mention of the stamp, whole-line or not: the host writes one, so more is a planted one.
+ */
+export function soleReviewRunStampSha(body: string): string | undefined {
+  const stamps = Array.from(body.matchAll(PR_REVIEW_RUN_MARKER_RE));
+  return stamps.length === 1 && body.split('taskcell-pr-review-run:').length === 2 ? stamps[0]![1] : undefined;
 }
 
 export const PR_REVIEW_INCOMPLETE_NOTICE =
@@ -488,6 +496,7 @@ export async function postPullRequestReview(
 ): Promise<void> {
   // Only the PR-review workflow's `review-pr` passes a run id. The stamp is a host-written marker the approver's act mode
   // requires; it is not authentication (any job that can post as github-actions could write one), so no such job may handle untrusted input.
+  // `sha` is the head read before the diff was fetched (fetchPullRequestForReview), so the stamp names the diff that was read.
   const sha = soleReviewMarkerSha(commentBody);
   const stamped = /^\d+$/.test(runId) && sha !== undefined ? `${commentBody}\n\n${pullRequestReviewRunMarker(sha, runId)}` : commentBody;
   const flag = action === 'request-changes' ? '--request-changes' : action === 'approve' ? '--approve' : '--comment';

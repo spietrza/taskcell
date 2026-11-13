@@ -1,4 +1,4 @@
-// Port of the doc-chat one-shot completion path in apps/desktop/src-tauri/src/sidecar.rs
+// Port of the doc-chat one-shot completion path in the removed desktop Rust sidecar module
 // (api_complete / api_cancel_complete / set_base_url / set_asset_root / complete_exchange) — minus
 // the Tauri wrapper. Kept as a per-turn CHILD PROCESS (`taskcell __complete`), not an in-process call:
 // src/api/complete.ts's `runComplete` takes no AbortSignal, so in-process cancellation would require
@@ -24,7 +24,7 @@ export interface CompleteResult {
   error?: { message: string };
 }
 
-/** Wall-clock cap on one doc-chat turn — mirrors sidecar.rs's COMPLETE_TIMEOUT. */
+/** Wall-clock cap on one doc-chat turn — the same cap the desktop's former Rust sidecar used. */
 export const COMPLETE_TIMEOUT_MS = 180_000;
 
 export type SpawnComplete = () => ChildProcess;

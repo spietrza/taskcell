@@ -51,3 +51,25 @@ test('add_project is confined to the browse root, like browse_dirs', async () =>
   await dispatchRpc(ctx, 'add_project', { path: `${ctx.browseRoot}/repo/../repo` });
   expect(await loadPaths(ctx.configDir)).toEqual([inside]);
 });
+
+test('the desktop hub (browseAnywhere) adds, browses and clones outside the browse root', async () => {
+  const outsideRepo = await realpath(await tmpRepo());
+  await mkdir(join(outsideRepo, '.git'));
+  const { ctx } = await makeCtx(outsideRepo);
+  await expect(dispatchRpc(ctx, 'browse_dirs', { path: outsideRepo })).rejects.toThrow('path escapes the browse root');
+
+  ctx.browseAnywhere = true;
+  expect(await dispatchRpc(ctx, 'browse_dirs', { path: outsideRepo })).toMatchObject({ path: outsideRepo, isGitRepo: true });
+  // No path: the picker still opens at the browse root (home), not at the filesystem root.
+  expect(await dispatchRpc(ctx, 'browse_dirs', {})).toMatchObject({ path: await realpath(ctx.browseRoot) });
+  await dispatchRpc(ctx, 'add_project', { path: outsideRepo });
+  expect(await loadPaths(ctx.configDir)).toEqual([outsideRepo]);
+
+  const mock = vi.spyOn(clone, 'cloneProject').mockResolvedValue(outsideRepo);
+  try {
+    await dispatchRpc(ctx, 'clone_project', { url: 'https://github.com/org/repo.git', parentDir: outsideRepo });
+    expect(mock).toHaveBeenCalledWith(ctx.browseRoot, expect.anything(), expect.objectContaining({ anywhere: true }));
+  } finally {
+    mock.mockRestore();
+  }
+});

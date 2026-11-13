@@ -1,4 +1,4 @@
-// listRemoteRuns ports apps/desktop/src-tauri/src/remote.rs; fetchRemoteRun is new (CI artifact import).
+// listRemoteRuns ports the former desktop Rust remote module; fetchRemoteRun is new (CI artifact import).
 import { execa } from 'execa';
 import { cp, lstat, mkdtemp, readdir, rename, rm, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
@@ -70,7 +70,7 @@ function isEnoentFlavored(message: string): boolean {
   return /ENOENT|not found/i.test(message);
 }
 
-/** List recent CI runs for a repo via `gh run list` (GitHub Actions). Mirrors remote.rs's list_remote_runs. */
+/** List recent CI runs for a repo via `gh run list` (GitHub Actions). */
 export async function listRemoteRuns(repoPath: string, exec: Exec = defaultExec): Promise<RemoteRun[]> {
   let result;
   try {

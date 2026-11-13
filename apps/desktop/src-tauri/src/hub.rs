@@ -86,25 +86,58 @@ fn free_port() -> Result<u16, String> {
     listener.local_addr().map(|a| a.port()).map_err(|e| e.to_string())
 }
 
+/// Hub settings that are the user's own and stay inherited: the credential-store secret, extra clone
+/// hosts, queue size and file-watch tuning, named without the prefix. Deliberately nothing else: every
+/// other `TASKCELL_HUB_*` (or old-name `VANGUARD_HUB_*`) variable configures how a hub is bound, served or signed in to (host, port, token file, allowed
+/// hosts, UI dir, allow-add, server mode, public URL, OAuth, sign-up list, browse root), which this
+/// app decides for its own hub.
+const KEPT_HUB_VARS: [&str; 5] = ["SECRET", "CLONE_HOSTS", "MAX_QUEUE", "WATCH_POLL", "WATCH_INTERVAL_MS"];
+
+/// The hub reads each variable under its `TASKCELL_HUB_*` name first and the old `VANGUARD_HUB_*` name
+/// as a fallback, so both spellings are scrubbed and both are kept.
+const HUB_PREFIXES: [&str; 2] = ["TASKCELL_HUB_", "VANGUARD_HUB_"];
+
+/// The inherited hub variable names to remove (case-insensitive: Windows env names are).
+fn inherited_hub_vars_to_drop(names: impl Iterator<Item = std::ffi::OsString>) -> Vec<std::ffi::OsString> {
+    names
+        .filter(|n| {
+            let up = n.to_string_lossy().to_ascii_uppercase();
+            HUB_PREFIXES.iter().filter_map(|p| up.strip_prefix(p)).any(|rest| !KEPT_HUB_VARS.contains(&rest))
+        })
+        .collect()
+}
+
+/// The hub's environment: drop every inherited hub variable, new or old name (token file, allowed hosts, UI dir,
+/// allow-add, server mode, browse root ...) except the few that are the user's own hub settings, then
+/// set the fixed ones under the new name, which the hub reads first.
+fn apply_hub_env(cmd: &mut Command, inherited: impl Iterator<Item = std::ffi::OsString>, config_dir: &Path) {
+    for key in inherited_hub_vars_to_drop(inherited) {
+        cmd.env_remove(key);
+    }
+    // The app's own hub: projects live where the app always kept them, Fleet is on (loopback only),
+    // the user may add a repository from any folder (another volume or drive; the picker still opens
+    // at home), and the hub exits when this process dies (stdin EOF) so it can never be orphaned.
+    cmd.env("TASKCELL_HUB_CONFIG_DIR", config_dir)
+        .env("TASKCELL_HUB_ALLOW_FLEET", "1")
+        .env("TASKCELL_HUB_BROWSE_ANYWHERE", "1")
+        .env("TASKCELL_HUB_EXIT_ON_STDIN_EOF", "1");
+}
+
 fn spawn_hub(app: &AppHandle) -> Result<Child, String> {
     let launch = launch_for(app)?;
     let config_dir = servers::config_dir(app)?;
     std::fs::create_dir_all(&config_dir).map_err(|e| e.to_string())?;
     let port = free_port()?;
-    Command::new(&launch.program)
-        .args(&launch.args)
+    let mut cmd = Command::new(&launch.program);
+    apply_hub_env(&mut cmd, std::env::vars_os().map(|(k, _)| k), &config_dir);
+    cmd.args(&launch.args)
         .args(["hub", "--host", "127.0.0.1", "--port", &port.to_string(), "--no-open", "--repo"])
         .arg(&config_dir)
         .current_dir(&launch.cwd)
-        // The app's own hub: projects live where the app always kept them, Fleet is on (loopback only),
-        // and the hub exits when this process dies (stdin EOF) so it can never be orphaned.
-        .env("TASKCELL_HUB_CONFIG_DIR", &config_dir)
-        .env("TASKCELL_HUB_ALLOW_FLEET", "1")
-        .env("TASKCELL_HUB_EXIT_ON_STDIN_EOF", "1")
         .stdin(Stdio::piped())
         .stdout(Stdio::piped())
-        .stderr(Stdio::inherit())
-        .spawn()
+        .stderr(Stdio::inherit());
+    cmd.spawn()
         .map_err(|e| format!("start {}: {e}", launch.program.display()))
 }
 
@@ -338,6 +371,75 @@ mod tests {
         let port = free_port().unwrap();
         assert!(port > 0);
         assert!(TcpListener::bind(("127.0.0.1", port)).is_ok());
+    }
+
+    fn os(names: &[&str]) -> Vec<std::ffi::OsString> {
+        names.iter().map(std::ffi::OsString::from).collect()
+    }
+
+    #[test]
+    fn scrub_drops_hub_vars_of_both_spellings_but_keeps_user_settings() {
+        let names = [
+            "TASKCELL_HUB_TOKEN_FILE",
+            "VANGUARD_HUB_TOKEN_FILE",
+            "taskcell_hub_allowed_hosts",
+            "vanguard_hub_allowed_hosts",
+            "TASKCELL_HUB_SECRET",
+            "VANGUARD_HUB_SECRET",
+            "VANGUARD_HUB_MAX_QUEUE",
+            "PATH",
+        ];
+        let dropped = inherited_hub_vars_to_drop(os(&names).into_iter());
+        assert_eq!(dropped, os(&names[..4]));
+    }
+
+    #[test]
+    fn scrub_keeps_every_user_setting_in_any_case_and_leaves_other_prefixes_alone() {
+        let kept = KEPT_HUB_VARS.iter().flat_map(|k| HUB_PREFIXES.iter().map(move |p| std::ffi::OsString::from(format!("{p}{k}"))));
+        let other = [
+            "taskcell_hub_secret",
+            "vanguard_hub_secret",
+            "TASKCELL_HUBX",
+            "VANGUARD_HUBX",
+            "TASKCELL_CHAT_ALLOWED_ORIGINS",
+            "VANGUARD_CHAT_ALLOWED_ORIGINS",
+            "ANTHROPIC_API_KEY",
+        ];
+        let dropped = inherited_hub_vars_to_drop(kept.chain(os(&other)));
+        assert!(dropped.is_empty(), "{dropped:?}");
+    }
+
+    #[test]
+    fn hub_env_removes_inherited_hub_vars_and_sets_the_fixed_ones() {
+        const GONE: [&str; 7] = ["TOKEN_FILE", "ALLOWED_HOSTS", "UI_DIR", "ALLOW_ADD", "SERVER_MODE", "BROWSE_ROOT", "BROWSE_ANYWHERE"];
+        const FIXED: [&str; 4] = ["CONFIG_DIR", "ALLOW_FLEET", "BROWSE_ANYWHERE", "EXIT_ON_STDIN_EOF"];
+        let mut inherited: Vec<String> = HUB_PREFIXES
+            .iter()
+            .flat_map(|p| GONE.iter().chain(&FIXED).chain(&["SECRET"]).map(move |n| format!("{p}{n}")))
+            .collect();
+        inherited.push("HOME".into());
+        let mut cmd = Command::new("node");
+        apply_hub_env(&mut cmd, inherited.iter().map(std::ffi::OsString::from), Path::new("/cfg"));
+        let env: std::collections::HashMap<String, Option<String>> = cmd
+            .get_envs()
+            .map(|(k, v)| (k.to_string_lossy().into_owned(), v.map(|v| v.to_string_lossy().into_owned())))
+            .collect();
+        for gone in GONE.iter().filter(|g| !FIXED.contains(g)) {
+            for prefix in HUB_PREFIXES {
+                assert_eq!(env.get(&format!("{prefix}{gone}")), Some(&None), "{prefix}{gone} must be removed");
+            }
+        }
+        // Inherited and overridden: the fixed value wins over the removal, under the name the hub reads
+        // first; the old spelling of a fixed variable is removed, so it cannot be read instead.
+        assert_eq!(env["TASKCELL_HUB_CONFIG_DIR"].as_deref(), Some("/cfg"));
+        for fixed in ["ALLOW_FLEET", "BROWSE_ANYWHERE", "EXIT_ON_STDIN_EOF"] {
+            assert_eq!(env[&format!("TASKCELL_HUB_{fixed}")].as_deref(), Some("1"));
+        }
+        for fixed in FIXED {
+            assert_eq!(env.get(&format!("VANGUARD_HUB_{fixed}")), Some(&None), "old {fixed} must be removed");
+        }
+        // Untouched, so inherited as is, in both spellings.
+        assert!(!env.contains_key("TASKCELL_HUB_SECRET") && !env.contains_key("VANGUARD_HUB_SECRET") && !env.contains_key("HOME"));
     }
 
     #[test]

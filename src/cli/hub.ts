@@ -166,6 +166,9 @@ export async function hubCommand(command: Extract<Command, { kind: 'hub' }>): Pr
     demo,
     configDir,
     browseRoot: readEnv('TASKCELL_HUB_BROWSE_ROOT') ?? homedir(),
+    // Set by the desktop app's own local hub, whose user may pick any folder (another volume or
+    // drive). Local mode only, like fleet: a hub others can reach always keeps its browse root.
+    browseAnywhere: readEnv('TASKCELL_HUB_BROWSE_ANYWHERE') === '1' && !serverMode,
     ...(readEnv('TASKCELL_HUB_CLONE_HOSTS') ? { cloneHosts: parseHostList(readEnv('TASKCELL_HUB_CLONE_HOSTS')) } : {}),
     bind: {
       isLoopback: !serverMode,

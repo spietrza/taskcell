@@ -2,7 +2,7 @@ import { isReviewHeading } from '../core/labels.js';
 import { defaultGhRunner } from '../tasks/github.js';
 import type { GhRunner } from '../tasks/github.js';
 import { extractReviewVerdict, VERDICT_WITHOUT_COMPLETION_NOTE } from '../runners/review-prompt.js';
-import { soleReviewMarkerSha, pullRequestReviewRunIds } from '../runners/pr-review.js';
+import { soleReviewMarkerSha, soleReviewRunStampSha } from '../runners/pr-review.js';
 import type { ApproverPolicy, CheckFact, PrFacts, ReviewFacts } from './types.js';
 import { FACTORY_BRANCH_PREFIXES } from '../worktree/manager.js';
 
@@ -23,7 +23,7 @@ interface GhPrView {
   mergeStateStatus?: string;
   author?: { login?: string } | null;
   labels?: Array<{ name?: string }> | null;
-  reviews?: Array<{ author?: { login?: string } | null; body?: string; submittedAt?: string; state?: string }>;
+  reviews?: Array<{ author?: { login?: string } | null; body?: string; submittedAt?: string; state?: string; commit?: { oid?: string } | null }>;
 }
 
 export async function collectPrFacts(gh: GhRunner, repoSlug: string, prNumber: number): Promise<PrFacts> {
@@ -54,6 +54,7 @@ export async function collectPrFacts(gh: GhRunner, repoSlug: string, prNumber: n
       body: r.body ?? '',
       submittedAt: r.submittedAt ?? '',
       state: r.state ?? '',
+      ...(typeof r.commit?.oid === 'string' ? { commitSha: r.commit.oid } : {}),
     })),
   };
 }
@@ -173,9 +174,9 @@ function peelReviewPrefix(body: string): string | undefined {
  * distinct marker SHA (zero = no marker, more than one = a planted marker, both rejected), which was
  * posted as a plain COMMENTED review, and whose author is exactly a login on `policy.reviewAuthors`
  * (an empty list accepts nobody); the latest `submittedAt` among survivors wins, and in act mode it must
- * carry the host's run stamp. Returns all-null when there is none.
+ * carry the host's run stamp for the SHA it was submitted on. Returns all-null when there is none.
  */
-export function collectReviewFacts(pr: PrFacts, policy: ApproverPolicy, opts: { requireRunStamp?: boolean; runId?: string } = {}): ReviewFacts {
+export function collectReviewFacts(pr: PrFacts, policy: ApproverPolicy, opts: { requireRunStamp?: boolean } = {}): ReviewFacts {
   const candidates = pr.reviews.flatMap((r) => {
     const sha = soleReviewMarkerSha(r.body);
     const peeled = peelReviewPrefix(r.body);
@@ -184,18 +185,19 @@ export function collectReviewFacts(pr: PrFacts, policy: ApproverPolicy, opts: { 
     // dismissed review in the same shape is some other writer (or a withdrawn verdict), never the verdict.
     if (r.state !== 'COMMENTED') return [];
     if (!policy.reviewAuthors.includes(r.author)) return [];
-    return [{ author: r.author, submittedAt: r.submittedAt, sha, peeled, body: r.body }];
+    return [{ author: r.author, submittedAt: r.submittedAt, sha, peeled, body: r.body, commitSha: r.commitSha }];
   });
   if (candidates.length === 0) return { verdict: null, sha: null, author: null };
   candidates.sort((a, b) => a.submittedAt.localeCompare(b.submittedAt));
   const selected = candidates[candidates.length - 1]!;
-  // Act mode: `github-actions` is every workflow's login, so the latest review must also carry the host stamp binding this
-  // head to the PR-review workflow run (and to the run that triggered the approver, when it says which). Checked after
-  // "latest wins", never as a filter before it: a newer review without a matching stamp (say a BLOCKING one) must not
-  // let an older stamped verdict through; there is no verdict instead.
-  if (opts.requireRunStamp === true) {
-    const runs = pullRequestReviewRunIds(selected.body, selected.sha);
-    if (runs.length === 0 || (opts.runId !== undefined && !runs.includes(opts.runId))) return { verdict: null, sha: null, author: null };
+  // Act mode: `github-actions` is every workflow's login, so the latest review must also carry exactly one host stamp, for
+  // its marker SHA: the head whose diff the reviewer was given. GitHub's commit id for the review is the head at submit
+  // time; when it differs (or is absent) the head moved while the review ran, and the verdict speaks for neither head.
+  // No pin to a triggering run: one PR-review run reviews many PRs, and a run can trigger the approver without posting.
+  // Checked after "latest wins", never as a filter before it: a newer review without a usable stamp (say a BLOCKING one)
+  // must not let an older stamped verdict through; there is no verdict instead.
+  if (opts.requireRunStamp === true && (soleReviewRunStampSha(selected.body) !== selected.sha || selected.commitSha !== selected.sha)) {
+    return { verdict: null, sha: null, author: null };
   }
   return { verdict: extractReviewVerdict(selected.peeled) ?? null, sha: selected.sha, author: selected.author };
 }

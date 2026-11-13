@@ -1,4 +1,4 @@
-import { describe, it, expect, beforeEach, afterEach } from 'vitest';
+import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
 import { mkdtemp, rm, mkdir, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
@@ -11,6 +11,22 @@ import { assertActSafeGhArgs, isReleasePr, hardExclusions, escapeForComment } fr
 import { readBranchFile } from '../core/metrics-branch.js';
 import type { GhRunner } from '../tasks/github.js';
 import type { ApproverPolicy } from './types.js';
+
+const logFail = vi.hoisted(() => ({ on: false, mergeAction: false }));
+vi.mock('./record.js', async (orig) => {
+  const mod = await orig<typeof import('./record.js')>();
+  return {
+    ...mod,
+    appendDecision: async (...a: Parameters<typeof mod.appendDecision>): Promise<void> => {
+      if (logFail.on && (a[1] as { actMerge?: boolean }).actMerge === true) throw new Error('log down');
+      return mod.appendDecision(...a);
+    },
+    appendAction: async (...a: Parameters<typeof mod.appendAction>): Promise<void> => {
+      if (logFail.mergeAction && a[1].action === 'merge') throw new Error('log down');
+      return mod.appendAction(...a);
+    },
+  };
+});
 
 let root: string;
 let origin: string;
@@ -83,6 +99,10 @@ interface PrState {
   humanReviews: Array<{ login: string; state: string; at?: string }>;
   /** The verdict review carries the host's run stamp (default true). */
   stamped?: boolean;
+  /** GitHub's commit id for the verdict review: the head at submit time (default: the reviewed head). */
+  reviewCommit?: string;
+  /** false: no verdict review posted yet. */
+  reviewed?: boolean;
 }
 
 function fakeGh(calls: string[][], pr: PrState, onUpdate?: () => Promise<void>): GhRunner {
@@ -96,7 +116,7 @@ function fakeGh(calls: string[][], pr: PrState, onUpdate?: () => Promise<void>):
         headRepository: { name: 'r' }, headRepositoryOwner: { login: 'o' },
         author: { login: pr.author }, labels: pr.labels.map((name) => ({ name })),
         reviews: [
-          { author: { login: 'bot' }, body: pr.stamped === false ? reviewBody(headSha).replace(/\n\n<!-- taskcell-pr-review-run.*$/, '') : reviewBody(headSha), submittedAt: '2026-10-20T00:00:00Z', state: 'COMMENTED' },
+          ...(pr.reviewed === false ? [] : [{ author: { login: 'bot' }, body: pr.stamped === false ? reviewBody(headSha).replace(/\n\n<!-- taskcell-pr-review-run.*$/, '') : reviewBody(headSha), submittedAt: '2026-10-20T00:00:00Z', state: 'COMMENTED', commit: { oid: pr.reviewCommit ?? headSha } }]),
           ...pr.humanReviews.map((r) => ({ author: { login: r.login }, body: 'please fix', submittedAt: r.at ?? '2026-10-21T00:00:00Z', state: r.state })),
         ],
       });
@@ -233,6 +253,151 @@ describe('approver act mode', () => {
       await expect(run(gh)).rejects.toThrow(/not mergeable/);
       expect(writes(calls, 'comment').some((a) => a.join(' ').includes('merge was rejected'))).toBe(true);
       expect(await actions()).toEqual(['merge-failed']);
+    });
+
+    it('a failed pre-merge decision log does not merge, and says why', async () => {
+      const calls: string[][] = [];
+      logFail.on = true;
+      try {
+        await expect(run(fakeGh(calls, pr()))).rejects.toThrow(/log down/);
+      } finally {
+        logFail.on = false;
+      }
+      expect(writes(calls, 'merge')).toEqual([]);
+      expect(writes(calls, 'comment').some((a) => a.join(' ').includes('could not be logged'))).toBe(true);
+      expect((await records()).at(-1)).toMatchObject({ action: 'error', reasonCode: 'decision-log-failed', headSha });
+    });
+
+    it('a merge whose action log fails is reported as merged, not as a failed merge', async () => {
+      const calls: string[][] = [];
+      logFail.mergeAction = true;
+      try {
+        await run(fakeGh(calls, pr()));
+      } finally {
+        logFail.mergeAction = false;
+      }
+      expect(writes(calls, 'merge')).toHaveLength(1);
+      expect(writes(calls, 'comment').some((a) => a.join(' ').includes('merged, but the action log failed'))).toBe(true);
+      expect(await actions()).toEqual(['error']);
+      expect((await records()).at(-1)).toMatchObject({ action: 'error', reasonCode: 'merge-log-failed', headSha });
+    });
+
+    it('leaves the PR when the base tip moved between the decision and the merge', async () => {
+      const calls: string[][] = [];
+      const inner = fakeGh(calls, pr());
+      let views = 0;
+      const gh: GhRunner = async (args) => {
+        // A push to the base after the decision; the API's baseRefOid still names the old tip (it can lag).
+        if (args[0] === 'pr' && args[1] === 'view' && !args.includes('comments') && (views += 1) === 2) {
+          const stale = baseSha;
+          await moveBase('other.txt');
+          baseSha = stale;
+        }
+        return inner(args);
+      };
+      await run(gh);
+      expect(writes(calls, 'merge')).toEqual([]);
+      expect(writes(calls, 'comment').some((a) => a.join(' ').includes('base tip moved'))).toBe(true);
+    });
+
+    it('a failing re-read before the merge is commented once, whatever the gh error text says', async () => {
+      const calls: string[][] = [];
+      for (const requestId of ['A1', 'B2']) {
+        const inner = fakeGh(calls, pr());
+        let views = 0;
+        const gh: GhRunner = async (args) => {
+          if (args[0] === 'pr' && args[1] === 'view' && !args.includes('comments') && (views += 1) > 1) throw new Error(`gh: HTTP 502 (request ${requestId})`);
+          if (args[0] === 'pr' && args[1] === 'view' && args.includes('comments')) return JSON.stringify({ comments: writes(calls, 'comment').map((a) => ({ body: a.at(-1), author: { login: 'github-actions[bot]' } })) });
+          return inner(args);
+        };
+        await run(gh);
+      }
+      expect(writes(calls, 'merge')).toEqual([]);
+      expect(writes(calls, 'comment')).toHaveLength(1);
+      expect(writes(calls, 'comment')[0]!.join(' ')).toContain('could not re-read the PR');
+      expect((await records()).filter((r) => r.action !== undefined)).toMatchObject([{ action: 'left-for-human', reasonCode: 'pre-merge-read-failed' }]);
+    });
+
+    it('--mode act reads the policy strictly from the fetched base: an unreachable remote is policy-unreadable, never a stale local policy', async () => {
+      await execa('git', ['remote', 'set-url', 'origin', join(root, 'nowhere.git')], { cwd: repo });
+      const input = { repoPath: repo, repoSlug: 'o/r', prNumber: 1, gh: fakeGh([], pr()), dryRun: true };
+      expect((await runApprover({ ...input, mode: 'shadow' })).record.rulesFired).not.toContain('policy-unreadable');
+      const calls: string[][] = [];
+      await runApprover({ ...input, gh: fakeGh(calls, pr({ merge: 'BEHIND' })), mode: 'act', dryRun: false }).catch(() => {});
+      expect(calls.some((a) => a.join(' ').includes('policy-unreadable'))).toBe(true);
+      expect(writes(calls, 'update-branch')).toEqual([]);
+    });
+
+    it('the seed and the record come from the settled PR read, not the first one', async () => {
+      const calls: string[][] = [];
+      const inner = fakeGh(calls, pr());
+      let views = 0;
+      const gh: GhRunner = async (args) => {
+        const out = await inner(args);
+        // The first read: mergeability still UNKNOWN, and an older head that is replaced during the retries.
+        if (args[0] === 'pr' && args[1] === 'view' && !args.includes('comments') && (views += 1) === 1) {
+          return JSON.stringify({ ...(JSON.parse(out) as object), mergeStateStatus: 'UNKNOWN', headRefOid: 'f'.repeat(40) });
+        }
+        return out;
+      };
+      const { record } = await run(gh);
+      expect(record.auditSample.seed).toContain(`:${headSha}:`);
+      expect(record.auditSample.seed).not.toContain('f'.repeat(40));
+      expect(writes(calls, 'merge')).toHaveLength(1);
+    });
+
+    it('a run triggered before any review was posted comments nothing; the later review merges', async () => {
+      const state = pr({ reviewed: false });
+      const calls: string[][] = [];
+      const { record } = await run(fakeGh(calls, state));
+      expect(record.rulesFired).toContain('review-missing');
+      expect(writes(calls, 'comment')).toEqual([]);
+      expect(writes(calls, 'merge')).toEqual([]);
+      expect((await records()).at(-1)).toMatchObject({ action: 'left-for-human', reason: expect.stringContaining('review-missing') });
+      state.reviewed = true;
+      await run(fakeGh(calls, state));
+      expect(writes(calls, 'merge')).toHaveLength(1);
+      expect(writes(calls, 'comment')).toEqual([]);
+    });
+
+    it('a review submitted after a push (its commit id is not the stamped SHA) is no verdict in act mode', async () => {
+      const calls: string[][] = [];
+      const { record } = await run(fakeGh(calls, pr({ reviewCommit: 'e'.repeat(40) })));
+      expect(record.rulesFired).toContain('review-missing');
+      expect(writes(calls, 'merge')).toEqual([]);
+      expect((await run(fakeGh([], pr({ reviewCommit: 'e'.repeat(40) })), 'shadow')).record.verdict).toBe('APPROVE');
+    });
+
+    it('leaves the PR when a required check regressed before the merge', async () => {
+      const calls: string[][] = [];
+      const inner = fakeGh(calls, pr());
+      let checkReads = 0;
+      const gh: GhRunner = async (args) => {
+        if (args[0] === 'api' && args[1]?.includes('check-runs?per_page') && (checkReads += 1) > 1) {
+          return JSON.stringify({ check_runs: [{ name: 'build', conclusion: 'failure', app: { id: 15368 } }] });
+        }
+        return inner(args);
+      };
+      await run(gh);
+      expect(writes(calls, 'merge')).toEqual([]);
+      expect(writes(calls, 'comment').some((a) => a.join(' ').includes('check-missing:build'))).toBe(true);
+    });
+
+    it('a token in the merge error is redacted in the comment and the log', async () => {
+      const token = `ghp_${'a1B2'.repeat(9)}`;
+      const calls: string[][] = [];
+      const base = fakeGh(calls, pr());
+      const gh: GhRunner = async (args) => {
+        if (args[1] === 'merge') throw new Error(`HTTP 405 for https://x-access-token:${token}@github.com/o/r`);
+        return base(args);
+      };
+      const thrown = await run(gh).then(() => undefined, (err: unknown) => err);
+      expect(thrown).toBeInstanceOf(Error);
+      expect((thrown as Error).message).toContain('HTTP 405');
+      expect((thrown as Error).message).not.toContain(token); // the CLI prints this to the workflow log
+      expect(writes(calls, 'comment').some((a) => a.join(' ').includes('merge was rejected'))).toBe(true);
+      expect(writes(calls, 'comment').some((a) => a.join(' ').includes(token))).toBe(false);
+      expect(await readBranchFile(repo, { file: 'decisions.jsonl' })).not.toContain(token);
     });
 
     it('kill switch under --mode act: stopped, nothing acted on', async () => {
@@ -476,7 +641,8 @@ describe('approver act mode', () => {
     });
 
     it('a failed fetch of the base is git-facts-failed in act mode, a stale local base otherwise', async () => {
-      await git(repo, ['branch', 'main', 'origin/main']);
+      // Not `git branch main origin/main`: whether the clone already has a local main depends on the machine's init.defaultBranch.
+      await git(repo, ['update-ref', 'refs/heads/main', 'refs/remotes/origin/main']);
       await execa('git', ['remote', 'set-url', 'origin', join(root, 'nowhere.git')], { cwd: repo });
       const input = { repoPath: repo, prNumber: 1, baseRefName: 'main', apiHeadSha: headSha, reviewedSha: null, policy: loaded };
       expect((await collectDiffFacts(input)).baseSha).not.toBe('');
@@ -551,12 +717,9 @@ describe('approver act mode', () => {
       expect(writes(unstamped, 'merge')).toEqual([]);
       const shadow: string[][] = [];
       expect((await run(fakeGh(shadow, pr({ stamped: false })), 'shadow')).record.verdict).toBe('APPROVE');
-      const other: string[][] = [];
-      await runApprover({ repoPath: repo, repoSlug: 'o/r', prNumber: 1, mode: 'act', gh: fakeGh(other, pr()), sleep: async () => {}, reviewRunId: '99' });
-      expect(writes(other, 'merge')).toEqual([]);
-      const same: string[][] = [];
-      await runApprover({ repoPath: repo, repoSlug: 'o/r', prNumber: 1, mode: 'act', gh: fakeGh(same, pr()), sleep: async () => {}, reviewRunId: '42' });
-      expect(writes(same, 'merge')).toHaveLength(1);
+      const stamped: string[][] = [];
+      await run(fakeGh(stamped, pr()));
+      expect(writes(stamped, 'merge')).toHaveLength(1);
     });
 
     it('an initial BEHIND state is updated, then merged after the checks', async () => {
@@ -600,6 +763,8 @@ describe('approver act mode', () => {
       const out = escapeForComment('touches CI config (.github/workflows/x.yml) @evil <img src=x> #12');
       expect(out).not.toMatch(/@evil|<img|\.github\/workflows|#12/);
       expect(out).toContain('@\u200bevil');
+      // A backslash in the input must not cancel the escape added after it and leave a live link.
+      expect(escapeForComment('\\[x\\](y)')).toBe('\\\\\\[x\\\\\\]\\(y\\)');
     });
 
     it('a merge rejection with markup in the gh error is escaped in the comment', async () => {
@@ -681,6 +846,7 @@ async function moveBase(file: string): Promise<void> {
   await git(seed, ['add', '.']);
   await git(seed, ['commit', '--quiet', '-m', `base ${file}`]);
   await git(seed, ['push', '--quiet', origin, 'main']);
+  baseSha = (await git(seed, ['rev-parse', 'HEAD'])).trim();
 }
 
 /** What update-branch does: a real `git merge main` into the PR branch (plus, optionally, an extra commit), pushed as the PR head. */

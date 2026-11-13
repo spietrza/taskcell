@@ -40,7 +40,8 @@ export interface PrFacts {
   /** API-sourced PR author login ('' when the API omits it). */
   author?: string;
   labels?: string[];
-  reviews: Array<{ author: string; body: string; submittedAt: string; state: string }>;
+  /** `commitSha`: GitHub's commit id for the review, the head when it was submitted ('' or absent when the API omits it). */
+  reviews: Array<{ author: string; body: string; submittedAt: string; state: string; commitSha?: string }>;
 }
 
 export interface CheckFact {

@@ -1,5 +1,5 @@
-// Fleet's shell-spawn surface (`spawn_run`/`kill_run`/`list_spawns`), ported from the desktop's former
-// Rust spawn.rs. Only reachable when the hub was started with fleet enabled (the desktop app's local
+// Fleet's shell-spawn surface (`spawn_run`/`kill_run`/`list_spawns`), ported from the desktop's
+// former Rust spawn module. Only reachable when the hub was started with fleet enabled (the desktop app's local
 // hub, `TASKCELL_HUB_ALLOW_FLEET=1` on a loopback bind) — see `FLEET_DISABLED_MESSAGE` in rpc.ts.
 import { spawn, type ChildProcess } from 'node:child_process';
 import { createInterface } from 'node:readline';

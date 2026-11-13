@@ -35,6 +35,8 @@ export interface HubServerOptions {
   uiDir: string;
   configDir: string;
   browseRoot: string;
+  /** Lift the browse-root limit (the desktop app's own hub). Default: confined to `browseRoot`. */
+  browseAnywhere?: boolean;
   /** Additional permitted clone hosts. */
   cloneHosts?: readonly string[];
   bind: BindOptions;
@@ -472,6 +474,7 @@ export function createHubServer(opts: HubServerOptions): HubServer {
     deps,
     configDir: opts.configDir,
     browseRoot: opts.browseRoot,
+    ...(opts.browseAnywhere === true ? { browseAnywhere: true } : {}),
     ...(opts.cloneHosts !== undefined ? { cloneHosts: opts.cloneHosts } : {}),
     bind: opts.bind,
     publish,

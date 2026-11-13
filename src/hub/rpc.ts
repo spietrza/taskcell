@@ -31,6 +31,8 @@ export interface RpcContext {
   deps: SidecarDeps;
   configDir: string;
   browseRoot: string;
+  /** The desktop app's own hub: `browseRoot` is only where the picker opens, not a limit. */
+  browseAnywhere?: boolean;
   bind: BindOptions;
   /** Hosts `clone_project` accepts beyond `DEFAULT_CLONE_HOSTS` (a self-hosted GitHub/GitLab). */
   cloneHosts?: readonly string[];
