@@ -232,3 +232,11 @@ describe('formatApproverScorecard', () => {
     expect(text).toContain('1/30');
   });
 });
+
+describe('parseDecisions — act-mode merges', () => {
+  it('drops the decisions of a PR the approver merged itself', () => {
+    const verdict = (pr: number): string => JSON.stringify({ repo: 'o/r', prNumber: pr, verdict: 'APPROVE', timestamp: '2026-11-13T00:00:00Z', headSha: 'a' });
+    const merge = JSON.stringify({ repo: 'o/r', prNumber: 1, action: 'merge', headSha: 'a', timestamp: '2026-11-13T00:01:00Z' });
+    expect(parseDecisions([verdict(1), verdict(2), merge].join('\n')).map((d) => d.prNumber)).toEqual([2]);
+  });
+});

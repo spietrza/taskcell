@@ -3,7 +3,7 @@ import type { Command } from './args.js';
 
 type ApproveCommand = Extract<Command, { kind: 'approve' }>;
 
-/** `taskcell approve --pr <n> --github-repo <slug>`: compute, publish, and record the shadow-mode decision. */
+/** `taskcell approve --pr <n> --github-repo <slug>`: compute, publish, and record the decision; in `--mode act` (policy `act: true`) also update and merge. */
 export async function approveCommand(cmd: ApproveCommand): Promise<void> {
   try {
     const result = await runApprover({

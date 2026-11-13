@@ -310,7 +310,7 @@ export type Command =
       githubRepo?: string;
     }
   | { kind: 'metrics'; action: 'push'; repoPath: string; branch?: string }
-  | { kind: 'approve'; prNumber: number; repoSlug: string; repoPath: string; mode: 'shadow'; json: boolean; dryRun: boolean; branch?: string }
+  | { kind: 'approve'; prNumber: number; repoSlug: string; repoPath: string; mode: 'shadow' | 'act'; json: boolean; dryRun: boolean; branch?: string }
   | { kind: 'memory'; repoPath: string; limit?: number; json: boolean }
   | { kind: 'history'; repoPath: string; repoSlug: string; issue: number; json: boolean; configDir?: string; branch?: string; offline: boolean }
   | {
@@ -782,14 +782,13 @@ export function parseCli(argv: string[], cwd: string): Command {
     if (repoSlug === undefined) return fail('approve requires --github-repo <owner/repo>.');
     if (!Number.isInteger(prNumber) || prNumber < 1) return fail(`approve requires a positive --pr <n>, got "${String(prRaw)}".`);
     const modeRaw = typeof values.mode === 'string' ? values.mode : 'shadow';
-    if (modeRaw === 'live') return fail('approve: live mode is not implemented (shadow only in v1).');
-    if (modeRaw !== 'shadow') return fail(`approve: unknown --mode "${modeRaw}" (shadow only in v1).`);
+    if (modeRaw !== 'shadow' && modeRaw !== 'act') return fail(`approve: unknown --mode "${modeRaw}" (shadow or act).`);
     return {
       kind: 'approve',
       prNumber,
       repoSlug,
       repoPath,
-      mode: 'shadow',
+      mode: modeRaw,
       json: values.json === true,
       dryRun: values['dry-run'] === true,
       ...(typeof values.branch === 'string' ? { branch: values.branch } : {}),
@@ -1501,7 +1500,7 @@ Commands:
          push, so an ephemeral CI run leaves a durable trace (idempotent; needs push rights).
   approve Compute a deterministic APPROVE/ESCALATE decision for a factory PR from typed facts and the
          base-branch policy; publish a neutral check run + PR comment and record the decision
-         (shadow mode: never merges, approves, or edits labels).
+         (shadow mode, the default, never merges, approves, or edits labels; --mode act merges, see docs/autonomous-loop.md).
   audit verify | export  Check the hash chains of the audit streams (hub, run-events, metrics, decisions,
          lessons) or export them with --since/--until as jsonl or csv; see docs/audit.md.
   history <owner/repo#N>  One issue's history over the audit streams (trigger, runs, reviews, approver,
@@ -1806,7 +1805,7 @@ ${MAX_REPAIR_ITERATIONS_USAGE}
   approve options:
     --pr <n>               Required: PR number (bare positional also accepted)
     --github-repo <o/r>    Required repo slug — the approver never infers the repo it judges
-    --mode <shadow>        Only "shadow" is implemented in v1
+    --mode <shadow|act>   "act" merges APPROVEd factory PRs, only if approver.json sets act:true (default: shadow)
     --repo <path>          Local git repo checked out from the base branch (default: cwd)
     --branch <name>        Metrics branch override (default: taskcell-metrics)
     --json                 Print the decision record to stdout

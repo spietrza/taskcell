@@ -71,7 +71,11 @@ export interface ApproverScorecardReport {
 /** Tolerant JSONL parse: a malformed or pre-schema line (missing a field this needs) is dropped, not fatal. */
 export function parseDecisions(text: string): ShadowDecision[] {
   const decisions: ShadowDecision[] = [];
-  for (const parsed of parseJsonlLines(text)) {
+  const lines = parseJsonlLines(text);
+  // A PR the approver itself merged says nothing about whether the verdict was right: leave it out.
+  const actMerged = new Set(lines.filter((l) => l.action === 'merge').map((l) => `${String(l.repo)}:${String(l.prNumber)}`));
+  for (const parsed of lines) {
+    if (actMerged.has(`${String(parsed.repo)}:${String(parsed.prNumber)}`)) continue;
     if (typeof parsed.repo !== 'string' || typeof parsed.prNumber !== 'number') continue;
     if (parsed.verdict !== 'APPROVE' && parsed.verdict !== 'ESCALATE') continue;
     if (typeof parsed.timestamp !== 'string') continue;
