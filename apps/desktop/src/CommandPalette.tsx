@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useRef, useState, type ReactNode } from 'react';
-import { Home, FolderPlus, FolderGit2, SunMoon } from 'lucide-react';
+import { Home, MessageCircleQuestionMark, FolderPlus, FolderGit2, SunMoon } from 'lucide-react';
 import type { Project } from './taskcell-output';
 
 interface Cmd {
@@ -14,6 +14,7 @@ export function CommandPalette({
   projects,
   onOpenProject,
   onHome,
+  onNeedsYou,
   onAddProject,
   onToggleTheme,
   onClose,
@@ -21,6 +22,8 @@ export function CommandPalette({
   projects: Project[];
   onOpenProject: (p: { path: string; name: string }) => void;
   onHome: () => void;
+  /** Hub only: opens Home at its Needs you section (the old Needs you screen). */
+  onNeedsYou?: () => void;
   onAddProject: () => void;
   onToggleTheme: () => void;
   onClose: () => void;
@@ -35,6 +38,7 @@ export function CommandPalette({
   const cmds = useMemo<Cmd[]>(
     () => [
       { id: 'home', label: 'All projects', icon: <Home className="size-4" />, run: onHome },
+      ...(onNeedsYou ? [{ id: 'needs', label: 'Needs you', icon: <MessageCircleQuestionMark className="size-4" />, run: onNeedsYou }] : []),
       { id: 'add', label: 'Add project', icon: <FolderPlus className="size-4" />, run: onAddProject },
       { id: 'theme', label: 'Toggle theme', icon: <SunMoon className="size-4" />, run: onToggleTheme },
       ...projects.map((p) => ({
@@ -45,7 +49,7 @@ export function CommandPalette({
         run: () => onOpenProject({ path: p.path, name: p.name }),
       })),
     ],
-    [projects, onHome, onAddProject, onToggleTheme, onOpenProject],
+    [projects, onHome, onNeedsYou, onAddProject, onToggleTheme, onOpenProject],
   );
 
   const filtered = useMemo(() => {

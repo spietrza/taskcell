@@ -64,17 +64,17 @@ test('every main screen opens in demo mode without errors', async () => {
   fireEvent.click(await screen.findByText('DEMO-101'));
   expect(await screen.findByText('reviewer')).toBeInTheDocument();
 
-  fireEvent.click(screen.getByRole('button', { name: /Task board/ }));
+  fireEvent.click(screen.getByRole('button', { name: /^Board/ }));
   expect(await screen.findByText('Fix cart total rounding')).toBeInTheDocument();
   expect(screen.getByText('Add wishlist to the account page')).toBeInTheDocument();
 
-  fireEvent.click(screen.getByRole('button', { name: /Needs you/ }));
+  fireEvent.click(screen.getByRole('button', { name: /^Settings/ }));
+  fireEvent.click(await screen.findByRole('tab', { name: 'Line' }));
+  await waitFor(() => expect(screen.getByRole('tab', { name: 'Line' })).toHaveAttribute('aria-selected', 'true'));
+
+  // Home carries both the Needs you section and the project list.
+  fireEvent.click(screen.getByRole('button', { name: /^Home/ }));
   expect(await screen.findByText('Case-insensitive product search')).toBeInTheDocument();
-
-  fireEvent.click(screen.getByRole('button', { name: /Workflow/ }));
-  await waitFor(() => expect(screen.getByRole('button', { name: /Workflow/ })).toHaveAttribute('aria-current', 'page'));
-
-  fireEvent.click(screen.getByRole('button', { name: /Dashboard/ }));
   expect(await screen.findByRole('heading', { name: 'Projects' })).toBeInTheDocument();
   expect(error).not.toHaveBeenCalled();
   vi.unstubAllGlobals();

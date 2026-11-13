@@ -1,15 +1,10 @@
 import { useState } from 'react';
 import {
-  LayoutDashboard,
+  Home as HomeIcon,
   List,
   Columns3,
-  Boxes,
-  Cloud,
-  Workflow,
   Settings as SettingsIcon,
   PanelLeft,
-  MessageCircleQuestionMark,
-  ScrollText,
   type LucideIcon,
 } from 'lucide-react';
 import { Collapsible, Tooltip, cn } from '@/ui';
@@ -18,33 +13,31 @@ import type { Team } from './wire';
 import { TeamSwitcher } from './TeamSwitcher';
 import { relTime } from './time';
 import { RailTip } from './RailTip';
-import { canUseFleet } from './transport';
 import { ServerSwitcher } from './ServerSwitcher';
-import { canUseNeedsYou } from './features/needs-you/NeedsYou';
 
 // 'task' (S10) is reached by intent — the New Task button on the board and Runs toolbars — so it
-// has no NAV entry; the breadcrumb is its location anchor.
-export type Screen = 'dashboard' | 'runs' | 'board' | 'task' | 'fleet' | 'remote' | 'workflow' | 'settings' | 'needs' | 'audit';
+// has no NAV entry; the breadcrumb is its location anchor. Needs you lives on Home; Line, Runners
+// and Audit live under Settings.
+export type Screen = 'home' | 'runs' | 'board' | 'task' | 'settings';
 
-const ALL_NAV: { key: Screen; label: string; icon: LucideIcon }[] = [
-  { key: 'dashboard', label: 'Dashboard', icon: LayoutDashboard },
+/** Old entries (links, ⌘K) that now land elsewhere: the separate Needs you screen opens Home at that section. */
+export function resolveScreen(s: Screen | 'needs'): { screen: Screen; section?: 'needs' } {
+  return s === 'needs' ? { screen: 'home', section: 'needs' } : { screen: s };
+}
+
+export const NAV: { key: Screen; label: string; icon: LucideIcon }[] = [
+  { key: 'home', label: 'Home', icon: HomeIcon },
+  { key: 'board', label: 'Board', icon: Columns3 },
   { key: 'runs', label: 'Runs', icon: List },
-  { key: 'board', label: 'Task board', icon: Columns3 },
-  { key: 'needs', label: 'Needs you', icon: MessageCircleQuestionMark },
-  { key: 'fleet', label: 'Fleet', icon: Boxes },
-  { key: 'remote', label: 'Remote', icon: Cloud },
-  { key: 'workflow', label: 'Workflow', icon: Workflow },
   { key: 'settings', label: 'Settings', icon: SettingsIcon },
-  { key: 'audit', label: 'Audit', icon: ScrollText },
 ];
-// Hub mode drops Fleet from the rail entirely — see canUseFleet().
-const NAV = ALL_NAV.filter((n) => (n.key !== 'fleet' || canUseFleet()) && (n.key !== 'needs' || canUseNeedsYou()) && (n.key !== 'audit' || canUseNeedsYou()));
 
 export function Rail({
   projects,
   activePath,
   screen,
   running,
+  needsCount = 0,
   onScreen,
   onOpenRunning,
   teams,
@@ -55,6 +48,8 @@ export function Rail({
   activePath: string | null;
   screen: Screen;
   running: ActiveRun[];
+  /** What waits on the user (Home's Needs you section); badges Home. */
+  needsCount?: number;
   onScreen: (s: Screen) => void;
   onOpenRunning: (r: ActiveRun) => void;
   teams: Team[];
@@ -92,7 +87,7 @@ export function Rail({
         )}
         <nav className="space-y-0.5 px-2 max-md:flex max-md:gap-1 max-md:space-y-0 max-md:py-1">
           {NAV.map((n) => {
-            const count = n.key === 'runs' ? active?.runCount : undefined;
+            const count = n.key === 'runs' ? active?.runCount : n.key === 'home' && needsCount > 0 ? needsCount : undefined;
             const Icon = n.icon;
             const btn = (
               <button

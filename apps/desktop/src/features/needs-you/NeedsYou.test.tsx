@@ -60,7 +60,7 @@ test('shows the factory question as text; a reply to an issue and to a PR each r
   );
 
   reply(pr, 'Keep the scope as is');
-  expect(await screen.findByText('Nothing needs you')).toBeInTheDocument();
+  expect(await screen.findByText(/Nothing needs you/)).toBeInTheDocument();
   expect(calls.filter((c) => c.cmd === 'reply_needs_you').at(-1)?.body).toEqual(expect.objectContaining({ id: pr.id, kind: 'pr' }));
   expect(calls.filter((c) => c.cmd === 'list_needs_you')).toHaveLength(3);
 });
@@ -101,7 +101,7 @@ test('Merge names the PR base branch, merges, and the item leaves the list', asy
   render(<NeedsYou project="/repo" repos={[]} />);
   fireEvent.click(await screen.findByRole('button', { name: 'Merge into release/2' }));
   fireEvent.click(screen.getByRole('button', { name: 'Confirm merge into release/2' }));
-  expect(await screen.findByText('Nothing needs you')).toBeInTheDocument();
+  expect(await screen.findByText(/Nothing needs you/)).toBeInTheDocument();
   expect(calls.find((c) => c.cmd === 'merge_needs_you')?.body).toEqual({ repoPath: '/repo', id: pr.id });
 });
 
@@ -115,6 +115,15 @@ test('a refused merge keeps the item and says why; an issue has no Merge button'
   fireEvent.click(screen.getByRole('button', { name: /^Confirm merge/ }));
   expect(await screen.findByRole('alert')).toHaveTextContent('Not merged');
   expect(screen.getByText(pr.title)).toBeInTheDocument();
+});
+
+test('the Home section reports how many items wait, and says so in one line when none do', async () => {
+  stubHub([needsYouItems[0], needsYouItems[1]]);
+  const onCount = vi.fn();
+  render(<NeedsYou project="/repo" repos={[]} onCount={onCount} />);
+  expect(await screen.findByRole('heading', { name: 'Needs you' })).toBeInTheDocument();
+  await vi.waitFor(() => expect(onCount).toHaveBeenLastCalledWith(2));
+  expect(screen.getByRole('status')).toHaveTextContent('2 waiting');
 });
 
 test('under "All repositories" the selected team is sent to the hub, so a second team is not read as the first', async () => {

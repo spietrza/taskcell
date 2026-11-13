@@ -23,14 +23,11 @@ import { RunList } from './RunList';
 import { RunDetail } from './RunDetail';
 import { LiveRun } from './LiveRun';
 import { RemoteRuns } from './RemoteRuns';
-import { AuditLog } from '../audit/AuditLog';
 import { Fleet } from '../fleet/Fleet';
-import { Settings } from '../settings/Settings';
+import { SettingsScreen } from '../settings/SettingsScreen';
 import { TaskBoard } from '../board/TaskBoard';
 import { TaskDetail } from '../board/TaskDetail';
-import { WorkflowEditor } from '../workflow/WorkflowEditor';
 import { TaskDraftScreen } from '../task/TaskDraftScreen';
-import { NeedsYou } from '../needs-you/NeedsYou';
 import { NewRunForm } from './NewRunForm';
 import { RunStrip } from './RunStrip';
 import { foldLiveEvent, reduceTypedRun, initialTypedRun, type TypedRunState, type RunEvent, type AppRunEvent } from './typedRunReducer';
@@ -66,7 +63,7 @@ export function Inspector({
   teamId?: string;
   /** The shared repository filter is "All repositories": Board, Runs and Needs you list every repository. */
   allRepos: boolean;
-  screen: 'runs' | 'board' | 'task' | 'fleet' | 'remote' | 'workflow' | 'settings' | 'needs' | 'audit';
+  screen: 'runs' | 'board' | 'task' | 'settings';
   focusRunning: ActiveRun | null;
   clearNonce: number;
   newTaskNonce: number;
@@ -540,37 +537,13 @@ export function Inspector({
           }}
           onNewTask={onNewTask}
         />
-      ) : screen === 'needs' ? (
-        <div className="min-h-0 flex-1 overflow-y-auto">
-          <NeedsYou project={project} allRepos={allRepos} repos={repos} teamId={teamId} />
-        </div>
-      ) : screen === 'audit' ? (
-        <div className="flex min-h-0 flex-1 flex-col">
-          <AuditLog />
-        </div>
-      ) : screen === 'remote' ? (
-        <div className="flex min-h-0 flex-1 flex-col">
-          <RemoteRuns project={project} onOpenRun={open} />
-        </div>
-      ) : screen === 'fleet' ? (
-        <div className="min-h-0 flex-1 overflow-y-auto">
-          {canUseFleet() ? (
-            <Fleet project={project} active={active} />
-          ) : (
-            <div className="rounded border border-border bg-muted/30 px-3 py-2 text-sm text-muted-foreground">
-              Fleet is not available in hub mode — it spawns shell commands, which is remote code execution
-              on a reachable server.
-            </div>
-          )}
-        </div>
-      ) : screen === 'workflow' ? (
-        <div className="flex min-h-0 flex-1 flex-col">
-          <WorkflowEditor project={project} />
-        </div>
       ) : screen === 'settings' ? (
-        <div className="min-h-0 flex-1 overflow-y-auto">
-          <Settings project={project} {...(teamScreen ? { teamScreen } : {})} />
-        </div>
+        <SettingsScreen
+          project={project}
+          {...(teamScreen ? { teamScreen } : {})}
+          fleet={canUseFleet() ? <Fleet project={project} active={active} /> : null}
+          remote={<RemoteRuns project={project} onOpenRun={open} />}
+        />
       ) : screen === 'task' ? (
         <div className="flex min-h-0 flex-1 flex-col">
           <TaskDraftScreen
