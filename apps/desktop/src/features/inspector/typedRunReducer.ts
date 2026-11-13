@@ -20,8 +20,8 @@ export interface TypedRunState {
   terminal?: { kind: 'success' | 'no-changes' | 'secret-blocked' | 'error' | 'cancelled'; prUrl?: string; message?: string };
 }
 
-/** `run-accepted` is Rust-minted (sidecar.rs) and never core-emitted, so it is a DESKTOP extension
- *  of the wire union, not part of it. It carries the run's repoPath so a strip can refuse a run
+/** `run-accepted` is minted by the hub's run session (src/hub/run-session.ts) and never
+ *  core-emitted, so it is a DESKTOP extension of the wire union, not part of it. It carries the run's repoPath so a strip can refuse a run
  *  that belongs to another project (S8 item 4). */
 export type AppRunEvent = RunEvent | { type: 'run-accepted'; repoPath?: string };
 type Incoming = AppRunEvent;

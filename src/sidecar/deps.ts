@@ -136,9 +136,9 @@ function linearExtras(
 /**
  * Production wiring: build a sandbox context + provider auth from env, then dispatch to the same
  * source runner the CLI uses (mirrors `src/cli/run.ts`), with `onEvent` + the cancel `signal` threaded
- * in. Smoke-verified (needs Docker + creds), not unit-tested. The sidecar child is spawned WITHOUT a
- * project cwd (sidecar.rs runs `sh -c 'exec vanguard __sidecar'`, inheriting the app cwd — unlike
- * spawn.rs's raw-CLI path which sets current_dir), so the target repo must arrive explicitly as
+ * in. Smoke-verified (needs Docker + creds), not unit-tested. The process running this has NO
+ * project cwd (a hub serves many projects — unlike the hub's raw-CLI spawn path, src/hub/spawn.ts,
+ * which sets the cwd), so the target repo must arrive explicitly as
  * `params.repoPath`, per run. Keep this thin — logic belongs in the runners, not here.
  */
 export function productionDeps(): SidecarDeps {

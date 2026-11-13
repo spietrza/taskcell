@@ -56,12 +56,12 @@ export function holdsChanges(reviews: PrFacts['reviews']): boolean {
   return [...latest.values()].some((v) => v.state === 'CHANGES_REQUESTED');
 }
 
-/** A reason as it is safe to put in a bot comment: no HTML, markdown links or images, bare URLs, mentions, issue links, `.github/` path prefixes or newlines; capped. */
+/** A reason as it is safe to put in a bot comment: no HTML, markdown links or images, bare URLs, mentions, issue links, `.github/` path prefixes or newlines; capped. `\` is escaped too, or one in the input would cancel the escape added after it. */
 export function escapeForComment(text: string): string {
   const flat = text.replace(/\s+/g, ' ').trim().slice(0, 400);
   return flat
     .replace(/[<>&`|]/g, (c) => ({ '<': '&lt;', '>': '&gt;', '&': '&amp;', '`': "'", '|': '/' })[c]!)
-    .replace(/[[\]()!]/g, (c) => `\\${c}`)
+    .replace(/[\\[\]()!]/g, (c) => `\\${c}`)
     .replace(/:\/\//g, ':\u200b//')
     .replace(/\bwww\./gi, 'www\u200b.')
     .replace(/@/g, '@\u200b')

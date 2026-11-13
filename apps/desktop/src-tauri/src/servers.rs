@@ -125,7 +125,7 @@ pub fn grant_saved(app: &AppHandle) {
 }
 
 fn new_id() -> String {
-    format!("srv-{}", chrono::Utc::now().timestamp_micros())
+    format!("srv-{}", std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).map_or(0, |d| d.as_micros()))
 }
 
 #[tauri::command]
@@ -174,6 +174,26 @@ pub fn servers_switch(app: AppHandle, hub: State<'_, Arc<Hub>>, id: Option<Strin
 mod tests {
     use super::*;
 
+    /// A unique scratch directory removed on drop.
+    struct TmpDir(PathBuf);
+    impl TmpDir {
+        fn new() -> Self {
+            static N: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(0);
+            let dir = std::env::temp_dir().join(format!("servers-test-{}-{}", std::process::id(), N.fetch_add(1, std::sync::atomic::Ordering::SeqCst)));
+            let _ = fs::remove_dir_all(&dir);
+            fs::create_dir_all(&dir).unwrap();
+            Self(dir)
+        }
+        fn path(&self) -> &Path {
+            &self.0
+        }
+    }
+    impl Drop for TmpDir {
+        fn drop(&mut self) {
+            let _ = fs::remove_dir_all(&self.0);
+        }
+    }
+
     #[test]
     fn normalize_accepts_https_and_loopback_http_and_trims() {
         assert_eq!(normalize_url(" https://hub.example.com/ ").unwrap(), "https://hub.example.com");
@@ -203,7 +223,7 @@ mod tests {
 
     #[test]
     fn list_roundtrips_and_missing_is_empty() {
-        let tmp = tempfile::tempdir().unwrap();
+        let tmp = TmpDir::new();
         assert!(load(tmp.path()).unwrap().is_empty());
         let s = vec![Server { id: "a".into(), name: "A".into(), url: "https://h".into() }];
         save(tmp.path(), &s).unwrap();
@@ -212,7 +232,7 @@ mod tests {
 
     #[test]
     fn corrupt_list_is_an_error_not_empty() {
-        let tmp = tempfile::tempdir().unwrap();
+        let tmp = TmpDir::new();
         fs::write(file(tmp.path()), "{not json").unwrap();
         assert!(load(tmp.path()).is_err());
     }

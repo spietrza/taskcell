@@ -438,6 +438,23 @@ describe('dischargePrBodyItemsBlock', () => {
     expect(out).toContain('name: gate\n' + end);
   });
 
+  it('discharges a block written with a raw (pre-encoding) id and an encoded one with odd characters', () => {
+    const id = 'PR 1/a:b#é';
+    const m = { prBody: [{ id, contains: 'name: gate' }] };
+    const raw = empty.replace('- `PR-1`', '- `' + id + '`').replace(end, `name: gate\n${end}`);
+    expect(dischargePrBodyItemsBlock(raw, m)).toContain('Required PR-body item discharged');
+    const enc = prBodyGapWarningBlock([{ id, contains: '' }]).replace(end, `name: gate\n${end}`);
+    expect(dischargePrBodyItemsBlock(enc, m)).toContain('Required PR-body item discharged');
+  });
+
+  it('never throws on a lone-surrogate id', () => {
+    const id = 'PR-\ud800';
+    expect(() => {
+      const block = prBodyGapWarningBlock([{ id, contains: 'x' }]);
+      dischargePrBodyItemsBlock(block.replace(end, `x\n${end}`), { prBody: [{ id, contains: 'x' }] });
+    }).not.toThrow();
+  });
+
   it('leaves the block alone for a prBody: [] manifest, an unknown id, or no manifest', () => {
     expect(dischargePrBodyItemsBlock(pasted, { prBody: [] })).toBe(pasted);
     expect(dischargePrBodyItemsBlock(pasted, { prBody: [{ id: 'PR-9', contains: 'name: gate' }] })).toBe(pasted);

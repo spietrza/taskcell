@@ -139,12 +139,12 @@ describe('approver commands', () => {
       await expect(dispatchRpc(local, 'set_approver_mode', { repoPath: repo, mode: 'yolo' })).rejects.toThrow(/mode must be/);
     });
 
-    test('act is refused while #939 is open', async () => {
+    test('act is refused while #939 and #958 are open', async () => {
       mockWorld(DECISIONS, { act: false });
       const open = vi.spyOn(approverCard, 'openApproverModePr');
       const repo = await tmpGitRepo(ORIGIN);
       const { ctx } = await makeCtx(repo);
-      await expect(dispatchRpc(ctx, 'set_approver_mode', { repoPath: repo, mode: 'act', confirmBelowBar: true })).rejects.toThrow(/#939/);
+      await expect(dispatchRpc(ctx, 'set_approver_mode', { repoPath: repo, mode: 'act', confirmBelowBar: true })).rejects.toThrow(/#939, #958/);
       expect(open).not.toHaveBeenCalled();
     });
 
