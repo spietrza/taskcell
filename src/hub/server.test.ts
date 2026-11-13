@@ -1,5 +1,5 @@
 import { EventEmitter } from 'node:events';
-import { mkdir, mkdtemp, rm, writeFile } from 'node:fs/promises';
+import { mkdir, mkdtemp, readFile, rm, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import type { AddressInfo } from 'node:net';
@@ -10,6 +10,7 @@ import { afterEach, beforeEach, describe, expect, test } from 'vitest';
 import { createHubServer, MAX_RPC_BODY_BYTES, type HubServer } from './server.js';
 import { listRunSummaries, defaultRunsRoot } from './runs.js';
 import { MAX_CONCURRENT_COMPLETES } from './complete.js';
+import { localOnlyIdentity } from './auth.js';
 import type { SidecarDeps } from '../sidecar/sidecar.js';
 
 function unimplementedDeps(): SidecarDeps {
@@ -163,6 +164,46 @@ describe('hub server', () => {
     // The token is never accepted from the URL, where access logs would keep it.
     expect((await fetch(baseUrl + '/events?token=' + hub.token)).status).toBe(401);
     expect(hub.eventBus.clientCount).toBe(0);
+  });
+
+  test('refused sign-ins are audited at most once per minute, however many bad requests arrive', async () => {
+    for (let i = 0; i < 20; i++) {
+      await fetch(baseUrl + '/events/session', { method: 'POST', headers: { 'x-vanguard-hub-token': 'bad', origin: baseUrl } });
+      await fetch(baseUrl + '/rpc/list_runs', { method: 'POST', headers: { 'content-type': 'application/json', 'x-vanguard-hub-token': 'bad' }, body: '{}' });
+    }
+    const raw = await readFile(join(configDir, 'audit.jsonl'), 'utf8');
+    const lines = raw.trim().split('\n').map((l) => JSON.parse(l) as { action: string; outcome: string });
+    expect(lines).toEqual([expect.objectContaining({ action: 'sign-in', outcome: 'refused' })]);
+    expect(raw).not.toContain('bad"');
+  });
+
+  test('read_audit answers 403 to a non-admin actor and the log to an admin', async () => {
+    await hub.close();
+    let admin = false;
+    hub = createHubServer({
+      uiDir, configDir, browseRoot, bind: { isLoopback: true, allowAdd: false }, seedRepoPath: repo, deps: unimplementedDeps(),
+      actorFor: () => ({ login: 'dave', admin }),
+    });
+    await hub.listen(0, '127.0.0.1');
+    baseUrl = `http://127.0.0.1:${(hub.server.address() as AddressInfo).port}`;
+    const call = (): Promise<Response> =>
+      fetch(baseUrl + '/rpc/read_audit', { method: 'POST', headers: { 'content-type': 'application/json', 'x-vanguard-hub-token': hub.token, origin: baseUrl }, body: '{}' });
+    expect((await call()).status).toBe(403);
+    admin = true;
+    const ok = await call();
+    expect(ok.status).toBe(200);
+  });
+
+  test('a signed-in user other than the owner is a non-admin: read_audit answers 403', async () => {
+    await hub.close();
+    const identity = { ...localOnlyIdentity(), sessionUser: async () => ({ id: 'u1', email: 'erin@example.com', name: 'Erin' }) };
+    hub = createHubServer({
+      uiDir, configDir, browseRoot, bind: { isLoopback: true, allowAdd: false }, seedRepoPath: repo, deps: unimplementedDeps(), identity,
+    });
+    await hub.listen(0, '127.0.0.1');
+    baseUrl = `http://127.0.0.1:${(hub.server.address() as AddressInfo).port}`;
+    const res = await fetch(baseUrl + '/rpc/read_audit', { method: 'POST', headers: { 'content-type': 'application/json', origin: baseUrl }, body: '{}' });
+    expect(res.status).toBe(403);
   });
 
   test('serves the SPA and survives malformed URL escapes', async () => {

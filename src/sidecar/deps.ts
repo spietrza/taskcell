@@ -280,6 +280,7 @@ export function productionDeps(): SidecarDeps {
           ...(customProviders !== undefined ? { customProviders } : {}),
           ...(params.maxTurns !== undefined ? { maxTurns: params.maxTurns } : {}),
           ...(params.baseBranch !== undefined ? { baseBranch: params.baseBranch } : {}),
+          ...(params.startedBy !== undefined ? { startedBy: params.startedBy } : {}),
           // Named-flow dispatch: pass the validated flow key straight through. runSourcedIssue
           // resolves it via FLOWS[flow].build() (Subsystem 2). Any registered FLOWS entry works with
           // no per-flow wiring here; validation happened in sidecar.ts::validateCreateRun.

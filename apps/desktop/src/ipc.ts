@@ -99,6 +99,11 @@ export function enableFactoryVerify(repoPath: string, plan: FactoryPlan): Promis
   return call('enable_factory_verify', { repoPath, plan });
 }
 
+/** Hub-only, admin-only (403 otherwise): the audit log, newest first. */
+export function readAudit(login?: string): Promise<AuditEntry[]> {
+  return call('read_audit', { login });
+}
+
 export function removeProject(path: string): Promise<Project[]> {
   return call('remove_project', { path });
 }
@@ -246,7 +251,7 @@ export type {
   CompleteCallArgs,
   CompleteCallArgs as CompleteParams,
 } from './wire';
-import type { Capabilities, CreateRunParams, CreateRunResult, FlowDoc, RepoFlowInfo, RepoProviderInfo, CompleteCallArgs } from './wire';
+import type { AuditEntry, Capabilities, CreateRunParams, CreateRunResult, FlowDoc, RepoFlowInfo, RepoProviderInfo, CompleteCallArgs } from './wire';
 
 export function apiCapabilities(): Promise<Capabilities> {
   return call('api_capabilities', undefined);
