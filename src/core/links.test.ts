@@ -9,7 +9,7 @@ describe('diffUrlFor', () => {
     expect(diffUrlFor('https://gitlab.com/g/p/-/merge_requests/3')).toBe('https://gitlab.com/g/p/-/merge_requests/3/diffs');
     expect(diffUrlFor('https://gl.example.com/a/b/c/-/merge_requests/3/')).toBe('https://gl.example.com/a/b/c/-/merge_requests/3/diffs');
   });
-  it.each([undefined, '', 'not a url', 'http://github.com/o/r/pull/1', 'https://github.com/o/r/issues/1'])('no address for %j', (v) => {
+  it.each([undefined, '', 'not a url', 'https://github.com/o/r/issues/1'])('no address for %j', (v) => {
     expect(diffUrlFor(v)).toBeUndefined();
   });
 });
@@ -30,7 +30,8 @@ describe('ciRunUrl', () => {
   });
 });
 
-it('httpsUrl accepts only https', () => {
+it('httpsUrl accepts http and https only', () => {
   expect(httpsUrl('https://a.b/c')).toBe('https://a.b/c');
+  expect(httpsUrl('http://gl.local/c')).toBe('http://gl.local/c');
   expect(httpsUrl('ftp://a.b')).toBeUndefined();
 });

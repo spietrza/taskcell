@@ -84,3 +84,36 @@ test('adding the first project offers the starter task, created only on click', 
   fireEvent.click(screen.getByRole('button', { name: 'Not now' }));
   expect(screen.queryByText(STARTER_TASK.title)).toBeNull();
 });
+
+test('switching to a team with no repositories clears the rail’s running runs', async () => {
+  const p = projects[0]!;
+  const teams = [
+    { id: 'a', name: 'Alpha', members: [], repositories: [p.path] },
+    { id: 'b', name: 'Beta', members: [], repositories: [] },
+  ];
+  window.__VANGUARD_HUB__ = true;
+  vi.stubGlobal(
+    'fetch',
+    vi.fn(async (url: string, init?: { body?: string }) => {
+      const cmd = url.slice(url.indexOf('/rpc/') + 5);
+      const args = JSON.parse(init?.body ?? '{}') as { teamId?: string };
+      const results: Record<string, unknown> = {
+        list_teams: teams,
+        list_projects: args.teamId === 'b' ? [] : [p],
+        list_active: [{ taskId: 'T-RUN', sessionFile: '/s', lastActivityMs: Date.now() }],
+        list_runs: [],
+        list_runs_all: { runs: [], failures: [] },
+        list_needs_you: { items: [] },
+        list_needs_you_all: { items: [], failures: [] },
+        list_tasks: { tasks: [], capped: false },
+        list_tasks_all: { tasks: [], capped: false, failures: [] },
+        setup_status: SETUP,
+      };
+      return new Response(JSON.stringify({ result: results[cmd] ?? null }), { status: 200, headers: { 'content-type': 'application/json' } });
+    }),
+  );
+  render(<App />);
+  expect(await screen.findByText('T-RUN')).toBeInTheDocument();
+  fireEvent.change(screen.getByLabelText('Team'), { target: { value: 'b' } });
+  await waitFor(() => expect(screen.queryByText('T-RUN')).toBeNull());
+});

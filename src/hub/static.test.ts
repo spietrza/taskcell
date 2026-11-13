@@ -116,7 +116,11 @@ describe('serveStatic', () => {
       await serveStatic({ uiDir }, fakeReq(path), res as unknown as ServerResponse);
       expect(res.statusCode, path).toBe(200);
       expect(res.headers['x-frame-options'], path).toBe('DENY');
-      expect(res.headers['content-security-policy'], path).toBe("frame-ancestors 'none'");
+      const csp = String(res.headers['content-security-policy']);
+      expect(csp, path).toContain("frame-ancestors 'none'");
+      expect(csp, path).toContain("script-src 'self'");
+      expect(csp, path).toContain("connect-src 'self'");
+      expect(csp, path).not.toContain('unsafe-eval');
     }
   });
 

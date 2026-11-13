@@ -136,7 +136,7 @@ export default function App() {
   // a project that left the selected team (team switch, repository removed) is replaced the same way.
   useEffect(() => {
     if (!teamsLoaded) return;
-    if (activeProject && projects.length && !projects.some((p) => p.path === activeProject)) setActiveProject(null);
+    if (activeProject && !projects.some((p) => p.path === activeProject)) setActiveProject(null);
     else if (!activeProject && projects.length) {
       setActiveProject(projects.find((p) => filter.repos.includes(p.path))?.path ?? projects[0].path);
     }
@@ -496,7 +496,7 @@ export default function App() {
               <Inspector
                 key={active.path}
                 project={active.path}
-                allRepos={allRepos}
+                allRepos={allowAll}
                 filter={filter}
                 onFilter={changeFilter}
                 projects={projects}
