@@ -1,11 +1,12 @@
 // Addresses of a run in the Git host. Pure, no imports: the server computes them so the UI never
 // builds a URL from parts (docs/hub.md § Open in the original system).
 
-/** An absolute https URL, else undefined — a stored or env-supplied value is never trusted to be a link. */
+/** An absolute http(s) URL, else undefined — a stored or env-supplied value is never trusted to be a link. */
 export function httpsUrl(value: string | undefined): string | undefined {
   if (value === undefined) return undefined;
   try {
-    return new URL(value).protocol === 'https:' ? value : undefined;
+    const { protocol } = new URL(value);
+    return protocol === 'https:' || protocol === 'http:' ? value : undefined;
   } catch {
     return undefined;
   }

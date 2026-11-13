@@ -6,6 +6,8 @@ import { inRepos } from '../../repoFilter';
 import { RepoFailures, RepoLabel } from '../../RepoViews';
 import type { BoardTask, RepoReadFailure, RepoStamp } from '../../wire';
 import { useAsync } from '../../hooks';
+import { useApproverDecisions } from './useApproverDecisions';
+import { decisionForTask, decisionWords } from './approverDecision';
 import { QuickView, TRACKER_NAME, type QuickTask } from './QuickView';
 import { boardCountLabels } from './counts';
 import { ExternalLink } from '../../components/ExternalLink';
@@ -73,6 +75,7 @@ export function TaskBoard({
       allRepos ? listTasksAll(teamId).then((l) => ({ ...l, tasks: inRepos(l.tasks, repos), failures: inRepos(l.failures, repos) })) : listTasks(project).then((r) => ({ ...r, failures: [] })),
     [project, allRepos, teamId, repos.join('\n')],
   );
+  const approver = useApproverDecisions(project, !allRepos);
   const allTasks = data?.tasks;
   const tasks = allTasks && filterCards(allTasks, filter);
   const lanes = groupRows(tasks ?? [], filter.group, cardKeys);
@@ -227,6 +230,10 @@ export function TaskBoard({
                               {t.chips.map((chip) => <span key={chip.key} className={cn('rounded px-1.5 py-0.5 text-[11px]', Object.hasOwn(CHIP_TONE, chip.tone) ? CHIP_TONE[chip.tone] : 'bg-muted text-muted-foreground')}>{chip.label}</span>)}
                             </div>
                           )}
+                          {(() => {
+                            const d = decisionForTask(t.id, approver.runs, approver.decisions);
+                            return d !== undefined && <div className="text-[11px] text-muted-foreground" data-approver={d.outcome}>{decisionWords(d)}</div>;
+                          })()}
                           {t.baseBranch && (
                             <div className="pt-0.5 font-mono text-[11px] text-muted-foreground">→ {t.baseBranch}</div>
                           )}

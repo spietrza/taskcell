@@ -13,6 +13,7 @@ export async function approveCommand(cmd: ApproveCommand): Promise<void> {
       mode: cmd.mode,
       dryRun: cmd.dryRun,
       ...(cmd.branch !== undefined ? { branch: cmd.branch } : {}),
+      ...(cmd.reviewRunId !== undefined ? { reviewRunId: cmd.reviewRunId } : {}),
     });
     if (cmd.json) {
       console.log(JSON.stringify(result.record));

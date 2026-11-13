@@ -45,13 +45,13 @@ function sha256hex(bytes: string): string {
 
 /**
  * Read `.taskcell/approver.json` (or the legacy `.vanguard/approver.json`) from `origin/<base>` via `git show` — never the working tree, never
- * the PR head. Returns `undefined` when the file is missing, not JSON, or fails schema validation;
+ * the PR head. `requireRemote` makes a failed fetch of the base unreadable instead of falling back to a stale local copy. Returns `undefined` when the file is missing, not JSON, or fails schema validation;
  * the caller then records `rulesFired: ['policy-unreadable']` and still writes a decision record.
  */
-export async function loadPolicy(repoPath: string, base: string): Promise<LoadedPolicy | undefined> {
+export async function loadPolicy(repoPath: string, base: string, opts: { requireRemote?: boolean } = {}): Promise<LoadedPolicy | undefined> {
   let raw: string;
   try {
-    await resolveRemoteBaseRef(repoPath, base, { label: 'approver', keepLocalIfAhead: false });
+    await resolveRemoteBaseRef(repoPath, base, { label: 'approver', keepLocalIfAhead: false, ...(opts.requireRemote === true ? { requireRemote: true } : {}) });
     raw = await showStateFile(repoPath, `refs/remotes/origin/${base}`, 'approver.json');
   } catch {
     return undefined;

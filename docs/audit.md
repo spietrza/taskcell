@@ -77,7 +77,7 @@ stage name says revise. A source that could not be read is listed under `unavail
 
 ## Retention
 
-Rotated local files older than the retention are deleted: default 90 days, `TASKCELL_AUDIT_RETENTION_DAYS` to
+Rotated timestamped local files older than the retention are deleted (legacy numeric-suffix files are exempt, see the upgrade note): default 90 days, `TASKCELL_AUDIT_RETENTION_DAYS` to
 change it. At most 50 rotated files are kept per stream whatever their age. `metrics.jsonl` is never rotated (`stats` and `metrics push` read only the live file). Pruning happens when a file rotates and once per process on first append. The oldest retained record is
 the anchor of the chain (its `prev` is not checked). The live file and the metrics-branch files are not pruned.
 
@@ -88,3 +88,8 @@ the anchor of the chain (its `prev` is not checked). The live file and the metri
 - Deleting the newest records, or whole rotated files, leaves a shorter but valid chain.
 - Concurrent writers to the same metrics-branch file can fork the chain; verify reports it.
 - Sign-in lines are reported on stderr, not refused, when the log is unwritable; other hub actions are applied first and the caller is told the audit line failed.
+
+**Upgrade note.** Legacy numeric-suffix files (`audit.jsonl.1`, `.2`, …) written before the timestamped
+rotation are never removed by the age prune; only the count limit (50) applies to them, oldest first. A lock path
+that is a directory is cleared with a warning. When appending, a rotated sibling that is a symlink is skipped with a warning (it
+only feeds the chain-tail lookup); `verify`, `export` and history still refuse it. A line that is not a JSON object is skipped (with a warning on the append path), and a rotated file that cannot be read is treated as empty with a warning.
