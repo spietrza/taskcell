@@ -75,6 +75,8 @@ export async function watchPrsCommand(cmd: WatchPrsCommand, deps: WatchPrsComman
     reviewOne: (item) =>
       reviewPr({
         kind: 'review-pr',
+        // The sweep already skips reviewed heads and a pinned PR was deliberately (re-)labeled: always review.
+        force: true,
         prRef: String(item.number),
         repoSlug: item.repoSlug,
         repoPath: cmd.repoPath,

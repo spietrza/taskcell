@@ -20,6 +20,7 @@ import { execa } from 'execa';
 import { mkdir, mkdtemp, readFile, realpath, rm, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
+import { existsSync } from 'node:fs';
 import { reviewPrCommand } from './review-pr.js';
 import { PullRequestReviewIncompleteError, reviewPullRequest } from '../runners/pr-review.js';
 import type { GhRunner } from '../tasks/github.js';
@@ -203,6 +204,17 @@ describe('reviewPrCommand', () => {
       else process.env.CLAUDE_CODE_OAUTH_TOKEN = prev;
       await rm(root, { recursive: true, force: true });
     }
+  });
+
+  it('a skipped (already reviewed) result writes no file and posts nothing', async () => {
+    const out = join(tmpdir(), `skip-${process.pid}.md`);
+    const reviewer = vi.fn();
+    const reviewPullRequest = vi.fn(async (): Promise<ReviewPullRequestResult> => ({ ...fakeResult(), commentBody: '', skipped: true }));
+    await reviewPrCommand(
+      { kind: 'review-pr', prRef: '12', repoSlug: 'o/r', repoPath: '/repo', egress: false, out },
+      { reviewer, reviewPullRequest, log: () => {} },
+    );
+    expect(existsSync(out)).toBe(false);
   });
 
   it('--out writes the review to a file and tells the runner not to publish (no PR comment)', async () => {

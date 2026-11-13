@@ -158,7 +158,7 @@ export function NeedsYou({ project, allRepos = false }: { project: string; allRe
         // py-0: Card.Root's own vertical padding doubled Card.Content's p-4 into a gap above the chips.
         <Card.Root key={`${item.repoPath ?? ''}:${item.id}`} className="py-0">
           <Card.Content className="space-y-2 p-4">
-            <div className="flex items-center gap-2">
+            <div className="flex flex-wrap items-center gap-2">
               {allRepos && item.repoName !== undefined && <RepoLabel name={item.repoName} />}
               <Chip color="secondary" variant="outlined">
                 {item.kind === 'pr' ? 'PR' : 'Task'} <span className="font-mono tabular-nums">#{item.number}</span>
@@ -169,7 +169,7 @@ export function NeedsYou({ project, allRepos = false }: { project: string; allRe
               <Chip color="warning" variant="outlined" title={item.reason}>
                 {REASON_TEXT[item.reason] ?? item.reason}
               </Chip>
-              <a href={item.url || undefined} target="_blank" rel="noreferrer" className="min-w-0 truncate font-medium hover:underline">
+              <a href={item.url || undefined} target="_blank" rel="noreferrer" className="min-w-0 truncate font-medium hover:underline max-md:basis-full max-md:whitespace-normal max-md:break-words">
                 {item.title}
               </a>
               <ExternalLink href={item.url} className="ml-auto shrink-0">Open in GitHub</ExternalLink>

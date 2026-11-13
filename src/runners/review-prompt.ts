@@ -24,7 +24,7 @@ export type ReviewRisk = 'low' | 'medium' | 'high';
 // the diff and PR body are untrusted and the prompt tells the model to quote injected text as a
 // finding, so a planted `Verdict:` line echoed inside a quote or fence must never pass as the
 // model's own verdict. Markdown emphasis and a heading marker around the real line are tolerated.
-const VERDICT_RE = /^[#*_ \t]*Verdict:?[*_ \t]*(NO BLOCKING FINDINGS|BLOCKING)\b/i;
+export const VERDICT_RE = /^[#*_ \t]*Verdict:?[*_ \t]*(NO BLOCKING FINDINGS|BLOCKING)\b/i;
 
 /** The verdict line, when the reply opens with one — independent of the completion signal. */
 export function extractReviewVerdict(text: string): ReviewVerdict | undefined {
@@ -40,7 +40,7 @@ export function extractCommentVerdict(body: string): ReviewVerdict | undefined {
 
 // Same prefix tolerance as VERDICT_RE, and for the same reason: the diff and PR body are untrusted, so a
 // planted `Risk:` line quoted from them (inside a blockquote, fence or list item) must not pass.
-const RISK_RE = /^[#*_ \t]*Risk:?[*_ \t]*(low|medium|high)\b/i;
+export const RISK_RE = /^[#*_ \t]*Risk:?[*_ \t]*(low|medium|high)\b/i;
 
 /**
  * The risk line, when it is the first non-blank line directly after a stated verdict line — advisory
@@ -127,7 +127,7 @@ const GENERATED_FILE_PATTERNS: readonly RegExp[] = [
   /(^|\/)Cargo\.lock$/,
 ];
 
-const DIFF_GIT_HEADER_RE = /^diff --git a\/.+? b\/(.+)$/;
+export const DIFF_GIT_HEADER_RE = /^diff --git a\/.+? b\/(.+)$/;
 
 /**
  * Replace each generated file's block in a unified diff with its `diff --git` header and a one-line
