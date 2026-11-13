@@ -26,12 +26,15 @@ See [Install the desktop app](../../docs/hub.md#install-the-desktop-app) for dow
 ```bash
 cd apps/desktop
 pnpm install
-pnpm tauri build                  # installers land in src-tauri/target/release/bundle/
-pnpm tauri build --target universal-apple-darwin   # macOS universal (needs both rust targets)
+pnpm bundle                       # installers land in src-tauri/target/release/bundle/
 ```
 
-Each platform builds only its own formats. The build version comes from `tauri.conf.json`; releases override it with
-`--config '{"version":"X.Y.Z"}'`. Updater artifacts are off by default, so a local build needs no key.
+Never use a bare `pnpm tauri build`: `bundle` also stages the Node sidecar and the `taskcell` resource (see
+**Which hub runs** below), without which the installed app has no hub to start. Each platform builds only its own
+formats, for the host architecture only (the sidecar is the Node running the build), so macOS arm64 and x64
+installers come from separate runners, not one universal build. The build version comes from `tauri.conf.json`;
+releases override it with `pnpm bundle --config '{"version":"X.Y.Z"}'`, which Tauri merges over
+`tauri.bundle.conf.json`. Updater artifacts are off by default, so a local build needs no key.
 
 ### Auto-update keys
 
@@ -46,9 +49,11 @@ pnpm tauri signer generate -w ~/.tauri/taskcell.key
 
 ### Release job (CI, applied by a human)
 
-The factory cannot edit `.github/`, so the matrix job (macOS universal, Windows, Linux via `tauri-apps/tauri-action`)
+The factory cannot edit `.github/`, so the matrix job (macOS arm64 and x64, Windows, Linux via `tauri-apps/tauri-action`)
 is described in the PR that introduced it and must be added to the release workflow by hand. It must:
 
+- stage the hub first (Node ≥ 24, then `node scripts/prepare-sidecar.mjs` in `apps/desktop`) and add
+  `--config src-tauri/tauri.bundle.conf.json` to the build args, the same as `pnpm bundle`, so each installer carries the hub;
 - pass `--config '{"version":"X.Y.Z","bundle":{"createUpdaterArtifacts":true}}'` and the signing secrets above;
 - upload the installers and `latest.json` to a **dedicated rolling release tagged `desktop-latest`**, replacing the
   previous assets, not to the CLI release stream, which has no desktop assets on most tags. The updater endpoint
