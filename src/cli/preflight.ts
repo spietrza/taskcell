@@ -5,6 +5,7 @@ import { loadCustomProviders } from '../agents/custom.js';
 import { SANDBOX_CLAUDE_VERSION, isOlderVersion, resolveSandboxImage, sandboxImage } from '../sandbox/docker.js';
 import { isKnownGitlabRemote, parseGitlabProjectFromRemote, redactRemote, remoteHostname } from '../runners/gitlab.js';
 import { GITHUB_CLAIMED_LABEL, GITHUB_REVIEW_LABEL, GITHUB_SPEC_CLAIMED_LABEL } from '../github-labels.js';
+import { labelForms } from '../core/labels.js';
 import type { CustomProviderEntry } from '../agents/registry.js';
 import type { Command } from './args.js';
 
@@ -158,7 +159,8 @@ async function gitlabLabelsOk(run: PreflightRunner, cwd: string, project: string
     return check('gitlab labels', false, 'unreadable');
   }
   const existing = new Set(parsed.map((l) => l.name).filter((n): n is string => n !== undefined));
-  const missing = required.filter((l) => !existing.has(l));
+  // Either spelling satisfies a renamed label: a repo set up before the rename has only the `vanguard` one.
+  const missing = required.filter((l) => !labelForms(l).some((form) => existing.has(form)));
   return missing.length === 0 ? check('gitlab labels', true) : check('gitlab labels', false, `missing ${missing.join(', ')}`);
 }
 
@@ -172,7 +174,8 @@ async function githubLabelsOk(run: PreflightRunner, cwd: string, repoSlug: strin
     return check('github labels', false, 'unreadable');
   }
   const existing = new Set(parsed.map((label) => label.name).filter((name): name is string => name !== undefined));
-  const missing = required.filter((label) => !existing.has(label));
+  // Either spelling satisfies a renamed label: a repo set up before the rename has only the `vanguard` one.
+  const missing = required.filter((label) => !labelForms(label).some((form) => existing.has(form)));
   return missing.length === 0 ? check('github labels', true) : check('github labels', false, `missing ${missing.join(', ')}`);
 }
 

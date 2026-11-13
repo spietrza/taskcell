@@ -196,8 +196,8 @@ describe('gitlabAdapter', () => {
       findings: [{ file: '.env', patternName: 'generic-api-key', masked: 'KEY=ab****' }],
     });
 
-    const create = calls.findIndex((c) => c[0] === 'label' && c[1] === 'create' && c.includes('vanguard::secret-blocked'));
-    const add = calls.findIndex((c) => c[0] === 'issue' && c[1] === 'update' && c.includes('vanguard::secret-blocked'));
+    const create = calls.findIndex((c) => c[0] === 'label' && c[1] === 'create' && c.includes('taskcell::secret-blocked'));
+    const add = calls.findIndex((c) => c[0] === 'issue' && c[1] === 'update' && c.includes('taskcell::secret-blocked'));
     expect(create).toBeGreaterThan(-1);
     expect(add).toBeGreaterThan(create); // the add would be a silent no-op without the label
     const note = calls.find((c) => c[0] === 'issue' && c[1] === 'note');
@@ -218,7 +218,7 @@ describe('gitlabAdapter', () => {
 
     await expect(adapter.signalSecretBlock('group/project#7', task, { reason: 'scan-error', message: 'gitleaks missing' })).resolves.toBeUndefined();
 
-    expect(calls.some((c) => c[0] === 'issue' && c[1] === 'update' && c.includes('vanguard::secret-blocked'))).toBe(true);
+    expect(calls.some((c) => c[0] === 'issue' && c[1] === 'update' && c.includes('taskcell::secret-blocked'))).toBe(true);
     expect(calls.some((c) => c[0] === 'issue' && c[1] === 'note')).toBe(true);
   });
 
@@ -233,7 +233,7 @@ describe('gitlabAdapter', () => {
     ).rejects.toThrow('silence is not ok');
   });
 
-  it('publishVerdict posts a note containing ## Vanguard Review and attribution', async () => {
+  it('publishVerdict posts a note containing ## Taskcell Review and attribution', async () => {
     const { calls, glab } = makeGlab();
     const adapter = gitlabAdapter(makeDeps(), glab);
     await adapter.publishVerdict({
@@ -244,9 +244,9 @@ describe('gitlabAdapter', () => {
     });
     expect(calls.length).toBe(1);
     const body = calls[0]?.at(-1) ?? '';
-    expect(body).toContain('## Vanguard Review');
+    expect(body).toContain('## Taskcell Review');
     expect(body).toContain('Reviewed by claude/sonnet @ abcdef1');
-    expect(body).toContain('<!-- vanguard-mr-review:');
+    expect(body).toContain('<!-- taskcell-mr-review:');
   });
 
   it('publishVerdict appends ## Conformance section when conformance outcome is present', async () => {
@@ -302,8 +302,8 @@ describe('gitlabAdapter', () => {
     const { calls, glab } = makeGlab('');
     await gitlabAdapter(makeDeps(), glab).addFailureLabel('https://gitlab.com/group/project/-/merge_requests/1', 'gate-config');
     expect(calls).toEqual([
-      ['label', 'create', '--repo', 'group/project', '--name', 'vanguard::gate-config-changed'],
-      ['mr', 'update', '1', '--repo', 'group/project', '--label', 'vanguard::gate-config-changed'],
+      ['label', 'create', '--repo', 'group/project', '--name', 'taskcell::gate-config-changed'],
+      ['mr', 'update', '1', '--repo', 'group/project', '--label', 'taskcell::gate-config-changed'],
     ]);
   });
 
@@ -311,8 +311,8 @@ describe('gitlabAdapter', () => {
     const { calls, glab } = makeGlab('');
     await gitlabAdapter(makeDeps(), glab).addGateConfigLabel('https://gitlab.com/group/project/-/merge_requests/1');
     expect(calls).toEqual([
-      ['label', 'create', '--repo', 'group/project', '--name', 'vanguard::gate-config-changed'],
-      ['mr', 'update', '1', '--repo', 'group/project', '--label', 'vanguard::gate-config-changed'],
+      ['label', 'create', '--repo', 'group/project', '--name', 'taskcell::gate-config-changed'],
+      ['mr', 'update', '1', '--repo', 'group/project', '--label', 'taskcell::gate-config-changed'],
     ]);
   });
 
@@ -327,24 +327,24 @@ describe('gitlabAdapter', () => {
     await expect(gitlabAdapter(makeDeps(), makeGlab('').glab).addGateConfigLabel('not-a-url')).rejects.toThrow();
   });
 
-  it('addFailureLabel maps verify → vanguard::verify-failed and pre-creates the label', async () => {
+  it('addFailureLabel maps verify → taskcell::verify-failed and pre-creates the label', async () => {
     const { calls, glab } = makeGlab('');
     const adapter = gitlabAdapter(makeDeps(), glab);
     await adapter.addFailureLabel('https://gitlab.com/group/project/-/merge_requests/1', 'verify');
     // pre-create the scoped label, then add it to the MR — both routed through the injected GlabRunner.
     expect(calls).toEqual([
-      ['label', 'create', '--repo', 'group/project', '--name', 'vanguard::verify-failed'],
-      ['mr', 'update', '1', '--repo', 'group/project', '--label', 'vanguard::verify-failed'],
+      ['label', 'create', '--repo', 'group/project', '--name', 'taskcell::verify-failed'],
+      ['mr', 'update', '1', '--repo', 'group/project', '--label', 'taskcell::verify-failed'],
     ]);
   });
 
-  it('addFailureLabel maps visual-proof → vanguard::visual-proof-failed', async () => {
+  it('addFailureLabel maps visual-proof → taskcell::visual-proof-failed', async () => {
     const { calls, glab } = makeGlab('');
     const adapter = gitlabAdapter(makeDeps(), glab);
     await adapter.addFailureLabel('https://gitlab.com/group/project/-/merge_requests/2', 'visual-proof');
     expect(calls).toEqual([
-      ['label', 'create', '--repo', 'group/project', '--name', 'vanguard::visual-proof-failed'],
-      ['mr', 'update', '2', '--repo', 'group/project', '--label', 'vanguard::visual-proof-failed'],
+      ['label', 'create', '--repo', 'group/project', '--name', 'taskcell::visual-proof-failed'],
+      ['mr', 'update', '2', '--repo', 'group/project', '--label', 'taskcell::visual-proof-failed'],
     ]);
   });
 

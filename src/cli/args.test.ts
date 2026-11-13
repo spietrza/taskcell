@@ -18,12 +18,18 @@ describe('parseCli', () => {
     });
   });
 
+  it('parses migrate-labels (dry-run unless --apply)', () => {
+    expect(parseCli(['migrate-labels', '--github-repo', 'o/r'], '/work')).toEqual({ kind: 'migrate-labels', repoSlug: 'o/r', apply: false });
+    expect(parseCli(['migrate-labels', '--github-repo', 'o/r', '--apply'], '/work')).toEqual({ kind: 'migrate-labels', repoSlug: 'o/r', apply: true });
+    expect(parseCli(['migrate-labels'], '/work')).toMatchObject({ kind: 'error' });
+  });
+
   it('parses resume-rate-limited', () => {
     expect(parseCli(['resume-rate-limited', '--github-repo', 'o/r', '--dry-run'], '/work')).toEqual({ kind: 'resume-rate-limited', repoSlug: 'o/r', dryRun: true });
     expect(parseCli(['resume-rate-limited'], '/work')).toMatchObject({ kind: 'error' });
     expect(parseCli(['resume-rate-limited', '--github-repo', 'o/r', '--trigger-labels', 'a, b'], '/work')).toMatchObject({ triggerLabels: ['a', 'b'] });
     expect(parseCli(['resume-rate-limited', '--github-repo', 'o/r', '--claimed-state', 'wip'], '/work')).toMatchObject({
-      startedLabels: ['wip', 'vanguard:needs-human-review', 'vanguard:speccing'],
+      startedLabels: ['wip', 'taskcell:needs-human-review', 'taskcell:speccing'],
     });
   });
 
@@ -508,7 +514,7 @@ describe('parseCli', () => {
         [
           'watch-prs',
           '--github-repo', 'o/r',
-          '--label', 'ready for vanguard review',
+          '--label', 'ready for taskcell review',
           '--provider', 'codex',
           '--review-model', 'gpt-5',
           '--interval', '15',
@@ -522,9 +528,9 @@ describe('parseCli', () => {
       kind: 'watch-prs',
       repoSlug: 'o/r',
       repoPath: '/work',
-      label: 'ready for vanguard review',
-      reviewingLabel: 'vanguard:reviewing',
-      reviewedLabel: 'vanguard:reviewed',
+      label: 'ready for taskcell review',
+      reviewingLabel: 'taskcell:reviewing',
+      reviewedLabel: 'taskcell:reviewed',
       concurrency: 1,
       intervalMs: 15000,
       once: true,
@@ -565,7 +571,7 @@ describe('parseCli', () => {
       [
         'watch-prs',
         '--github-repo', 'o/r',
-        '--label', 'ready for vanguard review',
+        '--label', 'ready for taskcell review',
         '--author', 'SebaBoler',
       ],
       '/work',
@@ -581,7 +587,7 @@ describe('parseCli', () => {
 
   it('requires watch-prs to have an explicit repo and trigger label', () => {
     expect(parseCli(['watch-prs', '--github-repo', 'o/r'], '/work')).toMatchObject({ kind: 'error' });
-    expect(parseCli(['watch-prs', '--label', 'ready for vanguard review'], '/work')).toMatchObject({ kind: 'error' });
+    expect(parseCli(['watch-prs', '--label', 'ready for taskcell review'], '/work')).toMatchObject({ kind: 'error' });
   });
 
   it('parses watch-prs --pr as a pinned PR number', () => {
@@ -599,19 +605,19 @@ describe('parseCli', () => {
   });
 
   it('parses doctor-prs with PR review label defaults', () => {
-    expect(parseCli(['doctor-prs', '--github-repo', 'o/r', '--label', 'ready for vanguard review'], '/work')).toEqual({
+    expect(parseCli(['doctor-prs', '--github-repo', 'o/r', '--label', 'ready for taskcell review'], '/work')).toEqual({
       kind: 'doctor-prs',
       repoSlug: 'o/r',
       repoPath: '/work',
-      label: 'ready for vanguard review',
-      reviewingLabel: 'vanguard:reviewing',
-      reviewedLabel: 'vanguard:reviewed',
+      label: 'ready for taskcell review',
+      reviewingLabel: 'taskcell:reviewing',
+      reviewedLabel: 'taskcell:reviewed',
     });
   });
 
   it('requires doctor-prs to have an explicit repo and trigger label', () => {
     expect(parseCli(['doctor-prs', '--github-repo', 'o/r'], '/work')).toMatchObject({ kind: 'error' });
-    expect(parseCli(['doctor-prs', '--label', 'ready for vanguard review'], '/work')).toMatchObject({ kind: 'error' });
+    expect(parseCli(['doctor-prs', '--label', 'ready for taskcell review'], '/work')).toMatchObject({ kind: 'error' });
   });
 
   it('parses doctor with --provider and --llm-proxy', () => {
@@ -628,7 +634,7 @@ describe('parseCli', () => {
 
   it('parses doctor-prs with --provider and --llm-proxy', () => {
     const cmd = parseCli(
-      ['doctor-prs', '--github-repo', 'o/r', '--label', 'ready for vanguard review', '--provider', 'codex', '--llm-proxy'],
+      ['doctor-prs', '--github-repo', 'o/r', '--label', 'ready for taskcell review', '--provider', 'codex', '--llm-proxy'],
       '/work',
     );
     expect(cmd.kind).toBe('doctor-prs');
@@ -1681,8 +1687,8 @@ describe('parseCli watch-mrs', () => {
     assert(cmd.kind === 'watch-mrs');
     expect(cmd.project).toBe('g/p');
     expect(cmd.label).toBe('ready for review');
-    expect(cmd.reviewingLabel).toBe('vanguard::reviewing');
-    expect(cmd.reviewedLabel).toBe('vanguard::reviewed');
+    expect(cmd.reviewingLabel).toBe('taskcell::reviewing');
+    expect(cmd.reviewedLabel).toBe('taskcell::reviewed');
   });
 });
 

@@ -85,7 +85,7 @@ describe('commentDecision', () => {
     headSha: SHA,
     signals: { files: 1, lines: 1, testFilesDeleted: 0, testCasesDelta: 0, exportsRemoved: 0, newDependency: false, paths: [] },
   } as unknown as DecisionRecord;
-  const marker = `<!-- vanguard-approver: ${SHA} -->`;
+  const marker = `<!-- taskcell-approver: ${SHA} -->`;
   const posted = async (comments: unknown[]): Promise<boolean> => {
     let comment = false;
     await commentDecision(async (args) => {

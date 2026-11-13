@@ -13,6 +13,7 @@ import { fanOut } from '../pipeline/fan-out.js';
 import { failureReason, formatFailureComment } from '../core/errors.js';
 import { isRateLimitHold, rateLimitHold } from '../core/rate-limit-marker.js';
 import { UsageCapError, usageCapMessage } from '../core/usage-cap.js';
+import { hasLabel } from '../core/labels.js';
 import { GITHUB_SECRET_BLOCKED_LABEL, GITHUB_RATE_LIMITED_LABEL } from '../github-labels.js';
 import { GITLAB_SECRET_BLOCKED_LABEL } from '../gitlab-labels.js';
 import type { Task } from '../tasks/fetcher.js';
@@ -46,7 +47,7 @@ export function specComment(spec: string, opts?: { whiteLabel?: boolean }): stri
 
 /** Comment posted when a genuine no-change outcome un-sticks the claimed marker. */
 const NO_CHANGE_MSG =
-  'Vanguard run produced no changes — no PR was opened. Cleared `vanguard:running`; re-apply the trigger label to retry. See the run log.';
+  'Vanguard run produced no changes — no PR was opened. Cleared `taskcell:running`; re-apply the trigger label to retry. See the run log.';
 
 /**
  * Comment posted when the secret scan withheld the PR: what the watch did with the claim and the
@@ -653,9 +654,9 @@ export interface WatchGithubOptions {
    * the routing labels (agent/spec trigger) already filter the query.
    */
   ownerLabel?: string;
-  /** Label added on claim (and the trigger label removed) so re-polls skip it, e.g. 'vanguard:running'. */
+  /** Label added on claim (and the trigger label removed) so re-polls skip it, e.g. 'taskcell:running'. */
   claimedLabel: string;
-  /** Label added after a PR opens, e.g. 'vanguard:needs-human-review'. */
+  /** Label added after a PR opens, e.g. 'taskcell:needs-human-review'. */
   reviewLabel: string;
   /**
    * Loop-v1 agent-pass triage gate (optional). When set, runOne first triages the ticket in 'agent'
@@ -680,7 +681,7 @@ export interface WatchGithubOptions {
 }
 
 /**
- * Mark a GitHub issue rate-limited: add `vanguard:rate-limited` (creating the label first — a repo
+ * Mark a GitHub issue rate-limited: add `taskcell:rate-limited` (creating the label first — a repo
  * that never created it would otherwise fail the edit and strand the issue claimed), clear the
  * claim label the failed run left behind, and post the marker comment naming the trigger that
  * restarts this stage. The trigger label itself is left off until `resume-rate-limited` restores it
@@ -706,7 +707,7 @@ async function markGithubIssueRateLimited(
 }
 
 /**
- * Failure comment for a source without the `vanguard:rate-limited` hold (Linear, GitLab, Projects): a
+ * Failure comment for a source without the `taskcell:rate-limited` hold (Linear, GitLab, Projects): a
  * usage-cap pause is worded as the configured reserve, not a failure, and names when to re-trigger.
  */
 function failureOrCapComment(title: string, error: unknown): string {
@@ -759,11 +760,11 @@ async function fetchHintedIssue(
     console.log(`vanguard: ${task.id} skipped -> issue is ${task.state.toLowerCase()}, not open`);
     return [];
   }
-  if (task.labels.includes(claimedLabel)) {
+  if (hasLabel(task.labels, claimedLabel)) {
     console.log(`vanguard: ${task.id} skipped -> already "${claimedLabel}" (claimed by another run)`);
     return [];
   }
-  const missing = requiredLabels.filter((label) => !task.labels.includes(label));
+  const missing = requiredLabels.filter((label) => !hasLabel(task.labels, label));
   if (missing.length > 0) {
     console.log(`vanguard: ${task.id} skipped -> missing label${missing.length > 1 ? 's' : ''} ${missing.map((label) => `"${label}"`).join(', ')}`);
     return [];
@@ -806,9 +807,9 @@ export function githubIssueWatchPrimitives(opts: WatchGithubOptions): WatchPrimi
         },
       });
       heldBefore.clear();
-      for (const task of tasks) if (task.labels.includes(GITHUB_SECRET_BLOCKED_LABEL)) heldBefore.add(task.id);
+      for (const task of tasks) if (hasLabel(task.labels, GITHUB_SECRET_BLOCKED_LABEL)) heldBefore.add(task.id);
       rateLimitedBefore.clear();
-      for (const task of tasks) if (task.labels.includes(GITHUB_RATE_LIMITED_LABEL)) rateLimitedBefore.add(task.id);
+      for (const task of tasks) if (hasLabel(task.labels, GITHUB_RATE_LIMITED_LABEL)) rateLimitedBefore.add(task.id);
       return tasks.map((task) => ({ id: task.id }));
     },
     // A claim releases every hold the issue carried: a rate-limit hold left on would make the resume
@@ -888,16 +889,16 @@ export interface WatchGithubSpecOptions {
    * routing labels, leaving the ownership label intact on the issue.
    */
   ownerLabel?: string;
-  /** Label added on claim (and the spec label removed) so re-polls skip it, e.g. 'vanguard:speccing'. */
+  /** Label added on claim (and the spec label removed) so re-polls skip it, e.g. 'taskcell:speccing'. */
   claimedLabel: string;
   /** Label added after a spec is generated — the agent-pass trigger, e.g. 'vanguard'. */
   agentLabel: string;
-  /** Label added when triage flags the ticket as too vague, e.g. 'vanguard:needs-info'. */
+  /** Label added when triage flags the ticket as too vague, e.g. 'taskcell:needs-info'. */
   needsInfoLabel: string;
   /**
    * Run only this issue (owner/repo#n or a bare number) instead of listing every issue carrying the
    * spec trigger label(s). Same gating as `WatchGithubOptions.issueRef`, against the spec claimed
-   * label (e.g. 'vanguard:speccing').
+   * label (e.g. 'taskcell:speccing').
    */
   issueRef?: string;
   gh?: GhRunner;
@@ -1086,8 +1087,8 @@ export function githubProjectWatchPrimitives(opts: WatchGithubProjectOptions): W
         const issueRef = `${itemRepo}#${content.number}`;
         itemNodeIds.set(issueRef, item.id);
         if (item.status !== opts.triggerStatus) continue;
-        if (opts.label !== undefined && !(content.labels ?? []).includes(opts.label)) continue;
-        if ((content.labels ?? []).includes(GITHUB_SECRET_BLOCKED_LABEL)) heldBefore.add(issueRef);
+        if (opts.label !== undefined && !hasLabel(content.labels ?? [], opts.label)) continue;
+        if (hasLabel(content.labels ?? [], GITHUB_SECRET_BLOCKED_LABEL)) heldBefore.add(issueRef);
         ready.push({ id: issueRef });
       }
       return ready;
@@ -1168,7 +1169,7 @@ export function gitlabWatchPrimitives(opts: WatchGitlabOptions): WatchPrimitives
     listReady: async () => {
       const tasks = await fetcher.list({ labels: agentLabels });
       heldBefore.clear();
-      for (const task of tasks) if (task.labels.includes(GITLAB_SECRET_BLOCKED_LABEL)) heldBefore.add(task.id);
+      for (const task of tasks) if (hasLabel(task.labels, GITLAB_SECRET_BLOCKED_LABEL)) heldBefore.add(task.id);
       return tasks.map((task) => ({ id: task.id }));
     },
     claim: (id) =>

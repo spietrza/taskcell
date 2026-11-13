@@ -1,3 +1,4 @@
+import { hasReviewHeading } from '../core/labels.js';
 import { classifyAuthor, isBotLogin } from '../tasks/comment-trust.js';
 import { hasPullRequestReviewIncompleteMarker, hasPullRequestReviewMarker, soleReviewMarkerSha } from './pr-review.js';
 import { extractFindings } from '../structured/findings.js';
@@ -377,7 +378,7 @@ export function buildRevisionChecklist(fb: PullRequestFeedback, actionable: read
   const reviews = fb.items
     // Exact bot logins only (classifyAuthor, not the substring isBotLogin): an outsider named `mallory-vanguard`
     // must not plant checklist items. Exactly one marker SHA, the head's (soleReviewMarkerSha, as in the approver).
-    .filter((i) => classifyAuthor(i.author, i.authorAssociation, { botLogins }) === 'bot' && i.body.startsWith('## Vanguard Review') && soleReviewMarkerSha(i.body) === fb.headRefOid)
+    .filter((i) => classifyAuthor(i.author, i.authorAssociation, { botLogins }) === 'bot' && hasReviewHeading(i.body) && soleReviewMarkerSha(i.body) === fb.headRefOid)
     .sort((a, b) => a.createdAt.localeCompare(b.createdAt));
   const latest = reviews[reviews.length - 1];
   const out: string[] = [];
@@ -436,20 +437,20 @@ export async function replyAndResolveThread(
 
 // Match both the default (`vanguard-revision:`) and the white-label (`revision:`) marker so
 // round-counting / non-recursion work identically whether or not --commit-author was passed.
-const REVISION_MARKER_PRESENT_RE = /<!--\s*(?:vanguard-)?revision:/;
-const REVISION_MARKER_RE = /<!--\s*(?:vanguard-)?revision:\s*([^>\s]+)\s*-->/g;
+const REVISION_MARKER_PRESENT_RE = /<!--\s*(?:(?:taskcell|vanguard)-)?revision:/;
+const REVISION_MARKER_RE = /<!--\s*(?:(?:taskcell|vanguard)-)?revision:\s*([^>\s]+)\s*-->/g;
 
 export function hasRevisionMarker(body: string): boolean {
   return REVISION_MARKER_PRESENT_RE.test(body);
 }
 
 /** Hidden marker on the round-cap notice, so a later run can tell whether a human commented since. */
-const REVISION_CAP_MARKER = '<!-- vanguard-revision-cap -->';
+const REVISION_CAP_MARKER = '<!-- taskcell-revision-cap -->';
 
 export const revisionCapMarker = (): string => REVISION_CAP_MARKER;
 
 function hasRevisionCapMarker(body: string): boolean {
-  return body.includes(REVISION_CAP_MARKER);
+  return body.includes(REVISION_CAP_MARKER) || body.includes(REVISION_CAP_MARKER.replace('taskcell-', 'vanguard-'));
 }
 
 type FeedbackTrustOptions = Pick<ActionableOptions, 'feedbackAuthors' | 'botLogins'>;
@@ -512,7 +513,7 @@ export function revisionBudgetResetAt(fb: PullRequestFeedback, opts: FeedbackTru
  * REVISION_MARKER_RE, so dedup/round-counting are unaffected.
  */
 export const revisionMarker = (headRefOid: string, whiteLabel = false): string =>
-  whiteLabel ? `<!-- revision: ${headRefOid} -->` : `<!-- vanguard-revision: ${headRefOid} -->`;
+  whiteLabel ? `<!-- revision: ${headRefOid} -->` : `<!-- taskcell-revision: ${headRefOid} -->`;
 
 const REFERENCE_KIND: Record<FeedbackItem['source'], string> = {
   review: 'review',

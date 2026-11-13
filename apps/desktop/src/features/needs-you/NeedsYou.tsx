@@ -15,6 +15,8 @@ export function canUseNeedsYou(): boolean {
 
 /** Plain words for the factory's waiting labels (src/hub/needs-you.ts); anything else shows as-is. */
 const REASON_TEXT: Record<string, string> = {
+  'taskcell:needs-human-review': 'needs a human review',
+  'taskcell:verify-failed': 'verify failed',
   'vanguard:needs-human-review': 'needs a human review',
   'vanguard:verify-failed': 'verify failed',
 };

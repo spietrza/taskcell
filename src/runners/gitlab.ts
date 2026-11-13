@@ -1,3 +1,4 @@
+import { REVIEW_HEADING } from '../core/labels.js';
 import { execa } from 'execa';
 import { agentAuthFromEnv } from '../agents/auth.js';
 import { GitLabTaskFetcher, linkMergeRequest, addMrFailureLabel, addMrGateLabel, editGitlabLabels, commentGitlabIssue, defaultGlabRunner } from '../tasks/gitlab.js';
@@ -77,10 +78,10 @@ export async function publishGitlabVerdict(project: string, input: PublishVerdic
   // incomplete review gets none.
   const completed = input.reviewerOutcome.result.completed;
   const visible = !completed
-    ? `## Vanguard Review\n\n${header}: ${REVIEW_INCOMPLETE}${body === '' ? '' : `\n\n${body}`}`
+    ? `${REVIEW_HEADING}\n\n${header}: ${REVIEW_INCOMPLETE}${body === '' ? '' : `\n\n${body}`}`
     : body === ''
-      ? `## Vanguard Review\n\n${header}: no blocking issues`
-      : `## Vanguard Review\n\n${header}:\n\n${body}`;
+      ? `${REVIEW_HEADING}\n\n${header}: no blocking issues`
+      : `${REVIEW_HEADING}\n\n${header}:\n\n${body}`;
   let commentBody = completed ? `${visible}\n\n${mergeRequestReviewMarker(input.headSha)}` : visible;
 
   const conformanceResult = input.conformanceOutcome?.result;

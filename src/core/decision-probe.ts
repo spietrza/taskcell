@@ -6,7 +6,7 @@ import { decide, decisionModelConfig, num, type DecisionModelConfig, type Decisi
  * pipeline starts, one typed query asks a sub-second, probability-returning model how hard the task
  * looks. The answer changes NOTHING about the run — it is persisted next to the run metrics so that,
  * after enough runs, `taskcell stats` can show whether the probe predicts gate repairs/escalation.
- * If it does, it becomes the automatic `vanguard:model=` label; if it does not, it is one env var
+ * If it does, it becomes the automatic `taskcell:model=` label; if it does not, it is one env var
  * to unset.
  *
  * Opt-in by an EXPLICIT switch: VANGUARD_DECISION_PROBE=1 (or `all`, see below) plus credentials —
