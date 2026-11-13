@@ -492,6 +492,9 @@ async function writeRecord(repoPath: string, taskId: string, timestamp: string, 
     evt: 'run_complete',
     ts: timestamp,
     ...stageMetric(result, opts.label, requested),
+    // `costUsd` reads 0 when the agent reported no cost: say so, so a reader shows "unknown", not $0.
+    // A reported cost is the agent CLI's own figure at list prices, never a provider's invoice.
+    ...(result.costUsd === undefined ? { costUnknown: true } : { costKind: 'estimated' }),
     ...(opts.prUrl !== undefined ? { prUrl: opts.prUrl } : {}),
   };
   await appendMetric(repoPath, metric);

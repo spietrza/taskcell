@@ -2,6 +2,7 @@
 // `pnpm gen:wire` derives Commands, COMMAND_NAMES and dispatch from it (see CONTRIBUTING.md).
 import { BadRequestError, invokeCoreMethod } from '../../sidecar/sidecar.js';
 import { defaultRunsRoot, remoteRunsRoot, listRunSummaries, readRunDetail, readConflictStats } from '../runs.js';
+import { withCiRuns } from '../ci-metrics.js';
 import { readRunEvents } from '../run-events.js';
 import { isSafeTaskId } from '../../core/state-path.js';
 import { listActive, readSession } from '../active.js';
@@ -68,13 +69,13 @@ export async function markMerged<T extends RunSummary>(deps: Parameters<typeof i
 export const commands = defineCommands<RunsCommands>({
   list_runs: async ({ ctx, args, allow }) => {
     const real = await allow(requireString(args, 'repoPath'));
-    return markMerged(ctx.deps, real, await listRunSummaries(defaultRunsRoot(real)));
+    return markMerged(ctx.deps, real, await withCiRuns(real, await listRunSummaries(defaultRunsRoot(real))));
   },
   list_runs_all: async ({ ctx, allow, scope }) => {
     const { items, failures } = await projects.listAcrossProjects(
       ctx.configDir,
       allow,
-      async (real) => markMerged(ctx.deps, real, await listRunSummaries(defaultRunsRoot(real))),
+      async (real) => markMerged(ctx.deps, real, await withCiRuns(real, await listRunSummaries(defaultRunsRoot(real)))),
       await scope(),
     );
     // Newest first across repositories, as each repository's own list is.
