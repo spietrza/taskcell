@@ -554,8 +554,12 @@ credential an admin saved). An **admin** — a GitHub login listed in `--admin-g
 | Setting | A run uses |
 |---|---|
 | `off` | the instance credential |
-| `user-first` | the starter's own credential, else the instance credential |
-| `user-only` | the starter's own credential; with none saved the run is refused before it is queued |
+| `user-first` | per provider: the starter's own credential for the provider the run uses, else the instance credential for that provider |
+| `user-only` | the starter's own credential for the provider the run uses; with none saved for it the run is refused before it is queued |
+
+Resolution is per provider: a user who saved only `OPENAI_API_KEY` runs Codex on their key and Claude on the
+instance's `CLAUDE_CODE_OAUTH_TOKEN` (`credentialSource` records `user` / `instance` for the run's provider).
+A run never receives keys of providers it does not use.
 
 A run on the starter's own credential never reads the hub's provider keys: a provider whose key the user cannot save (a repo custom provider's `keyEnv`, meridian's `MERIDIAN_BASE_URL`) is refused for it.
 

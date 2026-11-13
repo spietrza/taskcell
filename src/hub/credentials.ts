@@ -206,6 +206,18 @@ export const CREDENTIAL_NAMES = [
   'MERIDIAN_API_KEY',
 ] as const;
 
+/** The storable variables each built-in provider reads; meridian and repo customs are not listed. */
+const PROVIDER_NAMES: Record<string, readonly string[]> = {
+  claude: ['CLAUDE_CODE_OAUTH_TOKEN', 'ANTHROPIC_API_KEY', 'ANTHROPIC_AUTH_TOKEN'],
+  codex: ['CODEX_AUTH_JSON', 'CODEX_API_KEY', 'OPENAI_API_KEY'],
+  cursor: ['CURSOR_API_KEY'],
+  zai: ['ZAI_API_KEY'],
+  openrouter: ['OPENROUTER_API_KEY'],
+};
+
+const pick = (env: Record<string, string>, names: readonly string[]): Record<string, string> =>
+  Object.fromEntries(Object.entries(env).filter(([k]) => names.includes(k)));
+
 /** The caller is known but not allowed (non-admin) — maps to HTTP 403 (src/hub/server.ts). */
 export class ForbiddenError extends BadRequestError {}
 
@@ -303,6 +315,8 @@ export const USER_SCOPE = (user: HubUser): Scope => `user:${user.id}`;
 
 export const USER_CREDENTIAL_REQUIRED =
   'This hub only runs on your own provider credentials — add one in Settings → Credentials, then start the run again.';
+const userCredentialRequiredFor = (provider: string, names: readonly string[]): string =>
+  `This hub only runs on your own provider credentials — you have none for ${provider}; add one in Settings → Credentials (${names.join(' or ')}), then start the run again.`;
 const SIGN_IN_REQUIRED = 'Sign in to the hub first — per-user credentials need to know who you are.';
 
 export interface CredentialService {
@@ -312,8 +326,9 @@ export interface CredentialService {
   setPolicy(policy: CredentialPolicy): Promise<void>;
   store: ScopedCredentialStore;
   /** The credential a run started by `user` uses, per the admin switch. Throws a bad-request —
-   * BEFORE the run claims the slot — when `user only` is on and the user has none. */
-  resolveForRun(user: HubUser | undefined): Promise<RunCredential>;
+   * BEFORE the run claims the slot — when `user only` is on and the user has none for `provider`
+   * (default claude). Resolved per provider: only that provider's variables are returned. */
+  resolveForRun(user: HubUser | undefined, provider?: string): Promise<RunCredential>;
 }
 
 export function createCredentialService(configDir: string, adminLogins: readonly string[] = []): CredentialService {
@@ -342,17 +357,25 @@ export function createCredentialService(configDir: string, adminLogins: readonly
       await mkdir(configDir, { recursive: true });
       await writeFile(policyFile, JSON.stringify({ policy }), 'utf8');
     },
-    async resolveForRun(user) {
+    async resolveForRun(user, provider = 'claude') {
       const policy = await service.policy();
-      const instance = async (): Promise<RunCredential> => ({ source: 'instance', env: await store.values('instance') });
+      const names = PROVIDER_NAMES[provider];
+      const instance = async (): Promise<RunCredential> => {
+        const env = await store.values('instance');
+        return { source: 'instance', env: names === undefined ? env : pick(env, names) };
+      };
       if (policy === 'off') return instance();
       if (user === undefined) {
         if (policy === 'user-only') throw new BadRequestError(SIGN_IN_REQUIRED);
         return instance();
       }
       const own = await store.values(USER_SCOPE(user));
-      if (Object.keys(own).length > 0) return { source: 'user', env: own };
-      if (policy === 'user-only') throw new BadRequestError(USER_CREDENTIAL_REQUIRED);
+      // Meridian / custom providers (no `names`): any saved credential makes it a user run (credentialEnv refuses it if unusable).
+      const mine = names === undefined ? own : pick(own, names);
+      if (Object.keys(mine).length > 0) return { source: 'user', env: mine };
+      if (policy === 'user-only') {
+        throw new BadRequestError(names === undefined ? USER_CREDENTIAL_REQUIRED : userCredentialRequiredFor(provider, names));
+      }
       return instance();
     },
   };
