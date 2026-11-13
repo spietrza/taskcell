@@ -71,10 +71,11 @@ async function recordFiles(taskId: string): Promise<string[]> {
 }
 
 describe('beginRun — writing', () => {
-  it('records the target branch on every stage record', async () => {
-    await beginRun(repo, 'TES-1', TS).writeStages([{ name: 'implementer', result }], { baseBranch: 'dev' });
+  it('stamps startedBy on every stage record and the run summary when given', async () => {
+    await beginRun(repo, 'TES-1', TS, { startedBy: 'alice' }).writeStages([{ name: 'implementer', result }]);
     const record = JSON.parse(await readFile(join(runsRoot(repo), 'TES-1', `${PREFIX}-implementer.json`), 'utf8'));
-    expect(record.baseBranch).toBe('dev');
+    expect(record.startedBy).toBe('alice');
+    expect((await listRuns(runsRoot(repo)))[0]?.startedBy).toBe('alice');
   });
 
   it('writes a per-stage JSON (without the diff) and appends a metric line', async () => {

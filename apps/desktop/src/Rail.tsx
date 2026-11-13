@@ -9,6 +9,7 @@ import {
   Settings as SettingsIcon,
   PanelLeft,
   MessageCircleQuestionMark,
+  ScrollText,
   type LucideIcon,
 } from 'lucide-react';
 import { Collapsible, Tooltip, cn } from '@/ui';
@@ -20,7 +21,7 @@ import { canUseNeedsYou } from './features/needs-you/NeedsYou';
 
 // 'task' (S10) is reached by intent — the New Task button on the board and Runs toolbars — so it
 // has no NAV entry; the breadcrumb is its location anchor.
-export type Screen = 'dashboard' | 'runs' | 'board' | 'task' | 'fleet' | 'remote' | 'workflow' | 'settings' | 'needs';
+export type Screen = 'dashboard' | 'runs' | 'board' | 'task' | 'fleet' | 'remote' | 'workflow' | 'settings' | 'needs' | 'audit';
 
 const ALL_NAV: { key: Screen; label: string; icon: LucideIcon }[] = [
   { key: 'dashboard', label: 'Dashboard', icon: LayoutDashboard },
@@ -31,9 +32,10 @@ const ALL_NAV: { key: Screen; label: string; icon: LucideIcon }[] = [
   { key: 'remote', label: 'Remote', icon: Cloud },
   { key: 'workflow', label: 'Workflow', icon: Workflow },
   { key: 'settings', label: 'Settings', icon: SettingsIcon },
+  { key: 'audit', label: 'Audit', icon: ScrollText },
 ];
 // Hub mode drops Fleet from the rail entirely — see canUseFleet().
-const NAV = ALL_NAV.filter((n) => (n.key !== 'fleet' || canUseFleet()) && (n.key !== 'needs' || canUseNeedsYou()));
+const NAV = ALL_NAV.filter((n) => (n.key !== 'fleet' || canUseFleet()) && (n.key !== 'needs' || canUseNeedsYou()) && (n.key !== 'audit' || canUseNeedsYou()));
 
 export function Rail({
   projects,
