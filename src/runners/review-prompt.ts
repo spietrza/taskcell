@@ -168,7 +168,7 @@ export { neutralizePromptTags } from '../context/escape.js';
 // rescan every following blank line from each line start, which is quadratic on a long blank run.
 export const MARKER_PAD = String.raw`[^\S\n\r\u2028\u2029]*`;
 const REVIEW_MARKER_LINE_RE = new RegExp(
-  String.raw`^${MARKER_PAD}<!--[ \t]*(?:taskcell|vanguard)-(?:(?:mr|pr)-review:[ \t]*[a-fA-F0-9]+|pr-review-incomplete)[ \t]*-->${MARKER_PAD}$`,
+  String.raw`^${MARKER_PAD}<!--[ \t]*(?:taskcell|vanguard)-(?:(?:mr|pr)-review:[ \t]*[a-fA-F0-9]+|pr-review-run:[ \t]*[a-fA-F0-9]+:\d+|pr-review-incomplete)[ \t]*-->${MARKER_PAD}$`,
   'gm',
 );
 
