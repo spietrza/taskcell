@@ -23,6 +23,7 @@ import {
   factorySecret,
   factoryVerify,
 } from './fixtures';
+import { demoProject, demoRuns, demoRunDetails, demoActiveRuns, demoBoardTasks, demoNeedsYou, DEMO_REPO_PATH, DEMO_WRITE_COMMANDS } from './demoData';
 
 let waitingNeedsYou = [...needsYouItems];
 
@@ -187,4 +188,35 @@ export function handle(cmd: string, args: unknown): unknown {
 export function install(): void {
   mockWindows('main');
   mockIPC(handle);
+}
+
+/** Demo-mode overrides (`hub --demo`, `?demo=1`): the one seeded project, served in-browser. Reads
+ *  fall through to the fixtures above; every command that could write to a repo, remote or hub
+ *  store is refused. */
+const demoOverrides: Record<string, (args: unknown) => unknown> = {
+  list_projects: () => [demoProject],
+  list_teams: () => [{ ...mockTeam, repositories: [DEMO_REPO_PATH] }],
+  list_runs: () => demoRuns,
+  list_runs_all: () => ({ runs: demoRuns.map((r) => ({ ...r, repoPath: DEMO_REPO_PATH, repoName: demoProject.name })), failures: [] }),
+  read_run: (args) => demoRunDetails[(args as { taskId?: string } | undefined)?.taskId ?? ''] ?? demoRunDetails['DEMO-101'],
+  list_active: () => demoActiveRuns,
+  list_tasks: () => ({ tasks: demoBoardTasks, capped: false }),
+  list_tasks_all: () => ({ tasks: demoBoardTasks.map((t) => ({ ...t, repoPath: DEMO_REPO_PATH, repoName: demoProject.name })), capped: false, failures: [] }),
+  list_needs_you: () => ({ items: demoNeedsYou }),
+  list_needs_you_all: () => ({ items: demoNeedsYou.map((i) => ({ ...i, repoPath: DEMO_REPO_PATH, repoName: demoProject.name })), failures: [] }),
+  list_remote_runs: () => [],
+  api_active_run: () => ({ runId: 'demo-run-1', repoPath: DEMO_REPO_PATH }),
+  api_queue: () => [],
+  api_repo_ok: () => true,
+  read_app_config: () => ({ ...appConfig, label: 'storefront (demo)' }),
+  read_app_config_strict: () => ({ ...appConfig, label: 'storefront (demo)' }),
+  ...Object.fromEntries(
+    DEMO_WRITE_COMMANDS.map((cmd) => [cmd, (): never => { throw 'Demo project is read-only — nothing is written to any repository.'; }]),
+  ),
+};
+
+/** `handle` for demo mode: the overrides first, then the shared fixtures. */
+export function handleDemo(cmd: string, args: unknown): unknown {
+  const override = demoOverrides[cmd];
+  return override ? override(args) : handle(cmd, args);
 }

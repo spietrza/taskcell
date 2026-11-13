@@ -5,24 +5,26 @@ import { extname, join } from 'node:path';
 import type { IncomingMessage, ServerResponse } from 'node:http';
 import { jsonError } from './json-response.js';
 import { isWithinRoot } from './browse.js';
-import { HUB_MARKER, HUB_FLEET_MARKER } from '../hub-wire.js';
+import { HUB_MARKER, HUB_FLEET_MARKER, HUB_DEMO_MARKER } from '../hub-wire.js';
 
 /** Inject the hub marker immediately after `<head>`. Pure string function (its own test target).
  * Throws if no insertion point is found — a silent no-op here means the browser silently takes the
  * Tauri branch and every call throws, which must fail loudly at startup instead. The per-launch
  * token is never part of the page: it reaches the browser only in the launch URL's fragment
  * (`src/cli/hub.ts`), so fetching `GET /` yields nothing that can drive the hub. */
-export function injectHubMarker(html: string, fleet = false): string {
+export function injectHubMarker(html: string, fleet = false, demo = false): string {
   const idx = html.indexOf('<head>');
   if (idx === -1) throw new Error('index.html has no <head> — cannot inject the hub marker');
   const insertAt = idx + '<head>'.length;
-  return html.slice(0, insertAt) + HUB_MARKER + (fleet ? HUB_FLEET_MARKER : '') + html.slice(insertAt);
+  return html.slice(0, insertAt) + HUB_MARKER + (fleet ? HUB_FLEET_MARKER : '') + (demo ? HUB_DEMO_MARKER : '') + html.slice(insertAt);
 }
 
 export interface StaticOptions {
   uiDir: string;
   /** Also mark the page as allowed to show the Fleet screen (desktop-local hub only). */
   fleet?: boolean;
+  /** Mark the page as the read-only demo (`hub --demo`). */
+  demo?: boolean;
 }
 
 /** The SPA holds a live per-launch token once opened, so no other page may frame it: a framed hub
@@ -78,7 +80,7 @@ export async function serveStatic(opts: StaticOptions, req: IncomingMessage, res
   // SPA fallback: any extensionless path (including `/`) serves index.html with the hub marker.
   try {
     const raw = await readFile(join(opts.uiDir, 'index.html'), 'utf8');
-    const html = injectHubMarker(raw, opts.fleet === true);
+    const html = injectHubMarker(raw, opts.fleet === true, opts.demo === true);
     res.writeHead(200, {
       'content-type': 'text/html; charset=utf-8',
       'cache-control': 'no-store',

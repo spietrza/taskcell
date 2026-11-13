@@ -62,6 +62,8 @@ export interface HubServerOptions {
   /** Enable the Fleet spawn commands (`spawn_run` et al). Loopback binds only — the desktop app's
    * local hub sets it; a hub reachable by others must never run arbitrary programs. */
   fleet?: boolean;
+  /** `hub --demo`: the served page runs on bundled fixtures only. */
+  demo?: boolean;
   /** `VANGUARD_HUB_SECRET` (base64, 32 bytes) keying the credential store; defaults to the env var. */
   hubSecret?: string;
 }
@@ -399,7 +401,7 @@ async function handleRequest(
     return;
   }
 
-  const handled = await serveStatic({ uiDir: opts.uiDir, fleet: opts.fleet === true }, req, res);
+  const handled = await serveStatic({ uiDir: opts.uiDir, fleet: opts.fleet === true, demo: opts.demo === true }, req, res);
   if (!handled) notFound(res);
 }
 

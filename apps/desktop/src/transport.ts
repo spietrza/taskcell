@@ -21,11 +21,19 @@ declare global {
   interface Window {
     __VANGUARD_HUB__?: boolean;
     __VANGUARD_HUB_FLEET__?: boolean;
+    __VANGUARD_DEMO__?: boolean;
   }
 }
 
+/** Demo mode: `hub --demo` (server-injected marker) or `?demo=1` (the empty Home's "Try the demo
+ * project"). Every command is answered in-browser from the bundled fixtures (dev/mockBackend.ts), so
+ * nothing reaches a repo, remote or the hub, and there is no event stream. */
+export function isDemoMode(): boolean {
+  return window.__VANGUARD_DEMO__ === true || new URLSearchParams(window.location.search).get('demo') === '1';
+}
+
 export function isHubMode(): boolean {
-  return window.__VANGUARD_HUB__ === true;
+  return window.__VANGUARD_HUB__ === true || isDemoMode();
 }
 
 // Fleet spawns programs — remote code execution on a reachable server — so only the desktop app's own
@@ -93,7 +101,7 @@ function redirectToSignIn(): void {
 /** Server mode only: is someone signed in? Better Auth answers `/api/auth/get-session` with the
  * session or null; loopback mounts no OAuth, so it 404s and there is nothing to sign out of. */
 export async function hubSignedIn(): Promise<boolean> {
-  if (!isHubMode()) return false;
+  if (!isHubMode() || isDemoMode()) return false;
   try {
     const response = await fetch('/api/auth/get-session');
     return response.ok && (await response.json()) !== null;
@@ -184,7 +192,11 @@ async function hubInvoke<T>(cmd: string, args?: Record<string, unknown>): Promis
   return decodeResponse<T>(response.status, body);
 }
 
-export function invoke<T>(cmd: string, args?: Record<string, unknown>): Promise<T> {
+export async function invoke<T>(cmd: string, args?: Record<string, unknown>): Promise<T> {
+  if (isDemoMode()) {
+    const { handleDemo } = await import('./dev/mockBackend');
+    return handleDemo(cmd, args) as T;
+  }
   return isHubMode() ? hubInvoke<T>(cmd, args) : tauriInvoke<T>(cmd, args);
 }
 
@@ -300,6 +312,7 @@ function hubSubscribe<T>(name: string, handler: (event: { payload: T }) => void)
 }
 
 export function subscribe<T>(name: string, handler: (event: { payload: T }) => void): Promise<UnlistenFn> {
+  if (isDemoMode()) return Promise.resolve(() => {});
   return isHubMode() ? hubSubscribe<T>(name, handler) : tauriListen<T>(name, handler);
 }
 
@@ -308,7 +321,7 @@ export function subscribe<T>(name: string, handler: (event: { payload: T }) => v
  * reconnect gap the replay ring couldn't cover. No-op under Tauri, which has no SSE gap to resync.
  */
 export function onStreamReset(handler: () => void): Promise<UnlistenFn> {
-  if (!isHubMode()) return Promise.resolve(() => {});
+  if (!isHubMode() || isDemoMode()) return Promise.resolve(() => {});
   ensureHubSource();
   resyncHandlers.add(handler);
   const unlisten: UnlistenFn = () => {

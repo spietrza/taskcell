@@ -353,7 +353,7 @@ export type Command =
     }
   | { kind: 'sidecar' }
   | { kind: 'complete' }
-  | { kind: 'hub'; repoPath: string; host: string; port: number; uiDir?: string; open: boolean; allowedHosts?: string[]; tokenFile?: string; adminGithubLogins?: string[] }
+  | { kind: 'hub'; repoPath: string; host: string; port: number; uiDir?: string; open: boolean; allowedHosts?: string[]; tokenFile?: string; adminGithubLogins?: string[]; demo?: boolean }
   | { kind: 'hub-rotate-token'; tokenFile: string }
   | { kind: 'help' }
   | { kind: 'error'; message: string };
@@ -652,6 +652,7 @@ export function parseCli(argv: string[], cwd: string): Command {
         host: { type: 'string' },
         'ui-dir': { type: 'string' },
         'no-open': { type: 'boolean' },
+        demo: { type: 'boolean' },
         'token-file': { type: 'string' },
         'allowed-host': { type: 'string', multiple: true },
         'admin-github-login': { type: 'string', multiple: true },
@@ -949,6 +950,7 @@ export function parseCli(argv: string[], cwd: string): Command {
       port,
       ...(typeof values['ui-dir'] === 'string' ? { uiDir: values['ui-dir'] } : {}),
       open: values['no-open'] !== true,
+      ...(values.demo === true ? { demo: true } : {}),
       ...(allowedHosts?.length ? { allowedHosts } : {}),
       ...(adminGithubLogins?.length ? { adminGithubLogins } : {}),
     };
@@ -1483,6 +1485,7 @@ Commands:
   hub    Serve the Inspector UI over HTTP/SSE (node:http), backed by a real .taskcell/ directory.
          --token-file <path> (VANGUARD_HUB_TOKEN_FILE) keeps one token across restarts (created 0600 if missing);
          "hub rotate-token --token-file <path>" writes a new one, picked up on the next restart.
+         --demo opens a read-only demo project on bundled sample data (no repo, remote or hub store is touched).
 
   watch options (trigger = state/label + label):
     --source <linear|github|project|gitlab>  Task source (default: linear)
