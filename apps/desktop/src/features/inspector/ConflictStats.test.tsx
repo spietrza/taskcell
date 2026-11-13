@@ -1,4 +1,4 @@
-import { render, screen } from '@testing-library/react';
+import { act, render, screen } from '@testing-library/react';
 import { expect, test, vi } from 'vitest';
 import { ConflictStats } from './ConflictStats';
 
@@ -20,6 +20,8 @@ test('shows the conflict totals and top files', async () => {
 test('renders nothing before any base merge was recorded', async () => {
   conflictStats.mockResolvedValue({ weeks: [], total: { merges: 0, conflicts: 0, autoResolved: 0, leftForHuman: 0 }, topFiles: [] });
   const { container } = render(<ConflictStats repoPath="/r" />);
-  await vi.waitFor(() => expect(conflictStats).toHaveBeenCalled());
+  await act(async () => {
+    await conflictStats.mock.results[0]!.value;
+  });
   expect(container.textContent).toBe('');
 });
