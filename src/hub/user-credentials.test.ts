@@ -172,6 +172,28 @@ describe('run credential choice', () => {
     expect(cred.env).toEqual({ ANTHROPIC_API_KEY: SECRET_INSTANCE });
   });
 
+  test('user first: a credential for another provider falls back to the instance for this one', async () => {
+    await setPolicy('user-first');
+    await rpc(root, 'save_instance_credential', { name: 'CLAUDE_CODE_OAUTH_TOKEN', value: SECRET_INSTANCE });
+    await rpc(root, 'save_instance_credential', { name: 'ZAI_API_KEY', value: 'zai-instance-secret' });
+    await rpc(alice, 'save_user_credential', { name: 'OPENAI_API_KEY', value: SECRET_A });
+    const start = (provider: string) => rpc(alice, 'api_create_run', { params: { issueRef: '#1', repoPath, provider } });
+    expect((await start('claude')).status).toBe(200);
+    expect(createRun.mock.calls[0]![2]).toEqual({ source: 'instance', env: { CLAUDE_CODE_OAUTH_TOKEN: SECRET_INSTANCE } });
+    expect((await start('codex')).status).toBe(200);
+    expect(createRun.mock.calls[1]![2]).toEqual({ source: 'user', env: { OPENAI_API_KEY: SECRET_A } });
+  });
+
+  test('user only: a credential for another provider is refused before run-accepted', async () => {
+    await setPolicy('user-only');
+    await rpc(alice, 'save_user_credential', { name: 'OPENAI_API_KEY', value: SECRET_A });
+    const res = await rpc(alice, 'api_create_run', { params: { issueRef: '#1', repoPath } });
+    expect(res.status).toBe(400);
+    expect(res.body.error.message).toMatch(/CLAUDE_CODE_OAUTH_TOKEN/);
+    expect(createRun).not.toHaveBeenCalled();
+    expect((await rpc(alice, 'api_active_run')).body.result).toBeNull();
+  });
+
   test('the run record notes the kind (run-accepted event), never the value', async () => {
     await setPolicy('user-only');
     await rpc(alice, 'save_user_credential', { name: 'ANTHROPIC_API_KEY', value: SECRET_A });
