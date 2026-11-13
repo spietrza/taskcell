@@ -119,6 +119,20 @@ export interface FlowDoc {
   meta?: Record<string, unknown>;
 }
 
+/** One live lesson (src/core/lessons.ts) on the wire. */
+export interface RepoLesson {
+  id: string;
+  rule: string;
+  why: string;
+  /** PR or comment URL the lesson came from. */
+  evidence: string;
+  /** Path globs the lesson applies to; empty = repo-wide. */
+  paths: string[];
+  stage?: 'spec' | 'implement' | 'review' | 'verify';
+  prNumber: number;
+  timestamp: string;
+}
+
 /** One discovered flow file. `name` present ⇔ parsed (openable); `error` present ⇔ not runnable. */
 export interface RepoFlowInfo {
   file: string;
