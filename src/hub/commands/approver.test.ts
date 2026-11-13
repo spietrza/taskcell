@@ -138,7 +138,7 @@ describe('approver commands', () => {
       const open = vi.spyOn(approverCard, 'openApproverModePr');
       const repo = await tmpGitRepo();
       const { ctx } = await makeCtx(repo);
-      await expect(dispatchRpc(ctx, 'set_approver_mode', { repoPath: repo, mode: 'act', confirmBelowBar: true })).rejects.toThrow(/#939/);
+      await expect(dispatchRpc(ctx, 'set_approver_mode', { repoPath: repo, mode: 'act', confirmBelowBar: true })).rejects.toThrow(/#939, #944/);
       expect(open).not.toHaveBeenCalled();
     });
 

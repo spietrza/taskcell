@@ -1,4 +1,4 @@
-import { describe, it, expect, beforeEach, afterEach } from 'vitest';
+import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
 import { mkdtemp, rm, mkdir, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
@@ -7,6 +7,18 @@ import { runApprover } from './approve.js';
 import { assertActSafeGhArgs, isReleasePr } from './act.js';
 import { readBranchFile } from '../core/metrics-branch.js';
 import type { GhRunner } from '../tasks/github.js';
+
+const logFail = vi.hoisted(() => ({ on: false }));
+vi.mock('./record.js', async (orig) => {
+  const mod = await orig<typeof import('./record.js')>();
+  return {
+    ...mod,
+    appendDecision: async (...a: Parameters<typeof mod.appendDecision>): Promise<void> => {
+      if (logFail.on && (a[1] as { actMerge?: boolean }).actMerge === true) throw new Error('log down');
+      return mod.appendDecision(...a);
+    },
+  };
+});
 
 let root: string;
 let origin: string;
@@ -225,6 +237,63 @@ describe('approver act mode', () => {
       await expect(run(gh)).rejects.toThrow(/not mergeable/);
       expect(writes(calls, 'comment').some((a) => a.join(' ').includes('merge was rejected'))).toBe(true);
       expect(await actions()).toEqual(['merge-failed']);
+    });
+
+    it('a failed pre-merge decision log does not merge, and says why', async () => {
+      const calls: string[][] = [];
+      logFail.on = true;
+      try {
+        await expect(run(fakeGh(calls, pr()))).rejects.toThrow(/log down/);
+      } finally {
+        logFail.on = false;
+      }
+      expect(writes(calls, 'merge')).toEqual([]);
+      expect(writes(calls, 'comment').some((a) => a.join(' ').includes('could not be logged'))).toBe(true);
+    });
+
+    it('leaves the PR when the base tip moved between the decision and the merge', async () => {
+      const calls: string[][] = [];
+      const inner = fakeGh(calls, pr());
+      let views = 0;
+      const gh: GhRunner = async (args) => {
+        const out = await inner(args);
+        if (args[0] === 'pr' && args[1] === 'view' && !args.includes('comments') && (views += 1) > 1) {
+          return JSON.stringify({ ...(JSON.parse(out) as object), baseRefOid: 'f'.repeat(40) });
+        }
+        return out;
+      };
+      await run(gh);
+      expect(writes(calls, 'merge')).toEqual([]);
+      expect(writes(calls, 'comment').some((a) => a.join(' ').includes('base tip moved'))).toBe(true);
+    });
+
+    it('leaves the PR when a required check regressed before the merge', async () => {
+      const calls: string[][] = [];
+      const inner = fakeGh(calls, pr());
+      let checkReads = 0;
+      const gh: GhRunner = async (args) => {
+        if (args[0] === 'api' && args[1]?.includes('check-runs?per_page') && (checkReads += 1) > 1) {
+          return JSON.stringify({ check_runs: [{ name: 'build', conclusion: 'failure', app: { id: 15368 } }] });
+        }
+        return inner(args);
+      };
+      await run(gh);
+      expect(writes(calls, 'merge')).toEqual([]);
+      expect(writes(calls, 'comment').some((a) => a.join(' ').includes('check-missing:build'))).toBe(true);
+    });
+
+    it('a token in the merge error is redacted in the comment and the log', async () => {
+      const token = `ghp_${'a1B2'.repeat(9)}`;
+      const calls: string[][] = [];
+      const base = fakeGh(calls, pr());
+      const gh: GhRunner = async (args) => {
+        if (args[1] === 'merge') throw new Error(`HTTP 405 for https://x-access-token:${token}@github.com/o/r`);
+        return base(args);
+      };
+      await expect(run(gh)).rejects.toThrow(/HTTP 405/);
+      expect(writes(calls, 'comment').some((a) => a.join(' ').includes('merge was rejected'))).toBe(true);
+      expect(writes(calls, 'comment').some((a) => a.join(' ').includes(token))).toBe(false);
+      expect(await readBranchFile(repo, { file: 'decisions.jsonl' })).not.toContain(token);
     });
 
     it('kill switch under --mode act: stopped, nothing acted on', async () => {
@@ -464,6 +533,7 @@ async function moveBase(file: string): Promise<void> {
   await git(seed, ['add', '.']);
   await git(seed, ['commit', '--quiet', '-m', `base ${file}`]);
   await git(seed, ['push', '--quiet', origin, 'main']);
+  baseSha = (await git(seed, ['rev-parse', 'HEAD'])).trim();
 }
 
 /** What update-branch does: a real `git merge main` into the PR branch (plus, optionally, an extra commit), pushed as the PR head. */

@@ -9,6 +9,7 @@ import { buildDecisionRecord, appendDecision, appendAction } from './record.js';
 import type { ActionKind } from './record.js';
 import { publishCheckRun, commentDecision, commentOnce, shadowSafeGhRunner } from './publish.js';
 import { actSafeGhRunner, actExclusions, reviewExact } from './act.js';
+import { redactForPublish } from '../core/secret-scan.js';
 import { TaskcellError } from '../core/errors.js';
 import type { ApproverFacts, Decision, DecisionRecord } from './types.js';
 
@@ -175,12 +176,41 @@ export async function runApprover(input: RunApproverInput, state: { updated: boo
     await tell('left-for-human', 'review-stale: the head tree is not the reviewed commit merged with the base; a new review is needed', diff.headSha);
     return result;
   }
+  // Re-read right before the merge: everything the decision depended on (policy, head, base tip, PR state, holds,
+  // required checks, and the verdict itself, on a seed and base recomputed from this read) must still hold.
+  const fresh = await collectPrFacts(gh, input.repoSlug, input.prNumber);
+  const freshBase = fresh.baseRefName !== '' ? fresh.baseRefName : 'main';
+  const freshPolicy = await loadPolicy(input.repoPath, freshBase);
+  const freshChecks = await collectCheckFacts(gh, input.repoSlug, diff.headSha, policy);
+  const { reviews: freshReviews, ...freshPr } = fresh;
+  const freshFacts: ApproverFacts = { ...facts, pr: freshPr, isFactoryPr: isFactoryPr(fresh, input.repoSlug, policy), checks: freshChecks, review: collectReviewFacts(fresh, policy) };
+  const freshSeed = `${input.repoSlug}:${input.prNumber}:${fresh.headSha}:${freshPolicy?.policyHash ?? POLICY_HASH_NONE}`;
+  const freshDecision = decide(freshFacts, policy, freshSeed);
+  const changed = [
+    ...(fresh.state !== 'OPEN' ? [`PR is ${fresh.state}`] : []),
+    ...(fresh.headSha !== diff.headSha ? ['head moved'] : []),
+    ...(freshBase !== base ? ['base branch changed'] : []),
+    ...(freshPolicy?.policyHash !== policyHash ? ['policy changed'] : []),
+    ...((fresh.apiBaseSha !== '' && diff.baseSha !== '' && fresh.apiBaseSha !== diff.baseSha) || fresh.mergeStateStatus === 'BEHIND' ? ['base tip moved'] : []),
+    ...actExclusions(freshFacts, freshDecision, policy, freshReviews),
+    ...(freshFacts.review.sha !== facts.review.sha ? ['review changed'] : []),
+  ];
+  if (changed.length > 0) {
+    await tell('left-for-human', `changed before the merge: ${changed.join('; ')}`, diff.headSha);
+    return result;
+  }
   // The decision a merge is made on is always on the log before the merge, even when this head already has a record.
-  await appendDecision(input.repoPath, { ...result.record, actMerge: true }, input.branch !== undefined ? { branch: input.branch } : {});
+  try {
+    await appendDecision(input.repoPath, { ...result.record, actMerge: true }, input.branch !== undefined ? { branch: input.branch } : {});
+  } catch (err) {
+    // No merge without its record; comment why (the log is what just failed, so the action record is best effort).
+    await tell('merge-log-failed', `the decision could not be logged before the merge: ${redactForPublish(err instanceof Error ? err.message : String(err))}`, diff.headSha).catch(() => undefined);
+    throw err;
+  }
   try {
     await actGh(['pr', 'merge', String(input.prNumber), '--repo', input.repoSlug, '--squash', '--match-head-commit', diff.headSha]);
   } catch (err) {
-    await tell('merge-failed', `the merge was rejected: ${err instanceof Error ? err.message : String(err)}`, diff.headSha);
+    await tell('merge-failed', `the merge was rejected: ${redactForPublish(err instanceof Error ? err.message : String(err))}`, diff.headSha);
     throw err;
   }
   await logAction('merge', 'reviewed, checks green, decision APPROVE; squash-merged', diff.headSha);

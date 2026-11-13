@@ -21,10 +21,10 @@ const PERIOD_DAYS: Record<Exclude<ApproverPeriod, 'all'>, number> = { '30d': 30,
 const TOP_REASONS = 5;
 
 /**
- * Open issues the act switch waits on (#939): while this list is non-empty the hub does not offer `act`
+ * Open issues the act switch waits on (#939, #944): while this list is non-empty the hub does not offer `act`
  * and refuses to open a PR that turns it on. Empty it when the issue is closed.
  */
-export const ACT_BLOCKING_ISSUES: readonly number[] = [939];
+export const ACT_BLOCKING_ISSUES: readonly number[] = [939, 944];
 
 export const NO_DECISIONS_HINT = 'Run `taskcell approve` from your CI workflow (it records every verdict on the taskcell-metrics branch) and its scorecard will show up here.';
 
