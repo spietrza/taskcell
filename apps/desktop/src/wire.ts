@@ -330,6 +330,8 @@ export interface RunRecord {
   findings?: Finding[];
   /** The branch the run's PR targets. Absent on records written before the target branch was recorded. */
   baseBranch?: string;
+  /** Agent calls folded into this stage (auto-resumes and gate repairs); absent when the stage ran once. */
+  attempts?: number;
 }
 
 export interface Proof {

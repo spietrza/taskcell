@@ -456,7 +456,7 @@ configurable here: a repo that runs the factory with a custom `--needs-info-labe
 `merge_needs_you` merges a waiting PR with the repository's allowed merge method (squash, else merge
 commit, else rebase). It refuses a PR that is not in the list and one whose required checks are not
 all green, with a message the UI shows; the item leaves the list once merged. The UI's Merge button
-names the PR's base branch (`baseRef`) and asks for a second click to confirm. The merge is pinned to the checked head commit (`--match-head-commit`). A PR with no required checks passes the check gate. The button sits on the Needs you card: the card quick view/drawer of the v3 prototype does not exist in the app yet. "Ask for changes" stays `reply_needs_you`.
+names the PR's base branch (`baseRef`) and asks for a second click to confirm. The merge is pinned to the checked head commit (`--match-head-commit`). A PR with no required checks passes the check gate. The button sits on the Needs you card and in the Board card's quick view (a side panel; a bottom drawer on phones). "Ask for changes" stays `reply_needs_you`.
 
 Replies and merges are a remote mutation, gated like `clone_project`: loopback only, unless
 `VANGUARD_HUB_ALLOW_ADD=1`.
