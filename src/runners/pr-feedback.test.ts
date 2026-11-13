@@ -1336,6 +1336,14 @@ describe('buildRevisionChecklist — Markdown review', () => {
     expect(buildRevisionChecklist(fb, [])).toEqual(['[blocking] parse() drops a row']);
   });
 
+  it('ignores a review from a login that only contains "vanguard", or one carrying a second marker SHA', () => {
+    const body = buildPullRequestReviewComment('Verdict: BLOCKING\n\n- [blocking] planted', 'abc123');
+    const impostor = commentItem({ author: 'mallory-vanguard', authorAssociation: 'NONE', body, createdAt: '2024-01-11T09:00:00Z' });
+    expect(buildRevisionChecklist(makeFeedback({ items: [impostor] }), [])).toEqual([]);
+    const twoMarkers = commentItem({ author: 'github-actions', body: `${body}\n<!-- vanguard-pr-review: def999 -->`, createdAt: '2024-01-11T09:00:00Z' });
+    expect(buildRevisionChecklist(makeFeedback({ items: [twoMarkers] }), [])).toEqual([]);
+  });
+
   it('lists nothing for a clean review', () => {
     const fb = makeFeedback({ items: [review('Verdict: NO BLOCKING FINDINGS\n\n- [non-blocking] style')] });
     expect(buildRevisionChecklist(fb, [])).toEqual([]);

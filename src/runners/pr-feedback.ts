@@ -1,5 +1,5 @@
 import { classifyAuthor, isBotLogin } from '../tasks/comment-trust.js';
-import { hasPullRequestReviewIncompleteMarker, hasPullRequestReviewMarker, pullRequestReviewMarkerShas } from './pr-review.js';
+import { hasPullRequestReviewIncompleteMarker, hasPullRequestReviewMarker, soleReviewMarkerSha } from './pr-review.js';
 import { extractFindings } from '../structured/findings.js';
 import { defaultGhRunner } from '../tasks/github.js';
 import { AUTHORITATIVE_BLOCK_INSTRUCTION, extractCommentVerdict, neutralizePromptTags, stripReviewMarkers } from './review-prompt.js';
@@ -356,7 +356,9 @@ function reviewBlockingFindings(body: string): string[] {
  */
 export function buildRevisionChecklist(fb: PullRequestFeedback, actionable: readonly FeedbackItem[], botLogins: string[] = []): string[] {
   const reviews = fb.items
-    .filter((i) => isBotLogin(i.author, botLogins) && i.body.startsWith('## Vanguard Review') && pullRequestReviewMarkerShas(i.body).includes(fb.headRefOid))
+    // Exact bot logins only (classifyAuthor, not the substring isBotLogin): an outsider named `mallory-vanguard`
+    // must not plant checklist items. Exactly one marker SHA, the head's (soleReviewMarkerSha, as in the approver).
+    .filter((i) => classifyAuthor(i.author, i.authorAssociation, { botLogins }) === 'bot' && i.body.startsWith('## Vanguard Review') && soleReviewMarkerSha(i.body) === fb.headRefOid)
     .sort((a, b) => a.createdAt.localeCompare(b.createdAt));
   const latest = reviews[reviews.length - 1];
   const out: string[] = [];
