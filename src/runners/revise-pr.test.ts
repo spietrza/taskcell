@@ -1421,12 +1421,68 @@ describe('runRevisePullRequest — best-effort label hand-back', () => {
     expect(result.addressed).toBeGreaterThan(0);
   });
 
-  it('ensures the rate-limited hold label exists before the hand-back removes it', async () => {
+  it('ensures the rate-limited hold label exists before the hand-back removes it when the PR labels cannot be read', async () => {
     const { ghCalls } = await runWithLabelFailure();
     const createIndex = ghCalls.findIndex((a) => a[0] === 'label' && a[1] === 'create' && a.includes('taskcell:rate-limited'));
     const editIndex = ghCalls.findIndex((a) => a[0] === 'pr' && a[1] === 'edit');
     expect(createIndex).toBeGreaterThanOrEqual(0);
     expect(editIndex).toBeGreaterThan(createIndex);
+  });
+
+  // A repo that never created `taskcell:rate-limited`: removing it blind fails the whole edit.
+  async function handBackOnRepoWithoutHoldLabel(prLabels: string[] | Error): Promise<{ ghCalls: string[][]; logs: string[] }> {
+    const ghCalls: string[][] = [];
+    const logs: string[] = [];
+    const repoLabels = new Set(['needs revision', 'taskcell:revising', 'taskcell:secret-blocked', 'taskcell:needs-human-review']);
+    const gh: GhRunner = async (args) => {
+      if (args[0] === 'label' && args[1] === 'list') return JSON.stringify([...repoLabels].map((name) => ({ name })));
+      if (args[0] === 'label' && args[1] === 'create') {
+        repoLabels.add(args[2]!);
+        ghCalls.push(args);
+        return '';
+      }
+      if (args[0] === 'pr' && args[1] === 'view' && args.at(-1) === 'labels') {
+        if (prLabels instanceof Error) throw prLabels;
+        return JSON.stringify({ labels: prLabels.map((name) => ({ name })) });
+      }
+      if (args[0] === 'pr' && args[1] === 'edit') {
+        ghCalls.push(args);
+        const missing = args.filter((a, i) => args[i - 1] === '--remove-label' && !repoLabels.has(a));
+        if (missing.length > 0) throw new Error(`'${missing.join(', ')}' not found`);
+        return '';
+      }
+      return makeGhWithLabelFailure(ghCalls)(args);
+    };
+    await runRevisePullRequest('7', {
+      repoPath: repo,
+      repoSlug: 'o/r',
+      gh,
+      log: (line) => logs.push(line),
+      _sandbox: makeSandbox(),
+      _agent: agentThatCompletes([]),
+      _worktrees: new WorktreeManager(repo),
+      _pushRunner: async () => '',
+      _baseBranch: 'feature-branch',
+      provider: 'claude',
+    });
+    return { ghCalls, logs };
+  }
+
+  it('hands back on a repo without the rate-limited label even when the PR label read fails', async () => {
+    const { ghCalls, logs } = await handBackOnRepoWithoutHoldLabel(new Error('gh: 502'));
+    expect(logs.filter((l) => l.includes('manual label check'))).toEqual([]);
+    expect(ghCalls.filter((a) => a[0] === 'pr' && a[1] === 'edit' && a.includes('taskcell:needs-human-review'))).toEqual([
+      ['pr', 'edit', '7', '--repo', 'o/r', '--remove-label', 'needs revision', '--remove-label', 'taskcell:revising', '--remove-label', 'taskcell:secret-blocked', '--remove-label', 'taskcell:rate-limited', '--add-label', 'taskcell:needs-human-review'],
+    ]);
+  });
+
+  it('does not create the rate-limited hold label when the PR labels can be read', async () => {
+    const { ghCalls, logs } = await handBackOnRepoWithoutHoldLabel(['needs revision', 'taskcell:revising']);
+    expect(logs.filter((l) => l.includes('manual label check') || l.includes('not removing'))).toEqual([]);
+    expect(ghCalls.filter((a) => a[0] === 'label' && a[1] === 'create' && a[2]!.startsWith('taskcell:'))).toEqual([]);
+    expect(ghCalls.filter((a) => a[0] === 'pr' && a[1] === 'edit' && a.includes('taskcell:needs-human-review'))).toEqual([
+      ['pr', 'edit', '7', '--repo', 'o/r', '--remove-label', 'needs revision', '--remove-label', 'taskcell:revising', '--add-label', 'taskcell:needs-human-review'],
+    ]);
   });
 
   it('calls label create --force before the label flip', async () => {

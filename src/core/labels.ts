@@ -56,14 +56,22 @@ export function labelValue(label: string, prefix: string): string | undefined {
 /** `taskcell-x` → both marker names, for building comment-marker regexes: `(?:taskcell|vanguard)-x`. */
 export const MARKER_PREFIX_RE = '(?:taskcell|vanguard)';
 
+const IN_FLIGHT: ReadonlySet<string> = new Set(['taskcell:running', 'taskcell:revising', 'taskcell:reviewing']);
+
 /**
  * What to pass to `--remove-label` for `remove`: a label with a legacy twin is removed under whichever spelling
  * the item actually carries (`present`, fetched lazily — only when needed; GitHub label names are
  * case-insensitive). A blind remove of a label the repo never created makes `gh ... edit` fail, so a label the
  * item lacks is dropped (a no-op) — the result can be empty, and the caller must then skip the edit. Falls back
- * to the names as given when `present` fails.
+ * to the names as given when `present` fails. `onSkip` hears each in-flight label (running, revising, reviewing)
+ * dropped because the item does not show it, so one that stays on can be diagnosed; other labels are routinely
+ * absent (a hand-back clears holds the item rarely has) and are dropped silently.
  */
-export async function resolveRemovals(remove: ReadonlyArray<string>, present: () => Promise<ReadonlyArray<string>>): Promise<string[]> {
+export async function resolveRemovals(
+  remove: ReadonlyArray<string>,
+  present: () => Promise<ReadonlyArray<string>>,
+  onSkip?: (label: string) => void,
+): Promise<string[]> {
   if (!remove.some((l) => labelForms(l).length > 1)) return [...remove];
   let have: ReadonlyArray<string>;
   try {
@@ -74,7 +82,10 @@ export async function resolveRemovals(remove: ReadonlyArray<string>, present: ()
   return [...new Set(remove.flatMap((l) => {
     const forms = labelForms(l).map((form) => form.toLowerCase());
     // A label without a twin passes through unchecked; one with a twin is removed as the item spells it.
-    return forms.length < 2 ? [l] : have.filter((name) => forms.includes(name.toLowerCase()));
+    if (forms.length < 2) return [l];
+    const held = have.filter((name) => forms.includes(name.toLowerCase()));
+    if (held.length === 0 && IN_FLIGHT.has(forms[0]!)) onSkip?.(l);
+    return held;
   }))];
 }
 
@@ -83,14 +94,22 @@ export async function resolveRemovals(remove: ReadonlyArray<string>, present: ()
  * repo set up before the rename has only the `vanguard` spellings. A label with a legacy twin is added under the
  * spelling the repo has (the current one when it has both; the legacy one for the review trigger, see
  * REVIEW_TRIGGER_LABEL); when it has neither, that preferred spelling is created first. The repo's labels are
- * listed lazily (only when a label has a twin). Falls back to the names as given when they cannot be listed.
+ * listed lazily (only when a label has a twin); names compare case-insensitively and the repo's own spelling is
+ * returned. When they cannot be listed, the names are returned as given; those also named in `ensure` are first
+ * force-created (best effort), for the callers whose add must land on a repo that lacks the label.
  */
-export async function resolveAdds(add: ReadonlyArray<string>, repoSlug: string, gh: (args: string[]) => Promise<string>): Promise<string[]> {
+export async function resolveAdds(
+  add: ReadonlyArray<string>,
+  repoSlug: string,
+  gh: (args: string[]) => Promise<string>,
+  ensure: ReadonlyArray<string> = [],
+): Promise<string[]> {
   if (!add.some((l) => labelForms(l).length > 1)) return [...add];
   let have: ReadonlyArray<string>;
   try {
     have = (JSON.parse(await gh(['label', 'list', '--repo', repoSlug, '--limit', '1000', '--json', 'name'])) as { name: string }[]).map((l) => l.name);
   } catch {
+    for (const label of add) if (ensure.includes(label)) await gh(['label', 'create', label, '--repo', repoSlug, '--force']).catch(() => undefined);
     return [...add];
   }
   const resolved: string[] = [];
@@ -101,7 +120,7 @@ export async function resolveAdds(add: ReadonlyArray<string>, repoSlug: string, 
       continue;
     }
     const preferred = legacy === REVIEW_TRIGGER_LABEL ? [legacy, current] : [current, legacy];
-    const found = preferred.find((form) => have.includes(form));
+    const found = preferred.map((form) => have.find((name) => typeof name === 'string' && name.toLowerCase() === form.toLowerCase())).find((name) => name !== undefined);
     // No `--force`: it would reset an existing label's color. A failed create surfaces as the failed add.
     if (found === undefined) await gh(['label', 'create', preferred[0]!, '--repo', repoSlug]).catch(() => undefined);
     resolved.push(found ?? preferred[0]!);

@@ -78,6 +78,21 @@ describe('resumeRateLimited', () => {
     expect(edits).toEqual([]);
   });
 
+  it('creates no label when the repo labels cannot be listed: the trigger is re-applied as the marker names it', async () => {
+    const { gh: base, edits } = fakeGh([{ kind: 'issue', number: 6, comments: [owner(rateLimitedMarker(PAST, 'ready for taskcell review'))] }]);
+    const others: string[][] = [];
+    const gh: GhRunner = async (args) => {
+      if (args[0] !== 'label') return base(args);
+      others.push(args);
+      if (args[1] === 'list') throw new Error('gh: 403');
+      return '';
+    };
+    const report = await resumeRateLimited({ repoSlug: 'o/r', now: NOW, gh, log: () => {} });
+    expect(report.resumed).toEqual(['o/r#6']);
+    expect(others.filter((c) => c[1] === 'create')).toEqual([]);
+    expect(edits.at(-1)).toEqual(['issue', 'edit', '6', '--repo', 'o/r', '--add-label', 'ready for taskcell review']);
+  });
+
   it('releases the hold under the spelling the item carries, and sends no empty edit when it is already gone', async () => {
     // The hold is re-read just before the release: `after` is what that second view returns.
     const run = async (after: string[]): Promise<{ report: Awaited<ReturnType<typeof resumeRateLimited>>; edits: string[][] }> => {

@@ -41,6 +41,12 @@ describe('label spellings (taskcell written, vanguard still read)', () => {
     expect(await resolveRemovals(['taskcell:waiting'], async () => ['Vanguard:Waiting'])).toEqual(['Vanguard:Waiting']); // label names are case-insensitive
     expect(await resolveRemovals(['taskcell:waiting', 'needs info'], async () => ['needs info'])).toEqual(['needs info']); // the item lacks either spelling: no-op
     expect(await resolveRemovals(['taskcell:waiting'], async () => { throw new Error('gh down'); })).toEqual(['taskcell:waiting']);
+    const skipped: string[] = [];
+    expect(await resolveRemovals(['taskcell:running', 'needs info'], async () => ['x'], (l) => skipped.push(l))).toEqual(['needs info']);
+    expect(skipped).toEqual(['taskcell:running']);
+    // only in-flight labels are reported: a hold the item rarely carries is dropped silently
+    expect(await resolveRemovals(['taskcell:rate-limited', 'vanguard:revising', 'taskcell:reviewing'], async () => [], (l) => skipped.push(l))).toEqual([]);
+    expect(skipped).toEqual(['taskcell:running', 'vanguard:revising', 'taskcell:reviewing']);
     let fetched = false;
     expect(await resolveRemovals(['needs info'], async () => { fetched = true; return []; })).toEqual(['needs info']);
     expect(fetched).toBe(false);
@@ -84,6 +90,30 @@ describe('label spellings (taskcell written, vanguard still read)', () => {
       const { gh, calls } = repo([]);
       expect(await resolveAdds(['ready for taskcell review'], 'o/r', gh)).toEqual(['ready for vanguard review']);
       expect(creates(calls)).toEqual([['label', 'create', 'ready for vanguard review', '--repo', 'o/r']]);
+    });
+
+    it('compares case-insensitively and returns the repo spelling, creating no twin', async () => {
+      const { gh, calls } = repo(['Vanguard:Secret-Blocked']);
+      expect(await resolveAdds(['taskcell:secret-blocked'], 'o/r', gh)).toEqual(['Vanguard:Secret-Blocked']);
+      expect(creates(calls)).toEqual([]);
+    });
+
+    it('force-creates only the labels the caller asked to ensure when the repo labels cannot be listed', async () => {
+      const { gh, calls } = repo(new Error('gh down'));
+      expect(await resolveAdds(['taskcell:waiting', 'taskcell:running', 'needs info'], 'o/r', gh, ['taskcell:waiting'])).toEqual(['taskcell:waiting', 'taskcell:running', 'needs info']);
+      expect(creates(calls)).toEqual([['label', 'create', 'taskcell:waiting', '--repo', 'o/r', '--force']]);
+    });
+
+    it('creates nothing when the repo labels cannot be listed and the caller ensures no label', async () => {
+      const { gh, calls } = repo(new Error('gh down'));
+      expect(await resolveAdds(['taskcell:running', 'ready for taskcell review'], 'o/r', gh)).toEqual(['taskcell:running', 'ready for taskcell review']);
+      expect(creates(calls)).toEqual([]);
+    });
+
+    it('does not force-create an ensured label when the list succeeds', async () => {
+      const { gh, calls } = repo(['vanguard:waiting']);
+      expect(await resolveAdds(['taskcell:waiting'], 'o/r', gh, ['taskcell:waiting'])).toEqual(['vanguard:waiting']);
+      expect(creates(calls)).toEqual([]);
     });
 
     it('lists the repo labels only for a label with a legacy twin, and falls back to the names as given', async () => {

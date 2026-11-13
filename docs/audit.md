@@ -91,5 +91,5 @@ the anchor of the chain (its `prev` is not checked). The live file and the metri
 
 **Upgrade note.** Legacy numeric-suffix files (`audit.jsonl.1`, `.2`, …) written before the timestamped
 rotation are never removed by the age prune; only the count limit (50) applies to them, oldest first. A lock path
-that is a directory is cleared with a warning. When appending, a rotated sibling that is a symlink is skipped with a warning (it
-only feeds the chain-tail lookup); `verify`, `export` and history still refuse it. A line that is not a JSON object is skipped (with a warning on the append path), and a rotated file that cannot be read is treated as empty with a warning.
+that is a directory is cleared with a warning once it is stale (older than 10 s); until then an append waits on it like on a live lock. When appending, a rotated sibling that is a symlink is skipped with a warning (it
+only feeds the chain-tail lookup); `verify`, `export` and history still refuse it. A line that is not a JSON object is skipped (with a warning on the append path; warnings are printed once per distinct message). On the metrics branch the skip means the next push rewrites the file without that line, erasing it; `verify` still reports the line. A rotated file that cannot be read is treated as empty with a warning.

@@ -700,8 +700,7 @@ async function markGithubIssueRateLimited(
   gh?: GhRunner,
 ): Promise<void> {
   const hold = rateLimitHold(error, trigger);
-  await (gh ?? defaultGhRunner)(['label', 'create', GITHUB_RATE_LIMITED_LABEL, '--repo', repo, '--force']).catch(() => undefined);
-  await editGithubLabels(repo, id, { remove: [claimedLabel], add: [GITHUB_RATE_LIMITED_LABEL] }, gh);
+  await editGithubLabels(repo, id, { remove: [claimedLabel], add: [GITHUB_RATE_LIMITED_LABEL], ensure: [GITHUB_RATE_LIMITED_LABEL] }, gh);
   // A usage-cap pause is not a failure: only the hold notice, no "run failed" text.
   await commentGithubIssue(repo, id, error instanceof UsageCapError ? hold.comment : `${failureComment}\n\n${hold.comment}`, gh);
 }
@@ -846,16 +845,15 @@ export function githubIssueWatchPrimitives(opts: WatchGithubOptions): WatchPrimi
     // human re-applies the trigger — what the base-red comment asks for. No no-change comment.
     onBaseRed: (id) => editGithubLabels(repo, id, { remove: [opts.claimedLabel] }, opts.gh),
     // One edit swaps claimed -> secret-blocked, so the claim is never released without the hold
-    // label landing. `gh issue edit --add-label` fails on a label the repo never created, and the
-    // adapter only pre-creates it when it posts findings (not in white-label mode), so ensure it
-    // here first (best-effort, the same pre-step as addPrFailureLabel). If the swap fails it throws
+    // label landing. `gh issue edit --add-label` fails on a label the repo never created, so the edit
+    // creates it when the repo has neither spelling (forced when the labels cannot be listed;
+    // best-effort, as in addPrFailureLabel). If the swap fails it throws
     // into onFailure and the claimed marker stays. The trigger label was removed on claim and is
     // not restored; the comment names the label to re-apply. Same in white-label mode: the claim
     // label is already the watch's own marker, and a white-label adapter posts no findings, so this
     // comment is the human's only signal.
     onSecretBlocked: async (id) => {
-      await (opts.gh ?? defaultGhRunner)(['label', 'create', GITHUB_SECRET_BLOCKED_LABEL, '--repo', repo, '--force']).catch(() => undefined);
-      await editGithubLabels(repo, id, { remove: [opts.claimedLabel], add: [GITHUB_SECRET_BLOCKED_LABEL] }, opts.gh);
+      await editGithubLabels(repo, id, { remove: [opts.claimedLabel], add: [GITHUB_SECRET_BLOCKED_LABEL], ensure: [GITHUB_SECRET_BLOCKED_LABEL] }, opts.gh);
       await commentGithubIssue(
         repo,
         id,

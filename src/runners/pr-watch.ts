@@ -135,16 +135,19 @@ function eligiblePullRequests(
   });
 }
 
-async function editPullRequestLabels(
+export async function editPullRequestLabels(
   gh: GhRunner,
   repoSlug: string,
   number: number,
-  labels: { add?: string[]; remove?: string[] },
+  labels: { add?: string[]; remove?: string[]; ensure?: string[] },
+  log: (line: string) => void = console.log,
 ): Promise<string> {
   const args = ['pr', 'edit', String(number), '--repo', repoSlug];
   const present = async (): Promise<string[]> => labelNames((JSON.parse(await gh(['pr', 'view', String(number), '--repo', repoSlug, '--json', 'labels'])) as GhPullRequestListItem).labels);
-  for (const label of await resolveRemovals(labels.remove ?? [], present)) args.push('--remove-label', label);
-  for (const label of await resolveAdds(labels.add ?? [], repoSlug, gh)) args.push('--add-label', label);
+  for (const label of await resolveRemovals(labels.remove ?? [], present, (label) => log(`watch-prs ${repoSlug}#${number}: not removing ${label} -> the PR's labels do not show it`))) args.push('--remove-label', label);
+  for (const label of await resolveAdds(labels.add ?? [], repoSlug, gh, labels.ensure)) args.push('--add-label', label);
+  // Nothing left to change (the PR lacks every label to remove): `gh pr edit` without a field flag fails.
+  if (args.length === 5) return '';
   return gh(args);
 }
 
@@ -267,28 +270,28 @@ export function githubPullRequestWatchPrimitives(opts: GitHubPullRequestWatchOpt
       editPullRequestLabels(gh, item.repoSlug, item.number, {
         remove: hasLabel(item.labels, GITHUB_RATE_LIMITED_LABEL) ? [opts.label, GITHUB_RATE_LIMITED_LABEL] : [opts.label],
         add: [opts.reviewingLabel],
-      }).then(() => {}),
+      }, opts.log).then(() => {}),
     review: (item) => opts.reviewOne(item),
     markReviewed: (item) =>
       editPullRequestLabels(gh, item.repoSlug, item.number, {
         remove: [opts.reviewingLabel],
         add: [opts.reviewedLabel],
-      }).then(() => {}),
+      }, opts.log).then(() => {}),
     onFailure: async (item, error) => {
       if (isRateLimitHold(error)) {
         const hold = rateLimitHold(error, opts.label);
-        await gh(['label', 'create', GITHUB_RATE_LIMITED_LABEL, '--repo', item.repoSlug, '--force']).catch(() => undefined);
         await editPullRequestLabels(gh, item.repoSlug, item.number, {
           remove: [opts.reviewingLabel],
           add: [GITHUB_RATE_LIMITED_LABEL],
-        });
+          ensure: [GITHUB_RATE_LIMITED_LABEL],
+        }, opts.log);
         await commentPullRequest(item, hold.comment, gh);
         return;
       }
       await editPullRequestLabels(gh, item.repoSlug, item.number, {
         remove: [opts.reviewingLabel],
         add: [opts.label],
-      });
+      }, opts.log);
     },
   };
 }
