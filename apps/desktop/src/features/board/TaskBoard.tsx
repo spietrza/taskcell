@@ -138,6 +138,9 @@ export function TaskBoard({
                               {t.chips.map((chip) => <span key={chip.key} className={cn('rounded px-1.5 py-0.5 text-[11px]', Object.hasOwn(CHIP_TONE, chip.tone) ? CHIP_TONE[chip.tone] : 'bg-slate-400/15 text-muted-foreground')}>{chip.label}</span>)}
                             </div>
                           )}
+                          {t.baseBranch && (
+                            <div className="pt-0.5 font-mono text-[11px] text-muted-foreground">→ {t.baseBranch}</div>
+                          )}
                           {t.state && t.state !== col.key && (
                             <div className="pt-0.5 text-[11px] text-muted-foreground">{t.state}</div>
                           )}

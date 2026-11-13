@@ -163,6 +163,9 @@ export function NeedsYou({ project, allRepos = false }: { project: string; allRe
               <Chip color="secondary" variant="outlined">
                 {item.kind === 'pr' ? 'PR' : 'Task'} <span className="font-mono tabular-nums">#{item.number}</span>
               </Chip>
+              {item.baseBranch && (
+                <span className="font-mono text-xs text-muted-foreground" title="target branch">→ {item.baseBranch}</span>
+              )}
               <Chip color="warning" variant="outlined" title={item.reason}>
                 {REASON_TEXT[item.reason] ?? item.reason}
               </Chip>

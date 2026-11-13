@@ -10,6 +10,7 @@ import type { RunDetail as RunDetailT } from '../../taskcell-output';
 
 export function RunDetail({ detail, project }: { detail: RunDetailT; project: string }) {
   const [tab, setTab] = useState('overview');
+  const baseBranch = detail.stages.find((s) => s.record.baseBranch !== undefined)?.record.baseBranch;
   const diffStages = detail.stages.filter((s) => s.diff || s.record.diffOmitted);
   const transcriptStages = detail.stages.filter((s) => s.transcript);
 
@@ -28,6 +29,11 @@ export function RunDetail({ detail, project }: { detail: RunDetailT; project: st
       </Tabs.List>
 
       <Tabs.Panel value="overview" className="min-h-0 flex-1 space-y-3 overflow-y-auto pt-4">
+        {baseBranch && (
+          <div className="text-sm text-muted-foreground">
+            Target branch <code className="rounded bg-muted px-1 py-0.5">{baseBranch}</code>
+          </div>
+        )}
         {(detail.prUrl !== undefined || detail.ciUrl !== undefined) && (
           <div className="flex flex-wrap gap-3">
             {detail.prUrl !== undefined && (
@@ -51,7 +57,7 @@ export function RunDetail({ detail, project }: { detail: RunDetailT; project: st
       <Tabs.Panel value="diff" className="min-h-0 flex-1 space-y-4 overflow-y-auto pt-4">
         {detail.diffUrl !== undefined && (
           <ExternalLink href={detail.diffUrl}>
-            {detail.diffUrl.endsWith('/diffs') ? 'Changes on GitLab' : 'Files changed on GitHub'}
+            {hostName(detail.diffUrl) === 'GitLab' ? 'Changes on GitLab' : 'Files changed on GitHub'}
           </ExternalLink>
         )}
         {diffStages.length === 0 && <DiffView />}

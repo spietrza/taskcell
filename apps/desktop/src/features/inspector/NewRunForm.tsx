@@ -61,7 +61,7 @@ export function NewRunForm({
   const [provider, setProvider] = useState(capabilities.defaults.provider);
   const [flow, setFlow] = useState(capabilities.flows[0]?.name ?? 'default');
   const [maxTurns, setMaxTurns] = useState(String(capabilities.defaults.maxTurns));
-  const [baseBranch, setBaseBranch] = useState(capabilities.defaults.baseBranch);
+  const [baseBranch, setBaseBranch] = useState('');  // blank ⇒ the card's target branch, else the repo default
   // Repo .taskcell/flows/*.hcl flows (S5 §21). Fetched fresh on every form open — deliberately NOT
   // session-cached like capabilities: repo flows are mutable state, and a flow saved in the
   // Workflow screen must be runnable here immediately. 'error' = degraded: built-ins still work,
@@ -94,7 +94,7 @@ export function NewRunForm({
 
   const maxTurnsNum = Number(maxTurns);
   // Mirrors validateCreateRun (sidecar): non-blank issueRef, positive-integer maxTurns, non-blank base.
-  const valid = issueRef.trim() !== '' && Number.isInteger(maxTurnsNum) && maxTurnsNum > 0 && baseBranch.trim() !== '';
+  const valid = issueRef.trim() !== '' && Number.isInteger(maxTurnsNum) && maxTurnsNum > 0;
 
   const params: CreateRunParams = {
     issueRef: issueRef.trim(),
@@ -103,7 +103,7 @@ export function NewRunForm({
     provider,
     flow,
     maxTurns: maxTurnsNum,
-    baseBranch: baseBranch.trim(),
+    ...(baseBranch.trim() !== '' ? { baseBranch: baseBranch.trim() } : {}),
   };
   const preview = `taskcell run --${transport} ${issueRef || '<issue>'} --provider ${provider}${flow === 'plan' ? ' --plan' : ''} --max-turns ${maxTurns}`;
 
@@ -131,7 +131,7 @@ export function NewRunForm({
           </label>
           <label className="flex items-center gap-1 text-xs text-muted-foreground">
             base
-            <Input value={baseBranch} onChange={(e) => setBaseBranch(e.target.value)} className="w-28" />
+            <Input value={baseBranch} onChange={(e) => setBaseBranch(e.target.value)} placeholder="card / repo default" className="w-36" />
           </label>
         </Collapsible.Panel>
       </Collapsible.Root>

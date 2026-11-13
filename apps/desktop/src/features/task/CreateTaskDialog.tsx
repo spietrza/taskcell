@@ -12,6 +12,9 @@ export function CreateTaskDialog({
   source,
   title,
   bodyBytes,
+  branches,
+  baseBranch,
+  onBaseBranch,
   busy,
   onConfirm,
   onCancel,
@@ -19,6 +22,11 @@ export function CreateTaskDialog({
   source: string;
   title: string;
   bodyBytes: number;
+  /** The repo's branches; empty ⇒ no choice is offered (the repo default applies). */
+  branches: string[];
+  /** The chosen target branch; '' ⇒ the repo default. */
+  baseBranch: string;
+  onBaseBranch: (branch: string) => void;
   busy: boolean;
   onConfirm: () => void;
   onCancel: () => void;
@@ -62,6 +70,25 @@ export function CreateTaskDialog({
             <dt className="w-16 shrink-0 text-muted-foreground">Body</dt>
             <dd className="tabular-nums text-muted-foreground">{bodyBytes} bytes</dd>
           </div>
+          {branches.length > 0 && (
+            <div className="flex items-center gap-2">
+              <dt className="w-16 shrink-0 text-muted-foreground">Target</dt>
+              <dd>
+                <select
+                  aria-label="Target branch"
+                  className="rounded border border-border bg-background px-1 py-0.5 font-mono text-xs"
+                  value={baseBranch}
+                  onChange={(e) => onBaseBranch(e.target.value)}
+                  disabled={busy}
+                >
+                  <option value="">repository default</option>
+                  {branches.map((b) => (
+                    <option key={b} value={b}>{b}</option>
+                  ))}
+                </select>
+              </dd>
+            </div>
+          )}
         </dl>
         <div className="mt-4 flex justify-end gap-2">
           <Button variant="text" color="secondary" onClick={onCancel} disabled={busy}>

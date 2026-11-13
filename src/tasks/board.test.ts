@@ -60,6 +60,25 @@ describe('isTriggerLabel', () => {
 });
 
 // ── toBoardTask waiting flag: label-sourced, present only for trigger-labelled + queued ─────────
+describe('toBoardTask target branch', () => {
+  const base: Task = { id: 'x', title: 'T', description: '', labels: [], children: [], comments: [] };
+  it('shows the card\'s vanguard:base= label', () => {
+    expect(toBoardTask('github', { ...base, ref: '1', state: 'open', labels: ['vanguard:base=uat'] }).baseBranch).toBe('uat');
+  });
+  it('shows none for conflicting labels (the run refuses them)', () => {
+    expect(toBoardTask('github', { ...base, ref: '1', state: 'open', labels: ['vanguard:base=dev', 'vanguard:base=uat'] }).baseBranch).toBeUndefined();
+  });
+  it('keeps the base label out of the column and the state chip', () => {
+    const t = toBoardTask('github', { ...base, ref: '1', state: 'open', labels: ['vanguard:base=review/done', 'bug'] });
+    expect(t.column).toBe('queued');
+    expect(t.state).toBe('bug');
+    expect(toBoardTask('github', { ...base, ref: '1', state: 'open', labels: ['vanguard:base=dev'] }).state).toBe('open');
+  });
+  it('shows none when the card names none', () => {
+    expect(toBoardTask('github', { ...base, ref: '1', state: 'open' }).baseBranch).toBeUndefined();
+  });
+});
+
 describe('toBoardTask waiting flag', () => {
   const base: Task = { id: 'x', title: 'T', description: '', labels: [], children: [], comments: [] };
 

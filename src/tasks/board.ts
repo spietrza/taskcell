@@ -1,6 +1,7 @@
+import { isBaseLabel, shownBaseFromLabels } from '../core/base-branch.js';
+import { httpsUrl } from '../core/links.js';
 import type { BoardTask } from '../wire.js';
 import type { Task } from './fetcher.js';
-import { httpsUrl } from '../core/links.js';
 
 /**
  * The board read path (S9) — ported 1:1 from the retired Rust implementation
@@ -109,8 +110,12 @@ export function resolveTaskRef(taskId: string): ResolvedTaskRef | undefined {
  */
 export function toBoardTask(source: BoardSource, task: Task): BoardTask {
   const state = task.state ?? '';
-  const combined = `${task.labels.join(' ')} ${state}`;
+  // A `vanguard:base=` label names a branch (`uat`, `review/x`), not a state: it must not move the card or be its chip.
+  const stateLabels = task.labels.filter((l) => !isBaseLabel(l));
+  const combined = `${stateLabels.join(' ')} ${state}`;
   const column = columnFor(combined);
+  // Display only: a malformed or conflicting label shows nothing here and is refused when the run starts.
+  const baseBranch = shownBaseFromLabels(task.labels);
   // Waiting = a human asked for the factory and nothing has claimed it yet. LABEL-sourced, not
   // state-sourced: the flag answers "is this queued for a trigger-label watch loop".
   const waiting = column === 'queued' && task.labels.some(isTriggerLabel);
@@ -119,10 +124,11 @@ export function toBoardTask(source: BoardSource, task: Task): BoardTask {
     id: mintBoardId(source, task.ref ?? task.id),
     title: task.title,
     column,
-    state: source === 'linear' ? state : (task.labels[0] ?? state),
+    state: source === 'linear' ? state : (stateLabels[0] ?? state),
     source,
     ...(waiting ? { waiting: true } : {}),
     ...(url !== undefined ? { url } : {}),
+    ...(baseBranch !== undefined ? { baseBranch } : {}),
   };
 }
 

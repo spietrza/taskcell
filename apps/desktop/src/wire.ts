@@ -246,6 +246,8 @@ export interface BoardTask {
   stage?: string;
   /** Latest run's per-stage/gate verdicts. Absent ⇒ no run record for this task. */
   chips?: BoardChip[];
+  /** The branch this card's PR targets: its `vanguard:base=` label, else the repo default. Absent when neither is set (`main`). */
+  baseBranch?: string;
   /** The tracker the card came from; names the "Open in …" link. */
   source?: 'github' | 'gitlab' | 'linear';
   /** The issue's address in that tracker, as the tracker returned it. Absent ⇒ no link. */
@@ -315,6 +317,8 @@ export interface RunRecord {
   /** The `<findings>` block this stage emitted (the shape the repair gate consumes). Absent when
    *  the stage emitted none, and withheld entirely when `diffOmitted` is set. */
   findings?: Finding[];
+  /** The branch the run's PR targets. Absent on records written before the target branch was recorded. */
+  baseBranch?: string;
 }
 
 export interface Proof {
@@ -490,6 +494,10 @@ export interface AppConfig {
   /** Doc-editor chat model (Subsystem 3), e.g. `claude-sonnet-5`. Non-secret; key is env-only. */
   chatModel?: string | null;
   chatBaseUrl?: string | null;
+  /** Repository default target branch for pull requests; unset = `main`. */
+  baseBranch?: string | null;
+  /** Extra branches a card's `vanguard:base=` label may select, besides the default. Unset = only the default. */
+  baseBranches?: string[] | null;
   /** Opaque JSON preserved by Rust and the hub, including invalid entries and unknown keys — see
    * `CustomProviderSpec` for the shape a valid entry has. */
   customProviders?: unknown;
@@ -537,6 +545,8 @@ export interface NeedsYouItem {
   baseRef?: string;
   /** The factory's own last comment, redacted; untrusted, render as plain text. Absent when it never commented. */
   lastComment?: { author: string; body: string };
+  /** The branch the PR targets (a PR's base), or the one the card asks for (`vanguard:base=`). Absent when unknown. */
+  baseBranch?: string;
 }
 
 /** A Fleet-screen spawned process (Fleet is enabled only on the desktop app's local hub). */
@@ -689,7 +699,7 @@ export interface Commands {
   /** `runId` cancels exactly that run (active or queued). The hub REQUIRES it (an id-less cancel
    * could hit another project's run); Tauri ignores it and cancels its one active run (no queue). */
   api_cancel: { args: { runId?: string }; result: void };
-  api_create_task: { args: { repoPath: string; title: string; body: string }; result: CreatedTask };
+  api_create_task: { args: { repoPath: string; title: string; body: string; baseBranch?: string }; result: CreatedTask };
   api_list_flows: { args: { repoPath: string }; result: { flows: RepoFlowInfo[] } };
   api_list_providers: { args: { repoPath: string }; result: { providers: RepoProviderInfo[] } };
   api_read_flow: { args: { repoPath: string; file: string }; result: { doc: FlowDoc; source: string } };
@@ -735,6 +745,8 @@ export interface Commands {
   enable_factory_secret: { args: { repoPath: string; plan: FactoryPlan }; result: FactorySecretStep };
   /** HUB_ONLY: dispatch the doctor workflow (once the PR above is merged) and report the run that dispatch created. */
   enable_factory_verify: { args: { repoPath: string; plan: FactoryPlan }; result: FactoryVerifyResult };
+  /** HUB_ONLY, read-only: the target branches a card may name (repo default + `baseBranches` allowlist) and the configured default, for the new-card form. */
+  list_branches: { args: { repoPath: string }; result: { branches: string[]; default?: string } };
   /** HUB_ONLY, read-only: installed vs latest claude/codex/cursor CLI in the local sandbox image (3-day soak applied; `enabled: false`, and no lookups, when VANGUARD_CLI_VERSION_CHECK is off). Refused on a non-loopback bind without VANGUARD_HUB_ALLOW_ADD. */
   agent_cli_versions: { args: undefined; result: CliVersionReport };
 }
@@ -806,6 +818,7 @@ export const COMMAND_NAMES = [
   'enable_factory_secret',
   'enable_factory_verify',
   'agent_cli_versions',
+  'list_branches',
 ] as const satisfies readonly (keyof Commands)[];
 type _Exhaustive = keyof Commands extends (typeof COMMAND_NAMES)[number]
   ? true

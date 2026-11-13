@@ -20,6 +20,7 @@ import { assertWithinBrowseRoot, browseDirs } from './browse.js';
 import { cloneProject } from './clone.js';
 import { listNeedsYou, mergeNeedsYou, replyNeedsYou, MAX_COMMENT_FETCHES } from './needs-you.js';
 import { detectRepoSlug } from '../runners/github.js';
+import { BASE_LABEL_PREFIX, assertAllowedBase, assertSafeBaseBranch, readAllowedBases, readRepoBaseBranch } from '../core/base-branch.js';
 import type { ErrorKind } from '../hub-wire.js';
 import { defaultRunsRoot, remoteRunsRoot, listRunSummaries, readRunDetail } from './runs.js';
 import { readRunEvents } from './run-events.js';
@@ -34,6 +35,9 @@ import * as teams from './teams.js';
 import * as remote from './remote.js';
 import { startGithubTask, triggerLabelsFor } from './start-task.js';
 import { enableFactory, factoryPlanTargets, noScripts, type FactoryPlan, type FactoryProviderId } from './enable-factory.js';
+
+/** GitHub's cap on a label name. */
+const MAX_LABEL_LENGTH = 50;
 
 export class UnknownCommandError extends BadRequestError {}
 
@@ -291,6 +295,12 @@ export async function dispatchRpc(ctx: RpcContext, cmd: string, rawArgs: unknown
       const real = await ctx.allowlist.assertAllowed(requireString(args, 'repoPath'));
       const config = args.config;
       if (typeof config !== 'object' || config === null) throw new BadRequestError('config is required');
+      // A repository default or label-allowlist entry that git would misread is refused before it is saved,
+      // not at the next run (one unsafe allowlist entry would refuse every labelled run and list_branches).
+      const { baseBranch, baseBranches } = config as AppConfig;
+      for (const b of [baseBranch, ...(Array.isArray(baseBranches) ? baseBranches : [])]) {
+        if (typeof b === 'string' && b.trim() !== '') assertSafeBaseBranch(b.trim());
+      }
       await writeAppConfig(real, config as AppConfig);
       return null;
     }
@@ -412,15 +422,34 @@ export async function dispatchRpc(ctx: RpcContext, cmd: string, rawArgs: unknown
       // The client never chooses the tracker: source/team/label are read server-side from app.json.
       // `createTask`'s own validator (not a re-typed check here) rejects a bad source/missing team.
       const cfg = await readAppConfig(real);
+      // The target branch rides on the card as a `vanguard:base=<branch>` label, so a run started from CI
+      // or `watch` sees it too. Refused here when unsafe or not allowlisted (the run would refuse it) — before
+      // anything is created, with no undo.
+      // Blank means unset (as in app.json). The label must survive the tracker: GitHub caps a label name at
+      // 50 characters, and GitLab takes labels as a comma-separated list.
+      const baseBranch = optionalString(args, 'baseBranch')?.trim() || undefined;
+      let baseLabel: string | undefined;
+      if (baseBranch !== undefined) {
+        assertSafeBaseBranch(baseBranch);
+        baseLabel = `${BASE_LABEL_PREFIX}${baseBranch}`;
+        if (baseLabel.length > MAX_LABEL_LENGTH || baseBranch.includes(',')) throw new BadRequestError(`baseBranch cannot be carried as a label (at most ${MAX_LABEL_LENGTH - BASE_LABEL_PREFIX.length} characters, no ",")`);
+        if ((cfg.source ?? 'github') === 'linear') throw new BadRequestError('a target branch cannot be carried on a Linear card yet — leave it unset');
+        assertAllowedBase(baseBranch, await readAllowedBases(real));
+      }
+      const labels = [cfg.label, baseLabel].filter((l): l is string => l !== undefined);
       const params: CreateTaskParams = {
         source: cfg.source ?? 'github',
         repoPath: real,
         title,
         body,
-        ...(cfg.label !== undefined ? { labels: [cfg.label] } : {}),
+        ...(labels.length > 0 ? { labels } : {}),
         ...(cfg.team !== undefined ? { team: cfg.team } : {}),
       };
       return invokeCoreMethod(ctx.deps, 'createTask', params);
+    }
+    case 'list_branches': {
+      const real = await ctx.allowlist.assertAllowed(requireString(args, 'repoPath'));
+      return listBranches(real);
     }
     case 'api_list_flows': {
       const real = await ctx.allowlist.assertAllowed(requireString(args, 'repoPath'));
@@ -591,4 +620,10 @@ export function classifyError(err: unknown): { message: string; kind: ErrorKind;
   const notFound = err instanceof UnknownCommandError;
   const { message, kind } = classifyCoreError(err);
   return { message, kind, notFound };
+}
+
+/** The targets a card may name (the allowlist a run enforces, see readAllowedBases), plus the repo's configured default. */
+async function listBranches(repoPath: string): Promise<{ branches: string[]; default?: string }> {
+  const [allowed, dflt] = await Promise.all([readAllowedBases(repoPath), readRepoBaseBranch(repoPath)]);
+  return { branches: [...allowed].sort(), ...(dflt !== undefined ? { default: dflt } : {}) };
 }

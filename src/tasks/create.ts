@@ -1,4 +1,5 @@
 import { execa } from 'execa';
+import { BASE_LABEL_PREFIX } from '../core/base-branch.js';
 import { TaskcellError } from '../core/errors.js';
 import { linearGraphql } from './linear-cli.js';
 import { neutralizeQuickActions } from './gitlab.js';
@@ -97,7 +98,13 @@ export async function createGithubIssue(
 ): Promise<CreatedTask> {
   assertCreatable(input);
   const args = ['issue', 'create', '--title', input.title, '--body-file', '-'];
-  for (const label of input.labels ?? []) args.push('--label', label);
+  for (const label of input.labels ?? []) {
+    // `gh issue create --label` fails on a label that does not exist; a card's target branch is a new one per branch.
+    // Tolerant like addPrGateLabel: the label may already exist and the token may not manage labels;
+    // `gh issue create` is the step that must succeed.
+    if (label.startsWith(BASE_LABEL_PREFIX)) await run('gh', ['label', 'create', label, '--force'], { cwd: repoPath }).catch(() => undefined);
+    args.push('--label', label);
+  }
   const url = issueUrl(await run('gh', args, { cwd: repoPath, stdin: input.body }), 'gh issue create');
   return { id: refFromIssueUrl(url, 'gh issue create'), url };
 }

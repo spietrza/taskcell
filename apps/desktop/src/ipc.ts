@@ -310,8 +310,13 @@ export function apiCancelComplete(callId: string): Promise<void> {
  * Only title/body cross: `source`, `team` and `label` are read from app.json in Rust. The renderer does
  * not choose which tracker gets written to. (Same rule as CompleteCallArgs — and it matters more here.)
  */
-export function apiCreateTask(repoPath: string, title: string, body: string): Promise<import('./wire').CreatedTask> {
-  return call('api_create_task', { repoPath, title, body });
+export function apiCreateTask(repoPath: string, title: string, body: string, baseBranch?: string): Promise<import('./wire').CreatedTask> {
+  return call('api_create_task', { repoPath, title, body, ...(baseBranch !== undefined ? { baseBranch } : {}) });
+}
+
+/** HUB_ONLY: the target branches a card may name and the configured default, for the new-card form. */
+export function apiListBranches(repoPath: string): Promise<{ branches: string[]; default?: string }> {
+  return call('list_branches', { repoPath });
 }
 
 /** Composer `@`-mention autocomplete (Editor UX 7/7): the project repo's tracked files, capped. */
