@@ -20,7 +20,7 @@ import {
 } from './pr-review.js';
 import type { GhRunner } from '../tasks/github.js';
 import type { PullRequestForReview } from './pr-review.js';
-import { REREVIEW_MALFORMED_NOTE } from './re-review.js';
+import { mergeOnlyMarker, REREVIEW_MALFORMED_NOTE } from './re-review.js';
 
 /** Raw `gh pr view --json` payload, defaulted to the "Fix auth" PR used throughout this file. */
 function ghPrView(overrides: Record<string, unknown> = {}): string {
@@ -591,7 +591,7 @@ describe('incremental re-review', () => {
   const rereview = (obj: unknown): string => `<rereview>${JSON.stringify(obj)}</rereview>`;
   const prevRow = (status: string, blocking = true): object => ({ id: '1', title: 'null deref', blocking, status, evidence: 'see auth.ts' });
 
-  function reGh(head: string, opts: { reviews?: unknown[]; since?: string | Error } = {}): { calls: string[][]; gh: GhRunner } {
+  function reGh(head: string, opts: { reviews?: unknown[]; since?: string | Error; summary?: string } = {}): { calls: string[][]; gh: GhRunner } {
     const calls: string[][] = [];
     const reviews = opts.reviews ?? [{ author: { login: 'github-actions' }, body: prevBody, submittedAt: '2024-01-01T10:00:00Z' }];
     const gh: GhRunner = async (args) => {
@@ -601,7 +601,7 @@ describe('incremental re-review', () => {
           headRefOid: head,
           reviews: reviews.map((r) => ({ state: 'COMMENTED', ...(r as object) })),
           comments: [
-            { author: { login: 'github-actions' }, body: '## Revision Summary — o/r#12\nfixed', createdAt: '2024-01-02T10:00:00Z' },
+            { author: { login: 'github-actions' }, body: opts.summary ?? '## Revision Summary — o/r#12\nfixed', createdAt: '2024-01-02T10:00:00Z' },
             { author: { login: 'github-actions' }, body: '## Revision Summary — old', createdAt: '2023-12-01T10:00:00Z' },
           ],
         });
@@ -642,6 +642,17 @@ describe('incremental re-review', () => {
     expect(prompt).toContain('RE-REVIEW');
     expect(prompt).toContain('<previous_review>');
     expect(prompt).toContain('<diff_since_last_review>');
+  });
+
+  it.each([
+    ['spans exactly the reviewed head to the current one', 'aaa111', ['auth.ts']],
+    ['starts from another head (something else was pushed in between)', 'ccc333', ['auth.ts', 'other.ts']],
+  ])('merge-only round that %s: since-diff files %j', async (_n, from, files) => {
+    const since = 'diff --git a/auth.ts b/auth.ts\n+fix\ndiff --git a/other.ts b/other.ts\n+base\n';
+    const { gh } = reGh('bbb222', { since, summary: `## Revision Summary — o/r#12\n\n${mergeOnlyMarker({ from, to: 'bbb222', files: ['auth.ts'] })}` });
+    const reviewer = vi.fn().mockResolvedValue({ text: 'Verdict: NO BLOCKING FINDINGS', completed: true });
+    await reviewPullRequest('12', { repoSlug: 'o/r', gh, reviewer, log: () => {} });
+    expect((reviewer.mock.calls[0]![0] as PullRequestForReview).reReview?.changedFiles).toEqual(files);
   });
 
   it.each([

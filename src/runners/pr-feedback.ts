@@ -8,7 +8,7 @@ import type { PullRequestReviewTarget } from './pr-review.js';
 import type { GhRunner } from '../tasks/github.js';
 import { redactForPublish } from '../core/secret-scan.js';
 import { formatConflictFiles } from './base-merge.js';
-import { mergeOnlyFilesMarker } from './re-review.js';
+import { mergeOnlyMarker } from './re-review.js';
 
 export interface FeedbackItem {
   source: 'thread' | 'review' | 'comment';
@@ -519,7 +519,7 @@ export const revisionMarker = (headRefOid: string, whiteLabel = false, mergeOnly
   return whiteLabel ? `<!-- revision: ${tail} -->` : `<!-- taskcell-revision: ${tail} -->`;
 };
 
-/** Feedback that asks for nothing but a merge with the base (the same test revise-pr uses for a conflict finding). */
+/** Feedback that mentions a conflict. Wording only: it may let a round merge the base, never decide what the round did. */
 export const isConflictItem = (item: FeedbackItem): boolean => /\bconflict/i.test(item.body);
 
 const REFERENCE_KIND: Record<FeedbackItem['source'], string> = {
@@ -567,7 +567,7 @@ export interface RevisionSummaryInput {
   whiteLabel?: boolean;
   /** The base was merged into the branch this round (or, when `rebased`, the branch was rebased onto it); `files` are the conflicted files that were resolved. */
   mergedBase?: BaseResolution;
-  /** The round's only change is merging the base: it does not count toward the revision cap. */
+  /** The round changed nothing but the merge of the base (and the conflicted files it resolved): it does not count toward the revision cap. */
   mergeOnly?: boolean;
   /** The base could not be checked for conflicts this round (e.g. the fetch failed). */
   baseCheckSkipped?: { base: string; reason: string };
@@ -622,7 +622,7 @@ export function buildRevisionSummary(input: RevisionSummaryInput): string {
 
   if (input.mergeOnly === true) {
     lines.push('', '### Merge-only round', '', '- This round only merged the base into the branch, so it does not count toward the revision cap.');
-    if (input.mergedBase !== undefined && input.mergedBase.files.length > 0) lines.push('', mergeOnlyFilesMarker(input.mergedBase.files));
+    lines.push('', mergeOnlyMarker({ from: input.headRefOid, to: input.commitSha, files: input.mergedBase?.files ?? [] }));
   }
 
   if (input.baseCheckSkipped !== undefined) {

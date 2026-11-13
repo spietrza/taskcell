@@ -2303,7 +2303,7 @@ describe('runRevisePullRequest base conflicts', () => {
     await execa('git', ['push', 'origin', 'main'], { cwd: repo });
   }
 
-  async function run(sandboxFiles: Record<string, string>, opts: { body?: string; noop?: boolean; out?: string; headRef?: string; capped?: boolean } = {}): Promise<{
+  async function run(sandboxFiles: Record<string, string>, opts: { body?: string; noop?: boolean; only?: boolean; out?: string; headRef?: string; capped?: boolean } = {}): Promise<{
     result: Awaited<ReturnType<typeof runRevisePullRequest>>;
     ghCalls: string[][];
     pushed: string[];
@@ -2335,7 +2335,8 @@ describe('runRevisePullRequest base conflicts', () => {
     sandbox.copyIn = async () => { sandboxCalls.push('copyIn'); };
     sandbox.copyFileOut = async (sandboxPath: string, hostPath: string): Promise<void> => {
       if (opts.noop === true) return mkdir(hostPath, { recursive: true }).then(() => undefined);
-      await copyOut(sandboxPath, hostPath);
+      // `only`: the agent edits nothing but `sandboxFiles` (the default sandbox also writes fix.txt).
+      if (opts.only !== true) await copyOut(sandboxPath, hostPath);
       if (sandboxPath === '/workspace') for (const [f, c] of Object.entries(sandboxFiles)) await writeFile(join(hostPath, f), c);
     };
     const result = await runRevisePullRequest('7', {
@@ -2371,14 +2372,14 @@ describe('runRevisePullRequest base conflicts', () => {
 
   it('merge-only round past the cap still runs, says so, is not counted, and re-reviews incrementally after a resolved conflict', async () => {
     await diverge('shared.txt');
-    const { result, ghCalls, prompt } = await run({ 'shared.txt': 'both lines\n' }, { body: CONFLICT_ITEM, capped: true });
+    const { result, ghCalls, prompt } = await run({ 'shared.txt': 'both lines\n' }, { body: CONFLICT_ITEM, capped: true, only: true });
     expect(prompt).toContain('mid-merge');
     expect(result.pushed).toBe(true);
     expect(comments(ghCalls)).not.toContain('Revision cap reached');
     const text = comments(ghCalls);
     expect(text).toContain('### Merge-only round');
     expect(text).toContain('does not count toward the revision cap');
-    expect(text).toContain('<!-- merge-only-files: ["shared.txt"] -->');
+    expect(text).toMatch(/<!-- merge-only: \{"from":"deadbeef","to":"[0-9a-f]{40}","files":\["shared.txt"\]\} -->/);
     expect(text).toContain('<!-- taskcell-revision: deadbeef merge-only -->');
     expect(reReviewed(ghCalls)).toBe(true);
     expect(await baseMerges()).toEqual([expect.objectContaining({ repo: 'o/r', pr: 7, base: 'main', outcome: 'conflicted', conflictedFiles: ['shared.txt'], resolvedBy: 'agent', round: 'merge-only' })]);
@@ -2391,17 +2392,71 @@ describe('runRevisePullRequest base conflicts', () => {
     expect(comments(ghCalls)).toContain('Revision cap reached');
   });
 
-  it('merge-only round on a cleanly merging branch: merges without the agent, keeps the verdict (no re-review), records a clean merge', async () => {
+  it('merge-only round on a cleanly merging branch: the agent changes nothing, keeps the verdict (no re-review), records a clean merge', async () => {
     await cleanFeature();
-    const { result, ghCalls, parents, prompt } = await run({}, { body: CONFLICT_ITEM, capped: true });
-    expect(prompt).toBe('');
+    const { result, ghCalls, parents, prompt } = await run({}, { body: CONFLICT_ITEM, capped: true, noop: true });
+    expect(prompt).toContain(CONFLICT_ITEM); // the agent still gets the feedback
     expect(result.pushed).toBe(true);
+    expect(comments(ghCalls)).toMatch(/<!-- merge-only: \{"from":"deadbeef","to":"[0-9a-f]{40}","files":\[\]\} -->/);
     expect(parents[0]).toBe('1'); // the base was merged
     expect(comments(ghCalls)).toContain('git merged it cleanly');
     expect(comments(ghCalls)).toContain('### Merge-only round');
     expect(reReviewed(ghCalls)).toBe(false);
     expect(ghCalls.some((a) => a.includes('--remove-label') && (a.includes('taskcell:reviewed') || a.includes('vanguard:reviewed')))).toBe(false);
     expect(await baseMerges()).toEqual([expect.objectContaining({ outcome: 'clean', conflictedFiles: [], round: 'merge-only' })]);
+  });
+
+  // Feedback that merely mentions a conflict and asks for a code change is an ordinary round.
+  const REAL_ASK = 'This flag conflicts with `--verbose`, rename it.';
+
+  it('feedback that mentions a conflict but asks for a change is worked on, counted and re-reviewed', async () => {
+    await cleanFeature();
+    const { result, ghCalls, prompt, tree } = await run({}, { body: REAL_ASK });
+    expect(prompt).toContain(REAL_ASK);
+    expect(result.pushed).toBe(true);
+    expect(tree).toContain('fix.txt'); // the agent's change went out
+    expect(comments(ghCalls)).not.toContain('Merge-only round');
+    expect(comments(ghCalls)).not.toContain('merge-only');
+    expect(comments(ghCalls)).toContain('<!-- taskcell-revision: deadbeef -->');
+    expect(reReviewed(ghCalls)).toBe(true);
+  });
+
+  it('such a round is refused at the cap: nothing is pushed', async () => {
+    await cleanFeature();
+    const { result, ghCalls, pushed } = await run({}, { body: REAL_ASK, capped: true });
+    expect(result.pushed).toBe(false);
+    expect(pushed).toEqual([]);
+    expect(comments(ghCalls)).toContain('Revision cap reached');
+    expect(comments(ghCalls)).not.toContain('Revision Summary');
+  });
+
+  it('a `Findings to address:` list is never a merge-only ask, even when every bullet mentions a conflict', async () => {
+    await cleanFeature();
+    const { result, ghCalls } = await run({}, { body: 'Findings to address:\\n- resolve the conflict with main in a.ts', capped: true, noop: true }); // \\n: spliced into the JSON payload
+    expect(result.pushed).toBe(false);
+    expect(comments(ghCalls)).toContain('Revision cap reached');
+  });
+
+  it('conflict ask with the base already merged: the agent\'s push is an ordinary round and is re-reviewed', async () => {
+    await cleanFeature();
+    await execa('git', ['checkout', 'feature-branch'], { cwd: repo });
+    await execa('git', ['-c', 'user.email=t@t', '-c', 'user.name=t', 'merge', '--no-edit', 'main'], { cwd: repo });
+    await execa('git', ['checkout', 'main'], { cwd: repo });
+    const { result, ghCalls } = await run({}, { body: CONFLICT_ITEM });
+    expect(result.pushed).toBe(true);
+    expect(comments(ghCalls)).not.toContain('Merge-only round');
+    expect(comments(ghCalls)).toContain('<!-- taskcell-revision: deadbeef -->');
+    expect(reReviewed(ghCalls)).toBe(true);
+  });
+
+  it('conflict ask where the agent also edits a file that did not conflict: not merge-only, re-reviewed in full', async () => {
+    await diverge('shared.txt');
+    const { result, ghCalls } = await run({ 'shared.txt': 'both lines\n' }, { body: CONFLICT_ITEM }); // the default sandbox also writes fix.txt
+    expect(result.pushed).toBe(true);
+    expect(comments(ghCalls)).toContain('### Merged base');
+    expect(comments(ghCalls)).not.toContain('merge-only');
+    expect(comments(ghCalls)).toContain('<!-- taskcell-revision: deadbeef -->');
+    expect(reReviewed(ghCalls)).toBe(true);
   });
 
   it('a mixed round records its merge as mixed and still re-requests review', async () => {

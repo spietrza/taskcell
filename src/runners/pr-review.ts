@@ -225,8 +225,9 @@ async function fetchReReviewContext(target: PullRequestReviewTarget, view: GhPul
     try {
       const raw = omitGeneratedFiles(await gh(['api', `repos/${target.repoSlug}/compare/${previousSha}...${head}`, '-H', 'Accept: application/vnd.github.diff']));
       // From the untruncated diff: a finding on a file past the prompt cut is still on changed code.
-      // A merge-only round (only the base was merged) is re-reviewed on the files its merge resolved, not on the base's own changes.
-      const resolved = mergeOnlyResolvedFiles(revisionSummaries);
+      // When merge-only rounds (only the base was merged) are all that happened since the reviewed head, the re-review
+      // covers the files those merges resolved, not the base's own changes.
+      const resolved = mergeOnlyResolvedFiles(revisionSummaries, previousSha, head);
       const scoped = resolved !== undefined ? restrictDiffToFiles(raw, resolved) : raw;
       changedFiles = changedFilesOf(scoped);
       sinceDiff = scoped.length > MAX_SINCE_DIFF_CHARS ? `${scoped.slice(0, MAX_SINCE_DIFF_CHARS)}\n(since-diff truncated)\n` : scoped;

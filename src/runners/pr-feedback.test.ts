@@ -374,7 +374,7 @@ describe('merge-only revision markers', () => {
   it('the summary states the round does not count toward the cap', () => {
     const text = buildRevisionSummary({ repoSlug: 'o/r', number: 1, headRefOid: 'abc', commitSha: 'def', addressed: [], deferred: [], verification: { typecheck: 'pass', test: 'pass' }, mergeOnly: true, mergedBase: { base: 'main', files: ['a.ts'] } });
     expect(text).toContain('does not count toward the revision cap');
-    expect(text).toContain('<!-- merge-only-files: ["a.ts"] -->');
+    expect(text).toContain('<!-- merge-only: {"from":"abc","to":"def","files":["a.ts"]} -->');
   });
 });
 
