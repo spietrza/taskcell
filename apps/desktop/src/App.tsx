@@ -1,7 +1,7 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
 import { isTauri } from '@tauri-apps/api/core';
 import { getCurrentWindow } from '@tauri-apps/api/window';
-import { type Theme } from '@/ui';
+import { PAGE_CLASS, cn, type Theme } from '@/ui';
 import { TopBar, type Crumb } from './TopBar';
 import { Rail, resolveScreen, type Screen } from './Rail';
 import { CommandPalette } from './CommandPalette';
@@ -425,19 +425,19 @@ export default function App() {
         <main className="flex min-w-0 flex-1 flex-col overflow-hidden">
           {showHome ? (
             <div className="h-full overflow-y-auto">
-              {/* Home starts with what needs the user; with nothing waiting it says so in one line. */}
-              {needsYou && (
-                <div className="px-6 pt-6 max-md:px-3 max-md:pt-3">
+              <div className={cn(PAGE_CLASS, 'space-y-4')}>
+                {/* Home starts with what needs the user; with nothing waiting it says so in one line. */}
+                {needsYou && (
                   <NeedsYou project={active.path} allRepos={allRepos} repos={repoPaths} teamId={scopeId} onCount={setNeedsCount} />
-                </div>
-              )}
-              <Dashboard
-                projects={projects}
-                onOpen={(p) => enterProject(p.path)}
-                onAdd={add}
-                onRemove={remove}
-                onEnableFactory={setFactoryProject}
-              />
+                )}
+                <Dashboard
+                  projects={projects}
+                  onOpen={(p) => enterProject(p.path)}
+                  onAdd={add}
+                  onRemove={remove}
+                  onEnableFactory={setFactoryProject}
+                />
+              </div>
             </div>
           ) : (
             <NavGuardContext.Provider value={navGuard.current}>
@@ -484,6 +484,18 @@ export default function App() {
           onOpenProject={(p) => enterProject(p.path)}
           onHome={() => goto('home')}
           {...(needsYou ? { onNeedsYou: () => goto('needs') } : {})}
+          {...(active
+            ? {
+                projectName: active.name,
+                onScreen: (s: 'board' | 'runs' | 'settings') => navigate(() => setScreen(s)),
+                onNewTask: () =>
+                  navigate(() => {
+                    setScreen('task');
+                    setNewTaskNonce((n) => n + 1);
+                  }),
+                onEnableFactory: () => setFactoryProject({ path: active.path, name: active.name }),
+              }
+            : {})}
           onAddProject={add}
           onToggleTheme={toggleTheme}
           onClose={() => setPalette(false)}

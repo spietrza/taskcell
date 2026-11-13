@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState } from 'react';
-import { Button, Card, cn } from '@/ui';
+import { Button, Card, ErrorNote, cn } from '@/ui';
 import { FilePlus } from 'lucide-react';
 import { listTasks, listTasksAll } from '../../ipc';
 import { inRepos } from '../../repoFilter';
@@ -25,18 +25,18 @@ type Column = {
 };
 
 const CHIP_TONE: Record<string, string> = {
-  pass: 'bg-emerald-500/15 text-emerald-700 dark:text-emerald-300',
-  changes: 'bg-amber-500/15 text-amber-700 dark:text-amber-300',
-  failed: 'bg-rose-500/15 text-rose-700 dark:text-rose-300',
+  pass: 'bg-success/15 text-success-text',
+  changes: 'bg-warning/15 text-warning-text',
+  failed: 'bg-destructive/15 text-destructive-text',
 };
 
 const COLUMNS: Column[] = [
-  { key: 'queued', label: 'Queued', dot: 'bg-slate-400', pill: 'bg-slate-400/15 text-slate-600 dark:text-slate-300', cardHover: 'hover:border-slate-400' },
-  { key: 'claimed', label: 'Claimed', dot: 'bg-amber-500', pill: 'bg-amber-500/15 text-amber-700 dark:text-amber-300', cardHover: 'hover:border-amber-500' },
-  { key: 'running', label: 'Running', dot: 'bg-blue-500', pill: 'bg-blue-500/15 text-blue-700 dark:text-blue-300', cardHover: 'hover:border-blue-500', pulse: true },
-  { key: 'verify-failed', label: 'Verify failed', dot: 'bg-rose-500', pill: 'bg-rose-500/15 text-rose-700 dark:text-rose-300', cardHover: 'hover:border-rose-500' },
-  { key: 'review', label: 'Review', dot: 'bg-violet-500', pill: 'bg-violet-500/15 text-violet-700 dark:text-violet-300', cardHover: 'hover:border-violet-500' },
-  { key: 'done', label: 'Done', dot: 'bg-emerald-500', pill: 'bg-emerald-500/15 text-emerald-700 dark:text-emerald-300', cardHover: 'hover:border-emerald-500' },
+  { key: 'queued', label: 'Queued', dot: 'bg-muted-foreground', pill: 'bg-muted-foreground/15 text-muted-foreground', cardHover: 'hover:border-muted-foreground' },
+  { key: 'claimed', label: 'Claimed', dot: 'bg-warning', pill: 'bg-warning/15 text-warning-text', cardHover: 'hover:border-warning' },
+  { key: 'running', label: 'Running', dot: 'bg-foreground', pill: 'bg-foreground text-background', cardHover: 'hover:border-foreground', pulse: true },
+  { key: 'verify-failed', label: 'Verify failed', dot: 'bg-destructive', pill: 'bg-destructive/15 text-destructive-text', cardHover: 'hover:border-destructive' },
+  { key: 'review', label: 'Review', dot: 'bg-foreground/60', pill: 'bg-foreground/10 text-foreground', cardHover: 'hover:border-foreground/60' },
+  { key: 'done', label: 'Done', dot: 'bg-success', pill: 'bg-success/15 text-success-text', cardHover: 'hover:border-success' },
 ];
 
 /** One repository's board, or every repository's (cards stamped with their repository). */
@@ -145,9 +145,11 @@ export function TaskBoard({
     return (
       <div className="flex min-h-0 flex-1 flex-col">
         {header}
-        <div className="rounded border border-border bg-muted/30 px-3 py-2 text-sm text-muted-foreground">
-          No task board. {error}
-        </div>
+        <ErrorNote
+          title="Couldn't load the task board"
+          next="This is usually a connection or setup problem: check the task source in Settings and that its credentials are valid, then reload."
+          error={error}
+        />
       </div>
     );
   }
@@ -215,7 +217,7 @@ export function TaskBoard({
                           {t.column === 'running' && t.stage && <div className="font-mono text-[11px]">stage: {t.stage}</div>}
                           {(t.column === 'review' || t.column === 'done') && !!t.chips?.length && (
                             <div className="flex flex-wrap gap-1">
-                              {t.chips.map((chip) => <span key={chip.key} className={cn('rounded px-1.5 py-0.5 text-[11px]', Object.hasOwn(CHIP_TONE, chip.tone) ? CHIP_TONE[chip.tone] : 'bg-slate-400/15 text-muted-foreground')}>{chip.label}</span>)}
+                              {t.chips.map((chip) => <span key={chip.key} className={cn('rounded px-1.5 py-0.5 text-[11px]', Object.hasOwn(CHIP_TONE, chip.tone) ? CHIP_TONE[chip.tone] : 'bg-muted text-muted-foreground')}>{chip.label}</span>)}
                             </div>
                           )}
                           {t.baseBranch && (

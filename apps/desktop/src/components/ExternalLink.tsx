@@ -17,7 +17,7 @@ export function ExternalLink({ href, children, className }: { href?: string; chi
       target="_blank"
       rel="noreferrer"
       onClick={(e) => e.stopPropagation()}
-      className={`inline-flex items-center gap-1 text-xs text-blue-500 hover:underline ${className ?? ''}`}
+      className={`inline-flex items-center gap-1 text-xs text-primary-text hover:underline ${className ?? ''}`}
     >
       {children}
       <Icon className="size-3" aria-hidden />

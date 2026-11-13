@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState } from 'react';
-import { Button, Chip, cn } from '@/ui';
+import { Button, Chip, PAGE_CLASS, cn } from '@/ui';
 import { ArrowLeft, FilePlus, RefreshCw } from 'lucide-react';
 import { canUseFleet, isHubMode, subscribe, onStreamReset } from '../../transport';
 import {
@@ -412,8 +412,10 @@ export function Inspector({
     // Centered + width-capped, except the board which needs full width for horizontal column scroll.
     <div
       className={cn(
-        'mx-auto flex h-full w-full min-h-0 flex-col gap-4 p-6 max-md:p-3',
-        screen !== 'board' && screen !== 'task' && 'max-w-5xl',
+        'flex h-full min-h-0 flex-col gap-4',
+        PAGE_CLASS,
+        // The board's columns scroll sideways, so it (and the task screen) drop the width cap only.
+        (screen === 'board' || screen === 'task') && 'max-w-none',
       )}
     >
       {screen === 'runs' && (

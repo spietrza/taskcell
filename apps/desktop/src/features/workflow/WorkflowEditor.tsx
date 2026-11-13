@@ -285,7 +285,7 @@ export function WorkflowEditor({ project }: { project: string }) {
         ) : (
           <div className="grid grid-cols-1 gap-4 lg:grid-cols-[200px_1fr_280px]">
             <div className="rounded-lg border border-border p-2">
-              <div className="mb-2 px-1 caption">Flows</div>
+              <div className="mb-2 px-1 caption">In this repository</div>
               {listError !== null && <div className="px-1 pb-2 text-xs text-destructive">{listError}</div>}
               {flows !== null && flows.length === 0 && listError === null && (
                 <div className="px-1 pb-2 text-xs text-muted-foreground">No flows yet — create one below.</div>
@@ -333,7 +333,7 @@ export function WorkflowEditor({ project }: { project: string }) {
                         className="flex min-w-0 flex-1 items-center gap-2 text-left"
                       >
                         <span className="truncate">{f.name ?? f.file}</span>
-                        {f.error !== undefined && <AlertTriangle className="ml-auto size-3.5 shrink-0 text-amber-500" aria-hidden />}
+                        {f.error !== undefined && <AlertTriangle className="ml-auto size-3.5 shrink-0 text-warning-text" aria-hidden />}
                       </button>
                       {openable && (
                         <button

@@ -1,6 +1,6 @@
-import { useEffect, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { ArrowUp, FolderGit2, Folder } from 'lucide-react';
-import { Button, Input, Tabs } from '@/ui';
+import { Button, Input, Tabs, useFocusTrap } from '@/ui';
 import { browseDirs } from './ipc';
 import { subscribe } from './transport';
 import { errorMessage } from './errors';
@@ -21,6 +21,8 @@ export function RepoPicker({
   onClone: (url: string, parentDir: string, name?: string) => Promise<void>;
   onClose: () => void;
 }) {
+  const dialogRef = useRef<HTMLDivElement>(null);
+  useFocusTrap(dialogRef);
   const [mode, setMode] = useState<Mode>('existing');
   const [listing, setListing] = useState<DirListing | null>(null);
   const [error, setError] = useState<string | null>(null);
@@ -94,6 +96,7 @@ export function RepoPicker({
   return (
     <div className="fixed inset-0 z-50 flex items-start justify-center bg-black/40 pt-[15vh]" onClick={onClose}>
       <div
+        ref={dialogRef}
         role="dialog"
         aria-modal="true"
         aria-label="Add a repository"

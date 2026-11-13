@@ -1,5 +1,5 @@
-import { useEffect, useState, type ReactNode } from 'react';
-import { Button, Chip, CodeBlock } from '@/ui';
+import { useEffect, useRef, useState, type ReactNode } from 'react';
+import { Button, Chip, CodeBlock, useFocusTrap } from '@/ui';
 import { enableFactoryApply, enableFactoryPlan, enableFactorySecret, enableFactoryVerify } from '../../ipc';
 import { ExternalLink } from '../../components/ExternalLink';
 import { RUN_LOCATIONS } from '../../platform';
@@ -29,6 +29,8 @@ function errorText(err: unknown): string {
  * The secret is only ever shown as a command for the user to run — this dialog never takes a token.
  */
 export function EnableFactoryDialog({ project, onClose }: { project: { path: string; name: string }; onClose: () => void }) {
+  const dialogRef = useRef<HTMLDivElement>(null);
+  useFocusTrap(dialogRef);
   const [plan, setPlan] = useState<FactoryPlan | null>(null);
   const [secret, setSecret] = useState<FactorySecretStep | null>(null);
   const [applied, setApplied] = useState<FactoryApplyResult | null>(null);
@@ -74,7 +76,9 @@ export function EnableFactoryDialog({ project, onClose }: { project: { path: str
     // Top-anchored, not centered: the plan is taller than the platform picker, so a centered dialog jumps when it loads.
     <div className="fixed inset-0 z-50 flex items-start justify-center bg-black/40 pt-[10vh]" onClick={() => busy === null && onClose()}>
       <div
+        ref={dialogRef}
         role="dialog"
+        aria-modal="true"
         aria-label="Enable factory"
         className="max-h-[80vh] w-[34rem] overflow-y-auto rounded-lg border border-border bg-background p-4 shadow-lg"
         onClick={(e) => e.stopPropagation()}

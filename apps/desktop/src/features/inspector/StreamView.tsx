@@ -13,7 +13,7 @@ export function StreamView({ entries, empty = 'No output.' }: { entries: Entry[]
         if (e.role === 'assistant') return <AgentText key={i}>{e.text}</AgentText>;
         if (e.role === 'tool') {
           return (
-            <div key={i} className="font-mono text-xs text-sky-600 dark:text-sky-400">
+            <div key={i} className="font-mono text-xs text-[var(--caption)]">
               → {e.text}
             </div>
           );
