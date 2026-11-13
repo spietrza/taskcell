@@ -28,6 +28,8 @@ export interface GitHubIssue {
   comments?: GitHubComment[];
   /** Requested by fetch() (the open-state gate) and by list() only when a limit is set (S9 board). */
   state?: string;
+  /** Requested alongside `state` (board call only — see list()). */
+  url?: string;
   /** Issue author; added to fetch()'s --json field list (never on list(), which fetches no comments either). */
   author?: GitHubCommentAuthor | null;
 }
@@ -69,6 +71,7 @@ export function toTask(repo: string, issue: GitHubIssue): Task {
     comments,
     ref: String(issue.number),
     ...(issue.state !== undefined ? { state: issue.state } : {}),
+    ...(issue.url !== undefined ? { url: issue.url } : {}),
     ...(issue.author?.login !== undefined ? { author: issue.author.login } : {}),
   };
 }
@@ -118,7 +121,7 @@ export class GitHubTaskFetcher implements TaskFetcher {
     // comments are not fetched on bulk list() (avoids N+1); only fetch() returns them.
     // `state` joins --json ONLY when a limit is set (the board call): keeping the unset-limit argv
     // byte-identical protects watch's fetch shape (S9 — conditional by contract, test-pinned).
-    const fields = filter?.limit !== undefined ? 'number,title,body,labels,state' : 'number,title,body,labels';
+    const fields = filter?.limit !== undefined ? 'number,title,body,labels,state,url' : 'number,title,body,labels';
     const args = ['issue', 'list', '--repo', this.repo, '--json', fields, '--state', filter?.state ?? 'open'];
     if (filter?.limit !== undefined) args.push('-L', String(filter.limit));
     if (filter?.labels !== undefined && filter.labels.length > 0) args.push('--label', filter.labels.join(','));

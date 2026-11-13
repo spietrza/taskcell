@@ -62,6 +62,9 @@ const commandHandlers = {
   read_app_config: () => appConfig,
   read_app_config_strict: () => appConfig,
   write_app_config: () => undefined,
+  get_credentials: () => ({ enabled: false, reason: 'VANGUARD_HUB_SECRET is not set', providers: [] }),
+  set_credential: () => ({ enabled: false, providers: [] }),
+  delete_credential: () => ({ enabled: false, providers: [] }),
   list_remote_runs: () => remoteRuns,
   import_remote_run: (args: { runId?: number } | undefined) => {
     const { runId = remoteImport.runId } = args ?? {};
@@ -80,6 +83,7 @@ const commandHandlers = {
   api_complete: () => ({ text: 'Here is my analysis of the requested change. The implementation looks sound.' }),
   api_cancel_complete: () => undefined,
   api_create_task: () => createdTask,
+  list_branches: () => ({ branches: ['dev', 'main'], default: 'main' }),
   list_drafts: () => ['draft-001'],
   read_draft: () => READ_DRAFT,
   write_draft: () => undefined,
@@ -118,6 +122,9 @@ const commandHandlers = {
     name: args?.name ?? 'repo',
     runCount: 0, taskCount: 0, totalCostUsd: 0, failedCount: 0, runningCount: 0, runsLast24h: 0,
   }),
+  read_audit: () => [
+    { time: '2026-07-06T19:12:02.123Z', login: 'token', action: 'run-start', target: 'run-0', outcome: 'ok' },
+  ],
   list_needs_you: () => ({ items: waitingNeedsYou }),
   list_needs_you_all: () => ({ items: waitingNeedsYou.map((i) => ({ ...i, ...mockStamp() })), failures: [] }),
   // A reply hands the item back to the factory (issue: trigger label; PR: `needs revision`), so it

@@ -7,8 +7,10 @@ import { commentPullRequest } from '../runners/pr-review.js';
 import { redactForPublish } from '../core/secret-scan.js';
 import { DEFAULT_GITHUB_AGENT_LABEL, DEFAULT_GITHUB_NEEDS_INFO_LABEL } from '../cli/args.js';
 import { GITHUB_REVIEW_LABEL, GITHUB_VERIFY_FAILED_LABEL } from '../github-labels.js';
+import { shownBaseFromLabels } from '../core/base-branch.js';
 import { TaskcellError } from '../core/errors.js';
 import { fanOut } from '../pipeline/fan-out.js';
+import { httpsUrl } from '../core/links.js';
 
 /** The revise-pr trigger (DEFAULT_TRIGGER_LABELS in src/runners/resume-rate-limited.ts). */
 export const NEEDS_REVISION_LABEL = 'needs revision';
@@ -27,6 +29,8 @@ export interface NeedsYouItem {
   baseRef?: string;
   /** The factory's own last comment on the item, redacted; untrusted text the UI renders as plain text. Absent when it never commented. */
   lastComment?: { author: string; body: string };
+  /** The branch the PR targets (a PR's base), or the one the card asks for (`vanguard:base=`). Absent when unknown. */
+  baseBranch?: string;
 }
 
 export interface NeedsYouOptions {
@@ -132,16 +136,19 @@ function toItem(
   reason: string,
   lastComment: { author: string; body: string } | undefined,
 ): NeedsYouItem {
+  const baseBranch = raw.baseRefName ?? shownBaseFromLabels(raw.labels.map((l) => l.name));
   return {
     id: `${repoSlug}#${raw.number}`,
     kind,
     number: raw.number,
     repoSlug,
     title: raw.title,
-    url: raw.url,
+    // Only an https address is a link (docs/hub.md § Open in the original system); '' ⇒ the UI renders none.
+    url: httpsUrl(raw.url) ?? '',
     reason,
     ...(raw.baseRefName !== undefined ? { baseRef: raw.baseRefName } : {}),
     ...(lastComment !== undefined ? { lastComment } : {}),
+    ...(baseBranch !== undefined && baseBranch !== '' ? { baseBranch } : {}),
   };
 }
 

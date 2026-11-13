@@ -4,7 +4,7 @@
 // `list_runs`/`read_run` over the sidecar query pipe the way `list_tasks` already does.
 import { createHash } from 'node:crypto';
 import { constants } from 'node:fs';
-import { writeFile, appendFile, unlink, readdir, lstat, open, stat } from 'node:fs/promises';
+import { writeFile, unlink, readdir, lstat, open, stat } from 'node:fs/promises';
 import { join } from 'node:path';
 import { execa } from 'execa';
 import { hostGitArgs } from '../worktree/host-git.js';
@@ -12,11 +12,13 @@ import { BadRequestError } from '../sidecar/sidecar.js';
 import type { RunResult } from './types.js';
 import { stageMetric } from './run-metric.js';
 import { exportRunTrace } from './otlp-sink.js';
+import { appendAudit, defaultActor, localAdapter, STREAMS } from './audit.js';
 import { assertStatePath, ensureStateDir, isSafeTaskId, stateDir } from './state-path.js';
 import { injectedSecretValues, redactForPublish, scanForInjectedSecrets, scanForSecrets, withRegisteredSecretValues } from './secret-scan.js';
 import { redactVerificationOutput } from '../pipeline/verify.js';
 import type { VerificationResult } from '../pipeline/verify.js';
 import type { VisualProofResult } from '../pipeline/visual-proof.js';
+import { ciRunUrl, diffUrlFor, httpsUrl } from './links.js';
 import { reviewVerdictOf } from '../pipeline/review-verdict.js';
 import type { DecisionProbeResult } from './decision-probe.js';
 import type { Finding, Proof, RunDetail, RunRecord, RunSummary, StageDetail, VisualProof } from '../wire.js';
@@ -202,7 +204,9 @@ async function parseRunSummaries(root: string): Promise<RunSummary[]> {
       const stages = records.map((r) => r.stage ?? 'run').sort();
       const totalCostUsd = records.reduce((sum, r) => sum + (r.costUsd ?? 0), 0);
       const anyFailed = records.some((r) => !r.completed);
-      const prUrl = records.find((r) => r.prUrl !== undefined)?.prUrl;
+      const prUrl = httpsUrl(records.find((r) => r.prUrl !== undefined)?.prUrl);
+      const ciUrl = httpsUrl(records.find((r) => r.ciUrl !== undefined)?.ciUrl);
+      const startedBy = records.find((r) => r.startedBy !== undefined)?.startedBy;
       summaries.push({
         taskId: first.taskId,
         timestamp,
@@ -210,6 +214,8 @@ async function parseRunSummaries(root: string): Promise<RunSummary[]> {
         totalCostUsd,
         anyFailed,
         ...(prUrl !== undefined ? { prUrl } : {}),
+        ...(ciUrl !== undefined ? { ciUrl } : {}),
+        ...(startedBy !== undefined ? { startedBy } : {}),
       });
     }
   }
@@ -313,10 +319,16 @@ export async function readRunRecords(root: string, taskId: string, timestamp: st
   const proof = await readProofFile<Proof>('.proof.json');
   const visualProof = await readProofFile<VisualProof>('.visual-proof.json');
 
+  const prUrl = httpsUrl(stages.find((s) => s.record.prUrl !== undefined)?.record.prUrl);
+  const diffUrl = diffUrlFor(prUrl);
+  const ciUrl = httpsUrl(stages.find((s) => s.record.ciUrl !== undefined)?.record.ciUrl);
   return {
     taskId,
     timestamp,
     stages,
+    ...(prUrl !== undefined ? { prUrl } : {}),
+    ...(diffUrl !== undefined ? { diffUrl } : {}),
+    ...(ciUrl !== undefined ? { ciUrl } : {}),
     ...(proof !== undefined ? { proof } : {}),
     ...(visualProof !== undefined ? { visualProof } : {}),
   };
@@ -332,6 +344,8 @@ export interface WriteStagesOptions {
   /** Flow and provider names of the run, recorded on the exported trace (see otlp-sink). */
   flow?: string;
   provider?: string;
+  /** The branch this run's PR targets (card label / repo default / --base), recorded on every stage. */
+  baseBranch?: string;
   /** The sandbox image's content digest (IsolatedSandboxProvider.imageDigest), recorded on every
    *  stage of the run so a run record can be traced back to the exact image it executed against. */
   imageDigest?: string;
@@ -361,6 +375,8 @@ export interface RunWriter {
 export interface BeginRunOptions {
   /** Env var names of credentials the static injected-secret list cannot know (a custom provider's `keyEnv`). */
   secretEnvVars?: readonly string[];
+  /** Who started the run (hub login, or `token`); written to every stage record. */
+  startedBy?: string;
 }
 
 interface WriteRecordOptions {
@@ -371,6 +387,8 @@ interface WriteRecordOptions {
   requestedModel?: string;
   omitDiff?: boolean;
   imageDigest?: string;
+  baseBranch?: string;
+  startedBy?: string;
 }
 
 /**
@@ -415,6 +433,7 @@ async function writeRecord(repoPath: string, taskId: string, timestamp: string, 
   // on the record as well as the metric line, so the run's own file names the routed model even when
   // the provider reported none.
   const requested = opts.requestedModel !== undefined ? { requestedModel: opts.requestedModel } : {};
+  const ciUrl = ciRunUrl();
   const record = {
     ...meta,
     ...(review !== undefined ? { verdict: review.verdict } : {}),
@@ -424,8 +443,11 @@ async function writeRecord(repoPath: string, taskId: string, timestamp: string, 
     timestamp,
     ...(opts.label !== undefined ? { stage: opts.label } : {}),
     ...(opts.prUrl !== undefined ? { prUrl: opts.prUrl } : {}),
+    ...(ciUrl !== undefined ? { ciUrl } : {}),
     ...(opts.imageDigest !== undefined ? { imageDigest: opts.imageDigest } : {}),
+    ...(opts.baseBranch !== undefined ? { baseBranch: opts.baseBranch } : {}),
     ...(diffOmitted !== undefined ? { diffOmitted } : {}),
+    ...(opts.startedBy !== undefined ? { startedBy: opts.startedBy } : {}),
   };
   const suffix = opts.label !== undefined ? `-${opts.label}` : '';
   const base = join(taskDir, `${sanitizeTimestamp(timestamp)}${suffix}`);
@@ -471,11 +493,11 @@ async function writeRecord(repoPath: string, taskId: string, timestamp: string, 
   return file;
 }
 
-/** Append one line to `.taskcell/runs/metrics.jsonl`, refusing a symlinked leaf or parent. */
+/** Append one chained record to `.taskcell/runs/metrics.jsonl` (telemetry: best-effort, but a refused path throws; never rotated, since `stats` and `metrics push` read only the live file). */
 async function appendMetric(repoPath: string, metric: object): Promise<void> {
-  const path = join(runsRoot(repoPath), 'metrics.jsonl');
-  await assertStatePath(repoPath, path);
-  await appendFile(path, `${JSON.stringify(metric)}\n`);
+  const file = join(runsRoot(repoPath), 'metrics.jsonl');
+  await assertStatePath(repoPath, file); // a symlinked leaf or parent is refused loudly, not swallowed as telemetry
+  await appendAudit(STREAMS.metrics, localAdapter({ file, repoPath, maxBytes: Number.POSITIVE_INFINITY }), metric as Record<string, unknown>, { actor: defaultActor() });
 }
 
 /**
@@ -505,11 +527,13 @@ export function beginRun(
           ...(outcome.model !== undefined ? { requestedModel: outcome.model } : {}),
           ...(opts.omitDiff ? { omitDiff: opts.omitDiff } : {}),
           ...(opts.imageDigest !== undefined ? { imageDigest: opts.imageDigest } : {}),
+          ...(opts.baseBranch !== undefined ? { baseBranch: opts.baseBranch } : {}),
+          ...(runOpts.startedBy !== undefined ? { startedBy: runOpts.startedBy } : {}),
         });
       }
       const first = outcomes[0];
       if (first === undefined) return;
-      const { omitDiff: _omitDiff, ...trace } = opts;
+      const { omitDiff: _omitDiff, baseBranch: _baseBranch, ...trace } = opts;
       await exportRunTrace({
         taskId,
         timestamp,

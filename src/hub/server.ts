@@ -5,11 +5,15 @@
 import { randomBytes, timingSafeEqual } from 'node:crypto';
 import { createServer, type IncomingMessage, type Server, type ServerResponse } from 'node:http';
 import { isIP } from 'node:net';
+import { join } from 'node:path';
 import { serveStatic } from './static.js';
 import { EventBus } from './events.js';
 import { writeJson, jsonError } from './json-response.js';
-import { dispatchRpc, classifyError, type RpcContext } from './rpc.js';
-import { encodeError, encodeResult, HUB_EVENTS_SESSION_PATH, HUB_TOKEN_HEADER, HUB_TOKEN_REJECTED } from '../hub-wire.js';
+import { CredentialStore } from './credentials.js';
+import { callerRepoRoots, repoInRoots, type Caller } from './teams.js';
+import { dispatchRpc, classifyError, ForbiddenError, type RpcContext } from './rpc.js';
+import { AuditLog, TOKEN_ACTOR, auditActorOf, reportAuditFailure, type Actor } from './audit.js';
+import { encodeError, encodeResult, HUB_EVENTS_SESSION_PATH, HUB_SIGN_IN_REQUIRED, HUB_TOKEN_HEADER, HUB_TOKEN_REJECTED } from '../hub-wire.js';
 import { ProjectAllowlist, type BindOptions } from './allowlist.js';
 import { WatchRegistry, type WatchOptions } from './watch.js';
 import { createRunSession } from './run-session.js';
@@ -18,6 +22,7 @@ import { loadPaths } from './projects.js';
 import { SpawnRegistry } from './spawn.js';
 import { productionDeps } from '../sidecar/deps.js';
 import type { SidecarDeps } from '../sidecar/sidecar.js';
+import { localOnlyIdentity, signInPage, type HubIdentity, type HubUser } from './auth.js';
 
 /**
  * `write_draft_asset` ships an image's bytes as a JSON array of numbers (comma-separated decimal —
@@ -45,9 +50,17 @@ export interface HubServerOptions {
   allowedHosts?: readonly string[];
   /** Fixed token (from `--token-file`); a fresh one per launch when omitted. */
   token?: string;
+  /** Sign-in (Better Auth) and the owner user (src/hub/auth.ts). Omitted: token-only, local owner. */
+  identity?: HubIdentity;
+  /** Overrides who an authenticated request acts as. Default: the owner (token, or local mode) is the
+   * shared `token` admin identity; any other signed-in user is a non-admin under their e-mail until
+   * roles land (#841). */
+  actorFor?: (req: IncomingMessage) => Actor;
   /** Enable the Fleet spawn commands (`spawn_run` et al). Loopback binds only — the desktop app's
    * local hub sets it; a hub reachable by others must never run arbitrary programs. */
   fleet?: boolean;
+  /** `VANGUARD_HUB_SECRET` (base64, 32 bytes) keying the credential store; defaults to the env var. */
+  hubSecret?: string;
 }
 
 export interface HubServer {
@@ -59,8 +72,8 @@ export interface HubServer {
    * the SPA: the CLI hands it to the operator's browser in the launch URL's fragment
    * (`src/cli/hub.ts`), which browsers never send to the server, and the SPA moves it into
    * sessionStorage (apps/desktop/src/transport.ts). Reaching the port is not enough to drive the
-   * hub. A non-loopback bind still needs Tailscale or an authenticating reverse proxy in front
-   * (docs/hub.md): this is a launch secret, not per-user authentication. */
+   * hub. It is not per-user authentication: it maps to the owner user, and server mode requires
+   * sign-in for browsers (src/hub/auth.ts, docs/hub.md "Server mode sign-in"). */
   readonly token: string;
   listen(port: number, host: string): Promise<void>;
   /** Graceful shutdown: ends every SSE client, stops project watchers, then closes the listener. */
@@ -74,6 +87,19 @@ interface HubAuth {
   token: string;
   eventsCookieName: string;
   eventsSecret: string;
+  /** When a refused sign-in was last audited (epoch ms). */
+  lastRefusedAuditMs: number;
+}
+
+/** At most one refused-sign-in line per minute: the endpoint is unauthenticated, so an unthrottled
+ * line per bad request would let anyone who can reach the port rotate real entries out of the log. */
+const REFUSED_AUDIT_INTERVAL_MS = 60_000;
+
+async function auditRefusedSignIn(ctx: RpcContext, auth: HubAuth): Promise<void> {
+  const now = Date.now();
+  if (now - auth.lastRefusedAuditMs < REFUSED_AUDIT_INTERVAL_MS) return;
+  auth.lastRefusedAuditMs = now;
+  await ctx.audit?.record({ login: 'unknown', action: 'sign-in', outcome: 'refused' }).catch(reportAuditFailure);
 }
 
 function eventsCookieOk(header: string | undefined, auth: HubAuth): boolean {
@@ -204,7 +230,7 @@ function respondBodyTooLarge(res: ServerResponse): void {
   writeJson(res, encoded.status, encoded.body, { connection: 'close' }, () => res.socket?.destroy());
 }
 
-async function handleRpcRequest(ctx: RpcContext, req: IncomingMessage, res: ServerResponse, cmd: string): Promise<void> {
+async function handleRpcRequest(ctx: RpcContext, req: IncomingMessage, res: ServerResponse, cmd: string, caller: Caller): Promise<void> {
   if (!sameOriginOk(req)) {
     jsonError(res, 400, 'cross-origin request rejected', 'bad-request');
     return;
@@ -228,7 +254,7 @@ async function handleRpcRequest(ctx: RpcContext, req: IncomingMessage, res: Serv
   }
 
   try {
-    const result = await dispatchRpc(ctx, cmd, body);
+    const result = await dispatchRpc(ctx, cmd, body, caller);
     // Spec §2.3: success is `{ result }` (null for void commands); apps/desktop/src/transport.ts reads
     // `body.result`. A bare body here left the UI with `undefined` projects on first paint.
     writeJson(res, 200, encodeResult(result));
@@ -236,11 +262,13 @@ async function handleRpcRequest(ctx: RpcContext, req: IncomingMessage, res: Serv
     const classified = classifyError(err);
     const status = classified.notFound
       ? 404
-      : err instanceof CompleteBusyError
-        ? 429
-        : classified.kind === 'bad-request'
-          ? 400
-          : 500;
+      : err instanceof ForbiddenError
+        ? 403
+        : err instanceof CompleteBusyError
+          ? 429
+          : classified.kind === 'bad-request'
+            ? 400
+            : 500;
     jsonError(res, status, classified.message, classified.kind);
   }
 }
@@ -250,6 +278,8 @@ async function handleRequest(
   eventBus: EventBus,
   opts: HubServerOptions,
   auth: HubAuth,
+  identity: HubIdentity,
+  runRepos: ReadonlyMap<string, string>,
   req: IncomingMessage,
   res: ServerResponse,
 ): Promise<void> {
@@ -259,6 +289,37 @@ async function handleRequest(
   }
   const url = new URL(req.url ?? '/', 'http://hub.local');
   const pathname = url.pathname;
+
+  const offeredToken = singleHeader(req.headers[HUB_TOKEN_HEADER]);
+  const tokenValid = tokenOk(offeredToken, auth.token);
+  // The token (CLI, scripts) maps to the owner; otherwise the Better Auth session (server mode only).
+  const resolveUser = async (): Promise<HubUser | undefined> => (tokenValid ? identity.owner : identity.sessionUser(req));
+  // A wrong token is audited (throttled) and is "token dead"; a server-mode request that offered none
+  // is a sign-in prompt, not a refusal.
+  const unauthorized = async (): Promise<void> => {
+    const offered = Boolean(offeredToken);
+    if (offered) await auditRefusedSignIn(ctx, auth);
+    jsonError(res, 401, identity.handler !== undefined && !offered ? HUB_SIGN_IN_REQUIRED : HUB_TOKEN_REJECTED, 'bad-request');
+  };
+  // The owner (token, or local mode) is the shared `token` admin; other signed-in users are non-admins.
+  const actorOf = (user: HubUser): Actor =>
+    opts.actorFor?.(req) ?? (user.id === identity.owner.id ? TOKEN_ACTOR : { login: user.email, admin: false, id: user.id, name: user.name });
+
+  if (pathname === '/api/auth' || pathname.startsWith('/api/auth/')) {
+    // No OAuth on loopback: there the hub is one automatic owner.
+    if (identity.handler === undefined) return notFound(res);
+    await identity.handler(req, res);
+    return;
+  }
+
+  if (pathname === '/sign-in') {
+    if (identity.handler === undefined) return notFound(res);
+    if (req.method !== 'GET' && req.method !== 'HEAD') return methodNotAllowed(res, 'GET, HEAD');
+    const html = signInPage(identity.providers, url.searchParams.get('error') ?? undefined);
+    res.writeHead(200, { 'content-type': 'text/html; charset=utf-8', 'cache-control': 'no-store' });
+    res.end(req.method === 'HEAD' ? undefined : html);
+    return;
+  }
 
   if (pathname === '/healthz') {
     if (req.method !== 'GET' && req.method !== 'HEAD') return methodNotAllowed(res, 'GET, HEAD');
@@ -270,12 +331,18 @@ async function handleRequest(
 
   if (pathname === HUB_EVENTS_SESSION_PATH) {
     if (req.method !== 'POST') return methodNotAllowed(res, 'POST');
-    if (!tokenOk(singleHeader(req.headers[HUB_TOKEN_HEADER]), auth.token)) {
-      jsonError(res, 401, HUB_TOKEN_REJECTED, 'bad-request');
-      return;
-    }
+    const user = await resolveUser();
+    if (user === undefined) return unauthorized();
     if (!sameOriginOk(req)) {
       jsonError(res, 400, 'cross-origin request rejected', 'bad-request');
+      return;
+    }
+    // A sign-in is not refused for an unwritable log (that would lock everyone out): it is reported on stderr.
+    await ctx.audit?.record({ login: actorOf(user).login, actor: auditActorOf(actorOf(user)), action: 'sign-in', outcome: 'ok' }).catch(reportAuditFailure);
+    // A signed-in session needs no events cookie: `/events` takes the session cookie itself, so
+    // sign-out or revocation ends the stream's auth. The shared secret goes to token holders only.
+    if (!tokenValid) {
+      writeJson(res, 200, encodeResult(null), { 'cache-control': 'no-store' });
       return;
     }
     // No `Secure`: the loopback hub is plain http. SameSite=Strict + HttpOnly + Path=/events keep it
@@ -288,24 +355,30 @@ async function handleRequest(
 
   if (pathname === '/events') {
     if (req.method !== 'GET') return methodNotAllowed(res, 'GET');
-    const authorized =
-      tokenOk(singleHeader(req.headers[HUB_TOKEN_HEADER]), auth.token) || eventsCookieOk(singleHeader(req.headers.cookie), auth);
-    if (!authorized) {
-      jsonError(res, 401, HUB_TOKEN_REJECTED, 'bad-request');
-      return;
+    const cookieOk = eventsCookieOk(singleHeader(req.headers.cookie), auth);
+    const user = cookieOk ? undefined : await resolveUser();
+    if (!cookieOk && user === undefined) return unauthorized();
+    // A signed-in team member is streamed only events of a repository of their teams; token holders
+    // (and the events cookie they buy) see everything.
+    let visible: ((data: unknown) => boolean) | undefined;
+    if (user !== undefined && !tokenValid) {
+      const roots = await callerRepoRoots(ctx.configDir, { user, owner: false });
+      visible = (data) => {
+        const p = eventRepoPath(data, runRepos);
+        return p !== undefined && repoInRoots(roots, p);
+      };
     }
-    eventBus.subscribe(req, res);
+    eventBus.subscribe(req, res, visible);
     res.flushHeaders();
     return;
   }
 
   if (pathname.startsWith('/rpc/')) {
     if (req.method !== 'POST') return methodNotAllowed(res, 'POST');
-    if (!tokenOk(singleHeader(req.headers[HUB_TOKEN_HEADER]), auth.token)) {
-      jsonError(res, 401, HUB_TOKEN_REJECTED, 'bad-request');
-      return;
-    }
-    await handleRpcRequest(ctx, req, res, pathname.slice('/rpc/'.length));
+    const user = await resolveUser();
+    if (user === undefined) return unauthorized();
+    // The token holder is the owner (admin of every team); a session user is limited to their teams.
+    await handleRpcRequest({ ...ctx, actor: actorOf(user) }, req, res, pathname.slice('/rpc/'.length), { user, owner: tokenValid });
     return;
   }
 
@@ -314,8 +387,37 @@ async function handleRequest(
     return;
   }
 
+  // Pages, unlike the API, redirect: a hub bound beyond loopback requires sign-in for everything it serves.
+  if (identity.handler !== undefined && (await resolveUser()) === undefined) {
+    res.writeHead(302, { location: '/sign-in', 'cache-control': 'no-store' });
+    res.end();
+    return;
+  }
+
   const handled = await serveStatic({ uiDir: opts.uiDir, fleet: opts.fleet === true }, req, res);
   if (!handled) notFound(res);
+}
+
+/** Most runs whose repository the `/events` filter remembers (oldest forgotten first). */
+const MAX_RUN_REPOS = 1000;
+
+/** The repository an event belongs to: a bare path (`vanguard:changed`), a `repoPath`/`path` field, or
+ * — for a run event (`{ runId, event }`) — the repository its `run-queued`/`run-accepted` named. */
+export function eventRepoPath(data: unknown, runRepos: ReadonlyMap<string, string>): string | undefined {
+  if (typeof data === 'string') return data;
+  if (typeof data !== 'object' || data === null) return undefined;
+  const d = data as Record<string, unknown>;
+  const p = d.repoPath ?? d.path;
+  if (typeof p === 'string') return p;
+  return typeof d.runId === 'string' ? runRepos.get(d.runId) : undefined;
+}
+
+/** Remember the repository a run event (`{ runId, event: { repoPath } }`) first names; bounded. */
+function recordRunRepo(runRepos: Map<string, string>, payload: unknown): void {
+  const run = payload as { runId?: unknown; event?: { repoPath?: unknown } } | null;
+  if (typeof run?.runId !== 'string' || typeof run.event?.repoPath !== 'string' || runRepos.has(run.runId)) return;
+  runRepos.set(run.runId, run.event.repoPath);
+  if (runRepos.size > MAX_RUN_REPOS) runRepos.delete(runRepos.keys().next().value as string);
 }
 
 /** Build (but do not start) the hub's HTTP server. `listen`/`close` drive its lifecycle. */
@@ -325,12 +427,20 @@ export function createHubServer(opts: HubServerOptions): HubServer {
     token,
     eventsCookieName: `vanguard_hub_events_${randomBytes(4).toString('hex')}`,
     eventsSecret: randomBytes(32).toString('hex'),
+    lastRefusedAuditMs: 0,
   };
+  const identity = opts.identity ?? localOnlyIdentity();
   const deps = opts.deps ?? productionDeps();
   const eventBus = new EventBus();
   eventBus.startKeepalive();
   const watchRegistry = new WatchRegistry(opts.watch);
-  const publish = (name: string, payload: unknown): void => eventBus.publish(name, payload);
+  // runId -> repository, recorded before publishing so a run's later events (which name only the
+  // runId) reach the members of that repository's teams.
+  const runRepos = new Map<string, string>();
+  const publish = (name: string, payload: unknown): number => {
+    if (name === 'api:event') recordRunRepo(runRepos, payload);
+    return eventBus.publish(name, payload);
+  };
   const completeRegistry = new CompleteRegistry(opts.spawnComplete);
   if (opts.fleet === true && !opts.bind.isLoopback) throw new Error('fleet requires a loopback bind');
   const spawnRegistry = opts.fleet === true ? new SpawnRegistry(publish) : undefined;
@@ -339,9 +449,14 @@ export function createHubServer(opts: HubServerOptions): HubServer {
   // enough for its project to be unbound.
   const runSession = createRunSession(deps, publish, async (p) => {
     await allowlist.assertAllowed(p.repoPath);
-  });
+  }, join(opts.configDir, 'run-counter'));
+
+  const credentials = new CredentialStore(opts.configDir, opts.hubSecret);
+  // An unreadable store (wrong secret) is reported in Settings and on stderr; runs keep the env credentials.
+  const credentialsReady = credentials.applyStored().catch((e: unknown) => console.error(`vanguard-hub: ${(e as Error).message}`));
 
   const ctx: RpcContext = {
+    credentials,
     allowlist,
     watchRegistry,
     runSession,
@@ -353,10 +468,11 @@ export function createHubServer(opts: HubServerOptions): HubServer {
     ...(opts.cloneHosts !== undefined ? { cloneHosts: opts.cloneHosts } : {}),
     bind: opts.bind,
     publish,
+    audit: new AuditLog(opts.configDir),
   };
 
   const server = createServer((req, res) => {
-    void handleRequest(ctx, eventBus, opts, auth, req, res).catch(() => {
+    void handleRequest(ctx, eventBus, opts, auth, identity, runRepos, req, res).catch(() => {
       if (res.headersSent) res.destroy();
       else jsonError(res, 500, 'internal server error', 'internal');
     });
@@ -368,20 +484,23 @@ export function createHubServer(opts: HubServerOptions): HubServer {
     eventBus,
     allowlist,
     listen: (port, host) =>
-      new Promise<void>((resolve, reject) => {
+      credentialsReady.then(() => new Promise<void>((resolve, reject) => {
         server.once('error', reject);
         server.listen(port, host, () => {
           server.off('error', reject);
           resolve();
         });
-      }),
+      })),
     close: () =>
       new Promise<void>((resolve) => {
         watchRegistry.closeAll();
         spawnRegistry?.killAll();
         eventBus.close();
         server.closeAllConnections();
-        server.close(() => resolve());
+        server.close(() => {
+          identity.close();
+          resolve();
+        });
       }),
   };
 }

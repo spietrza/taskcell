@@ -13,6 +13,7 @@ import { columnFor, mintBoardId, resolveTaskRef, taskRefKey, toBoardTask } from 
 import type { BoardSource } from './board.js';
 import type { TaskFetcher } from './fetcher.js';
 import type { BoardTask } from '../wire.js';
+import { readRepoBaseBranch } from '../core/base-branch.js';
 import { stateDir } from '../core/state-path.js';
 
 export { columnFor, mintBoardId, resolveTaskRef, toBoardTask };
@@ -171,6 +172,8 @@ export async function listBoardTasks(
     readStageMarkers(repoPath).catch(() => new Map()),
     latestRunChips(repoPath).catch(() => new Map()),
   ]);
+  // The repository default stands in for a card that names no branch, so every card shows where its PR goes.
+  const repoBase = await readRepoBaseBranch(repoPath).catch(() => undefined);
   const stages = new Map([...markers.values()].map((m) => [taskRefKey(m.taskId), m.stage]));
   return {
     tasks: tasks.map((task) => {
@@ -180,6 +183,7 @@ export async function listBoardTasks(
       const verdicts = chips.get(key);
       return {
         ...t,
+        ...(t.baseBranch === undefined && repoBase !== undefined ? { baseBranch: repoBase } : {}),
         ...(t.column === 'running' && stage !== undefined ? { stage } : {}),
         ...(verdicts !== undefined && verdicts.length > 0 ? { chips: verdicts } : {}),
       };

@@ -532,6 +532,25 @@ describe('white-label revision marker', () => {
   });
 });
 
+describe('rebased base', () => {
+  const item = { source: 'review', author: 'alice', body: 'please fix' } as unknown as FeedbackItem;
+  const pr = { repoSlug: 'o/r', number: 7, headRefOid: 'sha', title: 't', diff: '' };
+
+  it('the summary has a Rebased onto base section (not Merged base) and the prompt says mid-rebase', () => {
+    const summary = buildRevisionSummary({
+      repoSlug: 'o/r', number: 7, headRefOid: 'sha', commitSha: 'abc1234', addressed: [{ item, point: 'p' }], deferred: [],
+      verification: { typecheck: 'pass', test: 'pass' }, whiteLabel: false,
+      mergedBase: { base: 'main', files: ['a.ts'], rebased: true },
+    });
+    expect(summary).toContain('### Rebased onto base');
+    expect(summary).toContain('Rebased the branch onto `main`');
+    expect(summary).toContain('changed CI config');
+    expect(summary).not.toContain('### Merged base');
+    expect(buildRevisionPrompt(pr, [item], { base: 'main', files: ['a.ts'], rebased: true })).toContain('mid-rebase onto its base');
+    expect(buildRevisionPrompt(pr, [item], { base: 'main', files: ['a.ts'] })).toContain('mid-merge with its base');
+  });
+});
+
 describe('buildRevisionDryRun', () => {
   const item = { source: 'thread', author: 'alice', body: 'rename this' } as unknown as FeedbackItem;
 

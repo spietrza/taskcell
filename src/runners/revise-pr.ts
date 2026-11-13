@@ -23,6 +23,7 @@ import type { FeedbackItem } from './pr-feedback.js';
 import { prepareContext, disposeContext, refreshSandboxWorkspace } from '../core/taskcell.js';
 import { mergeBaseIntoWorktree, filesWithConflictMarkers, formatConflictFiles } from './base-merge.js';
 import type { RunContext } from '../core/taskcell.js';
+import { VANGUARD_BRANCH_PREFIX } from '../worktree/manager.js';
 import { baseBranchOrDefault } from '../core/base-branch.js';
 import { literalPrompt } from '../context/prompt-engine.js';
 import { skillRegistryForRun } from '../context/skill-registry.js';
@@ -538,19 +539,22 @@ export async function runRevisePullRequest(prRef: string, deps: ReviseGithubPrDe
         });
       }
 
-      // A branch that no longer merges into its base is merged here (a merge commit, never a rewrite):
+      // A branch that no longer merges into its base is merged here (a merge commit), or, when the base changed CI config and the branch is the factory's, rebased onto it:
       // conflict markers are left in the worktree for the agent, and the gate below runs on the result.
       const baseName = baseBranchOrDefault(pr.baseRefName, `PR ${target.repoSlug}#${target.number}`);
       const baseMerge = await mergeBaseIntoWorktree(ctx.worktreePath, baseName, {
         ...(deps.commitAuthor !== undefined ? { authorName: deps.commitAuthor.name, authorEmail: deps.commitAuthor.email } : {}),
+        // Only a factory branch (its prefix) may be rewritten; base-merge also requires every commit on it to carry the factory identity.
+        factoryOwned: pr.headRefName.startsWith(VANGUARD_BRANCH_PREFIX),
       });
       if (baseMerge.status === 'skipped') log(`revise-pr ${target.repoSlug}#${target.number}: base merge check skipped (${baseMerge.reason})`);
       const conflicted = baseMerge.status === 'conflicted' ? baseMerge.files : [];
-      const mergedBase = baseMerge.status === 'conflicted' && baseMerge.unresolvable.length === 0 ? { base: baseName, files: conflicted } : undefined;
+      const mergedBase = baseMerge.status === 'conflicted' && baseMerge.unresolvable.length === 0 ? { base: baseName, files: conflicted, ...(baseMerge.rebased === true ? { rebased: true } : {}) } : undefined;
+      const forceWithLease = mergedBase?.rebased === true ? pr.headRefOid : undefined;
       // Never report success on a PR that still conflicts: say so on the PR and leave `needs revision`
       // for a human (only the in-flight label goes, as for a rate limit).
-      const holdForConflict = async (files: string[]): Promise<ReviseGithubPrResult> => {
-        const notice = `Could not resolve the conflict with \`${baseName}\`: ${formatConflictFiles(files)}. No changes were pushed; please merge \`${baseName}\` into this branch by hand.`;
+      const holdForConflict = async (files: string[], reason?: string): Promise<ReviseGithubPrResult> => {
+        const notice = `Could not resolve the conflict with \`${baseName}\`: ${formatConflictFiles(files)}${reason !== undefined ? ` (${reason})` : ''}. No changes were pushed; please merge \`${baseName}\` into this branch by hand.`;
         log(`revise-pr ${target.repoSlug}#${target.number}: ${notice}`);
         if (deps.out !== undefined) {
           const dryRunOut = await writeDryRun(deps.out, `# Revision dry run: ${target.repoSlug}#${target.number}\n\n${notice}\n`);
@@ -563,9 +567,9 @@ export async function runRevisePullRequest(prRef: string, deps: ReviseGithubPrDe
       };
 
       // Conflicts with no markers to resolve (modify/delete, rename, binary) are left to a human.
-      if (baseMerge.status === 'conflicted' && baseMerge.unresolvable.length > 0) return await holdForConflict(baseMerge.unresolvable);
+      if (baseMerge.status === 'conflicted' && baseMerge.unresolvable.length > 0) return await holdForConflict(baseMerge.unresolvable, baseMerge.reason);
       if (mergedBase !== undefined) {
-        log(`revise-pr ${target.repoSlug}#${target.number}: ${baseName} conflicts with the branch (${formatConflictFiles(conflicted)}) -> merged, agent resolves`);
+        log(`revise-pr ${target.repoSlug}#${target.number}: ${baseName} conflicts with the branch (${formatConflictFiles(conflicted)}) -> ${mergedBase.rebased === true ? 'rebased' : 'merged'}, agent resolves`);
         await refreshSandboxWorkspace(ctx);
       }
 
@@ -700,13 +704,14 @@ export async function runRevisePullRequest(prRef: string, deps: ReviseGithubPrDe
       // deliverChange owns the order: secret scan on the revision diff → commit → push onto the PR branch.
       const delivery = await deliverChange(ctx, {
         taskId: `${target.repoSlug}#${target.number}`,
-        commitMessage: `fix: address review feedback${mergedBase !== undefined ? ` and merge ${baseName}` : ''} (${target.repoSlug}#${target.number})`,
+        commitMessage: `fix: address review feedback${mergedBase !== undefined ? ` and ${mergedBase.rebased === true ? 'rebase onto' : 'merge'} ${baseName}` : ''} (${target.repoSlug}#${target.number})`,
         ...(deps.commitAuthor !== undefined ? { commitAuthor: deps.commitAuthor } : {}),
         secretEnvVars,
         target: {
           kind: 'existing-branch',
           prHeadRef: pr.headRefName,
           tokenProvider,
+          ...(forceWithLease !== undefined ? { forceWithLease } : {}),
           ...(deps._pushRunner !== undefined ? { runner: deps._pushRunner } : {}),
         },
       });
@@ -729,8 +734,8 @@ export async function runRevisePullRequest(prRef: string, deps: ReviseGithubPrDe
         sha = delivery.sha;
       } else if (delivery.kind === 'no-changes') {
         // The agent kept the branch's side of every conflict and changed nothing else: the local merge
-        // commit itself is what goes out.
-        await pushToExistingBranch(ctx, { prHeadRef: pr.headRefName, host: 'github.com', tokenProvider, ...(deps._pushRunner !== undefined ? { runner: deps._pushRunner } : {}) });
+        // (or rebased) HEAD itself is what goes out.
+        await pushToExistingBranch(ctx, { prHeadRef: pr.headRefName, host: 'github.com', tokenProvider, ...(forceWithLease !== undefined ? { forceWithLease } : {}), ...(deps._pushRunner !== undefined ? { runner: deps._pushRunner } : {}) });
         sha = (await execa('git', hostGitArgs(['rev-parse', 'HEAD']), { cwd: ctx.worktreePath })).stdout.trim();
       } else {
         throw new TaskcellError(`unexpected delivery outcome ${delivery.kind} for an existing-branch target`);

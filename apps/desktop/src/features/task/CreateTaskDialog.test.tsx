@@ -13,6 +13,9 @@ function Harness({ onCancel, busy = false }: { onCancel?: () => void; busy?: boo
           source="GitHub"
           title="Fix login"
           bodyBytes={12}
+          branches={[]}
+          baseBranch=""
+          onBaseBranch={() => {}}
           busy={busy}
           onConfirm={() => {}}
           onCancel={() => {
