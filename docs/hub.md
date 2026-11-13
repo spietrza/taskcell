@@ -13,6 +13,8 @@ Installers (macOS `.dmg`, Windows `.msi`/`-setup.exe`, Linux `.AppImage`/`.deb`)
 [`desktop-latest` release](https://github.com/spietrza/taskcell/releases/tag/desktop-latest) once the desktop release job is enabled
 (see `apps/desktop/README.md`). The app checks for updates on start and offers a new version; it downloads on consent and installs when you quit, so running tasks are not interrupted.
 
+Building the desktop app yourself: in `apps/desktop`, `pnpm test:rust` builds and tests the Rust side and `pnpm bundle -- --locked` makes the installers, both with the committed `Cargo.lock` (see [`apps/desktop/README.md`](../apps/desktop/README.md)).
+
 **macOS, unsigned builds.** Unsigned apps are blocked on first open. On macOS 14 and earlier, right-click the app
 and choose **Open**. On macOS 15 and later, try to open it once, then go to **System Settings > Privacy & Security**
 and click **Open Anyway**. If macOS says the app "is damaged", run `xattr -cr /Applications/Taskcell.app` and open it again.
