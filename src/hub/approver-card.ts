@@ -14,6 +14,7 @@ import { readBranchFile } from '../core/metrics-branch.js';
 import { parseJsonlLines } from '../core/stats.js';
 import { STATE_DIR_NAME, LEGACY_STATE_DIR_NAME } from '../core/state-path.js';
 import { keyedLock } from '../core/keyed-lock.js';
+import { hostGitArgs } from '../worktree/host-git.js';
 import { BadRequestError } from '../sidecar/sidecar.js';
 import { githubSlug } from './command-kit.js';
 import { defaultExec, type FactoryExec } from './enable-factory.js';
@@ -292,17 +293,17 @@ async function applyModePr(input: OpenModePrInput): Promise<ApproverModeChange> 
   const tmp = await mkdtemp(join(tmpdir(), 'taskcell-approver-'));
   const tree = join(tmp, 'wt');
   try {
-    await run('git', ['worktree', 'add', '--detach', tree, `origin/${base}`]);
+    await run('git', hostGitArgs(['worktree', 'add', '--detach', tree, `origin/${base}`]));
     try {
       await mkdir(join(tree, dir), { recursive: true });
       // `git show` output loses the final newline; the policy file keeps one.
       await writeFile(join(tree, file), next.endsWith('\n') ? next : `${next}${raw.includes('\r\n') ? '\r\n' : '\n'}`);
-      await run('git', ['add', file], tree);
+      await run('git', hostGitArgs(['add', file]), tree);
       // --no-verify: the temporary worktree has none of the repo's dependencies (node_modules, …), so the repo's
       // commit and push hooks cannot run there; the change is one generated policy file.
-      await run('git', ['commit', '--no-verify', '-m', title, '--', file], tree);
+      await run('git', hostGitArgs(['commit', '--no-verify', '-m', title, '--', file]), tree);
       // --force: the fixed branch is reset to the base on every request, so an earlier request's commit is replaced.
-      await run('git', ['push', '--no-verify', '--force', 'origin', `HEAD:refs/heads/${APPROVER_MODE_BRANCH}`], tree);
+      await run('git', hostGitArgs(['push', '--no-verify', '--force', 'origin', `HEAD:refs/heads/${APPROVER_MODE_BRANCH}`]), tree);
     } finally {
       await run('git', ['worktree', 'remove', '--force', tree]).catch(() => undefined);
     }

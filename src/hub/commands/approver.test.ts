@@ -210,7 +210,7 @@ describe('openApproverModePr', () => {
     const body = create[create.indexOf('--body') + 1]!;
     expect(body).toContain('114 pull requests judged');
     expect(body).toContain('The bar is not met');
-    expect(w.calls.some((c) => c[1] === 'push' && c.some((a) => a.endsWith(':refs/heads/main') || a === 'main'))).toBe(false);
+    expect(w.calls.some((c) => c.includes('push') && c.some((a) => a.endsWith(':refs/heads/main') || a === 'main'))).toBe(false);
     // The user's checkout: same branch, dirty file and untracked file still there, no policy change.
     expect((await execa('git', ['rev-parse', '--abbrev-ref', 'HEAD'], { cwd: w.repo })).stdout).toBe('main');
     expect(await readFile(join(w.repo, 'README.md'), 'utf8')).toBe('dirty\n');
@@ -226,7 +226,7 @@ describe('openApproverModePr', () => {
   test("the repo's commit and push hooks do not run in the temporary worktree", async () => {
     const w = await world();
     const hooks = join(w.repo, '.git', 'hooks');
-    for (const h of ['pre-commit', 'commit-msg', 'pre-push']) await writeFile(join(hooks, h), '#!/bin/sh\nexit 1\n', { mode: 0o755 });
+    for (const h of ['pre-commit', 'commit-msg', 'pre-push', 'post-checkout', 'prepare-commit-msg']) await writeFile(join(hooks, h), '#!/bin/sh\nexit 1\n', { mode: 0o755 });
     await expect(approverCard.openApproverModePr({ repoPath: w.repo, mode: 'off', card, exec: w.exec })).resolves.toMatchObject({ mode: 'off' });
     expect((await execa('git', ['show', 'vanguard/approver-mode:.taskcell/approver.json'], { cwd: w.origin })).stdout).toContain('"enabled": false,\n    "act": false,');
   });
@@ -235,7 +235,7 @@ describe('openApproverModePr', () => {
     const w = await world();
     const events: string[] = [];
     const tagged = (tag: string): typeof w.exec => async (f, a, o) => {
-      if (f === 'git' && a[0] === 'worktree' && a[1] === 'add') events.push(`start ${tag}`);
+      if (f === 'git' && a.includes('worktree') && a.includes('add')) events.push(`start ${tag}`);
       const r = await w.exec(f, a, o);
       if (f === 'gh' && (a[1] === 'create' || a[1] === 'edit')) {
         await new Promise((res) => setTimeout(res, 30));
