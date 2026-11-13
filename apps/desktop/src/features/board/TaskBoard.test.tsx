@@ -81,7 +81,7 @@ describe('TaskBoard', () => {
   test('renders the error branch when listTasks rejects', async () => {
     mockListTasks.mockRejectedValue('boom');
     render(<TaskBoard project="/repo" repos={[]} onOpenTask={() => {}} onNewTask={() => {}} />);
-    expect(await screen.findByText(/No task board/)).toBeInTheDocument();
+    expect(await screen.findByText(/Couldn't load the task board/)).toBeInTheDocument();
   });
 
   test('an uncapped list shows exact header counts, as a single text run', async () => {
@@ -99,7 +99,7 @@ describe('TaskBoard', () => {
   test('error branch renders no Running/Waiting text', async () => {
     mockListTasks.mockRejectedValue('boom');
     render(<TaskBoard project="/repo" repos={[]} onOpenTask={() => {}} onNewTask={() => {}} />);
-    await screen.findByText(/No task board/);
+    await screen.findByText(/Couldn't load the task board/);
     expect(screen.queryByText(/Running/)).not.toBeInTheDocument();
     expect(screen.queryByText(/Waiting/)).not.toBeInTheDocument();
   });
@@ -129,10 +129,10 @@ test('T26/T27/T28: stage and verdict pills stay in their intended lanes, with to
   expect(within(lane('Running')).getByText('stage: implementer')).toBeInTheDocument();
   for (const label of ['Review', 'Done']) {
     const scope = within(lane(label));
-    expect(scope.getByText('implementer: ok').className).toContain('emerald');
-    expect(scope.getByText('reviewer: changes (2)').className).toContain('amber');
-    expect(scope.getByText('proof: fail').className).toContain('rose');
-    expect(scope.getByText('future gate').className).toContain('slate');
+    expect(scope.getByText('implementer: ok').className).toContain('success');
+    expect(scope.getByText('reviewer: changes (2)').className).toContain('warning');
+    expect(scope.getByText('proof: fail').className).toContain('destructive');
+    expect(scope.getByText('future gate').className).toContain('bg-muted');
   }
   expect(within(lane('Queued')).queryByText('implementer: ok')).not.toBeInTheDocument();
 });

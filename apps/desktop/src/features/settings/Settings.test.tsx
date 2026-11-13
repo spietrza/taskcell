@@ -84,7 +84,7 @@ test('a valid custom-provider row saves through writeAppConfig with only name/ba
   render(<Settings project="/repo" />);
   await waitFor(() => expect(read).toHaveBeenCalled());
   fireEvent.click(screen.getByRole('button', { name: /add/i }));
-  fireEvent.change(screen.getAllByRole('textbox').find((el) => el.closest('label')?.textContent?.startsWith('name'))!, {
+  fireEvent.change(screen.getAllByRole('textbox').find((el) => el.closest('label')?.textContent?.startsWith('Provider name'))!, {
     target: { value: 'my-proxy' },
   });
   fireEvent.change(screen.getByPlaceholderText('MY_PROXY_API_KEY'), { target: { value: 'MY_KEY' } });
@@ -114,8 +114,8 @@ test('the provider dropdown offers healthy customs; reviewProvider stays built-i
   });
   render(<Settings project="/repo" />);
   await waitFor(() => expect(read).toHaveBeenCalled());
-  const providerSelect = screen.getByText('provider').closest('label')!.querySelector('select')!;
-  const reviewSelect = screen.getByText('reviewProvider').closest('label')!.querySelector('select')!;
+  const providerSelect = screen.getByText('AI provider').closest('label')!.querySelector('select')!;
+  const reviewSelect = screen.getByText('Review provider').closest('label')!.querySelector('select')!;
   const values = (sel: HTMLSelectElement): string[] => [...sel.options].map((o) => o.value).filter(Boolean);
   expect(values(providerSelect)).toContain('my-proxy');
   expect(values(reviewSelect)).not.toContain('my-proxy');

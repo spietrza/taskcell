@@ -111,7 +111,7 @@ export function Settings({ project, teamScreen }: { project: string; teamScreen?
   const note = combinationNote(taskSource, cfg.runLocation);
 
   return (
-    <div className="mx-auto max-w-2xl space-y-5">
+    <div className="space-y-5">
       <div className="flex items-center gap-3">
         <h2 className="text-xl font-semibold">Settings</h2>
         <code className="text-xs text-muted-foreground">.taskcell/app.json</code>
@@ -139,7 +139,7 @@ export function Settings({ project, teamScreen }: { project: string; teamScreen?
         <div className="rounded-lg border border-border p-5 text-sm text-muted-foreground">Loading…</div>
       ) : (
       <div className="space-y-4 rounded-lg border border-border p-5">
-        <Field label="Repo path">
+        <Field label="Repository path">
           <Input value={project} readOnly className="w-full" />
         </Field>
         {/* Not a <Field> (which is a <label>) — a label would forward clicks on the readout/reset to
@@ -226,7 +226,7 @@ export function Settings({ project, teamScreen }: { project: string; teamScreen?
           </Field>
         )}
         <div className="grid grid-cols-2 gap-4">
-          <Field label="provider">
+          <Field label="AI provider" hint="— which model service runs the stages">
             {/* Built-ins + this repo's healthy customs; a stored name that no longer resolves shows
                 flagged instead of silently rendering the em-dash while the value persists. */}
             <Select
@@ -236,7 +236,7 @@ export function Settings({ project, teamScreen }: { project: string; teamScreen?
               danglingLabel={(v) => `${v} (not configured)`}
             />
           </Field>
-          <Field label="reviewProvider" hint="optional — built-ins only (customs never review)">
+          <Field label="Review provider" hint="— optional; a different built-in provider to review the work (custom providers cannot review)">
             <Select
               value={cfg.reviewProvider ?? ''}
               onChange={(v) => set('reviewProvider', v || undefined)}
@@ -262,7 +262,7 @@ export function Settings({ project, teamScreen }: { project: string; teamScreen?
           />
         </Field>
         <div className="grid grid-cols-2 gap-4">
-          <Field label="Concurrency">
+          <Field label="Parallel runs" hint="— how many tasks run at once">
             <Input
               type="number"
               value={cfg.concurrency ?? ''}
@@ -318,10 +318,10 @@ export function Settings({ project, teamScreen }: { project: string; teamScreen?
           {customs.map((row, i) => (
             <div key={i} className="space-y-2 rounded-md border border-border p-3">
               <div className="grid grid-cols-2 gap-3">
-                <Field label="name" hint="lowercase, e.g. my-proxy">
+                <Field label="Provider name" hint="— lowercase, e.g. my-proxy">
                   <Input value={row.name} onChange={(e) => setRow(i, { name: e.target.value })} className="w-full font-mono text-xs" />
                 </Field>
-                <Field label="key env var" hint="the variable NAME — never the key itself">
+                <Field label="API key variable" hint="— the name of the environment variable that holds the key, never the key itself">
                   <Input
                     value={row.keyEnv}
                     onChange={(e) => setRow(i, { keyEnv: e.target.value })}
@@ -330,7 +330,7 @@ export function Settings({ project, teamScreen }: { project: string; teamScreen?
                   />
                 </Field>
               </div>
-              <Field label="base URL" hint="Anthropic-Messages-compatible endpoint">
+              <Field label="Endpoint URL" hint="— an Anthropic-compatible API endpoint">
                 <Input
                   value={row.baseUrl}
                   onChange={(e) => setRow(i, { baseUrl: e.target.value })}
@@ -339,7 +339,7 @@ export function Settings({ project, teamScreen }: { project: string; teamScreen?
                 />
               </Field>
               <div className="flex items-end gap-3">
-                <Field label="model" hint="optional — forced default (endpoints that don't serve Claude's)">
+                <Field label="Model" hint="— optional; the model to use when the endpoint does not serve Claude's">
                   <Input
                     value={row.model ?? ''}
                     onChange={(e) => setRow(i, { model: e.target.value || undefined })}

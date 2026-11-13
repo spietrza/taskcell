@@ -33,14 +33,14 @@ export function matchNeedsYou(items: NeedsYouItem[], task: Pick<BoardTask, 'id' 
   );
 }
 
-// Orange (amber) is reserved for the needs-you chip; current is calm blue, failed is red.
+// Orange (primary) is reserved for the needs-you chip; current is plain ink, failed is red.
 const DOT: Record<StageStatus, string> = {
-  done: 'text-emerald-600 dark:text-emerald-400',
-  current: 'text-blue-500',
+  done: 'text-success-text',
+  current: 'text-foreground',
   waiting: 'text-muted-foreground/50',
-  failed: 'text-rose-500',
+  failed: 'text-destructive-text',
 };
-const FACT_TONE = { pass: '', fail: 'text-rose-600 dark:text-rose-400', none: 'text-muted-foreground' } as const;
+const FACT_TONE = { pass: '', fail: 'text-destructive-text', none: 'text-muted-foreground' } as const;
 
 type RunState = { prUrl?: string; totalCostUsd?: number; detail?: RunDetail };
 
@@ -145,7 +145,7 @@ export function QuickView({
         {item !== null && (
           <div className="space-y-2">
             {/* The one orange thing here: the card waits for the user. */}
-            <span className="inline-block rounded bg-amber-500/15 px-2 py-0.5 text-xs font-medium text-amber-700 dark:text-amber-300">
+            <span className="inline-block rounded bg-primary/15 px-2 py-0.5 text-xs font-medium text-primary-text">
               Needs you · {waitingWhy(item)}
             </span>
             {item.lastComment && <div className="whitespace-pre-wrap break-words rounded bg-muted/40 px-3 py-2 text-sm">{item.lastComment.body}</div>}
@@ -178,7 +178,7 @@ export function QuickView({
               ) : (
                 <CircleDot className={cn('size-4', DOT[s.status])} aria-hidden />
               )}
-              <span className={cn(s.status === 'waiting' && 'text-muted-foreground', s.status === 'failed' && 'text-rose-600 dark:text-rose-400')}>{s.label}</span>
+              <span className={cn(s.status === 'waiting' && 'text-muted-foreground', s.status === 'failed' && 'text-destructive-text')}>{s.label}</span>
               <span className="sr-only">{s.status}</span>
               {s.note && <span className="text-xs text-muted-foreground">{s.note}</span>}
             </li>

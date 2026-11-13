@@ -143,7 +143,7 @@ export function NeedsYou({
   }, [project, allRepos, nonce, teamId, repos.join('\n')]);
 
   return (
-    <section id="needs-you" aria-label="Needs you" className="mx-auto w-full max-w-3xl space-y-3">
+    <section id="needs-you" aria-label="Needs you" className="w-full space-y-3">
       <div className="flex items-center gap-3">
         <h2 className="text-xl font-semibold">Needs you</h2>
         {/* Announces the count when it changes, e.g. after a reply or a refresh finds new items. */}

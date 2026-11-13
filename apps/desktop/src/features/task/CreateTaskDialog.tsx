@@ -1,5 +1,5 @@
 import { useEffect, useRef } from 'react';
-import { Button } from '@/ui';
+import { Button, useFocusTrap } from '@/ui';
 
 /**
  * Confirmation for the app's first irreversible write.
@@ -32,12 +32,11 @@ export function CreateTaskDialog({
   onCancel: () => void;
 }) {
   const panelRef = useRef<HTMLDivElement>(null);
-  // Focus starts inside the dialog, so screen readers announce it and Tab stays near its buttons;
-  // on close it goes back to whatever opened the dialog instead of falling to <body>.
+  useFocusTrap(panelRef);
+  // Focus starts inside the dialog, so screen readers announce it and Tab stays near its buttons
+  // (useFocusTrap returns it to the opener on close).
   useEffect(() => {
-    const opener = document.activeElement instanceof HTMLElement ? document.activeElement : null;
     panelRef.current?.focus();
-    return () => opener?.focus();
   }, []);
   useEffect(() => {
     const onKey = (e: KeyboardEvent): void => {

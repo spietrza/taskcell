@@ -29,3 +29,6 @@ export { Logo } from './Logo';
 export { Markdown } from './Markdown';
 export { ScrollTable } from './ScrollTable';
 export { Timestamp } from './Timestamp';
+export { useFocusTrap } from './useFocusTrap';
+export { PAGE_CLASS } from './page';
+export { ErrorNote } from './ErrorNote';

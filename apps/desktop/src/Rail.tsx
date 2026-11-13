@@ -75,7 +75,7 @@ export function Rail({
         'flex shrink-0 flex-col overflow-y-auto border-r border-border bg-muted/20 pt-2 transition-[width] duration-200',
         // Below md the rail becomes a bottom tab bar (rendered last), full width, scrolling inside itself.
         'max-md:order-last max-md:w-full max-md:flex-row max-md:overflow-x-auto max-md:overflow-y-hidden max-md:border-r-0 max-md:border-t max-md:pt-0',
-        collapsed ? 'w-14' : 'w-36',
+        collapsed ? 'w-14' : 'w-48',
       )}
     >
       <Tooltip.Provider delay={200}>
