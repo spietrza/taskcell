@@ -101,7 +101,7 @@ pub fn grant(app: &AppHandle, server: &Server) -> Result<(), String> {
     app.add_capability(capability.to_string()).map_err(|e| e.to_string())
 }
 
-fn config_dir(app: &AppHandle) -> Result<PathBuf, String> {
+pub fn config_dir(app: &AppHandle) -> Result<PathBuf, String> {
     app.path().app_config_dir().map_err(|e| e.to_string())
 }
 

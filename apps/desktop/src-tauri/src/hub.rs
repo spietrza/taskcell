@@ -88,7 +88,7 @@ fn free_port() -> Result<u16, String> {
 
 fn spawn_hub(app: &AppHandle) -> Result<Child, String> {
     let launch = launch_for(app)?;
-    let config_dir = app.path().app_config_dir().map_err(|e| e.to_string())?;
+    let config_dir = servers::config_dir(app)?;
     std::fs::create_dir_all(&config_dir).map_err(|e| e.to_string())?;
     let port = free_port()?;
     Command::new(&launch.program)
