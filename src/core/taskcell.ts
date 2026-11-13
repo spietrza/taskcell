@@ -43,7 +43,7 @@ export interface PrepareOptions {
   start: TaskStart;
   /** 'base' only: keep a local base that is ahead of/diverged from origin (default: outside CI only). See resolveRemoteBaseRef. */
   keepLocalIfAhead?: boolean;
-  /** Override the run branch prefix (white-label mode: e.g. `feat/`). Default VANGUARD_BRANCH_PREFIX. */
+  /** Override the run branch prefix (white-label mode: e.g. `feat/`). Default MINT_BRANCH_PREFIX. */
   branchPrefix?: string;
   /** Override the run branch/path id (white-label mode: bare issue number). Default taskId. */
   branchId?: string;

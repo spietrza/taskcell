@@ -114,7 +114,7 @@ describe('extractGateConfigBlock', () => {
   const block = gateConfigChangedBlock([{ path: 'vitest.config.ts', patch: '+    thresholds: { lines: 0 },' }]);
   // The real first-delivery order (source-adapter.ts): gate block, closing keyword + attribution,
   // then the proof section.
-  const body = [block, 'Closes o/r#42\n\nAutomated implementation of o/r#42 by Vanguard.', '## Proof of work\n\nPASS'].join('\n\n');
+  const body = [block, 'Closes o/r#42\n\nAutomated implementation of o/r#42 by Taskcell.', '## Proof of work\n\nPASS'].join('\n\n');
 
   it('captures the block exactly, with neither the closing-keyword line nor the attribution line', () => {
     // An exact match is the whole claim: the block's own changed lines are in, every neighbouring

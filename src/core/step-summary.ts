@@ -51,7 +51,7 @@ export function renderStepSummary(summary: StepSummary): string {
     summary.error !== undefined ? `- Error: ${redactForPublish(summary.error)}` : undefined,
   ].filter((line): line is string => line !== undefined);
   return [
-    `### Vanguard run \`${summary.taskId}\` — ${summary.exit}`,
+    `### Taskcell run \`${summary.taskId}\` — ${summary.exit}`,
     '',
     `flow \`${summary.flow}\` · provider \`${summary.provider}\`${summary.model !== undefined ? ` · model \`${summary.model}\`` : ''}`,
     '',

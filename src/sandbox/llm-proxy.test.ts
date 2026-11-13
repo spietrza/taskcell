@@ -4,7 +4,7 @@ import { llmProxySandboxEnv } from './egress-proxy.js';
 import { providerSecrets } from '../agents/registry.js';
 import { SandboxError } from '../core/errors.js';
 
-const ENV_VAR = 'VANGUARD_SANDBOX_IMAGE';
+const ENV_VAR = 'TASKCELL_SANDBOX_IMAGE';
 
 /** A ChatGPT-plan credential as providerSecrets hands it to the sidecar (real token values). */
 const REAL_CHATGPT_AUTH = { accessToken: 'real-access', refreshToken: 'real-refresh', accountId: 'acct-real', planType: 'pro' };
@@ -56,9 +56,9 @@ describe('startLlmProxy', () => {
     expect(d.calls.some((c) => c.input?.includes('sk-ant-secret'))).toBe(true);
   });
 
-  it('adds the vanguard.owner label when VANGUARD_OWNER_LABEL is set', async () => {
-    const prev = process.env.VANGUARD_OWNER_LABEL;
-    process.env.VANGUARD_OWNER_LABEL = 'ci-job-42';
+  it('adds the vanguard.owner label when TASKCELL_OWNER_LABEL is set', async () => {
+    const prev = process.env.TASKCELL_OWNER_LABEL;
+    process.env.TASKCELL_OWNER_LABEL = 'ci-job-42';
     try {
       const d = fakeDocker();
       await startLlmProxy({
@@ -69,8 +69,8 @@ describe('startLlmProxy', () => {
       const runCall = d.calls.find((c) => c.args[0] === 'run');
       expect(runCall?.args).toContain('vanguard.owner=ci-job-42');
     } finally {
-      if (prev === undefined) delete process.env.VANGUARD_OWNER_LABEL;
-      else process.env.VANGUARD_OWNER_LABEL = prev;
+      if (prev === undefined) delete process.env.TASKCELL_OWNER_LABEL;
+      else process.env.TASKCELL_OWNER_LABEL = prev;
     }
   });
 
@@ -136,7 +136,7 @@ describe('startLlmProxy', () => {
     expect(a.nonce).not.toBe(b.nonce);
   });
 
-  it('runs the sidecar on VANGUARD_SANDBOX_IMAGE when set — it is the sandbox image, not a dedicated proxy image', async () => {
+  it('runs the sidecar on TASKCELL_SANDBOX_IMAGE when set — it is the sandbox image, not a dedicated proxy image', async () => {
     const prev = process.env[ENV_VAR];
     process.env[ENV_VAR] = 'sha256:deadbeef';
     try {
@@ -151,7 +151,7 @@ describe('startLlmProxy', () => {
     }
   });
 
-  it('an explicit image option still wins over VANGUARD_SANDBOX_IMAGE', async () => {
+  it('an explicit image option still wins over TASKCELL_SANDBOX_IMAGE', async () => {
     const prev = process.env[ENV_VAR];
     process.env[ENV_VAR] = 'sha256:deadbeef';
     try {

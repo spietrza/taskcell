@@ -20,13 +20,13 @@ let repo: string;
 let configDir: string;
 let browseRoot: string;
 const envKeys = [
-  'VANGUARD_HUB_UI_DIR',
-  'VANGUARD_HUB_CONFIG_DIR',
-  'VANGUARD_HUB_BROWSE_ROOT',
-  'VANGUARD_HUB_ALLOW_ADD',
-  'VANGUARD_HUB_WATCH_POLL',
-  'VANGUARD_HUB_WATCH_INTERVAL_MS',
-  'VANGUARD_HUB_ALLOWED_HOSTS',
+  'TASKCELL_HUB_UI_DIR',
+  'TASKCELL_HUB_CONFIG_DIR',
+  'TASKCELL_HUB_BROWSE_ROOT',
+  'TASKCELL_HUB_ALLOW_ADD',
+  'TASKCELL_HUB_WATCH_POLL',
+  'TASKCELL_HUB_WATCH_INTERVAL_MS',
+  'TASKCELL_HUB_ALLOWED_HOSTS',
 ] as const;
 const savedEnv: Record<string, string | undefined> = {};
 
@@ -38,8 +38,8 @@ beforeEach(async () => {
   browseRoot = await mkdtemp(join(tmpdir(), 'vanguard-hub-cli-browse-'));
   await mkdir(join(repo, '.git'), { recursive: true });
   await writeFile(join(uiDir, 'index.html'), '<html><head></head><body>hi</body></html>');
-  process.env.VANGUARD_HUB_CONFIG_DIR = configDir;
-  process.env.VANGUARD_HUB_BROWSE_ROOT = browseRoot;
+  process.env.TASKCELL_HUB_CONFIG_DIR = configDir;
+  process.env.TASKCELL_HUB_BROWSE_ROOT = browseRoot;
   vi.clearAllMocks();
 });
 
@@ -81,7 +81,7 @@ describe('hubCommand --token-file', () => {
     const logSpy = vi.spyOn(console, 'log').mockImplementation(() => undefined);
     try {
       await hubCommand(command({ tokenFile }));
-      return logSpy.mock.calls.map((c) => String(c[0])).find((s) => s.startsWith('Vanguard Hub → '))!;
+      return logSpy.mock.calls.map((c) => String(c[0])).find((s) => s.startsWith('Taskcell Hub → '))!;
     } finally {
       logSpy.mockRestore();
       process.emit('SIGINT');
@@ -96,7 +96,7 @@ describe('hubCommand --token-file', () => {
     expect(first).toMatch(/#token=[a-f0-9]{64}$/);
     expect(second.split('#')[1]).toBe(first.split('#')[1]);
     // The default browser open gets the token-bearing URL too.
-    expect(vi.mocked(execa).mock.calls.at(-1)![1]).toEqual([second.slice('Vanguard Hub → '.length)]);
+    expect(vi.mocked(execa).mock.calls.at(-1)![1]).toEqual([second.slice('Taskcell Hub → '.length)]);
 
     await hubRotateTokenCommand({ kind: 'hub-rotate-token', tokenFile });
     const third = await launch(tokenFile);
@@ -113,12 +113,12 @@ describe('hubCommand --token-file', () => {
 
 describe('hubCommand', () => {
   test('passes CLI and environment allowed Hosts to the server', async () => {
-    process.env.VANGUARD_HUB_ALLOWED_HOSTS = ' env.example, ';
+    process.env.TASKCELL_HUB_ALLOWED_HOSTS = ' env.example, ';
     const logSpy = vi.spyOn(console, 'log').mockImplementation(() => undefined);
     try {
       await hubCommand(command({ allowedHosts: ['cli.example'] }));
-      const line = logSpy.mock.calls.map((c) => String(c[0])).find((s) => s.startsWith('Vanguard Hub → '))!;
-      const url = new URL(line.slice('Vanguard Hub → '.length)).origin;
+      const line = logSpy.mock.calls.map((c) => String(c[0])).find((s) => s.startsWith('Taskcell Hub → '))!;
+      const url = new URL(line.slice('Taskcell Hub → '.length)).origin;
       for (const host of ['cli.example', 'env.example']) {
         // node:http preserves an explicit Host (fetch implementations may replace it).
         const status = await new Promise<number | undefined>((resolve, reject) => {
@@ -143,8 +143,8 @@ describe('hubCommand', () => {
     const errorSpy = vi.spyOn(console, 'error').mockImplementation(() => undefined); // the no-auth warning
     try {
       await hubCommand(command({ host: '0.0.0.0' }));
-      const line = logSpy.mock.calls.map((c) => String(c[0])).find((s) => s.startsWith('Vanguard Hub → '))!;
-      const url = line.slice('Vanguard Hub → '.length);
+      const line = logSpy.mock.calls.map((c) => String(c[0])).find((s) => s.startsWith('Taskcell Hub → '))!;
+      const url = line.slice('Taskcell Hub → '.length);
       // Server mode requires sign-in: the URL carries no token, and pages redirect to the sign-in page.
       expect(url).toMatch(/^http:\/\/0\.0\.0\.0:\d+$/);
       expect((await httpGet(url, '/')).status).toBe(302);
@@ -164,8 +164,8 @@ describe('hubCommand', () => {
     const host = hostname();
     try {
       await hubCommand(command({ host }));
-      const line = logSpy.mock.calls.map((c) => String(c[0])).find((s) => s.startsWith('Vanguard Hub → '))!;
-      const url = line.slice('Vanguard Hub → '.length);
+      const line = logSpy.mock.calls.map((c) => String(c[0])).find((s) => s.startsWith('Taskcell Hub → '))!;
+      const url = line.slice('Taskcell Hub → '.length);
       expect(url).toMatch(new RegExp(`^http://${host}:\\d+$`));
       // The hub actually bound to this machine's own hostname (a real address on the sandbox's
       // interface), so — unlike the `127.0.0.1`-bound tests — connect to the hostname itself, not
@@ -203,9 +203,9 @@ describe('hubCommand', () => {
   test('an allowed Host carrying a scheme, a path or a wildcard is a startup error', async () => {
     for (const bad of ['https://hub.example', 'hub.example/ui', '*.example']) {
       await expect(hubCommand(command({ allowedHosts: [bad] }))).rejects.toThrow(/bare host\[:port\]/);
-      process.env.VANGUARD_HUB_ALLOWED_HOSTS = `ok.example,${bad}`;
+      process.env.TASKCELL_HUB_ALLOWED_HOSTS = `ok.example,${bad}`;
       await expect(hubCommand(command())).rejects.toThrow(/bare host\[:port\]/);
-      delete process.env.VANGUARD_HUB_ALLOWED_HOSTS;
+      delete process.env.TASKCELL_HUB_ALLOWED_HOSTS;
     }
   });
 
@@ -214,9 +214,9 @@ describe('hubCommand', () => {
       await expect(hubCommand(command({ allowedHosts: [bad] }))).rejects.toThrow(
         /bare host\[:port\], with any IPv6 literal bracketed .* and a numeric port/,
       );
-      process.env.VANGUARD_HUB_ALLOWED_HOSTS = `ok.example,${bad}`;
+      process.env.TASKCELL_HUB_ALLOWED_HOSTS = `ok.example,${bad}`;
       await expect(hubCommand(command())).rejects.toThrow(/any IPv6 literal bracketed/);
-      delete process.env.VANGUARD_HUB_ALLOWED_HOSTS;
+      delete process.env.TASKCELL_HUB_ALLOWED_HOSTS;
     }
   });
 
@@ -228,12 +228,12 @@ describe('hubCommand', () => {
     }
   });
 
-  test('--allowed-host values are trimmed the same way VANGUARD_HUB_ALLOWED_HOSTS values are', async () => {
+  test('--allowed-host values are trimmed the same way TASKCELL_HUB_ALLOWED_HOSTS values are', async () => {
     const logSpy = vi.spyOn(console, 'log').mockImplementation(() => undefined);
     try {
       await hubCommand(command({ allowedHosts: [' hub.example ', ''] }));
-      const line = logSpy.mock.calls.map((c) => String(c[0])).find((s) => s.startsWith('Vanguard Hub → '))!;
-      const url = line.slice('Vanguard Hub → '.length);
+      const line = logSpy.mock.calls.map((c) => String(c[0])).find((s) => s.startsWith('Taskcell Hub → '))!;
+      const url = line.slice('Taskcell Hub → '.length);
       // Untrimmed, "Host: hub.example" (what a browser actually sends) would never match the stored
       // " hub.example " string.
       const status = await new Promise<number | undefined>((resolve, reject) => {
@@ -275,7 +275,7 @@ describe('hubCommand', () => {
       await hubCommand(command());
       expect(await loadPaths(configDir)).toContain(repo);
       const lines = logSpy.mock.calls.map((c) => String(c[0]));
-      expect(lines.some((l) => l.startsWith('Vanguard Hub → http://127.0.0.1:'))).toBe(true);
+      expect(lines.some((l) => l.startsWith('Taskcell Hub → http://127.0.0.1:'))).toBe(true);
       expect(lines).toContain('Projects:');
       expect(lines.some((l) => l.trim() === repo)).toBe(true);
     } finally {
@@ -367,9 +367,9 @@ describe('hubCommand', () => {
     const logSpy = vi.spyOn(console, 'log').mockImplementation(() => undefined);
     try {
       await hubCommand(command());
-      const line = logSpy.mock.calls.map((c) => String(c[0])).find((l) => l.startsWith('Vanguard Hub → '));
+      const line = logSpy.mock.calls.map((c) => String(c[0])).find((l) => l.startsWith('Taskcell Hub → '));
       expect(line).toBeDefined();
-      const url = new URL(line!.replace('Vanguard Hub → ', '')).origin;
+      const url = new URL(line!.replace('Taskcell Hub → ', '')).origin;
       const res = await fetch(`${url}/healthz`);
       expect(await res.json()).toEqual({ ok: true });
 

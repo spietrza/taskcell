@@ -14,6 +14,7 @@ import { defaultHubConfigDir } from '../hub/audit.js';
 import { loadPaths, add as addProject } from '../hub/projects.js';
 import { loadOrCreateToken, rotateToken } from '../hub/token-file.js';
 import type { Command } from './args.js';
+import { readEnv } from '../core/env.js';
 
 const LOOPBACK_HOSTS = ['127.0.0.1', '::1', 'localhost'];
 
@@ -44,7 +45,7 @@ function assertPlainHosts(hosts: readonly string[]): void {
     }
     if (requirement !== undefined) {
       throw new Error(
-        `Vanguard Hub: invalid allowed Host "${host}" — --allowed-host/VANGUARD_HUB_ALLOWED_HOSTS take a bare host[:port], ${requirement}.`,
+        `Taskcell Hub: invalid allowed Host "${host}" — --allowed-host/TASKCELL_HUB_ALLOWED_HOSTS take a bare host[:port], ${requirement}.`,
       );
     }
   }
@@ -65,7 +66,7 @@ async function assertUiDirBuilt(uiDir: string, fleet: boolean, demo: boolean): P
   } catch (error) {
     const reason = error instanceof Error ? error.message : String(error);
     throw new Error(
-      `Vanguard Hub: cannot read ${indexPath} (${reason}) — build the desktop app first: pnpm --dir apps/desktop build`,
+      `Taskcell Hub: cannot read ${indexPath} (${reason}) — build the desktop app first: pnpm --dir apps/desktop build`,
     );
   }
 }
@@ -79,39 +80,39 @@ export function hubLaunchUrl(origin: string, token: string): string {
 }
 
 const NO_PROVIDER_WARNING =
-  'WARNING: no sign-in provider is configured (VANGUARD_HUB_AUTH_<GITHUB|GITLAB|GOOGLE>_CLIENT_ID/_CLIENT_SECRET): only the hub token works. See docs/hub.md "Server mode sign-in".';
+  'WARNING: no sign-in provider is configured (TASKCELL_HUB_AUTH_<GITHUB|GITLAB|GOOGLE>_CLIENT_ID/_CLIENT_SECRET): only the hub token works. See docs/hub.md "Server mode sign-in".';
 const NO_PUBLIC_URL_WARNING =
-  'WARNING: VANGUARD_HUB_PUBLIC_URL is not set: OAuth callbacks will use the bind address, which a provider cannot redirect to. Set it to the URL users open (https://hub.example.com).';
+  'WARNING: TASKCELL_HUB_PUBLIC_URL is not set: OAuth callbacks will use the bind address, which a provider cannot redirect to. Set it to the URL users open (https://hub.example.com).';
 const NO_ALLOWLIST_WARNING =
-  'WARNING: VANGUARD_HUB_SIGNUP_ALLOW is empty: nobody can create an account. See docs/hub.md "Server mode sign-in".';
+  'WARNING: TASKCELL_HUB_SIGNUP_ALLOW is empty: nobody can create an account. See docs/hub.md "Server mode sign-in".';
 
 /** `hub rotate-token`: writes a new token; a running hub uses it after its next restart. */
 export async function hubRotateTokenCommand(command: Extract<Command, { kind: 'hub-rotate-token' }>): Promise<void> {
   await rotateToken(command.tokenFile);
-  console.log(`Vanguard Hub: wrote a new token to ${command.tokenFile}; restart the hub to use it.`);
+  console.log(`Taskcell Hub: wrote a new token to ${command.tokenFile}; restart the hub to use it.`);
 }
 
 export async function hubCommand(command: Extract<Command, { kind: 'hub' }>): Promise<void> {
   const allowedHosts = [
     ...trimHosts(command.allowedHosts ?? []),
-    ...parseHostList(process.env.VANGUARD_HUB_ALLOWED_HOSTS),
+    ...parseHostList(readEnv('TASKCELL_HUB_ALLOWED_HOSTS')),
   ];
   assertPlainHosts(allowedHosts);
 
   const adminGithubLogins = [
     ...trimHosts(command.adminGithubLogins ?? []),
-    ...parseHostList(process.env.VANGUARD_HUB_ADMIN_GITHUB_LOGINS),
+    ...parseHostList(readEnv('TASKCELL_HUB_ADMIN_GITHUB_LOGINS')),
   ];
 
   const isLoopback = LOOPBACK_HOSTS.includes(command.host);
   // Server mode = sign-in required: any non-loopback bind, or a loopback bind behind a same-host
-  // reverse proxy that sets VANGUARD_HUB_SERVER_MODE=1. Only a plain loopback bind is local mode.
-  const serverMode = !isLoopback || process.env.VANGUARD_HUB_SERVER_MODE === '1';
+  // reverse proxy that sets TASKCELL_HUB_SERVER_MODE=1. Only a plain loopback bind is local mode.
+  const serverMode = !isLoopback || readEnv('TASKCELL_HUB_SERVER_MODE') === '1';
 
-  const uiDir = resolve(command.uiDir ?? process.env.VANGUARD_HUB_UI_DIR ?? join(pkgRoot(), 'apps/desktop/dist'));
+  const uiDir = resolve(command.uiDir ?? readEnv('TASKCELL_HUB_UI_DIR') ?? join(pkgRoot(), 'apps/desktop/dist'));
   // The desktop app's own local hub (apps/desktop/src-tauri) sets this; honoured in local mode only
   // (a server-mode hub, reachable by others, must never run arbitrary programs).
-  const fleet = process.env.VANGUARD_HUB_ALLOW_FLEET === '1' && !serverMode;
+  const fleet = readEnv('TASKCELL_HUB_ALLOW_FLEET') === '1' && !serverMode;
   const demo = command.demo === true;
   await assertUiDirBuilt(uiDir, fleet, demo);
 
@@ -145,8 +146,8 @@ export async function hubCommand(command: Extract<Command, { kind: 'hub' }>): Pr
 
   // Sign-in (server mode); local mode is the automatic owner with no database and no OAuth.
   const hostForUrl = command.host.includes(':') ? `[${command.host}]` : command.host;
-  const signupEntries = parseHostList(process.env.VANGUARD_HUB_SIGNUP_ALLOW);
-  const publicUrl = process.env.VANGUARD_HUB_PUBLIC_URL?.trim() || undefined;
+  const signupEntries = parseHostList(readEnv('TASKCELL_HUB_SIGNUP_ALLOW'));
+  const publicUrl = readEnv('TASKCELL_HUB_PUBLIC_URL')?.trim() || undefined;
   const identity = serverMode
     ? await createHubIdentity({
         configDir,
@@ -164,18 +165,18 @@ export async function hubCommand(command: Extract<Command, { kind: 'hub' }>): Pr
     fleet,
     demo,
     configDir,
-    browseRoot: process.env.VANGUARD_HUB_BROWSE_ROOT ?? homedir(),
-    ...(process.env.VANGUARD_HUB_CLONE_HOSTS ? { cloneHosts: parseHostList(process.env.VANGUARD_HUB_CLONE_HOSTS) } : {}),
+    browseRoot: readEnv('TASKCELL_HUB_BROWSE_ROOT') ?? homedir(),
+    ...(readEnv('TASKCELL_HUB_CLONE_HOSTS') ? { cloneHosts: parseHostList(readEnv('TASKCELL_HUB_CLONE_HOSTS')) } : {}),
     bind: {
       isLoopback: !serverMode,
-      allowAdd: process.env.VANGUARD_HUB_ALLOW_ADD === '1',
+      allowAdd: readEnv('TASKCELL_HUB_ALLOW_ADD') === '1',
     },
     ...(seededRepoPath !== undefined ? { seedRepoPath: seededRepoPath } : {}),
     ...(token !== undefined ? { token } : {}),
     watch: {
-      forcePoll: process.env.VANGUARD_HUB_WATCH_POLL === '1',
-      ...(Number(process.env.VANGUARD_HUB_WATCH_INTERVAL_MS) > 0
-        ? { pollIntervalMs: Number(process.env.VANGUARD_HUB_WATCH_INTERVAL_MS) }
+      forcePoll: readEnv('TASKCELL_HUB_WATCH_POLL') === '1',
+      ...(Number(readEnv('TASKCELL_HUB_WATCH_INTERVAL_MS')) > 0
+        ? { pollIntervalMs: Number(readEnv('TASKCELL_HUB_WATCH_INTERVAL_MS')) }
         : {}),
     },
   });
@@ -197,7 +198,7 @@ export async function hubCommand(command: Extract<Command, { kind: 'hub' }>): Pr
   process.on('SIGTERM', shutdown);
   // The desktop app's local hub: its stdin is a pipe from the app, so EOF means the app is gone
   // (quit or killed) — shut down rather than outlive it.
-  if (process.env.VANGUARD_HUB_EXIT_ON_STDIN_EOF === '1') {
+  if (readEnv('TASKCELL_HUB_EXIT_ON_STDIN_EOF') === '1') {
     process.stdin.on('end', shutdown);
     process.stdin.on('close', shutdown);
     process.stdin.resume();
@@ -219,7 +220,7 @@ export async function hubCommand(command: Extract<Command, { kind: 'hub' }>): Pr
   // Server mode requires sign-in for pages, so the token-carrying launch URL would only redirect.
   const origin = `http://${hostForUrl}:${boundPort}`;
   const url = serverMode ? origin : hubLaunchUrl(origin, hub.token);
-  console.log(`Vanguard Hub → ${url}${demo ? ' (demo: sample data, read-only)' : ''}`);
+  console.log(`Taskcell Hub → ${url}${demo ? ' (demo: sample data, read-only)' : ''}`);
 
   const projects = await loadPaths(configDir);
   if (projects.length > 0) {

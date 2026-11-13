@@ -25,9 +25,9 @@ const profileFor = (env: NodeJS.ProcessEnv = {}, security: Partial<SandboxSecuri
   return { ...profile, security: { ...profile.security, ...security } };
 };
 
-const ENV_VAR = 'VANGUARD_SANDBOX_IMAGE';
+const ENV_VAR = 'TASKCELL_SANDBOX_IMAGE';
 
-/** Restore the ambient `VANGUARD_SANDBOX_IMAGE` after each test in the calling suite. */
+/** Restore the ambient `TASKCELL_SANDBOX_IMAGE` after each test in the calling suite. */
 function restoresSandboxImageEnv(): void {
   const prev = process.env[ENV_VAR];
   afterEach(() => {
@@ -42,7 +42,7 @@ function restoresSandboxImageEnv(): void {
 describe('sandboxImage', () => {
   restoresSandboxImageEnv();
 
-  it('honours VANGUARD_SANDBOX_IMAGE when set', () => {
+  it('honours TASKCELL_SANDBOX_IMAGE when set', () => {
     process.env[ENV_VAR] = 'sha256:deadbeef';
     expect(sandboxImage()).toBe('sha256:deadbeef');
   });
@@ -528,7 +528,7 @@ describe('DockerSandboxProvider buildRunArgs (hardening flags)', () => {
     expect(args.slice(-3)).toEqual(['taskcell-sandbox:latest', 'sleep', 'infinity']);
   });
 
-  it('defaults to VANGUARD_SANDBOX_IMAGE over the mutable tag when no explicit image is given', () => {
+  it('defaults to TASKCELL_SANDBOX_IMAGE over the mutable tag when no explicit image is given', () => {
     const prev = process.env[ENV_VAR];
     process.env[ENV_VAR] = 'sha256:deadbeef';
     try {
@@ -540,7 +540,7 @@ describe('DockerSandboxProvider buildRunArgs (hardening flags)', () => {
     }
   });
 
-  it('an explicit config.image still wins over VANGUARD_SANDBOX_IMAGE', () => {
+  it('an explicit config.image still wins over TASKCELL_SANDBOX_IMAGE', () => {
     const prev = process.env[ENV_VAR];
     process.env[ENV_VAR] = 'sha256:deadbeef';
     try {
@@ -590,8 +590,8 @@ describe('DockerSandboxProvider buildRunArgs (hardening flags)', () => {
     expect(new DockerSandboxProvider({ profile: resolveSandboxProfile({}) }).buildRunArgs()).not.toContain('--read-only');
   });
 
-  it('hardened mode with VANGUARD_SANDBOX_READONLY=1: --read-only plus the three tmpfs mounts', () => {
-    const sb = new DockerSandboxProvider({ profile: resolveSandboxProfile({ VANGUARD_SANDBOX_READONLY: '1' } as NodeJS.ProcessEnv) });
+  it('hardened mode with TASKCELL_SANDBOX_READONLY=1: --read-only plus the three tmpfs mounts', () => {
+    const sb = new DockerSandboxProvider({ profile: resolveSandboxProfile({ TASKCELL_SANDBOX_READONLY: '1' } as NodeJS.ProcessEnv) });
     const args = sb.buildRunArgs();
     expect(args).toContain('--read-only');
     const tmpfsArgs = args.filter((_, i) => args[i - 1] === '--tmpfs');
@@ -601,11 +601,11 @@ describe('DockerSandboxProvider buildRunArgs (hardening flags)', () => {
   });
 
   // The sizes themselves (and that they stay inside --memory) are limits.test.ts's; here: each mount
-  // gets its own share, so a raised/omitted VANGUARD_SANDBOX_MEMORY_MB reaches the argv.
+  // gets its own share, so a raised/omitted TASKCELL_SANDBOX_MEMORY_MB reaches the argv.
   it.each([2048, 1536, undefined])('sizes the tmpfs mounts from the resolved memoryMb (%s)', (memoryMb) => {
     const args = new DockerSandboxProvider({
       profile: resolveSandboxProfile(
-        { VANGUARD_SANDBOX_READONLY: '1', VANGUARD_SANDBOX_MEMORY_MB: memoryMb === undefined ? '0' : String(memoryMb) } as NodeJS.ProcessEnv,
+        { TASKCELL_SANDBOX_READONLY: '1', TASKCELL_SANDBOX_MEMORY_MB: memoryMb === undefined ? '0' : String(memoryMb) } as NodeJS.ProcessEnv,
       ),
     }).buildRunArgs();
     const { workspace, home, tmp } = readOnlyTmpfsSizesMb(memoryMb);
@@ -618,16 +618,16 @@ describe('DockerSandboxProvider buildRunArgs (hardening flags)', () => {
     );
   });
 
-  it('VANGUARD_SANDBOX_READONLY=0 keeps readOnlyRootfs off in hardened mode', () => {
+  it('TASKCELL_SANDBOX_READONLY=0 keeps readOnlyRootfs off in hardened mode', () => {
     const sb = new DockerSandboxProvider({
-      profile: resolveSandboxProfile({ VANGUARD_SANDBOX_READONLY: '0' } as NodeJS.ProcessEnv),
+      profile: resolveSandboxProfile({ TASKCELL_SANDBOX_READONLY: '0' } as NodeJS.ProcessEnv),
     });
     expect(sb.buildRunArgs()).not.toContain('--read-only');
   });
 
-  it('VANGUARD_SANDBOX_READONLY=1 turns readOnlyRootfs on outside hardened mode too', () => {
+  it('TASKCELL_SANDBOX_READONLY=1 turns readOnlyRootfs on outside hardened mode too', () => {
     const sb = new DockerSandboxProvider({
-      profile: resolveSandboxProfile({ VANGUARD_SANDBOX_READONLY: '1' } as NodeJS.ProcessEnv),
+      profile: resolveSandboxProfile({ TASKCELL_SANDBOX_READONLY: '1' } as NodeJS.ProcessEnv),
     });
     expect(sb.buildRunArgs()).toContain('--read-only');
   });
@@ -646,16 +646,16 @@ describe('DockerSandboxProvider buildRunArgs (hardening flags)', () => {
     expect(sb.buildRunArgs()).not.toContain('vanguard.owner=');
   });
 
-  it('adds the vanguard.owner label when VANGUARD_OWNER_LABEL is set', () => {
-    const prev = process.env.VANGUARD_OWNER_LABEL;
-    process.env.VANGUARD_OWNER_LABEL = 'ci-job-42';
+  it('adds the vanguard.owner label when TASKCELL_OWNER_LABEL is set', () => {
+    const prev = process.env.TASKCELL_OWNER_LABEL;
+    process.env.TASKCELL_OWNER_LABEL = 'ci-job-42';
     try {
       const sb = new DockerSandboxProvider({});
       const args = sb.buildRunArgs();
       expect(args).toContain('vanguard.owner=ci-job-42');
     } finally {
-      if (prev === undefined) delete process.env.VANGUARD_OWNER_LABEL;
-      else process.env.VANGUARD_OWNER_LABEL = prev;
+      if (prev === undefined) delete process.env.TASKCELL_OWNER_LABEL;
+      else process.env.TASKCELL_OWNER_LABEL = prev;
     }
   });
 });
@@ -698,7 +698,7 @@ describe('DockerSandboxProvider buildRunArgs (pnpm store)', () => {
 
   it('still mounts /pnpm-store (its own -v mount, unaffected by --read-only) under an opted-in readOnlyRootfs', () => {
     const args = new DockerSandboxProvider({
-      profile: resolveSandboxProfile({ VANGUARD_SANDBOX_READONLY: '1' } as NodeJS.ProcessEnv),
+      profile: resolveSandboxProfile({ TASKCELL_SANDBOX_READONLY: '1' } as NodeJS.ProcessEnv),
       pnpmStore: { repoKey: 'octo/repo' },
     }).buildRunArgs();
     expect(args).toContain('--read-only');

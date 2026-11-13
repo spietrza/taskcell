@@ -16,8 +16,8 @@ use tauri::{AppHandle, Manager};
 use crate::servers;
 
 const WINDOW: &str = "main";
-/// The hub prints `Vanguard Hub → <launch URL>` once it listens (src/cli/hub.ts).
-const URL_PREFIX: &str = "Vanguard Hub → ";
+/// The hub prints `Taskcell Hub → <launch URL>` once it listens (src/cli/hub.ts).
+const URL_PREFIX: &str = "Taskcell Hub → ";
 /// A hub that dies this soon after start counts as a failed start, not a crash of a healthy hub.
 const HEALTHY_AFTER: Duration = Duration::from_secs(10);
 const MAX_BACKOFF: Duration = Duration::from_secs(30);
@@ -98,9 +98,9 @@ fn spawn_hub(app: &AppHandle) -> Result<Child, String> {
         .current_dir(&launch.cwd)
         // The app's own hub: projects live where the app always kept them, Fleet is on (loopback only),
         // and the hub exits when this process dies (stdin EOF) so it can never be orphaned.
-        .env("VANGUARD_HUB_CONFIG_DIR", &config_dir)
-        .env("VANGUARD_HUB_ALLOW_FLEET", "1")
-        .env("VANGUARD_HUB_EXIT_ON_STDIN_EOF", "1")
+        .env("TASKCELL_HUB_CONFIG_DIR", &config_dir)
+        .env("TASKCELL_HUB_ALLOW_FLEET", "1")
+        .env("TASKCELL_HUB_EXIT_ON_STDIN_EOF", "1")
         .stdin(Stdio::piped())
         .stdout(Stdio::piped())
         .stderr(Stdio::inherit())

@@ -20,24 +20,24 @@ describe('decisionModelConfig', () => {
     const warn = vi.spyOn(console, 'warn').mockImplementation(() => {});
     expect(decisionModelConfig(cf, 'jev')).toBeUndefined();
     warn.mockRestore();
-    expect(decisionModelConfig({ ...cf, VANGUARD_DECISION_URL: 'http://ai-box/decide' }, 'jev')).toEqual({ url: 'http://ai-box/decide', model: 'jev' });
+    expect(decisionModelConfig({ ...cf, TASKCELL_DECISION_URL: 'http://ai-box/decide' }, 'jev')).toEqual({ url: 'http://ai-box/decide', model: 'jev' });
   });
 
   it('refuses plain http to a non-local host, with or without a token; local http stays allowed', () => {
     const warn = vi.spyOn(console, 'warn').mockImplementation(() => {});
-    expect(decisionModelConfig({ VANGUARD_DECISION_URL: 'http://ai-box.example.com/decide', VANGUARD_DECISION_TOKEN: 't' })).toBeUndefined();
-    expect(decisionModelConfig({ VANGUARD_DECISION_URL: 'http://ai-box.example.com/decide' })).toBeUndefined(); // the state still leaks
-    expect(decisionModelConfig({ VANGUARD_DECISION_URL: 'http://[2001:db8::1]/decide' })).toBeUndefined();
+    expect(decisionModelConfig({ TASKCELL_DECISION_URL: 'http://ai-box.example.com/decide', TASKCELL_DECISION_TOKEN: 't' })).toBeUndefined();
+    expect(decisionModelConfig({ TASKCELL_DECISION_URL: 'http://ai-box.example.com/decide' })).toBeUndefined(); // the state still leaks
+    expect(decisionModelConfig({ TASKCELL_DECISION_URL: 'http://[2001:db8::1]/decide' })).toBeUndefined();
     // A public name that merely starts like a private range is not local.
-    expect(decisionModelConfig({ VANGUARD_DECISION_URL: 'http://10.attacker.com/decide' })).toBeUndefined();
-    expect(decisionModelConfig({ VANGUARD_DECISION_URL: 'http://192.168.evil.io/decide' })).toBeUndefined();
+    expect(decisionModelConfig({ TASKCELL_DECISION_URL: 'http://10.attacker.com/decide' })).toBeUndefined();
+    expect(decisionModelConfig({ TASKCELL_DECISION_URL: 'http://192.168.evil.io/decide' })).toBeUndefined();
     expect(warn).toHaveBeenCalledTimes(5);
-    expect(decisionModelMissing('clef', { VANGUARD_DECISION_URL: 'http://ai-box.example.com/decide' })).toMatch(/use https/);
-    expect(decisionModelConfig({ VANGUARD_DECISION_URL: 'http://100.64.0.9:8080/decide', VANGUARD_DECISION_TOKEN: 't' })?.url).toBe('http://100.64.0.9:8080/decide'); // Tailscale
-    expect(decisionModelConfig({ VANGUARD_DECISION_URL: 'http://localhost:8080/decide', VANGUARD_DECISION_TOKEN: 't' })).toBeDefined();
-    expect(decisionModelConfig({ VANGUARD_DECISION_URL: 'http://[::1]:8080/decide' })).toBeDefined();
-    expect(decisionModelConfig({ VANGUARD_DECISION_URL: 'https://ai-box.example.com/decide', VANGUARD_DECISION_TOKEN: 't' })).toBeDefined();
-    expect(decisionModelConfig({ VANGUARD_DECISION_URL: 'http://192.168.1.214:8080/decide' })).toBeDefined();
+    expect(decisionModelMissing('clef', { TASKCELL_DECISION_URL: 'http://ai-box.example.com/decide' })).toMatch(/use https/);
+    expect(decisionModelConfig({ TASKCELL_DECISION_URL: 'http://100.64.0.9:8080/decide', TASKCELL_DECISION_TOKEN: 't' })?.url).toBe('http://100.64.0.9:8080/decide'); // Tailscale
+    expect(decisionModelConfig({ TASKCELL_DECISION_URL: 'http://localhost:8080/decide', TASKCELL_DECISION_TOKEN: 't' })).toBeDefined();
+    expect(decisionModelConfig({ TASKCELL_DECISION_URL: 'http://[::1]:8080/decide' })).toBeDefined();
+    expect(decisionModelConfig({ TASKCELL_DECISION_URL: 'https://ai-box.example.com/decide', TASKCELL_DECISION_TOKEN: 't' })).toBeDefined();
+    expect(decisionModelConfig({ TASKCELL_DECISION_URL: 'http://192.168.1.214:8080/decide' })).toBeDefined();
     expect(warn).toHaveBeenCalledTimes(5);
     warn.mockRestore();
   });
@@ -109,8 +109,8 @@ describe('decide', () => {
     expect(decisionModelMissing('clef-flash', {})).toMatch(/set CLOUDFLARE_ACCOUNT_ID/);
     expect(decisionEgressAllowed(false, {})).toBe(true);
     expect(decisionEgressAllowed(true, {})).toBe(false);
-    expect(decisionEgressAllowed(true, { VANGUARD_DECISION_PROBE: '1' })).toBe(false);
-    expect(decisionEgressAllowed(true, { VANGUARD_DECISION_PROBE: 'all' })).toBe(true);
+    expect(decisionEgressAllowed(true, { TASKCELL_DECISION_PROBE: '1' })).toBe(false);
+    expect(decisionEgressAllowed(true, { TASKCELL_DECISION_PROBE: 'all' })).toBe(true);
     expect(probability(0.5)).toBe(0.5);
     expect(probability(82)).toBeUndefined();
     expect(probability('0.8')).toBeUndefined();

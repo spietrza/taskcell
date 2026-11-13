@@ -84,10 +84,10 @@ describe('ProjectAllowlist', () => {
     await expect(assertGitWorkTreeDir(join(root, 'does-not-exist'))).rejects.toThrow();
   });
 
-  test('T-66 non-loopback bind refuses add_project/browse_dirs unless VANGUARD_HUB_ALLOW_ADD=1', () => {
+  test('T-66 non-loopback bind refuses add_project/browse_dirs unless TASKCELL_HUB_ALLOW_ADD=1', () => {
     expect(() => assertMutationsAllowed({ isLoopback: true, allowAdd: false })).not.toThrow();
     expect(() => assertMutationsAllowed({ isLoopback: false, allowAdd: true })).not.toThrow();
-    expect(() => assertMutationsAllowed({ isLoopback: false, allowAdd: false })).toThrow(/VANGUARD_HUB_ALLOW_ADD/);
+    expect(() => assertMutationsAllowed({ isLoopback: false, allowAdd: false })).toThrow(/TASKCELL_HUB_ALLOW_ADD/);
   });
 
   test('a symlinked .vanguard parent cannot be used to smuggle a session path to an unrelated repo', async () => {

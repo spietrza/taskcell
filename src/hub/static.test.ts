@@ -43,28 +43,28 @@ afterEach(async () => {
 describe('injectHubMarker', () => {
   test('adds the demo marker only when asked', () => {
     const html = '<html><head></head></html>';
-    expect(injectHubMarker(html, false, true)).toContain('__VANGUARD_DEMO__=true');
-    expect(injectHubMarker(html)).not.toContain('__VANGUARD_DEMO__');
+    expect(injectHubMarker(html, false, true)).toContain('__TASKCELL_DEMO__=true');
+    expect(injectHubMarker(html)).not.toContain('__TASKCELL_DEMO__');
   });
 
   test('T-67 injects the marker exactly once right after <head>, leaving the rest byte-identical', () => {
     const html = '<!doctype html><html><head><title>x</title></head><body>hi</body></html>';
     const out = injectHubMarker(html);
-    const marker = '<script>window.__VANGUARD_HUB__=true</script>';
+    const marker = '<script>window.__TASKCELL_HUB__=true</script>';
     expect(out.split(marker)).toHaveLength(2);
     expect(out).toBe(html.replace('<head>', `<head>${marker}`));
   });
 
   test('never injects a token — the launch URL fragment carries it', () => {
     const out = injectHubMarker('<html><head></head><body></body></html>');
-    expect(out).not.toContain('__VANGUARD_HUB_TOKEN__');
-    expect(out).toContain('__VANGUARD_HUB__');
+    expect(out).not.toContain('__TASKCELL_HUB_TOKEN__');
+    expect(out).toContain('__TASKCELL_HUB__');
   });
 
   test('adds the fleet marker only when asked', () => {
     const html = '<html><head></head></html>';
-    expect(injectHubMarker(html)).not.toContain('__VANGUARD_HUB_FLEET__');
-    expect(injectHubMarker(html, true)).toContain('__VANGUARD_HUB_FLEET__');
+    expect(injectHubMarker(html)).not.toContain('__TASKCELL_HUB_FLEET__');
+    expect(injectHubMarker(html, true)).toContain('__TASKCELL_HUB_FLEET__');
   });
 
   test('throws when there is no <head> to inject after', () => {
@@ -77,7 +77,7 @@ describe('serveStatic', () => {
     await writeFile(join(uiDir, 'index.html'), '<html><head></head></html>');
     const index = new FakeRes();
     await serveStatic({ uiDir }, fakeReq('/index.html'), index as unknown as ServerResponse);
-    expect(index.body).toContain('__VANGUARD_HUB__');
+    expect(index.body).toContain('__TASKCELL_HUB__');
     expect(index.headers['cache-control']).toBe('no-store');
     const head = new FakeRes();
     await serveStatic({ uiDir }, fakeReq('/', 'HEAD'), head as unknown as ServerResponse);
@@ -103,7 +103,7 @@ describe('serveStatic', () => {
     await serveStatic({ uiDir }, fakeReq('/'), indexRes as unknown as ServerResponse);
     expect(indexRes.statusCode).toBe(200);
     expect(indexRes.headers['cache-control']).toBe('no-store');
-    expect(indexRes.body).toContain('__VANGUARD_HUB__');
+    expect(indexRes.body).toContain('__TASKCELL_HUB__');
   });
 
   test('every static response denies framing — the opened page holds a live hub token', async () => {

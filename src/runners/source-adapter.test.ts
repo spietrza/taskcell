@@ -19,7 +19,7 @@ import type { RunEvent } from '../pipeline/events.js';
 describe('PR body assembly', () => {
   it('starts with Closes <task.id> for auto-close on merge', () => {
     const taskId = 'owner/repo#42';
-    const baseBody = [`Closes ${taskId}`, `Automated implementation by Vanguard.`].join('\n\n');
+    const baseBody = [`Closes ${taskId}`, `Automated implementation by Taskcell.`].join('\n\n');
     expect(baseBody.startsWith(`Closes ${taskId}`)).toBe(true);
   });
 });
@@ -138,8 +138,8 @@ vi.mock('../core/decision-model.js', () => ({
   decide: vi.fn(async () => undefined),
   num: (v: unknown) => (typeof v === 'number' && Number.isFinite(v) ? v : undefined),
   probability: (v: unknown) => (typeof v === 'number' && v >= 0 && v <= 1 ? v : undefined),
-  decisionEgressAllowed: (whiteLabel: boolean, env: NodeJS.ProcessEnv) => !whiteLabel || env['VANGUARD_DECISION_PROBE'] === 'all',
-  decisionModelMissing: () => 'set CLOUDFLARE_ACCOUNT_ID + CLOUDFLARE_AUTH_TOKEN (Workers AI) or VANGUARD_DECISION_URL.',
+  decisionEgressAllowed: (whiteLabel: boolean, env: NodeJS.ProcessEnv) => !whiteLabel || env['TASKCELL_DECISION_PROBE'] === 'all',
+  decisionModelMissing: () => 'set CLOUDFLARE_ACCOUNT_ID + CLOUDFLARE_AUTH_TOKEN (Workers AI) or TASKCELL_DECISION_URL.',
   DECISION_MODEL_DEFAULT: 'clef-flash',
 }));
 import { selectAgents } from '../agents/registry.js';
@@ -515,7 +515,7 @@ describe('runSourcedIssue', () => {
     decisionModelConfig.mockReturnValueOnce({ url: 'https://example.test', model: 'clef-flash' });
     await expect(
       runSourcedIssue('group/project#1', { repoPath: '/repo', forkN: 2, forkScorer: 'decision', commitAuthor: { name: 'c', email: 'c@x' } }, fakeAdapter([], STAGES)),
-    ).rejects.toThrow(/VANGUARD_DECISION_PROBE=all/);
+    ).rejects.toThrow(/TASKCELL_DECISION_PROBE=all/);
 
     decisionModelConfig.mockReturnValueOnce({ url: 'https://example.test', model: 'clef-flash' });
     await runSourcedIssue('group/project#1', { repoPath: '/repo', forkN: 2, forkScorer: 'decision' }, fakeAdapter([], STAGES));
@@ -566,7 +566,7 @@ describe('runSourcedIssue', () => {
     expect(modelFromLabels([`taskcell:model=${'a'.repeat(81)}`])).toBeUndefined();
   });
 
-  it('builds the sandbox with the shared sandboxImage() resolver, so a VANGUARD_SANDBOX_IMAGE override reaches it too', async () => {
+  it('builds the sandbox with the shared sandboxImage() resolver, so a TASKCELL_SANDBOX_IMAGE override reaches it too', async () => {
     sandboxImage.mockReturnValue('sha256:deadbeef');
     const adapter = fakeAdapter([], STAGES);
     await runSourcedIssue('group/project#1', { repoPath: '/repo' }, adapter);
@@ -716,12 +716,12 @@ describe('runSourcedIssue', () => {
       adapter,
     );
 
-    // Vanguard-branded surfaces are suppressed.
+    // Taskcell-branded surfaces are suppressed.
     expect(adapter.publishVerdict).not.toHaveBeenCalled();
     expect(adapter.linkPr).not.toHaveBeenCalled();
     expect(order).not.toContain('publishVerdict');
     expect(order).not.toContain('linkPr');
-    // PR body is the plain Closes line — no "Vanguard", no "Proof of work" artifact.
+    // PR body is the plain Closes line — no "Taskcell", no "Proof of work" artifact.
     const body = (publishForReview.mock.calls[0]?.[1] as { body: string }).body;
     expect(body).not.toMatch(/Taskcell|Vanguard|Proof of work|Review:/);
     // Commit message is Conventional-Commits-safe (lower-case subject, trailing #issue).

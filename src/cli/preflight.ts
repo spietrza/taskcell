@@ -79,7 +79,7 @@ function unique(values: Array<string | undefined>): string[] {
 }
 
 function gitlabLabelsFor(cmd: PreflightCommand): string[] {
-  // Only check user-owned labels (trigger + routing). Vanguard state labels
+  // Only check user-owned labels (trigger + routing). Taskcell state labels
   // (claimedState, reviewState, reviewingLabel, reviewedLabel, specClaimedLabel)
   // are scoped `::` labels that GitLab auto-creates on first apply.
   if (cmd.kind === 'doctor-mrs' || cmd.kind === 'watch-mrs') {

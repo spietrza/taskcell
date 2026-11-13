@@ -1,5 +1,5 @@
 # The Taskcell HUB image. Serves the desktop Inspector UI (apps/desktop) over plain HTTP/SSE via
-# `vanguard hub` (src/hub/*.ts, src/cli/hub.ts) for local/VPS use without Tauri. Runs agent sandboxes
+# `taskcell hub` (src/hub/*.ts, src/cli/hub.ts) for local/VPS use without Tauri. Runs agent sandboxes
 # via the host docker socket (docker-out-of-docker), same as docker/runner.Dockerfile.
 # Pinned by digest for a reproducible, tamper-evident base (the tag is kept for readability).
 # Bump: `docker buildx imagetools inspect node:24-bookworm-slim` and copy the index Digest.
@@ -22,10 +22,10 @@ COPY . .
 RUN pnpm install --frozen-lockfile && pnpm build \
  && pnpm --dir apps/desktop install --frozen-lockfile && pnpm --dir apps/desktop build
 
-ENV VANGUARD_HUB_HOST=0.0.0.0 \
-    VANGUARD_HUB_PORT=7777 \
-    VANGUARD_HUB_UI_DIR=/app/apps/desktop/dist \
-    VANGUARD_HUB_CONFIG_DIR=/config
+ENV TASKCELL_HUB_HOST=0.0.0.0 \
+    TASKCELL_HUB_PORT=7777 \
+    TASKCELL_HUB_UI_DIR=/app/apps/desktop/dist \
+    TASKCELL_HUB_CONFIG_DIR=/config
 
 EXPOSE 7777
 

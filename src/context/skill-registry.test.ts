@@ -171,7 +171,7 @@ describe('SkillRegistry.injectAll — codex branch', () => {
     }
   });
 
-  it('preserves existing Codex AGENTS.md content and replaces only the Vanguard block', async () => {
+  it('preserves existing Codex AGENTS.md content and replaces only the Taskcell block', async () => {
     const dir = await mkdtemp(join(tmpdir(), 'vg-skills-'));
     try {
       await mkdir(join(dir, 'lint'), { recursive: true });

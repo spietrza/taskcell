@@ -565,7 +565,7 @@ export async function runStages(
 export function retrospectiveMemoryBlock(): string {
   return [
     '<retrospective_memory>',
-    'Retrospective memory from prior Vanguard runs; use only when relevant to this task.',
+    'Retrospective memory from prior Taskcell runs; use only when relevant to this task.',
     '{{RETROSPECTIVE_MEMORY}}',
     '</retrospective_memory>',
   ].join('\n');
@@ -621,7 +621,7 @@ export function implementReviewSimplifyStages(): PipelineStage[] {
     {
       name: STAGE.IMPLEMENTER,
       promptTemplate:
-        'Task: {{TITLE}}\n\n{{DESCRIPTION}}\n\nContext from the ticket comments (includes any Vanguard Tech Spec):\n{{COMMENTS}}\n\nImplement the solution in the current repo.\n\n' +
+        'Task: {{TITLE}}\n\n{{DESCRIPTION}}\n\nContext from the ticket comments (includes any Taskcell Tech Spec):\n{{COMMENTS}}\n\nImplement the solution in the current repo.\n\n' +
         retrospectiveMemoryBlock() +
         `\n\n${DELIVER_FULL_SCOPE_CLAUSE}\n\nWhen done, write exactly <promise>COMPLETE</promise>.`,
       maxTurns: 30,
@@ -1016,12 +1016,12 @@ export interface CommitOutcome {
  */
 export async function commitStage(ctx: RunContext, opts: CommitOptions): Promise<CommitOutcome> {
   if (!(await ctx.wm.isDirty(ctx.worktreePath))) return { committed: false, branch: ctx.branch };
-  const name = opts.authorName ?? 'Vanguard';
+  const name = opts.authorName ?? 'Taskcell';
   const email = opts.authorEmail ?? 'vanguard@local';
   await execa('git', hostGitArgs(['add', '-A']), { cwd: ctx.worktreePath });
-  // --no-verify skips the target repo's husky/pre-commit hooks. Vanguard commits in an isolated worktree
+  // --no-verify skips the target repo's husky/pre-commit hooks. Taskcell commits in an isolated worktree
   // without the project's node_modules, so hooks that run eslint/nx/tests (e.g. an `@nx/eslint-plugin`
-  // lint or `nx run api:test-unit`) fail to resolve and would block every commit. Vanguard has its own
+  // lint or `nx run api:test-unit`) fail to resolve and would block every commit. Taskcell has its own
   // reviewer/verification pipeline and the PR's CI re-runs these checks, so the local pre-commit gate is
   // redundant here.
   await execa(

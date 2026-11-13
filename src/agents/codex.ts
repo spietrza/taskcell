@@ -32,7 +32,7 @@ interface CodexEvent {
  * Normal mode (no auth.json, no base URL): log in with the real key from `$OPENAI_API_KEY`, piped via
  * stdin so the secret never reaches argv. `codex exec` then reads the auth.json that `codex login` wrote.
  *
- * Proxy mode (the runner set `$VANGUARD_OPENAI_BASE_URL` to a trusted sidecar): never run `codex login`.
+ * Proxy mode (the runner set `$TASKCELL_OPENAI_BASE_URL` to a trusted sidecar): never run `codex login`.
  * Instead write `~/.codex/config.toml` (or `$CODEX_HOME/config.toml`) declaring a custom
  * OpenAI-compatible provider pointed at the sidecar. With `wire_api = "responses"`, Codex POSTs
  * `<base_url>/responses` (the OpenAI-key sidecar's URL ends in `/v1`, the ChatGPT-plan one does not) and
@@ -45,7 +45,7 @@ interface CodexEvent {
  * them; the base URL is expanded inside the sandbox via printf's `%s` arg, never interpolated host-side.
  */
 const CODEX_SETUP =
-  'if [ -n "${CODEX_AUTH_JSON:-}" ]; then mkdir -p "${CODEX_HOME:-$HOME/.codex}"; printf %s "$CODEX_AUTH_JSON" > "${CODEX_HOME:-$HOME/.codex}/auth.json"; chmod 600 "${CODEX_HOME:-$HOME/.codex}/auth.json"; fi; if [ -n "${VANGUARD_OPENAI_BASE_URL:-}" ]; then if [ -z "${OPENAI_API_KEY:-}" ]; then echo \'taskcell: codex proxy mode requires the OPENAI_API_KEY nonce\' >&2; exit 1; fi; mkdir -p "${CODEX_HOME:-$HOME/.codex}"; printf \'model_provider = "vanguardproxy"\\n[model_providers.vanguardproxy]\\nname = "vanguard-proxy"\\nbase_url = "%s"\\nwire_api = "responses"\\nenv_key = "OPENAI_API_KEY"\\n\' "$VANGUARD_OPENAI_BASE_URL" > "${CODEX_HOME:-$HOME/.codex}/config.toml"; elif [ -z "${CODEX_AUTH_JSON:-}" ]; then printf %s "$OPENAI_API_KEY" | codex login --with-api-key; fi';
+  'if [ -n "${CODEX_AUTH_JSON:-}" ]; then mkdir -p "${CODEX_HOME:-$HOME/.codex}"; printf %s "$CODEX_AUTH_JSON" > "${CODEX_HOME:-$HOME/.codex}/auth.json"; chmod 600 "${CODEX_HOME:-$HOME/.codex}/auth.json"; fi; if [ -n "${TASKCELL_OPENAI_BASE_URL:-}" ]; then if [ -z "${OPENAI_API_KEY:-}" ]; then echo \'taskcell: codex proxy mode requires the OPENAI_API_KEY nonce\' >&2; exit 1; fi; mkdir -p "${CODEX_HOME:-$HOME/.codex}"; printf \'model_provider = "vanguardproxy"\\n[model_providers.vanguardproxy]\\nname = "vanguard-proxy"\\nbase_url = "%s"\\nwire_api = "responses"\\nenv_key = "OPENAI_API_KEY"\\n\' "$TASKCELL_OPENAI_BASE_URL" > "${CODEX_HOME:-$HOME/.codex}/config.toml"; elif [ -z "${CODEX_AUTH_JSON:-}" ]; then printf %s "$OPENAI_API_KEY" | codex login --with-api-key; fi';
 
 function buildArgs(input: AgentRunInput): string[] {
   const args = ['exec', '--json', '--sandbox', 'danger-full-access'];

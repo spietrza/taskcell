@@ -2,6 +2,7 @@ import { gateConfigPaths } from '../context/gate-config.js';
 import { createHash } from 'node:crypto';
 import { matchingPathRuleKeys } from './policy.js';
 import type { ApproverFacts, ApproverPolicy, AuditSample, Decision, DiffFacts } from './types.js';
+import { readEnv } from '../core/env.js';
 
 /** `diff.gateConfigPaths`, or recomputed path-only (no package.json script heuristic) for facts predating that field. */
 function gateConfigPathsOf(diff: DiffFacts): string[] {
@@ -27,7 +28,7 @@ export function reviewValidity(facts: ApproverFacts): boolean {
 
 /** Deterministic, replayable audit sample: u = sha256(seed) read as a uint32 fraction; hit iff u < p. */
 export function auditSample(seedInput: string, p: number): AuditSample {
-  const seed = process.env.VANGUARD_APPROVER_AUDIT_SEED ?? seedInput;
+  const seed = readEnv('TASKCELL_APPROVER_AUDIT_SEED') ?? seedInput;
   const u = createHash('sha256').update(seed).digest().readUInt32BE(0) / 2 ** 32;
   return { p, seed, hit: u < p };
 }
@@ -39,7 +40,7 @@ export function auditSample(seedInput: string, p: number): AuditSample {
 export function decide(facts: ApproverFacts, policy: ApproverPolicy, seedInput: string): Decision {
   const sample = auditSample(seedInput, policy.auditSample.p);
 
-  if (policy.enabled === false || (process.env.VANGUARD_APPROVER_STOP ?? '') !== '') {
+  if (policy.enabled === false || (readEnv('TASKCELL_APPROVER_STOP') ?? '') !== '') {
     return { verdict: 'ESCALATE', rulesFired: ['stopped'], auditSample: sample, reviewValid: false };
   }
 

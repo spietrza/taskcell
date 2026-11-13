@@ -11,6 +11,7 @@ import { publishCheckRun, commentDecision, commentOnce, shadowSafeGhRunner } fro
 import { actSafeGhRunner, actExclusions, reviewExact } from './act.js';
 import { TaskcellError } from '../core/errors.js';
 import type { ApproverFacts, Decision, DecisionRecord } from './types.js';
+import { readEnv } from '../core/env.js';
 
 export interface RunApproverInput {
   repoPath: string;
@@ -80,7 +81,7 @@ export async function runApprover(input: RunApproverInput, state: { updated: boo
   const { policy, policyHash } = loaded;
   const seed = `${input.repoSlug}:${input.prNumber}:${prFacts.headSha}:${policyHash}`;
 
-  const stopped = policy.enabled === false || (process.env.VANGUARD_APPROVER_STOP ?? '') !== '';
+  const stopped = policy.enabled === false || (readEnv('TASKCELL_APPROVER_STOP') ?? '') !== '';
   if (stopped) {
     // Kill switch short-circuits before any diff/ledger collection (no head fetch, no merge-tree).
     const { reviews: _reviews, ...prWithoutReviews } = prFacts;

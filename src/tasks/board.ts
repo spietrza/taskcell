@@ -5,7 +5,7 @@ import type { Task } from './fetcher.js';
 
 /**
  * The board read path (S9) — ported 1:1 from the retired Rust implementation
- * (apps/desktop/src-tauri/src/tasks.rs + taskid.rs), because the column mapping encodes Vanguard's
+ * (apps/desktop/src-tauri/src/tasks.rs + taskid.rs), because the column mapping encodes Taskcell's
  * label vocabulary (src/github-labels.ts / src/gitlab-labels.ts), which lives in core: leaving it
  * in Rust was the split-brain this subsystem killed. Test table ported verbatim.
  */
@@ -36,7 +36,7 @@ export function isTriggerLabel(label: string): boolean {
 }
 
 /**
- * Best-effort mapping of a task's state/labels to a board column, following Vanguard's real label
+ * Best-effort mapping of a task's state/labels to a board column, following Taskcell's real label
  * vocabulary (`taskcell:running`, `taskcell::verify-failed`, `taskcell:speccing`,
  * `taskcell::secret-blocked`, Linear states). A TERMINAL state wins first: a closed issue whose
  * active label was never cleared (`"taskcell:running closed"`) belongs in Done, not Running.

@@ -135,7 +135,7 @@ describe('checkCliVersions', () => {
   it('makes no lookups when the setting is off', async () => {
     const f = fetcher({});
     const spy = vi.fn(runWith());
-    const r = await checkCliVersions({ cwd: '/', image: 'img', run: spy, fetch: f, env: { VANGUARD_CLI_VERSION_CHECK: 'off' } });
+    const r = await checkCliVersions({ cwd: '/', image: 'img', run: spy, fetch: f, env: { TASKCELL_CLI_VERSION_CHECK: 'off' } });
     expect(r).toEqual({ enabled: false, clis: [] });
     expect(f).not.toHaveBeenCalled();
     expect(spy).not.toHaveBeenCalled();

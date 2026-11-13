@@ -6,6 +6,7 @@ import { join } from 'node:path';
 import { parseJsonlLines } from '../core/stats.js';
 import { appendAudit, localAdapter, STREAMS, TOKEN_AUDIT_ACTOR, type AuditActor, type AuditAdapter, type AuditSubject } from '../core/audit.js';
 import type { AuditAction, AuditEntry, AuditOutcome } from '../wire.js';
+import { readEnv } from '../core/env.js';
 
 export type { AuditAction, AuditEntry, AuditOutcome };
 
@@ -111,9 +112,9 @@ export function reportAuditFailure(err: unknown): void {
   console.error(`audit log write failed: ${err instanceof Error ? err.message : String(err)}`);
 }
 
-/** The hub's config dir when `VANGUARD_HUB_CONFIG_DIR` is unset. */
+/** The hub's config dir when `TASKCELL_HUB_CONFIG_DIR` is unset. */
 export function defaultHubConfigDir(): string {
-  return process.env.VANGUARD_HUB_CONFIG_DIR ?? join(process.env.XDG_CONFIG_HOME ?? join(homedir(), '.config'), 'vanguard-hub');
+  return readEnv('TASKCELL_HUB_CONFIG_DIR') ?? join(process.env.XDG_CONFIG_HOME ?? join(homedir(), '.config'), 'vanguard-hub');
 }
 
 /** The audit actor for a hub request: Better Auth id + display name, the shared token, or a login. */

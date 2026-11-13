@@ -7,6 +7,7 @@ import { createInterface } from 'node:readline';
 import { SandboxError } from '../core/errors.js';
 import { ownerLabelArgs, resolveSandboxProfile } from './limits.js';
 import type { CopyOutOptions, ExecOptions, ExecResult, ExecStream, IsolatedSandboxProvider, SandboxConfig, SandboxProfile } from './provider.js';
+import { readEnv } from '../core/env.js';
 
 /**
  * GNU tar exits 1 when a file grows or is deleted while it is archived (a watcher or test cache still
@@ -45,16 +46,16 @@ const DEFAULT_IMAGE = 'taskcell-sandbox:latest';
 const LEGACY_IMAGE = 'vanguard-sandbox:latest';
 
 /**
- * The sandbox image to run: `VANGUARD_SANDBOX_IMAGE` when set (CI passes the exact `sha256:...` ID it
+ * The sandbox image to run: `TASKCELL_SANDBOX_IMAGE` when set (CI passes the exact `sha256:...` ID it
  * just built, since the shared mutable `taskcell-sandbox:latest` tag on a shared Docker host can be
  * overwritten by another pipeline between build and run), else the mutable tag for local/dev use.
  */
 export function sandboxImage(env: NodeJS.ProcessEnv = process.env): string {
-  const override = env['VANGUARD_SANDBOX_IMAGE'];
+  const override = readEnv('TASKCELL_SANDBOX_IMAGE', env);
   if (override === undefined || override === '') return DEFAULT_IMAGE;
   // The image sits in docker's argv before the command, so a leading `-` would be read as a flag such as
   // --privileged. No valid image reference starts with `-` or contains whitespace.
-  if (/^-|\s/.test(override)) throw new SandboxError(`VANGUARD_SANDBOX_IMAGE is not an image reference: ${JSON.stringify(override)}`);
+  if (/^-|\s/.test(override)) throw new SandboxError(`TASKCELL_SANDBOX_IMAGE is not an image reference: ${JSON.stringify(override)}`);
   return override;
 }
 
@@ -66,7 +67,7 @@ const dockerImageExists: ImageExists = async (image) =>
 
 /**
  * Resolve the image a run should actually use. Only the default tag is adjusted: an explicit
- * `VANGUARD_SANDBOX_IMAGE` (or `config.image`) always wins, untouched. A host that last ran
+ * `TASKCELL_SANDBOX_IMAGE` (or `config.image`) always wins, untouched. A host that last ran
  * `docker/build.sh` before the rename only has the pre-rename `vanguard-sandbox:latest` tag, so fall
  * back to it rather than failing on a tag that host never built. When neither exists, keep the new
  * name: the caller's "no such image" then points at the tag the current build.sh produces.
@@ -148,7 +149,7 @@ async function refreshSandboxNpmCli(opts: SandboxRefreshOptions & { pkg: string;
   const image = opts.image ?? (await resolveSandboxImageVia(run, cwd, opts.env));
   // `docker commit` onto an image ID or a digest reference cannot change what it names.
   const immutable = new SandboxError(
-    `Cannot refresh ${image}: an image ID or digest is immutable. Rebuild the image, or unset VANGUARD_SANDBOX_IMAGE to refresh ${DEFAULT_IMAGE}.`,
+    `Cannot refresh ${image}: an image ID or digest is immutable. Rebuild the image, or unset TASKCELL_SANDBOX_IMAGE to refresh ${DEFAULT_IMAGE}.`,
   );
   if (/^(sha256:)?[a-f0-9]{12,64}$|@sha256:[a-f0-9]{64}$/.test(image)) throw immutable;
   const helper = 'vg-cli-refresh';
@@ -181,7 +182,7 @@ async function refreshSandboxNpmCli(opts: SandboxRefreshOptions & { pkg: string;
  * Once per process: refuse to run against an image whose bundled claude CLI predates the repo pin.
  * Checked here rather than in preflight because preflight only covers `watch`/`doctor` — `spec` and
  * `run` reach a sandbox without it. An image with no runnable `claude` is a deliberate custom image,
- * so it is skipped rather than failed. Escape hatch: VANGUARD_SKIP_IMAGE_CHECK=1.
+ * so it is skipped rather than failed. Escape hatch: TASKCELL_SKIP_IMAGE_CHECK=1.
  */
 let claudeVersionChecked = false;
 const DEFAULT_WORKDIR = '/workspace';
@@ -381,7 +382,7 @@ export class DockerSandboxProvider implements IsolatedSandboxProvider {
   }
 
   private async assertClaudeCliCurrent(image: string): Promise<void> {
-    if (claudeVersionChecked || process.env['VANGUARD_SKIP_IMAGE_CHECK'] === '1') return;
+    if (claudeVersionChecked || readEnv('TASKCELL_SKIP_IMAGE_CHECK') === '1') return;
     claudeVersionChecked = true;
     const probe = await execa('docker', ['exec', this.name, 'claude', '--version'], { reject: false });
     const found = probe.exitCode === 0 ? /(\d+\.\d+\.\d+)/.exec(probe.stdout)?.[1] : undefined;
@@ -393,7 +394,7 @@ export class DockerSandboxProvider implements IsolatedSandboxProvider {
         `A stale CLI fails mid-run against a gateway. Fix it with:\n` +
         `  vanguard doctor --fix\n` +
         `or rebuild: CLAUDE_CLI_VERSION=${SANDBOX_CLAUDE_VERSION} ./docker/build.sh. ` +
-        `Set VANGUARD_SKIP_IMAGE_CHECK=1 to bypass.`,
+        `Set TASKCELL_SKIP_IMAGE_CHECK=1 to bypass.`,
     );
   }
 

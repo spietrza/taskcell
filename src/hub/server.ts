@@ -45,7 +45,7 @@ export interface HubServerOptions {
   spawnComplete?: SpawnComplete;
   /** Extra permitted `Host` header values (`host[:port]`, exact match, case-insensitive) beyond the
    * default — `localhost` and any IP literal, on any port (see `hostAllowed`). This is
-   * `--allowed-host` / `VANGUARD_HUB_ALLOWED_HOSTS`, for the VPS / reverse-proxy deployment
+   * `--allowed-host` / `TASKCELL_HUB_ALLOWED_HOSTS`, for the VPS / reverse-proxy deployment
    * (docs/hub.md). */
   allowedHosts?: readonly string[];
   /** Fixed token (from `--token-file`); a fresh one per launch when omitted. */
@@ -64,7 +64,7 @@ export interface HubServerOptions {
   fleet?: boolean;
   /** `hub --demo`: the served page runs on bundled fixtures only. */
   demo?: boolean;
-  /** `VANGUARD_HUB_SECRET` (base64, 32 bytes) keying the credential store; defaults to the env var. */
+  /** `TASKCELL_HUB_SECRET` (base64, 32 bytes) keying the credential store; defaults to the env var. */
   hubSecret?: string;
 }
 
@@ -125,7 +125,7 @@ function tokenOk(candidate: string | null | undefined, token: string): boolean {
 
 /** Names the fix: a named-host deployment (a reverse proxy, a container reached under its own
  * hostname) has to opt that Host in — an IP literal and loopback need no flag (docs/hub.md). */
-const HOST_NOT_ALLOWED = 'Host not allowed — pass --allowed-host <host[:port]> or set VANGUARD_HUB_ALLOWED_HOSTS';
+const HOST_NOT_ALLOWED = 'Host not allowed — pass --allowed-host <host[:port]> or set TASKCELL_HUB_ALLOWED_HOSTS';
 
 /** Split a `Host` header into hostname and port. `[::1]:7777` → `{ hostname: '::1', port: 7777 }`; a
  * missing port means 80. `undefined` for anything malformed — a bare (unbracketed) IPv6 literal or a

@@ -248,10 +248,10 @@ describe('formatResearchComment', () => {
     expect(body).toContain('_Mode: model-knowledge only (no web egress)_');
   });
 
-  it('white-label: drops "Vanguard" from heading and uses the neutral marker', () => {
+  it('white-label: drops "Taskcell" from heading and uses the neutral marker', () => {
     const body = formatResearchComment('Findings.', { webAccess: false, iteration: 3, whiteLabel: true });
     expect(body).toMatch(/^## Research \(iteration 3\)/);
-    expect(body).not.toMatch(/Vanguard/);
+    expect(body).not.toMatch(/Taskcell/);
     expect(body).toContain('<!-- research-iter: 3 -->');
   });
 

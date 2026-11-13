@@ -18,7 +18,7 @@ const plan: FactoryPlan = {
 const PR = 'https://github.com/acme/widgets/pull/7';
 // The record lives in the hub config dir, not in the repo.
 beforeEach(async () => {
-  process.env.VANGUARD_HUB_CONFIG_DIR = await mkdtemp(join(tmpdir(), 'factory-cfg-'));
+  process.env.TASKCELL_HUB_CONFIG_DIR = await mkdtemp(join(tmpdir(), 'factory-cfg-'));
 });
 
 const statuses = (r: FactoryRecord | null): string => deriveFactoryState(r).steps.map((s) => `${s.id}:${s.status}`).join(' ');
@@ -88,7 +88,7 @@ describe('persistence', () => {
   });
 
   const onlyFile = async (): Promise<string> => {
-    const dir = join(process.env.VANGUARD_HUB_CONFIG_DIR!, 'factory');
+    const dir = join(process.env.TASKCELL_HUB_CONFIG_DIR!, 'factory');
     return join(dir, (await readdir(dir))[0]!);
   };
 

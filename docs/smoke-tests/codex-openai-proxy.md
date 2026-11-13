@@ -93,7 +93,7 @@ review-pr OWNER/REPO#PR: done
 
 - `fetch -> diff` — the PR metadata and unified diff were fetched from GitHub.
 - `agent -> reviewing` — the sandbox started and Codex is running the adversarial review prompt.
-- `posted -> pr review` — the review comment (beginning `## Vanguard Review`) was posted to the PR.
+- `posted -> pr review` — the review comment (beginning `## Taskcell Review`) was posted to the PR.
 - `done` — the `review-pr` command's final line, printed once the CLI has cleaned up and exited.
 
 ### Verifying that the real key never entered the sandbox
@@ -108,7 +108,7 @@ A simple additional check: run `docker inspect` on a sandbox container while a r
 
 ### Expected GitHub outcome
 
-- The target PR gains a new review comment starting with `## Vanguard Review`.
+- The target PR gains a new review comment starting with `## Taskcell Review`.
 - No labels on the PR or any issue are touched.
 - No branch or commit is created.
 

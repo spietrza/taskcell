@@ -172,7 +172,7 @@ export function TaskDraftScreen({
         setSource(isTransport(cfg.source ?? 'github') ? (cfg.source ?? 'github') : undefined);
         const resolved = cfg.chatModel ?? DEFAULT_CHAT_MODEL;
         setDefaultModel(resolved);
-        // Every distinct model the vanguard configuration knows about (handoff §4) — the resolved
+        // Every distinct model the taskcell configuration knows about (handoff §4) — the resolved
         // default is presented by the "default" option, so it is excluded here.
         const models = customProviderRows(cfg)
           .map((p) => p.model)

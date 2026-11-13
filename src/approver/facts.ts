@@ -4,6 +4,7 @@ import type { GhRunner } from '../tasks/github.js';
 import { extractReviewVerdict, VERDICT_WITHOUT_COMPLETION_NOTE } from '../runners/review-prompt.js';
 import { soleReviewMarkerSha } from '../runners/pr-review.js';
 import type { ApproverPolicy, CheckFact, PrFacts, ReviewFacts } from './types.js';
+import { FACTORY_BRANCH_PREFIXES } from '../worktree/manager.js';
 
 /** Typed-facts collectors: gh JSON only, never free text from an issue/PR/comment body into the engine. */
 
@@ -57,9 +58,12 @@ export async function collectPrFacts(gh: GhRunner, repoSlug: string, prNumber: n
   };
 }
 
-/** Same-repo `chore/vanguard-*` head: a factory PR, never a fork and never an arbitrary branch. */
+/** Same-repo factory head (`chore/vanguard-*` or `chore/taskcell-*`): a factory PR, never a fork and never an arbitrary branch. */
 export function isFactoryPr(pr: PrFacts, repoSlug: string, policy: ApproverPolicy): boolean {
-  return pr.headRepo === repoSlug && pr.headRefName.startsWith(policy.factoryBranchPrefix);
+  const { factoryBranchPrefix } = policy;
+  // A policy naming either factory prefix accepts both: branches minted before and after the rename.
+  const factory = FACTORY_BRANCH_PREFIXES.includes(factoryBranchPrefix) ? FACTORY_BRANCH_PREFIXES : [factoryBranchPrefix];
+  return pr.headRepo === repoSlug && factory.some((p) => pr.headRefName.startsWith(p));
 }
 
 interface GhCheckRun {
@@ -137,7 +141,7 @@ export async function collectCheckFacts(
 const REVIEWED_BY_RE = /^Reviewed by\b/;
 
 /**
- * Peel the external review's framing off a published body: the `## Vanguard Review` heading, then
+ * Peel the external review's framing off a published body: the `## Taskcell Review` heading, then
  * optionally the exact "truncated" note — skipping blank lines between them — before handing the
  * remainder to extractReviewVerdict, the only function that decides the verdict grammar.
  *

@@ -106,14 +106,14 @@ describe('resolveVisualProofCommand', () => {
   it('returns explicit cmd immediately (wins over everything)', async () => {
     const result = await resolveVisualProofCommand('/nonexistent', {
       cmd: 'my-visual-cmd',
-      env: { VANGUARD_VISUAL_PROOF_CMD: 'env-cmd' },
+      env: { TASKCELL_VISUAL_PROOF_CMD: 'env-cmd' },
     });
     expect(result).toBe('my-visual-cmd');
   });
 
-  it('returns env VANGUARD_VISUAL_PROOF_CMD when no explicit cmd', async () => {
+  it('returns env TASKCELL_VISUAL_PROOF_CMD when no explicit cmd', async () => {
     const result = await resolveVisualProofCommand('/nonexistent', {
-      env: { VANGUARD_VISUAL_PROOF_CMD: 'env-cmd' },
+      env: { TASKCELL_VISUAL_PROOF_CMD: 'env-cmd' },
     });
     expect(result).toBe('env-cmd');
   });
@@ -121,7 +121,7 @@ describe('resolveVisualProofCommand', () => {
   it('empty cmd falls through to env', async () => {
     const result = await resolveVisualProofCommand('/nonexistent', {
       cmd: '',
-      env: { VANGUARD_VISUAL_PROOF_CMD: 'env-cmd' },
+      env: { TASKCELL_VISUAL_PROOF_CMD: 'env-cmd' },
     });
     expect(result).toBe('env-cmd');
   });

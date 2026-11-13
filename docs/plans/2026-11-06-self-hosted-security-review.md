@@ -1,4 +1,4 @@
-# Self-hosted Vanguard: security review
+# Self-hosted Taskcell: security review
 
 Date: 2026-11-06. Scope: the self-hosted product shape agreed on 2026-11-06. Managed hosting is out of
 scope until later.
@@ -115,7 +115,7 @@ The wizard will ask for tokens, and the narrowest working scope should be the de
 
 ### Wizard
 
-- AI login runs the official CLI flows (`claude auth login`, `codex login`), the same way OpenBot does. Vanguard never handles the user's account password.
+- AI login runs the official CLI flows (`claude auth login`, `codex login`), the same way OpenBot does. Taskcell never handles the user's account password.
 - Shows the risk in plain words before the first run: "the agent runs code from this repo in a container on this computer. Only add repos you trust."
 - Checks that Docker exists and that the sandbox image matches the expected digest.
 

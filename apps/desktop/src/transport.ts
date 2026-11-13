@@ -1,7 +1,7 @@
 // Transport seam between the UI and its backend. The hub is the only product backend: the UI calls
 // `POST /rpc/<cmd>` and reads the `/events` SSE stream, in a browser and in the desktop window alike
 // (the desktop app starts a local hub and loads the UI the hub serves — apps/desktop/README.md,
-// "Local hub"). The server-injected `window.__VANGUARD_HUB__` marker (src/hub/static.ts) selects the
+// "Local hub"). The server-injected `window.__TASKCELL_HUB__` marker (src/hub/static.ts) selects the
 // hub branch. The Tauri `invoke`/`listen` branch below is not a product backend: it exists only for
 // the dev-server fixture mock (dev/mockBackend.ts) and vitest, which run without a hub.
 import {
@@ -19,9 +19,9 @@ import { listen as tauriListen, type UnlistenFn } from '@tauri-apps/api/event';
 
 declare global {
   interface Window {
-    __VANGUARD_HUB__?: boolean;
-    __VANGUARD_HUB_FLEET__?: boolean;
-    __VANGUARD_DEMO__?: boolean;
+    __TASKCELL_HUB__?: boolean;
+    __TASKCELL_HUB_FLEET__?: boolean;
+    __TASKCELL_DEMO__?: boolean;
   }
 }
 
@@ -29,18 +29,18 @@ declare global {
  * project"). Every command is answered in-browser from the bundled fixtures (dev/mockBackend.ts), so
  * nothing reaches a repo, remote or the hub, and there is no event stream. */
 export function isDemoMode(): boolean {
-  return window.__VANGUARD_DEMO__ === true || new URLSearchParams(window.location.search).get('demo') === '1';
+  return window.__TASKCELL_DEMO__ === true || new URLSearchParams(window.location.search).get('demo') === '1';
 }
 
 export function isHubMode(): boolean {
-  return window.__VANGUARD_HUB__ === true || isDemoMode();
+  return window.__TASKCELL_HUB__ === true || isDemoMode();
 }
 
 // Fleet spawns programs — remote code execution on a reachable server — so only the desktop app's own
-// loopback hub enables it (it injects `__VANGUARD_HUB_FLEET__`, src/hub/static.ts); src/hub/rpc.ts rejects
+// loopback hub enables it (it injects `__TASKCELL_HUB_FLEET__`, src/hub/static.ts); src/hub/rpc.ts rejects
 // the underlying calls on every other hub too.
 export function canUseFleet(): boolean {
-  return !isHubMode() || window.__VANGUARD_HUB_FLEET__ === true;
+  return !isHubMode() || window.__TASKCELL_HUB_FLEET__ === true;
 }
 
 /** A hub restart mints a fresh per-launch token (src/hub/server.ts), so the one this tab holds

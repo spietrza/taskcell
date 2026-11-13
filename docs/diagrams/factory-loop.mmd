@@ -8,7 +8,7 @@ flowchart TB
     merge["Merge<br/>humans only"]
     review["Review<br/>approve or revise"]
   end
-  subgraph host[Vanguard host: CI job or watch loop]
+  subgraph host[Taskcell host: CI job or watch loop]
     triage{"Triage<br/>acceptance criteria?"}
     info["needs info<br/>too vague, no spend"]
     pr["PR / MR<br/>draft if a gate failed"]
@@ -16,7 +16,7 @@ flowchart TB
   subgraph sandbox[Agent in Docker sandbox]
     spec["Tech spec<br/>read-only planner"]
     build["Build<br/>implement · review · simplify"]
-    autoreview["Vanguard review<br/>opt-in, GitHub only"]
+    autoreview["Taskcell review<br/>opt-in, GitHub only"]
     revise["Revise (GitHub)<br/>fix review comments"]
   end
   subgraph github[GitHub only, opt-in]

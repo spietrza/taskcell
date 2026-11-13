@@ -25,7 +25,7 @@ export interface RpcContext {
   allowlist: ProjectAllowlist;
   watchRegistry: WatchRegistry;
   runSession: RunSession;
-  /** Present only when fleet is enabled (loopback bind + VANGUARD_HUB_ALLOW_FLEET=1). */
+  /** Present only when fleet is enabled (loopback bind + TASKCELL_HUB_ALLOW_FLEET=1). */
   spawnRegistry?: SpawnRegistry;
   completeRegistry: CompleteRegistry;
   deps: SidecarDeps;

@@ -1,25 +1,26 @@
 import { labelForms } from '../core/labels.js';
 import { parseSpecManifest } from '../pipeline/conformance-gate.js';
-import { VANGUARD_BRANCH_PREFIX } from '../worktree/manager.js';
+import { FACTORY_BRANCH_PREFIXES, isFactoryBranch } from '../worktree/manager.js';
 import { trustedSpecText } from './comment-trust.js';
 import { defaultGhRunner } from './github.js';
 import type { GhRunner } from './github.js';
 import type { Task } from './fetcher.js';
+import { readEnv } from '../core/env.js';
 
 const DEFAULT_OVERLAP_HOLD_HOURS = 6;
 const LIST_LIMIT = 100;
 
-/** Branch-name prefix of factory runs for a GitHub task id (`owner/repo#N` or a slug): `chore/vanguard-gh-owner-repo-N-`. */
-export function githubBranchPrefix(taskId: string): string {
-  return `${VANGUARD_BRANCH_PREFIX}gh-${taskId.replace(/[^a-zA-Z0-9]/g, '-')}-`;
+/** Branch-name prefixes of factory runs for a GitHub task id (`owner/repo#N` or a slug): `chore/taskcell-gh-owner-repo-N-`, then the pre-rename `chore/vanguard-` form; parse with all of them. */
+export function githubBranchPrefixes(taskId: string): string[] {
+  return FACTORY_BRANCH_PREFIXES.map((p) => `${p}gh-${taskId.replace(/[^a-zA-Z0-9]/g, '-')}-`);
 }
 
 /**
- * Wait cap in ms from `VANGUARD_OVERLAP_HOLD_HOURS` (default 6; unset or empty also means the default);
+ * Wait cap in ms from `TASKCELL_OVERLAP_HOLD_HOURS` (default 6; unset or empty also means the default);
  * `0` turns the overlap hold off.
  */
 export function overlapHoldMs(env: NodeJS.ProcessEnv = process.env): number {
-  const raw = env.VANGUARD_OVERLAP_HOLD_HOURS?.trim();
+  const raw = readEnv('TASKCELL_OVERLAP_HOLD_HOURS', env)?.trim();
   const hours = raw === undefined || raw === '' ? DEFAULT_OVERLAP_HOLD_HOURS : Number(raw);
   return (Number.isFinite(hours) && hours >= 0 ? hours : DEFAULT_OVERLAP_HOLD_HOURS) * 3_600_000;
 }
@@ -88,7 +89,7 @@ export interface OverlapCheckerOptions {
 
 /**
  * Returns a per-task overlap check; open work is loaded once, on first use. Open same-repo factory PRs
- * (`chore/vanguard-*` branches; a fork's are ignored) contribute their diff files, in-flight runs their
+ * (`chore/taskcell-*` (or pre-rename `chore/vanguard-*`) branches; a fork's are ignored) contribute their diff files, in-flight runs their
  * manifest files, and so does each task this checker already let through (so issues labelled together
  * do not start side by side). A task without a manifest has no overlap; a task is never its own overlap,
  * nor held by the PR of an earlier run of itself. White-label runs (`feat/` branches) are not covered.
@@ -103,7 +104,7 @@ export function createOverlapChecker(opts: OverlapCheckerOptions): (task: Task) 
         await gh(['pr', 'list', '--repo', opts.repo, '--state', 'open', '--limit', String(LIST_LIMIT), '--json', 'number,headRefName,isCrossRepository,files']),
       ) as { number: number; headRefName?: string; isCrossRepository?: boolean; files?: { path: string }[] }[];
       const work: Work[] = prs
-        .filter((pr) => pr.isCrossRepository !== true && pr.headRefName?.startsWith(VANGUARD_BRANCH_PREFIX) === true)
+        .filter((pr) => pr.isCrossRepository !== true && isFactoryBranch(pr.headRefName))
         .map((pr) => ({ kind: 'pr' as const, number: pr.number, files: (pr.files ?? []).map((f) => f.path), branch: pr.headRefName! }));
       const runs = new Map<string, Task>();
       for (const form of labelForms(opts.claimedLabel)) for (const run of await opts.list([form], LIST_LIMIT)) runs.set(run.id, run);
@@ -120,10 +121,10 @@ export function createOverlapChecker(opts: OverlapCheckerOptions): (task: Task) 
     if (files === undefined) return [];
     const mine = new Set(files.filter((f) => !isSharedPath(f)));
     const self = numberOf(task);
-    const ownBranch = githubBranchPrefix(task.id);
+    const ownBranches = githubBranchPrefixes(task.id);
     const holds = [...(await load()), ...admitted].flatMap((work) => {
       if (work.kind === 'run' && work.number === self) return [];
-      if (work.branch?.startsWith(ownBranch) === true) return [];
+      if (ownBranches.some((p) => work.branch?.startsWith(p) === true)) return [];
       const shared = [...new Set(work.files)].filter((f) => mine.has(f));
       return shared.length > 0 ? [{ kind: work.kind, number: work.number, files: shared }] : [];
     });

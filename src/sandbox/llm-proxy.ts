@@ -133,7 +133,7 @@ export async function startLlmProxy(opts: {
     // The sidecar runs the sandbox image (startSidecar's default), so a missing/stale build is the
     // common cause — name it instead of leaving a bare container id for the user to puzzle over.
     throw new SandboxError(
-      `Failed to start llm proxy ${id}: rebuild the sandbox image (docker/build.sh builds taskcell-sandbox:latest), or check VANGUARD_SANDBOX_IMAGE if set.`,
+      `Failed to start llm proxy ${id}: rebuild the sandbox image (docker/build.sh builds taskcell-sandbox:latest), or check TASKCELL_SANDBOX_IMAGE if set.`,
       { cause },
     );
   }

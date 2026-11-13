@@ -5,6 +5,7 @@
  * Used by the log-only difficulty probe, the eval judge and the fork scorer.
  */
 import { isIP } from 'node:net';
+import { readEnv } from './env.js';
 
 /** clef over clef-flash: replaying 11 factory probes (2026-10-21) gave Brier 0.05 vs 0.16 — flash was overconfident. */
 export const DECISION_MODEL_DEFAULT = 'clef';
@@ -49,11 +50,11 @@ export interface DecisionResult {
  */
 export function decisionModelConfig(
   env: NodeJS.ProcessEnv = process.env,
-  model: string = env['VANGUARD_DECISION_MODEL'] ?? DECISION_MODEL_DEFAULT,
+  model: string = readEnv('TASKCELL_DECISION_MODEL', env) ?? DECISION_MODEL_DEFAULT,
 ): DecisionModelConfig | undefined {
-  const url = env['VANGUARD_DECISION_URL'];
+  const url = readEnv('TASKCELL_DECISION_URL', env);
   if (url !== undefined && url !== '') {
-    const token = env['VANGUARD_DECISION_TOKEN'];
+    const token = readEnv('TASKCELL_DECISION_TOKEN', env);
     // Refused, not warned: the state (issue text, diff) and any bearer token would cross the network
     // unencrypted. Loopback, private/Tailscale addresses and dotless LAN names stay allowed.
     if (isPlainHttpOffHost(url)) {
@@ -76,7 +77,7 @@ export function decisionModelConfig(
   };
 }
 
-const PLAIN_HTTP_REFUSED = 'VANGUARD_DECISION_URL is plain http on a non-local host; use https (the state and token would travel unencrypted)';
+const PLAIN_HTTP_REFUSED = 'TASKCELL_DECISION_URL is plain http on a non-local host; use https (the state and token would travel unencrypted)';
 
 /** http:// to anything but loopback, RFC-1918/Tailscale-style private space, or a dotless LAN name. */
 function isPlainHttpOffHost(url: string): boolean {
@@ -95,13 +96,13 @@ function isPlainHttpOffHost(url: string): boolean {
 
 /** Why decisionModelConfig returned undefined for this model, worded for the operator. */
 export function decisionModelMissing(model: string, env: NodeJS.ProcessEnv = process.env): string {
-  const url = env['VANGUARD_DECISION_URL'];
+  const url = readEnv('TASKCELL_DECISION_URL', env);
   if (url !== undefined && url !== '' && isPlainHttpOffHost(url)) return `${PLAIN_HTTP_REFUSED}.`;
   const hasCloudflare = (env['CLOUDFLARE_ACCOUNT_ID'] ?? '') !== '' && (env['CLOUDFLARE_AUTH_TOKEN'] ?? '') !== '';
   if ((url === undefined || url === '') && hasCloudflare && !WORKERS_AI_MODELS.has(model)) {
-    return `"${model}" is not hosted on Workers AI (clef, clef-flash are); point VANGUARD_DECISION_URL at an endpoint that serves it.`;
+    return `"${model}" is not hosted on Workers AI (clef, clef-flash are); point TASKCELL_DECISION_URL at an endpoint that serves it.`;
   }
-  return 'set CLOUDFLARE_ACCOUNT_ID + CLOUDFLARE_AUTH_TOKEN (Workers AI) or VANGUARD_DECISION_URL.';
+  return 'set CLOUDFLARE_ACCOUNT_ID + CLOUDFLARE_AUTH_TOKEN (Workers AI) or TASKCELL_DECISION_URL.';
 }
 
 /** Names that select a decision model instead of an LLM wherever a model flag accepts one. */
@@ -142,10 +143,10 @@ export interface DecideOptions {
 
 /**
  * Client data (a white-label run's issue text or diff) may reach the decision model only with
- * VANGUARD_DECISION_PROBE=all — one consent switch for every decision-model feature.
+ * TASKCELL_DECISION_PROBE=all — one consent switch for every decision-model feature.
  */
 export function decisionEgressAllowed(whiteLabel: boolean, env: NodeJS.ProcessEnv = process.env): boolean {
-  return !whiteLabel || env['VANGUARD_DECISION_PROBE'] === 'all';
+  return !whiteLabel || readEnv('TASKCELL_DECISION_PROBE', env) === 'all';
 }
 
 interface SystemOneError {

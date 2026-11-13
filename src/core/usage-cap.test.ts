@@ -26,7 +26,7 @@ const FUTURE = new Date(NOW.getTime() + 3_600_000);
 beforeEach(() => {
   resetUtilization();
   resetUsageCapLog();
-  delete process.env['VANGUARD_USAGE_CAP_PCT'];
+  delete process.env['TASKCELL_USAGE_CAP_PCT'];
 });
 
 describe('utilization parsing (recorded fixtures)', () => {
@@ -67,7 +67,7 @@ describe('usage cap status', () => {
   });
 
   it('does not block on unknown or stale utilization, and logs once', () => {
-    process.env['VANGUARD_USAGE_CAP_PCT'] = '80';
+    process.env['TASKCELL_USAGE_CAP_PCT'] = '80';
     const lines: string[] = [];
     const log = { info: (_o: object, m: string): void => void lines.push(m) };
     enforceUsageCap('codex', log);
@@ -78,7 +78,7 @@ describe('usage cap status', () => {
   });
 
   it('enforceUsageCap throws UsageCapError carrying the reset', () => {
-    process.env['VANGUARD_USAGE_CAP_PCT'] = '80';
+    process.env['TASKCELL_USAGE_CAP_PCT'] = '80';
     recordUtilization('claude-code', { pct: 82, resetsAt: new Date(Date.now() + 3_600_000) });
     expect(() => enforceUsageCap('claude-code')).toThrow(UsageCapError);
   });
@@ -102,7 +102,7 @@ describe('agent-controlled stream values are bounded', () => {
   it('drops an Invalid Date reset instead of crashing the cap error', () => {
     const u = parseClaudeUtilization({ type: 'rate_limit_event', rate_limit_info: { utilization: 1, resetsAt: 1e20 } });
     expect(u).toEqual({ pct: 100 });
-    process.env['VANGUARD_USAGE_CAP_PCT'] = '80';
+    process.env['TASKCELL_USAGE_CAP_PCT'] = '80';
     recordUtilization('claude-code', { pct: 100, resetsAt: new Date(NaN) });
     const err = (() => {
       try {

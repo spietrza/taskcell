@@ -18,9 +18,9 @@ export type WatchFn = (
 ) => FSWatcher;
 
 export interface WatchOptions {
-  /** Force polling even when fs.watch works (VANGUARD_HUB_WATCH_POLL=1). */
+  /** Force polling even when fs.watch works (TASKCELL_HUB_WATCH_POLL=1). */
   forcePoll?: boolean;
-  /** Polling interval in ms (VANGUARD_HUB_WATCH_INTERVAL_MS, default 2000). */
+  /** Polling interval in ms (TASKCELL_HUB_WATCH_INTERVAL_MS, default 2000). */
   pollIntervalMs?: number;
   /** Injectable replacement for `fs.watch`, for tests. Defaults to the real `fs.watch`. */
   watchFn?: WatchFn;

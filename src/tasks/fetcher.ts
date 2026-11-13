@@ -77,7 +77,7 @@ function renderComment(comment: TaskComment): string {
 
 /**
  * Map a fetched task to prompt-engine {{KEY}} variables. COMMENTS carries only trustedComments (repo
- * members, the issue author, `trust.allowedAuthors`, Vanguard's bot): an outsider's comment never
+ * members, the issue author, `trust.allowedAuthors`, Taskcell's bot): an outsider's comment never
  * reaches the agent prompt.
  */
 export function taskToVariables(task: Task, trust: TrustOptions = {}): Record<string, string> {

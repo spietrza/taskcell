@@ -263,7 +263,7 @@ pub fn api_capabilities(state: State<'_, Sidecar>) -> Result<serde_json::Value, 
 /// OAuth token a parameter of an IPC call. It is read from `app.json` here instead, so config — not
 /// the caller — decides where the credential goes, and there is one source of truth for it.
 /// `app.json` is repo content, though, so `__complete` itself refuses any origin other than the
-/// Anthropic API unless the operator lists it in `VANGUARD_CHAT_ALLOWED_ORIGINS` (src/api/complete.ts).
+/// Anthropic API unless the operator lists it in `TASKCELL_CHAT_ALLOWED_ORIGINS` (src/api/complete.ts).
 ///
 /// Scope of the substitution, stated honestly: it is hygiene, not a security boundary.
 /// `write_app_config` accepts a whole AppConfig from the renderer, so a caller can persist a

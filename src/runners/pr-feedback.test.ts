@@ -608,7 +608,7 @@ describe('buildRevisionDryRun', () => {
 });
 
 describe('selectActionableFeedback and incomplete verdicts', () => {
-  it("drops Vanguard's own incomplete review even when the posting login is not a recognised bot", () => {
+  it("drops Taskcell's own incomplete review even when the posting login is not a recognised bot", () => {
     const partial = buildMainLoopReviewComment('Partial.', { headRefOid: 'sha-new', attribution: 'a', completed: false });
     const fb: PullRequestFeedback = {
       headRefOid: 'sha-new',
@@ -1294,7 +1294,7 @@ describe('author trust boundary', () => {
     expect(countRevisionRoundsFromFeedback(fb, { feedbackAuthors: ['EXTERNAL'] })).toBe(2);
   });
   it('excludes vanguard-named automation from actionable feedback without trusting lookalikes', () => {
-    // The two questions are separate: the substring match keeps Vanguard's own OWNER comments out of
+    // The two questions are separate: the substring match keeps Taskcell's own OWNER comments out of
     // the actionable set, while only an exact bot login grants trust — `mallory-vanguard` gets none.
     const fb = makeFeedback({ items: [
       commentItem({ author: 'vanguard-ci', authorAssociation: 'OWNER', body: 'CI output' }),

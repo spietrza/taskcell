@@ -2,6 +2,7 @@ import { createHash } from 'node:crypto';
 import { extname } from 'node:path';
 import { shellQuote } from '../agents/shell.js';
 import type { IsolatedSandboxProvider, ExecResult } from '../sandbox/provider.js';
+import { readEnv } from '../core/env.js';
 
 export interface VisualProofArtifact {
   path: string;
@@ -43,7 +44,7 @@ type SandboxRun = (
 
 /**
  * Resolve the visual-proof command. Precedence: explicit cmd (CLI flag) >
- * VANGUARD_VISUAL_PROOF_CMD env > undefined (skip visual proof entirely).
+ * TASKCELL_VISUAL_PROOF_CMD env > undefined (skip visual proof entirely).
  * Unlike the Proof of Work command, this never auto-detects from package.json — a visual
  * proof is opt-in only.
  */
@@ -52,7 +53,7 @@ export async function resolveVisualProofCommand(
   opts: { cmd?: string; env?: NodeJS.ProcessEnv } = {},
 ): Promise<string | undefined> {
   if (opts.cmd !== undefined && opts.cmd !== '') return opts.cmd;
-  const envCmd = (opts.env ?? process.env).VANGUARD_VISUAL_PROOF_CMD;
+  const envCmd = readEnv('TASKCELL_VISUAL_PROOF_CMD', opts.env);
   if (envCmd !== undefined && envCmd !== '') return envCmd;
   return undefined;
 }

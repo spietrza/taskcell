@@ -19,7 +19,7 @@ export interface WatchMrsCommandDeps {
   log?: (line: string) => void;
 }
 
-/** Poll GitLab MRs by label and run Vanguard's non-blocking review on each claimed MR. */
+/** Poll GitLab MRs by label and run Taskcell's non-blocking review on each claimed MR. */
 export async function watchMrsCommand(cmd: WatchMrsCommand, deps: WatchMrsCommandDeps = {}): Promise<void> {
   const report = await runPreflight(cmd);
   for (const line of formatPreflightReport(report)) console.log(line);

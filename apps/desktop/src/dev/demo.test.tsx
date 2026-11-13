@@ -8,7 +8,7 @@ import { DEMO_REPO_PATH, DEMO_WRITE_COMMANDS, demoBoardTasks, demoNeedsYou } fro
 
 afterEach(() => {
   cleanup(); // unmount while demo mode is still on, so effect cleanups stay in-browser
-  delete window.__VANGUARD_DEMO__;
+  delete window.__TASKCELL_DEMO__;
   window.history.replaceState(null, '', '/');
   vi.restoreAllMocks();
 });
@@ -19,7 +19,7 @@ test('the marker and ?demo=1 both select demo mode, which also counts as hub mod
   expect(isDemoMode()).toBe(true);
   expect(isHubMode()).toBe(true);
   window.history.replaceState(null, '', '/');
-  window.__VANGUARD_DEMO__ = true;
+  window.__TASKCELL_DEMO__ = true;
   expect(isDemoMode()).toBe(true);
 });
 
@@ -32,7 +32,7 @@ test('demo data covers the lanes, Needs you and a dependency chain', () => {
 });
 
 test('demo mode refuses every write command and never fetches', async () => {
-  window.__VANGUARD_DEMO__ = true;
+  window.__TASKCELL_DEMO__ = true;
   const fetchSpy = vi.spyOn(globalThis, 'fetch');
   for (const cmd of DEMO_WRITE_COMMANDS) {
     // eslint-disable-next-line no-await-in-loop
@@ -52,7 +52,7 @@ test('the empty Home offers "Try the demo project", linking to ?demo=1', () => {
 });
 
 test('every main screen opens in demo mode without errors', async () => {
-  window.__VANGUARD_DEMO__ = true;
+  window.__TASKCELL_DEMO__ = true;
   vi.stubGlobal('matchMedia', (q: string) => ({ matches: false, media: q, addEventListener: () => {}, removeEventListener: () => {}, addListener: () => {}, removeListener: () => {} }));
   const error = vi.spyOn(console, 'error').mockImplementation(() => {});
   render(<App />);

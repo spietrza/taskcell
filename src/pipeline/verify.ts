@@ -3,6 +3,7 @@ import { readFile } from 'node:fs/promises';
 import { join } from 'node:path';
 import { redactForPublish } from '../core/secret-scan.js';
 import type { IsolatedSandboxProvider } from '../sandbox/provider.js';
+import { readEnv } from '../core/env.js';
 
 export interface VerificationResult {
   command: string;
@@ -29,7 +30,7 @@ export interface VerificationResult {
 /** The one wording for the OOM evidence, shared by the run log and the proof block. */
 function oomNote(oomKilled: boolean): string {
   return oomKilled
-    ? 'yes — the verify run was OOM-killed in the sandbox (raise `VANGUARD_SANDBOX_MEMORY_MB`)'
+    ? 'yes — the verify run was OOM-killed in the sandbox (raise `TASKCELL_SANDBOX_MEMORY_MB`)'
     : 'no OOM kill during the verify run (memory.events oom_kill did not change)';
 }
 
@@ -48,7 +49,7 @@ export function packageManagerOf(field: string | undefined): 'pnpm' | 'yarn' | '
 }
 
 /**
- * Resolve the verification command. Precedence: explicit cmd (CLI flag) > VANGUARD_VERIFY_CMD env >
+ * Resolve the verification command. Precedence: explicit cmd (CLI flag) > TASKCELL_VERIFY_CMD env >
  * a `verify` script in the worktree package.json > auto-detect from package.json's test/typecheck
  * scripts > auto-detect Python (pytest) markers > undefined (skip Proof of Work entirely — the
  * caller must render that skip visibly, not drop it silently).
@@ -64,7 +65,7 @@ export async function resolveVerifyCommand(
   opts: { cmd?: string; env?: NodeJS.ProcessEnv } = {},
 ): Promise<string | undefined> {
   if (opts.cmd !== undefined && opts.cmd !== '') return opts.cmd;
-  const envCmd = (opts.env ?? process.env).VANGUARD_VERIFY_CMD;
+  const envCmd = readEnv('TASKCELL_VERIFY_CMD', opts.env);
   if (envCmd !== undefined && envCmd !== '') return envCmd;
 
   let pkgRaw: string | undefined;
@@ -108,7 +109,7 @@ export function verifySkippedBlock(): string {
   return [
     '## Proof of work: SKIPPED',
     '',
-    'No verify command resolved (no package.json test script, no pytest markers, and no `VANGUARD_VERIFY_CMD`).',
+    'No verify command resolved (no package.json test script, no pytest markers, and no `TASKCELL_VERIFY_CMD`).',
   ].join('\n');
 }
 
@@ -246,7 +247,7 @@ export function proofBlock(result: VerificationResult): string {
 export function baseRedBlock(baseBranch: string, sha: string, result: VerificationResult): string {
   const task = failingTaskName(result.firstErrorLines);
   const lines = [
-    `🚧 Vanguard stopped before implementing: \`${baseBranch}\` (${sha.slice(0, 7)}) already fails \`${result.command}\` (exit ${result.exitCode}).`,
+    `🚧 Taskcell stopped before implementing: \`${baseBranch}\` (${sha.slice(0, 7)}) already fails \`${result.command}\` (exit ${result.exitCode}).`,
     '',
     'Fixing it would mean repairing failures that have nothing to do with this issue, so no implement run was started. Fix the base branch, then re-apply the trigger label. If this issue is the fix for the red base, add the `taskcell:base-red-ok` label and re-apply the trigger label to skip this check.',
     ...(task !== undefined ? ['', `- failing task/package: \`${task}\``] : []),

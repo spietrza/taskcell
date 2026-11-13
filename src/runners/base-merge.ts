@@ -64,7 +64,7 @@ export interface MergeBaseOptions {
  */
 export async function mergeBaseIntoWorktree(worktreePath: string, base: string, opts: MergeBaseOptions = {}): Promise<BaseMerge> {
   assertSafeBaseBranch(base);
-  const identity = ['-c', `user.name=${opts.authorName ?? 'Vanguard'}`, '-c', `user.email=${opts.authorEmail ?? 'vanguard@local'}`];
+  const identity = ['-c', `user.name=${opts.authorName ?? 'Taskcell'}`, '-c', `user.email=${opts.authorEmail ?? 'vanguard@local'}`];
   const probe = await probeBase(worktreePath, base, opts.remote ?? 'origin');
   if (probe.status === 'clean' && opts.mergeClean === true) return await mergeCleanBase(worktreePath, identity);
   if (probe.status !== 'conflicted') return probe;

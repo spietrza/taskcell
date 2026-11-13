@@ -211,7 +211,7 @@ beforeEach(async () => {
   const { port } = hub.server.address() as AddressInfo;
   baseUrl = `http://127.0.0.1:${port}`;
 
-  window.__VANGUARD_HUB__ = true;
+  window.__TASKCELL_HUB__ = true;
   // What the browser does with the CLI's launch URL (`/#token=…`): the served page carries no token.
   stubBrowserUrl(`${baseUrl}/#token=${hub.token}`);
   // A same-origin browser page: Origin on every non-GET request, and a one-entry cookie jar for the
@@ -231,7 +231,7 @@ beforeEach(async () => {
 
 afterEach(async () => {
   vi.unstubAllGlobals();
-  delete window.__VANGUARD_HUB__;
+  delete window.__TASKCELL_HUB__;
   await hub.close();
   await rm(repo, { recursive: true, force: true });
   await rm(configDir, { recursive: true, force: true });

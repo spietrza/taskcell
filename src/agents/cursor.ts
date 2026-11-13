@@ -21,7 +21,7 @@ interface StreamMessage {
 }
 
 /**
- * Claude CLI aliases and Anthropic ids that Vanguard's stage presets pin (spec → `haiku`, implement →
+ * Claude CLI aliases and Anthropic ids that Taskcell's stage presets pin (spec → `haiku`, implement →
  * `sonnet`, plan → `opus`, escalation → `claude-fable-5-1`) map onto Cursor's Auto modes by tier, so a
  * stage keeps its intelligence/cost trade-off without naming models an account may not have. Cursor's own
  * ids pass through, including `claude-opus-5-5-high` (a suffix after the version, so no match here).
@@ -61,7 +61,7 @@ const AUTO_ROUTED = /^> Auto routed to ([^\n]+)\n*/;
  * Sandbox setup run before `agent`: allow every shell command and file access in
  * `~/.cursor/cli-config.json`, keeping the rest of the file. This replaces `--force`, which a team
  * admin can disable ("Run Everything"); without either, print mode rejects every command but `ls`. The
- * Vanguard container is the boundary, as for codex's danger-full-access.
+ * Taskcell container is the boundary, as for codex's danger-full-access.
  */
 const CURSOR_SETUP =
   `node -e 'const fs=require("fs"),p=require("path"),f=p.join(process.env.HOME,".cursor","cli-config.json");let c={version:1};try{c=JSON.parse(fs.readFileSync(f,"utf8"))}catch{}c.permissions={allow:["Shell(*)","Read(**)","Write(**)"],deny:[]};fs.mkdirSync(p.dirname(f),{recursive:true});fs.writeFileSync(f,JSON.stringify(c,null,2))'`;
@@ -72,7 +72,7 @@ function toUsage(raw: StreamMessage['usage']): AgentUsage | undefined {
 }
 
 function buildArgs(input: AgentRunInput): string[] {
-  // --trust: headless runs cannot answer the workspace-trust prompt. --sandbox disabled: the Vanguard
+  // --trust: headless runs cannot answer the workspace-trust prompt. --sandbox disabled: the Taskcell
   // container is the boundary; Cursor's own sandbox is not set up there.
   const args = ['-p', '--output-format', 'stream-json', '--trust', '--sandbox', 'disabled'];
   if (input.model !== undefined) args.push('--model', cursorModel(input.model));

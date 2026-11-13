@@ -31,13 +31,13 @@ export type GenerateSpec = (id: string, deps: RunSpecGeneratorDeps) => Promise<s
 /** Clarification comment posted when triage flags a ticket as too vague to proceed. */
 function clarifyMessage(mode: 'spec' | 'agent'): string {
   return mode === 'spec'
-    ? 'Vanguard could not start: this ticket is too vague to spec. Add a clear description (what and why) and re-trigger.'
-    : 'Vanguard could not start: this ticket lacks acceptance criteria or a spec. Add testable acceptance criteria (or a spec comment) and re-trigger.';
+    ? 'Taskcell could not start: this ticket is too vague to spec. Add a clear description (what and why) and re-trigger.'
+    : 'Taskcell could not start: this ticket lacks acceptance criteria or a spec. Add testable acceptance criteria (or a spec comment) and re-trigger.';
 }
 
 /**
  * Wrap a generated spec so the agent pass and triage recognise it as a spec comment. White-label
- * drops the "Vanguard" heading (a client repo must not carry automation branding); recognition is
+ * drops the "Taskcell" heading (a client repo must not carry automation branding); recognition is
  * keyed on the <tech_spec> tag, so triage/idempotency/conformance behave identically in both modes.
  */
 export function specComment(spec: string, opts?: { whiteLabel?: boolean }): string {
@@ -47,7 +47,7 @@ export function specComment(spec: string, opts?: { whiteLabel?: boolean }): stri
 
 /** Comment posted when a genuine no-change outcome un-sticks the claimed marker. */
 const NO_CHANGE_MSG =
-  'Vanguard run produced no changes — no PR was opened. Cleared `taskcell:running`; re-apply the trigger label to retry. See the run log.';
+  'Taskcell run produced no changes — no PR was opened. Cleared `taskcell:running`; re-apply the trigger label to retry. See the run log.';
 
 /**
  * Comment posted when the secret scan withheld the PR: what the watch did with the claim and the
@@ -55,7 +55,7 @@ const NO_CHANGE_MSG =
  * The adapter's masked-findings comment carries no procedure — it also serves one-shot runs.
  */
 function holdMessage(claimNote: string, resume: string): string {
-  return `Vanguard held this issue: the outgoing secret scan withheld the PR. ${claimNote} To retry once the secret is out of the change, ${resume}.`;
+  return `Taskcell held this issue: the outgoing secret scan withheld the PR. ${claimNote} To retry once the secret is out of the change, ${resume}.`;
 }
 
 /** Post the no-change comment and (optionally) revert the claim — independent I/O, run concurrently. */
@@ -387,7 +387,7 @@ export function linearWatchPrimitives(opts: WatchLinearOptions): WatchPrimitives
         ),
         opts.linear,
       ),
-    onFailure: (id, error) => commentLinearIssue(id, failureOrCapComment('Vanguard run failed', error), opts.linear),
+    onFailure: (id, error) => commentLinearIssue(id, failureOrCapComment('Taskcell run failed', error), opts.linear),
   };
 }
 
@@ -425,7 +425,7 @@ interface RunSpecCoreActions {
 /**
  * Shared 3-branch spec-run logic used by both Linear and GitHub spec primitives.
  *
- * Branch (a) idempotent retry — already Vanguard-specced: advance without regenerating.
+ * Branch (a) idempotent retry — already Taskcell-specced: advance without regenerating.
  * Branch (b) triage says needs_info: post clarification comment then move to needs-info.
  * Branch (c) normal path: generate spec, post it, then advance.
  *
@@ -438,7 +438,7 @@ async function runSpecCore(
   generate: GenerateSpec,
   actions: RunSpecCoreActions,
 ): Promise<'advanced' | 'needs_info'> {
-  // (a) Idempotent retry: if a Vanguard-generated spec is already posted skip regeneration and just
+  // (a) Idempotent retry: if a Taskcell-generated spec is already posted skip regeneration and just
   // advance — cheap, no duplicate spec comment / wasted sandbox+LLM. Issue-author trust is excluded
   // here: the reporter must not be able to skip spec generation with a forged <tech_spec>.
   if (task.comments.some((c) => isTrustedNonAuthorComment(c, { allowedAuthors: deps.feedbackAuthors }) && isTaskcellSpec(c))) {
@@ -513,7 +513,7 @@ export function linearSpecPrimitives(opts: WatchLinearSpecOptions): SpecWatchPri
       });
     },
     onFailure: async (id, error) => {
-      await commentLinearIssue(id, failureOrCapComment('Vanguard spec failed', error), opts.linear);
+      await commentLinearIssue(id, failureOrCapComment('Taskcell spec failed', error), opts.linear);
       await setLinearState(id, opts.specTriggerStateName, opts.linear);
     },
   };
@@ -712,7 +712,7 @@ async function markGithubIssueRateLimited(
  */
 function failureOrCapComment(title: string, error: unknown): string {
   if (!(error instanceof UsageCapError)) return formatFailureComment(title, error);
-  return `Vanguard ${usageCapMessage(error.pct, error.cap, error.until)} (\`VANGUARD_USAGE_CAP_PCT\`). This is the configured reserve, not a failure and not a problem with this task; re-trigger it once ${error.until.toISOString()} has passed.`;
+  return `Taskcell ${usageCapMessage(error.pct, error.cap, error.until)} (\`TASKCELL_USAGE_CAP_PCT\`). This is the configured reserve, not a failure and not a problem with this task; re-trigger it once ${error.until.toISOString()} has passed.`;
 }
 
 /**
@@ -864,7 +864,7 @@ export function githubIssueWatchPrimitives(opts: WatchGithubOptions): WatchPrimi
       );
     },
     onFailure: async (id, error) => {
-      const comment = formatFailureComment('Vanguard run failed', error);
+      const comment = formatFailureComment('Taskcell run failed', error);
       if (isRateLimitHold(error)) {
         await markGithubIssueRateLimited(repo, id, opts.claimedLabel, opts.label, comment, error, opts.gh);
         return;
@@ -943,7 +943,7 @@ export function githubSpecPrimitives(opts: WatchGithubSpecOptions): SpecWatchPri
       });
     },
     onFailure: async (id, error) => {
-      const comment = formatFailureComment('Vanguard spec failed', error);
+      const comment = formatFailureComment('Taskcell spec failed', error);
       if (isRateLimitHold(error)) {
         await markGithubIssueRateLimited(repo, id, opts.claimedLabel, opts.specLabel, comment, error, opts.gh);
         return;
@@ -1117,7 +1117,7 @@ export function githubProjectWatchPrimitives(opts: WatchGithubProjectOptions): W
         holdMessage(`It stays in "${opts.claimedStatus}" so the watch will not re-run it.`, `move it back to "${opts.triggerStatus}"`),
         gh,
       ),
-    onFailure: (id, error) => commentGithubIssue(repo, id, failureOrCapComment('Vanguard run failed', error), gh),
+    onFailure: (id, error) => commentGithubIssue(repo, id, failureOrCapComment('Taskcell run failed', error), gh),
   };
 }
 
@@ -1215,7 +1215,7 @@ export function gitlabWatchPrimitives(opts: WatchGitlabOptions): WatchPrimitives
       );
     },
     onFailure: (id, error) =>
-      commentGitlabIssue(project, id, failureOrCapComment('Vanguard run failed', error), glab),
+      commentGitlabIssue(project, id, failureOrCapComment('Taskcell run failed', error), glab),
   };
 }
 
@@ -1267,7 +1267,7 @@ export function gitlabSpecPrimitives(opts: WatchGitlabSpecOptions): SpecWatchPri
       });
     },
     onFailure: async (id, error) => {
-      await commentGitlabIssue(opts.project, id, failureOrCapComment('Vanguard spec failed', error), glab);
+      await commentGitlabIssue(opts.project, id, failureOrCapComment('Taskcell spec failed', error), glab);
       // Restore spec label so next poll retries
       await editGitlabLabels(opts.project, id, { remove: [opts.claimedLabel], add: [opts.specLabel] }, glab);
     },

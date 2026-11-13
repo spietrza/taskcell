@@ -14,7 +14,7 @@ import type { GhRunner } from '../tasks/github.js';
 import { defaultGlabRunner, encodeProject, glabUser } from '../tasks/gitlab.js';
 import type { GlabRunner } from '../tasks/gitlab.js';
 import { GITLAB_VERIFY_FAILED_LABEL } from '../gitlab-labels.js';
-import { VANGUARD_BRANCH_PREFIX } from '../worktree/manager.js';
+import { isFactoryBranch } from '../worktree/manager.js';
 import { hasRevisionMarker } from './pr-feedback.js';
 import { extractCommentVerdict } from './review-prompt.js';
 
@@ -151,8 +151,8 @@ async function fetchMrNotes(glab: GlabRunner, project: string, iid: number): Pro
 
 /**
  * Read a merge request's history through glab. GitLab notes carry no association, so only the glab
- * user (Vanguard's own reviews and revise notes) and `allowedAuthors` are trusted; everyone else fails closed.
- * `factory` is false unless the MR is a same-project `chore/vanguard-*` branch: a review of a fork or human
+ * user (Taskcell's own reviews and revise notes) and `allowedAuthors` are trusted; everyone else fails closed.
+ * `factory` is false unless the MR is a same-project `chore/taskcell-*` (or pre-rename `chore/vanguard-*`) branch: a review of a fork or human
  * MR quotes text its author controls, so no lesson may be drawn from it.
  */
 export async function fetchMrHistory(
@@ -190,7 +190,7 @@ export async function fetchMrHistory(
     factory:
       mr.source_project_id !== undefined &&
       mr.source_project_id === mr.target_project_id &&
-      mr.source_branch?.startsWith(VANGUARD_BRANCH_PREFIX) === true,
+      isFactoryBranch(mr.source_branch),
   };
 }
 

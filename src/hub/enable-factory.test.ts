@@ -47,7 +47,7 @@ interface FakeOptions {
   localCallers?: string;
 }
 
-const doctorRun = (id: number, event = 'workflow_dispatch', name = 'Vanguard Doctor'): unknown => ({
+const doctorRun = (id: number, event = 'workflow_dispatch', name = 'Taskcell Doctor'): unknown => ({
   databaseId: id,
   status: 'completed',
   conclusion: 'success',

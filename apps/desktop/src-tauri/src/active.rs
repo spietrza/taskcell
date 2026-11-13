@@ -37,7 +37,7 @@ pub struct SessionRead {
 }
 
 /// USD per 1M tokens as (input, output, cache_read). Ported from src/core/openrouter-pricing.ts
-/// OPENROUTER_PRICING (the fuller map: aliases + bare Vanguard ids + the provider-prefixed dotted
+/// OPENROUTER_PRICING (the fuller map: aliases + bare Taskcell ids + the provider-prefixed dotted
 /// slugs OpenRouter echoes back, e.g. `anthropic/claude-opus-4.8`, `z-ai/glm-5.2`) — refresh both
 /// together on model/price updates. `contains` (not `starts_with`) so both `claude-opus-4-8` and
 /// `anthropic/claude-opus-4.8` match. Order matters: sonnet-5 before generic sonnet keeps its rate.
@@ -138,7 +138,7 @@ pub fn list_active(repo_path: &Path) -> io::Result<Vec<ActiveRun>> {
     Ok(out)
 }
 
-/// Path is caller-supplied — only read Vanguard session logs
+/// Path is caller-supplied — only read Taskcell session logs
 /// (`…/.taskcell/sessions/<task>/<file>.jsonl`). A substring check on "sessions"
 /// would read any `.jsonl` anywhere; require the real `<state dir>/sessions` segments.
 pub fn is_session_path(p: &str) -> bool {

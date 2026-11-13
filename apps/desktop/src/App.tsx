@@ -427,7 +427,7 @@ export default function App() {
       {isDemoMode() && (
         <div role="status" className="shrink-0 border-b border-border bg-muted px-4 py-2 text-sm text-muted-foreground">
           Demo project — sample data, read-only. Nothing is written to any repository or remote.
-          {!window.__VANGUARD_DEMO__ && (
+          {!window.__TASKCELL_DEMO__ && (
             <a className="ml-2 underline" href="/">
               Exit demo
             </a>

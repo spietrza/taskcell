@@ -9,6 +9,7 @@ import { DatabaseSync } from 'node:sqlite';
 import { betterAuth, type BetterAuthOptions } from 'better-auth';
 import { getMigrations } from 'better-auth/db/migration';
 import { fromNodeHeaders, toNodeHandler } from 'better-auth/node';
+import { readEnv } from '../core/env.js';
 
 export interface HubUser {
   /** Better Auth's user id; teams and roles (#841) key on it. */
@@ -49,16 +50,16 @@ export const OWNER_EMAIL = 'owner@hub.invalid';
 
 const nonBlank = (v: string | undefined): string | undefined => (v === undefined || v.trim() === '' ? undefined : v.trim());
 
-/** Operator config from env: `VANGUARD_HUB_AUTH_<GITHUB|GITLAB|GOOGLE>_CLIENT_ID` / `_CLIENT_SECRET`
- * (plus `VANGUARD_HUB_AUTH_GITLAB_ISSUER`). A provider missing either half is not enabled. */
+/** Operator config from env: `TASKCELL_HUB_AUTH_<GITHUB|GITLAB|GOOGLE>_CLIENT_ID` / `_CLIENT_SECRET`
+ * (plus `TASKCELL_HUB_AUTH_GITLAB_ISSUER`). A provider missing either half is not enabled. */
 export function providersFromEnv(env: NodeJS.ProcessEnv): ProviderConfigs {
   const out: ProviderConfigs = {};
   for (const id of ['github', 'gitlab', 'google'] as const) {
-    const prefix = `VANGUARD_HUB_AUTH_${id.toUpperCase()}`;
-    const clientId = nonBlank(env[`${prefix}_CLIENT_ID`]);
-    const clientSecret = nonBlank(env[`${prefix}_CLIENT_SECRET`]);
+    const prefix = `TASKCELL_HUB_AUTH_${id.toUpperCase()}`;
+    const clientId = nonBlank(readEnv(`${prefix}_CLIENT_ID`, env));
+    const clientSecret = nonBlank(readEnv(`${prefix}_CLIENT_SECRET`, env));
     if (clientId === undefined || clientSecret === undefined) continue;
-    const issuer = id === 'gitlab' ? nonBlank(env[`${prefix}_ISSUER`])?.replace(/\/+$/, '') : undefined;
+    const issuer = id === 'gitlab' ? nonBlank(readEnv(`${prefix}_ISSUER`, env))?.replace(/\/+$/, '') : undefined;
     out[id] = { clientId, clientSecret, ...(issuer !== undefined ? { issuer } : {}) };
   }
   return out;
@@ -79,7 +80,7 @@ export function parseSignupAllowlist(entries: readonly string[]): SignupAllowlis
     if (e.startsWith('github:') || e.startsWith('gitlab:')) logins.add(e);
     else if (e.startsWith('@')) domains.add(e.slice(1));
     else if (e.includes('@')) emails.add(e);
-    else throw new Error(`Vanguard Hub: invalid sign-up allowlist entry "${raw}" — use an e-mail, @domain, github:<login> or gitlab:<login>`);
+    else throw new Error(`Taskcell Hub: invalid sign-up allowlist entry "${raw}" — use an e-mail, @domain, github:<login> or gitlab:<login>`);
   }
   return (user) => {
     const email = user.email.toLowerCase();
@@ -93,9 +94,9 @@ export function parseSignupAllowlist(entries: readonly string[]): SignupAllowlis
 export const SIGNUP_REFUSED_MESSAGE =
   'Sign-up is not open on this hub: your account is not on the allowlist. Ask the hub operator to add your e-mail, domain or login.';
 
-/** Per-hub signing secret: `VANGUARD_HUB_AUTH_SECRET`, else a random one persisted (0600) next to the db. */
+/** Per-hub signing secret: `TASKCELL_HUB_AUTH_SECRET`, else a random one persisted (0600) next to the db. */
 async function loadSecret(configDir: string, env: NodeJS.ProcessEnv): Promise<string> {
-  const fromEnv = nonBlank(env.VANGUARD_HUB_AUTH_SECRET);
+  const fromEnv = nonBlank(readEnv('TASKCELL_HUB_AUTH_SECRET', env));
   if (fromEnv !== undefined) return fromEnv;
   const path = join(configDir, 'auth-secret');
   try {
@@ -120,16 +121,16 @@ export interface CreateIdentityOptions {
   env?: NodeJS.ProcessEnv;
 }
 
-/** A `VANGUARD_HUB_PUBLIC_URL` must be a bare http(s) origin: it is the base of the OAuth callback URLs. */
+/** A `TASKCELL_HUB_PUBLIC_URL` must be a bare http(s) origin: it is the base of the OAuth callback URLs. */
 export function parsePublicUrl(raw: string): string {
   let url: URL;
   try {
     url = new URL(raw);
   } catch {
-    throw new Error(`Vanguard Hub: VANGUARD_HUB_PUBLIC_URL "${raw}" is not a URL — expected e.g. https://hub.example.com`);
+    throw new Error(`Taskcell Hub: TASKCELL_HUB_PUBLIC_URL "${raw}" is not a URL — expected e.g. https://hub.example.com`);
   }
   if ((url.protocol !== 'http:' && url.protocol !== 'https:') || url.pathname !== '/' || url.search !== '' || url.hash !== '') {
-    throw new Error(`Vanguard Hub: VANGUARD_HUB_PUBLIC_URL "${raw}" must be a bare http(s) origin, e.g. https://hub.example.com`);
+    throw new Error(`Taskcell Hub: TASKCELL_HUB_PUBLIC_URL "${raw}" must be a bare http(s) origin, e.g. https://hub.example.com`);
   }
   return url.origin;
 }
@@ -173,7 +174,7 @@ export async function createHubIdentity(opts: CreateIdentityOptions): Promise<Hu
 
   let creatingOwner = false;
   const options: BetterAuthOptions = {
-    appName: 'Vanguard Hub',
+    appName: 'Taskcell Hub',
     baseURL: opts.baseURL,
     secret: await loadSecret(opts.configDir, opts.env ?? process.env),
     database: db,
@@ -234,7 +235,7 @@ export async function createHubIdentity(opts: CreateIdentityOptions): Promise<Hu
         session = await auth.api.getSession({ headers: fromNodeHeaders(req.headers) });
       } catch (error) {
         // A database or Better Auth failure is not "signed out": surface it (500), do not bounce to sign-in.
-        console.error('Vanguard Hub: session lookup failed:', error);
+        console.error('Taskcell Hub: session lookup failed:', error);
         throw error;
       }
       if (session === null) return undefined;
@@ -268,9 +269,9 @@ export function signInPage(providers: readonly AuthProviderId[], error: string |
     providers.length === 0
       ? '<p>No sign-in provider is configured on this hub. See docs/hub.md, “Server mode sign-in”.</p>'
       : providers.map((p) => `<p><button data-provider="${p}">Continue with ${LABELS[p]}</button></p>`).join('');
-  return `<!doctype html><html lang="en"><head><meta charset="utf-8"><title>Sign in — Vanguard Hub</title>
+  return `<!doctype html><html lang="en"><head><meta charset="utf-8"><title>Sign in — Taskcell Hub</title>
 <meta name="viewport" content="width=device-width,initial-scale=1"></head><body style="font-family:system-ui;max-width:24rem;margin:4rem auto">
-<h1>Vanguard Hub</h1>${message}${buttons}
+<h1>Taskcell Hub</h1>${message}${buttons}
 <script>document.querySelectorAll('button[data-provider]').forEach(function(b){b.onclick=async function(){
 var r=await fetch('/api/auth/sign-in/social',{method:'POST',headers:{'content-type':'application/json'},body:JSON.stringify({provider:b.dataset.provider,callbackURL:'/',errorCallbackURL:'/sign-in'})});
 var j=await r.json();if(j.url)location.href=j.url;};});</script></body></html>`;

@@ -137,7 +137,7 @@ export async function listActive(repoPath: string): Promise<ActiveRun[]> {
 }
 
 /**
- * Path is caller-supplied — only read Vanguard session logs
+ * Path is caller-supplied — only read Taskcell session logs
  * (`…/.taskcell/sessions/<task>/<file>.jsonl`). A substring check on "sessions"
  * would read any `.jsonl` anywhere; require the real `.taskcell/sessions` segments.
  */

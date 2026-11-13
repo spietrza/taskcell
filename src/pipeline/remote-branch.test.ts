@@ -306,7 +306,7 @@ describe('pushToExistingBranch', () => {
 });
 
 describe('rebaseOntoRemoteBase', () => {
-  const identity = ['-c', 'user.name=Vanguard', '-c', 'user.email=vanguard@local'];
+  const identity = ['-c', 'user.name=Taskcell', '-c', 'user.email=vanguard@local'];
   const opts = { remote: 'origin', base: 'main', branch: 'b' };
   /** Runner stub for a branch that does not exist on the remote yet (ls-remote exits 2). */
   const stub = (calls: string[][], answer: (args: string[]) => string | Error = () => ''): ((f: string, a: string[]) => Promise<string>) =>

@@ -1,5 +1,6 @@
 import type { Task } from '../tasks/fetcher.js';
 import { decide, decisionModelConfig, num, type DecisionModelConfig, type DecisionQuestion } from './decision-model.js';
+import { readEnv } from './env.js';
 
 /**
  * Log-only "decision model" probe (System One API: Cloudflare Clef / Typesafe Jev). Before the
@@ -9,8 +10,8 @@ import { decide, decisionModelConfig, num, type DecisionModelConfig, type Decisi
  * If it does, it becomes the automatic `taskcell:model=` label; if it does not, it is one env var
  * to unset.
  *
- * Opt-in by an EXPLICIT switch: VANGUARD_DECISION_PROBE=1 (or `all`, see below) plus credentials —
- * CLOUDFLARE_ACCOUNT_ID + CLOUDFLARE_AUTH_TOKEN (Workers AI) or VANGUARD_DECISION_URL (any
+ * Opt-in by an EXPLICIT switch: TASKCELL_DECISION_PROBE=1 (or `all`, see below) plus credentials —
+ * CLOUDFLARE_ACCOUNT_ID + CLOUDFLARE_AUTH_TOKEN (Workers AI) or TASKCELL_DECISION_URL (any
  * System-One-compatible endpoint). The credentials alone never enable it: those are Cloudflare's
  * generic variable names, and a pair exported for unrelated tooling must not silently start shipping
  * issue text off the host. Note what leaves: the task title, labels, description and comments (incl. a
@@ -42,13 +43,13 @@ export interface DecisionProbeResult {
 
 /**
  * Resolve the probe endpoint from the host environment; undefined = probe disabled. `whiteLabel`
- * runs need VANGUARD_DECISION_PROBE=all — client issue text must not leave the host by default.
+ * runs need TASKCELL_DECISION_PROBE=all — client issue text must not leave the host by default.
  */
 export function decisionProbeConfig(
   env: NodeJS.ProcessEnv = process.env,
   opts: { whiteLabel?: boolean } = {},
 ): DecisionProbeConfig | undefined {
-  const enabled = env['VANGUARD_DECISION_PROBE'];
+  const enabled = readEnv('TASKCELL_DECISION_PROBE', env);
   if (enabled !== '1' && enabled !== 'all') return undefined;
   if (opts.whiteLabel === true && enabled !== 'all') return undefined;
   return decisionModelConfig(env);

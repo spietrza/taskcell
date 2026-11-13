@@ -23,7 +23,7 @@ function stubHub(listProjects: () => Promise<unknown[]> | unknown[], onAdd?: () 
     list_tasks: () => ({ tasks: [], capped: false }),
     list_tasks_all: () => ({ tasks: [], capped: false, failures: [] }),
   };
-  window.__VANGUARD_HUB__ = true;
+  window.__TASKCELL_HUB__ = true;
   vi.stubGlobal(
     'fetch',
     vi.fn(async (url: string) => {
@@ -42,7 +42,7 @@ beforeEach(() => {
 });
 afterEach(() => {
   vi.unstubAllGlobals();
-  delete window.__VANGUARD_HUB__;
+  delete window.__TASKCELL_HUB__;
 });
 
 test('a hub with no projects opens the setup guide; Dismiss remembers it', async () => {

@@ -2,7 +2,7 @@
   "schema_version": 1,
   "diagram_type": "architecture",
   "meta": {
-    "title": "Vanguard routing labels on GitHub",
+    "title": "Taskcell routing labels on GitHub",
     "locale": "en",
     "quality_profile": "showcase",
     "legend": { "mode": "hidden" },
@@ -12,7 +12,7 @@
     { "id": "research", "type": "frontend", "label": "needs research", "sublabel": "issue: look it up first", "pos": [36, 60], "size": [190, 52] },
     { "id": "spec", "type": "frontend", "label": "ready for spec", "sublabel": "issue: plan, then build", "pos": [36, 148], "size": [190, 52] },
     { "id": "agent", "type": "frontend", "label": "ready for agent", "sublabel": "issue: build it", "pos": [36, 236], "size": [190, 52] },
-    { "id": "revision", "type": "frontend", "label": "needs revision", "sublabel": "PR: opened by Vanguard", "pos": [36, 340], "size": [190, 52] },
+    { "id": "revision", "type": "frontend", "label": "needs revision", "sublabel": "PR: opened by Taskcell", "pos": [36, 340], "size": [190, 52] },
     { "id": "vreview", "type": "frontend", "label": "ready for vanguard review", "sublabel": "PR: any; auto if ready", "pos": [36, 428], "size": [190, 52] },
     { "id": "researching", "type": "backend", "label": "vanguard:researching", "sublabel": "posts findings, rests", "pos": [266, 60], "size": [190, 52] },
     { "id": "speccing", "type": "backend", "label": "vanguard:speccing", "sublabel": "writes the tech spec", "pos": [266, 148], "size": [190, 52] },
@@ -25,7 +25,7 @@
   ],
   "boundaries": [
     { "kind": "region", "label": "You add: GitHub labels", "wraps": ["research", "spec", "agent", "revision", "vreview"], "pad": 12 },
-    { "kind": "region", "label": "Vanguard is working", "wraps": ["researching", "speccing", "running", "revising", "reviewing"], "pad": 12 },
+    { "kind": "region", "label": "Taskcell is working", "wraps": ["researching", "speccing", "running", "revising", "reviewing"], "pad": 12 },
     { "kind": "region", "label": "Your turn", "wraps": ["info", "humanreview", "reviewed"], "pad": 12 }
   ],
   "connections": [

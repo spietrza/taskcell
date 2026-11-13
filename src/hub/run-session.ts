@@ -10,12 +10,13 @@ import { auditActorOf } from './audit.js';
 import { RunEventLog } from './run-events.js';
 import type { SidecarDeps, CreateRunParams, CreateRunResult } from '../sidecar/sidecar.js';
 import type { RunCredential } from '../wire.js';
+import { readEnv } from '../core/env.js';
 
 /**
  * Single-in-flight only, for now. Documents the gate rather than driving it: the session holds one
  * `active` slot, so supporting more needs that slot turned into a set AND src/sidecar/cancel.ts's
  * module-global AbortController replaced with a per-run registry (wave 2).
- * Raising the hub's throughput beyond this slot is `VANGUARD_MAX_SANDBOXES`'s job, not the queue's
+ * Raising the hub's throughput beyond this slot is `TASKCELL_MAX_SANDBOXES`'s job, not the queue's
  * (the queue below only changes what happens to a SECOND caller while this one slot is busy).
  */
 export const MAX_CONCURRENT_RUNS = 1;
@@ -23,7 +24,7 @@ export const MAX_CONCURRENT_RUNS = 1;
 const RETAINED_RUNS = 4;
 /** Per-run event cap (crash guard) — a real run emits ~dozens; beyond this the oldest are dropped. */
 const MAX_EVENTS_PER_RUN = 2000;
-/** `VANGUARD_HUB_MAX_QUEUE` default — how many callers may wait behind the one running slot before
+/** `TASKCELL_HUB_MAX_QUEUE` default — how many callers may wait behind the one running slot before
  * `createRun` starts refusing with a bad-request instead of growing the queue without bound. */
 export const DEFAULT_MAX_QUEUE = 10;
 
@@ -93,7 +94,7 @@ const actorFor = (startedBy: string | undefined): AuditActor =>
   startedBy === undefined ? { kind: 'local' } : auditActorOf({ login: startedBy, admin: false });
 
 function maxQueueLimit(): number {
-  const raw = process.env.VANGUARD_HUB_MAX_QUEUE;
+  const raw = readEnv('TASKCELL_HUB_MAX_QUEUE');
   // Unset or blank falls back to the default — `Number('')` is 0, which would silently disable queueing.
   const env = raw === undefined || raw.trim() === '' ? NaN : Number(raw);
   return Number.isFinite(env) && env >= 0 ? Math.floor(env) : DEFAULT_MAX_QUEUE;
@@ -311,7 +312,7 @@ export function createRunSession(
       if (active !== null && queue.length >= maxQueue) {
         throw new BadRequestError(
           maxQueue === 0
-            ? 'a run is already in flight (queueing is disabled: VANGUARD_HUB_MAX_QUEUE=0)'
+            ? 'a run is already in flight (queueing is disabled: TASKCELL_HUB_MAX_QUEUE=0)'
             : `the run queue is full (max ${maxQueue} queued runs) — try again once a run finishes`,
         );
       }
