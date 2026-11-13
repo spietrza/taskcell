@@ -9,6 +9,8 @@ import { useAsync } from '../../hooks';
 import { QuickView, TRACKER_NAME, type QuickTask } from './QuickView';
 import { boardCountLabels } from './counts';
 import { ExternalLink } from '../../components/ExternalLink';
+import { FilterBar } from '../../FilterBar';
+import { DEFAULT_FILTER, cardKeys, filterCards, groupRows, type HubFilter } from '../../filterState';
 
 // Each column owns a color identity used across its header dot, count pill and card
 // hover border. Classes are spelled out (not interpolated) so Tailwind's JIT keeps them — a
@@ -45,6 +47,9 @@ export function TaskBoard({
   allRepos = false,
   repos,
   teamId,
+  filter = DEFAULT_FILTER,
+  onFilter,
+  projects = [],
   onOpenTask,
   onNewTask,
 }: {
@@ -55,6 +60,11 @@ export function TaskBoard({
   repos: string[];
   /** The selected team (hub): "All repositories" is read for it. */
   teamId?: string;
+  /** The filter Board and Runs share; the bar shows when `onFilter` is given. */
+  filter?: HubFilter;
+  onFilter?: (f: HubFilter) => void;
+  /** Repositories the Projects picker offers (hub: all of the team's). */
+  projects?: { path: string; name: string }[];
   onOpenTask: (taskId: string, repoPath?: string) => void;
   onNewTask: () => void;
 }) {
@@ -63,7 +73,9 @@ export function TaskBoard({
       allRepos ? listTasksAll(teamId).then((l) => ({ ...l, tasks: inRepos(l.tasks, repos), failures: inRepos(l.failures, repos) })) : listTasks(project).then((r) => ({ ...r, failures: [] })),
     [project, allRepos, teamId, repos.join('\n')],
   );
-  const tasks = data?.tasks;
+  const allTasks = data?.tasks;
+  const tasks = allTasks && filterCards(allTasks, filter);
+  const lanes = groupRows(tasks ?? [], filter.group, cardKeys);
 
   // The quick view opens beside the Board; Escape or a click outside closes it and focus returns to the card.
   const [selected, setSelected] = useState<QuickTask | null>(null);
@@ -75,6 +87,10 @@ export function TaskBoard({
   };
   // A card of another repository must not linger when the project (or "all repositories") changes.
   useEffect(() => setSelected(null), [project, allRepos]);
+  // Nor may a card the filter now hides.
+  useEffect(() => {
+    if (selected !== null && tasks && !tasks.some((t) => t.id === selected.id && t.repoPath === selected.repoPath)) setSelected(null);
+  }, [tasks, selected]);
   useEffect(() => {
     if (selected === null) return;
     panelRef.current?.focus();
@@ -104,7 +120,11 @@ export function TaskBoard({
 
   // The board is where work starts (S10): authoring a task lives one click away even when the
   // list itself failed to load.
+  const bar = onFilter && (
+    <FilterBar filter={filter} onChange={onFilter} repos={allRepos ? projects : []} withCards={[...new Set((allTasks ?? []).flatMap((t) => (t.repoPath ? [t.repoPath] : [])))]} />
+  );
   const header = (
+    <>
     <div className="mb-2 flex shrink-0 items-center">
       {counts !== null && (
         // A capped list is one page, so both numbers are lower bounds — `Running 3+ · Waiting 12+`.
@@ -116,6 +136,8 @@ export function TaskBoard({
         New Task
       </Button>
     </div>
+    {bar}
+    </>
   );
 
   if (loading) return <div className="text-sm text-muted-foreground">Loading tasks…</div>;
@@ -139,14 +161,23 @@ export function TaskBoard({
       {capped && (
         <div className="mb-2 shrink-0 text-xs text-muted-foreground">
           {allRepos
-            ? 'At least one repository hit the task limit, so some cards are missing — pick that repository and narrow with a label filter in Settings.'
-            : `Showing the first ${tasks?.length ?? 0} tasks — narrow with a label filter in Settings to see the rest.`}
+            ? 'At least one repository hit the task limit, so some cards are missing — narrow the Projects filter to that repository and use a label filter in Settings.'
+            : `Showing the first ${allTasks?.length ?? 0} tasks — narrow with a label filter in Settings to see the rest.`}
         </div>
       )}
       <div className="flex min-h-0 flex-1 gap-3 pb-4">
-      <div className="flex min-h-0 min-w-0 flex-1 gap-3 overflow-x-auto">
+      <div className={cn('flex min-h-0 min-w-0 flex-1 flex-col gap-4', filter.group !== 'none' && 'overflow-y-auto')}>
+        {lanes.length === 0 && <div className="py-8 text-center text-sm text-muted-foreground">No cards match.</div>}
+        {lanes.map((lane) => (
+        <section key={lane.key} aria-label={lane.label || undefined} className={cn('flex min-h-0 flex-col gap-2', filter.group === 'none' ? 'flex-1' : 'h-[28rem] shrink-0')}>
+        {lane.label && (
+          <h3 className="text-sm font-semibold">
+            {lane.label} <span className="font-normal tabular-nums text-muted-foreground">{lane.rows.length}</span>
+          </h3>
+        )}
+        <div className="flex min-h-0 min-w-0 flex-1 gap-3 overflow-x-auto">
         {COLUMNS.map((col) => {
-          const items = (tasks ?? []).filter((t) => t.column === col.key);
+          const items = lane.rows.filter((t) => t.column === col.key);
           return (
             <div
               key={col.key}
@@ -210,6 +241,9 @@ export function TaskBoard({
             </div>
           );
         })}
+        </div>
+        </section>
+        ))}
       </div>
       {selected !== null && (
         <QuickView

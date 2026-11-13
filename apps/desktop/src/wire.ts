@@ -378,6 +378,8 @@ export interface RunSummary {
   ciUrl?: string;
   /** Hub login (or `token`) that started the run; absent for runs not started from the hub. */
   startedBy?: string;
+  /** `'merged'` when the run's card is done (its pull request merged); set by the hub's list commands, absent when unknown or not merged. */
+  prState?: 'merged';
 }
 
 export interface StageDetail {
