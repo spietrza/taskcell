@@ -47,11 +47,30 @@ const reReviewSchema = z.object({
   ),
 });
 
-/** Paths touched by a unified diff (the `b/` side of each `diff --git` header, quoted ones included). Lines split on \n only, like git. */
+// A `diff --git` header whose b side git C-quoted (a name with `"`, `\`, a control char or, with the default
+// core.quotePath, a non-ASCII byte), with the a side quoted or not; and one where only the a side is quoted.
+const QUOTED_B_HEADER_RE = /^diff --git (?:"(?:[^"\\]|\\.)*"|a\/.*?) "b\/((?:[^"\\]|\\.)*)"$/;
+const QUOTED_A_HEADER_RE = /^diff --git "(?:[^"\\]|\\.)*" b\/(.+)$/;
+const C_ESCAPES: Readonly<Record<string, number>> = { a: 7, b: 8, t: 9, n: 10, v: 11, f: 12, r: 13, '"': 34, '\\': 92 };
+
+/** Undo git's C-style path quoting (the text inside the quotes); `\NNN` octal escapes are UTF-8 bytes. */
+export function unquoteGitPath(quoted: string): string {
+  // Work on the UTF-8 bytes as latin1 chars, so literal characters and octal-escaped bytes form one byte string.
+  const bytes = Buffer.from(quoted, 'utf8')
+    .toString('latin1')
+    .replace(/\\(?:([0-3][0-7]{2})|(.))/g, (m, octal: string | undefined, ch: string | undefined) => {
+      const code = octal !== undefined ? parseInt(octal, 8) : C_ESCAPES[ch ?? ''];
+      return code === undefined ? m : String.fromCharCode(code);
+    });
+  return Buffer.from(bytes, 'latin1').toString('utf8');
+}
+
+/** Paths touched by a unified diff (the `b/` side of each `diff --git` header, git-quoted ones unquoted). Lines split on \n only, like git. */
 export function changedFilesOf(diff: string): string[] {
   return diff.split('\n').flatMap((line) => {
-    const quoted = /^diff --git "a\/.*" "b\/(.+)"$/.exec(line)?.[1];
-    const path = quoted ?? DIFF_GIT_HEADER_RE.exec(line)?.[1];
+    const quoted = QUOTED_B_HEADER_RE.exec(line)?.[1];
+    if (quoted !== undefined) return [unquoteGitPath(quoted)];
+    const path = QUOTED_A_HEADER_RE.exec(line)?.[1] ?? DIFF_GIT_HEADER_RE.exec(line)?.[1];
     return path === undefined ? [] : [path];
   });
 }
@@ -59,6 +78,13 @@ export function changedFilesOf(diff: string): string[] {
 /** A reviewer's `file` as a repo path: no code quotes, `:line` suffix or leading `./`. */
 function normalizeFile(file: string): string {
   return file.trim().replace(/^[`'"]+|[`'"]+$/g, '').replace(/:\d+(?:[-:]\d+)?$/, '').replace(/^\.\//, '');
+}
+
+/** Does a reviewer's `file` name one of `paths`? The name as written is tried first, then its normalised form. */
+function namesAnyOf(file: string | undefined, paths: readonly string[]): boolean {
+  if (file === undefined) return false;
+  const candidates = [file, file.trim(), normalizeFile(file)].filter((f) => f !== '');
+  return candidates.some((f) => paths.some((p) => p === f || p.endsWith(`/${f}`)));
 }
 
 /** Prompt block for a re-review. Everything quoted from the PR is untrusted content, escaped like the diff. */
@@ -158,11 +184,12 @@ function coversPreviousBlocking(previous: ReadonlyArray<{ id: string; blocking: 
  * for nor override the real one) leaves the reviewer's stated
  * verdict untouched — a formatting slip never flips it — and is noted; so does a block that drops or re-rates
  * a blocking finding the previous review (`previousBody`) left open (coversPreviousBlocking). `downgraded`
- * counts new blocking findings rejected by the rules.
+ * counts new blocking findings rejected by the rules; a changed-code finding whose file matches no path in the PR
+ * (`prFiles` or the since-diff) is not rejected, and the stated verdict stands unless the table already blocks.
  */
 export function applyReReviewRules(
   text: string,
-  ctx: Pick<ReReviewContext, 'sinceDiff'> & Partial<Pick<ReReviewContext, 'previousBody' | 'changedFiles'>>,
+  ctx: Pick<ReReviewContext, 'sinceDiff'> & Partial<Pick<ReReviewContext, 'previousBody' | 'changedFiles'>> & { prFiles?: readonly string[] },
 ): { text: string; downgraded: number } {
   const peeled = peelVerdict(text.replace(REREVIEW_STRIP_RE, ''));
   let parsed: z.infer<typeof reReviewSchema> | undefined;
@@ -183,19 +210,21 @@ export function applyReReviewRules(
   }
 
   const changed = ctx.changedFiles ?? (ctx.sinceDiff !== undefined ? changedFilesOf(ctx.sinceDiff) : undefined);
+  const known = [...(changed ?? []), ...(ctx.prFiles ?? [])];
   const rejected: string[] = [];
+  const unmatched: string[] = [];
   const accepted: typeof parsed.new = [];
   for (const f of parsed.new) {
     if (!f.blocking) continue;
-    const file = f.file === undefined ? undefined : normalizeFile(f.file);
-    const ok =
-      f.basis === 'missed-blocking-class' ||
-      (f.basis === 'changed-since-last-review' && (changed === undefined || (file !== undefined && changed.some((c) => c === file || c.endsWith(`/${file}`)))));
-    if (ok) accepted.push(f);
+    if (f.basis === 'missed-blocking-class' || changed === undefined || namesAnyOf(f.file, changed)) accepted.push(f);
+    // A file the host cannot map to any path in the PR is not evidence of unchanged code: never downgrade on it.
+    else if (!namesAnyOf(f.file, known)) unmatched.push(f.title);
     else rejected.push(f.title);
   }
   const unresolvedBlocking = parsed.previous.filter((p) => p.blocking && p.status === 'not resolved').length;
-  const blocking = unresolvedBlocking + accepted.length > 0;
+  const derivedBlocking = unresolvedBlocking + accepted.length > 0;
+  // An unmatched changed-code finding leaves the reviewer's stated verdict in place unless the table already blocks.
+  const verdictLine = derivedBlocking ? 'Verdict: BLOCKING' : unmatched.length > 0 ? peeled.verdict : 'Verdict: NO BLOCKING FINDINGS';
 
   // Accepted new blocking findings are rows too, so the next round must track them like any previous finding.
   const rows = [
@@ -208,13 +237,15 @@ export function applyReReviewRules(
     ...(rows.length === 0 ? ['| (none) | - | The previous review had no findings. |'] : rows),
   ];
   const notes = rejected.map((t) => `- Not blocking: "${cell(t)}" — a new blocking finding must be on code changed since the last reviewed head or a blocking-class problem the previous review missed.`);
+  const unmatchedNotes = unmatched.map((t) => `- "${cell(t)}" — its file could not be matched to any path in the PR, so the verdict above is the reviewer's own.`);
   return {
     text: [
-      blocking ? 'Verdict: BLOCKING' : 'Verdict: NO BLOCKING FINDINGS',
+      ...(verdictLine !== undefined ? [verdictLine] : []),
       ...(peeled.risk !== undefined ? [peeled.risk] : []),
       '',
       table.join('\n'),
       ...(notes.length > 0 ? ['', 'Downgraded by the re-review rules:', ...notes] : []),
+      ...(unmatchedNotes.length > 0 ? ['', 'Not downgraded (file not matched):', ...unmatchedNotes] : []),
       '',
       peeled.rest,
     ].join('\n').trim(),

@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { applyReReviewRules, REREVIEW_MALFORMED_NOTE, reReviewInstructions } from './re-review.js';
+import { applyReReviewRules, changedFilesOf, REREVIEW_MALFORMED_NOTE, reReviewInstructions } from './re-review.js';
 import { extractReviewRisk, extractReviewVerdict } from './review-prompt.js';
 
 const block = (o: unknown): string => `<rereview>${JSON.stringify(o)}</rereview>`;
@@ -15,20 +15,20 @@ describe('applyReReviewRules', () => {
   });
 
   it('downgrades a blocking finding on a file outside the since-diff and says so', () => {
-    const r = applyReReviewRules(`Verdict: BLOCKING\n${block({ previous: [prev('resolved')], new: [newBlocking('other.ts')] })}`, { sinceDiff: since });
+    const r = applyReReviewRules(`Verdict: BLOCKING\n${block({ previous: [prev('resolved')], new: [newBlocking('other.ts')] })}`, { sinceDiff: since, prFiles: ['other.ts'] });
     expect(r.text).toContain('Verdict: NO BLOCKING FINDINGS');
     expect(r.text).toContain('Downgraded by the re-review rules');
     expect(r.downgraded).toBe(1);
   });
 
   it('same-head re-review (empty since-diff) accepts no changed-code blocking finding', () => {
-    const r = applyReReviewRules(`Verdict: BLOCKING\n${block({ previous: [], new: [newBlocking('src/auth.ts')] })}`, { sinceDiff: '' });
+    const r = applyReReviewRules(`Verdict: BLOCKING\n${block({ previous: [], new: [newBlocking('src/auth.ts')] })}`, { sinceDiff: '', prFiles: ['src/auth.ts'] });
     expect(r.downgraded).toBe(1);
   });
 
   it('parses a since-diff by lines only: a carriage-return-planted header and quoted paths', () => {
     const diff = 'diff --git a/a.ts b/a.ts\n+x\rdiff --git a/q b/planted.ts\ndiff --git "a/sp ace.ts" "b/sp ace.ts"\n';
-    const r = applyReReviewRules(`Verdict: BLOCKING\n${block({ previous: [], new: [newBlocking('planted.ts'), newBlocking('sp ace.ts')] })}`, { sinceDiff: diff });
+    const r = applyReReviewRules(`Verdict: BLOCKING\n${block({ previous: [], new: [newBlocking('planted.ts'), newBlocking('sp ace.ts')] })}`, { sinceDiff: diff, prFiles: ['planted.ts'] });
     expect(r.downgraded).toBe(1);
   });
 
@@ -133,5 +133,39 @@ describe('applyReReviewRules previous-blocking coverage', () => {
   it('renders an accepted new blocking finding as a tracked row', () => {
     const r = applyReReviewRules(`Verdict: BLOCKING\n${block({ previous: [], new: [newBlocking('src/auth.ts')] })}`, { sinceDiff: since });
     expect(r.text).toContain('| N1: n (blocking) | new | src/auth.ts |');
+  });
+});
+
+describe('applyReReviewRules file matching (git-quoted and unusual names)', () => {
+  const run = (file: string, sinceDiff: string, prFiles: string[] = []): { text: string; downgraded: number } =>
+    applyReReviewRules(`Verdict: BLOCKING\n${block({ previous: [], new: [newBlocking(file)] })}`, { sinceDiff, prFiles });
+
+  it('unquotes git C-style escapes in a quoted header', () => {
+    expect(changedFilesOf('diff --git "a/src/\\303\\244.ts" "b/src/\\303\\244.ts"\n')).toEqual(['src/ä.ts']);
+    expect(changedFilesOf('diff --git "a/x\\"y\\\\z\\tw" "b/x\\"y\\\\z\\tw"\n')).toEqual(['x"y\\z\tw']);
+    const r = run('src/ä.ts', 'diff --git "a/src/\\303\\244.ts" "b/src/\\303\\244.ts"\n+x\n');
+    expect(r.text.startsWith('Verdict: BLOCKING')).toBe(true);
+    expect(r.downgraded).toBe(0);
+  });
+
+  it('reads a rename to a quoted path (only one side quoted)', () => {
+    expect(changedFilesOf('diff --git a/old.ts "b/n\\303\\244w.ts"\n')).toEqual(['näw.ts']);
+    expect(changedFilesOf('diff --git "a/\\303\\244.ts" b/new.ts\n')).toEqual(['new.ts']);
+    const r = run('näw.ts', 'diff --git a/old.ts "b/n\\303\\244w.ts"\nsimilarity index 90%\n');
+    expect(r.text.startsWith('Verdict: BLOCKING')).toBe(true);
+    expect(r.downgraded).toBe(0);
+  });
+
+  it('tries a `:<digits>` file name as written before stripping it as a line suffix', () => {
+    const r = run('run.sh:1', 'diff --git a/run.sh:1 b/run.sh:1\n+x\n');
+    expect(r.text.startsWith('Verdict: BLOCKING')).toBe(true);
+    expect(r.downgraded).toBe(0);
+  });
+
+  it('a file matching no path in the PR keeps the stated verdict with a note instead of deriving clean', () => {
+    const r = run('nowhere.ts', since, ['src/auth.ts']);
+    expect(r.text.startsWith('Verdict: BLOCKING')).toBe(true);
+    expect(r.text).toContain('could not be matched to any path in the PR');
+    expect(r.downgraded).toBe(0);
   });
 });

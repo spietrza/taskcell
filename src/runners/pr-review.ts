@@ -498,7 +498,7 @@ export async function reviewPullRequest(ref: string, deps: ReviewPullRequestDeps
     deps.log?.(`review-pr ${id}: verdict stated without completion signal -> accepting (findings may be truncated)`);
   }
   // A re-review's verdict and table are derived on the host from the <rereview> block, not taken as stated.
-  const reviewed = pr.reReview !== undefined ? applyReReviewRules(outcome.text, pr.reReview) : { text: outcome.text, downgraded: 0 };
+  const reviewed = pr.reReview !== undefined ? applyReReviewRules(outcome.text, { ...pr.reReview, prFiles: changedFilesOf(pr.diff) }) : { text: outcome.text, downgraded: 0 };
   const commentBody = buildPullRequestReviewComment(reviewed.text, pr.headRefOid, { completed: outcome.completed });
   if (deps.publish !== false) {
     await postPullRequestReview(target, commentBody, 'comment', gh);
