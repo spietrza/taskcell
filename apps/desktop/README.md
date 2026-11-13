@@ -149,7 +149,7 @@ Reaching the hub under a hostname other than loopback or an IP literal needs tha
 
 **Differences from the desktop window:**
 
-- **Fleet** — dropped from the rail unless the hub is the desktop app's own loopback hub. It spawns
+- **Fleet** — dropped from Settings → Runners unless the hub is the desktop app's own loopback hub. It spawns
   programs, which would be remote code execution on a reachable server; the hub's RPC dispatcher rejects
   the underlying commands too.
 - **A native OS folder dialog** — on every client, "Add a repo" opens `RepoPicker`, a modal that walks the
@@ -161,7 +161,7 @@ the test immediately.
 
 ## What it does (shipped)
 
-- **Dashboard cockpit** — a card per project (runs, tasks, spend, failed, 24h velocity, relative
+- **Home cockpit** — a card per project (runs, tasks, spend, failed, 24h velocity, relative
   last-activity) + a live summary strip (Projects / Running / Runs / Last 24h / Spend), polled every 5s.
 - **Left rail** — Conductor-style project nav with live running-dots, add-project, ⌘K search, theme toggle.
 - **Command palette (⌘K)** — jump to any project or action.
@@ -178,8 +178,8 @@ the test immediately.
   `remote-runs/<owner-repo>/<run-id>/` and expands it into the same run rows as local runs; a row opens the
   same Overview / Diff / Transcript inspector. Already-downloaded runs carry a **cached** marker and open
   without `gh`. Needs the workflow's `upload-run-records` input on.
-- **Per-project screens** (Inspector sub-nav) — **Runs · Board · Fleet · Remote · Workflow · Settings**:
-  - **Task board** — tasks from the configured source (`linear`/`gh`) bucketed into lifecycle columns;
+- **Screens** — the rail is **Home · Board · Runs · Settings**; Settings has **General · Line (Workflow) · Runners (Fleet, Remote)** and, on the hub, **Audit**:
+  - **Board** — tasks from the configured source (`linear`/`gh`) bucketed into lifecycle columns;
     card → **Task/spec detail** (source spec + run history + New Run). Best-effort (auth-dependent).
   - **Fleet** — Watch Loop start/stop, concurrency, Loop-v1, slot meter (spawns `taskcell watch`).
   - **Workflow** — visual block composer over `.taskcell/app.json` (blocks + inspector + Canvas/Source HCL).
@@ -204,7 +204,7 @@ shapes (kept decoupled from Taskcell's build, per the design spec §4).
 - **Credentials** are inherited from the operator environment; the app never stores or brokers them
   (design spec §12). A *bundled* `.app` launched from Finder has a minimal env — run from a terminal for
   now.
-- **Task board "New Run" always uses the LLM proxy.** It goes through `sidecar.rs`'s `vanguard
+- **Board "New Run" always uses the LLM proxy.** It goes through `sidecar.rs`'s `vanguard
   __sidecar` subprocess, the same `productionDeps()` dispatch the hub uses — see
   [Runs always use the LLM proxy](../../docs/hub.md#runs-always-use-the-llm-proxy) for which
   credentials that covers, which don't, and what a failed proxy sidecar looks like. **Launch** below is
@@ -223,7 +223,7 @@ Full-product design in `../../design/brief.md`; rendered mockups in `../../docs/
 
 - **Workflow editor** — currently a config-backed block composer; the full drag-graph + HCL/JSONC
   round-trip (spec §13) awaits the format spike ("spike both").
-- **Task board / spec fetch** — best-effort via CLI (`gh`/`linear`); needs live verification against
+- **Board / spec fetch** — best-effort via CLI (`gh`/`linear`); needs live verification against
   authed sources + refined state→column mapping.
 - **Remote depth** — live log tail (`glab ci trace`), GitHub↔GitLab parity (spec §14).
 - **Shell** — the design puts the per-project screens in the left rail (project switcher); the build

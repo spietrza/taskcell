@@ -33,7 +33,7 @@ the terminal, or `docker logs` in container mode) rather than the bare address.
 
 - Node 24 and pnpm; `pnpm install` at the repo root (the UI bundle is a separate pnpm project that
   `pnpm build:ui` installs and builds).
-- `gh auth login` — the Task board, Remote and cloning private repositories go through `gh`.
+- `gh auth login` — the Board, Remote (under Settings → Runners) and cloning private repositories go through `gh`.
 - For runs started from the hub: Docker with the sandbox image (`docker/build.sh` builds
   `taskcell-sandbox:latest`; the egress proxy sidecar uses the same image, so a missing image
   surfaces as "Failed to start egress enclave"), and the provider credential exported in the shell
@@ -46,7 +46,7 @@ the terminal, or `docker logs` in container mode) rather than the bare address.
 
 ## Three ways to use it
 
-1. **Local factory.** Add the project, open the Task board, click **New Run** on an issue. The
+1. **Local factory.** Add the project, open the Board, click **New Run** on an issue. The
    pipeline runs in the sandbox on this machine; the Runs screen shows the live transcript and, when
    it ends, every stage's record, diff, transcript, proof of work and visual proof. The PR lands on
    GitHub/GitLab like any other Taskcell run.
@@ -54,7 +54,7 @@ the terminal, or `docker logs` in container mode) rather than the bare address.
    [onboarding-another-repo.md](onboarding-another-repo.md); the callers must pass
    `upload-run-records: true`) and use the hub read-only: Remote lists the repo's CI runs,
    **Fetch records** imports a run's `vanguard-runs` artifact into `.taskcell/remote-runs/<id>`, and
-   the records open like local ones. No token, no Docker, no sandbox on this machine. The Task board
+   the records open like local ones. No token, no Docker, no sandbox on this machine. The Board
    header counts the factory's work from issue labels — `Running N` (claimed or running) and
    `Waiting K` (labelled `ready for agent`/`ready for spec`, not yet picked up) — so it shows the CI
    backlog too. A `+` (`12+`) means the board holds only its first page of issues and the count is a
@@ -184,7 +184,7 @@ active run, run backlog, cancel and the `/events` stream only carry the user's r
 `add_team_member`, `remove_team_member`, `add_team_repository` (a project the admin already holds) and
 `remove_team_repository` need the team's `admin` role; a `member` is refused. A team keeps at least one
 admin. The token holder is the owner, admin of every team, and alone may `add_project` / `remove_project` /
-`clone_project` / `browse_dirs` (a hub-wide remove also leaves every team), use the credential commands and the Fleet
+`clone_project` / `browse_dirs` (a hub-wide remove also leaves every team), use the credential commands and the Fleet (Settings → Runners)
 commands. Token-only mode is unchanged: one default team, the token its admin.
 
 *Adding the first members.* On a fresh server-mode hub the default team has no members, so signed-in users
@@ -396,7 +396,7 @@ is the usual reference for "don't mount the docker socket without justification.
 
 ## Needs you
 
-The **Needs you** screen (hub only) lists what the factory is waiting on a human for in the current
+The **Needs you** section at the top of **Home** (hub only; the old separate screen and its ⌘K entry now open Home there, and the count badges Home in the rail) lists what the factory is waiting on a human for in the current
 project, using `gh` and labels only — no model call (`src/hub/needs-you.ts`):
 
 - Tasks (GitHub issues) at `needs info`.
@@ -453,7 +453,7 @@ Every state-changing action appends one JSON line to `<config dir>/audit.jsonl` 
 
 ## `gh` auth
 
-The hub shells out to `gh` for the Remote screen (listing GitHub Actions runs), CI-run import and
+The hub shells out to `gh` for the Remote section (Settings → Runners) (listing GitHub Actions runs), CI-run import and
 Needs you. Reading needs a token with `actions:read`, `issues:read` and `pull_requests:read`
 (fine-grained PAT) or classic `repo` scope. Replying from Needs you also needs `issues:write` and
 `pull_requests:write` (comments and labels), and merging also needs `contents:write`; with a read-only token a reply fails when it posts the

@@ -1,7 +1,7 @@
 import { useEffect, useState } from 'react';
 import { isTauri } from '@tauri-apps/api/core';
-import { Button, Card, Chip, Empty, Textarea } from '@/ui';
-import { MessageCircleQuestionMark, RefreshCw } from 'lucide-react';
+import { Button, Card, Chip, Textarea } from '@/ui';
+import { RefreshCw } from 'lucide-react';
 import { listNeedsYou, listNeedsYouAll, mergeNeedsYou, replyNeedsYou, type NeedsYouItem, type RepoReadFailure, type RepoStamp } from '../../ipc';
 import { RepoFailures, RepoLabel } from '../../RepoViews';
 import { isHubMode } from '../../transport';
@@ -101,8 +101,8 @@ function MergeButton({ project, item, onMerged }: { project: string; item: Needs
   );
 }
 
-/** The hub "Needs you" screen: what the factory waits on for this project, with a reply per item. */
-export function NeedsYou({ project, allRepos = false }: { project: string; allRepos?: boolean }) {
+/** Home's "Needs you" section: what the factory waits on, with a reply per item. `onCount` reports the list length. */
+export function NeedsYou({ project, allRepos = false, onCount }: { project: string; allRepos?: boolean; onCount?: (n: number) => void }) {
   const [items, setItems] = useState<(NeedsYouItem & Partial<RepoStamp>)[] | null>(null);
   const [failures, setFailures] = useState<RepoReadFailure[]>([]);
   const [error, setError] = useState<string | null>(null);
@@ -115,6 +115,7 @@ export function NeedsYou({ project, allRepos = false }: { project: string; allRe
       .then((r) => {
         if (!alive) return;
         setItems(r.items);
+        onCount?.(r.items.length);
         setFailures(r.failures);
         setError(null);
       })
@@ -127,7 +128,7 @@ export function NeedsYou({ project, allRepos = false }: { project: string; allRe
   }, [project, allRepos, nonce]);
 
   return (
-    <div className="mx-auto w-full max-w-3xl space-y-3 overflow-y-auto">
+    <section id="needs-you" aria-label="Needs you" className="mx-auto w-full max-w-3xl space-y-3">
       <div className="flex items-center gap-3">
         <h2 className="text-xl font-semibold">Needs you</h2>
         {/* Announces the count when it changes, e.g. after a reply or a refresh finds new items. */}
@@ -146,13 +147,7 @@ export function NeedsYou({ project, allRepos = false }: { project: string; allRe
       <RepoFailures failures={failures} />
       {items === null && !error && <div className="text-sm text-muted-foreground">Loading…</div>}
       {items?.length === 0 && (
-        <Empty.Root>
-          <Empty.Media>
-            <MessageCircleQuestionMark />
-          </Empty.Media>
-          <Empty.Title>Nothing needs you</Empty.Title>
-          <Empty.Description>The factory is not waiting on an answer for any Task or PR in this project.</Empty.Description>
-        </Empty.Root>
+        <p className="text-sm text-muted-foreground">Nothing needs you — the factory is not waiting on an answer for any Task or PR.</p>
       )}
       {items?.map((item) => (
         // py-0: Card.Root's own vertical padding doubled Card.Content's p-4 into a gap above the chips.
@@ -186,6 +181,6 @@ export function NeedsYou({ project, allRepos = false }: { project: string; allRe
           </Card.Content>
         </Card.Root>
       ))}
-    </div>
+    </section>
   );
 }

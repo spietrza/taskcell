@@ -3,14 +3,15 @@ import { isTauri } from '@tauri-apps/api/core';
 import { getCurrentWindow } from '@tauri-apps/api/window';
 import { type Theme } from '@/ui';
 import { TopBar, type Crumb } from './TopBar';
-import { Rail, type Screen } from './Rail';
+import { Rail, resolveScreen, type Screen } from './Rail';
 import { CommandPalette } from './CommandPalette';
 import { RepoPicker } from './RepoPicker';
 import { TailwindDebugScreens } from './components/TailwindDebugScreens';
 import { Dashboard } from './features/dashboard/Dashboard';
+import { NeedsYou, canUseNeedsYou } from './features/needs-you/NeedsYou';
 import { Inspector } from './features/inspector/Inspector';
 import { EnableFactoryDialog } from './features/dashboard/EnableFactoryDialog';
-import { listProjects, addProject, cloneProject, removeProject, listActive } from './ipc';
+import { listProjects, addProject, cloneProject, removeProject, listActive, listNeedsYou, listNeedsYouAll } from './ipc';
 import { projectColor, contrastColor } from './color';
 import { createNavGuardRegistry, NavGuardContext } from './navGuard';
 import { ProjectCombobox } from './ProjectCombobox';
@@ -22,9 +23,11 @@ import type { Project, ActiveRun } from './taskcell-output';
 export default function App() {
   const [projects, setProjects] = useState<Project[]>([]);
   const [activeProject, setActiveProject] = useState<string | null>(null);
-  // The repository filter Board, Runs and Needs you share (persisted): ALL_REPOS or the active project's path.
+  // The repository filter Home, Board and Runs share (persisted): ALL_REPOS or the active project's path.
   const [repoFilter, setRepoFilter] = useState<string>(loadRepoFilter);
-  const [screen, setScreen] = useState<Screen>('dashboard');
+  const [screen, setScreen] = useState<Screen>('home');
+  // How many items wait on the user (Home's Needs you section); badges Home in the rail.
+  const [needsCount, setNeedsCount] = useState(0);
   const [railRunning, setRailRunning] = useState<ActiveRun[]>([]);
   const [focusRunning, setFocusRunning] = useState<ActiveRun | null>(null);
   const [crumb, setCrumb] = useState<string | null>(null);
@@ -203,6 +206,9 @@ export default function App() {
     saveTheme(next);
   };
 
+  // Old entries to the Needs you screen open Home, which starts with that section.
+  const goto = (s: Screen | 'needs'): void => navigate(() => setScreen(resolveScreen(s).screen));
+
   const enterProject = (path: string): void => {
     navigate(() => {
       chooseRepo(path);
@@ -211,20 +217,40 @@ export default function App() {
   };
 
   const active = projects.find((p) => p.path === activeProject) ?? null;
-  const showDashboard = screen === 'dashboard' || !active;
-  const titleBar = !showDashboard && active ? projectColor(active) : null;
+  const showHome = screen === 'home' || !active;
+  const titleBar = !showHome && active ? projectColor(active) : null;
+  const allowAll = canUseAllRepos();
+  const allRepos = allowAll && repoFilter === ALL_REPOS;
+  const needsYou = canUseNeedsYou() && active !== null;
+
+  // Keep the rail badge current: Home's section reports its own changes, this catches new items elsewhere.
+  useEffect(() => {
+    if (!needsYou || !activeProject) {
+      setNeedsCount(0);
+      return;
+    }
+    let alive = true;
+    const tick = (): void => {
+      (allRepos ? listNeedsYouAll() : listNeedsYou(activeProject))
+        .then((r) => {
+          if (alive) setNeedsCount(r.items.length);
+        })
+        .catch(() => {});
+    };
+    tick();
+    const id = setInterval(tick, 30000);
+    return () => {
+      alive = false;
+      clearInterval(id);
+    };
+  }, [needsYou, activeProject, allRepos]);
 
   const SCREEN_LABEL: Record<Screen, string> = {
-    dashboard: 'Home',
+    home: 'Home',
     runs: 'Runs',
-    board: 'Task board',
-    needs: 'Needs you',
+    board: 'Board',
     task: 'New Task',
-    fleet: 'Fleet',
-    remote: 'Remote',
-    workflow: 'Workflow',
     settings: 'Settings',
-    audit: 'Audit',
   };
   // Home lives on the logo now; the project lives in the switcher — so the breadcrumb is just the screen.
   const crumbs: Crumb[] = [];
@@ -234,7 +260,7 @@ export default function App() {
       label: taskCrumb.name,
       edit: { placeholder: 'Name this conversation…', ariaLabel: 'rename conversation', onCommit: taskCrumb.onRename },
     });
-  } else if (active && screen !== 'dashboard') {
+  } else if (active && screen !== 'home') {
     if (crumb) {
       crumbs.push({ label: SCREEN_LABEL[screen], onClick: () => setClearNonce((n) => n + 1) });
       crumbs.push({ label: crumb });
@@ -242,12 +268,10 @@ export default function App() {
       crumbs.push({ label: SCREEN_LABEL[screen] });
     }
   }
-  // Board, Runs and Needs you offer "All repositories" in the one switcher; other screens list repositories only.
-  const allowAll = canUseAllRepos();
-  const allRepos = allowAll && repoFilter === ALL_REPOS;
-  const filtered = screen === 'board' || screen === 'runs' || screen === 'needs';
+  // Home, Board and Runs offer "All repositories" in the one switcher; other screens list repositories only.
+  const filtered = screen === 'home' || screen === 'board' || screen === 'runs';
   const projectSwitcher =
-    active && screen !== 'dashboard' ? (
+    active ? (
       <ProjectCombobox
         projects={projects}
         active={active}
@@ -288,20 +312,20 @@ export default function App() {
       <TopBar
         crumbs={crumbs}
         projectSwitcher={projectSwitcher}
-        onHome={() => navigate(() => setScreen('dashboard'))}
+        onHome={() => goto('home')}
         onCommandK={() => setPalette(true)}
         theme={theme}
         onToggleTheme={toggleTheme}
         {...(signedIn ? { onSignOut: () => void hubSignOut() } : {})}
       />
       <div className="flex min-h-0 flex-1 max-md:flex-col">
-        {/* The rail is project-context navigation; the dashboard is generic and stays sidebar-less. */}
-        {!showDashboard && (
+        {active && (
           <Rail
             projects={projects}
             activePath={activeProject}
-            screen={screen}
+            screen={showHome ? 'home' : screen}
             running={railRunning}
+            needsCount={needsCount}
             onScreen={(sc) => navigate(() => setScreen(sc))}
             onOpenRunning={(r) => {
               // The sixth navigation path (review round 1) — also discards a dirty editor.
@@ -313,14 +337,22 @@ export default function App() {
           />
         )}
         <main className="flex min-w-0 flex-1 flex-col overflow-hidden">
-          {showDashboard ? (
-            <Dashboard
-              projects={projects}
-              onOpen={(p) => enterProject(p.path)}
-              onAdd={add}
-              onRemove={remove}
-              onEnableFactory={setFactoryProject}
-            />
+          {showHome ? (
+            <div className="h-full overflow-y-auto">
+              {/* Home starts with what needs the user; with nothing waiting it says so in one line. */}
+              {needsYou && (
+                <div className="px-6 pt-6 max-md:px-3 max-md:pt-3">
+                  <NeedsYou project={active.path} allRepos={allRepos} onCount={setNeedsCount} />
+                </div>
+              )}
+              <Dashboard
+                projects={projects}
+                onOpen={(p) => enterProject(p.path)}
+                onAdd={add}
+                onRemove={remove}
+                onEnableFactory={setFactoryProject}
+              />
+            </div>
           ) : (
             <NavGuardContext.Provider value={navGuard.current}>
               <Inspector
@@ -350,7 +382,8 @@ export default function App() {
         <CommandPalette
           projects={projects}
           onOpenProject={(p) => enterProject(p.path)}
-          onHome={() => navigate(() => setScreen('dashboard'))}
+          onHome={() => goto('home')}
+          {...(needsYou ? { onNeedsYou: () => goto('needs') } : {})}
           onAddProject={add}
           onToggleTheme={toggleTheme}
           onClose={() => setPalette(false)}
