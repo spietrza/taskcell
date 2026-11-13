@@ -8,6 +8,7 @@ import { runGitlabIssue } from './gitlab.js';
 import { runSpecGenerator } from './spec.js';
 import { assessTaskReadiness, isTaskcellSpec, SPEC_TAG } from '../tasks/triage.js';
 import { applyDependencyGate } from '../tasks/dependencies.js';
+import { createOverlapChecker, overlapHoldMs } from '../tasks/overlap.js';
 import { fanOut } from '../pipeline/fan-out.js';
 import { failureReason, formatFailureComment } from '../core/errors.js';
 import { isRateLimitHold, rateLimitHold } from '../core/rate-limit-marker.js';
@@ -793,6 +794,16 @@ export function githubIssueWatchPrimitives(opts: WatchGithubOptions): WatchPrimi
         trigger: opts.label,
         ...(needsInfoLabel !== undefined ? { needsInfoLabel } : {}),
         ...(opts.gh !== undefined ? { gh: opts.gh } : {}),
+        overlap: {
+          holdMs: overlapHoldMs(),
+          check: createOverlapChecker({
+            repo,
+            claimedLabel: opts.claimedLabel,
+            fetch: (id) => fetcher.fetch(id),
+            list: (labels, limit) => fetcher.list({ labels, limit }),
+            ...(opts.gh !== undefined ? { gh: opts.gh } : {}),
+          }),
+        },
       });
       heldBefore.clear();
       for (const task of tasks) if (task.labels.includes(GITHUB_SECRET_BLOCKED_LABEL)) heldBefore.add(task.id);

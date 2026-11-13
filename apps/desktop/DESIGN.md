@@ -203,11 +203,11 @@ class on `<html>`. Dark is applied before first paint (`class="dark"` in `index.
   `text-warning-text`.
 - **Fault Red** (`destructive`): failed runs, errors, Kill, removed diff lines, error banners. Text
   uses `text-destructive-text` (the landing's `--fail` `#ff6a5c` in dark), banners included.
-- **Board and info hues (Tailwind palette, not tokens):** the task board gives each column its own
-  hue on the header dot, count pill and card hover edge only; lanes stay neutral (`bg-muted/20`)
-  (slate Queued, amber Claimed, blue Running, rose Verify failed, violet Review, emerald Done),
-  and sky marks informational lines (tool calls, `@@` hunks). These are the only sanctioned raw
-  palette colors; they are spelled out in `COLUMNS`/`CHIP_TONE` in `TaskBoard.tsx`.
+- **Board lanes and info lines (tokens only):** the task board gives each column a tone on the
+  header dot, count pill and card hover edge only; lanes stay neutral (`bg-muted/20`): muted
+  Queued, warning Claimed, ink Running, destructive Verify failed, soft ink Review, success Done.
+  Informational lines (tool calls, `@@` hunks) use the caption teal. No raw palette colors; the
+  tones are spelled out in `COLUMNS`/`CHIP_TONE` in `TaskBoard.tsx`.
 
 ### Identity
 - **Project color** (`projectColor()` in `src/color.ts`): a per-project hex, auto-derived from the
@@ -297,13 +297,13 @@ turns) uses `tabular-nums`.
 
 - **Shell:** 32px title bar (drag region on macOS, project-colored inside a project) → top bar
   (logo/home, project switcher, breadcrumb, ⌘K, theme toggle) → rail + main.
-- **Rail:** 144px expanded, 56px collapsed (persisted in `localStorage`), project screens only. Home
+- **Rail:** 192px expanded, 56px collapsed (persisted in `localStorage`), project screens only. Home
   has no rail.
 - **Main:** `flex-1`, `min-w-0`, scrolls inside itself; the page body never scrolls sideways. Wide
   content (board lanes, tables, diffs) scrolls in its own container.
-- **Content widths in use:** Home `max-w-5xl` centered with `p-6`; Runs, Remote, Workflow `max-w-5xl`
-  centered; Settings `max-w-2xl`; Task board and New Task full width. A new screen picks one of
-  these by content type: lists and detail `max-w-5xl`, forms `max-w-2xl`, canvases full width.
+- **Content width:** one rule, `PAGE_CLASS` (`@/ui`): `max-w-5xl` centered with `p-6` (`p-3` on small
+  screens) on every screen, Settings included. Only the Task board and New Task drop the width cap
+  (`max-w-none`), keeping the same padding.
 - **Rhythm:** `gap-2` (8px) inside a row of controls, `gap-3` (12px) between cards, `space-y-4` (16px)
   between page sections; panel padding `p-3`, form card padding `p-5`.
 - **Minimum window:** about 1100×800 per the brief; the browser hub can be narrower, and screens
@@ -418,7 +418,7 @@ wider edge is the dashboard card's 6px project-color strip, which is identity, n
 - **Don't** use orange for anything but "needs you", or red for anything but broken.
 - **Don't** add transcript or diff tabs; link to the Git host.
 - **Don't** use raw Tailwind palette colors (`text-green-600`, `bg-rose-500/5`) for status; only
-  the board's column hues and sky info lines are allowed, and only where they already live.
+  use the tokens (`success`, `warning`, `destructive`, `*-text`).
 - **Don't** put a thick colored left border on cards, callouts or alerts (`border-l-4`).
 - **Don't** color a whole panel for a passed state; status color goes on the dot, chip or text.
 - **Don't** add display-size type, gradients, glass, the landing's glow or decorative illustration.

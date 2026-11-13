@@ -1,7 +1,7 @@
 function lineClass(line: string): string {
   if (line.startsWith('+') && !line.startsWith('+++')) return 'text-success-text bg-success/10';
   if (line.startsWith('-') && !line.startsWith('---')) return 'text-destructive-text bg-destructive/10';
-  if (line.startsWith('@@')) return 'text-sky-600 dark:text-sky-400';
+  if (line.startsWith('@@')) return 'text-[var(--caption)]';
   if (line.startsWith('diff ') || line.startsWith('+++') || line.startsWith('---')) return 'text-muted-foreground font-medium';
   return 'text-foreground/80';
 }

@@ -1,7 +1,6 @@
 import { Combobox } from '@/ui';
 import { Check, ChevronsUpDown } from 'lucide-react';
 import { projectColor } from './color';
-import { ALL_REPOS } from './repoFilter';
 import type { Project } from './taskcell-output';
 
 interface Item {
@@ -16,23 +15,13 @@ export function ProjectCombobox({
   projects,
   active,
   onSelect,
-  allOption = false,
-  all = false,
 }: {
   projects: Project[];
   active: Project;
-  /** A path, or ALL_REPOS when `allOption` is on and "All repositories" is picked. */
-  onSelect: (pathOrAll: string) => void;
-  /** Offer "All repositories" first (the Board / Runs / Needs you filter). */
-  allOption?: boolean;
-  /** "All repositories" is the current choice. */
-  all?: boolean;
+  onSelect: (path: string) => void;
 }) {
-  const items: Item[] = [
-    ...(allOption ? [{ value: ALL_REPOS, label: 'All repositories', color: 'var(--muted-foreground)' }] : []),
-    ...projects.map((p) => ({ value: p.path, label: p.name, color: projectColor(p) })),
-  ];
-  const selected = items.find((i) => i.value === (all && allOption ? ALL_REPOS : active.path)) ?? null;
+  const items: Item[] = projects.map((p) => ({ value: p.path, label: p.name, color: projectColor(p) }));
+  const selected = items.find((i) => i.value === active.path) ?? null;
 
   return (
     <Combobox.Root

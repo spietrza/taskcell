@@ -53,7 +53,7 @@ export function Dashboard({
   };
 
   return (
-    <div className="mx-auto h-full w-full max-w-5xl space-y-4 overflow-y-auto p-6 max-md:p-3">
+    <div className="space-y-4">
       <div className="flex items-center gap-3">
         <h2 className="text-xl font-semibold">Projects</h2>
         <Button className="ml-auto" onClick={onAdd} startIcon={<FolderPlus className="size-4" />}>

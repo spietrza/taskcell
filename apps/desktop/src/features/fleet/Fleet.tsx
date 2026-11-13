@@ -101,7 +101,7 @@ export function Fleet({ project, active }: { project: string; active: ActiveRun[
   const slots = Array.from({ length: concurrency }, (_, i) => active[i] ?? null);
 
   return (
-    <div className="mx-auto max-w-3xl space-y-4">
+    <div className="space-y-4">
       <div className="flex items-center gap-3">
         <h2 className="text-xl font-semibold">Fleet</h2>
         {running && (
@@ -139,7 +139,7 @@ export function Fleet({ project, active }: { project: string; active: ActiveRun[
 
         <div className="flex flex-wrap items-center gap-8 border-t border-border pt-4">
           <div>
-            <div className="text-sm">Concurrency</div>
+            <div className="text-sm">Parallel runs</div>
             <div className="mt-1 flex items-center gap-2">
               <button
                 onClick={() => setConcurrency((c) => Math.max(1, c - 1))}

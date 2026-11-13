@@ -74,6 +74,10 @@ describe('visibleError', () => {
 });
 
 describe('isRateLimitError', () => {
+  it.each(['Fable', 'Opus', 'Sonnet'])('treats the per-model limit for %s as a rate limit', (model) => {
+    expect(isRateLimitError(new AgentError(`You've reached your ${model} limit. Switch to another model to continue.`))).toBe(true);
+  });
+
   it.each([
     'HTTP 429',
     'status code 429',

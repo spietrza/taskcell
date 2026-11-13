@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState } from 'react';
-import { Button, Chip, cn } from '@/ui';
+import { Button, Chip, PAGE_CLASS, cn } from '@/ui';
 import { ArrowLeft, FilePlus, RefreshCw } from 'lucide-react';
 import { canUseFleet, isHubMode, subscribe, onStreamReset } from '../../transport';
 import {
@@ -33,6 +33,7 @@ import { RunStrip } from './RunStrip';
 import { foldLiveEvent, reduceTypedRun, initialTypedRun, type TypedRunState, type RunEvent, type AppRunEvent } from './typedRunReducer';
 import { useAppConfig } from '../../hooks';
 import { inRepos } from '../../repoFilter';
+import type { HubFilter } from '../../filterState';
 import { RepoFailures } from '../../RepoViews';
 import type { RepoReadFailure, RepoStamp } from '../../wire';
 import type { TeamScreen } from '../settings/Members';
@@ -45,6 +46,8 @@ export function Inspector({
   teamScreen,
   teamId,
   allRepos,
+  filter,
+  onFilter,
   screen,
   focusRunning,
   clearNonce,
@@ -61,8 +64,11 @@ export function Inspector({
   teamScreen?: TeamScreen;
   /** The selected team (hub): the all-repositories lists are read for it. */
   teamId?: string;
-  /** The shared repository filter is "All repositories": Board, Runs and Needs you list every repository. */
+  /** Board and Runs list every repository of the team (hub); the filter narrows them. */
   allRepos: boolean;
+  /** The filter Board and Runs share, and its setter (persisted by the app). */
+  filter: HubFilter;
+  onFilter: (f: HubFilter) => void;
   screen: 'runs' | 'board' | 'task' | 'settings';
   focusRunning: ActiveRun | null;
   clearNonce: number;
@@ -406,8 +412,10 @@ export function Inspector({
     // Centered + width-capped, except the board which needs full width for horizontal column scroll.
     <div
       className={cn(
-        'mx-auto flex h-full w-full min-h-0 flex-col gap-4 p-6 max-md:p-3',
-        screen !== 'board' && screen !== 'task' && 'max-w-5xl',
+        'flex h-full min-h-0 flex-col gap-4',
+        PAGE_CLASS,
+        // The board's columns scroll sideways, so it (and the task screen) drop the width cap only.
+        (screen === 'board' || screen === 'task') && 'max-w-none',
       )}
     >
       {screen === 'runs' && (
@@ -523,7 +531,7 @@ export function Inspector({
         // In-flight runs render as running rows at the top of the RunList table.
         <div className="flex min-h-0 flex-1 flex-col">
           <RepoFailures failures={failures} />
-          <RunList runs={runs} active={active} showRepo={allRepos} onSelect={open} onOpenActive={setLiveRun} />
+          <RunList runs={runs} active={active} showRepo={allRepos} hub={filter} onHub={onFilter} projects={allRepos ? projects : []} onSelect={open} onOpenActive={setLiveRun} />
         </div>
       ) : screen === 'board' ? (
         <TaskBoard
@@ -531,6 +539,9 @@ export function Inspector({
           allRepos={allRepos}
           repos={repos}
           teamId={teamId}
+          filter={filter}
+          onFilter={onFilter}
+          projects={projects}
           onOpenTask={(id, repo) => {
             setTaskDetailRepo(repo ?? project);
             setTaskDetailId(id);

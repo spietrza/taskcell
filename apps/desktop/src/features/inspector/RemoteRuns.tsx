@@ -1,5 +1,5 @@
 import { useState } from 'react';
-import { Button, Table, Chip, ScrollTable, Timestamp } from '@/ui';
+import { Button, Table, Chip, ErrorNote, ScrollTable, Timestamp } from '@/ui';
 import { Download } from 'lucide-react';
 import { importRemoteRun, listRemoteRuns } from '../../ipc';
 import { useAsync } from '../../hooks';
@@ -57,9 +57,11 @@ export function RemoteRuns({
   if (loading) return <div className="text-sm text-muted-foreground">Loading remote runs…</div>;
   if (error) {
     return (
-      <div className="rounded border border-border bg-muted/30 px-3 py-2 text-sm text-muted-foreground">
-        No remote runs. {error}
-      </div>
+      <ErrorNote
+        title="Couldn't load remote runs"
+        next="This is usually a connection or access problem: check that the CI provider is reachable and its token can see this repository, then reload."
+        error={error}
+      />
     );
   }
   if (!runs || runs.length === 0) {

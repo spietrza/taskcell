@@ -10,7 +10,7 @@
 
 @plugin "tailwindcss-debug-screens" {
   className: 'debug-screens';
-  position: 'top, right';
+  position: 'bottom, right';
   prefix: 'screen: ';
 }
 

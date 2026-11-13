@@ -25,7 +25,7 @@ apply the fix there).
 
 | Area | Score | Key finding |
 |---|---|---|
-| Accessibility | 2 → 3 | Status text below 4.5:1, keyboard-dead project cards, overlays without dialog semantics (fixed); no focus trap yet |
+| Accessibility | 2 → 3 | Status text below 4.5:1, keyboard-dead project cards, overlays without dialog semantics (fixed); focus trap added in #740 follow-up (`useFocusTrap`) |
 | Performance | 3 | 5 s polling of projects and active runs is fine at this size; nothing janky seen |
 | Theming | 2 | Semantic tokens exist but 14 files used raw Tailwind palette for status; dark variants hand-written |
 | Responsive | 2 | Desktop-first by design; rail truncates live task ids; page widths differ per screen |
@@ -135,10 +135,10 @@ the project cards).
    tooltip.
 3. **Three status vocabularies.** Runs say passed/failed, Remote says success/failure, stages say
    Complete, launches say exit N. Map them to one set in the UI (passed / failed / running / …).
-4. **Page widths differ per screen.** Home, Runs, Remote, Workflow use a centered `max-w-5xl`,
+4. **Page widths differ per screen** (fixed: one `PAGE_CLASS` rule). Home, Runs, Remote, Workflow use a centered `max-w-5xl`,
    Settings `max-w-2xl`, Board and New Task full width, so the content's left edge jumps when
    switching screens. DESIGN.md now states which width each kind of screen uses; align the rest.
-5. **Rail truncates live runs to "task…".** At 144px the task id is cut and the tooltip only exists
+5. **Rail truncates live runs to "task…"** (fixed: rail is 192px, rows carry a tooltip). At 144px the task id is cut and the tooltip only exists
    when the rail is collapsed (`Rail.tsx`). Add a `title`/tooltip in the expanded state or show the
    id's tail.
 6. **Duplicate app name and a dead strip in the browser.** The 32px title bar repeats "Taskcell Hub"
@@ -161,7 +161,7 @@ the project cards).
 13. **⌘K cannot reach screens.** The palette lists Home, Add project, theme and projects; adding
     Runs, Task board, Settings, New Task for the current project would make it the fast path the
     brief wants.
-14. **No focus trap in the custom dialogs** (see P1 overlays).
+14. **No focus trap in the custom dialogs** (fixed: `useFocusTrap`; see P1 overlays).
 
 ### P3
 

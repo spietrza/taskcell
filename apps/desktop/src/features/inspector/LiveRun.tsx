@@ -59,7 +59,7 @@ export function LiveRun({
           >
             <span className="h-1.5 w-20 overflow-hidden rounded-full bg-muted">
               <span
-                className={cn('block h-full rounded-full', over ? 'bg-destructive' : pct! >= 75 ? 'bg-amber-500' : 'bg-success')}
+                className={cn('block h-full rounded-full', over ? 'bg-destructive' : pct! >= 75 ? 'bg-warning' : 'bg-success')}
                 style={{ width: `${pct}%` }}
               />
             </span>

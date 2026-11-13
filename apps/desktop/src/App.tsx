@@ -1,7 +1,7 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
 import { isTauri } from '@tauri-apps/api/core';
 import { getCurrentWindow } from '@tauri-apps/api/window';
-import { type Theme } from '@/ui';
+import { PAGE_CLASS, cn, type Theme } from '@/ui';
 import { TopBar, type Crumb } from './TopBar';
 import { Rail, resolveScreen, type Screen } from './Rail';
 import { CommandPalette } from './CommandPalette';
@@ -17,7 +17,8 @@ import type { Team } from './wire';
 import { projectColor, contrastColor } from './color';
 import { createNavGuardRegistry, NavGuardContext } from './navGuard';
 import { ProjectCombobox } from './ProjectCombobox';
-import { ALL_REPOS, canUseAllRepos, inRepos, loadRepoFilter, saveRepoFilter } from './repoFilter';
+import { canUseAllRepos, inRepos } from './repoFilter';
+import { loadFilter, saveFilter, type HubFilter } from './filterState';
 import { hubSignedIn, isDemoMode, hubSignOut, onHubRestart, onHubConnectionIssue } from './transport';
 import { applyTheme, initialTheme, saveTheme } from './theme';
 import type { Project, ActiveRun } from './taskcell-output';
@@ -43,8 +44,8 @@ export default function App() {
     [scoped, scopeId, allProjects, team],
   );
   const [activeProject, setActiveProject] = useState<string | null>(null);
-  // The repository filter Home, Board and Runs share (persisted): ALL_REPOS or the active project's path.
-  const [repoFilter, setRepoFilter] = useState<string>(loadRepoFilter);
+  // The filter Home, Board and Runs share (persisted): triage, projects, card source, search, grouping.
+  const [filter, setFilter] = useState<HubFilter>(loadFilter);
   const [screen, setScreen] = useState<Screen>('home');
   // How many items wait on the user (Home's Needs you section); badges Home in the rail.
   const [needsCount, setNeedsCount] = useState(0);
@@ -130,17 +131,16 @@ export default function App() {
     if (!teamsLoaded) return;
     if (activeProject && projects.length && !projects.some((p) => p.path === activeProject)) setActiveProject(null);
     else if (!activeProject && projects.length) {
-      setActiveProject(projects.find((p) => p.path === repoFilter)?.path ?? projects[0].path);
+      setActiveProject(projects.find((p) => filter.repos.includes(p.path))?.path ?? projects[0].path);
     }
-  }, [teamsLoaded, projects, activeProject, repoFilter]);
+  }, [teamsLoaded, projects, activeProject, filter.repos]);
 
-  // A persisted filter naming a repository that is gone falls back to every repository.
+  // A persisted filter naming repositories that are gone drops them.
   useEffect(() => {
-    if (teamsLoaded && repoFilter !== ALL_REPOS && projects.length && !projects.some((p) => p.path === repoFilter)) {
-      setRepoFilter(ALL_REPOS);
-      saveRepoFilter(ALL_REPOS);
+    if (teamsLoaded && projects.length && filter.repos.some((r) => !projects.some((p) => p.path === r))) {
+      changeFilter({ ...filter, repos: filter.repos.filter((r) => projects.some((p) => p.path === r)) });
     }
-  }, [teamsLoaded, projects, repoFilter]);
+  }, [teamsLoaded, projects, filter]);
 
   const updateTeam = (t: Team): void => {
     teamsGen.current++;
@@ -169,10 +169,9 @@ export default function App() {
       saveTeamId(id);
     });
 
-  const chooseRepo = (value: string): void => {
-    if (value !== ALL_REPOS) setActiveProject(value);
-    setRepoFilter(value);
-    saveRepoFilter(value);
+  const changeFilter = (f: HubFilter): void => {
+    setFilter(f);
+    saveFilter(f);
   };
 
   // Poll the current project's in-flight runs for the rail's Running section.
@@ -287,7 +286,8 @@ export default function App() {
 
   const enterProject = (path: string): void => {
     navigate(() => {
-      chooseRepo(path);
+      setActiveProject(path);
+      changeFilter({ ...filter, repos: [path] });
       setScreen('runs');
     });
   };
@@ -296,10 +296,10 @@ export default function App() {
   const showHome = screen === 'home' || !active;
   const titleBar = !showHome && active ? projectColor(active) : null;
   const allowAll = canUseAllRepos();
-  const allRepos = allowAll && repoFilter === ALL_REPOS;
   const needsYou = canUseNeedsYou() && active !== null;
-  // The selected team's repositories: Home's section and the badge poll read "All repositories" for them only.
-  const repoPaths = projects.map((p) => p.path);
+  // The selected team's repositories the filter's Projects keep (none picked = all): Home's section and the
+  // badge poll read "All repositories" for them only, as Board and Runs do.
+  const repoPaths = projects.map((p) => p.path).filter((p) => filter.repos.length === 0 || filter.repos.includes(p));
   const repoKey = repoPaths.join('\n');
 
   // Keep the rail badge current: Home's section reports its own changes, this catches new items elsewhere.
@@ -311,7 +311,7 @@ export default function App() {
     let alive = true;
     const repos = repoKey.split('\n');
     const tick = (): void => {
-      (allRepos ? listNeedsYouAll(scopeId).then((l) => inRepos(l.items, repos)) : listNeedsYou(activeProject).then((r) => r.items))
+      (allowAll ? listNeedsYouAll(scopeId).then((l) => inRepos(l.items, repos)) : listNeedsYou(activeProject).then((r) => r.items))
         .then((items) => {
           if (alive) setNeedsCount(items.length);
         })
@@ -323,7 +323,7 @@ export default function App() {
       alive = false;
       clearInterval(id);
     };
-  }, [needsYou, activeProject, allRepos, scopeId, repoKey]);
+  }, [needsYou, activeProject, allowAll, scopeId, repoKey]);
 
   const SCREEN_LABEL: Record<Screen, string> = {
     home: 'Home',
@@ -348,17 +348,11 @@ export default function App() {
       crumbs.push({ label: SCREEN_LABEL[screen] });
     }
   }
-  // Home, Board and Runs offer "All repositories" in the one switcher; other screens list repositories only.
-  const filtered = screen === 'home' || screen === 'board' || screen === 'runs';
+  // Where the hub lists every repository (Home, Board, Runs), the filter bar narrows them; the switcher still names the active project (New Task, the rail).
+  const allRepos = allowAll && (screen === 'home' || screen === 'board' || screen === 'runs');
   const projectSwitcher =
     active ? (
-      <ProjectCombobox
-        projects={projects}
-        active={active}
-        allOption={filtered && allowAll}
-        all={allRepos}
-        onSelect={(v) => navigate(() => chooseRepo(v))}
-      />
+      <ProjectCombobox projects={projects} active={active} onSelect={(v) => navigate(() => setActiveProject(v))} />
     ) : null;
 
   return (
@@ -431,19 +425,19 @@ export default function App() {
         <main className="flex min-w-0 flex-1 flex-col overflow-hidden">
           {showHome ? (
             <div className="h-full overflow-y-auto">
-              {/* Home starts with what needs the user; with nothing waiting it says so in one line. */}
-              {needsYou && (
-                <div className="px-6 pt-6 max-md:px-3 max-md:pt-3">
+              <div className={cn(PAGE_CLASS, 'space-y-4')}>
+                {/* Home starts with what needs the user; with nothing waiting it says so in one line. */}
+                {needsYou && (
                   <NeedsYou project={active.path} allRepos={allRepos} repos={repoPaths} teamId={scopeId} onCount={setNeedsCount} />
-                </div>
-              )}
-              <Dashboard
-                projects={projects}
-                onOpen={(p) => enterProject(p.path)}
-                onAdd={add}
-                onRemove={remove}
-                onEnableFactory={setFactoryProject}
-              />
+                )}
+                <Dashboard
+                  projects={projects}
+                  onOpen={(p) => enterProject(p.path)}
+                  onAdd={add}
+                  onRemove={remove}
+                  onEnableFactory={setFactoryProject}
+                />
+              </div>
             </div>
           ) : (
             <NavGuardContext.Provider value={navGuard.current}>
@@ -451,6 +445,8 @@ export default function App() {
                 key={active.path}
                 project={active.path}
                 allRepos={allRepos}
+                filter={filter}
+                onFilter={changeFilter}
                 projects={projects}
                 teamId={scopeId}
                 {...(team
@@ -488,6 +484,18 @@ export default function App() {
           onOpenProject={(p) => enterProject(p.path)}
           onHome={() => goto('home')}
           {...(needsYou ? { onNeedsYou: () => goto('needs') } : {})}
+          {...(active
+            ? {
+                projectName: active.name,
+                onScreen: (s: 'board' | 'runs' | 'settings') => navigate(() => setScreen(s)),
+                onNewTask: () =>
+                  navigate(() => {
+                    setScreen('task');
+                    setNewTaskNonce((n) => n + 1);
+                  }),
+                onEnableFactory: () => setFactoryProject({ path: active.path, name: active.name }),
+              }
+            : {})}
           onAddProject={add}
           onToggleTheme={toggleTheme}
           onClose={() => setPalette(false)}
