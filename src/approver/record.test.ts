@@ -3,7 +3,7 @@ import { mkdtemp, rm } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { execa } from 'execa';
-import { appendDecision, buildDecisionRecord } from './record.js';
+import { appendDecision, buildDecisionRecord, decisionKey } from './record.js';
 import { DECISIONS_FILE } from './ledger.js';
 import { readBranchFile, METRICS_BRANCH_DEFAULT } from '../core/metrics-branch.js';
 import { cleanDiff, cleanFacts } from './facts.fixture.js';
@@ -142,5 +142,18 @@ describe('appendDecision', () => {
     expect(log).toHaveLength(2);
     const [tip, parent] = log.map((entry) => entry.split(' '));
     expect(tip![1]).toBe(parent![0]);
+  });
+});
+
+describe('decisionKey', () => {
+  it('act-merge is its own kind, and the reason is part of an action key', () => {
+    expect(decisionKey({ prNumber: 1, headSha: 'h', actMerge: true, verdict: 'APPROVE' })).toBe('1:h:act-merge');
+    expect(decisionKey({ prNumber: 1, headSha: 'h', verdict: 'APPROVE' })).toBe('1:h:full');
+    const a = decisionKey({ prNumber: 1, headSha: 'h', action: 'left-for-human', reason: 'one' });
+    expect(a).toBe(decisionKey({ prNumber: 1, headSha: 'h', action: 'left-for-human', reason: 'one' }));
+    expect(a).not.toBe(decisionKey({ prNumber: 1, headSha: 'h', action: 'left-for-human', reason: 'two' }));
+    // Free-form detail under one stable code does not make a new key.
+    const e = (reason: string): string => decisionKey({ prNumber: 1, headSha: 'h', action: 'error', reason, reasonCode: 'update-branch-failed' });
+    expect(e('HTTP 502 at 10:01')).toBe(e('HTTP 502 at 10:07'));
   });
 });
