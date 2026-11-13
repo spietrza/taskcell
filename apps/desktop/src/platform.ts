@@ -9,14 +9,12 @@ export const TASK_SOURCES: { id: TaskSourceId; label: string }[] = [
   { id: 'hub', label: 'Hub board' },
 ];
 
-const TRACKER = 'https://github.com/spietrza/taskcell/issues?q=is%3Aissue+';
-
 /** `implemented` = Enable factory can set it up from the hub; the rest link to where it is tracked. */
 export const RUN_LOCATIONS: { id: RunLocationId; label: string; implemented: boolean; trackingUrl?: string }[] = [
   { id: 'github-actions', label: 'GitHub Actions', implemented: true },
-  { id: 'gitlab-ci', label: 'GitLab CI', implemented: false, trackingUrl: `${TRACKER}GitLab+CI+enable+factory` },
-  { id: 'watch', label: 'Self-hosted (watch)', implemented: false, trackingUrl: `${TRACKER}self-hosted+watch+enable+factory` },
-  { id: 'local', label: 'Local hub', implemented: false, trackingUrl: `${TRACKER}local+hub+enable+factory` },
+  { id: 'gitlab-ci', label: 'GitLab CI', implemented: false, trackingUrl: 'https://github.com/spietrza/taskcell/issues/911' },
+  { id: 'watch', label: 'Self-hosted (watch)', implemented: false, trackingUrl: 'https://github.com/spietrza/taskcell/issues/912' },
+  { id: 'local', label: 'Local hub', implemented: false, trackingUrl: 'https://github.com/spietrza/taskcell/issues/913' },
 ];
 
 export const DEFAULT_TASK_SOURCE: TaskSourceId = 'github';
