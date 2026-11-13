@@ -2418,7 +2418,7 @@ describe('runRevisePullRequest base conflicts', () => {
       await divergeWithWorkflow(head, email);
       const { result, pushed, ghCalls } = await run({}, { headRef: head });
       expect(pushed).toEqual([]);
-      expect(result.conflictUnresolved).toEqual(['.github/workflows/ci.yml']);
+      expect(result.conflictUnresolved).toEqual(['shared.txt']);
       expect(comments(ghCalls)).toContain('Could not resolve the conflict with `main`');
     });
   });

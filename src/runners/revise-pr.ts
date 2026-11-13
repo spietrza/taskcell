@@ -609,8 +609,8 @@ export async function runRevisePullRequest(prRef: string, deps: ReviseGithubPrDe
       const forceWithLease = mergedBase?.rebased === true ? pr.headRefOid : undefined;
       // Never report success on a PR that still conflicts: say so on the PR and leave `needs revision`
       // for a human (only the in-flight label goes, as for a rate limit).
-      const holdForConflict = async (files: string[]): Promise<ReviseGithubPrResult> => {
-        const notice = `Could not resolve the conflict with \`${baseName}\`: ${formatConflictFiles(files)}. No changes were pushed; please merge \`${baseName}\` into this branch by hand.`;
+      const holdForConflict = async (files: string[], reason?: string): Promise<ReviseGithubPrResult> => {
+        const notice = `Could not resolve the conflict with \`${baseName}\`: ${formatConflictFiles(files)}${reason !== undefined ? ` (${reason})` : ''}. No changes were pushed; please merge \`${baseName}\` into this branch by hand.`;
         log(`revise-pr ${target.repoSlug}#${target.number}: ${notice}`);
         if (deps.out !== undefined) {
           const dryRunOut = await writeDryRun(deps.out, `# Revision dry run: ${target.repoSlug}#${target.number}\n\n${notice}\n`);
@@ -623,7 +623,7 @@ export async function runRevisePullRequest(prRef: string, deps: ReviseGithubPrDe
       };
 
       // Conflicts with no markers to resolve (modify/delete, rename, binary) are left to a human.
-      if (baseMerge.status === 'conflicted' && baseMerge.unresolvable.length > 0) return await holdForConflict(baseMerge.unresolvable);
+      if (baseMerge.status === 'conflicted' && baseMerge.unresolvable.length > 0) return await holdForConflict(baseMerge.unresolvable, baseMerge.reason);
       if (mergedBase !== undefined) {
         log(`revise-pr ${target.repoSlug}#${target.number}: ${baseName} conflicts with the branch (${formatConflictFiles(conflicted)}) -> ${mergedBase.rebased === true ? 'rebased' : 'merged'}, agent resolves`);
         await refreshSandboxWorkspace(ctx);
