@@ -241,10 +241,17 @@ const SOURCE_LABEL: Record<FeedbackItem['source'], string> = {
  * blocks outside <task_instructions>, with every `<` escaped, as in the review prompts: the stage that
  * runs this prompt has a shell in the sandbox and pushes to the PR head.
  */
+/** The base resolved into the branch this round: merged, or rebased onto when `rebased`; `files` are the conflicted files. */
+export interface BaseResolution {
+  base: string;
+  files: string[];
+  rebased?: boolean;
+}
+
 export function buildRevisionPrompt(
   pr: { repoSlug: string; number: number; headRefOid: string; title: string; diff: string },
   actionable: FeedbackItem[],
-  merge?: { base: string; files: string[] },
+  merge?: BaseResolution,
   checklist: readonly string[] = [],
 ): string {
   const feedbackSection =
@@ -260,7 +267,7 @@ export function buildRevisionPrompt(
     'Apply the requested fixes in the repo. Keep changes minimal and scoped to the feedback. Run typecheck/tests after making changes.',
     ...(merge !== undefined
       ? [
-          neutralizePromptTags(`The branch is mid-merge with its base \`${merge.base}\` and these files carry git conflict markers: ${formatConflictFiles(merge.files)}.`),
+          neutralizePromptTags(`The branch is mid-${merge.rebased === true ? 'rebase onto' : 'merge with'} its base \`${merge.base}\` and these files carry git conflict markers: ${formatConflictFiles(merge.files)}.`),
           'Resolve every conflict, keeping the intent of both sides, and remove all <<<<<<<, ======= and >>>>>>> markers. Do not run git commands that rewrite history or commit.',
         ]
       : []),
@@ -526,8 +533,8 @@ export interface RevisionSummaryInput {
   verification: { typecheck: 'pass' | 'fail' | 'unknown'; test: 'pass' | 'fail' | 'unknown' };
   /** When true, use the neutral (no-"vanguard") revision marker. */
   whiteLabel?: boolean;
-  /** The base was merged into the branch this round; `files` are the conflicted files that were resolved. */
-  mergedBase?: { base: string; files: string[] };
+  /** The base was merged into the branch this round (or, when `rebased`, the branch was rebased onto it); `files` are the conflicted files that were resolved. */
+  mergedBase?: BaseResolution;
   /** The base could not be checked for conflicts this round (e.g. the fetch failed). */
   baseCheckSkipped?: { base: string; reason: string };
   /** Per-item answers to the blocking checklist (unanswered items fail the revision before this is built). */
@@ -569,7 +576,12 @@ export function buildRevisionSummary(input: RevisionSummaryInput): string {
   }
 
   if (input.mergedBase !== undefined) {
-    lines.push('', '### Merged base', '', `- Merged \`${input.mergedBase.base}\` into the branch; resolved conflicts in: ${formatConflictFiles(input.mergedBase.files)}`);
+    const { base, files, rebased } = input.mergedBase;
+    if (rebased === true) {
+      lines.push('', '### Rebased onto base', '', `- Rebased the branch onto \`${base}\` (force-pushed with a lease) instead of merging it: \`${base}\` changed CI config, which the push token may not merge into a branch; resolved conflicts in: ${formatConflictFiles(files)}`);
+    } else {
+      lines.push('', '### Merged base', '', `- Merged \`${base}\` into the branch; resolved conflicts in: ${formatConflictFiles(files)}`);
+    }
   }
 
   if (input.baseCheckSkipped !== undefined) {
