@@ -354,7 +354,7 @@ function stripFences(lines: string[]): string[] {
  * heading that names them blocking (up to the next heading), plus any other top-level item labelled
  * blocking itself. A numbered sub-heading is one finding with the items below it as detail. An unnumbered
  * sub-heading is a category when one of its items starts with a blocking label (its items not labelled
- * non-blocking are the findings), else a finding itself.
+ * non-blocking are the findings, each prefixed with the heading so a finding title is kept), else a finding itself.
  */
 function proseBlockingFindings(body: string): string[] {
   const out: string[] = [];
@@ -364,8 +364,10 @@ function proseBlockingFindings(body: string): string[] {
   let group: { heading: string; items: string[] } | undefined;
   const flush = (): void => {
     if (group === undefined) return;
-    const labels = group.items.map(leadingLabel);
-    out.push(...(labels.includes('blocking') ? group.items.filter((_, i) => labels[i] !== 'non-blocking') : [group.heading]));
+    const { heading, items } = group;
+    const labels = items.map(leadingLabel);
+    if (!labels.includes('blocking')) out.push(heading);
+    else out.push(...items.filter((_, i) => labels[i] !== 'non-blocking').map((item) => `${heading}: ${item}`));
     group = undefined;
   };
   for (const line of stripFences(stripReviewMarkers(body).split('\n'))) {
@@ -376,7 +378,8 @@ function proseBlockingFindings(body: string): string[] {
       const heading = oneLine(match[2]!);
       const blocking = isBlockingLabel(heading);
       const sectionLabel = isSectionLabel(heading);
-      const subFinding = !sectionLabel && inBlockingSection && level > sectionLevel && !/\bnon[- ]?blocking\b/i.test(heading);
+      const nested = inBlockingSection && level > sectionLevel;
+      const subFinding = !sectionLabel && nested && !/\bnon[- ]?blocking\b/i.test(heading);
       const numbered = isNumberedHeading(heading);
       detailOnly = subFinding || (blocking && !sectionLabel && numbered);
       if (detailOnly) {
@@ -384,8 +387,10 @@ function proseBlockingFindings(body: string): string[] {
         else out.push(heading);
         if (!subFinding) inBlockingSection = false;
       } else {
+        // A section label nested in a blocking section (`### Blocking` under `## Findings (2 blocking)`) keeps the
+        // parent's level, so its same-level siblings (`### 1. first`) are still findings of that section.
+        if (!(sectionLabel && nested)) sectionLevel = level;
         inBlockingSection = blocking;
-        sectionLevel = level;
       }
       continue;
     }
