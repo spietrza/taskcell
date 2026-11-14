@@ -2,14 +2,14 @@ import { execa } from 'execa';
 import { defaultGhRunner } from '../tasks/github.js';
 import type { GhRunner } from '../tasks/github.js';
 import { loadPolicy, POLICY_HASH_NONE } from './policy.js';
-import { collectPrFacts, collectCheckFacts, collectReviewFacts, isFactoryPr } from './facts.js';
+import { collectPrFacts, collectCheckFacts, collectReviewFacts, dedicatedReviewers, isFactoryPr } from './facts.js';
 import { collectDiffFacts, emptyDiffFacts } from './diff-facts.js';
 import { readLedger } from './ledger.js';
 import { decide } from './rules.js';
 import { buildDecisionRecord, appendDecision, appendAction, reasonKey } from './record.js';
 import type { ActionKind } from './record.js';
 import { publishCheckRun, commentDecision, commentOnce, shadowSafeGhRunner } from './publish.js';
-import { actSafeGhRunner, actExclusions, reviewExact, escapeForComment } from './act.js';
+import { actSafeGhRunner, actExclusions, reviewExact, escapeForComment, NO_DEDICATED_REVIEWER } from './act.js';
 import { redactForPublish } from '../core/secret-scan.js';
 import { TaskcellError } from '../core/errors.js';
 import type { ApproverFacts, Decision, DecisionRecord, PrFacts } from './types.js';
@@ -174,6 +174,10 @@ export async function runApprover(input: RunApproverInput, state: { updated: boo
   const result = await finish(facts, decision, policyHash, diff.headSha);
   if (!acting || facts.pr.state !== 'OPEN') return result;
 
+  if (dedicatedReviewers(policy).length === 0) {
+    await tell('left-for-human', NO_DEDICATED_REVIEWER, diff.headSha, 'no-dedicated-reviewer');
+    return result;
+  }
   if (review.sha === null) {
     // No usable review for this head (yet): the PR-review run that triggered this one may have posted none (a PR the App bot
     // opened is only labelled by its `opened` run). The decision is in the check run and the log; a "left for a human"

@@ -587,6 +587,16 @@ describe('approver act mode', () => {
       expect(writes(calls, 'comment').some((a) => a.join(' ').includes('no required checks'))).toBe(true);
     });
 
+    it('no dedicated reviewer login in reviewAuthors acts on nothing, with a stable reason code', async () => {
+      await rm(root, { recursive: true, force: true });
+      await setup({ ...POLICY, reviewAuthors: ['github-actions', 'github-actions[bot]'] }, { 'src.ts': 'export const x = 1;\n' });
+      const calls: string[][] = [];
+      await run(fakeGh(calls, pr()));
+      expect(calls.some((c) => c[0] === 'pr' && ['merge', 'ready', 'update-branch'].includes(c[1]!))).toBe(false);
+      expect(writes(calls, 'comment').some((c) => c.join(' ').includes('no dedicated reviewer login'))).toBe(true);
+      expect((await records()).at(-1)).toMatchObject({ action: 'left-for-human', reasonCode: 'no-dedicated-reviewer' });
+    });
+
     it('state is re-read before the merge: a hold label added meanwhile stops it', async () => {
       const state = pr();
       const calls: string[][] = [];
