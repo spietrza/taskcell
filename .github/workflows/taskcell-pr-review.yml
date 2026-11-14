@@ -60,9 +60,8 @@ jobs:
     with:
       allowed-actors: '["spietrza","pawelkrystkiewicz"]'
       # Codex reviews since 2026-11-14: the Claude subscription is shared with every implement run and its 429s
-      # stopped all reviews. A Codex subscription cannot run behind the LLM proxy yet (#642), so the proxy is off
-      # for this job, for the Claude fallback too. Turn `llm-proxy` back on when #642 is merged.
-      llm-proxy: false
+      # stopped all reviews. With the Claude fallback in the run, the proxy holds the Codex plan credential too.
+      llm-proxy: true
       provider: codex
       review-model: gpt-5.6-sol
       fallback-provider: claude
