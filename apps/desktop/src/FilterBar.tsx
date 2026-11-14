@@ -86,11 +86,28 @@ interface Props {
   repos: Repo[];
   /** Paths of repositories that have cards, for the "Has cards" shortcut. */
   withCards: string[];
+  /** What the search box matches; Runs have no title, so its list says "Search task id". */
+  searchLabel?: string;
+}
+
+/** A list filtered to empty: names the search that did it (it is shared by Board and Runs and survives a reload) with a way to clear it. */
+export function NoMatch({ what, query, onClear }: { what: string; query: string; onClear?: (() => void) | undefined }) {
+  const q = query.trim();
+  return (
+    <div className="py-8 text-center text-sm text-muted-foreground">
+      {q === '' ? `No ${what} match.` : `No ${what} match the search "${q}".`}
+      {q !== '' && onClear && (
+        <Button variant="text" color="secondary" className="ml-2" onClick={onClear}>
+          Clear search
+        </Button>
+      )}
+    </div>
+  );
 }
 
 /** The one filter bar Board and Runs share. On a phone only triage and search stay; the rest opens in a Filters drawer. */
 export function FilterBar(props: Props) {
-  const { filter, onChange } = props;
+  const { filter, onChange, searchLabel = 'Search title or id' } = props;
   const [drawer, setDrawer] = useState(false);
   const active = (filter.repos.length > 0 ? 1 : 0) + (filter.sources.length > 0 ? 1 : 0) + (filter.group !== 'none' ? 1 : 0);
   return (
@@ -106,8 +123,8 @@ export function FilterBar(props: Props) {
         value={filter.query}
         onChange={(e) => onChange({ ...filter, query: e.target.value })}
         startAdornment={<Search className="size-4" />}
-        placeholder="Search title or id…"
-        aria-label="Search title or id"
+        placeholder={`${searchLabel}…`}
+        aria-label={searchLabel}
         className="w-56 max-md:w-full"
       />
       <div className="flex flex-wrap items-center gap-2 max-md:hidden">

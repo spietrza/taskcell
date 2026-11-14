@@ -61,3 +61,14 @@ test('a CI run is marked, links its PR/MR, is not openable, and an unpriced one 
   fireEvent.click(screen.getByText('ci-1'));
   expect(onSelect).not.toHaveBeenCalled();
 });
+
+test('a search that empties the list is named, with a button that clears it; the box says what it matches', () => {
+  const runs: RunSummary[] = [{ taskId: 'task-7', timestamp: '2026-07-06T19:12:02.123Z', stages: ['implement'], totalCostUsd: 0.1, anyFailed: false }];
+  const onHub = vi.fn();
+  const hub = { triage: 'all' as const, repos: [], sources: [], query: 'cart total', group: 'none' as const };
+  render(<RunList runs={runs} active={[]} hub={hub} onHub={onHub} onSelect={noop} onOpenActive={noop} />);
+  expect(screen.getByLabelText('Search task id')).toHaveValue('cart total');
+  expect(screen.getByText('No runs match the search "cart total".')).toBeInTheDocument();
+  fireEvent.click(screen.getByRole('button', { name: 'Clear search' }));
+  expect(onHub).toHaveBeenCalledWith({ ...hub, query: '' });
+});

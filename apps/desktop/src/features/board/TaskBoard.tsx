@@ -11,7 +11,7 @@ import { decisionForTask, decisionWords } from './approverDecision';
 import { QuickView, TRACKER_NAME, type QuickTask } from './QuickView';
 import { boardCountLabels } from './counts';
 import { ExternalLink } from '../../components/ExternalLink';
-import { FilterBar } from '../../FilterBar';
+import { FilterBar, NoMatch } from '../../FilterBar';
 import { DEFAULT_FILTER, cardKeys, filterCards, groupRows, type HubFilter } from '../../filterState';
 
 // Each column owns a color identity used across its header dot, count pill and card
@@ -177,7 +177,10 @@ export function TaskBoard({
       )}
       <div className="flex min-h-0 flex-1 gap-3 pb-4">
       <div className={cn('flex min-h-0 min-w-0 flex-1 flex-col gap-4', filter.group !== 'none' && 'overflow-y-auto')}>
-        {lanes.length === 0 && <div className="py-8 text-center text-sm text-muted-foreground">No cards match.</div>}
+        {/* Ungrouped, the one lane stays (its columns render empty), so "nothing matches" is asked of the cards. */}
+        {(allTasks?.length ?? 0) > 0 && tasks?.length === 0 && (
+          <NoMatch what="cards" query={filter.query} onClear={onFilter && (() => onFilter({ ...filter, query: '' }))} />
+        )}
         {lanes.map((lane) => (
         <section key={lane.key} aria-label={lane.label || undefined} className={cn('flex min-h-0 flex-col gap-2', filter.group === 'none' ? 'flex-1' : 'h-[28rem] shrink-0')}>
         {lane.label && (

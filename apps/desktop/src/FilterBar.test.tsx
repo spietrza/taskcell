@@ -90,7 +90,8 @@ test('Board and Runs apply the same filter and group', async () => {
 test('a grouped Board with no matching card says so, and a grouped Runs table has lane rows', async () => {
   const none: HubFilter = { ...DEFAULT_FILTER, query: 'zzz', group: 'source' };
   const board = render(<TaskBoard project="/a" allRepos repos={['/a', '/b']} filter={none} onFilter={() => {}} projects={repos} onOpenTask={() => {}} onNewTask={() => {}} />);
-  expect(await screen.findByText('No cards match.')).toBeInTheDocument();
+  expect(await screen.findByText('No cards match the search "zzz".')).toBeInTheDocument();
+  expect(screen.getByRole('button', { name: 'Clear search' })).toBeInTheDocument();
   board.unmount();
   const runs = [{ taskId: 'gh-1', timestamp: 't', stages: [], totalCostUsd: 0, anyFailed: false }, { taskId: 'gl-2', timestamp: 't2', stages: [], totalCostUsd: 0, anyFailed: false }];
   render(<RunList runs={runs} active={[]} hub={{ ...DEFAULT_FILTER, group: 'source' }} onHub={() => {}} onSelect={() => {}} onOpenActive={() => {}} />);

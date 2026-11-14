@@ -3,7 +3,7 @@ import { Table, Button, Chip, Empty, Input, ScrollTable, Timestamp } from '@/ui'
 import { Inbox, RefreshCw, Search } from 'lucide-react';
 import { verdictColor, verdictWord } from '../../status';
 import { RepoLabel } from '../../RepoViews';
-import { FilterBar } from '../../FilterBar';
+import { FilterBar, NoMatch } from '../../FilterBar';
 import { DEFAULT_FILTER, filterActive, filterRuns, groupRows, runKeys, type HubFilter } from '../../filterState';
 import { ExternalLink, hostName } from '../../components/ExternalLink';
 import { costLabel } from '../../cost';
@@ -158,7 +158,7 @@ export function RunList({
   return (
     <div className="flex min-h-0 flex-1 flex-col gap-3">
       {onHub && (
-        <FilterBar filter={hub} onChange={onHub} repos={projects} withCards={[...new Set([...runs, ...active].flatMap((r) => (r.repoPath ? [r.repoPath] : [])))]} />
+        <FilterBar filter={hub} onChange={onHub} searchLabel="Search task id" repos={projects} withCards={[...new Set([...runs, ...active].flatMap((r) => (r.repoPath ? [r.repoPath] : [])))]} />
       )}
       <div className="flex shrink-0 flex-wrap items-center gap-2">
         {!onHub && <Input
@@ -188,7 +188,7 @@ export function RunList({
       </div>
 
       {shown.length === 0 && shownActive.length === 0 ? (
-        <div className="py-8 text-center text-sm text-muted-foreground">No runs match.</div>
+        <NoMatch what="runs" query={onHub ? hub.query : query} onClear={onHub ? () => onHub({ ...hub, query: '' }) : () => setQuery('')} />
       ) : (
         <ScrollTable>
         <Table.Root>
