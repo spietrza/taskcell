@@ -139,15 +139,20 @@ export function gitlabMergeRequestWatchPrimitives(
   const log = opts.log;
   return {
     listReady: async () => {
-      const listArgs = [
-        'mr', 'list',
-        '--repo', opts.project,
-        '--state', 'opened',
-        '--label', opts.label,
-        '--output', 'json',
-      ];
-      if (opts.author !== undefined) listArgs.push('--author', opts.author);
-      const candidates = parseMrList(await glab(listArgs), opts.project, opts.author);
+      // A trigger label renamed from `vanguard` to `taskcell`: list under both spellings, so an MR still carrying the old one runs.
+      const listed = new Map<number, MergeRequestWatchItem>();
+      for (const form of labelForms(opts.label)) {
+        const listArgs = [
+          'mr', 'list',
+          '--repo', opts.project,
+          '--state', 'opened',
+          '--label', form,
+          '--output', 'json',
+        ];
+        if (opts.author !== undefined) listArgs.push('--author', opts.author);
+        for (const item of parseMrList(await glab(listArgs), opts.project, opts.author)) listed.set(item.iid, item);
+      }
+      const candidates = [...listed.values()];
       // glab mr list may omit sha; enrich from mr view so dedup works correctly.
       const enriched = await Promise.all(
         candidates.map(async (item): Promise<MergeRequestWatchItem> => {
