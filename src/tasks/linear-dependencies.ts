@@ -132,13 +132,18 @@ function startDate(cycleStart: string | null | undefined, description: string): 
  * canceled one can never be met and is `invalid`. `dependsOn` is the native "blocked by" relations plus
  * `Depends on DEV-12` lines.
  */
-export async function checkLinearDependencies(task: Task, send: LinearGraphql, now: Date = new Date()): Promise<LinearDependencyVerdict> {
+export async function checkLinearDependencies(
+  task: Task,
+  send: LinearGraphql,
+  now: Date = new Date(),
+  known?: { nativeBlockers: TaskRef[] },
+): Promise<LinearDependencyVerdict> {
   try {
     const selfId = parseIdentifier(task.ref ?? task.id);
     if (selfId === undefined) return { status: 'error', reason: `${task.id} is not a Linear identifier` };
-    // The list query already carries relations and the cycle: no lookup of the issue itself.
-    let native = task.nativeBlockers;
-    let cycleStart = task.startDate;
+    // `known`: the probe found no blocker and no cycle, so the issue itself needs no lookup.
+    let native = known?.nativeBlockers;
+    let cycleStart: string | undefined;
     if (native === undefined) {
       const own = await getIssue(selfId, send);
       if (own === 'missing') return { status: 'error', reason: `${refText(selfId)} could not be read` };
@@ -168,6 +173,51 @@ export async function checkLinearDependencies(task: Task, send: LinearGraphql, n
   }
 }
 
+/** Which listed issues have a native blocker or a cycle; only those need their own lookup. */
+const PROBE_QUERY = `query($f: IssueFilter, $first: Int!) { issues(first: $first, filter: $f) { nodes { identifier } } }`;
+/** Identifiers only, so a probe page stays far under Linear's per-query complexity cap. */
+const PROBE_BATCH = 50;
+
+interface ProbeResponse {
+  data?: { issues?: { nodes?: { identifier?: string }[] } | null };
+  errors?: { message?: string }[];
+}
+
+/**
+ * Keys of the `refs` that have a native "blocked by" relation or a cycle, in batches of
+ * `PROBE_BATCH` (one query each, identifiers only). A failed batch counts all of its issues, so they
+ * fall back to their own lookup rather than starting unchecked.
+ */
+async function probeNeedsLookup(refs: TaskRef[], send: LinearGraphql): Promise<Set<string>> {
+  const needs = new Set<string>();
+  for (let i = 0; i < refs.length; i += PROBE_BATCH) {
+    const batch = refs.slice(i, i + PROBE_BATCH);
+    const byTeam = new Map<string, number[]>();
+    for (const ref of batch) {
+      const team = ref.repo.toUpperCase();
+      byTeam.set(team, [...(byTeam.get(team) ?? []), ref.number]);
+    }
+    const f = {
+      and: [
+        { or: [...byTeam].map(([team, numbers]) => ({ team: { key: { eq: team } }, number: { in: numbers } })) },
+        { or: [{ hasBlockedByRelations: { eq: true } }, { cycle: { null: false } }] },
+      ],
+    };
+    try {
+      const res = (await send({ query: PROBE_QUERY, variables: { f, first: batch.length } })) as ProbeResponse;
+      const nodes = res.data?.issues?.nodes;
+      if ((res.errors ?? []).length > 0 || nodes === undefined) throw new Error('probe failed');
+      for (const node of nodes) {
+        const ref = parseIdentifier(node.identifier ?? '');
+        if (ref !== undefined) needs.add(keyOf(ref));
+      }
+    } catch {
+      for (const ref of batch) needs.add(keyOf(ref));
+    }
+  }
+  return needs;
+}
+
 export interface LinearDependencyGateOptions {
   /** Moves an invalid issue here (e.g. 'Needs Info'), out of the trigger state; absent: only logged. */
   moveToNeedsInfo?: (id: string) => Promise<void>;
@@ -195,7 +245,13 @@ export async function applyLinearDependencyGate(tasks: Task[], opts: LinearDepen
   if (tasks.length === 0) return tasks;
   const log = opts.log ?? console.log;
   const send = opts.graphql ?? (await linearGraphql(opts.linear));
-  const checked = await fanOut(tasks, (task) => checkLinearDependencies(task, send, opts.now), { concurrency: CHECK_CONCURRENCY });
+  const refs = new Map(tasks.map((task) => [task, parseIdentifier(task.ref ?? task.id)]));
+  const needs = await probeNeedsLookup([...refs.values()].filter((ref): ref is TaskRef => ref !== undefined), send);
+  const known = (task: Task): { nativeBlockers: TaskRef[] } | undefined => {
+    const ref = refs.get(task);
+    return ref !== undefined && !needs.has(keyOf(ref)) ? { nativeBlockers: [] } : undefined;
+  };
+  const checked = await fanOut(tasks, (task) => checkLinearDependencies(task, send, opts.now, known(task)), { concurrency: CHECK_CONCURRENCY });
   const ready: Task[] = [];
   for (const outcome of checked) {
     const task = outcome.item;

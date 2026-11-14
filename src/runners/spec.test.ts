@@ -831,14 +831,16 @@ describe('defaultSandboxFactory wires the opt-in read-only rootfs', () => {
 });
 
 describe('Linear dependency gate wiring', () => {
-  const issue = (identifier: string, blockedBy: string[] = []): object => ({
+  const blockedBy: Record<string, string[]> = { 'ENG-2': ['ENG-1'], 'ENG-3': ['ENG-3'] };
+  const issue = (identifier: string): object => ({
     identifier, title: 't', description: 'd', state: { name: 'Todo', type: 'unstarted' }, labels: { nodes: [{ name: 'vanguard:spec' }] },
-    inverseRelations: { nodes: blockedBy.map((b) => ({ type: 'blocks', issue: { identifier: b } })) },
   });
   const graphql = async (body: { query: string; variables: Record<string, unknown> }): Promise<unknown> => {
-    if (/issues\(/.test(body.query)) return { data: { issues: { nodes: [issue('ENG-1'), issue('ENG-2', ['ENG-1']), issue('ENG-3', ['ENG-3'])] } } };
+    // The list (paged, as on main) and the dependency probe (identifiers of issues with blockers).
+    if (/\$after/.test(body.query)) return { data: { issues: { nodes: [issue('ENG-1'), issue('ENG-2'), issue('ENG-3')] } } };
+    if (/issues\(/.test(body.query)) return { data: { issues: { nodes: Object.keys(blockedBy).map((identifier) => ({ identifier })) } } };
     const id = body.variables['id'] as string;
-    return { data: { issue: { identifier: id, state: { type: 'unstarted' }, inverseRelations: { nodes: id === 'ENG-3' ? [{ type: 'blocks', issue: { identifier: 'ENG-3' } }] : [] } } } };
+    return { data: { issue: { identifier: id, state: { type: 'unstarted' }, inverseRelations: { nodes: (blockedBy[id] ?? []).map((b) => ({ type: 'blocks', issue: { identifier: b } })) } } } };
   };
   const common = { label: 'vanguard:spec', claimedState: 'Speccing', needsInfoState: 'Needs Info', graphql };
 

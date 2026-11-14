@@ -324,6 +324,8 @@ A start date comes from the issue's own start date, which GitLab returns from 19
 
 An issue that must wait is skipped and stays in its trigger state, so a later poll starts it by itself once every dependency is done and the date reached. A cycle, a reference to an issue that does not exist or the token cannot read, a canceled dependency or an impossible start date gets one comment with the reason (per reason, while the watch process runs) and moves to the needs-info state (when none is configured, it is only logged and stays triggered). A failed lookup is skipped for that poll. Beyond the direct blockers only native relations are followed.
 
+The issue list query is the same as without dependencies. One extra query per poll asks for identifiers only, 50 issues at a time, and finds the listed issues that have a "blocked by" relation or a cycle. Only those issues, and issues with a `Depends on` line, are looked up further.
+
 ### Starting the factory from the hub
 
 The hub's `start_task` call applies a trigger label to an issue of a registered project, as the hub's own `gh` identity (the credential it already uses for that project's GitHub source). Arguments: `repoPath`, `number`, `label`. GitHub only: a GitLab or Linear project answers "not supported yet". The response says what happened: `status` is `labelled` (or `retried` when a trigger label was already on a parked issue), `label` is the label applied, and `waitingOn` lists the unmet dependencies (`owner/repo#N`) of an issue parked at `taskcell:waiting`, for "waiting on #N".
