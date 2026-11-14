@@ -6,6 +6,7 @@ import { useAsync } from '../../hooks';
 import { ExternalLink } from '../../components/ExternalLink';
 import { verdictColor, verdictWord } from '../../status';
 import type { RemoteImport, RemoteRun, RunSource, RunSummary } from '../../taskcell-output';
+import { NO_REMOTE_MESSAGE } from '../../wire';
 
 function StatusChip({ r }: { r: RemoteRun }) {
   if (r.status !== 'completed') {
@@ -56,6 +57,8 @@ export function RemoteRuns({
 
   if (loading) return <div className="text-sm text-muted-foreground">Loading remote runs…</div>;
   if (error) {
+    // The hub's own refusal already says what to do; it is not a connection problem.
+    if (error.includes(NO_REMOTE_MESSAGE)) return <div role="alert" className="text-sm text-muted-foreground">{NO_REMOTE_MESSAGE}</div>;
     return (
       <ErrorNote
         title="Couldn't load remote runs"

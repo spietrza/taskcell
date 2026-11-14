@@ -45,19 +45,34 @@ export function providerOptionsFrom(
   ];
 }
 
+/** A board card id (`gh-904`, `gl-42`, `linear-dev-639`) as the transport and issue ref a run takes; any other id is its own ref. */
+export function issueRefFrom(taskId: string): { issueRef: string; transport?: string } {
+  const m = /^(gh|gl|linear)-(.+)$/i.exec(taskId);
+  if (!m) return { issueRef: taskId };
+  const kind = m[1]!.toLowerCase();
+  if (kind === 'linear') return { issueRef: m[2]!.toUpperCase(), transport: 'linear' };
+  return { issueRef: /(\d+)$/.exec(m[2]!)?.[1] ?? m[2]!, transport: kind === 'gh' ? 'github' : 'gitlab' };
+}
+
 export function NewRunForm({
   capabilities,
   project,
+  taskId,
   onRun,
   onCancel,
 }: {
   capabilities: Capabilities;
   project: string;
+  /** The card the form was opened from: its ref (and tracker) are filled in. */
+  taskId?: string | undefined;
   onRun: (params: CreateRunParams) => void;
   onCancel: () => void;
 }) {
-  const [issueRef, setIssueRef] = useState('');
-  const [transport, setTransport] = useState(capabilities.transports[0] ?? 'github');
+  const from = taskId !== undefined ? issueRefFrom(taskId) : undefined;
+  const [issueRef, setIssueRef] = useState(from?.issueRef ?? '');
+  const [transport, setTransport] = useState(
+    from?.transport !== undefined && capabilities.transports.includes(from.transport) ? from.transport : (capabilities.transports[0] ?? 'github'),
+  );
   const [provider, setProvider] = useState(capabilities.defaults.provider);
   const [flow, setFlow] = useState(capabilities.flows[0]?.name ?? 'default');
   const [maxTurns, setMaxTurns] = useState(String(capabilities.defaults.maxTurns));
@@ -110,12 +125,22 @@ export function NewRunForm({
   const preview = `taskcell run --${transport} ${issueRef || '<issue>'} --provider ${provider}${flow === 'plan' ? ' --plan' : ''} --max-turns ${maxTurns}`;
 
   return (
-    <div className="space-y-3 rounded-lg border border-border bg-muted/30 p-3">
-      <div className="flex flex-wrap items-center gap-2">
-        <Input value={issueRef} onChange={(e) => setIssueRef(e.target.value)} placeholder="issue ref (e.g. 322)" aria-invalid={refError !== undefined} className="w-40" />
-        <EnumSelect value={transport} onValueChange={setTransport} options={capabilities.transports.map((t) => ({ value: t, label: t }))} />
-        <EnumSelect value={provider} onValueChange={setProvider} options={providerOptions} />
-        <EnumSelect value={flow} onValueChange={setFlow} options={flowOptions} />
+    <section aria-labelledby="new-run-heading" className="space-y-3 rounded-lg border border-border bg-muted/30 p-3">
+      <h3 id="new-run-heading" className="text-sm font-semibold">New run</h3>
+      <div className="flex flex-wrap items-center gap-x-3 gap-y-2 text-xs text-muted-foreground">
+        <Input value={issueRef} onChange={(e) => setIssueRef(e.target.value)} placeholder="issue ref (e.g. 322)" aria-label="Issue ref" aria-invalid={refError !== undefined} className="w-40" />
+        <span className="flex items-center gap-1">
+          Task source
+          <EnumSelect value={transport} onValueChange={setTransport} options={capabilities.transports.map((t) => ({ value: t, label: t }))} />
+        </span>
+        <span className="flex items-center gap-1">
+          Provider
+          <EnumSelect value={provider} onValueChange={setProvider} options={providerOptions} />
+        </span>
+        <span className="flex items-center gap-1">
+          Flow
+          <EnumSelect value={flow} onValueChange={setFlow} options={flowOptions} />
+        </span>
         {repoFlows === 'error' && (
           <span className="text-[11px] text-muted-foreground">repo flows unavailable — built-in flows only</span>
         )}
@@ -157,6 +182,6 @@ export function NewRunForm({
           Run
         </Button>
       </div>
-    </div>
+    </section>
   );
 }

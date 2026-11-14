@@ -103,6 +103,7 @@ export function Inspector({
   const [watching, setWatching] = useState(false);
   const [tick, setTick] = useState(0);
   const [showNewRun, setShowNewRun] = useState(false);
+  const [newRunTask, setNewRunTask] = useState<string | undefined>(); // the card New Run was opened from
   const [taskDetailId, setTaskDetailId] = useState<string | null>(null);
   // Typed run (S1): capabilities for the form, the single in-flight typed run, and the idle-check.
   const [caps, setCaps] = useState<Capabilities | null>(null);
@@ -132,7 +133,16 @@ export function Inspector({
     setDetail(null);
     setLiveRun(null);
     setTaskDetailId(null);
+    // The New Run form belongs to the screen it was opened on; its error goes with it.
+    if (showNewRun) closeNewRun();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [screen]);
+
+  // Opening a run from its row removes the row that had focus: hand it to the detail instead of the page body.
+  const detailRef = useRef<HTMLDivElement>(null);
+  useEffect(() => {
+    if (detail && document.activeElement === document.body) detailRef.current?.focus();
+  }, [detail]);
 
   // The rail "Running" click opens that live run.
   useEffect(() => {
@@ -341,6 +351,11 @@ export function Inspector({
     void attach();
   }, []);
 
+  const closeNewRun = (): void => {
+    setShowNewRun(false);
+    setError(null);
+  };
+
   const startTypedRun = (params: CreateRunParams): void => {
     // Guard the launch itself, not just the toolbar button — the form has a second entry point
     // (board → TaskDetail → New Run) that isn't screen-gated, so a click there could clobber the
@@ -440,7 +455,7 @@ export function Inspector({
       )}
     >
       {screen === 'runs' && (
-      <div className="flex shrink-0 items-center gap-3">
+      <div className="flex shrink-0 flex-wrap items-center gap-3">
         {watching && (
           <span className="flex items-center gap-1 text-xs text-muted-foreground" title="Watching .taskcell for changes">
             <span className="size-2 animate-pulse rounded-full bg-success" />
@@ -448,7 +463,7 @@ export function Inspector({
           </span>
         )}
 
-        <div className="ml-auto flex items-center gap-3">
+        <div className="ml-auto flex flex-wrap items-center justify-end gap-3">
           {detail && <Timestamp ms={Date.parse(detail.timestamp)} className="tabular-nums text-xs text-muted-foreground" />}
           {liveRun && <Chip color="success" variant="outlined">running</Chip>}
           {typedRun !== null && stripMinimized && (
@@ -488,7 +503,7 @@ export function Inspector({
 
       {showNewRun && caps !== null && (
         <div className="shrink-0">
-          <NewRunForm capabilities={caps} project={project} onRun={startTypedRun} onCancel={() => setShowNewRun(false)} />
+          <NewRunForm capabilities={caps} project={project} taskId={newRunTask} onRun={startTypedRun} onCancel={closeNewRun} />
         </div>
       )}
 
@@ -521,11 +536,11 @@ export function Inspector({
             state={typedRun}
             // Always by id: with a hub queue, an id-less cancel hits whatever run is active NOW, which
             // may be the next one promoted after this run ended. Unset only while "starting…".
-            onCancel={() => void apiCancel(typedRun.runId)}
+            onCancel={() => (isDemoMode() ? setError(DEMO_READ_ONLY_MESSAGE) : void apiCancel(typedRun.runId))}
           />
         </div>
       ) : detail ? (
-        <div className="flex min-h-0 flex-1 flex-col">
+        <div ref={detailRef} tabIndex={-1} className="flex min-h-0 flex-1 flex-col outline-none">
           <RunDetail detail={detail} project={detailRepo} />
         </div>
       ) : liveRun ? (
@@ -543,6 +558,7 @@ export function Inspector({
             canRun={taskDetailRepo === project}
             onBack={() => setTaskDetailId(null)}
             onNewRun={() => {
+              setNewRunTask(taskDetailId);
               setTaskDetailId(null);
               setShowNewRun(true);
             }}

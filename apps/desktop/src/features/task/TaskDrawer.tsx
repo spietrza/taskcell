@@ -146,7 +146,7 @@ export function TaskDrawer({
   const archived = rows.filter((r) => r.archived);
 
   return (
-    <div className="flex w-[380px] shrink-0 flex-col border-l border-border pl-3">
+    <div className="flex w-[380px] shrink-0 flex-col border-l border-border pl-3 max-lg:w-full max-lg:shrink max-lg:border-l-0 max-lg:border-t max-lg:pl-0 max-lg:pt-2">
       <div className="flex shrink-0 items-center gap-1 border-b border-border">
         <button
           aria-label="history"

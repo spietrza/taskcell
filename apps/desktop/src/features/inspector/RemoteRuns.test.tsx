@@ -4,6 +4,7 @@ import { clearMocks } from '@tauri-apps/api/mocks';
 import { install } from '../../dev/mockBackend';
 import { remoteImport, remoteRuns, runs } from '../../dev/fixtures';
 import { RemoteRuns } from './RemoteRuns';
+import { NO_REMOTE_MESSAGE } from '../../wire';
 
 afterEach(() => {
   clearMocks();
@@ -69,4 +70,12 @@ test('hub mode: the same screen imports via import_remote_run and opens the reco
     expect.objectContaining({ taskId: runs[0].taskId, timestamp: runs[0].timestamp }),
     { kind: 'ci', runId: uncached.id },
   );
+});
+
+test('a repository with no git remote shows the hub\'s own sentence, not the connection hint', async () => {
+  window.__TASKCELL_HUB__ = true;
+  vi.stubGlobal('fetch', vi.fn(async () => new Response(JSON.stringify({ error: { message: NO_REMOTE_MESSAGE } }), { status: 400, headers: { 'content-type': 'application/json' } })));
+  render(<RemoteRuns project="/repo" onOpenRun={vi.fn()} />);
+  expect(await screen.findByRole('alert')).toHaveTextContent(NO_REMOTE_MESSAGE);
+  expect(screen.queryByText("Couldn't load remote runs")).toBeNull();
 });

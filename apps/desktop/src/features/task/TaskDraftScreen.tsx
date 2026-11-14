@@ -973,7 +973,7 @@ export function TaskDraftScreen({
           {!Number.isNaN(updatedMs) && relTime(updatedMs)}
           {archived && ' · archived'}
         </span>
-        {createError !== null && <span className="truncate text-xs text-destructive">{createError}</span>}
+        {createError !== null && <span role="alert" className="truncate text-xs text-destructive">{createError}</span>}
         {saveError !== null && <span className="truncate text-xs text-destructive">{saveError}</span>}
         <div className="ml-auto flex shrink-0 items-center gap-2">
           {archived && created !== null ? (
@@ -1020,8 +1020,9 @@ export function TaskDraftScreen({
         <p className="shrink-0 pt-1 text-xs text-muted-foreground">{validation}</p>
       )}
 
-      <div className="flex min-h-0 flex-1 gap-3 pt-3">
-        <div className="min-w-0 flex-1" onBlur={() => void writer.flush()}>
+      {/* Below lg the 380px drawer would squeeze the editor away, so the two stack. */}
+      <div className="flex min-h-0 flex-1 gap-3 pt-3 max-lg:flex-col">
+        <div className="min-h-0 min-w-0 flex-1" onBlur={() => void writer.flush()}>
           <div className="mx-auto h-full max-w-3xl">
             <DocEditor
               value={body}
@@ -1034,7 +1035,7 @@ export function TaskDraftScreen({
         </div>
         {/* Hidden, not unmounted: closing the drawer is visibility only (handoff §6) — the
             transcript scroll position and any unsent composer text must survive a toggle. */}
-        <div className={drawerOpen ? 'flex min-h-0' : 'hidden'}>
+        <div className={drawerOpen ? 'flex min-h-0 max-lg:flex-1' : 'hidden'}>
           <TaskDrawer
             panel={panel}
             tabs={tabs}
