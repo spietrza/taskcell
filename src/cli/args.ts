@@ -1,3 +1,4 @@
+import { join } from 'node:path';
 import { parseArgs } from 'node:util';
 import { STREAMS } from '../core/audit.js';
 import { isProviderName, validateProviderChoice, PROVIDER_NAMES } from '../agents/registry.js';
@@ -327,6 +328,7 @@ export type Command =
       until?: string;
       format: 'jsonl' | 'csv';
     }
+  | { kind: 'skills'; action: 'list' | 'check'; dir: string; strict: boolean }
   | LessonsCommand
   | {
       kind: 'eval';
@@ -642,6 +644,9 @@ export function parseCli(argv: string[], cwd: string): Command {
         suggest: { type: 'boolean' },
         out: { type: 'string' },
         since: { type: 'string' },
+        // skills list|check
+        dir: { type: 'string' },
+        strict: { type: 'boolean' },
         // audit verify|export
         stream: { type: 'string' },
         until: { type: 'string' },
@@ -836,6 +841,13 @@ export function parseCli(argv: string[], cwd: string): Command {
       };
     }
     return fail('lessons expects a subcommand: record --pr <n> --github-repo <o/r> (or --mr <n> --gitlab-project <g/p>) | list | dismiss <id>.');
+  }
+
+  if (positionals[0] === 'skills') {
+    const action = positionals[1];
+    if (action !== 'list' && action !== 'check') return fail('skills expects a subcommand: taskcell skills list [--dir <skills dir>] | taskcell skills check [--dir <skills dir>] [--strict].');
+    if (action === 'list' && values.strict === true) return fail('skills list has no --strict; it applies to skills check.');
+    return { kind: 'skills', action, dir: typeof values.dir === 'string' ? values.dir : join(repoPath, 'skills'), strict: values.strict === true };
   }
 
   if (positionals[0] === 'audit') {
@@ -1504,6 +1516,9 @@ Commands:
   approve Compute a deterministic APPROVE/ESCALATE decision for a factory PR from typed facts and the
          base-branch policy; publish a neutral check run + PR comment and record the decision
          (shadow mode, the default, never merges, approves, or edits labels; --mode act merges, see docs/autonomous-loop.md).
+  skills list | check  List skills with source, short commit and status (pinned, local, modified), or check each
+         pinned source's default branch head (current, outdated, unknown; --strict exits 1 on outdated or
+         modified); --dir <skills dir> (default ./skills); see docs/skills.md.
   audit verify | export  Check the hash chains of the audit streams (hub, run-events, metrics, decisions,
          lessons) or export them with --since/--until as jsonl or csv; see docs/audit.md.
   history <owner/repo#N>  One issue's history over the audit streams (trigger, runs, reviews, approver,

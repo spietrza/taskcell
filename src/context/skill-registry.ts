@@ -4,6 +4,7 @@ import { tmpdir } from 'node:os';
 import { agentFamily } from '../agents/provider.js';
 import { TaskcellError } from '../core/errors.js';
 import type { IsolatedSandboxProvider } from '../sandbox/provider.js';
+import { readSkillLock, verifySkill } from './skill-lock.js';
 
 const SKILLS_DIR = '/workspace/.vanguard/skills';
 const CURSOR_RULES_DIR = '/workspace/.cursor/rules';
@@ -295,6 +296,9 @@ async function skillsIn(dir: string): Promise<Record<string, string>> {
     if (skillMd?.isSymbolicLink() === true) console.warn(`taskcell: skipping skill ${skillDir}: its SKILL.md is a symlink`);
     else if (skillMd?.isFile() === true) skills[entry.name] = skillDir;
   }
+  // A skill with a lock entry must match it; one without is local (warned once).
+  const lock = await readSkillLock(dir);
+  for (const [name, skillDir] of Object.entries(skills)) await verifySkill(skillDir, name, lock);
   return skills;
 }
 
