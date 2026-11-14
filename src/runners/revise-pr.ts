@@ -689,22 +689,24 @@ export async function runRevisePullRequest(prRef: string, deps: ReviseGithubPrDe
         checklist.length,
       );
       const unanswered = checklist.filter((_, i) => answers[i] === undefined);
-      // `handOff`: also swap `needs revision` for the needs-human-review label, so the PR is not picked up for
-      // another automatic round; a human re-applying `needs revision` starts a normal round again.
+      // `handOff`: also swap `needs revision` and the run's hold labels (a `taskcell:rate-limited` one would let the
+      // resume sweep re-queue the PR) for the needs-human-review label, so the PR is not picked up for another
+      // automatic round; a human re-applying `needs revision` starts a normal round again.
       const failOpenItems = async (notice: string, handOff = false): Promise<never> => {
         log(`revise-pr ${target.repoSlug}#${target.number}: ${notice}`);
         if (deps.out === undefined) {
           await postPullRequestReview(target, notice, 'comment', gh).catch(() => undefined);
-          const labels = handOff
-            ? { remove: [TASKCELL_REVISING_LABEL, NEEDS_REVISION_LABEL], add: [GITHUB_REVIEW_LABEL], ensure: [GITHUB_REVIEW_LABEL] }
-            : { remove: [TASKCELL_REVISING_LABEL] };
-          await editPrLabels(gh, target.repoSlug, target.number, labels, log).catch(() => undefined);
+          if (handOff) await handBackPrLabels(gh, target.repoSlug, target.number, log);
+          else {
+            await editPrLabels(gh, target.repoSlug, target.number, { remove: [TASKCELL_REVISING_LABEL] }, log)
+              .catch((err: unknown) => log(`revise-pr ${target.repoSlug}#${target.number}: labels -> manual label check (${err instanceof Error ? err.message : String(err)})`));
+          }
         }
         throw new TaskcellError(`revise-pr ${target.repoSlug}#${target.number}: ${notice}`);
       };
       if (unanswered.length > 0) {
         await writeStagesWithoutDiff();
-        return await failOpenItems(`Revision failed: ${unanswered.length} blocking item(s) have no answer (fixed / not fixed / disputed), nothing was pushed. This PR needs a hand fix; unanswered:\n${unanswered.map((t) => `- ${t}`).join('\n')}`, true);
+        return await failOpenItems(`Revision failed: ${unanswered.length} blocking item(s) have no answer (fixed / not fixed / disputed), nothing was pushed. This PR needs a hand fix; unanswered:\n${unanswered.map((t) => `- ${t}`).join('\n')}\n\nAfter fixing it by hand, re-apply \`needs revision\` to start a normal revision round.`, true);
       }
       const checklistAnswers = checklist.map((text, i) => ({ text, answer: answers[i]! }));
 

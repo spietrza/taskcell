@@ -2744,7 +2744,8 @@ describe('runRevisePullRequest blocking-item checklist', () => {
     };
   }
 
-  async function run(text: string, opts: { noChange?: boolean; laterStagesOnly?: boolean; prLabels?: string[] } = {}): Promise<{ ghCalls: string[][]; ghEnvs: Array<Record<string, string> | undefined>; pushes: string[][]; prompt: string; result: Promise<unknown> }> {
+  async function run(text: string, opts: { noChange?: boolean; laterStagesOnly?: boolean; prLabels?: string[]; failLabelEdit?: boolean } = {}): Promise<{ ghCalls: string[][]; ghEnvs: Array<Record<string, string> | undefined>; pushes: string[][]; prompt: string; logs: string[]; result: Promise<unknown> }> {
+    const logs: string[] = [];
     const ghEnvs: Array<Record<string, string> | undefined> = [];
     const ghCalls: string[][] = [];
     const pushes: string[][] = [];
@@ -2752,6 +2753,7 @@ describe('runRevisePullRequest blocking-item checklist', () => {
     const gh: GhRunner = async (args, env) => {
       ghEnvs.push(env);
       ghCalls.push(args);
+      if (opts.failLabelEdit === true && args[0] === 'pr' && args[1] === 'edit') throw new Error('gh: label edit refused');
       if (args[0] === 'pr' && args[1] === 'view') return makePrViewJson({ labels: (opts.prLabels ?? ['taskcell:reviewed']).map((name) => ({ name })) });
       if (args[0] === 'pr' && args[1] === 'diff') return 'diff --git a/fix.txt';
       if (args[0] === 'api' && args[1] === 'graphql') {
@@ -2765,11 +2767,11 @@ describe('runRevisePullRequest blocking-item checklist', () => {
     if (opts.noChange === true) sandbox.copyFileOut = async (p: string, host: string): Promise<void> => { if (p === '/workspace') await mkdir(host, { recursive: true }); };
     const result = runRevisePullRequest('7', {
       repoPath: repo, repoSlug: 'o/r', gh, _sandbox: sandbox, _agent: agentWithText(text, inputs, opts.laterStagesOnly),
-      _worktrees: new WorktreeManager(repo), _baseBranch: 'feature-branch', provider: 'claude', log: () => {},
+      _worktrees: new WorktreeManager(repo), _baseBranch: 'feature-branch', provider: 'claude', log: (line) => logs.push(line),
       _pushRunner: async (file, args) => { if (file === 'git') pushes.push(args); return ''; },
     });
     await result.catch(() => undefined);
-    return { ghCalls, ghEnvs, pushes, prompt: inputs[0]?.prompt ?? '', result };
+    return { ghCalls, ghEnvs, pushes, prompt: inputs[0]?.prompt ?? '', logs, result };
   }
 
   // The pre-rename name: GitHub fires the review workflow on the label's name, and the shipped callers listen for this one.
@@ -2846,6 +2848,24 @@ describe('runRevisePullRequest blocking-item checklist', () => {
     const body = ghCalls.filter((a) => a[0] === 'pr' && a[1] === 'review').map((a) => a.at(-1) ?? '').join('\n');
     expect(body).toContain('needs a hand fix');
     expect(body).toContain('- missing test for empty input');
+  });
+
+  it('the hand-off also drops the rate-limited hold, so the resume sweep does not re-queue the PR, and says how to resume', async () => {
+    const { ghCalls, result } = await run('1. FIXED: src/a.ts — done', { prLabels: ['needs revision', 'taskcell:revising', 'taskcell:rate-limited'] });
+    await expect(result).rejects.toThrow(/no answer/);
+    const edit = ghCalls.find((a) => a[0] === 'pr' && a[1] === 'edit' && a.includes('--add-label') && a.includes('taskcell:needs-human-review'));
+    expect(edit).toEqual(expect.arrayContaining(['--remove-label', 'taskcell:rate-limited', '--remove-label', 'needs revision']));
+    const body = ghCalls.filter((a) => a[0] === 'pr' && a[1] === 'review').map((a) => a.at(-1) ?? '').join('\n');
+    expect(body).toContain('re-apply `needs revision`');
+  });
+
+  it.each([
+    ['the hand-off', '1. FIXED: src/a.ts — done', {}],
+    ['a round that pushed nothing', '1. DISPUTED: src/a.ts — already handled\n2. NOT FIXED: out of scope', { noChange: true }],
+  ])('logs a failed label swap after %s instead of swallowing it', async (_n, text, opts) => {
+    const { logs, result } = await run(text, { ...opts, prLabels: ['needs revision', 'taskcell:revising'], failLabelEdit: true });
+    await expect(result).rejects.toThrow();
+    expect(logs.some((l) => l.includes('manual label check (gh: label edit refused)'))).toBe(true);
   });
 
   it('does not hand off a round that pushed nothing with every item answered or for other reasons', async () => {
