@@ -111,3 +111,20 @@ Copy the skill directory from that commit, set `source` to the repo URL, `path` 
 - `taskcell skills check [--dir <skills dir>] [--strict]` resolves each pinned source's default branch head with `git ls-remote` and reports `current`, `outdated` (with the upstream short sha) or `unknown` (the head could not be resolved). `--strict` exits 1 when any skill is outdated or modified; `unknown` does not fail it, so an unreachable upstream never breaks a build. It is read-only.
 
 `--dir` defaults to `<repo>/skills` (`--repo`, else the current directory). Both commands list exactly the skills the registry loads: a subdirectory with no `SKILL.md`, or a symlinked one, is not a skill. Both commands run on the host; the network is never touched from the sandbox.
+
+### Changing skills: `add`, `remove`, `update`
+
+All three run on the host (the sandbox never touches the network) and keep `skills.lock.json` in step with the skill directories.
+
+- `taskcell skills add <git-url>[#ref] [--path <dir-in-repo>] [--name <name>] [--dir <skills dir>]` resolves `ref` (a branch, tag or full sha; default the head of the default branch) to a commit sha, fetches that commit, copies the skill directory (`SKILL.md` and the other files in it, nothing else from the repo), writes the lock entry and prints what was added. `--path` defaults to the repo root; `--name` defaults to the last segment of `--path` (or the repo name). It refuses a non-https source or one with credentials, any symlink (the path, a parent, or a file in the skill), a path that escapes the repo, a directory without `SKILL.md`, a skill with more than 200 files or 5 MiB, and a name that is not a plain directory name (or is `skills.lock.json`), and a name that already exists. Symlinks are checked out as symlinks, never followed, so a source cannot smuggle one in as a text file.
+- `taskcell skills remove <name> [--dir]` deletes the skill directory and its lock entry. It refuses a directory that is neither pinned nor holds a `SKILL.md`.
+- `taskcell skills update [name] [--dir] [--dry-run] [--pr]` moves each pinned skill (or the named one) to the head of its source's default branch, rewrites the skill directory and the lock, and prints one line per skill, then the `SKILL.md` diff:
+  - `<old> → <new> (+a −d lines)`: moved;
+  - `current`: already at the head, nothing written;
+  - `upstream gone → kept <sha>`: the head, the commit or the skill path could not be fetched; the pin stays;
+  - `upstream refused → kept <sha>`: the new commit's skill is invalid (symlink, no `SKILL.md`, over the limits); the reason goes to stderr and the other skills still update;
+  - `modified locally → skipped`: any file in the skill directory differs from the pinned commit (the whole directory is compared, not only `SKILL.md`), so update never overwrites a local edit; `missing locally → skipped` means the directory is gone or unreadable, and `cannot verify local files against the pinned commit → skipped` that the pinned commit could not be fetched to compare;
+  - `invalid skill name → skipped`: the lock names something that is not a plain directory name.
+  Each skill's directory and its lock entry are written together, so an interrupted update never leaves the lock disagreeing with the tree.
+- `--dry-run` prints the same and writes nothing.
+- `--pr` does the update in a throwaway worktree on a new branch and opens a PR through the normal delivery path (secret scan, commit, push, `gh pr create`). The skills directory must be inside the repo (`--repo`, default the current directory). The PR targets the repo's base branch (`--base`, else the repo's configured one); Taskcell never pushes to it and never merges. The body has each skill's `SKILL.md` diff and links to the old and new upstream commits; upstream text is escaped like other untrusted text (`<` becomes `&lt;`, `@mentions` are defused) fenced so it cannot break out of the block, and each diff is truncated to fit GitHub's body limit. Your checkout is not modified. Review the diff before merging: a skill steers an agent that has repo access.
