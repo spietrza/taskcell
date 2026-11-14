@@ -57,8 +57,10 @@ jobs:
       provider-model: sonnet
       spec-model: opus
       review-provider: claude
-      review-model: claude-fable-5-2
-      escalate-model: claude-fable-5-2
+      # Opus since 2026-11-14: the subscription's Fable limit is spent, and a run whose reviewer or escalation
+      # hits it loses the finished implementation. Back to claude-fable-5-2 when the limit resets.
+      review-model: opus
+      escalate-model: opus
       # If Claude is down or out of plan, the implementer retries once on the Codex subscription.
       fallback-provider: codex
       decision-probe: true
