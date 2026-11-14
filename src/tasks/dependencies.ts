@@ -30,7 +30,7 @@ const REF_TOKEN = /^(?:([\w.-]+\/[\w.-]+)#(\d+)|#(\d+)|https?:\/\/github\.com\/(
  * Trimmed body lines that can carry a directive: fenced code blocks and `>` quotes are skipped, so an
  * example or a quoted reply never declares a dependency or a start date.
  */
-function directiveLines(body: string): string[] {
+export function directiveLines(body: string): string[] {
   const lines: string[] = [];
   let fenced = false;
   for (const raw of body.split('\n')) {

@@ -38,6 +38,8 @@ export interface Task {
   author?: string;
   /** Issues/PRs that must be done first (GitHub: native blocked-by plus `Depends on` body lines). Absent or empty ⇒ none. */
   dependsOn?: TaskRef[];
+  /** The issue's own start date as the provider returns it (GitLab `start_date`). Absent ⇒ only a `Start:` body line counts. */
+  startDate?: string;
 }
 
 export interface TaskFilter {

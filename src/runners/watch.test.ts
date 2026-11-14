@@ -9,6 +9,7 @@ import {
   githubSpecPrimitives,
   githubIssueWatchPrimitives,
   gitlabWatchPrimitives,
+  gitlabSpecPrimitives,
 } from './watch.js';
 import { runGithubIssue } from './github.js';
 import { runGitlabIssue } from './gitlab.js';
@@ -20,6 +21,8 @@ import type { RunGitlabIssueResult } from './gitlab.js';
 import type { RunLinearIssueResult } from './linear.js';
 import { GitHubTaskFetcher } from '../tasks/github.js';
 import type { GhRunner } from '../tasks/github.js';
+import { GitLabTaskFetcher } from '../tasks/gitlab.js';
+import type { GlabRunner } from '../tasks/gitlab.js';
 import type { TaskFetcher } from '../tasks/fetcher.js';
 import type { LinearCliRunner } from '../tasks/linear-cli.js';
 
@@ -1779,6 +1782,79 @@ describe('GitHub watch dependency gate', () => {
       expect(await primitives.listReady()).toEqual([]);
       expect(calls.some((c) => c.startsWith('issue comment 1'))).toBe(true);
       expect(log).toHaveBeenCalledWith(expect.stringContaining('owner/repo#1 skipped -> waiting for owner/repo#2'));
+    } finally {
+      log.mockRestore();
+    }
+  });
+});
+
+describe('GitLab watch dependency gate', () => {
+  const makeGlab = (issue: object): { glab: GlabRunner; calls: string[] } => {
+    const calls: string[] = [];
+    const glab: GlabRunner = async (args) => {
+      calls.push(args.join(' '));
+      if (args[0] === 'issue' && args[1] === 'list') return JSON.stringify([{ iid: 1, title: 'T', labels: ['ready for agent'], ...issue }]);
+      if (args[0] === 'api' && args[1] === 'projects/g%2Fp/issues/2') return JSON.stringify({ state: 'opened' });
+      if (args[0] === 'api' && args[1] === 'user') return '{"username":"bot"}';
+      return args[0] === 'api' ? '[]' : '';
+    };
+    return { glab, calls };
+  };
+  const agent = (glab: GlabRunner): WatchPrimitives =>
+    gitlabWatchPrimitives({
+      deps: { repoPath: '/repo', project: 'g/p' } as unknown as WatchGitlabOptions['deps'],
+      label: 'ready for agent',
+      claimedLabel: 'taskcell::running',
+      reviewLabel: 'taskcell::review',
+      needsInfoLabel: 'needs info',
+      gl: glab,
+    });
+
+  it('listReady holds an issue whose dependency is open and keeps its trigger', async () => {
+    const log = vi.spyOn(console, 'log').mockImplementation(() => {});
+    try {
+      const { glab, calls } = makeGlab({ description: 'Depends on #2' });
+      expect(await agent(glab).listReady()).toEqual([]);
+      expect(calls.some((c) => c.startsWith('issue note create 1'))).toBe(true);
+      expect(calls.some((c) => c.startsWith('issue update 1') && c.includes('--label taskcell::waiting') && !c.includes('--unlabel'))).toBe(true);
+      expect(log).toHaveBeenCalledWith(expect.stringContaining('g/p#1 skipped -> waiting for g/p#2'));
+    } finally {
+      log.mockRestore();
+    }
+  });
+  it('listReady reads the start date from the issue list and sends a merge request to needs info', async () => {
+    const log = vi.spyOn(console, 'log').mockImplementation(() => {});
+    try {
+      const future = makeGlab({ description: null, start_date: '2999-01-01' });
+      expect(await agent(future.glab).listReady()).toEqual([]);
+      expect(future.calls.some((c) => c.includes('has a start date of 2999-01-01'))).toBe(true);
+      const mr = makeGlab({ description: 'Depends on !7' });
+      expect(await agent(mr.glab).listReady()).toEqual([]);
+      expect(mr.calls.some((c) => c.startsWith('issue update 1') && c.includes('--label needs info') && c.includes('--unlabel ready for agent'))).toBe(true);
+    } finally {
+      log.mockRestore();
+    }
+  });
+  it('listReady passes an issue without dependencies with one extra read', async () => {
+    const { glab, calls } = makeGlab({ description: 'plain' });
+    expect(await agent(glab).listReady()).toEqual([{ id: 'g/p#1' }]);
+    expect(calls.filter((c) => c.startsWith('api'))).toEqual(['api projects/g%2Fp/issues/1/links']);
+  });
+  it('the spec pass holds a blocked issue the same way', async () => {
+    const log = vi.spyOn(console, 'log').mockImplementation(() => {});
+    try {
+      const { glab, calls } = makeGlab({ description: 'Depends on #2', labels: ['ready for spec'] });
+      const primitives = gitlabSpecPrimitives({
+        deps: { fetcher: new GitLabTaskFetcher('g/p', glab) } as never,
+        project: 'g/p',
+        specLabel: 'ready for spec',
+        claimedLabel: 'taskcell::speccing',
+        agentLabel: 'ready for agent',
+        needsInfoLabel: 'needs info',
+        gl: glab,
+      });
+      expect(await primitives.listReady()).toEqual([]);
+      expect(calls.some((c) => c.startsWith('issue note create 1'))).toBe(true);
     } finally {
       log.mockRestore();
     }
