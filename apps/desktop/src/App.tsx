@@ -419,7 +419,8 @@ export default function App() {
           className="shrink-0 border-b border-destructive/40 bg-destructive/10 px-4 py-2 text-sm text-destructive"
         >
           This tab has no valid hub token (the hub restarted, or the page was opened without its launch
-          URL) — open the URL `taskcell hub` printed to reconnect.
+          URL). To reconnect, open the URL that <code className="font-mono">taskcell hub</code> printed in its terminal. Your
+          projects are still there.
         </div>
       )}
       {!hubRestarted && hubConnectionIssue && (
@@ -437,6 +438,10 @@ export default function App() {
           )}
         </div>
       )}
+      {/* A tab the hub refused from the start has nothing loaded: an empty Home ("No projects yet") under
+          the refusal would read as lost projects. A tab that was already showing work keeps it on screen. */}
+      {!(hubRestarted && projects.length === 0) && (
+      <>
       <TopBar
         crumbs={crumbs}
         projectSwitcher={projectSwitcher}
@@ -543,6 +548,8 @@ export default function App() {
           )}
         </main>
       </div>
+      </>
+      )}
       {palette && (
         <CommandPalette
           projects={projects}
