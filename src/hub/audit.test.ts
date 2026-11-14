@@ -76,7 +76,7 @@ describe('audit log', () => {
     ctx.allowlist = new ProjectAllowlist(async () => [second], repo);
     const a = dispatchRpc(ctx, 'api_create_run', { params: { repoPath: repo, issueRef: '1', startedBy: 'mallory' } });
     const b = dispatchRpc(ctx, 'api_create_run', { params: { repoPath: second, issueRef: '2' } });
-    await new Promise((r) => setTimeout(r, 50));
+    await vi.waitFor(async () => expect(await lines(configDir)).toHaveLength(2));
     release();
     await Promise.all([a, b]);
     const out = (await lines(configDir)).map((l) => JSON.parse(l) as { action: string; login: string });

@@ -6,7 +6,7 @@ import type { AddressInfo } from 'node:net';
 import { request } from 'node:http';
 import { PassThrough } from 'node:stream';
 import type { ChildProcess } from 'node:child_process';
-import { afterEach, beforeEach, describe, expect, test } from 'vitest';
+import { afterEach, beforeEach, describe, expect, test, vi } from 'vitest';
 import { createHubServer, eventRepoPath, MAX_RPC_BODY_BYTES, type HubServer } from './server.js';
 import { listRunSummaries, defaultRunsRoot } from './runs.js';
 import { MAX_CONCURRENT_COMPLETES } from './complete.js';
@@ -314,7 +314,7 @@ describe('hub server', () => {
       });
     try {
       const pending = Array.from({ length: MAX_CONCURRENT_COMPLETES }, () => call().catch(() => undefined));
-      while (spawned < MAX_CONCURRENT_COMPLETES) await new Promise((r) => setTimeout(r, 5));
+      await vi.waitFor(() => expect(spawned).toBe(MAX_CONCURRENT_COMPLETES));
       const rejected = await call();
       expect(rejected.status).toBe(429);
       expect(await rejected.json()).toMatchObject({ error: { message: expect.stringContaining('too many doc chat requests') } });
