@@ -1,5 +1,7 @@
+import { execFile } from 'node:child_process';
 import { lstat, mkdir, rename, rm, writeFile } from 'node:fs/promises';
 import { basename, dirname, isAbsolute, join, relative } from 'node:path';
+import { promisify } from 'node:util';
 import { neutralizeMentions, neutralizePromptTags } from '../context/escape.js';
 import { lockEntry, readSkillLock, SKILL_LOCK_FILE, sha256Hex, skillStatus, type SkillLockEntry, type SkillStatus } from '../context/skill-lock.js';
 import { skillDirsIn } from '../context/skill-registry.js';
@@ -17,8 +19,23 @@ export type SkillsCommand = Extract<Command, { kind: 'skills' }>;
 /** Resolves a git source URL to its default branch head sha; undefined when it cannot. */
 export type GitResolver = (source: string) => Promise<string | undefined>;
 
-/** Host-only: the default branch head of `source`; undefined when it cannot be resolved. */
-export const gitLsRemoteHead: GitResolver = (source) => gitSkillSource.resolve(source).catch(() => undefined);
+const execFileP = promisify(execFile);
+
+/**
+ * Host-only: `git ls-remote <url> HEAD` (the default branch head). Read-only, so unlike add/update it
+ * keeps no protocol allow-list: an operator's `url.<base>.insteadOf` rewrite (e.g. to ssh) still resolves.
+ */
+export const gitLsRemoteHead: GitResolver = async (source) => {
+  try {
+    const { stdout } = await execFileP('git', ['ls-remote', source, 'HEAD'], {
+      env: { ...process.env, GIT_TERMINAL_PROMPT: '0' },
+      timeout: 30_000,
+    });
+    return /^[0-9a-f]{40}(?=\s|$)/.exec(stdout)?.[0];
+  } catch {
+    return undefined;
+  }
+};
 
 export interface SkillRow {
   name: string;

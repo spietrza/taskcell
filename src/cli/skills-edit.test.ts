@@ -8,7 +8,7 @@ import { sha256Hex } from '../context/skill-lock.js';
 import type { SkillSource } from '../context/skill-source.js';
 import { WorktreeManager } from '../worktree/manager.js';
 import { parseCli } from './args.js';
-import { skillsAdd, skillsRemove, skillsUpdate, type SkillsDeps } from './skills.js';
+import { skillsAdd, skillsCheck, skillsRemove, skillsUpdate, type SkillsDeps } from './skills.js';
 
 const SRC = 'https://github.com/o/r';
 const C1 = '1'.repeat(40);
@@ -353,5 +353,27 @@ describe('parseCli skills edge cases', () => {
     expect(parseCli(['skills', 'list', '--dry-run'], '/w')).toMatchObject({ kind: 'error' });
     expect(parseCli(['skills', 'list', '--name', 'n'], '/w')).toMatchObject({ kind: 'error' });
     expect(parseCli(['skills', 'frob'], '/w')).toMatchObject({ kind: 'error' });
+  });
+});
+
+describe('skills check resolver', () => {
+  afterEach(() => vi.unstubAllEnvs());
+  it('follows the operator url.insteadOf rewrite, so --strict still fails an outdated skill', async () => {
+    const up = join(root, 'up');
+    await mkdir(join(up, 'skills/a'), { recursive: true });
+    const g = (...a: string[]) => execa('git', ['-c', 'user.email=t@t', '-c', 'user.name=t', ...a], { cwd: up });
+    await g('init', '-b', 'main');
+    await writeFile(join(up, 'skills/a/SKILL.md'), 'one\n');
+    await g('add', '.');
+    await g('commit', '-m', 'one');
+    const head = (await g('rev-parse', 'HEAD')).stdout.trim();
+    await add(stub({ [SRC]: C1 }, { [C1]: skillTree('one\n') }));
+    // The pinned https source is rewritten to a non-https transport by the operator's own git config.
+    vi.stubEnv('GIT_CONFIG_COUNT', '1');
+    vi.stubEnv('GIT_CONFIG_KEY_0', `url.file://${up}.insteadOf`);
+    vi.stubEnv('GIT_CONFIG_VALUE_0', SRC);
+    const lines: string[] = [];
+    expect(await skillsCheck(dir, true, undefined, (l) => lines.push(l))).toBe(1);
+    expect(lines).toEqual([`a\t${SRC}\t${C1.slice(0, 7)}\toutdated (upstream ${head.slice(0, 7)})`]);
   });
 });
