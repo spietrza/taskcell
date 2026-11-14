@@ -156,6 +156,7 @@ describe('approver commands', () => {
       const { ctx } = await makeCtx(repo);
       const card = (await dispatchRpc(ctx, 'read_approver_scorecard', { repoPath: repo })) as ApproverScorecard;
       expect(card.actOffered).toBe(false);
+      expect(card.actHold).toMatch(/reviewAuthors/);
       await expect(dispatchRpc(ctx, 'set_approver_mode', { repoPath: repo, mode: 'act', confirmBelowBar: true })).rejects.toThrow(/reviewAuthors/);
       expect(open).not.toHaveBeenCalled();
     });
