@@ -509,7 +509,7 @@ When a run ends on a provider usage or rate limit, the issue gets `taskcell:rate
 - **Card and quick view / task detail:** "Paused: provider limit", with "retries automatically after HH:MM" in local time ("soon" once that time has passed; no time when the marker is missing).
 - **Banner:** on the Board and on Home, one banner when at least one task of the shown repositories is paused: how many, the latest retry time, and what you can do (wait, or add credit / switch the model in Settings). No banner when none is paused.
 - **Retry now:** `retry_paused_task` (`{ repoPath, number }`) removes the rate-limited label and re-applies the marker's recorded trigger, as the comment describes. It has Start's rules: loopback only unless `TASKCELL_HUB_ALLOW_ADD=1`, GitHub issues only, refused for a closed or already-started issue; it also refuses an issue that is not paused, one with no marker from the factory, and a trigger that is not one of the project's. It is audited as `task-retry`.
-- **Runs:** a run that ended on a provider limit shows "stopped: provider limit" instead of "failed" (`stoppedBy` on the run summary).
+- **Runs:** a run that ended on a provider limit shows "stopped: provider limit" instead of "failed" (`stoppedBy` on the run summary). Only the structured `stoppedBy` flag the run wrote on its own stage record counts (set where the run caught the provider-limit error it parks the task on); the final text is agent prose and is never matched, so a stage that merely mentions a limit stays "failed".
 
 The views work at phone width (the quick view is a bottom drawer).
 

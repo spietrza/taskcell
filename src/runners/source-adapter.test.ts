@@ -5,6 +5,7 @@ import { mkdir, mkdtemp, writeFile, rm } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { startProviderProxies } from '../sandbox/llm-proxy.js';
+import { AgentError } from '../core/errors.js';
 import { resolveVerifyCommand, runVerification } from '../pipeline/verify.js';
 import { resolveBaselineVerify } from '../pipeline/baseline-verify.js';
 import { resolveAndRunVisualProof } from '../pipeline/visual-proof.js';
@@ -1101,6 +1102,28 @@ describe('runSourcedIssue', () => {
     expect(verdictText).toContain('[REDACTED-GH]');
     expect(verdictText).not.toContain(token);
     expect(body).not.toContain(token);
+    consoleError.mockRestore();
+  });
+
+  it('flags the re-review as stopped by a provider limit only for the limit error itself', async () => {
+    const consoleError = vi.spyOn(console, 'error').mockImplementation(() => {});
+    const reviewer = (): ReturnType<typeof stageOutcome> => {
+      const r = stageOutcome('reviewer');
+      r.result.finalText = '<findings>' + JSON.stringify({ findings: [{ severity: 'high', kind: 'correctness', title: 'x', evidence: 'y' }] }) + '</findings>';
+      return r;
+    };
+    const rereviewOf = async (error: Error): Promise<{ stoppedBy?: string }> => {
+      runStages.mockResolvedValueOnce([stageOutcome('implementer', 'sess-1'), reviewer()]);
+      vi.mocked(resolveVerifyCommand).mockResolvedValue('npm test');
+      vi.mocked(runVerification).mockResolvedValue({ passed: true } as never);
+      runAgent.mockResolvedValueOnce({ sessionId: 'sess-2', completed: true, exitReason: 'completed' } as never);
+      reviewFinalDiff.mockRejectedValueOnce(error);
+      const adapter = fakeAdapter([], STAGES);
+      await runSourcedIssue('group/project#1', { repoPath: '/repo' }, adapter);
+      return vi.mocked(adapter.publishVerdict).mock.calls.at(-1)?.[0]?.reviewerOutcome?.result ?? {};
+    };
+    expect((await rereviewOf(new AgentError("You've hit your session limit · resets 9pm (UTC)"))).stoppedBy).toBe('provider-limit');
+    expect((await rereviewOf(new AgentError('crashed after adding handling for usage limit reached'))).stoppedBy).toBeUndefined();
     consoleError.mockRestore();
   });
 

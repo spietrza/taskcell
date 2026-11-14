@@ -14,7 +14,6 @@ import { exportRunTrace } from './otlp-sink.js';
 import { appendAudit, defaultActor, localAdapter, STREAMS } from './audit.js';
 import { assertStatePath, ensureStateDir, isSafeTaskId, stateDir } from './state-path.js';
 import { injectedSecretValues, redactForPublish, scanForInjectedSecrets, scanForSecrets, withRegisteredSecretValues } from './secret-scan.js';
-import { isProviderLimitError } from './errors.js';
 import { redactVerificationOutput } from '../pipeline/verify.js';
 import type { VerificationResult } from '../pipeline/verify.js';
 import type { VisualProofResult } from '../pipeline/visual-proof.js';
@@ -205,7 +204,8 @@ async function parseRunSummaries(root: string): Promise<RunSummary[]> {
       const stages = records.map((r) => r.stage ?? 'run').sort();
       const totalCostUsd = records.reduce((sum, r) => sum + (r.costUsd ?? 0), 0);
       const anyFailed = records.some((r) => !r.completed);
-      const providerLimit = records.some((r) => !r.completed && isProviderLimitError(`${r.exitReason}\n${r.finalText}`));
+      // Only the flag the run recorded itself: the final text is agent prose, which may well quote a limit.
+      const providerLimit = records.some((r) => !r.completed && r.stoppedBy === 'provider-limit');
       const prUrl = httpsUrl(records.find((r) => r.prUrl !== undefined)?.prUrl);
       const ciUrl = httpsUrl(records.find((r) => r.ciUrl !== undefined)?.ciUrl);
       const startedBy = records.find((r) => r.startedBy !== undefined)?.startedBy;

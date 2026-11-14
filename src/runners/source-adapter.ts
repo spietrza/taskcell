@@ -15,6 +15,7 @@ import { prepareContext, disposeContext } from '../core/taskcell.js';
 import { probeTaskDifficulty, decisionProbeConfig } from '../core/decision-probe.js';
 import { decisionModelConfig, decisionEgressAllowed, decisionModelMissing, DECISION_MODEL_DEFAULT, type DecisionModelConfig } from '../core/decision-model.js';
 import { TaskcellError } from '../core/errors.js';
+import { isRateLimitHold } from '../core/rate-limit-marker.js';
 import { decisionDiffScorer } from '../evals/decision-judge.js';
 import { runStages, assembleReviewPipeline, withPrimaryFallback, sandboxComplete, withStageMaxTurns, withStageResumeUntilComplete, reviewFinalDiff, STAGE } from '../pipeline/pipeline.js';
 import { FLOWS } from '../api/capabilities.js';
@@ -836,6 +837,7 @@ export async function runSourcedIssue(
             worktreePath: ctx.worktreePath,
             worktreePreserved: true,
             finalText: `Review unavailable: ${redactForPublish(String(error))}`,
+            ...(isRateLimitHold(error) ? { stoppedBy: 'provider-limit' as const } : {}),
           };
         }
         // Appended, never swapped in over the first review: both reviews' cost and turns stay in the

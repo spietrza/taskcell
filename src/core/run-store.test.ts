@@ -528,12 +528,30 @@ describe('beginRun → listRuns/readRun round trip', () => {
   });
 
   it('labels a run that ended on a provider limit, not a plain failure', async () => {
-    const limited = { ...result, taskId: 'TES-2', completed: false, exitReason: 'incomplete' as const, finalText: "You've hit your session limit · resets 9pm (UTC)" };
+    const limited = { ...result, taskId: 'TES-2', completed: false, exitReason: 'incomplete' as const, finalText: 'Review unavailable', stoppedBy: 'provider-limit' as const };
     await beginRun(repo, 'TES-2', TS).writeStages([{ name: 'implementer', result: limited }], {});
-    await beginRun(repo, 'TES-3', TS).writeStages([{ name: 'implementer', result: { ...limited, taskId: 'TES-3', finalText: 'tests failed' } }], {});
+    await beginRun(repo, 'TES-3', TS).writeStages([{ name: 'implementer', result: { ...result, taskId: 'TES-3', completed: false, exitReason: 'incomplete' as const, finalText: 'tests failed' } }], {});
     const byId = new Map((await listRuns(runsRoot(repo))).map((r) => [r.taskId, r]));
     expect(byId.get('TES-2')).toMatchObject({ anyFailed: true, stoppedBy: 'provider-limit' });
     expect(byId.get('TES-3')!.stoppedBy).toBeUndefined();
+  });
+
+  it('agent prose quoting a limit stays a plain failure: only the recorded flag counts', async () => {
+    const prose = [
+      'added handling for `rate_limit_error` and a test for HTTP 429; still to do: the retry banner',
+      "You've hit your session limit · resets 9pm (UTC)",
+      'usage limit reached',
+    ];
+    for (const [i, finalText] of prose.entries()) {
+      const taskId = `TES-P${i}`;
+      await beginRun(repo, taskId, TS).writeStages([{ name: 'implementer', result: { ...result, taskId, completed: false, exitReason: 'incomplete' as const, finalText } }], {});
+    }
+    const summaries = (await listRuns(runsRoot(repo))).filter((r) => r.taskId.startsWith('TES-P'));
+    expect(summaries).toHaveLength(prose.length);
+    for (const s of summaries) {
+      expect(s.anyFailed).toBe(true);
+      expect(s.stoppedBy).toBeUndefined();
+    }
   });
 
   it('readRun still finds a proof file stamped earlier than the stage records (pre-shared-timestamp runs)', async () => {

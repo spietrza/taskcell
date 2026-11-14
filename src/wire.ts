@@ -358,6 +358,8 @@ export interface RunRecord {
   attempts?: number;
   /** Ids of the lessons injected into this run's prompts (`taskcell lessons list` counts them). */
   lessonIds?: string[];
+  /** The run's own structured flag that this stage ended on a provider rate/usage limit (core RunResult.stoppedBy). */
+  stoppedBy?: 'provider-limit';
 }
 
 export interface Proof {
