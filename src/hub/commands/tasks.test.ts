@@ -1,5 +1,5 @@
 import { execa } from 'execa';
-import { describe, expect, test } from 'vitest';
+import { describe, expect, test, vi } from 'vitest';
 import { classifyError, type RpcContext } from '../rpc.js';
 import { writeAppConfig } from '../app-config.js';
 import { dispatchRpc, makeCtx, tmpRepo, tmpGitRepo } from '../test-kit.js';
@@ -38,9 +38,26 @@ describe('tasks', () => {
     const repo = await tmpGitRepo();
     let created = false;
     const { ctx } = await makeCtx(repo, { depsOverrides: { createTask: async () => ((created = true), { id: 'x', url: 'https://x' }) } });
-    const err: unknown = await dispatchRpc(ctx, cmd, { repoPath: repo, ...extra }).catch((e: unknown) => e);
+    vi.stubEnv('GH_REPO', '');
+    const err: unknown = await dispatchRpc(ctx, cmd, { repoPath: repo, ...extra }).catch((e: unknown) => e).finally(() => vi.unstubAllEnvs());
     expect(classifyError(err)).toMatchObject({ kind: 'bad-request', message: NO_REMOTE_MESSAGE });
     expect(created).toBe(false);
+  });
+
+  test('with GH_REPO set, gh needs no git remote: a GitHub card is created; a GitLab one is still refused', async () => {
+    const repo = await tmpGitRepo();
+    let created = 0;
+    const { ctx } = await makeCtx(repo, { depsOverrides: { createTask: async () => (created++, { id: 'x', url: 'https://x' }) } });
+    vi.stubEnv('GH_REPO', 'o/r');
+    try {
+      await dispatchRpc(ctx, 'api_create_task', { repoPath: repo, title: 't', body: 'b' });
+      expect(created).toBe(1);
+      await writeAppConfig(repo, { source: 'gitlab' });
+      await expect(dispatchRpc(ctx, 'api_create_task', { repoPath: repo, title: 't', body: 'b' })).rejects.toThrow(NO_REMOTE_MESSAGE);
+      expect(created).toBe(1);
+    } finally {
+      vi.unstubAllEnvs();
+    }
   });
 
   describe('target branch', () => {
@@ -109,6 +126,8 @@ describe('tasks', () => {
       [{ concurrency: 1.5 }, /Parallel runs/],
       [{ budgetUsd: -1 }, /Budget cap per Run must be 0 or more/],
       [{ usageCapPct: 500 }, /Usage cap % must be from 1 to 100/],
+      [{ concurrency: 'two' }, /Parallel runs must be a number/],
+      [{ concurrency: 0, usageCapPct: 500 }, /Parallel runs must be a whole number, 1 or more\. Usage cap % must be from 1 to 100/],
     ])('write_app_config refuses the out-of-range number in %j and writes nothing', async (config, message) => {
       const repo = await tmpRepo();
       const { ctx } = await makeCtx(repo);
@@ -116,6 +135,9 @@ describe('tasks', () => {
       expect(await dispatchRpc(ctx, 'read_app_config', { repoPath: repo })).toEqual({});
       await dispatchRpc(ctx, 'write_app_config', { repoPath: repo, config: { concurrency: 2, budgetUsd: 2.5, usageCapPct: 80 } });
       expect(await dispatchRpc(ctx, 'read_app_config', { repoPath: repo })).toMatchObject({ concurrency: 2, usageCapPct: 80 });
+      // A hand-edited numeric string saved on main; it still does.
+      await dispatchRpc(ctx, 'write_app_config', { repoPath: repo, config: { concurrency: '2', label: 'x' } });
+      expect(await dispatchRpc(ctx, 'read_app_config', { repoPath: repo })).toMatchObject({ concurrency: '2', label: 'x' });
     });
 
     test('write_app_config refuses an unsafe baseBranches entry', async () => {

@@ -740,11 +740,20 @@ export const NO_REMOTE_MESSAGE = 'This repository has no git remote. Add one (gi
 /** The numeric `AppConfig` fields that are out of range, each as a sentence naming the field and its
  * range (unset/null is always valid). One rule for the hub's `write_app_config` and the Settings form. */
 export function appConfigRangeErrors(cfg: AppConfig): { concurrency?: string; budgetUsd?: string; usageCapPct?: string } {
-  const bad = (v: unknown, ok: (n: number) => boolean): boolean => v !== undefined && v !== null && !(typeof v === 'number' && Number.isFinite(v) && ok(v));
+  // A hand-edited file may hold a number as a string ("2"): it counts as that number, as the form shows it.
+  const check = (label: string, v: unknown, ok: (n: number) => boolean, range: string): string | undefined => {
+    if (v === undefined || v === null) return undefined;
+    const n = typeof v === 'number' ? v : typeof v === 'string' && v.trim() !== '' ? Number(v) : NaN;
+    if (!Number.isFinite(n)) return `${label} must be a number.`;
+    return ok(n) ? undefined : `${label} ${range}`;
+  };
+  const concurrency = check('Parallel runs', cfg.concurrency, (n) => Number.isInteger(n) && n >= 1, 'must be a whole number, 1 or more.');
+  const budgetUsd = check('Budget cap per Run', cfg.budgetUsd, (n) => n >= 0, 'must be 0 or more (leave it empty for no cap).');
+  const usageCapPct = check('Usage cap %', cfg.usageCapPct, (n) => n >= 1 && n <= 100, 'must be from 1 to 100 (leave it empty for no cap).');
   return {
-    ...(bad(cfg.concurrency, (n) => Number.isInteger(n) && n >= 1) ? { concurrency: 'Parallel runs must be a whole number, 1 or more.' } : {}),
-    ...(bad(cfg.budgetUsd, (n) => n >= 0) ? { budgetUsd: 'Budget cap per Run must be 0 or more (leave it empty for no cap).' } : {}),
-    ...(bad(cfg.usageCapPct, (n) => n >= 1 && n <= 100) ? { usageCapPct: 'Usage cap % must be from 1 to 100 (leave it empty for no cap).' } : {}),
+    ...(concurrency !== undefined ? { concurrency } : {}),
+    ...(budgetUsd !== undefined ? { budgetUsd } : {}),
+    ...(usageCapPct !== undefined ? { usageCapPct } : {}),
   };
 }
 

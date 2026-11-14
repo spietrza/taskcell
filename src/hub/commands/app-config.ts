@@ -31,8 +31,8 @@ export const commands = defineCommands<AppConfigCommands>({
     for (const b of [baseBranch, ...(Array.isArray(baseBranches) ? baseBranches : [])]) {
       if (typeof b === 'string' && b.trim() !== '') assertSafeBaseBranch(b.trim());
     }
-    const rangeError = Object.values(appConfigRangeErrors(config as AppConfig))[0];
-    if (rangeError !== undefined) throw new BadRequestError(rangeError);
+    const rangeErrors = Object.values(appConfigRangeErrors(config as AppConfig));
+    if (rangeErrors.length > 0) throw new BadRequestError(rangeErrors.join(' '));
     await writeAppConfig(real, config as HubAppConfig);
     return null;
   },
