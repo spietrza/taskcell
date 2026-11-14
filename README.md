@@ -180,6 +180,19 @@ How these fit together: [docs/security/boundaries.md](docs/security/boundaries.m
 | [docs/evals-and-guardrails.md](docs/evals-and-guardrails.md) | Evals and guardrails: where Taskcell stands |
 | [CHANGELOG.md](CHANGELOG.md) | Release notes |
 
+### Where things are stored
+
+| What | Where | How to read it |
+|---|---|---|
+| Run records (logs, diffs, proof of work) | `.taskcell/runs/<task>/` in the repo checkout | Hub → Runs, or the files |
+| Metrics (cost, tokens, time per stage) | `.taskcell/runs/metrics.jsonl`; durable copy in `metrics.jsonl` on the `taskcell-metrics` branch | `taskcell stats` (`--branch taskcell-metrics` in CI setups) |
+| Lessons from closed factory PRs | `lessons.jsonl` on the `taskcell-metrics` branch | `taskcell lessons list`, Hub → Lessons |
+| Approver decisions | `decisions.jsonl` on the `taskcell-metrics` branch | `taskcell stats --approver`, Hub → approver card |
+| Retrospective memory given to the agent | `.taskcell/memory/retrospective.md` | `taskcell memory` |
+| Hub projects, teams, sign-in, audit log | the hub config dir (`TASKCELL_HUB_CONFIG_DIR`) | the Hub; `taskcell audit verify` |
+
+Details: [docs/audit.md](docs/audit.md) and [docs/autonomous-loop.md](docs/autonomous-loop.md).
+
 ## Contributing
 
 ```bash
