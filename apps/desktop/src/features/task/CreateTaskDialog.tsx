@@ -1,5 +1,19 @@
 import { useEffect, useRef } from 'react';
 import { Button, useFocusTrap } from '@/ui';
+import { SOURCES } from '../../filterState';
+import { DEMO_READ_ONLY_MESSAGE, errorClause, errorMessage } from '../../errors';
+import { NO_REMOTE_MESSAGE } from '../../wire';
+
+/** A tracker id as its name (`github` → `GitHub`). */
+export const sourceName = (source: string): string => SOURCES.find((s) => s.value === source)?.label ?? source;
+
+/** Why a create did not go through. A refusal (demo mode, no git remote) created nothing, so it is shown as is;
+ * any other failure may have reached the tracker, so the user is sent to check before retrying. */
+export function createFailureText(err: unknown, source: string | undefined): string {
+  const message = errorMessage(err);
+  if (message === DEMO_READ_ONLY_MESSAGE || message === NO_REMOTE_MESSAGE) return message;
+  return `${errorClause(message)} — the issue may or may not have been created. Check ${source !== undefined ? sourceName(source) : 'the tracker'} before retrying.`;
+}
 
 /**
  * Confirmation for the app's first irreversible write.
@@ -56,7 +70,7 @@ export function CreateTaskDialog({
         tabIndex={-1}
         className="w-[28rem] rounded-lg border border-border bg-background p-4 shadow-lg outline-none"
       >
-        <h2 id="create-task-title" className="text-sm font-medium">Create a task on {source}?</h2>
+        <h2 id="create-task-title" className="text-sm font-medium">Create a task on {sourceName(source)}?</h2>
         <p className="mt-2 text-sm text-muted-foreground">
           This creates a real issue and <strong>cannot be undone from here</strong>. It does not start a run.
         </p>

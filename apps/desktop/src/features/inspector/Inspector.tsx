@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState } from 'react';
-import { Button, Chip, PAGE_CLASS, cn } from '@/ui';
+import { Button, Chip, PAGE_CLASS, Timestamp, cn } from '@/ui';
 import { ArrowLeft, FilePlus, RefreshCw } from 'lucide-react';
 import { canUseFleet, isHubMode, subscribe, onStreamReset } from '../../transport';
 import {
@@ -433,7 +433,7 @@ export function Inspector({
         )}
 
         <div className="ml-auto flex items-center gap-3">
-          {detail && <span className="tabular-nums text-xs text-muted-foreground">{detail.timestamp}</span>}
+          {detail && <Timestamp ms={Date.parse(detail.timestamp)} className="tabular-nums text-xs text-muted-foreground" />}
           {liveRun && <Chip color="success" variant="outlined">running</Chip>}
           {typedRun !== null && stripMinimized && (
             <button

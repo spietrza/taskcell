@@ -1,6 +1,7 @@
 import { useEffect, useState } from 'react';
 import { isTauri } from '@tauri-apps/api/core';
 import { Button, Card, Chip, Textarea } from '@/ui';
+import { errorClause } from '../../errors';
 import { RefreshCw } from 'lucide-react';
 import { listNeedsYou, listNeedsYouAll, mergeNeedsYou, replyNeedsYou, type NeedsYouItem, type RepoReadFailure, type RepoStamp } from '../../ipc';
 import { inRepos } from '../../repoFilter';
@@ -56,7 +57,7 @@ export function ReplyBox({ project, item, onReplied }: { project: string; item: 
         </Button>
         {error && (
           <span role="alert" className="text-xs text-destructive-text">
-            Reply not sent: {error}. Refresh — the item may no longer be waiting.
+            Reply not sent: {errorClause(error)}. Refresh — the item may no longer be waiting.
           </span>
         )}
       </div>
@@ -161,7 +162,7 @@ export function NeedsYou({
       </div>
       {error && (
         <div role="alert" className="rounded border border-destructive/40 bg-destructive/10 px-3 py-2 text-sm text-destructive">
-          Could not load what the factory is waiting on: {error}. Check the hub's `gh` login, then Refresh.
+          Could not load what the factory is waiting on: {errorClause(error)}. Check the hub's `gh` login, then Refresh.
         </div>
       )}
       <RepoFailures failures={failures} />

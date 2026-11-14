@@ -1,7 +1,9 @@
 import { describe, expect, test, vi } from 'vitest';
 import { fireEvent, render, screen } from '@testing-library/react';
 import { useState } from 'react';
-import { CreateTaskDialog } from './CreateTaskDialog';
+import { CreateTaskDialog, createFailureText } from './CreateTaskDialog';
+import { DEMO_READ_ONLY_MESSAGE } from '../../errors';
+import { NO_REMOTE_MESSAGE } from '../../wire';
 
 function Harness({ onCancel, busy = false }: { onCancel?: () => void; busy?: boolean }) {
   const [open, setOpen] = useState(false);
@@ -10,7 +12,7 @@ function Harness({ onCancel, busy = false }: { onCancel?: () => void; busy?: boo
       <button onClick={() => setOpen(true)}>Create task</button>
       {open && (
         <CreateTaskDialog
-          source="GitHub"
+          source="github"
           title="Fix login"
           bodyBytes={12}
           branches={[]}
@@ -52,4 +54,10 @@ describe('CreateTaskDialog', () => {
     expect(onCancel).not.toHaveBeenCalled();
     expect(screen.getByRole('dialog')).toBeInTheDocument();
   });
+});
+
+test('a refusal is shown as is; any other create failure sends the user to check the tracker, with single punctuation', () => {
+  expect(createFailureText(DEMO_READ_ONLY_MESSAGE, 'github')).toBe(DEMO_READ_ONLY_MESSAGE);
+  expect(createFailureText(NO_REMOTE_MESSAGE, 'github')).toBe(NO_REMOTE_MESSAGE);
+  expect(createFailureText('gh: timed out.', 'github')).toBe('gh: timed out — the issue may or may not have been created. Check GitHub before retrying.');
 });

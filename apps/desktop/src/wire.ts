@@ -731,6 +731,9 @@ export interface AppConfig {
   customProviders?: unknown;
 }
 
+/** The hub's refusal (400) for a GitHub/GitLab operation on a repository with no git remote. Shared so the app can tell it from a failure. */
+export const NO_REMOTE_MESSAGE = 'This repository has no git remote. Add one (git remote add origin <url>) and push, then try again.';
+
 /** The numeric `AppConfig` fields that are out of range, each as a sentence naming the field and its
  * range (unset/null is always valid). One rule for the hub's `write_app_config` and the Settings form. */
 export function appConfigRangeErrors(cfg: AppConfig): { concurrency?: string; budgetUsd?: string; usageCapPct?: string } {

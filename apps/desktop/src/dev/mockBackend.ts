@@ -1,4 +1,5 @@
 import { mockIPC, mockWindows } from '@tauri-apps/api/mocks';
+import { DEMO_READ_ONLY_MESSAGE } from '../errors';
 import type { Commands, RepoLesson } from '../wire';
 import {
   projects,
@@ -236,7 +237,7 @@ const demoOverrides: Record<string, (args: unknown) => unknown> = {
   read_app_config: () => ({ ...appConfig, label: 'storefront (demo)' }),
   read_app_config_strict: () => ({ ...appConfig, label: 'storefront (demo)' }),
   ...Object.fromEntries(
-    DEMO_WRITE_COMMANDS.map((cmd) => [cmd, (): never => { throw 'Demo project is read-only — nothing is written to any repository.'; }]),
+    DEMO_WRITE_COMMANDS.map((cmd) => [cmd, (): never => { throw DEMO_READ_ONLY_MESSAGE; }]),
   ),
 };
 

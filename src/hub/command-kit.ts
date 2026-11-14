@@ -1,9 +1,11 @@
 // What a hub command module (src/hub/commands/<feature>.ts) is built from: the handler/audit types,
 // `defineCommands`, and the argument-validation helpers every module shares. Imports nothing from
 // rpc.ts at runtime, so rpc.ts can import the modules without a cycle.
+import { execa } from 'execa';
 import { BadRequestError, classifyCoreError } from '../sidecar/sidecar.js';
 import { detectRepoSlug } from '../runners/github.js';
 import type { ErrorKind } from '../hub-wire.js';
+import { NO_REMOTE_MESSAGE } from '../wire.js';
 import { TOKEN_ACTOR, type Actor, type AuditAction, type AuditOutcome } from './audit.js';
 import type { RpcContext } from './rpc.js';
 import type { Caller } from './teams.js';
@@ -98,6 +100,13 @@ export async function githubSlug(repoPath: string): Promise<string | undefined> 
   } catch {
     return undefined;
   }
+}
+
+/** Refuse (400, one sentence) a code-host operation on a git repository with no remote at all, before `gh`/`glab`
+ * fails with its raw output. Anything else (not a git repo, git missing) is left to the operation's own error. */
+export async function assertHasRemote(repoPath: string): Promise<void> {
+  const { exitCode, stdout } = await execa('git', ['remote'], { cwd: repoPath, reject: false });
+  if (exitCode === 0 && stdout.trim() === '') throw new BadRequestError(NO_REMOTE_MESSAGE);
 }
 
 export const repoTarget = (a: Args): string | undefined => optionalString(a, 'repoPath');

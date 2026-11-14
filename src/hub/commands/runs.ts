@@ -11,7 +11,7 @@ import * as teams from '../teams.js';
 import * as remote from '../remote.js';
 import { taskRefKey } from '../../tasks/board.js';
 import type { ActiveRun, ConflictStats, RemoteImport, RemoteRun, RepoReadFailure, RepoStamp, RunDetail, RunSource, RunSummary, SessionRead } from '../../wire.js';
-import { defineCommands, requireString, optionalString, optionalNumber } from '../command-kit.js';
+import { defineCommands, requireString, optionalString, optionalNumber, assertHasRemote } from '../command-kit.js';
 
 export interface RunsCommands {
   list_runs: { args: { repoPath: string }; result: RunSummary[] };
@@ -104,6 +104,7 @@ export const commands = defineCommands<RunsCommands>({
   },
   list_remote_runs: async ({ args, allow }) => {
     const real = await allow(requireString(args, 'repoPath'));
+    await assertHasRemote(real);
     return remote.listRemoteRuns(real);
   },
   import_remote_run: async ({ args, allow }) => {

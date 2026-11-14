@@ -22,7 +22,7 @@ import { useNavGuardRegistry } from '../../navGuard.js';
 import { relTime } from '../../time.js';
 import { DocEditor } from './DocEditor.js';
 import { ChatPane } from './ChatPane.js';
-import { CreateTaskDialog } from './CreateTaskDialog.js';
+import { CreateTaskDialog, createFailureText } from './CreateTaskDialog.js';
 import { TaskDrawer, type DrawerTab, type HistoryRow } from './TaskDrawer.js';
 import { retitleDoc, titleFromDoc, isTransport, MAX_BODY_BYTES, MAX_TITLE_BYTES } from './docTask.js';
 import { reduceDocChat, initialDocChat, lastUserIndex } from './useDocChat.js';
@@ -837,9 +837,7 @@ export function TaskDraftScreen({
       })
       .catch((err: unknown) => {
         if (id === activeIdRef.current) {
-          setCreateError(
-            `${String(err)} — the issue may or may not have been created. Check ${source ?? 'the tracker'} before retrying.`,
-          );
+          setCreateError(createFailureText(err, source));
         }
       })
       .finally(() => {

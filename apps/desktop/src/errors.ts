@@ -5,3 +5,11 @@ export function errorMessage(err: unknown): string {
   // A blank message would read as "no error at all"; the default text keeps the failure visible.
   return msg.trim() || 'Something went wrong.';
 }
+
+/** Demo mode's refusal of every write (`dev/mockBackend.ts`). */
+export const DEMO_READ_ONLY_MESSAGE = 'Demo project is read-only — nothing is written to any repository.';
+
+/** A message without its closing full stop, for text that carries on after it ("…: {message}. Refresh"). */
+export function errorClause(message: string): string {
+  return message.replace(/[.\s]+$/, '');
+}

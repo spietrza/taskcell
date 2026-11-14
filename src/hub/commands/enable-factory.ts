@@ -5,7 +5,7 @@ import { assertMutationsAllowed } from '../allowlist.js';
 import { enableFactory, factoryPlanTargets, GITHUB_REPO_SLUG, noScripts } from '../enable-factory.js';
 import { factoryState, callersPresent, newFactoryRecord, refreshFactory, updateFactoryRecord, writeFactoryRecord } from '../factory-checklist.js';
 import type { FactoryApplyResult, FactoryPlan, FactoryProviderId, FactorySecretStep, FactoryState, FactoryVerifyResult } from '../../wire.js';
-import { defineCommands, requireString, optionalString, requireOneOf, requireMatch, repoTarget } from '../command-kit.js';
+import { defineCommands, requireString, optionalString, requireOneOf, requireMatch, repoTarget, assertHasRemote } from '../command-kit.js';
 
 export interface EnableFactoryCommands {
   /** HUB_ONLY: read the repo (default branch, package manager, verify command) and report what
@@ -77,7 +77,9 @@ function requirePlan(args: Record<string, unknown>, key: string): FactoryPlan {
 export const commands = defineCommands<EnableFactoryCommands>({
   enable_factory_plan: async ({ args, allow }) => {
     const real = await allow(requireString(args, 'repoPath'));
-    return enableFactory(real, requireProvider(args, 'provider')).plan();
+    const provider = enableFactory(real, requireProvider(args, 'provider'));
+    await assertHasRemote(real);
+    return provider.plan();
   },
   enable_factory_apply: async ({ ctx, args, allow }) => {
     // Writes a branch, a commit and a PR in the target repo — a mutation, like clone_project.

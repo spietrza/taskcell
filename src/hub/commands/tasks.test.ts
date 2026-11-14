@@ -3,6 +3,7 @@ import { describe, expect, test } from 'vitest';
 import { classifyError, type RpcContext } from '../rpc.js';
 import { writeAppConfig } from '../app-config.js';
 import { dispatchRpc, makeCtx, tmpRepo, tmpGitRepo } from '../test-kit.js';
+import { NO_REMOTE_MESSAGE } from '../../wire.js';
 
 describe('tasks', () => {
   test('T-60 api_create_task substitutes source/team/label from app.json and ignores client values', async () => {
@@ -27,6 +28,19 @@ describe('tasks', () => {
       label: 'nope',
     });
     expect(captured).toMatchObject({ source: 'linear', team: 'DEV', labels: ['vanguard-ready'], title: 'hello', body: 'world' });
+  });
+
+  test.each([
+    ['api_create_task', { title: 't', body: 'b' }],
+    ['enable_factory_plan', { provider: 'github' }],
+    ['list_remote_runs', {}],
+  ])('%s on a repository with no git remote is refused with one sentence, before gh runs', async (cmd, extra) => {
+    const repo = await tmpGitRepo();
+    let created = false;
+    const { ctx } = await makeCtx(repo, { depsOverrides: { createTask: async () => ((created = true), { id: 'x', url: 'https://x' }) } });
+    const err: unknown = await dispatchRpc(ctx, cmd, { repoPath: repo, ...extra }).catch((e: unknown) => e);
+    expect(classifyError(err)).toMatchObject({ kind: 'bad-request', message: NO_REMOTE_MESSAGE });
+    expect(created).toBe(false);
   });
 
   describe('target branch', () => {

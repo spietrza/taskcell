@@ -2,6 +2,7 @@ import { useState } from 'react';
 import { Button, Card, Chip, Input, Timestamp } from '@/ui';
 import { RefreshCw } from 'lucide-react';
 import { dismissLesson, fetchSpec, listLessons } from '../../ipc';
+import { errorClause } from '../../errors';
 import { useAsync } from '../../hooks';
 import { ExternalLink } from '../../components/ExternalLink';
 import type { RepoLesson } from '../../wire';
@@ -87,7 +88,7 @@ export function Lessons({ project }: { project: string }) {
       {loading && <div className="text-sm text-muted-foreground">Loading…</div>}
       {error && (
         <div role="alert" className="rounded border border-destructive/40 bg-destructive/10 px-3 py-2 text-sm text-destructive">
-          Could not load the lessons: {error}. Check that the hub can reach the repository, then Refresh.
+          Could not load the lessons: {errorClause(error)}. Check that the hub can reach the repository, then Refresh.
         </div>
       )}
       {data && !data.branchFound && (
