@@ -99,8 +99,8 @@ jobs:
           # place, and a twin under the new name would stop that rename); a repository without it gets `taskcell:`.
           state_label() {
             local name="$1" existing; shift
-            existing=$(gh label list --repo "$GITHUB_REPOSITORY" --search "vanguard:$name" --limit 100 --json name --jq '.[].name')
-            if printf '%s\n' "$existing" | grep -qxF "vanguard:$name"; then
+            existing=$(gh label list --repo "$GITHUB_REPOSITORY" --limit 1000 --json name --jq '.[].name')
+            if printf '%s\n' "$existing" | grep -qixF "vanguard:$name"; then
               gh label create "vanguard:$name" --repo "$GITHUB_REPOSITORY" "$@" --force
             else
               gh label create "taskcell:$name" --repo "$GITHUB_REPOSITORY" "$@" --force
