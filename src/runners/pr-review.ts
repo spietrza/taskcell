@@ -103,7 +103,7 @@ export interface ReviewPullRequestDeps {
 export interface ReviewPullRequestResult {
   pr: PullRequestForReview;
   commentBody: string;
-  /** The stated verdict line; absent when the reviewer completed without stating one. */
+  /** The stated verdict line; absent only for a posted review that skipped (a reply without one is incomplete). */
   verdict?: ReviewVerdict;
   /** The stated risk line directly after the verdict; absent when the reply did not carry one. */
   risk?: ReviewRisk;

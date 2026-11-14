@@ -83,7 +83,7 @@ describe('reviewPrCommand', () => {
 
   it('delegates to the PR review runner and preserves operator logs', async () => {
     const logs: string[] = [];
-    const reviewer = vi.fn().mockResolvedValue({ text: 'No blocking findings.', completed: true });
+    const reviewer = vi.fn().mockResolvedValue({ text: 'Verdict: NO BLOCKING FINDINGS\nNo blocking findings.', completed: true });
     const reviewPullRequest = vi.fn(
       async (_ref: string, deps: ReviewPullRequestDeps): Promise<ReviewPullRequestResult> => {
         deps.log?.('review-pr o/r#12: fetch -> diff');
@@ -131,7 +131,7 @@ describe('reviewPrCommand', () => {
     try {
       vi.mocked(prepareContext).mockClear();
       const attempt = { taskId: 't', exitReason: 'completed', turns: 1, worktreePath: '/wt', worktreePreserved: false } as const;
-      vi.mocked(runAgent).mockResolvedValue({ ...attempt, completed: true, finalText: 'No blocking findings.' });
+      vi.mocked(runAgent).mockResolvedValue({ ...attempt, completed: true, finalText: 'Verdict: NO BLOCKING FINDINGS\nNo blocking findings.' });
       const cmd: Extract<Command, { kind: 'review-pr' }> = { kind: 'review-pr', prRef: '12', repoSlug: 'o/r', repoPath: '/repo', egress: false };
       // The injected runner hands the default reviewer a PR against `release`, then one with no base at all.
       for (const baseRefName of ['release', '']) {
@@ -175,7 +175,7 @@ describe('reviewPrCommand', () => {
       }
       vi.mocked(prepareContext).mockClear();
       const attempt = { taskId: 't', exitReason: 'completed', turns: 1, worktreePath: '/wt', worktreePreserved: false } as const;
-      vi.mocked(runAgent).mockResolvedValue({ ...attempt, completed: true, finalText: 'No blocking findings.' });
+      vi.mocked(runAgent).mockResolvedValue({ ...attempt, completed: true, finalText: 'Verdict: NO BLOCKING FINDINGS\nNo blocking findings.' });
       const cmd: Extract<Command, { kind: 'review-pr' }> = {
         kind: 'review-pr',
         prRef: '12',
@@ -275,7 +275,7 @@ describe('reviewPrCommand', () => {
       const attempt = { taskId: 't', exitReason: 'completed', turns: 1, worktreePath: '/wt', worktreePreserved: false } as const;
       vi.mocked(runAgent)
         .mockResolvedValueOnce({ ...attempt, completed: false, finalText: 'Partial' })
-        .mockResolvedValueOnce({ ...attempt, completed: true, finalText: 'No blocking findings.' });
+        .mockResolvedValueOnce({ ...attempt, completed: true, finalText: 'Verdict: NO BLOCKING FINDINGS\nNo blocking findings.' });
       const gh: GhRunner = async (args) => {
         if (args[0] === 'repo') return JSON.stringify({ defaultBranchRef: { name: 'main' } });
         if (args[0] === 'pr' && args[1] === 'view') return JSON.stringify({ number: 12, headRefOid: 'abc123' });
@@ -328,7 +328,7 @@ it('seeds real default-branch skills before resolving the review registry and di
       await expect(registry.inject(['base-only'], { copyIn } as never)).rejects.toThrow('Unknown skill');
       return {} as never;
     });
-    vi.mocked(runAgent).mockResolvedValue({ completed: true, finalText: 'No blocking findings.' } as never);
+    vi.mocked(runAgent).mockResolvedValue({ completed: true, finalText: 'Verdict: NO BLOCKING FINDINGS\nNo blocking findings.' } as never);
     await reviewPrCommand({ kind: 'review-pr', prRef: '12', repoPath, egress: false }, {
       gh: async () => JSON.stringify({ defaultBranchRef: { name: 'main' } }),
       reviewPullRequest: async (_ref, deps) => {

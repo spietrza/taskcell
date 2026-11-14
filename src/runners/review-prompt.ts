@@ -59,9 +59,9 @@ export function extractReviewRisk(text: string): ReviewRisk | undefined {
   return m === null ? undefined : (m[1]!.toLowerCase() as ReviewRisk);
 }
 
-/** A review is usable when it completed OR stated its verdict; findings after a stated verdict may be truncated. */
-export function reviewOutcomeUsable(outcome: { text: string; completed: boolean }): boolean {
-  return outcome.completed || extractReviewVerdict(outcome.text) !== undefined;
+/** A review is usable only when it states a verdict (a completion signal alone does not make a progress note a review); findings after it may be truncated. */
+export function reviewOutcomeUsable(outcome: { text: string }): boolean {
+  return extractReviewVerdict(outcome.text) !== undefined;
 }
 
 /**

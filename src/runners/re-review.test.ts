@@ -199,3 +199,27 @@ describe('merge-only re-review scope', () => {
     expect(restrictDiffToFiles(diff, ['a.ts'])).toBe('diff --git a/a.ts b/a.ts\n+a\n');
   });
 });
+
+describe('applyReReviewRules with an unparsable block', () => {
+  const findings = '## Findings\n- [high] real finding\n- [high] another\n\nSummary para';
+  const expectKept = (text: string): void => {
+    const r = applyReReviewRules(text, { sinceDiff: since });
+    expect(r.text).toContain('real finding');
+    expect(r.text).toContain('another');
+    expect(r.text).toContain('Summary para');
+    expect(r.text).toContain(REREVIEW_MALFORMED_NOTE);
+    expect(r.text).not.toContain('"previous"');
+  };
+
+  it('keeps findings after an unclosed block with no blank line', () => {
+    expectKept(`Verdict: BLOCKING\nRisk: high\n<rereview>{"previous":[]}\n${findings}`);
+  });
+
+  it('keeps findings after a CRLF unclosed block', () => {
+    expectKept(`Verdict: BLOCKING\r\nRisk: high\r\n<rereview>{"previous":[]}\r\n${findings.replace(/\n/g, '\r\n')}`);
+  });
+
+  it('keeps a finding that mentions the tag after an invalid closed block', () => {
+    expectKept(`Verdict: BLOCKING\nRisk: high\n<rereview>{nope</rereview>\n## Findings\n- [high] real finding about the <rereview> parser\n- [high] another\n\nSummary para`);
+  });
+});

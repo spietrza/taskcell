@@ -369,10 +369,10 @@ describe('extractReviewVerdict', () => {
     expect(extractReviewVerdict('')).toBeUndefined();
   });
 
-  it('reviewOutcomeUsable: completed OR a stated verdict', () => {
-    expect(reviewOutcomeUsable({ text: 'anything', completed: true })).toBe(true);
-    expect(reviewOutcomeUsable({ text: 'Verdict: BLOCKING\n…', completed: false })).toBe(true);
-    expect(reviewOutcomeUsable({ text: 'still reading', completed: false })).toBe(false);
+  it('reviewOutcomeUsable: a stated verdict only', () => {
+    expect(reviewOutcomeUsable({ text: 'anything' })).toBe(false);
+    expect(reviewOutcomeUsable({ text: 'Verdict: BLOCKING\n…' })).toBe(true);
+    expect(reviewOutcomeUsable({ text: 'still reading' })).toBe(false);
   });
 
   it('hasBlockingFinding: a [high]/[critical] label counts only when it opens a line or list item (a quoted diff hunk does not)', () => {

@@ -127,7 +127,7 @@ function makeGh(diff = 'diff'): { calls: string[][]; gh: GhRunner } {
 describe('reviewPullRequest', () => {
   it('completed first attempt posts as a normal review', async () => {
     const { calls, gh } = makeGh();
-    const reviewer = vi.fn().mockResolvedValue({ text: 'No blocking findings.\n<promise>COMPLETE</promise>', completed: true });
+    const reviewer = vi.fn().mockResolvedValue({ text: 'Verdict: NO BLOCKING FINDINGS\nNo blocking findings.\n<promise>COMPLETE</promise>', completed: true });
     const logs: string[] = [];
 
     const result = await reviewPullRequest('12', { repoSlug: 'o/r', gh, reviewer, log: (l) => logs.push(l) });
@@ -145,7 +145,7 @@ describe('reviewPullRequest', () => {
 
   it('publish:false fetches + reviews but posts NOTHING to the PR, still returning commentBody', async () => {
     const { calls, gh } = makeGh();
-    const reviewer = vi.fn().mockResolvedValue({ text: 'Looks good.', completed: true });
+    const reviewer = vi.fn().mockResolvedValue({ text: 'Verdict: NO BLOCKING FINDINGS\nLooks good.', completed: true });
     const logs: string[] = [];
 
     const result = await reviewPullRequest('12', { repoSlug: 'o/r', gh, reviewer, publish: false, log: (l) => logs.push(l) });
@@ -158,7 +158,7 @@ describe('reviewPullRequest', () => {
 
   it('accepts the legacy string reviewer result as completed', async () => {
     const { gh } = makeGh();
-    const reviewer = vi.fn().mockResolvedValue('Legacy review text.\n<promise>COMPLETE</promise>');
+    const reviewer = vi.fn().mockResolvedValue('Verdict: NO BLOCKING FINDINGS\nLegacy review text.\n<promise>COMPLETE</promise>');
 
     const result = await reviewPullRequest('12', { repoSlug: 'o/r', gh, reviewer, log: () => {} });
 
@@ -317,7 +317,7 @@ describe('reviewPullRequest', () => {
     const reviewer = vi
       .fn()
       .mockResolvedValueOnce({ text: 'frag', completed: false })
-      .mockResolvedValueOnce({ text: 'Found a bug in auth.ts\n<promise>COMPLETE</promise>', completed: true });
+      .mockResolvedValueOnce({ text: 'Verdict: BLOCKING\nFound a bug in auth.ts\n<promise>COMPLETE</promise>', completed: true });
 
     const result = await reviewPullRequest('12', { repoSlug: 'o/r', gh, reviewer, log: () => {} });
 
@@ -330,15 +330,12 @@ describe('reviewPullRequest', () => {
     expect(reviewCall).toBeDefined();
   });
 
-  it('completed but empty text posts No blocking findings.', async () => {
+  it('completed but empty text is incomplete, not a clean review', async () => {
     const { gh } = makeGh();
     const reviewer = vi.fn().mockResolvedValue({ text: '', completed: true });
 
-    const result = await reviewPullRequest('12', { repoSlug: 'o/r', gh, reviewer, log: () => {} });
-
-    expect(reviewer).toHaveBeenCalledTimes(1);
-    expect(result.commentBody).toContain('No blocking findings.');
-    expect(result.commentBody).not.toContain(PR_REVIEW_INCOMPLETE_NOTICE);
+    await expect(reviewPullRequest('12', { repoSlug: 'o/r', gh, reviewer, log: () => {} })).rejects.toThrow(/did not complete/);
+    expect(reviewer).toHaveBeenCalledTimes(2);
   });
 });
 
@@ -827,5 +824,18 @@ describe('postPullRequestReview run stamp', () => {
     expect(soleReviewRunStampSha(`## Taskcell Review\n\n${stamp}\n\nVerdict: NO BLOCKING FINDINGS\n\n<!-- taskcell-pr-review: abc123 -->`)).toBeUndefined();
     expect(soleReviewRunStampSha(stamp)).toBeUndefined();
     expect(pullRequestReviewMarkerShas(calls[1]!.at(-1)!)).toEqual(['abc123']);
+  });
+});
+
+describe('reviewPullRequest progress-note result', () => {
+  it('treats a completed reply without a verdict as incomplete: notice posted, error thrown', async () => {
+    const { calls, gh } = makeGh();
+    const text = 'Still reviewing. I\'ve checked the diff … the write-up follows.\nRisk: medium\n<promise>COMPLETE</promise>';
+    const reviewer = vi.fn().mockResolvedValue({ text, completed: true });
+    await expect(reviewPullRequest('12', { repoSlug: 'o/r', gh, reviewer, log: () => {} })).rejects.toThrow(/did not complete/);
+    expect(reviewer).toHaveBeenCalledTimes(2);
+    const posted = calls.filter((a) => a[0] === 'pr' && a[1] === 'review');
+    expect(posted).toHaveLength(1);
+    expect(posted[0]!.join(' ')).not.toContain('taskcell-pr-review: def456');
   });
 });

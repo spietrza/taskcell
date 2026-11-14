@@ -210,7 +210,7 @@ describe('reviewMergeRequest head dedupe', () => {
       { system: false, author: { username: BOT }, body: `## Taskcell Review\n\nok\n\n${mergeRequestReviewMarker(HEAD)}` },
     ]);
     const { glab, calls } = makeGlab(notes);
-    const reviewer = vi.fn(async () => 'No blocking findings.');
+    const reviewer = vi.fn(async () => 'Verdict: NO BLOCKING FINDINGS\nNo blocking findings.');
     const lines: string[] = [];
 
     const result = await reviewMergeRequest('5', { project: 'g/p', glab, reviewer, log: (l) => lines.push(l) });
@@ -225,7 +225,7 @@ describe('reviewMergeRequest head dedupe', () => {
   it('reviews and posts when only an older head was reviewed', async () => {
     const notes = JSON.stringify([{ system: false, author: { username: BOT }, body: mergeRequestReviewMarker('0000000') }]);
     const { glab, calls } = makeGlab(notes);
-    const reviewer = vi.fn(async () => 'No blocking findings.');
+    const reviewer = vi.fn(async () => 'Verdict: NO BLOCKING FINDINGS\nNo blocking findings.');
 
     const result = await reviewMergeRequest('5', { project: 'g/p', glab, reviewer });
 
@@ -274,7 +274,7 @@ describe('reviewMergeRequest head dedupe', () => {
   it('ignores a marker another user posted, so a participant cannot suppress the review', async () => {
     const notes = JSON.stringify([{ system: false, author: { username: 'mallory' }, body: mergeRequestReviewMarker(HEAD) }]);
     const { glab, calls } = makeGlab(notes);
-    const reviewer = vi.fn(async () => 'No blocking findings.');
+    const reviewer = vi.fn(async () => 'Verdict: NO BLOCKING FINDINGS\nNo blocking findings.');
 
     await reviewMergeRequest('5', { project: 'g/p', glab, reviewer });
 
@@ -284,7 +284,7 @@ describe('reviewMergeRequest head dedupe', () => {
 
   it('fails and posts nothing when the MR notes cannot be read', async () => {
     const { glab, calls } = makeGlab(new Error('glab: 403 Forbidden'));
-    const reviewer = vi.fn(async () => 'No blocking findings.');
+    const reviewer = vi.fn(async () => 'Verdict: NO BLOCKING FINDINGS\nNo blocking findings.');
 
     await expect(reviewMergeRequest('5', { project: 'g/p', glab, reviewer })).rejects.toThrow(
       /cannot check for an earlier review .* nothing posted: cannot read the MR notes \(glab: 403 Forbidden\)/,
@@ -301,7 +301,7 @@ describe('reviewMergeRequest head dedupe', () => {
       if (args[0] === 'api' && args[1] === 'user') throw new Error('glab: 403 Forbidden');
       return '[]';
     };
-    const reviewer = vi.fn(async () => 'No blocking findings.');
+    const reviewer = vi.fn(async () => 'Verdict: NO BLOCKING FINDINGS\nNo blocking findings.');
 
     await expect(reviewMergeRequest('5', { project: 'g/p', glab, reviewer })).rejects.toThrow(
       /nothing posted: cannot read the glab user; the token must be able to read GET \/user \(glab: 403 Forbidden\)/,
@@ -311,7 +311,7 @@ describe('reviewMergeRequest head dedupe', () => {
 
   it('fails and posts nothing when glab returns no head SHA', async () => {
     const { glab, calls } = makeGlab('[]', '');
-    const reviewer = vi.fn(async () => 'No blocking findings.');
+    const reviewer = vi.fn(async () => 'Verdict: NO BLOCKING FINDINGS\nNo blocking findings.');
 
     await expect(reviewMergeRequest('5', { project: 'g/p', glab, reviewer })).rejects.toThrow(/no head SHA/);
     expect(reviewer).not.toHaveBeenCalled();
@@ -320,7 +320,7 @@ describe('reviewMergeRequest head dedupe', () => {
 
   it('with headDedupe false (watch-mrs), reviews without a notes read, and posts no marker when the SHA is missing', async () => {
     const { glab, calls } = makeGlab(new Error('glab: 403 Forbidden'), '');
-    const reviewer = vi.fn(async () => 'No blocking findings.');
+    const reviewer = vi.fn(async () => 'Verdict: NO BLOCKING FINDINGS\nNo blocking findings.');
 
     const result = await reviewMergeRequest('5', { project: 'g/p', glab, reviewer, headDedupe: false });
 
@@ -352,7 +352,7 @@ describe('reviewMergeRequest incomplete retry', () => {
   it('retries once with a larger budget when the first attempt is incomplete, then posts with the marker', async () => {
     const { glab, calls } = makeGlab();
     const reviewer = vi.fn(async (_mr, opts: { isRetry: boolean }) =>
-      opts.isRetry ? { text: 'No blocking findings.', completed: true } : { text: 'partial...', completed: false },
+      opts.isRetry ? { text: 'Verdict: NO BLOCKING FINDINGS\nNo blocking findings.', completed: true } : { text: 'partial...', completed: false },
     );
     const lines: string[] = [];
 
@@ -398,7 +398,7 @@ describe('reviewMergeRequest incomplete retry', () => {
 
   it('treats a string-returning reviewer as complete on the first attempt', async () => {
     const { glab, calls } = makeGlab();
-    const reviewer = vi.fn(async () => 'No blocking findings.');
+    const reviewer = vi.fn(async () => 'Verdict: NO BLOCKING FINDINGS\nNo blocking findings.');
 
     const result = await reviewMergeRequest('5', { project: 'g/p', glab, reviewer });
 
