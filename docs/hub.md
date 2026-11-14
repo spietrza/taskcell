@@ -700,3 +700,21 @@ that option's commands, and remembers the choice in the browser with the rest of
 An `export` line only takes effect for a hub started after it: the hub reads its environment at
 start. After exporting, restart the hub (or save the key in Settings → credentials, where that
 exists) and then press **Check again**.
+
+## Task dependencies and start dates (hub board)
+
+A project whose task source is **Hub board** (`taskSource: hub`) keeps its tasks in `.taskcell/hub-tasks.json`. Each task has a **blocked by** list (ids such as `hub-1`, other tasks of the same project) and an optional **start date** (`YYYY-MM-DD`, read as 00:00 in the hub's time zone, or a full ISO instant with a zone). Both are edited in the card's quick view under **Schedule** (`hub_task_schedule`, audited as `task-schedule`); `hub_task_create` adds a task (audited as `task-create`). There is no "New task" form for the hub board yet.
+
+The board reads `list_tasks` through the same planner the scheduler uses (`src/hub/schedule.ts`), so a card always shows what the scheduler will do:
+
+| Card says | Meaning |
+| --- | --- |
+| `blocked by hub-1` | a dependency is not done (a failed dependency never unblocks) |
+| `waits until Tue 18.11 (Europe/Berlin)` | the start date is in the future; the hub time zone is named |
+| `waits for a free slot` | ready, but the parallel-run limit is reached |
+| `starts next` | ready and within the limit |
+| `cannot start: …` (red) | a missing reference, a dependency cycle (`a → b → a`) or an invalid date; the reason is shown and the task never starts |
+
+The hub starts a task only when it is valid, every dependency is done, its start date has passed and fewer than the parallel-run limit are running (the project's `concurrency` setting, default 3). It checks every 15 seconds. A task without dependencies or a date behaves as before: it starts as soon as a slot is free. The run's end marks the task done (or failed).
+
+Cards from GitHub show the dependencies the issue body already reports (`Depends on #n`, `Start: YYYY-MM-DD`, see `src/tasks/dependencies.ts`); these are display only, GitHub's own gate still decides.

@@ -535,3 +535,8 @@ export function readApproverDecisions(repoPath: string): Promise<{ decisions: Ap
 export function setApproverMode(repoPath: string, mode: ApproverMode, confirmBelowBar?: boolean): Promise<ApproverModeChange> {
   return call('set_approver_mode', { repoPath, mode, ...(confirmBelowBar === true ? { confirmBelowBar } : {}) });
 }
+
+/** HUB_ONLY: set a hub-board task's dependencies and start date (`null` clears it). */
+export function hubTaskSchedule(repoPath: string, id: string, patch: { blockedBy?: string[]; startDate?: string | null }): Promise<{ id: string }> {
+  return call('hub_task_schedule', { repoPath, id, ...patch });
+}

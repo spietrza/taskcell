@@ -274,6 +274,25 @@ export interface BoardTask {
   source?: 'github' | 'gitlab' | 'linear';
   /** The issue's address in that tracker, as the tracker returned it. Absent ⇒ no link. */
   url?: string;
+  /** Tasks this one waits for: the hub board's field, or what a GitHub issue's body names (`Depends on #n`). */
+  blockedBy?: string[];
+  /** Start date as stored (`YYYY-MM-DD` or an ISO instant). Absent ⇒ none. */
+  startDate?: string;
+  /** Hub-board tasks: what the scheduler does with the card, with its reason. */
+  schedule?: TaskSchedule;
+  /** The hub's time zone, for dates shown on the card. */
+  timeZone?: string;
+}
+
+/** The scheduler's answer for one hub-board task; `label` is pre-rendered ("waits until Tue 18.11 (Europe/Berlin)"). */
+export interface TaskSchedule {
+  state: 'running' | 'done' | 'failed' | 'ready' | 'blocked' | 'waits-date' | 'waits-slot' | 'invalid';
+  label: string;
+  /** `invalid`: a missing reference, a cycle or a bad date. */
+  reason?: string;
+  blockedBy?: string[];
+  /** `waits-date`: the instant the task may start (ISO). */
+  until?: string;
 }
 
 /** The reviewer's persisted verdict: `changes` ⇔ the merge gate would request changes. */
@@ -568,6 +587,7 @@ export type AuditAction =
   | 'needs-reply'
   | 'needs-merge'
   | 'task-create'
+  | 'task-schedule'
   | 'enable-factory'
   | 'approver-mode';
 export type AuditOutcome = 'ok' | 'refused' | 'failed';

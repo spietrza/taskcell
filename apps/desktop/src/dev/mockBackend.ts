@@ -168,6 +168,8 @@ const commandHandlers = {
   merge_needs_you: (args: { id?: string } | undefined) => {
     waitingNeedsYou = waitingNeedsYou.filter((i) => i.id !== args?.id);
   },
+  hub_task_schedule: (args: { id?: string } | undefined) => ({ id: args?.id ?? 'hub-1' }),
+  hub_task_create: () => ({ id: 'hub-1' }),
   start_task: (args: { label?: string } | undefined) => ({ status: 'labelled', label: args?.label ?? 'ready for agent', waitingOn: [] }),
   // Hub-only Enable factory flow (EnableFactoryDialog).
   enable_factory_plan: () => factoryPlan,

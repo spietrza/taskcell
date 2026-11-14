@@ -275,6 +275,25 @@ export interface BoardTask {
   source?: 'github' | 'gitlab' | 'linear';
   /** The issue's address in that tracker, as the tracker returned it. Absent ⇒ no link. */
   url?: string;
+  /** Tasks this one waits for: the hub board's field, or what a GitHub issue's body names (`Depends on #n`). */
+  blockedBy?: string[];
+  /** Start date as stored (`YYYY-MM-DD` or an ISO instant). Absent ⇒ none. */
+  startDate?: string;
+  /** Hub-board tasks: what the scheduler does with the card, with its reason. */
+  schedule?: TaskSchedule;
+  /** The hub's time zone, for dates shown on the card. */
+  timeZone?: string;
+}
+
+/** The scheduler's answer for one hub-board task; `label` is pre-rendered ("waits until Tue 18.11 (Europe/Berlin)"). */
+export interface TaskSchedule {
+  state: 'running' | 'done' | 'failed' | 'ready' | 'blocked' | 'waits-date' | 'waits-slot' | 'invalid';
+  label: string;
+  /** `invalid`: a missing reference, a cycle or a bad date. */
+  reason?: string;
+  blockedBy?: string[];
+  /** `waits-date`: the instant the task may start (ISO). */
+  until?: string;
 }
 
 /** The reviewer's persisted verdict: `changes` ⇔ the merge gate would request changes. */
@@ -569,6 +588,7 @@ export type AuditAction =
   | 'needs-reply'
   | 'needs-merge'
   | 'task-create'
+  | 'task-schedule'
   | 'enable-factory'
   | 'approver-mode';
 export type AuditOutcome = 'ok' | 'refused' | 'failed';
@@ -1109,6 +1129,10 @@ export interface Commands {
   api_create_task: { args: { repoPath: string; title: string; body: string; baseBranch?: string }; result: CreatedTask };
   /** HUB_ONLY, read-only: the target branches a card may name (repo default + `baseBranches` allowlist) and the configured default, for the new-card form. */
   list_branches: { args: { repoPath: string }; result: { branches: string[]; default?: string } };
+  /** HUB_ONLY: add a task to the project's hub board (task source `hub`). */
+  hub_task_create: { args: { repoPath: string; title: string; body?: string }; result: { id: string } };
+  /** HUB_ONLY: set a hub-board task's dependencies (ids of the project's other tasks) and/or start date (`null` clears it). */
+  hub_task_schedule: { args: { repoPath: string; id: string; blockedBy?: string[]; startDate?: string | null }; result: { id: string } };
   /** HUB_ONLY: apply a trigger label to a GitHub issue of the project (src/hub/start-task.ts). */
   start_task: { args: { repoPath: string; number: number; label: string }; result: StartTaskResult };
   /** HUB_ONLY: token-only mode has exactly one team and the caller acts as its admin. */
@@ -1173,6 +1197,8 @@ export const COMMAND_NAMES = [
   'get_credential_policy',
   'get_credentials',
   'get_team',
+  'hub_task_create',
+  'hub_task_schedule',
   'import_remote_run',
   'instance_credentials_status',
   'kill_run',

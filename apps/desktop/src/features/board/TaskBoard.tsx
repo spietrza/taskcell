@@ -9,6 +9,7 @@ import { useAsync } from '../../hooks';
 import { useApproverDecisions } from './useApproverDecisions';
 import { decisionForTask, decisionWords } from './approverDecision';
 import { QuickView, TRACKER_NAME, type QuickTask } from './QuickView';
+import { ScheduleLines } from './Schedule';
 import { boardCountLabels } from './counts';
 import { ExternalLink } from '../../components/ExternalLink';
 import { FilterBar, NoMatch } from '../../FilterBar';
@@ -73,10 +74,11 @@ export function TaskBoard({
   /** Opens `project`'s Settings, for the "no task source yet" hint. */
   onOpenSettings?: () => void;
 }) {
+  const [reloads, setReloads] = useState(0);
   const { data, error, loading } = useAsync(
     (): Promise<BoardList> =>
       allRepos ? listTasksAll(teamId).then((l) => ({ ...l, tasks: inRepos(l.tasks, repos), failures: inRepos(l.failures, repos) })) : listTasks(project).then((r) => ({ ...r, failures: [] })),
-    [project, allRepos, teamId, repos.join('\n')],
+    [project, allRepos, teamId, repos.join('\n'), reloads],
   );
   const approver = useApproverDecisions(project, !allRepos);
   const allTasks = data?.tasks;
@@ -247,10 +249,11 @@ export function TaskBoard({
                             const d = decisionForTask(t.id, approver.runs, approver.decisions);
                             return d !== undefined && <div className="text-[11px] text-muted-foreground" data-approver={d.outcome}>{decisionWords(d)}</div>;
                           })()}
+                          <ScheduleLines task={t} />
                           {t.baseBranch && (
                             <div className="pt-0.5 font-mono text-[11px] text-muted-foreground">→ {t.baseBranch}</div>
                           )}
-                          {t.state && t.state !== col.key && (
+                          {t.state && t.state !== col.key && t.schedule === undefined && (
                             <div className="pt-0.5 text-[11px] text-muted-foreground">{t.state}</div>
                           )}
                         </Card.Content>
@@ -279,6 +282,7 @@ export function TaskBoard({
           project={project}
           onClose={close}
           onFullPage={() => onOpenTask(selected.id, selected.repoPath)}
+          onChanged={() => setReloads((n) => n + 1)}
         />
       )}
       </div>

@@ -16,6 +16,8 @@ import { encodeError, encodeResult, HUB_EVENTS_SESSION_PATH, HUB_SIGN_IN_REQUIRE
 import { ProjectAllowlist, type BindOptions } from './allowlist.js';
 import { WatchRegistry, type WatchOptions } from './watch.js';
 import { createCredentialService, CredentialStore, ForbiddenError } from './credentials.js';
+import { scheduleTick } from './task-scheduler.js';
+import { readAppConfig } from './app-config.js';
 import { createRunSession } from './run-session.js';
 import { CompleteBusyError, CompleteRegistry, type SpawnComplete } from './complete.js';
 import { loadPaths } from './projects.js';
@@ -23,6 +25,9 @@ import { SpawnRegistry } from './spawn.js';
 import { productionDeps } from '../sidecar/deps.js';
 import type { SidecarDeps } from '../sidecar/sidecar.js';
 import { localOnlyIdentity, signInPage, type HubIdentity, type HubUser } from './auth.js';
+
+/** How often the hub-board scheduler looks for tasks that may start. */
+const SCHEDULER_INTERVAL_MS = 15_000;
 
 /**
  * `write_draft_asset` ships an image's bytes as a JSON array of numbers (comma-separated decimal —
@@ -462,6 +467,16 @@ export function createHubServer(opts: HubServerOptions): HubServer {
     await allowlist.assertAllowed(p.repoPath);
   }, join(opts.configDir, 'run-counter'));
 
+  // Hub-board projects: start what the scheduler allows. The run's end (or failure) marks the task done (or failed).
+  const sweep = async (): Promise<void> => {
+    for (const repoPath of await loadPaths(opts.configDir).catch(() => [])) {
+      if ((await readAppConfig(repoPath)).taskSource !== 'hub') continue;
+      await scheduleTick(repoPath, (task) => runSession.createRun({ issueRef: task.id, repoPath, startedBy: 'scheduler' })).catch((e: unknown) => console.error(`vanguard-hub: scheduler: ${(e as Error).message}`));
+    }
+  };
+  const sweeper = setInterval(() => void sweep(), SCHEDULER_INTERVAL_MS);
+  sweeper.unref();
+
   const credentials = new CredentialStore(opts.configDir, opts.hubSecret);
   // An unreadable store (wrong secret) is reported in Settings and on stderr; runs keep the env credentials.
   const credentialsReady = credentials.applyStored().catch((e: unknown) => console.error(`vanguard-hub: ${(e as Error).message}`));
@@ -506,6 +521,7 @@ export function createHubServer(opts: HubServerOptions): HubServer {
       })),
     close: () =>
       new Promise<void>((resolve) => {
+        clearInterval(sweeper);
         watchRegistry.closeAll();
         spawnRegistry?.killAll();
         eventBus.close();
