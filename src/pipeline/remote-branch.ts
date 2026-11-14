@@ -257,9 +257,9 @@ async function openReview(run: CommandRunner, tool: string, args: string[], ctx:
 export async function publishForReview(ctx: RunContext, opts: PublishOptions): Promise<PublishOutcome> {
   const run = opts.runner ?? defaultRunner;
   const tool = opts.cli ?? 'gh';
-  // --no-verify skips the target repo's pre-push hook (e.g. a Conventional-Branch name check that
-  // rejects Taskcell's `vanguard/…` branch prefix). The remote enforces no such rule; this is a local
-  // husky gate, redundant with Taskcell's own review + the PR's CI.
+  // --no-verify skips the target repo's pre-push hook (e.g. a branch-name check that rejects the
+  // factory's `chore/vanguard-…` branch, or a test run). The remote enforces no such rule; this is a
+  // local husky gate, redundant with Taskcell's own review + the PR's CI.
   const remote = opts.remote ?? 'origin';
   // The base comes from the context: the same branch the worktree was prepared for, no default here.
   const base = ctx.baseBranch;

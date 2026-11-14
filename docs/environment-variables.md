@@ -1,6 +1,6 @@
 # Environment variables: old and new names
 
-Taskcell was called Vanguard. Every `VANGUARD_*` variable now has a `TASKCELL_*` name; the old name is still read as a fallback, and the new name wins when both are set. An install that sets only the old names keeps working unchanged. Rename them when convenient.
+Taskcell was called Vanguard. Every `VANGUARD_*` variable now has a `TASKCELL_*` name; the old name is still read as a fallback, and the new name wins when both are set. An empty `TASKCELL_*` value counts as unset, so it does not switch a setting off while the `VANGUARD_*` name still holds a value: clear both, or set the new name to the off value the setting documents. An install that sets only the old names keeps working unchanged. Rename them when convenient.
 
 | Old name (still works) | New name |
 | --- | --- |

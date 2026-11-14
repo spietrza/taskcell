@@ -198,7 +198,7 @@ export async function reapRemoteBranches(
   return reaped.map((branch) => branch.name);
 }
 
-/** Git-backed lister of remote `vanguard/*` branches with their age (from the last commit date). */
+/** Git-backed lister of remote factory branches (`chore/taskcell-*`, `chore/vanguard-*`) with their age (from the last commit date). */
 export function gitRemoteBranchLister(
   repoPath: string,
   opts: { remote?: string; prefix?: string; now?: () => number } = {},

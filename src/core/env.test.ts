@@ -1,4 +1,6 @@
 import { describe, expect, it } from 'vitest';
+import { readdirSync, readFileSync } from 'node:fs';
+import { join } from 'node:path';
 import { readEnv } from './env.js';
 
 /** Every variable that used to be `VANGUARD_<suffix>` (without the dynamic HUB_AUTH_* family, listed in full). */
@@ -28,5 +30,29 @@ describe('readEnv', () => {
   it('treats an empty new value as unset', () => {
     expect(readEnv('TASKCELL_APPROVER_STOP', { TASKCELL_APPROVER_STOP: '', VANGUARD_APPROVER_STOP: '1' })).toBe('1');
     expect(readEnv('TASKCELL_APPROVER_STOP', { TASKCELL_APPROVER_STOP: '' })).toBe('');
+  });
+});
+
+describe('direct TASKCELL_* / VANGUARD_* environment access', () => {
+  // `file: NAME` of every access that does not go through readEnv. A new one skips the old-name fallback:
+  // read it with readEnv, or add it here when the variable never had a VANGUARD_ name (or is only written).
+  const ALLOWED = [
+    'cli/args.ts: TASKCELL_USAGE_CAP_PCT', // written: --usage-cap hands the value to the stage that reads it with readEnv
+    'cli/index.ts: TASKCELL_SIDECAR', // written for the sidecar entrypoints
+    'core/audit.ts: TASKCELL_AUDIT_RETENTION_DAYS', // new with the audit log: no old name
+    'core/push-token.ts: TASKCELL_APP_CLIENT_ID', // the GitHub App credentials are new: no old name
+    'core/push-token.ts: TASKCELL_APP_PRIVATE_KEY',
+    'core/secret-scan.ts: TASKCELL_APP_PRIVATE_KEY',
+  ];
+
+  it('happens only in env.ts and the listed places', () => {
+    const src = join(import.meta.dirname, '..');
+    const found = new Set<string>();
+    for (const entry of readdirSync(src, { recursive: true, encoding: 'utf8' })) {
+      const file = entry.replaceAll('\\', '/');
+      if (!/\.tsx?$/.test(file) || /\.(test|fixture)\.tsx?$/.test(file) || file === 'core/env.ts') continue;
+      for (const m of readFileSync(join(src, entry), 'utf8').matchAll(/\benv(?:\.|\[['"])((?:TASKCELL|VANGUARD)_[A-Z0-9_]+)/g)) found.add(`${file}: ${m[1]}`);
+    }
+    expect([...found].sort()).toEqual(ALLOWED);
   });
 });

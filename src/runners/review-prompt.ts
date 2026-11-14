@@ -182,12 +182,13 @@ const REVISION_MARKER_OPEN_RE = /<!--\s*(?:(?:taskcell|vanguard)-)?revision:(?:[
  * drops it when it saves a note, which would rejoin a marker split by one.
  */
 export function stripReviewMarkers(text: string): string {
-  let out = text.replaceAll('\r', '').replace(REVIEW_MARKER_LINE_RE, '');
+  let out = text.replaceAll('\r', '');
   // revise-pr's round marker (pr-feedback.ts) is detected anywhere in a body, closed or not, so drop every
-  // opener; repeat until stable, as removing one can join the pieces around it into a new opener.
+  // opener; repeat until stable, as removing one can join the pieces around it into a new opener, or leave a
+  // review marker or run stamp alone on its line (one spliced with a revision marker), which goes too.
   for (let prev = ''; prev !== out; ) {
     prev = out;
-    out = out.replace(REVISION_MARKER_OPEN_RE, '');
+    out = out.replace(REVIEW_MARKER_LINE_RE, '').replace(REVISION_MARKER_OPEN_RE, '');
   }
   return out;
 }

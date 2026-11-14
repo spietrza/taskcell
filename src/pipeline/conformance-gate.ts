@@ -410,8 +410,8 @@ function renderPrBodyItemsBlock(lines: string[]): string {
     '',
     'The spec manifest requires the following in this PR description (they cannot live in the diff, and the factory cannot write them), so this PR is a partial delivery:',
     '',
-    // Percent-encoded so a manifest id (reporter-controllable at implement time) stays one inert line:
-    // no newline, backtick or forged paste line can move where the human-pasted region starts.
+    // prBodyGapWarningBlock percent-encodes each id (reporter-controllable at implement time) so it stays one
+    // inert line: no newline, backtick or forged paste line can move where the human-pasted region starts.
     ...lines.map((l) => `- \`${l}\``),
     '',
     PR_BODY_ITEMS_PASTE_LINE,
@@ -432,8 +432,8 @@ export function extractPrBodyItemsBlock(body: string): string | undefined {
  * Discharge a `prBodyGapWarningBlock` once a human has pasted every item it records. Only the ids the
  * block itself lists can be discharged (a manifest with `prBody: []` or other ids discharges nothing),
  * and only the human-pasted region after the generated preamble is searched for `contains`: the
- * preamble must be byte-identical to the one `prBodyGapWarningBlock` renders for the recorded ids, so
- * an edited or forged preamble discharges nothing. Line endings are normalised to `\n` first (GitHub's
+ * preamble must be byte-identical to the one rendered for the listed lines, so an edited or forged
+ * preamble discharges nothing, and neither does a block whose pasted region holds a second paste line. Line endings are normalised to `\n` first (GitHub's
  * web editor saves CRLF), so a multi-line `contains` matches a hand-edited body. The block and its
  * pasted content are kept; just the heading is rewritten to a discharged marker. Returns the block
  * unchanged when anything is still outstanding, or when it is not an undischarged block.
@@ -451,11 +451,15 @@ export function dischargePrBodyItemsBlock(block: string, manifest: SpecManifest 
   const preamble = generated.slice(0, generated.lastIndexOf(PR_BODY_ITEMS_PASTE_LINE) + PR_BODY_ITEMS_PASTE_LINE.length);
   if (!text.startsWith(preamble)) return block;
   const pasted = text.slice(preamble.length, text.length - PR_BODY_ITEMS_END.length);
+  // A second paste line is a block written before ids were percent-encoded whose id forged one: the text
+  // after it came from the id (reporter-controllable), not from a human paste.
+  if (`\n${pasted}`.includes(`\n${PR_BODY_ITEMS_PASTE_LINE}\n`)) return block;
   const items = manifest.prBody ?? [];
   const done = recorded.every((id) => {
-    const item = items.find((p) => p.id === id || encodeId(p.id) === id);
-    if (item === undefined || item.contains.trim() === '') return false;
-    return pasted.includes(item.contains.replace(/\r\n/g, '\n'));
+    // A listed line can name several items (a raw id equal to another's encoded form, or two ids that encode
+    // alike): every one of them must be pasted, so one item's content never discharges another.
+    const named = items.filter((p) => p.id === id || encodeId(p.id) === id);
+    return named.length > 0 && named.every((item) => item.contains.trim() !== '' && pasted.includes(item.contains.replace(/\r\n/g, '\n')));
   });
   return done ? text.replace(PR_BODY_ITEMS_HEADING, PR_BODY_ITEMS_DISCHARGED_HEADING) : block;
 }
