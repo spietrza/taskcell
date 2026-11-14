@@ -15,3 +15,6 @@ export function gitlabFailureLabel(kind: ProofFailureKind): string {
   if (kind === 'gate-config') return GITLAB_GATE_CONFIG_LABEL;
   return kind === 'verify' ? GITLAB_VERIFY_FAILED_LABEL : GITLAB_VISUAL_PROOF_FAILED_LABEL;
 }
+
+/** Marks an issue whose dependencies are unmet or whose `Start:` date is ahead; the trigger label stays, so a later poll starts it. */
+export const GITLAB_WAITING_LABEL = 'taskcell::waiting';

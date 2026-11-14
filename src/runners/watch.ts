@@ -15,6 +15,7 @@ import { isRateLimitHold, rateLimitHold } from '../core/rate-limit-marker.js';
 import { UsageCapError, usageCapMessage } from '../core/usage-cap.js';
 import { hasLabel } from '../core/labels.js';
 import { GITHUB_SECRET_BLOCKED_LABEL, GITHUB_RATE_LIMITED_LABEL } from '../github-labels.js';
+import { applyGitlabDependencyGate } from '../tasks/gitlab-dependencies.js';
 import { GITLAB_SECRET_BLOCKED_LABEL } from '../gitlab-labels.js';
 import type { Task } from '../tasks/fetcher.js';
 import type { RunLinearIssueDeps } from './linear.js';
@@ -1165,7 +1166,12 @@ export function gitlabWatchPrimitives(opts: WatchGitlabOptions): WatchPrimitives
   const heldBefore = new Set<string>();
   return {
     listReady: async () => {
-      const tasks = await fetcher.list({ labels: agentLabels });
+      const tasks = await applyGitlabDependencyGate(await fetcher.list({ labels: agentLabels }), {
+        project,
+        trigger: opts.label,
+        ...(needsInfoLabel !== undefined ? { needsInfoLabel } : {}),
+        glab,
+      });
       heldBefore.clear();
       for (const task of tasks) if (hasLabel(task.labels, GITLAB_SECRET_BLOCKED_LABEL)) heldBefore.add(task.id);
       return tasks.map((task) => ({ id: task.id }));
@@ -1251,7 +1257,8 @@ export function gitlabSpecPrimitives(opts: WatchGitlabSpecOptions): SpecWatchPri
   const generate = opts.generateSpec ?? runSpecGenerator;
   const specLabels = opts.ownerLabel !== undefined ? [opts.ownerLabel, opts.specLabel] : [opts.specLabel];
   return {
-    listReady: async () => (await fetcher.list({ labels: specLabels })).map((task) => ({ id: task.id })),
+    listReady: async () =>
+      (await applyGitlabDependencyGate(await fetcher.list({ labels: specLabels }), { project: opts.project, trigger: opts.specLabel, needsInfoLabel: opts.needsInfoLabel, glab })).map((task) => ({ id: task.id })),
     claim: (id) =>
       editGitlabLabels(opts.project, id, { remove: [opts.specLabel], add: [opts.claimedLabel] }, glab),
     runSpec: async (id) => {
