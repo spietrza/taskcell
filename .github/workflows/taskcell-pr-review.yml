@@ -65,8 +65,8 @@ jobs:
       provider: codex
       review-model: gpt-5.6-sol
       fallback-provider: claude
-      # Opus, not Fable: the subscription's Fable limit is the one the implement runs and the maintainer exhaust.
-      fallback-model: opus
+      # Fable again since its limit reset: the Opus re-reviews came back with a verdict and no findings (#991).
+      fallback-model: claude-fable-5-2
       # One run reviews every labelled PR; four at a time instead of two.
       review-concurrency: '4'
     secrets:
