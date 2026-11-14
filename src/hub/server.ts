@@ -15,7 +15,8 @@ import { AuditLog, TOKEN_ACTOR, auditActorOf, reportAuditFailure, type Actor } f
 import { encodeError, encodeResult, HUB_EVENTS_SESSION_PATH, HUB_SIGN_IN_REQUIRED, HUB_TOKEN_HEADER, HUB_TOKEN_REJECTED } from '../hub-wire.js';
 import { ProjectAllowlist, type BindOptions } from './allowlist.js';
 import { WatchRegistry, type WatchOptions } from './watch.js';
-import { createCredentialService, CredentialStore, ForbiddenError } from './credentials.js';
+import { readEnv } from '../core/env.js';
+import { createCredentialService, migrateLegacyCredentials, applyInstanceEnv, ForbiddenError } from './credentials.js';
 import { createRunSession } from './run-session.js';
 import { CompleteBusyError, CompleteRegistry, type SpawnComplete } from './complete.js';
 import { loadPaths } from './projects.js';
@@ -66,7 +67,7 @@ export interface HubServerOptions {
   fleet?: boolean;
   /** `hub --demo`: the served page runs on bundled fixtures only. */
   demo?: boolean;
-  /** `TASKCELL_HUB_SECRET` (base64, 32 bytes) keying the credential store; defaults to the env var. */
+  /** `TASKCELL_HUB_SECRET` (base64, 32 bytes) decrypting the retired `credentials.enc` for its one-time migration; defaults to the env var. */
   hubSecret?: string;
 }
 
@@ -462,12 +463,14 @@ export function createHubServer(opts: HubServerOptions): HubServer {
     await allowlist.assertAllowed(p.repoPath);
   }, join(opts.configDir, 'run-counter'));
 
-  const credentials = new CredentialStore(opts.configDir, opts.hubSecret);
-  // An unreadable store (wrong secret) is reported in Settings and on stderr; runs keep the env credentials.
-  const credentialsReady = credentials.applyStored().catch((e: unknown) => console.error(`vanguard-hub: ${(e as Error).message}`));
+  const userCredentials = createCredentialService(opts.configDir, opts.adminGithubLogins);
+  // The retired credentials.enc moves into the one store; a failure is reported on stderr and the file is kept.
+  const credentialsReady = migrateLegacyCredentials(opts.configDir, userCredentials.store, opts.hubSecret ?? readEnv('TASKCELL_HUB_SECRET')).then(
+    (moved) => { if (moved > 0) console.error(`vanguard-hub: migrated ${moved} credential(s) from credentials.enc into the credential store`); },
+    (e: unknown) => console.error(`vanguard-hub: ${(e as Error).message}`),
+  ).then(() => applyInstanceEnv(userCredentials.store)).catch((e: unknown) => console.error(`vanguard-hub: ${(e as Error).message}`));
 
   const ctx: RpcContext = {
-    credentials,
     allowlist,
     watchRegistry,
     runSession,
@@ -481,7 +484,7 @@ export function createHubServer(opts: HubServerOptions): HubServer {
     bind: opts.bind,
     publish,
     audit: new AuditLog(opts.configDir),
-    userCredentials: createCredentialService(opts.configDir, opts.adminGithubLogins),
+    userCredentials,
   };
 
   const server = createServer((req, res) => {

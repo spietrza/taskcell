@@ -4,7 +4,7 @@ import { join } from 'node:path';
 import { describe, expect, test } from 'vitest';
 import { detectSetup, type SetupProbe } from './setup-status.js';
 
-const creds = { enabled: true, providers: [{ provider: 'claude' as const, set: true, last4: 'abcd', env: false }, { provider: 'codex' as const, set: false, env: false }] };
+const creds = ['CLAUDE_CODE_OAUTH_TOKEN'];
 
 describe('detectSetup', () => {
   test('maps probe results and env to states, booleans only', async () => {
@@ -17,7 +17,6 @@ describe('detectSetup', () => {
     ]);
     expect(r.models).toEqual({ claude: true, codex: false });
     expect(JSON.stringify(r)).not.toContain('lin_secret');
-    expect(JSON.stringify(r)).not.toContain('abcd');
   });
 
   test('a failing auth status means needs-login; no Linear key likewise', async () => {
@@ -38,7 +37,6 @@ describe('detectSetup', () => {
       expect(withEnv.codexSignInFile).toBe(false);
       expect(JSON.stringify(withEnv)).not.toContain('secret-value');
     }
-    const stored = { ...creds, providers: [creds.providers[0]!, { provider: 'codex' as const, set: false, env: true }] };
-    expect((await detectSetup(stored, { CODEX_HOME: '/nonexistent-codex-home' }, async () => 'ready')).models.codex).toBe(true);
+    expect((await detectSetup([...creds, 'OPENAI_API_KEY'], { CODEX_HOME: '/nonexistent-codex-home' }, async () => 'ready')).models.codex).toBe(true);
   });
 });

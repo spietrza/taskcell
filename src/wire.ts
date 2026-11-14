@@ -347,6 +347,8 @@ export interface RunRecord {
   attempts?: number;
   /** Ids of the lessons injected into this run's prompts (`taskcell lessons list` counts them). */
   lessonIds?: string[];
+  /** Which kind of credential funded the run (hub per-user credentials); never the value. Absent on CLI/CI runs. */
+  credentialSource?: 'instance' | 'user';
 }
 
 export interface Proof {
@@ -923,24 +925,10 @@ export interface SetupToolStatus {
 export interface SetupStatus {
   tools: SetupToolStatus[];
   /** Whether a model credential is already present for each provider (a boolean, not the value).
-   * A credential a hub run can use: for Codex `CODEX_AUTH_JSON`, `CODEX_API_KEY` or `OPENAI_API_KEY`, or one saved in Settings. */
+   * A credential a hub run can use: for Codex `CODEX_AUTH_JSON`, `CODEX_API_KEY` or `OPENAI_API_KEY`, or one saved in Settings → Credentials. */
   models: { claude: boolean; codex: boolean };
   /** `codex login` left its auth file on the hub's machine. A run does not read it: it becomes usable as `CODEX_AUTH_JSON`. */
   codexSignInFile?: boolean;
-}
-
-/** Instance provider credentials (hub only, write-only: a value is never returned). */
-export type CredentialProvider = 'claude' | 'codex' | 'zai' | 'openrouter';
-export interface CredentialStatus {
-  provider: CredentialProvider;
-  set: boolean;
-  last4?: string;
-  env: boolean;
-}
-export interface CredentialsSummary {
-  enabled: boolean;
-  reason?: string;
-  providers: CredentialStatus[];
 }
 
 /** The admin `per-user credentials` switch: off, user's own first then the instance's, or user's own only. */

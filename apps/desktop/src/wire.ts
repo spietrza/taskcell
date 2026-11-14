@@ -348,6 +348,8 @@ export interface RunRecord {
   attempts?: number;
   /** Ids of the lessons injected into this run's prompts (`taskcell lessons list` counts them). */
   lessonIds?: string[];
+  /** Which kind of credential funded the run (hub per-user credentials); never the value. Absent on CLI/CI runs. */
+  credentialSource?: 'instance' | 'user';
 }
 
 export interface Proof {
@@ -924,24 +926,10 @@ export interface SetupToolStatus {
 export interface SetupStatus {
   tools: SetupToolStatus[];
   /** Whether a model credential is already present for each provider (a boolean, not the value).
-   * A credential a hub run can use: for Codex `CODEX_AUTH_JSON`, `CODEX_API_KEY` or `OPENAI_API_KEY`, or one saved in Settings. */
+   * A credential a hub run can use: for Codex `CODEX_AUTH_JSON`, `CODEX_API_KEY` or `OPENAI_API_KEY`, or one saved in Settings → Credentials. */
   models: { claude: boolean; codex: boolean };
   /** `codex login` left its auth file on the hub's machine. A run does not read it: it becomes usable as `CODEX_AUTH_JSON`. */
   codexSignInFile?: boolean;
-}
-
-/** Instance provider credentials (hub only, write-only: a value is never returned). */
-export type CredentialProvider = 'claude' | 'codex' | 'zai' | 'openrouter';
-export interface CredentialStatus {
-  provider: CredentialProvider;
-  set: boolean;
-  last4?: string;
-  env: boolean;
-}
-export interface CredentialsSummary {
-  enabled: boolean;
-  reason?: string;
-  providers: CredentialStatus[];
 }
 
 /** The admin `per-user credentials` switch: off, user's own first then the instance's, or user's own only. */
@@ -989,14 +977,10 @@ export interface Commands {
   agent_cli_versions: { args: undefined; result: CliVersionReport };
   api_complete: { args: { repoPath: string; req: CompleteCallArgs; callId?: string }; result: CompleteResponse };
   api_cancel_complete: { args: { callId: string }; result: void };
-  /** HUB_ONLY: instance provider credentials (src/hub/credentials.ts) — write-only; reads return set + last four. */
-  get_credentials: { args: undefined; result: CredentialsSummary };
-  set_credential: { args: { provider: CredentialProvider; value: string }; result: CredentialsSummary };
-  delete_credential: { args: { provider: CredentialProvider }; result: CredentialsSummary };
-  /** HUB_ONLY, admin only (403 otherwise): the `per-user credentials` switch. */
+  /** HUB_ONLY, hub owner or admin only (403 otherwise — one gate for the switch and every instance-credential RPC): the `per-user credentials` switch. */
   get_credential_policy: { args: undefined; result: { policy: CredentialPolicy } };
   set_credential_policy: { args: { policy: CredentialPolicy }; result: void };
-  /** HUB_ONLY, admin only: instance provider credentials. Write-only — status lists names, never values. */
+  /** HUB_ONLY, hub owner or admin only: instance provider credentials. Write-only — status lists names, never values. */
   instance_credentials_status: { args: undefined; result: { names: string[] } };
   save_instance_credential: { args: { name: string; value: string }; result: void };
   delete_instance_credential: { args: { name: string }; result: void };
@@ -1157,7 +1141,6 @@ export const COMMAND_NAMES = [
   'clear_draft_assets',
   'clone_project',
   'conflict_stats',
-  'delete_credential',
   'delete_draft',
   'delete_instance_credential',
   'delete_user_credential',
@@ -1171,7 +1154,6 @@ export const COMMAND_NAMES = [
   'factory_state',
   'fetch_spec',
   'get_credential_policy',
-  'get_credentials',
   'get_team',
   'import_remote_run',
   'instance_credentials_status',
@@ -1210,7 +1192,6 @@ export const COMMAND_NAMES = [
   'save_instance_credential',
   'save_user_credential',
   'set_approver_mode',
-  'set_credential',
   'set_credential_policy',
   'setup_status',
   'spawn_run',

@@ -4,7 +4,8 @@ import { access } from 'node:fs/promises';
 import { homedir } from 'node:os';
 import { join } from 'node:path';
 import { execa } from 'execa';
-import type { CredentialsSummary, SetupStatus, SetupToolState } from '../wire.js';
+import { PROVIDER_NAMES } from './credentials.js';
+import type { SetupStatus, SetupToolState } from '../wire.js';
 
 export type SetupProbe = (file: string) => Promise<SetupToolState>;
 
@@ -29,12 +30,13 @@ async function hasCodexSignIn(env: NodeJS.ProcessEnv): Promise<boolean> {
 }
 
 export async function detectSetup(
-  credentials: CredentialsSummary,
+  /** Names saved in the instance credential store (never values). */
+  savedNames: readonly string[],
   env: NodeJS.ProcessEnv = process.env,
   probe: SetupProbe = defaultProbe,
 ): Promise<SetupStatus> {
   const [gh, glab, codexSignIn] = await Promise.all([probe('gh'), probe('glab'), hasCodexSignIn(env)]);
-  const has = (p: 'claude' | 'codex'): boolean => credentials.providers.some((c) => c.provider === p && (c.set || c.env));
+  const has = (p: 'claude' | 'codex'): boolean => PROVIDER_NAMES[p]!.some((n) => savedNames.includes(n) || (env[n] ?? '') !== '');
   return {
     tools: [
       { id: 'gh', state: gh },
@@ -42,7 +44,7 @@ export async function detectSetup(
       { id: 'linear', state: (env.LINEAR_API_KEY ?? '') !== '' ? 'ready' : 'needs-login' },
     ],
     // The sign-in file alone runs nothing: a hub run takes Codex credentials from these variables only.
-    models: { claude: has('claude'), codex: has('codex') || ['CODEX_AUTH_JSON', 'CODEX_API_KEY'].some((n) => (env[n] ?? '') !== '') },
+    models: { claude: has('claude'), codex: has('codex') },
     codexSignInFile: codexSignIn,
   };
 }

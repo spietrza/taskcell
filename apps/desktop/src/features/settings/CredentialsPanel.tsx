@@ -99,8 +99,8 @@ function CredentialEditor({
   );
 }
 
-/** Hub-only. A user sees their own credentials once an admin turns per-user credentials on; the
- * switch and the instance credentials render only for admins (the hub 403s anyone else). */
+/** Hub-only. The one credentials panel. A user sees their own credentials once the hub owner or an admin turns
+ * per-user credentials on; the switch and the instance credentials render only for the owner or an admin (the hub 403s anyone else). */
 export function CredentialsPanel() {
   const [status, setStatus] = useState<{ enabled: boolean; admin: boolean; names: string[] } | undefined>();
   const [policy, setPolicy] = useState<CredentialPolicy>('off');
@@ -128,6 +128,7 @@ export function CredentialsPanel() {
   return (
     <div className="space-y-4 rounded-md border border-border bg-muted/30 p-3">
       <div className="caption">Hub credentials</div>
+      <p className="text-xs text-muted-foreground">A run uses the starter’s own credential when the switch allows it, else the instance credential, else the hub’s environment.</p>
       {status.admin && (
         <>
           <label className="block space-y-1 text-sm">
