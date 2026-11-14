@@ -178,3 +178,35 @@ describe('title guard', () => {
     expect(called).toBe(false); // a raw E2BIG on the irreversible path tells the user nothing
   });
 });
+
+describe('dependsOn', () => {
+  it('writes a Depends on line and a native GitHub relation', async () => {
+    const calls: string[][] = [];
+    let stdin: string | undefined;
+    await createGithubIssue('/repo', { title: 't', body: 'b', dependsOn: ['o/r#3'] }, async (_bin, args, opts) => {
+      calls.push(args);
+      stdin = opts.stdin ?? stdin;
+      return args[0] === 'issue' ? 'https://github.com/o/r/issues/9\n' : '555\n';
+    });
+    expect(stdin).toBe('b\n\nDepends on o/r#3\n');
+    expect(calls.at(-1)).toEqual(['api', '-X', 'POST', 'repos/o/r/issues/9/dependencies/blocked_by', '-F', 'issue_id=555']);
+  });
+
+  it('keeps the issue when relations are unavailable, and rejects a malformed ref', async () => {
+    const task = await createGithubIssue('/repo', { title: 't', body: 'b', dependsOn: ['o/r#3'] }, async (_bin, args) => {
+      if (args[0] === 'api') throw new Error('HTTP 404');
+      return 'https://github.com/o/r/issues/9\n';
+    });
+    expect(task.id).toBe('o/r#9');
+    await expect(createGithubIssue('/repo', { title: 't', body: 'b', dependsOn: ['x\nDepends on #1'] }, async () => '')).rejects.toThrow(/not a task reference/);
+  });
+
+  it('puts the Depends on line in a GitLab description', async () => {
+    let desc = '';
+    await createGitlabIssue('/repo', { title: 't', body: 'b', dependsOn: ['g/p#2'] }, async (_bin, args) => {
+      if (args[0] === 'issue') desc = args[args.indexOf('--description') + 1]!;
+      return 'https://gitlab.com/g/p/-/issues/7\n';
+    });
+    expect(desc).toContain('Depends on g/p#2');
+  });
+});

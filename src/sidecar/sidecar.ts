@@ -117,6 +117,8 @@ export interface CreateTaskParams {
   title: string;
   body: string;
   labels?: string[];
+  /** Ids of tasks this one depends on (see CreateTaskInput.dependsOn). */
+  dependsOn?: string[];
   /** Linear only: which team the issue lands in. */
   team?: string;
 }
@@ -145,6 +147,9 @@ function validateCreateTask(params: unknown): void {
   }
   if (typeof p.body !== 'string') {
     throw new BadRequestError('body must be a string');
+  }
+  if (p.dependsOn !== undefined && (!Array.isArray(p.dependsOn) || p.dependsOn.some((d) => typeof d !== 'string'))) {
+    throw new BadRequestError('dependsOn must be a list of task references');
   }
   if (p.source === 'linear' && (typeof p.team !== 'string' || p.team.trim() === '')) {
     // Without a team Linear would either fail deep in the API or land the issue in the caller's default

@@ -9,7 +9,8 @@ import { decide } from './rules.js';
 import { buildDecisionRecord, appendDecision, appendAction, reasonKey } from './record.js';
 import type { ActionKind } from './record.js';
 import { publishCheckRun, commentDecision, commentOnce, shadowSafeGhRunner } from './publish.js';
-import { actSafeGhRunner, actExclusions, reviewExact, escapeForComment, NO_DEDICATED_REVIEWER } from './act.js';
+import { dependencyHolds, rebaseDependents } from './dependency-order.js';
+import { actSafeGhRunner, REVISE_LABEL, actExclusions, reviewExact, escapeForComment, NO_DEDICATED_REVIEWER } from './act.js';
 import { redactForPublish } from '../core/secret-scan.js';
 import { TaskcellError } from '../core/errors.js';
 import type { ApproverFacts, Decision, DecisionRecord, PrFacts } from './types.js';
@@ -193,6 +194,8 @@ export async function runApprover(input: RunApproverInput, state: { updated: boo
   }
 
   const excluded = actExclusions(facts, decision, policy, prFacts.reviews);
+  // A task's PR never merges before the PRs of the tasks it depends on (read with the raw runner: the approver's own cannot read issues).
+  if (excluded.length === 0) excluded.push(...(await dependencyHolds(input.repoSlug, prFacts, rawGh)));
   if (excluded.length > 0) {
     await tell('left-for-human', excluded.join('; '), diff.headSha);
     return result;
@@ -271,7 +274,24 @@ export async function runApprover(input: RunApproverInput, state: { updated: boo
     console.error(`taskcell approve: #${input.prNumber} was merged, but logging it failed: ${errorText(err)}`);
     await tell('error', `merged, but the action log failed: ${errorText(err)}`, diff.headSha, 'merge-log-failed');
   }
+  await rebaseDependentPrs();
   return result;
+
+  // Open PRs of tasks that depend on this one: bring them up to date, or send a conflicting one through revise. Never fails the merge.
+  async function rebaseDependentPrs(): Promise<void> {
+    try {
+      const done = await rebaseDependents(input.repoSlug, prFacts, rawGh, {
+        update: (pr) => actGh(['pr', 'update-branch', String(pr), '--repo', input.repoSlug]).then(() => undefined),
+        reviseOne: async (pr, reason) => {
+          await actGh(['pr', 'comment', String(pr), '--repo', input.repoSlug, '--body', `## Taskcell Approver (act mode)\n\nSending this PR to a revise round: ${escapeForComment(reason)}.`]);
+          await actGh(['pr', 'edit', String(pr), '--repo', input.repoSlug, '--add-label', REVISE_LABEL]);
+        },
+      });
+      if (done.length > 0) await logAction('update-branch', `dependency #${input.prNumber} merged; dependents: ${done.map((d) => `#${d.pr} ${d.action}`).join(', ')}`, diff.headSha);
+    } catch (err) {
+      console.error(`taskcell approve: #${input.prNumber} was merged, but updating its dependents failed: ${errorText(err)}`);
+    }
+  }
 
   // `code` is set only when the reasons carry free-form error text; every other reason is stable and keys itself.
   async function staleBeforeMerge(): Promise<{ reasons: string[]; code?: string }> {
@@ -304,6 +324,7 @@ export async function runApprover(input: RunApproverInput, state: { updated: boo
     const reasons = actExclusions(freshFacts, freshDecision, reloaded.policy, freshReviews);
     if (freshPr.mergeStateStatus !== 'CLEAN') reasons.push(`mergeStateStatus ${freshPr.mergeStateStatus ?? 'absent'}`);
     if (freshReview.sha !== review.sha || freshReview.verdict !== review.verdict) reasons.push('the review changed');
+    reasons.push(...(await dependencyHolds(input.repoSlug, latest, rawGh)));
     return reasons;
   }
 }

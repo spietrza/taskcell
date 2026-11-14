@@ -6,17 +6,22 @@ import { assertShadowSafeGhArgs } from './publish.js';
 import { dedicatedReviewers } from './facts.js';
 import type { ApproverFacts, ApproverPolicy, Decision, PrFacts } from './types.js';
 
+/** The label that sends a PR through a revise round (which resolves conflicts with the base). */
+export const REVISE_LABEL = 'needs revision';
+
 const SHA_RE = /^[0-9a-f]{7,64}$/;
 
 /**
- * Act mode's gh allow-list: everything shadow mode may do, plus exactly two writes — merge the base
- * into the head (update-branch: never a rebase), and a squash merge pinned to the head the decision
- * was made on. It never marks a draft ready. All use the permissions the approver job already has.
+ * Act mode's gh allow-list: everything shadow mode may do, plus exactly three writes — merge the base
+ * into the head (update-branch: never a rebase), a squash merge pinned to the head the decision
+ * was made on, and the revise label on a dependent PR whose base moved under it. It never marks a
+ * draft ready. All use the permissions the approver job already has.
  */
 export function assertActSafeGhArgs(args: string[]): void {
   const [cmd, sub, num, repoFlag, , flag, value, extra] = args;
   if (cmd === 'pr' && /^\d+$/.test(num ?? '') && repoFlag === '--repo') {
     if (args.length === 5 && sub === 'update-branch') return;
+    if (args.length === 7 && sub === 'edit' && args[5] === '--add-label' && args[6] === REVISE_LABEL) return;
     if (sub === 'merge' && args.length === 8 && flag === '--squash' && value === '--match-head-commit' && SHA_RE.test(extra ?? '')) return;
   }
   try {
