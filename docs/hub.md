@@ -38,6 +38,7 @@ including the container hub) has no launch URL: open its public URL and sign in 
 - Node 24 and pnpm; `pnpm install` at the repo root (the UI bundle is a separate pnpm project that
   `pnpm build:ui` installs and builds).
 - `gh auth login` — the Board, Remote (under Settings → Runners) and cloning private repositories go through `gh`.
+  A repository needs a git remote for these. `GH_REPO` in the hub's environment also works, but it is hub-wide: every project on that hub then creates issues and lists runs in that one repository, so use it only on a hub with a single project.
 - For runs started from the hub: Docker with the sandbox image (`docker/build.sh` builds
   `taskcell-sandbox:latest`; the egress proxy sidecar uses the same image, so a missing image
   surfaces as "Failed to start egress enclave"), and the provider credential exported in the shell
@@ -385,7 +386,8 @@ The **Add project** dialog has two modes:
   already a git work tree and add it, exactly as before. `add_project` applies the same browse-root
   confinement, so a project outside the browse root cannot be added. To add one outside `$HOME`
   (the default root), start the hub with `TASKCELL_HUB_BROWSE_ROOT` set to a directory containing it.
-  The **Folder path** field jumps straight to a typed or pasted path, under the same limit. The
+  The **Folder path** field jumps straight to a typed or pasted path, under the same limit; a leading
+  `~` is the hub user's home, and a path outside the root is refused with the root named. The
   desktop app's own hub has no such limit (see [its section](#the-desktop-apps-local-hub)).
 - **Clone repository** — paste a repository URL, pick the parent folder with the same browser, and
   optionally override the folder name (default: the repo name from the URL). The hub clones it under
@@ -678,12 +680,14 @@ GitHub Actions or GitLab CI. Only `http:` and `https:` addresses are passed on. 
 
 On a hub with no projects the app opens a "Get started" guide: Git host and tasks, model
 credential, first repository. Detection is one read-only owner command, `setup_status`, that
-returns booleans only. The model step is Done when a Claude credential (`CLAUDE_CODE_OAUTH_TOKEN`
-or one saved in Settings → credentials) or a Codex credential is present; Codex counts either
-`OPENAI_API_KEY` or a Codex sign-in, detected as the existence of `$CODEX_HOME/auth.json` (default
-`~/.codex/auth.json`) — the file is never read. The step has a Claude / Codex choice, shows only
+returns booleans only. The model step is Done when a model credential is
+present: for Claude, `CLAUDE_CODE_OAUTH_TOKEN` or one saved in Settings → credentials; for Codex,
+`CODEX_AUTH_JSON`, `CODEX_API_KEY` or `OPENAI_API_KEY` (or a key saved in Settings → credentials). A
+`codex login` sign-in alone does not count, because a hub run never reads `$CODEX_HOME/auth.json`
+(default `~/.codex/auth.json`): the guide detects that the file exists (it is never read) and shows
+the line that makes it usable, `export CODEX_AUTH_JSON="$(cat ~/.codex/auth.json)"`. The step has a Claude / Codex choice, shows only
 that option's commands, and remembers the choice in the browser with the rest of the onboarding state.
 
 An `export` line only takes effect for a hub started after it: the hub reads its environment at
 start. After exporting, restart the hub (or save the key in Settings → credentials, where that
-exists) and then press **Check again**. `codex login` needs no restart.
+exists) and then press **Check again**.

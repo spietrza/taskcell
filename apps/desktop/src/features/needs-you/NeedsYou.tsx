@@ -1,11 +1,12 @@
 import { useEffect, useState } from 'react';
 import { isTauri } from '@tauri-apps/api/core';
 import { Button, Card, Chip, Textarea } from '@/ui';
+import { errorClause } from '../../errors';
 import { RefreshCw } from 'lucide-react';
 import { listNeedsYou, listNeedsYouAll, mergeNeedsYou, replyNeedsYou, type NeedsYouItem, type RepoReadFailure, type RepoStamp } from '../../ipc';
 import { inRepos } from '../../repoFilter';
 import { RepoFailures, RepoLabel } from '../../RepoViews';
-import { isHubMode } from '../../transport';
+import { isDemoLink, isHubMode } from '../../transport';
 import { ExternalLink } from '../../components/ExternalLink';
 
 /** `list_needs_you`/`reply_needs_you` are served by the hub only; outside it only the browser dev build's mock answers them. */
@@ -56,7 +57,7 @@ export function ReplyBox({ project, item, onReplied }: { project: string; item: 
         </Button>
         {error && (
           <span role="alert" className="text-xs text-destructive-text">
-            Reply not sent: {error}. Refresh — the item may no longer be waiting.
+            Reply not sent: {errorClause(error)}. Refresh — the item may no longer be waiting.
           </span>
         )}
       </div>
@@ -161,10 +162,10 @@ export function NeedsYou({
       </div>
       {error && (
         <div role="alert" className="rounded border border-destructive/40 bg-destructive/10 px-3 py-2 text-sm text-destructive">
-          Could not load what the factory is waiting on: {error}. Check the hub's `gh` login, then Refresh.
+          Could not load what the factory is waiting on: {errorClause(error)}. Check the hub's `gh` login, then Refresh.
         </div>
       )}
-      <RepoFailures failures={failures} />
+      <RepoFailures failures={failures} total={repos.length} />
       {items === null && !error && <div className="text-sm text-muted-foreground">Loading…</div>}
       {items?.length === 0 && (
         <p className="text-sm text-muted-foreground">
@@ -196,7 +197,7 @@ export function NeedsYou({
               <Chip color="warning" variant="outlined" title={item.reason}>
                 {REASON_TEXT[item.reason] ?? item.reason}
               </Chip>
-              <a href={item.url || undefined} target="_blank" rel="noreferrer" className="min-w-0 truncate font-medium hover:underline max-md:basis-full max-md:whitespace-normal max-md:break-words">
+              <a href={isDemoLink(item.url) ? undefined : item.url || undefined} target="_blank" rel="noreferrer" className="min-w-0 truncate font-medium hover:underline max-md:basis-full max-md:whitespace-normal max-md:break-words">
                 {item.title}
               </a>
               <ExternalLink href={item.url} className="ml-auto shrink-0">Open in GitHub</ExternalLink>

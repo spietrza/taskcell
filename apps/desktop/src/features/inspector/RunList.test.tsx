@@ -61,3 +61,38 @@ test('a CI run is marked, links its PR/MR, is not openable, and an unpriced one 
   fireEvent.click(screen.getByText('ci-1'));
   expect(onSelect).not.toHaveBeenCalled();
 });
+
+test('a search that empties the list is named, with a button that clears it; the box says what it matches', () => {
+  const runs: RunSummary[] = [{ taskId: 'task-7', timestamp: '2026-07-06T19:12:02.123Z', stages: ['implement'], totalCostUsd: 0.1, anyFailed: false }];
+  const onHub = vi.fn();
+  const hub = { triage: 'all' as const, repos: [], sources: [], query: 'cart total', group: 'none' as const };
+  render(<RunList runs={runs} active={[]} hub={hub} onHub={onHub} onSelect={noop} onOpenActive={noop} />);
+  expect(screen.getByLabelText('Search task id')).toHaveValue('cart total');
+  expect(screen.getByText('No runs match the search "cart total".')).toBeInTheDocument();
+  fireEvent.click(screen.getByRole('button', { name: 'Clear search' }));
+  expect(onHub).toHaveBeenCalledWith({ ...hub, query: '' });
+});
+
+test('a list emptied by another filter names the filters, with no Clear search that would bring nothing back', () => {
+  const runs: RunSummary[] = [{ taskId: 'task-7', timestamp: '2026-07-06T19:12:02.123Z', stages: ['implement'], totalCostUsd: 0.1, anyFailed: false }];
+  const hub = { triage: 'all' as const, repos: [], sources: [], query: 'task', group: 'none' as const };
+  render(<RunList runs={runs} active={[]} hub={hub} onHub={noop} onSelect={noop} onOpenActive={noop} />);
+  fireEvent.click(screen.getByRole('button', { name: 'failed' }));
+  expect(screen.getByText('No runs match the current filters.')).toBeInTheDocument();
+  expect(screen.queryByRole('button', { name: 'Clear search' })).toBeNull();
+});
+
+test('rows are keyboard stops: Enter opens a run, a CI-only row is not one', () => {
+  const run: RunSummary = { taskId: 'task-7', timestamp: '2026-07-06T19:12:02.123Z', stages: ['implement'], totalCostUsd: 0.1, anyFailed: false };
+  const onSelect = vi.fn();
+  const onOpenActive = vi.fn();
+  const active: ActiveRun[] = [{ taskId: 'task-live', sessionFile: '/x.jsonl', lastActivityMs: Date.now() }];
+  render(<RunList runs={[run, { ...run, taskId: 'task-ci', source: 'ci' }]} active={active} onSelect={onSelect} onOpenActive={onOpenActive} />);
+  const row = screen.getByText('task-7').closest('tr')!;
+  expect(row).toHaveAttribute('tabindex', '0');
+  fireEvent.keyDown(row, { key: 'Enter' });
+  expect(onSelect).toHaveBeenCalledWith(run);
+  fireEvent.keyDown(screen.getByText('task-live').closest('tr')!, { key: ' ' });
+  expect(onOpenActive).toHaveBeenCalledWith(active[0]);
+  expect(screen.getByText('task-ci').closest('tr')).not.toHaveAttribute('tabindex');
+});

@@ -2,6 +2,7 @@ import { useState } from 'react';
 import { Button, Card, Chip, Input, Timestamp } from '@/ui';
 import { RefreshCw } from 'lucide-react';
 import { dismissLesson, fetchSpec, listLessons } from '../../ipc';
+import { errorClause } from '../../errors';
 import { useAsync } from '../../hooks';
 import { ExternalLink } from '../../components/ExternalLink';
 import type { RepoLesson } from '../../wire';
@@ -69,17 +70,31 @@ function LessonCard({ lesson, onDismiss }: { lesson: RepoLesson; onDismiss?: () 
   );
 }
 
+const LESSONS_DOCS = 'https://github.com/spietrza/taskcell/blob/main/docs/autonomous-loop.md#per-pr-lessons';
+
+/** Where lessons live and what writes them: the one explanation the empty and the populated screen share. */
+function LessonsSource() {
+  return (
+    <>
+      Lessons are stored in <code className="font-mono">lessons.jsonl</code> on the <code className="font-mono">taskcell-metrics</code> branch,
+      written by <code className="font-mono">taskcell lessons record</code> (the Lessons workflow) when a factory PR closes.{' '}
+      <ExternalLink href={LESSONS_DOCS}>How lessons work</ExternalLink>
+    </>
+  );
+}
+
 /** The project's Lessons view (hub): what the factory learned from past PRs, newest first, with Dismiss. */
 export function Lessons({ project }: { project: string }) {
   const [nonce, setNonce] = useState(0);
   const [filter, setFilter] = useState('');
   const { data, error, loading } = useAsync(() => listLessons(project), [project, nonce]);
   const shown = (data?.lessons ?? []).filter((l) => matchesPath(l, filter));
+  const none = (data?.lessons.length ?? 0) === 0;
   return (
     <section aria-label="Lessons" className="min-h-0 flex-1 space-y-3 overflow-y-auto">
       <div className="flex flex-wrap items-center gap-3">
         <h2 className="text-xl font-semibold">Lessons</h2>
-        <Input aria-label="Filter by path" placeholder="Filter by path…" value={filter} onChange={(e) => setFilter(e.target.value)} className="max-w-xs" />
+        <Input aria-label="Filter by path" placeholder="Filter by path…" value={filter} onChange={(e) => setFilter(e.target.value)} disabled={none} className="max-w-xs" />
         <Button className="ml-auto" variant="text" color="secondary" onClick={() => setNonce((n) => n + 1)} startIcon={<RefreshCw className="size-4" />}>
           Refresh
         </Button>
@@ -87,15 +102,24 @@ export function Lessons({ project }: { project: string }) {
       {loading && <div className="text-sm text-muted-foreground">Loading…</div>}
       {error && (
         <div role="alert" className="rounded border border-destructive/40 bg-destructive/10 px-3 py-2 text-sm text-destructive">
-          Could not load the lessons: {error}. Check that the hub can reach the repository, then Refresh.
+          Could not load the lessons: {errorClause(error)}. Check that the hub can reach the repository, then Refresh.
         </div>
       )}
       {data && !data.branchFound && (
         <p className="text-sm text-muted-foreground">
-          No lessons yet: this repository has no metrics branch, where the factory stores what it learns from closed PRs. It appears after the first PR that teaches something.
+          No lessons yet: this repository has no metrics branch. <LessonsSource />
         </p>
       )}
-      {data?.branchFound && data.lessons.length === 0 && <p className="text-sm text-muted-foreground">No lessons yet — the factory has not learned anything worth keeping from a PR.</p>}
+      {data?.branchFound && data.lessons.length === 0 && (
+        <p className="text-sm text-muted-foreground">
+          No lessons yet: no closed factory PR has taught anything worth keeping. <LessonsSource />
+        </p>
+      )}
+      {data && data.lessons.length > 0 && (
+        <p className="text-xs text-muted-foreground">
+          <LessonsSource />
+        </p>
+      )}
       {data && data.lessons.length > 0 && shown.length === 0 && <p className="text-sm text-muted-foreground">No lesson applies to a path containing “{filter.trim()}”.</p>}
       {shown.map((l) => (
         <LessonCard

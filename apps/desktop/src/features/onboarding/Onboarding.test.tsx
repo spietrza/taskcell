@@ -2,6 +2,7 @@ import { describe, expect, test, vi, beforeEach } from 'vitest';
 import { fireEvent, render, screen, waitFor } from '@testing-library/react';
 import { Onboarding } from './Onboarding';
 import { EMPTY_STORED } from './steps';
+import { setupStatus } from '../../ipc';
 
 vi.mock('../../ipc', () => ({
   setupStatus: vi.fn(async () => ({
@@ -35,7 +36,17 @@ describe('Onboarding', () => {
     rerender(<Onboarding projectCount={0} stored={{ ...EMPTY_STORED, model: 'codex' }} onStored={onStored} onAddRepo={() => {}} onClose={() => {}} />);
     expect(screen.getByText(/codex login/)).toBeInTheDocument();
     expect(screen.queryByText(/claude setup-token/)).toBeNull();
-    expect(screen.getAllByText(/restart the hub/)).toHaveLength(1);
+    expect(screen.getAllByText(/restart the hub/)).toHaveLength(2);
+  });
+
+  test('a Codex sign-in file with no credential: the step is not Done, and the guide shows the export that makes it usable', async () => {
+    vi.mocked(setupStatus).mockResolvedValueOnce({ tools: [], models: { claude: false, codex: false }, codexSignInFile: true });
+    render(<Onboarding projectCount={0} stored={{ ...EMPTY_STORED, model: 'codex' }} onStored={() => {}} onAddRepo={() => {}} onClose={() => {}} />);
+    expect(await screen.findByText(/hub runs do not read it until it is set as CODEX_AUTH_JSON/)).toBeInTheDocument();
+    expect(screen.getByText(/Codex: not found/)).toBeInTheDocument();
+    expect(screen.getByText(/export CODEX_AUTH_JSON=/)).toBeInTheDocument();
+    expect(screen.queryByText(/codex login/)).toBeNull();
+    expect(screen.getAllByText('Needs action').length).toBeGreaterThanOrEqual(2);
   });
 
   test('the repo step opens the picker; Dismiss completes onboarding', async () => {

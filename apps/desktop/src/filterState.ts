@@ -1,5 +1,6 @@
 /** The one filter state Board and Runs share (persisted): triage, projects, card source, search and grouping. */
 import type { BoardTask, RunSummary } from './wire';
+import { isDemoMode } from './transport';
 
 export type Triage = 'all' | 'running' | 'needs' | 'merged';
 export type CardSource = 'github' | 'gitlab' | 'linear' | 'taskcell';
@@ -37,6 +38,8 @@ export const GROUPINGS: { value: Grouping; label: string }[] = [
 ];
 
 const KEY = 'vanguard.hubFilter';
+/** The demo keeps its own filter, so a search typed there never reaches the real projects. */
+const key = (): string => (isDemoMode() ? `${KEY}.demo` : KEY);
 /** The single-repository choice (a path, or `all`) the filter replaced; carried over once. */
 const LEGACY_KEY = 'vanguard.repoFilter';
 
@@ -46,8 +49,8 @@ const oneOf = <T extends string>(list: { value: T }[], v: unknown, fallback: T):
 /** Reads the saved state, repairing anything malformed back to its default. */
 export function loadFilter(): HubFilter {
   try {
-    const saved = localStorage.getItem(KEY);
-    const legacy = localStorage.getItem(LEGACY_KEY);
+    const saved = localStorage.getItem(key());
+    const legacy = isDemoMode() ? null : localStorage.getItem(LEGACY_KEY);
     if (saved === null && legacy && legacy !== 'all') return { ...DEFAULT_FILTER, repos: [legacy] };
     const raw = JSON.parse(saved ?? 'null') as Partial<Record<keyof HubFilter, unknown>> | null;
     if (raw === null || typeof raw !== 'object') return DEFAULT_FILTER;
@@ -66,7 +69,7 @@ export function loadFilter(): HubFilter {
 
 export function saveFilter(f: HubFilter): void {
   try {
-    localStorage.setItem(KEY, JSON.stringify(f));
+    localStorage.setItem(key(), JSON.stringify(f));
   } catch {
     /* storage unavailable — the choice just won't survive a reload */
   }

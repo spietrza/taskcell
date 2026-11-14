@@ -1,12 +1,13 @@
 import type { RunLocationId, TaskSourceId } from './wire';
 
 /** Per-project factory setup: where tasks come from and where work runs (docs/task-sources.md). */
-export const TASK_SOURCES: { id: TaskSourceId; label: string }[] = [
+/** `planned` = nothing reads it yet (no board, no task creation, no runner): Settings lists it but does not let it be picked. */
+export const TASK_SOURCES: { id: TaskSourceId; label: string; planned?: true }[] = [
   { id: 'github', label: 'GitHub Issues' },
   { id: 'github-project', label: 'GitHub Projects' },
   { id: 'gitlab', label: 'GitLab Issues' },
   { id: 'linear', label: 'Linear' },
-  { id: 'hub', label: 'Hub board' },
+  { id: 'hub', label: 'Hub board', planned: true },
 ];
 
 /** `implemented` = Enable factory can set it up from the hub; the rest link to where it is tracked. */

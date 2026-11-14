@@ -189,3 +189,15 @@ test('a rail Running entry clicked from Settings opens the live run', async () =
   await new Promise((r) => setTimeout(r, 50));
   expect(screen.getByText('running')).toBeInTheDocument();
 });
+
+test('a tab the hub refuses shows only how to reconnect, not an empty project list', async () => {
+  window.__TASKCELL_HUB__ = true;
+  vi.stubGlobal('fetch', vi.fn(async () => new Response(JSON.stringify({ error: { message: 'invalid hub token', kind: 'bad-request' } }), { status: 401, headers: { 'content-type': 'application/json' } })));
+  render(<App />);
+  const banner = await screen.findByRole('alert');
+  expect(banner).toHaveTextContent('open the URL that taskcell hub printed');
+  expect(banner.querySelector('code')).toHaveTextContent('taskcell hub');
+  await waitFor(() => expect(screen.queryByRole('button', { name: /Add/ })).toBeNull());
+  expect(screen.queryByText(/No projects yet/)).toBeNull();
+  expect(screen.queryByRole('button', { name: 'Try the demo project' })).toBeNull();
+});

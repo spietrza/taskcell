@@ -58,3 +58,13 @@ test('act is not offered while it is blocked, and nothing is written directly', 
   await waitFor(() => expect(screen.getByRole('button', { name: 'Act' })).toBeDisabled());
   expect(screen.getByText(/Act mode, where the approver merges pull requests by itself, can't be turned on yet/)).toBeInTheDocument();
 });
+
+test('a command in the hub hint is shown as code, and a locked switch says why', async () => {
+  mockIPC((cmd) => (cmd === 'read_approver_scorecard' ? card({ status: 'no-data', hint: 'Run `taskcell approve` from your CI workflow.', policyFound: false }) : undefined));
+  render(<AutoMerge project="/repo" />);
+  const code = await screen.findByText('taskcell approve');
+  expect(code.tagName).toBe('CODE');
+  expect(screen.queryByText(/`/)).not.toBeInTheDocument();
+  expect(screen.getByText(/The mode cannot be changed yet/)).toBeInTheDocument();
+  screen.getAllByRole('button').forEach((b) => expect(b).toBeDisabled());
+});

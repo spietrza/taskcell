@@ -2,11 +2,13 @@ import { useEffect, type RefObject } from 'react';
 
 const FOCUSABLE = 'a[href],button:not([disabled]),input:not([disabled]),select:not([disabled]),textarea:not([disabled]),[tabindex]:not([tabindex="-1"])';
 
-/** Dialog focus management: Tab/Shift+Tab cycle inside `ref`, and focus returns to the element that
- * had it before the dialog mounted once it unmounts. */
+/** Dialog focus management: focus moves into `ref` on mount (unless the dialog already took it), Tab/Shift+Tab
+ * cycle inside it, and focus returns to the element that had it before the dialog mounted once it unmounts. */
 export function useFocusTrap(ref: RefObject<HTMLElement | null>): void {
   useEffect(() => {
     const opener = document.activeElement instanceof HTMLElement ? document.activeElement : null;
+    const dialog = ref.current;
+    if (dialog && !dialog.contains(document.activeElement)) dialog.querySelector<HTMLElement>(FOCUSABLE)?.focus();
     const onKey = (e: KeyboardEvent): void => {
       const root = ref.current;
       if (e.key !== 'Tab' || !root) return;

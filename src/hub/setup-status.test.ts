@@ -25,11 +25,20 @@ describe('detectSetup', () => {
     expect(r.tools.map((t) => t.state)).toEqual(['needs-login', 'needs-login', 'needs-login']);
   });
 
-  test('a Codex auth file counts as a Codex credential; its content is never returned', async () => {
+  test('a Codex auth file alone is not a credential a run can use: reported apart, its content never returned', async () => {
     const dir = await mkdtemp(join(tmpdir(), 'codex-home-'));
     await writeFile(join(dir, 'auth.json'), '{"tokens":{"access_token":"tok_super_secret"}}');
     const r = await detectSetup(creds, { CODEX_HOME: dir }, async () => 'ready');
-    expect(r.models).toEqual({ claude: true, codex: true });
+    expect(r.models).toEqual({ claude: true, codex: false });
+    expect(r.codexSignInFile).toBe(true);
     expect(JSON.stringify(r)).not.toContain('tok_super_secret');
+    for (const name of ['CODEX_AUTH_JSON', 'CODEX_API_KEY']) {
+      const withEnv = await detectSetup(creds, { CODEX_HOME: '/nonexistent-codex-home', [name]: 'secret-value' }, async () => 'ready');
+      expect(withEnv.models.codex).toBe(true);
+      expect(withEnv.codexSignInFile).toBe(false);
+      expect(JSON.stringify(withEnv)).not.toContain('secret-value');
+    }
+    const stored = { ...creds, providers: [creds.providers[0]!, { provider: 'codex' as const, set: false, env: true }] };
+    expect((await detectSetup(stored, { CODEX_HOME: '/nonexistent-codex-home' }, async () => 'ready')).models.codex).toBe(true);
   });
 });

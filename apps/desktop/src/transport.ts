@@ -65,6 +65,14 @@ function fragmentToken(): string | null {
  * address bar, so it is neither bookmarked nor left in history. The server never sees a fragment and
  * never serves the token, so this is the only way a browser page gets one. No-op without the
  * fragment. A fresh launch URL overwrites a stored token from an earlier hub launch. */
+function stripFragmentToken(): void {
+  const params = new URLSearchParams(window.location.hash.slice(1));
+  params.delete(HUB_TOKEN_FRAGMENT_PARAM);
+  const rest = params.toString();
+  const { pathname, search } = window.location;
+  window.history.replaceState(window.history.state, '', `${pathname}${search}${rest === '' ? '' : `#${rest}`}`);
+}
+
 export function captureHubToken(): void {
   const token = fragmentToken();
   if (token === null) return;
@@ -73,11 +81,23 @@ export function captureHubToken(): void {
   } catch {
     return; // Storage blocked: keep the fragment, `hubToken()` reads it from there instead.
   }
-  const params = new URLSearchParams(window.location.hash.slice(1));
-  params.delete(HUB_TOKEN_FRAGMENT_PARAM);
-  const rest = params.toString();
-  const { pathname, search } = window.location;
-  window.history.replaceState(window.history.state, '', `${pathname}${search}${rest === '' ? '' : `#${rest}`}`);
+  stripFragmentToken();
+}
+
+/** `captureHubToken` now and on every later change of the fragment: demo mode makes no hub call that would
+ * strip a token added to an open page's address. */
+export function watchHubToken(): void {
+  captureHubToken();
+  // Outside demo the next hub call captures a pasted launch URL (`hubToken`), so a refused tab reconnects in place.
+  window.addEventListener('hashchange', () => {
+    if (isDemoMode() && fragmentToken() !== null) stripFragmentToken();
+  });
+}
+
+/** Addresses of the demo's made-up repository: nothing real is behind them. */
+export const DEMO_REPO_URL = 'https://github.com/demo-org/storefront';
+export function isDemoLink(href: string): boolean {
+  return isDemoMode() && href.startsWith(DEMO_REPO_URL);
 }
 
 /** This tab's token, or '' when it has none — the hub answers 401 either way, which is the signal
@@ -99,7 +119,7 @@ function redirectToSignIn(): void {
 }
 
 /** Server mode only: is someone signed in? Better Auth answers `/api/auth/get-session` with the
- * session or null; loopback mounts no OAuth, so it 404s and there is nothing to sign out of. */
+ * session or null; loopback mounts no OAuth and answers null, so there is nothing to sign out of. */
 export async function hubSignedIn(): Promise<boolean> {
   if (!isHubMode() || isDemoMode()) return false;
   try {

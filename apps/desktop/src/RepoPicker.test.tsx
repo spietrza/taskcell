@@ -114,3 +114,32 @@ describe('RepoPicker', () => {
     expect(onClose).toHaveBeenCalled();
   });
 });
+
+test('a folder that is not a git repository says why Add is disabled', async () => {
+  install();
+  render(<RepoPicker onAdd={vi.fn()} onClone={vi.fn()} onClose={() => {}} />);
+  fireEvent.click(await screen.findByText('plain'));
+  expect(await screen.findByText(/This folder is not a git repository/)).toBeInTheDocument();
+  expect(screen.getByRole('button', { name: 'Add this repo' })).toBeDisabled();
+  fireEvent.click(screen.getByRole('button', { name: 'Parent directory' }));
+  fireEvent.click(await screen.findByText('git-repo'));
+  await vi.waitFor(() => expect(screen.getByRole('button', { name: 'Add this repo' })).toBeEnabled());
+  expect(screen.queryByText(/This folder is not a git repository/)).toBeNull();
+});
+
+test('Clone: a URL with a space or a folder name with a path in it disables the button and says why', async () => {
+  install();
+  render(<RepoPicker onAdd={vi.fn()} onClone={vi.fn()} onClose={() => {}} />);
+  fireEvent.click(screen.getByRole('tab', { name: 'Clone repository' }));
+  const url = await screen.findByLabelText('Repository URL');
+  const button = screen.getByRole('button', { name: 'Clone & add' });
+  await screen.findByText(/Clone into: \/root/);
+  fireEvent.change(url, { target: { value: 'abc def' } });
+  expect(button).toBeDisabled();
+  expect(screen.getByRole('alert')).toHaveTextContent(/no spaces/);
+  fireEvent.change(url, { target: { value: 'https://github.com/o/r' } });
+  expect(button).toBeEnabled();
+  fireEvent.change(screen.getByLabelText('Folder name'), { target: { value: '../../x' } });
+  expect(button).toBeDisabled();
+  expect(screen.getByRole('alert')).toHaveTextContent(/folder name/i);
+});

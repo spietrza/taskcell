@@ -96,6 +96,13 @@ export function RepoPicker({
     }
   };
 
+  // What the hub would refuse (src/hub/clone.ts), said before the click.
+  const cloneProblem = /[\s\\]/.test(url.trim())
+    ? 'A repository URL has no spaces or backslashes.'
+    : /[\\/]/.test(folderName.trim()) || folderName.trim() === '.' || folderName.trim() === '..'
+      ? 'A folder name is one name, without / or \\: the repository is cloned into the folder shown.'
+      : null;
+
   return (
     <div className="fixed inset-0 z-50 flex items-start justify-center bg-black/40 pt-[15vh]" onClick={onClose}>
       <div
@@ -106,7 +113,10 @@ export function RepoPicker({
         className="flex w-full max-w-lg flex-col overflow-hidden rounded-lg border border-border bg-background shadow-xl"
         onClick={(e) => e.stopPropagation()}
       >
-        <Tabs.Root value={mode} onValueChange={(v) => setMode(v as Mode)} className="flex flex-col">
+        <Tabs.Root value={mode} onValueChange={(v) => {
+          setMode(v as Mode);
+          setError(null); // an error belongs to the tab it happened on
+        }} className="flex flex-col">
           <Tabs.List className="shrink-0 px-3 pt-2">
             <Tabs.Tab value="existing">Existing folder</Tabs.Tab>
             <Tabs.Tab value="clone">Clone repository</Tabs.Tab>
@@ -156,7 +166,7 @@ export function RepoPicker({
             <Input
               value={typedPath}
               onChange={(e) => setTypedPath(e.target.value)}
-              placeholder="Or type a folder path (e.g. D:\code\repo)"
+              placeholder="Or type a folder path (e.g. ~/code/repo)"
               aria-label="Folder path"
               disabled={cloning}
             />
@@ -200,6 +210,10 @@ export function RepoPicker({
           )}
 
           <div className="flex items-center justify-end gap-2 border-t border-border px-3 py-2">
+            {mode === 'existing' && listing && !currentIsGit && (
+              <span className="mr-auto text-xs text-muted-foreground">This folder is not a git repository. Open one that is, or run git init in it.</span>
+            )}
+            {mode === 'clone' && cloneProblem !== null && <span role="alert" className="mr-auto text-xs text-destructive-text">{cloneProblem}</span>}
             <Button variant="text" onClick={onClose} disabled={cloning}>
               Cancel
             </Button>
@@ -208,7 +222,7 @@ export function RepoPicker({
                 Add this repo
               </Button>
             ) : (
-              <Button onClick={clone} disabled={!listing || url.trim() === '' || cloning}>
+              <Button onClick={clone} disabled={!listing || url.trim() === '' || cloning || cloneProblem !== null}>
                 {cloning ? 'Cloning…' : 'Clone & add'}
               </Button>
             )}

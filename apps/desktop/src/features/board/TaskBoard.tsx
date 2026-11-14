@@ -3,7 +3,7 @@ import { Button, Card, ErrorNote, cn } from '@/ui';
 import { FilePlus } from 'lucide-react';
 import { listTasks, listTasksAll } from '../../ipc';
 import { inRepos } from '../../repoFilter';
-import { RepoFailures, RepoLabel } from '../../RepoViews';
+import { isNoTaskSource, RepoFailures, RepoLabel, TaskSourceHint } from '../../RepoViews';
 import type { BoardTask, RepoReadFailure, RepoStamp } from '../../wire';
 import { useAsync } from '../../hooks';
 import { useApproverDecisions } from './useApproverDecisions';
@@ -11,7 +11,7 @@ import { decisionForTask, decisionWords } from './approverDecision';
 import { QuickView, TRACKER_NAME, type QuickTask } from './QuickView';
 import { boardCountLabels } from './counts';
 import { ExternalLink } from '../../components/ExternalLink';
-import { FilterBar } from '../../FilterBar';
+import { FilterBar, NoMatch } from '../../FilterBar';
 import { DEFAULT_FILTER, cardKeys, filterCards, groupRows, type HubFilter } from '../../filterState';
 
 // Each column owns a color identity used across its header dot, count pill and card
@@ -54,6 +54,7 @@ export function TaskBoard({
   projects = [],
   onOpenTask,
   onNewTask,
+  onOpenSettings,
 }: {
   project: string;
   /** "All repositories": list every repository's cards, each naming its repository. */
@@ -69,6 +70,8 @@ export function TaskBoard({
   projects?: { path: string; name: string }[];
   onOpenTask: (taskId: string, repoPath?: string) => void;
   onNewTask: () => void;
+  /** Opens `project`'s Settings, for the "no task source yet" hint. */
+  onOpenSettings?: () => void;
 }) {
   const { data, error, loading } = useAsync(
     (): Promise<BoardList> =>
@@ -148,19 +151,25 @@ export function TaskBoard({
     return (
       <div className="flex min-h-0 flex-1 flex-col">
         {header}
-        <ErrorNote
+        {isNoTaskSource(error) ? <TaskSourceHint repoNames={[]} onOpenSettings={onOpenSettings} /> : <ErrorNote
           title="Couldn't load the task board"
           next="This is usually a connection or setup problem: check the task source in Settings and that its credentials are valid, then reload."
           error={error}
-        />
+        />}
       </div>
     );
   }
+  // A repository with no task source chosen is a setup step, not a read failure.
+  const unset = (data?.failures ?? []).filter((f) => isNoTaskSource(f.error));
+  const failed = (data?.failures ?? []).filter((f) => !isNoTaskSource(f.error));
 
   return (
     <div className="flex min-h-0 flex-1 flex-col">
       {header}
-      <RepoFailures failures={data?.failures ?? []} />
+      {unset.length > 0 && (
+        <TaskSourceHint repoNames={unset.map((f) => f.repoName)} onOpenSettings={unset.some((f) => f.repoPath === project) ? onOpenSettings : undefined} />
+      )}
+      <RepoFailures failures={failed} total={repos.length - unset.length} />
       {allTasks?.length === 0 && (data?.failures.length ?? 0) === 0 && (
         <div className="mb-3 shrink-0 rounded-lg border border-dashed border-border/60 p-4 text-sm">
           <div className="font-medium">No tasks yet</div>
@@ -177,7 +186,10 @@ export function TaskBoard({
       )}
       <div className="flex min-h-0 flex-1 gap-3 pb-4">
       <div className={cn('flex min-h-0 min-w-0 flex-1 flex-col gap-4', filter.group !== 'none' && 'overflow-y-auto')}>
-        {lanes.length === 0 && <div className="py-8 text-center text-sm text-muted-foreground">No cards match.</div>}
+        {/* Ungrouped, the one lane stays (its columns render empty), so "nothing matches" is asked of the cards. */}
+        {(allTasks?.length ?? 0) > 0 && tasks?.length === 0 && (
+          <NoMatch what="cards" query={filterCards(allTasks ?? [], { ...filter, query: '' }).length > 0 ? filter.query : ''} onClear={onFilter && (() => onFilter({ ...filter, query: '' }))} />
+        )}
         {lanes.map((lane) => (
         <section key={lane.key} aria-label={lane.label || undefined} className={cn('flex min-h-0 flex-col gap-2', filter.group === 'none' ? 'flex-1' : 'h-[28rem] shrink-0')}>
         {lane.label && (

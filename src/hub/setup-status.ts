@@ -1,4 +1,4 @@
-// First-run setup detection: is `gh` / `glab` logged in, is a Linear key present, is a model credential present.
+// First-run setup detection: is `gh` / `glab` logged in, is a Linear key present, is a model credential a run can use present.
 // Reports booleans only — a secret value is never read into the result.
 import { access } from 'node:fs/promises';
 import { homedir } from 'node:os';
@@ -41,6 +41,8 @@ export async function detectSetup(
       { id: 'glab', state: glab },
       { id: 'linear', state: (env.LINEAR_API_KEY ?? '') !== '' ? 'ready' : 'needs-login' },
     ],
-    models: { claude: has('claude'), codex: has('codex') || codexSignIn },
+    // The sign-in file alone runs nothing: a hub run takes Codex credentials from these variables only.
+    models: { claude: has('claude'), codex: has('codex') || ['CODEX_AUTH_JSON', 'CODEX_API_KEY'].some((n) => (env[n] ?? '') !== '') },
+    codexSignInFile: codexSignIn,
   };
 }

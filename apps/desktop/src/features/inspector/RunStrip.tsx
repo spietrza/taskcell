@@ -46,7 +46,7 @@ export function RunStrip({ state, onCancel }: { state: TypedRunState; onCancel: 
                     ? 'border-destructive text-destructive-text'
                     : phase === 'running'
                       ? 'border-foreground text-foreground'
-                      : 'border-border text-muted-foreground opacity-60'
+                      : 'border-border/60 text-muted-foreground'
               }`}
             >
               {phase === 'running' && terminal === undefined && (

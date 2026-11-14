@@ -12,9 +12,10 @@ import { combinationNote, legacySource, resolveTaskSource, RUN_LOCATIONS, runLoc
 import { projectColor } from '../../color';
 import { customProviderRowError, customProviderRows, PROVIDERS } from './customProviders';
 import type { AppConfig } from '../../taskcell-output';
-import type { CustomProviderSpec } from '../../wire';
+import { appConfigRangeErrors, type CustomProviderSpec } from '../../wire';
+import { errorClause, errorMessage } from '../../errors';
 
-function Field({ label, hint, children }: { label: string; hint?: string; children: ReactNode }) {
+function Field({ label, hint, error, children }: { label: string; hint?: string; error?: string | undefined; children: ReactNode }) {
   return (
     <label className="block space-y-1">
       <span className="text-sm">
@@ -22,6 +23,7 @@ function Field({ label, hint, children }: { label: string; hint?: string; childr
         {hint && <span className="ml-1 text-xs text-muted-foreground">{hint}</span>}
       </span>
       {children}
+      {error !== undefined && <span role="alert" className="block text-xs text-destructive-text">{error}</span>}
     </label>
   );
 }
@@ -66,6 +68,7 @@ export function Settings({ project, teamScreen }: { project: string; teamScreen?
   const [cfg, setCfg, cfgStatus] = useAppConfig(project);
   const [dirty, setDirty] = useState(false);
   const [saved, setSaved] = useState(false);
+  const [saveError, setSaveError] = useState<string | null>(null);
 
   // Shell navigation unmounts this screen — see useDiscardGuard (S8 seam, #339 follow-up).
   useDiscardGuard(dirty, () => window.confirm('Discard unsaved changes to .taskcell/app.json?'));
@@ -74,6 +77,7 @@ export function Settings({ project, teamScreen }: { project: string; teamScreen?
     setCfg((c) => ({ ...c, [k]: v }));
     setDirty(true);
     setSaved(false);
+    setSaveError(null);
   };
 
   const customs: CustomProviderSpec[] = customProviderRows(cfg);
@@ -89,7 +93,8 @@ export function Settings({ project, teamScreen }: { project: string; teamScreen?
   // Save gating (S6 §8 guards): before the config read resolves, a save would write the {} seed
   // over the file; after a FAILED read ('error' = the file exists but does not parse), a save
   // would replace the user's hand-edited JSON with defaults. Invalid custom rows also block.
-  const savable = dirty && cfgStatus === 'ready' && customsValid;
+  const rangeErrors = appConfigRangeErrors(cfg);
+  const savable = dirty && cfgStatus === 'ready' && customsValid && Object.keys(rangeErrors).length === 0;
 
   // Latest cfg, readable after an await (the save closure's `cfg` is the render's snapshot).
   const cfgRef = useRef(cfg);
@@ -97,7 +102,13 @@ export function Settings({ project, teamScreen }: { project: string; teamScreen?
 
   const save = async (): Promise<void> => {
     const shipped = cfg; // the exact object written — dirty clears only if it is still current
-    await writeAppConfig(project, shipped);
+    try {
+      await writeAppConfig(project, shipped);
+    } catch (e) {
+      // The form keeps the user's input and stays dirty: they correct the named field and save again.
+      setSaveError(errorMessage(e));
+      return;
+    }
     // An edit made while the write was in flight lives in cfg but NOT on disk. Clearing dirty would
     // disable Save and disarm the guard above, letting the next navigation discard it silently —
     // the same rule flowEditorReducer's saveOk follows. Every `set` builds a new object, so
@@ -113,13 +124,19 @@ export function Settings({ project, teamScreen }: { project: string; teamScreen?
 
   return (
     <div className="space-y-5">
-      <div className="flex items-center gap-3">
+      {/* Sticky: Save stays reachable however far the form scrolls. */}
+      <div className="sticky top-0 z-10 flex items-center gap-3 bg-background py-1">
         <h2 className="text-xl font-semibold">Settings</h2>
         <code className="text-xs text-muted-foreground">.taskcell/app.json</code>
         <Button className="ml-auto" onClick={save} disabled={!savable}>
           {saved ? 'Saved' : 'Save'}
         </Button>
       </div>
+      {saveError !== null && (
+        <p role="alert" className="text-sm text-destructive-text">
+          Settings were not saved: {errorClause(saveError)}. Fix it and save again.
+        </p>
+      )}
 
       {isHubMode() && teamScreen && <Members {...teamScreen} />}
 
@@ -183,8 +200,9 @@ export function Settings({ project, teamScreen }: { project: string; teamScreen?
             >
               <option value="">—</option>
               {TASK_SOURCES.map((s) => (
-                <option key={s.id} value={s.id}>
-                  {s.label}
+                // A planned source cannot be picked; one already stored still shows as what it is.
+                <option key={s.id} value={s.id} disabled={s.planned === true}>
+                  {s.planned ? `${s.label} (planned)` : s.label}
                 </option>
               ))}
             </select>
@@ -196,8 +214,9 @@ export function Settings({ project, teamScreen }: { project: string; teamScreen?
               className={SELECT_CLASS}
             >
               {RUN_LOCATIONS.map((r) => (
+                // Still selectable: these run when set up by hand; only the hub's Enable factory cannot do it yet.
                 <option key={r.id} value={r.id}>
-                  {r.label}
+                  {r.implemented ? r.label : `${r.label} (hub setup planned)`}
                 </option>
               ))}
             </select>
@@ -265,17 +284,20 @@ export function Settings({ project, teamScreen }: { project: string; teamScreen?
           />
         </Field>
         <div className="grid grid-cols-2 gap-4">
-          <Field label="Parallel runs" hint="— how many tasks run at once">
+          <Field label="Parallel runs" hint="— how many tasks run at once (1 or more)" error={rangeErrors.concurrency}>
             <Input
               type="number"
+              min={1}
+              step={1}
               value={cfg.concurrency ?? ''}
               onChange={(e) => set('concurrency', e.target.value ? Number(e.target.value) : undefined)}
               className="w-full"
             />
           </Field>
-          <Field label="Budget cap per Run">
+          <Field label="Budget cap per Run" error={rangeErrors.budgetUsd}>
             <Input
               type="number"
+              min={0}
               value={cfg.budgetUsd ?? ''}
               onChange={(e) => set('budgetUsd', e.target.value ? Number(e.target.value) : undefined)}
               className="w-full"
@@ -283,7 +305,7 @@ export function Settings({ project, teamScreen }: { project: string; teamScreen?
             />
           </Field>
         </div>
-        <Field label="Usage cap %" hint="— the factory stops starting work at this % of your plan window, leaving the rest as your reserve (1–100; empty = no cap)">
+        <Field label="Usage cap %" hint="— the factory stops starting work at this % of your plan window, leaving the rest as your reserve (1–100; empty = no cap)" error={rangeErrors.usageCapPct}>
           <Input
             type="number"
             min={1}

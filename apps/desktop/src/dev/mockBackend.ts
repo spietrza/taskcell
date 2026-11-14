@@ -1,4 +1,5 @@
 import { mockIPC, mockWindows } from '@tauri-apps/api/mocks';
+import { DEMO_READ_ONLY_MESSAGE } from '../errors';
 import type { Commands, RepoLesson } from '../wire';
 import {
   projects,
@@ -24,7 +25,7 @@ import {
   factoryStateNone,
   factoryStateSettingUp,
 } from './fixtures';
-import { demoProject, demoRuns, demoRunDetails, demoActiveRuns, demoBoardTasks, demoNeedsYou, DEMO_REPO_PATH, DEMO_WRITE_COMMANDS } from './demoData';
+import { demoProject, demoRuns, demoRunDetails, demoActiveRuns, demoBoardTasks, demoFactoryState, demoLessonsFor, demoNeedsYou, demoRunBacklog, demoSpec, DEMO_LIVE_COST_USD, DEMO_REPO_PATH, DEMO_RUN_ID, DEMO_WRITE_COMMANDS } from './demoData';
 
 let waitingNeedsYou = [...needsYouItems];
 let mockLessons: RepoLesson[] = [
@@ -230,13 +231,20 @@ const demoOverrides: Record<string, (args: unknown) => unknown> = {
   list_needs_you: () => ({ items: demoNeedsYou }),
   list_needs_you_all: () => ({ items: demoNeedsYou.map((i) => ({ ...i, repoPath: DEMO_REPO_PATH, repoName: demoProject.name })), failures: [] }),
   list_remote_runs: () => [],
-  api_active_run: () => ({ runId: 'demo-run-1', repoPath: DEMO_REPO_PATH }),
+  api_active_run: () => ({ runId: DEMO_RUN_ID, repoPath: DEMO_REPO_PATH }),
+  api_run_backlog: () => demoRunBacklog,
+  fetch_spec: (args) => ({ spec: demoSpec((args as { taskId?: string } | undefined)?.taskId) }),
+  list_lessons: (args) => ({ lessons: demoLessonsFor((args as { taskText?: string } | undefined)?.taskText), branchFound: true }),
+  factory_state: () => demoFactoryState,
+  // The live run's detail and its strip show one cost.
+  read_session: () => ({ ...session, estCostUsd: DEMO_LIVE_COST_USD }),
+  list_drafts: () => [],
   api_queue: () => [],
   api_repo_ok: () => true,
   read_app_config: () => ({ ...appConfig, label: 'storefront (demo)' }),
   read_app_config_strict: () => ({ ...appConfig, label: 'storefront (demo)' }),
   ...Object.fromEntries(
-    DEMO_WRITE_COMMANDS.map((cmd) => [cmd, (): never => { throw 'Demo project is read-only — nothing is written to any repository.'; }]),
+    DEMO_WRITE_COMMANDS.map((cmd) => [cmd, (): never => { throw DEMO_READ_ONLY_MESSAGE; }]),
   ),
 };
 

@@ -223,9 +223,9 @@ export function WorkflowEditor({ project }: { project: string }) {
 
   return (
     <div className="flex h-full min-h-0 flex-col gap-4">
-      <div className="flex shrink-0 items-center gap-3">
+      <div className="flex shrink-0 flex-wrap items-center gap-3">
         <h2 className="text-xl font-semibold">Flows</h2>
-        {state.file !== null && <code className="text-xs text-muted-foreground">.taskcell/flows/{state.file}</code>}
+        {state.file !== null && <code className="min-w-0 truncate text-xs text-muted-foreground">.taskcell/flows/{state.file}</code>}
         {state.dirty && (
           <span className="rounded bg-warning/15 px-1.5 py-0.5 text-[11px] text-warning-text">unsaved</span>
         )}

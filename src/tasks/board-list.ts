@@ -12,7 +12,7 @@ import { LinearCliTaskFetcher, linearGraphql } from './linear-cli.js';
 import { columnFor, mintBoardId, resolveTaskRef, taskRefKey, toBoardTask } from './board.js';
 import type { BoardSource } from './board.js';
 import type { TaskFetcher } from './fetcher.js';
-import type { BoardTask } from '../wire.js';
+import { NO_TASK_SOURCE_MESSAGE, type BoardTask } from '../wire.js';
 import { readRepoBaseBranch } from '../core/base-branch.js';
 import { stateDir } from '../core/state-path.js';
 
@@ -68,7 +68,7 @@ function requireBoardSource(cfg: BoardConfig): BoardSource {
   if (isBoardSource(cfg.source)) return cfg.source;
   // Explicit prompt, NOT createTask's github default: a board silently reading the wrong tracker
   // is worse than asking (S9 spec §2.7).
-  throw new TaskcellError('Set a Task Source in Settings to load the board.');
+  throw new TaskcellError(NO_TASK_SOURCE_MESSAGE);
 }
 
 async function originRemote(repoPath: string): Promise<string> {

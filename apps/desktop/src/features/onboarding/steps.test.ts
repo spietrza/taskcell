@@ -14,30 +14,32 @@ const status = (over: Partial<SetupStatus> = {}): SetupStatus => ({
 
 describe('stepState', () => {
   test('git host is done when gh or glab is ready, else needs action', () => {
-    expect(stepState('git-host', { status: status(), projectCount: 0, skipped: [] })).toBe('done');
+    expect(stepState('git-host', { status: status(), projectCount: 0, skipped: [], model: 'claude' })).toBe('done');
     const none = status({ tools: [{ id: 'gh', state: 'needs-login' }, { id: 'glab', state: 'missing' }] });
-    expect(stepState('git-host', { status: none, projectCount: 0, skipped: [] })).toBe('needs-action');
-    expect(stepState('git-host', { status: null, projectCount: 0, skipped: [] })).toBe('needs-action');
+    expect(stepState('git-host', { status: none, projectCount: 0, skipped: [], model: 'claude' })).toBe('needs-action');
+    expect(stepState('git-host', { status: null, projectCount: 0, skipped: [], model: 'claude' })).toBe('needs-action');
   });
 
   test('Linear alone does not complete the git host step', () => {
     const s = status({ tools: [{ id: 'linear', state: 'ready' }] });
-    expect(stepState('git-host', { status: s, projectCount: 0, skipped: [] })).toBe('needs-action');
+    expect(stepState('git-host', { status: s, projectCount: 0, skipped: [], model: 'claude' })).toBe('needs-action');
   });
 
-  test('model is done with a Claude or Codex credential', () => {
-    expect(stepState('model', { status: status(), projectCount: 0, skipped: [] })).toBe('needs-action');
-    expect(stepState('model', { status: status({ models: { claude: false, codex: true } }), projectCount: 0, skipped: [] })).toBe('done');
+  test('model is done when either credential is found, whichever option is selected', () => {
+    expect(stepState('model', { status: status(), projectCount: 0, skipped: [], model: 'claude' })).toBe('needs-action');
+    const codexOnly = status({ models: { claude: false, codex: true } });
+    expect(stepState('model', { status: codexOnly, projectCount: 0, skipped: [], model: 'claude' })).toBe('done');
+    expect(stepState('model', { status: codexOnly, projectCount: 0, skipped: [], model: 'codex' })).toBe('done');
   });
 
   test('repo is done once a project exists', () => {
-    expect(stepState('repo', { status: null, projectCount: 0, skipped: [] })).toBe('needs-action');
-    expect(stepState('repo', { status: null, projectCount: 1, skipped: [] })).toBe('done');
+    expect(stepState('repo', { status: null, projectCount: 0, skipped: [], model: 'claude' })).toBe('needs-action');
+    expect(stepState('repo', { status: null, projectCount: 1, skipped: [], model: 'claude' })).toBe('done');
   });
 
   test('a skip hides needs-action but never overrides done', () => {
-    expect(stepState('model', { status: status(), projectCount: 0, skipped: ['model'] })).toBe('skipped');
-    expect(stepState('repo', { status: null, projectCount: 2, skipped: ['repo'] })).toBe('done');
+    expect(stepState('model', { status: status(), projectCount: 0, skipped: ['model'], model: 'claude' })).toBe('skipped');
+    expect(stepState('repo', { status: null, projectCount: 2, skipped: ['repo'], model: 'claude' })).toBe('done');
   });
 
 });

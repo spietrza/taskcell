@@ -313,8 +313,9 @@ async function handleRequest(
     opts.actorFor?.(req) ?? (user.id === identity.owner.id ? TOKEN_ACTOR : { login: user.email, admin: false, id: user.id, name: user.name });
 
   if (pathname === '/api/auth' || pathname.startsWith('/api/auth/')) {
-    // No OAuth on loopback: there the hub is one automatic owner.
-    if (identity.handler === undefined) return notFound(res);
+    // No OAuth on loopback: there the hub is one automatic owner. The app still asks who is signed in on
+    // every load; "no session" (Better Auth's `null`) answers that without an error in the browser console.
+    if (identity.handler === undefined) return pathname === '/api/auth/get-session' && req.method === 'GET' ? writeJson(res, 200, null) : notFound(res);
     await identity.handler(req, res);
     return;
   }

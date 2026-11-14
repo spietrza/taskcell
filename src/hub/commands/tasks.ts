@@ -7,7 +7,7 @@ import { readAppConfig } from '../app-config.js';
 import * as projects from '../projects.js';
 import { startGithubTask, triggerLabelsFor } from '../start-task.js';
 import type { BoardTask, CreatedTask, RepoReadFailure, RepoStamp, StartTaskResult } from '../../wire.js';
-import { defineCommands, requireString, optionalString, optionalNumber, githubSlug, repoTarget } from '../command-kit.js';
+import { defineCommands, requireString, optionalString, optionalNumber, githubSlug, repoTarget, assertHasRemote } from '../command-kit.js';
 
 export interface TasksCommands {
   list_tasks: { args: { repoPath: string }; result: { tasks: BoardTask[]; capped: boolean } };
@@ -84,6 +84,8 @@ export const commands = defineCommands<TasksCommands>({
       ...(labels.length > 0 ? { labels } : {}),
       ...(cfg.team !== undefined ? { team: cfg.team } : {}),
     };
+    // Linear needs no code host; `gh`/`glab issue create` do.
+    if (params.source !== 'linear') await assertHasRemote(real, params.source === 'github');
     return invokeCoreMethod(ctx.deps, 'createTask', params);
   },
   list_branches: async ({ args, allow }) => {

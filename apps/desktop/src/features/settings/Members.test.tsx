@@ -64,13 +64,21 @@ test('an admin adds a member, changes a role and removes a member', async () => 
   vi.mocked(ipc.teamSetRole).mockResolvedValue(team);
   vi.mocked(ipc.teamRemoveMember).mockResolvedValue(team);
   show(team, { onTeam });
+  // An empty login cannot be submitted, and the form says what a login is.
+  expect(await screen.findByRole('button', { name: 'Add member' })).toBeDisabled();
+  expect(screen.getByText(/A login is the verified e-mail address/)).toBeInTheDocument();
   fireEvent.change(await screen.findByRole('textbox', { name: 'Login' }), { target: { value: 'cy' } });
   fireEvent.click(screen.getByRole('button', { name: 'Add member' }));
   await waitFor(() => expect(onTeam).toHaveBeenCalledWith(updated));
   expect(ipc.teamAddMember).toHaveBeenCalledWith('t', 'cy', 'member');
   fireEvent.change(screen.getByRole('combobox', { name: 'Role of bob' }), { target: { value: 'admin' } });
   await waitFor(() => expect(ipc.teamSetRole).toHaveBeenCalledWith('t', 'bob', 'admin'));
+  // Remove asks inline first; Cancel leaves the member.
   fireEvent.click(screen.getByRole('button', { name: 'Remove bob' }));
+  expect(ipc.teamRemoveMember).not.toHaveBeenCalled();
+  fireEvent.click(screen.getByRole('button', { name: 'Cancel' }));
+  fireEvent.click(screen.getByRole('button', { name: 'Remove bob' }));
+  fireEvent.click(screen.getByRole('button', { name: 'Confirm removing bob' }));
   await waitFor(() => expect(ipc.teamRemoveMember).toHaveBeenCalledWith('t', 'bob'));
 });
 
@@ -80,6 +88,7 @@ test('the last-admin refusal is shown and the team is unchanged', async () => {
   vi.mocked(ipc.teamRemoveMember).mockRejectedValue('the last admin cannot be removed');
   show(team, { onTeam });
   fireEvent.click(await screen.findByRole('button', { name: 'Remove ann' }));
+  fireEvent.click(screen.getByRole('button', { name: 'Confirm removing ann' }));
   expect(await screen.findByRole('alert')).toHaveTextContent('the last admin cannot be removed');
   expect(onTeam).not.toHaveBeenCalled();
 });

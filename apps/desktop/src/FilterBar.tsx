@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { Button, Input, cn } from '@/ui';
 import { ListFilter, Search, X } from 'lucide-react';
 import { GROUPINGS, SOURCES, TRIAGES, type CardSource, type Grouping, type HubFilter, type Triage } from './filterState';
@@ -15,12 +15,27 @@ const pill = (on: boolean): string =>
 function ProjectPicker({ repos, withCards, selected, onChange }: { repos: Repo[]; withCards: string[]; selected: string[]; onChange: (paths: string[]) => void }) {
   const [open, setOpen] = useState(false);
   const [q, setQ] = useState('');
+  const trigger = useRef<HTMLButtonElement>(null);
+  // Escape closes the popup and hands focus back to its button. One Escape closes one layer: a layer above that
+  // took the key (defaultPrevented) keeps it, and this one stops it before an enclosing layer's listener.
+  useEffect(() => {
+    if (!open) return;
+    const onKey = (e: KeyboardEvent): void => {
+      if (e.key !== 'Escape' || e.defaultPrevented) return;
+      e.preventDefault();
+      e.stopPropagation();
+      setOpen(false);
+      trigger.current?.focus();
+    };
+    document.addEventListener('keydown', onKey);
+    return () => document.removeEventListener('keydown', onKey);
+  }, [open]);
   const shown = repos.filter((r) => r.name.toLowerCase().includes(q.trim().toLowerCase()));
   const toggle = (path: string): void => onChange(selected.includes(path) ? selected.filter((p) => p !== path) : [...selected, path]);
   const label = selected.length === 0 ? 'All projects' : selected.length === 1 ? (repos.find((r) => r.path === selected[0])?.name ?? '1 project') : `${selected.length} projects`;
   return (
     <div className="relative">
-      <button type="button" aria-expanded={open} aria-haspopup="listbox" onClick={() => setOpen(!open)} className="rounded border border-border px-2 py-1 text-xs">
+      <button ref={trigger} type="button" aria-expanded={open} onClick={() => setOpen(!open)} className="rounded border border-border px-2 py-1 text-xs">
         Projects: {label}
       </button>
       {open && (
@@ -43,7 +58,7 @@ function ProjectPicker({ repos, withCards, selected, onChange }: { repos: Repo[]
                 </label>
               </li>
             ))}
-            {shown.length === 0 && <li className="px-1 py-1 text-sm text-muted-foreground">No projects</li>}
+            {shown.length === 0 && <li className="px-1 py-1 text-sm text-muted-foreground">{q.trim() === '' ? 'No projects' : 'No projects match.'}</li>}
           </ul>
         </div>
       )}
@@ -86,11 +101,29 @@ interface Props {
   repos: Repo[];
   /** Paths of repositories that have cards, for the "Has cards" shortcut. */
   withCards: string[];
+  /** What the search box matches; Runs have no title, so its list says "Search task id". */
+  searchLabel?: string;
+}
+
+/** A list filtered to empty: names the search that did it (it is shared by Board and Runs and survives a reload) with a way to clear it.
+ * `query` is the search only when clearing it would bring rows back; empty when another filter empties the list. */
+export function NoMatch({ what, query, onClear }: { what: string; query: string; onClear?: (() => void) | undefined }) {
+  const q = query.trim();
+  return (
+    <div className="py-8 text-center text-sm text-muted-foreground">
+      {q === '' ? `No ${what} match the current filters.` : `No ${what} match the search "${q}".`}
+      {q !== '' && onClear && (
+        <Button variant="text" color="secondary" className="ml-2" onClick={onClear}>
+          Clear search
+        </Button>
+      )}
+    </div>
+  );
 }
 
 /** The one filter bar Board and Runs share. On a phone only triage and search stay; the rest opens in a Filters drawer. */
 export function FilterBar(props: Props) {
-  const { filter, onChange } = props;
+  const { filter, onChange, searchLabel = 'Search title or id' } = props;
   const [drawer, setDrawer] = useState(false);
   const active = (filter.repos.length > 0 ? 1 : 0) + (filter.sources.length > 0 ? 1 : 0) + (filter.group !== 'none' ? 1 : 0);
   return (
@@ -106,8 +139,8 @@ export function FilterBar(props: Props) {
         value={filter.query}
         onChange={(e) => onChange({ ...filter, query: e.target.value })}
         startAdornment={<Search className="size-4" />}
-        placeholder="Search title or id…"
-        aria-label="Search title or id"
+        placeholder={`${searchLabel}…`}
+        aria-label={searchLabel}
         className="w-56 max-md:w-full"
       />
       <div className="flex flex-wrap items-center gap-2 max-md:hidden">

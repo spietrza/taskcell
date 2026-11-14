@@ -21,6 +21,8 @@ export function Members({ team, allProjects, onTeam, confirmRemoveRepo }: TeamSc
   const [login, setLogin] = useState('');
   const [repo, setRepo] = useState('');
   const [error, setError] = useState<string>();
+  // The member whose removal is awaiting its second click (the project card's inline confirm).
+  const [confirmRemove, setConfirmRemove] = useState<string | null>(null);
 
   useEffect(() => {
     let alive = true;
@@ -71,9 +73,29 @@ export function Members({ team, allProjects, onTeam, confirmRemoveRepo }: TeamSc
                   <option value="admin">admin</option>
                   <option value="member">member</option>
                 </select>
-                <Button aria-label={`Remove ${m.login}`} onClick={() => edit(teamRemoveMember(team.id, m.login))}>
-                  Remove
-                </Button>
+                {confirmRemove === m.login ? (
+                  <div className="flex items-center gap-1 text-xs">
+                    <span className="text-muted-foreground">Remove {m.login} from {team.name}?</span>
+                    <Button variant="text" color="secondary" autoFocus onClick={() => setConfirmRemove(null)}>
+                      Cancel
+                    </Button>
+                    <Button
+                      variant="text"
+                      color="destructive"
+                      aria-label={`Confirm removing ${m.login}`}
+                      onClick={() => {
+                        setConfirmRemove(null);
+                        edit(teamRemoveMember(team.id, m.login));
+                      }}
+                    >
+                      Remove
+                    </Button>
+                  </div>
+                ) : (
+                  <Button aria-label={`Remove ${m.login}`} onClick={() => setConfirmRemove(m.login)}>
+                    Remove
+                  </Button>
+                )}
               </>
             ) : (
               <span className="text-xs text-muted-foreground">{m.role}</span>
@@ -90,7 +112,8 @@ export function Members({ team, allProjects, onTeam, confirmRemoveRepo }: TeamSc
           }}
         >
           <Input aria-label="Login" placeholder="Login" value={login} onChange={(e) => setLogin(e.target.value)} className="min-w-0 flex-1" />
-          <Button type="submit">Add member</Button>
+          <Button type="submit" disabled={login.trim() === ''}>Add member</Button>
+          <p className="w-full text-xs text-muted-foreground">A login is the verified e-mail address the person signs in to this hub with (or their sign-in id), not their display name.</p>
         </form>
       )}
 

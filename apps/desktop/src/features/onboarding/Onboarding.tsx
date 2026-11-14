@@ -23,7 +23,8 @@ const TOOL_STATE_TEXT: Record<SetupToolState, string> = {
   missing: 'not installed',
 };
 
-function Commands({ id }: { id: RunStepId }) {
+/** `from`: the first command to show, for a step whose earlier commands are already done. */
+function Commands({ id, from = 0 }: { id: RunStepId; from?: number }) {
   const r = RUN_STEPS[id];
   const { restartNote } = r;
   return (
@@ -31,7 +32,7 @@ function Commands({ id }: { id: RunStepId }) {
       <div className="text-sm font-medium">{r.label}</div>
       <p className="text-xs text-muted-foreground">You run this — the hub never reads or stores the secret value:</p>
       {restartNote ? (
-        r.commands.map((c, i) => (
+        r.commands.map((c, i) => i >= from && (
           <div key={i} className="space-y-1">
             <CodeBlock code={c} />
             {restartNote.includes(i) && <p className="text-xs text-muted-foreground">{RESTART_NOTE}</p>}
@@ -105,7 +106,7 @@ export function Onboarding({
         </p>
       )}
       {STEP_IDS.map((id, i) => {
-        const state = stepState(id, { status, projectCount, skipped: stored.skipped });
+        const state = stepState(id, { status, projectCount, skipped: stored.skipped, model: stored.model });
         return (
           <Card.Root key={id} className="py-0">
             <Card.Content className="space-y-3 p-4">
@@ -152,7 +153,10 @@ export function Onboarding({
                       </Button>
                     ))}
                   </div>
-                  {state !== 'done' && <Commands id={stored.model} />}
+                  {state !== 'done' && stored.model === 'codex' && status?.codexSignInFile === true && (
+                    <p className="text-sm">A Codex sign-in is on this machine, but hub runs do not read it until it is set as CODEX_AUTH_JSON:</p>
+                  )}
+                  {state !== 'done' && <Commands id={stored.model} from={stored.model === 'codex' && status?.codexSignInFile === true ? 1 : 0} />}
                 </div>
               )}
               {id === 'repo' && (

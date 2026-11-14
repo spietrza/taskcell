@@ -732,6 +732,32 @@ export interface AppConfig {
   customProviders?: unknown;
 }
 
+/** What the board answers for a project with no task source chosen: a setup step, not a failure (the app shows it as a hint). */
+export const NO_TASK_SOURCE_MESSAGE = 'Set a Task Source in Settings to load the board.';
+
+/** The hub's refusal (400) for a GitHub/GitLab operation on a repository with no git remote. Shared so the app can tell it from a failure. */
+export const NO_REMOTE_MESSAGE = 'This repository has no git remote. Add one (git remote add origin <url>) and push, then try again.';
+
+/** The numeric `AppConfig` fields that are out of range, each as a sentence naming the field and its
+ * range (unset/null is always valid). One rule for the hub's `write_app_config` and the Settings form. */
+export function appConfigRangeErrors(cfg: AppConfig): { concurrency?: string; budgetUsd?: string; usageCapPct?: string } {
+  // A hand-edited file may hold a number as a string ("2"): it counts as that number, as the form shows it.
+  const check = (label: string, v: unknown, ok: (n: number) => boolean, range: string): string | undefined => {
+    if (v === undefined || v === null) return undefined;
+    const n = typeof v === 'number' ? v : typeof v === 'string' && v.trim() !== '' ? Number(v) : NaN;
+    if (!Number.isFinite(n)) return `${label} must be a number.`;
+    return ok(n) ? undefined : `${label} ${range}`;
+  };
+  const concurrency = check('Parallel runs', cfg.concurrency, (n) => Number.isInteger(n) && n >= 1, 'must be a whole number, 1 or more.');
+  const budgetUsd = check('Budget cap per Run', cfg.budgetUsd, (n) => n >= 0, 'must be 0 or more (leave it empty for no cap).');
+  const usageCapPct = check('Usage cap %', cfg.usageCapPct, (n) => n >= 1 && n <= 100, 'must be from 1 to 100 (leave it empty for no cap).');
+  return {
+    ...(concurrency !== undefined ? { concurrency } : {}),
+    ...(budgetUsd !== undefined ? { budgetUsd } : {}),
+    ...(usageCapPct !== undefined ? { usageCapPct } : {}),
+  };
+}
+
 /** Hub-only (src/hub/browse.ts) — one subdirectory offered by `browse_dirs`, standing in for the
  * native folder dialog Tauri doesn't have in a browser. */
 export interface DirEntry {
@@ -896,8 +922,11 @@ export interface SetupToolStatus {
 }
 export interface SetupStatus {
   tools: SetupToolStatus[];
-  /** Whether a model credential is already present for each provider (a boolean, not the value). Codex counts an `OPENAI_API_KEY` or a Codex sign-in (the auth file exists; never read). */
+  /** Whether a model credential is already present for each provider (a boolean, not the value).
+   * A credential a hub run can use: for Codex `CODEX_AUTH_JSON`, `CODEX_API_KEY` or `OPENAI_API_KEY`, or one saved in Settings. */
   models: { claude: boolean; codex: boolean };
+  /** `codex login` left its auth file on the hub's machine. A run does not read it: it becomes usable as `CODEX_AUTH_JSON`. */
+  codexSignInFile?: boolean;
 }
 
 /** Instance provider credentials (hub only, write-only: a value is never returned). */

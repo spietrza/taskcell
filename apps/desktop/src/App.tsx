@@ -382,7 +382,7 @@ export default function App() {
     crumbs.push({ label: SCREEN_LABEL[screen] });
     crumbs.push({
       label: taskCrumb.name,
-      edit: { placeholder: 'Name this conversation…', ariaLabel: 'rename conversation', onCommit: taskCrumb.onRename },
+      edit: { placeholder: 'Name this task…', ariaLabel: 'rename task', onCommit: taskCrumb.onRename },
     });
   } else if (active && screen !== 'home') {
     if (crumb) {
@@ -419,7 +419,8 @@ export default function App() {
           className="shrink-0 border-b border-destructive/40 bg-destructive/10 px-4 py-2 text-sm text-destructive"
         >
           This tab has no valid hub token (the hub restarted, or the page was opened without its launch
-          URL) — open the URL `taskcell hub` printed to reconnect.
+          URL). To reconnect, open the URL that <code className="font-mono">taskcell hub</code> printed in its terminal. Your
+          projects are still there.
         </div>
       )}
       {!hubRestarted && hubConnectionIssue && (
@@ -437,6 +438,10 @@ export default function App() {
           )}
         </div>
       )}
+      {/* A tab the hub refused from the start has nothing loaded: an empty Home ("No projects yet") under
+          the refusal would read as lost projects. A tab that was already showing work keeps it on screen. */}
+      {!(hubRestarted && projects.length === 0) && (
+      <>
       <TopBar
         crumbs={crumbs}
         projectSwitcher={projectSwitcher}
@@ -457,7 +462,13 @@ export default function App() {
           teams={teams}
           team={team}
           onTeam={chooseTeam}
-          onScreen={(sc) => navigate(() => setScreen(sc))}
+          onScreen={(sc) =>
+            navigate(() => {
+              // A click on the screen already open leaves its drill-down (a run detail, a live strip) for the list.
+              if (!showHome && sc === screen) setClearNonce((n) => n + 1);
+              setScreen(sc);
+            })
+          }
           onOpenRunning={(r) => {
             // The sixth navigation path (review round 1) — also discards a dirty editor.
             navigate(() => {
@@ -528,6 +539,7 @@ export default function App() {
                   })
                 }
                 onOpenBoard={() => navigate(() => setScreen('board'))}
+                onOpenSettings={() => navigate(() => setScreen('settings'))}
                 onOpenSetup={() => navigate(() => {
                   setSetupOpen(true);
                   setScreen('home');
@@ -537,6 +549,8 @@ export default function App() {
           )}
         </main>
       </div>
+      </>
+      )}
       {palette && (
         <CommandPalette
           projects={projects}

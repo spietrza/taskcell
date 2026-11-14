@@ -76,7 +76,11 @@ export function TopBar({
       )}
       <div className="ml-auto flex items-center gap-2">
         <button
-          onClick={onCommandK}
+          // Not every browser focuses a clicked button; the palette returns focus to whatever had it.
+          onClick={(e) => {
+            e.currentTarget.focus();
+            onCommandK();
+          }}
           aria-label="Search / command palette"
           className="flex items-center gap-2 rounded border border-border px-2 py-1 text-xs text-muted-foreground transition-colors hover:bg-muted"
         >

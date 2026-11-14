@@ -135,3 +135,37 @@ test('a dirty Settings with no nav-guard provider is inert — no throw, no conf
   expect(confirmSpy).not.toHaveBeenCalled();
   confirmSpy.mockRestore();
 });
+
+test('a save the hub refuses shows its message and keeps the input', async () => {
+  read.mockResolvedValueOnce({});
+  write.mockRejectedValueOnce('Invalid base branch "no such branch!!"');
+  render(<Settings project="/repo" />);
+  const branch = await screen.findByPlaceholderText('main');
+  fireEvent.change(branch, { target: { value: 'no such branch!!' } });
+  fireEvent.click(screen.getByRole('button', { name: /save/i }));
+  expect(await screen.findByRole('alert')).toHaveTextContent('Invalid base branch "no such branch!!"');
+  expect(branch).toHaveValue('no such branch!!');
+  expect(screen.getByRole('button', { name: 'Save' })).not.toBeDisabled();
+});
+
+test('an out-of-range number names its range and blocks save', async () => {
+  read.mockResolvedValueOnce({});
+  render(<Settings project="/repo" />);
+  fireEvent.change(await screen.findByPlaceholderText('80'), { target: { value: '500' } });
+  expect(screen.getByRole('alert')).toHaveTextContent('Usage cap % must be from 1 to 100');
+  expect(screen.getByRole('button', { name: /save/i })).toBeDisabled();
+  fireEvent.change(screen.getByPlaceholderText('80'), { target: { value: '80' } });
+  expect(screen.queryByRole('alert')).not.toBeInTheDocument();
+  expect(screen.getByRole('button', { name: /save/i })).not.toBeDisabled();
+});
+
+test('a planned task source is marked and cannot be picked; a stored one still shows', async () => {
+  read.mockResolvedValueOnce({ taskSource: 'hub' });
+  render(<Settings project="/repo" />);
+  const select = (await screen.findByLabelText('Task source')) as HTMLSelectElement;
+  expect(select).toHaveValue('hub');
+  const hub = screen.getByRole('option', { name: 'Hub board (planned)' });
+  expect(hub).toBeDisabled();
+  expect(screen.getByRole('option', { name: 'GitHub Issues' })).toBeEnabled();
+  expect(screen.getByRole('option', { name: 'Self-hosted (watch) (hub setup planned)' })).toBeEnabled();
+});

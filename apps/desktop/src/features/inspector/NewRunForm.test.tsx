@@ -1,6 +1,6 @@
 import { test, expect, vi } from 'vitest';
 import { render, screen, fireEvent, waitFor } from '@testing-library/react';
-import { flowOptionsFrom, providerOptionsFrom, NewRunForm } from './NewRunForm';
+import { flowOptionsFrom, issueRefFrom, providerOptionsFrom, NewRunForm } from './NewRunForm';
 import * as ipc from '../../ipc';
 import type { Capabilities } from '../../ipc';
 
@@ -118,4 +118,30 @@ test('listProviders failure degrades to built-ins with a notice — the form nev
   render(<NewRunForm capabilities={caps} project="/repo" onRun={vi.fn()} onCancel={() => {}} />);
   await waitFor(() => expect(screen.getByText(/repo providers unavailable/i)).toBeInTheDocument());
   expect(screen.getByRole('button', { name: /^run$/i })).toBeInTheDocument();
+});
+
+test('an issue ref with a space is refused with a reason', async () => {
+  render(<NewRunForm capabilities={caps} project="/repo" onRun={vi.fn()} onCancel={() => {}} />);
+  await waitFor(() => expect(ipc.apiListFlows).toHaveBeenCalled());
+  fireEvent.change(screen.getByPlaceholderText(/issue/i), { target: { value: 'abc def' } });
+  expect(screen.getByRole('button', { name: /^run$/i })).toBeDisabled();
+  expect(screen.getByRole('alert')).toHaveTextContent('An issue ref has no spaces');
+  fireEvent.change(screen.getByPlaceholderText(/issue/i), { target: { value: ' 322 ' } });
+  expect(screen.queryByRole('alert')).not.toBeInTheDocument();
+  expect(screen.getByRole('button', { name: /^run$/i })).not.toBeDisabled();
+});
+
+test('opened from a card, the form carries that card\'s ref and tracker, under a heading with named fields', async () => {
+  expect(issueRefFrom('gh-904')).toEqual({ issueRef: '904', transport: 'github' });
+  expect(issueRefFrom('gl-42')).toEqual({ issueRef: '42', transport: 'gitlab' });
+  expect(issueRefFrom('linear-dev-639')).toEqual({ issueRef: 'DEV-639', transport: 'linear' });
+  expect(issueRefFrom('DEMO-104')).toEqual({ issueRef: 'DEMO-104' });
+  const onRun = vi.fn();
+  render(<NewRunForm capabilities={caps} project="/repo" taskId="gl-42" onRun={onRun} onCancel={() => {}} />);
+  await waitFor(() => expect(ipc.apiListFlows).toHaveBeenCalled());
+  expect(screen.getByRole('heading', { name: 'New run' })).toBeInTheDocument();
+  for (const label of ['Task source', 'Provider', 'Flow']) expect(screen.getByText(label)).toBeInTheDocument();
+  expect(screen.getByLabelText('Issue ref')).toHaveValue('42');
+  fireEvent.click(screen.getByRole('button', { name: /^run$/i }));
+  expect(onRun).toHaveBeenCalledWith(expect.objectContaining({ issueRef: '42', transport: 'gitlab' }));
 });
