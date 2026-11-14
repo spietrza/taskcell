@@ -20,6 +20,8 @@ export interface GitLabIssue {
   state?: string;
   web_url?: string;
   author?: { username: string };
+  /** Returned by GitLab 19.1 and later. */
+  start_date?: string | null;
 }
 
 /** Runs a `glab` subcommand and returns its stdout. Injected so unit tests never call real glab. */
@@ -87,6 +89,7 @@ function toGitLabTask(project: string, issue: GitLabIssue, notes: GitLabNote[] =
     ...(issue.state !== undefined ? { state: issue.state } : {}),
     ...(issue.web_url !== undefined ? { url: issue.web_url } : {}),
     ...(issue.author?.username !== undefined ? { author: issue.author.username } : {}),
+    ...(typeof issue.start_date === 'string' ? { startDate: issue.start_date } : {}),
   };
 }
 

@@ -299,7 +299,20 @@ An issue can wait for others. Native "blocked by" relations and body lines count
 
 ### Task dependencies (GitLab)
 
-Same behaviour as GitHub, for `watch` on GitLab (agent and spec passes). Linked issues of type "is blocked by" count, with `Depends on #12` / `Depends on group/project#12` body lines as the fallback. A start date comes from the issue's `start_date` where the API returns one, else a `Start: YYYY-MM-DD` line (UTC). A dependency is met when it is closed. An issue that must wait gets one comment and the `taskcell::waiting` label but keeps its trigger label, so a later poll starts it by itself once the blockers are closed and the date reached (no resume sweep is needed). A cycle or a missing reference removes the trigger label and ends in `needs info` with the reason. A failed lookup skips the issue for that poll.
+`watch` on GitLab (agent and spec passes) holds an issue back the same way, with these differences.
+
+**What you write.** Either of these makes an issue wait:
+
+- A `Depends on` line in the description: `Depends on #12`, `Depends on group/project#12` or `Depends on https://gitlab.example.com/group/project/-/issues/12` (comma-separated lists allowed). This works on every GitLab tier.
+- A linked issue of type "is blocked by". Blocking links need GitLab Premium or Ultimate; on Free, use `Depends on` lines.
+
+A start date comes from the issue's own start date, which GitLab returns from 19.1 on, else from a `Start: YYYY-MM-DD` line in the description (UTC), which works on every version.
+
+**What counts as done.** A dependency is met when its issue is closed. An issue that was moved to another project or closed as a duplicate is never met. A merge request cannot be a dependency (`Depends on !12`): name the issue the merge request closes.
+
+**What happens.** An issue that must wait gets one comment and the `taskcell::waiting` label and keeps its trigger label, so a later poll starts it by itself once the blockers are closed and the date reached (no resume sweep is needed). These end in `needs info` with the reason, and the trigger label is removed: a cycle; a reference to an issue that does not exist; a reference to another project that the token `watch` runs with cannot read (GitLab answers 404 for both a typo and a private project); a merge request or an issue URL of another GitLab instance; a blocker that was moved or closed as a duplicate; an impossible start date. A lookup that fails for another reason (no permission, an API error) holds the issue under `taskcell::waiting` with the reason; if the next check fails too, it goes to `needs info`. Only an issue that declares nothing and whose links cannot be read is left alone: it is skipped for that poll with a log line and stays triggered. Issues without dependencies cost one extra API read per poll.
+
+`taskcell::waiting` is a scoped label, so on Premium adding it removes any other `taskcell::` label from the issue. Do not put your trigger label in the `taskcell::` (or `vanguard::`) scope; if it is, the issue is held by the comment alone, without the waiting label.
 
 ### Starting the factory from the hub
 
