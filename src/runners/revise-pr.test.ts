@@ -2851,10 +2851,12 @@ describe('runRevisePullRequest blocking-item checklist', () => {
   });
 
   it('the hand-off also drops the rate-limited hold, so the resume sweep does not re-queue the PR, and says how to resume', async () => {
-    const { ghCalls, result } = await run('1. FIXED: src/a.ts — done', { prLabels: ['needs revision', 'taskcell:revising', 'taskcell:rate-limited'] });
+    const { ghCalls, result } = await run('1. FIXED: src/a.ts — done', { prLabels: ['needs revision', 'taskcell:revising', 'taskcell:rate-limited', 'taskcell:secret-blocked'] });
     await expect(result).rejects.toThrow(/no answer/);
     const edit = ghCalls.find((a) => a[0] === 'pr' && a[1] === 'edit' && a.includes('--add-label') && a.includes('taskcell:needs-human-review'));
     expect(edit).toEqual(expect.arrayContaining(['--remove-label', 'taskcell:rate-limited', '--remove-label', 'needs revision']));
+    // A PR held by an earlier secret block keeps that marker.
+    expect(ghCalls.some((a) => a[0] === 'pr' && a[1] === 'edit' && a.includes('taskcell:secret-blocked'))).toBe(false);
     const body = ghCalls.filter((a) => a[0] === 'pr' && a[1] === 'review').map((a) => a.at(-1) ?? '').join('\n');
     expect(body).toContain('re-apply `needs revision`');
   });
