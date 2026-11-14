@@ -1,6 +1,6 @@
 # Environment variables: old and new names
 
-Taskcell was called Vanguard. Every `VANGUARD_*` variable now has a `TASKCELL_*` name; the old name is still read as a fallback, and the new name wins when both are set. An install that sets only the old names keeps working unchanged. Rename them when convenient.
+Taskcell was called Vanguard. Every `VANGUARD_*` variable now has a `TASKCELL_*` name; the old name is still read as a fallback, and the new name wins when both are set. An empty `TASKCELL_*` value counts as unset, so it does not switch a setting off while the `VANGUARD_*` name still holds a value: clear both, or set the new name to the off value the setting documents. An install that sets only the old names keeps working unchanged. Rename them when convenient.
 
 | Old name (still works) | New name |
 | --- | --- |
@@ -70,6 +70,6 @@ Taskcell was called Vanguard. Every `VANGUARD_*` variable now has a `TASKCELL_*`
 ## Notes
 
 - **Secret names.** The repository secret is still called `VANGUARD_PUSH_TOKEN`: the published `@v1` workflows declare it by that name, and renaming a secret or workflow input would break existing callers. The CLI reads `TASKCELL_PUSH_TOKEN` first, then the `VANGUARD_PUSH_TOKEN` the workflows export.
-- **Branches.** New factory branches are still named `chore/vanguard-…`: the workflow gates and the shipped approver policy match that prefix, and CI config is changed by hand (see the workflow edits in the rename PR). `chore/taskcell-…` is already recognised everywhere, so the switch needs no code change. Open PRs on `chore/vanguard-…` branches are still recognised by revise, review, overlap, the approver, `gc` and the linked-issue lookup.
+- **Branches.** New factory branches are still named `chore/vanguard-…`: the workflow gates and the shipped approver policy match that prefix, and CI config is changed by hand (see the workflow edits in the rename PR). `chore/taskcell-…` is not treated as a factory branch until the factory mints it (until then only a person can have pushed one): the switch is one constant, `MINT_BRANCH_PREFIX`, after which both prefixes are recognised by revise, review, overlap, the approver, `gc` and the linked-issue lookup.
 - **Metrics branch.** `taskcell-metrics` is the default; an existing `vanguard-metrics` branch is still read.
 - **Labels and `.vanguard/`.** `vanguard:*` labels and a `.vanguard/` directory keep working; see [cli.md](cli.md).

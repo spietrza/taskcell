@@ -19,7 +19,7 @@ interface GhPrListItem {
   mergeCommit?: { oid?: string } | null;
 }
 
-/** Every same-repo `chore/taskcell-*` (or pre-rename `chore/vanguard-*`) PR, any state, from one bulk list call. */
+/** Every same-repo factory-branch (`chore/vanguard-*`) PR, any state, from one bulk list call. */
 export async function fetchFactoryPrs(repoSlug: string, gh: GhRunner = defaultGhRunner): Promise<FactoryPrRef[]> {
   const out = await gh([
     'pr', 'list', '--repo', repoSlug, '--state', 'all', '--limit', '300',
