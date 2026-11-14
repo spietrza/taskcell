@@ -1,5 +1,7 @@
 import { isBaseLabel, shownBaseFromLabels } from '../core/base-branch.js';
 import { httpsUrl } from '../core/links.js';
+import { hasLabel } from '../core/labels.js';
+import { GITHUB_RATE_LIMITED_LABEL } from '../github-labels.js';
 import type { BoardTask } from '../wire.js';
 import type { Task } from './fetcher.js';
 
@@ -120,6 +122,8 @@ export function toBoardTask(source: BoardSource, task: Task): BoardTask {
   // state-sourced: the flag answers "is this queued for a trigger-label watch loop".
   const waiting = column === 'queued' && task.labels.some(isTriggerLabel);
   const url = httpsUrl(task.url);
+  // Parked by a provider limit (either label spelling); the hub reads the reset time from the marker comment.
+  const paused = source === 'github' && column !== 'done' && hasLabel(task.labels, GITHUB_RATE_LIMITED_LABEL);
   return {
     id: mintBoardId(source, task.ref ?? task.id),
     title: task.title,
@@ -127,6 +131,7 @@ export function toBoardTask(source: BoardSource, task: Task): BoardTask {
     state: source === 'linear' ? state : (stateLabels[0] ?? state),
     source,
     ...(waiting ? { waiting: true } : {}),
+    ...(paused ? { paused: { reason: 'provider-limit' as const } } : {}),
     ...(url !== undefined ? { url } : {}),
     ...(baseBranch !== undefined ? { baseBranch } : {}),
   };

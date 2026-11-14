@@ -527,6 +527,15 @@ describe('beginRun → listRuns/readRun round trip', () => {
     expect(detail.visualProof?.artifacts).toHaveLength(2);
   });
 
+  it('labels a run that ended on a provider limit, not a plain failure', async () => {
+    const limited = { ...result, taskId: 'TES-2', completed: false, exitReason: 'incomplete' as const, finalText: "You've hit your session limit · resets 9pm (UTC)" };
+    await beginRun(repo, 'TES-2', TS).writeStages([{ name: 'implementer', result: limited }], {});
+    await beginRun(repo, 'TES-3', TS).writeStages([{ name: 'implementer', result: { ...limited, taskId: 'TES-3', finalText: 'tests failed' } }], {});
+    const byId = new Map((await listRuns(runsRoot(repo))).map((r) => [r.taskId, r]));
+    expect(byId.get('TES-2')).toMatchObject({ anyFailed: true, stoppedBy: 'provider-limit' });
+    expect(byId.get('TES-3')!.stoppedBy).toBeUndefined();
+  });
+
   it('readRun still finds a proof file stamped earlier than the stage records (pre-shared-timestamp runs)', async () => {
     await beginRun(repo, 'TES-1', TS).writeStages([{ name: 'implementer', result }]);
     // 90s before the stage records — inside the 10-minute fallback window, as a run persisted before

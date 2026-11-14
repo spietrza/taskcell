@@ -274,6 +274,17 @@ export interface BoardTask {
   source?: 'github' | 'gitlab' | 'linear';
   /** The issue's address in that tracker, as the tracker returned it. Absent ⇒ no link. */
   url?: string;
+  /** Parked by a provider usage/rate limit (the `rate-limited` label); the factory retries it by itself. Absent when not paused. */
+  paused?: PausedState;
+}
+
+/** Why a task is paused and when the scheduled resume retries it. `until`/`trigger` come from the factory's marker comment; absent when it is missing. */
+export interface PausedState {
+  reason: 'provider-limit';
+  /** ISO time after which the scheduled resume retries. */
+  until?: string;
+  /** The label the retry re-applies. */
+  trigger?: string;
 }
 
 /** The reviewer's persisted verdict: `changes` ⇔ the merge gate would request changes. */
@@ -397,6 +408,8 @@ export interface RunSummary {
   prState?: 'merged';
   /** `'ci'` for a run known only from the metrics branch (no local record to open); `prUrl` links its PR/MR. */
   source?: 'ci';
+  /** `'provider-limit'` when the run ended on a provider usage or rate limit: not a failure of the change. */
+  stoppedBy?: 'provider-limit';
   /** The run's metrics carry no cost data, so `totalCostUsd` (0) is not a cost: show "unknown", not $0. */
   costUnknown?: true;
 }
@@ -564,6 +577,7 @@ export type AuditAction =
   | 'run-queue'
   | 'run-cancel'
   | 'task-start'
+  | 'task-retry'
   | 'settings-change'
   | 'needs-reply'
   | 'needs-merge'
@@ -773,6 +787,11 @@ export interface DirListing {
   parent?: string;
   isGitRepo?: boolean;
   entries: DirEntry[];
+}
+
+/** What `retry_paused_task` did: the trigger label re-applied. */
+export interface RetryPausedResult {
+  label: string;
 }
 
 /** What `start_task` did (src/hub/start-task.ts). `waitingOn` names the unmet dependencies (`owner/repo#N`) of a dependency-parked issue. */

@@ -275,6 +275,17 @@ export interface BoardTask {
   source?: 'github' | 'gitlab' | 'linear';
   /** The issue's address in that tracker, as the tracker returned it. Absent ⇒ no link. */
   url?: string;
+  /** Parked by a provider usage/rate limit (the `rate-limited` label); the factory retries it by itself. Absent when not paused. */
+  paused?: PausedState;
+}
+
+/** Why a task is paused and when the scheduled resume retries it. `until`/`trigger` come from the factory's marker comment; absent when it is missing. */
+export interface PausedState {
+  reason: 'provider-limit';
+  /** ISO time after which the scheduled resume retries. */
+  until?: string;
+  /** The label the retry re-applies. */
+  trigger?: string;
 }
 
 /** The reviewer's persisted verdict: `changes` ⇔ the merge gate would request changes. */
@@ -398,6 +409,8 @@ export interface RunSummary {
   prState?: 'merged';
   /** `'ci'` for a run known only from the metrics branch (no local record to open); `prUrl` links its PR/MR. */
   source?: 'ci';
+  /** `'provider-limit'` when the run ended on a provider usage or rate limit: not a failure of the change. */
+  stoppedBy?: 'provider-limit';
   /** The run's metrics carry no cost data, so `totalCostUsd` (0) is not a cost: show "unknown", not $0. */
   costUnknown?: true;
 }
@@ -565,6 +578,7 @@ export type AuditAction =
   | 'run-queue'
   | 'run-cancel'
   | 'task-start'
+  | 'task-retry'
   | 'settings-change'
   | 'needs-reply'
   | 'needs-merge'
@@ -774,6 +788,11 @@ export interface DirListing {
   parent?: string;
   isGitRepo?: boolean;
   entries: DirEntry[];
+}
+
+/** What `retry_paused_task` did: the trigger label re-applied. */
+export interface RetryPausedResult {
+  label: string;
 }
 
 /** What `start_task` did (src/hub/start-task.ts). `waitingOn` names the unmet dependencies (`owner/repo#N`) of a dependency-parked issue. */
@@ -1111,6 +1130,8 @@ export interface Commands {
   list_branches: { args: { repoPath: string }; result: { branches: string[]; default?: string } };
   /** HUB_ONLY: apply a trigger label to a GitHub issue of the project (src/hub/start-task.ts). */
   start_task: { args: { repoPath: string; number: number; label: string }; result: StartTaskResult };
+  /** HUB_ONLY: "Retry now" on a task paused by a provider limit — remove the rate-limited label, re-apply the marker's trigger (src/hub/paused.ts). Refused where `start_task` is. */
+  retry_paused_task: { args: { repoPath: string; number: number }; result: RetryPausedResult };
   /** HUB_ONLY: token-only mode has exactly one team and the caller acts as its admin. */
   list_teams: { args: undefined; result: Team[] };
   /** HUB_ONLY: one team by id (`null` when unknown). */
@@ -1207,6 +1228,7 @@ export const COMMAND_NAMES = [
   'remove_team_member',
   'remove_team_repository',
   'reply_needs_you',
+  'retry_paused_task',
   'save_instance_credential',
   'save_user_credential',
   'set_approver_mode',

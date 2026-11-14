@@ -6,7 +6,8 @@ import { BASE_LABEL_PREFIX, assertAllowedBase, assertSafeBaseBranch, readAllowed
 import { readAppConfig } from '../app-config.js';
 import * as projects from '../projects.js';
 import { startGithubTask, triggerLabelsFor } from '../start-task.js';
-import type { BoardTask, CreatedTask, RepoReadFailure, RepoStamp, StartTaskResult } from '../../wire.js';
+import { retryPausedTask, withPausedTimes } from '../paused.js';
+import type { BoardTask, CreatedTask, RepoReadFailure, RepoStamp, RetryPausedResult, StartTaskResult } from '../../wire.js';
 import { defineCommands, requireString, optionalString, optionalNumber, githubSlug, repoTarget, assertHasRemote } from '../command-kit.js';
 
 export interface TasksCommands {
@@ -19,6 +20,15 @@ export interface TasksCommands {
   list_branches: { args: { repoPath: string }; result: { branches: string[]; default?: string } };
   /** HUB_ONLY: apply a trigger label to a GitHub issue of the project (src/hub/start-task.ts). */
   start_task: { args: { repoPath: string; number: number; label: string }; result: StartTaskResult };
+  /** HUB_ONLY: "Retry now" on a task paused by a provider limit — remove the rate-limited label, re-apply the marker's trigger (src/hub/paused.ts). Refused where `start_task` is. */
+  retry_paused_task: { args: { repoPath: string; number: number }; result: RetryPausedResult };
+}
+
+/** Fill the retry time of paused cards from the factory's marker comment (GitHub only; costs nothing when none is paused). */
+async function withPaused(real: string, tasks: BoardTask[]): Promise<BoardTask[]> {
+  if (!tasks.some((t) => t.paused !== undefined)) return tasks;
+  const slug = await githubSlug(real);
+  return slug === undefined ? tasks : withPausedTimes(slug, tasks);
 }
 
 /** GitHub's cap on a label name. */
@@ -33,7 +43,8 @@ async function listBranches(repoPath: string): Promise<{ branches: string[]; def
 export const commands = defineCommands<TasksCommands>({
   list_tasks: async ({ ctx, args, allow }) => {
     const real = await allow(requireString(args, 'repoPath'));
-    return invokeCoreMethod(ctx.deps, 'listTasks', { repoPath: real });
+    const r = (await invokeCoreMethod(ctx.deps, 'listTasks', { repoPath: real })) as { tasks: BoardTask[]; capped: boolean };
+    return { ...r, tasks: await withPaused(real, r.tasks) };
   },
   list_tasks_all: async ({ ctx, allow, scope }) => {
     let capped = false;
@@ -41,9 +52,9 @@ export const commands = defineCommands<TasksCommands>({
       ctx.configDir,
       allow,
       async (real) => {
-        const r = (await invokeCoreMethod(ctx.deps, 'listTasks', { repoPath: real })) as { tasks: object[]; capped: boolean };
+        const r = (await invokeCoreMethod(ctx.deps, 'listTasks', { repoPath: real })) as { tasks: BoardTask[]; capped: boolean };
         capped ||= r.capped;
-        return r.tasks;
+        return withPaused(real, r.tasks);
       },
       await scope(),
     );
@@ -106,7 +117,21 @@ export const commands = defineCommands<TasksCommands>({
     if (repoSlug === undefined) throw new BadRequestError('start_task: this project has no GitHub remote');
     return startGithubTask(repoSlug, number, label, triggerLabelsFor(cfg.label));
   },
+  retry_paused_task: async ({ ctx, args, allow }) => {
+    // Edits labels as the hub's `gh` identity — a remote mutation, gated like start_task.
+    assertMutationsAllowed(ctx.bind);
+    const real = await allow(requireString(args, 'repoPath'));
+    const number = optionalNumber(args, 'number');
+    if (number === undefined) throw new BadRequestError('number is required and must be a number');
+    const cfg = await readAppConfig(real);
+    const source = cfg.source ?? 'github';
+    if (source !== 'github') throw new BadRequestError(`retry_paused_task: ${source} is not supported yet`);
+    const repoSlug = await githubSlug(real);
+    if (repoSlug === undefined) throw new BadRequestError('retry_paused_task: this project has no GitHub remote');
+    return retryPausedTask(repoSlug, number, triggerLabelsFor(cfg.label));
+  },
 }, {
   api_create_task: { action: 'task-create', target: repoTarget },
   start_task: { action: 'task-start', target: (a) => `${repoTarget(a) ?? ''}#${String(optionalNumber(a, 'number') ?? '')}` },
+  retry_paused_task: { action: 'task-retry', target: (a) => `${repoTarget(a) ?? ''}#${String(optionalNumber(a, 'number') ?? '')}` },
 });

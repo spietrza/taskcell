@@ -6,6 +6,7 @@ import type { RunSummary } from '../../taskcell-output';
 import { SpecPane } from '../inspector/SpecPane';
 import { IssueHistory } from './IssueHistory';
 import { AppliedLessons } from '../lessons/Lessons';
+import { TaskDetailPaused } from './paused';
 import { taskRefKey } from './taskref';
 import { useApproverDecisions } from './useApproverDecisions';
 import { decisionForTask, decisionWords } from './approverDecision';
@@ -60,6 +61,7 @@ export function TaskDetail({
         </Card.Root>
 
         <div>
+          <div className="mb-3"><TaskDetailPaused project={project} taskId={taskId} /></div>
           {decision !== undefined && (
             <div className="mb-3 rounded-lg border border-border p-3 text-sm" data-approver={decision.outcome}>
               <div className="caption">Approver</div>
@@ -77,8 +79,8 @@ export function TaskDetail({
                 <div key={r.timestamp} className="rounded-lg border border-border p-3">
                   <div className="flex items-center justify-between">
                     <Timestamp ms={Date.parse(r.timestamp)} className="tabular-nums text-sm text-muted-foreground" />
-                    <Chip color={verdictColor(!r.anyFailed)} variant="outlined">
-                      {verdictWord(!r.anyFailed)}
+                    <Chip color={r.stoppedBy ? 'secondary' : verdictColor(!r.anyFailed)} variant="outlined">
+                      {r.stoppedBy ? 'stopped: provider limit' : verdictWord(!r.anyFailed)}
                     </Chip>
                   </div>
                   <div className="mt-1 flex items-center justify-between text-xs text-muted-foreground">

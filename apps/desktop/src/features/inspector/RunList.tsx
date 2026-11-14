@@ -141,8 +141,8 @@ export function RunList({
                   <Table.Cell className="text-muted-foreground">{r.stages.join(', ')}</Table.Cell>
                   <Table.Cell className="text-right tabular-nums">{costLabel(r)}</Table.Cell>
                   <Table.Cell>
-                    <Chip color={verdictColor(!r.anyFailed)} variant="outlined">
-                      {verdictWord(!r.anyFailed)}
+                    <Chip color={r.stoppedBy ? 'secondary' : verdictColor(!r.anyFailed)} variant="outlined">
+                      {r.stoppedBy ? 'stopped: provider limit' : verdictWord(!r.anyFailed)}
                     </Chip>
                   </Table.Cell>
                   <Table.Cell>

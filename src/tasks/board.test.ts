@@ -1,4 +1,4 @@
-import { describe, expect, it } from 'vitest';
+import { describe, expect, it, test } from 'vitest';
 import { columnFor, isTriggerLabel, mintBoardId, resolveTaskRef, taskRefKey, toBoardTask } from './board.js';
 import { boardFilterFor, BOARD_FETCH_CAP, fetchTaskSpec, listBoardTasks, readBoardConfig } from './board-list.js';
 import { mkdtemp, mkdir, writeFile } from 'node:fs/promises';
@@ -329,5 +329,16 @@ describe('toBoardTask url', () => {
   it('has no url when the tracker returned none or a non-https one', () => {
     expect('url' in toBoardTask('github', { ...base, ref: '1' })).toBe(false);
     expect('url' in toBoardTask('github', { ...base, ref: '1', url: 'javascript:alert(1)' })).toBe(false);
+  });
+});
+
+describe('toBoardTask paused', () => {
+  const base = { id: 'o/r#1', title: 't', description: '', children: [], comments: [], ref: '1', state: 'open' };
+  test.each(['taskcell:rate-limited', 'vanguard:rate-limited'])('%s marks a github card paused by a provider limit', (label) => {
+    expect(toBoardTask('github', { ...base, labels: [label] }).paused).toEqual({ reason: 'provider-limit' });
+  });
+  test('no label, or a closed card, is not paused', () => {
+    expect(toBoardTask('github', { ...base, labels: ['bug'] }).paused).toBeUndefined();
+    expect(toBoardTask('github', { ...base, state: 'closed', labels: ['taskcell:rate-limited'] }).paused).toBeUndefined();
   });
 });

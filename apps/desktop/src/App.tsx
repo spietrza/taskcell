@@ -9,6 +9,7 @@ import { RepoPicker } from './RepoPicker';
 import { TailwindDebugScreens } from './components/TailwindDebugScreens';
 import { Dashboard } from './features/dashboard/Dashboard';
 import { NeedsYou, canUseNeedsYou } from './features/needs-you/NeedsYou';
+import { HomePausedBanner } from './features/board/paused';
 import { Inspector } from './features/inspector/Inspector';
 import { Onboarding } from './features/onboarding/Onboarding';
 import { StarterTaskDialog } from './features/onboarding/StarterTaskDialog';
@@ -503,6 +504,7 @@ export default function App() {
                 {needsYou && (
                   <NeedsYou project={active.path} allRepos={allRepos} repos={repoPaths} teamId={scopeId} onCount={setNeedsCount} onOpenBoard={() => goto('board')} />
                 )}
+                {active && <HomePausedBanner project={active.path} allRepos={allRepos} repos={repoPaths} teamId={scopeId} />}
                 {showSetup && (
                   <Onboarding
                     projectCount={projects.length}

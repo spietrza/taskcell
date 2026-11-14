@@ -5,6 +5,7 @@ import { listNeedsYou, listRuns, readRun, type NeedsYouItem } from '../../ipc';
 import type { BoardTask, RepoStamp, RunDetail } from '../../wire';
 import { ExternalLink, hostName } from '../../components/ExternalLink';
 import { MergeButton, ReplyBox, canUseNeedsYou } from '../needs-you/NeedsYou';
+import { PausedPanel } from './paused';
 import { receipt } from './receipt';
 import { repairAttempts, stageLine, type StageStatus } from './stageLine';
 import { taskRefKey } from './taskref';
@@ -141,6 +142,7 @@ export function QuickView({
       </div>
 
       <div className="flex min-h-0 flex-1 flex-col gap-4 overflow-y-auto p-3">
+        <PausedPanel repoPath={repoPath} task={task} />
         {needsYouError && <div className="text-xs text-muted-foreground">Could not check whether this card waits for you.</div>}
         {item !== null && (
           <div className="space-y-2">

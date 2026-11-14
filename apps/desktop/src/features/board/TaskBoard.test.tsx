@@ -267,3 +267,39 @@ describe('TaskBoard empty state', () => {
     expect(onNewTask).toHaveBeenCalled();
   });
 });
+
+describe('TaskBoard paused by a provider limit', () => {
+  const until = '2026-11-14T18:30:00.000Z';
+  const clock = new Date(until).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
+  const paused = (id: string, u?: string): BoardTask => ({ id, title: `Paused ${id}`, column: 'queued', state: 'taskcell:rate-limited', paused: { reason: 'provider-limit', ...(u ? { until: u } : {}) } });
+
+  test('the card shows the state and the retry time, and one banner counts the paused tasks', async () => {
+    mockListTasks.mockResolvedValue({ tasks: [paused('gh-1', '2026-11-14T17:00:00.000Z'), paused('gh-2', until), TASKS[0]!], capped: false });
+    vi.setSystemTime(new Date('2026-11-14T10:00:00Z'));
+    render(<TaskBoard project="/repo" repos={[]} onOpenTask={() => {}} onNewTask={() => {}} />);
+    await screen.findByText('Paused gh-1');
+    expect(screen.getAllByText('Paused: provider limit')).toHaveLength(2);
+    expect(screen.getByText(`retries automatically after ${clock}`)).toBeInTheDocument();
+    const banner = screen.getByRole('status');
+    expect(banner).toHaveTextContent('2 tasks are paused by a provider limit');
+    expect(banner).toHaveTextContent(`latest retry after ${clock}`);
+    expect(banner).toHaveTextContent('add credit or switch the model in Settings');
+    vi.useRealTimers();
+  });
+
+  test('a missing time shows no time; a passed time says soon', async () => {
+    mockListTasks.mockResolvedValue({ tasks: [paused('gh-1'), paused('gh-2', '2000-01-01T00:00:00.000Z')], capped: false });
+    render(<TaskBoard project="/repo" repos={[]} onOpenTask={() => {}} onNewTask={() => {}} />);
+    await screen.findByText('Paused gh-1');
+    expect(screen.getByText('retries automatically')).toBeInTheDocument();
+    expect(screen.getByText('retries automatically soon')).toBeInTheDocument();
+  });
+
+  test('no banner when nothing is paused', async () => {
+    mockListTasks.mockResolvedValue({ tasks: TASKS, capped: false });
+    render(<TaskBoard project="/repo" repos={[]} onOpenTask={() => {}} onNewTask={() => {}} />);
+    await screen.findByText('Queued one');
+    expect(screen.queryByRole('status')).toBeNull();
+    expect(screen.queryByText('Paused: provider limit')).toBeNull();
+  });
+});

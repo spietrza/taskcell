@@ -14,6 +14,7 @@ import { exportRunTrace } from './otlp-sink.js';
 import { appendAudit, defaultActor, localAdapter, STREAMS } from './audit.js';
 import { assertStatePath, ensureStateDir, isSafeTaskId, stateDir } from './state-path.js';
 import { injectedSecretValues, redactForPublish, scanForInjectedSecrets, scanForSecrets, withRegisteredSecretValues } from './secret-scan.js';
+import { isProviderLimitError } from './errors.js';
 import { redactVerificationOutput } from '../pipeline/verify.js';
 import type { VerificationResult } from '../pipeline/verify.js';
 import type { VisualProofResult } from '../pipeline/visual-proof.js';
@@ -204,6 +205,7 @@ async function parseRunSummaries(root: string): Promise<RunSummary[]> {
       const stages = records.map((r) => r.stage ?? 'run').sort();
       const totalCostUsd = records.reduce((sum, r) => sum + (r.costUsd ?? 0), 0);
       const anyFailed = records.some((r) => !r.completed);
+      const providerLimit = records.some((r) => !r.completed && isProviderLimitError(`${r.exitReason}\n${r.finalText}`));
       const prUrl = httpsUrl(records.find((r) => r.prUrl !== undefined)?.prUrl);
       const ciUrl = httpsUrl(records.find((r) => r.ciUrl !== undefined)?.ciUrl);
       const startedBy = records.find((r) => r.startedBy !== undefined)?.startedBy;
@@ -213,6 +215,7 @@ async function parseRunSummaries(root: string): Promise<RunSummary[]> {
         stages,
         totalCostUsd,
         anyFailed,
+        ...(providerLimit ? { stoppedBy: 'provider-limit' as const } : {}),
         ...(prUrl !== undefined ? { prUrl } : {}),
         ...(ciUrl !== undefined ? { ciUrl } : {}),
         ...(startedBy !== undefined ? { startedBy } : {}),
