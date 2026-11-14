@@ -22,6 +22,9 @@ export interface MetricRecord {
   /** The PR this run delivered to, when known (see run-store.ts's `opts.prUrl`) — the join key for
    * the lead-time rollup (lead-time-github.ts), which needs the PR number, not the taskId. */
   prUrl?: string;
+  /** Lessons the run loaded (implement/revise runs); absent on records from before the field. */
+  lessonsLoaded?: number;
+  lessonIds?: string[];
 }
 
 /** Aggregated totals for a group of metric records. */
@@ -104,6 +107,8 @@ export function parseMetrics(text: string): MetricRecord[] {
       ...(typeof parsed.attempts === 'number' ? { attempts: parsed.attempts } : {}),
       ...(typeof parsed.firstExitReason === 'string' ? { firstExitReason: parsed.firstExitReason } : {}),
       ...(typeof parsed.prUrl === 'string' ? { prUrl: parsed.prUrl } : {}),
+      ...(typeof parsed.lessonsLoaded === 'number' ? { lessonsLoaded: parsed.lessonsLoaded } : {}),
+      ...(Array.isArray(parsed.lessonIds) ? { lessonIds: parsed.lessonIds.filter((x): x is string => typeof x === 'string') } : {}),
       costUsd: num(parsed.costUsd),
       inputTokens: num(parsed.inputTokens),
       outputTokens: num(parsed.outputTokens),

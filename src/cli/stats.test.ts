@@ -105,3 +105,24 @@ describe('stats base merges', () => {
     expect(JSON.parse(logs.join('\n')).conflicts.total).toEqual({ merges: 1, conflicts: 1, autoResolved: 1, leftForHuman: 0 });
   });
 });
+
+describe('stats lessons', () => {
+  const line = (extra: object): string => JSON.stringify({ evt: 'run_complete', taskId: 't', ts: '1', stage: 'implementer', costUsd: 1, inputTokens: 1, outputTokens: 1, cacheReadInputTokens: 0, durationMs: 1000, ...extra });
+
+  it('prints a LESSONS section, with no data for the first-pass rate without --github-repo', async () => {
+    vi.mocked(readBranchMetrics).mockResolvedValue(`${line({ lessonsLoaded: 2 })}\n`);
+    await runCli(['stats', '--branch', 'm']);
+    const out = logs.join('\n');
+    expect(out).toContain('runs with lessons      1 of 1');
+    expect(out).toContain('first-pass rate        no data');
+  });
+
+  it('reads old records without the field as no data, and adds a lessons key to --json', async () => {
+    vi.mocked(readBranchMetrics).mockResolvedValue(`${line({})}\n`);
+    await runCli(['stats', '--branch', 'm']);
+    expect(logs.join('\n')).toContain('runs with lessons      no data');
+    logs.length = 0;
+    await runCli(['stats', '--branch', 'm', '--json']);
+    expect(JSON.parse(logs.join('\n')).lessons.runs).toBe(0);
+  });
+});

@@ -499,6 +499,8 @@ async function writeRecord(repoPath: string, taskId: string, timestamp: string, 
     // A reported cost is the agent CLI's own figure at list prices, never a provider's invoice.
     ...(result.costUsd === undefined ? { costUnknown: true } : { costKind: 'estimated' }),
     ...(opts.prUrl !== undefined ? { prUrl: opts.prUrl } : {}),
+    // Implement/revise runs pass their lesson ids (possibly none): how many the run loaded, 0 when none.
+    ...(opts.lessonIds !== undefined ? { lessonsLoaded: opts.lessonIds.length, ...(opts.lessonIds.length > 0 ? { lessonIds: [...opts.lessonIds] } : {}) } : {}),
   };
   await appendMetric(repoPath, metric);
   return file;
