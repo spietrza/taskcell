@@ -192,7 +192,8 @@ export function Dashboard({
                     </div>
                     {/* Platform: where tasks come from and where work runs, so projects set up differently read side by side. */}
                     <div className="mt-2 flex flex-wrap items-center gap-1.5">
-                      <Chip color="secondary" variant="outlined">{taskSourceLabel(p.taskSource)}</Chip>
+                      {/* Unset is not GitHub Issues: the board asks for an explicit source, and Settings shows it as "—". */}
+                      <Chip color="secondary" variant="outlined">{p.taskSource ? taskSourceLabel(p.taskSource) : 'No task source'}</Chip>
                       <span className="text-xs text-muted-foreground" aria-hidden>→</span>
                       <Chip color="secondary" variant="outlined">{runLocationLabel(p.runLocation)}</Chip>
                     </div>

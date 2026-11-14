@@ -15,10 +15,11 @@ function setup(): { onOpen: ReturnType<typeof vi.fn>; onRemove: ReturnType<typeo
 }
 
 describe('Dashboard platform', () => {
-  test('projects with different platforms show side by side, with defaults when unset', () => {
+  test('projects with different platforms show side by side; an unset task source is not shown as GitHub Issues', () => {
     const [a, b] = projects;
     render(<Dashboard projects={[{ ...a!, taskSource: undefined, runLocation: undefined }, b!]} onOpen={() => {}} onAdd={() => {}} onRemove={() => {}} />);
-    expect(screen.getByText('GitHub Issues')).toBeInTheDocument();
+    expect(screen.getByText('No task source')).toBeInTheDocument();
+    expect(screen.queryByText('GitHub Issues')).toBeNull();
     expect(screen.getByText('GitHub Actions')).toBeInTheDocument();
     expect(screen.getByText('GitLab Issues')).toBeInTheDocument();
     expect(screen.getByText('GitLab CI')).toBeInTheDocument();

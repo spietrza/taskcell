@@ -165,7 +165,7 @@ export function NeedsYou({
           Could not load what the factory is waiting on: {errorClause(error)}. Check the hub's `gh` login, then Refresh.
         </div>
       )}
-      <RepoFailures failures={failures} />
+      <RepoFailures failures={failures} total={repos.length} />
       {items === null && !error && <div className="text-sm text-muted-foreground">Loading…</div>}
       {items?.length === 0 && (
         <p className="text-sm text-muted-foreground">

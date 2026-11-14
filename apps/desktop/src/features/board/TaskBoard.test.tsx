@@ -158,6 +158,23 @@ describe('TaskBoard all repositories', () => {
   });
 });
 
+test('a project with no task source gets a setup hint with a way to Settings, not an error about other repositories', async () => {
+  const unset = 'Set a Task Source in Settings to load the board.';
+  vi.mocked(listTasksAll).mockResolvedValue({ tasks: [], capped: false, failures: [{ repoPath: '/r/alpha', repoName: 'alpha', error: unset }] });
+  const onOpenSettings = vi.fn();
+  const all = render(<TaskBoard project="/r/alpha" allRepos repos={['/r/alpha']} onOpenTask={() => {}} onNewTask={() => {}} onOpenSettings={onOpenSettings} />);
+  expect(await screen.findByRole('note')).toHaveTextContent('alpha has no task source yet. Choose one');
+  expect(screen.queryByRole('alert')).not.toBeInTheDocument();
+  expect(screen.queryByText(/other repositories/)).not.toBeInTheDocument();
+  fireEvent.click(screen.getByRole('button', { name: 'Open Settings' }));
+  expect(onOpenSettings).toHaveBeenCalled();
+  all.unmount();
+  mockListTasks.mockRejectedValue(unset);
+  render(<TaskBoard project="/r/alpha" repos={[]} onOpenTask={() => {}} onNewTask={() => {}} />);
+  expect(await screen.findByRole('note')).toHaveTextContent('This project has no task source yet.');
+  expect(screen.queryByRole('alert')).not.toBeInTheDocument();
+});
+
 describe('TaskBoard team scope', () => {
   test('under "All repositories" cards of repositories outside the team are not listed', async () => {
     vi.mocked(listTasksAll).mockResolvedValue({

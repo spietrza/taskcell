@@ -58,6 +58,7 @@ export function Inspector({
   onTaskCrumb,
   onNewTask,
   onOpenBoard,
+  onOpenSettings,
   onOpenSetup,
 }: {
   project: string;
@@ -81,6 +82,8 @@ export function Inspector({
   onTaskCrumb: (c: { name: string; onRename: (v: string) => void } | null) => void;
   onNewTask: () => void;
   onOpenBoard: () => void;
+  /** Opens this project's Settings (the Board's "no task source yet" hint). */
+  onOpenSettings?: () => void;
   /** Reopen the first-run guide (Settings). */
   onOpenSetup?: () => void;
 }) {
@@ -540,7 +543,7 @@ export function Inspector({
       ) : screen === 'runs' ? (
         // In-flight runs render as running rows at the top of the RunList table.
         <div className="flex min-h-0 flex-1 flex-col">
-          <RepoFailures failures={failures} />
+          <RepoFailures failures={failures} total={projects.length} />
           {!allRepos && <CostBreakdown project={project} />}
           {!allRepos && <ConflictStats repoPath={project} refreshKey={tick} />}
           <RunList runs={runs} active={active} showRepo={allRepos} hub={filter} onHub={onFilter} projects={allRepos ? projects : []} onSelect={open} onOpenActive={setLiveRun} onNewTask={onNewTask} />
@@ -559,6 +562,7 @@ export function Inspector({
             setTaskDetailId(id);
           }}
           onNewTask={onNewTask}
+          {...(onOpenSettings ? { onOpenSettings } : {})}
         />
       ) : screen === 'settings' ? (
         <SettingsScreen
