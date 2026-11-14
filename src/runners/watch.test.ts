@@ -1152,6 +1152,24 @@ describe('githubIssueWatchPrimitives ownerLabel', () => {
     expect(firstArgs[labelIdx + 1]).toBe('vanguard,ready for agent');
   });
 
+  it('reports a skipped claimed-label removal to the injected logger, not console.log', async () => {
+    // The issue's labels no longer show the claimed label, so its removal is dropped and said so.
+    const gh: GhRunner = vi.fn(async (args: string[]) => (args.at(-1) === 'labels' ? JSON.stringify({ labels: [] }) : ''));
+    const log = vi.fn();
+    const consoleLog = vi.spyOn(console, 'log').mockImplementation(() => undefined);
+    const primitives = githubIssueWatchPrimitives({
+      deps: { auth: { type: 'api', apiKey: 'k' } as never, repoPath: '/tmp', repoSlug: 'owner/repo' },
+      label: 'ready for agent',
+      claimedLabel: GITHUB_CLAIMED_LABEL,
+      reviewLabel: GITHUB_REVIEW_LABEL,
+      gh,
+    }, log);
+    await primitives.review('owner/repo#1');
+    expect(log).toHaveBeenCalledWith(expect.stringContaining(`not removing ${GITHUB_CLAIMED_LABEL}`));
+    expect(consoleLog).not.toHaveBeenCalled();
+    consoleLog.mockRestore();
+  });
+
   it('listReady requests only label when ownerLabel is absent', async () => {
     const gh = makeGhSpy();
     const primitives = githubIssueWatchPrimitives({
