@@ -130,6 +130,11 @@ async function main(): Promise<void> {
     await lessonsCommand(command);
     return;
   }
+  if (command.kind === 'skills') {
+    const { skillsCommand } = await import('./skills.js');
+    process.exitCode = await skillsCommand(command);
+    return;
+  }
   if (command.kind === 'audit') {
     const { auditCommand } = await import('./audit.js');
     process.exitCode = await auditCommand(command);
