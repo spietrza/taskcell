@@ -1416,6 +1416,24 @@ describe('buildRevisionChecklist — Markdown review', () => {
     expect(buildRevisionChecklist(prose, [])).toHaveLength(1);
   });
 
+  it('keeps an item that opens with a severity marker and drops one that only mentions the word', () => {
+    expect(ck('- [blocking, security] token leaks\n- **Blocking:** parse() drops a row\n- **Blocking** — loses data\n- (blocking) c')).toEqual([
+      '[blocking, security] token leaks', '**Blocking:** parse() drops a row', '**Blocking** — loses data', '(blocking) c',
+    ]);
+    // Mentions only: none is a finding, so the verdict falls back to its single catch-all item.
+    const mentions = ck('- The read is blocking the event loop\n- Blocking calls should move off the hot path\n- nit: previously blocking, now fine\n- [non-blocking] style');
+    expect(mentions).toHaveLength(1);
+    expect(mentions[0]).toContain('Every blocking finding');
+  });
+
+  it('stays linear on thousands of unclosed fences and on a heading of unmatched parentheses', () => {
+    const started = performance.now();
+    expect(ck(`## Blocking\n- a\n${'~~~a\n'.repeat(30_000)}- b`)).toEqual(['a', 'b']);
+    expect(ck(`## Blocking ${'('.repeat(60_000)}\n- a`)).toEqual(['a']);
+    // Linear: tens of ms. Scanning ahead from every opener (or every `(`) took many seconds here.
+    expect(performance.now() - started).toBeLessThan(3000);
+  });
+
   it('ignores a review of an older head', () => {
     const stale = commentItem({ author: 'github-actions', body: buildPullRequestReviewComment('Verdict: BLOCKING\n\n- [blocking] old finding', 'old999'), createdAt: '2024-01-11T09:00:00Z' });
     expect(buildRevisionChecklist(makeFeedback({ items: [stale] }), [])).toEqual([]);
