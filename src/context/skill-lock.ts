@@ -1,15 +1,26 @@
 import { createHash } from 'node:crypto';
-import { readFile } from 'node:fs/promises';
+import { lstat, readFile } from 'node:fs/promises';
 import { join } from 'node:path';
 import { z } from 'zod';
 import { TaskcellError } from '../core/errors.js';
 
 export const SKILL_LOCK_FILE = 'skills.lock.json';
+const MAX_LOCK_BYTES = 1024 * 1024;
+
+/** A source URL is printed in lists and errors, so it must not carry credentials. */
+function hasNoUserinfo(source: string): boolean {
+  try {
+    const url = new URL(source);
+    return url.username === '' && url.password === '';
+  } catch {
+    return false;
+  }
+}
 
 const SkillLockEntry = z.object({
   name: z.string().min(1),
   /** https git URL of the skill's upstream repo. */
-  source: z.url({ protocol: /^https$/ }),
+  source: z.url({ protocol: /^https$/ }).refine(hasNoUserinfo, 'must not contain credentials (user:password@)'),
   /** Path of the skill inside the source repo. */
   path: z.string().min(1),
   /** A full commit sha; never a tag or branch, which can move. */
@@ -44,17 +55,23 @@ export function parseSkillLock(text: string, label = SKILL_LOCK_FILE): Record<st
   return entries;
 }
 
-/** The lock next to a skills directory; undefined when there is none. */
+/**
+ * The lock next to a skills directory; undefined when there is none. A symlink or other non-regular
+ * file is refused, so a lock never reads host files outside `dir`.
+ */
 export async function readSkillLock(dir: string): Promise<Record<string, SkillLockEntry> | undefined> {
   const file = join(dir, SKILL_LOCK_FILE);
-  let text: string;
+  let size: number;
   try {
-    text = await readFile(file, 'utf-8');
+    const info = await lstat(file);
+    if (!info.isFile()) throw new TaskcellError(`${file} is not a regular file (a symlink or directory is refused); make it a plain file or remove it.`);
+    size = info.size;
   } catch (err) {
     if ((err as NodeJS.ErrnoException).code === 'ENOENT') return undefined;
     throw err;
   }
-  return parseSkillLock(text, file);
+  if (size > MAX_LOCK_BYTES) throw new TaskcellError(`${file} is larger than ${MAX_LOCK_BYTES} bytes.`);
+  return parseSkillLock(await readFile(file, 'utf-8'), file);
 }
 
 export function sha256Hex(content: string | Buffer): string {
@@ -79,23 +96,33 @@ export function lockEntry(lock: Record<string, SkillLockEntry> | undefined, name
   return lock !== undefined && Object.hasOwn(lock, name) ? lock[name] : undefined;
 }
 
+// Bounded: a long-lived process sees a new repo skills path per worktree.
+const MAX_WARNED = 64;
 const warnedLocal = new Set<string>();
 
-/** Fail on a hash mismatch; warn once per skill dir for a skill with no lock entry. */
-export async function verifySkill(skillDir: string, name: string, lock: Record<string, SkillLockEntry> | undefined): Promise<void> {
-  const entry = lockEntry(lock, name);
-  if (entry === undefined) {
-    if (lock === undefined) return; // no lock file: loads as before, silently
-    if (!warnedLocal.has(skillDir)) {
-      warnedLocal.add(skillDir);
-      console.warn(`taskcell: skill ${name} is local (no entry in ${SKILL_LOCK_FILE}); its content is not pinned`);
+/**
+ * Verify the skills of `dir` (name -> skill dir) against its lock: fail on a hash mismatch; warn once
+ * per set of skills that a lock pinning other skills leaves out. No lock, or a lock with no entries
+ * (the bundled one), asks for no pinning and stays silent.
+ */
+export async function verifySkills(dir: string, skills: Record<string, string>): Promise<void> {
+  const lock = await readSkillLock(dir);
+  if (lock === undefined) return;
+  const local: string[] = [];
+  for (const [name, skillDir] of Object.entries(skills)) {
+    const entry = lockEntry(lock, name);
+    if (entry === undefined) local.push(name);
+    else if ((await skillStatus(skillDir, entry)) === 'modified') {
+      throw new TaskcellError(
+        `Skill "${name}" (${skillDir}) does not match ${SKILL_LOCK_FILE}: SKILL.md differs from the pinned sha256 of ${entry.source} @ ${entry.commit.slice(0, 7)}. ` +
+          `Restore the pinned content, or update the lock entry if the change is intended.`,
+      );
     }
-    return;
   }
-  if ((await skillStatus(skillDir, entry)) === 'modified') {
-    throw new TaskcellError(
-      `Skill "${name}" (${skillDir}) does not match ${SKILL_LOCK_FILE}: SKILL.md differs from the pinned sha256 of ${entry.source} @ ${entry.commit.slice(0, 7)}. ` +
-        `Restore the pinned content, or update the lock entry if the change is intended.`,
-    );
-  }
+  if (local.length === 0 || Object.keys(lock).length === 0) return;
+  const key = [dir, ...local].join('\0');
+  if (warnedLocal.has(key)) return;
+  if (warnedLocal.size >= MAX_WARNED) warnedLocal.clear();
+  warnedLocal.add(key);
+  console.warn(`taskcell: skill(s) ${local.join(', ')} in ${dir} are local (no entry in ${SKILL_LOCK_FILE}); their content is not pinned`);
 }

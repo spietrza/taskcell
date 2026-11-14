@@ -4,7 +4,7 @@ import { tmpdir } from 'node:os';
 import { agentFamily } from '../agents/provider.js';
 import { TaskcellError } from '../core/errors.js';
 import type { IsolatedSandboxProvider } from '../sandbox/provider.js';
-import { readSkillLock, verifySkill } from './skill-lock.js';
+import { verifySkills } from './skill-lock.js';
 
 const SKILLS_DIR = '/workspace/.vanguard/skills';
 const CURSOR_RULES_DIR = '/workspace/.cursor/rules';
@@ -285,7 +285,7 @@ export const SPEC_ONLY_SKILLS = ['tech-spec'] as const;
  * skill dirs and SKILL.md files are skipped (the latter with a warning), so a registry never reads
  * host files outside `dir`.
  */
-async function skillsIn(dir: string): Promise<Record<string, string>> {
+export async function skillDirsIn(dir: string): Promise<Record<string, string>> {
   const entries = await readdir(dir, { withFileTypes: true });
   const skills: Record<string, string> = {};
   for (const entry of entries) {
@@ -296,9 +296,13 @@ async function skillsIn(dir: string): Promise<Record<string, string>> {
     if (skillMd?.isSymbolicLink() === true) console.warn(`taskcell: skipping skill ${skillDir}: its SKILL.md is a symlink`);
     else if (skillMd?.isFile() === true) skills[entry.name] = skillDir;
   }
-  // A skill with a lock entry must match it; one without is local (warned once).
-  const lock = await readSkillLock(dir);
-  for (const [name, skillDir] of Object.entries(skills)) await verifySkill(skillDir, name, lock);
+  return skills;
+}
+
+/** skillDirsIn, verified against the directory's skills.lock.json (a mismatch fails the load). */
+async function skillsIn(dir: string): Promise<Record<string, string>> {
+  const skills = await skillDirsIn(dir);
+  await verifySkills(dir, skills);
   return skills;
 }
 

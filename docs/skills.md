@@ -89,14 +89,25 @@ A skill steers an agent that has repo access, so a silent edit to a `SKILL.md` i
 }
 ```
 
-- `source` must be an `https` git URL. `commit` is a full 40-hex sha, never a tag or branch. `sha256` is the hash of the skill's `SKILL.md` (`sha256sum <skill>/SKILL.md`). A lock that breaks these rules fails to parse.
-- `name` is the skill's directory name. A skill without an entry is `local`: it loads, and a warning notes that it is not pinned once the directory has a lock. A directory without a lock file loads as before.
+- `source` must be an `https` git URL without credentials (`https://user:token@host/...` is refused). `commit` is a full 40-hex sha, never a tag or branch. `sha256` is the hash of the skill's `SKILL.md`. Each `name` appears once. A lock that breaks these rules fails to parse. The lock itself must be a regular file (not a symlink) of at most 1 MiB.
+- `name` is the skill's directory name. A skill without an entry is `local`: it loads. When the lock pins at least one skill, a warning names the skills in that directory it leaves out; a lock with no entries and a directory without a lock file load silently.
+- **Only `SKILL.md` is hashed.** Other files in the skill directory (scripts, references) are not pinned and can change without a mismatch.
+- The hash is over the file's bytes, so a checkout that rewrites line endings to CRLF (`core.autocrlf`) fails a pinned skill. Keep `SKILL.md` on LF, e.g. `*.md text eol=lf` in `.gitattributes`.
 - On load, every skill with an entry is verified, for bundled and repo skills alike. **A hash mismatch fails the run**, naming the skill: the `SKILL.md` is not the content that was pinned. Restore the pinned content, or, if the change is intended, update `sha256` (and `commit`) in the lock through a reviewed change.
 - Today the five bundled skills have no upstream to pin to, so they stay `local`.
 
+To pin a skill by hand, add an entry to the `skills` array:
+
+```bash
+git ls-remote https://github.com/schpet/linear-cli HEAD     # commit: the 40-hex sha (or `git rev-parse HEAD` in a clone)
+sha256sum skills/linear-cli/SKILL.md                         # sha256: the first field (macOS: shasum -a 256)
+```
+
+Copy the skill directory from that commit, set `source` to the repo URL, `path` to the skill's path inside it, `updatedAt` to today's date, then run `taskcell skills list` and check the skill shows `pinned`.
+
 ### Commands
 
-- `vanguard skills list [--dir <skills dir>]` prints each skill's name, source, short commit and status: `pinned` (hash matches), `local` (no entry) or `modified` (hash differs).
-- `vanguard skills check [--dir <skills dir>] [--strict]` resolves each pinned source's default branch head with `git ls-remote` and reports `current`, `outdated` (with the upstream short sha) or `unknown` (the head could not be resolved). `--strict` exits 1 when any skill is outdated or modified. It is read-only.
+- `taskcell skills list [--dir <skills dir>]` prints each skill's name, source, short commit and status: `pinned` (hash matches), `local` (no entry) or `modified` (hash differs).
+- `taskcell skills check [--dir <skills dir>] [--strict]` resolves each pinned source's default branch head with `git ls-remote` and reports `current`, `outdated` (with the upstream short sha) or `unknown` (the head could not be resolved). `--strict` exits 1 when any skill is outdated or modified; `unknown` does not fail it, so an unreachable upstream never breaks a build. It is read-only.
 
-`--dir` defaults to `./skills`. Both commands run on the host; the network is never touched from the sandbox.
+`--dir` defaults to `<repo>/skills` (`--repo`, else the current directory). Both commands list exactly the skills the registry loads: a subdirectory with no `SKILL.md`, or a symlinked one, is not a skill. Both commands run on the host; the network is never touched from the sandbox.

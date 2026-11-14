@@ -1,8 +1,7 @@
-import { readdir } from 'node:fs/promises';
 import { execFile } from 'node:child_process';
 import { promisify } from 'node:util';
-import { join } from 'node:path';
 import { lockEntry, readSkillLock, skillStatus, type SkillStatus } from '../context/skill-lock.js';
+import { skillDirsIn } from '../context/skill-registry.js';
 import { TaskcellError } from '../core/errors.js';
 import type { Command } from './args.js';
 
@@ -36,16 +35,14 @@ export interface SkillRow {
 
 async function skillRows(dir: string): Promise<SkillRow[]> {
   const lock = await readSkillLock(dir);
-  const dirents = await readdir(dir, { withFileTypes: true }).catch(() => {
+  // The same set the registry loads: no SKILL.md or a symlinked one is not a skill.
+  const skills = await skillDirsIn(dir).catch(() => {
     throw new TaskcellError(`Cannot read skills directory ${dir}.`);
   });
   const rows: SkillRow[] = [];
-  for (const d of dirents.filter((e) => e.isDirectory()).sort((a, b) => a.name.localeCompare(b.name))) {
-    const skillDir = join(dir, d.name);
-    const entry = lockEntry(lock, d.name);
-    const status = await skillStatus(skillDir, entry).catch(() => undefined);
-    if (status === undefined) continue; // no SKILL.md: not a skill
-    rows.push({ name: d.name, source: entry?.source ?? '-', commit: entry?.commit ?? '', status });
+  for (const [name, skillDir] of Object.entries(skills).sort(([a], [b]) => a.localeCompare(b))) {
+    const entry = lockEntry(lock, name);
+    rows.push({ name, source: entry?.source ?? '-', commit: entry?.commit ?? '', status: await skillStatus(skillDir, entry) });
   }
   return rows;
 }
@@ -85,9 +82,14 @@ export async function skillsCheck(
 }
 
 export async function skillsCommand(cmd: SkillsCommand): Promise<number> {
-  if (cmd.action === 'list') {
+  try {
+    if (cmd.action === 'check') return await skillsCheck(cmd.dir, cmd.strict);
     await skillsList(cmd.dir);
     return 0;
+  } catch (error) {
+    // A bad lock or directory is a user error: one line, no stack.
+    if (!(error instanceof TaskcellError)) throw error;
+    console.error(`taskcell skills: ${error.message}`);
+    return 1;
   }
-  return skillsCheck(cmd.dir, cmd.strict);
 }
