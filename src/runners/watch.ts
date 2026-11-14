@@ -1,5 +1,6 @@
 import { describeIgnoredAuthor, isTrustedNonAuthorComment } from '../tasks/comment-trust.js';
 import { LinearCliTaskFetcher, setLinearState, commentLinearIssue } from '../tasks/linear-cli.js';
+import { applyLinearDependencyGate } from '../tasks/linear-dependencies.js';
 import { GitHubTaskFetcher, editGithubLabels, commentGithubIssue, defaultGhRunner, isTrustedIssueAuthor } from '../tasks/github.js';
 import { GitLabTaskFetcher, editGitlabLabels, commentGitlabIssue, defaultGlabRunner } from '../tasks/gitlab.js';
 import { runLinearIssue } from './linear.js';
@@ -22,7 +23,7 @@ import type { RunLinearIssueDeps } from './linear.js';
 import type { RunGithubIssueDeps } from './github.js';
 import type { RunGitlabIssueDeps } from './gitlab.js';
 import type { RunSpecGeneratorDeps } from './spec.js';
-import type { LinearCliRunner } from '../tasks/linear-cli.js';
+import type { LinearCliRunner, LinearGraphql } from '../tasks/linear-cli.js';
 import type { GhRunner } from '../tasks/github.js';
 import type { GlabRunner } from '../tasks/gitlab.js';
 
@@ -348,6 +349,8 @@ export interface WatchLinearOptions {
   maxTasks?: number;
   signal?: AbortSignal;
   linear?: LinearCliRunner;
+  /** Injected for tests: the GraphQL sender for list and the dependency gate. */
+  graphql?: LinearGraphql;
 }
 
 /** Build the real Linear-backed primitives: state+label trigger, claim and review via state changes. */
@@ -355,11 +358,17 @@ export function linearWatchPrimitives(opts: WatchLinearOptions): WatchPrimitives
   const fetcher = new LinearCliTaskFetcher({
     ...(opts.team !== undefined ? { team: opts.team } : {}),
     ...(opts.linear !== undefined ? { linear: opts.linear } : {}),
+    ...(opts.graphql !== undefined ? { graphql: opts.graphql } : {}),
   });
   const trigger = opts.triggerState ?? 'unstarted';
   const needsInfoState = opts.needsInfoState;
   return {
-    listReady: () => fetcher.list({ labels: [opts.label], state: trigger }),
+    listReady: async () =>
+      applyLinearDependencyGate(await fetcher.list({ labels: [opts.label], state: trigger }), {
+        ...(needsInfoState !== undefined ? { moveToNeedsInfo: (id: string) => setLinearState(id, needsInfoState, opts.linear) } : {}),
+        ...(opts.linear !== undefined ? { linear: opts.linear } : {}),
+        ...(opts.graphql !== undefined ? { graphql: opts.graphql } : {}),
+      }),
     claim: (id) => setLinearState(id, opts.claimedState, opts.linear),
     runOne:
       needsInfoState === undefined
@@ -412,6 +421,7 @@ export interface WatchLinearSpecOptions {
   needsInfoState: string;
   team?: string;
   linear?: LinearCliRunner;
+  graphql?: LinearGraphql;
   /** Injected for tests so the spec pass runs without a sandbox. Defaults to the real generator. */
   generateSpec?: GenerateSpec;
 }
@@ -499,11 +509,17 @@ export function linearSpecPrimitives(opts: WatchLinearSpecOptions): SpecWatchPri
   const fetcher = new LinearCliTaskFetcher({
     ...(opts.team !== undefined ? { team: opts.team } : {}),
     ...(opts.linear !== undefined ? { linear: opts.linear } : {}),
+    ...(opts.graphql !== undefined ? { graphql: opts.graphql } : {}),
   });
   const trigger = opts.specTriggerState ?? 'triage';
   const generate = opts.generateSpec ?? runSpecGenerator;
   return {
-    listReady: () => fetcher.list({ labels: [opts.label], state: trigger }),
+    listReady: async () =>
+      applyLinearDependencyGate(await fetcher.list({ labels: [opts.label], state: trigger }), {
+        moveToNeedsInfo: (id) => setLinearState(id, opts.needsInfoState, opts.linear),
+        ...(opts.linear !== undefined ? { linear: opts.linear } : {}),
+        ...(opts.graphql !== undefined ? { graphql: opts.graphql } : {}),
+      }),
     claim: (id) => setLinearState(id, opts.claimedState, opts.linear),
     runSpec: async (id) => {
       const task = await fetcher.fetch(id);

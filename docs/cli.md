@@ -314,6 +314,16 @@ A start date comes from the issue's own start date, which GitLab returns from 19
 
 `taskcell::waiting` is a scoped label, so on Premium adding it removes any other `taskcell::` label from the issue. Do not put your trigger label in the `taskcell::` (or `vanguard::`) scope; if it is, the issue is held by the comment alone, without the waiting label.
 
+### Task dependencies (Linear)
+
+`watch --linear` (agent and spec passes) holds an issue back the same way.
+
+- **Dependencies.** Native "blocked by" relations plus `Depends on DEV-12` lines in the description (`Depends on DEV-12, ENG-3`, or a `https://linear.app/<workspace>/issue/DEV-12/...` URL); both count.
+- **Start date.** The issue's cycle start, else a `Start: YYYY-MM-DD` line (UTC). Linear issues have no start date of their own.
+- **Done.** A dependency is met when its state type is completed. A canceled dependency can never be met.
+
+An issue that must wait is skipped and stays in its trigger state, so a later poll starts it by itself once every dependency is done and the date reached. A cycle, a reference to an issue that does not exist or the token cannot read, a canceled dependency or an impossible start date gets one comment with the reason (per reason, while the watch process runs) and moves to the needs-info state (when none is configured, it is only logged and stays triggered). A failed lookup is skipped for that poll. Beyond the direct blockers only native relations are followed.
+
 ### Starting the factory from the hub
 
 The hub's `start_task` call applies a trigger label to an issue of a registered project, as the hub's own `gh` identity (the credential it already uses for that project's GitHub source). Arguments: `repoPath`, `number`, `label`. GitHub only: a GitLab or Linear project answers "not supported yet". The response says what happened: `status` is `labelled` (or `retried` when a trigger label was already on a parked issue), `label` is the label applied, and `waitingOn` lists the unmet dependencies (`owner/repo#N`) of an issue parked at `taskcell:waiting`, for "waiting on #N".

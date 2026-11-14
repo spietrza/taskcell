@@ -829,3 +829,30 @@ describe('defaultSandboxFactory wires the opt-in read-only rootfs', () => {
     expect(runArgs({})).not.toContain('--read-only');
   });
 });
+
+describe('Linear dependency gate wiring', () => {
+  const issue = (identifier: string, blockedBy: string[] = []): object => ({
+    identifier, title: 't', description: 'd', state: { name: 'Todo', type: 'unstarted' }, labels: { nodes: [{ name: 'vanguard:spec' }] },
+    inverseRelations: { nodes: blockedBy.map((b) => ({ type: 'blocks', issue: { identifier: b } })) },
+  });
+  const graphql = async (body: { query: string; variables: Record<string, unknown> }): Promise<unknown> => {
+    if (/issues\(/.test(body.query)) return { data: { issues: { nodes: [issue('ENG-1'), issue('ENG-2', ['ENG-1']), issue('ENG-3', ['ENG-3'])] } } };
+    const id = body.variables['id'] as string;
+    return { data: { issue: { identifier: id, state: { type: 'unstarted' }, inverseRelations: { nodes: id === 'ENG-3' ? [{ type: 'blocks', issue: { identifier: 'ENG-3' } }] : [] } } } };
+  };
+  const common = { label: 'vanguard:spec', claimedState: 'Speccing', needsInfoState: 'Needs Info', graphql };
+
+  it('agent pass lists only unblocked issues and parks the invalid one in needs info', async () => {
+    const calls: string[][] = [];
+    const linear: LinearCliRunner = async (args) => { calls.push(args); return ''; };
+    const p = linearWatchPrimitives({ deps: {} as never, ...common, reviewState: 'In Review', linear });
+    expect((await p.listReady()).map((t) => t.id)).toEqual(['ENG-1']);
+    expect(calls.some((a) => a[1] === 'update' && a.includes('ENG-3') && a.includes('Needs Info'))).toBe(true);
+  });
+
+  it('spec pass applies the same gate', async () => {
+    const linear: LinearCliRunner = async () => '';
+    const p = linearSpecPrimitives({ deps: {} as never, ...common, specTriggerStateName: 'Spec', agentState: 'Todo', linear });
+    expect((await p.listReady()).map((t) => t.id)).toEqual(['ENG-1']);
+  });
+});

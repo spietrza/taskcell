@@ -1,7 +1,7 @@
 import { hasLabel } from '../core/labels.js';
 import { execa } from 'execa';
 import { TaskcellError } from '../core/errors.js';
-import type { Task, TaskComment, TaskFetcher, TaskFilter } from './fetcher.js';
+import type { Task, TaskComment, TaskFetcher, TaskFilter, TaskRef } from './fetcher.js';
 import { redactForPublish } from '../core/secret-scan.js';
 
 /** Runs the `linear` CLI and returns stdout. Injected for testing. */
@@ -42,6 +42,9 @@ interface LinearCliIssue {
   state?: { name?: string; type?: string };
   children?: { nodes?: Array<{ identifier?: string; id?: string; title?: string }> };
   comments?: LinearCliCommentNode[] | { nodes?: LinearCliCommentNode[] };
+  cycle?: { startsAt?: string | null } | null;
+  /** Relations pointing at this issue; type `blocks` means `issue` blocks this one. */
+  inverseRelations?: { nodes?: Array<{ type?: string; issue?: { identifier?: string } | null }> } | null;
 }
 
 /**
@@ -68,12 +71,23 @@ function parseComments(comments: LinearCliIssue['comments']): TaskComment[] {
     .filter((comment) => comment.body !== ''); // attachment-only comments have no body; skip for v1
 }
 
+/** A Linear identifier `DEV-12` as a ref: the team key is the `repo`, the issue number the `number`. */
+export function parseIdentifier(identifier: string): TaskRef | undefined {
+  const m = /^([A-Za-z][A-Za-z0-9]*)-(\d+)$/.exec(identifier);
+  return m === null ? undefined : { repo: m[1]!, number: Number(m[2]) };
+}
+
 function toTask(issue: LinearCliIssue): Task {
   const labels = (issue.labels?.nodes ?? []).map((label) => label.name ?? '').filter((name) => name !== '');
   const children = (issue.children?.nodes ?? [])
     .map((child) => ({ id: child.identifier ?? child.id ?? '', title: child.title ?? '' }))
     .filter((child) => child.id !== '');
   const stateName = issue.state?.name;
+  const blockers = (issue.inverseRelations?.nodes ?? [])
+    .filter((rel) => rel.type === 'blocks')
+    .map((rel) => parseIdentifier(rel.issue?.identifier ?? ''))
+    .filter((ref): ref is TaskRef => ref !== undefined);
+  const cycleStart = issue.cycle?.startsAt;
   return {
     id: issue.identifier ?? issue.id ?? '',
     title: issue.title ?? '',
@@ -85,6 +99,9 @@ function toTask(issue: LinearCliIssue): Task {
     // The LIST query has always fetched state — it was dropped here. The board needs it (S9).
     ...(stateName !== undefined ? { state: stateName } : {}),
     ...(issue.url !== undefined ? { url: issue.url } : {}),
+    // Only when the query returned relations (list): the gate then needs no lookup of the issue itself.
+    ...(issue.inverseRelations != null ? { nativeBlockers: blockers } : {}),
+    ...(cycleStart != null ? { startDate: cycleStart } : {}),
   };
 }
 
@@ -147,7 +164,7 @@ const MAX_PAGES = 100;
 const LIST_QUERY = `query($f: IssueFilter, $after: String, $first: Int!) {
   issues(first: $first, after: $after, filter: $f) {
     pageInfo { hasNextPage endCursor }
-    nodes { identifier title url description state { name type } labels { nodes { name } } }
+    nodes { identifier title url description state { name type } labels { nodes { name } } cycle { startsAt } inverseRelations(first: 100) { nodes { type issue { identifier } } } }
   }
 }`;
 
