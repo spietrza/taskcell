@@ -88,9 +88,9 @@ export function captureHubToken(): void {
  * strip a token added to an open page's address. */
 export function watchHubToken(): void {
   captureHubToken();
-  // A later fragment is only stripped, never stored: a `#token=…` link in rendered text must not replace this tab's token.
+  // Outside demo the next hub call captures a pasted launch URL (`hubToken`), so a refused tab reconnects in place.
   window.addEventListener('hashchange', () => {
-    if (fragmentToken() !== null) stripFragmentToken();
+    if (isDemoMode() && fragmentToken() !== null) stripFragmentToken();
   });
 }
 

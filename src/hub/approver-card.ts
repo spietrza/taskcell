@@ -7,6 +7,7 @@ import { mkdir, mkdtemp, rm, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { collectApproverScorecard } from '../approver/outcome.js';
+import { dedicatedReviewers } from '../approver/facts.js';
 import { loadPolicy } from '../approver/policy.js';
 import { AUTO_MERGE_STREAK_THRESHOLD, parseDecisions } from '../approver/scorecard.js';
 import { assertSafeBaseBranch, DEFAULT_BASE_BRANCH, readRepoBaseBranch } from '../core/base-branch.js';
@@ -25,10 +26,10 @@ const PERIOD_DAYS: Record<Exclude<ApproverPeriod, 'all'>, number> = { '30d': 30,
 const TOP_REASONS = 5;
 
 /**
- * Open issues the act switch waits on (#939, #958): while this list is non-empty the hub does not offer `act`
+ * Open issues the act switch waits on (#939): while this list is non-empty the hub does not offer `act`
  * and refuses to open a PR that turns it on. Empty it when the issue is closed.
  */
-export const ACT_BLOCKING_ISSUES: readonly number[] = [939, 958];
+export const ACT_BLOCKING_ISSUES: readonly number[] = [939];
 
 export const NO_DECISIONS_HINT = 'Run `taskcell approve` from your CI workflow (it records every verdict on the taskcell-metrics branch) and its scorecard will show up here.';
 
@@ -36,7 +37,13 @@ export interface ApproverModeInfo {
   mode: ApproverMode;
   policyFound: boolean;
   base: string;
+  /** Why act mode is refused for this repo's policy ('' when the policy allows it). */
+  actHold: string;
 }
+
+/** What the approver card and `set_approver_mode` say when the policy has no dedicated reviewer login. */
+export const NO_REVIEWER_LOGIN_HINT =
+  'Add the login of the GitHub App that posts the PR review (not github-actions, and not the App the factory itself runs as) to "reviewAuthors" in .taskcell/approver.json on the base branch (the bare login, without "app/" or "[bot]"), and make the PR-review workflow post with that App\'s token.';
 
 /**
  * The base branch the approver's policy lives on, resolved like Enable factory's default branch: the repo's
@@ -67,9 +74,9 @@ const isOwnRepo = (repo: unknown, slug: string | undefined): boolean =>
 export async function readApproverMode(repoPath: string): Promise<ApproverModeInfo> {
   const base = await approverBaseBranch(repoPath);
   const loaded = await loadPolicy(repoPath, base);
-  if (loaded === undefined) return { mode: 'off', policyFound: false, base };
+  if (loaded === undefined) return { mode: 'off', policyFound: false, base, actHold: '' };
   const { enabled, act } = loaded.policy;
-  return { mode: !enabled ? 'off' : act === true ? 'act' : 'shadow', policyFound: true, base };
+  return { mode: !enabled ? 'off' : act === true ? 'act' : 'shadow', policyFound: true, base, actHold: dedicatedReviewers(loaded.policy).length === 0 ? NO_REVIEWER_LOGIN_HINT : '' };
 }
 
 const empty = (period: ApproverPeriod, info: ApproverModeInfo, hint: string): ApproverScorecard => ({
@@ -78,7 +85,8 @@ const empty = (period: ApproverPeriod, info: ApproverModeInfo, hint: string): Ap
   hint,
   mode: info.mode,
   policyFound: info.policyFound,
-  actOffered: ACT_BLOCKING_ISSUES.length === 0,
+  actOffered: ACT_BLOCKING_ISSUES.length === 0 && info.actHold === '',
+  actHold: info.actHold,
   threshold: AUTO_MERGE_STREAK_THRESHOLD,
   judged: 0,
   approves: 0,
@@ -93,7 +101,7 @@ const empty = (period: ApproverPeriod, info: ApproverModeInfo, hint: string): Ap
 
 /** The card for a switch-off request, which never reads the scorecard: turning the approver off must not depend on it. */
 export const unreadScorecard = (period: ApproverPeriod): ApproverScorecard =>
-  empty(period, { mode: 'off', policyFound: true, base: '' }, 'The scorecard was not read: the approver is being switched off.');
+  empty(period, { mode: 'off', policyFound: true, base: '', actHold: '' }, 'The scorecard was not read: the approver is being switched off.');
 
 /** The scorecard `taskcell stats --approver` prints, restricted to decisions made in the period, summarised. */
 export async function approverScorecard(repoPath: string, period: ApproverPeriod, now: number = Date.now()): Promise<ApproverScorecard> {

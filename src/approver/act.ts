@@ -3,6 +3,7 @@ import { hasLabel } from '../core/labels.js';
 import { workflowPaths } from '../core/taskcell.js';
 import type { GhRunner } from '../tasks/github.js';
 import { assertShadowSafeGhArgs } from './publish.js';
+import { dedicatedReviewers } from './facts.js';
 import type { ApproverFacts, ApproverPolicy, Decision, PrFacts } from './types.js';
 
 const SHA_RE = /^[0-9a-f]{7,64}$/;
@@ -69,6 +70,10 @@ export function escapeForComment(text: string): string {
     .replace(/(^|[\s(])(\.(?:github|gitlab))\//g, '$1$2\u200b/');
 }
 
+/** Act mode's reason (stable code `no-dedicated-reviewer`) when the policy names no reviewer login other than `github-actions`. */
+export const NO_DEDICATED_REVIEWER =
+  'the policy lists no dedicated reviewer login in reviewAuthors (a GitHub App login other than github-actions); act mode acts on nothing';
+
 /**
  * Why act mode must leave this PR to a human, beyond `decide()`: a draft (never promoted — a draft can be a hold),
  * a human hold (a CHANGES_REQUESTED review or the hold label), a PR not opened by a factory login, a release PR,
@@ -79,6 +84,7 @@ export function hardExclusions(facts: ApproverFacts, policy: ApproverPolicy, rev
   if (facts.pr.isDraft) reasons.push('draft PR (act mode never marks a draft ready)');
   if (holdsChanges(reviews)) reasons.push('a review requests changes');
   if (policy.requiredChecks.length === 0) reasons.push('the policy lists no required checks (act mode acts on nothing)');
+  if (dedicatedReviewers(policy).length === 0) reasons.push(NO_DEDICATED_REVIEWER);
   const holdLabel = policy.holdLabel ?? 'taskcell:hold';
   if (hasLabel(facts.pr.labels ?? [], holdLabel)) reasons.push(`hold label ${holdLabel}`);
   const author = facts.pr.author ?? '';

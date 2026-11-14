@@ -463,6 +463,8 @@ export interface ApproverScorecard {
   /** False when `.taskcell/approver.json` is missing or unreadable on the base branch (mode is then `off`). */
   policyFound: boolean;
   actOffered: boolean;
+  /** Why act is refused for this repo's policy, to show beside the switch; empty or absent when nothing holds it. */
+  actHold?: string;
   threshold: number;
   judged: number;
   approves: number;
