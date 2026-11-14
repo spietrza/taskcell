@@ -399,7 +399,7 @@ To run **Opus** spec / **Sonnet** impl / **Codex** review with Codex on a ChatGP
    ```bash
    gh secret set CODEX_AUTH_JSON --repo OWNER/REPO < ~/.codex/auth.json
    ```
-2. In the implement caller, set the model inputs, map the secret, and **drop `llm-proxy`** (a subscription talks to the ChatGPT backend, which the proxy allowlist does not cover):
+2. In the implement caller, set the model inputs, map the secret, and keep or drop `llm-proxy` (with it, a ChatGPT sidecar holds the real `auth.json`; see [Host LLM proxy](security/boundaries.md#host-llm-proxy)):
    ```yaml
        uses: spietrza/taskcell/.github/workflows/implement.yml@v1
        with:
