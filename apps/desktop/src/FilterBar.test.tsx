@@ -93,6 +93,11 @@ test('a grouped Board with no matching card says so, and a grouped Runs table ha
   expect(await screen.findByText('No cards match the search "zzz".')).toBeInTheDocument();
   expect(screen.getByRole('button', { name: 'Clear search' })).toBeInTheDocument();
   board.unmount();
+  // A source filter that empties the Board on its own: clearing the search would not help, so it is not offered.
+  const bySource = render(<TaskBoard project="/a" allRepos repos={['/a', '/b']} filter={{ ...DEFAULT_FILTER, query: 'a', sources: ['linear'] }} onFilter={() => {}} projects={repos} onOpenTask={() => {}} onNewTask={() => {}} />);
+  expect(await screen.findByText('No cards match the current filters.')).toBeInTheDocument();
+  expect(screen.queryByRole('button', { name: 'Clear search' })).toBeNull();
+  bySource.unmount();
   const runs = [{ taskId: 'gh-1', timestamp: 't', stages: [], totalCostUsd: 0, anyFailed: false }, { taskId: 'gl-2', timestamp: 't2', stages: [], totalCostUsd: 0, anyFailed: false }];
   render(<RunList runs={runs} active={[]} hub={{ ...DEFAULT_FILTER, group: 'source' }} onHub={() => {}} onSelect={() => {}} onOpenActive={() => {}} />);
   expect(screen.getByText('GitHub', { selector: 'td' })).toBeInTheDocument();
@@ -107,4 +112,24 @@ test('Escape closes the Projects popup and returns focus to its button', () => {
   fireEvent.keyDown(screen.getByLabelText('Search projects'), { key: 'Escape' });
   expect(screen.queryByRole('group', { name: 'Projects' })).toBeNull();
   expect(trigger).toHaveFocus();
+});
+
+test('one Escape closes one layer: the popup stops it for an enclosing layer, and leaves one a layer above already took', () => {
+  render(<Harness />);
+  const outer = vi.fn();
+  window.addEventListener('keydown', outer);
+  try {
+    fireEvent.click(screen.getAllByRole('button', { name: /^Projects:/ })[0]!);
+    const search = screen.getByLabelText('Search projects');
+    const taken = new KeyboardEvent('keydown', { key: 'Escape', bubbles: true, cancelable: true });
+    taken.preventDefault();
+    fireEvent(search, taken);
+    expect(screen.getByRole('group', { name: 'Projects' })).toBeInTheDocument();
+    outer.mockClear();
+    fireEvent.keyDown(search, { key: 'Escape' });
+    expect(screen.queryByRole('group', { name: 'Projects' })).toBeNull();
+    expect(outer).not.toHaveBeenCalled();
+  } finally {
+    window.removeEventListener('keydown', outer);
+  }
 });

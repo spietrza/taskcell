@@ -73,6 +73,15 @@ test('a search that empties the list is named, with a button that clears it; the
   expect(onHub).toHaveBeenCalledWith({ ...hub, query: '' });
 });
 
+test('a list emptied by another filter names the filters, with no Clear search that would bring nothing back', () => {
+  const runs: RunSummary[] = [{ taskId: 'task-7', timestamp: '2026-07-06T19:12:02.123Z', stages: ['implement'], totalCostUsd: 0.1, anyFailed: false }];
+  const hub = { triage: 'all' as const, repos: [], sources: [], query: 'task', group: 'none' as const };
+  render(<RunList runs={runs} active={[]} hub={hub} onHub={noop} onSelect={noop} onOpenActive={noop} />);
+  fireEvent.click(screen.getByRole('button', { name: 'failed' }));
+  expect(screen.getByText('No runs match the current filters.')).toBeInTheDocument();
+  expect(screen.queryByRole('button', { name: 'Clear search' })).toBeNull();
+});
+
 test('rows are keyboard stops: Enter opens a run, a CI-only row is not one', () => {
   const run: RunSummary = { taskId: 'task-7', timestamp: '2026-07-06T19:12:02.123Z', stages: ['implement'], totalCostUsd: 0.1, anyFailed: false };
   const onSelect = vi.fn();

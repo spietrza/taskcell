@@ -74,6 +74,12 @@ export function RunList({
     return filterActive(active, hub).filter((a) => !q || a.taskId.toLowerCase().includes(q));
   }, [active, query, filter, hub]);
 
+  // Would clearing the search bring rows back, or is it the pill / hub filter that empties the list?
+  const searchHides = useMemo(() => {
+    const h = { ...hub, query: '' };
+    return filterRuns(runs, h).some((r) => filter === 'all' || (filter === 'failed') === r.anyFailed) || (filter === 'all' && filterActive(active, h).length > 0);
+  }, [runs, active, filter, hub]);
+
   // Rows of both kinds share the lanes; a running row sorts first within its lane.
   const lanes = useMemo(
     () =>
@@ -200,7 +206,7 @@ export function RunList({
       </div>
 
       {shown.length === 0 && shownActive.length === 0 ? (
-        <NoMatch what="runs" query={onHub ? hub.query : query} onClear={onHub ? () => onHub({ ...hub, query: '' }) : () => setQuery('')} />
+        <NoMatch what="runs" query={searchHides ? (onHub ? hub.query : query) : ''} onClear={onHub ? () => onHub({ ...hub, query: '' }) : () => setQuery('')} />
       ) : (
         <ScrollTable>
         <Table.Root>

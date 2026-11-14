@@ -103,6 +103,7 @@ export function CommandPalette({
       e.preventDefault();
       exec(filtered[sel]);
     } else if (e.key === 'Escape') {
+      e.preventDefault(); // this layer took the key: a popup open underneath stays
       onClose();
     }
   };

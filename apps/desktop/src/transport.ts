@@ -99,7 +99,7 @@ function redirectToSignIn(): void {
 }
 
 /** Server mode only: is someone signed in? Better Auth answers `/api/auth/get-session` with the
- * session or null; loopback mounts no OAuth, so it 404s and there is nothing to sign out of. */
+ * session or null; loopback mounts no OAuth and answers null, so there is nothing to sign out of. */
 export async function hubSignedIn(): Promise<boolean> {
   if (!isHubMode() || isDemoMode()) return false;
   try {

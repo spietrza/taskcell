@@ -16,11 +16,14 @@ function ProjectPicker({ repos, withCards, selected, onChange }: { repos: Repo[]
   const [open, setOpen] = useState(false);
   const [q, setQ] = useState('');
   const trigger = useRef<HTMLButtonElement>(null);
-  // Escape closes the popup and hands focus back to its button.
+  // Escape closes the popup and hands focus back to its button. One Escape closes one layer: a layer above that
+  // took the key (defaultPrevented) keeps it, and this one stops it before an enclosing layer's listener.
   useEffect(() => {
     if (!open) return;
     const onKey = (e: KeyboardEvent): void => {
-      if (e.key !== 'Escape') return;
+      if (e.key !== 'Escape' || e.defaultPrevented) return;
+      e.preventDefault();
+      e.stopPropagation();
       setOpen(false);
       trigger.current?.focus();
     };
@@ -102,12 +105,13 @@ interface Props {
   searchLabel?: string;
 }
 
-/** A list filtered to empty: names the search that did it (it is shared by Board and Runs and survives a reload) with a way to clear it. */
+/** A list filtered to empty: names the search that did it (it is shared by Board and Runs and survives a reload) with a way to clear it.
+ * `query` is the search only when clearing it would bring rows back; empty when another filter empties the list. */
 export function NoMatch({ what, query, onClear }: { what: string; query: string; onClear?: (() => void) | undefined }) {
   const q = query.trim();
   return (
     <div className="py-8 text-center text-sm text-muted-foreground">
-      {q === '' ? `No ${what} match.` : `No ${what} match the search "${q}".`}
+      {q === '' ? `No ${what} match the current filters.` : `No ${what} match the search "${q}".`}
       {q !== '' && onClear && (
         <Button variant="text" color="secondary" className="ml-2" onClick={onClear}>
           Clear search
