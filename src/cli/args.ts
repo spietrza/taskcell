@@ -1533,7 +1533,7 @@ Commands:
          parked as taskcell:waiting (unmet Depends on #N / native blocked-by, future Start: YYYY-MM-DD) once they are clear
          (--trigger-labels a,b names custom triggers; --claimed-state, --review-state, --spec-claimed-label as given to watch).
   gc     Reap stale sandbox containers, prune worktrees, and (with --remote) delete merged
-         remote chore/vanguard-* branches.
+         remote chore/taskcell-* (or pre-rename chore/vanguard-*) branches.
   hub    Serve the Inspector UI over HTTP/SSE (node:http), backed by a real .taskcell/ directory.
          --token-file <path> (TASKCELL_HUB_TOKEN_FILE) keeps one token across restarts (created 0600 if missing);
          "hub rotate-token --token-file <path>" writes a new one, picked up on the next restart.
@@ -1785,7 +1785,7 @@ ${MAX_REPAIR_ITERATIONS_USAGE}
     --repo <path>          Git repo to prune worktrees / reap branches in (default: cwd)
     --max-age-hours <n>    Only reap resources older than n hours (default: 6). Does not apply
                            to empty egress networks: they are reaped after 10 minutes
-    --remote <owner/repo>  Also delete merged remote chore/vanguard-* branches (needs gh)
+    --remote <owner/repo>  Also delete merged remote chore/taskcell-* (or pre-rename chore/vanguard-*) branches (needs gh)
     --dry-run              List what would be reaped without removing anything
     --abandoned            Also delete branches whose PR is closed-unmerged (not just merged)
 

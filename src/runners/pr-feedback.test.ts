@@ -1434,6 +1434,12 @@ describe('buildRevisionChecklist — Markdown review', () => {
     expect(performance.now() - started).toBeLessThan(3000);
   });
 
+  it('builds no checklist from a review carrying the verdict-without-completion note', () => {
+    const body = buildPullRequestReviewComment('Verdict: BLOCKING\n\n- [blocking] parse() drops a row', 'abc123', { completed: false });
+    const truncated = commentItem({ author: 'github-actions', body, createdAt: '2024-01-11T09:00:00Z' });
+    expect(buildRevisionChecklist(makeFeedback({ items: [truncated] }), [])).toEqual([]);
+  });
+
   it('ignores a review of an older head', () => {
     const stale = commentItem({ author: 'github-actions', body: buildPullRequestReviewComment('Verdict: BLOCKING\n\n- [blocking] old finding', 'old999'), createdAt: '2024-01-11T09:00:00Z' });
     expect(buildRevisionChecklist(makeFeedback({ items: [stale] }), [])).toEqual([]);

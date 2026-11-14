@@ -10,7 +10,7 @@ import { readEnv } from '../core/env.js';
 const DEFAULT_OVERLAP_HOLD_HOURS = 6;
 const LIST_LIMIT = 100;
 
-/** Branch-name prefixes of factory runs for a GitHub task id (`owner/repo#N` or a slug): `chore/vanguard-gh-owner-repo-N-`, one per prefix the factory mints or has minted; parse with all of them. */
+/** Branch-name prefixes of factory runs for a GitHub task id (`owner/repo#N` or a slug): `chore/taskcell-gh-owner-repo-N-`, then the pre-rename `chore/vanguard-` form; parse with all of them. */
 export function githubBranchPrefixes(taskId: string): string[] {
   return FACTORY_BRANCH_PREFIXES.map((p) => `${p}gh-${taskId.replace(/[^a-zA-Z0-9]/g, '-')}-`);
 }
@@ -89,7 +89,7 @@ export interface OverlapCheckerOptions {
 
 /**
  * Returns a per-task overlap check; open work is loaded once, on first use. Open same-repo factory PRs
- * (`chore/vanguard-*` branches; a fork's are ignored) contribute their diff files, in-flight runs their
+ * (`chore/taskcell-*` (or pre-rename `chore/vanguard-*`) branches; a fork's are ignored) contribute their diff files, in-flight runs their
  * manifest files, and so does each task this checker already let through (so issues labelled together
  * do not start side by side). A task without a manifest has no overlap; a task is never its own overlap,
  * nor held by the PR of an earlier run of itself. White-label runs (`feat/` branches) are not covered.

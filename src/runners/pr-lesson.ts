@@ -153,7 +153,7 @@ async function fetchMrNotes(glab: GlabRunner, project: string, iid: number): Pro
 /**
  * Read a merge request's history through glab. GitLab notes carry no association, so only the glab
  * user (Taskcell's own reviews and revise notes) and `allowedAuthors` are trusted; everyone else fails closed.
- * `factory` is false unless the MR is a same-project `chore/vanguard-*` branch: a review of a fork or human
+ * `factory` is false unless the MR is a same-project `chore/taskcell-*` (or pre-rename `chore/vanguard-*`) branch: a review of a fork or human
  * MR quotes text its author controls, so no lesson may be drawn from it.
  */
 export async function fetchMrHistory(

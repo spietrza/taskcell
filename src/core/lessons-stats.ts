@@ -1,7 +1,7 @@
 import { classifyAuthor } from '../tasks/comment-trust.js';
 import { defaultGhRunner } from '../tasks/github.js';
 import type { GhRunner } from '../tasks/github.js';
-import { extractCommentVerdict } from '../runners/review-prompt.js';
+import { extractCommentVerdict, VERDICT_WITHOUT_COMPLETION_NOTE } from '../runners/review-prompt.js';
 import { parsePrUrl } from './lead-time-github.js';
 import type { MetricRecord } from './stats.js';
 
@@ -80,7 +80,8 @@ interface GhReviewView {
 /** First review verdict of a PR from trusted authors (`allowedAuthors`: extra trusted logins): true = no blocking finding, undefined = none posted. */
 export function firstPassOf(view: GhReviewView, allowedAuthors?: readonly string[]): boolean | undefined {
   const blockingOf = (body: string | null | undefined): boolean | undefined => {
-    const v = extractCommentVerdict(body ?? '');
+    // A first review that stated its verdict but ended early still counts here (the revise checklist and lessons skip it).
+    const v = extractCommentVerdict((body ?? '').replace(VERDICT_WITHOUT_COMPLETION_NOTE, ''));
     return v === undefined ? undefined : v === 'blocking';
   };
   const verdicts = [

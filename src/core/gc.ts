@@ -198,7 +198,7 @@ export async function reapRemoteBranches(
   return reaped.map((branch) => branch.name);
 }
 
-/** Git-backed lister of remote factory (`chore/vanguard-*`) branches with their age (from the last commit date). */
+/** Git-backed lister of remote factory branches (`chore/taskcell-*`, `chore/vanguard-*`) with their age (from the last commit date). */
 export function gitRemoteBranchLister(
   repoPath: string,
   opts: { remote?: string; prefix?: string; now?: () => number } = {},
@@ -207,7 +207,7 @@ export function gitRemoteBranchLister(
   const prefixes = opts.prefix !== undefined ? [opts.prefix] : FACTORY_BRANCH_PREFIXES;
   const now = opts.now ?? Date.now;
   return async (): Promise<RemoteBranchInfo[]> => {
-    // Trailing `*` makes this an fnmatch glob: the marker sits mid-component (chore/vanguard-…),
+    // Trailing `*` makes this an fnmatch glob: the marker sits mid-component (chore/taskcell-…),
     // so a plain prefix would not match on a slash boundary the way the old `vanguard/` prefix did.
     const { stdout } = await execa(
       'git',

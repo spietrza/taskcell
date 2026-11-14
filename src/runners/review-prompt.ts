@@ -33,11 +33,9 @@ export function extractReviewVerdict(text: string): ReviewVerdict | undefined {
   return m[1]!.toUpperCase() === 'BLOCKING' ? 'blocking' : 'clean';
 }
 
-/** extractReviewVerdict of a posted review comment, past its `## …` heading and the truncation note. */
+/** extractReviewVerdict of a posted review comment, past its `## …` heading. */
 export function extractCommentVerdict(body: string): ReviewVerdict | undefined {
-  const text = body.replace(/^\s*##[^\n]*\n/, '').trimStart();
-  // The host's "verdict without completion" note sits between the heading and the verdict line.
-  return extractReviewVerdict(text.startsWith(VERDICT_WITHOUT_COMPLETION_NOTE) ? text.slice(VERDICT_WITHOUT_COMPLETION_NOTE.length) : text);
+  return extractReviewVerdict(body.replace(/^\s*##[^\n]*\n/, ''));
 }
 
 // Same prefix tolerance as VERDICT_RE, and for the same reason: the diff and PR body are untrusted, so a

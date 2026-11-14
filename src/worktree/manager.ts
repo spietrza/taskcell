@@ -18,22 +18,18 @@ export interface Worktree {
  */
 export const TASKCELL_BRANCH_PREFIX = 'chore/taskcell-';
 
-/** Prefix of runs minted before the rename (and still, see MINT_BRANCH_PREFIX); branches and open PRs under it are recognised. */
+/** Prefix of runs minted before the rename; branches and open PRs under it are still recognised. */
 export const LEGACY_BRANCH_PREFIX = 'chore/vanguard-';
 
 /**
  * Prefix new branches are minted under. Still the pre-rename one: the CI gates in .github/workflows (pr-review,
  * lessons, approver) and the shipped approver policy match `chore/vanguard-`; switch to TASKCELL_BRANCH_PREFIX once
- * those are updated.
+ * those are updated. Both prefixes are recognised everywhere regardless.
  */
 export const MINT_BRANCH_PREFIX = LEGACY_BRANCH_PREFIX;
 
-/**
- * The prefixes the factory mints or has minted, current first: a branch under any other name is not factory-owned
- * (overlap holds, gc, the approver, revise's rebase, lessons). `chore/taskcell-` joins when MINT_BRANCH_PREFIX
- * switches to it, not before: until then only a human can have pushed a branch with that name.
- */
-export const FACTORY_BRANCH_PREFIXES: readonly string[] = [...new Set([MINT_BRANCH_PREFIX, LEGACY_BRANCH_PREFIX])];
+/** Both factory prefixes, new first. */
+export const FACTORY_BRANCH_PREFIXES: readonly string[] = [TASKCELL_BRANCH_PREFIX, LEGACY_BRANCH_PREFIX];
 
 /** True for a branch minted by the factory, under the current or the pre-rename prefix. */
 export function isFactoryBranch(branch: string | null | undefined): boolean {
@@ -83,10 +79,9 @@ export class WorktreeManager {
     if (opts.reuse) {
       const existing = await this.findExistingBranch(id, prefix);
       if (existing) return existing;
-      // A branch minted under the factory's other prefix (before or after the rename) is reused too.
-      for (const other of prefix === MINT_BRANCH_PREFIX ? FACTORY_BRANCH_PREFIXES.filter((p) => p !== prefix) : []) {
-        const existing = await this.findExistingBranch(id, other);
-        if (existing) return existing;
+      if (prefix === MINT_BRANCH_PREFIX) {
+        const other = await this.findExistingBranch(id, TASKCELL_BRANCH_PREFIX);
+        if (other) return other;
       }
     }
     // Append a unique run id: disposeContext removes the worktree but not the branch, and a prior

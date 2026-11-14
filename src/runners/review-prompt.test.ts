@@ -115,8 +115,8 @@ describe('stripReviewMarkers', () => {
     }
   });
 
-  it('reads the verdict of a posted comment past the heading and the truncation note', () => {
-    expect(extractCommentVerdict(buildPullRequestReviewComment('Verdict: BLOCKING\n\n- x', 'abc', { completed: false }))).toBe('blocking');
+  it('reads no verdict from a posted comment carrying the truncation note: such a review is incomplete', () => {
+    expect(extractCommentVerdict(buildPullRequestReviewComment('Verdict: BLOCKING\n\n- x', 'abc', { completed: false }))).toBeUndefined();
     expect(extractCommentVerdict(buildPullRequestReviewComment('Verdict: NO BLOCKING FINDINGS', 'abc'))).toBe('clean');
     expect(extractCommentVerdict(`## Taskcell Review\n\nsome text\n\n${VERDICT_WITHOUT_COMPLETION_NOTE}\n\nVerdict: BLOCKING`)).toBeUndefined();
   });

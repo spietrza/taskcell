@@ -59,10 +59,10 @@ export async function collectPrFacts(gh: GhRunner, repoSlug: string, prNumber: n
   };
 }
 
-/** Same-repo factory head (a prefix the factory mints, `chore/vanguard-*`, or the policy's own): a factory PR, never a fork and never an arbitrary branch. */
+/** Same-repo factory head (`chore/vanguard-*` or `chore/taskcell-*`): a factory PR, never a fork and never an arbitrary branch. */
 export function isFactoryPr(pr: PrFacts, repoSlug: string, policy: ApproverPolicy): boolean {
   const { factoryBranchPrefix } = policy;
-  // A policy naming a factory prefix accepts every prefix the factory mints or has minted (see FACTORY_BRANCH_PREFIXES).
+  // A policy naming either factory prefix accepts both: branches minted before and after the rename.
   const factory = FACTORY_BRANCH_PREFIXES.includes(factoryBranchPrefix) ? FACTORY_BRANCH_PREFIXES : [factoryBranchPrefix];
   return pr.headRepo === repoSlug && factory.some((p) => pr.headRefName.startsWith(p));
 }
