@@ -13,7 +13,7 @@ import { projectColor } from '../../color';
 import { customProviderRowError, customProviderRows, PROVIDERS } from './customProviders';
 import type { AppConfig } from '../../taskcell-output';
 import { appConfigRangeErrors, type CustomProviderSpec } from '../../wire';
-import { errorMessage } from '../../errors';
+import { errorClause, errorMessage } from '../../errors';
 
 function Field({ label, hint, error, children }: { label: string; hint?: string; error?: string | undefined; children: ReactNode }) {
   return (
@@ -134,7 +134,7 @@ export function Settings({ project, teamScreen }: { project: string; teamScreen?
       </div>
       {saveError !== null && (
         <p role="alert" className="text-sm text-destructive-text">
-          Settings were not saved: {saveError} Fix it and save again.
+          Settings were not saved: {errorClause(saveError)}. Fix it and save again.
         </p>
       )}
 

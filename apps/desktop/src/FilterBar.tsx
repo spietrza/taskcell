@@ -35,7 +35,7 @@ function ProjectPicker({ repos, withCards, selected, onChange }: { repos: Repo[]
   const label = selected.length === 0 ? 'All projects' : selected.length === 1 ? (repos.find((r) => r.path === selected[0])?.name ?? '1 project') : `${selected.length} projects`;
   return (
     <div className="relative">
-      <button ref={trigger} type="button" aria-expanded={open} aria-haspopup="listbox" onClick={() => setOpen(!open)} className="rounded border border-border px-2 py-1 text-xs">
+      <button ref={trigger} type="button" aria-expanded={open} onClick={() => setOpen(!open)} className="rounded border border-border px-2 py-1 text-xs">
         Projects: {label}
       </button>
       {open && (
@@ -58,7 +58,7 @@ function ProjectPicker({ repos, withCards, selected, onChange }: { repos: Repo[]
                 </label>
               </li>
             ))}
-            {shown.length === 0 && <li className="px-1 py-1 text-sm text-muted-foreground">No projects</li>}
+            {shown.length === 0 && <li className="px-1 py-1 text-sm text-muted-foreground">{q.trim() === '' ? 'No projects' : 'No projects match.'}</li>}
           </ul>
         </div>
       )}

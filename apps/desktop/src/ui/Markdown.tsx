@@ -11,6 +11,8 @@ export function Markdown({ children }: { children: string }) {
         components={{
           // Unwrap <pre> so a fenced block renders exactly one CodeBlock (which has its own <pre>).
           pre: ({ children }) => <>{children}</>,
+          // A task-list box is read-only; its state is its name, the item text follows it.
+          input: ({ node: _node, ...props }) => <input {...props} {...(props.type === 'checkbox' ? { 'aria-label': props.checked ? 'Done' : 'Not done' } : {})} />,
           code({ className, children, ...props }) {
             const lang = /language-(\w+)/.exec(className ?? '')?.[1];
             const text = String(children).replace(/\n$/, '');

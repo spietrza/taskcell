@@ -42,3 +42,14 @@ test('focus returns to the opener on unmount', () => {
   expect(document.activeElement).toBe(opener);
   opener.remove();
 });
+
+test('focus moves into the dialog when it opens, and back to the opener when it closes', () => {
+  const opener = document.createElement('button');
+  document.body.append(opener);
+  opener.focus();
+  const { unmount } = render(<Trap />);
+  expect(document.activeElement).toBe(screen.getByLabelText('first'));
+  unmount();
+  expect(document.activeElement).toBe(opener);
+  opener.remove();
+});
