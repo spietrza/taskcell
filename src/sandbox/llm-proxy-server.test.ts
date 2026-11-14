@@ -517,6 +517,53 @@ describe('llm-proxy-server chatgpt auth kind (in-process factory, fake IdP/upstr
     expect(idp.refreshCalls()).toBe(1);
   });
 
+  it('a refused refresh answers 401 naming the IdP reason and telling the user to sign in again', async () => {
+    const idp = await bootIdp({
+      refreshStatus: 401,
+      refreshBody: () => JSON.stringify({ error: { code: 'refresh_token_reused', message: 'Your refresh token was already used.' } }),
+    });
+    const { port, refreshPlaceholder } = await bootChatgpt({ idpPort: idp.port });
+    const res = await postRefresh(port, refreshPlaceholder);
+    expect(res.status).toBe(401);
+    const message = (JSON.parse(res.text) as { error: { message: string } }).error.message;
+    expect(message).toContain('refresh token was already used');
+    expect(message).toContain('Sign in again');
+  });
+
+  it('keeps the IdP error code, and replays the refusal (401) while backing off', async () => {
+    const idp = await bootIdp({ refreshStatus: 400, refreshBody: () => JSON.stringify({ error: { code: 'refresh_token_reused', message: 'used' } }) });
+    const { port, refreshPlaceholder } = await bootChatgpt({ idpPort: idp.port });
+    for (let i = 0; i < 2; i++) {
+      const res = await postRefresh(port, refreshPlaceholder);
+      expect(res.status).toBe(401);
+      expect((JSON.parse(res.text) as { error: { code: string } }).error.code).toBe('refresh_token_reused');
+    }
+    expect(idp.refreshCalls()).toBe(1);
+  });
+
+  it.each([429, 408, 503])('a transient IdP %i stays a 502 and does not say to sign in again', async (status) => {
+    const idp = await bootIdp({ refreshStatus: status, refreshBody: () => JSON.stringify({ error: { message: 'Rate limit reached' } }) });
+    const { port, refreshPlaceholder } = await bootChatgpt({ idpPort: idp.port });
+    const res = await postRefresh(port, refreshPlaceholder);
+    expect(res.status).toBe(502);
+    expect(res.text).not.toContain('Sign in again');
+    expect(res.text).toContain(String(status));
+  });
+
+  it('a malformed 2xx IdP body never leaks (JSON.parse quotes it) into the response or the log', async () => {
+    const idp = await bootIdp({ refreshBody: () => '{"access_token":"x","refresh_token":NEW-REAL-REFRESH-TOKEN-xyz}' });
+    const { port, refreshPlaceholder } = await bootChatgpt({ idpPort: idp.port });
+    const err = vi.spyOn(console, 'error').mockImplementation(() => {});
+    try {
+      const res = await postRefresh(port, refreshPlaceholder);
+      expect(res.status).toBe(502);
+      expect(res.text).not.toContain('NEW-REAL');
+      expect(err.mock.calls.flat().join('\n')).not.toContain('NEW-REAL');
+    } finally {
+      err.mockRestore();
+    }
+  });
+
   it('backs off failed exchanges exponentially and caps real attempts', async () => {
     const idp = await bootIdp({ refreshStatus: 500 });
     const { port, refreshPlaceholder } = await bootChatgpt({

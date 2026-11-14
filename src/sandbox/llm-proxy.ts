@@ -1,7 +1,8 @@
 import { fileURLToPath } from 'node:url';
 import { randomUUID } from 'node:crypto';
 import { SandboxError } from '../core/errors.js';
-import { startSidecar } from './sidecar.js';
+import { startSidecar, defaultDocker } from './sidecar.js';
+import { reportRotation } from './codex-rotation.js';
 import type { DockerRunner } from './sidecar.js';
 import type { ProviderProxySecrets } from '../agents/registry.js';
 import type { Upstream } from './llm-proxy-rewrite.mjs';
@@ -121,13 +122,29 @@ export async function startLlmProxy(opts: {
       secret: { path: SECRET_FILE, body: secretBody },
       env: { LLM_PROXY_SECRET_FILE: SECRET_FILE, PORT: String(PROXY_PORT) },
       cmd: ['node', '/tmp/llm-proxy.mjs'],
+      forwardLogs: true,
     });
+    const docker = opts.docker ?? defaultDocker;
+    // Chatgpt: before the container (and its tmpfs) is removed, relay the sidecar's errors to the host
+    // log and hand a rotated credential back — otherwise both die with the container.
+    const destroy = !('kind' in auth)
+      ? sidecar.destroy
+      : async (): Promise<void> => {
+          // Each step is best effort: teardown below must always run.
+          const logs = await docker(['logs', name]).catch(() => undefined);
+          for (const line of `${logs?.stdout ?? ''}\n${logs?.stderr ?? ''}`.split('\n')) {
+            if (line.startsWith('llm-proxy: ERROR')) console.error(line);
+          }
+          const rotated = await docker(['exec', name, 'cat', CHATGPT_AUTH_FILE]).catch(() => undefined);
+          if (rotated?.exitCode === 0 && rotated.stdout !== '') await reportRotation(rotated.stdout, auth.refreshToken);
+          await sidecar.destroy();
+        };
     return {
       url: `http://${name}:${PROXY_PORT}`,
       nonce,
       host: name,
       ...chatgptFields,
-      destroy: sidecar.destroy,
+      destroy,
     };
   } catch (cause) {
     // The sidecar runs the sandbox image (startSidecar's default), so a missing/stale build is the

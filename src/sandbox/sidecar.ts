@@ -51,6 +51,9 @@ export interface SidecarSpec {
    * dedicated tmpfs so the secret never lands in the container's writable layer (`docker commit`/`cp`).
    */
   secret?: { path: string; body: string };
+  /** With `secret`: route the detached process's output to PID 1's streams so `docker logs` shows it
+   *  (a detached `exec` otherwise logs nowhere). Falls back to the plain command if /proc/1/fd is not writable. */
+  forwardLogs?: boolean;
   /** Teardown hook for resources created alongside the container (e.g. a network), run after `rm -f`. */
   alsoDestroy?: () => Promise<void>;
 }
@@ -98,7 +101,10 @@ export async function startSidecar(spec: SidecarSpec): Promise<Sidecar> {
       if (spec.network !== undefined) await must(['network', 'connect', spec.network, name]);
       for (const f of spec.files) await must(['cp', f.src, `${name}:${f.dest}`]);
       await must(['exec', '-i', name, 'sh', '-c', `umask 077; cat > ${spec.secret.path}`], { input: spec.secret.body });
-      await must(['exec', '-d', ...envArgs, name, ...spec.cmd]);
+      const run = spec.forwardLogs === true
+        ? ['sh', '-c', 'if [ -w /proc/1/fd/1 ] && [ -w /proc/1/fd/2 ]; then exec "$@" >>/proc/1/fd/1 2>>/proc/1/fd/2; else exec "$@"; fi', 'sh', ...spec.cmd]
+        : spec.cmd;
+      await must(['exec', '-d', ...envArgs, name, ...run]);
     }
     return { name, destroy: teardown };
   } catch (cause) {

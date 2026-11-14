@@ -226,6 +226,7 @@ export function createLlmProxyServer(secretText, options = {}) {
   let floorTimer;
   let pendingRefresh;
   let refreshAttempts = 0;
+  let lastRefusal; // the last IdP refusal, replayed while backing off
   let consecutiveFailures = 0;
   let backoffUntil = 0;
   let refreshCount = 0;
@@ -264,6 +265,42 @@ export function createLlmProxyServer(secretText, options = {}) {
     renameSync(tmpFile, chatgptState.authFile);
   }
 
+  /** A failure whose message is a fixed string of ours — the only kind that may reach the cell or the
+   *  log. Anything else (JSON.parse/fetch errors) can quote the IdP's response, which holds real tokens. */
+  const safeError = (message, extra = {}) => Object.assign(new Error(message), { safe: true }, extra);
+
+  /** The IdP's error code and message from a refusal body, control characters stripped and
+   *  length-capped. Only ever read from a non-2xx body, never from a success body. */
+  function idpRefusal(text) {
+    const clean = (v) => (typeof v === 'string' ? v.replace(new RegExp(CONTROL_CHARS, 'g'), ' ').slice(0, 200) : '');
+    try {
+      const p = JSON.parse(text);
+      const e = p?.error;
+      return {
+        code: clean(typeof e === 'string' ? e : e?.code),
+        reason: clean(e?.message) || clean(p?.error_description),
+      };
+    } catch {
+      return { code: '', reason: '' };
+    }
+  }
+
+  /** Tell the cell (its CLI prints this) and the sidecar log why a refresh failed. Only an IdP refusal
+   *  (400/401/403) is a 401 that says to sign in again; anything else keeps the 502 with a fixed cause. */
+  function failRefresh(req, res, started, error) {
+    const refused = error?.refused !== undefined;
+    const message = refused
+      ? `the ChatGPT sign-in was refused${error.refused.reason === '' ? '' : `: ${error.refused.reason}`}. Sign in again (codex login) and re-run.`
+      : `the ChatGPT token refresh failed (${error?.safe === true ? error.message : 'could not read the IdP response'}); retry the run`;
+    console.error(`llm-proxy: ERROR codex ${message}`);
+    const code = refused ? error.refused.code || 'refresh_token_refused' : 'refresh_failed';
+    const json = JSON.stringify({ error: { code, message } });
+    const status = refused ? 401 : 502;
+    res.writeHead(status, { 'content-type': 'application/json' });
+    res.end(json);
+    log(req, status, Buffer.byteLength(json), started);
+  }
+
   async function callIdp(path, body) {
     const res = await fetch(`${idpBaseUrl}${path}`, {
       method: 'POST',
@@ -276,24 +313,34 @@ export function createLlmProxyServer(secretText, options = {}) {
       redirect: 'error',
     });
     const text = await readCappedResponse(res, MAX_IDP_RESPONSE_BYTES);
-    return { ok: res.ok, text };
+    return { ok: res.ok, status: res.status, text };
   }
 
   /** The actual refresh exchange against the real IdP: the ONLY place the real refresh token is ever
    *  presented to auth.openai.com. Rotates + persists the result, then arms the floor timer. */
   async function doRefresh() {
-    const { ok, text } = await callIdp(CODEX_REFRESH_PATH, {
+    const { ok, status, text } = await callIdp(CODEX_REFRESH_PATH, {
       grant_type: 'refresh_token',
       refresh_token: chatgptState.refreshToken,
       client_id: CODEX_CLIENT_ID,
     });
-    if (!ok) throw new Error('idp refresh failed');
-    const parsed = JSON.parse(text);
+    if (!ok) {
+      // 400/401/403 is the IdP refusing the grant ("refresh token was already used", ...): surface its
+      // reason. Anything else (429, 408, 5xx) is transient and must not tell the user to sign in again.
+      if (status !== 400 && status !== 401 && status !== 403) throw safeError(`idp answered HTTP ${status}`);
+      throw safeError('idp refresh refused', { refused: idpRefusal(text) });
+    }
+    let parsed;
+    try {
+      parsed = JSON.parse(text);
+    } catch {
+      throw safeError('invalid idp refresh response');
+    }
     if (parsed === null || typeof parsed !== 'object' || Array.isArray(parsed) ||
         typeof parsed.access_token !== 'string' || !parsed.access_token || CONTROL_CHARS.test(parsed.access_token) ||
         (parsed.refresh_token !== undefined &&
           (typeof parsed.refresh_token !== 'string' || !parsed.refresh_token || CONTROL_CHARS.test(parsed.refresh_token)))) {
-      throw new Error('invalid idp refresh response');
+      throw safeError('invalid idp refresh response');
     }
     const rotated = parsed.refresh_token !== undefined && parsed.refresh_token !== chatgptState.refreshToken;
     chatgptState.accessToken = parsed.access_token;
@@ -331,19 +378,22 @@ export function createLlmProxyServer(secretText, options = {}) {
     if (cachedRefresh !== undefined) return Promise.resolve(cachedRefresh);
     if (pendingRefresh !== undefined) return pendingRefresh;
     if (refreshAttempts >= maxRefreshesPerRun) {
-      return Promise.reject(new Error('idp refresh cap reached for this run'));
+      return Promise.reject(lastRefusal ?? safeError('idp refresh cap reached for this run'));
     }
     if (Date.now() < backoffUntil) {
-      return Promise.reject(new Error('idp refresh backoff in effect after a prior failure'));
+      return Promise.reject(lastRefusal ?? safeError('idp refresh backoff in effect after a prior failure'));
     }
     refreshAttempts += 1;
     pendingRefresh = doRefresh()
       .then((payload) => {
         consecutiveFailures = 0;
         backoffUntil = 0;
+        lastRefusal = undefined;
         return payload;
       })
       .catch((error) => {
+        // A refused token stays refused: later calls inside the backoff/cap get this same answer.
+        lastRefusal = error?.refused !== undefined ? error : undefined;
         consecutiveFailures += 1;
         const backoffMs = Math.min(refreshBackoffBaseMs * 2 ** (consecutiveFailures - 1), refreshBackoffMaxMs);
         backoffUntil = Date.now() + backoffMs;
@@ -401,8 +451,8 @@ export function createLlmProxyServer(secretText, options = {}) {
       res.writeHead(200, { 'content-type': 'application/json' });
       res.end(json);
       log(req, 200, Buffer.byteLength(json), started);
-    } catch {
-      finish(req, res, 502, started);
+    } catch (error) {
+      failRefresh(req, res, started, error);
     }
   }
 

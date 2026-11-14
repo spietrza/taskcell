@@ -1,4 +1,7 @@
-import { describe, it, expect } from 'vitest';
+import { describe, it, expect, vi } from 'vitest';
+import { mkdtemp, readFile, writeFile } from 'node:fs/promises';
+import { tmpdir } from 'node:os';
+import { join } from 'node:path';
 import { startLlmProxy, startProviderProxies } from './llm-proxy.js';
 import { llmProxySandboxEnv } from './egress-proxy.js';
 import { providerSecrets } from '../agents/registry.js';
@@ -245,6 +248,74 @@ describe('startProviderProxies', () => {
     expect(flat).not.toContain('real-refresh');
     await proxies.destroy();
     expect(d.calls.some((c) => c.args[0] === 'rm' && c.args.includes('-f'))).toBe(true);
+  });
+
+  describe('chatgpt teardown', () => {
+    const rotatedJson = JSON.stringify({ auth_mode: 'chatgpt', tokens: { access_token: 'new-access', refresh_token: 'rotated-refresh' } });
+    const dockerWith = (logs: string, failLogs = false): ReturnType<typeof fakeDocker> => {
+      const d = fakeDocker();
+      const base = d.run;
+      d.run = async (args, opts) => {
+        const r = await base(args, opts);
+        if (args[0] === 'logs') {
+          if (failLogs) throw new Error('docker gone');
+          return { ...r, stderr: logs };
+        }
+        if (args[0] === 'exec' && args.includes('cat')) return { ...r, stdout: rotatedJson };
+        return r;
+      };
+      return d;
+    };
+    const withEnv = async (env: Record<string, string>, fn: () => Promise<void>): Promise<void> => {
+      const prev = Object.fromEntries(Object.keys(env).map((k) => [k, process.env[k]]));
+      Object.assign(process.env, env);
+      try {
+        await fn();
+      } finally {
+        for (const [k, v] of Object.entries(prev)) {
+          if (v === undefined) delete process.env[k];
+          else process.env[k] = v;
+        }
+      }
+    };
+
+    it('relays the sidecar ERROR lines and the rotation to the host log, and hands the credential back', async () => {
+      const dir = await mkdtemp(join(tmpdir(), 'rot-'));
+      const authFile = join(dir, 'auth.json');
+      await writeFile(authFile, JSON.stringify({ OPENAI_API_KEY: 'sk-keep', tokens: { id_token: 'real-id', refresh_token: 'real-refresh' } }));
+      const warn = vi.spyOn(console, 'warn').mockImplementation(() => {});
+      const error = vi.spyOn(console, 'error').mockImplementation(() => {});
+      try {
+        await withEnv({ CODEX_AUTH_FILE: authFile, CI: '', GITHUB_ACTIONS: '' }, async () => {
+          const d = dockerWith('llm-proxy: ERROR codex the ChatGPT sign-in was refused: used. Sign in again (codex login) and re-run.\nGET /x -> 200');
+          const proxies = await startProviderProxies({ proxySecrets: { codexChatgpt: REAL_CHATGPT_AUTH }, network: 'n', docker: d.run });
+          await proxies.destroy();
+          expect(d.calls.some((c) => c.args[0] === 'rm')).toBe(true);
+        });
+        expect(warn.mock.calls.flat().join('\n')).toContain('rotated');
+        expect(error.mock.calls.flat().join('\n')).toContain('Sign in again');
+        const written = JSON.parse(await readFile(authFile, 'utf8')) as { OPENAI_API_KEY: string; tokens: Record<string, string> };
+        expect(written.OPENAI_API_KEY).toBe('sk-keep');
+        expect(written.tokens).toMatchObject({ id_token: 'real-id', access_token: 'new-access', refresh_token: 'rotated-refresh' });
+      } finally {
+        warn.mockRestore();
+        error.mockRestore();
+      }
+    });
+
+    it('still tears the container down when docker logs throws', async () => {
+      const d = dockerWith('', true);
+      const proxies = await startProviderProxies({ proxySecrets: { codexChatgpt: REAL_CHATGPT_AUTH }, network: 'n', docker: d.run });
+      await proxies.destroy();
+      expect(d.calls.some((c) => c.args[0] === 'rm')).toBe(true);
+    });
+
+    it('non-chatgpt sidecars do no log relay or credential read at teardown', async () => {
+      const d = fakeDocker();
+      const proxy = await startLlmProxy({ network: 'n', auth: { mode: 'api', secret: 's' }, docker: d.run });
+      await proxy.destroy();
+      expect(d.calls.some((c) => c.args[0] === 'logs' || c.args.includes('cat'))).toBe(false);
+    });
   });
 
   it('throws SandboxError when a chatgpt credential is proxied without a network', async () => {

@@ -50,6 +50,16 @@ describe('startSidecar', () => {
     expect(calls.flatMap((c) => c.args).join(' ')).not.toContain('hunter2');
   });
 
+  it('forwardLogs: the detached process is wrapped to log to PID 1, falling back to the plain command', async () => {
+    const calls: Call[] = [];
+    await startSidecar({ ...base, docker: stubDocker(calls), env: { PORT: '2' }, secret: { path: '/run/s/secret', body: 'x\n' }, forwardLogs: true });
+    const args = calls.at(-1)!.args;
+    expect(args.slice(0, 5)).toEqual(['exec', '-d', '-e', 'PORT=2', 'vg-x-1']);
+    expect(args.slice(5, 7)).toEqual(['sh', '-c']);
+    expect(args[7]).toContain('else exec "$@"');
+    expect(args.slice(-2)).toEqual(['node', '/tmp/a.mjs']);
+  });
+
   for (const step of ['create --name', 'network connect', 'cp /h/a.mjs', 'start vg-x-1']) {
     it(`fails closed when \`docker ${step}\` exits non-zero: tears down and throws`, async () => {
       const calls: Call[] = [];
