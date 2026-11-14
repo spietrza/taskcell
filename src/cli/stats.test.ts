@@ -126,3 +126,23 @@ describe('stats lessons', () => {
     expect(JSON.parse(logs.join('\n')).lessons.runs).toBe(0);
   });
 });
+
+describe('stats --skills', () => {
+  const rec = (o: object): string => JSON.stringify({ evt: 'run_complete', costUsd: 1, ts: new Date().toISOString(), ...o });
+
+  it('prints the per-skill table from branch metrics', async () => {
+    vi.mocked(readBranchMetrics).mockResolvedValue([rec({ taskId: 't', skillsUsed: ['simplify'] }), rec({ taskId: 't', skillsUsed: [], verdict: 'pass' })].join('\n'));
+    await runCli(['stats', '--skills', '--branch', 'm', '--since', '30d']);
+    expect(logs.join('\n')).toContain('simplify');
+    expect(logs.join('\n')).toContain('Observational, not causal');
+  });
+
+  it('rejects a malformed --since', async () => {
+    vi.mocked(readBranchMetrics).mockResolvedValue(rec({ taskId: 't', skillsUsed: ['s'] }));
+    const err = vi.spyOn(console, 'error').mockImplementation(() => undefined);
+    await runCli(['stats', '--skills', '--branch', 'm', '--since', 'soon']);
+    expect(err).toHaveBeenCalledWith(expect.stringContaining('--since'));
+    expect(logs).toEqual([]);
+    process.exitCode = undefined;
+  });
+});

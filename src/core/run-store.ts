@@ -19,6 +19,7 @@ import type { VerificationResult } from '../pipeline/verify.js';
 import type { VisualProofResult } from '../pipeline/visual-proof.js';
 import { ciRunUrl, diffUrlFor, httpsUrl } from './links.js';
 import { reviewVerdictOf } from '../pipeline/review-verdict.js';
+import { parseSkillsUsed } from './skills-used.js';
 import type { DecisionProbeResult } from './decision-probe.js';
 import type { BaseMergeEvent } from './conflict-stats.js';
 import type { Finding, Proof, RunDetail, RunRecord, RunSummary, StageDetail, VisualProof } from '../wire.js';
@@ -499,6 +500,10 @@ async function writeRecord(repoPath: string, taskId: string, timestamp: string, 
     // A reported cost is the agent CLI's own figure at list prices, never a provider's invoice.
     ...(result.costUsd === undefined ? { costUnknown: true } : { costKind: 'estimated' }),
     ...(opts.prUrl !== undefined ? { prUrl: opts.prUrl } : {}),
+    // Parsed on the host from the raw transcript; [] when none, unrecognised or the transcript is withheld.
+    // `verdict` feeds `stats --skills`.
+    skillsUsed: diffOmitted === undefined ? parseSkillsUsed(transcript).map((id) => redactForPublish(id, opts.secretValues)) : [],
+    ...(review !== undefined ? { verdict: review.verdict } : {}),
     // Implement/revise runs pass their lesson ids (possibly none): how many the run loaded, 0 when none.
     ...(opts.lessonIds !== undefined ? { lessonsLoaded: opts.lessonIds.length, ...(opts.lessonIds.length > 0 ? { lessonIds: [...opts.lessonIds] } : {}) } : {}),
   };

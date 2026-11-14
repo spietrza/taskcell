@@ -308,6 +308,9 @@ export type Command =
       branch?: string;
       /** Shadow approver scorecard instead of the cost/token rollup: verdict vs human outcome, per risk class. */
       approver: boolean;
+      /** Per-skill usage vs outcome table (`stats --skills`); `since` (e.g. 30d) limits the window. */
+      skills?: boolean;
+      since?: string;
       /** Also print the label->merge lead-time rollup for every PR url recorded in metrics.jsonl that belongs to this repo (needs `gh`). */
       githubRepo?: string;
       /** Extra logins whose review verdicts count for the first-pass rate, beyond OWNER/MEMBER/COLLABORATOR and Taskcell's bot. */
@@ -527,7 +530,8 @@ export function parseCli(argv: string[], cwd: string): Command {
   let positionals: string[];
   try {
     const parsed = parseArgs({
-      args: argv,
+      // `stats --skills` is a flag, but `--skills <dir>` elsewhere takes a value: rename it for stats only.
+      args: argv.includes('stats') ? argv.map((a) => (a === '--skills' ? '--skill-stats' : a)) : argv,
       allowPositionals: true,
       options: {
         // gc
@@ -552,6 +556,7 @@ export function parseCli(argv: string[], cwd: string): Command {
         'llm-proxy': { type: 'boolean' },
         reuse: { type: 'boolean' },
         skills: { type: 'string' },
+        'skill-stats': { type: 'boolean' },
         'github-repo': { type: 'string' },
         'trigger-labels': { type: 'string' },
         label: { type: 'string' },
@@ -705,6 +710,7 @@ export function parseCli(argv: string[], cwd: string): Command {
   if (values['spec-only'] === true && positionals[0] !== 'watch' && positionals[0] !== 'doctor') {
     return fail('--spec-only is only supported with watch and doctor.');
   }
+  if (values['skill-stats'] !== undefined && positionals[0] !== 'stats') return fail('--skill-stats is not an option.');
   for (const flag of ['dir', 'strict']) {
     if (values[flag] !== undefined && positionals[0] !== 'skills') return fail(`--${flag} is only supported with skills.`);
   }
@@ -784,11 +790,18 @@ export function parseCli(argv: string[], cwd: string): Command {
       return fail(`stats --github-repo must be owner/repo, got '${statsRepo}'.`);
     }
     const statsFeedbackAuthors = parseFeedbackAuthors(values['feedback-authors']);
+    if (typeof values.skills === 'string') return fail('stats --skills takes no value.');
+    if (values['skill-stats'] !== true && values.since !== undefined) return fail('stats --since needs --skills.');
+    if (values['skill-stats'] === true && (values.approver === true || statsRepo !== undefined)) {
+      return fail('stats --skills cannot be combined with --approver or --github-repo.');
+    }
     return {
       kind: 'stats',
       repoPath,
       json: values.json === true,
       approver: values.approver === true,
+      ...(values['skill-stats'] === true ? { skills: true } : {}),
+      ...(typeof values.since === 'string' ? { since: values.since } : {}),
       ...(typeof values.branch === 'string' ? { branch: values.branch } : {}),
       ...(typeof values['github-repo'] === 'string' ? { githubRepo: values['github-repo'] } : {}),
       ...(statsFeedbackAuthors !== undefined ? { feedbackAuthors: statsFeedbackAuthors } : {}),
@@ -1816,6 +1829,9 @@ ${MAX_REPAIR_ITERATIONS_USAGE}
                            LESSONS first-pass rate (needs gh)
     --feedback-authors <a,b> Extra trusted logins whose review verdicts count for the first-pass rate,
                            beyond OWNER/MEMBER/COLLABORATOR and Taskcell's bot (as on lessons record)
+    --skills               Per skill: runs that used it, review pass rate, average repair rounds and cost, next to
+                           the same numbers for runs without it (observational, not causal); with --branch and --since
+    --since <window>       With --skills: only runs from the last window, e.g. 30d or 12h
     --approver             Shadow approver scorecard instead of the cost/token rollup: per factory PR,
                            the shadow verdict and reasons next to what the human did, and per risk class
                            how many APPROVEs were right, how many ESCALATEs the human merged unchanged,

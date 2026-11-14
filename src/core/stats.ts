@@ -25,6 +25,10 @@ export interface MetricRecord {
   /** Lessons the run loaded (implement/revise runs); absent on records from before the field. */
   lessonsLoaded?: number;
   lessonIds?: string[];
+  /** Skills the stage's agent used (parseSkillsUsed); absent on records from before the field. */
+  skillsUsed?: string[];
+  /** Review verdict, on reviewer/conformance stages only. */
+  verdict?: string;
 }
 
 /** Aggregated totals for a group of metric records. */
@@ -109,6 +113,8 @@ export function parseMetrics(text: string): MetricRecord[] {
       ...(typeof parsed.prUrl === 'string' ? { prUrl: parsed.prUrl } : {}),
       ...(typeof parsed.lessonsLoaded === 'number' ? { lessonsLoaded: parsed.lessonsLoaded } : {}),
       ...(Array.isArray(parsed.lessonIds) ? { lessonIds: parsed.lessonIds.filter((x): x is string => typeof x === 'string') } : {}),
+      ...(Array.isArray(parsed.skillsUsed) ? { skillsUsed: parsed.skillsUsed.filter((x): x is string => typeof x === 'string') } : {}),
+      ...(typeof parsed.verdict === 'string' ? { verdict: parsed.verdict } : {}),
       costUsd: num(parsed.costUsd),
       inputTokens: num(parsed.inputTokens),
       outputTokens: num(parsed.outputTokens),

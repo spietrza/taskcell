@@ -869,6 +869,17 @@ describe('parseCli', () => {
     expect(parseCli(['stats', '--approver'], '/work')).toEqual({ kind: 'stats', repoPath: '/work', json: false, approver: true });
   });
 
+  it('parses stats --skills [--since]', () => {
+    expect(parseCli(['stats', '--skills', '--since', '30d'], '/work')).toEqual({ kind: 'stats', repoPath: '/work', json: false, approver: false, skills: true, since: '30d' });
+  });
+
+  it('accepts stats --skills after global flags and refuses ignored combinations', () => {
+    expect(parseCli(['--json', 'stats', '--skills'], '/work')).toMatchObject({ kind: 'stats', json: true, skills: true });
+    for (const argv of [['stats', '--since', '30d'], ['stats', '--skills', '--approver'], ['stats', '--skills', '--github-repo', 'a/b'], ['stats', '--skills=foo'], ['gc', '--skill-stats']]) {
+      expect(parseCli(argv, '/work').kind).toBe('error');
+    }
+  });
+
   it('parses stats --github-repo (lead-time rollup)', () => {
     expect(parseCli(['stats', '--github-repo', 'acme/widgets'], '/work')).toEqual({
       kind: 'stats',
