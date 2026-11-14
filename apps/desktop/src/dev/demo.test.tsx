@@ -4,7 +4,7 @@ import App from '../App';
 import { Dashboard } from '../features/dashboard/Dashboard';
 import { handleDemo } from './mockBackend';
 import { isDemoMode, isHubMode, invoke } from '../transport';
-import { DEMO_REPO_PATH, DEMO_WRITE_COMMANDS, demoActiveRuns, demoBoardTasks, demoNeedsYou, demoProject, demoRuns } from './demoData';
+import { DEMO_REPO_PATH, DEMO_WRITE_COMMANDS, demoActiveRuns, demoBoardTasks, demoNeedsYou, demoProject, demoRunDetails, demoRuns } from './demoData';
 
 afterEach(() => {
   cleanup(); // unmount while demo mode is still on, so effect cleanups stay in-browser
@@ -115,5 +115,70 @@ test('Run on the New Run form says the demo is read-only, even with the demo run
   fireEvent.change(await screen.findByPlaceholderText(/issue ref/), { target: { value: '101' } });
   fireEvent.click(screen.getByRole('button', { name: /^run$/i }));
   expect(await screen.findByText(/Demo project is read-only/)).toBeInTheDocument();
+  vi.unstubAllGlobals();
+}, 30000);
+
+test('demo runs tell one story: list and detail agree, dates are recent, a failed run does not pass tests, lessons fit the task', () => {
+  for (const run of demoRuns) {
+    const detail = demoRunDetails[run.taskId]!;
+    expect(detail.stages.map((st) => st.record.stage)).toEqual(run.stages);
+    expect(detail.stages.reduce((sum, st) => sum + (st.record.costUsd ?? 0), 0)).toBeCloseTo(run.totalCostUsd);
+    expect(JSON.stringify(detail).includes('tests passed')).toBe(!run.anyFailed);
+  }
+  expect(demoRuns.filter((r) => Date.now() - Date.parse(r.timestamp) < 24 * 3_600_000)).toHaveLength(demoProject.runsLast24h);
+  expect(new Set(Object.values(demoRunDetails).map((d) => d.stages[1]!.diff)).size).toBe(demoRuns.length);
+  // Every Needs you item is a card on the Board.
+  for (const item of demoNeedsYou) expect(demoBoardTasks.some((t) => t.title === item.title)).toBe(true);
+  expect(demoProject.taskCount).toBe(demoBoardTasks.length);
+  expect(demoProject.taskSource).toBe('github');
+  expect(handleDemo('factory_state', {})).toMatchObject({ state: 'ready' });
+  expect((handleDemo('read_session', {}) as { estCostUsd: number }).estCostUsd).toBe(0.12);
+  const lessons = (text: string): unknown[] => (handleDemo('list_lessons', { taskText: text }) as { lessons: unknown[] }).lessons;
+  expect(lessons('Fix cart total rounding')).toHaveLength(1);
+  expect(lessons('Dark mode for the storefront')).toHaveLength(0);
+});
+
+test('demo: Stop says read-only; the New Run form closes on Cancel and on navigation, taking its message with it', async () => {
+  window.__TASKCELL_DEMO__ = true;
+  vi.stubGlobal('matchMedia', (q: string) => ({ matches: false, media: q, addEventListener: () => {}, removeEventListener: () => {}, addListener: () => {}, removeListener: () => {} }));
+  render(<App />);
+  fireEvent.click(await screen.findByText('storefront (demo)', { selector: '*' }));
+  fireEvent.click(await screen.findByRole('button', { name: /^(Stop|Cancel)/ }));
+  expect(await screen.findByText(/Demo project is read-only/)).toBeInTheDocument();
+
+  const openForm = async (): Promise<void> => {
+    fireEvent.click(screen.getByRole('button', { name: /^Board/ }));
+    fireEvent.click((await screen.findByText('Fix cart total rounding')).closest('button')!);
+    fireEvent.click(await screen.findByRole('button', { name: 'Full page' }));
+    fireEvent.click(await screen.findByRole('button', { name: 'New Run' }));
+    // The card's own ref is filled in.
+    expect(await screen.findByLabelText('Issue ref')).toHaveValue('DEMO-101');
+  };
+  await openForm();
+  fireEvent.click(screen.getByRole('button', { name: /^run$/i }));
+  expect(await screen.findByText(/Demo project is read-only/)).toBeInTheDocument();
+  fireEvent.click(screen.getByRole('button', { name: 'Cancel' }));
+  expect(screen.queryByText(/Demo project is read-only/)).toBeNull();
+  expect(screen.queryByRole('heading', { name: 'New run' })).toBeNull();
+
+  await openForm();
+  fireEvent.click(screen.getByRole('button', { name: /^run$/i }));
+  fireEvent.click(screen.getByRole('button', { name: /^Settings/ }));
+  await waitFor(() => expect(screen.queryByRole('heading', { name: 'New run' })).toBeNull());
+  expect(screen.queryByText(/Demo project is read-only/)).toBeNull();
+  vi.unstubAllGlobals();
+}, 30000);
+
+test('opening a run from its row with Enter leaves focus on the run, not on the page body', async () => {
+  window.__TASKCELL_DEMO__ = true;
+  vi.stubGlobal('matchMedia', (q: string) => ({ matches: false, media: q, addEventListener: () => {}, removeEventListener: () => {}, addListener: () => {}, removeListener: () => {} }));
+  render(<App />);
+  fireEvent.click(await screen.findByText('storefront (demo)', { selector: '*' }));
+  fireEvent.click(await screen.findByRole('button', { name: /^Runs/ }));
+  const row = (await screen.findByText('DEMO-101')).closest('tr')!;
+  row.focus();
+  fireEvent.keyDown(row, { key: 'Enter' });
+  expect(await screen.findByText('reviewer')).toBeInTheDocument();
+  await waitFor(() => expect(document.activeElement).not.toBe(document.body));
   vi.unstubAllGlobals();
 }, 30000);

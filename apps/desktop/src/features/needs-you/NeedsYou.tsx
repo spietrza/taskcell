@@ -6,7 +6,7 @@ import { RefreshCw } from 'lucide-react';
 import { listNeedsYou, listNeedsYouAll, mergeNeedsYou, replyNeedsYou, type NeedsYouItem, type RepoReadFailure, type RepoStamp } from '../../ipc';
 import { inRepos } from '../../repoFilter';
 import { RepoFailures, RepoLabel } from '../../RepoViews';
-import { isHubMode } from '../../transport';
+import { isDemoLink, isHubMode } from '../../transport';
 import { ExternalLink } from '../../components/ExternalLink';
 
 /** `list_needs_you`/`reply_needs_you` are served by the hub only; outside it only the browser dev build's mock answers them. */
@@ -197,7 +197,7 @@ export function NeedsYou({
               <Chip color="warning" variant="outlined" title={item.reason}>
                 {REASON_TEXT[item.reason] ?? item.reason}
               </Chip>
-              <a href={item.url || undefined} target="_blank" rel="noreferrer" className="min-w-0 truncate font-medium hover:underline max-md:basis-full max-md:whitespace-normal max-md:break-words">
+              <a href={isDemoLink(item.url) ? undefined : item.url || undefined} target="_blank" rel="noreferrer" className="min-w-0 truncate font-medium hover:underline max-md:basis-full max-md:whitespace-normal max-md:break-words">
                 {item.title}
               </a>
               <ExternalLink href={item.url} className="ml-auto shrink-0">Open in GitHub</ExternalLink>

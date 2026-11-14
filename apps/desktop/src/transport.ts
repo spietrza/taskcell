@@ -80,6 +80,19 @@ export function captureHubToken(): void {
   window.history.replaceState(window.history.state, '', `${pathname}${search}${rest === '' ? '' : `#${rest}`}`);
 }
 
+/** `captureHubToken` now and on every later change of the fragment: demo mode makes no hub call that would
+ * strip a token added to an open page's address. */
+export function watchHubToken(): void {
+  captureHubToken();
+  window.addEventListener('hashchange', captureHubToken);
+}
+
+/** Addresses of the demo's made-up repository: nothing real is behind them. */
+export const DEMO_REPO_URL = 'https://github.com/demo-org/storefront';
+export function isDemoLink(href: string): boolean {
+  return isDemoMode() && href.startsWith(DEMO_REPO_URL);
+}
+
 /** This tab's token, or '' when it has none — the hub answers 401 either way, which is the signal
  * below. */
 function hubToken(): string {

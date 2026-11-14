@@ -69,3 +69,14 @@ test('the old single-repository choice carries over once', () => {
   localStorage.setItem('vanguard.repoFilter', 'all');
   expect(loadFilter()).toEqual(DEFAULT_FILTER);
 });
+
+test('the demo keeps its own filter: a search typed there does not reach the real projects', () => {
+  window.__TASKCELL_DEMO__ = true;
+  try {
+    saveFilter(f({ query: 'cart', sources: ['github'] }));
+    expect(loadFilter().query).toBe('cart');
+  } finally {
+    delete window.__TASKCELL_DEMO__;
+  }
+  expect(loadFilter()).toEqual(DEFAULT_FILTER);
+});

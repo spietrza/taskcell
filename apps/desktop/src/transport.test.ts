@@ -1,6 +1,6 @@
 import { test, expect, afterEach, vi } from 'vitest';
 import { mockIPC, clearMocks } from '@tauri-apps/api/mocks';
-import { invoke, isHubMode, subscribe, onStreamReset, onHubRestart, onHubConnectionIssue, captureHubToken } from './transport';
+import { invoke, isHubMode, subscribe, onStreamReset, onHubRestart, onHubConnectionIssue, captureHubToken, watchHubToken } from './transport';
 
 /** Minimal fake EventSource — jsdom doesn't implement one. Tracks every instance so a test can
  * assert how many were actually constructed (the "one shared EventSource" guarantee). */
@@ -450,4 +450,14 @@ test('T-97 onStreamReset is a no-op outside hub mode', async () => {
     throw new Error('must not be called under Tauri');
   });
   expect(() => unlisten()).not.toThrow();
+});
+
+test('a token added to an open page\'s address is stripped too (demo mode makes no hub call that would)', () => {
+  window.history.replaceState(null, '', '/?demo=1');
+  watchHubToken();
+  window.history.replaceState(null, '', '/?demo=1#token=late');
+  window.dispatchEvent(new Event('hashchange'));
+  expect(window.location.search + window.location.hash).toBe('?demo=1');
+  window.removeEventListener('hashchange', captureHubToken);
+  window.history.replaceState(null, '', '/');
 });
