@@ -99,3 +99,18 @@ test('AppliedLessons asks for the lessons matching the task spec and has no Dism
   expect(screen.queryByRole('button', { name: 'Dismiss' })).toBeNull();
   expect(calls.find((c) => c.cmd === 'list_lessons')?.body).toEqual({ repoPath: '/repo', taskText: 'spec text' });
 });
+
+test('says where lessons are stored and what writes them, empty or not; nothing to filter disables the filter', async () => {
+  stubHub([], { branchFound: false });
+  const empty = render(<Lessons project="/repo" />);
+  const note = await screen.findByText(/has no metrics branch/);
+  expect(note).toHaveTextContent('lessons.jsonl on the taskcell-metrics branch, written by taskcell lessons record (the Lessons workflow) when a factory PR closes');
+  expect(screen.getByRole('link', { name: 'How lessons work' })).toHaveAttribute('href', expect.stringContaining('docs/autonomous-loop.md'));
+  expect(screen.getByLabelText('Filter by path')).toBeDisabled();
+  empty.unmount();
+  stubHub([lesson('a', [])]);
+  render(<Lessons project="/repo" />);
+  expect(await screen.findByText('rule a')).toBeInTheDocument();
+  expect(screen.getByText(/taskcell-metrics/)).toBeInTheDocument();
+  expect(screen.getByLabelText('Filter by path')).toBeEnabled();
+});
