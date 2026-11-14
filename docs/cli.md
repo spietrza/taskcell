@@ -297,6 +297,23 @@ An issue can wait for others. Native "blocked by" relations and body lines count
 
 **Overlap hold.** An otherwise-ready issue with a trusted `<spec_manifest>` is also held when its `files` overlap an open same-repo factory PR (a `chore/vanguard-*` branch, compared by its diff files; fork PRs and white-label `feat/` branches are not covered), an in-flight run (`taskcell:running`, compared by its manifest), or an issue admitted earlier in the same poll. A PR from an earlier run of the same issue never holds it. Generated and aggregate files (lockfiles, `CHANGELOG`, `*.generated.*`, `apps/desktop/src/wire.ts`, `apps/desktop/src/hub-wire.ts`, `src/hub/commands/index.ts`) never count. The issue gets one comment naming the overlapping PR/run and files and waits under `taskcell:waiting`, like a dependency; `resume-rate-limited` releases it when that PR closes or merges, or the run's issue closes or leaves `taskcell:running`. Issues without a manifest are never held, and non-overlapping ready issues start meanwhile. The hold ends at a deadline fixed in the hold comment: `TASKCELL_OVERLAP_HOLD_HOURS` hours (default `6`, also when empty) after the first hold, then the issue starts anyway; the deadline is read from the comment, so watch and the sweep need not share the setting. Set `TASKCELL_OVERLAP_HOLD_HOURS=0` to turn the overlap hold off. Separate `--issue` runs started at the same moment can still race past each other.
 
+### Task dependencies (GitLab)
+
+`watch` on GitLab (agent and spec passes) holds an issue back the same way, with these differences.
+
+**What you write.** Either of these makes an issue wait:
+
+- A `Depends on` line in the description: `Depends on #12`, `Depends on group/project#12` or `Depends on https://gitlab.example.com/group/project/-/issues/12` (comma-separated lists allowed). This works on every GitLab tier.
+- A linked issue of type "is blocked by". Blocking links need GitLab Premium or Ultimate; on Free, use `Depends on` lines.
+
+A start date comes from the issue's own start date, which GitLab returns from 19.1 on, else from a `Start: YYYY-MM-DD` line in the description (UTC), which works on every version.
+
+**What counts as done.** A dependency is met when its issue is closed. An issue that was moved to another project or closed as a duplicate is never met. A merge request cannot be a dependency (`Depends on !12`): name the issue the merge request closes.
+
+**What happens.** An issue that must wait gets one comment and the `taskcell::waiting` label and keeps its trigger label, so a later poll starts it by itself once the blockers are closed and the date reached (no resume sweep is needed). These end in `needs info` with the reason, and the trigger label is removed: a cycle; a reference to an issue that does not exist; a reference to another project that the token `watch` runs with cannot read (GitLab answers 404 for both a typo and a private project); a merge request or an issue URL of another GitLab instance; a blocker that was moved or closed as a duplicate; an impossible start date. A lookup that fails for another reason (no permission, an API error) holds the issue under `taskcell::waiting` with the reason; if the next check fails too, it goes to `needs info`. Only an issue that declares nothing and whose links cannot be read is left alone: it is skipped for that poll with a log line and stays triggered. Issues without dependencies cost one extra API read per poll.
+
+`taskcell::waiting` is a scoped label, so on Premium adding it removes any other `taskcell::` label from the issue. Do not put your trigger label in the `taskcell::` (or `vanguard::`) scope; if it is, the issue is held by the comment alone, without the waiting label.
+
 ### Starting the factory from the hub
 
 The hub's `start_task` call applies a trigger label to an issue of a registered project, as the hub's own `gh` identity (the credential it already uses for that project's GitHub source). Arguments: `repoPath`, `number`, `label`. GitHub only: a GitLab or Linear project answers "not supported yet". The response says what happened: `status` is `labelled` (or `retried` when a trigger label was already on a parked issue), `label` is the label applied, and `waitingOn` lists the unmet dependencies (`owner/repo#N`) of an issue parked at `taskcell:waiting`, for "waiting on #N".
