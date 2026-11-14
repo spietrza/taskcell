@@ -156,7 +156,7 @@ export function RepoPicker({
             <Input
               value={typedPath}
               onChange={(e) => setTypedPath(e.target.value)}
-              placeholder="Or type a folder path (e.g. D:\code\repo)"
+              placeholder="Or type a folder path (e.g. ~/code/repo)"
               aria-label="Folder path"
               disabled={cloning}
             />
@@ -200,6 +200,9 @@ export function RepoPicker({
           )}
 
           <div className="flex items-center justify-end gap-2 border-t border-border px-3 py-2">
+            {mode === 'existing' && listing && !currentIsGit && (
+              <span className="mr-auto text-xs text-muted-foreground">This folder is not a git repository. Open one that is, or run git init in it.</span>
+            )}
             <Button variant="text" onClick={onClose} disabled={cloning}>
               Cancel
             </Button>

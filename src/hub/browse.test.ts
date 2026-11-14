@@ -1,5 +1,5 @@
 import { mkdir, mkdtemp, realpath, rm, writeFile } from 'node:fs/promises';
-import { tmpdir } from 'node:os';
+import { homedir, tmpdir } from 'node:os';
 import { dirname, join, parse, win32 } from 'node:path';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import { assertWithinBrowseRoot, browseDirs, isWithinRoot, MAX_BROWSE_ENTRIES } from './browse.js';
@@ -151,6 +151,21 @@ describe('a filesystem root as the browse root', () => {
     expect(listing.parent).toBe(dirname(root));
     // The root itself has no parent to go up to.
     expect((await browseDirs(fsRoot)).parent).toBeUndefined();
+  });
+});
+
+describe('typed paths', () => {
+  it('a leading ~ is the hub user\'s home, as in a shell', async () => {
+    const home = await realpath(homedir());
+    expect((await browseDirs(root, '~', true)).path).toBe(home);
+    await expect(assertWithinBrowseRoot(root, '~/', true)).resolves.toBe(home);
+    // Still confined: home is outside this root.
+    await expect(browseDirs(root, '~')).rejects.toThrow('path escapes the browse root');
+  });
+
+  it('a path outside the root names the root the repository must be under', async () => {
+    await expect(browseDirs(root, tmp)).rejects.toThrow(`this hub only opens folders in ${root} or below it`);
+    await expect(assertWithinBrowseRoot(root, tmp)).rejects.toThrow(`this hub only opens folders in ${root} or below it`);
   });
 });
 

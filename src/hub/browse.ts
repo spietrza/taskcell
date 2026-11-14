@@ -1,5 +1,6 @@
 // The hub's folder browser behind the Add-project picker (`browse_dirs`) and its confinement guard.
 import { lstat, readdir, realpath } from 'node:fs/promises';
+import { homedir } from 'node:os';
 import { dirname, join, resolve, sep } from 'node:path';
 import { BadRequestError } from '../sidecar/sidecar.js';
 
@@ -34,17 +35,27 @@ export function isWithinRoot(root: string, child: string, pathSep: string = sep)
   return child === root || child.startsWith(root.endsWith(pathSep) ? root : root + pathSep);
 }
 
+/** A typed path with a leading `~` means the hub user's home, as in a shell (the confinement below still applies). */
+function expandHome(path: string): string {
+  return path === '~' || /^~[\\/]/.test(path) ? join(homedir(), path.slice(1)) : path;
+}
+
+/** Names the root, so the refusal says where a repository has to be. */
+const escapesRoot = (realRoot: string): BadRequestError =>
+  new BadRequestError(`path escapes the browse root: this hub only opens folders in ${realRoot} or below it, so the repository must be there`);
+
 /** `add_project`'s confinement: the same realpath-both-sides guard `browseDirs` applies, so a
  * project can only come from somewhere the browse picker could have reached. Returns the realpath,
  * which is what the caller should store. `anywhere` (the desktop app's own hub) lifts the confinement. */
 export async function assertWithinBrowseRoot(root: string, path: string, anywhere = false): Promise<string> {
   let target: string;
   try {
-    target = await realpath(resolve(path));
+    target = await realpath(resolve(expandHome(path)));
   } catch {
     throw new BadRequestError('path does not exist');
   }
-  if (!anywhere && !isWithinRoot(await realpath(root), target)) throw new BadRequestError('path escapes the browse root');
+  const realRoot = await realpath(root);
+  if (!anywhere && !isWithinRoot(realRoot, target)) throw escapesRoot(realRoot);
   return target;
 }
 
@@ -68,7 +79,7 @@ async function hasMarker(dir: string, name: string): Promise<boolean> {
  */
 export async function browseDirs(root: string, requestedPath?: string, anywhere = false): Promise<DirListing> {
   const realRoot = await realpath(root);
-  const requested = requestedPath ? resolve(requestedPath) : realRoot;
+  const requested = requestedPath ? resolve(expandHome(requestedPath)) : realRoot;
   let target: string;
   try {
     target = await realpath(requested);
@@ -77,7 +88,7 @@ export async function browseDirs(root: string, requestedPath?: string, anywhere 
   }
 
   if (!anywhere && !isWithinRoot(realRoot, target)) {
-    throw new BadRequestError('path escapes the browse root');
+    throw escapesRoot(realRoot);
   }
 
   const dirents = await readdir(target, { withFileTypes: true });

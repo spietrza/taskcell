@@ -114,3 +114,15 @@ describe('RepoPicker', () => {
     expect(onClose).toHaveBeenCalled();
   });
 });
+
+test('a folder that is not a git repository says why Add is disabled', async () => {
+  install();
+  render(<RepoPicker onAdd={vi.fn()} onClone={vi.fn()} onClose={() => {}} />);
+  fireEvent.click(await screen.findByText('plain'));
+  expect(await screen.findByText(/This folder is not a git repository/)).toBeInTheDocument();
+  expect(screen.getByRole('button', { name: 'Add this repo' })).toBeDisabled();
+  fireEvent.click(screen.getByRole('button', { name: 'Parent directory' }));
+  fireEvent.click(await screen.findByText('git-repo'));
+  await vi.waitFor(() => expect(screen.getByRole('button', { name: 'Add this repo' })).toBeEnabled());
+  expect(screen.queryByText(/This folder is not a git repository/)).toBeNull();
+});
