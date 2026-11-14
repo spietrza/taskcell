@@ -920,8 +920,11 @@ export interface SetupToolStatus {
 }
 export interface SetupStatus {
   tools: SetupToolStatus[];
-  /** Whether a model credential is already present for each provider (a boolean, not the value). Codex counts an `OPENAI_API_KEY` or a Codex sign-in (the auth file exists; never read). */
+  /** Whether a model credential is already present for each provider (a boolean, not the value).
+   * A credential a hub run can use: for Codex `CODEX_AUTH_JSON`, `CODEX_API_KEY` or `OPENAI_API_KEY`, or one saved in Settings. */
   models: { claude: boolean; codex: boolean };
+  /** `codex login` left its auth file on the hub's machine. A run does not read it: it becomes usable as `CODEX_AUTH_JSON`. */
+  codexSignInFile?: boolean;
 }
 
 /** Instance provider credentials (hub only, write-only: a value is never returned). */

@@ -92,6 +92,9 @@ export function withSkipped(stored: OnboardingStored, id: StepId, skip: boolean)
 export const RESTART_NOTE =
   'The hub reads this when it starts: restart the hub (or save the key in Settings → credentials, where that exists), then press Check again.';
 
+/** Makes a `codex login` sign-in usable by hub runs, which read it only from this variable. */
+export const CODEX_SIGN_IN_EXPORT = 'export CODEX_AUTH_JSON="$(cat ~/.codex/auth.json)"   # on the machine running the hub';
+
 /** The "you run this" lines per tool or credential; the hub never reads or stores the value. */
 export type RunStepId = 'gh' | 'glab' | 'linear' | 'claude' | 'codex';
 export const RUN_STEPS: Record<RunStepId, { label: string; commands: string[]; restartNote?: number[] }> = {
@@ -99,7 +102,16 @@ export const RUN_STEPS: Record<RunStepId, { label: string; commands: string[]; r
   glab: { label: 'GitLab (glab)', commands: ['glab auth login'] },
   linear: { label: 'Linear', commands: ['export LINEAR_API_KEY=<your key>   # on the machine running the hub'] },
   claude: { label: 'Claude subscription', commands: ['claude setup-token', 'export CLAUDE_CODE_OAUTH_TOKEN=<the token it prints>   # on the machine running the hub'], restartNote: [1] },
-  codex: { label: 'Codex', commands: ['codex login   # sign in with ChatGPT', '# or, instead of signing in:', 'export OPENAI_API_KEY=<your key>   # on the machine running the hub'], restartNote: [2] },
+  codex: {
+    label: 'Codex',
+    commands: [
+      'codex login   # sign in with ChatGPT',
+      CODEX_SIGN_IN_EXPORT,
+      '# or, instead of signing in:',
+      'export OPENAI_API_KEY=<your key>   # on the machine running the hub',
+    ],
+    restartNote: [1, 3],
+  },
 };
 
 /** A small first task the factory can deliver quickly, with acceptance criteria. */
