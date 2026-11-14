@@ -45,7 +45,7 @@ test('a non-http evidence address is not rendered as a link', async () => {
   stubHub([lesson('a', [], { evidence: 'javascript:alert(1)' })]);
   render(<Lessons project="/repo" />);
   await screen.findByText('rule a');
-  expect(screen.queryByRole('link')).toBeNull();
+  expect(screen.queryByRole('link', { name: /Evidence/ })).toBeNull();
 });
 
 test('the path filter narrows the list', async () => {

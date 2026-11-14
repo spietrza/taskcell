@@ -12,6 +12,11 @@ const MODE_WORDS: Record<ApproverMode, string> = {
   act: 'Act — it merges the pull requests it approves',
 };
 
+/** Text from the hub with `command` spans, shown as code rather than with literal backticks. */
+function InlineCode({ text }: { text: string }) {
+  return <>{text.split('`').map((part, i) => (i % 2 === 1 ? <code key={i}>{part}</code> : part))}</>;
+}
+
 /** The scorecard in plain words, with a clear state for no data and for a bar not met. */
 export function scorecardWords(card: ApproverScorecard): string {
   if (card.status === 'no-data') return card.hint ?? 'No approver data yet.';
@@ -81,7 +86,7 @@ export function AutoMerge({ project: repo }: { project: string }) {
         <>
           <p className="text-sm">Current mode: <strong>{MODE_WORDS[data.mode]}</strong></p>
           <p className="text-sm" data-state={data.status === 'no-data' ? 'no-data' : data.barMet ? 'bar-met' : 'bar-not-met'}>
-            Past 90 days: {scorecardWords(data)}
+            Past 90 days: <InlineCode text={scorecardWords(data)} />
             {data.status === 'ok' && (data.barMet ? ' The bar is met.' : ' The bar is not met.')}
           </p>
           {data.status === 'ok' && data.topReasons.length > 0 && (
@@ -94,7 +99,7 @@ export function AutoMerge({ project: repo }: { project: string }) {
               </Button>
             ))}
           </div>
-          {!data.policyFound && <p className="text-xs text-muted-foreground">Add <code>.taskcell/approver.json</code> to the base branch first.</p>}
+          {!data.policyFound && <p className="text-xs text-muted-foreground">The mode cannot be changed yet: this repository has no approver policy. Add <code>.taskcell/approver.json</code> to the base branch first.</p>}
           {!data.actOffered && <p className="text-xs text-muted-foreground">Act mode, where the approver merges pull requests by itself, can't be turned on yet: it is waiting on another change that isn't finished. Shadow mode shows what it would do without merging anything.</p>}
           {prUrl !== null && <p className="text-sm">Pull request opened: <ExternalLink href={prUrl}>{prUrl}</ExternalLink> — merge it to apply.</p>}
           {target !== null && <Dialog repo={repo} card={data} mode={target} onClose={() => setTarget(null)} onDone={(u) => { setPrUrl(u); setTarget(null); }} />}
