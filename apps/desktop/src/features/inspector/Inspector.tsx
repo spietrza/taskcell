@@ -1,7 +1,8 @@
 import { useEffect, useRef, useState } from 'react';
 import { Button, Chip, PAGE_CLASS, Timestamp, cn } from '@/ui';
 import { ArrowLeft, FilePlus, RefreshCw } from 'lucide-react';
-import { canUseFleet, isHubMode, subscribe, onStreamReset } from '../../transport';
+import { canUseFleet, isDemoMode, isHubMode, subscribe, onStreamReset } from '../../transport';
+import { DEMO_READ_ONLY_MESSAGE } from '../../errors';
 import {
   listRuns,
   listRunsAll,
@@ -126,12 +127,11 @@ export function Inspector({
     if (!detail) openRef.current = null;
   }, [detail]);
 
-  // Rail navigation drops any open drill-down; a run's strip folds to its toolbar chip, so "Runs" opens the list.
+  // Rail navigation drops any open drill-down.
   useEffect(() => {
     setDetail(null);
     setLiveRun(null);
     setTaskDetailId(null);
-    setStripMinimized(true);
   }, [screen]);
 
   // The rail "Running" click opens that live run.
@@ -145,14 +145,17 @@ export function Inspector({
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [detail, liveRun, taskDetailId]);
 
-  // A breadcrumb crumb click clears the open drill-down.
+  // A breadcrumb crumb click, or a rail click on the screen already open, clears the open drill-down and folds
+  // a run's strip to its toolbar chip: "Runs" then shows the list. Only on a click made while this screen is
+  // mounted: a reload, a project switch or a fresh launch still opens the strip.
+  const seenClear = useRef(clearNonce);
   useEffect(() => {
-    if (clearNonce > 0) {
-      setDetail(null);
-      setLiveRun(null);
-      setTaskDetailId(null);
-      setStripMinimized(true);
-    }
+    if (clearNonce === seenClear.current) return;
+    seenClear.current = clearNonce;
+    setDetail(null);
+    setLiveRun(null);
+    setTaskDetailId(null);
+    setStripMinimized(true);
   }, [clearNonce]);
 
   // `projects` is the selected team's repositories; the hub's all-repositories lists span every team.
@@ -347,6 +350,11 @@ export function Inspector({
     // a run can be live in the sidecar while typedRunRef is still null, and a board-path launch in
     // that window would set a fresh strip, get rejected by the Rust busy guard, and wipe the strip
     // the re-attach effect is concurrently folding the backlog into.
+    // The demo refuses every write; say so here, where its sample live run would otherwise answer first.
+    if (isDemoMode()) {
+      setError(DEMO_READ_ONLY_MESSAGE);
+      return;
+    }
     if (!checkedIdle) return;
     if (typedRunRef.current !== null && typedRunRef.current.terminal === undefined) {
       setError('A run is already live in this project. Wait for it to finish or stop it on the Runs screen, then run again.');

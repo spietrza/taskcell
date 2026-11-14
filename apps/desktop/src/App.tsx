@@ -464,9 +464,9 @@ export default function App() {
           onTeam={chooseTeam}
           onScreen={(sc) =>
             navigate(() => {
+              // A click on the screen already open leaves its drill-down (a run detail, a live strip) for the list.
+              if (!showHome && sc === screen) setClearNonce((n) => n + 1);
               setScreen(sc);
-              // Also when the screen is already open: the rail item leaves a run detail for the list.
-              setClearNonce((n) => n + 1);
             })
           }
           onOpenRunning={(r) => {

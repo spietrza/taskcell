@@ -71,8 +71,16 @@ test('every main screen opens in demo mode without errors', async () => {
   expect(await screen.findByRole('status')).toHaveTextContent(/Demo project/);
   fireEvent.click(await screen.findByText('storefront (demo)', { selector: '*' }));
 
-  fireEvent.click(await screen.findByRole('button', { name: /^Runs/ }));
-  // The rail item opens the list, not a run; and from a run detail it goes back to the list.
+  // A project opens on Runs. The run in progress opens first, as after a reload with a live run: DEMO-104 with its stages, not an empty box.
+  expect(await screen.findByRole('button', { name: /Back to runs/ })).toBeInTheDocument();
+  expect(screen.getAllByText('DEMO-104').length).toBeGreaterThan(0);
+  expect(screen.getByTestId('stage-0')).toHaveAttribute('data-phase', 'done');
+  expect(screen.getByTestId('stage-1')).toHaveTextContent('implement');
+  expect(screen.getByTestId('stage-1')).toHaveAttribute('data-phase', 'running');
+  expect(screen.queryByText('starting…')).not.toBeInTheDocument();
+  // A click on the rail's Runs item while it is open shows the list; and from a run detail it goes back to the list.
+  fireEvent.click(screen.getByRole('button', { name: /^Runs/ }));
+  await waitFor(() => expect(screen.queryByRole('button', { name: /Back to runs/ })).not.toBeInTheDocument());
   fireEvent.click(await screen.findByText('DEMO-101'));
   expect(await screen.findByText('reviewer')).toBeInTheDocument();
   fireEvent.click(screen.getByRole('button', { name: /^Runs/ }));
@@ -95,7 +103,7 @@ test('every main screen opens in demo mode without errors', async () => {
   vi.unstubAllGlobals();
 }, 30000);
 
-test('Run on the New Run form says the demo is read-only', async () => {
+test('Run on the New Run form says the demo is read-only, even with the demo run live', async () => {
   window.__TASKCELL_DEMO__ = true;
   vi.stubGlobal('matchMedia', (q: string) => ({ matches: false, media: q, addEventListener: () => {}, removeEventListener: () => {}, addListener: () => {}, removeListener: () => {} }));
   render(<App />);

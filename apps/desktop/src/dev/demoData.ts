@@ -2,7 +2,7 @@
 // project with realistic history. Served by the in-browser fixture backend (mockBackend.ts), so
 // nothing here ever reaches a repo, remote or hub store. Everything is labelled "demo" in the UI.
 import type { Project, ActiveRun, RunSummary, RunDetail, RunRecord } from '../taskcell-output';
-import type { BoardTask, NeedsYouItem, RepoLesson } from '../wire';
+import type { BoardTask, NeedsYouItem, RepoLesson, RunEvent } from '../wire';
 
 export const DEMO_REPO_PATH = '/demo/storefront';
 const REPO_SLUG = 'demo-org/storefront';
@@ -127,6 +127,18 @@ export const demoRunDetails: Record<string, RunDetail> = {
 export const demoActiveRuns: ActiveRun[] = [
   { taskId: 'DEMO-104', sessionFile: `${DEMO_REPO_PATH}/.taskcell/sessions/DEMO-104.jsonl`, lastActivityMs: Date.now() },
 ];
+
+/** The run in flight, as the hub's typed-run backlog would replay it: DEMO-104, plan done, implementing. */
+export const DEMO_RUN_ID = 'demo-run-1';
+const DEMO_RUN_STAGES = ['planner', 'implement', 'reviewer'];
+export const demoRunBacklog: { runId: string; event: RunEvent | { type: 'run-accepted'; repoPath: string } }[] = [
+  { type: 'run-accepted' as const, repoPath: DEMO_REPO_PATH },
+  { type: 'run-start' as const, taskId: 'DEMO-104', flow: 'default', provider: 'claude', stages: DEMO_RUN_STAGES },
+  { type: 'stage-start' as const, name: 'planner', index: 0, of: 3 },
+  { type: 'stage-end' as const, name: 'planner', index: 0, of: 3, outcome: 'completed' },
+  { type: 'stage-start' as const, name: 'implement', index: 1, of: 3 },
+  { type: 'cost' as const, usdSpent: 0.12 },
+].map((event) => ({ runId: DEMO_RUN_ID, event }));
 
 const chips = (...c: [string, string, 'pass' | 'changes' | 'failed'][]): { key: string; label: string; tone: 'pass' | 'changes' | 'failed' }[] =>
   c.map(([key, label, tone]) => ({ key, label, tone }));
