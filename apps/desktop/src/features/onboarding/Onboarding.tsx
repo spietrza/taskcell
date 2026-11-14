@@ -105,7 +105,7 @@ export function Onboarding({
         </p>
       )}
       {STEP_IDS.map((id, i) => {
-        const state = stepState(id, { status, projectCount, skipped: stored.skipped });
+        const state = stepState(id, { status, projectCount, skipped: stored.skipped, model: stored.model });
         return (
           <Card.Root key={id} className="py-0">
             <Card.Content className="space-y-3 p-4">

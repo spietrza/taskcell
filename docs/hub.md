@@ -680,8 +680,8 @@ GitHub Actions or GitLab CI. Only `http:` and `https:` addresses are passed on. 
 
 On a hub with no projects the app opens a "Get started" guide: Git host and tasks, model
 credential, first repository. Detection is one read-only owner command, `setup_status`, that
-returns booleans only. The model step is Done when a Claude credential (`CLAUDE_CODE_OAUTH_TOKEN`
-or one saved in Settings → credentials) or a Codex credential is present; Codex counts either
+returns booleans only. The model step is Done when the credential of the option chosen in it is
+present: for Claude, `CLAUDE_CODE_OAUTH_TOKEN` or one saved in Settings → credentials; for Codex, either
 `OPENAI_API_KEY` or a Codex sign-in, detected as the existence of `$CODEX_HOME/auth.json` (default
 `~/.codex/auth.json`) — the file is never read. The step has a Claude / Codex choice, shows only
 that option's commands, and remembers the choice in the browser with the rest of the onboarding state.

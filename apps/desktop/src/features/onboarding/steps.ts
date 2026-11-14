@@ -58,6 +58,8 @@ export interface StepInput {
   status: SetupStatus | null;
   projectCount: number;
   skipped: readonly StepId[];
+  /** The model credential picked in the model step: that one has to be found for the step to be done. */
+  model: ModelChoice;
 }
 
 const ready = (tools: SetupToolStatus[], id: SetupToolStatus['id']): boolean =>
@@ -69,7 +71,7 @@ export function stepState(id: StepId, input: StepInput): StepState {
     id === 'git-host'
       ? input.status !== null && (ready(input.status.tools, 'gh') || ready(input.status.tools, 'glab'))
       : id === 'model'
-        ? input.status !== null && (input.status.models.claude || input.status.models.codex)
+        ? input.status !== null && input.status.models[input.model]
         : input.projectCount > 0;
   if (detected) return 'done';
   return input.skipped.includes(id) ? 'skipped' : 'needs-action';
