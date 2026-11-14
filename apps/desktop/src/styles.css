@@ -124,6 +124,25 @@ body {
   }
 }
 
+/* Plain links and buttons (rail, pills, cards) get the kit's 2px ring, not the browser's 1px one.
+   In the base layer, so a control's own focus utilities still win. */
+@layer base {
+  :where(a, button):focus-visible {
+    outline: 2px solid var(--ring);
+    outline-offset: 2px;
+  }
+}
+
+/* A sideways-scrolling area shows a shadow on each edge that hides content: the covers scroll with
+   the content, the shadows stay with the box. */
+@utility scroll-cue-x {
+  background:
+    linear-gradient(to right, var(--background) 30%, transparent) left center / 2.5rem 100% no-repeat local,
+    linear-gradient(to left, var(--background) 30%, transparent) right center / 2.5rem 100% no-repeat local,
+    linear-gradient(to right, color-mix(in oklab, var(--foreground) 22%, transparent), transparent) left center / 0.75rem 100% no-repeat scroll,
+    linear-gradient(to left, color-mix(in oklab, var(--foreground) 22%, transparent), transparent) right center / 0.75rem 100% no-repeat scroll;
+}
+
 ::selection {
   background: var(--primary);
   color: var(--primary-foreground);

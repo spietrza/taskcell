@@ -3,6 +3,8 @@ name = "desktop"
 version = "0.1.0"
 description = "Taskcell Inspector"
 edition = "2021"
+# The minimum the locked dependencies declare (tauri 2.12, tauri-plugin-updater 2.14).
+rust-version = "1.90"
 
 [lib]
 name = "desktop_lib"

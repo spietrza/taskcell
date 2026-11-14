@@ -7,15 +7,18 @@ export function EnumSelect({
   onValueChange,
   options,
   placeholder,
+  label,
 }: {
   value: string;
   onValueChange: (v: string) => void;
   options: { value: string; label: string }[];
   placeholder?: string;
+  /** The accessible name, when the visible label is not a `<label>` for it. */
+  label?: string;
 }) {
   return (
     <Select.Root value={value} onValueChange={(v) => v !== null && onValueChange(v)}>
-      <Select.Trigger className="flex min-w-32 items-center justify-between gap-2 rounded border border-border bg-background px-2 py-1 text-xs">
+      <Select.Trigger aria-label={label} className="flex min-w-32 items-center justify-between gap-2 rounded border border-border bg-background px-2 py-1 text-xs">
         <Select.Value placeholder={placeholder ?? 'Select…'} />
         <ChevronsUpDown className="size-3.5 text-muted-foreground" aria-hidden />
       </Select.Trigger>

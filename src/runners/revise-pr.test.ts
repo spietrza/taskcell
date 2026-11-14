@@ -7,6 +7,7 @@ import { execa } from 'execa';
 import { WorktreeManager } from '../worktree/manager.js';
 import { runRevisePullRequest } from './revise-pr.js';
 import { revisionCapMarker, revisionMarker } from './pr-feedback.js';
+import { githubPullRequestWatchPrimitives } from './pr-watch.js';
 import * as registry from '../agents/registry.js';
 import { selectAgents } from '../agents/registry.js';
 import { AgentError } from '../core/errors.js';
@@ -260,6 +261,49 @@ function makeFeedbackJsonWithNonThreadItems(): string {
     },
   });
 }
+
+describe('a repo that has only vanguard:* labels', () => {
+  it('goes through a review claim, mark-reviewed and a revise round without creating or naming a taskcell: label', async () => {
+    const repoLabels = ['ready for vanguard review', 'needs revision', 'vanguard:reviewing', 'vanguard:reviewed', 'vanguard:revising', 'vanguard:needs-human-review', 'vanguard:rate-limited', 'vanguard:secret-blocked'];
+    const onPr = new Set(['ready for vanguard review']);
+    const ghCalls: string[][] = [];
+    const gh: GhRunner = async (args) => {
+      ghCalls.push(args);
+      if (args[0] === 'label' && args[1] === 'create') throw new Error('label create must not run');
+      if (args[0] === 'label' && args[1] === 'list') return JSON.stringify(repoLabels.map((name) => ({ name })));
+      if (args[0] === 'pr' && args[1] === 'view') return makePrViewJson({ labels: [...onPr].map((name) => ({ name })) });
+      if (args[0] === 'pr' && args[1] === 'diff') return 'diff --git a/fix.txt';
+      if (args[0] === 'api' && args[1] === 'graphql') return (args.find((a) => a.startsWith('query=')) ?? '').includes('reviewThreads') ? makeFeedbackJson() : JSON.stringify({ data: {} });
+      if (args[0] === 'pr' && args[1] === 'edit') {
+        args.forEach((a, i) => {
+          // gh refuses a label the repo does not have.
+          if ((a === '--add-label' || a === '--remove-label') && !repoLabels.includes(args[i + 1]!)) throw new Error(`'${args[i + 1]}' not found`);
+          if (a === '--add-label') onPr.add(args[i + 1]!);
+          if (a === '--remove-label') onPr.delete(args[i + 1]!);
+        });
+      }
+      return '';
+    };
+    const item = { repoSlug: 'o/r', number: 7, title: 'Fix auth', isDraft: false, author: 'SebaBoler', headRefOid: 'deadbeef', labels: [...onPr] };
+    const watch = githubPullRequestWatchPrimitives({
+      repoSlug: 'o/r', label: 'ready for vanguard review', reviewingLabel: 'taskcell:reviewing', reviewedLabel: 'taskcell:reviewed', gh, reviewOne: async () => {},
+    });
+    await watch.claim(item);
+    expect([...onPr]).toEqual(['vanguard:reviewing']);
+    await watch.markReviewed(item);
+    expect([...onPr]).toEqual(['vanguard:reviewed']);
+
+    // The reviser's workflow claimed the PR under the old spelling.
+    onPr.add('needs revision').add('vanguard:revising');
+    await runRevisePullRequest('7', {
+      repoPath: repo, repoSlug: 'o/r', gh, _sandbox: makeSandbox(), _agent: agentThatCompletes([]),
+      _worktrees: new WorktreeManager(repo), _pushRunner: async () => '', _baseBranch: 'feature-branch', provider: 'claude',
+    });
+    expect(onPr.has('vanguard:needs-human-review')).toBe(true);
+    expect(onPr.has('needs revision') || onPr.has('vanguard:revising')).toBe(false);
+    expect(ghCalls.filter((a) => a.some((arg) => arg.startsWith('taskcell:')))).toEqual([]);
+  });
+});
 
 // ---------------------------------------------------------------------------
 // Happy path

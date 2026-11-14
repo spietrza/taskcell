@@ -123,6 +123,10 @@ describe('eventPullRequestHint', () => {
   it('matches the event label across the legacy and current spellings', () => {
     const read = (): string => JSON.stringify({ label: { name: 'vanguard:needs-human-review' }, pull_request: { number: 7 } });
     expect(eventPullRequestHint('taskcell:needs-human-review', '/event.json', read)).toBe(7);
+    // The review trigger: a caller gate that fired on the old name, a workflow passing the new one (and back).
+    const trigger = (name: string) => (): string => JSON.stringify({ label: { name }, pull_request: { number: 8 } });
+    expect(eventPullRequestHint('ready for taskcell review', '/event.json', trigger('ready for vanguard review'))).toBe(8);
+    expect(eventPullRequestHint('ready for vanguard review', '/event.json', trigger('ready for taskcell review'))).toBe(8);
   });
 
   it('returns the PR number for a just-opened or just-readied PR (labelled by an earlier job)', () => {

@@ -169,3 +169,20 @@ test('a planned task source is marked and cannot be picked; a stored one still s
   expect(screen.getByRole('option', { name: 'GitHub Issues' })).toBeEnabled();
   expect(screen.getByRole('option', { name: 'Self-hosted (watch) (hub setup planned)' })).toBeEnabled();
 });
+
+test('Enter in a single-line field saves a valid form, and does nothing while the form is invalid', async () => {
+  write.mockClear();
+  read.mockResolvedValueOnce({});
+  render(<Settings project="/repo" />);
+  const label = await screen.findByPlaceholderText('taskcell-ready');
+  fireEvent.keyDown(label, { key: 'Enter' }); // nothing edited: nothing to save
+  expect(write).not.toHaveBeenCalled();
+  fireEvent.change(label, { target: { value: 'ready-label' } });
+  fireEvent.change(screen.getByPlaceholderText('80'), { target: { value: '500' } }); // out of range
+  fireEvent.keyDown(label, { key: 'Enter' });
+  expect(write).not.toHaveBeenCalled();
+  fireEvent.change(screen.getByPlaceholderText('80'), { target: { value: '50' } });
+  fireEvent.keyDown(label, { key: 'Enter' });
+  await waitFor(() => expect(write).toHaveBeenCalledWith('/repo', expect.objectContaining({ label: 'ready-label', usageCapPct: 50 })));
+  expect(await screen.findByRole('button', { name: 'Saved' })).toBeDisabled();
+});

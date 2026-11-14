@@ -226,9 +226,17 @@ export function Inspector({
       // transient mid-write; next event resyncs
     }
   };
+  // Another team's rows do not stay on screen while the new team's list is read.
+  const loadedTeam = useRef(teamId);
   // Load on mount and when the filter mode changes — not when only the repository list changes,
   // so an open run is not closed by a repository being added or removed.
   useEffect(() => {
+    if (loadedTeam.current !== teamId) {
+      loadedTeam.current = teamId;
+      setRuns([]);
+      setActive([]);
+      setFailures([]);
+    }
     void load();
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [project, allRepos, teamId]);
@@ -465,7 +473,8 @@ export function Inspector({
 
         <div className="ml-auto flex flex-wrap items-center justify-end gap-3">
           {detail && <Timestamp ms={Date.parse(detail.timestamp)} className="tabular-nums text-xs text-muted-foreground" />}
-          {liveRun && <Chip color="success" variant="outlined">running</Chip>}
+          {/* One chip: the minimized strip's "running — view" already says a run is live. */}
+          {liveRun && !(typedRun !== null && stripMinimized && typedRun.terminal === undefined) && <Chip color="success" variant="outlined">running</Chip>}
           {typedRun !== null && stripMinimized && (
             <button
               onClick={() => setStripMinimized(false)}
