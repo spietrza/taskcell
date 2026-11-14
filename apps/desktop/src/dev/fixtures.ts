@@ -244,8 +244,8 @@ export const capabilities: Capabilities = {
 };
 
 export const repoFlows: RepoFlowInfo[] = [
-  { file: '.taskcell/flows/plan-implement-review.hcl', name: 'plan-implement-review', label: 'Plan → Implement → Review' },
-  { file: '.taskcell/flows/quick-fix.hcl', name: 'quick-fix', label: 'Quick Fix' },
+  { file: 'plan-implement-review.hcl', name: 'plan-implement-review', label: 'Plan → Implement → Review' },
+  { file: 'quick-fix.hcl', name: 'quick-fix', label: 'Quick Fix' },
 ];
 
 export const repoProviders: RepoProviderInfo[] = [

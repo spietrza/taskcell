@@ -25,7 +25,7 @@ import {
   factoryStateNone,
   factoryStateSettingUp,
 } from './fixtures';
-import { demoProject, demoRuns, demoRunDetails, demoActiveRuns, demoBoardTasks, demoNeedsYou, DEMO_REPO_PATH, DEMO_WRITE_COMMANDS } from './demoData';
+import { demoProject, demoRuns, demoRunDetails, demoActiveRuns, demoBoardTasks, demoLessons, demoNeedsYou, demoSpec, DEMO_REPO_PATH, DEMO_WRITE_COMMANDS } from './demoData';
 
 let waitingNeedsYou = [...needsYouItems];
 let mockLessons: RepoLesson[] = [
@@ -231,6 +231,9 @@ const demoOverrides: Record<string, (args: unknown) => unknown> = {
   list_needs_you: () => ({ items: demoNeedsYou }),
   list_needs_you_all: () => ({ items: demoNeedsYou.map((i) => ({ ...i, repoPath: DEMO_REPO_PATH, repoName: demoProject.name })), failures: [] }),
   list_remote_runs: () => [],
+  fetch_spec: (args) => ({ spec: demoSpec((args as { taskId?: string } | undefined)?.taskId) }),
+  list_lessons: () => ({ lessons: demoLessons, branchFound: true }),
+  list_drafts: () => [],
   api_queue: () => [],
   api_repo_ok: () => true,
   read_app_config: () => ({ ...appConfig, label: 'storefront (demo)' }),

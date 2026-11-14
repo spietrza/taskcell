@@ -4,7 +4,7 @@ import App from '../App';
 import { Dashboard } from '../features/dashboard/Dashboard';
 import { handleDemo } from './mockBackend';
 import { isDemoMode, isHubMode, invoke } from '../transport';
-import { DEMO_REPO_PATH, DEMO_WRITE_COMMANDS, demoBoardTasks, demoNeedsYou } from './demoData';
+import { DEMO_REPO_PATH, DEMO_WRITE_COMMANDS, demoActiveRuns, demoBoardTasks, demoNeedsYou, demoProject, demoRuns } from './demoData';
 
 afterEach(() => {
   cleanup(); // unmount while demo mode is still on, so effect cleanups stay in-browser
@@ -29,6 +29,18 @@ test('demo data covers the lanes, Needs you and a dependency chain', () => {
   expect(lanes).toContain('running');
   expect(demoNeedsYou.length).toBeGreaterThanOrEqual(2);
   expect(demoBoardTasks.filter((t) => t.state.startsWith('Blocked by')).length).toBeGreaterThanOrEqual(2);
+});
+
+test('demo data is consistent: one name, the demo repository, a spec per card, matching counts', () => {
+  const all = JSON.stringify([demoNeedsYou, handleDemo('list_lessons', {})]);
+  expect(all).not.toMatch(/vanguard|acme/);
+  expect(handleDemo('fetch_spec', { taskId: 'DEMO-101' })).not.toEqual(handleDemo('fetch_spec', { taskId: 'DEMO-102' }));
+  expect(handleDemo('list_drafts', {})).toEqual([]);
+  // The rail's Runs badge counts what the Runs list shows: finished runs plus the one in flight.
+  expect(demoProject.runCount).toBe(demoRuns.length + demoActiveRuns.length);
+  // The Board header's "Running" counts the cards the factory holds; one is shown as running.
+  expect(demoBoardTasks.filter((t) => t.column === 'claimed' || t.column === 'running')).toHaveLength(demoActiveRuns.length);
+  expect((handleDemo('api_list_flows', {}) as { flows: { file: string }[] }).flows.every((f) => !f.file.includes('/'))).toBe(true);
 });
 
 test('demo mode refuses every write command and never fetches', async () => {

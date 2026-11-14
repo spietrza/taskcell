@@ -2,7 +2,7 @@
 // project with realistic history. Served by the in-browser fixture backend (mockBackend.ts), so
 // nothing here ever reaches a repo, remote or hub store. Everything is labelled "demo" in the UI.
 import type { Project, ActiveRun, RunSummary, RunDetail, RunRecord } from '../taskcell-output';
-import type { BoardTask, NeedsYouItem } from '../wire';
+import type { BoardTask, NeedsYouItem, RepoLesson } from '../wire';
 
 export const DEMO_REPO_PATH = '/demo/storefront';
 const REPO_SLUG = 'demo-org/storefront';
@@ -10,7 +10,7 @@ const REPO_SLUG = 'demo-org/storefront';
 export const demoProject: Project = {
   path: DEMO_REPO_PATH,
   name: 'storefront (demo)',
-  runCount: 4,
+  runCount: 5,
   taskCount: 9,
   totalCostUsd: 1.37,
   failedCount: 1,
@@ -138,7 +138,7 @@ export const demoBoardTasks: BoardTask[] = [
   { id: 'DEMO-102', title: 'Case-insensitive product search', column: 'review', state: 'In Review', chips: chips(['reviewer', 'reviewer: changes', 'changes'], ['proof', 'proof: pass', 'pass']) },
   { id: 'DEMO-099', title: 'Paginate the order history', column: 'verify-failed', state: 'Verify failed', chips: chips(['proof', 'proof: fail', 'failed']) },
   { id: 'DEMO-104', title: 'Add wishlist to the account page', column: 'running', state: 'In Progress', stage: 'implement' },
-  { id: 'DEMO-105', title: 'Email receipt after checkout', column: 'claimed', state: 'Claimed' },
+  { id: 'DEMO-105', title: 'Email receipt after checkout', column: 'queued', state: 'Ready for agent', waiting: true },
   { id: 'DEMO-106', title: 'Wishlist: share by link (blocked by DEMO-104)', column: 'queued', state: 'Blocked by DEMO-104' },
   { id: 'DEMO-107', title: 'Wishlist: price-drop alerts (blocked by DEMO-106)', column: 'queued', state: 'Blocked by DEMO-106' },
   { id: 'DEMO-108', title: 'Dark mode for the storefront', column: 'queued', state: 'Ready for agent', waiting: true },
@@ -154,7 +154,7 @@ export const demoNeedsYou: NeedsYouItem[] = [
     url: `https://github.com/${REPO_SLUG}/pull/102`,
     reason: 'taskcell:needs-human-review',
     baseRef: 'main',
-    lastComment: { author: 'vanguard[bot]', body: 'The reviewer found an empty-query edge case; a human call on scope is needed.' },
+    lastComment: { author: 'taskcell[bot]', body: 'The reviewer found an empty-query edge case; a human call on scope is needed.' },
   },
   {
     id: `${REPO_SLUG}#110`,
@@ -164,7 +164,7 @@ export const demoNeedsYou: NeedsYouItem[] = [
     title: 'Checkout button misaligned on small screens',
     url: `https://github.com/${REPO_SLUG}/issues/110`,
     reason: 'needs info',
-    lastComment: { author: 'vanguard[bot]', body: 'Which device and browser width does this reproduce on?' },
+    lastComment: { author: 'taskcell[bot]', body: 'Which device and browser width does this reproduce on?' },
   },
   {
     id: `${REPO_SLUG}#99`,
@@ -175,8 +175,18 @@ export const demoNeedsYou: NeedsYouItem[] = [
     url: `https://github.com/${REPO_SLUG}/pull/99`,
     reason: 'taskcell:verify-failed',
     baseRef: 'main',
-    lastComment: { author: 'vanguard[bot]', body: 'pnpm test failed: 1 test in orders/pagination.' },
+    lastComment: { author: 'taskcell[bot]', body: 'pnpm test failed: 1 test in orders/pagination.' },
   },
+];
+
+/** Each card's own spec, so no two runs show the same text. */
+export const demoSpec = (taskId: string | undefined): string => {
+  const title = demoBoardTasks.find((t) => t.id === taskId)?.title ?? 'Demo task';
+  return `## Task\n\n${title}.\n\n## Acceptance criteria\n\n- [ ] ${title} works as described\n- [ ] A test covers it\n- [ ] \`pnpm test\` passes\n`;
+};
+
+export const demoLessons: RepoLesson[] = [
+  { id: 'demo-l1', rule: 'Round money once, at the end of the sum.', why: 'Per-line rounding drifted the cart total by a cent.', evidence: `https://github.com/${REPO_SLUG}/pull/101`, paths: ['src/cart/**'], stage: 'review', prNumber: 101, timestamp: '2026-07-14T10:40:00.000Z' },
 ];
 
 /** Commands that would write to a repo, remote or the hub's store: refused in demo mode. */
