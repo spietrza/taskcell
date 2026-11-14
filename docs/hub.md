@@ -38,7 +38,7 @@ including the container hub) has no launch URL: open its public URL and sign in 
 - Node 24 and pnpm; `pnpm install` at the repo root (the UI bundle is a separate pnpm project that
   `pnpm build:ui` installs and builds).
 - `gh auth login` — the Board, Remote (under Settings → Runners) and cloning private repositories go through `gh`.
-  A repository needs a git remote for these, or `GH_REPO` set in the hub's environment.
+  A repository needs a git remote for these. `GH_REPO` in the hub's environment also works, but it is hub-wide: every project on that hub then creates issues and lists runs in that one repository, so use it only on a hub with a single project.
 - For runs started from the hub: Docker with the sandbox image (`docker/build.sh` builds
   `taskcell-sandbox:latest`; the egress proxy sidecar uses the same image, so a missing image
   surfaces as "Failed to start egress enclave"), and the provider credential exported in the shell
