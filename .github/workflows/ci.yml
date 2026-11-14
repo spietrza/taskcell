@@ -68,7 +68,6 @@ jobs:
         run: cargo build --locked && cargo test --locked
 
   # SCA gate: block a PR that introduces a dependency with a known high+ CVE (or a disallowed
-
   # license). Uses the GitHub dependency graph enabled alongside Dependabot alerts.
   dependency-review:
     if: github.event_name == 'pull_request'
