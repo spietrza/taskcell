@@ -179,6 +179,12 @@ export async function runApprover(input: RunApproverInput, state: { updated: boo
     return result;
   }
   if (review.sha === null) {
+    // A review of this head was posted, but not one act mode accepts (no host stamp or a second mention of it, a login that is
+    // not a dedicated reviewer). No later run changes that, so say it once for this head, on a factory PR only.
+    if (factory && collectReviewFacts(prFacts, policy).sha === diff.headSha) {
+      await tell('left-for-human', 'review-unusable: the latest review of this head is not one act mode accepts (it needs exactly one host run stamp and a dedicated reviewer login); request a new review', diff.headSha, 'review-unusable');
+      return result;
+    }
     // No usable review for this head (yet): the PR-review run that triggered this one may have posted none (a PR the App bot
     // opened is only labelled by its `opened` run). The decision is in the check run and the log; a "left for a human"
     // comment here would land shortly before the run of the real review merges the PR.

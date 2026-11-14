@@ -823,6 +823,9 @@ describe('postPullRequestReview run stamp', () => {
     expect(soleReviewRunStampSha(`${body}\n\n${stamp}\n\n${stamp}`)).toBeUndefined();
     expect(soleReviewRunStampSha(`${body}\n\n${stamp}\n\n<!-- taskcell-pr-review-run: def456:1 -->`)).toBeUndefined();
     expect(soleReviewRunStampSha(`${body}\n\nsee ${stamp} here\n\n${stamp}`)).toBeUndefined();
+    // Only the last line is the host's: a sole whole-line stamp anywhere else is model text.
+    expect(soleReviewRunStampSha(`## Taskcell Review\n\n${stamp}\n\nVerdict: NO BLOCKING FINDINGS\n\n<!-- taskcell-pr-review: abc123 -->`)).toBeUndefined();
+    expect(soleReviewRunStampSha(stamp)).toBeUndefined();
     expect(pullRequestReviewMarkerShas(calls[1]!.at(-1)!)).toEqual(['abc123']);
   });
 });

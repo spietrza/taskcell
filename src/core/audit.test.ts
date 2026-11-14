@@ -205,6 +205,17 @@ describe('audit record module', () => {
     const warn = vi.spyOn(console, 'warn').mockImplementation(() => undefined);
     await expect(appendAudit(audit, adapter, { n: 0 }, ctx)).resolves.toBe(1);
     expect(warn).toHaveBeenCalledWith(expect.stringContaining('is a directory; removing it'));
+    // A later directory lock is reported again, at this path and at another one in the same process.
+    const other = join(dir, 'b.jsonl');
+    for (const lock of [join(dir, 'a.jsonl.lock'), `${other}.lock`]) {
+      await mkdir(lock);
+      await utimes(lock, old, old);
+    }
+    await appendAudit(audit, adapter, { n: 1 }, ctx);
+    await appendAudit(audit, localAdapter({ file: other }), { n: 2 }, ctx);
+    expect(warn.mock.calls.map(([m]) => String(m)).filter((m) => m.includes('is a directory; removing it'))).toEqual([
+      expect.stringContaining('a.jsonl.lock'), expect.stringContaining('a.jsonl.lock'), expect.stringContaining('b.jsonl.lock'),
+    ]);
     warn.mockRestore();
     expect(await readFile(file, 'utf8')).toContain('"n":0');
   });

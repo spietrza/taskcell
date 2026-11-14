@@ -84,6 +84,7 @@ export function hardExclusions(facts: ApproverFacts, policy: ApproverPolicy, rev
   if (facts.pr.isDraft) reasons.push('draft PR (act mode never marks a draft ready)');
   if (holdsChanges(reviews)) reasons.push('a review requests changes');
   if (policy.requiredChecks.length === 0) reasons.push('the policy lists no required checks (act mode acts on nothing)');
+  // defence in depth: approve.ts returns earlier on the same condition
   if (dedicatedReviewers(policy).length === 0) reasons.push(NO_DEDICATED_REVIEWER);
   const holdLabel = policy.holdLabel ?? 'taskcell:hold';
   if (hasLabel(facts.pr.labels ?? [], holdLabel)) reasons.push(`hold label ${holdLabel}`);

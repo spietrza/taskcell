@@ -1,7 +1,7 @@
 // The hub's folder browser behind the Add-project picker (`browse_dirs`) and its confinement guard.
 import { lstat, readdir, realpath } from 'node:fs/promises';
 import { homedir } from 'node:os';
-import { dirname, join, resolve, sep } from 'node:path';
+import { dirname, isAbsolute, join, resolve, sep } from 'node:path';
 import { BadRequestError } from '../sidecar/sidecar.js';
 
 /** Hard cap on entries returned by a single `browseDirs` call — guards against a directory with an
@@ -40,6 +40,22 @@ function expandHome(path: string): string {
   return path === '~' || /^~[\\/]/.test(path) ? join(homedir(), path.slice(1)) : path;
 }
 
+/**
+ * The real path a typed path names. A relative one is taken from the hub's working directory, else from the
+ * browse root (where the picker opens). `~user` is not expanded: it is a folder of that name or it does not exist.
+ */
+async function realTypedPath(root: string, path: string): Promise<string> {
+  const typed = expandHome(path);
+  for (const candidate of isAbsolute(typed) ? [typed] : [resolve(typed), resolve(root, typed)]) {
+    try {
+      return await realpath(candidate);
+    } catch {
+      // try the next reading of it
+    }
+  }
+  throw new BadRequestError('path does not exist');
+}
+
 /** Names the root, so the refusal says where a repository has to be. */
 const escapesRoot = (realRoot: string): BadRequestError =>
   new BadRequestError(`path escapes the browse root: this hub only opens folders in ${realRoot} or below it, so the repository must be there`);
@@ -48,12 +64,7 @@ const escapesRoot = (realRoot: string): BadRequestError =>
  * project can only come from somewhere the browse picker could have reached. Returns the realpath,
  * which is what the caller should store. `anywhere` (the desktop app's own hub) lifts the confinement. */
 export async function assertWithinBrowseRoot(root: string, path: string, anywhere = false): Promise<string> {
-  let target: string;
-  try {
-    target = await realpath(resolve(expandHome(path)));
-  } catch {
-    throw new BadRequestError('path does not exist');
-  }
+  const target = await realTypedPath(root, path);
   if (anywhere) return target;
   const realRoot = await realpath(root);
   if (!isWithinRoot(realRoot, target)) throw escapesRoot(realRoot);
@@ -80,13 +91,7 @@ async function hasMarker(dir: string, name: string): Promise<boolean> {
  */
 export async function browseDirs(root: string, requestedPath?: string, anywhere = false): Promise<DirListing> {
   const realRoot = await realpath(root);
-  const requested = requestedPath ? resolve(expandHome(requestedPath)) : realRoot;
-  let target: string;
-  try {
-    target = await realpath(requested);
-  } catch {
-    throw new BadRequestError('path does not exist');
-  }
+  const target = requestedPath ? await realTypedPath(realRoot, requestedPath) : realRoot;
 
   if (!anywhere && !isWithinRoot(realRoot, target)) {
     throw escapesRoot(realRoot);

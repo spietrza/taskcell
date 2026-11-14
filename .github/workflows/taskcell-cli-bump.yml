@@ -82,6 +82,9 @@ jobs:
           else
             # New versions on an open PR: the earlier review covered other versions, so ask for a fresh one.
             gh pr edit "$pr" --repo "$GITHUB_REPOSITORY" --title "$title" --body "$body"
-            gh pr edit "$pr" --repo "$GITHUB_REPOSITORY" --remove-label "vanguard:reviewed" --remove-label "ready for vanguard review" >/dev/null 2>&1 || true
+            # One call per label: a label the repository lacks fails the whole edit.
+            for label in "vanguard:reviewed" "taskcell:reviewed" "ready for vanguard review"; do
+              gh pr edit "$pr" --repo "$GITHUB_REPOSITORY" --remove-label "$label" >/dev/null 2>&1 || true
+            done
             gh pr edit "$pr" --repo "$GITHUB_REPOSITORY" --add-label "ready for vanguard review"
           fi

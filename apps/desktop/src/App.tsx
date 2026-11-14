@@ -22,6 +22,7 @@ import { createNavGuardRegistry, NavGuardContext } from './navGuard';
 import { ProjectCombobox } from './ProjectCombobox';
 import { canUseAllRepos, inRepos } from './repoFilter';
 import { loadFilter, saveFilter, type HubFilter } from './filterState';
+import { screenFromUrl, urlForScreen } from './screenUrl';
 import { hubSignedIn, isDemoMode, hubSignOut, onHubRestart, onHubConnectionIssue } from './transport';
 import { applyTheme, initialTheme, saveTheme } from './theme';
 import type { Project, ActiveRun } from './taskcell-output';
@@ -51,7 +52,7 @@ export default function App() {
   const [activeProject, setActiveProject] = useState<string | null>(null);
   // The filter Home, Board and Runs share (persisted): triage, projects, card source, search, grouping.
   const [filter, setFilter] = useState<HubFilter>(loadFilter);
-  const [screen, setScreen] = useState<Screen>('home');
+  const [screen, setScreen] = useState<Screen>(screenFromUrl);
   // How many items wait on the user (Home's Needs you section); badges Home in the rail.
   const [needsCount, setNeedsCount] = useState(0);
   const [railRunning, setRailRunning] = useState<ActiveRun[]>([]);
@@ -81,6 +82,23 @@ export default function App() {
     if (!navGuard.current.confirm()) return;
     fn();
   };
+  // The address names the open screen: a reload restores it, and Back/Forward move between screens.
+  const screenRef = useRef(screen);
+  screenRef.current = screen;
+  useEffect(() => {
+    if (screenFromUrl() !== screen) window.history.pushState(window.history.state, '', urlForScreen(screen));
+  }, [screen]);
+  useEffect(() => {
+    const onPop = (): void => {
+      const to = screenFromUrl();
+      if (to === screenRef.current) return;
+      if (navGuard.current.confirm()) setScreen(to);
+      // Unsaved work kept: the address goes back to the screen that stays open.
+      else window.history.pushState(window.history.state, '', urlForScreen(screenRef.current));
+    };
+    window.addEventListener('popstate', onPop);
+    return () => window.removeEventListener('popstate', onPop);
+  }, []);
   const [theme, setTheme] = useState<Theme>(() => {
     // index.html already applied this before first paint; re-apply so React owns it from here.
     const initial = initialTheme();
@@ -497,6 +515,15 @@ export default function App() {
                 <Dashboard
                   projects={projects}
                   onOpenSetup={() => setSetupOpen(true)}
+                  onOpenRunning={
+                    active
+                      ? () =>
+                          navigate(() => {
+                            changeFilter({ ...filter, triage: 'running' });
+                            setScreen('runs');
+                          })
+                      : undefined
+                  }
                   onOpen={(p) => enterProject(p.path)}
                   onAdd={add}
                   onRemove={remove}

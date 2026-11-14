@@ -8,6 +8,7 @@ import { afterEach, beforeEach, describe, expect, test, vi } from 'vitest';
 import { createHubIdentity, localOnlyIdentity, OWNER_EMAIL, parsePublicUrl, parseSignupAllowlist, providersFromEnv, type HubIdentity } from './auth.js';
 import { saveTeams } from './teams.js';
 import { createHubServer, type HubServer } from './server.js';
+import { contentSecurityPolicy } from './static.js';
 import { HUB_SIGN_IN_REQUIRED, HUB_TOKEN_HEADER } from '../hub-wire.js';
 import type { SidecarDeps } from '../sidecar/sidecar.js';
 import { createCredentialService } from './credentials.js';
@@ -182,6 +183,17 @@ describe('server mode', () => {
     profile = { login: 'evil', email: OWNER_EMAIL, verified: true };
     const { cookie } = await signIn();
     expect((await rpc({ cookie })).status).toBe(401);
+  });
+
+  test('the sign-in page carries the app pages\' CSP, allowing its own inline script by hash, and cannot be framed', async () => {
+    await start([]);
+    const res = await fetch(origin + '/sign-in');
+    const html = await res.text();
+    const csp = res.headers.get('content-security-policy');
+    expect(csp).toBe(contentSecurityPolicy(html));
+    expect(csp).toMatch(/script-src 'self' 'sha256-[A-Za-z0-9+/=]+'$/);
+    expect(res.headers.get('x-frame-options')).toBe('DENY');
+    expect((await fetch(origin + '/sign-in', { method: 'HEAD' })).headers.get('content-security-policy')).toBe(csp);
   });
 
   test('pages redirect, the API answers 401, the token is the owner and gets the events cookie', async () => {

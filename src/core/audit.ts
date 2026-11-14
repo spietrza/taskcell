@@ -356,7 +356,8 @@ async function withFileLock<T>(file: string, fn: () => Promise<T>): Promise<T> {
       // If it no longer is one, the path may be another process's fresh lock file: look again, do not remove it.
       else if (info?.isDirectory() === true) {
         if ((await lstat(lock).catch(() => undefined))?.isDirectory() !== true) continue;
-        warnOnce(`taskcell: audit lock ${lock} is a directory; removing it`);
+        // Not warnOnce: this reports an action, at most one per stale period, and a later directory lock at the same path must be reported too.
+        console.warn(`taskcell: audit lock ${lock} is a directory; removing it`);
         await rm(lock, { force: true, recursive: true });
       } else await rm(lock, { force: true });
     }

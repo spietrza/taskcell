@@ -323,6 +323,33 @@ describe('own-repo reads and switching off', () => {
     expect(other.hint).toMatch(/none for this project/);
   });
 
+  test('case variants of the own slug are one repository: one gh list, each PR counted once', async () => {
+    const decisions = [
+      line({ prNumber: 1, verdict: 'ESCALATE', timestamp: daysAgo(4) }),
+      line({ repo: 'Acme/Widgets', prNumber: 1, verdict: 'APPROVE', timestamp: daysAgo(3) }),
+      line({ repo: 'ACME/widgets', prNumber: 2, verdict: 'APPROVE', timestamp: daysAgo(3) }),
+    ].join('\n');
+    mockWorld(decisions, { act: false });
+    ghCalls.length = 0;
+    const card = await approverCard.approverScorecard(await tmpGitRepo(ORIGIN), '90d', NOW);
+    expect([card.judged, card.approves, card.escalates]).toEqual([2, 2, 0]);
+    expect(ghCalls.filter((c) => c[0] === 'pr')).toHaveLength(1);
+  });
+
+  test.each(['https://github.example.com/acme/widgets.git', 'git@gitlab.com:acme/widgets.git', '/srv/acme/widgets.git'])(
+    'an origin that is not on github.com is no own repository: no gh call, the no-data card (%s)',
+    async (origin) => {
+      mockWorld(DECISIONS, { act: false });
+      ghCalls.length = 0;
+      const repo = await tmpGitRepo(origin);
+      const card = await approverCard.approverScorecard(repo, '90d', NOW);
+      expect(card.status).toBe('no-data');
+      expect(card.hint).toMatch(/none for this project's repository \(no GitHub origin remote\)/);
+      expect(ghCalls).toHaveLength(0);
+      expect(await approverCard.approverPrDecisions(repo)).toEqual([]);
+    },
+  );
+
   test('turning the approver off works when the scorecard read fails, and the act hold stays', async () => {
     mockWorld(DECISIONS, { act: false });
     vi.spyOn(outcome, 'collectApproverScorecard').mockRejectedValue(new Error('gh: not logged in'));

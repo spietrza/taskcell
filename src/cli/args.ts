@@ -309,6 +309,8 @@ export type Command =
       approver: boolean;
       /** Also print the label->merge lead-time rollup for every PR url recorded in metrics.jsonl that belongs to this repo (needs `gh`). */
       githubRepo?: string;
+      /** Extra logins whose review verdicts count for the first-pass rate, beyond OWNER/MEMBER/COLLABORATOR and Taskcell's bot. */
+      feedbackAuthors?: string[];
     }
   | { kind: 'metrics'; action: 'push'; repoPath: string; branch?: string }
   | { kind: 'approve'; prNumber: number; repoSlug: string; repoPath: string; mode: 'shadow' | 'act'; json: boolean; dryRun: boolean; branch?: string }
@@ -662,6 +664,8 @@ export function parseCli(argv: string[], cwd: string): Command {
         'no-open': { type: 'boolean' },
         demo: { type: 'boolean' },
         'token-file': { type: 'string' },
+        // removed (approve): accepted by the parser only so it is refused by name below instead of printing help
+        'review-run-id': { type: 'string' },
         'allowed-host': { type: 'string', multiple: true },
         'admin-github-login': { type: 'string', multiple: true },
         help: { type: 'boolean' },
@@ -686,6 +690,11 @@ export function parseCli(argv: string[], cwd: string): Command {
   if (positionals[0] === '__complete') return { kind: 'complete' };
 
   const repoPath = typeof values.repo === 'string' ? values.repo : cwd;
+
+  // An unknown option prints help and exits 0, so a workflow still passing this one would end green having decided nothing.
+  if (values['review-run-id'] !== undefined) {
+    return fail('--review-run-id was removed: act mode reads the run stamp on the review itself. Drop the flag.');
+  }
 
   // The option table is shared, so every other command would accept --spec-only and silently do its full work.
   if (values['spec-only'] === true && positionals[0] !== 'watch' && positionals[0] !== 'doctor') {
@@ -766,6 +775,7 @@ export function parseCli(argv: string[], cwd: string): Command {
     if (typeof statsRepo === 'string' && (!/^[\w.-]+\/[\w.-]+$/.test(statsRepo) || statsRepo.split('/').some((p) => p === '.' || p === '..'))) {
       return fail(`stats --github-repo must be owner/repo, got '${statsRepo}'.`);
     }
+    const statsFeedbackAuthors = parseFeedbackAuthors(values['feedback-authors']);
     return {
       kind: 'stats',
       repoPath,
@@ -773,6 +783,7 @@ export function parseCli(argv: string[], cwd: string): Command {
       approver: values.approver === true,
       ...(typeof values.branch === 'string' ? { branch: values.branch } : {}),
       ...(typeof values['github-repo'] === 'string' ? { githubRepo: values['github-repo'] } : {}),
+      ...(statsFeedbackAuthors !== undefined ? { feedbackAuthors: statsFeedbackAuthors } : {}),
     };
   }
 
@@ -1783,6 +1794,10 @@ ${MAX_REPAIR_ITERATIONS_USAGE}
     --branch <name>        Read metrics.jsonl from this remote branch instead (what 'metrics push' wrote;
                            default name: taskcell-metrics)
     --json                 Emit the aggregated report as JSON instead of tables
+    --github-repo <o/r>    Also read each recorded PR of this repo from GitHub: lead times and the
+                           LESSONS first-pass rate (needs gh)
+    --feedback-authors <a,b> Extra trusted logins whose review verdicts count for the first-pass rate,
+                           beyond OWNER/MEMBER/COLLABORATOR and Taskcell's bot (as on lessons record)
     --approver             Shadow approver scorecard instead of the cost/token rollup: per factory PR,
                            the shadow verdict and reasons next to what the human did, and per risk class
                            how many APPROVEs were right, how many ESCALATEs the human merged unchanged,

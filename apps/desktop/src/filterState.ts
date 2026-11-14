@@ -135,6 +135,21 @@ export function filterActive<T extends { taskId: string } & RepoRow>(active: T[]
 const TRIAGE_LABEL: Record<string, string> = { running: 'Running', needs: 'Needs you', merged: 'Merged', other: 'Other' };
 const SOURCE_LABEL = Object.fromEntries(SOURCES.map((s) => [s.value, s.label]));
 
+/** The filters narrowing a list, by name, for a "nothing matches" message. */
+export function filterNames(f: HubFilter): string[] {
+  const q = f.query.trim();
+  return [
+    ...(f.triage !== 'all' ? [TRIAGE_LABEL[f.triage] ?? f.triage] : []),
+    ...f.sources.map((s) => SOURCE_LABEL[s] ?? s),
+    ...(f.repos.length > 0 ? ['Projects'] : []),
+    ...(q !== '' ? [`search "${q}"`] : []),
+  ];
+}
+
+/** Can "Clear filters" change anything? It resets search, card source and triage; Projects and grouping stay. */
+export const canClearFilters = (f: HubFilter): boolean => f.triage !== 'all' || f.sources.length > 0 || f.query.trim() !== '';
+export const clearFilters = (f: HubFilter): HubFilter => ({ ...f, triage: 'all', sources: [], query: '' });
+
 export interface Lane<T> {
   key: string;
   label: string;

@@ -1,6 +1,7 @@
 import { describe, it, expect } from 'vitest';
 import { aggregateLessons, fetchFirstPass, firstPassOf, formatLessonsStats } from './lessons-stats.js';
 import { parseMetrics } from './stats.js';
+import { buildPullRequestReviewComment } from '../runners/pr-review.js';
 import type { MetricRecord } from './stats.js';
 
 const rec = (over: Partial<MetricRecord>): MetricRecord => ({ taskId: 't', costUsd: 0, inputTokens: 0, outputTokens: 0, cacheReadInputTokens: 0, durationMs: 0, ...over });
@@ -70,6 +71,11 @@ describe('firstPassOf', () => {
     expect(firstPassOf({ comments: [{ author: { login: 'x' }, authorAssociation: 'NONE', body: 'Verdict: BLOCKING', createdAt: '1' }] })).toBeUndefined();
     expect(firstPassOf({ comments: [{ ...trusted, body: 'looks fine', createdAt: '1' }] })).toBeUndefined();
   });
+  it('counts a first review that carries the verdict-without-completion note', () => {
+    const body = buildPullRequestReviewComment('Verdict: BLOCKING\n\n- x', 'abc', { completed: false });
+    expect(body).toContain('may be truncated');
+    expect(firstPassOf({ comments: [{ ...trusted, body, createdAt: '1' }, { ...trusted, body: 'Verdict: NO BLOCKING FINDINGS', createdAt: '2' }] })).toBe(false);
+  });
 });
 
 describe('fetchFirstPass', () => {
@@ -81,6 +87,18 @@ describe('fetchFirstPass', () => {
       return JSON.stringify({ comments: [{ author: { login: 'bot' }, authorAssociation: 'MEMBER', body: 'Verdict: NO BLOCKING FINDINGS', createdAt: '1' }] });
     };
     const out = await fetchFirstPass('o/r', [PR(1), PR(2), PR(3), 'https://github.com/x/y/pull/9'], gh);
-    expect([...out]).toEqual([[PR(1), true]]);
+    expect([...out.firstPass]).toEqual([[PR(1), true]]);
+    // The failed PR is counted, and the count is printed next to the rate and kept in the report (--json).
+    expect(out.failed).toBe(1);
+    const report = aggregateLessons([rec({ prUrl: PR(1) })], out.firstPass, out.failed);
+    expect(report.unreadPrs).toBe(1);
+    expect(formatLessonsStats(report)).toContain('first-pass rate        100% (1/1 PRs), 1 PR could not be read');
+    expect(aggregateLessons([rec({ prUrl: PR(1) })], out.firstPass)).not.toHaveProperty('unreadPrs');
+  });
+
+  it('counts a verdict from a --feedback-authors login, which is untrusted without it', async () => {
+    const gh = async (): Promise<string> => JSON.stringify({ comments: [{ author: { login: 'reviewer-app' }, authorAssociation: 'NONE', body: 'Verdict: BLOCKING', createdAt: '1' }] });
+    expect([...(await fetchFirstPass('o/r', [PR(1)], gh)).firstPass]).toEqual([]);
+    expect([...(await fetchFirstPass('o/r', [PR(1)], gh, ['Reviewer-App'])).firstPass]).toEqual([[PR(1), false]]);
   });
 });

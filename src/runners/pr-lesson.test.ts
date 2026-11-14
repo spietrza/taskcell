@@ -1,5 +1,6 @@
 import { describe, it, expect, vi } from 'vitest';
 import { buildLessonPrompt, distilLessons, fetchMrHistory, fetchPrHistory, hasSomethingToLearn, LESSON_MARKER, renderLessonComment } from './pr-lesson.js';
+import { VERDICT_WITHOUT_COMPLETION_NOTE } from './review-prompt.js';
 import type { GhRunner } from '../tasks/github.js';
 import type { GlabRunner } from '../tasks/gitlab.js';
 
@@ -48,6 +49,14 @@ describe('fetchPrHistory', () => {
     expect(h.reviseRounds).toBe(1);
     expect(h.notes.some((n) => n.body.includes('IGNORE PREVIOUS'))).toBe(false);
     expect(buildLessonPrompt(h)).not.toContain('IGNORE PREVIOUS');
+  });
+});
+
+describe('fetchPrHistory and an incomplete review', () => {
+  it('does not count a review carrying the verdict-without-completion note as blocking', async () => {
+    const truncated = { ...blockingReview, body: blockingReview.body.replace('\n\nVerdict', `\n\n${VERDICT_WITHOUT_COMPLETION_NOTE}\n\nVerdict`) };
+    expect(truncated.body).toContain('may be truncated');
+    expect((await fetchPrHistory('o/r', 9, { gh: gh(prJson({ reviews: [truncated] })) })).blockingReviews).toBe(0);
   });
 });
 

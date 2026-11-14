@@ -45,6 +45,20 @@ describe('customProviderError (the one validity predicate)', () => {
     ['bad keyEnv grammar', { ...ENTRY, keyEnv: '1BAD' }, /"keyEnv" must name/],
     ['keyEnv borrowing the subscription token', { ...ENTRY, keyEnv: 'CLAUDE_CODE_OAUTH_TOKEN' }, /must not name a credential/],
     ['keyEnv borrowing the push token', { ...ENTRY, keyEnv: 'GH_TOKEN' }, /must not name a credential/],
+    ['keyEnv borrowing the hub secret (TASKCELL_ prefix)', { ...ENTRY, keyEnv: 'TASKCELL_HUB_SECRET' }, /must not name a name reserved for Taskcell's own settings/],
+    ['keyEnv with the VANGUARD_ prefix', { ...ENTRY, keyEnv: 'VANGUARD_ANYTHING' }, /must not name a name reserved for Taskcell's own settings/],
+    ['keyEnv borrowing the glab token', { ...ENTRY, keyEnv: 'GLAB_TOKEN' }, /must not name a credential/],
+    ['keyEnv borrowing the Anthropic auth token', { ...ENTRY, keyEnv: 'ANTHROPIC_AUTH_TOKEN' }, /must not name a credential/],
+    ['keyEnv borrowing a built-in provider key', { ...ENTRY, keyEnv: 'OPENROUTER_API_KEY' }, /must not name a credential/],
+    ['keyEnv borrowing OTEL_EXPORTER_OTLP_HEADERS', { ...ENTRY, keyEnv: 'OTEL_EXPORTER_OTLP_HEADERS' }, /must not name a credential/],
+    ['keyEnv borrowing GH_ENTERPRISE_TOKEN', { ...ENTRY, keyEnv: 'GH_ENTERPRISE_TOKEN' }, /must not name a credential/],
+    ['keyEnv borrowing GITHUB_ENTERPRISE_TOKEN', { ...ENTRY, keyEnv: 'GITHUB_ENTERPRISE_TOKEN' }, /must not name a credential/],
+    ['keyEnv borrowing AWS_SECRET_ACCESS_KEY', { ...ENTRY, keyEnv: 'AWS_SECRET_ACCESS_KEY' }, /must not name a credential/],
+    ['keyEnv borrowing AWS_SESSION_TOKEN', { ...ENTRY, keyEnv: 'AWS_SESSION_TOKEN' }, /must not name a credential/],
+    ['keyEnv borrowing NPM_TOKEN', { ...ENTRY, keyEnv: 'NPM_TOKEN' }, /must not name a credential/],
+    ['keyEnv borrowing NODE_AUTH_TOKEN', { ...ENTRY, keyEnv: 'NODE_AUTH_TOKEN' }, /must not name a credential/],
+    ['keyEnv in another case', { ...ENTRY, keyEnv: 'gh_token' }, /must not name a credential/],
+    ['keyEnv prefix in another case', { ...ENTRY, keyEnv: 'Taskcell_Hub_Secret' }, /must not name a name reserved for Taskcell's own settings/],
     ['empty model', { ...ENTRY, model: '' }, /"model" must be a non-empty string/],
   ])('rejects %s', (_label, entry, re) => {
     expect(customProviderError(entry, seen)).toMatch(re);
@@ -54,6 +68,10 @@ describe('customProviderError (the one validity predicate)', () => {
     expect(customProviderError(ENTRY, seen)).toBeUndefined();
     const { model: _m, ...noModel } = ENTRY;
     expect(customProviderError(noModel, seen)).toBeUndefined();
+  });
+
+  it.each(['MY_PROXY_API_KEY', 'MY_KEY', 'K', 'Z_KEY', 'MY_TASKCELL_KEY', 'TASKCELLKEY', 'DEEPSEEK_API_KEY'])('still accepts the provider-owned keyEnv %s', (keyEnv) => {
+    expect(customProviderError({ ...ENTRY, keyEnv }, seen)).toBeUndefined();
   });
 
   it('rejects a duplicate of an earlier healthy name', () => {

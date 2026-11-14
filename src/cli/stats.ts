@@ -63,8 +63,8 @@ export async function statsCommand(cmd: StatsCommand): Promise<void> {
   const report = aggregateMetrics(records, parseProbes(text));
   const prUrls = records.flatMap((r) => (r.prUrl !== undefined ? [r.prUrl] : []));
   const leadTime = cmd.githubRepo !== undefined ? await leadTimeRollupForPrUrls(cmd.githubRepo, prUrls) : undefined;
-  const firstPass = cmd.githubRepo !== undefined ? await fetchFirstPass(cmd.githubRepo, prUrls) : undefined;
-  const lessons = aggregateLessons(records, firstPass);
+  const firstPass = cmd.githubRepo !== undefined ? await fetchFirstPass(cmd.githubRepo, prUrls, undefined, cmd.feedbackAuthors) : undefined;
+  const lessons = aggregateLessons(records, firstPass?.firstPass, firstPass?.failed);
   const merges = parseBaseMerges(text);
   const conflicts = merges.length > 0 ? aggregateConflicts(merges) : undefined;
   if (cmd.json) {

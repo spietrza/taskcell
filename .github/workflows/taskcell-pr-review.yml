@@ -22,7 +22,7 @@ jobs:
       contains(fromJSON('["opened","ready_for_review"]'), github.event.action) &&
       github.event.pull_request.draft == false &&
       github.event.pull_request.head.repo.full_name == github.repository &&
-      startsWith(github.event.pull_request.head.ref, 'chore/vanguard-') && (
+      (startsWith(github.event.pull_request.head.ref, 'chore/vanguard-') || startsWith(github.event.pull_request.head.ref, 'chore/taskcell-')) && (
       (contains(fromJSON('["spietrza","pawelkrystkiewicz"]'), github.event.pull_request.user.login) &&
       contains(fromJSON('["spietrza","pawelkrystkiewicz"]'), github.event.sender.login)) ||
       (github.event.pull_request.user.login == 'taskcell[bot]' && github.event.sender.login == 'taskcell[bot]'))
@@ -44,13 +44,13 @@ jobs:
       github.event_name == 'workflow_dispatch' ||
       (needs.label-factory-pr.result == 'success' && github.event.sender.login != 'taskcell[bot]') ||
       (github.event.action == 'labeled' &&
-      github.event.label.name == 'ready for vanguard review' &&
+      contains(fromJSON('["ready for vanguard review","ready for taskcell review"]'), github.event.label.name) &&
       github.event.pull_request.draft == false &&
       contains(fromJSON('["spietrza","pawelkrystkiewicz"]'), github.event.sender.login) && (
       contains(fromJSON('["spietrza","pawelkrystkiewicz"]'), github.event.pull_request.user.login) ||
       (github.event.pull_request.user.login == 'taskcell[bot]' &&
       github.event.pull_request.head.repo.full_name == github.repository &&
-      startsWith(github.event.pull_request.head.ref, 'chore/vanguard-')))))
+      (startsWith(github.event.pull_request.head.ref, 'chore/vanguard-') || startsWith(github.event.pull_request.head.ref, 'chore/taskcell-'))))))
     # Job-level, not workflow-level: a run whose jobs are all skipped (any other label, any other opened PR)
     # never joins the group, so it cannot cancel a review that is waiting in it.
     concurrency:
@@ -59,12 +59,17 @@ jobs:
     uses: ./.github/workflows/pr-review.yml
     with:
       allowed-actors: '["spietrza","pawelkrystkiewicz"]'
-      llm-proxy: true
-      # Same model as the in-run reviewer (taskcell-implement.yml); was the CLI default (Opus) until 2026-11-12.
-      # Compare before/after with `taskcell stats --approver` and the lead-time / revise-round stats.
-      provider: claude
-      review-model: claude-fable-5-2
+      # Codex reviews since 2026-11-14: the Claude subscription is shared with every implement run and its 429s
+      # stopped all reviews. A Codex subscription cannot run behind the LLM proxy yet (#642), so the proxy is off
+      # for this job, for the Claude fallback too. Turn `llm-proxy` back on when #642 is merged.
+      llm-proxy: false
+      provider: codex
+      review-model: gpt-5.6-sol
+      fallback-provider: claude
+      # Opus, not Fable: the subscription's Fable limit is the one the implement runs and the maintainer exhaust.
+      fallback-model: opus
       # One run reviews every labelled PR; four at a time instead of two.
       review-concurrency: '4'
     secrets:
       CLAUDE_CODE_OAUTH_TOKEN: ${{ secrets.CLAUDE_CODE_OAUTH_TOKEN }}
+      CODEX_AUTH_JSON: ${{ secrets.CODEX_AUTH_JSON }}
