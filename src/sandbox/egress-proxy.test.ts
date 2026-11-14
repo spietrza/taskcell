@@ -224,6 +224,12 @@ describe('allowlistWithout', () => {
 });
 
 describe('llmProxyEgressAllowlist', () => {
+  it('drops chatgpt.com from a base list that contains it; auth.openai.com is never allowed', () => {
+    const result = llmProxyEgressAllowlist([...DEFAULT_EGRESS_ALLOWLIST, 'chatgpt.com']);
+    expect(isAllowed('chatgpt.com', result)).toBe(false);
+    expect(isAllowed('auth.openai.com', result)).toBe(false);
+  });
+
   it('excludes the sidecar-owned upstream hosts but keeps non-upstream hosts', () => {
     const result = llmProxyEgressAllowlist();
     expect(result).not.toContain('api.anthropic.com');
