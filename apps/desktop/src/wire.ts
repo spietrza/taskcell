@@ -68,6 +68,8 @@ export interface CreateRunParams {
   transport?: string;
   maxTurns?: number;
   baseBranch?: string;
+  /** Installed skill ids the run must load, on top of the automatic selection; an unknown id fails the run before any model call. */
+  skills?: string[];
   /** Hub only: who started the run. Set server-side from the request's actor, never from the client. */
   startedBy?: string;
 }
@@ -271,6 +273,8 @@ export interface BoardTask {
   chips?: BoardChip[];
   /** The branch this card's PR targets: its `taskcell:base=` label, else the repo default. Absent when neither is set (`main`). */
   baseBranch?: string;
+  /** Skills the task names by hand (its `Skills:` line). Absent when none. */
+  skills?: string[];
   /** The tracker the card came from; names the "Open in …" link. */
   source?: 'github' | 'gitlab' | 'linear';
   /** The issue's address in that tracker, as the tracker returned it. Absent ⇒ no link. */
@@ -348,6 +352,8 @@ export interface RunRecord {
   attempts?: number;
   /** Ids of the lessons injected into this run's prompts (`taskcell lessons list` counts them). */
   lessonIds?: string[];
+  /** Skills named by hand vs left to automatic selection. Absent on older records. */
+  skills?: { named: string[]; auto: string[] };
 }
 
 export interface Proof {
@@ -1111,6 +1117,8 @@ export interface Commands {
   list_branches: { args: { repoPath: string }; result: { branches: string[]; default?: string } };
   /** HUB_ONLY: apply a trigger label to a GitHub issue of the project (src/hub/start-task.ts). */
   start_task: { args: { repoPath: string; number: number; label: string }; result: StartTaskResult };
+  /** HUB_ONLY, read-only: the ids of the skills a run of this project can load (what a hand-picked list is checked against). */
+  list_skills: { args: { repoPath: string }; result: { skills: string[] } };
   /** HUB_ONLY: token-only mode has exactly one team and the caller acts as its admin. */
   list_teams: { args: undefined; result: Team[] };
   /** HUB_ONLY: one team by id (`null` when unknown). */
@@ -1186,6 +1194,7 @@ export const COMMAND_NAMES = [
   'list_remote_runs',
   'list_runs',
   'list_runs_all',
+  'list_skills',
   'list_spawns',
   'list_tasks',
   'list_tasks_all',

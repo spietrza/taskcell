@@ -23,6 +23,7 @@ import { buildReviewerAttribution, hasBlockingFinding } from '../pipeline/review
 import { stripReviewMarkers } from './review-prompt.js';
 import { authSecrets } from '../agents/auth.js';
 import { beginRun, persistDecisionProbe } from '../core/run-store.js';
+import type { RunSkills } from '../core/run-store.js';
 import type { SecretBlock } from '../core/secret-scan.js';
 import { injectedSecretValues, redactForPublish } from '../core/secret-scan.js';
 import { summarizeOutcomes } from '../core/run-summary.js';
@@ -60,6 +61,7 @@ import type { GateResult, RepairGateOptions } from '../pipeline/repair-gate.js';
 import type { RunResult } from '../core/types.js';
 import type { RunEvent } from '../pipeline/events.js';
 import { skillRegistryForRun } from '../context/skill-registry.js';
+import { assertSkillsInstalled, namedSkillsPrompt, normalizeSkillNames, parseSkillsLine, providerSupportsSkills } from '../context/named-skills.js';
 import { readEnv } from '../core/env.js';
 
 /** Issue label that skips the base-red check: the task is meant to fix the red base. */
@@ -123,6 +125,11 @@ export interface RunOptions extends ProviderChoice {
    */
   skillsDir?: string;
   /**
+   * Skills the run must load, named by hand (`--skill`, repeatable); merged with the task body's
+   * `Skills:` line. An id that is not installed fails the run before any model call.
+   */
+  namedSkills?: string[];
+  /**
    * Opt-in persistent pnpm store (off by default): mounts `/pnpm-store` into the sandbox and sets
    * `npm_config_store_dir`, so the base-red install and the post-implement reinstall (#655) stop
    * re-downloading a repo's dependencies from scratch. One store per repo, never shared — see
@@ -165,6 +172,7 @@ export function pickRunOptions(cmd: Readonly<Partial<RunOptions>>): RunOptions {
     ...(cmd.maxRepairIterations !== undefined ? { maxRepairIterations: cmd.maxRepairIterations } : {}),
     ...(cmd.specFile !== undefined ? { specFile: cmd.specFile } : {}),
     ...(cmd.skillsDir !== undefined ? { skillsDir: cmd.skillsDir } : {}),
+    ...(cmd.namedSkills !== undefined ? { namedSkills: cmd.namedSkills } : {}),
     ...(cmd.pnpmStore !== undefined ? { pnpmStore: cmd.pnpmStore } : {}),
   };
 }
@@ -409,6 +417,11 @@ export async function runSourcedIssue(
 
   // Every source gets the same skills: the --skills dir plus the repo's own .github/vanguard-skills/.
   const [{ task: fetchedTask }, skills] = await Promise.all([adapter.prepare(issueRef), skillRegistryForRun(deps.skillsDir, deps.repoPath)]);
+  // Skills named by hand: `--skill` plus the task body's `Skills:` line. An unknown id stops the run here,
+  // before the provider proxies, the sandbox and any model call.
+  const namedSkills = normalizeSkillNames([...(deps.namedSkills ?? []), ...parseSkillsLine(fetchedTask.description)]);
+  assertSkillsInstalled(namedSkills, skills.ids());
+  const skillsRecord: RunSkills = { named: namedSkills, auto: skills.ids().filter((id) => !namedSkills.includes(id)) };
   // --spec-file: layer the local spec onto the fetched task as a virtual comment — the implementer
   // prompt ({{COMMENTS}}), triage, and the conformance manifest read it exactly like a posted spec,
   // with nothing written to the tracker. Copy, don't mutate: the fetched object may be shared.
@@ -502,6 +515,9 @@ export async function runSourcedIssue(
       { skills },
     );
     let outcomes: StageOutcome[] = [];
+    // A provider whose CLI reads no skills cannot honour a hand-picked list: say so in the run summary instead of dropping it silently.
+    const skillNotes = namedSkills.length > 0 && !providerSupportsSkills(agents.agent.name) ? [`Skills ([${namedSkills.join(', ')}]) were named, but provider ${agents.agent.name} does not support skills; they were not loaded.`] : [];
+    if (skillNotes[0] !== undefined) console.log(`taskcell: ${task.id} ${skillNotes[0]}`);
     // On Actions each run leaves one block in the job's Summary tab, built from the same outcomes as
     // the run record + metrics.jsonl so the two never disagree. No GITHUB_STEP_SUMMARY ⇒ no-op.
     const stepSummary = (exit: StepSummaryExit, extra: Pick<StepSummary, 'prUrl' | 'error'> = {}): Promise<void> => {
@@ -513,6 +529,7 @@ export async function runSourcedIssue(
         ...(model !== undefined ? { model } : {}),
         outcomes,
         exit,
+        ...(skillNotes.length > 0 ? { notes: skillNotes } : {}),
         ...extra,
       });
     };
@@ -570,7 +587,7 @@ export async function runSourcedIssue(
         ...(deps.credentialSource !== undefined ? { credentialSource: deps.credentialSource } : {}),
       };
       // Lessons are only all known once the gate repairs have run, so read them at write time.
-      const stageMeta = (): typeof runMeta & { lessonIds: string[] } => ({ ...runMeta, lessonIds: [...lessonIds] });
+      const stageMeta = (): typeof runMeta & { lessonIds: string[]; skills: RunSkills } => ({ ...runMeta, lessonIds: [...lessonIds], skills: skillsRecord });
       // One RunWriter for the whole run: it owns the timestamp, so proof.json, visual-proof.json and
       // every stage record share one prefix and the hub/desktop readers can match a run's proof to
       // its stage records by name.
@@ -631,6 +648,7 @@ export async function runSourcedIssue(
         ...taskToVariables(task, { allowedAuthors: deps.feedbackAuthors }),
         ...(adapter.variables?.(issueRef, task) ?? {}),
         RETROSPECTIVE_MEMORY: escapePromptTags(retrospectiveMemory),
+        NAMED_SKILLS: namedSkillsPrompt(namedSkills),
       };
       // Deterministic spec-manifest vs diff conformance gate, joined with the verify command into a
       // single shared-cap repair loop: either gate failing resumes the implementer's own session with a

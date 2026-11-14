@@ -7,6 +7,7 @@ import type { Capabilities } from '../../ipc';
 vi.mock('../../ipc.js', () => ({
   apiListFlows: vi.fn(async () => ({ flows: [] })),
   apiListProviders: vi.fn(async () => ({ providers: [] })),
+  apiListSkills: vi.fn(async () => ({ skills: ['ponytail', 'simplify'] })),
 }));
 
 const caps: Capabilities = {
@@ -150,4 +151,14 @@ test('each select has an accessible name matching its visible label', async () =
   render(<NewRunForm capabilities={caps} project="/repo" onRun={vi.fn()} onCancel={() => {}} />);
   await waitFor(() => expect(ipc.apiListFlows).toHaveBeenCalled());
   for (const name of ['Task source', 'Provider', 'Flow']) expect(screen.getByRole('combobox', { name })).toBeInTheDocument();
+});
+
+test('hand-picked skills ride on the run params', async () => {
+  const onRun = vi.fn();
+  render(<NewRunForm capabilities={caps} project="/repo" onRun={onRun} onCancel={() => {}} />);
+  fireEvent.change(screen.getByLabelText('Issue ref'), { target: { value: '5' } });
+  fireEvent.click(screen.getByText('Advanced'));
+  fireEvent.click(await screen.findByLabelText('ponytail'));
+  fireEvent.click(screen.getByRole('button', { name: 'Run' }));
+  expect(onRun).toHaveBeenCalledWith(expect.objectContaining({ issueRef: '5', skills: ['ponytail'] }));
 });

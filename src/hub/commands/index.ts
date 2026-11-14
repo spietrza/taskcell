@@ -105,6 +105,7 @@ export const COMMAND_NAMES = [
   'list_remote_runs',
   'list_runs',
   'list_runs_all',
+  'list_skills',
   'list_spawns',
   'list_tasks',
   'list_tasks_all',

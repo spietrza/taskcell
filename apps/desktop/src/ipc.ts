@@ -535,3 +535,8 @@ export function readApproverDecisions(repoPath: string): Promise<{ decisions: Ap
 export function setApproverMode(repoPath: string, mode: ApproverMode, confirmBelowBar?: boolean): Promise<ApproverModeChange> {
   return call('set_approver_mode', { repoPath, mode, ...(confirmBelowBar === true ? { confirmBelowBar } : {}) });
 }
+
+/** HUB_ONLY: the ids of the skills a run of this project can load, for the New Run skill picker. */
+export function apiListSkills(repoPath: string): Promise<{ skills: string[] }> {
+  return call('list_skills', { repoPath });
+}

@@ -132,6 +132,7 @@ describe('runSidecar', () => {
 
   it.each([
     ['unknown transport', { issueRef: 'gh-1', repoPath: '/repo', transport: 'gitub' }],
+    ['skills not ids', { issueRef: 'gh-1', repoPath: '/repo', skills: ['../x'] }],
     ['blank flow', { issueRef: 'gh-1', repoPath: '/repo', flow: '  ' }],
     ['non-string flow', { issueRef: 'gh-1', repoPath: '/repo', flow: 7 }],
     ['non-numeric maxTurns', { issueRef: 'gh-1', repoPath: '/repo', maxTurns: 'abc' }],

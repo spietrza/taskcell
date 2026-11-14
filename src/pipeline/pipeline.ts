@@ -568,6 +568,7 @@ export function retrospectiveMemoryBlock(): string {
     'Retrospective memory from prior Taskcell runs; use only when relevant to this task.',
     '{{RETROSPECTIVE_MEMORY}}',
     '</retrospective_memory>',
+    '{{NAMED_SKILLS}}',
   ].join('\n');
 }
 

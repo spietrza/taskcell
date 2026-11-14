@@ -1,4 +1,6 @@
 import { execa } from 'execa';
+import { mkdir, writeFile } from 'node:fs/promises';
+import { join } from 'node:path';
 import { describe, expect, test, vi } from 'vitest';
 import { classifyError, type RpcContext } from '../rpc.js';
 import { writeAppConfig } from '../app-config.js';
@@ -148,6 +150,13 @@ describe('tasks', () => {
       expect(await dispatchRpc(ctx, 'read_app_config', { repoPath: repo })).toMatchObject({ baseBranches: ['uat'] });
     });
 
+    test('list_skills names the skills a run of the project can load', async () => {
+      const repo = await tmpRepo();
+      const { ctx } = await makeCtx(repo);
+      await mkdir(join(repo, '.github/vanguard-skills/db'), { recursive: true });
+      await writeFile(join(repo, '.github/vanguard-skills/db/SKILL.md'), '---\nname: db\n---\n');
+      expect(((await dispatchRpc(ctx, 'list_skills', { repoPath: repo })) as { skills: string[] }).skills).toContain('db');
+    });
     test('list_branches offers only the allowlisted targets plus the configured default', async () => {
       const repo = await tmpRepo();
       const { ctx } = await makeCtx(repo);

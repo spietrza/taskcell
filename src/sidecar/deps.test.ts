@@ -294,7 +294,7 @@ describe('createRun: the real credential never reaches Docker secrets (source-ad
       editGithubLabels: vi.fn(),
       commentGithubIssue: vi.fn(),
     }));
-    vi.doMock('../context/skill-registry.js', () => ({ skillRegistryForRun: vi.fn(async () => ({})) }));
+    vi.doMock('../context/skill-registry.js', () => ({ skillRegistryForRun: vi.fn(async () => ({ ids: () => [] })) }));
     const capturedSecrets: Array<Record<string, string>> = [];
     vi.doMock('../sandbox/docker.js', () => ({
       sandboxImage: (): string => 'vanguard-sandbox:latest',

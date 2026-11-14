@@ -700,3 +700,7 @@ that option's commands, and remembers the choice in the browser with the rest of
 An `export` line only takes effect for a hub started after it: the hub reads its environment at
 start. After exporting, restart the hub (or save the key in Settings → credentials, where that
 exists) and then press **Check again**.
+
+## Choosing skills
+
+The New Run form has a **skills** multi-select (Advanced) listing the project's installed skills (`list_skills`, read-only); the choice goes to the run as `skills` and is checked like `taskcell run --skill` (an unknown id fails the run before any model call). A task card shows the skills its issue body names (`Skills: a, b`) as `skills: …`; the card's `skills` field is parsed from that line. `list_skills` changes no state, so it is not in the audit list.

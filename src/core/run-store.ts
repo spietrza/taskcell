@@ -338,6 +338,12 @@ export async function readRunRecords(root: string, taskId: string, timestamp: st
 // Writing
 // ---------------------------------------------------------------------------
 
+/** Which skills a run loaded by hand and which it left to automatic selection. */
+export interface RunSkills {
+  named: string[];
+  auto: string[];
+}
+
 export interface WriteStagesOptions {
   /** The PR opened for this run, if any. */
   prUrl?: string;
@@ -362,6 +368,7 @@ export interface WriteStagesOptions {
   omitDiff?: boolean;
   /** Ids of the lessons injected into the run's prompts, recorded on every stage. */
   lessonIds?: readonly string[];
+  skills?: RunSkills;
 }
 
 /** A handle for one run: owns its timestamp, so every record it writes shares one prefix. */
@@ -395,6 +402,7 @@ interface WriteRecordOptions {
   credentialSource?: 'instance' | 'user';
   startedBy?: string;
   lessonIds?: readonly string[];
+  skills?: RunSkills;
 }
 
 /**
@@ -456,6 +464,7 @@ async function writeRecord(repoPath: string, taskId: string, timestamp: string, 
     ...(diffOmitted !== undefined ? { diffOmitted } : {}),
     ...(opts.startedBy !== undefined ? { startedBy: opts.startedBy } : {}),
     ...(opts.lessonIds !== undefined && opts.lessonIds.length > 0 ? { lessonIds: [...opts.lessonIds] } : {}),
+    ...(opts.skills !== undefined ? { skills: opts.skills } : {}),
   };
   const suffix = opts.label !== undefined ? `-${opts.label}` : '';
   const base = join(taskDir, `${sanitizeTimestamp(timestamp)}${suffix}`);
@@ -544,11 +553,12 @@ export function beginRun(
           ...(opts.credentialSource !== undefined ? { credentialSource: opts.credentialSource } : {}),
           ...(runOpts.startedBy !== undefined ? { startedBy: runOpts.startedBy } : {}),
           ...(opts.lessonIds !== undefined ? { lessonIds: opts.lessonIds } : {}),
+          ...(opts.skills !== undefined ? { skills: opts.skills } : {}),
         });
       }
       const first = outcomes[0];
       if (first === undefined) return;
-      const { omitDiff: _omitDiff, baseBranch: _baseBranch, lessonIds: _lessonIds, ...trace } = opts;
+      const { omitDiff: _omitDiff, baseBranch: _baseBranch, lessonIds: _lessonIds, skills: _skills, ...trace } = opts;
       await exportRunTrace({
         taskId,
         timestamp,

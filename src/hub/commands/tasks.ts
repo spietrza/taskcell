@@ -1,5 +1,6 @@
 // Hub commands: the task board and creating/starting tasks. One module per feature — contract, validation and handler live here;
 // `pnpm gen:wire` derives Commands, COMMAND_NAMES and dispatch from it (see CONTRIBUTING.md).
+import { skillRegistryForRun } from '../../context/skill-registry.js';
 import { BadRequestError, invokeCoreMethod, type CreateTaskParams } from '../../sidecar/sidecar.js';
 import { assertMutationsAllowed } from '../allowlist.js';
 import { BASE_LABEL_PREFIX, assertAllowedBase, assertSafeBaseBranch, readAllowedBases, readRepoBaseBranch } from '../../core/base-branch.js';
@@ -19,6 +20,8 @@ export interface TasksCommands {
   list_branches: { args: { repoPath: string }; result: { branches: string[]; default?: string } };
   /** HUB_ONLY: apply a trigger label to a GitHub issue of the project (src/hub/start-task.ts). */
   start_task: { args: { repoPath: string; number: number; label: string }; result: StartTaskResult };
+  /** HUB_ONLY, read-only: the ids of the skills a run of this project can load (what a hand-picked list is checked against). */
+  list_skills: { args: { repoPath: string }; result: { skills: string[] } };
 }
 
 /** GitHub's cap on a label name. */
@@ -31,6 +34,10 @@ async function listBranches(repoPath: string): Promise<{ branches: string[]; def
 }
 
 export const commands = defineCommands<TasksCommands>({
+  list_skills: async ({ args, allow }) => {
+    const real = await allow(requireString(args, 'repoPath'));
+    return { skills: (await skillRegistryForRun(process.env.SKILLS_DIR, real)).ids().sort() };
+  },
   list_tasks: async ({ ctx, args, allow }) => {
     const real = await allow(requireString(args, 'repoPath'));
     return invokeCoreMethod(ctx.deps, 'listTasks', { repoPath: real });

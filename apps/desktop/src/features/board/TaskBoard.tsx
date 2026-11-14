@@ -247,6 +247,9 @@ export function TaskBoard({
                             const d = decisionForTask(t.id, approver.runs, approver.decisions);
                             return d !== undefined && <div className="text-[11px] text-muted-foreground" data-approver={d.outcome}>{decisionWords(d)}</div>;
                           })()}
+                          {t.skills && (
+                            <div className="pt-0.5 text-[11px] text-muted-foreground">skills: {t.skills.join(', ')}</div>
+                          )}
                           {t.baseBranch && (
                             <div className="pt-0.5 font-mono text-[11px] text-muted-foreground">→ {t.baseBranch}</div>
                           )}

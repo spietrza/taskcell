@@ -111,3 +111,13 @@ Copy the skill directory from that commit, set `source` to the repo URL, `path` 
 - `taskcell skills check [--dir <skills dir>] [--strict]` resolves each pinned source's default branch head with `git ls-remote` and reports `current`, `outdated` (with the upstream short sha) or `unknown` (the head could not be resolved). `--strict` exits 1 when any skill is outdated or modified; `unknown` does not fail it, so an unreachable upstream never breaks a build. It is read-only.
 
 `--dir` defaults to `<repo>/skills` (`--repo`, else the current directory). Both commands list exactly the skills the registry loads: a subdirectory with no `SKILL.md`, or a symlinked one, is not a skill. Both commands run on the host; the network is never touched from the sandbox.
+
+## Naming skills for a task
+
+Selection is automatic by default. To make a task use specific skills, add a line to the issue body (GitHub, GitLab, Linear):
+
+```
+Skills: db-migrations, release
+```
+
+or pass `taskcell run --skill db-migrations --skill release` for a one-off; both are merged. Named skills load in addition to the automatic selection, and the prompt tells the agent it must use them. Every name must be installed (the `--skills` dir plus the repo's `.github/vanguard-skills/`; `tech-spec` is spec-only and counts as not installed): an unknown name stops the run before any model call and prints the installed ids. The run record has `skills: { named, auto }`: the hand-picked ids, and the other installed ids left for the model to pick. A provider whose CLI reads no skills (the `pi` stub) records that in the run summary instead of silently ignoring the list.
