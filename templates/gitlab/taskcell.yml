@@ -1,0 +1,54 @@
+# Taskcell factory jobs for GitLab CI, added by the hub's "Enable factory" merge request and
+# included from .gitlab-ci.yml (`include: - local: .gitlab/taskcell.yml`). See docs/hub.md.
+#
+# Runner: needs a runner that can start the docker:dind service (privileged). Variables (Settings >
+# CI/CD > Variables): CLAUDE_CODE_OAUTH_TOKEN (masked) and GITLAB_TOKEN (masked; a token that can
+# read and comment on issues and MRs and push branches). TASKCELL_REF pins the Taskcell release the
+# jobs build; raise it deliberately, the code runs with those secrets.
+#
+# These jobs run only when a pipeline is started with a variable, so they never join your own
+# pipelines: TASKCELL_DOCTOR=true (the hub's "Run doctor") for the doctor, TASKCELL_SWEEP=true
+# for the implement and review sweeps (create a Build > Pipeline schedule with that variable).
+
+variables:
+  TASKCELL_REF: v1
+  GLAB_VERSION: "1.50.0"
+
+.taskcell-base:
+  image: node:24-bookworm
+  services:
+    - name: docker:27-dind
+      alias: docker
+  variables:
+    DOCKER_HOST: tcp://docker:2375
+    DOCKER_TLS_CERTDIR: ""
+  before_script:
+    - apt-get update && apt-get install -y --no-install-recommends git ca-certificates curl docker.io
+    - curl -fsSL -o /tmp/glab.deb "https://gitlab.com/gitlab-org/cli/-/releases/v${GLAB_VERSION}/downloads/glab_${GLAB_VERSION}_linux_amd64.deb" && dpkg -i /tmp/glab.deb
+    - git clone --depth 1 --branch "$TASKCELL_REF" https://github.com/spietrza/taskcell.git /opt/taskcell
+    - npm install --global pnpm
+    - cd /opt/taskcell && pnpm install --frozen-lockfile && pnpm build && ./docker/build.sh && cd "$CI_PROJECT_DIR"
+
+# Doctor: green = ready to label an issue.
+taskcell-doctor:
+  extends: .taskcell-base
+  rules:
+    - if: $TASKCELL_DOCTOR == "true"
+  script:
+    - node /opt/taskcell/dist/cli/index.js doctor --source gitlab --gitlab-project "$CI_PROJECT_PATH" --label "ready for agent"
+
+# Implement: sweeps the issues labelled `ready for agent`.
+taskcell-implement:
+  extends: .taskcell-base
+  rules:
+    - if: $TASKCELL_SWEEP == "true"
+  script:
+    - node /opt/taskcell/dist/cli/index.js watch --source gitlab --gitlab-project "$CI_PROJECT_PATH" --label "ready for agent" --once
+
+# Review: reviews the MRs labelled `ready for vanguard review`.
+taskcell-review:
+  extends: .taskcell-base
+  rules:
+    - if: $TASKCELL_SWEEP == "true"
+  script:
+    - node /opt/taskcell/dist/cli/index.js watch-mrs --gitlab-project "$CI_PROJECT_PATH" --label "ready for vanguard review" --once

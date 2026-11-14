@@ -813,21 +813,22 @@ export interface SpawnInfo {
   command: string;
 }
 
-/** Enable-factory provider seam (hub § "Enable factory"): GitHub Actions is implemented; GitLab and
- * Linear are "planned" in the UI and never reach `enable_factory_*` (see docs/task-sources.md,
+/** Enable-factory provider seam (hub § "Enable factory"): GitHub Actions and GitLab CI are
+ * implemented; Linear is "planned" in the UI and never reaches `enable_factory_*` (see
  * docs/onboarding-linear.md). */
 export type FactoryProviderId = 'github' | 'gitlab' | 'linear';
 
 /** What `enable_factory_plan` detected and what `enable_factory_apply` will do with it. */
 export interface FactoryPlan {
-  provider: 'github';
+  provider: 'github' | 'gitlab';
+  /** `owner/repo` (GitHub) or the `group/subgroup/project` path (GitLab). */
   repoSlug: string;
   defaultBranch: string;
   login: string;
   packageManager: string;
   verifyCommand?: string;
   scripts: { typecheck: boolean; lint: boolean; test: boolean; build: boolean };
-  /** Repo-relative paths `apply` will add, e.g. `.github/workflows/taskcell-implement.yml`. */
+  /** Repo-relative paths `apply` will add or edit, e.g. `.github/workflows/taskcell-implement.yml` (GitLab: `.gitlab-ci.yml`, `.gitlab/taskcell.yml`). */
   callerFiles: string[];
   /** The callers already on the default branch, under the `taskcell-` or legacy `vanguard-` name — `apply` leaves those untouched. */
   existingCallerFiles?: string[];
@@ -836,6 +837,7 @@ export interface FactoryPlan {
 
 export interface FactoryApplyResult {
   branch: string;
+  /** The pull request (GitLab: merge request) URL. */
   prUrl: string;
   labelsCreated: string[];
 }
@@ -850,6 +852,9 @@ export interface FactoryVerifyResult {
   dispatched: boolean;
   run?: { url: string; status: string; conclusion: string };
 }
+
+/** Which code host a project's `origin` is on, for the Enable factory dialog's run-location choice. */
+export type FactoryHost = 'github' | 'gitlab' | 'other' | 'none';
 
 /** The four steps of the in-app Enable factory checklist, in order. */
 export type FactoryStepId = 'pr' | 'secret' | 'merged' | 'doctor';
@@ -1010,17 +1015,19 @@ export interface Commands {
   delete_draft: { args: { repoPath: string; id: string }; result: void };
   write_draft_asset: { args: { repoPath: string; id: string; name: string; bytes: number[] }; result: string };
   clear_draft_assets: { args: { repoPath: string; id: string }; result: void };
+  /** Which code host the project's `origin` is on (`github`, `gitlab`, `other`, or `none` without a remote): the dialog offers GitLab CI only for `gitlab`. */
+  enable_factory_host: { args: { repoPath: string }; result: { host: FactoryHost } };
   /** HUB_ONLY: read the repo (default branch, package manager, verify command) and report what
-   *  `enable_factory_apply` would change — no writes yet. GitHub only; `provider` is accepted for
-   *  forward compatibility with GitLab/Linear, which the UI marks "coming soon" instead of calling this. */
+   *  `enable_factory_apply` would change — no writes yet. GitHub Actions or GitLab CI (through `glab`);
+   *  Linear has no adapter and the UI marks it planned instead of calling this. */
   enable_factory_plan: { args: { repoPath: string; provider: FactoryProviderId }; result: FactoryPlan };
-  /** HUB_ONLY: create a branch, add the five caller workflows, open a PR (never push to the default
+  /** HUB_ONLY: create a branch, add the five caller workflows (GitLab: the include and `.gitlab-ci.yml` edit), open a PR/MR (never push to the default
    *  branch) and create the routing labels. */
   enable_factory_apply: { args: { repoPath: string; plan: FactoryPlan }; result: FactoryApplyResult };
-  /** HUB_ONLY: the `gh secret set` command text for the user to run themselves — the hub never
+  /** HUB_ONLY: the `gh secret set` (GitLab: `glab variable set`) command text for the user to run themselves — the hub never
    *  reads, prints or stores the secret value. */
   enable_factory_secret: { args: { repoPath: string; plan: FactoryPlan }; result: FactorySecretStep };
-  /** HUB_ONLY: dispatch the doctor workflow (once the PR above is merged) and report the run that dispatch created. */
+  /** HUB_ONLY: dispatch the doctor workflow, or start the doctor pipeline on GitLab (once the PR/MR above is merged) and report the run that dispatch created. */
   enable_factory_verify: { args: { repoPath: string; plan: FactoryPlan }; result: FactoryVerifyResult };
   /** HUB_ONLY: start (or restart) the project's persisted checklist from a freshly derived plan —
    *  used when the callers are already on the default branch and there is no PR to open. */
@@ -1163,6 +1170,7 @@ export const COMMAND_NAMES = [
   'delete_user_credential',
   'dismiss_lesson',
   'enable_factory_apply',
+  'enable_factory_host',
   'enable_factory_plan',
   'enable_factory_secret',
   'enable_factory_start',

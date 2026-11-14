@@ -20,6 +20,7 @@ import type {
   CredentialsSummary,
   CredentialPolicy,
   FactoryApplyResult,
+  FactoryHost,
   FactoryPlan,
   FactoryProviderId,
   FactoryState,
@@ -96,6 +97,11 @@ export function cloneProject(url: string, parentDir: string, name?: string): Pro
 
 // Enable factory (hub-only): plan -> apply (branch + PR, never the default branch) -> secret
 // command text for the user to run -> verify (dispatch the doctor workflow). See src/hub/enable-factory.ts.
+/** Which code host the project's origin is on; the dialog offers GitLab CI only for a GitLab remote. */
+export function enableFactoryHost(repoPath: string): Promise<{ host: FactoryHost }> {
+  return call('enable_factory_host', { repoPath });
+}
+
 export function enableFactoryPlan(repoPath: string, provider: FactoryProviderId): Promise<FactoryPlan> {
   return call('enable_factory_plan', { repoPath, provider });
 }

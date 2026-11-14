@@ -506,7 +506,7 @@ Replies and merges are a remote mutation, gated like `clone_project`: loopback o
 
 **Enable factory** on a project card (hub only) turns on the GitHub Actions factory for that repo in
 four steps, following [onboarding-another-repo.md](onboarding-another-repo.md)
-(`src/hub/enable-factory.ts`). GitLab and Linear show as coming soon.
+(`src/hub/enable-factory.ts`). GitLab CI has its own flow, below; Linear shows as planned.
 
 1. **Plan** reads the repo with `gh` and changes nothing: the slug, the default branch, the signed-in
    `gh` login (it becomes the callers' actor gate), the package manager and scripts, and the caller
@@ -528,6 +528,19 @@ the secret step has a copy button and "Check again" (`gh secret list`, names onl
 detects the merged PR on its own and links it, and the verify step dispatches the doctor and shows
 the linked run's status live. The project card shows the state: not enabled, setting up (current
 step), ready, or broken (the reason: a closed PR or a failed doctor run).
+
+### GitLab CI
+
+The dialog offers **GitLab CI** only when `origin` is on GitLab (gitlab.com, or the host named by `GITLAB_HOST`); `enable_factory_host` reports which host it is. For a GitHub project, or one with no remote, the row stays unavailable and says why. The checklist is the same four steps, through `glab` (`src/hub/enable-factory-gitlab.ts`):
+
+1. **Plan** reads the project (`glab api`): path, default branch, the signed-in `glab` user, and whether `.gitlab/taskcell.yml` and its include already exist on the default branch.
+2. **Apply** adds the factory jobs (`templates/gitlab/taskcell.yml`: doctor, implement, review) as `.gitlab/taskcell.yml` and includes them from `.gitlab-ci.yml` (created if missing; otherwise an `include:` entry is added, or the `include:` block list gets one more entry), on the branch `vanguard/enable-factory`, pushes that branch, creates the routing labels and opens a **merge request** with `glab mr create`. The hub never commits CI config to the default branch: a human merges the MR. If the existing `include:` is in a form the hub cannot edit safely (a single value or an inline list), only `.gitlab/taskcell.yml` is added, which leaves the pipeline valid, and the MR description tells you to add `- local: .gitlab/taskcell.yml` by hand before merging. A project the account cannot push to or open merge requests on is refused when apply tries, with one sentence.
+3. **Secret** shows a command that reads the token silently and pipes it to `glab variable set CLAUDE_CODE_OAUTH_TOKEN --masked --repo <group/project>` (glab reads the value from stdin; it does not prompt). The hub checks that a CI/CD variable of that name exists with one `GET .../variables/CLAUDE_CODE_OAUTH_TOKEN` (it needs Maintainer access and the answer is only used as present or absent). A Developer, or a group-level variable, is not visible to that check; a passing doctor marks the step done. The jobs also need a masked `GITLAB_TOKEN` variable (read and comment on issues and MRs, push branches); the hub does not check it, the doctor does.
+4. **Verify**, once the MR is merged, starts a pipeline on the default branch with `TASKCELL_DOCTOR=true` (`glab ci run`) and follows the `taskcell-doctor` job in it. GitLab runs every job without `rules:` in a pipeline started this way, so the project's own such jobs run too (they do not decide the doctor's result).
+
+The included jobs run only in pipelines started with a variable, so they never join your own pipelines: `TASKCELL_DOCTOR=true` for the doctor, `TASKCELL_SWEEP=true` for the implement and review sweeps, which you start by hand or from a **Build > Pipeline schedules** entry carrying that variable (the hub creates no schedule). The jobs build the pinned Taskcell release (`TASKCELL_REF`, default `v1`) in a `node:24` job with a `docker:dind` service, so the runner must allow privileged services.
+
+Each step shows its state; the dialog polls the MR merge and the pipeline, "Check again" re-reads the variable and "Run doctor again" retries the pipeline. A project with no remote, a missing `glab`, no `glab` sign-in or no permission gets one plain sentence, not the raw command error. The same loopback / `TASKCELL_HUB_ALLOW_ADD=1` gate applies to apply and verify, and both are audited as `enable-factory`.
 
 Apply and verify change the remote, so they are gated like `clone_project`: loopback only, unless
 `TASKCELL_HUB_ALLOW_ADD=1`. The `gh` login must be able to push workflow files (classic `repo` and

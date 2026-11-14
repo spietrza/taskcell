@@ -2,23 +2,26 @@
 // `pnpm gen:wire` derives Commands, COMMAND_NAMES and dispatch from it (see CONTRIBUTING.md).
 import { BadRequestError } from '../../sidecar/sidecar.js';
 import { assertMutationsAllowed } from '../allowlist.js';
-import { enableFactory, factoryPlanTargets, GITHUB_REPO_SLUG, noScripts } from '../enable-factory.js';
+import { factoryPlanTargets, GITHUB_REPO_SLUG, noScripts } from '../enable-factory.js';
+import { factoryHostOf, factoryProviderFor, GITLAB_LOGIN, GITLAB_PROJECT_PATH, gitlabPlanTargets } from '../enable-factory-gitlab.js';
 import { factoryState, callersPresent, newFactoryRecord, refreshFactory, updateFactoryRecord, writeFactoryRecord } from '../factory-checklist.js';
-import type { FactoryApplyResult, FactoryPlan, FactoryProviderId, FactorySecretStep, FactoryState, FactoryVerifyResult } from '../../wire.js';
+import type { FactoryApplyResult, FactoryHost, FactoryPlan, FactoryProviderId, FactorySecretStep, FactoryState, FactoryVerifyResult } from '../../wire.js';
 import { defineCommands, requireString, optionalString, requireOneOf, requireMatch, repoTarget, assertHasRemote } from '../command-kit.js';
 
 export interface EnableFactoryCommands {
+  /** Which code host the project's `origin` is on (`github`, `gitlab`, `other`, or `none` without a remote): the dialog offers GitLab CI only for `gitlab`. */
+  enable_factory_host: { args: { repoPath: string }; result: { host: FactoryHost } };
   /** HUB_ONLY: read the repo (default branch, package manager, verify command) and report what
-   *  `enable_factory_apply` would change — no writes yet. GitHub only; `provider` is accepted for
-   *  forward compatibility with GitLab/Linear, which the UI marks "coming soon" instead of calling this. */
+   *  `enable_factory_apply` would change — no writes yet. GitHub Actions or GitLab CI (through `glab`);
+   *  Linear has no adapter and the UI marks it planned instead of calling this. */
   enable_factory_plan: { args: { repoPath: string; provider: FactoryProviderId }; result: FactoryPlan };
-  /** HUB_ONLY: create a branch, add the five caller workflows, open a PR (never push to the default
+  /** HUB_ONLY: create a branch, add the five caller workflows (GitLab: the include and `.gitlab-ci.yml` edit), open a PR/MR (never push to the default
    *  branch) and create the routing labels. */
   enable_factory_apply: { args: { repoPath: string; plan: FactoryPlan }; result: FactoryApplyResult };
-  /** HUB_ONLY: the `gh secret set` command text for the user to run themselves — the hub never
+  /** HUB_ONLY: the `gh secret set` (GitLab: `glab variable set`) command text for the user to run themselves — the hub never
    *  reads, prints or stores the secret value. */
   enable_factory_secret: { args: { repoPath: string; plan: FactoryPlan }; result: FactorySecretStep };
-  /** HUB_ONLY: dispatch the doctor workflow (once the PR above is merged) and report the run that dispatch created. */
+  /** HUB_ONLY: dispatch the doctor workflow, or start the doctor pipeline on GitLab (once the PR/MR above is merged) and report the run that dispatch created. */
   enable_factory_verify: { args: { repoPath: string; plan: FactoryPlan }; result: FactoryVerifyResult };
   /** HUB_ONLY: start (or restart) the project's persisted checklist from a freshly derived plan —
    *  used when the callers are already on the default branch and there is no PR to open. */
@@ -29,8 +32,7 @@ export interface EnableFactoryCommands {
   factory_refresh: { args: { repoPath: string }; result: FactoryState };
 }
 
-/** The provider the client picked. Only `github` has an adapter; `enableFactory` itself rejects the
- * other two with a `not implemented` BadRequestError, so this only narrows the string. */
+/** The provider the client picked; `enableFactory` itself rejects `linear`, which has no adapter yet, with a `not implemented` BadRequestError, so this only narrows the string. */
 function requireProvider(args: Record<string, unknown>, key: string): FactoryProviderId {
   const v = requireString(args, key);
   if (v !== 'github' && v !== 'gitlab' && v !== 'linear') throw new BadRequestError(`${key} must be github, gitlab or linear`);
@@ -60,25 +62,29 @@ function requirePlan(args: Record<string, unknown>, key: string): FactoryPlan {
   const raw = args[key];
   if (typeof raw !== 'object' || raw === null) throw new BadRequestError(`${key} is required`);
   const plan = raw as Record<string, unknown>;
-  if (plan.provider !== 'github') throw new BadRequestError(`${key}.provider must be github`);
+  if (plan.provider !== 'github' && plan.provider !== 'gitlab') throw new BadRequestError(`${key}.provider must be github or gitlab`);
+  const gitlab = plan.provider === 'gitlab';
   const verifyCommand = optionalString(plan, 'verifyCommand');
   return {
-    provider: 'github',
-    repoSlug: requireMatch(plan, 'repoSlug', GITHUB_REPO_SLUG, 'owner/repo slug'),
+    provider: plan.provider,
+    repoSlug: gitlab ? requireMatch(plan, 'repoSlug', GITLAB_PROJECT_PATH, 'group/project path') : requireMatch(plan, 'repoSlug', GITHUB_REPO_SLUG, 'owner/repo slug'),
     defaultBranch: requireMatch(plan, 'defaultBranch', GIT_BRANCH, 'branch name'),
-    login: requireMatch(plan, 'login', GITHUB_LOGIN, 'GitHub login'),
+    login: gitlab ? requireMatch(plan, 'login', GITLAB_LOGIN, 'GitLab username') : requireMatch(plan, 'login', GITHUB_LOGIN, 'GitHub login'),
     packageManager: requireOneOf(plan, 'packageManager', ['pnpm', 'yarn', 'npm', 'none']),
     ...(verifyCommand !== undefined ? { verifyCommand } : {}),
     scripts: requireScripts(plan.scripts),
-    ...factoryPlanTargets(),
+    ...(gitlab ? gitlabPlanTargets() : factoryPlanTargets()),
   };
 }
 
 export const commands = defineCommands<EnableFactoryCommands>({
+  enable_factory_host: async ({ args, allow }) => ({ host: await factoryHostOf(await allow(requireString(args, 'repoPath'))) }),
   enable_factory_plan: async ({ args, allow }) => {
     const real = await allow(requireString(args, 'repoPath'));
-    const provider = enableFactory(real, requireProvider(args, 'provider'));
-    await assertHasRemote(real);
+    const id = requireProvider(args, 'provider');
+    const provider = factoryProviderFor(real, id);
+    // GitLab's plan states its own no-remote refusal; `gh` needs the check up front.
+    if (id !== 'gitlab') await assertHasRemote(real);
     return provider.plan();
   },
   enable_factory_apply: async ({ ctx, args, allow }) => {
@@ -86,12 +92,12 @@ export const commands = defineCommands<EnableFactoryCommands>({
     assertMutationsAllowed(ctx.bind);
     const real = await allow(requireString(args, 'repoPath'));
     const shown = requirePlan(args, 'plan');
-    const provider = enableFactory(real, 'github');
+    const provider = factoryProviderFor(real, shown.provider);
     // `login` becomes the callers' actor gate: apply a plan re-derived here, never the client's echo,
     // and refuse one that no longer matches what the user was shown.
     const plan = await provider.plan();
     if (plan.login !== shown.login || plan.repoSlug !== shown.repoSlug || plan.defaultBranch !== shown.defaultBranch) {
-      throw new BadRequestError('the plan no longer matches the repository (gh login, repo or default branch changed); review the new plan and apply again');
+      throw new BadRequestError('the plan no longer matches the repository (sign-in, repo or default branch changed); review the new plan and apply again');
     }
     const result = await provider.apply(plan);
     await updateFactoryRecord(real, plan, (r) => {
@@ -103,7 +109,8 @@ export const commands = defineCommands<EnableFactoryCommands>({
   },
   enable_factory_secret: async ({ args, allow }) => {
     const real = await allow(requireString(args, 'repoPath'));
-    return enableFactory(real, 'github').secretCommand(requirePlan(args, 'plan'));
+    const plan = requirePlan(args, 'plan');
+    return factoryProviderFor(real, plan.provider).secretCommand(plan);
   },
   enable_factory_verify: async ({ ctx, args, allow }) => {
     // Dispatches the doctor workflow, so it mutates the remote too.
@@ -112,7 +119,7 @@ export const commands = defineCommands<EnableFactoryCommands>({
     const shown = requirePlan(args, 'plan');
     // Re-derive the plan server-side, as apply and start do: the record (and its copy-ready
     // `gh secret set --repo <slug>` command) must never be seeded from a client-supplied slug.
-    const provider = enableFactory(real, 'github');
+    const provider = factoryProviderFor(real, shown.provider);
     const plan = await provider.plan();
     if (plan.repoSlug !== shown.repoSlug) {
       throw new BadRequestError('the plan no longer matches the repository (repo changed); review the new plan and verify again');
@@ -129,12 +136,12 @@ export const commands = defineCommands<EnableFactoryCommands>({
     assertMutationsAllowed(ctx.bind);
     const real = await allow(requireString(args, 'repoPath'));
     const shown = requirePlan(args, 'plan');
-    const plan = await enableFactory(real, 'github').plan();
+    const plan = await factoryProviderFor(real, shown.provider).plan();
     if (plan.login !== shown.login || plan.repoSlug !== shown.repoSlug || plan.defaultBranch !== shown.defaultBranch) {
-      throw new BadRequestError('the plan no longer matches the repository (gh login, repo or default branch changed); review the new plan and start again');
+      throw new BadRequestError('the plan no longer matches the repository (sign-in, repo or default branch changed); review the new plan and start again');
     }
     // Without every caller on the base there is a PR to open, which only `enable_factory_apply` does.
-    if (!callersPresent(plan)) throw new BadRequestError('the factory callers are not all on the default branch; open the PR instead');
+    if (!callersPresent(plan)) throw new BadRequestError('the factory callers are not all on the default branch; open the PR (GitLab: merge request) instead');
     await writeFactoryRecord(real, newFactoryRecord(plan));
     return factoryState(real);
   },

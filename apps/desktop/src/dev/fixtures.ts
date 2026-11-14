@@ -324,6 +324,17 @@ export const factoryPlan: FactoryPlan = {
   labels: ['ready for agent', 'needs revision', 'needs info', 'ready for spec', 'ready for vanguard review'],
 };
 
+export const gitlabFactoryPlan: FactoryPlan = {
+  provider: 'gitlab',
+  repoSlug: 'acme/my-app',
+  defaultBranch: 'main',
+  login: 'tanuki',
+  packageManager: 'pnpm',
+  scripts: { typecheck: true, lint: true, test: true, build: true },
+  callerFiles: ['.gitlab-ci.yml', '.gitlab/taskcell.yml'],
+  labels: factoryPlan.labels,
+};
+
 export const factoryApplyResult: FactoryApplyResult = {
   branch: 'vanguard/enable-factory',
   prUrl: 'https://github.com/acme/my-app/pull/42',
