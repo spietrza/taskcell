@@ -56,6 +56,7 @@ describe('run event log', () => {
     } while (page.hasMore);
     const live = [publish(7), publish(8)]; // delivered on SSE; the client skips ids it already read
     seen.push(...live.filter((id) => id > after));
+    await log.flush(); // the last two writes must settle before afterEach removes the directory
     expect(seen).toEqual([1, 2, 3, 4, 5, 6, 7, 8, 9]);
   });
 
