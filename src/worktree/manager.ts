@@ -22,9 +22,9 @@ export const TASKCELL_BRANCH_PREFIX = 'chore/taskcell-';
 export const LEGACY_BRANCH_PREFIX = 'chore/vanguard-';
 
 /**
- * Prefix new branches are minted under. Still the pre-rename one: the CI gates in .github/workflows (pr-review,
- * lessons, approver) and the shipped approver policy match `chore/vanguard-`; switch to TASKCELL_BRANCH_PREFIX once
- * those are updated. Both prefixes are recognised everywhere regardless.
+ * Prefix new branches are minted under. Still the pre-rename one: this repo's CI gates accept both prefixes, but
+ * the shipped approver policy default and callers' own gates may still match `chore/vanguard-` only; switch to
+ * TASKCELL_BRANCH_PREFIX once those are updated. Both prefixes are recognised everywhere regardless.
  */
 export const MINT_BRANCH_PREFIX = LEGACY_BRANCH_PREFIX;
 

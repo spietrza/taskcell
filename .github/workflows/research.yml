@@ -98,8 +98,19 @@ jobs:
 
       - name: Ensure routing labels
         run: |
+          # A repository that already has the old `vanguard:` spelling keeps it (`taskcell migrate-labels` renames in
+          # place, and a twin under the new name would stop that rename); a repository without it gets `taskcell:`.
+          state_label() {
+            local name="$1" existing; shift
+            existing=$(gh label list --repo "$GITHUB_REPOSITORY" --search "vanguard:$name" --limit 100 --json name --jq '.[].name')
+            if printf '%s\n' "$existing" | grep -qxF "vanguard:$name"; then
+              gh label create "vanguard:$name" --repo "$GITHUB_REPOSITORY" "$@" --force
+            else
+              gh label create "taskcell:$name" --repo "$GITHUB_REPOSITORY" "$@" --force
+            fi
+          }
           gh label create "needs research" --repo "$GITHUB_REPOSITORY" --color 1D76DB --force
-          gh label create "taskcell:researching" --repo "$GITHUB_REPOSITORY" --color BFDADC --force
+          state_label researching --color BFDADC
 
       # `--web` is deliberately not offered: it needs widened sandbox egress (see the egress note in the docs).
       - name: Research the issue
