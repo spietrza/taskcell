@@ -1,4 +1,4 @@
-import { mkdtemp, readFile, rm, writeFile } from 'node:fs/promises';
+import { mkdir, mkdtemp, readdir, readFile, rm, symlink, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { afterEach, describe, expect, it } from 'vitest';
@@ -8,6 +8,7 @@ import {
   gitlabSecretCommand,
   gitlabVariableExists,
   gitlabFound,
+  NO_DOCTOR_JOB,
   pipelineResult,
   planGitlabFactory,
   verifyGitlabFactory,
@@ -41,6 +42,7 @@ interface Opts {
   mrState?: string;
   jobs?: unknown[];
 }
+const SECRET_VALUE = 'must-not-be-kept';
 const fail = (stderr: string, code?: string): Error => Object.assign(new Error(`Command failed: glab ... ${stderr}`), { stderr, code });
 
 function fake(o: Opts = {}): { exec: FactoryExec; calls: Call[] } {
@@ -76,7 +78,8 @@ function fake(o: Opts = {}): { exec: FactoryExec; calls: Call[] } {
     if (a.includes('/variables/')) {
       if (o.variable === 'absent') throw fail('404 Not Found');
       if (o.variable === 'forbidden') throw fail('403 Forbidden');
-      return out(JSON.stringify({ key: 'CLAUDE_CODE_OAUTH_TOKEN', value: 'must-not-be-kept' }));
+      // A server answers HEAD with headers only; only a GET carries the value.
+      return out(args.includes('HEAD') ? '' : JSON.stringify({ key: 'CLAUDE_CODE_OAUTH_TOKEN', value: SECRET_VALUE }));
     }
     if (a.includes('/merge_requests/')) return out(JSON.stringify({ state: o.mrState ?? 'opened' }));
     if (a.includes('/pipelines?')) return out(JSON.stringify((o.pipelines ?? [[]])[Math.min(pipePage++, (o.pipelines ?? [[]]).length - 1)]));
@@ -186,6 +189,26 @@ describe('applyGitlabFactory', () => {
     const denied = fake({ fail: (c) => (c.args[0] === 'push' ? fail('remote: You are not allowed to push code') : undefined) });
     await expect(applyGitlabFactory(await repo(), plan, { exec: denied.exec })).rejects.toThrow(/does not have permission/);
   });
+  it('refuses to write through a symlink the default branch commits at a factory path', async () => {
+    const outside = await mkdtemp(join(tmpdir(), 'enable-gitlab-outside-'));
+    roots.push(outside);
+    await writeFile(join(outside, 'victim'), 'keep');
+    const linkedDir = await repo();
+    await symlink(outside, join(linkedDir, '.gitlab'));
+    const linkedFile = await repo();
+    await symlink(join(outside, 'victim'), join(linkedFile, '.gitlab-ci.yml'));
+    const linkedInclude = await repo();
+    await mkdir(join(linkedInclude, '.gitlab'));
+    await symlink(join(outside, 'victim'), join(linkedInclude, '.gitlab/taskcell.yml'));
+    for (const dir of [linkedDir, linkedFile, linkedInclude]) {
+      const { exec, calls } = fake();
+      await expect(applyGitlabFactory(dir, plan, { exec })).rejects.toThrow(/symlink/);
+      expect(calls.some((c) => c.args[0] === 'push' || c.args[0] === 'commit')).toBe(false);
+      expect(calls.at(-1)?.args).toEqual(['checkout', '-f', 'feature']);
+    }
+    expect(await readFile(join(outside, 'victim'), 'utf8')).toBe('keep');
+    expect(await readdir(outside)).toEqual(['victim']);
+  });
   it('refuses to use the default branch as its branch', async () => {
     await expect(applyGitlabFactory(await repo(), { ...plan, defaultBranch: 'vanguard/enable-factory' }, { exec: fake().exec })).rejects.toThrow(/default branch/);
   });
@@ -201,10 +224,19 @@ describe('variable, merge and pipeline checks', () => {
   it('shows the command, with no value', () => {
     expect(gitlabSecretCommand(plan)).toEqual({ secretName: 'CLAUDE_CODE_OAUTH_TOKEN', command: "read -rsp 'Token: ' T && printf %s \"$T\" | glab variable set CLAUDE_CODE_OAUTH_TOKEN --masked --repo acme/app" });
   });
-  it('detects the variable by one GET for its name', async () => {
+  it('detects the variable by one HEAD request for its name; no value reaches the hub process', async () => {
     const present = fake();
-    expect(await gitlabVariableExists('/x', plan, present.exec)).toBe(true);
-    expect(present.calls[0]!.args).toEqual(['api', 'projects/acme%2Fapp/variables/CLAUDE_CODE_OAUTH_TOKEN']);
+    const outputs: string[] = [];
+    const recording: FactoryExec = async (file, args, opts) => {
+      const r = await present.exec(file, args, opts);
+      outputs.push(r.stdout, r.stderr);
+      return r;
+    };
+    expect(await gitlabVariableExists('/x', plan, recording)).toBe(true);
+    expect(present.calls[0]!.args).toEqual(['api', '--method', 'HEAD', 'projects/acme%2Fapp/variables/CLAUDE_CODE_OAUTH_TOKEN']);
+    await gitlabFound('/x', { plan, secretSet: false, merged: false }, recording);
+    expect(present.calls.filter((c) => c.args.some((a) => a.includes('/variables'))).every((c) => c.args.includes('HEAD'))).toBe(true);
+    expect(outputs.join('')).not.toContain(SECRET_VALUE);
     expect(await gitlabVariableExists('/x', plan, fake({ variable: 'absent' }).exec)).toBe(false);
     await expect(gitlabVariableExists('/x', plan, fake({ variable: 'forbidden' }).exec)).rejects.toThrow(/permission/);
   });
@@ -220,6 +252,14 @@ describe('variable, merge and pipeline checks', () => {
     const found = await gitlabFound('/x', rec, fake({ jobs: [{ name: 'deploy', status: 'failed' }, { name: 'taskcell-doctor', status: 'success' }] }).exec);
     expect(found.doctor).toMatchObject({ status: 'completed', conclusion: 'success' });
   });
+  it('never passes the doctor step without a taskcell-doctor job', async () => {
+    const rec = { plan, secretSet: true, merged: true, doctor: { url: 'https://gitlab.com/acme/app/-/pipelines/9', status: 'in_progress', conclusion: '' } };
+    // The pipeline succeeded, but only the project's own jobs ran in it.
+    expect((await gitlabFound('/x', rec, fake({ jobs: [{ name: 'deploy', status: 'success' }] }).exec)).doctor).toMatchObject({ status: 'completed', conclusion: NO_DOCTOR_JOB });
+    // The job list could not be read: not known yet, so not passed.
+    const unreadable = fake({ jobs: [], fail: (c) => (c.args.some((a) => a.includes('/jobs?')) ? fail('500') : undefined) });
+    expect((await gitlabFound('/x', rec, unreadable.exec)).doctor).toMatchObject({ status: 'in_progress', conclusion: '' });
+  });
   it('picks up a doctor pipeline the verify poll missed', async () => {
     const rec = { plan, secretSet: true, merged: true, doctorDispatchedAt: new Date().toISOString() };
     const pipelines = [[{ id: 5, web_url: 'https://gitlab.com/acme/app/-/pipelines/5', status: 'running', created_at: new Date().toISOString() }]];
@@ -227,7 +267,7 @@ describe('variable, merge and pipeline checks', () => {
   });
   it('detects a merged and a closed MR, and the doctor pipeline result', async () => {
     const rec = { plan, secretSet: false, merged: false, prUrl: 'https://gitlab.com/acme/app/-/merge_requests/7', doctor: { url: 'https://gitlab.com/acme/app/-/pipelines/9', status: 'queued', conclusion: '' } };
-    expect(await gitlabFound('/x', rec, fake({ mrState: 'merged' }).exec)).toMatchObject({ merged: true, prClosed: false, doctor: { status: 'completed', conclusion: 'success' } });
+    expect(await gitlabFound('/x', rec, fake({ mrState: 'merged', jobs: [{ name: 'taskcell-doctor', status: 'success' }] }).exec)).toMatchObject({ merged: true, prClosed: false, doctor: { status: 'completed', conclusion: 'success' } });
     expect(await gitlabFound('/x', rec, fake({ mrState: 'closed' }).exec)).toMatchObject({ prClosed: true });
   });
   it('starts the doctor pipeline and reports the new one', async () => {

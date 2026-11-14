@@ -5,7 +5,7 @@
 // (start a doctor pipeline once the MR is merged and report the pipeline it created).
 // Every glab/git failure a user can hit (no remote, no sign-in, no permission) is turned into one
 // plain sentence; raw command output never reaches the UI.
-import { mkdir, readFile, writeFile } from 'node:fs/promises';
+import { lstat, mkdir, readFile, writeFile } from 'node:fs/promises';
 import { join } from 'node:path';
 import { BadRequestError } from '../sidecar/sidecar.js';
 import { gitlabProjectFromRemote, isKnownGitlabRemote, remoteHostname } from '../runners/gitlab.js';
@@ -196,6 +196,18 @@ function withInclude(ci: string): string | undefined {
   return `${ci.slice(0, lineEnd + 1)}${next[1]}- local: ${GITLAB_INCLUDE_FILE}\n${ci.slice(lineEnd + 1)}`;
 }
 
+/** Refuse when the checked-out base has `.gitlab`, `.gitlab/taskcell.yml` or `.gitlab-ci.yml` as a symlink (or the wrong
+ * kind of entry): a committed link would make `apply` write through it to a path outside the ones it owns. */
+async function assertNoLinks(repoPath: string): Promise<void> {
+  for (const [path, kind] of [['.gitlab', 'directory'], [GITLAB_INCLUDE_FILE, 'file'], [GITLAB_CI_FILE, 'file']] as const) {
+    const st = await lstat(join(repoPath, path)).catch(() => undefined);
+    // lstat does not follow links, so a symlink is neither a directory nor a file here.
+    if (st !== undefined && !(kind === 'directory' ? st.isDirectory() : st.isFile())) {
+      throw new BadRequestError(`\`${path}\` on the default branch is a symlink or not a regular ${kind}; the hub will not write through it. Replace it with a real ${kind}, then try again.`);
+    }
+  }
+}
+
 /**
  * Branch from `origin/<default>`, add `.gitlab/taskcell.yml` and the include in `.gitlab-ci.yml` (what
  * the base lacks), push the branch and open a merge request into the default branch (never push TO
@@ -224,6 +236,7 @@ export async function applyGitlabFactory(repoPath: string, plan: FactoryPlan, de
   let manualInclude = false;
   await guarded(() => git(exec, repoPath, ['checkout', '-B', branch, `origin/${plan.defaultBranch}`]));
   try {
+    await assertNoLinks(repoPath);
     const written: string[] = [];
     if (!base.includeFile) {
       await mkdir(join(repoPath, '.gitlab'), { recursive: true });
@@ -282,13 +295,16 @@ export function gitlabSecretCommand(plan: FactoryPlan): FactorySecretStep {
   return { secretName: SECRET_NAME, command: `read -rsp 'Token: ' T && printf %s "$T" | glab variable set ${SECRET_NAME} --masked --repo ${plan.repoSlug}` };
 }
 
-/** Whether the project has the CI/CD variable, by NAME: one GET for that key (404 = absent); the body is not read. Needs Maintainer access, so a Developer's check fails and the doctor passing marks the step instead. */
+/** Whether the project has the CI/CD variable, by NAME: one HEAD request for that key (404 = absent). A HEAD response
+ * has no body (glab's Go HTTP client never reads one), so unlike a GET the value cannot reach this process.
+ * Needs Maintainer access, so a Developer's check fails and the doctor passing marks the step instead. */
 export async function gitlabVariableExists(repoPath: string, plan: FactoryPlan, exec: FactoryExec = defaultExec): Promise<boolean> {
   try {
-    await exec('glab', ['api', `projects/${encodeProject(plan.repoSlug)}/variables/${SECRET_NAME}`], { cwd: repoPath });
+    await exec('glab', ['api', '--method', 'HEAD', `projects/${encodeProject(plan.repoSlug)}/variables/${SECRET_NAME}`], { cwd: repoPath });
     return true;
   } catch (err) {
-    if (/404/.test(String((err as { stderr?: unknown }).stderr ?? ''))) return false;
+    const e = err as { stdout?: unknown; stderr?: unknown };
+    if (/\b404\b/.test(`${String(e.stdout ?? '')} ${String(e.stderr ?? '')}`)) return false;
     throw new BadRequestError(plainSentence(err));
   }
 }
@@ -311,14 +327,23 @@ async function listPipelines(exec: FactoryExec, repoPath: string, plan: FactoryP
     .filter((p) => p.id > 0 && GITLAB_PIPELINE_URL.test(p.url));
 }
 
-/** The doctor's own result: the status of its `taskcell-doctor` job, so the project's other jobs in the same pipeline do not decide it; the pipeline's status until that job exists. */
+/** Conclusion of a finished pipeline that had no `taskcell-doctor` job (the include is not wired, or its rule did not match). */
+export const NO_DOCTOR_JOB = 'had no taskcell-doctor job';
+
+/** The doctor's own result: the status of its `taskcell-doctor` job, so the project's other jobs in the same pipeline do
+ * not decide it. Only that job can pass the step: until it is seen the pipeline's progress is shown, never its success,
+ * and a finished pipeline without the job fails the step. */
 async function doctorResult(exec: FactoryExec, repoPath: string, plan: FactoryPlan, id: string | number, pipelineStatus: string): Promise<{ status: string; conclusion: string }> {
+  let jobs: unknown;
   try {
-    const jobs = await glabJson(exec, repoPath, ['api', `projects/${encodeProject(plan.repoSlug)}/pipelines/${id}/jobs?per_page=100`]);
-    const job = Array.isArray(jobs) ? jobs.find((j) => obj(j).name === 'taskcell-doctor') : undefined;
-    if (job !== undefined) return pipelineResult(str(obj(job).status));
-  } catch { /* fall back to the pipeline */ }
-  return pipelineResult(pipelineStatus);
+    jobs = await glabJson(exec, repoPath, ['api', `projects/${encodeProject(plan.repoSlug)}/pipelines/${id}/jobs?per_page=100`]);
+  } catch { /* not known yet: the next refresh asks again */ }
+  const job = Array.isArray(jobs) ? jobs.find((j) => obj(j).name === 'taskcell-doctor') : undefined;
+  if (job !== undefined) return pipelineResult(str(obj(job).status));
+  const pipeline = pipelineResult(pipelineStatus);
+  if (pipeline.status !== 'completed') return pipeline;
+  // Finished: with the job list read, no doctor job ran; without it the result is not known yet.
+  return Array.isArray(jobs) ? { status: 'completed', conclusion: NO_DOCTOR_JOB } : { status: 'in_progress', conclusion: '' };
 }
 
 /** Start the doctor pipeline (`TASKCELL_DOCTOR=true` on the default branch) and report the pipeline that start created. */
