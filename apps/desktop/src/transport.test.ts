@@ -458,6 +458,7 @@ test('a token added to an open page\'s address is stripped too (demo mode makes 
   window.history.replaceState(null, '', '/?demo=1#token=late');
   window.dispatchEvent(new Event('hashchange'));
   expect(window.location.search + window.location.hash).toBe('?demo=1');
-  window.removeEventListener('hashchange', captureHubToken);
+  // Stripped, not stored: a `#token=…` link in rendered text must not replace the tab's token.
+  expect(window.sessionStorage.getItem('vanguard-hub-token')).not.toBe('late');
   window.history.replaceState(null, '', '/');
 });

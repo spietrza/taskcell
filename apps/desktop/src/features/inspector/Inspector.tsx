@@ -503,7 +503,7 @@ export function Inspector({
 
       {showNewRun && caps !== null && (
         <div className="shrink-0">
-          <NewRunForm capabilities={caps} project={project} taskId={newRunTask} onRun={startTypedRun} onCancel={closeNewRun} />
+          <NewRunForm key={newRunTask ?? ''} capabilities={caps} project={project} taskId={newRunTask} onRun={startTypedRun} onCancel={closeNewRun} />
         </div>
       )}
 

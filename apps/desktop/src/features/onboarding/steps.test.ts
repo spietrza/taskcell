@@ -25,11 +25,11 @@ describe('stepState', () => {
     expect(stepState('git-host', { status: s, projectCount: 0, skipped: [], model: 'claude' })).toBe('needs-action');
   });
 
-  test('model is done when the selected credential is found', () => {
+  test('model is done when either credential is found, whichever option is selected', () => {
     expect(stepState('model', { status: status(), projectCount: 0, skipped: [], model: 'claude' })).toBe('needs-action');
     // Only the selected provider's credential counts: Codex found does not finish a Claude choice.
     const codexOnly = status({ models: { claude: false, codex: true } });
-    expect(stepState('model', { status: codexOnly, projectCount: 0, skipped: [], model: 'claude' })).toBe('needs-action');
+    expect(stepState('model', { status: codexOnly, projectCount: 0, skipped: [], model: 'claude' })).toBe('done');
     expect(stepState('model', { status: codexOnly, projectCount: 0, skipped: [], model: 'codex' })).toBe('done');
   });
 

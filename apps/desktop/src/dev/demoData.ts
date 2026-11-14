@@ -129,8 +129,7 @@ const STOCK_DIFF = [
 const detail = (taskId: string, timestamp: string, diff: string, verdict: 'pass' | 'changes', passed: boolean, plan: string, costs: [number, number, number]): RunDetail => ({
   taskId,
   timestamp,
-  prUrl: `${DEMO_REPO_URL}/pull/${Number(taskId.slice(-3))}`,
-  diffUrl: `${DEMO_REPO_URL}/pull/${Number(taskId.slice(-3))}/files`,
+  ...(passed ? { prUrl: `${DEMO_REPO_URL}/pull/${Number(taskId.slice(-3))}`, diffUrl: `${DEMO_REPO_URL}/pull/${Number(taskId.slice(-3))}/files` } : {}),
   stages: [
     { record: record(taskId, 'planner', { turns: 4, costUsd: costs[0], timestamp }), transcript: transcript('Reading the code the task touches, then planning a minimal change.', plan) },
     {

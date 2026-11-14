@@ -65,6 +65,14 @@ function fragmentToken(): string | null {
  * address bar, so it is neither bookmarked nor left in history. The server never sees a fragment and
  * never serves the token, so this is the only way a browser page gets one. No-op without the
  * fragment. A fresh launch URL overwrites a stored token from an earlier hub launch. */
+function stripFragmentToken(): void {
+  const params = new URLSearchParams(window.location.hash.slice(1));
+  params.delete(HUB_TOKEN_FRAGMENT_PARAM);
+  const rest = params.toString();
+  const { pathname, search } = window.location;
+  window.history.replaceState(window.history.state, '', `${pathname}${search}${rest === '' ? '' : `#${rest}`}`);
+}
+
 export function captureHubToken(): void {
   const token = fragmentToken();
   if (token === null) return;
@@ -73,18 +81,17 @@ export function captureHubToken(): void {
   } catch {
     return; // Storage blocked: keep the fragment, `hubToken()` reads it from there instead.
   }
-  const params = new URLSearchParams(window.location.hash.slice(1));
-  params.delete(HUB_TOKEN_FRAGMENT_PARAM);
-  const rest = params.toString();
-  const { pathname, search } = window.location;
-  window.history.replaceState(window.history.state, '', `${pathname}${search}${rest === '' ? '' : `#${rest}`}`);
+  stripFragmentToken();
 }
 
 /** `captureHubToken` now and on every later change of the fragment: demo mode makes no hub call that would
  * strip a token added to an open page's address. */
 export function watchHubToken(): void {
   captureHubToken();
-  window.addEventListener('hashchange', captureHubToken);
+  // A later fragment is only stripped, never stored: a `#token=…` link in rendered text must not replace this tab's token.
+  window.addEventListener('hashchange', () => {
+    if (fragmentToken() !== null) stripFragmentToken();
+  });
 }
 
 /** Addresses of the demo's made-up repository: nothing real is behind them. */
