@@ -131,15 +131,15 @@ export function NewRunForm({
         <Input value={issueRef} onChange={(e) => setIssueRef(e.target.value)} placeholder="issue ref (e.g. 322)" aria-label="Issue ref" aria-invalid={refError !== undefined} className="w-40" />
         <span className="flex items-center gap-1">
           Task source
-          <EnumSelect value={transport} onValueChange={setTransport} options={capabilities.transports.map((t) => ({ value: t, label: t }))} />
+          <EnumSelect label="Task source" value={transport} onValueChange={setTransport} options={capabilities.transports.map((t) => ({ value: t, label: t }))} />
         </span>
         <span className="flex items-center gap-1">
           Provider
-          <EnumSelect value={provider} onValueChange={setProvider} options={providerOptions} />
+          <EnumSelect label="Provider" value={provider} onValueChange={setProvider} options={providerOptions} />
         </span>
         <span className="flex items-center gap-1">
           Flow
-          <EnumSelect value={flow} onValueChange={setFlow} options={flowOptions} />
+          <EnumSelect label="Flow" value={flow} onValueChange={setFlow} options={flowOptions} />
         </span>
         {repoFlows === 'error' && (
           <span className="text-[11px] text-muted-foreground">repo flows unavailable — built-in flows only</span>

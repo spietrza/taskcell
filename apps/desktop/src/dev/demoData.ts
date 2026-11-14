@@ -2,7 +2,7 @@
 // project with realistic history. Served by the in-browser fixture backend (mockBackend.ts), so
 // nothing here ever reaches a repo, remote or hub store. Everything is labelled "demo" in the UI.
 import type { Project, ActiveRun, RunSummary, RunDetail, RunRecord } from '../taskcell-output';
-import type { BoardTask, FactoryState, NeedsYouItem, RepoLesson, RunEvent } from '../wire';
+import type { BoardTask, FactoryState, NeedsYouItem, RepoLesson, RunEvent, SessionRead } from '../wire';
 import { DEMO_REPO_URL } from '../transport';
 
 export const DEMO_REPO_PATH = '/demo/storefront';
@@ -183,6 +183,19 @@ export const demoRunBacklog: { runId: string; event: RunEvent | { type: 'run-acc
   { type: 'stage-start' as const, name: 'implement', index: 1, of: 3 },
   { type: 'cost' as const, usdSpent: DEMO_LIVE_COST_USD },
 ].map((event) => ({ runId: DEMO_RUN_ID, event }));
+
+/** DEMO-104's live transcript: the wishlist task, as far as the implementer has got. */
+export const demoSession: SessionRead = {
+  entries: [
+    { role: 'assistant', text: 'Adding a wishlist to the account page. Reading the account page and the product model first.' },
+    { role: 'tool', text: 'Read file: src/account/AccountPage.tsx\n---\nexport function AccountPage({ user }: { user: User }) {\n  return <OrderHistory userId={user.id} />;\n}\n' },
+    { role: 'assistant', text: 'Here is my plan:\n1. Add a wishlist store keyed by user (src/account/wishlist.ts)\n2. List the saved products on the account page\n3. Test adding and removing a product' },
+  ],
+  inputTokens: 15000,
+  outputTokens: 3200,
+  cacheReadTokens: 4000,
+  estCostUsd: DEMO_LIVE_COST_USD,
+};
 
 const chips = (...c: [string, string, 'pass' | 'changes' | 'failed'][]): { key: string; label: string; tone: 'pass' | 'changes' | 'failed' }[] =>
   c.map(([key, label, tone]) => ({ key, label, tone }));

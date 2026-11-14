@@ -13,20 +13,30 @@ function Stat({
   value,
   accent,
   dot,
+  onClick,
 }: {
   label: string;
   value: string | number;
   accent?: boolean;
   dot?: boolean;
+  /** Makes the tile a button. */
+  onClick?: (() => void) | undefined;
 }) {
-  return (
-    <div className="rounded-lg border border-border p-4">
+  const body = (
+    <>
       <div className="caption">{label}</div>
       <div className={`mt-1 flex items-center gap-1.5 text-2xl font-semibold tabular-nums ${accent ? 'text-success-text' : ''}`}>
         {dot && <span className="size-2 rounded-full bg-success" />}
         {value}
       </div>
-    </div>
+    </>
+  );
+  return onClick ? (
+    <button type="button" onClick={onClick} className="rounded-lg border border-border p-4 text-left transition-colors hover:bg-muted/40">
+      {body}
+    </button>
+  ) : (
+    <div className="rounded-lg border border-border p-4">{body}</div>
   );
 }
 
@@ -37,6 +47,7 @@ export function Dashboard({
   onRemove,
   onEnableFactory,
   onOpenSetup,
+  onOpenRunning,
   factory,
 }: {
   projects: Project[];
@@ -47,6 +58,8 @@ export function Dashboard({
   onEnableFactory?: (p: { path: string; name: string }) => void;
   /** Opens the first-run guide; offered in the empty state. */
   onOpenSetup?: () => void;
+  /** Opens Runs filtered to the running ones (the Running tile). */
+  onOpenRunning?: (() => void) | undefined;
   /** Each project's factory checklist state by path (hub-only); a project without an entry shows no factory line. */
   factory?: Record<string, FactoryState>;
 }) {
@@ -96,7 +109,7 @@ export function Dashboard({
         <>
           <div className="grid grid-cols-2 gap-3 sm:grid-cols-3 lg:grid-cols-5">
             <Stat label="Projects" value={totals.projects} />
-            <Stat label="Running" value={totals.running} accent={totals.running > 0} dot={totals.running > 0} />
+            <Stat label="Running" value={totals.running} accent={totals.running > 0} dot={totals.running > 0} onClick={onOpenRunning} />
             <Stat label="Runs" value={totals.runs} />
             <Stat label="Last 24h" value={totals.last24h} />
             <Stat label="Spend" value={`$${totals.spend.toFixed(2)}`} />

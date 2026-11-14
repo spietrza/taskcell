@@ -73,24 +73,47 @@ function stripFragmentToken(): void {
   window.history.replaceState(window.history.state, '', `${pathname}${search}${rest === '' ? '' : `#${rest}`}`);
 }
 
-export function captureHubToken(): void {
+/** The hub answered the held token with its own 401; cleared when a new token is stored. */
+let heldTokenRefused = false;
+
+/** `launch`: the fragment the page was opened with, always stored. A fragment that turns up on an open page
+ * is stored only by a tab with no token or a refused one (a pasted launch URL reconnects it); a tab whose
+ * token works drops it unread, so a `#token=…` link in rendered Markdown (a spec, a comment) cannot replace it. */
+function takeFragmentToken(launch: boolean): void {
   const token = fragmentToken();
   if (token === null) return;
-  try {
-    window.sessionStorage.setItem(HUB_TOKEN_STORAGE_KEY, token);
-  } catch {
-    return; // Storage blocked: keep the fragment, `hubToken()` reads it from there instead.
+  if (launch || !holdsWorkingToken()) {
+    try {
+      window.sessionStorage.setItem(HUB_TOKEN_STORAGE_KEY, token);
+    } catch {
+      return; // Storage blocked: keep the fragment, `hubToken()` reads it from there instead.
+    }
+    heldTokenRefused = false;
   }
   stripFragmentToken();
 }
 
-/** `captureHubToken` now and on every later change of the fragment: demo mode makes no hub call that would
- * strip a token added to an open page's address. */
+export function captureHubToken(): void {
+  takeFragmentToken(true);
+}
+
+function holdsWorkingToken(): boolean {
+  if (heldTokenRefused) return false;
+  try {
+    return (window.sessionStorage.getItem(HUB_TOKEN_STORAGE_KEY) ?? '') !== '';
+  } catch {
+    return false;
+  }
+}
+
+/** `captureHubToken` now, and a check on every later change of the fragment: demo mode makes no hub call that
+ * would strip a token added to an open page's address. */
 export function watchHubToken(): void {
   captureHubToken();
-  // Outside demo the next hub call captures a pasted launch URL (`hubToken`), so a refused tab reconnects in place.
+  // Outside demo the next hub call captures a pasted launch URL (`hubToken`), so a tab with no token or a refused
+  // one reconnects in place; a tab whose token works drops the fragment (`takeFragmentToken`).
   window.addEventListener('hashchange', () => {
-    if (isDemoMode() && fragmentToken() !== null) stripFragmentToken();
+    if (fragmentToken() !== null && (isDemoMode() || holdsWorkingToken())) stripFragmentToken();
   });
 }
 
@@ -103,7 +126,7 @@ export function isDemoLink(href: string): boolean {
 /** This tab's token, or '' when it has none — the hub answers 401 either way, which is the signal
  * below. */
 function hubToken(): string {
-  captureHubToken();
+  takeFragmentToken(false);
   const fromFragment = fragmentToken();
   if (fromFragment !== null) return fromFragment;
   try {
@@ -140,6 +163,7 @@ function notify(handlers: Set<() => void>): void {
 }
 
 function notifyHubRestarted(): void {
+  heldTokenRefused = true;
   notify(restartHandlers);
 }
 

@@ -4,7 +4,7 @@ import { Inbox, RefreshCw, Search } from 'lucide-react';
 import { verdictColor, verdictWord } from '../../status';
 import { RepoLabel } from '../../RepoViews';
 import { FilterBar, NoMatch } from '../../FilterBar';
-import { DEFAULT_FILTER, filterActive, filterRuns, groupRows, runKeys, type HubFilter } from '../../filterState';
+import { DEFAULT_FILTER, canClearFilters, clearFilters, filterActive, filterNames, filterRuns, groupRows, runKeys, type HubFilter } from '../../filterState';
 import { ExternalLink, hostName } from '../../components/ExternalLink';
 import { costLabel } from '../../cost';
 import type { ActiveRun, RunSummary } from '../../taskcell-output';
@@ -176,7 +176,7 @@ export function RunList({
   return (
     <div className="flex min-h-0 flex-1 flex-col gap-3">
       {onHub && (
-        <FilterBar filter={hub} onChange={onHub} searchLabel="Search task id" repos={projects} withCards={[...new Set([...runs, ...active].flatMap((r) => (r.repoPath ? [r.repoPath] : [])))]} />
+        <FilterBar filter={hub} onChange={onHub} searchLabel="Search task id" searchHint="A run has no title: this matches the task id only. Board shares this search and also matches card titles." repos={projects} withCards={[...new Set([...runs, ...active].flatMap((r) => (r.repoPath ? [r.repoPath] : [])))]} />
       )}
       <div className="flex shrink-0 flex-wrap items-center gap-2">
         {!onHub && <Input
@@ -195,7 +195,7 @@ export function RunList({
                 filter === f ? 'bg-primary text-primary-foreground' : 'text-muted-foreground hover:bg-muted'
               }`}
             >
-              {f}
+              {f === 'all' ? 'All results' : f}
             </button>
           ))}
         </div>
@@ -206,7 +206,21 @@ export function RunList({
       </div>
 
       {shown.length === 0 && shownActive.length === 0 ? (
-        <NoMatch what="runs" query={searchHides ? (onHub ? hub.query : query) : ''} onClear={onHub ? () => onHub({ ...hub, query: '' }) : () => setQuery('')} />
+        <NoMatch
+          what="runs"
+          query={searchHides ? (onHub ? hub.query : query) : ''}
+          onClear={onHub ? () => onHub({ ...hub, query: '' }) : () => setQuery('')}
+          names={[...filterNames(hub), ...(!onHub && query.trim() !== '' ? [`search "${query.trim()}"`] : []), ...(filter !== 'all' ? [filter === 'passed' ? 'Passed' : 'Failed'] : [])]}
+          onClearFilters={
+            filter !== 'all' || query.trim() !== '' || (onHub && canClearFilters(hub))
+              ? () => {
+                  setFilter('all');
+                  setQuery('');
+                  onHub?.(clearFilters(hub));
+                }
+              : undefined
+          }
+        />
       ) : (
         <ScrollTable>
         <Table.Root>

@@ -12,12 +12,17 @@ export function hostName(url: string): 'GitHub' | 'GitLab' {
  */
 export function ExternalLink({ href, children, className }: { href?: string; children: string; className?: string }) {
   if (href === undefined || href === '') return null;
-  // The demo's repository does not exist: its links stay visible but go nowhere.
-  const inert = isDemoLink(href);
+  // The demo's repository does not exist: its links show as plain text that says so.
+  if (isDemoLink(href)) {
+    return (
+      <span title="Demo project: this link goes nowhere." onClick={(e) => e.stopPropagation()} className={`text-xs text-muted-foreground ${className ?? ''}`}>
+        {children}
+      </span>
+    );
+  }
   return (
     <a
-      href={inert ? undefined : href}
-      title={inert ? 'Demo project: this link goes nowhere.' : undefined}
+      href={href}
       target="_blank"
       rel="noreferrer"
       onClick={(e) => e.stopPropagation()}
