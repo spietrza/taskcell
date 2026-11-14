@@ -201,3 +201,67 @@ test('a tab the hub refuses shows only how to reconnect, not an empty project li
   expect(screen.queryByText(/No projects yet/)).toBeNull();
   expect(screen.queryByRole('button', { name: 'Try the demo project' })).toBeNull();
 });
+
+test('switching team clears the previous team’s runs at once, before the new team’s list answers', async () => {
+  const p = projects[0]!;
+  const teams: Team[] = [
+    { id: 'a', name: 'Alpha', members: [], repositories: [p.path] },
+    { id: 'b', name: 'Beta', members: [], repositories: [p.path] },
+  ];
+  const run = (taskId: string): unknown => ({ taskId, timestamp: '2026-07-06T19:12:02.123Z', stages: ['implement'], totalCostUsd: 0.1, anyFailed: false, repoPath: p.path, repoName: p.name });
+  let release: (v: unknown) => void = () => {};
+  const slow = new Promise<unknown>((r) => (release = r));
+  window.__TASKCELL_HUB__ = true;
+  vi.stubGlobal('EventSource', class { addEventListener(): void {} removeEventListener(): void {} close(): void {} });
+  vi.stubGlobal(
+    'fetch',
+    vi.fn(async (url: string, init?: { body?: string }) => {
+      const cmd = url.slice(url.indexOf('/rpc/') + 5);
+      const args = JSON.parse(init?.body ?? '{}') as { teamId?: string };
+      const results: Record<string, unknown> = {
+        list_teams: teams,
+        list_projects: [p],
+        list_active: [],
+        list_runs_all: args.teamId === 'b' ? await slow : { runs: [run('A-RUN')], failures: [] },
+        list_needs_you_all: { items: [], failures: [] },
+        setup_status: SETUP,
+      };
+      return new Response(JSON.stringify({ result: results[cmd] ?? null }), { status: 200, headers: { 'content-type': 'application/json' } });
+    }),
+  );
+  render(<App />);
+  fireEvent.click(await screen.findByRole('button', { name: p.name }));
+  expect(await screen.findByText('A-RUN')).toBeInTheDocument();
+  fireEvent.change(screen.getByLabelText('Team'), { target: { value: 'b' } });
+  await waitFor(() => expect(screen.queryByText('A-RUN')).toBeNull());
+  release({ runs: [run('B-RUN')], failures: [] });
+  expect(await screen.findByText('B-RUN')).toBeInTheDocument();
+});
+
+test('Home’s Running tile opens Runs with the Running filter on; the address names the screen, and Back returns Home', async () => {
+  const p = projects[0]!;
+  stubTeamHub([], () => [p]);
+  render(<App />);
+  const tile = await screen.findByRole('button', { name: /^Running/ });
+  await waitFor(() => expect(navButton('Runs')).toBeEnabled());
+  fireEvent.click(tile);
+  expect(await screen.findByRole('button', { name: 'Running', pressed: true })).toBeInTheDocument();
+  expect(window.location.search).toBe('?screen=runs');
+  // Back: the browser restores the previous address and tells the page.
+  window.history.replaceState(null, '', '/');
+  fireEvent(window, new PopStateEvent('popstate'));
+  expect(await screen.findByRole('heading', { name: 'Projects' })).toBeInTheDocument();
+  expect(navButton('Home')).toHaveAttribute('aria-current', 'page');
+});
+
+test('a reload restores the screen the address names, keeping other parameters and the fragment', async () => {
+  const p = projects[0]!;
+  stubTeamHub([], () => [p]);
+  window.history.replaceState(null, '', '/?x=1&screen=settings#keep=1');
+  render(<App />);
+  expect(await screen.findByText('settings screen')).toBeInTheDocument();
+  fireEvent.click(navButton('Board'));
+  await waitFor(() => expect(window.location.search + window.location.hash).toBe('?x=1&screen=board#keep=1'));
+  fireEvent.click(navButton('Home'));
+  await waitFor(() => expect(window.location.search + window.location.hash).toBe('?x=1#keep=1'));
+});

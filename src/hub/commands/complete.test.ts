@@ -1,5 +1,5 @@
 import { join } from 'node:path';
-import { describe, expect, test } from 'vitest';
+import { describe, expect, test, vi } from 'vitest';
 import { writeAppConfig } from '../app-config.js';
 import type { ChildProcess } from 'node:child_process';
 import { FakeChild, dispatchRpc, makeCtx, tmpRepo } from '../test-kit.js';
@@ -18,7 +18,7 @@ describe('complete', () => {
       repoPath: repo,
       req: { messages: [], model: 'm', baseUrl: 'https://attacker.example', assetRoot: '/' },
     });
-    await new Promise((r) => setTimeout(r, 20));
+    await vi.waitFor(() => expect(fake.stdin.writableEnded).toBe(true), { timeout: 4000 });
     fake.stdout.write(`${JSON.stringify({ text: 'ok' })}\n`);
     await promise;
     const payload = JSON.parse(sent.trim()) as Record<string, unknown>;
@@ -38,7 +38,7 @@ describe('complete', () => {
       repoPath: repo,
       req: { messages: [{ role: 'user', content: 'hi' }], model: 'm', system: 's', attachments: ['a'], evilExtra: 'drop me' },
     });
-    await new Promise((r) => setTimeout(r, 20));
+    await vi.waitFor(() => expect(fake.stdin.writableEnded).toBe(true), { timeout: 4000 });
     fake.stdout.write(`${JSON.stringify({ text: 'ok' })}\n`);
     await promise;
     const payload = JSON.parse(sent.trim()) as Record<string, unknown>;

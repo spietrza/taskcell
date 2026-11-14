@@ -45,6 +45,14 @@ describe('TaskBoard', () => {
     }
   });
 
+  test('from xl the columns share the row down to 11rem, so all six fit at 1440; below it they keep their width and scroll', async () => {
+    mockListTasks.mockResolvedValueOnce({ tasks: TASKS, capped: false });
+    render(<TaskBoard project="/repo" repos={[]} onOpenTask={() => {}} onNewTask={() => {}} />);
+    await screen.findByText('Queued one');
+    const cls = lane('Review').className.split(' ');
+    expect(cls).toEqual(expect.arrayContaining(['w-72', 'shrink-0', 'xl:w-auto', 'xl:min-w-44', 'xl:max-w-72', 'xl:flex-1']));
+  });
+
   test('routes each task to its column lane (guards a col.key typo silently emptying a lane)', async () => {
     mockListTasks.mockResolvedValue({ tasks: TASKS, capped: false });
     render(<TaskBoard project="/repo" repos={[]} onOpenTask={() => {}} onNewTask={() => {}} />);

@@ -698,9 +698,10 @@ async function markGithubIssueRateLimited(
   failureComment: string,
   error: Error,
   gh?: GhRunner,
+  log?: (msg: string) => void,
 ): Promise<void> {
   const hold = rateLimitHold(error, trigger);
-  await editGithubLabels(repo, id, { remove: [claimedLabel], add: [GITHUB_RATE_LIMITED_LABEL], ensure: [GITHUB_RATE_LIMITED_LABEL] }, gh);
+  await editGithubLabels(repo, id, { remove: [claimedLabel], add: [GITHUB_RATE_LIMITED_LABEL], ensure: [GITHUB_RATE_LIMITED_LABEL] }, gh, log);
   // A usage-cap pause is not a failure: only the hold notice, no "run failed" text.
   await commentGithubIssue(repo, id, error instanceof UsageCapError ? hold.comment : `${failureComment}\n\n${hold.comment}`, gh);
 }
@@ -772,7 +773,7 @@ async function fetchHintedIssue(
 }
 
 /** GitHub-issue primitives: trigger by label, claim/review by swapping labels (issues have no states). */
-export function githubIssueWatchPrimitives(opts: WatchGithubOptions): WatchPrimitives {
+export function githubIssueWatchPrimitives(opts: WatchGithubOptions, log?: (msg: string) => void): WatchPrimitives {
   const repo = opts.deps.repoSlug;
   const fetcher = new GitHubTaskFetcher(repo, opts.gh);
   const needsInfoLabel = opts.needsInfoLabel;
@@ -826,6 +827,7 @@ export function githubIssueWatchPrimitives(opts: WatchGithubOptions): WatchPrimi
           add: [opts.claimedLabel],
         },
         opts.gh,
+        log,
       ),
     runOne:
       needsInfoLabel === undefined
@@ -833,17 +835,17 @@ export function githubIssueWatchPrimitives(opts: WatchGithubOptions): WatchPrimi
         : (id) =>
             triageAgentRun(id, fetcher, (i) => runGithubIssue(i, opts.deps), {
               comment: (body) => commentGithubIssue(repo, id, body, opts.gh),
-              toNeedsInfo: () => editGithubLabels(repo, id, { remove: [opts.claimedLabel], add: [needsInfoLabel] }, opts.gh),
+              toNeedsInfo: () => editGithubLabels(repo, id, { remove: [opts.claimedLabel], add: [needsInfoLabel] }, opts.gh, log),
             }, opts.deps.feedbackAuthors),
-    review: (id) => editGithubLabels(repo, id, { remove: [opts.claimedLabel], add: [opts.reviewLabel] }, opts.gh),
+    review: (id) => editGithubLabels(repo, id, { remove: [opts.claimedLabel], add: [opts.reviewLabel] }, opts.gh, log),
     onNoChange: (id) =>
       commentAndRevert(
         commentGithubIssue(repo, id, NO_CHANGE_MSG, opts.gh),
-        editGithubLabels(repo, id, { remove: [opts.claimedLabel] }, opts.gh),
+        editGithubLabels(repo, id, { remove: [opts.claimedLabel] }, opts.gh, log),
       ),
     // The trigger label was removed on claim, so dropping the claim leaves the issue idle until a
     // human re-applies the trigger — what the base-red comment asks for. No no-change comment.
-    onBaseRed: (id) => editGithubLabels(repo, id, { remove: [opts.claimedLabel] }, opts.gh),
+    onBaseRed: (id) => editGithubLabels(repo, id, { remove: [opts.claimedLabel] }, opts.gh, log),
     // One edit swaps claimed -> secret-blocked, so the claim is never released without the hold
     // label landing. `gh issue edit --add-label` fails on a label the repo never created, so the edit
     // creates it when the repo has neither spelling (forced when the labels cannot be listed;
@@ -853,7 +855,7 @@ export function githubIssueWatchPrimitives(opts: WatchGithubOptions): WatchPrimi
     // label is already the watch's own marker, and a white-label adapter posts no findings, so this
     // comment is the human's only signal.
     onSecretBlocked: async (id) => {
-      await editGithubLabels(repo, id, { remove: [opts.claimedLabel], add: [GITHUB_SECRET_BLOCKED_LABEL], ensure: [GITHUB_SECRET_BLOCKED_LABEL] }, opts.gh);
+      await editGithubLabels(repo, id, { remove: [opts.claimedLabel], add: [GITHUB_SECRET_BLOCKED_LABEL], ensure: [GITHUB_SECRET_BLOCKED_LABEL] }, opts.gh, log);
       await commentGithubIssue(
         repo,
         id,
@@ -864,7 +866,7 @@ export function githubIssueWatchPrimitives(opts: WatchGithubOptions): WatchPrimi
     onFailure: async (id, error) => {
       const comment = formatFailureComment('Taskcell run failed', error);
       if (isRateLimitHold(error)) {
-        await markGithubIssueRateLimited(repo, id, opts.claimedLabel, opts.label, comment, error, opts.gh);
+        await markGithubIssueRateLimited(repo, id, opts.claimedLabel, opts.label, comment, error, opts.gh, log);
         return;
       }
       await commentGithubIssue(repo, id, comment, opts.gh);
@@ -909,7 +911,7 @@ export interface WatchGithubSpecOptions {
  * spec and swap to the agent label, or request clarification and swap to needs-info. On failure the
  * trigger label is restored so a later poll retries it. (Issues have no states; everything is labels.)
  */
-export function githubSpecPrimitives(opts: WatchGithubSpecOptions): SpecWatchPrimitives {
+export function githubSpecPrimitives(opts: WatchGithubSpecOptions, log?: (msg: string) => void): SpecWatchPrimitives {
   const repo = opts.repoSlug;
   const fetcher = opts.deps.fetcher;
   const generate = opts.generateSpec ?? runSpecGenerator;
@@ -931,30 +933,30 @@ export function githubSpecPrimitives(opts: WatchGithubSpecOptions): SpecWatchPri
       });
       return tasks.map((task) => ({ id: task.id }));
     },
-    claim: (id) => editGithubLabels(repo, id, { remove: [opts.specLabel], add: [opts.claimedLabel] }, opts.gh),
+    claim: (id) => editGithubLabels(repo, id, { remove: [opts.specLabel], add: [opts.claimedLabel] }, opts.gh, log),
     runSpec: async (id) => {
       const task = await fetcher.fetch(id);
       return runSpecCore(task, id, opts.deps, generate, {
         postComment: (body) => commentGithubIssue(repo, id, body, opts.gh),
-        advance: () => editGithubLabels(repo, id, { remove: [opts.claimedLabel], add: [opts.agentLabel] }, opts.gh),
-        toNeedsInfo: () => editGithubLabels(repo, id, { remove: [opts.claimedLabel], add: [opts.needsInfoLabel] }, opts.gh),
+        advance: () => editGithubLabels(repo, id, { remove: [opts.claimedLabel], add: [opts.agentLabel] }, opts.gh, log),
+        toNeedsInfo: () => editGithubLabels(repo, id, { remove: [opts.claimedLabel], add: [opts.needsInfoLabel] }, opts.gh, log),
       });
     },
     onFailure: async (id, error) => {
       const comment = formatFailureComment('Taskcell spec failed', error);
       if (isRateLimitHold(error)) {
-        await markGithubIssueRateLimited(repo, id, opts.claimedLabel, opts.specLabel, comment, error, opts.gh);
+        await markGithubIssueRateLimited(repo, id, opts.claimedLabel, opts.specLabel, comment, error, opts.gh, log);
         return;
       }
       await commentGithubIssue(repo, id, comment, opts.gh);
-      await editGithubLabels(repo, id, { remove: [opts.claimedLabel], add: [opts.specLabel] }, opts.gh);
+      await editGithubLabels(repo, id, { remove: [opts.claimedLabel], add: [opts.specLabel] }, opts.gh, log);
     },
   };
 }
 
 /** Poll GitHub Issues and run each newly-ready (labeled) issue. */
 export async function watchGithub(opts: WatchGithubOptions, log: (msg: string) => void = console.log): Promise<void> {
-  await runWatchLoop(githubIssueWatchPrimitives(opts), opts, log);
+  await runWatchLoop(githubIssueWatchPrimitives(opts, log), opts, log);
 }
 
 export interface WatchGithubLoopV1Options {
@@ -974,7 +976,7 @@ export interface WatchGithubLoopV1Options {
 
 /** Loop v1 over GitHub Issues: each poll runs the spec pass then the agent pass. */
 export async function watchGithubLoopV1(opts: WatchGithubLoopV1Options, log: (msg: string) => void = console.log): Promise<void> {
-  await runLoopV1(githubSpecPrimitives(opts.spec), githubIssueWatchPrimitives(opts.agent), opts, log);
+  await runLoopV1(githubSpecPrimitives(opts.spec, log), githubIssueWatchPrimitives(opts.agent, log), opts, log);
 }
 
 export interface WatchGithubProjectOptions {
@@ -1014,7 +1016,7 @@ interface ProjectMeta {
   statusOptionIds: Map<string, string>;
 }
 
-export function githubProjectWatchPrimitives(opts: WatchGithubProjectOptions): WatchPrimitives {
+export function githubProjectWatchPrimitives(opts: WatchGithubProjectOptions, log?: (msg: string) => void): WatchPrimitives {
   const gh = opts.gh ?? defaultGhRunner;
   const owner = opts.owner ?? (opts.deps.repoSlug.split('/')[0] as string);
   const repo = opts.deps.repoSlug;
@@ -1099,7 +1101,7 @@ export function githubProjectWatchPrimitives(opts: WatchGithubProjectOptions): W
     claim: async (id) => {
       await setStatus(id, opts.claimedStatus);
       if (heldBefore.has(id)) {
-        await editGithubLabels(id.slice(0, id.indexOf('#')), id, { remove: [GITHUB_SECRET_BLOCKED_LABEL] }, gh).catch(() => undefined);
+        await editGithubLabels(id.slice(0, id.indexOf('#')), id, { remove: [GITHUB_SECRET_BLOCKED_LABEL] }, gh, log).catch(() => undefined);
       }
     },
     runOne: (id) => runGithubIssue(id, opts.deps),
@@ -1121,7 +1123,7 @@ export function githubProjectWatchPrimitives(opts: WatchGithubProjectOptions): W
 
 /** Poll GitHub Projects v2 and run each item in the trigger Status. */
 export async function watchGithubProject(opts: WatchGithubProjectOptions, log: (msg: string) => void = console.log): Promise<void> {
-  await runWatchLoop(githubProjectWatchPrimitives(opts), opts, log);
+  await runWatchLoop(githubProjectWatchPrimitives(opts, log), opts, log);
 }
 
 export interface WatchGitlabOptions {

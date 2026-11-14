@@ -104,3 +104,13 @@ describe('Dashboard factory state', () => {
     expect(screen.queryByTestId('factory-state')).not.toBeInTheDocument();
   });
 });
+
+test('the Running tile is a button when it can open the running runs, and plain otherwise', () => {
+  const onOpenRunning = vi.fn();
+  const { unmount } = render(<Dashboard projects={[first!]} onOpen={() => {}} onAdd={() => {}} onRemove={() => {}} onOpenRunning={onOpenRunning} />);
+  fireEvent.click(screen.getByRole('button', { name: /^Running/ }));
+  expect(onOpenRunning).toHaveBeenCalledOnce();
+  unmount();
+  render(<Dashboard projects={[first!]} onOpen={() => {}} onAdd={() => {}} onRemove={() => {}} />);
+  expect(screen.queryByRole('button', { name: /^Running/ })).toBeNull();
+});

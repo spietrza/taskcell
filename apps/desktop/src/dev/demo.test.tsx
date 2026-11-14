@@ -182,3 +182,12 @@ test('opening a run from its row with Enter leaves focus on the run, not on the 
   await waitFor(() => expect(document.activeElement).not.toBe(document.body));
   vi.unstubAllGlobals();
 }, 30000);
+
+test('the running demo card and its live transcript tell the same story', () => {
+  const card = demoBoardTasks.find((t) => t.id === demoActiveRuns[0]!.taskId)!;
+  expect(card.title).toBe('Add wishlist to the account page');
+  const text = (handleDemo('read_session', {}) as { entries: { text: string }[] }).entries.map((e) => e.text).join('\n');
+  expect(text).toMatch(/wishlist/i);
+  expect(text).toMatch(/account/i);
+  expect(text).not.toMatch(/Add the new endpoint|src\/index\.ts/);
+});

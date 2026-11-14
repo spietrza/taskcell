@@ -25,7 +25,7 @@ import {
   factoryStateNone,
   factoryStateSettingUp,
 } from './fixtures';
-import { demoProject, demoRuns, demoRunDetails, demoActiveRuns, demoBoardTasks, demoFactoryState, demoLessonsFor, demoNeedsYou, demoRunBacklog, demoSpec, DEMO_LIVE_COST_USD, DEMO_REPO_PATH, DEMO_RUN_ID, DEMO_WRITE_COMMANDS } from './demoData';
+import { demoProject, demoRuns, demoRunDetails, demoActiveRuns, demoBoardTasks, demoFactoryState, demoLessonsFor, demoNeedsYou, demoRunBacklog, demoSession, demoSpec, DEMO_REPO_PATH, DEMO_RUN_ID, DEMO_WRITE_COMMANDS } from './demoData';
 
 let waitingNeedsYou = [...needsYouItems];
 let mockLessons: RepoLesson[] = [
@@ -236,8 +236,8 @@ const demoOverrides: Record<string, (args: unknown) => unknown> = {
   fetch_spec: (args) => ({ spec: demoSpec((args as { taskId?: string } | undefined)?.taskId) }),
   list_lessons: (args) => ({ lessons: demoLessonsFor((args as { taskText?: string } | undefined)?.taskText), branchFound: true }),
   factory_state: () => demoFactoryState,
-  // The live run's detail and its strip show one cost.
-  read_session: () => ({ ...session, estCostUsd: DEMO_LIVE_COST_USD }),
+  // The live run's detail and its strip show one cost (`DEMO_LIVE_COST_USD`).
+  read_session: () => demoSession,
   list_drafts: () => [],
   api_queue: () => [],
   api_repo_ok: () => true,

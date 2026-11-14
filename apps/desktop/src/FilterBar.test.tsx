@@ -133,3 +133,30 @@ test('one Escape closes one layer: the popup stops it for an enclosing layer, an
     window.removeEventListener('keydown', outer);
   }
 });
+
+test('Escape closes the Filters sheet, one layer per press: an open Projects popup inside closes first', () => {
+  render(<Harness />);
+  fireEvent.click(screen.getByRole('button', { name: /^Filters/ }));
+  const drawer = screen.getByRole('dialog', { name: 'Filters' });
+  fireEvent.click(within(drawer).getByRole('button', { name: /^Projects:/ }));
+  const search = within(drawer).getByLabelText('Search projects');
+  fireEvent.keyDown(search, { key: 'Escape' });
+  expect(within(drawer).queryByRole('group', { name: 'Projects' })).toBeNull();
+  expect(screen.getByRole('dialog', { name: 'Filters' })).toBeInTheDocument();
+  fireEvent.keyDown(drawer, { key: 'Escape' });
+  expect(screen.queryByRole('dialog', { name: 'Filters' })).toBeNull();
+});
+
+test('a Board emptied by filters names them and offers Clear filters, which keeps Projects and grouping', async () => {
+  const onFilter = vi.fn();
+  const f: HubFilter = { ...DEFAULT_FILTER, triage: 'merged', sources: ['linear'], repos: ['/a'], group: 'source' };
+  render(<TaskBoard project="/a" allRepos repos={['/a', '/b']} filter={f} onFilter={onFilter} projects={repos} onOpenTask={() => {}} onNewTask={() => {}} />);
+  expect(await screen.findByText(/Active: Merged, Linear, Projects\./)).toBeInTheDocument();
+  fireEvent.click(screen.getByRole('button', { name: 'Clear filters' }));
+  expect(onFilter).toHaveBeenCalledWith({ ...f, triage: 'all', sources: [], query: '' });
+});
+
+test('the Board search box says Runs shares it and matches the task id only', () => {
+  render(<Harness />);
+  expect(screen.getAllByLabelText('Search title or id')[0]).toHaveAttribute('title', expect.stringContaining('Runs shares this search'));
+});

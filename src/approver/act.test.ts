@@ -6,6 +6,7 @@ import { execa } from 'execa';
 import { runApprover } from './approve.js';
 import { mergeTree, collectDiffFacts } from './diff-facts.js';
 import { loadPolicy } from './policy.js';
+import { reasonKey } from './record.js';
 import { resolveRemoteBaseRef } from '../core/base-branch.js';
 import { assertActSafeGhArgs, isReleasePr, hardExclusions, escapeForComment } from './act.js';
 import { readBranchFile } from '../core/metrics-branch.js';
@@ -730,6 +731,29 @@ describe('approver act mode', () => {
       const stamped: string[][] = [];
       await run(fakeGh(stamped, pr()));
       expect(writes(stamped, 'merge')).toHaveLength(1);
+    });
+
+    it('a review of this head that act mode cannot use is reported once per head; shadow stays as it was', async () => {
+      const calls: string[][] = [];
+      const posted: string[] = [];
+      const base = fakeGh(calls, pr({ stamped: false }));
+      // The second run sees the first run's comment.
+      const gh: GhRunner = async (args) => {
+        if (args[0] === 'pr' && args[1] === 'comment') posted.push(args.at(-1)!);
+        if (args[0] === 'pr' && args[1] === 'view' && args.includes('comments')) return JSON.stringify({ comments: posted.map((body) => ({ body, author: { login: 'bot' }, authorAssociation: 'OWNER' })) });
+        return base(args);
+      };
+      await run(gh);
+      await run(gh);
+      expect(posted).toHaveLength(1);
+      expect(posted[0]).toContain('Left for a human: review-unusable');
+      expect(posted[0]).toContain(`<!-- taskcell-approver-act: ${headSha}:left-for-human:${reasonKey('review-unusable')} -->`);
+      expect(writes(calls, 'merge')).toEqual([]);
+      expect(writes(calls, 'edit')).toEqual([]);
+      expect((await records()).filter((r) => r.action !== undefined).map((r) => [r.action, r.reasonCode])).toEqual([['left-for-human', 'review-unusable']]);
+      const shadow: string[][] = [];
+      await run(fakeGh(shadow, pr({ stamped: false })), 'shadow');
+      expect(writes(shadow, 'comment').join(' ')).not.toContain('review-unusable');
     });
 
     it('an initial BEHIND state is updated, then merged after the checks', async () => {

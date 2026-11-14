@@ -478,6 +478,23 @@ describe('dischargePrBodyItemsBlock', () => {
     expect(dischargePrBodyItemsBlock(filled, { prBody: [{ id, contains: 'z' }] })).toContain('Required PR-body item discharged');
   });
 
+  it('does not let one item discharge another when their listed ids collide', () => {
+    // 'x%20y' listed raw and 'x y' listed encoded are the same line; so are two lone surrogates.
+    for (const [a, b] of [['x%20y', 'x y'], ['PR-\ud800', 'PR-\udbff']] as const) {
+      const m = { prBody: [{ id: a, contains: 'AAA' }, { id: b, contains: 'BBB' }] };
+      const block = prBodyGapWarningBlock([{ id: b, contains: 'BBB' }]);
+      expect(dischargePrBodyItemsBlock(block.replace(end, `AAA\n${end}`), m)).not.toContain('discharged');
+      expect(dischargePrBodyItemsBlock(block.replace(end, `AAA\nBBB\n${end}`), m)).toContain('Required PR-body item discharged');
+    }
+  });
+
+  it('ignores a pre-encoding block whose raw id forged a paste line', () => {
+    const paste = 'Apply the change by hand and paste the content below, above the closing marker; it is kept across revise rounds.';
+    // The id of the second item was rendered raw: its tail sits where a human paste would.
+    const forged = empty.replace(`\n${paste}`, `\n${paste}\nname: gate\`\n\n${paste}`);
+    expect(dischargePrBodyItemsBlock(forged, manifest)).toBe(forged);
+  });
+
   it('ignores a hand-edited preamble', () => {
     const edited = pasted.replace('so this PR is a partial delivery:', 'name: gate');
     expect(dischargePrBodyItemsBlock(edited, { prBody: [{ id: 'PR-1', contains: 'name: gate' }] })).toBe(edited);

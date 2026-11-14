@@ -50,6 +50,13 @@ describe('factory branches under the old and the new prefix', () => {
       await execa('git', ['branch', `${TASKCELL_BRANCH_PREFIX}task-9-r0`], { cwd: repo });
       const wt = await new WorktreeManager(repo).create('task-9', 'main', { reuse: true });
       expect(wt.branch).toBe(`${TASKCELL_BRANCH_PREFIX}task-9-r0`);
+      // The other way round (what a run minting `chore/taskcell-` sees on a repo with pre-rename branches).
+      await execa('git', ['branch', `${LEGACY_BRANCH_PREFIX}task-8-r0`], { cwd: repo });
+      const old = await new WorktreeManager(repo).create('task-8', 'main', { reuse: true, branchPrefix: TASKCELL_BRANCH_PREFIX });
+      expect(old.branch).toBe(`${LEGACY_BRANCH_PREFIX}task-8-r0`);
+      // A white-label prefix never picks up a factory branch.
+      const own = await new WorktreeManager(repo).create('task-8', 'main', { reuse: true, branchPrefix: 'feat/' });
+      expect(own.branch.startsWith('feat/task-8-')).toBe(true);
     } finally {
       await rm(repo, { recursive: true, force: true });
     }

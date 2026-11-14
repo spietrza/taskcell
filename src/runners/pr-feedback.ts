@@ -317,7 +317,19 @@ const isBlockingLabel = (text: string): boolean => /\bblocking\b/i.test(text.rep
 
 /** A heading that only names the blocking section (`Blocking`, `1. Blocking findings (2)`), not a finding. */
 const isSectionLabel = (text: string): boolean =>
-  /^\W*(?:\d+[.)]\s*)?blocking(?:\s+(?:findings?|issues?|items?|problems?|concerns?|changes?|comments?|points?))?\W*$/i.test(text.replace(/\([^)]*\)/g, ''));
+  /^\W*(?:\d+[.)]\s*)?blocking(?:\s+(?:findings?|issues?|items?|problems?|concerns?|changes?|comments?|points?))?\W*$/i.test(stripParens(text));
+
+/** `text` without its `(…)` groups, as `/\([^)]*\)/g` removes them, in one pass (the regex rescans from every unmatched `(`). */
+function stripParens(text: string): string {
+  let out = '';
+  for (let i = 0; ; ) {
+    const open = text.indexOf('(', i);
+    const close = open === -1 ? -1 : text.indexOf(')', open);
+    if (close === -1) return out + text.slice(i);
+    out += text.slice(i, open);
+    i = close + 1;
+  }
+}
 
 /** A heading that is itself one finding: numbered like `1.`, `B1.` or `B1:`. */
 const isNumberedHeading = (text: string): boolean => /^[A-Za-z]{0,2}\d+[.):]\s/.test(text);
@@ -335,16 +347,36 @@ function leadingLabel(text: string): 'blocking' | 'non-blocking' | undefined {
   return /^no/i.test(label) ? 'non-blocking' : 'blocking';
 }
 
+/** An item outside a blocking section is blocking only when it opens with a severity marker (`[blocking]`, `[blocking, security]`, `**Blocking:**`, `Blocking —`), not when it mentions the word. */
+const EXPLICIT_BLOCKING_RE = /^[*_]*(?:[[(]\s*blocking\b[^\])\n]*[\])]|blocking[*_]*(?::|\s+[—–-]\s))/i;
+
+const FENCE_OPEN_RE = /^\s*(`{3,}|~{3,})(.*)$/;
+const FENCE_CLOSE_RE = /^\s*(`{3,}|~{3,})\s*$/;
+
 /** The lines outside fenced code blocks (CommonMark fences at any indent, so list-nested ones count; an opening fence that never closes is plain text). */
 function stripFences(lines: string[]): string[] {
+  const closers = lines.map((line) => FENCE_CLOSE_RE.exec(line)?.[1]);
+  // Length of line i as a closing fence of `char`, else 0.
+  const closer = (i: number, char: string): number => (closers[i]?.[0] === char ? closers[i]!.length : 0);
+  // Longest closing fence of each kind from line i on: an opener that never closes is then known without scanning ahead.
+  const longest: Record<string, number[]> = { '`': [], '~': [] };
+  for (const char of ['`', '~']) {
+    longest[char]![lines.length] = 0;
+    for (let i = lines.length - 1; i >= 0; i--) longest[char]![i] = Math.max(longest[char]![i + 1]!, closer(i, char));
+  }
   const out: string[] = [];
   for (let i = 0; i < lines.length; i++) {
-    const open = /^\s*(`{3,}|~{3,})(.*)$/.exec(lines[i]!);
-    const closeAt = open === null || (open[1]![0] === '`' && open[2]!.includes('`'))
-      ? -1
-      : lines.findIndex((l, j) => j > i && new RegExp(`^\\s*${open[1]![0] === '`' ? '`' : '~'}{${open[1]!.length},}\\s*$`).test(l));
-    if (closeAt < 0) out.push(lines[i]!);
-    else i = closeAt;
+    const open = FENCE_OPEN_RE.exec(lines[i]!);
+    const char = open?.[1]![0] ?? '';
+    const length = open?.[1]!.length ?? 0;
+    if (open === null || (char === '`' && open[2]!.includes('`')) || longest[char]![i + 1]! < length) {
+      out.push(lines[i]!);
+      continue;
+    }
+    // A closer exists, so this scan ends on it and every line it passes is skipped for good.
+    do {
+      i++;
+    } while (closer(i, char) < length);
   }
   return out;
 }
@@ -397,7 +429,7 @@ function proseBlockingFindings(body: string): string[] {
     const item = TOP_LIST_ITEM_RE.exec(line)?.[1];
     if (item === undefined) continue;
     if (group !== undefined) group.items.push(oneLine(item));
-    else if (!detailOnly && (inBlockingSection || isBlockingLabel(item))) out.push(oneLine(item));
+    else if (!detailOnly && (inBlockingSection || EXPLICIT_BLOCKING_RE.test(item))) out.push(oneLine(item));
   }
   flush();
   return out;

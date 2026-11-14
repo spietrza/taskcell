@@ -103,18 +103,39 @@ interface Props {
   withCards: string[];
   /** What the search box matches; Runs have no title, so its list says "Search task id". */
   searchLabel?: string;
+  /** The search box's tooltip: what it matches here and on the other screen that shares it. */
+  searchHint?: string;
 }
 
 /** A list filtered to empty: names the search that did it (it is shared by Board and Runs and survives a reload) with a way to clear it.
- * `query` is the search only when clearing it would bring rows back; empty when another filter empties the list. */
-export function NoMatch({ what, query, onClear }: { what: string; query: string; onClear?: (() => void) | undefined }) {
+ * `query` is the search only when clearing it would bring rows back; empty when another filter empties the list:
+ * then `names` says which filters are on, and `onClearFilters` (given when it would change something) resets them. */
+export function NoMatch({
+  what,
+  query,
+  onClear,
+  names = [],
+  onClearFilters,
+}: {
+  what: string;
+  query: string;
+  onClear?: (() => void) | undefined;
+  names?: string[];
+  onClearFilters?: (() => void) | undefined;
+}) {
   const q = query.trim();
   return (
     <div className="py-8 text-center text-sm text-muted-foreground">
       {q === '' ? `No ${what} match the current filters.` : `No ${what} match the search "${q}".`}
+      {q === '' && names.length > 0 && <span> Active: {names.join(', ')}.</span>}
       {q !== '' && onClear && (
         <Button variant="text" color="secondary" className="ml-2" onClick={onClear}>
           Clear search
+        </Button>
+      )}
+      {q === '' && onClearFilters && (
+        <Button variant="text" color="secondary" className="ml-2" onClick={onClearFilters}>
+          Clear filters
         </Button>
       )}
     </div>
@@ -123,8 +144,19 @@ export function NoMatch({ what, query, onClear }: { what: string; query: string;
 
 /** The one filter bar Board and Runs share. On a phone only triage and search stay; the rest opens in a Filters drawer. */
 export function FilterBar(props: Props) {
-  const { filter, onChange, searchLabel = 'Search title or id' } = props;
+  const { filter, onChange, searchLabel = 'Search title or id', searchHint = 'Matches a card title or id. Runs shares this search and matches the task id only.' } = props;
   const [drawer, setDrawer] = useState(false);
+  // Escape closes the sheet. On `window`, after the Projects popup's `document` listener: an open popup takes the key first.
+  useEffect(() => {
+    if (!drawer) return;
+    const onKey = (e: KeyboardEvent): void => {
+      if (e.key !== 'Escape' || e.defaultPrevented) return;
+      e.preventDefault();
+      setDrawer(false);
+    };
+    window.addEventListener('keydown', onKey);
+    return () => window.removeEventListener('keydown', onKey);
+  }, [drawer]);
   const active = (filter.repos.length > 0 ? 1 : 0) + (filter.sources.length > 0 ? 1 : 0) + (filter.group !== 'none' ? 1 : 0);
   return (
     <div className="mb-2 flex shrink-0 flex-wrap items-center gap-2" role="search" aria-label="Filters">
@@ -141,6 +173,7 @@ export function FilterBar(props: Props) {
         startAdornment={<Search className="size-4" />}
         placeholder={`${searchLabel}…`}
         aria-label={searchLabel}
+        title={searchHint}
         className="w-56 max-md:w-full"
       />
       <div className="flex flex-wrap items-center gap-2 max-md:hidden">

@@ -12,7 +12,7 @@ import { QuickView, TRACKER_NAME, type QuickTask } from './QuickView';
 import { boardCountLabels } from './counts';
 import { ExternalLink } from '../../components/ExternalLink';
 import { FilterBar, NoMatch } from '../../FilterBar';
-import { DEFAULT_FILTER, cardKeys, filterCards, groupRows, type HubFilter } from '../../filterState';
+import { DEFAULT_FILTER, canClearFilters, cardKeys, clearFilters, filterCards, filterNames, groupRows, type HubFilter } from '../../filterState';
 
 // Each column owns a color identity used across its header dot, count pill and card
 // hover border. Classes are spelled out (not interpolated) so Tailwind's JIT keeps them — a
@@ -188,7 +188,7 @@ export function TaskBoard({
       <div className={cn('flex min-h-0 min-w-0 flex-1 flex-col gap-4', filter.group !== 'none' && 'overflow-y-auto')}>
         {/* Ungrouped, the one lane stays (its columns render empty), so "nothing matches" is asked of the cards. */}
         {(allTasks?.length ?? 0) > 0 && tasks?.length === 0 && (
-          <NoMatch what="cards" query={filterCards(allTasks ?? [], { ...filter, query: '' }).length > 0 ? filter.query : ''} onClear={onFilter && (() => onFilter({ ...filter, query: '' }))} />
+          <NoMatch what="cards" query={filterCards(allTasks ?? [], { ...filter, query: '' }).length > 0 ? filter.query : ''} onClear={onFilter && (() => onFilter({ ...filter, query: '' }))} names={filterNames(filter)} onClearFilters={onFilter && canClearFilters(filter) ? () => onFilter(clearFilters(filter)) : undefined} />
         )}
         {lanes.map((lane) => (
         <section key={lane.key} aria-label={lane.label || undefined} className={cn('flex min-h-0 flex-col gap-2', filter.group === 'none' ? 'flex-1' : 'h-[28rem] shrink-0')}>
@@ -203,7 +203,8 @@ export function TaskBoard({
           return (
             <div
               key={col.key}
-              className="flex h-full min-h-0 w-72 shrink-0 flex-col rounded-xl border border-border/60 bg-muted/20 p-2"
+              // From xl the six columns share the row (narrowing to 11rem) so all fit at 1440; below it they keep their width and scroll.
+              className="flex h-full min-h-0 w-72 shrink-0 flex-col rounded-xl border border-border/60 bg-muted/20 p-2 xl:w-auto xl:min-w-44 xl:max-w-72 xl:flex-1"
             >
               <div className="mb-2 flex shrink-0 items-center gap-2 px-1 py-0.5">
                 <span className={cn('size-2 rounded-full', col.dot, col.pulse && items.length > 0 && 'animate-pulse')} />
@@ -227,11 +228,11 @@ export function TaskBoard({
                         cardRef.current = e.currentTarget;
                         setSelected(t);
                       }}
-                      className="block w-full text-left"
+                      className="block w-full text-left focus-visible:-outline-offset-2"
                     >
                       <Card.Root className={cn('bg-background/80 py-0 shadow-sm transition-all hover:shadow-md', col.cardHover)}>
                         <Card.Content className="space-y-1.5 p-3">
-                          <div className="flex items-center gap-1.5 font-mono text-[11px] font-medium text-muted-foreground">
+                          <div className="flex flex-wrap items-center gap-x-1.5 font-mono text-[11px] font-medium text-muted-foreground">
                             {t.id}
                             {allRepos && <RepoLabel name={t.repoName} />}
                           </div>

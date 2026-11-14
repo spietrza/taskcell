@@ -123,9 +123,20 @@ jobs:
 
       - name: Ensure routing labels
         run: |
+          # A repository that already has the old `vanguard:` spelling keeps it (`taskcell migrate-labels` renames in
+          # place, and a twin under the new name would stop that rename); a repository without it gets `taskcell:`.
+          state_label() {
+            local name="$1" existing; shift
+            existing=$(gh label list --repo "$GITHUB_REPOSITORY" --limit 1000 --json name --jq '.[].name')
+            if printf '%s\n' "$existing" | grep -qixF "vanguard:$name"; then
+              gh label create "vanguard:$name" --repo "$GITHUB_REPOSITORY" "$@" --force
+            else
+              gh label create "taskcell:$name" --repo "$GITHUB_REPOSITORY" "$@" --force
+            fi
+          }
           gh label create "ready for vanguard review" --repo "$GITHUB_REPOSITORY" --color BFD4F2 --description "Trigger a Vanguard PR review" --force
-          gh label create "vanguard:reviewing" --repo "$GITHUB_REPOSITORY" --color FBCA04 --description "Vanguard PR review in progress" --force
-          gh label create "vanguard:reviewed" --repo "$GITHUB_REPOSITORY" --color 0E8A16 --description "Vanguard PR review posted" --force
+          state_label reviewing --color FBCA04 --description "Taskcell PR review in progress"
+          state_label reviewed --color 0E8A16 --description "Taskcell PR review posted"
 
       - name: Preflight
         id: preflight
@@ -196,8 +207,8 @@ jobs:
             local provider="$1" model="$2"
             local args=(watch-prs --once --github-repo "$GITHUB_REPOSITORY"
               --label "ready for vanguard review"
-              --reviewing-label "vanguard:reviewing"
-              --reviewed-label "vanguard:reviewed"
+              --reviewing-label "taskcell:reviewing"
+              --reviewed-label "taskcell:reviewed"
               --repo "$GITHUB_WORKSPACE")
             [ -n "$IN_SKILLS" ] && args+=(--skills "$IN_SKILLS")
             [ -n "$IN_CONCURRENCY" ] && args+=(--concurrency "$IN_CONCURRENCY")

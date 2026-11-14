@@ -145,3 +145,9 @@ test('opened from a card, the form carries that card\'s ref and tracker, under a
   fireEvent.click(screen.getByRole('button', { name: /^run$/i }));
   expect(onRun).toHaveBeenCalledWith(expect.objectContaining({ issueRef: '42', transport: 'gitlab' }));
 });
+
+test('each select has an accessible name matching its visible label', async () => {
+  render(<NewRunForm capabilities={caps} project="/repo" onRun={vi.fn()} onCancel={() => {}} />);
+  await waitFor(() => expect(ipc.apiListFlows).toHaveBeenCalled());
+  for (const name of ['Task source', 'Provider', 'Flow']) expect(screen.getByRole('combobox', { name })).toBeInTheDocument();
+});

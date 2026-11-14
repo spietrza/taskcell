@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { extractReviewVerdict, extractReviewRisk, reviewOutcomeUsable, outputTail, verdictContradictsFindings, hasBlockingFinding, VERDICT_INSTRUCTION } from './review-prompt.js';
+import { extractCommentVerdict, extractReviewVerdict, extractReviewRisk, reviewOutcomeUsable, outputTail, verdictContradictsFindings, hasBlockingFinding, VERDICT_INSTRUCTION, VERDICT_WITHOUT_COMPLETION_NOTE } from './review-prompt.js';
 import { adversarySystemPrompt } from '../pipeline/pipeline.js';
 import { renderConformanceSection } from '../pipeline/review-publish.js';
 import { publishGitlabVerdict } from './gitlab.js';
@@ -19,6 +19,7 @@ import {
   hasPullRequestReviewMarker,
   PR_REVIEW_INCOMPLETE_MARKER,
   pullRequestReviewMarker,
+  soleReviewRunStampSha,
 } from './pr-review.js';
 import { neutralizePromptTags, omitGeneratedFiles, stripReviewMarkers } from './review-prompt.js';
 import { revisionMarker } from './pr-feedback.js';
@@ -98,6 +99,26 @@ describe('stripReviewMarkers', () => {
   it('removes a run stamp line the model wrote, so only the host stamp reaches the posted review', () => {
     const stamp = `<!-- taskcell-pr-review-run: ${'a'.repeat(40)}:42 -->`;
     expect(stripReviewMarkers(`Verdict: NO BLOCKING FINDINGS\n\n${stamp}\n \t${stamp} \nend`)).not.toContain('pr-review-run');
+  });
+
+  it('removes a run stamp or head marker spliced with a revision marker, so none is left alone on its line', () => {
+    const sha = 'a'.repeat(40);
+    const rev = revisionMarker('b'.repeat(40));
+    for (const text of [
+      `x\n<!-- taskcell-pr-review-run: ${sha}:42 -->${rev}\ny`,
+      `x\n<!-- taskcell-pr-<!-- revision: z -->review-run: ${sha}:42 -->\ny`,
+      `x\n${rev}<!-- taskcell-pr-review: ${sha} -->\ny`,
+    ]) {
+      const stripped = stripReviewMarkers(text);
+      expect(stripped).not.toContain('pr-review');
+      expect(soleReviewRunStampSha(`${stripped}\n\n<!-- taskcell-pr-review-run: ${sha}:7 -->`)).toBe(sha);
+    }
+  });
+
+  it('reads no verdict from a posted comment carrying the truncation note: such a review is incomplete', () => {
+    expect(extractCommentVerdict(buildPullRequestReviewComment('Verdict: BLOCKING\n\n- x', 'abc', { completed: false }))).toBeUndefined();
+    expect(extractCommentVerdict(buildPullRequestReviewComment('Verdict: NO BLOCKING FINDINGS', 'abc'))).toBe('clean');
+    expect(extractCommentVerdict(`## Taskcell Review\n\nsome text\n\n${VERDICT_WITHOUT_COMPLETION_NOTE}\n\nVerdict: BLOCKING`)).toBeUndefined();
   });
 
   it('removes revise-pr revision markers anywhere in the text, both forms, including split reassemblies', () => {
