@@ -63,13 +63,27 @@ export function customProviderError(entry: unknown, seen: ReadonlySet<string>): 
   }
   // A repo-defined provider must not borrow a credential Taskcell itself holds: its baseUrl is repo-chosen,
   // so naming e.g. CLAUDE_CODE_OAUTH_TOKEN here would send the operator's token to that host.
-  if ((INJECTED_SECRET_ENV_VARS as readonly string[]).includes(keyEnv)) {
+  if (isReservedKeyEnv(keyEnv)) {
     return `"keyEnv" must not name a credential Taskcell uses itself (${keyEnv}); give the provider its own variable`;
   }
   if (model !== undefined && (typeof model !== 'string' || model === '')) {
     return '"model" must be a non-empty string when present';
   }
   return undefined;
+}
+
+// Credentials Taskcell reads that the injected-secret list does not carry (they never enter a sandbox).
+const EXTRA_RESERVED_KEY_ENVS = ['GLAB_TOKEN', 'ANTHROPIC_AUTH_TOKEN', 'CLOUDFLARE_AUTH_TOKEN', 'LANGFUSE_SECRET_KEY'];
+
+/**
+ * True when `keyEnv` names a variable Taskcell owns: its own namespaces (TASKCELL_ and VANGUARD_, e.g. the
+ * hub secret), or a built-in provider's or git host's credential. Case-insensitive, as env names are on Windows.
+ */
+function isReservedKeyEnv(keyEnv: string): boolean {
+  const upper = keyEnv.toUpperCase();
+  return /^(TASKCELL|VANGUARD)_/.test(upper)
+    || (INJECTED_SECRET_ENV_VARS as readonly string[]).includes(upper)
+    || EXTRA_RESERVED_KEY_ENVS.includes(upper);
 }
 
 function isUrl(value: string): boolean {
