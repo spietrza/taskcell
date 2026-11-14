@@ -276,6 +276,14 @@ describe('hub server', () => {
     expect(session.headers.get('set-cookie')).toBeNull();
   });
 
+  test('a local hub answers the app\'s session probe with "no session", not a 404; other auth routes stay absent', async () => {
+    const res = await fetch(`${baseUrl}/api/auth/get-session`);
+    expect(res.status).toBe(200);
+    expect(await res.json()).toBeNull();
+    expect((await fetch(`${baseUrl}/api/auth/sign-in/social`, { method: 'POST' })).status).toBe(404);
+    expect((await fetch(`${baseUrl}/sign-in`)).status).toBe(404);
+  });
+
   test('T-80 GET /healthz answers without the token, with a constant body', async () => {
     const res = await fetch(`${baseUrl}/healthz`);
     expect(res.status).toBe(200);
