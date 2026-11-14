@@ -2838,6 +2838,28 @@ describe('runRevisePullRequest blocking-item checklist', () => {
     expect(pushes.some((a) => a[0] === 'push')).toBe(false);
   });
 
+  it('hands the PR to a human when items have no answer: needs-human-review replaces needs revision, with a one-line hand-fix comment', async () => {
+    const { ghCalls, result } = await run('1. FIXED: src/a.ts — done', { prLabels: ['needs revision', 'taskcell:revising'] });
+    await expect(result).rejects.toThrow(/no answer/);
+    const edit = ghCalls.find((a) => a[0] === 'pr' && a[1] === 'edit' && a.includes('--add-label') && a.includes('taskcell:needs-human-review'));
+    expect(edit).toEqual(expect.arrayContaining(['--remove-label', 'needs revision', '--remove-label', 'taskcell:revising', '--add-label', 'taskcell:needs-human-review']));
+    const body = ghCalls.filter((a) => a[0] === 'pr' && a[1] === 'review').map((a) => a.at(-1) ?? '').join('\n');
+    expect(body).toContain('needs a hand fix');
+    expect(body).toContain('- missing test for empty input');
+  });
+
+  it('does not hand off a round that pushed nothing with every item answered or for other reasons', async () => {
+    const { ghCalls, result } = await run('1. DISPUTED: src/a.ts — already handled\n2. NOT FIXED: out of scope', { noChange: true });
+    await expect(result).rejects.toThrow(/pushed nothing/);
+    expect(ghCalls.some((a) => a.includes('taskcell:needs-human-review'))).toBe(false);
+  });
+
+  it('a human re-labelling needs revision starts a normal round on a handed-off PR', async () => {
+    const { pushes, result } = await run('1. FIXED: src/a.ts — done\n2. FIXED: src/a.test.ts — added', { prLabels: ['needs revision', 'taskcell:needs-human-review'] });
+    await expect(result).resolves.toMatchObject({ pushed: true });
+    expect(pushes.some((a) => a[0] === 'push')).toBe(true);
+  });
+
   it('does not report success or re-request review when nothing was pushed with items open', async () => {
     const { ghCalls, result } = await run('1. DISPUTED: src/a.ts — already handled\n2. NOT FIXED: out of scope', { noChange: true });
     await expect(result).rejects.toThrow(/pushed nothing/);
