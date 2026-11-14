@@ -171,8 +171,17 @@ function peelReviewPrefix(body: string): string | undefined {
 /** The shared login of every workflow job holding `pull-requests: write`; never a reviewer identity in act mode. */
 const SHARED_WORKFLOW_LOGINS = new Set(['github-actions', 'github-actions[bot]', 'app/github-actions']);
 
-/** Act mode: the `reviewAuthors` logins a verdict may come from, i.e. all but the shared workflow login. */
-export const dedicatedReviewers = (policy: ApproverPolicy): string[] => policy.reviewAuthors.filter((a) => !SHARED_WORKFLOW_LOGINS.has(a.toLowerCase()));
+/** `app/name`, `name[bot]` and `name` are one identity. */
+const bareLogin = (login: string): string => login.toLowerCase().replace(/^app\//, '').replace(/\[bot\]$/, '');
+
+/**
+ * Act mode: the `reviewAuthors` logins a verdict may come from: not the shared workflow login, and not a factory author
+ * (the implement and revise jobs hold that App's token and read untrusted issue and PR text, so it cannot vouch for a review).
+ */
+export const dedicatedReviewers = (policy: ApproverPolicy): string[] => {
+  const factory = new Set((policy.factoryAuthors ?? []).map(bareLogin));
+  return policy.reviewAuthors.filter((a) => !SHARED_WORKFLOW_LOGINS.has(a.toLowerCase()) && !factory.has(bareLogin(a)));
+};
 
 /**
  * Select the review that speaks for the current content and extract its verdict. Candidates are
@@ -183,8 +192,7 @@ export const dedicatedReviewers = (policy: ApproverPolicy): string[] => policy.r
  * carry the host's run stamp for the SHA it was submitted on, and its author must not be the shared `github-actions` login. Returns all-null when there is none.
  */
 export function collectReviewFacts(pr: PrFacts, policy: ApproverPolicy, opts: { requireRunStamp?: boolean } = {}): ReviewFacts {
-  // Act mode (the run stamp is required) also demands provenance: only a dedicated reviewer login speaks.
-  const allowed = opts.requireRunStamp === true ? dedicatedReviewers(policy) : policy.reviewAuthors;
+  const allowed = policy.reviewAuthors;
   const candidates = pr.reviews.flatMap((r) => {
     const sha = soleReviewMarkerSha(r.body);
     const peeled = peelReviewPrefix(r.body);
@@ -204,7 +212,12 @@ export function collectReviewFacts(pr: PrFacts, policy: ApproverPolicy, opts: { 
   // No pin to a triggering run: one PR-review run reviews many PRs, and a run can trigger the approver without posting.
   // Checked after "latest wins", never as a filter before it: a newer review without a usable stamp (say a BLOCKING one)
   // must not let an older stamped verdict through; there is no verdict instead.
-  if (opts.requireRunStamp === true && (soleReviewRunStampSha(selected.body) !== selected.sha || selected.commitSha !== selected.sha)) {
+  // Provenance is checked the same way, after "latest wins": only a dedicated reviewer login speaks in act mode, and a
+  // newer review by any other listed author (say a BLOCKING one from a job still on the workflow token) withholds the verdict.
+  if (
+    opts.requireRunStamp === true &&
+    (!dedicatedReviewers(policy).includes(selected.author) || soleReviewRunStampSha(selected.body) !== selected.sha || selected.commitSha !== selected.sha)
+  ) {
     return { verdict: null, sha: null, author: null };
   }
   return { verdict: extractReviewVerdict(selected.peeled) ?? null, sha: selected.sha, author: selected.author };

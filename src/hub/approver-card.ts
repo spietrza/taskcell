@@ -43,7 +43,7 @@ export interface ApproverModeInfo {
 
 /** What the approver card and `set_approver_mode` say when the policy has no dedicated reviewer login. */
 export const NO_REVIEWER_LOGIN_HINT =
-  'Add the login of the GitHub App that posts the PR review (not github-actions) to "reviewAuthors" in .taskcell/approver.json on the base branch (the bare login, without "app/" or "[bot]"), and make the PR-review workflow post with that App\'s token.';
+  'Add the login of the GitHub App that posts the PR review (not github-actions, and not the App the factory itself runs as) to "reviewAuthors" in .taskcell/approver.json on the base branch (the bare login, without "app/" or "[bot]"), and make the PR-review workflow post with that App\'s token.';
 
 /**
  * The base branch the approver's policy lives on, resolved like Enable factory's default branch: the repo's

@@ -253,6 +253,23 @@ describe('collectReviewFacts act-mode run stamp', () => {
     expect(collectReviewFacts(by('github-actions'), pol).verdict).toBe('clean');
   });
 
+  it('a factory author is not a dedicated reviewer, in any spelling', () => {
+    const p = { reviewAuthors: ['taskcell', 'reviewer-app'], factoryAuthors: ['app/taskcell'] } as ApproverPolicy;
+    expect(dedicatedReviewers(p)).toEqual(['reviewer-app']);
+    expect(dedicatedReviewers({ reviewAuthors: ['Taskcell[bot]'], factoryAuthors: ['app/taskcell'] } as ApproverPolicy)).toEqual([]);
+    const by = { reviews: [{ author: 'taskcell', body: body(stamp(sha)), submittedAt: '1', state: 'COMMENTED', commitSha: sha }] } as unknown as PrFacts;
+    expect(collectReviewFacts(by, p, act).verdict).toBeNull();
+  });
+
+  it('act mode: a newer review by a listed non-dedicated author withholds an older dedicated verdict', () => {
+    const reviews = [
+      { author: 'reviewer-app', body: body(stamp(sha)), submittedAt: '1', state: 'COMMENTED', commitSha: sha },
+      { author: 'github-actions', body: body(stamp(sha)), submittedAt: '2', state: 'COMMENTED', commitSha: sha },
+    ];
+    expect(collectReviewFacts({ reviews } as unknown as PrFacts, pol, act)).toEqual({ verdict: null, sha: null, author: null });
+    expect(collectReviewFacts({ reviews: reviews.slice(0, 1) } as unknown as PrFacts, pol, act).verdict).toBe('clean');
+  });
+
   it('accepts a sole stamp only: several stamps, same SHA or not, give no verdict', () => {
     expect(collectReviewFacts(prWith(body(stamp(sha) + stamp(sha, '43'))), pol, act).sha).toBeNull();
     expect(collectReviewFacts(prWith(body(stamp(other) + stamp(sha))), pol, act).sha).toBeNull();
