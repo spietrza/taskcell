@@ -39,7 +39,7 @@ export function isFactoryBranch(branch: string | null | undefined): boolean {
 export interface CreateOptions {
   /** Reuse an existing <prefix><id>-* branch instead of minting a new run id. */
   reuse?: boolean;
-  /** Override the branch prefix (default TASKCELL_BRANCH_PREFIX). White-label mode uses e.g. `feat/`. */
+  /** Override the branch prefix (default MINT_BRANCH_PREFIX). White-label mode uses e.g. `feat/`. */
   branchPrefix?: string;
   /** Override the branch/path id (default taskId). White-label mode uses the bare issue number. */
   branchId?: string;
@@ -79,9 +79,10 @@ export class WorktreeManager {
     if (opts.reuse) {
       const existing = await this.findExistingBranch(id, prefix);
       if (existing) return existing;
-      if (prefix === MINT_BRANCH_PREFIX) {
-        const other = await this.findExistingBranch(id, TASKCELL_BRANCH_PREFIX);
-        if (other) return other;
+      // A factory prefix also reuses a branch minted under the other one, whichever is minted now.
+      for (const other of FACTORY_BRANCH_PREFIXES.includes(prefix) ? FACTORY_BRANCH_PREFIXES.filter((p) => p !== prefix) : []) {
+        const found = await this.findExistingBranch(id, other);
+        if (found) return found;
       }
     }
     // Append a unique run id: disposeContext removes the worktree but not the branch, and a prior
