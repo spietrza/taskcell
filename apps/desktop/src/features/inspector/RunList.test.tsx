@@ -72,3 +72,18 @@ test('a search that empties the list is named, with a button that clears it; the
   fireEvent.click(screen.getByRole('button', { name: 'Clear search' }));
   expect(onHub).toHaveBeenCalledWith({ ...hub, query: '' });
 });
+
+test('rows are keyboard stops: Enter opens a run, a CI-only row is not one', () => {
+  const run: RunSummary = { taskId: 'task-7', timestamp: '2026-07-06T19:12:02.123Z', stages: ['implement'], totalCostUsd: 0.1, anyFailed: false };
+  const onSelect = vi.fn();
+  const onOpenActive = vi.fn();
+  const active: ActiveRun[] = [{ taskId: 'task-live', sessionFile: '/x.jsonl', lastActivityMs: Date.now() }];
+  render(<RunList runs={[run, { ...run, taskId: 'task-ci', source: 'ci' }]} active={active} onSelect={onSelect} onOpenActive={onOpenActive} />);
+  const row = screen.getByText('task-7').closest('tr')!;
+  expect(row).toHaveAttribute('tabindex', '0');
+  fireEvent.keyDown(row, { key: 'Enter' });
+  expect(onSelect).toHaveBeenCalledWith(run);
+  fireEvent.keyDown(screen.getByText('task-live').closest('tr')!, { key: ' ' });
+  expect(onOpenActive).toHaveBeenCalledWith(active[0]);
+  expect(screen.getByText('task-ci').closest('tr')).not.toHaveAttribute('tabindex');
+});

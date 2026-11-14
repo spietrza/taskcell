@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { Button, Input, cn } from '@/ui';
 import { ListFilter, Search, X } from 'lucide-react';
 import { GROUPINGS, SOURCES, TRIAGES, type CardSource, type Grouping, type HubFilter, type Triage } from './filterState';
@@ -15,12 +15,24 @@ const pill = (on: boolean): string =>
 function ProjectPicker({ repos, withCards, selected, onChange }: { repos: Repo[]; withCards: string[]; selected: string[]; onChange: (paths: string[]) => void }) {
   const [open, setOpen] = useState(false);
   const [q, setQ] = useState('');
+  const trigger = useRef<HTMLButtonElement>(null);
+  // Escape closes the popup and hands focus back to its button.
+  useEffect(() => {
+    if (!open) return;
+    const onKey = (e: KeyboardEvent): void => {
+      if (e.key !== 'Escape') return;
+      setOpen(false);
+      trigger.current?.focus();
+    };
+    document.addEventListener('keydown', onKey);
+    return () => document.removeEventListener('keydown', onKey);
+  }, [open]);
   const shown = repos.filter((r) => r.name.toLowerCase().includes(q.trim().toLowerCase()));
   const toggle = (path: string): void => onChange(selected.includes(path) ? selected.filter((p) => p !== path) : [...selected, path]);
   const label = selected.length === 0 ? 'All projects' : selected.length === 1 ? (repos.find((r) => r.path === selected[0])?.name ?? '1 project') : `${selected.length} projects`;
   return (
     <div className="relative">
-      <button type="button" aria-expanded={open} aria-haspopup="listbox" onClick={() => setOpen(!open)} className="rounded border border-border px-2 py-1 text-xs">
+      <button ref={trigger} type="button" aria-expanded={open} aria-haspopup="listbox" onClick={() => setOpen(!open)} className="rounded border border-border px-2 py-1 text-xs">
         Projects: {label}
       </button>
       {open && (

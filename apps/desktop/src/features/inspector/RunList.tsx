@@ -1,4 +1,4 @@
-import { Fragment, useMemo, useState, type ReactElement } from 'react';
+import { Fragment, useMemo, useState, type KeyboardEvent, type ReactElement } from 'react';
 import { Table, Button, Chip, Empty, Input, ScrollTable, Timestamp } from '@/ui';
 import { Inbox, RefreshCw, Search } from 'lucide-react';
 import { verdictColor, verdictWord } from '../../status';
@@ -14,6 +14,16 @@ type Filter = 'all' | 'passed' | 'failed';
 type Run = RunSummary & Partial<RepoStamp>;
 type Active = ActiveRun & Partial<RepoStamp>;
 // A row of the table: a running run or a finished one, with what grouping needs.
+/** A clickable row is also a keyboard stop: Tab reaches it, Enter or Space opens it (keys on a link inside it stay the link's). */
+const rowKeys = (open: () => void): { tabIndex: number; onKeyDown: (e: KeyboardEvent<HTMLElement>) => void } => ({
+  tabIndex: 0,
+  onKeyDown: (e) => {
+    if (e.target !== e.currentTarget || (e.key !== 'Enter' && e.key !== ' ')) return;
+    e.preventDefault();
+    open();
+  },
+});
+
 type Item = ({ kind: 'active'; a: Active } | { kind: 'run'; r: Run }) & { taskId: string; repoPath?: string | undefined; repoName?: string | undefined };
 
 export function RunList({
@@ -82,7 +92,8 @@ export function RunList({
     <Table.Row
                   key={`active:${a.repoPath ?? ''}:${a.taskId}`}
                   onClick={() => onOpenActive(a)}
-                  className="cursor-pointer bg-primary/5"
+                  {...rowKeys(() => onOpenActive(a))}
+                  className="cursor-pointer bg-primary/5 focus-visible:outline focus-visible:outline-2 focus-visible:-outline-offset-2"
                 >
                   <Table.Cell className="font-medium">{a.taskId}</Table.Cell>
                   {showRepo && <Table.Cell><RepoLabel name={a.repoName} /></Table.Cell>}
@@ -109,7 +120,8 @@ export function RunList({
                   key={`${r.repoPath ?? ''}:${r.taskId}:${r.timestamp}`}
                   // A CI run has no local record to open: its PR/MR link is the way in.
                   onClick={r.source === 'ci' ? undefined : () => onSelect(r)}
-                  className={r.source === 'ci' ? '' : 'cursor-pointer'}
+                  {...(r.source === 'ci' ? {} : rowKeys(() => onSelect(r)))}
+                  className={r.source === 'ci' ? '' : 'cursor-pointer focus-visible:outline focus-visible:outline-2 focus-visible:-outline-offset-2'}
                 >
                   <Table.Cell className="font-medium">
                     {r.taskId}

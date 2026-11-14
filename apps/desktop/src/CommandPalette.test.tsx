@@ -1,4 +1,5 @@
 import { fireEvent, render, screen } from '@testing-library/react';
+import { useState } from 'react';
 import { expect, test, vi } from 'vitest';
 import { CommandPalette } from './CommandPalette';
 
@@ -29,4 +30,23 @@ test('Tab on the search input stays inside the dialog', () => {
   expect(input).toHaveFocus();
   const notPrevented = fireEvent.keyDown(input, { key: 'Tab' });
   expect(notPrevented).toBe(false);
+});
+
+test('Escape closes the palette and focus returns to what opened it', () => {
+  function Harness() {
+    const [open, setOpen] = useState(false);
+    return (
+      <>
+        <button onClick={() => setOpen(true)}>open palette</button>
+        {open && <CommandPalette {...base} onClose={() => setOpen(false)} />}
+      </>
+    );
+  }
+  render(<Harness />);
+  const opener = screen.getByRole('button', { name: 'open palette' });
+  opener.focus();
+  fireEvent.click(opener);
+  fireEvent.keyDown(screen.getByRole('combobox'), { key: 'Escape' });
+  expect(screen.queryByRole('dialog')).toBeNull();
+  expect(opener).toHaveFocus();
 });
