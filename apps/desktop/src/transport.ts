@@ -255,9 +255,13 @@ async function hubPost(cmd: string, args?: Record<string, unknown>): Promise<{ r
 }
 
 async function hubInvoke<T>(cmd: string, args?: Record<string, unknown>): Promise<T> {
+  const sent = hubToken();
   let { response, body } = await hubPost(cmd, args);
   // The hub refused the held token while a pasted one waits (the hub restarted): take it and ask once more.
-  if (response.status === 401 && isHubTokenRejected(body) && adoptPendingToken()) ({ response, body } = await hubPost(cmd, args));
+  // A call that was in flight when another one took it finds the stored token changed, and asks again too.
+  if (response.status === 401 && isHubTokenRejected(body) && (adoptPendingToken() || hubToken() !== sent)) {
+    ({ response, body } = await hubPost(cmd, args));
+  }
   // Only the hub's own 401 envelope means "this page's token is dead"; a reverse proxy's 401 is a
   // different problem, and telling the operator to reload would be wrong (docs/hub.md).
   if (response.status === 401 && isHubTokenRejected(body)) notifyHubRestarted();

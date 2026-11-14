@@ -528,6 +528,21 @@ test('a launch URL pasted after a hub restart, before the tab has seen a 401, re
   unlisten();
 });
 
+test('two calls in flight when the pasted token is taken both retry with it; no false restart', async () => {
+  launchWith('old');
+  let valid = 'old';
+  const offered = stubTokenHub(() => valid);
+  await invoke('list_runs', {});
+  valid = 'new';
+  const restarts: number[] = [];
+  const unlisten = await onHubRestart(() => restarts.push(1));
+  window.history.replaceState(null, '', '/#token=new');
+  await expect(Promise.all([invoke('list_runs', {}), invoke('list_runs', {})])).resolves.toEqual(['ok', 'ok']);
+  expect(offered).toEqual(['old', 'old', 'old', 'new', 'new']);
+  expect(restarts).toEqual([]);
+  unlisten();
+});
+
 test('a refused tab stores a pasted launch URL at once; a pending token that is also refused is tried once, then reported', async () => {
   launchWith('old');
   let valid = 'other';
