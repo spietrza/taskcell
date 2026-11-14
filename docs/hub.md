@@ -93,8 +93,8 @@ warning naming the provider rather than leaving the exposure silent:
 
 - **Codex on a ChatGPT subscription** (`CODEX_AUTH_JSON`). A Codex run has no Anthropic-family
   credential for the hub's primary sidecar to hold, so the hub runs it without the proxy and the
-  `auth.json` is forwarded into the sandbox verbatim. (The CLI's `--llm-proxy` does keep it on the
-  host; see [boundaries](security/boundaries.md#host-llm-proxy).) The run still starts; tracked in #585.
+  `auth.json` is forwarded into the sandbox verbatim. (The CLI's `--llm-proxy` keeps it on the
+  host when the run also uses Claude, Z.ai or OpenRouter; see [boundaries](security/boundaries.md#host-llm-proxy).) The run still starts; tracked in #585.
 - **Codex or Cursor on their own API key** (`CODEX_API_KEY`/`OPENAI_API_KEY`, `CURSOR_API_KEY`). Such a
   run consumes no Anthropic-family credential, so the proxy's primary sidecar has nothing to hold and
   cannot start; exporting `CLAUDE_CODE_OAUTH_TOKEN` as well does not change that, because the run never
