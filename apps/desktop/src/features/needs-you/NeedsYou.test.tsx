@@ -142,3 +142,15 @@ test('the empty state links to the Board', async () => {
   fireEvent.click(screen.getByRole('button', { name: 'Board' }));
   expect(onOpenBoard).toHaveBeenCalled();
 });
+
+test('a PR whose verify failed keeps its Merge button, disabled, with the reason beside it', async () => {
+  const pr = { ...needsYouItems[1], reason: 'taskcell:verify-failed', baseRef: 'main' };
+  const calls = stubHub([pr]);
+  render(<NeedsYou project="/repo" repos={[]} />);
+  const merge = await screen.findByRole('button', { name: 'Merge into main' });
+  expect(merge).toBeDisabled();
+  expect(screen.getByText('Verify failed on this PR: fix it before merging.')).toBeInTheDocument();
+  fireEvent.click(merge);
+  expect(screen.queryByRole('button', { name: /^Confirm merge/ })).toBeNull();
+  expect(calls.some((c) => c.cmd === 'merge_needs_you')).toBe(false);
+});

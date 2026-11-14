@@ -6,6 +6,7 @@ import { Agent, request } from 'node:http';
 import { afterEach, beforeEach, describe, expect, test, vi } from 'vitest';
 import { hubCommand, hubRotateTokenCommand } from './hub.js';
 import { loadPaths } from '../hub/projects.js';
+import * as hubServer from '../hub/server.js';
 import { loadTeams } from '../hub/teams.js';
 import type { Command } from './args.js';
 
@@ -24,6 +25,7 @@ const envKeys = [
   'TASKCELL_HUB_CONFIG_DIR',
   'TASKCELL_HUB_BROWSE_ROOT',
   'TASKCELL_HUB_BROWSE_ANYWHERE',
+  'TASKCELL_HUB_SERVER_MODE',
   'TASKCELL_HUB_ALLOW_ADD',
   'TASKCELL_HUB_WATCH_POLL',
   'TASKCELL_HUB_WATCH_INTERVAL_MS',
@@ -387,6 +389,27 @@ describe('hubCommand', () => {
     expect(await browseOutside()).toBe(400);
     process.env.TASKCELL_HUB_BROWSE_ANYWHERE = '1';
     expect(await browseOutside()).toBe(200);
+  });
+
+  test.each([
+    ['a non-loopback bind', { host: '0.0.0.0' }, undefined],
+    ['TASKCELL_HUB_SERVER_MODE=1 on loopback', {}, '1'],
+  ])('server mode (%s) keeps the browse root even with TASKCELL_HUB_BROWSE_ANYWHERE=1', async (_label, overrides, serverModeEnv) => {
+    process.env.TASKCELL_HUB_BROWSE_ANYWHERE = '1';
+    if (serverModeEnv !== undefined) process.env.TASKCELL_HUB_SERVER_MODE = serverModeEnv;
+    const create = vi.spyOn(hubServer, 'createHubServer');
+    const logSpy = vi.spyOn(console, 'log').mockImplementation(() => undefined);
+    const errorSpy = vi.spyOn(console, 'error').mockImplementation(() => undefined);
+    try {
+      await hubCommand(command({ open: false, ...overrides }));
+      expect(create.mock.calls[0]![0]).toMatchObject({ browseAnywhere: false, browseRoot, bind: { isLoopback: false } });
+    } finally {
+      create.mockRestore();
+      logSpy.mockRestore();
+      errorSpy.mockRestore();
+      process.emit('SIGINT');
+      await new Promise((r) => setTimeout(r, 0));
+    }
   });
 
   test('GET /healthz answers with a constant body, and SIGINT shuts the server down', async () => {

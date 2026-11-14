@@ -13,7 +13,7 @@ import {
 import type { CredentialPolicy } from '../../wire';
 
 /** Mirrors `CREDENTIAL_NAMES` in src/hub/credentials.ts — the only variables the hub will store. */
-const NAMES = [
+export const NAMES = [
   'ANTHROPIC_API_KEY',
   'ANTHROPIC_AUTH_TOKEN',
   'CLAUDE_CODE_OAUTH_TOKEN',

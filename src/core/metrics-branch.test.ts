@@ -1,9 +1,9 @@
 import { describe, it, expect, beforeEach, afterEach } from 'vitest';
-import { mkdtemp, rm, mkdir, writeFile } from 'node:fs/promises';
+import { mkdtemp, rm, mkdir, writeFile, symlink } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { execa } from 'execa';
-import { pushMetrics, readBranchMetrics, appendBranchLines, readBranchFile, METRICS_BRANCH_DEFAULT, METRICS_BRANCH_LEGACY } from './metrics-branch.js';
+import { pushMetrics, readBranchMetrics, appendBranchLines, readBranchFile, tipLockKey, METRICS_BRANCH_DEFAULT, METRICS_BRANCH_LEGACY } from './metrics-branch.js';
 
 let root: string;
 let origin: string;
@@ -85,6 +85,19 @@ describe('pushMetrics / readBranchMetrics', () => {
     expect(await pushMetrics(repo, { branch: 'team-metrics' })).toMatchObject({ branch: 'team-metrics', pushed: 1 });
     expect(await readBranchMetrics(repo, { branch: 'team-metrics' })).toContain('"taskId":"a"');
     expect(await readBranchMetrics(repo)).toBe('');
+  });
+});
+
+describe('tipLockKey', () => {
+  it('is the same for a symlinked or trailing-slash spelling of the repository, and differs per repo, remote and branch', async () => {
+    const link = join(root, 'link');
+    await symlink(repo, link);
+    const key = tipLockKey(repo, 'origin', 'b');
+    expect(tipLockKey(link, 'origin', 'b')).toBe(key);
+    expect(tipLockKey(`${repo}/`, 'origin', 'b')).toBe(key);
+    expect(tipLockKey(root, 'origin', 'b')).not.toBe(key);
+    expect(tipLockKey(repo, 'origin', 'c')).not.toBe(key);
+    expect(tipLockKey(join(root, 'missing'), 'origin', 'b')).toContain('missing');
   });
 });
 

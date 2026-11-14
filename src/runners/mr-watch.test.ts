@@ -34,6 +34,24 @@ describe('gitlabMergeRequestWatchPrimitives', () => {
     expect(ready[0]!.iid).toBe(1);
   });
 
+  it('listReady lists a renamed trigger label under both spellings, each MR once', async () => {
+    const calls: string[][] = [];
+    const mr = (iid: number, label: string) => ({ iid, title: 'T', draft: false, author: { username: 'alice' }, sha: `s${iid}`, labels: [label] });
+    const glab = async (args: string[]) => {
+      calls.push(args);
+      if (args[1] !== 'list') return '[]';
+      const label = args[args.indexOf('--label') + 1]!;
+      // MR 3 carries both spellings, so both lists return it.
+      return JSON.stringify(label === 'ready for taskcell review' ? [mr(1, label), mr(3, label)] : [mr(2, label), mr(3, label)]);
+    };
+    for (const label of ['ready for taskcell review', 'ready for vanguard review']) {
+      calls.length = 0;
+      const primitives = gitlabMergeRequestWatchPrimitives({ project: 'g/p', label, reviewingLabel: 'taskcell::reviewing', reviewedLabel: 'taskcell::reviewed', glab, reviewOne: async () => {} });
+      expect((await primitives.listReady()).map((item) => item.iid).sort()).toEqual([1, 2, 3]);
+      expect(calls.filter((c) => c[1] === 'list').map((c) => c[c.indexOf('--label') + 1])).toEqual(['ready for taskcell review', 'ready for vanguard review']);
+    }
+  });
+
   it('claim removes trigger label and adds reviewing label', async () => {
     const { glab, calls } = makeGlab();
     const primitives = gitlabMergeRequestWatchPrimitives({

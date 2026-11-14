@@ -101,7 +101,10 @@ warning naming the provider rather than leaving the exposure silent:
 - **Direct-mode-only providers** — Meridian ([MERIDIAN-provider.md](MERIDIAN-provider.md)) and repo
   custom providers (`.taskcell/app.json` `customProviders`). They point the Claude CLI at their own
   endpoint and authenticate on that host, exposing no upstream a sidecar could target, so their key
-  is injected into the sandbox.
+  is injected into the sandbox. A custom provider's `keyEnv` must be a variable of its own: any name
+  starting with `TASKCELL_` or `VANGUARD_` (reserved for Taskcell's own settings), and known credential
+  names (the built-in providers', git hosts', and `AWS_SECRET_ACCESS_KEY`, `NPM_TOKEN`,
+  `OTEL_EXPORTER_OTLP_HEADERS` and the like), are refused in any letter case.
 
 If the proxy's trusted sidecar itself fails to start — usually a missing or stale sandbox image, since
 it runs inside `taskcell-sandbox:latest` like the egress enclave — the run fails fast rather than
@@ -387,7 +390,8 @@ The **Add project** dialog has two modes:
   confinement, so a project outside the browse root cannot be added. To add one outside `$HOME`
   (the default root), start the hub with `TASKCELL_HUB_BROWSE_ROOT` set to a directory containing it.
   The **Folder path** field jumps straight to a typed or pasted path, under the same limit; a leading
-  `~` is the hub user's home, and a path outside the root is refused with the root named. The
+  `~` is the hub user's home (`~user` is not expanded), a relative path that does not exist under the
+  hub's working directory is taken from the browse root, and a path outside the root is refused with the root named. The
   desktop app's own hub has no such limit (see [its section](#the-desktop-apps-local-hub)).
 - **Clone repository** — paste a repository URL, pick the parent folder with the same browser, and
   optionally override the folder name (default: the repo name from the URL). The hub clones it under
@@ -653,7 +657,11 @@ URL: the UI first `POST`s `/events/session` with the header, and the hub answers
 constant `{"ok":true}`. No route serves the token — not `index.html`, not `/healthz`. On a loopback bind the CLI
 prints and opens a launch URL carrying it in the fragment (`/#token=…`), which browsers never send to
 the server; the UI moves it into `sessionStorage` and strips it from the address bar, so a reload
-keeps working but a new tab on the bare URL needs the launch URL again. A hub bound beyond loopback
+keeps working but a new tab on the bare URL needs the launch URL again. A `#token=…` that turns up on
+an already-open page is stored at once only when the tab has no token or the hub has refused the one it
+holds; otherwise it is kept in memory and used only if the hub then refuses the held token. So a link in
+a spec or a comment cannot replace a working token, and a launch URL pasted after a restart reconnects. The address also names the open
+screen (`?screen=runs`), so a reload returns to it and Back/Forward move between screens. A hub bound beyond loopback
 has no launch URL: browsers sign in at `/sign-in`, also behind a reverse proxy. Reaching the port is therefore not enough to drive the hub,
 but the token is a launch secret, not per-user authentication: it does not replace authentication at
 the reverse proxy. It is regenerated on every hub launch, so an already-open page must be given the

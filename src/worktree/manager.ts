@@ -22,9 +22,9 @@ export const TASKCELL_BRANCH_PREFIX = 'chore/taskcell-';
 export const LEGACY_BRANCH_PREFIX = 'chore/vanguard-';
 
 /**
- * Prefix new branches are minted under. Still the pre-rename one: the CI gates in .github/workflows (pr-review,
- * lessons, approver) and the shipped approver policy match `chore/vanguard-`; switch to TASKCELL_BRANCH_PREFIX once
- * those are updated. Both prefixes are recognised everywhere regardless.
+ * Prefix new branches are minted under. Still the pre-rename one: this repo's CI gates accept both prefixes, but
+ * the shipped approver policy default and callers' own gates may still match `chore/vanguard-` only; switch to
+ * TASKCELL_BRANCH_PREFIX once those are updated. Both prefixes are recognised everywhere regardless.
  */
 export const MINT_BRANCH_PREFIX = LEGACY_BRANCH_PREFIX;
 
@@ -79,9 +79,10 @@ export class WorktreeManager {
     if (opts.reuse) {
       const existing = await this.findExistingBranch(id, prefix);
       if (existing) return existing;
-      if (prefix === MINT_BRANCH_PREFIX) {
-        const other = await this.findExistingBranch(id, TASKCELL_BRANCH_PREFIX);
-        if (other) return other;
+      // A factory prefix also reuses a branch minted under the other one, whichever is minted now.
+      for (const other of FACTORY_BRANCH_PREFIXES.includes(prefix) ? FACTORY_BRANCH_PREFIXES.filter((p) => p !== prefix) : []) {
+        const found = await this.findExistingBranch(id, other);
+        if (found) return found;
       }
     }
     // Append a unique run id: disposeContext removes the worktree but not the branch, and a prior

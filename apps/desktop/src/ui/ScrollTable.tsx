@@ -11,6 +11,6 @@ import type { ReactNode } from 'react';
  */
 export function ScrollTable({ children }: { children: ReactNode }) {
   return (
-    <div className="min-h-0 flex-1 overflow-hidden [&>div]:h-full [&>div]:overflow-y-auto">{children}</div>
+    <div className="min-h-0 flex-1 overflow-hidden [&>div]:h-full [&>div]:overflow-y-auto [&>div]:scroll-cue-x">{children}</div>
   );
 }

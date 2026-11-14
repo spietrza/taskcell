@@ -158,7 +158,15 @@ export function Settings({ project, teamScreen }: { project: string; teamScreen?
       {cfgStatus === 'loading' ? (
         <div className="rounded-lg border border-border p-5 text-sm text-muted-foreground">Loading…</div>
       ) : (
-      <div className="space-y-4 rounded-lg border border-border p-5">
+      <div
+        className="space-y-4 rounded-lg border border-border p-5"
+        // Enter in a single-line field saves, as a form would; a select or a button keeps its own Enter.
+        onKeyDown={(e) => {
+          if (e.key !== 'Enter' || e.nativeEvent.isComposing || !(e.target instanceof HTMLInputElement) || e.target.type === 'color' || !savable) return;
+          e.preventDefault();
+          void save();
+        }}
+      >
         <Field label="Repository path">
           <Input value={project} readOnly className="w-full" />
         </Field>
