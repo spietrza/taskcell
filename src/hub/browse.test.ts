@@ -182,6 +182,12 @@ describe('anywhere (the desktop app\'s own hub)', () => {
     await expect(assertWithinBrowseRoot(root, join(outside, 'missing'), true)).rejects.toThrow('path does not exist');
   });
 
+  it('with `anywhere` a browse root that does not exist does not stop a project being added', async () => {
+    const repo = join(tmp, 'repo');
+    await mkdir(repo);
+    await expect(assertWithinBrowseRoot(join(tmp, 'no-such-root'), repo, true)).resolves.toBe(await realpath(repo));
+  });
+
   it('opens at the root but can go up from it, until the filesystem root', async () => {
     const atRoot = await browseDirs(root, undefined, true);
     expect(atRoot.path).toBe(root);

@@ -54,8 +54,9 @@ export async function assertWithinBrowseRoot(root: string, path: string, anywher
   } catch {
     throw new BadRequestError('path does not exist');
   }
+  if (anywhere) return target;
   const realRoot = await realpath(root);
-  if (!anywhere && !isWithinRoot(realRoot, target)) throw escapesRoot(realRoot);
+  if (!isWithinRoot(realRoot, target)) throw escapesRoot(realRoot);
   return target;
 }
 
