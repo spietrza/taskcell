@@ -730,6 +730,17 @@ export interface AppConfig {
   customProviders?: unknown;
 }
 
+/** The numeric `AppConfig` fields that are out of range, each as a sentence naming the field and its
+ * range (unset/null is always valid). One rule for the hub's `write_app_config` and the Settings form. */
+export function appConfigRangeErrors(cfg: AppConfig): { concurrency?: string; budgetUsd?: string; usageCapPct?: string } {
+  const bad = (v: unknown, ok: (n: number) => boolean): boolean => v !== undefined && v !== null && !(typeof v === 'number' && Number.isFinite(v) && ok(v));
+  return {
+    ...(bad(cfg.concurrency, (n) => Number.isInteger(n) && n >= 1) ? { concurrency: 'Parallel runs must be a whole number, 1 or more.' } : {}),
+    ...(bad(cfg.budgetUsd, (n) => n >= 0) ? { budgetUsd: 'Budget cap per Run must be 0 or more (leave it empty for no cap).' } : {}),
+    ...(bad(cfg.usageCapPct, (n) => n >= 1 && n <= 100) ? { usageCapPct: 'Usage cap % must be from 1 to 100 (leave it empty for no cap).' } : {}),
+  };
+}
+
 /** Hub-only (src/hub/browse.ts) — one subdirectory offered by `browse_dirs`, standing in for the
  * native folder dialog Tauri doesn't have in a browser. */
 export interface DirEntry {

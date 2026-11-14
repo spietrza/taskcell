@@ -3,7 +3,7 @@
 import { BadRequestError } from '../../sidecar/sidecar.js';
 import { assertSafeBaseBranch } from '../../core/base-branch.js';
 import { readAppConfig, readAppConfigStrict, writeAppConfig, type AppConfig as HubAppConfig } from '../app-config.js';
-import type { AppConfig } from '../../wire.js';
+import { appConfigRangeErrors, type AppConfig } from '../../wire.js';
 import { type Args, defineCommands, requireString, changedKeys, repoTarget } from '../command-kit.js';
 
 export interface AppConfigCommands {
@@ -31,6 +31,8 @@ export const commands = defineCommands<AppConfigCommands>({
     for (const b of [baseBranch, ...(Array.isArray(baseBranches) ? baseBranches : [])]) {
       if (typeof b === 'string' && b.trim() !== '') assertSafeBaseBranch(b.trim());
     }
+    const rangeError = Object.values(appConfigRangeErrors(config as AppConfig))[0];
+    if (rangeError !== undefined) throw new BadRequestError(rangeError);
     await writeAppConfig(real, config as HubAppConfig);
     return null;
   },

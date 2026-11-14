@@ -90,6 +90,20 @@ describe('tasks', () => {
       expect(await dispatchRpc(ctx, 'read_app_config', { repoPath: repo })).toMatchObject({ baseBranch: 'dev' });
     });
 
+    test.each([
+      [{ concurrency: -5 }, /Parallel runs must be a whole number, 1 or more/],
+      [{ concurrency: 1.5 }, /Parallel runs/],
+      [{ budgetUsd: -1 }, /Budget cap per Run must be 0 or more/],
+      [{ usageCapPct: 500 }, /Usage cap % must be from 1 to 100/],
+    ])('write_app_config refuses the out-of-range number in %j and writes nothing', async (config, message) => {
+      const repo = await tmpRepo();
+      const { ctx } = await makeCtx(repo);
+      await expect(dispatchRpc(ctx, 'write_app_config', { repoPath: repo, config })).rejects.toThrow(message);
+      expect(await dispatchRpc(ctx, 'read_app_config', { repoPath: repo })).toEqual({});
+      await dispatchRpc(ctx, 'write_app_config', { repoPath: repo, config: { concurrency: 2, budgetUsd: 2.5, usageCapPct: 80 } });
+      expect(await dispatchRpc(ctx, 'read_app_config', { repoPath: repo })).toMatchObject({ concurrency: 2, usageCapPct: 80 });
+    });
+
     test('write_app_config refuses an unsafe baseBranches entry', async () => {
       const repo = await tmpRepo();
       const { ctx } = await makeCtx(repo);
