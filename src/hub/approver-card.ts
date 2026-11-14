@@ -111,7 +111,9 @@ export async function approverScorecard(repoPath: string, period: ApproverPeriod
   // Only the project's own repository: decisions.jsonl may name others, and each would cost a `gh` call.
   const slug = await githubSlug(repoPath);
   const recorded = parseDecisions(text);
-  const all = recorded.filter((d) => isOwnRepo(d.repo, slug));
+  const own = recorded.filter((d) => isOwnRepo(d.repo, slug));
+  // One spelling for the slug, so case variants of it are one repository (one gh call, each PR counted once).
+  const all = own.map((d) => ({ ...d, repo: own[0]!.repo }));
   if (all.length === 0 && recorded.length > 0) {
     return empty(period, info, `The metrics branch has approver decisions, but none for this project's repository (${slug ?? 'no GitHub origin remote'}).`);
   }
