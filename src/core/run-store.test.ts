@@ -77,6 +77,18 @@ describe('beginRun — writing', () => {
     expect(record.lessonIds).toEqual(['abc123def456']);
   });
 
+  it('writes lessonsLoaded and lessonIds on the metric line, 0 when none, and nothing when the caller passes no lessons', async () => {
+    const metricOf = async (): Promise<Record<string, unknown>> => JSON.parse((await readFile(join(runsRoot(repo), 'metrics.jsonl'), 'utf8')).trim().split('\n').at(-1) as string);
+    await beginRun(repo, 'TES-M1', TS).writeStages([{ name: 'implementer', result }], { lessonIds: ['a1', 'b2'] });
+    expect(await metricOf()).toMatchObject({ lessonsLoaded: 2, lessonIds: ['a1', 'b2'] });
+    await beginRun(repo, 'TES-M2', TS).writeStages([{ name: 'implementer', result }], { lessonIds: [] });
+    const none = await metricOf();
+    expect(none.lessonsLoaded).toBe(0);
+    expect(none).not.toHaveProperty('lessonIds');
+    await beginRun(repo, 'TES-M3', TS).writeStages([{ name: 'implementer', result }]);
+    expect(await metricOf()).not.toHaveProperty('lessonsLoaded');
+  });
+
   it('records the target branch on every stage record', async () => {
     await beginRun(repo, 'TES-1', TS).writeStages([{ name: 'implementer', result }], { baseBranch: 'dev' });
     const record = JSON.parse(await readFile(join(runsRoot(repo), 'TES-1', `${PREFIX}-implementer.json`), 'utf8'));

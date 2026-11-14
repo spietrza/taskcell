@@ -704,7 +704,7 @@ describe('runSourcedIssue', () => {
 
     expect(beginRun.mock.calls[0]).toEqual(['/repo', 'gl-1', undefined, { secretEnvVars: [] }]);
     expect(writeStages).toHaveBeenCalledTimes(1);
-    expect(writeStages.mock.calls[0]).toEqual([[stageOutcome('reviewer')], { flow: 'default', provider: 'claude', baseBranch: 'main', prUrl: MR_URL }]);
+    expect(writeStages.mock.calls[0]).toEqual([[stageOutcome('reviewer')], { flow: 'default', provider: 'claude', baseBranch: 'main', lessonIds: [], prUrl: MR_URL }]);
   });
 
   it('white-label (--commit-author): no review comment, no issue link-back, clean PR body', async () => {
@@ -817,7 +817,7 @@ describe('runSourcedIssue', () => {
 
     expect(result.prUrl).toBeUndefined();
     expect(writeStages).toHaveBeenCalledTimes(1);
-    expect(writeStages.mock.calls[0]).toEqual([[stageOutcome('reviewer')], { flow: 'default', provider: 'claude', baseBranch: 'main' }]);
+    expect(writeStages.mock.calls[0]).toEqual([[stageOutcome('reviewer')], { flow: 'default', provider: 'claude', baseBranch: 'main', lessonIds: [] }]);
     expect(publishForReview).not.toHaveBeenCalled();
     expect(order).toEqual([]);
     expect(resolveAndRunVisualProof).toHaveBeenCalled();
@@ -864,7 +864,7 @@ describe('runSourcedIssue', () => {
     expect(commitStage).not.toHaveBeenCalled();
     expect(publishForReview).not.toHaveBeenCalled();
     expect(writeStages).toHaveBeenCalledTimes(1);
-    expect(writeStages.mock.calls[0]).toEqual([[], { flow: 'default', provider: 'claude', baseBranch: 'main', omitDiff: true }]);
+    expect(writeStages.mock.calls[0]).toEqual([[], { flow: 'default', provider: 'claude', baseBranch: 'main', lessonIds: [], omitDiff: true }]);
 
     expect(order).toEqual(['signalSecretBlock']);
     expect(adapter.signalSecretBlock).toHaveBeenCalledTimes(1);
@@ -1008,7 +1008,7 @@ describe('runSourcedIssue', () => {
     expect(publishForReview).not.toHaveBeenCalled();
     // The gate stopped runStages before the reviewer: only the implementer is recorded, diff/transcript/finalText withheld.
     expect(writeStages).toHaveBeenCalledTimes(1);
-    expect(writeStages.mock.calls[0]).toEqual([[stageOutcome('implementer', 'sess-1')], { flow: 'default', provider: 'claude', baseBranch: 'main', omitDiff: true }]);
+    expect(writeStages.mock.calls[0]).toEqual([[stageOutcome('implementer', 'sess-1')], { flow: 'default', provider: 'claude', baseBranch: 'main', lessonIds: [], omitDiff: true }]);
     expect(order).toEqual(['signalSecretBlock']);
     expect(adapter.signalSecretBlock).toHaveBeenCalledWith('group/project#1', expect.anything(), expect.objectContaining({ reason: kind }));
     expect(adapter.publishVerdict).not.toHaveBeenCalled();

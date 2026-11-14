@@ -7,6 +7,7 @@ import { DECISIONS_FILE } from '../approver/ledger.js';
 import { parseDecisions, formatApproverScorecard } from '../approver/scorecard.js';
 import { collectApproverScorecard } from '../approver/outcome.js';
 import { leadTimeRollupForPrUrls } from '../core/lead-time-github.js';
+import { aggregateLessons, fetchFirstPass, formatLessonsStats } from '../core/lessons-stats.js';
 import { formatLeadTime } from '../core/lead-time.js';
 import type { Command } from './args.js';
 import { stateDir } from '../core/state-path.js';
@@ -60,14 +61,14 @@ export async function statsCommand(cmd: StatsCommand): Promise<void> {
   }
   const records = parseMetrics(text);
   const report = aggregateMetrics(records, parseProbes(text));
-  const leadTime =
-    cmd.githubRepo !== undefined
-      ? await leadTimeRollupForPrUrls(cmd.githubRepo, records.flatMap((r) => (r.prUrl !== undefined ? [r.prUrl] : [])))
-      : undefined;
+  const prUrls = records.flatMap((r) => (r.prUrl !== undefined ? [r.prUrl] : []));
+  const leadTime = cmd.githubRepo !== undefined ? await leadTimeRollupForPrUrls(cmd.githubRepo, prUrls) : undefined;
+  const firstPass = cmd.githubRepo !== undefined ? await fetchFirstPass(cmd.githubRepo, prUrls) : undefined;
+  const lessons = aggregateLessons(records, firstPass);
   const merges = parseBaseMerges(text);
   const conflicts = merges.length > 0 ? aggregateConflicts(merges) : undefined;
   if (cmd.json) {
-    console.log(JSON.stringify({ ...report, ...(leadTime !== undefined ? { leadTime } : {}), ...(conflicts !== undefined ? { conflicts } : {}) }, null, 2));
+    console.log(JSON.stringify({ ...report, lessons, ...(leadTime !== undefined ? { leadTime } : {}), ...(conflicts !== undefined ? { conflicts } : {}) }, null, 2));
     return;
   }
   if (records.length === 0) {
@@ -76,6 +77,7 @@ export async function statsCommand(cmd: StatsCommand): Promise<void> {
     return;
   }
   console.log(formatStats(report));
+  console.log(`\n${formatLessonsStats(lessons)}`);
   if (conflicts !== undefined) console.log(`\n${formatConflictStats(conflicts)}`);
   if (leadTime !== undefined) console.log(`\n${formatLeadTime(leadTime)}`);
 }
