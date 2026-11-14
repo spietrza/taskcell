@@ -40,6 +40,7 @@ jobs:
   # It runs PR-controlled code (build.rs, proc macros, tests): read-only token, no secrets, no shared cache.
   desktop-rust:
     runs-on: ubuntu-latest
+    timeout-minutes: 30
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
         with:
@@ -50,8 +51,12 @@ jobs:
         env:
           EVENT: ${{ github.event_name }}
           BASE_REF: ${{ github.base_ref }}
+          REF: ${{ github.ref }}
+        # Pull requests: only when the crate, the splash it embeds or this workflow changed. Pushes: main only.
         run: |
-          if [ "$EVENT" != "pull_request" ] || ! git diff --quiet "origin/$BASE_REF...HEAD" -- apps/desktop/src-tauri apps/desktop/package.json .github/workflows/ci.yml; then
+          if [ "$EVENT" = "pull_request" ]; then
+            git diff --quiet "origin/$BASE_REF...HEAD" -- apps/desktop/src-tauri apps/desktop/splash .github/workflows/ci.yml || echo "run=true" >> "$GITHUB_OUTPUT"
+          elif [ "$REF" = "refs/heads/main" ]; then
             echo "run=true" >> "$GITHUB_OUTPUT"
           fi
       - name: Tauri system libraries
@@ -61,6 +66,8 @@ jobs:
         if: steps.changed.outputs.run == 'true'
         working-directory: apps/desktop/src-tauri
         run: cargo build --locked && cargo test --locked
+
+  # SCA gate: block a PR that introduces a dependency with a known high+ CVE (or a disallowed
 
   # license). Uses the GitHub dependency graph enabled alongside Dependabot alerts.
   dependency-review:
