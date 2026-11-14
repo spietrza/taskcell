@@ -200,8 +200,9 @@ export function Settings({ project, teamScreen }: { project: string; teamScreen?
             >
               <option value="">—</option>
               {TASK_SOURCES.map((s) => (
-                <option key={s.id} value={s.id}>
-                  {s.label}
+                // A planned source cannot be picked; one already stored still shows as what it is.
+                <option key={s.id} value={s.id} disabled={s.planned === true}>
+                  {s.planned ? `${s.label} (planned)` : s.label}
                 </option>
               ))}
             </select>
@@ -213,8 +214,9 @@ export function Settings({ project, teamScreen }: { project: string; teamScreen?
               className={SELECT_CLASS}
             >
               {RUN_LOCATIONS.map((r) => (
+                // Still selectable: these run when set up by hand; only the hub's Enable factory cannot do it yet.
                 <option key={r.id} value={r.id}>
-                  {r.label}
+                  {r.implemented ? r.label : `${r.label} (hub setup planned)`}
                 </option>
               ))}
             </select>

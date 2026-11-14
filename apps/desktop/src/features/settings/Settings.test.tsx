@@ -158,3 +158,14 @@ test('an out-of-range number names its range and blocks save', async () => {
   expect(screen.queryByRole('alert')).not.toBeInTheDocument();
   expect(screen.getByRole('button', { name: /save/i })).not.toBeDisabled();
 });
+
+test('a planned task source is marked and cannot be picked; a stored one still shows', async () => {
+  read.mockResolvedValueOnce({ taskSource: 'hub' });
+  render(<Settings project="/repo" />);
+  const select = (await screen.findByLabelText('Task source')) as HTMLSelectElement;
+  expect(select).toHaveValue('hub');
+  const hub = screen.getByRole('option', { name: 'Hub board (planned)' });
+  expect(hub).toBeDisabled();
+  expect(screen.getByRole('option', { name: 'GitHub Issues' })).toBeEnabled();
+  expect(screen.getByRole('option', { name: 'Self-hosted (watch) (hub setup planned)' })).toBeEnabled();
+});
