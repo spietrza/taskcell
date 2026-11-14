@@ -82,6 +82,28 @@ describe('aggregateMetrics', () => {
   });
 });
 
+describe('estimated cost', () => {
+  const records = parseMetrics(
+    [
+      line({ taskId: 'a', model: 'claude-sonnet-5-5', costUsd: 1 }),
+      line({ taskId: 'b', model: 'gpt-5', costUsd: 0, estCostUsd: 0.5 }),
+      line({ taskId: 'c', model: 'unpriced', costUsd: 0 }),
+    ].join('\n'),
+  );
+  it('keeps reported and estimated cost apart and marks the estimate', () => {
+    const report = aggregateMetrics(records);
+    expect(report.total).toMatchObject({ costUsd: 1, estCostUsd: 0.5 });
+    expect(report.byModel.find((b) => b.key === 'gpt-5')).toMatchObject({ costUsd: 0, estCostUsd: 0.5 });
+    const out = formatStats(report);
+    expect(out).toContain('$est');
+    expect(out).toContain('≈0.5000');
+    expect(out).toContain('not billed per token');
+  });
+  it('adds no estimate column when none exists', () => {
+    expect(formatStats(aggregateMetrics(records.slice(0, 1)))).not.toContain('$est');
+  });
+});
+
 describe('formatStats', () => {
   it('renders task, stage and total sections with numbers', () => {
     const report = aggregateMetrics(parseMetrics(line({ taskId: 'a', stage: 'implementer', costUsd: 0.25, inputTokens: 100, cacheReadInputTokens: 900, durationMs: 2000 })));

@@ -15,6 +15,7 @@ function capturingSandbox(): { sandbox: IsolatedSandboxProvider; captured: { com
     captured,
     sandbox: {
       exec: async (command: string, options: ExecOptions = {}): Promise<ExecResult> => {
+        if (command.includes('/sessions')) return { stdout: '', stderr: '', exitCode: 1 };
         captured.command = command;
         captured.options = options;
         return { stdout: cannedJsonl, stderr: '', exitCode: 0 };
@@ -58,7 +59,7 @@ describe('CodexProvider', () => {
     expect(turns).toEqual(['here is my answer']);
     expect(out.sessionId).toBe('codex-thread-1');
     expect(out.finalText).toBe('here is my answer');
-    expect(out.usage?.inputTokens).toBe(100);
+    expect(out.usage?.inputTokens).toBe(90); // input_tokens includes the 10 cached
     expect(out.usage?.outputTokens).toBe(25);
     expect(out.usage?.cacheReadInputTokens).toBe(10);
   });
@@ -196,6 +197,27 @@ describe('CodexProvider', () => {
     expect(captured.command).not.toContain('line of diff');
     expect(captured.command.length).toBeLessThan(200);
     expect(captured.options.input).toBe(prompt);
+  });
+
+  it('reads the model from the session rollout when none was requested', async () => {
+    const commands: string[] = [];
+    const sandbox = {
+      exec: async (command: string): Promise<ExecResult> => {
+        commands.push(command);
+        return { stdout: command.includes('/sessions') ? '"model":"gpt-6.1-sol"\n' : cannedJsonl, stderr: '', exitCode: 0 };
+      },
+    } as unknown as IsolatedSandboxProvider;
+    expect((await drain(sandbox)).out.model).toBe('gpt-6.1-sol');
+    expect(commands.some((c) => c.includes('codex-thread-1'))).toBe(true);
+  });
+
+  it('records no model when the rollout cannot be read, and does not look when -m was passed', async () => {
+    expect((await drain(fakeSandbox(cannedJsonl))).out.model).toBeUndefined();
+    const commands: string[] = [];
+    const sandbox = { exec: async (c: string): Promise<ExecResult> => (commands.push(c), { stdout: cannedJsonl, stderr: '', exitCode: 0 }) } as unknown as IsolatedSandboxProvider;
+    const gen = new CodexProvider().run({ ...input(sandbox), model: 'gpt-5' });
+    while (!(await gen.next()).done);
+    expect(commands.some((c) => c.includes('/sessions'))).toBe(false);
   });
 
   it('includes -m flag when model is specified', async () => {

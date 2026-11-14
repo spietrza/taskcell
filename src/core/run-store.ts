@@ -9,7 +9,7 @@ import { execa } from 'execa';
 import { hostGitArgs } from '../worktree/host-git.js';
 import { BadRequestError } from '../sidecar/sidecar.js';
 import type { RunResult } from './types.js';
-import { stageMetric } from './run-metric.js';
+import { estimatedCostUsd, stageMetric } from './run-metric.js';
 import { exportRunTrace } from './otlp-sink.js';
 import { appendAudit, defaultActor, localAdapter, STREAMS } from './audit.js';
 import { assertStatePath, ensureStateDir, isSafeTaskId, stateDir } from './state-path.js';
@@ -203,6 +203,9 @@ async function parseRunSummaries(root: string): Promise<RunSummary[]> {
       if (first === undefined) continue;
       const stages = records.map((r) => r.stage ?? 'run').sort();
       const totalCostUsd = records.reduce((sum, r) => sum + (r.costUsd ?? 0), 0);
+      const estCostUsd = records.reduce((sum, r) => sum + (r.costUsd === undefined ? (r.estCostUsd ?? 0) : 0), 0);
+      // No stage reported a cost: the estimate stands in for it (the hub shows `≈`, not $0.00).
+      const costUnknown = estCostUsd > 0 && records.every((r) => r.costUsd === undefined);
       const anyFailed = records.some((r) => !r.completed);
       const prUrl = httpsUrl(records.find((r) => r.prUrl !== undefined)?.prUrl);
       const ciUrl = httpsUrl(records.find((r) => r.ciUrl !== undefined)?.ciUrl);
@@ -212,6 +215,8 @@ async function parseRunSummaries(root: string): Promise<RunSummary[]> {
         timestamp,
         stages,
         totalCostUsd,
+        ...(estCostUsd > 0 ? { estCostUsd } : {}),
+        ...(costUnknown ? { costUnknown: true as const } : {}),
         anyFailed,
         ...(prUrl !== undefined ? { prUrl } : {}),
         ...(ciUrl !== undefined ? { ciUrl } : {}),
@@ -409,7 +414,7 @@ async function writeRecord(repoPath: string, taskId: string, timestamp: string, 
   const root = runsRoot(repoPath);
   const taskDir = await ensureStateDir(repoPath, join(root, taskId));
 
-  const { diff, transcript, ...meta } = result;
+  const { diff, transcript, mergedEstCostUsd: _merged, ...meta } = result;
   // Why the diff (and bundle) are withheld, recorded on run.json so the hub and a human can tell
   // "withheld" from "no diff" or "bundle creation failed":
   //  - 'secret-blocked': the caller's publish gate fired (opts.omitDiff).
@@ -439,12 +444,14 @@ async function writeRecord(repoPath: string, taskId: string, timestamp: string, 
   // on the record as well as the metric line, so the run's own file names the routed model even when
   // the provider reported none.
   const requested = opts.requestedModel !== undefined ? { requestedModel: opts.requestedModel } : {};
+  const estCostUsd = estimatedCostUsd(result);
   const ciUrl = ciRunUrl();
   const record = {
     ...meta,
     ...(review !== undefined ? { verdict: review.verdict } : {}),
     ...(findings.length > 0 ? { findings } : {}),
     ...requested,
+    ...(estCostUsd !== undefined ? { estCostUsd } : {}),
     finalText: diffOmitted !== undefined ? `[withheld: ${diffOmitted}]` : redactForPublish(result.finalText, opts.secretValues),
     timestamp,
     ...(opts.label !== undefined ? { stage: opts.label } : {}),

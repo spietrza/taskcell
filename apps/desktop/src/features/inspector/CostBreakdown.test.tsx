@@ -2,7 +2,7 @@ import { test, expect, afterEach } from 'vitest';
 import { render, screen, fireEvent } from '@testing-library/react';
 import { mockIPC, clearMocks } from '@tauri-apps/api/mocks';
 import { CostBreakdown } from './CostBreakdown';
-import { costKindNote, costLabel } from '../../cost';
+import { costKindNote, costLabel, totalCostLabel } from '../../cost';
 import type { CostBreakdown as Breakdown } from '../../wire';
 
 afterEach(() => {
@@ -47,4 +47,24 @@ test('cost helpers: unknown vs dollars, and a note per cost kind', () => {
   expect(costLabel({ totalCostUsd: 0 })).toBe('$0.00');
   expect(costKindNote('billed')).toMatch(/Billed/);
   expect(costKindNote('unknown')).toMatch(/unknown/);
+});
+
+test('costLabel and totalCostLabel show an estimate marked ≈ instead of unknown', () => {
+  expect(costLabel({ totalCostUsd: 0, costUnknown: true, estCostUsd: 1.234 })).toBe('≈$1.23');
+  expect(costLabel({ totalCostUsd: 0, costUnknown: true })).toBe('unknown');
+  expect(totalCostLabel({ totalCostUsd: 0, totalEstCostUsd: 2 })).toBe('≈$2.00');
+  expect(totalCostLabel({ totalCostUsd: 1, totalEstCostUsd: 2 })).toBe('$1.00 + ≈$2.00');
+});
+
+test('the breakdown shows the estimate for an unknown-cost row, with the subscription note', async () => {
+  mockIPC((cmd) =>
+    cmd === 'read_cost_breakdown'
+      ? { ...ok('30d'), totalCostUsd: 0, totalEstCostUsd: 0.4, byModel: [{ key: 'gpt-5', entries: 1, costUsd: 0, unknownEntries: 1, estCostUsd: 0.4 }], byStage: [] }
+      : undefined,
+  );
+  render(<CostBreakdown project="/repo" />);
+  expect(await screen.findByText('gpt-5')).toBeInTheDocument();
+  expect(screen.getAllByText('≈$0.40').length).toBeGreaterThan(0);
+  expect(screen.queryByText('unknown')).toBeNull();
+  expect(screen.getByText(/not billed per token/)).toBeInTheDocument();
 });

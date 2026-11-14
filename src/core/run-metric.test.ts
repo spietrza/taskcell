@@ -121,3 +121,34 @@ describe('mergeAttempts', () => {
     expect(merged).not.toHaveProperty('durationMs');
   });
 });
+
+describe('estCostUsd', () => {
+  const base = { taskId: 't', completed: true, exitReason: 'completed', turns: 1, worktreePath: '/w', worktreePreserved: false, finalText: '' } as const;
+  const usage = { inputTokens: 1_000_000, outputTokens: 0, cacheReadInputTokens: 0 };
+  it('estimates a priced model without touching costUsd', () => {
+    const m = stageMetric({ ...base, model: 'gpt-5', usage });
+    expect(m.estCostUsd).toBe(1.25);
+    expect(m.costUsd).toBe(0);
+  });
+  it('leaves an unpriced model and a reported cost without an estimate', () => {
+    expect(stageMetric({ ...base, model: 'mystery', usage }).estCostUsd).toBeUndefined();
+    expect(stageMetric({ ...base, model: 'gpt-5', usage, costUsd: 2 }).estCostUsd).toBeUndefined();
+  });
+});
+
+describe('estCostUsd cache and merge semantics', () => {
+  const base = { taskId: 't', completed: true, exitReason: 'completed', turns: 1, worktreePath: '/w', worktreePreserved: false, finalText: '' } as const;
+  it('prices cache reads at the cache rate on top of the non-cached input', () => {
+    // gpt-5: $1.25 in, $0.125 cache read per 1M
+    const m = stageMetric({ ...base, model: 'gpt-5', usage: { inputTokens: 100_000, outputTokens: 0, cacheReadInputTokens: 900_000 } });
+    expect(m.estCostUsd).toBe(0.2375);
+  });
+  it('prices merged attempts on different models each at their own rate, and not at all when one is unpriced', () => {
+    const usage = { inputTokens: 1_000_000, outputTokens: 0, cacheReadInputTokens: 0 };
+    const priced = mergeAttempts({ ...base, model: 'gpt-5', usage }, { ...base, model: 'gpt-5.5', usage });
+    expect(stageMetric(priced).estCostUsd).toBe(6.25);
+    expect(stageMetric(mergeAttempts(priced, { ...base, model: 'gpt-5.5', usage })).estCostUsd).toBe(11.25);
+    expect(stageMetric(mergeAttempts({ ...base, model: 'gpt-5', usage }, { ...base, model: 'mystery', usage })).estCostUsd).toBeUndefined();
+    expect(stageMetric(mergeAttempts({ ...base, model: 'gpt-5', usage }, { ...base, model: 'gpt-5', usage })).estCostUsd).toBe(2.5);
+  });
+});

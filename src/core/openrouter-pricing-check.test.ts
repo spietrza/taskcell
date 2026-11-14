@@ -126,8 +126,8 @@ describe('computeDrift', () => {
   });
 
   it('flags a metrics-sourced used model with no OPENROUTER_PRICING entry', () => {
-    const report = computeDrift(payloadFromTable(), new Set(['gpt-5.3-codex']));
-    expect(report.unpriced).toEqual([{ model: 'gpt-5.3-codex', source: 'metrics' }]);
+    const report = computeDrift(payloadFromTable(), new Set(['gpt-4o-mini']));
+    expect(report.unpriced).toEqual([{ model: 'gpt-4o-mini', source: 'metrics' }]);
   });
 
   it('does not flag a used model that is already priced', () => {
@@ -148,11 +148,11 @@ describe('scanUsedModelsFromMetricsText', () => {
       '',
       'not json',
       '{"evt":"run_complete","model":"sonnet"}',
-      '{"evt":"run_complete","model":"gpt-5.3-codex"}',
+      '{"evt":"run_complete","model":"gpt-4o-mini"}',
       '{"evt":"verify","model":"ignored"}',
       '{"evt":"run_complete"}',
     ].join('\n');
-    expect(scanUsedModelsFromMetricsText(text)).toEqual(new Set(['sonnet', 'gpt-5.3-codex']));
+    expect(scanUsedModelsFromMetricsText(text)).toEqual(new Set(['sonnet', 'gpt-4o-mini']));
   });
 
   it('returns an empty set for empty text', () => {
@@ -200,7 +200,7 @@ describe('formatDriftReport', () => {
   it('renders stored/live values and model names for all three categories', () => {
     const report = {
       stale: [{ tableKey: 'claude-sonnet-5', slug: 'anthropic/claude-sonnet-5', field: 'input' as const, stored: 2, live: 3 }],
-      unpriced: [{ model: 'gpt-5.3-codex', source: 'metrics' as const }],
+      unpriced: [{ model: 'gpt-4o-mini', source: 'metrics' as const }],
       missingLive: [{ tableKey: 'glm-5.2', slug: 'z-ai/glm-5.2' }],
       checkedRows: 5,
       usedModelsScanned: 1,
@@ -209,7 +209,7 @@ describe('formatDriftReport', () => {
     expect(text).toContain('claude-sonnet-5');
     expect(text).toContain('stored=2');
     expect(text).toContain('live=3');
-    expect(text).toContain('gpt-5.3-codex');
+    expect(text).toContain('gpt-4o-mini');
     expect(text).toContain('glm-5.2');
   });
 
@@ -248,9 +248,9 @@ describe('runPricingCheck', () => {
   it('wires an injected fetcher to computeDrift without touching the network', async () => {
     const report = await runPricingCheck({
       fetcher: async () => payloadFromTable(),
-      usedModels: new Set(['gpt-5.3-codex']),
+      usedModels: new Set(['gpt-4o-mini']),
     });
     expect(report.stale).toEqual([]);
-    expect(report.unpriced).toEqual([{ model: 'gpt-5.3-codex', source: 'metrics' }]);
+    expect(report.unpriced).toEqual([{ model: 'gpt-4o-mini', source: 'metrics' }]);
   });
 });

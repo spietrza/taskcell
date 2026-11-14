@@ -70,6 +70,34 @@ async function recordFiles(taskId: string): Promise<string[]> {
   return (await readdir(join(runsRoot(repo), taskId))).sort();
 }
 
+describe('beginRun — estimate', () => {
+  const codex: RunResult = { ...result, taskId: 'TES-E', model: 'gpt-5', usage: { inputTokens: 1_000_000, outputTokens: 0, cacheReadInputTokens: 0 } };
+  delete (codex as { costUsd?: number }).costUsd;
+
+  it('stores estCostUsd on the run record and metric line, never in costUsd', async () => {
+    await beginRun(repo, 'TES-E', TS).writeStages([{ name: 'implementer', result: codex }]);
+    const record = JSON.parse(await readFile(join(runsRoot(repo), 'TES-E', `${PREFIX}-implementer.json`), 'utf8'));
+    expect(record.estCostUsd).toBe(1.25);
+    expect(record.costUsd).toBeUndefined();
+    const metric = JSON.parse((await readFile(join(runsRoot(repo), 'metrics.jsonl'), 'utf8')).trim().split('\n').pop() ?? '');
+    expect(metric).toMatchObject({ estCostUsd: 1.25, costUsd: 0, costUnknown: true });
+  });
+
+  it('summarises a local run with the estimate and no reported cost as costUnknown', async () => {
+    await beginRun(repo, 'TES-E', TS).writeStages([{ name: 'implementer', result: codex }]);
+    const [summary] = await listRuns(runsRoot(repo));
+    expect(summary).toMatchObject({ totalCostUsd: 0, estCostUsd: 1.25, costUnknown: true });
+  });
+
+  it('writes no estimate for a reported cost or an unpriced model', async () => {
+    await beginRun(repo, 'TES-R', TS).writeStages([{ name: 'a', result }, { name: 'b', result: { ...codex, model: 'mystery' } }]);
+    for (const stage of ['a', 'b']) {
+      const record = JSON.parse(await readFile(join(runsRoot(repo), 'TES-R', `${PREFIX}-${stage}.json`), 'utf8'));
+      expect(record.estCostUsd).toBeUndefined();
+    }
+  });
+});
+
 describe('beginRun — writing', () => {
   it('records the injected lesson ids on the stage record', async () => {
     await beginRun(repo, 'TES-L', TS).writeStages([{ name: 'implementer', result }], { lessonIds: ['abc123def456'] });

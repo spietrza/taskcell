@@ -2,7 +2,7 @@ import { useState } from 'react';
 import { ErrorNote } from '@/ui';
 import { readCostBreakdown } from '../../ipc';
 import { useAsync } from '../../hooks';
-import { costKindNote } from '../../cost';
+import { costKindNote, EST_COST_NOTE, rowCostLabel, totalCostLabel as totalLabel } from '../../cost';
 import type { CostPeriod, CostRow } from '../../wire';
 
 const PERIODS: { id: CostPeriod; label: string }[] = [
@@ -20,7 +20,7 @@ function Rows({ title, rows }: { title: string; rows: CostRow[] }) {
           <li key={r.key} className="flex items-baseline justify-between gap-3">
             <span className="min-w-0 break-words">{r.key}</span>
             <span className="shrink-0 tabular-nums">
-              {r.unknownEntries === r.entries ? 'unknown' : `$${r.costUsd.toFixed(2)}`}
+              {rowCostLabel(r)}
               <span className="ml-1 text-xs text-muted-foreground">
                 {r.entries}×{r.unknownEntries > 0 && r.unknownEntries < r.entries ? `, ${r.unknownEntries} unknown` : ''}
               </span>
@@ -41,7 +41,7 @@ export function CostBreakdown({ project }: { project: string }) {
     <section aria-label="CI cost" className="mb-3 shrink-0 rounded-lg border border-border p-3">
       <div className="mb-2 flex flex-wrap items-center gap-2">
         <h3 className="text-sm font-semibold">CI cost</h3>
-        {data?.status === 'ok' && <span className="text-sm tabular-nums">${data.totalCostUsd.toFixed(2)}</span>}
+        {data?.status === 'ok' && <span className="text-sm tabular-nums">{totalLabel(data)}</span>}
         <div className="ml-auto flex gap-1" role="group" aria-label="Period">
           {PERIODS.map((p) => (
             <button
@@ -67,6 +67,7 @@ export function CostBreakdown({ project }: { project: string }) {
       ) : (
         <>
           <p className="mb-2 text-xs text-muted-foreground">{costKindNote(data.costKind)}</p>
+          {data.totalEstCostUsd !== undefined && <p className="mb-2 text-xs text-muted-foreground">{EST_COST_NOTE}</p>}
           <div className="flex flex-wrap gap-x-6 gap-y-3">
             <Rows title="By model" rows={data.byModel} />
             <Rows title="By stage" rows={data.byStage} />

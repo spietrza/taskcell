@@ -72,7 +72,7 @@ describe('estimateOpenRouterCost', () => {
   });
 
   it('returns undefined for unknown models', () => {
-    expect(estimateOpenRouterCost({ inputTokens: 1000, outputTokens: 1000, cacheReadInputTokens: 1000 }, 'gpt-5.3-codex')).toBeUndefined();
+    expect(estimateOpenRouterCost({ inputTokens: 1000, outputTokens: 1000, cacheReadInputTokens: 1000 }, 'gpt-4o-mini')).toBeUndefined();
     expect(estimateOpenRouterCost({ inputTokens: 1000, outputTokens: 1000, cacheReadInputTokens: 1000 }, 'glm-4.6')).toBeUndefined();
     expect(estimateOpenRouterCost({ inputTokens: 1000, outputTokens: 1000, cacheReadInputTokens: 1000 }, 'unknown-model')).toBeUndefined();
   });

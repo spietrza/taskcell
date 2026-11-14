@@ -77,6 +77,16 @@ describe('costBreakdown', () => {
     expect(only.costKind).toBe('estimated');
   });
 
+  it('shows the estimate instead of unknown, never in costUsd', async () => {
+    clearCiMetricsCache();
+    await push([line({ ts: '2026-11-12T10:00:00.000Z', taskId: 'E', model: 'gpt-5', costUsd: 0, costUnknown: true, estCostUsd: 0.4 }), line({ ts: '2026-11-12T10:01:00.000Z', taskId: 'F', model: 'mystery', costUsd: 0, costUnknown: true })]);
+    const b = await costBreakdown(repo, 'all', NOW);
+    expect(b.totalCostUsd).toBe(0);
+    expect(b.totalEstCostUsd).toBe(0.4);
+    expect(b.byModel.find((r) => r.key === 'gpt-5')).toMatchObject({ costUsd: 0, estCostUsd: 0.4, unknownEntries: 1 });
+    expect(b.byModel.find((r) => r.key === 'mystery')?.estCostUsd).toBeUndefined();
+  });
+
   it('says whether the number is estimated, billed, mixed or unknown', async () => {
     const kind = async (lines: string[]): Promise<string> => {
       clearCiMetricsCache();
@@ -100,6 +110,12 @@ describe('costBreakdown', () => {
     expect(runs.find((r) => r.taskId === 'A')?.costUnknown).toBe(true);
     expect(runs.find((r) => r.taskId === 'C')?.costUnknown).toBe(true);
     expect(runs.find((r) => r.taskId === 'B')?.costUnknown).toBeUndefined();
+  });
+
+  it('a CI run summary carries the estimate of its unreported records', async () => {
+    await push([line({ ts: '2026-11-12T10:00:00.000Z', taskId: 'E', model: 'gpt-5', costUsd: 0, costUnknown: true, estCostUsd: 0.4 })]);
+    const run = (await withCiRuns(repo, [])).find((r) => r.taskId === 'E');
+    expect(run).toMatchObject({ totalCostUsd: 0, estCostUsd: 0.4, costUnknown: true });
   });
 
   it('only unpriced records: costKind is unknown', async () => {

@@ -1,5 +1,6 @@
 import { cacheEfficiency } from '../agents/provider.js';
 import { roundUsd } from './usd.js';
+import { estimateOpenRouterCost } from './openrouter-pricing.js';
 import type { ExitReason, RunResult } from './types.js';
 
 /** Flat, single-source metric shape consumed by metrics.jsonl, the run summary, and logs. */
@@ -11,6 +12,8 @@ export interface StageMetric {
   completed: boolean;
   turns: number;
   costUsd: number;
+  /** API-price estimate (OpenRouter rates) for a run that reported no cost; never mixed into `costUsd`. */
+  estCostUsd?: number;
   cacheEfficiency: number;
   inputTokens: number;
   outputTokens: number;
@@ -33,11 +36,20 @@ export interface StageMetric {
 export type StageBudgetInfo = Pick<StageMetric, 'stageCapUsd' | 'remainingBudgetUsd'>;
 export type StageMetricExtras = StageBudgetInfo & Pick<StageMetric, 'requestedModel'>;
 
+/** Estimate for a run with usage and a priced model but no provider-reported cost; undefined otherwise. */
+export function estimatedCostUsd(result: RunResult): number | undefined {
+  if (result.costUsd !== undefined || result.usage === undefined) return undefined;
+  if (result.mergedEstCostUsd !== undefined) return result.mergedEstCostUsd ?? undefined;
+  const est = estimateOpenRouterCost(result.usage, result.model);
+  return est === undefined ? undefined : roundUsd(est);
+}
+
 /**
  * Build the canonical flat metric for a run result. Numeric fields default to 0 when absent so the
  * metric shape is stable. `stage` is included only when `stageName` is provided.
  */
 export function stageMetric(result: RunResult, stageName?: string, extras?: StageMetricExtras): StageMetric {
+  const est = estimatedCostUsd(result);
   return {
     taskId: result.taskId,
     ...(stageName !== undefined ? { stage: stageName } : {}),
@@ -45,6 +57,7 @@ export function stageMetric(result: RunResult, stageName?: string, extras?: Stag
     completed: result.completed,
     turns: result.turns,
     costUsd: result.costUsd ?? 0,
+    ...(est !== undefined ? { estCostUsd: est } : {}),
     cacheEfficiency: result.cacheEfficiency ?? 0,
     inputTokens: result.usage?.inputTokens ?? 0,
     outputTokens: result.usage?.outputTokens ?? 0,
@@ -83,8 +96,14 @@ export function mergeAttempts(prior: RunResult, next: RunResult): RunResult {
       : undefined;
   const costUsd = sumOpt(prior.costUsd, next.costUsd);
   const durationMs = sumOpt(prior.durationMs, next.durationMs);
+  // Attempts on different models (a cross-provider fallback) are priced each at its own rate.
+  const mixedModels = prior.model !== next.model || prior.mergedEstCostUsd !== undefined || next.mergedEstCostUsd !== undefined;
+  const priorEst = estimatedCostUsd(prior);
+  const nextEst = estimatedCostUsd(next);
+  const estCostUsd = costUsd !== undefined || !mixedModels ? undefined : priorEst !== undefined && nextEst !== undefined ? roundUsd(priorEst + nextEst) : null;
   return {
     ...next,
+    ...(estCostUsd !== undefined ? { mergedEstCostUsd: estCostUsd } : {}),
     turns: prior.turns + next.turns,
     attempts: (prior.attempts ?? 1) + (next.attempts ?? 1),
     firstExitReason: prior.firstExitReason ?? prior.exitReason,
