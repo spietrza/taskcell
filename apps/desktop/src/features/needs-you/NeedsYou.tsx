@@ -70,6 +70,7 @@ export function MergeButton({ project, item, onMerged }: { project: string; item
   const [merging, setMerging] = useState(false);
   const [confirming, setConfirming] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const verifyFailed = REASON_TEXT[item.reason] === 'verify failed';
 
   const merge = async (): Promise<void> => {
     setMerging(true);
@@ -88,7 +89,7 @@ export function MergeButton({ project, item, onMerged }: { project: string; item
   return (
     <div className="flex items-center gap-2">
       {/* Outlined, like Reply: the screen has one per item. A merge is irreversible, so it takes a second click. */}
-      <Button variant="outlined" disabled={merging} onClick={() => (confirming ? void merge() : setConfirming(true))}>
+      <Button variant="outlined" disabled={merging || verifyFailed} onClick={() => (confirming ? void merge() : setConfirming(true))}>
         {merging ? 'Merging…' : `${confirming ? 'Confirm merge' : 'Merge'}${item.baseRef ? ` into ${item.baseRef}` : ''}`}
       </Button>
       {confirming && (
@@ -96,6 +97,7 @@ export function MergeButton({ project, item, onMerged }: { project: string; item
           Cancel
         </Button>
       )}
+      {verifyFailed && <span className="text-xs text-muted-foreground">Verify failed on this PR: fix it before merging.</span>}
       {error && (
         <span role="alert" className="text-xs text-destructive-text">
           Not merged: {error}

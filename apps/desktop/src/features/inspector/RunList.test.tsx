@@ -96,3 +96,31 @@ test('rows are keyboard stops: Enter opens a run, a CI-only row is not one', () 
   expect(onOpenActive).toHaveBeenCalledWith(active[0]);
   expect(screen.getByText('task-ci').closest('tr')).not.toHaveAttribute('tabindex');
 });
+
+test('the result pills say "All results", so Runs has one "All" (triage) beside the shared filter bar', () => {
+  const runs: RunSummary[] = [{ taskId: 'task-7', timestamp: '2026-07-06T19:12:02.123Z', stages: ['implement'], totalCostUsd: 0.1, anyFailed: false }];
+  const hub = { triage: 'all' as const, repos: [], sources: [], query: '', group: 'none' as const };
+  render(<RunList runs={runs} active={[]} hub={hub} onHub={noop} onSelect={noop} onOpenActive={noop} />);
+  expect(screen.getAllByRole('button', { name: 'All' })).toHaveLength(1);
+  expect(screen.getByRole('button', { name: 'All results' })).toBeInTheDocument();
+});
+
+test('a list emptied by filters names them; Clear filters resets search, source, triage and the result pill', () => {
+  const runs: RunSummary[] = [{ taskId: 'task-7', timestamp: '2026-07-06T19:12:02.123Z', stages: ['implement'], totalCostUsd: 0.1, anyFailed: false }];
+  const onHub = vi.fn();
+  const hub = { triage: 'needs' as const, repos: ['/a'], sources: ['gitlab' as const], query: 'task', group: 'project' as const };
+  render(<RunList runs={runs} active={[]} hub={hub} onHub={onHub} onSelect={noop} onOpenActive={noop} />);
+  fireEvent.click(screen.getByRole('button', { name: 'failed' }));
+  expect(screen.getByText(/Active: Needs you, GitLab, Projects, search "task", Failed\./)).toBeInTheDocument();
+  fireEvent.click(screen.getByRole('button', { name: 'Clear filters' }));
+  // Projects and grouping are not filters this action owns.
+  expect(onHub).toHaveBeenCalledWith({ ...hub, triage: 'all', sources: [], query: '' });
+  expect(screen.getByRole('button', { name: 'All results' }).className).toContain('bg-primary');
+});
+
+test('the search box says it matches the task id only, here and on the Board that shares it', () => {
+  const runs: RunSummary[] = [{ taskId: 'task-7', timestamp: '2026-07-06T19:12:02.123Z', stages: ['implement'], totalCostUsd: 0.1, anyFailed: false }];
+  const hub = { triage: 'all' as const, repos: [], sources: [], query: '', group: 'none' as const };
+  render(<RunList runs={runs} active={[]} hub={hub} onHub={noop} onSelect={noop} onOpenActive={noop} />);
+  expect(screen.getByLabelText('Search task id')).toHaveAttribute('title', expect.stringContaining('task id only'));
+});

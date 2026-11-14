@@ -1,6 +1,7 @@
 import type { AppConfig } from '../../taskcell-output';
 import { WIRE_PROVIDER_NAMES, FLOW_NAME_RE, KEY_ENV_RE, CUSTOM_PROVIDER_KEYS } from '../../wire';
 import type { CustomProviderSpec } from '../../wire';
+import { NAMES as CREDENTIAL_NAMES } from './CredentialsPanel';
 
 // A form row IS a valid entry (wire's CustomProviderSpec — one definition, shared with the core
 // loader). `AppConfig.customProviders` itself stays OPAQUE (`unknown`): Rust and the hub round-trip
@@ -21,6 +22,23 @@ export const PROVIDERS: readonly string[] = WIRE_PROVIDER_NAMES;
 const NAME_RE = FLOW_NAME_RE;
 const ROW_KEYS: ReadonlySet<string> = new Set(CUSTOM_PROVIDER_KEYS);
 
+// Mirrors `isReservedKeyEnv` in src/agents/custom.ts: Taskcell's own namespaces, the credentials the hub
+// stores, and the git host and other credentials the core names. The core is still the one predicate and
+// re-validates when the config is read.
+const RESERVED_KEY_ENVS: readonly string[] = [
+  ...CREDENTIAL_NAMES,
+  'GH_TOKEN',
+  'GITHUB_TOKEN',
+  'GITLAB_TOKEN',
+  'GLAB_TOKEN',
+  'LINEAR_API_KEY',
+  'CI_JOB_TOKEN',
+  'ANTHROPIC_AUTH_TOKEN',
+  'CLOUDFLARE_AUTH_TOKEN',
+  'LANGFUSE_SECRET_KEY',
+];
+const isReservedKeyEnv = (keyEnv: string): boolean => /^(TASKCELL|VANGUARD)_/i.test(keyEnv) || RESERVED_KEY_ENVS.includes(keyEnv.toUpperCase());
+
 /** First violated rule for a Settings custom-provider row, or undefined when saveable. */
 export function customProviderRowError(row: Row, index: number, all: Row[]): string | undefined {
   // Rows loaded from a hand-edited file can carry keys the editor doesn't know; the core loader
@@ -33,6 +51,7 @@ export function customProviderRowError(row: Row, index: number, all: Row[]): str
   if (all.findIndex((r) => r.name === row.name) !== index) return `duplicate provider name "${row.name}"`;
   if (!/^https?:\/\//.test(row.baseUrl) || !isUrl(row.baseUrl)) return 'Endpoint URL must be an absolute http:// or https:// URL';
   if (!KEY_ENV_RE.test(row.keyEnv)) return 'API key variable must be a valid environment variable name';
+  if (isReservedKeyEnv(row.keyEnv)) return `API key variable must not name a credential Taskcell uses itself (${row.keyEnv}); give the provider its own variable`;
   if (row.model === '') return 'Model must be non-empty when set';
   return undefined;
 }

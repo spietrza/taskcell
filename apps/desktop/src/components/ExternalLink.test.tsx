@@ -28,7 +28,10 @@ test('in demo mode a link to the made-up repository goes nowhere; a real address
         <ExternalLink href="https://example.com/docs">Docs</ExternalLink>
       </>,
     );
-    expect(screen.getByText('Open in GitHub').closest('a')).not.toHaveAttribute('href');
+    // Plain text that says why, not something that looks like a link.
+    expect(screen.queryByRole('link', { name: 'Open in GitHub' })).toBeNull();
+    expect(screen.getByText('Open in GitHub')).toHaveAttribute('title', 'Demo project: this link goes nowhere.');
+    expect(screen.getByText('Open in GitHub').querySelector('svg')).toBeNull();
     expect(screen.getByText('Docs').closest('a')).toHaveAttribute('href', 'https://example.com/docs');
   } finally {
     delete window.__TASKCELL_DEMO__;

@@ -6,7 +6,7 @@ import { randomBytes, timingSafeEqual } from 'node:crypto';
 import { createServer, type IncomingMessage, type Server, type ServerResponse } from 'node:http';
 import { isIP } from 'node:net';
 import { join } from 'node:path';
-import { serveStatic } from './static.js';
+import { contentSecurityPolicy, serveStatic } from './static.js';
 import { EventBus } from './events.js';
 import { writeJson, jsonError } from './json-response.js';
 import { callerRepoRoots, repoInRoots, type Caller } from './teams.js';
@@ -324,7 +324,8 @@ async function handleRequest(
     if (identity.handler === undefined) return notFound(res);
     if (req.method !== 'GET' && req.method !== 'HEAD') return methodNotAllowed(res, 'GET, HEAD');
     const html = signInPage(identity.providers, url.searchParams.get('error') ?? undefined);
-    res.writeHead(200, { 'content-type': 'text/html; charset=utf-8', 'cache-control': 'no-store' });
+    // The same policy as the app's pages: only this page's own inline script (by hash) may run, and nothing may frame it.
+    res.writeHead(200, { 'content-type': 'text/html; charset=utf-8', 'cache-control': 'no-store', 'x-frame-options': 'DENY', 'content-security-policy': contentSecurityPolicy(html) });
     res.end(req.method === 'HEAD' ? undefined : html);
     return;
   }
