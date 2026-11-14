@@ -95,12 +95,23 @@ jobs:
 
       - name: Ensure routing labels
         run: |
+          # A repository that already has the old `vanguard:` spelling keeps it (`taskcell migrate-labels` renames in
+          # place, and a twin under the new name would stop that rename); a repository without it gets `taskcell:`.
+          state_label() {
+            local name="$1" existing; shift
+            existing=$(gh label list --repo "$GITHUB_REPOSITORY" --limit 1000 --json name --jq '.[].name')
+            if printf '%s\n' "$existing" | grep -qixF "vanguard:$name"; then
+              gh label create "vanguard:$name" --repo "$GITHUB_REPOSITORY" "$@" --force
+            else
+              gh label create "taskcell:$name" --repo "$GITHUB_REPOSITORY" "$@" --force
+            fi
+          }
           gh label create "ready for spec" --repo "$GITHUB_REPOSITORY" --color FBCA04 --description "Vanguard Loop v1 spec pass" --force
           gh label create "ready for agent" --repo "$GITHUB_REPOSITORY" --color 5319E7 --description "Vanguard Loop v1 agent pass" --force
           gh label create "needs info" --repo "$GITHUB_REPOSITORY" --color D93F0B --description "Parked: ticket too vague for Vanguard" --force
-          gh label create "vanguard:speccing" --repo "$GITHUB_REPOSITORY" --color FEF2C0 --description "Vanguard is writing a tech spec" --force
-          gh label create "vanguard:running" --repo "$GITHUB_REPOSITORY" --color C5DEF5 --description "Vanguard agent is implementing" --force
-          gh label create "vanguard:needs-human-review" --repo "$GITHUB_REPOSITORY" --color 0E8A16 --description "Vanguard opened a PR — awaiting human review" --force
+          state_label speccing --color FEF2C0 --description "Taskcell is writing a tech spec"
+          state_label running --color C5DEF5 --description "Taskcell agent is implementing"
+          state_label needs-human-review --color 0E8A16 --description "Taskcell opened a PR — awaiting human review"
 
       # Preflight only — no issues are claimed. Pass the same providers as implement, so it also validates
       # the Codex subscription credential. Exits non-zero on any failed check.
