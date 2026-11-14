@@ -3,7 +3,7 @@ import { mkdtemp, rm } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { PassThrough } from 'node:stream';
-import { afterEach, beforeEach, describe, expect, test } from 'vitest';
+import { afterEach, beforeEach, describe, expect, test, vi } from 'vitest';
 import { CompleteBusyError, CompleteRegistry } from './complete.js';
 import { writeAppConfig } from './app-config.js';
 import type { ChildProcess } from 'node:child_process';
@@ -18,6 +18,12 @@ class FakeChild extends EventEmitter {
     return true;
   }
 }
+
+// Above the 1 s default, for a loaded CI runner; under the 5 s test timeout.
+const WAIT = { timeout: 4000 };
+
+/** Wait until the registry has written its request to the child, i.e. it is listening for the response. */
+const requestSent = (child: FakeChild): Promise<void> => vi.waitFor(() => expect(child.stdin.writableEnded).toBe(true), WAIT);
 
 let repoPath: string;
 
@@ -38,7 +44,7 @@ describe('CompleteRegistry', () => {
     });
     const registry = new CompleteRegistry(() => fake as unknown as ChildProcess);
     const promise = registry.complete(repoPath, { messages: [{ role: 'user', content: 'hi' }], model: 'claude-sonnet-5' });
-    await new Promise((r) => setTimeout(r, 20));
+    await requestSent(fake);
     fake.stdout.write(`${JSON.stringify({ text: 'hello' })}\n`);
     const result = await promise;
     expect(result).toEqual({ text: 'hello' });
@@ -63,7 +69,7 @@ describe('CompleteRegistry', () => {
       // @ts-expect-error -- baseUrl is not part of CompleteParams; proving it cannot ride along even if forced
       baseUrl: 'https://attacker.example',
     });
-    await new Promise((r) => setTimeout(r, 20));
+    await requestSent(fake);
     fake.stdout.write(`${JSON.stringify({ text: 'ok' })}\n`);
     await promise;
     const sent = JSON.parse(written.trim()) as Record<string, unknown>;
@@ -74,7 +80,7 @@ describe('CompleteRegistry', () => {
     const fake = new FakeChild();
     const registry = new CompleteRegistry(() => fake as unknown as ChildProcess);
     const promise = registry.complete(repoPath, { messages: [], model: 'm' });
-    await new Promise((r) => setTimeout(r, 20));
+    await requestSent(fake);
     fake.stdout.write('some stray log line\n');
     fake.stdout.write(`${JSON.stringify({ text: 'real' })}\n`);
     await expect(promise).resolves.toEqual({ text: 'real' });
@@ -84,7 +90,7 @@ describe('CompleteRegistry', () => {
     const fake = new FakeChild();
     const registry = new CompleteRegistry(() => fake as unknown as ChildProcess);
     const promise = registry.complete(repoPath, { messages: [], model: 'm' });
-    await new Promise((r) => setTimeout(r, 20));
+    await requestSent(fake);
     fake.emit('close');
     await expect(promise).rejects.toThrow(/no response/);
   });
@@ -108,7 +114,7 @@ describe('CompleteRegistry', () => {
     expect(fakeA.killed).toBe(true);
     expect(fakeB.killed).toBe(false);
 
-    await new Promise((r) => setTimeout(r, 20));
+    await Promise.all([requestSent(fakeA), requestSent(fakeB)]);
     fakeA.emit('close');
     fakeB.stdout.write(`${JSON.stringify({ text: 'b done' })}\n`);
     await expect(promiseA).rejects.toThrow();
@@ -124,12 +130,12 @@ describe('CompleteRegistry', () => {
     await expect(registry.complete(repoPath, { messages: [], model: 'm' })).rejects.toBeInstanceOf(CompleteBusyError);
     expect(spawned).toBe(2);
 
-    await new Promise((r) => setTimeout(r, 20));
+    await requestSent(fakes[0]!);
     fakes[0]!.stdout.write(`${JSON.stringify({ text: 'one' })}\n`);
     await expect(first).resolves.toEqual({ text: 'one' });
     const third = registry.complete(repoPath, { messages: [], model: 'm' });
     expect(spawned).toBe(3);
-    await new Promise((r) => setTimeout(r, 20));
+    await requestSent(fakes[2]!);
     fakes[1]!.stdout.write(`${JSON.stringify({ text: 'two' })}\n`);
     fakes[2]!.stdout.write(`${JSON.stringify({ text: 'three' })}\n`);
     await expect(second).resolves.toEqual({ text: 'two' });

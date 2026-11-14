@@ -175,7 +175,7 @@ watch-prs owner/repo#123: reviewed -> marked
 
 ### GitHub Actions trigger
 
-`.github/workflows/taskcell-pr-review.yml` fires on `pull_request_target` when the `ready for vanguard review` label is applied to a PR. It also fires when a factory PR (a `chore/vanguard-*` branch in this repo, opened by an allowed login) opens ready for review or leaves draft: a first job adds the label, so that PR is reviewed without anyone labelling it. It can also be triggered manually via `workflow_dispatch` to sweep all currently-labeled PRs.
+`.github/workflows/taskcell-pr-review.yml` fires on `pull_request_target` when the `ready for vanguard review` (or `ready for taskcell review`) label is applied to a PR. It also fires when a factory PR (a `chore/vanguard-*` or `chore/taskcell-*` branch in this repo, opened by an allowed login) opens ready for review or leaves draft: a first job adds the label, so that PR is reviewed without anyone labelling it. It can also be triggered manually via `workflow_dispatch` to sweep all currently-labeled PRs.
 
 **Required secrets:** `CLAUDE_CODE_OAUTH_TOKEN` — the Claude subscription OAuth token. The built-in `GITHUB_TOKEN` provides PR/label write access automatically.
 
@@ -391,7 +391,7 @@ taskcell-lessons:
 
 Run it for a closed factory MR with `MR_IID` set (for example from a pipeline trigger on MR close). An MR from a fork, or on a branch other than `chore/vanguard-*`, is skipped with no model call, since its reviews quote text its author controls. The job needs `CLAUDE_CODE_OAUTH_TOKEN`, a `GITLAB_TOKEN` that can read and comment on MRs and push the metrics branch.
 
-This repo runs the step from `.github/workflows/taskcell-lessons.yml` when a `chore/vanguard-*` PR is closed. The job needs `CLAUDE_CODE_OAUTH_TOKEN`.
+This repo runs the step from `.github/workflows/taskcell-lessons.yml` when a `chore/vanguard-*` or `chore/taskcell-*` PR is closed. The job needs `CLAUDE_CODE_OAUTH_TOKEN`.
 
 ## Proof of work
 

@@ -1,7 +1,7 @@
 import { mkdir, mkdtemp, realpath, rm, writeFile } from 'node:fs/promises';
 import { homedir, tmpdir } from 'node:os';
 import { dirname, join, parse, win32 } from 'node:path';
-import { afterEach, beforeEach, describe, expect, it } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { assertWithinBrowseRoot, browseDirs, isWithinRoot, MAX_BROWSE_ENTRIES } from './browse.js';
 import { BadRequestError } from '../sidecar/sidecar.js';
 
@@ -155,12 +155,62 @@ describe('a filesystem root as the browse root', () => {
 });
 
 describe('typed paths', () => {
+  // The hub's working directory is a temp dir here, so relative paths do not depend on where the suite runs.
+  let cwd: string;
+  beforeEach(async () => {
+    cwd = join(tmp, 'cwd');
+    await mkdir(join(cwd, 'here'), { recursive: true });
+    cwd = await realpath(cwd);
+    vi.spyOn(process, 'cwd').mockReturnValue(cwd);
+  });
+  afterEach(() => vi.restoreAllMocks());
+
   it('a leading ~ is the hub user\'s home, as in a shell', async () => {
     const home = await realpath(homedir());
     expect((await browseDirs(root, '~', true)).path).toBe(home);
     await expect(assertWithinBrowseRoot(root, '~/', true)).resolves.toBe(home);
     // Still confined: home is outside this root.
     await expect(browseDirs(root, '~')).rejects.toThrow('path escapes the browse root');
+  });
+
+  it('a trailing slash names the same folder', async () => {
+    await mkdir(join(root, 'sub'));
+    expect((await browseDirs(root, `${join(root, 'sub')}/`)).path).toBe(join(root, 'sub'));
+    await expect(assertWithinBrowseRoot(root, `${join(root, 'sub')}//`)).resolves.toBe(join(root, 'sub'));
+    await expect(assertWithinBrowseRoot(root, `${root}/`)).resolves.toBe(root);
+  });
+
+  it('~user is not expanded: the existing refusal, in both modes', async () => {
+    for (const anywhere of [false, true]) {
+      await expect(browseDirs(root, '~no-such-user', anywhere)).rejects.toThrow('path does not exist');
+      await expect(assertWithinBrowseRoot(root, '~no-such-user/repo', anywhere)).rejects.toThrow('path does not exist');
+    }
+  });
+
+  it('a relative path that is not under the working directory is taken from the browse root', async () => {
+    await mkdir(join(root, 'team', 'repo'), { recursive: true });
+    expect((await browseDirs(root, 'team/repo')).path).toBe(join(root, 'team', 'repo'));
+    await expect(assertWithinBrowseRoot(root, 'team/repo/')).resolves.toBe(join(root, 'team', 'repo'));
+    await expect(assertWithinBrowseRoot(root, './team')).resolves.toBe(join(root, 'team'));
+    await expect(assertWithinBrowseRoot(root, 'team/missing')).rejects.toThrow('path does not exist');
+    // Still confined: a relative path cannot climb out of the root.
+    await mkdir(join(tmp, 'outside'));
+    await expect(assertWithinBrowseRoot(root, '../outside')).rejects.toThrow('path escapes the browse root');
+    await expect(browseDirs(root, '../outside')).rejects.toThrow('path escapes the browse root');
+  });
+
+  it('a relative path under the working directory keeps naming that folder', async () => {
+    await mkdir(join(root, 'here'));
+    await expect(assertWithinBrowseRoot(root, 'here', true)).resolves.toBe(join(cwd, 'here'));
+    await expect(assertWithinBrowseRoot(root, 'here')).rejects.toThrow('path escapes the browse root');
+  });
+
+  it('a path with `..` that resolves inside the root is accepted, absolute or relative', async () => {
+    await mkdir(join(root, 'a', 'b'), { recursive: true });
+    await expect(assertWithinBrowseRoot(root, join(root, 'a', '..', 'a', 'b', '..'))).resolves.toBe(join(root, 'a'));
+    await expect(assertWithinBrowseRoot(root, `${root}/a/b/../../a/`)).resolves.toBe(join(root, 'a'));
+    await expect(assertWithinBrowseRoot(root, 'a/../a/b')).resolves.toBe(join(root, 'a', 'b'));
+    expect((await browseDirs(root, 'a/b/..')).path).toBe(join(root, 'a'));
   });
 
   it('a path outside the root names the root the repository must be under', async () => {
