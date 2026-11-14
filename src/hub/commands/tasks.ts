@@ -85,7 +85,7 @@ export const commands = defineCommands<TasksCommands>({
       ...(cfg.team !== undefined ? { team: cfg.team } : {}),
     };
     // Linear needs no code host; `gh`/`glab issue create` do.
-    if (params.source !== 'linear') await assertHasRemote(real);
+    if (params.source !== 'linear') await assertHasRemote(real, params.source === 'github');
     return invokeCoreMethod(ctx.deps, 'createTask', params);
   },
   list_branches: async ({ args, allow }) => {

@@ -103,8 +103,10 @@ export async function githubSlug(repoPath: string): Promise<string | undefined> 
 }
 
 /** Refuse (400, one sentence) a code-host operation on a git repository with no remote at all, before `gh`/`glab`
- * fails with its raw output. Anything else (not a git repo, git missing) is left to the operation's own error. */
-export async function assertHasRemote(repoPath: string): Promise<void> {
+ * fails with its raw output. Anything else (not a git repo, git missing) is left to the operation's own error.
+ * `github`: the operation goes through `gh`, which takes the repository from `GH_REPO` when that is set. */
+export async function assertHasRemote(repoPath: string, github = true): Promise<void> {
+  if (github && (process.env.GH_REPO ?? '').trim() !== '') return;
   const { exitCode, stdout } = await execa('git', ['remote'], { cwd: repoPath, reject: false });
   if (exitCode === 0 && stdout.trim() === '') throw new BadRequestError(NO_REMOTE_MESSAGE);
 }
