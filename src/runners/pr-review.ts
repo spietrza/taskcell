@@ -366,12 +366,14 @@ export function pullRequestReviewRunMarker(headRefOid: string, runId: string): s
 }
 
 /**
- * The SHA of the body's run stamp when it carries exactly one (a whole-line marker); undefined for none, and for any
- * second mention of the stamp, whole-line or not: the host writes one, so more is a planted one.
+ * The SHA of the body's run stamp when it carries exactly one, as its last line (where postPullRequestReview appends
+ * it, after the head marker); undefined for none, for a stamp anywhere else, and for any second mention of the stamp,
+ * whole-line or not: the host writes one, so more is a planted one.
  */
 export function soleReviewRunStampSha(body: string): string | undefined {
   const stamps = Array.from(body.matchAll(PR_REVIEW_RUN_MARKER_RE));
-  return stamps.length === 1 && body.split('taskcell-pr-review-run:').length === 2 ? stamps[0]![1] : undefined;
+  if (stamps.length !== 1 || body.split('taskcell-pr-review-run:').length !== 2) return undefined;
+  return body.trimEnd().endsWith(`\n${stamps[0]![0]}`) ? stamps[0]![1] : undefined;
 }
 
 export const PR_REVIEW_INCOMPLETE_NOTICE =

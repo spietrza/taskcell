@@ -103,7 +103,7 @@ Constraints: (1) the endpoint must implement the OpenAI **Responses** API (`/v1/
 
 To compare them on the corpus, run `taskcell eval --json` twice (default judge, then `--judge-model clef-flash`) and diff the pass rates per kind — that, not the vendor table, is the number that would justify switching the default.
 
-**Lessons.** `taskcell stats` also prints a `LESSONS` section: runs that loaded at least one lesson, average lessons per run, and the first-pass rate (share of factory PRs whose first review verdict had no blocking finding, overall and for runs with vs without lessons; needs `--github-repo`, otherwise `no data`). See [autonomous-loop.md](autonomous-loop.md#per-pr-lessons).
+**Lessons.** `taskcell stats` also prints a `LESSONS` section: runs that loaded at least one lesson, average lessons per run, and the first-pass rate (share of factory PRs whose first review verdict had no blocking finding, overall and for runs with vs without lessons; needs `--github-repo`, otherwise `no data`). Only verdicts from trusted authors count (repo members and Taskcell's bot); `--feedback-authors <a,b>` names extra trusted logins, with the same meaning as on `lessons record` — pass it when the reviewer posts under a login that is not a repo member. When a PR's reviews cannot be read (rate limit, deleted PR), the rate covers the rest and the line ends with `N PRs could not be read` (`--json`: `lessons.unreadPrs`). See [autonomous-loop.md](autonomous-loop.md#per-pr-lessons).
 
 **Conflicts with the base.** `taskcell stats` also prints a `BASE MERGES` table (merges, conflicts, auto-resolved by the agent, left for a human, per UTC week) and a `TOP CONFLICTED FILES` table, from the `base_merge` lines `revise-pr` records (`--json`: `conflicts`). The hub Runs page shows the same totals for the open repository.
 
@@ -175,7 +175,7 @@ A first run on a repo with no baseline yet exits non-zero with `no baseline foun
 
 The commit is authored `Taskcell <vanguard@local>` by default; override with `--commit-author "Name <email>"` (git's standard form) to attribute the work to yourself. The PR itself is opened by whichever account owns the push token (`TASKCELL_PUSH_TOKEN`/`GH_TOKEN`), independent of the commit author.
 
-**White-label mode.** Passing `--commit-author` also switches Taskcell to deliver a plain, human-looking PR — the Taskcell branding (some of it, such as the `## Taskcell Review` heading and the default commit author, still uses the old name) is dropped everywhere it would reach the remote:
+**White-label mode.** Passing `--commit-author` also switches Taskcell to deliver a plain, human-looking PR — the Taskcell branding (including what still carries the old name: the `chore/vanguard-…` branch and the default commit author's `vanguard@local` address) is dropped everywhere it would reach the remote:
 
 - Branch becomes `feat/<issue-number>-<hash>` (e.g. `feat/904-9d414a3d`) instead of `chore/vanguard-…`.
 - The PR body is just the `Closes #N` / `Part of #N` line — no "Automated implementation … by Taskcell" attribution and no `## Proof of work` block.

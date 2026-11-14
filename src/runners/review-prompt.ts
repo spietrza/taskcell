@@ -33,9 +33,11 @@ export function extractReviewVerdict(text: string): ReviewVerdict | undefined {
   return m[1]!.toUpperCase() === 'BLOCKING' ? 'blocking' : 'clean';
 }
 
-/** extractReviewVerdict of a posted review comment, past its `## …` heading. */
+/** extractReviewVerdict of a posted review comment, past its `## …` heading and the truncation note. */
 export function extractCommentVerdict(body: string): ReviewVerdict | undefined {
-  return extractReviewVerdict(body.replace(/^\s*##[^\n]*\n/, ''));
+  const text = body.replace(/^\s*##[^\n]*\n/, '').trimStart();
+  // The host's "verdict without completion" note sits between the heading and the verdict line.
+  return extractReviewVerdict(text.startsWith(VERDICT_WITHOUT_COMPLETION_NOTE) ? text.slice(VERDICT_WITHOUT_COMPLETION_NOTE.length) : text);
 }
 
 // Same prefix tolerance as VERDICT_RE, and for the same reason: the diff and PR body are untrusted, so a
@@ -182,12 +184,13 @@ const REVISION_MARKER_OPEN_RE = /<!--\s*(?:(?:taskcell|vanguard)-)?revision:(?:[
  * drops it when it saves a note, which would rejoin a marker split by one.
  */
 export function stripReviewMarkers(text: string): string {
-  let out = text.replaceAll('\r', '').replace(REVIEW_MARKER_LINE_RE, '');
+  let out = text.replaceAll('\r', '');
   // revise-pr's round marker (pr-feedback.ts) is detected anywhere in a body, closed or not, so drop every
-  // opener; repeat until stable, as removing one can join the pieces around it into a new opener.
+  // opener; repeat until stable, as removing one can join the pieces around it into a new opener, or leave a
+  // review marker or run stamp alone on its line (one spliced with a revision marker), which goes too.
   for (let prev = ''; prev !== out; ) {
     prev = out;
-    out = out.replace(REVISION_MARKER_OPEN_RE, '');
+    out = out.replace(REVIEW_MARKER_LINE_RE, '').replace(REVISION_MARKER_OPEN_RE, '');
   }
   return out;
 }

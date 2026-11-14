@@ -272,7 +272,9 @@ describe('parseCli', () => {
     const noRepo = parseCli(['approve', '--pr', '7'], '/work');
     expect(noRepo.kind === 'error' && noRepo.message).toMatch(/approve requires --github-repo/);
     // The run pin is gone (the verdict is bound to the stamped head SHA instead): the flag no longer parses as an approve command.
-    expect(parseCli(['approve', '--pr', '7', '--github-repo', 'o/r', '--review-run-id', '42'], '/work').kind).not.toBe('approve');
+    // It is refused by name (non-zero exit), not answered with help and a green exit.
+    const leftover = parseCli(['approve', '--pr', '7', '--github-repo', 'o/r', '--review-run-id', '42'], '/work');
+    expect(leftover.kind === 'error' && leftover.message).toMatch(/--review-run-id was removed/);
     const act = parseCli(['approve', '--pr', '7', '--github-repo', 'o/r', '--mode', 'act'], '/work');
     expect(act.kind === 'approve' && act.mode).toBe('act');
     const live = parseCli(['approve', '--pr', '7', '--github-repo', 'o/r', '--mode', 'live'], '/work');
@@ -876,6 +878,8 @@ describe('parseCli', () => {
       githubRepo: 'acme/widgets',
     });
     expect(parseCli(['stats'], '/work')).not.toHaveProperty('githubRepo');
+    expect(parseCli(['stats', '--github-repo', 'acme/widgets', '--feedback-authors', 'a, B'], '/work')).toMatchObject({ kind: 'stats', feedbackAuthors: ['a', 'B'] });
+    expect(parseCli(['stats'], '/work')).not.toHaveProperty('feedbackAuthors');
   });
 
   it('refuses a stats --github-repo that is not owner/repo', () => {
