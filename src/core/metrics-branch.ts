@@ -1,5 +1,6 @@
 import { readFile } from 'node:fs/promises';
-import { join } from 'node:path';
+import { realpathSync } from 'node:fs';
+import { join, resolve } from 'node:path';
 import { execa } from 'execa';
 import { parseJsonlLines } from './stats.js';
 import { stateDir } from './state-path.js';
@@ -46,9 +47,20 @@ export const tipRef = (remote: string, branch: string): string => `refs/taskcell
 // One fetch of a given tip ref at a time: two racing fetches of a moved tip fail with "cannot lock ref".
 const tipLock = keyedLock();
 
+/** The lock key of a tip fetch. By the repository's real path: a symlinked or relative spelling of it is the same repository. */
+export function tipLockKey(cwd: string, remote: string, branch: string): string {
+  let real = resolve(cwd);
+  try {
+    real = realpathSync(real);
+  } catch {
+    // a path that does not exist: the fetch reports it
+  }
+  return `${real}\0${remote}\0${branch}`;
+}
+
 /** The branch tip's commit sha, or undefined when the remote has no such branch yet. */
 function fetchTip(cwd: string, remote: string, branch: string): Promise<string | undefined> {
-  return tipLock(`${cwd}\0${remote}\0${branch}`, async () => {
+  return tipLock(tipLockKey(cwd, remote, branch), async () => {
     try {
       const ref = tipRef(remote, branch);
       await git(cwd, ['fetch', '--quiet', remote, `+refs/heads/${branch}:${ref}`]);
