@@ -19,8 +19,11 @@ class FakeChild extends EventEmitter {
   }
 }
 
+// Above the 1 s default, for a loaded CI runner; under the 5 s test timeout.
+const WAIT = { timeout: 4000 };
+
 /** Wait until the registry has written its request to the child, i.e. it is listening for the response. */
-const requestSent = (child: FakeChild): Promise<void> => vi.waitFor(() => expect(child.stdin.writableEnded).toBe(true));
+const requestSent = (child: FakeChild): Promise<void> => vi.waitFor(() => expect(child.stdin.writableEnded).toBe(true), WAIT);
 
 let repoPath: string;
 

@@ -66,17 +66,6 @@ export async function approverBaseBranch(repoPath: string, exec: FactoryExec = d
   return DEFAULT_BASE_BRANCH;
 }
 
-/**
- * The `owner/repo` of the project's origin: its GitHub slug, else the last two path segments of a remote URL
- * on another host (GitHub Enterprise), since decisions record the slug without the host.
- */
-async function ownSlug(repoPath: string): Promise<string | undefined> {
-  const slug = await githubSlug(repoPath);
-  if (slug !== undefined) return slug;
-  const url = await defaultExec('git', ['remote', 'get-url', 'origin'], { cwd: repoPath }).then((r) => r.stdout.trim(), () => '');
-  return url.match(/^(?:[a-z+]+:\/\/[^/]+\/|[^/@]+@[^:/]+:)(?:.*\/)?([^/]+\/[^/]+?)(?:\.git)?\/?$/i)?.[1];
-}
-
 /** Whether a decision's recorded `repo` is the project's own slug (GitHub slugs are case-insensitive). */
 const isOwnRepo = (repo: unknown, slug: string | undefined): boolean =>
   slug !== undefined && typeof repo === 'string' && repo.toLowerCase() === slug.toLowerCase();
@@ -120,7 +109,7 @@ export async function approverScorecard(repoPath: string, period: ApproverPeriod
   const info = await readApproverMode(repoPath);
   const text = await readBranchFile(repoPath, { file: DECISIONS_FILE }).catch(() => '');
   // Only the project's own repository: decisions.jsonl may name others, and each would cost a `gh` call.
-  const slug = await ownSlug(repoPath);
+  const slug = await githubSlug(repoPath);
   const recorded = parseDecisions(text);
   const own = recorded.filter((d) => isOwnRepo(d.repo, slug));
   // One spelling for the slug, so case variants of it are one repository (one gh call, each PR counted once).
@@ -162,7 +151,7 @@ export async function approverScorecard(repoPath: string, period: ApproverPeriod
 export async function approverPrDecisions(repoPath: string): Promise<ApproverPrDecision[]> {
   const text = await readBranchFile(repoPath, { file: DECISIONS_FILE }).catch(() => '');
   // Keyed by PR number, so only the project's own repository: another repo's #7 must not stand in for this one's.
-  const slug = await ownSlug(repoPath);
+  const slug = await githubSlug(repoPath);
   const merged = new Set<number>();
   const latest = new Map<number, { verdict: 'APPROVE' | 'ESCALATE'; rules: string[]; ts: string }>();
   for (const line of parseJsonlLines(text)) {

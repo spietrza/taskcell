@@ -314,7 +314,7 @@ describe('hub server', () => {
       });
     try {
       const pending = Array.from({ length: MAX_CONCURRENT_COMPLETES }, () => call().catch(() => undefined));
-      await vi.waitFor(() => expect(spawned).toBe(MAX_CONCURRENT_COMPLETES));
+      await vi.waitFor(() => expect(spawned).toBe(MAX_CONCURRENT_COMPLETES), { timeout: 4000 });
       const rejected = await call();
       expect(rejected.status).toBe(429);
       expect(await rejected.json()).toMatchObject({ error: { message: expect.stringContaining('too many doc chat requests') } });

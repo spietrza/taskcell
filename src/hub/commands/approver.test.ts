@@ -336,21 +336,19 @@ describe('own-repo reads and switching off', () => {
     expect(ghCalls.filter((c) => c[0] === 'pr')).toHaveLength(1);
   });
 
-  test.each(['https://github.example.com/acme/widgets.git', 'git@github.example.com:Acme/Widgets.git', 'ssh://git@ghe.example.com:2222/acme/widgets'])(
-    'an origin on another host matches by owner/repo without the host (%s)',
+  test.each(['https://github.example.com/acme/widgets.git', 'git@gitlab.com:acme/widgets.git', '/srv/acme/widgets.git'])(
+    'an origin that is not on github.com is no own repository: no gh call, the no-data card (%s)',
     async (origin) => {
       mockWorld(DECISIONS, { act: false });
+      ghCalls.length = 0;
       const repo = await tmpGitRepo(origin);
-      expect((await approverCard.approverScorecard(repo, '90d', NOW)).status).toBe('ok');
-      expect((await approverCard.approverPrDecisions(repo)).length).toBeGreaterThan(0);
+      const card = await approverCard.approverScorecard(repo, '90d', NOW);
+      expect(card.status).toBe('no-data');
+      expect(card.hint).toMatch(/none for this project's repository \(no GitHub origin remote\)/);
+      expect(ghCalls).toHaveLength(0);
+      expect(await approverCard.approverPrDecisions(repo)).toEqual([]);
     },
   );
-
-  test('a local-path origin is still no own repository', async () => {
-    mockWorld(DECISIONS, { act: false });
-    const card = await approverCard.approverScorecard(await tmpGitRepo('/srv/acme/widgets.git'), '90d', NOW);
-    expect(card.hint).toMatch(/no GitHub origin remote/);
-  });
 
   test('turning the approver off works when the scorecard read fails, and the act hold stays', async () => {
     mockWorld(DECISIONS, { act: false });

@@ -102,8 +102,9 @@ warning naming the provider rather than leaving the exposure silent:
   custom providers (`.taskcell/app.json` `customProviders`). They point the Claude CLI at their own
   endpoint and authenticate on that host, exposing no upstream a sidecar could target, so their key
   is injected into the sandbox. A custom provider's `keyEnv` must be a variable of its own: any name
-  starting with `TASKCELL_` or `VANGUARD_`, and the credential variables of the built-in providers and
-  of git hosts (`CLAUDE_CODE_OAUTH_TOKEN`, `OPENAI_API_KEY`, `GH_TOKEN`, …), are refused in any letter case.
+  starting with `TASKCELL_` or `VANGUARD_` (reserved for Taskcell's own settings), and known credential
+  names (the built-in providers', git hosts', and `AWS_SECRET_ACCESS_KEY`, `NPM_TOKEN`,
+  `OTEL_EXPORTER_OTLP_HEADERS` and the like), are refused in any letter case.
 
 If the proxy's trusted sidecar itself fails to start — usually a missing or stale sandbox image, since
 it runs inside `taskcell-sandbox:latest` like the egress enclave — the run fails fast rather than

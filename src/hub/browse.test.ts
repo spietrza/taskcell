@@ -1,7 +1,7 @@
 import { mkdir, mkdtemp, realpath, rm, writeFile } from 'node:fs/promises';
 import { homedir, tmpdir } from 'node:os';
 import { dirname, join, parse, win32 } from 'node:path';
-import { afterEach, beforeEach, describe, expect, it } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { assertWithinBrowseRoot, browseDirs, isWithinRoot, MAX_BROWSE_ENTRIES } from './browse.js';
 import { BadRequestError } from '../sidecar/sidecar.js';
 
@@ -155,6 +155,16 @@ describe('a filesystem root as the browse root', () => {
 });
 
 describe('typed paths', () => {
+  // The hub's working directory is a temp dir here, so relative paths do not depend on where the suite runs.
+  let cwd: string;
+  beforeEach(async () => {
+    cwd = join(tmp, 'cwd');
+    await mkdir(join(cwd, 'here'), { recursive: true });
+    cwd = await realpath(cwd);
+    vi.spyOn(process, 'cwd').mockReturnValue(cwd);
+  });
+  afterEach(() => vi.restoreAllMocks());
+
   it('a leading ~ is the hub user\'s home, as in a shell', async () => {
     const home = await realpath(homedir());
     expect((await browseDirs(root, '~', true)).path).toBe(home);
@@ -190,9 +200,9 @@ describe('typed paths', () => {
   });
 
   it('a relative path under the working directory keeps naming that folder', async () => {
-    // The suite runs from the repository root, which has `src`.
-    await expect(assertWithinBrowseRoot(root, 'src', true)).resolves.toBe(await realpath('src'));
-    await expect(assertWithinBrowseRoot(root, 'src')).rejects.toThrow('path escapes the browse root');
+    await mkdir(join(root, 'here'));
+    await expect(assertWithinBrowseRoot(root, 'here', true)).resolves.toBe(join(cwd, 'here'));
+    await expect(assertWithinBrowseRoot(root, 'here')).rejects.toThrow('path escapes the browse root');
   });
 
   it('a path with `..` that resolves inside the root is accepted, absolute or relative', async () => {

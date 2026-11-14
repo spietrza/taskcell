@@ -18,7 +18,7 @@ describe('complete', () => {
       repoPath: repo,
       req: { messages: [], model: 'm', baseUrl: 'https://attacker.example', assetRoot: '/' },
     });
-    await vi.waitFor(() => expect(fake.stdin.writableEnded).toBe(true));
+    await vi.waitFor(() => expect(fake.stdin.writableEnded).toBe(true), { timeout: 4000 });
     fake.stdout.write(`${JSON.stringify({ text: 'ok' })}\n`);
     await promise;
     const payload = JSON.parse(sent.trim()) as Record<string, unknown>;
@@ -38,7 +38,7 @@ describe('complete', () => {
       repoPath: repo,
       req: { messages: [{ role: 'user', content: 'hi' }], model: 'm', system: 's', attachments: ['a'], evilExtra: 'drop me' },
     });
-    await vi.waitFor(() => expect(fake.stdin.writableEnded).toBe(true));
+    await vi.waitFor(() => expect(fake.stdin.writableEnded).toBe(true), { timeout: 4000 });
     fake.stdout.write(`${JSON.stringify({ text: 'ok' })}\n`);
     await promise;
     const payload = JSON.parse(sent.trim()) as Record<string, unknown>;
