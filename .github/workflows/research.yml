@@ -99,7 +99,7 @@ jobs:
       - name: Ensure routing labels
         run: |
           gh label create "needs research" --repo "$GITHUB_REPOSITORY" --color 1D76DB --force
-          gh label create "vanguard:researching" --repo "$GITHUB_REPOSITORY" --color BFDADC --force
+          gh label create "taskcell:researching" --repo "$GITHUB_REPOSITORY" --color BFDADC --force
 
       # `--web` is deliberately not offered: it needs widened sandbox egress (see the egress note in the docs).
       - name: Research the issue

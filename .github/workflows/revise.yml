@@ -142,7 +142,7 @@ jobs:
       - name: Ensure routing labels
         run: |
           gh label create "needs revision" --repo "$GITHUB_REPOSITORY" --color E99695 --force
-          gh label create "vanguard:revising" --repo "$GITHUB_REPOSITORY" --color C5DEF5 --force
+          gh label create "taskcell:revising" --repo "$GITHUB_REPOSITORY" --color C5DEF5 --force
 
       # Fetch credentials for the engine: persist-credentials:false removed the persisted ones, and the
       # engine runs `git fetch origin <pr-branch>`, which needs auth on a private repo. A credential.helper

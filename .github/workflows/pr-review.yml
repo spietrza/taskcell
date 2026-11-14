@@ -124,8 +124,8 @@ jobs:
       - name: Ensure routing labels
         run: |
           gh label create "ready for vanguard review" --repo "$GITHUB_REPOSITORY" --color BFD4F2 --description "Trigger a Vanguard PR review" --force
-          gh label create "vanguard:reviewing" --repo "$GITHUB_REPOSITORY" --color FBCA04 --description "Vanguard PR review in progress" --force
-          gh label create "vanguard:reviewed" --repo "$GITHUB_REPOSITORY" --color 0E8A16 --description "Vanguard PR review posted" --force
+          gh label create "taskcell:reviewing" --repo "$GITHUB_REPOSITORY" --color FBCA04 --description "Taskcell PR review in progress" --force
+          gh label create "taskcell:reviewed" --repo "$GITHUB_REPOSITORY" --color 0E8A16 --description "Taskcell PR review posted" --force
 
       - name: Preflight
         id: preflight
@@ -196,8 +196,8 @@ jobs:
             local provider="$1" model="$2"
             local args=(watch-prs --once --github-repo "$GITHUB_REPOSITORY"
               --label "ready for vanguard review"
-              --reviewing-label "vanguard:reviewing"
-              --reviewed-label "vanguard:reviewed"
+              --reviewing-label "taskcell:reviewing"
+              --reviewed-label "taskcell:reviewed"
               --repo "$GITHUB_WORKSPACE")
             [ -n "$IN_SKILLS" ] && args+=(--skills "$IN_SKILLS")
             [ -n "$IN_CONCURRENCY" ] && args+=(--concurrency "$IN_CONCURRENCY")
