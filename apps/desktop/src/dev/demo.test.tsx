@@ -60,9 +60,12 @@ test('every main screen opens in demo mode without errors', async () => {
   fireEvent.click(await screen.findByText('storefront (demo)', { selector: '*' }));
 
   fireEvent.click(await screen.findByRole('button', { name: /^Runs/ }));
-  fireEvent.click(await screen.findByRole('button', { name: /Back to runs/ })); // the run in progress opens first
+  // The rail item opens the list, not a run; and from a run detail it goes back to the list.
   fireEvent.click(await screen.findByText('DEMO-101'));
   expect(await screen.findByText('reviewer')).toBeInTheDocument();
+  fireEvent.click(screen.getByRole('button', { name: /^Runs/ }));
+  await waitFor(() => expect(screen.queryByText('reviewer')).not.toBeInTheDocument());
+  expect(screen.getByPlaceholderText(/^Search/)).toBeInTheDocument();
 
   fireEvent.click(screen.getByRole('button', { name: /^Board/ }));
   expect(await screen.findByText('Fix cart total rounding')).toBeInTheDocument();
@@ -77,5 +80,20 @@ test('every main screen opens in demo mode without errors', async () => {
   expect(await screen.findByText('Case-insensitive product search')).toBeInTheDocument();
   expect(await screen.findByRole('heading', { name: 'Projects' })).toBeInTheDocument();
   expect(error).not.toHaveBeenCalled();
+  vi.unstubAllGlobals();
+}, 30000);
+
+test('Run on the New Run form says the demo is read-only', async () => {
+  window.__TASKCELL_DEMO__ = true;
+  vi.stubGlobal('matchMedia', (q: string) => ({ matches: false, media: q, addEventListener: () => {}, removeEventListener: () => {}, addListener: () => {}, removeListener: () => {} }));
+  render(<App />);
+  fireEvent.click(await screen.findByText('storefront (demo)', { selector: '*' }));
+  fireEvent.click(await screen.findByRole('button', { name: /^Board/ }));
+  fireEvent.click((await screen.findByText('Fix cart total rounding')).closest('button')!);
+  fireEvent.click(await screen.findByRole('button', { name: 'Full page' }));
+  fireEvent.click(await screen.findByRole('button', { name: 'New Run' }));
+  fireEvent.change(await screen.findByPlaceholderText(/issue ref/), { target: { value: '101' } });
+  fireEvent.click(screen.getByRole('button', { name: /^run$/i }));
+  expect(await screen.findByText(/Demo project is read-only/)).toBeInTheDocument();
   vi.unstubAllGlobals();
 }, 30000);

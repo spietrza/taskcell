@@ -94,7 +94,9 @@ export function NewRunForm({
 
   const maxTurnsNum = Number(maxTurns);
   // Mirrors validateCreateRun (sidecar): non-blank issueRef, positive-integer maxTurns, non-blank base.
-  const valid = issueRef.trim() !== '' && Number.isInteger(maxTurnsNum) && maxTurnsNum > 0;
+  // An issue ref is a number, `owner/repo#n`, a tracker key or a URL: never two words.
+  const refError = /\s/.test(issueRef.trim()) ? 'An issue ref has no spaces, e.g. 322, owner/repo#322 or DEV-12.' : undefined;
+  const valid = issueRef.trim() !== '' && refError === undefined && Number.isInteger(maxTurnsNum) && maxTurnsNum > 0;
 
   const params: CreateRunParams = {
     issueRef: issueRef.trim(),
@@ -110,7 +112,7 @@ export function NewRunForm({
   return (
     <div className="space-y-3 rounded-lg border border-border bg-muted/30 p-3">
       <div className="flex flex-wrap items-center gap-2">
-        <Input value={issueRef} onChange={(e) => setIssueRef(e.target.value)} placeholder="issue ref (e.g. 322)" className="w-40" />
+        <Input value={issueRef} onChange={(e) => setIssueRef(e.target.value)} placeholder="issue ref (e.g. 322)" aria-invalid={refError !== undefined} className="w-40" />
         <EnumSelect value={transport} onValueChange={setTransport} options={capabilities.transports.map((t) => ({ value: t, label: t }))} />
         <EnumSelect value={provider} onValueChange={setProvider} options={providerOptions} />
         <EnumSelect value={flow} onValueChange={setFlow} options={flowOptions} />
@@ -147,6 +149,7 @@ export function NewRunForm({
       </Collapsible.Root>
 
       <div className="flex items-center justify-end gap-2">
+        {refError !== undefined && <span role="alert" className="mr-auto text-xs text-destructive-text">{refError}</span>}
         <Button variant="text" color="secondary" onClick={onCancel}>
           Cancel
         </Button>

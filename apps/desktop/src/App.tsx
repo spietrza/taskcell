@@ -457,7 +457,13 @@ export default function App() {
           teams={teams}
           team={team}
           onTeam={chooseTeam}
-          onScreen={(sc) => navigate(() => setScreen(sc))}
+          onScreen={(sc) =>
+            navigate(() => {
+              setScreen(sc);
+              // Also when the screen is already open: the rail item leaves a run detail for the list.
+              setClearNonce((n) => n + 1);
+            })
+          }
           onOpenRunning={(r) => {
             // The sixth navigation path (review round 1) — also discards a dirty editor.
             navigate(() => {

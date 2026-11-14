@@ -123,11 +123,12 @@ export function Inspector({
     if (!detail) openRef.current = null;
   }, [detail]);
 
-  // Rail navigation drops any open drill-down.
+  // Rail navigation drops any open drill-down; a run's strip folds to its toolbar chip, so "Runs" opens the list.
   useEffect(() => {
     setDetail(null);
     setLiveRun(null);
     setTaskDetailId(null);
+    setStripMinimized(true);
   }, [screen]);
 
   // The rail "Running" click opens that live run.
@@ -147,6 +148,7 @@ export function Inspector({
       setDetail(null);
       setLiveRun(null);
       setTaskDetailId(null);
+      setStripMinimized(true);
     }
   }, [clearNonce]);
 
@@ -343,7 +345,10 @@ export function Inspector({
     // that window would set a fresh strip, get rejected by the Rust busy guard, and wipe the strip
     // the re-attach effect is concurrently folding the backlog into.
     if (!checkedIdle) return;
-    if (typedRunRef.current !== null && typedRunRef.current.terminal === undefined) return;
+    if (typedRunRef.current !== null && typedRunRef.current.terminal === undefined) {
+      setError('A run is already live in this project. Wait for it to finish or stop it on the Runs screen, then run again.');
+      return;
+    }
     if (!repoOk) {
       setError(`${project} is not a git work tree — cannot run here.`);
       return;

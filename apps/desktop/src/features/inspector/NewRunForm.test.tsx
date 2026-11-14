@@ -119,3 +119,14 @@ test('listProviders failure degrades to built-ins with a notice — the form nev
   await waitFor(() => expect(screen.getByText(/repo providers unavailable/i)).toBeInTheDocument());
   expect(screen.getByRole('button', { name: /^run$/i })).toBeInTheDocument();
 });
+
+test('an issue ref with a space is refused with a reason', async () => {
+  render(<NewRunForm capabilities={caps} project="/repo" onRun={vi.fn()} onCancel={() => {}} />);
+  await waitFor(() => expect(ipc.apiListFlows).toHaveBeenCalled());
+  fireEvent.change(screen.getByPlaceholderText(/issue/i), { target: { value: 'abc def' } });
+  expect(screen.getByRole('button', { name: /^run$/i })).toBeDisabled();
+  expect(screen.getByRole('alert')).toHaveTextContent('An issue ref has no spaces');
+  fireEvent.change(screen.getByPlaceholderText(/issue/i), { target: { value: ' 322 ' } });
+  expect(screen.queryByRole('alert')).not.toBeInTheDocument();
+  expect(screen.getByRole('button', { name: /^run$/i })).not.toBeDisabled();
+});

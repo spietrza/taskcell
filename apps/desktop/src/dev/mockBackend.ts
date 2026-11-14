@@ -231,7 +231,6 @@ const demoOverrides: Record<string, (args: unknown) => unknown> = {
   list_needs_you: () => ({ items: demoNeedsYou }),
   list_needs_you_all: () => ({ items: demoNeedsYou.map((i) => ({ ...i, repoPath: DEMO_REPO_PATH, repoName: demoProject.name })), failures: [] }),
   list_remote_runs: () => [],
-  api_active_run: () => ({ runId: 'demo-run-1', repoPath: DEMO_REPO_PATH }),
   api_queue: () => [],
   api_repo_ok: () => true,
   read_app_config: () => ({ ...appConfig, label: 'storefront (demo)' }),
