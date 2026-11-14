@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { collectPrFacts, collectCheckFacts, collectReviewFacts, isFactoryPr } from './facts.js';
+import { collectPrFacts, collectCheckFacts, collectReviewFacts, dedicatedReviewers, isFactoryPr } from './facts.js';
 import { buildPullRequestReviewComment, buildMainLoopReviewComment, pullRequestReviewMarker } from '../runners/pr-review.js';
 import type { ApproverPolicy, PrFacts } from './types.js';
 import type { GhRunner } from '../tasks/github.js';
@@ -226,16 +226,31 @@ describe('collectReviewFacts act-mode run stamp', () => {
   const stamp = (s: string, run = '42'): string => `\n\n<!-- taskcell-pr-review-run: ${s}:${run} -->`;
   const body = (stamps: string): string => `## Taskcell Review\n\nVerdict: NO BLOCKING FINDINGS\n\n<!-- taskcell-pr-review: ${sha} -->${stamps}`;
   const prWith = (b: string, commitSha: string | null = sha): PrFacts =>
-    ({ reviews: [{ author: 'github-actions', body: b, submittedAt: '1', state: 'COMMENTED', ...(commitSha !== null ? { commitSha } : {}) }] }) as unknown as PrFacts;
-  const pol = { reviewAuthors: ['github-actions'] } as ApproverPolicy;
+    ({ reviews: [{ author: 'reviewer-app', body: b, submittedAt: '1', state: 'COMMENTED', ...(commitSha !== null ? { commitSha } : {}) }] }) as unknown as PrFacts;
+  const pol = { reviewAuthors: ['github-actions', 'reviewer-app'] } as ApproverPolicy;
   const act = { requireRunStamp: true };
 
   it('requires the host stamp for the marker SHA, whichever run posted it', () => {
     expect(collectReviewFacts(prWith(body('')), pol, act).sha).toBeNull();
-    expect(collectReviewFacts(prWith(body(stamp(sha))), pol, act)).toEqual({ verdict: 'clean', sha, author: 'github-actions' });
+    expect(collectReviewFacts(prWith(body(stamp(sha))), pol, act)).toEqual({ verdict: 'clean', sha, author: 'reviewer-app' });
     // One PR-review run reviews many PRs: the run id is not compared to anything.
     expect(collectReviewFacts(prWith(body(stamp(sha, '7'))), pol, act).sha).toBe(sha);
     expect(collectReviewFacts(prWith(body(stamp(other))), pol, act).sha).toBeNull();
+  });
+
+  it('act mode takes a verdict only from a dedicated reviewer login, never github-actions', () => {
+    const by = (author: string): PrFacts => ({ reviews: [{ author, body: body(stamp(sha)), submittedAt: '1', state: 'COMMENTED', commitSha: sha }] }) as unknown as PrFacts;
+    const none = { verdict: null, sha: null, author: null };
+    // Valid-looking stamp and head marker, posted as the shared workflow login: no verdict.
+    expect(collectReviewFacts(by('github-actions'), pol, act)).toEqual(none);
+    expect(collectReviewFacts(by('github-actions[bot]'), { reviewAuthors: ['github-actions[bot]'] } as ApproverPolicy, act)).toEqual(none);
+    // No dedicated login configured: nobody speaks.
+    expect(collectReviewFacts(by('github-actions'), { reviewAuthors: ['github-actions'] } as ApproverPolicy, act)).toEqual(none);
+    expect(dedicatedReviewers({ reviewAuthors: ['github-actions', 'github-actions[bot]'] } as ApproverPolicy)).toEqual([]);
+    // The configured App login is accepted.
+    expect(collectReviewFacts(by('reviewer-app'), pol, act).verdict).toBe('clean');
+    // Shadow mode still reads the github-actions review.
+    expect(collectReviewFacts(by('github-actions'), pol).verdict).toBe('clean');
   });
 
   it('accepts a sole stamp only: several stamps, same SHA or not, give no verdict', () => {
@@ -254,15 +269,15 @@ describe('collectReviewFacts act-mode run stamp', () => {
 
   it('shadow mode reads the same reviews as before: no stamp, several stamps and any commit id all count', () => {
     for (const pr of [prWith(body('')), prWith(body(stamp(sha) + stamp(other))), prWith(body(stamp(sha)), other), prWith(body(''), null)]) {
-      expect(collectReviewFacts(pr, pol)).toEqual({ verdict: 'clean', sha, author: 'github-actions' });
+      expect(collectReviewFacts(pr, pol)).toEqual({ verdict: 'clean', sha, author: 'reviewer-app' });
     }
   });
 
   it('a newer review without a usable stamp is not skipped in favour of an older stamped one', () => {
     const blocking = `## Taskcell Review\n\nVerdict: BLOCKING FINDINGS\n\n<!-- taskcell-pr-review: ${sha} -->`;
     const pr = { reviews: [
-      { author: 'github-actions', body: body(stamp(sha)), submittedAt: '1', state: 'COMMENTED', commitSha: sha },
-      { author: 'github-actions', body: blocking, submittedAt: '2', state: 'COMMENTED', commitSha: sha },
+      { author: 'reviewer-app', body: body(stamp(sha)), submittedAt: '1', state: 'COMMENTED', commitSha: sha },
+      { author: 'reviewer-app', body: blocking, submittedAt: '2', state: 'COMMENTED', commitSha: sha },
     ] } as unknown as PrFacts;
     expect(collectReviewFacts(pr, pol, act)).toEqual({ verdict: null, sha: null, author: null });
   });

@@ -95,7 +95,7 @@ export function AutoMerge({ project: repo }: { project: string }) {
             ))}
           </div>
           {!data.policyFound && <p className="text-xs text-muted-foreground">Add <code>.taskcell/approver.json</code> to the base branch first.</p>}
-          {!data.actOffered && <p className="text-xs text-muted-foreground">Act mode, where the approver merges pull requests by itself, can't be turned on yet: it is waiting on another change that isn't finished. Shadow mode shows what it would do without merging anything.</p>}
+          {!data.actOffered && <p className="text-xs text-muted-foreground">Act mode, where the approver merges pull requests by itself, can't be turned on yet: {data.actHold !== undefined && data.actHold !== '' ? data.actHold : "it is waiting on another change that isn't finished."} Shadow mode shows what it would do without merging anything.</p>}
           {prUrl !== null && <p className="text-sm">Pull request opened: <ExternalLink href={prUrl}>{prUrl}</ExternalLink> — merge it to apply.</p>}
           {target !== null && <Dialog repo={repo} card={data} mode={target} onClose={() => setTarget(null)} onDone={(u) => { setPrUrl(u); setTarget(null); }} />}
         </>

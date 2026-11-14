@@ -46,7 +46,7 @@ function mockWorld(decisions: string, pol?: Partial<ApproverPolicy>): void {
   vi.spyOn(Date, 'now').mockReturnValue(NOW);
   vi.spyOn(metricsBranch, 'readBranchFile').mockResolvedValue(decisions);
   vi.spyOn(policy, 'loadPolicy').mockResolvedValue(
-    pol === undefined ? undefined : ({ policy: { enabled: true, ...pol } as ApproverPolicy, policyHash: 'h', raw: '{}' }),
+    pol === undefined ? undefined : ({ policy: { enabled: true, reviewAuthors: ['reviewer-app'], ...pol } as ApproverPolicy, policyHash: 'h', raw: '{}' }),
   );
   const real = collectApproverScorecard;
   vi.spyOn(outcome, 'collectApproverScorecard').mockImplementation((d, o) => real(d, { ...o, gh }));
@@ -94,7 +94,7 @@ describe('approver commands', () => {
     vi.spyOn(policy, 'loadPolicy').mockImplementation(async () => {
       await new Promise((r) => setTimeout(r, 5));
       policyDone = true;
-      return { policy: { enabled: true, act: false } as ApproverPolicy, policyHash: 'h', raw: '{}' };
+      return { policy: { enabled: true, act: false, reviewAuthors: ['reviewer-app'] } as ApproverPolicy, policyHash: 'h', raw: '{}' };
     });
     vi.spyOn(metricsBranch, 'readBranchFile').mockImplementation(async () => {
       if (!policyDone) overlapped = true;
@@ -139,12 +139,24 @@ describe('approver commands', () => {
       await expect(dispatchRpc(local, 'set_approver_mode', { repoPath: repo, mode: 'yolo' })).rejects.toThrow(/mode must be/);
     });
 
-    test('act is refused while #939 and #958 are open', async () => {
+    test('act is refused while #939 is open', async () => {
       mockWorld(DECISIONS, { act: false });
       const open = vi.spyOn(approverCard, 'openApproverModePr');
       const repo = await tmpGitRepo(ORIGIN);
       const { ctx } = await makeCtx(repo);
-      await expect(dispatchRpc(ctx, 'set_approver_mode', { repoPath: repo, mode: 'act', confirmBelowBar: true })).rejects.toThrow(/#939, #958/);
+      await expect(dispatchRpc(ctx, 'set_approver_mode', { repoPath: repo, mode: 'act', confirmBelowBar: true })).rejects.toThrow(/#939/);
+      expect(open).not.toHaveBeenCalled();
+    });
+
+    test('act is refused, with what to configure, when the policy has no dedicated reviewer login', async () => {
+      mockWorld(DECISIONS, { act: false, reviewAuthors: ['github-actions'] });
+      vi.spyOn(approverCard, 'ACT_BLOCKING_ISSUES', 'get').mockReturnValue([]);
+      const open = vi.spyOn(approverCard, 'openApproverModePr');
+      const repo = await tmpGitRepo(ORIGIN);
+      const { ctx } = await makeCtx(repo);
+      const card = (await dispatchRpc(ctx, 'read_approver_scorecard', { repoPath: repo })) as ApproverScorecard;
+      expect(card.actOffered).toBe(false);
+      await expect(dispatchRpc(ctx, 'set_approver_mode', { repoPath: repo, mode: 'act', confirmBelowBar: true })).rejects.toThrow(/reviewAuthors/);
       expect(open).not.toHaveBeenCalled();
     });
 

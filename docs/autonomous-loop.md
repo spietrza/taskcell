@@ -330,7 +330,8 @@ Every action (`update-branch`, `merge`, `left-for-human`, `merge-failed`, `check
 
 #### Before you turn act mode on
 
-- [ ] Every finding of the act-mode gating issues (the #930 follow-up and #958) is merged and both issues are closed (empty `requiredChecks`, re-read before merge, base fetch, `UNKNOWN`, review identity, escapes); the hub's approver card refuses act mode until then.
+- [ ] Every finding of the act-mode gating issues (the #930 follow-up and #958) is merged and the issues are closed (empty `requiredChecks`, re-read before merge, base fetch, `UNKNOWN`, review identity, escapes, verdict provenance); the hub's approver card refuses act mode until then.
+- [ ] The PR-review workflow posts its review with a GitHub App token (a human edit of the workflow), and that App's login is in `reviewAuthors`. In act mode only a login in `reviewAuthors` other than `github-actions` / `github-actions[bot]` speaks: `github-actions` is shared by every job with `pull-requests: write`. With no such login, act mode acts on nothing (reason code `no-dedicated-reviewer`) and the hub card refuses act mode.
 - [ ] `factoryAuthors` and a non-empty `requiredChecks` are set in `.taskcell/approver.json` on the base branch.
 - [ ] The PR-review workflow runs `review-pr` with `GITHUB_RUN_ID` set (it does on Actions; this stamps each review with the head whose diff was read) and no job that handles untrusted input holds a token that can post a review.
 - [ ] The approver workflow passes `--mode act` (human edit, above) and no `--review-run-id`: the verdict is bound to the stamped head SHA, not to the triggering run, because one PR-review run reviews many PRs and a run can finish without posting a review. Its `timeout-minutes` exceeds the checks wait plus the 30 min poll.

@@ -168,15 +168,23 @@ function peelReviewPrefix(body: string): string | undefined {
   return lines.slice(i).join('\n');
 }
 
+/** The shared login of every workflow job holding `pull-requests: write`; never a reviewer identity in act mode. */
+const SHARED_WORKFLOW_LOGINS = new Set(['github-actions', 'github-actions[bot]', 'app/github-actions']);
+
+/** Act mode: the `reviewAuthors` logins a verdict may come from, i.e. all but the shared workflow login. */
+export const dedicatedReviewers = (policy: ApproverPolicy): string[] => policy.reviewAuthors.filter((a) => !SHARED_WORKFLOW_LOGINS.has(a.toLowerCase()));
+
 /**
  * Select the review that speaks for the current content and extract its verdict. Candidates are
  * reviews in the external review format (see peelReviewPrefix) whose body carries exactly one
  * distinct marker SHA (zero = no marker, more than one = a planted marker, both rejected), which was
  * posted as a plain COMMENTED review, and whose author is exactly a login on `policy.reviewAuthors`
  * (an empty list accepts nobody); the latest `submittedAt` among survivors wins, and in act mode it must
- * carry the host's run stamp for the SHA it was submitted on. Returns all-null when there is none.
+ * carry the host's run stamp for the SHA it was submitted on, and its author must not be the shared `github-actions` login. Returns all-null when there is none.
  */
 export function collectReviewFacts(pr: PrFacts, policy: ApproverPolicy, opts: { requireRunStamp?: boolean } = {}): ReviewFacts {
+  // Act mode (the run stamp is required) also demands provenance: only a dedicated reviewer login speaks.
+  const allowed = opts.requireRunStamp === true ? dedicatedReviewers(policy) : policy.reviewAuthors;
   const candidates = pr.reviews.flatMap((r) => {
     const sha = soleReviewMarkerSha(r.body);
     const peeled = peelReviewPrefix(r.body);
@@ -184,7 +192,7 @@ export function collectReviewFacts(pr: PrFacts, policy: ApproverPolicy, opts: { 
     // The external review only ever posts with `gh pr review --comment`: an approval, a change request or a
     // dismissed review in the same shape is some other writer (or a withdrawn verdict), never the verdict.
     if (r.state !== 'COMMENTED') return [];
-    if (!policy.reviewAuthors.includes(r.author)) return [];
+    if (!allowed.includes(r.author)) return [];
     return [{ author: r.author, submittedAt: r.submittedAt, sha, peeled, body: r.body, commitSha: r.commitSha }];
   });
   if (candidates.length === 0) return { verdict: null, sha: null, author: null };

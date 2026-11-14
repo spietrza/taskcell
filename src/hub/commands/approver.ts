@@ -38,6 +38,7 @@ export const commands = defineCommands<ApproverCommands>({
     const card = target === 'off' ? await approverScorecard(real, '90d').catch(() => unreadScorecard('90d')) : await approverScorecard(real, '90d');
     if (target === 'act') {
       if (ACT_BLOCKING_ISSUES.length > 0) throw new BadRequestError(`act mode is not available yet: waiting on ${ACT_BLOCKING_ISSUES.map((n) => `#${n}`).join(', ')}`);
+      if (card.actHold !== undefined && card.actHold !== '') throw new BadRequestError(`act mode is not available: ${card.actHold}`);
       if (!card.barMet && args.confirmBelowBar !== true) {
         throw new BadRequestError(`the approver has not met the bar (${card.threshold} correct APPROVEs in a row in one risk class); confirm to open the PR anyway`);
       }
