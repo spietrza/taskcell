@@ -76,9 +76,14 @@ function stripFragmentToken(): void {
 /** The hub answered the held token with its own 401; cleared when a new token is stored. */
 let heldTokenRefused = false;
 
+/** A fragment token that turned up on an open page whose own token had not been refused: kept in memory
+ * only, and used if the hub then refuses the held one (`adoptPendingToken`). */
+let pendingToken: string | null = null;
+
 /** `launch`: the fragment the page was opened with, always stored. A fragment that turns up on an open page
- * is stored only by a tab with no token or a refused one (a pasted launch URL reconnects it); a tab whose
- * token works drops it unread, so a `#token=…` link in rendered Markdown (a spec, a comment) cannot replace it. */
+ * is stored at once by a tab with no token or a refused one (a pasted launch URL reconnects it). A tab whose
+ * token may still work only remembers it: a `#token=…` link in rendered Markdown (a spec, a comment) cannot
+ * replace a working token, and a launch URL pasted after a hub restart is taken on the first 401. */
 function takeFragmentToken(launch: boolean): void {
   const token = fragmentToken();
   if (token === null) return;
@@ -89,8 +94,25 @@ function takeFragmentToken(launch: boolean): void {
       return; // Storage blocked: keep the fragment, `hubToken()` reads it from there instead.
     }
     heldTokenRefused = false;
+    pendingToken = null;
+  } else {
+    pendingToken = token;
   }
   stripFragmentToken();
+}
+
+/** The hub refused the held token: switch to the pending one, if any. True when the caller should retry. */
+function adoptPendingToken(): boolean {
+  const token = pendingToken;
+  pendingToken = null;
+  if (token === null) return false;
+  try {
+    window.sessionStorage.setItem(HUB_TOKEN_STORAGE_KEY, token);
+  } catch {
+    return false;
+  }
+  heldTokenRefused = false;
+  return true;
 }
 
 export function captureHubToken(): void {
@@ -110,10 +132,12 @@ function holdsWorkingToken(): boolean {
  * would strip a token added to an open page's address. */
 export function watchHubToken(): void {
   captureHubToken();
-  // Outside demo the next hub call captures a pasted launch URL (`hubToken`), so a tab with no token or a refused
-  // one reconnects in place; a tab whose token works drops the fragment (`takeFragmentToken`).
+  // Outside demo a tab with no token or a refused one leaves the fragment for the next hub call to capture
+  // (`hubToken`), so it reconnects in place; a tab holding a token takes it off the address at once, as pending.
   window.addEventListener('hashchange', () => {
-    if (fragmentToken() !== null && (isDemoMode() || holdsWorkingToken())) stripFragmentToken();
+    if (fragmentToken() === null) return;
+    if (isDemoMode()) stripFragmentToken();
+    else if (holdsWorkingToken()) takeFragmentToken(false);
   });
 }
 
@@ -211,7 +235,7 @@ async function probeHubRestart(): Promise<boolean> {
   }
 }
 
-async function hubInvoke<T>(cmd: string, args?: Record<string, unknown>): Promise<T> {
+async function hubPost(cmd: string, args?: Record<string, unknown>): Promise<{ response: Response; body: unknown }> {
   let response: Response;
   try {
     response = await fetch(`/rpc/${cmd}`, {
@@ -223,12 +247,17 @@ async function hubInvoke<T>(cmd: string, args?: Record<string, unknown>): Promis
     // Network failure (server unreachable, CORS, etc.) — reject with a string, like Tauri's Err(String).
     throw err instanceof Error ? err.message : String(err);
   }
-  let body: unknown;
   try {
-    body = await response.json();
+    return { response, body: await response.json() };
   } catch (err) {
     throw err instanceof Error ? err.message : String(err);
   }
+}
+
+async function hubInvoke<T>(cmd: string, args?: Record<string, unknown>): Promise<T> {
+  let { response, body } = await hubPost(cmd, args);
+  // The hub refused the held token while a pasted one waits (the hub restarted): take it and ask once more.
+  if (response.status === 401 && isHubTokenRejected(body) && adoptPendingToken()) ({ response, body } = await hubPost(cmd, args));
   // Only the hub's own 401 envelope means "this page's token is dead"; a reverse proxy's 401 is a
   // different problem, and telling the operator to reload would be wrong (docs/hub.md).
   if (response.status === 401 && isHubTokenRejected(body)) notifyHubRestarted();
@@ -291,13 +320,16 @@ async function openEventsSession(): Promise<'ok' | 'restarted' | 'issue'> {
 function ensureHubSource(): void {
   if (hubSource || hubSourceOpening) return;
   hubSourceOpening = true;
-  void openEventsSession().then((outcome) => {
-    hubSourceOpening = false;
-    if (outcome === 'restarted') return notifyHubRestarted();
-    if (outcome === 'issue') return notifyHubConnectionIssue();
-    if (hubSubscriptions.size === 0 && resyncHandlers.size === 0) return;
-    openHubSource();
-  });
+  void openEventsSession()
+    // As for an RPC: a refused token with a pasted one waiting is retried once with that one.
+    .then((outcome) => (outcome === 'restarted' && adoptPendingToken() ? openEventsSession() : outcome))
+    .then((outcome) => {
+      hubSourceOpening = false;
+      if (outcome === 'restarted') return notifyHubRestarted();
+      if (outcome === 'issue') return notifyHubConnectionIssue();
+      if (hubSubscriptions.size === 0 && resyncHandlers.size === 0) return;
+      openHubSource();
+    });
 }
 
 function openHubSource(): void {

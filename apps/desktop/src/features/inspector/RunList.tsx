@@ -191,7 +191,7 @@ export function RunList({
             <button
               key={f}
               onClick={() => setFilter(f)}
-              className={`rounded px-2 py-1 text-xs capitalize transition-colors ${
+              className={`rounded px-2 py-1 text-xs first-letter:uppercase transition-colors ${
                 filter === f ? 'bg-primary text-primary-foreground' : 'text-muted-foreground hover:bg-muted'
               }`}
             >

@@ -129,18 +129,12 @@ export function Inspector({
   }, [detail]);
 
   // Rail navigation drops any open drill-down.
-  const seenFocus = useRef(focusRunning);
   useEffect(() => {
     setDetail(null);
     setLiveRun(null);
     setTaskDetailId(null);
     // The New Run form belongs to the screen it was opened on; its error goes with it.
     if (showNewRun) closeNewRun();
-    // Arriving on Runs from any screen shows a live run's strip again, as arriving from Home does (which
-    // remounts this component). Not when the rail's Running entry brought us here: that opens its own run.
-    const openedRunning = focusRunning !== seenFocus.current;
-    seenFocus.current = focusRunning;
-    if (screen === 'runs' && !openedRunning && typedRun?.terminal === undefined) setStripMinimized(false);
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [screen]);
 

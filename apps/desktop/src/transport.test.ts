@@ -469,42 +469,78 @@ test('a token added to an open page\'s address is stripped too (demo mode makes 
   window.history.replaceState(null, '', '/');
 });
 
-test('a #token link followed on an open page does not replace a working token; a refused tab still takes a pasted launch URL', async () => {
-  window.__TASKCELL_HUB__ = true;
-  window.sessionStorage.setItem('vanguard-hub-token', 'good');
-  let status = 200;
-  const headers: string[] = [];
+/** A hub that accepts exactly `valid()`; records the token each call offered. */
+function stubTokenHub(valid: () => string): string[] {
+  const offered: string[] = [];
   vi.stubGlobal(
     'fetch',
     vi.fn(async (_url: string, init: RequestInit) => {
-      headers.push((init.headers as Record<string, string>)['x-vanguard-hub-token']!);
-      return status === 200
-        ? new Response(JSON.stringify({ result: null }), { status })
-        : new Response(JSON.stringify({ error: { message: 'invalid hub token', kind: 'bad-request' } }), { status });
+      const token = (init.headers as Record<string, string>)['x-vanguard-hub-token']!;
+      offered.push(token);
+      return token === valid()
+        ? new Response(JSON.stringify({ result: 'ok' }), { status: 200 })
+        : new Response(JSON.stringify({ error: { message: 'invalid hub token', kind: 'bad-request' } }), { status: 401 });
     }),
   );
-  await invoke('list_runs', {}); // a 200 with the held token clears any refusal an earlier test left
-  // A link in rendered Markdown (a spec, a comment): the next hub call drops it unread.
+  return offered;
+}
+
+/** Open the page with its launch URL: the tab holds `token`, nothing pending, nothing refused. */
+function launchWith(token: string): void {
+  window.__TASKCELL_HUB__ = true;
+  window.history.replaceState(null, '', `/#token=${token}`);
+  captureHubToken();
+}
+
+test('a #token link followed on an open page does not replace a working token: requests keep the held one', async () => {
+  launchWith('good');
+  const offered = stubTokenHub(() => 'good');
+  // A link in rendered Markdown (a spec, a comment), seen first by a hub call…
   window.history.replaceState(null, '', '/?screen=runs#token=evil&keep=1');
   await invoke('list_runs', {});
-  expect(headers).toEqual(['good', 'good']);
-  expect(window.sessionStorage.getItem('vanguard-hub-token')).toBe('good');
   expect(window.location.search + window.location.hash).toBe('?screen=runs#keep=1');
-  // So does the address-bar listener, before any hub call.
+  // …or first by the address-bar listener.
   watchHubToken();
-  window.history.replaceState(null, '', '/#token=evil');
+  window.history.replaceState(null, '', '/#token=evil2');
   window.dispatchEvent(new Event('hashchange'));
   expect(window.location.hash).toBe('');
-  expect(window.sessionStorage.getItem('vanguard-hub-token')).toBe('good');
-  // The hub refuses the held token (it restarted): now a pasted launch URL reconnects the tab in place.
-  status = 401;
-  await expect(invoke('list_runs', {})).rejects.toBe('invalid hub token');
-  status = 200;
-  window.history.replaceState(null, '', '/#token=fresh');
-  window.dispatchEvent(new Event('hashchange'));
-  expect(window.location.hash).toBe('#token=fresh');
   await invoke('list_runs', {});
-  expect(headers.at(-1)).toBe('fresh');
-  expect(window.sessionStorage.getItem('vanguard-hub-token')).toBe('fresh');
+  expect(offered).toEqual(['good', 'good']);
+  expect(window.sessionStorage.getItem('vanguard-hub-token')).toBe('good');
+});
+
+test('a launch URL pasted after a hub restart, before the tab has seen a 401, reconnects on the next call without another paste', async () => {
+  launchWith('old');
+  let valid = 'old';
+  const offered = stubTokenHub(() => valid);
+  await invoke('list_runs', {});
+  valid = 'new'; // the hub restarted; this tab has not asked it anything since
+  const restarts: number[] = [];
+  const unlisten = await onHubRestart(() => restarts.push(1));
+  window.history.replaceState(null, '', '/#token=new');
+  await expect(invoke('list_runs', {})).resolves.toBe('ok');
+  expect(offered).toEqual(['old', 'old', 'new']);
+  expect(restarts).toEqual([]);
+  expect(window.sessionStorage.getItem('vanguard-hub-token')).toBe('new');
   expect(window.location.hash).toBe('');
+  await invoke('list_runs', {});
+  expect(offered.at(-1)).toBe('new');
+  unlisten();
+});
+
+test('a refused tab stores a pasted launch URL at once; a pending token that is also refused is tried once, then reported', async () => {
+  launchWith('old');
+  let valid = 'other';
+  const offered = stubTokenHub(() => valid);
+  const restarts: number[] = [];
+  const unlisten = await onHubRestart(() => restarts.push(1));
+  window.history.replaceState(null, '', '/#token=evil'); // pending: the held token has not been refused yet
+  await expect(invoke('list_runs', {})).rejects.toBe('invalid hub token');
+  expect(offered).toEqual(['old', 'evil']);
+  expect(restarts).toEqual([1]);
+  valid = 'fresh';
+  window.history.replaceState(null, '', '/#token=fresh');
+  await expect(invoke('list_runs', {})).resolves.toBe('ok');
+  expect(offered.at(-1)).toBe('fresh');
+  unlisten();
 });

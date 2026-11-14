@@ -654,8 +654,9 @@ constant `{"ok":true}`. No route serves the token — not `index.html`, not `/he
 prints and opens a launch URL carrying it in the fragment (`/#token=…`), which browsers never send to
 the server; the UI moves it into `sessionStorage` and strips it from the address bar, so a reload
 keeps working but a new tab on the bare URL needs the launch URL again. A `#token=…` that turns up on
-an already-open page (a link in a spec or a comment) is dropped unless the tab has no token or the hub
-has refused the one it holds, so it cannot replace a working token. The address also names the open
+an already-open page is stored at once only when the tab has no token or the hub has refused the one it
+holds; otherwise it is kept in memory and used only if the hub then refuses the held token. So a link in
+a spec or a comment cannot replace a working token, and a launch URL pasted after a restart reconnects. The address also names the open
 screen (`?screen=runs`), so a reload returns to it and Back/Forward move between screens. A hub bound beyond loopback
 has no launch URL: browsers sign in at `/sign-in`, also behind a reverse proxy. Reaching the port is therefore not enough to drive the hub,
 but the token is a launch secret, not per-user authentication: it does not replace authentication at

@@ -22,10 +22,21 @@ export const PROVIDERS: readonly string[] = WIRE_PROVIDER_NAMES;
 const NAME_RE = FLOW_NAME_RE;
 const ROW_KEYS: ReadonlySet<string> = new Set(CUSTOM_PROVIDER_KEYS);
 
-// Mirrors `isReservedKeyEnv` in src/agents/custom.ts as far as the UI knows the names: Taskcell's own
-// namespaces, the credentials the hub stores, and the host credentials the core names. The core holds the
-// full list (git host tokens too) and still refuses the rest when the config is read.
-const RESERVED_KEY_ENVS: readonly string[] = [...CREDENTIAL_NAMES, 'GLAB_TOKEN', 'ANTHROPIC_AUTH_TOKEN', 'CLOUDFLARE_AUTH_TOKEN', 'LANGFUSE_SECRET_KEY'];
+// Mirrors `isReservedKeyEnv` in src/agents/custom.ts: Taskcell's own namespaces, the credentials the hub
+// stores, and the git host and other credentials the core names. The core is still the one predicate and
+// re-validates when the config is read.
+const RESERVED_KEY_ENVS: readonly string[] = [
+  ...CREDENTIAL_NAMES,
+  'GH_TOKEN',
+  'GITHUB_TOKEN',
+  'GITLAB_TOKEN',
+  'GLAB_TOKEN',
+  'LINEAR_API_KEY',
+  'CI_JOB_TOKEN',
+  'ANTHROPIC_AUTH_TOKEN',
+  'CLOUDFLARE_AUTH_TOKEN',
+  'LANGFUSE_SECRET_KEY',
+];
 const isReservedKeyEnv = (keyEnv: string): boolean => /^(TASKCELL|VANGUARD)_/i.test(keyEnv) || RESERVED_KEY_ENVS.includes(keyEnv.toUpperCase());
 
 /** First violated rule for a Settings custom-provider row, or undefined when saveable. */

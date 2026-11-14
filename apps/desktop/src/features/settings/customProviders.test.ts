@@ -20,7 +20,7 @@ describe('customProviderRowError (grammar mirror of the core predicate)', () => 
     expect(customProviderRowError(row, 0, [row])).toMatch(re);
   });
 
-  it.each(['TASKCELL_HUB_SECRET', 'Taskcell_Hub_Secret', 'VANGUARD_PUSH_TOKEN', 'CLAUDE_CODE_OAUTH_TOKEN', 'anthropic_api_key', 'GLAB_TOKEN', 'ANTHROPIC_AUTH_TOKEN', 'CLOUDFLARE_AUTH_TOKEN', 'LANGFUSE_SECRET_KEY'])(
+  it.each(['TASKCELL_HUB_SECRET', 'Taskcell_Hub_Secret', 'VANGUARD_PUSH_TOKEN', 'CLAUDE_CODE_OAUTH_TOKEN', 'anthropic_api_key', 'GH_TOKEN', 'gh_token', 'GITHUB_TOKEN', 'GITLAB_TOKEN', 'LINEAR_API_KEY', 'CI_JOB_TOKEN', 'GLAB_TOKEN', 'ANTHROPIC_AUTH_TOKEN', 'CLOUDFLARE_AUTH_TOKEN', 'LANGFUSE_SECRET_KEY'])(
     'rejects the reserved keyEnv %s, as the server does',
     (keyEnv) => {
       const row = { ...ROW, keyEnv };
