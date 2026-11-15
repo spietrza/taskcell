@@ -338,11 +338,19 @@ A start date comes from the issue's own start date, which GitLab returns from 19
 | waits for an open dependency or a future start | one comment naming what it waits for; it stays in its trigger state and a later poll starts it by itself |
 | has relations Linear returned incompletely (a relation without a type or without a readable issue) | the same: one comment with the reason, checked again on the next poll, never started on a guess |
 | is in a dependency cycle, names an issue that does not exist or the token cannot read, depends on a canceled or duplicate issue, has an impossible start date, or has an identifier that is not `TEAM-123` | one comment with the reason, then the needs-info state; fix it and move it back to the trigger state. With no needs-info state configured for the agent pass it is commented on and stays where it is |
-| could not be checked (the Linear API failed or was rate limited) | not started in that poll and logged; no comment. The next poll tries again |
+| has a dependency that could not be looked up (the Linear API failed or was rate limited) | not started in that poll and logged; no comment. The next poll tries again |
 
 A comment is not repeated: before posting, `watch` reads the newest comment on the issue and skips an identical one, so a restart or a scheduled `watch --once` does not post it again. A new comment appears when the reason changes. Beyond the direct blockers only native relations are followed, up to 50 issues.
 
-**Cost per poll.** The issue list query is the same as without dependencies. One extra query per 50 listed issues reads their relations (the first 10 of each) and cycle. After that only blockers are looked up, each once per poll however many issues wait for it; an issue with more than 10 relations is looked up itself. A waiting issue's comment is read once per `watch` process, not on every poll. If the extra query fails, the reason is logged and the issues of that batch are not started in that poll.
+**Cost per poll.** The issue list query is the same as without dependencies. One extra query per 50 listed issues reads their relations (the first 10 of each) and cycle. After that only blockers are looked up, each once per poll however many issues wait for it; an issue with more than 10 relations is looked up itself. A waiting issue's comment is read once per `watch` process, not on every poll.
+
+**Native relations are best-effort.** The extra query has no counterpart in a watch without dependencies, so it cannot stop one. If Linear rejects it or it fails (a validation or complexity error, a rate limit, a network error), `watch` logs one line per batch and, for that poll only, treats the batch's issues as having no "blocked by" relation and no cycle:
+
+```
+taskcell: Linear dependency probe failed, native "blocked by" relations and cycles of 12 issue(s) not honoured this poll (Depends on and Start lines still are) -> <reason from Linear>
+```
+
+In such a poll an issue with no `Depends on` or `Start:` line starts, exactly as it would without this feature, even when a native relation blocks it. `Depends on` and `Start:` lines are still enforced: they need no extra query beyond a lookup of each named issue. If an issue must never start early, declare the dependency with a `Depends on` line as well. If the line shows up on every poll, native relations are not working for your workspace: report the reason shown after `->`.
 
 ### Starting the factory from the hub
 

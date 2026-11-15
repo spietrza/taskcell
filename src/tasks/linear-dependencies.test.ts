@@ -269,17 +269,36 @@ describe('applyLinearDependencyGate', () => {
     expect((probes(send)[0]!.variables['f'] as ProbeFilter).or.map((g) => g.team.key.eqIgnoreCase)).toEqual(['DEV', 'ENG']);
     expect(lookedUp(send).slice(0, 2)).toEqual(['DEV-1', 'DEV-101']);
   });
-  it('logs a failed probe and starts none of its issues in that poll, without one lookup per issue', async () => {
-    const send = vi.fn<LinearGraphql>(async () => ({ errors: [{ message: 'Query too complex' }] }));
+  it('a rejected probe is logged once and cannot stop the watch: issues without declarations start as on main', async () => {
+    const inner = fakeSend({ 'DEV-1': {}, 'DEV-2': { blockedBy: ['DEV-1'] }, 'DEV-3': { cycle: '2026-07-01T00:00:00.000Z' } });
+    const send = vi.fn<LinearGraphql>(async (body) => (body.query.includes('issues(') ? { errors: [{ message: 'Query too complex' }] } : inner(body)));
     const linear = vi.fn(async (_args: string[]) => '');
     const logs: string[] = [];
-    const out = await applyLinearDependencyGate([task('DEV-1'), task('DEV-2', 'Depends on DEV-1')], { graphql: send, linear, now, log: (l) => logs.push(l) });
-    expect(out).toEqual([]);
+    const out = await applyLinearDependencyGate([task('DEV-1'), task('DEV-2'), task('DEV-3')], { graphql: send, linear, now, log: (l) => logs.push(l) });
+    // main starts all three: native relations and cycles are not honoured in a poll whose probe failed.
+    expect(out.map((t) => t.id)).toEqual(['DEV-1', 'DEV-2', 'DEV-3']);
     expect(send).toHaveBeenCalledTimes(1);
     expect(linear).not.toHaveBeenCalled();
-    expect(logs[0]).toContain('Linear dependency probe failed, 2 issue(s) not started this poll -> Query too complex');
+    expect(logs).toEqual(['taskcell: Linear dependency probe failed, native "blocked by" relations and cycles of 3 issue(s) not honoured this poll (Depends on and Start lines still are) -> Query too complex']);
     const thrown = vi.fn<LinearGraphql>(async () => { throw new Error('socket hang up'); });
-    expect(await applyLinearDependencyGate([task('DEV-1')], { ...opts(), graphql: thrown })).toEqual([]);
+    expect((await applyLinearDependencyGate([task('DEV-1')], { ...opts(), graphql: thrown })).map((t) => t.id)).toEqual(['DEV-1']);
+  });
+  it('after a rejected probe a declared open blocker or start date still holds the issue', async () => {
+    const comments = new Map<string, string>();
+    const inner = fakeSend({ 'DEV-1': {}, 'DEV-4': { type: 'completed' } }, comments);
+    const send = vi.fn<LinearGraphql>(async (body) => {
+      if (body.query.includes('issues(')) throw new Error('400 Bad Request');
+      if (body.variables['id'] === 'DEV-8' && !body.query.includes('comments(')) throw new Error('503');
+      return inner(body);
+    });
+    const tasks = [task('DEV-2', 'Depends on DEV-1'), task('DEV-3', 'Start: 2026-07-01'), task('DEV-5', 'Depends on DEV-4'), task('DEV-6', 'Depends on DEV-8'), task('DEV-7')];
+    const out = await applyLinearDependencyGate(tasks, { ...opts(), graphql: send, linear: commentRunner(comments) });
+    expect(out.map((t) => t.id)).toEqual(['DEV-5', 'DEV-7']);
+    expect(comments.get('DEV-2')).toContain('waiting for DEV-1');
+    expect(comments.get('DEV-3')).toContain('start date 2026-07-01');
+    // DEV-6's own declared dependency could not be resolved: it waits this poll, without a comment.
+    expect(comments.has('DEV-6')).toBe(false);
+    expect(lookedUp(send)).toEqual(['DEV-1', 'DEV-4', 'DEV-8']);
   });
   it('passes ready tasks, comments on waiting ones and parks invalid ones in needs info', async () => {
     const comments = new Map<string, string>();

@@ -249,12 +249,13 @@ interface ProbeResponse {
 /**
  * One query per `PROBE_BATCH` listed issues. `known`: issues whose relations the probe read in full
  * (their blockers and cycle start). An issue it could not answer for (not returned, more than
- * `PROBE_RELATIONS` relations, an unreadable relation) is in neither set and gets its own lookup. A
- * batch that fails is logged and `failed`: its issues do not start in this poll.
+ * `PROBE_RELATIONS` relations, an unreadable relation) is absent and gets its own lookup. A batch that
+ * fails (the probe has no counterpart on main, so it must not be able to stop a watch) is logged and
+ * its issues count as having no native relation and no cycle for this poll: they are judged by their
+ * `Depends on` and `Start:` lines alone.
  */
-async function probe(refs: TaskRef[], send: LinearGraphql, log: (line: string) => void): Promise<{ known: Map<string, KnownIssue>; failed: Set<string> }> {
+async function probe(refs: TaskRef[], send: LinearGraphql, log: (line: string) => void): Promise<Map<string, KnownIssue>> {
   const known = new Map<string, KnownIssue>();
-  const failed = new Set<string>();
   for (let i = 0; i < refs.length; i += PROBE_BATCH) {
     const batch = refs.slice(i, i + PROBE_BATCH);
     const byTeam = new Map<string, number[]>();
@@ -276,11 +277,11 @@ async function probe(refs: TaskRef[], send: LinearGraphql, log: (line: string) =
         known.set(refText(ref), { nativeBlockers: read.blockers, ...(cycleStart !== undefined ? { cycleStart } : {}) });
       }
     } catch (error) {
-      log(`taskcell: Linear dependency probe failed, ${batch.length} issue(s) not started this poll -> ${failureReason(error)}`);
-      for (const ref of batch) failed.add(refText(ref));
+      log(`taskcell: Linear dependency probe failed, native "blocked by" relations and cycles of ${batch.length} issue(s) not honoured this poll (Depends on and Start lines still are) -> ${failureReason(error)}`);
+      for (const ref of batch) known.set(refText(ref), { nativeBlockers: [] });
     }
   }
-  return { known, failed };
+  return known;
 }
 
 export interface LinearDependencyGateOptions {
@@ -324,7 +325,8 @@ const quoted = (text: string): string => `\`${text.replace(/[`@]/g, '').replace(
  * gets one comment, is skipped this poll and stays in its trigger state, so a later poll starts it by
  * itself once the blockers are done and the date reached. A cycle, a missing reference, a canceled
  * blocker, an impossible date or an unreadable identifier gets one comment with the reason and moves
- * to the needs-info state. A failed probe or lookup is logged and skipped for this poll.
+ * to the needs-info state. A failed lookup is logged and skipped for this poll; a failed probe is
+ * logged and native relations are not honoured in this poll.
  */
 export async function applyLinearDependencyGate(tasks: Task[], opts: LinearDependencyGateOptions = {}): Promise<Task[]> {
   if (tasks.length === 0) return tasks;
@@ -333,11 +335,9 @@ export async function applyLinearDependencyGate(tasks: Task[], opts: LinearDepen
   const refs = new Map(tasks.map((task) => [task, parseIdentifier(task.ref ?? task.id)]));
   const probed = await probe([...refs.values()].filter((ref): ref is TaskRef => ref !== undefined), send, log);
   const lookup = createIssueLookup(send);
-  const check = async (task: Task): Promise<LinearDependencyVerdict> => {
+  const check = (task: Task): Promise<LinearDependencyVerdict> => {
     const ref = refs.get(task);
-    const key = ref !== undefined ? refText(ref) : undefined;
-    if (key !== undefined && probed.failed.has(key)) return { status: 'error', reason: 'the dependency probe failed' };
-    return checkLinearDependencies(task, send, opts.now, key !== undefined ? probed.known.get(key) : undefined, lookup);
+    return checkLinearDependencies(task, send, opts.now, ref !== undefined ? probed.get(refText(ref)) : undefined, lookup);
   };
   const checked = await fanOut(tasks, check, { concurrency: CHECK_CONCURRENCY });
   const ready: Task[] = [];
