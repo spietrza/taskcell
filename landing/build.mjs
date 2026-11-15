@@ -77,7 +77,9 @@ for (const f of files) {
   ];
   for (const r of found) if (!/^[a-z]+:/.test(r)) refs.push({ from: f, ref: r });
 }
-const missing = refs.filter(({ from, ref }) => !existsSync(ref.startsWith('/') ? join(out, ref) : join(out, dirname(from), ref)));
+// /badges/*.svg are served by the Worker (badges.js), not from dist/.
+const workerRoute = (ref) => /^\/badges\/[a-z]+\.svg$/.test(ref);
+const missing = refs.filter(({ from, ref }) => !workerRoute(ref) && !existsSync(ref.startsWith('/') ? join(out, ref) : join(out, dirname(from), ref)));
 if (missing.length) {
   for (const m of missing) console.error(`missing: ${m.ref} (in ${m.from})`);
   process.exit(1);
