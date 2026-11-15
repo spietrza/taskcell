@@ -259,6 +259,9 @@ export function EnableFactoryDialog({ project, onClose }: { project: { path: str
             </Section>
             <Section title="Or run it directly">
               <CodeBlock code={watch.command} lang="bash" />
+              {watch.source === 'linear' && (
+                <p className="mt-1 text-xs text-muted-foreground">Outside the runner image, also set <code>SKILLS_DIR</code> to the linear-cli skills (a clone of schpet/linear-cli&apos;s <code>skills/</code>); the image sets it.</p>
+              )}
               <Button variant="outlined" color="secondary" className="mt-1 h-7 px-2 text-xs" onClick={() => copy(watch.command)}>{copied === watch.command ? 'Copied' : 'Copy'}</Button>
             </Section>
             <Section title="3. Worker seen">

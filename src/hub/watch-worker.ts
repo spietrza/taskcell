@@ -59,7 +59,7 @@ export function composeSnippet(t: WatchTarget): string {
     '      - ./target-repo:/work/repo # a git clone of this repository',
     '    environment:',
     ...env,
-    ...(t.gitlabHost !== undefined ? [`      GITLAB_HOST: ${t.gitlabHost}`] : []),
+    ...(t.gitlabHost !== undefined ? [`      GITLAB_HOST: ${JSON.stringify(t.gitlabHost)}`] : []),
     '      VANGUARD_MAX_SANDBOXES: "1" # cap to host RAM (1 per ~3GB free)',
     '    command:',
     ...command,
@@ -89,6 +89,9 @@ export function watchTarget(origin: string | null, configured: string | undefine
   const source = configured === 'github' || configured === 'gitlab' || configured === 'linear' ? configured : host === 'gitlab' ? 'gitlab' : 'github';
   // Linear publishes to GitLab exactly when origin is a known GitLab remote (runners/linear.ts), otherwise through gh.
   const forge = host === 'gitlab' ? 'gitlab' : 'github';
+  if (configured === undefined && host === 'other') {
+    throw new BadRequestError('No task source is set and `origin` is on neither github.com nor GitLab (gitlab.com or GITLAB_HOST); pick a task source in Settings, or point `origin` at GitHub or GitLab.');
+  }
   if (source !== 'linear' && source !== host) {
     throw new BadRequestError(`This project's task source is ${source === 'github' ? 'GitHub Issues' : 'GitLab Issues'}, but \`origin\` is not on ${source === 'github' ? 'github.com' : 'GitLab (gitlab.com or GITLAB_HOST)'}.`);
   }
@@ -96,13 +99,16 @@ export function watchTarget(origin: string | null, configured: string | undefine
   const valid = forge === 'gitlab' ? GITLAB_PROJECT_PATH.test(path) : GITHUB_REPO_SLUG.test(path);
   // Linear needs no slug; anything else must match the forge's charset before it reaches a shell line.
   if (!valid && source !== 'linear') throw new BadRequestError(`Could not read the ${forge === 'gitlab' ? 'GitLab project (group/project)' : 'GitHub repository (owner/repo)'} from \`origin\`; fix the remote and try again.`);
-  const gitlabHost = forge === 'gitlab' ? remoteHostname(origin) : undefined;
-  return {
-    source,
-    forge,
-    slug: valid ? path : '',
-    ...(gitlabHost !== undefined && gitlabHost !== 'gitlab.com' && GITLAB_HOSTNAME.test(gitlabHost) ? { gitlabHost } : {}),
-  };
+  const gitlabHost = forge === 'gitlab' ? workerGitlabHost(remoteHostname(origin)) : undefined;
+  return { source, forge, slug: valid ? path : '', ...(gitlabHost !== undefined ? { gitlabHost } : {}) };
+}
+
+/** A self-hosted origin host matched the hub's GITLAB_HOST, so the worker gets that value as written (port, scheme); gitlab.com needs none. */
+function workerGitlabHost(host: string | undefined): string | undefined {
+  if (host === undefined || host === 'gitlab.com') return undefined;
+  const configured = (process.env.GITLAB_HOST ?? '').trim();
+  if (/^(?:https?:\/\/)?[A-Za-z0-9](?:[A-Za-z0-9.-]{0,251}[A-Za-z0-9])?(?::\d{1,5})?\/?$/.test(configured)) return configured;
+  return GITLAB_HOSTNAME.test(host) ? host : undefined;
 }
 
 export async function watchWorkerChecklist(repoPath: string, exec: FactoryExec = defaultExec, now: number = Date.now()): Promise<WatchWorkerChecklist> {

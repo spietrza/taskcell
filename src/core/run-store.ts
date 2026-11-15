@@ -162,13 +162,14 @@ function findClosestProofFile(fileNames: readonly string[], suffix: string, stag
   return best?.name;
 }
 
-/** Best-effort parse of a run record file; returns undefined on any read or JSON error. */
 let runTrigger: 'watch' | undefined;
 
 /** Stamp every run record this process writes from now on with `trigger` (`taskcell watch` sets `'watch'`). */
 export function setRunTrigger(trigger: 'watch' | undefined): void {
   runTrigger = trigger;
 }
+
+/** Best-effort parse of a run record file; returns undefined on any read or JSON error. */
 
 async function tryReadRecord(path: string): Promise<RunRecord | undefined> {
   try {

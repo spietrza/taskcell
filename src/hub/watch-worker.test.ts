@@ -38,8 +38,8 @@ describe('watch worker checklist', () => {
     expect(watchTarget('ssh://git@github.com:22/acme/widgets.git', undefined)).toEqual(gh);
     expect(watchTarget('https://gitlab.com/g/sub/p.git', undefined)).toEqual({ source: 'gitlab', forge: 'gitlab', slug: 'g/sub/p' });
     // Not github.com: neither a lookalike host nor a path containing it.
-    expect(() => watchTarget('https://notgithub.com/a/b.git', undefined)).toThrow(/not on github.com/);
-    expect(() => watchTarget('https://evil.example/github.com/a/b', undefined)).toThrow(/not on github.com/);
+    expect(() => watchTarget('https://notgithub.com/a/b.git', undefined)).toThrow(/neither github.com/);
+    expect(() => watchTarget('https://evil.example/github.com/a/b', undefined)).toThrow(/neither github.com/);
     // GitHub Enterprise is `other` for enable_factory_host, so not GitLab here either.
     expect(() => watchTarget('https://ghe.corp.example/a/b.git', 'gitlab')).toThrow(/not on GitLab/);
     expect(() => watchTarget(null, undefined)).toThrow(NO_REMOTE_MESSAGE);
@@ -58,6 +58,8 @@ describe('watch worker checklist', () => {
     expect(() => watchTarget('git@github.com:acme/widgets.git', 'hub')).toThrow(/cannot read the hub board/);
     expect(() => watchTarget('git@github.com:acme/widgets.git', 'github-project')).toThrow(/--source project --project <number>/);
     expect(() => watchTarget('https://gitlab.com/g/p.git', 'github')).toThrow(/task source is GitHub Issues/);
+    // No source set and an unsupported host: say that, not "task source is GitHub Issues".
+    expect(() => watchTarget('https://ghe.corp.example/a/b.git', undefined)).toThrow(/No task source is set/);
   });
 
   test('a self-hosted GitLab names its host for the worker', () => {
@@ -66,7 +68,12 @@ describe('watch worker checklist', () => {
     try {
       const t = watchTarget('git@git.example.org:g/p.git', 'linear');
       expect(t).toEqual({ source: 'linear', forge: 'gitlab', slug: 'g/p', gitlabHost: 'git.example.org' });
-      expect(composeSnippet(t)).toContain('GITLAB_HOST: git.example.org');
+      expect(composeSnippet(t)).toContain('GITLAB_HOST: "git.example.org"');
+      process.env.GITLAB_HOST = 'https://git.example.org:8443';
+      const withPort = watchTarget('ssh://git@git.example.org:2222/g/p.git', 'gitlab');
+      expect(withPort.gitlabHost).toBe('https://git.example.org:8443');
+      expect(composeSnippet(withPort)).toContain('GITLAB_HOST: "https://git.example.org:8443"');
+      expect(watchCommandLine(withPort)).toMatch(/^GITLAB_HOST='https:\/\/git.example.org:8443' taskcell /);
       expect(watchCommandLine(t)).toMatch(/^GITLAB_HOST='git.example.org' taskcell watch /);
     } finally {
       if (prev === undefined) delete process.env.GITLAB_HOST;

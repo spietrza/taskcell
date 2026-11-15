@@ -606,8 +606,12 @@ The checklist shows:
 
 1. On the worker machine, build or load the images (`docker/build.sh`; see [deploy.md](deploy.md#what-you-need-on-the-host)).
 2. Make a deploy directory, clone the repository into `./target-repo` next to where the compose file will be,
-   and let `git push` use the token: `git -C target-repo config credential.helper '!gh auth git-credential'`
-   for GitHub ([deploy.md, step 4](deploy.md#4-clone-the-target-repo-the-nas-has-no-git-so-use-the-runner-image)).
+   and let `git push` use the token: `git -C target-repo config credential."https://github.com".helper '!gh auth git-credential'`
+   for GitHub ([deploy.md, step 4](deploy.md#4-clone-the-target-repo-the-nas-has-no-git-so-use-the-runner-image)), or
+   `git -C target-repo config credential."https://<gitlab host>".helper '!glab auth git-credential'` for GitLab, with an
+   `https://` clone URL (`glab` reads `GITLAB_TOKEN`; the runner image ships the same pinned `glab` as the hub image).
+   Running the command directly instead of in the image needs `gh` or `glab` signed in, and for Linear
+   `SKILLS_DIR` pointing at the linear-cli skills (the image sets `SKILLS_DIR=/opt/skills`).
 3. Put the values of the listed credentials in a `.env` next to the compose file (`chmod 600`, never committed).
 4. Copy the compose snippet into `compose.yaml` there and run `docker compose up -d`.
 5. Check the log (`docker compose logs -f taskcell-watch`) for `watch[<source>]: polling every 120s`, then label
