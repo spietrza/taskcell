@@ -436,8 +436,17 @@ describe('gate state across polls', () => {
     expect(comments.get('DEV-1')).toContain('Taskcell could not check the dependencies of this issue');
     for (let poll = 4; poll <= 10; poll++) await applyLinearDependencyGate([task('DEV-1')], shared);
     expect(linear).toHaveBeenCalledTimes(1);
-    // The reason is the same every poll: logged on poll 1 and again on poll 10.
-    expect(logs.filter((l) => l.includes('DEV-1 skipped')).length).toBeGreaterThanOrEqual(2);
+    // The error text differs on every poll, so every poll logs a new reason; the every-10 repeat is tested below.
+    expect(logs.filter((l) => l.includes('DEV-1 skipped'))).toHaveLength(10);
+  });
+  it('logs the same failing reason only on the first poll and every 10th', async () => {
+    const withComments = fakeSend({});
+    const failing: LinearGraphql = async (body) => (body.query.includes('comments(') ? withComments(body) : { errors: [{ message: 'boom' }] });
+    const polls: number[] = [];
+    let poll = 0;
+    const shared = { ...opts(), graphql: failing, log: (l: string): void => void (l.includes('DEV-1 skipped') && polls.push(poll)) };
+    for (poll = 1; poll <= 21; poll++) await applyLinearDependencyGate([task('DEV-1')], shared);
+    expect(polls).toEqual([1, 10, 20]);
   });
   it('compares only against the newest hold comment, so a reason that flips back is posted again', async () => {
     const comments = new Map<string, string>();
@@ -495,6 +504,23 @@ describe('gate state across polls', () => {
     expect(await applyLinearDependencyGate([task('DEV-2')], shared2)).toEqual([]);
     fixed['DEV-1'] = { type: 'completed' };
     expect(await applyLinearDependencyGate([task('DEV-2')], shared2)).toHaveLength(1);
+  });
+  it('starts an issue once its dependency cycle is fixed: moved back from needs info at once, left in its trigger state after the TTL', async () => {
+    const cyclic = (): Record<string, Fake> => ({ 'DEV-1': { blockedBy: ['DEV-2'] }, 'DEV-2': { blockedBy: ['DEV-1'] } });
+    const moved = cyclic();
+    const move = vi.fn(async () => undefined);
+    const shared = { ...opts(), graphql: fakeSend(moved), moveToNeedsInfo: move };
+    expect(await applyLinearDependencyGate([task('DEV-1')], shared)).toEqual([]);
+    expect(move).toHaveBeenCalledTimes(1);
+    moved['DEV-2'] = { type: 'completed' };
+    expect(await applyLinearDependencyGate([task('DEV-1')], shared)).toHaveLength(1);
+    const left = cyclic();
+    const shared2 = { ...opts(), graphql: fakeSend(left) };
+    expect(await applyLinearDependencyGate([task('DEV-1')], shared2)).toEqual([]);
+    left['DEV-2'] = { type: 'completed' };
+    // The same confirmed reason is not re-read within the TTL; after it the fixed blocker is read and the issue starts.
+    expect(await applyLinearDependencyGate([task('DEV-1')], { ...shared2, now: new Date(now.getTime() + 60_000) })).toEqual([]);
+    expect(await applyLinearDependencyGate([task('DEV-1')], { ...shared2, now: new Date(now.getTime() + 3 * 60_000) })).toHaveLength(1);
   });
   it('recognises a hold comment Linear returned with leading whitespace and markup', async () => {
     const hold = '  \n**Taskcell will not start this issue yet:** `waiting for DEV-1`. It stays in its trigger state and starts by itself once that is resolved.';
