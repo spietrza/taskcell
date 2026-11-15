@@ -65,8 +65,8 @@ jobs:
       provider: codex
       review-model: gpt-5.6-sol
       fallback-provider: claude
-      # Fable again since its limit reset: the Opus re-reviews came back with a verdict and no findings (#991).
-      fallback-model: claude-fable-5-2
+      # Opus while Fable and Codex are out of quota (Opus re-reviews once came back with no findings, #991; revert when Fable is back).
+      fallback-model: opus
       # One run reviews every labelled PR; four at a time instead of two.
       review-concurrency: '4'
     secrets:
