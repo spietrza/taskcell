@@ -328,6 +328,7 @@ const index = [
     'Taskcell działa na planie albo kluczach, które już masz, a za modele płacisz bezpośrednio dostawcy. Do ich kosztu nic nie doliczamy.'],
   ['<b>Claude subscription</b><span>yours</span>', '<b>Subskrypcja Claude</b><span>twoja</span>'],
   ['<b>API key</b><span>yours</span>', '<b>Klucz API</b><span>twój</span>'],
+  ['DeepSeek, GLM, Kimi and about 380 more models', 'DeepSeek, GLM, Kimi i około 380 innych modeli'],
   ['<span>your key</span>', '<span>twój klucz</span>'],
   ['<span>your account</span>', '<span>twoje konto</span>'],
   ['That is how self-hosting works today, and how the <a href="#pricing">planned hosted plans</a> are meant to work. With <code>--llm-proxy</code> the real key stays on the host and the cell gets a one-run nonce: <a href="#security">Security</a> lists the engines that covers.',
