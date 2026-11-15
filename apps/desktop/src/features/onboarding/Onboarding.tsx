@@ -139,6 +139,7 @@ export function Onboarding({
                   <p className="text-sm text-muted-foreground">
                     Claude subscription: {found(status?.models.claude)} · Codex: {found(status?.models.codex)}
                   </p>
+                  {status?.credentialReason !== undefined && <p role="alert" className="text-xs text-destructive-text">{status.credentialReason}</p>}
                   <div role="radiogroup" aria-label="Model credential" className="flex gap-2">
                     {(['claude', 'codex'] as const).map((m) => (
                       <Button
