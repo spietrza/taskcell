@@ -4,13 +4,16 @@ import { BadRequestError } from '../../sidecar/sidecar.js';
 import { assertMutationsAllowed } from '../allowlist.js';
 import { factoryPlanTargets, GITHUB_REPO_SLUG, noScripts } from '../enable-factory.js';
 import { factoryHostOf, factoryProviderFor, GITLAB_HOSTNAME, GITLAB_LOGIN, GITLAB_PROJECT_PATH, gitlabPlanTargets } from '../enable-factory-gitlab.js';
+import { watchWorkerChecklist } from '../watch-worker.js';
 import { factoryState, callersPresent, newFactoryRecord, refreshFactory, updateFactoryRecord, writeFactoryRecord } from '../factory-checklist.js';
-import type { FactoryApplyResult, FactoryHost, FactoryPlan, FactoryProviderId, FactorySecretStep, FactoryState, FactoryVerifyResult } from '../../wire.js';
+import type { WatchWorkerChecklist, FactoryApplyResult, FactoryHost, FactoryPlan, FactoryProviderId, FactorySecretStep, FactoryState, FactoryVerifyResult } from '../../wire.js';
 import { defineCommands, requireString, optionalString, requireOneOf, requireMatch, repoTarget, assertHasRemote } from '../command-kit.js';
 
 export interface EnableFactoryCommands {
   /** Which code host the project's `origin` is on (`github`, `gitlab`, `other`, or `none` without a remote): the dialog offers GitLab CI only for `gitlab`. */
   enable_factory_host: { args: { repoPath: string }; result: { host: FactoryHost } };
+  /** Read-only checklist for a self-hosted `taskcell watch` worker: compose snippet, command, credential names and whether run records show it working. Starts nothing. */
+  enable_factory_watch: { args: { repoPath: string }; result: WatchWorkerChecklist };
   /** HUB_ONLY: read the repo (default branch, package manager, verify command) and report what
    *  `enable_factory_apply` would change — no writes yet. GitHub Actions or GitLab CI (through `glab`);
    *  Linear has no adapter and the UI marks it planned instead of calling this. */
@@ -82,6 +85,7 @@ function requirePlan(args: Record<string, unknown>, key: string): FactoryPlan {
 
 export const commands = defineCommands<EnableFactoryCommands>({
   enable_factory_host: async ({ args, allow }) => ({ host: await factoryHostOf(await allow(requireString(args, 'repoPath'))) }),
+  enable_factory_watch: async ({ args, allow }) => watchWorkerChecklist(await allow(requireString(args, 'repoPath'))),
   enable_factory_plan: async ({ args, allow }) => {
     const real = await allow(requireString(args, 'repoPath'));
     const id = requireProvider(args, 'provider');
