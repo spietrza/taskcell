@@ -1,6 +1,8 @@
 // Stripe webhook for the planned hosted plans (POST /stripe/webhook): checks the signature, records each paid
 // checkout once in the ORDERS database, and turns a paid 7-day pass into a customer credit that Stripe takes off
-// that customer's first subscription invoice. Starting a server for the order is not built yet: orders stay `paid`.
+// that customer's first subscription invoice. Each order also gets what was charged (after any credit) and what Stripe
+// pays out for it, in which currency: that currency is the bank account the money lands on.
+// Starting a server for the order is not built yet: orders stay `paid`.
 
 const TOLERANCE_S = 300;
 const PAID_EVENTS = ['checkout.session.completed', 'checkout.session.async_payment_succeeded'];
@@ -75,5 +77,17 @@ export async function handleStripeWebhook(request, env) {
     });
     await env.ORDERS.prepare('UPDATE orders SET pass_credited = 1 WHERE session_id = ?').bind(session.id).run();
   }
+  // The charge made by this checkout: the customer's latest charge since the session opened (none when a credit covered it all).
+  // Bookkeeping only: a failure is logged and leaves the columns empty rather than refusing the event.
+  if (session.customer) try {
+    const charges = await stripe(key, `charges?customer=${session.customer}&created[gte]=${session.created}&limit=1&expand[]=data.balance_transaction`);
+    const charge = charges.data?.find((c) => c.paid);
+    const payout = charge?.balance_transaction;
+    await env.ORDERS.prepare('UPDATE orders SET paid_amount = ?, payout_amount = ?, payout_currency = ? WHERE session_id = ?')
+      .bind(charge ? charge.amount : 0, payout?.net ?? null, payout?.currency ?? null, session.id).run();
+  } catch (err) {
+    console.error(`payout of ${session.id} not recorded: ${err.message}`);
+  }
+
   return new Response('recorded');
 }
