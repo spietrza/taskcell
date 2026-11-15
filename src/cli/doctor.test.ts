@@ -1,5 +1,6 @@
 import { describe, it, expect } from 'vitest';
 import { doctorCommand } from './doctor.js';
+import { CliUsageError } from '../core/errors.js';
 import { GITHUB_CLAIMED_LABEL, GITHUB_REVIEW_LABEL, GITHUB_SPEC_CLAIMED_LABEL } from '../github-labels.js';
 import type { Command } from './args.js';
 import type { PreflightRunner } from './preflight.js';
@@ -108,7 +109,7 @@ describe('doctorCommand cli versions', () => {
 
   it('a failed codex install prints the preflight report, then fails', async () => {
     const logs: string[] = [];
-    await expect(doctorCommand(fix, { ...base, run: versionRunner('0.100.0', [], 'fail'), log: (l) => logs.push(l) })).rejects.toThrow('codex install failed');
+    await expect(doctorCommand(fix, { ...base, run: versionRunner('0.100.0', [], 'fail'), log: (l) => logs.push(l) })).rejects.toSatisfy((e: unknown) => e instanceof CliUsageError && e.message.includes('codex install failed'));
     expect(logs.some((l) => l.includes('codex install failed: npm down'))).toBe(true);
     expect(logs).toContain('preflight: llm auth ok');
   });
@@ -145,7 +146,7 @@ describe('doctorCommand', () => {
         run: runner,
         log: (line) => logs.push(line),
       }),
-    ).rejects.toThrow('preflight failed');
+    ).rejects.toSatisfy((e: unknown) => e instanceof CliUsageError && e.message.includes('preflight failed'));
 
     expect(logs).toContain('preflight: llm auth missing -> stop before claim');
   });
