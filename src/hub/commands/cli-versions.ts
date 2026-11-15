@@ -1,6 +1,5 @@
 // Hub commands: installed vs latest agent CLI versions. One module per feature — contract, validation and handler live here;
 // `pnpm gen:wire` derives Commands, COMMAND_NAMES and dispatch from it (see CONTRIBUTING.md).
-import { assertMutationsAllowed } from '../allowlist.js';
 import { checkCliVersions } from '../../sandbox/cli-versions.js';
 import type { CliVersionReport } from '../../wire.js';
 import { defineCommands } from '../command-kit.js';
@@ -12,8 +11,9 @@ export interface CliVersionsCommands {
 
 export const commands = defineCommands<CliVersionsCommands>({
   agent_cli_versions: async ({ ctx }) => {
-    // Starts a container on the host and makes outbound lookups — gated like the other side effects.
-    assertMutationsAllowed(ctx.bind);
     return checkCliVersions({ cwd: ctx.configDir });
   },
+}, {
+  // Starts a container on the host and makes outbound lookups: gated like the other side effects, though read-only.
+  agent_cli_versions: { write: false, remote: true },
 });

@@ -2,7 +2,7 @@
 // `pnpm gen:wire` derives Commands, COMMAND_NAMES and dispatch from it (see CONTRIBUTING.md).
 import { BadRequestError } from '../../sidecar/sidecar.js';
 import * as drafts from '../drafts.js';
-import { defineCommands, requireString } from '../command-kit.js';
+import { defineCommands, requireString, type CommandPolicy } from '../command-kit.js';
 
 export interface DraftsCommands {
   list_drafts: { args: { repoPath: string }; result: string[] };
@@ -13,7 +13,9 @@ export interface DraftsCommands {
   clear_draft_assets: { args: { repoPath: string; id: string }; result: void };
 }
 
-export const commands = defineCommands<DraftsCommands>({
+const DRAFT_WRITE: CommandPolicy = { write: true, repo: 'repoPath', unaudited: 'scratch text in the repository\'s own state directory' };
+
+export const commands =defineCommands<DraftsCommands>({
   list_drafts: async ({ args, allow }) => {
     const real = await allow(requireString(args, 'repoPath'));
     return drafts.list(real);
@@ -45,4 +47,11 @@ export const commands = defineCommands<DraftsCommands>({
     await drafts.clearAssets(real, requireString(args, 'id'));
     return null;
   },
+}, {
+  list_drafts: { write: false, repo: 'repoPath' },
+  read_draft: { write: false, repo: 'repoPath' },
+  write_draft: DRAFT_WRITE,
+  delete_draft: DRAFT_WRITE,
+  write_draft_asset: DRAFT_WRITE,
+  clear_draft_assets: DRAFT_WRITE,
 });

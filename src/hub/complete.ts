@@ -7,6 +7,7 @@ import { spawn, type ChildProcess } from 'node:child_process';
 import { join } from 'node:path';
 import { readAppConfig } from './app-config.js';
 import { BadRequestError } from '../sidecar/sidecar.js';
+import { TOKEN_ACTOR } from './audit.js';
 import { stateDir } from '../core/state-path.js';
 
 /** Allowlist, deliberately not an Omit<> of some wider type: every field here is one the caller is
@@ -103,12 +104,12 @@ function exchange(child: ChildProcess, req: unknown, timeoutMs: number): Promise
 }
 
 /**
- * Registry of in-flight `__complete` children, keyed by the caller's opaque `callId` — so the doc
+ * Registry of in-flight `__complete` children, keyed by the caller's opaque `callId` and tagged with the actor that started them — so the doc
  * chat's Stop button can kill exactly its own turn's child, never the run child, never an arbitrary
  * caller-supplied pid. An unknown/finished id is a silent no-op.
  */
 export class CompleteRegistry {
-  private readonly children = new Map<string, ChildProcess>();
+  private readonly children = new Map<string, { child: ChildProcess; owner: string }>();
   private inFlight = 0;
 
   constructor(
@@ -118,14 +119,14 @@ export class CompleteRegistry {
     private readonly childEnv: () => NodeJS.ProcessEnv = () => process.env,
   ) {}
 
-  async complete(repoPath: string, params: CompleteParams, callId?: string): Promise<CompleteResult> {
+  async complete(repoPath: string, params: CompleteParams, callId?: string, owner = TOKEN_ACTOR.login): Promise<CompleteResult> {
     if (this.inFlight >= this.maxConcurrent) throw new CompleteBusyError();
     // Spawn + register BEFORE any await: a Stop click racing this call must always find the child it
     // is trying to cancel, so registration cannot wait on an async read (readAppConfig below).
     const child = this.spawnComplete(this.childEnv());
     this.inFlight += 1;
     if (callId !== undefined) {
-      this.children.set(callId, child);
+      this.children.set(callId, { child, owner });
     }
     try {
       // Trust rules (same discipline as api_create_task's source/team/label): the caller cannot choose
@@ -149,12 +150,13 @@ export class CompleteRegistry {
     }
   }
 
-  /** Kill the in-flight `__complete` child for a doc-chat call id — the Stop button. */
-  cancel(callId: string): void {
-    const child = this.children.get(callId);
-    if (child !== undefined) {
+  /** Kill the in-flight `__complete` child for a doc-chat call id — the Stop button. Only the actor that started the call can
+   * stop it: another caller's id (or an unknown one) is a silent no-op, so a call id never reveals whose it is. */
+  cancel(callId: string, owner = TOKEN_ACTOR.login): void {
+    const entry = this.children.get(callId);
+    if (entry !== undefined && entry.owner === owner) {
       this.children.delete(callId);
-      child.kill();
+      entry.child.kill();
     }
   }
 }
