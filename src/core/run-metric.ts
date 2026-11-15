@@ -43,7 +43,7 @@ export type StageMetricExtras = StageBudgetInfo & Pick<StageMetric, 'requestedMo
 export function estimatedCostUsd(result: RunResult): number | undefined {
   if (result.costUsd !== undefined || result.usage === undefined) return undefined;
   if (result.mergedEstCostUsd !== undefined) return result.mergedEstCostUsd ?? undefined;
-  const est = estimateOpenRouterCost(result.usage, result.model);
+  const est = estimateOpenRouterCost(result.usage, result.model, result.cachedInInput === true);
   return est === undefined ? undefined : roundUsd(est);
 }
 

@@ -66,11 +66,13 @@ export interface EstimateUsage {
   cacheReadInputTokens: number;
 }
 
-/** OpenRouter-priced estimate in USD, or undefined for an unknown/unmapped model. */
-export function estimateOpenRouterCost(usage: EstimateUsage, model: string | undefined): number | undefined {
+/**
+ * OpenRouter-priced estimate in USD, or undefined for an unknown/unmapped model. `cachedInInput` is set by
+ * the provider (Codex) that counts cached tokens inside `inputTokens`; they are split out for pricing only.
+ */
+export function estimateOpenRouterCost(usage: EstimateUsage, model: string | undefined, cachedInInput = false): number | undefined {
   if (model === undefined) return undefined;
-  // Codex counts cached tokens inside `inputTokens` (the recorded meaning); split them out for pricing only.
-  const codex = Object.hasOwn(CODEX_PRICED_MODELS, model);
+  const codex = cachedInInput && Object.hasOwn(CODEX_PRICED_MODELS, model);
   const table: Record<string, ModelPricing> = codex ? CODEX_PRICED_MODELS : OPENROUTER_PRICING;
   const p = Object.hasOwn(table, model) ? table[model] : undefined; // own keys only: `constructor` is not a model
   if (p === undefined) return undefined;

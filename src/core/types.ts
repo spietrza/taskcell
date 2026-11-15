@@ -53,6 +53,8 @@ export interface RunResult {
   transcript?: string;
   /** Host-parsed skill ids carried across folded attempts; persisted only to the stage metric. */
   skillsUsed?: string[];
+  /** In-memory only: the provider counts cached tokens inside `usage.inputTokens` (Codex); drives the estimate's cache split. */
+  cachedInInput?: true;
   /** Model actually used for the run: the provider-reported model, falling back to the configured one. */
   model?: string;
   /** The CLI's own classification of why the turn ended (e.g. 'success', 'error_max_turns'). See AgentRunOutput.stopReason. */

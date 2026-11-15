@@ -63,6 +63,9 @@ function toUsage(raw: CodexEvent['usage']): AgentUsage | undefined {
   };
 }
 
+/** A stuck lookup (huge agent-planted rollout) must not hold the stage open after codex has finished. */
+const SESSION_LOOKUP_TIMEOUT_MS = 10_000;
+
 /** Best-effort: the model recorded in the thread's session rollout, or undefined when it cannot be read. */
 async function sessionModel(
   sh: (command: string, opts?: ExecOptions) => Promise<ExecResult>,
@@ -72,7 +75,7 @@ async function sessionModel(
   if (!/^[0-9A-Za-z-]+$/.test(threadId)) return undefined; // interpolated into the command below
   const command = `grep -rhoE -m1 '"model":"[^"]+"' "${'$'}{CODEX_HOME:-${'$'}HOME/.codex}/sessions" --include='*${threadId}*.jsonl' | head -n 1`;
   try {
-    const res = await sh(command, execOpts);
+    const res = await sh(command, { ...execOpts, timeoutMs: SESSION_LOOKUP_TIMEOUT_MS });
     // The agent can write that file, and this string is published unredacted: accept a model-id shape only.
     const model = /^"model":"([A-Za-z0-9._:/-]{1,100})"\n?$/.exec(res.stdout)?.[1];
     // The rollout is agent-writable: never record a value the secret scan would redact.
@@ -158,7 +161,7 @@ export class CodexProvider implements AgentProvider {
       throw new AgentError(`Agent ${reason} (exit ${res.exitCode}): ${detail()}`);
     }
 
-    const output: AgentRunOutput = { finalText, turns, transcript: res.stdout };
+    const output: AgentRunOutput = { finalText, turns, transcript: res.stdout, cachedInInput: true };
     // `exec --json` names no model in its events or on stderr; with no `-m`, read it from the session
     // rollout codex writes (the `turn_context` line), so the run can be priced.
     if (input.model === undefined && sessionId !== undefined) {

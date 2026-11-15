@@ -398,6 +398,7 @@ export async function runAgent(ctx: RunContext, input: StageInput): Promise<RunR
     let costUsd: number | undefined;
     let transcript: string | undefined;
     let modelUsed = input.model;
+    let cachedInInput: true | undefined;
     let stopReason: string | undefined;
     let lastBlock: string | undefined;
 
@@ -411,6 +412,7 @@ export async function runAgent(ctx: RunContext, input: StageInput): Promise<RunR
         costUsd = next.value.costUsd;
         transcript = next.value.transcript;
         if (next.value.model !== undefined) modelUsed = next.value.model;
+        cachedInInput = next.value.cachedInInput;
         stopReason = next.value.stopReason;
         lastBlock = next.value.lastBlock;
         break;
@@ -480,6 +482,7 @@ export async function runAgent(ctx: RunContext, input: StageInput): Promise<RunR
       ...(costUsd !== undefined ? { costUsd } : {}),
       ...(transcript !== undefined ? { transcript } : {}),
       ...(modelUsed !== undefined ? { model: modelUsed } : {}),
+      ...(cachedInInput !== undefined ? { cachedInInput } : {}),
       ...(stopReason !== undefined ? { stopReason } : {}),
       ...(lastBlock !== undefined ? { lastBlock } : {}),
     };
