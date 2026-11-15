@@ -435,9 +435,9 @@ describe('githubPullRequestWatchPrimitives', () => {
   });
 
   it.each([
-    ['the cap comment already exists', (): string => JSON.stringify({ comments: [{ ...BOT, body: 'stopped\n\n<!-- taskcell-pr-review-incomplete-cap: abc123 -->' }], reviews: [] })],
-    ['the attempts cannot be counted', (): string => { throw new Error('HTTP 502'); }],
-  ])('leaves the trigger label off without a second cap comment when %s', async (_n, view) => {
+    ['leaves the trigger label off when the cap comment already exists', false, (): string => JSON.stringify({ comments: [{ ...BOT, body: 'stopped\n\n<!-- taskcell-pr-review-incomplete-cap: abc123 -->' }], reviews: [] })],
+    ['restores the trigger label when the attempts cannot be counted', true, (): string => { throw new Error('HTTP 502'); }],
+  ])('%s, without a cap comment', async (_n, restored, view) => {
     const calls: string[][] = [];
     const gh: GhRunner = async (args) => {
       calls.push(args);
@@ -464,7 +464,7 @@ describe('githubPullRequestWatchPrimitives', () => {
     expect(calls.some((args) => args[0] === 'pr' && args[1] === 'comment')).toBe(false);
     const edit = calls.find((args) => args[0] === 'pr' && args[1] === 'edit');
     expect(edit).toContain('--remove-label');
-    expect(edit).not.toContain('--add-label');
+    expect(edit?.includes('--add-label')).toBe(restored);
   });
 
   it('resets the incomplete-attempt cap for a new head', async () => {

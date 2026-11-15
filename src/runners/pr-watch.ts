@@ -318,9 +318,8 @@ export function githubPullRequestWatchPrimitives(opts: GitHubPullRequestWatchOpt
         return;
       }
       if (error instanceof PullRequestReviewIncompleteError) {
-        // Without a count (no head SHA, or the comments cannot be read) the retries have no bound, so the PR then
-        // waits for a human: the incomplete notice review-pr posted already says to re-add the label.
-        let stop = true;
+        // Without a count (no head SHA, or the comments cannot be read) the cap does not apply on this sweep.
+        let stop = false;
         if (item.headRefOid !== '') {
           try {
             const state = await incompleteReviewState(gh, item, opts.allowedAuthors);
@@ -338,7 +337,7 @@ export function githubPullRequestWatchPrimitives(opts: GitHubPullRequestWatchOpt
               }
             }
           } catch (countError) {
-            opts.log?.(`watch-prs ${prId(item)}: incomplete-attempt count failed -> not retrying (${failureReason(countError)})`);
+            opts.log?.(`watch-prs ${prId(item)}: incomplete-attempt count failed -> retrying (${failureReason(countError)})`);
           }
         }
         if (stop) {

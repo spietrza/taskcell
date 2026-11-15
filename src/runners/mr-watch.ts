@@ -239,9 +239,8 @@ export function gitlabMergeRequestWatchPrimitives(
       }).then(() => {}),
     onFailure: async (item, error) => {
       const incomplete = error instanceof MergeRequestReviewIncompleteError;
-      // Without a count (no head SHA, or the notes or the user cannot be read) the retries have no bound, so an
-      // incomplete review then waits for a human to re-add the label instead of running again every poll.
-      let terminal = incomplete;
+      // Without a count (no head SHA, or the notes or the user cannot be read) the cap does not apply on this sweep.
+      let terminal = false;
       let capDue = false;
       if (incomplete && item.sha !== '') {
         try {
@@ -249,7 +248,7 @@ export function gitlabMergeRequestWatchPrimitives(
           terminal = state.capPosted || state.attempts + 1 >= INCOMPLETE_RETRY_LIMIT;
           capDue = terminal && !state.capPosted;
         } catch (countError) {
-          log?.(`watch-mrs ${mrId(item)}: incomplete-attempt count failed -> not retrying (${failureReason(countError)})`);
+          log?.(`watch-mrs ${mrId(item)}: incomplete-attempt count failed -> retrying (${failureReason(countError)})`);
         }
       }
       const retryInstruction = terminal

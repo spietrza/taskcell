@@ -133,7 +133,7 @@ describe('gitlabMergeRequestWatchPrimitives', () => {
       expect(update(calls)).toEqual(['mr', 'update', '1', '--repo', 'g/p', '--unlabel', 'taskcell::reviewing', '--unlabel', 'vanguard::reviewing']);
     });
 
-    it('when the attempts cannot be counted, the note is posted and the label stays off (no unbounded retry)', async () => {
+    it('when the attempts cannot be counted, the note is posted and the trigger label is restored', async () => {
       const { glab: base, calls } = makeGlab();
       const glab = async (args: string[]): Promise<string> => {
         if (args[0] === 'api' && args[1] !== 'user') throw new Error('403');
@@ -144,9 +144,9 @@ describe('gitlabMergeRequestWatchPrimitives', () => {
       await primitivesWith(glab).onFailure(item, incomplete);
 
       const note = calls.find((c) => c[0] === 'mr' && c[1] === 'note');
-      expect(note?.at(-1)).toContain('Re-add the "ready for review" label to re-trigger the review.');
+      expect(note?.at(-1)).toContain('Taskcell MR review failed:');
       expect(note?.at(-1)).not.toContain('taskcell-mr-review-incomplete-cap');
-      expect(update(calls)).toEqual(['mr', 'update', '1', '--repo', 'g/p', '--unlabel', 'taskcell::reviewing', '--unlabel', 'vanguard::reviewing']);
+      expect(update(calls)).toEqual(['mr', 'update', '1', '--repo', 'g/p', '--unlabel', 'taskcell::reviewing', '--unlabel', 'vanguard::reviewing', '--label', 'ready for review']);
     });
 
     it('resets the incomplete-attempt cap for a new head', async () => {
