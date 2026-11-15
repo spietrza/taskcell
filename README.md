@@ -69,6 +69,15 @@ taskcell run --github owner/repo#123 --repo /path/to/repo --skills ./skills --ll
 
 Prefer a native app? See [Install the desktop app](docs/hub.md#install-the-desktop-app).
 
+### Set up with an AI agent
+
+Claude Code, Codex and other agents that read [Agent Skills](https://agentskills.io) can walk you through the setup: on this computer, on a server for a team, or in GitHub Actions or GitLab CI. They ask where your code and tasks are, run each step, check it, and stop for the steps only you can do (tokens, OAuth apps, DNS). Paste this into your agent:
+
+```text
+Set up Taskcell for me: https://github.com/spietrza/taskcell
+Clone it and follow .agents/skills/setup-taskcell/SKILL.md (the same skill is at https://taskcell.dev/.well-known/agent-skills/setup-taskcell/SKILL.md).
+```
+
 To run the factory from GitHub Actions instead, with no host of your own, follow [docs/onboarding-another-repo.md](docs/onboarding-another-repo.md). For an always-on host, see [docs/deploy.md](docs/deploy.md). For a browser cockpit with a task board, live transcripts and run records, run `pnpm hub --repo /path/to/repo` ([docs/hub.md](docs/hub.md)).
 
 ## Task sources and providers
