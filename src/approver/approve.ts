@@ -134,7 +134,7 @@ export async function runApprover(input: RunApproverInput, state: { updated: boo
     // A failed comment must not hide the log line, nor the other way round: both run, then the failures are thrown together (like finish()).
     const failures: string[] = [];
     try {
-      await commentOnce(actGh, input.repoSlug, input.prNumber, marker, `## Taskcell Approver (act mode)\n\nLeft for a human: ${escapeForComment(reason)}.\n\n${marker}`);
+      await commentOnce(actGh, input.repoSlug, input.prNumber, marker, `## Taskcell Approver (act mode)\n\nLeft for a human: ${escapeForComment(reason)}.\n\n${marker}`, policy.approverLogins);
     } catch (err) {
       failures.push(`comment: ${errorText(err)}`);
     }
@@ -288,7 +288,10 @@ export async function runApprover(input: RunApproverInput, state: { updated: boo
       for (const d of done) {
         const reason = redactForPublish(d.reason);
         if (d.action === 'skipped' || d.pr === 0) console.error(`taskcell approve: dependent${d.pr === 0 ? 's' : ` #${d.pr}`} of #${input.prNumber} not touched: ${reason}`);
-        else await logAction(d.action === 'updated' ? 'update-branch' : d.action === 'revise' ? 'revise' : 'error', reason, d.headSha, d.action === 'failed' ? 'dependent-update-failed' : undefined, d.pr);
+        else {
+          // One lost log line must not hide the rest.
+          await logAction(d.action === 'updated' ? 'update-branch' : d.action === 'revise' ? 'revise' : 'error', reason, d.headSha, d.action === 'failed' ? 'dependent-update-failed' : undefined, d.pr).catch((err: unknown) => console.error(`taskcell approve: logging dependent #${d.pr} failed: ${errorText(err)}`));
+        }
       }
     } catch (err) {
       console.error(`taskcell approve: #${input.prNumber} was merged, but updating its dependents failed: ${errorText(err)}`);
