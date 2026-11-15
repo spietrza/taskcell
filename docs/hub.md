@@ -811,7 +811,7 @@ Tasks are stored in the hub's config directory, one file per project (`<config d
 
 ### Dependencies and start date
 
-Each task has a **blocked by** list (ids such as `hub-1`, other tasks of the same project) and an optional **start date** (`YYYY-MM-DD`, read as 00:00 in the hub's time zone, or a full ISO instant with a zone). Both are edited under **Schedule** (`hub_task_schedule`, audited as `task-schedule`); `hub_task_create` adds a task (audited as `task-create`).
+Each task has a **blocked by** list (ids such as `hub-1`, other tasks of the same project) and an optional **start date** (`YYYY-MM-DD`, read as 00:00 in the hub's time zone, or a full ISO instant with a zone). Both are edited under **Schedule** (`hub_task_schedule`, audited as `task-schedule`); `hub_task_create` adds a task (audited as `task-create`) and takes the same two fields, so a new task never starts before they are saved. A run whose verify failed, and a task whose run ended with the hub process, are marked `failed` (never `done`, so dependents do not start); a person presses **Retry**. The owner is re-read by id when a task starts: a deleted account does not run, and the team check uses current membership.
 
 The Board reads `list_tasks` through the same planner the scheduler uses (`src/hub/schedule.ts`), so a card always shows what the scheduler will do:
 

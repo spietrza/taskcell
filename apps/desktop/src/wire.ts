@@ -96,6 +96,8 @@ export interface CreateRunResult {
   branch?: string;
   /** The run stopped before implementing because the base branch's verify command already fails. */
   baseRed?: boolean;
+  /** The result was delivered (a PR or a local branch) but its verify command failed. */
+  verificationFailed?: boolean;
 }
 
 /** Per-stage routing/budget overrides expressible in HCL (snake_case keys map to these camelCase fields). */
@@ -1221,8 +1223,8 @@ export interface Commands {
   api_create_tasks: { args: { repoPath: string; tasks: { title: string; body: string; dependsOn?: number[] }[]; baseBranch?: string }; result: { tasks: CreatedTask[] } };
   /** HUB_ONLY, read-only: the target branches a card may name (repo default + `baseBranches` allowlist) and the configured default, for the new-card form. */
   list_branches: { args: { repoPath: string }; result: { branches: string[]; default?: string } };
-  /** HUB_ONLY: add a task to the project's hub board (task source `hub`). The caller becomes the task's owner: it runs as them. */
-  hub_task_create: { args: { repoPath: string; title: string; body?: string }; result: { id: string } };
+  /** HUB_ONLY: add a task to the project's hub board (task source `hub`), with its dependencies and start date set before the scheduler can see it. The caller becomes the task's owner: it runs as them. */
+  hub_task_create: { args: { repoPath: string; title: string; body?: string; blockedBy?: string[]; startDate?: string }; result: { id: string } };
   /** HUB_ONLY: set a hub-board task's dependencies (ids of the project's other tasks) and/or start date (`null` clears it). The caller becomes its owner. */
   hub_task_schedule: { args: { repoPath: string; id: string; blockedBy?: string[]; startDate?: string | null }; result: { id: string } };
   /** HUB_ONLY: put a failed hub-board task back to `todo`, to run as the caller. */
