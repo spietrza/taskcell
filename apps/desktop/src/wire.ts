@@ -1103,6 +1103,8 @@ export interface MigrateLabelsReport {
   skipped: { from: string; to: string }[];
   failed: { from: string; reason: string }[];
   dryRun: boolean;
+  /** Notices to show before renaming (workflows gating on the old review trigger must accept the new one). */
+  warnings: string[];
 }
 
 export interface Events {
@@ -1214,8 +1216,9 @@ export interface Commands {
   merge_needs_you: { args: { repoPath: string; id: string }; result: void };
   list_projects: { args: { teamId?: string } | undefined; result: Project[] };
   add_project: { args: { path: string }; result: Project[] };
-  /** HUB_ONLY: clone a repository under the browse root and register it. */
-  clone_project: { args: { url: string; parentDir: string; name?: string }; result: Project };
+  /** HUB_ONLY: clone a repository under the browse root and register it. The owner picks `parentDir`; a hub admin
+   * (`TASKCELL_HUB_ADMINS`) clones under the browse root into `teamId` (default: their first team). */
+  clone_project: { args: { url: string; parentDir?: string; name?: string; teamId?: string }; result: Project };
   remove_project: { args: { path: string }; result: Project[] };
   /** HUB_ONLY: no native folder dialog in a browser (src/hub/browse.ts stands in for one). */
   browse_dirs: { args: { path?: string }; result: DirListing };

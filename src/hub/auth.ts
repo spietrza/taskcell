@@ -16,10 +16,12 @@ export interface HubUser {
   id: string;
   email: string;
   name: string;
-  /** `github:<login>` of the user's linked GitHub account (absent otherwise): per-user credential admins
-   * (`--admin-github-login`) match on it. Resolved from the `account` row's numeric GitHub id and the login
-   * GitHub last reported for that id at an OAuth callback — never from the user-writable `providerLogin`. */
+  /** `github:<login>` / `gitlab:<login>` of the user's linked GitHub or GitLab account (absent otherwise): hub admins
+   * (`TASKCELL_HUB_ADMINS`, `--admin-github-login`) match on it. Resolved from the `account` row's numeric provider id and the login
+   * the provider last reported for that id at an OAuth callback — never from the user-writable `providerLogin`. */
   login?: string;
+  /** Every provider login the user has linked (`github:…`, `gitlab:…`); `login` is the first. A hub admin entry matches any. */
+  logins?: string[];
   /** Provider-verified e-mail: only then does a team member `login` match the address. */
   emailVerified?: boolean;
 }
@@ -72,7 +74,7 @@ export function providersFromEnv(env: NodeJS.ProcessEnv): ProviderConfigs {
  * E-mail and domain entries only count for a provider-verified address. */
 export type SignupAllowlist = (user: { email: string; emailVerified: boolean; login?: string | undefined }) => boolean;
 
-export function parseSignupAllowlist(entries: readonly string[]): SignupAllowlist {
+export function parseSignupAllowlist(entries: readonly string[], label = 'sign-up allowlist'): SignupAllowlist {
   const emails = new Set<string>();
   const domains = new Set<string>();
   const logins = new Set<string>();
@@ -82,7 +84,7 @@ export function parseSignupAllowlist(entries: readonly string[]): SignupAllowlis
     if (e.startsWith('github:') || e.startsWith('gitlab:')) logins.add(e);
     else if (e.startsWith('@')) domains.add(e.slice(1));
     else if (e.includes('@')) emails.add(e);
-    else throw new Error(`Taskcell Hub: invalid sign-up allowlist entry "${raw}" — use an e-mail, @domain, github:<login> or gitlab:<login>`);
+    else throw new Error(`Taskcell Hub: invalid ${label} entry "${raw}" — use an e-mail, @domain, github:<login> or gitlab:<login>`);
   }
   return (user) => {
     const email = user.email.toLowerCase();
@@ -156,6 +158,11 @@ export async function createHubIdentity(opts: CreateIdentityOptions): Promise<Hu
   const recordGithubLogin = db.prepare(
     'INSERT INTO hub_github_login (github_id, login) VALUES (?, ?) ON CONFLICT(github_id) DO UPDATE SET login = excluded.login',
   );
+  // The same for GitLab (numeric id -> username).
+  db.exec('CREATE TABLE IF NOT EXISTS hub_gitlab_login (gitlab_id TEXT PRIMARY KEY, login TEXT NOT NULL)');
+  const recordGitlabLogin = db.prepare(
+    'INSERT INTO hub_gitlab_login (gitlab_id, login) VALUES (?, ?) ON CONFLICT(gitlab_id) DO UPDATE SET login = excluded.login',
+  );
   const allowed = opts.allowlist ?? parseSignupAllowlist([]);
   const configs = opts.providers ?? {};
 
@@ -171,7 +178,17 @@ export async function createHubIdentity(opts: CreateIdentityOptions): Promise<Hu
       },
     };
   }
-  if (configs.gitlab) socialProviders.gitlab = { ...configs.gitlab, mapProfileToUser: loginOf('gitlab', 'username') };
+  if (configs.gitlab) {
+    const mapLogin = loginOf('gitlab', 'username');
+    socialProviders.gitlab = {
+      ...configs.gitlab,
+      mapProfileToUser: (profile) => {
+        const { id, username } = profile as { id?: unknown; username?: unknown };
+        if ((typeof id === 'number' || typeof id === 'string') && typeof username === 'string' && username !== '') recordGitlabLogin.run(String(id), username);
+        return mapLogin(profile);
+      },
+    };
+  }
   if (configs.google) socialProviders.google = { ...configs.google };
 
   let creatingOwner = false;
@@ -210,6 +227,9 @@ export async function createHubIdentity(opts: CreateIdentityOptions): Promise<Hu
   const githubLoginOf = db.prepare(
     "SELECT l.login AS login FROM account a JOIN hub_github_login l ON l.github_id = a.accountId WHERE a.userId = ? AND a.providerId = 'github' LIMIT 1",
   );
+  const gitlabLoginOf = db.prepare(
+    "SELECT l.login AS login FROM account a JOIN hub_gitlab_login l ON l.gitlab_id = a.accountId WHERE a.userId = ? AND a.providerId = 'gitlab' LIMIT 1",
+  );
   const auth = betterAuth(options);
   const ctx = await auth.$context;
   // Unverified on purpose: Better Auth only links a provider account to an existing user whose e-mail
@@ -228,8 +248,13 @@ export async function createHubIdentity(opts: CreateIdentityOptions): Promise<Hu
   const owner: HubUser = { id: row.id, email: row.email, name: row.name };
 
   const toHubUser = ({ id, email, name, emailVerified }: { id: string; email: string; name: string; emailVerified: boolean }): HubUser => {
-    const login = (githubLoginOf.get(id) as { login?: unknown } | undefined)?.login;
-    return { id, email, name, emailVerified, ...(typeof login === 'string' && login !== '' ? { login: `github:${login}` } : {}) };
+    const github = (githubLoginOf.get(id) as { login?: unknown } | undefined)?.login;
+    const gitlab = (gitlabLoginOf.get(id) as { login?: unknown } | undefined)?.login;
+    const logins = [
+      ...(typeof github === 'string' && github !== '' ? [`github:${github}`] : []),
+      ...(typeof gitlab === 'string' && gitlab !== '' ? [`gitlab:${gitlab}`] : []),
+    ];
+    return { id, email, name, emailVerified, ...(logins.length > 0 ? { login: logins[0], logins } : {}) };
   };
 
   return {

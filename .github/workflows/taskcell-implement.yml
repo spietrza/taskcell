@@ -50,15 +50,15 @@ jobs:
       sandbox-memory-mb: '8192'
       # Large tasks (the Taskcell rename) ran past 90 min (#795); the slot wait counts against this too.
       timeout-minutes: 180
-      # Opus plans the spec, Sonnet implements, Fable reviews (Codex's weekly limit is nearly spent).
+      # Opus plans the spec, Sonnet implements, Opus 5.5 reviews and takes escalated repairs while Fable is out of quota.
       # No llm-proxy: Codex runs on a ChatGPT subscription (CODEX_AUTH_JSON), which talks to the
       # ChatGPT backend directly — the proxy allowlist only covers the api.openai.com (API-key) path.
       provider: claude
       provider-model: sonnet
-      spec-model: opus
+      spec-model: claude-opus-5-5
       review-provider: claude
-      review-model: claude-fable-5-2
-      escalate-model: claude-fable-5-2
+      review-model: claude-opus-5-5
+      escalate-model: claude-opus-5-5
       # If Claude is down or out of plan, the implementer retries once on the Codex subscription.
       fallback-provider: codex
       decision-probe: true

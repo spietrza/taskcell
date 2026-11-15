@@ -66,7 +66,16 @@ After a paid pass, `/hosting/` offers Solo with the pass credited; that link car
 
 `node checkout-check.mjs` (part of `pnpm run check`) covers the currency rule, the closed default and what is sent to Stripe.
 
-### Stripe webhook
+### Security scores
+
+The three scores under Security (OpenSSF Scorecard, OpenSSF Best Practices, Mozilla Observatory) are text chips in
+the page's own style, not badge images. Each value sits in `<b data-score="<name>">` with the last known value as
+its text; the Worker (`badges.js`) fetches the live one from the issuer, caches it for a day and writes it in with
+HTMLRewriter. A value that does not match its expected shape (a number from 0 to 10, a badge level, a letter grade)
+is dropped and the page keeps its own text. `badges-check.mjs` covers it. When a score changes for good, update the
+text in `index.html` too, so the page is right even when an issuer is down.
+
+## Stripe webhook
 
 `worker.js` also hands `POST /stripe/webhook` to `stripe-webhook.js`. It checks Stripe's signature, records each paid checkout once in the D1 database `taskcell-orders` (binding `ORDERS`, table in `orders.sql`), and credits a paid 7-day pass to the customer's Stripe balance so their first subscription invoice is lower by that amount. Each order keeps what was charged after any credit (`paid_amount`, in the order's `currency`) next to what Stripe pays out after its fee (`payout_amount`, `payout_currency`); the payout currency is the bank account the money lands on. It does not start a server yet: orders stay in status `paid` until provisioning exists. Hosting is still planned and the pricing buttons do not lead to a checkout.
 

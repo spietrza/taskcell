@@ -10,6 +10,9 @@
 <p align="center">
   <a href="https://github.com/spietrza/taskcell/actions/workflows/ci.yml"><img src="https://github.com/spietrza/taskcell/actions/workflows/ci.yml/badge.svg" alt="CI"></a>
   <a href="LICENSE"><img src="https://img.shields.io/badge/license-MIT-8B5CF6.svg" alt="License: MIT"></a>
+  <a href="https://www.bestpractices.dev/projects/16734"><img src="https://www.bestpractices.dev/projects/16734/badge" alt="OpenSSF Best Practices"></a>
+  <a href="https://scorecard.dev/viewer/?uri=github.com/spietrza/taskcell"><img src="https://api.scorecard.dev/projects/github.com/spietrza/taskcell/badge" alt="OpenSSF Scorecard"></a>
+  <a href="https://developer.mozilla.org/en-US/observatory/analyze?host=taskcell.dev"><img src="https://img.shields.io/mozilla-observatory/grade/taskcell.dev" alt="Mozilla HTTP Observatory grade for taskcell.dev"></a>
   <img src="https://img.shields.io/badge/node-%E2%89%A5%2024-22D3EE" alt="Node >= 24">
   <img src="https://img.shields.io/badge/TypeScript-strict-3178C6" alt="TypeScript">
   <img src="https://img.shields.io/badge/built%20with-Claude%20Agent%20SDK-D97757" alt="Claude Agent SDK">
@@ -66,6 +69,15 @@ taskcell run --github owner/repo#123 --repo /path/to/repo --skills ./skills --ll
 `--llm-proxy` keeps the model credential in a sidecar and limits the sandbox's network to an allowlist. `pnpm link --global` puts `taskcell` on your PATH.
 
 Prefer a native app? See [Install the desktop app](docs/hub.md#install-the-desktop-app).
+
+### Set up with an AI agent
+
+Claude Code, Codex and other agents that read [Agent Skills](https://agentskills.io) can walk you through the setup: on this computer, on a server for a team, or in GitHub Actions or GitLab CI. They ask where your code and tasks are, run each step, check it, and stop for the steps only you can do (tokens, OAuth apps, DNS). Paste this into your agent:
+
+```text
+Set up Taskcell for me: https://github.com/spietrza/taskcell
+Clone it and follow .agents/skills/setup-taskcell/SKILL.md (the same skill is at https://taskcell.dev/.well-known/agent-skills/setup-taskcell/SKILL.md).
+```
 
 To run the factory from GitHub Actions instead, with no host of your own, follow [docs/onboarding-another-repo.md](docs/onboarding-another-repo.md). For an always-on host, see [docs/deploy.md](docs/deploy.md). For a browser cockpit with a task board, live transcripts and run records, run `pnpm hub --repo /path/to/repo` ([docs/hub.md](docs/hub.md)).
 
