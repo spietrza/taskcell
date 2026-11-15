@@ -13,6 +13,19 @@ This runs `node build.mjs`, `node quiz-check.mjs` and `node preview-check.mjs`. 
 - The build copies `src/` to `dist/` and fails if any local reference in the HTML, CSS or JS points at a missing file.
 - The readiness quiz keeps its rules in `src/quiz.js`. The planned prices are typed once for the scripts, in `src/prices.js`; `quiz-check.mjs` compares the plain-text copies in `src/index.html`, `src/hosting/index.html` and `src/llms.txt` with it.
 - The Hub preview keeps its sample in `src/hub-data.js`; `preview-check.mjs` compares the rows, costs and counts written in `src/index.html` with it.
+- Both checks also read the Polish copy in `dist/pl/`, so run them after the build.
+
+## Languages
+
+English is the source and stays at `/`, `/hosting/` and `/404.html`. Polish is generated: `node build.mjs` writes `dist/pl/<file>` for every file named in `i18n/pl.mjs` (the three pages, `site.js`, `hub-data.js`, `quiz.js`, `prices.js` and the scene), by swapping each English string for its Polish one. Links to pages and those scripts are pointed into `/pl/`; assets stay shared. Each page carries `hreflang` alternates (en, pl, x-default) and its own canonical, and `src/sitemap.xml` lists both languages.
+
+To add or change a string: edit the English in `src/`, then add or update its `[english, polish]` pair in `i18n/pl.mjs` under the same file (`'*.html'` for the bar and footer every page shares). The English side must match the source exactly, markup included; a pair that no longer matches fails the build, so a changed English text cannot silently stay English in Polish. Scripts that render text (quiz, Hub preview, price switch, scene labels) are translated the same way, as code strings. Text that CSS writes (`content:`) gets a `:lang(pl)` rule in `src/site.css`.
+
+Polish copy: plain and concrete, no em dashes; names stay as they are (Taskcell, Hub, Self-host, pull request / PR, labels such as `ready for agent`). Prices read `14 €` and `11,20 €`, with a non-breaking space before the sign.
+
+The EN / PL switch in the bar stores the choice in `localStorage` (`lang`). `src/theme.js`, already a blocking script in every head, sends a first visit from a browser whose first language is Polish to the page's Polish alternate, only while no choice is stored and only from English to Polish, so a visitor who chose is never moved and crawlers cannot loop. It is a script and not the Worker because the switch has to be remembered without cookies or per-language caching, and it works the same on any static server; it is a file and not an inline script because the CSP allows scripts from `'self'` only. Without JavaScript nobody is redirected and the switch is a plain link.
+
+The fonts in `src/fonts/` are Latin subsets; the `-ext` files add Latin Extended (Polish letters) through `unicode-range`, so only pages that use those letters load them.
 
 To look at the page:
 
@@ -26,7 +39,7 @@ Check it at 1440 px, at phone width (390 px) and in between (600, 768, 1024 px),
 
 - Every claim about Taskcell must be true on `main`. Name the release when a feature is not in the latest tag.
 - Security wording must match `docs/security/` and `SECURITY.md`. Do not describe how to exploit anything.
-- Keep the existing type (Schibsted Grotesk, Atkinson Hyperlegible, IBM Plex Mono), palette tokens in `src/site.css` and both themes (dark is the design; the light theme re-declares the same tokens, and the factory scene stays dark in it).
+- Keep the existing type (Schibsted Grotesk, Atkinson Hyperlegible, IBM Plex Mono), palette tokens in `src/site.css` and both themes (dark is the design; the light theme re-declares the same tokens). The factory scene takes its colours from `PALETTES` in `src/site.js`, one per theme, and is rebuilt when the theme changes; in the light theme the poster is the dark render inverted by CSS.
 - Hosting, the dedicated server, backups and prices are planned: say so wherever they appear. Sample data in the previews must read as sample data.
 
 ## Deploy

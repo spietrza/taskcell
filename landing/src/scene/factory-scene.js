@@ -55,6 +55,10 @@ const DEFAULTS = {
   conduit: 0x20272e, // the gap between flow dashes
   dark: 0x1a1f24, // base under emissive parts
   sky: 0xc9d6e2,
+  skyGround: 0x0b0d10, // the hemisphere light's colour from below
+  plate: null, // face of the module plates (defaults to dark)
+  additive: true, // glows and lit lines add light; a light ground needs normal blending to show them
+  metalness: null, // floor and bodies (defaults to a little with accent2, none without); 0 keeps light colours light
   // Finish. Off by default (direction D); direction D2 turns them on.
   accent2: null, // second accent: glowing glass edges, floor hairlines, rim light, edge labels
   prColor: null, // colour of opened PRs (defaults to accent)
@@ -217,7 +221,7 @@ export function createFactoryScene(container, options = {}) {
   const view = { az: o.azimuth, el: o.elevation, dAz: 0, dEl: 0, target: new THREE.Vector3(o.target[0], 0, o.target[1]), zoom: 1 };
   const goal = { target: view.target.clone(), zoom: 1 };
 
-  scene.add(new THREE.HemisphereLight(o.sky, 0x0b0d10, 1.1));
+  scene.add(new THREE.HemisphereLight(o.sky, o.skyGround, 1.1));
   const sun = new THREE.DirectionalLight(0xffffff, 1.6);
   sun.position.set(-6, 14, 8);
   scene.add(sun);
@@ -230,10 +234,10 @@ export function createFactoryScene(container, options = {}) {
 
   // ---------- materials ----------
   const lit = o.accent2 !== null;
-  const add = { transparent: true, blending: THREE.AdditiveBlending, depthWrite: false };
+  const add = { transparent: true, blending: o.additive ? THREE.AdditiveBlending : THREE.NormalBlending, depthWrite: false };
   const mat = {
-    floor: new THREE.MeshStandardMaterial({ color: o.floor, roughness: lit ? 0.55 : 0.95, metalness: lit ? 0.35 : 0 }),
-    body: new THREE.MeshStandardMaterial({ color: o.body, roughness: lit ? 0.45 : 0.8, metalness: lit ? 0.4 : 0 }),
+    floor: new THREE.MeshStandardMaterial({ color: o.floor, roughness: lit ? 0.55 : 0.95, metalness: o.metalness ?? (lit ? 0.35 : 0) }),
+    body: new THREE.MeshStandardMaterial({ color: o.body, roughness: lit ? 0.45 : 0.8, metalness: o.metalness ?? (lit ? 0.4 : 0) }),
     bodyLight: new THREE.MeshStandardMaterial({ color: o.bodyLight, roughness: 0.7 }),
     glass: new THREE.MeshStandardMaterial({ color: o.glass, transparent: true, opacity: lit ? 0.08 : 0.12, roughness: 0.1, depthWrite: false }),
     edge: lit ? new THREE.LineBasicMaterial({ color: o.accent2, ...add, opacity: 0.35 }) : new THREE.LineBasicMaterial({ color: o.edge }),
@@ -334,7 +338,7 @@ export function createFactoryScene(container, options = {}) {
   /** Top-face texture with the module name, made once per name and size. */
   const plate = (name, w, d) => {
     const key = name + w;
-    if (!plates.has(key)) plates.set(key, own(plateTexture(name.toUpperCase(), o.monoFont, o.accent2 ?? o.edge, o.dark, w / d)));
+    if (!plates.has(key)) plates.set(key, own(plateTexture(name.toUpperCase(), o.monoFont, o.accent2 ?? o.edge, o.plate ?? o.dark, w / d)));
     return plates.get(key);
   };
   if (o.modules) {
