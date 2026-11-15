@@ -55,3 +55,14 @@ test('fixtures: no vanguard name and a spec per board task', async () => {
   expect(fx.taskSpecs['LINEAR-124']).toMatch(/dark mode/i);
   expect(Date.now() - Date.parse(fx.runs[0]!.timestamp)).toBeLessThan(86_400_000);
 });
+
+test('lesson and audit times are relative to now, so they never age', async () => {
+  install();
+  const ago = (iso: string): number => Date.now() - Date.parse(iso);
+  const { lessons } = await invoke<{ lessons: { timestamp: string }[] }>('list_lessons', { repoPath: '/x' });
+  expect(lessons.length).toBeGreaterThan(0);
+  for (const l of lessons) expect(ago(l.timestamp)).toBeLessThan(7 * 86_400_000);
+  const audit = await invoke<{ time: string }[]>('read_audit', { repoPath: '/x' });
+  expect(audit.length).toBeGreaterThan(0);
+  for (const a of audit) expect(ago(a.time)).toBeLessThan(86_400_000);
+});

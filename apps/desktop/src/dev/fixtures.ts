@@ -26,7 +26,7 @@ import type {
 } from '../wire';
 
 /** Fixture times are relative to now, so they never age into "489d ago". */
-const minsAgo = (m: number): string => new Date(Date.now() - m * 60_000).toISOString();
+export const minsAgo = (m: number): string => new Date(Date.now() - m * 60_000).toISOString();
 
 const REPO_PATH = '/home/user/projects/my-app';
 const REPO_PATH_2 = '/home/user/projects/api-service';
