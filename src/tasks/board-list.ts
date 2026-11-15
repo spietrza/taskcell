@@ -13,6 +13,7 @@ import { columnFor, mintBoardId, resolveTaskRef, taskRefKey, toBoardTask } from 
 import type { BoardSource } from './board.js';
 import type { TaskFetcher } from './fetcher.js';
 import { NO_TASK_SOURCE_MESSAGE, type BoardTask } from '../wire.js';
+import { parseBodyDependencies, parseStartDate } from './dependencies.js';
 import { readRepoBaseBranch } from '../core/base-branch.js';
 import { stateDir } from '../core/state-path.js';
 
@@ -185,15 +186,22 @@ export async function listBoardTasks(
   ]);
   // The repository default stands in for a card that names no branch, so every card shows where its PR goes.
   const repoBase = await readRepoBaseBranch(repoPath).catch(() => undefined);
+  // What a GitHub issue's body already reports (`Depends on #n`, `Start: YYYY-MM-DD`), shown as the hub board's fields are.
+  // Display only, so no second `git remote` lookup for the real slug: a bare `#n` is this repository's.
+  const slug = source === 'github' ? 'this/repository' : undefined;
   const stages = new Map([...markers.values()].map((m) => [taskRefKey(m.taskId), m.stage]));
   return {
     tasks: tasks.map((task) => {
       const t = toBoardTask(source, task);
+      const deps = slug === undefined ? [] : parseBodyDependencies(slug, task.description).map((r) => (r.repo === slug ? `#${r.number}` : `${r.repo}#${r.number}`));
+      const start = slug === undefined ? undefined : parseStartDate(task.description);
       const key = taskRefKey(t.id);
       const stage = stages.get(key);
       const verdicts = chips.get(key);
       return {
         ...t,
+        ...(deps.length > 0 ? { blockedBy: deps } : {}),
+        ...(start !== undefined && 'date' in start ? { startDate: start.date.toISOString().slice(0, 10) } : {}),
         ...(t.baseBranch === undefined && repoBase !== undefined ? { baseBranch: repoBase } : {}),
         ...(t.column === 'running' && stage !== undefined ? { stage } : {}),
         ...(verdicts !== undefined && verdicts.length > 0 ? { chips: verdicts } : {}),

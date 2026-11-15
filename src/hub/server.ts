@@ -17,6 +17,7 @@ import { ProjectAllowlist, type BindOptions } from './allowlist.js';
 import { WatchRegistry, type WatchOptions } from './watch.js';
 import { readEnv } from '../core/env.js';
 import { createCredentialService, ForbiddenError } from './credentials.js';
+import { reconcileHubBoards, schedulerState, sweepHubBoards } from './task-scheduler.js';
 import { createRunSession } from './run-session.js';
 import { CompleteBusyError, CompleteRegistry, type SpawnComplete } from './complete.js';
 import { loadPaths } from './projects.js';
@@ -24,6 +25,9 @@ import { SpawnRegistry } from './spawn.js';
 import { productionDeps } from '../sidecar/deps.js';
 import type { SidecarDeps } from '../sidecar/sidecar.js';
 import { localOnlyIdentity, signInPage, type HubIdentity, type HubUser } from './auth.js';
+
+/** How often the hub-board scheduler looks for tasks that may start. */
+const SCHEDULER_INTERVAL_MS = 15_000;
 
 /**
  * `write_draft_asset` ships an image's bytes as a JSON array of numbers (comma-separated decimal —
@@ -83,6 +87,8 @@ export interface HubServer {
    * hub. It is not per-user authentication: it maps to the owner user, and server mode requires
    * sign-in for browsers (src/hub/auth.ts, docs/hub.md "Server mode sign-in"). */
   readonly token: string;
+  /** One pass of the hub-board scheduler (it also runs on a timer). */
+  sweepHubTasks(): Promise<void>;
   listen(port: number, host: string): Promise<void>;
   /** Graceful shutdown: ends every SSE client, stops project watchers, then closes the listener. */
   close(): Promise<void>;
@@ -485,6 +491,14 @@ export function createHubServer(opts: HubServerOptions): HubServer {
     userCredentials,
   };
 
+  // Hub-board projects: start what the scheduler allows, each task as its owner (src/hub/task-scheduler.ts).
+  const scheduler = schedulerState();
+  const sweepHubTasks = (): Promise<void> => sweepHubBoards({ ...ctx, scheduler });
+  const sweeper = setInterval(() => void sweepHubTasks().catch((e: unknown) => console.error(`vanguard-hub: scheduler: ${(e as Error).message}`)), SCHEDULER_INTERVAL_MS);
+  sweeper.unref();
+  // No run survives a restart: a task stored as running goes back to todo before the first request is served.
+  const reconciled = reconcileHubBoards(opts.configDir).catch((e: unknown) => console.error(`vanguard-hub: scheduler: ${(e as Error).message}`));
+
   const server = createServer((req, res) => {
     void handleRequest(ctx, eventBus, opts, auth, identity, runRepos, req, res).catch(() => {
       if (res.headersSent) res.destroy();
@@ -497,8 +511,9 @@ export function createHubServer(opts: HubServerOptions): HubServer {
     token,
     eventBus,
     allowlist,
+    sweepHubTasks,
     listen: (port, host) =>
-      credentialsReady.then(() => new Promise<void>((resolve, reject) => {
+      Promise.all([credentialsReady, reconciled]).then(() => new Promise<void>((resolve, reject) => {
         server.once('error', reject);
         server.listen(port, host, () => {
           server.off('error', reject);
@@ -507,6 +522,7 @@ export function createHubServer(opts: HubServerOptions): HubServer {
       })),
     close: () =>
       new Promise<void>((resolve) => {
+        clearInterval(sweeper);
         watchRegistry.closeAll();
         spawnRegistry?.killAll();
         eventBus.close();
