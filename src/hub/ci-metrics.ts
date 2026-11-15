@@ -2,7 +2,7 @@
 // `taskcell stats --branch` reads). Cached per repository; never a model call.
 import { readBranchMetrics, METRICS_BRANCH_DEFAULT } from '../core/metrics-branch.js';
 import { httpsUrl } from '../core/links.js';
-import { aggregateMetrics, modelKey, parseJsonlLines, parseMetrics, type Bucket, type MetricRecord } from '../core/stats.js';
+import { aggregateMetrics, costReported, modelKey, parseJsonlLines, parseMetrics, type Bucket, type MetricRecord } from '../core/stats.js';
 import type { CostBreakdown, CostPeriod, CostRow, RunSummary } from '../wire.js';
 
 /** A `git fetch` per Home/Runs refresh would be slow: the branch is re-read at most this often. */
@@ -33,11 +33,7 @@ function parseCiRecords(text: string): CiRecord[] {
     if (record === undefined) return [];
     return [{
       record,
-      costKnown:
-        line.costUnknown !== true &&
-        typeof line.costUsd === 'number' &&
-        Number.isFinite(line.costUsd) &&
-        !(line.costUsd === 0 && line.costKind === undefined),
+      costKnown: costReported(line),
       ...(line.costKind === 'billed' || line.costKind === 'estimated' ? { costKind: line.costKind } : {}),
     }];
   });
@@ -68,6 +64,9 @@ export function ciRunSummaries(records: ReadonlyArray<CiRecord>): RunSummary[] {
     // Branch data is never trusted to be a link: only an https URL reaches the UI, as for local records.
     const prUrl = httpsUrl(rs.find((r) => r.record.prUrl !== undefined)?.record.prUrl);
     const known = rs.some((r) => r.costKnown);
+    // parseMetrics keeps an estimate only on a line without a reported cost.
+    const estCost = rs.reduce((n, r) => n + (r.record.estCostUsd ?? 0), 0);
+    const estPartial = estCost > 0 && rs.some((r) => !r.costKnown && r.record.estCostUsd === undefined);
     const failed = rs.filter((r) => r.record.exitReason !== undefined && r.record.exitReason !== 'completed');
     const providerLimit = failed.length > 0 && failed.every((r) => r.record.stoppedBy === 'provider-limit');
     return {
@@ -75,6 +74,8 @@ export function ciRunSummaries(records: ReadonlyArray<CiRecord>): RunSummary[] {
       timestamp: stamps[stamps.length - 1] ?? new Date(0).toISOString(),
       stages: [...new Set(rs.flatMap((r) => (r.record.stage !== undefined ? [r.record.stage] : [])))],
       totalCostUsd: rs.reduce((n, r) => n + r.record.costUsd, 0),
+      ...(estCost > 0 ? { estCostUsd: estCost } : {}),
+      ...(estPartial ? { estPartial: true as const } : {}),
       anyFailed: failed.length > 0,
       ...(providerLimit ? { stoppedBy: 'provider-limit' as const } : {}),
       ...(prUrl !== undefined ? { prUrl } : {}),
@@ -97,7 +98,14 @@ export async function withCiRuns(repoPath: string, local: RunSummary[]): Promise
 }
 
 const rows = (report: Array<{ key: string } & Bucket>, unknown: Map<string, number>): CostRow[] =>
-  report.map((b) => ({ key: b.key, entries: b.entries, costUsd: b.costUsd, unknownEntries: unknown.get(b.key) ?? 0 }));
+  report.map((b) => {
+    const unknownEntries = unknown.get(b.key) ?? 0;
+    return { key: b.key, entries: b.entries, costUsd: b.costUsd, unknownEntries, ...est(b, unknownEntries) };
+  });
+
+/** A bucket's estimate for the wire; `estPartial` when some of its entries without a reported cost have no estimate either. */
+const est = (b: Bucket, unknownEntries: number): { estCostUsd?: number; estPartial?: true } =>
+  b.estCostUsd > 0 ? { estCostUsd: b.estCostUsd, ...(b.estEntries < unknownEntries ? { estPartial: true as const } : {}) } : {};
 
 /** The cost breakdown by model and stage for a period; the rows are `taskcell stats --branch`'s buckets. */
 export async function costBreakdown(repoPath: string, period: CostPeriod, now: number = Date.now()): Promise<CostBreakdown> {
@@ -129,6 +137,8 @@ export async function costBreakdown(repoPath: string, period: CostPeriod, now: n
     runs: report.byTask.length,
     totalCostUsd: report.total.costUsd,
     unknownEntries: inPeriod.length - costed.length,
+    ...(report.total.estCostUsd > 0 ? { totalEstCostUsd: report.total.estCostUsd } : {}),
+    ...(est(report.total, inPeriod.length - costed.length).estPartial === true ? { estPartial: true as const } : {}),
     byModel: rows(report.byModel, unknownBy(modelKey)),
     byStage: rows(report.byStage, unknownBy((r) => r.stage ?? '(none)')),
   };

@@ -1,6 +1,6 @@
 import { Button, Card, Chip, Timestamp } from '@/ui';
 import { verdictColor, verdictWord } from '../../status';
-import { costLabel } from '../../cost';
+import { costLabel, estTitle } from '../../cost';
 import { ArrowLeft, Play } from 'lucide-react';
 import type { RunSummary } from '../../taskcell-output';
 import { SpecPane } from '../inspector/SpecPane';
@@ -85,7 +85,7 @@ export function TaskDetail({
                   </div>
                   <div className="mt-1 flex items-center justify-between text-xs text-muted-foreground">
                     <span>{r.stages.join(', ')}</span>
-                    <span className="tabular-nums">{costLabel(r)}</span>
+                    <span className="tabular-nums" {...estTitle(costLabel(r))}>{costLabel(r)}</span>
                   </div>
                 </div>
               ))

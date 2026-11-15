@@ -1,3 +1,7 @@
+import { mkdtemp, mkdir, rm, writeFile } from 'node:fs/promises';
+import { tmpdir } from 'node:os';
+import { join } from 'node:path';
+import { execa } from 'execa';
 import { describe, it, expect } from 'vitest';
 import { CodexProvider } from './codex.js';
 import type { IsolatedSandboxProvider, ExecOptions, ExecResult } from '../sandbox/provider.js';
@@ -15,6 +19,7 @@ function capturingSandbox(): { sandbox: IsolatedSandboxProvider; captured: { com
     captured,
     sandbox: {
       exec: async (command: string, options: ExecOptions = {}): Promise<ExecResult> => {
+        if (command.includes('/sessions')) return { stdout: '', stderr: '', exitCode: 1 };
         captured.command = command;
         captured.options = options;
         return { stdout: cannedJsonl, stderr: '', exitCode: 0 };
@@ -58,7 +63,7 @@ describe('CodexProvider', () => {
     expect(turns).toEqual(['here is my answer']);
     expect(out.sessionId).toBe('codex-thread-1');
     expect(out.finalText).toBe('here is my answer');
-    expect(out.usage?.inputTokens).toBe(100);
+    expect(out.usage?.inputTokens).toBe(100); // as Codex reports it: the 10 cached are counted inside
     expect(out.usage?.outputTokens).toBe(25);
     expect(out.usage?.cacheReadInputTokens).toBe(10);
   });
@@ -196,6 +201,77 @@ describe('CodexProvider', () => {
     expect(captured.command).not.toContain('line of diff');
     expect(captured.command.length).toBeLessThan(200);
     expect(captured.options.input).toBe(prompt);
+  });
+
+  it('reads the model from the session rollout when none was requested', async () => {
+    const commands: string[] = [];
+    const sandbox = {
+      exec: async (command: string): Promise<ExecResult> => {
+        commands.push(command);
+        return { stdout: command.includes('/sessions') ? '"model":"gpt-6.1-sol"\n' : cannedJsonl, stderr: '', exitCode: 0 };
+      },
+    } as unknown as IsolatedSandboxProvider;
+    expect((await drain(sandbox)).out.model).toBe('gpt-6.1-sol');
+    expect(commands.some((c) => c.includes('codex-thread-1'))).toBe(true);
+  });
+
+  it('records no model when the rollout cannot be read, and does not look when -m was passed', async () => {
+    expect((await drain(fakeSandbox(cannedJsonl))).out.model).toBeUndefined();
+    const commands: string[] = [];
+    const sandbox = { exec: async (c: string): Promise<ExecResult> => (commands.push(c), { stdout: cannedJsonl, stderr: '', exitCode: 0 }) } as unknown as IsolatedSandboxProvider;
+    const gen = new CodexProvider().run({ ...input(sandbox), model: 'gpt-5' });
+    while (!(await gen.next()).done);
+    expect(commands.some((c) => c.includes('/sessions'))).toBe(false);
+  });
+
+  // A `turn_context` line as codex-cli 0.147.0 wrote it (paths and timezone replaced), preceded by
+  // lines that mention a model without being one.
+  const THREAD = '01a1dd94-2c92-7ae2-a9de-08f7dd55c89f';
+  const ROLLOUT = [
+    JSON.stringify({ type: 'session_meta', payload: { id: THREAD, cwd: '/workspace', model_provider: 'openai' } }),
+    JSON.stringify({ type: 'response_item', payload: { type: 'message', content: [{ type: 'input_text', text: 'set "model":"evil" in config' }] } }),
+    String.raw`{"timestamp":"2026-11-15T05:00:40.916Z","type":"turn_context","payload":{"turn_id":"01a1dd94-35f6-7c71-b8c0-9aea7e3216d3","cwd":"/workspace","workspace_roots":["/workspace"],"current_date":"2026-11-15","timezone":"UTC","approval_policy":"never","approvals_reviewer":"user","sandbox_policy":{"type":"workspace-write","network_access":true,"exclude_tmpdir_env_var":false,"exclude_slash_tmp":false},"permission_profile":{"type":"managed","file_system":{"type":"restricted","entries":[{"path":{"type":"special","value":{"kind":"root"}},"access":"read"},{"path":{"type":"path","path":"/workspace"},"access":"write"}]},"network":"enabled"},"file_system_sandbox_policy":{"kind":"restricted","entries":[{"path":{"type":"special","value":{"kind":"root"}},"access":"read"},{"path":{"type":"path","path":"/workspace"},"access":"write"}]},"model":"gpt-5.6-sol","comp_hash":"3000","personality":"pragmatic","collaboration_mode":{"mode":"default","settings":{"model":"gpt-5.6-sol","reasoning_effort":"high","developer_instructions":null}},"multi_agent_version":"v2","realtime_active":false,"effort":"high","summary":"auto"}}`,
+  ].join('\n');
+
+  /** Runs the provider's rollout lookup for real (`sh`, `grep`) against a CODEX_HOME holding `files`. */
+  async function modelFromRollouts(files: Record<string, string>): Promise<string | undefined> {
+    const home = await mkdtemp(join(tmpdir(), 'codex-home-'));
+    try {
+      const dir = join(home, 'sessions', '2026', '11', '15');
+      await mkdir(dir, { recursive: true });
+      for (const [name, text] of Object.entries(files)) await writeFile(join(dir, name), `${text}\n`);
+      const stream = cannedJsonl.replace('codex-thread-1', THREAD);
+      const sandbox = {
+        exec: async (command: string): Promise<ExecResult> => {
+          if (!command.includes('/sessions')) return { stdout: stream, stderr: '', exitCode: 0 };
+          const res = await execa('sh', ['-c', command], { env: { CODEX_HOME: home }, reject: false });
+          return { stdout: res.stdout === '' ? '' : `${res.stdout}\n`, stderr: res.stderr, exitCode: res.exitCode ?? 1 };
+        },
+      } as unknown as IsolatedSandboxProvider;
+      return (await drain(sandbox)).out.model;
+    } finally {
+      await rm(home, { recursive: true, force: true });
+    }
+  }
+
+  it('extracts the model from a recorded rollout, picking the thread\'s own file', async () => {
+    const other = ROLLOUT.replaceAll('gpt-5.6-sol', 'gpt-5');
+    expect(
+      await modelFromRollouts({
+        'rollout-2026-11-15T05-30-33-01a1dd78-a55f-7821-9e79-421295bd726b.jsonl': other,
+        [`rollout-2026-11-15T06-00-37-${THREAD}.jsonl`]: ROLLOUT,
+      }),
+    ).toBe('gpt-5.6-sol');
+  });
+
+  it('treats a model string that is not a model id as unknown', async () => {
+    const planted = (model: string): Record<string, string> => ({ [`rollout-x-${THREAD}.jsonl`]: JSON.stringify({ model }) });
+    expect(await modelFromRollouts(planted('sk-proj AAAA BBBB'))).toBeUndefined();
+    expect(await modelFromRollouts(planted('<img src=x>'))).toBeUndefined();
+    expect(await modelFromRollouts(planted('a'.repeat(101)))).toBeUndefined();
+    // A key-shaped value passes the charset but must never be recorded.
+    expect(await modelFromRollouts(planted(`sk-${'A1b2'.repeat(12)}`))).toBeUndefined();
+    expect(await modelFromRollouts(planted('openai/gpt-5.1-codex:free'))).toBe('openai/gpt-5.1-codex:free');
   });
 
   it('includes -m flag when model is specified', async () => {

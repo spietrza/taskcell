@@ -2,7 +2,7 @@ import { mkdtemp, mkdir, writeFile, rm } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { describe, it, expect, afterEach } from 'vitest';
-import { OPENROUTER_PRICING, PRICED_MODELS } from './openrouter-pricing.js';
+import { CODEX_PRICED_MODELS, OPENROUTER_PRICING, PRICED_MODELS } from './openrouter-pricing.js';
 import {
   computeDrift,
   formatDriftReport,
@@ -16,7 +16,7 @@ import {
 } from './openrouter-pricing-check.js';
 
 function payloadFromTable(): OpenRouterModelsResponse {
-  const data: OpenRouterModel[] = Object.values(PRICED_MODELS).map((row) => ({
+  const data: OpenRouterModel[] = Object.values({ ...PRICED_MODELS, ...CODEX_PRICED_MODELS }).map((row) => ({
     id: row.openRouterModel,
     pricing: {
       prompt: String(row.input / 1_000_000),
@@ -61,7 +61,15 @@ describe('computeDrift', () => {
     const report = computeDrift(payloadFromTable(), new Set());
     expect(report.stale).toEqual([]);
     expect(report.missingLive).toEqual([]);
-    expect(report.checkedRows).toBe(Object.keys(PRICED_MODELS).length);
+    expect(report.checkedRows).toBe(Object.keys(PRICED_MODELS).length + Object.keys(CODEX_PRICED_MODELS).length);
+  });
+
+  it('checks the Codex rows against the live list and counts them as priced', () => {
+    const payload = payloadFromTable();
+    payload.data.find((m) => m.id === 'openai/gpt-5')!.pricing!.prompt = '0.000002';
+    const report = computeDrift(payload, new Set(['gpt-5']));
+    expect(report.stale).toEqual([{ tableKey: 'gpt-5', slug: 'openai/gpt-5', field: 'input', stored: 1.25, live: 2 }]);
+    expect(report.unpriced).toEqual([]);
   });
 
   it('flags exactly one stale field when one price drifts', () => {
@@ -126,8 +134,8 @@ describe('computeDrift', () => {
   });
 
   it('flags a metrics-sourced used model with no OPENROUTER_PRICING entry', () => {
-    const report = computeDrift(payloadFromTable(), new Set(['gpt-5.3-codex']));
-    expect(report.unpriced).toEqual([{ model: 'gpt-5.3-codex', source: 'metrics' }]);
+    const report = computeDrift(payloadFromTable(), new Set(['gpt-4o-mini']));
+    expect(report.unpriced).toEqual([{ model: 'gpt-4o-mini', source: 'metrics' }]);
   });
 
   it('does not flag a used model that is already priced', () => {
@@ -148,11 +156,11 @@ describe('scanUsedModelsFromMetricsText', () => {
       '',
       'not json',
       '{"evt":"run_complete","model":"sonnet"}',
-      '{"evt":"run_complete","model":"gpt-5.3-codex"}',
+      '{"evt":"run_complete","model":"gpt-4o-mini"}',
       '{"evt":"verify","model":"ignored"}',
       '{"evt":"run_complete"}',
     ].join('\n');
-    expect(scanUsedModelsFromMetricsText(text)).toEqual(new Set(['sonnet', 'gpt-5.3-codex']));
+    expect(scanUsedModelsFromMetricsText(text)).toEqual(new Set(['sonnet', 'gpt-4o-mini']));
   });
 
   it('returns an empty set for empty text', () => {
@@ -200,7 +208,7 @@ describe('formatDriftReport', () => {
   it('renders stored/live values and model names for all three categories', () => {
     const report = {
       stale: [{ tableKey: 'claude-sonnet-5', slug: 'anthropic/claude-sonnet-5', field: 'input' as const, stored: 2, live: 3 }],
-      unpriced: [{ model: 'gpt-5.3-codex', source: 'metrics' as const }],
+      unpriced: [{ model: 'gpt-4o-mini', source: 'metrics' as const }],
       missingLive: [{ tableKey: 'glm-5.2', slug: 'z-ai/glm-5.2' }],
       checkedRows: 5,
       usedModelsScanned: 1,
@@ -209,7 +217,7 @@ describe('formatDriftReport', () => {
     expect(text).toContain('claude-sonnet-5');
     expect(text).toContain('stored=2');
     expect(text).toContain('live=3');
-    expect(text).toContain('gpt-5.3-codex');
+    expect(text).toContain('gpt-4o-mini');
     expect(text).toContain('glm-5.2');
   });
 
@@ -248,9 +256,9 @@ describe('runPricingCheck', () => {
   it('wires an injected fetcher to computeDrift without touching the network', async () => {
     const report = await runPricingCheck({
       fetcher: async () => payloadFromTable(),
-      usedModels: new Set(['gpt-5.3-codex']),
+      usedModels: new Set(['gpt-4o-mini']),
     });
     expect(report.stale).toEqual([]);
-    expect(report.unpriced).toEqual([{ model: 'gpt-5.3-codex', source: 'metrics' }]);
+    expect(report.unpriced).toEqual([{ model: 'gpt-4o-mini', source: 'metrics' }]);
   });
 });

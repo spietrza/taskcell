@@ -365,6 +365,8 @@ export interface RunRecord {
   finalText: string;
   usage?: AgentUsage;
   costUsd?: number;
+  /** API-price estimate for a run that reported no cost (a subscription run is not billed per token); never a billed figure. */
+  estCostUsd?: number;
   cacheEfficiency?: number;
   durationMs?: number;
   model?: string;
@@ -463,6 +465,10 @@ export interface RunSummary {
   stoppedBy?: 'provider-limit';
   /** The run's metrics carry no cost data, so `totalCostUsd` (0) is not a cost: show "unknown", not $0. */
   costUnknown?: true;
+  /** Sum of the run's API-price estimates (see RunRecord.estCostUsd); shown as `≈`, next to the reported cost when some stages have one. */
+  estCostUsd?: number;
+  /** Some entries without a reported cost have no estimate either (an unpriced model): the `≈` figure covers only the priced ones. */
+  estPartial?: true;
 }
 
 /** Period a cost breakdown covers: the last 7 / 30 days, or everything on the branch. */
@@ -475,6 +481,10 @@ export interface CostRow {
   costUsd: number;
   /** Entries without cost data (counted in `entries`, add nothing to `costUsd`). */
   unknownEntries: number;
+  /** API-price estimate of the entries without a reported cost; absent when none. */
+  estCostUsd?: number;
+  /** Some entries without a reported cost have no estimate either (an unpriced model): the `≈` figure covers only the priced ones. */
+  estPartial?: true;
 }
 
 /**
@@ -492,6 +502,10 @@ export interface CostBreakdown {
   runs: number;
   totalCostUsd: number;
   unknownEntries: number;
+  /** Estimated (≈) cost of the entries without a reported cost; absent when none. */
+  totalEstCostUsd?: number;
+  /** Some entries without a reported cost have no estimate either (an unpriced model): the `≈` figure covers only the priced ones. */
+  estPartial?: true;
   byModel: CostRow[];
   byStage: CostRow[];
 }
