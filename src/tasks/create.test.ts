@@ -206,6 +206,11 @@ describe('setTaskSkills', () => {
     expect(calls).toHaveLength(1);
   });
 
+  it('refuses a body whose unclosed code block would swallow the line', async () => {
+    await expect(setTaskSkills('/repo', 'gh-7', ['db'], cli(JSON.stringify({ body: 'text\n```\ncode' })))).rejects.toThrow('could not be written');
+    expect(calls).toHaveLength(1);
+  });
+
   it('writes nothing when the line already says so', async () => {
     await setTaskSkills('/repo', 'gh-7', ['db'], cli(JSON.stringify({ body: 'Skills: db' })));
     expect(calls).toHaveLength(1);

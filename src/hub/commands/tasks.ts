@@ -135,8 +135,8 @@ export const commands = defineCommands<TasksCommands>({
     if (ref === undefined || source === undefined) throw new BadRequestError(`taskId ${JSON.stringify(taskId.slice(0, 80))} names no GitHub, GitLab or Linear task`);
     // The tracker is the project's, never the caller's choice: a prefix alone would let any repo's user edit any issue the hub's key reaches.
     const cfg = await readAppConfig(real);
-    if (source !== (cfg.source ?? 'github')) throw new BadRequestError('this task is not on the project\'s task source');
-    if (source === 'linear' && cfg.team !== undefined && !ref.reference.toUpperCase().startsWith(`${cfg.team.toUpperCase()}-`)) throw new BadRequestError('this task is not in the project\'s Linear team');
+    if (cfg.taskSource === 'hub' || source !== (cfg.source ?? 'github')) throw new BadRequestError('this task is not on the project\'s task source');
+    if (source === 'linear' && (cfg.team === undefined || !ref.reference.toUpperCase().startsWith(`${cfg.team.toUpperCase()}-`))) throw new BadRequestError('this task is not in the project\'s Linear team');
     try {
       assertSkillsInstalled(names, await installedSkills(real));
     } catch (error) {

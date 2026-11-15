@@ -94,7 +94,8 @@ export function TaskBoard({
   const lanes = groupRows(tasks ?? [], filter.group, cardKeys);
   // A hub-board project's cards are made here, not in a tracker.
   const hubBoard = allRepos ? data?.hubBoards?.includes(project) === true : data?.hubBoard === true;
-  const reload = (): void => setReloads((n) => n + 1);
+  // A reload re-reads the tracker, so the locally shown skills are dropped with it.
+  const reload = (): void => { setSavedSkills({}); setReloads((n) => n + 1); };
 
   // The quick view opens beside the Board; Escape or a click outside closes it and focus returns to the card.
   const [selected, setSelected] = useState<QuickTask | null>(null);

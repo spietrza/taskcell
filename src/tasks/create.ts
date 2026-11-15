@@ -1,7 +1,7 @@
 import { execa } from 'execa';
 import { BASE_LABEL_PREFIX } from '../core/base-branch.js';
 import { TaskcellError } from '../core/errors.js';
-import { setSkillsLine } from '../context/named-skills.js';
+import { parseSkillsLine, setSkillsLine } from '../context/named-skills.js';
 import { resolveTaskRef } from './board.js';
 import { linearGraphql } from './linear-cli.js';
 import { neutralizeQuickActions } from './gitlab.js';
@@ -282,10 +282,15 @@ export async function setTaskSkills(
   if (resolved === undefined) throw new TaskcellError(`Couldn't resolve a Task Source from task id \`${taskId}\`.`);
   const { source, reference } = resolved;
   const next = (body: string): string | undefined => {
+    // The stored body is the tracker's (untrusted): size first, setSkillsLine rescans it per Skills: line.
+    if (Buffer.byteLength(body, 'utf8') > MAX_BODY_BYTES) throw new TaskcellError(`Task body is over the ${MAX_BODY_BYTES}-byte limit; edit its Skills: line on the tracker.`);
     const out = setSkillsLine(body, skills);
+    if (out === body) return undefined;
     const bytes = Buffer.byteLength(out, 'utf8');
     if (bytes > MAX_BODY_BYTES) throw new TaskcellError(`Task body would be ${bytes} bytes; the limit is ${MAX_BODY_BYTES}.`);
-    return out === body ? undefined : out;
+    // An unclosed code fence swallows the appended line: the run would not read what the card shows.
+    if (parseSkillsLine(out).skills.join() !== skills.join()) throw new TaskcellError('The Skills: line could not be written where a run reads it (unclosed code block?); edit it on the tracker.');
+    return out;
   };
   if (source === 'linear') {
     if (!/^[A-Z0-9]+-\d+$/.test(reference)) throw new TaskcellError(`Invalid Linear id in task \`${taskId}\`.`);
