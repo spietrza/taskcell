@@ -21,6 +21,8 @@ export interface ApproverPolicy {
   holdLabel?: string;
   /** Act mode: API-sourced PR author logins the factory opens PRs as; a PR by anyone else is never acted on. */
   factoryAuthors?: string[];
+  /** Act mode: the logins the approver's own comments carry (an App's bare name); a marker from one of them dedupes like one from `github-actions`. */
+  approverLogins?: string[];
 }
 
 export interface PrFacts {

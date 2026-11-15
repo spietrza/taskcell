@@ -143,12 +143,15 @@ interface GhComment {
   authorAssociation?: string;
 }
 
-/** Post `body` unless a trusted author already posted `marker` (anyone can post the marker text to suppress a comment, so an untrusted one does not dedupe). */
-export async function commentOnce(gh: GhRunner, repoSlug: string, prNumber: number, marker: string, body: string): Promise<void> {
+/**
+ * Post `body` unless a trusted author already posted `marker` (anyone can post the marker text to suppress a comment, so an untrusted one does not dedupe).
+ * `botLogins` are the poster's own logins: an App's comments come back under its bare name with association NONE, which nothing else trusts.
+ */
+export async function commentOnce(gh: GhRunner, repoSlug: string, prNumber: number, marker: string, body: string, botLogins: readonly string[] = []): Promise<void> {
   try {
     const out = await gh(['pr', 'view', String(prNumber), '--repo', repoSlug, '--json', 'comments']);
     const parsed = JSON.parse(out) as { comments?: GhComment[] };
-    const trusted = (c: GhComment): boolean => classifyAuthor(c.author?.login ?? '', c.authorAssociation ?? '') !== 'untrusted';
+    const trusted = (c: GhComment): boolean => classifyAuthor(c.author?.login ?? '', c.authorAssociation ?? '', { botLogins }) !== 'untrusted';
     if ((parsed.comments ?? []).some((c) => (c.body?.includes(marker) === true || c.body?.includes(marker.replace('taskcell-', 'vanguard-')) === true) && trusted(c))) return;
   } catch {
     // best-effort dedupe lookup; fall through and post

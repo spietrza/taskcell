@@ -76,7 +76,7 @@ export const NO_DEDICATED_REVIEWER =
 
 /**
  * Why act mode must leave this PR to a human, beyond `decide()`: a draft (never promoted — a draft can be a hold),
- * a human hold (a CHANGES_REQUESTED review or the hold label), a PR not opened by a factory login, a release PR,
+ * a human hold (a CHANGES_REQUESTED review or the hold label), a revise round in flight, a PR not opened by a factory login, a release PR,
  * CI config, and any mergeStateStatus other than CLEAN/BEHIND (BLOCKED, UNSTABLE, UNKNOWN, DIRTY, absent).
  */
 export function hardExclusions(facts: ApproverFacts, policy: ApproverPolicy, reviews: PrFacts['reviews']): string[] {
@@ -88,6 +88,8 @@ export function hardExclusions(facts: ApproverFacts, policy: ApproverPolicy, rev
   if (dedicatedReviewers(policy).length === 0) reasons.push(NO_DEDICATED_REVIEWER);
   const holdLabel = policy.holdLabel ?? 'taskcell:hold';
   if (hasLabel(facts.pr.labels ?? [], holdLabel)) reasons.push(`hold label ${holdLabel}`);
+  // A revise round is in flight: an update-branch would move the head under the running job, and a merge would race its push.
+  if (hasLabel(facts.pr.labels ?? [], 'taskcell:revising')) reasons.push('a revise round is in flight (taskcell:revising)');
   const author = facts.pr.author ?? '';
   if (author === '' || !(policy.factoryAuthors ?? []).includes(author)) reasons.push(`not opened by the factory (author "${author}")`);
   if (isReleasePr(facts.pr)) reasons.push('release PR');

@@ -29,6 +29,8 @@ export const approverPolicySchema = z.object({
   holdLabel: z.string().min(1).optional(),
   /** Act mode: the PR author logins (as `gh pr view --json author` reports them) the factory opens PRs as. Empty = act on nothing. */
   factoryAuthors: z.array(z.string().min(1)).optional(),
+  /** Act mode: the logins the approver itself comments as (as `gh pr view --json comments` reports them: a GitHub App's bare name), so it recognises its own markers. */
+  approverLogins: z.array(z.string().min(1)).optional(),
 });
 
 export interface LoadedPolicy {

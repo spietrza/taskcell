@@ -133,7 +133,7 @@ export async function runApprover(input: RunApproverInput, state: { updated: boo
     // A failed comment must not hide the log line, nor the other way round: both run, then the failures are thrown together (like finish()).
     const failures: string[] = [];
     try {
-      await commentOnce(actGh, input.repoSlug, input.prNumber, marker, `## Taskcell Approver (act mode)\n\nLeft for a human: ${escapeForComment(reason)}.\n\n${marker}`);
+      await commentOnce(actGh, input.repoSlug, input.prNumber, marker, `## Taskcell Approver (act mode)\n\nLeft for a human: ${escapeForComment(reason)}.\n\n${marker}`, policy.approverLogins ?? []);
     } catch (err) {
       failures.push(`comment: ${errorText(err)}`);
     }

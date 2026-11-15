@@ -522,6 +522,35 @@ describe('approver act mode', () => {
       expect(writes(calls, 'comment').some((a) => a.join(' ').includes('hold label taskcell:hold'))).toBe(true);
     });
 
+    it.each(['taskcell:revising', 'vanguard:revising'])('a revise round in flight (%s) is left alone: no update, no merge', async (label) => {
+      const calls: string[][] = [];
+      await moveBase('other.txt');
+      await run(fakeGh(calls, pr({ labels: [label] })));
+      expect(writes(calls, 'update-branch')).toEqual([]);
+      expect(writes(calls, 'merge')).toEqual([]);
+      expect(writes(calls, 'comment').some((a) => a.join(' ').includes('a revise round is in flight'))).toBe(true);
+      expect(await actions()).toEqual(['left-for-human']);
+    });
+
+    it('the approver posting as an App (bare login, association NONE) recognises its own marker only when the policy names it', async () => {
+      const appComments = (calls: string[][]): GhRunner => {
+        const inner = fakeGh(calls, pr({ labels: ['taskcell:hold'] }));
+        return async (args) =>
+          args[0] === 'pr' && args[1] === 'view' && args.includes('comments')
+            ? JSON.stringify({ comments: writes(calls, 'comment').map((a) => ({ body: a.at(-1), author: { login: 'taskcell-approver' }, authorAssociation: 'NONE' })) })
+            : inner(args);
+      };
+      const unnamed: string[][] = [];
+      await run(appComments(unnamed));
+      await run(appComments(unnamed));
+      expect(writes(unnamed, 'comment')).toHaveLength(2);
+      await setup({ ...POLICY, approverLogins: ['taskcell-approver'] }, { 'src.ts': 'export const x = 1;\n' });
+      const named: string[][] = [];
+      await run(appComments(named));
+      await run(appComments(named));
+      expect(writes(named, 'comment')).toHaveLength(1);
+    });
+
     it('the legacy spelling vanguard:hold is a hold too', async () => {
       const calls: string[][] = [];
       await run(fakeGh(calls, pr({ labels: ['vanguard:hold'] })));
