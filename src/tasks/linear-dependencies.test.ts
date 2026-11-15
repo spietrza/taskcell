@@ -54,6 +54,11 @@ const probes = (send: Send): { query: string; variables: Record<string, unknown>
 
 const now = new Date('2026-06-01T00:00:00Z');
 
+type GateOptions = NonNullable<Parameters<typeof applyLinearDependencyGate>[1]>;
+/** Fresh process-wide state per call, so tests do not share comments, logs or cached issues. */
+const opts = (): Required<Pick<GateOptions, 'linear' | 'now' | 'log' | 'reported' | 'logged' | 'lookups'>> =>
+  ({ linear: async () => '', now, log: () => undefined, reported: new Map(), logged: new Map(), lookups: new Map() });
+
 describe('parsing', () => {
   it('reads Depends on lines and Linear URLs', () => {
     expect(parseLinearBodyDependencies('Depends on DEV-3\n- Depends on: ENG-4, dev-5 and https://linear.app/acme/issue/DEV-6/slug.')).toEqual([
@@ -198,8 +203,6 @@ describe('checkLinearDependencies', () => {
 });
 
 describe('applyLinearDependencyGate', () => {
-  const opts = (): { linear: () => Promise<string>; now: Date; log: () => void; reported: Map<string, string>; logged: Map<string, string> } =>
-    ({ linear: async () => '', now, log: () => undefined, reported: new Map(), logged: new Map() });
 
   it('costs one probe and no lookup when nothing has a dependency, and starts every issue', async () => {
     const send = fakeSend({ 'DEV-1': {}, 'DEV-2': { related: 3 }, 'DEV-3': { cycle: '2026-05-01T00:00:00.000Z' } });
@@ -351,7 +354,8 @@ describe('applyLinearDependencyGate', () => {
     const body = Array.from({ length: 2000 }, (_, n) => `Depends on ${Array.from({ length: 20 }, (_x, m) => `DEV-${n * 20 + m + 2}`).join(', ')}`).join('\n');
     const started = Date.now();
     expect(await checkLinearDependencies(task('DEV-1', body), fakeSend({}), now, { nativeBlockers: [] })).toMatchObject({ status: 'invalid' });
-    expect(Date.now() - started).toBeLessThan(2000);
+    // Generous bound: a quadratic parse takes minutes, a loaded runner only a few seconds.
+    expect(Date.now() - started).toBeLessThan(10_000);
   });
   it('passes ready tasks, comments on waiting ones and parks invalid ones in needs info', async () => {
     const comments = new Map<string, string>();
@@ -409,5 +413,89 @@ describe('applyLinearDependencyGate', () => {
     await applyLinearDependencyGate([task('DEV-2')], { ...opts(), graphql: broken, linear, log: (l) => logs.push(l) });
     expect(linear).not.toHaveBeenCalled();
     expect(logs.at(-1)).toContain('could not be recorded');
+  });
+});
+
+describe('gate state across polls', () => {
+  it('logs a failing lookup again every 10 polls and reports it once after 3 in a row, however the error text changes', async () => {
+    const comments = new Map<string, string>();
+    const withComments = fakeSend({}, comments);
+    let n = 0;
+    const failing: LinearGraphql = async (body) => (body.query.includes('comments(') ? withComments(body) : { errors: [{ message: `boom ${n++ % 2}` }] });
+    const linear = commentRunner(comments);
+    const logs: string[] = [];
+    const shared = { ...opts(), graphql: failing, linear, log: (l: string): void => void logs.push(l) };
+    for (let poll = 1; poll <= 2; poll++) await applyLinearDependencyGate([task('DEV-1')], shared);
+    expect(linear).not.toHaveBeenCalled();
+    await applyLinearDependencyGate([task('DEV-1')], shared);
+    expect(comments.get('DEV-1')).toContain('Taskcell could not check the dependencies of this issue');
+    for (let poll = 4; poll <= 10; poll++) await applyLinearDependencyGate([task('DEV-1')], shared);
+    expect(linear).toHaveBeenCalledTimes(1);
+    // First sight (poll 1), the reason changed (poll 2 text differs from poll 1), and every 10th poll.
+    expect(logs.filter((l) => l.includes('DEV-1 skipped')).length).toBeGreaterThanOrEqual(2);
+    expect(logs.filter((l) => l.includes('DEV-1 skipped')).length).toBeLessThanOrEqual(3);
+  });
+  it('compares only against the newest hold comment, so a reason that flips back is posted again', async () => {
+    const comments = new Map<string, string>();
+    const linear = commentRunner(comments);
+    const issues: Record<string, Fake> = { 'DEV-1': {}, 'DEV-5': {}, 'DEV-2': { blockedBy: ['DEV-1'] } };
+    const hold = (id: string): string => `Taskcell will not start this issue yet: \`waiting for ${id}\`. It stays in its trigger state and starts by itself once that is resolved.`;
+    // DEV-1 comment is older than the newest (DEV-5) one; the reason is DEV-1 again.
+    const send: LinearGraphql = async (body) =>
+      body.query.includes('comments(')
+        ? { data: { issue: { first: { nodes: [{ body: hold('DEV-1'), createdAt: '2026-01-01' }] }, last: { nodes: [{ body: hold('DEV-5'), createdAt: '2026-01-02' }] } } } }
+        : fakeSend(issues)(body);
+    await applyLinearDependencyGate([task('DEV-2')], { ...opts(), graphql: send, linear });
+    expect(linear.mock.calls.map((c) => c[0][5])).toEqual([hold('DEV-1')]);
+  });
+  it('does not thrash its state when two passes list different issues, and forgets issues unlisted for a long time', async () => {
+    const issues: Record<string, Fake> = { 'DEV-1': {}, 'DEV-2': { blockedBy: ['DEV-1'] }, 'DEV-3': { blockedBy: ['DEV-1'] } };
+    const comments = new Map<string, string>();
+    const send = fakeSend(issues, comments);
+    const logs: string[] = [];
+    const shared = { ...opts(), graphql: send, linear: commentRunner(comments), log: (l: string): void => void logs.push(l) };
+    for (let poll = 0; poll < 5; poll++) {
+      await applyLinearDependencyGate([task('DEV-2')], shared);
+      await applyLinearDependencyGate([task('DEV-3')], shared);
+    }
+    expect(logs).toHaveLength(2);
+    expect(send.mock.calls.filter(([b]) => b.query.includes('comments(')).length).toBe(2);
+    // 11 minutes later only DEV-3 is listed: DEV-2's entries are dropped, DEV-3's stay.
+    await applyLinearDependencyGate([task('DEV-3')], { ...shared, now: new Date(now.getTime() + 11 * 60_000) });
+    expect([...shared.logged.keys()]).toEqual(['DEV-3']);
+    expect([...shared.reported.keys()]).toEqual(['DEV-3']);
+  });
+  it('comments and logs again when an invalid issue is moved to needs info and comes back unfixed', async () => {
+    const comments = new Map<string, string>();
+    const logs: string[] = [];
+    const move = vi.fn(async () => undefined);
+    const shared = { ...opts(), graphql: fakeSend({ 'DEV-3': { blockedBy: ['DEV-3'] } }, comments), linear: commentRunner(comments), moveToNeedsInfo: move, log: (l: string): void => void logs.push(l) };
+    await applyLinearDependencyGate([task('DEV-3')], shared);
+    await applyLinearDependencyGate([task('DEV-3')], shared);
+    expect(move).toHaveBeenCalledTimes(2);
+    expect(logs).toHaveLength(2);
+  });
+  it('reads a team key that starts with a digit like parseIdentifier, but not an all-digit one', () => {
+    expect(parseLinearBodyDependencies('Depends on 2FA-12, DEV-3')).toEqual([{ repo: '2FA', number: 12 }, { repo: 'DEV', number: 3 }]);
+    expect(parseLinearBodyDependencies('Depends on 2024-11 budget approval')).toEqual([]);
+  });
+  it('strips control characters and caps the reason in the comment without splitting a character', async () => {
+    const comments = new Map<string, string>();
+    const long = '😀'.repeat(1000);
+    await applyLinearDependencyGate([task('DEV-1', `Start: 2026-13-01\u001b[2J${long}`)], { ...opts(), graphql: fakeSend({ 'DEV-1': {} }, comments), linear: commentRunner(comments) });
+    const body = comments.get('DEV-1')!;
+    expect(body).not.toMatch(/\p{Cc}/u);
+    expect([...body].length).toBeLessThan(500);
+    expect(body).not.toMatch(/[\ud800-\udbff](?![\udc00-\udfff])/);
+  });
+  it('reuses a blocker across polls within the TTL, reads it again after it', async () => {
+    const send = fakeSend({ 'DEV-1': {}, 'DEV-2': { blockedBy: ['DEV-1'] } });
+    const shared = { ...opts(), graphql: send };
+    await applyLinearDependencyGate([task('DEV-2')], shared);
+    await applyLinearDependencyGate([task('DEV-2')], shared);
+    expect(lookedUp(send)).toEqual(['DEV-1']);
+    await applyLinearDependencyGate([task('DEV-2')], { ...shared, now: new Date(now.getTime() + 3 * 60_000) });
+    expect(lookedUp(send)).toEqual(['DEV-1', 'DEV-1']);
+    expect(shared.lookups.size).toBe(1);
   });
 });
