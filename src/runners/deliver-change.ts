@@ -84,7 +84,7 @@ export type DeliverChangeResult =
    */
   | { kind: 'delivered-pr'; sha: string; headSha: string; prUrl: string; commitLeaks: CommitClosingLeak[]; outgoingDiff: string }
   /** local-branch: committed on `branch` in the local repository; nothing left it. */
-  | { kind: 'delivered-local'; sha: string; branch: string; commitLeaks: CommitClosingLeak[] }
+  | { kind: 'delivered-local'; sha: string; branch: string; commitLeaks: CommitClosingLeak[]; outgoingDiff: string }
   /** existing-branch: the commit was pushed onto the PR head. */
   | { kind: 'delivered-push'; sha: string; headSha: string; commitLeaks: CommitClosingLeak[] };
 
@@ -184,7 +184,7 @@ export async function deliverChange(ctx: RunContext, opts: DeliverChangeOptions)
     : [];
 
   const { target } = opts;
-  if (target.kind === 'local-branch') return { kind: 'delivered-local', sha, branch: ctx.branch, commitLeaks };
+  if (target.kind === 'local-branch') return { kind: 'delivered-local', sha, branch: ctx.branch, commitLeaks, outgoingDiff };
   if (target.kind === 'new-pr') {
     const pr = await publishForReview(ctx, {
       title: redact(conventionalPrTitle(target.title, target), 'PR title'),
