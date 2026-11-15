@@ -111,6 +111,12 @@ describe('label spellings (taskcell written, vanguard still read)', () => {
       expect(creates(calls)).toEqual([]);
     });
 
+    it('writes an ensured review trigger under the legacy name when the repo labels cannot be listed', async () => {
+      const { gh, calls } = repo(new Error('gh down'));
+      expect(await resolveAdds(['ready for taskcell review'], 'o/r', gh, ['ready for taskcell review'])).toEqual(['ready for vanguard review']);
+      expect(creates(calls)).toEqual([['label', 'create', 'ready for vanguard review', '--repo', 'o/r', '--force']]);
+    });
+
     it('does not force-create an ensured label when the list succeeds', async () => {
       const { gh, calls } = repo(['vanguard:waiting']);
       expect(await resolveAdds(['taskcell:waiting'], 'o/r', gh, ['taskcell:waiting'])).toEqual(['vanguard:waiting']);

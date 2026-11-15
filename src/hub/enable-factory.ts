@@ -261,7 +261,8 @@ export async function applyGithubFactory(repoPath: string, plan: FactoryPlan, de
   }
 
   // A repo that already has the review trigger keeps its spelling: its own workflows may gate on the old name only.
-  const have = (await run(exec, 'gh', ['label', 'list', '--limit', '1000', '--json', 'name', '--jq', '.[].name'], { cwd: repoPath }).catch(() => ''))
+  // No fallback when the listing fails: guessing the new name would flip an old-only repo.
+  const have = (await run(exec, 'gh', ['label', 'list', '--limit', '1000', '--json', 'name', '--jq', '.[].name'], { cwd: repoPath }))
     .split('\n').map((name) => name.toLowerCase());
   const trigger = labelForms(REVIEW_TRIGGER_LABEL).find((form) => have.includes(form.toLowerCase())) ?? REVIEW_TRIGGER_LABEL;
   const labelsCreated: string[] = [];

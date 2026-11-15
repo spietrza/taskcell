@@ -108,8 +108,11 @@ export async function resolveAdds(
   try {
     have = (JSON.parse(await gh(['label', 'list', '--repo', repoSlug, '--limit', '1000', '--json', 'name'])) as { name: string }[]).map((l) => l.name);
   } catch {
-    for (const label of add) if (ensure.includes(label)) await gh(['label', 'create', label, '--repo', repoSlug, '--force']).catch(() => undefined);
-    return [...add];
+    // Unlistable: an ensured review trigger is created and written under the legacy spelling, which every review gate
+    // reads; force-creating the new one would flip an old-only repo for good. Unensured labels go out as given.
+    const fallback = add.map((label) => (ensure.includes(label) && sameLabel(label, REVIEW_TRIGGER_LABEL) ? LEGACY_REVIEW_TRIGGER : label));
+    for (const [i, label] of fallback.entries()) if (ensure.includes(add[i]!)) await gh(['label', 'create', label, '--repo', repoSlug, '--force']).catch(() => undefined);
+    return [...new Set(fallback)];
   }
   const resolved: string[] = [];
   for (const label of add) {

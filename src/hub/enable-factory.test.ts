@@ -47,6 +47,7 @@ interface FakeOptions {
   localCallers?: string;
   /** `gh label list --jq .[].name` output: the repo's labels, one per line. */
   labels?: string;
+  labelListFails?: boolean;
 }
 
 const doctorRun = (id: number, event = 'workflow_dispatch', name = 'Taskcell Doctor'): unknown => ({
@@ -81,6 +82,7 @@ function fakeExec(calls: Call[], opts: FakeOptions = {}): FactoryExec {
       return { stdout: 'feature/wip\n', stderr: '' };
     }
     if (file === 'gh' && args[0] === 'label' && args[1] === 'list') {
+      if (opts.labelListFails) throw new Error('gh: HTTP 502');
       return { stdout: opts.labels ?? '', stderr: '' };
     }
     if (file === 'gh' && args[0] === 'pr' && args[1] === 'list') {
@@ -237,6 +239,12 @@ describe('applyGithubFactory', () => {
     expect(created).toContain('ready for vanguard review');
     expect(created).not.toContain('ready for taskcell review');
     expect(result.labelsCreated).toContain('ready for vanguard review');
+  });
+
+  it('fails instead of guessing the trigger spelling when the repo labels cannot be listed', async () => {
+    const { repoPath, plan, calls } = await plannedRepo();
+    await expect(applyGithubFactory(repoPath, plan, { exec: fakeExec(calls, { labelListFails: true }) })).rejects.toThrow();
+    expect(calls.some((c) => c.file === 'gh' && c.args[0] === 'label' && c.args[1] === 'create')).toBe(false);
   });
 
   it('never pushes to the default branch', async () => {
