@@ -696,7 +696,7 @@ export function buildRevisionSummary(input: RevisionSummaryInput): string {
   if (input.mergedBase !== undefined) {
     const { base, files, rebased } = input.mergedBase;
     if (rebased === true) {
-      lines.push('', '### Rebased onto base', '', `- Rebased the branch onto \`${base}\` (force-pushed with a lease) instead of merging it: \`${base}\` changed CI config, which the push token may not merge into a branch; resolved conflicts in: ${formatConflictFiles(files)}`);
+      lines.push('', '### Rebased onto base', '', `- Rebased the branch onto \`${base}\` (force-pushed with a lease) instead of merging it: \`${base}\` changed CI config, which the push token may not merge into a branch; ${files.length === 0 ? 'no conflicts' : `resolved conflicts in: ${formatConflictFiles(files)}`}`);
     } else if (files.length === 0) {
       lines.push('', '### Merged base', '', `- Merged \`${base}\` into the branch; git merged it cleanly (no conflicts).`);
     } else {
