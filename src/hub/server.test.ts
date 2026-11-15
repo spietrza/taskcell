@@ -160,6 +160,9 @@ describe('hub server', () => {
       expect(session.headers.get('set-cookie')).toBeNull();
     }
     expect((await fetch(baseUrl + '/rpc/list_runs', { method: 'POST' })).status).toBe(401);
+    for (const cmd of ['list_repo_skills', 'update_skill_pr', 'add_skill_pr', 'remove_skill_pr']) {
+      expect((await fetch(`${baseUrl}/rpc/${cmd}`, { method: 'POST', headers: { 'content-type': 'application/json' }, body: '{}' })).status, cmd).toBe(401);
+    }
     expect((await fetch(baseUrl + '/events')).status).toBe(401);
     // The token is never accepted from the URL, where access logs would keep it.
     expect((await fetch(baseUrl + '/events?token=' + hub.token)).status).toBe(401);
