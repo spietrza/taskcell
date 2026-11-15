@@ -1,10 +1,11 @@
 import { afterEach, beforeEach, describe, expect, test, vi } from 'vitest';
 import { act, fireEvent, render, screen } from '@testing-library/react';
 import { EnableFactoryDialog } from './EnableFactoryDialog';
-import { factoryApplyResult, factoryPlan, factorySecret, factoryStateNone, factoryStateSettingUp, factoryVerify } from '../../dev/fixtures';
+import { factoryApplyResult, factoryPlan, gitlabFactoryPlan, factorySecret, factoryStateNone, factoryStateSettingUp, factoryVerify } from '../../dev/fixtures';
 import type { FactoryState } from '../../wire';
 
 vi.mock('../../ipc', () => ({
+  enableFactoryHost: vi.fn(),
   enableFactoryPlan: vi.fn(),
   enableFactoryApply: vi.fn(),
   enableFactoryStart: vi.fn(),
@@ -12,7 +13,7 @@ vi.mock('../../ipc', () => ({
   factoryState: vi.fn(),
   factoryRefresh: vi.fn(),
 }));
-import { enableFactoryApply, enableFactoryPlan, enableFactoryStart, enableFactoryVerify, factoryRefresh, factoryState } from '../../ipc';
+import { enableFactoryApply, enableFactoryHost, enableFactoryPlan, enableFactoryStart, enableFactoryVerify, factoryRefresh, factoryState } from '../../ipc';
 
 const project = { path: '/repos/my-app', name: 'my-app' };
 
@@ -23,6 +24,7 @@ const at = (statuses: Array<'done' | 'current' | 'pending' | 'failed'>, extra: P
 });
 
 beforeEach(() => {
+  vi.mocked(enableFactoryHost).mockReset().mockResolvedValue({ host: 'github' });
   vi.mocked(factoryState).mockReset().mockResolvedValue(factoryStateNone);
   vi.mocked(factoryRefresh).mockReset().mockResolvedValue(factoryStateSettingUp);
   vi.mocked(enableFactoryPlan).mockReset().mockResolvedValue(factoryPlan);
@@ -40,15 +42,63 @@ async function pickGithub(): Promise<void> {
 }
 
 describe('EnableFactoryDialog', () => {
-  test('unimplemented run locations are planned with a tracking link; only GitHub Actions plans', async () => {
+  test('GitLab CI is unavailable with the reason for a GitHub project; the rest are planned with a tracking link', async () => {
     render(<EnableFactoryDialog project={project} onClose={() => {}} />);
+    expect(await screen.findByText(/remote is on GitHub, not GitLab/)).toBeInTheDocument();
     expect(screen.queryByRole('button', { name: /GitLab CI/ })).not.toBeInTheDocument();
-    expect(screen.getAllByText('planned')).toHaveLength(3);
+    expect(screen.getAllByText('planned')).toHaveLength(2);
     const links = screen.getAllByRole('link', { name: /Tracking issue/ });
-    expect(links).toHaveLength(3);
-    expect(links.map((l) => l.getAttribute('href'))).toEqual([911, 912, 913].map((n) => `https://github.com/spietrza/taskcell/issues/${n}`));
-    expect(screen.queryByText('coming soon')).not.toBeInTheDocument();
+    expect(links.map((l) => l.getAttribute('href'))).toEqual([912, 913].map((n) => `https://github.com/spietrza/taskcell/issues/${n}`));
     expect(await screen.findByRole('button', { name: /GitHub Actions/ })).toBeEnabled();
+  });
+
+  test('a project with no remote says so', async () => {
+    vi.mocked(enableFactoryHost).mockResolvedValue({ host: 'none' });
+    render(<EnableFactoryDialog project={project} onClose={() => {}} />);
+    expect(await screen.findByText(/no remote/)).toBeInTheDocument();
+  });
+
+  test('GitLab CI is offered for a GitLab remote and plans through the gitlab provider', async () => {
+    vi.mocked(enableFactoryHost).mockResolvedValue({ host: 'gitlab' });
+    vi.mocked(enableFactoryPlan).mockResolvedValue(gitlabFactoryPlan);
+    render(<EnableFactoryDialog project={project} onClose={() => {}} />);
+    fireEvent.click(await screen.findByRole('button', { name: /GitLab CI/ }));
+    await screen.findByText('acme/my-app');
+    expect(enableFactoryPlan).toHaveBeenCalledWith(project.path, 'gitlab');
+    expect(screen.getByText('.gitlab/taskcell.yml')).toBeInTheDocument();
+    expect(screen.getByText(/never edits CI config itself/)).toBeInTheDocument();
+    fireEvent.click(screen.getByRole('button', { name: 'Open merge request' }));
+    await vi.waitFor(() => expect(enableFactoryApply).toHaveBeenCalledWith(project.path, gitlabFactoryPlan));
+  });
+
+  test('GitLab: a CI file the hub cannot edit is named with the exact include line; no MR is offered when only that line is missing', async () => {
+    vi.mocked(enableFactoryHost).mockResolvedValue({ host: 'gitlab' });
+    vi.mocked(enableFactoryPlan).mockResolvedValue({ ...gitlabFactoryPlan, gitlabManualInclude: true });
+    const first = render(<EnableFactoryDialog project={project} onClose={() => {}} />);
+    fireEvent.click(await screen.findByRole('button', { name: /GitLab CI/ }));
+    expect(await screen.findByText(/not edited automatically/)).toBeInTheDocument();
+    expect(screen.getByText('- local: .gitlab/taskcell.yml')).toBeInTheDocument();
+    expect(screen.getByText(/Before merging the merge request/)).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: 'Open merge request' })).toBeEnabled();
+    first.unmount();
+
+    vi.mocked(enableFactoryPlan).mockResolvedValue({ ...gitlabFactoryPlan, gitlabManualInclude: true, existingCallerFiles: ['.gitlab/taskcell.yml'] });
+    render(<EnableFactoryDialog project={project} onClose={() => {}} />);
+    fireEvent.click(await screen.findByRole('button', { name: /GitLab CI/ }));
+    expect(await screen.findByText(/no merge request to open/)).toBeInTheDocument();
+    expect(screen.getByText('- local: .gitlab/taskcell.yml')).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: 'Open merge request' })).toBeDisabled();
+  });
+
+  test('GitLab: Run doctor asks for an explicit confirmation when the project has jobs without rules', async () => {
+    const plan = { ...gitlabFactoryPlan, gitlabUnruledJobs: ['deploy', 'publish'] };
+    vi.mocked(factoryState).mockResolvedValue(at(['done', 'done', 'done', 'current'], { step: 'doctor', plan }));
+    render(<EnableFactoryDialog project={project} onClose={() => {}} />);
+    fireEvent.click(await screen.findByRole('button', { name: 'Run doctor' }));
+    expect(await screen.findByRole('alert')).toHaveTextContent('This also runs deploy, publish');
+    expect(enableFactoryVerify).not.toHaveBeenCalled();
+    fireEvent.click(screen.getByRole('button', { name: 'Run doctor anyway' }));
+    await vi.waitFor(() => expect(enableFactoryVerify).toHaveBeenCalledWith(project.path, plan));
   });
 
   test('plan -> Open PR lands on the checklist with the exact secret command', async () => {

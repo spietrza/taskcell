@@ -365,7 +365,7 @@ request is replayed, so a run is never started twice.
 | `TASKCELL_HUB_CONFIG_DIR` | `$XDG_CONFIG_HOME/vanguard-hub` else `~/.config/vanguard-hub` |
 | `TASKCELL_HUB_WATCH_POLL` | — |
 | `TASKCELL_HUB_WATCH_INTERVAL_MS` | `2000` |
-| `TASKCELL_HUB_SECRET` | — (32 bytes, base64: `openssl rand -base64 32`. Enables the Settings credential store, `<config dir>/.vanguard-hub/credentials.enc`, AES-256-GCM. A stored Claude/Codex/z.ai/OpenRouter key overrides the same env var; the API is write-only (set + last four characters). Without it the store is disabled and env credentials apply) |
+| `TASKCELL_HUB_SECRET` | — (32 bytes, base64: `openssl rand -base64 32`. When set, this operator-held key protects the [credential store](#per-user-provider-credentials); keep it stable across restarts and outside the config directory. It also decrypts the retired `<config dir>/.vanguard-hub/credentials.enc` once on start so its keys can move into the unified store. If migration cannot complete, the hub reports a value-free reason, keeps the legacy file and starts) |
 | `TASKCELL_HUB_BROWSE_ROOT` | `$HOME` (where the Add-project picker opens, and the limit of what it can browse, add or clone into. A drive or share root such as `D:\` confines to that drive or share) |
 | `TASKCELL_HUB_BROWSE_ANYWHERE` | — (`1` on a loopback bind without server mode lifts that limit: the browse root is then only where the picker opens. Set by the desktop app for its own hub) |
 | `TASKCELL_HUB_ALLOW_ADD` | — |
@@ -506,7 +506,7 @@ Replies and merges are a remote mutation, gated like `clone_project`: loopback o
 
 **Enable factory** on a project card (hub only) turns on the GitHub Actions factory for that repo in
 four steps, following [onboarding-another-repo.md](onboarding-another-repo.md)
-(`src/hub/enable-factory.ts`). GitLab and Linear show as coming soon.
+(`src/hub/enable-factory.ts`). GitLab CI has its own flow, below; Linear shows as planned.
 
 1. **Plan** reads the repo with `gh` and changes nothing: the slug, the default branch, the signed-in
    `gh` login (it becomes the callers' actor gate), the package manager and scripts, and the caller
@@ -528,6 +528,27 @@ the secret step has a copy button and "Check again" (`gh secret list`, names onl
 detects the merged PR on its own and links it, and the verify step dispatches the doctor and shows
 the linked run's status live. The project card shows the state: not enabled, setting up (current
 step), ready, or broken (the reason: a closed PR or a failed doctor run).
+
+### GitLab CI
+
+The dialog offers **GitLab CI** only when `origin` is on GitLab (gitlab.com, or the host named by `GITLAB_HOST`); `enable_factory_host` reports which host it is. For a GitHub project, or one with no remote, the row stays unavailable and says why. The hub does everything through `glab` (`src/hub/enable-factory-gitlab.ts`).
+
+**What the hub needs.** `glab` on the `PATH` of the machine the hub runs on, signed in (`glab auth login`) as an account with at least Developer access to the project (push a branch, create labels, open an MR; Maintainer to see and set CI/CD variables). The Docker hub image (`docker/hub.Dockerfile`) ships a pinned, checksum-verified `glab` next to `gh`; sign it in inside the container, or pass `GITLAB_TOKEN` to it. A hub run from source needs you to install `glab` yourself. For a self-managed GitLab, start the hub with `GITLAB_HOST` set to the host of `origin`. The project needs a runner that allows the privileged `docker:dind` service.
+
+**Step by step:**
+
+1. On the project card, choose **Enable factory → GitLab CI**. The plan shows the project, the default branch, the signed-in `glab` user and the CI files. That user becomes the jobs' actor gate: the factory jobs run only in pipelines that this GitLab user starts.
+2. Click **Open merge request**. The hub adds the factory jobs (`templates/gitlab/taskcell.yml`: doctor, implement, review) as `.gitlab/taskcell.yml`, includes them from `.gitlab-ci.yml` (created if missing; an existing `include:` in any form gets one more entry), pushes only the branch `vanguard/enable-factory`, creates the routing labels and opens the MR. It never pushes CI config to the default branch. An MR opened from a fork with the same branch name is not mistaken for it.
+   - If the plan says the CI file is **not edited automatically** (a custom CI/CD configuration file in the project settings, Auto DevOps with no `.gitlab-ci.yml`, or YAML the hub cannot parse), the MR adds only `.gitlab/taskcell.yml`. Add the line the plan shows, `- local: .gitlab/taskcell.yml`, under the top-level `include:` of the named file before merging. If the jobs file is already on the default branch, there is no MR to open: add the line, then open Enable factory again.
+3. Copy the **Secret** command and run it in your terminal (bash or zsh). It asks for the Claude token without echoing it and stores it as the **masked and protected** CI/CD variable `CLAUDE_CODE_OAUTH_TOKEN` on that project (`glab variable set`, or `update` when it already exists, so the same command rotates the token). Protected means only pipelines on protected branches, such as the default branch, can read it. The hub never reads, prints or stores the value: it checks that the name exists with one body-less `HEAD` request. A Developer, or a group-level variable, is not visible to that check; a passing doctor marks the step done.
+4. In **Settings → CI/CD → Variables**, add `GITLAB_TOKEN` (masked and protected): a project or personal access token that can read and comment on issues and MRs and push branches. The hub does not check it; the doctor does.
+5. Review and merge the MR. The checklist notices the merge on its own.
+6. Click **Run doctor**. The hub starts a pipeline on the default branch with `TASKCELL_DOCTOR=true` (`glab ci run`), follows exactly the pipeline that call created, and reads the `taskcell-doctor` job in it (all pages of the job list). Only that job passing marks the step done; a finished pipeline without it (the include is not wired, or another user started it) fails the step. GitLab runs every job without `rules:` in such a pipeline, so when your `.gitlab-ci.yml` has such jobs the dialog names them and asks for a second click, **Run doctor anyway**, before starting it. Jobs that come from your own includes are not listed.
+7. To let the factory work, create a **Build → Pipeline schedules** entry owned by the same GitLab user with the variable `TASKCELL_SWEEP=true`; each run sweeps the issues labelled `ready for agent` and the MRs labelled `ready for vanguard review`. The hub creates no schedule.
+
+The included jobs run only in pipelines started by that user with one of the two variables, so they never join your own pipelines. Each job builds the pinned Taskcell release (`TASKCELL_REF`, default `v1`) in a `node:24` image with a `docker:dind` service, on an amd64 or arm64 runner; `pnpm` and `glab` are pinned (`glab` by checksum), the template sets no global variables, points `glab` at your GitLab (`GITLAB_HOST: $CI_SERVER_HOST`) and keeps the two credentials out of the environment while it installs and builds.
+
+Each step shows its state; the dialog polls the MR merge and the pipeline, "Check again" re-reads the variable and "Run doctor again" retries the pipeline. A project with no remote, a missing `glab`, no `glab` sign-in or no permission gets one plain sentence, not the raw command error. The same loopback / `TASKCELL_HUB_ALLOW_ADD=1` gate applies to apply and verify, and both are audited as `enable-factory`.
 
 Apply and verify change the remote, so they are gated like `clone_project`: loopback only, unless
 `TASKCELL_HUB_ALLOW_ADD=1`. The `gh` login must be able to push workflow files (classic `repo` and
@@ -596,9 +617,9 @@ process as the HTTP server, so give the container the same RAM headroom, and kee
 ## Per-user provider credentials
 
 Off by default: every run uses the instance credential (the hub's environment, or an instance
-credential an admin saved). An **admin** — a GitHub login listed in `--admin-github-login`
+credential the hub owner or an admin saved). An **admin** — a GitHub login listed in `--admin-github-login`
 (repeatable) or `TASKCELL_HUB_ADMIN_GITHUB_LOGINS` (comma-separated) — can change the
-`per-user credentials` switch in Settings:
+`per-user credentials` switch in Settings (as can the hub owner):
 
 | Setting | A run uses |
 |---|---|
@@ -615,14 +636,13 @@ A run never receives keys of providers it does not use.
 A run on the starter's own credential never reads the hub's provider keys: a provider whose key the user cannot save (a repo custom provider's `keyEnv`, meridian's `MERIDIAN_BASE_URL`) is refused for it.
 
 When the switch is on, each signed-in user saves their own provider credentials in Settings. They are
-keyed by GitHub user id and stored encrypted (AES-256-GCM) in `credentials.enc.json` in the hub
-config dir, with the key in `credentials.key` (mode 0600) beside it. Credentials are write-only:
+keyed by the hub (Better Auth) user id — a GitHub, GitLab or Google user alike — and stored encrypted (AES-256-GCM) in `credentials.enc.json` in the hub
+config dir. When `TASKCELL_HUB_SECRET` is set, that operator-held 32-byte base64 key protects this store as it protected the retired `credentials.enc`; keep the same value across restarts and outside the config directory. A store first written under `credentials.key` is re-encrypted under the secret on the next start and the stale key file is removed; the re-key waits until any retired `credentials.enc` has been migrated, so one secret always opens everything. A store that cannot be decrypted (a different secret value, or the secret removed) is never overwritten, and Settings and the setup guide say which key recovers it. Runs then start only on a provider key in the hub's start-up environment (with the switch `off` or `user-first`); a run that needs a stored credential is refused with that reason. A secret that is not 32 bytes is not used: the store stays on `credentials.key` and the reason is shown. Without it, the hub uses `credentials.key` (mode 0600, generated on first write) beside the store, so a copy of the config directory yields every saved key; keep it out of backups and shares. This is the hub's only credential store (instance and per-user). Credentials are write-only:
 the hub lists which variable names are saved, never a value, and no RPC takes a user id, so one user
-cannot read, overwrite or use another's. Only admins see the switch and the instance credentials
-(anyone else gets 403). The run record carries `credentialSource: 'instance' | 'user'`, never the value.
+cannot read, overwrite or use another's. The switch and every instance-credential RPC (`get_credential_policy`, `set_credential_policy`, `instance_credentials_status`, `save_instance_credential`, `delete_instance_credential`) share one gate: the **hub owner** (the hub-token holder, or local mode) or an **admin**; anyone else gets 403. The token owner remains able to manage instance credentials so a token-only hub does not need a configured sign-in admin. The owner's writes (and the switch) are also refused on a non-loopback bind unless `TASKCELL_HUB_ALLOW_ADD=1`, as `set_credential` was. Saved instance credentials are passed explicitly to the provider-specific run and doc-chat child that consume them; the Fleet screen's spawns (any agent CLI) get every saved instance credential the same way. They are not exported into the hub process environment, so host-side `git`/`gh`/`glab` calls, which read none of them, do not inherit them. Removing a saved value makes those consumers fall back to the hub's start-up environment. Settings shows one Credentials panel, including a value-free migration/decryption reason when the store needs operator attention, and the run detail says which credential funded the run. The run record carries `credentialSource: 'instance' | 'user'`, never the value.
 
-This needs the hub's GitHub sign-in to identify the caller (`HubServerOptions.identify`); without a
-signed-in user there is no admin and no per-user credential.
+Admin and per-user credentials need a sign-in to identify the caller (`HubServerOptions.identify`); without a
+signed-in user there is no admin (the hub owner still manages instance credentials) and no per-user credential.
 The admin match uses the login GitHub reports for the account's numeric id at each GitHub sign-in (kept
 in `hub_github_login` in `auth.sqlite`), never a profile field a user can edit: after upgrading, an
 admin signs out and in with GitHub once before the switch appears.
@@ -647,7 +667,7 @@ taskcell hub rotate-token --token-file <path>
 A missing or unbuilt `--ui-dir` fails at startup, naming `pnpm --dir apps/desktop build`
 (run `pnpm build:ui`) rather than failing on the first request. Binding a non-loopback host
 requires sign-in (warning at startup if no provider or allowlist is configured) and disables `add_project`/`browse_dirs`/`clone_project`,
-`enable_factory_apply`/`enable_factory_verify`/`enable_factory_start`, `reply_needs_you`, `merge_needs_you` and `start_task` unless
+`enable_factory_apply`/`enable_factory_verify`/`enable_factory_start`, `reply_needs_you`, `merge_needs_you`, `set_task_skills` and `start_task` unless
 `TASKCELL_HUB_ALLOW_ADD=1`. `SIGINT`/`SIGTERM` close the listener, every connected SSE client,
 and the project file watchers.
 
@@ -691,7 +711,8 @@ GitHub Actions or GitLab CI. Only `http:` and `https:` addresses are passed on. 
 
 On a hub with no projects the app opens a "Get started" guide: Git host and tasks, model
 credential, first repository. Detection is one read-only owner command, `setup_status`, that
-returns booleans only. The model step is Done when a model credential is
+returns booleans only (plus, when the credential store cannot be decrypted or migrated, a value-free
+reason shown on the model step; saved credentials then count as absent). The model step is Done when a model credential is
 present: for Claude, `CLAUDE_CODE_OAUTH_TOKEN` or one saved in Settings → credentials; for Codex,
 `CODEX_AUTH_JSON`, `CODEX_API_KEY` or `OPENAI_API_KEY` (or a key saved in Settings → credentials). A
 `codex login` sign-in alone does not count, because a hub run never reads `$CODEX_HOME/auth.json`
@@ -702,6 +723,19 @@ that option's commands, and remembers the choice in the browser with the rest of
 An `export` line only takes effect for a hub started after it: the hub reads its environment at
 start. After exporting, restart the hub (or save the key in Settings → credentials, where that
 exists) and then press **Check again**.
+
+## Choosing skills
+
+Skills are picked automatically for a run. To make a task use specific ones, pick them in the hub:
+
+- **On the card.** Open a card on the Board (its quick view; a bottom drawer on a phone). The **Skills** section lists the installed skills as checkboxes; tick the ones the task must use and press **Save skills**. The hub writes them to the task itself, as a `Skills: a, b` line in the issue body (GitHub, GitLab or Linear), so a run started later from the hub, from CI or by `taskcell watch` uses them too. Unticking everything removes the line. The card then shows `skills: a, b`. The card must belong to the project's own task source (and, on Linear, its team). A GitLab issue whose description has a line starting with a quick action such as `/close` is refused; edit its `Skills:` line on GitLab instead.
+- **In the New Run form.** Under **Advanced**, the same checkboxes. Opened from a card, the card's skills are already ticked and appear in the command preview as `--skill <id>`; untick one and that run does not load it. What is ticked when you press **Run** is the run's whole hand-picked list. Opened without a card and with nothing ticked, the run reads the issue's own `Skills:` line.
+
+The list comes from the hub's `SKILLS_DIR` plus the project's `.github/vanguard-skills/`, and hub runs on every task source (GitHub, GitLab, Linear) load and check against that same set, so a skill the picker offers is one the run accepts. When the list cannot be read (a missing `SKILLS_DIR` directory, a `skills.lock.json` mismatch) the picker says why instead of showing nothing; fix the directory (see [skills.md](skills.md)) and reopen it. A skill that is ticked but not installed is marked "(not installed)"; a run with it is refused before any model call, with the installed names.
+
+A provider that cannot load skills still runs; the run shows a warning and its record carries the note. The same goes for a `Skills:` line in the issue that is not a list of skill ids: it is ignored, with a warning on the run.
+
+Calls: `list_skills` (`repoPath`; read-only, not audited) returns the installed ids; `set_task_skills` (`repoPath`, `taskId`, `skills`) writes the card's line as the hub's own tracker identity and is audited as `task-edit`. `api_create_run` takes `skills`; an id that is not installed is refused before the run's sandbox context is created.
 
 ## Hub board: tasks, dependencies and start dates
 

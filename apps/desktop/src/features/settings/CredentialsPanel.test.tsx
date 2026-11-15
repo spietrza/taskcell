@@ -37,6 +37,13 @@ test('an admin sees the switch and instance credentials; values are write-only a
   await waitFor(() => expect(input.value).toBe(''));
 });
 
+test('an admin sees a value-free store migration or decryption reason', async () => {
+  vi.mocked(ipc.userCredentialsStatus).mockResolvedValue({ enabled: false, admin: true, names: [] });
+  vi.mocked(ipc.instanceCredentialsStatus).mockResolvedValueOnce({ names: [], reason: 'credential store cannot be decrypted' });
+  render(<CredentialsPanel />);
+  expect(await screen.findByRole('alert')).toHaveTextContent('credential store cannot be decrypted');
+});
+
 test('with the switch off a user is told so and gets no editor', async () => {
   vi.mocked(ipc.userCredentialsStatus).mockResolvedValue({ enabled: false, admin: false, names: [] });
   render(<CredentialsPanel />);
