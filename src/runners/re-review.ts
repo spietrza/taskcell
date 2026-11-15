@@ -111,8 +111,6 @@ export function reReviewInstructions(ctx: ReReviewContext): { rules: string[]; u
 export const RE_REVIEW_UNTRUSTED_TAGS = '<previous_review>, <revision_summaries>, <diff_since_last_review>';
 
 const REREVIEW_OPEN_RE = /<rereview>/gi;
-// Closed blocks, then an unclosed (truncated) one to the end: neither may reach the posted comment.
-const REREVIEW_STRIP_RE = /<rereview>[\s\S]*?<\/rereview>|<rereview>[\s\S]*$/gi;
 export const REREVIEW_MALFORMED_NOTE = '_Re-review: the re-review block was missing, repeated or malformed, so previous findings were not tracked and the verdict above is the reviewer\'s own._';
 
 const cell = (s: string): string => s.replace(/\|/g, '\\|').replace(/\s*\n\s*/g, ' ').trim();
@@ -156,6 +154,63 @@ function headerBlock(text: string): string | undefined {
   return /^<rereview>/i.test(after) ? after : undefined;
 }
 
+function balancedJsonEnd(text: string, start: number): number | undefined {
+  let depth = 0;
+  let inString = false;
+  let escaped = false;
+  for (let i = start; i < text.length; i++) {
+    const char = text[i]!;
+    if (inString) {
+      if (escaped) escaped = false;
+      else if (char === '\\') escaped = true;
+      else if (char === '"') inString = false;
+      continue;
+    }
+    if (char === '"') inString = true;
+    else if (char === '{') depth++;
+    else if (char === '}' && --depth === 0) return i + 1;
+  }
+  return undefined;
+}
+
+const BLOCK_OPEN_RE = /^<rereview>[ \t\r\n]*(?:```(?:json)?[ \t\r\n]*)?\{/i;
+const BLOCK_CLOSE_RE = /^[ \t\r\n]*(?:```[ \t\r\n]*)?<\/rereview>/i;
+const BLOCK_CLOSE_TAG = '</rereview>';
+// Not directly after a backtick: a finding that names the tag in inline code is prose, not a block.
+const BLOCK_TAG_RE = /(?<!`)<rereview>/gi;
+const CONTENT_BOUNDARY_RE = /\n(?=(?:#{1,6}[ \t]+|[ \t]*(?:(?:[-*]|\d+[.)])[ \t]+)?\[(?:critical|high|medium|low)\](?:[ \t]|$)))/i;
+
+/**
+ * Length of the block that `block` opens with. A JSON object that balances before the first closing tag ends the
+ * block (with the closing tag or fence directly after it), so findings written before a late closing tag are kept.
+ * Any other closed block runs to its first closing tag, whatever its body. An unclosed (truncated) one runs to
+ * the first heading or severity label, or to the end.
+ */
+function blockLength(block: string): number {
+  const close = block.toLowerCase().indexOf(BLOCK_CLOSE_TAG);
+  const jsonPrefix = BLOCK_OPEN_RE.exec(block);
+  const jsonEnd = jsonPrefix === null ? undefined : balancedJsonEnd(block, jsonPrefix[0].length - 1);
+  if (jsonPrefix !== null && jsonEnd !== undefined && (close === -1 || jsonEnd <= close)) {
+    // No closing tag: a fenced block's closing fence goes with it, or it would open a code block over the findings.
+    const closing = BLOCK_CLOSE_RE.exec(block.slice(jsonEnd)) ?? (jsonPrefix[0].includes('```') ? /^[ \t\r\n]*```/.exec(block.slice(jsonEnd)) : null);
+    return jsonEnd + (closing?.[0].length ?? 0);
+  }
+  if (close !== -1) return close + BLOCK_CLOSE_TAG.length;
+  return CONTENT_BOUNDARY_RE.exec(block)?.index ?? block.length;
+}
+
+/** Remove every <rereview> block, wherever it sits: none may reach the posted comment. A tag named in inline code stays. */
+export function stripReReviewBlocks(text: string): string {
+  let out = '';
+  let from = 0;
+  for (const open of text.matchAll(BLOCK_TAG_RE)) {
+    if (open.index < from) continue;
+    out += text.slice(from, open.index);
+    from = open.index + blockLength(text.slice(open.index));
+  }
+  return (out + text.slice(from)).replace(/^[ \t]*<\/rereview>[ \t]*$/gim, '');
+}
+
 // The previous comment opens with the review heading (and, when it ended without completion, a one-line note).
 const PREVIOUS_PREAMBLE_RE = /^\s*## (?:Taskcell|Vanguard) Review[ \t]*\n(?:\s*_[^\n]*_[ \t]*\n)?/;
 
@@ -191,7 +246,7 @@ export function applyReReviewRules(
   text: string,
   ctx: Pick<ReReviewContext, 'sinceDiff'> & Partial<Pick<ReReviewContext, 'previousBody' | 'changedFiles'>> & { prFiles?: readonly string[] },
 ): { text: string; downgraded: number } {
-  const peeled = peelVerdict(text.replace(REREVIEW_STRIP_RE, ''));
+  const peeled = peelVerdict(stripReReviewBlocks(text));
   let parsed: z.infer<typeof reReviewSchema> | undefined;
   try {
     const block = headerBlock(text);

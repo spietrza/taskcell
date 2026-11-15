@@ -59,9 +59,9 @@ export function extractReviewRisk(text: string): ReviewRisk | undefined {
   return m === null ? undefined : (m[1]!.toLowerCase() as ReviewRisk);
 }
 
-/** A review is usable when it completed OR stated its verdict; findings after a stated verdict may be truncated. */
-export function reviewOutcomeUsable(outcome: { text: string; completed: boolean }): boolean {
-  return outcome.completed || extractReviewVerdict(outcome.text) !== undefined;
+/** A review is usable only when it opens with its verdict line; a completion signal alone does not make a progress note a review. */
+export function reviewOutcomeUsable(outcome: { text: string }): boolean {
+  return extractReviewVerdict(outcome.text) !== undefined;
 }
 
 /**
@@ -168,7 +168,7 @@ export { neutralizePromptTags } from '../context/escape.js';
 // rescan every following blank line from each line start, which is quadratic on a long blank run.
 export const MARKER_PAD = String.raw`[^\S\n\r\u2028\u2029]*`;
 const REVIEW_MARKER_LINE_RE = new RegExp(
-  String.raw`^${MARKER_PAD}<!--[ \t]*(?:taskcell|vanguard)-(?:(?:mr|pr)-review:[ \t]*[a-fA-F0-9]+|pr-review-run:[ \t]*[a-fA-F0-9]+:\d+|pr-review-incomplete)[ \t]*-->${MARKER_PAD}$`,
+  String.raw`^${MARKER_PAD}<!--[ \t]*(?:taskcell|vanguard)-(?:(?:mr|pr)-review:[ \t]*[a-fA-F0-9]+|pr-review-run:[ \t]*[a-fA-F0-9]+:\d+|(?:mr|pr)-review-incomplete(?:-cap)?:[ \t]*[a-fA-F0-9]+|pr-review-incomplete)[ \t]*-->${MARKER_PAD}$`,
   'gm',
 );
 

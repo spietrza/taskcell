@@ -1,5 +1,9 @@
 // taskcell.dev page script: entrance reveals, and the factory scene loaded after first paint.
 // Phones get the poster and a button; reduced motion gets one still frame; no WebGL keeps the poster.
+import { STAGES, advance, clock, column, cost, elapsed, log, sample, share } from './hub-data.js';
+import { YEARLY, euro } from './prices.js';
+import { evaluate } from './quiz.js';
+
 const root = document.documentElement;
 const phone = matchMedia('(max-width: 640px)').matches;
 const reduced = matchMedia('(prefers-reduced-motion: reduce)').matches;
@@ -141,16 +145,249 @@ if (navigator.clipboard) {
   }
 }
 
-// ---------- Hub preview panel: built when it comes near the screen; phones keep the poster ----------
-const panelHost = document.getElementById('floor-panel');
-if (!phone) {
-  const near = new IntersectionObserver(
-    (entries) => {
-      if (!entries.some((e) => e.isIntersecting)) return;
-      near.disconnect();
-      afterPaint(() => mount(panelHost, { mode: 'panel', labels: false }, true));
-    },
-    { rootMargin: '300px 0px' },
-  );
-  near.observe(panelHost);
+// ---------- pricing: the yearly price is computed from the monthly one (20% off), never typed in ----------
+const billing = document.getElementById('billing');
+billing.hidden = false;
+const paintPrices = () => {
+  const yearly = billing.querySelector(':checked').value === 'yearly';
+  for (const el of document.querySelectorAll('[data-price]')) {
+    el.querySelector('span').textContent = euro(Number(el.dataset.price) * (yearly ? YEARLY : 1));
+  }
+  for (const el of document.querySelectorAll('[data-per]')) el.textContent = yearly ? 'Billed yearly' : 'Billed monthly';
+};
+billing.addEventListener('change', paintPrices);
+paintPrices();
+
+// ---------- readiness quiz: one question per screen; the answers never leave the page ----------
+const quiz = document.getElementById('quiz');
+const steps = [...quiz.querySelectorAll('fieldset')];
+const byId = (id) => document.getElementById(id);
+let at = 0;
+const showStep = (focus) => {
+  steps.forEach((s, i) => (s.hidden = i !== at));
+  byId('quiz-result').hidden = true;
+  byId('quiz-meter').hidden = false;
+  byId('quiz-nav').hidden = false;
+  byId('quiz-back').hidden = at === 0;
+  byId('quiz-next').textContent = at === steps.length - 1 ? 'Show the result' : 'Next';
+  byId('quiz-progress').textContent = `Question ${at + 1} of ${steps.length}`;
+  byId('quiz-bar').value = at + 1;
+  byId('quiz-error').textContent = '';
+  if (focus) (steps[at].querySelector('input:checked') ?? steps[at].querySelector('input')).focus();
+};
+const fill = (ul, lines) => ul.replaceChildren(...lines.map((t) => Object.assign(document.createElement('li'), { textContent: t })));
+const showResult = () => {
+  const d = new FormData(quiz);
+  const models = d.getAll('models').filter((m) => m !== 'none');
+  const r = evaluate({ host: d.get('host'), tests: d.get('tests'), criteria: d.get('criteria'), team: d.get('team'), models, review: d.get('review') });
+  byId('r-level').textContent = r.level;
+  byId('r-fix-block').hidden = r.fixes.length === 0;
+  fill(byId('r-fix'), r.fixes);
+  byId('r-plan').textContent = r.plan.name;
+  byId('r-plan-note').textContent = r.plan.note;
+  byId('r-alt').textContent = r.alt;
+  byId('r-alt').hidden = !r.alt;
+  byId('r-plan-link').textContent = r.plan.action;
+  byId('r-plan-link').href = r.plan.id ? `/hosting/?plan=${r.plan.id}` : 'https://github.com/spietrza/taskcell/issues';
+  byId('r-planned').hidden = !r.plan.id;
+  fill(byId('r-promises'), r.promises);
+  steps.forEach((s) => (s.hidden = true));
+  byId('quiz-meter').hidden = true;
+  byId('quiz-nav').hidden = true;
+  byId('quiz-error').textContent = '';
+  byId('quiz-result').hidden = false;
+  byId('quiz-result').focus();
+};
+quiz.addEventListener('submit', (e) => {
+  e.preventDefault();
+  // "What for" is optional: it does not change the result.
+  if (!steps[at].querySelector('input:checked') && !steps[at].querySelector('[name="uses"]')) {
+    byId('quiz-error').textContent = 'Pick an answer to go on.';
+    return;
+  }
+  if (at === steps.length - 1) return showResult();
+  at += 1;
+  showStep(true);
+});
+byId('quiz-back').addEventListener('click', () => {
+  at -= 1;
+  showStep(true);
+});
+byId('quiz-reset').addEventListener('click', () => {
+  quiz.reset();
+  at = 0;
+  showStep(true);
+});
+quiz.addEventListener('change', (e) => {
+  byId('quiz-error').textContent = '';
+  // "None yet" and the real models exclude each other.
+  if (e.target.name !== 'models' || !e.target.checked) return;
+  for (const i of quiz.querySelectorAll('input[name="models"]')) if ((i.value === 'none') !== (e.target.value === 'none')) i.checked = false;
+});
+byId('quiz-nojs').hidden = true;
+quiz.hidden = false;
+showStep(false);
+
+/** Sets an element's text only when it changes, so live regions are not announced again on every repaint. */
+const text = (el, t) => {
+  if (el.textContent !== t) el.textContent = t;
+};
+/** Plays a preview while it is on screen and the visitor has not paused it. Phones and reduced motion start paused. */
+const playOnScreen = (host, button, play) => {
+  let wanted = !phone && !reduced;
+  let playing = false;
+  const set = (on) => {
+    playing = on;
+    button.textContent = on ? 'Pause' : 'Play';
+    play(on);
+  };
+  button.hidden = false;
+  button.addEventListener('click', () => {
+    wanted = !playing;
+    set(wanted);
+  });
+  // Without the observer the preview stays paused, with its Play button.
+  if ('IntersectionObserver' in window) new IntersectionObserver((entries) => set(wanted && entries.at(-1).isIntersecting)).observe(host);
+  return () => {
+    wanted = false;
+    set(false);
+  };
+};
+
+// ---------- how it works: five steps as tabs; the sample run beside them fills in up to the open step ----------
+const flow = byId('flow');
+const tabs = [...flow.querySelectorAll('[role="tab"]')];
+const openStep = (n) => {
+  tabs.forEach((tab, i) => {
+    tab.setAttribute('aria-selected', i === n);
+    tab.tabIndex = i === n ? 0 : -1;
+    tab.classList.toggle('past', i < n);
+    byId(tab.getAttribute('aria-controls')).hidden = i !== n;
+  });
+  for (const part of flow.querySelectorAll('[data-at]')) part.classList.toggle('lit', Number(part.dataset.at) <= n + 1);
+};
+// Under reduced motion the track never plays: its timing is a CSS animation, which that setting cuts to nothing.
+const stopFlow = reduced ? () => {} : playOnScreen(flow, byId('flow-pause'), (on) => flow.classList.toggle('playing', on));
+tabs.forEach((tab, i) => {
+  tab.addEventListener('click', () => {
+    stopFlow();
+    openStep(i);
+  });
+  tab.addEventListener('keydown', (e) => {
+    const to = { ArrowRight: i + 1, ArrowLeft: i - 1, Home: 0, End: tabs.length - 1 }[e.key];
+    if (to === undefined) return;
+    e.preventDefault();
+    const next = tabs[(to + tabs.length) % tabs.length];
+    next.click();
+    next.focus();
+  });
+});
+// The open step's line has filled: the next step opens, and the first after the last.
+flow.addEventListener('animationend', (e) => {
+  if (e.animationName === 'flow-fill') openStep((tabs.findIndex((tab) => tab.getAttribute('aria-selected') === 'true') + 1) % tabs.length);
+});
+openStep(0);
+
+// ---------- the keys headline assembles from its letters; the heading keeps its text as its label ----------
+for (const heading of document.querySelectorAll('[data-letters]')) {
+  heading.setAttribute('aria-label', heading.textContent);
+  let n = 0;
+  const words = heading.textContent.split(' ').map((word) => {
+    const span = document.createElement('span');
+    span.setAttribute('aria-hidden', 'true');
+    for (const letter of word) {
+      const i = Object.assign(document.createElement('i'), { textContent: letter });
+      i.style.setProperty('--n', n);
+      i.style.setProperty('--dx', `${((n * 37) % 5) * -0.14}em`); // only leftwards: a letter pushed past the right edge would widen the page
+      i.style.setProperty('--dy', `${(((n * 53) % 7) - 3) * 0.22}em`);
+      i.style.setProperty('--r', `${(((n * 29) % 11) - 5) * 5}deg`);
+      n += 1;
+      span.append(i);
+    }
+    return span;
+  });
+  heading.replaceChildren(...words.flatMap((span, i) => (i ? [' ', span] : [span])));
 }
+
+// ---------- Hub preview: views filter the run list, a row opens that run's own stages, log and cost (sample data) ----------
+const win = document.querySelector('.win');
+const views = [...win.querySelectorAll('.views button')];
+const runRows = [...win.querySelectorAll('.rows button')];
+let runs = sample();
+let view = views[0];
+let openRow = runRows[0];
+const runOf = (row) => runs.find((r) => r.id === row.dataset.run);
+/** A view shows one board column, one repository, or (All runs) everything. */
+const shows = (v, row) => (v.dataset.col ? row.dataset.col === v.dataset.col : !v.dataset.repo || row.dataset.repo === v.dataset.repo);
+
+// The open run's five stages are the rows written in index.html; each gets a bar for when it runs.
+const stageRows = [...byId('run-stages').children].map((li) => ({ li, status: li.querySelector('span'), bar: li.appendChild(document.createElement('i')) }));
+const paintOpen = () => {
+  const { run: id, col, repo, cost: spent } = openRow.dataset;
+  const r = runOf(openRow);
+  const total = STAGES.reduce((sum, _, i) => sum + elapsed(r, i), 0);
+  text(byId('run-where'), total ? `${repo} / ${id} · ${clock(total)}` : `${repo} / ${id}`);
+  text(byId('run-col'), col);
+  text(byId('run-title'), openRow.querySelector('b').textContent);
+  stageRows.forEach(({ li, status, bar }, i) => {
+    const done = share(r, i) === 1;
+    const now = !done && r.p >= i;
+    li.className = done ? 'done' : now ? 'now' : '';
+    text(status, done || (now && !r.hold) ? clock(elapsed(r, i)) : now ? 'for you to read' : r.p < 0 ? 'not started' : 'waiting');
+    bar.style.width = now && !r.hold ? `${share(r, i) * 100}%` : '0';
+  });
+  const lines = log(r);
+  if (byId('run-log').textContent !== lines.join('')) fill(byId('run-log'), lines);
+  text(byId('run-cost'), spent ? `Cost ${spent}` : col === 'Queued' ? 'No run yet, so no cost.' : 'No cost record yet: the run is still going.');
+};
+/** Brings the rows, the counts and the open run in line with the sample's current state. */
+const paintHub = () => {
+  for (const row of runRows) {
+    const r = runOf(row);
+    const col = column(r);
+    if (row.dataset.col === col) continue;
+    row.dataset.col = col;
+    row.querySelector('.st').textContent = col;
+    row.querySelector('.cost').textContent = cost(r).split(' ')[0];
+    if (cost(r)) row.dataset.cost = cost(r);
+    else delete row.dataset.cost;
+  }
+  for (const v of views) text(v.querySelector('em'), String(runRows.filter((row) => shows(v, row)).length)); // counts come from the list itself
+  for (const row of runRows) {
+    const hide = !shows(view, row);
+    if (hide && row === document.activeElement) view.focus(); // a run that left the view takes the focus with it otherwise
+    row.parentElement.hidden = hide;
+  }
+  byId('win-empty').hidden = runRows.some((row) => shows(view, row));
+  paintOpen();
+};
+for (const v of views) {
+  v.addEventListener('click', () => {
+    view = v;
+    for (const other of views) other.setAttribute('aria-pressed', other === v);
+    paintHub();
+  });
+}
+for (const row of runRows) {
+  row.addEventListener('click', () => {
+    openRow = row;
+    for (const other of runRows) other.setAttribute('aria-pressed', other === row);
+    paintOpen();
+  });
+}
+paintHub();
+
+// Playback: four steps a second; the finished sample is held for four seconds, then starts over as written.
+let timer = 0;
+let rest = 0;
+const tick = () => {
+  if (rest > 0) {
+    rest -= 1;
+    if (rest === 0) runs = sample();
+  } else if (!advance(runs, 0.25)) rest = 16;
+  paintHub();
+};
+playOnScreen(win, byId('hub-pause'), (on) => {
+  clearInterval(timer);
+  timer = on ? setInterval(tick, 250) : 0;
+});
