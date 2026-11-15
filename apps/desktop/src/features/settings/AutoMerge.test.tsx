@@ -1,11 +1,11 @@
-import { test, expect, afterEach } from 'vitest';
+import { test, expect, afterEach, vi } from 'vitest';
 import { render, screen, fireEvent, waitFor } from '@testing-library/react';
-import { mockIPC, clearMocks } from '@tauri-apps/api/mocks';
+import { mockRpc } from '../../testRpc';
 import { AutoMerge } from './AutoMerge';
 import type { ApproverScorecard } from '../../wire';
 
 afterEach(() => {
-  clearMocks();
+  vi.unstubAllGlobals();
   delete window.__TASKCELL_HUB__;
 });
 
@@ -17,7 +17,7 @@ const card = (o: Partial<ApproverScorecard> = {}): ApproverScorecard => ({
 });
 
 test('shows the 90-day scorecard in plain words, the mode, and the reasons', async () => {
-  mockIPC((cmd) => (cmd === 'read_approver_scorecard' ? card() : undefined));
+  mockRpc((cmd) => (cmd === 'read_approver_scorecard' ? card() : undefined));
   render(<AutoMerge project="/repo" />);
   expect(await screen.findByText(/1 of 114 pull requests would have been merged automatically; the bar is 30 correct in a row/)).toBeInTheDocument();
   expect(screen.getByText(/The bar is not met/)).toBeInTheDocument();
@@ -26,7 +26,7 @@ test('shows the 90-day scorecard in plain words, the mode, and the reasons', asy
 });
 
 test('no data is an explanation, not zeros', async () => {
-  mockIPC((cmd) => (cmd === 'read_approver_scorecard' ? card({ status: 'no-data', hint: 'No approver decisions on the metrics branch yet.', judged: 0, approves: 0, escalates: 0 }) : undefined));
+  mockRpc((cmd) => (cmd === 'read_approver_scorecard' ? card({ status: 'no-data', hint: 'No approver decisions on the metrics branch yet.', judged: 0, approves: 0, escalates: 0 }) : undefined));
   render(<AutoMerge project="/repo" />);
   expect(await screen.findByText(/No approver decisions on the metrics branch yet/)).toBeInTheDocument();
   expect(screen.queryByText(/0 of 0/)).not.toBeInTheDocument();
@@ -34,7 +34,7 @@ test('no data is an explanation, not zeros', async () => {
 
 test('below the bar, act needs the explicit confirmation before the PR is opened', async () => {
   const sent: unknown[] = [];
-  mockIPC((cmd, args) => {
+  mockRpc((cmd, args) => {
     if (cmd === 'read_approver_scorecard') return card();
     if (cmd === 'set_approver_mode') {
       sent.push(args);
@@ -53,14 +53,14 @@ test('below the bar, act needs the explicit confirmation before the PR is opened
 });
 
 test('act is not offered while it is blocked, and nothing is written directly', async () => {
-  mockIPC((cmd) => (cmd === 'read_approver_scorecard' ? card({ actOffered: false }) : undefined));
+  mockRpc((cmd) => (cmd === 'read_approver_scorecard' ? card({ actOffered: false }) : undefined));
   render(<AutoMerge project="/repo" />);
   await waitFor(() => expect(screen.getByRole('button', { name: 'Act' })).toBeDisabled());
   expect(screen.getByText(/Act mode, where the approver merges pull requests by itself, can't be turned on yet/)).toBeInTheDocument();
 });
 
 test('a command in the hub hint is shown as code, and a locked switch says why', async () => {
-  mockIPC((cmd) => (cmd === 'read_approver_scorecard' ? card({ status: 'no-data', hint: 'Run `taskcell approve` from your CI workflow.', policyFound: false }) : undefined));
+  mockRpc((cmd) => (cmd === 'read_approver_scorecard' ? card({ status: 'no-data', hint: 'Run `taskcell approve` from your CI workflow.', policyFound: false }) : undefined));
   render(<AutoMerge project="/repo" />);
   const code = await screen.findByText('taskcell approve');
   expect(code.tagName).toBe('CODE');

@@ -198,10 +198,3 @@ test('when the skills cannot be listed the picker says why and keeps the card\'s
   expect(screen.getByLabelText('ponytail')).toBeChecked();
 });
 
-test('no skill picker is rendered outside hub mode', async () => {
-  delete window.__TASKCELL_HUB__;
-  render(<NewRunForm capabilities={caps} project="/repo" onRun={vi.fn()} onCancel={() => {}} />);
-  fireEvent.click(screen.getByText('Advanced'));
-  expect(await screen.findByPlaceholderText(/card \/ repo default/)).toBeInTheDocument();
-  expect(screen.queryByText('skills')).not.toBeInTheDocument();
-});

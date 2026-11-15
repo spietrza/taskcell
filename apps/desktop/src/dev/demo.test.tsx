@@ -3,7 +3,7 @@ import { render, screen, fireEvent, waitFor, cleanup } from '@testing-library/re
 import App from '../App';
 import { Dashboard } from '../features/dashboard/Dashboard';
 import { handleDemo } from './mockBackend';
-import { isDemoMode, isHubMode, invoke } from '../transport';
+import { isDemoMode, invoke } from '../transport';
 import { DEMO_REPO_PATH, DEMO_WRITE_COMMANDS, demoActiveRuns, demoBoardTasks, demoNeedsYou, demoProject, demoRunDetails, demoRuns } from './demoData';
 
 afterEach(() => {
@@ -13,11 +13,10 @@ afterEach(() => {
   vi.restoreAllMocks();
 });
 
-test('the marker and ?demo=1 both select demo mode, which also counts as hub mode', () => {
+test('the marker and ?demo=1 both select demo mode', () => {
   expect(isDemoMode()).toBe(false);
   window.history.replaceState(null, '', '/?demo=1');
   expect(isDemoMode()).toBe(true);
-  expect(isHubMode()).toBe(true);
   window.history.replaceState(null, '', '/');
   window.__TASKCELL_DEMO__ = true;
   expect(isDemoMode()).toBe(true);

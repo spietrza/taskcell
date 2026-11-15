@@ -82,10 +82,10 @@ Builds work unsigned. When these secrets are present the release job signs and n
 ## Driving the UI with an agent
 
 The frontend is a plain Vite + React app that can run in any browser with a mocked backend — no Rust build,
-no macOS, no `tauri-driver`. When `import.meta.env.DEV` is true and `window.__TAURI_INTERNALS__` is absent
-(plain browser), `main.tsx` dynamically imports `src/dev/mockBackend.ts` which installs typed fixture data
-via `@tauri-apps/api/mocks`. The `import.meta.env.DEV` guard lets Rollup statically eliminate the import
-branch in production builds, so the mock chunk is never emitted into `dist/`.
+no macOS, no `tauri-driver`. When `import.meta.env.DEV` is true and the page was not served by a hub (no
+`window.__TASKCELL_HUB__` marker), `main.tsx` sets `window.__TASKCELL_MOCK__` and `src/transport.ts` answers
+every command from the typed fixtures in `src/dev/mockBackend.ts`. The `import.meta.env.DEV` guard lets
+Rollup statically eliminate that branch in production builds, so the mock chunk is never emitted into `dist/`.
 
 **Start the dev server:**
 
@@ -113,8 +113,8 @@ hub: on launch it starts one on `127.0.0.1` (random free port, per-launch token,
 sign-in), loads the UI the hub serves into its window, and stops it on quit. The window therefore shows
 exactly what a browser pointed at the same hub shows, and the UI makes no Tauri command calls for product
 features. `src/transport.ts` is the seam: `invoke()`/`subscribe()` use the hub's `POST /rpc/<cmd>` + `/events`
-SSE stream, selected by the `window.__TASKCELL_HUB__` marker the hub injects into `index.html`. (Its Tauri
-branch only serves `dev/mockBackend.ts` and `vitest`.)
+SSE stream, selected by the `window.__TASKCELL_HUB__` marker the hub injects into `index.html`; in dev
+without a hub it answers from `dev/mockBackend.ts` instead.
 
 **What the Rust code does** (`src-tauri/src/hub.rs`, `lib.rs`): open the window (a splash page,
 `splash/index.html`), start the hub, navigate to its launch URL, restart it with backoff if it dies (a status

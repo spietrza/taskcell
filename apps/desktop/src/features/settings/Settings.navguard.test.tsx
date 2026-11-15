@@ -10,6 +10,10 @@ vi.mock('../../ipc.js', () => ({
   writeAppConfig: vi.fn(async () => {}),
 }));
 
+// Hub panels with their own reads; not under test here.
+vi.mock('./AutoMerge', () => ({ AutoMerge: () => null }));
+vi.mock('./CredentialsPanel', async (importOriginal) => ({ ...(await importOriginal<typeof import('./CredentialsPanel')>()), CredentialsPanel: () => null }));
+
 const read = vi.mocked(ipc.readAppConfigStrict);
 const write = vi.mocked(ipc.writeAppConfig);
 
