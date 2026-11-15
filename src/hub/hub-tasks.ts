@@ -2,7 +2,7 @@
 // per project under `<configDir>/hub-tasks/`, so nothing a checkout commits can add a task, change one or redirect a
 // write. Dependencies and the start date are plain fields here; src/hub/schedule.ts decides what may start.
 import { createHash, randomUUID } from 'node:crypto';
-import { lstat, mkdir, readFile, readdir, rename, rm, writeFile } from 'node:fs/promises';
+import { appendFile, lstat, mkdir, open, readFile, readdir, rename, rm, writeFile } from 'node:fs/promises';
 import { dirname, join } from 'node:path';
 import { BadRequestError } from '../sidecar/sidecar.js';
 import { keyedLock } from '../core/keyed-lock.js';
@@ -34,7 +34,7 @@ export interface HubTask {
   runId?: string;
   /** `failed`: why. `todo`: why its last start was refused. */
   reason?: string;
-  /** `done`: the pull request URL, or `branch <name>`. */
+  /** `done`: the pull request URL, or `branch <name>`. `failed` after a verify failure: the delivered result (accept it, or retry). */
   result?: string;
 }
 
@@ -42,11 +42,13 @@ export const HUB_TASK_ID = /^hub-[1-9]\d{0,8}$/;
 export const MAX_TITLE_LENGTH = 300;
 export const MAX_BODY_LENGTH = 64 * 1024;
 export const MAX_BLOCKED_BY = 50;
-/** Tasks one project's board holds; the whole file is rewritten on every change. */
+/** Tasks one project's board holds; the whole file is rewritten on every change (archive or delete done tasks to make room). */
 export const MAX_TASKS = 1000;
 
 const STATUSES: readonly string[] = ['todo', 'running', 'done', 'failed'];
 const storeDir = (configDir: string): string => join(configDir, 'hub-tasks');
+/** Archived tasks, one JSON line each, appended: never read by the scheduler and never rewritten (not `.json`, so not a board). */
+const archiveFor = (file: string): string => `${file.slice(0, -'.json'.length)}.archive.jsonl`;
 /** One file, and one write lock, per repository path: callers pass the realpath the allowlist resolved. */
 const fileFor = (configDir: string, repoPath: string): string => join(storeDir(configDir), `${createHash('sha256').update(repoPath).digest('hex').slice(0, 32)}.json`);
 
@@ -78,6 +80,8 @@ interface Store {
   tasks: HubTask[];
   /** Entries that are not valid tasks (a hand edit): never run, and written back untouched on every save. */
   invalid: unknown[];
+  /** The highest task number ever issued, so an id removed from the board is never reused. */
+  lastId: number;
 }
 
 function isTask(r: unknown, seen: Set<string>): r is HubTask {
@@ -101,7 +105,7 @@ async function read(file: string): Promise<Store> {
     if ((await lstat(file)).isSymbolicLink()) throw new Error('it is a symlink');
     raw = await readFile(file, 'utf8');
   } catch (e) {
-    if ((e as NodeJS.ErrnoException).code === 'ENOENT') return { tasks: [], invalid: [] };
+    if ((e as NodeJS.ErrnoException).code === 'ENOENT') return { tasks: [], invalid: [], lastId: 0 };
     throw new BadRequestError(`the hub task store ${file} is unreadable: ${String(e)}`);
   }
   let parsed: unknown;
@@ -112,7 +116,8 @@ async function read(file: string): Promise<Store> {
   }
   const entries = (parsed as { tasks?: unknown } | null)?.tasks;
   if (!Array.isArray(entries)) throw new BadRequestError(`the hub task store ${file} is unreadable: it holds no "tasks" list`);
-  const store: Store = { tasks: [], invalid: [] };
+  const lastId = (parsed as { lastId?: unknown }).lastId;
+  const store: Store = { tasks: [], invalid: [], lastId: typeof lastId === 'number' && Number.isInteger(lastId) && lastId > 0 ? lastId : 0 };
   const seen = new Set<string>();
   for (const r of entries as unknown[]) {
     if (isTask(r, seen)) {
@@ -128,7 +133,7 @@ async function save(file: string, repoPath: string, store: Store): Promise<void>
   // A fresh name created exclusively, then renamed over the file: never a write through an existing file or link.
   const tmp = `${file}.${randomUUID()}.tmp`;
   try {
-    await writeFile(tmp, `${JSON.stringify({ repoPath, tasks: [...store.tasks, ...store.invalid] }, null, 2)}\n`, { flag: 'wx', mode: 0o600 });
+    await writeFile(tmp, `${JSON.stringify({ repoPath, lastId: store.lastId, tasks: [...store.tasks, ...store.invalid] }, null, 2)}\n`, { flag: 'wx', mode: 0o600 });
     await rename(tmp, file);
   } catch (e) {
     await rm(tmp, { force: true });
@@ -149,13 +154,30 @@ export async function listHubTasks(configDir: string, repoPath: string): Promise
   return (await readHubTasks(configDir, repoPath)).tasks;
 }
 
+/** `repoPath` is the first key of a store (see `save`): the head of the file names the board without parsing its tasks. */
+const HEAD_REPO_PATH = /^\s*\{\s*"repoPath"\s*:\s*("(?:[^"\\\u0000-\u001f]|\\.)*")/;
+
+async function repoPathOf(file: string): Promise<unknown> {
+  const fh = await open(file, 'r');
+  try {
+    const buf = Buffer.alloc(8192);
+    const { bytesRead } = await fh.read(buf, 0, buf.length, 0);
+    const m = HEAD_REPO_PATH.exec(buf.toString('utf8', 0, bytesRead));
+    if (m !== null) return JSON.parse(m[1]!);
+  } finally {
+    await fh.close();
+  }
+  // A hand-edited store with another key order, or a very long path: the full parse.
+  return (JSON.parse(await readFile(file, 'utf8')) as { repoPath?: unknown }).repoPath;
+}
+
 /** The repositories that have a hub task store. An unreadable store is reported and skipped. */
 export async function listHubBoards(configDir: string): Promise<string[]> {
   const names = await readdir(storeDir(configDir)).catch(() => []);
   const out: string[] = [];
   for (const name of names.filter((n) => n.endsWith('.json'))) {
     try {
-      const repoPath = (JSON.parse(await readFile(join(storeDir(configDir), name), 'utf8')) as { repoPath?: unknown }).repoPath;
+      const repoPath = await repoPathOf(join(storeDir(configDir), name));
       if (typeof repoPath === 'string' && fileFor(configDir, repoPath) === join(storeDir(configDir), name)) out.push(repoPath);
     } catch (e) {
       console.error(`vanguard-hub: hub task store ${name} is unreadable: ${String(e)}`);
@@ -164,7 +186,7 @@ export async function listHubBoards(configDir: string): Promise<string[]> {
   return out;
 }
 
-export function createHubTask(configDir: string, repoPath: string, input: { title: string; body?: string; blockedBy?: string[]; startDate?: string; owner: HubTaskOwner }): Promise<HubTask> {
+export async function createHubTask(configDir: string, repoPath: string, input: { title: string; body?: string; blockedBy?: string[]; startDate?: string; owner: HubTaskOwner }): Promise<HubTask> {
   if (input.startDate !== undefined && parseStart(input.startDate) === undefined) throw new BadRequestError('startDate must be YYYY-MM-DD or an ISO date-time with a zone');
   const file = fileFor(configDir, repoPath);
   return lock(file, async () => {
@@ -173,10 +195,11 @@ export function createHubTask(configDir: string, repoPath: string, input: { titl
     // Numbered past invalid entries too: an id a hand edit left in the file is never reused.
     // Only well-formed ids count: a hand-edited `hub-12345678901` must not push every new id past HUB_TASK_ID.
     const used = [...store.tasks, ...store.invalid].map((t) => String((t as { id?: unknown } | null)?.id)).filter((id) => HUB_TASK_ID.test(id)).map((id) => Number(id.slice(4)));
-    const n = used.reduce((max, v) => Math.max(max, v), 0) + 1;
+    const n = used.reduce((max, v) => Math.max(max, v), store.lastId) + 1;
     if (!HUB_TASK_ID.test(`hub-${n}`)) throw new BadRequestError('this board has run out of task ids');
     const task: HubTask = { id: `hub-${n}`, title: input.title, body: input.body ?? '', status: 'todo', blockedBy: input.blockedBy ?? [], owner: input.owner, ...(input.startDate !== undefined ? { startDate: input.startDate } : {}) };
     store.tasks.push(task);
+    store.lastId = n;
     await save(file, repoPath, store);
     return task;
   });
@@ -216,18 +239,52 @@ export async function updateHubTask(configDir: string, repoPath: string, id: str
  * run and queue are in memory only), and it may already have pushed a branch or opened a pull request, so it is not
  * started again on its own; a person presses Retry. `isLive` names the tasks this process still holds a run for.
  */
-export function resetStaleRunning(configDir: string, repoPath: string, isLive: (id: string) => boolean = () => false): Promise<string[]> {
+export async function resetStaleRunning(configDir: string, repoPath: string, isLive: (id: string) => boolean = () => false): Promise<string[]> {
+  return (await resetAndListHubTasks(configDir, repoPath, isLive)).reset;
+}
+
+/** `resetStaleRunning` and the board's tasks from one read of the store (a tick needs both). */
+export function resetAndListHubTasks(configDir: string, repoPath: string, isLive: (id: string) => boolean = () => false): Promise<{ reset: string[]; tasks: HubTask[] }> {
   const file = fileFor(configDir, repoPath);
   return lock(file, async () => {
     const store = await read(file);
     const stale = store.tasks.filter((t) => t.status === 'running' && !isLive(t.id));
-    if (stale.length === 0) return [];
+    if (stale.length === 0) return { reset: [], tasks: store.tasks };
     for (const t of stale) {
       t.status = 'failed';
       delete t.runId;
       t.reason = 'its run ended with the hub process before it finished; it may already have pushed a branch or opened a pull request (check the repository), then press Retry to run it again';
     }
     await save(file, repoPath, store);
-    return stale.map((t) => t.id);
+    return { reset: stale.map((t) => t.id), tasks: store.tasks };
+  });
+}
+
+/**
+ * Take a task off the board. `archive` (a `done` task only) first appends it to the project's archive file, which is
+ * never read back or rewritten; either way the store shrinks, which frees room under MAX_TASKS and makes every later
+ * edit cheaper. A running task cannot go. A task an open task waits on cannot go; a `done` one is dropped from its
+ * dependents' `blockedBy` (it was satisfied).
+ */
+export function removeHubTask(configDir: string, repoPath: string, id: string, mode: 'archive' | 'delete'): Promise<void> {
+  const file = fileFor(configDir, repoPath);
+  return lock(file, async () => {
+    const store = await read(file);
+    const task = store.tasks.find((t) => t.id === id);
+    if (task === undefined) throw new BadRequestError(`no hub task ${id}`);
+    if (task.status === 'running') throw new BadRequestError(`${id} is running; it cannot be removed`);
+    if (mode === 'archive' && task.status !== 'done') throw new BadRequestError(`${id} is ${task.status}; only a done task can be archived (delete it instead)`);
+    const dependents = store.tasks.filter((t) => t.blockedBy.includes(id));
+    if (task.status !== 'done') {
+      const open = dependents.filter((t) => t.status !== 'done');
+      if (open.length > 0) throw new BadRequestError(`${open.map((t) => t.id).join(', ')} ${open.length > 1 ? 'are' : 'is'} blocked by ${id}; remove that dependency first`);
+    }
+    for (const t of dependents) t.blockedBy = t.blockedBy.filter((d) => d !== id);
+    if (mode === 'archive') {
+      await mkdir(dirname(file), { recursive: true, mode: 0o700 });
+      await appendFile(archiveFor(file), `${JSON.stringify(task)}\n`, { mode: 0o600 });
+    }
+    store.tasks = store.tasks.filter((t) => t !== task);
+    await save(file, repoPath, store);
   });
 }

@@ -599,6 +599,21 @@ export function hubTaskRetry(repoPath: string, id: string): Promise<{ id: string
   return call('hub_task_retry', { repoPath, id });
 }
 
+/** HUB_ONLY: accept the delivered result of a hub-board task that failed verification (it becomes done, no second run). */
+export function hubTaskAccept(repoPath: string, id: string): Promise<{ id: string }> {
+  return call('hub_task_accept', { repoPath, id });
+}
+
+/** HUB_ONLY: move a done hub-board task to the project's archive file. */
+export function hubTaskArchive(repoPath: string, id: string): Promise<{ id: string }> {
+  return call('hub_task_archive', { repoPath, id });
+}
+
+/** HUB_ONLY: delete a hub-board task that is not running. */
+export function hubTaskDelete(repoPath: string, id: string): Promise<{ id: string }> {
+  return call('hub_task_delete', { repoPath, id });
+}
+
 /** HUB_ONLY: set a hub-board task's dependencies and start date (`null` clears it). */
 export function hubTaskSchedule(repoPath: string, id: string, patch: { blockedBy?: string[]; startDate?: string | null }): Promise<{ id: string }> {
   return call('hub_task_schedule', { repoPath, id, ...patch });

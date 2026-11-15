@@ -501,22 +501,19 @@ export function createHubServer(opts: HubServerOptions): HubServer {
   const workerMemory = localWorkerMemory();
   // The Local hub switch (src/hub/local-worker.ts): an explicit off stops a board's pick-ups; the GitHub-issue half runs in the same tick.
   // The stored owner is a snapshot: the user is re-read by id, and the owner (token) flag holds only for the owner user.
-  const { userById } = identity;
-  const recheckCaller = userById === undefined
-    ? undefined
-    : async (c: Caller): Promise<Caller | undefined> => {
-      const user = await userById(c.user.id);
-      if (user === undefined) return undefined;
-      const owner = c.owner && user.id === identity.owner.id;
-      return { user, owner, hubAdmin: !owner && userCredentials.isAdmin(user) };
-    };
+  const recheckCaller = async (c: Caller): Promise<Caller | undefined> => {
+    const user = await identity.userById(c.user.id);
+    if (user === undefined) return undefined;
+    const owner = c.owner && user.id === identity.owner.id;
+    return { user, owner, hubAdmin: !owner && userCredentials.isAdmin(user) };
+  };
   const sweepHubTasks = async (): Promise<void> => {
     await sweepHubBoards({
       ...ctx,
       scheduler,
       served: (p) => boardServed(opts.configDir, p),
       picked: (p, ids) => recordBoardPickup(opts.configDir, p, ids),
-      ...(recheckCaller !== undefined ? { recheckCaller } : {}),
+      recheckCaller,
     });
     await sweepLocalWorkers({ configDir: opts.configDir, runSession, allowlist, userCredentials, memory: workerMemory });
   };

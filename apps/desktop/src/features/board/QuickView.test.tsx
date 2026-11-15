@@ -96,6 +96,14 @@ describe('QuickView skills', () => {
     fireEvent.click(within(section).getByRole('button', { name: 'Save skills' }));
     await vi.waitFor(() => expect(apiSetTaskSkills).toHaveBeenCalledWith('/repo', 'hub-3', ['db', 'release']));
   });
+  test('the invalid-entries card explains itself and offers neither Schedule nor Full page', async () => {
+    const { source: _source, ...hubCard } = task;
+    const reason = '2 entries of this board\'s task store are not a valid task; kept in the file, never run';
+    render(<QuickView task={{ ...hubCard, id: 'hub-invalid', schedule: { state: 'invalid', reason, label: `cannot start: ${reason}` } }} project="/repo" onClose={() => {}} onFullPage={() => {}} onChanged={() => {}} />);
+    expect(await screen.findByText(/not a valid task/)).toBeInTheDocument();
+    expect(screen.queryByRole('button', { name: 'Save schedule' })).toBeNull();
+    expect(screen.queryByRole('button', { name: /Full page/ })).toBeNull();
+  });
   test('a card of no tracker has no skills section', async () => {
     const { source: _source, ...draft } = task;
     open(draft);
