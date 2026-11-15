@@ -9,7 +9,7 @@ import { access, chmod, mkdir, readFile, rename, rm, writeFile } from 'node:fs/p
 import { join } from 'node:path';
 import { BadRequestError } from '../sidecar/sidecar.js';
 import type { RunCredential } from '../wire.js';
-import type { HubUser } from './auth.js';
+import { parseSignupAllowlist, type HubUser } from './auth.js';
 
 const LEGACY_MAGIC = 'VHC1';
 const SECRET_FORMAT = 'TASKCELL_HUB_SECRET must be 32 bytes, base64-encoded (e.g. `openssl rand -base64 32`)';
@@ -386,22 +386,25 @@ export interface CredentialService {
   resolveForRun(user: HubUser | undefined, provider?: string): Promise<RunCredential>;
 }
 
-export function createCredentialService(configDir: string, adminLogins: readonly string[] = [], secret?: string): CredentialService {
+export function createCredentialService(configDir: string, adminLogins: readonly string[] = [], secret?: string, hubAdmins: readonly string[] = []): CredentialService {
   const store = new ScopedCredentialStore(configDir, secret);
-  const admins = new Set(adminLogins.map((l) => l.trim().toLowerCase()).filter(Boolean));
+  // `--admin-github-login` values are bare GitHub logins; `TASKCELL_HUB_ADMINS` entries use the sign-up allowlist syntax.
+  const admins = parseSignupAllowlist([...adminLogins.filter((l) => l.trim() !== '').map((l) => `github:${l.trim()}`), ...hubAdmins]);
   const policyFile = join(configDir, 'credential-policy.json');
   let migrationIssue: string | undefined;
   let migrating: Promise<void> | undefined;
   let instanceValues: Record<string, string> = {};
   const service: CredentialService = {
     store,
-    // A GitHub sign-in carries `login: 'github:<login>'`; GitLab, Google and the token owner never match.
+    // A GitHub or GitLab sign-in carries `login: '<provider>:<login>'`; an e-mail or domain entry needs a verified address.
+    // The token owner (unverified `owner@hub.invalid`, no login) never matches.
     isAdmin: (user) => {
-      const login = user?.login?.toLowerCase();
-      return login?.startsWith('github:') === true && admins.has(login.slice('github:'.length));
+      if (user === undefined) return false;
+      const base = { email: user.email, emailVerified: user.emailVerified === true };
+      return [undefined, ...(user.logins ?? (user.login !== undefined ? [user.login] : []))].some((login) => admins({ ...base, login }));
     },
     assertManager(user, owner) {
-      if (!owner && !service.isAdmin(user)) throw new ForbiddenError('only the hub owner or an admin (--admin-github-login) can do this');
+      if (!owner && !service.isAdmin(user)) throw new ForbiddenError('only the hub owner or a hub admin (TASKCELL_HUB_ADMINS, --admin-github-login) can do this');
     },
     async policy() {
       try {

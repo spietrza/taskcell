@@ -78,6 +78,8 @@ describe('server mode', () => {
       if (url.startsWith('https://github.com/login/oauth/access_token')) return json({ access_token: 'at', token_type: 'bearer', scope: 'user:email' });
       if (url === 'https://api.github.com/user') return json({ id: 42, login: profile.login, name: 'Octo Cat', email: profile.email, avatar_url: '' });
       if (url === 'https://api.github.com/user/emails') return json([{ email: profile.email, primary: true, verified: profile.verified }]);
+      if (url === 'https://gl.test/oauth/token') return json({ access_token: 'gt', token_type: 'Bearer', scope: 'read_user' });
+      if (url === 'https://gl.test/api/v4/user') return json({ id: 7, username: 'Alice', name: 'Alice', email: profile.email, avatar_url: '', state: 'active', locked: false, email_verified: true });
       return realFetch(input, init);
     });
   });
@@ -109,11 +111,11 @@ describe('server mode', () => {
     fetch(origin + path, { method: 'POST', redirect: 'manual', headers: { 'content-type': 'application/json', origin, ...headers }, body });
 
   /** The real OAuth dance against the stubbed provider: start, then hit the callback with its state. */
-  async function signIn(): Promise<{ callback: Response; cookie: string }> {
-    const begin = await post('/api/auth/sign-in/social', {}, JSON.stringify({ provider: 'github', callbackURL: '/', errorCallbackURL: '/sign-in' }));
+  async function signIn(provider: 'github' | 'gitlab' = 'github', headers: Record<string, string> = {}): Promise<{ callback: Response; cookie: string }> {
+    const begin = await post('/api/auth/sign-in/social', headers, JSON.stringify({ provider, callbackURL: '/', errorCallbackURL: '/sign-in' }));
     const { url } = (await begin.json()) as { url: string };
     const state = new URL(url).searchParams.get('state')!;
-    const callback = await fetch(`${origin}/api/auth/callback/github?code=c&state=${state}`, { redirect: 'manual', headers: { cookie: cookieOf(begin) } });
+    const callback = await fetch(`${origin}/api/auth/callback/${provider}?code=c&state=${state}`, { redirect: 'manual', headers: { cookie: [headers.cookie, cookieOf(begin)].filter(Boolean).join('; ') } });
     return { callback, cookie: [cookieOf(begin), cookieOf(callback)].filter(Boolean).join('; ') };
   }
   const rpc = (headers: Record<string, string>): Promise<Response> => post('/rpc/list_projects', headers);
@@ -132,6 +134,20 @@ describe('server mode', () => {
     expect(await role({ [HUB_TOKEN_HEADER]: TOKEN })).toBe('admin');
     await saveTeams(dir, [{ id: 'default', name: 'Default', members: [{ login: 'Octo Cat', role: 'admin' }], repositories: [] }]);
     expect(await role({ cookie })).toBeNull();
+  });
+
+  test('a GitLab sign-in resolves its verified username; a user who also has GitHub keeps both logins', async () => {
+    await start(['gitlab:alice', 'github:octo']);
+    profile.email = 'alice@nowhere.test';
+    const gl = await signIn('gitlab');
+    expect(gl.callback.headers.get('location')).not.toContain('error');
+    expect(await identity!.sessionUser({ headers: { cookie: gl.cookie } } as IncomingMessage)).toMatchObject({ login: 'gitlab:Alice', logins: ['gitlab:Alice'] });
+    // The same verified address signs in with GitHub: one user, both logins.
+    const gh = await signIn('github');
+    const user = await identity!.sessionUser({ headers: { cookie: gh.cookie } } as IncomingMessage);
+    expect(user?.logins).toEqual(['github:Octo', 'gitlab:Alice']);
+    const glUser = await identity!.sessionUser({ headers: { cookie: gl.cookie } } as IncomingMessage);
+    expect(glUser?.id).toBe(user?.id);
   });
 
   test('a login on the allowlist signs in; the session authorises RPC and SSE until sign-out', async () => {
