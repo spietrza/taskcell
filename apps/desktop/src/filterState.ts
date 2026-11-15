@@ -84,9 +84,9 @@ export function cardTriage(t: Pick<BoardTask, 'column'>): Exclude<Triage, 'all'>
 }
 
 /** The same bucket for a finished run: failed needs you; merged needs the hub's `prState`. `running` is for active runs only. */
-export function runTriage(r: Pick<RunSummary, 'anyFailed' | 'prState'>): Exclude<Triage, 'all'> | 'other' {
+export function runTriage(r: Pick<RunSummary, 'anyFailed' | 'prState' | 'stoppedBy'>): Exclude<Triage, 'all'> | 'other' {
   if (r.prState === 'merged') return 'merged';
-  return r.anyFailed ? 'needs' : 'other';
+  return r.anyFailed && r.stoppedBy === undefined ? 'needs' : 'other';
 }
 
 /** A card's source; a card without a tracker belongs to the Taskcell board. */

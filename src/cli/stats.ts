@@ -9,6 +9,7 @@ import { collectApproverScorecard } from '../approver/outcome.js';
 import { leadTimeRollupForPrUrls } from '../core/lead-time-github.js';
 import { aggregateLessons, fetchFirstPass, formatLessonsStats } from '../core/lessons-stats.js';
 import { formatLeadTime } from '../core/lead-time.js';
+import { aggregateSkills, formatSkillStats, parseSince, withinWindow } from '../core/skill-stats.js';
 import type { Command } from './args.js';
 import { stateDir } from '../core/state-path.js';
 
@@ -60,6 +61,12 @@ export async function statsCommand(cmd: StatsCommand): Promise<void> {
     }
   }
   const records = parseMetrics(text);
+  if (cmd.skills) {
+    const windowMs = cmd.since !== undefined ? parseSince(cmd.since) : undefined;
+    const rows = aggregateSkills(withinWindow(records, windowMs));
+    console.log(cmd.json ? JSON.stringify(rows, null, 2) : formatSkillStats(rows));
+    return;
+  }
   const report = aggregateMetrics(records, parseProbes(text));
   const prUrls = records.flatMap((r) => (r.prUrl !== undefined ? [r.prUrl] : []));
   const leadTime = cmd.githubRepo !== undefined ? await leadTimeRollupForPrUrls(cmd.githubRepo, prUrls) : undefined;

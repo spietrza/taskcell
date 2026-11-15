@@ -502,6 +502,17 @@ Replies and merges are a remote mutation, gated like `clone_project`: loopback o
 
 `start_task` labels an issue to start the factory on it; see [Starting the factory from the hub](cli.md#starting-the-factory-from-the-hub).
 
+## Paused by a provider limit
+
+When a run ends on a provider usage or rate limit, the issue or pull request gets `taskcell:rate-limited` (or the older `vanguard:rate-limited`) and a comment or review carrying a hidden `taskcell-rate-limited until=<ISO time> trigger="…"` marker; the scheduled `resume-rate-limited` retries it after that time. The Board's `list_tasks` / `list_tasks_all` read this from labels and the marker only (no model call) and return `paused: { reason: 'provider-limit', until?, trigger? }` on the card. The time comes from the newest valid marker by an author the scheduled resume also trusts: the GitHub Actions identity (`github-actions`), a login ending in `[bot]`, or a repository owner, member or collaborator; a marker from an outside commenter is ignored. Paused pull requests come from `gh pr list --label`, once per spelling of the rate-limited label, only for projects whose task source is GitHub; their cards open the pull request and offer no issue actions (skills, full page, Retry now). One `list_tasks` or `list_tasks_all` call reads markers for at most 30 paused cards in total, shared across repositories; the others still show as paused without a time.
+
+- **Card and quick view / task detail:** "Paused: provider limit", with "retries automatically after HH:MM" in local time (the date is included when it is not today; "soon" once that time has passed; no time when the marker is missing).
+- **Banner:** on the Board and on Home, one banner when at least one task of the shown repositories is paused: how many, the latest retry time, and what you can do (wait, or add credit / switch the model in Settings). No banner when none is paused.
+- **Retry now:** `retry_paused_task` (`{ repoPath, number }`) ensures the recorded trigger exists, removes any stale trigger, adds the trigger, and only then removes the rate-limited label. A failed write leaves the hold in place and returns the reason; if only the final removal of the rate-limited label fails, the message says the issue was re-triggered. It has Start's rules: loopback only unless `TASKCELL_HUB_ALLOW_ADD=1`, GitHub issues only, refused for a closed or already-started issue; it also refuses an issue that is not paused, one with no marker from the factory, and a trigger that is not one of the project's. It is audited as `task-retry`.
+- **Runs:** a run that ended on a provider limit shows "stopped: provider limit" instead of "failed" (`stoppedBy` on the run summary), including local, imported and metrics-branch CI rows. The flag is written from a typed provider/usage-cap signal at the point the stage stops; final text and crash diagnostics are never matched. If any failed stage in the same run lacks that flag, the run remains failed. Provider-limit stops do not enter the Failed / Needs you filters or project failure count, are not remembered as failed runs in retrospective memory, and `taskcell history` prints them as "paused: provider limit".
+
+The views work at phone width (the quick view is a bottom drawer).
+
 ## Enable factory
 
 **Enable factory** on a project card (hub only) turns on the GitHub Actions factory for that repo in
@@ -566,7 +577,7 @@ Project settings show an **Auto-merge** card (hub only; `src/hub/approver-card.t
 
 ## Audit log
 
-Every state-changing action appends one JSON line to `<config dir>/audit.jsonl` (time, login or `token`, action, target, outcome `ok`/`refused`/`failed`): sign-in, project add/remove, clone, run start/queue/cancel (a hub-board task's start is logged under the task's owner), task start, hub task create/schedule/retry, settings changes. Targets and detail are names only — never a credential value, token, cookie or URL userinfo/query. Each line is chained (sha256 of the previous record) and carries an actor and subject; the file rotates at 10 MB and rotated files are pruned after 90 days (at most 50 kept); `taskcell audit verify` checks the chain (see [audit.md](audit.md)). A line that cannot be written is reported to the caller instead of being dropped. Runs started from the hub carry `startedBy` in their records (shown in the Runs table). Admins read the log in the Audit view (`read_audit`); non-admins get 403. The owner (header token, or local mode) acts as the shared `token` admin identity; any other signed-in user is logged under their e-mail and is not an admin until roles land (`actorFor` in `createHubServer` overrides this).
+Every state-changing action appends one JSON line to `<config dir>/audit.jsonl` (time, login or `token`, action, target, outcome `ok`/`refused`/`failed`): sign-in, project add/remove, clone, run start/queue/cancel (a hub-board task's start is logged under the task's owner), task start, paused-task retry, hub task create/schedule/retry, settings changes. Targets and detail are names only — never a credential value, token, cookie or URL userinfo/query. Each line is chained (sha256 of the previous record) and carries an actor and subject; the file rotates at 10 MB and rotated files are pruned after 90 days (at most 50 kept); `taskcell audit verify` checks the chain (see [audit.md](audit.md)). A line that cannot be written is reported to the caller instead of being dropped. Runs started from the hub carry `startedBy` in their records (shown in the Runs table). Admins read the log in the Audit view (`read_audit`); non-admins get 403. The owner (header token, or local mode) acts as the shared `token` admin identity; any other signed-in user is logged under their e-mail and is not an admin until roles land (`actorFor` in `createHubServer` overrides this).
 
 ## Issue history
 
@@ -667,7 +678,7 @@ taskcell hub rotate-token --token-file <path>
 A missing or unbuilt `--ui-dir` fails at startup, naming `pnpm --dir apps/desktop build`
 (run `pnpm build:ui`) rather than failing on the first request. Binding a non-loopback host
 requires sign-in (warning at startup if no provider or allowlist is configured) and disables `add_project`/`browse_dirs`/`clone_project`,
-`enable_factory_apply`/`enable_factory_verify`/`enable_factory_start`, `reply_needs_you`, `merge_needs_you`, `set_task_skills` and `start_task` unless
+`enable_factory_apply`/`enable_factory_verify`/`enable_factory_start`, `reply_needs_you`, `merge_needs_you`, `set_task_skills`, `start_task` and `retry_paused_task` unless
 `TASKCELL_HUB_ALLOW_ADD=1`. `SIGINT`/`SIGTERM` close the listener, every connected SSE client,
 and the project file watchers.
 

@@ -43,7 +43,7 @@ export interface ResumeRateLimitedReport {
   failed: string[];
 }
 
-interface GhCommentBody {
+export interface GhCommentBody {
   body?: string | null;
   author?: { login?: string } | null;
   authorAssociation?: string;
@@ -59,7 +59,7 @@ type ParkedKind = 'issue' | 'pr';
  * body is dropped before the marker scan: the marker is plain text anyone can paste, and it names
  * both the reset time this command waits for and the label it re-applies.
  */
-function trustedBodies(entries: readonly GhCommentBody[]): string[] {
+export function trustedBodies(entries: readonly GhCommentBody[]): string[] {
   const at = (entry: GhCommentBody): string => entry.createdAt ?? entry.submittedAt ?? '';
   return entries
     .filter((entry) => classifyAuthor(entry.author?.login ?? '', entry.authorAssociation ?? '') !== 'untrusted')
@@ -74,12 +74,17 @@ async function listParked(kind: ParkedKind, repoSlug: string, gh: GhRunner): Pro
 
 /** Open issues/PRs carrying a label under either spelling (a repo may still hold the pre-rename `vanguard:*` form). */
 async function listLabeled(kind: ParkedKind, repoSlug: string, label: string, gh: GhRunner): Promise<number[]> {
-  const numbers = new Set<number>();
+  return (await listLabeledItems<{ number: number }>(kind, repoSlug, label, gh, 'number')).map((item) => item.number);
+}
+
+/** `listLabeled` with the `--json` fields the caller needs (always including `number`), one item per number. */
+export async function listLabeledItems<T extends { number: number }>(kind: ParkedKind, repoSlug: string, label: string, gh: GhRunner, fields: string): Promise<T[]> {
+  const items = new Map<number, T>();
   for (const form of labelForms(label)) {
-    const out = await gh([kind, 'list', '--repo', repoSlug, '--state', 'open', '--label', form, '--limit', LIST_LIMIT, '--json', 'number']);
-    for (const item of JSON.parse(out) as { number?: number }[]) if (item.number !== undefined) numbers.add(item.number);
+    const out = await gh([kind, 'list', '--repo', repoSlug, '--state', 'open', '--label', form, '--limit', LIST_LIMIT, '--json', fields]);
+    for (const item of JSON.parse(out) as Partial<T>[]) if (item.number !== undefined) items.set(item.number, item as T);
   }
-  return [...numbers];
+  return [...items.values()];
 }
 
 /** The newest marker on the item. A PR carries it as a comment (pr-watch) or a review (revise-pr). */

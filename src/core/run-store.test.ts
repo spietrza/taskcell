@@ -77,6 +77,29 @@ describe('beginRun — writing', () => {
     expect(record.lessonIds).toEqual(['abc123def456']);
   });
 
+  it('writes skillsUsed and the review verdict on the metric line', async () => {
+    const metricOf = async (): Promise<Record<string, unknown>> => JSON.parse((await readFile(join(runsRoot(repo), 'metrics.jsonl'), 'utf8')).trim().split('\n').at(-1) as string);
+    const transcript = JSON.stringify({ type: 'assistant', message: { content: [
+      { type: 'tool_use', name: 'Skill', input: { skill: 'simplify' } },
+      { type: 'tool_use', name: 'Skill', input: { skill: 'not-in-registry' } },
+    ] } });
+    await beginRun(repo, 'TES-S1', TS).writeStages(
+      [{ name: 'reviewer', result: { ...result, transcript, finalText: 'No blocking issues.\n' } }],
+      { skillIds: ['simplify'] },
+    );
+    expect(await metricOf()).toMatchObject({ skillsUsed: ['simplify'], verdict: 'pass' });
+    // A repaired stage: the earlier attempts' skills ride on the merged result; the run's skills record is the registry.
+    await beginRun(repo, 'TES-S3', TS).writeStages(
+      [{ name: 'implementer', result: { ...result, transcript, skillsUsed: ['earlier', 'gone'] } }],
+      { skills: { named: ['earlier'], available: ['simplify'] } },
+    );
+    expect((await metricOf()).skillsUsed).toEqual(['earlier', 'simplify']);
+    await beginRun(repo, 'TES-S2', TS).writeStages([{ name: 'implementer', result: { ...result, transcript: 'unknown format' } }]);
+    const plain = await metricOf();
+    expect(plain.skillsUsed).toEqual([]);
+    expect(plain).not.toHaveProperty('verdict');
+  });
+
   it('writes lessonsLoaded and lessonIds on the metric line, 0 when none, and nothing when the caller passes no lessons', async () => {
     const metricOf = async (): Promise<Record<string, unknown>> => JSON.parse((await readFile(join(runsRoot(repo), 'metrics.jsonl'), 'utf8')).trim().split('\n').at(-1) as string);
     await beginRun(repo, 'TES-M1', TS).writeStages([{ name: 'implementer', result }], { lessonIds: ['a1', 'b2'] });
@@ -298,6 +321,8 @@ describe('beginRun — writing', () => {
       const record = JSON.parse(await readFile(join(runsRoot(repo), 'TES-1', `${PREFIX}-implementer.json`), 'utf8'));
       expect(record.diffOmitted).toBe('secret-blocked');
       expect(record.finalText).toBe('[withheld: secret-blocked]');
+      const metrics = (await readFile(join(runsRoot(repo), 'metrics.jsonl'), 'utf8')).trim().split('\n').map((line) => JSON.parse(line) as Record<string, unknown>);
+      expect(metrics.every((metric) => !Object.hasOwn(metric, 'skillsUsed'))).toBe(true);
     }),
   );
 
@@ -525,6 +550,44 @@ describe('beginRun → listRuns/readRun round trip', () => {
     }
     expect(detail.proof?.sha256).toBe(verResult.sha256);
     expect(detail.visualProof?.artifacts).toHaveLength(2);
+  });
+
+  it('labels a run that ended on a provider limit, not a plain failure', async () => {
+    const limited = { ...result, taskId: 'TES-2', completed: false, exitReason: 'incomplete' as const, finalText: 'Review unavailable', stoppedBy: 'provider-limit' as const };
+    await beginRun(repo, 'TES-2', TS).writeStages([{ name: 'implementer', result: limited }], {});
+    await beginRun(repo, 'TES-3', TS).writeStages([{ name: 'implementer', result: { ...result, taskId: 'TES-3', completed: false, exitReason: 'incomplete' as const, finalText: 'tests failed' } }], {});
+    const byId = new Map((await listRuns(runsRoot(repo))).map((r) => [r.taskId, r]));
+    expect(byId.get('TES-2')).toMatchObject({ anyFailed: true, stoppedBy: 'provider-limit' });
+    expect(byId.get('TES-3')!.stoppedBy).toBeUndefined();
+  });
+
+  it('keeps a run failed when one failed stage is genuine and another stopped on a provider limit', async () => {
+    const failed = { ...result, taskId: 'TES-MIXED', completed: false, exitReason: 'error' as const, finalText: 'tests failed' };
+    const limited = { ...failed, finalText: 'provider stopped', stoppedBy: 'provider-limit' as const };
+    await beginRun(repo, 'TES-MIXED', TS).writeStages([
+      { name: 'implementer', result: failed },
+      { name: 'reviewer', result: limited },
+    ]);
+    expect((await listRuns(runsRoot(repo))).find((run) => run.taskId === 'TES-MIXED')).toMatchObject({ anyFailed: true });
+    expect((await listRuns(runsRoot(repo))).find((run) => run.taskId === 'TES-MIXED')?.stoppedBy).toBeUndefined();
+  });
+
+  it('agent prose quoting a limit stays a plain failure: only the recorded flag counts', async () => {
+    const prose = [
+      'added handling for `rate_limit_error` and a test for HTTP 429; still to do: the retry banner',
+      "You've hit your session limit · resets 9pm (UTC)",
+      'usage limit reached',
+    ];
+    for (const [i, finalText] of prose.entries()) {
+      const taskId = `TES-P${i}`;
+      await beginRun(repo, taskId, TS).writeStages([{ name: 'implementer', result: { ...result, taskId, completed: false, exitReason: 'incomplete' as const, finalText } }], {});
+    }
+    const summaries = (await listRuns(runsRoot(repo))).filter((r) => r.taskId.startsWith('TES-P'));
+    expect(summaries).toHaveLength(prose.length);
+    for (const s of summaries) {
+      expect(s.anyFailed).toBe(true);
+      expect(s.stoppedBy).toBeUndefined();
+    }
   });
 
   it('readRun still finds a proof file stamped earlier than the stage records (pre-shared-timestamp runs)', async () => {

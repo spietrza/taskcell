@@ -137,8 +137,8 @@ export function RemoteRuns({
                             <span className="font-medium">{s.taskId}</span>
                             <Timestamp ms={Date.parse(s.timestamp)} className="tabular-nums text-muted-foreground" />
                             <span className="text-muted-foreground">{s.stages.join(', ')}</span>
-                            <Chip color={verdictColor(!s.anyFailed)} variant="outlined">
-                              {verdictWord(!s.anyFailed)}
+                            <Chip color={s.stoppedBy ? 'secondary' : verdictColor(!s.anyFailed)} variant="outlined">
+                              {s.stoppedBy ? 'stopped: provider limit' : verdictWord(!s.anyFailed)}
                             </Chip>
                           </button>
                         </li>
