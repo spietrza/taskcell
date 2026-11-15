@@ -10,7 +10,7 @@ import { localOnlyIdentity } from './auth.js';
 import { add as addProject } from './projects.js';
 import { saveTeams } from './teams.js';
 import { HUB_TOKEN_HEADER } from '../hub-wire.js';
-import type { SidecarDeps } from '../sidecar/sidecar.js';
+import { BadRequestError, type SidecarDeps } from '../sidecar/sidecar.js';
 import type { AuditEntry, BoardTask, CreateRunParams, CreateRunResult, RunCredential } from '../wire.js';
 
 /* eslint-disable @typescript-eslint/no-explicit-any -- loosely-typed JSON envelope in tests */
@@ -19,6 +19,8 @@ let hub: HubServer;
 let baseUrl: string;
 let repo: string;
 let options: HubServerOptions;
+/** Makes the fake pre-flight refuse, as a hub without a model credential does. */
+let missingCredential = false;
 /** Runs `deps.createRun` was asked for, each ended by the test. */
 let runs: { params: CreateRunParams; credential: RunCredential | undefined; end: (r: CreateRunResult) => void; fail: (e: Error) => void }[] = [];
 
@@ -29,6 +31,9 @@ function deps(): SidecarDeps {
   return {
     capabilities: unimplemented,
     createRun: (params, _onEvent, credential) => new Promise((end, fail) => runs.push({ params, credential, end, fail })),
+    checkRun: async () => {
+      if (missingCredential) throw new BadRequestError('Set CLAUDE_CODE_OAUTH_TOKEN (subscription) or ANTHROPIC_API_KEY (API) before running.');
+    },
     createTask: unimplemented,
     listFlows: unimplemented,
     listProviders: unimplemented,
@@ -52,6 +57,7 @@ async function listen(): Promise<void> {
 
 beforeEach(async () => {
   runs = [];
+  missingCredential = false;
   repo = await realpath(await mkdtemp(join(tmpdir(), 'vanguard-hubrun-repo-')));
   const configDir = await mkdtemp(join(tmpdir(), 'vanguard-hubrun-cfg-'));
   const uiDir = await mkdtemp(join(tmpdir(), 'vanguard-hubrun-ui-'));
@@ -142,6 +148,21 @@ test('a failed run shows its reason, keeps its dependent blocked, and can be ret
   expect((await rpc(alice, 'hub_task_retry', { repoPath: repo, id: 'hub-1' })).status).toBe(200);
   await hub.sweepHubTasks();
   expect(runs[1]?.params.issueRef).toBe('hub-1');
+});
+
+test('a start refused for a missing model credential stays todo, never failed, is audited once, and runs once the credential is there', async () => {
+  missingCredential = true;
+  await useHubBoard();
+  await create('A');
+  await hub.sweepHubTasks();
+  await hub.sweepHubTasks();
+  expect(runs).toHaveLength(0);
+  expect((await board())['hub-1']).toMatchObject({ column: 'queued', schedule: { state: 'refused', label: expect.stringMatching(/^not started: Set CLAUDE_CODE_OAUTH_TOKEN/) } });
+  expect((await audit()).filter((e) => e.action === 'run-start' && e.outcome === 'refused')).toHaveLength(1);
+  expect((await audit()).filter((e) => e.action === 'run-start' && e.outcome === 'ok')).toHaveLength(0);
+  missingCredential = false;
+  await hub.sweepHubTasks();
+  expect(runs).toHaveLength(1);
 });
 
 test('user-only: a task whose owner has no credential is refused visibly, stays todo, and runs once they save one', async () => {

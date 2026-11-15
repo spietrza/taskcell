@@ -822,9 +822,11 @@ The Board reads `list_tasks` through the same planner the scheduler uses (`src/h
 | `waits for a free slot` | ready, but the project already has as many tasks with the run session as it can hold |
 | `starts next` | ready; the next scheduler pass hands it to the run session |
 | `queued behind another run (position 1)` | handed over, waiting in the run queue; shown in **Queued**, not **Running** |
-| `not started: …` | the last start was refused (no credential under `user-only`, the run queue is full, the owner no longer reaches the repository); the task stays to do and is tried again on every pass |
+| `not started: …` | the last start was refused (no credential under `user-only`, a missing model credential on the hub, the run queue is full, the owner no longer reaches the repository); the task stays to do and is tried again on every pass |
 | `failed: …` (red) | the run failed, was cancelled, was held back by the secret scan or a red base branch, or changed nothing; the reason is shown. **Retry** in the quick view (`hub_task_retry`) puts it back to do |
 | `cannot start: …` (red) | a missing reference, a dependency cycle (`a → b → a`, also shown on tasks that wait behind the cycle) or an invalid date; the reason is shown and the task never starts |
+
+The Board re-reads an open hub board every 5 s while the window is visible, so a card follows its task without a reload (the all-repositories view does not poll: it would re-read every tracker).
 
 ### What the scheduler starts, and how many at once
 

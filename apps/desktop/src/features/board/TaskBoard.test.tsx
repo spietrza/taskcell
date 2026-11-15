@@ -1,5 +1,5 @@
 import { afterEach, beforeEach, describe, expect, test, vi } from 'vitest';
-import { fireEvent, render, screen, waitFor, within } from '@testing-library/react';
+import { act, fireEvent, render, screen, waitFor, within } from '@testing-library/react';
 import { TaskBoard } from './TaskBoard';
 import type { BoardTask } from '../../wire';
 
@@ -65,6 +65,37 @@ describe('TaskBoard on a hub-board project', () => {
     mockListTasks.mockResolvedValueOnce({ tasks: [card('blocked by hub-2')], capped: false, hubBoard: true });
     fireEvent.click(screen.getByRole('button', { name: 'Save schedule' }));
     await vi.waitFor(() => expect(within(screen.getByRole('region', { name: 'Schedule' })).getByText('blocked by hub-2')).toBeInTheDocument());
+  });
+
+  test('re-reads an open hub board, so a status change shows without a reload', async () => {
+    vi.useFakeTimers();
+    mockListTasks.mockResolvedValueOnce({ tasks: [{ ...card('starts next'), title: 'Before' }], capped: false, hubBoard: true });
+    mockListTasks.mockResolvedValue({ tasks: [{ ...card('not started: no credential'), title: 'After' }], capped: false, hubBoard: true });
+    render(<TaskBoard project="/repo" repos={[]} onOpenTask={() => {}} onNewTask={() => {}} />);
+    await act(() => vi.advanceTimersByTimeAsync(0));
+    expect(screen.getByText('Before')).toBeInTheDocument();
+    await act(() => vi.advanceTimersByTimeAsync(5000));
+    expect(screen.getByText('After')).toBeInTheDocument();
+  });
+
+  test('does not poll the all-repositories view, which would re-read every tracker', async () => {
+    vi.useFakeTimers();
+    vi.mocked(listTasksAll).mockResolvedValue({ tasks: [], capped: false, failures: [], hubBoards: ['/r/alpha'] });
+    render(<TaskBoard project="/r/alpha" allRepos repos={[]} onOpenTask={() => {}} onNewTask={() => {}} />);
+    await act(() => vi.advanceTimersByTimeAsync(0));
+    await act(() => vi.advanceTimersByTimeAsync(20000));
+    expect(vi.mocked(listTasksAll)).toHaveBeenCalledTimes(1);
+  });
+
+  test('a failed poll reloads, so a hub outage shows instead of stale cards', async () => {
+    vi.useFakeTimers();
+    mockListTasks.mockResolvedValueOnce({ tasks: [card('starts next')], capped: false, hubBoard: true });
+    mockListTasks.mockRejectedValueOnce(new Error('hub down'));
+    mockListTasks.mockRejectedValue(new Error('hub down'));
+    render(<TaskBoard project="/repo" repos={[]} onOpenTask={() => {}} onNewTask={() => {}} />);
+    await act(() => vi.advanceTimersByTimeAsync(0));
+    await act(() => vi.advanceTimersByTimeAsync(5000));
+    expect(screen.queryByText('Hub one')).not.toBeInTheDocument();
   });
 
   test('a tracker board keeps New Task and has no hub form', async () => {

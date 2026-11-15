@@ -43,6 +43,9 @@ const COLUMNS: Column[] = [
   { key: 'done', label: 'Done', dot: 'bg-success', pill: 'bg-success/15 text-success-text', cardHover: 'hover:border-success' },
 ];
 
+/** How often an open hub board re-reads its tasks. */
+const HUB_POLL_MS = 5000;
+
 /** One repository's board, or every repository's (cards stamped with their repository). */
 type BoardList = { tasks: (BoardTask & Partial<RepoStamp>)[]; capped: boolean; failures: RepoReadFailure[]; hubBoard?: true; hubBoards?: string[] };
 
@@ -76,11 +79,32 @@ export function TaskBoard({
   onOpenSettings?: () => void;
 }) {
   const [reloads, setReloads] = useState(0);
-  const { data, error, loading } = useAsync(
+  const { data: loaded, error, loading } = useAsync(
     (): Promise<BoardList> =>
       allRepos ? listTasksAll(teamId).then((l) => ({ ...l, tasks: inRepos(l.tasks, repos), failures: inRepos(l.failures, repos) })) : listTasks(project).then((r) => ({ ...r, failures: [] })),
     [project, allRepos, teamId, repos.join('\n'), reloads],
   );
+  // A hub task's status changes in the hub's store, not here: while one hub board is open (not the all-repositories
+  // view, which would re-read every tracker) it is re-read quietly, one read at a time, while the window is visible.
+  // A fresh load supersedes the last poll; a failed poll reloads, so an outage shows instead of stale cards.
+  const [polled, setPolled] = useState<BoardList | null>(null);
+  useEffect(() => setPolled(null), [loaded]);
+  const data = polled ?? loaded;
+  const polling = !allRepos && data?.hubBoard === true;
+  useEffect(() => {
+    if (!polling) return;
+    let alive = true;
+    let busy = false;
+    const id = setInterval(() => {
+      if (busy || document.hidden) return;
+      busy = true;
+      listTasks(project).then(
+        (r) => { if (alive) setPolled({ ...r, failures: [] }); },
+        () => { if (alive) setReloads((n) => n + 1); },
+      ).finally(() => { busy = false; });
+    }, HUB_POLL_MS);
+    return () => { alive = false; clearInterval(id); };
+  }, [polling, project, reloads]);
   const approver = useApproverDecisions(project, !allRepos);
   // Skills saved from a card's quick view, shown at once: the tracker is not re-read for it.
   const [savedSkills, setSavedSkills] = useState<Record<string, string[]>>({});
