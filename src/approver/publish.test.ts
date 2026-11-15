@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { assertShadowSafeGhArgs, commentDecision, publishCheckRun } from './publish.js';
+import { assertShadowSafeGhArgs, commentDecision, commentOnce, publishCheckRun } from './publish.js';
 import type { Decision, DecisionRecord } from './types.js';
 
 const SHA = 'a'.repeat(40);
@@ -76,6 +76,15 @@ describe('publishCheckRun', () => {
       return JSON.stringify({ check_runs: [] });
     };
     await expect(publishCheckRun(gh, 'o/r', SHA, 7, decision, record)).rejects.toThrow(/403/);
+  });
+});
+
+describe('commentOnce under an App identity', () => {
+  const comments = JSON.stringify({ comments: [{ author: { login: 'taskcell-approver' }, authorAssociation: 'NONE', body: '<!-- taskcell-approver-act: m -->' }] });
+  const run = async (botLogins?: string[]): Promise<boolean> => commentOnce(async (args) => (args[1] === 'view' ? comments : ''), 'o/r', 7, '<!-- taskcell-approver-act: m -->', 'b', botLogins);
+  it('dedupes on the approver login only when it is named', async () => {
+    expect(await run()).toBe(true);
+    expect(await run(['taskcell-approver'])).toBe(false);
   });
 });
 

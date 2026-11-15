@@ -30,7 +30,9 @@ export const approverPolicySchema = z.object({
   /** Act mode: the PR author logins (as `gh pr view --json author` reports them) the factory opens PRs as. Empty = act on nothing. */
   factoryAuthors: z.array(z.string().min(1)).optional(),
   /** Act mode: other repos (`owner/name`) whose issues may be read as dependencies of a task here. Default: this repo only. */
-  dependencyRepos: z.array(z.string().regex(/^[\w.-]+\/[\w.-]+$/)).optional(),
+  dependencyRepos: z.array(z.string().regex(/^[\w.-]+\/[\w.-]+$/).refine((r) => r.split('/').every((part) => !/^\.+$/.test(part)), 'no dot-only path segments')).optional(),
+  /** Act mode: the login the approver's own comments come back under (an App's bare name, as `gh pr view --json comments` reports it), so its markers dedupe. */
+  approverLogins: z.array(z.string().min(1)).optional(),
 });
 
 export interface LoadedPolicy {

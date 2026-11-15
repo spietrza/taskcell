@@ -17,6 +17,8 @@ export interface MetricRecord {
   firstExitReason?: string;
   stoppedBy?: 'provider-limit';
   costUsd: number;
+  /** API-price estimate for a run without a reported cost; kept apart from `costUsd`. */
+  estCostUsd?: number;
   inputTokens: number;
   outputTokens: number;
   cacheReadInputTokens: number;
@@ -36,7 +38,12 @@ export interface MetricRecord {
 /** Aggregated totals for a group of metric records. */
 export interface Bucket {
   entries: number;
+  /** Provider-reported cost only. */
   costUsd: number;
+  /** Sum of API-price estimates (records without a reported cost); never included in `costUsd`. */
+  estCostUsd: number;
+  /** How many records carry an estimate. */
+  estEntries: number;
   inputTokens: number;
   outputTokens: number;
   cacheReadInputTokens: number;
@@ -98,6 +105,19 @@ export function parseJsonlLines(text: string, onSkip?: (line: string) => void): 
   return lines;
 }
 
+/**
+ * Whether a metric line carries a reported cost. A line stamped `costUnknown`, or an older unstamped
+ * line with `costUsd: 0` and no `costKind`, does not; only such a line may carry an estimate.
+ */
+export function costReported(line: Record<string, unknown>): boolean {
+  return (
+    line.costUnknown !== true &&
+    typeof line.costUsd === 'number' &&
+    Number.isFinite(line.costUsd) &&
+    !(line.costUsd === 0 && line.costKind === undefined)
+  );
+}
+
 /** Parse metrics.jsonl text into records, tolerating blank and malformed lines. Keeps run_complete. */
 export function parseMetrics(text: string): MetricRecord[] {
   const records: MetricRecord[] = [];
@@ -119,6 +139,7 @@ export function parseMetrics(text: string): MetricRecord[] {
       ...(Array.isArray(parsed.skillsUsed) ? { skillsUsed: sanitizeSkillIds(parsed.skillsUsed) } : {}),
       ...(typeof parsed.verdict === 'string' ? { verdict: parsed.verdict } : {}),
       costUsd: num(parsed.costUsd),
+      ...(typeof parsed.estCostUsd === 'number' && Number.isFinite(parsed.estCostUsd) && parsed.estCostUsd >= 0 && !costReported(parsed) ? { estCostUsd: parsed.estCostUsd } : {}),
       inputTokens: num(parsed.inputTokens),
       outputTokens: num(parsed.outputTokens),
       cacheReadInputTokens: num(parsed.cacheReadInputTokens),
@@ -186,12 +207,14 @@ export function probeReport(records: ReadonlyArray<MetricRecord>, probes: Readon
 }
 
 function emptyBucket(): Bucket {
-  return { entries: 0, costUsd: 0, inputTokens: 0, outputTokens: 0, cacheReadInputTokens: 0, durationMs: 0 };
+  return { entries: 0, costUsd: 0, estCostUsd: 0, estEntries: 0, inputTokens: 0, outputTokens: 0, cacheReadInputTokens: 0, durationMs: 0 };
 }
 
 function add(bucket: Bucket, record: MetricRecord): void {
   bucket.entries += 1;
   bucket.costUsd += record.costUsd;
+  bucket.estCostUsd += record.estCostUsd ?? 0;
+  if (record.estCostUsd !== undefined) bucket.estEntries += 1;
   bucket.inputTokens += record.inputTokens;
   bucket.outputTokens += record.outputTokens;
   bucket.cacheReadInputTokens += record.cacheReadInputTokens;
@@ -253,7 +276,7 @@ function pct(bucket: Bucket): string {
   return `${Math.round(fraction * 100)}%`;
 }
 
-function row(label: string, bucket: Bucket): string[] {
+function row(label: string, bucket: Bucket, withEst: boolean): string[] {
   return [
     label,
     String(bucket.entries),
@@ -262,28 +285,36 @@ function row(label: string, bucket: Bucket): string[] {
     String(bucket.cacheReadInputTokens),
     pct(bucket),
     bucket.costUsd.toFixed(4),
+    ...(withEst ? [bucket.estCostUsd > 0 ? `≈${bucket.estCostUsd.toFixed(4)}` : '-'] : []),
     `${(bucket.durationMs / 1000).toFixed(1)}s`,
   ];
 }
 
 const HEADER = ['', 'runs', 'in', 'out', 'cacheR', 'cache%', '$cost', 'time'];
+const EST_NOTE = '≈ = estimate at API prices for runs that reported no cost (a subscription run is not billed per token); not included in $cost.';
 
 /** Render a stats report: per-task, per-stage and per-model tables, and a grand total. */
 export function formatStats(report: StatsReport): string {
+  const withEst = report.total.estCostUsd > 0;
+  const header = (title: string): string[] => {
+    const cols = HEADER.slice(1);
+    if (withEst) cols.splice(cols.indexOf('time'), 0, '$est');
+    return [title, ...cols];
+  };
   const taskTable = alignTable([
-    ['BY TASK', ...HEADER.slice(1)],
-    ...report.byTask.map((b) => row(b.key, b)),
+    header('BY TASK'),
+    ...report.byTask.map((b) => row(b.key, b, withEst)),
   ]);
   const stageTable = alignTable([
-    ['BY STAGE', ...HEADER.slice(1)],
-    ...report.byStage.map((b) => row(b.key, b)),
+    header('BY STAGE'),
+    ...report.byStage.map((b) => row(b.key, b, withEst)),
   ]);
   const modelTable = alignTable([
-    ['BY MODEL', ...HEADER.slice(1)],
-    ...report.byModel.map((b) => row(b.key, b)),
+    header('BY MODEL'),
+    ...report.byModel.map((b) => row(b.key, b, withEst)),
   ]);
-  const totalLine = alignTable([row('TOTAL', report.total)]);
-  const sections = [taskTable, '', stageTable, '', modelTable, '', totalLine];
+  const totalLine = alignTable([row('TOTAL', report.total, withEst)]);
+  const sections = [taskTable, '', stageTable, '', modelTable, '', totalLine, ...(withEst ? [EST_NOTE] : [])];
   if (report.probes !== undefined && report.probes.length > 0) {
     // Predicted vs observed clean-first-attempt rate per predicted difficulty: if the probe is any
     // good, "predicted" tracks "observed" and both fall as the level rises.

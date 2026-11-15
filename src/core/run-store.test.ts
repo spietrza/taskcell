@@ -4,7 +4,7 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { createHash } from 'node:crypto';
 import { execa } from 'execa';
-import { VERDICT_STAGES, beginRun, listRuns, readRun, runsRoot, persistBaseMerge, persistDecisionProbe, persistRunRecord, persistStageOutcomes } from './run-store.js';
+import { VERDICT_STAGES, beginRun, listRuns, readRun, runsRoot, setRunTrigger, persistBaseMerge, persistDecisionProbe, persistRunRecord, persistStageOutcomes } from './run-store.js';
 import { STAGE } from '../pipeline/pipeline.js';
 import type { RunResult } from './types.js';
 
@@ -70,6 +70,72 @@ async function recordFiles(taskId: string): Promise<string[]> {
   return (await readdir(join(runsRoot(repo), taskId))).sort();
 }
 
+describe('beginRun — estimate', () => {
+  const codex: RunResult = { ...result, taskId: 'TES-E', model: 'gpt-5', usage: { inputTokens: 1_000_000, outputTokens: 0, cacheReadInputTokens: 0 } };
+  delete (codex as { costUsd?: number }).costUsd;
+
+  it('stores estCostUsd on the run record and metric line, never in costUsd', async () => {
+    await beginRun(repo, 'TES-E', TS).writeStages([{ name: 'implementer', result: codex }]);
+    const record = JSON.parse(await readFile(join(runsRoot(repo), 'TES-E', `${PREFIX}-implementer.json`), 'utf8'));
+    expect(record.estCostUsd).toBe(1.25);
+    expect(record.costUsd).toBeUndefined();
+    const metric = JSON.parse((await readFile(join(runsRoot(repo), 'metrics.jsonl'), 'utf8')).trim().split('\n').pop() ?? '');
+    expect(metric).toMatchObject({ estCostUsd: 1.25, costUsd: 0, costUnknown: true });
+  });
+
+  it('summarises a local run with the estimate and no reported cost as costUnknown', async () => {
+    await beginRun(repo, 'TES-E', TS).writeStages([{ name: 'implementer', result: codex }]);
+    const [summary] = await listRuns(runsRoot(repo));
+    expect(summary).toMatchObject({ totalCostUsd: 0, estCostUsd: 1.25, costUnknown: true });
+  });
+
+  it('summarises a local run on an unpriced model as unknown, not $0.00', async () => {
+    await beginRun(repo, 'TES-U', TS).writeStages([{ name: 'implementer', result: { ...codex, taskId: 'TES-U', model: 'mystery' } }]);
+    const [summary] = await listRuns(runsRoot(repo));
+    expect(summary).toMatchObject({ totalCostUsd: 0, costUnknown: true });
+    expect(summary?.estCostUsd).toBeUndefined();
+  });
+
+  it('a run with reported and estimated stages carries both, and says when a stage has neither', async () => {
+    await beginRun(repo, 'TES-M', TS).writeStages([
+      { name: 'implementer', result: { ...result, taskId: 'TES-M' } },
+      { name: 'reviewer', result: { ...codex, taskId: 'TES-M' } },
+    ]);
+    const [mixed] = await listRuns(runsRoot(repo));
+    expect(mixed).toMatchObject({ totalCostUsd: result.costUsd, estCostUsd: 1.25 });
+    expect(mixed?.costUnknown).toBeUndefined();
+    expect(mixed?.estPartial).toBeUndefined();
+    await beginRun(repo, 'TES-P', TS).writeStages([
+      { name: 'a', result: { ...codex, taskId: 'TES-P' } },
+      { name: 'b', result: { ...codex, taskId: 'TES-P', model: 'mystery' } },
+    ]);
+    const partial = (await listRuns(runsRoot(repo))).find((r) => r.taskId === 'TES-P');
+    expect(partial).toMatchObject({ estCostUsd: 1.25, costUnknown: true, estPartial: true });
+  });
+
+  it('ignores an estimate in a record that is negative, not a number, or next to a reported cost', async () => {
+    await beginRun(repo, 'TES-E', TS).writeStages([{ name: 'a', result: codex }, { name: 'b', result: codex }, { name: 'c', result: codex }]);
+    const edit = async (stage: string, patch: Record<string, unknown>): Promise<void> => {
+      const path = join(runsRoot(repo), 'TES-E', `${PREFIX}-${stage}.json`);
+      await writeFile(path, JSON.stringify({ ...JSON.parse(await readFile(path, 'utf8')), ...patch }));
+    };
+    await edit('a', { estCostUsd: -5 });
+    await edit('b', { estCostUsd: '7' });
+    await edit('c', { estCostUsd: 9, costUsd: 0.5 });
+    const [summary] = await listRuns(runsRoot(repo));
+    expect(summary?.totalCostUsd).toBe(0.5);
+    expect(summary?.estCostUsd).toBeUndefined();
+  });
+
+  it('writes no estimate for a reported cost or an unpriced model', async () => {
+    await beginRun(repo, 'TES-R', TS).writeStages([{ name: 'a', result }, { name: 'b', result: { ...codex, model: 'mystery' } }]);
+    for (const stage of ['a', 'b']) {
+      const record = JSON.parse(await readFile(join(runsRoot(repo), 'TES-R', `${PREFIX}-${stage}.json`), 'utf8'));
+      expect(record.estCostUsd).toBeUndefined();
+    }
+  });
+});
+
 describe('beginRun — writing', () => {
   it('records the injected lesson ids on the stage record', async () => {
     await beginRun(repo, 'TES-L', TS).writeStages([{ name: 'implementer', result }], { lessonIds: ['abc123def456'] });
@@ -96,7 +162,7 @@ describe('beginRun — writing', () => {
     expect((await metricOf()).skillsUsed).toEqual(['earlier', 'simplify']);
     await beginRun(repo, 'TES-S2', TS).writeStages([{ name: 'implementer', result: { ...result, transcript: 'unknown format' } }]);
     const plain = await metricOf();
-    expect(plain.skillsUsed).toEqual([]);
+    expect(plain).not.toHaveProperty('skillsUsed');
     expect(plain).not.toHaveProperty('verdict');
   });
 
@@ -132,6 +198,19 @@ describe('beginRun — writing', () => {
     const record = JSON.parse(await readFile(join(runsRoot(repo), 'TES-1', `${PREFIX}-implementer.json`), 'utf8'));
     expect(record.startedBy).toBe('alice');
     expect((await listRuns(runsRoot(repo)))[0]?.startedBy).toBe('alice');
+  });
+
+  it('stamps the watch trigger on records written after setRunTrigger, and only then', async () => {
+    await beginRun(repo, 'TES-2', TS).writeStages([{ name: 'implementer', result }]);
+    setRunTrigger('watch');
+    try {
+      await beginRun(repo, 'TES-1', TS).writeStages([{ name: 'implementer', result }]);
+    } finally {
+      setRunTrigger(undefined);
+    }
+    const runs = await listRuns(runsRoot(repo));
+    expect(runs.find((r) => r.taskId === 'TES-1')?.trigger).toBe('watch');
+    expect(runs.find((r) => r.taskId === 'TES-2')?.trigger).toBeUndefined();
   });
 
   it('writes a per-stage JSON (without the diff) and appends a metric line', async () => {

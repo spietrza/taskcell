@@ -24,7 +24,7 @@ function scopedGh(gh: GhRunner, repo: string, policy: Pick<ApproverPolicy, 'depe
   const allowed = [repo, ...(policy.dependencyRepos ?? [])].map((r) => r.toLowerCase());
   return async (args) => {
     const slug = /^repos\/([^/]+\/[^/]+)\//.exec(args[1] ?? '')?.[1];
-    if (args[0] !== 'api' || slug === undefined || !allowed.includes(slug.toLowerCase())) throw new Error(`${slug ?? 'this call'} is outside the repos the approver reads dependencies from`);
+    if (args[0] !== 'api' || slug === undefined || !allowed.includes(slug.toLowerCase())) throw new Error(`${slug ?? 'this call'} is outside the repos the approver reads dependencies from (HTTP 403)`);
     return gh(args);
   };
 }
@@ -129,6 +129,7 @@ export async function rebaseDependents(input: RebaseDependentsInput): Promise<Re
       const excluded = [
         ...(pr.state !== 'OPEN' ? [`the PR is ${pr.state}`] : []),
         ...(pr.baseRefName !== input.merged.baseRefName ? ['another base branch'] : []),
+        ...((pr.labels ?? []).some((l) => ['taskcell:revising', 'vanguard:revising'].includes(l.toLowerCase())) ? ['a revise round is in flight'] : []),
         ...(facts.isFactoryPr ? [] : ['not a same-repo factory branch']),
         ...(diff.gitFactsFailed || diff.headMoved ? ['its diff could not be read'] : []),
         ...hardExclusions(facts, policy, reviews, { mergeState: false }),
@@ -141,7 +142,7 @@ export async function rebaseDependents(input: RebaseDependentsInput): Promise<Re
         // Once per head: the marker dedupes the comment, and a label already applied for this head is left alone.
         const marker = `<!-- taskcell-approver-act: ${pr.headSha}:revise:dependent-conflict -->`;
         const why = `this PR conflicts with the base after its dependency #${merged} merged`;
-        const posted = await commentOnce(gh, repo, candidate.pr, marker, `## Taskcell Approver (act mode)\n\nSending this PR to a revise round: ${escapeForComment(why)}.\n\n${marker}`);
+        const posted = await commentOnce(gh, repo, candidate.pr, marker, `## Taskcell Approver (act mode)\n\nSending this PR to a revise round: ${escapeForComment(why)}.\n\n${marker}`, policy.approverLogins);
         const labelled = hasLabel(pr.labels ?? [], NEEDS_REVISION_LABEL);
         if (posted || !labelled) {
           // Re-applied, not left: only a new `labeled` event can start a revise round for this head.
