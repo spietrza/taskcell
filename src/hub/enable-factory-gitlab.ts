@@ -208,6 +208,32 @@ function factoryStage(ci: string | undefined): string {
   return names.find((name) => /^[A-Za-z0-9_][A-Za-z0-9_.-]*$/.test(name)) ?? 'test';
 }
 
+/** One runner tag: non-empty, at most 255 characters, no edge whitespace, and none of `,`, `"`, `\`, control characters (the tags are written double-quoted, comma-separated in the field). */
+export const GITLAB_RUNNER_TAG = /^[^\s",\\\x00-\x1f\x7f](?:[^",\\\x00-\x1f\x7f]{0,253}[^\s",\\\x00-\x1f\x7f])?$/;
+/** GitLab's own limit on tags per job. */
+const MAX_RUNNER_TAGS = 50;
+export const RUNNER_TAGS_RULE = `runner tags must be non-empty, at most 255 characters, at most ${MAX_RUNNER_TAGS} in all, with no leading or trailing space and none of , " \\ or control characters`;
+
+/** The validated tag list, or an error naming the rule. */
+export function validateRunnerTags(raw: unknown): string[] {
+  if (raw === undefined) return [];
+  if (!Array.isArray(raw) || raw.length > MAX_RUNNER_TAGS || !raw.every((t) => typeof t === 'string' && GITLAB_RUNNER_TAG.test(t))) throw new BadRequestError(RUNNER_TAGS_RULE);
+  return raw as string[];
+}
+
+/** `default: tags:` of the project's own CI file (top-level `default:` only, no includes). A value the hub cannot copy faithfully is refused, never trimmed: dropping a tag would widen the runners that pick the jobs up. */
+function defaultTags(ci: string | undefined): string[] {
+  const def = rootValue(ci, 'default');
+  const tags = isMap(def) ? def.items.find((pair) => isScalar(pair.key) && pair.key.value === 'tags')?.value : undefined;
+  if (tags === undefined || tags === null) return [];
+  const unreadable = new BadRequestError('The project\'s `default: tags` in its CI file is not a plain list of valid tags the hub can copy; fix it (or use a plain list), then try again.');
+  if (!isSeq(tags) || tags.items.length > MAX_RUNNER_TAGS) throw unreadable;
+  return tags.items.map((item) => {
+    if (!isScalar(item) || typeof item.value !== 'string' || !GITLAB_RUNNER_TAG.test(item.value)) throw unreadable;
+    return item.value;
+  });
+}
+
 function unruledJobs(ci: string | undefined): string[] {
   if (ci === undefined) return [];
   const root = pipelineYaml(ci)?.at(-1)?.contents;
@@ -265,6 +291,7 @@ export async function planGitlabFactory(repoPath: string, deps: GitlabFactoryDep
     gitlabProjectId,
     gitlabCiPath,
     ...(gitlabManualInclude ? { gitlabManualInclude: true } : {}),
+    gitlabRunnerTags: defaultTags(base.ci),
     ...(unruled.length > 0 ? { gitlabUnruledJobs: unruled } : {}),
     packageManager,
     ...(verifyCommand !== undefined ? { verifyCommand } : {}),
@@ -370,6 +397,8 @@ export async function applyGitlabFactory(repoPath: string, plan: FactoryPlan, de
 
   await guarded(() => git(exec, repoPath, ['fetch', 'origin', plan.defaultBranch]));
   const base = await baseState(exec, repoPath, plan.defaultBranch, ciPath);
+  const tags = plan.gitlabRunnerTags ?? [];
+  const tagsLine = tags.length > 0 ? `\n  tags: [${tags.map((tag) => JSON.stringify(tag)).join(', ')}]` : '';
   let changed: boolean;
   let manualInclude = false;
   await guarded(() => git(exec, repoPath, ['checkout', '-B', branch, `origin/${plan.defaultBranch}`]));
@@ -378,7 +407,7 @@ export async function applyGitlabFactory(repoPath: string, plan: FactoryPlan, de
     const written: string[] = [];
     if (!base.includeFile) {
       await mkdir(join(repoPath, '.gitlab'), { recursive: true });
-      await writeFile(join(repoPath, GITLAB_INCLUDE_FILE), (await readFile(TEMPLATE, 'utf8')).replaceAll(LOGIN_PLACEHOLDER, plan.login).replace(/^ {2}stage: test$/m, `  stage: ${factoryStage(base.ci)}`));
+      await writeFile(join(repoPath, GITLAB_INCLUDE_FILE), (await readFile(TEMPLATE, 'utf8')).replaceAll(LOGIN_PLACEHOLDER, plan.login).replace(/^ {2}stage: test$/m, `  stage: ${factoryStage(base.ci)}${tagsLine}`));
       written.push(GITLAB_INCLUDE_FILE);
     }
     const canEditCi = ciPath === GITLAB_CI_FILE && plan.gitlabManualInclude !== true;

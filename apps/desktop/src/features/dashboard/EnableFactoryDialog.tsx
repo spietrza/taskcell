@@ -59,6 +59,7 @@ export function EnableFactoryDialog({ project, onClose }: { project: { path: str
   const [watch, setWatch] = useState<WatchWorkerChecklist | null>(null);
   // The text whose Copy button was just pressed, so only that button says "Copied".
   const [copied, setCopied] = useState<string | null>(null);
+  const [tags, setTags] = useState('');
   const [doctorConfirmed, setDoctorConfirmed] = useState(false);
   const [busy, setBusy] = useState<Busy>(null);
   const [error, setError] = useState<string | null>(null);
@@ -125,7 +126,9 @@ export function EnableFactoryDialog({ project, onClose }: { project: { path: str
 
   const loadPlan = (provider: FactoryProviderId): Promise<void> =>
     step('plan', async () => {
-      setPlan(await enableFactoryPlan(project.path, provider));
+      const next = await enableFactoryPlan(project.path, provider);
+      setTags((next.gitlabRunnerTags ?? []).join(', '));
+      setPlan(next);
     });
   const loadWatch = (): Promise<void> =>
     step('watch', async () => {
@@ -377,6 +380,20 @@ export function EnableFactoryDialog({ project, onClose }: { project: { path: str
                 </p>
               )}
             </Section>
+            {gitlab && !existing.has('.gitlab/taskcell.yml') && (
+              <Section title="Runner tags">
+                <input
+                  aria-label="Runner tags"
+                  className="w-full rounded border border-border bg-transparent px-2 py-1 font-mono text-xs"
+                  value={tags}
+                  placeholder="none"
+                  onChange={(e) => setTags(e.target.value)}
+                />
+                <p className="mt-1 text-xs text-muted-foreground">
+                  Comma-separated; written as <code>tags:</code> under <code>.taskcell-base</code>. Pre-filled from the project's <code>default: tags</code>; clear it for no tags.
+                </p>
+              </Section>
+            )}
             <Section title="Labels">
               <div className="flex flex-wrap gap-1">
                 {plan.labels.map((l) => <Chip key={l} color="secondary" variant="outlined">{l}</Chip>)}
@@ -419,7 +436,7 @@ export function EnableFactoryDialog({ project, onClose }: { project: { path: str
             </Button>
           )}
           {!showChecklist && plan && (
-            <Button onClick={() => void (nothingToAdd ? start(plan) : apply(plan))} loading={busy === 'apply'} disabled={busy !== null || manualOnly}>
+            <Button onClick={() => void (nothingToAdd ? start(plan) : apply(gitlab ? { ...plan, gitlabRunnerTags: tags.split(',').map((t) => t.trim()).filter((t) => t !== '') } : plan))} loading={busy === 'apply'} disabled={busy !== null || manualOnly}>
               {nothingToAdd ? 'Start checklist' : gitlab ? 'Open merge request' : 'Open PR'}
             </Button>
           )}
