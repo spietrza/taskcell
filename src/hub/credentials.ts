@@ -13,6 +13,7 @@ import type { HubUser } from './auth.js';
 
 const LEGACY_MAGIC = 'VHC1';
 const SECRET_FORMAT = 'TASKCELL_HUB_SECRET must be 32 bytes, base64-encoded (e.g. `openssl rand -base64 32`)';
+const present = (path: string): Promise<boolean> => access(path).then(() => true, () => false);
 const legacyPath = (configDir: string): string => join(configDir, '.vanguard-hub', 'credentials.enc');
 
 /** A store or migration failure whose message is fixed and value-free (no path, no credential), so it can be shown
@@ -140,7 +141,8 @@ export class ScopedCredentialStore {
 
   /** Set once this store has read or written under the operator's secret: from then on `credentials.key` is never
    * tried again, so a planted key file plus store cannot replace the saved credentials.
-   * shortcut: in-memory, so it holds for the hub's lifetime only; persist a marker outside the config dir to cover restarts. */
+   * Also persisted as `credentials.keyed` beside the store so it holds across restarts; that file lives in the config
+   * directory, so it stops a planted key file only against someone who cannot also delete it. */
   private operatorKeyed = false;
   /** The last load read a disk-key store whose re-key is put off (a legacy file is still unmigrated): saves stay under `credentials.key`. */
   private rekeyDeferred = false;
@@ -187,6 +189,23 @@ export class ScopedCredentialStore {
     return JSON.parse(plain.toString('utf8')) as Secrets;
   }
 
+  private keyedPath(): string {
+    return join(this.dir, 'credentials.keyed');
+  }
+
+  /** Remember (in memory, and in a marker file once, best effort: a read-only config dir must not make a readable store fail) that the store is keyed under the secret. */
+  private async markKeyed(): Promise<void> {
+    this.operatorKeyed = true;
+    if (await present(this.keyedPath())) return;
+    await writeFile(this.keyedPath(), 'keyed under TASKCELL_HUB_SECRET\n', { mode: 0o600 }).catch(() => undefined);
+  }
+
+  /** The store is (re)written under `credentials.key`: a marker from an earlier secret no longer describes it. */
+  private async unmarkKeyed(): Promise<void> {
+    this.operatorKeyed = false;
+    await rm(this.keyedPath(), { force: true }).catch(() => undefined);
+  }
+
   private async load(): Promise<Secrets> {
     let raw: string;
     try {
@@ -198,35 +217,39 @@ export class ScopedCredentialStore {
     this.rekeyDeferred = false;
     const operatorKey = this.operatorKey();
     if (operatorKey !== undefined) {
+      let opened: Secrets | undefined;
       try {
-        const all = this.decrypt(raw, operatorKey);
-        this.operatorKeyed = true;
-        return all;
+        opened = this.decrypt(raw, operatorKey);
       } catch {
-        const undecryptable = new CredentialStoreError('credential store cannot be decrypted: it was saved under a different TASKCELL_HUB_SECRET value (or under the on-disk credentials.key, now absent), or the file is corrupt. Restore that value to recover it; the store is left untouched');
-        // The store is left as it is: nothing here overwrites or deletes what cannot be read.
-        if (this.operatorKeyed) throw undecryptable;
-        let legacy: Secrets;
-        try {
-          legacy = this.decrypt(raw, await this.diskKey(false));
-        } catch {
-          throw undecryptable;
-        }
-        // While credentials.enc is unmigrated the secret may not be the one that opens it: re-keying now could leave
-        // two files that no single secret reads, so the store stays under credentials.key until the migration is done.
-        if (await access(legacyPath(this.dir)).then(() => true, () => false)) {
-          this.rekeyDeferred = true;
-          return legacy;
-        }
-        // Re-key under the operator's secret; credentials.key goes only once the new file reads back.
-        await this.saveWithKey(legacy, operatorKey);
-        if (JSON.stringify(this.decrypt(await readFile(this.file, 'utf8'), operatorKey)) !== JSON.stringify(legacy)) {
-          throw new CredentialStoreError('credential store could not be verified after re-keying under TASKCELL_HUB_SECRET');
-        }
-        await rm(join(this.dir, 'credentials.key'), { force: true });
-        this.operatorKeyed = true;
+        opened = undefined;
+      }
+      if (opened !== undefined) {
+        await this.markKeyed();
+        return opened;
+      }
+      const undecryptable = new CredentialStoreError('credential store cannot be decrypted: it was saved under a different TASKCELL_HUB_SECRET value (or under the on-disk credentials.key, now absent), or the file is corrupt. Restore that value to recover it; the store is left untouched');
+      // The store is left as it is: nothing here overwrites or deletes what cannot be read.
+      if (this.operatorKeyed || await present(this.keyedPath())) throw undecryptable;
+      let legacy: Secrets;
+      try {
+        legacy = this.decrypt(raw, await this.diskKey(false));
+      } catch {
+        throw undecryptable;
+      }
+      // While credentials.enc is unmigrated the secret may not be the one that opens it: re-keying now could leave
+      // two files that no single secret reads, so the store stays under credentials.key until the migration is done.
+      if (await present(legacyPath(this.dir))) {
+        this.rekeyDeferred = true;
         return legacy;
       }
+      // Re-key under the operator's secret; credentials.key goes only once the new file reads back.
+      await this.saveWithKey(legacy, operatorKey);
+      if (JSON.stringify(this.decrypt(await readFile(this.file, 'utf8'), operatorKey)) !== JSON.stringify(legacy)) {
+        throw new CredentialStoreError('credential store could not be verified after re-keying under TASKCELL_HUB_SECRET');
+      }
+      await rm(join(this.dir, 'credentials.key'), { force: true });
+      await this.markKeyed();
+      return legacy;
     }
     try {
       return this.decrypt(raw, await this.diskKey(false));
@@ -248,9 +271,13 @@ export class ScopedCredentialStore {
   }
 
   private async save(all: Secrets): Promise<void> {
-    const operatorKey = this.rekeyDeferred ? undefined : this.operatorKey();
+    // While credentials.enc is unmigrated and the store is not yet under the secret, stay on credentials.key so no
+    // second secret comes into play (the secret may not be the one that opens the legacy file).
+    const deferred = this.rekeyDeferred || (!this.operatorKeyed && await present(legacyPath(this.dir)));
+    const operatorKey = deferred ? undefined : this.operatorKey();
     await this.saveWithKey(all, operatorKey ?? await this.diskKey(true));
-    if (operatorKey !== undefined) this.operatorKeyed = true;
+    if (operatorKey !== undefined) await this.markKeyed();
+    else await this.unmarkKeyed();
   }
 
   /** Serialize read-modify-write cycles so two saves never lose each other's update. */
@@ -400,7 +427,7 @@ export function createCredentialService(configDir: string, adminLogins: readonly
         } catch (error) {
           // An unreadable store does not stop a run the hub's start-up environment can fund (as before the secret
           // keyed this store); with no key there either, the run needs the store and is refused with the reason.
-          if (names !== undefined && !names.some((n) => (process.env[n] ?? '') !== '')) throw new BadRequestError(shownReason(error, STORE_UNREADABLE));
+          if (!(names ?? CREDENTIAL_NAMES).some((n) => (process.env[n] ?? '') !== '')) throw new BadRequestError(shownReason(error, STORE_UNREADABLE));
         }
         return { source: 'instance', env: names === undefined ? env : pick(env, names) };
       };
