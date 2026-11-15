@@ -11,6 +11,17 @@ function fakeSandbox(onDestroy: () => void, throws: boolean = false): IsolatedSa
   } as unknown as IsolatedSandboxProvider;
 }
 
+describe('cleanup order', () => {
+  it('destroys tracked sandboxes before tracked proxies', async () => {
+    const order: string[] = [];
+    const proxy = { destroy: async (): Promise<void> => { await new Promise((r) => setTimeout(r, 5)); order.push('proxy'); } };
+    trackSandbox(proxy, { proxy: true });
+    trackSandbox(fakeSandbox(() => order.push('sandbox')));
+    await destroyAllTracked();
+    expect(order).toEqual(['sandbox', 'proxy']);
+  });
+});
+
 describe('cleanup', () => {
   it('destroys every tracked sandbox and reports the count', async () => {
     const destroyed: number[] = [];
