@@ -1,5 +1,5 @@
 import { createCipheriv, randomBytes } from 'node:crypto';
-import { copyFile, mkdir, mkdtemp, readFile, rm, stat, writeFile } from 'node:fs/promises';
+import { copyFile, mkdir, mkdtemp, readFile, rm, stat, symlink, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { afterEach, describe, expect, it, vi } from 'vitest';
@@ -296,8 +296,44 @@ describe('re-review hardening', () => {
     const secret = randomBytes(32).toString('base64');
     await new ScopedCredentialStore(d, secret).put('instance', 'X', 'v');
     await rm(join(d, 'credentials.keyed'));
-    await mkdir(join(d, 'credentials.keyed')); // a directory in the way: the marker cannot be written, even as root
+    await symlink(join(d, 'missing', 'x'), join(d, 'credentials.keyed')); // a dangling link: not present, and the write fails (ENOENT), even as root
     expect(await new ScopedCredentialStore(d, secret).values('instance')).toEqual({ X: 'v' });
+  });
+
+  it('a deferred re-key never adopts a credentials.key it did not write', async () => {
+    const d = await dir();
+    const secret = randomBytes(32).toString('base64');
+    await legacyFile(d, randomBytes(32).toString('base64'), { zai: 'junk' });
+    const planted = await dir();
+    await new ScopedCredentialStore(planted).put('instance', 'X', 'attacker');
+    await copyFile(join(planted, 'credentials.key'), join(d, 'credentials.key'));
+    const known = await readFile(join(d, 'credentials.key'), 'utf8');
+    await new ScopedCredentialStore(d, secret).put('instance', 'X', 'v');
+    expect(await readFile(join(d, 'credentials.key'), 'utf8')).not.toBe(known);
+    expect(await new ScopedCredentialStore(planted).values('instance')).toEqual({ X: 'attacker' });
+    await copyFile(join(d, 'credentials.enc.json'), join(planted, 'credentials.enc.json'));
+    await expect(new ScopedCredentialStore(planted).values('instance')).rejects.toThrow();
+  });
+
+  it('a marker that cannot be removed raises a fixed error and nothing is written', async () => {
+    const d = await dir();
+    const secret = randomBytes(32).toString('base64');
+    await legacyFile(d, randomBytes(32).toString('base64'), { zai: 'z' });
+    await mkdir(join(d, 'credentials.keyed')); // rm without recursive fails (EISDIR)
+    await expect(new ScopedCredentialStore(d, secret).put('instance', 'X', 'w')).rejects.toThrow('credentials.keyed could not be removed');
+    await expect(stat(join(d, 'credentials.enc.json'))).rejects.toThrow();
+    await expect(stat(join(d, 'credentials.key'))).rejects.toThrow();
+  });
+
+  it('with no usable secret, a marker and no store file the save has its own message and Settings shows it', async () => {
+    const d = await dir();
+    await new ScopedCredentialStore(d, randomBytes(32).toString('base64')).put('instance', 'X', 'v');
+    await rm(join(d, 'credentials.enc.json'));
+    const store = new ScopedCredentialStore(d);
+    await expect(store.put('instance', 'X', 'w')).rejects.toThrow('no store file');
+    await expect(store.put('instance', 'X', 'w')).rejects.not.toThrow('cannot be decrypted');
+    expect(await store.markerIssue()).toContain('no store file');
+    expect((await createCredentialService(d, []).instanceStatus()).reason).toContain('no store file');
   });
 
   it('with no usable secret a save beside a marker is refused, also with no store file, and the marker is kept', async () => {
@@ -548,5 +584,23 @@ describe('createHubServer migration wiring', () => {
       error.mockRestore();
       await h.close();
     }
+  });
+});
+
+describe('hub admins by sign-in identity', () => {
+  const user = (over: Record<string, unknown>) => ({ id: 'u1', email: 'a@x.com', name: 'A', ...over });
+  it('matches github/gitlab logins, and e-mail or domain only when verified', async () => {
+    const svc = createCredentialService(await dir(), ['Octo'], undefined, ['gitlab:alice', 'bob@example.com', '@corp.com']);
+    expect(svc.isAdmin(user({ login: 'gitlab:Alice' }))).toBe(true);
+    expect(svc.isAdmin(user({ login: 'github:octo' }))).toBe(true); // --admin-github-login
+    expect(svc.isAdmin(user({ login: 'gitlab:octo' }))).toBe(false);
+    expect(svc.isAdmin(user({ login: 'github:alice' }))).toBe(false);
+    expect(svc.isAdmin(user({ email: 'bob@example.com', emailVerified: true }))).toBe(true);
+    expect(svc.isAdmin(user({ email: 'bob@example.com', emailVerified: false }))).toBe(false);
+    expect(svc.isAdmin(user({ email: 'c@corp.com', emailVerified: true }))).toBe(true);
+    expect(svc.isAdmin(user({ email: 'c@corp.com' }))).toBe(false);
+    expect(svc.isAdmin(undefined)).toBe(false);
+    expect(() => svc.assertManager(user({ login: 'gitlab:alice' }), false)).not.toThrow();
+    expect(() => svc.assertManager(user({ login: 'gitlab:mallory' }), false)).toThrow('hub admin');
   });
 });

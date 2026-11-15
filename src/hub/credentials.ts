@@ -9,7 +9,7 @@ import { access, chmod, mkdir, readFile, rename, rm, writeFile } from 'node:fs/p
 import { join } from 'node:path';
 import { BadRequestError } from '../sidecar/sidecar.js';
 import type { RunCredential } from '../wire.js';
-import type { HubUser } from './auth.js';
+import { parseSignupAllowlist, type HubUser } from './auth.js';
 
 const LEGACY_MAGIC = 'VHC1';
 const SECRET_FORMAT = 'TASKCELL_HUB_SECRET must be 32 bytes, base64-encoded (e.g. `openssl rand -base64 32`)';
@@ -136,6 +136,11 @@ function markerWithoutSecret(): CredentialStoreError {
   return new CredentialStoreError('credential store cannot be decrypted: credentials.keyed records that the store was saved under a TASKCELL_HUB_SECRET value that is no longer set (or is not usable), so credentials.key is neither read nor written. Restore that secret to recover it, or, if the store is meant to be on credentials.key, remove credentials.keyed (in the hub config directory); the store and the marker are left untouched');
 }
 
+/** No usable secret, `credentials.keyed` present and no store file: nothing to decrypt, but a save would start a store on `credentials.key`. */
+function markerWithoutStore(): CredentialStoreError {
+  return new CredentialStoreError('credential store save refused: credentials.keyed records that the store was saved under TASKCELL_HUB_SECRET, but this start has no usable secret and no store file, so a new store is not started on credentials.key. Set the secret again, or, if the store is meant to be on credentials.key, remove credentials.keyed (in the hub config directory); the marker is left untouched');
+}
+
 export class ScopedCredentialStore {
   private chain: Promise<unknown> = Promise.resolve();
   constructor(private readonly dir: string, private readonly secret?: string) {}
@@ -208,7 +213,11 @@ export class ScopedCredentialStore {
   /** The store is (re)written under `credentials.key`: a marker from an earlier secret no longer describes it. */
   private async unmarkKeyed(): Promise<void> {
     this.operatorKeyed = false;
-    await rm(this.keyedPath(), { force: true });
+    try {
+      await rm(this.keyedPath(), { force: true });
+    } catch {
+      throw new CredentialStoreError('credential store save refused: credentials.keyed could not be removed; remove it by hand (in the hub config directory); the store is left untouched');
+    }
   }
 
   private async load(): Promise<Secrets> {
@@ -284,16 +293,26 @@ export class ScopedCredentialStore {
     const usable = this.operatorKey();
     // With no usable secret a marker is never removed, also when the store file is absent: the save is refused instead,
     // so deleting the store cannot turn a marker into a fresh credentials.key store.
-    if (usable === undefined && await present(this.keyedPath())) throw markerWithoutSecret();
+    if (usable === undefined && await present(this.keyedPath())) throw await present(this.file) ? markerWithoutSecret() : markerWithoutStore();
     // While credentials.enc is unmigrated and the store is not yet under the secret, stay on credentials.key so no
     // second secret comes into play (the secret may not be the one that opens the legacy file).
     const deferred = this.rekeyDeferred || (!this.operatorKeyed && await present(legacyPath(this.dir)));
     const operatorKey = deferred ? undefined : usable;
     // Drop a stale marker BEFORE the disk-key write, so a crash between the two cannot leave a readable store locked out.
     // Only reached with a usable secret whose re-key is deferred (credentials.enc is unmigrated).
-    if (operatorKey === undefined) await this.unmarkKeyed();
+    if (operatorKey === undefined) {
+      await this.unmarkKeyed();
+      // With a usable secret and no store file, a credentials.key already on disk was not written by this hub for any store: never adopt it.
+      if (usable !== undefined && !await present(this.file)) await rm(join(this.dir, 'credentials.key'), { force: true });
+    }
     await this.saveWithKey(all, operatorKey ?? await this.diskKey(true));
     if (operatorKey !== undefined) await this.markKeyed();
+  }
+
+  /** Why a save would be refused with no store file: a marker without a usable secret. Settings shows it before the first save fails. */
+  async markerIssue(): Promise<string | undefined> {
+    if (this.operatorKey() !== undefined || !await present(this.keyedPath()) || await present(this.file)) return undefined;
+    return markerWithoutStore().message;
   }
 
   /** Why a valid secret is not keying the store: an unmigrated `credentials.enc` keeps new saves on `credentials.key`. */
@@ -367,22 +386,25 @@ export interface CredentialService {
   resolveForRun(user: HubUser | undefined, provider?: string): Promise<RunCredential>;
 }
 
-export function createCredentialService(configDir: string, adminLogins: readonly string[] = [], secret?: string): CredentialService {
+export function createCredentialService(configDir: string, adminLogins: readonly string[] = [], secret?: string, hubAdmins: readonly string[] = []): CredentialService {
   const store = new ScopedCredentialStore(configDir, secret);
-  const admins = new Set(adminLogins.map((l) => l.trim().toLowerCase()).filter(Boolean));
+  // `--admin-github-login` values are bare GitHub logins; `TASKCELL_HUB_ADMINS` entries use the sign-up allowlist syntax.
+  const admins = parseSignupAllowlist([...adminLogins.filter((l) => l.trim() !== '').map((l) => `github:${l.trim()}`), ...hubAdmins]);
   const policyFile = join(configDir, 'credential-policy.json');
   let migrationIssue: string | undefined;
   let migrating: Promise<void> | undefined;
   let instanceValues: Record<string, string> = {};
   const service: CredentialService = {
     store,
-    // A GitHub sign-in carries `login: 'github:<login>'`; GitLab, Google and the token owner never match.
+    // A GitHub or GitLab sign-in carries `login: '<provider>:<login>'`; an e-mail or domain entry needs a verified address.
+    // The token owner (unverified `owner@hub.invalid`, no login) never matches.
     isAdmin: (user) => {
-      const login = user?.login?.toLowerCase();
-      return login?.startsWith('github:') === true && admins.has(login.slice('github:'.length));
+      if (user === undefined) return false;
+      const base = { email: user.email, emailVerified: user.emailVerified === true };
+      return [undefined, ...(user.logins ?? (user.login !== undefined ? [user.login] : []))].some((login) => admins({ ...base, login }));
     },
     assertManager(user, owner) {
-      if (!owner && !service.isAdmin(user)) throw new ForbiddenError('only the hub owner or an admin (--admin-github-login) can do this');
+      if (!owner && !service.isAdmin(user)) throw new ForbiddenError('only the hub owner or a hub admin (TASKCELL_HUB_ADMINS, --admin-github-login) can do this');
     },
     async policy() {
       try {
@@ -400,7 +422,7 @@ export function createCredentialService(configDir: string, adminLogins: readonly
       if (migrationIssue !== undefined) await service.migrateLegacy();
       try {
         instanceValues = await store.values('instance');
-        const reason = [migrationIssue ?? store.secretIssue, await store.legacyIssue()].filter((r) => r !== undefined).join('; ') || undefined;
+        const reason = [migrationIssue ?? store.secretIssue, await store.legacyIssue(), await store.markerIssue()].filter((r) => r !== undefined).join('; ') || undefined;
         return { names: Object.keys(instanceValues).sort(), ...(reason !== undefined ? { reason } : {}) };
       } catch (error) {
         // `instanceValues` keeps the last good read, so doc chat and Fleet do not silently drop to the start-up environment.

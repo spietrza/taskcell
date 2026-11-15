@@ -101,6 +101,36 @@ describe('dispatchRpc team scoping', () => {
     expect(((await dispatchRpc(ctx, 'list_teams', {})) as { repositories: string[] }[]).find((t) => t.repositories.includes(b))).toBeUndefined();
   });
 
+  test('a hub admin may clone and manage members, but not browse or add a server path', async () => {
+    const { ctx, b } = await setup();
+    const admin = { ...user('mia'), hubAdmin: true };
+    const owner = /only the hub owner/;
+    for (const [cmd, args] of [['add_project', { path: b }], ['browse_dirs', {}]] as const) {
+      await expect(dispatchRpc(ctx, cmd, args, admin)).rejects.toThrow(owner);
+    }
+    // Past the owner gate: refused for the host, not for who asked.
+    await expect(dispatchRpc(ctx, 'clone_project', { url: 'https://evil.example/o/r.git' }, admin)).rejects.toThrow(/not an allowed clone host/);
+    // A non-admin member is still refused the clone.
+    await expect(dispatchRpc(ctx, 'clone_project', { url: 'https://github.com/o/r.git' }, user('mia'))).rejects.toThrow(/only the hub owner or a hub admin/);
+    // mia is only a member of team one, yet as a hub admin she can add members.
+    const team = (await dispatchRpc(ctx, 'add_team_member', { teamId: 'one', login: 'zed@x.com', role: 'member' }, admin)) as { members: { login: string }[] };
+    expect(team.members.map((m) => m.login)).toContain('zed@x.com');
+    // A dot-folder is refused before anything is cloned.
+    await expect(dispatchRpc(ctx, 'clone_project', { url: 'https://github.com/o/r.git', name: '.ssh' }, admin)).rejects.toThrow(/cannot start with a dot/);
+  });
+
+  test('a hub admin outside every team is refused a clone; the empty default team is theirs to fill', async () => {
+    const { ctx } = await setup();
+    const stranger = { ...user('nobody'), hubAdmin: true };
+    await expect(dispatchRpc(ctx, 'clone_project', { url: 'https://github.com/o/r.git' }, stranger)).rejects.toThrow(/not a member of any team/);
+    const { ctx: fresh } = await makeCtx(await tmpGitRepo());
+    await saveTeams(fresh.configDir, [{ id: 'default', name: 'Default', members: [], repositories: [] }]);
+    const first = (await dispatchRpc(fresh, 'add_team_member', { teamId: 'default', login: 'zed@x.com', role: 'member' }, stranger)) as { members: { login: string; role: string }[] };
+    expect(first.members).toEqual([{ login: 'zed@x.com', role: 'member' }, { login: 'nobody', role: 'admin' }]);
+    // Once it has members, a hub admin outside it no longer administers it.
+    await expect(dispatchRpc(fresh, 'add_team_member', { teamId: 'default', login: 'q@x.com', role: 'member' }, { ...user('other'), hubAdmin: true })).rejects.toThrow(/not a member/);
+  });
+
   test('run-session commands only reach the caller\'s repositories', async () => {
     const { ctx, a, b } = await setup();
     const ann = user('ann');

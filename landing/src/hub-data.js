@@ -5,6 +5,9 @@
 /** Column the card stands in at each step: Queued, Claimed, Running (three steps), Review (two). */
 export const COLUMN_AT = [0, 1, 2, 2, 2, 4, 4];
 export const STEPS = COLUMN_AT.length;
+/** The stage the card's "stage:" line names while it runs (Running's three steps), and the tracker state its last line shows at each step. */
+const STAGE_AT = { 2: 'implement', 3: 'verify', 4: 'review' };
+const STATE_AT = ['Ready for agent', 'Claimed', 'In Progress', 'In Progress', 'In Progress', 'In Review', 'In Review'];
 /** The step its pull request is open: Home's Needs you count goes up by one. */
 const PR_STEP = 5;
 /** The Runs badge counts finished runs and the one in flight: not yet while the card is queued or claimed. */
@@ -20,6 +23,8 @@ export function hubAnimator(root) {
   const cols = [...root.querySelectorAll('[data-hub-col]')];
   const mine = q('open');
   if (!drawer || !list || cols.length < 5 || !mine) return null;
+  const stageLine = q('stage', mine);
+  const stateLine = q('state', mine);
   const empty = q('empty');
   const emptyHtml = empty?.cloneNode(true);
   const header = q('counts');
@@ -37,6 +42,9 @@ export function hubAnimator(root) {
     const target = cols[COLUMN_AT[step]];
     const body = q('body', target);
     if (!body.contains(mine)) body.prepend(mine);
+    if (stageLine) stageLine.textContent = `stage: ${STAGE_AT[step] ?? ''}`;
+    gone(stageLine, !STAGE_AT[step]);
+    if (stateLine) stateLine.textContent = STATE_AT[step];
     for (const col of cols) {
       const b = q('body', col);
       const n = b.querySelectorAll('[data-hub-card]').length;

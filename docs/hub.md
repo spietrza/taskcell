@@ -177,6 +177,14 @@ on this hub". Entries: `alice@example.com` (an e-mail), `@example.com` (a domain
 `gitlab:login` entry matches that login on whichever GitLab the hub is configured for. An empty list
 means nobody can sign up (the hub warns at startup). Existing accounts are not re-checked on sign-in.
 
+**Hub admins.** `TASKCELL_HUB_ADMINS` is a comma-separated list of hub admins named by sign-in identity, in the
+same entry syntax as `TASKCELL_HUB_SIGNUP_ALLOW` (`alice@example.com`, `@example.com`, `github:login`,
+`gitlab:login`). E-mail and domain entries only match a provider-verified address; `github:` / `gitlab:` match the
+login the provider reported at sign-in, never a user-editable field. `--admin-github-login` (and
+`TASKCELL_HUB_ADMIN_GITHUB_LOGINS`) keep working as one more `github:` entry each. What a hub admin may do is under
+"Teams and roles". A user who has linked both GitHub and GitLab matches either login. A GitLab login is
+recorded when the user signs in with GitLab, so a `gitlab:` admin entry matches from their next sign-in on. Without the token, a hub admin still cannot `browse_dirs` or `add_project`.
+
 **Local owner user.** In local mode (a plain loopback bind) there is no sign-in screen, no OAuth and no
 database (`/api/auth/*` and `/sign-in` answer 404); the hub acts as one automatic owner user. In server
 mode the owner is a real Better Auth user (`owner@hub.invalid`, e-mail unverified so no provider
@@ -192,12 +200,17 @@ outside the user's teams — reading a run, a session or a file included — is 
 active run, run backlog, cancel and the `/events` stream only carry the user's repositories.
 `add_team_member`, `remove_team_member`, `add_team_repository` (a project the admin already holds) and
 `remove_team_repository` need the team's `admin` role; a `member` is refused. A team keeps at least one
-admin. The token holder is the owner, admin of every team, and alone may `add_project` / `remove_project` /
-`clone_project` / `browse_dirs` (a hub-wide remove also leaves every team), use the credential commands and the Fleet (Settings → Runners)
-commands. Token-only mode is unchanged: one default team, the token its admin.
+admin. A **hub admin** (see "Hub admins"), signed in, may without the token: manage the instance credentials and the
+`per-user credentials` switch (everything the token holder may in Settings); `clone_project` from the hosts in
+`TASKCELL_HUB_CLONE_HOSTS` (plus github.com and gitlab.com) when `TASKCELL_HUB_ALLOW_ADD=1`, cloned into `taskcell-repos/` under the
+browse root (a folder name never starts with a dot) and added to the admin's team (`teamId`, default their first); and add and remove members from Settings. A hub admin is
+admin of the teams they belong to, and of the default team while it has no members at all: on a fresh hub they add
+the first member from the UI and are recorded in that team as its admin, after which the team is administered as usual. The token holder is the owner, admin of every team, and alone may
+`add_project` / `remove_project` / `browse_dirs` (these reach the server's file system; a hub-wide remove also leaves every
+team) and use the Fleet (Settings → Runners) commands; `clone_project` with a chosen parent folder is the owner's too. Token-only mode is unchanged: one default team, the token its admin.
 
 *Adding the first members.* On a fresh server-mode hub the default team has no members, so signed-in users
-see an empty hub until the owner adds them (there is no UI for it yet; use the token):
+see an empty hub until the owner adds them (the token, or a hub admin in Settings → Members):
 
     curl -X POST "$HUB/rpc/add_team_member" -H "x-vanguard-hub-token: $TOKEN" \
       -H 'content-type: application/json' -H "origin: $HUB" \
@@ -375,6 +388,7 @@ request is replayed, so a run is never started twice.
 | `TASKCELL_HUB_AUTH_GITLAB_ISSUER` | `https://gitlab.com` |
 | `TASKCELL_HUB_AUTH_SECRET` | random, persisted to `auth-secret` in the state dir |
 | `TASKCELL_HUB_SIGNUP_ALLOW` | — (comma-separated e-mails, `@domains`, `github:login`, `gitlab:login`) |
+| `TASKCELL_HUB_ADMINS` | — (comma-separated hub admins: e-mails, `@domains`, `github:login`, `gitlab:login`) |
 | `TASKCELL_HUB_ALLOW_FLEET` | — (`1` on a loopback bind enables Fleet; set by the desktop app) |
 | `TASKCELL_HUB_EXIT_ON_STDIN_EOF` | — (`1`: shut down when stdin closes; set by the desktop app) |
 | `TASKCELL_HUB_ALLOWED_HOSTS` | — (comma-separated exact Host values, added to `localhost`/any IP literal on any port) |
@@ -695,7 +709,7 @@ process as the HTTP server, so give the container the same RAM headroom, and kee
 ## Per-user provider credentials
 
 Off by default: every run uses the instance credential (the hub's environment, or an instance
-credential the hub owner or an admin saved). An **admin** — a GitHub login listed in `--admin-github-login`
+credential the hub owner or an admin saved). A **hub admin** — listed in `TASKCELL_HUB_ADMINS`, or a GitHub login in `--admin-github-login`
 (repeatable) or `TASKCELL_HUB_ADMIN_GITHUB_LOGINS` (comma-separated) — can change the
 `per-user credentials` switch in Settings (as can the hub owner):
 
@@ -715,7 +729,7 @@ A run on the starter's own credential never reads the hub's provider keys: a pro
 
 When the switch is on, each signed-in user saves their own provider credentials in Settings. They are
 keyed by the hub (Better Auth) user id — a GitHub, GitLab or Google user alike — and stored encrypted (AES-256-GCM) in `credentials.enc.json` in the hub
-config dir. When `TASKCELL_HUB_SECRET` is set, that operator-held 32-byte base64 key protects this store as it protected the retired `credentials.enc`; keep the same value across restarts and outside the config directory. A store first written under `credentials.key` is re-encrypted under the secret on the next start and the stale key file is removed; the re-key waits until any retired `credentials.enc` has been migrated, so one secret always opens everything. Once the store is read or written under the secret the hub records that in `credentials.keyed` beside it (best effort), so after a restart a `credentials.key` plus store planted in the config directory is not adopted; a marker (planted or not) is never used as a key. With no usable secret the hub refuses to read or save a store while a marker is present, also when `credentials.enc.json` is absent, and never deletes the marker; with a usable secret whose re-key waits for the `credentials.enc` migration, the marker is removed before the store is written under `credentials.key` again. With a secret the hub also refuses a readable disk-key store beside a marker (for example a restored backup). Every such refusal names `credentials.keyed`, and removing that file (in the config directory) lets the store be read and re-keyed. A planted marker can lock the store out; that is accepted (see [security boundaries](security/boundaries.md#hub-credential-store-marker)), since anyone who can write the config directory can already delete the store. Anyone who can delete the marker can still plant a key, so keep the config directory write-protected. While a retired `credentials.enc` is unmigrated, saves into a store not yet under the secret stay under `credentials.key`, and Settings says so. A store that cannot be decrypted (a different secret value, or the secret removed) is never overwritten, and Settings and the setup guide say which key recovers it. Runs then start only on a provider key in the hub's start-up environment (with the switch `off` or `user-first`); a run that needs a stored credential is refused with that reason. A secret that is not 32 bytes is not used: the store stays on `credentials.key` and the reason is shown. Without it, the hub uses `credentials.key` (mode 0600, generated on first write) beside the store, so a copy of the config directory yields every saved key; keep it out of backups and shares. This is the hub's only credential store (instance and per-user). Credentials are write-only:
+config dir. When `TASKCELL_HUB_SECRET` is set, that operator-held 32-byte base64 key protects this store as it protected the retired `credentials.enc`; keep the same value across restarts and outside the config directory. A store first written under `credentials.key` is re-encrypted under the secret on the next start and the stale key file is removed; the re-key waits until any retired `credentials.enc` has been migrated, so one secret always opens everything. Once the store is read or written under the secret the hub records that in `credentials.keyed` beside it (best effort), so after a restart a `credentials.key` plus store planted in the config directory is not adopted; a marker (planted or not) is never used as a key. With no usable secret the hub refuses to read a store, and to save, while a marker is present (with no `credentials.enc.json` a read returns empty and only the save is refused, with its own message that Settings also shows), and never deletes the marker; with a usable secret whose re-key waits for the `credentials.enc` migration, the marker is removed before the store is written under `credentials.key` again, and with no store file an existing `credentials.key` is replaced by a fresh one rather than adopted. **Upgrade note:** a save with no usable secret beside a marker is now refused (also with no store file) and a disk-key store beside a marker is no longer read. With a secret the hub also refuses a readable disk-key store beside a marker (for example a restored backup). Every such refusal names `credentials.keyed`, and removing that file (in the config directory) lets the store be read and re-keyed. A planted marker can lock the store out; that is accepted (see [security boundaries](security/boundaries.md#hub-credential-store-marker)), since anyone who can write the config directory can already delete the store. Anyone who can delete the marker can still plant a key, so keep the config directory write-protected. While a retired `credentials.enc` is unmigrated, saves into a store not yet under the secret stay under `credentials.key`, and Settings says so. A store that cannot be decrypted (a different secret value, or the secret removed) is never overwritten, and Settings and the setup guide say which key recovers it. Runs then start only on a provider key in the hub's start-up environment (with the switch `off` or `user-first`); a run that needs a stored credential is refused with that reason. A secret that is not 32 bytes is not used: the store stays on `credentials.key` and the reason is shown. Without it, the hub uses `credentials.key` (mode 0600, generated on first write) beside the store, so a copy of the config directory yields every saved key; keep it out of backups and shares. This is the hub's only credential store (instance and per-user). Credentials are write-only:
 the hub lists which variable names are saved, never a value, and no RPC takes a user id, so one user
 cannot read, overwrite or use another's. The switch and every instance-credential RPC (`get_credential_policy`, `set_credential_policy`, `instance_credentials_status`, `save_instance_credential`, `delete_instance_credential`) share one gate: the **hub owner** (the hub-token holder, or local mode) or an **admin**; anyone else gets 403. The token owner remains able to manage instance credentials so a token-only hub does not need a configured sign-in admin. The owner's writes (and the switch) are also refused on a non-loopback bind unless `TASKCELL_HUB_ALLOW_ADD=1`, as `set_credential` was. Saved instance credentials are passed explicitly to the provider-specific run and doc-chat child that consume them; the Fleet screen's spawns (any agent CLI) get every saved instance credential the same way. They are not exported into the hub process environment, so host-side `git`/`gh`/`glab` calls, which read none of them, do not inherit them. Removing a saved value makes those consumers fall back to the hub's start-up environment. Settings shows one Credentials panel, including a value-free migration/decryption reason when the store needs operator attention, and the run detail says which credential funded the run. The run record carries `credentialSource: 'instance' | 'user'`, never the value.
 

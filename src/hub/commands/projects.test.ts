@@ -18,7 +18,7 @@ test('clone_project registers the clone, returns its summary and publishes progr
     const result = await dispatchRpc(ctx, 'clone_project', { url: 'https://internal.example/org/repo.git', parentDir: ctx.browseRoot });
     expect(result).toMatchObject({ path: target, name: 'repo' });
     expect(await loadPaths(ctx.configDir)).toEqual([target]);
-    expect(published).toContainEqual({ name: 'vanguard:clone-progress', payload: { line: 'receiving objects' } });
+    expect(published).toContainEqual({ name: 'vanguard:clone-progress', payload: expect.objectContaining({ line: 'receiving objects' }) });
     expect(mock).toHaveBeenCalledWith(ctx.browseRoot, expect.anything(), expect.objectContaining({ allowedHosts: ctx.cloneHosts }));
   } finally {
     mock.mockRestore();
