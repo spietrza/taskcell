@@ -8,7 +8,7 @@ import { llmProxySandboxEnv } from '../sandbox/egress-proxy.js';
 import { startProviderProxies } from '../sandbox/llm-proxy.js';
 import { startSandboxContext } from '../sandbox/sandbox-context.js';
 import { agentAuthFromEnv, authSecrets } from '../agents/auth.js';
-import { selectAgents } from '../agents/registry.js';
+import { llmProxyNeedsNoPrimarySidecar, selectAgents } from '../agents/registry.js';
 import { prepareContext, runAgent, disposeContext } from '../core/taskcell.js';
 import { skillRegistryForRun } from '../context/skill-registry.js';
 import { baseBranchOrDefault } from '../core/base-branch.js';
@@ -62,6 +62,7 @@ export async function reviewMrCommand(cmd: ReviewMrCommand, deps: ReviewMrComman
     sandboxContext ??= startSandboxContext({
       egress: cmd.egress,
       llmProxy: cmd.llmProxy === true,
+      skipPrimarySidecar: cmd.llmProxy === true && llmProxyNeedsNoPrimarySidecar(cmd),
       ...(auth !== undefined ? { auth } : {}),
       ...(cmd.provider !== undefined ? { provider: cmd.provider } : {}),
     });
@@ -89,7 +90,7 @@ async function runDefaultMrReviewer(
   opts: MergeRequestReviewAttempt,
   glab: GlabRunner,
 ): Promise<MergeRequestReviewOutcome> {
-  const agents = selectAgents(cmd, process.env, { proxyMode: sandboxContext.llmProxy !== undefined });
+  const agents = selectAgents(cmd, process.env, { proxyMode: cmd.llmProxy === true });
 
   // Per-run provider sidecars (e.g. OpenAI for Codex) hold the real key out of the sandbox. Created
   // before prepareContext so the finally below tears them down even if context provisioning throws.

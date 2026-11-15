@@ -1,7 +1,7 @@
 import { mkdir, writeFile } from 'node:fs/promises';
 import { dirname, resolve } from 'node:path';
 import { startSandboxContext } from '../sandbox/sandbox-context.js';
-import { agentAuthFromEnv } from '../agents/auth.js';
+import { agentAuthFromEnv, refuseLlmProxyWithoutPrimarySidecar } from '../agents/auth.js';
 import { runSpecGenerator } from '../runners/spec.js';
 import { specComment } from '../runners/watch.js';
 import { GitHubTaskFetcher, commentGithubIssue } from '../tasks/github.js';
@@ -64,7 +64,9 @@ export async function specCommand(cmd: SpecCommand, deps: SpecCommandDeps = {}):
     return;
   }
 
-  const auth = agentAuthFromEnv(cmd.provider !== undefined ? { provider: cmd.provider } : {});
+  const specChoice = cmd.provider !== undefined ? { provider: cmd.provider } : {};
+  refuseLlmProxyWithoutPrimarySidecar(cmd.llmProxy, specChoice);
+  const auth = agentAuthFromEnv(specChoice);
   const sandboxContext = await startSandboxContext({
     egress: cmd.egress,
     llmProxy: cmd.llmProxy === true,

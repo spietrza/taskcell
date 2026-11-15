@@ -1,5 +1,6 @@
 import { startEgressEnclave } from './egress-network.js';
-import { providerUpstream } from '../agents/registry.js';
+import { claudeCliKeyEnv, providerUpstream, requiresApiKey } from '../agents/registry.js';
+import { CliUsageError } from '../core/errors.js';
 import { startLlmProxy } from './llm-proxy.js';
 import { llmProxyEgressAllowlist } from './egress-proxy.js';
 import { DEFAULT_EGRESS_ALLOWLIST } from './egress-allow.mjs';
@@ -34,14 +35,16 @@ export interface SandboxContextOptions {
   /**
    * The primary sidecar's credential. For Anthropic (default) this is the Claude subscription/API auth;
    * for Zai/OpenRouter it is the provider key carried as an api-mode auth. Absent when no
-   * Anthropic-family credential is needed and --llm-proxy is not active (proxy mode always needs a
-   * primary-sidecar credential).
+   * Anthropic-family credential is needed (under --llm-proxy that is an error unless `skipPrimarySidecar`).
    */
   auth?: AgentAuth;
   /** Provider whose primary LLM sidecar to start under --llm-proxy (default 'claude' → Anthropic).
    *  Widened to string for S6 customs — they never reach the llm-proxy branch (directOnly rejects
    *  the combination at dispatch) and direct mode returns before reading this. */
   provider?: string;
+  /** `--llm-proxy` needs no primary sidecar: every credential routes to a sidecar the caller starts itself
+   *  (see `llmProxyNeedsNoPrimarySidecar`), so a missing `auth` is not an error and none is started. */
+  skipPrimarySidecar?: boolean;
   /** Extra egress-enclave allowlist hosts (S6 custom endpoints), computed at dispatch. */
   extraEgressHosts?: string[];
 }
@@ -55,8 +58,12 @@ export interface SandboxContextOptions {
  * OpenRouter for `--provider openrouter`. With neither flag, no enclave or env is created and
  * `destroy()` is a no-op.
  */
-const LLM_PROXY_CREDENTIAL_MESSAGE =
-  'llm-proxy needs a primary-sidecar credential (set CLAUDE_CODE_OAUTH_TOKEN/ANTHROPIC_API_KEY, ZAI_API_KEY, or OPENROUTER_API_KEY).';
+const llmProxyCredentialError = (provider: string): CliUsageError =>
+  new CliUsageError(
+    !requiresApiKey(provider) || claudeCliKeyEnv(provider) !== undefined
+      ? `llm-proxy needs a primary-sidecar credential for provider "${provider}" (set CLAUDE_CODE_OAUTH_TOKEN/ANTHROPIC_API_KEY, ZAI_API_KEY, or OPENROUTER_API_KEY).`
+      : `llm-proxy cannot keep provider "${provider}"'s credential out of the sandbox (no sidecar fronts it, or it is missing): run without --llm-proxy.`,
+  );
 
 /** Print a `resolveSandboxProfile(...).note` at the level (`warn`/`log`) it asks for. */
 const logRootfsNote = (note: { warn: boolean; message: string }): void => (note.warn ? console.warn : console.log)(note.message);
@@ -75,7 +82,8 @@ export async function startSandboxContext(opts: SandboxContextOptions): Promise<
   // The primary sidecar's upstream follows the provider; the credential comes uniformly from `auth`.
   // Checked before the enclave exists: a throw after startEgressEnclave would leave the network and
   // proxy container behind until `taskcell gc` (a codex/cursor-only run under --llm-proxy hits this).
-  if (opts.llmProxy && opts.auth === undefined) throw new Error(LLM_PROXY_CREDENTIAL_MESSAGE);
+  const provider = opts.provider ?? 'claude';
+  if (opts.llmProxy && opts.auth === undefined && opts.skipPrimarySidecar !== true) throw llmProxyCredentialError(provider);
 
   // Custom-provider hosts (S6) extend the allowlist here, at enclave creation — the list is baked
   // into the proxy container's env at start, so it cannot be widened later in the run.
@@ -94,7 +102,10 @@ export async function startSandboxContext(opts: SandboxContextOptions): Promise<
     return { proxyUrl: enclave.proxyUrl, network: enclave.network, destroy: enclave.destroy };
   }
 
-  if (opts.auth === undefined) throw new Error(LLM_PROXY_CREDENTIAL_MESSAGE); // narrowing; checked above
+  if (opts.auth === undefined) {
+    // skipPrimarySidecar: the caller starts the per-provider sidecars (Codex's); nothing to hold here.
+    return { proxyUrl: enclave.proxyUrl, network: enclave.network, destroy: enclave.destroy };
+  }
   const upstream: Upstream = providerUpstream(opts.provider);
   const auth = llmProxyAuth(opts.auth);
   // startLlmProxy fails closed on any docker error; the enclave created above is this function's to

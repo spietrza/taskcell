@@ -4,7 +4,7 @@ import { llmProxySandboxEnv } from '../sandbox/egress-proxy.js';
 import { startProviderProxies } from '../sandbox/llm-proxy.js';
 import { startSandboxContext } from '../sandbox/sandbox-context.js';
 import { agentAuthFromEnv, authSecrets } from '../agents/auth.js';
-import { selectAgents } from '../agents/registry.js';
+import { llmProxyNeedsNoPrimarySidecar, selectAgents } from '../agents/registry.js';
 import { prepareContext, runAgent, disposeContext } from '../core/taskcell.js';
 import { DEFAULT_BASE_BRANCH } from '../core/base-branch.js';
 import { literalPrompt } from '../context/prompt-engine.js';
@@ -46,6 +46,7 @@ export async function researchCommand(cmd: ResearchCommand, deps: ResearchComman
   const sandboxContext = await startSandboxContext({
     egress: cmd.egress,
     llmProxy: cmd.llmProxy === true,
+    skipPrimarySidecar: cmd.llmProxy === true && llmProxyNeedsNoPrimarySidecar(cmd),
     ...(auth !== undefined ? { auth } : {}),
     ...(cmd.provider !== undefined ? { provider: cmd.provider } : {}),
   });
@@ -69,7 +70,7 @@ async function runDefaultResearcher(
   auth: AgentAuth | undefined,
   sandboxContext: SandboxContext,
 ): Promise<string> {
-  const agents = selectAgents(cmd, process.env, { proxyMode: sandboxContext.llmProxy !== undefined });
+  const agents = selectAgents(cmd, process.env, { proxyMode: cmd.llmProxy === true });
 
   const providerProxies = await startProviderProxies({
     proxySecrets: agents.proxySecrets,

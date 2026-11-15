@@ -17,6 +17,7 @@ vi.mock('./llm-proxy.js', () => ({
 }));
 
 const { startSandboxContext } = await import('./sandbox-context.js');
+const { CliUsageError } = await import('../core/errors.js');
 
 describe('startSandboxContext extraEgressHosts (S6)', () => {
   beforeEach(() => startEgressEnclave.mockClear());
@@ -131,5 +132,37 @@ describe('startSandboxContext reports the hardened read-only rootfs decision', (
     await startSandboxContext({ egress: false, llmProxy: false });
     expect(log).not.toHaveBeenCalled();
     expect(warn).not.toHaveBeenCalled();
+  });
+});
+
+describe('startSandboxContext --llm-proxy without a primary-sidecar credential', () => {
+  beforeEach(() => {
+    startLlmProxy.mockClear();
+    startEgressEnclave.mockClear();
+  });
+
+  it('skipPrimarySidecar starts the enclave (sidecar-owned hosts dropped) but no primary sidecar', async () => {
+    const ctx = await startSandboxContext({ egress: true, llmProxy: true, provider: 'codex', skipPrimarySidecar: true });
+    expect(startLlmProxy).not.toHaveBeenCalled();
+    expect(ctx.llmProxy).toBeUndefined();
+    expect(ctx.network).toBe('vg-egr-test');
+    const allowlist = startEgressEnclave.mock.calls[0]?.[0]?.allowlist ?? [];
+    for (const host of ['api.anthropic.com', 'api.openai.com', 'chatgpt.com']) expect(allowlist).not.toContain(host);
+  });
+
+  it('names the provider that needs a credential, as a CliUsageError', async () => {
+    for (const provider of ['claude', 'zai']) {
+      const err = await startSandboxContext({ egress: true, llmProxy: true, provider }).catch((e: unknown) => e);
+      expect(err).toBeInstanceOf(CliUsageError);
+      expect((err as Error).message).toContain(`provider "${provider}"`);
+    }
+    expect(startEgressEnclave).not.toHaveBeenCalled();
+  });
+
+  it('refuses without the skip (cursor, unfrontable codex), naming the provider and not asking for a Claude key', async () => {
+    const err = await startSandboxContext({ egress: true, llmProxy: true, provider: 'cursor' }).catch((e: unknown) => e);
+    expect(err).toBeInstanceOf(CliUsageError);
+    expect((err as Error).message).toMatch(/provider "cursor".*without --llm-proxy/);
+    expect(startEgressEnclave).not.toHaveBeenCalled();
   });
 });
