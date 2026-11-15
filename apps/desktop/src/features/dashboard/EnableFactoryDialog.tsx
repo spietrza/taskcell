@@ -78,6 +78,11 @@ export function EnableFactoryDialog({ project, onClose }: { project: { path: str
       await fn();
     } catch (err) {
       setError(errorText(err));
+      // The hub may have stored a newer plan (new rule-less jobs): reload it so the confirmation names them.
+      if (kind === 'verify') {
+        setDoctorConfirmed(false);
+        factoryRefresh(project.path).then(setChecklist, () => undefined);
+      }
     } finally {
       setBusy(null);
     }
@@ -142,7 +147,7 @@ export function EnableFactoryDialog({ project, onClose }: { project: { path: str
   const start = (p: FactoryPlan): Promise<void> => step('apply', async () => setChecklist(await enableFactoryStart(project.path, p)));
   const runVerify = (p: FactoryPlan): Promise<void> =>
     step('verify', async () => {
-      await enableFactoryVerify(project.path, p);
+      await enableFactoryVerify(project.path, p, doctorConfirmed ? unruledJobs : []);
       setDoctorConfirmed(false);
       setChecklist(await factoryRefresh(project.path));
     });

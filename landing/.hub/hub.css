@@ -1,0 +1,6 @@
+@import '/workspace/apps/desktop/node_modules/tailwindcss/theme.css';
+@import '/workspace/apps/desktop/node_modules/tailwindcss/utilities.css' source(none);
+@import './chunks-theme.css';
+@import '/workspace/apps/desktop/src/tokens.css';
+@plugin '/workspace/apps/desktop/node_modules/@tailwindcss/typography';
+@source './scan.html';

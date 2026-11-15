@@ -147,7 +147,10 @@ export function Inspector({
 
   // The rail "Running" click opens that live run.
   useEffect(() => {
-    if (focusRunning) setLiveRun(focusRunning);
+    if (!focusRunning) return;
+    setDetail(null);
+    setTaskDetailId(null);
+    setLiveRun(focusRunning);
   }, [focusRunning]);
 
   // Report the current drill-down up to the top-bar breadcrumb.

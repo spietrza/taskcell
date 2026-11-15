@@ -1,6 +1,8 @@
 // Stripe webhook for the planned hosted plans (POST /stripe/webhook): checks the signature, records each paid
 // checkout once in the ORDERS database, and turns a paid 7-day pass into a customer credit that Stripe takes off
-// that customer's first subscription invoice. Starting a server for the order is not built yet: orders stay `paid`.
+// that customer's first subscription invoice. Each order also gets what was charged (after any credit) and what Stripe
+// pays out for it, in which currency: that currency is the bank account the money lands on.
+// Starting a server for the order is not built yet: orders stay `paid`.
 
 const TOLERANCE_S = 300;
 const PAID_EVENTS = ['checkout.session.completed', 'checkout.session.async_payment_succeeded'];
@@ -40,7 +42,29 @@ async function stripe(key, path, { form, idempotencyKey } = {}) {
   return res.json();
 }
 
-export async function handleStripeWebhook(request, env) {
+/** Stores what the checkout charged (after any credit) and what Stripe pays out for it, and in which currency.
+ *  Bookkeeping only: a failure is logged and leaves the columns empty. */
+export async function recordPayout(env, key, session, waitMs = 2000) {
+  try {
+    for (let attempt = 0; attempt < 6; attempt++) {
+      // The customer's latest charge since the session opened; none when a credit covered it all.
+      const charges = await stripe(key, `charges?customer=${session.customer}&created[gte]=${session.created}&limit=1&expand[]=data.balance_transaction`);
+      const charge = charges.data?.find((c) => c.paid);
+      const payout = charge?.balance_transaction;
+      if (charge && !payout && attempt < 5) {
+        await new Promise((r) => setTimeout(r, waitMs));
+        continue;
+      }
+      await env.ORDERS.prepare('UPDATE orders SET paid_amount = ?, payout_amount = ?, payout_currency = ? WHERE session_id = ?')
+        .bind(charge ? charge.amount : 0, payout?.net ?? null, payout?.currency ?? null, session.id).run();
+      return;
+    }
+  } catch (err) {
+    console.error(`payout of ${session.id} not recorded: ${err.message}`);
+  }
+}
+
+export async function handleStripeWebhook(request, env, ctx) {
   if (request.method !== 'POST') return new Response('Method not allowed', { status: 405 });
   const body = await request.text();
   let event;
@@ -75,5 +99,8 @@ export async function handleStripeWebhook(request, env) {
     });
     await env.ORDERS.prepare('UPDATE orders SET pass_credited = 1 WHERE session_id = ?').bind(session.id).run();
   }
+  // The payout is read after Stripe has its answer: a card charge's balance transaction can appear a second or two
+  // after the checkout event, so recordPayout waits for it without holding the event.
+  if (session.customer) ctx?.waitUntil(recordPayout(env, key, session));
   return new Response('recorded');
 }
