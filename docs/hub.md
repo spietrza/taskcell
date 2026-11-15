@@ -555,7 +555,7 @@ The dialog offers **GitLab CI** only when `origin` is on GitLab (gitlab.com, or 
 4. In **Settings → CI/CD → Variables**, add `GITLAB_TOKEN` (masked and protected): a project or personal access token that can read and comment on issues and MRs and push branches. The hub does not check it; the doctor does.
 5. Review and merge the MR. The checklist notices the merge on its own.
 6. Click **Run doctor**. The hub starts a pipeline on the default branch with `TASKCELL_DOCTOR=true` (`glab ci run`), follows exactly the pipeline that call created, and reads the `taskcell-doctor` job in it (all pages of the job list). Only that job passing marks the step done; a finished pipeline without it (the include is not wired, or another user started it) fails the step. GitLab runs every job without `rules:` in such a pipeline, so when your `.gitlab-ci.yml` has such jobs the dialog names them and asks for a second click, **Run doctor anyway**, before starting it. Jobs that come from your own includes are not listed.
-7. To let the factory work, create a **Build → Pipeline schedules** entry owned by the same GitLab user with the variable `TASKCELL_SWEEP=true`; each run sweeps the issues labelled `ready for agent` and the MRs labelled `ready for vanguard review`. The hub creates no schedule.
+7. To let the factory work, create a **Build → Pipeline schedules** entry owned by the same GitLab user with the variable `TASKCELL_SWEEP=true`; each run sweeps the issues labelled `ready for agent` and the MRs labelled `ready for taskcell review` (or the old `ready for vanguard review`). The hub creates no schedule.
 
 The included jobs run only in pipelines started by that user with one of the two variables, so they never join your own pipelines. Each job builds the pinned Taskcell release (`TASKCELL_REF`, default `v1`) in a `node:24` image with a `docker:dind` service, on an amd64 or arm64 runner; `pnpm` and `glab` are pinned (`glab` by checksum), the template sets no global variables, points `glab` at your GitLab (`GITLAB_HOST: $CI_SERVER_HOST`) and keeps the two credentials out of the environment while it installs and builds.
 
@@ -841,7 +841,7 @@ A task runs as its **owner**: the person who created it, or the last one to save
 The run gets the stored title and text as its task, the way a tracker run gets an issue; no tracker is asked, so a repository with no remote works. It runs the standard implement, verify and review pipeline in the sandbox.
 
 - **The repository has a github.com `origin`**: the branch is pushed and a pull request is opened, as for a GitHub issue. The task is done and its card shows the pull request address.
-- **Otherwise**: the result is committed on a local branch of the repository (`chore/vanguard-hub-<n>-<id>`), nothing is pushed, and the card shows `branch <name>`. Review and merge it yourself.
+- **Otherwise**: the result is committed on a local branch of the repository (`chore/taskcell-hub-<n>-<id>`), nothing is pushed, and the card shows `branch <name>`. Review and merge it yourself.
 
 A task is **done** when its run delivered a result, not when that result is merged, so a dependent task starts from the base branch as it is then. Merge the first task's result before the next should build on it, or set a start date on the dependent.
 

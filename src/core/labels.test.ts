@@ -84,12 +84,13 @@ describe('label spellings (taskcell written, vanguard still read)', () => {
       expect(creates(calls)).toEqual([['label', 'create', 'taskcell:waiting', '--repo', 'o/r']]);
     });
 
-    it('keeps the review trigger on the name the workflows fire on', async () => {
-      expect(await resolveAdds(['ready for taskcell review'], 'o/r', repo(['ready for taskcell review', 'ready for vanguard review']).gh)).toEqual(['ready for vanguard review']);
+    it('writes the review trigger under the spelling the repo has, the new one when it has both or neither', async () => {
+      expect(await resolveAdds(['ready for taskcell review'], 'o/r', repo(['ready for vanguard review']).gh)).toEqual(['ready for vanguard review']);
+      expect(await resolveAdds(['ready for taskcell review'], 'o/r', repo(['ready for taskcell review', 'ready for vanguard review']).gh)).toEqual(['ready for taskcell review']);
       expect(await resolveAdds(['ready for vanguard review'], 'o/r', repo(['ready for taskcell review']).gh)).toEqual(['ready for taskcell review']);
       const { gh, calls } = repo([]);
-      expect(await resolveAdds(['ready for taskcell review'], 'o/r', gh)).toEqual(['ready for vanguard review']);
-      expect(creates(calls)).toEqual([['label', 'create', 'ready for vanguard review', '--repo', 'o/r']]);
+      expect(await resolveAdds(['ready for vanguard review'], 'o/r', gh)).toEqual(['ready for taskcell review']);
+      expect(creates(calls)).toEqual([['label', 'create', 'ready for taskcell review', '--repo', 'o/r']]);
     });
 
     it('compares case-insensitively and returns the repo spelling, creating no twin', async () => {
@@ -108,6 +109,12 @@ describe('label spellings (taskcell written, vanguard still read)', () => {
       const { gh, calls } = repo(new Error('gh down'));
       expect(await resolveAdds(['taskcell:running', 'ready for taskcell review'], 'o/r', gh)).toEqual(['taskcell:running', 'ready for taskcell review']);
       expect(creates(calls)).toEqual([]);
+    });
+
+    it('writes an ensured review trigger under the legacy name when the repo labels cannot be listed', async () => {
+      const { gh, calls } = repo(new Error('gh down'));
+      expect(await resolveAdds(['ready for taskcell review'], 'o/r', gh, ['ready for taskcell review'])).toEqual(['ready for vanguard review']);
+      expect(creates(calls)).toEqual([['label', 'create', 'ready for vanguard review', '--repo', 'o/r', '--force']]);
     });
 
     it('does not force-create an ensured label when the list succeeds', async () => {
