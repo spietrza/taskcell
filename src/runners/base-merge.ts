@@ -7,8 +7,12 @@ import { isCiConfigPath } from '../sandbox/copy-back.js';
 
 /** Outcome of checking a PR branch against a fresh fetch of its base. */
 export type BaseMerge =
-  /** Git merges the base without conflicts. `merged`: a merge commit was made (only with `mergeClean`). */
-  | { status: 'clean'; merged?: true }
+  /**
+   * Git merges the base without conflicts. `merged`: the branch was brought up to the base (only with `mergeClean`):
+   * a merge commit, or, when the base changed CI config and the branch is factory-owned (same rules as below), the
+   * branch rewritten onto the base (`rebased`, force-pushed with a lease). Any other branch is then held (`conflicted`).
+   */
+  | { status: 'clean'; merged?: true; rebased?: true }
   /** The check could not run (no remote, unrelated histories, fetch failed): nothing was changed. */
   | { status: 'skipped'; reason: string }
   /**
@@ -20,8 +24,8 @@ export type BaseMerge =
    * exception is a factory-owned branch whose own commits leave CI config alone: it is rebased onto the
    * base instead (`rebased`), or rebuilt as one commit on the base with the merge tree when a rebase would
    * drift from it (earlier merge commits). Same marker handling, so the caller force-pushes with a lease and
-   * no pushed commit carries a workflow change relative to the base. A hold lists the code conflicts and
-   * says why in `reason`.
+   * no pushed commit carries a workflow change relative to the base. A hold lists the code conflicts (none
+   * for a clean `mergeClean` merge held because the base changed CI config) and says why in `reason`.
    */
   | { status: 'conflicted'; files: string[]; unresolvable: string[]; rebased?: true; reason?: string };
 
@@ -39,7 +43,7 @@ async function probeBase(worktreePath: string, base: string, remote: string): Pr
   });
   if (fetch.exitCode !== 0) return { status: 'skipped', reason: `could not fetch ${remote}/${base}: ${redactGitError({ stderr: fetch.stderr })}` };
   const probe = await execa('git', hostGitArgs(['merge-tree', '--write-tree', '--name-only', '-z', 'FETCH_HEAD', 'HEAD']), { cwd: worktreePath, reject: false });
-  if (probe.exitCode === 0) return { status: 'clean' };
+  if (probe.exitCode === 0) return { status: 'clean', tree: String(probe.stdout).split('\0')[0] };
   if (probe.exitCode !== 1) return { status: 'skipped', reason: `merge check of ${remote}/${base} failed: ${redactGitError({ stderr: probe.stderr })}` };
   const [tree, ...rest] = String(probe.stdout).split('\0'); // tree oid, conflicted names, '', messages
   const end = rest.indexOf('');
@@ -66,13 +70,15 @@ export async function mergeBaseIntoWorktree(worktreePath: string, base: string, 
   assertSafeBaseBranch(base);
   const identity = ['-c', `user.name=${opts.authorName ?? 'Taskcell'}`, '-c', `user.email=${opts.authorEmail ?? 'vanguard@local'}`];
   const probe = await probeBase(worktreePath, base, opts.remote ?? 'origin');
-  if (probe.status === 'clean' && opts.mergeClean === true) return await mergeCleanBase(worktreePath, identity);
-  if (probe.status !== 'conflicted') return probe;
-  const { tree, files: probed } = probe;
+  if (probe.status === 'skipped') return probe;
+  if (probe.status === 'clean' && opts.mergeClean !== true) return { status: 'clean' };
   // A merge commit carrying the base's CI-config changes into the branch is a workflow update the push
   // token may not make (GitHub rejects the push and the run's work is lost): leave it to a human.
   const ciPathsIn = async (range: string): Promise<string[]> => (await gitPaths(worktreePath, ['diff', '--name-only', '-z', range])).filter((p) => isCiConfigPath(p));
   const ciPaths = await ciPathsIn('HEAD...FETCH_HEAD');
+  const { tree } = probe;
+  const probed = probe.status === 'conflicted' ? probe.files : [];
+  // A clean merge commit would carry those CI files too: it goes through the same hold-or-rewrite gate.
   if (ciPaths.length > 0) {
     // The hold names the code conflicts and why the branch stays put, never the base's CI files (the branch did not change them).
     const hold = (reason: string): BaseMerge => ({ status: 'conflicted', files: probed, unresolvable: probed, reason });
@@ -94,8 +100,9 @@ export async function mergeBaseIntoWorktree(worktreePath: string, base: string, 
     const rewritten = (await rebaseOntoBase(worktreePath, identity, marked, tree)) || (await squashOntoBase(worktreePath, identity, marked, tree, base));
     if (!rewritten) return hold('the base changed CI config and the branch could not be rewritten onto it');
     for (const [file, text] of marked) await writeFile(join(worktreePath, file), text);
-    return { status: 'conflicted', files: probed, unresolvable: [], rebased: true };
+    return probe.status === 'clean' ? { status: 'clean', merged: true, rebased: true } : { status: 'conflicted', files: probed, unresolvable: [], rebased: true };
   }
+  if (probe.status === 'clean') return await mergeCleanBase(worktreePath, identity);
 
   const merge = await execa('git', hostGitArgs([...identity, 'merge', '--no-commit', '--no-ff', 'FETCH_HEAD']), { cwd: worktreePath, reject: false });
   const files = await gitPaths(worktreePath, ['diff', '--name-only', '--diff-filter=U', '-z']);
@@ -177,7 +184,7 @@ async function squashOntoBase(worktreePath: string, identity: string[], marked: 
   try {
     await git(worktreePath, ['reset', '--hard', 'FETCH_HEAD']);
     await git(worktreePath, ['read-tree', '-u', '--reset', tree]);
-    await git(worktreePath, ['checkout', origHead, '--', ...marked.keys()]);
+    if (marked.size > 0) await git(worktreePath, ['checkout', origHead, '--', ...marked.keys()]);
     await git(worktreePath, [...identity, 'commit', '--no-verify', '--allow-empty', '-m', `Update the branch onto ${base}`]);
     if (!(await driftsFromTree(worktreePath, tree, marked))) return true;
   } catch { /* fall through to the reset */ }

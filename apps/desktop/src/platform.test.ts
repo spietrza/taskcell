@@ -1,5 +1,5 @@
 import { describe, expect, test } from 'vitest';
-import { combinationNote, legacySource, resolveTaskSource, runLocationLabel, runLocationOf, taskSourceLabel, taskSourceOf } from './platform';
+import { combinationNote, effectiveRunLocation, legacySource, resolveTaskSource, runLocationLabel, runLocationOf, taskSourceLabel, taskSourceOf } from './platform';
 
 describe('platform', () => {
   test('unset or unknown values fall back to GitHub Issues + GitHub Actions', () => {
@@ -33,5 +33,13 @@ describe('platform', () => {
     expect(combinationNote('github-project', 'github-actions')).toMatch(/GitHub Projects/);
     expect(combinationNote('hub', 'gitlab-ci')).toMatch(/hub board/);
     expect(combinationNote('hub', 'local')).toBeNull();
+  });
+});
+
+describe('effectiveRunLocation', () => {
+  test('a hub-board project with no stored location runs on the local hub; anything stored wins', () => {
+    expect(effectiveRunLocation('hub', undefined)).toBe('local');
+    expect(effectiveRunLocation('hub', 'gitlab-ci')).toBe('gitlab-ci');
+    expect(effectiveRunLocation('github', undefined)).toBe('github-actions');
   });
 });

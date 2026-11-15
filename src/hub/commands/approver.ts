@@ -2,15 +2,15 @@
 // `pnpm gen:wire` derives Commands, COMMAND_NAMES and dispatch from it (see CONTRIBUTING.md).
 import { BadRequestError } from '../../sidecar/sidecar.js';
 import { assertMutationsAllowed } from '../allowlist.js';
-import { ACT_BLOCKING_ISSUES, approverPrDecisions, approverScorecard, openApproverModePr, unreadScorecard } from '../approver-card.js';
-import type { ApproverModeChange, ApproverPeriod, ApproverPrDecision, ApproverScorecard } from '../../wire.js';
+import { ACT_BLOCKING_ISSUES, approverPrDecisions, approverScorecard, openApproverModePr, readApproverMode, unreadScorecard } from '../approver-card.js';
+import type { ApproverMode, ApproverModeChange, ApproverPeriod, ApproverPrDecision, ApproverScorecard } from '../../wire.js';
 import { defineCommands, requireString, optionalString, repoTarget } from '../command-kit.js';
 
 export interface ApproverCommands {
   /** HUB_ONLY, read-only: the approver's scorecard for a project over a period (default `90d`) — PRs judged, APPROVE/ESCALATE counts, right and wrong APPROVEs, the streak per risk class against the bar, the top escalation reasons — plus the current mode from `.taskcell/approver.json` on the base branch. Read from the metrics branch and GitHub PR state like `taskcell stats --approver`; never a model call. */
   read_approver_scorecard: { args: { repoPath: string; period?: ApproverPeriod }; result: ApproverScorecard };
   /** HUB_ONLY, read-only: what the approver decided for each PR on the metrics branch (merged, would merge, left for a human and why); no gh call. */
-  read_approver_decisions: { args: { repoPath: string }; result: { decisions: ApproverPrDecision[] } };
+  read_approver_decisions: { args: { repoPath: string }; result: { decisions: ApproverPrDecision[]; mode: ApproverMode } };
   /** HUB_ONLY: open a pull request that sets `.taskcell/approver.json` to `mode` — never writes the setting itself. `act` is refused while the act switch is not offered, and below the bar unless `confirmBelowBar` is true; the PR body states the 90-day scorecard numbers at that moment (for `off`, a scorecard that cannot be read is left out rather than blocking the change). Only decisions for the project's own repository count. */
   set_approver_mode: { args: { repoPath: string; mode: 'off' | 'shadow' | 'act'; confirmBelowBar?: boolean }; result: ApproverModeChange };
 }
@@ -25,7 +25,10 @@ export const commands = defineCommands<ApproverCommands>({
     if (!PERIODS.includes(period)) throw new BadRequestError("period must be '30d', '90d' or 'all'");
     return approverScorecard(real, period as ApproverPeriod);
   },
-  read_approver_decisions: async ({ args, allow }) => ({ decisions: await approverPrDecisions(await allow(requireString(args, 'repoPath'))) }),
+  read_approver_decisions: async ({ args, allow }) => {
+    const repo = await allow(requireString(args, 'repoPath'));
+    return { decisions: await approverPrDecisions(repo), mode: (await readApproverMode(repo)).mode };
+  },
   set_approver_mode: async ({ ctx, args, allow }) => {
     // Pushes a branch and opens a PR as the hub's `gh` identity — a mutation, like enable_factory_apply.
     assertMutationsAllowed(ctx.bind);

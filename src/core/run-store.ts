@@ -431,6 +431,8 @@ export interface WriteStagesOptions {
   provider?: string;
   /** The branch this run's PR targets (card label / repo default / --base), recorded on every stage. */
   baseBranch?: string;
+  /** Gate-config files the delivered diff changed; recorded on every stage (any delivery kind). */
+  configPaths?: readonly string[];
   /** The sandbox image's content digest (IsolatedSandboxProvider.imageDigest), recorded on every
    *  stage of the run so a run record can be traced back to the exact image it executed against. */
   imageDigest?: string;
@@ -480,6 +482,7 @@ interface WriteRecordOptions {
   omitDiff?: boolean;
   imageDigest?: string;
   baseBranch?: string;
+  configPaths?: readonly string[];
   credentialSource?: 'instance' | 'user';
   startedBy?: string;
   lessonIds?: readonly string[];
@@ -547,6 +550,7 @@ async function writeRecord(repoPath: string, taskId: string, timestamp: string, 
     ...(ciUrl !== undefined ? { ciUrl } : {}),
     ...(opts.imageDigest !== undefined ? { imageDigest: opts.imageDigest } : {}),
     ...(opts.baseBranch !== undefined ? { baseBranch: opts.baseBranch } : {}),
+    ...(opts.configPaths !== undefined && opts.configPaths.length > 0 ? { configPaths: [...opts.configPaths] } : {}),
     ...(opts.credentialSource !== undefined ? { credentialSource: opts.credentialSource } : {}),
     ...(diffOmitted !== undefined ? { diffOmitted } : {}),
     ...(opts.startedBy !== undefined ? { startedBy: opts.startedBy } : {}),
@@ -646,6 +650,7 @@ export function beginRun(
           ...(opts.omitDiff ? { omitDiff: opts.omitDiff } : {}),
           ...(opts.imageDigest !== undefined ? { imageDigest: opts.imageDigest } : {}),
           ...(opts.baseBranch !== undefined ? { baseBranch: opts.baseBranch } : {}),
+          ...(opts.configPaths !== undefined ? { configPaths: opts.configPaths } : {}),
           ...(opts.credentialSource !== undefined ? { credentialSource: opts.credentialSource } : {}),
           ...(runOpts.startedBy !== undefined ? { startedBy: runOpts.startedBy } : {}),
           ...(opts.lessonIds !== undefined ? { lessonIds: opts.lessonIds } : {}),
@@ -655,7 +660,7 @@ export function beginRun(
       }
       const first = outcomes[0];
       if (first === undefined) return;
-      const { omitDiff: _omitDiff, baseBranch: _baseBranch, lessonIds: _lessonIds, skills: _skills, skillIds: _skillIds, ...trace } = opts;
+      const { omitDiff: _omitDiff, baseBranch: _baseBranch, configPaths: _configPaths, lessonIds: _lessonIds, skills: _skills, skillIds: _skillIds, ...trace } = opts;
       await exportRunTrace({
         taskId,
         timestamp,

@@ -7,7 +7,7 @@ import { useAppConfig } from '../../hooks';
 import { useDiscardGuard } from '../../navGuard';
 import { CredentialsPanel } from './CredentialsPanel';
 import { AutoMerge } from './AutoMerge';
-import { combinationNote, legacySource, resolveTaskSource, RUN_LOCATIONS, runLocationOf, TASK_SOURCES, taskSourceOf } from '../../platform';
+import { combinationNote, effectiveRunLocation, legacySource, resolveTaskSource, RUN_LOCATIONS, runLocationOf, TASK_SOURCES, taskSourceOf } from '../../platform';
 import { projectColor } from '../../color';
 import { customProviderRowError, customProviderRows, PROVIDERS } from './customProviders';
 import type { AppConfig } from '../../taskcell-output';
@@ -119,7 +119,7 @@ export function Settings({ project, teamScreen }: { project: string; teamScreen?
 
   // Unset stays unset ("—"): the board needs an explicit source, so Settings must not display a default it never saves.
   const taskSource = resolveTaskSource(cfg);
-  const note = combinationNote(taskSource, cfg.runLocation);
+  const note = combinationNote(taskSource, effectiveRunLocation(taskSource, cfg.runLocation));
 
   return (
     <div className="space-y-5">
@@ -214,7 +214,7 @@ export function Settings({ project, teamScreen }: { project: string; teamScreen?
           </Field>
           <Field label="Runs on">
             <select
-              value={runLocationOf(cfg.runLocation)}
+              value={effectiveRunLocation(taskSource, cfg.runLocation)}
               onChange={(e) => set('runLocation', runLocationOf(e.target.value))}
               className={SELECT_CLASS}
             >
@@ -398,8 +398,8 @@ export function Settings({ project, teamScreen }: { project: string; teamScreen?
             Credentials
           </div>
           <p className="mt-1 text-sm text-muted-foreground">
-            LLM credentials are inherited from your environment / keychain and never stored by the app or sent
-            over any API. A custom provider stores only the <em>name</em> of the environment variable holding
+            LLM credentials are inherited from your environment / keychain. Here they are never stored or sent
+            over any API; a hub also stores its own instance credentials (see below). A custom provider stores only the <em>name</em> of the environment variable holding
             its key.
           </p>
         </div>

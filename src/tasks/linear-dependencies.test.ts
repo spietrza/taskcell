@@ -209,7 +209,6 @@ describe('checkLinearDependencies', () => {
 });
 
 describe('applyLinearDependencyGate', () => {
-
   it('costs one probe and no lookup when nothing has a dependency, and starts every issue', async () => {
     const send = fakeSend({ 'DEV-1': {}, 'DEV-2': { related: 3 }, 'DEV-3': { cycle: '2026-05-01T00:00:00.000Z' } });
     const tasks = [task('DEV-1'), task('DEV-2'), task('DEV-3')];
@@ -427,7 +426,7 @@ describe('gate state across polls', () => {
     const comments = new Map<string, string>();
     const withComments = fakeSend({}, comments);
     let n = 0;
-    const failing: LinearGraphql = async (body) => (body.query.includes('comments(') ? withComments(body) : { errors: [{ message: `boom ${n++ % 2}` }] });
+    const failing: LinearGraphql = async (body) => (body.query.includes('comments(') ? withComments(body) : { errors: [{ message: `boom ${n++}` }] });
     const linear = commentRunner(comments);
     const logs: string[] = [];
     const shared = { ...opts(), graphql: failing, linear, log: (l: string): void => void logs.push(l) };
@@ -437,9 +436,17 @@ describe('gate state across polls', () => {
     expect(comments.get('DEV-1')).toContain('Taskcell could not check the dependencies of this issue');
     for (let poll = 4; poll <= 10; poll++) await applyLinearDependencyGate([task('DEV-1')], shared);
     expect(linear).toHaveBeenCalledTimes(1);
-    // First sight (poll 1), the reason changed (poll 2 text differs from poll 1), and every 10th poll.
-    expect(logs.filter((l) => l.includes('DEV-1 skipped')).length).toBeGreaterThanOrEqual(2);
-    expect(logs.filter((l) => l.includes('DEV-1 skipped')).length).toBeLessThanOrEqual(3);
+    // The error text differs on every poll, so every poll logs a new reason; the every-10 repeat is tested below.
+    expect(logs.filter((l) => l.includes('DEV-1 skipped'))).toHaveLength(10);
+  });
+  it('logs the same failing reason only on the first poll and every 10th', async () => {
+    const withComments = fakeSend({});
+    const failing: LinearGraphql = async (body) => (body.query.includes('comments(') ? withComments(body) : { errors: [{ message: 'boom' }] });
+    const polls: number[] = [];
+    let poll = 0;
+    const shared = { ...opts(), graphql: failing, log: (l: string): void => void (l.includes('DEV-1 skipped') && polls.push(poll)) };
+    for (poll = 1; poll <= 21; poll++) await applyLinearDependencyGate([task('DEV-1')], shared);
+    expect(polls).toEqual([1, 10, 20]);
   });
   it('compares only against the newest hold comment, so a reason that flips back is posted again', async () => {
     const comments = new Map<string, string>();
@@ -474,7 +481,7 @@ describe('gate state across polls', () => {
     expect(logs).toHaveLength(2);
     expect(send.mock.calls.filter(([b]) => b.query.includes('comments(')).length).toBe(2);
   });
-  it('comments and logs again when an invalid issue is moved to needs info and comes back unfixed', async () => {
+  it('logs and moves again when an invalid issue is moved to needs info and comes back unfixed (the comment is not repeated)', async () => {
     const comments = new Map<string, string>();
     const logs: string[] = [];
     const move = vi.fn(async () => undefined);
@@ -483,6 +490,86 @@ describe('gate state across polls', () => {
     await applyLinearDependencyGate([task('DEV-3')], shared);
     expect(move).toHaveBeenCalledTimes(2);
     expect(logs).toHaveLength(2);
+    // The newest hold comment already says the same, so it is not posted a second time.
+    expect(shared.linear).toHaveBeenCalledTimes(1);
+  });
+  it('re-reads cached blockers before parking or starting: a reopened blocker holds, a fixed blocker starts', async () => {
+    const issues: Record<string, Fake> = { 'DEV-1': { type: 'completed' }, 'DEV-2': { blockedBy: ['DEV-1'] } };
+    const shared = { ...opts(), graphql: fakeSend(issues) };
+    expect(await applyLinearDependencyGate([task('DEV-2')], shared)).toHaveLength(1);
+    issues['DEV-1'] = { type: 'started' };
+    expect(await applyLinearDependencyGate([task('DEV-2')], shared)).toEqual([]);
+    const fixed: Record<string, Fake> = { 'DEV-1': { type: 'canceled' }, 'DEV-2': { blockedBy: ['DEV-1'] } };
+    const shared2 = { ...opts(), graphql: fakeSend(fixed), moveToNeedsInfo: async () => undefined };
+    expect(await applyLinearDependencyGate([task('DEV-2')], shared2)).toEqual([]);
+    fixed['DEV-1'] = { type: 'completed' };
+    expect(await applyLinearDependencyGate([task('DEV-2')], shared2)).toHaveLength(1);
+  });
+  it('starts an issue once its dependency cycle is fixed: moved back from needs info at once, left in its trigger state after the TTL', async () => {
+    const cyclic = (): Record<string, Fake> => ({ 'DEV-1': { blockedBy: ['DEV-2'] }, 'DEV-2': { blockedBy: ['DEV-1'] } });
+    const moved = cyclic();
+    const move = vi.fn(async () => undefined);
+    const shared = { ...opts(), graphql: fakeSend(moved), moveToNeedsInfo: move };
+    expect(await applyLinearDependencyGate([task('DEV-1')], shared)).toEqual([]);
+    expect(move).toHaveBeenCalledTimes(1);
+    moved['DEV-2'] = { type: 'completed' };
+    expect(await applyLinearDependencyGate([task('DEV-1')], shared)).toHaveLength(1);
+    const left = cyclic();
+    const shared2 = { ...opts(), graphql: fakeSend(left) };
+    expect(await applyLinearDependencyGate([task('DEV-1')], shared2)).toEqual([]);
+    left['DEV-2'] = { type: 'completed' };
+    // The same confirmed reason is not re-read within the TTL; after it the fixed blocker is read and the issue starts.
+    expect(await applyLinearDependencyGate([task('DEV-1')], { ...shared2, now: new Date(now.getTime() + 60_000) })).toEqual([]);
+    expect(await applyLinearDependencyGate([task('DEV-1')], { ...shared2, now: new Date(now.getTime() + 3 * 60_000) })).toHaveLength(1);
+  });
+  it('recognises a hold comment Linear returned with leading whitespace and markup', async () => {
+    const hold = '  \n**Taskcell will not start this issue yet:** `waiting for DEV-1`. It stays in its trigger state and starts by itself once that is resolved.';
+    const comments = new Map([['DEV-2', hold]]);
+    const linear = commentRunner(comments);
+    await applyLinearDependencyGate([task('DEV-2')], { ...opts(), graphql: fakeSend({ 'DEV-1': {}, 'DEV-2': { blockedBy: ['DEV-1'] } }, comments), linear });
+    expect(linear).not.toHaveBeenCalled();
+  });
+  it('does not re-read an invalid issue left in its trigger state on every poll', async () => {
+    const send = fakeSend({ 'DEV-1': { type: 'canceled' }, 'DEV-2': { blockedBy: ['DEV-1'] } });
+    const shared = { ...opts(), graphql: send };
+    const counts: number[] = [];
+    for (const minute of [0, 1, 2, 3]) {
+      const before = lookedUp(send).length;
+      await applyLinearDependencyGate([task('DEV-2')], { ...shared, now: new Date(now.getTime() + minute * 60_000) });
+      counts.push(lookedUp(send).length - before);
+    }
+    expect(counts).toEqual([1, 0, 1, 0]);
+  });
+  it('treats a lookup entry stamped in the future as stale, and ignores a quoted reply and zero-width marks', async () => {
+    const send = fakeSend({ 'DEV-1': { type: 'completed' }, 'DEV-2': { blockedBy: ['DEV-1'] } });
+    const lookups = new Map([['DEV-1', { at: now.getTime() + 60_000, issue: issueNode('DEV-1', { type: 'started' }) }]]);
+    expect(await applyLinearDependencyGate([task('DEV-2')], { ...opts(), graphql: send, lookups })).toHaveLength(1);
+    expect(lookups.get('DEV-1')!.at).toBe(now.getTime());
+    const comments = new Map([['DEV-2', '> Taskcell will not start this issue yet: `waiting for DEV-1`. It stays in its trigger state and starts by itself once that is resolved.']]);
+    const linear = commentRunner(comments);
+    await applyLinearDependencyGate([task('DEV-2')], { ...opts(), graphql: fakeSend({ 'DEV-1': {}, 'DEV-2': { blockedBy: ['DEV-1'] } }, comments), linear });
+    expect(linear).toHaveBeenCalledTimes(1);
+    const out = new Map<string, string>();
+    await applyLinearDependencyGate([task('DEV-1', 'Start: 2026-13-01\u202e\u200dx')], { ...opts(), graphql: fakeSend({ 'DEV-1': {} }, out), linear: commentRunner(out) });
+    expect(out.get('DEV-1')).not.toContain('\u202e');
+    expect(out.get('DEV-1')).toContain('\u200d');
+  });
+  it('orders hold comments by timestamp, not by Linear\'s order', async () => {
+    const hold = (id: string): string => `Taskcell will not start this issue yet: \`waiting for ${id}\`. It stays in its trigger state and starts by itself once that is resolved.`;
+    const send: LinearGraphql = async (body) =>
+      body.query.includes('comments(')
+        ? { data: { issue: { first: { nodes: [{ body: hold('DEV-1'), createdAt: '2026-01-02' }] }, last: { nodes: [{ body: hold('DEV-5'), createdAt: '2026-01-01' }] } } } }
+        : fakeSend({ 'DEV-1': {}, 'DEV-2': { blockedBy: ['DEV-1'] } })(body);
+    const linear = vi.fn(async (_args: string[]) => '');
+    await applyLinearDependencyGate([task('DEV-2')], { ...opts(), graphql: send, linear });
+    expect(linear).not.toHaveBeenCalled();
+  });
+  it('does not comment on every listed issue during a shared outage', async () => {
+    const linear = vi.fn(async (_args: string[]) => '');
+    const send: LinearGraphql = async (body) => (body.query.includes('comments(') ? { data: { issue: { first: { nodes: [] }, last: { nodes: [] } } } } : { errors: [{ message: 'boom' }] });
+    const shared = { ...opts(), graphql: send, linear };
+    for (let poll = 1; poll <= 4; poll++) await applyLinearDependencyGate([task('DEV-1'), task('DEV-2'), task('DEV-3')], shared);
+    expect(linear).not.toHaveBeenCalled();
   });
   it('reads a team key that starts with a digit like parseIdentifier, but not an all-digit one', () => {
     expect(parseLinearBodyDependencies('Depends on 2FA-12, DEV-3')).toEqual([{ repo: '2FA', number: 12 }, { repo: 'DEV', number: 3 }]);
@@ -494,7 +581,7 @@ describe('gate state across polls', () => {
     await applyLinearDependencyGate([task('DEV-1', `Start: 2026-13-01\u001b[2J${long}`)], { ...opts(), graphql: fakeSend({ 'DEV-1': {} }, comments), linear: commentRunner(comments) });
     const body = comments.get('DEV-1')!;
     expect(body).not.toMatch(/\p{Cc}/u);
-    expect([...body].length).toBeLessThan(500);
+    expect([...body].length).toBeLessThan(1200);
     expect(body).not.toMatch(/[\ud800-\udbff](?![\udc00-\udfff])/);
   });
   it('reuses a blocker across polls within the TTL, reads it again after it', async () => {

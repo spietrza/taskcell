@@ -163,14 +163,23 @@ async function existingCallerMap(exec: FactoryExec, repoPath: string, base: stri
   return found;
 }
 
+/** The review trigger spelling the repo already has (the new one when it has both or neither): its own workflows may gate on the old name only. Throws when the labels cannot be listed. */
+async function reviewTriggerSpelling(exec: FactoryExec, repoPath: string): Promise<string> {
+  const have = (await run(exec, 'gh', ['label', 'list', '--limit', '1000', '--json', 'name', '--jq', '.[].name'], { cwd: repoPath }))
+    .split('\n').map((name) => name.toLowerCase());
+  return labelForms(REVIEW_TRIGGER_LABEL).find((form) => have.includes(form.toLowerCase())) ?? REVIEW_TRIGGER_LABEL;
+}
+
 /** Read the repo's default branch, slug and the signed-in gh login — nothing written yet. */
 export async function planGithubFactory(repoPath: string, deps: GithubFactoryDeps = {}): Promise<FactoryPlan> {
   const exec = deps.exec ?? defaultExec;
-  const [repoView, user, { packageManager, scripts }, verifyCommand] = await Promise.all([
+  const [repoView, user, { packageManager, scripts }, verifyCommand, trigger] = await Promise.all([
     execJson(exec, 'gh', ['repo', 'view', '--json', 'nameWithOwner,defaultBranchRef'], { cwd: repoPath }),
     execJson(exec, 'gh', ['api', 'user'], { cwd: repoPath }),
     detectScripts(repoPath),
     resolveVerifyCommand(repoPath),
+    // Best effort: when unlistable the plan shows the default; apply refuses instead of guessing.
+    reviewTriggerSpelling(exec, repoPath).catch(() => REVIEW_TRIGGER_LABEL),
   ]);
 
   const repoSlug = strField(repoView, ['nameWithOwner']);
@@ -191,6 +200,7 @@ export async function planGithubFactory(repoPath: string, deps: GithubFactoryDep
     ...(verifyCommand !== undefined ? { verifyCommand } : {}),
     scripts,
     ...factoryPlanTargets(),
+    labels: FACTORY_LABELS.map((l) => (l.name === REVIEW_TRIGGER_LABEL ? trigger : l.name)),
     existingCallerFiles: existing,
   };
 }
@@ -239,6 +249,11 @@ export async function applyGithubFactory(repoPath: string, plan: FactoryPlan, de
   const head = await run(exec, 'git', ['rev-parse', '--abbrev-ref', 'HEAD'], { cwd: repoPath });
   const original = head === 'HEAD' ? await run(exec, 'git', ['rev-parse', 'HEAD'], { cwd: repoPath }) : head;
 
+  // Listed before anything is pushed: a failure here must not leave a pushed branch with no PR.
+  // No fallback: guessing the new name would flip an old-only repo.
+  const trigger = await reviewTriggerSpelling(exec, repoPath).catch((error: unknown) => {
+    throw new BadRequestError(`could not list the repository labels (${error instanceof Error ? error.message : String(error)}); nothing was changed, retry`);
+  });
   await run(exec, 'git', ['fetch', 'origin', plan.defaultBranch], { cwd: repoPath });
   const existing = await existingCallerMap(exec, repoPath, plan.defaultBranch);
   let changed: boolean;
@@ -271,11 +286,6 @@ export async function applyGithubFactory(repoPath: string, plan: FactoryPlan, de
     await run(exec, 'git', ['checkout', '-f', original], { cwd: repoPath });
   }
 
-  // A repo that already has the review trigger keeps its spelling: its own workflows may gate on the old name only.
-  // No fallback when the listing fails: guessing the new name would flip an old-only repo.
-  const have = (await run(exec, 'gh', ['label', 'list', '--limit', '1000', '--json', 'name', '--jq', '.[].name'], { cwd: repoPath }))
-    .split('\n').map((name) => name.toLowerCase());
-  const trigger = labelForms(REVIEW_TRIGGER_LABEL).find((form) => have.includes(form.toLowerCase())) ?? REVIEW_TRIGGER_LABEL;
   const labelsCreated: string[] = [];
   for (const label of FACTORY_LABELS) {
     const name = label.name === REVIEW_TRIGGER_LABEL ? trigger : label.name;

@@ -610,7 +610,7 @@ export async function runRevisePullRequest(prRef: string, deps: ReviseGithubPrDe
         });
       }
 
-      // A branch that no longer merges into its base is merged here (a merge commit), or, when the base changed CI config and the branch is the factory's, rebased onto it:
+      // A branch that no longer merges into its base (or, in a merge-only round, any branch behind it) is merged here (a merge commit), or, when the base changed CI config and the branch is the factory's, rebased onto it:
       // conflict markers are left in the worktree for the agent, and the gate below runs on the result.
       const baseName = baseBranchOrDefault(pr.baseRefName, `PR ${target.repoSlug}#${target.number}`);
       const baseMerge = await mergeBaseIntoWorktree(ctx.worktreePath, baseName, {
@@ -621,6 +621,10 @@ export async function runRevisePullRequest(prRef: string, deps: ReviseGithubPrDe
         mergeClean: mergeOnlyAsk && deps.out === undefined,
       });
       const cleanMerged = baseMerge.status === 'clean' && baseMerge.merged === true;
+      // A hold: conflicts with no markers, or a base CI-config change on a branch that may not be rewritten (a clean merge too, then with no files).
+      const held = baseMerge.status === 'conflicted' && (baseMerge.unresolvable.length > 0 || baseMerge.reason !== undefined);
+      // Rewritten onto the base instead of merged (clean or with conflicts to resolve): force-pushed with a lease.
+      const rebased = baseMerge.status !== 'skipped' && baseMerge.rebased === true;
       // One `base_merge` metric per check that ran (not for a dry run, which touches nothing); telemetry is best-effort.
       const recordBaseMerge = async (conflictedFiles: string[], resolvedBy?: 'agent' | 'human'): Promise<void> => {
         if (deps.out !== undefined || baseMerge.status === 'skipped') return;
@@ -634,8 +638,8 @@ export async function runRevisePullRequest(prRef: string, deps: ReviseGithubPrDe
       if (baseMerge.status === 'clean') await recordBaseMerge([]);
       if (baseMerge.status === 'skipped') log(`revise-pr ${target.repoSlug}#${target.number}: base merge check skipped (${baseMerge.reason})`);
       const conflicted = baseMerge.status === 'conflicted' ? baseMerge.files : [];
-      const mergedBase = baseMerge.status === 'conflicted' && baseMerge.unresolvable.length === 0 ? { base: baseName, files: conflicted, ...(baseMerge.rebased === true ? { rebased: true } : {}) } : undefined;
-      const forceWithLease = mergedBase?.rebased === true ? pr.headRefOid : undefined;
+      const mergedBase = baseMerge.status === 'conflicted' && !held ? { base: baseName, files: conflicted, ...(rebased ? { rebased: true } : {}) } : undefined;
+      const forceWithLease = rebased ? pr.headRefOid : undefined;
       // Never report success on a PR that still conflicts: say so on the PR and leave `needs revision`
       // for a human (only the in-flight label goes, as for a rate limit).
       const holdForConflict = async (files: string[], reason?: string): Promise<ReviseGithubPrResult> => {
@@ -651,13 +655,13 @@ export async function runRevisePullRequest(prRef: string, deps: ReviseGithubPrDe
         return { pr, ignoredFeedback, addressed: 0, committed: false, pushed: false, undrafted: false, conflictUnresolved: files };
       };
 
-      // Conflicts with no markers to resolve (modify/delete, rename, binary) are left to a human.
-      if (baseMerge.status === 'conflicted' && baseMerge.unresolvable.length > 0) {
+      // Conflicts with no markers to resolve (modify/delete, rename, binary), and a base CI-config change the branch may not be rewritten onto, are left to a human.
+      if (baseMerge.status === 'conflicted' && held) {
         await recordBaseMerge(baseMerge.files, 'human');
         return await holdForConflict(baseMerge.unresolvable, baseMerge.reason);
       }
       if (cleanMerged) {
-        log(`revise-pr ${target.repoSlug}#${target.number}: ${baseName} merged cleanly`);
+        log(`revise-pr ${target.repoSlug}#${target.number}: ${baseName} ${rebased ? 'changed CI config, branch rebased onto it' : 'merged cleanly'}`);
         await refreshSandboxWorkspace(ctx);
       }
       if (mergedBase !== undefined) {
@@ -942,7 +946,7 @@ export async function runRevisePullRequest(prRef: string, deps: ReviseGithubPrDe
         verification: { typecheck: verificationStatus, test: verificationStatus },
         whiteLabel,
         ...(checklistAnswers.length > 0 ? { checklist: checklistAnswers } : {}),
-        ...(mergedBase !== undefined ? { mergedBase } : cleanMerged ? { mergedBase: { base: baseName, files: [] } } : {}),
+        ...(mergedBase !== undefined ? { mergedBase } : cleanMerged ? { mergedBase: { base: baseName, files: [], ...(rebased ? { rebased: true } : {}) } } : {}),
         ...(mergeOnly ? { mergeOnly } : {}),
         ...(baseMerge.status === 'skipped' ? { baseCheckSkipped: { base: baseName, reason: baseMerge.reason } } : {}),
       });

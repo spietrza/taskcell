@@ -650,6 +650,19 @@ describe('runSourcedIssue', () => {
     expect(vi.mocked(startProviderProxies)).not.toHaveBeenCalled();
   });
 
+  it('a hub user-credential run reports a rotation against its own env and writes no host auth file', async () => {
+    const providerEnv: NodeJS.ProcessEnv = { CODEX_AUTH_JSON: '{}' };
+    await runSourcedIssue('group/project#1', { repoPath: '/repo', flow: 'default', credentialSource: 'user', providerEnv }, fakeAdapter([], STAGES));
+    expect(vi.mocked(startProviderProxies).mock.calls[0]?.[0]).toMatchObject({ env: providerEnv, storedCredential: true });
+  });
+
+  it('an instance-credential run reports a rotation against process.env (so later runs see it) and may hand it back', async () => {
+    await runSourcedIssue('group/project#1', { repoPath: '/repo', flow: 'default', credentialSource: 'instance', providerEnv: { ...process.env } }, fakeAdapter([], STAGES));
+    const opts = vi.mocked(startProviderProxies).mock.calls[0]?.[0];
+    expect(opts?.env).toBeUndefined(); // startLlmProxy defaults to process.env
+    expect(opts?.storedCredential).toBeUndefined();
+  });
+
   it('--flow <name> resolves a repo .vanguard/flows/*.hcl flow and runs its lowered stages (S5)', async () => {
     const repo = await mkdtemp(join(tmpdir(), 'vg-sa-flows-'));
     try {
@@ -1591,6 +1604,14 @@ describe('runSourcedIssue', () => {
 
     expect(publishForReview.mock.calls[0]?.[1]).toEqual(expect.objectContaining({ draft: true }));
     expect(adapter.addFailureLabel).toHaveBeenCalledWith(MR_URL, 'visual-proof');
+  });
+
+  it('records gate-config paths on a local delivery', async () => {
+    wmDiff.mockResolvedValue('diff --git a/vitest.config.ts b/vitest.config.ts\n--- a/vitest.config.ts\n+++ b/vitest.config.ts\n@@ -1 +1 @@\n-old\n+new\n');
+    const adapter = { ...fakeAdapter([], STAGES), delivery: 'local' as const };
+    const result = await runSourcedIssue('group/project#1', { repoPath: '/repo' }, adapter);
+    expect(result.prUrl).toBeUndefined();
+    expect((writeStages.mock.calls.at(-1) as unknown[] | undefined)?.[1]).toEqual(expect.objectContaining({ configPaths: ['vitest.config.ts'] }));
   });
 
   it.each(['skills/review/SKILL.md', '.github/vanguard-skills/review/SKILL.md', 'skills.lock.json'])('labels and discloses protected config %s', async (path) => {
