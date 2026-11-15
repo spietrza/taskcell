@@ -18,7 +18,10 @@ vi.mock('../../ipc', () => ({
 import { listTasks, listTasksAll, retryPausedTask } from '../../ipc';
 const mockListTasks = vi.mocked(listTasks);
 
-beforeEach(() => vi.clearAllMocks());
+beforeEach(() => {
+  vi.clearAllMocks();
+  window.__TASKCELL_HUB__ = true;
+});
 afterEach(() => vi.useRealTimers());
 
 // A lane is the column container carrying `rounded-xl`; scope queries to it so a task asserted

@@ -3,6 +3,7 @@ import { Button, cn } from '@/ui';
 import { Check, Circle, CircleDot, X } from 'lucide-react';
 import { apiSetTaskSkills, listNeedsYou, listRuns, readRun, type NeedsYouItem } from '../../ipc';
 import { errorMessage } from '../../errors';
+import { isHubMode } from '../../transport';
 import type { BoardTask, RepoStamp, RunDetail } from '../../wire';
 import { ExternalLink, hostName } from '../../components/ExternalLink';
 import { MergeButton, ReplyBox, canUseNeedsYou } from '../needs-you/NeedsYou';
@@ -15,6 +16,8 @@ import { ScheduleEditor, ScheduleLines } from './Schedule';
 
 /** A paused pull request's card (`gh-pr-N`): it is not an issue, so the issue-only actions (skills, full page) are not offered. */
 export const isPullRequestCard = (id: string): boolean => /^gh-pr-\d+$/i.test(id);
+/** A hub-board task's card (`hub-N`): its skills are stored on the task itself. */
+const isHubTaskCard = (id: string): boolean => /^hub-[1-9]\d*$/.test(id);
 export const isInvalidHubCard = (id: string): boolean => id === 'hub-invalid';
 
 export const TRACKER_NAME = { github: 'GitHub', gitlab: 'GitLab', linear: 'Linear' } as const;
@@ -247,7 +250,7 @@ export function QuickView({
           ))}
         </ol>
 
-        {task.source !== undefined && !isPullRequestCard(task.id) && <CardSkills key={`${repoPath}:${task.id}`} task={task} repoPath={repoPath} onSaved={onSkillsSaved} />}
+        {isHubMode() && (task.source !== undefined || isHubTaskCard(task.id)) && !isPullRequestCard(task.id) && <CardSkills key={`${repoPath}:${task.id}`} task={task} repoPath={repoPath} onSaved={onSkillsSaved} />}
       </div>
 
       {/* Pinned to the bottom edge: Merge and "Open in …". */}

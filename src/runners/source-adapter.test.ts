@@ -790,6 +790,18 @@ describe('runSourcedIssue', () => {
     }
   });
 
+  it('a broken SKILLS_DIR (a hub GitHub run) stops the run with a message naming the directory, before the sandbox', async () => {
+    const root = await mkdtemp(join(tmpdir(), 'vg-adapter-broken-skills-'));
+    try {
+      const skillsDir = join(root, 'no-such-skills-dir');
+      vi.mocked(prepareContext).mockClear();
+      await expect(runSourcedIssue('group/project#1', { repoPath: join(root, 'repo'), skillsDir }, fakeAdapter([], STAGES))).rejects.toThrow(skillsDir);
+      expect(prepareContext).not.toHaveBeenCalled();
+    } finally {
+      await rm(root, { recursive: true, force: true });
+    }
+  });
+
   it('an implement run does not inject the spec-only tech-spec skill (bundled or repo-supplied)', async () => {
     const root = await mkdtemp(join(tmpdir(), 'vg-adapter-tech-spec-'));
     try {

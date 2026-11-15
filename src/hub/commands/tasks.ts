@@ -46,7 +46,7 @@ export interface TasksCommands {
   retry_paused_task: { args: { repoPath: string; number: number }; result: RetryPausedResult };
   /** HUB_ONLY, read-only: the ids of the skills a run of this project can load (what a hand-picked list is checked against). */
   list_skills: { args: { repoPath: string }; result: { skills: string[] } };
-  /** HUB_ONLY: write a card's hand-picked skills to its task as the body's `Skills:` line (an empty list removes it). */
+  /** HUB_ONLY: write a card's hand-picked skills: to its tracker task as the body's `Skills:` line, or on a hub-board task to the task itself (an empty list removes them). */
   set_task_skills: { args: { repoPath: string; taskId: string; skills: string[] }; result: { skills: string[] } };
 }
 
@@ -96,13 +96,37 @@ async function createTaskBase(real: string, args: Record<string, unknown>): Prom
   return base;
 }
 
-/** The skills a run of this project loads: the hub's skills dir plus the repo's own. A broken dir or lock is the caller's to fix (400, with the reason). */
+/**
+ * The skills a run of this project loads: the hub's skills dir plus the repo's own. A broken dir or lock is
+ * reported as a 400 that says what is wrong but names no host path (the detail goes to the hub log).
+ */
 async function installedSkills(repoPath: string): Promise<string[]> {
   try {
     return (await skillRegistryForRun(hubSkillsDir(), repoPath)).ids().sort();
   } catch (error) {
-    throw new BadRequestError(`Skills cannot be listed: ${error instanceof Error ? error.message : String(error)}`);
+    const detail = error instanceof Error ? error.message : String(error);
+    console.error(`vanguard-hub: skills cannot be listed for ${repoPath}: ${detail}`);
+    throw new BadRequestError(`Skills cannot be listed: ${/lock/i.test(detail) ? 'a skills lock does not match its skills' : 'the skills directory cannot be read'}; see the hub log.`);
   }
+}
+
+/** A hub-board card's skills: stored on the hub task (its run loads exactly these, even none). Only a task not yet started takes them; the editor becomes its owner, as for a schedule edit. */
+async function setHubTaskSkills(call: CommandCall, real: string, taskId: string, names: string[]): Promise<{ skills: string[] }> {
+  if (!(await isHubBoard(real))) throw new BadRequestError('this project\'s task source is not Hub board (Settings → Task source)');
+  try {
+    assertSkillsInstalled(names, await installedSkills(real));
+  } catch (error) {
+    if (error instanceof TaskcellError) throw new BadRequestError(error.message);
+    throw error;
+  }
+  const owner = ownerOf(call);
+  const task = await editHubTask(call.ctx.configDir, real, taskId, (t) => {
+    if (t.status !== 'todo') throw new BadRequestError(`${taskId} is ${t.status}; skills can only be changed before it starts`);
+    t.skills = names;
+    t.owner = owner;
+  });
+  if (task === undefined) throw new BadRequestError(`no hub task ${taskId}`);
+  return { skills: names };
 }
 
 /** The targets a card may name (the allowlist a run enforces, see readAllowedBases), plus the repo's configured default. */
@@ -143,7 +167,8 @@ export const commands = defineCommands<TasksCommands>({
     const real = await allow(requireString(args, 'repoPath'));
     return { skills: await installedSkills(real) };
   },
-  set_task_skills: async ({ ctx, args, allow }) => {
+  set_task_skills: async (call) => {
+    const { ctx, args, allow } = call;
     // Edits the issue body as the hub's tracker identity — a remote mutation. Every refusal happens before any write.
     assertMutationsAllowed(ctx.bind);
     const real = await allow(requireString(args, 'repoPath'));
@@ -153,6 +178,7 @@ export const commands = defineCommands<TasksCommands>({
     const names = [...new Set(skills as string[])];
     const problem = namedSkillsProblem(names);
     if (problem !== undefined) throw new BadRequestError(`skills ${problem}`);
+    if (HUB_TASK_ID.test(taskId)) return setHubTaskSkills(call, real, taskId, names);
     const ref = resolveTaskRef(taskId);
     const source = ref?.source;
     if (ref === undefined || source === undefined) throw new BadRequestError(`taskId ${JSON.stringify(taskId.slice(0, 80))} names no GitHub, GitLab or Linear task`);

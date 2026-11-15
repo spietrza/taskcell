@@ -125,7 +125,7 @@ async function startHubTask(ctx: SweepContext, repoPath: string, task: HubTask, 
     const provider = typeof configured === 'string' && configured.trim() !== '' ? configured : undefined;
     const credential = ctx.userCredentials !== undefined ? await ctx.userCredentials.resolveForRun(caller.user, provider) : undefined;
     return await ctx.runSession.createRun(
-      { issueRef: task.id, repoPath, transport: HUB_TRANSPORT, hubTask: { id: task.id, title: task.title, body: task.body }, startedBy: who.actor.login, ...(provider !== undefined ? { provider } : {}) },
+      { issueRef: task.id, repoPath, transport: HUB_TRANSPORT, hubTask: { id: task.id, title: task.title, body: task.body }, ...(task.skills !== undefined ? { skills: task.skills } : {}), startedBy: who.actor.login, ...(provider !== undefined ? { provider } : {}) },
       {
         onStarted: (id) => { log('run-start', `${id} ${task.id}`, 'ok'); admitted(id); },
         onQueued: (id) => { log('run-queue', `${id} ${task.id}`, 'ok'); admitted(id); },

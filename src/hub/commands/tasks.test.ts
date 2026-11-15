@@ -263,12 +263,14 @@ describe('tasks', () => {
       await writeFile(join(repo, '.github/vanguard-skills/db/SKILL.md'), '---\nname: db\n---\n');
       expect(((await dispatchRpc(ctx, 'list_skills', { repoPath: repo })) as { skills: string[] }).skills).toContain('db');
     });
-    test('list_skills says why when the skills dir cannot be read, instead of an empty list', async () => {
+    test('list_skills says the skills dir cannot be read, instead of an empty list, without naming a host path', async () => {
       const repo = await tmpRepo();
       const { ctx } = await makeCtx(repo);
       vi.stubEnv('SKILLS_DIR', join(repo, 'no-such-dir'));
       const err: unknown = await dispatchRpc(ctx, 'list_skills', { repoPath: repo }).catch((e: unknown) => e).finally(() => vi.unstubAllEnvs());
-      expect(classifyError(err)).toMatchObject({ kind: 'bad-request', message: expect.stringMatching(/^Skills cannot be listed: .*no-such-dir/) });
+      expect(classifyError(err)).toMatchObject({ kind: 'bad-request', message: expect.stringMatching(/^Skills cannot be listed: /) });
+      expect((err as Error).message).not.toContain('no-such-dir');
+      expect((err as Error).message).not.toContain(repo);
     });
     test.each([
       ['a value that is not a list', { taskId: 'gh-1', skills: 'db' }, 'skills must be an array'],

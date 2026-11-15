@@ -1259,7 +1259,7 @@ export interface Commands {
   retry_paused_task: { args: { repoPath: string; number: number }; result: RetryPausedResult };
   /** HUB_ONLY, read-only: the ids of the skills a run of this project can load (what a hand-picked list is checked against). */
   list_skills: { args: { repoPath: string }; result: { skills: string[] } };
-  /** HUB_ONLY: write a card's hand-picked skills to its task as the body's `Skills:` line (an empty list removes it). */
+  /** HUB_ONLY: write a card's hand-picked skills: to its tracker task as the body's `Skills:` line, or on a hub-board task to the task itself (an empty list removes them). */
   set_task_skills: { args: { repoPath: string; taskId: string; skills: string[] }; result: { skills: string[] } };
   /** HUB_ONLY: token-only mode has exactly one team and the caller acts as its admin. */
   list_teams: { args: undefined; result: Team[] };
