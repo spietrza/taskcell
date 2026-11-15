@@ -166,7 +166,7 @@ test('the hub board can be picked as a task source', async () => {
   expect(select).toHaveValue('hub');
   expect(screen.getByRole('option', { name: 'Hub board' })).toBeEnabled();
   expect(screen.getByRole('option', { name: 'GitHub Issues' })).toBeEnabled();
-  expect(screen.getByRole('option', { name: 'Self-hosted (watch) (hub setup planned)' })).toBeEnabled();
+  expect(screen.getByRole('option', { name: 'Self-hosted (watch)' })).toBeEnabled();
 });
 
 test('Enter in a single-line field saves a valid form, and does nothing while the form is invalid', async () => {
