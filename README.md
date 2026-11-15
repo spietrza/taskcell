@@ -10,6 +10,7 @@
 <p align="center">
   <a href="https://github.com/spietrza/taskcell/actions/workflows/ci.yml"><img src="https://github.com/spietrza/taskcell/actions/workflows/ci.yml/badge.svg" alt="CI"></a>
   <a href="LICENSE"><img src="https://img.shields.io/badge/license-MIT-8B5CF6.svg" alt="License: MIT"></a>
+  <a href="https://scorecard.dev/viewer/?uri=github.com/spietrza/taskcell"><img src="https://api.scorecard.dev/projects/github.com/spietrza/taskcell/badge" alt="OpenSSF Scorecard"></a>
   <img src="https://img.shields.io/badge/node-%E2%89%A5%2024-22D3EE" alt="Node >= 24">
   <img src="https://img.shields.io/badge/TypeScript-strict-3178C6" alt="TypeScript">
   <img src="https://img.shields.io/badge/built%20with-Claude%20Agent%20SDK-D97757" alt="Claude Agent SDK">
