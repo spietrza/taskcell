@@ -3,7 +3,7 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { afterEach, beforeEach, expect, test, vi } from 'vitest';
 import { writeAppConfig } from './app-config.js';
-import { boardServed, localWorkerMemory, localWorkerState, readLocalWorker, recordBoardPickup, setLocalWorker, sweepLocalWorkers, type LocalWorkerContext } from './local-worker.js';
+import { boardServed, localWorkerMemory, localWorkerState, readLocalWorker, recordBoardPickup, runLocalDoctor, setLocalWorker, sweepLocalWorkers, type LocalWorkerContext } from './local-worker.js';
 import { cleanups, tmpGitRepo } from './test-kit.js';
 import type { RunSession } from './run-session.js';
 import type { CreateRunResult } from '../sidecar/sidecar.js';
@@ -37,12 +37,19 @@ function fakeSession(): { session: RunSession; refs: string[]; end: (i: number) 
 }
 
 const issues = (...n: number[]): string => JSON.stringify(n.map((number) => ({ number, labels: [{ name: 'ready for agent' }] })));
-const ctxOf = (repo: string, session: RunSession, gh: (a: string[]) => Promise<string>, memory = localWorkerMemory()): LocalWorkerContext => ({
+/** The author lookup (`gh api repos/…/issues/n`) answers a repo member unless `authors` says otherwise; everything else goes to `gh`. */
+const withAuthors = (gh: (a: string[]) => Promise<string>, authors: Record<number, string | Error> = {}) => async (a: string[]): Promise<string> => {
+  if (a[0] !== 'api') return gh(a);
+  const assoc = authors[Number(a[1]!.split('/').at(-1))] ?? 'MEMBER';
+  if (assoc instanceof Error) throw assoc;
+  return JSON.stringify({ user: { login: 'someone' }, author_association: assoc });
+};
+const ctxOf = (repo: string, session: RunSession, gh: (a: string[]) => Promise<string>, memory = localWorkerMemory(), authors: Record<number, string | Error> = {}): LocalWorkerContext => ({
   configDir: cfg,
   runSession: session,
   allowlist: { assertAllowed: async (p: string) => p } as never,
   memory,
-  deps: deps(gh),
+  deps: deps(withAuthors(gh, authors)),
 });
 
 test('off by default; the switch persists across a restart and off always works', async () => {
@@ -140,4 +147,32 @@ test('hub boards: served unless explicitly off; pick-ups are shown only while on
   expect((await readLocalWorker(cfg, repo)).lastPickup).toBe('hub-1');
   await setLocalWorker(cfg, repo, false, undefined, deps());
   expect(await boardServed(cfg, repo)).toBe(false);
+});
+
+test('only trusted authors are picked up; an outsider is skipped and a failed lookup fails closed', async () => {
+  const repo = await githubRepo({ concurrency: 3 });
+  await setLocalWorker(cfg, repo, true, undefined, deps());
+  const { session, refs } = fakeSession();
+  const ctx = ctxOf(repo, session, async () => issues(1, 2, 3), localWorkerMemory(), { 1: 'NONE', 2: new Error('HTTP 502') });
+  await sweepLocalWorkers(ctx);
+  expect(refs).toEqual(['3']);
+  expect((await readLocalWorker(cfg, repo)).lastPickup).toBe('#3');
+});
+
+test('a failed author lookup is recorded and nothing starts', async () => {
+  const repo = await githubRepo();
+  await setLocalWorker(cfg, repo, true, undefined, deps());
+  const { session, refs } = fakeSession();
+  await sweepLocalWorkers(ctxOf(repo, session, async () => issues(7), localWorkerMemory(), { 7: new Error('HTTP 502') }));
+  expect(refs).toEqual([]);
+  expect((await readLocalWorker(cfg, repo)).lastError).toMatch(/#7: author lookup failed: HTTP 502/);
+});
+
+test('hub boards: running the doctor on a never-switched board keeps it served', async () => {
+  const repo = await tmpGitRepo();
+  await writeAppConfig(repo, { taskSource: 'hub' });
+  const state = await runLocalDoctor(cfg, repo, undefined, deps());
+  expect(state.doctor).toBeDefined();
+  expect(state.enabled).toBe(false);
+  expect(await boardServed(cfg, repo)).toBe(true);
 });

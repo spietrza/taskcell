@@ -12,7 +12,7 @@ import { runPreflight, type PreflightCommand } from '../cli/preflight.js';
 import { GITHUB_RATE_LIMITED_LABEL, GITHUB_WAITING_LABEL } from '../github-labels.js';
 import { parseGitlabProjectFromRemote } from '../runners/gitlab.js';
 import { BadRequestError, type CreateRunResult } from '../sidecar/sidecar.js';
-import { defaultGhRunner, type GhRunner } from '../tasks/github.js';
+import { defaultGhRunner, isTrustedIssueAuthor, type GhRunner } from '../tasks/github.js';
 import type { LocalWorkerState } from '../wire.js';
 import { readAppConfig } from './app-config.js';
 import { PROVIDER_NAMES, type CredentialService } from './credentials.js';
@@ -24,9 +24,9 @@ import type { ProjectAllowlist } from './allowlist.js';
 import type { RunSession } from './run-session.js';
 import { STARTED_LABELS } from './start-task.js';
 
-/** Persisted per project (keyed by the allowlisted real path). `enabled` is the switch. */
+/** Persisted per project (keyed by the allowlisted real path). `enabled` is the switch; absent = never switched (distinct from an explicit off). */
 interface LocalWorkerRecord {
-  enabled: boolean;
+  enabled?: boolean;
   lastPickupAt?: string;
   lastPickup?: string;
   lastError?: string;
@@ -52,16 +52,17 @@ async function readAll(configDir: string): Promise<Record<string, LocalWorkerRec
   }
 }
 
-export async function readLocalWorker(configDir: string, repoPath: string): Promise<LocalWorkerRecord> {
+/** One project's record; a never-switched project reads as off (`enabled: false`) but is stored without `enabled`. */
+export async function readLocalWorker(configDir: string, repoPath: string): Promise<LocalWorkerRecord & { enabled: boolean }> {
   const rec = (await readAll(configDir))[repoPath];
-  return typeof rec === 'object' && rec !== null && typeof rec.enabled === 'boolean' ? rec : { enabled: false };
+  return typeof rec === 'object' && rec !== null ? { ...rec, enabled: rec.enabled === true } : { enabled: false };
 }
 
 /** Read-modify-write one project's record; temp file + rename so a reader never sees half a write. */
 export function updateLocalWorker(configDir: string, repoPath: string, edit: (r: LocalWorkerRecord) => LocalWorkerRecord): Promise<LocalWorkerRecord> {
   return lock(configDir, async () => {
     const all = await readAll(configDir);
-    const next = edit(all[repoPath] ?? { enabled: false });
+    const next = edit(all[repoPath] ?? {});
     const file = storeFile(configDir);
     await mkdir(dirname(file), { recursive: true });
     const tmp = `${file}.${process.pid}.tmp`;
@@ -203,6 +204,16 @@ export async function pickUpIssues(ctx: LocalWorkerContext, repoPath: string, sl
     const key = `${prefix}#${issue.number}`;
     if (live.has(key) || seen.has(key)) continue;
     if (names.some((n) => STARTED_LABELS.some((s) => s.toLowerCase() === n.toLowerCase())) || hasLabel(names, GITHUB_WAITING_LABEL) || hasLabel(names, GITHUB_RATE_LIMITED_LABEL)) continue;
+    // A label alone is not consent (as `taskcell watch`): an issue template can label an outsider's issue. A failed lookup fails closed.
+    const author = await isTrustedIssueAuthor(slug, issue.number, undefined, gh);
+    if (!author.trusted) {
+      if (author.error !== undefined) {
+        await updateLocalWorker(ctx.configDir, repoPath, (r) => ({ ...r, lastError: `#${issue.number}: author lookup failed: ${author.error}` }));
+      } else {
+        seen.add(key); // an untrusted author is not re-checked every tick
+      }
+      continue;
+    }
     const admission = await startIssue(ctx, repoPath, issue.number, (end) => {
       live.delete(key);
       if (end instanceof Error) void updateLocalWorker(ctx.configDir, repoPath, (r) => ({ ...r, lastError: `#${issue.number}: ${failureMessage(end)}` })).catch(() => undefined);
