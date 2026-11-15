@@ -76,6 +76,6 @@ export function estimateOpenRouterCost(usage: EstimateUsage, model: string | und
   const table: Record<string, ModelPricing> = codex ? CODEX_PRICED_MODELS : OPENROUTER_PRICING;
   const p = Object.hasOwn(table, model) ? table[model] : undefined; // own keys only: `constructor` is not a model
   if (p === undefined) return undefined;
-  const input = codex ? Math.max(0, usage.inputTokens - usage.cacheReadInputTokens) : usage.inputTokens;
+  const input = cachedInInput ? Math.max(0, usage.inputTokens - usage.cacheReadInputTokens) : usage.inputTokens;
   return (input * p.input + usage.outputTokens * p.output + usage.cacheReadInputTokens * p.cacheRead) / 1_000_000;
 }

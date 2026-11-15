@@ -6,7 +6,6 @@ import { TaskcellError, visibleError } from '../../core/errors.js';
 import { resolveTaskRef } from '../../tasks/board.js';
 import { setTaskSkills } from '../../tasks/create.js';
 import { BadRequestError, invokeCoreMethod, type CreateTaskParams } from '../../sidecar/sidecar.js';
-import { assertMutationsAllowed } from '../allowlist.js';
 import { BASE_LABEL_PREFIX, assertAllowedBase, assertSafeBaseBranch, readAllowedBases, readRepoBaseBranch } from '../../core/base-branch.js';
 import { readAppConfig } from '../app-config.js';
 import type { RpcContext } from '../rpc.js';
@@ -168,9 +167,7 @@ export const commands = defineCommands<TasksCommands>({
     return { skills: await installedSkills(real) };
   },
   set_task_skills: async (call) => {
-    const { ctx, args, allow } = call;
-    // Edits the issue body as the hub's tracker identity — a remote mutation. Every refusal happens before any write.
-    assertMutationsAllowed(ctx.bind);
+    const { args, allow } = call;
     const real = await allow(requireString(args, 'repoPath'));
     const taskId = requireString(args, 'taskId');
     const skills = args.skills;
@@ -314,9 +311,7 @@ export const commands = defineCommands<TasksCommands>({
     const real = await allow(requireString(args, 'repoPath'));
     return listBranches(real);
   },
-  start_task: async ({ ctx, args, allow }) => {
-    // Adds a trigger label as the hub's `gh` identity — a remote mutation.
-    assertMutationsAllowed(ctx.bind);
+  start_task: async ({ args, allow }) => {
     const real = await allow(requireString(args, 'repoPath'));
     const label = requireString(args, 'label');
     const number = optionalNumber(args, 'number');
@@ -328,9 +323,7 @@ export const commands = defineCommands<TasksCommands>({
     if (repoSlug === undefined) throw new BadRequestError('start_task: this project has no GitHub remote');
     return startGithubTask(repoSlug, number, label, triggerLabelsFor(cfg.label));
   },
-  retry_paused_task: async ({ ctx, args, allow }) => {
-    // Edits labels as the hub's `gh` identity — a remote mutation, gated like start_task.
-    assertMutationsAllowed(ctx.bind);
+  retry_paused_task: async ({ args, allow }) => {
     const real = await allow(requireString(args, 'repoPath'));
     const number = optionalNumber(args, 'number');
     if (number === undefined) throw new BadRequestError('number is required and must be a number');
@@ -341,6 +334,22 @@ export const commands = defineCommands<TasksCommands>({
     if (repoSlug === undefined) throw new BadRequestError('retry_paused_task: this project has no GitHub remote');
     return retryPausedTask(repoSlug, number, triggerLabelsFor(cfg.label));
   },
+}, {
+  list_skills: { write: false, repo: 'repoPath' },
+  set_task_skills: { write: true, remote: true, repo: 'repoPath' },
+  list_tasks: { write: false, repo: 'repoPath' },
+  list_tasks_all: { write: false },
+  fetch_spec: { write: false, repo: 'repoPath' },
+  // Both create issues as the hub's tracker identity: remote writes, gated like start_task.
+  api_create_task: { write: true, remote: true, repo: 'repoPath' },
+  api_create_tasks: { write: true, remote: true, repo: 'repoPath' },
+  // The hub board is the hub's own store, not a code host: no remote gate.
+  hub_task_create: { write: true, repo: 'repoPath' },
+  hub_task_schedule: { write: true, repo: 'repoPath' },
+  hub_task_retry: { write: true, repo: 'repoPath' },
+  list_branches: { write: false, repo: 'repoPath' },
+  start_task: { write: true, remote: true, repo: 'repoPath' },
+  retry_paused_task: { write: true, remote: true, repo: 'repoPath' },
 }, {
   api_create_task: { action: 'task-create', target: repoTarget },
   set_task_skills: { action: 'task-edit', target: repoItemTarget('taskId'), detail: async () => ['skills'] },

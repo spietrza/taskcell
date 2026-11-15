@@ -20,7 +20,7 @@ taskcell review-pr OWNER/REPO#PR --repo /path/to/clone --provider codex --llm-pr
 
 - The review stage completes and a review is posted.
 - `docker inspect` of the `vg-llm-*` sidecar shows no token; the sandbox's `~/.codex/auth.json` holds only placeholders.
-- If the IdP rotated the refresh token, the run log prints `taskcell: the Codex (ChatGPT) refresh token was rotated during this run.` followed by `The rotated tokens were written back to …/auth.json`; only `access_token`, `refresh_token` and `last_refresh` change in `~/.codex/auth.json`, which stays mode 0600 (a symlinked `auth.json` stays a link; its target is updated).
+- At teardown the sandbox is destroyed before the proxy, relayed lines are stripped of control characters and capped, and a refusal carries CI or hub advice. If the IdP rotated the refresh token, the run log prints `taskcell: the Codex (ChatGPT) refresh token was rotated during this run.` followed by `The rotated tokens were written back to …/auth.json`; only `access_token`, `refresh_token` and `last_refresh` change in `~/.codex/auth.json`, which stays mode 0600 (a symlinked `auth.json` stays a link; its target is updated).
 - A refused refresh ends the run with `llm-proxy: ERROR codex the ChatGPT sign-in was refused: the refresh token was already used (another run or a newer sign-in rotated it). Sign in again (codex login) and re-run.` To provoke one, start a second run with the `CODEX_AUTH_JSON` exported before the first run rotated the token.
 - `docker logs vg-llm-*` during the run shows only the sidecar's warnings and errors, no per-request lines.
 

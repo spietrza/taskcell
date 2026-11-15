@@ -23,7 +23,7 @@ import { commands as skills, type SkillsCommands } from './skills.js';
 import { commands as tasks, type TasksCommands } from './tasks.js';
 import { commands as teams, type TeamsCommands } from './teams.js';
 import { commands as watch, type WatchCommands } from './watch.js';
-import type { AuditSpec, CommandHandler } from '../command-kit.js';
+import type { AuditSpec, CommandHandler, CommandPolicy } from '../command-kit.js';
 
 /** Shared command catalogue for the Tauri, hub and mock adapters: the union of every module's contract. */
 export interface Commands extends
@@ -191,6 +191,34 @@ export const HUB_COMMANDS: { readonly [K in keyof Commands]: CommandHandler } = 
   ...tasks.handlers,
   ...teams.handlers,
   ...watch.handlers,
+};
+
+/** Who may call each command and what it touches; `dispatchRpc` enforces it. */
+export const HUB_POLICY: { readonly [K in keyof Commands]: CommandPolicy } = {
+  ...appConfig.policy,
+  ...approver.policy,
+  ...audit.policy,
+  ...ciCost.policy,
+  ...cliVersions.policy,
+  ...complete.policy,
+  ...credentials.policy,
+  ...drafts.policy,
+  ...enableFactory.policy,
+  ...fleet.policy,
+  ...flows.policy,
+  ...history.policy,
+  ...lessons.policy,
+  ...localWorker.policy,
+  ...needsYou.policy,
+  ...projects.policy,
+  ...repoFiles.policy,
+  ...runSession.policy,
+  ...runs.policy,
+  ...setup.policy,
+  ...skills.policy,
+  ...tasks.policy,
+  ...teams.policy,
+  ...watch.policy,
 };
 
 /** Audited commands: the action each logs, and the target/detail it names (never a value). */

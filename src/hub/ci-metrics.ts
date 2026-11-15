@@ -66,7 +66,9 @@ export function ciRunSummaries(records: ReadonlyArray<CiRecord>): RunSummary[] {
     const known = rs.some((r) => r.costKnown);
     // parseMetrics keeps an estimate only on a line without a reported cost.
     const estCost = rs.reduce((n, r) => n + (r.record.estCostUsd ?? 0), 0);
-    const estPartial = (estCost > 0 || known) && rs.some((r) => !r.costKnown && r.record.estCostUsd === undefined);
+    // A zero-token line (a provider-limit stop) has nothing to price, so it is not "unpriced".
+    const estPartial = (estCost > 0 || known)
+      && rs.some((r) => !r.costKnown && r.record.estCostUsd === undefined && r.record.inputTokens + r.record.outputTokens > 0);
     const failed = rs.filter((r) => r.record.exitReason !== undefined && r.record.exitReason !== 'completed');
     const providerLimit = failed.length > 0 && failed.every((r) => r.record.stoppedBy === 'provider-limit');
     return {

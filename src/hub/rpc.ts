@@ -1,10 +1,11 @@
 // POST /rpc/:cmd dispatch. The commands themselves live one module per feature in src/hub/commands/
 // (contract, validation, handler, audit spec); this file builds the per-request guards, looks the
 // command up in the generated index and writes the audit line. Every handler that takes a repoPath
-// resolves it through ProjectAllowlist.assertAllowed first (src/hub/allowlist.ts) — see docs/hub.md.
+// resolves it through ProjectAllowlist.assertAllowed first (src/hub/allowlist.ts) — see docs/hub.md. Each command
+// declares its policy (repository argument, remote write, owner-only) next to its handler; dispatchInner enforces it.
 import type { GhRunner } from '../tasks/github.js';
 import type { SidecarDeps } from '../sidecar/sidecar.js';
-import { ProjectAllowlist, type BindOptions } from './allowlist.js';
+import { ProjectAllowlist, assertMutationsAllowed, type BindOptions } from './allowlist.js';
 import { WatchRegistry } from './watch.js';
 import type { SpawnRegistry } from './spawn.js';
 import type { RunSession } from './run-session.js';
@@ -13,8 +14,8 @@ import * as teams from './teams.js';
 import { AuditWriteError } from '../core/audit.js';
 import { auditActorOf, reportAuditFailure, type AuditLog, type Actor, type AuditOutcome } from './audit.js';
 import { ForbiddenError, type CredentialService, type HubUser } from './credentials.js';
-import { UnknownCommandError, actorOf, classifyError, obj, optionalString, outcomeOf, type CommandCall } from './command-kit.js';
-import { HUB_AUDITED, HUB_COMMANDS } from './commands/index.js';
+import { UnknownCommandError, actorOf, classifyError, obj, optionalString, outcomeOf, requireString, type CommandCall } from './command-kit.js';
+import { HUB_AUDITED, HUB_COMMANDS, HUB_POLICY } from './commands/index.js';
 
 export { FLEET_DISABLED_MESSAGE } from './commands/fleet.js';
 export { UnknownCommandError, classifyError };
@@ -61,6 +62,7 @@ async function dispatchInner(ctx: RpcContext, cmd: string, rawArgs: unknown, cal
   // A lookup, never a prototype walk: `constructor` is not a command.
   if (!Object.hasOwn(HUB_COMMANDS, cmd)) throw new UnknownCommandError(`unknown command: ${cmd}`);
   const handler = HUB_COMMANDS[cmd as keyof typeof HUB_COMMANDS];
+  const policy = HUB_POLICY[cmd as keyof typeof HUB_POLICY];
   const args = obj(rawArgs);
 
   // The allowlist, then the caller's teams: a repository outside every team of the caller is refused
@@ -68,10 +70,17 @@ async function dispatchInner(ctx: RpcContext, cmd: string, rawArgs: unknown, cal
   // read once per request.
   let rootsOnce: Promise<string[] | undefined> | undefined;
   const roots = (): Promise<string[] | undefined> => (rootsOnce ??= teams.callerRepoRoots(ctx.configDir, caller));
-  const allow = async (repoPath: string): Promise<string> => {
-    const real = await ctx.allowlist.assertAllowed(repoPath);
-    teams.assertRepoInRoots(await roots(), real);
-    return real;
+  const allowed = new Map<string, Promise<string>>();
+  const allow = (repoPath: string): Promise<string> => {
+    const known = allowed.get(repoPath);
+    if (known !== undefined) return known;
+    const check = (async (): Promise<string> => {
+      const real = await ctx.allowlist.assertAllowed(repoPath);
+      teams.assertRepoInRoots(await roots(), real);
+      return real;
+    })();
+    allowed.set(repoPath, check);
+    return check;
   };
   // The repositories a list is limited to: the selected team's. Undefined (no limit) for the owner
   // without a `teamId` — token-only mode, one team — which keeps the pre-teams behaviour.
@@ -89,6 +98,11 @@ async function dispatchInner(ctx: RpcContext, cmd: string, rawArgs: unknown, cal
     else if (!unknownOk) teams.assertOwner(caller);
   };
   const call: CommandCall = { ctx, args, caller, allow, scope, roots, assertRunVisible };
+  // The command's declared policy (src/hub/command-kit.ts), enforced here and not in each handler.
+  if (policy.remote !== undefined && (policy.remote !== 'owner-only' || caller.owner) && policy.remoteWhen?.(args) !== false) assertMutationsAllowed(ctx.bind);
+  if (policy.owner === 'or-hub-admin') teams.assertOwnerOrHubAdmin(caller);
+  else if (policy.owner) teams.assertOwner(caller);
+  if (policy.repo !== undefined) await allow(requireString(args, policy.repo));
   return handler(call);
 }
 

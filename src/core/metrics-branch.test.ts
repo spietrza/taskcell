@@ -184,7 +184,7 @@ describe('tip fetch', () => {
 
   it('retries a fetch whose ref lock another process holds, instead of reading as empty', async () => {
     await appendBranchLines(repo, ['{"id":0}'], { file: 'decisions.jsonl' });
-    // The remote tip moves past this repo's tip ref, so the next read must update (and lock) that ref.
+    // The remote tip moves, so the next read must create (and lock) this repo's tip ref.
     await appendBranchLines(await clone('other'), ['{"id":1}'], { file: 'decisions.jsonl' });
     // The lock file another process's fetch of the same tip ref would hold; it lets go shortly after.
     const lockDir = join(repo, '.git', 'refs', 'taskcell', 'tips', 'origin');
@@ -193,6 +193,28 @@ describe('tip fetch', () => {
     await writeFile(lock, '');
     setTimeout(() => void rm(lock, { force: true }), 300); // past git's own 100 ms lock wait
     expect((await readBranchFile(repo, { file: 'decisions.jsonl' })).trim().split('\n')).toEqual(['{"id":0}', '{"id":1}']);
+  });
+
+  it('reads the existing tip ref when the lock outlasts the retry, and throws when there is none', async () => {
+    await appendBranchLines(repo, ['{"id":0}'], { file: 'decisions.jsonl' });
+    await readBranchFile(repo, { file: 'decisions.jsonl' }); // creates the tip ref
+    const lock = join(repo, '.git', 'refs', 'taskcell', 'tips', 'origin', `${METRICS_BRANCH_DEFAULT}.lock`);
+    await appendBranchLines(await clone('other'), ['{"id":1}'], { file: 'decisions.jsonl' });
+    await writeFile(lock, '');
+    expect((await readBranchFile(repo, { file: 'decisions.jsonl' })).trim()).toBe('{"id":0}');
+    await rm(lock, { force: true });
+    // No tip ref and a held lock: not "branch absent".
+    const fresh = await clone('fresh');
+    const freshDir = join(fresh, '.git', 'refs', 'taskcell', 'tips', 'origin');
+    await mkdir(freshDir, { recursive: true });
+    await writeFile(join(freshDir, `${METRICS_BRANCH_DEFAULT}.lock`), '');
+    await expect(readBranchFile(fresh, { file: 'decisions.jsonl' })).rejects.toThrow();
+  });
+
+  it('a non-lock fetch error skips the retry wait', async () => {
+    const t = Date.now();
+    expect(await readBranchFile(repo, { file: 'decisions.jsonl', branch: 'nope' })).toBe('');
+    expect(Date.now() - t).toBeLessThan(450);
   });
 
   it('concurrent reads never come back blank while the remote tip keeps moving', async () => {
