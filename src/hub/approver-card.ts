@@ -8,6 +8,7 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { collectApproverScorecard } from '../approver/outcome.js';
 import { dedicatedReviewers } from '../approver/facts.js';
+import { repoNodeId } from '../approver/repo-id.js';
 import { loadPolicy } from '../approver/policy.js';
 import { AUTO_MERGE_STREAK_THRESHOLD, parseDecisions } from '../approver/scorecard.js';
 import { assertSafeBaseBranch, DEFAULT_BASE_BRANCH, readRepoBaseBranch } from '../core/base-branch.js';
@@ -70,6 +71,19 @@ export async function approverBaseBranch(repoPath: string, exec: FactoryExec = d
 const isOwnRepo = (repo: unknown, slug: string | undefined): boolean =>
   slug !== undefined && typeof repo === 'string' && repo.toLowerCase() === slug.toLowerCase();
 
+/**
+ * Whether a record is the project's own repository's. Records carry the repository's node id (stable across a
+ * rename) from the version that added it: those match on it, and a record without one matches on its slug or on a
+ * slug an id-bearing own record was written under (the old name). With no id on either side, the slug alone.
+ */
+async function ownRepoMatcher(records: ReadonlyArray<{ repo?: unknown; repoId?: unknown }>, slug: string | undefined): Promise<(r: { repo?: unknown; repoId?: unknown }) => boolean> {
+  const hasIds = slug !== undefined && records.some((r) => typeof r.repoId === 'string');
+  const currentId = hasIds ? await repoNodeId(slug) : undefined;
+  const aliases = new Set<string>();
+  if (currentId !== undefined) for (const r of records) if (r.repoId === currentId && typeof r.repo === 'string') aliases.add(r.repo.toLowerCase());
+  return (r) => (currentId !== undefined && typeof r.repoId === 'string' ? r.repoId === currentId : isOwnRepo(r.repo, slug) || (typeof r.repo === 'string' && aliases.has(r.repo.toLowerCase())));
+}
+
 /** The approver's mode as `.taskcell/approver.json` on the base branch says: no valid file or `enabled: false` is off. */
 export async function readApproverMode(repoPath: string): Promise<ApproverModeInfo> {
   const base = await approverBaseBranch(repoPath);
@@ -111,9 +125,10 @@ export async function approverScorecard(repoPath: string, period: ApproverPeriod
   // Only the project's own repository: decisions.jsonl may name others, and each would cost a `gh` call.
   const slug = await githubSlug(repoPath);
   const recorded = parseDecisions(text);
-  const own = recorded.filter((d) => isOwnRepo(d.repo, slug));
-  // One spelling for the slug, so case variants of it are one repository (one gh call, each PR counted once).
-  const all = own.map((d) => ({ ...d, repo: own[0]!.repo }));
+  const isOwn = await ownRepoMatcher(recorded, slug);
+  const own = recorded.filter(isOwn);
+  // One spelling for the slug (the current one after a rename), so case variants and old names are one repository (one gh call, each PR counted once).
+  const all = own.map((d) => ({ ...d, repo: slug ?? own[0]!.repo }));
   if (all.length === 0 && recorded.length > 0) {
     return empty(period, info, `The metrics branch has approver decisions, but none for this project's repository (${slug ?? 'no GitHub origin remote'}).`);
   }
@@ -153,11 +168,13 @@ export async function approverPrDecisions(repoPath: string): Promise<ApproverPrD
   // Keyed by PR number, so only the project's own repository: another repo's #7 must not stand in for this one's.
   const slug = await githubSlug(repoPath);
   const merged = new Set<number>();
+  const lines = parseJsonlLines(text);
+  const isOwn = await ownRepoMatcher(lines, slug);
   const latest = new Map<number, { verdict: 'APPROVE' | 'ESCALATE'; rules: string[]; ts: string }>();
   // Act mode records a hold as a separate `left-for-human` action after the APPROVE verdict.
   const held = new Map<number, { reason: string; ts: string }>();
-  for (const line of parseJsonlLines(text)) {
-    if (typeof line.prNumber !== 'number' || !isOwnRepo(line.repo, slug)) continue;
+  for (const line of lines) {
+    if (typeof line.prNumber !== 'number' || !isOwn(line)) continue;
     if (line.action === 'merge') merged.add(line.prNumber);
     if (line.action === 'left-for-human' && typeof line.timestamp === 'string') {
       const prior = held.get(line.prNumber);

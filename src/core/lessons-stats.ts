@@ -2,7 +2,7 @@ import { classifyAuthor } from '../tasks/comment-trust.js';
 import { defaultGhRunner } from '../tasks/github.js';
 import type { GhRunner } from '../tasks/github.js';
 import { extractCommentVerdict, VERDICT_WITHOUT_COMPLETION_NOTE } from '../runners/review-prompt.js';
-import { parsePrUrl } from './lead-time-github.js';
+import { parsePrUrl, PR_VIEW_FIELDS } from './lead-time-github.js';
 import type { MetricRecord } from './stats.js';
 
 /** Share of PRs that passed, or undefined (rendered "no data") when none were measured. */
@@ -99,7 +99,7 @@ const FETCH_CONCURRENCY = 6;
  * First-pass outcome per PR url of `repoSlug` (other repos and PRs without a verdict are left out), and how many PRs
  * failed to fetch, so the caller can say the rate covers a partial sample.
  */
-// shortcut: one more `gh pr view` per PR than the lead-time fetch (it reads other fields: number,createdAt,mergedAt,closingIssuesReferences), capped at FETCH_CONCURRENCY and run after it; share one view per PR when stats on a large metrics file gets slow or rate limited
+// The lead-time fetch asks for the same fields: pass both one `memoizePrView` runner and each PR costs one `gh pr view`.
 export async function fetchFirstPass(
   repoSlug: string,
   prUrls: ReadonlyArray<string>,
@@ -117,7 +117,7 @@ export async function fetchFirstPass(
     while (next < todo.length) {
       const { url, number } = todo[next++] as { url: string; number: number };
       try {
-        const result = firstPassOf(JSON.parse(await gh(['pr', 'view', String(number), '--repo', repoSlug, '--json', 'reviews,comments'])) as GhReviewView, allowedAuthors);
+        const result = firstPassOf(JSON.parse(await gh(['pr', 'view', String(number), '--repo', repoSlug, '--json', PR_VIEW_FIELDS])) as GhReviewView, allowedAuthors);
         if (result !== undefined) out.set(url, result);
       } catch {
         failed++;

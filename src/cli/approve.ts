@@ -1,4 +1,5 @@
 import { runApprover } from '../approver/approve.js';
+import { repoNodeId } from '../approver/repo-id.js';
 import { redactForPublish } from '../core/secret-scan.js';
 import type { Command } from './args.js';
 
@@ -7,9 +8,11 @@ type ApproveCommand = Extract<Command, { kind: 'approve' }>;
 /** `taskcell approve --pr <n> --github-repo <slug>`: compute, publish, and record the decision; in `--mode act` (policy `act: true`) also update and merge. */
 export async function approveCommand(cmd: ApproveCommand): Promise<void> {
   try {
+    const repoId = cmd.dryRun ? undefined : await repoNodeId(cmd.repoSlug);
     const result = await runApprover({
       repoPath: cmd.repoPath,
       repoSlug: cmd.repoSlug,
+      ...(repoId !== undefined ? { repoId } : {}),
       prNumber: cmd.prNumber,
       mode: cmd.mode,
       dryRun: cmd.dryRun,
