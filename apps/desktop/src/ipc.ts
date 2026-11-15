@@ -578,8 +578,8 @@ export function apiSetTaskSkills(repoPath: string, taskId: string, skills: strin
 }
 
 /** HUB_ONLY: add a task to a hub-board project; it runs as the caller. */
-export function hubTaskCreate(repoPath: string, title: string, body: string): Promise<{ id: string }> {
-  return call('hub_task_create', { repoPath, title, body });
+export function hubTaskCreate(repoPath: string, title: string, body: string, schedule: { blockedBy?: string[]; startDate?: string } = {}): Promise<{ id: string }> {
+  return call('hub_task_create', { repoPath, title, body, ...schedule });
 }
 
 /** HUB_ONLY: put a failed hub-board task back to todo. */

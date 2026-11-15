@@ -2798,7 +2798,7 @@ describe('runRevisePullRequest blocking-item checklist', () => {
     };
   }
 
-  async function run(text: string, opts: { noChange?: boolean; laterStagesOnly?: boolean; prLabels?: string[]; failLabelEdit?: boolean } = {}): Promise<{ ghCalls: string[][]; ghEnvs: Array<Record<string, string> | undefined>; pushes: string[][]; prompt: string; logs: string[]; result: Promise<unknown> }> {
+  async function run(text: string, opts: { noChange?: boolean; laterStagesOnly?: boolean; prLabels?: string[]; failLabelEdit?: boolean; repoLabels?: string[] } = {}): Promise<{ ghCalls: string[][]; ghEnvs: Array<Record<string, string> | undefined>; pushes: string[][]; prompt: string; logs: string[]; result: Promise<unknown> }> {
     const logs: string[] = [];
     const ghEnvs: Array<Record<string, string> | undefined> = [];
     const ghCalls: string[][] = [];
@@ -2809,6 +2809,7 @@ describe('runRevisePullRequest blocking-item checklist', () => {
       ghCalls.push(args);
       if (opts.failLabelEdit === true && args[0] === 'pr' && args[1] === 'edit') throw new Error('gh: label edit refused');
       if (args[0] === 'pr' && args[1] === 'view') return makePrViewJson({ labels: (opts.prLabels ?? ['taskcell:reviewed']).map((name) => ({ name })) });
+      if (args[0] === 'label' && args[1] === 'list' && opts.repoLabels !== undefined) return JSON.stringify(opts.repoLabels.map((name) => ({ name })));
       if (args[0] === 'pr' && args[1] === 'diff') return 'diff --git a/fix.txt';
       if (args[0] === 'api' && args[1] === 'graphql') {
         const query = args.find((a) => a.startsWith('query=')) ?? '';
@@ -2828,9 +2829,9 @@ describe('runRevisePullRequest blocking-item checklist', () => {
     return { ghCalls, ghEnvs, pushes, prompt: inputs[0]?.prompt ?? '', logs, result };
   }
 
-  // The pre-rename name: GitHub fires the review workflow on the label's name, and the shipped callers listen for this one.
-  const reReview = (calls: string[][]): boolean =>
-    calls.some((a) => a[0] === 'pr' && a[1] === 'edit' && a.includes('--add-label') && a.includes('ready for vanguard review'));
+  // The repo's labels cannot be listed here (`label list` returns ''): the trigger goes out under the legacy name every gate reads.
+  const reReview = (calls: string[][], name = 'ready for vanguard review'): boolean =>
+    calls.some((a) => a[0] === 'pr' && a[1] === 'edit' && a.includes('--add-label') && a.includes(name));
   const summary = (calls: string[][]): string =>
     calls.filter((a) => a[0] === 'pr' && a[1] === 'comment').map((a) => a[a.indexOf('--body') + 1] ?? '').find((b) => b.includes('Revision Summary')) ?? '';
 
@@ -2857,6 +2858,24 @@ describe('runRevisePullRequest blocking-item checklist', () => {
     expect(await removals(['taskcell:reviewed', 'vanguard:reviewed'])).toEqual([['--remove-label', 'taskcell:reviewed', '--remove-label', 'vanguard:reviewed']]);
     expect(await removals(['bug'])).toEqual([]);
     expect(await removals([])).toEqual([]);
+  });
+
+  it('re-requests review under the trigger spelling the repo has: the old one kept, the new one when both or neither', async () => {
+    const answers = '<checklist_answers>\n1. FIXED: a\n2. FIXED: b\n</checklist_answers>';
+    const triggerCreates = (calls: string[][]): string[][] => calls.filter((a) => a[0] === 'label' && a[1] === 'create' && a[2]?.startsWith('ready for'));
+    const oldOnly = await run(answers, { repoLabels: ['ready for vanguard review', 'taskcell:reviewed'] });
+    expect(reReview(oldOnly.ghCalls)).toBe(true);
+    expect(reReview(oldOnly.ghCalls, 'ready for taskcell review')).toBe(false);
+    expect(triggerCreates(oldOnly.ghCalls)).toEqual([]);
+    const neither = await run(answers, { repoLabels: ['taskcell:reviewed'] });
+    expect(triggerCreates(neither.ghCalls)).toEqual([['label', 'create', 'ready for taskcell review', '--repo', 'o/r']]);
+    expect(reReview(neither.ghCalls, 'ready for taskcell review')).toBe(true);
+    const both = await run(answers, { repoLabels: ['ready for vanguard review', 'ready for taskcell review', 'taskcell:reviewed'] });
+    expect(reReview(both.ghCalls, 'ready for taskcell review')).toBe(true);
+    expect(reReview(both.ghCalls)).toBe(false);
+    const unlisted = await run(answers);
+    expect(reReview(unlisted.ghCalls)).toBe(true);
+    expect(reReview(unlisted.ghCalls, 'ready for taskcell review')).toBe(false);
   });
 
   it('adds the re-review label with the push token, so the labeled event starts a review run', async () => {

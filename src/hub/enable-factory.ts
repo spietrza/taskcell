@@ -11,7 +11,7 @@ import { execa } from 'execa';
 import { mkdir, readFile, writeFile } from 'node:fs/promises';
 import { basename, join } from 'node:path';
 import { BadRequestError } from '../sidecar/sidecar.js';
-import { REVIEW_TRIGGER_LABEL } from '../core/labels.js';
+import { REVIEW_TRIGGER_LABEL, labelForms } from '../core/labels.js';
 import { packageManagerOf, resolveVerifyCommand } from '../pipeline/verify.js';
 import { listRemoteRuns } from './remote.js';
 import type { FactoryApplyResult, FactoryPlan, FactoryProviderId, FactorySecretStep, FactoryVerifyResult } from '../wire.js';
@@ -35,7 +35,7 @@ export const FACTORY_LABELS = [
   { name: 'needs revision', color: 'D93F0B' },
   { name: 'needs info', color: 'FBCA04' },
   { name: 'ready for spec', color: '1D76DB' },
-  // The pre-rename name on purpose: it is the one the reusable workflows write (see REVIEW_TRIGGER_LABEL).
+  // A repo that already has the pre-rename trigger keeps that spelling instead (see applyGithubFactory).
   { name: REVIEW_TRIGGER_LABEL, color: '5319E7' },
 ] as const;
 
@@ -260,10 +260,16 @@ export async function applyGithubFactory(repoPath: string, plan: FactoryPlan, de
     await run(exec, 'git', ['checkout', '-f', original], { cwd: repoPath });
   }
 
+  // A repo that already has the review trigger keeps its spelling: its own workflows may gate on the old name only.
+  // No fallback when the listing fails: guessing the new name would flip an old-only repo.
+  const have = (await run(exec, 'gh', ['label', 'list', '--limit', '1000', '--json', 'name', '--jq', '.[].name'], { cwd: repoPath }))
+    .split('\n').map((name) => name.toLowerCase());
+  const trigger = labelForms(REVIEW_TRIGGER_LABEL).find((form) => have.includes(form.toLowerCase())) ?? REVIEW_TRIGGER_LABEL;
   const labelsCreated: string[] = [];
   for (const label of FACTORY_LABELS) {
-    await run(exec, 'gh', ['label', 'create', label.name, '--color', label.color, '--force'], { cwd: repoPath });
-    labelsCreated.push(label.name);
+    const name = label.name === REVIEW_TRIGGER_LABEL ? trigger : label.name;
+    await run(exec, 'gh', ['label', 'create', name, '--color', label.color, '--force'], { cwd: repoPath });
+    labelsCreated.push(name);
   }
 
   const openPr = await run(

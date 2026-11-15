@@ -40,6 +40,8 @@ export interface HubIdentity {
   readonly providers: readonly AuthProviderId[];
   /** The signed-in user of this request's session cookie, if any. Always undefined in local mode. */
   sessionUser(req: IncomingMessage): Promise<HubUser | undefined>;
+  /** The user with this id as the store holds them now (undefined: gone). For work that runs later as a stored user. */
+  userById?(id: string): Promise<HubUser | undefined>;
   /** Better Auth's node handler for `/api/auth/*`; undefined in local mode (no sign-in). */
   readonly handler: ((req: IncomingMessage, res: ServerResponse) => Promise<void>) | undefined;
   close(): void;
@@ -225,6 +227,11 @@ export async function createHubIdentity(opts: CreateIdentityOptions): Promise<Hu
   }
   const owner: HubUser = { id: row.id, email: row.email, name: row.name };
 
+  const toHubUser = ({ id, email, name, emailVerified }: { id: string; email: string; name: string; emailVerified: boolean }): HubUser => {
+    const login = (githubLoginOf.get(id) as { login?: unknown } | undefined)?.login;
+    return { id, email, name, emailVerified, ...(typeof login === 'string' && login !== '' ? { login: `github:${login}` } : {}) };
+  };
+
   return {
     owner,
     providers: Object.keys(socialProviders) as AuthProviderId[],
@@ -239,9 +246,11 @@ export async function createHubIdentity(opts: CreateIdentityOptions): Promise<Hu
         throw error;
       }
       if (session === null) return undefined;
-      const { id, email, name, emailVerified } = session.user;
-      const login = (githubLoginOf.get(id) as { login?: unknown } | undefined)?.login;
-      return { id, email, name, emailVerified, ...(typeof login === 'string' && login !== '' ? { login: `github:${login}` } : {}) };
+      return toHubUser(session.user);
+    },
+    userById: async (userId) => {
+      const u = await ctx.internalAdapter.findUserById(userId);
+      return u === null || u === undefined ? undefined : toHubUser(u);
     },
     close: () => db.close(),
   };
@@ -255,6 +264,7 @@ export function localOnlyIdentity(): HubIdentity {
     providers: [],
     handler: undefined,
     sessionUser: async () => undefined,
+    userById: async (id) => (id === 'local-owner' ? { id, email: OWNER_EMAIL, name: 'Owner' } : undefined),
     close: () => undefined,
   };
 }

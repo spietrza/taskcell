@@ -253,14 +253,15 @@ async function requestReReview(
   log: (line: string) => void,
 ): Promise<void> {
   try {
-    await gh(['label', 'create', REVIEW_TRIGGER_LABEL, '--repo', repoSlug, '--force']).catch(() => undefined);
-    await editPrLabels(gh, repoSlug, number, { remove: [REVIEWED_LABEL, REVIEW_TRIGGER_LABEL] }, log).catch(() => undefined);
+    // The spelling the repo already has (a caller may gate on the old name only); created only when it has neither.
+    const [trigger = REVIEW_TRIGGER_LABEL] = await resolveAdds([REVIEW_TRIGGER_LABEL], repoSlug, gh, [REVIEW_TRIGGER_LABEL]);
+    await editPrLabels(gh, repoSlug, number, { remove: [REVIEWED_LABEL, trigger] }, log).catch(() => undefined);
     await ghAsPushTokenOwner(
       gh,
-      ['pr', 'edit', String(number), '--repo', repoSlug, '--add-label', REVIEW_TRIGGER_LABEL],
+      ['pr', 'edit', String(number), '--repo', repoSlug, '--add-label', trigger],
       async () => readEnv('TASKCELL_PUSH_TOKEN') || undefined,
       log,
-      `revise-pr ${repoSlug}#${number}: labels -> re-review (${REVIEW_TRIGGER_LABEL})`,
+      `revise-pr ${repoSlug}#${number}: labels -> re-review (${trigger})`,
       `revise-pr ${repoSlug}#${number}: re-review label with the push token failed, retrying with the ambient credential (no review run will start)`,
     );
   } catch (err) {

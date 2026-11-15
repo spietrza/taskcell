@@ -282,6 +282,8 @@ export interface RunIssueResult {
   secretBlocked?: boolean;
   /** True when the run stopped before implementing because the base branch is already red — NOT "no changes". */
   baseRed?: boolean;
+  /** True when a result was delivered (a PR or a local branch) but its verify command failed. */
+  verificationFailed?: boolean;
 }
 
 /** Cap on implement-session resumes triggered by a failing conformance/verify gate, before falling back to a declared-partial PR. */
@@ -1013,7 +1015,7 @@ export async function runSourcedIssue(
         await writer.writeStages(outcomes, stageMeta());
         await stepSummary(verificationFailed ? 'verify-failed' : 'completed');
         onEvent({ type: 'run-end' });
-        return { task, branch: delivery.branch };
+        return { task, branch: delivery.branch, ...(verificationFailed ? { verificationFailed: true } : {}) };
       }
       if (delivery.kind !== 'delivered-pr') throw new TaskcellError(`unexpected delivery outcome ${delivery.kind} for a new-pr target`);
       const pr = { prUrl: delivery.prUrl, headSha: delivery.headSha };
@@ -1050,7 +1052,7 @@ export async function runSourcedIssue(
       if (configPaths.length > 0) await adapter.addGateConfigLabel(pr.prUrl);
       if (!whiteLabel) await adapter.linkPr(issueRef, task, pr.prUrl);
       onEvent({ type: 'run-end', prUrl: pr.prUrl });
-      return { task, prUrl: pr.prUrl };
+      return { task, prUrl: pr.prUrl, ...(verificationFailed ? { verificationFailed: true } : {}) };
     } catch (error) {
       if (isStructuredProviderLimit(error)) {
         // Best effort: a failed write must not replace the limit error the caller parks the task on.

@@ -493,10 +493,17 @@ export function createHubServer(opts: HubServerOptions): HubServer {
 
   // Hub-board projects: start what the scheduler allows, each task as its owner (src/hub/task-scheduler.ts).
   const scheduler = schedulerState();
-  const sweepHubTasks = (): Promise<void> => sweepHubBoards({ ...ctx, scheduler });
+  const sweepHubTasks = (): Promise<void> => sweepHubBoards({
+    ...ctx,
+    scheduler,
+    // The stored owner is a snapshot: the user is re-read by id, and the owner (token) flag holds only for the owner user.
+    ...(identity.userById !== undefined
+      ? { recheckCaller: async (c: Caller): Promise<Caller | undefined> => { const user = await identity.userById!(c.user.id); return user === undefined ? undefined : { user, owner: c.owner && user.id === identity.owner.id }; } }
+      : {}),
+  });
   const sweeper = setInterval(() => void sweepHubTasks().catch((e: unknown) => console.error(`vanguard-hub: scheduler: ${(e as Error).message}`)), SCHEDULER_INTERVAL_MS);
   sweeper.unref();
-  // No run survives a restart: a task stored as running goes back to todo before the first request is served.
+  // No run survives a restart: a task stored as running is marked failed before the first request is served.
   const reconciled = reconcileHubBoards(opts.configDir).catch((e: unknown) => console.error(`vanguard-hub: scheduler: ${(e as Error).message}`));
 
   const server = createServer((req, res) => {

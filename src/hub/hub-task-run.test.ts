@@ -75,6 +75,7 @@ beforeEach(async () => {
         const [id, login] = raw.split(':');
         return { id: id!, email: `${id}@example.com`, name: id!, login: `github:${login}` };
       },
+      userById: async (id) => ({ id, email: `${id}@example.com`, name: id }),
     },
   };
   await listen();
@@ -227,14 +228,52 @@ test('input is capped and ids are checked', async () => {
   expect((await schedule({ blockedBy: ['hub-2'] })).status).toBe(200);
 });
 
-test('a restart leaves no task running: one whose run died with the hub is todo again', async () => {
+test('a restart leaves no task running: one whose run died with the hub is failed, not re-run until retried', async () => {
   await useHubBoard();
   await create('A');
   await hub.sweepHubTasks();
   expect((await board())['hub-1']).toMatchObject({ column: 'running' });
   await hub.close();
   await listen();
-  expect((await board())['hub-1']).toMatchObject({ column: 'queued', schedule: { state: 'refused', reason: expect.stringContaining('hub process') } });
+  expect((await board())['hub-1']).toMatchObject({ column: 'verify-failed', schedule: { state: 'failed', reason: expect.stringContaining('hub process') } });
+  await hub.sweepHubTasks();
+  expect(runs).toHaveLength(1);
+  expect((await rpc(alice, 'hub_task_retry', { repoPath: repo, id: 'hub-1' })).status).toBe(200);
   await hub.sweepHubTasks();
   expect(runs).toHaveLength(2);
+});
+
+test('a task created with dependencies and a start date is held by them from its first sweep', async () => {
+  await useHubBoard();
+  await create('A');
+  const made = await rpc(alice, 'hub_task_create', { repoPath: repo, title: 'B', blockedBy: ['hub-1'], startDate: '2999-01-01' });
+  expect(made.status).toBe(200);
+  expect((await rpc(alice, 'hub_task_create', { repoPath: repo, title: 'C', startDate: 'soon' })).status).toBe(400);
+  await hub.sweepHubTasks();
+  expect(runs).toHaveLength(1); // only A
+  expect((await board())['hub-2']).toMatchObject({ blockedBy: ['hub-1'], startDate: '2999-01-01' });
+});
+
+test('a run whose verify failed is failed, not done: its dependent does not start', async () => {
+  await useHubBoard();
+  await create('A');
+  await create('B');
+  await rpc(alice, 'hub_task_schedule', { repoPath: repo, id: 'hub-2', blockedBy: ['hub-1'] });
+  await hub.sweepHubTasks();
+  runs[0]!.end({ branch: 'chore/vanguard-hub-1-abc', verificationFailed: true });
+  await vi.waitFor(async () => expect((await board())['hub-1']).toMatchObject({ column: 'verify-failed', schedule: { state: 'failed', reason: expect.stringContaining('verify failed') } }));
+  await hub.sweepHubTasks();
+  expect(runs).toHaveLength(1);
+  expect((await board())['hub-2']).toMatchObject({ schedule: { state: 'blocked' } });
+});
+
+test('the owner is re-resolved when a task starts: a user the identity no longer knows does not run', async () => {
+  await hub.close();
+  options = { ...options, identity: { ...options.identity!, userById: async () => undefined } };
+  await listen();
+  await useHubBoard();
+  await create('A');
+  await hub.sweepHubTasks();
+  expect(runs).toHaveLength(0);
+  expect((await board())['hub-1']).toMatchObject({ schedule: { state: 'refused', reason: expect.stringContaining('no longer has an account') } });
 });
