@@ -6,6 +6,7 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { startProviderProxies } from '../sandbox/llm-proxy.js';
 import { AgentError, ProviderLimitError } from '../core/errors.js';
+import { isRateLimitHold } from '../core/rate-limit-marker.js';
 import { resolveVerifyCommand, runVerification } from '../pipeline/verify.js';
 import { resolveBaselineVerify } from '../pipeline/baseline-verify.js';
 import { resolveAndRunVisualProof } from '../pipeline/visual-proof.js';
@@ -1204,9 +1205,20 @@ describe('runSourcedIssue', () => {
     expect(persisted?.[0]).toEqual([
       expect.objectContaining({
         name: 'implementer',
-        result: expect.objectContaining({ completed: false, stoppedBy: 'provider-limit' }),
+        result: expect.objectContaining({ completed: false, stoppedBy: 'provider-limit', worktreePreserved: false }),
       }),
     ]);
+  });
+
+  it('still throws the limit error the watcher parks the issue on when the stop record cannot be written', async () => {
+    const limit = new ProviderLimitError("You've hit your session limit · resets 9pm (UTC)");
+    runStages.mockImplementationOnce(async () => {
+      throw limit;
+    });
+    writeStages.mockRejectedValueOnce(new Error('disk full'));
+    const error = await runSourcedIssue('group/project#1', { repoPath: '/repo' }, fakeAdapter([], STAGES)).catch((e: unknown) => e);
+    expect(error).toBe(limit);
+    expect(isRateLimitHold(error)).toBe(true);
   });
 
   it('a red base branch stops the run before implementing, signalling the issue instead of opening a PR (#2024)', async () => {

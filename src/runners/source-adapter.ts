@@ -645,7 +645,7 @@ export async function runSourcedIssue(
             exitReason: 'error',
             turns: 0,
             worktreePath: ctx.worktreePath,
-            worktreePreserved: true,
+            worktreePreserved: false,
             finalText: 'The provider stopped this stage because its usage or rate limit was reached.',
             stoppedBy: 'provider-limit',
           },
@@ -1052,7 +1052,8 @@ export async function runSourcedIssue(
       return { task, prUrl: pr.prUrl };
     } catch (error) {
       if (isStructuredProviderLimit(error)) {
-        await persistProviderStop?.();
+        // Best effort: a failed write must not replace the limit error the caller parks the task on.
+        await persistProviderStop?.().catch(() => undefined);
       }
       await stepSummary('error', { error: String(error) });
       throw error;

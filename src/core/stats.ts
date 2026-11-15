@@ -143,7 +143,8 @@ export function parseProbes(text: string): ProbeRecord[] {
 export function probeReport(records: ReadonlyArray<MetricRecord>, probes: ReadonlyArray<ProbeRecord>): ProbeBucket[] {
   const implementersByTask = new Map<string, MetricRecord[]>();
   for (const r of records) {
-    if (r.stage !== 'implementer' || r.ts === undefined) continue;
+    // A provider-limit stop says nothing about the task's difficulty.
+    if (r.stage !== 'implementer' || r.ts === undefined || r.stoppedBy !== undefined) continue;
     implementersByTask.set(r.taskId, [...(implementersByTask.get(r.taskId) ?? []), r]);
   }
   for (const list of implementersByTask.values()) list.sort((a, b) => (a.ts ?? '').localeCompare(b.ts ?? ''));

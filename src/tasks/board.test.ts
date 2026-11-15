@@ -111,6 +111,12 @@ describe('mintBoardId / resolveTaskRef', () => {
     expect(resolveTaskRef(id)).toEqual({ source, reference: ref });
   });
 
+  it('refuses a paused pull request card id: it is not an issue', () => {
+    expect(resolveTaskRef('gh-pr-12')).toBeUndefined();
+    expect(resolveTaskRef('GH-PR-12')).toBeUndefined();
+    expect(resolveTaskRef('gh-pr-tools-12')).toEqual({ source: 'github', reference: '12' });
+  });
+
   it('resolves RUN-RECORD ids (sanitized full slug) via trailing-number semantics — RunDetail depends on it', () => {
     expect(resolveTaskRef('gh-owner-repo-904')).toEqual({ source: 'github', reference: '904' });
     expect(resolveTaskRef('gl-group-proj-5')).toEqual({ source: 'gitlab', reference: '5' });

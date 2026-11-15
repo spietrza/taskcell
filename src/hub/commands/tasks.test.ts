@@ -27,7 +27,19 @@ describe('tasks', () => {
     const { ctx } = await makeCtx(repo, { depsOverrides: { listTasks: async () => ({ tasks: [base], capped: false }) } });
     const result = await dispatchRpc(ctx, 'list_tasks', { repoPath: repo });
     expect(result).toEqual({ tasks: [enriched], capped: false });
-    expect(withPausedTasks).toHaveBeenCalledWith('allowed/repo', [base], undefined, expect.objectContaining({ remaining: 30 }));
+    expect(withPausedTasks).toHaveBeenCalledWith('allowed/repo', [base], ctx.gh, expect.objectContaining({ remaining: 30 }));
+  });
+
+  test('list_tasks reads paused pull requests through the injected gh runner, in one call', async () => {
+    const repo = await tmpGitRepo('https://github.com/allowed/repo.git');
+    const calls: string[][] = [];
+    const gh = async (args: string[]): Promise<string> => {
+      calls.push(args);
+      return '[]';
+    };
+    const { ctx } = await makeCtx(repo, { gh, depsOverrides: { listTasks: async () => ({ tasks: [], capped: false }) } });
+    expect(await dispatchRpc(ctx, 'list_tasks', { repoPath: repo })).toEqual({ tasks: [], capped: false });
+    expect(calls.map((c) => c.slice(0, 2))).toEqual([['pr', 'list']]);
   });
 
   test('T-60 api_create_task substitutes source/team/label from app.json and ignores client values', async () => {

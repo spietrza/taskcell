@@ -114,6 +114,14 @@ describe('buildRetrospectiveMemory – failed run_complete', () => {
     expect(entry?.detail).toBe('exitReason: maxTurns [implementer] (completed after 2 attempts)');
   });
 
+  it('does NOT remember a provider-limit stop as a failed run', async () => {
+    await writeMetrics(repo, [
+      makeMetricsLine({ evt: 'run_complete', ts: '2026-06-10T10:00:00.000Z', taskId: 'TES-LIMIT', stage: 'implementer', exitReason: 'error', completed: false, turns: 0, stoppedBy: 'provider-limit' }),
+    ]);
+    const report = await buildRetrospectiveMemory(repo);
+    expect(report.entries.filter((e) => e.kind === 'failed_run')).toHaveLength(0);
+  });
+
   it('does NOT include a completed run_complete in failed_run entries', async () => {
     const ts = '2026-06-10T10:00:00.000Z';
     await writeMetrics(repo, [

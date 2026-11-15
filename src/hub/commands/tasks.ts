@@ -49,10 +49,10 @@ export interface TasksCommands {
   set_task_skills: { args: { repoPath: string; taskId: string; skills: string[] }; result: { skills: string[] } };
 }
 
-/** Fill the retry time of paused cards from the factory's marker comment (GitHub only; costs nothing when none is paused). */
-async function withPaused(real: string, tasks: BoardTask[], budget: MarkerReadBudget): Promise<BoardTask[]> {
+/** Fill the retry time of paused cards from the factory's marker comment (GitHub only). One label-filtered `gh pr list` per read finds paused pull requests; marker reads only for paused cards. */
+async function withPaused(ctx: RpcContext, real: string, tasks: BoardTask[], budget: MarkerReadBudget): Promise<BoardTask[]> {
   const slug = await githubSlug(real);
-  return slug === undefined ? tasks : withPausedTasks(slug, tasks, undefined, budget);
+  return slug === undefined ? tasks : withPausedTasks(slug, tasks, ctx.gh, budget);
 }
 
 /** GitHub's cap on a label name. */
@@ -163,7 +163,7 @@ export const commands = defineCommands<TasksCommands>({
   list_tasks: async ({ ctx, args, allow }) => {
     const real = await allow(requireString(args, 'repoPath'));
     const r = await boardOf(ctx, real);
-    return r.hubBoard === true ? r : { ...r, tasks: await withPaused(real, r.tasks, markerReadBudget()) };
+    return r.hubBoard === true ? r : { ...r, tasks: await withPaused(ctx, real, r.tasks, markerReadBudget()) };
   },
   list_tasks_all: async ({ ctx, allow, scope }) => {
     let capped = false;
@@ -185,7 +185,7 @@ export const commands = defineCommands<TasksCommands>({
           hubBoards.push(registered.get(real) ?? real);
           return r.tasks;
         }
-        return withPaused(real, r.tasks, budget);
+        return withPaused(ctx, real, r.tasks, budget);
       },
       await scope(),
     );

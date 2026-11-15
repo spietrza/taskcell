@@ -43,7 +43,7 @@ export interface ResumeRateLimitedReport {
   failed: string[];
 }
 
-interface GhCommentBody {
+export interface GhCommentBody {
   body?: string | null;
   author?: { login?: string } | null;
   authorAssociation?: string;
@@ -59,7 +59,7 @@ type ParkedKind = 'issue' | 'pr';
  * body is dropped before the marker scan: the marker is plain text anyone can paste, and it names
  * both the reset time this command waits for and the label it re-applies.
  */
-function trustedBodies(entries: readonly GhCommentBody[]): string[] {
+export function trustedBodies(entries: readonly GhCommentBody[]): string[] {
   const at = (entry: GhCommentBody): string => entry.createdAt ?? entry.submittedAt ?? '';
   return entries
     .filter((entry) => classifyAuthor(entry.author?.login ?? '', entry.authorAssociation ?? '') !== 'untrusted')

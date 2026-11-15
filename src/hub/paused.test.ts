@@ -19,20 +19,22 @@ interface Fake {
   fail?: (args: string[]) => string | undefined;
 }
 
+// `factory-bot` is the hub's own gh user (a collaborator); everyone else is an outside commenter.
+const assoc = (login: string): string => (login === 'factory-bot' ? 'COLLABORATOR' : 'NONE');
+
 function fakeGh(issue: Fake): { gh: GhRunner; calls: string[][] } {
   const calls: string[][] = [];
   const gh: GhRunner = async (args) => {
     calls.push(args);
     const failure = issue.fail?.(args);
     if (failure !== undefined) throw new Error(failure);
-    if (args[0] === 'api' && args[1] === 'user') return 'factory-bot\n';
     if (args[0] === 'api') return JSON.stringify({ state: issue.state ?? 'open', labels: (issue.labels ?? []).map((name) => ({ name })), pull_request: issue.pull_request });
     if (args[0] === 'label' && args[1] === 'list') return JSON.stringify((issue.repoLabels ?? triggers).map((name) => ({ name })));
     if (args[0] === 'pr' && args[1] === 'list') return JSON.stringify((issue.prs ?? []).map((pr) => ({ ...pr, labels: pr.labels.map((name) => ({ name })) })));
-    const comments = (issue.comments ?? []).map((c, i) => ({ author: { login: c.author }, body: c.body, createdAt: c.at ?? `2026-11-14T0${i}:00:00.000Z` }));
+    const comments = (issue.comments ?? []).map((c, i) => ({ author: { login: c.author }, authorAssociation: assoc(c.author), body: c.body, createdAt: c.at ?? `2026-11-14T0${i}:00:00.000Z` }));
     if (args[0] === 'issue' && args[1] === 'view') return JSON.stringify({ comments });
     if (args[0] === 'pr' && args[1] === 'view') {
-      const reviews = (issue.reviews ?? []).map((review, i) => ({ author: { login: review.author }, body: review.body, submittedAt: review.at ?? `2026-11-14T1${i}:00:00.000Z` }));
+      const reviews = (issue.reviews ?? []).map((review, i) => ({ author: { login: review.author }, authorAssociation: assoc(review.author), body: review.body, submittedAt: review.at ?? `2026-11-14T1${i}:00:00.000Z` }));
       return JSON.stringify({ comments, reviews });
     }
     return '';
@@ -58,14 +60,11 @@ test('a marker written by another login is ignored; the factory marker still win
   expect((await withPausedTimes('o/r', [paused('gh-7')], only.gh))[0]!.paused).toEqual({ reason: 'provider-limit' });
 });
 
-test('the newest valid factory timeline entry wins, including a PR review marker', async () => {
+test('the newest trusted entry wins, including a review marker posted by the factory\'s GitHub App', async () => {
   const newer = new Date('2026-11-15T09:00:00.000Z');
   const { gh } = fakeGh({
     comments: [{ author: 'factory-bot', body: marker(), at: '2026-11-14T08:00:00.000Z' }],
-    reviews: [
-      { author: 'factory-bot', body: marker('ready for spec', newer), at: '2026-11-14T09:00:00.000Z' },
-      { author: 'factory-bot', body: marker('ready for agent'), at: 'not-a-time' },
-    ],
+    reviews: [{ author: 'taskcell[bot]', body: marker('ready for spec', newer), at: '2026-11-14T09:00:00.000Z' }],
   });
   const [task] = await withPausedTimes('o/r', [paused('gh-pr-9')], gh);
   expect(task?.paused).toEqual({ reason: 'provider-limit', until: newer.toISOString(), trigger: 'ready for spec' });
@@ -121,11 +120,26 @@ test('Retry now creates the trigger when needed, adds it, then removes the hold'
 test.each([
   ['creating the trigger', (args: string[]) => args[0] === 'label' && args[1] === 'create' ? 'cannot create label' : undefined, []],
   ['adding the trigger', (args: string[]) => args[1] === 'edit' && args[5] === '--add-label' ? 'cannot add label' : undefined, [['--add-label', 'ready for agent']]],
-  ['removing the hold', (args: string[]) => args[1] === 'edit' && args[5] === '--remove-label' && args[6] === 'taskcell:rate-limited' ? 'cannot remove hold' : undefined, [['--add-label', 'ready for agent'], ['--remove-label', 'taskcell:rate-limited']]],
 ])('Retry now reports why %s failed while the issue remains paused', async (_name, fail, expectedEdits) => {
   const { gh, calls } = fakeGh({ labels: ['taskcell:rate-limited'], repoLabels: [], comments: [{ author: 'factory-bot', body: marker() }], fail });
   await expect(retryPausedTask('o/r', 7, triggers, gh)).rejects.toThrow(/#7 stays paused: cannot/);
   expect(edits(calls)).toEqual(expectedEdits);
+});
+
+test('Retry now says the issue was re-triggered when only the hold could not be removed', async () => {
+  const fail = (args: string[]): string | undefined => (args[1] === 'edit' && args[5] === '--remove-label' && args[6] === 'taskcell:rate-limited' ? 'cannot remove hold' : undefined);
+  const { gh, calls } = fakeGh({ labels: ['taskcell:rate-limited'], comments: [{ author: 'factory-bot', body: marker() }], fail });
+  const error = await retryPausedTask('o/r', 7, triggers, gh).catch((e: unknown) => e as Error);
+  expect((error as Error).message).toMatch(/#7 was re-triggered \("ready for agent" added\), but the rate-limited label could not be removed: cannot remove hold/);
+  expect((error as Error).message).not.toMatch(/stays paused/);
+  expect(edits(calls)).toEqual([['--add-label', 'ready for agent'], ['--remove-label', 'taskcell:rate-limited']]);
+});
+
+test('paused pull requests come from one call filtered to the hold label, both spellings', async () => {
+  const { gh, calls } = fakeGh({ prs: [] });
+  await withPausedTasks('o/r', [], gh);
+  expect(calls).toHaveLength(1);
+  expect(calls[0]).toEqual(expect.arrayContaining(['pr', 'list', '--search', 'label:"taskcell:rate-limited","vanguard:rate-limited"']));
 });
 
 test.each([

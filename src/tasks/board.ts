@@ -94,6 +94,8 @@ export function resolveTaskRef(taskId: string): ResolvedTaskRef | undefined {
     if (rest === '') return undefined;
     return { source: 'linear', reference: rest.toUpperCase() };
   }
+  // A paused pull request's card (src/hub/paused.ts): not an issue, so nothing issue-shaped may act on it.
+  if (/^gh-pr-\d+$/.test(lower)) return undefined;
   if (lower.startsWith('gh-')) {
     const n = trailingNumber(taskId);
     return n === undefined ? undefined : { source: 'github', reference: n };
