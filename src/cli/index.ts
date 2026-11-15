@@ -20,6 +20,7 @@ import { reviewMrCommand } from './review-mr.js';
 import { watchMrsCommand } from './watch-mrs.js';
 import { doctorMrsCommand } from './doctor-mrs.js';
 import { evalCommand } from './eval.js';
+import { CliUsageError } from '../core/errors.js';
 import { takeAppKey } from '../core/push-token.js';
 
 async function main(): Promise<void> {
@@ -207,6 +208,7 @@ async function main(): Promise<void> {
 }
 
 main().catch((error: unknown) => {
-  console.error(error);
+  if (error instanceof CliUsageError) console.error(`Error: ${error.message}`);
+  else console.error(error);
   process.exit(1);
 });

@@ -7,6 +7,8 @@ export class TaskcellError extends Error {
   }
 }
 export class SandboxError extends TaskcellError {}
+/** A misconfigured command: the CLI prints the one-line message, without a stack trace. */
+export class CliUsageError extends SandboxError {}
 export class WorktreeError extends TaskcellError {}
 export class AgentError extends TaskcellError {}
 /** A provider refusal identified from the provider CLI's structured error event, not diagnostic text. */

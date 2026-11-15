@@ -1,3 +1,4 @@
+import { CliUsageError } from '../core/errors.js';
 import { claudeCliKeyEnv, needsAnthropicAuth } from './registry.js';
 import type { ProviderChoice } from './registry.js';
 
@@ -47,14 +48,14 @@ export function agentAuthFromEnv(
   if (hostEnv !== undefined) {
     const key = hostEnv.map((k) => env[k]).find((v) => v !== undefined && v !== '');
     if (key === undefined) {
-      throw new Error(`Set ${hostEnv.join(' or ')} before running with --provider ${choice.provider}.`);
+      throw new CliUsageError(`Set ${hostEnv.join(' or ')} before running with --provider ${choice.provider}.`);
     }
     return { mode: 'api', apiKey: key };
   }
   if (!needsAnthropicAuth(choice)) return undefined; // no used provider consumes an Anthropic credential (codex/cursor alone, or + zai review)
   const auth = authFromEnv(env);
   if (auth === undefined) {
-    throw new Error('Set CLAUDE_CODE_OAUTH_TOKEN (subscription) or ANTHROPIC_API_KEY (API) before running.');
+    throw new CliUsageError(`Set CLAUDE_CODE_OAUTH_TOKEN (subscription) or ANTHROPIC_API_KEY (API) before running with --provider ${choice.provider ?? 'claude'}.`);
   }
   return auth;
 }
