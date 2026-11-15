@@ -1,8 +1,6 @@
 // Hub commands: first-run setup detection. One module per feature — contract and handler live here;
 // `pnpm gen:wire` derives Commands, COMMAND_NAMES and dispatch from it (see CONTRIBUTING.md).
-import { assertMutationsAllowed } from '../allowlist.js';
 import { detectSetup } from '../setup-status.js';
-import * as teams from '../teams.js';
 import type { SetupStatus } from '../../wire.js';
 import { defineCommands } from '../command-kit.js';
 
@@ -12,10 +10,11 @@ export interface SetupCommands {
 }
 
 export const commands = defineCommands<SetupCommands>({
-  setup_status: async ({ ctx, caller }) => {
-    teams.assertOwner(caller);
-    assertMutationsAllowed(ctx.bind);
+  setup_status: async ({ ctx }) => {
     const credentials = ctx.userCredentials === undefined ? { names: [] } : await ctx.userCredentials.instanceStatus();
     return detectSetup(credentials.names, process.env, undefined, credentials.reason);
   },
+}, {
+  // Spawns gh/glab on the host: owner only and gated like a remote write, though read-only.
+  setup_status: { write: false, owner: true, remote: true },
 });

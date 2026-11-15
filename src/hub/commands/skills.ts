@@ -2,7 +2,6 @@
 // contract, validation and handler live here; `pnpm gen:wire` derives Commands, COMMAND_NAMES and dispatch from it (see CONTRIBUTING.md).
 import { stat } from 'node:fs/promises';
 import { join } from 'node:path';
-import { assertMutationsAllowed } from '../allowlist.js';
 import { aggregateSkills } from '../../core/skill-stats.js';
 import { parseMetrics } from '../../core/stats.js';
 import { recordedMetrics, skillsAddPr, skillsChecked, skillsRemovePr, skillsUpdate, type SkillsPrResult } from '../../core/skills.js';
@@ -10,7 +9,6 @@ import type { RepoSkill } from '../../wire.js';
 import { defineCommands, optionalString, requireString, repoItemTarget, repoTarget } from '../command-kit.js';
 import { safeUrl } from '../audit.js';
 import { BadRequestError } from '../../sidecar/sidecar.js';
-import * as teams from '../teams.js';
 
 export interface SkillsCommands {
   /** HUB_ONLY, read-only: the skills of a repo with their lock status, upstream check and usage. */
@@ -52,17 +50,14 @@ export const commands = defineCommands<SkillsCommands>({
     });
     return { skills };
   },
-  update_skill_pr: async ({ ctx, args, allow }) => {
-    assertMutationsAllowed(ctx.bind);
+  update_skill_pr: async ({ args, allow }) => {
     const real = await allow(requireString(args, 'repoPath'));
     const name = requireString(args, 'name');
     // Always `--pr`, never a dry run: the skill is never updated without opening a PR.
     const lines: string[] = [];
     return prUrlOf(await skillsUpdate({ dir: skillsDir(real), repo: real, name, dryRun: false, pr: true }, {}, (line) => lines.push(line)), 'The update', lines);
   },
-  add_skill_pr: async ({ ctx, args, caller, allow }) => {
-    assertMutationsAllowed(ctx.bind);
-    teams.assertOwner(caller);
+  add_skill_pr: async ({ args, allow }) => {
     const real = await allow(requireString(args, 'repoPath'));
     const source = requireString(args, 'source');
     const ref = optionalString(args, 'ref');
@@ -73,13 +68,18 @@ export const commands = defineCommands<SkillsCommands>({
       'The add',
     );
   },
-  remove_skill_pr: async ({ ctx, args, caller, allow }) => {
-    assertMutationsAllowed(ctx.bind);
-    teams.assertOwner(caller);
+  remove_skill_pr: async ({ args, allow }) => {
     const real = await allow(requireString(args, 'repoPath'));
     const name = requireString(args, 'name');
     return prUrlOf(await skillsRemovePr({ dir: skillsDir(real), repo: real, name }), 'The remove');
   },
+}, {
+  list_repo_skills: { write: false, repo: 'repoPath' },
+  // Intended: a team member may update (the desktop Skills screen offers Update to them). Unlike add and remove, an update only
+  // re-fetches a skill from the source already pinned in its lock, so it brings in no new source; it is still a remote write.
+  update_skill_pr: { write: true, remote: true, repo: 'repoPath' },
+  add_skill_pr: { write: true, remote: true, owner: true, repo: 'repoPath' },
+  remove_skill_pr: { write: true, remote: true, owner: true, repo: 'repoPath' },
 }, {
   update_skill_pr: { action: 'settings-change', target: repoItemTarget('name') },
   // The source may carry credentials (even a refused one is audited): log only scheme, host and path.

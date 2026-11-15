@@ -124,4 +124,14 @@ export const commands = defineCommands<RunsCommands>({
     return readSession(real);
   },
   conflict_stats: async ({ args, allow }) => readConflictStats(await allow(requireString(args, 'repoPath'))),
+}, {
+  list_runs: { write: false, repo: 'repoPath' },
+  list_runs_all: { write: false },
+  read_run: { write: false, repo: 'repoPath' },
+  read_run_events: { write: false, repo: 'repoPath' },
+  list_remote_runs: { write: false, repo: 'repoPath' },
+  import_remote_run: { write: true, repo: 'repoPath', unaudited: 'copies a CI run record into the repository\'s local run store' },
+  list_active: { write: false, repo: 'repoPath' },
+  read_session: { write: false, gatedBy: 'the handler resolves sessionFile through the allowlist and the caller\'s teams' },
+  conflict_stats: { write: false, repo: 'repoPath' },
 });
