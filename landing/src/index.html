@@ -22,6 +22,7 @@
 <link rel="apple-touch-icon" href="/apple-touch-icon.png">
 <link rel="preload" href="/fonts/schibsted-var.woff2" as="font" type="font/woff2" crossorigin>
 <link rel="preload" href="/fonts/atkinson-400.woff2" as="font" type="font/woff2" crossorigin>
+<script src="/theme.js"></script>
 <link rel="stylesheet" href="/site.css">
 <script type="module" src="/site.js"></script>
 <script type="application/ld+json">{"@context":"https://schema.org","@type":"SoftwareApplication","name":"Taskcell","url":"https://taskcell.dev/","description":"A self-hosted software factory: issues in, reviewed pull requests out, each built in a sealed Docker sandbox.","applicationCategory":"DeveloperApplication","operatingSystem":"macOS, Linux","license":"https://opensource.org/licenses/MIT","sameAs":"https://github.com/spietrza/taskcell"}</script>
@@ -33,11 +34,15 @@
   <a class="brand" href="/" aria-label="Taskcell home"><svg class="mark" viewBox="0 0 32 32" aria-hidden="true"><path class="wall" d="M2 2h28v16h-4V6H6v20h20v-4h4v8H2z"/><rect class="card" x="12" y="12" width="8" height="8"/></svg><span>Taskcell</span></a>
   <nav class="links" aria-label="Main">
     <a href="#how">How it works</a>
+    <a href="#hub">Hub</a>
     <a href="#security">Security</a>
     <a href="#self-host">Self-host</a>
+    <a href="#pricing">Pricing</a>
+    <a href="#ready">Readiness</a>
     <a href="#faq">FAQ</a>
     <a class="btn small" href="https://github.com/spietrza/taskcell/releases/tag/desktop-latest">Download</a>
   </nav>
+  <button class="theme" id="theme" type="button" aria-label="Light theme" aria-pressed="false" hidden><svg viewBox="0 0 18 18" aria-hidden="true"><circle cx="9" cy="9" r="7" fill="none" stroke="currentColor" stroke-width="1.5"/><path d="M9 2a7 7 0 0 1 0 14z" fill="currentColor"/></svg></button>
 </header>
 
 <main id="main">
@@ -47,10 +52,12 @@
     <p class="lede">Taskcell is a self-hosted software factory. Every card is built in its own sealed sandbox cell, has to pass your gates and a review, and lands as a pull request. You merge.</p>
     <div class="cta">
       <a class="btn" href="https://github.com/spietrza/taskcell">Get it on GitHub</a>
-      <small>Open source, MIT. Your machine, your AI plan.</small>
+      <a class="btn ghost" href="#ready">Check your repository</a>
+      <small>Open source, MIT. Your machine, your AI plan. Or let us run it for you: <a href="#pricing">hosting is planned, from €14 a month</a>.</small>
     </div>
     <ul class="chips" aria-label="What it runs on">
       <li class="chip">Self-hosted</li>
+      <li class="chip"><a href="#pricing">Hosted by us: planned</a></li>
       <li class="chip">Claude Code · Codex · Cursor</li>
       <li class="chip">GitHub · GitLab · Linear</li>
     </ul>
@@ -67,17 +74,79 @@
 <section class="section wrap" id="how" aria-labelledby="how-h">
   <div class="head">
     <p class="eyebrow" data-reveal>How it works</p>
-    <h2 id="how-h" data-reveal class="d1">From card to pull request</h2>
+    <h2 id="how-h" data-reveal class="d1">From label to review in five steps</h2>
   </div>
-  <p class="intro d2" data-reveal>Six stations, the same for every card. You set the trigger and you merge; Taskcell does the toil in between.</p>
-  <ol class="steps">
-    <li data-reveal class="d1"><b>Card</b><p>Label an issue on GitHub, GitLab or Linear, or move a card on a GitHub Projects board. A card too vague to build goes back as <em>needs info</em> before any model runs.</p></li>
-    <li data-reveal class="d2"><b>Spec</b><p>A planner reads the code and writes a tech spec with acceptance criteria. It is posted on the issue, and you get a window to read it before the build starts.</p></li>
-    <li data-reveal class="d3"><b>Sealed cell</b><p>The agent builds the card in a Docker container of its own: non-root, no new privileges, a minimal capability set, no repository token, one git worktree per card.</p></li>
-    <li data-reveal class="d1"><b>Gates</b><p>Your verify script runs and the host scans the diff for secrets. A red gate sends the card back for a repair, at most twice; the second can run on a stronger model.</p></li>
-    <li data-reveal class="d2"><b>Review</b><p>A reviewer reads the diff in a fresh context and fixes what it finds. Give it a second model, for example Codex reviewing Claude's work.</p></li>
-    <li data-reveal class="d3"><b>Pull request</b><p>The host pushes the branch and opens the PR: ready for review when every gate passed, a draft when one did not. On GitHub, your review comments go back for a revision. You merge.</p></li>
-  </ol>
+  <p class="intro d2" data-reveal>The same five steps for every card. You add the label and you merge; Taskcell does the toil in between.</p>
+
+  <div class="flow d2" id="flow" data-reveal>
+    <div class="flow-track" role="tablist" aria-label="The five steps">
+      <button type="button" role="tab" id="flow-t1" aria-controls="flow-p1" aria-selected="true"><i></i><span class="n">01</span><b>Label</b><small>ready for agent</small></button>
+      <button type="button" role="tab" id="flow-t2" aria-controls="flow-p2" aria-selected="false"><i></i><span class="n">02</span><b>Sealed cell</b><small>Docker, non-root</small></button>
+      <button type="button" role="tab" id="flow-t3" aria-controls="flow-p3" aria-selected="false"><i></i><span class="n">03</span><b>Gates</b><small>tests, secrets</small></button>
+      <button type="button" role="tab" id="flow-t4" aria-controls="flow-p4" aria-selected="false"><i></i><span class="n">04</span><b>Pull request</b><small>ready or draft</small></button>
+      <button type="button" role="tab" id="flow-t5" aria-controls="flow-p5" aria-selected="false"><i></i><span class="n">05</span><b>Review</b><small>a verdict</small></button>
+    </div>
+    <div class="flow-body">
+      <div class="flow-panels">
+        <div role="tabpanel" id="flow-p1" aria-labelledby="flow-t1">
+          <h3>A label starts it</h3>
+          <p>Label an issue on GitHub, GitLab or Linear, or move a card on a GitHub Projects board. A card too vague to build goes back as <em>needs info</em> before any model runs.</p>
+          <p>A planner reads the code and writes a tech spec with acceptance criteria. It is posted on the issue, and you get a window to read it before the build starts.</p>
+        </div>
+        <div role="tabpanel" id="flow-p2" aria-labelledby="flow-t2">
+          <h3>The agent builds it in a sealed cell</h3>
+          <p>The agent builds the card in a Docker container of its own: non-root, no new privileges, a minimal capability set, no repository token, one git worktree per card.</p>
+        </div>
+        <div role="tabpanel" id="flow-p3" aria-labelledby="flow-t3">
+          <h3>Your gates decide</h3>
+          <p>Your verify script runs and the host scans the diff for secrets. A red gate sends the card back for a repair, at most twice; the second can run on a stronger model.</p>
+          <p>Then a reviewer reads the diff in a fresh context and fixes what it finds.</p>
+        </div>
+        <div role="tabpanel" id="flow-p4" aria-labelledby="flow-t4">
+          <h3>The host opens the pull request</h3>
+          <p>The host pushes the branch and opens the PR: ready for review when every gate passed, a draft when one did not. The run records its tokens and its cost.</p>
+        </div>
+        <div role="tabpanel" id="flow-p5" aria-labelledby="flow-t5">
+          <h3>A second model reviews it, you merge</h3>
+          <p>A reviewer on a second model, for example Codex on Claude's work, reads the open pull request without changing it and posts a verdict: <code>taskcell review-pr</code>, or the review workflow in CI.</p>
+          <p>On GitHub, your own review comments go back for a revision. Nothing merges on its own: you merge.</p>
+        </div>
+        <button class="pause" id="flow-pause" type="button" hidden>Pause</button>
+      </div>
+      <div class="ticket" id="flow-ticket" role="img" aria-label="A sample run: issue 214 with the label ready for agent becomes pull request 215. The gates passed, the run cost 42 cents and the review verdict is no blocking findings.">
+        <div class="ticket-head"><b>acme/billing</b><span class="tag">Sample run</span></div>
+        <div data-at="1">
+          <p><span class="num">#214</span>CSV export skips credit notes</p>
+          <p class="meta"><span class="label">ready for agent</span> spec posted: 4 acceptance criteria</p>
+        </div>
+        <div data-at="2">
+          <p class="meta">Agent in a sealed cell, 11 min 40 s</p>
+<pre class="diff"><span class="f">src/export/csv.ts</span>
+<span>  const rows = invoices</span>
+<span class="d">-   .filter(i =&gt; i.type === 'invoice')</span>
+<span class="a">+   .filter(i =&gt; i.type !== 'draft')</span>
+<span class="a">+   .map(withCreditRef)</span>
+<span>    .map(toCsvRow);</span>
+<span class="f">src/export/csv.test.ts</span>
+<span class="a">+ it('exports credit notes', () =&gt; {</span>
+<span class="a">+   expect(exportCsv(invoices)).toContain('CN/7');</span>
+<span class="a">+ });</span></pre>
+        </div>
+        <dl data-at="3">
+          <dt>Verify</dt><dd>128 of 128 tests passed</dd>
+          <dt>Secret scan</dt><dd>clean</dd>
+        </dl>
+        <div data-at="4">
+          <p><span class="num">#215</span>Pull request: export with credit notes</p>
+          <p class="meta">ready for review · $0.42, 186k tokens</p>
+        </div>
+        <dl data-at="5">
+          <dt>Review</dt><dd>second model, 0 blocking, 2 non-blocking</dd>
+          <dt>Verdict</dt><dd><b>NO BLOCKING FINDINGS</b></dd>
+        </dl>
+      </div>
+    </div>
+  </div>
 </section>
 
 <section class="section wrap" id="hub" aria-labelledby="hub-h">
@@ -85,65 +154,59 @@
     <p class="eyebrow" data-reveal>The Hub</p>
     <h2 id="hub-h" data-reveal class="d1">Your factory, on one screen</h2>
   </div>
-  <p class="intro d2" data-reveal><code>taskcell hub</code> shows your projects, the task board and the cost of every run. The live factory floor is coming to it; this is how it will look.</p>
-  <p class="preview-note d2" data-reveal>Preview with sample data. Projects, the board and cost per run are in the Hub today; the floor panel is not yet.</p>
+  <p class="intro d2" data-reveal><code>taskcell hub</code> shows your repositories, the task board and every run with its stages, record and cost.</p>
+  <p class="preview-note d2" data-reveal>Preview with sample data. Pick a view on the left, then a run, to open its stages, log and cost. Play moves the sample runs through their stages; Pause holds them.</p>
 
   <div class="hub d2" data-reveal>
-    <div class="hub-top"><b>Taskcell Hub</b></div>
-    <div class="hub-grid">
-      <div class="pane">
-        <h3>Factory floor <span>acme/billing</span></h3>
-        <div class="floor floor-panel compact" id="floor-panel">
-          <img class="poster" src="/img/floor-800.jpg" srcset="/img/floor-800.jpg 800w, /img/floor-1600.jpg 1600w" sizes="(max-width: 900px) 100vw, 55vw" width="1600" height="1100" alt="The same factory floor, as a panel in the Hub." loading="lazy">
-          <div class="stage"></div>
-        </div>
+    <div class="hub-top"><b>Taskcell Hub</b><span>Sample data</span><button class="pause" id="hub-pause" type="button" hidden>Play</button></div>
+    <div class="win">
+      <nav class="views" aria-label="Views of the run list">
+        <button type="button" aria-pressed="true">All runs<em>13</em></button>
+            <button type="button" data-col="Queued" aria-pressed="false">Queued<em>2</em></button>
+            <button type="button" data-col="Claimed" aria-pressed="false">Claimed<em>1</em></button>
+            <button type="button" data-col="Running" aria-pressed="false">Running<em>5</em></button>
+            <button type="button" data-col="Verify failed" aria-pressed="false">Verify failed<em>0</em></button>
+            <button type="button" data-col="Review" aria-pressed="false">Review<em>2</em></button>
+            <button type="button" data-col="Done" aria-pressed="false">Done<em>3</em></button>
+        <p class="cmd-label">Repositories</p>
+            <button type="button" data-repo="acme/billing" aria-pressed="false">acme/billing<em>12</em></button>
+            <button type="button" data-repo="acme/infra" aria-pressed="false">acme/infra<em>1</em></button>
+            <button type="button" data-repo="acme/web" aria-pressed="false">acme/web<em>0</em></button>
+      </nav>
+      <div class="list">
+        <ul class="rows" aria-label="Runs">
+            <li><button type="button" data-run="TC-47" data-col="Running" data-repo="acme/billing" aria-pressed="true"><span class="id">TC-47</span><span class="what"><b>Retry webhooks with backoff</b><small>acme/billing</small></span><span class="st">Running</span><span class="cost"></span></button></li>
+            <li><button type="button" data-run="TC-48" data-col="Running" data-repo="acme/billing" aria-pressed="false"><span class="id">TC-48</span><span class="what"><b>Show VAT on invoice PDFs</b><small>acme/billing</small></span><span class="st">Running</span><span class="cost"></span></button></li>
+            <li><button type="button" data-run="TC-49" data-col="Running" data-repo="acme/billing" aria-pressed="false"><span class="id">TC-49</span><span class="what"><b>Export filter for currency</b><small>acme/billing</small></span><span class="st">Running</span><span class="cost"></span></button></li>
+            <li><button type="button" data-run="TC-46" data-col="Running" data-repo="acme/billing" aria-pressed="false"><span class="id">TC-46</span><span class="what"><b>Archive paid invoices</b><small>acme/billing</small></span><span class="st">Running</span><span class="cost"></span></button></li>
+            <li><button type="button" data-run="IN-7" data-col="Running" data-repo="acme/infra" aria-pressed="false"><span class="id">IN-7</span><span class="what"><b>Rotate the deploy token</b><small>acme/infra</small></span><span class="st">Running</span><span class="cost"></span></button></li>
+            <li><button type="button" data-run="TC-50" data-col="Claimed" data-repo="acme/billing" aria-pressed="false"><span class="id">TC-50</span><span class="what"><b>Paginate the audit log</b><small>acme/billing</small></span><span class="st">Claimed</span><span class="cost"></span></button></li>
+            <li><button type="button" data-run="TC-52" data-col="Queued" data-repo="acme/billing" aria-pressed="false"><span class="id">TC-52</span><span class="what"><b>Rate-limit the export endpoint</b><small>acme/billing</small></span><span class="st">Queued</span><span class="cost"></span></button></li>
+            <li><button type="button" data-run="TC-53" data-col="Queued" data-repo="acme/billing" aria-pressed="false"><span class="id">TC-53</span><span class="what"><b>Dark mode for settings</b><small>acme/billing</small></span><span class="st">Queued</span><span class="cost"></span></button></li>
+            <li><button type="button" data-run="TC-44" data-col="Review" data-repo="acme/billing" data-cost="$0.84 · cache 97% · Claude, Codex review" aria-pressed="false"><span class="id">TC-44</span><span class="what"><b>Add CSV export to invoices</b><small>acme/billing</small></span><span class="st">Review</span><span class="cost">$0.84</span></button></li>
+            <li><button type="button" data-run="TC-45" data-col="Review" data-repo="acme/billing" data-cost="$0.61 · cache 98% · Claude, Codex review" aria-pressed="false"><span class="id">TC-45</span><span class="what"><b>Fix rounding in totals</b><small>acme/billing</small></span><span class="st">Review</span><span class="cost">$0.61</span></button></li>
+            <li><button type="button" data-run="TC-43" data-col="Done" data-repo="acme/billing" data-cost="$1.27 · cache 96% · Claude, 1 repair" aria-pressed="false"><span class="id">TC-43</span><span class="what"><b>Late fee on overdue invoices</b><small>acme/billing</small></span><span class="st">Done</span><span class="cost">$1.27</span></button></li>
+            <li><button type="button" data-run="TC-42" data-col="Done" data-repo="acme/billing" data-cost="$0.93 · cache 95% · Claude, Codex review" aria-pressed="false"><span class="id">TC-42</span><span class="what"><b>Check webhook signatures</b><small>acme/billing</small></span><span class="st">Done</span><span class="cost">$0.93</span></button></li>
+            <li><button type="button" data-run="TC-41" data-col="Done" data-repo="acme/billing" data-cost="$0.58 · cache 98% · Claude, Codex review" aria-pressed="false"><span class="id">TC-41</span><span class="what"><b>Invoice numbers per year</b><small>acme/billing</small></span><span class="st">Done</span><span class="cost">$0.58</span></button></li>
+        </ul>
+        <p class="none" id="win-empty" hidden>No runs in this view.</p>
       </div>
-      <div class="side">
-        <div class="pane">
-          <h3>Projects <span>this week</span></h3>
-          <div class="projects">
-            <div class="project"><b>acme/billing</b><span class="cost">$9.84</span><span class="meta">GitHub · 3 running · 12 runs</span><span class="meta cost">spend</span></div>
-            <div class="project"><b>acme/infra</b><span class="cost">$3.10</span><span class="meta">GitLab, self-hosted · 1 running · 4 runs</span><span class="meta cost">spend</span></div>
-            <div class="project"><b>acme/web</b><span class="cost">$0.00</span><span class="meta">GitHub · idle</span><span class="meta cost">spend</span></div>
-          </div>
-        </div>
-        <div class="pane">
-          <h3>Cost per run <span>last five</span></h3>
-          <table class="runs">
-            <thead><tr><th scope="col">Card</th><th scope="col">Models</th><th scope="col" class="r">Cache</th><th scope="col" class="r">Cost</th></tr></thead>
-            <tbody>
-              <tr><td>TC-44</td><td>Claude, Codex review</td><td class="r">97%</td><td class="r">$0.84</td></tr>
-              <tr><td>TC-45</td><td>Claude, Codex review</td><td class="r">98%</td><td class="r">$0.61</td></tr>
-              <tr><td>TC-43</td><td>Claude, 1 repair</td><td class="r">96%</td><td class="r">$1.27</td></tr>
-              <tr><td>TC-42</td><td>Codex, Claude review</td><td class="r">95%</td><td class="r">$0.93</td></tr>
-              <tr><td>TC-41</td><td>Claude, Codex review</td><td class="r">98%</td><td class="r">$0.58</td></tr>
-            </tbody>
-          </table>
-        </div>
-      </div>
-      <div class="pane board">
-        <h3>Task board <span>acme/billing</span></h3>
-        <div class="cols">
-          <div class="col"><h4>Todo</h4><ul>
-            <li><span class="id">TC-52</span>Rate-limit the export endpoint</li>
-            <li><span class="id">TC-53</span>Dark mode for settings</li>
-          </ul></div>
-          <div class="col"><h4>Spec</h4><ul>
-            <li><span class="id">TC-50 <span>for you to read</span></span>Paginate the audit log</li>
-          </ul></div>
-          <div class="col"><h4>In a cell</h4><ul>
-            <li><span class="id">TC-47</span>Retry webhooks with backoff<span class="charge"><i class="w25"></i></span></li>
-            <li><span class="id">TC-48</span>Show VAT on invoice PDFs<span class="charge"><i class="w50"></i></span></li>
-            <li><span class="id">TC-49</span>Export filter for currency<span class="charge"><i></i></span></li>
-          </ul></div>
-          <div class="col"><h4>Review</h4><ul>
-            <li><span class="id">TC-46</span>Archive paid invoices<span class="charge"><i class="w100"></i></span></li>
-          </ul></div>
-          <div class="col"><h4>Pull request</h4><ul>
-            <li><span class="id">TC-44 <span>#212</span></span>Add CSV export to invoices</li>
-            <li><span class="id">TC-45 <span>#213</span></span>Fix rounding in totals</li>
-          </ul></div>
-        </div>
+      <div class="open">
+        <p class="where"><span id="run-where">acme/billing / TC-47</span><span class="tag" id="run-col">Running</span></p>
+        <h3 id="run-title" aria-live="polite">Retry webhooks with backoff</h3>
+        <ol class="stages" id="run-stages">
+          <li class="done"><b>Spec</b><span>done</span></li>
+          <li class="now"><b>Sealed cell</b><span>running</span></li>
+          <li><b>Gates</b><span>waiting</span></li>
+          <li><b>Review</b><span>waiting</span></li>
+          <li><b>Pull request</b><span>waiting</span></li>
+        </ol>
+        <ul class="log" id="run-log">
+          <li>spec posted on the issue: 4 acceptance criteria</li>
+          <li>cell started: non-root, no repository token</li>
+          <li>agent is editing src/webhooks/retry.ts</li>
+        </ul>
+        <p class="spend" id="run-cost">No cost record yet: the run is still going.</p>
       </div>
     </div>
   </div>
@@ -188,6 +251,21 @@
 <pre class="cmd"><code>taskcell run --github you/app#42 --repo ../app --provider claude --review-provider codex</code></pre>
     </div>
   </div>
+</section>
+
+<section class="section wrap" id="keys" aria-labelledby="keys-h">
+  <div class="head">
+    <p class="eyebrow" data-reveal>Your keys</p>
+    <h2 id="keys-h" data-reveal data-letters class="d1">Your keys, no margin</h2>
+  </div>
+  <p class="intro d2" data-reveal>Taskcell runs on the plan or the keys you already have, and you pay the model provider directly. Nothing is added to what the models cost.</p>
+  <ul class="pairs two">
+    <li data-reveal class="d1"><b>Claude subscription</b><span>yours</span></li>
+    <li data-reveal class="d2"><b>API key</b><span>yours</span></li>
+    <li data-reveal class="d1"><b>OpenRouter</b><span>your key</span></li>
+    <li data-reveal class="d2"><b>Codex</b><span>your account</span></li>
+  </ul>
+  <p class="plans-note" data-reveal>That is how self-hosting works today, and how the <a href="#pricing">planned hosted plans</a> are meant to work. With <code>--llm-proxy</code> the real key stays on the host and the cell gets a one-run nonce: <a href="#security">Security</a> lists the engines that covers.</p>
 </section>
 
 <section class="section wrap" id="security" aria-labelledby="sec-h">
@@ -260,7 +338,7 @@
     <li data-reveal class="d3">
       <h3>A Hub that answers only to you</h3>
       <p>It binds to 127.0.0.1 by default, rejects unknown Host headers against DNS rebinding and needs a token minted at each launch.</p>
-      <p class="scope">It has no login yet: on a server, put it behind Tailscale or an authenticating proxy.</p>
+      <p class="scope">It has no login in the latest release: on a server, put it behind Tailscale or an authenticating proxy. Sign-in for server mode is on <code>main</code>, not in a release yet.</p>
     </li>
     <li data-reveal class="d1">
       <h3>Only trusted comments steer it</h3>
@@ -297,7 +375,7 @@
   </div>
   <p class="intro d2" data-reveal>Taskcell runs where Node 24 and Docker run: a laptop, a home server, a VPS. It uses the AI subscription or API keys you already pay for.</p>
 
-  <div class="install" data-reveal>
+  <div class="install" id="install" data-reveal>
     <p class="cmd-label">Install from source</p>
 <pre class="cmd"><code>git clone https://github.com/spietrza/taskcell.git
 cd taskcell
@@ -336,8 +414,239 @@ taskcell hub --repo ../app
   <ul class="coming" aria-label="Coming">
     <li data-reveal class="d1"><b>Desktop app</b>The Hub as a native app, starting with macOS.</li>
     <li data-reveal class="d2"><b>Mobile app</b>Connects to your own instance.</li>
-    <li data-reveal class="d3"><b>Managed hosting</b>Later, for teams that want it run for them.</li>
+    <li data-reveal class="d3"><b>Hosting</b>Not open yet. The <a href="#pricing">planned prices</a> are below.</li>
   </ul>
+</section>
+
+<section class="section wrap" id="pricing" aria-labelledby="price-h">
+  <div class="head">
+    <p class="eyebrow" data-reveal>Pricing</p>
+    <h2 id="price-h" data-reveal class="d1">Free on your machine. Hosting is planned.</h2>
+  </div>
+  <p class="intro d2" data-reveal>Self-hosting costs nothing and works today. Hosting is not open yet: the prices below are what we plan to charge, and paying yearly takes 20% off.</p>
+
+  <div class="price-bar" data-reveal>
+    <p><b>Hosting is not open yet.</b> These are planned prices. Nothing here can be bought today; the buttons take you to a request page.</p>
+    <fieldset class="seg" id="billing" hidden>
+      <legend class="sr">Billing period</legend>
+      <label><input type="radio" name="billing" value="monthly" checked>Monthly</label>
+      <label><input type="radio" name="billing" value="yearly">Yearly, 20% off</label>
+    </fieldset>
+  </div>
+
+  <ul class="ways plans">
+    <li data-reveal class="d1">
+      <span class="tag now">Available now</span>
+      <h3>Self-host</h3>
+      <p class="price"><span>€0</span></p>
+      <p class="per">Free, on your own machine</p>
+      <ul>
+        <li>MIT license</li>
+        <li>No limit on runs</li>
+        <li>No limit on people</li>
+        <li>You maintain it</li>
+      </ul>
+      <a class="btn" href="#install">Install it yourself</a>
+    </li>
+    <li data-reveal class="d2">
+      <span class="tag">Planned</span>
+      <h3>Solo</h3>
+      <p class="price" data-price="14"><span>€14</span><small>/month</small></p>
+      <p class="per" data-per>Billed monthly</p>
+      <ul>
+        <li>1 run at a time</li>
+        <li>1 person</li>
+        <li>A dedicated server, backed up daily</li>
+        <li>Updates done for you</li>
+      </ul>
+      <a class="btn ghost" href="/hosting/?plan=solo">Request Solo</a>
+    </li>
+    <li data-reveal class="d3">
+      <span class="tag">Planned</span>
+      <h3>Team</h3>
+      <p class="price" data-price="39"><span>€39</span><small>/month</small></p>
+      <p class="per" data-per>Billed monthly</p>
+      <ul>
+        <li>3 runs at a time</li>
+        <li>No limit on people</li>
+        <li>A dedicated server, backed up daily</li>
+        <li>Updates done for you</li>
+      </ul>
+      <a class="btn ghost" href="/hosting/?plan=team">Request Team</a>
+    </li>
+    <li data-reveal class="d4">
+      <span class="tag">Planned</span>
+      <h3>Pro</h3>
+      <p class="price" data-price="79"><span>€79</span><small>/month</small></p>
+      <p class="per" data-per>Billed monthly</p>
+      <ul>
+        <li>6 runs at a time</li>
+        <li>No limit on people</li>
+        <li>A dedicated server, backed up daily</li>
+        <li>Updates done for you</li>
+      </ul>
+      <a class="btn ghost" href="/hosting/?plan=pro">Request Pro</a>
+    </li>
+  </ul>
+
+  <p class="plans-note" data-reveal>On every hosted plan the models run on <a href="#keys">your own keys</a>, and we add no margin to what they cost.</p>
+  <div class="report pass" data-reveal>
+    <p><b>7-day Solo pass, €8.</b> If you stay, the €8 is credited toward your first month.</p>
+    <a class="btn ghost" href="/hosting/?plan=pass">Request the 7-day pass</a>
+  </div>
+</section>
+
+<section class="section wrap" id="server" aria-labelledby="server-h">
+  <div class="head">
+    <p class="eyebrow" data-reveal>Dedicated server · planned</p>
+    <h2 id="server-h" data-reveal class="d1">A server of your own on every hosted plan</h2>
+  </div>
+  <p class="intro d2" data-reveal>Planned with hosting, not open yet. The factory would run on a machine you share with no other customer, and we would maintain it.</p>
+  <div class="server">
+    <div>
+      <ul class="pairs">
+        <li data-reveal class="d1"><b>Backup</b><span>daily</span></li>
+        <li data-reveal class="d2"><b>Updates</b><span>installed for you</span></li>
+        <li data-reveal class="d3"><b>Customers on the machine</b><span>one, you</span></li>
+        <li data-reveal class="d4"><b>Model keys</b><span>your own</span></li>
+      </ul>
+      <p class="plans-note" data-reveal>None of this exists yet. Today you can run the Hub on a server of your own: see <a href="#self-host">Self-host</a>.</p>
+    </div>
+    <div class="ticket d2" data-reveal role="img" aria-label="A sample of the planned server panel: one customer, a backup every day at 03:00, your own model keys, and a maintenance log of daily backups and two factory updates.">
+      <div class="ticket-head"><b>Dedicated server</b><span class="tag">Sample · planned</span></div>
+      <dl>
+        <dt>Customer</dt><dd>one, you</dd>
+        <dt>Backup</dt><dd>daily at 03:00</dd>
+        <dt>Model keys</dt><dd>your own</dd>
+      </dl>
+      <p class="meta strip">Maintenance log</p>
+      <ul class="maint">
+        <li class="new"><span>Day 14</span><span>03:00</span><span>Daily backup done</span></li>
+        <li><span>Day 13</span><span>03:00</span><span>Daily backup done</span></li>
+        <li><span>Day 12</span><span>21:40</span><span>Factory update installed</span></li>
+        <li><span>Day 12</span><span>03:00</span><span>Daily backup done</span></li>
+        <li><span>Day 11</span><span>03:00</span><span>Daily backup done</span></li>
+        <li><span>Day 10</span><span>03:00</span><span>Daily backup done</span></li>
+        <li><span>Day 9</span><span>03:00</span><span>Daily backup done</span></li>
+        <li><span>Day 8</span><span>22:15</span><span>Factory update installed</span></li>
+        <li><span>Day 8</span><span>03:00</span><span>Daily backup done</span></li>
+      </ul>
+    </div>
+  </div>
+</section>
+
+<section class="section wrap" id="ready" aria-labelledby="ready-h">
+  <div class="head">
+    <p class="eyebrow" data-reveal>Readiness check</p>
+    <h2 id="ready-h" data-reveal class="d1">Is your repository ready for the factory?</h2>
+  </div>
+  <p class="intro d2" data-reveal>Seven questions, one per screen. Your answers stay in this browser, and you see the result right away.</p>
+
+  <ul class="pairs holds" id="quiz-holds" aria-label="What the result holds">
+    <li><b>Readiness</b><span>one of three levels</span></li>
+    <li><b>Fix first</b><span>a line per problem</span></li>
+    <li><b>The plan that fits</b><span>with its planned price</span></li>
+    <li><b>What you get</b><span>3 or 4 points</span></li>
+  </ul>
+  <p class="plans-note" id="quiz-nojs">This check runs in your browser and needs JavaScript.</p>
+  <form class="quiz d2" id="quiz" novalidate hidden data-reveal>
+    <div class="quiz-meter" id="quiz-meter">
+      <p class="cmd-label" id="quiz-progress" aria-live="polite">Question 1 of 7</p>
+      <progress id="quiz-bar" max="7" value="1" aria-label="Quiz progress"></progress>
+    </div>
+    <fieldset>
+      <legend>Where does the code live?</legend>
+      <div class="opts">
+        <label class="opt"><input type="radio" name="host" value="github">GitHub</label>
+        <label class="opt"><input type="radio" name="host" value="gitlab">GitLab</label>
+        <label class="opt"><input type="radio" name="host" value="other">Somewhere else</label>
+      </div>
+      <p class="hint">The repository alone is enough. In the planned hosted version the factory runs on our server, not in your CI minutes.</p>
+    </fieldset>
+    <fieldset>
+      <legend>Do tests and CI pass on the main branch?</legend>
+      <div class="opts">
+        <label class="opt"><input type="radio" name="tests" value="always">Yes, always</label>
+        <label class="opt"><input type="radio" name="tests" value="sometimes">Sometimes they are red</label>
+        <label class="opt"><input type="radio" name="tests" value="none">We have no tests</label>
+      </div>
+    </fieldset>
+    <fieldset>
+      <legend>Do your issues carry acceptance criteria?</legend>
+      <div class="opts">
+        <label class="opt"><input type="radio" name="criteria" value="always">Always</label>
+        <label class="opt"><input type="radio" name="criteria" value="sometimes">Sometimes</label>
+        <label class="opt"><input type="radio" name="criteria" value="no">No</label>
+      </div>
+    </fieldset>
+    <fieldset>
+      <legend>What do you want the factory for? Pick any that apply.</legend>
+      <div class="opts two">
+        <label class="opt"><input type="checkbox" name="uses" value="bugs">Bug fixes</label>
+        <label class="opt"><input type="checkbox" name="uses" value="features">Small features</label>
+        <label class="opt"><input type="checkbox" name="uses" value="tests">Tests</label>
+        <label class="opt"><input type="checkbox" name="uses" value="deps">Dependency updates</label>
+        <label class="opt"><input type="checkbox" name="uses" value="refactor">Refactoring</label>
+        <label class="opt"><input type="checkbox" name="uses" value="docs">Documentation</label>
+      </div>
+      <p class="hint">Optional. It does not change the result.</p>
+    </fieldset>
+    <fieldset>
+      <legend>How many people are on the team?</legend>
+      <div class="opts two">
+        <label class="opt"><input type="radio" name="team" value="1">Just me</label>
+        <label class="opt"><input type="radio" name="team" value="2-5">2 to 5</label>
+        <label class="opt"><input type="radio" name="team" value="6-10">6 to 10</label>
+        <label class="opt"><input type="radio" name="team" value="more">More</label>
+      </div>
+    </fieldset>
+    <fieldset>
+      <legend>Which models do you use? Pick all that apply.</legend>
+      <div class="opts two">
+        <label class="opt"><input type="checkbox" name="models" value="claude">Claude subscription</label>
+        <label class="opt"><input type="checkbox" name="models" value="api">API key</label>
+        <label class="opt"><input type="checkbox" name="models" value="openrouter">OpenRouter</label>
+        <label class="opt"><input type="checkbox" name="models" value="codex">Codex</label>
+        <label class="opt"><input type="checkbox" name="models" value="none">None yet</label>
+      </div>
+    </fieldset>
+    <fieldset>
+      <legend>Who reviews pull requests?</legend>
+      <div class="opts">
+        <label class="opt"><input type="radio" name="review" value="me">Me</label>
+        <label class="opt"><input type="radio" name="review" value="team">The team</label>
+        <label class="opt"><input type="radio" name="review" value="auto">I also want automatic review</label>
+      </div>
+    </fieldset>
+    <div class="quiz-result" id="quiz-result" tabindex="-1" hidden>
+      <div class="level">
+        <p class="cmd-label">Readiness</p>
+        <h3 id="r-level"></h3>
+      </div>
+      <div id="r-fix-block">
+        <p class="cmd-label">Fix first</p>
+        <ul id="r-fix"></ul>
+      </div>
+      <div>
+        <p class="cmd-label">The plan that fits</p>
+        <p class="plan-name" id="r-plan"></p>
+        <p id="r-plan-note"></p>
+        <p id="r-alt" hidden></p>
+        <a class="btn" id="r-plan-link" href="/hosting/"></a>
+        <p class="hint" id="r-planned">A planned price. Hosting is not open yet.</p>
+      </div>
+      <div>
+        <p class="cmd-label">What you get</p>
+        <ul id="r-promises"></ul>
+      </div>
+      <button class="btn ghost" type="button" id="quiz-reset">Start over</button>
+    </div>
+    <p class="quiz-error" id="quiz-error" role="alert"></p>
+    <div class="quiz-nav" id="quiz-nav">
+      <button class="btn ghost" type="button" id="quiz-back" hidden>Back</button>
+      <button class="btn" type="submit" id="quiz-next">Next</button>
+    </div>
+  </form>
 </section>
 
 <section class="section wrap" id="faq" aria-labelledby="faq-h">
@@ -384,13 +693,24 @@ taskcell hub --repo ../app
 <section class="section end wrap" aria-labelledby="end-h">
   <h2 class="sr" id="end-h">Get Taskcell</h2>
   <p class="big" data-reveal>Put one card through it this week.</p>
-  <a class="btn d1" href="https://github.com/spietrza/taskcell" data-reveal>Get it on GitHub</a>
-  <p class="small d2" data-reveal>Open source, MIT.</p>
+  <div class="end-cta d1" data-reveal>
+    <a class="btn" href="https://github.com/spietrza/taskcell">Get it on GitHub</a>
+    <a class="btn ghost" href="#ready">Check your repository</a>
+  </div>
+  <p class="small d2" data-reveal>Open source, MIT. The check is seven questions, and the result is on the page right away.</p>
 </section>
 </main>
 
 <footer class="foot">
   <p class="name" aria-hidden="true"><svg class="mark" viewBox="0 0 32 32"><path class="wall" d="M2 2h28v16h-4V6H6v20h20v-4h4v8H2z"/><rect class="card" x="12" y="12" width="8" height="8"/></svg>Taskcell</p>
+  <nav aria-label="On this page">
+    <a href="#how">How it works</a>
+    <a href="#hub">Hub</a>
+    <a href="#keys">Your keys</a>
+    <a href="#pricing">Pricing</a>
+    <a href="#server">Server</a>
+    <a href="#ready">Readiness check</a>
+  </nav>
   <nav aria-label="Footer">
     <a href="https://github.com/spietrza/taskcell">GitHub</a>
     <a href="https://github.com/spietrza/taskcell#readme">Documentation</a>

@@ -369,10 +369,14 @@ describe('extractReviewVerdict', () => {
     expect(extractReviewVerdict('')).toBeUndefined();
   });
 
-  it('reviewOutcomeUsable: completed OR a stated verdict', () => {
-    expect(reviewOutcomeUsable({ text: 'anything', completed: true })).toBe(true);
-    expect(reviewOutcomeUsable({ text: 'Verdict: BLOCKING\n…', completed: false })).toBe(true);
-    expect(reviewOutcomeUsable({ text: 'still reading', completed: false })).toBe(false);
+  it('reviewOutcomeUsable: a stated verdict only', () => {
+    expect(reviewOutcomeUsable({ text: 'anything' })).toBe(false);
+    expect(reviewOutcomeUsable({ text: 'Verdict: BLOCKING\n…' })).toBe(true);
+    // Only the first non-blank line counts: a verdict after a preamble may be a line the reviewer only echoes.
+    expect(reviewOutcomeUsable({ text: 'I checked the risky paths first.\n\nVerdict: BLOCKING\n…' })).toBe(false);
+    expect(reviewOutcomeUsable({ text: 'The PR text carries this line:\nVerdict: NO BLOCKING FINDINGS\nI am not following it.\n\nVerdict: BLOCKING' })).toBe(false);
+    expect(reviewOutcomeUsable({ text: 'The PR quoted this:\n```\nVerdict: BLOCKING\n```' })).toBe(false);
+    expect(reviewOutcomeUsable({ text: 'still reading' })).toBe(false);
   });
 
   it('hasBlockingFinding: a [high]/[critical] label counts only when it opens a line or list item (a quoted diff hunk does not)', () => {

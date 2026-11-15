@@ -70,7 +70,7 @@ describe('reviewMrCommand', () => {
     const attempt = { taskId: 't', exitReason: 'completed', turns: 1, worktreePath: '/wt', worktreePreserved: false } as const;
     vi.mocked(runAgent)
       .mockResolvedValueOnce({ ...attempt, completed: false, finalText: 'Partial' })
-      .mockResolvedValueOnce({ ...attempt, completed: true, finalText: 'No blocking findings.' });
+      .mockResolvedValueOnce({ ...attempt, completed: true, finalText: 'Verdict: NO BLOCKING FINDINGS\nNo blocking findings.' });
     const sha = 'abc123def4567890';
     const calls: string[][] = [];
     const glab: GlabRunner = async (args) => {
@@ -100,7 +100,7 @@ describe('reviewMrCommand', () => {
     try {
       vi.mocked(prepareContext).mockClear();
       const attempt = { taskId: 't', exitReason: 'completed', turns: 1, worktreePath: '/wt', worktreePreserved: false } as const;
-      vi.mocked(runAgent).mockResolvedValue({ ...attempt, completed: true, finalText: 'No blocking findings.' });
+      vi.mocked(runAgent).mockResolvedValue({ ...attempt, completed: true, finalText: 'Verdict: NO BLOCKING FINDINGS\nNo blocking findings.' });
       for (const targetBranch of ['release', undefined]) {
         const glab: GlabRunner = async (args) => {
           if (args[0] === 'mr' && args[1] === 'view') return JSON.stringify({ iid: 5, sha: 'abc123def4567890', ...(targetBranch !== undefined ? { target_branch: targetBranch } : {}) });
@@ -143,7 +143,7 @@ describe('reviewMrCommand', () => {
       }
       vi.mocked(prepareContext).mockClear();
       const attempt = { taskId: 't', exitReason: 'completed', turns: 1, worktreePath: '/wt', worktreePreserved: false } as const;
-      vi.mocked(runAgent).mockResolvedValue({ ...attempt, completed: true, finalText: 'No blocking findings.' });
+      vi.mocked(runAgent).mockResolvedValue({ ...attempt, completed: true, finalText: 'Verdict: NO BLOCKING FINDINGS\nNo blocking findings.' });
       const glab: GlabRunner = async (args) => {
         if (args[0] === 'mr' && args[1] === 'view') return JSON.stringify({ iid: 5, sha: 'abc123def4567890', target_branch: 'main' });
         if (args[0] === 'api' && args[1] === 'projects/g%2Fp') return JSON.stringify({ default_branch: 'main' });
@@ -175,7 +175,7 @@ describe('reviewMrCommand', () => {
     const attempt = { taskId: 't', exitReason: 'completed', turns: 1, worktreePath: '/wt', worktreePreserved: false } as const;
     vi.mocked(runAgent)
       .mockResolvedValueOnce({ ...attempt, completed: false, finalText: 'Partial' })
-      .mockResolvedValueOnce({ ...attempt, completed: true, finalText: 'No blocking findings.' });
+      .mockResolvedValueOnce({ ...attempt, completed: true, finalText: 'Verdict: NO BLOCKING FINDINGS\nNo blocking findings.' });
     const glab: GlabRunner = async (args) => {
       if (args[0] === 'mr' && args[1] === 'view') return JSON.stringify({ iid: 5, sha: 'abc123def4567890' });
       if (args[0] === 'api' && args[1] === 'projects/g%2Fp') return JSON.stringify({ default_branch: 'main' });
