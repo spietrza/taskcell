@@ -505,7 +505,7 @@ async function writeRecord(repoPath: string, taskId: string, timestamp: string, 
   const root = runsRoot(repoPath);
   const taskDir = await ensureStateDir(repoPath, join(root, taskId));
 
-  const { diff, transcript, mergedEstCostUsd: _merged, skillsUsed: priorSkillsUsed, ...meta } = result;
+  const { diff, transcript, mergedEstCostUsd: _merged, cachedInInput: _cached, skillsUsed: priorSkillsUsed, ...meta } = result;
   // The skills installed for the run; a transcript's claim of any other id is discarded, so a caller
   // that passes no registry records none.
   const installedSkillIds = opts.skillIds ?? (opts.skills !== undefined ? [...opts.skills.named, ...opts.skills.available] : []);
