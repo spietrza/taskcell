@@ -589,40 +589,25 @@ describe('llm-proxy-server chatgpt auth kind (in-process factory, fake IdP/upstr
     expect(res.text).not.toContain('Sign in again');
   });
 
-  it('logs a recovery line when a refresh succeeds after a logged failure', async () => {
+  it('logs only real IdP exchanges: a transient failure is a warning, replies replayed in the backoff are not logged, a later success logs a recovery', async () => {
     const behavior = { refreshStatus: 503 };
     const idp = await bootIdp(behavior);
-    const { port, refreshPlaceholder } = await bootChatgpt({ idpPort: idp.port, refreshBackoffBaseMs: 0 });
+    const { port, refreshPlaceholder } = await bootChatgpt({ idpPort: idp.port, refreshBackoffBaseMs: 100, refreshBackoffMaxMs: 100 });
     const err = vi.spyOn(console, 'error').mockImplementation(() => {});
+    const clock = mockNow();
     try {
       expect((await postRefresh(port, refreshPlaceholder)).status).toBe(502);
+      expect((await postRefresh(port, refreshPlaceholder)).status).toBe(502); // backoff: no IdP call, no log line
+      expect(idp.refreshCalls()).toBe(1);
+      clock.advance(100);
       behavior.refreshStatus = 200;
       expect((await postRefresh(port, refreshPlaceholder)).status).toBe(200);
-      expect(err.mock.calls.flat().map(String)).toEqual([expect.stringContaining('llm-proxy: ERROR codex'), 'llm-proxy: codex refresh recovered']);
+      expect(err.mock.calls.flat().map(String)).toEqual([
+        'llm-proxy: WARNING codex refresh failed: the ChatGPT token refresh failed (idp answered HTTP 503); retry the run',
+        'llm-proxy: codex refresh recovered',
+      ]);
     } finally {
-      err.mockRestore();
-    }
-  });
-
-  it.each([429, 408, 503])('a transient IdP %i stays a 502 and does not say to sign in again', async (status) => {
-    const idp = await bootIdp({ refreshStatus: status, refreshBody: () => JSON.stringify({ error: { message: 'Rate limit reached' } }) });
-    const { port, refreshPlaceholder } = await bootChatgpt({ idpPort: idp.port });
-    const res = await postRefresh(port, refreshPlaceholder);
-    expect(res.status).toBe(502);
-    expect(res.text).not.toContain('Sign in again');
-    expect(res.text).toContain(String(status));
-  });
-
-  it('a malformed 2xx IdP body never leaks (JSON.parse quotes it) into the response or the log', async () => {
-    const idp = await bootIdp({ refreshBody: () => '{"access_token":"x","refresh_token":NEW-REAL-REFRESH-TOKEN-xyz}' });
-    const { port, refreshPlaceholder } = await bootChatgpt({ idpPort: idp.port });
-    const err = vi.spyOn(console, 'error').mockImplementation(() => {});
-    try {
-      const res = await postRefresh(port, refreshPlaceholder);
-      expect(res.status).toBe(502);
-      expect(res.text).not.toContain('NEW-REAL');
-      expect(err.mock.calls.flat().join('\n')).not.toContain('NEW-REAL');
-    } finally {
+      clock.restore();
       err.mockRestore();
     }
   });

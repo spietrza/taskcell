@@ -1,5 +1,5 @@
 import { describe, it, expect, vi } from 'vitest';
-import { mkdtemp, readFile, writeFile } from 'node:fs/promises';
+import { mkdtemp, readdir, readFile, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { startLlmProxy, startProviderProxies } from './llm-proxy.js';
@@ -326,18 +326,68 @@ describe('startProviderProxies', () => {
       expect(d.calls.some((c) => c.args[0] === 'rm')).toBe(true);
     });
 
-    it('relays each distinct ERROR once, drops the ones a later refresh recovered from, and reads only the log tail', async () => {
+    it('relays a refusal once as an error and a failed exchange as a warning, drops what a later refresh recovered from, reads only the log tail', async () => {
       const error = vi.spyOn(console, 'error').mockImplementation(() => {});
+      const warn = vi.spyOn(console, 'warn').mockImplementation(() => {});
       try {
-        const d = dockerWith(['llm-proxy: ERROR codex A', 'llm-proxy: codex refresh recovered', 'llm-proxy: ERROR codex B', 'llm-proxy: ERROR codex B'].join('\n'));
+        const failed = 'llm-proxy: WARNING codex refresh failed: the ChatGPT token refresh failed (idp answered HTTP 503); retry the run';
+        const d = dockerWith(['llm-proxy: ERROR codex A', failed, 'llm-proxy: codex refresh recovered', failed, 'llm-proxy: ERROR codex B', 'llm-proxy: ERROR codex B'].join('\n'));
         const proxy = await startLlmProxy({ network: 'n', auth: { kind: 'chatgpt', ...REAL_CHATGPT_AUTH }, upstream: 'chatgpt', docker: d.run, env: { CI: '1' } });
-        vi.spyOn(console, 'warn').mockImplementation(() => {});
         await proxy.destroy();
         expect(error.mock.calls.flat()).toEqual(['llm-proxy: ERROR codex B']);
+        expect(warn.mock.calls.flat()[0]).toBe(failed);
+        expect(warn.mock.calls.flat().filter((l) => l === failed)).toHaveLength(1);
         expect(d.calls.find((c) => c.args[0] === 'logs')!.args).toEqual(['logs', '--tail', '200', proxy.host]);
       } finally {
         vi.restoreAllMocks();
       }
+    });
+
+    it('a run whose only refresh failure was recovered from relays nothing', async () => {
+      const error = vi.spyOn(console, 'error').mockImplementation(() => {});
+      const warn = vi.spyOn(console, 'warn').mockImplementation(() => {});
+      try {
+        const d = fakeDocker();
+        const base = d.run;
+        d.run = async (args, opts) => ({ ...(await base(args, opts)), ...(args[0] === 'logs' ? { stderr: 'llm-proxy: WARNING codex refresh failed: x\nllm-proxy: codex refresh recovered' } : {}) });
+        const proxy = await startLlmProxy({ network: 'n', auth: { kind: 'chatgpt', ...REAL_CHATGPT_AUTH }, upstream: 'chatgpt', docker: d.run, env: {} });
+        await proxy.destroy();
+        expect(error).not.toHaveBeenCalled();
+        expect(warn).not.toHaveBeenCalled();
+      } finally {
+        vi.restoreAllMocks();
+      }
+    });
+
+    it('teardown runs once: two concurrent destroys give one relay, one hand-back, one stale-secret note, one rm', async () => {
+      const error = vi.spyOn(console, 'error').mockImplementation(() => {});
+      const warn = vi.spyOn(console, 'warn').mockImplementation(() => {});
+      try {
+        const dir = await mkdtemp(join(tmpdir(), 'rot-'));
+        const summary = join(dir, 'summary.md');
+        const d = dockerWith('llm-proxy: ERROR codex A');
+        const proxy = await startLlmProxy({ network: 'n', auth: { kind: 'chatgpt', ...REAL_CHATGPT_AUTH }, upstream: 'chatgpt', docker: d.run, env: { CI: '1', GITHUB_STEP_SUMMARY: summary } });
+        await Promise.all([proxy.destroy(), destroyAllTracked(), proxy.destroy()]);
+        await proxy.destroy();
+        expect(error.mock.calls.flat()).toEqual(['llm-proxy: ERROR codex A']);
+        expect(warn.mock.calls.flat().filter((l) => String(l).includes('was rotated'))).toHaveLength(1);
+        expect((await readFile(summary, 'utf8')).match(/now stale/g)).toHaveLength(1);
+        expect(d.calls.filter((c) => c.args.includes('cat'))).toHaveLength(1);
+        expect(d.calls.filter((c) => c.args[0] === 'rm')).toHaveLength(1);
+        expect(await readdir(dir)).toEqual(['summary.md']);
+      } finally {
+        vi.restoreAllMocks();
+      }
+    });
+
+    it('an API-key sidecar starts with exactly the plain command: no log probe, no shell wrapper', async () => {
+      const d = fakeDocker();
+      const proxy = await startLlmProxy({ network: 'n', auth: { mode: 'api', secret: 's' }, upstream: 'openai', docker: d.run });
+      const execs = d.calls.filter((c) => c.args[0] === 'exec').map((c) => c.args);
+      expect(execs).toEqual([
+        ['exec', '-i', proxy.host, 'sh', '-c', 'umask 077; cat > /run/vanguard-llm/secret'],
+        ['exec', '-d', '-e', 'LLM_PROXY_SECRET_FILE=/run/vanguard-llm/secret', '-e', 'PORT=8088', proxy.host, 'node', '/tmp/llm-proxy.mjs'],
+      ]);
     });
 
     it('a termination signal runs the same teardown: the proxy is tracked until destroyed', async () => {

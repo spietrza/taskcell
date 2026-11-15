@@ -58,9 +58,12 @@ export async function reportRotation(rotatedJson: string, originalRefreshToken: 
     const summary = env.GITHUB_STEP_SUMMARY;
     if (summary) await appendFile(summary, `\n- Note: ${stale}\n`).catch(() => {});
   } else {
-    const file = hostCodexAuthFile(env);
-    lines.push(await handBack(file, originalRefreshToken, rotated));
-    lines.push(`${inMemory !== undefined ? 'Later runs of this process use the rotated token. ' : ''}Any CODEX_AUTH_JSON exported or stored elsewhere (another shell, the hub credential store) holds the old token: set it again from the auth file.`);
+    const later = inMemory !== undefined ? 'Later runs of this process use the rotated token. ' : '';
+    const written = await handBack(hostCodexAuthFile(env), originalRefreshToken, rotated);
+    // No local file held this credential (a hub run on a stored one, an export from elsewhere): name no
+    // path on this machine and no local sign-in — the copy it came from is what must be replaced.
+    lines.push(written ?? `${later}The credential this run started with did not come from a local auth file, so nothing was written back. The stored copy it came from (hub Settings → Credentials, an exported CODEX_AUTH_JSON) holds the old token: save a current credential there again.`);
+    if (written !== undefined) lines.push(`${later}Any CODEX_AUTH_JSON exported or stored elsewhere (another shell, the hub credential store) holds the old token: set it again from the auth file.`);
   }
   for (const l of lines) console.warn(l);
 }
@@ -70,18 +73,20 @@ export async function reportRotation(rotatedJson: string, originalRefreshToken: 
  * `file` (dotfile managers) is resolved once and every check is made on the target, which must be a
  * regular file still holding the refresh token this run started with (so it is the file the credential
  * came from, not a newer sign-in). Written via a fresh `O_EXCL` sibling temp file chmod'd 0600
- * explicitly (the `mode:` option is masked by umask) and renamed over the target.
+ * explicitly (the `mode:` option is masked by umask) and renamed over the target. Returns the line to log, or undefined when `file`
+ * is not where this run's credential came from (missing, not a regular file, or holding another token):
+ * it is then left alone.
  */
-async function handBack(file: string, original: string, rotated: AuthJson): Promise<string> {
+async function handBack(file: string, original: string, rotated: AuthJson): Promise<string | undefined> {
   let tmp: string | undefined;
+  let held = false;
   try {
     const target = await realpath(file);
     const before = await lstat(target);
-    if (!before.isFile()) return `${file} is not a regular file, so it was not written; sign in again (codex login) — the old token is dead.`;
+    if (!before.isFile()) return undefined;
     const current = parse(await readFile(target, 'utf8'));
-    if (current?.tokens?.refresh_token !== original) {
-      return `${file} no longer holds the token this run started with, so it was left alone; sign in again (codex login) if the next run is refused.`;
-    }
+    if (current?.tokens?.refresh_token !== original) return undefined; // not this run's source, or a newer sign-in: left alone
+    held = true;
     const merged = merge(current, rotated);
     if (merged === undefined) throw new Error('rotated credential has no access token');
     // Set before the write so a write that fails half-way (ENOSPC) is still removed; the name is ours alone.
@@ -99,6 +104,7 @@ async function handBack(file: string, original: string, rotated: AuthJson): Prom
     return `The rotated tokens were written back to ${target}.`;
   } catch {
     if (tmp !== undefined) await rm(tmp, { force: true }).catch(() => {});
+    if (!held) return undefined; // missing or unreadable: not where the credential came from
     return `Could not write the rotated credential back to ${file}; the old token is dead — sign in again (codex login).`;
   }
 }

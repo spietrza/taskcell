@@ -39,6 +39,9 @@ import {
   buildCodexAuthJson,
   CODEX_CLIENT_ID,
   CODEX_REFRESH_PATH,
+  REFRESH_REFUSED_PREFIX,
+  REFRESH_FAILED_PREFIX,
+  REFRESH_RECOVERED,
 } from './llm-proxy-rewrite.mjs';
 
 const MAX_BODY_BYTES = 32 * 1024 * 1024; // 32 MiB
@@ -62,6 +65,7 @@ const DEFAULT_CREDENTIAL_DIR = '/run/vanguard-llm';
 // path) are placed into HTTP headers, JSON bodies or syscalls; reject control chars up front to
 // prevent header/JSON/path injection.
 const CONTROL_CHARS = /[\x00-\x1f\x7f]/;
+const IDP_RESPONSE_TOO_LARGE = 'idp response exceeds the size cap';
 
 function parseSecretFile(text) {
   const out = {};
@@ -150,10 +154,6 @@ function readSmallBody(req, maxBytes) {
 
 /** Reads a fetch Response body with a hard byte cap, aborting the stream (not just rejecting after
  *  buffering it all) once exceeded — the IdP response cap. Resolves '' for a bodyless response. */
-const IDP_RESPONSE_TOO_LARGE = 'idp response exceeds the size cap';
-// Logged when a refresh succeeds after a logged failure; startLlmProxy's teardown (llm-proxy.ts) matches this text.
-const REFRESH_RECOVERED = 'llm-proxy: codex refresh recovered';
-
 async function readCappedResponse(response, maxBytes) {
   if (response.body === null) return '';
   const reader = response.body.getReader();
@@ -231,7 +231,7 @@ export function createLlmProxyServer(secretText, options = {}) {
   let pendingRefresh;
   let refreshAttempts = 0;
   let lastRefusal; // the last IdP refusal, replayed while backing off
-  let lastLoggedFailure; // the last refresh failure written to the log, so a replayed one is logged once
+  let failureLogged = false; // a failed IdP exchange was logged and no refresh has succeeded since
   let consecutiveFailures = 0;
   let backoffUntil = 0;
   let refreshCount = 0;
@@ -298,18 +298,22 @@ export function createLlmProxyServer(secretText, options = {}) {
     return code.startsWith('refresh_token_') ? { code: 'refresh_token_refused', reason: 'the refresh token was refused' } : undefined;
   }
 
-  /** Tell the cell (its CLI prints this) and the sidecar log why a refresh failed. Only a known IdP
-   *  refusal is a 401 that says to sign in again; anything else keeps the 502 with a fixed cause. */
-  function failRefresh(req, res, started, error) {
+  /** What a failed refresh means for the cell. Only a known IdP refusal is a 401 that says to sign in
+   *  again; anything else keeps the 502 with a fixed cause. */
+  function refreshFailure(error) {
     const refused = error?.refused;
-    const message = refused !== undefined
-      ? `the ChatGPT sign-in was refused: ${refused.reason}. Sign in again (codex login) and re-run.`
-      : `the ChatGPT token refresh failed (${error?.safe === true ? error.message : 'unexpected error'}); retry the run`;
-    // Once per distinct failure: a cell retrying inside the backoff/cap must not grow the log.
-    if (message !== lastLoggedFailure) console.error(`llm-proxy: ERROR codex ${message}`);
-    lastLoggedFailure = message;
-    const json = JSON.stringify({ error: { code: refused?.code ?? 'refresh_failed', message } });
-    const status = refused !== undefined ? 401 : 502;
+    if (refused !== undefined) {
+      return { status: 401, code: refused.code, message: `the ChatGPT sign-in was refused: ${refused.reason}. Sign in again (codex login) and re-run.` };
+    }
+    const cause = error?.safe === true ? error.message : 'unexpected error';
+    return { status: 502, code: 'refresh_failed', message: `the ChatGPT token refresh failed (${cause}); retry the run` };
+  }
+
+  /** Tell the cell (its CLI prints this) why a refresh failed. Not logged here: only a real IdP
+   *  exchange is (refreshFromIdp), so replies replayed inside the backoff/cap cannot grow the log. */
+  function failRefresh(req, res, started, error) {
+    const { status, code, message } = refreshFailure(error);
+    const json = JSON.stringify({ error: { code, message } });
     res.writeHead(status, { 'content-type': 'application/json' });
     res.end(json);
     log(req, status, Buffer.byteLength(json), started);
@@ -410,14 +414,19 @@ export function createLlmProxyServer(secretText, options = {}) {
     pendingRefresh = doRefresh()
       .then((payload) => {
         // The host drops the failures logged before this line: the run got its token after all.
-        if (lastLoggedFailure !== undefined) console.error(REFRESH_RECOVERED);
-        lastLoggedFailure = undefined;
+        if (failureLogged) console.error(REFRESH_RECOVERED);
+        failureLogged = false;
         consecutiveFailures = 0;
         backoffUntil = 0;
         lastRefusal = undefined;
         return payload;
       })
       .catch((error) => {
+        // One line per real exchange (at most maxRefreshesPerRun): a refusal is an error, anything else
+        // may pass and is a warning.
+        const { status, message } = refreshFailure(error);
+        console.error(`${status === 401 ? REFRESH_REFUSED_PREFIX : REFRESH_FAILED_PREFIX}${message}`);
+        failureLogged = true;
         // A refused token stays refused: later calls inside the backoff/cap get this same answer.
         lastRefusal = error?.refused !== undefined ? error : undefined;
         consecutiveFailures += 1;

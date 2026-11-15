@@ -43,7 +43,11 @@ describe('reportRotation', () => {
     const { file, env } = await setup(host);
     await reportRotation(rotated, 'started-with-this', env);
     expect(await readFile(file, 'utf8')).toBe(host);
-    expect(warn.mock.calls.flat().join('\n')).toContain('left alone');
+    const out = warn.mock.calls.flat().join('\n');
+    expect(out).toContain('did not come from a local auth file');
+    // A stored credential (hub run): no path on this machine, no local sign-in advice.
+    expect(out).not.toContain(file);
+    expect(out).not.toContain('codex login');
   });
 
   it('a symlinked auth.json is resolved once: the target is updated (0600) and the link stays a link', async () => {
@@ -115,14 +119,17 @@ describe('reportRotation', () => {
     await mkdir(join(dir, 'auth.json'));
     await reportRotation(rotated, 'old-refresh', { CODEX_AUTH_FILE: join(dir, 'auth.json') });
     expect(await readdir(dir)).toEqual(['auth.json']);
-    expect(warn.mock.calls.flat().join('\n')).toContain('not a regular file');
+    expect(warn.mock.calls.flat().join('\n')).toContain('did not come from a local auth file');
   });
 
   it('reports (not throws) a missing host file and leaves no temp file', async () => {
     const warn = vi.spyOn(console, 'warn').mockImplementation(() => {});
     const dir = await mkdtemp(join(tmpdir(), 'rot-'));
     await reportRotation(rotated, 'old-refresh', { CODEX_AUTH_FILE: join(dir, 'nope.json') });
-    expect(warn.mock.calls.flat().join('\n')).toContain('Could not write');
+    const out = warn.mock.calls.flat().join('\n');
+    expect(out).toContain('save a current credential there again');
+    expect(out).not.toContain(dir);
+    expect(out).not.toContain('codex login');
     expect(await readdir(dir)).toEqual([]);
   });
 

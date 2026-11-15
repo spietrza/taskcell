@@ -6,6 +6,7 @@ import { reportRotation } from './codex-rotation.js';
 import { trackSandbox, untrackSandbox } from '../core/cleanup.js';
 import type { DockerRunner } from './sidecar.js';
 import type { ProviderProxySecrets } from '../agents/registry.js';
+import { REFRESH_FAILED_PREFIX, REFRESH_RECOVERED, REFRESH_REFUSED_PREFIX } from './llm-proxy-rewrite.mjs';
 import type { Upstream } from './llm-proxy-rewrite.mjs';
 
 export type { DockerRunner } from './sidecar.js';
@@ -125,7 +126,8 @@ export async function startLlmProxy(opts: {
       secret: { path: SECRET_FILE, body: secretBody },
       env: { LLM_PROXY_SECRET_FILE: SECRET_FILE, PORT: String(PROXY_PORT) },
       cmd: ['node', '/tmp/llm-proxy.mjs'],
-      forwardLogs: true,
+      // Only the chatgpt sidecar's log is read (at teardown); every other sidecar starts as it always did.
+      ...('kind' in auth ? { forwardLogs: true } : {}),
     });
     const docker = opts.docker ?? defaultDocker;
     // Chatgpt: before the container (and its tmpfs) is removed, relay the sidecar's errors to the host
@@ -134,27 +136,30 @@ export async function startLlmProxy(opts: {
     if ('kind' in auth) {
       const { refreshToken } = auth;
       // Tracked so SIGINT/SIGTERM runs the same teardown: a cancelled run still hands a rotation back.
-      const tracked = {
-        destroy: async (): Promise<void> => {
-          untrackSandbox(tracked);
-          try {
-            // Each step is best effort: the container holding the real credential must always be removed.
-            // Only stderr is routed to the container log (see forwardLogs), so the tail is small.
-            const logs = await docker(['logs', '--tail', '200', name]).catch(() => undefined);
-            let errors = new Set<string>();
-            for (const line of `${logs?.stdout ?? ''}\n${logs?.stderr ?? ''}`.split('\n')) {
-              // A later successful refresh makes the failures before it moot (text from llm-proxy-server.mjs).
-              if (line === 'llm-proxy: codex refresh recovered') errors = new Set();
-              else if (line.startsWith('llm-proxy: ERROR')) errors.add(line);
-            }
-            for (const line of errors) console.error(line);
-            const rotated = await docker(['exec', name, 'cat', CHATGPT_AUTH_FILE]).catch(() => undefined);
-            if (rotated?.exitCode === 0 && rotated.stdout !== '') await reportRotation(rotated.stdout, refreshToken, opts.env);
-          } finally {
-            await sidecar.destroy();
+      const teardown = async (): Promise<void> => {
+        untrackSandbox(tracked);
+        try {
+          // Each step is best effort: the container holding the real credential must always be removed.
+          // Only stderr is routed to the container log (see forwardLogs), so the tail is small.
+          const logs = await docker(['logs', '--tail', '200', name]).catch(() => undefined);
+          let lines = new Set<string>();
+          for (const line of `${logs?.stdout ?? ''}\n${logs?.stderr ?? ''}`.split('\n')) {
+            // A later successful refresh makes the failures before it moot.
+            if (line === REFRESH_RECOVERED) lines = new Set();
+            else if (line.startsWith(REFRESH_REFUSED_PREFIX) || line.startsWith(REFRESH_FAILED_PREFIX)) lines.add(line);
           }
-        },
+          // A refusal is an error; a failed exchange that may pass is a warning (the run may have succeeded).
+          for (const line of lines) (line.startsWith(REFRESH_REFUSED_PREFIX) ? console.error : console.warn)(line);
+          const rotated = await docker(['exec', name, 'cat', CHATGPT_AUTH_FILE]).catch(() => undefined);
+          if (rotated?.exitCode === 0 && rotated.stdout !== '') await reportRotation(rotated.stdout, refreshToken, opts.env);
+        } finally {
+          await sidecar.destroy();
+        }
       };
+      // Once only: a signal and the runner's `finally` can both ask; the second gets the first's promise,
+      // so nothing is reported twice and no second hand-back races the first.
+      let done: Promise<void> | undefined;
+      const tracked = { destroy: (): Promise<void> => (done ??= teardown()) };
       trackSandbox(tracked);
       destroy = tracked.destroy;
     }
