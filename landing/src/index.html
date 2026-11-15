@@ -22,6 +22,7 @@
 <link rel="apple-touch-icon" href="/apple-touch-icon.png">
 <link rel="preload" href="/fonts/schibsted-var.woff2" as="font" type="font/woff2" crossorigin>
 <link rel="preload" href="/fonts/atkinson-400.woff2" as="font" type="font/woff2" crossorigin>
+<script src="/theme.js"></script>
 <link rel="stylesheet" href="/site.css">
 <script type="module" src="/site.js"></script>
 <script type="application/ld+json">{"@context":"https://schema.org","@type":"SoftwareApplication","name":"Taskcell","url":"https://taskcell.dev/","description":"A self-hosted software factory: issues in, reviewed pull requests out, each built in a sealed Docker sandbox.","applicationCategory":"DeveloperApplication","operatingSystem":"macOS, Linux","license":"https://opensource.org/licenses/MIT","sameAs":"https://github.com/spietrza/taskcell"}</script>
@@ -33,6 +34,7 @@
   <a class="brand" href="/" aria-label="Taskcell home"><svg class="mark" viewBox="0 0 32 32" aria-hidden="true"><path class="wall" d="M2 2h28v16h-4V6H6v20h20v-4h4v8H2z"/><rect class="card" x="12" y="12" width="8" height="8"/></svg><span>Taskcell</span></a>
   <nav class="links" aria-label="Main">
     <a href="#how">How it works</a>
+    <a href="#hub">Hub</a>
     <a href="#security">Security</a>
     <a href="#self-host">Self-host</a>
     <a href="#pricing">Pricing</a>
@@ -40,6 +42,7 @@
     <a href="#faq">FAQ</a>
     <a class="btn small" href="https://github.com/spietrza/taskcell/releases/tag/desktop-latest">Download</a>
   </nav>
+  <button class="theme" id="theme" type="button" aria-label="Light theme" aria-pressed="false" hidden><svg viewBox="0 0 18 18" aria-hidden="true"><circle cx="9" cy="9" r="7" fill="none" stroke="currentColor" stroke-width="1.5"/><path d="M9 2a7 7 0 0 1 0 14z" fill="currentColor"/></svg></button>
 </header>
 
 <main id="main">
@@ -71,17 +74,79 @@
 <section class="section wrap" id="how" aria-labelledby="how-h">
   <div class="head">
     <p class="eyebrow" data-reveal>How it works</p>
-    <h2 id="how-h" data-reveal class="d1">From card to pull request</h2>
+    <h2 id="how-h" data-reveal class="d1">From label to review in five steps</h2>
   </div>
-  <p class="intro d2" data-reveal>Six stations, the same for every card. You set the trigger and you merge; Taskcell does the toil in between.</p>
-  <ol class="steps">
-    <li data-reveal class="d1"><b>Card</b><p>Label an issue on GitHub, GitLab or Linear, or move a card on a GitHub Projects board. A card too vague to build goes back as <em>needs info</em> before any model runs.</p></li>
-    <li data-reveal class="d2"><b>Spec</b><p>A planner reads the code and writes a tech spec with acceptance criteria. It is posted on the issue, and you get a window to read it before the build starts.</p></li>
-    <li data-reveal class="d3"><b>Sealed cell</b><p>The agent builds the card in a Docker container of its own: non-root, no new privileges, a minimal capability set, no repository token, one git worktree per card.</p></li>
-    <li data-reveal class="d1"><b>Gates</b><p>Your verify script runs and the host scans the diff for secrets. A red gate sends the card back for a repair, at most twice; the second can run on a stronger model.</p></li>
-    <li data-reveal class="d2"><b>Review</b><p>A reviewer reads the diff in a fresh context and fixes what it finds. Give it a second model, for example Codex reviewing Claude's work.</p></li>
-    <li data-reveal class="d3"><b>Pull request</b><p>The host pushes the branch and opens the PR: ready for review when every gate passed, a draft when one did not. On GitHub, your review comments go back for a revision. You merge.</p></li>
-  </ol>
+  <p class="intro d2" data-reveal>The same five steps for every card. You add the label and you merge; Taskcell does the toil in between.</p>
+
+  <div class="flow d2" id="flow" data-reveal>
+    <div class="flow-track" role="tablist" aria-label="The five steps">
+      <button type="button" role="tab" id="flow-t1" aria-controls="flow-p1" aria-selected="true"><i></i><span class="n">01</span><b>Label</b><small>ready for agent</small></button>
+      <button type="button" role="tab" id="flow-t2" aria-controls="flow-p2" aria-selected="false"><i></i><span class="n">02</span><b>Sealed cell</b><small>Docker, non-root</small></button>
+      <button type="button" role="tab" id="flow-t3" aria-controls="flow-p3" aria-selected="false"><i></i><span class="n">03</span><b>Gates</b><small>tests, secrets</small></button>
+      <button type="button" role="tab" id="flow-t4" aria-controls="flow-p4" aria-selected="false"><i></i><span class="n">04</span><b>Pull request</b><small>ready or draft</small></button>
+      <button type="button" role="tab" id="flow-t5" aria-controls="flow-p5" aria-selected="false"><i></i><span class="n">05</span><b>Review</b><small>a verdict</small></button>
+    </div>
+    <div class="flow-body">
+      <div class="flow-panels">
+        <div role="tabpanel" id="flow-p1" aria-labelledby="flow-t1">
+          <h3>A label starts it</h3>
+          <p>Label an issue on GitHub, GitLab or Linear, or move a card on a GitHub Projects board. A card too vague to build goes back as <em>needs info</em> before any model runs.</p>
+          <p>A planner reads the code and writes a tech spec with acceptance criteria. It is posted on the issue, and you get a window to read it before the build starts.</p>
+        </div>
+        <div role="tabpanel" id="flow-p2" aria-labelledby="flow-t2">
+          <h3>The agent builds it in a sealed cell</h3>
+          <p>The agent builds the card in a Docker container of its own: non-root, no new privileges, a minimal capability set, no repository token, one git worktree per card.</p>
+        </div>
+        <div role="tabpanel" id="flow-p3" aria-labelledby="flow-t3">
+          <h3>Your gates decide</h3>
+          <p>Your verify script runs and the host scans the diff for secrets. A red gate sends the card back for a repair, at most twice; the second can run on a stronger model.</p>
+          <p>Then a reviewer reads the diff in a fresh context and fixes what it finds.</p>
+        </div>
+        <div role="tabpanel" id="flow-p4" aria-labelledby="flow-t4">
+          <h3>The host opens the pull request</h3>
+          <p>The host pushes the branch and opens the PR: ready for review when every gate passed, a draft when one did not. The run records its tokens and its cost.</p>
+        </div>
+        <div role="tabpanel" id="flow-p5" aria-labelledby="flow-t5">
+          <h3>A second model reviews it, you merge</h3>
+          <p>A reviewer on a second model, for example Codex on Claude's work, reads the open pull request without changing it and posts a verdict: <code>taskcell review-pr</code>, or the review workflow in CI.</p>
+          <p>On GitHub, your own review comments go back for a revision. Nothing merges on its own: you merge.</p>
+        </div>
+        <button class="pause" id="flow-pause" type="button" hidden>Pause</button>
+      </div>
+      <div class="ticket" id="flow-ticket" role="img" aria-label="A sample run: issue 214 with the label ready for agent becomes pull request 215. The gates passed, the run cost 42 cents and the review verdict is no blocking findings.">
+        <div class="ticket-head"><b>acme/billing</b><span class="tag">Sample run</span></div>
+        <div data-at="1">
+          <p><span class="num">#214</span>CSV export skips credit notes</p>
+          <p class="meta"><span class="label">ready for agent</span> spec posted: 4 acceptance criteria</p>
+        </div>
+        <div data-at="2">
+          <p class="meta">Agent in a sealed cell, 11 min 40 s</p>
+<pre class="diff"><span class="f">src/export/csv.ts</span>
+<span>  const rows = invoices</span>
+<span class="d">-   .filter(i =&gt; i.type === 'invoice')</span>
+<span class="a">+   .filter(i =&gt; i.type !== 'draft')</span>
+<span class="a">+   .map(withCreditRef)</span>
+<span>    .map(toCsvRow);</span>
+<span class="f">src/export/csv.test.ts</span>
+<span class="a">+ it('exports credit notes', () =&gt; {</span>
+<span class="a">+   expect(exportCsv(invoices)).toContain('CN/7');</span>
+<span class="a">+ });</span></pre>
+        </div>
+        <dl data-at="3">
+          <dt>Verify</dt><dd>128 of 128 tests passed</dd>
+          <dt>Secret scan</dt><dd>clean</dd>
+        </dl>
+        <div data-at="4">
+          <p><span class="num">#215</span>Pull request: export with credit notes</p>
+          <p class="meta">ready for review · $0.42, 186k tokens</p>
+        </div>
+        <dl data-at="5">
+          <dt>Review</dt><dd>second model, 0 blocking, 2 non-blocking</dd>
+          <dt>Verdict</dt><dd><b>NO BLOCKING FINDINGS</b></dd>
+        </dl>
+      </div>
+    </div>
+  </div>
 </section>
 
 <section class="section wrap" id="hub" aria-labelledby="hub-h">
@@ -90,10 +155,10 @@
     <h2 id="hub-h" data-reveal class="d1">Your factory, on one screen</h2>
   </div>
   <p class="intro d2" data-reveal><code>taskcell hub</code> shows your repositories, the task board and every run with its stages, record and cost.</p>
-  <p class="preview-note d2" data-reveal>Preview with sample data. Pick a view on the left, then a run, to open its stages, log and cost.</p>
+  <p class="preview-note d2" data-reveal>Preview with sample data. Pick a view on the left, then a run, to open its stages, log and cost. Play moves the sample runs through their stages; Pause holds them.</p>
 
   <div class="hub d2" data-reveal>
-    <div class="hub-top"><b>Taskcell Hub</b><span>Sample data</span></div>
+    <div class="hub-top"><b>Taskcell Hub</b><span>Sample data</span><button class="pause" id="hub-pause" type="button" hidden>Play</button></div>
     <div class="win">
       <nav class="views" aria-label="Views of the run list">
         <button type="button" aria-pressed="true">All runs<em>13</em></button>
@@ -126,9 +191,9 @@
         </ul>
         <p class="none" id="win-empty" hidden>No runs in this view.</p>
       </div>
-      <div class="open" aria-live="polite">
+      <div class="open">
         <p class="where"><span id="run-where">acme/billing / TC-47</span><span class="tag" id="run-col">Running</span></p>
-        <h3 id="run-title">Retry webhooks with backoff</h3>
+        <h3 id="run-title" aria-live="polite">Retry webhooks with backoff</h3>
         <ol class="stages" id="run-stages">
           <li class="done"><b>Spec</b><span>done</span></li>
           <li class="now"><b>Sealed cell</b><span>running</span></li>
@@ -186,6 +251,21 @@
 <pre class="cmd"><code>taskcell run --github you/app#42 --repo ../app --provider claude --review-provider codex</code></pre>
     </div>
   </div>
+</section>
+
+<section class="section wrap" id="keys" aria-labelledby="keys-h">
+  <div class="head">
+    <p class="eyebrow" data-reveal>Your keys</p>
+    <h2 id="keys-h" data-reveal data-letters class="d1">Your keys, no margin</h2>
+  </div>
+  <p class="intro d2" data-reveal>Taskcell runs on the plan or the keys you already have, and you pay the model provider directly. Nothing is added to what the models cost.</p>
+  <ul class="pairs two">
+    <li data-reveal class="d1"><b>Claude subscription</b><span>yours</span></li>
+    <li data-reveal class="d2"><b>API key</b><span>yours</span></li>
+    <li data-reveal class="d1"><b>OpenRouter</b><span>your key</span></li>
+    <li data-reveal class="d2"><b>Codex</b><span>your account</span></li>
+  </ul>
+  <p class="plans-note" data-reveal>That is how self-hosting works today, and how the <a href="#pricing">planned hosted plans</a> are meant to work. With <code>--llm-proxy</code> the real key stays on the host and the cell gets a one-run nonce: <a href="#security">Security</a> lists the engines that covers.</p>
 </section>
 
 <section class="section wrap" id="security" aria-labelledby="sec-h">
@@ -258,7 +338,7 @@
     <li data-reveal class="d3">
       <h3>A Hub that answers only to you</h3>
       <p>It binds to 127.0.0.1 by default, rejects unknown Host headers against DNS rebinding and needs a token minted at each launch.</p>
-      <p class="scope">It has no login yet: on a server, put it behind Tailscale or an authenticating proxy.</p>
+      <p class="scope">On your own machine it has no login. Bound beyond loopback it asks for sign-in (on <code>main</code>, not in a release yet); put it behind Tailscale or an HTTPS proxy either way.</p>
     </li>
     <li data-reveal class="d1">
       <h3>Only trusted comments steer it</h3>
@@ -409,10 +489,49 @@ taskcell hub --repo ../app
     </li>
   </ul>
 
-  <p class="plans-note" data-reveal>On every hosted plan the models run on your own keys, and we add no margin to what they cost.</p>
+  <p class="plans-note" data-reveal>On every hosted plan the models run on <a href="#keys">your own keys</a>, and we add no margin to what they cost.</p>
   <div class="report pass" data-reveal>
     <p><b>7-day Solo pass, €8.</b> If you stay, the €8 is credited toward your first month.</p>
     <a class="btn ghost" href="/hosting.html?plan=pass">Request the 7-day pass</a>
+  </div>
+</section>
+
+<section class="section wrap" id="server" aria-labelledby="server-h">
+  <div class="head">
+    <p class="eyebrow" data-reveal>Dedicated server · planned</p>
+    <h2 id="server-h" data-reveal class="d1">A server of your own on every hosted plan</h2>
+  </div>
+  <p class="intro d2" data-reveal>Planned with hosting, not open yet. The factory would run on a machine you share with no other customer, and we would maintain it.</p>
+  <div class="server">
+    <div>
+      <ul class="pairs">
+        <li data-reveal class="d1"><b>Backup</b><span>daily</span></li>
+        <li data-reveal class="d2"><b>Updates</b><span>installed for you</span></li>
+        <li data-reveal class="d3"><b>Customers on the machine</b><span>one, you</span></li>
+        <li data-reveal class="d4"><b>Model keys</b><span>your own</span></li>
+      </ul>
+      <p class="plans-note" data-reveal>None of this exists yet. Today you can run the Hub on a server of your own: see <a href="#self-host">Self-host</a>.</p>
+    </div>
+    <div class="ticket d2" data-reveal role="img" aria-label="A sample of the planned server panel: one customer, a backup every day at 03:00, your own model keys, and a maintenance log of daily backups and two factory updates.">
+      <div class="ticket-head"><b>Dedicated server</b><span class="tag">Sample · planned</span></div>
+      <dl>
+        <dt>Customer</dt><dd>one, you</dd>
+        <dt>Backup</dt><dd>daily at 03:00</dd>
+        <dt>Model keys</dt><dd>your own</dd>
+      </dl>
+      <p class="meta strip">Maintenance log</p>
+      <ul class="maint">
+        <li class="new"><span>Day 14</span><span>03:00</span><span>Daily backup done</span></li>
+        <li><span>Day 13</span><span>03:00</span><span>Daily backup done</span></li>
+        <li><span>Day 12</span><span>21:40</span><span>Factory update installed</span></li>
+        <li><span>Day 12</span><span>03:00</span><span>Daily backup done</span></li>
+        <li><span>Day 11</span><span>03:00</span><span>Daily backup done</span></li>
+        <li><span>Day 10</span><span>03:00</span><span>Daily backup done</span></li>
+        <li><span>Day 9</span><span>03:00</span><span>Daily backup done</span></li>
+        <li><span>Day 8</span><span>22:15</span><span>Factory update installed</span></li>
+        <li><span>Day 8</span><span>03:00</span><span>Daily backup done</span></li>
+      </ul>
+    </div>
   </div>
 </section>
 
@@ -423,6 +542,12 @@ taskcell hub --repo ../app
   </div>
   <p class="intro d2" data-reveal>Seven questions, one per screen. Your answers stay in this browser, and you see the result right away.</p>
 
+  <ul class="pairs holds" id="quiz-holds" aria-label="What the result holds">
+    <li><b>Readiness</b><span>one of three levels</span></li>
+    <li><b>Fix first</b><span>a line per problem</span></li>
+    <li><b>The plan that fits</b><span>with its planned price</span></li>
+    <li><b>What you get</b><span>3 or 4 points</span></li>
+  </ul>
   <p class="plans-note" id="quiz-nojs">This check runs in your browser and needs JavaScript.</p>
   <form class="quiz d2" id="quiz" novalidate hidden data-reveal>
     <div class="quiz-meter" id="quiz-meter">
@@ -567,13 +692,24 @@ taskcell hub --repo ../app
 <section class="section end wrap" aria-labelledby="end-h">
   <h2 class="sr" id="end-h">Get Taskcell</h2>
   <p class="big" data-reveal>Put one card through it this week.</p>
-  <a class="btn d1" href="https://github.com/spietrza/taskcell" data-reveal>Get it on GitHub</a>
-  <p class="small d2" data-reveal>Open source, MIT.</p>
+  <div class="end-cta d1" data-reveal>
+    <a class="btn" href="https://github.com/spietrza/taskcell">Get it on GitHub</a>
+    <a class="btn ghost" href="#ready">Check your repository</a>
+  </div>
+  <p class="small d2" data-reveal>Open source, MIT. The check is seven questions, and the result is on the page right away.</p>
 </section>
 </main>
 
 <footer class="foot">
   <p class="name" aria-hidden="true"><svg class="mark" viewBox="0 0 32 32"><path class="wall" d="M2 2h28v16h-4V6H6v20h20v-4h4v8H2z"/><rect class="card" x="12" y="12" width="8" height="8"/></svg>Taskcell</p>
+  <nav aria-label="On this page">
+    <a href="#how">How it works</a>
+    <a href="#hub">Hub</a>
+    <a href="#keys">Your keys</a>
+    <a href="#pricing">Pricing</a>
+    <a href="#server">Server</a>
+    <a href="#ready">Readiness check</a>
+  </nav>
   <nav aria-label="Footer">
     <a href="https://github.com/spietrza/taskcell">GitHub</a>
     <a href="https://github.com/spietrza/taskcell#readme">Documentation</a>
