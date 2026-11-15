@@ -12,6 +12,7 @@
   <a href="LICENSE"><img src="https://img.shields.io/badge/license-MIT-8B5CF6.svg" alt="License: MIT"></a>
   <a href="https://www.bestpractices.dev/projects/16734"><img src="https://www.bestpractices.dev/projects/16734/badge" alt="OpenSSF Best Practices"></a>
   <a href="https://scorecard.dev/viewer/?uri=github.com/spietrza/taskcell"><img src="https://api.scorecard.dev/projects/github.com/spietrza/taskcell/badge" alt="OpenSSF Scorecard"></a>
+  <a href="https://developer.mozilla.org/en-US/observatory/analyze?host=taskcell.dev"><img src="https://img.shields.io/mozilla-observatory/grade/taskcell.dev" alt="Mozilla HTTP Observatory grade for taskcell.dev"></a>
   <img src="https://img.shields.io/badge/node-%E2%89%A5%2024-22D3EE" alt="Node >= 24">
   <img src="https://img.shields.io/badge/TypeScript-strict-3178C6" alt="TypeScript">
   <img src="https://img.shields.io/badge/built%20with-Claude%20Agent%20SDK-D97757" alt="Claude Agent SDK">
