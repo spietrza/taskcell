@@ -26,3 +26,5 @@ taskcell review-pr OWNER/REPO#PR --repo /path/to/clone --provider codex --llm-pr
 ## Recorded run
 
 None yet. No run with a real ChatGPT-plan credential has been made for this document; the behaviour above is covered by tests against a fake IdP and a fake Docker runner, and the log routing was checked once in a real `taskcell-sandbox:latest` container without credentials. When you run the steps, record here: date, Taskcell version, PR reviewed, whether a rotation occurred, and the outcome.
+
+<!-- smoke test target for #1028; close without merging -->
