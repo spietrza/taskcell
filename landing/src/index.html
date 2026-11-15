@@ -6,6 +6,9 @@
 <title>Taskcell: a self-hosted software factory</title>
 <meta name="description" content="Taskcell turns issues into pull requests on your own machine. Every card is built in a sealed Docker cell, has to pass your gates and a review, and lands as a PR. You merge. Open source, MIT.">
 <link rel="canonical" href="https://taskcell.dev/">
+<link rel="alternate" hreflang="en" href="https://taskcell.dev/">
+<link rel="alternate" hreflang="pl" href="https://taskcell.dev/pl/">
+<link rel="alternate" hreflang="x-default" href="https://taskcell.dev/">
 <meta name="theme-color" content="#0d1013">
 <meta property="og:type" content="website">
 <meta property="og:site_name" content="Taskcell">
@@ -42,6 +45,7 @@
     <a href="#faq">FAQ</a>
     <a class="btn small" href="https://github.com/spietrza/taskcell/releases/tag/desktop-latest">Download</a>
   </nav>
+  <nav class="langs" aria-label="Language"><a href="/" hreflang="en" lang="en" aria-current="page">EN</a><a href="/pl/" hreflang="pl" lang="pl">PL</a></nav>
   <button class="theme" id="theme" type="button" aria-label="Light theme" aria-pressed="false" hidden><svg viewBox="0 0 18 18" aria-hidden="true"><circle cx="9" cy="9" r="7" fill="none" stroke="currentColor" stroke-width="1.5"/><path d="M9 2a7 7 0 0 1 0 14z" fill="currentColor"/></svg></button>
 </header>
 
@@ -195,16 +199,16 @@
         <p class="where"><span id="run-where">acme/billing / TC-47</span><span class="tag" id="run-col">Running</span></p>
         <h3 id="run-title" aria-live="polite">Retry webhooks with backoff</h3>
         <ol class="stages" id="run-stages">
-          <li class="done"><b>Spec</b><span>done</span></li>
-          <li class="now"><b>Sealed cell</b><span>running</span></li>
-          <li><b>Gates</b><span>waiting</span></li>
-          <li><b>Review</b><span>waiting</span></li>
-          <li><b>Pull request</b><span>waiting</span></li>
+          <li class="done"><svg class="mk" viewBox="0 0 16 16" aria-hidden="true"><circle cx="8" cy="8" r="6.25"/><path class="tick" d="m5.2 8.3 2 2 3.8-4.2"/><path class="arc" d="M8 1.75A6.25 6.25 0 0 1 14.25 8"/></svg><b>Spec</b><span>1m 35s</span></li>
+          <li class="now"><svg class="mk" viewBox="0 0 16 16" aria-hidden="true"><circle cx="8" cy="8" r="6.25"/><path class="tick" d="m5.2 8.3 2 2 3.8-4.2"/><path class="arc" d="M8 1.75A6.25 6.25 0 0 1 14.25 8"/></svg><b>Sealed cell</b><span>1m 46s</span></li>
+          <li><svg class="mk" viewBox="0 0 16 16" aria-hidden="true"><circle cx="8" cy="8" r="6.25"/><path class="tick" d="m5.2 8.3 2 2 3.8-4.2"/><path class="arc" d="M8 1.75A6.25 6.25 0 0 1 14.25 8"/></svg><b>Gates</b><span>waiting</span></li>
+          <li><svg class="mk" viewBox="0 0 16 16" aria-hidden="true"><circle cx="8" cy="8" r="6.25"/><path class="tick" d="m5.2 8.3 2 2 3.8-4.2"/><path class="arc" d="M8 1.75A6.25 6.25 0 0 1 14.25 8"/></svg><b>Review</b><span>waiting</span></li>
+          <li><svg class="mk" viewBox="0 0 16 16" aria-hidden="true"><circle cx="8" cy="8" r="6.25"/><path class="tick" d="m5.2 8.3 2 2 3.8-4.2"/><path class="arc" d="M8 1.75A6.25 6.25 0 0 1 14.25 8"/></svg><b>Pull request</b><span>waiting</span></li>
         </ol>
         <ul class="log" id="run-log">
+          <li>planner read the code</li>
           <li>spec posted on the issue: 4 acceptance criteria</li>
           <li>cell started: non-root, no repository token</li>
-          <li>agent is editing src/webhooks/retry.ts</li>
         </ul>
         <p class="spend" id="run-cost">No cost record yet: the run is still going.</p>
       </div>
@@ -260,10 +264,12 @@
   </div>
   <p class="intro d2" data-reveal>Taskcell runs on the plan or the keys you already have, and you pay the model provider directly. Nothing is added to what the models cost.</p>
   <ul class="pairs two">
-    <li data-reveal class="d1"><b>Claude subscription</b><span>yours</span></li>
-    <li data-reveal class="d2"><b>API key</b><span>yours</span></li>
-    <li data-reveal class="d1"><b>OpenRouter</b><span>your key</span></li>
-    <li data-reveal class="d2"><b>Codex</b><span>your account</span></li>
+    <li data-reveal class="d1"><b>Claude subscription<small>Claude Code on the plan you already pay for</small></b><span>yours</span></li>
+    <li data-reveal class="d2"><b>API key<small>Anthropic or OpenAI, billed per token</small></b><span>yours</span></li>
+    <li data-reveal class="d1"><b>OpenRouter<small>DeepSeek, GLM, Kimi and about 380 more models</small></b><span>your key</span></li>
+    <li data-reveal class="d2"><b>Codex<small>A ChatGPT plan or an OpenAI key</small></b><span>your account</span></li>
+    <li data-reveal class="d1"><b>Cursor<small>Auto modes, or Claude, GPT and Composer by Cursor id</small></b><span>your key</span></li>
+    <li data-reveal class="d2"><b>z.ai GLM Coding Plan<small>GLM models at a flat monthly rate</small></b><span>your key</span></li>
   </ul>
   <p class="plans-note" data-reveal>That is how self-hosting works today, and how the <a href="#pricing">planned hosted plans</a> are meant to work. With <code>--llm-proxy</code> the real key stays on the host and the cell gets a one-run nonce: <a href="#security">Security</a> lists the engines that covers.</p>
 </section>

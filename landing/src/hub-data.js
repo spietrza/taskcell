@@ -69,10 +69,10 @@ const stageLines = (r) => [
   [`review (${r.rev}): reading the diff in a fresh context`, r.found ? `review (${r.rev}): ${r.found} finding${r.found > 1 ? 's' : ''} fixed` : `review (${r.rev}): no findings`],
   ['host pushed the branch', `PR #${r.pr} opened, ${r.merged ? 'merged by a person' : 'ready for review'}`],
 ];
-/** The last lines of a run's log at its current progress. */
+/** A run's log at its current progress, every stage's lines so far (at most 12). */
 export function log(r) {
   if (r.p < 0) return ['No run yet. The card is waiting for the factory.'];
   const lines = stageLines(r).flatMap((ls, i) => ls.slice(0, Math.ceil(share(r, i) * ls.length)));
   if (r.hold) lines.push('the build starts when the reading window ends');
-  return lines.slice(-5);
+  return lines;
 }

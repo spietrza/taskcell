@@ -1,4 +1,5 @@
-// Checks the readiness quiz's rules: node quiz-check.mjs (no dependencies, no browser).
+// Checks the readiness quiz's rules: node quiz-check.mjs (no dependencies, no browser). Run node build.mjs first:
+// the Polish copy it writes to dist/pl/ is checked too.
 import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
 import { PASS, PRICES, YEARLY, euro } from './src/prices.js';
@@ -75,5 +76,31 @@ for (const [id, name] of [['solo', 'Solo'], ['team', 'Team'], ['pro', 'Pro']]) {
 }
 assert.ok(request.includes(`7-day Solo pass, ${euro(PASS)}</option>`), 'pass option in hosting/index.html');
 assert.ok(llms.includes(`7-day Solo pass (EUR ${PASS})`), 'pass in llms.txt');
+
+// Polish: dist/pl/quiz.js is the same rules with Polish text, and its prices read "14 €" and "11,20 €".
+const pl = await import('./dist/pl/quiz.js');
+const plEuro = (await import('./dist/pl/prices.js')).euro;
+assert.equal(plEuro(14), '14\u00a0€'); // a non-breaking space: the amount and the sign stay on one line
+assert.equal(plEuro(11.2), '11,20\u00a0€');
+const LEVEL = { Ready: 'Gotowe', 'Almost ready': 'Prawie gotowe', 'Foundations first': 'Najpierw podstawy' };
+for (const host of ['github', 'other'])
+  for (const tests of ['always', 'sometimes', 'none'])
+    for (const team of ['1', '2-5', '6-10', 'more'])
+      for (const models of [[], ['codex'], ['claude']]) {
+        const a = { ...base, host, tests, team, models };
+        const [en, p] = [evaluate(a), pl.evaluate(a)];
+        assert.equal(p.level, LEVEL[en.level], `${host}/${tests}/${team}: level`);
+        assert.deepEqual([p.fixes.length, p.promises.length, p.plan.id, !p.alt], [en.fixes.length, en.promises.length, en.plan.id, !en.alt]);
+      }
+assert.equal(pl.evaluate(base).plan.name, 'Team, 39\u00a0€ miesięcznie');
+assert.match(pl.evaluate(base).plan.note, /31,20\u00a0€ miesięcznie przy płatności rocznej/);
+assert.match(pl.evaluate({ ...base, tests: 'sometimes' }).alt, /dostęp Solo za 8\u00a0€/);
+const [plHome, plRequest] = ['dist/pl/index.html', 'dist/pl/hosting/index.html'].map((f) => readFileSync(new URL(`./${f}`, import.meta.url), 'utf8'));
+const plTyped = [...plHome.matchAll(/data-price="(\d+)"><span>(\d+) €<\/span>/g)].map((m) => [Number(m[1]), Number(m[2])]);
+assert.deepEqual(plTyped, Object.values(PRICES).map((n) => [n, n]), 'plan cards in pl/index.html');
+assert.ok(plHome.includes(`od ${plEuro(PRICES.solo)} miesięcznie`), 'hero line in pl/index.html');
+assert.ok(plHome.includes(`dostęp Solo, ${plEuro(PASS)}.</b> Jeśli zostaniesz, ${plEuro(PASS)} zaliczymy`), 'pass in pl/index.html');
+for (const [id, name] of [['solo', 'Solo'], ['team', 'Team'], ['pro', 'Pro']])
+  assert.ok(plRequest.includes(`<option value="${id}">${name}, ${plEuro(PRICES[id])} miesięcznie`), `${name} option in pl/hosting/index.html`);
 
 console.log('quiz rules and prices ok');
