@@ -139,7 +139,7 @@ export interface RepoSkill {
   name: string;
   /** Git URL it is pinned to; '-' for a local skill. */
   source: string;
-  /** Short pinned commit; '-' when none. */
+  /** Short pinned commit; empty when none. */
   commit: string;
   /** Lock status: pinned, locally modified, or not in the lock. */
   status: 'pinned' | 'local' | 'modified';

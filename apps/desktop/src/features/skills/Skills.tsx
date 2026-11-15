@@ -11,7 +11,7 @@ const webUrl = (u: string): string | undefined => (/^https?:\/\//i.test(u) ? u :
 
 const pct = (v: number | undefined): string => (v === undefined ? '-' : `${(v * 100).toFixed(0)}%`);
 
-/** A skill needs an update PR when upstream moved or it was edited away from its pin. */
+/** A skill needs an update PR when its upstream moved. */
 export const isOutdated = (s: RepoSkill): boolean => s.check === 'outdated';
 
 /** A pull request a skills action opened, or why it did not. */
@@ -62,7 +62,7 @@ export function Skills({ project }: { project: string }) {
           Refresh
         </Button>
       </div>
-      <p className="text-xs text-muted-foreground">Every change here opens a pull request; nothing is written to the default branch.</p>
+      <p className="text-xs text-muted-foreground">Shows the hub checkout's working tree; every change here opens a pull request off the default branch, which can differ.</p>
       <div className="flex flex-wrap items-center gap-2">
         <Input aria-label="Skill source" placeholder="https://github.com/org/skill-repo" value={source} onChange={(e) => setSource(e.target.value)} className="max-w-md" />
         <Button variant="outlined" disabled={busy !== null || source.trim() === ''} onClick={() => void run('add', () => addSkillPr(project, source.trim()))}>
@@ -112,7 +112,7 @@ export function Skills({ project }: { project: string }) {
                   <Table.Cell className="tabular-nums">{s.usage?.avgCostUsd.toFixed(4) ?? '-'}</Table.Cell>
                   <Table.Cell>
                     <div className="flex flex-wrap items-center gap-2">
-                      {s.status !== 'local' && (
+                      {isOutdated(s) && (
                         <Button variant="outlined" disabled={busy !== null} onClick={() => void run(`update:${s.name}`, () => updateSkillPr(project, s.name))}>
                           {busy === `update:${s.name}` ? 'Opening…' : 'Open update PR'}
                         </Button>
