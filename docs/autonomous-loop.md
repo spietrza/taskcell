@@ -264,7 +264,7 @@ gh secret set CODEX_AUTH_JSON --repo OWNER/REPO < ~/.codex/auth.json
 
 `llm-proxy` now covers a subscription too: a ChatGPT sidecar holds the real `auth.json` on the host and the sandbox gets only a placeholder one pointed at it (see [Host LLM proxy](security/boundaries.md#host-llm-proxy)). Turning it on keeps both the Claude token and the ChatGPT credential out of the sandbox; leaving it off puts both in the sandbox directly — acceptable on a repo you own.
 
-One CI caveat: the stored `CODEX_AUTH_JSON` is a snapshot. Codex refreshes the short-lived access token from the embedded `refresh_token` on each run, so the secret must carry a live refresh token; re-run `gh secret set` if a run ever fails to authenticate. For long-running hosts (a `taskcell watch` on a server) the local file refreshes itself and this does not come up.
+One CI caveat: the stored `CODEX_AUTH_JSON` is a snapshot. Codex refreshes the short-lived access token from the embedded `refresh_token` on each run, so the secret must carry a live refresh token; re-run `gh secret set` if a run ever fails to authenticate. For long-running hosts (a `taskcell watch` on a server) the local file refreshes itself and this does not come up. Under `--llm-proxy` the run says so itself: after a rotation the log and the job summary carry `The stored CODEX_AUTH_JSON secret is now stale`, and a dead token ends the run with `the ChatGPT sign-in was refused … Sign in again (codex login)` (see [Providers](cli.md#providers)).
 
 ## Approver (shadow mode)
 

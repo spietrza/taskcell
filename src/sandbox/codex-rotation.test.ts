@@ -46,23 +46,50 @@ describe('reportRotation', () => {
     expect(warn.mock.calls.flat().join('\n')).toContain('left alone');
   });
 
-  it('never writes through a symlinked auth.json: neither the link nor its target changes', async () => {
+  it('a symlinked auth.json is resolved once: the target is updated (0600) and the link stays a link', async () => {
     const warn = vi.spyOn(console, 'warn').mockImplementation(() => {});
     const { dir, file } = await setup(host);
     await mkdir(join(dir, 'link'));
     const link = join(dir, 'link', 'auth.json');
     await symlink(file, link);
     await reportRotation(rotated, 'old-refresh', { CODEX_AUTH_FILE: link });
-    expect(await readFile(file, 'utf8')).toBe(host);
+    expect(await readFile(file, 'utf8')).toContain('new-refresh');
+    expect((await stat(file)).mode & 0o777).toBe(0o600);
     expect((await lstat(link)).isSymbolicLink()).toBe(true);
     expect(await readdir(join(dir, 'link'))).toEqual(['auth.json']);
-    expect(warn.mock.calls.flat().join('\n')).toContain('not written through');
+    expect((await readdir(dir)).sort()).toEqual(['auth.json', 'link']);
+    expect(warn.mock.calls.flat().join('\n')).toContain('written back');
+  });
+
+  it('a symlink to a file holding another token is left alone, like a regular file', async () => {
+    vi.spyOn(console, 'warn').mockImplementation(() => {});
+    const { dir, file } = await setup(host);
+    const link = join(dir, 'link.json');
+    await symlink(file, link);
+    await reportRotation(rotated, 'started-with-this', { CODEX_AUTH_FILE: link });
+    expect(await readFile(file, 'utf8')).toBe(host);
+  });
+
+  it('updates a CODEX_AUTH_JSON held by this process, so its later runs are not refused; another token is left alone', async () => {
+    const warn = vi.spyOn(console, 'warn').mockImplementation(() => {});
+    const { file } = await setup(host);
+    const env: NodeJS.ProcessEnv = { CODEX_AUTH_FILE: file, CODEX_AUTH_JSON: host };
+    await reportRotation(rotated, 'old-refresh', env);
+    const held = JSON.parse(env.CODEX_AUTH_JSON!) as { OPENAI_API_KEY: string; tokens: Record<string, string> };
+    expect(held.OPENAI_API_KEY).toBe('sk-keep');
+    expect(held.tokens).toEqual({ id_token: 'real-id', access_token: 'new-access', refresh_token: 'new-refresh' });
+    expect(warn.mock.calls.flat().join('\n')).toContain('Later runs of this process');
+
+    const other: NodeJS.ProcessEnv = { CODEX_AUTH_FILE: file, CODEX_AUTH_JSON: host };
+    await reportRotation(rotated, 'started-with-this', other);
+    expect(other.CODEX_AUTH_JSON).toBe(host);
   });
 
   it('the written file is 0600 even when the original was world-readable and the umask is permissive', async () => {
     vi.spyOn(console, 'warn').mockImplementation(() => {});
     const { file, env } = await setup(host);
     await chmod(file, 0o644);
+    // process.umask(mask) throws in worker threads: this needs Vitest's forks pool (the default here).
     const prev = process.umask(0);
     try {
       await reportRotation(rotated, 'old-refresh', env);

@@ -5,6 +5,7 @@ import { join } from 'node:path';
 import { startLlmProxy, startProviderProxies } from './llm-proxy.js';
 import { llmProxySandboxEnv } from './egress-proxy.js';
 import { providerSecrets } from '../agents/registry.js';
+import { destroyAllTracked } from '../core/cleanup.js';
 import { SandboxError } from '../core/errors.js';
 
 const ENV_VAR = 'TASKCELL_SANDBOX_IMAGE';
@@ -303,11 +304,69 @@ describe('startProviderProxies', () => {
       }
     });
 
-    it('still tears the container down when docker logs throws', async () => {
-      const d = dockerWith('', true);
-      const proxies = await startProviderProxies({ proxySecrets: { codexChatgpt: REAL_CHATGPT_AUTH }, network: 'n', docker: d.run });
-      await proxies.destroy();
+    it('still hands back and tears the container down when docker logs throws', async () => {
+      const warn = vi.spyOn(console, 'warn').mockImplementation(() => {});
+      try {
+        const d = dockerWith('', true);
+        const env: NodeJS.ProcessEnv = { CODEX_AUTH_FILE: join(await mkdtemp(join(tmpdir(), 'rot-')), 'none.json') };
+        const proxies = await startProviderProxies({ proxySecrets: { codexChatgpt: REAL_CHATGPT_AUTH }, network: 'n', docker: d.run, env });
+        await proxies.destroy();
+        expect(d.calls.some((c) => c.args[0] === 'rm')).toBe(true);
+        expect(warn.mock.calls.flat().join('\n')).toContain('rotated');
+      } finally {
+        warn.mockRestore();
+      }
+    });
+
+    it('removes the container even when the hand-back step throws', async () => {
+      const d = dockerWith('');
+      const env = new Proxy({}, { get: () => { throw new Error('boom'); } }) as NodeJS.ProcessEnv;
+      const proxies = await startProviderProxies({ proxySecrets: { codexChatgpt: REAL_CHATGPT_AUTH }, network: 'n', docker: d.run, env });
+      await expect(proxies.destroy()).rejects.toThrow('boom');
       expect(d.calls.some((c) => c.args[0] === 'rm')).toBe(true);
+    });
+
+    it('relays each distinct ERROR once, drops the ones a later refresh recovered from, and reads only the log tail', async () => {
+      const error = vi.spyOn(console, 'error').mockImplementation(() => {});
+      try {
+        const d = dockerWith(['llm-proxy: ERROR codex A', 'llm-proxy: codex refresh recovered', 'llm-proxy: ERROR codex B', 'llm-proxy: ERROR codex B'].join('\n'));
+        const proxy = await startLlmProxy({ network: 'n', auth: { kind: 'chatgpt', ...REAL_CHATGPT_AUTH }, upstream: 'chatgpt', docker: d.run, env: { CI: '1' } });
+        vi.spyOn(console, 'warn').mockImplementation(() => {});
+        await proxy.destroy();
+        expect(error.mock.calls.flat()).toEqual(['llm-proxy: ERROR codex B']);
+        expect(d.calls.find((c) => c.args[0] === 'logs')!.args).toEqual(['logs', '--tail', '200', proxy.host]);
+      } finally {
+        vi.restoreAllMocks();
+      }
+    });
+
+    it('a termination signal runs the same teardown: the proxy is tracked until destroyed', async () => {
+      vi.spyOn(console, 'warn').mockImplementation(() => {});
+      try {
+        const d = dockerWith('');
+        await startLlmProxy({ network: 'n', auth: { kind: 'chatgpt', ...REAL_CHATGPT_AUTH }, upstream: 'chatgpt', docker: d.run, env: { CI: '1' } });
+        expect(await destroyAllTracked()).toBe(1);
+        expect(d.calls.some((c) => c.args.includes('cat'))).toBe(true);
+        expect(d.calls.at(-1)!.args[0]).toBe('rm');
+        expect(await destroyAllTracked()).toBe(0);
+      } finally {
+        vi.restoreAllMocks();
+      }
+    });
+
+    it('a failed cat (non-zero or empty) at teardown reports nothing and still removes the container', async () => {
+      const warn = vi.spyOn(console, 'warn').mockImplementation(() => {});
+      try {
+        const d = fakeDocker();
+        const base = d.run;
+        d.run = async (args, opts) => ({ ...(await base(args, opts)), ...(args.includes('cat') ? { exitCode: 1, stdout: 'x' } : {}) });
+        const proxy = await startLlmProxy({ network: 'n', auth: { kind: 'chatgpt', ...REAL_CHATGPT_AUTH }, upstream: 'chatgpt', docker: d.run, env: {} });
+        await proxy.destroy();
+        expect(warn).not.toHaveBeenCalled();
+        expect(d.calls.at(-1)!.args[0]).toBe('rm');
+      } finally {
+        warn.mockRestore();
+      }
     });
 
     it('non-chatgpt sidecars do no log relay or credential read at teardown', async () => {

@@ -19,13 +19,10 @@ taskcell review-pr OWNER/REPO#PR --repo /path/to/clone --provider codex --llm-pr
 
 - The review stage completes and a review is posted.
 - `docker inspect` of the `vg-llm-*` sidecar shows no token; the sandbox's `~/.codex/auth.json` holds only placeholders.
-- If the IdP rotated the refresh token, the run log prints `taskcell: the Codex (ChatGPT) refresh token was rotated during this run.` followed by `The rotated tokens were written back to …/auth.json`; only `access_token`, `refresh_token` and `last_refresh` change in `~/.codex/auth.json`, which stays mode 0600. A symlinked `auth.json` is not written through: the log says so and asks for a fresh `codex login`.
-- A refused refresh ("refresh token was already used") ends the run with `the ChatGPT sign-in was refused: … Sign in again (codex login) and re-run.`
+- If the IdP rotated the refresh token, the run log prints `taskcell: the Codex (ChatGPT) refresh token was rotated during this run.` followed by `The rotated tokens were written back to …/auth.json`; only `access_token`, `refresh_token` and `last_refresh` change in `~/.codex/auth.json`, which stays mode 0600 (a symlinked `auth.json` stays a link; its target is updated).
+- A refused refresh ends the run with `llm-proxy: ERROR codex the ChatGPT sign-in was refused: the refresh token was already used (another run or a newer sign-in rotated it). Sign in again (codex login) and re-run.` To provoke one, start a second run with the `CODEX_AUTH_JSON` exported before the first run rotated the token.
+- `docker logs vg-llm-*` during the run shows only the sidecar's warnings and errors, no per-request lines.
 
 ## Recorded run
 
-**Not yet recorded.** The change that added rotation reporting was developed in an environment with no Docker daemon and no ChatGPT-plan credential, so no live run could be made. A maintainer with both should run the steps above and fill in: date, Taskcell version, PR reviewed, whether a rotation occurred, and the outcome.
-
-| Date | Version | PR | Rotation seen | Result |
-| --- | --- | --- | --- | --- |
-| _pending_ | | | | |
+None yet. No run with a real ChatGPT-plan credential has been made for this document; the behaviour above is covered by tests against a fake IdP and a fake Docker runner, and the log routing was checked once in a real `taskcell-sandbox:latest` container without credentials. When you run the steps, record here: date, Taskcell version, PR reviewed, whether a rotation occurred, and the outcome.

@@ -517,28 +517,91 @@ describe('llm-proxy-server chatgpt auth kind (in-process factory, fake IdP/upstr
     expect(idp.refreshCalls()).toBe(1);
   });
 
-  it('a refused refresh answers 401 naming the IdP reason and telling the user to sign in again', async () => {
+  it('a refused refresh answers 401 naming the cause in our own words and telling the user to sign in again', async () => {
     const idp = await bootIdp({
       refreshStatus: 401,
-      refreshBody: () => JSON.stringify({ error: { code: 'refresh_token_reused', message: 'Your refresh token was already used.' } }),
+      refreshBody: () => JSON.stringify({ error: { code: 'refresh_token_reused', message: 'IDP-FREE-TEXT with a token in it' } }),
     });
+    const { port, refreshPlaceholder } = await bootChatgpt({ idpPort: idp.port });
+    const err = vi.spyOn(console, 'error').mockImplementation(() => {});
+    try {
+      const res = await postRefresh(port, refreshPlaceholder);
+      expect(res.status).toBe(401);
+      const message = (JSON.parse(res.text) as { error: { message: string } }).error.message;
+      expect(message).toContain('refresh token was already used');
+      expect(message).toContain('Sign in again');
+      // Nothing the IdP wrote is relayed, to the cell or to the log.
+      expect(res.text).not.toContain('IDP-FREE-TEXT');
+      expect(err.mock.calls.flat().join('\n')).not.toContain('IDP-FREE-TEXT');
+    } finally {
+      err.mockRestore();
+    }
+  });
+
+  it('keeps a known IdP error code, replays the refusal (401) while backing off, and logs it once', async () => {
+    const idp = await bootIdp({ refreshStatus: 400, refreshBody: () => JSON.stringify({ error: { code: 'refresh_token_reused', message: 'used' } }) });
+    const { port, refreshPlaceholder } = await bootChatgpt({ idpPort: idp.port });
+    const err = vi.spyOn(console, 'error').mockImplementation(() => {});
+    try {
+      for (let i = 0; i < 3; i++) {
+        const res = await postRefresh(port, refreshPlaceholder);
+        expect(res.status).toBe(401);
+        expect((JSON.parse(res.text) as { error: { code: string } }).error.code).toBe('refresh_token_reused');
+      }
+      expect(idp.refreshCalls()).toBe(1);
+      expect(err.mock.calls.flat().filter((l) => String(l).startsWith('llm-proxy: ERROR'))).toHaveLength(1);
+    } finally {
+      err.mockRestore();
+    }
+  });
+
+  it.each([
+    ['the OAuth string form', JSON.stringify({ error: 'invalid_grant', error_description: 'x' }), 'invalid_grant'],
+    ['an unknown refresh_token_* code', JSON.stringify({ error: { code: 'refresh_token_SOMETHING-new' } }), 'refresh_token_refused'],
+  ])('a refusal in %s is a 401 with a fixed code', async (_name, body, code) => {
+    const idp = await bootIdp({ refreshStatus: 400, refreshBody: () => body });
     const { port, refreshPlaceholder } = await bootChatgpt({ idpPort: idp.port });
     const res = await postRefresh(port, refreshPlaceholder);
     expect(res.status).toBe(401);
-    const message = (JSON.parse(res.text) as { error: { message: string } }).error.message;
-    expect(message).toContain('refresh token was already used');
-    expect(message).toContain('Sign in again');
+    expect((JSON.parse(res.text) as { error: { code: string } }).error.code).toBe(code);
+    expect(res.text).not.toContain('SOMETHING-new');
   });
 
-  it('keeps the IdP error code, and replays the refusal (401) while backing off', async () => {
-    const idp = await bootIdp({ refreshStatus: 400, refreshBody: () => JSON.stringify({ error: { code: 'refresh_token_reused', message: 'used' } }) });
+  it.each([
+    [403, '<html>Attention Required! | WAF</html>'],
+    [403, ''],
+    [400, JSON.stringify({ error: { code: 'invalid_request', message: 'bad client' } })],
+    [401, JSON.stringify({ error: { message: 'no code here' } })],
+  ])('a %i that is not a known OAuth refusal (%s) stays a 502 and does not say to sign in again', async (status, body) => {
+    const idp = await bootIdp({ refreshStatus: status, refreshBody: () => body });
     const { port, refreshPlaceholder } = await bootChatgpt({ idpPort: idp.port });
-    for (let i = 0; i < 2; i++) {
-      const res = await postRefresh(port, refreshPlaceholder);
-      expect(res.status).toBe(401);
-      expect((JSON.parse(res.text) as { error: { code: string } }).error.code).toBe('refresh_token_reused');
+    const res = await postRefresh(port, refreshPlaceholder);
+    expect(res.status).toBe(502);
+    expect(res.text).not.toContain('Sign in again');
+    expect(res.text).toContain(`HTTP ${status}`);
+  });
+
+  it('names an unreachable IdP as the cause of a failed refresh', async () => {
+    const { port, refreshPlaceholder } = await bootChatgpt({ idpPort: 1 }); // nothing listens on port 1
+    const res = await postRefresh(port, refreshPlaceholder);
+    expect(res.status).toBe(502);
+    expect(res.text).toContain('could not be reached');
+    expect(res.text).not.toContain('Sign in again');
+  });
+
+  it('logs a recovery line when a refresh succeeds after a logged failure', async () => {
+    const behavior = { refreshStatus: 503 };
+    const idp = await bootIdp(behavior);
+    const { port, refreshPlaceholder } = await bootChatgpt({ idpPort: idp.port, refreshBackoffBaseMs: 0 });
+    const err = vi.spyOn(console, 'error').mockImplementation(() => {});
+    try {
+      expect((await postRefresh(port, refreshPlaceholder)).status).toBe(502);
+      behavior.refreshStatus = 200;
+      expect((await postRefresh(port, refreshPlaceholder)).status).toBe(200);
+      expect(err.mock.calls.flat().map(String)).toEqual([expect.stringContaining('llm-proxy: ERROR codex'), 'llm-proxy: codex refresh recovered']);
+    } finally {
+      err.mockRestore();
     }
-    expect(idp.refreshCalls()).toBe(1);
   });
 
   it.each([429, 408, 503])('a transient IdP %i stays a 502 and does not say to sign in again', async (status) => {
