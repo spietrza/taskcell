@@ -218,7 +218,7 @@ describe('re-review hardening', () => {
     try {
       const service = createCredentialService(d, [], secret);
       await Promise.all([service.migrateLegacy(), service.migrateLegacy()]);
-      expect(error.mock.calls.flat().filter((line) => String(line).includes('migrated credentials'))).toHaveLength(1);
+      expect(error.mock.calls.flat().filter((line: unknown) => String(line).includes('migrated credentials'))).toHaveLength(1);
       expect(await service.instanceStatus()).toEqual({ names: ['CLAUDE_CODE_OAUTH_TOKEN'] });
     } finally {
       error.mockRestore();
