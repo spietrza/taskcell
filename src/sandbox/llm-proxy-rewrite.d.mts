@@ -68,6 +68,9 @@ export declare const CODEX_CLIENT_ID: string;
 export declare const CODEX_REFRESH_PATH: string;
 /** Path CODEX_REVOKE_TOKEN_URL_OVERRIDE is pointed at. */
 export declare const CODEX_REVOKE_PATH: string;
+export declare const REFRESH_REFUSED_PREFIX: string;
+export declare const REFRESH_FAILED_PREFIX: string;
+export declare const REFRESH_RECOVERED: string;
 
 /** Which chatgpt-plan IdP route (if any) this request targets; undefined for anything else. */
 export declare function chatgptIdpRoute(method: string, path: string | undefined): 'refresh' | 'revoke' | undefined;

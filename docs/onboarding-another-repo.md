@@ -414,7 +414,7 @@ To run **Opus** spec / **Sonnet** impl / **Codex** review with Codex on a ChatGP
          CODEX_AUTH_JSON: ${{ secrets.CODEX_AUTH_JSON }}
    ```
 
-The stored `CODEX_AUTH_JSON` is a snapshot; Codex refreshes the access token from the embedded refresh token each run, so the secret must carry a live refresh token. Re-run `gh secret set` if a run ever fails to authenticate.
+The stored `CODEX_AUTH_JSON` is a snapshot; Codex refreshes the access token from the embedded refresh token each run, so the secret must carry a live refresh token. Re-run `gh secret set` if a run ever fails to authenticate. With `llm-proxy` on, the job summary says `The stored CODEX_AUTH_JSON secret is now stale` when a run rotated the token, and a dead token ends the run with `the ChatGPT sign-in was refused … Sign in again (codex login)`.
 
 ---
 
