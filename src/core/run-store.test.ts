@@ -71,7 +71,7 @@ async function recordFiles(taskId: string): Promise<string[]> {
 }
 
 describe('beginRun — estimate', () => {
-  const codex: RunResult = { ...result, taskId: 'TES-E', model: 'gpt-5', usage: { inputTokens: 1_000_000, outputTokens: 0, cacheReadInputTokens: 0 } };
+  const codex: RunResult = { ...result, taskId: 'TES-E', model: 'gpt-5', cachedInInput: true, usage: { inputTokens: 1_000_000, outputTokens: 0, cacheReadInputTokens: 0 } };
   delete (codex as { costUsd?: number }).costUsd;
 
   it('stores estCostUsd on the run record and metric line, never in costUsd', async () => {
@@ -111,6 +111,16 @@ describe('beginRun — estimate', () => {
     ]);
     const partial = (await listRuns(runsRoot(repo))).find((r) => r.taskId === 'TES-P');
     expect(partial).toMatchObject({ estCostUsd: 1.25, costUnknown: true, estPartial: true });
+  });
+
+  it('marks a reported-cost stage next to an unpriced stage as partial', async () => {
+    await beginRun(repo, 'TES-Q', TS).writeStages([
+      { name: 'a', result: { ...result, taskId: 'TES-Q' } },
+      { name: 'b', result: { ...codex, taskId: 'TES-Q', model: 'mystery' } },
+    ]);
+    const run = (await listRuns(runsRoot(repo))).find((r) => r.taskId === 'TES-Q');
+    expect(run).toMatchObject({ estPartial: true });
+    expect(run?.costUnknown).toBeUndefined();
   });
 
   it('ignores an estimate in a record that is negative, not a number, or next to a reported cost', async () => {
