@@ -1,10 +1,10 @@
 import { useEffect, useRef, useState, type ReactNode } from 'react';
 import { Button, Chip, CodeBlock, useFocusTrap } from '@/ui';
-import { enableFactoryApply, enableFactoryHost, enableFactoryPlan, enableFactoryStart, enableFactoryVerify, factoryRefresh, factoryState } from '../../ipc';
+import { enableFactoryApply, enableFactoryHost, enableFactoryPlan, enableFactoryStart, enableFactoryVerify, enableFactoryWatch, factoryRefresh, factoryState } from '../../ipc';
 import { factoryStepLabel } from './factoryLabel';
 import { ExternalLink } from '../../components/ExternalLink';
 import { RUN_LOCATIONS } from '../../platform';
-import type { RunLocationId, FactoryHost, FactoryPlan, FactoryProviderId, FactoryState } from '../../wire';
+import type { RunLocationId, WatchWorkerChecklist, FactoryHost, FactoryPlan, FactoryProviderId, FactoryState } from '../../wire';
 
 /** GitHub Actions and GitLab CI have `enable_factory_*` adapters; every other run location is listed as planned. */
 const PROVIDER_OF: Partial<Record<RunLocationId, FactoryProviderId>> = { 'github-actions': 'github', 'gitlab-ci': 'gitlab' };
@@ -17,7 +17,7 @@ function gitlabUnavailable(host: FactoryHost | null): string {
   return 'Needs a remote on gitlab.com or the host named by GITLAB_HOST.';
 }
 
-type Busy = 'plan' | 'apply' | 'verify' | 'secret' | null;
+type Busy = 'plan' | 'watch' | 'apply' | 'verify' | 'secret' | null;
 
 /** How often the open checklist re-checks the PR merge and the doctor run. */
 const POLL_MS = 5000;
@@ -48,6 +48,8 @@ export function EnableFactoryDialog({ project, onClose }: { project: { path: str
   const [checklist, setChecklist] = useState<FactoryState | null>(null);
   // Where origin points; null until read. GitLab CI is offered only for a GitLab remote.
   const [host, setHost] = useState<FactoryHost | null>(null);
+  // Self-hosted (watch): read-only checklist; the hub starts nothing on another machine.
+  const [watch, setWatch] = useState<WatchWorkerChecklist | null>(null);
   const [copied, setCopied] = useState(false);
   const [doctorConfirmed, setDoctorConfirmed] = useState(false);
   const [busy, setBusy] = useState<Busy>(null);
@@ -111,6 +113,10 @@ export function EnableFactoryDialog({ project, onClose }: { project: { path: str
   const loadPlan = (provider: FactoryProviderId): Promise<void> =>
     step('plan', async () => {
       setPlan(await enableFactoryPlan(project.path, provider));
+    });
+  const loadWatch = (): Promise<void> =>
+    step('watch', async () => {
+      setWatch(await enableFactoryWatch(project.path));
     });
   const existingFiles = new Set(plan?.existingCallerFiles ?? []);
   // A caller counts as present under its legacy `vanguard-` name too (the hub adds no `taskcell-` twin).
@@ -228,12 +234,57 @@ export function EnableFactoryDialog({ project, onClose }: { project: { path: str
               ))}
             </ol>
           </>
+        ) : watch !== null ? (
+          <>
+            <p className="mt-1 text-xs text-muted-foreground">
+              {watch.repoSlug} — you run the worker yourself, on your own machine. The hub starts and installs nothing there.
+            </p>
+            <Section title="1. Credentials the worker needs (names only)">
+              <div className="flex flex-wrap gap-1">
+                {watch.credentials.map((c) => <Chip key={c} color="secondary" variant="outlined">{c}</Chip>)}
+              </div>
+              <p className="mt-1 text-xs text-muted-foreground">Put their values in a <code>.env</code> next to the compose file, or export them where you run the command. The hub never sees them.</p>
+            </Section>
+            <Section title="2. Compose snippet">
+              <CodeBlock code={watch.compose} lang="yaml" />
+              <Button variant="outlined" color="secondary" className="mt-1 h-7 px-2 text-xs" onClick={() => copy(watch.compose)}>{copied ? 'Copied' : 'Copy'}</Button>
+            </Section>
+            <Section title="Or run it directly">
+              <CodeBlock code={watch.command} lang="bash" />
+              <Button variant="outlined" color="secondary" className="mt-1 h-7 px-2 text-xs" onClick={() => copy(watch.command)}>{copied ? 'Copied' : 'Copy'}</Button>
+            </Section>
+            <Section title="3. Worker seen">
+              <p data-seen={watch.seen}>
+                {watch.seen === 'recent'
+                  ? `Yes: the hub last saw a run record for this repository at ${watch.lastRunAt}.`
+                  : watch.seen === 'stale'
+                    ? `Not recently: the newest run record the hub can read is from ${watch.lastRunAt}.`
+                    : 'Cannot tell: the hub reads no run records for this repository. A worker on another machine shows up only if its records reach this hub.'}
+              </p>
+              <Button variant="outlined" color="secondary" className="mt-1 h-7 px-2 text-xs" onClick={() => void loadWatch()} loading={busy === 'watch'} disabled={busy !== null}>
+                Check again
+              </Button>
+            </Section>
+          </>
         ) : plan === null ? (
           <>
             <p className="mt-2 text-sm text-muted-foreground">Pick where the factory runs. Nothing is written until you confirm.</p>
             <div className="mt-3 space-y-2">
               {RUN_LOCATIONS.map((p) => {
                 const provider = PROVIDER_OF[p.id];
+                if (p.id === 'watch') {
+                  return (
+                    <button
+                      key={p.id}
+                      disabled={busy !== null}
+                      onClick={() => void loadWatch()}
+                      className="flex w-full items-center justify-between rounded-md border border-border px-3 py-2 text-left text-sm transition-colors enabled:hover:bg-muted disabled:cursor-not-allowed disabled:opacity-60"
+                    >
+                      <span className="font-medium">{p.label}</span>
+                      <span className="text-xs text-muted-foreground">{busy === 'watch' ? 'Reading repo…' : 'Checklist →'}</span>
+                    </button>
+                  );
+                }
                 if (provider === 'gitlab' && host !== 'gitlab') {
                   return (
                     <div key={p.id} className="flex w-full items-center justify-between gap-2 rounded-md border border-border px-3 py-2 text-sm opacity-80">
@@ -322,7 +373,7 @@ export function EnableFactoryDialog({ project, onClose }: { project: { path: str
 
         <div className="mt-4 flex justify-end gap-2">
           <Button variant="text" color="secondary" onClick={onClose} disabled={busy !== null}>
-            {showChecklist ? 'Close' : 'Cancel'}
+            {showChecklist || watch !== null ? 'Close' : 'Cancel'}
           </Button>
           {showChecklist && status('merged') === 'failed' && (
             <Button onClick={() => void apply(checklistPlan)} loading={busy === 'apply'} disabled={busy !== null}>

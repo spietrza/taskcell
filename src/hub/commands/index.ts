@@ -87,6 +87,7 @@ export const COMMAND_NAMES = [
   'enable_factory_secret',
   'enable_factory_start',
   'enable_factory_verify',
+  'enable_factory_watch',
   'factory_refresh',
   'factory_state',
   'fetch_spec',

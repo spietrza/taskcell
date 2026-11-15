@@ -14,7 +14,7 @@ export const TASK_SOURCES: { id: TaskSourceId; label: string; planned?: true }[]
 export const RUN_LOCATIONS: { id: RunLocationId; label: string; implemented: boolean; trackingUrl?: string }[] = [
   { id: 'github-actions', label: 'GitHub Actions', implemented: true },
   { id: 'gitlab-ci', label: 'GitLab CI', implemented: true },
-  { id: 'watch', label: 'Self-hosted (watch)', implemented: false, trackingUrl: 'https://github.com/spietrza/taskcell/issues/912' },
+  { id: 'watch', label: 'Self-hosted (watch)', implemented: true },
   { id: 'local', label: 'Local hub', implemented: false, trackingUrl: 'https://github.com/spietrza/taskcell/issues/913' },
 ];
 

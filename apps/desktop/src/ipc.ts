@@ -19,6 +19,7 @@ import type {
   CredentialPolicy,
   FactoryApplyResult,
   FactoryHost,
+  WatchWorkerChecklist,
   FactoryPlan,
   FactoryProviderId,
   FactoryState,
@@ -98,6 +99,11 @@ export function cloneProject(url: string, parentDir: string, name?: string): Pro
 /** Which code host the project's origin is on; the dialog offers GitLab CI only for a GitLab remote. */
 export function enableFactoryHost(repoPath: string): Promise<{ host: FactoryHost }> {
   return call('enable_factory_host', { repoPath });
+}
+
+/** Self-hosted (watch) checklist: compose snippet, command, credential names, worker-seen state. Read-only. */
+export function enableFactoryWatch(repoPath: string): Promise<WatchWorkerChecklist> {
+  return call('enable_factory_watch', { repoPath });
 }
 
 export function enableFactoryPlan(repoPath: string, provider: FactoryProviderId): Promise<FactoryPlan> {

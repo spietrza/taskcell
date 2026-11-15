@@ -909,6 +909,23 @@ export interface FactoryVerifyResult {
   run?: { url: string; status: string; conclusion: string };
 }
 
+/** Whether run records show a self-hosted watch worker at work: `unknown` = no records the hub can read, so it cannot tell. */
+export type WatchWorkerSeen = 'recent' | 'stale' | 'unknown';
+
+/** The "Self-hosted (watch)" checklist for a repository. Names only: no credential value is ever included. */
+export interface WatchWorkerChecklist {
+  repoSlug: string;
+  source: 'github' | 'gitlab' | 'linear';
+  /** Compose service for the user to run on their own machine; the hub starts nothing. */
+  compose: string;
+  /** The same worker as a `taskcell watch` command run from a clone of the repo. */
+  command: string;
+  credentials: string[];
+  seen: WatchWorkerSeen;
+  /** Timestamp of the newest run record the hub could read, when any. */
+  lastRunAt?: string;
+}
+
 /** Which code host a project's `origin` is on, for the Enable factory dialog's run-location choice. */
 export type FactoryHost = 'github' | 'gitlab' | 'other' | 'none';
 

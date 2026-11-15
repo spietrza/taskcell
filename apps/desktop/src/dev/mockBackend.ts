@@ -174,6 +174,7 @@ const commandHandlers = {
   start_task: (args: { label?: string } | undefined) => ({ status: 'labelled', label: args?.label ?? 'ready for agent', waitingOn: [] }),
   // Hub-only Enable factory flow (EnableFactoryDialog).
   enable_factory_host: () => ({ host: 'github' as const }),
+  enable_factory_watch: () => ({ repoSlug: 'acme/widgets', source: 'github' as const, compose: 'services:\n  taskcell-watch: {}', command: 'taskcell watch --source=github', credentials: ['CLAUDE_CODE_OAUTH_TOKEN', 'GH_TOKEN'], seen: 'unknown' as const }),
   enable_factory_plan: () => factoryPlan,
   enable_factory_apply: () => factoryApplyResult,
   enable_factory_verify: () => factoryVerify,

@@ -506,7 +506,7 @@ Replies and merges are a remote mutation, gated like `clone_project`: loopback o
 
 **Enable factory** on a project card (hub only) turns on the GitHub Actions factory for that repo in
 four steps, following [onboarding-another-repo.md](onboarding-another-repo.md)
-(`src/hub/enable-factory.ts`). GitLab CI has its own flow, below; Linear shows as planned.
+(`src/hub/enable-factory.ts`). GitLab CI has its own flow, below; Linear shows as planned. **Self-hosted (watch)** is a read-only checklist, described under [Self-hosted (watch)](#self-hosted-watch).
 
 1. **Plan** reads the repo with `gh` and changes nothing: the slug, the default branch, the signed-in
    `gh` login (it becomes the callers' actor gate), the package manager and scripts, and the caller
@@ -553,6 +553,22 @@ Each step shows its state; the dialog polls the MR merge and the pipeline, "Chec
 Apply and verify change the remote, so they are gated like `clone_project`: loopback only, unless
 `TASKCELL_HUB_ALLOW_ADD=1`. The `gh` login must be able to push workflow files (classic `repo` and
 `workflow` scopes), create labels, open a PR and dispatch a workflow.
+
+### Self-hosted (watch)
+
+Picking **Self-hosted (watch)** (`enable_factory_watch`, `src/hub/watch-worker.ts`) shows a checklist for a
+worker *you* run with `taskcell watch`. The hub starts and installs nothing on another machine, and the RPC
+writes nothing (it is read-only, so it is not in the audit list).
+
+1. **Credentials**, by name only: `CLAUDE_CODE_OAUTH_TOKEN`, plus `GH_TOKEN` (GitHub) or `GITLAB_TOKEN` (GitLab), plus
+   `LINEAR_API_KEY` when the project's task source is Linear. Values never pass through the hub.
+2. **Compose snippet** for this repository, in the shape of `docker/compose.yaml`, and the equivalent
+   `taskcell watch` command (`--github-repo` or `--gitlab-project` from `origin`).
+3. **Worker seen**: whether the hub can read a run record for the repository from the last 7 days that it did not
+   start itself (hub-started runs and CI-only metrics rows are ignored). It answers *yes* (with the time),
+   *not recently* (with the newest time), or *cannot tell* when it reads no run records. A worker on another
+   machine writes its records there, so they show up only if they reach this hub's checkout; "cannot tell" is
+   not proof the worker is down. **Check again** re-reads.
 
 ## Approver card
 

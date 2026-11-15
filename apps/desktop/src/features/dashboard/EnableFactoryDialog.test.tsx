@@ -10,10 +10,11 @@ vi.mock('../../ipc', () => ({
   enableFactoryApply: vi.fn(),
   enableFactoryStart: vi.fn(),
   enableFactoryVerify: vi.fn(),
+  enableFactoryWatch: vi.fn(),
   factoryState: vi.fn(),
   factoryRefresh: vi.fn(),
 }));
-import { enableFactoryApply, enableFactoryHost, enableFactoryPlan, enableFactoryStart, enableFactoryVerify, factoryRefresh, factoryState } from '../../ipc';
+import { enableFactoryApply, enableFactoryHost, enableFactoryPlan, enableFactoryStart, enableFactoryVerify, enableFactoryWatch, factoryRefresh, factoryState } from '../../ipc';
 
 const project = { path: '/repos/my-app', name: 'my-app' };
 
@@ -42,14 +43,31 @@ async function pickGithub(): Promise<void> {
 }
 
 describe('EnableFactoryDialog', () => {
-  test('GitLab CI is unavailable with the reason for a GitHub project; the rest are planned with a tracking link', async () => {
+  test('GitLab CI is unavailable with the reason for a GitHub project; only the local hub is planned', async () => {
     render(<EnableFactoryDialog project={project} onClose={() => {}} />);
     expect(await screen.findByText(/remote is on GitHub, not GitLab/)).toBeInTheDocument();
     expect(screen.queryByRole('button', { name: /GitLab CI/ })).not.toBeInTheDocument();
-    expect(screen.getAllByText('planned')).toHaveLength(2);
+    expect(screen.getAllByText('planned')).toHaveLength(1);
     const links = screen.getAllByRole('link', { name: /Tracking issue/ });
-    expect(links.map((l) => l.getAttribute('href'))).toEqual([912, 913].map((n) => `https://github.com/spietrza/taskcell/issues/${n}`));
+    expect(links.map((l) => l.getAttribute('href'))).toEqual([913].map((n) => `https://github.com/spietrza/taskcell/issues/${n}`));
     expect(await screen.findByRole('button', { name: /GitHub Actions/ })).toBeEnabled();
+  });
+
+  test('Self-hosted (watch) shows the snippet, command, credential names and worker-seen state', async () => {
+    vi.mocked(enableFactoryWatch).mockResolvedValue({
+      repoSlug: 'acme/widgets',
+      source: 'github',
+      compose: 'services:\n  taskcell-watch: {}',
+      command: 'taskcell watch --github-repo=acme/widgets',
+      credentials: ['CLAUDE_CODE_OAUTH_TOKEN', 'GH_TOKEN'],
+      seen: 'unknown',
+    });
+    render(<EnableFactoryDialog project={project} onClose={() => {}} />);
+    fireEvent.click(await screen.findByRole('button', { name: /Self-hosted \(watch\)/ }));
+    expect(await screen.findByText('GH_TOKEN')).toBeInTheDocument();
+    expect(screen.getByText('CLAUDE_CODE_OAUTH_TOKEN')).toBeInTheDocument();
+    expect(screen.getByText(/Cannot tell/)).toBeInTheDocument();
+    expect(enableFactoryPlan).not.toHaveBeenCalled();
   });
 
   test('a project with no remote says so', async () => {
