@@ -153,12 +153,32 @@ describe('specOnlyReviewNote', () => {
 describe('watchCommand', () => {
   it('stamps its run records as watch-started before it dispatches to the source', async () => {
     vi.stubEnv('CLAUDE_CODE_OAUTH_TOKEN', 'token');
+    // Outside CI: in a CI job `taskcell watch` leaves the trigger unset.
+    vi.stubEnv('GITHUB_ACTIONS', '');
+    vi.stubEnv('GITLAB_CI', '');
     const log = vi.spyOn(console, 'log').mockImplementation(() => {});
     const once = vi.spyOn(process, 'once').mockImplementation(() => process);
     try {
       await runWatchCommand(watchCommand({ source: 'github', repoSlug: 'acme/widgets' }));
       expect(setRunTrigger).toHaveBeenCalledWith('watch');
       expect(vi.mocked(setRunTrigger).mock.invocationCallOrder[0]).toBeLessThan(vi.mocked(watchGithub).mock.invocationCallOrder[0]!);
+    } finally {
+      log.mockRestore();
+      once.mockRestore();
+    }
+  });
+
+  it('does not stamp a run inside CI (the GitHub Actions factory) as a self-hosted worker', async () => {
+    vi.stubEnv('CLAUDE_CODE_OAUTH_TOKEN', 'token');
+    vi.stubEnv('GITHUB_ACTIONS', 'true');
+    vi.stubEnv('GITHUB_SERVER_URL', 'https://github.com');
+    vi.stubEnv('GITHUB_REPOSITORY', 'acme/widgets');
+    vi.stubEnv('GITHUB_RUN_ID', '42');
+    const log = vi.spyOn(console, 'log').mockImplementation(() => {});
+    const once = vi.spyOn(process, 'once').mockImplementation(() => process);
+    try {
+      await runWatchCommand(watchCommand({ source: 'github', repoSlug: 'acme/widgets', once: true }));
+      expect(setRunTrigger).toHaveBeenCalledWith(undefined);
     } finally {
       log.mockRestore();
       once.mockRestore();

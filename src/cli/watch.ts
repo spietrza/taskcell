@@ -3,6 +3,7 @@ import { githubDepsFromEnv } from '../runners/github.js';
 import { gitlabDepsFromEnv } from '../runners/gitlab.js';
 import { pickRunOptions } from '../runners/source-adapter.js';
 import { startSandboxContext } from '../sandbox/sandbox-context.js';
+import { ciRunUrl } from '../core/links.js';
 import { setRunTrigger } from '../core/run-store.js';
 import { agentAuthFromEnv, refuseLlmProxyWithoutPrimarySidecar } from '../agents/auth.js';
 import { customEgressHosts } from '../agents/registry.js';
@@ -38,8 +39,9 @@ export async function watchCommand(cmd: WatchCommand): Promise<void> {
   if (!report.ok) throw new Error('preflight failed');
 
   const auth = agentAuthFromEnv(choice);
-  // The hub's Enable factory checklist counts only these records as "worker seen".
-  setRunTrigger('watch');
+  // The hub's Enable factory checklist counts only these records as "worker seen". The CI factory
+  // (implement.yml runs `watch --once`) is not a self-hosted worker, so a run inside CI is not stamped.
+  setRunTrigger(ciRunUrl() === undefined ? 'watch' : undefined);
 
   const controller = new AbortController();
   const stop = (): void => controller.abort();
