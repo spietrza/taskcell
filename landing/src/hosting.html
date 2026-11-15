@@ -1,0 +1,79 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Request a hosted factory · Taskcell</title>
+<meta name="description" content="Taskcell hosting is planned and not open yet. This page shows the request form and the planned plans; it sends nothing. Self-hosting works today.">
+<link rel="canonical" href="https://taskcell.dev/hosting.html">
+<meta name="theme-color" content="#0d1013">
+<link rel="icon" href="/favicon.ico" sizes="32x32">
+<link rel="icon" href="/favicon.svg" type="image/svg+xml">
+<link rel="apple-touch-icon" href="/apple-touch-icon.png">
+<link rel="stylesheet" href="/site.css">
+<script type="module" src="/hosting.js"></script>
+</head>
+<body>
+<a class="skip" href="#main">Skip to content</a>
+
+<header class="bar">
+  <a class="brand" href="/" aria-label="Taskcell home"><svg class="mark" viewBox="0 0 32 32" aria-hidden="true"><path class="wall" d="M2 2h28v16h-4V6H6v20h20v-4h4v8H2z"/><rect class="card" x="12" y="12" width="8" height="8"/></svg><span>Taskcell</span></a>
+  <nav class="links" aria-label="Main">
+    <a href="/#how">How it works</a>
+    <a href="/#security">Security</a>
+    <a href="/#self-host">Self-host</a>
+    <a href="/#pricing">Pricing</a>
+    <a href="/#faq">FAQ</a>
+    <a class="btn small" href="https://github.com/spietrza/taskcell/releases/tag/desktop-latest">Download</a>
+  </nav>
+</header>
+
+<main id="main" class="request wrap">
+  <h1>Request a hosted factory</h1>
+  <p class="lede">Hosting is planned and not open yet. This form is a placeholder: it shows what we will ask for, and it sends nothing.</p>
+  <p>What works today: <a href="/#install">install Taskcell on your own machine</a> for free, or read the <a href="/#pricing">planned prices</a>.</p>
+
+  <form class="form" id="request">
+    <label class="field">Email
+      <input type="email" name="email" autocomplete="email" required>
+    </label>
+    <label class="field">Plan
+      <select name="plan">
+        <option value="solo">Solo, €14 a month: 1 run at a time, 1 person</option>
+        <option value="team">Team, €39 a month: 3 runs at a time</option>
+        <option value="pro">Pro, €79 a month: 6 runs at a time</option>
+        <option value="pass">7-day Solo pass, €8</option>
+      </select>
+    </label>
+    <label class="field">Where the code lives
+      <select name="host">
+        <option value="github">GitHub</option>
+        <option value="gitlab">GitLab</option>
+        <option value="other">Somewhere else</option>
+      </select>
+    </label>
+    <button class="btn" type="submit">Request hosting</button>
+  </form>
+
+  <div class="report sent" id="sent" role="status" tabindex="-1" hidden>
+    <p><b>Requests are not open yet. Nothing was sent.</b> Your answers stayed in this browser. Until hosting opens, these work:</p>
+    <div class="links-row">
+      <a href="/#install">Self-host instructions</a>
+      <a href="https://github.com/spietrza/taskcell">The GitHub repository</a>
+    </div>
+  </div>
+</main>
+
+<footer class="foot">
+  <p class="name" aria-hidden="true"><svg class="mark" viewBox="0 0 32 32"><path class="wall" d="M2 2h28v16h-4V6H6v20h20v-4h4v8H2z"/><rect class="card" x="12" y="12" width="8" height="8"/></svg>Taskcell</p>
+  <nav aria-label="Footer">
+    <a href="https://github.com/spietrza/taskcell">GitHub</a>
+    <a href="https://github.com/spietrza/taskcell#readme">Documentation</a>
+    <a href="https://github.com/spietrza/taskcell/blob/main/docs/hub.md">Hub guide</a>
+    <a href="https://github.com/spietrza/taskcell/blob/main/SECURITY.md">Security policy</a>
+    <a href="https://github.com/spietrza/taskcell/blob/main/LICENSE">MIT license</a>
+  </nav>
+  <div class="row"><span>taskcell.dev · self-hosted software factory</span><span>Fonts: Schibsted Grotesk, Atkinson Hyperlegible, IBM Plex Mono (OFL).</span></div>
+</footer>
+</body>
+</html>

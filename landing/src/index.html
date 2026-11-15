@@ -35,6 +35,8 @@
     <a href="#how">How it works</a>
     <a href="#security">Security</a>
     <a href="#self-host">Self-host</a>
+    <a href="#pricing">Pricing</a>
+    <a href="#ready">Readiness</a>
     <a href="#faq">FAQ</a>
     <a class="btn small" href="https://github.com/spietrza/taskcell/releases/tag/desktop-latest">Download</a>
   </nav>
@@ -47,6 +49,7 @@
     <p class="lede">Taskcell is a self-hosted software factory. Every card is built in its own sealed sandbox cell, has to pass your gates and a review, and lands as a pull request. You merge.</p>
     <div class="cta">
       <a class="btn" href="https://github.com/spietrza/taskcell">Get it on GitHub</a>
+      <a class="btn ghost" href="#ready">Check your repository</a>
       <small>Open source, MIT. Your machine, your AI plan.</small>
     </div>
     <ul class="chips" aria-label="What it runs on">
@@ -86,7 +89,7 @@
     <h2 id="hub-h" data-reveal class="d1">Your factory, on one screen</h2>
   </div>
   <p class="intro d2" data-reveal><code>taskcell hub</code> shows your projects, the task board and the cost of every run. The live factory floor is coming to it; this is how it will look.</p>
-  <p class="preview-note d2" data-reveal>Preview with sample data. Projects, the board and cost per run are in the Hub today; the floor panel is not yet.</p>
+  <p class="preview-note d2" data-reveal>Preview with sample data. Pick a card on the board or a row under Cost per run to open its run record. Projects, the board and cost per run are in the Hub today; the floor panel is not yet.</p>
 
   <div class="hub d2" data-reveal>
     <div class="hub-top"><b>Taskcell Hub</b></div>
@@ -112,11 +115,11 @@
           <table class="runs">
             <thead><tr><th scope="col">Card</th><th scope="col">Models</th><th scope="col" class="r">Cache</th><th scope="col" class="r">Cost</th></tr></thead>
             <tbody>
-              <tr><td>TC-44</td><td>Claude, Codex review</td><td class="r">97%</td><td class="r">$0.84</td></tr>
-              <tr><td>TC-45</td><td>Claude, Codex review</td><td class="r">98%</td><td class="r">$0.61</td></tr>
-              <tr><td>TC-43</td><td>Claude, 1 repair</td><td class="r">96%</td><td class="r">$1.27</td></tr>
-              <tr><td>TC-42</td><td>Codex, Claude review</td><td class="r">95%</td><td class="r">$0.93</td></tr>
-              <tr><td>TC-41</td><td>Claude, Codex review</td><td class="r">98%</td><td class="r">$0.58</td></tr>
+              <tr data-run="TC-44"><td><button type="button">TC-44</button></td><td>Claude, Codex review</td><td class="r">97%</td><td class="r">$0.84</td></tr>
+              <tr data-run="TC-45"><td><button type="button">TC-45</button></td><td>Claude, Codex review</td><td class="r">98%</td><td class="r">$0.61</td></tr>
+              <tr data-run="TC-43"><td><button type="button">TC-43</button></td><td>Claude, 1 repair</td><td class="r">96%</td><td class="r">$1.27</td></tr>
+              <tr data-run="TC-42"><td><button type="button">TC-42</button></td><td>Codex, Claude review</td><td class="r">95%</td><td class="r">$0.93</td></tr>
+              <tr data-run="TC-41"><td><button type="button">TC-41</button></td><td>Claude, Codex review</td><td class="r">98%</td><td class="r">$0.58</td></tr>
             </tbody>
           </table>
         </div>
@@ -125,24 +128,41 @@
         <h3>Task board <span>acme/billing</span></h3>
         <div class="cols">
           <div class="col"><h4>Todo</h4><ul>
-            <li><span class="id">TC-52</span>Rate-limit the export endpoint</li>
-            <li><span class="id">TC-53</span>Dark mode for settings</li>
+            <li><button type="button" data-run="TC-52"><span class="id">TC-52</span>Rate-limit the export endpoint</button></li>
+            <li><button type="button" data-run="TC-53"><span class="id">TC-53</span>Dark mode for settings</button></li>
           </ul></div>
           <div class="col"><h4>Spec</h4><ul>
-            <li><span class="id">TC-50 <span>for you to read</span></span>Paginate the audit log</li>
+            <li><button type="button" data-run="TC-50"><span class="id">TC-50 <span>for you to read</span></span>Paginate the audit log</button></li>
           </ul></div>
           <div class="col"><h4>In a cell</h4><ul>
-            <li><span class="id">TC-47</span>Retry webhooks with backoff<span class="charge"><i class="w25"></i></span></li>
-            <li><span class="id">TC-48</span>Show VAT on invoice PDFs<span class="charge"><i class="w50"></i></span></li>
-            <li><span class="id">TC-49</span>Export filter for currency<span class="charge"><i></i></span></li>
+            <li><button type="button" data-run="TC-47"><span class="id">TC-47</span>Retry webhooks with backoff<span class="charge"><i class="w25"></i></span></button></li>
+            <li><button type="button" data-run="TC-48"><span class="id">TC-48</span>Show VAT on invoice PDFs<span class="charge"><i class="w50"></i></span></button></li>
+            <li><button type="button" data-run="TC-49"><span class="id">TC-49</span>Export filter for currency<span class="charge"><i></i></span></button></li>
           </ul></div>
           <div class="col"><h4>Review</h4><ul>
-            <li><span class="id">TC-46</span>Archive paid invoices<span class="charge"><i class="w100"></i></span></li>
+            <li><button type="button" data-run="TC-46"><span class="id">TC-46</span>Archive paid invoices<span class="charge"><i class="w100"></i></span></button></li>
           </ul></div>
           <div class="col"><h4>Pull request</h4><ul>
-            <li><span class="id">TC-44 <span>#212</span></span>Add CSV export to invoices</li>
-            <li><span class="id">TC-45 <span>#213</span></span>Fix rounding in totals</li>
+            <li><button type="button" data-run="TC-44"><span class="id">TC-44 <span>#212</span></span>Add CSV export to invoices</button></li>
+            <li><button type="button" data-run="TC-45"><span class="id">TC-45 <span>#213</span></span>Fix rounding in totals</button></li>
           </ul></div>
+        </div>
+      </div>
+      <div class="pane run">
+        <h3>Run record <span id="run-title" aria-live="polite">TC-47 · Retry webhooks with backoff · In a cell</span></h3>
+        <div class="run-grid">
+          <ol class="stages" id="run-stages">
+            <li class="done"><b>Spec</b><span>done</span></li>
+            <li class="now"><b>Sealed cell</b><span>running</span></li>
+            <li><b>Gates</b><span>waiting</span></li>
+            <li><b>Review</b><span>waiting</span></li>
+            <li><b>Pull request</b><span>waiting</span></li>
+          </ol>
+          <ul class="log" id="run-log">
+            <li>spec posted on the issue: 4 acceptance criteria</li>
+            <li>cell started: non-root, no repository token</li>
+            <li>agent is editing src/webhooks/retry.ts</li>
+          </ul>
         </div>
       </div>
     </div>
@@ -297,7 +317,7 @@
   </div>
   <p class="intro d2" data-reveal>Taskcell runs where Node 24 and Docker run: a laptop, a home server, a VPS. It uses the AI subscription or API keys you already pay for.</p>
 
-  <div class="install" data-reveal>
+  <div class="install" id="install" data-reveal>
     <p class="cmd-label">Install from source</p>
 <pre class="cmd"><code>git clone https://github.com/spietrza/taskcell.git
 cd taskcell
@@ -336,8 +356,193 @@ taskcell hub --repo ../app
   <ul class="coming" aria-label="Coming">
     <li data-reveal class="d1"><b>Desktop app</b>The Hub as a native app, starting with macOS.</li>
     <li data-reveal class="d2"><b>Mobile app</b>Connects to your own instance.</li>
-    <li data-reveal class="d3"><b>Managed hosting</b>Later, for teams that want it run for them.</li>
+    <li data-reveal class="d3"><b>Hosting</b>Not open yet. The <a href="#pricing">planned prices</a> are below.</li>
   </ul>
+</section>
+
+<section class="section wrap" id="pricing" aria-labelledby="price-h">
+  <div class="head">
+    <p class="eyebrow" data-reveal>Pricing</p>
+    <h2 id="price-h" data-reveal class="d1">Free on your machine. Hosting is planned.</h2>
+  </div>
+  <p class="intro d2" data-reveal>Self-hosting costs nothing and works today. Hosting is not open yet: the prices below are what we plan to charge, and paying yearly takes 20% off.</p>
+
+  <div class="price-bar" data-reveal>
+    <p><b>Hosting is not open yet.</b> These are planned prices. Nothing here can be bought today; the buttons take you to a request page.</p>
+    <fieldset class="seg" id="billing" hidden>
+      <legend class="sr">Billing period</legend>
+      <label><input type="radio" name="billing" value="monthly" checked>Monthly</label>
+      <label><input type="radio" name="billing" value="yearly">Yearly, 20% off</label>
+    </fieldset>
+  </div>
+
+  <ul class="ways plans">
+    <li data-reveal class="d1">
+      <span class="tag now">Available now</span>
+      <h3>Self-host</h3>
+      <p class="price"><span>€0</span></p>
+      <p class="per">Free, on your own machine</p>
+      <ul>
+        <li>MIT license</li>
+        <li>No limit on runs</li>
+        <li>No limit on people</li>
+        <li>You maintain it</li>
+      </ul>
+      <a class="btn" href="#install">Install it yourself</a>
+    </li>
+    <li data-reveal class="d2">
+      <span class="tag">Planned</span>
+      <h3>Solo</h3>
+      <p class="price" data-price="14"><span>€14</span><small>/month</small></p>
+      <p class="per" data-per>Billed monthly</p>
+      <ul>
+        <li>1 run at a time</li>
+        <li>1 person</li>
+        <li>A dedicated server, backed up daily</li>
+        <li>Updates done for you</li>
+      </ul>
+      <a class="btn ghost" href="/hosting.html?plan=solo">Request Solo</a>
+    </li>
+    <li data-reveal class="d3">
+      <span class="tag">Planned</span>
+      <h3>Team</h3>
+      <p class="price" data-price="39"><span>€39</span><small>/month</small></p>
+      <p class="per" data-per>Billed monthly</p>
+      <ul>
+        <li>3 runs at a time</li>
+        <li>No limit on people</li>
+        <li>A dedicated server, backed up daily</li>
+        <li>Updates done for you</li>
+      </ul>
+      <a class="btn ghost" href="/hosting.html?plan=team">Request Team</a>
+    </li>
+    <li data-reveal class="d4">
+      <span class="tag">Planned</span>
+      <h3>Pro</h3>
+      <p class="price" data-price="79"><span>€79</span><small>/month</small></p>
+      <p class="per" data-per>Billed monthly</p>
+      <ul>
+        <li>6 runs at a time</li>
+        <li>No limit on people</li>
+        <li>A dedicated server, backed up daily</li>
+        <li>Updates done for you</li>
+      </ul>
+      <a class="btn ghost" href="/hosting.html?plan=pro">Request Pro</a>
+    </li>
+  </ul>
+
+  <p class="plans-note" data-reveal>On every hosted plan the models run on your own keys, and we add no margin to what they cost.</p>
+  <div class="report pass" data-reveal>
+    <p><b>7-day Solo pass, €8.</b> If you stay, the €8 is credited toward your first month.</p>
+    <a class="btn ghost" href="/hosting.html?plan=pass">Request the 7-day pass</a>
+  </div>
+</section>
+
+<section class="section wrap" id="ready" aria-labelledby="ready-h">
+  <div class="head">
+    <p class="eyebrow" data-reveal>Readiness check</p>
+    <h2 id="ready-h" data-reveal class="d1">Is your repository ready for the factory?</h2>
+  </div>
+  <p class="intro d2" data-reveal>Seven questions, one per screen. Your answers stay in this browser, and you see the result right away.</p>
+
+  <p class="plans-note" id="quiz-nojs">This check runs in your browser and needs JavaScript.</p>
+  <form class="quiz d2" id="quiz" novalidate hidden data-reveal>
+    <div class="quiz-meter" id="quiz-meter">
+      <p class="cmd-label" id="quiz-progress" aria-live="polite">Question 1 of 7</p>
+      <progress id="quiz-bar" max="7" value="1" aria-label="Quiz progress"></progress>
+    </div>
+    <fieldset>
+      <legend>Where does the code live?</legend>
+      <div class="opts">
+        <label class="opt"><input type="radio" name="host" value="github">GitHub</label>
+        <label class="opt"><input type="radio" name="host" value="gitlab">GitLab</label>
+        <label class="opt"><input type="radio" name="host" value="other">Somewhere else</label>
+      </div>
+      <p class="hint">The repository alone is enough. In the planned hosted version the factory runs on our server, not in your CI minutes.</p>
+    </fieldset>
+    <fieldset>
+      <legend>Do tests and CI pass on the main branch?</legend>
+      <div class="opts">
+        <label class="opt"><input type="radio" name="tests" value="always">Yes, always</label>
+        <label class="opt"><input type="radio" name="tests" value="sometimes">Sometimes they are red</label>
+        <label class="opt"><input type="radio" name="tests" value="none">We have no tests</label>
+      </div>
+    </fieldset>
+    <fieldset>
+      <legend>Do your issues carry acceptance criteria?</legend>
+      <div class="opts">
+        <label class="opt"><input type="radio" name="criteria" value="always">Always</label>
+        <label class="opt"><input type="radio" name="criteria" value="sometimes">Sometimes</label>
+        <label class="opt"><input type="radio" name="criteria" value="no">No</label>
+      </div>
+    </fieldset>
+    <fieldset>
+      <legend>What do you want the factory for? Pick all that apply.</legend>
+      <div class="opts two">
+        <label class="opt"><input type="checkbox" name="uses" value="bugs">Bug fixes</label>
+        <label class="opt"><input type="checkbox" name="uses" value="features">Small features</label>
+        <label class="opt"><input type="checkbox" name="uses" value="tests">Tests</label>
+        <label class="opt"><input type="checkbox" name="uses" value="deps">Dependency updates</label>
+        <label class="opt"><input type="checkbox" name="uses" value="refactor">Refactoring</label>
+        <label class="opt"><input type="checkbox" name="uses" value="docs">Documentation</label>
+      </div>
+    </fieldset>
+    <fieldset>
+      <legend>How many people are on the team?</legend>
+      <div class="opts two">
+        <label class="opt"><input type="radio" name="team" value="1">Just me</label>
+        <label class="opt"><input type="radio" name="team" value="2-5">2 to 5</label>
+        <label class="opt"><input type="radio" name="team" value="6-10">6 to 10</label>
+        <label class="opt"><input type="radio" name="team" value="more">More</label>
+      </div>
+    </fieldset>
+    <fieldset>
+      <legend>Which models do you use? Pick all that apply.</legend>
+      <div class="opts two">
+        <label class="opt"><input type="checkbox" name="models" value="claude">Claude subscription</label>
+        <label class="opt"><input type="checkbox" name="models" value="api">API key</label>
+        <label class="opt"><input type="checkbox" name="models" value="openrouter">OpenRouter</label>
+        <label class="opt"><input type="checkbox" name="models" value="codex">Codex</label>
+        <label class="opt"><input type="checkbox" name="models" value="none">None yet</label>
+      </div>
+    </fieldset>
+    <fieldset>
+      <legend>Who reviews pull requests?</legend>
+      <div class="opts">
+        <label class="opt"><input type="radio" name="review" value="me">Me</label>
+        <label class="opt"><input type="radio" name="review" value="team">The team</label>
+        <label class="opt"><input type="radio" name="review" value="auto">I also want automatic review</label>
+      </div>
+    </fieldset>
+    <div class="quiz-result" id="quiz-result" tabindex="-1" hidden>
+      <div class="level">
+        <p class="cmd-label">Readiness</p>
+        <h3 id="r-level"></h3>
+      </div>
+      <div id="r-fix-block">
+        <p class="cmd-label">Fix first</p>
+        <ul id="r-fix"></ul>
+      </div>
+      <div>
+        <p class="cmd-label">The plan that fits</p>
+        <p class="plan-name" id="r-plan"></p>
+        <p id="r-plan-note"></p>
+        <p id="r-alt" hidden></p>
+        <a class="btn" id="r-plan-link" href="/hosting.html"></a>
+        <p class="hint" id="r-planned">A planned price. Hosting is not open yet.</p>
+      </div>
+      <div>
+        <p class="cmd-label">What you get</p>
+        <ul id="r-promises"></ul>
+      </div>
+      <button class="btn ghost" type="button" id="quiz-reset">Start over</button>
+    </div>
+    <p class="quiz-error" id="quiz-error" role="alert"></p>
+    <div class="quiz-nav" id="quiz-nav">
+      <button class="btn ghost" type="button" id="quiz-back" hidden>Back</button>
+      <button class="btn" type="submit" id="quiz-next">Next</button>
+    </div>
+  </form>
 </section>
 
 <section class="section wrap" id="faq" aria-labelledby="faq-h">

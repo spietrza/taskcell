@@ -1,5 +1,7 @@
 // taskcell.dev page script: entrance reveals, and the factory scene loaded after first paint.
 // Phones get the poster and a button; reduced motion gets one still frame; no WebGL keeps the poster.
+import { evaluate } from './quiz.js';
+
 const root = document.documentElement;
 const phone = matchMedia('(max-width: 640px)').matches;
 const reduced = matchMedia('(prefers-reduced-motion: reduce)').matches;
@@ -154,3 +156,130 @@ if (!phone) {
   );
   near.observe(panelHost);
 }
+
+// ---------- pricing: the yearly price is computed from the monthly one (20% off), never typed in ----------
+const billing = document.getElementById('billing');
+billing.hidden = false;
+const paintPrices = () => {
+  const yearly = billing.querySelector(':checked').value === 'yearly';
+  for (const el of document.querySelectorAll('[data-price]')) {
+    const n = Number(el.dataset.price) * (yearly ? 0.8 : 1);
+    el.querySelector('span').textContent = '€' + (Number.isInteger(n) ? n : n.toFixed(2));
+  }
+  for (const el of document.querySelectorAll('[data-per]')) el.textContent = yearly ? 'Billed yearly' : 'Billed monthly';
+};
+billing.addEventListener('change', paintPrices);
+paintPrices();
+
+// ---------- readiness quiz: one question per screen; the answers never leave the page ----------
+const quiz = document.getElementById('quiz');
+const steps = [...quiz.querySelectorAll('fieldset')];
+const byId = (id) => document.getElementById(id);
+let at = 0;
+const showStep = (focus) => {
+  steps.forEach((s, i) => (s.hidden = i !== at));
+  byId('quiz-result').hidden = true;
+  byId('quiz-meter').hidden = false;
+  byId('quiz-nav').hidden = false;
+  byId('quiz-back').hidden = at === 0;
+  byId('quiz-next').textContent = at === steps.length - 1 ? 'Show the result' : 'Next';
+  byId('quiz-progress').textContent = `Question ${at + 1} of ${steps.length}`;
+  byId('quiz-bar').value = at + 1;
+  byId('quiz-error').textContent = '';
+  if (focus) (steps[at].querySelector('input:checked') ?? steps[at].querySelector('input')).focus();
+};
+const fill = (ul, lines) => ul.replaceChildren(...lines.map((t) => Object.assign(document.createElement('li'), { textContent: t })));
+const showResult = () => {
+  const d = new FormData(quiz);
+  const models = d.getAll('models').filter((m) => m !== 'none');
+  const r = evaluate({ host: d.get('host'), tests: d.get('tests'), criteria: d.get('criteria'), team: d.get('team'), models, review: d.get('review') });
+  byId('r-level').textContent = r.level;
+  byId('r-fix-block').hidden = r.fixes.length === 0;
+  fill(byId('r-fix'), r.fixes);
+  byId('r-plan').textContent = r.plan.name;
+  byId('r-plan-note').textContent = r.plan.note;
+  byId('r-alt').textContent = r.alt;
+  byId('r-alt').hidden = !r.alt;
+  byId('r-plan-link').textContent = r.plan.action;
+  byId('r-plan-link').href = r.plan.id ? `/hosting.html?plan=${r.plan.id}` : 'https://github.com/spietrza/taskcell/issues';
+  byId('r-planned').hidden = !r.plan.id;
+  fill(byId('r-promises'), r.promises);
+  steps.forEach((s) => (s.hidden = true));
+  byId('quiz-meter').hidden = true;
+  byId('quiz-nav').hidden = true;
+  byId('quiz-error').textContent = '';
+  byId('quiz-result').hidden = false;
+  byId('quiz-result').focus();
+};
+quiz.addEventListener('submit', (e) => {
+  e.preventDefault();
+  if (!steps[at].querySelector('input:checked')) {
+    byId('quiz-error').textContent = 'Pick an answer to go on.';
+    return;
+  }
+  if (at === steps.length - 1) return showResult();
+  at += 1;
+  showStep(true);
+});
+byId('quiz-back').addEventListener('click', () => {
+  at -= 1;
+  showStep(true);
+});
+byId('quiz-reset').addEventListener('click', () => {
+  quiz.reset();
+  at = 0;
+  showStep(true);
+});
+quiz.addEventListener('change', (e) => {
+  byId('quiz-error').textContent = '';
+  // "None yet" and the real models exclude each other.
+  if (e.target.name !== 'models' || !e.target.checked) return;
+  for (const i of quiz.querySelectorAll('input[name="models"]')) if ((i.value === 'none') !== (e.target.value === 'none')) i.checked = false;
+});
+byId('quiz-nojs').hidden = true;
+quiz.hidden = false;
+showStep(false);
+
+// ---------- Hub preview: a board card or a run row opens that run's own record (sample data) ----------
+const STAGES = ['Spec', 'Sealed cell', 'Gates', 'Review', 'Pull request'];
+const CLEAN = 'gates: verify passed, secret scan clean';
+// done: stages finished; now: what the next stage is doing (left out when nothing runs).
+const RUNS = {
+  'TC-52': { title: 'Rate-limit the export endpoint', state: 'Todo', done: 0, log: ['labelled for the factory', 'no run yet: waiting for a free cell'] },
+  'TC-53': { title: 'Dark mode for settings', state: 'Todo', done: 0, log: ['labelled for the factory', 'no run yet: behind TC-52 in the queue'] },
+  'TC-50': { title: 'Paginate the audit log', state: 'Spec', done: 0, now: 'for you to read', log: ['planner read the code', 'spec posted on the issue: 5 acceptance criteria', 'the build starts when the reading window ends'] },
+  'TC-47': { title: 'Retry webhooks with backoff', state: 'In a cell', done: 1, now: 'running', log: ['spec posted on the issue: 4 acceptance criteria', 'cell started: non-root, no repository token', 'agent is editing src/webhooks/retry.ts'] },
+  'TC-48': { title: 'Show VAT on invoice PDFs', state: 'In a cell', done: 1, now: 'running', log: ['spec posted on the issue: 3 acceptance criteria', 'cell started: non-root, no repository token', 'agent changed src/invoices/pdf.ts', 'agent is writing src/invoices/pdf.test.ts'] },
+  'TC-49': { title: 'Export filter for currency', state: 'In a cell', done: 1, now: 'starting', log: ['spec posted on the issue: 2 acceptance criteria', 'creating the git worktree and the cell'] },
+  'TC-46': { title: 'Archive paid invoices', state: 'Review', done: 3, now: 'running', log: ['cell: 6 files changed', CLEAN, 'review (Codex): reading the diff in a fresh context'] },
+  'TC-44': { title: 'Add CSV export to invoices', state: 'Pull request #212', done: 5, log: [CLEAN, 'review (Codex): 1 finding fixed', 'PR #212 opened, ready for review'] },
+  'TC-45': { title: 'Fix rounding in totals', state: 'Pull request #213', done: 5, log: [CLEAN, 'review (Codex): no findings', 'PR #213 opened, ready for review'] },
+  'TC-43': { title: 'Late fee on overdue invoices', state: 'Pull request #211', done: 5, log: ['gates: verify failed, 2 tests red', `repair 1: ${CLEAN.slice(7)}`, 'review (Claude): no findings', 'PR #211 opened, ready for review'] },
+  'TC-42': { title: 'Check webhook signatures', state: 'Pull request #210', done: 5, log: ['cell: built by Codex', CLEAN, 'review (Claude): 2 findings fixed', 'PR #210 opened, ready for review'] },
+  'TC-41': { title: 'Invoice numbers per year', state: 'Pull request #209', done: 5, log: [CLEAN, 'review (Codex): 3 findings fixed', 'PR #209 opened, ready for review'] },
+};
+const hub = document.querySelector('.hub');
+const openRun = (id) => {
+  const r = RUNS[id];
+  byId('run-title').textContent = `${id} · ${r.title} · ${r.state}`;
+  byId('run-stages').replaceChildren(
+    ...STAGES.map((name, i) => {
+      const li = document.createElement('li');
+      const status = i < r.done ? 'done' : i === r.done && r.now ? r.now : 'waiting';
+      li.className = i < r.done ? 'done' : status === 'waiting' ? '' : 'now';
+      li.append(Object.assign(document.createElement('b'), { textContent: name }), Object.assign(document.createElement('span'), { textContent: status }));
+      return li;
+    }),
+  );
+  fill(byId('run-log'), r.log);
+  for (const el of hub.querySelectorAll('[data-run]')) {
+    const on = el.dataset.run === id;
+    el.classList.toggle('on', on);
+    (el.querySelector('button') ?? el).setAttribute('aria-pressed', on);
+  }
+};
+hub.addEventListener('click', (e) => {
+  const el = e.target.closest('[data-run]');
+  if (el) openRun(el.dataset.run);
+});
+openRun('TC-47');
