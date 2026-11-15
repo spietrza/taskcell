@@ -10,8 +10,9 @@ import { readAppConfig } from './app-config.js';
 import { defaultExec, GITHUB_REPO_SLUG, type FactoryExec } from './enable-factory.js';
 import { GITLAB_HOSTNAME, GITLAB_PROJECT_PATH, hostOfOrigin, readOrigin } from './enable-factory-gitlab.js';
 import { resolveTaskSource } from './projects.js';
-import { readCiRecords } from './ci-metrics.js';
-import { defaultRunsRoot, listRunSummaries } from './runs.js';
+import { readBranchMetrics } from '../core/metrics-branch.js';
+import { recentWatchTimestamps } from '../core/run-store.js';
+import { defaultRunsRoot } from './runs.js';
 
 /** A worker counts as recently seen when a run record is newer than this. */
 export const WORKER_RECENT_MS = 7 * 24 * 60 * 60 * 1000;
@@ -123,22 +124,46 @@ function workerGitlabHost(host: string | undefined): string | undefined {
   return GITLAB_HOSTNAME.test(host) ? host : undefined;
 }
 
-type RemoteRecords = (repoPath: string, now: number) => Promise<Awaited<ReturnType<typeof readCiRecords>>>;
+type RemoteText = (repoPath: string) => Promise<string>;
 
-/** Timestamps of watch-stamped lines on the metrics branch (e.g. a worker host running `taskcell metrics push`); empty when unreadable or slow. */
-async function remoteWatchTimestamps(repoPath: string, now: number, read: RemoteRecords): Promise<string[]> {
-  let timer: number | undefined;
-  const timeout = new Promise<undefined>((resolve) => {
+/**
+ * Timestamps of watch-stamped lines on the metrics branch (e.g. a worker host running `taskcell metrics push`)
+ * at or after `sinceMs`. The file is append-only and never rotated, so it is scanned from the end and the scan
+ * stops at the first line older than the window: only the tail is parsed. Empty when unreadable or slow.
+ */
+async function remoteWatchTimestamps(repoPath: string, sinceMs: number, read: RemoteText): Promise<string[]> {
+  let timer: NodeJS.Timeout | undefined;
+  const timeout = new Promise<void>((resolve) => {
     timer = setTimeout(resolve, REMOTE_READ_TIMEOUT_MS);
   });
-  const records = await Promise.race([read(repoPath, now).catch(() => undefined), timeout]).finally(() => clearTimeout(timer));
-  return (records ?? []).flatMap((r) => (r.record.trigger === 'watch' && r.record.ts !== undefined ? [r.record.ts] : []));
+  const text = await Promise.race([read(repoPath).catch(() => undefined), timeout]).finally(() => clearTimeout(timer));
+  if (typeof text !== 'string') return [];
+  const out: string[] = [];
+  for (let end = text.length; end > 0; ) {
+    const start = text.lastIndexOf('\n', end - 1) + 1;
+    const line = text.slice(start, end).trim();
+    end = start - 1;
+    if (line === '') continue;
+    let parsed: unknown;
+    try {
+      parsed = JSON.parse(line);
+    } catch {
+      continue;
+    }
+    if (parsed === null || typeof parsed !== 'object') continue;
+    const { ts, trigger } = parsed as { ts?: unknown; trigger?: unknown };
+    if (typeof ts !== 'string') continue;
+    if (Date.parse(ts) < sinceMs) break;
+    if (trigger === 'watch') out.push(ts);
+  }
+  return out;
 }
 
-export async function watchWorkerChecklist(repoPath: string, exec: FactoryExec = defaultExec, now: number = Date.now(), readRemote: RemoteRecords = readCiRecords): Promise<WatchWorkerChecklist> {
+export async function watchWorkerChecklist(repoPath: string, exec: FactoryExec = defaultExec, now: number = Date.now(), readRemote: RemoteText = readBranchMetrics): Promise<WatchWorkerChecklist> {
   const target = watchTarget(await readOrigin(exec, repoPath), resolveTaskSource(await readAppConfig(repoPath)));
-  const [runs, remote] = await Promise.all([listRunSummaries(defaultRunsRoot(repoPath)).catch(() => []), remoteWatchTimestamps(repoPath, now, readRemote)]);
-  const local = runs.filter((r) => r.trigger === 'watch').map((r) => r.timestamp);
+  // Only records inside the window are read: a run older than WORKER_RECENT_MS cannot make the worker "recent".
+  const since = now - WORKER_RECENT_MS;
+  const [local, remote] = await Promise.all([recentWatchTimestamps(defaultRunsRoot(repoPath), since), remoteWatchTimestamps(repoPath, since, readRemote)]);
   return {
     repoSlug: target.slug,
     source: target.source,

@@ -132,6 +132,8 @@ export async function fingerprint(root: string): Promise<number> {
 
 /** Matches the `sanitizeTimestamp()` shape of an ISO timestamp, e.g. `2026-10-17T17-57-10-100Z`. */
 const SANITIZED_TIMESTAMP_RE = /^(\d{4}-\d{2}-\d{2})T(\d{2})-(\d{2})-(\d{2})-(\d{3})Z$/;
+/** Character length of every string `SANITIZED_TIMESTAMP_RE` matches. */
+const SANITIZED_TIMESTAMP_LENGTH = '2026-10-17T17-57-10-100Z'.length;
 
 /** Parse a `sanitizeTimestamp()`-shaped prefix back into epoch ms, or undefined if it doesn't match. */
 function parseSanitizedTimestampMs(sanitized: string): number | undefined {
@@ -277,6 +279,35 @@ export async function listRuns(root: string): Promise<RunSummary[]> {
   const summaries = await parseRunSummaries(root);
   listCache.set(root, { fingerprint: fp, summaries });
   return summaries;
+}
+
+/**
+ * Timestamps of `taskcell watch`-stamped records under `root` whose file name (the sanitized run
+ * timestamp) is at or after `sinceMs`. Older files, and names that carry no timestamp, are skipped
+ * before any read, so the work is bounded by the window rather than the history.
+ */
+export async function recentWatchTimestamps(root: string, sinceMs: number): Promise<string[]> {
+  let taskDirs;
+  try {
+    taskDirs = await readdir(root, { withFileTypes: true });
+  } catch {
+    return [];
+  }
+  const out: string[] = [];
+  for (const task of taskDirs) {
+    if (!task.isDirectory()) continue;
+    const taskPath = join(root, task.name);
+    const files = await readdir(taskPath).catch((): string[] => []);
+    for (const name of files) {
+      if (!isRunRecordFile(name)) continue;
+      // `<sanitized timestamp>[-<stage>].json`: the name opens with the timestamp.
+      const ms = parseSanitizedTimestampMs(name.slice(0, SANITIZED_TIMESTAMP_LENGTH));
+      if (ms === undefined || ms < sinceMs) continue;
+      const record = await tryReadRecord(join(taskPath, name));
+      if (record?.trigger === 'watch' && typeof record.timestamp === 'string') out.push(record.timestamp);
+    }
+  }
+  return out;
 }
 
 /**
