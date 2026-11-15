@@ -103,7 +103,7 @@ export interface ReviewPullRequestDeps {
 export interface ReviewPullRequestResult {
   pr: PullRequestForReview;
   commentBody: string;
-  /** The stated verdict line; absent when the reviewer completed without stating one. */
+  /** The stated verdict line; absent only when the review was skipped. */
   verdict?: ReviewVerdict;
   /** The stated risk line directly after the verdict; absent when the reply did not carry one. */
   risk?: ReviewRisk;
@@ -419,6 +419,16 @@ function appendMarker(visible: string, headRefOid?: string): string {
  * login is not recognised as a bot. The head dedupe does not count it (no SHA).
  */
 export const PR_REVIEW_INCOMPLETE_MARKER = '<!-- taskcell-pr-review-incomplete -->';
+const PR_REVIEW_INCOMPLETE_HEAD_MARKER_RE = /^<!--[ \t]*taskcell-pr-review-incomplete:[ \t]*([a-fA-F0-9]+)[ \t]*-->$/gm;
+
+/** Head-specific marker used only to count incomplete attempts; it is not a completed-review dedupe marker. */
+export function pullRequestReviewIncompleteHeadMarker(headRefOid: string): string {
+  return `<!-- taskcell-pr-review-incomplete: ${headRefOid} -->`;
+}
+
+export function hasPullRequestReviewIncompleteHeadMarker(body: string, headRefOid: string): boolean {
+  return Array.from(body.matchAll(PR_REVIEW_INCOMPLETE_HEAD_MARKER_RE)).some((match) => match[1] === headRefOid);
+}
 // Whole line only, like the head-SHA markers, so a comment that mentions the marker inline stays feedback;
 // the padding matches stripReviewMarkers. The note must also open with the bot's heading, so a marker quoted
 // in a code block stays feedback unless the comment opens with that heading too. A last-line rule would miss
@@ -437,9 +447,11 @@ export function hasPullRequestReviewIncompleteMarker(body: string): boolean {
 export function buildPullRequestReviewIncompleteComment(
   reason: PullRequestReviewIncompleteReason = 'too-large',
   detail?: string,
+  headRefOid?: string,
 ): string {
   const detailLine = detail !== undefined && detail !== '' ? `\n\n${detail}` : '';
-  return `${PR_REVIEW_HEADING}\n\n${INCOMPLETE_NOTICES[reason]}${detailLine}\n\n${PR_REVIEW_INCOMPLETE_MARKER}`;
+  const headLine = headRefOid !== undefined && headRefOid !== '' ? `\n${pullRequestReviewIncompleteHeadMarker(headRefOid)}` : '';
+  return `${PR_REVIEW_HEADING}\n\n${INCOMPLETE_NOTICES[reason]}${detailLine}\n\n${PR_REVIEW_INCOMPLETE_MARKER}${headLine}`;
 }
 
 /** Both review attempts ended without a verdict. The incomplete notice (when publishing) was already posted. */
@@ -467,7 +479,7 @@ export function buildPullRequestReviewComment(
   // review; the note tells the reader the findings may stop short.
   const note = opts.completed === false ? `${VERDICT_WITHOUT_COMPLETION_NOTE}\n\n` : '';
   const issueNote = opts.linkedIssueNote !== undefined ? `\n\n${opts.linkedIssueNote}` : '';
-  return appendMarker(`${PR_REVIEW_HEADING}\n\n${note}${body === '' ? 'No blocking findings.' : body}${issueNote}`, headRefOid);
+  return appendMarker(`${PR_REVIEW_HEADING}\n\n${note}${body}${issueNote}`, headRefOid);
 }
 
 /** Host-stamped line naming the issue whose criteria the review read (never model text), and any body/branch disagreement. */
@@ -574,7 +586,7 @@ export async function reviewPullRequest(ref: string, deps: ReviewPullRequestDeps
     const reason = incompleteReviewReason(outcome, pr.diff);
     const modelLine = outcome.model !== undefined && outcome.model !== '' ? ` Model: ${outcome.model}.` : '';
     const detail = `Diff: ${diffLineCount(pr.diff)} lines; last pass produced ${outcome.text.trim().length} characters of output.${modelLine}`;
-    const commentBody = buildPullRequestReviewIncompleteComment(reason, detail);
+    const commentBody = buildPullRequestReviewIncompleteComment(reason, detail, pr.headRefOid);
     if (deps.publish !== false) {
       await postPullRequestReview(target, commentBody, 'comment', gh, deps.runId);
       deps.log?.(`review-pr ${id}: posted -> incomplete notice (${reason})`);
