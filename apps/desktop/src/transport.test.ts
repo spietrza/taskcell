@@ -1,6 +1,5 @@
 import { test, expect, afterEach, vi } from 'vitest';
-import { mockIPC, clearMocks } from '@tauri-apps/api/mocks';
-import { invoke, isHubMode, subscribe, onStreamReset, onHubRestart, onHubConnectionIssue, captureHubToken, watchHubToken } from './transport';
+import { invoke, subscribe, onStreamReset, onHubRestart, onHubConnectionIssue, captureHubToken, watchHubToken } from './transport';
 
 /** Minimal fake EventSource — jsdom doesn't implement one. Tracks every instance so a test can
  * assert how many were actually constructed (the "one shared EventSource" guarantee). */
@@ -59,8 +58,8 @@ function probeOnly(probe: () => Promise<Response>): (url: string) => Promise<Res
 }
 
 afterEach(() => {
-  clearMocks();
   delete window.__TASKCELL_HUB__;
+  delete window.__TASKCELL_MOCK__;
   window.sessionStorage.clear();
   window.history.replaceState(null, '', '/');
   FakeEventSource.instances = [];
@@ -68,21 +67,21 @@ afterEach(() => {
   vi.unstubAllGlobals();
 });
 
-test('T-89 mode resolution: window.__TASKCELL_HUB__ === true selects hub mode', () => {
-  window.__TASKCELL_HUB__ = true;
-  expect(isHubMode()).toBe(true);
+test('mock mode answers from the fixtures in-browser: no fetch, no event stream', async () => {
+  window.__TASKCELL_MOCK__ = true;
+  const fetchSpy = vi.fn();
+  vi.stubGlobal('fetch', fetchSpy);
+  expect(await invoke('list_active')).toBeInstanceOf(Array);
+  await subscribe('api:event', () => {});
+  expect(fetchSpy).not.toHaveBeenCalled();
+  expect(FakeEventSource.instances).toHaveLength(0);
 });
 
-test('T-89 mode resolution: the marker absent selects the Tauri branch', async () => {
-  expect(isHubMode()).toBe(false);
-  const captured: Record<string, unknown> = {};
-  mockIPC((cmd, args) => {
-    Object.assign(captured, { cmd, args });
-    return { ok: true };
-  });
+test('without the mock or demo marker, invoke goes to the hub even with no hub marker', async () => {
+  const fetchSpy = vi.fn(async () => new Response(JSON.stringify({ result: { ok: true } }), { status: 200 }));
+  vi.stubGlobal('fetch', fetchSpy);
   await invoke('list_runs', { repoPath: '/repo' });
-  expect(captured.cmd).toBe('list_runs');
-  expect(captured.args).toEqual({ repoPath: '/repo' });
+  expect(fetchSpy).toHaveBeenCalledOnce();
 });
 
 test('T-90 hub invoke POSTs to /rpc/<cmd> with the args object and resolves result', async () => {

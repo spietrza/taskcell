@@ -3,7 +3,6 @@ import { Button } from '@/ui';
 import { listTasks, listTasksAll, retryPausedTask } from '../../ipc';
 import { inRepos } from '../../repoFilter';
 import { useAsync } from '../../hooks';
-import { canUseNeedsYou } from '../needs-you/NeedsYou';
 import type { BoardTask, PausedState } from '../../wire';
 
 const clock = (ms: number): string => new Date(ms).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
@@ -59,7 +58,6 @@ export function PausedBanner({ tasks }: { tasks: Pick<BoardTask, 'paused'>[] }) 
 export function HomePausedBanner({ project, allRepos, repos, teamId }: { project: string; allRepos: boolean; repos: string[]; teamId?: string }) {
   const { data } = useAsync(
     async (): Promise<Pick<BoardTask, 'paused'>[]> => {
-      if (!canUseNeedsYou()) return [];
       try {
         return allRepos ? inRepos((await listTasksAll(teamId)).tasks, repos) : (await listTasks(project)).tasks;
       } catch {
@@ -77,7 +75,7 @@ export function RetryNowButton({ repoPath, task, onRetried }: { repoPath: string
   const [done, setDone] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const number = /^gh-(\d+)$/.exec(task.id)?.[1];
-  if (number === undefined || !canUseNeedsYou()) return null;
+  if (number === undefined) return null;
   const retry = async (): Promise<void> => {
     setBusy(true);
     setError(null);
@@ -122,6 +120,6 @@ export function PausedPanel({ repoPath, task, onRetried }: { repoPath: string; t
 /** The full-page detail has only the task id: read its card to show the paused state. */
 export function TaskDetailPaused({ project, taskId }: { project: string; taskId: string }) {
   const [nonce, setNonce] = useState(0);
-  const { data } = useAsync(async (): Promise<BoardTask | undefined> => (canUseNeedsYou() ? (await listTasks(project).catch(() => ({ tasks: [] as BoardTask[] }))).tasks.find((t) => t.id === taskId) : undefined), [project, taskId, nonce]);
+  const { data } = useAsync(async (): Promise<BoardTask | undefined> => (await listTasks(project).catch(() => ({ tasks: [] as BoardTask[] }))).tasks.find((t) => t.id === taskId), [project, taskId, nonce]);
   return data == null ? null : <PausedPanel repoPath={project} task={data} onRetried={() => setNonce((n) => n + 1)} />;
 }

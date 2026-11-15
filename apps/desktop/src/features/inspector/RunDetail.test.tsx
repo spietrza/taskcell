@@ -79,8 +79,7 @@ test('T29/T30: legacy records have no verdict; withheld findings are explained',
   expect(screen.getByText('findings withheld: secret-blocked')).toBeInTheDocument();
 });
 
-test('in hub mode the overview says which credential funded the run; nothing without one or outside the hub', () => {
-  (window as unknown as { __TASKCELL_HUB__?: boolean }).__TASKCELL_HUB__ = true;
+test('the overview says which credential funded the run; nothing without one', () => {
   const withSource = (credentialSource?: 'instance' | 'user'): StageDetail => ({ record: { ...stage().record, credentialSource } });
   const { unmount } = render(<RunDetail detail={{ taskId: 'task-1', timestamp: stage().record.timestamp, stages: [withSource('user')] }} project="/repo" />);
   expect(screen.getByText(/Funded by the starter's own credential/)).toBeInTheDocument();
@@ -91,7 +90,4 @@ test('in hub mode the overview says which credential funded the run; nothing wit
   const { unmount: unmount2 } = render(<RunDetail detail={{ taskId: 'task-1', timestamp: stage().record.timestamp, stages: [withSource()] }} project="/repo" />);
   expect(screen.queryByText(/Funded by/)).not.toBeInTheDocument();
   unmount2();
-  (window as unknown as { __TASKCELL_HUB__?: boolean }).__TASKCELL_HUB__ = false;
-  render(<RunDetail detail={{ taskId: 'task-1', timestamp: stage().record.timestamp, stages: [withSource('instance')] }} project="/repo" />);
-  expect(screen.queryByText(/Funded by/)).not.toBeInTheDocument();
 });

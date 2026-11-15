@@ -1,4 +1,3 @@
-import { mockIPC, mockWindows } from '@tauri-apps/api/mocks';
 import { DEMO_READ_ONLY_MESSAGE } from '../errors';
 import type { Commands, RepoLesson } from '../wire';
 import {
@@ -44,7 +43,7 @@ const READ_DRAFT = JSON.stringify({ id: 'draft-001', title: 'Draft task', body: 
  * backend sends. `Partial` because a browser build may legitimately stub only part of the surface;
  * the coverage guard in mockBackend.test.ts is what requires every command ipc.ts calls.
  *
- * Handlers take their args as `| undefined`: mockIPC passes whatever the caller sent, and the
+ * Handlers take their args as `| undefined`: the caller's args arrive as sent, and the
  * wrappers in ipc.ts omit the record entirely for no-arg commands.
  */
 const mockStamp = (): { repoPath: string; repoName: string } => ({ repoPath: projects[0]!.path, repoName: projects[0]!.name });
@@ -142,9 +141,7 @@ const commandHandlers = {
   api_queue: () => queuedRuns,
   api_cancel: () => undefined,
   api_repo_ok: () => true,
-  // Hub-only command (apps/desktop never reaches it through Tauri, but the browser dev build —
-  // no Tauri runtime, hub marker absent — still needs a fixture so RepoPicker is drivable via the
-  // mock backend, and so the ipc.ts coverage guard below passes).
+  // The dev mock needs a fixture so RepoPicker is drivable, and so the ipc.ts coverage guard passes.
   browse_dirs: () => dirListing,
   clone_project: (args: { url?: string; name?: string } | undefined) => ({
     ...projects[0]!,
@@ -204,31 +201,18 @@ const commandHandlers = {
   [K in keyof Commands]: (args: Commands[K]['args']) => Promise<Commands[K]['result']> | Commands[K]['result'];
 }>;
 
-/** Tauri PLUGIN ipc the webview also makes (dialog, event) — not wire commands, so they sit outside
- * the catalogue-checked map above. */
-const pluginHandlers = {
-  'plugin:dialog|open': () => '/home/user/projects/new-project',
-  'plugin:event|listen': () => 1,
-  'plugin:event|unlisten': () => null,
-};
-
-// mockIPC dispatches by string name, so this is the one place the per-command arg types are erased.
-const handlers = { ...commandHandlers, ...pluginHandlers } as Record<string, (args: unknown) => unknown>;
+// Commands dispatch by string name, so this is the one place the per-command arg types are erased.
+const handlers = commandHandlers as Record<string, (args: unknown) => unknown>;
 
 export const HANDLED_COMMANDS: readonly string[] = Object.keys(handlers);
 
-/** Answer one command from the fixture table. Exposed so a hub-mode test can serve
- *  `POST /rpc/<cmd>` from the same fixtures `install()` serves over Tauri. */
+/** Answer one command from the fixture table: the dev server's mock backend (transport.ts), and
+ *  what a hub-mode test serves `POST /rpc/<cmd>` from. */
 export function handle(cmd: string, args: unknown): unknown {
   const handler = handlers[cmd];
   if (handler) return handler(args);
   console.warn(`[mockBackend] unhandled IPC command: ${cmd}`);
   return undefined;
-}
-
-export function install(): void {
-  mockWindows('main');
-  mockIPC(handle);
 }
 
 /** Demo-mode overrides (`hub --demo`, `?demo=1`): the one seeded project, served in-browser. Reads
