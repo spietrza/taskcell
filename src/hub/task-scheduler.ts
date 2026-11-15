@@ -11,7 +11,6 @@ import { failureMessage } from './projects.js';
 import type { RunSession } from './run-session.js';
 import { planSchedule } from './schedule.js';
 import * as teams from './teams.js';
-import type { Caller } from './teams.js';
 
 /** The transport of a hub-board run. Not one of `TRANSPORTS`: only the scheduler can ask for it, never a client. */
 export const HUB_TRANSPORT = 'hub';
@@ -102,7 +101,11 @@ export interface SweepContext {
   userCredentials?: CredentialService;
   audit?: AuditLog;
   /** Re-resolves the stored owner at start (current account and owner flag); undefined: no longer valid, the task does not run. Absent: the stored caller is trusted. */
-  recheckCaller?: (stored: Caller) => Promise<Caller | undefined>;
+  recheckCaller?: (stored: teams.Caller) => Promise<teams.Caller | undefined>;
+  /** A project the sweep may serve (default: all). The local worker's switch, when set off, stops a board's pick-ups. */
+  served?: (repoPath: string) => Promise<boolean>;
+  /** Called with the ids a tick started. */
+  picked?: (repoPath: string, ids: string[]) => Promise<void>;
 }
 
 /**
@@ -154,7 +157,9 @@ export async function sweepHubBoards(ctx: SweepContext): Promise<void> {
     try {
       if ((await ctx.allowlist.assertAllowed(repoPath).catch(() => undefined)) !== repoPath) continue;
       if ((await readAppConfig(repoPath)).taskSource !== 'hub') continue;
-      await scheduleTick(ctx.scheduler, ctx.configDir, repoPath, (task, admitted) => startHubTask(ctx, repoPath, task, admitted), { limit: await parallelLimit(repoPath) });
+      if (ctx.served !== undefined && !(await ctx.served(repoPath))) continue;
+      const started = await scheduleTick(ctx.scheduler, ctx.configDir, repoPath, (task, admitted) => startHubTask(ctx, repoPath, task, admitted), { limit: await parallelLimit(repoPath) });
+      await ctx.picked?.(repoPath, started);
     } catch (e) {
       console.error(`vanguard-hub: scheduler: ${repoPath}: ${failureMessage(e)}`);
     }
