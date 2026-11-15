@@ -6,7 +6,7 @@ import type { GhRunner } from '../tasks/github.js';
 import { commentPullRequest } from '../runners/pr-review.js';
 import { redactForPublish } from '../core/secret-scan.js';
 import { DEFAULT_GITHUB_AGENT_LABEL, DEFAULT_GITHUB_NEEDS_INFO_LABEL } from '../cli/args.js';
-import { hasLabel, labelForms } from '../core/labels.js';
+import { hasLabel, labelForms, NEEDS_REVISION_LABEL } from '../core/labels.js';
 import { GITHUB_REVIEW_LABEL, GITHUB_VERIFY_FAILED_LABEL } from '../github-labels.js';
 import { shownBaseFromLabels } from '../core/base-branch.js';
 import { TaskcellError } from '../core/errors.js';
@@ -14,7 +14,7 @@ import { fanOut } from '../pipeline/fan-out.js';
 import { httpsUrl } from '../core/links.js';
 
 /** The revise-pr trigger (DEFAULT_TRIGGER_LABELS in src/runners/resume-rate-limited.ts). */
-export const NEEDS_REVISION_LABEL = 'needs revision';
+export { NEEDS_REVISION_LABEL };
 
 export interface NeedsYouItem {
   /** `owner/repo#number` — also the `id` a reply targets. */

@@ -10,6 +10,10 @@ vi.mock('../../ipc', () => ({
   readRun: vi.fn(),
   listNeedsYou: vi.fn().mockResolvedValue({ items: [] }),
   retryPausedTask: vi.fn().mockResolvedValue({ label: 'ready for agent' }),
+  apiListSkills: vi.fn(async () => ({ skills: ['db', 'release'] })),
+  apiSetTaskSkills: vi.fn(async (_repo: string, _id: string, skills: string[]) => ({ skills })),
+  hubTaskCreate: vi.fn().mockResolvedValue({ id: 'hub-2' }),
+  hubTaskSchedule: vi.fn().mockResolvedValue({ id: 'hub-1' }),
 }));
 import { listTasks, listTasksAll, retryPausedTask } from '../../ipc';
 const mockListTasks = vi.mocked(listTasks);
@@ -40,7 +44,53 @@ const COUNTS_TASKS: BoardTask[] = [
   { id: 't-w2', title: 'Waiting two', column: 'queued', state: 'ready for agent', waiting: true },
 ];
 
+describe('TaskBoard on a hub-board project', () => {
+  const card = (label: string): BoardTask => ({ id: 'hub-1', title: 'Hub one', column: 'queued', state: label, schedule: { state: 'ready', label } });
+
+  test('offers the hub task form instead of the tracker\'s New Task, and reloads after adding', async () => {
+    mockListTasks.mockResolvedValue({ tasks: [], capped: false, hubBoard: true });
+    render(<TaskBoard project="/repo" repos={[]} onOpenTask={() => {}} onNewTask={() => {}} />);
+    const form = await screen.findByRole('form', { name: 'New hub task' });
+    expect(screen.queryByRole('button', { name: 'New Task' })).not.toBeInTheDocument();
+    const calls = mockListTasks.mock.calls.length;
+    fireEvent.change(within(form).getByLabelText('Title'), { target: { value: 'A' } });
+    fireEvent.click(within(form).getByRole('button', { name: 'Add task' }));
+    await vi.waitFor(() => expect(mockListTasks.mock.calls.length).toBe(calls + 1));
+  });
+
+  test('the open quick view shows the card as reloaded after a save, not the snapshot that was clicked', async () => {
+    mockListTasks.mockResolvedValueOnce({ tasks: [card('starts next')], capped: false, hubBoard: true });
+    render(<TaskBoard project="/repo" repos={[]} onOpenTask={() => {}} onNewTask={() => {}} />);
+    fireEvent.click(await screen.findByText('Hub one'));
+    mockListTasks.mockResolvedValueOnce({ tasks: [card('blocked by hub-2')], capped: false, hubBoard: true });
+    fireEvent.click(screen.getByRole('button', { name: 'Save schedule' }));
+    await vi.waitFor(() => expect(within(screen.getByRole('region', { name: 'Schedule' })).getByText('blocked by hub-2')).toBeInTheDocument());
+  });
+
+  test('a tracker board keeps New Task and has no hub form', async () => {
+    mockListTasks.mockResolvedValue({ tasks: [], capped: false });
+    render(<TaskBoard project="/repo" repos={[]} onOpenTask={() => {}} onNewTask={() => {}} />);
+    expect(await screen.findByRole('button', { name: 'New Task' })).toBeInTheDocument();
+    expect(screen.queryByRole('form', { name: 'New hub task' })).not.toBeInTheDocument();
+  });
+});
+
 describe('TaskBoard', () => {
+  test('skills picked on a card show on it at once and go to the full page (and its New Run form)', async () => {
+    mockListTasks.mockResolvedValue({ tasks: [{ id: 'gh-1', title: 'One', column: 'queued', state: 'open', source: 'github', skills: ['db'] }], capped: false });
+    const onOpenTask = vi.fn();
+    render(<TaskBoard project="/repo" repos={[]} onOpenTask={onOpenTask} onNewTask={() => {}} />);
+    const card = (await screen.findByText('One')).closest('button') as HTMLElement;
+    expect(card).toHaveTextContent('skills: db');
+    fireEvent.click(card);
+    const section = await screen.findByRole('region', { name: 'Skills' });
+    fireEvent.click(await within(section).findByLabelText('release'));
+    fireEvent.click(within(section).getByRole('button', { name: 'Save skills' }));
+    await waitFor(() => expect(card).toHaveTextContent('skills: db, release'));
+    fireEvent.click(screen.getByRole('button', { name: 'Full page' }));
+    expect(onOpenTask).toHaveBeenCalledWith('gh-1', undefined, ['db', 'release']);
+  });
+
   test('renders all six workflow columns', async () => {
     mockListTasks.mockResolvedValue({ tasks: [], capped: false });
     render(<TaskBoard project="/repo" repos={[]} onOpenTask={() => {}} onNewTask={() => {}} />);
@@ -202,6 +252,13 @@ describe('TaskBoard team scope', () => {
     expect(screen.queryByText('Other team')).not.toBeInTheDocument();
   });
 
+  test('the open project being a hub board offers the hub task form in the all-repositories view', async () => {
+    vi.mocked(listTasksAll).mockResolvedValue({ tasks: [], capped: false, failures: [], hubBoards: ['/r/alpha'] });
+    render(<TaskBoard project="/r/alpha" allRepos repos={['/r/alpha']} onOpenTask={() => {}} onNewTask={() => {}} />);
+    await screen.findByRole('form', { name: 'New hub task' });
+    expect(screen.queryByRole('button', { name: 'New Task' })).not.toBeInTheDocument();
+  });
+
   test('the selected team is sent with the all-repositories read', async () => {
     vi.mocked(listTasksAll).mockResolvedValue({ tasks: [], capped: false, failures: [] });
     render(<TaskBoard project="/r/alpha" allRepos repos={['/r/alpha']} teamId="b" onOpenTask={() => {}} onNewTask={() => {}} />);
@@ -254,7 +311,7 @@ describe('TaskBoard quick view', () => {
     const { card, onOpenTask } = await setup();
     fireEvent.click(card);
     fireEvent.click(await screen.findByRole('button', { name: 'Full page' }));
-    expect(onOpenTask).toHaveBeenCalledWith('gh-7', undefined);
+    expect(onOpenTask).toHaveBeenCalledWith('gh-7', undefined, undefined);
     fireEvent.mouseDown(document.body);
     expect(screen.queryByRole('complementary')).not.toBeInTheDocument();
     expect(card).toHaveFocus();

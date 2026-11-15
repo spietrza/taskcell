@@ -124,6 +124,46 @@ describe('createRun provider fail-fast (S6)', () => {
   });
 });
 
+describe('createRun hand-picked skills: the hub lists and runs from one skills dir', () => {
+  async function skillsDirWith(id: string): Promise<string> {
+    const dir = await mkdtemp(join(tmpdir(), 'vg-skills-'));
+    await mkdir(join(dir, id));
+    await writeFile(join(dir, id, 'SKILL.md'), `---\nname: ${id}\n---\n`);
+    return dir;
+  }
+
+  it('with SKILLS_DIR set, a bundled skill the hub listed starts a GitHub run that loads from that dir', async () => {
+    const repoPath = await plainRepo();
+    const skillsDir = await skillsDirWith('code-review');
+    setEnv({ SKILLS_DIR: skillsDir, CLAUDE_CODE_OAUTH_TOKEN: 'sk-ant-oat01-x', ANTHROPIC_API_KEY: undefined });
+    const { commands } = await import('../hub/commands/tasks.js');
+    const listed = (await commands.handlers.list_skills({ args: { repoPath }, allow: async (p: string) => p } as never)) as { skills: string[] };
+    expect(listed.skills).toEqual(['code-review']);
+    await productionDeps().createRun({ issueRef: 'o/r#1', repoPath, skills: listed.skills }, () => {});
+    expect(runGithubIssue.mock.calls[0]?.[1]).toMatchObject({ skillsDir, namedSkills: ['code-review'], namedSkillsOnly: true });
+  });
+
+  it('an unknown skill is refused before beginRun and the sandbox context, naming the installed ones', async () => {
+    const repoPath = await plainRepo();
+    setEnv({ SKILLS_DIR: await skillsDirWith('code-review'), CLAUDE_CODE_OAUTH_TOKEN: 'sk-ant-oat01-x', ANTHROPIC_API_KEY: undefined });
+    const run = productionDeps().createRun({ issueRef: 'o/r#1', repoPath, skills: ['nope'] }, () => {});
+    await expect(run).rejects.toBeInstanceOf(BadRequestError);
+    await expect(run).rejects.toThrow('Unknown skill: nope. Installed skills: code-review.');
+    expect(beginRun).not.toHaveBeenCalled();
+    expect(startSandboxContext).not.toHaveBeenCalled();
+  });
+
+  it('without a hub list the run keeps the body line: no namedSkills are passed', async () => {
+    const repoPath = await plainRepo();
+    setEnv({ SKILLS_DIR: undefined, CLAUDE_CODE_OAUTH_TOKEN: 'sk-ant-oat01-x', ANTHROPIC_API_KEY: undefined });
+    await productionDeps().createRun({ issueRef: 'o/r#1', repoPath }, () => {});
+    const opts = runGithubIssue.mock.calls[0]?.[1] ?? {};
+    expect(opts).not.toHaveProperty('namedSkills');
+    expect(opts).not.toHaveProperty('namedSkillsOnly');
+    expect(opts).not.toHaveProperty('skillsDir');
+  });
+});
+
 /**
  * The hub always runs with the LLM proxy: there is no switch, so the only question per run is whether
  * the chosen provider CAN be proxied — and when it cannot, that the exposure is announced instead of
@@ -294,7 +334,7 @@ describe('createRun: the real credential never reaches Docker secrets (source-ad
       editGithubLabels: vi.fn(),
       commentGithubIssue: vi.fn(),
     }));
-    vi.doMock('../context/skill-registry.js', () => ({ skillRegistryForRun: vi.fn(async () => ({})) }));
+    vi.doMock('../context/skill-registry.js', () => ({ hubSkillsDir: (): undefined => undefined, skillRegistryForRun: vi.fn(async () => ({ ids: () => [] })) }));
     const capturedSecrets: Array<Record<string, string>> = [];
     vi.doMock('../sandbox/docker.js', () => ({
       sandboxImage: (): string => 'vanguard-sandbox:latest',

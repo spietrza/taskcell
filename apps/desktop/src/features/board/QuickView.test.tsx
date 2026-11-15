@@ -1,5 +1,5 @@
 import { beforeEach, describe, expect, test, vi } from 'vitest';
-import { render, screen, within } from '@testing-library/react';
+import { fireEvent, render, screen, within } from '@testing-library/react';
 import { QuickView, matchNeedsYou, waitingWhy, type QuickTask } from './QuickView';
 import type { NeedsYouItem, RunDetail, RunSummary } from '../../wire';
 
@@ -9,15 +9,17 @@ vi.mock('../../ipc', () => ({
   listNeedsYou: vi.fn(),
   replyNeedsYou: vi.fn(),
   mergeNeedsYou: vi.fn(),
+  apiListSkills: vi.fn(async () => ({ skills: ['db', 'release'] })),
+  apiSetTaskSkills: vi.fn(async (_repo: string, _id: string, skills: string[]) => ({ skills })),
 }));
-import { listNeedsYou, listRuns, readRun } from '../../ipc';
+import { apiListSkills, apiSetTaskSkills, listNeedsYou, listRuns, readRun } from '../../ipc';
 
 const PR = 'https://github.com/o/r/pull/9';
 const item = (over: Partial<NeedsYouItem>): NeedsYouItem => ({ id: 'o/r#9', kind: 'pr', number: 9, repoSlug: 'o/r', title: 'T', url: PR, reason: 'taskcell:needs-human-review', baseRef: 'main', ...over });
 const summary: RunSummary = { taskId: 'gh-7', timestamp: 'ts', stages: ['implementer'], totalCostUsd: 1.5, anyFailed: false, prUrl: PR };
 const detail: RunDetail = { taskId: 'gh-7', timestamp: 'ts', prUrl: PR, stages: [{ record: { stage: 'reviewer', verdict: 'pass' } as never }] };
 const task: QuickTask = { id: 'gh-7', title: 'Seven', column: 'review', state: 'review', source: 'github', url: 'https://github.com/o/r/issues/7' };
-const open = (t: QuickTask = task): ReturnType<typeof render> => render(<QuickView task={t} project="/repo" onClose={() => {}} onFullPage={() => {}} onRetried={() => {}} />);
+const open = (t: QuickTask = task): ReturnType<typeof render> => render(<QuickView task={t} project="/repo" onClose={() => {}} onFullPage={() => {}} />);
 
 beforeEach(() => {
   vi.mocked(listRuns).mockResolvedValue([summary]);
@@ -49,6 +51,39 @@ describe('QuickView', () => {
     open({ ...task, column: 'running', stage: 'implementer' });
     await screen.findByRole('list', { name: 'Stage line' });
     expect(screen.queryByRole('region', { name: 'Receipt' })).not.toBeInTheDocument();
+  });
+});
+
+describe('QuickView skills', () => {
+  test('the card shows its skills ticked; Save writes the new choice to the task', async () => {
+    const onSkillsSaved = vi.fn();
+    render(<QuickView task={{ ...task, skills: ['db'] }} project="/repo" onClose={() => {}} onFullPage={() => {}} onSkillsSaved={onSkillsSaved} />);
+    const section = await screen.findByRole('region', { name: 'Skills' });
+    expect(await within(section).findByLabelText('db')).toBeChecked();
+    expect(within(section).queryByRole('button', { name: 'Save skills' })).not.toBeInTheDocument();
+    fireEvent.click(within(section).getByLabelText('release'));
+    fireEvent.click(within(section).getByLabelText('db'));
+    fireEvent.click(within(section).getByRole('button', { name: 'Save skills' }));
+    await vi.waitFor(() => expect(onSkillsSaved).toHaveBeenCalledWith(['release']));
+    expect(apiSetTaskSkills).toHaveBeenCalledWith('/repo', 'gh-7', ['release']);
+  });
+
+  test('a refused save and an unreadable skill list both say why', async () => {
+    vi.mocked(apiListSkills).mockRejectedValueOnce(new Error('Skills cannot be listed: ENOENT /skills'));
+    vi.mocked(apiSetTaskSkills).mockRejectedValueOnce(new Error('gh: not signed in'));
+    render(<QuickView task={{ ...task, skills: ['db'] }} project="/repo" onClose={() => {}} onFullPage={() => {}} />);
+    const section = await screen.findByRole('region', { name: 'Skills' });
+    expect(await within(section).findByRole('status')).toHaveTextContent('ENOENT /skills');
+    fireEvent.click(within(section).getByLabelText('db'));
+    fireEvent.click(within(section).getByRole('button', { name: 'Save skills' }));
+    expect(await within(section).findByRole('alert')).toHaveTextContent('gh: not signed in');
+  });
+
+  test('a card of no tracker has no skills section', async () => {
+    const { source: _source, ...draft } = task;
+    open(draft);
+    await screen.findByRole('list', { name: 'Stage line' });
+    expect(screen.queryByRole('region', { name: 'Skills' })).not.toBeInTheDocument();
   });
 });
 

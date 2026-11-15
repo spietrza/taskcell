@@ -378,7 +378,7 @@ request is replayed, so a run is never started twice.
 | `TASKCELL_HUB_ALLOW_FLEET` | — (`1` on a loopback bind enables Fleet; set by the desktop app) |
 | `TASKCELL_HUB_EXIT_ON_STDIN_EOF` | — (`1`: shut down when stdin closes; set by the desktop app) |
 | `TASKCELL_HUB_ALLOWED_HOSTS` | — (comma-separated exact Host values, added to `localhost`/any IP literal on any port) |
-| `TASKCELL_HUB_MAX_QUEUE` | `10` (runs that may wait behind the one running run; past it a new run is refused. The queue is in memory only: a hub restart drops queued runs) |
+| `TASKCELL_HUB_MAX_QUEUE` | `10` (runs that may wait behind the one running run; past it a new run is refused, and a [hub-board task](#hub-board-tasks-dependencies-and-start-dates) stays to do. The queue is in memory only: a hub restart drops queued runs) |
 | `TASKCELL_HUB_CLONE_HOSTS` | — (comma-separated hosts, added to `github.com`/`gitlab.com`) |
 | `TASKCELL_CHAT_ALLOWED_ORIGINS` | — (comma-separated origins a project's `chatBaseUrl` may use; doc chat refuses any other origin than `https://api.anthropic.com`, since the inherited credential is sent there) |
 
@@ -517,7 +517,7 @@ The views work at phone width (the quick view is a bottom drawer).
 
 **Enable factory** on a project card (hub only) turns on the GitHub Actions factory for that repo in
 four steps, following [onboarding-another-repo.md](onboarding-another-repo.md)
-(`src/hub/enable-factory.ts`). GitLab and Linear show as coming soon.
+(`src/hub/enable-factory.ts`). GitLab CI has its own flow, below; Linear shows as planned.
 
 1. **Plan** reads the repo with `gh` and changes nothing: the slug, the default branch, the signed-in
    `gh` login (it becomes the callers' actor gate), the package manager and scripts, and the caller
@@ -540,6 +540,27 @@ detects the merged PR on its own and links it, and the verify step dispatches th
 the linked run's status live. The project card shows the state: not enabled, setting up (current
 step), ready, or broken (the reason: a closed PR or a failed doctor run).
 
+### GitLab CI
+
+The dialog offers **GitLab CI** only when `origin` is on GitLab (gitlab.com, or the host named by `GITLAB_HOST`); `enable_factory_host` reports which host it is. For a GitHub project, or one with no remote, the row stays unavailable and says why. The hub does everything through `glab` (`src/hub/enable-factory-gitlab.ts`).
+
+**What the hub needs.** `glab` on the `PATH` of the machine the hub runs on, signed in (`glab auth login`) as an account with at least Developer access to the project (push a branch, create labels, open an MR; Maintainer to see and set CI/CD variables). The Docker hub image (`docker/hub.Dockerfile`) ships a pinned, checksum-verified `glab` next to `gh`; sign it in inside the container, or pass `GITLAB_TOKEN` to it. A hub run from source needs you to install `glab` yourself. For a self-managed GitLab, start the hub with `GITLAB_HOST` set to the host of `origin`. The project needs a runner that allows the privileged `docker:dind` service.
+
+**Step by step:**
+
+1. On the project card, choose **Enable factory → GitLab CI**. The plan shows the project, the default branch, the signed-in `glab` user and the CI files. That user becomes the jobs' actor gate: the factory jobs run only in pipelines that this GitLab user starts.
+2. Click **Open merge request**. The hub adds the factory jobs (`templates/gitlab/taskcell.yml`: doctor, implement, review) as `.gitlab/taskcell.yml`, includes them from `.gitlab-ci.yml` (created if missing; an existing `include:` in any form gets one more entry), pushes only the branch `vanguard/enable-factory`, creates the routing labels and opens the MR. It never pushes CI config to the default branch. An MR opened from a fork with the same branch name is not mistaken for it.
+   - If the plan says the CI file is **not edited automatically** (a custom CI/CD configuration file in the project settings, Auto DevOps with no `.gitlab-ci.yml`, or YAML the hub cannot parse), the MR adds only `.gitlab/taskcell.yml`. Add the line the plan shows, `- local: .gitlab/taskcell.yml`, under the top-level `include:` of the named file before merging. If the jobs file is already on the default branch, there is no MR to open: add the line, then open Enable factory again.
+3. Copy the **Secret** command and run it in your terminal (bash or zsh). It asks for the Claude token without echoing it and stores it as the **masked and protected** CI/CD variable `CLAUDE_CODE_OAUTH_TOKEN` on that project (`glab variable set`, or `update` when it already exists, so the same command rotates the token). Protected means only pipelines on protected branches, such as the default branch, can read it. The hub never reads, prints or stores the value: it checks that the name exists with one body-less `HEAD` request. A Developer, or a group-level variable, is not visible to that check; a passing doctor marks the step done.
+4. In **Settings → CI/CD → Variables**, add `GITLAB_TOKEN` (masked and protected): a project or personal access token that can read and comment on issues and MRs and push branches. The hub does not check it; the doctor does.
+5. Review and merge the MR. The checklist notices the merge on its own.
+6. Click **Run doctor**. The hub starts a pipeline on the default branch with `TASKCELL_DOCTOR=true` (`glab ci run`), follows exactly the pipeline that call created, and reads the `taskcell-doctor` job in it (all pages of the job list). Only that job passing marks the step done; a finished pipeline without it (the include is not wired, or another user started it) fails the step. GitLab runs every job without `rules:` in such a pipeline, so when your `.gitlab-ci.yml` has such jobs the dialog names them and asks for a second click, **Run doctor anyway**, before starting it. Jobs that come from your own includes are not listed.
+7. To let the factory work, create a **Build → Pipeline schedules** entry owned by the same GitLab user with the variable `TASKCELL_SWEEP=true`; each run sweeps the issues labelled `ready for agent` and the MRs labelled `ready for vanguard review`. The hub creates no schedule.
+
+The included jobs run only in pipelines started by that user with one of the two variables, so they never join your own pipelines. Each job builds the pinned Taskcell release (`TASKCELL_REF`, default `v1`) in a `node:24` image with a `docker:dind` service, on an amd64 or arm64 runner; `pnpm` and `glab` are pinned (`glab` by checksum), the template sets no global variables, points `glab` at your GitLab (`GITLAB_HOST: $CI_SERVER_HOST`) and keeps the two credentials out of the environment while it installs and builds.
+
+Each step shows its state; the dialog polls the MR merge and the pipeline, "Check again" re-reads the variable and "Run doctor again" retries the pipeline. A project with no remote, a missing `glab`, no `glab` sign-in or no permission gets one plain sentence, not the raw command error. The same loopback / `TASKCELL_HUB_ALLOW_ADD=1` gate applies to apply and verify, and both are audited as `enable-factory`.
+
 Apply and verify change the remote, so they are gated like `clone_project`: loopback only, unless
 `TASKCELL_HUB_ALLOW_ADD=1`. The `gh` login must be able to push workflow files (classic `repo` and
 `workflow` scopes), create labels, open a PR and dispatch a workflow.
@@ -556,7 +577,7 @@ Project settings show an **Auto-merge** card (hub only; `src/hub/approver-card.t
 
 ## Audit log
 
-Every state-changing action appends one JSON line to `<config dir>/audit.jsonl` (time, login or `token`, action, target, outcome `ok`/`refused`/`failed`): sign-in, project add/remove, clone, run start/queue/cancel, task start, paused-task retry, settings changes. Targets and detail are names only — never a credential value, token, cookie or URL userinfo/query. Each line is chained (sha256 of the previous record) and carries an actor and subject; the file rotates at 10 MB and rotated files are pruned after 90 days (at most 50 kept); `taskcell audit verify` checks the chain (see [audit.md](audit.md)). A line that cannot be written is reported to the caller instead of being dropped. Runs started from the hub carry `startedBy` in their records (shown in the Runs table). Admins read the log in the Audit view (`read_audit`); non-admins get 403. The owner (header token, or local mode) acts as the shared `token` admin identity; any other signed-in user is logged under their e-mail and is not an admin until roles land (`actorFor` in `createHubServer` overrides this).
+Every state-changing action appends one JSON line to `<config dir>/audit.jsonl` (time, login or `token`, action, target, outcome `ok`/`refused`/`failed`): sign-in, project add/remove, clone, run start/queue/cancel (a hub-board task's start is logged under the task's owner), task start, paused-task retry, hub task create/schedule/retry, settings changes. Targets and detail are names only — never a credential value, token, cookie or URL userinfo/query. Each line is chained (sha256 of the previous record) and carries an actor and subject; the file rotates at 10 MB and rotated files are pruned after 90 days (at most 50 kept); `taskcell audit verify` checks the chain (see [audit.md](audit.md)). A line that cannot be written is reported to the caller instead of being dropped. Runs started from the hub carry `startedBy` in their records (shown in the Runs table). Admins read the log in the Audit view (`read_audit`); non-admins get 403. The owner (header token, or local mode) acts as the shared `token` admin identity; any other signed-in user is logged under their e-mail and is not an admin until roles land (`actorFor` in `createHubServer` overrides this).
 
 ## Issue history
 
@@ -617,6 +638,8 @@ credential an admin saved). An **admin** — a GitHub login listed in `--admin-g
 | `user-first` | per provider: the starter's own credential for the provider the run uses, else the instance credential for that provider |
 | `user-only` | the starter's own credential for the provider the run uses; with none saved for it the run is refused before it is queued |
 
+A hub-board task started by the scheduler counts its owner as the starter (see [Who a task runs as](#who-a-task-runs-as)).
+
 Resolution is per provider: a user who saved only `OPENAI_API_KEY` runs Codex on their key and Claude on the
 instance's `CLAUDE_CODE_OAUTH_TOKEN` (`credentialSource` records `user` / `instance` for the run's provider).
 A run never receives keys of providers it does not use.
@@ -656,7 +679,7 @@ taskcell hub rotate-token --token-file <path>
 A missing or unbuilt `--ui-dir` fails at startup, naming `pnpm --dir apps/desktop build`
 (run `pnpm build:ui`) rather than failing on the first request. Binding a non-loopback host
 requires sign-in (warning at startup if no provider or allowlist is configured) and disables `add_project`/`browse_dirs`/`clone_project`,
-`enable_factory_apply`/`enable_factory_verify`/`enable_factory_start`, `reply_needs_you`, `merge_needs_you`, `start_task` and `retry_paused_task` unless
+`enable_factory_apply`/`enable_factory_verify`/`enable_factory_start`, `reply_needs_you`, `merge_needs_you`, `set_task_skills`, `start_task` and `retry_paused_task` unless
 `TASKCELL_HUB_ALLOW_ADD=1`. `SIGINT`/`SIGTERM` close the listener, every connected SSE client,
 and the project file watchers.
 
@@ -711,3 +734,66 @@ that option's commands, and remembers the choice in the browser with the rest of
 An `export` line only takes effect for a hub started after it: the hub reads its environment at
 start. After exporting, restart the hub (or save the key in Settings → credentials, where that
 exists) and then press **Check again**.
+
+## Choosing skills
+
+Skills are picked automatically for a run. To make a task use specific ones, pick them in the hub:
+
+- **On the card.** Open a card on the Board (its quick view; a bottom drawer on a phone). The **Skills** section lists the installed skills as checkboxes; tick the ones the task must use and press **Save skills**. The hub writes them to the task itself, as a `Skills: a, b` line in the issue body (GitHub, GitLab or Linear), so a run started later from the hub, from CI or by `taskcell watch` uses them too. Unticking everything removes the line. The card then shows `skills: a, b`. The card must belong to the project's own task source (and, on Linear, its team). A GitLab issue whose description has a line starting with a quick action such as `/close` is refused; edit its `Skills:` line on GitLab instead.
+- **In the New Run form.** Under **Advanced**, the same checkboxes. Opened from a card, the card's skills are already ticked and appear in the command preview as `--skill <id>`; untick one and that run does not load it. What is ticked when you press **Run** is the run's whole hand-picked list. Opened without a card and with nothing ticked, the run reads the issue's own `Skills:` line.
+
+The list comes from the hub's `SKILLS_DIR` plus the project's `.github/vanguard-skills/`, and hub runs on every task source (GitHub, GitLab, Linear) load and check against that same set, so a skill the picker offers is one the run accepts. When the list cannot be read (a missing `SKILLS_DIR` directory, a `skills.lock.json` mismatch) the picker says why instead of showing nothing; fix the directory (see [skills.md](skills.md)) and reopen it. A skill that is ticked but not installed is marked "(not installed)"; a run with it is refused before any model call, with the installed names.
+
+A provider that cannot load skills still runs; the run shows a warning and its record carries the note. The same goes for a `Skills:` line in the issue that is not a list of skill ids: it is ignored, with a warning on the run.
+
+Calls: `list_skills` (`repoPath`; read-only, not audited) returns the installed ids; `set_task_skills` (`repoPath`, `taskId`, `skills`) writes the card's line as the hub's own tracker identity and is audited as `task-edit`. `api_create_run` takes `skills`; an id that is not installed is refused before the run's sandbox context is created.
+
+## Hub board: tasks, dependencies and start dates
+
+A project whose task source is **Hub board** (Settings → Task source, `taskSource: hub` in `.taskcell/app.json`) has its tasks in the hub itself instead of a tracker. With such a project open (the project named in the top bar), the Board shows a **New hub task** form (title and what to do) in place of the tracker's **New Task**; a card's quick view has a **Schedule** section, and **Full page** shows the task's text. Projects on GitHub, GitLab or Linear are not touched by any of this: the hub-board commands refuse them and the scheduler never looks at them.
+
+### Where tasks live
+
+Tasks are stored in the hub's config directory, one file per project (`<config dir>/hub-tasks/<hash of the repository path>.json`, mode 0600), not in the repository. Nothing a checkout contains can add a task, change one or start a run: a repository that commits `.taskcell/app.json` with `taskSource: hub` only gets an empty hub board until someone creates a task through the hub. The file is keyed by the repository's resolved path, so moving the repository leaves its tasks behind. Each write goes to a fresh, exclusively created temporary file that is renamed over the store. A store that exists but cannot be read or parsed is an error on the Board and for the scheduler and is never overwritten; entries in it that are not valid tasks are kept in the file, shown as one red card, and never run. A board holds at most 1000 tasks; a title is at most 300 characters, the text 64 KiB, and a task is blocked by at most 50 others.
+
+### Dependencies and start date
+
+Each task has a **blocked by** list (ids such as `hub-1`, other tasks of the same project) and an optional **start date** (`YYYY-MM-DD`, read as 00:00 in the hub's time zone, or a full ISO instant with a zone). Both are edited under **Schedule** (`hub_task_schedule`, audited as `task-schedule`); `hub_task_create` adds a task (audited as `task-create`).
+
+The Board reads `list_tasks` through the same planner the scheduler uses (`src/hub/schedule.ts`), so a card always shows what the scheduler will do:
+
+| Card says | Meaning |
+| --- | --- |
+| `blocked by hub-1` | a dependency is not done (a failed dependency never unblocks) |
+| `waits until Tue 18.11 (Europe/Berlin)` | the start date is in the future; the hub time zone is named |
+| `waits for a free slot` | ready, but the project already has as many tasks with the run session as it can hold |
+| `starts next` | ready; the next scheduler pass hands it to the run session |
+| `queued behind another run (position 1)` | handed over, waiting in the run queue; shown in **Queued**, not **Running** |
+| `not started: …` | the last start was refused (no credential under `user-only`, the run queue is full, the owner no longer reaches the repository); the task stays to do and is tried again on every pass |
+| `failed: …` (red) | the run failed, was cancelled, was held back by the secret scan or a red base branch, or changed nothing; the reason is shown. **Retry** in the quick view (`hub_task_retry`) puts it back to do |
+| `cannot start: …` (red) | a missing reference, a dependency cycle (`a → b → a`, also shown on tasks that wait behind the cycle) or an invalid date; the reason is shown and the task never starts |
+
+### What the scheduler starts, and how many at once
+
+Every 15 seconds the hub starts each task that is valid, has every dependency done and has reached its start date. A task without dependencies or a date starts as soon as there is room.
+
+Hub runs go through the same run session as a run started by hand, and that session runs **one run at a time for the whole hub**, holds **one queued run per project** and at most `TASKCELL_HUB_MAX_QUEUE` queued runs in total. So a hub-board project has at most one task running and one more queued; the rest wait. Independent tasks therefore run one after the other, not side by side. The project's `concurrency` setting can lower this to 1 (nothing queued ahead) but cannot raise it. A start the session refuses is not a failure: the task stays to do with the reason on its card.
+
+### Who a task runs as
+
+A task runs as its **owner**: the person who created it, or the last one to save its schedule or retry it. At start the hub applies what `api_create_run` applies to a request: the owner's teams must still include the repository, the [credential policy](#per-user-provider-credentials) picks the credential (under `user-only`, an owner with none saved for the provider is refused, and the card says so), the admission is written to the audit log as `run-start` or `run-queue` under the owner's login (a refusal as `run-start` / `refused`, once per reason), and the run records carry the owner as `startedBy`. The provider is the project's `provider` setting. A client cannot start a hub run directly: the `hub` transport is not accepted by `api_create_run`.
+
+### The run and its result
+
+The run gets the stored title and text as its task, the way a tracker run gets an issue; no tracker is asked, so a repository with no remote works. It runs the standard implement, verify and review pipeline in the sandbox.
+
+- **The repository has a github.com `origin`**: the branch is pushed and a pull request is opened, as for a GitHub issue. The task is done and its card shows the pull request address.
+- **Otherwise**: the result is committed on a local branch of the repository (`chore/vanguard-hub-<n>-<id>`), nothing is pushed, and the card shows `branch <name>`. Review and merge it yourself.
+
+A task is **done** when its run delivered a result, not when that result is merged, so a dependent task starts from the base branch as it is then. Merge the first task's result before the next should build on it, or set a start date on the dependent.
+
+### Restart
+
+The run session's active run and queue live in memory, so no run survives a hub restart. On start the hub puts every task stored as running back to do (its card says its run ended with the hub), and the scheduler starts it again. While the hub runs, a task marked running that the hub holds no run for is reset the same way on the next pass.
+
+Cards from GitHub show the dependencies the issue body already reports (`Depends on #n`, `Start: YYYY-MM-DD`, see `src/tasks/dependencies.ts`); these are display only, GitHub's own gate still decides.

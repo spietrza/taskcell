@@ -171,7 +171,7 @@ export async function listAcrossProjects<T extends object>(
 
 /** A failure's error goes to the browser: redacted, and capped so one runaway message cannot flood the list. */
 const MAX_FAILURE_ERROR = 300;
-function failureMessage(reason: unknown): string {
+export function failureMessage(reason: unknown): string {
   const text = redactForPublish(reason instanceof Error ? reason.message : String(reason));
   return text.length > MAX_FAILURE_ERROR ? `${text.slice(0, MAX_FAILURE_ERROR)}…` : text;
 }

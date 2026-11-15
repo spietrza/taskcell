@@ -105,6 +105,7 @@ export function Inspector({
   const [showNewRun, setShowNewRun] = useState(false);
   const [newRunTask, setNewRunTask] = useState<string | undefined>(); // the card New Run was opened from
   const [taskDetailId, setTaskDetailId] = useState<string | null>(null);
+  const [taskDetailSkills, setTaskDetailSkills] = useState<string[] | undefined>(); // the opened card's `Skills:` line
   // Typed run (S1): capabilities for the form, the single in-flight typed run, and the idle-check.
   const [caps, setCaps] = useState<Capabilities | null>(null);
   const [typedRun, setTypedRun] = useState<TypedRunState | null>(null);
@@ -512,7 +513,7 @@ export function Inspector({
 
       {showNewRun && caps !== null && (
         <div className="shrink-0">
-          <NewRunForm key={newRunTask ?? ''} capabilities={caps} project={project} taskId={newRunTask} onRun={startTypedRun} onCancel={closeNewRun} />
+          <NewRunForm key={newRunTask ?? ''} capabilities={caps} project={project} taskId={newRunTask} taskSkills={newRunTask !== undefined ? taskDetailSkills : undefined} onRun={startTypedRun} onCancel={closeNewRun} />
         </div>
       )}
 
@@ -590,8 +591,9 @@ export function Inspector({
           filter={filter}
           onFilter={onFilter}
           projects={projects}
-          onOpenTask={(id, repo) => {
+          onOpenTask={(id, repo, skills) => {
             setTaskDetailRepo(repo ?? project);
+            setTaskDetailSkills(skills);
             setTaskDetailId(id);
           }}
           onNewTask={onNewTask}

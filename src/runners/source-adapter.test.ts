@@ -1,6 +1,6 @@
 import { writeStageMarker, clearStageMarker } from '../core/run-stage-marker.js';
 vi.mock('../core/run-stage-marker.js', () => ({ writeStageMarker: vi.fn(async () => {}), clearStageMarker: vi.fn(async () => {}) }));
-import { describe, expect, it, vi, beforeEach } from 'vitest';
+import { afterAll, beforeAll, describe, expect, it, vi, beforeEach } from 'vitest';
 import { mkdir, mkdtemp, writeFile, rm } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
@@ -705,7 +705,7 @@ describe('runSourcedIssue', () => {
 
     expect(beginRun.mock.calls[0]).toEqual(['/repo', 'gl-1', undefined, { secretEnvVars: [] }]);
     expect(writeStages).toHaveBeenCalledTimes(1);
-    expect(writeStages.mock.calls[0]).toEqual([[stageOutcome('reviewer')], { flow: 'default', provider: 'claude', baseBranch: 'main', lessonIds: [], prUrl: MR_URL }]);
+    expect(writeStages.mock.calls[0]).toEqual([[stageOutcome('reviewer')], { flow: 'default', provider: 'claude', baseBranch: 'main', lessonIds: [], skills: { named: [], available: [] }, prUrl: MR_URL }]);
   });
 
   it('white-label (--commit-author): no review comment, no issue link-back, clean PR body', async () => {
@@ -818,10 +818,76 @@ describe('runSourcedIssue', () => {
 
     expect(result.prUrl).toBeUndefined();
     expect(writeStages).toHaveBeenCalledTimes(1);
-    expect(writeStages.mock.calls[0]).toEqual([[stageOutcome('reviewer')], { flow: 'default', provider: 'claude', baseBranch: 'main', lessonIds: [] }]);
+    expect(writeStages.mock.calls[0]).toEqual([[stageOutcome('reviewer')], { flow: 'default', provider: 'claude', baseBranch: 'main', lessonIds: [], skills: { named: [], available: [] } }]);
     expect(publishForReview).not.toHaveBeenCalled();
     expect(order).toEqual([]);
     expect(resolveAndRunVisualProof).toHaveBeenCalled();
+  });
+
+  describe('hand-picked skills', () => {
+    let skillsDir: string;
+    beforeAll(async () => {
+      skillsDir = await mkdtemp(join(tmpdir(), 'taskcell-named-skills-'));
+      for (const id of ['db', 'release', 'other']) {
+        await mkdir(join(skillsDir, id));
+        await writeFile(join(skillsDir, id, 'SKILL.md'), `---\nname: ${id}\n---\n`);
+      }
+    });
+    afterAll(() => rm(skillsDir, { recursive: true, force: true }));
+    const withBody = (description: string): SourceAdapter => ({ ...fakeAdapter([], STAGES), prepare: vi.fn(async () => ({ task: { ...task, description } })) });
+    const record = (): unknown => ((writeStages.mock.calls[0] as unknown[] | undefined)?.[1] as { skills?: unknown } | undefined)?.skills;
+    const implementerPrompt = (): string => (runStages.mock.calls[0]?.[1] as PipelineStage[]).find((s) => s.name === 'implementer')?.promptTemplate ?? '';
+
+    it('merges --skill with the body line, tells the implementer and records named vs available', async () => {
+      await runSourcedIssue('group/project#1', { repoPath: '/repo', skillsDir, namedSkills: ['release'] }, withBody('Do it\n\nSkills: db'));
+      expect(implementerPrompt()).toMatch(/MUST load and follow each of them.*: release, db\./);
+      expect((runStages.mock.calls[0]?.[1] as PipelineStage[]).find((s) => s.name === 'reviewer')?.promptTemplate).not.toContain('MUST load');
+      expect(record()).toEqual({ named: ['release', 'db'], available: ['other'] });
+    });
+
+    it('reaches the implementer of the plan flow too', async () => {
+      await runSourcedIssue('group/project#1', { repoPath: '/repo', skillsDir, plan: true }, withBody('Skills: db'));
+      expect(implementerPrompt()).toContain('MUST load and follow each of them');
+    });
+
+    it('refuses a skill that is not installed before the sandbox and any model call, naming the installed ones', async () => {
+      vi.mocked(prepareContext).mockClear();
+      await expect(runSourcedIssue('group/project#1', { repoPath: '/repo', skillsDir }, withBody('Skills: nope'))).rejects.toThrow('Unknown skill: nope. Installed skills: db, other, release.');
+      await expect(runSourcedIssue('group/project#1', { repoPath: '/repo', skillsDir, namedSkills: ['nope'] }, withBody(''))).rejects.toThrow('Unknown skill: nope.');
+      expect(prepareContext).not.toHaveBeenCalled();
+      expect(runStages).not.toHaveBeenCalled();
+    });
+
+    it('an issue that mentions skills in prose runs as before, with a note on the run', async () => {
+      const events: RunEvent[] = [];
+      await runSourcedIssue('group/project#1', { repoPath: '/repo', skillsDir, onEvent: (e) => events.push(e) }, withBody('Skills: TypeScript and SQL, good communication\n```\nSkills: nope\n```'));
+      expect(runStages).toHaveBeenCalledTimes(1);
+      expect(implementerPrompt()).not.toContain('MUST load');
+      expect(record()).toEqual({ named: [], available: ['db', 'other', 'release'], notes: [expect.stringContaining('it was ignored')] });
+      expect(events).toContainEqual({ type: 'warning', message: expect.stringContaining('it was ignored') });
+    });
+
+    it('the hub list replaces the body line, so a skill unticked there is not loaded', async () => {
+      await runSourcedIssue('group/project#1', { repoPath: '/repo', skillsDir, namedSkills: ['release'], namedSkillsOnly: true }, withBody('Skills: db'));
+      expect(implementerPrompt()).toMatch(/: release\.$/);
+      expect(record()).toEqual({ named: ['release'], available: ['db', 'other'], notes: [expect.stringContaining('was replaced by the list chosen in the hub (release)')] });
+    });
+
+    it('a provider that reads no skills says so on the run event and the record, and lists none as loaded', async () => {
+      const agents = { secrets: {}, proxySecrets: {}, injectAnthropicAuth: false };
+      const events: RunEvent[] = [];
+      vi.mocked(selectAgents).mockReturnValueOnce({ ...agents, agent: { name: 'pi' } } as never);
+      await runSourcedIssue('group/project#1', { repoPath: '/repo', skillsDir, onEvent: (e) => events.push(e) }, withBody('Skills: db'));
+      const note = expect.stringContaining('provider pi does not support skills');
+      expect(record()).toEqual({ named: [], available: [], notes: [note] });
+      expect(events).toContainEqual({ type: 'warning', message: note });
+
+      // Every agent stage's provider is checked, not only the implementer's.
+      writeStages.mockClear();
+      vi.mocked(selectAgents).mockReturnValueOnce({ ...agents, agent: { name: 'claude' }, reviewAgent: { name: 'pi' } } as never);
+      await runSourcedIssue('group/project#1', { repoPath: '/repo', skillsDir }, withBody('Skills: db'));
+      expect(record()).toEqual({ named: ['db'], available: ['other', 'release'], notes: [note] });
+    });
   });
 
   it('injects --spec-file content as a virtual comment without mutating the fetched task', async () => {
@@ -865,7 +931,7 @@ describe('runSourcedIssue', () => {
     expect(commitStage).not.toHaveBeenCalled();
     expect(publishForReview).not.toHaveBeenCalled();
     expect(writeStages).toHaveBeenCalledTimes(1);
-    expect(writeStages.mock.calls[0]).toEqual([[], { flow: 'default', provider: 'claude', baseBranch: 'main', lessonIds: [], omitDiff: true }]);
+    expect(writeStages.mock.calls[0]).toEqual([[], { flow: 'default', provider: 'claude', baseBranch: 'main', lessonIds: [], skills: { named: [], available: [] }, omitDiff: true }]);
 
     expect(order).toEqual(['signalSecretBlock']);
     expect(adapter.signalSecretBlock).toHaveBeenCalledTimes(1);
@@ -1009,7 +1075,7 @@ describe('runSourcedIssue', () => {
     expect(publishForReview).not.toHaveBeenCalled();
     // The gate stopped runStages before the reviewer: only the implementer is recorded, diff/transcript/finalText withheld.
     expect(writeStages).toHaveBeenCalledTimes(1);
-    expect(writeStages.mock.calls[0]).toEqual([[stageOutcome('implementer', 'sess-1')], { flow: 'default', provider: 'claude', baseBranch: 'main', lessonIds: [], omitDiff: true }]);
+    expect(writeStages.mock.calls[0]).toEqual([[stageOutcome('implementer', 'sess-1')], { flow: 'default', provider: 'claude', baseBranch: 'main', lessonIds: [], omitDiff: true, skills: { named: [], available: [] } }]);
     expect(order).toEqual(['signalSecretBlock']);
     expect(adapter.signalSecretBlock).toHaveBeenCalledWith('group/project#1', expect.anything(), expect.objectContaining({ reason: kind }));
     expect(adapter.publishVerdict).not.toHaveBeenCalled();

@@ -67,8 +67,17 @@ export interface CreateRunParams {
   transport?: string;
   maxTurns?: number;
   baseBranch?: string;
+  /**
+   * The run's whole hand-picked skill list (installed ids, loaded on top of the automatic selection). When
+   * present it replaces the issue body's `Skills:` line, which the form preselects, so a skill unticked
+   * there is not loaded. An unknown id fails the run before any model call.
+   */
+  skills?: string[];
   /** Hub only: who started the run. Set server-side from the request's actor, never from the client. */
   startedBy?: string;
+  /** Hub only: the stored hub-board task a `hub` transport run implements. Set by the hub's scheduler; a client
+   * cannot reach it, because `hub` is not one of `TRANSPORTS` and the protocol validator refuses it. */
+  hubTask?: { id: string; title: string; body: string };
 }
 
 /** Hub-only, server-set (never part of the client's params): the credential a run uses. `env` holds
@@ -82,6 +91,10 @@ export interface RunCredential {
 export interface CreateRunResult {
   prUrl?: string;
   secretBlocked?: boolean;
+  /** A hub-board task in a repository with no GitHub origin: the local branch that holds the result (no PR). */
+  branch?: string;
+  /** The run stopped before implementing because the base branch's verify command already fails. */
+  baseRed?: boolean;
 }
 
 /** Per-stage routing/budget overrides expressible in HCL (snake_case keys map to these camelCase fields). */
@@ -270,12 +283,36 @@ export interface BoardTask {
   chips?: BoardChip[];
   /** The branch this card's PR targets: its `taskcell:base=` label, else the repo default. Absent when neither is set (`main`). */
   baseBranch?: string;
+  /** Skills the task names by hand (its `Skills:` line). Absent when none. */
+  skills?: string[];
   /** The tracker the card came from; names the "Open in …" link. */
   source?: 'github' | 'gitlab' | 'linear';
   /** The issue's address in that tracker, as the tracker returned it. Absent ⇒ no link. */
   url?: string;
   /** Parked by a provider usage/rate limit (the `rate-limited` label); the factory retries it by itself. Absent when not paused. */
   paused?: PausedState;
+  /** Tasks this one waits for: the hub board's field, or what a GitHub issue's body names (`Depends on #n`). */
+  blockedBy?: string[];
+  /** Start date as stored (`YYYY-MM-DD` or an ISO instant). Absent ⇒ none. */
+  startDate?: string;
+  /** Hub-board tasks: what the scheduler does with the card, with its reason. */
+  schedule?: TaskSchedule;
+  /** The hub's time zone, for dates shown on the card. */
+  timeZone?: string;
+}
+
+/** The scheduler's answer for one hub-board task; `label` is pre-rendered ("waits until Tue 18.11 (Europe/Berlin)"). */
+export interface TaskSchedule {
+  /** `queued`: handed to the run session, waiting behind another run. `refused`: its last start was refused; retried every tick. */
+  state: 'running' | 'queued' | 'done' | 'failed' | 'ready' | 'refused' | 'blocked' | 'waits-date' | 'waits-slot' | 'invalid';
+  label: string;
+  /** `invalid`: a missing reference, a cycle or a bad date. `failed` / `refused`: why. */
+  reason?: string;
+  /** `done`: the pull request URL, or `branch <name>` for a repository with no GitHub origin. */
+  result?: string;
+  blockedBy?: string[];
+  /** `waits-date`: the instant the task may start (ISO). */
+  until?: string;
 }
 
 /** Why a task is paused and when the scheduled resume retries it. `until`/`trigger` come from the factory's marker comment; absent when it is missing. */
@@ -360,6 +397,12 @@ export interface RunRecord {
   lessonIds?: string[];
   /** The run's own structured flag that this stage ended on a provider rate/usage limit (core RunResult.stoppedBy). */
   stoppedBy?: 'provider-limit';
+  /**
+   * `named`: the skills named by hand that the run loaded. `available`: the other installed skills the
+   * agent could pick from (not what it used). `notes`: an ignored `Skills:` line, or a provider that
+   * reads no skills. Absent on older records.
+   */
+  skills?: { named: string[]; available: string[]; notes?: string[] };
 }
 
 export interface Proof {
@@ -584,6 +627,8 @@ export type AuditAction =
   | 'needs-reply'
   | 'needs-merge'
   | 'task-create'
+  | 'task-edit'
+  | 'task-schedule'
   | 'enable-factory'
   | 'approver-mode';
 export type AuditOutcome = 'ok' | 'refused' | 'failed';
@@ -833,29 +878,41 @@ export interface SpawnInfo {
   command: string;
 }
 
-/** Enable-factory provider seam (hub § "Enable factory"): GitHub Actions is implemented; GitLab and
- * Linear are "planned" in the UI and never reach `enable_factory_*` (see docs/task-sources.md,
+/** Enable-factory provider seam (hub § "Enable factory"): GitHub Actions and GitLab CI are
+ * implemented; Linear is "planned" in the UI and never reaches `enable_factory_*` (see
  * docs/onboarding-linear.md). */
 export type FactoryProviderId = 'github' | 'gitlab' | 'linear';
 
 /** What `enable_factory_plan` detected and what `enable_factory_apply` will do with it. */
 export interface FactoryPlan {
-  provider: 'github';
+  provider: 'github' | 'gitlab';
+  /** `owner/repo` (GitHub) or the `group/subgroup/project` path (GitLab). */
   repoSlug: string;
   defaultBranch: string;
   login: string;
   packageManager: string;
   verifyCommand?: string;
   scripts: { typecheck: boolean; lint: boolean; test: boolean; build: boolean };
-  /** Repo-relative paths `apply` will add, e.g. `.github/workflows/taskcell-implement.yml`. */
+  /** Repo-relative paths `apply` will add or edit, e.g. `.github/workflows/taskcell-implement.yml` (GitLab: `.gitlab-ci.yml`, `.gitlab/taskcell.yml`). */
   callerFiles: string[];
   /** The callers already on the default branch, under the `taskcell-` or legacy `vanguard-` name — `apply` leaves those untouched. */
   existingCallerFiles?: string[];
+  /** GitLab host selected from `origin`; passed to glab so a self-hosted project cannot fall back to another configured host. */
+  gitlabHost?: string;
+  /** Numeric GitLab project id; open-MR reuse requires the source project to match it, excluding fork MRs. */
+  gitlabProjectId?: number;
+  /** GitLab's configured CI entry point. The hub only edits the default `.gitlab-ci.yml`. */
+  gitlabCiPath?: string;
+  /** The CI entry point cannot be edited safely; the user must add the displayed local include. */
+  gitlabManualInclude?: boolean;
+  /** Top-level GitLab jobs without `rules:`; starting the doctor requires an explicit UI confirmation when non-empty. */
+  gitlabUnruledJobs?: string[];
   labels: string[];
 }
 
 export interface FactoryApplyResult {
   branch: string;
+  /** The pull request (GitLab: merge request) URL. */
   prUrl: string;
   labelsCreated: string[];
 }
@@ -870,6 +927,9 @@ export interface FactoryVerifyResult {
   dispatched: boolean;
   run?: { url: string; status: string; conclusion: string };
 }
+
+/** Which code host a project's `origin` is on, for the Enable factory dialog's run-location choice. */
+export type FactoryHost = 'github' | 'gitlab' | 'other' | 'none';
 
 /** The four steps of the in-app Enable factory checklist, in order. */
 export type FactoryStepId = 'pr' | 'secret' | 'merged' | 'doctor';

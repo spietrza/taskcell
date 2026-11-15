@@ -9,6 +9,7 @@ import { useAsync } from '../../hooks';
 import { useApproverDecisions } from './useApproverDecisions';
 import { decisionForTask, decisionWords } from './approverDecision';
 import { QuickView, TRACKER_NAME, type QuickTask } from './QuickView';
+import { NewHubTask, ScheduleLines } from './Schedule';
 import { boardCountLabels } from './counts';
 import { PausedBanner, PausedLine } from './paused';
 import { ExternalLink } from '../../components/ExternalLink';
@@ -43,7 +44,7 @@ const COLUMNS: Column[] = [
 ];
 
 /** One repository's board, or every repository's (cards stamped with their repository). */
-type BoardList = { tasks: (BoardTask & Partial<RepoStamp>)[]; capped: boolean; failures: RepoReadFailure[] };
+type BoardList = { tasks: (BoardTask & Partial<RepoStamp>)[]; capped: boolean; failures: RepoReadFailure[]; hubBoard?: true; hubBoards?: string[] };
 
 export function TaskBoard({
   project,
@@ -69,24 +70,38 @@ export function TaskBoard({
   onFilter?: (f: HubFilter) => void;
   /** Repositories the Projects picker offers (hub: all of the team's). */
   projects?: { path: string; name: string }[];
-  onOpenTask: (taskId: string, repoPath?: string) => void;
+  onOpenTask: (taskId: string, repoPath?: string, skills?: string[]) => void;
   onNewTask: () => void;
   /** Opens `project`'s Settings, for the "no task source yet" hint. */
   onOpenSettings?: () => void;
 }) {
-  const [refreshNonce, setRefreshNonce] = useState(0);
+  const [reloads, setReloads] = useState(0);
   const { data, error, loading } = useAsync(
     (): Promise<BoardList> =>
       allRepos ? listTasksAll(teamId).then((l) => ({ ...l, tasks: inRepos(l.tasks, repos), failures: inRepos(l.failures, repos) })) : listTasks(project).then((r) => ({ ...r, failures: [] })),
-    [project, allRepos, teamId, repos.join('\n'), refreshNonce],
+    [project, allRepos, teamId, repos.join('\n'), reloads],
   );
   const approver = useApproverDecisions(project, !allRepos);
-  const allTasks = data?.tasks;
+  // Skills saved from a card's quick view, shown at once: the tracker is not re-read for it.
+  const [savedSkills, setSavedSkills] = useState<Record<string, string[]>>({});
+  const cardKey = (t: Pick<QuickTask, 'id' | 'repoPath'>): string => `${t.repoPath ?? ''}:${t.id}`;
+  const allTasks = data?.tasks.map((t): BoardList['tasks'][number] => {
+    const saved = savedSkills[cardKey(t)];
+    if (saved === undefined) return t;
+    const { skills: _old, ...rest } = t;
+    return saved.length > 0 ? { ...rest, skills: saved } : rest;
+  });
   const tasks = allTasks && filterCards(allTasks, filter);
   const lanes = groupRows(tasks ?? [], filter.group, cardKeys);
+  // A hub-board project's cards are made here, not in a tracker.
+  const hubBoard = allRepos ? data?.hubBoards?.includes(project) === true : data?.hubBoard === true;
+  // A reload re-reads the tracker, so the locally shown skills are dropped with it.
+  const reload = (): void => { setSavedSkills({}); setReloads((n) => n + 1); };
 
   // The quick view opens beside the Board; Escape or a click outside closes it and focus returns to the card.
   const [selected, setSelected] = useState<QuickTask | null>(null);
+  // The open quick view follows a reload: it shows the card as the board now has it, not the snapshot that was clicked.
+  const shown = selected === null ? null : (allTasks?.find((t) => t.id === selected.id && t.repoPath === selected.repoPath) ?? selected);
   const panelRef = useRef<HTMLElement>(null);
   const cardRef = useRef<HTMLElement | null>(null);
   const close = (): void => {
@@ -140,10 +155,13 @@ export function TaskBoard({
           Running {counts.running} · Waiting {counts.waiting}
         </span>
       )}
-      <Button className="ml-auto" onClick={onNewTask} startIcon={<FilePlus className="size-4" />}>
-        New Task
-      </Button>
+      {!hubBoard && (
+        <Button className="ml-auto" onClick={onNewTask} startIcon={<FilePlus className="size-4" />}>
+          New Task
+        </Button>
+      )}
     </div>
+    {hubBoard && <NewHubTask repoPath={project} onCreated={reload} />}
     {bar}
     </>
   );
@@ -172,7 +190,7 @@ export function TaskBoard({
         <TaskSourceHint repoNames={unset.map((f) => f.repoName)} onOpenSettings={unset.some((f) => f.repoPath === project) ? onOpenSettings : undefined} />
       )}
       <RepoFailures failures={failed} total={repos.length - unset.length} />
-      {allTasks?.length === 0 && (data?.failures.length ?? 0) === 0 && (
+      {allTasks?.length === 0 && (data?.failures.length ?? 0) === 0 && !hubBoard && (
         <div className="mb-3 shrink-0 rounded-lg border border-dashed border-border/60 p-4 text-sm">
           <div className="font-medium">No tasks yet</div>
           <p className="mt-1 text-muted-foreground">Create a task with acceptance criteria. The factory picks it up and its card moves across this board.</p>
@@ -223,7 +241,7 @@ export function TaskBoard({
                   </div>
                 ) : (
                   items.map((t) => (
-                    <div key={`${t.repoPath ?? ''}:${t.id}`}>
+                    <div key={cardKey(t)}>
                     <button
                       data-board-card
                       aria-expanded={selected?.id === t.id && selected.repoPath === t.repoPath}
@@ -251,10 +269,14 @@ export function TaskBoard({
                             return d !== undefined && <div className="text-[11px] text-muted-foreground" data-approver={d.outcome}>{decisionWords(d)}</div>;
                           })()}
                           {t.paused && <PausedLine paused={t.paused} />}
+                          {t.skills && (
+                            <div className="break-words pt-0.5 text-[11px] text-muted-foreground">skills: {t.skills.join(', ')}</div>
+                          )}
+                          <ScheduleLines task={t} />
                           {t.baseBranch && (
                             <div className="pt-0.5 font-mono text-[11px] text-muted-foreground">→ {t.baseBranch}</div>
                           )}
-                          {t.state && t.state !== col.key && (
+                          {t.state && t.state !== col.key && t.schedule === undefined && (
                             <div className="pt-0.5 text-[11px] text-muted-foreground">{t.state}</div>
                           )}
                         </Card.Content>
@@ -276,17 +298,15 @@ export function TaskBoard({
         </section>
         ))}
       </div>
-      {selected !== null && (
+      {shown !== null && (
         <QuickView
           ref={panelRef}
-          task={selected}
+          task={shown}
           project={project}
           onClose={close}
-          onRetried={() => {
-            setSelected(null);
-            setRefreshNonce((nonce) => nonce + 1);
-          }}
-          onFullPage={() => onOpenTask(selected.id, selected.repoPath)}
+          onFullPage={() => onOpenTask(shown.id, shown.repoPath, savedSkills[cardKey(shown)] ?? shown.skills)}
+          onSkillsSaved={(skills) => setSavedSkills((m) => ({ ...m, [cardKey(shown)]: skills }))}
+          onChanged={reload}
         />
       )}
       </div>
