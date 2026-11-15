@@ -322,15 +322,27 @@ A start date comes from the issue's own start date, which GitLab returns from 19
 
 ### Task dependencies (Linear)
 
-`watch --linear` (agent and spec passes) holds an issue back the same way.
+`watch --linear` (agent and spec passes) holds an issue back the same way. Nothing has to be switched on: an issue with no relation, no `Depends on` line and no start date starts exactly as before.
 
-- **Dependencies.** Native "blocked by" relations plus `Depends on DEV-12` lines in the description (`Depends on DEV-12, ENG-3`, or a `https://linear.app/<workspace>/issue/DEV-12/...` URL); both count.
-- **Start date.** The issue's cycle start, else a `Start: YYYY-MM-DD` line (UTC). Linear issues have no start date of their own.
-- **Done.** A dependency is met when its state type is completed. A canceled dependency can never be met.
+**How to declare them.**
 
-An issue that must wait is skipped and stays in its trigger state, so a later poll starts it by itself once every dependency is done and the date reached. A cycle, a reference to an issue that does not exist or the token cannot read, a canceled dependency or an impossible start date gets one comment with the reason (per reason, while the watch process runs) and moves to the needs-info state (when none is configured, it is only logged and stays triggered). A failed lookup is skipped for that poll. Beyond the direct blockers only native relations are followed.
+- **Dependencies.** In Linear, add a "blocked by" relation to the issue, or write `Depends on DEV-12` in the description (`Depends on DEV-12, ENG-3`, or a `https://linear.app/<workspace>/issue/DEV-12/...` URL). Both count, and they add up. In a `Depends on` line the team key must start with a letter; it may be written in lower case (`dev-12` is read as `DEV-12`).
+- **Start date.** Put the issue in a cycle: it does not start before the cycle starts. Without a cycle, a `Start: YYYY-MM-DD` line in the description (UTC) does the same. When the issue is in a cycle, the cycle's start is used and the `Start:` line is ignored. A current or past cycle holds nothing back. Linear issues have no start date of their own.
+- **Done.** A dependency is met when its state type is completed. A dependency that was canceled or closed as a duplicate can never be met, whether it is a native relation or a `Depends on` line.
 
-The issue list query is the same as without dependencies. One extra query per poll asks for identifiers only, 50 issues at a time, and finds the listed issues that have a "blocked by" relation or a cycle. Only those issues, and issues with a `Depends on` line, are looked up further.
+**What happens.**
+
+| The issue | What `watch` does |
+| --- | --- |
+| has every dependency completed and its start reached | starts it |
+| waits for an open dependency or a future start | one comment naming what it waits for; it stays in its trigger state and a later poll starts it by itself |
+| has relations Linear returned incompletely (a relation without a type or without a readable issue) | the same: one comment with the reason, checked again on the next poll, never started on a guess |
+| is in a dependency cycle, names an issue that does not exist or the token cannot read, depends on a canceled or duplicate issue, has an impossible start date, or has an identifier that is not `TEAM-123` | one comment with the reason, then the needs-info state; fix it and move it back to the trigger state. With no needs-info state configured for the agent pass it is commented on and stays where it is |
+| could not be checked (the Linear API failed or was rate limited) | not started in that poll and logged; no comment. The next poll tries again |
+
+A comment is not repeated: before posting, `watch` reads the newest comment on the issue and skips an identical one, so a restart or a scheduled `watch --once` does not post it again. A new comment appears when the reason changes. Beyond the direct blockers only native relations are followed, up to 50 issues.
+
+**Cost per poll.** The issue list query is the same as without dependencies. One extra query per 50 listed issues reads their relations (the first 10 of each) and cycle. After that only blockers are looked up, each once per poll however many issues wait for it; an issue with more than 10 relations is looked up itself. A waiting issue's comment is read once per `watch` process, not on every poll. If the extra query fails, the reason is logged and the issues of that batch are not started in that poll.
 
 ### Starting the factory from the hub
 

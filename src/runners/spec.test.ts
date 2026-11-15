@@ -835,12 +835,14 @@ describe('Linear dependency gate wiring', () => {
   const issue = (identifier: string): object => ({
     identifier, title: 't', description: 'd', state: { name: 'Todo', type: 'unstarted' }, labels: { nodes: [{ name: 'vanguard:spec' }] },
   });
+  const relations = (id: string): object => ({ pageInfo: { hasNextPage: false }, nodes: (blockedBy[id] ?? []).map((b) => ({ type: 'blocks', issue: { identifier: b } })) });
   const graphql = async (body: { query: string; variables: Record<string, unknown> }): Promise<unknown> => {
-    // The list (paged, as on main) and the dependency probe (identifiers of issues with blockers).
-    if (/\$after/.test(body.query)) return { data: { issues: { nodes: [issue('ENG-1'), issue('ENG-2'), issue('ENG-3')] } } };
-    if (/issues\(/.test(body.query)) return { data: { issues: { nodes: Object.keys(blockedBy).map((identifier) => ({ identifier })) } } };
+    // The list (paged, as on main), the newest comment, and the dependency probe (relations of the listed issues).
+    if (/\$after: String, \$first/.test(body.query)) return { data: { issues: { nodes: [issue('ENG-1'), issue('ENG-2'), issue('ENG-3')] } } };
+    if (/comments\(/.test(body.query)) return { data: { issue: { comments: { nodes: [] } } } };
+    if (/issues\(/.test(body.query)) return { data: { issues: { nodes: ['ENG-1', 'ENG-2', 'ENG-3'].map((identifier) => ({ identifier, cycle: null, inverseRelations: relations(identifier) })) } } };
     const id = body.variables['id'] as string;
-    return { data: { issue: { identifier: id, state: { type: 'unstarted' }, inverseRelations: { nodes: (blockedBy[id] ?? []).map((b) => ({ type: 'blocks', issue: { identifier: b } })) } } } };
+    return { data: { issue: { identifier: id, state: { type: 'unstarted' }, inverseRelations: relations(id) } } };
   };
   const common = { label: 'vanguard:spec', claimedState: 'Speccing', needsInfoState: 'Needs Info', graphql };
 
@@ -856,5 +858,46 @@ describe('Linear dependency gate wiring', () => {
     const linear: LinearCliRunner = async () => '';
     const p = linearSpecPrimitives({ deps: {} as never, ...common, specTriggerStateName: 'Spec', agentState: 'Todo', linear });
     expect((await p.listReady()).map((t) => t.id)).toEqual(['ENG-1']);
+  });
+
+  // The list query of origin/main's src/tasks/linear-cli.ts, verbatim.
+  const MAIN_LIST_QUERY = `query($f: IssueFilter, $after: String, $first: Int!) {
+  issues(first: $first, after: $after, filter: $f) {
+    pageInfo { hasNextPage endCursor }
+    nodes { identifier title url description state { name type } labels { nodes { name } } }
+  }
+}`;
+
+  it('without dependencies a poll lists with the query and variables of main, starts the same issues and resolves the token once', async () => {
+    vi.stubEnv('LINEAR_API_KEY', '');
+    const sent: { query: string; variables: Record<string, unknown> }[] = [];
+    const fetchMock = vi.fn(async (_url: string, init: { body: string; headers: Record<string, string> }) => {
+      const body = JSON.parse(init.body) as { query: string; variables: Record<string, unknown> };
+      sent.push(body);
+      expect(init.headers['Authorization']).toBe('tok');
+      const nodes = body.query === MAIN_LIST_QUERY
+        ? [issue('ENG-1'), issue('ENG-2'), { ...issue('ENG-3'), labels: { nodes: [] } }]
+        : ['ENG-1', 'ENG-2'].map((identifier) => ({ identifier, cycle: null, inverseRelations: { pageInfo: { hasNextPage: false }, nodes: [] } }));
+      return new Response(JSON.stringify({ data: { issues: { nodes } } }), { status: 200 });
+    });
+    vi.stubGlobal('fetch', fetchMock);
+    const calls: string[][] = [];
+    const linear: LinearCliRunner = async (args) => { calls.push(args); return 'tok\n'; };
+    try {
+      const agent = linearWatchPrimitives({ deps: {} as never, label: 'vanguard:spec', claimedState: 'In Progress', reviewState: 'In Review', team: 'ENG', linear });
+      expect((await agent.listReady()).map((t) => t.id)).toEqual(['ENG-1', 'ENG-2']);
+      // main sends exactly this list request; the gate adds one probe and nothing else.
+      expect(sent[0]).toEqual({ query: MAIN_LIST_QUERY, variables: { f: { team: { key: { eq: 'ENG' } }, state: { type: { eq: 'unstarted' } } }, first: 100 } });
+      expect(sent).toHaveLength(2);
+      expect(calls).toEqual([['auth', 'token']]);
+      const spec = linearSpecPrimitives({ deps: {} as never, label: 'vanguard:spec', claimedState: 'Speccing', needsInfoState: 'Needs Info', specTriggerStateName: 'Spec', agentState: 'Todo', linear });
+      expect((await spec.listReady()).map((t) => t.id)).toEqual(['ENG-1', 'ENG-2']);
+      expect(sent[2]).toEqual({ query: MAIN_LIST_QUERY, variables: { f: { state: { type: { eq: 'triage' } } }, first: 100 } });
+      expect(sent).toHaveLength(4);
+      expect(calls).toEqual([['auth', 'token'], ['auth', 'token']]);
+    } finally {
+      vi.unstubAllGlobals();
+      vi.unstubAllEnvs();
+    }
   });
 });

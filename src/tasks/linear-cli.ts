@@ -32,9 +32,6 @@ interface LinearCliCommentNode {
   externalUser?: LinearCliActor | null;
 }
 
-const commentNodes = (comments: LinearCliIssue['comments']): LinearCliCommentNode[] =>
-  Array.isArray(comments) ? comments : (comments?.nodes ?? []);
-
 interface LinearCliIssue {
   id?: string;
   identifier?: string;
@@ -58,7 +55,8 @@ interface LinearCliIssue {
  * `author`: it would be matched against bot logins and --feedback-authors.
  */
 function parseComments(comments: LinearCliIssue['comments']): TaskComment[] {
-  return commentNodes(comments)
+  const nodes = Array.isArray(comments) ? comments : (comments?.nodes ?? []);
+  return nodes
     .map((node) => {
       const member = node.user ?? node.author ?? undefined;
       return {
@@ -72,7 +70,7 @@ function parseComments(comments: LinearCliIssue['comments']): TaskComment[] {
 
 /** A Linear identifier `DEV-12` as a ref: the team key is the `repo`, the issue number the `number`. */
 export function parseIdentifier(identifier: string): TaskRef | undefined {
-  const m = /^([A-Za-z][A-Za-z0-9]*)-(\d+)$/.exec(identifier);
+  const m = /^([A-Za-z0-9]+)-(\d+)$/.exec(identifier);
   return m === null ? undefined : { repo: m[1]!, number: Number(m[2]) };
 }
 
@@ -99,10 +97,19 @@ function toTask(issue: LinearCliIssue): Task {
 /** One Linear GraphQL round-trip. Injected for testing; the default posts to the public API. */
 export type LinearGraphql = (body: { query: string; variables: Record<string, unknown> }) => Promise<unknown>;
 
-/** A non-2xx Linear response that still carried structured GraphQL errors. */
+/** A non-2xx Linear response, with the GraphQL `errors` of its body ([] when the body is not Linear's JSON, e.g. a proxy's page). */
 export class LinearGraphqlRequestError extends TaskcellError {
-  constructor(message: string, readonly errors: Array<{ message?: string }>) {
+  constructor(message: string, readonly errors: { message?: string }[]) {
     super(message);
+  }
+}
+
+function graphqlErrors(body: string): { message?: string }[] {
+  try {
+    const errors = (JSON.parse(body) as { errors?: unknown } | null)?.errors;
+    return Array.isArray(errors) ? errors.filter((e): e is { message?: string } => typeof e === 'object' && e !== null) : [];
+  } catch {
+    return [];
   }
 }
 
@@ -147,14 +154,10 @@ async function postGraphql(token: string, body: { query: string; variables: Reco
     // Linear puts the actionable reason (bad key, missing scope) in the BODY. Throwing on the status
     // line alone turns a fixable auth problem into a bare "401 Unauthorized" on every watch poll.
     const detail = await res.text().catch(() => '');
-    const message = `Linear API request failed: ${res.status} ${res.statusText}${detail === '' ? '' : ` — ${detail.slice(0, 300)}`}`;
-    try {
-      const parsed = JSON.parse(detail) as { errors?: Array<{ message?: string }> };
-      if (parsed.errors !== undefined && parsed.errors.length > 0) throw new LinearGraphqlRequestError(message, parsed.errors);
-    } catch (error) {
-      if (error instanceof LinearGraphqlRequestError) throw error;
-    }
-    throw new TaskcellError(message);
+    throw new LinearGraphqlRequestError(
+      `Linear API request failed: ${res.status} ${res.statusText}${detail === '' ? '' : ` — ${detail.slice(0, 300)}`}`,
+      graphqlErrors(detail),
+    );
   }
   return res.json();
 }
@@ -324,14 +327,6 @@ export async function setLinearState(issueId: string, state: string, runner: Lin
 /** Add a freeform comment to a Linear issue (e.g. to report a failed run). */
 export async function commentLinearIssue(issueId: string, body: string, runner: LinearCliRunner = defaultRunner): Promise<void> {
   await runner(['issue', 'comment', 'add', issueId, '--body', redactForPublish(body)]);
-}
-
-/** Post only when `body` differs from the newest comment currently visible on the issue. */
-export async function commentLinearIssueOnce(issueId: string, body: string, runner: LinearCliRunner = defaultRunner): Promise<void> {
-  const issue = JSON.parse(await runner(['issue', 'view', issueId, '--json'])) as LinearCliIssue;
-  const newest = commentNodes(issue.comments).at(-1)?.body?.trim() ?? '';
-  const published = redactForPublish(body);
-  if (newest !== published.trim()) await runner(['issue', 'comment', 'add', issueId, '--body', published]);
 }
 
 /** Comment a PR link back onto a Linear issue via the CLI (closes the loop). */
