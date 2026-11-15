@@ -1,7 +1,7 @@
 // taskcell.dev page script: entrance reveals, and the factory scene loaded after first paint.
 // Phones get the poster and a button; reduced motion gets one still frame; no WebGL keeps the poster.
 import { STAGES, advance, clock, column, cost, elapsed, log, sample, share } from './hub-data.js';
-import { YEARLY, euro } from './prices.js';
+import { PRICES, YEARLY, localise, money } from './prices.js';
 import { evaluate } from './quiz.js';
 
 const root = document.documentElement;
@@ -177,12 +177,23 @@ billing.hidden = false;
 const paintPrices = () => {
   const yearly = billing.querySelector(':checked').value === 'yearly';
   for (const el of document.querySelectorAll('[data-price]')) {
-    el.querySelector('span').textContent = euro(Number(el.dataset.price) * (yearly ? YEARLY : 1));
+    el.querySelector('span').textContent = money(PRICES[el.dataset.plan] * (yearly ? YEARLY : 1));
   }
+  // The Worker marks the page when a checkout is open (data-checkout); until then the buttons keep the request page.
+  if (root.dataset.checkout) {
+    for (const a of document.querySelectorAll('#pricing a[href*="/hosting/?plan="]')) a.dataset.buy = new URL(a.href).searchParams.get('plan');
+    for (const a of document.querySelectorAll('#pricing a[data-buy]')) {
+      a.href = `/checkout?plan=${a.dataset.buy}&period=${yearly ? 'yearly' : 'monthly'}&lang=${root.lang}${root.dataset.checkout === 'test' ? '&test=1' : ''}`;
+    }
+  }
+  // Yearly złoty prices ("279,20 zł") are too wide for a card at the full size; every card shrinks together.
+  const amounts = [...document.querySelectorAll('[data-price] span')];
+  amounts[0].closest('.plans').classList.toggle('long', amounts.some((el) => el.textContent.length > 7));
   for (const el of document.querySelectorAll('[data-per]')) el.textContent = yearly ? 'Billed yearly' : 'Billed monthly';
 };
 billing.addEventListener('change', paintPrices);
 paintPrices();
+for (const el of document.querySelectorAll('#pricing .pass, .hero small a[href="#pricing"]')) localise(el);
 
 // ---------- readiness quiz: one question per screen; the answers never leave the page ----------
 const quiz = document.getElementById('quiz');
