@@ -59,14 +59,13 @@ jobs:
     uses: ./.github/workflows/pr-review.yml
     with:
       allowed-actors: '["spietrza","pawelkrystkiewicz"]'
-      # Codex reviews since 2026-11-14: the Claude subscription is shared with every implement run and its 429s
-      # stopped all reviews. With the Claude fallback in the run, the proxy holds the Codex plan credential too.
+      # Opus 5.5 reviews while Fable is out of quota (revert to Fable when it is back); Codex is the fallback.
+      # With the Codex fallback in the run, the proxy holds the Codex plan credential too.
       llm-proxy: true
-      provider: codex
-      review-model: gpt-5.6-sol
-      fallback-provider: claude
-      # Fable again since its limit reset: the Opus re-reviews came back with a verdict and no findings (#991).
-      fallback-model: claude-fable-5-2
+      provider: claude
+      review-model: claude-opus-5-5
+      fallback-provider: codex
+      fallback-model: gpt-5.6-sol
       # One run reviews every labelled PR; four at a time instead of two.
       review-concurrency: '4'
     secrets:
