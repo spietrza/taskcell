@@ -9,7 +9,7 @@ import { useAsync } from '../../hooks';
 import { useApproverDecisions } from './useApproverDecisions';
 import { decisionForTask, decisionWords } from './approverDecision';
 import { QuickView, TRACKER_NAME, type QuickTask } from './QuickView';
-import { ScheduleLines } from './Schedule';
+import { NewHubTask, ScheduleLines } from './Schedule';
 import { boardCountLabels } from './counts';
 import { ExternalLink } from '../../components/ExternalLink';
 import { FilterBar, NoMatch } from '../../FilterBar';
@@ -43,7 +43,7 @@ const COLUMNS: Column[] = [
 ];
 
 /** One repository's board, or every repository's (cards stamped with their repository). */
-type BoardList = { tasks: (BoardTask & Partial<RepoStamp>)[]; capped: boolean; failures: RepoReadFailure[] };
+type BoardList = { tasks: (BoardTask & Partial<RepoStamp>)[]; capped: boolean; failures: RepoReadFailure[]; hubBoard?: true; hubBoards?: string[] };
 
 export function TaskBoard({
   project,
@@ -84,9 +84,14 @@ export function TaskBoard({
   const allTasks = data?.tasks;
   const tasks = allTasks && filterCards(allTasks, filter);
   const lanes = groupRows(tasks ?? [], filter.group, cardKeys);
+  // A hub-board project's cards are made here, not in a tracker.
+  const hubBoard = allRepos ? data?.hubBoards?.includes(project) === true : data?.hubBoard === true;
+  const reload = (): void => setReloads((n) => n + 1);
 
   // The quick view opens beside the Board; Escape or a click outside closes it and focus returns to the card.
   const [selected, setSelected] = useState<QuickTask | null>(null);
+  // The open quick view follows a reload: it shows the card as the board now has it, not the snapshot that was clicked.
+  const shown = selected === null ? null : (allTasks?.find((t) => t.id === selected.id && t.repoPath === selected.repoPath) ?? selected);
   const panelRef = useRef<HTMLElement>(null);
   const cardRef = useRef<HTMLElement | null>(null);
   const close = (): void => {
@@ -140,10 +145,13 @@ export function TaskBoard({
           Running {counts.running} · Waiting {counts.waiting}
         </span>
       )}
-      <Button className="ml-auto" onClick={onNewTask} startIcon={<FilePlus className="size-4" />}>
-        New Task
-      </Button>
+      {!hubBoard && (
+        <Button className="ml-auto" onClick={onNewTask} startIcon={<FilePlus className="size-4" />}>
+          New Task
+        </Button>
+      )}
     </div>
+    {hubBoard && <NewHubTask repoPath={project} onCreated={reload} />}
     {bar}
     </>
   );
@@ -172,7 +180,7 @@ export function TaskBoard({
         <TaskSourceHint repoNames={unset.map((f) => f.repoName)} onOpenSettings={unset.some((f) => f.repoPath === project) ? onOpenSettings : undefined} />
       )}
       <RepoFailures failures={failed} total={repos.length - unset.length} />
-      {allTasks?.length === 0 && (data?.failures.length ?? 0) === 0 && (
+      {allTasks?.length === 0 && (data?.failures.length ?? 0) === 0 && !hubBoard && (
         <div className="mb-3 shrink-0 rounded-lg border border-dashed border-border/60 p-4 text-sm">
           <div className="font-medium">No tasks yet</div>
           <p className="mt-1 text-muted-foreground">Create a task with acceptance criteria. The factory picks it up and its card moves across this board.</p>
@@ -275,14 +283,14 @@ export function TaskBoard({
         </section>
         ))}
       </div>
-      {selected !== null && (
+      {shown !== null && (
         <QuickView
           ref={panelRef}
-          task={selected}
+          task={shown}
           project={project}
           onClose={close}
-          onFullPage={() => onOpenTask(selected.id, selected.repoPath)}
-          onChanged={() => setReloads((n) => n + 1)}
+          onFullPage={() => onOpenTask(shown.id, shown.repoPath)}
+          onChanged={reload}
         />
       )}
       </div>

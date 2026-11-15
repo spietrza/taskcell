@@ -93,6 +93,7 @@ export const COMMAND_NAMES = [
   'get_credentials',
   'get_team',
   'hub_task_create',
+  'hub_task_retry',
   'hub_task_schedule',
   'import_remote_run',
   'instance_credentials_status',

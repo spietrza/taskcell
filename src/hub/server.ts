@@ -16,8 +16,7 @@ import { encodeError, encodeResult, HUB_EVENTS_SESSION_PATH, HUB_SIGN_IN_REQUIRE
 import { ProjectAllowlist, type BindOptions } from './allowlist.js';
 import { WatchRegistry, type WatchOptions } from './watch.js';
 import { createCredentialService, CredentialStore, ForbiddenError } from './credentials.js';
-import { scheduleTick } from './task-scheduler.js';
-import { readAppConfig } from './app-config.js';
+import { reconcileHubBoards, schedulerState, sweepHubBoards } from './task-scheduler.js';
 import { createRunSession } from './run-session.js';
 import { CompleteBusyError, CompleteRegistry, type SpawnComplete } from './complete.js';
 import { loadPaths } from './projects.js';
@@ -87,6 +86,8 @@ export interface HubServer {
    * hub. It is not per-user authentication: it maps to the owner user, and server mode requires
    * sign-in for browsers (src/hub/auth.ts, docs/hub.md "Server mode sign-in"). */
   readonly token: string;
+  /** One pass of the hub-board scheduler (it also runs on a timer). */
+  sweepHubTasks(): Promise<void>;
   listen(port: number, host: string): Promise<void>;
   /** Graceful shutdown: ends every SSE client, stops project watchers, then closes the listener. */
   close(): Promise<void>;
@@ -467,16 +468,6 @@ export function createHubServer(opts: HubServerOptions): HubServer {
     await allowlist.assertAllowed(p.repoPath);
   }, join(opts.configDir, 'run-counter'));
 
-  // Hub-board projects: start what the scheduler allows. The run's end (or failure) marks the task done (or failed).
-  const sweep = async (): Promise<void> => {
-    for (const repoPath of await loadPaths(opts.configDir).catch(() => [])) {
-      if ((await readAppConfig(repoPath)).taskSource !== 'hub') continue;
-      await scheduleTick(repoPath, (task) => runSession.createRun({ issueRef: task.id, repoPath, startedBy: 'scheduler' })).catch((e: unknown) => console.error(`vanguard-hub: scheduler: ${(e as Error).message}`));
-    }
-  };
-  const sweeper = setInterval(() => void sweep(), SCHEDULER_INTERVAL_MS);
-  sweeper.unref();
-
   const credentials = new CredentialStore(opts.configDir, opts.hubSecret);
   // An unreadable store (wrong secret) is reported in Settings and on stderr; runs keep the env credentials.
   const credentialsReady = credentials.applyStored().catch((e: unknown) => console.error(`vanguard-hub: ${(e as Error).message}`));
@@ -499,6 +490,14 @@ export function createHubServer(opts: HubServerOptions): HubServer {
     userCredentials: createCredentialService(opts.configDir, opts.adminGithubLogins),
   };
 
+  // Hub-board projects: start what the scheduler allows, each task as its owner (src/hub/task-scheduler.ts).
+  const scheduler = schedulerState();
+  const sweepHubTasks = (): Promise<void> => sweepHubBoards({ ...ctx, scheduler });
+  const sweeper = setInterval(() => void sweepHubTasks().catch((e: unknown) => console.error(`vanguard-hub: scheduler: ${(e as Error).message}`)), SCHEDULER_INTERVAL_MS);
+  sweeper.unref();
+  // No run survives a restart: a task stored as running goes back to todo before the first request is served.
+  const reconciled = reconcileHubBoards(opts.configDir).catch((e: unknown) => console.error(`vanguard-hub: scheduler: ${(e as Error).message}`));
+
   const server = createServer((req, res) => {
     void handleRequest(ctx, eventBus, opts, auth, identity, runRepos, req, res).catch(() => {
       if (res.headersSent) res.destroy();
@@ -511,8 +510,9 @@ export function createHubServer(opts: HubServerOptions): HubServer {
     token,
     eventBus,
     allowlist,
+    sweepHubTasks,
     listen: (port, host) =>
-      credentialsReady.then(() => new Promise<void>((resolve, reject) => {
+      Promise.all([credentialsReady, reconciled]).then(() => new Promise<void>((resolve, reject) => {
         server.once('error', reject);
         server.listen(port, host, () => {
           server.off('error', reject);

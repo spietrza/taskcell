@@ -38,6 +38,9 @@ describe('planSchedule', () => {
     expect(parseStart('2026-11-18', 'UTC')?.toISOString()).toBe('2026-11-18T00:00:00.000Z');
     expect(parseStart('18.11.2026')).toBeUndefined();
     expect(parseStart('2026-02-31')).toBeUndefined();
+    expect(parseStart('2026-02-31T00:00:00Z')).toBeUndefined();
+    expect(parseStart('2026-02-28T24:00:00Z')).toBeUndefined();
+    expect(parseStart('2026-02-28T10:00:00+01:00')?.toISOString()).toBe('2026-02-28T09:00:00.000Z');
   });
 
   test('a missing reference is shown with its reason and the task never starts', () => {
@@ -52,7 +55,33 @@ describe('planSchedule', () => {
     expect(p.byId.get('a')).toMatchObject({ state: 'invalid', reason: 'dependency cycle: a → b → a' });
     expect(p.byId.get('b')?.state).toBe('invalid');
     expect(p.byId.get('s')).toMatchObject({ state: 'invalid', reason: 'dependency cycle: s → s' });
-    expect(p.byId.get('c')?.state).toBe('blocked'); // waits on a task that can never finish — visible, not started
+    expect(p.byId.get('c')).toMatchObject({ state: 'invalid', reason: 'waits behind a dependency cycle: a → b → a' });
+  });
+
+  test('a cycle is found without recursion, in one pass over a long chain', () => {
+    const n = 20_000;
+    const chain = Array.from({ length: n }, (_, i) => t(`t${i}`, { blockedBy: [`t${(i + 1) % n}`] }));
+    const p = plan(chain);
+    expect(p.start).toEqual([]);
+    expect(p.byId.get('t7')?.state).toBe('invalid');
+    const open = Array.from({ length: n }, (_, i) => t(`t${i}`, { blockedBy: i + 1 < n ? [`t${i + 1}`] : [] }));
+    expect(plan(open).start).toEqual([`t${n - 1}`]);
+  });
+
+  test('a task handed to the run session is running, or queued while it waits there', () => {
+    const p = planSchedule([t('a', { status: 'running', runId: 'run-1' }), t('b', { status: 'running', runId: 'run-2' }), t('c')], { now, limit: 2, timeZone: 'UTC', queued: new Map([['run-2', 1]]) });
+    expect(p.byId.get('a')?.state).toBe('running');
+    expect(p.byId.get('b')).toMatchObject({ state: 'queued' });
+    expect(p.byId.get('c')?.state).toBe('waits-slot');
+    expect(p.start).toEqual([]);
+  });
+
+  test('a refused start and a failure carry their reason', () => {
+    const p = plan([t('a', { reason: 'no credential' }), t('b', { status: 'failed', reason: 'boom' }), t('c', { status: 'done', result: 'branch x' })]);
+    expect(p.start).toEqual(['a']);
+    expect(p.byId.get('a')).toMatchObject({ state: 'refused', reason: 'no credential' });
+    expect(p.byId.get('b')).toMatchObject({ state: 'failed', label: 'failed: boom' });
+    expect(p.byId.get('c')).toMatchObject({ state: 'done', result: 'branch x' });
   });
 
   test('an invalid start date is shown, not skipped', () => {

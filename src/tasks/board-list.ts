@@ -187,7 +187,8 @@ export async function listBoardTasks(
   // The repository default stands in for a card that names no branch, so every card shows where its PR goes.
   const repoBase = await readRepoBaseBranch(repoPath).catch(() => undefined);
   // What a GitHub issue's body already reports (`Depends on #n`, `Start: YYYY-MM-DD`), shown as the hub board's fields are.
-  const slug = source === 'github' ? await githubSlug(repoPath).catch(() => 'local/repo') : undefined;
+  // Display only, so no second `git remote` lookup for the real slug: a bare `#n` is this repository's.
+  const slug = source === 'github' ? 'this/repository' : undefined;
   const stages = new Map([...markers.values()].map((m) => [taskRefKey(m.taskId), m.stage]));
   return {
     tasks: tasks.map((task) => {

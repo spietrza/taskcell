@@ -55,6 +55,18 @@ async function withWork(content: string | undefined, run: (ctx: Awaited<ReturnTy
 }
 
 describe('deliverChange', () => {
+  it('local-branch: commits on the run branch and pushes nothing; the branch outlives the worktree', async () => {
+    let branch = '';
+    await withWork('hello', async (ctx) => {
+      const r = await deliverChange(ctx, { taskId: 'hub-1', commitMessage: 'feat: x (hub-1)', target: { kind: 'local-branch' } });
+      expect(r).toMatchObject({ kind: 'delivered-local', branch: ctx.branch });
+      branch = ctx.branch;
+    });
+    expect((await execa('git', ['log', '-1', '--format=%s', branch], { cwd: repo })).stdout).toBe('feat: x (hub-1)');
+    expect((await execa('git', ['show', `${branch}:feature.txt`], { cwd: repo })).stdout).toBe('hello');
+    expect((await execa('git', ['remote'], { cwd: repo })).stdout).toBe(''); // a repository with no remote at all
+  });
+
   it('blocks on a secret in the outgoing diff before anything is committed or pushed', async () => {
     const spy = vi.spyOn(console, 'error').mockImplementation(() => {});
     const calls: string[][] = [];
