@@ -1,8 +1,14 @@
 import type { CostBreakdown } from './wire';
 
+/** The `≈` estimate, or undefined for none; a sub-half-cent one reads "≈<$0.01", not "≈$0.00". */
+export function estLabel(estUsd: number | undefined): string | undefined {
+  if (typeof estUsd !== 'number' || !(estUsd > 0)) return undefined; // imported records are not trusted to hold a number
+  return estUsd < 0.005 ? '≈<$0.01' : `≈$${estUsd.toFixed(2)}`;
+}
+
 /** Reported dollars, the `≈` estimate, and "unknown" for what has neither: whichever apply, joined with " + ". */
 function parts(reported: string | undefined, estUsd: number | undefined, unknown: boolean): string {
-  const est = estUsd !== undefined && estUsd > 0 ? `≈$${estUsd.toFixed(2)}` : undefined;
+  const est = estLabel(estUsd);
   const shown = [reported, est, unknown || (reported === undefined && est === undefined) ? 'unknown' : undefined];
   return shown.filter((p) => p !== undefined).join(' + ');
 }

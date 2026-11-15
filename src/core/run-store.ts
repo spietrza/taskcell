@@ -238,7 +238,7 @@ async function parseRunSummaries(root: string): Promise<RunSummary[]> {
         stages,
         totalCostUsd,
         ...(estCostUsd > 0 ? { estCostUsd } : {}),
-        ...(estCostUsd > 0 && unpriced ? { estPartial: true as const } : {}),
+        ...(unpriced && (estCostUsd > 0 || records.some((r) => r.costUsd !== undefined)) ? { estPartial: true as const } : {}),
         ...(costUnknown ? { costUnknown: true as const } : {}),
         anyFailed,
         ...(providerLimit ? { stoppedBy: 'provider-limit' as const } : {}),
