@@ -386,6 +386,8 @@ export interface RunRecord {
   diffOmitted?: 'secret-blocked' | 'secret-scan';
   /** Hub login (or `token`) that started the run from the hub; absent for CLI/CI runs. */
   startedBy?: string;
+  /** `'watch'` when a `taskcell watch` worker started the run; absent for every other run. */
+  trigger?: 'watch';
   /** Verdict-bearing stages (reviewer, conformance) only: the merge gate's own reading of this
    *  stage's reply, persisted so the hub and the PR body never re-derive it. */
   verdict?: ReviewVerdict;
@@ -454,6 +456,8 @@ export interface RunSummary {
   ciUrl?: string;
   /** Hub login (or `token`) that started the run; absent for runs not started from the hub. */
   startedBy?: string;
+  /** `'watch'` when a `taskcell watch` worker started the run. */
+  trigger?: 'watch';
   /** `'merged'` when the run's card is done (its pull request merged); set by the hub's list commands, absent when unknown or not merged. */
   prState?: 'merged';
   /** `'ci'` for a run known only from the metrics branch (no local record to open); `prUrl` links its PR/MR. */
@@ -948,6 +952,22 @@ export interface FactoryVerifyResult {
 /** Which code host a project's `origin` is on, for the Enable factory dialog's run-location choice. */
 export type FactoryHost = 'github' | 'gitlab' | 'other' | 'none';
 
+/** The "Self-hosted (watch)" checklist for a repository. Names only: no credential value is ever included. */
+export interface WatchWorkerChecklist {
+  /** `owner/repo` or `group/project`; empty for a Linear worker whose origin names none. */
+  repoSlug: string;
+  source: 'github' | 'gitlab' | 'linear';
+  /** Compose service for the user to run on their own machine; the hub starts nothing. */
+  compose: string;
+  /** The same worker as a `taskcell watch` command run from a clone of the repo. */
+  command: string;
+  credentials: string[];
+  /** Whether run records show a watch worker at work: `unknown` = no watch-started record the hub can read, so it cannot tell. */
+  seen: 'recent' | 'stale' | 'unknown';
+  /** Time of the newest watch-started run record the hub could read, when any. */
+  lastRunAt?: string;
+}
+
 /** The four steps of the in-app Enable factory checklist, in order. */
 export type FactoryStepId = 'pr' | 'secret' | 'merged' | 'doctor';
 
@@ -1093,6 +1113,8 @@ export interface Commands {
   clear_draft_assets: { args: { repoPath: string; id: string }; result: void };
   /** Which code host the project's `origin` is on (`github`, `gitlab`, `other`, or `none` without a remote): the dialog offers GitLab CI only for `gitlab`. */
   enable_factory_host: { args: { repoPath: string }; result: { host: FactoryHost } };
+  /** Read-only checklist for a self-hosted `taskcell watch` worker: compose snippet, command, credential names and whether run records show it working. Starts nothing. */
+  enable_factory_watch: { args: { repoPath: string }; result: WatchWorkerChecklist };
   /** HUB_ONLY: read the repo (default branch, package manager, verify command) and report what
    *  `enable_factory_apply` would change — no writes yet. GitHub Actions or GitLab CI (through `glab`);
    *  Linear has no adapter and the UI marks it planned instead of calling this. */
@@ -1270,6 +1292,7 @@ export const COMMAND_NAMES = [
   'enable_factory_secret',
   'enable_factory_start',
   'enable_factory_verify',
+  'enable_factory_watch',
   'factory_refresh',
   'factory_state',
   'fetch_spec',
