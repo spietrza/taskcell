@@ -55,7 +55,7 @@ GitLab uses `--source gitlab` and the same trigger labels. Linear routes by work
 
 ## Hub
 
-`pnpm build:ui && taskcell hub --repo /path/to/clone` serves a local board at http://127.0.0.1:7777. It has no login: on a server, put it behind Tailscale or an authenticating proxy, never on a public port.
+`pnpm build:ui && taskcell hub --repo /path/to/clone` serves a local board at http://127.0.0.1:7777. It has no login in the latest release: on a server, put it behind Tailscale or an authenticating proxy, never on a public port. Sign-in for server mode is on `main`, not in a release yet.
 
 ## Do not
 
