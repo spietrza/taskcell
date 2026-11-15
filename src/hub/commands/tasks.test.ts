@@ -30,7 +30,7 @@ describe('tasks', () => {
     expect(withPausedTasks).toHaveBeenCalledWith('allowed/repo', [base], ctx.gh, expect.objectContaining({ remaining: 30 }));
   });
 
-  test('list_tasks reads paused pull requests through the injected gh runner, in one call', async () => {
+  test('list_tasks reads paused pull requests through the injected gh runner, only for a GitHub task source', async () => {
     const repo = await tmpGitRepo('https://github.com/allowed/repo.git');
     const calls: string[][] = [];
     const gh = async (args: string[]): Promise<string> => {
@@ -39,7 +39,12 @@ describe('tasks', () => {
     };
     const { ctx } = await makeCtx(repo, { gh, depsOverrides: { listTasks: async () => ({ tasks: [], capped: false }) } });
     expect(await dispatchRpc(ctx, 'list_tasks', { repoPath: repo })).toEqual({ tasks: [], capped: false });
-    expect(calls.map((c) => c.slice(0, 2))).toEqual([['pr', 'list']]);
+    expect(calls.map((c) => c.slice(0, 2))).toEqual([['pr', 'list'], ['pr', 'list']]);
+    // A project whose task source is not GitHub spawns nothing, github.com origin or not.
+    calls.length = 0;
+    await writeAppConfig(repo, { source: 'linear' });
+    await dispatchRpc(ctx, 'list_tasks', { repoPath: repo });
+    expect(calls).toEqual([]);
   });
 
   test('T-60 api_create_task substitutes source/team/label from app.json and ignores client values', async () => {

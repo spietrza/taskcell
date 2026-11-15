@@ -7,11 +7,11 @@ import { BadRequestError } from '../sidecar/sidecar.js';
 import { GITHUB_CLAIMED_LABEL, GITHUB_RATE_LIMITED_LABEL, GITHUB_REVIEW_LABEL, GITHUB_RESEARCHING_LABEL, GITHUB_SPEC_CLAIMED_LABEL } from '../github-labels.js';
 import { latestRateLimitedMarker } from '../core/rate-limit-marker.js';
 import type { RateLimitedMarker } from '../core/rate-limit-marker.js';
-import { hasLabel, labelForms, sameLabel } from '../core/labels.js';
+import { hasLabel, sameLabel } from '../core/labels.js';
 import { failureReason } from '../core/errors.js';
 import { httpsUrl } from '../core/links.js';
 import { columnFor, isTriggerLabel } from '../tasks/board.js';
-import { trustedBodies, type GhCommentBody } from '../runners/resume-rate-limited.js';
+import { listLabeledItems, trustedBodies, type GhCommentBody } from '../runners/resume-rate-limited.js';
 import { assertRepoSlug } from './needs-you.js';
 import type { BoardTask, PausedState, RetryPausedResult } from '../wire.js';
 
@@ -75,10 +75,10 @@ interface GhPrLite {
   labels?: Array<{ name: string }>;
 }
 
-/** Open GitHub pull requests parked by a provider limit, which `gh issue list` does not return. One call, filtered to the hold label (either spelling). */
+/** Open GitHub pull requests parked by a provider limit, which `gh issue list` does not return. Listed as the scheduled resume does: `--label`, once per spelling. */
 export async function pausedPullRequests(repoSlug: string, gh: GhRunner = defaultGhRunner): Promise<BoardTask[]> {
-  const out = await gh(['pr', 'list', '--repo', repoSlug, '--state', 'open', '--search', `label:${labelForms(GITHUB_RATE_LIMITED_LABEL).map((form) => `"${form}"`).join(',')}`, '--limit', '100', '--json', 'number,title,url,labels']);
-  return (JSON.parse(out) as GhPrLite[]).flatMap((pr) => {
+  const prs = await listLabeledItems<GhPrLite>('pr', repoSlug, GITHUB_RATE_LIMITED_LABEL, gh, 'number,title,url,labels');
+  return prs.flatMap((pr) => {
     const labels = (pr.labels ?? []).map((label) => label.name);
     if (!hasLabel(labels, GITHUB_RATE_LIMITED_LABEL)) return [];
     const url = httpsUrl(pr.url);
@@ -136,7 +136,11 @@ export async function retryPausedTask(repoSlug: string, number: number, triggerL
     }
     // GitHub sends no `labeled` event for a label already present. Remove any stale trigger while the
     // hold is still on, add the recorded trigger, and only then release the provider-limit hold.
-    const stale = names.filter((name) => triggerLabels.some((candidate) => candidate.toLowerCase() === name.toLowerCase()) || isTriggerLabel(name));
+    // Re-read just before writing: a scheduled resume (or a claim) that released the hold meanwhile has
+    // already re-triggered the issue, and adding the trigger again would fire a second `labeled` event.
+    const now = (JSON.parse(await gh(['api', `repos/${repoSlug}/issues/${n}`])) as { labels: { name: string }[] }).labels.map((l) => l.name);
+    if (!now.some((x) => sameLabel(x, GITHUB_RATE_LIMITED_LABEL))) return { label: trigger };
+    const stale = now.filter((name) => triggerLabels.some((candidate) => candidate.toLowerCase() === name.toLowerCase()) || isTriggerLabel(name));
     for (const label of stale) await edit('--remove-label', label);
     await edit('--add-label', trigger);
   } catch (error) {

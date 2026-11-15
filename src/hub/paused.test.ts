@@ -11,6 +11,8 @@ const triggers = triggerLabelsFor(undefined);
 interface Fake {
   state?: string;
   labels?: string[];
+  /** What the second read of the issue (just before the writes) returns; default: `labels`. */
+  labelsOnReread?: string[];
   pull_request?: unknown;
   comments?: { author: string; body: string; at?: string }[];
   reviews?: { author: string; body: string; at?: string }[];
@@ -20,7 +22,8 @@ interface Fake {
 }
 
 // `factory-bot` is the hub's own gh user (a collaborator); everyone else is an outside commenter.
-const assoc = (login: string): string => (login === 'factory-bot' ? 'COLLABORATOR' : 'NONE');
+// The Actions bot is `github-actions` with association CONTRIBUTOR, as `gh … --json comments` reports it.
+const assoc = (login: string): string => (login === 'factory-bot' || login === 'maintainer' ? 'COLLABORATOR' : login === 'github-actions' ? 'CONTRIBUTOR' : 'NONE');
 
 function fakeGh(issue: Fake): { gh: GhRunner; calls: string[][] } {
   const calls: string[][] = [];
@@ -28,9 +31,9 @@ function fakeGh(issue: Fake): { gh: GhRunner; calls: string[][] } {
     calls.push(args);
     const failure = issue.fail?.(args);
     if (failure !== undefined) throw new Error(failure);
-    if (args[0] === 'api') return JSON.stringify({ state: issue.state ?? 'open', labels: (issue.labels ?? []).map((name) => ({ name })), pull_request: issue.pull_request });
+    if (args[0] === 'api') return JSON.stringify({ state: issue.state ?? 'open', labels: ((calls.filter((c) => c[0] === 'api').length > 1 ? issue.labelsOnReread : undefined) ?? issue.labels ?? []).map((name) => ({ name })), pull_request: issue.pull_request });
     if (args[0] === 'label' && args[1] === 'list') return JSON.stringify((issue.repoLabels ?? triggers).map((name) => ({ name })));
-    if (args[0] === 'pr' && args[1] === 'list') return JSON.stringify((issue.prs ?? []).map((pr) => ({ ...pr, labels: pr.labels.map((name) => ({ name })) })));
+    if (args[0] === 'pr' && args[1] === 'list') return JSON.stringify((issue.prs ?? []).filter((pr) => pr.labels.includes(args[args.indexOf('--label') + 1]!)).map((pr) => ({ ...pr, labels: pr.labels.map((name) => ({ name })) })));
     const comments = (issue.comments ?? []).map((c, i) => ({ author: { login: c.author }, authorAssociation: assoc(c.author), body: c.body, createdAt: c.at ?? `2026-11-14T0${i}:00:00.000Z` }));
     if (args[0] === 'issue' && args[1] === 'view') return JSON.stringify({ comments });
     if (args[0] === 'pr' && args[1] === 'view') {
@@ -60,11 +63,11 @@ test('a marker written by another login is ignored; the factory marker still win
   expect((await withPausedTimes('o/r', [paused('gh-7')], only.gh))[0]!.paused).toEqual({ reason: 'provider-limit' });
 });
 
-test('the newest trusted entry wins, including a review marker posted by the factory\'s GitHub App', async () => {
+test('the newest trusted entry wins, including a review marker posted by the Actions identity', async () => {
   const newer = new Date('2026-11-15T09:00:00.000Z');
   const { gh } = fakeGh({
     comments: [{ author: 'factory-bot', body: marker(), at: '2026-11-14T08:00:00.000Z' }],
-    reviews: [{ author: 'taskcell[bot]', body: marker('ready for spec', newer), at: '2026-11-14T09:00:00.000Z' }],
+    reviews: [{ author: 'github-actions', body: marker('ready for spec', newer), at: '2026-11-14T09:00:00.000Z' }],
   });
   const [task] = await withPausedTimes('o/r', [paused('gh-pr-9')], gh);
   expect(task?.paused).toEqual({ reason: 'provider-limit', until: newer.toISOString(), trigger: 'ready for spec' });
@@ -93,7 +96,7 @@ test('one marker-read budget is shared across repositories', async () => {
 test('paused pull requests are added to the board and read review markers', async () => {
   const { gh } = fakeGh({
     prs: [{ number: 12, title: 'Revise the change', labels: ['taskcell:rate-limited'], url: 'https://github.com/o/r/pull/12' }],
-    reviews: [{ author: 'github-actions[bot]', body: marker('needs revision') }],
+    reviews: [{ author: 'github-actions', body: marker('needs revision') }],
   });
   expect(await pausedPullRequests('o/r', gh)).toEqual([
     expect.objectContaining({ id: 'gh-pr-12', title: 'Revise the change', source: 'github', paused: { reason: 'provider-limit' } }),
@@ -135,11 +138,21 @@ test('Retry now says the issue was re-triggered when only the hold could not be 
   expect(edits(calls)).toEqual([['--add-label', 'ready for agent'], ['--remove-label', 'taskcell:rate-limited']]);
 });
 
-test('paused pull requests come from one call filtered to the hold label, both spellings', async () => {
-  const { gh, calls } = fakeGh({ prs: [] });
-  await withPausedTasks('o/r', [], gh);
-  expect(calls).toHaveLength(1);
-  expect(calls[0]).toEqual(expect.arrayContaining(['pr', 'list', '--search', 'label:"taskcell:rate-limited","vanguard:rate-limited"']));
+test('paused pull requests are listed with --label once per spelling, and nothing else', async () => {
+  const { gh, calls } = fakeGh({ prs: [{ number: 3, title: 'Old spelling', labels: ['vanguard:rate-limited'] }, { number: 4, title: 'Not paused', labels: ['bug'] }] });
+  expect((await pausedPullRequests('o/r', gh)).map((t) => t.id)).toEqual(['gh-pr-3']);
+  expect(calls.map((c) => [c[0], c[1], c[c.indexOf('--label') + 1]])).toEqual([['pr', 'list', 'taskcell:rate-limited'], ['pr', 'list', 'vanguard:rate-limited']]);
+});
+
+test('a marker pasted by a repository collaborator is honoured, as the scheduled resume does', async () => {
+  const { gh } = fakeGh({ comments: [{ author: 'maintainer', body: marker('ready for spec') }] });
+  expect((await withPausedTimes('o/r', [paused('gh-7')], gh))[0]!.paused).toEqual({ reason: 'provider-limit', until: UNTIL.toISOString(), trigger: 'ready for spec' });
+});
+
+test('Retry now writes nothing when the scheduled resume released the hold meanwhile', async () => {
+  const { gh, calls } = fakeGh({ labels: ['taskcell:rate-limited'], labelsOnReread: ['ready for agent'], comments: [{ author: 'factory-bot', body: marker() }] });
+  expect(await retryPausedTask('o/r', 7, triggers, gh)).toEqual({ label: 'ready for agent' });
+  expect(edits(calls)).toEqual([]);
 });
 
 test.each([

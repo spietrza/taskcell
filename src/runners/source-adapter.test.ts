@@ -1210,6 +1210,22 @@ describe('runSourcedIssue', () => {
     ]);
   });
 
+  it('a limit during a repair is recorded under its own name: the completed stage keeps its turns and cost', async () => {
+    const done = stageOutcome('implementer');
+    done.result = { ...done.result, turns: 7, costUsd: 1.25 };
+    runStages.mockImplementationOnce(async (_ctx: unknown, _stages: unknown, opts: { onEvent: (event: RunEvent) => void; gateBeforeReview: (o: StageOutcome[]) => Promise<unknown> }) => {
+      opts.onEvent({ type: 'stage-start', name: 'implementer', index: 0, of: 2 });
+      await opts.gateBeforeReview([done]);
+      // What repair-gate.ts rethrows when the repair call itself is refused.
+      throw new ProviderLimitError('structured provider refusal');
+    });
+    await expect(runSourcedIssue('group/project#1', { repoPath: '/repo' }, fakeAdapter([], STAGES))).rejects.toThrow('structured provider refusal');
+    const persisted = (writeStages.mock.calls.at(-1) as unknown as [StageOutcome[]])[0];
+    expect(persisted.map((o) => o.name)).toEqual(['implementer', 'repair']);
+    expect(persisted[0]?.result).toMatchObject({ completed: true, turns: 7, costUsd: 1.25 });
+    expect(persisted[1]?.result).toMatchObject({ completed: false, stoppedBy: 'provider-limit' });
+  });
+
   it('still throws the limit error the watcher parks the issue on when the stop record cannot be written', async () => {
     const limit = new ProviderLimitError("You've hit your session limit · resets 9pm (UTC)");
     runStages.mockImplementationOnce(async () => {

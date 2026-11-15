@@ -80,7 +80,7 @@ const CI_LOGINS = ['github-actions', 'github-actions[bot]'];
  * `isBotLogin`, whose wide `[bot]` match would show Dependabot/Renovate chatter as something the
  * factory is asking. A failed `gh api user` only drops the local identity.
  */
-export async function ownLogins(gh: GhRunner, botLogins: readonly string[]): Promise<Set<string>> {
+async function ownLogins(gh: GhRunner, botLogins: readonly string[]): Promise<Set<string>> {
   const self = await gh(['api', 'user', '--jq', '.login']).then(
     (out) => out.trim(),
     () => '',

@@ -49,8 +49,10 @@ export interface TasksCommands {
   set_task_skills: { args: { repoPath: string; taskId: string; skills: string[] }; result: { skills: string[] } };
 }
 
-/** Fill the retry time of paused cards from the factory's marker comment (GitHub only). One label-filtered `gh pr list` per read finds paused pull requests; marker reads only for paused cards. */
+/** Fill the retry time of paused cards from the factory's marker comment (GitHub only). A label-filtered `gh pr list` per spelling finds paused pull requests; marker reads only for paused cards. */
 async function withPaused(ctx: RpcContext, real: string, tasks: BoardTask[], budget: MarkerReadBudget): Promise<BoardTask[]> {
+  // Only a GitHub task source: a Linear or GitLab project with a github.com origin has no paused cards to read here.
+  if (((await readAppConfig(real)).source ?? 'github') !== 'github') return tasks;
   const slug = await githubSlug(real);
   return slug === undefined ? tasks : withPausedTasks(slug, tasks, ctx.gh, budget);
 }

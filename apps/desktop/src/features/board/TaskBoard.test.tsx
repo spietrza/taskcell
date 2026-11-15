@@ -330,13 +330,14 @@ describe('TaskBoard empty state', () => {
 });
 
 describe('TaskBoard paused by a provider limit', () => {
-  const until = '2026-11-14T18:30:00.000Z';
+  // `now` and both retry times sit within 20 minutes, so they share a local day in every time zone.
+  const until = '2026-11-14T12:20:00.000Z';
   const clock = new Date(until).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
   const paused = (id: string, u?: string): BoardTask => ({ id, title: `Paused ${id}`, column: 'queued', state: 'taskcell:rate-limited', paused: { reason: 'provider-limit', ...(u ? { until: u } : {}) } });
 
   test('the card shows the state and the retry time, and one banner counts the paused tasks', async () => {
-    mockListTasks.mockResolvedValue({ tasks: [paused('gh-1', '2026-11-14T17:00:00.000Z'), paused('gh-2', until), TASKS[0]!], capped: false });
-    vi.setSystemTime(new Date('2026-11-14T10:00:00Z'));
+    mockListTasks.mockResolvedValue({ tasks: [paused('gh-1', '2026-11-14T12:10:00.000Z'), paused('gh-2', until), TASKS[0]!], capped: false });
+    vi.setSystemTime(new Date('2026-11-14T12:01:00Z'));
     render(<TaskBoard project="/repo" repos={[]} onOpenTask={() => {}} onNewTask={() => {}} />);
     await screen.findByText('Paused gh-1');
     expect(screen.getAllByText('Paused: provider limit')).toHaveLength(2);
