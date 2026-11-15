@@ -148,6 +148,13 @@ describe('LinearCliTaskFetcher.list (GraphQL)', () => {
     labels: { nodes: labels.map((name) => ({ name })) },
   });
 
+  it('keeps nested connections out of the list query (Linear per-query complexity cap)', async () => {
+    const { graphql, sent } = graphqlFake([{ nodes: [node('TES-1')] }]);
+    await new LinearCliTaskFetcher({ graphql }).list();
+    // Relations and cycles are fetched by the dependency gate, only for issues that have them.
+    expect(sent[0]!.query).not.toMatch(/inverseRelations|relations|cycle/);
+  });
+
   it('lists over GraphQL and never shells the CLI for a list', async () => {
     const { graphql } = graphqlFake([{ nodes: [node('TES-1', ['bug', 'p1'])] }]);
     // A runner that fails loudly: list() must not touch the CLI at all (the original bug shelled a

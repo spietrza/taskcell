@@ -301,7 +301,7 @@ An issue can wait for others. Native "blocked by" relations and body lines count
 
 **Dependents.** After act mode merges a PR, it looks at the open PRs of tasks that depend directly on it (same-repo factory PRs by a `factoryAuthors` login that pass act mode's other gates; at most 10 per merge). One that is behind the base gets the base merged in (`gh pr update-branch`), also where branch protection is not strict and GitHub reports it `CLEAN`. One that conflicts gets one comment per head and `needs revision`, re-applied when the label is already there from an earlier head. With the workflow's own token that label starts no revise run; see the workflow change in [Merge order and dependents](autonomous-loop.md#merge-order-and-dependents). Until it is applied, re-apply `needs revision` by hand.
 
-**Writing dependencies.** A task created with `dependsOn` gets a `Depends on <ref>` line in its body, plus a native relation where the source has one: GitHub "blocked by", GitLab "is blocked by" link (Premium), Linear "blocks". The relation is best effort; the body line is the fallback. The GitHub and GitLab dependency gates read both; Linear has no dependency gate yet, so there they inform people only. Two hub commands write them: `api_create_task` takes `dependsOn` (ids of existing tasks, at most 20), and `api_create_tasks` splits work into up to 20 tasks in one call, where each task lists the positions of the earlier tasks it depends on and the hub fills in the ids as it creates them. Nothing in the factory splits a spec into issues on its own: the caller of `api_create_tasks` (a person, the app, a script) decides the split.
+**Writing dependencies.** A task created with `dependsOn` gets a `Depends on <ref>` line in its body, plus a native relation where the source has one: GitHub "blocked by", GitLab "is blocked by" link (Premium), Linear "blocks". The relation is best effort; the body line is the fallback. The GitHub, GitLab and Linear dependency gates read both. Two hub commands write them: `api_create_task` takes `dependsOn` (ids of existing tasks, at most 20), and `api_create_tasks` splits work into up to 20 tasks in one call, where each task lists the positions of the earlier tasks it depends on and the hub fills in the ids as it creates them. Nothing in the factory splits a spec into issues on its own: the caller of `api_create_tasks` (a person, the app, a script) decides the split.
 
 **Overlap hold.** An otherwise-ready issue with a trusted `<spec_manifest>` is also held when its `files` overlap an open same-repo factory PR (a `chore/vanguard-*` branch, compared by its diff files; fork PRs and white-label `feat/` branches are not covered), an in-flight run (`taskcell:running`, compared by its manifest), or an issue admitted earlier in the same poll. A PR from an earlier run of the same issue never holds it. Generated and aggregate files (lockfiles, `CHANGELOG`, `*.generated.*`, `apps/desktop/src/wire.ts`, `apps/desktop/src/hub-wire.ts`, `src/hub/commands/index.ts`) never count. The issue gets one comment naming the overlapping PR/run and files and waits under `taskcell:waiting`, like a dependency; `resume-rate-limited` releases it when that PR closes or merges, or the run's issue closes or leaves `taskcell:running`. Issues without a manifest are never held, and non-overlapping ready issues start meanwhile. The hold ends at a deadline fixed in the hold comment: `TASKCELL_OVERLAP_HOLD_HOURS` hours (default `6`, also when empty) after the first hold, then the issue starts anyway; the deadline is read from the comment, so watch and the sweep need not share the setting. Set `TASKCELL_OVERLAP_HOLD_HOURS=0` to turn the overlap hold off. Separate `--issue` runs started at the same moment can still race past each other.
 
@@ -321,6 +321,48 @@ A start date comes from the issue's own start date, which GitLab returns from 19
 **What happens.** An issue that must wait gets one comment and the `taskcell::waiting` label and keeps its trigger label, so a later poll starts it by itself once the blockers are closed and the date reached (no resume sweep is needed). These end in `needs info` with the reason, and the trigger label is removed: a cycle; a reference to an issue that does not exist; a reference to another project that the token `watch` runs with cannot read (GitLab answers 404 for both a typo and a private project); a merge request or an issue URL of another GitLab instance; a blocker that was moved or closed as a duplicate; an impossible start date. A lookup that fails for another reason (no permission, an API error) holds the issue under `taskcell::waiting` with the reason; if the next check fails too, it goes to `needs info`. Only an issue that declares nothing and whose links cannot be read is left alone: it is skipped for that poll with a log line and stays triggered. Issues without dependencies cost one extra API read per poll.
 
 `taskcell::waiting` is a scoped label, so on Premium adding it removes any other `taskcell::` label from the issue. Do not put your trigger label in the `taskcell::` (or `vanguard::`) scope; if it is, the issue is held by the comment alone, without the waiting label.
+
+### Task dependencies (Linear)
+
+`watch --linear` (agent and spec passes) holds an issue back the same way. Nothing has to be switched on: an issue with no relation, no `Depends on` line and no start date starts exactly as before.
+
+**How to declare them.**
+
+- **Dependencies.** In Linear, add a "blocked by" relation to the issue, or write `Depends on DEV-12` in the description (`Depends on DEV-12, ENG-3`, or a `https://linear.app/<workspace>/issue/DEV-12/...` URL). Both count, and they add up. In a `Depends on` line the team key must start with a letter; it may be written in lower case (`dev-12` is read as `DEV-12`).
+- **Start date.** Put the issue in a cycle: it does not start before the cycle starts. Without a cycle, a `Start: YYYY-MM-DD` line in the description (UTC) does the same. When the issue is in a cycle, the cycle's start is used and the `Start:` line is ignored. A current or past cycle holds nothing back. Linear issues have no start date of their own.
+- **Done.** A dependency is met when its state type is completed. A dependency that was canceled or closed as a duplicate can never be met, whether it is a native relation or a `Depends on` line.
+
+**What happens.**
+
+| The issue | What `watch` does |
+| --- | --- |
+| has every dependency completed and its start reached | starts it |
+| waits for an open dependency or a future start | one comment naming what it waits for; it stays in its trigger state and a later poll starts it by itself |
+| has relations Linear returned incompletely (a relation without a type or without a readable issue) | the same: one comment with the reason, checked again on the next poll, never started on a guess |
+| is in a dependency cycle, names an issue that does not exist or the token cannot read, depends on a canceled or duplicate issue, has an impossible start date, or has an identifier that is not `TEAM-123` | one comment with the reason, then the needs-info state; fix it and move it back to the trigger state. With no needs-info state configured for the agent pass it is commented on, stays where it is and is checked again on each poll |
+| has a dependency that could not be looked up (the Linear API failed or was rate limited) | not started in that poll and logged; no comment. The next poll tries again |
+
+A comment is not repeated: before posting, `watch` reads the issue's recent comments and skips one that already says the same, so a restart or a scheduled `watch --once` does not post it again. A new comment appears when the reason changes. The log has one `skipped` line per issue and reason, not one per poll. Beyond the direct blockers only native relations are followed, up to 50 issues.
+
+**Cost per poll.** The issue list query is the same as without dependencies. One extra query per 50 listed issues reads their relations (the first 10 of each) and cycle. After that only blockers are looked up, each once per poll however many issues wait for it; an issue with more than 10 relations is looked up itself. A waiting issue's comments are read once per `watch` process, not on every poll. An issue that keeps waiting has its blockers looked up again on every poll.
+
+**When Linear cannot be read.** A failure never starts an issue. If the extra query fails (a network error, a timeout, a rate limit, any error Linear returns, also one that comes with partial data), `watch` logs one line and looks each issue of that batch up on its own:
+
+```
+taskcell: Linear dependency probe failed, looking up 12 issue(s) one by one -> <reason>
+```
+
+An issue whose own lookup fails as well is not started in that poll (`taskcell: DEV-12 skipped -> dependency lookup failed: <reason>`); the next poll tries again.
+
+There is one exception, so that a query Linear no longer accepts cannot stop every Linear watch. If Linear rejects both the extra query and the per-issue lookup with a GraphQL validation error (the queries do not fit Linear's schema, which no retry fixes; recognised by the error code or by the standard GraphQL validation message, such as `Cannot query field ...`), native "blocked by" relations and cycles are not honoured in that poll and the log says so:
+
+```
+taskcell: Linear rejected the dependency queries, native "blocked by" relations and cycles of 12 issue(s) not honoured this poll (Depends on and Start lines still are) -> <probe error>; <lookup error>
+```
+
+In that state an issue with no `Depends on` or `Start:` line starts as it would without this feature, a `Start:` line still holds its issue, and an issue with a `Depends on` line does not start (its dependency cannot be looked up either). If you see this line, report the two errors after `->`: the factory needs a fix, not your workspace.
+
+**Other teams.** A `Depends on` line and native relations are looked up with the credential `watch` runs with, in any team that credential can read, not only the watched `--team`. The comment on a held issue names the blocking issues and says whether a named issue exists, is open, canceled or a duplicate. So someone who can edit a watched issue can learn that much about an issue in a team they cannot see, if the watch credential can see it. Give `watch` a credential limited to the teams whose issue identifiers and states may be shown on the watched issues.
 
 ### Starting the factory from the hub
 
