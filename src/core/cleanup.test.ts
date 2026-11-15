@@ -14,9 +14,11 @@ function fakeSandbox(onDestroy: () => void, throws: boolean = false): IsolatedSa
 describe('cleanup order', () => {
   it('destroys tracked sandboxes before tracked proxies', async () => {
     const order: string[] = [];
-    const proxy = { destroy: async (): Promise<void> => { await new Promise((r) => setTimeout(r, 5)); order.push('proxy'); } };
+    // The sandbox is the slow one and the proxy pushes at once: parallel destruction would give ['proxy', 'sandbox'].
+    const proxy = { destroy: async (): Promise<void> => { order.push('proxy'); } };
+    const slowSandbox = { destroy: async (): Promise<void> => { await new Promise((r) => setTimeout(r, 5)); order.push('sandbox'); } };
     trackSandbox(proxy, { proxy: true });
-    trackSandbox(fakeSandbox(() => order.push('sandbox')));
+    trackSandbox(slowSandbox);
     await destroyAllTracked();
     expect(order).toEqual(['sandbox', 'proxy']);
   });
