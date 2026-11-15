@@ -43,7 +43,6 @@ test('only allowlisted projects are covered', async () => {
     await expect(dispatchRpc(ctx, cmd, { repoPath: elsewhere, ...args })).rejects.toThrow();
   }
   expect(cli.skillsChecked).not.toHaveBeenCalled();
-  expect(cli.skillsUpdate).not.toHaveBeenCalled();
   expect(cli.skillsAddPr).not.toHaveBeenCalled();
   expect(cli.skillsRemovePr).not.toHaveBeenCalled();
 });

@@ -1,7 +1,6 @@
 // Hub commands: Enable factory, "Local hub" — the per-project switch for the hub's built-in worker and its checklist. One module per feature — contract, validation and handler live here;
 // `pnpm gen:wire` derives Commands, COMMAND_NAMES and dispatch from it (see CONTRIBUTING.md).
 import { BadRequestError } from '../../sidecar/sidecar.js';
-import { assertMutationsAllowed } from '../allowlist.js';
 import { localWorkerState, runLocalDoctor, setLocalWorker } from '../local-worker.js';
 import type { LocalWorkerState } from '../../wire.js';
 import { defineCommands, repoTarget, requireString } from '../command-kit.js';
@@ -18,16 +17,17 @@ export interface LocalWorkerCommands {
 export const commands = defineCommands<LocalWorkerCommands>({
   local_worker_state: async ({ ctx, args, allow }) => localWorkerState(ctx.configDir, await allow(requireString(args, 'repoPath')), ctx.userCredentials),
   local_worker_doctor: async ({ ctx, args, allow }) => {
-    assertMutationsAllowed(ctx.bind);
     return runLocalDoctor(ctx.configDir, await allow(requireString(args, 'repoPath')), ctx.userCredentials);
   },
   local_worker_set: async ({ ctx, args, allow }) => {
-    // Starts work on the hub's machine unattended: gated like the other remote writes.
-    assertMutationsAllowed(ctx.bind);
     const real = await allow(requireString(args, 'repoPath'));
     if (typeof args.enabled !== 'boolean') throw new BadRequestError('enabled must be a boolean');
     return setLocalWorker(ctx.configDir, real, args.enabled, ctx.userCredentials);
   },
+}, {
+  local_worker_state: { write: false, repo: 'repoPath' },
+  local_worker_doctor: { write: true, remote: true, repo: 'repoPath', unaudited: 'writes only the doctor result into the hub\'s own store' },
+  local_worker_set: { write: true, remote: true, repo: 'repoPath' },
 }, {
   local_worker_set: { action: 'settings-change', target: repoTarget },
 });

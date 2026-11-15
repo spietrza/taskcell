@@ -55,6 +55,14 @@ export const commands = defineCommands<TeamsCommands>({
     return teams.removeRepository(ctx.configDir, caller, requireString(args, 'teamId'), path);
   },
 }, {
+  list_teams: { write: false },
+  get_team: { write: false },
+  team_role: { write: false },
+  add_team_member: { write: true, gatedBy: 'team admin (teams.ts, inside the write queue)' },
+  remove_team_member: { write: true, gatedBy: 'team admin (teams.ts, inside the write queue)' },
+  add_team_repository: { write: true, repo: 'path', gatedBy: 'team admin (teams.ts, inside the write queue)' },
+  remove_team_repository: { write: true, gatedBy: 'team admin (teams.ts, inside the write queue)' },
+}, {
   add_team_member: { action: 'team-member-add', target: teamItemTarget('login'), detail: async (_ctx, a) => [optionalString(a, 'role') ?? ''].filter(Boolean) },
   remove_team_member: { action: 'team-member-remove', target: teamItemTarget('login') },
   add_team_repository: { action: 'team-repository-add', target: teamItemTarget('path') },

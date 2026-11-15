@@ -42,8 +42,32 @@ export interface AuditSpec {
   okOutcome?: (ctx: RpcContext, a: Args) => AuditOutcome;
 }
 
+/**
+ * Who may call a command and what it touches, declared next to its handler and enforced by `dispatchRpc` (in
+ * the order remote, owner, repo) before the handler runs. Authority refusals answer 403 (`ForbiddenError`).
+ */
+export interface CommandPolicy {
+  /** Changes state (hub store, repository files, a code host). A write needs a gate (`repo`, `owner`, `remote` or `gatedBy`) and an audit spec (or `unaudited`). */
+  write: boolean;
+  /** Reaches the code host or the host machine: refused on a non-loopback bind without TASKCELL_HUB_ALLOW_ADD (`assertMutationsAllowed`).
+   * `'owner-only'`: enforced for the hub-token holder only (a signed-in hub admin is exempt — see the credentials module). */
+  remote?: true | 'owner-only';
+  /** With `remote`: only calls this returns true for are gated (a dry run is not a remote write). */
+  remoteWhen?: (a: Args) => boolean;
+  /** The hub owner only; `'or-hub-admin'` also admits a signed-in hub admin. */
+  owner?: true | 'or-hub-admin';
+  /** The argument holding the repository path: resolved through the allowlist and the caller's teams before the handler. */
+  repo?: string;
+  /** What else the handler itself enforces (team role, run visibility, ownership of a call id, ...). */
+  gatedBy?: string;
+  /** Why a `write` command logs no audit line. */
+  unaudited?: string;
+}
+
 export interface CommandModule<C> {
   handlers: { readonly [K in keyof C]: CommandHandler };
+  /** One policy per command: a command with none does not compile. */
+  policy: { readonly [K in keyof C]: CommandPolicy };
   /** Audited commands of this module: the action each logs, and the target/detail it names (never a value). */
   audit: { readonly [K in keyof C]?: AuditSpec };
 }
@@ -52,8 +76,12 @@ export interface CommandModule<C> {
  * Declare a module's commands. `C` is the module's wire interface (`{ name: { args; result } }`): the
  * handler map must have exactly its keys, so the contract and the implementation cannot drift apart.
  */
-export function defineCommands<C>(handlers: { [K in keyof C]: CommandHandler }, audit: { [K in keyof C]?: AuditSpec } = {}): CommandModule<C> {
-  return { handlers, audit };
+export function defineCommands<C>(
+  handlers: { [K in keyof C]: CommandHandler },
+  policy: { [K in keyof C]: CommandPolicy },
+  audit: { [K in keyof C]?: AuditSpec } = {},
+): CommandModule<C> {
+  return { handlers, policy, audit };
 }
 
 export class UnknownCommandError extends BadRequestError {}
