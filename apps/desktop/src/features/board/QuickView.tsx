@@ -3,10 +3,9 @@ import { Button, cn } from '@/ui';
 import { Check, Circle, CircleDot, X } from 'lucide-react';
 import { apiSetTaskSkills, listNeedsYou, listRuns, readRun, type NeedsYouItem } from '../../ipc';
 import { errorMessage } from '../../errors';
-import { isHubMode } from '../../transport';
 import type { BoardTask, RepoStamp, RunDetail } from '../../wire';
 import { ExternalLink, hostName } from '../../components/ExternalLink';
-import { MergeButton, ReplyBox, canUseNeedsYou } from '../needs-you/NeedsYou';
+import { MergeButton, ReplyBox } from '../needs-you/NeedsYou';
 import { PausedPanel } from './paused';
 import { receipt } from './receipt';
 import { SkillPicker } from './SkillPicker';
@@ -150,7 +149,7 @@ export function QuickView({
     setItem(null);
     setNeedsYouError(false);
     // The pull request address comes from the run list; wait for it before matching a PR item.
-    if (!mayWait || run === null || !canUseNeedsYou()) return;
+    if (!mayWait || run === null) return;
     listNeedsYou(repoPath)
       .then((r) => {
         if (alive) setItem(matchNeedsYou(r.items, task, prUrl));
@@ -250,7 +249,7 @@ export function QuickView({
           ))}
         </ol>
 
-        {isHubMode() && (task.source !== undefined || isHubTaskCard(task.id)) && !isPullRequestCard(task.id) && <CardSkills key={`${repoPath}:${task.id}`} task={task} repoPath={repoPath} onSaved={onSkillsSaved} />}
+        {(task.source !== undefined || isHubTaskCard(task.id)) && !isPullRequestCard(task.id) && <CardSkills key={`${repoPath}:${task.id}`} task={task} repoPath={repoPath} onSaved={onSkillsSaved} />}
       </div>
 
       {/* Pinned to the bottom edge: Merge and "Open in …". */}

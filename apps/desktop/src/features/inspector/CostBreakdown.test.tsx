@@ -1,12 +1,12 @@
-import { test, expect, afterEach } from 'vitest';
+import { test, expect, afterEach, vi } from 'vitest';
 import { render, screen, fireEvent } from '@testing-library/react';
-import { mockIPC, clearMocks } from '@tauri-apps/api/mocks';
+import { mockRpc } from '../../testRpc';
 import { CostBreakdown } from './CostBreakdown';
 import { costKindNote, costLabel, EST_COST_NOTE, estTitle, rowCostLabel, totalCostLabel } from '../../cost';
 import type { CostBreakdown as Breakdown } from '../../wire';
 
 afterEach(() => {
-  clearMocks();
+  vi.unstubAllGlobals();
   delete window.__TASKCELL_HUB__;
 });
 
@@ -18,7 +18,7 @@ const ok = (period: string): Breakdown => ({
 
 test('shows the breakdown by model and stage, says estimated, marks unpriced rows unknown, and re-reads on a period change', async () => {
   const periods: string[] = [];
-  mockIPC((cmd, args) => {
+  mockRpc((cmd, args) => {
     if (cmd !== 'read_cost_breakdown') return undefined;
     periods.push((args as { period: string }).period);
     return ok((args as { period: string }).period);
@@ -35,7 +35,7 @@ test('shows the breakdown by model and stage, says estimated, marks unpriced row
 });
 
 test('a repo with no metrics branch gets a one-line explanation with the setup hint, not an error', async () => {
-  mockIPC((cmd) => (cmd === 'read_cost_breakdown' ? { ...ok('all'), status: 'no-branch', byModel: [], byStage: [], hint: 'Run `taskcell metrics push` from CI.' } : undefined));
+  mockRpc((cmd) => (cmd === 'read_cost_breakdown' ? { ...ok('all'), status: 'no-branch', byModel: [], byStage: [], hint: 'Run `taskcell metrics push` from CI.' } : undefined));
   render(<CostBreakdown project="/repo" />);
   expect(await screen.findByText(/No CI run metrics yet/)).toBeInTheDocument();
   expect(screen.getByText(/taskcell metrics push/)).toBeInTheDocument();
@@ -71,7 +71,7 @@ test('a partly priced estimate says what is still unknown, and a run with report
 });
 
 test('the breakdown shows the estimate for an unknown-cost row, with the subscription note', async () => {
-  mockIPC((cmd) =>
+  mockRpc((cmd) =>
     cmd === 'read_cost_breakdown'
       ? { ...ok('30d'), costKind: 'unknown', totalCostUsd: 0, totalEstCostUsd: 0.4, byModel: [{ key: 'gpt-5', entries: 1, costUsd: 0, unknownEntries: 1, estCostUsd: 0.4 }], byStage: [] }
       : undefined,

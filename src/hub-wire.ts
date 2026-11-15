@@ -9,9 +9,9 @@
  *   drift test byte-compares them. Change here ⇒ regenerate, or root CI fails naming the fix.
  */
 
-/** Injected by `src/hub/static.ts` right after `<head>`; `apps/desktop/src/transport.ts`'s
- * `isHubMode()` reads `window.__TASKCELL_HUB__` to pick the hub (fetch/SSE) branch over Tauri's
- * invoke/listen. */
+/** Injected by `src/hub/static.ts` right after `<head>`: the page was served by a hub (the UI's one
+ * backend), not by the dev server. `apps/desktop/src/main.tsx` reads it to decide whether to start
+ * the dev fixture mock. */
 export const HUB_MARKER = '<script>window.__TASKCELL_HUB__=true</script>';
 
 /** Injected beside HUB_MARKER only by the desktop app's own local hub (loopback bind, fleet enabled):

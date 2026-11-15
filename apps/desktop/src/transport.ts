@@ -1,9 +1,8 @@
 // Transport seam between the UI and its backend. The hub is the only product backend: the UI calls
 // `POST /rpc/<cmd>` and reads the `/events` SSE stream, in a browser and in the desktop window alike
 // (the desktop app starts a local hub and loads the UI the hub serves — apps/desktop/README.md,
-// "Local hub"). The server-injected `window.__TASKCELL_HUB__` marker (src/hub/static.ts) selects the
-// hub branch. The Tauri `invoke`/`listen` branch below is not a product backend: it exists only for
-// the dev-server fixture mock (dev/mockBackend.ts) and vitest, which run without a hub.
+// "Local hub"). The one exception is the in-browser fixture backend (dev/mockBackend.ts), which answers
+// every command without a hub: demo mode, and the dev server's mock (`window.__TASKCELL_MOCK__`).
 import {
   decodeResponse,
   decodeEvent,
@@ -14,14 +13,16 @@ import {
   isHubTokenRejected,
   isHubSignInRequired,
 } from './hub-wire';
-import { invoke as tauriInvoke } from '@tauri-apps/api/core';
-import { listen as tauriListen, type UnlistenFn } from '@tauri-apps/api/event';
+
+/** Stops a `subscribe()` listener. */
+export type UnlistenFn = () => void;
 
 declare global {
   interface Window {
     __TASKCELL_HUB__?: boolean;
     __TASKCELL_HUB_FLEET__?: boolean;
     __TASKCELL_DEMO__?: boolean;
+    __TASKCELL_MOCK__?: boolean;
   }
 }
 
@@ -32,15 +33,22 @@ export function isDemoMode(): boolean {
   return window.__TASKCELL_DEMO__ === true || new URLSearchParams(window.location.search).get('demo') === '1';
 }
 
-export function isHubMode(): boolean {
-  return window.__TASKCELL_HUB__ === true || isDemoMode();
+/** The dev server's fixture mock (main.tsx sets the marker): the same in-browser path as demo mode,
+ * but every fixture write succeeds instead of being refused. */
+function isMockMode(): boolean {
+  return window.__TASKCELL_MOCK__ === true;
+}
+
+/** Commands are answered in-browser from dev/mockBackend.ts: no hub, no event stream. */
+function usesFixtureBackend(): boolean {
+  return isDemoMode() || isMockMode();
 }
 
 // Fleet spawns programs — remote code execution on a reachable server — so only the desktop app's own
 // loopback hub enables it (it injects `__TASKCELL_HUB_FLEET__`, src/hub/static.ts); src/hub/rpc.ts rejects
 // the underlying calls on every other hub too.
 export function canUseFleet(): boolean {
-  return !isHubMode() || window.__TASKCELL_HUB_FLEET__ === true;
+  return window.__TASKCELL_HUB_FLEET__ === true;
 }
 
 /** A hub restart mints a fresh per-launch token (src/hub/server.ts), so the one this tab holds
@@ -168,7 +176,7 @@ function redirectToSignIn(): void {
 /** Server mode only: is someone signed in? Better Auth answers `/api/auth/get-session` with the
  * session or null; loopback mounts no OAuth and answers null, so there is nothing to sign out of. */
 export async function hubSignedIn(): Promise<boolean> {
-  if (!isHubMode() || isDemoMode()) return false;
+  if (usesFixtureBackend()) return false;
   try {
     const response = await fetch('/api/auth/get-session');
     return response.ok && (await response.json()) !== null;
@@ -196,21 +204,19 @@ function notifyHubConnectionIssue(): void {
 }
 
 function onHubSignal(handlers: Set<() => void>, handler: () => void): Promise<UnlistenFn> {
-  if (!isHubMode()) return Promise.resolve(() => {});
   handlers.add(handler);
   return Promise.resolve(() => {
     handlers.delete(handler);
   });
 }
 
-/** Register a callback for "this page's hub token is dead, reload". No-op under Tauri. */
+/** Register a callback for "this page's hub token is dead, reload". */
 export function onHubRestart(handler: () => void): Promise<UnlistenFn> {
   return onHubSignal(restartHandlers, handler);
 }
 
 /** Register a callback for "the hub connection is down, for some reason other than this page's own
- * token being dead" — a 403 from the Host check, a reverse proxy's 502, a plain network drop. No-op
- * under Tauri. */
+ * token being dead" — a 403 from the Host check, a reverse proxy's 502, a plain network drop. */
 export function onHubConnectionIssue(handler: () => void): Promise<UnlistenFn> {
   return onHubSignal(connectionIssueHandlers, handler);
 }
@@ -244,7 +250,7 @@ async function hubPost(cmd: string, args?: Record<string, unknown>): Promise<{ r
       body: JSON.stringify(args ?? {}),
     });
   } catch (err) {
-    // Network failure (server unreachable, CORS, etc.) — reject with a string, like Tauri's Err(String).
+    // Network failure (server unreachable, CORS, etc.) — reject with a string, as a hub error does.
     throw err instanceof Error ? err.message : String(err);
   }
   try {
@@ -270,11 +276,11 @@ async function hubInvoke<T>(cmd: string, args?: Record<string, unknown>): Promis
 }
 
 export async function invoke<T>(cmd: string, args?: Record<string, unknown>): Promise<T> {
-  if (isDemoMode()) {
-    const { handleDemo } = await import('./dev/mockBackend');
-    return handleDemo(cmd, args) as T;
+  if (usesFixtureBackend()) {
+    const { handle, handleDemo } = await import('./dev/mockBackend');
+    return (isDemoMode() ? handleDemo(cmd, args) : handle(cmd, args)) as T;
   }
-  return isHubMode() ? hubInvoke<T>(cmd, args) : tauriInvoke<T>(cmd, args);
+  return hubInvoke<T>(cmd, args);
 }
 
 /** One lazily created `EventSource('/events')` shared by every `subscribe()` call, routed by event
@@ -392,16 +398,16 @@ function hubSubscribe<T>(name: string, handler: (event: { payload: T }) => void)
 }
 
 export function subscribe<T>(name: string, handler: (event: { payload: T }) => void): Promise<UnlistenFn> {
-  if (isDemoMode()) return Promise.resolve(() => {});
-  return isHubMode() ? hubSubscribe<T>(name, handler) : tauriListen<T>(name, handler);
+  if (usesFixtureBackend()) return Promise.resolve(() => {});
+  return hubSubscribe<T>(name, handler);
 }
 
 /**
  * Register a callback to re-run when the hub's SSE stream reports a `stream-reset` (#491) — a
- * reconnect gap the replay ring couldn't cover. No-op under Tauri, which has no SSE gap to resync.
+ * reconnect gap the replay ring couldn't cover.
  */
 export function onStreamReset(handler: () => void): Promise<UnlistenFn> {
-  if (!isHubMode() || isDemoMode()) return Promise.resolve(() => {});
+  if (usesFixtureBackend()) return Promise.resolve(() => {});
   ensureHubSource();
   resyncHandlers.add(handler);
   const unlisten: UnlistenFn = () => {

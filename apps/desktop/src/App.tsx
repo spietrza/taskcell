@@ -8,20 +8,20 @@ import { CommandPalette } from './CommandPalette';
 import { RepoPicker } from './RepoPicker';
 import { TailwindDebugScreens } from './components/TailwindDebugScreens';
 import { Dashboard } from './features/dashboard/Dashboard';
-import { NeedsYou, canUseNeedsYou } from './features/needs-you/NeedsYou';
+import { NeedsYou } from './features/needs-you/NeedsYou';
 import { HomePausedBanner } from './features/board/paused';
 import { Inspector } from './features/inspector/Inspector';
 import { Onboarding } from './features/onboarding/Onboarding';
 import { StarterTaskDialog } from './features/onboarding/StarterTaskDialog';
 import { loadOnboarding, saveOnboarding, showOnFirstRun, type OnboardingStored } from './features/onboarding/steps';
 import { EnableFactoryDialog } from './features/dashboard/EnableFactoryDialog';
-import { listProjects, addProject, cloneProject, removeProject, listActive, listNeedsYou, listNeedsYouAll, listTeams, teamAddRepository, factoryState, localWorkerState } from './ipc';
+import { listProjects, addProject, cloneProject, removeProject, listActive, listNeedsYouAll, listTeams, teamAddRepository, factoryState, localWorkerState } from './ipc';
 import { loadTeamId, resolveTeam, saveTeamId, teamProjects } from './teams';
 import type { FactoryState, LocalWorkerState, Team } from './wire';
 import { projectColor, contrastColor } from './color';
 import { createNavGuardRegistry, NavGuardContext } from './navGuard';
 import { ProjectCombobox } from './ProjectCombobox';
-import { canUseAllRepos, inRepos } from './repoFilter';
+import { inRepos } from './repoFilter';
 import { loadFilter, saveFilter, type HubFilter } from './filterState';
 import { screenFromUrl, urlForScreen } from './screenUrl';
 import { hubSignedIn, isDemoMode, hubSignOut, onHubRestart, onHubConnectionIssue } from './transport';
@@ -227,7 +227,7 @@ export default function App() {
 
   // Window close is the third discard path. Tauri/WKWebView does not reliably fire beforeunload
   // on native close, so onCloseRequested is the primary hook (beforeunload kept as a belt) — and
-  // the only hook at all in hub mode, where there is no Tauri window to close.
+  // the only hook at all in a browser, where there is no Tauri window to close.
   useEffect(() => {
     const onBeforeUnload = (e: BeforeUnloadEvent): void => {
       if (navGuard.current.guarded()) {
@@ -371,8 +371,7 @@ export default function App() {
   const active = projects.find((p) => p.path === activeProject) ?? null;
   const showHome = screen === 'home' || !active;
   const titleBar = !showHome && active ? projectColor(active) : null;
-  const allowAll = canUseAllRepos();
-  const needsYou = canUseNeedsYou() && active !== null;
+  const needsYou = active !== null;
   // The selected team's repositories the filter's Projects keep (none picked = all): Home's section and the
   // badge poll read "All repositories" for them only, as Board and Runs do.
   const repoPaths = projects.map((p) => p.path).filter((p) => filter.repos.length === 0 || filter.repos.includes(p));
@@ -387,7 +386,7 @@ export default function App() {
     let alive = true;
     const repos = repoKey.split('\n');
     const tick = (): void => {
-      (allowAll ? listNeedsYouAll(scopeId).then((l) => inRepos(l.items, repos)) : listNeedsYou(activeProject).then((r) => r.items))
+      listNeedsYouAll(scopeId).then((l) => inRepos(l.items, repos))
         .then((items) => {
           if (alive) setNeedsCount(items.length);
         })
@@ -399,7 +398,7 @@ export default function App() {
       alive = false;
       clearInterval(id);
     };
-  }, [needsYou, activeProject, allowAll, scopeId, repoKey]);
+  }, [needsYou, activeProject, scopeId, repoKey]);
 
   const SCREEN_LABEL: Record<Screen, string> = {
     home: 'Home',
@@ -425,7 +424,7 @@ export default function App() {
     }
   }
   // Where the hub lists every repository (Home, Board, Runs), the filter bar narrows them; the switcher still names the active project (New Task, the rail).
-  const allRepos = allowAll && (screen === 'home' || screen === 'board' || screen === 'runs');
+  const allRepos = screen === 'home' || screen === 'board' || screen === 'runs';
   const projectSwitcher =
     active ? (
       <ProjectCombobox projects={projects} active={active} onSelect={(v) => navigate(() => setActiveProject(v))} />
@@ -554,7 +553,7 @@ export default function App() {
               <Inspector
                 key={active.path}
                 project={active.path}
-                allRepos={allowAll}
+                allRepos
                 filter={filter}
                 onFilter={changeFilter}
                 projects={projects}
