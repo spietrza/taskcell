@@ -506,7 +506,7 @@ Replies and merges are a remote mutation, gated like `clone_project`: loopback o
 
 **Enable factory** on a project card (hub only) turns on the GitHub Actions factory for that repo in
 four steps, following [onboarding-another-repo.md](onboarding-another-repo.md)
-(`src/hub/enable-factory.ts`). GitLab and Linear show as coming soon.
+(`src/hub/enable-factory.ts`). GitLab CI has its own flow, below; Linear shows as planned.
 
 1. **Plan** reads the repo with `gh` and changes nothing: the slug, the default branch, the signed-in
    `gh` login (it becomes the callers' actor gate), the package manager and scripts, and the caller
@@ -528,6 +528,27 @@ the secret step has a copy button and "Check again" (`gh secret list`, names onl
 detects the merged PR on its own and links it, and the verify step dispatches the doctor and shows
 the linked run's status live. The project card shows the state: not enabled, setting up (current
 step), ready, or broken (the reason: a closed PR or a failed doctor run).
+
+### GitLab CI
+
+The dialog offers **GitLab CI** only when `origin` is on GitLab (gitlab.com, or the host named by `GITLAB_HOST`); `enable_factory_host` reports which host it is. For a GitHub project, or one with no remote, the row stays unavailable and says why. The hub does everything through `glab` (`src/hub/enable-factory-gitlab.ts`).
+
+**What the hub needs.** `glab` on the `PATH` of the machine the hub runs on, signed in (`glab auth login`) as an account with at least Developer access to the project (push a branch, create labels, open an MR; Maintainer to see and set CI/CD variables). The Docker hub image (`docker/hub.Dockerfile`) ships a pinned, checksum-verified `glab` next to `gh`; sign it in inside the container, or pass `GITLAB_TOKEN` to it. A hub run from source needs you to install `glab` yourself. For a self-managed GitLab, start the hub with `GITLAB_HOST` set to the host of `origin`. The project needs a runner that allows the privileged `docker:dind` service.
+
+**Step by step:**
+
+1. On the project card, choose **Enable factory → GitLab CI**. The plan shows the project, the default branch, the signed-in `glab` user and the CI files. That user becomes the jobs' actor gate: the factory jobs run only in pipelines that this GitLab user starts.
+2. Click **Open merge request**. The hub adds the factory jobs (`templates/gitlab/taskcell.yml`: doctor, implement, review) as `.gitlab/taskcell.yml`, includes them from `.gitlab-ci.yml` (created if missing; an existing `include:` in any form gets one more entry), pushes only the branch `vanguard/enable-factory`, creates the routing labels and opens the MR. It never pushes CI config to the default branch. An MR opened from a fork with the same branch name is not mistaken for it.
+   - If the plan says the CI file is **not edited automatically** (a custom CI/CD configuration file in the project settings, Auto DevOps with no `.gitlab-ci.yml`, or YAML the hub cannot parse), the MR adds only `.gitlab/taskcell.yml`. Add the line the plan shows, `- local: .gitlab/taskcell.yml`, under the top-level `include:` of the named file before merging. If the jobs file is already on the default branch, there is no MR to open: add the line, then open Enable factory again.
+3. Copy the **Secret** command and run it in your terminal (bash or zsh). It asks for the Claude token without echoing it and stores it as the **masked and protected** CI/CD variable `CLAUDE_CODE_OAUTH_TOKEN` on that project (`glab variable set`, or `update` when it already exists, so the same command rotates the token). Protected means only pipelines on protected branches, such as the default branch, can read it. The hub never reads, prints or stores the value: it checks that the name exists with one body-less `HEAD` request. A Developer, or a group-level variable, is not visible to that check; a passing doctor marks the step done.
+4. In **Settings → CI/CD → Variables**, add `GITLAB_TOKEN` (masked and protected): a project or personal access token that can read and comment on issues and MRs and push branches. The hub does not check it; the doctor does.
+5. Review and merge the MR. The checklist notices the merge on its own.
+6. Click **Run doctor**. The hub starts a pipeline on the default branch with `TASKCELL_DOCTOR=true` (`glab ci run`), follows exactly the pipeline that call created, and reads the `taskcell-doctor` job in it (all pages of the job list). Only that job passing marks the step done; a finished pipeline without it (the include is not wired, or another user started it) fails the step. GitLab runs every job without `rules:` in such a pipeline, so when your `.gitlab-ci.yml` has such jobs the dialog names them and asks for a second click, **Run doctor anyway**, before starting it. Jobs that come from your own includes are not listed.
+7. To let the factory work, create a **Build → Pipeline schedules** entry owned by the same GitLab user with the variable `TASKCELL_SWEEP=true`; each run sweeps the issues labelled `ready for agent` and the MRs labelled `ready for vanguard review`. The hub creates no schedule.
+
+The included jobs run only in pipelines started by that user with one of the two variables, so they never join your own pipelines. Each job builds the pinned Taskcell release (`TASKCELL_REF`, default `v1`) in a `node:24` image with a `docker:dind` service, on an amd64 or arm64 runner; `pnpm` and `glab` are pinned (`glab` by checksum), the template sets no global variables, points `glab` at your GitLab (`GITLAB_HOST: $CI_SERVER_HOST`) and keeps the two credentials out of the environment while it installs and builds.
+
+Each step shows its state; the dialog polls the MR merge and the pipeline, "Check again" re-reads the variable and "Run doctor again" retries the pipeline. A project with no remote, a missing `glab`, no `glab` sign-in or no permission gets one plain sentence, not the raw command error. The same loopback / `TASKCELL_HUB_ALLOW_ADD=1` gate applies to apply and verify, and both are audited as `enable-factory`.
 
 Apply and verify change the remote, so they are gated like `clone_project`: loopback only, unless
 `TASKCELL_HUB_ALLOW_ADD=1`. The `gh` login must be able to push workflow files (classic `repo` and

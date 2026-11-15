@@ -83,6 +83,7 @@ export const COMMAND_NAMES = [
   'delete_user_credential',
   'dismiss_lesson',
   'enable_factory_apply',
+  'enable_factory_host',
   'enable_factory_plan',
   'enable_factory_secret',
   'enable_factory_start',

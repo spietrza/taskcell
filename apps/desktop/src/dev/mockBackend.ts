@@ -176,6 +176,7 @@ const commandHandlers = {
   hub_task_retry: (args: { id?: string } | undefined) => ({ id: args?.id ?? 'hub-1' }),
   start_task: (args: { label?: string } | undefined) => ({ status: 'labelled', label: args?.label ?? 'ready for agent', waitingOn: [] }),
   // Hub-only Enable factory flow (EnableFactoryDialog).
+  enable_factory_host: () => ({ host: 'github' as const }),
   enable_factory_plan: () => factoryPlan,
   enable_factory_apply: () => factoryApplyResult,
   enable_factory_verify: () => factoryVerify,

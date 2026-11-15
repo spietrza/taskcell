@@ -857,29 +857,41 @@ export interface SpawnInfo {
   command: string;
 }
 
-/** Enable-factory provider seam (hub § "Enable factory"): GitHub Actions is implemented; GitLab and
- * Linear are "planned" in the UI and never reach `enable_factory_*` (see docs/task-sources.md,
+/** Enable-factory provider seam (hub § "Enable factory"): GitHub Actions and GitLab CI are
+ * implemented; Linear is "planned" in the UI and never reaches `enable_factory_*` (see
  * docs/onboarding-linear.md). */
 export type FactoryProviderId = 'github' | 'gitlab' | 'linear';
 
 /** What `enable_factory_plan` detected and what `enable_factory_apply` will do with it. */
 export interface FactoryPlan {
-  provider: 'github';
+  provider: 'github' | 'gitlab';
+  /** `owner/repo` (GitHub) or the `group/subgroup/project` path (GitLab). */
   repoSlug: string;
   defaultBranch: string;
   login: string;
   packageManager: string;
   verifyCommand?: string;
   scripts: { typecheck: boolean; lint: boolean; test: boolean; build: boolean };
-  /** Repo-relative paths `apply` will add, e.g. `.github/workflows/taskcell-implement.yml`. */
+  /** Repo-relative paths `apply` will add or edit, e.g. `.github/workflows/taskcell-implement.yml` (GitLab: `.gitlab-ci.yml`, `.gitlab/taskcell.yml`). */
   callerFiles: string[];
   /** The callers already on the default branch, under the `taskcell-` or legacy `vanguard-` name — `apply` leaves those untouched. */
   existingCallerFiles?: string[];
+  /** GitLab host selected from `origin`; passed to glab so a self-hosted project cannot fall back to another configured host. */
+  gitlabHost?: string;
+  /** Numeric GitLab project id; open-MR reuse requires the source project to match it, excluding fork MRs. */
+  gitlabProjectId?: number;
+  /** GitLab's configured CI entry point. The hub only edits the default `.gitlab-ci.yml`. */
+  gitlabCiPath?: string;
+  /** The CI entry point cannot be edited safely; the user must add the displayed local include. */
+  gitlabManualInclude?: boolean;
+  /** Top-level GitLab jobs without `rules:`; starting the doctor requires an explicit UI confirmation when non-empty. */
+  gitlabUnruledJobs?: string[];
   labels: string[];
 }
 
 export interface FactoryApplyResult {
   branch: string;
+  /** The pull request (GitLab: merge request) URL. */
   prUrl: string;
   labelsCreated: string[];
 }
@@ -894,6 +906,9 @@ export interface FactoryVerifyResult {
   dispatched: boolean;
   run?: { url: string; status: string; conclusion: string };
 }
+
+/** Which code host a project's `origin` is on, for the Enable factory dialog's run-location choice. */
+export type FactoryHost = 'github' | 'gitlab' | 'other' | 'none';
 
 /** The four steps of the in-app Enable factory checklist, in order. */
 export type FactoryStepId = 'pr' | 'secret' | 'merged' | 'doctor';

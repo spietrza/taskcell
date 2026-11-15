@@ -122,13 +122,13 @@ describe('enable_factory RPCs', () => {
     }
   });
 
-  test('requires the plan provider to be github', async () => {
+  test('requires the plan provider to be github or gitlab', async () => {
     const repo = await tmpRepo();
     const { ctx } = await makeCtx(repo);
     const { seen, mock } = spyProvider();
     try {
-      await expect(dispatchRpc(ctx, 'enable_factory_apply', { repoPath: repo, plan: { ...validPlan, provider: 'gitlab' } }))
-        .rejects.toThrow('plan.provider must be github');
+      await expect(dispatchRpc(ctx, 'enable_factory_apply', { repoPath: repo, plan: { ...validPlan, provider: 'linear' } }))
+        .rejects.toThrow('plan.provider must be github or gitlab');
       expect(seen).toEqual([]);
     } finally {
       mock.mockRestore();
@@ -222,5 +222,46 @@ describe('enable_factory RPCs', () => {
     const repo = await tmpRepo();
     const { ctx } = await makeCtx(repo);
     expect(await dispatchRpc(ctx, 'factory_refresh', { repoPath: repo })).toMatchObject({ state: 'none' });
+  });
+});
+
+describe('enable_factory RPCs for GitLab', () => {
+  beforeEach(async () => {
+    process.env.TASKCELL_HUB_CONFIG_DIR = await mkdtemp(join(tmpdir(), 'factory-cfg-'));
+  });
+  const glPlan = {
+    provider: 'gitlab',
+    repoSlug: 'acme/group/widgets',
+    defaultBranch: 'main',
+    login: 'tanuki',
+    packageManager: 'pnpm',
+    scripts: { typecheck: true, lint: true, test: true, build: true },
+  };
+
+  test('enable_factory_host reports the host of origin', async () => {
+    const repo = await tmpRepo();
+    const { ctx } = await makeCtx(repo);
+    // tmpRepo has no remote
+    await expect(dispatchRpc(ctx, 'enable_factory_host', { repoPath: repo })).resolves.toEqual({ host: 'none' });
+  });
+
+  test('a GitLab plan is shape-checked and gets this process\'s own targets', async () => {
+    const repo = await tmpRepo();
+    const { ctx } = await makeCtx(repo);
+    await expect(dispatchRpc(ctx, 'enable_factory_secret', { repoPath: repo, plan: glPlan })).resolves.toEqual({
+      secretName: 'CLAUDE_CODE_OAUTH_TOKEN',
+      command: expect.stringContaining('GITLAB_HOST=gitlab.com glab variable set CLAUDE_CODE_OAUTH_TOKEN --masked --protected --repo acme/group/widgets'),
+    });
+    await expect(dispatchRpc(ctx, 'enable_factory_secret', { repoPath: repo, plan: { ...glPlan, repoSlug: 'acme' } })).rejects.toThrow(BadRequestError);
+    await expect(dispatchRpc(ctx, 'enable_factory_secret', { repoPath: repo, plan: { ...glPlan, repoSlug: 'acme/x; rm -rf ~' } })).rejects.toThrow(BadRequestError);
+    // The host is spliced into the displayed command too.
+    await expect(dispatchRpc(ctx, 'enable_factory_secret', { repoPath: repo, plan: { ...glPlan, gitlabHost: 'git.example.org' } })).resolves.toMatchObject({ command: expect.stringContaining('GITLAB_HOST=git.example.org glab') });
+    await expect(dispatchRpc(ctx, 'enable_factory_secret', { repoPath: repo, plan: { ...glPlan, gitlabHost: 'x; rm -rf ~' } })).rejects.toThrow('plan.gitlabHost must be a hostname');
+  });
+
+  test('planning a GitLab project with no remote says so in one sentence', async () => {
+    const repo = await tmpRepo();
+    const { ctx } = await makeCtx(repo);
+    await expect(dispatchRpc(ctx, 'enable_factory_plan', { repoPath: repo, provider: 'gitlab' })).rejects.toThrow(/no git remote/);
   });
 });
