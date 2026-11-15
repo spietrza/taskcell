@@ -1,6 +1,6 @@
 import { readFile } from 'node:fs/promises';
 import { join } from 'node:path';
-import { OPENROUTER_PRICING, PRICED_MODELS } from './openrouter-pricing.js';
+import { CODEX_PRICED_MODELS, OPENROUTER_PRICING, PRICED_MODELS } from './openrouter-pricing.js';
 import { parseJsonlLines } from './stats.js';
 import { stateDir } from './state-path.js';
 
@@ -78,7 +78,8 @@ export function computeDrift(models: OpenRouterModelsResponse, usedModels: Reado
   const stale: StalePrice[] = [];
   const missingLive: MissingLiveModel[] = [];
 
-  for (const [tableKey, row] of Object.entries(PRICED_MODELS)) {
+  const rows = { ...PRICED_MODELS, ...CODEX_PRICED_MODELS };
+  for (const [tableKey, row] of Object.entries(rows)) {
     const live = index.get(row.openRouterModel);
     if (live === undefined) {
       missingLive.push({ tableKey, slug: row.openRouterModel });
@@ -94,7 +95,7 @@ export function computeDrift(models: OpenRouterModelsResponse, usedModels: Reado
     }
   }
 
-  const priced = new Set(Object.keys(OPENROUTER_PRICING));
+  const priced = new Set([...Object.keys(OPENROUTER_PRICING), ...Object.keys(CODEX_PRICED_MODELS)]);
   const unpriced: UnpricedModel[] = [];
   for (const model of usedModels) {
     if (!priced.has(model)) unpriced.push({ model, source: 'metrics' });
@@ -104,7 +105,7 @@ export function computeDrift(models: OpenRouterModelsResponse, usedModels: Reado
     stale,
     unpriced,
     missingLive,
-    checkedRows: Object.keys(PRICED_MODELS).length,
+    checkedRows: Object.keys(rows).length,
     usedModelsScanned: usedModels.size,
   };
 }
