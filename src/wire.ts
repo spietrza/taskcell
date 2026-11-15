@@ -1102,6 +1102,8 @@ export interface MigrateLabelsReport {
   skipped: { from: string; to: string }[];
   failed: { from: string; reason: string }[];
   dryRun: boolean;
+  /** Notices to show before renaming (workflows gating on the old review trigger must accept the new one). */
+  warnings: string[];
 }
 
 export interface Events {

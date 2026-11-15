@@ -125,6 +125,13 @@ describe('planGithubFactory', () => {
     expect(plan.labels).toEqual(FACTORY_LABELS.map((l) => l.name));
   });
 
+  it('shows the trigger spelling apply will create', async () => {
+    const repoPath = await repo();
+    const plan = await planGithubFactory(repoPath, { exec: fakeExec([], { labels: 'ready for vanguard review\n' }) });
+    expect(plan.labels).toContain('ready for vanguard review');
+    expect(plan.labels).not.toContain('ready for taskcell review');
+  });
+
   it('reports the callers already on the default branch', async () => {
     const repoPath = await repo();
     const lsTree = '.github/workflows/vanguard-implement.yml\n.github/workflows/vanguard-doctor.yml\n';
@@ -243,10 +250,11 @@ describe('applyGithubFactory', () => {
     expect(result.labelsCreated).toContain('ready for vanguard review');
   });
 
-  it('fails instead of guessing the trigger spelling when the repo labels cannot be listed', async () => {
+  it('fails with a retryable error before any checkout or push when the repo labels cannot be listed', async () => {
     const { repoPath, plan, calls } = await plannedRepo();
-    await expect(applyGithubFactory(repoPath, plan, { exec: fakeExec(calls, { labelListFails: true }) })).rejects.toThrow();
+    await expect(applyGithubFactory(repoPath, plan, { exec: fakeExec(calls, { labelListFails: true }) })).rejects.toThrow(/retry/);
     expect(calls.some((c) => c.file === 'gh' && c.args[0] === 'label' && c.args[1] === 'create')).toBe(false);
+    expect(calls.some((c) => c.file === 'git' && (c.args[0] === 'push' || c.args[0] === 'checkout'))).toBe(false);
   });
 
   it('never pushes to the default branch', async () => {

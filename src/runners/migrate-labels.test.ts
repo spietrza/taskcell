@@ -44,6 +44,8 @@ describe('migrateLabels', () => {
     const logs: string[] = [];
     const report = await migrateLabels({ repoSlug: 'o/r', apply: true, gh, log: (line) => logs.push(line) });
     expect(report.renamed).toContainEqual({ from: 'ready for vanguard review', to: 'ready for taskcell review' });
+    // The hub discards `log`, so the report itself carries the warning.
+    expect(report.warnings).toEqual(['every workflow gating on "ready for vanguard review" must accept "ready for taskcell review" before this rename']);
     expect(logs.filter((l) => l.includes('warning: every workflow gating on "ready for vanguard review" must accept "ready for taskcell review"'))).toHaveLength(1);
   });
 
