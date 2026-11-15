@@ -16,7 +16,7 @@ import { encodeError, encodeResult, HUB_EVENTS_SESSION_PATH, HUB_SIGN_IN_REQUIRE
 import { ProjectAllowlist, type BindOptions } from './allowlist.js';
 import { WatchRegistry, type WatchOptions } from './watch.js';
 import { readEnv } from '../core/env.js';
-import { createCredentialService, migrateLegacyCredentials, ForbiddenError } from './credentials.js';
+import { createCredentialService, ForbiddenError } from './credentials.js';
 import { createRunSession } from './run-session.js';
 import { CompleteBusyError, CompleteRegistry, type SpawnComplete } from './complete.js';
 import { loadPaths } from './projects.js';
@@ -466,18 +466,7 @@ export function createHubServer(opts: HubServerOptions): HubServer {
   }, join(opts.configDir, 'run-counter'));
 
   // The retired credentials.enc moves into the one store; a failure is reported and exposed in Settings, and the file is kept.
-  const credentialsReady = (async (): Promise<void> => {
-    try {
-      const { moved, skipped } = await migrateLegacyCredentials(opts.configDir, userCredentials.store, hubSecret);
-      if (moved.length > 0) console.error(`vanguard-hub: migrated credentials from credentials.enc: ${moved.join(', ')}`);
-      if (skipped.length > 0) console.error(`vanguard-hub: kept existing credentials while migrating credentials.enc: ${skipped.join(', ')}`);
-    } catch (error) {
-      const reason = error instanceof Error ? error.message : 'credential migration failed';
-      userCredentials.setMigrationIssue(reason);
-      console.error(`vanguard-hub: ${reason}`);
-    }
-    await userCredentials.instanceStatus();
-  })();
+  const credentialsReady = userCredentials.migrateLegacy().then(() => userCredentials.instanceStatus());
 
   const ctx: RpcContext = {
     allowlist,

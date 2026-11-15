@@ -120,8 +120,39 @@ describe('ScopedCredentialStore at-rest keys', () => {
     await diskStore.put('instance', 'CLAUDE_CODE_OAUTH_TOKEN', SECRET_VALUE);
     const secret = randomBytes(32).toString('base64');
     expect(await new ScopedCredentialStore(d, secret).values('instance')).toEqual({ CLAUDE_CODE_OAUTH_TOKEN: SECRET_VALUE });
+    await expect(readFile(join(d, 'credentials.key'))).rejects.toThrow();
     await expect(new ScopedCredentialStore(d).values('instance')).rejects.toThrow('cannot be decrypted');
     expect(await new ScopedCredentialStore(d, secret).names('instance')).toEqual(['CLAUDE_CODE_OAUTH_TOKEN']);
+  });
+
+  it('never overwrites a store it cannot decrypt and says which key recovers it', async () => {
+    const d = await dir();
+    const secret = randomBytes(32).toString('base64');
+    await new ScopedCredentialStore(d, secret).put('instance', 'CLAUDE_CODE_OAUTH_TOKEN', SECRET_VALUE);
+    const before = await readFile(join(d, 'credentials.enc.json'));
+    const wrong = createCredentialService(d, [], randomBytes(32).toString('base64'));
+    await expect(wrong.putInstance('ZAI_API_KEY', 'k')).rejects.toThrow('saved under a different TASKCELL_HUB_SECRET value');
+    await expect(wrong.removeInstance('CLAUDE_CODE_OAUTH_TOKEN')).rejects.toThrow('Restore that value');
+    await expect(createCredentialService(d).putInstance('ZAI_API_KEY', 'k')).rejects.toThrow('no longer set');
+    expect((await wrong.instanceStatus()).reason).toContain('saved under a different TASKCELL_HUB_SECRET value');
+    expect((await readFile(join(d, 'credentials.enc.json'))).equals(before)).toBe(true);
+    expect(await new ScopedCredentialStore(d, secret).values('instance')).toEqual({ CLAUDE_CODE_OAUTH_TOKEN: SECRET_VALUE });
+  });
+
+  it('clears the migration reason without a restart once a later attempt succeeds', async () => {
+    const d = await dir();
+    const file = await legacyFile(d, randomBytes(32).toString('base64'), { claude: SECRET_VALUE });
+    const error = vi.spyOn(console, 'error').mockImplementation(() => undefined);
+    try {
+      const service = createCredentialService(d);
+      await service.migrateLegacy();
+      expect((await service.instanceStatus()).reason).toContain('TASKCELL_HUB_SECRET');
+      await rm(file);
+      expect(await service.instanceStatus()).toEqual({ names: [] });
+      expect(error.mock.calls.flat().join(' ')).not.toContain(SECRET_VALUE);
+    } finally {
+      error.mockRestore();
+    }
   });
 });
 

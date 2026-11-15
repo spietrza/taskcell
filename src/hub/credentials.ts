@@ -5,7 +5,7 @@
 // except to the run that uses it (`RunCredential.env`, never persisted). The retired `credentials.enc` (key from
 // `TASKCELL_HUB_SECRET`) is migrated into the `instance` scope on start.
 import { createCipheriv, createDecipheriv, randomBytes } from 'node:crypto';
-import { chmod, mkdir, readFile, rename, unlink, writeFile } from 'node:fs/promises';
+import { chmod, mkdir, readFile, rename, rm, unlink, writeFile } from 'node:fs/promises';
 import { join } from 'node:path';
 import { BadRequestError } from '../sidecar/sidecar.js';
 import type { RunCredential } from '../wire.js';
@@ -177,19 +177,26 @@ export class ScopedCredentialStore {
       try {
         return this.decrypt(raw, operatorKey);
       } catch {
+        let legacy: Secrets;
         try {
-          const legacy = this.decrypt(raw, await this.diskKey(false));
-          await this.saveWithKey(legacy, operatorKey);
-          return legacy;
+          legacy = this.decrypt(raw, await this.diskKey(false));
         } catch {
-          throw new Error('credential store cannot be decrypted: TASKCELL_HUB_SECRET is wrong or the file is corrupt');
+          // The store is left as it is: nothing here overwrites or deletes what cannot be read.
+          throw new Error('credential store cannot be decrypted: it was saved under a different TASKCELL_HUB_SECRET value (or under the on-disk credentials.key, now absent), or the file is corrupt. Restore that value to recover it; the store is left untouched');
         }
+        // Re-key under the operator's secret; credentials.key goes only once the new file reads back.
+        await this.saveWithKey(legacy, operatorKey);
+        if (JSON.stringify(this.decrypt(await readFile(this.file, 'utf8'), operatorKey)) !== JSON.stringify(legacy)) {
+          throw new Error('credential store could not be verified after re-keying under TASKCELL_HUB_SECRET');
+        }
+        await rm(join(this.dir, 'credentials.key'), { force: true });
+        return legacy;
       }
     }
     try {
       return this.decrypt(raw, await this.diskKey(false));
     } catch {
-      throw new Error('credential store cannot be decrypted: credentials.key is missing or wrong, or the file is corrupt');
+      throw new Error('credential store cannot be decrypted: it was saved under a TASKCELL_HUB_SECRET value that is no longer set, or credentials.key is missing or wrong, or the file is corrupt. Restore that secret or key to recover it; the store is left untouched');
     }
   }
 
@@ -260,11 +267,14 @@ export interface CredentialService {
   store: ScopedCredentialStore;
   /** Instance credential names and any safe, value-free reason the store or legacy migration needs attention. */
   instanceStatus(): Promise<{ names: string[]; reason?: string }>;
-  setMigrationIssue(reason: string | undefined): void;
+  /** Move the retired `credentials.enc` into the store (names logged, never values). A failure is kept as the
+   * status reason and retried on later status reads, so it clears without a restart once it succeeds. */
+  migrateLegacy(): Promise<void>;
   putInstance(name: string, value: string): Promise<void>;
   removeInstance(name: string): Promise<void>;
-  /** Environment for a provider child that intentionally consumes instance credentials. Never mutates `process.env`. */
-  childEnv(provider: string): NodeJS.ProcessEnv;
+  /** Environment for a hub child that consumes instance credentials: one provider's names (doc chat), or every
+   * storable name when the child's provider is not known (Fleet). Never mutates `process.env`. */
+  childEnv(provider?: string): NodeJS.ProcessEnv;
   /** The credential a run started by `user` uses, per the admin switch. Throws a bad-request —
    * BEFORE the run claims the slot — when `user only` is on and the user has none for `provider`
    * (default claude). Resolved per provider: only that provider's variables are returned. */
@@ -300,6 +310,7 @@ export function createCredentialService(configDir: string, adminLogins: readonly
       await writeFile(policyFile, JSON.stringify({ policy }), 'utf8');
     },
     async instanceStatus() {
+      if (migrationIssue !== undefined) await service.migrateLegacy();
       try {
         instanceValues = await store.values('instance');
         const names = Object.keys(instanceValues).sort();
@@ -309,8 +320,17 @@ export function createCredentialService(configDir: string, adminLogins: readonly
         return { names: [], reason: error instanceof Error ? error.message : 'credential store cannot be read' };
       }
     },
-    setMigrationIssue(reason) {
-      migrationIssue = reason;
+    async migrateLegacy() {
+      try {
+        const { moved, skipped } = await migrateLegacyCredentials(configDir, store, secret);
+        if (moved.length > 0) console.error(`vanguard-hub: migrated credentials from credentials.enc: ${moved.join(', ')}`);
+        if (skipped.length > 0) console.error(`vanguard-hub: kept existing credentials while migrating credentials.enc: ${skipped.join(', ')}`);
+        migrationIssue = undefined;
+      } catch (error) {
+        const reason = error instanceof Error ? error.message : 'credential migration failed';
+        if (reason !== migrationIssue) console.error(`vanguard-hub: ${reason}`);
+        migrationIssue = reason;
+      }
     },
     async putInstance(name, value) {
       await store.put('instance', name, value);
@@ -322,7 +342,7 @@ export function createCredentialService(configDir: string, adminLogins: readonly
       instanceValues = rest;
     },
     childEnv(provider) {
-      const names = PROVIDER_NAMES[provider] ?? [];
+      const names = provider === undefined ? CREDENTIAL_NAMES : PROVIDER_NAMES[provider] ?? [];
       return { ...process.env, ...pick(instanceValues, names) };
     },
     async resolveForRun(user, provider = 'claude') {

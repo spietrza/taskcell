@@ -39,7 +39,7 @@ export function RunDetail({ detail, project }: { detail: RunDetailT; project: st
         )}
         {isHubMode() && credentialSource !== undefined && (
           <div className="text-sm text-muted-foreground">
-            Funded by the {credentialSource === 'user' ? "starter's own" : 'instance'} credential
+            Funded by the {credentialSource === 'user' ? "starter's own credential" : 'instance credential or hub environment'}
           </div>
         )}
         {(detail.prUrl !== undefined || detail.ciUrl !== undefined) && (
