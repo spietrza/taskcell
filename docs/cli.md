@@ -352,7 +352,7 @@ taskcell: Linear dependency probe failed, looking up 12 issue(s) one by one -> <
 
 An issue whose own lookup fails as well is not started in that poll (`taskcell: DEV-12 skipped -> dependency lookup failed: <reason>`); the next poll tries again.
 
-There is one exception, so that a query Linear no longer accepts cannot stop every Linear watch. If Linear rejects both the extra query and the per-issue lookup with a GraphQL validation error (the queries do not fit Linear's schema, which no retry fixes), native "blocked by" relations and cycles are not honoured in that poll and the log says so:
+There is one exception, so that a query Linear no longer accepts cannot stop every Linear watch. If Linear rejects both the extra query and the per-issue lookup with a GraphQL validation error (the queries do not fit Linear's schema, which no retry fixes; recognised by the error code or by the standard GraphQL validation message, such as `Cannot query field ...`), native "blocked by" relations and cycles are not honoured in that poll and the log says so:
 
 ```
 taskcell: Linear rejected the dependency queries, native "blocked by" relations and cycles of 12 issue(s) not honoured this poll (Depends on and Start lines still are) -> <probe error>; <lookup error>

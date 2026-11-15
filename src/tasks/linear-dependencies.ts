@@ -72,8 +72,12 @@ interface IssueResponse {
 
 /** Linear does not accept the query as written (a validation error, no data): not a hiccup, and the only failure the gate opens on. */
 class QueryRejected extends Error {}
-const REJECTION_CODES = new Set(['GRAPHQL_VALIDATION_FAILED', 'GRAPHQL_PARSE_FAILED', 'BAD_USER_INPUT']);
-const isRejection = (errors: GraphqlError[]): boolean => errors.length > 0 && errors.every((error) => REJECTION_CODES.has(error.extensions?.code ?? ''));
+// Linear documents no code for a validation failure (only RATELIMITED), so the Apollo codes are a guess;
+// the messages are graphql-js's own validation and syntax errors, which any GraphQL server based on it returns.
+const REJECTION_CODES = new Set(['GRAPHQL_VALIDATION_FAILED', 'GRAPHQL_PARSE_FAILED']);
+const REJECTION_MESSAGE = /^(?:Cannot query field "|Unknown argument "|Unknown type "|Field "[^"]+" argument "[^"]+" of type "[^"]+" is required|Variable "\$\w+" (?:of (?:required )?type "[^"]+" |got invalid value)|Syntax Error: )/;
+const isRejection = (errors: GraphqlError[]): boolean =>
+  errors.length > 0 && errors.every((error) => REJECTION_CODES.has(error.extensions?.code ?? '') || REJECTION_MESSAGE.test(error.message ?? ''));
 const errorText = (errors: GraphqlError[]): string => `Linear API error: ${errors.map((e) => e.message ?? '').join('; ')}`;
 /** A thrown non-2xx answer whose body is a validation error, as `QueryRejected`; anything else unchanged. */
 const classified = (error: unknown): unknown => (error instanceof LinearGraphqlRequestError && isRejection(error.errors) ? new QueryRejected(error.message) : error);

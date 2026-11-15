@@ -316,6 +316,14 @@ describe('applyLinearDependencyGate', () => {
     expect([...comments.keys()]).toEqual([]);
     expect(logs.some((l) => l.includes('DEV-4 skipped -> start date 2026-07-01'))).toBe(true);
   });
+  it('recognises a validation error by graphql-js\'s message when Linear sends no code, and nothing else', async () => {
+    const send = vi.fn<LinearGraphql>(async (body) => ({ errors: [{ message: body.query.includes('issues(') ? 'Cannot query field "inverseRelations" on type "Issue".' : 'Unknown argument "after" on field "Issue.inverseRelations".', extensions: { type: 'graphql error' } }] }));
+    expect((await applyLinearDependencyGate(three(), { ...opts(), graphql: send })).map((t) => t.id)).toEqual(['DEV-1', 'DEV-2', 'DEV-3']);
+    for (const message of ['Query too complex', 'Entity not found: Team', 'Variable "$id" is used too much', 'cannot query field "x"']) {
+      const other = vi.fn<LinearGraphql>(async () => ({ errors: [{ message }] }));
+      expect(await applyLinearDependencyGate(three(), { ...opts(), graphql: other })).toEqual([]);
+    }
+  });
   it('reads a rejection thrown by the real sender (HTTP 400 with a validation body) the same way, and a 400 without one as transient', async () => {
     vi.stubEnv('LINEAR_API_KEY', 'k');
     try {
