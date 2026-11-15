@@ -35,7 +35,7 @@ describe('templates/github/ caller templates', () => {
     const gate = await read('pr-review.yml');
     for (const name of labelForms(REVIEW_TRIGGER_LABEL)) expect(gate).toContain(`"${name}"`);
     expect(FACTORY_LABELS.map((l) => l.name)).toContain(REVIEW_TRIGGER_LABEL);
-    expect(REVIEW_TRIGGER_LABEL).toBe('ready for vanguard review');
+    expect(REVIEW_TRIGGER_LABEL).toBe('ready for taskcell review');
   });
 
   it('contains exactly the five expected callers', async () => {

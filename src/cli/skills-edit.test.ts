@@ -276,7 +276,7 @@ describe('skills update --pr: hardening', () => {
         throw new Error('gh: not logged in');
       }),
     };
-    await expect(skillsUpdate({ dir: skills, repo, dryRun: false, pr: true }, deps, () => {})).rejects.toThrow(/after pushing origin\/chore\/vanguard-skills-update.*not logged in/);
+    await expect(skillsUpdate({ dir: skills, repo, dryRun: false, pr: true }, deps, () => {})).rejects.toThrow(/after pushing origin\/chore\/taskcell-skills-update.*not logged in/);
   });
   it('refuses a skills directory that is a symlink out of the worktree', async () => {
     const outside = join(root, 'outside');
