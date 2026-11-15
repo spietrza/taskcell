@@ -23,6 +23,8 @@ export interface ApproverPolicy {
   factoryAuthors?: string[];
   /** Act mode: other repos whose issues the merge order may read as dependencies; a dependency anywhere else holds the PR. */
   dependencyRepos?: string[];
+  /** Act mode: the login the approver's own comments come back under, so its markers dedupe. */
+  approverLogins?: string[];
 }
 
 export interface PrFacts {

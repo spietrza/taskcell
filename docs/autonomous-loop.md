@@ -32,7 +32,7 @@ Routing differs by source:
   </picture>
 </p>
 
-`ready for ...` / `needs ...` are **triggers you add by hand**; `vanguard:...` are **states Taskcell sets itself**. On GitHub Actions, issue-side triggers fire `issues: labeled` workflows; PR-side triggers fire `pull_request_target: labeled` workflows. The exception is `ready for vanguard review`: this repo's review workflow also adds it to a factory PR that opens ready for review or leaves draft, so that PR gets Taskcell's review without anyone labelling it. A caller copied from [onboarding-another-repo.md](onboarding-another-repo.md) runs on the label only.
+`ready for ...` / `needs ...` are **triggers you add by hand**; `vanguard:...` are **states Taskcell sets itself**. On GitHub Actions, issue-side triggers fire `issues: labeled` workflows; PR-side triggers fire `pull_request_target: labeled` workflows. The exception is `ready for taskcell review` (the old `ready for vanguard review` is still accepted, and a repo that already has it keeps getting it until `taskcell migrate-labels`): this repo's review workflow also adds it to a factory PR that opens ready for review or leaves draft, so that PR gets Taskcell's review without anyone labelling it. A caller copied from [onboarding-another-repo.md](onboarding-another-repo.md) runs on the label only.
 
 These are the GitHub names. GitLab (`watch --source gitlab`) uses the same `ready for spec`, `ready for agent` and `needs info` triggers but writes its states with a double colon: `vanguard::speccing`, `vanguard::running`, `vanguard::review` once the MR is open, and `vanguard::reviewing` / `vanguard::reviewed` for `watch-mrs`, whose trigger label you pass with `--label`. An issue held back by a dependency or a start date carries `taskcell::waiting` next to its trigger label ([cli.md](cli.md#task-dependencies-gitlab)). GitLab has no `needs research` or `needs revision` pass. Linear routes by workflow states (table below), and a GitHub Projects board by its Status column.
 
@@ -42,12 +42,12 @@ These are the GitHub names. GitLab (`watch --source gitlab`) uses the same `read
 | `ready for agent` | issue | trigger | builds directly (issue already scoped) |
 | `needs research` | issue | trigger | external research → posts a findings comment → **rests** (no auto-advance; you set spec/agent next) |
 | `needs info` | issue | triage (resting) | parked — ticket too vague |
-| `ready for vanguard review` | **PR** | trigger | adversarial **read-only** review → posts a comment; never edits code |
+| `ready for taskcell review` | **PR** | trigger | adversarial **read-only** review → posts a comment; never edits code |
 | `needs revision` | **PR** (opened by Taskcell) | trigger | reads your review comments → fixes on the PR branch → pushes → un-drafts if still a draft → back to `needs-human-review` |
 | `vanguard:speccing` · `:running` · `:researching` · `:revising` · `:reviewing` | issue/PR | transient state | Taskcell is working (seconds–minutes) |
 | `vanguard:needs-human-review` · `:reviewed` · `:verify-failed` · `:visual-proof-failed` | issue/PR | resting state | waiting on a human |
 
-The word "review" means two things: `ready for vanguard review` (PR) is **Taskcell reviewing your PR** (read-only comment); `needs revision` (PR) is **Taskcell acting on your review of its own PR** (edits + pushes). `vanguard:needs-human-review` is the post-build resting state — your turn to review the PR.
+The word "review" means two things: `ready for taskcell review` (PR) is **Taskcell reviewing your PR** (read-only comment); `needs revision` (PR) is **Taskcell acting on your review of its own PR** (edits + pushes). `vanguard:needs-human-review` is the post-build resting state — your turn to review the PR.
 
 ```bash
 # GitHub defaults
@@ -140,14 +140,14 @@ taskcell review-pr --github-pr 123 --github-repo owner/repo --provider codex --r
 `taskcell watch-prs` turns that reviewer into a small PR loop. It polls only PRs with an explicit trigger label, skips drafts and Taskcell/bot-authored PRs, swaps labels while reviewing, and restores the trigger label on failure so the next poll can retry; if the restore itself fails you will see a `restore failed -> manual label check` log line and should verify the PR labels by hand before the next poll. Pass `--author <login>` to restrict the loop to a single author's PRs (self-review-only). Successful reviews include a hidden `headRefOid` marker, so the loop skips the same commit if the trigger label is re-added accidentally.
 
 ```bash
-taskcell doctor-prs --github-repo owner/repo --label "ready for vanguard review"
-taskcell watch-prs --github-repo owner/repo --label "ready for vanguard review"
+taskcell doctor-prs --github-repo owner/repo --label "ready for taskcell review"
+taskcell watch-prs --github-repo owner/repo --label "ready for taskcell review"
 taskcell doctor-prs --github-repo owner/repo \
-  --label "ready for vanguard review" \
+  --label "ready for taskcell review" \
   --reviewing-label "vanguard:reviewing" \
   --reviewed-label "vanguard:reviewed"
 taskcell watch-prs --github-repo owner/repo \
-  --label "ready for vanguard review" \
+  --label "ready for taskcell review" \
   --reviewing-label "vanguard:reviewing" \
   --reviewed-label "vanguard:reviewed" \
   --author owner \
@@ -157,7 +157,7 @@ taskcell watch-prs --github-repo owner/repo \
 
 | PR label state | What happens |
 |---|---|
-| `ready for vanguard review` | Picked up on the next poll. The label is removed and `vanguard:reviewing` is added before the review starts. |
+| `ready for taskcell review` (or `ready for vanguard review`) | Picked up on the next poll. The label is removed and `vanguard:reviewing` is added before the review starts. |
 | `vanguard:reviewing` | Claimed/in progress. Later polls skip it. |
 | `vanguard:reviewed` | Review comment posted successfully. Re-add the trigger label after new commits if you want another review pass; the same commit is deduped by the hidden review marker. A review whose reply stated its `Verdict:` line but stopped before the completion signal counts as posted (with a truncation note), so it is deduped too. A reply that does not open with its verdict line after two passes posts an incomplete notice without the marker, and the trigger label is restored so the next sweep retries. After three incomplete attempts on the same head the watcher posts a note and leaves the label off — remove and re-add the trigger label (or run the workflow by hand) to retry. |
 
@@ -175,7 +175,7 @@ watch-prs owner/repo#123: reviewed -> marked
 
 ### GitHub Actions trigger
 
-`.github/workflows/taskcell-pr-review.yml` fires on `pull_request_target` when the `ready for vanguard review` (or `ready for taskcell review`) label is applied to a PR. It also fires when a factory PR (a `chore/vanguard-*` or `chore/taskcell-*` branch in this repo, opened by an allowed login) opens ready for review or leaves draft: a first job adds the label, so that PR is reviewed without anyone labelling it. It can also be triggered manually via `workflow_dispatch` to sweep all currently-labeled PRs.
+`.github/workflows/taskcell-pr-review.yml` fires on `pull_request_target` when the `ready for taskcell review` (or `ready for vanguard review`) label is applied to a PR. It also fires when a factory PR (a `chore/taskcell-*` or `chore/vanguard-*` branch in this repo, opened by an allowed login) opens ready for review or leaves draft: a first job adds the label, so that PR is reviewed without anyone labelling it. It can also be triggered manually via `workflow_dispatch` to sweep all currently-labeled PRs.
 
 **Required secrets:** `CLAUDE_CODE_OAUTH_TOKEN` — the Claude subscription OAuth token. The built-in `GITHUB_TOKEN` provides PR/label write access automatically.
 
@@ -183,7 +183,7 @@ watch-prs owner/repo#123: reviewed -> marked
 
 **Behavior:** each run (a label event, or a factory PR that just became ready) runs `watch-prs --once` (the gate, not an `--author` filter, controls which PRs are eligible), reviewing PRs carrying the trigger label. This is idempotent: already-reviewed commits are skipped via the hidden `headRefOid` marker and the label swap.
 
-**Re-review:** after new commits land, remove and re-add `ready for vanguard review` to trigger a fresh pass.
+**Re-review:** after new commits land, remove and re-add the review trigger label to trigger a fresh pass.
 
 **Label setup:** the workflow creates the three routing labels idempotently on every run (`gh label create --force`), so no manual label setup is needed in a fresh repo.
 
@@ -264,13 +264,13 @@ gh secret set CODEX_AUTH_JSON --repo OWNER/REPO < ~/.codex/auth.json
 
 `llm-proxy` now covers a subscription too: a ChatGPT sidecar holds the real `auth.json` on the host and the sandbox gets only a placeholder one pointed at it (see [Host LLM proxy](security/boundaries.md#host-llm-proxy)). Turning it on keeps both the Claude token and the ChatGPT credential out of the sandbox; leaving it off puts both in the sandbox directly — acceptable on a repo you own.
 
-One CI caveat: the stored `CODEX_AUTH_JSON` is a snapshot. Codex refreshes the short-lived access token from the embedded `refresh_token` on each run, so the secret must carry a live refresh token; re-run `gh secret set` if a run ever fails to authenticate. For long-running hosts (a `taskcell watch` on a server) the local file refreshes itself and this does not come up.
+One CI caveat: the stored `CODEX_AUTH_JSON` is a snapshot. Codex refreshes the short-lived access token from the embedded `refresh_token` on each run, so the secret must carry a live refresh token; re-run `gh secret set` if a run ever fails to authenticate. For long-running hosts (a `taskcell watch` on a server) the local file refreshes itself and this does not come up. Under `--llm-proxy` the run says so itself: after a rotation the log and the job summary carry `The stored CODEX_AUTH_JSON secret is now stale`, and a dead token ends the run with `the ChatGPT sign-in was refused … Sign in again (codex login)` (see [Providers](cli.md#providers)).
 
 ## Approver (shadow mode)
 
 `taskcell approve` is the stage after review: it decides whether a factory PR is boring enough to merge without a human, deterministically and with no LLM in the loop. v1 runs in **shadow mode** — it computes and publishes the decision, and never merges, approves, or edits a label. The point is to collect a record of what it *would* have done next to what humans actually did.
 
-**What it decides.** One of two verdicts. `ESCALATE` if any rule fires, `APPROVE` only when the rule list comes back empty. The rules cover: not a same-repo `chore/vanguard-*` head, a closed or merged PR, draft, a required check that is not `success` from the expected app, a missing / stale / blocking / verdict-less review, a merge conflict, a head that moved under the run, git facts that could not be computed, a changed path on a sensitive surface (CI config, dependencies, deploy/migrations, security surface, the review pipeline itself, gate config, agent instructions, release config), a diff over the size ceiling, a deleted test file or a net loss of test cases, a new dependency, a removed export — plus a deterministic audit sample (10%) that escalates a share of otherwise-clean PRs so humans keep seeing normal cases, and a trailing-week per-module line ledger that escalates a drip of individually-small changes.
+**What it decides.** One of two verdicts. `ESCALATE` if any rule fires, `APPROVE` only when the rule list comes back empty. The rules cover: not a same-repo `chore/taskcell-*` (or `chore/vanguard-*`) head, a closed or merged PR, draft, a required check that is not `success` from the expected app, a missing / stale / blocking / verdict-less review, a merge conflict, a head that moved under the run, git facts that could not be computed, a changed path on a sensitive surface (CI config, dependencies, deploy/migrations, security surface, the review pipeline itself, gate config, agent instructions, release config), a diff over the size ceiling, a deleted test file or a net loss of test cases, a new dependency, a removed export — plus a deterministic audit sample (10%) that escalates a share of otherwise-clean PRs so humans keep seeing normal cases, and a trailing-week per-module line ledger that escalates a drip of individually-small changes.
 
 **Which typed facts it reads.** Only structured data, never free text from an issue, PR body, or comment. From `gh`: the PR record (`isDraft`, head/base refs and SHAs, head repo) and check runs on the head SHA matched by **both** name and app id. From the published review: the verdict line and the head-SHA marker of the latest review in the external review format whose author is on the allow-list — a body with no marker, or with more than one distinct marker SHA, is rejected, and the main loop's own in-pipeline review never counts. From git, read-only (fetch into `FETCH_HEAD`, then `show`/`diff`/`patch-id`/`merge-tree` against SHAs — the PR head is never checked out): changed files, lines and paths against the merge base, deleted test files and test-case delta, removed exports, new manifest dependencies, patch ids and ancestry, and merge-tree cleanliness. Any git fact that cannot be computed fails closed into `git-facts-failed`.
 
@@ -332,12 +332,12 @@ Act mode only; shadow mode reads no dependencies and writes nothing for them.
 
 - **Hold.** A PR whose task (the issue in its factory branch name) has an unmerged dependency is not merged: one "Left for a human" comment per head names the dependencies. The check runs after the other exclusions and again right before the merge. A lookup that fails holds the PR (codes `dependency-unmerged`, `dependency-invalid`, `dependency-check-failed`, `dependency-read-failed`). Issues are read only in the PR's repo and the policy's `dependencyRepos`.
 - **When a held PR is decided again.** Only when the approver runs for it again: a new PR review of it completes, or a maintainer dispatches the approver workflow with its number. A dependency merging starts no run for the dependent, and a branch update made with the workflow token starts no CI or review.
-- **Dependents after a merge.** The approver lists the open PRs and takes those whose task depends directly on the merged task (a dependent's own dependents are handled when it merges). A dependent is touched only if it is a same-repo factory branch by a `factoryAuthors` login, targets the same base, and passes act mode's exclusions other than the merge state and the verdict (no draft, hold label, requested change, release PR or CI config). Any other PR is left alone and named in the job log. It reads the merge state with the `UNKNOWN` retry and compares the merge-base with the base tip, so a stale PR that GitHub reports `CLEAN` (no strict branch protection) is still updated. Behind: `gh pr update-branch`. Conflict (also when the update fails and the PR then reads `DIRTY`): one comment per head and `needs revision`, removed and re-added when it was already there from an earlier head. Each is logged under the dependent's number (`update-branch`, `revise`, or `error` with code `dependent-update-failed`). Limits per merge: 100 open PRs listed, 30 factory PRs checked, 10 dependents acted on; hitting one is written to the job log.
+- **Dependents after a merge.** The approver lists the open PRs and takes those whose task depends directly on the merged task (a dependent's own dependents are handled when it merges). A dependent is touched only if it is a same-repo factory branch by a `factoryAuthors` login, targets the same base, and passes act mode's exclusions other than the merge state and the verdict (no draft, no `taskcell:revising` label, hold label, requested change, release PR or CI config). Right before it writes, it reads the labels again: a dependent with `taskcell:revising`, or with `needs revision` applied less than 60 minutes ago (the latest `labeled` event on its timeline), has a revise round running or queued and is neither updated nor re-labelled. Any other PR is left alone and named in the job log. It reads the merge state with the `UNKNOWN` retry and compares the merge-base with the base tip, so a stale PR that GitHub reports `CLEAN` (no strict branch protection) is still updated. Behind: `gh pr update-branch`. Conflict (also when the update fails and the PR then reads `DIRTY`): one comment per head and `needs revision`, removed and re-added when it was already there from an earlier head. Each is logged under the dependent's number (`update-branch`, `revise`, or `error` with code `dependent-update-failed`). Limits per merge: 100 open PRs listed, 30 factory PRs checked, 10 dependents acted on; hitting one is written to the job log.
 - **What still needs a human.** With `GH_TOKEN: ${{ github.token }}` the label starts no workflow, and the revise workflow accepts label events from the listed human logins only. Until a maintainer changes that, re-apply `needs revision` on the dependent by hand.
 
 Workflow change for a maintainer (CI config, applied by hand):
 
-1. `.github/workflows/taskcell-approver.yml`, the `env:` of the `approve` job (`GH_TOKEN: ${{ github.token }}`): mint a GitHub App installation token in a step (for example `actions/create-github-app-token`, pinned by SHA, with `vars.TASKCELL_APP_CLIENT_ID` / `secrets.TASKCELL_APP_PRIVATE_KEY`) and use it as `GH_TOKEN` for the `Decide` step. Consequence: everything that step writes (comments, check run, update-branch, merge, label) is done as the App and starts workflows, so an updated dependent gets CI and a review, and a merge starts the push workflows on the base. The approver must not use the App the factory runs as if that App's login is in `reviewAuthors`.
+1. `.github/workflows/taskcell-approver.yml`, the `env:` of the `approve` job (`GH_TOKEN: ${{ github.token }}`): mint a GitHub App installation token in a step (for example `actions/create-github-app-token`, pinned by SHA, with `vars.TASKCELL_APP_CLIENT_ID` / `secrets.TASKCELL_APP_PRIVATE_KEY`) and use it as `GH_TOKEN` for the `Decide` step. Consequence: everything that step writes (comments, check run, update-branch, merge, label) is done as the App and starts workflows, so an updated dependent gets CI (`taskcell-pr-review.yml` triggers on `labeled`, `opened` and `ready_for_review` only, so the push starts no review: it waits for a manual dispatch or a re-applied review label), and a merge starts the push workflows on the base. The approver recognises its own comments (shadow-mode decision comment included) by `viewerDidAuthor` only (anything the token's identity wrote; a person's account never has it), which needs no config. Do not add the App to `approverLogins`: gh reports a comment author by login only, so a user account registered under the App's name would pass. The approver must not use the App the factory runs as (its login must not be in `reviewAuthors` either), since the implement and revise jobs hold that App and read untrusted text.
 2. `.github/workflows/taskcell-revise.yml`, the job `if:` line `contains(fromJSON('["spietrza","pawelkrystkiewicz"]'), github.event.sender.login)`: add the App's bot login (for example `taskcell[bot]`). The `allowed-actors` input on the same job (`'["spietrza","pawelkrystkiewicz"]'`) needs the same login: `revise.yml` checks the sender against it again in its "Enforce allowed-actors" step. Consequence: any job holding that App's token can start a revise round by labelling a PR whose author passes the author gate on the line above; the implement and revise jobs hold that token and read untrusted text, so the sender gate no longer separates "a maintainer asked" from "the factory asked". The author gate, the per-PR concurrency group and `max-rounds` still apply.
 
 **Turning it off:** set `"act": false` (or remove it) in `.taskcell/approver.json` on the base branch, or `"enabled": false`, or set `TASKCELL_APPROVER_STOP=1`; the next run is shadow or stopped. Switching the approver job to act is a workflow edit for a human to apply: in `.github/workflows/taskcell-approver.yml`, change the last step to `node dist/cli/index.js approve --pr "$PR" --github-repo "$GITHUB_REPOSITORY" --mode act`. Nothing else: there is no run id to pass (`--review-run-id` no longer exists), and the PR-review workflow needs no edit, since `review-pr` already stamps its reviews when `GITHUB_RUN_ID` is set.
@@ -405,9 +405,9 @@ taskcell-lessons:
     - taskcell lessons record --gitlab-project "$CI_PROJECT_PATH" --mr "$MR_IID"
 ```
 
-Run it for a closed factory MR with `MR_IID` set (for example from a pipeline trigger on MR close). An MR from a fork, or on a branch other than `chore/vanguard-*`, is skipped with no model call, since its reviews quote text its author controls. The job needs `CLAUDE_CODE_OAUTH_TOKEN`, a `GITLAB_TOKEN` that can read and comment on MRs and push the metrics branch.
+Run it for a closed factory MR with `MR_IID` set (for example from a pipeline trigger on MR close). An MR from a fork, or on a branch other than `chore/taskcell-*` or `chore/vanguard-*`, is skipped with no model call, since its reviews quote text its author controls. The job needs `CLAUDE_CODE_OAUTH_TOKEN`, a `GITLAB_TOKEN` that can read and comment on MRs and push the metrics branch.
 
-This repo runs the step from `.github/workflows/taskcell-lessons.yml` when a `chore/vanguard-*` or `chore/taskcell-*` PR is closed. The job needs `CLAUDE_CODE_OAUTH_TOKEN`.
+This repo runs the step from `.github/workflows/taskcell-lessons.yml` when a `chore/taskcell-*` or `chore/vanguard-*` PR is closed. The job needs `CLAUDE_CODE_OAUTH_TOKEN`.
 
 ## Proof of work
 

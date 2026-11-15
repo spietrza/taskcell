@@ -55,6 +55,10 @@ const DEFAULTS = {
   conduit: 0x20272e, // the gap between flow dashes
   dark: 0x1a1f24, // base under emissive parts
   sky: 0xc9d6e2,
+  skyGround: 0x0b0d10, // the hemisphere light's colour from below
+  plate: null, // face of the module plates (defaults to dark)
+  additive: true, // glows and lit lines add light; a light ground needs normal blending to show them
+  metalness: null, // floor and bodies (defaults to a little with accent2, none without); 0 keeps light colours light
   // Finish. Off by default (direction D); direction D2 turns them on.
   accent2: null, // second accent: glowing glass edges, floor hairlines, rim light, edge labels
   prColor: null, // colour of opened PRs (defaults to accent)
@@ -93,6 +97,12 @@ function bezier([x1, y1, x2, y2]) {
     return at(t, y1, y2);
   };
 }
+
+/** Overshoots a little and settles: things that land or appear. */
+const backOut = (t) => 1 + 2.70158 * (t - 1) ** 3 + 1.70158 * (t - 1) ** 2;
+
+/** Shortest signed turn from angle a to angle b. */
+const turn = (a, b) => Math.atan2(Math.sin(b - a), Math.cos(b - a));
 
 /** Small deterministic generator, so a still render always shows the same floor. */
 function rng(seed) {
@@ -217,7 +227,7 @@ export function createFactoryScene(container, options = {}) {
   const view = { az: o.azimuth, el: o.elevation, dAz: 0, dEl: 0, target: new THREE.Vector3(o.target[0], 0, o.target[1]), zoom: 1 };
   const goal = { target: view.target.clone(), zoom: 1 };
 
-  scene.add(new THREE.HemisphereLight(o.sky, 0x0b0d10, 1.1));
+  scene.add(new THREE.HemisphereLight(o.sky, o.skyGround, 1.1));
   const sun = new THREE.DirectionalLight(0xffffff, 1.6);
   sun.position.set(-6, 14, 8);
   scene.add(sun);
@@ -230,10 +240,10 @@ export function createFactoryScene(container, options = {}) {
 
   // ---------- materials ----------
   const lit = o.accent2 !== null;
-  const add = { transparent: true, blending: THREE.AdditiveBlending, depthWrite: false };
+  const add = { transparent: true, blending: o.additive ? THREE.AdditiveBlending : THREE.NormalBlending, depthWrite: false };
   const mat = {
-    floor: new THREE.MeshStandardMaterial({ color: o.floor, roughness: lit ? 0.55 : 0.95, metalness: lit ? 0.35 : 0 }),
-    body: new THREE.MeshStandardMaterial({ color: o.body, roughness: lit ? 0.45 : 0.8, metalness: lit ? 0.4 : 0 }),
+    floor: new THREE.MeshStandardMaterial({ color: o.floor, roughness: lit ? 0.55 : 0.95, metalness: o.metalness ?? (lit ? 0.35 : 0) }),
+    body: new THREE.MeshStandardMaterial({ color: o.body, roughness: lit ? 0.45 : 0.8, metalness: o.metalness ?? (lit ? 0.4 : 0) }),
     bodyLight: new THREE.MeshStandardMaterial({ color: o.bodyLight, roughness: 0.7 }),
     glass: new THREE.MeshStandardMaterial({ color: o.glass, transparent: true, opacity: lit ? 0.08 : 0.12, roughness: 0.1, depthWrite: false }),
     edge: lit ? new THREE.LineBasicMaterial({ color: o.accent2, ...add, opacity: 0.35 }) : new THREE.LineBasicMaterial({ color: o.edge }),
@@ -312,7 +322,7 @@ export function createFactoryScene(container, options = {}) {
     const agentMat = glow(o.accent, 0.25);
     const agent = box(0.34, 0.34, 0.34, agentMat, CELL_X - 0.45, 0.2, z - 0.35);
     const aura = o.bloom ? halo(o.accent, 2.2, agent) : null;
-    return { z, agent, agentMat, aura, card: null, phase: rand() * Math.PI * 2 };
+    return { z, agent, agentMat, aura, card: null, phase: rand() * Math.PI * 2, baseY: agent.position.y };
   });
   hit(station('cells'), 2.2, 1.6, 8.8);
   // Egress: one small vent on each roof, the only way out, and only to allowlisted hosts.
@@ -334,7 +344,7 @@ export function createFactoryScene(container, options = {}) {
   /** Top-face texture with the module name, made once per name and size. */
   const plate = (name, w, d) => {
     const key = name + w;
-    if (!plates.has(key)) plates.set(key, own(plateTexture(name.toUpperCase(), o.monoFont, o.accent2 ?? o.edge, o.dark, w / d)));
+    if (!plates.has(key)) plates.set(key, own(plateTexture(name.toUpperCase(), o.monoFont, o.accent2 ?? o.edge, o.plate ?? o.dark, w / d)));
     return plates.get(key);
   };
   if (o.modules) {
@@ -439,8 +449,11 @@ export function createFactoryScene(container, options = {}) {
     const lintelMat = glow(o.idle, 0.6);
     const lintel = box(0.3, 0.22, 1.75, lintelMat, 0, 1.5, 0, g);
     const aura = o.bloom ? halo(o.accent, 2.6, lintel) : null;
+    // A thin bar that sweeps down between the posts as the check runs on a card.
+    const scanMat = own(new THREE.MeshBasicMaterial({ color: o.accent, ...add, opacity: 0 }));
+    const scan = box(0.06, 0.03, 1.28, scanMat, 0, 1.45, 0, g);
     hit(st, 0.9, 1.9, 2);
-    return { id: st.id, lintelMat, aura, flash: 0, color: new THREE.Color(o.accent) };
+    return { id: st.id, lintelMat, aura, scan, scanMat, flash: 0, color: new THREE.Color(o.accent) };
   });
 
   // Review station: a tower with a scanning ring.
@@ -534,17 +547,26 @@ export function createFactoryScene(container, options = {}) {
     }
     world.add(g);
     body.userData.card = nextId;
-    return { id: nextId++, g, body, fill, fillMat, aura, charge: 0, shown: 0, red: 0, path: [], seg: 0, t: 0, dur: 0, state: 'new', cell: null, wait: 0, fails: 0, stage: 'intake' };
+    // age: ms since it appeared (Infinity: already there, as in the still tableau).
+    return { id: nextId++, g, body, fill, fillMat, aura, charge: 0, shown: 0, red: 0, path: [], seg: 0, t: 0, dur: 0, state: 'new', cell: null, wait: 0, fails: 0, stage: 'intake', age: Infinity };
   }
 
-  const at = (x, z, y = 0.38, stage) => ({ p: new THREE.Vector3(x, y, z), stage });
+  // `stop: false` marks a waypoint the card turns at without slowing down (a junction, the door of a cell).
+  const at = (x, z, y = 0.38, stage, stop = true) => ({ p: new THREE.Vector3(x, y, z), stage, stop });
   function routeToCell(c) {
     const z = cells[c.cell].z;
-    c.path = [at(intake.x, 0, 0.42, 'intake'), at(CELL_X - 1.7, z, 0.38, 'cell'), at(CELL_X + 0.2, z, 0.3, 'cell')];
+    c.path = [at(intake.x, 0, 0.42, 'intake'), at(CELL_X - 1.7, z, 0.38, 'cell', false), at(CELL_X + 0.2, z, 0.3, 'cell')];
   }
   function routeToGates(c) {
     const z = cells[c.cell].z;
-    c.path = [at(CELL_X + 0.2, z, 0.3, 'cell'), at(-3.0, 0, 0.38, 'line'), ...gates.map((g) => at(station(g.id).x, 0, 0.38, g.id)), at(review.x, 0, 0.5, 'review'), at(outbound.x, 0, 0.42, 'outbound')];
+    c.path = [at(CELL_X + 0.2, z, 0.3, 'cell'), at(-3.0, 0, 0.38, 'line', false), ...gates.map((g) => at(station(g.id).x, 0, 0.38, g.id)), at(review.x, 0, 0.5, 'review'), at(outbound.x, 0, 0.42, 'outbound')];
+  }
+  /** Progress along one leg: eased out of a stop and into a stop, at full speed through a pass-through waypoint. */
+  function legEase(t, from, to) {
+    if (from.stop && to.stop) return ease(t);
+    if (from.stop) return t * t;
+    if (to.stop) return 1 - (1 - t) * (1 - t);
+    return t;
   }
   function startPath(c) {
     c.seg = 0;
@@ -565,6 +587,8 @@ export function createFactoryScene(container, options = {}) {
     cells[free].card = c;
     routeToCell(c);
     c.g.position.copy(c.path[0].p);
+    c.age = 0;
+    c.g.scale.setScalar(0.001);
     c.state = 'toCell';
     startPath(c);
     cards.push(c);
@@ -587,7 +611,7 @@ export function createFactoryScene(container, options = {}) {
       c.charge = 0;
       // Back to its cell for a repair.
       const z = cells[c.cell].z;
-      c.path = [at(node.p.x, 0, 0.38, node.stage), at(-3.0, 0, 0.38, 'line'), at(CELL_X + 0.2, z, 0.3, 'cell')];
+      c.path = [at(node.p.x, 0, 0.38, node.stage), at(-3.0, 0, 0.38, 'line', false), at(CELL_X + 0.2, z, 0.3, 'cell')];
       c.state = 'back';
       startPath(c);
       return false;
@@ -596,21 +620,28 @@ export function createFactoryScene(container, options = {}) {
     return true;
   }
 
-  function addPR() {
+  /** Puts a PR on the stack. `from` is where the finished card stood: the PR slides from there onto the pile and settles. */
+  function addPR(from) {
     const pr = new THREE.Mesh(cardGeo, new THREE.MeshStandardMaterial({ color: o.dark, emissive: prColor, emissiveIntensity: 0.55 }));
-    pr.position.set(outbound.x, 0.4 + prs.length * 0.09, 0.5);
+    pr.userData.to = new THREE.Vector3(outbound.x, 0.4 + prs.length * 0.09, 0.5);
+    if (from) {
+      pr.position.copy(from);
+      pr.position.y += 0.35;
+      pr.scale.setScalar(1.18);
+    } else pr.position.copy(pr.userData.to);
     world.add(pr);
     prs.push(pr);
     if (prs.length > 7) {
       const old = prs.shift();
       world.remove(old);
       old.material.dispose();
-      prs.forEach((p, i) => (p.position.y = 0.4 + i * 0.09));
+      // The pile sinks one slot (smoothly, in update).
+      prs.forEach((p, i) => (p.userData.to.y = 0.4 + i * 0.09));
     }
   }
   function emitPR(c) {
     opened += 1;
-    addPR();
+    addPR(c.g.position);
     world.remove(c.g);
     c.body.material.dispose();
     c.fillMat.dispose();
@@ -650,9 +681,14 @@ export function createFactoryScene(container, options = {}) {
         }
       } else if (c.path.length > 1) {
         c.t += dt / c.dur;
-        const a = c.path[c.seg].p;
-        const b = c.path[c.seg + 1].p;
-        c.g.position.lerpVectors(a, b, ease(Math.min(1, c.t)));
+        const from = c.path[c.seg];
+        const to = c.path[c.seg + 1];
+        const t = Math.min(1, c.t);
+        c.g.position.lerpVectors(from.p, to.p, legEase(t, from, to));
+        // A low hop on each leg, and the card turns to face where it is going.
+        c.g.position.y += Math.sin(Math.PI * t) * 0.07;
+        const yaw = -Math.atan2(to.p.z - from.p.z, to.p.x - from.p.x);
+        c.g.rotation.y += turn(c.g.rotation.y, yaw) * Math.min(1, dt / 140);
         if (c.t >= 1) {
           c.seg += 1;
           c.t = 0;
@@ -676,6 +712,10 @@ export function createFactoryScene(container, options = {}) {
           }
         }
       }
+      if (c.age < 400) {
+        c.age += dt;
+        c.g.scale.setScalar(Math.max(0.001, backOut(Math.min(1, c.age / 400))));
+      }
       c.shown += (c.charge - c.shown) * Math.min(1, dt / 220);
       c.fill.scale.x = Math.max(0.001, c.shown);
       c.red = Math.max(0, c.red - dt / 500);
@@ -691,15 +731,32 @@ export function createFactoryScene(container, options = {}) {
       const busy = cell.card && cell.card.state === 'working';
       cell.agentMat.emissiveIntensity = busy ? 0.6 + 0.5 * Math.sin(time / 260 + cell.phase) : 0.15;
       if (cell.aura) cell.aura.material.opacity = busy ? 0.35 + 0.25 * Math.sin(time / 260 + cell.phase) : 0;
+      // A working agent hovers and turns over its card; an idle one sinks back to rest.
+      const lift = busy ? 0.06 + 0.035 * Math.sin(time / 180 + cell.phase) : 0;
+      cell.agent.position.y += (cell.baseY + lift - cell.agent.position.y) * Math.min(1, dt / 200);
+      if (busy) cell.agent.rotation.y += dt * 0.0016;
     });
     gates.forEach((g) => {
       g.flash = Math.max(0, g.flash - dt / 700);
       g.lintelMat.emissive.copy(g.flash > 0 ? g.color : idleLintel);
-      g.lintelMat.emissiveIntensity = 0.6 + g.flash * 1.6;
+      g.lintelMat.emissiveIntensity = 0.6 + g.flash * g.flash * 1.9;
       if (g.aura) g.aura.material.opacity = g.flash * 0.8;
+      // The scan bar runs top to bottom in the first half of the flash, in the verdict's colour.
+      const s = Math.min(1, (1 - g.flash) / 0.55);
+      g.scan.position.y = 1.45 - s * 1.25;
+      g.scanMat.color.copy(g.color);
+      g.scanMat.opacity = g.flash > 0.45 ? 0.95 - s * 0.4 : 0;
     });
     if (prAura) prAura.material.opacity = prs.length ? 0.3 : 0;
-    ring.rotation.z += dt * (lineBusy && lineBusy.stage === 'review' ? 0.006 : 0.0012);
+    for (const p of prs) {
+      p.position.lerp(p.userData.to, Math.min(1, dt / 110));
+      p.scale.setScalar(p.scale.x + (1 - p.scale.x) * Math.min(1, dt / 160));
+    }
+    // The review ring spins up while a card is in review and glows with it; the speed eases, it never jumps.
+    const reviewing = lineBusy && lineBusy.stage === 'review';
+    ring.userData.speed = (ring.userData.speed ?? 0.0012) + ((reviewing ? 0.006 : 0.0012) - (ring.userData.speed ?? 0.0012)) * Math.min(1, dt / 350);
+    ring.rotation.z += dt * ring.userData.speed;
+    ringMat.emissiveIntensity += ((reviewing ? 0.9 + 0.3 * Math.sin(time / 140) : 0.4) - ringMat.emissiveIntensity) * Math.min(1, dt / 200);
     conduitMats.forEach((t) => (t.offset.x -= dt / 1400));
   }
 

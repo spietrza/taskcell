@@ -211,6 +211,13 @@ export const CODEX_CLIENT_ID = 'app_EMoamEEZ73f0CkXaXp7hrann';
 export const CODEX_REFRESH_PATH = '/oauth/token';
 export const CODEX_REVOKE_PATH = '/oauth/revoke';
 
+// The chatgpt sidecar's refresh log lines, written by llm-proxy-server.mjs and matched by the host at
+// teardown (llm-proxy.ts): a refusal (the credential is dead), a failed exchange that may pass, and a
+// success after either — which makes the lines before it moot.
+export const REFRESH_REFUSED_PREFIX = 'llm-proxy: ERROR codex ';
+export const REFRESH_FAILED_PREFIX = 'llm-proxy: WARNING codex refresh failed: ';
+export const REFRESH_RECOVERED = 'llm-proxy: codex refresh recovered';
+
 /**
  * Which chatgpt-plan IdP route (if any) this request targets; undefined for anything else. These
  * routes exist only when the upstream's auth style is 'chatgpt' — the caller gates on that before

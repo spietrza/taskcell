@@ -70,7 +70,7 @@ taskcell-implement:
     - export CLAUDE_CODE_OAUTH_TOKEN="$TASKCELL_CLAUDE_TOKEN" GITLAB_TOKEN="$TASKCELL_GITLAB_TOKEN"; unset TASKCELL_CLAUDE_TOKEN TASKCELL_GITLAB_TOKEN
     - node /opt/taskcell/dist/cli/index.js watch --source gitlab --gitlab-project "$CI_PROJECT_PATH" --label "ready for agent" --once
 
-# Review: reviews the MRs labelled `ready for vanguard review`.
+# Review: reviews the MRs labelled `ready for taskcell review` (or the old `ready for vanguard review`).
 taskcell-review:
   extends: .taskcell-base
   rules:

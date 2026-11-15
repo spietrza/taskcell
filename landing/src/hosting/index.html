@@ -6,6 +6,9 @@
 <title>Request a hosted factory · Taskcell</title>
 <meta name="description" content="Taskcell hosting is planned and not open yet. This page shows the request form and the planned plans; it sends nothing. Self-hosting works today.">
 <link rel="canonical" href="https://taskcell.dev/hosting/">
+<link rel="alternate" hreflang="en" href="https://taskcell.dev/hosting/">
+<link rel="alternate" hreflang="pl" href="https://taskcell.dev/pl/hosting/">
+<link rel="alternate" hreflang="x-default" href="https://taskcell.dev/hosting/">
 <meta name="theme-color" content="#0d1013">
 <link rel="icon" href="/favicon.ico" sizes="32x32">
 <link rel="icon" href="/favicon.svg" type="image/svg+xml">
@@ -28,10 +31,15 @@
     <a href="/#faq">FAQ</a>
     <a class="btn small" href="https://github.com/spietrza/taskcell/releases/tag/desktop-latest">Download</a>
   </nav>
+  <nav class="langs" aria-label="Language"><a href="/hosting/" hreflang="en" lang="en" aria-current="page">EN</a><a href="/pl/hosting/" hreflang="pl" lang="pl">PL</a></nav>
   <button class="theme" id="theme" type="button" aria-label="Light theme" aria-pressed="false" hidden><svg viewBox="0 0 18 18" aria-hidden="true"><circle cx="9" cy="9" r="7" fill="none" stroke="currentColor" stroke-width="1.5"/><path d="M9 2a7 7 0 0 1 0 14z" fill="currentColor"/></svg></button>
 </header>
 
 <main id="main" class="request wrap">
+  <div class="report sent" id="paid" role="status" tabindex="-1" hidden>
+    <p><b>Test payment received. No money moved.</b> This was a test checkout: hosting is not open yet, so no server was started.</p>
+    <p id="paid-pass" hidden><a class="btn" href="/hosting/?plan=solo">Continue to Solo with the pass credited</a></p>
+  </div>
   <h1>Request a hosted factory</h1>
   <p class="lede">Hosting is planned and not open yet. The form below is a placeholder: it shows what we will ask for, and it sends nothing. When you press the button, the page only tells you that requests are not open; your answers stay in this browser.</p>
   <p>What works today: <a href="/#install">install Taskcell on your own machine</a> for free, or read the <a href="/#pricing">planned prices</a>.</p>

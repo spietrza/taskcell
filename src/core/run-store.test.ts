@@ -4,7 +4,7 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { createHash } from 'node:crypto';
 import { execa } from 'execa';
-import { VERDICT_STAGES, beginRun, listRuns, readRun, runsRoot, persistBaseMerge, persistDecisionProbe, persistRunRecord, persistStageOutcomes } from './run-store.js';
+import { VERDICT_STAGES, beginRun, listRuns, readRun, runsRoot, setRunTrigger, persistBaseMerge, persistDecisionProbe, persistRunRecord, persistStageOutcomes } from './run-store.js';
 import { STAGE } from '../pipeline/pipeline.js';
 import type { RunResult } from './types.js';
 
@@ -71,7 +71,7 @@ async function recordFiles(taskId: string): Promise<string[]> {
 }
 
 describe('beginRun — estimate', () => {
-  const codex: RunResult = { ...result, taskId: 'TES-E', model: 'gpt-5', usage: { inputTokens: 1_000_000, outputTokens: 0, cacheReadInputTokens: 0 } };
+  const codex: RunResult = { ...result, taskId: 'TES-E', model: 'gpt-5', cachedInInput: true, usage: { inputTokens: 1_000_000, outputTokens: 0, cacheReadInputTokens: 0 } };
   delete (codex as { costUsd?: number }).costUsd;
 
   it('stores estCostUsd on the run record and metric line, never in costUsd', async () => {
@@ -111,6 +111,16 @@ describe('beginRun — estimate', () => {
     ]);
     const partial = (await listRuns(runsRoot(repo))).find((r) => r.taskId === 'TES-P');
     expect(partial).toMatchObject({ estCostUsd: 1.25, costUnknown: true, estPartial: true });
+  });
+
+  it('marks a reported-cost stage next to an unpriced stage as partial', async () => {
+    await beginRun(repo, 'TES-Q', TS).writeStages([
+      { name: 'a', result: { ...result, taskId: 'TES-Q' } },
+      { name: 'b', result: { ...codex, taskId: 'TES-Q', model: 'mystery' } },
+    ]);
+    const run = (await listRuns(runsRoot(repo))).find((r) => r.taskId === 'TES-Q');
+    expect(run).toMatchObject({ estPartial: true });
+    expect(run?.costUnknown).toBeUndefined();
   });
 
   it('ignores an estimate in a record that is negative, not a number, or next to a reported cost', async () => {
@@ -198,6 +208,19 @@ describe('beginRun — writing', () => {
     const record = JSON.parse(await readFile(join(runsRoot(repo), 'TES-1', `${PREFIX}-implementer.json`), 'utf8'));
     expect(record.startedBy).toBe('alice');
     expect((await listRuns(runsRoot(repo)))[0]?.startedBy).toBe('alice');
+  });
+
+  it('stamps the watch trigger on records written after setRunTrigger, and only then', async () => {
+    await beginRun(repo, 'TES-2', TS).writeStages([{ name: 'implementer', result }]);
+    setRunTrigger('watch');
+    try {
+      await beginRun(repo, 'TES-1', TS).writeStages([{ name: 'implementer', result }]);
+    } finally {
+      setRunTrigger(undefined);
+    }
+    const runs = await listRuns(runsRoot(repo));
+    expect(runs.find((r) => r.taskId === 'TES-1')?.trigger).toBe('watch');
+    expect(runs.find((r) => r.taskId === 'TES-2')?.trigger).toBeUndefined();
   });
 
   it('writes a per-stage JSON (without the diff) and appends a metric line', async () => {

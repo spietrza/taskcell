@@ -19,6 +19,7 @@ import type {
   CredentialPolicy,
   FactoryApplyResult,
   FactoryHost,
+  WatchWorkerChecklist,
   FactoryPlan,
   FactoryProviderId,
   FactoryState,
@@ -98,6 +99,11 @@ export function cloneProject(url: string, parentDir: string, name?: string): Pro
 /** Which code host the project's origin is on; the dialog offers GitLab CI only for a GitLab remote. */
 export function enableFactoryHost(repoPath: string): Promise<{ host: FactoryHost }> {
   return call('enable_factory_host', { repoPath });
+}
+
+/** Self-hosted (watch) checklist: compose snippet, command, credential names, worker-seen state. Read-only. */
+export function enableFactoryWatch(repoPath: string): Promise<WatchWorkerChecklist> {
+  return call('enable_factory_watch', { repoPath });
 }
 
 export function enableFactoryPlan(repoPath: string, provider: FactoryProviderId): Promise<FactoryPlan> {
@@ -521,6 +527,26 @@ export function listLessons(repoPath: string, taskText?: string): Promise<Comman
   return call('list_lessons', { repoPath, ...(taskText !== undefined ? { taskText } : {}) });
 }
 
+/** Hub-only: the skills of a repo with lock status, upstream check and usage. */
+export function listRepoSkills(repoPath: string): Promise<Commands['list_repo_skills']['result']> {
+  return call('list_repo_skills', { repoPath });
+}
+
+/** Hub-only, a mutation: open a PR that updates one skill (never changes it any other way). */
+export function updateSkillPr(repoPath: string, name: string): Promise<Commands['update_skill_pr']['result']> {
+  return call('update_skill_pr', { repoPath, name });
+}
+
+/** Hub-only, owner only, a mutation: open a PR that adds the skill at `source`. */
+export function addSkillPr(repoPath: string, source: string): Promise<Commands['add_skill_pr']['result']> {
+  return call('add_skill_pr', { repoPath, source });
+}
+
+/** Hub-only, owner only, a mutation: open a PR that removes a skill. */
+export function removeSkillPr(repoPath: string, name: string): Promise<Commands['remove_skill_pr']['result']> {
+  return call('remove_skill_pr', { repoPath, name });
+}
+
 /** Hub-only, a mutation: dismiss a lesson so later runs no longer receive it. */
 export function dismissLesson(repoPath: string, id: string): Promise<void> {
   return call('dismiss_lesson', { repoPath, id });
@@ -552,8 +578,8 @@ export function apiSetTaskSkills(repoPath: string, taskId: string, skills: strin
 }
 
 /** HUB_ONLY: add a task to a hub-board project; it runs as the caller. */
-export function hubTaskCreate(repoPath: string, title: string, body: string): Promise<{ id: string }> {
-  return call('hub_task_create', { repoPath, title, body });
+export function hubTaskCreate(repoPath: string, title: string, body: string, schedule: { blockedBy?: string[]; startDate?: string } = {}): Promise<{ id: string }> {
+  return call('hub_task_create', { repoPath, title, body, ...schedule });
 }
 
 /** HUB_ONLY: put a failed hub-board task back to todo. */

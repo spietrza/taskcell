@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { assertShadowSafeGhArgs, commentDecision, publishCheckRun } from './publish.js';
+import { assertShadowSafeGhArgs, commentDecision, commentOnce, publishCheckRun } from './publish.js';
 import type { Decision, DecisionRecord } from './types.js';
 
 const SHA = 'a'.repeat(40);
@@ -79,6 +79,20 @@ describe('publishCheckRun', () => {
   });
 });
 
+describe('commentOnce under an App identity', () => {
+  const M = '<!-- taskcell-approver-act: m -->';
+  const comment = (author: object, extra: object = {}): string => JSON.stringify({ comments: [{ author, authorAssociation: 'NONE', body: M, ...extra }] });
+  const run = async (comments: string, botLogins?: string[]): Promise<boolean> => commentOnce(async (args) => (args[1] === 'view' ? comments : ''), 'o/r', 7, M, 'b', botLogins);
+  it('a user account named like the App does not dedupe, whichever spelling of the App is listed', async () => {
+    const user = comment({ login: 'taskcell-approver' });
+    expect(await run(user)).toBe(true);
+    for (const name of ['app/taskcell-approver', 'Taskcell-Approver[bot]']) expect(await run(user, [name])).toBe(true);
+  });
+  it('dedupes on viewerDidAuthor with no config', async () => {
+    expect(await run(comment({ login: 'x' }, { viewerDidAuthor: true }))).toBe(false);
+  });
+});
+
 describe('commentDecision', () => {
   const decision: Decision = { verdict: 'ESCALATE', rulesFired: [], auditSample: { p: 0, seed: 's', hit: false }, reviewValid: false };
   const record = {
@@ -94,6 +108,11 @@ describe('commentDecision', () => {
     }, 'o/r', 7, decision, record);
     return comment;
   };
+
+  it('dedupes under the App identity by viewerDidAuthor only, never by a user account of the same name', async () => {
+    expect(await posted([{ author: { login: 'my-app' }, authorAssociation: 'NONE', body: marker }])).toBe(true);
+    expect(await posted([{ author: { login: 'my-app' }, authorAssociation: 'NONE', viewerDidAuthor: true, body: marker }])).toBe(false);
+  });
 
   it('dedupes on its own marker from the bot', async () => {
     expect(await posted([{ author: { login: 'github-actions' }, authorAssociation: 'CONTRIBUTOR', body: marker }])).toBe(false);

@@ -459,7 +459,7 @@ describe('commitStage', () => {
     await writeFile(join(ctx.worktreePath, 'x.txt'), 'data');
     const out = await commitStage(ctx, { message: 'feat: agent work' });
     expect(out.committed).toBe(true);
-    expect(out.branch).toBe('chore/vanguard-p2-r1');
+    expect(out.branch).toBe('chore/taskcell-p2-r1');
     expect(out.sha).toBeTruthy();
     expect(await wm.isDirty(ctx.worktreePath)).toBe(false);
     await disposeContext(ctx);

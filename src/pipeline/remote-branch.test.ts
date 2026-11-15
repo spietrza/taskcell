@@ -57,7 +57,7 @@ describe('publishForReview', () => {
     };
     const out = await publishForReview(ctx, { title: 'PR', body: 'b', runner });
     expect(out.prUrl).toBe('https://github.com/o/r/pull/42');
-    expect(out.branch).toBe('chore/vanguard-pub-r1');
+    expect(out.branch).toBe('chore/taskcell-pub-r1');
     const push = calls.findIndex((c) => c.file === 'git' && c.args[0] === 'push');
     expect(push).toBeGreaterThan(-1);
     // The stub answers ls-remote with exit 0: the branch already exists on the remote (a --reuse
@@ -65,7 +65,7 @@ describe('publishForReview', () => {
     expect(calls.slice(0, push).map((c) => c.args[0])).toEqual(['ls-remote', 'rev-parse']);
     expect(calls[push + 1]?.file).toBe('gh');
     expect(calls[push + 1]?.args).toEqual(
-      expect.arrayContaining(['pr', 'create', '--head', 'chore/vanguard-pub-r1', '--base', 'main', '--title', 'PR']),
+      expect.arrayContaining(['pr', 'create', '--head', 'chore/taskcell-pub-r1', '--base', 'main', '--title', 'PR']),
     );
     await disposeContext(ctx);
   });
@@ -103,7 +103,7 @@ describe('publishForReview', () => {
     await publishForReview(ctx, { title: 'PR', body: 'big body', runner: runner(false) });
     expect(seen).toBe('big body');
     await expect(stat(file)).rejects.toThrow();
-    await expect(publishForReview(ctx, { title: 'PR', body: 'x', runner: runner(true) })).rejects.toThrow(/after pushing origin\/chore\/vanguard-pub-body-r-body.*not logged in/);
+    await expect(publishForReview(ctx, { title: 'PR', body: 'x', runner: runner(true) })).rejects.toThrow(/after pushing origin\/chore\/taskcell-pub-body-r-body.*not logged in/);
     await expect(stat(file)).rejects.toThrow();
     // glab keeps its inline description and no temp file.
     const glab: string[][] = [];
@@ -128,12 +128,12 @@ describe('publishForReview', () => {
     const out = await publishForReview(ctx, { title: 'PR', body: 'proof', runner, authorName: 'Bot', authorEmail: 'bot@x' });
     expect(ghArgs[ghArgs.indexOf('--body') + 1]).toBe('proof\n\nRebased onto `origin/main` before publishing: the base moved while this change was being prepared.');
     expect(calls).toEqual([
-      ['ls-remote', '--exit-code', '--heads', '--end-of-options', 'origin', 'chore/vanguard-pub2-r2'],
+      ['ls-remote', '--exit-code', '--heads', '--end-of-options', 'origin', 'chore/taskcell-pub2-r2'],
       ['fetch', '--end-of-options', 'origin', 'main'],
       ['rev-list', '--count', 'HEAD..FETCH_HEAD'],
       ['-c', 'user.name=Bot', '-c', 'user.email=bot@x', 'rebase', '--no-verify', 'FETCH_HEAD'],
-      ['rev-parse', 'refs/heads/chore/vanguard-pub2-r2'],
-      ['push', '--no-verify', '-u', 'origin', 'refs/heads/chore/vanguard-pub2-r2:refs/heads/chore/vanguard-pub2-r2'],
+      ['rev-parse', 'refs/heads/chore/taskcell-pub2-r2'],
+      ['push', '--no-verify', '-u', 'origin', 'refs/heads/chore/taskcell-pub2-r2:refs/heads/chore/taskcell-pub2-r2'],
     ]);
     // The review marker must point at the rewritten head, not the SHA commitStage returned.
     expect(out.headSha).toBe('abc123rebased');

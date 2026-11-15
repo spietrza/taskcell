@@ -13,7 +13,7 @@ import { readBranchFile } from '../core/metrics-branch.js';
 import type { GhRunner } from '../tasks/github.js';
 import type { ApproverPolicy } from './types.js';
 
-const logFail = vi.hoisted(() => ({ on: false, mergeAction: false }));
+const logFail = vi.hoisted(() => ({ on: false, mergeAction: false, dependentAction: false }));
 vi.mock('./record.js', async (orig) => {
   const mod = await orig<typeof import('./record.js')>();
   return {
@@ -24,6 +24,7 @@ vi.mock('./record.js', async (orig) => {
     },
     appendAction: async (...a: Parameters<typeof mod.appendAction>): Promise<void> => {
       if (logFail.mergeAction && a[1].action === 'merge') throw new Error('log down');
+      if (logFail.dependentAction && a[1].prNumber !== 1) throw new Error('dependent log down');
       return mod.appendAction(...a);
     },
   };
@@ -756,6 +757,23 @@ describe('approver act mode', () => {
       expect(writes(shadow, 'comment').join(' ')).not.toContain('review-unusable');
     });
 
+    it('dedupes the left-for-human comment under the App identity by viewerDidAuthor, not by a listed App name', async () => {
+      for (const own of [true, false]) {
+        await rm(root, { recursive: true, force: true });
+        await setup({ ...POLICY, approverLogins: ['my-app[bot]', 'app/my-app'] }, { 'src.ts': 'export const x = 1;\n' });
+        const posted: string[] = [];
+        const base = fakeGh([], pr({ stamped: false }));
+        const gh: GhRunner = async (args) => {
+          if (args[0] === 'pr' && args[1] === 'comment') posted.push(args.at(-1)!);
+          if (args[0] === 'pr' && args[1] === 'view' && args.includes('comments')) return JSON.stringify({ comments: posted.map((body) => ({ body, author: { login: 'my-app' }, authorAssociation: 'NONE', viewerDidAuthor: own })) });
+          return base(args);
+        };
+        await run(gh);
+        await run(gh);
+        expect(posted).toHaveLength(own ? 1 : 2);
+      }
+    });
+
     it('an initial BEHIND state is updated, then merged after the checks', async () => {
       const state = pr({ merge: 'BEHIND' });
       const calls: string[][] = [];
@@ -986,7 +1004,7 @@ describe('merge order (task dependencies)', () => {
     expect(writes(calls, 'comment')[0]!.join(' ')).toContain('changed before the merge');
   });
 
-  it('after the merge, brings an open dependent up to date and logs it under the dependent', async () => {
+  async function dependentFixture(): Promise<{ depSha: string; pr2: object; open: object[] }> {
     const seed = join(root, 'seed');
     await git(seed, ['checkout', '--quiet', '-b', 'dep', 'main']);
     await writeFile(join(seed, 'dep.ts'), 'export const d = 1;\n');
@@ -1002,12 +1020,32 @@ describe('merge order (task dependencies)', () => {
       { number: 2, headRefName: 'chore/vanguard-gh-o-r-8-y', isCrossRepository: false, author: { login: 'app/taskcell' } },
       { number: 3, headRefName: 'chore/vanguard-gh-o-r-9-z', isCrossRepository: true, author: { login: 'outsider' } },
     ];
+    return { depSha, pr2, open };
+  }
+
+  it('after the merge, brings an open dependent up to date and logs it under the dependent', async () => {
+    const { depSha, pr2, open } = await dependentFixture();
     const calls: string[][] = [];
     await run(depGh(calls, pr({ headRefName: HEAD }), { 7: issue('plain'), 8: issue('Depends on #7'), 9: issue('Depends on #7') }, open, pr2));
     const order = calls.filter((a) => a[0] === 'pr' && ['merge', 'list', 'update-branch'].includes(a[1]!)).map((a) => `${a[1]} ${a[1] === 'list' ? '' : a[2]}`.trim());
     expect(order).toEqual(['merge 1', 'list', 'update-branch 2']);
     expect(calls.some((a) => a.join(' ').includes('issues/9') || a[2] === '3')).toBe(false); // the fork PR is never read or written
     expect((await records()).filter((r) => r.action !== undefined).map((r) => [r.action, r.prNumber, r.headSha])).toEqual([['merge', 1, headSha], ['update-branch', 2, depSha]]);
+  });
+
+  it('a lost log line for a dependent is reported, never thrown: the merge stands', async () => {
+    const { pr2, open } = await dependentFixture();
+    const err = vi.spyOn(console, 'error').mockImplementation(() => {});
+    logFail.dependentAction = true;
+    try {
+      const calls: string[][] = [];
+      await run(depGh(calls, pr({ headRefName: HEAD }), { 7: issue('plain'), 8: issue('Depends on #7') }, open, pr2));
+      expect(writes(calls, 'merge')).toHaveLength(1);
+      expect(err.mock.calls.flat().join(' ')).toContain('logging dependent #2 failed: dependent log down');
+    } finally {
+      logFail.dependentAction = false;
+      err.mockRestore();
+    }
   });
 
   it('shadow mode reads no dependencies and writes nothing to any PR but its decision comment', async () => {

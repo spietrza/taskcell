@@ -105,6 +105,16 @@ describe('costBreakdown', () => {
     expect(run?.costUnknown).toBeUndefined();
   });
 
+  it('flags a run with a reported-cost line and an unpriced line as partial', async () => {
+    clearCiMetricsCache();
+    await push([
+      line({ ts: '2026-11-12T10:00:00.000Z', taskId: 'H', model: 'gpt-5', costUsd: 2, costKind: 'billed' }),
+      line({ ts: '2026-11-12T10:01:00.000Z', taskId: 'H', model: 'mystery', costUsd: 0, costUnknown: true }),
+    ]);
+    const run = (await withCiRuns(repo, [])).find((r) => r.taskId === 'H');
+    expect(run).toMatchObject({ totalCostUsd: 2, estPartial: true });
+  });
+
   it('says whether the number is estimated, billed, mixed or unknown', async () => {
     const kind = async (lines: string[]): Promise<string> => {
       clearCiMetricsCache();

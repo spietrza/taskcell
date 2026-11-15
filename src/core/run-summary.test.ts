@@ -14,7 +14,7 @@ const baseResult: RunResult = {
 
 describe('summarizeOutcomes', () => {
   it('fills $or-est for a Codex run with usage and a priced model', () => {
-    const result: RunResult = { ...baseResult, model: 'gpt-5', usage: { inputTokens: 1_000_000, outputTokens: 100_000, cacheReadInputTokens: 0 } };
+    const result: RunResult = { ...baseResult, model: 'gpt-5', cachedInInput: true, usage: { inputTokens: 1_000_000, outputTokens: 100_000, cacheReadInputTokens: 0 } };
     expect(summarizeOutcomes([{ name: 'review', result }])).toContain('2.2500');
   });
 
