@@ -24,6 +24,7 @@ import { dirname, resolve, sep } from 'node:path';
 import { pathToFileURL } from 'node:url';
 import {
   UPSTREAMS,
+  CONTROL_CHARS,
   HOP_BY_HOP,
   upstreamAuthHeaders,
   openaiAuthHeaders,
@@ -63,9 +64,7 @@ const CODEX_IDP_BASE_URL = 'https://auth.openai.com';
 const DEFAULT_CREDENTIAL_DIR = '/run/vanguard-llm';
 // SECRET/NONCE (and the chatgpt credential fields, including AUTH_FILE — it reaches a filesystem
 // path) are placed into HTTP headers, JSON bodies or syscalls; reject control chars up front to
-// prevent header/JSON/path injection.
-// Keep in step with CONTROL_CHARS in codex-rotation.ts (this script runs standalone in the sidecar and cannot import it).
-const CONTROL_CHARS = /[\x00-\x1f\x7f-\x9f\u2028\u2029\u202a-\u202e\u2066-\u2069]/;
+// prevent header/JSON/path injection. CONTROL_CHARS comes from llm-proxy-rewrite.mjs, shared with the host.
 const IDP_RESPONSE_TOO_LARGE = 'idp response exceeds the size cap';
 
 function parseSecretFile(text) {

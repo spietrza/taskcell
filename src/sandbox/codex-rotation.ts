@@ -10,13 +10,6 @@ const hostCodexAuthFile = (env: NodeJS.ProcessEnv): string =>
 /** CI sources CODEX_AUTH_JSON from a stored secret; there is no host file to hand a rotation back to. */
 export const isCi = (env: NodeJS.ProcessEnv): boolean => [env.CI, env.GITHUB_ACTIONS].some((v) => v !== undefined && v !== '' && v !== '0' && v !== 'false');
 
-// C0/C1 controls (U+009B is CSI on some terminals), line/paragraph separators and bidi overrides.
-// Keep llm-proxy-server.mjs (a standalone sidecar script that cannot import this) in step.
-const CONTROL_CHARS = /[\x00-\x1f\x7f-\x9f\u2028\u2029\u202a-\u202e\u2066-\u2069]/g;
-
-/** `v` without control, separator and bidi-override characters. */
-export const stripControlChars = (v: string): string => v.replace(CONTROL_CHARS, '');
-
 const MAX_TOKEN = 8192;
 const MAX_LAST_REFRESH = 64;
 const clean = (v: unknown): v is string => typeof v === 'string' && v.length <= MAX_TOKEN && /^[\x21-\x7e]+$/.test(v);

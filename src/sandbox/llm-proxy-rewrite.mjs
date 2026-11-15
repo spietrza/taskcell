@@ -219,6 +219,19 @@ export const REFRESH_FAILED_PREFIX = 'llm-proxy: WARNING codex refresh failed: '
 export const REFRESH_RECOVERED = 'llm-proxy: codex refresh recovered';
 
 /**
+ * C0/C1 controls (U+009B is CSI on some terminals), line/paragraph separators and bidi overrides. The only
+ * copy: the sidecar rejects credential fields holding one, the host strips them from relayed log lines.
+ */
+export const CONTROL_CHARS = /[\x00-\x1f\x7f-\x9f\u2028\u2029\u202a-\u202e\u2066-\u2069]/;
+
+const CONTROL_CHARS_G = new RegExp(CONTROL_CHARS.source, 'g');
+
+/** `v` without control, separator and bidi-override characters. */
+export function stripControlChars(v) {
+  return v.replace(CONTROL_CHARS_G, '');
+}
+
+/**
  * Which chatgpt-plan IdP route (if any) this request targets; undefined for anything else. These
  * routes exist only when the upstream's auth style is 'chatgpt' — the caller gates on that before
  * using the result. Unlike the model-call path, the Codex client sends no nonce header here, so

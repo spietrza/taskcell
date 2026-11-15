@@ -2,11 +2,11 @@ import { fileURLToPath } from 'node:url';
 import { randomUUID } from 'node:crypto';
 import { SandboxError } from '../core/errors.js';
 import { startSidecar, defaultDocker } from './sidecar.js';
-import { isCi, reportRotation, stripControlChars } from './codex-rotation.js';
+import { isCi, reportRotation } from './codex-rotation.js';
 import { trackSandbox, untrackSandbox } from '../core/cleanup.js';
 import type { DockerRunner } from './sidecar.js';
 import type { ProviderProxySecrets } from '../agents/registry.js';
-import { REFRESH_FAILED_PREFIX, REFRESH_RECOVERED, REFRESH_REFUSED_PREFIX } from './llm-proxy-rewrite.mjs';
+import { REFRESH_FAILED_PREFIX, REFRESH_RECOVERED, REFRESH_REFUSED_PREFIX, stripControlChars } from './llm-proxy-rewrite.mjs';
 import type { Upstream } from './llm-proxy-rewrite.mjs';
 
 export type { DockerRunner } from './sidecar.js';
