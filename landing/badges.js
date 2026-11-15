@@ -5,6 +5,13 @@ const ISSUERS = {
   scorecard: () => 'https://api.scorecard.dev/projects/github.com/spietrza/taskcell/badge',
   observatory: () => 'https://img.shields.io/mozilla-observatory/grade/taskcell.dev',
   bestpractices: (env) => (/^\d+$/.test(env.BESTPRACTICES_ID ?? '') ? `https://www.bestpractices.dev/projects/${env.BESTPRACTICES_ID}/badge` : undefined),
+  ci: () => 'https://github.com/spietrza/taskcell/actions/workflows/ci.yml/badge.svg',
+  owasp: () => 'https://img.shields.io/badge/OWASP%20Agentic%20Top%2010-self--assessed-0F766E',
+  license: () => 'https://img.shields.io/badge/license-MIT-8B5CF6',
+  node: () => 'https://img.shields.io/badge/node-%E2%89%A5%2024-22D3EE',
+  typescript: () => 'https://img.shields.io/badge/TypeScript-strict-3178C6',
+  sdk: () => 'https://img.shields.io/badge/built%20with-Claude%20Agent%20SDK-D97757',
+  docker: () => 'https://img.shields.io/badge/sandboxed-Docker-2496ED',
 };
 
 export async function handleBadge(env, name) {
