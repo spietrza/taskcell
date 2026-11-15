@@ -94,7 +94,7 @@ const str = (v: unknown): string => (typeof v === 'string' ? v : '');
 const obj = (v: unknown): Record<string, unknown> => (typeof v === 'object' && v !== null ? (v as Record<string, unknown>) : {});
 
 /** The `origin` URL: null when the project has no remote at all, '' when it has remotes but no `origin`. */
-async function readOrigin(exec: FactoryExec, repoPath: string): Promise<string | null> {
+export async function readOrigin(exec: FactoryExec, repoPath: string): Promise<string | null> {
   const remotes = await git(exec, repoPath, ['remote']).catch(() => '');
   if (remotes === '') return null;
   return git(exec, repoPath, ['remote', 'get-url', 'origin']).catch(() => '');
@@ -110,8 +110,11 @@ async function originUrl(exec: FactoryExec, repoPath: string): Promise<string> {
 
 /** Which code host `origin` is on — drives which run locations the dialog offers. GitLab = gitlab.com or the GITLAB_HOST host. */
 export async function factoryHostOf(repoPath: string, deps: GitlabFactoryDeps = {}): Promise<FactoryHost> {
-  const exec = deps.exec ?? defaultExec;
-  const url = await readOrigin(exec, repoPath);
+  return hostOfOrigin(await readOrigin(deps.exec ?? defaultExec, repoPath));
+}
+
+/** {@link factoryHostOf} for an origin already read with {@link readOrigin}. */
+export function hostOfOrigin(url: string | null): FactoryHost {
   if (url === null) return 'none';
   if (url === '') return 'other';
   if (isKnownGitlabRemote(url)) return 'gitlab';

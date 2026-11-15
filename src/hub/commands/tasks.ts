@@ -33,8 +33,8 @@ export interface TasksCommands {
   api_create_tasks: { args: { repoPath: string; tasks: { title: string; body: string; dependsOn?: number[] }[]; baseBranch?: string }; result: { tasks: CreatedTask[] } };
   /** HUB_ONLY, read-only: the target branches a card may name (repo default + `baseBranches` allowlist) and the configured default, for the new-card form. */
   list_branches: { args: { repoPath: string }; result: { branches: string[]; default?: string } };
-  /** HUB_ONLY: add a task to the project's hub board (task source `hub`). The caller becomes the task's owner: it runs as them. */
-  hub_task_create: { args: { repoPath: string; title: string; body?: string }; result: { id: string } };
+  /** HUB_ONLY: add a task to the project's hub board (task source `hub`), with its dependencies and start date set before the scheduler can see it. The caller becomes the task's owner: it runs as them. */
+  hub_task_create: { args: { repoPath: string; title: string; body?: string; blockedBy?: string[]; startDate?: string }; result: { id: string } };
   /** HUB_ONLY: set a hub-board task's dependencies (ids of the project's other tasks) and/or start date (`null` clears it). The caller becomes its owner. */
   hub_task_schedule: { args: { repoPath: string; id: string; blockedBy?: string[]; startDate?: string | null }; result: { id: string } };
   /** HUB_ONLY: put a failed hub-board task back to `todo`, to run as the caller. */
@@ -61,6 +61,8 @@ async function withPaused(ctx: RpcContext, real: string, tasks: BoardTask[], bud
 const MAX_LABEL_LENGTH = 50;
 /** Tasks one `api_create_tasks` call may create: each is an irreversible write. */
 const MAX_SPLIT_TASKS = 20;
+/** Dependencies one `api_create_tasks` call may declare in all: each costs CLI calls, and a client that times out and retries would duplicate issues. */
+const MAX_SPLIT_DEPENDENCIES = 40;
 
 /** Everything a create needs but the card's own text: tracker, team and labels from app.json, the target branch checked. Nothing is created here. */
 async function createTaskBase(real: string, args: Record<string, unknown>): Promise<Omit<CreateTaskParams, 'title' | 'body'>> {
@@ -115,6 +117,15 @@ async function hubBoardRepo({ args, allow }: CommandCall): Promise<string> {
   const real = await allow(requireString(args, 'repoPath'));
   if (!(await isHubBoard(real))) throw new BadRequestError('this project\'s task source is not Hub board (Settings → Task source)');
   return real;
+}
+
+/** A `blockedBy` argument: a list of at most MAX_BLOCKED_BY hub task ids, or undefined when absent. */
+function scheduleBlockedBy(value: unknown): string[] | undefined {
+  if (value === undefined) return undefined;
+  if (!Array.isArray(value) || value.length > MAX_BLOCKED_BY || value.some((x) => typeof x !== 'string' || !HUB_TASK_ID.test(x))) {
+    throw new BadRequestError(`blockedBy must be a list of at most ${MAX_BLOCKED_BY} task ids (hub-1, hub-2, …)`);
+  }
+  return value as string[];
 }
 
 /** The caller, as the person a task they create, schedule or retry runs as. */
@@ -225,6 +236,7 @@ export const commands = defineCommands<TasksCommands>({
       if (!Array.isArray(deps) || deps.some((d) => !Number.isInteger(d) || d < 0 || d >= i)) throw new BadRequestError(`tasks[${i}].dependsOn must list positions of earlier tasks in this call`);
       return { title: t.title, body: t.body, dependsOn: deps as number[] };
     });
+    if (items.reduce((n, i) => n + new Set(i.dependsOn).size, 0) > MAX_SPLIT_DEPENDENCIES) throw new BadRequestError(`tasks may declare at most ${MAX_SPLIT_DEPENDENCIES} dependencies in all`);
     const base = await createTaskBase(real, args);
     const created: CreatedTask[] = [];
     for (const item of items) {
@@ -244,19 +256,19 @@ export const commands = defineCommands<TasksCommands>({
     const body = optionalString(call.args, 'body') ?? '';
     if (title.length > MAX_TITLE_LENGTH) throw new BadRequestError(`title must be at most ${MAX_TITLE_LENGTH} characters`);
     if (body.length > MAX_BODY_LENGTH) throw new BadRequestError(`body must be at most ${MAX_BODY_LENGTH} characters`);
-    return { id: (await createHubTask(call.ctx.configDir, real, { title, body, owner: ownerOf(call) })).id };
+    const blockedBy = scheduleBlockedBy(call.args.blockedBy);
+    const startDate = call.args.startDate;
+    if (startDate !== undefined && typeof startDate !== 'string') throw new BadRequestError('startDate must be a string');
+    return { id: (await createHubTask(call.ctx.configDir, real, { title, body, ...(blockedBy !== undefined ? { blockedBy: [...new Set(blockedBy)] } : {}), ...(startDate !== undefined && startDate !== '' ? { startDate } : {}), owner: ownerOf(call) })).id };
   },
   hub_task_schedule: async (call) => {
     const real = await hubBoardRepo(call);
     const { args } = call;
     const id = requireMatch(args, 'id', HUB_TASK_ID, 'hub task id');
-    const blockedBy = args.blockedBy;
-    if (blockedBy !== undefined && (!Array.isArray(blockedBy) || blockedBy.length > MAX_BLOCKED_BY || blockedBy.some((x) => typeof x !== 'string' || !HUB_TASK_ID.test(x)))) {
-      throw new BadRequestError(`blockedBy must be a list of at most ${MAX_BLOCKED_BY} task ids (hub-1, hub-2, …)`);
-    }
+    const blockedBy = scheduleBlockedBy(args.blockedBy);
     const startDate = args.startDate;
     if (startDate !== undefined && startDate !== null && typeof startDate !== 'string') throw new BadRequestError('startDate must be a string or null');
-    const task = await updateHubTask(call.ctx.configDir, real, id, { ...(blockedBy !== undefined ? { blockedBy: blockedBy as string[] } : {}), ...(startDate !== undefined ? { startDate } : {}), owner: ownerOf(call) });
+    const task = await updateHubTask(call.ctx.configDir, real, id, { ...(blockedBy !== undefined ? { blockedBy } : {}), ...(startDate !== undefined ? { startDate } : {}), owner: ownerOf(call) });
     return { id: task.id };
   },
   hub_task_retry: async (call) => {

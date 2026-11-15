@@ -1,6 +1,6 @@
 # Run Taskcell on your own repo (GitHub Actions)
 
-> **Label rename.** Labels and comment markers are now `taskcell:*` / `taskcell-*`. The old `vanguard:*` labels and `<!-- vanguard-... -->` markers are still accepted everywhere they are read, and on a repo that has only the old labels Taskcell keeps using them. `taskcell migrate-labels --github-repo <owner/repo>` renames a repo's old labels (dry-run by default; `--apply` to rename). One exception: the PR-review trigger stays `ready for vanguard review` for now. GitHub starts the review workflow on the label's name, so Taskcell still writes that name and `migrate-labels` leaves it alone; `ready for taskcell review` is read too, but it starts a review only where the caller workflow listens for it (the current `templates/github/pr-review.yml` does).
+> **Label rename.** Labels and comment markers are now `taskcell:*` / `taskcell-*`. The old `vanguard:*` labels and `<!-- vanguard-... -->` markers are still accepted everywhere they are read, and on a repo that has only the old labels Taskcell keeps using them. `taskcell migrate-labels --github-repo <owner/repo>` renames a repo's old labels (dry-run by default; `--apply` to rename). The PR-review trigger is now `ready for taskcell review`, and both names are read everywhere. GitHub starts the review workflow on the label's name, so on a repo that already has `ready for vanguard review` Taskcell keeps writing that one until `migrate-labels` renames it; only a repo with neither gets the new one. Before you migrate, make every workflow that gates on the old name accept `ready for taskcell review` too (the current `templates/github/pr-review.yml` does); `migrate-labels` prints a warning about it. New factory branches are `chore/taskcell-…`; `chore/vanguard-…` branches are still recognised.
 
 
 `vanguard` is the old name of `taskcell` and still works (variables: [environment-variables.md](environment-variables.md)).
@@ -155,7 +155,7 @@ Run it from **Actions → Taskcell Doctor → Run workflow** (clickable from the
 
 ### `.github/workflows/taskcell-pr-review.yml` — review a PR (optional)
 
-Adds a visible, adversarial `gh pr review` when you put `ready for vanguard review` on your own PR. This example reviews with Codex and falls back to Claude if Codex fails (a usage limit, a bad model name). `watch-prs` has no provider fallback of its own, so `pr-review.yml` retries with `fallback-provider` / `fallback-model` when you set them.
+Adds a visible, adversarial `gh pr review` when you put `ready for taskcell review` (or the old `ready for vanguard review`) on your own PR. This example reviews with Codex and falls back to Claude if Codex fails (a usage limit, a bad model name). `watch-prs` has no provider fallback of its own, so `pr-review.yml` retries with `fallback-provider` / `fallback-model` when you set them.
 
 ```yaml
 name: Taskcell PR Review
@@ -210,7 +210,7 @@ Inside a called workflow the `inputs` context means the `workflow_call` inputs, 
 ```yaml
 # workflow_call.inputs: add alongside `provider`
 
-> **Label rename.** Labels and comment markers are now `taskcell:*` / `taskcell-*`. The old `vanguard:*` labels and `<!-- vanguard-... -->` markers are still accepted everywhere they are read, and on a repo that has only the old labels Taskcell keeps using them. `taskcell migrate-labels --github-repo <owner/repo>` renames a repo's old labels (dry-run by default; `--apply` to rename). One exception: the PR-review trigger stays `ready for vanguard review` for now. GitHub starts the review workflow on the label's name, so Taskcell still writes that name and `migrate-labels` leaves it alone; `ready for taskcell review` is read too, but it starts a review only where the caller workflow listens for it (the current `templates/github/pr-review.yml` does).
+> **Label rename.** Labels and comment markers are now `taskcell:*` / `taskcell-*`. The old `vanguard:*` labels and `<!-- vanguard-... -->` markers are still accepted everywhere they are read, and on a repo that has only the old labels Taskcell keeps using them. `taskcell migrate-labels --github-repo <owner/repo>` renames a repo's old labels (dry-run by default; `--apply` to rename). The PR-review trigger is now `ready for taskcell review`, and both names are read everywhere. GitHub starts the review workflow on the label's name, so on a repo that already has `ready for vanguard review` Taskcell keeps writing that one until `migrate-labels` renames it; only a repo with neither gets the new one. Before you migrate, make every workflow that gates on the old name accept `ready for taskcell review` too (the current `templates/github/pr-review.yml` does); `migrate-labels` prints a warning about it. New factory branches are `chore/taskcell-…`; `chore/vanguard-…` branches are still recognised.
 
       fallback-provider:
         description: 'Provider to retry revision stages on when the primary one throws (outage, usage limit, rate limit, revoked credential). Empty = no fallback. Must be on a different transport than `provider`.'
@@ -358,9 +358,9 @@ Instead of a PAT, the CLI can mint a short-lived GitHub App installation token r
      ```
    - The callers (`taskcell-implement.yml`, `taskcell-revise.yml`): map `TASKCELL_APP_PRIVATE_KEY: ${{ secrets.TASKCELL_APP_PRIVATE_KEY }}` in their `secrets:` block.
 4. **Actor gates (by hand — CI config).** With the App, a factory PR's author is the App's bot login, `<your-app-slug>[bot]` (use your App's actual slug, never a hard-coded name: allow-listing another slug admits someone else's App), and so is the event sender of the `opened` and `ready_for_review` events the CLI causes. The existing gates then skip those PRs:
-   - `taskcell-pr-review.yml` (`label-factory-pr` and `review`): both `pull_request.user.login` and `sender.login` must be in the human list, so neither the first review nor the review after a revise round starts. Admit `<your-app-slug>[bot]` there **only together with** the existing `head.ref` starts-with `chore/vanguard-` and same-repo checks, as a separate condition — do not add it to the human list itself. That list is what the review policy in `CLAUDE.md` calls the author gate ("bots do not" pass it), which exempts CI-config edits from being a finding; a bot must never pass it.
+   - `taskcell-pr-review.yml` (`label-factory-pr` and `review`): both `pull_request.user.login` and `sender.login` must be in the human list, so neither the first review nor the review after a revise round starts. Admit `<your-app-slug>[bot]` there **only together with** the existing `head.ref` starts-with `chore/taskcell-` (or `chore/vanguard-`) and same-repo checks, as a separate condition — do not add it to the human list itself. That list is what the review policy in `CLAUDE.md` calls the author gate ("bots do not" pass it), which exempts CI-config edits from being a finding; a bot must never pass it.
    - `taskcell-revise.yml`: add `<your-app-slug>[bot]` to the **PR-author** list (next to `github-actions[bot]`), not to the sender list — `needs revision` is still added by a human. The caller Enable factory generates (`templates/github/revise.yml`) already has the placeholder `YOUR_APP_SLUG[bot]` there: replace it with your App's slug. Until you do, it matches no account, because GitHub logins cannot contain `_`.
-   - The reusable workflows' "Enforce allowed-actors" step (`pr-review.yml`, `revise.yml`) checks the event sender. For the `ready_for_review`-triggered review the sender is the bot, so it would fail; but `allowed-actors` is also passed as `--feedback-authors`, so adding the bot there would make its text trusted review feedback. Prefer leaving `allowed-actors` human-only and having the caller's `review` job re-dispatch for bot-sent events, or accept that a revised PR needs a human to re-add `ready for vanguard review`.
+   - The reusable workflows' "Enforce allowed-actors" step (`pr-review.yml`, `revise.yml`) checks the event sender. For the `ready_for_review`-triggered review the sender is the bot, so it would fail; but `allowed-actors` is also passed as `--feedback-authors`, so adding the bot there would make its text trusted review feedback. Prefer leaving `allowed-actors` human-only and having the caller's `review` job re-dispatch for bot-sent events, or accept that a revised PR needs a human to re-add the review trigger label.
 5. Until steps 3–4 land, keep using `VANGUARD_PUSH_TOKEN`; the App variables are ignored when absent.
 
 **App trust note.** The private key is more powerful than the PAT: it can mint tokens for **every** installation of the App with **all** of the App's granted permissions; the per-repo, per-permission scoping is applied by the CLI, not by GitHub. Hence a dedicated App, minimal permissions and minimal installations. The CLI reads the key once at start and removes it from its process environment, so the sandbox and the `docker`/`git`/`gh` children never inherit it; the key and every minted token are redacted from logs, comments and run records. Rotate the key from the App settings if it may have leaked.
@@ -414,7 +414,7 @@ To run **Opus** spec / **Sonnet** impl / **Codex** review with Codex on a ChatGP
          CODEX_AUTH_JSON: ${{ secrets.CODEX_AUTH_JSON }}
    ```
 
-The stored `CODEX_AUTH_JSON` is a snapshot; Codex refreshes the access token from the embedded refresh token each run, so the secret must carry a live refresh token. Re-run `gh secret set` if a run ever fails to authenticate.
+The stored `CODEX_AUTH_JSON` is a snapshot; Codex refreshes the access token from the embedded refresh token each run, so the secret must carry a live refresh token. Re-run `gh secret set` if a run ever fails to authenticate. With `llm-proxy` on, the job summary says `The stored CODEX_AUTH_JSON secret is now stale` when a run rotated the token, and a dead token ends the run with `the ChatGPT sign-in was refused … Sign in again (codex login)`.
 
 ---
 
@@ -450,10 +450,10 @@ The labels above go on **issues**. Two more go on a **pull request** and fire th
 
 | Label | On | Set by | Bot state | Bot action |
 |---|---|---|---|---|
-| `ready for vanguard review` | PR (trusted author's, non-draft) | Human | `taskcell:reviewing` → `taskcell:reviewed` | Adversarial **read-only** review — posts a comment, never edits code. Re-apply for a fresh pass. |
+| `ready for taskcell review` (old `ready for vanguard review` still accepted) | PR (trusted author's, non-draft) | Human | `taskcell:reviewing` → `taskcell:reviewed` | Adversarial **read-only** review — posts a comment, never edits code. Re-apply for a fresh pass. |
 | `needs revision` | PR (trusted author's) | Human | `taskcell:revising` | Reads your review → pushes fix commits to the PR branch → un-drafts → back to `taskcell:needs-human-review`. Iterative: re-apply to loop. Needs `VANGUARD_PUSH_TOKEN` (section above) or the revised PR gets no CI. |
 
-`ready for vanguard review` reviews *your* PR (read-only); `needs revision` has Taskcell *edit* a trusted author's draft per your review. Both gate on a trusted PR author **and** label-setter, same allowlist as the issue workflows.
+`ready for taskcell review` reviews *your* PR (read-only); `needs revision` has Taskcell *edit* a trusted author's draft per your review. Both gate on a trusted PR author **and** label-setter, same allowlist as the issue workflows.
 
 ### `needs research` vs `needs info`
 

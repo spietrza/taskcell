@@ -2,6 +2,8 @@
 
 Run `taskcell watch` always-on so the factory pulls ready Linear or GitHub issues by itself, runs them, and opens PRs. Optionally run `taskcell watch-prs` as a second loop so Taskcell reviews external PRs by label. This guide gives three concrete recipes: Synology (step by step, the one that was actually deployed), Hetzner native Docker, and Hetzner with Coolify. All three are the same idea: Docker on Linux, one controller container that starts sibling sandboxes.
 
+Using the hub? **Enable factory → Self-hosted (watch)** generates the compose service, the `taskcell watch` command and the credential names for one repository; see [hub.md](hub.md#self-hosted-watch).
+
 ## Architecture (docker-out-of-docker)
 
 Taskcell runs as one long-lived **controller** container. It talks to the host Docker daemon through the mounted socket and starts a **sibling** sandbox container (plus optional egress and llm-proxy sidecars) for each run.
@@ -141,7 +143,7 @@ Set the `gc --remote OWNER/REPO` slug to match your repo. Keep the cap at 1 on a
 The same compose file also ships an optional **external PR review loop** under the `pr-review` profile. It watches PRs carrying the trigger label, posts a non-blocking Taskcell review, and marks the PR with `vanguard:reviewed`. Run its preflight first:
 
 ```bash
-ssh -p 50022 <user>@<nas-ip> 'cd /volume1/docker/vanguard && sudo /usr/local/bin/docker compose --profile pr-review run --rm vanguard-watch-prs doctor-prs --github-repo=OWNER/REPO --label "ready for vanguard review" --repo=/work/repo'
+ssh -p 50022 <user>@<nas-ip> 'cd /volume1/docker/vanguard && sudo /usr/local/bin/docker compose --profile pr-review run --rm vanguard-watch-prs doctor-prs --github-repo=OWNER/REPO --label "ready for taskcell review" --repo=/work/repo'
 ```
 
 Then start only the PR-review controller:
@@ -151,7 +153,7 @@ ssh -p 50022 <user>@<nas-ip> 'cd /volume1/docker/vanguard && sudo /usr/local/bin
 ssh -p 50022 <user>@<nas-ip> 'sudo /usr/local/bin/docker logs -f vanguard-vanguard-watch-prs-1'
 ```
 
-This service is separate from `vanguard-watch`; keep it disabled if you only want Taskcell to implement tickets. Before enabling it, create the labels from `docker/compose.yaml` in the target repo: `ready for vanguard review`, `vanguard:reviewing`, and `vanguard:reviewed`.
+This service is separate from `vanguard-watch`; keep it disabled if you only want Taskcell to implement tickets. Before enabling it, create the labels in the target repo: `ready for taskcell review`, `taskcell:reviewing`, and `taskcell:reviewed`. The old `ready for vanguard review` / `vanguard:*` names are still accepted, and a repo that already has them keeps them until `taskcell migrate-labels`.
 
 ### 6. Start and verify
 

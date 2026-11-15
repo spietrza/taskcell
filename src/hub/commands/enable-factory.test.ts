@@ -5,7 +5,7 @@ import { beforeEach, describe, expect, test, vi } from 'vitest';
 import * as enableFactoryModule from '../enable-factory.js';
 import { BadRequestError } from '../../sidecar/sidecar.js';
 import type { FactoryPlan } from '../enable-factory.js';
-import { dispatchRpc, makeCtx, tmpRepo } from '../test-kit.js';
+import { dispatchRpc, makeCtx, tmpGitRepo, tmpRepo } from '../test-kit.js';
 
 describe('enable_factory RPCs', () => {
   // The checklist is persisted in the hub config dir.
@@ -243,6 +243,26 @@ describe('enable_factory RPCs for GitLab', () => {
     const { ctx } = await makeCtx(repo);
     // tmpRepo has no remote
     await expect(dispatchRpc(ctx, 'enable_factory_host', { repoPath: repo })).resolves.toEqual({ host: 'none' });
+  });
+
+  test('enable_factory_watch returns the checklist for an allowlisted repo and refuses any other path', async () => {
+    const repo = await tmpGitRepo('git@github.com:acme/widgets.git');
+    const { ctx } = await makeCtx(repo);
+    await expect(dispatchRpc(ctx, 'enable_factory_watch', { repoPath: repo })).resolves.toMatchObject({
+      repoSlug: 'acme/widgets',
+      source: 'github',
+      credentials: ['CLAUDE_CODE_OAUTH_TOKEN', 'GH_TOKEN'],
+      seen: 'unknown',
+    });
+    await expect(dispatchRpc(ctx, 'enable_factory_watch', { repoPath: await tmpGitRepo('git@github.com:other/repo.git') })).rejects.toThrow();
+    await expect(dispatchRpc(ctx, 'enable_factory_watch', {})).rejects.toThrow(BadRequestError);
+    await expect(dispatchRpc(ctx, 'enable_factory_watch', { repoPath: await tmpRepo() })).rejects.toThrow();
+  });
+
+  test('enable_factory_watch on a repo with no remote is a 400', async () => {
+    const repo = await tmpGitRepo();
+    const { ctx } = await makeCtx(repo);
+    await expect(dispatchRpc(ctx, 'enable_factory_watch', { repoPath: repo })).rejects.toThrow(/no git remote/);
   });
 
   test('a GitLab plan is shape-checked and gets this process\'s own targets', async () => {

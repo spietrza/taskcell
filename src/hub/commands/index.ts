@@ -18,6 +18,7 @@ import { commands as repoFiles, type RepoFilesCommands } from './repo-files.js';
 import { commands as runSession, type RunSessionCommands } from './run-session.js';
 import { commands as runs, type RunsCommands } from './runs.js';
 import { commands as setup, type SetupCommands } from './setup.js';
+import { commands as skills, type SkillsCommands } from './skills.js';
 import { commands as tasks, type TasksCommands } from './tasks.js';
 import { commands as teams, type TeamsCommands } from './teams.js';
 import { commands as watch, type WatchCommands } from './watch.js';
@@ -44,6 +45,7 @@ export interface Commands extends
   RunSessionCommands,
   RunsCommands,
   SetupCommands,
+  SkillsCommands,
   TasksCommands,
   TeamsCommands,
   WatchCommands {}
@@ -52,6 +54,7 @@ export interface Commands extends
  * the `satisfies` rejects a name not in `Commands`, and `_Exhaustive` rejects a missing one. */
 export const COMMAND_NAMES = [
   'add_project',
+  'add_skill_pr',
   'add_team_member',
   'add_team_repository',
   'agent_cli_versions',
@@ -87,6 +90,7 @@ export const COMMAND_NAMES = [
   'enable_factory_secret',
   'enable_factory_start',
   'enable_factory_verify',
+  'enable_factory_watch',
   'factory_refresh',
   'factory_state',
   'fetch_spec',
@@ -106,6 +110,7 @@ export const COMMAND_NAMES = [
   'list_needs_you_all',
   'list_projects',
   'list_remote_runs',
+  'list_repo_skills',
   'list_runs',
   'list_runs_all',
   'list_skills',
@@ -127,6 +132,7 @@ export const COMMAND_NAMES = [
   'read_run_events',
   'read_session',
   'remove_project',
+  'remove_skill_pr',
   'remove_team_member',
   'remove_team_repository',
   'reply_needs_you',
@@ -141,6 +147,7 @@ export const COMMAND_NAMES = [
   'start_task',
   'team_role',
   'unwatch_project',
+  'update_skill_pr',
   'user_credentials_status',
   'watch_project',
   'write_app_config',
@@ -174,6 +181,7 @@ export const HUB_COMMANDS: { readonly [K in keyof Commands]: CommandHandler } = 
   ...runSession.handlers,
   ...runs.handlers,
   ...setup.handlers,
+  ...skills.handlers,
   ...tasks.handlers,
   ...teams.handlers,
   ...watch.handlers,
@@ -200,6 +208,7 @@ export const HUB_AUDITED: { readonly [K in keyof Commands]?: AuditSpec } = {
   ...runSession.audit,
   ...runs.audit,
   ...setup.audit,
+  ...skills.audit,
   ...tasks.audit,
   ...teams.audit,
   ...watch.audit,

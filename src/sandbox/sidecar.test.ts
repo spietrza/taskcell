@@ -1,4 +1,4 @@
-import { describe, it, expect } from 'vitest';
+import { describe, it, expect, vi } from 'vitest';
 import { startSidecar } from './sidecar.js';
 
 type Call = { args: string[]; input?: string };
@@ -48,6 +48,25 @@ describe('startSidecar', () => {
     expect(calls[3]!.args.join(' ')).toContain('umask 077; cat > /run/s/secret');
     expect(calls[4]!.args).toEqual(['exec', '-d', '-e', 'PORT=2', 'vg-x-1', 'node', '/tmp/a.mjs']);
     expect(calls.flatMap((c) => c.args).join(' ')).not.toContain('hunter2');
+  });
+
+  it('forwardLogs: probes PID 1 stderr, then runs the detached process with only its stderr routed there', async () => {
+    const calls: Call[] = [];
+    await startSidecar({ ...base, docker: stubDocker(calls), env: { PORT: '2' }, secret: { path: '/run/s/secret', body: 'x\n' }, forwardLogs: true });
+    expect(calls.at(-2)!.args).toEqual(['exec', 'vg-x-1', 'sh', '-c', ': 2>>/proc/1/fd/2']);
+    expect(calls.at(-1)!.args).toEqual(['exec', '-d', '-e', 'PORT=2', 'vg-x-1', 'sh', '-c', 'exec "$@" 2>>/proc/1/fd/2', 'sh', 'node', '/tmp/a.mjs']);
+  });
+
+  it('forwardLogs: a failed probe warns and starts the plain command (the sidecar still runs)', async () => {
+    const calls: Call[] = [];
+    const warn = vi.spyOn(console, 'warn').mockImplementation(() => {});
+    try {
+      await startSidecar({ ...base, docker: stubDocker(calls, 'exec vg-x-1'), env: { PORT: '2' }, secret: { path: '/run/s/secret', body: 'x\n' }, forwardLogs: true });
+      expect(calls.at(-1)!.args).toEqual(['exec', '-d', '-e', 'PORT=2', 'vg-x-1', 'node', '/tmp/a.mjs']);
+      expect(warn.mock.calls.flat().join('\n')).toContain('will not be relayed');
+    } finally {
+      warn.mockRestore();
+    }
   });
 
   for (const step of ['create --name', 'network connect', 'cp /h/a.mjs', 'start vg-x-1']) {
