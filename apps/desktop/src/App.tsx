@@ -15,9 +15,9 @@ import { Onboarding } from './features/onboarding/Onboarding';
 import { StarterTaskDialog } from './features/onboarding/StarterTaskDialog';
 import { loadOnboarding, saveOnboarding, showOnFirstRun, type OnboardingStored } from './features/onboarding/steps';
 import { EnableFactoryDialog } from './features/dashboard/EnableFactoryDialog';
-import { listProjects, addProject, cloneProject, removeProject, listActive, listNeedsYou, listNeedsYouAll, listTeams, teamAddRepository, factoryState } from './ipc';
+import { listProjects, addProject, cloneProject, removeProject, listActive, listNeedsYou, listNeedsYouAll, listTeams, teamAddRepository, factoryState, localWorkerState } from './ipc';
 import { loadTeamId, resolveTeam, saveTeamId, teamProjects } from './teams';
-import type { FactoryState, Team } from './wire';
+import type { FactoryState, LocalWorkerState, Team } from './wire';
 import { projectColor, contrastColor } from './color';
 import { createNavGuardRegistry, NavGuardContext } from './navGuard';
 import { ProjectCombobox } from './ProjectCombobox';
@@ -320,6 +320,19 @@ export default function App() {
     };
   }, [projectPaths, factoryProject]);
 
+  // The Local hub worker per project (the same refresh): the card shows on / off, last pick-up and last error.
+  const [localWorkers, setLocalWorkers] = useState<Record<string, LocalWorkerState>>({});
+  useEffect(() => {
+    if (factoryProject !== null || projectPaths === '') return;
+    let alive = true;
+    void Promise.all(projectPaths.split('\n').map((path) => localWorkerState(path).then((s) => [path, s] as const, () => null))).then((entries) => {
+      if (alive) setLocalWorkers(Object.fromEntries(entries.filter((e) => e !== null)));
+    });
+    return () => {
+      alive = false;
+    };
+  }, [projectPaths, factoryProject]);
+
   const add = (): void => {
     // One picker everywhere (the desktop window shows the same hub-served UI as a browser): RepoPicker,
     // over the hub's browse_dirs.
@@ -532,6 +545,7 @@ export default function App() {
                   onRemove={remove}
                   onEnableFactory={setFactoryProject}
                   factory={factoryStates}
+                  localWorker={localWorkers}
                 />
               </div>
             </div>

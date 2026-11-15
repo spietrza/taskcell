@@ -487,6 +487,23 @@ export function needsAnthropicAuth(choice: ProviderChoice): boolean {
   return used.some((n) => !requiresApiKey(n, choice.customProviders));
 }
 
+/**
+ * True when `--llm-proxy` needs no primary sidecar for this choice: no used provider is served by it
+ * (Claude, zai, openrouter) and every credential routes to its own sidecar, so none lands in the sandbox.
+ * False for Cursor (no sidecar) or a Codex auth.json no sidecar can front, and when a key is missing —
+ * the caller then keeps refusing / reports the missing key.
+ */
+export function llmProxyNeedsNoPrimarySidecar(choice: ProviderChoice, env: NodeJS.ProcessEnv = process.env): boolean {
+  const names = usedProviderNames(choice);
+  const customs = choice.customProviders;
+  if (names.some((n) => !requiresApiKey(n, customs) || claudeCliKeyEnv(n, customs) !== undefined)) return false;
+  try {
+    return Object.keys(providerSecrets(names, env, { proxyMode: true }, customs).sandboxSecrets).length === 0;
+  } catch {
+    return false;
+  }
+}
+
 /** A resolved choice: the agents to run plus the secrets split into sandbox-safe and proxy-held buckets. */
 export interface SelectedAgents {
   agent: AgentProvider;

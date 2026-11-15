@@ -1,6 +1,6 @@
 // Starts hub-board tasks: every tick plans the project's tasks (src/hub/schedule.ts) and hands those that may run to
 // the run session, as the person each task runs as and under the same gates as `api_create_run`.
-import { BadRequestError, type CreateRunResult } from '../sidecar/sidecar.js';
+import { BadRequestError, type CreateRunParams, type CreateRunResult, type SidecarDeps } from '../sidecar/sidecar.js';
 import { readAppConfig } from './app-config.js';
 import { auditActorOf, reportAuditFailure, type AuditAction, type AuditLog, type AuditOutcome } from './audit.js';
 import type { ProjectAllowlist } from './allowlist.js';
@@ -11,7 +11,6 @@ import { failureMessage } from './projects.js';
 import type { RunSession } from './run-session.js';
 import { planSchedule } from './schedule.js';
 import * as teams from './teams.js';
-import type { Caller } from './teams.js';
 
 /** The transport of a hub-board run. Not one of `TRANSPORTS`: only the scheduler can ask for it, never a client. */
 export const HUB_TRANSPORT = 'hub';
@@ -97,10 +96,16 @@ export interface SweepContext {
   configDir: string;
   allowlist: ProjectAllowlist;
   runSession: RunSession;
+  /** `deps.checkRun`: a missing model credential refuses the start here, before the session admits it. */
+  deps?: Pick<SidecarDeps, 'checkRun'>;
   userCredentials?: CredentialService;
   audit?: AuditLog;
   /** Re-resolves the stored owner at start (current account and owner flag); undefined: no longer valid, the task does not run. Absent: the stored caller is trusted. */
-  recheckCaller?: (stored: Caller) => Promise<Caller | undefined>;
+  recheckCaller?: (stored: teams.Caller) => Promise<teams.Caller | undefined>;
+  /** A project the sweep may serve (default: all). The local worker's switch, when set off, stops a board's pick-ups. */
+  served?: (repoPath: string) => Promise<boolean>;
+  /** Called with the ids a tick started. */
+  picked?: (repoPath: string, ids: string[]) => Promise<void>;
 }
 
 /**
@@ -124,8 +129,10 @@ async function startHubTask(ctx: SweepContext, repoPath: string, task: HubTask, 
     const configured = (await readAppConfig(repoPath)).provider;
     const provider = typeof configured === 'string' && configured.trim() !== '' ? configured : undefined;
     const credential = ctx.userCredentials !== undefined ? await ctx.userCredentials.resolveForRun(caller.user, provider) : undefined;
+    const params: CreateRunParams = { issueRef: task.id, repoPath, transport: HUB_TRANSPORT, hubTask: { id: task.id, title: task.title, body: task.body }, startedBy: who.actor.login, ...(provider !== undefined ? { provider } : {}) };
+    await ctx.deps?.checkRun?.(params, credential);
     return await ctx.runSession.createRun(
-      { issueRef: task.id, repoPath, transport: HUB_TRANSPORT, hubTask: { id: task.id, title: task.title, body: task.body }, startedBy: who.actor.login, ...(provider !== undefined ? { provider } : {}) },
+      params,
       {
         onStarted: (id) => { log('run-start', `${id} ${task.id}`, 'ok'); admitted(id); },
         onQueued: (id) => { log('run-queue', `${id} ${task.id}`, 'ok'); admitted(id); },
@@ -150,7 +157,9 @@ export async function sweepHubBoards(ctx: SweepContext): Promise<void> {
     try {
       if ((await ctx.allowlist.assertAllowed(repoPath).catch(() => undefined)) !== repoPath) continue;
       if ((await readAppConfig(repoPath)).taskSource !== 'hub') continue;
-      await scheduleTick(ctx.scheduler, ctx.configDir, repoPath, (task, admitted) => startHubTask(ctx, repoPath, task, admitted), { limit: await parallelLimit(repoPath) });
+      if (ctx.served !== undefined && !(await ctx.served(repoPath))) continue;
+      const started = await scheduleTick(ctx.scheduler, ctx.configDir, repoPath, (task, admitted) => startHubTask(ctx, repoPath, task, admitted), { limit: await parallelLimit(repoPath) });
+      await ctx.picked?.(repoPath, started);
     } catch (e) {
       console.error(`vanguard-hub: scheduler: ${repoPath}: ${failureMessage(e)}`);
     }
