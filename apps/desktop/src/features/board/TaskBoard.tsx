@@ -51,6 +51,18 @@ const TRACKER_POLL_MS = 20000;
 /** One repository's board, or every repository's (cards stamped with their repository). */
 type BoardList = { tasks: (BoardTask & Partial<RepoStamp>)[]; capped: boolean; failures: RepoReadFailure[]; hubBoard?: true; hubBoards?: string[] };
 
+/** A poll of every repository, keeping the shown cards (and hub-board flag) of each repository it could not read. */
+function keepUnread(shown: BoardList | null, next: BoardList): BoardList {
+  const unread = new Set(next.failures.map((f) => f.repoPath));
+  if (shown === null || unread.size === 0) return next;
+  const kept = (path: string | undefined): boolean => path !== undefined && unread.has(path);
+  return {
+    ...next,
+    tasks: [...next.tasks, ...shown.tasks.filter((t) => kept(t.repoPath))],
+    hubBoards: [...(next.hubBoards ?? []), ...(shown.hubBoards ?? []).filter(kept)],
+  };
+}
+
 export function TaskBoard({
   project,
   allRepos = false,
@@ -88,11 +100,14 @@ export function TaskBoard({
   // Every board is re-read quietly, one read at a time, while the window is visible, so a card follows its task without
   // a reload: a hub board fast, a tracker board and the all-repositories view slower. A fresh load supersedes the last
   // poll. A failed poll keeps the cards on screen (nothing unmounts, a typed draft survives), marks them stale and is
-  // tried again on the next interval.
+  // tried again on the next interval. So is a repository the all-repositories poll could not read: its last good cards
+  // stay until a user action or a successful read of it drops them.
   const [polled, setPolled] = useState<BoardList | null>(null);
   const [stale, setStale] = useState(false);
   useEffect(() => { setPolled(null); setStale(false); }, [loaded]);
   const data = polled ?? loaded;
+  const shownRef = useRef(data);
+  shownRef.current = data;
   const polling = data !== null;
   const pollMs = !allRepos && data?.hubBoard === true ? HUB_POLL_MS : TRACKER_POLL_MS;
   useEffect(() => {
@@ -103,7 +118,11 @@ export function TaskBoard({
       if (busy || document.hidden) return;
       busy = true;
       read().then(
-        (r) => { if (alive) { setPolled(r); setStale(false); } },
+        (r) => {
+          if (!alive) return;
+          setPolled(keepUnread(shownRef.current, r));
+          setStale(r.failures.some((f) => !isNoTaskSource(f.error)));
+        },
         () => { if (alive) setStale(true); },
       ).finally(() => { busy = false; });
     }, pollMs);

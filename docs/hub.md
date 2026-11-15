@@ -826,7 +826,7 @@ The Board reads `list_tasks` through the same planner the scheduler uses (`src/h
 | `failed: …` (red) | the run failed, was cancelled, was held back by the secret scan or a red base branch, or changed nothing; the reason is shown. **Retry** in the quick view (`hub_task_retry`) puts it back to do |
 | `cannot start: …` (red) | a missing reference, a dependency cycle (`a → b → a`, also shown on tasks that wait behind the cycle) or an invalid date; the reason is shown and the task never starts |
 
-The Board re-reads every board while the window is visible, so a card follows its task without a reload: a hub board every 5 s, a tracker board (GitHub, GitLab, Linear) and the all-repositories view every 20 s. A failed re-read keeps the cards (and any typed draft) on screen, shows **Not refreshed — retrying**, and is tried again on the next interval.
+The Board re-reads every board while the window is visible, so a card follows its task without a reload: a hub board every 5 s, a tracker board (GitHub, GitLab, Linear) and the all-repositories view every 20 s. A failed re-read keeps the cards (and any typed draft or reply, and an open quick view) on screen, shows **Not refreshed — retrying**, and is tried again on the next interval; in the all-repositories view this holds for each repository that could not be read, whose last good cards stay until a successful read of it or a reload.
 
 ### What the scheduler starts, and how many at once
 
