@@ -620,6 +620,7 @@ export default function App() {
       )}
       {showRepoPicker && (
         <RepoPicker
+          added={projects.map((p) => p.path)}
           onAdd={async (path) => {
             const list = await addProject(path);
             setProjects(list);

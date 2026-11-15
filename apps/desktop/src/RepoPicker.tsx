@@ -17,10 +17,13 @@ export function RepoPicker({
   onAdd,
   onClone,
   onClose,
+  added = [],
 }: {
   onAdd: (path: string) => Promise<void>;
   onClone: (url: string, parentDir: string, name?: string) => Promise<void>;
   onClose: () => void;
+  /** Paths of the projects already added: marked in the list, and the current folder cannot be added twice. */
+  added?: string[];
 }) {
   const dialogRef = useRef<HTMLDivElement>(null);
   useFocusTrap(dialogRef);
@@ -95,6 +98,8 @@ export function RepoPicker({
       setCloning(false);
     }
   };
+
+  const alreadyAdded = listing !== null && added.includes(listing.path);
 
   // What the hub would refuse (src/hub/clone.ts), said before the click.
   const cloneProblem = /[\s\\]/.test(url.trim())
@@ -190,6 +195,9 @@ export function RepoPicker({
                 )}
                 <span className="truncate">{entry.name}</span>
                 <span className="ml-auto flex items-center gap-1 pl-3">
+                  {added.includes(entry.path) && (
+                    <span className="rounded border border-border px-1.5 py-0.5 text-[10px] text-muted-foreground">added</span>
+                  )}
                   {entry.isGitRepo && (
                     <span className="rounded border border-border px-1.5 py-0.5 text-[10px] text-muted-foreground">git</span>
                   )}
@@ -218,8 +226,8 @@ export function RepoPicker({
               Cancel
             </Button>
             {mode === 'existing' ? (
-              <Button onClick={add} disabled={!listing || !currentIsGit}>
-                Add this repo
+              <Button onClick={add} disabled={!listing || !currentIsGit || alreadyAdded}>
+                {alreadyAdded ? 'Already added' : 'Add this repo'}
               </Button>
             ) : (
               <Button onClick={clone} disabled={!listing || url.trim() === '' || cloning || cloneProblem !== null}>

@@ -905,7 +905,7 @@ describe('parseCli', () => {
     [['watch', '--skills', '--', 'x'], { kind: 'help' }],
     [['watch-prs', '--skills', 'stats'], { kind: 'error', message: 'watch-prs requires --github-repo <owner/repo> and --label <name>.' }],
     [['review-pr', '1', '--skills', 'stats'], { kind: 'review-pr', prRef: '1', repoPath: '/work', skillsDir: 'stats', egress: false }],
-    [['doctor', '--skills', 'stats'], { kind: 'error', message: 'doctor --source linear requires --label <name>.' }],
+    [['doctor', '--skills', 'stats'], { kind: 'error', message: 'doctor --source linear requires --label <name> (or pick a source: --source github --github-repo <owner/repo>).' }],
     [['skills', 'list', '--skills', 'stats'], { kind: 'skills', action: 'list', dir: '/work/skills', strict: false }],
     [['skills', 'update', '--pr', '--skills', './dir'], { kind: 'skills', action: 'update', dir: '/work/skills', pr: true }],
     [['--pr', 'skills', 'update', '--skills', 'stats'], { kind: 'skills', action: 'update', dir: '/work/skills', pr: true }],

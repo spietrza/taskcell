@@ -13,7 +13,7 @@ import { GitHubTaskFetcher } from '../tasks/github.js';
 import { GitLabTaskFetcher } from '../tasks/gitlab.js';
 import { GITHUB_CLAIMED_LABEL, GITHUB_REVIEW_LABEL, GITHUB_SPEC_CLAIMED_LABEL } from '../github-labels.js';
 import { GITLAB_CLAIMED_LABEL, GITLAB_REVIEW_LABEL, GITLAB_SPEC_CLAIMED_LABEL } from '../gitlab-labels.js';
-import { formatPreflightReport, runPreflight } from './preflight.js';
+import { formatPreflightReport, preflightFailed, runPreflight } from './preflight.js';
 import type { AgentAuth } from '../agents/auth.js';
 import type { SandboxContext } from '../sandbox/sandbox-context.js';
 import { DEFAULT_GITHUB_AGENT_LABEL, DEFAULT_LINEAR_AGENT_STATE } from './args.js';
@@ -36,7 +36,7 @@ export async function watchCommand(cmd: WatchCommand): Promise<void> {
   refuseLlmProxyWithoutPrimarySidecar(cmd.llmProxy, choice);
   const report = await runPreflight(cmd);
   for (const line of formatPreflightReport(report)) console.log(line);
-  if (!report.ok) throw new Error('preflight failed');
+  if (!report.ok) throw preflightFailed();
 
   const auth = agentAuthFromEnv(choice);
   // The hub's Enable factory checklist counts only these records as "worker seen". The CI factory

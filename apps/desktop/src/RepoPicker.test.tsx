@@ -143,3 +143,15 @@ test('Clone: a URL with a space or a folder name with a path in it disables the 
   expect(button).toBeDisabled();
   expect(screen.getByRole('alert')).toHaveTextContent(/folder name/i);
 });
+
+describe('RepoPicker already-added projects', () => {
+  test('badges an added repo, and the folder itself cannot be added twice', async () => {
+    install();
+    render(<RepoPicker added={['/root/git-repo']} onAdd={vi.fn()} onClone={vi.fn()} onClose={() => {}} />);
+    const row = (await screen.findByText('git-repo')).closest('button')!;
+    expect(within(row).getByText('added')).toBeInTheDocument();
+    expect(within(screen.getByText('plain').closest('button')!).queryByText('added')).toBeNull();
+    fireEvent.click(row);
+    expect(await screen.findByRole('button', { name: 'Already added' })).toBeDisabled();
+  });
+});
