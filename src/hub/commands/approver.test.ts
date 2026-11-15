@@ -301,6 +301,22 @@ describe('approverBaseBranch', () => {
 });
 
 describe('own-repo reads and switching off', () => {
+  test('a held act-mode PR is left with the reason; an APPROVE alone would merge; a later merge wins', async () => {
+    const decisions = [
+      line({ prNumber: 1, verdict: 'APPROVE', timestamp: daysAgo(5) }),
+      line({ prNumber: 1, action: 'left-for-human', reason: 'ci-config-path', timestamp: daysAgo(5) }),
+      line({ prNumber: 2, verdict: 'APPROVE', timestamp: daysAgo(5) }),
+      line({ prNumber: 3, verdict: 'APPROVE', timestamp: daysAgo(5) }),
+      line({ prNumber: 3, action: 'merge', timestamp: daysAgo(4) }),
+    ].join('\n');
+    mockWorld(decisions, { act: true });
+    expect(await approverCard.approverPrDecisions(await tmpGitRepo(ORIGIN))).toEqual([
+      { prNumber: 1, outcome: 'left', reasons: ['ci-config-path'] },
+      { prNumber: 2, outcome: 'would-merge', reasons: [] },
+      { prNumber: 3, outcome: 'merged', reasons: [] },
+    ]);
+  });
+
   test('the scorecard asks gh about the project’s own repo only', async () => {
     const decisions = [line({ prNumber: 1, verdict: 'APPROVE', timestamp: daysAgo(3) }), line({ repo: 'evil/other', prNumber: 2, verdict: 'APPROVE', timestamp: daysAgo(3) })].join('\n');
     mockWorld(decisions, { act: false });
