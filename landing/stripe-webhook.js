@@ -67,7 +67,7 @@ export async function handleStripeWebhook(request, env) {
   ).bind(session.id, event.id, live ? 1 : 0, session.customer ?? null, session.customer_details?.email ?? null, price, session.subscription ?? null, session.amount_total ?? null, session.currency ?? null).run();
 
   const order = await env.ORDERS.prepare('SELECT pass_credited FROM orders WHERE session_id = ?').bind(session.id).first();
-  if (price === 'solo_pass' && session.customer && !order.pass_credited) {
+  if (price === 'solo_pass' && session.customer && session.amount_total > 0 && !order.pass_credited) {
     // A failure here answers 500, Stripe redelivers, and the idempotency key keeps the credit single.
     await stripe(key, `customers/${session.customer}/balance_transactions`, {
       form: { amount: String(-session.amount_total), currency: session.currency, description: 'Taskcell 7-day pass credited to the first month' },
