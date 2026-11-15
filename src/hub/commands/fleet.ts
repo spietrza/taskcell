@@ -38,7 +38,9 @@ export const commands = defineCommands<FleetCommands>({
     if (!Array.isArray(argv) || argv.length === 0 || argv.some((a) => typeof a !== 'string')) {
       throw new BadRequestError('argv is required and must be a non-empty array of strings');
     }
-    return spawns.spawn(real, argv as string[]);
+    // Saved instance credentials reach the spawn explicitly (argv is any agent CLI, so every storable name), read at call time.
+    await ctx.userCredentials?.instanceStatus();
+    return spawns.spawn(real, argv as string[], ctx.userCredentials?.childEnv());
   },
   kill_run: async ({ ctx, args, caller }) => {
     const spawns = requireFleet(ctx, caller);

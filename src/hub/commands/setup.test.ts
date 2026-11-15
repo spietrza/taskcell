@@ -16,6 +16,21 @@ describe('setup_status', () => {
     }
   });
 
+  test('returns no saved credentials and a plain reason when the store cannot be decrypted', async () => {
+    const { ctx } = await makeCtx(await tmpRepo());
+    ctx.userCredentials = {
+      instanceStatus: async () => ({ names: [], reason: 'credential store cannot be decrypted' }),
+    } as unknown as NonNullable<typeof ctx.userCredentials>;
+    const report = { tools: [], models: { claude: false, codex: false }, credentialReason: 'credential store cannot be decrypted' };
+    const mock = vi.spyOn(setupStatus, 'detectSetup').mockResolvedValue(report);
+    try {
+      await expect(dispatchRpc(ctx, 'setup_status', undefined)).resolves.toEqual(report);
+      expect(mock).toHaveBeenCalledWith([], process.env, undefined, 'credential store cannot be decrypted');
+    } finally {
+      mock.mockRestore();
+    }
+  });
+
   test('is refused for a member and on a non-loopback bind without the opt-in, without probing', async () => {
     const mock = vi.spyOn(setupStatus, 'detectSetup');
     try {

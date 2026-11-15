@@ -365,7 +365,7 @@ request is replayed, so a run is never started twice.
 | `TASKCELL_HUB_CONFIG_DIR` | `$XDG_CONFIG_HOME/vanguard-hub` else `~/.config/vanguard-hub` |
 | `TASKCELL_HUB_WATCH_POLL` | — |
 | `TASKCELL_HUB_WATCH_INTERVAL_MS` | `2000` |
-| `TASKCELL_HUB_SECRET` | — (32 bytes, base64: `openssl rand -base64 32`. Enables the Settings credential store, `<config dir>/.vanguard-hub/credentials.enc`, AES-256-GCM. A stored Claude/Codex/z.ai/OpenRouter key overrides the same env var; the API is write-only (set + last four characters). Without it the store is disabled and env credentials apply) |
+| `TASKCELL_HUB_SECRET` | — (32 bytes, base64: `openssl rand -base64 32`. When set, this operator-held key protects the [credential store](#per-user-provider-credentials); keep it stable across restarts and outside the config directory. It also decrypts the retired `<config dir>/.vanguard-hub/credentials.enc` once on start so its keys can move into the unified store. If migration cannot complete, the hub reports a value-free reason, keeps the legacy file and starts) |
 | `TASKCELL_HUB_BROWSE_ROOT` | `$HOME` (where the Add-project picker opens, and the limit of what it can browse, add or clone into. A drive or share root such as `D:\` confines to that drive or share) |
 | `TASKCELL_HUB_BROWSE_ANYWHERE` | — (`1` on a loopback bind without server mode lifts that limit: the browse root is then only where the picker opens. Set by the desktop app for its own hub) |
 | `TASKCELL_HUB_ALLOW_ADD` | — |
@@ -617,9 +617,9 @@ process as the HTTP server, so give the container the same RAM headroom, and kee
 ## Per-user provider credentials
 
 Off by default: every run uses the instance credential (the hub's environment, or an instance
-credential an admin saved). An **admin** — a GitHub login listed in `--admin-github-login`
+credential the hub owner or an admin saved). An **admin** — a GitHub login listed in `--admin-github-login`
 (repeatable) or `TASKCELL_HUB_ADMIN_GITHUB_LOGINS` (comma-separated) — can change the
-`per-user credentials` switch in Settings:
+`per-user credentials` switch in Settings (as can the hub owner):
 
 | Setting | A run uses |
 |---|---|
@@ -636,14 +636,13 @@ A run never receives keys of providers it does not use.
 A run on the starter's own credential never reads the hub's provider keys: a provider whose key the user cannot save (a repo custom provider's `keyEnv`, meridian's `MERIDIAN_BASE_URL`) is refused for it.
 
 When the switch is on, each signed-in user saves their own provider credentials in Settings. They are
-keyed by GitHub user id and stored encrypted (AES-256-GCM) in `credentials.enc.json` in the hub
-config dir, with the key in `credentials.key` (mode 0600) beside it. Credentials are write-only:
+keyed by the hub (Better Auth) user id — a GitHub, GitLab or Google user alike — and stored encrypted (AES-256-GCM) in `credentials.enc.json` in the hub
+config dir. When `TASKCELL_HUB_SECRET` is set, that operator-held 32-byte base64 key protects this store as it protected the retired `credentials.enc`; keep the same value across restarts and outside the config directory. A store first written under `credentials.key` is re-encrypted under the secret on the next start and the stale key file is removed; the re-key waits until any retired `credentials.enc` has been migrated, so one secret always opens everything. A store that cannot be decrypted (a different secret value, or the secret removed) is never overwritten, and Settings and the setup guide say which key recovers it. Runs then start only on a provider key in the hub's start-up environment (with the switch `off` or `user-first`); a run that needs a stored credential is refused with that reason. A secret that is not 32 bytes is not used: the store stays on `credentials.key` and the reason is shown. Without it, the hub uses `credentials.key` (mode 0600, generated on first write) beside the store, so a copy of the config directory yields every saved key; keep it out of backups and shares. This is the hub's only credential store (instance and per-user). Credentials are write-only:
 the hub lists which variable names are saved, never a value, and no RPC takes a user id, so one user
-cannot read, overwrite or use another's. Only admins see the switch and the instance credentials
-(anyone else gets 403). The run record carries `credentialSource: 'instance' | 'user'`, never the value.
+cannot read, overwrite or use another's. The switch and every instance-credential RPC (`get_credential_policy`, `set_credential_policy`, `instance_credentials_status`, `save_instance_credential`, `delete_instance_credential`) share one gate: the **hub owner** (the hub-token holder, or local mode) or an **admin**; anyone else gets 403. The token owner remains able to manage instance credentials so a token-only hub does not need a configured sign-in admin. The owner's writes (and the switch) are also refused on a non-loopback bind unless `TASKCELL_HUB_ALLOW_ADD=1`, as `set_credential` was. Saved instance credentials are passed explicitly to the provider-specific run and doc-chat child that consume them; the Fleet screen's spawns (any agent CLI) get every saved instance credential the same way. They are not exported into the hub process environment, so host-side `git`/`gh`/`glab` calls, which read none of them, do not inherit them. Removing a saved value makes those consumers fall back to the hub's start-up environment. Settings shows one Credentials panel, including a value-free migration/decryption reason when the store needs operator attention, and the run detail says which credential funded the run. The run record carries `credentialSource: 'instance' | 'user'`, never the value.
 
-This needs the hub's GitHub sign-in to identify the caller (`HubServerOptions.identify`); without a
-signed-in user there is no admin and no per-user credential.
+Admin and per-user credentials need a sign-in to identify the caller (`HubServerOptions.identify`); without a
+signed-in user there is no admin (the hub owner still manages instance credentials) and no per-user credential.
 The admin match uses the login GitHub reports for the account's numeric id at each GitHub sign-in (kept
 in `hub_github_login` in `auth.sqlite`), never a profile field a user can edit: after upgrading, an
 admin signs out and in with GitHub once before the switch appears.
@@ -712,7 +711,8 @@ GitHub Actions or GitLab CI. Only `http:` and `https:` addresses are passed on. 
 
 On a hub with no projects the app opens a "Get started" guide: Git host and tasks, model
 credential, first repository. Detection is one read-only owner command, `setup_status`, that
-returns booleans only. The model step is Done when a model credential is
+returns booleans only (plus, when the credential store cannot be decrypted or migrated, a value-free
+reason shown on the model step; saved credentials then count as absent). The model step is Done when a model credential is
 present: for Claude, `CLAUDE_CODE_OAUTH_TOKEN` or one saved in Settings → credentials; for Codex,
 `CODEX_AUTH_JSON`, `CODEX_API_KEY` or `OPENAI_API_KEY` (or a key saved in Settings → credentials). A
 `codex login` sign-in alone does not count, because a hub run never reads `$CODEX_HOME/auth.json`
