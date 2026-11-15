@@ -185,6 +185,8 @@ describe('re-review hardening', () => {
 
   it('an unusable or mismatched secret does not stop a run the start-up environment or the disk-key store can fund', async () => {
     const original = process.env.CLAUDE_CODE_OAUTH_TOKEN;
+    // The other names a claude run can use must not leak in from the host (an agent sandbox sets ANTHROPIC_AUTH_TOKEN).
+    for (const n of ['ANTHROPIC_API_KEY', 'ANTHROPIC_AUTH_TOKEN']) vi.stubEnv(n, '');
     try {
       const d = await dir();
       await new ScopedCredentialStore(d).put('instance', 'CLAUDE_CODE_OAUTH_TOKEN', SECRET_VALUE);
@@ -207,6 +209,7 @@ describe('re-review hardening', () => {
     } finally {
       if (original === undefined) delete process.env.CLAUDE_CODE_OAUTH_TOKEN;
       else process.env.CLAUDE_CODE_OAUTH_TOKEN = original;
+      vi.unstubAllEnvs();
     }
   });
 

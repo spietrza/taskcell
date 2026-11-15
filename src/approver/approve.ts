@@ -58,7 +58,6 @@ export async function runApprover(input: RunApproverInput, state: { updated: boo
   const branchOpts = input.branch !== undefined ? { branch: input.branch } : {};
 
   let acting = false;
-  let approverLogins: string[] = [];
   const finish = async (facts: ApproverFacts | undefined, decision: Decision, policyHash: string, publishHeadSha: string): Promise<RunApproverResult> => {
     const record = buildDecisionRecord({ mode: acting ? 'act' : 'shadow', repo: input.repoSlug, prNumber: input.prNumber, headSha: publishHeadSha, facts, decision, policyHash, timestamp });
     if (input.dryRun) return { record };
@@ -74,7 +73,7 @@ export async function runApprover(input: RunApproverInput, state: { updated: boo
     };
     await attempt('check run', () => publishCheckRun(gh, input.repoSlug, publishHeadSha, input.prNumber, decision, record, acting));
     // In act mode the decision is in the check run and the log; a comment is posted only when a human has to act.
-    if (!acting) await attempt('comment', () => commentDecision(gh, input.repoSlug, input.prNumber, decision, record, approverLogins));
+    if (!acting) await attempt('comment', () => commentDecision(gh, input.repoSlug, input.prNumber, decision, record));
     await attempt('decision record', () => appendDecision(input.repoPath, record, branchOpts));
     if (failures.length > 0) {
       throw new TaskcellError(`approver: ${decision.verdict} for #${input.prNumber} was decided, but ${failures.join('; ')}`);
@@ -105,7 +104,6 @@ export async function runApprover(input: RunApproverInput, state: { updated: boo
     return finish(undefined, decision, POLICY_HASH_NONE, prFacts.headSha);
   }
   const { policy, policyHash } = loaded;
-  approverLogins = policy.approverLogins ?? [];
   const seed = `${input.repoSlug}:${input.prNumber}:${prFacts.headSha}:${policyHash}`;
 
   const stopped = policy.enabled === false || (readEnv('TASKCELL_APPROVER_STOP') ?? '') !== '';

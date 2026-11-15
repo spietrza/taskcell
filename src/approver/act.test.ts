@@ -757,19 +757,21 @@ describe('approver act mode', () => {
       expect(writes(shadow, 'comment').join(' ')).not.toContain('review-unusable');
     });
 
-    it('dedupes the left-for-human comment under an App identity named in the policy approverLogins', async () => {
-      await rm(root, { recursive: true, force: true });
-      await setup({ ...POLICY, approverLogins: ['My-App'] }, { 'src.ts': 'export const x = 1;\n' });
-      const posted: string[] = [];
-      const base = fakeGh([], pr({ stamped: false }));
-      const gh: GhRunner = async (args) => {
-        if (args[0] === 'pr' && args[1] === 'comment') posted.push(args.at(-1)!);
-        if (args[0] === 'pr' && args[1] === 'view' && args.includes('comments')) return JSON.stringify({ comments: posted.map((body) => ({ body, author: { login: 'my-app' }, authorAssociation: 'NONE' })) });
-        return base(args);
-      };
-      await run(gh);
-      await run(gh);
-      expect(posted).toHaveLength(1);
+    it('dedupes the left-for-human comment under the App identity by viewerDidAuthor, not by a listed App name', async () => {
+      for (const own of [true, false]) {
+        await rm(root, { recursive: true, force: true });
+        await setup({ ...POLICY, approverLogins: ['my-app[bot]', 'app/my-app'] }, { 'src.ts': 'export const x = 1;\n' });
+        const posted: string[] = [];
+        const base = fakeGh([], pr({ stamped: false }));
+        const gh: GhRunner = async (args) => {
+          if (args[0] === 'pr' && args[1] === 'comment') posted.push(args.at(-1)!);
+          if (args[0] === 'pr' && args[1] === 'view' && args.includes('comments')) return JSON.stringify({ comments: posted.map((body) => ({ body, author: { login: 'my-app' }, authorAssociation: 'NONE', viewerDidAuthor: own })) });
+          return base(args);
+        };
+        await run(gh);
+        await run(gh);
+        expect(posted).toHaveLength(own ? 1 : 2);
+      }
     });
 
     it('an initial BEHIND state is updated, then merged after the checks', async () => {

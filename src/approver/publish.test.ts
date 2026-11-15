@@ -83,13 +83,10 @@ describe('commentOnce under an App identity', () => {
   const M = '<!-- taskcell-approver-act: m -->';
   const comment = (author: object, extra: object = {}): string => JSON.stringify({ comments: [{ author, authorAssociation: 'NONE', body: M, ...extra }] });
   const run = async (comments: string, botLogins?: string[]): Promise<boolean> => commentOnce(async (args) => (args[1] === 'view' ? comments : ''), 'o/r', 7, M, 'b', botLogins);
-  const bot = comment({ login: 'Taskcell-Approver' });
-  it('dedupes on a named login, case-insensitively and in any spelling', async () => {
-    expect(await run(bot)).toBe(true);
-    for (const name of ['taskcell-approver', 'app/taskcell-approver', 'Taskcell-Approver[bot]']) expect(await run(bot, [name])).toBe(false);
-  });
-  it('does not trust an unlisted login', async () => {
-    expect(await run(comment({ login: 'someone' }), ['taskcell-approver'])).toBe(true);
+  it('a user account named like the App does not dedupe, whichever spelling of the App is listed', async () => {
+    const user = comment({ login: 'taskcell-approver' });
+    expect(await run(user)).toBe(true);
+    for (const name of ['app/taskcell-approver', 'Taskcell-Approver[bot]']) expect(await run(user, [name])).toBe(true);
   });
   it('dedupes on viewerDidAuthor with no config', async () => {
     expect(await run(comment({ login: 'x' }, { viewerDidAuthor: true }))).toBe(false);
@@ -103,19 +100,18 @@ describe('commentDecision', () => {
     signals: { files: 1, lines: 1, testFilesDeleted: 0, testCasesDelta: 0, exportsRemoved: 0, newDependency: false, paths: [] },
   } as unknown as DecisionRecord;
   const marker = `<!-- taskcell-approver: ${SHA} -->`;
-  const posted = async (comments: unknown[], logins?: string[]): Promise<boolean> => {
+  const posted = async (comments: unknown[]): Promise<boolean> => {
     let comment = false;
     await commentDecision(async (args) => {
       if (args[1] === 'comment') comment = true;
       return args[1] === 'view' ? JSON.stringify({ comments }) : '';
-    }, 'o/r', 7, decision, record, logins);
+    }, 'o/r', 7, decision, record);
     return comment;
   };
 
-  it('dedupes under an App identity named in approverLogins', async () => {
-    const c = [{ author: { login: 'my-app' }, authorAssociation: 'NONE', body: marker }];
-    expect(await posted(c)).toBe(true);
-    expect(await posted(c, ['my-app'])).toBe(false);
+  it('dedupes under the App identity by viewerDidAuthor only, never by a user account of the same name', async () => {
+    expect(await posted([{ author: { login: 'my-app' }, authorAssociation: 'NONE', body: marker }])).toBe(true);
+    expect(await posted([{ author: { login: 'my-app' }, authorAssociation: 'NONE', viewerDidAuthor: true, body: marker }])).toBe(false);
   });
 
   it('dedupes on its own marker from the bot', async () => {

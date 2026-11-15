@@ -29,7 +29,9 @@ interface Fake {
   comments?: Record<number, string[]>;
   fail?: (args: string[]) => boolean;
   /** Who the trusted comments come back from (default: a repo owner). */
-  commentAuthor?: { login: string; association: string };
+  commentAuthor?: { login: string; association: string; viewerDidAuthor?: boolean };
+  /** How long ago `needs revision` was last applied to a PR, in ms (default: two hours). */
+  labeledAgo?: Record<number, number>;
 }
 
 /** A gh double behind act mode's allow-list: issue reads, empty blocked-by lists, the open PR list, comments; every call is recorded. */
@@ -38,8 +40,13 @@ const fakeGh = (calls: string[][], f: Fake): GhRunner =>
     calls.push(args);
     if (f.fail?.(args) === true) throw new Error('gh: boom (HTTP 403)');
     if (args[0] === 'pr' && args[1] === 'list') return JSON.stringify(f.prs ?? []);
-    if (args[0] === 'pr' && args[1] === 'view') return JSON.stringify({ comments: (f.comments?.[Number(args[2])] ?? []).map((body) => ({ body, author: { login: f.commentAuthor?.login ?? 'o' }, authorAssociation: f.commentAuthor?.association ?? 'OWNER' })) });
+    if (args[0] === 'pr' && args[1] === 'view') return JSON.stringify({ comments: (f.comments?.[Number(args[2])] ?? []).map((body) => ({ body, author: { login: f.commentAuthor?.login ?? 'o' }, authorAssociation: f.commentAuthor?.association ?? 'OWNER', viewerDidAuthor: f.commentAuthor?.viewerDidAuthor })) });
     if (args[0] === 'pr') return '';
+    const t = /^repos\/o\/r\/issues\/(\d+)\/timeline$/.exec(args[1] ?? '');
+    if (args[0] === 'api' && t !== null) {
+      const at = new Date(Date.now() - (f.labeledAgo?.[Number(t[1])] ?? 2 * 3600_000)).toISOString();
+      return JSON.stringify([[{ event: 'labeled', label: { name: 'needs revision' }, created_at: at }, { event: 'commented', created_at: new Date().toISOString() }]]);
+    }
     const m = /^repos\/o\/r\/issues\/(\d+)(\/dependencies\/blocked_by)?$/.exec(args[1] ?? '');
     if (args[0] === 'api' && m !== null) return m[2] !== undefined ? '[]' : (f.issues[Number(m[1])] ?? issue(''));
     throw new Error(`unexpected gh ${args.join(' ')}`);
@@ -192,31 +199,49 @@ describe('rebaseDependents', () => {
     expect(writes(calls)).toEqual([]);
   });
 
-  it('a lingering needs revision label does not stop update-branch on a behind dependent', async () => {
+  it('a revising dependent is neither updated nor re-labelled, whichever spelling the fresh read shows', async () => {
     diff(21, { mergeTreeHeadClean: false });
-    diff(20, { mergeBase: 'b0' });
     diff(22, { mergeBase: 'b0' });
     const calls: string[][] = [];
-    const out = await run(calls, { issues, prs: [open(21, 9), open(20, 8), open(22, 11)] }, {
+    const out = await run(calls, { issues, prs: [open(21, 9), open(22, 11)] }, {
       21: [facts(21, 9, { mergeStateStatus: 'DIRTY' }), facts(21, 9, { labels: ['vanguard:revising'] })],
-      20: [facts(20, 8), facts(20, 8, { labels: ['needs revision'] })],
       22: [facts(22, 11), facts(22, 11, { labels: ['Taskcell:Revising'] })],
     });
-    expect(out.map((d) => [d.pr, d.action])).toEqual([[21, 'skipped'], [20, 'updated'], [22, 'skipped']]);
+    expect(out.map((d) => [d.pr, d.action])).toEqual([[21, 'skipped'], [22, 'skipped']]);
+    expect(writes(calls)).toEqual([]);
+  });
+
+  it('needs revision applied 5 min ago is a pending round: no update-branch, no re-label', async () => {
+    diff(20, { mergeBase: 'b0' });
+    diff(21, { mergeTreeHeadClean: false });
+    const calls: string[][] = [];
+    const out = await run(calls, { issues, prs: [open(20, 8), open(21, 9)], labeledAgo: { 20: 5 * 60_000, 21: 5 * 60_000 } }, {
+      20: [facts(20, 8), facts(20, 8, { labels: ['needs revision'] })],
+      21: facts(21, 9, { labels: ['needs revision'] }),
+    });
+    expect(out.map((d) => [d.pr, d.action])).toEqual([[20, 'skipped'], [21, 'skipped']]);
+    expect(writes(calls)).toEqual([]);
+  });
+
+  it('needs revision applied 2 h ago is not a pending round: update-branch', async () => {
+    diff(20, { mergeBase: 'b0' });
+    const calls: string[][] = [];
+    const out = await run(calls, { issues, prs: [open(20, 8)], labeledAgo: { 20: 2 * 3600_000 } }, { 20: [facts(20, 8), facts(20, 8, { labels: ['needs revision'] })] });
+    expect(out.map((d) => [d.pr, d.action])).toEqual([[20, 'updated']]);
     expect(writes(calls)).toEqual(['update-branch 20']);
   });
 
-  it('dedupes the revise comment under an App identity named in the policy approverLogins', async () => {
+  it('a revise marker from a user account named like the App does not dedupe; one the token wrote does', async () => {
     diff(21, { mergeTreeHeadClean: false });
     const marker = '<!-- taskcell-approver-act: head21:revise:dependent-conflict -->';
-    const f: Fake = { issues, prs: [open(21, 9)], comments: { 21: [marker] }, commentAuthor: { login: 'my-app', association: 'NONE' } };
     const labelled = facts(21, 9, { labels: ['needs revision'] });
-    const without: string[][] = [];
-    await run(without, f, { 21: labelled });
-    expect(writes(without)).toContain('comment 21 --body');
-    const withLogins: string[][] = [];
-    await run(withLogins, f, { 21: labelled }, { ...POLICY, approverLogins: ['My-App'] });
-    expect(writes(withLogins)).toEqual([]);
+    const policy = { ...POLICY, approverLogins: ['my-app[bot]', 'app/my-app'] };
+    const user: string[][] = [];
+    await run(user, { issues, prs: [open(21, 9)], comments: { 21: [marker] }, commentAuthor: { login: 'my-app', association: 'NONE' } }, { 21: labelled }, policy);
+    expect(writes(user)).toEqual(['comment 21 --body', 'edit 21 --remove-label needs revision', 'edit 21 --add-label needs revision']);
+    const own: string[][] = [];
+    await run(own, { issues, prs: [open(21, 9)], comments: { 21: [marker] }, commentAuthor: { login: 'my-app', association: 'NONE', viewerDidAuthor: true } }, { 21: labelled }, policy);
+    expect(writes(own)).toEqual([]);
   });
 
   it('does nothing when the policy has act off or is disabled', async () => {
@@ -245,6 +270,7 @@ describe('gh allow-lists', () => {
     ['pr', 'list', '--repo', R, '--state', 'open', '--limit', '100', '--json', 'number,headRefName,isCrossRepository,author'],
     ['api', 'repos/o/r/issues/7'],
     ['api', 'repos/o/r/issues/7/dependencies/blocked_by', '--paginate'],
+    ['api', 'repos/o/r/issues/7/timeline', '--paginate', '--slurp'],
   ];
   it('act mode allows exactly the merge-order shapes', () => {
     for (const args of shapes) expect(() => assertActSafeGhArgs(args)).not.toThrow();
@@ -258,6 +284,9 @@ describe('gh allow-lists', () => {
       ['api', 'repos/o/../r/issues/7/x'],
       ['api', 'repos/../x/issues/1'],
       ['api', 'repos/o/../issues/1'],
+      ['api', 'repos/o/r/issues/7/timeline', '--paginate', '--slurp', '-X', 'POST'],
+      ['api', 'repos/o/r/issues/7/timeline', '-X', 'POST'],
+      ['api', 'repos/o/../issues/7/timeline', '--paginate', '--slurp'],
     ]) expect(() => assertActSafeGhArgs(args)).toThrow();
   });
   it('shadow mode allows none of them', () => {

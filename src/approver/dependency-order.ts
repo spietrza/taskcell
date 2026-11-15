@@ -65,6 +65,26 @@ const REVISING_LABEL = 'taskcell:revising';
 /** A revise round is running: `revising` (either spelling), which the run sets only after its image build. */
 const inFlight = (labels: readonly string[]): boolean => hasLabel(labels.map((l) => l.toLowerCase()), REVISING_LABEL);
 
+/** How long after `needs revision` is applied a revise round counts as pending (queued, or building its image before `revising`). */
+export const PENDING_ROUND_MS = 60 * 60 * 1000;
+const PENDING = 'a revise round is in flight or pending';
+
+/**
+ * A revise round is running, or may be about to: `revising`, or `needs revision` whose latest `labeled` event on the
+ * PR's timeline is under PENDING_ROUND_MS old (or cannot be found). A timeline read failure throws: the caller writes nothing.
+ */
+async function roundPending(gh: GhRunner, repo: string, pr: number, labels: readonly string[]): Promise<boolean> {
+  if (inFlight(labels)) return true;
+  if (!hasLabel(labels, NEEDS_REVISION_LABEL)) return false;
+  const pages = JSON.parse(await gh(['api', `repos/${repo}/issues/${pr}/timeline`, '--paginate', '--slurp'])) as { event?: string; label?: { name?: string }; created_at?: string }[][];
+  const applied = pages
+    .flat()
+    .filter((e) => e.event === 'labeled' && hasLabel([e.label?.name ?? ''], NEEDS_REVISION_LABEL))
+    .map((e) => Date.parse(e.created_at ?? ''))
+    .filter((t) => Number.isFinite(t));
+  return applied.length === 0 || Date.now() - Math.max(...applied) < PENDING_ROUND_MS;
+}
+
 interface OpenPr {
   number: number;
   headRefName: string;
@@ -142,13 +162,12 @@ export async function rebaseDependents(input: RebaseDependentsInput): Promise<Re
         done('skipped', excluded.join('; '));
         continue;
       }
-      // The labels were read before the diff fetch: read them again right before a write, so a round that started meanwhile is left alone.
-      const roundStarted = async (): Promise<boolean> => inFlight((await input.readPr(candidate.pr)).labels ?? []);
+      // The labels were read before the diff fetch: read them again right before a write, so a round that started (or was queued) meanwhile is left alone.
       const revise = async (): Promise<void> => {
         // Once per head: the marker dedupes the comment, and a label already applied for this head is left alone.
         const fresh = (await input.readPr(candidate.pr)).labels ?? [];
-        if (inFlight(fresh)) {
-          done('skipped', 'a revise round is in flight');
+        if (await roundPending(gh, repo, candidate.pr, fresh)) {
+          done('skipped', PENDING);
           return;
         }
         const marker = `<!-- taskcell-approver-act: ${pr.headSha}:revise:dependent-conflict -->`;
@@ -166,8 +185,8 @@ export async function rebaseDependents(input: RebaseDependentsInput): Promise<Re
         await revise();
       } else if (pr.mergeStateStatus === 'BEHIND' || (diff.mergeBase !== '' && diff.baseSha !== '' && diff.mergeBase !== diff.baseSha)) {
         // Without strict branch protection a stale PR reads CLEAN, so the merge-base is compared with the base tip too.
-        if (await roundStarted()) {
-          done('skipped', 'a revise round is in flight');
+        if (await roundPending(gh, repo, candidate.pr, (await input.readPr(candidate.pr)).labels ?? [])) {
+          done('skipped', PENDING);
           continue;
         }
         try {
