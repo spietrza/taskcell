@@ -124,6 +124,9 @@ export async function listTeams(configDir: string): Promise<Team[]> {
 export interface Caller {
   user: HubUser;
   owner: boolean;
+  /** A signed-in hub admin (`TASKCELL_HUB_ADMINS`, `--admin-github-login`): admin of the teams they belong to, and of
+   * an empty default team (so the first member can be added without the token). Never the owner. */
+  hubAdmin?: boolean;
 }
 
 const same = (a: string, b: string): boolean => a.toLowerCase() === b.toLowerCase();
@@ -135,10 +138,18 @@ function roleIn(team: Team, user: HubUser): TeamRole | undefined {
   return team.members.find((m) => keys.some((k) => same(m.login, k)))?.role;
 }
 
+/** The caller's role in a team, owner aside: a member's own role, except that a hub admin is an admin of
+ * their teams and of the default team while it has no members at all (the bootstrap: adding the first one). */
+function roleOf(team: Team, caller: Caller): TeamRole | undefined {
+  const own = roleIn(team, caller.user);
+  if (caller.hubAdmin !== true) return own;
+  return own !== undefined || (team.id === DEFAULT_TEAM_ID && team.members.length === 0) ? 'admin' : undefined;
+}
+
 /** The teams the caller belongs to (the owner: all of them). */
 export async function callerTeams(configDir: string, caller: Caller): Promise<Team[]> {
   const all = await listTeams(configDir);
-  return caller.owner ? all : all.filter((t) => roleIn(t, caller.user) !== undefined);
+  return caller.owner ? all : all.filter((t) => roleOf(t, caller) !== undefined);
 }
 
 /** The selected team (`teamId`, else the caller's first), refused when the caller is not in it. */
@@ -154,8 +165,13 @@ export function assertOwner(caller: Caller): void {
   if (!caller.owner) throw new BadRequestError('only the hub owner can do this');
 }
 
+/** `clone_project` for a signed-in hub admin as well as the owner; the file-system commands stay `assertOwner`. */
+export function assertOwnerOrHubAdmin(caller: Caller): void {
+  if (!caller.owner && caller.hubAdmin !== true) throw new BadRequestError('only the hub owner or a hub admin can do this');
+}
+
 function assertAdmin(team: Team, caller: Caller): void {
-  if (!caller.owner && roleIn(team, caller.user) !== 'admin') throw new BadRequestError(`only a team admin can change team ${team.id}`);
+  if (!caller.owner && roleOf(team, caller) !== 'admin') throw new BadRequestError(`only a team admin can change team ${team.id}`);
 }
 
 /** The realpath'd repositories of the caller's teams; `undefined` = unrestricted (the owner). Compute
@@ -182,10 +198,13 @@ function change(configDir: string, caller: Caller, id: string, edit: (t: Team) =
   return serialised(async () => {
     const all = await ensure(configDir);
     const team = all.find((t) => t.id === id);
-    if (team === undefined || (!caller.owner && roleIn(team, caller.user) === undefined)) throw new BadRequestError(`not a member of team: ${id}`);
+    if (team === undefined || (!caller.owner && roleOf(team, caller) === undefined)) throw new BadRequestError(`not a member of team: ${id}`);
     assertAdmin(team, caller);
     const hadAdmin = team.members.some((m) => m.role === 'admin');
+    // A hub admin filling an empty team stays in it: the team's first member row is theirs.
+    const bootstrap = !caller.owner && team.members.length === 0;
     edit(team);
+    if (bootstrap && team.members.length > 0 && roleIn(team, caller.user) === undefined) team.members.push({ login: caller.user.id, role: 'admin' });
     if (hadAdmin && !team.members.some((m) => m.role === 'admin')) throw new BadRequestError('a team must keep at least one admin');
     await saveTeams(configDir, all);
     return team;
@@ -204,10 +223,21 @@ export const removeMember = (configDir: string, caller: Caller, id: string, logi
 
 const DEFAULT_MIRRORS = 'the default team mirrors the project list; use add_project / remove_project';
 
+/** A cloned repository joins the team the caller chose (the default team mirrors the project list, so nothing to
+ * write there). The caller must belong to the team; a hub admin's role there is admin. */
+export const joinRepository = (configDir: string, caller: Caller, id: string, path: string): Promise<Team> =>
+  change(configDir, caller, id, (t) => {
+    if (t.id !== DEFAULT_TEAM_ID) attach(t, path);
+  });
+
+function attach(t: Team, path: string): void {
+  if (!t.repositories.includes(path)) t.repositories.push(path);
+}
+
 export const addRepository = (configDir: string, caller: Caller, id: string, path: string): Promise<Team> =>
   change(configDir, caller, id, (t) => {
     if (t.id === DEFAULT_TEAM_ID) throw new BadRequestError(DEFAULT_MIRRORS);
-    if (!t.repositories.includes(path)) t.repositories.push(path);
+    attach(t, path);
   });
 
 export const removeRepository = (configDir: string, caller: Caller, id: string, path: string): Promise<Team> =>
@@ -230,5 +260,5 @@ export function purgeRepository(configDir: string, path: string): Promise<void> 
 export async function callerRole(configDir: string, caller: Caller, id: string): Promise<TeamRole | undefined> {
   const team = (await callerTeams(configDir, caller)).find((t) => t.id === id);
   if (team === undefined) return undefined;
-  return caller.owner ? 'admin' : roleIn(team, caller.user);
+  return caller.owner ? 'admin' : roleOf(team, caller);
 }

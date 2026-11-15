@@ -177,6 +177,14 @@ on this hub". Entries: `alice@example.com` (an e-mail), `@example.com` (a domain
 `gitlab:login` entry matches that login on whichever GitLab the hub is configured for. An empty list
 means nobody can sign up (the hub warns at startup). Existing accounts are not re-checked on sign-in.
 
+**Hub admins.** `TASKCELL_HUB_ADMINS` is a comma-separated list of hub admins named by sign-in identity, in the
+same entry syntax as `TASKCELL_HUB_SIGNUP_ALLOW` (`alice@example.com`, `@example.com`, `github:login`,
+`gitlab:login`). E-mail and domain entries only match a provider-verified address; `github:` / `gitlab:` match the
+login the provider reported at sign-in, never a user-editable field. `--admin-github-login` (and
+`TASKCELL_HUB_ADMIN_GITHUB_LOGINS`) keep working as one more `github:` entry each. What a hub admin may do is under
+"Teams and roles". A user who has linked both GitHub and GitLab matches either login. A GitLab login is
+recorded when the user signs in with GitLab, so a `gitlab:` admin entry matches from their next sign-in on. Without the token, a hub admin still cannot `browse_dirs` or `add_project`.
+
 **Local owner user.** In local mode (a plain loopback bind) there is no sign-in screen, no OAuth and no
 database (`/api/auth/*` and `/sign-in` answer 404); the hub acts as one automatic owner user. In server
 mode the owner is a real Better Auth user (`owner@hub.invalid`, e-mail unverified so no provider
@@ -192,12 +200,17 @@ outside the user's teams — reading a run, a session or a file included — is 
 active run, run backlog, cancel and the `/events` stream only carry the user's repositories.
 `add_team_member`, `remove_team_member`, `add_team_repository` (a project the admin already holds) and
 `remove_team_repository` need the team's `admin` role; a `member` is refused. A team keeps at least one
-admin. The token holder is the owner, admin of every team, and alone may `add_project` / `remove_project` /
-`clone_project` / `browse_dirs` (a hub-wide remove also leaves every team), use the credential commands and the Fleet (Settings → Runners)
-commands. Token-only mode is unchanged: one default team, the token its admin.
+admin. A **hub admin** (see "Hub admins"), signed in, may without the token: manage the instance credentials and the
+`per-user credentials` switch (everything the token holder may in Settings); `clone_project` from the hosts in
+`TASKCELL_HUB_CLONE_HOSTS` (plus github.com and gitlab.com) when `TASKCELL_HUB_ALLOW_ADD=1`, cloned into `taskcell-repos/` under the
+browse root (a folder name never starts with a dot) and added to the admin's team (`teamId`, default their first); and add and remove members from Settings. A hub admin is
+admin of the teams they belong to, and of the default team while it has no members at all: on a fresh hub they add
+the first member from the UI and are recorded in that team as its admin, after which the team is administered as usual. The token holder is the owner, admin of every team, and alone may
+`add_project` / `remove_project` / `browse_dirs` (these reach the server's file system; a hub-wide remove also leaves every
+team) and use the Fleet (Settings → Runners) commands; `clone_project` with a chosen parent folder is the owner's too. Token-only mode is unchanged: one default team, the token its admin.
 
 *Adding the first members.* On a fresh server-mode hub the default team has no members, so signed-in users
-see an empty hub until the owner adds them (there is no UI for it yet; use the token):
+see an empty hub until the owner adds them (the token, or a hub admin in Settings → Members):
 
     curl -X POST "$HUB/rpc/add_team_member" -H "x-vanguard-hub-token: $TOKEN" \
       -H 'content-type: application/json' -H "origin: $HUB" \
@@ -375,6 +388,7 @@ request is replayed, so a run is never started twice.
 | `TASKCELL_HUB_AUTH_GITLAB_ISSUER` | `https://gitlab.com` |
 | `TASKCELL_HUB_AUTH_SECRET` | random, persisted to `auth-secret` in the state dir |
 | `TASKCELL_HUB_SIGNUP_ALLOW` | — (comma-separated e-mails, `@domains`, `github:login`, `gitlab:login`) |
+| `TASKCELL_HUB_ADMINS` | — (comma-separated hub admins: e-mails, `@domains`, `github:login`, `gitlab:login`) |
 | `TASKCELL_HUB_ALLOW_FLEET` | — (`1` on a loopback bind enables Fleet; set by the desktop app) |
 | `TASKCELL_HUB_EXIT_ON_STDIN_EOF` | — (`1`: shut down when stdin closes; set by the desktop app) |
 | `TASKCELL_HUB_ALLOWED_HOSTS` | — (comma-separated exact Host values, added to `localhost`/any IP literal on any port) |
@@ -695,7 +709,7 @@ process as the HTTP server, so give the container the same RAM headroom, and kee
 ## Per-user provider credentials
 
 Off by default: every run uses the instance credential (the hub's environment, or an instance
-credential the hub owner or an admin saved). An **admin** — a GitHub login listed in `--admin-github-login`
+credential the hub owner or an admin saved). A **hub admin** — listed in `TASKCELL_HUB_ADMINS`, or a GitHub login in `--admin-github-login`
 (repeatable) or `TASKCELL_HUB_ADMIN_GITHUB_LOGINS` (comma-separated) — can change the
 `per-user credentials` switch in Settings (as can the hub owner):
 
