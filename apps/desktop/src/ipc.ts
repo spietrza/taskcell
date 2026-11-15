@@ -90,8 +90,8 @@ export function addProject(path: string): Promise<Project[]> {
 /** Hub-only: clone `url` under `parentDir` (the same browse-root-confined picker as `browseDirs`)
  *  and register the result, returning just the new project (not the whole list — the caller appends
  *  it, like `cloneProject`'s RepoPicker caller does). */
-export function cloneProject(url: string, parentDir: string, name?: string): Promise<Project> {
-  return call('clone_project', { url, parentDir, name });
+export function cloneProject(url: string, parentDir: string, name?: string, teamId?: string): Promise<Project> {
+  return call('clone_project', { url, parentDir, name, ...(teamId !== undefined ? { teamId } : {}) });
 }
 
 // Enable factory (hub-only): plan -> apply (branch + PR, never the default branch) -> secret

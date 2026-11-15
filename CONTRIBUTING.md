@@ -49,6 +49,11 @@ pnpm test
 
 Both must pass before opening a pull request.
 
+New behaviour comes with tests in the co-located `*.test.ts` next to the code it changes, and a bug fix with
+a test that fails without the fix. Match the surrounding code's style (strict TypeScript, ES modules with
+explicit `.js` import extensions); `pnpm lint` and `pnpm verify` check it, and CI runs `pnpm verify` on every
+pull request.
+
 The sandbox contract suite (`src/sandbox/sandbox-contract.test.ts`) runs against the real
 `taskcell-sandbox:latest` image in both rootfs modes, and it is opt-in. Build the image with
 `bash docker/build.sh`, then run `VANGUARD_CONTRACT=1 pnpm test src/sandbox/sandbox-contract.test.ts`.

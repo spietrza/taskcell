@@ -8,8 +8,8 @@ name: Taskcell Revise
 # whose author (the author gate below) is the signed-in user, Taskcell's own bot (`github-actions[bot]`)
 # or the optional GitHub App's bot.
 #
-# Optional GitHub App (docs/onboarding-another-repo.md): replace YOUR_APP_SLUG with your App's slug so PRs it
-# opened can be revised. PR-author list only — never the sender check or `allowed-actors`.
+# Optional GitHub App (docs/onboarding-another-repo.md): `Enable factory` adds the App bot (from TASKCELL_APP_SLUG) to
+# the PR-author list so PRs it opened can be revised. PR-author list only — never the sender check or `allowed-actors`.
 
 on:
   pull_request_target:
