@@ -10,9 +10,17 @@ const hostCodexAuthFile = (env: NodeJS.ProcessEnv): string =>
 /** CI sources CODEX_AUTH_JSON from a stored secret; there is no host file to hand a rotation back to. */
 export const isCi = (env: NodeJS.ProcessEnv): boolean => [env.CI, env.GITHUB_ACTIONS].some((v) => v !== undefined && v !== '' && v !== '0' && v !== 'false');
 
-const CONTROL_CHARS = /[\x00-\x1f\x7f]/;
+// C0/C1 controls (U+009B is CSI on some terminals), line/paragraph separators and bidi overrides.
+// Keep llm-proxy-server.mjs (a standalone sidecar script that cannot import this) in step.
+const CONTROL_CHARS = /[\x00-\x1f\x7f-\x9f\u2028\u2029\u202a-\u202e\u2066-\u2069]/g;
 
-const clean = (v: unknown): v is string => typeof v === 'string' && v !== '' && !CONTROL_CHARS.test(v);
+/** `v` without control, separator and bidi-override characters. */
+export const stripControlChars = (v: string): string => v.replace(CONTROL_CHARS, '');
+
+const MAX_TOKEN = 8192;
+const MAX_LAST_REFRESH = 64;
+const clean = (v: unknown): v is string => typeof v === 'string' && v.length <= MAX_TOKEN && /^[\x21-\x7e]+$/.test(v);
+const cleanTimestamp = (v: unknown): v is string => typeof v === 'string' && v.length <= MAX_LAST_REFRESH && /^[\x20-\x7e]+$/.test(v);
 
 type AuthJson = { tokens?: { access_token?: unknown; refresh_token?: unknown }; last_refresh?: unknown; [k: string]: unknown };
 
@@ -25,12 +33,12 @@ const parse = (json: string): AuthJson | undefined => {
   }
 };
 
-/** `current` with the rotated access/refresh tokens and `last_refresh` merged in; undefined when `rotated` lacks a clean string access/refresh token or has a non-string `last_refresh`. */
+/** `current` with the rotated access/refresh tokens and `last_refresh` merged in; undefined when `rotated` lacks a printable-ASCII, bounded-length string access/refresh token or has a malformed `last_refresh`. */
 const merge = (current: AuthJson, rotated: AuthJson): AuthJson | undefined => {
   const access = rotated.tokens?.access_token;
   const refresh = rotated.tokens?.refresh_token;
   if (!clean(access) || !clean(refresh)) return undefined;
-  if (rotated.last_refresh !== undefined && typeof rotated.last_refresh !== 'string') return undefined;
+  if (rotated.last_refresh !== undefined && !cleanTimestamp(rotated.last_refresh)) return undefined;
   const merged: AuthJson = { ...current, tokens: { ...current.tokens, access_token: access, refresh_token: refresh } };
   if (rotated.last_refresh !== undefined) merged.last_refresh = rotated.last_refresh;
   return merged;

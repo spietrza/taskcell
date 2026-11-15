@@ -64,7 +64,8 @@ const DEFAULT_CREDENTIAL_DIR = '/run/vanguard-llm';
 // SECRET/NONCE (and the chatgpt credential fields, including AUTH_FILE — it reaches a filesystem
 // path) are placed into HTTP headers, JSON bodies or syscalls; reject control chars up front to
 // prevent header/JSON/path injection.
-const CONTROL_CHARS = /[\x00-\x1f\x7f]/;
+// Keep in step with CONTROL_CHARS in codex-rotation.ts (this script runs standalone in the sidecar and cannot import it).
+const CONTROL_CHARS = /[\x00-\x1f\x7f-\x9f\u2028\u2029\u202a-\u202e\u2066-\u2069]/;
 const IDP_RESPONSE_TOO_LARGE = 'idp response exceeds the size cap';
 
 function parseSecretFile(text) {
