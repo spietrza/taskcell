@@ -143,20 +143,6 @@ if (navigator.clipboard) {
   }
 }
 
-// ---------- Hub preview panel: built when it comes near the screen; phones keep the poster ----------
-const panelHost = document.getElementById('floor-panel');
-if (!phone) {
-  const near = new IntersectionObserver(
-    (entries) => {
-      if (!entries.some((e) => e.isIntersecting)) return;
-      near.disconnect();
-      afterPaint(() => mount(panelHost, { mode: 'panel', labels: false }, true));
-    },
-    { rootMargin: '300px 0px' },
-  );
-  near.observe(panelHost);
-}
-
 // ---------- pricing: the yearly price is computed from the monthly one (20% off), never typed in ----------
 const billing = document.getElementById('billing');
 billing.hidden = false;
@@ -240,46 +226,57 @@ byId('quiz-nojs').hidden = true;
 quiz.hidden = false;
 showStep(false);
 
-// ---------- Hub preview: a board card or a run row opens that run's own record (sample data) ----------
+// ---------- Hub preview: views filter the run list, a row opens that run's own stages, log and cost (sample data) ----------
 const STAGES = ['Spec', 'Sealed cell', 'Gates', 'Review', 'Pull request'];
 const CLEAN = 'gates: verify passed, secret scan clean';
 // done: stages finished; now: what the next stage is doing (left out when nothing runs).
 const RUNS = {
-  'TC-52': { title: 'Rate-limit the export endpoint', state: 'Todo', done: 0, log: ['labelled for the factory', 'no run yet: waiting for a free cell'] },
-  'TC-53': { title: 'Dark mode for settings', state: 'Todo', done: 0, log: ['labelled for the factory', 'no run yet: behind TC-52 in the queue'] },
-  'TC-50': { title: 'Paginate the audit log', state: 'Spec', done: 0, now: 'for you to read', log: ['planner read the code', 'spec posted on the issue: 5 acceptance criteria', 'the build starts when the reading window ends'] },
-  'TC-47': { title: 'Retry webhooks with backoff', state: 'In a cell', done: 1, now: 'running', log: ['spec posted on the issue: 4 acceptance criteria', 'cell started: non-root, no repository token', 'agent is editing src/webhooks/retry.ts'] },
-  'TC-48': { title: 'Show VAT on invoice PDFs', state: 'In a cell', done: 1, now: 'running', log: ['spec posted on the issue: 3 acceptance criteria', 'cell started: non-root, no repository token', 'agent changed src/invoices/pdf.ts', 'agent is writing src/invoices/pdf.test.ts'] },
-  'TC-49': { title: 'Export filter for currency', state: 'In a cell', done: 1, now: 'starting', log: ['spec posted on the issue: 2 acceptance criteria', 'creating the git worktree and the cell'] },
-  'TC-46': { title: 'Archive paid invoices', state: 'Review', done: 3, now: 'running', log: ['cell: 6 files changed', CLEAN, 'review (Codex): reading the diff in a fresh context'] },
-  'TC-44': { title: 'Add CSV export to invoices', state: 'Pull request #212', done: 5, log: [CLEAN, 'review (Codex): 1 finding fixed', 'PR #212 opened, ready for review'] },
-  'TC-45': { title: 'Fix rounding in totals', state: 'Pull request #213', done: 5, log: [CLEAN, 'review (Codex): no findings', 'PR #213 opened, ready for review'] },
-  'TC-43': { title: 'Late fee on overdue invoices', state: 'Pull request #211', done: 5, log: ['gates: verify failed, 2 tests red', `repair 1: ${CLEAN.slice(7)}`, 'review (Claude): no findings', 'PR #211 opened, ready for review'] },
-  'TC-42': { title: 'Check webhook signatures', state: 'Pull request #210', done: 5, log: ['cell: built by Codex', CLEAN, 'review (Claude): 2 findings fixed', 'PR #210 opened, ready for review'] },
-  'TC-41': { title: 'Invoice numbers per year', state: 'Pull request #209', done: 5, log: [CLEAN, 'review (Codex): 3 findings fixed', 'PR #209 opened, ready for review'] },
+  'TC-47': { done: 1, now: 'running', log: ['spec posted on the issue: 4 acceptance criteria', 'cell started: non-root, no repository token', 'agent is editing src/webhooks/retry.ts'] },
+  'TC-48': { done: 1, now: 'running', log: ['spec posted on the issue: 3 acceptance criteria', 'cell started: non-root, no repository token', 'agent changed src/invoices/pdf.ts', 'agent is writing src/invoices/pdf.test.ts'] },
+  'TC-49': { done: 1, now: 'running', log: ['spec posted on the issue: 2 acceptance criteria', 'creating the git worktree and the cell'] },
+  'TC-46': { done: 3, now: 'running', log: ['cell: 6 files changed', CLEAN, 'review (Codex): reading the diff in a fresh context'] },
+  'IN-7': { done: 2, now: 'running', log: ['cell: 3 files changed', 'gates: running your verify script'] },
+  'TC-50': { done: 0, now: 'for you to read', log: ['planner read the code', 'spec posted on the issue: 5 acceptance criteria', 'the build starts when the reading window ends'] },
+  'TC-52': { done: 0, log: ['No run yet. The card is waiting for the factory.'] },
+  'TC-53': { done: 0, log: ['No run yet. The card is waiting for the factory.'] },
+  'TC-44': { done: 5, log: [CLEAN, 'review (Codex): 1 finding fixed', 'PR #212 opened, ready for review'] },
+  'TC-45': { done: 5, log: [CLEAN, 'review (Codex): no findings', 'PR #213 opened, ready for review'] },
+  'TC-43': { done: 5, log: ['gates: verify failed, 2 tests red', `repair 1: ${CLEAN.slice(7)}`, 'review (Claude): no findings', 'PR #211 opened, merged by a person'] },
+  'TC-42': { done: 5, log: ['cell: built by Codex', CLEAN, 'review (Claude): 2 findings fixed', 'PR #210 opened, merged by a person'] },
+  'TC-41': { done: 5, log: [CLEAN, 'review (Codex): 3 findings fixed', 'PR #209 opened, merged by a person'] },
 };
-const hub = document.querySelector('.hub');
-const openRun = (id) => {
+const win = document.querySelector('.win');
+const views = [...win.querySelectorAll('.views button')];
+const runRows = [...win.querySelectorAll('.rows button')];
+/** A view shows one board column, one repository, or (All runs) everything. */
+const shows = (view, row) => (view.dataset.col ? row.dataset.col === view.dataset.col : !view.dataset.repo || row.dataset.repo === view.dataset.repo);
+const pickView = (view) => {
+  for (const v of views) v.setAttribute('aria-pressed', v === view);
+  for (const row of runRows) row.parentElement.hidden = !shows(view, row);
+  byId('win-empty').hidden = runRows.some((row) => shows(view, row));
+};
+const openRun = (row) => {
+  const { run: id, col, repo, cost } = row.dataset;
   const r = RUNS[id];
-  byId('run-title').textContent = `${id} · ${r.title} · ${r.state}`;
+  for (const other of runRows) other.setAttribute('aria-pressed', other === row);
+  byId('run-where').textContent = `${repo} / ${id}`;
+  byId('run-col').textContent = col;
+  byId('run-title').textContent = row.querySelector('b').textContent;
   byId('run-stages').replaceChildren(
     ...STAGES.map((name, i) => {
       const li = document.createElement('li');
-      const status = i < r.done ? 'done' : i === r.done && r.now ? r.now : 'waiting';
-      li.className = i < r.done ? 'done' : status === 'waiting' ? '' : 'now';
+      const status = i < r.done ? 'done' : i === r.done && r.now ? r.now : r.now ? 'waiting' : 'not started';
+      li.className = i < r.done ? 'done' : i === r.done && r.now ? 'now' : '';
       li.append(Object.assign(document.createElement('b'), { textContent: name }), Object.assign(document.createElement('span'), { textContent: status }));
       return li;
     }),
   );
   fill(byId('run-log'), r.log);
-  for (const el of hub.querySelectorAll('[data-run]')) {
-    const on = el.dataset.run === id;
-    el.classList.toggle('on', on);
-    (el.querySelector('button') ?? el).setAttribute('aria-pressed', on);
-  }
+  byId('run-cost').textContent = cost ? `Cost ${cost}` : col === 'Queued' ? 'No run yet, so no cost.' : 'No cost record yet: the run is still going.';
 };
-hub.addEventListener('click', (e) => {
-  const el = e.target.closest('[data-run]');
-  if (el) openRun(el.dataset.run);
-});
-openRun('TC-47');
+for (const v of views) {
+  v.querySelector('em').textContent = runRows.filter((row) => shows(v, row)).length; // counts come from the list itself
+  v.addEventListener('click', () => pickView(v));
+}
+for (const row of runRows) row.addEventListener('click', () => openRun(row));
+openRun(runRows[0]);

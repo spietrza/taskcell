@@ -50,10 +50,11 @@
     <div class="cta">
       <a class="btn" href="https://github.com/spietrza/taskcell">Get it on GitHub</a>
       <a class="btn ghost" href="#ready">Check your repository</a>
-      <small>Open source, MIT. Your machine, your AI plan.</small>
+      <small>Open source, MIT. Your machine, your AI plan. Or let us run it for you: <a href="#pricing">hosting is planned, from €14 a month</a>.</small>
     </div>
     <ul class="chips" aria-label="What it runs on">
       <li class="chip">Self-hosted</li>
+      <li class="chip"><a href="#pricing">Hosted by us: planned</a></li>
       <li class="chip">Claude Code · Codex · Cursor</li>
       <li class="chip">GitHub · GitLab · Linear</li>
     </ul>
@@ -88,82 +89,59 @@
     <p class="eyebrow" data-reveal>The Hub</p>
     <h2 id="hub-h" data-reveal class="d1">Your factory, on one screen</h2>
   </div>
-  <p class="intro d2" data-reveal><code>taskcell hub</code> shows your projects, the task board and the cost of every run. The live factory floor is coming to it; this is how it will look.</p>
-  <p class="preview-note d2" data-reveal>Preview with sample data. Pick a card on the board or a row under Cost per run to open its run record. Projects, the board and cost per run are in the Hub today; the floor panel is not yet.</p>
+  <p class="intro d2" data-reveal><code>taskcell hub</code> shows your repositories, the task board and every run with its stages, record and cost.</p>
+  <p class="preview-note d2" data-reveal>Preview with sample data. Pick a view on the left, then a run, to open its stages, log and cost.</p>
 
   <div class="hub d2" data-reveal>
-    <div class="hub-top"><b>Taskcell Hub</b></div>
-    <div class="hub-grid">
-      <div class="pane">
-        <h3>Factory floor <span>acme/billing</span></h3>
-        <div class="floor floor-panel compact" id="floor-panel">
-          <img class="poster" src="/img/floor-800.jpg" srcset="/img/floor-800.jpg 800w, /img/floor-1600.jpg 1600w" sizes="(max-width: 900px) 100vw, 55vw" width="1600" height="1100" alt="The same factory floor, as a panel in the Hub." loading="lazy">
-          <div class="stage"></div>
-        </div>
+    <div class="hub-top"><b>Taskcell Hub</b><span>Sample data</span></div>
+    <div class="win">
+      <nav class="views" aria-label="Views of the run list">
+        <button type="button" aria-pressed="true">All runs<em>13</em></button>
+            <button type="button" data-col="Queued" aria-pressed="false">Queued<em>2</em></button>
+            <button type="button" data-col="Claimed" aria-pressed="false">Claimed<em>1</em></button>
+            <button type="button" data-col="Running" aria-pressed="false">Running<em>5</em></button>
+            <button type="button" data-col="Verify failed" aria-pressed="false">Verify failed<em>0</em></button>
+            <button type="button" data-col="Review" aria-pressed="false">Review<em>2</em></button>
+            <button type="button" data-col="Done" aria-pressed="false">Done<em>3</em></button>
+        <p class="cmd-label">Repositories</p>
+            <button type="button" data-repo="acme/billing" aria-pressed="false">acme/billing<em>12</em></button>
+            <button type="button" data-repo="acme/infra" aria-pressed="false">acme/infra<em>1</em></button>
+            <button type="button" data-repo="acme/web" aria-pressed="false">acme/web<em>0</em></button>
+      </nav>
+      <div class="list">
+        <ul class="rows" aria-label="Runs">
+            <li><button type="button" data-run="TC-47" data-col="Running" data-repo="acme/billing" aria-pressed="true"><span class="id">TC-47</span><span class="what"><b>Retry webhooks with backoff</b><small>acme/billing</small></span><span class="st">Running</span><span class="cost"></span></button></li>
+            <li><button type="button" data-run="TC-48" data-col="Running" data-repo="acme/billing" aria-pressed="false"><span class="id">TC-48</span><span class="what"><b>Show VAT on invoice PDFs</b><small>acme/billing</small></span><span class="st">Running</span><span class="cost"></span></button></li>
+            <li><button type="button" data-run="TC-49" data-col="Running" data-repo="acme/billing" aria-pressed="false"><span class="id">TC-49</span><span class="what"><b>Export filter for currency</b><small>acme/billing</small></span><span class="st">Running</span><span class="cost"></span></button></li>
+            <li><button type="button" data-run="TC-46" data-col="Running" data-repo="acme/billing" aria-pressed="false"><span class="id">TC-46</span><span class="what"><b>Archive paid invoices</b><small>acme/billing</small></span><span class="st">Running</span><span class="cost"></span></button></li>
+            <li><button type="button" data-run="IN-7" data-col="Running" data-repo="acme/infra" aria-pressed="false"><span class="id">IN-7</span><span class="what"><b>Rotate the deploy token</b><small>acme/infra</small></span><span class="st">Running</span><span class="cost"></span></button></li>
+            <li><button type="button" data-run="TC-50" data-col="Claimed" data-repo="acme/billing" aria-pressed="false"><span class="id">TC-50</span><span class="what"><b>Paginate the audit log</b><small>acme/billing</small></span><span class="st">Claimed</span><span class="cost"></span></button></li>
+            <li><button type="button" data-run="TC-52" data-col="Queued" data-repo="acme/billing" aria-pressed="false"><span class="id">TC-52</span><span class="what"><b>Rate-limit the export endpoint</b><small>acme/billing</small></span><span class="st">Queued</span><span class="cost"></span></button></li>
+            <li><button type="button" data-run="TC-53" data-col="Queued" data-repo="acme/billing" aria-pressed="false"><span class="id">TC-53</span><span class="what"><b>Dark mode for settings</b><small>acme/billing</small></span><span class="st">Queued</span><span class="cost"></span></button></li>
+            <li><button type="button" data-run="TC-44" data-col="Review" data-repo="acme/billing" data-cost="$0.84 · cache 97% · Claude, Codex review" aria-pressed="false"><span class="id">TC-44</span><span class="what"><b>Add CSV export to invoices</b><small>acme/billing</small></span><span class="st">Review</span><span class="cost">$0.84</span></button></li>
+            <li><button type="button" data-run="TC-45" data-col="Review" data-repo="acme/billing" data-cost="$0.61 · cache 98% · Claude, Codex review" aria-pressed="false"><span class="id">TC-45</span><span class="what"><b>Fix rounding in totals</b><small>acme/billing</small></span><span class="st">Review</span><span class="cost">$0.61</span></button></li>
+            <li><button type="button" data-run="TC-43" data-col="Done" data-repo="acme/billing" data-cost="$1.27 · cache 96% · Claude, 1 repair" aria-pressed="false"><span class="id">TC-43</span><span class="what"><b>Late fee on overdue invoices</b><small>acme/billing</small></span><span class="st">Done</span><span class="cost">$1.27</span></button></li>
+            <li><button type="button" data-run="TC-42" data-col="Done" data-repo="acme/billing" data-cost="$0.93 · cache 95% · Codex, Claude review" aria-pressed="false"><span class="id">TC-42</span><span class="what"><b>Check webhook signatures</b><small>acme/billing</small></span><span class="st">Done</span><span class="cost">$0.93</span></button></li>
+            <li><button type="button" data-run="TC-41" data-col="Done" data-repo="acme/billing" data-cost="$0.58 · cache 98% · Claude, Codex review" aria-pressed="false"><span class="id">TC-41</span><span class="what"><b>Invoice numbers per year</b><small>acme/billing</small></span><span class="st">Done</span><span class="cost">$0.58</span></button></li>
+        </ul>
+        <p class="none" id="win-empty" hidden>No runs in this view.</p>
       </div>
-      <div class="side">
-        <div class="pane">
-          <h3>Projects <span>this week</span></h3>
-          <div class="projects">
-            <div class="project"><b>acme/billing</b><span class="cost">$9.84</span><span class="meta">GitHub · 3 running · 12 runs</span><span class="meta cost">spend</span></div>
-            <div class="project"><b>acme/infra</b><span class="cost">$3.10</span><span class="meta">GitLab, self-hosted · 1 running · 4 runs</span><span class="meta cost">spend</span></div>
-            <div class="project"><b>acme/web</b><span class="cost">$0.00</span><span class="meta">GitHub · idle</span><span class="meta cost">spend</span></div>
-          </div>
-        </div>
-        <div class="pane">
-          <h3>Cost per run <span>last five</span></h3>
-          <table class="runs">
-            <thead><tr><th scope="col">Card</th><th scope="col">Models</th><th scope="col" class="r">Cache</th><th scope="col" class="r">Cost</th></tr></thead>
-            <tbody>
-              <tr data-run="TC-44"><td><button type="button">TC-44</button></td><td>Claude, Codex review</td><td class="r">97%</td><td class="r">$0.84</td></tr>
-              <tr data-run="TC-45"><td><button type="button">TC-45</button></td><td>Claude, Codex review</td><td class="r">98%</td><td class="r">$0.61</td></tr>
-              <tr data-run="TC-43"><td><button type="button">TC-43</button></td><td>Claude, 1 repair</td><td class="r">96%</td><td class="r">$1.27</td></tr>
-              <tr data-run="TC-42"><td><button type="button">TC-42</button></td><td>Codex, Claude review</td><td class="r">95%</td><td class="r">$0.93</td></tr>
-              <tr data-run="TC-41"><td><button type="button">TC-41</button></td><td>Claude, Codex review</td><td class="r">98%</td><td class="r">$0.58</td></tr>
-            </tbody>
-          </table>
-        </div>
-      </div>
-      <div class="pane board">
-        <h3>Task board <span>acme/billing</span></h3>
-        <div class="cols">
-          <div class="col"><h4>Todo</h4><ul>
-            <li><button type="button" data-run="TC-52"><span class="id">TC-52</span>Rate-limit the export endpoint</button></li>
-            <li><button type="button" data-run="TC-53"><span class="id">TC-53</span>Dark mode for settings</button></li>
-          </ul></div>
-          <div class="col"><h4>Spec</h4><ul>
-            <li><button type="button" data-run="TC-50"><span class="id">TC-50 <span>for you to read</span></span>Paginate the audit log</button></li>
-          </ul></div>
-          <div class="col"><h4>In a cell</h4><ul>
-            <li><button type="button" data-run="TC-47"><span class="id">TC-47</span>Retry webhooks with backoff<span class="charge"><i class="w25"></i></span></button></li>
-            <li><button type="button" data-run="TC-48"><span class="id">TC-48</span>Show VAT on invoice PDFs<span class="charge"><i class="w50"></i></span></button></li>
-            <li><button type="button" data-run="TC-49"><span class="id">TC-49</span>Export filter for currency<span class="charge"><i></i></span></button></li>
-          </ul></div>
-          <div class="col"><h4>Review</h4><ul>
-            <li><button type="button" data-run="TC-46"><span class="id">TC-46</span>Archive paid invoices<span class="charge"><i class="w100"></i></span></button></li>
-          </ul></div>
-          <div class="col"><h4>Pull request</h4><ul>
-            <li><button type="button" data-run="TC-44"><span class="id">TC-44 <span>#212</span></span>Add CSV export to invoices</button></li>
-            <li><button type="button" data-run="TC-45"><span class="id">TC-45 <span>#213</span></span>Fix rounding in totals</button></li>
-          </ul></div>
-        </div>
-      </div>
-      <div class="pane run">
-        <h3>Run record <span id="run-title" aria-live="polite">TC-47 · Retry webhooks with backoff · In a cell</span></h3>
-        <div class="run-grid">
-          <ol class="stages" id="run-stages">
-            <li class="done"><b>Spec</b><span>done</span></li>
-            <li class="now"><b>Sealed cell</b><span>running</span></li>
-            <li><b>Gates</b><span>waiting</span></li>
-            <li><b>Review</b><span>waiting</span></li>
-            <li><b>Pull request</b><span>waiting</span></li>
-          </ol>
-          <ul class="log" id="run-log">
-            <li>spec posted on the issue: 4 acceptance criteria</li>
-            <li>cell started: non-root, no repository token</li>
-            <li>agent is editing src/webhooks/retry.ts</li>
-          </ul>
-        </div>
+      <div class="open" aria-live="polite">
+        <p class="where"><span id="run-where">acme/billing / TC-47</span><span class="tag" id="run-col">Running</span></p>
+        <h3 id="run-title">Retry webhooks with backoff</h3>
+        <ol class="stages" id="run-stages">
+          <li class="done"><b>Spec</b><span>done</span></li>
+          <li class="now"><b>Sealed cell</b><span>running</span></li>
+          <li><b>Gates</b><span>waiting</span></li>
+          <li><b>Review</b><span>waiting</span></li>
+          <li><b>Pull request</b><span>waiting</span></li>
+        </ol>
+        <ul class="log" id="run-log">
+          <li>spec posted on the issue: 4 acceptance criteria</li>
+          <li>cell started: non-root, no repository token</li>
+          <li>agent is editing src/webhooks/retry.ts</li>
+        </ul>
+        <p class="spend" id="run-cost">No cost record yet: the run is still going.</p>
       </div>
     </div>
   </div>
