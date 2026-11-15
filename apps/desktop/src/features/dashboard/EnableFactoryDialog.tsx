@@ -283,7 +283,9 @@ export function EnableFactoryDialog({ project, onClose }: { project: { path: str
               {!local.credentials.present && <p className="mt-1 text-xs text-muted-foreground">Set one in the hub&apos;s environment or add it in Settings → Credentials. Any one of these is enough.</p>}
             </Section>
             <Section title="2. Doctor passed (run on the hub's machine)">
-              <p data-doctor={local.doctor === undefined ? 'unknown' : local.doctor.ok ? 'passed' : 'failed'}>
+              {local.source === 'hub' ? (
+                <p className="text-xs text-muted-foreground">Not needed: the board scheduler runs a hub-board project&apos;s tasks; there is no tracker to check.</p>
+              ) : (<>              <p data-doctor={local.doctor === undefined ? 'unknown' : local.doctor.ok ? 'passed' : 'failed'}>
                 {local.doctor === undefined
                   ? 'Not run yet.'
                   : local.doctor.ok
@@ -293,6 +295,7 @@ export function EnableFactoryDialog({ project, onClose }: { project: { path: str
               <Button variant="outlined" color="secondary" className="mt-1 h-7 px-2 text-xs" onClick={() => void runLocalDoctor()} loading={busy === 'local'} disabled={busy !== null}>
                 {local.doctor === undefined ? 'Run doctor' : 'Run doctor again'}
               </Button>
+            </>)}
             </Section>
             <Section title="3. Worker state">
               <p data-testid="local-worker-dialog-state">{localWorkerLabel(local)}</p>

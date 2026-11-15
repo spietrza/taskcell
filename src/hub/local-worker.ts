@@ -139,10 +139,23 @@ export async function setLocalWorker(configDir: string, repoPath: string, enable
   return localWorkerState(configDir, repoPath, creds, deps);
 }
 
+/** The `taskcell doctor` command for a GitHub project, run against the project (not the hub's working directory). */
+export function localDoctorCommand(repoPath: string, slug: string, trigger: string, provider?: string): PreflightCommand {
+  const parsed = parseCli(['doctor', '--source', 'github', '--github-repo', slug, '--label', trigger, ...(provider !== undefined ? ['--provider', provider] : [])], repoPath);
+  if (parsed.kind !== 'doctor') throw new BadRequestError(`could not build the doctor command: ${'message' in parsed ? String(parsed.message) : parsed.kind}`);
+  return parsed as PreflightCommand;
+}
+
 /** Run the doctor's preflight checks on this machine and keep the result for the checklist. */
 export async function runLocalDoctor(configDir: string, repoPath: string, creds: CredentialService | undefined, deps: LocalWorkerDeps = {}): Promise<LocalWorkerState> {
-  const cmd = parseCli(['doctor'], repoPath) as PreflightCommand;
-  const report = await runPreflight(cmd, deps.env !== undefined ? { env: deps.env } : {});
+  const { source, slug, blocked } = await sourceOf(repoPath, deps.exec ?? defaultExec);
+  if (blocked !== undefined) throw new BadRequestError(blocked);
+  // shortcut: a hub-board project has no tracker for the doctor to check; give it the sandbox-only checks when the doctor grows them.
+  if (source !== 'github' || slug === undefined) throw new BadRequestError('Run doctor checks a GitHub Issues project; a hub-board project is run by the board scheduler and has no doctor here yet.');
+  const config = await readAppConfig(repoPath);
+  const trigger = config.label?.trim() || DEFAULT_GITHUB_AGENT_LABEL;
+  const provider = typeof config.provider === 'string' && config.provider.trim() !== '' ? config.provider.trim() : undefined;
+  const report = await runPreflight(localDoctorCommand(repoPath, slug, trigger, provider), deps.env !== undefined ? { env: deps.env } : {});
   const doctor = { at: (deps.now?.() ?? new Date()).toISOString(), ok: report.ok, failed: report.checks.filter((c) => !c.ok).map((c) => `${c.name}: ${c.reason ?? 'failed'}`) };
   await updateLocalWorker(configDir, repoPath, (r) => ({ ...r, doctor }));
   return localWorkerState(configDir, repoPath, creds, deps);

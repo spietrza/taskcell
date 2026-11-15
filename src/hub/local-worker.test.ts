@@ -3,7 +3,7 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { afterEach, beforeEach, expect, test, vi } from 'vitest';
 import { writeAppConfig } from './app-config.js';
-import { boardServed, localWorkerMemory, localWorkerState, readLocalWorker, recordBoardPickup, runLocalDoctor, setLocalWorker, sweepLocalWorkers, type LocalWorkerContext } from './local-worker.js';
+import { boardServed, localDoctorCommand, localWorkerMemory, localWorkerState, readLocalWorker, recordBoardPickup, runLocalDoctor, setLocalWorker, sweepLocalWorkers, type LocalWorkerContext } from './local-worker.js';
 import { cleanups, tmpGitRepo } from './test-kit.js';
 import type { RunSession } from './run-session.js';
 import type { CreateRunResult } from '../sidecar/sidecar.js';
@@ -168,11 +168,15 @@ test('a failed author lookup is recorded and nothing starts', async () => {
   expect((await readLocalWorker(cfg, repo)).lastError).toMatch(/#7: author lookup failed: HTTP 502/);
 });
 
-test('hub boards: running the doctor on a never-switched board keeps it served', async () => {
+test('hub boards: Run doctor is refused (no tracker to check) and the board stays served', async () => {
   const repo = await tmpGitRepo();
   await writeAppConfig(repo, { taskSource: 'hub' });
-  const state = await runLocalDoctor(cfg, repo, undefined, deps());
-  expect(state.doctor).toBeDefined();
-  expect(state.enabled).toBe(false);
+  await expect(runLocalDoctor(cfg, repo, undefined, deps())).rejects.toThrow(/hub-board project/);
+  expect((await readLocalWorker(cfg, repo)).doctor).toBeUndefined();
   expect(await boardServed(cfg, repo)).toBe(true);
+});
+
+test('the doctor command targets the project: its repo, the GitHub source, the trigger label and provider', () => {
+  const cmd = localDoctorCommand('/p/widgets', 'acme/widgets', 'ready for agent', 'codex') as unknown as Record<string, unknown>;
+  expect(cmd).toMatchObject({ kind: 'doctor', repoPath: '/p/widgets', source: 'github', repoSlug: 'acme/widgets', label: 'ready for agent', provider: 'codex' });
 });
