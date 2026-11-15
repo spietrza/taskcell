@@ -4,7 +4,7 @@ import { runGitlabIssue, gitlabDepsFromEnv } from '../runners/gitlab.js';
 import type { RunIssueResult } from '../runners/source-adapter.js';
 import { reapContainers, dockerContainerLister, dockerContainerRemover, pruneWorktrees } from '../core/gc.js';
 import { startSandboxContext } from '../sandbox/sandbox-context.js';
-import { agentAuthFromEnv } from '../agents/auth.js';
+import { agentAuthFromEnv, refuseLlmProxyWithoutPrimarySidecar } from '../agents/auth.js';
 import { customEgressHosts } from '../agents/registry.js';
 import { loadProviderChoice } from './provider-choice.js';
 import { pickRunOptions } from '../runners/source-adapter.js';
@@ -30,6 +30,7 @@ export async function runCommand(cmd: RunCommand): Promise<void> {
     console.log(`gc-before: reaped ${reaped.length} stale container(s), pruned worktrees.`);
   }
 
+  refuseLlmProxyWithoutPrimarySidecar(cmd.llmProxy, choice);
   const auth = agentAuthFromEnv(choice);
   const extraEgressHosts = customEgressHosts(choice);
   const ctx = await startSandboxContext({

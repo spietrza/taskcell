@@ -20,7 +20,7 @@ vi.mock('../runners/linear.js', () => ({
 
 import { runGithubIssue, runGithubProject } from '../runners/github.js';
 import { runGitlabIssue } from '../runners/gitlab.js';
-import { linearDeps, runGithub, runGitlab, runProject } from './run.js';
+import { linearDeps, runCommand as runCommandEntry, runGithub, runGitlab, runProject } from './run.js';
 import { RUN_OPTIONS } from './run-options.fixture.js';
 import type { Command } from './args.js';
 
@@ -74,5 +74,20 @@ describe('run deps builders thread RunOptions', () => {
     await runProject(runCommand({ source: 'project' }), undefined, undefined, undefined);
     const deps = vi.mocked(runGithubProject).mock.calls[0]![0];
     expect(deps).toMatchObject({ ...RUN_OPTIONS, forkScorer: 'decision' });
+  });
+});
+
+describe('runCommand --llm-proxy', () => {
+  it('refuses a codex-only run with the review-commands-only message before starting anything', async () => {
+    vi.stubEnv('CODEX_API_KEY', 'sk-test');
+    try {
+      const { reviewProvider: _r, fallbackProvider: _f, ...cmd } = runCommand({ provider: 'codex', llmProxy: true });
+      await expect(runCommandEntry(cmd as RunCommand)).rejects.toThrow(
+        '--llm-proxy with --provider codex is supported on review commands only for now',
+      );
+    } finally {
+      vi.unstubAllEnvs();
+    }
+    expect(runGithubIssue).not.toHaveBeenCalled();
   });
 });

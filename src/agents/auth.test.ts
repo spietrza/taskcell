@@ -1,5 +1,6 @@
 import { describe, it, expect } from 'vitest';
-import { authSecrets, authFromEnv, agentAuthFromEnv, SUBSCRIPTION_ENV, API_ENV } from './auth.js';
+import { authSecrets, authFromEnv, agentAuthFromEnv, refuseLlmProxyWithoutPrimarySidecar, SUBSCRIPTION_ENV, API_ENV } from './auth.js';
+import { CliUsageError } from '../core/errors.js';
 
 describe('authSecrets', () => {
   it('forwards only the OAuth token in subscription mode', () => {
@@ -54,6 +55,14 @@ describe('agentAuthFromEnv', () => {
     expect(() => agentAuthFromEnv({ provider: 'codex', reviewProvider: 'claude' }, {})).toThrow(/CLAUDE_CODE_OAUTH_TOKEN/);
   });
 
+  it('names the used provider that asks for the Anthropic credential, with its role, on a mixed choice', () => {
+    expect(() => agentAuthFromEnv({ provider: 'codex', reviewProvider: 'claude' }, {})).toThrow(
+      'Set CLAUDE_CODE_OAUTH_TOKEN (subscription) or ANTHROPIC_API_KEY (API) before running with --review-provider claude.',
+    );
+    expect(() => agentAuthFromEnv({ provider: 'codex', fallbackProvider: 'claude' }, {})).toThrow(/with --fallback-provider claude\.$/);
+    expect(() => agentAuthFromEnv({}, {})).toThrow(/with --provider claude\.$/);
+  });
+
   it('does not throw and returns undefined when codex/cursor implement + zai review (no Anthropic needed)', () => {
     expect(agentAuthFromEnv({ provider: 'codex', reviewProvider: 'zai' }, { ZAI_API_KEY: 'z', CODEX_API_KEY: 'c' })).toBeUndefined();
   });
@@ -69,5 +78,19 @@ describe('agentAuthFromEnv', () => {
 
   it('returns subscription auth for claude provider', () => {
     expect(agentAuthFromEnv({ provider: 'claude' }, { [SUBSCRIPTION_ENV]: 't' })).toEqual({ mode: 'subscription', token: 't' });
+  });
+});
+
+describe('refuseLlmProxyWithoutPrimarySidecar', () => {
+  it('refuses a codex-only choice under --llm-proxy with the review-commands-only message', () => {
+    expect(() => refuseLlmProxyWithoutPrimarySidecar(true, { provider: 'codex' }, { CODEX_API_KEY: 'k' })).toThrow(
+      new CliUsageError('--llm-proxy with --provider codex is supported on review commands only for now'),
+    );
+  });
+
+  it('passes without --llm-proxy, or when the run uses the primary sidecar or a provider no sidecar fronts', () => {
+    expect(() => refuseLlmProxyWithoutPrimarySidecar(undefined, { provider: 'codex' }, { CODEX_API_KEY: 'k' })).not.toThrow();
+    expect(() => refuseLlmProxyWithoutPrimarySidecar(true, { provider: 'codex', reviewProvider: 'claude' }, { CODEX_API_KEY: 'k' })).not.toThrow();
+    expect(() => refuseLlmProxyWithoutPrimarySidecar(true, { provider: 'cursor' }, { CURSOR_API_KEY: 'k' })).not.toThrow();
   });
 });

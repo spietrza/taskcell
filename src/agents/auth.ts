@@ -1,5 +1,5 @@
 import { CliUsageError } from '../core/errors.js';
-import { claudeCliKeyEnv, needsAnthropicAuth } from './registry.js';
+import { claudeCliKeyEnv, llmProxyNeedsNoPrimarySidecar, needsAnthropicAuth, requiresApiKey } from './registry.js';
 import type { ProviderChoice } from './registry.js';
 
 export type AgentAuth = { mode: 'subscription'; token: string } | { mode: 'api'; apiKey: string };
@@ -55,7 +55,33 @@ export function agentAuthFromEnv(
   if (!needsAnthropicAuth(choice)) return undefined; // no used provider consumes an Anthropic credential (codex/cursor alone, or + zai review)
   const auth = authFromEnv(env);
   if (auth === undefined) {
-    throw new CliUsageError(`Set CLAUDE_CODE_OAUTH_TOKEN (subscription) or ANTHROPIC_API_KEY (API) before running with --provider ${choice.provider ?? 'claude'}.`);
+    throw new CliUsageError(`Set CLAUDE_CODE_OAUTH_TOKEN (subscription) or ANTHROPIC_API_KEY (API) before running with ${anthropicConsumer(choice)}.`);
   }
   return auth;
+}
+
+/** The first used provider with no key wiring of its own (the one asking for the Anthropic credential), with its flag. */
+function anthropicConsumer(choice: ProviderChoice): string {
+  const primary: [string, string | undefined] = ['--provider', choice.provider ?? 'claude'];
+  const roles: [string, string | undefined][] = [
+    primary,
+    ['--review-provider', choice.reviewProvider],
+    ['--fallback-provider', choice.fallbackProvider],
+  ];
+  const [flag, name] = roles.find(([, n]) => n !== undefined && !requiresApiKey(n, choice.customProviders)) ?? primary;
+  return `${flag} ${name}`;
+}
+
+/**
+ * run/watch/spec/revise-pr always start the primary sidecar under --llm-proxy; skipping it for a choice
+ * that needs none (Codex-only) is wired through the review commands only so far. Refuse that combination
+ * up front with an accurate message instead of the generic "no sidecar fronts it" one.
+ */
+export function refuseLlmProxyWithoutPrimarySidecar(
+  llmProxy: boolean | undefined,
+  choice: ProviderChoice,
+  env: NodeJS.ProcessEnv = process.env,
+): void {
+  if (llmProxy !== true || !llmProxyNeedsNoPrimarySidecar(choice, env)) return;
+  throw new CliUsageError(`--llm-proxy with --provider ${choice.provider ?? 'claude'} is supported on review commands only for now`);
 }
