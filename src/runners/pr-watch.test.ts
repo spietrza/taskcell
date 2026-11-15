@@ -4,6 +4,7 @@ import { editPullRequestLabels, githubPullRequestWatchPrimitives, watchPullReque
 import { UsageCapError } from '../core/usage-cap.js';
 import {
   PullRequestReviewIncompleteError,
+  buildPullRequestReviewIncompleteComment,
   pullRequestReviewIncompleteHeadMarker,
 } from './pr-review.js';
 import type { GhRunner } from '../tasks/github.js';
@@ -391,9 +392,10 @@ describe('githubPullRequestWatchPrimitives', () => {
       if (args[0] === 'pr' && args[1] === 'view' && args.at(-1) === 'comments,reviews') {
         return JSON.stringify({
           comments: [],
+          // The notice review-pr posts for a reply with no opening verdict line (e.g. a verdict after a preamble).
           reviews: Array.from({ length: 3 }, () => ({
             ...BOT,
-            body: pullRequestReviewIncompleteHeadMarker(headRefOid),
+            body: buildPullRequestReviewIncompleteComment('no-verdict', undefined, headRefOid),
           })),
         });
       }

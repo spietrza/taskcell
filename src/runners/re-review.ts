@@ -175,42 +175,40 @@ function balancedJsonEnd(text: string, start: number): number | undefined {
 
 const BLOCK_OPEN_RE = /^<rereview>[ \t\r\n]*(?:```(?:json)?[ \t\r\n]*)?\{/i;
 const BLOCK_CLOSE_RE = /^[ \t\r\n]*(?:```[ \t\r\n]*)?<\/rereview>/i;
+const BLOCK_CLOSE_TAG = '</rereview>';
 // Not directly after a backtick: a finding that names the tag in inline code is prose, not a block.
-const CLOSED_BLOCK_OPEN_RE = new RegExp('(?<!`)' + BLOCK_OPEN_RE.source.slice(1), 'gi');
+const BLOCK_TAG_RE = /(?<!`)<rereview>/gi;
+const CONTENT_BOUNDARY_RE = /\n(?=(?:#{1,6}[ \t]+|[ \t]*(?:(?:[-*]|\d+[.)])[ \t]+)?\[(?:critical|high|medium|low)\](?:[ \t]|$)))/i;
 
-/** Remove every well-formed closed block (tag, JSON object, closing tag) wherever it sits: none may reach the posted comment. */
-function stripClosedBlocks(text: string): string {
-  let out = '';
-  let from = 0;
-  for (const open of text.matchAll(CLOSED_BLOCK_OPEN_RE)) {
-    if (open.index < from) continue;
-    const jsonEnd = balancedJsonEnd(text, open.index + open[0].length - 1);
-    const closing = jsonEnd === undefined ? null : BLOCK_CLOSE_RE.exec(text.slice(jsonEnd));
-    if (jsonEnd === undefined || closing === null) continue;
-    out += text.slice(from, open.index);
-    from = jsonEnd + closing[0].length;
+/**
+ * Length of the block that `block` opens with. A JSON object that balances before the first closing tag ends the
+ * block (with the closing tag or fence directly after it), so findings written before a late closing tag are kept.
+ * Any other closed block runs to its first closing tag, whatever its body. An unclosed (truncated) one runs to
+ * the first heading or severity label, or to the end.
+ */
+function blockLength(block: string): number {
+  const close = block.toLowerCase().indexOf(BLOCK_CLOSE_TAG);
+  const jsonPrefix = BLOCK_OPEN_RE.exec(block);
+  const jsonEnd = jsonPrefix === null ? undefined : balancedJsonEnd(block, jsonPrefix[0].length - 1);
+  if (jsonPrefix !== null && jsonEnd !== undefined && (close === -1 || jsonEnd <= close)) {
+    // No closing tag: a fenced block's closing fence goes with it, or it would open a code block over the findings.
+    const closing = BLOCK_CLOSE_RE.exec(block.slice(jsonEnd)) ?? (jsonPrefix[0].includes('```') ? /^[ \t\r\n]*```/.exec(block.slice(jsonEnd)) : null);
+    return jsonEnd + (closing?.[0].length ?? 0);
   }
-  return out + text.slice(from);
+  if (close !== -1) return close + BLOCK_CLOSE_TAG.length;
+  return CONTENT_BOUNDARY_RE.exec(block)?.index ?? block.length;
 }
 
-/** Strip the metadata block at the required header position, closed or not, then any other closed block; a tag only mentioned in findings stays. */
-function stripBlocks(text: string): string {
-  const block = headerBlock(text);
-  if (block === undefined) return stripClosedBlocks(text);
-  const blockStart = text.indexOf(block);
-  const jsonPrefix = BLOCK_OPEN_RE.exec(block);
-  const jsonStart = jsonPrefix === null ? undefined : jsonPrefix[0].length - 1;
-  const jsonEnd = jsonStart === undefined ? undefined : balancedJsonEnd(block, jsonStart);
-  let blockEnd: number;
-  if (jsonEnd !== undefined) {
-    // No closing tag: a fenced block's closing fence goes with it, or it would open a code block over the findings.
-    const closing = BLOCK_CLOSE_RE.exec(block.slice(jsonEnd)) ?? (jsonPrefix?.[0].includes('```') === true ? /^[ \t\r\n]*```/.exec(block.slice(jsonEnd)) : null);
-    blockEnd = jsonEnd + (closing?.[0].length ?? 0);
-  } else {
-    const contentBoundary = /\n(?=(?:#{1,6}[ \t]+|[ \t]*(?:(?:[-*]|\d+[.)])[ \t]+)?\[(?:critical|high|medium|low)\](?:[ \t]|$)))/i.exec(block);
-    blockEnd = contentBoundary?.index ?? block.length;
+/** Remove every <rereview> block, wherever it sits: none may reach the posted comment. A tag named in inline code stays. */
+export function stripReReviewBlocks(text: string): string {
+  let out = '';
+  let from = 0;
+  for (const open of text.matchAll(BLOCK_TAG_RE)) {
+    if (open.index < from) continue;
+    out += text.slice(from, open.index);
+    from = open.index + blockLength(text.slice(open.index));
   }
-  return stripClosedBlocks(`${text.slice(0, blockStart)}${block.slice(blockEnd)}`).replace(/^[ \t]*<\/rereview>[ \t]*$/gim, '');
+  return (out + text.slice(from)).replace(/^[ \t]*<\/rereview>[ \t]*$/gim, '');
 }
 
 // The previous comment opens with the review heading (and, when it ended without completion, a one-line note).
@@ -248,7 +246,7 @@ export function applyReReviewRules(
   text: string,
   ctx: Pick<ReReviewContext, 'sinceDiff'> & Partial<Pick<ReReviewContext, 'previousBody' | 'changedFiles'>> & { prFiles?: readonly string[] },
 ): { text: string; downgraded: number } {
-  const peeled = peelVerdict(stripBlocks(text));
+  const peeled = peelVerdict(stripReReviewBlocks(text));
   let parsed: z.infer<typeof reReviewSchema> | undefined;
   try {
     const block = headerBlock(text);

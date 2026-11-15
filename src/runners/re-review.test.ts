@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { applyReReviewRules, changedFilesOf, mergeOnlyMarker, mergeOnlyResolvedFiles, restrictDiffToFiles, REREVIEW_MALFORMED_NOTE, reReviewInstructions } from './re-review.js';
+import { applyReReviewRules, changedFilesOf, mergeOnlyMarker, mergeOnlyResolvedFiles, restrictDiffToFiles, REREVIEW_MALFORMED_NOTE, reReviewInstructions, stripReReviewBlocks } from './re-review.js';
 import { extractReviewRisk, extractReviewVerdict } from './review-prompt.js';
 
 const block = (o: unknown): string => `<rereview>${JSON.stringify(o)}</rereview>`;
@@ -133,6 +133,37 @@ describe('applyReReviewRules', () => {
   it('escapes pipes and newlines in table cells', () => {
     const r = applyReReviewRules(`Verdict: BLOCKING\n${block({ previous: [{ id: '1', title: 'a|b', blocking: false, status: 'resolved', evidence: 'x\ny' }], new: [] })}`, {});
     expect(r.text).toContain('| 1: a\\|b | resolved | x y |');
+  });
+});
+
+describe('stripReReviewBlocks', () => {
+  // The pattern main strips with: closed blocks, then an unclosed one to the end.
+  const onMain = (text: string): string => text.replace(/<rereview>[\s\S]*?<\/rereview>|<rereview>[\s\S]*$/gi, '');
+  const tidy = (text: string): string => text.replace(/\s+/g, ' ').trim();
+  const valid = block({ previous: [prev('resolved')], new: [] });
+  const findings = '1. First finding in plain prose.\n\n**Second finding** in bold.';
+
+  it.each([
+    ['a closed block with valid JSON', `Verdict: BLOCKING\n${valid}\n${findings}`],
+    ['a closed block with invalid JSON (a table)', `Verdict: BLOCKING\n<rereview>\n| id | status |\n| 1 | resolved |\n</rereview>\n${findings}`],
+    ['a closed block with a JSON array', `Verdict: BLOCKING\n<rereview>[{"id":"1"}]</rereview>\n${findings}`],
+    ['a closed block with unbalanced braces', `Verdict: BLOCKING\n<rereview>{"previous":[{"id":"1"</rereview>\n${findings}`],
+    ['a closed block with an odd quote', `Verdict: BLOCKING\n<rereview>{"previous":[{"id":"1","evidence":"a " b"}],"new":[]}</rereview>\n${findings}`],
+    ['two blocks', `Verdict: BLOCKING\n${valid}\n${findings}\n${valid}\nTail.`],
+    ['a block in a blockquote', `Verdict: BLOCKING\n> ${valid}\n${findings}`],
+    ['a block after prose', `Verdict: BLOCKING\nSome prose.\n\n<rereview>not json</rereview>\n${findings}`],
+    ['an unclosed block at the end', `Verdict: BLOCKING\n${findings}\n<rereview>{"previous":[{"id":"1"`],
+  ])('%s: same posted text as main, findings kept', (_n, text) => {
+    const stripped = stripReReviewBlocks(text);
+    expect(tidy(stripped)).toBe(tidy(onMain(text)));
+    expect(stripped).toContain(findings);
+    expect(stripped).not.toContain('rereview>');
+  });
+
+  it('a mention in inline code is kept, where main cut the reply from it', () => {
+    const text = `Verdict: BLOCKING\n- [medium] \`parse()\` must preserve the literal \`<rereview>\` tag.\n${findings}`;
+    expect(stripReReviewBlocks(text)).toBe(text);
+    expect(onMain(text)).not.toContain(findings);
   });
 });
 

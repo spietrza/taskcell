@@ -378,15 +378,13 @@ describe('reviewMergeRequest incomplete retry', () => {
     expect(posted(calls)).toEqual([]);
   });
 
-  it('posts a review whose verdict follows a short preamble with the verdict line first', async () => {
+  it('treats a reply whose verdict follows a preamble as incomplete', async () => {
     const { glab, calls } = makeGlab();
     const reviewer = vi.fn(async () => 'I read the diff.\n\nVerdict: BLOCKING\nRisk: high — x\n\n- [high] broken');
 
-    const result = await reviewMergeRequest('5', { project: 'g/p', glab, reviewer });
-
-    expect(reviewer).toHaveBeenCalledOnce();
-    expect(result.commentBody?.startsWith('## Taskcell Review\n\nVerdict: BLOCKING\nRisk: high — x\n\nI read the diff.')).toBe(true);
-    expect(posted(calls)).toHaveLength(1);
+    await expect(reviewMergeRequest('5', { project: 'g/p', glab, reviewer })).rejects.toBeInstanceOf(MergeRequestReviewIncompleteError);
+    expect(reviewer).toHaveBeenCalledTimes(2);
+    expect(posted(calls)).toEqual([]);
   });
 
   it('treats a completed reply without a verdict as incomplete', async () => {
