@@ -1,6 +1,7 @@
 // taskcell.dev page script: entrance reveals, and the factory scene loaded after first paint.
 // Phones get the poster and a button; reduced motion gets one still frame; no WebGL keeps the poster.
 import { STAGES, advance, clock, column, cost, elapsed, log, sample, share } from './hub-data.js';
+import { YEARLY, euro } from './prices.js';
 import { evaluate } from './quiz.js';
 
 const root = document.documentElement;
@@ -150,8 +151,7 @@ billing.hidden = false;
 const paintPrices = () => {
   const yearly = billing.querySelector(':checked').value === 'yearly';
   for (const el of document.querySelectorAll('[data-price]')) {
-    const n = Number(el.dataset.price) * (yearly ? 0.8 : 1);
-    el.querySelector('span').textContent = '€' + (Number.isInteger(n) ? n : n.toFixed(2));
+    el.querySelector('span').textContent = euro(Number(el.dataset.price) * (yearly ? YEARLY : 1));
   }
   for (const el of document.querySelectorAll('[data-per]')) el.textContent = yearly ? 'Billed yearly' : 'Billed monthly';
 };
@@ -188,7 +188,7 @@ const showResult = () => {
   byId('r-alt').textContent = r.alt;
   byId('r-alt').hidden = !r.alt;
   byId('r-plan-link').textContent = r.plan.action;
-  byId('r-plan-link').href = r.plan.id ? `/hosting.html?plan=${r.plan.id}` : 'https://github.com/spietrza/taskcell/issues';
+  byId('r-plan-link').href = r.plan.id ? `/hosting/?plan=${r.plan.id}` : 'https://github.com/spietrza/taskcell/issues';
   byId('r-planned').hidden = !r.plan.id;
   fill(byId('r-promises'), r.promises);
   steps.forEach((s) => (s.hidden = true));
@@ -200,7 +200,8 @@ const showResult = () => {
 };
 quiz.addEventListener('submit', (e) => {
   e.preventDefault();
-  if (!steps[at].querySelector('input:checked')) {
+  // "What for" is optional: it does not change the result.
+  if (!steps[at].querySelector('input:checked') && !steps[at].querySelector('[name="uses"]')) {
     byId('quiz-error').textContent = 'Pick an answer to go on.';
     return;
   }
@@ -245,27 +246,13 @@ const playOnScreen = (host, button, play) => {
     wanted = !playing;
     set(wanted);
   });
-  new IntersectionObserver(([e]) => set(wanted && e.isIntersecting)).observe(host);
+  // Without the observer the preview stays paused, with its Play button.
+  if ('IntersectionObserver' in window) new IntersectionObserver((entries) => set(wanted && entries.at(-1).isIntersecting)).observe(host);
   return () => {
     wanted = false;
     set(false);
   };
 };
-
-// ---------- theme: theme.js set it before first paint; the button flips and stores it ----------
-const themeButton = byId('theme');
-const paintTheme = () => themeButton.setAttribute('aria-pressed', root.dataset.theme === 'light');
-themeButton.hidden = false;
-themeButton.addEventListener('click', () => {
-  root.dataset.theme = root.dataset.theme === 'light' ? 'dark' : 'light';
-  try {
-    localStorage.setItem('theme', root.dataset.theme);
-  } catch {
-    // storage is blocked: the choice lasts for this page
-  }
-  paintTheme();
-});
-paintTheme();
 
 // ---------- how it works: five steps as tabs; the sample run beside them fills in up to the open step ----------
 const flow = byId('flow');
@@ -311,7 +298,7 @@ for (const heading of document.querySelectorAll('[data-letters]')) {
     for (const letter of word) {
       const i = Object.assign(document.createElement('i'), { textContent: letter });
       i.style.setProperty('--n', n);
-      i.style.setProperty('--dx', `${(((n * 37) % 9) - 4) * 0.14}em`);
+      i.style.setProperty('--dx', `${((n * 37) % 5) * -0.14}em`); // only leftwards: a letter pushed past the right edge would widen the page
       i.style.setProperty('--dy', `${(((n * 53) % 7) - 3) * 0.22}em`);
       i.style.setProperty('--r', `${(((n * 29) % 11) - 5) * 5}deg`);
       n += 1;
@@ -333,6 +320,8 @@ const runOf = (row) => runs.find((r) => r.id === row.dataset.run);
 /** A view shows one board column, one repository, or (All runs) everything. */
 const shows = (v, row) => (v.dataset.col ? row.dataset.col === v.dataset.col : !v.dataset.repo || row.dataset.repo === v.dataset.repo);
 
+// The open run's five stages are the rows written in index.html; each gets a bar for when it runs.
+const stageRows = [...byId('run-stages').children].map((li) => ({ li, status: li.querySelector('span'), bar: li.appendChild(document.createElement('i')) }));
 const paintOpen = () => {
   const { run: id, col, repo, cost: spent } = openRow.dataset;
   const r = runOf(openRow);
@@ -340,23 +329,15 @@ const paintOpen = () => {
   text(byId('run-where'), total ? `${repo} / ${id} · ${clock(total)}` : `${repo} / ${id}`);
   text(byId('run-col'), col);
   text(byId('run-title'), openRow.querySelector('b').textContent);
-  byId('run-stages').replaceChildren(
-    ...STAGES.map((name, i) => {
-      const li = document.createElement('li');
-      const done = share(r, i) === 1;
-      const now = !done && r.p >= i;
-      const status = done || (now && !r.hold) ? clock(elapsed(r, i)) : now ? 'for you to read' : r.p < 0 ? 'not started' : 'waiting';
-      li.className = done ? 'done' : now ? 'now' : '';
-      li.append(Object.assign(document.createElement('b'), { textContent: name }), Object.assign(document.createElement('span'), { textContent: status }));
-      if (now && !r.hold) {
-        const bar = document.createElement('i');
-        bar.style.width = `${share(r, i) * 100}%`;
-        li.append(bar);
-      }
-      return li;
-    }),
-  );
-  fill(byId('run-log'), log(r));
+  stageRows.forEach(({ li, status, bar }, i) => {
+    const done = share(r, i) === 1;
+    const now = !done && r.p >= i;
+    li.className = done ? 'done' : now ? 'now' : '';
+    text(status, done || (now && !r.hold) ? clock(elapsed(r, i)) : now ? 'for you to read' : r.p < 0 ? 'not started' : 'waiting');
+    bar.style.width = now && !r.hold ? `${share(r, i) * 100}%` : '0';
+  });
+  const lines = log(r);
+  if (byId('run-log').textContent !== lines.join('')) fill(byId('run-log'), lines);
   text(byId('run-cost'), spent ? `Cost ${spent}` : col === 'Queued' ? 'No run yet, so no cost.' : 'No cost record yet: the run is still going.');
 };
 /** Brings the rows, the counts and the open run in line with the sample's current state. */

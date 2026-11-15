@@ -80,7 +80,7 @@ p { max-width: 62ch; }
 /* ---------- bar ---------- */
 .bar { display: flex; align-items: center; justify-content: space-between; padding: 20px var(--edge); font-size: 16px; position: relative; z-index: 3; }
 .brand { display: flex; align-items: center; gap: 10px; font-family: var(--font-display); font-weight: 800; font-size: 20px; letter-spacing: -0.02em; text-decoration: none; }
-.links { display: flex; align-items: center; gap: 28px; margin-left: auto; }
+.links { display: flex; align-items: center; gap: 28px; margin-left: auto; white-space: nowrap; }
 .theme { flex: none; display: grid; place-items: center; width: 44px; height: 44px; margin-left: 20px; border: 1px solid var(--line-strong); transition: transform 140ms var(--ease-seed), color 180ms, border-color 180ms; }
 .theme:hover { color: var(--accent); border-color: var(--accent); }
 .theme:active { transform: scale(0.95); }
@@ -437,10 +437,14 @@ p { max-width: 62ch; }
 .lost p { grid-column: 1 / -1; margin-top: 24px; font-size: var(--step-lead); }
 .lost .btn { grid-column: 1 / -1; justify-self: start; margin-top: 32px; }
 
+/* Between the phone bar and the full bar, seven links, Download and the toggle only fit closer together. */
+@media (max-width: 1140px) { .links { gap: 16px; font-size: 15px; } }
+
 @media (max-width: 900px) {
   html { scroll-padding-top: 68px; }
   .bar { position: sticky; top: 0; z-index: 10; gap: 16px; padding-top: 0; padding-bottom: 0; background: color-mix(in srgb, var(--bg) 94%, transparent); border-bottom: 1px solid var(--line); }
-  .links { gap: 0; min-width: 0; overflow-x: auto; }
+  /* The links scroll sideways; the fade on the right edge says there are more. */
+  .links { gap: 0; min-width: 0; overflow-x: auto; padding-right: 28px; -webkit-mask-image: linear-gradient(to right, #000 calc(100% - 28px), transparent); mask-image: linear-gradient(to right, #000 calc(100% - 28px), transparent); }
   .links a:not(.btn) { padding: 15px 7px; font-size: 14px; white-space: nowrap; }
   .links a:not(.btn):last-of-type { padding-right: 0; }
   .links .btn { display: none; } /* the hero's own button is on the same screen */
@@ -466,8 +470,7 @@ p { max-width: 62ch; }
   .opts.two, .quiz-result { grid-template-columns: minmax(0, 1fr); }
   .request { padding-top: 40px; }
   .section > .intro { margin-top: 20px; }
-  .steps, .swap, .controls, .ways, .coming { grid-template-columns: minmax(0, 1fr); }
-  .steps { row-gap: 32px; }
+  .swap, .controls, .ways, .coming { grid-template-columns: minmax(0, 1fr); }
   .boundary, .host { grid-template-columns: minmax(0, 1fr); }
   .hub { margin-left: calc(-1 * var(--m)); margin-right: calc(-1 * var(--m)); }
   .win { grid-template-columns: minmax(0, 1fr); }

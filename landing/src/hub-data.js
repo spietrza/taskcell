@@ -9,12 +9,13 @@ const PLAY = [2.5, 5, 2.5, 3.5, 1.2];
 const SLOTS = 5;
 
 // p: stages finished, as a fraction (-1 = queued, 5 = pull request open). hold: a spec waiting to be read.
-// merged: a person merged the pull request. The ids and their order are the rows of index.html.
+// merged: a person merged the pull request. Claude builds every sample run: Codex reports tokens but no cost.
+// The ids and their order are the rows of index.html.
 const SAMPLE = [
   { id: 'TC-47', file: 'src/webhooks/retry.ts', ac: 4, by: 'Claude', rev: 'Codex', found: 1, pr: 216, cache: 96, cost: 1.02, p: 1.25 },
   { id: 'TC-48', file: 'src/invoices/pdf.ts', ac: 3, by: 'Claude', rev: 'Codex', found: 2, pr: 217, cache: 97, cost: 0.91, p: 1.5 },
   { id: 'TC-49', file: 'src/export/filter.ts', ac: 2, by: 'Claude', rev: 'Codex', found: 0, pr: 218, cache: 98, cost: 0.49, p: 1 },
-  { id: 'TC-46', file: 'src/invoices/archive.ts', ac: 3, by: 'Codex', rev: 'Claude', found: 1, pr: 214, cache: 95, cost: 0.77, p: 3.2 },
+  { id: 'TC-46', file: 'src/invoices/archive.ts', ac: 3, by: 'Claude', rev: 'Codex', found: 1, pr: 214, cache: 95, cost: 0.77, p: 3.2 },
   { id: 'IN-7', file: 'src/deploy/token.ts', ac: 2, by: 'Claude', rev: 'Codex', found: 0, pr: 215, cache: 97, cost: 0.44, p: 2.3 },
   { id: 'TC-50', file: 'src/audit/list.ts', ac: 5, by: 'Claude', rev: 'Codex', found: 0, pr: 0, cache: 0, cost: 0, p: 0.9, hold: true },
   { id: 'TC-52', file: 'src/export/limit.ts', ac: 4, by: 'Claude', rev: 'Codex', found: 0, pr: 219, cache: 96, cost: 0.66, p: -1 },
@@ -22,7 +23,7 @@ const SAMPLE = [
   { id: 'TC-44', file: 'src/export/csv.ts', ac: 4, by: 'Claude', rev: 'Codex', found: 1, pr: 212, cache: 97, cost: 0.84, p: 5 },
   { id: 'TC-45', file: 'src/totals/round.ts', ac: 2, by: 'Claude', rev: 'Codex', found: 0, pr: 213, cache: 98, cost: 0.61, p: 5 },
   { id: 'TC-43', file: 'src/fees/late.ts', ac: 3, by: 'Claude', rev: 'Claude', found: 0, pr: 211, cache: 96, cost: 1.27, p: 5, repair: true, merged: true },
-  { id: 'TC-42', file: 'src/webhooks/verify.ts', ac: 3, by: 'Codex', rev: 'Claude', found: 2, pr: 210, cache: 95, cost: 0.93, p: 5, merged: true },
+  { id: 'TC-42', file: 'src/webhooks/verify.ts', ac: 3, by: 'Claude', rev: 'Codex', found: 2, pr: 210, cache: 95, cost: 0.93, p: 5, merged: true },
   { id: 'TC-41', file: 'src/invoices/number.ts', ac: 2, by: 'Claude', rev: 'Codex', found: 3, pr: 209, cache: 98, cost: 0.58, p: 5, merged: true },
 ];
 

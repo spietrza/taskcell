@@ -186,7 +186,7 @@
             <li><button type="button" data-run="TC-44" data-col="Review" data-repo="acme/billing" data-cost="$0.84 · cache 97% · Claude, Codex review" aria-pressed="false"><span class="id">TC-44</span><span class="what"><b>Add CSV export to invoices</b><small>acme/billing</small></span><span class="st">Review</span><span class="cost">$0.84</span></button></li>
             <li><button type="button" data-run="TC-45" data-col="Review" data-repo="acme/billing" data-cost="$0.61 · cache 98% · Claude, Codex review" aria-pressed="false"><span class="id">TC-45</span><span class="what"><b>Fix rounding in totals</b><small>acme/billing</small></span><span class="st">Review</span><span class="cost">$0.61</span></button></li>
             <li><button type="button" data-run="TC-43" data-col="Done" data-repo="acme/billing" data-cost="$1.27 · cache 96% · Claude, 1 repair" aria-pressed="false"><span class="id">TC-43</span><span class="what"><b>Late fee on overdue invoices</b><small>acme/billing</small></span><span class="st">Done</span><span class="cost">$1.27</span></button></li>
-            <li><button type="button" data-run="TC-42" data-col="Done" data-repo="acme/billing" data-cost="$0.93 · cache 95% · Codex, Claude review" aria-pressed="false"><span class="id">TC-42</span><span class="what"><b>Check webhook signatures</b><small>acme/billing</small></span><span class="st">Done</span><span class="cost">$0.93</span></button></li>
+            <li><button type="button" data-run="TC-42" data-col="Done" data-repo="acme/billing" data-cost="$0.93 · cache 95% · Claude, Codex review" aria-pressed="false"><span class="id">TC-42</span><span class="what"><b>Check webhook signatures</b><small>acme/billing</small></span><span class="st">Done</span><span class="cost">$0.93</span></button></li>
             <li><button type="button" data-run="TC-41" data-col="Done" data-repo="acme/billing" data-cost="$0.58 · cache 98% · Claude, Codex review" aria-pressed="false"><span class="id">TC-41</span><span class="what"><b>Invoice numbers per year</b><small>acme/billing</small></span><span class="st">Done</span><span class="cost">$0.58</span></button></li>
         </ul>
         <p class="none" id="win-empty" hidden>No runs in this view.</p>
@@ -338,7 +338,7 @@
     <li data-reveal class="d3">
       <h3>A Hub that answers only to you</h3>
       <p>It binds to 127.0.0.1 by default, rejects unknown Host headers against DNS rebinding and needs a token minted at each launch.</p>
-      <p class="scope">On your own machine it has no login. Bound beyond loopback it asks for sign-in (on <code>main</code>, not in a release yet); put it behind Tailscale or an HTTPS proxy either way.</p>
+      <p class="scope">It has no login in the latest release: on a server, put it behind Tailscale or an authenticating proxy. Sign-in for server mode is on <code>main</code>, not in a release yet.</p>
     </li>
     <li data-reveal class="d1">
       <h3>Only trusted comments steer it</h3>
@@ -459,7 +459,7 @@ taskcell hub --repo ../app
         <li>A dedicated server, backed up daily</li>
         <li>Updates done for you</li>
       </ul>
-      <a class="btn ghost" href="/hosting.html?plan=solo">Request Solo</a>
+      <a class="btn ghost" href="/hosting/?plan=solo">Request Solo</a>
     </li>
     <li data-reveal class="d3">
       <span class="tag">Planned</span>
@@ -472,7 +472,7 @@ taskcell hub --repo ../app
         <li>A dedicated server, backed up daily</li>
         <li>Updates done for you</li>
       </ul>
-      <a class="btn ghost" href="/hosting.html?plan=team">Request Team</a>
+      <a class="btn ghost" href="/hosting/?plan=team">Request Team</a>
     </li>
     <li data-reveal class="d4">
       <span class="tag">Planned</span>
@@ -485,14 +485,14 @@ taskcell hub --repo ../app
         <li>A dedicated server, backed up daily</li>
         <li>Updates done for you</li>
       </ul>
-      <a class="btn ghost" href="/hosting.html?plan=pro">Request Pro</a>
+      <a class="btn ghost" href="/hosting/?plan=pro">Request Pro</a>
     </li>
   </ul>
 
   <p class="plans-note" data-reveal>On every hosted plan the models run on <a href="#keys">your own keys</a>, and we add no margin to what they cost.</p>
   <div class="report pass" data-reveal>
     <p><b>7-day Solo pass, €8.</b> If you stay, the €8 is credited toward your first month.</p>
-    <a class="btn ghost" href="/hosting.html?plan=pass">Request the 7-day pass</a>
+    <a class="btn ghost" href="/hosting/?plan=pass">Request the 7-day pass</a>
   </div>
 </section>
 
@@ -580,7 +580,7 @@ taskcell hub --repo ../app
       </div>
     </fieldset>
     <fieldset>
-      <legend>What do you want the factory for? Pick all that apply.</legend>
+      <legend>What do you want the factory for? Pick any that apply.</legend>
       <div class="opts two">
         <label class="opt"><input type="checkbox" name="uses" value="bugs">Bug fixes</label>
         <label class="opt"><input type="checkbox" name="uses" value="features">Small features</label>
@@ -589,6 +589,7 @@ taskcell hub --repo ../app
         <label class="opt"><input type="checkbox" name="uses" value="refactor">Refactoring</label>
         <label class="opt"><input type="checkbox" name="uses" value="docs">Documentation</label>
       </div>
+      <p class="hint">Optional. It does not change the result.</p>
     </fieldset>
     <fieldset>
       <legend>How many people are on the team?</legend>
@@ -631,7 +632,7 @@ taskcell hub --repo ../app
         <p class="plan-name" id="r-plan"></p>
         <p id="r-plan-note"></p>
         <p id="r-alt" hidden></p>
-        <a class="btn" id="r-plan-link" href="/hosting.html"></a>
+        <a class="btn" id="r-plan-link" href="/hosting/"></a>
         <p class="hint" id="r-planned">A planned price. Hosting is not open yet.</p>
       </div>
       <div>

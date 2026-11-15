@@ -14,6 +14,15 @@ const html = readFileSync(new URL('./src/index.html', import.meta.url), 'utf8');
 const rows = [...html.matchAll(/data-run="([^"]+)" data-col="([^"]+)"/g)].map((m) => `${m[1]}:${m[2]}`);
 assert.deepEqual(rows, runs.map((r) => `${r.id}:${column(r)}`));
 
+// So are the cost records and the counts the page shows before the script runs.
+const costs = Object.fromEntries([...html.matchAll(/data-run="([^"]+)"[^>]*data-cost="([^"]+)"/g)].map((m) => [m[1], m[2]]));
+assert.deepEqual(costs, Object.fromEntries(runs.filter((r) => cost(r)).map((r) => [r.id, cost(r)])));
+const shown = [...html.matchAll(/data-col="([^"]+)" aria-pressed="false">[^<]+<em>(\d+)<\/em>/g)].map((m) => [m[1], Number(m[2])]);
+assert.deepEqual(shown, ['Queued', 'Claimed', 'Running', 'Verify failed', 'Review', 'Done'].map((col) => [col, count(col)]));
+assert.ok(html.includes(`All runs<em>${runs.length}</em>`));
+for (const [repo, n] of html.matchAll(/data-repo="([^"]+)" aria-pressed="false">[^<]+<em>(\d+)<\/em>/g).map((m) => [m[1], Number(m[2])]))
+  assert.equal([...html.matchAll(new RegExp(`data-run="[^"]+" data-col="[^"]+" data-repo="${repo}"`, 'g'))].length, n, `${repo} count`);
+
 for (const r of runs) {
   assert.ok(log(r).length >= 1 && log(r).length <= 5);
   assert.equal(cost(r) !== '', r.p >= 5, 'only a finished run has a cost record');
