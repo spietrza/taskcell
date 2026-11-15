@@ -99,15 +99,15 @@ export type LinearGraphql = (body: { query: string; variables: Record<string, un
 
 /** A non-2xx Linear response, with the GraphQL `errors` of its body ([] when the body is not Linear's JSON, e.g. a proxy's page). */
 export class LinearGraphqlRequestError extends TaskcellError {
-  constructor(message: string, readonly errors: { message?: string }[]) {
+  constructor(message: string, readonly errors: { message?: string; extensions?: { code?: string } | null }[]) {
     super(message);
   }
 }
 
-function graphqlErrors(body: string): { message?: string }[] {
+function graphqlErrors(body: string): LinearGraphqlRequestError['errors'] {
   try {
     const errors = (JSON.parse(body) as { errors?: unknown } | null)?.errors;
-    return Array.isArray(errors) ? errors.filter((e): e is { message?: string } => typeof e === 'object' && e !== null) : [];
+    return Array.isArray(errors) ? errors.filter((e): e is LinearGraphqlRequestError['errors'][number] => typeof e === 'object' && e !== null) : [];
   } catch {
     return [];
   }

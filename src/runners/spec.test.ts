@@ -839,7 +839,7 @@ describe('Linear dependency gate wiring', () => {
   const graphql = async (body: { query: string; variables: Record<string, unknown> }): Promise<unknown> => {
     // The list (paged, as on main), the newest comment, and the dependency probe (relations of the listed issues).
     if (/\$after: String, \$first/.test(body.query)) return { data: { issues: { nodes: [issue('ENG-1'), issue('ENG-2'), issue('ENG-3')] } } };
-    if (/comments\(/.test(body.query)) return { data: { issue: { comments: { nodes: [] } } } };
+    if (/comments\(/.test(body.query)) return { data: { issue: { first: { nodes: [] }, last: { nodes: [] } } } };
     if (/issues\(/.test(body.query)) return { data: { issues: { nodes: ['ENG-1', 'ENG-2', 'ENG-3'].map((identifier) => ({ identifier, cycle: null, inverseRelations: relations(identifier) })) } } };
     const id = body.variables['id'] as string;
     return { data: { issue: { identifier: id, state: { type: 'unstarted' }, inverseRelations: relations(id) } } };

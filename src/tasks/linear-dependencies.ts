@@ -15,7 +15,10 @@ const CHECK_CONCURRENCY = 4;
 /** A ref as `DEV-12`, team key upper-cased: the form sent to Linear, shown in reasons and used as the per-poll cache key. */
 const refText = (ref: TaskRef): string => `${ref.repo.toUpperCase()}-${ref.number}`;
 const same = (a: TaskRef, b: TaskRef): boolean => refText(a) === refText(b);
-const dedupe = (refs: TaskRef[]): TaskRef[] => refs.filter((ref, i) => refs.findIndex((other) => same(other, ref)) === i);
+const dedupe = (refs: TaskRef[]): TaskRef[] => {
+  const seen = new Set<string>();
+  return refs.filter((ref) => !seen.has(refText(ref)) && seen.add(refText(ref)).size > 0);
+};
 const isoDay = (date: Date): string => date.toISOString().slice(0, 10);
 
 /** `DEV-12` or a Linear issue URL (`https://linear.app/team/issue/DEV-12/slug`). The slug excludes `.,;` so it cannot overlap the trailing punctuation (no quadratic backtracking). */
@@ -57,14 +60,27 @@ interface LinearDepIssue {
 
 const ISSUE_QUERY = `query($id: String!, $after: String) { issue(id: $id) { identifier state { type } cycle { startsAt } inverseRelations(first: 100, after: $after) { pageInfo { hasNextPage endCursor } nodes { type issue { identifier } } } } }`;
 
+interface GraphqlError {
+  message?: string;
+  extensions?: { code?: string } | null;
+}
+
 interface IssueResponse {
   data?: { issue?: LinearDepIssue | null };
-  errors?: { message?: string }[];
+  errors?: GraphqlError[];
 }
+
+/** Linear does not accept the query as written (a validation error, no data): not a hiccup, and the only failure the gate opens on. */
+class QueryRejected extends Error {}
+const REJECTION_CODES = new Set(['GRAPHQL_VALIDATION_FAILED', 'GRAPHQL_PARSE_FAILED', 'BAD_USER_INPUT']);
+const isRejection = (errors: GraphqlError[]): boolean => errors.length > 0 && errors.every((error) => REJECTION_CODES.has(error.extensions?.code ?? ''));
+const errorText = (errors: GraphqlError[]): string => `Linear API error: ${errors.map((e) => e.message ?? '').join('; ')}`;
+/** A thrown non-2xx answer whose body is a validation error, as `QueryRejected`; anything else unchanged. */
+const classified = (error: unknown): unknown => (error instanceof LinearGraphqlRequestError && isRejection(error.errors) ? new QueryRejected(error.message) : error);
 
 /** Linear's GraphQL error for an `issue(id:)` that does not exist or that the token cannot read. */
 const ISSUE_NOT_FOUND = /\bentity not found:\s*issue\b/i;
-const isMissing = (errors: { message?: string }[]): boolean => errors.length > 0 && errors.every((error) => ISSUE_NOT_FOUND.test(error.message ?? ''));
+const isMissing = (errors: GraphqlError[]): boolean => errors.length > 0 && errors.every((error) => ISSUE_NOT_FOUND.test(error.message ?? ''));
 
 /** One issue with every page of its inverse relations. `missing` only on Linear's own not-found error, never on free text (a proxy's 404). */
 async function loadIssue(ref: TaskRef, send: LinearGraphql): Promise<LinearDepIssue | 'missing'> {
@@ -78,13 +94,15 @@ async function loadIssue(ref: TaskRef, send: LinearGraphql): Promise<LinearDepIs
     } catch (error) {
       // The real sender throws on a non-2xx status; Linear may answer "Entity not found" that way.
       if (error instanceof LinearGraphqlRequestError && isMissing(error.errors)) return 'missing';
-      throw error;
+      throw classified(error);
     }
     const errors = res.errors ?? [];
     if (isMissing(errors)) return 'missing';
-    if (errors.length > 0) throw new Error(`Linear API error: ${errors.map((e) => e.message ?? '').join('; ')}`);
     const issue = res.data?.issue;
-    if (issue === undefined || issue === null) return 'missing';
+    // Errors next to usable data are a partial answer, never a rejection of the query.
+    if (errors.length > 0) throw issue == null && isRejection(errors) ? new QueryRejected(errorText(errors)) : new Error(errorText(errors));
+    // Neither an error nor an issue: a malformed answer, not Linear saying the issue is missing.
+    if (issue === undefined || issue === null) throw new Error(`Linear API returned no issue for ${refText(ref)}`);
     const connection = issue.inverseRelations;
     // No relation data: returned as is, so `blockersOf` holds the issue instead of reading "no blockers".
     if (connection === undefined || connection === null || connection.nodes === undefined) return issue;
@@ -243,19 +261,24 @@ const PROBE_BATCH = 50;
 
 interface ProbeResponse {
   data?: { issues?: { nodes?: LinearDepIssue[] } | null };
-  errors?: { message?: string }[];
+  errors?: GraphqlError[];
+}
+
+interface ProbeResult {
+  known: Map<string, KnownIssue>;
+  /** Issues of batches Linear rejected as a query (validation error), with the reason of the first. */
+  rejected: TaskRef[];
+  rejection?: string;
 }
 
 /**
  * One query per `PROBE_BATCH` listed issues. `known`: issues whose relations the probe read in full
- * (their blockers and cycle start). An issue it could not answer for (not returned, more than
- * `PROBE_RELATIONS` relations, an unreadable relation) is absent and gets its own lookup. A batch that
- * fails (the probe has no counterpart on main, so it must not be able to stop a watch) is logged and
- * its issues count as having no native relation and no cycle for this poll: they are judged by their
- * `Depends on` and `Start:` lines alone.
+ * (their blockers and cycle start). Every other issue gets its own lookup: one the probe could not
+ * answer for (not returned, more than `PROBE_RELATIONS` relations, an unreadable relation) and every
+ * issue of a batch that failed, which is logged. A failed probe never makes an issue ready.
  */
-async function probe(refs: TaskRef[], send: LinearGraphql, log: (line: string) => void): Promise<Map<string, KnownIssue>> {
-  const known = new Map<string, KnownIssue>();
+async function probe(refs: TaskRef[], send: LinearGraphql, log: (line: string) => void): Promise<ProbeResult> {
+  const result: ProbeResult = { known: new Map(), rejected: [] };
   for (let i = 0; i < refs.length; i += PROBE_BATCH) {
     const batch = refs.slice(i, i + PROBE_BATCH);
     const byTeam = new Map<string, number[]>();
@@ -265,23 +288,27 @@ async function probe(refs: TaskRef[], send: LinearGraphql, log: (line: string) =
     }
     const f = { or: [...byTeam].map(([team, numbers]) => ({ team: { key: { eqIgnoreCase: team } }, number: { in: numbers } })) };
     try {
-      const res = (await send({ query: PROBE_QUERY, variables: { f, first: batch.length } })) as ProbeResponse;
+      const res = (await send({ query: PROBE_QUERY, variables: { f, first: batch.length } }).catch((error: unknown) => { throw classified(error); })) as ProbeResponse;
       const nodes = res.data?.issues?.nodes;
-      if ((res.errors ?? []).length > 0) throw new Error((res.errors ?? []).map((e) => e.message ?? '').join('; '));
+      const errors = res.errors ?? [];
+      // Errors next to usable data are a partial answer: transient, the whole batch is looked up.
+      if (errors.length > 0) throw nodes === undefined && isRejection(errors) ? new QueryRejected(errorText(errors)) : new Error(errorText(errors));
       if (nodes === undefined) throw new Error('Linear API returned no issue connection');
       for (const node of nodes) {
         const ref = parseIdentifier(node.identifier ?? '');
         const read = node.inverseRelations?.pageInfo?.hasNextPage === false ? blockersOf(node) : undefined;
         if (ref === undefined || read === undefined || 'reason' in read) continue;
         const cycleStart = node.cycle?.startsAt ?? undefined;
-        known.set(refText(ref), { nativeBlockers: read.blockers, ...(cycleStart !== undefined ? { cycleStart } : {}) });
+        result.known.set(refText(ref), { nativeBlockers: read.blockers, ...(cycleStart !== undefined ? { cycleStart } : {}) });
       }
     } catch (error) {
-      log(`taskcell: Linear dependency probe failed, native "blocked by" relations and cycles of ${batch.length} issue(s) not honoured this poll (Depends on and Start lines still are) -> ${failureReason(error)}`);
-      for (const ref of batch) known.set(refText(ref), { nativeBlockers: [] });
+      log(`taskcell: Linear dependency probe failed, looking up ${batch.length} issue(s) one by one -> ${failureReason(error)}`);
+      if (!(error instanceof QueryRejected)) continue;
+      result.rejected.push(...batch);
+      result.rejection ??= failureReason(error);
     }
   }
-  return known;
+  return result;
 }
 
 export interface LinearDependencyGateOptions {
@@ -292,28 +319,40 @@ export interface LinearDependencyGateOptions {
   now?: Date;
   /** Last comment posted per issue id by this process; defaults to a process-wide map, so a held issue costs no comment read on every poll. */
   reported?: Map<string, string>;
+  /** Last skip reason logged per issue id; defaults to a process-wide map, so a held issue logs once per reason, not once per poll. */
+  logged?: Map<string, string>;
   log?: (line: string) => void;
 }
 
 const reportedComments = new Map<string, string>();
+const loggedReasons = new Map<string, string>();
 
-/** Linear's connections are newest first with `first`. */
-const NEWEST_COMMENT_QUERY = `query($id: String!) { issue(id: $id) { comments(first: 1) { nodes { body } } } }`;
+const RECENT_COMMENTS = 5;
+/** Both ends of the connection, so the recent comments are among them whichever way Linear orders it. */
+const RECENT_COMMENTS_QUERY = `query($id: String!) { issue(id: $id) { first: comments(first: ${RECENT_COMMENTS}) { nodes { body } } last: comments(last: ${RECENT_COMMENTS}) { nodes { body } } } }`;
 
-interface NewestCommentResponse {
-  data?: { issue?: { comments?: { nodes?: { body?: string | null }[] } | null } | null };
-  errors?: { message?: string }[];
+interface CommentNodes {
+  nodes?: { body?: string | null }[];
 }
 
-/** Posts `body` unless it is already the newest comment on the issue (as the GitHub and GitLab gates do), so a restart or `watch --once` does not repeat it. */
+interface RecentCommentsResponse {
+  data?: { issue?: { first?: CommentNodes | null; last?: CommentNodes | null } | null };
+  errors?: GraphqlError[];
+}
+
+/** Letters and digits only: equal however Linear re-renders the markdown or the whitespace. */
+const comparable = (text: string): string => text.replace(/[^\p{L}\p{N}]+/gu, '');
+
+/** Posts `body` unless one of the issue's recent comments already says the same, so a restart or `watch --once` does not repeat it. */
 async function commentOnce(id: string, body: string, send: LinearGraphql, opts: LinearDependencyGateOptions): Promise<void> {
   const reported = opts.reported ?? reportedComments;
-  const published = redactForPublish(body).trim();
+  const published = comparable(redactForPublish(body));
   if (reported.get(id) === published) return;
-  const res = (await send({ query: NEWEST_COMMENT_QUERY, variables: { id } })) as NewestCommentResponse;
-  const nodes = res.data?.issue?.comments?.nodes;
-  if ((res.errors ?? []).length > 0 || nodes === undefined) throw new Error('the newest comment could not be read');
-  if ((nodes[0]?.body ?? '').trim() !== published) await commentLinearIssue(id, body, opts.linear);
+  const res = (await send({ query: RECENT_COMMENTS_QUERY, variables: { id } })) as RecentCommentsResponse;
+  const issue = res.data?.issue;
+  if ((res.errors ?? []).length > 0 || issue?.first?.nodes === undefined || issue.last?.nodes === undefined) throw new Error('the recent comments could not be read');
+  const recent = [...issue.first.nodes, ...issue.last.nodes];
+  if (!recent.some((node) => comparable(node.body ?? '') === published)) await commentLinearIssue(id, body, opts.linear);
   reported.set(id, published);
 }
 
@@ -325,19 +364,31 @@ const quoted = (text: string): string => `\`${text.replace(/[`@]/g, '').replace(
  * gets one comment, is skipped this poll and stays in its trigger state, so a later poll starts it by
  * itself once the blockers are done and the date reached. A cycle, a missing reference, a canceled
  * blocker, an impossible date or an unreadable identifier gets one comment with the reason and moves
- * to the needs-info state. A failed lookup is logged and skipped for this poll; a failed probe is
- * logged and native relations are not honoured in this poll.
+ * to the needs-info state. A failed probe or lookup is logged and the issue skipped for this poll.
+ * Only when Linear rejects both the probe and the lookup as queries (a validation error: the gate's
+ * queries do not fit the schema, which no retry fixes) are native relations not honoured, so that a
+ * wrong query cannot stop every Linear watch; `Depends on` and `Start:` lines still hold.
  */
 export async function applyLinearDependencyGate(tasks: Task[], opts: LinearDependencyGateOptions = {}): Promise<Task[]> {
   if (tasks.length === 0) return tasks;
   const log = opts.log ?? console.log;
+  const logged = opts.logged ?? loggedReasons;
   const send = opts.graphql ?? (await linearGraphql(opts.linear));
   const refs = new Map(tasks.map((task) => [task, parseIdentifier(task.ref ?? task.id)]));
   const probed = await probe([...refs.values()].filter((ref): ref is TaskRef => ref !== undefined), send, log);
   const lookup = createIssueLookup(send);
+  const first = probed.rejected[0];
+  if (first !== undefined) {
+    // The lookup is one query for every issue: rejected for one, it is rejected for all.
+    const lookupRejection = await lookup(first).then(() => undefined, (error: unknown) => (error instanceof QueryRejected ? error.message : undefined));
+    if (lookupRejection !== undefined) {
+      log(`taskcell: Linear rejected the dependency queries, native "blocked by" relations and cycles of ${probed.rejected.length} issue(s) not honoured this poll (Depends on and Start lines still are) -> ${probed.rejection ?? ''}; ${lookupRejection}`);
+      for (const ref of probed.rejected) probed.known.set(refText(ref), { nativeBlockers: [] });
+    }
+  }
   const check = (task: Task): Promise<LinearDependencyVerdict> => {
     const ref = refs.get(task);
-    return checkLinearDependencies(task, send, opts.now, ref !== undefined ? probed.get(refText(ref)) : undefined, lookup);
+    return checkLinearDependencies(task, send, opts.now, ref !== undefined ? probed.known.get(refText(ref)) : undefined, lookup);
   };
   const checked = await fanOut(tasks, check, { concurrency: CHECK_CONCURRENCY });
   const ready: Task[] = [];
@@ -346,17 +397,22 @@ export async function applyLinearDependencyGate(tasks: Task[], opts: LinearDepen
     const verdict: LinearDependencyVerdict = outcome.status === 'fulfilled' ? outcome.value : { status: 'error', reason: failureReason(outcome.reason) };
     if (verdict.status === 'ready') {
       (opts.reported ?? reportedComments).delete(task.id);
+      logged.delete(task.id);
       ready.push({ ...task, dependsOn: verdict.dependsOn });
       continue;
     }
-    log(`taskcell: ${task.id} skipped -> ${verdict.status === 'invalid' ? 'needs info: ' : ''}${verdict.reason}`);
+    // Once per reason, not once per poll; the reason holds author text, so control characters are dropped.
+    const reason = `${verdict.status === 'invalid' ? 'needs info: ' : ''}${verdict.reason}`.replace(/\p{Cc}+/gu, ' ');
+    if (logged.get(task.id) !== reason) log(`taskcell: ${task.id} skipped -> ${reason}`);
+    logged.set(task.id, reason);
     if (verdict.status === 'error') continue;
     try {
       if (verdict.status === 'waiting') {
         await commentOnce(task.id, `Taskcell will not start this issue yet: ${quoted(verdict.reason)}. It stays in its trigger state and starts by itself once that is resolved.`, send, opts);
         continue;
       }
-      await commentOnce(task.id, `Taskcell cannot start this issue: ${quoted(verdict.reason)}. Fix it and move it back to its trigger state.`, send, opts);
+      const next = opts.moveToNeedsInfo !== undefined ? 'Fix it and move it back to its trigger state.' : 'It stays in its trigger state and is checked again once it is fixed.';
+      await commentOnce(task.id, `Taskcell cannot start this issue: ${quoted(verdict.reason)}. ${next}`, send, opts);
       await opts.moveToNeedsInfo?.(task.id);
     } catch (error) {
       log(`taskcell: ${task.id} dependency hold could not be recorded: ${failureReason(error)}`);

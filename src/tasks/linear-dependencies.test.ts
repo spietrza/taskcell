@@ -29,7 +29,10 @@ const issueNode = (identifier: string, i: Fake): object => ({
 function fakeSend(issues: Record<string, Fake>, comments = new Map<string, string>()): Send {
   return vi.fn<LinearGraphql>(async (body) => {
     const id = body.variables['id'] as string;
-    if (body.query.includes('comments(')) return { data: { issue: { comments: { nodes: comments.has(id) ? [{ body: comments.get(id) }] : [] } } } };
+    if (body.query.includes('comments(')) {
+      const nodes = comments.has(id) ? [{ body: comments.get(id) }] : [];
+      return { data: { issue: { first: { nodes }, last: { nodes } } } };
+    }
     if (body.query.includes('issues(')) {
       const asked = (body.variables['f'] as ProbeFilter).or.flatMap((g) => g.number.in.map((n) => `${g.team.key.eqIgnoreCase}-${n}`));
       return { data: { issues: { nodes: asked.filter((key) => issues[key] !== undefined).map((key) => issueNode(key, issues[key]!)) } } };
@@ -195,8 +198,8 @@ describe('checkLinearDependencies', () => {
 });
 
 describe('applyLinearDependencyGate', () => {
-  const opts = (): { linear: () => Promise<string>; now: Date; log: () => void; reported: Map<string, string> } =>
-    ({ linear: async () => '', now, log: () => undefined, reported: new Map() });
+  const opts = (): { linear: () => Promise<string>; now: Date; log: () => void; reported: Map<string, string>; logged: Map<string, string> } =>
+    ({ linear: async () => '', now, log: () => undefined, reported: new Map(), logged: new Map() });
 
   it('costs one probe and no lookup when nothing has a dependency, and starts every issue', async () => {
     const send = fakeSend({ 'DEV-1': {}, 'DEV-2': { related: 3 }, 'DEV-3': { cycle: '2026-05-01T00:00:00.000Z' } });
@@ -256,10 +259,10 @@ describe('applyLinearDependencyGate', () => {
     for (let n = 2; n <= 8; n++) issues[`DEV-${n}`] = { blockedBy: ['DEV-1'] };
     const send = fakeSend(issues);
     const tasks = [task('DEV-1'), ...Array.from({ length: 7 }, (_, n) => task(`DEV-${n + 2}`)), task('DEV-9', 'Depends on dev-1')];
-    const out = await applyLinearDependencyGate(tasks, { ...opts(), graphql: send, reported: new Map(tasks.map((t) => [t.id, 'Taskcell will not start this issue yet: `waiting for DEV-1`. It stays in its trigger state and starts by itself once that is resolved.'])) });
+    const out = await applyLinearDependencyGate(tasks, { ...opts(), graphql: send });
     expect(out.map((t) => t.id)).toEqual(['DEV-1']);
     expect(lookedUp(send)).toEqual(['DEV-1']);
-    expect(send).toHaveBeenCalledTimes(2);
+    expect(probes(send)).toHaveLength(1);
   });
   it('probes in bounded batches across teams, team keys upper-cased as in the lookup', async () => {
     const send = fakeSend({});
@@ -269,36 +272,78 @@ describe('applyLinearDependencyGate', () => {
     expect((probes(send)[0]!.variables['f'] as ProbeFilter).or.map((g) => g.team.key.eqIgnoreCase)).toEqual(['DEV', 'ENG']);
     expect(lookedUp(send).slice(0, 2)).toEqual(['DEV-1', 'DEV-101']);
   });
-  it('a rejected probe is logged once and cannot stop the watch: issues without declarations start as on main', async () => {
-    const inner = fakeSend({ 'DEV-1': {}, 'DEV-2': { blockedBy: ['DEV-1'] }, 'DEV-3': { cycle: '2026-07-01T00:00:00.000Z' } });
-    const send = vi.fn<LinearGraphql>(async (body) => (body.query.includes('issues(') ? { errors: [{ message: 'Query too complex' }] } : inner(body)));
+  const validation = (message: string): object => ({ errors: [{ message, extensions: { code: 'GRAPHQL_VALIDATION_FAILED' } }] });
+  const blocked: Record<string, Fake> = { 'DEV-1': {}, 'DEV-2': { blockedBy: ['DEV-1'] }, 'DEV-3': { cycle: '2026-07-01T00:00:00.000Z' } };
+  const three = (): Task[] => [task('DEV-1'), task('DEV-2'), task('DEV-3')];
+
+  it.each<[string, () => unknown]>([
+    ['a thrown error (network, timeout, non-2xx)', () => { throw new Error('socket hang up'); }],
+    ['a rate limit', () => ({ errors: [{ message: 'Rate limit exceeded', extensions: { code: 'RATELIMITED' } }] })],
+    ['a GraphQL error without a code', () => ({ errors: [{ message: 'Query too complex' }] })],
+    ['a validation error on the probe alone', () => validation('Cannot query field "inverseRelations"')],
+    ['errors next to usable data', () => ({ ...validation('partial'), data: { issues: { nodes: ['DEV-1', 'DEV-2', 'DEV-3'].map((id) => issueNode(id, {})) } } })],
+  ])('a failed probe never starts a blocked issue: %s falls back to one lookup per issue', async (_name, answer) => {
+    const inner = fakeSend(blocked);
+    const send = vi.fn<LinearGraphql>(async (body) => (body.query.includes('issues(') ? answer() : inner(body)));
+    const logs: string[] = [];
+    const out = await applyLinearDependencyGate(three(), { ...opts(), graphql: send, log: (l) => logs.push(l) });
+    expect(out.map((t) => t.id)).toEqual(['DEV-1']);
+    expect(lookedUp(send)).toEqual(['DEV-1', 'DEV-2', 'DEV-3']);
+    expect(logs[0]).toContain('taskcell: Linear dependency probe failed, looking up 3 issue(s) one by one -> ');
+    expect(logs.some((l) => l.includes('not honoured'))).toBe(false);
+  });
+  it('a failed probe and a failed lookup skip the issue for the poll: logged, no comment, never ready', async () => {
+    const send = vi.fn<LinearGraphql>(async () => { throw new Error('socket hang up'); });
     const linear = vi.fn(async (_args: string[]) => '');
     const logs: string[] = [];
-    const out = await applyLinearDependencyGate([task('DEV-1'), task('DEV-2'), task('DEV-3')], { graphql: send, linear, now, log: (l) => logs.push(l) });
-    // main starts all three: native relations and cycles are not honoured in a poll whose probe failed.
-    expect(out.map((t) => t.id)).toEqual(['DEV-1', 'DEV-2', 'DEV-3']);
-    expect(send).toHaveBeenCalledTimes(1);
+    expect(await applyLinearDependencyGate(three(), { ...opts(), graphql: send, linear, log: (l) => logs.push(l) })).toEqual([]);
     expect(linear).not.toHaveBeenCalled();
-    expect(logs).toEqual(['taskcell: Linear dependency probe failed, native "blocked by" relations and cycles of 3 issue(s) not honoured this poll (Depends on and Start lines still are) -> Query too complex']);
-    const thrown = vi.fn<LinearGraphql>(async () => { throw new Error('socket hang up'); });
-    expect((await applyLinearDependencyGate([task('DEV-1')], { ...opts(), graphql: thrown })).map((t) => t.id)).toEqual(['DEV-1']);
+    expect(logs).toContain('taskcell: DEV-2 skipped -> dependency lookup failed: socket hang up');
+    // A lookup rejected as a query while the probe only hiccuped is not the open path either.
+    const mixed = vi.fn<LinearGraphql>(async (body) => (body.query.includes('issues(') ? { errors: [{ message: 'timeout' }] } : validation('Cannot query field "cycle"')));
+    expect(await applyLinearDependencyGate(three(), { ...opts(), graphql: mixed })).toEqual([]);
   });
-  it('after a rejected probe a declared open blocker or start date still holds the issue', async () => {
+  it('opens only when Linear rejects both queries as queries: native relations are not honoured, declared lines still hold', async () => {
+    const send = vi.fn<LinearGraphql>(async (body) => validation(body.query.includes('issues(') ? 'Cannot query field "inverseRelations" on type "Issue"' : 'Cannot query field "cycle" on type "Issue"'));
     const comments = new Map<string, string>();
-    const inner = fakeSend({ 'DEV-1': {}, 'DEV-4': { type: 'completed' } }, comments);
-    const send = vi.fn<LinearGraphql>(async (body) => {
-      if (body.query.includes('issues(')) throw new Error('400 Bad Request');
-      if (body.variables['id'] === 'DEV-8' && !body.query.includes('comments(')) throw new Error('503');
-      return inner(body);
-    });
-    const tasks = [task('DEV-2', 'Depends on DEV-1'), task('DEV-3', 'Start: 2026-07-01'), task('DEV-5', 'Depends on DEV-4'), task('DEV-6', 'Depends on DEV-8'), task('DEV-7')];
-    const out = await applyLinearDependencyGate(tasks, { ...opts(), graphql: send, linear: commentRunner(comments) });
-    expect(out.map((t) => t.id)).toEqual(['DEV-5', 'DEV-7']);
-    expect(comments.get('DEV-2')).toContain('waiting for DEV-1');
-    expect(comments.get('DEV-3')).toContain('start date 2026-07-01');
-    // DEV-6's own declared dependency could not be resolved: it waits this poll, without a comment.
-    expect(comments.has('DEV-6')).toBe(false);
-    expect(lookedUp(send)).toEqual(['DEV-1', 'DEV-4', 'DEV-8']);
+    const logs: string[] = [];
+    const tasks = [...three(), task('DEV-4', 'Start: 2026-07-01'), task('DEV-5', 'Depends on DEV-1')];
+    const out = await applyLinearDependencyGate(tasks, { ...opts(), graphql: send, linear: commentRunner(comments), log: (l) => logs.push(l) });
+    // main starts DEV-1..3; DEV-4 waits for its date; DEV-5's declared dependency cannot be resolved.
+    expect(out.map((t) => t.id)).toEqual(['DEV-1', 'DEV-2', 'DEV-3']);
+    expect(logs).toContain('taskcell: Linear rejected the dependency queries, native "blocked by" relations and cycles of 5 issue(s) not honoured this poll (Depends on and Start lines still are) -> Linear API error: Cannot query field "inverseRelations" on type "Issue"; Linear API error: Cannot query field "cycle" on type "Issue"');
+    expect(logs.some((l) => l.startsWith('taskcell: DEV-5 skipped -> dependency lookup failed'))).toBe(true);
+    expect([...comments.keys()]).toEqual([]);
+    expect(logs.some((l) => l.includes('DEV-4 skipped -> start date 2026-07-01'))).toBe(true);
+  });
+  it('reads a rejection thrown by the real sender (HTTP 400 with a validation body) the same way, and a 400 without one as transient', async () => {
+    vi.stubEnv('LINEAR_API_KEY', 'k');
+    try {
+      vi.stubGlobal('fetch', vi.fn(async () => new Response(JSON.stringify(validation('Unknown argument "eqIgnoreCase"')), { status: 400, statusText: 'Bad Request' })));
+      expect((await applyLinearDependencyGate(three(), { ...opts(), graphql: await linearGraphql() })).map((t) => t.id)).toEqual(['DEV-1', 'DEV-2', 'DEV-3']);
+      vi.stubGlobal('fetch', vi.fn(async () => new Response('Bad Request', { status: 400, statusText: 'Bad Request' })));
+      expect(await applyLinearDependencyGate(three(), { ...opts(), graphql: await linearGraphql() })).toEqual([]);
+    } finally {
+      vi.unstubAllGlobals();
+      vi.unstubAllEnvs();
+    }
+  });
+  it('logs a held issue once per reason, not once per poll, and strips control characters from the reason', async () => {
+    const send = fakeSend({ 'DEV-1': {}, 'DEV-2': { blockedBy: ['DEV-1'] }, 'DEV-3': {} });
+    const logs: string[] = [];
+    const shared = { ...opts(), graphql: send, log: (l: string): void => void logs.push(l) };
+    for (let poll = 0; poll < 3; poll++) await applyLinearDependencyGate([task('DEV-2'), task('DEV-3', 'Start: 2026-13-01\u001b[2J')], shared);
+    expect(logs).toEqual(['taskcell: DEV-2 skipped -> waiting for DEV-1', expect.stringMatching(/^taskcell: DEV-3 skipped -> needs info: [^\u001b]*$/)]);
+  });
+  it('treats an answer with neither an error nor an issue as a failed lookup, not a missing issue', async () => {
+    const send: LinearGraphql = async (body) => (body.variables['id'] === 'DEV-9' ? { data: {} } : { data: { issue: issueNode('DEV-1', {}) } });
+    expect(await checkLinearDependencies(task('DEV-1', 'Depends on DEV-9'), send, now)).toMatchObject({ status: 'error', reason: expect.stringContaining('returned no issue for DEV-9') });
+  });
+  it('dedupes tens of thousands of references without stalling', async () => {
+    const body = Array.from({ length: 2000 }, (_, n) => `Depends on ${Array.from({ length: 20 }, (_x, m) => `DEV-${n * 20 + m + 2}`).join(', ')}`).join('\n');
+    const started = Date.now();
+    expect(await checkLinearDependencies(task('DEV-1', body), fakeSend({}), now, { nativeBlockers: [] })).toMatchObject({ status: 'invalid' });
+    expect(Date.now() - started).toBeLessThan(2000);
   });
   it('passes ready tasks, comments on waiting ones and parks invalid ones in needs info', async () => {
     const comments = new Map<string, string>();
@@ -310,7 +355,11 @@ describe('applyLinearDependencyGate', () => {
     expect(out.map((t) => t.id)).toEqual(['DEV-1']);
     expect(moved).toEqual(['DEV-3']);
     expect(comments.get('DEV-2')).toBe('Taskcell will not start this issue yet: `waiting for DEV-1`. It stays in its trigger state and starts by itself once that is resolved.');
-    expect(comments.get('DEV-3')).toContain('Taskcell cannot start this issue: `dependency cycle: DEV-3 → DEV-3`');
+    expect(comments.get('DEV-3')).toBe('Taskcell cannot start this issue: `dependency cycle: DEV-3 → DEV-3`. Fix it and move it back to its trigger state.');
+    // Without a needs-info state the issue never leaves its trigger state, and the comment says so.
+    const stays = new Map<string, string>();
+    await applyLinearDependencyGate([task('DEV-3')], { ...opts(), graphql: fakeSend({ 'DEV-3': { blockedBy: ['DEV-3'] } }, stays), linear: commentRunner(stays) });
+    expect(stays.get('DEV-3')).toContain('It stays in its trigger state and is checked again once it is fixed.');
   });
   it('comments once on a waiting issue, an unparseable id and a failed move: across polls and across a restart', async () => {
     const comments = new Map<string, string>();
@@ -330,7 +379,7 @@ describe('applyLinearDependencyGate', () => {
     // The comment read happens once per issue per process, not on every poll.
     expect(send.mock.calls.filter(([b]) => b.query.includes('comments(')).length).toBe(6);
   });
-  it('comments again when the reason changes or someone else commented since, and not when the newest comment cannot be read', async () => {
+  it('comments again when the reason changes, finds its comment among the recent ones however Linear re-renders it, and posts nothing when they cannot be read', async () => {
     const comments = new Map<string, string>([['DEV-2', 'a human said something']]);
     const issues: Record<string, Fake> = { 'DEV-1': {}, 'DEV-2': { blockedBy: ['DEV-1'] }, 'DEV-5': {} };
     const linear = commentRunner(comments);
@@ -340,6 +389,12 @@ describe('applyLinearDependencyGate', () => {
     await applyLinearDependencyGate([task('DEV-2')], { ...opts(), graphql: fakeSend(issues, comments), linear, reported });
     expect(linear.mock.calls.map((c) => c[0][5])).toEqual([expect.stringContaining('waiting for DEV-1'), expect.stringContaining('waiting for DEV-5')]);
     linear.mockClear();
+    // After a restart: the comment is the oldest of several, whitespace and markdown escaping changed.
+    const rendered = { nodes: [{ body: 'Taskcell will not start this issue yet:\n\\`waiting for DEV\\-5\\`. It stays in its trigger state and starts by itself once that is resolved.' }] };
+    const base = fakeSend(issues);
+    const reordered: LinearGraphql = async (body) => (body.query.includes('comments(') ? { data: { issue: { first: { nodes: [{ body: 'newer' }, { body: null }] }, last: rendered } } } : base(body));
+    await applyLinearDependencyGate([task('DEV-2')], { ...opts(), graphql: reordered, linear });
+    expect(linear).not.toHaveBeenCalled();
     const inner = fakeSend(issues);
     const broken: LinearGraphql = async (body) => (body.query.includes('comments(') ? { errors: [{ message: 'boom' }] } : inner(body));
     const logs: string[] = [];
