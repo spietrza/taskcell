@@ -668,7 +668,14 @@ export type AuditAction =
   | 'task-edit'
   | 'task-schedule'
   | 'enable-factory'
-  | 'approver-mode';
+  | 'approver-mode'
+  | 'team-member-add'
+  | 'team-member-remove'
+  | 'team-repository-add'
+  | 'team-repository-remove'
+  | 'labels-migrate'
+  | 'project-watch'
+  | 'project-unwatch';
 export type AuditOutcome = 'ok' | 'refused' | 'failed';
 
 /** One line of `audit.jsonl`. `login` is a GitHub login, or `token` for header access. */
