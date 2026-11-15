@@ -2,7 +2,7 @@ import { mkdir, mkdtemp, realpath, rm, writeFile } from 'node:fs/promises';
 import { homedir, tmpdir } from 'node:os';
 import { dirname, join, parse, win32 } from 'node:path';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
-import { assertWithinBrowseRoot, browseDirs, isWithinRoot, MAX_BROWSE_ENTRIES } from './browse.js';
+import { assertWithinBrowseRoot, browseDirs, DRIVES_PATH, isWithinRoot, MAX_BROWSE_ENTRIES } from './browse.js';
 import { BadRequestError } from '../sidecar/sidecar.js';
 
 let tmp: string;
@@ -111,6 +111,24 @@ describe('browseDirs', () => {
     await mkdir(join(root, 'child'), { recursive: true });
     const listing = await browseDirs(root, join(root, 'child'));
     expect(listing.parent).toBe(root);
+  });
+});
+
+describe('browseDirs on Windows', () => {
+  const drives = async (): Promise<string[]> => ['C:\\', 'D:\\'];
+  it('an unconfined hub lists the drive roots above a root, and the filesystem root points up to them', async () => {
+    const top = await browseDirs(root, parse(root).root, true, 'win32', drives);
+    expect(top.parent).toBe(DRIVES_PATH);
+    const list = await browseDirs(root, top.parent, true, 'win32', drives);
+    expect(list).toEqual({ path: DRIVES_PATH, entries: [
+      { name: 'C:\\', path: 'C:\\', isGitRepo: false, hasTaskcell: false },
+      { name: 'D:\\', path: 'D:\\', isGitRepo: false, hasTaskcell: false },
+    ] });
+  });
+  it('a confined hub, or another platform, has no drive list', async () => {
+    await expect(browseDirs(root, DRIVES_PATH, false, 'win32', drives)).rejects.toBeInstanceOf(BadRequestError);
+    await expect(browseDirs(root, DRIVES_PATH, true, 'linux', drives)).rejects.toBeInstanceOf(BadRequestError);
+    expect((await browseDirs(root, parse(root).root, true, 'linux', drives)).parent).toBeUndefined();
   });
 });
 

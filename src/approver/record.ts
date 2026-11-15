@@ -6,6 +6,7 @@ import type { ApproverFacts, Decision, DecisionRecord, Mode } from './types.js';
 export interface BuildDecisionRecordInput {
   mode: Mode;
   repo: string;
+  repoId?: string;
   prNumber: number;
   /** Head SHA the decision is for; keeps a short-circuited record keyed per head, not one per PR forever. */
   headSha?: string;
@@ -22,6 +23,7 @@ export function buildDecisionRecord(input: BuildDecisionRecordInput): DecisionRe
     schemaVersion: 1 as const,
     mode: input.mode,
     repo: input.repo,
+    ...(input.repoId !== undefined ? { repoId: input.repoId } : {}),
     prNumber: input.prNumber,
     auditSample: decision.auditSample,
     rulesFired: decision.rulesFired,
@@ -104,6 +106,7 @@ export interface ActionRecord {
   kind: 'action';
   mode: 'act';
   repo: string;
+  repoId?: string;
   prNumber: number;
   headSha: string;
   action: ActionKind;
