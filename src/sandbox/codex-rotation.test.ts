@@ -1,5 +1,5 @@
 import { describe, it, expect, vi, afterEach } from 'vitest';
-import { mkdtemp, readFile, writeFile, stat, symlink, readdir, mkdir } from 'node:fs/promises';
+import { mkdtemp, readFile, writeFile, stat, lstat, chmod, symlink, readdir, mkdir } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { reportRotation } from './codex-rotation.js';
@@ -46,15 +46,49 @@ describe('reportRotation', () => {
     expect(warn.mock.calls.flat().join('\n')).toContain('left alone');
   });
 
-  it('updates a symlinked auth.json in place', async () => {
-    vi.spyOn(console, 'warn').mockImplementation(() => {});
+  it('never writes through a symlinked auth.json: neither the link nor its target changes', async () => {
+    const warn = vi.spyOn(console, 'warn').mockImplementation(() => {});
     const { dir, file } = await setup(host);
     await mkdir(join(dir, 'link'));
     const link = join(dir, 'link', 'auth.json');
     await symlink(file, link);
     await reportRotation(rotated, 'old-refresh', { CODEX_AUTH_FILE: link });
-    expect((await readFile(file, 'utf8')).includes('new-refresh')).toBe(true);
-    expect((await stat(link)).isFile()).toBe(true);
+    expect(await readFile(file, 'utf8')).toBe(host);
+    expect((await lstat(link)).isSymbolicLink()).toBe(true);
+    expect(await readdir(join(dir, 'link'))).toEqual(['auth.json']);
+    expect(warn.mock.calls.flat().join('\n')).toContain('not written through');
+  });
+
+  it('the written file is 0600 even when the original was world-readable and the umask is permissive', async () => {
+    vi.spyOn(console, 'warn').mockImplementation(() => {});
+    const { file, env } = await setup(host);
+    await chmod(file, 0o644);
+    const prev = process.umask(0);
+    try {
+      await reportRotation(rotated, 'old-refresh', env);
+    } finally {
+      process.umask(prev);
+    }
+    expect((await stat(file)).mode & 0o777).toBe(0o600);
+    expect(await readFile(file, 'utf8')).toContain('new-refresh');
+  });
+
+  it('does not write a rotated credential without an access token', async () => {
+    const warn = vi.spyOn(console, 'warn').mockImplementation(() => {});
+    const { dir, file, env } = await setup(host);
+    await reportRotation(JSON.stringify({ tokens: { refresh_token: 'new-refresh' } }), 'old-refresh', env);
+    expect(await readFile(file, 'utf8')).toBe(host);
+    expect(await readdir(dir)).toEqual(['auth.json']);
+    expect(warn.mock.calls.flat().join('\n')).toContain('Could not write');
+  });
+
+  it('refuses a non-regular file (a directory) at the auth path', async () => {
+    const warn = vi.spyOn(console, 'warn').mockImplementation(() => {});
+    const dir = await mkdtemp(join(tmpdir(), 'rot-'));
+    await mkdir(join(dir, 'auth.json'));
+    await reportRotation(rotated, 'old-refresh', { CODEX_AUTH_FILE: join(dir, 'auth.json') });
+    expect(await readdir(dir)).toEqual(['auth.json']);
+    expect(warn.mock.calls.flat().join('\n')).toContain('not a regular file');
   });
 
   it('reports (not throws) a missing host file and leaves no temp file', async () => {

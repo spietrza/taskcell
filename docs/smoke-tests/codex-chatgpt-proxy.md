@@ -5,21 +5,21 @@ Proves that Codex on a ChatGPT subscription (`CODEX_AUTH_JSON`) reviews a PR beh
 ## Prerequisites
 
 - `CODEX_AUTH_JSON="$(cat ~/.codex/auth.json)"` from a `codex login` on a ChatGPT Plus/Pro account (`auth_mode: chatgpt`), exported on the host.
-- Docker, `vanguard-sandbox:latest`, `GH_TOKEN`, and an open PR (`PR`) in `OWNER/REPO` that is safe to comment on.
+- Docker with the sandbox image built (`docker image ls taskcell-sandbox` lists `taskcell-sandbox:latest`), `GH_TOKEN`, and an open PR in `OWNER/REPO` that is safe to comment on. In the command below replace `OWNER/REPO#PR` with that PR (e.g. `acme/widgets#42`) and `/path/to/clone` with a local clone. `review-pr` takes the provider from `--provider`.
 - Local run (not CI), so a rotation is written back to `~/.codex/auth.json` (override: `CODEX_AUTH_FILE`).
 
 ## Run
 
 ```bash
 cp ~/.codex/auth.json /tmp/auth.before.json
-taskcell review-pr --github-repo OWNER/REPO --pr PR --repo /path/to/clone --review-provider codex --llm-proxy
+taskcell review-pr OWNER/REPO#PR --repo /path/to/clone --provider codex --llm-proxy
 ```
 
 ## Expect
 
 - The review stage completes and a review is posted.
 - `docker inspect` of the `vg-llm-*` sidecar shows no token; the sandbox's `~/.codex/auth.json` holds only placeholders.
-- If the IdP rotated the refresh token, the run log prints `taskcell: the Codex (ChatGPT) refresh token was rotated during this run.` followed by `The rotated tokens were written back to …/auth.json`; only `access_token`, `refresh_token` and `last_refresh` change in `~/.codex/auth.json`.
+- If the IdP rotated the refresh token, the run log prints `taskcell: the Codex (ChatGPT) refresh token was rotated during this run.` followed by `The rotated tokens were written back to …/auth.json`; only `access_token`, `refresh_token` and `last_refresh` change in `~/.codex/auth.json`, which stays mode 0600. A symlinked `auth.json` is not written through: the log says so and asks for a fresh `codex login`.
 - A refused refresh ("refresh token was already used") ends the run with `the ChatGPT sign-in was refused: … Sign in again (codex login) and re-run.`
 
 ## Recorded run
