@@ -82,6 +82,41 @@ describe('aggregateMetrics', () => {
   });
 });
 
+describe('estimated cost', () => {
+  const records = parseMetrics(
+    [
+      line({ taskId: 'a', model: 'claude-sonnet-5-5', costUsd: 1 }),
+      line({ taskId: 'b', model: 'gpt-5', costUsd: 0, estCostUsd: 0.5 }),
+      line({ taskId: 'c', model: 'unpriced', costUsd: 0 }),
+    ].join('\n'),
+  );
+  it('keeps reported and estimated cost apart and marks the estimate', () => {
+    const report = aggregateMetrics(records);
+    expect(report.total).toMatchObject({ costUsd: 1, estCostUsd: 0.5 });
+    expect(report.byModel.find((b) => b.key === 'gpt-5')).toMatchObject({ costUsd: 0, estCostUsd: 0.5 });
+    const out = formatStats(report);
+    expect(out).toContain('$est');
+    expect(out).toContain('≈0.5000');
+    expect(out).toContain('not billed per token');
+  });
+  it('drops a negative or non-numeric estimate, and one on a line that carries a reported cost', () => {
+    const parsed = parseMetrics(
+      [
+        line({ taskId: 'neg', costUsd: 0, estCostUsd: -3 }),
+        line({ taskId: 'str', costUsd: 0, estCostUsd: '0.5' }),
+        line({ taskId: 'reported', costUsd: 1, estCostUsd: 0.5 }),
+        line({ taskId: 'stamped', costUsd: 0, costKind: 'estimated', estCostUsd: 0.5 }),
+        line({ taskId: 'ok', costUsd: 0, costUnknown: true, estCostUsd: 0.5 }),
+      ].join('\n'),
+    );
+    expect(parsed.filter((r) => r.estCostUsd !== undefined).map((r) => r.taskId)).toEqual(['ok']);
+    expect(aggregateMetrics(parsed).total).toMatchObject({ costUsd: 1, estCostUsd: 0.5, estEntries: 1 });
+  });
+  it('adds no estimate column when none exists', () => {
+    expect(formatStats(aggregateMetrics(records.slice(0, 1)))).not.toContain('$est');
+  });
+});
+
 describe('formatStats', () => {
   it('renders task, stage and total sections with numbers', () => {
     const report = aggregateMetrics(parseMetrics(line({ taskId: 'a', stage: 'implementer', costUsd: 0.25, inputTokens: 100, cacheReadInputTokens: 900, durationMs: 2000 })));
@@ -117,6 +152,16 @@ describe('decision probe join', () => {
     ]);
     expect(formatStats(aggregateMetrics(parseMetrics(text), parseProbes(text)))).toContain('PROBE: predicted difficulty');
     expect(aggregateMetrics(parseMetrics(text))).not.toHaveProperty('probes');
+  });
+
+  it('leaves a provider-limit stop out of the observed first-try rate', () => {
+    const text = [
+      probe('a', 1.0, 0.9, T(0)), run('a', T(1), { exitReason: 'error', stoppedBy: 'provider-limit' }), // parked by the limit
+      probe('a', 1.0, 0.9, T(2)), run('a', T(3)), // the retry, clean
+    ].join('\n');
+    expect(probeReport(parseMetrics(text), parseProbes(text))).toEqual([
+      { level: 'Routine', runs: 1, repaired: 0, predictedFirstTry: 0.9, observedFirstTry: 1 },
+    ]);
   });
 
   it('joins each probe to the run it preceded, so a re-run task yields one pair per run', () => {

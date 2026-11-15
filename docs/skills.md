@@ -54,6 +54,36 @@ An instruction that a stage must follow on every run belongs in the stage prompt
 
 To see which skills a run used, search its transcripts in `.taskcell/runs/<taskId>/`. A Claude-family stage logs each Skill tool call as `"skill":"<id>"`. Codex and Cursor read the body from `.vanguard/skills/<id>/SKILL.md`, so search for that path instead.
 
+## Do the skills help: `stats --skills`
+
+Taskcell records which installed skills each stage used and prints a comparison per skill. Nothing has to be switched on: every run writes the record.
+
+1. Run some tasks. Locally the records land in `.taskcell/runs/metrics.jsonl`; in CI, `taskcell metrics push` saves them to the `taskcell-metrics` branch.
+2. Print the table:
+
+   ```bash
+   taskcell stats --skills                                        # local records
+   taskcell stats --skills --branch taskcell-metrics --since 30d  # records from CI, last 30 days
+   ```
+
+   ```
+   skill        runs  pass  repairs  cost    |  runs w/o  pass w/o  repairs w/o  cost w/o
+   code-review  12    83%   0.25     0.4100  |  5         60%       0.60         0.5200
+   linear-cli   3     -     0.00     0.3000  |  14        77%       0.43         0.4600
+   ```
+
+3. Read a row left to right. Left of the bar are the runs that used the skill, right of it the runs that did not:
+   - `runs`: how many runs. A handful of runs proves nothing; wait for more before acting.
+   - `pass`: the share of reviewed runs where every review verdict was PASS. `-` means none of those runs had a review.
+   - `repairs`: average extra agent attempts per run (gate repairs and resumes). Lower is better.
+   - `cost`: average USD per run.
+
+The table is observational, not causal. A skill that only hard tasks reach for will look worse than it is, so treat a gap as a reason to look at the runs, not as proof. A skill with no row was never used in the window: check its `description`, or remove it.
+
+What counts as "used": a Claude-family agent calling the Skill tool, and Codex or Cursor reading `.vanguard/skills/<id>/SKILL.md`. Only skills installed for the run are counted, over all attempts of a stage, including the losing variants of a fork (a skill only a discarded variant used counts for the winning run). Runs are left out of both sides when their skills are unknown: runs from before this record existed, runs whose transcript was withheld by the secret scan, and runs written without a skill registry (the deprecated `persistRunRecord` / `persistStageOutcomes`). `--since` takes days or hours (`30d`, `12h`); `--json` prints the rows as JSON. On `stats`, `--skills` takes no value; on every other command it is still `--skills <dir>`.
+
+`taskcell skills update --pr` puts the same numbers in the PR it opens: under each updated skill, a line such as `Usage, last 30 days: 12 runs, 83% pass rate.`, from the local records or, when there are none, from the `taskcell-metrics` branch (this step may run `git fetch origin` for that branch and the legacy metrics branch, which writes refs under `refs/taskcell/tips/origin/` in your repo; a failed fetch is ignored). A skill with no recorded run in that window gets no line.
+
 ## Example: the linear-cli skill
 
 [schpet/linear-cli](https://github.com/schpet/linear-cli) ships a skill at `skills/linear-cli/` that teaches the agent to drive the `linear` CLI directly. The sandbox image already includes the `linear` CLI, so you only inject the skill and forward `LINEAR_API_KEY`:
@@ -170,7 +200,7 @@ Run these in the repo that holds the skills. The examples use `.github/vanguard-
   - `pinned commit <sha> can no longer be fetched … → skipped`: the source no longer serves the pinned commit (it was force-pushed away, or the server refuses a fetch by sha); the same line says `<path> is not in pinned commit <sha>` or `pinned commit <sha> was refused` when the commit is served but the skill path is missing or its content is refused. In every case the local files cannot be compared with it. Rerun with `--force` to update anyway: `SKILL.md` must still match the hash in the lock, and only the other files are replaced unchecked;
   - `invalid skill name → skipped`: the lock names something that is not a plain directory name.
 - `--dry-run` prints the same and writes nothing.
-- `--pr` does the update in a throwaway worktree on a new branch and opens a PR through the normal delivery path (secret scan, commit, push, `gh pr create`). The skills directory must be inside the repo (`--repo`, default the current directory). The PR targets the repo's base branch (`--base`, else the repo's configured one; `--base` without `--pr` is an error); Taskcell never pushes to it and never merges. The body has, per skill, the `SKILL.md` diff, the list of other changed files and the old and new upstream commits, linked for GitHub and GitLab sources. Upstream text is escaped like other untrusted text (`<` becomes `&lt;`, `@mentions` are defused) and fenced so it cannot break out of the block. The whole body is kept under GitHub's size limit: long diffs and lists are cut with a note that says so. Your checkout is not modified, and the worktree and its local branch are removed whether the PR was opened, nothing moved, or the run failed or was blocked by the secret scan. Every moved skill directory is force-added, so a `.gitignore` match cannot drop a file from the commit. A skills directory that resolves outside the worktree (a symlink on the base branch) is refused, and so is a lock on the base branch with an invalid skill name, before anything is pushed. The body goes to `gh` through `--body-file`. If opening the PR fails after the push, the error names the pushed branch (`chore/vanguard-skills-update-…`); delete it on the remote or open the PR from it by hand. Review the diff before merging: a skill steers an agent that has repo access.
+- `--pr` does the update in a throwaway worktree on a new branch and opens a PR through the normal delivery path (secret scan, commit, push, `gh pr create`). The skills directory must be inside the repo (`--repo`, default the current directory). The PR targets the repo's base branch (`--base`, else the repo's configured one; `--base` without `--pr` is an error); Taskcell never pushes to it and never merges. The body has, per skill, the `SKILL.md` diff, the list of other changed files and the old and new upstream commits, linked for GitHub and GitLab sources. When runs in the last 30 days used the skill, it also has a `Usage, last 30 days` line with the run count and review pass rate (see [Do the skills help](#do-the-skills-help-stats---skills)). Upstream text is escaped like other untrusted text (`<` becomes `&lt;`, `@mentions` are defused) and fenced so it cannot break out of the block. The whole body is kept under GitHub's size limit: long diffs and lists are cut with a note that says so. Your checkout is not modified, and the worktree and its local branch are removed whether the PR was opened, nothing moved, or the run failed or was blocked by the secret scan. Every moved skill directory is force-added, so a `.gitignore` match cannot drop a file from the commit. A skills directory that resolves outside the worktree (a symlink on the base branch) is refused, and so is a lock on the base branch with an invalid skill name, before anything is pushed. The body goes to `gh` through `--body-file`. If opening the PR fails after the push, the error names the pushed branch (`chore/vanguard-skills-update-…`); delete it on the remote or open the PR from it by hand. Review the diff before merging: a skill steers an agent that has repo access.
 - `--dry-run --pr` makes the plan against the base branch, as the PR would, prints it, and commits, pushes and opens nothing.
 
 A relative `--dir` is taken under `--repo` by `add`, `remove` and `update`; `list` and `check` read it as given (relative to the current directory).

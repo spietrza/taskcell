@@ -36,7 +36,7 @@ const RUN_LOCATIONS: readonly string[] = ['github-actions', 'gitlab-ci', 'watch'
 const isTaskSource = (v: unknown): v is TaskSourceId => typeof v === 'string' && TASK_SOURCES.includes(v);
 const isRunLocation = (v: unknown): v is RunLocationId => typeof v === 'string' && RUN_LOCATIONS.includes(v);
 /** `taskSource`, else the pre-`taskSource` `source` (github | gitlab | linear): the resolution Settings uses. */
-const resolveTaskSource = (cfg: { taskSource?: unknown; source?: unknown }): TaskSourceId | undefined =>
+export const resolveTaskSource = (cfg: { taskSource?: unknown; source?: unknown }): TaskSourceId | undefined =>
   isTaskSource(cfg.taskSource) ? cfg.taskSource : isTaskSource(cfg.source) ? cfg.source : undefined;
 
 function projectsFile(configDir: string): string {
@@ -88,7 +88,7 @@ export async function aggregate(repoPath: string, now: Date = new Date()): Promi
     tasks.add(s.taskId);
     totalCostUsd += s.totalCostUsd;
     if (s.source === 'ci') ciRunCount += 1;
-    if (s.anyFailed) {
+    if (s.anyFailed && s.stoppedBy === undefined) {
       failedCount += 1;
     }
     if (lastRun === undefined || s.timestamp > lastRun) {

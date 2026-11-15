@@ -6,11 +6,15 @@ import { errorMessage } from '../../errors';
 import type { BoardTask, RepoStamp, RunDetail } from '../../wire';
 import { ExternalLink, hostName } from '../../components/ExternalLink';
 import { MergeButton, ReplyBox, canUseNeedsYou } from '../needs-you/NeedsYou';
+import { PausedPanel } from './paused';
 import { receipt } from './receipt';
 import { SkillPicker } from './SkillPicker';
 import { repairAttempts, stageLine, type StageStatus } from './stageLine';
 import { taskRefKey } from './taskref';
 import { ScheduleEditor, ScheduleLines } from './Schedule';
+
+/** A paused pull request's card (`gh-pr-N`): it is not an issue, so the issue-only actions (skills, full page) are not offered. */
+export const isPullRequestCard = (id: string): boolean => /^gh-pr-\d+$/i.test(id);
 
 export const TRACKER_NAME = { github: 'GitHub', gitlab: 'GitLab', linear: 'Linear' } as const;
 
@@ -28,7 +32,7 @@ export function waitingWhy(item: Pick<NeedsYouItem, 'kind'>): string {
  */
 export function matchNeedsYou(items: NeedsYouItem[], task: Pick<BoardTask, 'id' | 'source'>, prUrl: string | undefined): NeedsYouItem | null {
   const m = /(\d+)$/.exec(taskRefKey(task.id));
-  const number = m ? Number(m[1]) : undefined;
+  const number = m && !isPullRequestCard(task.id) ? Number(m[1]) : undefined;
   return (
     items.find((i) =>
       i.kind === 'pr' ? prUrl !== undefined && i.url === prUrl : task.source === 'github' && number !== undefined && i.number === number,
@@ -186,6 +190,7 @@ export function QuickView({
       </div>
 
       <div className="flex min-h-0 flex-1 flex-col gap-4 overflow-y-auto p-3">
+        <PausedPanel repoPath={repoPath} task={task} onRetried={onChanged} />
         {needsYouError && <div className="text-xs text-muted-foreground">Could not check whether this card waits for you.</div>}
         {item !== null && (
           <div className="space-y-2">
@@ -241,16 +246,18 @@ export function QuickView({
           ))}
         </ol>
 
-        {task.source !== undefined && <CardSkills key={`${repoPath}:${task.id}`} task={task} repoPath={repoPath} onSaved={onSkillsSaved} />}
+        {task.source !== undefined && !isPullRequestCard(task.id) && <CardSkills key={`${repoPath}:${task.id}`} task={task} repoPath={repoPath} onSaved={onSkillsSaved} />}
       </div>
 
       {/* Pinned to the bottom edge: Merge and "Open in …". */}
       <div className="flex shrink-0 flex-wrap items-center gap-2 border-t border-border/60 bg-background p-3">
         {item?.kind === 'pr' && <MergeButton project={repoPath} item={item} onMerged={reload} />}
         {prUrl !== undefined && <ExternalLink href={prUrl}>{`Open in ${hostName(prUrl)}`}</ExternalLink>}
-        <Button className="ml-auto" variant="outlined" onClick={onFullPage}>
-          Full page
-        </Button>
+        {!isPullRequestCard(task.id) && (
+          <Button className="ml-auto" variant="outlined" onClick={onFullPage}>
+            Full page
+          </Button>
+        )}
       </div>
     </aside>
   );

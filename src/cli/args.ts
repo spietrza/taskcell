@@ -10,6 +10,7 @@ import { parseUsageCap } from '../core/usage-cap.js';
 import { namedSkillsProblem, normalizeSkillNames } from '../context/named-skills.js';
 import { GITHUB_CLAIMED_LABEL, GITHUB_REVIEW_LABEL, GITHUB_SPEC_CLAIMED_LABEL } from '../github-labels.js';
 import { readEnv } from '../core/env.js';
+import { parseSince } from '../core/skill-stats.js';
 
 type WatchSource = 'linear' | 'github' | 'project' | 'gitlab';
 
@@ -309,6 +310,9 @@ export type Command =
       branch?: string;
       /** Shadow approver scorecard instead of the cost/token rollup: verdict vs human outcome, per risk class. */
       approver: boolean;
+      /** Per-skill usage vs outcome table (`stats --skills`); `since` (e.g. 30d) limits the window. */
+      skills?: boolean;
+      since?: string;
       /** Also print the label->merge lead-time rollup for every PR url recorded in metrics.jsonl that belongs to this repo (needs `gh`). */
       githubRepo?: string;
       /** Extra logins whose review verdicts count for the first-pass rate, beyond OWNER/MEMBER/COLLABORATOR and Taskcell's bot. */
@@ -537,10 +541,10 @@ export function parseCli(argv: string[], cwd: string): Command {
   let skills: string[] = [];
   let positionals: string[];
   try {
-    // `--pr` takes a number everywhere else; on `skills` it is a bare switch. A lenient first pass finds the
-    // command (options may precede it), then the strict pass parses with the right `--pr` type. The
-    // lenient pass runs both ways: read as a string, a leading `--pr` would swallow `skills` itself.
-    const parseWith = (skills: boolean, strict: boolean): ReturnType<typeof parseArgs> => parseArgs({
+    // `--pr` is boolean only on `skills`, and `--skills` is boolean only on `stats`. Lenient passes find
+    // the parsed command (options may precede it), then the strict pass uses that command's option types.
+    // Running `--pr` both ways preserves a leading `--pr skills ...`, where its string form swallows the command.
+    const parseWith = (skillsCommand: boolean, statsCommand: boolean, strict: boolean): ReturnType<typeof parseArgs> => parseArgs({
       args: argv,
       strict,
       allowPositionals: true,
@@ -566,7 +570,7 @@ export function parseCli(argv: string[], cwd: string): Command {
         egress: { type: 'boolean' },
         'llm-proxy': { type: 'boolean' },
         reuse: { type: 'boolean' },
-        skills: { type: 'string' },
+        skills: { type: statsCommand ? 'boolean' : 'string' },
         'github-repo': { type: 'string' },
         'trigger-labels': { type: 'string' },
         label: { type: 'string' },
@@ -575,7 +579,7 @@ export function parseCli(argv: string[], cwd: string): Command {
         author: { type: 'string' },
         concurrency: { type: 'string' },
         // watch-prs: review this PR even when the label-filtered scan misses it
-        pr: { type: skills ? 'boolean' : 'string' },
+        pr: { type: skillsCommand ? 'boolean' : 'string' },
         // watch: run only this GitHub issue instead of sweeping every ready issue
         issue: { type: 'string' },
         // watch
@@ -695,7 +699,14 @@ export function parseCli(argv: string[], cwd: string): Command {
         help: { type: 'boolean' },
       },
     });
-    const parsed = parseWith(parseWith(false, false).positionals[0] === 'skills' || parseWith(true, false).positionals[0] === 'skills', true);
+    // The command is found with `--skills` as the string it is everywhere else, so `--skills stats run …`
+    // still names a directory; only an argv whose command is `stats` gets the boolean.
+    const statsCommand = parseWith(false, false, false).positionals[0] === 'stats';
+    if (statsCommand && argv.some((arg) => arg.startsWith('--skills='))) return fail('stats --skills takes no value.');
+    const skillsCommand = !statsCommand && (parseWith(false, false, false).positionals[0] === 'skills' || parseWith(true, false, false).positionals[0] === 'skills');
+    const parsed = parseWith(skillsCommand, statsCommand, true);
+    // `--skills <value> stats`: the strict pass shifts the value into the command slot; refuse instead of running it.
+    if (statsCommand && parsed.positionals[0] !== 'stats') return fail('stats --skills takes no value.');
     const { 'allowed-host': hosts, 'admin-github-login': admins, skill, ...singleValues } = parsed.values as Record<string, string | boolean | string[] | undefined>;
     allowedHosts = hosts as string[] | undefined;
     adminGithubLogins = admins as string[] | undefined;
@@ -806,11 +817,21 @@ export function parseCli(argv: string[], cwd: string): Command {
       return fail(`stats --github-repo must be owner/repo, got '${statsRepo}'.`);
     }
     const statsFeedbackAuthors = parseFeedbackAuthors(values['feedback-authors']);
+    if (values.skills === true && positionals.length > 1) return fail('stats --skills takes no value.');
+    if (values.skills === true && (values.approver === true || statsRepo !== undefined || statsFeedbackAuthors !== undefined)) {
+      return fail('stats --skills cannot be combined with --approver, --github-repo or --feedback-authors.');
+    }
+    if (values.skills === true && typeof values.since === 'string' && parseSince(values.since) === undefined) {
+      return fail(`stats --since must look like 30d or 12h, got '${values.since}'.`);
+    }
     return {
       kind: 'stats',
       repoPath,
       json: values.json === true,
       approver: values.approver === true,
+      ...(values.skills === true ? { skills: true } : {}),
+      // Without --skills, --since is accepted and ignored, as it always was on stats.
+      ...(values.skills === true && typeof values.since === 'string' ? { since: values.since } : {}),
       ...(typeof values.branch === 'string' ? { branch: values.branch } : {}),
       ...(typeof values['github-repo'] === 'string' ? { githubRepo: values['github-repo'] } : {}),
       ...(statsFeedbackAuthors !== undefined ? { feedbackAuthors: statsFeedbackAuthors } : {}),
@@ -1887,6 +1908,9 @@ ${MAX_REPAIR_ITERATIONS_USAGE}
                            LESSONS first-pass rate (needs gh)
     --feedback-authors <a,b> Extra trusted logins whose review verdicts count for the first-pass rate,
                            beyond OWNER/MEMBER/COLLABORATOR and Taskcell's bot (as on lessons record)
+    --skills               Per skill: runs that used it, review pass rate, average repair rounds and cost, next to
+                           the same numbers for runs without it (observational, not causal); with --branch and --since
+    --since <window>       With --skills: only runs from the last window, e.g. 30d or 12h
     --approver             Shadow approver scorecard instead of the cost/token rollup: per factory PR,
                            the shadow verdict and reasons next to what the human did, and per risk class
                            how many APPROVEs were right, how many ESCALATEs the human merged unchanged,

@@ -15,6 +15,7 @@ import { prepareContext, disposeContext } from '../core/taskcell.js';
 import { probeTaskDifficulty, decisionProbeConfig } from '../core/decision-probe.js';
 import { decisionModelConfig, decisionEgressAllowed, decisionModelMissing, DECISION_MODEL_DEFAULT, type DecisionModelConfig } from '../core/decision-model.js';
 import { TaskcellError } from '../core/errors.js';
+import { isStructuredProviderLimit } from '../core/rate-limit-marker.js';
 import { decisionDiffScorer } from '../evals/decision-judge.js';
 import { runStages, assembleReviewPipeline, withPrimaryFallback, sandboxComplete, withStageMaxTurns, withStageResumeUntilComplete, reviewFinalDiff, STAGE } from '../pipeline/pipeline.js';
 import { FLOWS } from '../api/capabilities.js';
@@ -556,6 +557,8 @@ export async function runSourcedIssue(
       });
     };
     let markerWrites = Promise.resolve();
+    let activeStage = 'run';
+    let persistProviderStop: (() => Promise<void>) | undefined;
     try {
       // Appended here, not as a template placeholder, so every flow's implementer is told (repo .hcl flows included).
       const skillStages = withNamedSkills(baseStages, namedSkills);
@@ -620,6 +623,7 @@ export async function runSourcedIssue(
         ...(deps.startedBy !== undefined ? { startedBy: deps.startedBy } : {}),
       });
       const onEvent = (event: RunEvent): void => {
+        if (event.type === 'stage-start') activeStage = event.name;
         markerWrites = markerWrites.then(async () => {
           if (event.type === 'stage-start') {
             await writeStageMarker(deps.repoPath, {
@@ -631,6 +635,26 @@ export async function runSourcedIssue(
           }
         }).catch(() => undefined);
         deps.onEvent?.(event);
+      };
+      persistProviderStop = async (): Promise<void> => {
+        // A repair runs after its stage returned: a record under that stage's name would overwrite the real one.
+        const stopped: StageOutcome = {
+          name: outcomes.some((outcome) => outcome.name === activeStage) ? 'repair' : activeStage,
+          result: {
+            taskId: task.id,
+            completed: false,
+            exitReason: 'error',
+            turns: 0,
+            worktreePath: ctx.worktreePath,
+            worktreePreserved: false,
+            finalText: 'The provider stopped this stage because its usage or rate limit was reached.',
+            stoppedBy: 'provider-limit',
+          },
+        };
+        const recorded = outcomes.some((outcome) => outcome.name === activeStage && !outcome.result.completed)
+          ? outcomes
+          : [...outcomes, stopped];
+        await writer.writeStages(recorded.length > 0 ? recorded : [stopped], stageMeta());
       };
       onEvent({
         type: 'run-start',
@@ -878,6 +902,7 @@ export async function runSourcedIssue(
             worktreePath: ctx.worktreePath,
             worktreePreserved: true,
             finalText: `Review unavailable: ${redactForPublish(String(error))}`,
+            ...(isStructuredProviderLimit(error) ? { stoppedBy: 'provider-limit' as const } : {}),
           };
         }
         // Appended, never swapped in over the first review: both reviews' cost and turns stay in the
@@ -1027,6 +1052,10 @@ export async function runSourcedIssue(
       onEvent({ type: 'run-end', prUrl: pr.prUrl });
       return { task, prUrl: pr.prUrl };
     } catch (error) {
+      if (isStructuredProviderLimit(error)) {
+        // Best effort: a failed write must not replace the limit error the caller parks the task on.
+        await persistProviderStop?.().catch(() => undefined);
+      }
       await stepSummary('error', { error: String(error) });
       throw error;
     } finally {

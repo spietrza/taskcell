@@ -36,7 +36,7 @@ const run = (taskId: string, extra: Partial<RunSummary> = {}): RunSummary & { re
 });
 
 test('runs filter by triage (merged from prState), source and search', () => {
-  const runs = [run('gh-1', { prUrl: 'u', prState: 'merged' }), run('gl-2', { anyFailed: true }), run('x-3')];
+  const runs = [run('gh-1', { prUrl: 'u', prState: 'merged' }), run('gl-2', { anyFailed: true }), run('x-3'), run('gh-4', { anyFailed: true, stoppedBy: 'provider-limit' })];
   expect(filterRuns(runs, f({ triage: 'merged' })).map((r) => r.taskId)).toEqual(['gh-1']);
   expect(filterRuns(runs, f({ triage: 'needs' })).map((r) => r.taskId)).toEqual(['gl-2']);
   expect(filterRuns(runs, f({ sources: ['taskcell'] })).map((r) => r.taskId)).toEqual(['x-3']);

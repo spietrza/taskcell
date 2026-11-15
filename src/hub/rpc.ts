@@ -2,6 +2,7 @@
 // (contract, validation, handler, audit spec); this file builds the per-request guards, looks the
 // command up in the generated index and writes the audit line. Every handler that takes a repoPath
 // resolves it through ProjectAllowlist.assertAllowed first (src/hub/allowlist.ts) — see docs/hub.md.
+import type { GhRunner } from '../tasks/github.js';
 import type { SidecarDeps } from '../sidecar/sidecar.js';
 import { ProjectAllowlist, type BindOptions } from './allowlist.js';
 import { WatchRegistry } from './watch.js';
@@ -42,6 +43,8 @@ export interface RpcContext {
   userCredentials?: CredentialService;
   /** The signed-in user behind THIS request (set per request by the server); undefined when none. */
   user?: HubUser;
+  /** The `gh` runner the Board's paused-task reads use; the real CLI when absent (tests inject a fake). */
+  gh?: GhRunner;
   /** Audit log; absent in tests that do not exercise it. */
   audit?: AuditLog;
   /** Who is calling; the shared `token` identity when absent. */
