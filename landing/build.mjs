@@ -1,9 +1,11 @@
-// Static build for taskcell.dev: node build.mjs → dist/. No framework and no dependencies: src/ is the site,
-// copied as is, then every local reference in the HTML and CSS is checked so a broken link fails the build.
+// Static build for taskcell.dev: node build.mjs → dist/. No framework and no dependencies: src/ is the site (English),
+// copied as is; i18n/pl.mjs turns its pages and scripts into the Polish copy under dist/pl/; then every local
+// reference in the HTML and CSS is checked so a broken link fails the build.
 import { createHash } from 'node:crypto';
-import { cpSync, existsSync, readFileSync, readdirSync, rmSync, writeFileSync } from 'node:fs';
+import { cpSync, existsSync, mkdirSync, readFileSync, readdirSync, rmSync, writeFileSync } from 'node:fs';
 import { dirname, join, relative } from 'node:path';
 import { fileURLToPath } from 'node:url';
+import { PL } from './i18n/pl.mjs';
 
 const root = dirname(fileURLToPath(import.meta.url));
 const src = join(root, 'src');
@@ -11,6 +13,38 @@ const out = join(root, 'dist');
 
 rmSync(out, { recursive: true, force: true });
 cpSync(src, out, { recursive: true });
+
+// Polish: each file named in i18n/pl.mjs is the English file with its strings swapped, written to dist/pl/<file>.
+// A string that is no longer in its file fails the build, so a changed English text cannot silently stay English.
+// Longer strings go first, so a short one never cuts into a longer one that contains it.
+const byLength = (pairs) => [...pairs].sort((a, b) => b[0].length - a[0].length);
+const sharedUnused = new Set(PL['*.html'].map(([en]) => en));
+/** Page links and translated scripts point into /pl/; assets and the EN / PL switch (it carries hreflang) stay. */
+const intoPolish = (html) =>
+  html.replace(/\b(href|src)="\/([^"#?]*)([^"]*)"(?! hreflang)/g, (m, attr, path, rest) => {
+    const file = path === '' || path.endsWith('/') ? `${path}index.html` : path;
+    return file in PL ? `${attr}="/pl/${path}${rest}"` : m;
+  });
+for (const [file, pairs] of Object.entries(PL)) {
+  if (file === '*.html') continue;
+  let text = readFileSync(join(src, file), 'utf8');
+  for (const [en, pl] of byLength(pairs)) {
+    if (!text.includes(en)) throw new Error(`i18n/pl.mjs: "${en}" is not in src/${file}`);
+    text = text.split(en).join(pl);
+  }
+  if (file.endsWith('.html')) {
+    for (const [en, pl] of byLength(PL['*.html'])) {
+      if (!text.includes(en)) continue;
+      text = text.split(en).join(pl);
+      sharedUnused.delete(en);
+    }
+    text = intoPolish(text);
+  }
+  const to = join(out, 'pl', file);
+  mkdirSync(dirname(to), { recursive: true });
+  writeFileSync(to, text);
+}
+if (sharedUnused.size) throw new Error(`i18n/pl.mjs: shared strings found in no page: ${[...sharedUnused].join(' | ')}`);
 
 /** All files under dir, as paths relative to dist/. */
 const walk = (dir) =>

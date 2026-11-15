@@ -4,6 +4,11 @@
 @font-face { font-family: 'Atkinson Hyperlegible'; src: url(/fonts/atkinson-400.woff2) format('woff2'); font-weight: 400; font-display: swap; }
 @font-face { font-family: 'Atkinson Hyperlegible'; src: url(/fonts/atkinson-700.woff2) format('woff2'); font-weight: 700; font-display: swap; }
 @font-face { font-family: 'IBM Plex Mono'; src: url(/fonts/plex-mono-500.woff2) format('woff2'); font-weight: 500; font-display: swap; }
+/* Latin Extended (Polish letters and the like), loaded only by a page that uses them. Google Fonts' latin-ext subsets, OFL. */
+@font-face { font-family: 'Schibsted Grotesk'; src: url(/fonts/schibsted-var-ext.woff2) format('woff2'); font-weight: 400 900; font-display: swap; unicode-range: U+0100-024F, U+1E00-1EFF; }
+@font-face { font-family: 'Atkinson Hyperlegible'; src: url(/fonts/atkinson-400-ext.woff2) format('woff2'); font-weight: 400; font-display: swap; unicode-range: U+0100-024F, U+1E00-1EFF; }
+@font-face { font-family: 'Atkinson Hyperlegible'; src: url(/fonts/atkinson-700-ext.woff2) format('woff2'); font-weight: 700; font-display: swap; unicode-range: U+0100-024F, U+1E00-1EFF; }
+@font-face { font-family: 'IBM Plex Mono'; src: url(/fonts/plex-mono-500-ext.woff2) format('woff2'); font-weight: 500; font-display: swap; unicode-range: U+0100-024F, U+1E00-1EFF; }
 
 :root {
   --font-display: 'Schibsted Grotesk', system-ui, sans-serif;
@@ -21,8 +26,8 @@
   --ease-seed: cubic-bezier(0.62, 0, 0.12, 1);
   --beat: 900ms;
 }
-/* Dark is the page as designed. The factory scene is drawn for a dark ground, so its hosts keep the dark tokens in the light theme. */
-:root, :root[data-theme="light"] .floor {
+/* Dark is the page as designed. The light theme re-declares the same tokens; the factory scene takes a light palette from site.js. */
+:root {
   --bg: #0d1013; --surface: #141a1f; --surface-2: #1b2228;
   --ink: #e8ecef; --muted: #a3adb6;
   --accent: #f99a2c; --accent-hover: #ffb04f; --accent-ink: #14100a;
@@ -42,7 +47,6 @@
   --glow: rgba(249, 154, 44, 0.22); --glow-2: rgba(44, 110, 115, 0.08);
   color-scheme: light;
 }
-:root[data-theme="light"] .floor { background-color: var(--bg); color: var(--ink); }
 @media (max-width: 720px) { :root { --m: 16px; --gap: 104px; } }
 
 /* ---------- base ---------- */
@@ -81,6 +85,12 @@ p { max-width: 62ch; }
 .bar { display: flex; align-items: center; justify-content: space-between; padding: 20px var(--edge); font-size: 16px; position: relative; z-index: 3; }
 .brand { display: flex; align-items: center; gap: 10px; font-family: var(--font-display); font-weight: 800; font-size: 20px; letter-spacing: -0.02em; text-decoration: none; }
 .links { display: flex; align-items: center; gap: 28px; margin-left: auto; white-space: nowrap; }
+/* EN / PL: two 44 px links, the page's own language marked. */
+.langs { flex: none; display: flex; margin-left: 20px; }
+.langs a { display: grid; place-items: center; min-width: 44px; height: 44px; font-family: var(--font-mono); font-size: 13px; letter-spacing: 0.05em; text-decoration: none; color: var(--muted); border: 1px solid var(--line-strong); transition: color 180ms, border-color 180ms; }
+.langs a + a { border-left: 0; }
+.langs a:hover { color: var(--accent); }
+.langs a[aria-current] { color: var(--ink); background: var(--surface-2); }
 .theme { flex: none; display: grid; place-items: center; width: 44px; height: 44px; margin-left: 20px; border: 1px solid var(--line-strong); transition: transform 140ms var(--ease-seed), color 180ms, border-color 180ms; }
 .theme:hover { color: var(--accent); border-color: var(--accent); }
 .theme:active { transform: scale(0.95); }
@@ -107,6 +117,7 @@ p { max-width: 62ch; }
 @media (min-width: 901px) { .hero { min-height: 0; } }
 .hero-copy { grid-column: 1 / 6; align-self: center; padding: 72px 0 24px; }
 .hero h1 { font-size: var(--step-display); }
+:lang(pl) .hero h1 { font-size: clamp(2.6rem, 0.125rem + 4.6vw, 5.5rem); } /* the Polish lines are longer; each still fits on one line */
 .hero h1 span { display: block; }
 .hero h1 .dim { color: var(--muted); }
 .hero h1 em { font-style: normal; color: var(--accent); }
@@ -123,6 +134,8 @@ p { max-width: 62ch; }
 .floor-hero { background: radial-gradient(60% 55% at 55% 52%, var(--glow), transparent 70%), radial-gradient(40% 40% at 80% 75%, var(--glow-2), transparent 70%); }
 .floor .poster { position: absolute; inset: 0; width: 100%; height: 100%; object-fit: contain; mix-blend-mode: lighten; transition: opacity 600ms var(--ease-seed); }
 .floor.live .poster { opacity: 0; pointer-events: none; }
+/* The poster is a render of the dark floor: inverted with its hues turned back, it reads as a light floor until WebGL starts (or for good without it). */
+:root[data-theme="light"] .floor .poster { filter: invert(1) hue-rotate(180deg) brightness(1.08); mix-blend-mode: multiply; }
 .stage { position: absolute; inset: 0; }
 .fs-canvas { position: absolute; inset: 0; width: 100%; height: 100%; display: block; cursor: grab; }
 .fs-canvas:active { cursor: grabbing; }
@@ -166,6 +179,7 @@ p { max-width: 62ch; }
 @keyframes flow-fill { from { width: 0; } }
 .flow-track .n { font-family: var(--font-mono); font-size: 13px; color: var(--accent-2); }
 .flow-track .past .n::after { content: " · done"; }
+:lang(pl) .flow-track .past .n::after { content: " · gotowe"; }
 .flow-track b { font-family: var(--font-display); font-weight: 800; font-size: clamp(1.5rem, 0.9rem + 1.5vw, 2.5rem); letter-spacing: -0.03em; line-height: 1; color: var(--muted); transition: color 180ms; }
 .flow-track button:hover b, .flow-track .past b, .flow-track [aria-selected="true"] b { color: var(--ink); }
 .flow-track small { font-family: var(--font-mono); font-size: 13px; color: var(--muted); }
@@ -204,6 +218,7 @@ p { max-width: 62ch; }
 .pairs.two { grid-template-columns: repeat(2, minmax(0, 1fr)); margin-top: 56px; }
 .pairs li { display: flex; justify-content: space-between; align-items: baseline; gap: 16px; padding: 18px 0; border-top: 1px solid var(--line); }
 .pairs b { font-family: var(--font-display); font-weight: 800; font-size: clamp(1.25rem, 1.05rem + 0.7vw, 1.75rem); letter-spacing: -0.02em; line-height: 1.1; }
+.pairs b small { display: block; margin-top: 6px; font: 400 15px/1.4 var(--font-text); letter-spacing: 0; color: var(--muted); }
 .pairs span { font-family: var(--font-mono); font-size: 13px; letter-spacing: 0.05em; text-transform: uppercase; color: var(--accent-2); text-align: right; }
 /* The keys headline assembles letter by letter when it comes into view (site.js splits it). */
 .js [data-letters] span { display: inline-block; white-space: pre; }
@@ -272,6 +287,7 @@ p { max-width: 62ch; }
 .coming li { padding: 14px 16px; background: var(--surface); font-size: 16px; }
 .coming li b { display: block; font-family: var(--font-display); }
 .coming li b::after { content: " · coming"; font-family: var(--font-mono); font-size: 12px; letter-spacing: 0.05em; text-transform: uppercase; color: var(--accent); }
+:lang(pl) .coming li b::after { content: " · wkrótce"; }
 
 /* ---------- Hub preview (the Hub's own conventions inside) ---------- */
 .preview-note { grid-column: 1 / -1; margin-top: 16px; font-size: 16px; color: var(--muted); }
@@ -282,7 +298,7 @@ p { max-width: 62ch; }
 .hub-top .pause { position: static; }
 .hub-top span { margin-left: auto; font-family: var(--font-mono); font-size: 13px; letter-spacing: 0.06em; text-transform: uppercase; color: var(--muted); }
 /* One window: views and repositories, the run list they filter, and the open run. */
-.win { display: grid; grid-template-columns: 208px minmax(0, 1fr) minmax(0, 1fr); gap: 1px; background: var(--line); }
+.win { display: grid; grid-template-columns: 208px minmax(0, 1fr) minmax(0, 1.3fr); gap: 1px; background: var(--line); }
 .win > * { background: var(--surface); padding: 16px; min-width: 0; }
 .views { display: grid; align-content: start; gap: 2px; }
 .views .cmd-label { margin: 16px 0 6px; padding: 0 10px; }
@@ -305,19 +321,43 @@ p { max-width: 62ch; }
 .rows [data-col="Queued"] .st { color: var(--muted); }
 .rows .cost { text-align: right; font-variant-numeric: tabular-nums; }
 .win .none { padding: 16px 10px; color: var(--muted); }
-.open { display: grid; align-content: start; gap: 16px; }
+/* The open run fills its pane: the stage strip across the full width, the log taking the height that is left. */
+.open { display: flex; flex-direction: column; gap: 16px; container-type: inline-size; }
 .open .where { display: flex; justify-content: space-between; align-items: center; gap: 12px; max-width: none; font-family: var(--font-mono); font-size: 13px; color: var(--muted); }
 .open h3 { font-size: 24px; letter-spacing: -0.02em; line-height: 1.1; }
 .open .spend { font-size: 14px; color: var(--muted); font-variant-numeric: tabular-nums; }
-.stages li { position: relative; display: flex; justify-content: space-between; gap: 12px; padding: 6px 0; border-top: 1px solid var(--line); }
-.stages b { font-weight: 400; }
-.stages span { font-family: var(--font-mono); font-size: 13px; color: var(--muted); }
-.stages .done span { color: var(--ok); }
+/* Stage tiles joined by short connectors: a mark (ring, check, turning arc), the name, the time or state, and the running tile's bar. */
+.stages { display: grid; grid-template-columns: repeat(5, minmax(0, 1fr)); gap: 14px; }
+.stages li { position: relative; display: grid; grid-template-columns: 16px minmax(0, 1fr); grid-template-rows: auto auto 2px; align-items: center; gap: 6px 8px; padding: 12px 10px 10px; border: 1px solid var(--line); color: var(--muted); transition: border-color 240ms, background-color 240ms, color 240ms; }
+.stages li:not(:last-child)::after { content: ""; position: absolute; left: calc(100% + 1px); top: 19px; width: 14px; height: 1px; background: var(--line-strong); transition: background-color 240ms; }
+.stages .done { border-color: var(--line-strong); color: var(--ink); }
+.stages .done:not(:last-child)::after { background: var(--ok); }
+.stages .now { border-color: var(--accent); background: var(--surface-2); color: var(--ink); }
+.stages b { font-weight: 400; line-height: 1.2; overflow-wrap: break-word; }
 .stages .now b { font-weight: 700; }
+.stages span { grid-column: 1 / -1; font-family: var(--font-mono); font-size: 13px; font-variant-numeric: tabular-nums; color: var(--muted); }
+.stages .done span { color: var(--ok); }
 .stages .now span { color: var(--accent); }
-.stages span { font-variant-numeric: tabular-nums; }
-.stages i { position: absolute; left: 0; bottom: -1px; height: 2px; background: var(--accent); transition: width 250ms linear; }
-.log { display: grid; align-content: start; gap: 4px; min-height: 148px; padding: 12px 14px; background: var(--bg); border: 1px solid var(--line); font-family: var(--font-mono); font-size: 13px; line-height: 1.5; color: var(--muted); }
+.stages i { grid-column: 1 / -1; justify-self: start; height: 2px; background: var(--accent); transition: width 250ms linear; }
+.mk { width: 16px; height: 16px; fill: none; stroke: currentColor; stroke-width: 1.5; stroke-linecap: round; stroke-linejoin: round; color: var(--muted); }
+.mk .tick, .mk .arc { display: none; }
+.done .mk { color: var(--ok); }
+.done .mk .tick { display: inline; }
+.now .mk { color: var(--accent); }
+.now .mk circle { opacity: 0.3; }
+.now .mk .arc { display: inline; transform-origin: 8px 8px; animation: mk-turn 1s linear infinite; }
+.now.hold .mk .arc { animation: none; } /* a spec waiting to be read: nothing is turning */
+@keyframes mk-turn { to { transform: rotate(360deg); } }
+/* Too narrow for five across: the tiles stack, joined top to bottom. */
+@container (max-width: 520px) {
+  .stages { grid-template-columns: minmax(0, 1fr); gap: 8px; }
+  .stages li { grid-template-columns: 16px minmax(0, 1fr) auto; grid-template-rows: auto; row-gap: 0; padding: 10px 12px; }
+  .stages li:not(.now) i { display: none; }
+  .stages i { margin-top: 8px; }
+  .stages li:not(:last-child)::after { left: 19px; top: calc(100% + 1px); width: 1px; height: 8px; }
+  .stages span { grid-column: 3; text-align: right; }
+}
+.log { display: grid; align-content: start; flex: 1 0 auto; gap: 4px; min-height: 148px; padding: 12px 14px; background: var(--bg); border: 1px solid var(--line); font-family: var(--font-mono); font-size: 13px; line-height: 1.5; color: var(--muted); }
 .log li:last-child { color: var(--ink); }
 .hub-screens { grid-column: 1 / -1; margin-top: 32px; display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 20px; }
 .hub-screens li { padding-top: 14px; border-top: 1px solid var(--line); font-size: 16px; }
@@ -437,8 +477,8 @@ p { max-width: 62ch; }
 .lost p { grid-column: 1 / -1; margin-top: 24px; font-size: var(--step-lead); }
 .lost .btn { grid-column: 1 / -1; justify-self: start; margin-top: 32px; }
 
-/* Between the phone bar and the full bar, seven links, Download and the toggle only fit closer together. */
-@media (max-width: 1140px) { .links { gap: 16px; font-size: 15px; } }
+/* Between the phone bar and the full bar, seven links, Download, EN / PL and the toggle only fit closer together. */
+@media (max-width: 1140px) { .links { gap: 12px; font-size: 15px; } .langs, .theme { margin-left: 12px; } }
 
 @media (max-width: 900px) {
   html { scroll-padding-top: 68px; }
@@ -456,6 +496,7 @@ p { max-width: 62ch; }
   .section { padding-top: 28px; }
   .section > .head, .section > .intro, .install, .faq { grid-column: 1 / -1; }
   .theme { margin-left: 8px; border-width: 0; }
+  .langs { margin-left: 8px; }
   .flow { margin-top: 40px; }
   .flow-track { gap: 8px; }
   .flow-track b { font-size: 15px; letter-spacing: -0.01em; line-height: 1.1; }

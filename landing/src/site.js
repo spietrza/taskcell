@@ -24,12 +24,23 @@ if ('IntersectionObserver' in window) {
   items.forEach((el) => el.classList.add('in'));
 }
 
-// ---------- the scene: palette a (Sodium) of proposal D2, locked ----------
+// ---------- the scene: palette a (Sodium) of proposal D2, locked; the light theme gets a light floor ----------
 const SCENE = {
   fit: 9.8, target: [-1.2, 0.4], transparent: true, grid: true, bloom: true, edgeLabels: true, modules: true,
   monoFont: '"IBM Plex Mono", ui-monospace, monospace',
-  ground: 0x0d1013, floor: 0x141a1f, body: 0x232b32, bodyLight: 0x2e3841, glass: 0xa9c6c9, card: 0xe6eaed, idle: 0x33404a,
-  conduit: 0x1b2228, dark: 0x161b20, sky: 0xc9d6e2, accent: 0xf99a2c, accent2: 0x79a9ad, fail: 0xff4a3d,
+};
+const PALETTES = {
+  dark: {
+    ground: 0x0d1013, floor: 0x141a1f, body: 0x232b32, bodyLight: 0x2e3841, glass: 0xa9c6c9, card: 0xe6eaed, idle: 0x33404a,
+    conduit: 0x1b2228, dark: 0x161b20, sky: 0xc9d6e2, accent: 0xf99a2c, accent2: 0x79a9ad, fail: 0xff4a3d,
+  },
+  // Ground is --bg and accent2 is --accent-2 of the light theme in site.css; the amber accent stays. Without metalness and
+  // with normal blending the lit faces land near the page's own cream, and the teal edges and glows still show on it.
+  light: {
+    ground: 0xf4f2ed, floor: 0xf2efe8, body: 0xd8dcde, bodyLight: 0xe9ebec, glass: 0x7fa3a7, card: 0xffffff, idle: 0xaab3b8,
+    conduit: 0xd6d0c3, dark: 0x6b767e, plate: 0xf4f2ed, sky: 0xffffff, skyGround: 0xb9b2a4, accent: 0xf99a2c, accent2: 0x2c6e73,
+    fail: 0xd93a2b, additive: false, metalness: 0,
+  },
 };
 
 let scene = null;
@@ -81,7 +92,7 @@ async function mount(host, options, run) {
       host.classList.remove('live');
       host.querySelector('.pause')?.remove();
     };
-    const floor = createFactoryScene(host.querySelector('.stage'), { ...SCENE, onLost, ...options });
+    const floor = createFactoryScene(host.querySelector('.stage'), { ...SCENE, ...PALETTES[root.dataset.theme === 'light' ? 'light' : 'dark'], onLost, ...options });
     if (lost) {
       floor.destroy();
       return null;
@@ -113,6 +124,21 @@ const mountHero = async () => {
   if (hero && !reduced) root.classList.add('factory-on');
 };
 chip.querySelector('button').addEventListener('click', () => hero && hero.follow(null));
+// The theme toggle (or the system, when nothing is stored) repaints the scene: it is built again in the other palette,
+// paused if it was paused. Rebuilds run one after another, so a quick double toggle cannot leave two scenes.
+let rebuild = Promise.resolve();
+new MutationObserver(() => {
+  rebuild = rebuild.then(async () => {
+    if (!hero) return;
+    const was = hero.running;
+    hero.destroy();
+    hero = null;
+    heroHost.querySelector('.pause')?.remove();
+    chip.hidden = true;
+    await mountHero();
+    if (!was && hero?.running) heroHost.querySelector('.pause').click();
+  });
+}).observe(root, { attributes: true, attributeFilter: ['data-theme'] });
 
 const play = document.getElementById('play');
 if (phone) {
@@ -317,22 +343,24 @@ let runs = sample();
 let view = views[0];
 let openRow = runRows[0];
 const runOf = (row) => runs.find((r) => r.id === row.dataset.run);
+/** The board columns as the page names them; the English names stay the data (data-col, column()). */
+const COL = { Queued: 'Queued', Claimed: 'Claimed', Running: 'Running', 'Verify failed': 'Verify failed', Review: 'Review', Done: 'Done' };
 /** A view shows one board column, one repository, or (All runs) everything. */
 const shows = (v, row) => (v.dataset.col ? row.dataset.col === v.dataset.col : !v.dataset.repo || row.dataset.repo === v.dataset.repo);
 
-// The open run's five stages are the rows written in index.html; each gets a bar for when it runs.
+// The open run's five stages are the tiles written in index.html; each gets a bar for when it runs.
 const stageRows = [...byId('run-stages').children].map((li) => ({ li, status: li.querySelector('span'), bar: li.appendChild(document.createElement('i')) }));
 const paintOpen = () => {
   const { run: id, col, repo, cost: spent } = openRow.dataset;
   const r = runOf(openRow);
   const total = STAGES.reduce((sum, _, i) => sum + elapsed(r, i), 0);
   text(byId('run-where'), total ? `${repo} / ${id} · ${clock(total)}` : `${repo} / ${id}`);
-  text(byId('run-col'), col);
+  text(byId('run-col'), COL[col]);
   text(byId('run-title'), openRow.querySelector('b').textContent);
   stageRows.forEach(({ li, status, bar }, i) => {
     const done = share(r, i) === 1;
     const now = !done && r.p >= i;
-    li.className = done ? 'done' : now ? 'now' : '';
+    li.className = done ? 'done' : now ? (r.hold ? 'now hold' : 'now') : '';
     text(status, done || (now && !r.hold) ? clock(elapsed(r, i)) : now ? 'for you to read' : r.p < 0 ? 'not started' : 'waiting');
     bar.style.width = now && !r.hold ? `${share(r, i) * 100}%` : '0';
   });
@@ -347,7 +375,7 @@ const paintHub = () => {
     const col = column(r);
     if (row.dataset.col === col) continue;
     row.dataset.col = col;
-    row.querySelector('.st').textContent = col;
+    row.querySelector('.st').textContent = COL[col];
     row.querySelector('.cost').textContent = cost(r).split(' ')[0];
     if (cost(r)) row.dataset.cost = cost(r);
     else delete row.dataset.cost;
