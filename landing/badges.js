@@ -1,29 +1,30 @@
-// /badges/<name>.svg: the live security badges, fetched from their issuers and served from this origin, because
-// the page's CSP allows images from 'self' only. Only the names below are fetched (no open proxy), the issuer's
-// answer is cached for a day, and the SVG is served with a CSP of its own so a script in it cannot run here.
-const ISSUERS = {
-  scorecard: () => 'https://api.scorecard.dev/projects/github.com/spietrza/taskcell/badge',
-  observatory: () => 'https://img.shields.io/mozilla-observatory/grade/taskcell.dev',
-  bestpractices: (env) => (/^\d+$/.test(env.BESTPRACTICES_ID ?? '') ? `https://www.bestpractices.dev/projects/${env.BESTPRACTICES_ID}/badge` : undefined),
+// The independent security scores shown under Security: the page carries the last known value as text in
+// <span data-score="<name>">, and the Worker swaps in the live one from the issuer. Only the names below are
+// fetched, each answer is cached for a day, and a value that does not match its shape is dropped (the page
+// keeps its own text), so an issuer can never put markup or a long string on the page.
+const SCORES = {
+  scorecard: {
+    url: 'https://api.scorecard.dev/projects/github.com/spietrza/taskcell',
+    read: (json) => (typeof json?.score === 'number' && json.score >= 0 && json.score <= 10 ? json.score.toFixed(1) : undefined),
+  },
+  bestpractices: {
+    url: 'https://www.bestpractices.dev/projects/16734.json',
+    read: (json) => (['in_progress', 'passing', 'silver', 'gold'].includes(json?.badge_level) ? json.badge_level.replace('_', ' ') : undefined),
+  },
+  observatory: {
+    url: 'https://img.shields.io/mozilla-observatory/grade/taskcell.dev.json',
+    read: (json) => (typeof json?.value === 'string' && /^[A-F][+-]?$/.test(json.value) ? json.value : undefined),
+  },
 };
 
-export async function handleBadge(env, name) {
-  const source = Object.hasOwn(ISSUERS, name) ? ISSUERS[name](env) : undefined;
-  if (source === undefined) return new Response('not found', { status: 404 });
-  let upstream;
+/** The live value of one score, or undefined when the name is unknown or the issuer did not answer as expected. */
+export async function scoreValue(name) {
+  const score = Object.hasOwn(SCORES, name) ? SCORES[name] : undefined;
+  if (score === undefined) return undefined;
   try {
-    upstream = await fetch(source, { cf: { cacheTtl: 86400, cacheEverything: true }, redirect: 'follow' });
+    const res = await fetch(score.url, { cf: { cacheTtl: 86400, cacheEverything: true }, headers: { accept: 'application/json' } });
+    return res.ok ? score.read(await res.json()) : undefined;
   } catch {
-    return new Response('badge unavailable', { status: 502 });
+    return undefined;
   }
-  const type = upstream.headers.get('content-type') ?? '';
-  if (!upstream.ok || !type.includes('image/svg+xml')) return new Response('badge unavailable', { status: 502 });
-  return new Response(upstream.body, {
-    headers: {
-      'Content-Type': 'image/svg+xml; charset=utf-8',
-      'Cache-Control': 'public, max-age=86400',
-      'Content-Security-Policy': "default-src 'none'; style-src 'unsafe-inline'",
-      'X-Content-Type-Options': 'nosniff',
-    },
-  });
 }

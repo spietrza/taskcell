@@ -66,14 +66,14 @@ After a paid pass, `/hosting/` offers Solo with the pass credited; that link car
 
 `node checkout-check.mjs` (part of `pnpm run check`) covers the currency rule, the closed default and what is sent to Stripe.
 
-### Security badges
+### Security scores
 
-`/badges/<name>.svg` (`badges.js`) serves the live badges shown under Security: `scorecard` (OpenSSF
-Scorecard, published by `.github/workflows/scorecard.yml`), `observatory` (Mozilla HTTP Observatory grade of
-taskcell.dev) and `bestpractices` (OpenSSF Best Practices, shown only when the Worker var `BESTPRACTICES_ID`
-is the project's number). The Worker fetches them from their issuers, caches each for a day and serves it from
-this origin, because the page's CSP allows images from `'self'` only. Only these names are fetched, and each
-SVG gets its own CSP so a script in it cannot run. `badges-check.mjs` covers it.
+The three scores under Security (OpenSSF Scorecard, OpenSSF Best Practices, Mozilla Observatory) are text chips in
+the page's own style, not badge images. Each value sits in `<b data-score="<name>">` with the last known value as
+its text; the Worker (`badges.js`) fetches the live one from the issuer, caches it for a day and writes it in with
+HTMLRewriter. A value that does not match its expected shape (a number from 0 to 10, a badge level, a letter grade)
+is dropped and the page keeps its own text. `badges-check.mjs` covers it. When a score changes for good, update the
+text in `index.html` too, so the page is right even when an issuer is down.
 
 ## Stripe webhook
 
