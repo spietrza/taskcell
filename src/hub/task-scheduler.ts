@@ -1,6 +1,6 @@
 // Starts hub-board tasks: every tick plans the project's tasks (src/hub/schedule.ts) and hands those that may run to
 // the run session, as the person each task runs as and under the same gates as `api_create_run`.
-import { BadRequestError, type CreateRunResult } from '../sidecar/sidecar.js';
+import { BadRequestError, type CreateRunParams, type CreateRunResult, type SidecarDeps } from '../sidecar/sidecar.js';
 import { readAppConfig } from './app-config.js';
 import { auditActorOf, reportAuditFailure, type AuditAction, type AuditLog, type AuditOutcome } from './audit.js';
 import type { ProjectAllowlist } from './allowlist.js';
@@ -97,6 +97,8 @@ export interface SweepContext {
   configDir: string;
   allowlist: ProjectAllowlist;
   runSession: RunSession;
+  /** `deps.checkRun`: a missing model credential refuses the start here, before the session admits it. */
+  deps?: Pick<SidecarDeps, 'checkRun'>;
   userCredentials?: CredentialService;
   audit?: AuditLog;
   /** Re-resolves the stored owner at start (current account and owner flag); undefined: no longer valid, the task does not run. Absent: the stored caller is trusted. */
@@ -124,8 +126,10 @@ async function startHubTask(ctx: SweepContext, repoPath: string, task: HubTask, 
     const configured = (await readAppConfig(repoPath)).provider;
     const provider = typeof configured === 'string' && configured.trim() !== '' ? configured : undefined;
     const credential = ctx.userCredentials !== undefined ? await ctx.userCredentials.resolveForRun(caller.user, provider) : undefined;
+    const params: CreateRunParams = { issueRef: task.id, repoPath, transport: HUB_TRANSPORT, hubTask: { id: task.id, title: task.title, body: task.body }, startedBy: who.actor.login, ...(provider !== undefined ? { provider } : {}) };
+    await ctx.deps?.checkRun?.(params, credential);
     return await ctx.runSession.createRun(
-      { issueRef: task.id, repoPath, transport: HUB_TRANSPORT, hubTask: { id: task.id, title: task.title, body: task.body }, startedBy: who.actor.login, ...(provider !== undefined ? { provider } : {}) },
+      params,
       {
         onStarted: (id) => { log('run-start', `${id} ${task.id}`, 'ok'); admitted(id); },
         onQueued: (id) => { log('run-queue', `${id} ${task.id}`, 'ok'); admitted(id); },

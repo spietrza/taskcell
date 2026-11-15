@@ -822,9 +822,11 @@ The Board reads `list_tasks` through the same planner the scheduler uses (`src/h
 | `waits for a free slot` | ready, but the project already has as many tasks with the run session as it can hold |
 | `starts next` | ready; the next scheduler pass hands it to the run session |
 | `queued behind another run (position 1)` | handed over, waiting in the run queue; shown in **Queued**, not **Running** |
-| `not started: …` | the last start was refused (no credential under `user-only`, the run queue is full, the owner no longer reaches the repository); the task stays to do and is tried again on every pass |
+| `not started: …` | the last start was refused (no credential under `user-only`, a missing model credential on the hub, the run queue is full, the owner no longer reaches the repository); the task stays to do and is tried again on every pass |
 | `failed: …` (red) | the run failed, was cancelled, was held back by the secret scan or a red base branch, or changed nothing; the reason is shown. **Retry** in the quick view (`hub_task_retry`) puts it back to do |
 | `cannot start: …` (red) | a missing reference, a dependency cycle (`a → b → a`, also shown on tasks that wait behind the cycle) or an invalid date; the reason is shown and the task never starts |
+
+The Board re-reads every board while the window is visible, so a card follows its task without a reload: a hub board every 5 s, a tracker board (GitHub, GitLab, Linear) and the all-repositories view every 20 s. A failed re-read keeps the cards (and any typed draft or reply, and an open quick view) on screen, shows **Not refreshed — retrying**, and is tried again on the next interval; in the all-repositories view this holds for each repository that could not be read, whose last good cards stay until a successful read of it or a reload.
 
 ### What the scheduler starts, and how many at once
 

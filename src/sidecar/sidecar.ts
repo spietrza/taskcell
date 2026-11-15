@@ -32,6 +32,8 @@ import type { CreateRunResult, RunCredential } from '../wire.js';
 export interface SidecarDeps {
   capabilities: () => Capabilities;
   createRun: (params: CreateRunParams, onEvent: (e: RunEvent) => void, credential?: RunCredential) => Promise<CreateRunResult>;
+  /** The pre-flight checks `createRun` starts with (provider, credential), alone: throws BadRequestError when the run would be refused before any agent work. */
+  checkRun?: (params: CreateRunParams, credential?: RunCredential) => Promise<void>;
   createTask: (params: CreateTaskParams) => Promise<CreatedTask>;
   listFlows: (params: ListFlowsParams) => Promise<{ flows: RepoFlowInfo[] }>;
   listProviders: (params: ListProvidersParams) => Promise<{ providers: RepoProviderInfo[] }>;
