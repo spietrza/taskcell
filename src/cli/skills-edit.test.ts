@@ -8,7 +8,8 @@ import { sha256Hex, type SkillLockEntry } from '../context/skill-lock.js';
 import type { SkillSource } from '../context/skill-source.js';
 import { WorktreeManager } from '../worktree/manager.js';
 import { parseCli } from './args.js';
-import { cachedResolver, commitLink, skillsAdd, skillsAddPr, skillsChecked, skillsRemovePr, skillsCheck, skillsCommand, skillsList, skillsRemove, recordedMetrics, skillsUpdate, skillUpdateBody, type SkillsDeps, type SkillUpdate } from './skills.js';
+import { cachedResolver, commitLink, skillsAdd, skillsAddPr, skillsChecked, skillsRemovePr, skillsCheck, skillsList, skillsRemove, recordedMetrics, skillsUpdate, skillUpdateBody, type SkillsDeps, type SkillUpdate } from '../core/skills.js';
+import { skillsCommand } from './skills.js';
 
 // A rename that can be made to fail, for the install rollback tests.
 const fsHook = vi.hoisted(() => ({ failRename: undefined as ((from: string, to: string) => boolean) | undefined }));
@@ -190,8 +191,7 @@ describe('skills update --pr', () => {
         return (await execa(file, args, { cwd })).stdout;
       },
     };
-    const lines: string[] = [];
-    await skillsUpdate({ dir: skills, repo, dryRun: false, pr: true }, deps, (l) => lines.push(l));
+    const result = await skillsUpdate({ dir: skills, repo, dryRun: false, pr: true }, deps, () => {});
     const pr = calls.find((c) => c.file === 'gh');
     const body = pr?.args[pr.args.indexOf('--body') + 1] ?? '';
     expect(pr?.args[pr.args.indexOf('--base') + 1]).toBe('main');
@@ -202,7 +202,7 @@ describe('skills update --pr', () => {
     const pushes = calls.filter((c) => c.args[0] === 'push');
     expect(pushes.length).toBeGreaterThan(0);
     for (const p of pushes) expect(p.args.join(' ')).not.toMatch(/:refs\/heads\/main\b/);
-    expect(lines.at(-1)).toBe('opened https://github.com/o/repo/pull/1');
+    expect(result).toEqual({ prUrl: 'https://github.com/o/repo/pull/1' });
     // The live checkout is untouched.
     expect(await readFile(join(skills, 'a/SKILL.md'), 'utf-8')).toBe('one\n');
   });
@@ -324,9 +324,7 @@ describe('skills add/remove --pr', () => {
   };
   it('add: worktree, commit, PR; the live checkout is untouched', async () => {
     const { repo, calls, committed, deps } = await setup();
-    const lines: string[] = [];
-    await skillsAddPr({ dir: join(repo, 'skills'), repo, source: SRC, path: 'skills/a' }, deps(stub({ [SRC]: C1 }, { [C1]: skillTree('one\n') })), (l) => lines.push(l));
-    expect(lines).toEqual(['opened https://github.com/o/repo/pull/2']);
+    expect(await skillsAddPr({ dir: join(repo, 'skills'), repo, source: SRC, path: 'skills/a' }, deps(stub({ [SRC]: C1 }, { [C1]: skillTree('one\n') })))).toEqual({ prUrl: 'https://github.com/o/repo/pull/2' });
     expect(committed[0]?.split('\n')).toEqual(expect.arrayContaining(['skills/a/SKILL.md', 'skills/skills.lock.json']));
     const pr = calls.find((c) => c.file === 'gh');
     expect(pr?.args[pr.args.indexOf('--base') + 1]).toBe('main');
@@ -335,9 +333,7 @@ describe('skills add/remove --pr', () => {
   });
   it('remove: deletes the skill and its lock entry in a PR', async () => {
     const { repo, committed, deps } = await setup(async (r) => add(stub({ [SRC]: C1 }, { [C1]: skillTree('one\n') }), {}, join(r, 'skills')));
-    const lines: string[] = [];
-    await skillsRemovePr({ dir: join(repo, 'skills'), repo, name: 'a' }, deps(), (l) => lines.push(l));
-    expect(lines).toEqual(['opened https://github.com/o/repo/pull/2']);
+    expect(await skillsRemovePr({ dir: join(repo, 'skills'), repo, name: 'a' }, deps())).toEqual({ prUrl: 'https://github.com/o/repo/pull/2' });
     expect(committed[0]?.split('\n')).toEqual(expect.arrayContaining(['skills/a/SKILL.md', 'skills/skills.lock.json']));
     expect(await readFile(join(repo, 'skills/a/SKILL.md'), 'utf-8')).toBe('one\n');
   });
@@ -346,9 +342,7 @@ describe('skills add/remove --pr', () => {
       await add(stub({ [SRC]: C1 }, { [C1]: skillTree('one\n') }), {}, join(r, 'skills'));
       await rm(join(r, 'skills/a'), { recursive: true });
     });
-    const lines: string[] = [];
-    await skillsRemovePr({ dir: join(repo, 'skills'), repo, name: 'a' }, deps(), (l) => lines.push(l));
-    expect(lines).toEqual(['opened https://github.com/o/repo/pull/2']);
+    expect(await skillsRemovePr({ dir: join(repo, 'skills'), repo, name: 'a' }, deps())).toEqual({ prUrl: 'https://github.com/o/repo/pull/2' });
     expect(committed[0]?.split('\n')).toContain('skills/skills.lock.json');
   });
 });
@@ -823,9 +817,8 @@ describe('skills update --pr leftovers', () => {
     const r = await prRepo();
     await skillsUpdate({ dir: r.skills, repo: r.repo, dryRun: false, pr: true }, r.deps(stub({ [SRC]: C1 }, {})), () => {});
     expect(await r.branches()).toBe('main');
-    const lines: string[] = [];
-    await skillsUpdate({ dir: 'skills', repo: r.repo, dryRun: false, pr: true }, r.deps(newer()), (l) => lines.push(l));
-    expect(lines.at(-1)).toBe('opened https://github.com/o/repo/pull/1');
+    const result = await skillsUpdate({ dir: 'skills', repo: r.repo, dryRun: false, pr: true }, r.deps(newer()), () => {});
+    expect(result).toEqual({ prUrl: 'https://github.com/o/repo/pull/1' });
     expect(r.calls).toContain('git push');
     expect(await r.branches()).toBe('main');
     expect(await readdir(join(root, 'wt'))).toEqual([]);

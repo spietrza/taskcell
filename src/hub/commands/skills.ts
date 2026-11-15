@@ -1,16 +1,14 @@
-// Hub commands: the skills of a repository (src/cli/skills.ts): status, usage, and PR-only changes. One module per feature —
+// Hub commands: the skills of a repository (src/core/skills.ts): status, usage, and PR-only changes. One module per feature —
 // contract, validation and handler live here; `pnpm gen:wire` derives Commands, COMMAND_NAMES and dispatch from it (see CONTRIBUTING.md).
 import { stat } from 'node:fs/promises';
 import { join } from 'node:path';
-import { assertMutationsAllowed } from '../allowlist.js';
 import { aggregateSkills } from '../../core/skill-stats.js';
 import { parseMetrics } from '../../core/stats.js';
-import { cachedResolver, recordedMetrics, skillsAddPr, skillsChecked, skillsRemovePr, skillsUpdate } from '../../cli/skills.js';
+import { cachedResolver, recordedMetrics, skillsAddPr, skillsChecked, skillsRemovePr, skillsUpdate, type SkillsPrResult } from '../../core/skills.js';
 import type { RepoSkill } from '../../wire.js';
 import { defineCommands, optionalString, requireString, repoItemTarget, repoTarget } from '../command-kit.js';
 import { safeUrl } from '../audit.js';
 import { BadRequestError } from '../../sidecar/sidecar.js';
-import * as teams from '../teams.js';
 
 export interface SkillsCommands {
   /** HUB_ONLY, read-only: the skills of a repo (as in the hub checkout's working tree) with their lock status, upstream check and usage. */
@@ -37,13 +35,10 @@ export function splitSource(source: string, ref?: string): { source: string; ref
 
 const skillsDir = (repo: string): string => join(repo, 'skills');
 
-/** The PR URL the command printed; a run that opened none (nothing to change) is an error carrying its output. */
-async function prUrlOf(run: (out: (line: string) => void) => Promise<void>, what: string): Promise<{ prUrl: string }> {
-  const lines: string[] = [];
-  await run((line) => lines.push(line));
-  const opened = lines.map((l) => /^opened (\S+)$/.exec(l)?.[1]).find((u) => u !== undefined);
-  if (opened === undefined) throw new BadRequestError(`${what} opened no pull request: ${lines.join(' | ').slice(0, 500) || 'nothing to change'}`);
-  return { prUrl: opened };
+/** The PR the command opened; a run that opened none is an error carrying the command's report (why nothing moved). */
+function prUrlOf({ prUrl }: SkillsPrResult, what: string, lines: string[] = []): { prUrl: string } {
+  if (prUrl === undefined) throw new BadRequestError(`${what} opened no pull request: ${lines.join(' | ').slice(0, 500) || 'nothing to change'}`);
+  return { prUrl };
 }
 
 export const commands = defineCommands<SkillsCommands>({
@@ -67,33 +62,33 @@ export const commands = defineCommands<SkillsCommands>({
     });
     return { skills };
   },
-  update_skill_pr: async ({ ctx, args, caller, allow }) => {
-    assertMutationsAllowed(ctx.bind);
-    teams.assertOwner(caller);
+  update_skill_pr: async ({ args, allow }) => {
     const real = await allow(requireString(args, 'repoPath'));
     const name = requireString(args, 'name');
     // Always `--pr`, never a dry run: the skill is never updated without opening a PR.
-    return prUrlOf((out) => skillsUpdate({ dir: skillsDir(real), repo: real, name, dryRun: false, pr: true }, {}, out), 'The update');
+    const lines: string[] = [];
+    return prUrlOf(await skillsUpdate({ dir: skillsDir(real), repo: real, name, dryRun: false, pr: true }, {}, (line) => lines.push(line)), 'The update', lines);
   },
-  add_skill_pr: async ({ ctx, args, caller, allow }) => {
-    assertMutationsAllowed(ctx.bind);
-    teams.assertOwner(caller);
+  add_skill_pr: async ({ args, allow }) => {
     const real = await allow(requireString(args, 'repoPath'));
     const { source, ref } = splitSource(requireString(args, 'source'), optionalString(args, 'ref'));
     const path = optionalString(args, 'path');
     const name = optionalString(args, 'name');
     return prUrlOf(
-      (out) => skillsAddPr({ dir: skillsDir(real), repo: real, source, ...(ref !== undefined ? { ref } : {}), ...(path !== undefined ? { path } : {}), ...(name !== undefined ? { name } : {}) }, {}, out),
+      await skillsAddPr({ dir: skillsDir(real), repo: real, source, ...(ref !== undefined ? { ref } : {}), ...(path !== undefined ? { path } : {}), ...(name !== undefined ? { name } : {}) }),
       'The add',
     );
   },
-  remove_skill_pr: async ({ ctx, args, caller, allow }) => {
-    assertMutationsAllowed(ctx.bind);
-    teams.assertOwner(caller);
+  remove_skill_pr: async ({ args, allow }) => {
     const real = await allow(requireString(args, 'repoPath'));
     const name = requireString(args, 'name');
-    return prUrlOf((out) => skillsRemovePr({ dir: skillsDir(real), repo: real, name }, {}, out), 'The remove');
+    return prUrlOf(await skillsRemovePr({ dir: skillsDir(real), repo: real, name }), 'The remove');
   },
+}, {
+  list_repo_skills: { write: false, repo: 'repoPath' },
+  update_skill_pr: { write: true, remote: true, owner: true, repo: 'repoPath' },
+  add_skill_pr: { write: true, remote: true, owner: true, repo: 'repoPath' },
+  remove_skill_pr: { write: true, remote: true, owner: true, repo: 'repoPath' },
 }, {
   update_skill_pr: { action: 'settings-change', target: repoItemTarget('name') },
   // The source may carry credentials (even a refused one is audited): log only scheme, host and path.

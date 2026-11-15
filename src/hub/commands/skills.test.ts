@@ -81,9 +81,9 @@ test('add and remove open a PR and show its link; a failed add carries the comma
 test('a #ref on the source is split off as in the CLI', async () => {
   const repo = await tmpGitRepo('https://github.com/allowed/repo.git');
   const { ctx } = await makeCtx(repo);
-  cli.skillsAddPr.mockImplementation(async (_o: unknown, _d: unknown, out: (l: string) => void) => out(`opened ${PR}`));
+  cli.skillsAddPr.mockImplementation(async () => ({ prUrl: PR }));
   await dispatchRpc(ctx, 'add_skill_pr', { repoPath: repo, source: 'https://github.com/o/s#v1' });
-  expect(cli.skillsAddPr).toHaveBeenLastCalledWith(expect.objectContaining({ source: 'https://github.com/o/s', ref: 'v1' }), {}, expect.any(Function));
+  expect(cli.skillsAddPr).toHaveBeenLastCalledWith(expect.objectContaining({ source: 'https://github.com/o/s', ref: 'v1' }));
   await expect(dispatchRpc(ctx, 'add_skill_pr', { repoPath: repo, source: 'https://github.com/o/s#' })).rejects.toThrow('empty #ref');
 });
 
