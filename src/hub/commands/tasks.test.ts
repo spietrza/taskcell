@@ -59,6 +59,7 @@ describe('tasks', () => {
     ['a task without a title', [{ title: 'a', body: '' }, { title: ' ', body: '' }]],
     ['an empty list', []],
     ['too many tasks', Array.from({ length: 21 }, () => ({ title: 'a', body: '' }))],
+    ['too many dependencies', Array.from({ length: 20 }, (_, i) => ({ title: 'a', body: '', dependsOn: Array.from({ length: i }, (_, j) => j) }))],
   ])('api_create_tasks refuses %s before creating anything', async (_name, tasks) => {
     const repo = await tmpRepo();
     let created = 0;

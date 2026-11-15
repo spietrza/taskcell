@@ -30,7 +30,8 @@ export function assertActSafeGhArgs(args: string[]): void {
   if (cmd === 'pr' && sub === 'list' && args.length === 10 && num === '--repo' && args[4] === '--state' && flag === 'open' && value === '--limit' && /^\d{1,3}$/.test(extra ?? '') && args[8] === '--json' && args[9] === OPEN_PRS_FIELDS) return;
   if (cmd === 'api' && (args.length === 2 || (args.length === 3 && args[2] === '--paginate'))) {
     const { method, endpoints } = parseApiCall(args);
-    if (method === 'GET' && endpoints.length === 1 && DEPENDENCY_READ_RE.test(endpoints[0]!)) return;
+    const endpoint = endpoints[0] ?? '';
+    if (method === 'GET' && endpoints.length === 1 && DEPENDENCY_READ_RE.test(endpoint) && !endpoint.split('/').some((part) => /^\.+$/.test(part))) return;
   }
   try {
     assertShadowSafeGhArgs(args);

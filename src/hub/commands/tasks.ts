@@ -50,6 +50,8 @@ export interface TasksCommands {
 const MAX_LABEL_LENGTH = 50;
 /** Tasks one `api_create_tasks` call may create: each is an irreversible write. */
 const MAX_SPLIT_TASKS = 20;
+/** Dependencies one `api_create_tasks` call may declare in all: each costs CLI calls, and a client that times out and retries would duplicate issues. */
+const MAX_SPLIT_DEPENDENCIES = 40;
 
 /** Everything a create needs but the card's own text: tracker, team and labels from app.json, the target branch checked. Nothing is created here. */
 async function createTaskBase(real: string, args: Record<string, unknown>): Promise<Omit<CreateTaskParams, 'title' | 'body'>> {
@@ -209,6 +211,7 @@ export const commands = defineCommands<TasksCommands>({
       if (!Array.isArray(deps) || deps.some((d) => !Number.isInteger(d) || d < 0 || d >= i)) throw new BadRequestError(`tasks[${i}].dependsOn must list positions of earlier tasks in this call`);
       return { title: t.title, body: t.body, dependsOn: deps as number[] };
     });
+    if (items.reduce((n, i) => n + new Set(i.dependsOn).size, 0) > MAX_SPLIT_DEPENDENCIES) throw new BadRequestError(`tasks may declare at most ${MAX_SPLIT_DEPENDENCIES} dependencies in all`);
     const base = await createTaskBase(real, args);
     const created: CreatedTask[] = [];
     for (const item of items) {

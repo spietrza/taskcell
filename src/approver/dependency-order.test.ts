@@ -160,6 +160,7 @@ describe('rebaseDependents', () => {
   it.each([
     ['the hold label', { labels: ['taskcell:hold'] }, {}],
     ['a draft', { isDraft: true }, {}],
+    ['a revise round in flight', { labels: ['taskcell:revising'] }, {}],
     ['a head in another repo', { headRepo: 'fork/r' }, {}],
     ['another base branch', { baseRefName: 'release' }, {}],
     ['a requested change', { reviews: [{ author: 'human', body: '', submittedAt: '1', state: 'CHANGES_REQUESTED' }] }, {}],
@@ -210,6 +211,8 @@ describe('gh allow-lists', () => {
       ['api', 'repos/o/r/issues/7', '-f', 'state=closed'],
       ['api', 'repos/o/r/issues/7/comments'],
       ['api', 'repos/o/../r/issues/7/x'],
+      ['api', 'repos/../x/issues/1'],
+      ['api', 'repos/o/../issues/1'],
     ]) expect(() => assertActSafeGhArgs(args)).toThrow();
   });
   it('shadow mode allows none of them', () => {
