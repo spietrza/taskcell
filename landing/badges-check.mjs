@@ -21,9 +21,6 @@ assert.equal(calls[0], 'https://api.scorecard.dev/projects/github.com/spietrza/t
 await handleBadge({ BESTPRACTICES_ID: '12345' }, 'bestpractices');
 assert.equal(calls[1], 'https://www.bestpractices.dev/projects/12345/badge');
 
-for (const name of ['ci', 'owasp', 'license', 'node', 'typescript', 'sdk', 'docker']) assert.equal((await handleBadge({}, name)).status, 200, name);
-assert.equal(calls[2], 'https://github.com/spietrza/taskcell/actions/workflows/ci.yml/badge.svg');
-
 globalThis.fetch = answer('<html>', 'text/html');
 assert.equal((await handleBadge({}, 'observatory')).status, 502, 'a non-SVG answer is not passed on');
 globalThis.fetch = answer('', 'image/svg+xml', 500);

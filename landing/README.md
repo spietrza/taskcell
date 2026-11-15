@@ -71,8 +71,7 @@ After a paid pass, `/hosting/` offers Solo with the pass credited; that link car
 `/badges/<name>.svg` (`badges.js`) serves the live badges shown under Security: `scorecard` (OpenSSF
 Scorecard, published by `.github/workflows/scorecard.yml`), `observatory` (Mozilla HTTP Observatory grade of
 taskcell.dev) and `bestpractices` (OpenSSF Best Practices, shown only when the Worker var `BESTPRACTICES_ID`
-is the project's number), plus the README's own row: `owasp`, `ci`, `license`, `sdk`, `docker`, `typescript`
-and `node` (shields.io static badges and the GitHub Actions status). The Worker fetches them from their issuers, caches each for a day and serves it from
+is the project's number). The Worker fetches them from their issuers, caches each for a day and serves it from
 this origin, because the page's CSP allows images from `'self'` only. Only these names are fetched, and each
 SVG gets its own CSP so a script in it cannot run. `badges-check.mjs` covers it.
 
