@@ -71,6 +71,30 @@ export async function skillsList(dir: string, out: (line: string) => void = cons
   return rows;
 }
 
+/** A skill against its upstream head: `unknown` when the source cannot be resolved. */
+export type SkillCheckState = 'local' | 'current' | 'outdated' | 'unknown';
+
+export interface SkillCheckRow extends SkillRow {
+  state: SkillCheckState;
+  /** The upstream head, when it resolved. */
+  upstream?: string;
+}
+
+/** Each skill checked against its upstream head (what `skills check` reports), as data. */
+export async function skillsChecked(dir: string, resolver: GitResolver = gitLsRemoteHead): Promise<SkillCheckRow[]> {
+  const rows = await skillRows(dir);
+  const checked: SkillCheckRow[] = [];
+  for (const r of rows) {
+    if (r.status === 'local') {
+      checked.push({ ...r, state: 'local' });
+      continue;
+    }
+    const upstream = await resolver(r.source);
+    checked.push({ ...r, state: upstream === undefined ? 'unknown' : upstream === r.commit ? 'current' : 'outdated', ...(upstream !== undefined ? { upstream } : {}) });
+  }
+  return checked;
+}
+
 /** Report each skill against its upstream head; returns the exit code (--strict: 1 on outdated or modified). */
 export async function skillsCheck(
   dir: string,
@@ -78,19 +102,13 @@ export async function skillsCheck(
   resolver: GitResolver = gitLsRemoteHead,
   out: (line: string) => void = console.log,
 ): Promise<number> {
-  const rows = await skillRows(dir);
   let bad = false;
-  for (const r of rows) {
-    let report: string;
-    if (r.status === 'local') report = 'local';
-    else {
-      const upstream = await resolver(r.source);
-      report = upstream === undefined ? 'unknown' : upstream === r.commit ? 'current' : `outdated (upstream ${short(upstream)})`;
-      if (report.startsWith('outdated')) bad = true;
-      if (r.status === 'modified') {
-        bad = true;
-        report += ', modified';
-      }
+  for (const r of await skillsChecked(dir, resolver)) {
+    let report: string = r.state === 'outdated' ? `outdated (upstream ${short(r.upstream ?? '')})` : r.state;
+    if (r.state === 'outdated') bad = true;
+    if (r.state !== 'local' && r.status === 'modified') {
+      bad = true;
+      report += ', modified';
     }
     out([r.name, r.source, short(r.commit), report].join('\t'));
   }
@@ -210,7 +228,8 @@ export interface SkillsAddOptions {
   name?: string;
 }
 
-export async function skillsAdd(opts: SkillsAddOptions, deps: SkillsDeps = {}, out: Out = console.log): Promise<void> {
+/** Resolves to the installed skill's name. */
+export async function skillsAdd(opts: SkillsAddOptions, deps: SkillsDeps = {}, out: Out = console.log): Promise<string> {
   const src = deps.source ?? gitSkillSource;
   assertHttpsSource(opts.source);
   const path = assertRepoPath(opts.path ?? '.');
@@ -229,6 +248,7 @@ export async function skillsAdd(opts: SkillsAddOptions, deps: SkillsDeps = {}, o
     const entry = { name, source: opts.source, path, commit, sha256: sha256Hex(files.get('SKILL.md')?.data ?? ''), updatedAt: (deps.today ?? todayIso)() };
     await installSkill(opts.dir, lock, entry, files);
     out(oneLine(`added ${name}\t${opts.source}\t${short(commit)}\t${files.size} file(s)`));
+    return name;
   } finally {
     await src.dispose?.();
   }
@@ -487,11 +507,29 @@ export async function skillsUpdate(opts: SkillsUpdateOptions, deps: SkillsDeps =
   }
 }
 
-async function skillsUpdatePr(opts: SkillsUpdateOptions, deps: SkillsDeps, out: Out): Promise<void> {
+/** What a skills PR needs: the repo, the skills directory inside it and an optional base branch. */
+interface SkillsPrTarget {
+  dir: string;
+  repo: string;
+  baseBranch?: string;
+}
+
+interface SkillsWorktree {
+  ctx: RunContext;
+  /** The skills directory inside the throwaway worktree. */
+  wtDir: string;
+  /** The skills directory relative to the real worktree root (the pathspec git needs). */
+  realRel: string;
+}
+
+/**
+ * Run `fn` against the skills directory of a new branch off the base in a throwaway worktree: nothing is
+ * ever pushed to the base itself. The branch and worktree are removed whether or not `fn` delivered.
+ */
+async function inSkillsWorktree(opts: SkillsPrTarget, deps: SkillsDeps, fn: (w: SkillsWorktree) => Promise<void>): Promise<void> {
   const rel = relative(opts.repo, resolve(opts.repo, opts.dir));
   if (rel === '' || rel.startsWith('..') || isAbsolute(rel)) throw new TaskcellError(`--pr needs the skills directory inside the repo (${opts.repo}); ${opts.dir} is not.`);
   const baseBranch = opts.baseBranch ?? (await resolveTargetBase(opts.repo, []));
-  // A new branch off the base in a throwaway worktree: nothing is ever pushed to the base itself.
   const ctx: RunContext = await prepareContext(
     { taskId: 'skills-update', localRepoPath: opts.repo, baseBranch, start: 'base', sandbox: noSandbox },
     deps.contextDeps ?? {},
@@ -508,25 +546,7 @@ async function skillsUpdatePr(opts: SkillsUpdateOptions, deps: SkillsDeps, out: 
     if (invalid.length > 0) {
       throw new TaskcellError(`${SKILL_LOCK_FILE} on ${baseBranch} has ${invalid.length} entr${invalid.length === 1 ? 'y' : 'ies'} whose name is not a plain directory name ("${oneLine(invalid[0] ?? '').slice(0, 80)}"); fix the lock before update --pr.`);
     }
-    const plans = await planSkillUpdates(wtDir, opts.name, deps, opts.force);
-    printPlans(plans, out);
-    const moved = plans.filter((p) => p.entry !== undefined);
-    if (moved.length === 0 || opts.dryRun) return;
-    const metricsText = await recordedMetrics(opts.repo);
-    await applySkillUpdates(wtDir, plans);
-    // commitStage's `add -A` honours .gitignore files (the repo's, the operator's, the skill's own): force-add
-    // every moved skill so the commit holds exactly the installed files.
-    // The pathspec is the real path (git refuses one beyond a symlink) and literal (no pathspec magic).
-    const realRel = relative(wtReal, dirReal ?? wtDir);
-    for (const p of moved) await execFileP('git', hostGitArgs(['--literal-pathspecs', 'add', '-f', '-A', '--', join(realRel, p.name)]), { cwd: ctx.worktreePath });
-    const title = `chore(skills): update ${moved.map((p) => p.name).join(', ')}`.slice(0, 100);
-    const result = await deliverChange(ctx, {
-      taskId: ctx.taskId,
-      commitMessage: title,
-      target: { kind: 'new-pr', title, body: () => skillUpdateBody(plans, metricsText), ...(deps.runner !== undefined ? { runner: deps.runner } : {}) },
-    });
-    if (result.kind === 'secret-blocked') throw new TaskcellError('The update was blocked by the secret scan; nothing was committed or pushed.');
-    if (result.kind === 'delivered-pr') out(`opened ${result.prUrl}`);
+    await fn({ ctx, wtDir, realRel: relative(wtReal, dirReal ?? wtDir) });
   } finally {
     // Both are throwaway, delivered or not: a run that moved nothing, failed or was blocked by the
     // secret scan must not leave a branch, or a worktree still holding the flagged content.
@@ -534,6 +554,53 @@ async function skillsUpdatePr(opts: SkillsUpdateOptions, deps: SkillsDeps, out: 
     await disposeContext(ctx);
     await execFileP('git', hostGitArgs(['branch', '-D', ctx.branch]), { cwd: opts.repo }).catch((error: unknown) => ctx.log.warn({ error }, 'failed to delete the skills-update branch'));
   }
+}
+
+/**
+ * Force-stage the skills' paths and open the PR. commitStage's `add -A` honours .gitignore files (the
+ * repo's, the operator's, the skill's own): force-add so the commit holds exactly the installed files.
+ */
+async function deliverSkillsPr(w: SkillsWorktree, names: string[], title: string, body: () => string, deps: SkillsDeps, out: Out): Promise<void> {
+  // The pathspec is the real path (git refuses one beyond a symlink) and literal (no pathspec magic).
+  for (const name of names) await execFileP('git', hostGitArgs(['--literal-pathspecs', 'add', '-f', '-A', '--', join(w.realRel, name)]), { cwd: w.ctx.worktreePath });
+  const result = await deliverChange(w.ctx, {
+    taskId: w.ctx.taskId,
+    commitMessage: title,
+    target: { kind: 'new-pr', title, body, ...(deps.runner !== undefined ? { runner: deps.runner } : {}) },
+  });
+  if (result.kind === 'secret-blocked') throw new TaskcellError('The change was blocked by the secret scan; nothing was committed or pushed.');
+  if (result.kind === 'delivered-pr') out(`opened ${result.prUrl}`);
+}
+
+async function skillsUpdatePr(opts: SkillsUpdateOptions, deps: SkillsDeps, out: Out): Promise<void> {
+  await inSkillsWorktree(opts, deps, async (w) => {
+    const plans = await planSkillUpdates(w.wtDir, opts.name, deps, opts.force);
+    printPlans(plans, out);
+    const moved = plans.filter((p) => p.entry !== undefined);
+    if (moved.length === 0 || opts.dryRun) return;
+    const metricsText = await recordedMetrics(opts.repo);
+    await applySkillUpdates(w.wtDir, plans);
+    const title = `chore(skills): update ${moved.map((p) => p.name).join(', ')}`.slice(0, 100);
+    await deliverSkillsPr(w, moved.map((p) => p.name), title, () => skillUpdateBody(plans, metricsText), deps, out);
+  });
+}
+
+/** `skills add`, delivered as a PR off the base branch instead of written in place. */
+export async function skillsAddPr(opts: SkillsAddOptions & { repo: string; baseBranch?: string }, deps: SkillsDeps = {}, out: Out = console.log): Promise<void> {
+  await inSkillsWorktree(opts, deps, async (w) => {
+    const name = await skillsAdd({ ...opts, dir: w.wtDir }, deps, () => {});
+    const body = `Adds the skill ${code(name)} from ${code(opts.source)}${opts.ref !== undefined ? ` at ${code(opts.ref)}` : ''}.\n\nOpened by \`taskcell skills add\`; review SKILL.md before merging.`;
+    await deliverSkillsPr(w, [name], `chore(skills): add ${name}`.slice(0, 100), () => body, deps, out);
+  });
+}
+
+/** `skills remove`, delivered as a PR off the base branch instead of written in place. */
+export async function skillsRemovePr(opts: { dir: string; repo: string; name: string; baseBranch?: string }, deps: SkillsDeps = {}, out: Out = console.log): Promise<void> {
+  await inSkillsWorktree(opts, deps, async (w) => {
+    await skillsRemove(w.wtDir, opts.name, () => {});
+    const body = `Removes the skill ${code(opts.name)}.\n\nOpened by \`taskcell skills remove\`.`;
+    await deliverSkillsPr(w, [opts.name], `chore(skills): remove ${opts.name}`.slice(0, 100), () => body, deps, out);
+  });
 }
 
 export async function skillsCommand(cmd: SkillsCommand): Promise<number> {
