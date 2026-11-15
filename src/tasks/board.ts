@@ -117,7 +117,7 @@ export function toBoardTask(source: BoardSource, task: Task): BoardTask {
   const column = columnFor(combined);
   // Display only: a malformed or conflicting label shows nothing here and is refused when the run starts.
   const baseBranch = shownBaseFromLabels(task.labels);
-  const skills = parseSkillsLine(task.description);
+  const { skills } = parseSkillsLine(task.description);
   // Waiting = a human asked for the factory and nothing has claimed it yet. LABEL-sourced, not
   // state-sourced: the flag answers "is this queued for a trigger-label watch loop".
   const waiting = column === 'queued' && task.labels.some(isTriggerLabel);

@@ -2,7 +2,8 @@ import { useEffect, useState } from 'react';
 import { Button, Collapsible, Input } from '@/ui';
 import { Play } from 'lucide-react';
 import { EnumSelect } from './EnumSelect';
-import { apiListFlows, apiListProviders, apiListSkills } from '../../ipc';
+import { SkillPicker } from '../board/SkillPicker';
+import { apiListFlows, apiListProviders } from '../../ipc';
 import type { Capabilities, CreateRunParams, RepoFlowInfo, RepoProviderInfo } from '../../ipc';
 
 /** Built-ins ∪ healthy repo flows. Entries with an error (or no name) are never offered — they cannot run. */
@@ -66,7 +67,7 @@ export function NewRunForm({
   project: string;
   /** The card the form was opened from: its ref (and tracker) are filled in. */
   taskId?: string | undefined;
-  /** The skills the card names (its `Skills:` line): preselected. */
+  /** The skills the card names (its `Skills:` line): preselected, and a run started here loads exactly the ticked ones. */
   taskSkills?: string[] | undefined;
   onRun: (params: CreateRunParams) => void;
   onCancel: () => void;
@@ -82,7 +83,6 @@ export function NewRunForm({
   const [baseBranch, setBaseBranch] = useState('');  // blank ⇒ the card's target branch, else the repo default
   // Hand-picked skills, chosen from the installed ones; loaded for the run on top of the automatic selection.
   const [skills, setSkills] = useState<string[]>(taskSkills ?? []);
-  const [installedSkills, setInstalledSkills] = useState<string[]>([]);
   // Repo .taskcell/flows/*.hcl flows (S5 §21). Fetched fresh on every form open — deliberately NOT
   // session-cached like capabilities: repo flows are mutable state, and a flow saved in the
   // Workflow screen must be runnable here immediately. 'error' = degraded: built-ins still work,
@@ -106,7 +106,6 @@ export function NewRunForm({
       .catch(() => {
         if (live) setRepoProviders('error');
       });
-    apiListSkills(project).then(({ skills: ids }) => { if (live) setInstalledSkills(ids); }).catch(() => undefined);
     return () => {
       live = false;
     };
@@ -128,7 +127,8 @@ export function NewRunForm({
     flow,
     maxTurns: maxTurnsNum,
     ...(baseBranch.trim() !== '' ? { baseBranch: baseBranch.trim() } : {}),
-    ...(skills.length > 0 ? { skills } : {}),
+    // Sent (even empty) when the card named skills, so one unticked here is not loaded from the issue body.
+    ...(skills.length > 0 || (taskSkills?.length ?? 0) > 0 ? { skills } : {}),
   };
   const preview = `taskcell run --${transport} ${issueRef || '<issue>'} --provider ${provider}${flow === 'plan' ? ' --plan' : ''} --max-turns ${maxTurns}${skills.map((s) => ` --skill ${s}`).join('')}`;
 
@@ -164,16 +164,7 @@ export function NewRunForm({
             max-turns
             <Input value={maxTurns} onChange={(e) => setMaxTurns(e.target.value)} className="w-16" />
           </label>
-          <fieldset className="flex flex-wrap items-center gap-2 text-xs text-muted-foreground">
-            <legend className="sr-only">Skills</legend>
-            <span>skills</span>
-            {[...new Set([...installedSkills, ...skills])].map((id) => (
-              <label key={id} className="flex items-center gap-1">
-                <input type="checkbox" checked={skills.includes(id)} onChange={(e) => setSkills(e.target.checked ? [...skills, id] : skills.filter((s) => s !== id))} />
-                {id}
-              </label>
-            ))}
-          </fieldset>
+          <SkillPicker project={project} value={skills} onChange={setSkills} />
           <label className="flex items-center gap-1 text-xs text-muted-foreground">
             base
             <Input value={baseBranch} onChange={(e) => setBaseBranch(e.target.value)} placeholder="card / repo default" className="w-36" />

@@ -338,10 +338,14 @@ export async function readRunRecords(root: string, taskId: string, timestamp: st
 // Writing
 // ---------------------------------------------------------------------------
 
-/** Which skills a run loaded by hand and which it left to automatic selection. */
+/** The skills of a run: the ones named by hand that it loaded, and the other installed ones the agent could pick from. */
 export interface RunSkills {
+  /** Named by hand (`Skills:` line, `--skill`, the hub) and loaded. Empty when the provider reads no skills. */
   named: string[];
-  auto: string[];
+  /** The other installed skills, available to the automatic selection. Not a list of what the agent used. */
+  available: string[];
+  /** What the run summary says about the hand-picked list: an ignored `Skills:` line, a provider that reads no skills. */
+  notes?: string[];
 }
 
 export interface WriteStagesOptions {

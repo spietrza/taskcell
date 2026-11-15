@@ -7,7 +7,7 @@ import type { RunOptions } from '../runners/source-adapter.js';
 import type { LessonsCommand } from './lessons.js';
 import { assertSafeBaseBranch } from '../core/base-branch.js';
 import { parseUsageCap } from '../core/usage-cap.js';
-import { isSkillId, normalizeSkillNames } from '../context/named-skills.js';
+import { namedSkillsProblem, normalizeSkillNames } from '../context/named-skills.js';
 import { GITHUB_CLAIMED_LABEL, GITHUB_REVIEW_LABEL, GITHUB_SPEC_CLAIMED_LABEL } from '../github-labels.js';
 import { readEnv } from '../core/env.js';
 
@@ -1289,8 +1289,8 @@ export function parseCli(argv: string[], cwd: string): Command {
     // consulted, so the flag would be accepted and silently never fire.
     if (fallbackProvider !== undefined && Number.isFinite(forkN) && forkN >= 2) return fail('--fallback-provider does not apply to --fork variants; drop one of them.');
     // The single-task RunOptions (see RunOnlyKey): typed exhaustively so a new run-only field lands here.
-    const badSkill = skills.find((n) => !isSkillId(n));
-    if (badSkill !== undefined) return fail(`--skill expects a skill id (a directory name under the skills dir), got "${badSkill}".`);
+    const skillProblem = namedSkillsProblem(skills);
+    if (skillProblem !== undefined) return fail(`--skill ${skillProblem}.`);
     const runOnly = present<Pick<RunOptions, RunOnlyKey>>({
       forkScorer,
       specFile: typeof values['spec-file'] === 'string' ? values['spec-file'] : undefined,

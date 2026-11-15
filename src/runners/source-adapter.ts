@@ -61,7 +61,7 @@ import type { GateResult, RepairGateOptions } from '../pipeline/repair-gate.js';
 import type { RunResult } from '../core/types.js';
 import type { RunEvent } from '../pipeline/events.js';
 import { skillRegistryForRun } from '../context/skill-registry.js';
-import { assertSkillsInstalled, namedSkillsPrompt, normalizeSkillNames, parseSkillsLine, providerSupportsSkills } from '../context/named-skills.js';
+import { assertSkillsInstalled, normalizeSkillNames, parseSkillsLine, providerSupportsSkills, withNamedSkills } from '../context/named-skills.js';
 import { readEnv } from '../core/env.js';
 
 /** Issue label that skips the base-red check: the task is meant to fix the red base. */
@@ -185,6 +185,8 @@ export interface RunIssueDeps extends RunOptions {
   providerEnv?: NodeJS.ProcessEnv;
   /** The hub login (or `token`) that started this run; stamped on its run records. */
   startedBy?: string;
+  /** `namedSkills` is the whole hand-picked list (the hub form, which preselects the card's skills): the body's `Skills:` line is not merged in. */
+  namedSkillsOnly?: boolean;
   auth?: AgentAuth;
   repoPath: string;
   proxyUrl?: string;
@@ -419,9 +421,10 @@ export async function runSourcedIssue(
   const [{ task: fetchedTask }, skills] = await Promise.all([adapter.prepare(issueRef), skillRegistryForRun(deps.skillsDir, deps.repoPath)]);
   // Skills named by hand: `--skill` plus the task body's `Skills:` line. An unknown id stops the run here,
   // before the provider proxies, the sandbox and any model call.
-  const namedSkills = normalizeSkillNames([...(deps.namedSkills ?? []), ...parseSkillsLine(fetchedTask.description)]);
+  // A `Skills:` line that is not a list of skill ids (prose) selects nothing and leaves a note; it never refuses the run.
+  const skillsLine = parseSkillsLine(fetchedTask.description);
+  const namedSkills = normalizeSkillNames([...(deps.namedSkills ?? []), ...(deps.namedSkillsOnly === true ? [] : skillsLine.skills)]);
   assertSkillsInstalled(namedSkills, skills.ids());
-  const skillsRecord: RunSkills = { named: namedSkills, auto: skills.ids().filter((id) => !namedSkills.includes(id)) };
   // --spec-file: layer the local spec onto the fetched task as a virtual comment — the implementer
   // prompt ({{COMMENTS}}), triage, and the conformance manifest read it exactly like a posted spec,
   // with nothing written to the tracker. Copy, don't mutate: the fetched object may be shared.
@@ -442,6 +445,23 @@ export async function runSourcedIssue(
   // credential env, so a `user` run never spends the host's key.
   const providerEnv = deps.providerEnv ?? process.env;
   const agents = selectAgents(deps, providerEnv, { proxyMode: deps.llmProxy !== undefined });
+  // What the run says about the hand-picked list (run summary, run event, run record) instead of dropping it silently.
+  const lineReplaced = deps.namedSkillsOnly === true && skillsLine.skills.some((id) => !namedSkills.includes(id));
+  // Every provider an agent stage can run on: one whose CLI reads no skills cannot honour the list.
+  const skillless = [...new Set([agents.agent, agents.reviewAgent, agents.fallbackAgent].flatMap((a) => (a !== undefined && !providerSupportsSkills(a.name) ? [a.name] : [])))];
+  const skillNotes = [
+    ...(skillsLine.note !== undefined && deps.namedSkillsOnly !== true ? [skillsLine.note] : []),
+    ...(lineReplaced ? [`The issue's "Skills:" line (${skillsLine.skills.join(', ')}) was replaced by the list chosen in the hub (${namedSkills.join(', ') || 'none'}).`] : []),
+    ...(namedSkills.length > 0 && skillless.length > 0 ? [`Skills (${namedSkills.join(', ')}) were named, but provider ${skillless.join(', ')} does not support skills; its stages run without them.`] : []),
+  ];
+  for (const note of skillNotes) console.log(`taskcell: ${fetchedTask.id} ${note}`);
+  // `named` is what the implementer loaded: nothing on a provider that reads no skills.
+  const loads = providerSupportsSkills(agents.agent.name);
+  const skillsRecord: RunSkills = {
+    named: loads ? namedSkills : [],
+    available: loads ? skills.ids().filter((id) => !namedSkills.includes(id)) : [],
+    ...(skillNotes.length > 0 ? { notes: skillNotes } : {}),
+  };
 
   // Per-run provider sidecars (e.g. OpenAI for Codex) hold the real key out of the sandbox. Created
   // before prepareContext so the finally below tears them down even if context provisioning throws.
@@ -515,9 +535,6 @@ export async function runSourcedIssue(
       { skills },
     );
     let outcomes: StageOutcome[] = [];
-    // A provider whose CLI reads no skills cannot honour a hand-picked list: say so in the run summary instead of dropping it silently.
-    const skillNotes = namedSkills.length > 0 && !providerSupportsSkills(agents.agent.name) ? [`Skills ([${namedSkills.join(', ')}]) were named, but provider ${agents.agent.name} does not support skills; they were not loaded.`] : [];
-    if (skillNotes[0] !== undefined) console.log(`taskcell: ${task.id} ${skillNotes[0]}`);
     // On Actions each run leaves one block in the job's Summary tab, built from the same outcomes as
     // the run record + metrics.jsonl so the two never disagree. No GITHUB_STEP_SUMMARY ⇒ no-op.
     const stepSummary = (exit: StepSummaryExit, extra: Pick<StepSummary, 'prUrl' | 'error'> = {}): Promise<void> => {
@@ -535,7 +552,9 @@ export async function runSourcedIssue(
     };
     let markerWrites = Promise.resolve();
     try {
-      const turnScoped = deps.maxTurns !== undefined ? withStageMaxTurns(baseStages, deps.maxTurns) : baseStages;
+      // Appended here, not as a template placeholder, so every flow's implementer is told (repo .hcl flows included).
+      const skillStages = withNamedSkills(baseStages, namedSkills);
+      const turnScoped = deps.maxTurns !== undefined ? withStageMaxTurns(skillStages, deps.maxTurns) : skillStages;
       // --max-repair-iterations also drives auto-resume of an incomplete implementer (not just the gate
       // loop): an under-budget stage that stopped without <promise>COMPLETE</promise> gets nudged to finish.
       const scopedStages =
@@ -614,6 +633,7 @@ export async function runSourcedIssue(
         ...runMeta,
         stages: pipeline.map((s) => s.name),
       });
+      for (const message of skillNotes) onEvent({ type: 'warning', message });
       // Before implementing: check the base tree's verify command against the base commit (cached by
       // SHA). A gate that is already red there is not this task's fault — starting a repair loop against
       // it would just burn turns on pre-existing failures, so stop here instead (#2024). Skipped on a
@@ -648,7 +668,6 @@ export async function runSourcedIssue(
         ...taskToVariables(task, { allowedAuthors: deps.feedbackAuthors }),
         ...(adapter.variables?.(issueRef, task) ?? {}),
         RETROSPECTIVE_MEMORY: escapePromptTags(retrospectiveMemory),
-        NAMED_SKILLS: namedSkillsPrompt(namedSkills),
       };
       // Deterministic spec-manifest vs diff conformance gate, joined with the verify command into a
       // single shared-cap repair loop: either gate failing resumes the implementer's own session with a

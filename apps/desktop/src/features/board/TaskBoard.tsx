@@ -68,7 +68,7 @@ export function TaskBoard({
   onFilter?: (f: HubFilter) => void;
   /** Repositories the Projects picker offers (hub: all of the team's). */
   projects?: { path: string; name: string }[];
-  onOpenTask: (taskId: string, repoPath?: string) => void;
+  onOpenTask: (taskId: string, repoPath?: string, skills?: string[]) => void;
   onNewTask: () => void;
   /** Opens `project`'s Settings, for the "no task source yet" hint. */
   onOpenSettings?: () => void;
@@ -79,7 +79,15 @@ export function TaskBoard({
     [project, allRepos, teamId, repos.join('\n')],
   );
   const approver = useApproverDecisions(project, !allRepos);
-  const allTasks = data?.tasks;
+  // Skills saved from a card's quick view, shown at once: the tracker is not re-read for it.
+  const [savedSkills, setSavedSkills] = useState<Record<string, string[]>>({});
+  const cardKey = (t: Pick<QuickTask, 'id' | 'repoPath'>): string => `${t.repoPath ?? ''}:${t.id}`;
+  const allTasks = data?.tasks.map((t): BoardList['tasks'][number] => {
+    const saved = savedSkills[cardKey(t)];
+    if (saved === undefined) return t;
+    const { skills: _old, ...rest } = t;
+    return saved.length > 0 ? { ...rest, skills: saved } : rest;
+  });
   const tasks = allTasks && filterCards(allTasks, filter);
   const lanes = groupRows(tasks ?? [], filter.group, cardKeys);
 
@@ -220,7 +228,7 @@ export function TaskBoard({
                   </div>
                 ) : (
                   items.map((t) => (
-                    <div key={`${t.repoPath ?? ''}:${t.id}`}>
+                    <div key={cardKey(t)}>
                     <button
                       data-board-card
                       aria-expanded={selected?.id === t.id && selected.repoPath === t.repoPath}
@@ -248,7 +256,7 @@ export function TaskBoard({
                             return d !== undefined && <div className="text-[11px] text-muted-foreground" data-approver={d.outcome}>{decisionWords(d)}</div>;
                           })()}
                           {t.skills && (
-                            <div className="pt-0.5 text-[11px] text-muted-foreground">skills: {t.skills.join(', ')}</div>
+                            <div className="break-words pt-0.5 text-[11px] text-muted-foreground">skills: {t.skills.join(', ')}</div>
                           )}
                           {t.baseBranch && (
                             <div className="pt-0.5 font-mono text-[11px] text-muted-foreground">→ {t.baseBranch}</div>
@@ -281,7 +289,8 @@ export function TaskBoard({
           task={selected}
           project={project}
           onClose={close}
-          onFullPage={() => onOpenTask(selected.id, selected.repoPath)}
+          onFullPage={() => onOpenTask(selected.id, selected.repoPath, savedSkills[cardKey(selected)] ?? selected.skills)}
+          onSkillsSaved={(skills) => setSavedSkills((m) => ({ ...m, [cardKey(selected)]: skills }))}
         />
       )}
       </div>

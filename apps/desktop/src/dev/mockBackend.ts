@@ -113,6 +113,7 @@ const commandHandlers = {
   api_create_task: () => createdTask,
   list_branches: () => ({ branches: ['dev', 'main'], default: 'main' }),
   list_skills: () => ({ skills: ['code-review', 'ponytail', 'simplify'] }),
+  set_task_skills: (args: { skills?: string[] } | undefined) => ({ skills: args?.skills ?? [] }),
   list_drafts: () => ['draft-001'],
   read_draft: () => READ_DRAFT,
   write_draft: () => undefined,

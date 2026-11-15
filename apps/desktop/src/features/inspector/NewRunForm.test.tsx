@@ -162,3 +162,34 @@ test('hand-picked skills ride on the run params', async () => {
   fireEvent.click(screen.getByRole('button', { name: 'Run' }));
   expect(onRun).toHaveBeenCalledWith(expect.objectContaining({ issueRef: '5', skills: ['ponytail'] }));
 });
+
+test('the card\'s skills are preselected, shown in the command preview, and one unticked is sent as not chosen', async () => {
+  const onRun = vi.fn();
+  render(<NewRunForm capabilities={caps} project="/repo" taskId="gh-5" taskSkills={['ponytail', 'simplify']} onRun={onRun} onCancel={() => {}} />);
+  fireEvent.click(screen.getByText('Advanced'));
+  expect(await screen.findByLabelText('ponytail')).toBeChecked();
+  fireEvent.click(screen.getByText('≈ command'));
+  expect(screen.getByText(/--skill ponytail --skill simplify/)).toBeInTheDocument();
+  fireEvent.click(screen.getByLabelText('simplify'));
+  fireEvent.click(screen.getByLabelText('ponytail'));
+  expect(screen.queryByText(/--skill/)).not.toBeInTheDocument();
+  fireEvent.click(screen.getByRole('button', { name: 'Run' }));
+  // Sent empty, not left out: the run must not load them from the issue body.
+  expect(onRun).toHaveBeenCalledWith(expect.objectContaining({ skills: [] }));
+});
+
+test('a run with no card skills and nothing ticked sends no skills, so the issue body decides', async () => {
+  const onRun = vi.fn();
+  render(<NewRunForm capabilities={caps} project="/repo" onRun={onRun} onCancel={() => {}} />);
+  fireEvent.change(screen.getByLabelText('Issue ref'), { target: { value: '5' } });
+  fireEvent.click(screen.getByRole('button', { name: 'Run' }));
+  expect(onRun.mock.calls[0]?.[0]).not.toHaveProperty('skills');
+});
+
+test('when the skills cannot be listed the picker says why and keeps the card\'s skills untickable', async () => {
+  vi.mocked(ipc.apiListSkills).mockRejectedValueOnce(new Error('skills.lock.json does not match code-review'));
+  render(<NewRunForm capabilities={caps} project="/repo" taskId="gh-5" taskSkills={['ponytail']} onRun={vi.fn()} onCancel={() => {}} />);
+  fireEvent.click(screen.getByText('Advanced'));
+  expect(await screen.findByRole('status')).toHaveTextContent('skills unavailable — skills.lock.json does not match code-review');
+  expect(screen.getByLabelText('ponytail')).toBeChecked();
+});

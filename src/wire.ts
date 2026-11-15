@@ -67,7 +67,11 @@ export interface CreateRunParams {
   transport?: string;
   maxTurns?: number;
   baseBranch?: string;
-  /** Installed skill ids the run must load, on top of the automatic selection; an unknown id fails the run before any model call. */
+  /**
+   * The run's whole hand-picked skill list (installed ids, loaded on top of the automatic selection). When
+   * present it replaces the issue body's `Skills:` line, which the form preselects, so a skill unticked
+   * there is not loaded. An unknown id fails the run before any model call.
+   */
   skills?: string[];
   /** Hub only: who started the run. Set server-side from the request's actor, never from the client. */
   startedBy?: string;
@@ -351,8 +355,12 @@ export interface RunRecord {
   attempts?: number;
   /** Ids of the lessons injected into this run's prompts (`taskcell lessons list` counts them). */
   lessonIds?: string[];
-  /** Skills named by hand vs left to automatic selection. Absent on older records. */
-  skills?: { named: string[]; auto: string[] };
+  /**
+   * `named`: the skills named by hand that the run loaded. `available`: the other installed skills the
+   * agent could pick from (not what it used). `notes`: an ignored `Skills:` line, or a provider that
+   * reads no skills. Absent on older records.
+   */
+  skills?: { named: string[]; available: string[]; notes?: string[] };
 }
 
 export interface Proof {
@@ -574,6 +582,7 @@ export type AuditAction =
   | 'needs-reply'
   | 'needs-merge'
   | 'task-create'
+  | 'task-edit'
   | 'enable-factory'
   | 'approver-mode';
 export type AuditOutcome = 'ok' | 'refused' | 'failed';

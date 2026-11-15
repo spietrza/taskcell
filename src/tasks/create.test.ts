@@ -1,5 +1,6 @@
-import { describe, it, expect } from 'vitest';
-import { createGithubIssue, createGitlabIssue, createLinearIssue, MAX_BODY_BYTES, MAX_TITLE_BYTES } from './create.js';
+import { beforeEach, describe, it, expect } from 'vitest';
+import { createGithubIssue, createGitlabIssue, createLinearIssue, setTaskSkills, MAX_BODY_BYTES, MAX_TITLE_BYTES } from './create.js';
+import type { CliRunner } from './create.js';
 import type { LinearGraphql } from './linear-cli.js';
 
 describe('createGithubIssue', () => {
@@ -176,5 +177,48 @@ describe('title guard', () => {
       }),
     ).rejects.toThrow(/title is .* limit is/);
     expect(called).toBe(false); // a raw E2BIG on the irreversible path tells the user nothing
+  });
+});
+
+describe('setTaskSkills', () => {
+  const calls: { bin: string; args: string[]; stdin?: string }[] = [];
+  const cli = (out: string): CliRunner => async (bin, args, opts) => {
+    calls.push({ bin, args, ...(opts.stdin !== undefined ? { stdin: opts.stdin } : {}) });
+    return out;
+  };
+  beforeEach(() => calls.splice(0));
+
+  it('GitHub: reads the body and writes it back over stdin with only the Skills: line changed', async () => {
+    await setTaskSkills('/repo', 'gh-7', ['db', 'release'], cli(JSON.stringify({ body: 'Fix it\n\nSkills: old' })));
+    expect(calls).toEqual([
+      { bin: 'gh', args: ['issue', 'view', '7', '--json', 'body'] },
+      { bin: 'gh', args: ['issue', 'edit', '7', '--body-file', '-'], stdin: 'Fix it\n\nSkills: db, release' },
+    ]);
+  });
+
+  it('GitLab: the description goes back as stored, with the line appended', async () => {
+    await setTaskSkills('/repo', 'gl-3', ['db'], cli(JSON.stringify({ description: '```\n/close\n```' })));
+    expect(calls[1]).toEqual({ bin: 'glab', args: ['issue', 'update', '3', '--description', '```\n/close\n```\n\nSkills: db\n'] });
+  });
+
+  it('writes nothing when the line already says so', async () => {
+    await setTaskSkills('/repo', 'gh-7', ['db'], cli(JSON.stringify({ body: 'Skills: db' })));
+    expect(calls).toHaveLength(1);
+  });
+
+  it('Linear: updates the description over GraphQL and needs the update confirmed', async () => {
+    const sent: Record<string, unknown>[] = [];
+    const graphql = async (body: { query: string; variables: Record<string, unknown> }): Promise<unknown> => {
+      sent.push(body.variables);
+      return body.query.startsWith('query') ? { data: { issue: { description: 'x\nSkills: a' } } } : { data: { issueUpdate: { success: sent.length === 2 } } };
+    };
+    await setTaskSkills('/repo', 'linear-dev-9', [], cli(''), graphql);
+    expect(sent).toEqual([{ id: 'DEV-9' }, { id: 'DEV-9', d: 'x' }]);
+    await expect(setTaskSkills('/repo', 'linear-dev-9', ['b'], cli(''), graphql)).rejects.toThrow('did not confirm');
+  });
+
+  it('refuses an id of no tracker', async () => {
+    await expect(setTaskSkills('/repo', 'draft-1', ['a'], cli(''))).rejects.toThrow("Couldn't resolve a Task Source");
+    expect(calls).toHaveLength(0);
   });
 });

@@ -276,6 +276,14 @@ export class SkillRegistry {
   }
 }
 
+/**
+ * The skills dir of a hub: SKILLS_DIR. One source for the skills the hub lists (`list_skills`) and the
+ * ones its runs load and validate against, on every transport.
+ */
+export function hubSkillsDir(env: NodeJS.ProcessEnv = process.env): string | undefined {
+  return env.SKILLS_DIR !== undefined && env.SKILLS_DIR !== '' ? env.SKILLS_DIR : undefined;
+}
+
 /** Where a target repo keeps its own skills, relative to the repo root. Merged in by skillRegistryForRun. */
 export const REPO_SKILLS_DIR = '.github/vanguard-skills';
 

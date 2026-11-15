@@ -1,6 +1,6 @@
-import { isSkillId } from '../context/named-skills.js';
 import { isAbsolute } from 'node:path';
 import { FLOWS, TRANSPORTS } from '../api/capabilities.js';
+import { namedSkillsProblem } from '../context/named-skills.js';
 import { assertSafeBaseBranch } from '../core/base-branch.js';
 import { TaskcellError } from '../core/errors.js';
 import { isSafeTaskId } from '../core/state-path.js';
@@ -186,8 +186,10 @@ function validateCreateRun(params: unknown): void {
   if (p.maxTurns !== undefined && (typeof p.maxTurns !== 'number' || !Number.isInteger(p.maxTurns) || p.maxTurns <= 0)) {
     throw new BadRequestError(`maxTurns must be a positive integer, got ${String(p.maxTurns)}`);
   }
-  if (p.skills !== undefined && (!Array.isArray(p.skills) || p.skills.some((s) => typeof s !== 'string' || !isSkillId(s)))) {
-    throw new BadRequestError('skills must be an array of skill ids');
+  if (p.skills !== undefined) {
+    if (!Array.isArray(p.skills) || p.skills.some((s) => typeof s !== 'string')) throw new BadRequestError('skills must be an array of skill ids');
+    const problem = namedSkillsProblem(p.skills as string[]);
+    if (problem !== undefined) throw new BadRequestError(`skills ${problem}`);
   }
   if (p.baseBranch !== undefined && typeof p.baseBranch !== 'string') {
     throw new BadRequestError(`baseBranch must be a string, got ${Array.isArray(p.baseBranch) ? 'array' : p.baseBranch === null ? 'null' : typeof p.baseBranch}`);

@@ -1,5 +1,5 @@
 import { describe, expect, test, vi } from 'vitest';
-import { fireEvent, render, screen, within } from '@testing-library/react';
+import { fireEvent, render, screen, waitFor, within } from '@testing-library/react';
 import { TaskBoard } from './TaskBoard';
 import type { BoardTask } from '../../wire';
 
@@ -9,6 +9,8 @@ vi.mock('../../ipc', () => ({
   listRuns: vi.fn().mockResolvedValue([]),
   readRun: vi.fn(),
   listNeedsYou: vi.fn().mockResolvedValue({ items: [] }),
+  apiListSkills: vi.fn(async () => ({ skills: ['db', 'release'] })),
+  apiSetTaskSkills: vi.fn(async (_repo: string, _id: string, skills: string[]) => ({ skills })),
 }));
 import { listTasks, listTasksAll } from '../../ipc';
 const mockListTasks = vi.mocked(listTasks);
@@ -37,6 +39,21 @@ const COUNTS_TASKS: BoardTask[] = [
 ];
 
 describe('TaskBoard', () => {
+  test('skills picked on a card show on it at once and go to the full page (and its New Run form)', async () => {
+    mockListTasks.mockResolvedValue({ tasks: [{ id: 'gh-1', title: 'One', column: 'queued', state: 'open', source: 'github', skills: ['db'] }], capped: false });
+    const onOpenTask = vi.fn();
+    render(<TaskBoard project="/repo" repos={[]} onOpenTask={onOpenTask} onNewTask={() => {}} />);
+    const card = (await screen.findByText('One')).closest('button') as HTMLElement;
+    expect(card).toHaveTextContent('skills: db');
+    fireEvent.click(card);
+    const section = await screen.findByRole('region', { name: 'Skills' });
+    fireEvent.click(await within(section).findByLabelText('release'));
+    fireEvent.click(within(section).getByRole('button', { name: 'Save skills' }));
+    await waitFor(() => expect(card).toHaveTextContent('skills: db, release'));
+    fireEvent.click(screen.getByRole('button', { name: 'Full page' }));
+    expect(onOpenTask).toHaveBeenCalledWith('gh-1', undefined, ['db', 'release']);
+  });
+
   test('renders all six workflow columns', async () => {
     mockListTasks.mockResolvedValue({ tasks: [], capped: false });
     render(<TaskBoard project="/repo" repos={[]} onOpenTask={() => {}} onNewTask={() => {}} />);
@@ -250,7 +267,7 @@ describe('TaskBoard quick view', () => {
     const { card, onOpenTask } = await setup();
     fireEvent.click(card);
     fireEvent.click(await screen.findByRole('button', { name: 'Full page' }));
-    expect(onOpenTask).toHaveBeenCalledWith('gh-7', undefined);
+    expect(onOpenTask).toHaveBeenCalledWith('gh-7', undefined, undefined);
     fireEvent.mouseDown(document.body);
     expect(screen.queryByRole('complementary')).not.toBeInTheDocument();
     expect(card).toHaveFocus();

@@ -536,7 +536,12 @@ export function setApproverMode(repoPath: string, mode: ApproverMode, confirmBel
   return call('set_approver_mode', { repoPath, mode, ...(confirmBelowBar === true ? { confirmBelowBar } : {}) });
 }
 
-/** HUB_ONLY: the ids of the skills a run of this project can load, for the New Run skill picker. */
+/** HUB_ONLY: the ids of the skills a run of this project can load, for the skill pickers. Throws with the reason when they cannot be listed. */
 export function apiListSkills(repoPath: string): Promise<{ skills: string[] }> {
   return call('list_skills', { repoPath });
+}
+
+/** HUB_ONLY: write a card's hand-picked skills to its task as the body's `Skills:` line (an empty list removes it). */
+export function apiSetTaskSkills(repoPath: string, taskId: string, skills: string[]): Promise<{ skills: string[] }> {
+  return call('set_task_skills', { repoPath, taskId, skills });
 }

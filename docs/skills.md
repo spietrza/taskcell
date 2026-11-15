@@ -114,10 +114,25 @@ Copy the skill directory from that commit, set `source` to the repo URL, `path` 
 
 ## Naming skills for a task
 
-Selection is automatic by default. To make a task use specific skills, add a line to the issue body (GitHub, GitLab, Linear):
+Selection is automatic by default. There are four ways to make a task use specific skills; pick whichever fits where you work:
 
-```
-Skills: db-migrations, release
-```
+1. **A line in the issue** (GitHub, GitLab, Linear). Add this to the issue body, on a line of its own:
 
-or pass `taskcell run --skill db-migrations --skill release` for a one-off; both are merged. Named skills load in addition to the automatic selection, and the prompt tells the agent it must use them. Every name must be installed (the `--skills` dir plus the repo's `.github/vanguard-skills/`; `tech-spec` is spec-only and counts as not installed): an unknown name stops the run before any model call and prints the installed ids. The run record has `skills: { named, auto }`: the hand-picked ids, and the other installed ids left for the model to pick. A provider whose CLI reads no skills (the `pi` stub) records that in the run summary instead of silently ignoring the list.
+   ```
+   Skills: db-migrations, release
+   ```
+
+   Every run of that issue then loads them: from CI, `taskcell watch`, the CLI or the hub.
+2. **The card in the hub.** Open the card on the Board, tick the skills under **Skills** and press **Save skills**. The hub writes the line above into the issue for you. See [hub.md](hub.md#choosing-skills).
+3. **The hub's New Run form.** Under **Advanced**, tick the skills for this one run. A card's skills are already ticked; untick one to leave it out of this run.
+4. **The CLI flag**, for a one-off: `taskcell run --github owner/repo#12 --skill db-migrations --skill release`. The flag and the issue line are merged.
+
+Named skills load in addition to the automatic selection, and the implementer's prompt tells the agent it must use them, in every flow (the built-in ones and a repo's `.taskcell/flows/*.hcl`).
+
+Rules for the issue line:
+
+- It must start the line with `Skills:` (capital S, no indent, not inside a code block or a `>` quote), and hold skill ids separated by commas, at most 20. When the line is repeated, the last one wins.
+- Anything else is not a selection. An issue that says `Skills: good communication, SQL knowledge` in prose runs exactly as it did before; the run summary notes that the line was ignored.
+- Every id must be installed (the `--skills` dir, or `SKILLS_DIR` for a hub, plus the repo's `.github/vanguard-skills/`; `tech-spec` is spec-only and counts as not installed). A well-formed id that is not installed stops the run before any model call and prints the installed ids, so a typo is never a silent skip. `taskcell skills list` shows what is installed.
+
+The run record has `skills: { named, available, notes }`: `named` is the hand-picked ids the run loaded, `available` the other installed ids the agent could pick from (it is not a list of what the agent used), `notes` what the summary says about the list. A provider whose CLI reads no skills (the `pi` stub) says so in the run summary, on the hub run and in `notes`, and its record lists no skill as loaded.
