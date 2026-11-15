@@ -269,6 +269,8 @@ describe('CodexProvider', () => {
     expect(await modelFromRollouts(planted('sk-proj AAAA BBBB'))).toBeUndefined();
     expect(await modelFromRollouts(planted('<img src=x>'))).toBeUndefined();
     expect(await modelFromRollouts(planted('a'.repeat(101)))).toBeUndefined();
+    // A key-shaped value passes the charset but must never be recorded.
+    expect(await modelFromRollouts(planted(`sk-${'A1b2'.repeat(12)}`))).toBeUndefined();
     expect(await modelFromRollouts(planted('openai/gpt-5.1-codex:free'))).toBe('openai/gpt-5.1-codex:free');
   });
 

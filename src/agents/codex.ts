@@ -74,7 +74,9 @@ async function sessionModel(
   try {
     const res = await sh(command, execOpts);
     // The agent can write that file, and this string is published unredacted: accept a model-id shape only.
-    return /^"model":"([A-Za-z0-9._:/-]{1,100})"\n?$/.exec(res.stdout)?.[1];
+    const model = /^"model":"([A-Za-z0-9._:/-]{1,100})"\n?$/.exec(res.stdout)?.[1];
+    // The rollout is agent-writable: never record a value the secret scan would redact.
+    return model !== undefined && redactForPublish(model) === model ? model : undefined;
   } catch {
     return undefined;
   }
