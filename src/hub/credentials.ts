@@ -131,6 +131,11 @@ export class ForbiddenError extends BadRequestError {}
 type Scope = 'instance' | `user:${string}`;
 type Secrets = Record<string, Record<string, string>>;
 
+/** No usable `TASKCELL_HUB_SECRET` but `credentials.keyed` is present: `credentials.key` is neither read nor written. */
+function markerWithoutSecret(): CredentialStoreError {
+  return new CredentialStoreError('credential store cannot be decrypted: credentials.keyed records that the store was saved under a TASKCELL_HUB_SECRET value that is no longer set (or is not usable), so credentials.key is neither read nor written. Restore that secret to recover it, or, if the store is meant to be on credentials.key, remove credentials.keyed (in the hub config directory); the store and the marker are left untouched');
+}
+
 export class ScopedCredentialStore {
   private chain: Promise<unknown> = Promise.resolve();
   constructor(private readonly dir: string, private readonly secret?: string) {}
@@ -203,7 +208,7 @@ export class ScopedCredentialStore {
   /** The store is (re)written under `credentials.key`: a marker from an earlier secret no longer describes it. */
   private async unmarkKeyed(): Promise<void> {
     this.operatorKeyed = false;
-    await rm(this.keyedPath(), { force: true }).catch(() => undefined);
+    await rm(this.keyedPath(), { force: true });
   }
 
   private async load(): Promise<Secrets> {
@@ -229,12 +234,15 @@ export class ScopedCredentialStore {
       }
       const undecryptable = new CredentialStoreError('credential store cannot be decrypted: it was saved under a different TASKCELL_HUB_SECRET value (or under the on-disk credentials.key, now absent), or the file is corrupt. Restore that value to recover it; the store is left untouched');
       // The store is left as it is: nothing here overwrites or deletes what cannot be read.
-      if (this.operatorKeyed || await present(this.keyedPath())) throw undecryptable;
+      const keyed = this.operatorKeyed || await present(this.keyedPath());
       let legacy: Secrets;
       try {
         legacy = this.decrypt(raw, await this.diskKey(false));
       } catch {
         throw undecryptable;
+      }
+      if (keyed) {
+        throw new CredentialStoreError('credential store is under credentials.key, but credentials.keyed records that it was keyed under TASKCELL_HUB_SECRET, so credentials.key is not trusted. If you restored this store yourself, remove credentials.keyed (in the hub config directory) to re-key it; the store is left untouched');
       }
       // While credentials.enc is unmigrated the secret may not be the one that opens it: re-keying now could leave
       // two files that no single secret reads, so the store stays under credentials.key until the migration is done.
@@ -251,6 +259,8 @@ export class ScopedCredentialStore {
       await this.markKeyed();
       return legacy;
     }
+    // A marker means the store was keyed under a secret this start cannot use: credentials.key is not read.
+    if (await present(this.keyedPath())) throw markerWithoutSecret();
     try {
       return this.decrypt(raw, await this.diskKey(false));
     } catch {
@@ -271,13 +281,25 @@ export class ScopedCredentialStore {
   }
 
   private async save(all: Secrets): Promise<void> {
+    const usable = this.operatorKey();
+    // With no usable secret a marker is never removed, also when the store file is absent: the save is refused instead,
+    // so deleting the store cannot turn a marker into a fresh credentials.key store.
+    if (usable === undefined && await present(this.keyedPath())) throw markerWithoutSecret();
     // While credentials.enc is unmigrated and the store is not yet under the secret, stay on credentials.key so no
     // second secret comes into play (the secret may not be the one that opens the legacy file).
     const deferred = this.rekeyDeferred || (!this.operatorKeyed && await present(legacyPath(this.dir)));
-    const operatorKey = deferred ? undefined : this.operatorKey();
+    const operatorKey = deferred ? undefined : usable;
+    // Drop a stale marker BEFORE the disk-key write, so a crash between the two cannot leave a readable store locked out.
+    // Only reached with a usable secret whose re-key is deferred (credentials.enc is unmigrated).
+    if (operatorKey === undefined) await this.unmarkKeyed();
     await this.saveWithKey(all, operatorKey ?? await this.diskKey(true));
     if (operatorKey !== undefined) await this.markKeyed();
-    else await this.unmarkKeyed();
+  }
+
+  /** Why a valid secret is not keying the store: an unmigrated `credentials.enc` keeps new saves on `credentials.key`. */
+  async legacyIssue(): Promise<string | undefined> {
+    if (this.operatorKey() === undefined || this.operatorKeyed || !await present(legacyPath(this.dir))) return undefined;
+    return 'credentials.enc is unmigrated, so the credential store stays on credentials.key until it is migrated or removed';
   }
 
   /** Serialize read-modify-write cycles so two saves never lose each other's update. */
@@ -378,7 +400,7 @@ export function createCredentialService(configDir: string, adminLogins: readonly
       if (migrationIssue !== undefined) await service.migrateLegacy();
       try {
         instanceValues = await store.values('instance');
-        const reason = migrationIssue ?? store.secretIssue;
+        const reason = [migrationIssue ?? store.secretIssue, await store.legacyIssue()].filter((r) => r !== undefined).join('; ') || undefined;
         return { names: Object.keys(instanceValues).sort(), ...(reason !== undefined ? { reason } : {}) };
       } catch (error) {
         // `instanceValues` keeps the last good read, so doc chat and Fleet do not silently drop to the start-up environment.
