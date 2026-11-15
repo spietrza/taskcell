@@ -215,7 +215,7 @@ export function importRemoteRun(repoPath: string, runId: number): Promise<Remote
 }
 
 /** Board read path (S9): served by core over the sidecar query pipe; capped drives the banner. */
-export function listTasks(repoPath: string): Promise<{ tasks: BoardTask[]; capped: boolean }> {
+export function listTasks(repoPath: string): Promise<{ tasks: BoardTask[]; capped: boolean; hubBoard?: true }> {
   return call('list_tasks', { repoPath });
 }
 
@@ -536,6 +536,7 @@ export function setApproverMode(repoPath: string, mode: ApproverMode, confirmBel
   return call('set_approver_mode', { repoPath, mode, ...(confirmBelowBar === true ? { confirmBelowBar } : {}) });
 }
 
+<<<<<<< HEAD
 /** HUB_ONLY: the ids of the skills a run of this project can load, for the skill pickers. Throws with the reason when they cannot be listed. */
 export function apiListSkills(repoPath: string): Promise<{ skills: string[] }> {
   return call('list_skills', { repoPath });
@@ -544,4 +545,20 @@ export function apiListSkills(repoPath: string): Promise<{ skills: string[] }> {
 /** HUB_ONLY: write a card's hand-picked skills to its task as the body's `Skills:` line (an empty list removes it). */
 export function apiSetTaskSkills(repoPath: string, taskId: string, skills: string[]): Promise<{ skills: string[] }> {
   return call('set_task_skills', { repoPath, taskId, skills });
+||||||| a8e29160
+=======
+/** HUB_ONLY: add a task to a hub-board project; it runs as the caller. */
+export function hubTaskCreate(repoPath: string, title: string, body: string): Promise<{ id: string }> {
+  return call('hub_task_create', { repoPath, title, body });
+}
+
+/** HUB_ONLY: put a failed hub-board task back to todo. */
+export function hubTaskRetry(repoPath: string, id: string): Promise<{ id: string }> {
+  return call('hub_task_retry', { repoPath, id });
+}
+
+/** HUB_ONLY: set a hub-board task's dependencies and start date (`null` clears it). */
+export function hubTaskSchedule(repoPath: string, id: string, patch: { blockedBy?: string[]; startDate?: string | null }): Promise<{ id: string }> {
+  return call('hub_task_schedule', { repoPath, id, ...patch });
+>>>>>>> origin/main
 }

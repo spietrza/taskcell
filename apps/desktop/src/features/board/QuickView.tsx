@@ -10,6 +10,7 @@ import { receipt } from './receipt';
 import { SkillPicker } from './SkillPicker';
 import { repairAttempts, stageLine, type StageStatus } from './stageLine';
 import { taskRefKey } from './taskref';
+import { ScheduleEditor, ScheduleLines } from './Schedule';
 
 export const TRACKER_NAME = { github: 'GitHub', gitlab: 'GitLab', linear: 'Linear' } as const;
 
@@ -88,15 +89,26 @@ export function QuickView({
   project,
   onClose,
   onFullPage,
+<<<<<<< HEAD
   onSkillsSaved,
+||||||| a8e29160
+=======
+  onChanged,
+>>>>>>> origin/main
   ref,
 }: {
   task: QuickTask;
   project: string;
   onClose: () => void;
   onFullPage: () => void;
+<<<<<<< HEAD
   /** The card's skills were written to its task. */
   onSkillsSaved?: (skills: string[]) => void;
+||||||| a8e29160
+=======
+  /** The task was edited: the board reloads. */
+  onChanged?: () => void;
+>>>>>>> origin/main
   ref?: Ref<HTMLElement>;
 }) {
   const repoPath = task.repoPath ?? project;
@@ -207,6 +219,17 @@ export function QuickView({
               ))}
             </dl>
           </section>
+        )}
+
+        {task.schedule !== undefined && onChanged !== undefined ? (
+          <ScheduleEditor repoPath={repoPath} task={task} onSaved={onChanged} />
+        ) : (
+          (!!task.blockedBy?.length || task.startDate !== undefined) && (
+            <section aria-label="Schedule" className="space-y-1">
+              <h4 className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">Schedule</h4>
+              <ScheduleLines task={task} />
+            </section>
+          )
         )}
 
         <ol aria-label="Stage line" className="space-y-2">

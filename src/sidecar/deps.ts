@@ -22,6 +22,7 @@ import { startSandboxContext } from '../sandbox/sandbox-context.js';
 import { githubDepsFromEnv, runGithubIssue } from '../runners/github.js';
 import { gitlabDepsFromEnv, runGitlabIssue } from '../runners/gitlab.js';
 import { runLinearIssue } from '../runners/linear.js';
+import { runHubTask } from '../runners/hub.js';
 import { agentAuthFromEnv } from '../agents/auth.js';
 import { assertSkillsInstalled } from '../context/named-skills.js';
 import { hubSkillsDir, skillRegistryForRun } from '../context/skill-registry.js';
@@ -335,6 +336,12 @@ export function productionDeps(): SidecarDeps {
         }
         if (transport === 'linear') {
           return await runLinearIssue(params.issueRef, { ...common, ...linearExtras(repoPath, auth) });
+        }
+        // A hub-board task: the hub's scheduler passes the stored task; there is no tracker to fetch it from.
+        // `hub` is not a client transport (validateCreateRun refuses it), so a client's `hubTask` never lands here.
+        if (transport === 'hub') {
+          if (params.hubTask === undefined) throw new BadRequestError('a hub run needs its stored task');
+          return await runHubTask(params.hubTask, { ...common, repoPath, ...(auth !== undefined ? { auth } : {}) });
         }
         const deps = await githubDepsFromEnv(repoPath, undefined, authChoice, authEnv);
         return await runGithubIssue(params.issueRef, { ...deps, ...common });

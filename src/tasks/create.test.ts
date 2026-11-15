@@ -197,8 +197,13 @@ describe('setTaskSkills', () => {
   });
 
   it('GitLab: the description goes back as stored, with the line appended', async () => {
-    await setTaskSkills('/repo', 'gl-3', ['db'], cli(JSON.stringify({ description: '```\n/close\n```' })));
-    expect(calls[1]).toEqual({ bin: 'glab', args: ['issue', 'update', '3', '--description', '```\n/close\n```\n\nSkills: db\n'] });
+    await setTaskSkills('/repo', 'gl-3', ['db'], cli(JSON.stringify({ description: 'run /usr/bin/x\n/usr/bin/y' })));
+    expect(calls[1]).toEqual({ bin: 'glab', args: ['issue', 'update', '3', '--description', 'run /usr/bin/x\n/usr/bin/y\n\nSkills: db\n'] });
+  });
+
+  it('GitLab: a description holding a quick-action line is refused before any write', async () => {
+    await expect(setTaskSkills('/repo', 'gl-3', ['db'], cli(JSON.stringify({ description: 'text\n/close\n' })))).rejects.toThrow('quick action');
+    expect(calls).toHaveLength(1);
   });
 
   it('writes nothing when the line already says so', async () => {

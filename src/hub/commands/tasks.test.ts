@@ -169,6 +169,7 @@ describe('tasks', () => {
       ['a value that is not a skill id', { taskId: 'gh-1', skills: ['../x'] }, 'expects a skill id'],
       ['a card of no tracker', { taskId: 'draft-1', skills: [] }, 'names no GitHub, GitLab or Linear task'],
       ['a skill that is not installed', { taskId: 'gh-1', skills: ['nope'] }, 'Unknown skill: nope. Installed skills: db.'],
+      ['a card of another tracker than the project\'s', { taskId: 'linear-dev-9', skills: ['db'] }, 'not on the project\'s task source'],
     ])('set_task_skills refuses %s before any write', async (_n, extra, message) => {
       const repo = await tmpRepo();
       const { ctx } = await makeCtx(repo);

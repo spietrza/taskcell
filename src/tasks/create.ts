@@ -192,8 +192,8 @@ const DESCRIPTION_MUTATION = `mutation($id: String!, $d: String!) { issueUpdate(
 /**
  * Write a card's hand-picked skills to its task as the body's `Skills:` line (an empty list removes
  * it), in whichever tracker the board id names. The body is read first and only that line changes.
- * A GitLab description goes back as stored (no neutralizeQuickActions: it would rewrite the author's
- * code blocks, and GitLab already consumed any quick action when the text was first saved).
+ * A GitLab description holding a quick-action line is refused: saved as the hub's identity it would run with
+ * the hub's rights, and neutralising it would rewrite the author's text.
  */
 export async function setTaskSkills(
   repoPath: string,
@@ -224,6 +224,10 @@ export async function setTaskSkills(
   } else if (source === 'gitlab') {
     const issue = JSON.parse(await run('glab', ['issue', 'view', reference, '--output', 'json'], { cwd: repoPath })) as { description?: string | null };
     const body = next(issue.description ?? '');
+    // shortcut: fenced lines are refused too (fail closed); track fences if that turns out to bother users.
+    if (body !== undefined && /^[ \t]*\/[a-z_]+([ \t]|$)/im.test(body)) {
+      throw new TaskcellError('This GitLab issue has a line starting with `/` (a quick action); edit its Skills: line on GitLab instead.');
+    }
     if (body !== undefined) await run('glab', ['issue', 'update', reference, '--description', body], { cwd: repoPath });
   } else {
     const issue = JSON.parse(await run('gh', ['issue', 'view', reference, '--json', 'body'], { cwd: repoPath })) as { body?: string | null };
