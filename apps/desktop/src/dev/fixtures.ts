@@ -332,6 +332,9 @@ export const gitlabFactoryPlan: FactoryPlan = {
   packageManager: 'pnpm',
   scripts: { typecheck: true, lint: true, test: true, build: true },
   callerFiles: ['.gitlab-ci.yml', '.gitlab/taskcell.yml'],
+  gitlabHost: 'gitlab.com',
+  gitlabProjectId: 42,
+  gitlabCiPath: '.gitlab-ci.yml',
   labels: factoryPlan.labels,
 };
 

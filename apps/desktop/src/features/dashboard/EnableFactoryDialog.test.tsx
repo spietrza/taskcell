@@ -71,6 +71,36 @@ describe('EnableFactoryDialog', () => {
     await vi.waitFor(() => expect(enableFactoryApply).toHaveBeenCalledWith(project.path, gitlabFactoryPlan));
   });
 
+  test('GitLab: a CI file the hub cannot edit is named with the exact include line; no MR is offered when only that line is missing', async () => {
+    vi.mocked(enableFactoryHost).mockResolvedValue({ host: 'gitlab' });
+    vi.mocked(enableFactoryPlan).mockResolvedValue({ ...gitlabFactoryPlan, gitlabManualInclude: true });
+    const first = render(<EnableFactoryDialog project={project} onClose={() => {}} />);
+    fireEvent.click(await screen.findByRole('button', { name: /GitLab CI/ }));
+    expect(await screen.findByText(/not edited automatically/)).toBeInTheDocument();
+    expect(screen.getByText('- local: .gitlab/taskcell.yml')).toBeInTheDocument();
+    expect(screen.getByText(/Before merging the merge request/)).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: 'Open merge request' })).toBeEnabled();
+    first.unmount();
+
+    vi.mocked(enableFactoryPlan).mockResolvedValue({ ...gitlabFactoryPlan, gitlabManualInclude: true, existingCallerFiles: ['.gitlab/taskcell.yml'] });
+    render(<EnableFactoryDialog project={project} onClose={() => {}} />);
+    fireEvent.click(await screen.findByRole('button', { name: /GitLab CI/ }));
+    expect(await screen.findByText(/no merge request to open/)).toBeInTheDocument();
+    expect(screen.getByText('- local: .gitlab/taskcell.yml')).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: 'Open merge request' })).toBeDisabled();
+  });
+
+  test('GitLab: Run doctor asks for an explicit confirmation when the project has jobs without rules', async () => {
+    const plan = { ...gitlabFactoryPlan, gitlabUnruledJobs: ['deploy', 'publish'] };
+    vi.mocked(factoryState).mockResolvedValue(at(['done', 'done', 'done', 'current'], { step: 'doctor', plan }));
+    render(<EnableFactoryDialog project={project} onClose={() => {}} />);
+    fireEvent.click(await screen.findByRole('button', { name: 'Run doctor' }));
+    expect(await screen.findByRole('alert')).toHaveTextContent('This also runs deploy, publish');
+    expect(enableFactoryVerify).not.toHaveBeenCalled();
+    fireEvent.click(screen.getByRole('button', { name: 'Run doctor anyway' }));
+    await vi.waitFor(() => expect(enableFactoryVerify).toHaveBeenCalledWith(project.path, plan));
+  });
+
   test('plan -> Open PR lands on the checklist with the exact secret command', async () => {
     render(<EnableFactoryDialog project={project} onClose={() => {}} />);
     await pickGithub();

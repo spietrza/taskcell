@@ -250,10 +250,13 @@ describe('enable_factory RPCs for GitLab', () => {
     const { ctx } = await makeCtx(repo);
     await expect(dispatchRpc(ctx, 'enable_factory_secret', { repoPath: repo, plan: glPlan })).resolves.toEqual({
       secretName: 'CLAUDE_CODE_OAUTH_TOKEN',
-      command: expect.stringContaining('glab variable set CLAUDE_CODE_OAUTH_TOKEN --masked --repo acme/group/widgets'),
+      command: expect.stringContaining('GITLAB_HOST=gitlab.com glab variable set CLAUDE_CODE_OAUTH_TOKEN --masked --protected --repo acme/group/widgets'),
     });
     await expect(dispatchRpc(ctx, 'enable_factory_secret', { repoPath: repo, plan: { ...glPlan, repoSlug: 'acme' } })).rejects.toThrow(BadRequestError);
     await expect(dispatchRpc(ctx, 'enable_factory_secret', { repoPath: repo, plan: { ...glPlan, repoSlug: 'acme/x; rm -rf ~' } })).rejects.toThrow(BadRequestError);
+    // The host is spliced into the displayed command too.
+    await expect(dispatchRpc(ctx, 'enable_factory_secret', { repoPath: repo, plan: { ...glPlan, gitlabHost: 'git.example.org' } })).resolves.toMatchObject({ command: expect.stringContaining('GITLAB_HOST=git.example.org glab') });
+    await expect(dispatchRpc(ctx, 'enable_factory_secret', { repoPath: repo, plan: { ...glPlan, gitlabHost: 'x; rm -rf ~' } })).rejects.toThrow('plan.gitlabHost must be a hostname');
   });
 
   test('planning a GitLab project with no remote says so in one sentence', async () => {

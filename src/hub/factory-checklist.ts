@@ -10,7 +10,7 @@ import { join, resolve } from 'node:path';
 import { keyedLock } from '../core/keyed-lock.js';
 import { defaultHubConfigDir } from './audit.js';
 import { defaultExec, DISPATCH_SKEW_MS, GITHUB_REPO_SLUG, githubSecretCommand, type FactoryExec } from './enable-factory.js';
-import { GITLAB_MR_URL, GITLAB_PIPELINE_URL, GITLAB_PROJECT_PATH, gitlabFound, gitlabSecretCommand } from './enable-factory-gitlab.js';
+import { GITLAB_HOSTNAME, GITLAB_MR_URL, GITLAB_PIPELINE_URL, GITLAB_PROJECT_PATH, gitlabFound, gitlabSecretCommand } from './enable-factory-gitlab.js';
 import { listRemoteRuns } from './remote.js';
 import type { FactoryPlan, FactoryState, FactoryStep, FactoryStepId } from '../wire.js';
 
@@ -95,6 +95,8 @@ function validRecord(raw: unknown): raw is FactoryRecord {
   const p = r.plan;
   const gitlab = p.provider === 'gitlab';
   if (typeof p.repoSlug !== 'string' || !(gitlab ? GITLAB_PROJECT_PATH : GITHUB_REPO_SLUG).test(p.repoSlug)) return false;
+  if (gitlab && (typeof p.gitlabHost !== 'string' || !GITLAB_HOSTNAME.test(p.gitlabHost))) return false;
+  if (gitlab && (typeof p.gitlabProjectId !== 'number' || !Number.isSafeInteger(p.gitlabProjectId) || p.gitlabProjectId <= 0)) return false;
   if (typeof r.secretSet !== 'boolean' || typeof r.merged !== 'boolean') return false;
   if (r.prUrl !== undefined && !(typeof r.prUrl === 'string' && (gitlab ? GITLAB_MR_URL : PR_URL).test(r.prUrl))) return false;
   if (r.doctor !== undefined) {
@@ -133,7 +135,10 @@ export function writeFactoryRecord(repoPath: string, rec: FactoryRecord): Promis
 /** Read-modify-write one project's record (creating it from `plan` when absent). */
 export function updateFactoryRecord(repoPath: string, plan: FactoryPlan, change: (r: FactoryRecord) => FactoryRecord): Promise<FactoryRecord> {
   return withLock(repoPath, async () => {
-    const next = change((await readFactoryRecord(repoPath)) ?? newFactoryRecord(plan));
+    const current = await readFactoryRecord(repoPath);
+    // A provider switch starts a new checklist: the old facts would put a GitLab pipeline URL under a
+    // GitHub plan (or vice versa), a record `validRecord` rejects on the next read.
+    const next = change(current !== null && current.plan.provider === plan.provider ? current : newFactoryRecord(plan));
     await writeFactoryRecordFile(repoPath, next);
     return next;
   });

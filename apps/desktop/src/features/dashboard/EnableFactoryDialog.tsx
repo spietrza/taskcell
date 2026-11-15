@@ -49,6 +49,7 @@ export function EnableFactoryDialog({ project, onClose }: { project: { path: str
   // Where origin points; null until read. GitLab CI is offered only for a GitLab remote.
   const [host, setHost] = useState<FactoryHost | null>(null);
   const [copied, setCopied] = useState(false);
+  const [doctorConfirmed, setDoctorConfirmed] = useState(false);
   const [busy, setBusy] = useState<Busy>(null);
   const [error, setError] = useState<string | null>(null);
 
@@ -116,6 +117,8 @@ export function EnableFactoryDialog({ project, onClose }: { project: { path: str
   const existing = { has: (f: string): boolean => existingFiles.has(f) || existingFiles.has(f.replace('/taskcell-', '/vanguard-')) };
   // Every caller already on the default branch: apply would have nothing to commit, so skip straight to verify.
   const nothingToAdd = plan !== null && plan.callerFiles.every((f) => existing.has(f));
+  // GitLab: the jobs file is on the default branch but the hub cannot wire it in, so there is no MR to open — only a line to add by hand.
+  const manualOnly = plan?.gitlabManualInclude === true && existing.has('.gitlab/taskcell.yml');
   const apply = (p: FactoryPlan): Promise<void> =>
     step('apply', async () => {
       await enableFactoryApply(project.path, p);
@@ -126,6 +129,7 @@ export function EnableFactoryDialog({ project, onClose }: { project: { path: str
   const runVerify = (p: FactoryPlan): Promise<void> =>
     step('verify', async () => {
       await enableFactoryVerify(project.path, p);
+      setDoctorConfirmed(false);
       setChecklist(await factoryRefresh(project.path));
     });
   const checkSecret = (): Promise<void> => step('secret', async () => setChecklist(await factoryRefresh(project.path)));
@@ -147,6 +151,8 @@ export function EnableFactoryDialog({ project, onClose }: { project: { path: str
   // The code host's own words: a GitLab project has a merge request, a `glab` variable and a pipeline.
   const gitlab = (checklistPlan ?? plan)?.provider === 'gitlab';
   const mr = gitlab ? 'MR' : 'PR';
+  const unruledJobs = gitlab ? checklistPlan?.gitlabUnruledJobs ?? [] : [];
+  const needsDoctorConfirmation = unruledJobs.length > 0 && !doctorConfirmed;
   const status = (id: string): string | undefined => checklist?.steps.find((x) => x.id === id)?.status;
 
   return (
@@ -180,7 +186,7 @@ export function EnableFactoryDialog({ project, onClose }: { project: { path: str
                   {s.id === 'secret' && s.status !== 'done' && checklist.secret && (
                     <div className="ml-6 mt-1">
                       <p className="text-xs text-muted-foreground">
-                        {gitlab ? <>Run this yourself in a terminal; it asks for the token without echoing it and passes it to <code>glab</code>.</> : <>Run this yourself; <code>gh</code> prompts for the value.</>} The hub only checks that {gitlab ? 'the CI/CD variable' : ''} <code>{checklist.secret.secretName}</code> exists, never its value.
+                        {gitlab ? <>Run this yourself in a terminal; it asks for the token without echoing it and creates or updates a masked, protected CI/CD variable through <code>glab</code>.</> : <>Run this yourself; <code>gh</code> prompts for the value.</>} The hub only checks that {gitlab ? 'the CI/CD variable' : ''} <code>{checklist.secret.secretName}</code> exists, never its value.
                       </p>
                       <CodeBlock code={checklist.secret.command} lang="bash" />
                       <div className="mt-1 flex gap-2">
@@ -209,6 +215,11 @@ export function EnableFactoryDialog({ project, onClose }: { project: { path: str
                         <span className="text-muted-foreground">Doctor workflow dispatched; the run has not shown up yet — check {gitlab ? 'the pipelines page' : 'Actions'}.</span>
                       ) : (
                         s.status !== 'done' && <span className="text-muted-foreground">Merge the {mr}, then run the doctor.{gitlab ? ' It starts a pipeline on the default branch; your own jobs without rules run in it too. It also needs a GITLAB_TOKEN CI/CD variable.' : ''}</span>
+                      )}
+                      {gitlab && doctorConfirmed && unruledJobs.length > 0 && (
+                        <p role="alert" className="mt-1 text-warning-text">
+                          This also runs {unruledJobs.join(', ')} because {unruledJobs.length === 1 ? 'it has' : 'they have'} no <code>rules:</code>. Confirm with “Run doctor anyway”.
+                        </p>
                       )}
                       {s.status === 'failed' && <p className="text-destructive-text">{checklist.reason}</p>}
                     </div>
@@ -276,9 +287,15 @@ export function EnableFactoryDialog({ project, onClose }: { project: { path: str
                   <li key={f}>
                     {f}
                     {existing.has(f) && <span className="font-sans text-muted-foreground"> — already exists, left as is</span>}
+                    {gitlab && plan.gitlabManualInclude && f === plan.gitlabCiPath && <span className="font-sans text-muted-foreground"> — not edited automatically</span>}
                   </li>
                 ))}
               </ul>
+              {gitlab && plan.gitlabManualInclude && (
+                <p className="mt-1 text-xs text-muted-foreground">
+                  The hub cannot edit <code>{plan.gitlabCiPath ?? '.gitlab-ci.yml'}</code> automatically. {manualOnly ? 'The jobs file is already on the default branch, so there is no merge request to open: add' : 'Before merging the merge request, add'} this line under its top-level <code>include:</code>{manualOnly ? ', then open Enable factory again' : ''}: <code>- local: .gitlab/taskcell.yml</code>
+                </p>
+              )}
               {nothingToAdd && (
                 <p className="mt-1 text-xs text-muted-foreground">
                   This repo already has every {gitlab ? 'factory CI file' : 'caller workflow'}, so there is no {mr} to open. Start the checklist to set the secret and run the doctor.
@@ -314,15 +331,15 @@ export function EnableFactoryDialog({ project, onClose }: { project: { path: str
           )}
           {showChecklist && status('merged') === 'done' && status('doctor') !== 'done' && (
             <Button
-              onClick={() => void runVerify(checklistPlan)}
+              onClick={() => needsDoctorConfirmation ? setDoctorConfirmed(true) : void runVerify(checklistPlan)}
               loading={busy === 'verify'}
               disabled={busy !== null || checklist.doctor?.status === 'queued' || checklist.doctor?.status === 'in_progress'}
             >
-              {checklist.doctor ? 'Run doctor again' : 'Run doctor'}
+              {doctorConfirmed ? 'Run doctor anyway' : checklist.doctor ? 'Run doctor again' : 'Run doctor'}
             </Button>
           )}
           {!showChecklist && plan && (
-            <Button onClick={() => void (nothingToAdd ? start(plan) : apply(plan))} loading={busy === 'apply'} disabled={busy !== null}>
+            <Button onClick={() => void (nothingToAdd ? start(plan) : apply(plan))} loading={busy === 'apply'} disabled={busy !== null || manualOnly}>
               {nothingToAdd ? 'Start checklist' : gitlab ? 'Open merge request' : 'Open PR'}
             </Button>
           )}

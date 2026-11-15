@@ -3,7 +3,7 @@
 import { BadRequestError } from '../../sidecar/sidecar.js';
 import { assertMutationsAllowed } from '../allowlist.js';
 import { factoryPlanTargets, GITHUB_REPO_SLUG, noScripts } from '../enable-factory.js';
-import { factoryHostOf, factoryProviderFor, GITLAB_LOGIN, GITLAB_PROJECT_PATH, gitlabPlanTargets } from '../enable-factory-gitlab.js';
+import { factoryHostOf, factoryProviderFor, GITLAB_HOSTNAME, GITLAB_LOGIN, GITLAB_PROJECT_PATH, gitlabPlanTargets } from '../enable-factory-gitlab.js';
 import { factoryState, callersPresent, newFactoryRecord, refreshFactory, updateFactoryRecord, writeFactoryRecord } from '../factory-checklist.js';
 import type { FactoryApplyResult, FactoryHost, FactoryPlan, FactoryProviderId, FactorySecretStep, FactoryState, FactoryVerifyResult } from '../../wire.js';
 import { defineCommands, requireString, optionalString, requireOneOf, requireMatch, repoTarget, assertHasRemote } from '../command-kit.js';
@@ -65,6 +65,8 @@ function requirePlan(args: Record<string, unknown>, key: string): FactoryPlan {
   if (plan.provider !== 'github' && plan.provider !== 'gitlab') throw new BadRequestError(`${key}.provider must be github or gitlab`);
   const gitlab = plan.provider === 'gitlab';
   const verifyCommand = optionalString(plan, 'verifyCommand');
+  const gitlabHost = gitlab ? optionalString(plan, 'gitlabHost') ?? 'gitlab.com' : undefined;
+  if (gitlabHost !== undefined && !GITLAB_HOSTNAME.test(gitlabHost)) throw new BadRequestError(`${key}.gitlabHost must be a hostname`);
   return {
     provider: plan.provider,
     repoSlug: gitlab ? requireMatch(plan, 'repoSlug', GITLAB_PROJECT_PATH, 'group/project path') : requireMatch(plan, 'repoSlug', GITHUB_REPO_SLUG, 'owner/repo slug'),
@@ -73,6 +75,7 @@ function requirePlan(args: Record<string, unknown>, key: string): FactoryPlan {
     packageManager: requireOneOf(plan, 'packageManager', ['pnpm', 'yarn', 'npm', 'none']),
     ...(verifyCommand !== undefined ? { verifyCommand } : {}),
     scripts: requireScripts(plan.scripts),
+    ...(gitlabHost !== undefined ? { gitlabHost } : {}),
     ...(gitlab ? gitlabPlanTargets() : factoryPlanTargets()),
   };
 }

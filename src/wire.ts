@@ -831,6 +831,16 @@ export interface FactoryPlan {
   callerFiles: string[];
   /** The callers already on the default branch, under the `taskcell-` or legacy `vanguard-` name — `apply` leaves those untouched. */
   existingCallerFiles?: string[];
+  /** GitLab host selected from `origin`; passed to glab so a self-hosted project cannot fall back to another configured host. */
+  gitlabHost?: string;
+  /** Numeric GitLab project id; open-MR reuse requires the source project to match it, excluding fork MRs. */
+  gitlabProjectId?: number;
+  /** GitLab's configured CI entry point. The hub only edits the default `.gitlab-ci.yml`. */
+  gitlabCiPath?: string;
+  /** The CI entry point cannot be edited safely; the user must add the displayed local include. */
+  gitlabManualInclude?: boolean;
+  /** Top-level GitLab jobs without `rules:`; starting the doctor requires an explicit UI confirmation when non-empty. */
+  gitlabUnruledJobs?: string[];
   labels: string[];
 }
 

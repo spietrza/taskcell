@@ -217,6 +217,8 @@ describe('GitLab records', () => {
     packageManager: 'pnpm',
     scripts: { typecheck: true, lint: true, test: true, build: true },
     callerFiles: ['.gitlab-ci.yml', '.gitlab/taskcell.yml'],
+    gitlabHost: 'gitlab.com',
+    gitlabProjectId: 42,
     labels: [],
   };
   const MR = 'https://gitlab.com/acme/group/widgets/-/merge_requests/7';
@@ -224,7 +226,7 @@ describe('GitLab records', () => {
 
   test('derives the glab secret command and says MR for a closed MR', () => {
     const s = deriveFactoryState({ plan: glPlan, prUrl: MR, prClosed: true, secretSet: false, merged: false });
-    expect(s.secret?.command).toContain('glab variable set CLAUDE_CODE_OAUTH_TOKEN --masked --repo acme/group/widgets');
+    expect(s.secret?.command).toContain('glab variable set CLAUDE_CODE_OAUTH_TOKEN --masked --protected --repo acme/group/widgets');
     expect(s).toMatchObject({ state: 'broken', reason: 'the callers MR was closed without merging' });
   });
 
@@ -233,6 +235,24 @@ describe('GitLab records', () => {
     await writeFactoryRecord(repo, { plan: glPlan, prUrl: MR, secretSet: true, merged: true, doctor: { url: PIPE, status: 'completed', conclusion: 'success' } });
     expect(await readFactoryRecord(repo)).toMatchObject({ prUrl: MR });
     await writeFactoryRecord(repo, { plan: glPlan, prUrl: 'https://github.com/a/b/pull/1', secretSet: false, merged: false });
+    expect(await readFactoryRecord(repo)).toBeNull();
+  });
+
+  test('a provider switch starts a new record instead of mixing the old facts into it; the same provider keeps them', async () => {
+    const repo = await tmpRepo();
+    await writeFactoryRecord(repo, { plan, prUrl: PR, secretSet: true, merged: true, doctor: { url: 'https://github.com/acme/widgets/actions/runs/1', status: 'completed', conclusion: 'success' } });
+    await updateFactoryRecord(repo, glPlan, (r) => ({ ...r, merged: true, doctor: { url: PIPE, status: 'queued', conclusion: '' } }));
+    expect(await readFactoryRecord(repo)).toEqual({ plan: glPlan, secretSet: false, merged: true, doctor: { url: PIPE, status: 'queued', conclusion: '' } });
+    await updateFactoryRecord(repo, glPlan, (r) => ({ ...r, secretSet: true }));
+    expect(await readFactoryRecord(repo)).toMatchObject({ secretSet: true, doctor: { url: PIPE } });
+  });
+
+  test('a GitLab record without a valid host or project id reads as never started', async () => {
+    const repo = await tmpRepo();
+    await writeFactoryRecord(repo, { plan: { ...glPlan, gitlabHost: 'x; rm -rf ~' }, secretSet: false, merged: false });
+    expect(await readFactoryRecord(repo)).toBeNull();
+    const { gitlabProjectId: _id, ...noId } = glPlan;
+    await writeFactoryRecord(repo, { plan: noId, secretSet: false, merged: false });
     expect(await readFactoryRecord(repo)).toBeNull();
   });
 

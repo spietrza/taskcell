@@ -46,7 +46,7 @@ const LOGIN_PLACEHOLDER = 'YOUR_LOGIN';
 
 /** Injectable shell-out, defaulting to the real `execa` — tests pass a fake (no network, no git). */
 export interface FactoryExec {
-  (file: string, args: string[], options?: { cwd?: string; timeout?: number }): Promise<{ stdout: string; stderr: string }>;
+  (file: string, args: string[], options?: { cwd?: string; timeout?: number; env?: NodeJS.ProcessEnv }): Promise<{ stdout: string; stderr: string }>;
 }
 
 export const defaultExec: FactoryExec = (file, args, options) => execa(file, args, options);
