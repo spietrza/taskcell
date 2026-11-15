@@ -1,6 +1,6 @@
 // Hub commands: filesystem watch of a project. One module per feature — contract, validation and handler live here;
 // `pnpm gen:wire` derives Commands, COMMAND_NAMES and dispatch from it (see CONTRIBUTING.md).
-import { defineCommands, requireString } from '../command-kit.js';
+import { defineCommands, requireString, repoTarget } from '../command-kit.js';
 
 export interface WatchCommands {
   watch_project: { args: { repoPath: string }; result: void };
@@ -18,4 +18,7 @@ export const commands = defineCommands<WatchCommands>({
     ctx.watchRegistry.unwatchProject(real);
     return null;
   },
+}, {
+  watch_project: { action: 'project-watch', target: repoTarget },
+  unwatch_project: { action: 'project-unwatch', target: repoTarget },
 });
