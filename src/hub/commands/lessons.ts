@@ -1,7 +1,6 @@
 // Hub commands: the per-PR lessons of a repository (src/core/lessons.ts), read from its metrics branch. One module per feature —
 // contract, validation and handler live here; `pnpm gen:wire` derives Commands, COMMAND_NAMES and dispatch from it (see CONTRIBUTING.md).
 import { BadRequestError } from '../../sidecar/sidecar.js';
-import { assertMutationsAllowed } from '../allowlist.js';
 import { appendLessonRecords, LESSONS_FILE, parseLessons, selectLessons } from '../../core/lessons.js';
 import { readBranchFile } from '../../core/metrics-branch.js';
 import type { RepoLesson } from '../../wire.js';
@@ -25,9 +24,7 @@ export const commands = defineCommands<LessonsCommands>({
     const lessons = chosen.map(({ kind: _kind, repo: _repo, ...l }): RepoLesson => l);
     return { lessons, branchFound: text.trim() !== '' };
   },
-  dismiss_lesson: async ({ ctx, args, allow }) => {
-    // Writes (and pushes) the metrics branch — a remote mutation, behind the same guard as the other hub writes.
-    assertMutationsAllowed(ctx.bind);
+  dismiss_lesson: async ({ args, allow }) => {
     const real = await allow(requireString(args, 'repoPath'));
     const id = requireString(args, 'id');
     const known = parseLessons(await readBranchFile(real, { file: LESSONS_FILE }));
@@ -35,6 +32,9 @@ export const commands = defineCommands<LessonsCommands>({
     await appendLessonRecords(real, [{ kind: 'dismiss', id, timestamp: new Date().toISOString() }]);
     return null;
   },
+}, {
+  list_lessons: { write: false, repo: 'repoPath' },
+  dismiss_lesson: { write: true, remote: true, repo: 'repoPath' },
 }, {
   dismiss_lesson: { action: 'settings-change', target: repoItemTarget('id') },
 });

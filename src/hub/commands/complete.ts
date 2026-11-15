@@ -3,7 +3,7 @@
 import { BadRequestError } from '../../sidecar/sidecar.js';
 import { type CompleteParams } from '../complete.js';
 import type { CompleteCallArgs, CompleteResponse } from '../../wire.js';
-import { defineCommands, requireString, optionalString } from '../command-kit.js';
+import { defineCommands, requireString, optionalString, actorOf } from '../command-kit.js';
 
 export interface CompleteCommands {
   api_complete: { args: { repoPath: string; req: CompleteCallArgs; callId?: string }; result: CompleteResponse };
@@ -25,10 +25,13 @@ export const commands = defineCommands<CompleteCommands>({
       ...(reqObj.system !== undefined ? { system: reqObj.system } : {}),
       ...(reqObj.attachments !== undefined ? { attachments: reqObj.attachments } : {}),
     };
-    return ctx.completeRegistry.complete(real, params, optionalString(args, 'callId'));
+    return ctx.completeRegistry.complete(real, params, optionalString(args, 'callId'), actorOf(ctx).login);
   },
   api_cancel_complete: async ({ ctx, args }) => {
-    ctx.completeRegistry.cancel(requireString(args, 'callId'));
+    ctx.completeRegistry.cancel(requireString(args, 'callId'), actorOf(ctx).login);
     return null;
   },
+}, {
+  api_complete: { write: false, repo: 'repoPath' },
+  api_cancel_complete: { write: true, gatedBy: 'the call id is the caller\'s own: the registry cancels only a call its actor started', unaudited: 'stops the caller\'s own in-flight completion; nothing is recorded' },
 });

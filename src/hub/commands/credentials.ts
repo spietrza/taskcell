@@ -1,7 +1,6 @@
 // Hub commands: instance and per-user provider credentials, and the credential policy. One module per feature — contract, validation and handler live here;
 // `pnpm gen:wire` derives Commands, COMMAND_NAMES and dispatch from it (see CONTRIBUTING.md).
 import { BadRequestError } from '../../sidecar/sidecar.js';
-import { assertMutationsAllowed } from '../allowlist.js';
 import { USER_SCOPE, CREDENTIAL_NAMES, CREDENTIAL_POLICIES, parseCredentialInput, parseCredentialName, type CredentialService, type HubUser } from '../credentials.js';
 import type { CredentialPolicy } from '../../wire.js';
 import type { RpcContext } from '../rpc.js';
@@ -62,7 +61,6 @@ export const commands = defineCommands<CredentialsCommands>({
   set_credential_policy: async ({ ctx, args, caller }) => {
     const svc = requireCredentials(ctx);
     svc.assertManager(ctx.user, caller.owner);
-    if (caller.owner) assertMutationsAllowed(ctx.bind);
     await svc.setPolicy(requirePolicy(args));
     return null;
   },
@@ -74,7 +72,6 @@ export const commands = defineCommands<CredentialsCommands>({
   save_instance_credential: async ({ ctx, args, caller }) => {
     const svc = requireCredentials(ctx);
     svc.assertManager(ctx.user, caller.owner);
-    if (caller.owner) assertMutationsAllowed(ctx.bind);
     const { name, value } = parseCredentialInput(args);
     await svc.putInstance(name, value);
     return null;
@@ -82,7 +79,6 @@ export const commands = defineCommands<CredentialsCommands>({
   delete_instance_credential: async ({ ctx, args, caller }) => {
     const svc = requireCredentials(ctx);
     svc.assertManager(ctx.user, caller.owner);
-    if (caller.owner) assertMutationsAllowed(ctx.bind);
     await svc.removeInstance(parseCredentialName(args));
     return null;
   },
@@ -105,6 +101,17 @@ export const commands = defineCommands<CredentialsCommands>({
     await svc.store.remove(USER_SCOPE(requireUser(ctx)), parseCredentialName(args));
     return null;
   },
+}, {
+  // Hub owner or admin (assertManager, 403). The remote gate binds the hub-token holder only, as documented in docs/hub.md:
+  // a signed-in admin manages credentials on a hosted hub, where TASKCELL_HUB_ALLOW_ADD would otherwise have to be set for them.
+  get_credential_policy: { write: false, gatedBy: 'assertManager (owner or hub admin)' },
+  set_credential_policy: { write: true, remote: 'owner-only', gatedBy: 'assertManager (owner or hub admin)' },
+  instance_credentials_status: { write: false, gatedBy: 'assertManager (owner or hub admin)' },
+  save_instance_credential: { write: true, remote: 'owner-only', gatedBy: 'assertManager (owner or hub admin)' },
+  delete_instance_credential: { write: true, remote: 'owner-only', gatedBy: 'assertManager (owner or hub admin)' },
+  user_credentials_status: { write: false },
+  save_user_credential: { write: true, gatedBy: 'the signed-in caller\'s own scope (no user id is taken)', unaudited: 'a user\'s own credential, never another\'s; values are never logged' },
+  delete_user_credential: { write: true, gatedBy: 'the signed-in caller\'s own scope (no user id is taken)', unaudited: 'a user\'s own credential, never another\'s; values are never logged' },
 }, {
   set_credential_policy: CREDENTIAL_POLICY_AUDIT,
   save_instance_credential: CREDENTIAL_AUDIT,
