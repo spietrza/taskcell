@@ -1,0 +1,72 @@
+# Taskcell factory jobs for GitLab CI, added by the hub's "Enable factory" merge request and
+# included from .gitlab-ci.yml (`include: - local: .gitlab/taskcell.yml`). See docs/hub.md.
+#
+# Runner: needs a runner that can start the docker:dind service (privileged). Variables (Settings >
+# CI/CD > Variables): CLAUDE_CODE_OAUTH_TOKEN and GITLAB_TOKEN, both masked and protected.
+# GITLAB_TOKEN needs to read and comment on issues and MRs and push branches. The glab checksums
+# below belong to GLAB_VERSION; change them together.
+#
+# These jobs run only in pipelines that YOUR_GITLAB_LOGIN started with a factory variable, so they
+# never join your own pipelines: TASKCELL_DOCTOR=true (the hub's "Run doctor") for the doctor,
+# TASKCELL_SWEEP=true for the implement and review sweeps (create a Build > Pipeline schedule with
+# that variable, owned by the same user).
+
+.taskcell-base:
+  image: node:24-bookworm
+  services:
+    - name: docker:27-dind
+      alias: docker
+  # Job-level on purpose: top-level `variables:` would reach every job of the including project.
+  # TASKCELL_REF pins the Taskcell release the jobs build; raise it deliberately, the code runs with the secrets.
+  variables:
+    DOCKER_HOST: tcp://docker:2375
+    DOCKER_TLS_CERTDIR: ""
+    GITLAB_HOST: $CI_SERVER_HOST
+    TASKCELL_REF: v1
+    GLAB_VERSION: "1.50.0"
+    PNPM_VERSION: "10.32.1"
+  before_script:
+    # Keep the credentials out of the environment of apt, curl, npm and the build. before_script and
+    # script share one shell, so each job puts them back right before the Taskcell command.
+    - TASKCELL_CLAUDE_TOKEN="$CLAUDE_CODE_OAUTH_TOKEN"; TASKCELL_GITLAB_TOKEN="$GITLAB_TOKEN"; unset CLAUDE_CODE_OAUTH_TOKEN GITLAB_TOKEN
+    - apt-get update && apt-get install -y --no-install-recommends git ca-certificates curl docker.io
+    - |
+      arch="$(dpkg --print-architecture)"
+      case "$arch" in
+        amd64) glab_sha=15bd7b19ea416091dae4adc6578ef39df88020044136c0de23fc2315d3b0e9ee ;;
+        arm64) glab_sha=0caa82900bb0719a6dfe8f40a4060a02b68ed88ba689e7b0a4c811f91ed16f5a ;;
+        *) echo "unsupported runner architecture: $arch" >&2; exit 1 ;;
+      esac
+      curl -fsSL -o /tmp/glab.deb "https://gitlab.com/gitlab-org/cli/-/releases/v${GLAB_VERSION}/downloads/glab_${GLAB_VERSION}_linux_${arch}.deb"
+      echo "${glab_sha}  /tmp/glab.deb" | sha256sum -c -
+      dpkg -i /tmp/glab.deb
+    - git clone --depth 1 --branch "$TASKCELL_REF" https://github.com/spietrza/taskcell.git /opt/taskcell
+    - npm install --global "pnpm@${PNPM_VERSION}"
+    - cd /opt/taskcell && pnpm install --frozen-lockfile && pnpm build && ./docker/build.sh && cd "$CI_PROJECT_DIR"
+
+# Doctor: green = ready to label an issue.
+taskcell-doctor:
+  extends: .taskcell-base
+  rules:
+    - if: '$GITLAB_USER_LOGIN == "YOUR_GITLAB_LOGIN" && $TASKCELL_DOCTOR == "true"'
+  script:
+    - export CLAUDE_CODE_OAUTH_TOKEN="$TASKCELL_CLAUDE_TOKEN" GITLAB_TOKEN="$TASKCELL_GITLAB_TOKEN"; unset TASKCELL_CLAUDE_TOKEN TASKCELL_GITLAB_TOKEN
+    - node /opt/taskcell/dist/cli/index.js doctor --source gitlab --gitlab-project "$CI_PROJECT_PATH" --label "ready for agent"
+
+# Implement: sweeps the issues labelled `ready for agent`.
+taskcell-implement:
+  extends: .taskcell-base
+  rules:
+    - if: '$GITLAB_USER_LOGIN == "YOUR_GITLAB_LOGIN" && $TASKCELL_SWEEP == "true"'
+  script:
+    - export CLAUDE_CODE_OAUTH_TOKEN="$TASKCELL_CLAUDE_TOKEN" GITLAB_TOKEN="$TASKCELL_GITLAB_TOKEN"; unset TASKCELL_CLAUDE_TOKEN TASKCELL_GITLAB_TOKEN
+    - node /opt/taskcell/dist/cli/index.js watch --source gitlab --gitlab-project "$CI_PROJECT_PATH" --label "ready for agent" --once
+
+# Review: reviews the MRs labelled `ready for vanguard review`.
+taskcell-review:
+  extends: .taskcell-base
+  rules:
+    - if: '$GITLAB_USER_LOGIN == "YOUR_GITLAB_LOGIN" && $TASKCELL_SWEEP == "true"'
+  script:
+    - export CLAUDE_CODE_OAUTH_TOKEN="$TASKCELL_CLAUDE_TOKEN" GITLAB_TOKEN="$TASKCELL_GITLAB_TOKEN"; unset TASKCELL_CLAUDE_TOKEN TASKCELL_GITLAB_TOKEN
+    - node /opt/taskcell/dist/cli/index.js watch-mrs --gitlab-project "$CI_PROJECT_PATH" --label "ready for vanguard review" --once

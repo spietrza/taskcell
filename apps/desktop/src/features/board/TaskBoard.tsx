@@ -69,7 +69,7 @@ export function TaskBoard({
   onFilter?: (f: HubFilter) => void;
   /** Repositories the Projects picker offers (hub: all of the team's). */
   projects?: { path: string; name: string }[];
-  onOpenTask: (taskId: string, repoPath?: string) => void;
+  onOpenTask: (taskId: string, repoPath?: string, skills?: string[]) => void;
   onNewTask: () => void;
   /** Opens `project`'s Settings, for the "no task source yet" hint. */
   onOpenSettings?: () => void;
@@ -81,12 +81,21 @@ export function TaskBoard({
     [project, allRepos, teamId, repos.join('\n'), reloads],
   );
   const approver = useApproverDecisions(project, !allRepos);
-  const allTasks = data?.tasks;
+  // Skills saved from a card's quick view, shown at once: the tracker is not re-read for it.
+  const [savedSkills, setSavedSkills] = useState<Record<string, string[]>>({});
+  const cardKey = (t: Pick<QuickTask, 'id' | 'repoPath'>): string => `${t.repoPath ?? ''}:${t.id}`;
+  const allTasks = data?.tasks.map((t): BoardList['tasks'][number] => {
+    const saved = savedSkills[cardKey(t)];
+    if (saved === undefined) return t;
+    const { skills: _old, ...rest } = t;
+    return saved.length > 0 ? { ...rest, skills: saved } : rest;
+  });
   const tasks = allTasks && filterCards(allTasks, filter);
   const lanes = groupRows(tasks ?? [], filter.group, cardKeys);
   // A hub-board project's cards are made here, not in a tracker.
   const hubBoard = allRepos ? data?.hubBoards?.includes(project) === true : data?.hubBoard === true;
-  const reload = (): void => setReloads((n) => n + 1);
+  // A reload re-reads the tracker, so the locally shown skills are dropped with it.
+  const reload = (): void => { setSavedSkills({}); setReloads((n) => n + 1); };
 
   // The quick view opens beside the Board; Escape or a click outside closes it and focus returns to the card.
   const [selected, setSelected] = useState<QuickTask | null>(null);
@@ -230,7 +239,7 @@ export function TaskBoard({
                   </div>
                 ) : (
                   items.map((t) => (
-                    <div key={`${t.repoPath ?? ''}:${t.id}`}>
+                    <div key={cardKey(t)}>
                     <button
                       data-board-card
                       aria-expanded={selected?.id === t.id && selected.repoPath === t.repoPath}
@@ -257,6 +266,9 @@ export function TaskBoard({
                             const d = decisionForTask(t.id, approver.runs, approver.decisions);
                             return d !== undefined && <div className="text-[11px] text-muted-foreground" data-approver={d.outcome}>{decisionWords(d)}</div>;
                           })()}
+                          {t.skills && (
+                            <div className="break-words pt-0.5 text-[11px] text-muted-foreground">skills: {t.skills.join(', ')}</div>
+                          )}
                           <ScheduleLines task={t} />
                           {t.baseBranch && (
                             <div className="pt-0.5 font-mono text-[11px] text-muted-foreground">→ {t.baseBranch}</div>
@@ -289,7 +301,8 @@ export function TaskBoard({
           task={shown}
           project={project}
           onClose={close}
-          onFullPage={() => onOpenTask(shown.id, shown.repoPath)}
+          onFullPage={() => onOpenTask(shown.id, shown.repoPath, savedSkills[cardKey(shown)] ?? shown.skills)}
+          onSkillsSaved={(skills) => setSavedSkills((m) => ({ ...m, [cardKey(shown)]: skills }))}
           onChanged={reload}
         />
       )}
