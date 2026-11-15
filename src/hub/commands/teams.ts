@@ -25,10 +25,6 @@ export interface TeamsCommands {
 /** `<teamId>:<a[key]>` — the login or repository path goes in the target: `detail` only keeps bare names, so an e-mail or a path would be dropped. */
 const teamItemTarget = (key: string): AuditSpec['target'] => (a) => `${optionalString(a, 'teamId') ?? ''}:${optionalString(a, key) ?? ''}`;
 
-/** Audit detail: the named string args that were given (names only). */
-const detailOf = (...keys: string[]) => async (_ctx: unknown, a: Record<string, unknown>): Promise<string[]> =>
-  keys.map((k) => optionalString(a, k) ?? '').filter(Boolean);
-
 export const commands = defineCommands<TeamsCommands>({
   list_teams: async ({ ctx, caller }) => {
     return teams.callerTeams(ctx.configDir, caller);
