@@ -153,6 +153,9 @@ describe('specOnlyReviewNote', () => {
 describe('watchCommand', () => {
   it('stamps its run records as watch-started before it dispatches to the source', async () => {
     vi.stubEnv('CLAUDE_CODE_OAUTH_TOKEN', 'token');
+    // Outside CI: in a CI job `taskcell watch` leaves the trigger unset.
+    vi.stubEnv('GITHUB_ACTIONS', '');
+    vi.stubEnv('GITLAB_CI', '');
     const log = vi.spyOn(console, 'log').mockImplementation(() => {});
     const once = vi.spyOn(process, 'once').mockImplementation(() => process);
     try {
