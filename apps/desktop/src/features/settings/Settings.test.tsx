@@ -169,6 +169,20 @@ test('the hub board can be picked as a task source', async () => {
   expect(screen.getByRole('option', { name: 'Self-hosted (watch)' })).toBeEnabled();
 });
 
+test('"Runs on" shows the local hub for a hub-board project with no stored location, and a stored one as is', async () => {
+  read.mockResolvedValueOnce({ taskSource: 'hub' });
+  const first = render(<Settings project="/repo" />);
+  await waitFor(() => expect(screen.getByLabelText('Runs on')).toHaveValue('local'));
+  first.unmount();
+  read.mockResolvedValueOnce({ taskSource: 'hub', runLocation: 'gitlab-ci' });
+  const second = render(<Settings project="/repo" />);
+  await waitFor(() => expect(screen.getByLabelText('Runs on')).toHaveValue('gitlab-ci'));
+  second.unmount();
+  read.mockResolvedValueOnce({ taskSource: 'github' });
+  render(<Settings project="/repo" />);
+  await waitFor(() => expect(screen.getByLabelText('Runs on')).toHaveValue('github-actions'));
+});
+
 test('Enter in a single-line field saves a valid form, and does nothing while the form is invalid', async () => {
   write.mockClear();
   read.mockResolvedValueOnce({});

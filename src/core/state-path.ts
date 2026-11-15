@@ -148,7 +148,7 @@ async function hintIfNotIgnored(repoPath: string): Promise<void> {
   ignoreHinted = true;
   // exit 1 = not ignored; 128 = not a git repo (no hint there).
   const r = await execa('git', ['check-ignore', '-q', STATE_DIR_NAME], { cwd: repoPath, reject: false });
-  if (r.exitCode === 1) console.warn(`taskcell: created ${STATE_DIR_NAME}/ in ${repoPath} — add \`${STATE_DIR_NAME}/\` to .gitignore so run records are not committed`);
+  if (r.exitCode === 1) console.warn(`taskcell: created ${STATE_DIR_NAME}/ in ${repoPath} — add \`${STATE_DIR_NAME}/\` to .gitignore so run records are not committed (the hub also keeps its project settings in ${STATE_DIR_NAME}/app.json; ignoring it is fine)`);
 }
 
 /** Guard against path traversal: a task id must name a single direct child of a state subdirectory. */

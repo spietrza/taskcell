@@ -100,8 +100,8 @@ async function dispatchInner(ctx: RpcContext, cmd: string, rawArgs: unknown, cal
 export async function dispatchRpc(ctx: RpcContext, cmd: string, rawArgs: unknown, caller: teams.Caller): Promise<unknown> {
   const spec = Object.hasOwn(HUB_AUDITED, cmd) ? HUB_AUDITED[cmd as keyof typeof HUB_AUDITED] : undefined;
   const audit = ctx.audit;
-  if (spec === undefined || audit === undefined) return dispatchInner(ctx, cmd, rawArgs, caller);
   const args = obj(rawArgs);
+  if (spec === undefined || audit === undefined || spec.applies?.(args) === false) return dispatchInner(ctx, cmd, rawArgs, caller);
   const actor = actorOf(ctx);
   const target = spec.target(args);
   const detail = await spec.detail?.(ctx, args);
