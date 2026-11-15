@@ -45,6 +45,8 @@ export type DeliveryTarget =
       /** Injected git/gh runner (tests). */
       runner?: CommandRunner;
     }
+  /** Commit only: the result stays on the run's local branch, nothing is pushed. */
+  | { kind: 'local-branch' }
   | {
       kind: 'existing-branch';
       prHeadRef: string;
@@ -81,6 +83,8 @@ export type DeliverChangeResult =
    * re-deriving it from a mutable binding captured inside `body`.
    */
   | { kind: 'delivered-pr'; sha: string; headSha: string; prUrl: string; commitLeaks: CommitClosingLeak[]; outgoingDiff: string }
+  /** local-branch: committed on `branch` in the local repository; nothing left it. */
+  | { kind: 'delivered-local'; sha: string; branch: string; commitLeaks: CommitClosingLeak[] }
   /** existing-branch: the commit was pushed onto the PR head. */
   | { kind: 'delivered-push'; sha: string; headSha: string; commitLeaks: CommitClosingLeak[] };
 
@@ -151,7 +155,7 @@ export async function deliverChange(ctx: RunContext, opts: DeliverChangeOptions)
   const block = scanOutgoingForSecrets(
     outgoingDiff,
     opts.taskId,
-    opts.target.kind === 'new-pr' ? 'publish' : 'revise push',
+    opts.target.kind === 'existing-branch' ? 'revise push' : 'publish',
     secretEnvVars,
   );
   if (block !== undefined) return { kind: 'secret-blocked', block };
@@ -180,6 +184,7 @@ export async function deliverChange(ctx: RunContext, opts: DeliverChangeOptions)
     : [];
 
   const { target } = opts;
+  if (target.kind === 'local-branch') return { kind: 'delivered-local', sha, branch: ctx.branch, commitLeaks };
   if (target.kind === 'new-pr') {
     const pr = await publishForReview(ctx, {
       title: redact(conventionalPrTitle(target.title, target), 'PR title'),
