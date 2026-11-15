@@ -6,7 +6,13 @@
 #
 # Installs Docker, builds the hub image from a Taskcell tag, and starts the hub behind Caddy (automatic
 # HTTPS). Point HUB_DOMAIN's DNS at the server first, or Caddy cannot get the certificate. Safe to run
-# again: it keeps the auth secret and hub state, and rebuilds at TASKCELL_REF.
+# again: it keeps the secrets and hub state, and rebuilds at TASKCELL_REF.
+#
+# Daily backup (03:15 UTC): the hub's config and state go to /var/backups/taskcell, 7 days kept. With
+# BACKUP_S3_URL (an S3-compatible bucket URL, e.g. Cloudflare R2), BACKUP_S3_KEY, BACKUP_S3_SECRET and
+# BACKUP_PASSPHRASE each backup is also uploaded, encrypted with the passphrase. The upload leaves out
+# hub-secret, the key of the credential store, so saved model keys never leave the server readable; after
+# losing the server they have to be entered again.
 set -euo pipefail
 
 : "${HUB_DOMAIN:?set HUB_DOMAIN, e.g. acme.taskcell.dev}"
@@ -24,7 +30,7 @@ fi
 
 export DEBIAN_FRONTEND=noninteractive
 apt-get update -q
-apt-get install -y -q docker.io docker-compose-v2 git ufw openssl
+apt-get install -y -q docker.io docker-compose-v2 git ufw openssl cron curl
 systemctl enable --now docker 2>/dev/null || true # no systemd in a test container
 
 ufw allow 22/tcp >/dev/null && ufw allow 80/tcp >/dev/null && ufw allow 443/tcp >/dev/null
@@ -39,10 +45,13 @@ fi
 
 umask 077
 [ -f "$DIR/auth-secret" ] || openssl rand -hex 32 > "$DIR/auth-secret"
+[ -f "$DIR/hub-secret" ] || openssl rand -base64 32 > "$DIR/hub-secret" # credential store key, kept outside /config
 {
   echo "HUB_DOMAIN=$HUB_DOMAIN"
   echo "SIGNUP_ALLOW=$SIGNUP_ALLOW"
   echo "AUTH_SECRET=$(cat "$DIR/auth-secret")"
+  echo "HUB_SECRET=$(cat "$DIR/hub-secret")"
+  for v in BACKUP_S3_URL BACKUP_S3_KEY BACKUP_S3_SECRET BACKUP_PASSPHRASE; do echo "$v=${!v:-}"; done
   echo "MAX_SANDBOXES=$MAX_SANDBOXES"
   echo "CLONE_HOSTS=$CLONE_HOSTS"
   echo "GITLAB_ISSUER=$GITLAB_ISSUER"
@@ -82,6 +91,7 @@ services:
       TASKCELL_HUB_ALLOWED_HOSTS: ${HUB_DOMAIN}
       TASKCELL_HUB_PUBLIC_URL: https://${HUB_DOMAIN}
       TASKCELL_HUB_AUTH_SECRET: ${AUTH_SECRET}
+      TASKCELL_HUB_SECRET: ${HUB_SECRET}
       TASKCELL_HUB_SIGNUP_ALLOW: ${SIGNUP_ALLOW}
       TASKCELL_HUB_ALLOW_ADD: "1"
       TASKCELL_HUB_CLONE_HOSTS: ${CLONE_HOSTS}
@@ -106,6 +116,40 @@ volumes:
   hub-state:
   caddy-data:
 EOF
+
+cat > "$DIR/backup.sh" <<'EOF'
+#!/usr/bin/env bash
+# Daily hub backup, written by setup-server.sh. Restore: see docs/deploy.md, Recipe D.
+set -euo pipefail
+umask 077
+cd /opt/taskcell
+set -a; . ./.env; set +a
+out=/var/backups/taskcell
+stamp=$(date -u +%Y%m%dT%H%M%SZ)
+tmp=$(mktemp -d)
+trap 'rm -rf "$tmp"' EXIT
+mkdir -p "$out"
+# A consistent copy of the live sign-in database (users, sessions) instead of the file being written.
+docker compose exec -T taskcell-hub node -e "
+const fs = require('node:fs'); const { DatabaseSync } = require('node:sqlite');
+fs.rmSync('/config/auth.backup.sqlite', { force: true });
+if (fs.existsSync('/config/auth.sqlite')) new DatabaseSync('/config/auth.sqlite').exec(\"VACUUM INTO '/config/auth.backup.sqlite'\");"
+docker compose run --rm -T --no-deps --entrypoint tar taskcell-hub czf - -C / \
+  --exclude=config/auth.sqlite --exclude=config/auth.sqlite-wal --exclude=config/auth.sqlite-shm config state > "$tmp/volumes.tgz"
+tar czf "$out/taskcell-$stamp.tgz" -C /opt/taskcell .env auth-secret hub-secret -C "$tmp" volumes.tgz
+find "$out" -name 'taskcell-*.tgz' -mtime +6 -delete
+if [ -n "${BACKUP_S3_URL:-}" ] && [ -n "${BACKUP_S3_KEY:-}" ] && [ -n "${BACKUP_S3_SECRET:-}" ] && [ -n "${BACKUP_PASSPHRASE:-}" ]; then
+  tar czf "$tmp/offsite.tgz" -C "$tmp" volumes.tgz
+  BACKUP_PASSPHRASE="$BACKUP_PASSPHRASE" openssl enc -aes-256-cbc -pbkdf2 -salt -pass env:BACKUP_PASSPHRASE \
+    -in "$tmp/offsite.tgz" -out "$tmp/offsite.tgz.enc"
+  curl -fsS --aws-sigv4 "aws:amz:auto:s3" --user "$BACKUP_S3_KEY:$BACKUP_S3_SECRET" \
+    -T "$tmp/offsite.tgz.enc" "${BACKUP_S3_URL%/}/$HUB_DOMAIN/taskcell-$stamp.tgz.enc"
+fi
+echo "backup $stamp done"
+EOF
+chmod 700 "$DIR/backup.sh"
+echo "15 3 * * * root /opt/taskcell/backup.sh >> /var/log/taskcell-backup.log 2>&1" > /etc/cron.d/taskcell-backup
+chmod 644 /etc/cron.d/taskcell-backup
 
 cd "$DIR"
 docker compose up -d --build

@@ -225,6 +225,22 @@ self-managed GitLab, `GITHUB_*` or `GOOGLE_*` client pairs for other sign-in pro
 `/opt/taskcell` (`.env` and `auth-secret` mode 0600); running the script again rebuilds and keeps the
 hub's state. The hub token for scripts is in the `hub-state` volume (`/state/hub.key`).
 
+**Daily backup.** At 03:15 UTC `/opt/taskcell/backup.sh` writes `/var/backups/taskcell/taskcell-<time>.tgz`
+(the hub's config and state volumes, with a consistent copy of the sign-in database, plus `.env` and the
+two secrets); the last 7 days are kept. This survives a bad upgrade or deleted data, not the loss of the
+server. For that, set `BACKUP_S3_URL` (an S3-compatible bucket URL, e.g.
+`https://<account>.r2.cloudflarestorage.com/<bucket>`), `BACKUP_S3_KEY`, `BACKUP_S3_SECRET` and
+`BACKUP_PASSPHRASE`: each backup is then also uploaded, encrypted with the passphrase, under
+`<bucket>/<HUB_DOMAIN>/`. The upload leaves out `.env` and `hub-secret` (the credential store key), so saved
+model keys never leave the server readable; after a lost server, users enter them again.
+
+*Restore* on a server set up by the script: stop the hub (`docker compose stop taskcell-hub` in
+`/opt/taskcell`), unpack the archive (`openssl enc -d -aes-256-cbc -pbkdf2 -pass env:BACKUP_PASSPHRASE` first
+for an uploaded one), put `.env`, `auth-secret` and `hub-secret` back in `/opt/taskcell` if the archive has
+them, unpack `volumes.tgz` into the volumes with
+`docker compose run --rm -T --no-deps --entrypoint tar taskcell-hub xzf - -C / < volumes.tgz`, rename
+`/config/auth.backup.sqlite` to `/config/auth.sqlite` the same way, and start the hub again.
+
 ## Garbage collection and self-maintenance
 
 The `vanguard-gc` service in `docker/compose.yaml` loops every 4 hours: `git -C /work/repo pull --ff-only` (so PRs branch off the latest main instead of a staling clone) and `taskcell gc` (reap stale sandbox containers, prune worktree admin entries, delete merged remote `vanguard/*` branches). Running it in-stack means no DSM Task Scheduler, cron, or systemd timer is needed, and it survives reboots via the restart policy.
