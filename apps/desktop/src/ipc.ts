@@ -125,8 +125,8 @@ export function enableFactoryApply(repoPath: string, plan: FactoryPlan): Promise
   return call('enable_factory_apply', { repoPath, plan });
 }
 
-export function enableFactoryVerify(repoPath: string, plan: FactoryPlan): Promise<FactoryVerifyResult> {
-  return call('enable_factory_verify', { repoPath, plan });
+export function enableFactoryVerify(repoPath: string, plan: FactoryPlan, confirmedJobs: string[] = []): Promise<FactoryVerifyResult> {
+  return call('enable_factory_verify', { repoPath, plan, confirmedJobs });
 }
 
 /** The project's persisted factory checklist (no network). */

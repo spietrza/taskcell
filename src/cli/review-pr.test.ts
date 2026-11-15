@@ -22,6 +22,7 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { existsSync } from 'node:fs';
 import { reviewPrCommand } from './review-pr.js';
+import { startSandboxContext } from '../sandbox/sandbox-context.js';
 import { PullRequestReviewIncompleteError, reviewPullRequest } from '../runners/pr-review.js';
 import type { GhRunner } from '../tasks/github.js';
 import type { Command } from './args.js';
@@ -79,6 +80,24 @@ describe('reviewPrCommand', () => {
       vi.unstubAllEnvs();
       await rm(dir, { recursive: true, force: true });
     }
+  });
+
+  it.each([
+    ['codex on its API key', { provider: 'codex' as const }, { CODEX_API_KEY: 'sk-test' }, true],
+    ['cursor (no sidecar fronts its key)', { provider: 'cursor' as const }, { CURSOR_API_KEY: 'k' }, false],
+    ['codex on a non-ChatGPT auth.json', { provider: 'codex' as const }, { CODEX_AUTH_JSON: '{"OPENAI_API_KEY":"sk"}' }, false],
+  ])('--llm-proxy skips the primary sidecar only when every credential routes to a sidecar: %s', async (_n, choice, env, skip) => {
+    vi.mocked(startSandboxContext).mockClear();
+    for (const [k, v] of Object.entries(env)) vi.stubEnv(k, v);
+    try {
+      await reviewPrCommand(
+        { kind: 'review-pr', prRef: '12', repoSlug: 'o/r', repoPath: '/repo', egress: false, llmProxy: true, ...choice },
+        { reviewPullRequest: async () => fakeResult(), log: () => undefined },
+      );
+    } finally {
+      vi.unstubAllEnvs();
+    }
+    expect(vi.mocked(startSandboxContext).mock.calls[0]?.[0]).toMatchObject({ llmProxy: true, skipPrimarySidecar: skip });
   });
 
   it('delegates to the PR review runner and preserves operator logs', async () => {

@@ -1,5 +1,5 @@
 import { createCipheriv, randomBytes } from 'node:crypto';
-import { chmod, copyFile, mkdir, mkdtemp, readFile, rm, stat, writeFile } from 'node:fs/promises';
+import { copyFile, mkdir, mkdtemp, readFile, rm, stat, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { afterEach, describe, expect, it, vi } from 'vitest';
@@ -184,10 +184,10 @@ describe('re-review hardening', () => {
   });
 
   it('an unusable or mismatched secret does not stop a run the start-up environment or the disk-key store can fund', async () => {
-    const original = process.env.CLAUDE_CODE_OAUTH_TOKEN;
-    // The other names that fund a claude run would also fund this one: clear them so the host environment cannot.
-    const others = Object.fromEntries(['ANTHROPIC_API_KEY', 'ANTHROPIC_AUTH_TOKEN'].map((n) => [n, process.env[n]]));
-    for (const n of Object.keys(others)) delete process.env[n];
+    // Every Claude name in the start-up environment can fund the run: clear them all, not only the one this test sets.
+    const claudeNames = ['CLAUDE_CODE_OAUTH_TOKEN', 'ANTHROPIC_API_KEY', 'ANTHROPIC_AUTH_TOKEN'] as const;
+    const original = Object.fromEntries(claudeNames.map((n) => [n, process.env[n]]));
+    for (const n of claudeNames) delete process.env[n];
     try {
       const d = await dir();
       await new ScopedCredentialStore(d).put('instance', 'CLAUDE_CODE_OAUTH_TOKEN', SECRET_VALUE);
@@ -208,9 +208,10 @@ describe('re-review hardening', () => {
       await wrong.setPolicy('user-only');
       await expect(wrong.resolveForRun({ id: 'u1', email: 'u@example.com', name: 'U' })).rejects.toBeInstanceOf(BadRequestError);
     } finally {
-      if (original === undefined) delete process.env.CLAUDE_CODE_OAUTH_TOKEN;
-      else process.env.CLAUDE_CODE_OAUTH_TOKEN = original;
-      for (const [n, v] of Object.entries(others)) if (v === undefined) delete process.env[n]; else process.env[n] = v;
+      for (const n of claudeNames) {
+        if (original[n] === undefined) delete process.env[n];
+        else process.env[n] = original[n];
+      }
     }
   });
 
@@ -236,7 +237,7 @@ describe('re-review hardening', () => {
     await store.put('instance', 'CLAUDE_CODE_OAUTH_TOKEN', SECRET_VALUE);
     await new ScopedCredentialStore(planted).put('instance', 'CLAUDE_CODE_OAUTH_TOKEN', 'attacker');
     for (const name of ['credentials.key', 'credentials.enc.json']) await copyFile(join(planted, name), join(d, name));
-    await expect(store.values('instance')).rejects.toThrow('cannot be decrypted');
+    await expect(store.values('instance')).rejects.toThrow('credentials.key is not trusted');
     expect((await readFile(join(d, 'credentials.enc.json'))).equals(await readFile(join(planted, 'credentials.enc.json')))).toBe(true);
   });
 
@@ -247,7 +248,7 @@ describe('re-review hardening', () => {
     await new ScopedCredentialStore(d, secret).put('instance', 'CLAUDE_CODE_OAUTH_TOKEN', SECRET_VALUE);
     await new ScopedCredentialStore(planted).put('instance', 'CLAUDE_CODE_OAUTH_TOKEN', 'attacker');
     for (const name of ['credentials.key', 'credentials.enc.json']) await copyFile(join(planted, name), join(d, name));
-    await expect(new ScopedCredentialStore(d, secret).values('instance')).rejects.toThrow('cannot be decrypted');
+    await expect(new ScopedCredentialStore(d, secret).values('instance')).rejects.toThrow('credentials.key is not trusted');
     expect((await readFile(join(d, 'credentials.enc.json'))).equals(await readFile(join(planted, 'credentials.enc.json')))).toBe(true);
   });
 
@@ -291,20 +292,134 @@ describe('re-review hardening', () => {
   });
 
   it('reads a store under the secret even when the marker cannot be written', async () => {
-    if (process.getuid?.() === 0) return; // root ignores directory modes
     const d = await dir();
     const secret = randomBytes(32).toString('base64');
     await new ScopedCredentialStore(d, secret).put('instance', 'X', 'v');
     await rm(join(d, 'credentials.keyed'));
-    await chmod(d, 0o555);
-    try {
-      expect(await new ScopedCredentialStore(d, secret).values('instance')).toEqual({ X: 'v' });
-    } finally {
-      await chmod(d, 0o755);
+    await mkdir(join(d, 'credentials.keyed')); // a directory in the way: the marker cannot be written, even as root
+    expect(await new ScopedCredentialStore(d, secret).values('instance')).toEqual({ X: 'v' });
+  });
+
+  it('with no usable secret a save beside a marker is refused, also with no store file, and the marker is kept', async () => {
+    for (const bad of [undefined, 'short']) {
+      const d = await dir();
+      await new ScopedCredentialStore(d, randomBytes(32).toString('base64')).put('instance', 'X', 'v');
+      await rm(join(d, 'credentials.enc.json'));
+      const store = new ScopedCredentialStore(d, bad);
+      await expect(store.put('instance', 'X', 'w')).rejects.toThrow('remove credentials.keyed');
+      expect((await stat(join(d, 'credentials.keyed'))).isFile()).toBe(true);
+      await expect(stat(join(d, 'credentials.enc.json'))).rejects.toThrow();
+      await expect(stat(join(d, 'credentials.key'))).rejects.toThrow();
+      // The operator removes the marker: saves go to credentials.key again.
+      await rm(join(d, 'credentials.keyed'));
+      await store.put('instance', 'X', 'w');
+      expect(await new ScopedCredentialStore(d, bad).values('instance')).toEqual({ X: 'w' });
     }
   });
 
-  it('does not rewrite the marker on reads, and a stale marker does not block a later re-key', async () => {
+  it('never adopts a planted marker or credentials.key as the key, nor re-keys and trusts a planted store', async () => {
+    const secret = randomBytes(32).toString('base64');
+    // A marker holding key material is not a key: a store under that key is not read with it.
+    const d = await dir();
+    const fake = await dir();
+    await new ScopedCredentialStore(fake).put('instance', 'X', 'attacker');
+    await copyFile(join(fake, 'credentials.enc.json'), join(d, 'credentials.enc.json'));
+    await copyFile(join(fake, 'credentials.key'), join(d, 'credentials.keyed'));
+    for (const s of [secret, undefined]) await expect(new ScopedCredentialStore(d, s).values('instance')).rejects.toThrow();
+    // A planted credentials.key plus store beside a marker (planted or real) is neither read nor re-keyed under the secret.
+    for (const marker of ['keyed under TASKCELL_HUB_SECRET\n', 'anything\n']) {
+      const e = await dir();
+      await copyFile(join(fake, 'credentials.key'), join(e, 'credentials.key'));
+      await copyFile(join(fake, 'credentials.enc.json'), join(e, 'credentials.enc.json'));
+      await writeFile(join(e, 'credentials.keyed'), marker);
+      for (const s of [secret, undefined]) {
+        const store = new ScopedCredentialStore(e, s);
+        await expect(store.values('instance')).rejects.toThrow('remove credentials.keyed');
+        await expect(store.put('instance', 'Y', 'w')).rejects.toThrow('credentials.keyed');
+      }
+      expect((await readFile(join(e, 'credentials.enc.json'))).equals(await readFile(join(fake, 'credentials.enc.json')))).toBe(true);
+      expect((await stat(join(e, 'credentials.key'))).isFile()).toBe(true);
+      expect((await stat(join(e, 'credentials.keyed'))).isFile()).toBe(true);
+    }
+  });
+
+  it('a marker in any format or from another secret still blocks a planted credentials.key', async () => {
+    for (const content of ['keyed under TASKCELL_HUB_SECRET\n', 'other\n']) {
+      const d = await dir();
+      const planted = await dir();
+      await new ScopedCredentialStore(planted).put('instance', 'X', 'attacker');
+      for (const name of ['credentials.key', 'credentials.enc.json']) await copyFile(join(planted, name), join(d, name));
+      await writeFile(join(d, 'credentials.keyed'), content);
+      await expect(new ScopedCredentialStore(d, randomBytes(32).toString('base64')).values('instance')).rejects.toThrow('credentials.key is not trusted');
+    }
+  });
+
+  it('with no usable secret a marker blocks the disk-key read and the hub never deletes it', async () => {
+    const d = await dir();
+    const planted = await dir();
+    const secret = randomBytes(32).toString('base64');
+    await new ScopedCredentialStore(d, secret).put('instance', 'X', 'v');
+    await new ScopedCredentialStore(planted).put('instance', 'X', 'attacker');
+    for (const name of ['credentials.key', 'credentials.enc.json']) await copyFile(join(planted, name), join(d, name));
+    for (const bad of [undefined, 'short']) {
+      const store = new ScopedCredentialStore(d, bad);
+      await expect(store.values('instance')).rejects.toThrow('remove credentials.keyed');
+      await expect(store.put('instance', 'Y', 'w')).rejects.toThrow('credentials.keyed');
+      expect((await stat(join(d, 'credentials.keyed'))).isFile()).toBe(true);
+    }
+  });
+
+  it('names credentials.keyed when a marker locks out a readable disk-key store, and removing it recovers', async () => {
+    const d = await dir();
+    const secret = randomBytes(32).toString('base64');
+    await new ScopedCredentialStore(d, secret).put('instance', 'X', 'v');
+    const backup = await dir();
+    await new ScopedCredentialStore(backup).put('instance', 'X', 'old');
+    for (const name of ['credentials.key', 'credentials.enc.json']) await copyFile(join(backup, name), join(d, name));
+    await expect(new ScopedCredentialStore(d, secret).values('instance')).rejects.toThrow('remove credentials.keyed');
+    await rm(join(d, 'credentials.keyed'));
+    expect(await new ScopedCredentialStore(d, secret).values('instance')).toEqual({ X: 'old' });
+  });
+
+  it('removes a stale marker before a disk-key write', async () => {
+    const d = await dir();
+    const secret = randomBytes(32).toString('base64');
+    await new ScopedCredentialStore(d, secret).put('instance', 'X', 'v');
+    await rm(join(d, 'credentials.enc.json'));
+    await legacyFile(d, randomBytes(32).toString('base64'), { zai: 'z' });
+    await new ScopedCredentialStore(d, secret).put('instance', 'X', 'w');
+    await expect(stat(join(d, 'credentials.keyed'))).rejects.toThrow();
+    expect(await new ScopedCredentialStore(d).values('instance')).toEqual({ X: 'w' });
+  });
+
+  it('says the store stays on credentials.key while an unmigratable credentials.enc is present, and writes no marker', async () => {
+    const d = await dir();
+    await legacyFile(d, randomBytes(32).toString('base64'), { zai: 'z' });
+    const secret = randomBytes(32).toString('base64');
+    const error = quiet();
+    try {
+      const service = createCredentialService(d, [], secret);
+      await service.putInstance('OPENROUTER_API_KEY', 'k');
+      await service.migrateLegacy();
+      expect((await service.instanceStatus()).reason).toContain('stays on credentials.key');
+      await expect(stat(join(d, 'credentials.keyed'))).rejects.toThrow();
+    } finally {
+      error.mockRestore();
+    }
+  });
+
+  it('keeps the marker across a restart with the legacy file present', async () => {
+    const d = await dir();
+    const secret = randomBytes(32).toString('base64');
+    await new ScopedCredentialStore(d, secret).put('instance', 'X', 'v');
+    await legacyFile(d, randomBytes(32).toString('base64'), { zai: 'z' });
+    const planted = await dir();
+    await new ScopedCredentialStore(planted).put('instance', 'X', 'attacker');
+    for (const name of ['credentials.key', 'credentials.enc.json']) await copyFile(join(planted, name), join(d, name));
+    await expect(new ScopedCredentialStore(d, secret).values('instance')).rejects.toThrow('credentials.key is not trusted');
+  });
+
+  it('does not rewrite the marker on reads, and once the operator removes it a disk-key store re-keys', async () => {
     const d = await dir();
     const a = randomBytes(32).toString('base64');
     const store = new ScopedCredentialStore(d, a);
@@ -314,8 +429,10 @@ describe('re-review hardening', () => {
     await store.values('instance');
     expect((await stat(join(d, 'credentials.keyed'))).mtimeMs).toBe(before);
     await rm(join(d, 'credentials.enc.json'));
+    await expect(new ScopedCredentialStore(d).put('instance', 'X', 'w')).rejects.toThrow('remove credentials.keyed');
+    expect((await stat(join(d, 'credentials.keyed'))).mtimeMs).toBe(before);
+    await rm(join(d, 'credentials.keyed'));
     await new ScopedCredentialStore(d).put('instance', 'X', 'w');
-    await expect(stat(join(d, 'credentials.keyed'))).rejects.toThrow();
     expect(await new ScopedCredentialStore(d, randomBytes(32).toString('base64')).values('instance')).toEqual({ X: 'w' });
   });
 

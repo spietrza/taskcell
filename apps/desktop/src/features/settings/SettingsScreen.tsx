@@ -81,12 +81,7 @@ export function SettingsScreen({
         </div>
       ) : section === 'runners' ? (
         <div className="min-h-0 flex-1 space-y-6 overflow-y-auto">
-          {fleet && (
-            <section className="space-y-2">
-              <h3 className="text-lg font-semibold">Fleet</h3>
-              {fleet}
-            </section>
-          )}
+          {fleet && <section className="space-y-2">{fleet}</section>}
           <section className="flex min-h-96 flex-col space-y-2">
             <h3 className="text-lg font-semibold">Remote</h3>
             {remote}

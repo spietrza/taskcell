@@ -6,6 +6,7 @@ import { cpSync, existsSync, mkdirSync, readFileSync, readdirSync, rmSync, write
 import { dirname, join, relative } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { PL } from './i18n/pl.mjs';
+import { renderHub } from './hub/render.mjs';
 
 const root = dirname(fileURLToPath(import.meta.url));
 const src = join(root, 'src');
@@ -45,6 +46,17 @@ for (const [file, pairs] of Object.entries(PL)) {
   writeFileSync(to, text);
 }
 if (sharedUnused.size) throw new Error(`i18n/pl.mjs: shared strings found in no page: ${[...sharedUnused].join(' | ')}`);
+
+// The Hub section: the app's own markup and CSS (rendered from apps/desktop), put where each page marks it.
+// The markup is English in both languages, as the app is; the page's own words around it are translated.
+const hub = await renderHub();
+for (const page of ['index.html', 'pl/index.html']) {
+  const file = join(out, page);
+  const html = readFileSync(file, 'utf8');
+  if (!html.includes('<!--hub-app-->')) throw new Error(`${page}: no <!--hub-app--> marker for the Hub section`);
+  writeFileSync(file, html.replace('<!--hub-app-->', () => hub.html));
+}
+writeFileSync(join(out, 'hub-app.css'), hub.css);
 
 /** All files under dir, as paths relative to dist/. */
 const walk = (dir) =>

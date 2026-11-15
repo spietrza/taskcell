@@ -186,7 +186,7 @@ describe('EnableFactoryDialog', () => {
     expect(await screen.findByRole('alert')).toHaveTextContent('This also runs deploy, publish');
     expect(enableFactoryVerify).not.toHaveBeenCalled();
     fireEvent.click(screen.getByRole('button', { name: 'Run doctor anyway' }));
-    await vi.waitFor(() => expect(enableFactoryVerify).toHaveBeenCalledWith(project.path, plan));
+    await vi.waitFor(() => expect(enableFactoryVerify).toHaveBeenCalledWith(project.path, plan, ['deploy', 'publish']));
   });
 
   test('plan -> Open PR lands on the checklist with the exact secret command', async () => {
@@ -267,7 +267,7 @@ describe('EnableFactoryDialog', () => {
     render(<EnableFactoryDialog project={project} onClose={() => {}} />);
     fireEvent.click(await screen.findByRole('button', { name: 'Run doctor' }));
     expect(await screen.findByText(/Doctor run: in_progress/)).toHaveAttribute('href', factoryVerify.run!.url);
-    expect(enableFactoryVerify).toHaveBeenCalledWith(project.path, factoryStateSettingUp.plan);
+    expect(enableFactoryVerify).toHaveBeenCalledWith(project.path, factoryStateSettingUp.plan, []);
   });
 
   test('callers already on the default branch are marked; with all of them there, the checklist starts without a PR', async () => {

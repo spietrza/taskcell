@@ -50,7 +50,11 @@ function plainSentence(err: unknown): string {
   const e = err as { code?: unknown; stderr?: unknown; message?: unknown };
   // The command's own error output only: `message` carries argv, whose ids (merge_requests/404) would read as HTTP codes.
   const text = String(e.stderr ?? '');
-  console.warn('enable-factory (gitlab):', String(e.message ?? err).split('\n')[0]);
+  console.warn('enable-factory (gitlab):', String(e.message ?? err).split('\n')[0], text.trim().split('\n')[0] ?? '');
+  // A local git failure (hook, index.lock, checkout conflict) is not GitLab's; fetch and push talk to GitLab, so they fall through.
+  const gitCommand = (err as { gitCommand?: unknown }).gitCommand;
+  if (typeof gitCommand === 'string' && e.code === 'ENOENT') return 'git is not installed or not on the hub\'s PATH; install git, then try again.';
+  if (typeof gitCommand === 'string' && gitCommand !== 'fetch' && gitCommand !== 'push') return 'git could not prepare the branch; see the hub log for the details.';
   if (e.code === 'ENOENT') return 'glab is not installed; install the GitLab CLI and run `glab auth login`, then try again.';
   if (httpStatus(text, 401) || /unauthori[sz]ed|not logged in|authenticat|no token|invalid token|auth login/i.test(text)) return 'glab is not signed in to GitLab; run `glab auth login`, then try again.';
   if (httpStatus(text, 403) || /forbidden|permission|insufficient|not allowed/i.test(text)) return 'Your GitLab account does not have permission to do this on the project (it needs Developer access or higher).';
@@ -87,7 +91,14 @@ async function glabJson(exec: FactoryExec, repoPath: string, args: string[]): Pr
   }
 }
 
-const gitRaw = async (exec: FactoryExec, repoPath: string, args: string[]): Promise<string> => (await exec('git', args, { cwd: repoPath })).stdout;
+const gitRaw = async (exec: FactoryExec, repoPath: string, args: string[]): Promise<string> => {
+  try {
+    return (await exec('git', args, { cwd: repoPath })).stdout;
+  } catch (err) {
+    if (typeof err === 'object' && err !== null) (err as { gitCommand?: string }).gitCommand = args[0] ?? '';
+    throw err;
+  }
+};
 const git = async (exec: FactoryExec, repoPath: string, args: string[]): Promise<string> => (await gitRaw(exec, repoPath, args)).trim();
 
 const str = (v: unknown): string => (typeof v === 'string' ? v : '');
@@ -159,17 +170,19 @@ function pipelineYaml(ci: string): ReturnType<typeof parseAllDocuments> | undefi
   return docs;
 }
 
+/** The value of a top-level key of the pipeline document (`undefined` when absent or the document is not a usable map). */
+function rootValue(ci: string | undefined, key: string): unknown {
+  const root = ci === undefined ? undefined : pipelineYaml(ci)?.at(-1)?.contents;
+  return isMap(root) ? root.items.find((pair) => isScalar(pair.key) && pair.key.value === key)?.value : undefined;
+}
+
 function isTaskcellPath(value: unknown): boolean {
   return typeof value === 'string' && value.replace(/^\//, '') === GITLAB_INCLUDE_FILE;
 }
 
 /** The pipeline document's top-level `include` names the Taskcell file, never a comment or a similarly shaped job field. */
 const wired = (ci: string | undefined): boolean => {
-  if (ci === undefined) return false;
-  const docs = pipelineYaml(ci);
-  const root = docs?.at(-1)?.contents;
-  if (!isMap(root)) return false;
-  const include = root.items.find((pair) => isScalar(pair.key) && pair.key.value === 'include')?.value;
+  const include = rootValue(ci, 'include');
   if (isScalar(include)) return isTaskcellPath(include.value);
   if (isSeq(include)) {
     return include.items.some((item) => {
@@ -185,6 +198,15 @@ const GLOBAL_CI_KEYS = new Set([
   'after_script', 'before_script', 'cache', 'default', 'image', 'include', 'pages', 'services',
   'stages', 'types', 'variables', 'workflow',
 ]);
+
+/** A stage for the factory jobs: `test` (GitLab's default) unless the project declares `stages:` without it. */
+function factoryStage(ci: string | undefined): string {
+  const stages = rootValue(ci, 'stages');
+  if (!isSeq(stages)) return 'test';
+  const names = stages.items.flatMap((item) => (isScalar(item) && typeof item.value === 'string' ? [item.value] : []));
+  if (names.length === 0 || names.includes('test')) return 'test';
+  return names.find((name) => /^[A-Za-z0-9_][A-Za-z0-9_.-]*$/.test(name)) ?? 'test';
+}
 
 function unruledJobs(ci: string | undefined): string[] {
   if (ci === undefined) return [];
@@ -219,6 +241,10 @@ export async function planGitlabFactory(repoPath: string, deps: GitlabFactoryDep
   if (defaultBranch === '') throw new BadRequestError('The GitLab project has no default branch yet; push one first, then try again.');
   if (gitlabProjectId <= 0) throw new BadRequestError('GitLab did not return the project id; check `glab auth status` and try again.');
   if (gitlabCiPath === '' || gitlabCiPath === GITLAB_INCLUDE_FILE) throw new BadRequestError('The project has an unsupported custom CI configuration path; choose a regular project-relative CI file, then try again.');
+  // Refresh the remote-tracking ref so a change made on GitLab since the last fetch (the include added by hand) shows up; offline keeps the local ref.
+  if (/^(?!-)(?!.*\.\.)[A-Za-z0-9._/-]+$/.test(defaultBranch)) {
+    await exec('git', ['fetch', 'origin', defaultBranch], { cwd: repoPath, timeout: 30_000 }).catch(() => undefined);
+  }
   const [{ packageManager, scripts }, verifyCommand, base] = await Promise.all([
     detectScripts(repoPath),
     resolveVerifyCommand(repoPath),
@@ -260,6 +286,15 @@ async function openMr(exec: FactoryExec, repoPath: string, plan: FactoryPlan, br
 
 /** The `.gitlab-ci.yml` text with the include added; `undefined` when its `include:` is in a form not safe to edit (the MR then adds only the include file and says so). */
 function withInclude(ci: string): string | undefined {
+  const edited = spliceInclude(ci);
+  if (edited === undefined) return undefined;
+  // The edit must parse, wire the file and leave no empty entry; an indented or flow-style root can break the textual splice.
+  const include = rootValue(edited, 'include');
+  const hasNull = isSeq(include) && include.items.some((item) => item === null || (isScalar(item) && item.value === null));
+  return wired(edited) && !hasNull ? edited : undefined;
+}
+
+function spliceInclude(ci: string): string | undefined {
   if (ci.trim() === '') return INCLUDE_LINES;
   const docs = pipelineYaml(ci);
   const doc = docs?.at(-1);
@@ -280,17 +315,20 @@ function withInclude(ci: string): string | undefined {
       return `${ci.slice(0, at)}- local: ${GITLAB_INCLUDE_FILE}\n${indent}${ci.slice(at)}`;
     }
     pair.value.add(entry);
+  } else if (pair.value === null || (isScalar(pair.value) && pair.value.value === null)) {
+    // `include:` with no value: nothing to keep.
+    const include = new YAMLSeq();
+    include.items = [entry];
+    pair.value = include;
   } else if (isScalar(pair.value) && pair.value.range && !ci.slice(pair.value.range[0], pair.value.range[1]).includes('\n')) {
     // `include: x.yml`: only the value becomes a list, the rest of the file stays byte for byte.
     const [from, to] = pair.value.range;
     return `${ci.slice(0, from).trimEnd()}\n  - ${ci.slice(from, to)}\n  - local: ${GITLAB_INCLUDE_FILE}${ci.slice(to)}`;
-  } else if (pair.value !== null) {
+  } else {
     // A mapping or an inline list: rewritten through the YAML library, which may restyle the file.
     const include = new YAMLSeq();
     include.items = [pair.value, entry];
     pair.value = include;
-  } else {
-    return undefined;
   }
   return docs.map((item) => item.toString({ lineWidth: 0 })).join('');
 }
@@ -340,7 +378,7 @@ export async function applyGitlabFactory(repoPath: string, plan: FactoryPlan, de
     const written: string[] = [];
     if (!base.includeFile) {
       await mkdir(join(repoPath, '.gitlab'), { recursive: true });
-      await writeFile(join(repoPath, GITLAB_INCLUDE_FILE), (await readFile(TEMPLATE, 'utf8')).replaceAll(LOGIN_PLACEHOLDER, plan.login));
+      await writeFile(join(repoPath, GITLAB_INCLUDE_FILE), (await readFile(TEMPLATE, 'utf8')).replaceAll(LOGIN_PLACEHOLDER, plan.login).replace(/^ {2}stage: test$/m, `  stage: ${factoryStage(base.ci)}`));
       written.push(GITLAB_INCLUDE_FILE);
     }
     const canEditCi = ciPath === GITLAB_CI_FILE && plan.gitlabManualInclude !== true;
@@ -367,7 +405,8 @@ export async function applyGitlabFactory(repoPath: string, plan: FactoryPlan, de
       await exec('glab', ['label', 'create', '--name', label.name, '--color', `#${label.color}`, '--repo', plan.repoSlug], { cwd: repoPath });
     } catch (err) {
       // A label that already exists is what we want; anything else (permission, sign-in) is not.
-      const text = `${String((err as { stderr?: unknown }).stderr ?? '')} ${String((err as { message?: unknown }).message ?? '')}`;
+      // stderr only: `message` carries argv, and a project path such as `team/mistaken` would match.
+      const text = String((err as { stderr?: unknown }).stderr ?? '');
       if (!/already|taken|exists/i.test(text)) throw new BadRequestError(plainSentence(err));
     }
     labelsCreated.push(label.name);

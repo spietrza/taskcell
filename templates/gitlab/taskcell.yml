@@ -4,7 +4,8 @@
 # Runner: needs a runner that can start the docker:dind service (privileged). Variables (Settings >
 # CI/CD > Variables): CLAUDE_CODE_OAUTH_TOKEN and GITLAB_TOKEN, both masked and protected.
 # GITLAB_TOKEN needs to read and comment on issues and MRs and push branches. The glab checksums
-# below belong to GLAB_VERSION; change them together.
+# below belong to GLAB_VERSION; change them together. They are NOT verified by CI (no workflow builds
+# the hub image or downloads the .deb): check them with `docker build` on amd64 and arm64 after a change.
 #
 # These jobs run only in pipelines that YOUR_GITLAB_LOGIN started with a factory variable, so they
 # never join your own pipelines: TASKCELL_DOCTOR=true (the hub's "Run doctor") for the doctor,
@@ -12,6 +13,13 @@
 # that variable, owned by the same user).
 
 .taskcell-base:
+  # `test` is GitLab's default stage; the hub swaps in a stage the project has when its `stages:` lacks `test`.
+  stage: test
+  # Do not pick up the including project's `default:` (image, hooks, tags...) or global `variables:` (GIT_STRATEGY...):
+  # the credential-carrying jobs never go to a runner the project's defaults pick.
+  inherit:
+    default: false
+    variables: false
   image: node:24-bookworm
   services:
     - name: docker:27-dind

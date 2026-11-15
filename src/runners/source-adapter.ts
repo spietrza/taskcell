@@ -639,9 +639,10 @@ export async function runSourcedIssue(
         deps.onEvent?.(event);
       };
       persistProviderStop = async (): Promise<void> => {
-        // A repair runs after its stage returned: a record under that stage's name would overwrite the real one.
+        // A step after its stage returned (e.g. a repair): a record under that stage's name would overwrite the real one.
+        // `after-<stage>` cannot collide with a flow stage name.
         const stopped: StageOutcome = {
-          name: outcomes.some((outcome) => outcome.name === activeStage) ? 'repair' : activeStage,
+          name: outcomes.some((outcome) => outcome.name === activeStage) ? `after-${activeStage}` : activeStage,
           result: {
             taskId: task.id,
             completed: false,

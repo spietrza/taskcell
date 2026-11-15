@@ -173,6 +173,15 @@ describe('createRun always runs with the LLM proxy (#584)', () => {
   const NO_CLAUDE = { CLAUDE_CODE_OAUTH_TOKEN: undefined, ANTHROPIC_API_KEY: undefined };
   const CODEX_SUB = { CODEX_AUTH_JSON: '{"tokens":{"access_token":"t"}}' };
 
+  it('checkRun refuses a run with no model credential as a bad request, and passes once one is set', async () => {
+    const repoPath = await plainRepo();
+    const deps = productionDeps();
+    setEnv({ ...NO_CLAUDE });
+    await expect(deps.checkRun!({ issueRef: 'o/r#1', repoPath, provider: 'claude' })).rejects.toMatchObject({ name: 'BadRequestError', message: expect.stringContaining('before running') });
+    setEnv({ ...NO_CLAUDE, CLAUDE_CODE_OAUTH_TOKEN: 'sk-ant-oat01-x' });
+    await expect(deps.checkRun!({ issueRef: 'o/r#1', repoPath, provider: 'claude' })).resolves.toBeUndefined();
+  });
+
   it('a Claude subscription run is proxied: the runner gets the nonce dep, never the token', async () => {
     const repoPath = await plainRepo();
     const deps = productionDeps();

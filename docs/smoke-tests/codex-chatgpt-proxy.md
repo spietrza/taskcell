@@ -5,6 +5,7 @@ Proves that Codex on a ChatGPT subscription (`CODEX_AUTH_JSON`) reviews a PR beh
 ## Prerequisites
 
 - `CODEX_AUTH_JSON="$(cat ~/.codex/auth.json)"` from a `codex login` on a ChatGPT Plus/Pro account (`auth_mode: chatgpt`), exported on the host.
+- No Claude, z.ai or OpenRouter key is needed: with `--provider codex` and no stage on another provider, `--llm-proxy` starts only the Codex (ChatGPT) sidecar. This holds for `review-pr`, `review-mr` and `research`; a stage on Claude, z.ai or OpenRouter would need its own credential, and the run says which provider asks for it.
 - Docker with the sandbox image built (`docker image ls taskcell-sandbox` lists `taskcell-sandbox:latest`), `GH_TOKEN`, and an open PR in `OWNER/REPO` that is safe to comment on. In the command below replace `OWNER/REPO#PR` with that PR (e.g. `acme/widgets#42`) and `/path/to/clone` with a local clone. `review-pr` takes the provider from `--provider`.
 - Local run (not CI), so a rotation is written back to `~/.codex/auth.json` (override: `CODEX_AUTH_FILE`).
 

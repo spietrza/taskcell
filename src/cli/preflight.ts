@@ -1,6 +1,6 @@
 import { execa } from 'execa';
 import { authFromEnv } from '../agents/auth.js';
-import { assertProvidersResolvable, claudeCliKeyEnv, needsAnthropicAuth, providerSecrets, requiresApiKey, validateProviderChoice } from '../agents/registry.js';
+import { assertProvidersResolvable, claudeCliKeyEnv, llmProxyNeedsNoPrimarySidecar, needsAnthropicAuth, providerSecrets, requiresApiKey, validateProviderChoice } from '../agents/registry.js';
 import { loadCustomProviders } from '../agents/custom.js';
 import { SANDBOX_CLAUDE_VERSION, isOlderVersion, resolveSandboxImage, sandboxImage } from '../sandbox/docker.js';
 import { isKnownGitlabRemote, parseGitlabProjectFromRemote, redactRemote, remoteHostname } from '../runners/gitlab.js';
@@ -239,6 +239,12 @@ function collectProviders(cmd: PreflightCommand, customs: readonly CustomProvide
   return candidates.filter((name): name is string => name !== undefined && requiresApiKey(name, customs));
 }
 
+/** review-pr/review-mr start no primary sidecar when every credential routes to its own sidecar (Codex-only). */
+function reviewOnlyProxyNeedsNoPrimary(cmd: PreflightCommand, env: NodeJS.ProcessEnv, customs: Awaited<ReturnType<typeof loadCustomProviders>>): boolean {
+  if (cmd.kind !== 'doctor-prs' && cmd.kind !== 'doctor-mrs' && cmd.kind !== 'watch-mrs') return false;
+  return llmProxyNeedsNoPrimarySidecar({ ...(cmd.provider !== undefined ? { provider: cmd.provider } : {}), ...secondaryProviders(cmd), customProviders: customs }, env);
+}
+
 /** Run AFK-readiness checks before a watch loop can claim work. */
 export async function runPreflight(cmd: PreflightCommand, opts: PreflightOptions = {}): Promise<PreflightReport> {
   const env = opts.env ?? process.env;
@@ -270,7 +276,7 @@ export async function runPreflight(cmd: PreflightCommand, opts: PreflightOptions
       // Codex/Cursor-only consumes no Anthropic credential in direct mode (#391); --llm-proxy still needs
       // one for the primary sidecar. Mirrors agentAuthFromEnv so preflight stops exactly when the run would.
       const anthropicNeeded =
-        cmd.llmProxy === true ||
+        (cmd.llmProxy === true && !reviewOnlyProxyNeedsNoPrimary(cmd, env, customs)) ||
         needsAnthropicAuth({
           ...(cmd.provider !== undefined ? { provider: cmd.provider } : {}),
           ...secondaryProviders(cmd),
