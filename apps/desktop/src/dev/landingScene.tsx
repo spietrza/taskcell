@@ -110,7 +110,13 @@ export async function renderHubScene(): Promise<HubScene> {
     const wrap = btn.parentElement!;
     const id = btn.firstElementChild!.querySelector('.font-mono')?.firstChild?.textContent?.trim() ?? '';
     hook(wrap, 'card', id);
-    if (id === card.id) hook(wrap, 'open');
+    if (id === card.id) {
+      hook(wrap, 'open');
+      // The card's own lines that follow its column: the running stage and the tracker state.
+      const lines = [...btn.firstElementChild!.firstElementChild!.children];
+      hook(lines.find((l) => (l.textContent ?? '').startsWith('stage: ')), 'stage');
+      hook(lines.at(-1), 'state');
+    }
   }
   hook(columns[0]?.closest('section')?.parentElement, 'lanes');
   hook(columns.flatMap((c) => [...c.querySelectorAll('div.border-dashed')])[0], 'empty');
