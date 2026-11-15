@@ -21,6 +21,11 @@ export async function lowerFlow(
   const out: PipelineStage[] = [];
   for (const decl of doc.stages) {
     const base = await resolveBase(decl, opts.repoPath);
+    // The run records a stage under its lowered name (a `ref` export's own `name`, not the HCL block's), and
+    // `after-<stage>` names the provider-stop record of a step after its stage (persistProviderStop).
+    if (base.name.startsWith('after-')) {
+      throw new Error(`stage name "${base.name}" is reserved: the "after-" prefix is used for records of steps after a stage`);
+    }
     out.push(applyOverrides(base, decl.overrides, opts.customProviders));
   }
   return out;

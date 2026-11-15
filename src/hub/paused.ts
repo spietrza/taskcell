@@ -155,7 +155,8 @@ export async function retryPausedTask(repoSlug: string, number: number, triggerL
   const names = issue.labels.map((l) => l.name);
   const held = names.filter((x) => sameLabel(x, GITHUB_RATE_LIMITED_LABEL));
   if (held.length === 0) throw new BadRequestError(`#${n} is not paused by a provider limit; nothing was changed.`);
-  const started = names.filter((x) => STARTED_LABELS.some((s) => sameLabel(s, x)));
+  const isStarted = (x: string): boolean => STARTED_LABELS.some((s) => sameLabel(s, x));
+  const started = names.filter(isStarted);
   if (started.length > 0) throw new BadRequestError(`#${n} is already running or queued (${started.join(', ')}); nothing was changed.`);
   const marker = await ownRateLimitMarker(repoSlug, 'issue', number, gh);
   if (marker === undefined) throw new BadRequestError(`#${n} has no rate-limit marker from the factory, so the trigger to re-apply is unknown; re-apply it on GitHub.`);
@@ -176,10 +177,11 @@ export async function retryPausedTask(repoSlug: string, number: number, triggerL
     // already re-triggered the issue, and adding the trigger again would fire a second `labeled` event.
     const now = (JSON.parse(await gh(['api', `repos/${repoSlug}/issues/${n}`])) as { labels: { name: string }[] }).labels.map((l) => l.name);
     if (!now.some((x) => sameLabel(x, GITHUB_RATE_LIMITED_LABEL))) {
-      // The hold went away meanwhile: succeed only if a run started (a `labeled` event fired and was claimed), not if a
-      // person just removed the hold or a stale trigger is on it. A re-read landing inside the sweep's own
-      // remove/re-add of the trigger is refused too; nothing was changed and the sweep is re-triggering anyway.
-      const retriggered = now.some((x) => STARTED_LABELS.some((s) => sameLabel(s, x)));
+      // The hold went away meanwhile: succeed only if something re-triggered the issue (the sweep), not if a person
+      // just removed the hold. Re-triggered means a run started (a started label), or the recorded trigger is on now
+      // but was not at the first read (freshly added); a trigger that was already there is stale and does not count.
+      const isTrigger = (x: string): boolean => x.toLowerCase() === trigger.toLowerCase();
+      const retriggered = now.some(isStarted) || (now.some(isTrigger) && !names.some(isTrigger));
       if (!retriggered) throw new NoLongerPaused(`#${n} is no longer paused; nothing was changed.`);
       return { label: trigger };
     }

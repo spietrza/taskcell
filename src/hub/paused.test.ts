@@ -190,8 +190,14 @@ test('two reads within the cache window spawn one set of calls, the two spelling
 });
 
 test('Retry now does not report success when only a stale trigger is left after the hold was removed', async () => {
-  const { gh, calls } = fakeGh({ labels: ['taskcell:rate-limited'], labelsOnReread: ['ready for agent'], comments: [{ author: 'factory-bot', body: marker() }] });
+  const { gh, calls } = fakeGh({ labels: ['taskcell:rate-limited', 'ready for agent'], labelsOnReread: ['ready for agent'], comments: [{ author: 'factory-bot', body: marker() }] });
   await expect(retryPausedTask('o/r', 7, triggers, gh)).rejects.toThrow(/no longer paused/);
+  expect(edits(calls)).toEqual([]);
+});
+
+test('Retry now succeeds when the scheduled resume freshly re-triggered the issue, the label differing only in case', async () => {
+  const { gh, calls } = fakeGh({ labels: ['taskcell:rate-limited'], labelsOnReread: ['Ready for agent'], comments: [{ author: 'factory-bot', body: marker() }] });
+  expect(await retryPausedTask('o/r', 7, triggers, gh)).toEqual({ label: 'ready for agent' });
   expect(edits(calls)).toEqual([]);
 });
 
