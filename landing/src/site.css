@@ -291,9 +291,10 @@ p { max-width: 62ch; }
 
 /* ---------- Hub preview: the app's own markup and CSS (hub-app.css, built from apps/desktop), framed ---------- */
 .preview-note { grid-column: 1 / -1; margin-top: 16px; font-size: 16px; color: var(--muted); }
-.hub { grid-column: 1 / -1; margin-top: 40px; background: var(--surface); border: 1px solid var(--line-strong); font-size: 14px; line-height: 1.4; }
-.hub-top { display: flex; justify-content: space-between; align-items: center; gap: 12px; padding: 12px 16px; border-bottom: 1px solid var(--line); }
-.hub-top b { font-family: var(--font-display); font-size: 15px; }
+.hub { position: relative; grid-column: 1 / -1; margin-top: 40px; background: var(--surface); border: 1px solid var(--line-strong); font-size: 14px; line-height: 1.4; }
+/* One title bar: over the app's own top bar on desktop (its banner and the page's strip are folded in), its own row on a phone. */
+.hub-top { position: absolute; top: 0; right: 0; z-index: 2; height: 57px; display: flex; align-items: center; gap: 16px; padding: 0 16px; border-bottom: 1px solid transparent; }
+.hub-top b { display: none; font-family: var(--font-display); font-size: 15px; }
 .hub-top .pause { position: static; }
 .hub-top span { margin-left: auto; font-family: var(--font-mono); font-size: 13px; letter-spacing: 0.06em; text-transform: uppercase; color: var(--muted); }
 /* Kept from the old preview: the plans' tags. */
@@ -302,12 +303,26 @@ p { max-width: 62ch; }
 .hub-app { height: 640px; overflow: hidden; }
 .hub-app > div { height: 100%; }
 .hub-gone { display: none !important; }
+/* The page's bar carries "Sample data" and the pause control: the app's demo banner is hidden, and its header leaves room. */
+.hub-app > div > [role="status"] { display: none; }
+.hub-app > div > header { height: 57px; padding-right: 290px; }
+/* Six columns beside the drawer: a narrower rail and drawer, columns that may shrink to fit. */
+@media (min-width: 768px) {
+  .hub-app > div > div > aside[data-open] { width: 9rem; }
+  .hub-app [data-hub-drawer] { width: 17rem; }
+  .hub-app [data-hub-col] { width: auto; min-width: 0; max-width: none; flex: 1 1 0; }
+}
 /* Light page: the theme button shows the sun, as the app does in its light theme. */
 :root[data-theme="light"] .hub-app [aria-label="Switch to light mode"] > span:first-child { opacity: 1; scale: 1; }
 :root[data-theme="light"] .hub-app [aria-label="Switch to light mode"] > span:last-child { opacity: 0; scale: 0.75; }
 /* The app moves its card drawer to a bottom sheet below md; here it stays in the window, in place of the Board. */
 @media (max-width: 767px) {
   .hub-app { height: 600px; }
+  .hub-top { position: static; height: auto; padding: 12px 16px; border-bottom-color: var(--line); }
+  .hub-top b { display: block; }
+  .hub-app > div > header { display: none; }
+  .hub-app aside[data-open] > div:first-child { display: none; }
+  .hub-app [data-hub-feed] { display: none; }
   .hub-app [data-hub-lanes] { display: none; }
   .hub-app [data-hub-drawer] { position: static !important; max-height: none !important; width: auto !important; flex: 1 1 auto; border: 0; border-radius: 0; box-shadow: none; }
 }
