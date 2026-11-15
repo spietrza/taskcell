@@ -15,6 +15,7 @@ import { ScheduleEditor, ScheduleLines } from './Schedule';
 
 /** A paused pull request's card (`gh-pr-N`): it is not an issue, so the issue-only actions (skills, full page) are not offered. */
 export const isPullRequestCard = (id: string): boolean => /^gh-pr-\d+$/i.test(id);
+export const isInvalidHubCard = (id: string): boolean => id === 'hub-invalid';
 
 export const TRACKER_NAME = { github: 'GitHub', gitlab: 'GitLab', linear: 'Linear' } as const;
 
@@ -218,7 +219,7 @@ export function QuickView({
           </section>
         )}
 
-        {task.schedule !== undefined && onChanged !== undefined ? (
+        {task.schedule !== undefined && !isInvalidHubCard(task.id) && onChanged !== undefined ? (
           <ScheduleEditor repoPath={repoPath} task={task} onSaved={onChanged} />
         ) : (
           (!!task.blockedBy?.length || task.startDate !== undefined) && (
@@ -253,7 +254,7 @@ export function QuickView({
       <div className="flex shrink-0 flex-wrap items-center gap-2 border-t border-border/60 bg-background p-3">
         {item?.kind === 'pr' && <MergeButton project={repoPath} item={item} onMerged={reload} />}
         {prUrl !== undefined && <ExternalLink href={prUrl}>{`Open in ${hostName(prUrl)}`}</ExternalLink>}
-        {!isPullRequestCard(task.id) && (
+        {!isPullRequestCard(task.id) && !isInvalidHubCard(task.id) && (
           <Button className="ml-auto" variant="outlined" onClick={onFullPage}>
             Full page
           </Button>

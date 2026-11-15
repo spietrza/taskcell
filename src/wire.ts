@@ -95,6 +95,8 @@ export interface CreateRunResult {
   branch?: string;
   /** The run stopped before implementing because the base branch's verify command already fails. */
   baseRed?: boolean;
+  /** The result was delivered (a PR or a local branch) but its verify command failed. */
+  verificationFailed?: boolean;
 }
 
 /** Per-stage routing/budget overrides expressible in HCL (snake_case keys map to these camelCase fields). */

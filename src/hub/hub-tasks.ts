@@ -161,13 +161,16 @@ export async function listHubBoards(configDir: string): Promise<string[]> {
   return out;
 }
 
-export function createHubTask(configDir: string, repoPath: string, input: { title: string; body?: string; owner: HubTaskOwner }): Promise<HubTask> {
+export function createHubTask(configDir: string, repoPath: string, input: { title: string; body?: string; blockedBy?: string[]; startDate?: string; owner: HubTaskOwner }): Promise<HubTask> {
+  if (input.startDate !== undefined && parseStart(input.startDate) === undefined) throw new BadRequestError('startDate must be YYYY-MM-DD or an ISO date-time with a zone');
   const file = fileFor(configDir, repoPath);
   return lock(file, async () => {
     const store = await read(file);
     if (store.tasks.length >= MAX_TASKS) throw new BadRequestError(`this board already holds ${MAX_TASKS} tasks`);
-    const n = Math.max(0, ...store.tasks.map((t) => Number(t.id.slice(4)))) + 1;
-    const task: HubTask = { id: `hub-${n}`, title: input.title, body: input.body ?? '', status: 'todo', blockedBy: [], owner: input.owner };
+    // Numbered past invalid entries too: an id a hand edit left in the file is never reused.
+    const used = [...store.tasks, ...store.invalid].map((t) => Number(/^hub-(\d+)$/.exec(String((t as { id?: unknown } | null)?.id))?.[1] ?? 0));
+    const n = Math.max(0, ...used) + 1;
+    const task: HubTask = { id: `hub-${n}`, title: input.title, body: input.body ?? '', status: 'todo', blockedBy: input.blockedBy ?? [], owner: input.owner, ...(input.startDate !== undefined ? { startDate: input.startDate } : {}) };
     store.tasks.push(task);
     await save(file, repoPath, store);
     return task;
@@ -204,8 +207,9 @@ export async function updateHubTask(configDir: string, repoPath: string, id: str
 }
 
 /**
- * A `running` task with no live run goes back to `todo`: its run died with the hub process (the run session's active
- * run and queue are in memory only). `isLive` names the tasks this process still holds a run for.
+ * A `running` task with no live run is marked `failed`: its run died with the hub process (the run session's active
+ * run and queue are in memory only), and it may already have pushed a branch or opened a pull request, so it is not
+ * started again on its own; a person presses Retry. `isLive` names the tasks this process still holds a run for.
  */
 export function resetStaleRunning(configDir: string, repoPath: string, isLive: (id: string) => boolean = () => false): Promise<string[]> {
   const file = fileFor(configDir, repoPath);
@@ -214,9 +218,9 @@ export function resetStaleRunning(configDir: string, repoPath: string, isLive: (
     const stale = store.tasks.filter((t) => t.status === 'running' && !isLive(t.id));
     if (stale.length === 0) return [];
     for (const t of stale) {
-      t.status = 'todo';
+      t.status = 'failed';
       delete t.runId;
-      t.reason = 'its run ended with the hub process before it finished; it starts again';
+      t.reason = 'its run ended with the hub process before it finished; it may already have pushed a branch or opened a pull request (check the repository), then press Retry to run it again';
     }
     await save(file, repoPath, store);
     return stale.map((t) => t.id);

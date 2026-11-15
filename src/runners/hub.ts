@@ -36,6 +36,6 @@ export function hubAdapter(stored: StoredHubTask, deps: RunIssueDeps, repoSlug: 
 
 /** Run one hub-board task end to end: the canonical pipeline on the stored title and body, then a PR or a local branch. */
 export async function runHubTask(stored: StoredHubTask, deps: RunIssueDeps): Promise<RunIssueResult> {
-  const repoSlug = process.env.GITHUB_REPO ?? (await detectRepoSlug(deps.repoPath).catch(() => undefined));
+  const repoSlug = await detectRepoSlug(deps.repoPath).catch(() => undefined);
   return runSourcedIssue(stored.id, deps, hubAdapter(stored, deps, repoSlug));
 }

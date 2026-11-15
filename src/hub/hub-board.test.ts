@@ -153,15 +153,16 @@ test('a refusal before the run session takes the run leaves the task todo with t
   expect((await listHubTasks(cfg, repo))[0]?.reason).toBeUndefined();
 });
 
-test('a running task with no live run goes back to todo', async () => {
+test('a running task with no live run is failed, not re-run', async () => {
   await add('A');
   await editHubTask(cfg, repo, 'hub-1', (t) => { t.status = 'running'; t.runId = 'run-3'; });
   expect(await resetStaleRunning(cfg, repo)).toEqual(['hub-1']);
-  expect((await listHubTasks(cfg, repo))[0]).toMatchObject({ status: 'todo', reason: expect.stringContaining('hub process') });
+  expect((await listHubTasks(cfg, repo))[0]).toMatchObject({ status: 'failed', reason: expect.stringContaining('hub process') });
   expect((await listHubTasks(cfg, repo))[0]?.runId).toBeUndefined();
-  // The tick does the same for a task this process holds no run for, and then starts it.
+  // The tick does the same for a task this process holds no run for, and does not start it.
   await editHubTask(cfg, repo, 'hub-1', (t) => { t.status = 'running'; });
-  expect(await scheduleTick(cfg, repo, manualStart().start, { limit: 1 })).toEqual(['hub-1']);
+  expect(await scheduleTick(cfg, repo, manualStart().start, { limit: 1 })).toEqual([]);
+  expect((await listHubTasks(cfg, repo))[0]).toMatchObject({ status: 'failed' });
 });
 
 test('a future start date is not started even with a free slot', async () => {
