@@ -62,6 +62,19 @@ describe('mergeBaseIntoWorktree', () => {
     expect((await g(['status', '--porcelain'])).stdout).toBe('');
   });
 
+  it('mergeClean: a base that changed CI config is not merged, even when the merge is clean', async () => {
+    await writeFile(join(repo, 'a.txt'), 'a\n');
+    await commit('feature');
+    await landOnMain(async () => {
+      await mkdir(join(repo, '.github', 'workflows'), { recursive: true });
+      await writeFile(join(repo, '.github', 'workflows', 'ci.yml'), 'on: push\n');
+    });
+    const head = (await g(['rev-parse', 'HEAD'])).stdout;
+    expect(await mergeBaseIntoWorktree(repo, 'main', { mergeClean: true })).toEqual({ status: 'skipped', reason: expect.stringContaining('base changed CI config') });
+    expect((await g(['rev-parse', 'HEAD'])).stdout).toBe(head);
+    expect((await g(['status', '--porcelain'])).stdout).toBe('');
+  });
+
   it('conflict: commits a merge taking the branch side, leaving only the marked file as an uncommitted edit', async () => {
     await writeFile(join(repo, 'shared.txt'), 'feature\n');
     await commit('feature');

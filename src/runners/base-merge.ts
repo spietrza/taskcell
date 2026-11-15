@@ -66,13 +66,17 @@ export async function mergeBaseIntoWorktree(worktreePath: string, base: string, 
   assertSafeBaseBranch(base);
   const identity = ['-c', `user.name=${opts.authorName ?? 'Taskcell'}`, '-c', `user.email=${opts.authorEmail ?? 'vanguard@local'}`];
   const probe = await probeBase(worktreePath, base, opts.remote ?? 'origin');
-  if (probe.status === 'clean' && opts.mergeClean === true) return await mergeCleanBase(worktreePath, identity);
-  if (probe.status !== 'conflicted') return probe;
-  const { tree, files: probed } = probe;
+  if (probe.status === 'clean' ? opts.mergeClean !== true : probe.status !== 'conflicted') return probe;
   // A merge commit carrying the base's CI-config changes into the branch is a workflow update the push
   // token may not make (GitHub rejects the push and the run's work is lost): leave it to a human.
   const ciPathsIn = async (range: string): Promise<string[]> => (await gitPaths(worktreePath, ['diff', '--name-only', '-z', range])).filter((p) => isCiConfigPath(p));
   const ciPaths = await ciPathsIn('HEAD...FETCH_HEAD');
+  if (probe.status === 'clean') {
+    // A clean merge commit would carry those CI files too: merge nothing and leave the branch put.
+    return ciPaths.length > 0 ? { status: 'skipped', reason: 'the base changed CI config, which a merge commit would carry into the branch' } : await mergeCleanBase(worktreePath, identity);
+  }
+  if (probe.status !== 'conflicted') return probe;
+  const { tree, files: probed } = probe;
   if (ciPaths.length > 0) {
     // The hold names the code conflicts and why the branch stays put, never the base's CI files (the branch did not change them).
     const hold = (reason: string): BaseMerge => ({ status: 'conflicted', files: probed, unresolvable: probed, reason });
