@@ -141,35 +141,50 @@ export async function startLlmProxy(opts: {
     if ('kind' in auth) {
       const { refreshToken } = auth;
       // Tracked so SIGINT/SIGTERM runs the same teardown: a cancelled run still hands a rotation back.
+      // Relay and hand-back run once even when the removal is retried: a second pass would report the
+      // already handed-back token as "nothing written back" and append a second CI note.
+      const report = async (): Promise<void> => {
+        // Each step is best effort: the container holding the real credential must always be removed.
+        // Only stderr is routed to the container log (see forwardLogs), so the tail is small.
+        const logs = await docker(['logs', '--tail', '200', name]).catch(() => undefined);
+        let lines = new Set<string>();
+        for (const raw of `${logs?.stdout ?? ''}\n${logs?.stderr ?? ''}`.split('\n')) {
+          // The sidecar faces the untrusted cell: strip control characters and cap what reaches the host terminal.
+          const line = raw.replace(CONTROL_CHARS, '').slice(0, MAX_RELAYED_LINE);
+          // A later successful refresh makes the failures before it moot.
+          if (line === REFRESH_RECOVERED) lines = new Set();
+          else if (line.startsWith(REFRESH_REFUSED_PREFIX) || line.startsWith(REFRESH_FAILED_PREFIX)) lines.add(line);
+        }
+        // A refusal is an error; a failed exchange that may pass is a warning (the run may have succeeded).
+        // The sidecar cannot know where the credential came from, so the host adds the CI or hub advice.
+        const advice = isCi(opts.env ?? process.env) ? CI_ADVICE : HUB_ADVICE;
+        for (const line of lines) {
+          if (line.startsWith(REFRESH_REFUSED_PREFIX)) console.error(`${line} ${advice}`);
+          else console.warn(line);
+        }
+        const rotated = await docker(['exec', name, 'cat', CHATGPT_AUTH_FILE]).catch(() => undefined);
+        if (rotated?.exitCode === 0 && rotated.stdout !== '') await reportRotation(rotated.stdout, refreshToken, opts.env);
+      };
+      let reported: Promise<void> | undefined;
       const teardown = async (): Promise<void> => {
         untrackSandbox(tracked);
+        const first = reported === undefined;
+        reported ??= report();
         try {
-          // Each step is best effort: the container holding the real credential must always be removed.
-          // Only stderr is routed to the container log (see forwardLogs), so the tail is small.
-          const logs = await docker(['logs', '--tail', '200', name]).catch(() => undefined);
-          let lines = new Set<string>();
-          for (const raw of `${logs?.stdout ?? ''}\n${logs?.stderr ?? ''}`.split('\n')) {
-            // The sidecar faces the untrusted cell: strip control characters and cap what reaches the host terminal.
-            const line = raw.replace(CONTROL_CHARS, '').slice(0, MAX_RELAYED_LINE);
-            // A later successful refresh makes the failures before it moot.
-            if (line === REFRESH_RECOVERED) lines = new Set();
-            else if (line.startsWith(REFRESH_REFUSED_PREFIX) || line.startsWith(REFRESH_FAILED_PREFIX)) lines.add(line);
-          }
-          // A refusal is an error; a failed exchange that may pass is a warning (the run may have succeeded).
-          // The sidecar cannot know where the credential came from, so the host adds the CI or hub advice.
-          const advice = isCi(opts.env ?? process.env) ? CI_ADVICE : HUB_ADVICE;
-          for (const line of lines) {
-            if (line.startsWith(REFRESH_REFUSED_PREFIX)) console.error(`${line} ${advice}`);
-            else console.warn(line);
-          }
-          const rotated = await docker(['exec', name, 'cat', CHATGPT_AUTH_FILE]).catch(() => undefined);
-          if (rotated?.exitCode === 0 && rotated.stdout !== '') await reportRotation(rotated.stdout, refreshToken, opts.env);
+          // A retry only needs the removal; the first pass's report error was already raised.
+          await (first ? reported : reported.catch(() => undefined));
         } finally {
-          await sidecar.destroy();
+          try {
+            await sidecar.destroy();
+          } catch (e) {
+            // Still holds the real credential: keep it tracked so a signal sweep retries the removal.
+            trackSandbox(tracked, { proxy: true });
+            throw e;
+          }
         }
       };
-      // Once only: a signal and the runner's `finally` can both ask; the second gets the first's promise,
-      // so nothing is reported twice and no second hand-back races the first.
+      // A signal and the runner's `finally` can both ask; the second gets the first's promise, so no second
+      // hand-back races the first. A failed removal is retried by the next destroy(); the report is not repeated.
       let done: Promise<void> | undefined;
       const tracked = {
         destroy: (): Promise<void> => {

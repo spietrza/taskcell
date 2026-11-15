@@ -340,6 +340,26 @@ describe('startProviderProxies', () => {
       expect(rmCalls).toBe(2);
     });
 
+    it('a failed removal stays tracked for the signal sweep, and the retry does not repeat the relay or hand-back', async () => {
+      const d = dockerWith('');
+      const base = d.run;
+      let rmCalls = 0;
+      let logsCalls = 0;
+      d.run = async (args, opts) => {
+        if (args[0] === 'logs') logsCalls++;
+        if (args[0] === 'rm') {
+          rmCalls++;
+          if (rmCalls === 1) throw new Error('rm failed');
+        }
+        return base(args, opts);
+      };
+      const proxies = await startProviderProxies({ proxySecrets: { codexChatgpt: REAL_CHATGPT_AUTH }, network: 'n', docker: d.run, env: { CODEX_AUTH_FILE: '/nonexistent/auth.json' } });
+      await expect(proxies.destroy()).rejects.toThrow('rm failed');
+      expect(await destroyAllTracked()).toBeGreaterThan(0);
+      expect(rmCalls).toBe(2);
+      expect(logsCalls).toBe(1);
+    });
+
     it('still hands back and tears the container down when docker logs throws', async () => {
       const warn = vi.spyOn(console, 'warn').mockImplementation(() => {});
       try {
