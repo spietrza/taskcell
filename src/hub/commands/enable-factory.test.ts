@@ -22,10 +22,10 @@ describe('enable_factory RPCs', () => {
     scripts: { typecheck: true, lint: true, test: true, build: true },
   };
 
-  function spyProvider(existing?: string[]): { seen: FactoryPlan[]; mock: ReturnType<typeof vi.spyOn> } {
+  function spyProvider(existing?: string[], extra: Partial<FactoryPlan> = {}): { seen: FactoryPlan[]; mock: ReturnType<typeof vi.spyOn> } {
     const seen: FactoryPlan[] = [];
     const mock = vi.spyOn(enableFactoryModule, 'enableFactory').mockImplementation(() => ({
-      plan: async () => ({ ...validPlan, ...enableFactoryModule.factoryPlanTargets(), ...(existing ? { existingCallerFiles: existing } : {}) }) as FactoryPlan,
+      plan: async () => ({ ...validPlan, ...enableFactoryModule.factoryPlanTargets(), ...(existing ? { existingCallerFiles: existing } : {}), ...extra }) as FactoryPlan,
       apply: async (plan) => {
         seen.push(plan);
         return { branch: 'vanguard/enable-factory', prUrl: 'https://github.com/acme/widgets/pull/1', labelsCreated: [] };
@@ -173,6 +173,20 @@ describe('enable_factory RPCs', () => {
       const state = (await dispatchRpc(ctx, 'factory_state', { repoPath: repo })) as { steps: Array<{ id: string; status: string }>; doctor?: { status: string } };
       expect(state.doctor?.status).toBe('queued');
       expect(state.steps.find((x) => x.id === 'merged')?.status).toBe('done');
+    } finally {
+      mock.mockRestore();
+    }
+  });
+
+  test('verify refuses server-side without confirmation when the fresh plan lists rule-less jobs', async () => {
+    const repo = await tmpRepo();
+    const { ctx } = await makeCtx(repo);
+    const { seen, mock } = spyProvider(undefined, { gitlabUnruledJobs: ['deploy'] });
+    try {
+      await expect(dispatchRpc(ctx, 'enable_factory_verify', { repoPath: repo, plan: validPlan })).rejects.toThrow(/deploy/);
+      expect(seen).toEqual([]);
+      await dispatchRpc(ctx, 'enable_factory_verify', { repoPath: repo, plan: validPlan, confirmedJobs: ['deploy'] });
+      expect(seen).toHaveLength(1);
     } finally {
       mock.mockRestore();
     }

@@ -22,7 +22,7 @@ export interface EnableFactoryCommands {
    *  reads, prints or stores the secret value. */
   enable_factory_secret: { args: { repoPath: string; plan: FactoryPlan }; result: FactorySecretStep };
   /** HUB_ONLY: dispatch the doctor workflow, or start the doctor pipeline on GitLab (once the PR/MR above is merged) and report the run that dispatch created. */
-  enable_factory_verify: { args: { repoPath: string; plan: FactoryPlan }; result: FactoryVerifyResult };
+  enable_factory_verify: { args: { repoPath: string; plan: FactoryPlan; confirmedJobs?: string[] }; result: FactoryVerifyResult };
   /** HUB_ONLY: start (or restart) the project's persisted checklist from a freshly derived plan —
    *  used when the callers are already on the default branch and there is no PR to open. */
   enable_factory_start: { args: { repoPath: string; plan: FactoryPlan }; result: FactoryState };
@@ -126,6 +126,14 @@ export const commands = defineCommands<EnableFactoryCommands>({
     const plan = await provider.plan();
     if (plan.repoSlug !== shown.repoSlug) {
       throw new BadRequestError('the plan no longer matches the repository (repo changed); review the new plan and verify again');
+    }
+    // The pipeline also runs the project's own jobs that have no rules:; refuse unless the caller confirmed every one of them.
+    const seen = Array.isArray(args.confirmedJobs) ? args.confirmedJobs : [];
+    const unconfirmed = (plan.gitlabUnruledJobs ?? []).filter((job) => !seen.includes(job));
+    if (unconfirmed.length > 0) {
+      // Keep the fresh list in the record so the dialog shows what it must confirm.
+      await updateFactoryRecord(real, plan, (r) => ({ ...r, plan }));
+      throw new BadRequestError(`the doctor pipeline would also run ${unconfirmed.join(', ')} (no rules:); review the list and run the doctor again to confirm`);
     }
     const result = await provider.verify(plan);
     // A dispatched doctor means the callers are on the default branch.

@@ -279,7 +279,46 @@ describe('applyGitlabFactory', () => {
     const broken = fake({ fail: (c) => (c.file === 'git' && c.args[0] === 'add' ? fail('fatal: Unable to create /Users/me/app/.git/index.lock') : undefined) });
     const err = await applyGitlabFactory(await repo(), plan, { exec: broken.exec }).catch((e: Error) => e);
     expect((err as Error).message).not.toMatch(/fatal|index\.lock|Command failed/);
-    expect((err as Error).message).toMatch(/GitLab did not accept the request/);
+    expect((err as Error).message).toMatch(/git could not prepare the branch/);
+  });
+  it('does not read argv for the label "already exists" check', async () => {
+    const mistaken = { ...plan, repoSlug: 'team/mistaken' };
+    const denied = fake({ fail: (c) => (c.file === 'glab' && c.args[0] === 'label' ? Object.assign(new Error('glab label create --repo team/mistaken'), { stderr: 'HTTP 403 Forbidden' }) : undefined) });
+    await expect(applyGitlabFactory(await repo(), mistaken, { exec: denied.exec })).rejects.toThrow(/does not have permission/);
+  });
+  it('writes a stage the project has when its stages lack test', async () => {
+    const dir = await repo();
+    await applyGitlabFactory(dir, plan, { exec: fake({ show: { '.gitlab-ci.yml': 'stages: [build, deploy]\n' } }).exec });
+    expect(await readFile(join(dir, '.gitlab/taskcell.yml'), 'utf8')).toMatch(/\.taskcell-base:\n(?:.*\n)*?  stage: build\n(?:.*\n)*?  inherit:\n    default: \[tags\]\n    variables: false/);
+  });
+  it('turns an empty include: into a one-entry list', async () => {
+    const dir = await repo();
+    await applyGitlabFactory(dir, plan, { exec: fake({ show: { '.gitlab-ci.yml': 'include:\nstages: [a]\n' } }).exec });
+    const out = await readFile(join(dir, '.gitlab-ci.yml'), 'utf8');
+    expect(out).toMatch(/- local: \.gitlab\/taskcell\.yml/);
+    expect(out).not.toMatch(/-\s*\n/);
+  });
+  it('falls back to the manual include for an indented root map', async () => {
+    const p = await planGitlabFactory(await repo(), { exec: fake({ show: { '.gitlab-ci.yml': '  stages: [a]\n  job:\n    script: x\n' } }).exec });
+    expect(p.gitlabManualInclude).toBe(true);
+  });
+  it('still lists only:/except: jobs: they run in the doctor pipeline', async () => {
+    const ci = 'a:\n  only: [main]\n  script: x\nb:\n  script: y\nc:\n  rules:\n    - if: $X\n  script: z\n';
+    expect((await planGitlabFactory(await repo(), { exec: fake({ show: { '.gitlab-ci.yml': ci } }).exec })).gitlabUnruledJobs).toEqual(['a', 'b']);
+  });
+  it('fetches the default branch with a timeout before reading the plan', async () => {
+    const { exec, calls } = fake();
+    await planGitlabFactory(await repo(), { exec });
+    expect(calls.some((c) => c.file === 'git' && c.args.join(' ') === 'fetch origin main')).toBe(true);
+  });
+  it('keeps the first declared stage when test is missing, and test when present', async () => {
+    const dir = await repo();
+    await applyGitlabFactory(dir, plan, { exec: fake({ show: { '.gitlab-ci.yml': 'stages: [build, test]\n' } }).exec });
+    expect(await readFile(join(dir, '.gitlab/taskcell.yml'), 'utf8')).toMatch(/\n {2}stage: test\n/);
+  });
+  it('reports a missing git binary as git, not glab', async () => {
+    const broken = fake({ fail: (c) => (c.file === 'git' && c.args[0] === 'add' ? Object.assign(new Error('spawn git ENOENT'), { code: 'ENOENT' }) : undefined) });
+    await expect(applyGitlabFactory(await repo(), plan, { exec: broken.exec })).rejects.toThrow(/git is not installed/);
   });
   it('finds an open MR on an http self-hosted host', async () => {
     const { exec } = fake({ openMr: 'http://git.internal/acme/app/-/merge_requests/3' });
