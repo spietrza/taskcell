@@ -1,25 +1,14 @@
 import { failureReason } from '../core/errors.js';
 import { redactForPublish } from '../core/secret-scan.js';
-import { fanOut } from '../pipeline/fan-out.js';
-import { directiveLines, parseStartDate } from './dependencies.js';
+import { dedupeRefs, escalatesToNeedsInfo, evaluateDependencies, lookupFailed, parseStartDate, postUnlessRepeated, runDependencyGate, directiveLines } from './dependency-gate.js';
 import { commentLinearIssue, LinearGraphqlRequestError, linearGraphql, parseIdentifier } from './linear-cli.js';
-import type { StartDate } from './dependencies.js';
+import type { DependencyVerdict, StartDate, WalkAdapter } from './dependency-gate.js';
 import type { Task, TaskRef } from './fetcher.js';
 import type { LinearCliRunner, LinearGraphql } from './linear-cli.js';
 
-const MAX_NODES = 50;
-/** Backstop for one issue's relations (100 per page). */
 const MAX_RELATION_PAGES = 10;
-const CHECK_CONCURRENCY = 4;
-
 /** A ref as `DEV-12`, team key upper-cased: the form sent to Linear, shown in reasons and used as the per-poll cache key. */
 const refText = (ref: TaskRef): string => `${ref.repo.toUpperCase()}-${ref.number}`;
-const same = (a: TaskRef, b: TaskRef): boolean => refText(a) === refText(b);
-const dedupe = (refs: TaskRef[]): TaskRef[] => {
-  const seen = new Set<string>();
-  return refs.filter((ref) => !seen.has(refText(ref)) && seen.add(refText(ref)).size > 0);
-};
-const isoDay = (date: Date): string => date.toISOString().slice(0, 10);
 
 /** `DEV-12` (team key as `parseIdentifier` reads it, so `2FA-12` counts; an all-digit key such as `2024-11` is prose, not a reference) or a Linear issue URL (`https://linear.app/team/issue/DEV-12/slug`). The slug excludes `.,;` so it cannot overlap the trailing punctuation, and the key's leading digits stop at its first letter (no quadratic backtracking). */
 const REF_TOKEN = /^(?:(\d*[A-Za-z][A-Za-z0-9]*-\d+)|https:\/\/linear\.app\/[\w.-]+\/issue\/(\d*[A-Za-z][A-Za-z0-9]*-\d+)(?:\/[^\s/.,;]*)?\/?)[.,;]*$/i;
@@ -171,41 +160,25 @@ function blockersOf(issue: LinearDepIssue): { blockers: TaskRef[] } | { reason: 
 const neverCompleted = (issue: LinearDepIssue): boolean => issue.state?.type === 'canceled' || issue.state?.type === 'duplicate';
 const isDone = (issue: LinearDepIssue): boolean => issue.state?.type === 'completed' || neverCompleted(issue);
 
-export type LinearDependencyVerdict =
-  | { status: 'ready'; dependsOn: TaskRef[] }
-  | { status: 'waiting'; blockers: TaskRef[]; startsAt?: Date; reason: string }
-  /** Cycle, missing reference, canceled blocker, bad start date: a human must fix the issue. */
-  | { status: 'invalid'; reason: string }
-  /** Lookup failed: not knowable, never silently started. */
-  | { status: 'error'; reason: string };
+export type LinearDependencyVerdict = DependencyVerdict;
 
-type WalkProblem = { invalid: string } | { waiting: string };
-
-/** Depth-first walk; beyond the direct blockers only native relations are followed (a dependency's body may be written by anyone). */
-async function walk(self: TaskRef, direct: TaskRef[], lookup: IssueLookup): Promise<WalkProblem | { direct: Map<string, LinearDepIssue> }> {
-  const fetched = new Map<string, LinearDepIssue>();
-  const seen = new Set<string>();
-  let visited = 0;
-  const visit = async (ref: TaskRef, refs: TaskRef[], path: TaskRef[]): Promise<WalkProblem | undefined> => {
-    for (const dep of refs) {
-      if (path.some((p) => same(p, dep))) return { invalid: `dependency cycle: ${[...path, dep].map(refText).join(' → ')}` };
-      const key = refText(dep);
-      if (ref !== self && seen.has(key)) continue;
-      if (++visited > MAX_NODES) return { invalid: `dependency chain too large (more than ${MAX_NODES} issues)` };
-      const issue = fetched.get(key) ?? (await lookup(dep));
-      if (issue === 'missing') return { invalid: `${refText(dep)} does not exist or is not readable with this token (referenced by ${refText(ref)})` };
-      if (ref === self) fetched.set(key, issue);
-      seen.add(key);
-      if (isDone(issue)) continue;
-      const nested = blockersOf(issue);
-      if ('reason' in nested) return { waiting: `the dependencies of ${refText(dep)} could not be read: ${nested.reason}` };
-      const problem = await visit(dep, nested.blockers, [...path, dep]);
-      if (problem !== undefined) return problem;
-    }
-    return undefined;
-  };
-  return (await visit(self, direct, [self])) ?? { direct: fetched };
-}
+/** The Linear side of the shared walk: issues come from `lookup`, blockers from the inverse "blocks" relations already read. */
+const linearAdapter = (lookup: IssueLookup): WalkAdapter<LinearDepIssue> => ({
+  text: refText,
+  async fetch(dep, referencedBy) {
+    const issue = await lookup(dep);
+    return issue === 'missing' ? { problem: `${refText(dep)} does not exist or is not readable with this token (referenced by ${refText(referencedBy)})` } : { issue };
+  },
+  finished: isDone,
+  async blockers(dep, issue) {
+    const nested = blockersOf(issue);
+    return 'reason' in nested ? { waiting: `the dependencies of ${refText(dep)} could not be read: ${nested.reason}` } : nested.blockers;
+  },
+  judge(issue, ref) {
+    if (neverCompleted(issue)) return { invalid: `${refText(ref)} was ${issue.state?.type === 'duplicate' ? 'closed as a duplicate' : 'canceled'}, so it can never be completed` };
+    return isDone(issue) ? 'met' : 'open';
+  },
+});
 
 /** The cycle's start (kept to the instant, not the UTC day), else the `Start:` line; both validated. */
 function startDate(cycleStart: string | null | undefined, description: string): StartDate | undefined {
@@ -260,26 +233,11 @@ async function checkOnce(task: Task, send: LinearGraphql, now: Date, known: Know
       cycleStart = own.cycle?.startsAt ?? undefined;
     }
     const start = startDate(cycleStart, task.description);
-    if (start !== undefined && 'invalid' in start) return { status: 'invalid', reason: start.invalid };
-    const direct = dedupe([...native, ...parseLinearBodyDependencies(task.description)]);
-    const walked = await walk(selfId, direct, lookup);
-    if ('invalid' in walked) return { status: 'invalid', reason: walked.invalid };
-    if ('waiting' in walked) return { status: 'waiting', blockers: [], reason: walked.waiting };
-    const blockers: TaskRef[] = [];
-    for (const ref of direct) {
-      const issue = walked.direct.get(refText(ref))!;
-      if (neverCompleted(issue)) return { status: 'invalid', reason: `${refText(ref)} was ${issue.state?.type === 'duplicate' ? 'closed as a duplicate' : 'canceled'}, so it can never be completed` };
-      if (!isDone(issue)) blockers.push(ref);
-    }
-    const startsAt = start !== undefined && start.date.getTime() > now.getTime() ? start.date : undefined;
-    if (blockers.length === 0 && startsAt === undefined) return { status: 'ready', dependsOn: direct };
-    const parts = [
-      ...(blockers.length > 0 ? [`waiting for ${blockers.map(refText).join(', ')}`] : []),
-      ...(startsAt !== undefined ? [`start date ${isoDay(startsAt)}`] : []),
-    ];
-    return { status: 'waiting', blockers, ...(startsAt !== undefined ? { startsAt } : {}), reason: parts.join('; ') };
+    const adapter = linearAdapter(lookup);
+    const direct = dedupeRefs(adapter, [...native, ...parseLinearBodyDependencies(task.description)]);
+    return await evaluateDependencies(adapter, { self: selfId, direct, start, now });
   } catch (error) {
-    return { status: 'error', reason: `dependency lookup failed: ${failureReason(error)}` };
+    return lookupFailed(error);
   }
 }
 
@@ -424,7 +382,7 @@ async function commentOnce(id: string, body: string, send: LinearGraphql, opts: 
     .filter((node) => isHoldComment(node.body ?? ''))
     .sort((a, b) => (a.createdAt != null && b.createdAt != null ? Number(a.createdAt > b.createdAt) - Number(a.createdAt < b.createdAt) : 0))
     .at(-1);
-  if (newest === undefined || comparable(newest.body ?? '') !== published) await commentLinearIssue(id, body, opts.linear);
+  await postUnlessRepeated(body, newest === undefined ? undefined : comparable(newest.body ?? ''), comparable, (text) => commentLinearIssue(id, text, opts.linear));
   reported.set(id, published);
 }
 
@@ -481,59 +439,50 @@ export async function applyLinearDependencyGate(tasks: Task[], opts: LinearDepen
     const invalid = logged.get(task.id)?.invalid;
     return invalid !== undefined && at >= invalid.at && at - invalid.at < LOOKUP_TTL_MS ? invalid.reason : undefined;
   };
-  const check = (task: Task): Promise<LinearDependencyVerdict> => {
+  const checkTask = (task: Task): Promise<LinearDependencyVerdict> => {
     const ref = refs.get(task);
     return checkLinearDependencies(task, send, now, ref !== undefined ? probed.known.get(refText(ref)) : undefined, lookup, confirmedFor(task));
   };
-  const checked = await fanOut(tasks, check, { concurrency: CHECK_CONCURRENCY });
-  const ready: Task[] = [];
-  // Two or more issues whose lookup threw in the same poll is a shared outage (Linear or the network), not something about each issue: no comment yet.
-  const isFailure = (outcome: (typeof checked)[number]): boolean => outcome.status === 'rejected' || (outcome.value.status === 'error' && outcome.value.reason.startsWith('dependency lookup failed'));
-  const sharedOutage = checked.filter(isFailure).length > 1;
-  for (const outcome of checked) {
-    const task = outcome.item;
-    const verdict: LinearDependencyVerdict = outcome.status === 'fulfilled' ? outcome.value : { status: 'error', reason: failureReason(outcome.reason) };
-    if (verdict.status === 'ready') {
+  return runDependencyGate(tasks, {
+    check: checkTask,
+    async release(task, verdict) {
       reported.delete(task.id);
       logged.delete(task.id);
-      ready.push({ ...task, dependsOn: verdict.dependsOn });
-      continue;
-    }
-    // Once per reason, not once per poll; the reason holds author text, so control characters are dropped.
-    const reason = `${verdict.status === 'invalid' ? 'needs info: ' : ''}${verdict.reason}`.replace(/\p{Cc}+/gu, ' ');
-    const previous = logged.get(task.id);
-    const failed = verdict.status === 'error' ? (previous?.failures ?? 0) + 1 : 0;
-    if (previous?.reason !== reason || (failed > 0 && failed % LOG_EVERY === 0)) log(`taskcell: ${task.id} skipped -> ${reason}`);
-    const invalid = verdict.status === 'invalid' ? { reason: verdict.reason, at: previous?.invalid?.reason === verdict.reason && confirmedFor(task) !== undefined ? previous.invalid.at : at } : undefined;
-    const entry: LoggedReason = { reason, failures: failed, seenAt: at, ...(invalid !== undefined ? { invalid } : {}), ...(failed > 0 && previous?.commented === true ? { commented: true } : {}) };
-    logged.set(task.id, entry);
-    if (verdict.status === 'error') {
-      // The comment names no reason (it may change every poll), so one comment covers the whole outage; retried only every LOG_EVERY polls.
-      if (sharedOutage || failed < REPORT_AFTER || (entry.commented === true && failed % LOG_EVERY !== 0)) continue;
+      return { ...task, dependsOn: verdict.dependsOn };
+    },
+    async hold(task, verdict, all) {
+      if (verdict.status === 'ready') return;
+      // Two or more issues whose lookup threw in the same poll is a shared outage (Linear or the network), not something about each issue: no comment yet.
+      const sharedOutage = all.filter((v) => v.status === 'error' && v.reason.startsWith('dependency lookup failed')).length > 1;
+      // Once per reason, not once per poll; the reason holds author text, so control characters are dropped.
+      const reason = `${escalatesToNeedsInfo(verdict) ? 'needs info: ' : ''}${verdict.reason}`.replace(/\p{Cc}+/gu, ' ');
+      const previous = logged.get(task.id);
+      const failed = verdict.status === 'error' ? (previous?.failures ?? 0) + 1 : 0;
+      if (previous?.reason !== reason || (failed > 0 && failed % LOG_EVERY === 0)) log(`taskcell: ${task.id} skipped -> ${reason}`);
+      const invalid = verdict.status === 'invalid' ? { reason: verdict.reason, at: previous?.invalid?.reason === verdict.reason && confirmedFor(task) !== undefined ? previous.invalid.at : at } : undefined;
+      const entry: LoggedReason = { reason, failures: failed, seenAt: at, ...(invalid !== undefined ? { invalid } : {}), ...(failed > 0 && previous?.commented === true ? { commented: true } : {}) };
+      logged.set(task.id, entry);
       try {
-        entry.commented = true;
-        await commentOnce(task.id, `${ERROR_PREFIX} on repeated polls: Linear could not be read. It stays in its trigger state and is checked again on every poll.`, send, opts);
+        if (verdict.status === 'error') {
+          // The comment names no reason (it may change every poll), so one comment covers the whole outage; retried only every LOG_EVERY polls.
+          if (sharedOutage || failed < REPORT_AFTER || (entry.commented === true && failed % LOG_EVERY !== 0)) return;
+          entry.commented = true;
+          await commentOnce(task.id, `${ERROR_PREFIX} on repeated polls: Linear could not be read. It stays in its trigger state and is checked again on every poll.`, send, opts);
+        } else if (verdict.status === 'waiting') {
+          await commentOnce(task.id, `${WAIT_PREFIX} ${quoted(verdict.reason)}. It stays in its trigger state and starts by itself once that is resolved.`, send, opts);
+        } else {
+          const next = opts.moveToNeedsInfo !== undefined ? 'Fix it and move it back to its trigger state.' : 'It stays in its trigger state and is checked again once it is fixed.';
+          await commentOnce(task.id, `${INVALID_PREFIX} ${quoted(verdict.reason)}. ${next}`, send, opts);
+          if (opts.moveToNeedsInfo !== undefined) {
+            await opts.moveToNeedsInfo(task.id);
+            // It left the trigger state: if it comes back unfixed it is logged and moved again; the comment is not repeated while it is still the newest hold comment.
+            logged.delete(task.id);
+            reported.delete(task.id);
+          }
+        }
       } catch (error) {
         log(`taskcell: ${task.id} dependency hold could not be recorded: ${failureReason(error)}`);
       }
-      continue;
-    }
-    try {
-      if (verdict.status === 'waiting') {
-        await commentOnce(task.id, `${WAIT_PREFIX} ${quoted(verdict.reason)}. It stays in its trigger state and starts by itself once that is resolved.`, send, opts);
-        continue;
-      }
-      const next = opts.moveToNeedsInfo !== undefined ? 'Fix it and move it back to its trigger state.' : 'It stays in its trigger state and is checked again once it is fixed.';
-      await commentOnce(task.id, `${INVALID_PREFIX} ${quoted(verdict.reason)}. ${next}`, send, opts);
-      if (opts.moveToNeedsInfo !== undefined) {
-        await opts.moveToNeedsInfo(task.id);
-        // It left the trigger state: if it comes back unfixed it is logged and moved again; the comment is not repeated while it is still the newest hold comment.
-        logged.delete(task.id);
-        reported.delete(task.id);
-      }
-    } catch (error) {
-      log(`taskcell: ${task.id} dependency hold could not be recorded: ${failureReason(error)}`);
-    }
-  }
-  return ready;
+    },
+  });
 }
