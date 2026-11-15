@@ -1,6 +1,6 @@
 {
   "$schema": "https://unpkg.com/wrangler@4/config-schema.json",
-  // taskcell.dev: the static site in dist/ (node build.mjs) behind a small Worker that only redirects www.
+  // taskcell.dev: the static site in dist/ (node build.mjs) behind a small Worker (see worker.js).
   // Deployed by hand, never from CI: pnpm build && pnpm dlx wrangler@4 deploy
   "name": "taskcell-landing",
   "main": "worker.js",
@@ -13,6 +13,10 @@
     // The Worker has to see www requests before the asset server answers them.
     "run_worker_first": true
   },
+  // Orders recorded by the Stripe webhook (stripe-webhook.js); the table is in orders.sql.
+  "d1_databases": [
+    { "binding": "ORDERS", "database_name": "taskcell-orders", "database_id": "fdbd3b23-7b4a-4234-b84c-025d3a26eb88" }
+  ],
   "routes": [
     { "pattern": "taskcell.dev", "custom_domain": true },
     { "pattern": "www.taskcell.dev", "custom_domain": true }

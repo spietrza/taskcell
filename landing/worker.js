@@ -1,7 +1,10 @@
 // taskcell.dev Worker: sends www.taskcell.dev to the apex (a _redirects file cannot match on the host),
 // answers agents that ask for Markdown on the home page with llms.txt,
 // writes the visitor's country on <html data-country> for the language detection in theme.js,
+// takes Stripe's payment events on /stripe/webhook (stripe-webhook.js),
 // and serves everything else from dist/, where _headers sets the security and cache headers.
+import { handleStripeWebhook } from './stripe-webhook.js';
+
 export default {
   async fetch(request, env) {
     const url = new URL(request.url);
@@ -9,6 +12,7 @@ export default {
       url.hostname = 'taskcell.dev';
       return Response.redirect(url.toString(), 301);
     }
+    if (url.pathname === '/stripe/webhook') return handleStripeWebhook(request, env);
     const wantsMarkdown = (request.headers.get('accept') ?? '').includes('text/markdown');
     if (wantsMarkdown && (url.pathname === '/' || url.pathname === '/index.html')) {
       const md = await env.ASSETS.fetch(new URL('/llms.txt', url));
