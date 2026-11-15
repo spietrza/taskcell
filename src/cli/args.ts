@@ -1,4 +1,4 @@
-import { join } from 'node:path';
+import { join, resolve } from 'node:path';
 import { parseArgs } from 'node:util';
 import { STREAMS } from '../core/audit.js';
 import { isProviderName, validateProviderChoice, PROVIDER_NAMES } from '../agents/registry.js';
@@ -332,6 +332,9 @@ export type Command =
       format: 'jsonl' | 'csv';
     }
   | { kind: 'skills'; action: 'list' | 'check'; dir: string; strict: boolean }
+  | { kind: 'skills'; action: 'add'; dir: string; source: string; ref?: string; path?: string; name?: string }
+  | { kind: 'skills'; action: 'remove'; dir: string; name: string }
+  | { kind: 'skills'; action: 'update'; dir: string; repo: string; name?: string; baseBranch?: string; dryRun: boolean; pr: boolean; force: boolean }
   | LessonsCommand
   | {
       kind: 'eval';
@@ -534,8 +537,12 @@ export function parseCli(argv: string[], cwd: string): Command {
   let skills: string[] = [];
   let positionals: string[];
   try {
-    const parsed = parseArgs({
+    // `--pr` takes a number everywhere else; on `skills` it is a bare switch. A lenient first pass finds the
+    // command (options may precede it), then the strict pass parses with the right `--pr` type. The
+    // lenient pass runs both ways: read as a string, a leading `--pr` would swallow `skills` itself.
+    const parseWith = (skills: boolean, strict: boolean): ReturnType<typeof parseArgs> => parseArgs({
       args: argv,
+      strict,
       allowPositionals: true,
       options: {
         // gc
@@ -568,7 +575,7 @@ export function parseCli(argv: string[], cwd: string): Command {
         author: { type: 'string' },
         concurrency: { type: 'string' },
         // watch-prs: review this PR even when the label-filtered scan misses it
-        pr: { type: 'string' },
+        pr: { type: skills ? 'boolean' : 'string' },
         // watch: run only this GitHub issue instead of sweeping every ready issue
         issue: { type: 'string' },
         // watch
@@ -655,9 +662,12 @@ export function parseCli(argv: string[], cwd: string): Command {
         suggest: { type: 'boolean' },
         out: { type: 'string' },
         since: { type: 'string' },
-        // skills list|check
+        // skills list|check|add|remove|update
         dir: { type: 'string' },
+        path: { type: 'string' },
+        name: { type: 'string' },
         strict: { type: 'boolean' },
+        force: { type: 'boolean' },
         // audit verify|export
         stream: { type: 'string' },
         until: { type: 'string' },
@@ -685,11 +695,12 @@ export function parseCli(argv: string[], cwd: string): Command {
         help: { type: 'boolean' },
       },
     });
-    const { 'allowed-host': hosts, 'admin-github-login': admins, skill, ...singleValues } = parsed.values;
-    allowedHosts = hosts;
-    adminGithubLogins = admins;
+    const parsed = parseWith(parseWith(false, false).positionals[0] === 'skills' || parseWith(true, false).positionals[0] === 'skills', true);
+    const { 'allowed-host': hosts, 'admin-github-login': admins, skill, ...singleValues } = parsed.values as Record<string, string | boolean | string[] | undefined>;
+    allowedHosts = hosts as string[] | undefined;
+    adminGithubLogins = admins as string[] | undefined;
     skills = parseNamedSkills(skill) ?? [];
-    values = singleValues;
+    values = singleValues as Record<string, string | boolean | undefined>;
     positionals = parsed.positionals;
   } catch {
     return { kind: 'help' };
@@ -716,7 +727,7 @@ export function parseCli(argv: string[], cwd: string): Command {
     return fail('--spec-only is only supported with watch and doctor.');
   }
   if (skills.length > 0 && positionals[0] !== 'run' && positionals[0] !== 'watch') return fail('--skill is only supported with run.');
-  for (const flag of ['dir', 'strict']) {
+  for (const flag of ['dir', 'strict', 'path', 'name', 'force']) {
     if (values[flag] !== undefined && positionals[0] !== 'skills') return fail(`--${flag} is only supported with skills.`);
   }
 
@@ -870,9 +881,46 @@ export function parseCli(argv: string[], cwd: string): Command {
 
   if (positionals[0] === 'skills') {
     const action = positionals[1];
-    if (action !== 'list' && action !== 'check') return fail('skills expects a subcommand: taskcell skills list [--dir <skills dir>] | taskcell skills check [--dir <skills dir>] [--strict].');
-    if (action === 'list' && values.strict === true) return fail('skills list has no --strict; it applies to skills check.');
-    return { kind: 'skills', action, dir: typeof values.dir === 'string' ? values.dir : join(repoPath, 'skills'), strict: values.strict === true };
+    const usage =
+      'skills expects a subcommand: taskcell skills list|check [--dir <skills dir>] [--strict] | add <git-url>[#ref] [--path <dir>] [--name <name>] [--dir <skills dir>] | remove <name> [--dir <skills dir>] | update [name] [--dir <skills dir>] [--dry-run] [--pr [--base <branch>]] [--force].';
+    // add, remove and update write, and --pr needs the directory inside the repo: a relative --dir is
+    // under --repo. list and check keep reading it as given.
+    const writes = action === 'add' || action === 'remove' || action === 'update';
+    const dir = typeof values.dir === 'string' ? (writes ? resolve(repoPath, values.dir) : values.dir) : join(repoPath, 'skills');
+    if (action !== 'list' && action !== 'check' && action !== 'add' && action !== 'remove' && action !== 'update') return fail(usage);
+    if (values.pr === true && action !== 'update') return fail('--pr is only supported with skills update.');
+    if (values['dry-run'] === true && action !== 'update') return fail('--dry-run is only supported with skills update.');
+    if (values.strict === true && action !== 'check') return fail('--strict only applies to skills check.');
+    if ((values.path !== undefined || values.name !== undefined) && action !== 'add') return fail('--path and --name only apply to skills add.');
+    if (values.force === true && action !== 'update') return fail('--force only applies to skills update.');
+    if (values.base !== undefined && !(action === 'update' && values.pr === true)) return fail('--base only applies to skills update --pr.');
+    if (action === 'list' || action === 'check') {
+      return { kind: 'skills', action, dir, strict: values.strict === true };
+    }
+    if (action === 'add') {
+      const target = positionals[2];
+      if (target === undefined || positionals.length > 3) return fail('skills add expects one argument: <git-url>[#ref].');
+      const hash = target.indexOf('#');
+      const ref = hash === -1 ? '' : target.slice(hash + 1);
+      if (hash !== -1 && ref === '') return fail('skills add: empty #ref.');
+      return {
+        kind: 'skills',
+        action,
+        dir,
+        source: hash === -1 ? target : target.slice(0, hash),
+        ...(ref !== '' ? { ref } : {}),
+        ...(typeof values.path === 'string' ? { path: values.path } : {}),
+        ...(typeof values.name === 'string' ? { name: values.name } : {}),
+      };
+    }
+    if (action === 'remove') {
+      const name = positionals[2];
+      if (name === undefined || positionals.length > 3) return fail('skills remove expects one argument: <name>.');
+      return { kind: 'skills', action, dir, name };
+    }
+    if (positionals.length > 3) return fail('skills update expects at most one argument: [name].');
+    const name = positionals[2];
+    return { kind: 'skills', action, dir, repo: repoPath, ...(name !== undefined ? { name } : {}), ...(typeof values.base === 'string' ? { baseBranch: values.base } : {}), dryRun: values['dry-run'] === true, pr: values.pr === true, force: values.force === true };
   }
 
   if (positionals[0] === 'audit') {
@@ -1551,6 +1599,10 @@ Commands:
   skills list | check  List skills with source, short commit and status (pinned, local, modified), or check each
          pinned source's default branch head (current, outdated, unknown; --strict exits 1 on outdated or
          modified); --dir <skills dir> (default <repo>/skills); see docs/skills.md.
+  skills add <git-url>[#ref] [--path <dir>] [--name <name>] | remove <name> | update [name] [--dry-run] [--pr] [--force]
+         Pin a skill from an https git source, remove one, or move pinned skills to their source's head
+         (--pr opens a PR with the SKILL.md diff instead of editing in place; --force when the pinned
+         commit can no longer be fetched); all take --dir <skills dir>; see docs/skills.md.
   audit verify | export  Check the hash chains of the audit streams (hub, run-events, metrics, decisions,
          lessons) or export them with --since/--until as jsonl or csv; see docs/audit.md.
   history <owner/repo#N>  One issue's history over the audit streams (trigger, runs, reviews, approver,
