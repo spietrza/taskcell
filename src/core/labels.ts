@@ -94,7 +94,8 @@ export async function resolveRemovals(
  * repo set up before the rename has only the `vanguard` spellings. A label with a legacy twin is added under the
  * spelling the repo has (the current one when it has both); when it has neither, the current one is created first. The repo's labels are
  * listed lazily (only when a label has a twin); names compare case-insensitively and the repo's own spelling is
- * returned. When they cannot be listed, the names are returned as given; those also named in `ensure` are first
+ * returned. When they cannot be listed, an ensured review trigger is force-created and written under the legacy
+ * spelling (every review gate reads it); other names are returned as given, and those also named in `ensure` are first
  * force-created (best effort), for the callers whose add must land on a repo that lacks the label.
  */
 export async function resolveAdds(
