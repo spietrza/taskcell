@@ -2,6 +2,7 @@ import { useEffect, useState } from 'react';
 import { Button, Collapsible, Input } from '@/ui';
 import { Play } from 'lucide-react';
 import { EnumSelect } from './EnumSelect';
+import { SkillPicker } from '../board/SkillPicker';
 import { apiListFlows, apiListProviders } from '../../ipc';
 import type { Capabilities, CreateRunParams, RepoFlowInfo, RepoProviderInfo } from '../../ipc';
 
@@ -58,6 +59,7 @@ export function NewRunForm({
   capabilities,
   project,
   taskId,
+  taskSkills,
   onRun,
   onCancel,
 }: {
@@ -65,6 +67,8 @@ export function NewRunForm({
   project: string;
   /** The card the form was opened from: its ref (and tracker) are filled in. */
   taskId?: string | undefined;
+  /** The skills the card names (its `Skills:` line): preselected, and a run started here loads exactly the ticked ones. */
+  taskSkills?: string[] | undefined;
   onRun: (params: CreateRunParams) => void;
   onCancel: () => void;
 }) {
@@ -77,6 +81,8 @@ export function NewRunForm({
   const [flow, setFlow] = useState(capabilities.flows[0]?.name ?? 'default');
   const [maxTurns, setMaxTurns] = useState(String(capabilities.defaults.maxTurns));
   const [baseBranch, setBaseBranch] = useState('');  // blank ⇒ the card's target branch, else the repo default
+  // Hand-picked skills, chosen from the installed ones; loaded for the run on top of the automatic selection.
+  const [skills, setSkills] = useState<string[]>(taskSkills ?? []);
   // Repo .taskcell/flows/*.hcl flows (S5 §21). Fetched fresh on every form open — deliberately NOT
   // session-cached like capabilities: repo flows are mutable state, and a flow saved in the
   // Workflow screen must be runnable here immediately. 'error' = degraded: built-ins still work,
@@ -121,8 +127,10 @@ export function NewRunForm({
     flow,
     maxTurns: maxTurnsNum,
     ...(baseBranch.trim() !== '' ? { baseBranch: baseBranch.trim() } : {}),
+    // Sent (even empty) when the card named skills, so one unticked here is not loaded from the issue body.
+    ...(skills.length > 0 || (taskSkills?.length ?? 0) > 0 ? { skills } : {}),
   };
-  const preview = `taskcell run --${transport} ${issueRef || '<issue>'} --provider ${provider}${flow === 'plan' ? ' --plan' : ''} --max-turns ${maxTurns}`;
+  const preview = `taskcell run --${transport} ${issueRef || '<issue>'} --provider ${provider}${flow === 'plan' ? ' --plan' : ''} --max-turns ${maxTurns}${skills.map((s) => ` --skill ${s}`).join('')}`;
 
   return (
     <section aria-labelledby="new-run-heading" className="space-y-3 rounded-lg border border-border bg-muted/30 p-3">
@@ -156,6 +164,7 @@ export function NewRunForm({
             max-turns
             <Input value={maxTurns} onChange={(e) => setMaxTurns(e.target.value)} className="w-16" />
           </label>
+          <SkillPicker project={project} value={skills} onChange={setSkills} />
           <label className="flex items-center gap-1 text-xs text-muted-foreground">
             base
             <Input value={baseBranch} onChange={(e) => setBaseBranch(e.target.value)} placeholder="card / repo default" className="w-36" />

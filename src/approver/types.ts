@@ -21,6 +21,8 @@ export interface ApproverPolicy {
   holdLabel?: string;
   /** Act mode: API-sourced PR author logins the factory opens PRs as; a PR by anyone else is never acted on. */
   factoryAuthors?: string[];
+  /** Act mode: other repos whose issues the merge order may read as dependencies; a dependency anywhere else holds the PR. */
+  dependencyRepos?: string[];
 }
 
 export interface PrFacts {

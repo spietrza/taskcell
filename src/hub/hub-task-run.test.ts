@@ -1,0 +1,240 @@
+// The hub-board scheduler through the real server wiring: RPC in, `deps.createRun` out.
+import { mkdir, mkdtemp, realpath, rm, writeFile } from 'node:fs/promises';
+import type { AddressInfo } from 'node:net';
+import { tmpdir } from 'node:os';
+import { join } from 'node:path';
+import { execa } from 'execa';
+import { afterEach, beforeEach, expect, test, vi } from 'vitest';
+import { createHubServer, type HubServer, type HubServerOptions } from './server.js';
+import { localOnlyIdentity } from './auth.js';
+import { add as addProject } from './projects.js';
+import { saveTeams } from './teams.js';
+import { HUB_TOKEN_HEADER } from '../hub-wire.js';
+import type { SidecarDeps } from '../sidecar/sidecar.js';
+import type { AuditEntry, BoardTask, CreateRunParams, CreateRunResult, RunCredential } from '../wire.js';
+
+/* eslint-disable @typescript-eslint/no-explicit-any -- loosely-typed JSON envelope in tests */
+let dirs: string[] = [];
+let hub: HubServer;
+let baseUrl: string;
+let repo: string;
+let options: HubServerOptions;
+/** Runs `deps.createRun` was asked for, each ended by the test. */
+let runs: { params: CreateRunParams; credential: RunCredential | undefined; end: (r: CreateRunResult) => void; fail: (e: Error) => void }[] = [];
+
+function deps(): SidecarDeps {
+  const unimplemented = (): never => {
+    throw new Error('not implemented in this fake');
+  };
+  return {
+    capabilities: unimplemented,
+    createRun: (params, _onEvent, credential) => new Promise((end, fail) => runs.push({ params, credential, end, fail })),
+    createTask: unimplemented,
+    listFlows: unimplemented,
+    listProviders: unimplemented,
+    readFlow: unimplemented,
+    writeFlow: unimplemented,
+    deleteFlow: unimplemented,
+    listTasks: async () => ({ tasks: [], capped: false }),
+    fetchSpec: unimplemented,
+    listRepoFiles: unimplemented,
+    readRepoFile: unimplemented,
+    listRuns: unimplemented,
+    readRun: unimplemented,
+  };
+}
+
+async function listen(): Promise<void> {
+  hub = createHubServer(options);
+  await hub.listen(0, '127.0.0.1');
+  baseUrl = `http://127.0.0.1:${(hub.server.address() as AddressInfo).port}`;
+}
+
+beforeEach(async () => {
+  runs = [];
+  repo = await realpath(await mkdtemp(join(tmpdir(), 'vanguard-hubrun-repo-')));
+  const configDir = await mkdtemp(join(tmpdir(), 'vanguard-hubrun-cfg-'));
+  const uiDir = await mkdtemp(join(tmpdir(), 'vanguard-hubrun-ui-'));
+  dirs = [repo, configDir, uiDir];
+  await execa('git', ['init', '-q', repo]); // no origin at all
+  await writeFile(join(uiDir, 'index.html'), '<html><head></head></html>');
+  await saveTeams(configDir, [{ id: 't', name: 'T', members: [{ login: '1', role: 'member' }], repositories: [repo] }]);
+  options = {
+    uiDir,
+    configDir,
+    browseRoot: repo,
+    bind: { isLoopback: true, allowAdd: false },
+    seedRepoPath: repo,
+    deps: deps(),
+    adminGithubLogins: ['Root'],
+    identity: {
+      ...localOnlyIdentity(),
+      sessionUser: async (req) => {
+        const raw = req.headers['x-test-user'];
+        if (typeof raw !== 'string') return undefined;
+        const [id, login] = raw.split(':');
+        return { id: id!, email: `${id}@example.com`, name: id!, login: `github:${login}` };
+      },
+    },
+  };
+  await listen();
+});
+
+afterEach(async () => {
+  await hub.close();
+  for (const d of dirs) await rm(d, { recursive: true, force: true });
+});
+
+const alice = '1:alice';
+const root = '99:root';
+
+async function rpc(as: string | undefined, cmd: string, args: unknown = {}): Promise<{ status: number; body: { error: { message: string }; result: any } }> {
+  const res = await fetch(`${baseUrl}/rpc/${cmd}`, {
+    method: 'POST',
+    headers: { 'content-type': 'application/json', origin: baseUrl, ...(as === undefined ? { [HUB_TOKEN_HEADER]: hub.token } : { 'x-test-user': as }) },
+    body: JSON.stringify(args),
+  });
+  return { status: res.status, body: await res.json() };
+}
+
+const useHubBoard = (): Promise<unknown> => rpc(alice, 'write_app_config', { repoPath: repo, config: { taskSource: 'hub' } });
+const create = (title: string, body = ''): Promise<{ status: number; body: any }> => rpc(alice, 'hub_task_create', { repoPath: repo, title, body });
+const board = async (): Promise<Record<string, BoardTask>> => Object.fromEntries(((await rpc(alice, 'list_tasks', { repoPath: repo })).body.result.tasks as BoardTask[]).map((t) => [t.id, t]));
+const audit = async (): Promise<AuditEntry[]> => (await rpc(undefined, 'read_audit')).body.result as AuditEntry[];
+
+test('a hub task runs from its stored title and body, as its creator, audited; its dependent waits and starts after it', async () => {
+  await useHubBoard();
+  await create('Add a health endpoint', 'GET /healthz answers 200');
+  await create('Document it');
+  expect((await rpc(alice, 'hub_task_schedule', { repoPath: repo, id: 'hub-2', blockedBy: ['hub-1'] })).status).toBe(200);
+  expect((await board())['hub-2']).toMatchObject({ schedule: { state: 'blocked', label: 'blocked by hub-1' } });
+
+  await hub.sweepHubTasks();
+  expect(runs).toHaveLength(1);
+  // The stored task is the run's whole source: no tracker, and a repository with no origin.
+  expect(runs[0]!.params).toMatchObject({ issueRef: 'hub-1', repoPath: repo, transport: 'hub', hubTask: { id: 'hub-1', title: 'Add a health endpoint', body: 'GET /healthz answers 200' }, startedBy: '1@example.com' });
+  expect(runs[0]!.credential?.source).toBe('instance');
+  expect(await audit()).toContainEqual(expect.objectContaining({ login: '1@example.com', action: 'run-start', outcome: 'ok' }));
+  expect((await board())['hub-1']).toMatchObject({ column: 'running', schedule: { state: 'running' } });
+  expect((await rpc(alice, 'fetch_spec', { repoPath: repo, taskId: 'hub-1' })).body.result).toEqual({ spec: '# Add a health endpoint\n\nGET /healthz answers 200' });
+
+  await hub.sweepHubTasks(); // hub-2 is still blocked
+  expect(runs).toHaveLength(1);
+  runs[0]!.end({ branch: 'chore/vanguard-hub-1-abc' });
+  await vi.waitFor(async () => expect((await board())['hub-1']).toMatchObject({ column: 'done', schedule: { state: 'done', result: 'branch chore/vanguard-hub-1-abc' } }));
+  await hub.sweepHubTasks();
+  expect(runs[1]?.params).toMatchObject({ issueRef: 'hub-2', hubTask: { title: 'Document it' } });
+});
+
+test('a failed run shows its reason, keeps its dependent blocked, and can be retried', async () => {
+  await useHubBoard();
+  await create('A');
+  await create('B');
+  await rpc(alice, 'hub_task_schedule', { repoPath: repo, id: 'hub-2', blockedBy: ['hub-1'] });
+  await hub.sweepHubTasks();
+  runs[0]!.fail(new Error('Set CLAUDE_CODE_OAUTH_TOKEN or ANTHROPIC_API_KEY'));
+  await vi.waitFor(async () => expect((await board())['hub-1']).toMatchObject({ column: 'verify-failed', schedule: { state: 'failed', reason: 'Set CLAUDE_CODE_OAUTH_TOKEN or ANTHROPIC_API_KEY' } }));
+  await hub.sweepHubTasks();
+  expect(runs).toHaveLength(1);
+  expect((await board())['hub-2']).toMatchObject({ schedule: { state: 'blocked' } });
+  expect((await rpc(alice, 'hub_task_retry', { repoPath: repo, id: 'hub-2' })).status).toBe(400); // not failed
+  expect((await rpc(alice, 'hub_task_retry', { repoPath: repo, id: 'hub-1' })).status).toBe(200);
+  await hub.sweepHubTasks();
+  expect(runs[1]?.params.issueRef).toBe('hub-1');
+});
+
+test('user-only: a task whose owner has no credential is refused visibly, stays todo, and runs once they save one', async () => {
+  await useHubBoard();
+  await rpc(root, 'set_credential_policy', { policy: 'user-only' });
+  await create('A');
+  await hub.sweepHubTasks();
+  await hub.sweepHubTasks();
+  expect(runs).toHaveLength(0);
+  const card = (await board())['hub-1']!;
+  expect(card).toMatchObject({ column: 'queued', schedule: { state: 'refused' } });
+  expect(card.schedule?.reason).toMatch(/add one in Settings/);
+  // One refusal line for the two ticks, under the owner's login.
+  expect((await audit()).filter((e) => e.action === 'run-start' && e.outcome === 'refused' && e.login === '1@example.com')).toHaveLength(1);
+
+  await rpc(alice, 'save_user_credential', { name: 'ANTHROPIC_API_KEY', value: 'sk-ant-alice-secret' });
+  await hub.sweepHubTasks();
+  expect(runs[0]?.credential).toEqual({ source: 'user', env: { ANTHROPIC_API_KEY: 'sk-ant-alice-secret' } });
+});
+
+test('a busy run session queues one task (shown as queued, not running) and leaves the rest todo, never failed', async () => {
+  await useHubBoard();
+  for (const t of ['A', 'B', 'C']) await create(t);
+  void rpc(alice, 'api_create_run', { params: { issueRef: '#1', repoPath: repo } }).catch(() => undefined); // someone's own run holds the one slot
+  await vi.waitFor(() => expect(runs).toHaveLength(1));
+
+  await hub.sweepHubTasks();
+  expect(runs).toHaveLength(1);
+  let cards = await board();
+  expect(cards['hub-1']).toMatchObject({ column: 'queued', schedule: { state: 'queued', label: 'queued behind another run (position 1)' } });
+  expect(cards['hub-2']).toMatchObject({ column: 'queued', schedule: { state: 'refused', reason: expect.stringContaining('already has a queued run') } });
+  expect(cards['hub-3']).toMatchObject({ column: 'queued', schedule: { state: 'waits-slot' } });
+  expect(await audit()).toContainEqual(expect.objectContaining({ action: 'run-queue', outcome: 'ok', login: '1@example.com' }));
+
+  runs[0]!.end({});
+  await vi.waitFor(() => expect(runs).toHaveLength(2));
+  expect(runs[1]!.params.issueRef).toBe('hub-1');
+  cards = await board();
+  expect(cards['hub-1']).toMatchObject({ column: 'running', schedule: { state: 'running' } });
+  await hub.sweepHubTasks(); // hub-2 now takes the project's one queue place
+  expect((await board())['hub-2']).toMatchObject({ schedule: { state: 'queued' } });
+});
+
+test('repository content alone never starts a run, and other task sources see no hub-board activity', async () => {
+  // A checkout that commits the hub board setting and a task file: the hub has no task for it.
+  await mkdir(join(repo, '.taskcell'), { recursive: true });
+  await writeFile(join(repo, '.taskcell', 'app.json'), JSON.stringify({ taskSource: 'hub' }));
+  await writeFile(join(repo, '.taskcell', 'hub-tasks.json'), JSON.stringify([{ id: 'hub-1', title: 'from the repo', body: 'x', status: 'todo', blockedBy: [] }]));
+  await hub.sweepHubTasks();
+  expect(runs).toHaveLength(0);
+  expect((await rpc(alice, 'list_tasks', { repoPath: repo })).body.result).toMatchObject({ tasks: [], hubBoard: true });
+  await addProject(options.configDir, repo);
+  expect((await rpc(alice, 'list_tasks_all', { teamId: 't' })).body.result).toEqual({ tasks: [], capped: false, failures: [], hubBoards: [repo] });
+
+  // Tasks the hub holds are not started once the project's source is no longer the hub board.
+  await create('A');
+  await rpc(alice, 'write_app_config', { repoPath: repo, config: { taskSource: 'github' } });
+  await hub.sweepHubTasks();
+  expect(runs).toHaveLength(0);
+  for (const [cmd, args] of [['hub_task_create', { title: 'B' }], ['hub_task_schedule', { id: 'hub-1', blockedBy: [] }], ['hub_task_retry', { id: 'hub-1' }]] as const) {
+    const res = await rpc(alice, cmd, { repoPath: repo, ...args });
+    expect(res.status, cmd).toBe(400);
+    expect(res.body.error.message).toMatch(/task source is not Hub board/);
+  }
+  expect((await rpc(alice, 'list_tasks', { repoPath: repo })).body.result).toEqual({ tasks: [], capped: false }); // the tracker's board, as before
+});
+
+test('a client cannot start a hub run itself: the transport is the scheduler\'s only', async () => {
+  const res = await rpc(alice, 'api_create_run', { params: { issueRef: 'hub-1', repoPath: repo, transport: 'hub', hubTask: { id: 'hub-1', title: 't', body: 'b' } } });
+  expect(res.status).toBe(400);
+  expect(res.body.error.message).toMatch(/unknown transport "hub"/);
+  expect(runs).toHaveLength(0);
+});
+
+test('input is capped and ids are checked', async () => {
+  await useHubBoard();
+  expect((await create('x'.repeat(301))).status).toBe(400);
+  expect((await create('A', 'x'.repeat(64 * 1024 + 1))).status).toBe(400);
+  await create('A');
+  const schedule = (patch: object): Promise<{ status: number }> => rpc(alice, 'hub_task_schedule', { repoPath: repo, id: 'hub-1', ...patch });
+  expect((await schedule({ blockedBy: ['../x'] })).status).toBe(400);
+  expect((await schedule({ blockedBy: Array.from({ length: 51 }, (_, i) => `hub-${i + 2}`) })).status).toBe(400);
+  expect((await rpc(alice, 'hub_task_schedule', { repoPath: repo, id: 'hub-1; rm', blockedBy: [] })).status).toBe(400);
+  expect((await schedule({ blockedBy: ['hub-2'] })).status).toBe(200);
+});
+
+test('a restart leaves no task running: one whose run died with the hub is todo again', async () => {
+  await useHubBoard();
+  await create('A');
+  await hub.sweepHubTasks();
+  expect((await board())['hub-1']).toMatchObject({ column: 'running' });
+  await hub.close();
+  await listen();
+  expect((await board())['hub-1']).toMatchObject({ column: 'queued', schedule: { state: 'refused', reason: expect.stringContaining('hub process') } });
+  await hub.sweepHubTasks();
+  expect(runs).toHaveLength(2);
+});

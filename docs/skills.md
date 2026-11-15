@@ -182,3 +182,28 @@ Installing is safe to fail: the new content is staged in a hidden directory next
 `add` and `update` fetch a repo nobody has reviewed yet, so they run git with hooks, fsmonitor, symlink creation and the LFS filter off, and without the environment variables that point git at another repository (`GIT_DIR`, `GIT_WORK_TREE`, …) or inject config for one command (`GIT_CONFIG_COUNT`/`GIT_CONFIG_KEY_n`/`GIT_CONFIG_VALUE_n`, `GIT_CONFIG_PARAMETERS`). They fetch only the pinned commit (depth 1), without file contents where the server supports partial clone, and check out only the skill's path; skills that share a source and commit share one fetch.
 
 The transports are https and ssh. ssh is there for one case: an operator's own `url."git@github.com:".insteadOf "https://github.com/"` rewrite, the usual way to reach a private repo. The source in the lock must still be https. For `add` and `update` that rewrite (and any credential helper) has to be in a git config file: `~/.gitconfig`, the system config, or the file `GIT_CONFIG_GLOBAL` names. Config passed through `GIT_CONFIG_COUNT` variables is honoured by `skills check` only, which makes no checkout and runs plain `git ls-remote`.
+
+## Naming skills for a task
+
+Selection is automatic by default. There are four ways to make a task use specific skills; pick whichever fits where you work:
+
+1. **A line in the issue** (GitHub, GitLab, Linear). Add this to the issue body, on a line of its own:
+
+   ```
+   Skills: db-migrations, release
+   ```
+
+   Every run of that issue then loads them: from CI, `taskcell watch`, the CLI or the hub.
+2. **The card in the hub.** Open the card on the Board, tick the skills under **Skills** and press **Save skills**. The hub writes the line above into the issue for you. See [hub.md](hub.md#choosing-skills).
+3. **The hub's New Run form.** Under **Advanced**, tick the skills for this one run. A card's skills are already ticked; untick one to leave it out of this run.
+4. **The CLI flag**, for a one-off: `taskcell run --github owner/repo#12 --skill db-migrations --skill release`. The flag and the issue line are merged.
+
+Named skills load in addition to the automatic selection, and the implementer's prompt tells the agent it must use them, in every flow (the built-in ones and a repo's `.taskcell/flows/*.hcl`).
+
+Rules for the issue line:
+
+- It must start the line with `Skills:` (capital S, no indent, not inside a code block or a `>` quote), and hold skill ids separated by commas, at most 20. When the line is repeated, the last one wins.
+- Anything else is not a selection. An issue that says `Skills: good communication, SQL knowledge` in prose runs exactly as it did before; the run summary notes that the line was ignored.
+- Every id must be installed (the `--skills` dir, or `SKILLS_DIR` for a hub, plus the repo's `.github/vanguard-skills/`; `tech-spec` is spec-only and counts as not installed). A well-formed id that is not installed stops the run before any model call and prints the installed ids, so a typo is never a silent skip. `taskcell skills list` shows what is installed.
+
+The run record has `skills: { named, available, notes }`: `named` is the hand-picked ids the run loaded, `available` the other installed ids the agent could pick from (it is not a list of what the agent used), `notes` what the summary says about the list. A provider whose CLI reads no skills (the `pi` stub) says so in the run summary, on the hub run and in `notes`, and its record lists no skill as loaded.

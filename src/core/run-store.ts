@@ -338,6 +338,16 @@ export async function readRunRecords(root: string, taskId: string, timestamp: st
 // Writing
 // ---------------------------------------------------------------------------
 
+/** The skills of a run: the ones named by hand that it loaded, and the other installed ones the agent could pick from. */
+export interface RunSkills {
+  /** Named by hand (`Skills:` line, `--skill`, the hub) and loaded. Empty when the provider reads no skills. */
+  named: string[];
+  /** The other installed skills, available to the automatic selection. Not a list of what the agent used. */
+  available: string[];
+  /** What the run summary says about the hand-picked list: an ignored `Skills:` line, a provider that reads no skills. */
+  notes?: string[];
+}
+
 export interface WriteStagesOptions {
   /** The PR opened for this run, if any. */
   prUrl?: string;
@@ -362,6 +372,7 @@ export interface WriteStagesOptions {
   omitDiff?: boolean;
   /** Ids of the lessons injected into the run's prompts, recorded on every stage. */
   lessonIds?: readonly string[];
+  skills?: RunSkills;
 }
 
 /** A handle for one run: owns its timestamp, so every record it writes shares one prefix. */
@@ -395,6 +406,7 @@ interface WriteRecordOptions {
   credentialSource?: 'instance' | 'user';
   startedBy?: string;
   lessonIds?: readonly string[];
+  skills?: RunSkills;
 }
 
 /**
@@ -456,6 +468,7 @@ async function writeRecord(repoPath: string, taskId: string, timestamp: string, 
     ...(diffOmitted !== undefined ? { diffOmitted } : {}),
     ...(opts.startedBy !== undefined ? { startedBy: opts.startedBy } : {}),
     ...(opts.lessonIds !== undefined && opts.lessonIds.length > 0 ? { lessonIds: [...opts.lessonIds] } : {}),
+    ...(opts.skills !== undefined ? { skills: opts.skills } : {}),
   };
   const suffix = opts.label !== undefined ? `-${opts.label}` : '';
   const base = join(taskDir, `${sanitizeTimestamp(timestamp)}${suffix}`);
@@ -544,11 +557,12 @@ export function beginRun(
           ...(opts.credentialSource !== undefined ? { credentialSource: opts.credentialSource } : {}),
           ...(runOpts.startedBy !== undefined ? { startedBy: runOpts.startedBy } : {}),
           ...(opts.lessonIds !== undefined ? { lessonIds: opts.lessonIds } : {}),
+          ...(opts.skills !== undefined ? { skills: opts.skills } : {}),
         });
       }
       const first = outcomes[0];
       if (first === undefined) return;
-      const { omitDiff: _omitDiff, baseBranch: _baseBranch, lessonIds: _lessonIds, ...trace } = opts;
+      const { omitDiff: _omitDiff, baseBranch: _baseBranch, lessonIds: _lessonIds, skills: _skills, ...trace } = opts;
       await exportRunTrace({
         taskId,
         timestamp,

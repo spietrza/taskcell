@@ -1,23 +1,36 @@
 import { TaskcellError } from '../core/errors.js';
-import { hasLabel } from '../core/labels.js';
+import { hasLabel, NEEDS_REVISION_LABEL } from '../core/labels.js';
 import { workflowPaths } from '../core/taskcell.js';
 import type { GhRunner } from '../tasks/github.js';
-import { assertShadowSafeGhArgs } from './publish.js';
+import { assertShadowSafeGhArgs, parseApiCall } from './publish.js';
 import { dedicatedReviewers } from './facts.js';
 import type { ApproverFacts, ApproverPolicy, Decision, PrFacts } from './types.js';
 
 const SHA_RE = /^[0-9a-f]{7,64}$/;
 
+/** Open PRs as `rebaseDependents` lists them: fixed fields, bounded. */
+export const OPEN_PRS_FIELDS = 'number,headRefName,isCrossRepository,author';
+/** Reads for the merge order: one issue, and its native blocked-by relations. */
+const DEPENDENCY_READ_RE = /^repos\/[\w.-]+\/[\w.-]+\/issues\/\d+(?:\/dependencies\/blocked_by)?$/;
+
 /**
- * Act mode's gh allow-list: everything shadow mode may do, plus exactly two writes — merge the base
- * into the head (update-branch: never a rebase), and a squash merge pinned to the head the decision
- * was made on. It never marks a draft ready. All use the permissions the approver job already has.
+ * Act mode's gh allow-list: everything shadow mode may do, plus three writes — merge the base into the
+ * head (update-branch: never a rebase), a squash merge pinned to the head the decision was made on, and
+ * adding or removing the revise label (a dependent PR that conflicts after its dependency merged) — and
+ * the reads the merge order needs (an issue, its blocked-by relations, the open PR list). It never marks
+ * a draft ready. All use the permissions the approver job already has.
  */
 export function assertActSafeGhArgs(args: string[]): void {
   const [cmd, sub, num, repoFlag, , flag, value, extra] = args;
   if (cmd === 'pr' && /^\d+$/.test(num ?? '') && repoFlag === '--repo') {
     if (args.length === 5 && sub === 'update-branch') return;
+    if (args.length === 7 && sub === 'edit' && (flag === '--add-label' || flag === '--remove-label') && value === NEEDS_REVISION_LABEL) return;
     if (sub === 'merge' && args.length === 8 && flag === '--squash' && value === '--match-head-commit' && SHA_RE.test(extra ?? '')) return;
+  }
+  if (cmd === 'pr' && sub === 'list' && args.length === 10 && num === '--repo' && args[4] === '--state' && flag === 'open' && value === '--limit' && /^\d{1,3}$/.test(extra ?? '') && args[8] === '--json' && args[9] === OPEN_PRS_FIELDS) return;
+  if (cmd === 'api' && (args.length === 2 || (args.length === 3 && args[2] === '--paginate'))) {
+    const { method, endpoints } = parseApiCall(args);
+    if (method === 'GET' && endpoints.length === 1 && DEPENDENCY_READ_RE.test(endpoints[0]!)) return;
   }
   try {
     assertShadowSafeGhArgs(args);
@@ -78,8 +91,9 @@ export const NO_DEDICATED_REVIEWER =
  * Why act mode must leave this PR to a human, beyond `decide()`: a draft (never promoted — a draft can be a hold),
  * a human hold (a CHANGES_REQUESTED review or the hold label), a PR not opened by a factory login, a release PR,
  * CI config, and any mergeStateStatus other than CLEAN/BEHIND (BLOCKED, UNSTABLE, UNKNOWN, DIRTY, absent).
+ * `mergeState: false` leaves the last one out: the gates a dependent PR must pass before it is updated or sent to revise.
  */
-export function hardExclusions(facts: ApproverFacts, policy: ApproverPolicy, reviews: PrFacts['reviews']): string[] {
+export function hardExclusions(facts: ApproverFacts, policy: ApproverPolicy, reviews: PrFacts['reviews'], opts: { mergeState?: boolean } = {}): string[] {
   const reasons: string[] = [];
   if (facts.pr.isDraft) reasons.push('draft PR (act mode never marks a draft ready)');
   if (holdsChanges(reviews)) reasons.push('a review requests changes');
@@ -92,7 +106,9 @@ export function hardExclusions(facts: ApproverFacts, policy: ApproverPolicy, rev
   if (author === '' || !(policy.factoryAuthors ?? []).includes(author)) reasons.push(`not opened by the factory (author "${author}")`);
   if (isReleasePr(facts.pr)) reasons.push('release PR');
   const state = facts.pr.mergeStateStatus ?? 'UNKNOWN';
-  if (state === 'DIRTY') reasons.push('merge conflict');
+  if (opts.mergeState === false) {
+    // a dependent PR: its merge state is what is being fixed
+  } else if (state === 'DIRTY') reasons.push('merge conflict');
   else if (!ACTABLE_MERGE_STATES.has(state)) reasons.push(`mergeStateStatus ${state}`);
   const ci = workflowPaths(facts.diff.paths);
   if (ci.length > 0) reasons.push(`touches CI config (${ci.join(', ')})`);
