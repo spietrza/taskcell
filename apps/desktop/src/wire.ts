@@ -1143,7 +1143,7 @@ export interface Commands {
    *  reads, prints or stores the secret value. */
   enable_factory_secret: { args: { repoPath: string; plan: FactoryPlan }; result: FactorySecretStep };
   /** HUB_ONLY: dispatch the doctor workflow, or start the doctor pipeline on GitLab (once the PR/MR above is merged) and report the run that dispatch created. */
-  enable_factory_verify: { args: { repoPath: string; plan: FactoryPlan }; result: FactoryVerifyResult };
+  enable_factory_verify: { args: { repoPath: string; plan: FactoryPlan; confirmedJobs?: string[] }; result: FactoryVerifyResult };
   /** HUB_ONLY: start (or restart) the project's persisted checklist from a freshly derived plan —
    *  used when the callers are already on the default branch and there is no PR to open. */
   enable_factory_start: { args: { repoPath: string; plan: FactoryPlan }; result: FactoryState };
@@ -1242,6 +1242,7 @@ export interface Commands {
   /**
    * HUB_ONLY: split one piece of work into several tasks, created in order. A task's `dependsOn` lists the
    * positions (0-based) of earlier tasks in the same call; each becomes a dependency on the task just created.
+   * At most 20 tasks and 40 dependencies in all per call; over either cap the call is refused before anything is created.
    */
   api_create_tasks: { args: { repoPath: string; tasks: { title: string; body: string; dependsOn?: number[] }[]; baseBranch?: string }; result: { tasks: CreatedTask[] } };
   /** HUB_ONLY, read-only: the target branches a card may name (repo default + `baseBranches` allowlist) and the configured default, for the new-card form. */

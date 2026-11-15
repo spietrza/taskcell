@@ -108,6 +108,28 @@ describe('tasks', () => {
     expect(created).toBe(0);
   });
 
+  test('api_create_tasks accepts 40 dependencies and refuses 41', async () => {
+    // task i may depend on tasks 0..i-1; spread n dependencies over 20 tasks
+    const plan = (n: number): { title: string; body: string; dependsOn: number[] }[] => {
+      let left = n;
+      return Array.from({ length: 20 }, (_, i) => {
+        const take = Math.min(i, left);
+        left -= take;
+        return { title: 't', body: '', dependsOn: Array.from({ length: take }, (_, j) => j) };
+      });
+    };
+    for (const [n, ok] of [[40, true], [41, false]] as const) {
+      const repo = await tmpRepo();
+      let created = 0;
+      const { ctx } = await makeCtx(repo, { depsOverrides: { createTask: async () => ({ id: `ENG-${++created}`, url: 'https://x' }) } });
+      await writeAppConfig(repo, { source: 'linear', team: 'DEV' });
+      const call = dispatchRpc(ctx, 'api_create_tasks', { repoPath: repo, tasks: plan(n) });
+      if (ok) await expect(call).resolves.toBeDefined();
+      else await expect(call).rejects.toThrow(/at most 40 dependencies/);
+      expect(created).toBe(ok ? 20 : 0);
+    }
+  });
+
   test('api_create_tasks names what was already created when a later task fails', async () => {
     const repo = await tmpRepo();
     let n = 0;

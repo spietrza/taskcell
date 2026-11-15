@@ -12,12 +12,16 @@ const SHA_RE = /^[0-9a-f]{7,64}$/;
 export const OPEN_PRS_FIELDS = 'number,headRefName,isCrossRepository,author';
 /** Reads for the merge order: one issue, and its native blocked-by relations. */
 const DEPENDENCY_READ_RE = /^repos\/[\w.-]+\/[\w.-]+\/issues\/\d+(?:\/dependencies\/blocked_by)?$/;
+/** A dependent PR's timeline, read for when its revise label was applied. */
+const TIMELINE_READ_RE = /^repos\/[\w.-]+\/[\w.-]+\/issues\/\d+\/timeline$/;
+/** An endpoint with no `.` or `..` path segment. */
+const noDotSegments = (endpoint: string): boolean => !endpoint.split('/').some((part) => /^\.+$/.test(part));
 
 /**
  * Act mode's gh allow-list: everything shadow mode may do, plus three writes — merge the base into the
  * head (update-branch: never a rebase), a squash merge pinned to the head the decision was made on, and
  * adding or removing the revise label (a dependent PR that conflicts after its dependency merged) — and
- * the reads the merge order needs (an issue, its blocked-by relations, the open PR list). It never marks
+ * the reads the merge order needs (an issue, its blocked-by relations, the open PR list, a dependent's timeline). It never marks
  * a draft ready. All use the permissions the approver job already has.
  */
 export function assertActSafeGhArgs(args: string[]): void {
@@ -31,8 +35,9 @@ export function assertActSafeGhArgs(args: string[]): void {
   if (cmd === 'api' && (args.length === 2 || (args.length === 3 && args[2] === '--paginate'))) {
     const { method, endpoints } = parseApiCall(args);
     const endpoint = endpoints[0] ?? '';
-    if (method === 'GET' && endpoints.length === 1 && DEPENDENCY_READ_RE.test(endpoint) && !endpoint.split('/').some((part) => /^\.+$/.test(part))) return;
+    if (method === 'GET' && endpoints.length === 1 && DEPENDENCY_READ_RE.test(endpoint) && noDotSegments(endpoint)) return;
   }
+  if (cmd === 'api' && args.length === 4 && args[2] === '--paginate' && args[3] === '--slurp' && TIMELINE_READ_RE.test(sub ?? '') && noDotSegments(sub ?? '')) return;
   try {
     assertShadowSafeGhArgs(args);
   } catch {
