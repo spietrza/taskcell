@@ -8,7 +8,11 @@ const hostCodexAuthFile = (env: NodeJS.ProcessEnv): string =>
   env.CODEX_AUTH_FILE || join(env.CODEX_HOME || join(homedir(), '.codex'), 'auth.json');
 
 /** CI sources CODEX_AUTH_JSON from a stored secret; there is no host file to hand a rotation back to. */
-const isCi = (env: NodeJS.ProcessEnv): boolean => [env.CI, env.GITHUB_ACTIONS].some((v) => v !== undefined && v !== '' && v !== '0' && v !== 'false');
+export const isCi = (env: NodeJS.ProcessEnv): boolean => [env.CI, env.GITHUB_ACTIONS].some((v) => v !== undefined && v !== '' && v !== '0' && v !== 'false');
+
+const CONTROL_CHARS = /[\x00-\x1f\x7f]/;
+
+const clean = (v: unknown): v is string => typeof v === 'string' && v !== '' && !CONTROL_CHARS.test(v);
 
 type AuthJson = { tokens?: { access_token?: unknown; refresh_token?: unknown }; last_refresh?: unknown; [k: string]: unknown };
 
@@ -21,11 +25,13 @@ const parse = (json: string): AuthJson | undefined => {
   }
 };
 
-/** `current` with the rotated access/refresh tokens and `last_refresh` merged in; undefined when `rotated` has no usable access token. */
+/** `current` with the rotated access/refresh tokens and `last_refresh` merged in; undefined when `rotated` lacks a clean string access/refresh token or has a non-string `last_refresh`. */
 const merge = (current: AuthJson, rotated: AuthJson): AuthJson | undefined => {
   const access = rotated.tokens?.access_token;
-  if (typeof access !== 'string' || access === '') return undefined;
-  const merged: AuthJson = { ...current, tokens: { ...current.tokens, access_token: access, refresh_token: rotated.tokens?.refresh_token } };
+  const refresh = rotated.tokens?.refresh_token;
+  if (!clean(access) || !clean(refresh)) return undefined;
+  if (rotated.last_refresh !== undefined && typeof rotated.last_refresh !== 'string') return undefined;
+  const merged: AuthJson = { ...current, tokens: { ...current.tokens, access_token: access, refresh_token: refresh } };
   if (rotated.last_refresh !== undefined) merged.last_refresh = rotated.last_refresh;
   return merged;
 };
