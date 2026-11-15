@@ -875,7 +875,7 @@ describe('parseCli', () => {
 
   it('accepts stats --skills after global flags and refuses ignored combinations', () => {
     expect(parseCli(['--json', 'stats', '--skills'], '/work')).toMatchObject({ kind: 'stats', json: true, skills: true });
-    for (const argv of [['stats', '--since', '30d'], ['stats', '--skills', '--approver'], ['stats', '--skills', '--github-repo', 'a/b'], ['stats', '--skills', '--feedback-authors', 'a'], ['stats', '--skills=foo'], ['stats', '--skills', './skills'], ['stats', '--skills', '-']]) {
+    for (const argv of [['stats', '--skills', '--approver'], ['stats', '--skills', '--github-repo', 'a/b'], ['stats', '--skills', '--feedback-authors', 'a'], ['stats', '--skills=foo'], ['stats', '--skills', './skills'], ['stats', '--skills', '-']]) {
       expect(parseCli(argv, '/work').kind).toBe('error');
     }
     // The string --skills without a value, and the internal --skill-stats name, are not options.
@@ -916,6 +916,10 @@ describe('parseCli', () => {
     [['stats', 'extra'], { kind: 'stats', repoPath: '/work', json: false, approver: false }],
     [['stats', '--branch', 'stats'], { kind: 'stats', repoPath: '/work', json: false, approver: false, branch: 'stats' }],
     [['--repo', 'stats', 'stats'], { kind: 'stats', repoPath: 'stats', json: false, approver: false }],
+    [['stats', '--since', '30d'], { kind: 'stats', repoPath: '/work', json: false, approver: false }],
+    [['stats', '--since', 'soon', '--json'], { kind: 'stats', repoPath: '/work', json: true, approver: false }],
+    [['stats', '--approver', '--since', '30d'], { kind: 'stats', repoPath: '/work', json: false, approver: true }],
+    [['stats', '--github-repo', 'a/b', '--feedback-authors', 'x', '--since', '2026-01-01'], { kind: 'stats', repoPath: '/work', json: false, approver: false, githubRepo: 'a/b', feedbackAuthors: ['x'] }],
   ])('parses %j as main does', (argv, expected) => {
     const parsed = parseCli(argv, '/work');
     expect(parsed).toMatchObject(expected);

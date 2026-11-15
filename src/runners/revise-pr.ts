@@ -516,7 +516,7 @@ export async function runRevisePullRequest(prRef: string, deps: ReviseGithubPrDe
     // One RunWriter for the whole revision round, shared by the (mutually exclusive) writeStages
     // calls below, for consistency with runSourcedIssue's writer.
     const writer = beginRun(deps.repoPath, taskId, undefined, { secretEnvVars: providerKeyEnvNames(deps) });
-    const revisionStageMeta: { flow: string; provider: string; lessonIds?: string[] } = { flow: 'revise', provider: agents.agent.name, lessonIds: [] };
+    const revisionStageMeta: { flow: string; provider: string; lessonIds?: string[]; skillIds?: string[] } = { flow: 'revise', provider: agents.agent.name, lessonIds: [] };
     let outcomes: StageOutcome[] = [];
     // For paths where the secret scan never ran: keep the cost trace, keep the diff off disk.
     const writeStagesWithoutDiff = (): Promise<void> => writer.writeStages(outcomes, { ...revisionStageMeta, omitDiff: true });
@@ -545,6 +545,8 @@ export async function runRevisePullRequest(prRef: string, deps: ReviseGithubPrDe
       if (deps._baseBranch === undefined && (pr.headRefName === '' || pr.headRefOid === '')) {
         throw new TaskcellError(`PR ${target.repoSlug}#${target.number} has no head ref to fetch`);
       }
+      const skills = await skillRegistryForRun(deps.skillsDir, deps.repoPath);
+      revisionStageMeta.skillIds = skills.ids();
       ctx = await prepareContext(
         {
           taskId,
@@ -560,7 +562,7 @@ export async function runRevisePullRequest(prRef: string, deps: ReviseGithubPrDe
                 start: { prHead: pr.headRefName, headRefOid: pr.headRefOid },
               }),
         },
-        { skills: await skillRegistryForRun(deps.skillsDir, deps.repoPath), ...(deps._worktrees !== undefined ? { worktrees: deps._worktrees } : {}) },
+        { skills, ...(deps._worktrees !== undefined ? { worktrees: deps._worktrees } : {}) },
       );
     } catch (error) {
       await stepSummary('error', { error: String(error) });

@@ -816,7 +816,6 @@ export function parseCli(argv: string[], cwd: string): Command {
     }
     const statsFeedbackAuthors = parseFeedbackAuthors(values['feedback-authors']);
     if (values.skills === true && positionals.length > 1) return fail('stats --skills takes no value.');
-    if (values.skills !== true && values.since !== undefined) return fail('stats --since needs --skills.');
     if (values.skills === true && (values.approver === true || statsRepo !== undefined || statsFeedbackAuthors !== undefined)) {
       return fail('stats --skills cannot be combined with --approver, --github-repo or --feedback-authors.');
     }
@@ -829,7 +828,8 @@ export function parseCli(argv: string[], cwd: string): Command {
       json: values.json === true,
       approver: values.approver === true,
       ...(values.skills === true ? { skills: true } : {}),
-      ...(typeof values.since === 'string' ? { since: values.since } : {}),
+      // Without --skills, --since is accepted and ignored, as it always was on stats.
+      ...(values.skills === true && typeof values.since === 'string' ? { since: values.since } : {}),
       ...(typeof values.branch === 'string' ? { branch: values.branch } : {}),
       ...(typeof values['github-repo'] === 'string' ? { githubRepo: values['github-repo'] } : {}),
       ...(statsFeedbackAuthors !== undefined ? { feedbackAuthors: statsFeedbackAuthors } : {}),

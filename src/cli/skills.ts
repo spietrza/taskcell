@@ -1,6 +1,6 @@
 import { execFile } from 'node:child_process';
-import { lstat, mkdir, mkdtemp, readFile, rename, rm, writeFile } from 'node:fs/promises';
-import { basename, dirname, isAbsolute, join, relative, resolve } from 'node:path';
+import { lstat, mkdir, mkdtemp, readFile, realpath, rename, rm, writeFile } from 'node:fs/promises';
+import { basename, dirname, isAbsolute, join, relative, resolve, sep } from 'node:path';
 import { promisify } from 'node:util';
 import { neutralizeMentions, neutralizePromptTags } from '../context/escape.js';
 import { lockEntry, readSkillLock, SKILL_LOCK_FILE, sha256Hex, skillStatus, type SkillLockEntry, type SkillStatus } from '../context/skill-lock.js';
@@ -304,15 +304,19 @@ async function planSkillUpdates(dir: string, name: string | undefined, deps: Ski
         plans.push({ ...base, detail: `${local === undefined ? 'missing' : 'modified'} locally → skipped` });
         continue;
       }
-      const pinned = await fetchSkill(src, entry.source, entry.commit, entry.path).catch((err: unknown) => {
+      let pinned: SkillFiles | undefined;
+      let whyNoPinned = `${entry.path} is not in pinned commit ${short(entry.commit)}`;
+      try {
+        pinned = await fetchSkill(src, entry.source, entry.commit, entry.path);
+      } catch (err) {
         if (!(err instanceof TaskcellError)) throw err;
         console.warn(`taskcell skills: ${oneLine(n)}: ${oneLine(err.message)}`);
-        return undefined;
-      });
+        whyNoPinned = err instanceof SkillFetchError ? `pinned commit ${short(entry.commit)} can no longer be fetched` : `pinned commit ${short(entry.commit)} was refused (see stderr)`;
+      }
       // A server can stop serving a commit (force-push, gc, no fetch by sha). --force is the way out:
       // SKILL.md still matched the lock's hash above, only the other files go unchecked.
       if (pinned === undefined && !force) {
-        plans.push({ ...base, detail: `pinned commit ${short(entry.commit)} can no longer be fetched, so local files cannot be checked against it → skipped (--force replaces them unchecked)` });
+        plans.push({ ...base, detail: `${whyNoPinned}, so local files cannot be checked against it → skipped (--force replaces them unchecked)` });
         continue;
       }
       if (pinned !== undefined && !sameFiles(local, pinned)) {
@@ -457,15 +461,14 @@ export interface SkillsUpdateOptions {
 }
 
 /**
- * The run metrics behind the PR body's usage line: the local copy, else the one `metrics push` keeps on
- * the metrics branch. Best effort: the line is optional, so an unreadable source means no line.
+ * The run metrics behind the PR body's usage line: the local copy, or, when it is missing or records no
+ * skills, the one `metrics push` keeps on the metrics branch. Best effort: the line is optional, so an
+ * unreadable source means no line.
  */
-async function recordedMetrics(repo: string): Promise<string> {
-  try {
-    return await readFile(join(stateDir(repo), 'runs', 'metrics.jsonl'), 'utf8');
-  } catch {
-    return readBranchMetrics(repo).catch(() => '');
-  }
+export async function recordedMetrics(repo: string, readBranch: (repo: string) => Promise<string> = readBranchMetrics): Promise<string> {
+  const local = await readFile(join(stateDir(repo), 'runs', 'metrics.jsonl'), 'utf8').catch(() => '');
+  if (parseMetrics(local).some((r) => r.skillsUsed !== undefined)) return local;
+  return readBranch(repo).catch(() => local);
 }
 
 /**
@@ -495,6 +498,11 @@ async function skillsUpdatePr(opts: SkillsUpdateOptions, deps: SkillsDeps, out: 
   );
   try {
     const wtDir = join(ctx.worktreePath, rel);
+    // The base branch can commit a symlink at the skills path: nothing may be read or written outside the worktree.
+    const [wtReal, dirReal] = await Promise.all([realpath(ctx.worktreePath), realpath(wtDir).catch((err: NodeJS.ErrnoException) => (err.code === 'ENOENT' || err.code === 'ENOTDIR' ? undefined : Promise.reject(err)))]);
+    if (dirReal !== undefined && dirReal !== wtReal && !dirReal.startsWith(`${wtReal}${sep}`)) {
+      throw new TaskcellError(`${rel} on ${baseBranch} resolves outside the repo (${dirReal}); --pr will not write through it.`);
+    }
     // Before anything is written or pushed: every name in the lock ends up in the PR body.
     const invalid = Object.keys((await readSkillLock(wtDir)) ?? {}).filter((n) => !isName(n));
     if (invalid.length > 0) {
@@ -506,6 +514,11 @@ async function skillsUpdatePr(opts: SkillsUpdateOptions, deps: SkillsDeps, out: 
     if (moved.length === 0 || opts.dryRun) return;
     const metricsText = await recordedMetrics(opts.repo);
     await applySkillUpdates(wtDir, plans);
+    // commitStage's `add -A` honours .gitignore files (the repo's, the operator's, the skill's own): force-add
+    // every moved skill so the commit holds exactly the installed files.
+    // The pathspec is the real path (git refuses one beyond a symlink) and literal (no pathspec magic).
+    const realRel = relative(wtReal, dirReal ?? wtDir);
+    for (const p of moved) await execFileP('git', hostGitArgs(['--literal-pathspecs', 'add', '-f', '-A', '--', join(realRel, p.name)]), { cwd: ctx.worktreePath });
     const title = `chore(skills): update ${moved.map((p) => p.name).join(', ')}`.slice(0, 100);
     const result = await deliverChange(ctx, {
       taskId: ctx.taskId,

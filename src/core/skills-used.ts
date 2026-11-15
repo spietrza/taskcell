@@ -42,7 +42,8 @@ function stripShellWrapper(command: string): string {
 }
 
 function codexReadSkills(command: string): string[] {
-  const cmd = stripShellWrapper(command);
+  // Discarding or merging a stream (`2>/dev/null`, `2>&1`) does not make the command something other than a read.
+  const cmd = stripShellWrapper(command).replace(/\s\d*>>?\s*(?:&\d+|\/dev\/null)(?=[\s;&|]|$)/g, '');
   if (/[<>`$()]/.test(cmd)) return [];
   const ids: string[] = [];
   for (const part of cmd.split(/&&|\|\||[;|]/)) {

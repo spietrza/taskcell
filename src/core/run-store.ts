@@ -426,8 +426,9 @@ async function writeRecord(repoPath: string, taskId: string, timestamp: string, 
   const taskDir = await ensureStateDir(repoPath, join(root, taskId));
 
   const { diff, transcript, skillsUsed: priorSkillsUsed, ...meta } = result;
-  // The skills installed for the run; a transcript's claim of any other id is discarded.
-  const installedSkillIds = opts.skillIds ?? (opts.skills !== undefined ? [...opts.skills.named, ...opts.skills.available] : undefined);
+  // The skills installed for the run; a transcript's claim of any other id is discarded, so a caller
+  // that passes no registry records none.
+  const installedSkillIds = opts.skillIds ?? (opts.skills !== undefined ? [...opts.skills.named, ...opts.skills.available] : []);
   // Why the diff (and bundle) are withheld, recorded on run.json so the hub and a human can tell
   // "withheld" from "no diff" or "bundle creation failed":
   //  - 'secret-blocked': the caller's publish gate fired (opts.omitDiff).

@@ -42,6 +42,15 @@ describe('skill stats', () => {
     expect(row?.without).toMatchObject({ runs: 1, passRate: 1 });
   });
 
+  it('leaves out a run when any of its records lacks skillsUsed', () => {
+    const records = parseMetrics([
+      line({ taskId: 'partly', ts: A, verdict: 'pass' }),
+      line({ taskId: 'partly', ts: A, skillsUsed: [] }),
+      line({ taskId: 'full', ts: A, skillsUsed: ['s'] }),
+    ].join('\n'));
+    expect(aggregateSkills(records)[0]).toMatchObject({ with: { runs: 1 }, without: { runs: 0 } });
+  });
+
   it('keeps records without timestamps as separate runs', () => {
     const records = parseMetrics([
       line({ taskId: 'same', skillsUsed: ['s'], verdict: 'changes' }),

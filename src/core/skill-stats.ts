@@ -40,16 +40,16 @@ export function withinWindow(records: readonly MetricRecord[], windowMs: number 
 
 /**
  * Group stage records into runs by `taskId|ts`; a record without `ts` is its own run (as lessons-stats
- * does). A run none of whose records carry `skillsUsed` (recorded before the field, or its transcript
+ * does). A run with any record lacking `skillsUsed` (recorded before the field, or a stage's transcript
  * was withheld) has unknown skills, so it is left out, not counted as "without".
  */
 function summarize(records: readonly MetricRecord[]): RunSummary[] {
   const runs = new Map<string, RunSummary & { known: boolean }>();
   records.forEach((r, i) => {
     const key = r.ts === undefined ? `#${i}` : `${r.taskId}|${r.ts}`;
-    const run = runs.get(key) ?? { skills: new Set<string>(), costUsd: 0, repairRounds: 0, verdicts: [], known: false };
+    const run = runs.get(key) ?? { skills: new Set<string>(), costUsd: 0, repairRounds: 0, verdicts: [], known: true };
     for (const s of sanitizeSkillIds(r.skillsUsed ?? [])) run.skills.add(s);
-    if (r.skillsUsed !== undefined) run.known = true;
+    if (r.skillsUsed === undefined) run.known = false;
     run.costUsd += r.costUsd;
     // Gate repairs and resumes fold into one stage record as extra attempts.
     run.repairRounds += Math.max(0, (r.attempts ?? 1) - 1);

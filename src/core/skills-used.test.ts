@@ -20,7 +20,9 @@ describe('parseSkillsUsed', () => {
   it('finds multiple, chained and piped Codex reads', () => {
     const multiple = j({ type: 'item.completed', item: { type: 'command_execution', command: 'cat .vanguard/skills/a/SKILL.md .vanguard/skills/b/SKILL.md' } });
     const chained = j({ type: 'item.completed', item: { type: 'command_execution', command: 'cd /workspace && cat .vanguard/skills/c/SKILL.md | head -40' } });
-    expect(parseSkillsUsed([multiple, chained].join('\n'))).toEqual(['a', 'b', 'c']);
+    const quiet = j({ type: 'item.completed', item: { type: 'command_execution', command: "bash -lc 'cat .vanguard/skills/d/SKILL.md 2>/dev/null; head -5 .vanguard/skills/e/SKILL.md 2>&1 > /dev/null'" } });
+    const copied = j({ type: 'item.completed', item: { type: 'command_execution', command: 'cat .vanguard/skills/f/SKILL.md > copy.md' } });
+    expect(parseSkillsUsed([multiple, chained, quiet, copied].join('\n'))).toEqual(['a', 'b', 'c', 'd', 'e']);
   });
   it('returns [] for unknown or garbage input', () => {
     expect(parseSkillsUsed(undefined)).toEqual([]);

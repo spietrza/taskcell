@@ -1,5 +1,5 @@
 import { describe, it, expect, beforeEach, afterEach } from 'vitest';
-import { mkdtemp, rm, writeFile, mkdir } from 'node:fs/promises';
+import { mkdtemp, readFile, rm, stat, writeFile, mkdir } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { execa } from 'execa';
@@ -86,13 +86,39 @@ describe('publishForReview', () => {
     await disposeContext(ctx);
   });
 
+  it('passes the body to gh as a file that is gone afterwards, and names the pushed branch when gh fails', async () => {
+    const wm = new WorktreeManager(repo, undefined, () => 'r-body');
+    const ctx = await prepareContext({ taskId: 'pub-body', localRepoPath: repo, baseBranch: 'main', start: 'base', sandbox: makeSandbox() }, { worktrees: wm });
+    let file = '';
+    let seen = '';
+    const runner = (fail: boolean) => async (cmd: string, args: string[]): Promise<string> => {
+      if (args[0] === 'ls-remote') throw new Error('exit 2');
+      if (cmd !== 'gh') return '';
+      expect(args).not.toContain('--body');
+      file = args[args.indexOf('--body-file') + 1]!;
+      seen = await readFile(file, 'utf8');
+      if (fail) throw new Error('gh: not logged in');
+      return 'https://github.com/o/r/pull/45';
+    };
+    await publishForReview(ctx, { title: 'PR', body: 'big body', runner: runner(false) });
+    expect(seen).toBe('big body');
+    await expect(stat(file)).rejects.toThrow();
+    await expect(publishForReview(ctx, { title: 'PR', body: 'x', runner: runner(true) })).rejects.toThrow(/after pushing origin\/chore\/vanguard-pub-body-r-body.*not logged in/);
+    await expect(stat(file)).rejects.toThrow();
+    // glab keeps its inline description and no temp file.
+    const glab: string[][] = [];
+    await publishForReview(ctx, { title: 'PR', body: 'g', cli: 'glab', runner: async (cmd, args) => { if (cmd === 'glab') glab.push(args); return args[0] === 'ls-remote' ? Promise.reject(new Error('exit 2')) : 'https://gitlab/x/-/merge_requests/1'; } });
+    expect(glab[0]).toEqual(expect.arrayContaining(['--description', 'g']));
+    await disposeContext(ctx);
+  });
+
   it('rebases onto the remote base, then pushes, when the base moved during the run (#423)', async () => {
     const wm = new WorktreeManager(repo, undefined, () => 'r2');
     const ctx = await prepareContext({ taskId: 'pub2', localRepoPath: repo, baseBranch: 'main', start: 'base', sandbox: makeSandbox() }, { worktrees: wm });
     const calls: string[][] = [];
     let ghArgs: string[] = [];
     const runner = async (file: string, args: string[]): Promise<string> => {
-      if (file === 'gh') { ghArgs = args; return 'https://github.com/o/r/pull/43'; }
+      if (file === 'gh') { ghArgs = [...args, '--body', await readFile(args[args.indexOf('--body-file') + 1]!, 'utf8')]; return 'https://github.com/o/r/pull/43'; }
       calls.push(args);
       if (args[0] === 'ls-remote') throw new Error('exit 2');   // no such remote branch yet
       if (args[0] === 'rev-list') return '2\n';
