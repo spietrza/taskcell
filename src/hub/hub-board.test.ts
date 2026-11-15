@@ -65,6 +65,10 @@ test('an unreadable store fails loudly and is never overwritten; invalid entries
   const bad = { id: 'hub-2', title: 'B', body: '', status: 'Todo', blockedBy: [] };
   await writeFile(file, JSON.stringify({ repoPath: repo, tasks: [{ id: 'hub-1', title: 'A', body: '', status: 'todo', blockedBy: [] }, bad] }));
   expect(await readHubTasks(cfg, repo)).toMatchObject({ tasks: [{ id: 'hub-1' }], invalid: 1 });
+  const badSkills = { id: 'hub-4', title: 'D', body: '', status: 'todo', blockedBy: [], skills: [1] };
+  await writeFile(file, JSON.stringify({ repoPath: repo, tasks: [{ id: 'hub-1', title: 'A', body: '', status: 'todo', blockedBy: [] }, bad, badSkills] }));
+  expect(await readHubTasks(cfg, repo)).toMatchObject({ invalid: 2 }); // a non-string skill id makes the entry invalid
+  await writeFile(file, JSON.stringify({ repoPath: repo, tasks: [{ id: 'hub-1', title: 'A', body: '', status: 'todo', blockedBy: [] }, bad] }));
   expect((await add('C')).id).toBe('hub-3'); // the invalid entry's id is not reused
   expect((JSON.parse(await readFile(file, 'utf8')) as { tasks: unknown[] }).tasks).toContainEqual(bad);
   expect((await listHubBoard(cfg, repo)).tasks.at(-1)).toMatchObject({ schedule: { state: 'invalid', reason: expect.stringContaining('1 entry') } });

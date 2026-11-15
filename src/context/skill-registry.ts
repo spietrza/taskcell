@@ -319,6 +319,15 @@ async function skillsIn(dir: string): Promise<Record<string, string>> {
   return skills;
 }
 
+/** skillsIn, failing with a message that names the directory (a run that loads SKILLS_DIR must say which one is broken). */
+async function skillsInNamed(dir: string): Promise<Record<string, string>> {
+  try {
+    return await skillsIn(dir);
+  } catch (error) {
+    throw new TaskcellError(`Skills directory ${dir} (SKILLS_DIR / --skills) cannot be loaded: ${error instanceof Error ? error.message : String(error)}`);
+  }
+}
+
 /**
  * Build a registry from a directory where each subdirectory containing a SKILL.md is a skill
  * (the Claude Code skill format used by collections like obra/superpowers and cursor-team-kit).
@@ -358,7 +367,7 @@ export async function skillRegistryForRun(
   repoPath: string,
   opts: { includeSpecSkills?: boolean } = {},
 ): Promise<SkillRegistry> {
-  const [base, repo] = await Promise.all([skillsDir === undefined ? {} : skillsIn(skillsDir), repoSkills(repoPath)]);
+  const [base, repo] = await Promise.all([skillsDir === undefined ? {} : skillsInNamed(skillsDir), repoSkills(repoPath)]);
   const skills: Record<string, string> = { ...base, ...repo };
   // After the merge, so a repo-supplied copy is dropped too. Its author gets a signal; a bundled drop stays silent.
   if (opts.includeSpecSkills !== true) {

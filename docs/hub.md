@@ -94,7 +94,7 @@ warning naming the provider rather than leaving the exposure silent:
 - **Codex on a ChatGPT subscription** (`CODEX_AUTH_JSON`). A Codex run has no Anthropic-family
   credential for the hub's primary sidecar to hold, so the hub runs it without the proxy and the
   `auth.json` is forwarded into the sandbox verbatim. (The CLI's `--llm-proxy` keeps it on the
-  host when the run also uses Claude, Z.ai or OpenRouter; see [boundaries](security/boundaries.md#host-llm-proxy).) The run still starts; tracked in #585.
+  host when the run also uses Claude, Z.ai or OpenRouter, or is a Codex-only `review-pr`/`review-mr`/`research`; see [boundaries](security/boundaries.md#host-llm-proxy).) The run still starts; tracked in #585.
 - **Codex or Cursor on their own API key** (`CODEX_API_KEY`/`OPENAI_API_KEY`, `CURSOR_API_KEY`). Such a
   run consumes no Anthropic-family credential, so the proxy's primary sidecar has nothing to hold and
   cannot start; exporting `CLAUDE_CODE_OAUTH_TOKEN` as well does not change that, because the run never
@@ -517,7 +517,7 @@ The views work at phone width (the quick view is a bottom drawer).
 
 **Enable factory** on a project card (hub only) turns on the GitHub Actions factory for that repo in
 four steps, following [onboarding-another-repo.md](onboarding-another-repo.md)
-(`src/hub/enable-factory.ts`). GitLab CI has its own flow, below; Linear shows as planned. **Self-hosted (watch)** is a read-only checklist, described under [Self-hosted (watch)](#self-hosted-watch).
+(`src/hub/enable-factory.ts`). GitLab CI has its own flow, below; Linear shows as planned. **Self-hosted (watch)** is a read-only checklist, described under [Self-hosted (watch)](#self-hosted-watch). **Local hub** is the hub's own worker, described under [Local hub](#local-hub).
 
 1. **Plan** reads the repo with `gh` and changes nothing: the slug, the default branch, the signed-in
    `gh` login (it becomes the callers' actor gate), the package manager and scripts, and the caller
@@ -565,6 +565,19 @@ Each step shows its state; the dialog polls the MR merge and the pipeline, "Chec
 Apply and verify change the remote, so they are gated like `clone_project`: loopback only, unless
 `TASKCELL_HUB_ALLOW_ADD=1`. The `gh` login must be able to push workflow files (classic `repo` and
 `workflow` scopes), create labels, open a PR and dispatch a workflow.
+
+### Local hub
+
+**Enable factory → Local hub** turns the hub's built-in worker on for one project: for a project with no CI, the hub itself picks up work on a schedule (`src/hub/local-worker.ts`). The switch is **off by default**, per project, and is stored in the hub's config dir (`local-worker.json`, never in the repo), so a hub restart keeps it.
+
+- **What it picks up.** Every scheduler tick (the same timer as the hub board), for a project with the switch on: a **GitHub Issues** project's open issues carrying the trigger label (`ready for agent`, or the project's configured `label`), oldest first, skipping issues the factory already claimed or parked (running, in review, waiting, rate-limited) and, as `taskcell watch` does, issues whose author is not a repo owner, member or collaborator or a GitHub App bot (a failed author lookup skips the issue and shows as the last error); or a **hub-board** project's tasks, through the board scheduler. Both start runs through the same run session as a run started by hand (same pipeline, credential policy and audit). An issue is handed over at most once per hub process, so a run that leaves the label behind is not retried in a loop.
+- **Limit.** At most the project's parallel-run limit (its `concurrency`, capped by what the run session holds) are in flight for a project; a finished run frees a slot on the next tick.
+- **Refusals.** The switch cannot be turned on, and the dialog says why, for a project with no task source, with a task source the worker cannot read (GitLab, Linear, GitHub Projects), a GitHub Issues project whose `origin` is not a github.com repository, or when the hub has no provider credential (its environment or an instance credential in Settings → Credentials; names only are shown). Turning it off always works.
+- **Checklist and card.** The dialog shows the switch, whether a credential is present, the **doctor** result (`Run doctor` runs the same checks as `taskcell doctor --source github --github-repo <origin> --label <trigger>` against the project, on the hub's machine; a hub-board project has no doctor step) and the worker state. The project card shows it too: on or off, the last pick-up, and the last error (cleared by the next successful pick-up). Doctor is informational: it does not gate the switch.
+- **Off.** Stops new pick-ups; a task that is already running is left alone.
+- **Hub boards and the switch.** A hub-board project was always served by the board scheduler, whether or not it had a switch; that is unchanged. Only a switch explicitly turned **off** stops it, and pick-ups are shown on the card while it is on.
+
+RPCs: `local_worker_state` (read), `local_worker_doctor` and `local_worker_set` (`{ repoPath, enabled }`); both are refused on a non-loopback bind without `TASKCELL_HUB_ALLOW_ADD=1`. `local_worker_set` is audited as `settings-change`; `local_worker_doctor` writes only the doctor result into the hub's own store and is not audited. Runs started by hand and the other run locations are unchanged.
 
 ### Self-hosted (watch)
 

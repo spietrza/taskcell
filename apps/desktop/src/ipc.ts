@@ -101,6 +101,17 @@ export function enableFactoryHost(repoPath: string): Promise<{ host: FactoryHost
   return call('enable_factory_host', { repoPath });
 }
 
+/** Local hub: the built-in worker's switch and checklist (credentials, doctor run on the hub's machine, last pick-up, last error). */
+export function localWorkerState(repoPath: string): Promise<LocalWorkerState> {
+  return call('local_worker_state', { repoPath });
+}
+export function localWorkerSet(repoPath: string, enabled: boolean): Promise<LocalWorkerState> {
+  return call('local_worker_set', { repoPath, enabled });
+}
+export function localWorkerDoctor(repoPath: string): Promise<LocalWorkerState> {
+  return call('local_worker_doctor', { repoPath });
+}
+
 /** Self-hosted (watch) checklist: compose snippet, command, credential names, worker-seen state. Read-only. */
 export function enableFactoryWatch(repoPath: string): Promise<WatchWorkerChecklist> {
   return call('enable_factory_watch', { repoPath });
@@ -283,6 +294,7 @@ export type {
   CompleteCallArgs,
   CompleteCallArgs as CompleteParams,
 } from './wire';
+import type { LocalWorkerState } from './wire';
 import type { AuditEntry, Capabilities, CreateRunParams, CreateRunResult, FlowDoc, RepoFlowInfo, RepoProviderInfo, CompleteCallArgs } from './wire';
 
 export function apiCapabilities(): Promise<Capabilities> {
@@ -572,7 +584,7 @@ export function apiListSkills(repoPath: string): Promise<{ skills: string[] }> {
   return call('list_skills', { repoPath });
 }
 
-/** HUB_ONLY: write a card's hand-picked skills to its task as the body's `Skills:` line (an empty list removes it). */
+/** HUB_ONLY: write a card's hand-picked skills: to its tracker task as the body's `Skills:` line (an empty list removes it), or to a hub-board task itself. */
 export function apiSetTaskSkills(repoPath: string, taskId: string, skills: string[]): Promise<{ skills: string[] }> {
   return call('set_task_skills', { repoPath, taskId, skills });
 }

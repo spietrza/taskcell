@@ -4,6 +4,7 @@ import { Play } from 'lucide-react';
 import { EnumSelect } from './EnumSelect';
 import { SkillPicker } from '../board/SkillPicker';
 import { apiListFlows, apiListProviders } from '../../ipc';
+import { isHubMode } from '../../transport';
 import type { Capabilities, CreateRunParams, RepoFlowInfo, RepoProviderInfo } from '../../ipc';
 
 /** Built-ins ∪ healthy repo flows. Entries with an error (or no name) are never offered — they cannot run. */
@@ -128,7 +129,7 @@ export function NewRunForm({
     maxTurns: maxTurnsNum,
     ...(baseBranch.trim() !== '' ? { baseBranch: baseBranch.trim() } : {}),
     // Sent (even empty) when the card named skills, so one unticked here is not loaded from the issue body.
-    ...(skills.length > 0 || (taskSkills?.length ?? 0) > 0 ? { skills } : {}),
+    ...(isHubMode() && (skills.length > 0 || (taskSkills?.length ?? 0) > 0) ? { skills } : {}),
   };
   const preview = `taskcell run --${transport} ${issueRef || '<issue>'} --provider ${provider}${flow === 'plan' ? ' --plan' : ''} --max-turns ${maxTurns}${skills.map((s) => ` --skill ${s}`).join('')}`;
 
@@ -164,7 +165,7 @@ export function NewRunForm({
             max-turns
             <Input value={maxTurns} onChange={(e) => setMaxTurns(e.target.value)} className="w-16" />
           </label>
-          <SkillPicker project={project} value={skills} onChange={setSkills} />
+          {isHubMode() && <SkillPicker project={project} value={skills} onChange={setSkills} />}
           <label className="flex items-center gap-1 text-xs text-muted-foreground">
             base
             <Input value={baseBranch} onChange={(e) => setBaseBranch(e.target.value)} placeholder="card / repo default" className="w-36" />

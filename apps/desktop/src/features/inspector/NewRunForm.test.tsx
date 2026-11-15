@@ -1,4 +1,4 @@
-import { test, expect, vi } from 'vitest';
+import { test, expect, vi, beforeEach } from 'vitest';
 import { render, screen, fireEvent, waitFor } from '@testing-library/react';
 import { flowOptionsFrom, issueRefFrom, providerOptionsFrom, NewRunForm } from './NewRunForm';
 import * as ipc from '../../ipc';
@@ -9,6 +9,10 @@ vi.mock('../../ipc.js', () => ({
   apiListProviders: vi.fn(async () => ({ providers: [] })),
   apiListSkills: vi.fn(async () => ({ skills: ['ponytail', 'simplify'] })),
 }));
+
+beforeEach(() => {
+  window.__TASKCELL_HUB__ = true;
+});
 
 const caps: Capabilities = {
   providers: ['claude', 'codex'],
@@ -192,4 +196,12 @@ test('when the skills cannot be listed the picker says why and keeps the card\'s
   fireEvent.click(screen.getByText('Advanced'));
   expect(await screen.findByRole('status')).toHaveTextContent('skills unavailable — skills.lock.json does not match code-review');
   expect(screen.getByLabelText('ponytail')).toBeChecked();
+});
+
+test('no skill picker is rendered outside hub mode', async () => {
+  delete window.__TASKCELL_HUB__;
+  render(<NewRunForm capabilities={caps} project="/repo" onRun={vi.fn()} onCancel={() => {}} />);
+  fireEvent.click(screen.getByText('Advanced'));
+  expect(await screen.findByPlaceholderText(/card \/ repo default/)).toBeInTheDocument();
+  expect(screen.queryByText('skills')).not.toBeInTheDocument();
 });

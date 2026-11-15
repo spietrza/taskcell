@@ -988,6 +988,25 @@ export interface WatchWorkerChecklist {
   lastRunAt?: string;
 }
 
+/** The "Local hub" run location for a repository: the hub's built-in worker (src/hub/local-worker.ts). Names only: no credential value is included. */
+export interface LocalWorkerState {
+  /** The per-project switch; off by default. */
+  enabled: boolean;
+  /** The task source the worker reads, when it can serve this project; absent when it cannot (see `blocked`). */
+  source?: 'github' | 'hub';
+  /** Why the switch cannot be turned on, in one sentence; absent when it can. */
+  blocked?: string;
+  /** Credential names that would fund a run (any one is enough); `present` says whether the hub has one. */
+  credentials: { names: string[]; present: boolean };
+  /** The doctor checks run on this machine: when, whether they passed and the failing checks. Absent = not run yet. */
+  doctor?: { at: string; ok: boolean; failed: string[] };
+  /** Newest pick-up: when and what (an issue `#n` or hub task ids). */
+  lastPickupAt?: string;
+  lastPickup?: string;
+  /** Newest pick-up error; cleared by the next successful pick-up. */
+  lastError?: string;
+}
+
 /** The four steps of the in-app Enable factory checklist, in order. */
 export type FactoryStepId = 'pr' | 'secret' | 'merged' | 'doctor';
 

@@ -11,10 +11,13 @@ vi.mock('../../ipc', () => ({
   enableFactoryStart: vi.fn(),
   enableFactoryVerify: vi.fn(),
   enableFactoryWatch: vi.fn(),
+  localWorkerState: vi.fn(),
+  localWorkerSet: vi.fn(),
+  localWorkerDoctor: vi.fn(),
   factoryState: vi.fn(),
   factoryRefresh: vi.fn(),
 }));
-import { enableFactoryApply, enableFactoryHost, enableFactoryPlan, enableFactoryStart, enableFactoryVerify, enableFactoryWatch, factoryRefresh, factoryState } from '../../ipc';
+import { enableFactoryApply, enableFactoryHost, enableFactoryPlan, enableFactoryStart, enableFactoryVerify, enableFactoryWatch, factoryRefresh, factoryState, localWorkerSet, localWorkerState } from '../../ipc';
 
 const project = { path: '/repos/my-app', name: 'my-app' };
 
@@ -43,14 +46,35 @@ async function pickGithub(): Promise<void> {
 }
 
 describe('EnableFactoryDialog', () => {
-  test('GitLab CI is unavailable with the reason for a GitHub project; only the local hub is planned', async () => {
+  test('GitLab CI is unavailable with the reason for a GitHub project; no location is marked planned', async () => {
     render(<EnableFactoryDialog project={project} onClose={() => {}} />);
     expect(await screen.findByText(/remote is on GitHub, not GitLab/)).toBeInTheDocument();
     expect(screen.queryByRole('button', { name: /GitLab CI/ })).not.toBeInTheDocument();
-    expect(screen.getAllByText('planned')).toHaveLength(1);
-    const links = screen.getAllByRole('link', { name: /Tracking issue/ });
-    expect(links.map((l) => l.getAttribute('href'))).toEqual([913].map((n) => `https://github.com/spietrza/taskcell/issues/${n}`));
+    expect(screen.queryByText('planned')).not.toBeInTheDocument();
+    expect(screen.getByRole('button', { name: /Local hub/ })).toBeEnabled();
     expect(await screen.findByRole('button', { name: /GitHub Actions/ })).toBeEnabled();
+  });
+
+  test('Local hub: a switch that is off by default, turns on, and says why when blocked', async () => {
+    const base = { enabled: false, source: 'github' as const, credentials: { names: ['CLAUDE_CODE_OAUTH_TOKEN'], present: true } };
+    vi.mocked(localWorkerState).mockReset().mockResolvedValue(base);
+    vi.mocked(localWorkerSet).mockReset().mockResolvedValue({ ...base, enabled: true });
+    render(<EnableFactoryDialog project={project} onClose={() => {}} />);
+    fireEvent.click(await screen.findByRole('button', { name: /Local hub/ }));
+    const sw = await screen.findByRole('switch');
+    expect(sw).not.toBeChecked();
+    fireEvent.click(sw);
+    await screen.findByText(/Local hub worker: on/);
+    expect(localWorkerSet).toHaveBeenCalledWith(project.path, true);
+  });
+
+  test('Local hub: a blocked project cannot be switched on and the reason is shown', async () => {
+    vi.mocked(localWorkerState).mockReset().mockResolvedValue({ enabled: false, blocked: 'This project has no task source; pick one.', credentials: { names: ['CLAUDE_CODE_OAUTH_TOKEN'], present: false } });
+    render(<EnableFactoryDialog project={project} onClose={() => {}} />);
+    fireEvent.click(await screen.findByRole('button', { name: /Local hub/ }));
+    expect(await screen.findByRole('switch')).toBeDisabled();
+    expect(screen.getByText(/no task source/)).toBeInTheDocument();
+    expect(screen.getByText(/no provider credential/)).toBeInTheDocument();
   });
 
   const watchList = {

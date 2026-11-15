@@ -20,7 +20,7 @@ import { assertRepoSlug, ensureLabel } from './needs-you.js';
 import type { StartTaskResult } from '../wire.js';
 
 /** Labels meaning the factory already took the issue (as resume-rate-limited's `startedLabels`). */
-const STARTED_LABELS: readonly string[] = [GITHUB_CLAIMED_LABEL, GITHUB_REVIEW_LABEL, GITHUB_SPEC_CLAIMED_LABEL, GITHUB_RESEARCHING_LABEL];
+export const STARTED_LABELS: readonly string[] = [GITHUB_CLAIMED_LABEL, GITHUB_REVIEW_LABEL, GITHUB_SPEC_CLAIMED_LABEL, GITHUB_RESEARCHING_LABEL];
 
 const same = (a: string, b: string): boolean => a.toLowerCase() === b.toLowerCase();
 

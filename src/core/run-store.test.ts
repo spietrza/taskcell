@@ -221,6 +221,9 @@ describe('beginRun — writing', () => {
     const runs = await listRuns(runsRoot(repo));
     expect(runs.find((r) => r.taskId === 'TES-1')?.trigger).toBe('watch');
     expect(runs.find((r) => r.taskId === 'TES-2')?.trigger).toBeUndefined();
+    // The metric line carries the stamp too (the metrics branch is how another machine's worker is seen).
+    const lines = (await readFile(join(runsRoot(repo), 'metrics.jsonl'), 'utf8')).trim().split('\n').map((l) => JSON.parse(l));
+    expect(lines.map((l) => l.trigger)).toEqual([undefined, 'watch']);
   });
 
   it('writes a per-stage JSON (without the diff) and appends a metric line', async () => {

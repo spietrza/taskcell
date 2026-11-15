@@ -5,8 +5,8 @@ import { projectColor } from '../../color';
 import { combinationNote, runLocationLabel, taskSourceLabel } from '../../platform';
 import { relTime } from '../../time';
 import type { Project } from '../../taskcell-output';
-import type { FactoryState } from '../../wire';
-import { factoryLabel } from './factoryLabel';
+import type { FactoryState, LocalWorkerState } from '../../wire';
+import { factoryLabel, localWorkerLabel } from './factoryLabel';
 
 function Stat({
   label,
@@ -49,6 +49,7 @@ export function Dashboard({
   onOpenSetup,
   onOpenRunning,
   factory,
+  localWorker,
 }: {
   projects: Project[];
   onOpen: (p: { path: string; name: string }) => void;
@@ -62,6 +63,8 @@ export function Dashboard({
   onOpenRunning?: (() => void) | undefined;
   /** Each project's factory checklist state by path (hub-only); a project without an entry shows no factory line. */
   factory?: Record<string, FactoryState>;
+  /** Each project's Local hub worker state by path (hub-only); shown on cards whose switch is on or has an error. */
+  localWorker?: Record<string, LocalWorkerState>;
 }) {
   // Path of the card whose × was clicked: removal waits for a second, explicit click.
   const [confirmRemove, setConfirmRemove] = useState<string | null>(null);
@@ -119,6 +122,7 @@ export function Dashboard({
             {projects.map((p) => {
               const note = combinationNote(p.taskSource, p.runLocation);
               const fs = factory?.[p.path];
+              const lw = localWorker?.[p.path];
               const last = p.lastRun ? relTime(new Date(p.lastRun).getTime()) : null;
               const color = projectColor(p);
               return (
@@ -219,6 +223,7 @@ export function Dashboard({
                         {factoryLabel(fs)}
                       </p>
                     )}
+                    {lw && (lw.enabled || lw.lastPickupAt !== undefined || p.runLocation === 'local') && <p data-testid="local-worker-state" className={`mt-1 text-xs ${lw.enabled && lw.lastError ? 'text-destructive-text' : 'text-muted-foreground'}`}>{localWorkerLabel(lw)}</p>}
                     {onEnableFactory && (
                       <Button
                         className="relative z-10 mt-3 h-7 px-2 text-xs"

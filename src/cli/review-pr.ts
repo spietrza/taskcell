@@ -10,7 +10,7 @@ import { llmProxySandboxEnv } from '../sandbox/egress-proxy.js';
 import { startProviderProxies } from '../sandbox/llm-proxy.js';
 import { startSandboxContext } from '../sandbox/sandbox-context.js';
 import { agentAuthFromEnv, authSecrets } from '../agents/auth.js';
-import { selectAgents } from '../agents/registry.js';
+import { llmProxyNeedsNoPrimarySidecar, selectAgents } from '../agents/registry.js';
 import { prepareContext, runAgent, disposeContext } from '../core/taskcell.js';
 import { enforceUsageCap } from '../core/usage-cap.js';
 import { skillRegistryForRun } from '../context/skill-registry.js';
@@ -118,6 +118,7 @@ export async function reviewPrCommand(cmd: ReviewPrCommand, deps: ReviewPrComman
   const sandboxContext = await startSandboxContext({
     egress: cmd.egress,
     llmProxy: cmd.llmProxy === true,
+    skipPrimarySidecar: cmd.llmProxy === true && llmProxyNeedsNoPrimarySidecar(cmd),
     ...(auth !== undefined ? { auth } : {}),
     ...(cmd.provider !== undefined ? { provider: cmd.provider } : {}),
   });
@@ -137,7 +138,7 @@ async function runDefaultReviewer(
   outcomes: SummaryOutcome[],
   gh: GhRunner,
 ): Promise<PullRequestReviewOutcome> {
-  const agents = selectAgents(cmd, process.env, { proxyMode: sandboxContext.llmProxy !== undefined });
+  const agents = selectAgents(cmd, process.env, { proxyMode: cmd.llmProxy === true });
   // A review is a new agent run: not started when the provider is at the usage cap (watch-prs parks the PR).
   enforceUsageCap(agents.agent.name);
 

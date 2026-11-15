@@ -4,13 +4,15 @@
 // says whether run records show the worker picking up work lately.
 import { parseGitlabProjectFromRemote, remoteHostname } from '../runners/gitlab.js';
 import { shellQuote } from '../agents/shell.js';
-import { NO_REMOTE_MESSAGE, type RunSummary, type WatchWorkerChecklist } from '../wire.js';
+import { NO_REMOTE_MESSAGE, type WatchWorkerChecklist } from '../wire.js';
 import { BadRequestError } from '../sidecar/sidecar.js';
 import { readAppConfig } from './app-config.js';
 import { defaultExec, GITHUB_REPO_SLUG, type FactoryExec } from './enable-factory.js';
 import { GITLAB_HOSTNAME, GITLAB_PROJECT_PATH, hostOfOrigin, readOrigin } from './enable-factory-gitlab.js';
 import { resolveTaskSource } from './projects.js';
-import { defaultRunsRoot, listRunSummaries } from './runs.js';
+import { readBranchMetrics } from '../core/metrics-branch.js';
+import { recentWatchTimestamps } from '../core/run-store.js';
+import { defaultRunsRoot } from './runs.js';
 
 /** A worker counts as recently seen when a run record is newer than this. */
 export const WORKER_RECENT_MS = 7 * 24 * 60 * 60 * 1000;
@@ -66,11 +68,24 @@ export function composeSnippet(t: WatchTarget): string {
   ].join('\n');
 }
 
-/** Worker-seen state from run records: newest run a watch worker started → recent / not recent; none, or an unreadable time → unknown. */
-export function workerSeen(runs: ReadonlyArray<RunSummary>, now: number = Date.now()): { seen: WatchWorkerChecklist['seen']; lastRunAt?: string } {
-  const stamps = runs.filter((r) => r.trigger === 'watch').map((r) => Date.parse(r.timestamp)).filter(Number.isFinite);
-  if (stamps.length === 0) return { seen: 'unknown' };
-  const at = Math.max(...stamps);
+/**
+ * Worker-seen state from watch-run timestamps (local records and the metrics branch): the newest one → recent / stale;
+ * none, an unreadable time or one further ahead of `now` than a clock skew (5 min) → unknown.
+ */
+/** A remote worker's clock may run slightly ahead; beyond this a timestamp is not believed. */
+const CLOCK_SKEW_MS = 5 * 60 * 1000;
+/** The metrics-branch read is a `git fetch`; the checklist does not wait on it longer than this. */
+const REMOTE_READ_TIMEOUT_MS = 5000;
+/** How many metrics-branch lines past the window the scan reads, newest first, to find the last watch run. */
+const OLDER_LINE_SCAN_CAP = 200;
+
+export function workerSeen(timestamps: ReadonlyArray<string>, now: number = Date.now()): { seen: WatchWorkerChecklist['seen']; lastRunAt?: string } {
+  let at = -Infinity;
+  for (const t of timestamps) {
+    const ms = Date.parse(t);
+    if (Number.isFinite(ms) && ms <= now + CLOCK_SKEW_MS && Math.min(ms, now) > at) at = Math.min(ms, now);
+  }
+  if (at === -Infinity) return { seen: 'unknown' };
   return { seen: now - at <= WORKER_RECENT_MS ? 'recent' : 'stale', lastRunAt: new Date(at).toISOString() };
 }
 
@@ -111,15 +126,64 @@ function workerGitlabHost(host: string | undefined): string | undefined {
   return GITLAB_HOSTNAME.test(host) ? host : undefined;
 }
 
-export async function watchWorkerChecklist(repoPath: string, exec: FactoryExec = defaultExec, now: number = Date.now()): Promise<WatchWorkerChecklist> {
+type RemoteText = (repoPath: string) => Promise<string>;
+
+/**
+ * Timestamps of watch-stamped lines on the metrics branch (e.g. a worker host running `taskcell metrics push`)
+ * at or after `sinceMs`. The file is append-only and never rotated, so it is scanned from the end and the scan
+ * stops at the first line older than the window: only the tail is parsed. When the tail holds no watch line, the scan
+ * goes on newest first through at most OLDER_LINE_SCAN_CAP more lines and returns the first watch-stamped one dated
+ * before the window, so a worker that stopped a while ago reads stale. Empty when unreadable or slow.
+ */
+async function remoteWatchTimestamps(repoPath: string, sinceMs: number, read: RemoteText): Promise<string[]> {
+  let timer: NodeJS.Timeout | undefined;
+  const timeout = new Promise<void>((resolve) => {
+    timer = setTimeout(resolve, REMOTE_READ_TIMEOUT_MS);
+  });
+  const text = await Promise.race([read(repoPath).catch(() => undefined), timeout]).finally(() => clearTimeout(timer));
+  if (typeof text !== 'string') return [];
+  const out: string[] = [];
+  let pastWindow = false;
+  let olderRead = 0;
+  for (let end = text.length; end > 0; ) {
+    const start = text.lastIndexOf('\n', end - 1) + 1;
+    const line = text.slice(start, end).trim();
+    end = start - 1;
+    if (line === '') continue;
+    if (pastWindow && ++olderRead > OLDER_LINE_SCAN_CAP) break;
+    let parsed: unknown;
+    try {
+      parsed = JSON.parse(line);
+    } catch {
+      continue;
+    }
+    if (parsed === null || typeof parsed !== 'object') continue;
+    const { ts, trigger } = parsed as { ts?: unknown; trigger?: unknown };
+    if (typeof ts !== 'string') continue;
+    const ms = Date.parse(ts);
+    if (!pastWindow && ms < sinceMs) {
+      if (out.length > 0) break;
+      pastWindow = true;
+    }
+    // Past the window boundary only an older line counts: an out-of-order line cannot claim a recent time.
+    if (trigger !== 'watch') continue;
+    if (!pastWindow) out.push(ts);
+    else if (ms < sinceMs) return [ts];
+  }
+  return out;
+}
+
+export async function watchWorkerChecklist(repoPath: string, exec: FactoryExec = defaultExec, now: number = Date.now(), readRemote: RemoteText = readBranchMetrics): Promise<WatchWorkerChecklist> {
   const target = watchTarget(await readOrigin(exec, repoPath), resolveTaskSource(await readAppConfig(repoPath)));
-  const runs = await listRunSummaries(defaultRunsRoot(repoPath)).catch(() => []);
+  // Records inside the window are read; past it only a capped newest-first scan for the last watch run (so "stale" keeps its date).
+  const since = now - WORKER_RECENT_MS;
+  const [local, remote] = await Promise.all([recentWatchTimestamps(defaultRunsRoot(repoPath), since), remoteWatchTimestamps(repoPath, since, readRemote)]);
   return {
     repoSlug: target.slug,
     source: target.source,
     compose: composeSnippet(target),
     command: watchCommandLine(target),
     credentials: workerCredentials(target),
-    ...workerSeen(runs, now),
+    ...workerSeen([...local, ...remote], now),
   };
 }

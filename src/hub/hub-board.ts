@@ -1,4 +1,5 @@
 // The hub board for a project whose task source is `hub`: its tasks as cards, each with the scheduler's answer.
+import { parseSkillsLine } from '../context/named-skills.js';
 import { readAppConfig } from './app-config.js';
 import { hubTimeZone, readHubTasks, type HubTask } from './hub-tasks.js';
 import { MAX_CONCURRENT_RUNS } from './run-session.js';
@@ -14,6 +15,9 @@ export async function parallelLimit(repoPath: string): Promise<number> {
   const n = (await readAppConfig(repoPath)).concurrency;
   return typeof n === 'number' && Number.isInteger(n) && n >= 1 ? Math.min(n, capacity) : capacity;
 }
+
+/** What a run of the task loads: its stored list, else the body's `Skills:` line. */
+const shownSkills = (t: HubTask): string[] => t.skills ?? parseSkillsLine(t.body).skills;
 
 const COLUMN: Record<HubTask['status'], BoardTask['column']> = { todo: 'queued', running: 'running', done: 'done', failed: 'verify-failed' };
 
@@ -33,6 +37,7 @@ export async function listHubBoard(configDir: string, repoPath: string, queued: 
       ...(waiting ? { waiting: true } : {}),
       blockedBy: t.blockedBy,
       ...(t.startDate !== undefined ? { startDate: t.startDate } : {}),
+      ...(shownSkills(t).length > 0 ? { skills: shownSkills(t) } : {}),
       schedule,
       timeZone,
     };

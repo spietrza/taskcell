@@ -1,6 +1,6 @@
 import { loadProviderChoice } from './provider-choice.js';
 import { customEgressHosts } from '../agents/registry.js';
-import { agentAuthFromEnv } from '../agents/auth.js';
+import { agentAuthFromEnv, refuseLlmProxyWithoutPrimarySidecar } from '../agents/auth.js';
 import { startSandboxContext } from '../sandbox/sandbox-context.js';
 import { runRevisePullRequest } from '../runners/revise-pr.js';
 import { formatConflictFiles } from '../runners/base-merge.js';
@@ -47,6 +47,7 @@ export async function revisePrCommand(cmd: RevisePrCommand, deps: RevisePrComman
     return;
   }
 
+  refuseLlmProxyWithoutPrimarySidecar(cmd.llmProxy, choice);
   const auth = agentAuthFromEnv(choice);
   const sandboxContext = await startSandboxContext({
     egress: cmd.egress,
