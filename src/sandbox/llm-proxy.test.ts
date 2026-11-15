@@ -304,6 +304,28 @@ describe('startProviderProxies', () => {
       }
     });
 
+    it('reports a rotation against the run env (a hub user credential), not process.env or the host auth file', async () => {
+      const dir = await mkdtemp(join(tmpdir(), 'rot-'));
+      const hostFile = join(dir, 'auth.json');
+      const hostJson = JSON.stringify({ tokens: { id_token: 'host-id', refresh_token: 'real-refresh' } });
+      await writeFile(hostFile, hostJson);
+      const userJson = JSON.stringify({ tokens: { id_token: 'user-id', refresh_token: 'real-refresh' } });
+      const env: NodeJS.ProcessEnv = { CODEX_AUTH_JSON: userJson, CODEX_AUTH_FILE: join(dir, 'missing.json'), CI: '', GITHUB_ACTIONS: '' };
+      const warn = vi.spyOn(console, 'warn').mockImplementation(() => {});
+      try {
+        await withEnv({ CODEX_AUTH_FILE: hostFile, CI: '', GITHUB_ACTIONS: '' }, async () => {
+          const before = process.env.CODEX_AUTH_JSON;
+          const proxies = await startProviderProxies({ proxySecrets: { codexChatgpt: REAL_CHATGPT_AUTH }, network: 'n', docker: dockerWith('').run, env });
+          await proxies.destroy();
+          expect(process.env.CODEX_AUTH_JSON).toBe(before);
+        });
+        expect(JSON.parse(env.CODEX_AUTH_JSON ?? '{}').tokens).toMatchObject({ id_token: 'user-id', refresh_token: 'rotated-refresh' });
+        expect(await readFile(hostFile, 'utf8')).toBe(hostJson);
+      } finally {
+        warn.mockRestore();
+      }
+    });
+
     it('strips control characters, caps relayed lines, and appends hub or CI advice to the refusal', async () => {
       const error = vi.spyOn(console, 'error').mockImplementation(() => {});
       try {

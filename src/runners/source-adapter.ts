@@ -475,6 +475,8 @@ export async function runSourcedIssue(
   // before prepareContext so the finally below tears them down even if context provisioning throws.
   const providerProxies = await startProviderProxies({
     proxySecrets: agents.proxySecrets,
+    // The rotation report reads the credential the run used (a hub user's stored one), not the host's.
+    env: providerEnv,
     ...(deps.network !== undefined ? { network: deps.network } : {}),
   });
   try {
