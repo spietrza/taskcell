@@ -265,14 +265,10 @@ export function TaskBoard({
                             const d = decisionForTask(t.id, approver.runs, approver.decisions);
                             return d !== undefined && <div className="text-[11px] text-muted-foreground" data-approver={d.outcome}>{decisionWords(d)}</div>;
                           })()}
-<<<<<<< HEAD
                           {t.skills && (
                             <div className="break-words pt-0.5 text-[11px] text-muted-foreground">skills: {t.skills.join(', ')}</div>
                           )}
-||||||| a8e29160
-=======
                           <ScheduleLines task={t} />
->>>>>>> origin/main
                           {t.baseBranch && (
                             <div className="pt-0.5 font-mono text-[11px] text-muted-foreground">→ {t.baseBranch}</div>
                           )}
@@ -304,15 +300,9 @@ export function TaskBoard({
           task={shown}
           project={project}
           onClose={close}
-<<<<<<< HEAD
-          onFullPage={() => onOpenTask(selected.id, selected.repoPath, savedSkills[cardKey(selected)] ?? selected.skills)}
-          onSkillsSaved={(skills) => setSavedSkills((m) => ({ ...m, [cardKey(selected)]: skills }))}
-||||||| a8e29160
-          onFullPage={() => onOpenTask(selected.id, selected.repoPath)}
-=======
-          onFullPage={() => onOpenTask(shown.id, shown.repoPath)}
+          onFullPage={() => onOpenTask(shown.id, shown.repoPath, savedSkills[cardKey(shown)] ?? shown.skills)}
+          onSkillsSaved={(skills) => setSavedSkills((m) => ({ ...m, [cardKey(shown)]: skills }))}
           onChanged={reload}
->>>>>>> origin/main
         />
       )}
       </div>

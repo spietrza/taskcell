@@ -703,7 +703,6 @@ An `export` line only takes effect for a hub started after it: the hub reads its
 start. After exporting, restart the hub (or save the key in Settings → credentials, where that
 exists) and then press **Check again**.
 
-<<<<<<< HEAD
 ## Choosing skills
 
 Skills are picked automatically for a run. To make a task use specific ones, pick them in the hub:
@@ -716,8 +715,7 @@ The list comes from the hub's `SKILLS_DIR` plus the project's `.github/vanguard-
 A provider that cannot load skills still runs; the run shows a warning and its record carries the note. The same goes for a `Skills:` line in the issue that is not a list of skill ids: it is ignored, with a warning on the run.
 
 Calls: `list_skills` (`repoPath`; read-only, not audited) returns the installed ids; `set_task_skills` (`repoPath`, `taskId`, `skills`) writes the card's line as the hub's own tracker identity and is audited as `task-edit`. `api_create_run` takes `skills`; an id that is not installed is refused before the run's sandbox context is created.
-||||||| a8e29160
-=======
+
 ## Hub board: tasks, dependencies and start dates
 
 A project whose task source is **Hub board** (Settings → Task source, `taskSource: hub` in `.taskcell/app.json`) has its tasks in the hub itself instead of a tracker. With such a project open (the project named in the top bar), the Board shows a **New hub task** form (title and what to do) in place of the tracker's **New Task**; a card's quick view has a **Schedule** section, and **Full page** shows the task's text. Projects on GitHub, GitLab or Linear are not touched by any of this: the hub-board commands refuse them and the scheduler never looks at them.
@@ -767,4 +765,3 @@ A task is **done** when its run delivered a result, not when that result is merg
 The run session's active run and queue live in memory, so no run survives a hub restart. On start the hub puts every task stored as running back to do (its card says its run ended with the hub), and the scheduler starts it again. While the hub runs, a task marked running that the hub holds no run for is reset the same way on the next pass.
 
 Cards from GitHub show the dependencies the issue body already reports (`Depends on #n`, `Start: YYYY-MM-DD`, see `src/tasks/dependencies.ts`); these are display only, GitHub's own gate still decides.
->>>>>>> origin/main

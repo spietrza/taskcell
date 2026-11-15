@@ -9,14 +9,10 @@ vi.mock('../../ipc', () => ({
   listRuns: vi.fn().mockResolvedValue([]),
   readRun: vi.fn(),
   listNeedsYou: vi.fn().mockResolvedValue({ items: [] }),
-<<<<<<< HEAD
   apiListSkills: vi.fn(async () => ({ skills: ['db', 'release'] })),
   apiSetTaskSkills: vi.fn(async (_repo: string, _id: string, skills: string[]) => ({ skills })),
-||||||| a8e29160
-=======
   hubTaskCreate: vi.fn().mockResolvedValue({ id: 'hub-2' }),
   hubTaskSchedule: vi.fn().mockResolvedValue({ id: 'hub-1' }),
->>>>>>> origin/main
 }));
 import { listTasks, listTasksAll } from '../../ipc';
 const mockListTasks = vi.mocked(listTasks);

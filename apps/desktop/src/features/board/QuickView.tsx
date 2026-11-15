@@ -89,26 +89,18 @@ export function QuickView({
   project,
   onClose,
   onFullPage,
-<<<<<<< HEAD
   onSkillsSaved,
-||||||| a8e29160
-=======
   onChanged,
->>>>>>> origin/main
   ref,
 }: {
   task: QuickTask;
   project: string;
   onClose: () => void;
   onFullPage: () => void;
-<<<<<<< HEAD
   /** The card's skills were written to its task. */
   onSkillsSaved?: (skills: string[]) => void;
-||||||| a8e29160
-=======
   /** The task was edited: the board reloads. */
   onChanged?: () => void;
->>>>>>> origin/main
   ref?: Ref<HTMLElement>;
 }) {
   const repoPath = task.repoPath ?? project;
