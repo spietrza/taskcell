@@ -129,7 +129,7 @@ async function startHubTask(ctx: SweepContext, repoPath: string, task: HubTask, 
     const configured = (await readAppConfig(repoPath)).provider;
     const provider = typeof configured === 'string' && configured.trim() !== '' ? configured : undefined;
     const credential = ctx.userCredentials !== undefined ? await ctx.userCredentials.resolveForRun(caller.user, provider) : undefined;
-    const params: CreateRunParams = { issueRef: task.id, repoPath, transport: HUB_TRANSPORT, hubTask: { id: task.id, title: task.title, body: task.body }, startedBy: who.actor.login, ...(provider !== undefined ? { provider } : {}) };
+    const params: CreateRunParams = { issueRef: task.id, repoPath, transport: HUB_TRANSPORT, hubTask: { id: task.id, title: task.title, body: task.body }, ...(task.skills !== undefined ? { skills: task.skills } : {}), startedBy: who.actor.login, ...(provider !== undefined ? { provider } : {}) };
     await ctx.deps?.checkRun?.(params, credential);
     return await ctx.runSession.createRun(
       params,

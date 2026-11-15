@@ -206,6 +206,13 @@ describe('setTaskSkills', () => {
     expect(calls).toHaveLength(1);
   });
 
+  it('GitLab: a quick action anywhere, fenced or not, is refused (fail closed)', async () => {
+    for (const description of ['run:\n```sh\n/close\n```\n', '~~~\n```\n~~~\n/close\n```\nx\n```\n', '```\ncode\n ```\n/close\n```\nx\n```\n', '```\n/close\n``` \ntext\n']) {
+      await expect(setTaskSkills('/repo', 'gl-3', ['db'], cli(JSON.stringify({ description })))).rejects.toThrow(/quick action|could not be written/);
+    }
+    expect(calls.every((c) => c.args[1] === 'view')).toBe(true);
+  });
+
   it('refuses a body whose unclosed code block would swallow the line', async () => {
     await expect(setTaskSkills('/repo', 'gh-7', ['db'], cli(JSON.stringify({ body: 'text\n```\ncode' })))).rejects.toThrow('could not be written');
     expect(calls).toHaveLength(1);

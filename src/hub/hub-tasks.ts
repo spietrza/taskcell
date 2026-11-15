@@ -28,6 +28,8 @@ export interface HubTask {
   /** `2026-11-18` (midnight in the hub's time zone) or an ISO instant; the task does not start before it. */
   startDate?: string;
   owner?: HubTaskOwner;
+  /** Hand-picked skill ids (installed ones; checked when set): the task's run loads exactly these. */
+  skills?: string[];
   /** `running`: the run session's id for its run. */
   runId?: string;
   /** `failed`: why. `todo`: why its last start was refused. */
@@ -85,7 +87,8 @@ function isTask(r: unknown, seen: Set<string>): r is HubTask {
     && typeof t.title === 'string' && t.title !== '' && typeof t.body === 'string'
     && typeof t.status === 'string' && STATUSES.includes(t.status)
     && Array.isArray(t.blockedBy) && t.blockedBy.every((x) => typeof x === 'string')
-    && (t.startDate === undefined || typeof t.startDate === 'string');
+    && (t.startDate === undefined || typeof t.startDate === 'string')
+    && (t.skills === undefined || (Array.isArray(t.skills) && t.skills.every((x) => typeof x === 'string')));
 }
 
 /**

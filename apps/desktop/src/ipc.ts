@@ -584,7 +584,7 @@ export function apiListSkills(repoPath: string): Promise<{ skills: string[] }> {
   return call('list_skills', { repoPath });
 }
 
-/** HUB_ONLY: write a card's hand-picked skills to its task as the body's `Skills:` line (an empty list removes it). */
+/** HUB_ONLY: write a card's hand-picked skills: to its tracker task as the body's `Skills:` line (an empty list removes it), or to a hub-board task itself. */
 export function apiSetTaskSkills(repoPath: string, taskId: string, skills: string[]): Promise<{ skills: string[] }> {
   return call('set_task_skills', { repoPath, taskId, skills });
 }

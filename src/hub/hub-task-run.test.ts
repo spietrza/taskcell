@@ -298,3 +298,46 @@ test('the owner is re-resolved when a task starts: a user the identity no longer
   expect(runs).toHaveLength(0);
   expect((await board())['hub-1']).toMatchObject({ schedule: { state: 'refused', reason: expect.stringContaining('no longer has an account') } });
 });
+
+test('a hub task carries hand-picked skills, shown on its card, and its run loads exactly those', async () => {
+  await useHubBoard();
+  await mkdir(join(repo, '.github/vanguard-skills/db'), { recursive: true });
+  await writeFile(join(repo, '.github/vanguard-skills/db/SKILL.md'), '---\nname: db\n---\n');
+  await create('Migrate', 'Skills: other');
+  expect((await rpc(alice, 'set_task_skills', { repoPath: repo, taskId: 'hub-1', skills: ['nope'] })).status).toBe(400);
+  expect((await rpc(alice, 'set_task_skills', { repoPath: repo, taskId: 'hub-1', skills: ['db'] })).body.result).toEqual({ skills: ['db'] });
+  expect((await board())['hub-1']).toMatchObject({ skills: ['db'] });
+
+  await hub.sweepHubTasks();
+  expect(runs[0]!.params).toMatchObject({ issueRef: 'hub-1', skills: ['db'] });
+  // A started task's list is fixed.
+  expect((await rpc(alice, 'set_task_skills', { repoPath: repo, taskId: 'hub-1', skills: [] })).status).toBe(400);
+});
+
+test('a hub task\'s skills: refused on a non-hub project, for an unknown task and once started; clearing them overrides the body line', async () => {
+  await rpc(alice, 'write_app_config', { repoPath: repo, config: { taskSource: 'github' } });
+  expect((await rpc(alice, 'set_task_skills', { repoPath: repo, taskId: 'hub-1', skills: [] })).body.error.message).toContain('not Hub board');
+  await useHubBoard();
+  expect((await rpc(alice, 'set_task_skills', { repoPath: repo, taskId: 'hub-9', skills: [] })).body.error.message).toContain('no hub task hub-9');
+  await create('Body line', 'Skills: db');
+  expect((await board())['hub-1']).toMatchObject({ skills: ['db'] }); // what its run would load
+  expect((await rpc(alice, 'set_task_skills', { repoPath: repo, taskId: 'hub-1', skills: [] })).status).toBe(200);
+  expect((await board())['hub-1']).not.toHaveProperty('skills');
+  await hub.sweepHubTasks();
+  expect(runs[0]!.params).toMatchObject({ skills: [] }); // the run ignores the body line too
+  runs[0]!.end({ branch: 'b' });
+  await vi.waitFor(async () => expect((await board())['hub-1']).toMatchObject({ column: 'done' }));
+  expect((await rpc(alice, 'set_task_skills', { repoPath: repo, taskId: 'hub-1', skills: [] })).body.error.message).toContain('before it starts');
+});
+
+test('clearing a hub task\'s skills removes them from its card and sends none to its run', async () => {
+  await useHubBoard();
+  await mkdir(join(repo, '.github/vanguard-skills/db'), { recursive: true });
+  await writeFile(join(repo, '.github/vanguard-skills/db/SKILL.md'), '---\nname: db\n---\n');
+  await create('Migrate');
+  await rpc(alice, 'set_task_skills', { repoPath: repo, taskId: 'hub-1', skills: ['db'] });
+  await rpc(alice, 'set_task_skills', { repoPath: repo, taskId: 'hub-1', skills: [] });
+  expect((await board())['hub-1']).not.toHaveProperty('skills');
+  await hub.sweepHubTasks();
+  expect(runs[0]!.params).toMatchObject({ skills: [] });
+});

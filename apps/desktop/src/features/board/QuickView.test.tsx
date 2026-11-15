@@ -22,6 +22,7 @@ const task: QuickTask = { id: 'gh-7', title: 'Seven', column: 'review', state: '
 const open = (t: QuickTask = task): ReturnType<typeof render> => render(<QuickView task={t} project="/repo" onClose={() => {}} onFullPage={() => {}} />);
 
 beforeEach(() => {
+  window.__TASKCELL_HUB__ = true;
   vi.mocked(listRuns).mockResolvedValue([summary]);
   vi.mocked(readRun).mockResolvedValue(detail);
   vi.mocked(listNeedsYou).mockResolvedValue({ items: [item({})] });
@@ -87,6 +88,20 @@ describe('QuickView skills', () => {
     expect(await within(section).findByRole('alert')).toHaveTextContent('gh: not signed in');
   });
 
+  test('a hub-board card has a skills section; Save writes to its hub task', async () => {
+    const { source: _source, ...hubCard } = task;
+    render(<QuickView task={{ ...hubCard, id: 'hub-3', skills: ['db'] }} project="/repo" onClose={() => {}} onFullPage={() => {}} />);
+    const section = await screen.findByRole('region', { name: 'Skills' });
+    fireEvent.click(await within(section).findByLabelText('release'));
+    fireEvent.click(within(section).getByRole('button', { name: 'Save skills' }));
+    await vi.waitFor(() => expect(apiSetTaskSkills).toHaveBeenCalledWith('/repo', 'hub-3', ['db', 'release']));
+  });
+  test('no skills section is rendered outside hub mode', async () => {
+    delete window.__TASKCELL_HUB__;
+    open({ ...task, skills: ['db'] });
+    await screen.findByRole('list', { name: 'Stage line' });
+    expect(screen.queryByRole('region', { name: 'Skills' })).not.toBeInTheDocument();
+  });
   test('a card of no tracker has no skills section', async () => {
     const { source: _source, ...draft } = task;
     open(draft);
