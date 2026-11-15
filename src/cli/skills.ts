@@ -1,5 +1,5 @@
 import { execFile } from 'node:child_process';
-import { lstat, mkdir, mkdtemp, realpath, rename, rm, writeFile } from 'node:fs/promises';
+import { lstat, mkdir, mkdtemp, readFile, realpath, rename, rm, writeFile } from 'node:fs/promises';
 import { basename, dirname, isAbsolute, join, relative, resolve, sep } from 'node:path';
 import { promisify } from 'node:util';
 import { neutralizeMentions, neutralizePromptTags } from '../context/escape.js';
@@ -13,6 +13,10 @@ import type { CommandRunner } from '../pipeline/remote-branch.js';
 import { deliverChange } from '../runners/deliver-change.js';
 import type { IsolatedSandboxProvider } from '../sandbox/provider.js';
 import { hostGitArgs } from '../worktree/host-git.js';
+import { stateDir } from '../core/state-path.js';
+import { readBranchMetrics } from '../core/metrics-branch.js';
+import { parseMetrics } from '../core/stats.js';
+import { aggregateSkills, withinWindow } from '../core/skill-stats.js';
 import type { Command } from './args.js';
 
 export type SkillsCommand = Extract<Command, { kind: 'skills' }>;
@@ -390,8 +394,12 @@ function clip(text: string, max: number, what: string): string {
 }
 
 /** One moved skill within `share` characters: the upstream commits, the other changed files, the SKILL.md diff. */
-function movedSection(p: SkillUpdate & { entry: SkillLockEntry; diff: LineDiff }, share: number): string {
+function movedSection(p: SkillUpdate & { entry: SkillLockEntry; diff: LineDiff }, share: number, usage?: { runs: number; passRate?: number }): string {
   const blocks = [`### ${code(p.name)}\n\n${untrusted(oneLine(p.detail))}`, `Upstream: ${commitLink(p.entry.source, p.from)} → ${commitLink(p.entry.source, p.entry.commit)}`];
+  if (usage !== undefined) {
+    const passRate = usage.passRate === undefined ? 'no review verdict recorded' : `${(usage.passRate * 100).toFixed(0)}% pass rate`;
+    blocks.push(`Usage, last 30 days: ${usage.runs} run${usage.runs === 1 ? '' : 's'}, ${passRate}.`);
+  }
   // What is left after the heading, less the fences, labels and truncation notes below.
   let room = Math.max(0, share - blocks.join('\n\n').length - 500);
   const changed = p.changed ?? [];
@@ -404,10 +412,12 @@ function movedSection(p: SkillUpdate & { entry: SkillLockEntry; diff: LineDiff }
   return blocks.join('\n\n');
 }
 
-/** The PR body: per moved skill the SKILL.md diff, the other changed files and a link to each upstream commit. */
-export function skillUpdateBody(plans: SkillUpdate[]): string {
+/** The PR body: per moved skill the diff, changed files, upstream commit and recent recorded usage. */
+export function skillUpdateBody(plans: SkillUpdate[], metricsText: string = '', now: number = Date.now()): string {
   const intro = "Moves pinned skills to the head of their source's default branch. Review each `SKILL.md` diff and the list of other changed files: a skill steers an agent that has repo access. Text below is untrusted upstream content, escaped (`<` shown as `&lt;`).";
   const moved = plans.flatMap((p) => (p.entry !== undefined && p.diff !== undefined ? [{ ...p, entry: p.entry, diff: p.diff }] : []));
+  const recent = aggregateSkills(withinWindow(parseMetrics(metricsText), 30 * 86_400_000, now));
+  const usage = new Map(recent.map((row) => [row.skill, row.with]));
   const rest = plans.filter((p) => p.entry === undefined || p.diff === undefined);
   const lines: string[] = [];
   let used = 0;
@@ -422,7 +432,7 @@ export function skillUpdateBody(plans: SkillUpdate[]): string {
   }
   const notMoved = lines.length > 0 ? `### Not moved\n\n${lines.join('\n')}` : '';
   const share = Math.floor((BODY_LIMIT - intro.length - notMoved.length) / Math.max(1, moved.length));
-  const body = [intro, ...moved.map((p) => movedSection(p, share)), notMoved].filter((part) => part !== '').join('\n\n');
+  const body = [intro, ...moved.map((p) => movedSection(p, share, usage.get(p.name))), notMoved].filter((part) => part !== '').join('\n\n');
   // Last resort (hundreds of moved skills, or a source URL of absurd length): never over the limit.
   return body.length <= BODY_LIMIT ? body : `${body.slice(0, BODY_LIMIT)}\n\n… (truncated to fit the PR body; ${FULL_REPORT})`;
 }
@@ -448,6 +458,17 @@ export interface SkillsUpdateOptions {
   pr: boolean;
   /** Update a skill whose pinned commit can no longer be fetched, without checking its other files against it. */
   force?: boolean;
+}
+
+/**
+ * The run metrics behind the PR body's usage line: the local copy, or, when it is missing or records no
+ * skills, the one `metrics push` keeps on the metrics branch. Best effort: the line is optional, so an
+ * unreadable source means no line.
+ */
+export async function recordedMetrics(repo: string, readBranch: (repo: string) => Promise<string> = readBranchMetrics): Promise<string> {
+  const local = await readFile(join(stateDir(repo), 'runs', 'metrics.jsonl'), 'utf8').catch(() => '');
+  if (parseMetrics(local).some((r) => r.skillsUsed !== undefined)) return local;
+  return readBranch(repo).catch(() => local);
 }
 
 /**
@@ -491,6 +512,7 @@ async function skillsUpdatePr(opts: SkillsUpdateOptions, deps: SkillsDeps, out: 
     printPlans(plans, out);
     const moved = plans.filter((p) => p.entry !== undefined);
     if (moved.length === 0 || opts.dryRun) return;
+    const metricsText = await recordedMetrics(opts.repo);
     await applySkillUpdates(wtDir, plans);
     // commitStage's `add -A` honours .gitignore files (the repo's, the operator's, the skill's own): force-add
     // every moved skill so the commit holds exactly the installed files.
@@ -501,7 +523,7 @@ async function skillsUpdatePr(opts: SkillsUpdateOptions, deps: SkillsDeps, out: 
     const result = await deliverChange(ctx, {
       taskId: ctx.taskId,
       commitMessage: title,
-      target: { kind: 'new-pr', title, body: () => skillUpdateBody(plans), ...(deps.runner !== undefined ? { runner: deps.runner } : {}) },
+      target: { kind: 'new-pr', title, body: () => skillUpdateBody(plans, metricsText), ...(deps.runner !== undefined ? { runner: deps.runner } : {}) },
     });
     if (result.kind === 'secret-blocked') throw new TaskcellError('The update was blocked by the secret scan; nothing was committed or pushed.');
     if (result.kind === 'delivered-pr') out(`opened ${result.prUrl}`);
