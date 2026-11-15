@@ -195,6 +195,11 @@ async function walk(self: TaskRef, direct: TaskRef[], gh: GhRunner): Promise<Wal
   return problem === undefined ? { direct: fetched } : { problem };
 }
 
+/** An issue's declared dependencies: native blocked-by relations plus `Depends on` body lines. */
+export async function directDependencies(repo: string, number: number, body: string, gh: GhRunner = defaultGhRunner): Promise<TaskRef[]> {
+  return dedupe([...(await nativeBlockers({ repo, number }, gh)), ...parseBodyDependencies(repo, body)]);
+}
+
 /**
  * Whether `task` (a GitHub issue of `repo`) may start. A dependency is met when closed as completed
  * (including legacy closes with no reason) or a merged PR; closed as not planned or duplicate / an

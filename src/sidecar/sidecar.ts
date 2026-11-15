@@ -1,5 +1,6 @@
 import { isAbsolute } from 'node:path';
 import { FLOWS, TRANSPORTS } from '../api/capabilities.js';
+import { namedSkillsProblem } from '../context/named-skills.js';
 import { assertSafeBaseBranch } from '../core/base-branch.js';
 import { TaskcellError } from '../core/errors.js';
 import { isSafeTaskId } from '../core/state-path.js';
@@ -8,6 +9,7 @@ import type { RepoFlowInfo } from '../flows/repo.js';
 import type { FlowDoc } from '../flows/types.js';
 import type { RunEvent } from '../pipeline/events.js';
 import type { Capabilities } from '../api/capabilities.js';
+import { MAX_DEPENDS_ON } from '../tasks/create.js';
 import type { CreatedTask } from '../tasks/create.js';
 
 /** A caller mistake in a request (bad params, unknown method) — classified `kind: "bad-request"`. */
@@ -117,6 +119,8 @@ export interface CreateTaskParams {
   title: string;
   body: string;
   labels?: string[];
+  /** Ids of tasks this one depends on (see CreateTaskInput.dependsOn). */
+  dependsOn?: string[];
   /** Linear only: which team the issue lands in. */
   team?: string;
 }
@@ -145,6 +149,9 @@ function validateCreateTask(params: unknown): void {
   }
   if (typeof p.body !== 'string') {
     throw new BadRequestError('body must be a string');
+  }
+  if (p.dependsOn !== undefined && (!Array.isArray(p.dependsOn) || p.dependsOn.length > MAX_DEPENDS_ON || p.dependsOn.some((d) => typeof d !== 'string'))) {
+    throw new BadRequestError(`dependsOn must be a list of at most ${MAX_DEPENDS_ON} task references`);
   }
   if (p.source === 'linear' && (typeof p.team !== 'string' || p.team.trim() === '')) {
     // Without a team Linear would either fail deep in the API or land the issue in the caller's default
@@ -184,6 +191,11 @@ function validateCreateRun(params: unknown): void {
   }
   if (p.maxTurns !== undefined && (typeof p.maxTurns !== 'number' || !Number.isInteger(p.maxTurns) || p.maxTurns <= 0)) {
     throw new BadRequestError(`maxTurns must be a positive integer, got ${String(p.maxTurns)}`);
+  }
+  if (p.skills !== undefined) {
+    if (!Array.isArray(p.skills) || p.skills.some((s) => typeof s !== 'string')) throw new BadRequestError('skills must be an array of skill ids');
+    const problem = namedSkillsProblem(p.skills as string[]);
+    if (problem !== undefined) throw new BadRequestError(`skills ${problem}`);
   }
   if (p.baseBranch !== undefined && typeof p.baseBranch !== 'string') {
     throw new BadRequestError(`baseBranch must be a string, got ${Array.isArray(p.baseBranch) ? 'array' : p.baseBranch === null ? 'null' : typeof p.baseBranch}`);
