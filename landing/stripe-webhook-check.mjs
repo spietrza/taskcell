@@ -11,7 +11,8 @@ const ORDERS = {
     bind: (...args) => ({
       run: async () => {
         if (sql.startsWith('INSERT') && !rows.has(args[0])) rows.set(args[0], { pass_credited: 0, price: args[5] });
-        if (sql.startsWith('UPDATE')) rows.get(args[0]).pass_credited = 1;
+        if (sql.startsWith('UPDATE orders SET pass_credited')) rows.get(args[0]).pass_credited = 1;
+        if (sql.startsWith('UPDATE orders SET paid_amount')) Object.assign(rows.get(args[3]), { paid: args[0], payout: args[1], payoutCurrency: args[2] });
       },
       first: async () => rows.get(args[0]),
     }),
@@ -23,6 +24,7 @@ const credits = [];
 let creditFails = false;
 globalThis.fetch = async (url, init) => {
   if (String(url).includes('/line_items')) return Response.json({ data: [{ price: { lookup_key: 'solo_pass' } }] });
+  if (String(url).includes('/charges?')) return Response.json({ data: [{ paid: true, amount: 800, balance_transaction: { net: 3150, currency: 'pln' } }] });
   if (creditFails) return new Response('down', { status: 500 });
   credits.push(init.body.get('amount'));
   return Response.json({});
@@ -45,4 +47,5 @@ assert.equal((await post(event, sign(event))).status, 200);
 assert.equal((await post(event, sign(event))).status, 200);
 assert.equal(rows.size, 1, 'two deliveries, one order');
 assert.deepEqual(credits, ['-800'], 'the pass is credited once');
+assert.deepEqual([...rows.values()].map((r) => [r.paid, r.payout, r.payoutCurrency]), [[800, 3150, 'pln']], 'charged and paid-out amounts are kept side by side');
 console.log('stripe-webhook-check: ok');
