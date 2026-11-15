@@ -45,6 +45,8 @@ export function flowDocError(doc: FlowDoc): string | undefined {
   if (!FLOW_NAME_RE.test(doc.name)) return `flow name "${doc.name}" must be lowercase [a-z0-9._-] starting with a letter or digit`;
   if (doc.stages.length === 0) return 'a flow needs at least one stage';
   for (const stage of doc.stages) {
+    // `after-<stage>` names the provider-stop record of a step after its stage (persistProviderStop).
+    if (stage.name.startsWith('after-')) return `stage name "${stage.name}" is reserved: the "after-" prefix is used for records of steps after a stage`;
     // Object.hasOwn, same as the FLOWS checks: STAGE_LIBRARY inherits Object.prototype, so a plain
     // lookup would accept a stage named "toString" here and lower it into a corrupt record later.
     if (stage.ref === undefined && !Object.hasOwn(STAGE_LIBRARY, stage.name)) {

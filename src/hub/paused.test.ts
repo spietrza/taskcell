@@ -1,5 +1,5 @@
-import { expect, test } from 'vitest';
-import { markerReadBudget, pausedPullRequests, retryPausedTask, withPausedTasks, withPausedTimes } from './paused.js';
+import { expect, test, vi } from 'vitest';
+import { PAUSED_CACHE_TTL_MS, forgetRepo, markerReadBudget, pausedPullRequests, retryPausedTask, withPausedTasks, withPausedTimes } from './paused.js';
 import { triggerLabelsFor } from './start-task.js';
 import { rateLimitedMarker } from '../core/rate-limit-marker.js';
 import type { GhRunner } from '../tasks/github.js';
@@ -150,7 +150,7 @@ test('a marker pasted by a repository collaborator is honoured, as the scheduled
 });
 
 test('Retry now writes nothing when the scheduled resume released the hold meanwhile', async () => {
-  const { gh, calls } = fakeGh({ labels: ['taskcell:rate-limited'], labelsOnReread: ['ready for agent'], comments: [{ author: 'factory-bot', body: marker() }] });
+  const { gh, calls } = fakeGh({ labels: ['taskcell:rate-limited'], labelsOnReread: ['taskcell:running'], comments: [{ author: 'factory-bot', body: marker() }] });
   expect(await retryPausedTask('o/r', 7, triggers, gh)).toEqual({ label: 'ready for agent' });
   expect(edits(calls)).toEqual([]);
 });
@@ -174,8 +174,8 @@ test('Retry now refuses when the hold vanished without any trigger or started la
   expect(edits(calls)).toEqual([]);
 });
 
-test('Retry now accepts a re-triggered issue whose trigger label differs only in case', async () => {
-  const { gh, calls } = fakeGh({ labels: ['taskcell:rate-limited'], labelsOnReread: ['Ready for agent'], comments: [{ author: 'factory-bot', body: marker() }] });
+test('Retry now accepts a started issue carrying the legacy label spelling', async () => {
+  const { gh, calls } = fakeGh({ labels: ['taskcell:rate-limited'], labelsOnReread: ['vanguard:running'], comments: [{ author: 'factory-bot', body: marker() }] });
   expect(await retryPausedTask('o/r', 7, triggers, gh)).toEqual({ label: 'ready for agent' });
   expect(edits(calls)).toEqual([]);
 });
@@ -184,7 +184,76 @@ test('two reads within the cache window spawn one set of calls, the two spelling
   const { gh, calls } = fakeGh({ prs: [{ number: 3, title: 'p', labels: ['taskcell:rate-limited'] }], comments: [{ author: 'factory-bot', body: marker() }] });
   await withPausedTasks('cache/repo', [], gh);
   const first = calls.length;
-  expect(calls.filter((c) => c[0] === 'pr' && c[1] === 'list').length).toBeGreaterThan(1);
+  expect(calls.filter((c) => c[0] === 'pr' && c[1] === 'list').map((c) => c[c.indexOf('--label') + 1])).toEqual(['taskcell:rate-limited', 'vanguard:rate-limited']);
   await withPausedTasks('cache/repo', [], gh);
   expect(calls.length).toBe(first);
+});
+
+test('Retry now does not report success when only a stale trigger is left after the hold was removed', async () => {
+  const { gh, calls } = fakeGh({ labels: ['taskcell:rate-limited'], labelsOnReread: ['ready for agent'], comments: [{ author: 'factory-bot', body: marker() }] });
+  await expect(retryPausedTask('o/r', 7, triggers, gh)).rejects.toThrow(/no longer paused/);
+  expect(edits(calls)).toEqual([]);
+});
+
+test('a refused Retry now keeps the repository cache; a successful one flushes it', async () => {
+  const { gh, calls } = fakeGh({ labels: ['taskcell:rate-limited'], prs: [{ number: 3, title: 'p', labels: ['taskcell:rate-limited'] }], comments: [{ author: 'factory-bot', body: marker() }] });
+  await pausedPullRequests('flush/repo', gh);
+  const lists = (): number => calls.filter((c) => c[0] === 'pr' && c[1] === 'list').length;
+  const before = lists();
+  await expect(retryPausedTask('flush/repo', 0, triggers, gh)).rejects.toThrow();
+  await pausedPullRequests('flush/repo', gh);
+  expect(lists()).toBe(before);
+  await retryPausedTask('flush/repo', 7, triggers, gh);
+  await pausedPullRequests('flush/repo', gh);
+  expect(lists()).toBeGreaterThan(before);
+});
+
+test('forgetRepo drops only that repository', async () => {
+  const { gh, calls } = fakeGh({ prs: [] });
+  await pausedPullRequests('a/one', gh);
+  await pausedPullRequests('a/two', gh);
+  forgetRepo(gh, 'a/one');
+  const n = calls.length;
+  await pausedPullRequests('a/two', gh);
+  expect(calls.length).toBe(n);
+  await pausedPullRequests('a/one', gh);
+  expect(calls.length).toBeGreaterThan(n);
+});
+
+test('cache entries expire after the TTL and are evicted on the next write', async () => {
+  vi.useFakeTimers();
+  try {
+    const { gh, calls } = fakeGh({ prs: [] });
+    await pausedPullRequests('ttl/one', gh);
+    const n = calls.length;
+    vi.advanceTimersByTime(PAUSED_CACHE_TTL_MS + 1);
+    await pausedPullRequests('ttl/one', gh);
+    expect(calls.length).toBeGreaterThan(n);
+    await pausedPullRequests('ttl/two', gh);
+    vi.advanceTimersByTime(PAUSED_CACHE_TTL_MS + 1);
+    await pausedPullRequests('ttl/three', gh);
+    const m = calls.length;
+    await pausedPullRequests('ttl/two', gh);
+    expect(calls.length).toBeGreaterThan(m);
+  } finally {
+    vi.useRealTimers();
+  }
+});
+
+test('a rejected read is not kept in the cache', async () => {
+  let fail = true;
+  const { gh, calls } = fakeGh({ prs: [], fail: () => (fail ? 'boom' : undefined) });
+  await expect(pausedPullRequests('rej/repo', gh)).rejects.toThrow();
+  fail = false;
+  const n = calls.length;
+  await pausedPullRequests('rej/repo', gh);
+  expect(calls.length).toBeGreaterThan(n);
+});
+
+test('the marker-read budget is decremented even on cache hits', async () => {
+  const { gh } = fakeGh({ comments: [{ author: 'factory-bot', body: marker() }] });
+  const budget = markerReadBudget();
+  await withPausedTimes('budget/repo', [paused('gh-7')], gh, budget);
+  await withPausedTimes('budget/repo', [paused('gh-7')], gh, budget);
+  expect(budget.remaining).toBe(28);
 });
