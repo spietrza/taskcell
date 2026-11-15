@@ -2,7 +2,7 @@ import { fileURLToPath } from 'node:url';
 import { randomUUID } from 'node:crypto';
 import { SandboxError } from '../core/errors.js';
 import { startSidecar, defaultDocker } from './sidecar.js';
-import { reportRotation } from './codex-rotation.js';
+import { isCi, reportRotation } from './codex-rotation.js';
 import { trackSandbox, untrackSandbox } from '../core/cleanup.js';
 import type { DockerRunner } from './sidecar.js';
 import type { ProviderProxySecrets } from '../agents/registry.js';
@@ -23,6 +23,11 @@ const PROXY_SCRIPT = fileURLToPath(new URL('./llm-proxy-server.mjs', import.meta
 // Shared pure logic the server imports via a relative `./llm-proxy-rewrite.mjs`; cp'd into the SAME
 // /tmp dir so that relative import resolves inside the container.
 const PROXY_LOGIC = fileURLToPath(new URL('./llm-proxy-rewrite.mjs', import.meta.url));
+
+const CONTROL_CHARS = /[\x00-\x1f\x7f]/g;
+const MAX_RELAYED_LINE = 300;
+const CI_ADVICE = 'In CI, re-set the stored secret: gh secret set CODEX_AUTH_JSON < ~/.codex/auth.json.';
+const HUB_ADVICE = 'On a hub run with a stored credential, save it again in Settings → Credentials.';
 
 /** A fresh credential-shaped token (hyphen-free uuid): the sandbox-facing nonce, the refresh placeholder. */
 const randomToken = (): string => randomUUID().replace(/-/g, '');
@@ -143,13 +148,20 @@ export async function startLlmProxy(opts: {
           // Only stderr is routed to the container log (see forwardLogs), so the tail is small.
           const logs = await docker(['logs', '--tail', '200', name]).catch(() => undefined);
           let lines = new Set<string>();
-          for (const line of `${logs?.stdout ?? ''}\n${logs?.stderr ?? ''}`.split('\n')) {
+          for (const raw of `${logs?.stdout ?? ''}\n${logs?.stderr ?? ''}`.split('\n')) {
+            // The sidecar faces the untrusted cell: strip control characters and cap what reaches the host terminal.
+            const line = raw.replace(CONTROL_CHARS, '').slice(0, MAX_RELAYED_LINE);
             // A later successful refresh makes the failures before it moot.
             if (line === REFRESH_RECOVERED) lines = new Set();
             else if (line.startsWith(REFRESH_REFUSED_PREFIX) || line.startsWith(REFRESH_FAILED_PREFIX)) lines.add(line);
           }
           // A refusal is an error; a failed exchange that may pass is a warning (the run may have succeeded).
-          for (const line of lines) (line.startsWith(REFRESH_REFUSED_PREFIX) ? console.error : console.warn)(line);
+          // The sidecar cannot know where the credential came from, so the host adds the CI or hub advice.
+          const advice = isCi(opts.env ?? process.env) ? CI_ADVICE : HUB_ADVICE;
+          for (const line of lines) {
+            if (line.startsWith(REFRESH_REFUSED_PREFIX)) console.error(`${line} ${advice}`);
+            else console.warn(line);
+          }
           const rotated = await docker(['exec', name, 'cat', CHATGPT_AUTH_FILE]).catch(() => undefined);
           if (rotated?.exitCode === 0 && rotated.stdout !== '') await reportRotation(rotated.stdout, refreshToken, opts.env);
         } finally {
@@ -159,8 +171,17 @@ export async function startLlmProxy(opts: {
       // Once only: a signal and the runner's `finally` can both ask; the second gets the first's promise,
       // so nothing is reported twice and no second hand-back races the first.
       let done: Promise<void> | undefined;
-      const tracked = { destroy: (): Promise<void> => (done ??= teardown()) };
-      trackSandbox(tracked);
+      const tracked = {
+        destroy: (): Promise<void> => {
+          // A rejected teardown must not be memoized: a later destroy() retries `docker rm -f`.
+          done ??= teardown().catch((e: unknown) => {
+            done = undefined;
+            throw e;
+          });
+          return done;
+        },
+      };
+      trackSandbox(tracked, { proxy: true });
       destroy = tracked.destroy;
     }
     return {

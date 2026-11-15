@@ -304,6 +304,42 @@ describe('startProviderProxies', () => {
       }
     });
 
+    it('strips control characters, caps relayed lines, and appends hub or CI advice to the refusal', async () => {
+      const error = vi.spyOn(console, 'error').mockImplementation(() => {});
+      try {
+        const logs = `llm-proxy: ERROR codex bad\x1b[31m${'x'.repeat(1000)}`;
+        for (const [env, expected] of [[{ CI: '', GITHUB_ACTIONS: '' }, 'Settings → Credentials'], [{ CI: 'true' }, 'gh secret set']] as const) {
+          error.mockClear();
+          const d = dockerWith(logs);
+          const proxies = await startProviderProxies({ proxySecrets: { codexChatgpt: REAL_CHATGPT_AUTH }, network: 'n', docker: d.run, env: { ...env, CODEX_AUTH_FILE: '/nonexistent/auth.json' } });
+          await proxies.destroy();
+          const out = error.mock.calls.flat().join('\n');
+          expect(out).toContain(expected);
+          expect(out).not.toContain('\x1b');
+          expect(out.length).toBeLessThan(600);
+        }
+      } finally {
+        error.mockRestore();
+      }
+    });
+
+    it('does not memoize a rejected teardown: a later destroy() retries docker rm -f', async () => {
+      const d = dockerWith('');
+      const base = d.run;
+      let rmCalls = 0;
+      d.run = async (args, opts) => {
+        if (args[0] === 'rm') {
+          rmCalls++;
+          if (rmCalls === 1) throw new Error('rm failed');
+        }
+        return base(args, opts);
+      };
+      const proxies = await startProviderProxies({ proxySecrets: { codexChatgpt: REAL_CHATGPT_AUTH }, network: 'n', docker: d.run, env: { CODEX_AUTH_FILE: '/nonexistent/auth.json' } });
+      await expect(proxies.destroy()).rejects.toThrow('rm failed');
+      await proxies.destroy();
+      expect(rmCalls).toBe(2);
+    });
+
     it('still hands back and tears the container down when docker logs throws', async () => {
       const warn = vi.spyOn(console, 'warn').mockImplementation(() => {});
       try {
@@ -334,7 +370,7 @@ describe('startProviderProxies', () => {
         const d = dockerWith(['llm-proxy: ERROR codex A', failed, 'llm-proxy: codex refresh recovered', failed, 'llm-proxy: ERROR codex B', 'llm-proxy: ERROR codex B'].join('\n'));
         const proxy = await startLlmProxy({ network: 'n', auth: { kind: 'chatgpt', ...REAL_CHATGPT_AUTH }, upstream: 'chatgpt', docker: d.run, env: { CI: '1' } });
         await proxy.destroy();
-        expect(error.mock.calls.flat()).toEqual(['llm-proxy: ERROR codex B']);
+        expect(error.mock.calls.flat()).toEqual([expect.stringContaining('llm-proxy: ERROR codex B')]);
         expect(warn.mock.calls.flat()[0]).toBe(failed);
         expect(warn.mock.calls.flat().filter((l) => l === failed)).toHaveLength(1);
         expect(d.calls.find((c) => c.args[0] === 'logs')!.args).toEqual(['logs', '--tail', '200', proxy.host]);
@@ -369,7 +405,7 @@ describe('startProviderProxies', () => {
         const proxy = await startLlmProxy({ network: 'n', auth: { kind: 'chatgpt', ...REAL_CHATGPT_AUTH }, upstream: 'chatgpt', docker: d.run, env: { CI: '1', GITHUB_STEP_SUMMARY: summary } });
         await Promise.all([proxy.destroy(), destroyAllTracked(), proxy.destroy()]);
         await proxy.destroy();
-        expect(error.mock.calls.flat()).toEqual(['llm-proxy: ERROR codex A']);
+        expect(error.mock.calls.flat()).toEqual([expect.stringContaining('llm-proxy: ERROR codex A')]);
         expect(warn.mock.calls.flat().filter((l) => String(l).includes('was rotated'))).toHaveLength(1);
         expect((await readFile(summary, 'utf8')).match(/now stale/g)).toHaveLength(1);
         expect(d.calls.filter((c) => c.args.includes('cat'))).toHaveLength(1);

@@ -2,24 +2,32 @@
 type Destroyable = { destroy: () => Promise<void> };
 
 const live = new Set<Destroyable>();
+// Sidecars that read state back from a sandbox's peer: destroyed only after every sandbox.
+const liveProxies = new Set<Destroyable>();
 let installed = false;
 
 /** Track a started sandbox so a termination signal can destroy it (a `finally` block misses SIGINT/SIGTERM). */
-export function trackSandbox(sandbox: Destroyable): void {
-  live.add(sandbox);
+export function trackSandbox(sandbox: Destroyable, opts: { proxy?: boolean } = {}): void {
+  (opts.proxy === true ? liveProxies : live).add(sandbox);
 }
 
 /** Stop tracking a sandbox once it has been destroyed (or intentionally handed off). */
 export function untrackSandbox(sandbox: Destroyable): void {
   live.delete(sandbox);
+  liveProxies.delete(sandbox);
 }
 
 /** Destroy every tracked sandbox, swallowing errors. Returns how many were tracked. */
 export async function destroyAllTracked(): Promise<number> {
   const sandboxes = [...live];
+  const proxies = [...liveProxies];
   live.clear();
-  await Promise.all(sandboxes.map((sandbox) => sandbox.destroy().catch(() => undefined)));
-  return sandboxes.length;
+  liveProxies.clear();
+  const destroy = (all: Destroyable[]): Promise<unknown> => Promise.all(all.map((d) => d.destroy().catch(() => undefined)));
+  // Sandboxes first: a cell still running could rotate the token between the proxy's read-back and its removal.
+  await destroy(sandboxes);
+  await destroy(proxies);
+  return sandboxes.length + proxies.length;
 }
 
 /**

@@ -16,6 +16,19 @@ const setup = async (content: string): Promise<{ dir: string; file: string; env:
   return { dir, file, env: { CODEX_AUTH_FILE: file } };
 };
 
+describe('reportRotation sanitising', () => {
+  it.each([
+    ['a control character in a token', { tokens: { access_token: 'a\x1b[0m', refresh_token: 'new-refresh' } }],
+    ['a non-string refresh token', { tokens: { access_token: 'a', refresh_token: 5 } }],
+    ['a non-string last_refresh', { tokens: { access_token: 'a', refresh_token: 'new-refresh' }, last_refresh: { x: 1 } }],
+  ])('leaves the host file alone on %s', async (_n, bad) => {
+    vi.spyOn(console, 'warn').mockImplementation(() => {});
+    const { file, env } = await setup(host);
+    await reportRotation(JSON.stringify(bad), 'old-refresh', env);
+    expect(await readFile(file, 'utf8')).toBe(host);
+  });
+});
+
 describe('reportRotation', () => {
   it('merges only access/refresh tokens and last_refresh, atomically at 0600, keeping the real id_token and API key', async () => {
     const warn = vi.spyOn(console, 'warn').mockImplementation(() => {});
