@@ -54,6 +54,14 @@ describe('QuickView', () => {
   });
 });
 
+test('a paused pull request card offers no issue-only actions', async () => {
+  open({ ...task, id: 'gh-pr-12', url: PR, paused: { reason: 'provider-limit' } });
+  expect(await screen.findByText('Paused: provider limit')).toBeInTheDocument();
+  expect(screen.queryByRole('button', { name: 'Full page' })).toBeNull();
+  expect(screen.queryByRole('button', { name: 'Retry now' })).toBeNull();
+  expect(screen.queryByText(/skills/i)).toBeNull();
+});
+
 describe('QuickView skills', () => {
   test('the card shows its skills ticked; Save writes the new choice to the task', async () => {
     const onSkillsSaved = vi.fn();

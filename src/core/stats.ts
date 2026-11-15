@@ -1,6 +1,7 @@
 import { cacheEfficiency } from '../agents/provider.js';
 import { alignTable } from './table.js';
 import { DIFFICULTY_LEVELS } from './decision-probe.js';
+import { sanitizeSkillIds } from './skills-used.js';
 
 /** One parsed `run_complete` line from .taskcell/runs/metrics.jsonl. */
 export interface MetricRecord {
@@ -14,6 +15,7 @@ export interface MetricRecord {
   /** Agent calls folded into the stage (resumes/repairs); absent = 1. */
   attempts?: number;
   firstExitReason?: string;
+  stoppedBy?: 'provider-limit';
   costUsd: number;
   /** API-price estimate for a run without a reported cost; kept apart from `costUsd`. */
   estCostUsd?: number;
@@ -27,6 +29,10 @@ export interface MetricRecord {
   /** Lessons the run loaded (implement/revise runs); absent on records from before the field. */
   lessonsLoaded?: number;
   lessonIds?: string[];
+  /** Skills the stage's agent used (parseSkillsUsed); absent on records from before the field. */
+  skillsUsed?: string[];
+  /** Review verdict, on reviewer/conformance stages only. */
+  verdict?: string;
 }
 
 /** Aggregated totals for a group of metric records. */
@@ -126,9 +132,12 @@ export function parseMetrics(text: string): MetricRecord[] {
       ...(typeof parsed.exitReason === 'string' ? { exitReason: parsed.exitReason } : {}),
       ...(typeof parsed.attempts === 'number' ? { attempts: parsed.attempts } : {}),
       ...(typeof parsed.firstExitReason === 'string' ? { firstExitReason: parsed.firstExitReason } : {}),
+      ...(parsed.stoppedBy === 'provider-limit' ? { stoppedBy: parsed.stoppedBy } : {}),
       ...(typeof parsed.prUrl === 'string' ? { prUrl: parsed.prUrl } : {}),
       ...(typeof parsed.lessonsLoaded === 'number' ? { lessonsLoaded: parsed.lessonsLoaded } : {}),
       ...(Array.isArray(parsed.lessonIds) ? { lessonIds: parsed.lessonIds.filter((x): x is string => typeof x === 'string') } : {}),
+      ...(Array.isArray(parsed.skillsUsed) ? { skillsUsed: sanitizeSkillIds(parsed.skillsUsed) } : {}),
+      ...(typeof parsed.verdict === 'string' ? { verdict: parsed.verdict } : {}),
       costUsd: num(parsed.costUsd),
       ...(typeof parsed.estCostUsd === 'number' && Number.isFinite(parsed.estCostUsd) && parsed.estCostUsd >= 0 && !costReported(parsed) ? { estCostUsd: parsed.estCostUsd } : {}),
       inputTokens: num(parsed.inputTokens),
@@ -162,7 +171,8 @@ export function parseProbes(text: string): ProbeRecord[] {
 export function probeReport(records: ReadonlyArray<MetricRecord>, probes: ReadonlyArray<ProbeRecord>): ProbeBucket[] {
   const implementersByTask = new Map<string, MetricRecord[]>();
   for (const r of records) {
-    if (r.stage !== 'implementer' || r.ts === undefined) continue;
+    // A provider-limit stop says nothing about the task's difficulty.
+    if (r.stage !== 'implementer' || r.ts === undefined || r.stoppedBy !== undefined) continue;
     implementersByTask.set(r.taskId, [...(implementersByTask.get(r.taskId) ?? []), r]);
   }
   for (const list of implementersByTask.values()) list.sort((a, b) => (a.ts ?? '').localeCompare(b.ts ?? ''));

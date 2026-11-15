@@ -156,6 +156,17 @@ describe('withCiRuns / projects.aggregate', () => {
     expect(runs.find((r) => r.taskId === 'T-1')?.costUnknown).toBeUndefined();
   });
 
+  it('surfaces an all-limited CI run, but not a mixed genuine failure, as stopped by provider limit', async () => {
+    await push([
+      line({ ts: '2026-11-12T10:00:00.000Z', taskId: 'LIMIT', stage: 'implementer', exitReason: 'error', stoppedBy: 'provider-limit' }),
+      line({ ts: '2026-11-12T10:00:00.000Z', taskId: 'MIXED', stage: 'implementer', exitReason: 'error' }),
+      line({ ts: '2026-11-12T10:00:00.000Z', taskId: 'MIXED', stage: 'reviewer', exitReason: 'error', stoppedBy: 'provider-limit' }),
+    ]);
+    const runs = await withCiRuns(repo, []);
+    expect(runs.find((run) => run.taskId === 'LIMIT')).toMatchObject({ anyFailed: true, stoppedBy: 'provider-limit', source: 'ci' });
+    expect(runs.find((run) => run.taskId === 'MIXED')?.stoppedBy).toBeUndefined();
+  });
+
   it('drops a prUrl that is not http(s) (the same link gate as local records)', async () => {
     await push([
       line({ ts: '2026-11-12T10:00:00.000Z', taskId: 'X', costUsd: 1, prUrl: 'javascript:alert(1)' }),

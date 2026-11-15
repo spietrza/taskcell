@@ -171,7 +171,7 @@ export async function runSpecGenerator(id: string, deps: RunSpecGeneratorDeps): 
         const imageDigest = await ctx.sandbox.imageDigest?.();
         await beginRun(deps.repoPath, ctx.taskId, undefined, { secretEnvVars: providerKeyEnvNames(deps) }).writeStages(
           [{ ...specOutcome, name: 'spec' }],
-          { flow: 'spec', provider: agent.name, ...(imageDigest !== undefined ? { imageDigest } : {}) },
+          { flow: 'spec', provider: agent.name, skillIds: skills.ids(), ...(imageDigest !== undefined ? { imageDigest } : {}) },
         );
       };
       // Lenient extraction recovers a spec whose closing tag was lost to a truncated stream (common

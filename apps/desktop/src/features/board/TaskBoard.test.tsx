@@ -1,4 +1,4 @@
-import { describe, expect, test, vi } from 'vitest';
+import { afterEach, beforeEach, describe, expect, test, vi } from 'vitest';
 import { fireEvent, render, screen, waitFor, within } from '@testing-library/react';
 import { TaskBoard } from './TaskBoard';
 import type { BoardTask } from '../../wire';
@@ -9,13 +9,17 @@ vi.mock('../../ipc', () => ({
   listRuns: vi.fn().mockResolvedValue([]),
   readRun: vi.fn(),
   listNeedsYou: vi.fn().mockResolvedValue({ items: [] }),
+  retryPausedTask: vi.fn().mockResolvedValue({ label: 'ready for agent' }),
   apiListSkills: vi.fn(async () => ({ skills: ['db', 'release'] })),
   apiSetTaskSkills: vi.fn(async (_repo: string, _id: string, skills: string[]) => ({ skills })),
   hubTaskCreate: vi.fn().mockResolvedValue({ id: 'hub-2' }),
   hubTaskSchedule: vi.fn().mockResolvedValue({ id: 'hub-1' }),
 }));
-import { listTasks, listTasksAll } from '../../ipc';
+import { listTasks, listTasksAll, retryPausedTask } from '../../ipc';
 const mockListTasks = vi.mocked(listTasks);
+
+beforeEach(() => vi.clearAllMocks());
+afterEach(() => vi.useRealTimers());
 
 // A lane is the column container carrying `rounded-xl`; scope queries to it so a task asserted
 // "in Running" really renders under Running, not just somewhere on the board.
@@ -322,5 +326,55 @@ describe('TaskBoard empty state', () => {
     await screen.findByText('No tasks yet');
     fireEvent.click(screen.getByRole('button', { name: 'Create a task' }));
     expect(onNewTask).toHaveBeenCalled();
+  });
+});
+
+describe('TaskBoard paused by a provider limit', () => {
+  // `now` and both retry times sit within 20 minutes, so they share a local day in every time zone.
+  const until = '2026-11-14T12:20:00.000Z';
+  const clock = new Date(until).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
+  const paused = (id: string, u?: string): BoardTask => ({ id, title: `Paused ${id}`, column: 'queued', state: 'taskcell:rate-limited', paused: { reason: 'provider-limit', ...(u ? { until: u } : {}) } });
+
+  test('the card shows the state and the retry time, and one banner counts the paused tasks', async () => {
+    mockListTasks.mockResolvedValue({ tasks: [paused('gh-1', '2026-11-14T12:10:00.000Z'), paused('gh-2', until), TASKS[0]!], capped: false });
+    vi.setSystemTime(new Date('2026-11-14T12:01:00Z'));
+    render(<TaskBoard project="/repo" repos={[]} onOpenTask={() => {}} onNewTask={() => {}} />);
+    await screen.findByText('Paused gh-1');
+    expect(screen.getAllByText('Paused: provider limit')).toHaveLength(2);
+    expect(screen.getByText(`retries automatically after ${clock}`)).toBeInTheDocument();
+    const banner = screen.getByRole('status');
+    expect(banner).toHaveTextContent('2 tasks are paused by a provider limit');
+    expect(banner).toHaveTextContent(`latest retry after ${clock}`);
+    expect(banner).toHaveTextContent('add credit or switch the model in Settings');
+    vi.useRealTimers();
+  });
+
+  test('a missing time shows no time; a passed time says soon', async () => {
+    mockListTasks.mockResolvedValue({ tasks: [paused('gh-1'), paused('gh-2', '2000-01-01T00:00:00.000Z')], capped: false });
+    render(<TaskBoard project="/repo" repos={[]} onOpenTask={() => {}} onNewTask={() => {}} />);
+    await screen.findByText('Paused gh-1');
+    expect(screen.getByText('retries automatically')).toBeInTheDocument();
+    expect(screen.getByText('retries automatically soon')).toBeInTheDocument();
+  });
+
+  test('no banner when nothing is paused', async () => {
+    mockListTasks.mockResolvedValue({ tasks: TASKS, capped: false });
+    render(<TaskBoard project="/repo" repos={[]} onOpenTask={() => {}} onNewTask={() => {}} />);
+    await screen.findByText('Queued one');
+    expect(screen.queryByRole('status')).toBeNull();
+    expect(screen.queryByText('Paused: provider limit')).toBeNull();
+  });
+
+  test('Retry now refreshes the card and banner', async () => {
+    mockListTasks
+      .mockResolvedValueOnce({ tasks: [paused('gh-7')], capped: false })
+      .mockResolvedValueOnce({ tasks: [{ id: 'gh-7', title: 'Paused gh-7', column: 'queued', state: 'ready for agent' }], capped: false });
+    render(<TaskBoard project="/repo" repos={[]} onOpenTask={() => {}} onNewTask={() => {}} />);
+    fireEvent.click(await screen.findByText('Paused gh-7'));
+    fireEvent.click(await screen.findByRole('button', { name: 'Retry now' }));
+    await waitFor(() => expect(retryPausedTask).toHaveBeenCalledWith('/repo', 7));
+    await waitFor(() => expect(mockListTasks).toHaveBeenCalledTimes(2));
+    expect(screen.queryByRole('status')).toBeNull();
+    expect(screen.queryByText('Paused: provider limit')).toBeNull();
   });
 });

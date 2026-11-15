@@ -1,6 +1,7 @@
 import { cacheEfficiency } from '../agents/provider.js';
 import { roundUsd } from './usd.js';
 import { estimateOpenRouterCost } from './openrouter-pricing.js';
+import { parseSkillsUsed, sanitizeSkillIds } from './skills-used.js';
 import type { ExitReason, RunResult } from './types.js';
 
 /** Flat, single-source metric shape consumed by metrics.jsonl, the run summary, and logs. */
@@ -31,6 +32,8 @@ export interface StageMetric {
   stageCapUsd?: number;
   /** Remaining global budget before this stage started; present only when the global budget is finite. */
   remainingBudgetUsd?: number;
+  /** Typed reason this stage stopped, when it was not a change failure. */
+  stoppedBy?: 'provider-limit';
 }
 
 export type StageBudgetInfo = Pick<StageMetric, 'stageCapUsd' | 'remainingBudgetUsd'>;
@@ -70,6 +73,7 @@ export function stageMetric(result: RunResult, stageName?: string, extras?: Stag
       : {}),
     ...(extras?.stageCapUsd !== undefined ? { stageCapUsd: extras.stageCapUsd } : {}),
     ...(extras?.remainingBudgetUsd !== undefined ? { remainingBudgetUsd: extras.remainingBudgetUsd } : {}),
+    ...(result.stoppedBy !== undefined ? { stoppedBy: result.stoppedBy } : {}),
   };
 }
 
@@ -103,6 +107,10 @@ export function mergeAttempts(prior: RunResult, next: RunResult): RunResult {
   const priorEst = attemptEst(prior);
   const nextEst = attemptEst(next);
   const estCostUsd = costUsd !== undefined || !mixedModels ? undefined : priorEst !== undefined && nextEst !== undefined ? roundUsd(priorEst + nextEst) : null;
+  const skillsUsed = sanitizeSkillIds([
+    ...(prior.skillsUsed ?? parseSkillsUsed(prior.transcript)),
+    ...(next.skillsUsed ?? parseSkillsUsed(next.transcript)),
+  ]);
   return {
     ...next,
     ...(estCostUsd !== undefined ? { mergedEstCostUsd: estCostUsd } : {}),
@@ -112,5 +120,6 @@ export function mergeAttempts(prior: RunResult, next: RunResult): RunResult {
     ...(usage !== undefined ? { usage, cacheEfficiency: cacheEfficiency(usage) } : {}),
     ...(costUsd !== undefined ? { costUsd: roundUsd(costUsd) } : {}),
     ...(durationMs !== undefined ? { durationMs } : {}),
+    skillsUsed,
   };
 }

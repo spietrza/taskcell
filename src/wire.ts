@@ -289,6 +289,8 @@ export interface BoardTask {
   source?: 'github' | 'gitlab' | 'linear';
   /** The issue's address in that tracker, as the tracker returned it. Absent ⇒ no link. */
   url?: string;
+  /** Parked by a provider usage/rate limit (the `rate-limited` label); the factory retries it by itself. Absent when not paused. */
+  paused?: PausedState;
   /** Tasks this one waits for: the hub board's field, or what a GitHub issue's body names (`Depends on #n`). */
   blockedBy?: string[];
   /** Start date as stored (`YYYY-MM-DD` or an ISO instant). Absent ⇒ none. */
@@ -311,6 +313,15 @@ export interface TaskSchedule {
   blockedBy?: string[];
   /** `waits-date`: the instant the task may start (ISO). */
   until?: string;
+}
+
+/** Why a task is paused and when the scheduled resume retries it. `until`/`trigger` come from the factory's marker comment; absent when it is missing. */
+export interface PausedState {
+  reason: 'provider-limit';
+  /** ISO time after which the scheduled resume retries. */
+  until?: string;
+  /** The label the retry re-applies. */
+  trigger?: string;
 }
 
 /** The reviewer's persisted verdict: `changes` ⇔ the merge gate would request changes. */
@@ -386,6 +397,8 @@ export interface RunRecord {
   attempts?: number;
   /** Ids of the lessons injected into this run's prompts (`taskcell lessons list` counts them). */
   lessonIds?: string[];
+  /** The run's own structured flag that this stage ended on a provider rate/usage limit (core RunResult.stoppedBy). */
+  stoppedBy?: 'provider-limit';
   /** Which kind of credential funded the run (hub per-user credentials); never the value. Absent on CLI/CI runs. */
   credentialSource?: 'instance' | 'user';
   /**
@@ -444,6 +457,8 @@ export interface RunSummary {
   prState?: 'merged';
   /** `'ci'` for a run known only from the metrics branch (no local record to open); `prUrl` links its PR/MR. */
   source?: 'ci';
+  /** `'provider-limit'` when the run ended on a provider usage or rate limit: not a failure of the change. */
+  stoppedBy?: 'provider-limit';
   /** The run's metrics carry no cost data, so `totalCostUsd` (0) is not a cost: show "unknown", not $0. */
   costUnknown?: true;
   /** Sum of the run's API-price estimates (see RunRecord.estCostUsd); shown as `≈`, next to the reported cost when some stages have one. */
@@ -623,6 +638,7 @@ export type AuditAction =
   | 'run-queue'
   | 'run-cancel'
   | 'task-start'
+  | 'task-retry'
   | 'settings-change'
   | 'needs-reply'
   | 'needs-merge'
@@ -834,6 +850,11 @@ export interface DirListing {
   parent?: string;
   isGitRepo?: boolean;
   entries: DirEntry[];
+}
+
+/** What `retry_paused_task` did: the trigger label re-applied. */
+export interface RetryPausedResult {
+  label: string;
 }
 
 /** What `start_task` did (src/hub/start-task.ts). `waitingOn` names the unmet dependencies (`owner/repo#N`) of a dependency-parked issue. */

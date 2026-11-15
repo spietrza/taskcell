@@ -45,6 +45,16 @@ describe('rateLimitedMarker / parseRateLimitedMarker', () => {
   it('returns undefined for a body with no marker', () => {
     expect(parseRateLimitedMarker('just a normal comment')).toBeUndefined();
   });
+
+  it('uses the last valid marker in a body and rejects an empty trigger', () => {
+    const older = rateLimitedMarker(new Date('2026-11-08T21:00:00.000Z'), 'ready for agent');
+    const newer = rateLimitedMarker(new Date('2026-11-09T09:00:00.000Z'), 'ready for spec');
+    expect(parseRateLimitedMarker(`${older}\nraw agent text\n${newer}`)).toEqual({
+      until: new Date('2026-11-09T09:00:00.000Z'),
+      trigger: 'ready for spec',
+    });
+    expect(parseRateLimitedMarker('<!-- taskcell-rate-limited until=2026-11-09T09:00:00.000Z trigger="" -->')).toBeUndefined();
+  });
 });
 
 describe('latestRateLimitedMarker', () => {

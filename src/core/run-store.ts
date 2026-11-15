@@ -19,6 +19,7 @@ import type { VerificationResult } from '../pipeline/verify.js';
 import type { VisualProofResult } from '../pipeline/visual-proof.js';
 import { ciRunUrl, diffUrlFor, httpsUrl } from './links.js';
 import { reviewVerdictOf } from '../pipeline/review-verdict.js';
+import { parseSkillsUsed, sanitizeSkillIds } from './skills-used.js';
 import type { DecisionProbeResult } from './decision-probe.js';
 import type { BaseMergeEvent } from './conflict-stats.js';
 import type { Finding, Proof, RunDetail, RunRecord, RunSummary, StageDetail, VisualProof } from '../wire.js';
@@ -214,7 +215,11 @@ async function parseRunSummaries(root: string): Promise<RunSummary[]> {
       const unpriced = records.some((r) => r.costUsd === undefined && r.usage !== undefined && recordEst(r) === undefined);
       // No stage reported a cost: the estimate stands in for it, or the cost is unknown (never $0.00).
       const costUnknown = (estCostUsd > 0 || unpriced) && records.every((r) => r.costUsd === undefined);
-      const anyFailed = records.some((r) => !r.completed);
+      const failed = records.filter((r) => !r.completed);
+      const anyFailed = failed.length > 0;
+      // Only the flag the run recorded itself: the final text is agent prose, which may well quote a limit.
+      // Every failed stage must carry it: a later provider stop must not hide a genuine stage failure.
+      const providerLimit = failed.length > 0 && failed.every((r) => r.stoppedBy === 'provider-limit');
       const prUrl = httpsUrl(records.find((r) => r.prUrl !== undefined)?.prUrl);
       const ciUrl = httpsUrl(records.find((r) => r.ciUrl !== undefined)?.ciUrl);
       const startedBy = records.find((r) => r.startedBy !== undefined)?.startedBy;
@@ -227,6 +232,7 @@ async function parseRunSummaries(root: string): Promise<RunSummary[]> {
         ...(estCostUsd > 0 && unpriced ? { estPartial: true as const } : {}),
         ...(costUnknown ? { costUnknown: true as const } : {}),
         anyFailed,
+        ...(providerLimit ? { stoppedBy: 'provider-limit' as const } : {}),
         ...(prUrl !== undefined ? { prUrl } : {}),
         ...(ciUrl !== undefined ? { ciUrl } : {}),
         ...(startedBy !== undefined ? { startedBy } : {}),
@@ -387,6 +393,8 @@ export interface WriteStagesOptions {
   /** Ids of the lessons injected into the run's prompts, recorded on every stage. */
   lessonIds?: readonly string[];
   skills?: RunSkills;
+  /** Ids of the installed skills, for a run that passes no `skills`; `skillsUsed` keeps only installed ids. */
+  skillIds?: readonly string[];
 }
 
 /** A handle for one run: owns its timestamp, so every record it writes shares one prefix. */
@@ -421,6 +429,7 @@ interface WriteRecordOptions {
   startedBy?: string;
   lessonIds?: readonly string[];
   skills?: RunSkills;
+  skillIds?: readonly string[];
 }
 
 /**
@@ -435,7 +444,10 @@ async function writeRecord(repoPath: string, taskId: string, timestamp: string, 
   const root = runsRoot(repoPath);
   const taskDir = await ensureStateDir(repoPath, join(root, taskId));
 
-  const { diff, transcript, mergedEstCostUsd: _merged, ...meta } = result;
+  const { diff, transcript, mergedEstCostUsd: _merged, skillsUsed: priorSkillsUsed, ...meta } = result;
+  // The skills installed for the run; a transcript's claim of any other id is discarded, so a caller
+  // that passes no registry records none.
+  const installedSkillIds = opts.skillIds ?? (opts.skills !== undefined ? [...opts.skills.named, ...opts.skills.available] : []);
   // Why the diff (and bundle) are withheld, recorded on run.json so the hub and a human can tell
   // "withheld" from "no diff" or "bundle creation failed":
   //  - 'secret-blocked': the caller's publish gate fired (opts.omitDiff).
@@ -528,6 +540,12 @@ async function writeRecord(repoPath: string, taskId: string, timestamp: string, 
     // A reported cost is the agent CLI's own figure at list prices, never a provider's invoice.
     ...(result.costUsd === undefined ? { costUnknown: true } : { costKind: 'estimated' }),
     ...(opts.prUrl !== undefined ? { prUrl: opts.prUrl } : {}),
+    // Parsed on the host from every folded attempt. A withheld transcript is unknown, so omit the
+    // field; an available but unrecognised transcript is the known empty list. `verdict` feeds stats.
+    ...(diffOmitted === undefined
+      ? { skillsUsed: sanitizeSkillIds([...(priorSkillsUsed ?? []), ...parseSkillsUsed(transcript)], installedSkillIds).map((id) => redactForPublish(id, opts.secretValues)) }
+      : {}),
+    ...(review !== undefined ? { verdict: review.verdict } : {}),
     // Implement/revise runs pass their lesson ids (possibly none): how many the run loaded, 0 when none.
     ...(opts.lessonIds !== undefined ? { lessonsLoaded: opts.lessonIds.length, ...(opts.lessonIds.length > 0 ? { lessonIds: [...opts.lessonIds] } : {}) } : {}),
   };
@@ -574,11 +592,12 @@ export function beginRun(
           ...(runOpts.startedBy !== undefined ? { startedBy: runOpts.startedBy } : {}),
           ...(opts.lessonIds !== undefined ? { lessonIds: opts.lessonIds } : {}),
           ...(opts.skills !== undefined ? { skills: opts.skills } : {}),
+          ...(opts.skillIds !== undefined ? { skillIds: opts.skillIds } : {}),
         });
       }
       const first = outcomes[0];
       if (first === undefined) return;
-      const { omitDiff: _omitDiff, baseBranch: _baseBranch, lessonIds: _lessonIds, skills: _skills, ...trace } = opts;
+      const { omitDiff: _omitDiff, baseBranch: _baseBranch, lessonIds: _lessonIds, skills: _skills, skillIds: _skillIds, ...trace } = opts;
       await exportRunTrace({
         taskId,
         timestamp,

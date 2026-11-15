@@ -67,6 +67,8 @@ export function ciRunSummaries(records: ReadonlyArray<CiRecord>): RunSummary[] {
     // parseMetrics keeps an estimate only on a line without a reported cost.
     const estCost = rs.reduce((n, r) => n + (r.record.estCostUsd ?? 0), 0);
     const estPartial = estCost > 0 && rs.some((r) => !r.costKnown && r.record.estCostUsd === undefined);
+    const failed = rs.filter((r) => r.record.exitReason !== undefined && r.record.exitReason !== 'completed');
+    const providerLimit = failed.length > 0 && failed.every((r) => r.record.stoppedBy === 'provider-limit');
     return {
       taskId,
       timestamp: stamps[stamps.length - 1] ?? new Date(0).toISOString(),
@@ -74,7 +76,8 @@ export function ciRunSummaries(records: ReadonlyArray<CiRecord>): RunSummary[] {
       totalCostUsd: rs.reduce((n, r) => n + r.record.costUsd, 0),
       ...(estCost > 0 ? { estCostUsd: estCost } : {}),
       ...(estPartial ? { estPartial: true as const } : {}),
-      anyFailed: rs.some((r) => r.record.exitReason !== undefined && r.record.exitReason !== 'completed'),
+      anyFailed: failed.length > 0,
+      ...(providerLimit ? { stoppedBy: 'provider-limit' as const } : {}),
       ...(prUrl !== undefined ? { prUrl } : {}),
       source: 'ci' as const,
       ...(known ? {} : { costUnknown: true as const }),

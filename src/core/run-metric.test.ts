@@ -78,6 +78,12 @@ describe('stageMetric', () => {
     });
     expect(stageMetric(baseResult, 'plan', {})).not.toHaveProperty('stageCapUsd');
   });
+
+  it('carries the structured provider-limit stop into metrics', () => {
+    expect(stageMetric({ ...baseResult, completed: false, exitReason: 'error', stoppedBy: 'provider-limit' })).toMatchObject({
+      stoppedBy: 'provider-limit',
+    });
+  });
 });
 
 describe('mergeAttempts', () => {
@@ -119,6 +125,19 @@ describe('mergeAttempts', () => {
     expect(merged).not.toHaveProperty('costUsd');
     expect(merged).not.toHaveProperty('usage');
     expect(merged).not.toHaveProperty('durationMs');
+  });
+
+  it('unions skills used across repaired and resumed attempts', () => {
+    const skill = (id: string): string => JSON.stringify({
+      type: 'assistant',
+      message: { content: [{ type: 'tool_use', name: 'Skill', input: { skill: id } }] },
+    });
+    const merged = mergeAttempts(
+      { ...baseResult, transcript: skill('first') },
+      { ...baseResult, transcript: skill('second') },
+    );
+    expect(merged.skillsUsed).toEqual(['first', 'second']);
+    expect(mergeAttempts(merged, { ...baseResult, transcript: 'unknown' }).skillsUsed).toEqual(['first', 'second']);
   });
 });
 

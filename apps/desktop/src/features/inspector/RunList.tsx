@@ -13,6 +13,7 @@ import type { RepoStamp } from '../../wire';
 type Filter = 'all' | 'passed' | 'failed';
 type Run = RunSummary & Partial<RepoStamp>;
 type Active = ActiveRun & Partial<RepoStamp>;
+const isFailed = (r: Pick<RunSummary, 'anyFailed' | 'stoppedBy'>): boolean => r.anyFailed && r.stoppedBy === undefined;
 // A row of the table: a running run or a finished one, with what grouping needs.
 /** A clickable row is also a keyboard stop: Tab reaches it, Enter or Space opens it (keys on a link inside it stay the link's). */
 const rowKeys = (open: () => void): { tabIndex: number; onKeyDown: (e: KeyboardEvent<HTMLElement>) => void } => ({
@@ -62,7 +63,7 @@ export function RunList({
     return filterRuns(runs, hub).filter((r) => {
       if (q && !r.taskId.toLowerCase().includes(q)) return false;
       if (filter === 'passed' && r.anyFailed) return false;
-      if (filter === 'failed' && !r.anyFailed) return false;
+      if (filter === 'failed' && !isFailed(r)) return false;
       return true;
     });
   }, [runs, query, filter, hub]);
@@ -77,7 +78,7 @@ export function RunList({
   // Would clearing the search bring rows back, or is it the pill / hub filter that empties the list?
   const searchHides = useMemo(() => {
     const h = { ...hub, query: '' };
-    return filterRuns(runs, h).some((r) => filter === 'all' || (filter === 'failed') === r.anyFailed) || (filter === 'all' && filterActive(active, h).length > 0);
+    return filterRuns(runs, h).some((r) => filter === 'all' || (filter === 'failed' ? isFailed(r) : !r.anyFailed)) || (filter === 'all' && filterActive(active, h).length > 0);
   }, [runs, active, filter, hub]);
 
   // Rows of both kinds share the lanes; a running row sorts first within its lane.
@@ -141,8 +142,8 @@ export function RunList({
                   <Table.Cell className="text-muted-foreground">{r.stages.join(', ')}</Table.Cell>
                   <Table.Cell className="text-right tabular-nums" {...estTitle(costLabel(r))}>{costLabel(r)}</Table.Cell>
                   <Table.Cell>
-                    <Chip color={verdictColor(!r.anyFailed)} variant="outlined">
-                      {verdictWord(!r.anyFailed)}
+                    <Chip color={r.stoppedBy ? 'secondary' : verdictColor(!r.anyFailed)} variant="outlined">
+                      {r.stoppedBy ? 'stopped: provider limit' : verdictWord(!r.anyFailed)}
                     </Chip>
                   </Table.Cell>
                   <Table.Cell>

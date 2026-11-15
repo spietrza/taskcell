@@ -144,6 +144,18 @@ describe('aggregate', () => {
     const afterSecondRun = await aggregate(repo);
     expect(afterSecondRun.runCount).toBe(2);
   });
+
+  it('does not count a provider-limit stop as a failed project run', async () => {
+    const repo = join(repoRoot, 'proj-provider-limit');
+    const dir = join(repo, '.taskcell', 'runs', 'task-1');
+    await mkdir(dir, { recursive: true });
+    await writeFile(join(dir, '2026-07-06T19-12-02-123Z-implement.json'), JSON.stringify({
+      taskId: 'task-1', completed: false, exitReason: 'error', turns: 0, worktreePath: '/tmp/wt',
+      worktreePreserved: true, finalText: 'provider stopped', stoppedBy: 'provider-limit',
+      timestamp: '2026-07-06T19:12:02.123Z', stage: 'implement',
+    }));
+    expect(await aggregate(repo)).toMatchObject({ runCount: 1, failedCount: 0 });
+  });
 });
 
 describe('listAcrossProjects', () => {
