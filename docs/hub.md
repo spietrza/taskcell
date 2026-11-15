@@ -328,9 +328,9 @@ Only this hub enables **Fleet** (`spawn_run`/`kill_run`/`list_spawns`, `TASKCELL
 a loopback bind only); every other hub rejects those commands.
 
 **Add a repository from any folder.** The app's hub runs with `TASKCELL_HUB_BROWSE_ANYWHERE=1`: the Add-project
-picker opens at your home directory, **Parent directory** goes up to the filesystem root, and the **Folder path**
-field opens any folder you type or paste, which is how you reach another drive on Windows (`D:\code\repo`) or
-a network share. A hub served to a browser keeps its browse-root limit.
+picker opens at your home directory, **Parent directory** goes up to the filesystem root (on Windows, one more step up lists the
+drive roots, `C:\`, `D:\`, …), and the **Folder path** field opens any folder you type or paste (`D:\code\repo`, a
+network share). A hub served to a browser keeps its browse-root limit.
 
 **Hub variables from your shell are ignored.** The app starts its hub from a fixed set of `TASKCELL_HUB_*`
 variables (`CONFIG_DIR`, `ALLOW_FLEET`, `BROWSE_ANYWHERE`, `EXIT_ON_STDIN_EOF`) and removes every other one it
@@ -648,7 +648,7 @@ The checklist shows:
 
 ## Approver card
 
-Project settings show an **Auto-merge** card (hub only; `src/hub/approver-card.ts`): the approver's current mode (from `.taskcell/approver.json` on the base branch: the configured `baseBranch`, else the branch `origin/HEAD` names, else `main`) and its 90-day scorecard, built from `decisions.jsonl` on the metrics branch and GitHub PR state like `taskcell stats --approver`. Only decisions for the project's own repository (its origin remote's `owner/repo`, compared case-insensitively) are read, so `gh` is never run against any other slug. The card never calls a model.
+Project settings show an **Auto-merge** card (hub only; `src/hub/approver-card.ts`): the approver's current mode (from `.taskcell/approver.json` on the base branch: the configured `baseBranch`, else the branch `origin/HEAD` names, else `main`) and its 90-day scorecard, built from `decisions.jsonl` on the metrics branch and GitHub PR state like `taskcell stats --approver`. Only decisions for the project's own repository (its origin remote's `owner/repo`, compared case-insensitively) are read, so `gh` is never run against any other slug. From the version that added it, every decision also records the repository's node id (`repoId`), which survives a rename: the card matches on it, and counts records written under an old name (and id-less ones under a slug an id-bearing record used), so a renamed repository keeps its history. Older records, with no id anywhere, match on the slug alone. An origin `detectRepoSlug` does not read (an SSH host alias such as `git@github-work:owner/repo.git`, a GitHub Enterprise host) still gives the no-data card on purpose: the card's `gh` calls go to github.com, and guessing what an alias resolves to would read the wrong repository. The card never calls a model.
 
 - **Off, Shadow, Act** open a pull request that sets `enabled`/`act` in the policy file; nothing changes until someone merges it. The mode is never written in place and the base branch is never pushed to. The change is made in a temporary git worktree, so your checkout (HEAD, index, uncommitted changes) is left alone, and one change runs at a time per repo. The fixed branch `vanguard/approver-mode` is reset on each request and its open PR is reused, with its title and body updated. The policy file keeps its formatting byte for byte; only the two top-level boolean values are rewritten in place (a missing `act` is added after `enabled`). The repo's commit and push hooks are skipped (`--no-verify`): the temporary worktree has none of its dependencies.
 - **Off always works:** if the scorecard cannot be read, the PR is still opened and its body says so, so a failing `gh` or metrics read cannot keep the approver on.
@@ -880,3 +880,6 @@ A task is **done** when its run delivered a result, not when that result is merg
 The run session's active run and queue live in memory, so no run survives a hub restart. On start the hub puts every task stored as running back to do (its card says its run ended with the hub), and the scheduler starts it again. While the hub runs, a task marked running that the hub holds no run for is reset the same way on the next pass.
 
 Cards from GitHub show the dependencies the issue body already reports (`Depends on #n`, `Start: YYYY-MM-DD`, see `src/tasks/dependencies.ts`); these are display only, GitHub's own gate still decides.
+
+
+**Runs search.** The Board and Runs share one search box. A run has no title, so on Runs it matches the task id only, and a title search on the Board does not narrow Runs (both boxes say so). Looking titles up would cost a board read per Runs view, so this is a decision, not a gap.

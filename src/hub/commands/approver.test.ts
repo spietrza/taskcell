@@ -6,6 +6,7 @@ import { afterEach, describe, expect, test, vi } from 'vitest';
 import * as approverCard from '../approver-card.js';
 import * as outcome from '../../approver/outcome.js';
 import * as policy from '../../approver/policy.js';
+import * as repoId from '../../approver/repo-id.js';
 import * as metricsBranch from '../../core/metrics-branch.js';
 import { collectApproverScorecard } from '../../approver/outcome.js';
 import { parseDecisions } from '../../approver/scorecard.js';
@@ -337,6 +338,23 @@ describe('own-repo reads and switching off', () => {
     const other = await approverCard.approverScorecard(await tmpGitRepo('https://github.com/acme/renamed.git'), '90d', NOW);
     expect(other.status).toBe('no-data');
     expect(other.hint).toMatch(/none for this project/);
+  });
+
+  test('a renamed repository keeps its history: records under the old slug match on the node id, and so do id-less ones written under that slug', async () => {
+    const decisions = [
+      line({ repo: 'acme/old-name', repoId: 'R_1', prNumber: 1, verdict: 'APPROVE', timestamp: daysAgo(9) }),
+      line({ repo: 'acme/old-name', prNumber: 2, verdict: 'APPROVE', timestamp: daysAgo(8) }),
+      line({ repo: 'acme/other', repoId: 'R_2', prNumber: 3, verdict: 'APPROVE', timestamp: daysAgo(7) }),
+      line({ prNumber: 4, repoId: 'R_1', verdict: 'ESCALATE', timestamp: daysAgo(6) }),
+    ].join('\n');
+    mockWorld(decisions, { act: false });
+    vi.spyOn(repoId, 'repoNodeId').mockResolvedValue('R_1');
+    ghCalls.length = 0;
+    const repo = await tmpGitRepo(ORIGIN);
+    const card = await approverCard.approverScorecard(repo, '90d', NOW);
+    expect([card.status, card.judged, card.approves, card.escalates]).toEqual(['ok', 3, 2, 1]);
+    expect(ghCalls.flat().join(' ')).not.toContain('acme/other');
+    expect((await approverCard.approverPrDecisions(repo)).map((d) => d.prNumber)).toEqual([1, 2, 4]);
   });
 
   test('case variants of the own slug are one repository: one gh list, each PR counted once', async () => {
