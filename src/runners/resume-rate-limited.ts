@@ -168,14 +168,21 @@ async function resumeWaiting(ctx: { opts: ResumeRateLimitedOptions; gh: GhRunner
         record('skipped', `skip -> already started, ${opts.dryRun === true ? 'would drop' : 'dropped'} stale ${GITHUB_WAITING_LABEL}`);
         continue;
       }
-      const trigger = trustedBodies(view.comments ?? []).flatMap((body) => WAITING_MARKER_RE.exec(body)?.[1] ?? []).at(-1);
+      const trusted = trustedBodies(view.comments ?? []);
+      const park = trusted.map((body) => WAITING_MARKER_RE.exec(body)).filter((m) => m !== null).at(-1);
+      const trigger = park?.[1];
       if (trigger === undefined || ![...allowed].some((a) => sameLabel(a, trigger))) {
         record('skipped', 'skip -> no trusted waiting marker naming an allowed trigger');
         continue;
       }
+      // Parked for a failed lookup: `watch` could not read a dependency, so re-triggering would only park it again.
+      if (park?.[2] !== undefined) {
+        record('skipped', `skip -> parked for a failed dependency lookup; re-apply "${trigger}" by hand once watch can read every dependency`);
+        continue;
+      }
       const task = { id, title: view.title ?? '', description: view.body ?? '', labels, children: [], comments: [], ref: String(number) };
       const verdict = await checkDependencies(opts.repoSlug, task, gh, now);
-      const overlapWait = verdict.status === 'ready' ? await overlapStillHolds(opts.repoSlug, trustedBodies(view.comments ?? []), gh, now) : undefined;
+      const overlapWait = verdict.status === 'ready' ? await overlapStillHolds(opts.repoSlug, trusted, gh, now) : undefined;
       if (verdict.status === 'error') {
         record('failed', `failed -> ${verdict.reason}`);
       } else if (verdict.status === 'waiting') {

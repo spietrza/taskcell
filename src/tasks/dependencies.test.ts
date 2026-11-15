@@ -163,6 +163,16 @@ describe('applyDependencyGate', () => {
     expect(calls.some((c) => c.includes('needs info'))).toBe(false);
     expect(calls.some((c) => c.includes('--add-label taskcell:waiting'))).toBe(true);
   });
+  it('marks the park for a failed lookup as an error park, which the resume sweep leaves alone', async () => {
+    const gh = vi.fn(async (args: string[]) => {
+      if (args[0] === 'api') throw new Error('HTTP 403 SAML');
+      if (args[0] === 'issue' && args[1] === 'view') return JSON.stringify({ comments: [] });
+      return '';
+    }) as unknown as GhRunner;
+    await applyDependencyGate([task(1, 'Depends on #2')], { repo: 'o/r', trigger: 'ready for agent', needsInfoLabel: 'needs info', gh, log: vi.fn() });
+    const comment = (gh as ReturnType<typeof vi.fn>).mock.calls.map((c) => (c[0] as string[]).join(' ')).find((c) => c.startsWith('issue comment'));
+    expect(comment).toContain('<!-- taskcell:waiting trigger="ready for agent" kind="error" -->');
+  });
   it('leaves an issue with no declared dependencies triggered when only the blocked-by probe fails', async () => {
     const gh = vi.fn(async (args: string[]) => {
       if (args[0] === 'api') throw new Error('HTTP 403');

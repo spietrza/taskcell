@@ -146,10 +146,13 @@ export async function checkDependencies(repo: string, task: Task, gh: GhRunner =
   }
 }
 
-/** Hidden marker on the wait comment: names the label the resume sweep restores. */
-export const waitingMarker = (trigger: string): string => `<!-- taskcell:waiting trigger="${trigger}" -->`;
-/** Also reads the `kind="error"` marker older versions wrote. */
-export const WAITING_MARKER_RE = /<!-- (?:taskcell|vanguard):waiting trigger="([^"]+)"(?: kind="error")? -->/;
+/**
+ * Hidden marker on the wait comment: names the label the resume sweep restores. `kind="error"` marks a
+ * park for a failed lookup, which the sweep leaves alone until a human acts (it may read with a token
+ * `watch` lacks, so re-triggering would only park the issue again, forever).
+ */
+export const waitingMarker = (trigger: string, kind?: 'error'): string => `<!-- taskcell:waiting trigger="${trigger}"${kind === 'error' ? ' kind="error"' : ''} -->`;
+export const WAITING_MARKER_RE = /<!-- (?:taskcell|vanguard):waiting trigger="([^"]+)"( kind="error")? -->/;
 
 export interface DependencyGateOptions {
   repo: string;
@@ -166,6 +169,9 @@ export interface DependencyGateOptions {
    */
   overlap?: { check: (task: Task) => Promise<OverlapHold[]>; holdMs: number };
 }
+
+const ERROR_NOTE = (trigger: string): string =>
+  `The resume sweep does not re-apply \`${trigger}\` after a failed lookup: once the token \`watch\` runs with can read every dependency, re-apply it by hand.\n\n${waitingMarker(trigger, 'error')}`;
 
 const RESUME_NOTE = (trigger: string): string =>
   `The scheduled resume sweep (\`resume-rate-limited\`, e.g. taskcell-resume.yml) re-applies \`${trigger}\` and drops \`${GITHUB_WAITING_LABEL}\` once this is resolved; if no such sweep runs for this repo, re-apply the label by hand.\n\n${waitingMarker(trigger)}`;
@@ -224,7 +230,7 @@ export async function applyDependencyGate(tasks: Task[], opts: DependencyGateOpt
         if (verdict.status === 'invalid') {
           await park(opts.needsInfoLabel, `Taskcell cannot start this issue: ${verdict.reason}. Fix it and re-apply \`${opts.trigger}\`.`, waitingBefore ? [GITHUB_WAITING_LABEL] : []);
         } else if (verdict.status === 'error') {
-          await park(GITHUB_WAITING_LABEL, waitingBefore ? undefined : `Taskcell could not check this issue's dependencies: ${verdict.reason}. It is labelled \`${GITHUB_WAITING_LABEL}\` and will not start until the check succeeds and its dependencies are met. ${RESUME_NOTE(opts.trigger)}`, []);
+          await park(GITHUB_WAITING_LABEL, waitingBefore ? undefined : `Taskcell could not check this issue's dependencies: ${verdict.reason}. It is labelled \`${GITHUB_WAITING_LABEL}\` and will not start until the check succeeds and its dependencies are met. ${ERROR_NOTE(opts.trigger)}`, []);
         } else if (verdict.status === 'waiting') {
           await park(GITHUB_WAITING_LABEL, waitingBefore ? undefined : `Taskcell will not start this issue yet: it ${waitingClause(verdict, refText)}. It is labelled \`${GITHUB_WAITING_LABEL}\`. ${RESUME_NOTE(opts.trigger)}`, []);
         }

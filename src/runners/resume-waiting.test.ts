@@ -3,6 +3,7 @@ import { resumeRateLimited } from './resume-rate-limited.js';
 import type { GhRunner } from '../tasks/github.js';
 
 const marker = '<!-- taskcell:waiting trigger="ready for agent" -->';
+const errorPark = '<!-- taskcell:waiting trigger="ready for agent" kind="error" -->';
 const bot = { author: { login: 'github-actions[bot]' }, authorAssociation: 'NONE', createdAt: '2030-01-01T00:00:00Z' };
 
 function setup(opts: { labels?: string[]; comments?: object[]; blocker?: object; body?: string; recheckLabels?: string[] } = {}) {
@@ -62,6 +63,15 @@ describe('resume of dependency-waiting issues', () => {
       return gh(args);
     };
     expect((await run(failing)).failed).toEqual(['o/r#7']);
+  });
+  it('leaves an issue whose newest trusted park is for a failed lookup alone, so it cannot loop', async () => {
+    const { gh, calls } = setup({ comments: [{ ...bot, body: `waiting\n${marker}` }, { ...bot, createdAt: '2030-01-02T00:00:00Z', body: `lookup failed\n${errorPark}` }] });
+    expect((await run(gh)).skipped).toEqual(['o/r#7']);
+    expect(calls.some((c) => c.startsWith('issue edit') || c.startsWith('api'))).toBe(false);
+  });
+  it('resumes again once a newer trusted park is not an error park', async () => {
+    const { gh } = setup({ comments: [{ ...bot, body: `lookup failed\n${errorPark}` }, { ...bot, createdAt: '2030-01-02T00:00:00Z', body: `waiting\n${marker}` }] });
+    expect((await run(gh)).resumed).toEqual(['o/r#7']);
   });
   it('honours custom started labels', async () => {
     const { gh, calls } = setup({ labels: ['taskcell:waiting', 'wip'] });

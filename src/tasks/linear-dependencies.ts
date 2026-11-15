@@ -1,6 +1,6 @@
 import { failureReason } from '../core/errors.js';
 import { redactForPublish } from '../core/secret-scan.js';
-import { dedupeRefs, escalatesToNeedsInfo, evaluateDependencies, lookupFailed, parseStartDate, runDependencyGate, directiveLines } from './dependency-gate.js';
+import { dedupeRefs, escalatesToNeedsInfo, evaluateDependencies, lookupFailed, parseStartDate, postUnlessRepeated, runDependencyGate, directiveLines } from './dependency-gate.js';
 import { commentLinearIssue, LinearGraphqlRequestError, linearGraphql, parseIdentifier } from './linear-cli.js';
 import type { DependencyVerdict, StartDate, WalkAdapter } from './dependency-gate.js';
 import type { Task, TaskRef } from './fetcher.js';
@@ -382,7 +382,7 @@ async function commentOnce(id: string, body: string, send: LinearGraphql, opts: 
     .filter((node) => isHoldComment(node.body ?? ''))
     .sort((a, b) => (a.createdAt != null && b.createdAt != null ? Number(a.createdAt > b.createdAt) - Number(a.createdAt < b.createdAt) : 0))
     .at(-1);
-  if (newest === undefined || comparable(newest.body ?? '') !== published) await commentLinearIssue(id, body, opts.linear);
+  await postUnlessRepeated(body, newest === undefined ? undefined : comparable(newest.body ?? ''), comparable, (text) => commentLinearIssue(id, text, opts.linear));
   reported.set(id, published);
 }
 
