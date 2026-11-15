@@ -38,8 +38,25 @@ describe('applyReReviewRules', () => {
   ])('a malformed block (%s) keeps the stated BLOCKING verdict and notes it', (_n, obj) => {
     const r = applyReReviewRules(`Verdict: BLOCKING\nRisk: high — x\n${block(obj)}\n[high] real finding`, {});
     expect(r.text.startsWith('Verdict: BLOCKING\nRisk: high — x')).toBe(true);
+    expect(r.text).toContain('[high] real finding');
     expect(r.text).toContain(REREVIEW_MALFORMED_NOTE);
     expect(r.text).not.toContain('<rereview>');
+  });
+
+  it('keeps findings after a header block whose later closing tag makes the block unparseable', () => {
+    const r = applyReReviewRules(
+      'Verdict: BLOCKING\nRisk: high — x\n<rereview>{"previous":[],"new":[]}\n## Findings\n- [high] F1 real\n- [high] F2 another\n\nSummary para\n</rereview>',
+      {},
+    );
+    expect(r.text).toContain('## Findings\n- [high] F1 real\n- [high] F2 another\n\nSummary para');
+    expect(r.text).toContain(REREVIEW_MALFORMED_NOTE);
+    expect(r.text).not.toContain('</rereview>');
+  });
+
+  it('does not cut a finding that mentions the rereview tag only inside inline code', () => {
+    const finding = '- [medium] `parse()` must preserve the literal `<rereview>` tag.';
+    const r = applyReReviewRules(`Verdict: BLOCKING\n${block({ previous: [], new: [] })}\n${finding}`, {});
+    expect(r.text).toContain(finding);
   });
 
   it('a BLOCKING previous review needs a blocking row: dropping it is malformed, not a flip to clean', () => {

@@ -25,6 +25,8 @@ export type ReviewRisk = 'low' | 'medium' | 'high';
 // finding, so a planted `Verdict:` line echoed inside a quote or fence must never pass as the
 // model's own verdict. Markdown emphasis and a heading marker around the real line are tolerated.
 export const VERDICT_RE = /^[#*_ \t]*Verdict:?[*_ \t]*(NO BLOCKING FINDINGS|BLOCKING)\b/i;
+const PREAMBLE_VERDICT_RE = /^Verdict:[ \t]*(NO BLOCKING FINDINGS|BLOCKING)\b/i;
+const MAX_VERDICT_PREAMBLE_LINES = 5;
 
 /** The verdict line, when the reply opens with one — independent of the completion signal. */
 export function extractReviewVerdict(text: string): ReviewVerdict | undefined {
@@ -59,9 +61,26 @@ export function extractReviewRisk(text: string): ReviewRisk | undefined {
   return m === null ? undefined : (m[1]!.toLowerCase() as ReviewRisk);
 }
 
-/** A review is usable only when it states a verdict (a completion signal alone does not make a progress note a review); findings after it may be truncated. */
+/** The verdict stated in the reply's opening lines, allowing a short prose preamble before a plain verdict line. */
+export function extractReviewOutcomeVerdict(text: string): ReviewVerdict | undefined {
+  const openingVerdict = extractReviewVerdict(text);
+  if (openingVerdict !== undefined) return openingVerdict;
+  let codeFence = false;
+  for (const line of text.split('\n', MAX_VERDICT_PREAMBLE_LINES + 1)) {
+    if (/^[ \t]*```/.test(line)) {
+      codeFence = !codeFence;
+      continue;
+    }
+    if (codeFence) continue;
+    const match = PREAMBLE_VERDICT_RE.exec(line);
+    if (match !== null) return match[1]!.toUpperCase() === 'BLOCKING' ? 'blocking' : 'clean';
+  }
+  return undefined;
+}
+
+/** A review is usable only when its opening lines state a verdict; a completion signal alone does not make a progress note a review. */
 export function reviewOutcomeUsable(outcome: { text: string }): boolean {
-  return extractReviewVerdict(outcome.text) !== undefined;
+  return extractReviewOutcomeVerdict(outcome.text) !== undefined;
 }
 
 /**
@@ -168,7 +187,7 @@ export { neutralizePromptTags } from '../context/escape.js';
 // rescan every following blank line from each line start, which is quadratic on a long blank run.
 export const MARKER_PAD = String.raw`[^\S\n\r\u2028\u2029]*`;
 const REVIEW_MARKER_LINE_RE = new RegExp(
-  String.raw`^${MARKER_PAD}<!--[ \t]*(?:taskcell|vanguard)-(?:(?:mr|pr)-review:[ \t]*[a-fA-F0-9]+|pr-review-run:[ \t]*[a-fA-F0-9]+:\d+|pr-review-incomplete)[ \t]*-->${MARKER_PAD}$`,
+  String.raw`^${MARKER_PAD}<!--[ \t]*(?:taskcell|vanguard)-(?:(?:mr|pr)-review:[ \t]*[a-fA-F0-9]+|pr-review-run:[ \t]*[a-fA-F0-9]+:\d+|(?:mr|pr)-review-incomplete(?:-cap)?:[ \t]*[a-fA-F0-9]+|pr-review-incomplete)[ \t]*-->${MARKER_PAD}$`,
   'gm',
 );
 

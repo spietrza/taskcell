@@ -16,6 +16,7 @@ import {
   VERDICT_CONTRADICTION_LOG,
   incompleteReviewReason,
   PullRequestReviewIncompleteError,
+  pullRequestReviewIncompleteHeadMarker,
   pullRequestReviewMarkerShas,
   reviewPullRequest,
 } from './pr-review.js';
@@ -187,6 +188,7 @@ describe('reviewPullRequest', () => {
     expect(body).not.toMatch(/diff is small/i);
     expect(body).toContain('Diff: 1 lines');
     expect(body).not.toContain('Now let me examine');
+    expect(body).toContain(pullRequestReviewIncompleteHeadMarker('def456'));
     // No head marker: the notice must not block a retry after re-labeling the same head.
     expect(body).not.toContain('taskcell-pr-review:');
     expect(logs).toContain('review-pr o/r#12: incomplete -> retry (verdict first, larger budget)');
@@ -441,6 +443,10 @@ describe('review prompt and comment formatting', () => {
 
   it('strips completion markers from the posted comment', () => {
     expect(buildPullRequestReviewComment('Looks good.\n<promise>COMPLETE</promise>')).toBe('## Taskcell Review\n\nLooks good.');
+  });
+
+  it('does not turn an empty body into a clean review', () => {
+    expect(buildPullRequestReviewComment('')).toBe('## Taskcell Review\n\n');
   });
 
   it('drops a review marker the reviewer quoted from untrusted input', () => {
@@ -828,14 +834,36 @@ describe('postPullRequestReview run stamp', () => {
 });
 
 describe('reviewPullRequest progress-note result', () => {
+  it('posts a completed review whose verdict follows a short preamble', async () => {
+    const { calls, gh } = makeGh();
+    const text = 'I reviewed the authentication changes first.\n\nVerdict: BLOCKING\n\n- [high] auth.ts accepts expired tokens.';
+    const reviewer = vi.fn().mockResolvedValue({ text, completed: true });
+
+    const result = await reviewPullRequest('12', { repoSlug: 'o/r', gh, reviewer, log: () => {} });
+
+    expect(reviewer).toHaveBeenCalledOnce();
+    expect(result.verdict).toBe('blocking');
+    expect(result.commentBody).toContain(text);
+    expect(calls.filter((args) => args[0] === 'pr' && args[1] === 'review')).toHaveLength(1);
+  });
+
   it('treats a completed reply without a verdict as incomplete: notice posted, error thrown', async () => {
     const { calls, gh } = makeGh();
     const text = 'Still reviewing. I\'ve checked the diff … the write-up follows.\nRisk: medium\n<promise>COMPLETE</promise>';
     const reviewer = vi.fn().mockResolvedValue({ text, completed: true });
-    await expect(reviewPullRequest('12', { repoSlug: 'o/r', gh, reviewer, log: () => {} })).rejects.toThrow(/did not complete/);
+
+    const error = await reviewPullRequest('12', { repoSlug: 'o/r', gh, reviewer, log: () => {} }).catch(
+      (caught: unknown) => caught,
+    );
+
+    expect(error).toBeInstanceOf(PullRequestReviewIncompleteError);
     expect(reviewer).toHaveBeenCalledTimes(2);
     const posted = calls.filter((a) => a[0] === 'pr' && a[1] === 'review');
     expect(posted).toHaveLength(1);
-    expect(posted[0]!.join(' ')).not.toContain('taskcell-pr-review: def456');
+    const body = posted[0]!.at(-1) ?? '';
+    expect(body).toContain(PR_REVIEW_NO_VERDICT_NOTICE);
+    expect(body).toContain(PR_REVIEW_INCOMPLETE_MARKER);
+    expect(body).not.toContain('Still reviewing');
+    expect(body).not.toContain('taskcell-pr-review: def456');
   });
 });

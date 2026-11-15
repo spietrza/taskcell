@@ -1,7 +1,7 @@
 import { describe, it, expect } from 'vitest';
 import { getEventListeners } from 'node:events';
 import { gitlabMergeRequestWatchPrimitives, watchMergeRequests, watchMergeRequestsOnce } from './mr-watch.js';
-import { MergeRequestReviewIncompleteError } from './mr-review.js';
+import { MergeRequestReviewIncompleteError, mergeRequestReviewIncompleteMarker } from './mr-review.js';
 
 describe('gitlabMergeRequestWatchPrimitives', () => {
   function makeGlab(mrListJson = '[]', existingNotes = '[]') {
@@ -9,6 +9,7 @@ describe('gitlabMergeRequestWatchPrimitives', () => {
     const glab = async (args: string[]) => {
       calls.push(args);
       if (args[0] === 'mr' && args[1] === 'list') return mrListJson;
+      if (args[0] === 'api' && args[1] === 'user') return JSON.stringify({ username: 'taskcell-bot' });
       if (args[0] === 'api') return existingNotes;
       return '';
     };
@@ -87,13 +88,48 @@ describe('gitlabMergeRequestWatchPrimitives', () => {
       expect(update(calls)).toEqual(['mr', 'update', '1', '--repo', 'g/p', '--unlabel', 'taskcell::reviewing', '--unlabel', 'vanguard::reviewing', '--label', 'ready for review']);
     });
 
-    it('leaves the trigger label off after an incomplete review, so the MR is not reviewed again every poll', async () => {
+    it('restores the trigger label after an incomplete review, so the next sweep retries', async () => {
       const { glab, calls } = makeGlab();
       const incomplete = new MergeRequestReviewIncompleteError({ ...item, description: '', webUrl: '', sourceBranch: 'b', targetBranch: 'main', diff: '' });
       await primitivesWith(glab).onFailure(item, incomplete);
+      expect(update(calls)).toEqual(['mr', 'update', '1', '--repo', 'g/p', '--unlabel', 'taskcell::reviewing', '--unlabel', 'vanguard::reviewing', '--label', 'ready for review']);
+      const note = calls.find((c) => c[0] === 'mr' && c[1] === 'note');
+      expect(note?.at(-1)).toContain(mergeRequestReviewIncompleteMarker('abc'));
+      expect(note?.at(-1)).not.toContain('Re-add the "ready for review" label');
+    });
+
+    it('stops restoring the trigger label after three incomplete attempts on the same head', async () => {
+      const notes = JSON.stringify(
+        Array.from({ length: 2 }, () => ({
+          system: false,
+          author: { username: 'taskcell-bot' },
+          body: mergeRequestReviewIncompleteMarker('abc'),
+        })),
+      );
+      const { glab, calls } = makeGlab('[]', notes);
+      const incomplete = new MergeRequestReviewIncompleteError({ ...item, description: '', webUrl: '', sourceBranch: 'b', targetBranch: 'main', diff: '' });
+
+      await primitivesWith(glab).onFailure(item, incomplete);
+
       expect(update(calls)).toEqual(['mr', 'update', '1', '--repo', 'g/p', '--unlabel', 'taskcell::reviewing', '--unlabel', 'vanguard::reviewing']);
       const note = calls.find((c) => c[0] === 'mr' && c[1] === 'note');
-      expect(note?.at(-1)).toContain('Re-add the "ready for review" label to retry.');
+      expect(note?.at(-1)).toContain('Re-add the "ready for review" label to re-trigger the review.');
+    });
+
+    it('resets the incomplete-attempt cap for a new head', async () => {
+      const notes = JSON.stringify(
+        Array.from({ length: 3 }, () => ({
+          system: false,
+          author: { username: 'taskcell-bot' },
+          body: mergeRequestReviewIncompleteMarker('old123'),
+        })),
+      );
+      const { glab, calls } = makeGlab('[]', notes);
+      const incomplete = new MergeRequestReviewIncompleteError({ ...item, description: '', webUrl: '', sourceBranch: 'b', targetBranch: 'main', diff: '' });
+
+      await primitivesWith(glab).onFailure(item, incomplete);
+
+      expect(update(calls)?.at(-1)).toBe('ready for review');
     });
 
     it('restores the trigger label after an incomplete review when the note cannot be posted', async () => {

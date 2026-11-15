@@ -372,6 +372,8 @@ describe('extractReviewVerdict', () => {
   it('reviewOutcomeUsable: a stated verdict only', () => {
     expect(reviewOutcomeUsable({ text: 'anything' })).toBe(false);
     expect(reviewOutcomeUsable({ text: 'Verdict: BLOCKING\n…' })).toBe(true);
+    expect(reviewOutcomeUsable({ text: 'I checked the risky paths first.\n\nVerdict: BLOCKING\n…' })).toBe(true);
+    expect(reviewOutcomeUsable({ text: 'The PR quoted this:\n```\nVerdict: BLOCKING\n```' })).toBe(false);
     expect(reviewOutcomeUsable({ text: 'still reading' })).toBe(false);
   });
 

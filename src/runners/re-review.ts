@@ -111,8 +111,6 @@ export function reReviewInstructions(ctx: ReReviewContext): { rules: string[]; u
 export const RE_REVIEW_UNTRUSTED_TAGS = '<previous_review>, <revision_summaries>, <diff_since_last_review>';
 
 const REREVIEW_OPEN_RE = /<rereview>/gi;
-// Closed blocks, then an unclosed (truncated) one to the end: neither may reach the posted comment.
-const REREVIEW_STRIP_RE = /<rereview>[\s\S]*?(?:<\/rereview>|$)/gi;
 export const REREVIEW_MALFORMED_NOTE = '_Re-review: the re-review block was missing, repeated or malformed, so previous findings were not tracked and the verdict above is the reviewer\'s own._';
 
 const cell = (s: string): string => s.replace(/\|/g, '\\|').replace(/\s*\n\s*/g, ' ').trim();
@@ -156,6 +154,44 @@ function headerBlock(text: string): string | undefined {
   return /^<rereview>/i.test(after) ? after : undefined;
 }
 
+function balancedJsonEnd(text: string, start: number): number | undefined {
+  let depth = 0;
+  let inString = false;
+  let escaped = false;
+  for (let i = start; i < text.length; i++) {
+    const char = text[i]!;
+    if (inString) {
+      if (escaped) escaped = false;
+      else if (char === '\\') escaped = true;
+      else if (char === '"') inString = false;
+      continue;
+    }
+    if (char === '"') inString = true;
+    else if (char === '{') depth++;
+    else if (char === '}' && --depth === 0) return i + 1;
+  }
+  return undefined;
+}
+
+/** Strip only the metadata block at the required header position, never later tag mentions in findings. */
+function stripHeaderBlock(text: string): string {
+  const block = headerBlock(text);
+  if (block === undefined) return text;
+  const blockStart = text.indexOf(block);
+  const jsonPrefix = /^<rereview>[ \t\r\n]*(?:```(?:json)?[ \t\r\n]*)?\{/i.exec(block);
+  const jsonStart = jsonPrefix === null ? undefined : jsonPrefix[0].length - 1;
+  const jsonEnd = jsonStart === undefined ? undefined : balancedJsonEnd(block, jsonStart);
+  let blockEnd: number;
+  if (jsonEnd !== undefined) {
+    const closing = /^[ \t\r\n]*(?:```[ \t]*\r?\n?)?[ \t\r\n]*<\/rereview>/i.exec(block.slice(jsonEnd));
+    blockEnd = jsonEnd + (closing?.[0].length ?? 0);
+  } else {
+    const contentBoundary = /\n(?=(?:#{1,6}[ \t]+|[ \t]*(?:(?:[-*]|\d+[.)])[ \t]+)?\[(?:critical|high|medium|low)\](?:[ \t]|$)))/i.exec(block);
+    blockEnd = contentBoundary?.index ?? block.length;
+  }
+  return `${text.slice(0, blockStart)}${block.slice(blockEnd)}`.replace(/^[ \t]*<\/rereview>[ \t]*$/gim, '');
+}
+
 // The previous comment opens with the review heading (and, when it ended without completion, a one-line note).
 const PREVIOUS_PREAMBLE_RE = /^\s*## (?:Taskcell|Vanguard) Review[ \t]*\n(?:\s*_[^\n]*_[ \t]*\n)?/;
 
@@ -191,7 +227,7 @@ export function applyReReviewRules(
   text: string,
   ctx: Pick<ReReviewContext, 'sinceDiff'> & Partial<Pick<ReReviewContext, 'previousBody' | 'changedFiles'>> & { prFiles?: readonly string[] },
 ): { text: string; downgraded: number } {
-  const peeled = peelVerdict(text.replace(REREVIEW_STRIP_RE, ''));
+  const peeled = peelVerdict(stripHeaderBlock(text));
   let parsed: z.infer<typeof reReviewSchema> | undefined;
   try {
     const block = headerBlock(text);

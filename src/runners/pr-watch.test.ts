@@ -2,6 +2,10 @@ import { describe, it, expect, vi } from 'vitest';
 import { getEventListeners } from 'node:events';
 import { editPullRequestLabels, githubPullRequestWatchPrimitives, watchPullRequests, watchPullRequestsOnce } from './pr-watch.js';
 import { UsageCapError } from '../core/usage-cap.js';
+import {
+  PullRequestReviewIncompleteError,
+  pullRequestReviewIncompleteHeadMarker,
+} from './pr-review.js';
 import type { GhRunner } from '../tasks/github.js';
 import type { PullRequestWatchItem, PullRequestWatchPrimitives } from './pr-watch.js';
 
@@ -377,6 +381,105 @@ describe('githubPullRequestWatchPrimitives', () => {
       // The repo has neither spelling of the trigger: it is restored under the name the review workflows fire on.
       ['pr', 'edit', '12', '--repo', 'o/r', '--remove-label', 'taskcell:reviewing', '--add-label', 'ready for vanguard review'],
     ]);
+  });
+
+  it('stops restoring the trigger label after three incomplete attempts on the same head', async () => {
+    const calls: string[][] = [];
+    const headRefOid = 'abc123';
+    const gh: GhRunner = async (args) => {
+      calls.push(args);
+      if (args[0] === 'pr' && args[1] === 'view' && args.at(-1) === 'comments,reviews') {
+        return JSON.stringify({
+          comments: [],
+          reviews: Array.from({ length: 3 }, () => ({
+            ...BOT,
+            body: pullRequestReviewIncompleteHeadMarker(headRefOid),
+          })),
+        });
+      }
+      if (args[0] === 'pr' && args[1] === 'view') {
+        return JSON.stringify({ labels: [{ name: 'taskcell:reviewing' }] });
+      }
+      return '';
+    };
+    const primitives = githubPullRequestWatchPrimitives({
+      repoSlug: 'o/r',
+      label: 'ready for taskcell review',
+      reviewingLabel: 'taskcell:reviewing',
+      reviewedLabel: 'taskcell:reviewed',
+      gh,
+      reviewOne: async () => {},
+    });
+    const item = { ...pr(12), headRefOid };
+    const incomplete = new PullRequestReviewIncompleteError(
+      {
+        ...item,
+        body: '',
+        url: '',
+        headRefName: 'branch',
+        baseRefName: 'main',
+        isCrossRepository: false,
+        headRepositoryOwner: 'o',
+        diff: '',
+      },
+      'incomplete',
+    );
+
+    await primitives.onFailure(item, incomplete);
+
+    expect(calls.filter((args) => args[0] === 'pr' && args[1] === 'comment')).toHaveLength(1);
+    expect(calls.find((args) => args[0] === 'pr' && args[1] === 'comment')?.at(-1)).toContain(
+      'Remove and re-add the "ready for taskcell review" label to re-trigger the review.',
+    );
+    expect(calls.find((args) => args[0] === 'pr' && args[1] === 'edit')).not.toContain('--add-label');
+  });
+
+  it('resets the incomplete-attempt cap for a new head', async () => {
+    const calls: string[][] = [];
+    const gh: GhRunner = async (args) => {
+      calls.push(args);
+      if (args[0] === 'pr' && args[1] === 'view' && args.at(-1) === 'comments,reviews') {
+        return JSON.stringify({
+          comments: [],
+          reviews: Array.from({ length: 3 }, () => ({
+            ...BOT,
+            body: pullRequestReviewIncompleteHeadMarker('old123'),
+          })),
+        });
+      }
+      if (args[0] === 'pr' && args[1] === 'view') {
+        return JSON.stringify({ labels: [{ name: 'taskcell:reviewing' }] });
+      }
+      return '';
+    };
+    const primitives = githubPullRequestWatchPrimitives({
+      repoSlug: 'o/r',
+      label: 'ready for taskcell review',
+      reviewingLabel: 'taskcell:reviewing',
+      reviewedLabel: 'taskcell:reviewed',
+      gh,
+      reviewOne: async () => {},
+    });
+    const item = { ...pr(12), headRefOid: 'new123' };
+    const incomplete = new PullRequestReviewIncompleteError(
+      {
+        ...item,
+        body: '',
+        url: '',
+        headRefName: 'branch',
+        baseRefName: 'main',
+        isCrossRepository: false,
+        headRepositoryOwner: 'o',
+        diff: '',
+      },
+      'incomplete',
+    );
+
+    await primitives.onFailure(item, incomplete);
+
+    const edit = calls.find((args) => args[0] === 'pr' && args[1] === 'edit');
+    expect(edit).toContain('--add-label');
+    expect(calls.some((args) => args[0] === 'pr' && args[1] === 'comment')).toBe(false);
   });
 
   it('skips the edit and logs when the PR shows none of the labels to remove', async () => {

@@ -1,7 +1,12 @@
 import { fanOut } from '../pipeline/fan-out.js';
 import { failureReason } from '../core/errors.js';
 import { isRateLimitHold, rateLimitHold } from '../core/rate-limit-marker.js';
-import { hasPullRequestReviewMarker, commentPullRequest } from './pr-review.js';
+import {
+  PullRequestReviewIncompleteError,
+  commentPullRequest,
+  hasPullRequestReviewIncompleteHeadMarker,
+  hasPullRequestReviewMarker,
+} from './pr-review.js';
 import { defaultGhRunner, isTrustedIssueAuthor } from '../tasks/github.js';
 import { classifyAuthor, describeIgnoredAuthor, isBotLogin } from '../tasks/comment-trust.js';
 import { hasLabel, labelForms, resolveAdds, resolveRemovals } from '../core/labels.js';
@@ -91,6 +96,8 @@ interface GhPullRequestReviewView {
 }
 
 type PullRequestWatchKind = 'reviewed' | 'failed' | 'skipped';
+const INCOMPLETE_RETRY_LIMIT = 3;
+const PR_INCOMPLETE_CAP_MARKER_RE = /^<!--[ \t]*taskcell-pr-review-incomplete-cap:[ \t]*([a-fA-F0-9]+)[ \t]*-->$/gm;
 
 function prId(item: PullRequestWatchItem): string {
   return `${item.repoSlug}#${item.number}`;
@@ -199,6 +206,28 @@ async function hasExistingReviewForHead(gh: GhRunner, item: PullRequestWatchItem
   }
 }
 
+function trustedReviewBodies(view: GhPullRequestReviewView, allowedAuthors?: readonly string[]): string[] {
+  return [...(view.comments ?? []), ...(view.reviews ?? [])].flatMap((entry) =>
+    classifyAuthor(entry.author?.login ?? '', entry.authorAssociation ?? '', { allowedAuthors }) !== 'untrusted' &&
+    entry.body !== undefined && entry.body !== null
+      ? [entry.body]
+      : [],
+  );
+}
+
+async function incompleteReviewState(
+  gh: GhRunner,
+  item: PullRequestWatchItem,
+  allowedAuthors?: readonly string[],
+): Promise<{ attempts: number; capPosted: boolean }> {
+  const out = await gh(['pr', 'view', String(item.number), '--repo', item.repoSlug, '--json', 'comments,reviews']);
+  const bodies = trustedReviewBodies(JSON.parse(out) as GhPullRequestReviewView, allowedAuthors);
+  return {
+    attempts: bodies.filter((body) => hasPullRequestReviewIncompleteHeadMarker(body, item.headRefOid)).length,
+    capPosted: bodies.some((body) => Array.from(body.matchAll(PR_INCOMPLETE_CAP_MARKER_RE)).some((match) => match[1] === item.headRefOid)),
+  };
+}
+
 /**
  * GitHub-backed PR review watch primitives. Label state is the dedup mechanism: a PR leaves the
  * trigger label before review starts, so the same head commit is not reviewed again unless a human or
@@ -287,6 +316,34 @@ export function githubPullRequestWatchPrimitives(opts: GitHubPullRequestWatchOpt
         }, opts.log);
         await commentPullRequest(item, hold.comment, gh);
         return;
+      }
+      if (error instanceof PullRequestReviewIncompleteError && item.headRefOid !== '') {
+        try {
+          const state = await incompleteReviewState(gh, item, opts.allowedAuthors);
+          if (state.capPosted || state.attempts >= INCOMPLETE_RETRY_LIMIT) {
+            let notified = state.capPosted;
+            if (!state.capPosted) {
+              try {
+                await commentPullRequest(
+                  item,
+                  `Taskcell stopped automatic review retries after ${INCOMPLETE_RETRY_LIMIT} incomplete attempts for head ${item.headRefOid.slice(0, 7)}. Remove and re-add the "${opts.label}" label to re-trigger the review.\n\n<!-- taskcell-pr-review-incomplete-cap: ${item.headRefOid} -->`,
+                  gh,
+                );
+                notified = true;
+              } catch (commentError) {
+                opts.log?.(`watch-prs ${prId(item)}: retry-cap comment failed -> retrying (${failureReason(commentError)})`);
+              }
+            }
+            if (notified) {
+              await editPullRequestLabels(gh, item.repoSlug, item.number, {
+                remove: [opts.reviewingLabel],
+              }, opts.log);
+              return;
+            }
+          }
+        } catch (countError) {
+          opts.log?.(`watch-prs ${prId(item)}: incomplete-attempt count failed -> retrying (${failureReason(countError)})`);
+        }
       }
       await editPullRequestLabels(gh, item.repoSlug, item.number, {
         remove: [opts.reviewingLabel],

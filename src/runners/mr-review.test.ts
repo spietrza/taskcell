@@ -170,6 +170,9 @@ describe('buildMergeRequestReviewComment', () => {
     expect(comment).toContain('## Taskcell Review');
     expect(comment).toContain('No blocking findings.');
   });
+  it('does not turn an empty body into a clean review', () => {
+    expect(buildMergeRequestReviewComment('')).toBe('## Taskcell Review\n\n');
+  });
   it('appends marker when sha provided', () => {
     const comment = buildMergeRequestReviewComment('ok', 'deadbeef');
     expect(comment).toContain('taskcell-mr-review');
@@ -371,6 +374,17 @@ describe('reviewMergeRequest incomplete retry', () => {
     const reviewer = vi.fn(async () => ({ text: 'partial...', completed: false }));
 
     await expect(reviewMergeRequest('5', { project: 'g/p', glab, reviewer })).rejects.toThrow(MergeRequestReviewIncompleteError);
+    expect(reviewer).toHaveBeenCalledTimes(2);
+    expect(posted(calls)).toEqual([]);
+  });
+
+  it('treats a completed reply without a verdict as incomplete', async () => {
+    const { glab, calls } = makeGlab();
+    const reviewer = vi.fn(async () => ({ text: 'Still reviewing… the write-up follows.', completed: true }));
+
+    await expect(reviewMergeRequest('5', { project: 'g/p', glab, reviewer })).rejects.toBeInstanceOf(
+      MergeRequestReviewIncompleteError,
+    );
     expect(reviewer).toHaveBeenCalledTimes(2);
     expect(posted(calls)).toEqual([]);
   });
