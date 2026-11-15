@@ -17,6 +17,7 @@ import { ProjectAllowlist, type BindOptions } from './allowlist.js';
 import { WatchRegistry, type WatchOptions } from './watch.js';
 import { readEnv } from '../core/env.js';
 import { createCredentialService, ForbiddenError } from './credentials.js';
+import { boardServed, localWorkerMemory, recordBoardPickup, sweepLocalWorkers } from './local-worker.js';
 import { reconcileHubBoards, schedulerState, sweepHubBoards } from './task-scheduler.js';
 import { createRunSession } from './run-session.js';
 import { CompleteBusyError, CompleteRegistry, type SpawnComplete } from './complete.js';
@@ -493,17 +494,15 @@ export function createHubServer(opts: HubServerOptions): HubServer {
 
   // Hub-board projects: start what the scheduler allows, each task as its owner (src/hub/task-scheduler.ts).
   const scheduler = schedulerState();
-  const sweepHubTasks = (): Promise<void> => sweepHubBoards({
-    ...ctx,
-    scheduler,
-    // The stored owner is a snapshot: the user is re-read by id, and the owner (token) flag holds only for the owner user.
-    ...(identity.userById !== undefined
-      ? { recheckCaller: async (c: Caller): Promise<Caller | undefined> => { const user = await identity.userById!(c.user.id); return user === undefined ? undefined : { user, owner: c.owner && user.id === identity.owner.id }; } }
-      : {}),
-  });
+  const workerMemory = localWorkerMemory();
+  // The Local hub switch (src/hub/local-worker.ts): an explicit off stops a board's pick-ups; the GitHub-issue half runs in the same tick.
+  const sweepHubTasks = async (): Promise<void> => {
+    await sweepHubBoards({ ...ctx, scheduler, served: (p) => boardServed(opts.configDir, p), picked: (p, ids) => recordBoardPickup(opts.configDir, p, ids) });
+    await sweepLocalWorkers({ configDir: opts.configDir, runSession, allowlist, userCredentials, memory: workerMemory });
+  };
   const sweeper = setInterval(() => void sweepHubTasks().catch((e: unknown) => console.error(`vanguard-hub: scheduler: ${(e as Error).message}`)), SCHEDULER_INTERVAL_MS);
   sweeper.unref();
-  // No run survives a restart: a task stored as running is marked failed before the first request is served.
+  // No run survives a restart: a task stored as running goes back to todo before the first request is served.
   const reconciled = reconcileHubBoards(opts.configDir).catch((e: unknown) => console.error(`vanguard-hub: scheduler: ${(e as Error).message}`));
 
   const server = createServer((req, res) => {

@@ -1,13 +1,13 @@
 import { useEffect, useRef, useState, type ReactNode } from 'react';
 import { Button, Chip, CodeBlock, useFocusTrap } from '@/ui';
-import { enableFactoryApply, enableFactoryHost, enableFactoryPlan, enableFactoryStart, enableFactoryVerify, enableFactoryWatch, factoryRefresh, factoryState } from '../../ipc';
-import { factoryStepLabel } from './factoryLabel';
+import { enableFactoryApply, enableFactoryHost, enableFactoryPlan, enableFactoryStart, enableFactoryVerify, enableFactoryWatch, factoryRefresh, factoryState, localWorkerDoctor, localWorkerSet, localWorkerState } from '../../ipc';
+import { factoryStepLabel, localWorkerLabel } from './factoryLabel';
 import { ExternalLink } from '../../components/ExternalLink';
 import { RUN_LOCATIONS } from '../../platform';
 import { absTime, relTime } from '../../time';
-import type { RunLocationId, WatchWorkerChecklist, FactoryHost, FactoryPlan, FactoryProviderId, FactoryState } from '../../wire';
+import type { LocalWorkerState, RunLocationId, WatchWorkerChecklist, FactoryHost, FactoryPlan, FactoryProviderId, FactoryState } from '../../wire';
 
-/** GitHub Actions and GitLab CI have `enable_factory_*` adapters; Self-hosted (watch) has its own read-only checklist; the rest are listed as planned. */
+/** GitHub Actions and GitLab CI have `enable_factory_*` adapters; Self-hosted (watch) has its own read-only checklist; Local hub has a switch and checklist of its own; the rest are listed as planned. */
 const PROVIDER_OF: Partial<Record<RunLocationId, FactoryProviderId>> = { 'github-actions': 'github', 'gitlab-ci': 'gitlab' };
 
 /** Why GitLab CI cannot be set up for a project whose remote is not on GitLab (one plain sentence). */
@@ -18,7 +18,7 @@ function gitlabUnavailable(host: FactoryHost | null): string {
   return 'Needs a remote on gitlab.com or the host named by GITLAB_HOST.';
 }
 
-type Busy = 'plan' | 'watch' | 'apply' | 'verify' | 'secret' | null;
+type Busy = 'plan' | 'watch' | 'local' | 'apply' | 'verify' | 'secret' | null;
 
 /** How often the open checklist re-checks the PR merge and the doctor run. */
 const POLL_MS = 5000;
@@ -57,6 +57,8 @@ export function EnableFactoryDialog({ project, onClose }: { project: { path: str
   const [host, setHost] = useState<FactoryHost | null>(null);
   // Self-hosted (watch): read-only checklist; the hub starts nothing on another machine.
   const [watch, setWatch] = useState<WatchWorkerChecklist | null>(null);
+  // Local hub: the hub's built-in worker — a per-project switch and its checklist.
+  const [local, setLocal] = useState<LocalWorkerState | null>(null);
   // The text whose Copy button was just pressed, so only that button says "Copied".
   const [copied, setCopied] = useState<string | null>(null);
   const [doctorConfirmed, setDoctorConfirmed] = useState(false);
@@ -125,6 +127,18 @@ export function EnableFactoryDialog({ project, onClose }: { project: { path: str
   const loadWatch = (): Promise<void> =>
     step('watch', async () => {
       setWatch(await enableFactoryWatch(project.path));
+    });
+  const loadLocal = (): Promise<void> =>
+    step('local', async () => {
+      setLocal(await localWorkerState(project.path));
+    });
+  const switchLocal = (enabled: boolean): Promise<void> =>
+    step('local', async () => {
+      setLocal(await localWorkerSet(project.path, enabled));
+    });
+  const runLocalDoctor = (): Promise<void> =>
+    step('local', async () => {
+      setLocal(await localWorkerDoctor(project.path));
     });
   const existingFiles = new Set(plan?.existingCallerFiles ?? []);
   // A caller counts as present under its legacy `vanguard-` name too (the hub adds no `taskcell-` twin).
@@ -242,6 +256,49 @@ export function EnableFactoryDialog({ project, onClose }: { project: { path: str
               ))}
             </ol>
           </>
+        ) : local !== null ? (
+          <>
+            <p className="mt-1 text-xs text-muted-foreground">
+              The hub itself works this project: on a schedule it picks up {local.source === 'hub' ? 'tasks from the hub board' : 'open issues with the trigger label'}, within its parallel-run limit, on this machine. Off by default.
+            </p>
+            <label className="mt-3 flex items-center gap-2 text-sm font-medium">
+              <input
+                type="checkbox"
+                role="switch"
+                aria-label="Run this project on the local hub"
+                checked={local.enabled}
+                disabled={busy !== null || (!local.enabled && local.blocked !== undefined)}
+                onChange={(e) => void switchLocal(e.target.checked)}
+              />
+              Local hub worker: {local.enabled ? 'on' : 'off'}
+            </label>
+            {local.blocked !== undefined && <p role="note" className="mt-1 text-xs text-muted-foreground">Cannot be switched on: {local.blocked}</p>}
+            <Section title="1. Credentials present (names only)">
+              <p data-credentials={local.credentials.present ? 'present' : 'missing'}>
+                {local.credentials.present ? 'Yes: the hub has a provider credential to run on.' : 'No: the hub has no provider credential, so the switch stays off.'}
+              </p>
+              <div className="mt-1 flex flex-wrap gap-1">
+                {local.credentials.names.map((c) => <Chip key={c} color="secondary" variant="outlined">{c}</Chip>)}
+              </div>
+              {!local.credentials.present && <p className="mt-1 text-xs text-muted-foreground">Set one in the hub&apos;s environment or add it in Settings → Credentials. Any one of these is enough.</p>}
+            </Section>
+            <Section title="2. Doctor passed (run on the hub's machine)">
+              <p data-doctor={local.doctor === undefined ? 'unknown' : local.doctor.ok ? 'passed' : 'failed'}>
+                {local.doctor === undefined
+                  ? 'Not run yet.'
+                  : local.doctor.ok
+                    ? `Passed ${seenAt(local.doctor.at)}.`
+                    : `Failed ${seenAt(local.doctor.at)}: ${local.doctor.failed.join('; ')}`}
+              </p>
+              <Button variant="outlined" color="secondary" className="mt-1 h-7 px-2 text-xs" onClick={() => void runLocalDoctor()} loading={busy === 'local'} disabled={busy !== null}>
+                {local.doctor === undefined ? 'Run doctor' : 'Run doctor again'}
+              </Button>
+            </Section>
+            <Section title="3. Worker state">
+              <p data-testid="local-worker-dialog-state">{localWorkerLabel(local)}</p>
+              <p className="mt-1 text-xs text-muted-foreground">Turning it off stops new pick-ups; a task that is already running is left alone.</p>
+            </Section>
+          </>
         ) : watch !== null ? (
           <>
             <p className="mt-1 text-xs text-muted-foreground">
@@ -283,6 +340,19 @@ export function EnableFactoryDialog({ project, onClose }: { project: { path: str
             <div className="mt-3 space-y-2">
               {RUN_LOCATIONS.map((p) => {
                 const provider = PROVIDER_OF[p.id];
+                if (p.id === 'local') {
+                  return (
+                    <button
+                      key={p.id}
+                      disabled={busy !== null}
+                      onClick={() => void loadLocal()}
+                      className="flex w-full items-center justify-between rounded-md border border-border px-3 py-2 text-left text-sm transition-colors enabled:hover:bg-muted disabled:cursor-not-allowed disabled:opacity-60"
+                    >
+                      <span className="font-medium">{p.label}</span>
+                      <span className="text-xs text-muted-foreground">{busy === 'local' ? 'Reading…' : 'Checklist →'}</span>
+                    </button>
+                  );
+                }
                 if (p.id === 'watch' && host === 'none') {
                   return (
                     <div key={p.id} className="flex w-full items-center justify-between gap-2 rounded-md border border-border px-3 py-2 text-sm opacity-80">
@@ -392,9 +462,14 @@ export function EnableFactoryDialog({ project, onClose }: { project: { path: str
 
         <div className="mt-4 flex justify-end gap-2">
           <Button variant="text" color="secondary" onClick={onClose} disabled={busy !== null}>
-            {showChecklist || watch !== null ? 'Close' : 'Cancel'}
+            {showChecklist || watch !== null || local !== null ? 'Close' : 'Cancel'}
           </Button>
-          {!showChecklist && watch !== null && (
+          {!showChecklist && local !== null && (
+            <Button variant="outlined" color="secondary" onClick={() => setLocal(null)} disabled={busy !== null}>
+              Back
+            </Button>
+          )}
+          {!showChecklist && local === null && watch !== null && (
             <Button variant="outlined" color="secondary" onClick={() => setWatch(null)} disabled={busy !== null}>
               Back
             </Button>

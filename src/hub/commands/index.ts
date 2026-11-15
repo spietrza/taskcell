@@ -12,6 +12,7 @@ import { commands as fleet, type FleetCommands } from './fleet.js';
 import { commands as flows, type FlowsCommands } from './flows.js';
 import { commands as history, type HistoryCommands } from './history.js';
 import { commands as lessons, type LessonsCommands } from './lessons.js';
+import { commands as localWorker, type LocalWorkerCommands } from './local-worker.js';
 import { commands as needsYou, type NeedsYouCommands } from './needs-you.js';
 import { commands as projects, type ProjectsCommands } from './projects.js';
 import { commands as repoFiles, type RepoFilesCommands } from './repo-files.js';
@@ -39,6 +40,7 @@ export interface Commands extends
   FlowsCommands,
   HistoryCommands,
   LessonsCommands,
+  LocalWorkerCommands,
   NeedsYouCommands,
   ProjectsCommands,
   RepoFilesCommands,
@@ -118,6 +120,9 @@ export const COMMAND_NAMES = [
   'list_tasks',
   'list_tasks_all',
   'list_teams',
+  'local_worker_doctor',
+  'local_worker_set',
+  'local_worker_state',
   'merge_needs_you',
   'migrate_labels',
   'read_app_config',
@@ -175,6 +180,7 @@ export const HUB_COMMANDS: { readonly [K in keyof Commands]: CommandHandler } = 
   ...flows.handlers,
   ...history.handlers,
   ...lessons.handlers,
+  ...localWorker.handlers,
   ...needsYou.handlers,
   ...projects.handlers,
   ...repoFiles.handlers,
@@ -202,6 +208,7 @@ export const HUB_AUDITED: { readonly [K in keyof Commands]?: AuditSpec } = {
   ...flows.audit,
   ...history.audit,
   ...lessons.audit,
+  ...localWorker.audit,
   ...needsYou.audit,
   ...projects.audit,
   ...repoFiles.audit,

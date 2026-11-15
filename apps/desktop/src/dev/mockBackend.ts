@@ -180,6 +180,9 @@ const commandHandlers = {
   // Hub-only Enable factory flow (EnableFactoryDialog).
   enable_factory_host: () => ({ host: 'github' as const }),
   enable_factory_watch: () => ({ repoSlug: 'acme/widgets', source: 'github' as const, compose: 'services:\n  taskcell-watch: {}', command: 'taskcell watch --source=github', credentials: ['CLAUDE_CODE_OAUTH_TOKEN', 'GH_TOKEN'], seen: 'unknown' as const }),
+  local_worker_state: () => ({ enabled: false, source: 'github' as const, credentials: { names: ['CLAUDE_CODE_OAUTH_TOKEN'], present: true } }),
+  local_worker_set: (args: { enabled?: boolean } | undefined) => ({ enabled: args?.enabled === true, source: 'github' as const, credentials: { names: ['CLAUDE_CODE_OAUTH_TOKEN'], present: true } }),
+  local_worker_doctor: () => ({ enabled: false, source: 'github' as const, credentials: { names: ['CLAUDE_CODE_OAUTH_TOKEN'], present: true }, doctor: { at: '2026-11-15T10:00:00.000Z', ok: true, failed: [] } }),
   enable_factory_plan: () => factoryPlan,
   enable_factory_apply: () => factoryApplyResult,
   enable_factory_verify: () => factoryVerify,

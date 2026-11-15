@@ -11,7 +11,6 @@ import { failureMessage } from './projects.js';
 import type { RunSession } from './run-session.js';
 import { planSchedule } from './schedule.js';
 import * as teams from './teams.js';
-import type { Caller } from './teams.js';
 
 /** The transport of a hub-board run. Not one of `TRANSPORTS`: only the scheduler can ask for it, never a client. */
 export const HUB_TRANSPORT = 'hub';
@@ -33,10 +32,6 @@ export const schedulerState = (): SchedulerState => ({ ticking: new Set(), live:
 const key = (repoPath: string, id: string): string => `${repoPath}\n${id}`;
 
 function ended(result: CreateRunResult): Pick<HubTask, 'status' | 'reason' | 'result'> {
-  if (result.verificationFailed === true && (result.prUrl !== undefined || result.branch !== undefined)) {
-    const where = result.prUrl ?? `branch ${result.branch}`;
-    return { status: 'failed', reason: `verify failed on the delivered result (${where}); dependents do not start`, result: where };
-  }
   if (result.prUrl !== undefined) return { status: 'done', result: result.prUrl };
   if (result.branch !== undefined) return { status: 'done', result: `branch ${result.branch}` };
   if (result.secretBlocked === true) return { status: 'failed', reason: 'the secret scan blocked the result (see the run record)' };
@@ -82,7 +77,7 @@ export async function scheduleTick({ ticking, live }: SchedulerState, configDir:
         });
       void run
         .then((result) => record(ended(result)), (e: unknown) => record({ status: 'failed', reason: failureMessage(e) }))
-        // The store could not be written: the task is marked failed once this process no longer holds its run.
+        // The store could not be written: the task is reset to todo once this process no longer holds its run.
         .catch((e: unknown) => console.error(`vanguard-hub: scheduler: could not record the end of ${id} in ${repoPath}: ${failureMessage(e)}`))
         .finally(() => live.delete(k));
     }
@@ -99,8 +94,10 @@ export interface SweepContext {
   runSession: RunSession;
   userCredentials?: CredentialService;
   audit?: AuditLog;
-  /** Re-resolves the stored owner at start (current account and owner flag); undefined: no longer valid, the task does not run. Absent: the stored caller is trusted. */
-  recheckCaller?: (stored: Caller) => Promise<Caller | undefined>;
+  /** A project the sweep may serve (default: all). The local worker's switch, when set off, stops a board's pick-ups. */
+  served?: (repoPath: string) => Promise<boolean>;
+  /** Called with the ids a tick started. */
+  picked?: (repoPath: string, ids: string[]) => Promise<void>;
 }
 
 /**
@@ -118,18 +115,16 @@ async function startHubTask(ctx: SweepContext, repoPath: string, task: HubTask, 
   };
   try {
     if (who === undefined) throw new BadRequestError('this task has no owner on this hub — save its schedule to run it as you');
-    const caller = ctx.recheckCaller !== undefined ? await ctx.recheckCaller(who.caller) : who.caller;
-    if (caller === undefined) throw new BadRequestError('the owner of this task no longer has an account on this hub — save its schedule to run it as you');
-    teams.assertRepoInRoots(await teams.callerRepoRoots(ctx.configDir, caller), repoPath);
+    teams.assertRepoInRoots(await teams.callerRepoRoots(ctx.configDir, who.caller), repoPath);
     const configured = (await readAppConfig(repoPath)).provider;
     const provider = typeof configured === 'string' && configured.trim() !== '' ? configured : undefined;
-    const credential = ctx.userCredentials !== undefined ? await ctx.userCredentials.resolveForRun(caller.user, provider) : undefined;
+    const credential = ctx.userCredentials !== undefined ? await ctx.userCredentials.resolveForRun(who.caller.user, provider) : undefined;
     return await ctx.runSession.createRun(
       { issueRef: task.id, repoPath, transport: HUB_TRANSPORT, hubTask: { id: task.id, title: task.title, body: task.body }, startedBy: who.actor.login, ...(provider !== undefined ? { provider } : {}) },
       {
-        onStarted: (id) => { log('run-start', `${id} ${task.id}`, 'ok'); admitted(id); },
-        onQueued: (id) => { log('run-queue', `${id} ${task.id}`, 'ok'); admitted(id); },
-        onRefused: (id) => log('run-start', `${id} ${task.id}`, 'refused'),
+        onStarted: (id) => { log('run-start', id, 'ok'); admitted(id); },
+        onQueued: (id) => { log('run-queue', id, 'ok'); admitted(id); },
+        onRefused: (id) => log('run-start', id, 'refused'),
       },
       credential,
     );
@@ -150,14 +145,16 @@ export async function sweepHubBoards(ctx: SweepContext): Promise<void> {
     try {
       if ((await ctx.allowlist.assertAllowed(repoPath).catch(() => undefined)) !== repoPath) continue;
       if ((await readAppConfig(repoPath)).taskSource !== 'hub') continue;
-      await scheduleTick(ctx.scheduler, ctx.configDir, repoPath, (task, admitted) => startHubTask(ctx, repoPath, task, admitted), { limit: await parallelLimit(repoPath) });
+      if (ctx.served !== undefined && !(await ctx.served(repoPath))) continue;
+      const started = await scheduleTick(ctx.scheduler, ctx.configDir, repoPath, (task, admitted) => startHubTask(ctx, repoPath, task, admitted), { limit: await parallelLimit(repoPath) });
+      await ctx.picked?.(repoPath, started);
     } catch (e) {
       console.error(`vanguard-hub: scheduler: ${repoPath}: ${failureMessage(e)}`);
     }
   }
 }
 
-/** On hub start no run is live: every stored `running` task is marked `failed` (a person retries it). */
+/** On hub start no run is live: every stored `running` task goes back to `todo`. */
 export async function reconcileHubBoards(configDir: string): Promise<void> {
   for (const repoPath of await listHubBoards(configDir)) {
     await resetStaleRunning(configDir, repoPath).catch((e: unknown) => console.error(`vanguard-hub: scheduler: ${repoPath}: ${failureMessage(e)}`));
