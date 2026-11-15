@@ -348,6 +348,7 @@ const index = [
   ['>Report a vulnerability</a>', '>Zgłoś podatność</a>'],
   ['>Security model</a>', '>Model bezpieczeństwa</a>'],
   ['>OWASP mapping</a>', '>Mapowanie OWASP</a>'],
+  ['aria-label="Independent security scores"', 'aria-label="Niezależne oceny bezpieczeństwa"'],
 
   // self-host
   ['Your machine. Your plan.', 'Twój komputer. Twój plan.'],
@@ -358,6 +359,10 @@ const index = [
   ['<span class="c"># puts taskcell on your PATH</span>', '<span class="c"># dodaje taskcell do PATH</span>'],
   ['Also needed: <code>gh</code> for GitHub, <code>glab</code> for GitLab or the <code>linear</code> CLI for Linear.',
     'Potrzebne też: <code>gh</code> dla GitHuba, <code>glab</code> dla GitLaba albo CLI <code>linear</code> dla Lineara.'],
+  ['<p class="cmd-label">Or let your agent set it up</p>', '<p class="cmd-label">Albo niech zrobi to twój agent</p>'],
+  ['Set up Taskcell for me: https://github.com/spietrza/taskcell\nFollow the setup-taskcell skill:', 'Zainstaluj mi Taskcell: https://github.com/spietrza/taskcell\nPostępuj według skilla setup-taskcell:'],
+  ['Paste it into Claude Code, Codex or another coding agent. It asks where your code and tasks are, runs each step and checks it, and stops for what only you can do: tokens, OAuth apps, DNS.',
+    'Wklej to do Claude Code, Codexa albo innego agenta. Zapyta, gdzie masz kod i zadania, wykona każdy krok i go sprawdzi, a zatrzyma się tam, gdzie musisz zadziałać ty: tokeny, aplikacje OAuth, DNS.'],
   ['<h3>One card from the CLI</h3>', '<h3>Jedna karta z CLI</h3>'],
   ['Run a single issue end to end, with the key held by the LLM proxy.', 'Przeprowadź jedno zgłoszenie od początku do końca, z kluczem trzymanym przez proxy LLM.'],
   ['<span class="c"># token from: claude setup-token</span>', '<span class="c"># token z: claude setup-token</span>'],

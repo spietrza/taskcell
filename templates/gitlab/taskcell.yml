@@ -78,4 +78,4 @@ taskcell-review:
     - if: '$GITLAB_USER_LOGIN == "YOUR_GITLAB_LOGIN" && $TASKCELL_SWEEP == "true"'
   script:
     - export CLAUDE_CODE_OAUTH_TOKEN="$TASKCELL_CLAUDE_TOKEN" GITLAB_TOKEN="$TASKCELL_GITLAB_TOKEN"; unset TASKCELL_CLAUDE_TOKEN TASKCELL_GITLAB_TOKEN
-    - node /opt/taskcell/dist/cli/index.js watch-mrs --gitlab-project "$CI_PROJECT_PATH" --label "ready for vanguard review" --once
+    - node /opt/taskcell/dist/cli/index.js watch-mrs --gitlab-project "$CI_PROJECT_PATH" --label "ready for taskcell review" --once

@@ -1,6 +1,6 @@
 import { gitlabMergeRequestWatchPrimitives, watchMergeRequests } from '../runners/mr-watch.js';
 import { reviewMrCommand } from './review-mr.js';
-import { formatPreflightReport, runPreflight } from './preflight.js';
+import { formatPreflightReport, preflightFailed, runPreflight } from './preflight.js';
 import type { Command } from './args.js';
 import type { MergeRequestWatchPrimitives, WatchMergeRequestsLoopOptions } from '../runners/mr-watch.js';
 
@@ -23,7 +23,7 @@ export interface WatchMrsCommandDeps {
 export async function watchMrsCommand(cmd: WatchMrsCommand, deps: WatchMrsCommandDeps = {}): Promise<void> {
   const report = await runPreflight(cmd);
   for (const line of formatPreflightReport(report)) console.log(line);
-  if (!report.ok) throw new Error('preflight failed');
+  if (!report.ok) throw preflightFailed();
 
   const log = deps.log ?? console.log;
   const runReviewMr = deps.reviewMr ?? ((reviewCmd: ReviewMrCommand) => reviewMrCommand(reviewCmd, { headDedupe: false }));

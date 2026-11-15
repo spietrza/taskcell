@@ -263,6 +263,8 @@ p { max-width: 62ch; }
 .out .ok { color: var(--ok); }
 .out .no { color: var(--fail); }
 .out p { margin-top: 14px; font-size: 14px; color: var(--muted); }
+.report .scores { flex-basis: 100%; margin-top: 0; }
+.scores b { font-weight: 600; }
 .controls { grid-column: 1 / -1; display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 0 20px; margin-top: 56px; }
 .controls li { padding: 20px 0 24px; border-top: 1px solid var(--line); }
 .controls h3 { font-size: 22px; letter-spacing: -0.02em; line-height: 1.1; }

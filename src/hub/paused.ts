@@ -27,15 +27,19 @@ const caches = new WeakMap<GhRunner, Map<string, { at: number; value: Promise<un
 function cached<V>(gh: GhRunner, key: string, read: () => Promise<V>): Promise<V> {
   let map = caches.get(gh);
   if (map === undefined) caches.set(gh, (map = new Map()));
+  const now = Date.now();
   const hit = map.get(key);
-  if (hit !== undefined && Date.now() - hit.at < PAUSED_CACHE_TTL_MS) return hit.value as Promise<V>;
+  if (hit !== undefined && now - hit.at < PAUSED_CACHE_TTL_MS) return hit.value as Promise<V>;
+  // Evict every expired entry on write, so the map holds only what was read within the TTL.
+  for (const [k, entry] of map) if (now - entry.at >= PAUSED_CACHE_TTL_MS) map.delete(k);
   const value = read();
-  map.set(key, { at: Date.now(), value });
+  map.set(key, { at: now, value });
   value.catch(() => { if (map.get(key)?.value === value) map.delete(key); });
   return value;
 }
 
-const forgetRepo = (gh: GhRunner, repoSlug: string): void => {
+/** Drop every cached read of one repository (after a write that changes what they would return). */
+export const forgetRepo = (gh: GhRunner, repoSlug: string): void => {
   const map = caches.get(gh);
   if (map === undefined) return;
   for (const key of [...map.keys()]) if (key.startsWith(`${repoSlug}|`)) map.delete(key);
@@ -133,8 +137,10 @@ const STARTED_LABELS: readonly string[] = [GITHUB_CLAIMED_LABEL, GITHUB_REVIEW_L
  *
  * Race with the scheduled sweep: between our `--add-label` and our hold removal, a sweep that already saw the
  * hold can still remove and re-add the trigger (a second `labeled` event, about one `gh` call wide). We do not
- * rely on the watch's claim to ignore it: a second claim of an already claimed issue is "taken" and skipped,
- * so the extra event does not start a second run.
+ * rely on `claimGate` returning 'taken' for it: that happens only when the claim's `gh issue edit` throws, and
+ * the repo asserts that only against a fake `gh`. The guards in the code are `fetchHintedIssue`, which skips an
+ * issue carrying the claimed label or lacking the trigger, and the caller workflow's per-issue concurrency group.
+ * The repository's cache is flushed only after a successful write.
  */
 /** The hold was released meanwhile and nothing re-triggered the issue: reported as is, not as "stays paused". */
 class NoLongerPaused extends BadRequestError {}
@@ -142,7 +148,6 @@ class NoLongerPaused extends BadRequestError {}
 export async function retryPausedTask(repoSlug: string, number: number, triggerLabels: readonly string[], gh: GhRunner = defaultGhRunner): Promise<RetryPausedResult> {
   assertRepoSlug(repoSlug);
   if (!Number.isInteger(number) || number <= 0) throw new BadRequestError(`number must be a positive integer, got ${String(number)}`);
-  forgetRepo(gh, repoSlug);
   const n = String(number);
   const issue = JSON.parse(await gh(['api', `repos/${repoSlug}/issues/${n}`])) as { state: string; labels: { name: string }[]; pull_request?: unknown };
   if (issue.pull_request != null) throw new BadRequestError(`#${n} is a pull request, not an issue.`);
@@ -150,7 +155,8 @@ export async function retryPausedTask(repoSlug: string, number: number, triggerL
   const names = issue.labels.map((l) => l.name);
   const held = names.filter((x) => sameLabel(x, GITHUB_RATE_LIMITED_LABEL));
   if (held.length === 0) throw new BadRequestError(`#${n} is not paused by a provider limit; nothing was changed.`);
-  const started = names.filter((x) => STARTED_LABELS.some((s) => sameLabel(s, x)));
+  const isStarted = (x: string): boolean => STARTED_LABELS.some((s) => sameLabel(s, x));
+  const started = names.filter(isStarted);
   if (started.length > 0) throw new BadRequestError(`#${n} is already running or queued (${started.join(', ')}); nothing was changed.`);
   const marker = await ownRateLimitMarker(repoSlug, 'issue', number, gh);
   if (marker === undefined) throw new BadRequestError(`#${n} has no rate-limit marker from the factory, so the trigger to re-apply is unknown; re-apply it on GitHub.`);
@@ -171,8 +177,11 @@ export async function retryPausedTask(repoSlug: string, number: number, triggerL
     // already re-triggered the issue, and adding the trigger again would fire a second `labeled` event.
     const now = (JSON.parse(await gh(['api', `repos/${repoSlug}/issues/${n}`])) as { labels: { name: string }[] }).labels.map((l) => l.name);
     if (!now.some((x) => sameLabel(x, GITHUB_RATE_LIMITED_LABEL))) {
-      // The hold went away meanwhile: succeed only if something re-triggered the issue (the sweep), not if a person just removed it.
-      const retriggered = now.some((x) => x.toLowerCase() === trigger.toLowerCase() || STARTED_LABELS.some((s) => sameLabel(s, x)));
+      // The hold went away meanwhile: succeed only if something re-triggered the issue (the sweep), not if a person
+      // just removed the hold. Re-triggered means a run started (a started label), or the recorded trigger is on now
+      // but was not at the first read (freshly added); a trigger that was already there is stale and does not count.
+      const isTrigger = (x: string): boolean => x.toLowerCase() === trigger.toLowerCase();
+      const retriggered = now.some(isStarted) || (now.some(isTrigger) && !names.some(isTrigger));
       if (!retriggered) throw new NoLongerPaused(`#${n} is no longer paused; nothing was changed.`);
       return { label: trigger };
     }
@@ -188,6 +197,8 @@ export async function retryPausedTask(repoSlug: string, number: number, triggerL
   } catch (error) {
     // The trigger is on: the factory starts the issue and its claim releases the hold, so this is not "still paused".
     throw new BadRequestError(`#${n} was re-triggered ("${trigger}" added), but the rate-limited label could not be removed: ${failureReason(error)}`);
+  } finally {
+    forgetRepo(gh, repoSlug);
   }
   return { label: trigger };
 }

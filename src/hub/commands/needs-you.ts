@@ -7,7 +7,7 @@ import { readAppConfig } from '../app-config.js';
 import * as projects from '../projects.js';
 import type { MigrateLabelsReport, NeedsYouItem, RepoReadFailure, RepoStamp } from '../../wire.js';
 import { migrateLabels } from '../../runners/migrate-labels.js';
-import { defineCommands, requireString, githubSlug, repoItemTarget } from '../command-kit.js';
+import { defineCommands, requireString, githubSlug, repoItemTarget, repoTarget } from '../command-kit.js';
 
 export interface NeedsYouCommands {
   /** HUB_ONLY: rename the repo's old `vanguard:*` labels to `taskcell:*` (as `taskcell migrate-labels`). Dry-run unless `apply`. */
@@ -80,6 +80,8 @@ export const commands = defineCommands<NeedsYouCommands>({
     return null;
   },
 }, {
+  // A dry run only lists labels and writes nothing, so only `apply: true` is audited.
+  migrate_labels: { action: 'labels-migrate', target: repoTarget, applies: (a) => a.apply === true },
   reply_needs_you: { action: 'needs-reply', target: repoItemTarget('id') },
   merge_needs_you: { action: 'needs-merge', target: repoItemTarget('id') },
 });

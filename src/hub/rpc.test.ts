@@ -6,6 +6,7 @@ import { describe, expect, test } from 'vitest';
 import { classifyError, type RpcContext } from './rpc.js';
 import { loadPaths, savePaths } from './projects.js';
 import { saveTeams } from './teams.js';
+import { AuditLog } from './audit.js';
 import { ProjectAllowlist } from './allowlist.js';
 import { writeAppConfig } from './app-config.js';
 import { BadRequestError, runSidecar, type SidecarDeps } from '../sidecar/sidecar.js';
@@ -394,5 +395,55 @@ describe('all-repositories lists', () => {
   test('list_needs_you_all is empty for repositories without a GitHub remote', async () => {
     const { ctx } = await twoRepoCtx(noTasks);
     expect(await dispatchRpc(ctx, 'list_needs_you_all', {})).toEqual({ items: [], failures: [] });
+  });
+});
+
+describe('hub changes are audited', () => {
+  const ann: Caller = { user: { id: 'ann', email: 'ann@x.test', name: 'ann', emailVerified: false }, owner: false };
+  const mia: Caller = { user: { id: 'mia', email: 'mia@x.test', name: 'mia', emailVerified: false }, owner: false };
+
+  async function setup() {
+    const a = await tmpGitRepo();
+    const { ctx } = await makeCtx(a);
+    ctx.audit = new AuditLog(ctx.configDir);
+    ctx.allowlist = new ProjectAllowlist(async () => [a], a);
+    await savePaths(ctx.configDir, [a]);
+    await saveTeams(ctx.configDir, [{ id: 'one', name: 'One', members: [{ login: 'ann', role: 'admin' }, { login: 'mia', role: 'member' }], repositories: [a] }]);
+    const lines = async (action: string) => (await ctx.audit!.read()).filter((e) => e.action === action);
+    return { ctx, a, lines };
+  }
+
+  test('team member add/remove write one line each: team and e-mail login in the target', async () => {
+    const { ctx, lines } = await setup();
+    await dispatchRpc(ctx, 'add_team_member', { teamId: 'one', login: 'zed@example.com', role: 'member' }, ann);
+    expect(await lines('team-member-add')).toMatchObject([{ target: 'one:zed@example.com', outcome: 'ok', detail: ['member'], actor: { kind: 'token' } }]);
+    await dispatchRpc(ctx, 'remove_team_member', { teamId: 'one', login: 'zed@example.com' }, ann);
+    expect(await lines('team-member-remove')).toMatchObject([{ target: 'one:zed@example.com', outcome: 'ok' }]);
+  });
+
+  test('team repository add/remove carry the path in the target; a non-admin change is a refused line', async () => {
+    const { ctx, a, lines } = await setup();
+    await dispatchRpc(ctx, 'add_team_repository', { teamId: 'one', path: a }, ann);
+    await dispatchRpc(ctx, 'remove_team_repository', { teamId: 'one', path: a }, ann);
+    expect(await lines('team-repository-remove')).toMatchObject([{ target: `one:${a}`, outcome: 'ok' }]);
+    expect(await lines('team-repository-add')).toMatchObject([{ target: `one:${a}`, outcome: 'ok' }]);
+    await expect(dispatchRpc(ctx, 'add_team_member', { teamId: 'one', login: 'zed', role: 'member' }, mia)).rejects.toThrow(/only a team admin/);
+    expect(await lines('team-member-add')).toMatchObject([{ target: 'one:zed', outcome: 'refused' }]);
+  });
+
+  test('watch_project / unwatch_project are audited with the repository', async () => {
+    const { ctx, a, lines } = await setup();
+    await dispatchRpc(ctx, 'watch_project', { repoPath: a }, ann);
+    await dispatchRpc(ctx, 'unwatch_project', { repoPath: a }, ann);
+    expect(await lines('project-watch')).toMatchObject([{ target: a, outcome: 'ok' }]);
+    expect(await lines('project-unwatch')).toMatchObject([{ target: a, outcome: 'ok' }]);
+  });
+
+  test('migrate_labels is audited only with apply: true', async () => {
+    const { ctx, a, lines } = await setup();
+    await dispatchRpc(ctx, 'migrate_labels', { repoPath: a }, ann).catch(() => undefined);
+    expect(await lines('labels-migrate')).toHaveLength(0);
+    await dispatchRpc(ctx, 'migrate_labels', { repoPath: a, apply: true }, ann).catch(() => undefined);
+    expect(await lines('labels-migrate')).toMatchObject([{ target: a }]);
   });
 });

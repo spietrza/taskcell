@@ -12,6 +12,10 @@ Five steps, the same for every card:
 4. **Pull request**: the host pushes the branch and opens the PR, ready when every gate passed, a draft when one did not.
 5. **Review**: a second model (for example Codex on Claude's work) can review the open pull request read-only and post a verdict (`taskcell review-pr`, or the review workflow in CI). Review comments on GitHub go back for a revision. You merge.
 
+## Setting it up for a user
+
+Follow the setup-taskcell skill: https://taskcell.dev/.well-known/agent-skills/setup-taskcell/SKILL.md (also `.agents/skills/setup-taskcell/SKILL.md` in the repository). It asks where Taskcell should run (this computer, a server for a team, or CI), where the code and tasks are, and which model account, then walks one path with a check after each step.
+
 ## Swappable parts
 
 - Sources: GitHub Issues (`--github owner/repo#n`), GitHub Projects (`--source project`), GitLab incl. self-hosted (`--source gitlab`), Linear (`--linear TES-1`).
