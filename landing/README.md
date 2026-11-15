@@ -23,7 +23,7 @@ To add or change a string: edit the English in `src/`, then add or update its `[
 
 Polish copy: plain and concrete, no em dashes; names stay as they are (Taskcell, Hub, Self-host, pull request / PR, labels such as `ready for agent`). Prices read `14 €` and `11,20 €`, with a non-breaking space before the sign.
 
-The EN / PL switch in the bar stores the choice in `localStorage` (`lang`). `src/theme.js`, already a blocking script in every head, sends a first visit from a browser whose first language is Polish to the page's Polish alternate, only while no choice is stored and only from English to Polish, so a visitor who chose is never moved and crawlers cannot loop. It is a script and not the Worker because the switch has to be remembered without cookies or per-language caching, and it works the same on any static server; it is a file and not an inline script because the CSP allows scripts from `'self'` only. Without JavaScript nobody is redirected and the switch is a plain link.
+The EN / PL switch in the bar stores the choice in `localStorage` (`lang`). `src/theme.js`, already a blocking script in every head, sends a first visit to the page's Polish alternate when the browser's first language is Polish, or when the visit comes from Poland and the browser's first language is English or unset (the Worker writes the country on `<html data-country>`; on a plain static server only the browser's language counts), only while no choice is stored and only from English to Polish, so a visitor who chose is never moved and crawlers cannot loop. It is a script and not the Worker because the switch has to be remembered without cookies or per-language caching, and it works the same on any static server; it is a file and not an inline script because the CSP allows scripts from `'self'` only. Without JavaScript nobody is redirected and the switch is a plain link.
 
 The fonts in `src/fonts/` are Latin subsets; the `-ext` files add Latin Extended (Polish letters) through `unicode-range`, so only pages that use those letters load them.
 
@@ -50,4 +50,4 @@ Deployed by hand by a maintainer, never from CI:
 pnpm run deploy
 ```
 
-`wrangler.jsonc` serves `dist/` behind `worker.js`, which only redirects `www` to the apex.
+`wrangler.jsonc` serves `dist/` behind `worker.js`, which redirects `www` to the apex, answers Markdown requests with `llms.txt`, and writes the visitor's country on `<html data-country>`.

@@ -20,7 +20,8 @@
   // Nothing stored: the page follows the system live, too.
   system.addEventListener('change', () => !chosen() && apply(system.matches ? 'light' : 'dark'));
 
-  // Language, on the same early run: a browser that prefers Polish goes to the page's Polish version, but only while
+  // Language, on the same early run: a browser that prefers Polish, or a visit from Poland (data-country, set by the
+  // Worker) by a browser with no preference other than English, goes to the page's Polish version, but only while
   // nothing is stored. The EN / PL switch stores the choice, so a visitor who chose is never sent anywhere. Only an
   // English page with a Polish alternate redirects, and never back, so a crawler cannot loop.
   let lang = null;
@@ -31,7 +32,8 @@
   }
   const polish = document.querySelector('link[rel="alternate"][hreflang="pl"]');
   const first = (navigator.languages && navigator.languages[0]) || navigator.language || '';
-  if (!lang && polish && root.lang === 'en' && /^pl\b/i.test(first)) {
+  const wantsPolish = /^pl\b/i.test(first) || (root.dataset.country === 'PL' && /^(en\b|$)/i.test(first));
+  if (!lang && polish && root.lang === 'en' && wantsPolish) {
     location.replace(new URL(polish.href).pathname + location.search + location.hash);
   }
 
