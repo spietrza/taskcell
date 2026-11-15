@@ -475,8 +475,10 @@ export async function runSourcedIssue(
   // before prepareContext so the finally below tears them down even if context provisioning throws.
   const providerProxies = await startProviderProxies({
     proxySecrets: agents.proxySecrets,
-    // The rotation report reads the credential the run used (a hub user's stored one), not the host's.
-    env: providerEnv,
+    // A hub user's stored credential: the rotation updates the run's own env and never a host auth
+    // file. Any other run (an instance credential, desktop) reports against process.env, so later runs
+    // of this process pick up the rotated token.
+    ...(deps.credentialSource === 'user' ? { env: providerEnv, storedCredential: true } : {}),
     ...(deps.network !== undefined ? { network: deps.network } : {}),
   });
   try {
