@@ -47,10 +47,17 @@ const merge = (current: AuthJson, rotated: AuthJson): AuthJson | undefined => {
  * `~/.codex/auth.json`; a symlink is resolved once) — but only while that file still holds the refresh
  * token this run started with, so a newer sign-in is never overwritten. A `CODEX_AUTH_JSON` copy held
  * anywhere else (another shell, the hub credential store) is not touched and is named as stale.
+ * `storedCredential` (a hub run on a user's stored credential): no host file is written, even one that
+ * happens to hold the same refresh token.
  * CI: the stored secret is now stale; the log and the job summary say so.
  * Never throws.
  */
-export async function reportRotation(rotatedJson: string, originalRefreshToken: string, env: NodeJS.ProcessEnv = process.env): Promise<void> {
+export async function reportRotation(
+  rotatedJson: string,
+  originalRefreshToken: string,
+  env: NodeJS.ProcessEnv = process.env,
+  opts: { storedCredential?: boolean } = {},
+): Promise<void> {
   const rotated = parse(rotatedJson);
   const refresh = rotated?.tokens?.refresh_token;
   if (rotated === undefined || typeof refresh !== 'string' || refresh === originalRefreshToken) return;
@@ -65,7 +72,7 @@ export async function reportRotation(rotatedJson: string, originalRefreshToken: 
     if (summary) await appendFile(summary, `\n- Note: ${stale}\n`).catch(() => {});
   } else {
     const later = inMemory !== undefined ? 'Later runs of this process use the rotated token. ' : '';
-    const written = await handBack(hostCodexAuthFile(env), originalRefreshToken, rotated);
+    const written = opts.storedCredential === true ? undefined : await handBack(hostCodexAuthFile(env), originalRefreshToken, rotated);
     // No local file held this credential (a hub run on a stored one, an export from elsewhere): name no
     // path on this machine and no local sign-in — the copy it came from is what must be replaced.
     lines.push(written ?? `${later}The credential this run started with did not come from a local auth file, so nothing was written back. The stored copy it came from (hub Settings → Credentials, an exported CODEX_AUTH_JSON) holds the old token: save a current credential there again.`);

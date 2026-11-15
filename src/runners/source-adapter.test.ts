@@ -650,6 +650,19 @@ describe('runSourcedIssue', () => {
     expect(vi.mocked(startProviderProxies)).not.toHaveBeenCalled();
   });
 
+  it('a hub user-credential run reports a rotation against its own env and writes no host auth file', async () => {
+    const providerEnv: NodeJS.ProcessEnv = { CODEX_AUTH_JSON: '{}' };
+    await runSourcedIssue('group/project#1', { repoPath: '/repo', flow: 'default', credentialSource: 'user', providerEnv }, fakeAdapter([], STAGES));
+    expect(vi.mocked(startProviderProxies).mock.calls[0]?.[0]).toMatchObject({ env: providerEnv, storedCredential: true });
+  });
+
+  it('an instance-credential run reports a rotation against process.env (so later runs see it) and may hand it back', async () => {
+    await runSourcedIssue('group/project#1', { repoPath: '/repo', flow: 'default', credentialSource: 'instance', providerEnv: { ...process.env } }, fakeAdapter([], STAGES));
+    const opts = vi.mocked(startProviderProxies).mock.calls[0]?.[0];
+    expect(opts?.env).toBeUndefined(); // startLlmProxy defaults to process.env
+    expect(opts?.storedCredential).toBeUndefined();
+  });
+
   it('--flow <name> resolves a repo .vanguard/flows/*.hcl flow and runs its lowered stages (S5)', async () => {
     const repo = await mkdtemp(join(tmpdir(), 'vg-sa-flows-'));
     try {

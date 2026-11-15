@@ -95,6 +95,8 @@ export async function startLlmProxy(opts: {
   docker?: DockerRunner;
   /** Where a rotated chatgpt credential is reported and handed back (default `process.env`); injectable for tests. */
   env?: NodeJS.ProcessEnv;
+  /** The credential came from a stored copy (a hub user's), not this host: never write a host auth file. */
+  storedCredential?: boolean;
 }): Promise<LlmProxy> {
   const upstream: Upstream = opts.upstream ?? 'anthropic';
   const id = randomUUID().slice(0, 8);
@@ -163,7 +165,7 @@ export async function startLlmProxy(opts: {
           else console.warn(line);
         }
         const rotated = await docker(['exec', name, 'cat', CHATGPT_AUTH_FILE]).catch(() => undefined);
-        if (rotated?.exitCode === 0 && rotated.stdout !== '') await reportRotation(rotated.stdout, refreshToken, opts.env);
+        if (rotated?.exitCode === 0 && rotated.stdout !== '') await reportRotation(rotated.stdout, refreshToken, opts.env, { storedCredential: opts.storedCredential === true });
       };
       let reported: Promise<void> | undefined;
       const teardown = async (): Promise<void> => {
@@ -249,6 +251,8 @@ export async function startProviderProxies(opts: {
   docker?: DockerRunner;
   /** Passed to startLlmProxy (rotation hand-back); injectable for tests. */
   env?: NodeJS.ProcessEnv;
+  /** Passed to startLlmProxy: a hub user's stored credential is never handed back to a host auth file. */
+  storedCredential?: boolean;
 }): Promise<ProviderProxies> {
   const openaiKey = opts.proxySecrets.codex;
   const chatgptAuth = opts.proxySecrets.codexChatgpt;
@@ -262,6 +266,7 @@ export async function startProviderProxies(opts: {
     ...(opts.image !== undefined ? { image: opts.image } : {}),
     ...(opts.docker !== undefined ? { docker: opts.docker } : {}),
     ...(opts.env !== undefined ? { env: opts.env } : {}),
+    ...(opts.storedCredential !== undefined ? { storedCredential: opts.storedCredential } : {}),
   };
   const destroys: Array<() => Promise<void>> = [];
   let openai: LlmProxyDep | undefined;
