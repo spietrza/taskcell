@@ -12,7 +12,7 @@ This runs `node build.mjs`, `node quiz-check.mjs` and `node preview-check.mjs`. 
 
 - The build copies `src/` to `dist/` and fails if any local reference in the HTML, CSS or JS points at a missing file.
 - The readiness quiz keeps its rules in `src/quiz.js`. The planned prices are typed once for the scripts, in `src/prices.js`; `quiz-check.mjs` compares the plain-text copies in `src/index.html`, `src/hosting/index.html` and `src/llms.txt` with it.
-- The Hub preview keeps its sample in `src/hub-data.js`; `preview-check.mjs` compares the rows, costs and counts written in `src/index.html` with it.
+- The Hub section is the app's own markup: `hub/render.mjs` runs the real `App` on the demo fixtures in jsdom (`apps/desktop/src/dev/landingScene.tsx`), compiles the app's tokens (`apps/desktop/src/tokens.css`) and the utilities that markup uses, and the build writes the result into `index.html` (at `<!--hub-app-->`) and `dist/hub-app.css`. It needs `pnpm --dir apps/desktop install --frozen-lockfile` first. `src/hub-data.js` only animates it (class toggles); `preview-check.mjs` compares the page with the app's stage and column names, runs the animator on the built page and checks contrast in both themes. No React ships.
 - Both checks also read the Polish copy in `dist/pl/`, so run them after the build.
 
 ## Languages
