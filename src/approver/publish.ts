@@ -141,14 +141,20 @@ interface GhComment {
   body?: string;
   author?: { login?: string } | null;
   authorAssociation?: string;
+  viewerDidAuthor?: boolean;
 }
 
-/** Post `body` unless a trusted author (or one of `botLogins`, the approver's own App login) already posted `marker` (anyone can post the marker text to suppress a comment, so an untrusted one does not dedupe). True when it posted. */
+/**
+ * Post `body` unless a trusted author already posted `marker`. The approver's own comments, also as an App, are recognised by
+ * `viewerDidAuthor` (gh says the token's identity wrote them; a person's account never has it), never by the App's name: gh reports
+ * only a login, which a user account can share. `botLogins` are exact logins (as classifyAuthor matches them), for human accounts.
+ * Anyone can post the marker text to suppress a comment, so an untrusted author does not dedupe. True when it posted.
+ */
 export async function commentOnce(gh: GhRunner, repoSlug: string, prNumber: number, marker: string, body: string, botLogins: readonly string[] = []): Promise<boolean> {
   try {
     const out = await gh(['pr', 'view', String(prNumber), '--repo', repoSlug, '--json', 'comments']);
     const parsed = JSON.parse(out) as { comments?: GhComment[] };
-    const trusted = (c: GhComment): boolean => classifyAuthor(c.author?.login ?? '', c.authorAssociation ?? '', { botLogins }) !== 'untrusted';
+    const trusted = (c: GhComment): boolean => c.viewerDidAuthor === true || classifyAuthor(c.author?.login ?? '', c.authorAssociation ?? '', { botLogins }) !== 'untrusted';
     if ((parsed.comments ?? []).some((c) => (c.body?.includes(marker) === true || c.body?.includes(marker.replace('taskcell-', 'vanguard-')) === true) && trusted(c))) return false;
   } catch {
     // best-effort dedupe lookup; fall through and post

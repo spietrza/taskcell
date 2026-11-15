@@ -8,13 +8,13 @@ import { checkoutMode, currencyFor, handleCheckout } from './checkout.js';
 import { handleStripeWebhook } from './stripe-webhook.js';
 
 export default {
-  async fetch(request, env) {
+  async fetch(request, env, ctx) {
     const url = new URL(request.url);
     if (url.hostname === 'www.taskcell.dev') {
       url.hostname = 'taskcell.dev';
       return Response.redirect(url.toString(), 301);
     }
-    if (url.pathname === '/stripe/webhook') return handleStripeWebhook(request, env);
+    if (url.pathname === '/stripe/webhook') return handleStripeWebhook(request, env, ctx);
     if (url.pathname === '/checkout') return handleCheckout(request, env, url);
     const wantsMarkdown = (request.headers.get('accept') ?? '').includes('text/markdown');
     if (wantsMarkdown && (url.pathname === '/' || url.pathname === '/index.html')) {
