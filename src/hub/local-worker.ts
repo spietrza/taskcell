@@ -14,7 +14,7 @@ import { parseGitlabProjectFromRemote } from '../runners/gitlab.js';
 import { BadRequestError, type CreateRunResult } from '../sidecar/sidecar.js';
 import { defaultGhRunner, isTrustedIssueAuthor, type GhRunner } from '../tasks/github.js';
 import type { LocalWorkerState } from '../wire.js';
-import { readAppConfig } from './app-config.js';
+import { configuredFlow, readAppConfig } from './app-config.js';
 import { PROVIDER_NAMES, type CredentialService } from './credentials.js';
 import { defaultExec, GITHUB_REPO_SLUG, type FactoryExec } from './enable-factory.js';
 import { hostOfOrigin, readOrigin } from './enable-factory-gitlab.js';
@@ -180,15 +180,17 @@ export interface LocalWorkerContext {
 
 /** Hand one issue to the run session; resolves with the run id once the session took it, or the refusal. */
 async function startIssue(ctx: LocalWorkerContext, repoPath: string, number: number, done: (r: CreateRunResult | Error) => void): Promise<string | Error> {
-  const configured = (await readAppConfig(repoPath)).provider;
+  const config = await readAppConfig(repoPath);
+  const configured = config.provider;
   const provider = typeof configured === 'string' && configured.trim() !== '' ? configured : undefined;
+  const flow = configuredFlow(config);
   let run!: Promise<CreateRunResult>;
   return new Promise<string | Error>((resolve) => {
     void (async () => {
       try {
         const credential = ctx.userCredentials !== undefined ? await ctx.userCredentials.resolveForRun(undefined, provider) : undefined;
         run = ctx.runSession.createRun(
-          { issueRef: String(number), repoPath, transport: 'github', startedBy: LOCAL_WORKER_LOGIN, ...(provider !== undefined ? { provider } : {}) },
+          { issueRef: String(number), repoPath, transport: 'github', startedBy: LOCAL_WORKER_LOGIN, ...(provider !== undefined ? { provider } : {}), ...(flow !== undefined ? { flow } : {}) },
           { onStarted: (id) => resolve(id), onQueued: (id) => resolve(id) },
           credential,
         );

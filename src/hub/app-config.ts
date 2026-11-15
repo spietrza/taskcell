@@ -20,6 +20,8 @@ export interface AppConfig {
   color?: string;
   provider?: string;
   reviewProvider?: string;
+  /** Flow the Hub runs this project with (`--flow`); unset = the source default. */
+  flow?: string;
   verifyCmd?: string;
   concurrency?: number;
   budgetUsd?: number;
@@ -37,6 +39,11 @@ export interface AppConfig {
   /** Opaque pass-through — deliberately `unknown`, NOT a typed array/shape. A typed field would
    * silently strip unknown entry keys on every settings save. Round-trip byte-for-byte. */
   customProviders?: unknown;
+}
+
+/** The project's chosen flow (`--flow` name), or undefined for the source default. A blank value counts as unset; an invalid name is passed on so the run fails with the flow error instead of falling back. */
+export function configuredFlow(cfg: AppConfig): string | undefined {
+  return typeof cfg.flow === 'string' && cfg.flow.trim() !== '' ? cfg.flow : undefined;
 }
 
 function configPath(repoPath: string): string {
