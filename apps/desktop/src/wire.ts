@@ -1137,7 +1137,13 @@ export interface Commands {
   /** HUB_ONLY: `list_tasks` across every hub repository, each card stamped with its repository. `hubBoards`: the repositories whose task source is the hub board. */
   list_tasks_all: { args: { teamId?: string } | undefined; result: { tasks: (BoardTask & RepoStamp)[]; capped: boolean; failures: RepoReadFailure[]; hubBoards?: string[] } };
   fetch_spec: { args: { repoPath: string; taskId: string }; result: { spec: string } };
-  api_create_task: { args: { repoPath: string; title: string; body: string; baseBranch?: string }; result: CreatedTask };
+  /** `dependsOn`: ids of existing tasks this one depends on (`owner/repo#N`, `group/project#N`, `TEAM-N`), written as a `Depends on` line plus a native relation. */
+  api_create_task: { args: { repoPath: string; title: string; body: string; baseBranch?: string; dependsOn?: string[] }; result: CreatedTask };
+  /**
+   * HUB_ONLY: split one piece of work into several tasks, created in order. A task's `dependsOn` lists the
+   * positions (0-based) of earlier tasks in the same call; each becomes a dependency on the task just created.
+   */
+  api_create_tasks: { args: { repoPath: string; tasks: { title: string; body: string; dependsOn?: number[] }[]; baseBranch?: string }; result: { tasks: CreatedTask[] } };
   /** HUB_ONLY, read-only: the target branches a card may name (repo default + `baseBranches` allowlist) and the configured default, for the new-card form. */
   list_branches: { args: { repoPath: string }; result: { branches: string[]; default?: string } };
   /** HUB_ONLY: add a task to the project's hub board (task source `hub`). The caller becomes the task's owner: it runs as them. */
@@ -1180,6 +1186,7 @@ export const COMMAND_NAMES = [
   'api_complete',
   'api_create_run',
   'api_create_task',
+  'api_create_tasks',
   'api_delete_flow',
   'api_list_flows',
   'api_list_providers',

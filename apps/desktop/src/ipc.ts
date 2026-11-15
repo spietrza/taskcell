@@ -345,8 +345,16 @@ export function apiCancelComplete(callId: string): Promise<void> {
  * Only title/body cross: `source`, `team` and `label` are read from app.json in Rust. The renderer does
  * not choose which tracker gets written to. (Same rule as CompleteCallArgs — and it matters more here.)
  */
-export function apiCreateTask(repoPath: string, title: string, body: string, baseBranch?: string): Promise<import('./wire').CreatedTask> {
-  return call('api_create_task', { repoPath, title, body, ...(baseBranch !== undefined ? { baseBranch } : {}) });
+export function apiCreateTask(repoPath: string, title: string, body: string, baseBranch?: string, dependsOn?: string[]): Promise<import('./wire').CreatedTask> {
+  return call('api_create_task', { repoPath, title, body, ...(baseBranch !== undefined ? { baseBranch } : {}), ...(dependsOn !== undefined && dependsOn.length > 0 ? { dependsOn } : {}) });
+}
+
+/**
+ * HUB_ONLY: split work into several tasks in one call. `dependsOn` holds positions of earlier tasks in the
+ * list; the hub creates them in order and writes each dependency itself. As irreversible as apiCreateTask.
+ */
+export function apiCreateTasks(repoPath: string, tasks: { title: string; body: string; dependsOn?: number[] }[], baseBranch?: string): Promise<{ tasks: import('./wire').CreatedTask[] }> {
+  return call('api_create_tasks', { repoPath, tasks, ...(baseBranch !== undefined ? { baseBranch } : {}) });
 }
 
 /** HUB_ONLY: the target branches a card may name and the configured default, for the new-card form. */

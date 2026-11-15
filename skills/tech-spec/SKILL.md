@@ -31,6 +31,10 @@ numbers the implementer must match into the spec itself. The one PR-body criteri
 the one `CLAUDE.md` prescribes: when the task needs a CI-config edit the agent must not make, the AC
 is "the PR body describes the needed edit for a human to apply".
 
+### Dependencies
+
+When the work splits into several issues, state which issue depends on which, one `Depends on #N` (or `owner/repo#N`) line per dependent issue. The factory starts and merges issues in that order when those lines (or native blocked-by relations) are on the issues; this spec does not create them.
+
 ### Tests
 Test cases and scenarios that must pass, including edge cases, failure paths, and integration
 boundaries. Name the test file(s) and key scenarios explicitly.

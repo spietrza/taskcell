@@ -62,6 +62,7 @@ export const COMMAND_NAMES = [
   'api_complete',
   'api_create_run',
   'api_create_task',
+  'api_create_tasks',
   'api_delete_flow',
   'api_list_flows',
   'api_list_providers',
