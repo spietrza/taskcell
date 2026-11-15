@@ -1,5 +1,5 @@
 import { hasLabel, withoutLabel } from '../core/labels.js';
-import { failureReason } from '../core/errors.js';
+import { failureReason, NoRetryError } from '../core/errors.js';
 import { redactForPublish } from '../core/secret-scan.js';
 import { fanOut } from '../pipeline/fan-out.js';
 import { classifyAuthor } from './comment-trust.js';
@@ -107,7 +107,7 @@ async function read(gh: GhRunner, args: string[]): Promise<string> {
       return await gh(args);
     } catch (error) {
       const status = httpStatus(error);
-      if (attempt >= LOOKUP_ATTEMPTS || (status !== undefined && status >= 400 && status < 500)) throw error;
+      if (error instanceof NoRetryError || attempt >= LOOKUP_ATTEMPTS || (status !== undefined && status >= 400 && status < 500)) throw error;
       await new Promise((resolve) => setTimeout(resolve, RETRY_DELAY_MS * attempt));
     }
   }

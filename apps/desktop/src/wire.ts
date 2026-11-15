@@ -1242,6 +1242,7 @@ export interface Commands {
   /**
    * HUB_ONLY: split one piece of work into several tasks, created in order. A task's `dependsOn` lists the
    * positions (0-based) of earlier tasks in the same call; each becomes a dependency on the task just created.
+   * At most 20 tasks and 40 dependencies in all per call; over either cap the call is refused before anything is created.
    */
   api_create_tasks: { args: { repoPath: string; tasks: { title: string; body: string; dependsOn?: number[] }[]; baseBranch?: string }; result: { tasks: CreatedTask[] } };
   /** HUB_ONLY, read-only: the target branches a card may name (repo default + `baseBranches` allowlist) and the configured default, for the new-card form. */

@@ -1,12 +1,12 @@
 // The readiness quiz's rules, kept apart from the page so `node quiz-check.mjs` can run them without a browser.
 // Every promise below must stay true on main: see README.md (Security, MIT), docs/autonomous-loop.md
 // (Retrospective memory) and src/agents/codex.ts (Codex reports tokens but no cost).
-import { PASS, PRICES, YEARLY, euro } from './prices.js';
+import { PASS, PRICES, YEARLY, money } from './prices.js';
 
 const plan = (id, name, limits) => ({
   id,
-  name: `${name}, ${euro(PRICES[id])} a month`,
-  note: `${limits} ${euro(PRICES[id] * YEARLY)} a month when billed yearly.`,
+  name: `${name}, ${money(PRICES[id])} a month`,
+  note: `${limits} ${money(PRICES[id] * YEARLY)} a month when billed yearly.`,
   action: `Request ${name}`,
 });
 const PLANS = {
@@ -43,7 +43,7 @@ export function evaluate(a) {
   // Not ready yet: the plan stays named, and a cheaper first step goes under it.
   const alt =
     level === 'Foundations first' ? 'Before you pay for anything: self-host for €0 on your own machine and fix the list.'
-    : level === 'Almost ready' ? `A cheaper first step: the planned 7-day Solo pass for ${euro(PASS)}, credited toward your first month if you stay.`
+    : level === 'Almost ready' ? `A cheaper first step: the planned 7-day Solo pass for ${money(PASS)}, credited toward your first month if you stay.`
     : '';
   return { level, fixes, promises, plan: PLANS[a.team], alt };
 }

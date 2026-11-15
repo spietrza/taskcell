@@ -52,10 +52,24 @@ pnpm run deploy
 
 `wrangler.jsonc` serves `dist/` behind `worker.js`, which redirects `www` to the apex, answers Markdown requests with `llms.txt`, and writes the visitor's country on `<html data-country>`.
 
+### Currency and checkout
+
+The Worker writes the visitor's currency on `<html data-currency>`: złoty in Poland, euro in the rest of Europe and when the country is unknown, dollars elsewhere (`currencyFor` in `checkout.js`). `src/prices.js` holds the amounts for all three (`AMOUNTS`, the same as the Stripe prices, VAT included) and repaints the euro prices typed into the pages; without the Worker or without JavaScript the page shows euro.
+
+`GET /checkout?plan=solo|team|pro|pass&period=monthly|yearly` opens a Stripe Checkout session in that currency, with automatic tax, and redirects to it. The `CHECKOUT` variable in `wrangler.jsonc` decides who gets one:
+
+- unset: nobody; `/checkout` answers with the request page.
+- `test` (the current value): only links that carry `test=1`, against the Stripe sandbox. Open the site as `https://taskcell.dev/?checkout=test` and the plan buttons lead to a sandbox checkout; for everyone else they keep leading to the request page.
+- `live`: everybody, against the live account. Do not set it while hosting is planned: the page says nothing can be bought, no server is started for an order, and the notice after a payment on `/hosting/` speaks of a test payment.
+
+After a paid pass, `/hosting/` offers Solo with the pass credited; that link carries the pass's checkout session id, which the Worker looks up in the orders database to reuse the same Stripe customer.
+
+`node checkout-check.mjs` (part of `pnpm run check`) covers the currency rule, the closed default and what is sent to Stripe.
+
 ### Stripe webhook
 
-`worker.js` also hands `POST /stripe/webhook` to `stripe-webhook.js`. It checks Stripe's signature, records each paid checkout once in the D1 database `taskcell-orders` (binding `ORDERS`, table in `orders.sql`), and credits a paid 7-day pass to the customer's Stripe balance so their first subscription invoice is lower by that amount. It does not start a server yet: orders stay in status `paid` until provisioning exists. Hosting is still planned and the pricing buttons do not lead to a checkout.
+`worker.js` also hands `POST /stripe/webhook` to `stripe-webhook.js`. It checks Stripe's signature, records each paid checkout once in the D1 database `taskcell-orders` (binding `ORDERS`, table in `orders.sql`), and credits a paid 7-day pass to the customer's Stripe balance so their first subscription invoice is lower by that amount. Each order keeps what was charged after any credit (`paid_amount`, in the order's `currency`) next to what Stripe pays out after its fee (`payout_amount`, `payout_currency`); the payout currency is the bank account the money lands on. It does not start a server yet: orders stay in status `paid` until provisioning exists. Hosting is still planned and the pricing buttons do not lead to a checkout.
 
-The Worker needs four secrets, set with `pnpm dlx wrangler@4 secret put <NAME>` and never committed: `STRIPE_WEBHOOK_SECRET_TEST` and `STRIPE_WEBHOOK_SECRET_LIVE` (the signing secret of the webhook endpoint in the Stripe sandbox and in the live account), `STRIPE_KEY_TEST` and `STRIPE_KEY_LIVE` (a Stripe key that can read checkout sessions and write customer balance transactions). An event is checked against the secret of its own mode, so a missing live secret refuses live events and leaves the sandbox working. The checkout must create a customer (`customer_creation: always` for the pass), or there is nobody to credit.
+The Worker needs four secrets, set with `pnpm dlx wrangler@4 secret put <NAME>` and never committed: `STRIPE_WEBHOOK_SECRET_TEST` and `STRIPE_WEBHOOK_SECRET_LIVE` (the signing secret of the webhook endpoint in the Stripe sandbox and in the live account), `STRIPE_KEY_TEST` and `STRIPE_KEY_LIVE` (a Stripe key that can read checkout sessions and charges and write customer balance transactions). An event is checked against the secret of its own mode, so a missing live secret refuses live events and leaves the sandbox working. The checkout must create a customer (`customer_creation: always` for the pass), or there is nobody to credit.
 
 `node stripe-webhook-check.mjs` (part of `pnpm run check`) covers the signature, the repeated delivery and the single credit.
