@@ -215,7 +215,7 @@ export function importRemoteRun(repoPath: string, runId: number): Promise<Remote
 }
 
 /** Board read path (S9): served by core over the sidecar query pipe; capped drives the banner. */
-export function listTasks(repoPath: string): Promise<{ tasks: BoardTask[]; capped: boolean }> {
+export function listTasks(repoPath: string): Promise<{ tasks: BoardTask[]; capped: boolean; hubBoard?: true }> {
   return call('list_tasks', { repoPath });
 }
 
@@ -345,8 +345,16 @@ export function apiCancelComplete(callId: string): Promise<void> {
  * Only title/body cross: `source`, `team` and `label` are read from app.json in Rust. The renderer does
  * not choose which tracker gets written to. (Same rule as CompleteCallArgs — and it matters more here.)
  */
-export function apiCreateTask(repoPath: string, title: string, body: string, baseBranch?: string): Promise<import('./wire').CreatedTask> {
-  return call('api_create_task', { repoPath, title, body, ...(baseBranch !== undefined ? { baseBranch } : {}) });
+export function apiCreateTask(repoPath: string, title: string, body: string, baseBranch?: string, dependsOn?: string[]): Promise<import('./wire').CreatedTask> {
+  return call('api_create_task', { repoPath, title, body, ...(baseBranch !== undefined ? { baseBranch } : {}), ...(dependsOn !== undefined && dependsOn.length > 0 ? { dependsOn } : {}) });
+}
+
+/**
+ * HUB_ONLY: split work into several tasks in one call. `dependsOn` holds positions of earlier tasks in the
+ * list; the hub creates them in order and writes each dependency itself. As irreversible as apiCreateTask.
+ */
+export function apiCreateTasks(repoPath: string, tasks: { title: string; body: string; dependsOn?: number[] }[], baseBranch?: string): Promise<{ tasks: import('./wire').CreatedTask[] }> {
+  return call('api_create_tasks', { repoPath, tasks, ...(baseBranch !== undefined ? { baseBranch } : {}) });
 }
 
 /** HUB_ONLY: the target branches a card may name and the configured default, for the new-card form. */
@@ -534,4 +542,19 @@ export function readApproverDecisions(repoPath: string): Promise<{ decisions: Ap
 /** HUB_ONLY: open a PR that changes `.taskcell/approver.json` (never writes the mode directly). */
 export function setApproverMode(repoPath: string, mode: ApproverMode, confirmBelowBar?: boolean): Promise<ApproverModeChange> {
   return call('set_approver_mode', { repoPath, mode, ...(confirmBelowBar === true ? { confirmBelowBar } : {}) });
+}
+
+/** HUB_ONLY: add a task to a hub-board project; it runs as the caller. */
+export function hubTaskCreate(repoPath: string, title: string, body: string): Promise<{ id: string }> {
+  return call('hub_task_create', { repoPath, title, body });
+}
+
+/** HUB_ONLY: put a failed hub-board task back to todo. */
+export function hubTaskRetry(repoPath: string, id: string): Promise<{ id: string }> {
+  return call('hub_task_retry', { repoPath, id });
+}
+
+/** HUB_ONLY: set a hub-board task's dependencies and start date (`null` clears it). */
+export function hubTaskSchedule(repoPath: string, id: string, patch: { blockedBy?: string[]; startDate?: string | null }): Promise<{ id: string }> {
+  return call('hub_task_schedule', { repoPath, id, ...patch });
 }

@@ -30,6 +30,50 @@ describe('tasks', () => {
     expect(captured).toMatchObject({ source: 'linear', team: 'DEV', labels: ['vanguard-ready'], title: 'hello', body: 'world' });
   });
 
+  test('api_create_task forwards dependsOn; api_create_tasks creates in order and turns positions into the created ids', async () => {
+    const repo = await tmpRepo();
+    const seen: { title: string; dependsOn?: string[] }[] = [];
+    const { ctx } = await makeCtx(repo, {
+      depsOverrides: {
+        createTask: async (p) => {
+          seen.push({ title: p.title, ...(p.dependsOn !== undefined ? { dependsOn: p.dependsOn } : {}) });
+          return { id: `ENG-${seen.length}`, url: 'https://x' };
+        },
+      },
+    });
+    await writeAppConfig(repo, { source: 'linear', team: 'DEV' });
+    await dispatchRpc(ctx, 'api_create_task', { repoPath: repo, title: 'one', body: 'b', dependsOn: ['ENG-7'] });
+    const out = await dispatchRpc(ctx, 'api_create_tasks', {
+      repoPath: repo,
+      tasks: [{ title: 'a', body: '' }, { title: 'b', body: '', dependsOn: [0] }, { title: 'c', body: '', dependsOn: [0, 1, 1] }],
+    });
+    expect(seen).toEqual([{ title: 'one', dependsOn: ['ENG-7'] }, { title: 'a' }, { title: 'b', dependsOn: ['ENG-2'] }, { title: 'c', dependsOn: ['ENG-2', 'ENG-3'] }]);
+    expect(out).toMatchObject({ tasks: [{ id: 'ENG-2' }, { id: 'ENG-3' }, { id: 'ENG-4' }] });
+  });
+
+  test.each([
+    ['a forward reference', [{ title: 'a', body: '', dependsOn: [1] }, { title: 'b', body: '' }]],
+    ['a self reference', [{ title: 'a', body: '', dependsOn: [0] }]],
+    ['a task without a title', [{ title: 'a', body: '' }, { title: ' ', body: '' }]],
+    ['an empty list', []],
+    ['too many tasks', Array.from({ length: 21 }, () => ({ title: 'a', body: '' }))],
+  ])('api_create_tasks refuses %s before creating anything', async (_name, tasks) => {
+    const repo = await tmpRepo();
+    let created = 0;
+    const { ctx } = await makeCtx(repo, { depsOverrides: { createTask: async () => (created++, { id: 'x', url: 'https://x' }) } });
+    await writeAppConfig(repo, { source: 'linear', team: 'DEV' });
+    await expect(dispatchRpc(ctx, 'api_create_tasks', { repoPath: repo, tasks })).rejects.toThrow(/tasks/);
+    expect(created).toBe(0);
+  });
+
+  test('api_create_tasks names what was already created when a later task fails', async () => {
+    const repo = await tmpRepo();
+    let n = 0;
+    const { ctx } = await makeCtx(repo, { depsOverrides: { createTask: async () => (++n === 2 ? Promise.reject(new Error('tracker down')) : { id: `ENG-${n}`, url: 'https://x' }) } });
+    await writeAppConfig(repo, { source: 'linear', team: 'DEV' });
+    await expect(dispatchRpc(ctx, 'api_create_tasks', { repoPath: repo, tasks: [{ title: 'a', body: '' }, { title: 'b', body: '' }] })).rejects.toThrow(/task 2 of 2 .*tracker down.*ENG-1/);
+  });
+
   test.each([
     ['api_create_task', { title: 't', body: 'b' }],
     ['enable_factory_plan', { provider: 'github' }],

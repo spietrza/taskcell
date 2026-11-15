@@ -378,7 +378,7 @@ request is replayed, so a run is never started twice.
 | `TASKCELL_HUB_ALLOW_FLEET` | — (`1` on a loopback bind enables Fleet; set by the desktop app) |
 | `TASKCELL_HUB_EXIT_ON_STDIN_EOF` | — (`1`: shut down when stdin closes; set by the desktop app) |
 | `TASKCELL_HUB_ALLOWED_HOSTS` | — (comma-separated exact Host values, added to `localhost`/any IP literal on any port) |
-| `TASKCELL_HUB_MAX_QUEUE` | `10` (runs that may wait behind the one running run; past it a new run is refused. The queue is in memory only: a hub restart drops queued runs) |
+| `TASKCELL_HUB_MAX_QUEUE` | `10` (runs that may wait behind the one running run; past it a new run is refused, and a [hub-board task](#hub-board-tasks-dependencies-and-start-dates) stays to do. The queue is in memory only: a hub restart drops queued runs) |
 | `TASKCELL_HUB_CLONE_HOSTS` | — (comma-separated hosts, added to `github.com`/`gitlab.com`) |
 | `TASKCELL_CHAT_ALLOWED_ORIGINS` | — (comma-separated origins a project's `chatBaseUrl` may use; doc chat refuses any other origin than `https://api.anthropic.com`, since the inherited credential is sent there) |
 
@@ -545,7 +545,7 @@ Project settings show an **Auto-merge** card (hub only; `src/hub/approver-card.t
 
 ## Audit log
 
-Every state-changing action appends one JSON line to `<config dir>/audit.jsonl` (time, login or `token`, action, target, outcome `ok`/`refused`/`failed`): sign-in, project add/remove, clone, run start/queue/cancel, task start, settings changes. Targets and detail are names only — never a credential value, token, cookie or URL userinfo/query. Each line is chained (sha256 of the previous record) and carries an actor and subject; the file rotates at 10 MB and rotated files are pruned after 90 days (at most 50 kept); `taskcell audit verify` checks the chain (see [audit.md](audit.md)). A line that cannot be written is reported to the caller instead of being dropped. Runs started from the hub carry `startedBy` in their records (shown in the Runs table). Admins read the log in the Audit view (`read_audit`); non-admins get 403. The owner (header token, or local mode) acts as the shared `token` admin identity; any other signed-in user is logged under their e-mail and is not an admin until roles land (`actorFor` in `createHubServer` overrides this).
+Every state-changing action appends one JSON line to `<config dir>/audit.jsonl` (time, login or `token`, action, target, outcome `ok`/`refused`/`failed`): sign-in, project add/remove, clone, run start/queue/cancel (a hub-board task's start is logged under the task's owner), task start, hub task create/schedule/retry, settings changes. Targets and detail are names only — never a credential value, token, cookie or URL userinfo/query. Each line is chained (sha256 of the previous record) and carries an actor and subject; the file rotates at 10 MB and rotated files are pruned after 90 days (at most 50 kept); `taskcell audit verify` checks the chain (see [audit.md](audit.md)). A line that cannot be written is reported to the caller instead of being dropped. Runs started from the hub carry `startedBy` in their records (shown in the Runs table). Admins read the log in the Audit view (`read_audit`); non-admins get 403. The owner (header token, or local mode) acts as the shared `token` admin identity; any other signed-in user is logged under their e-mail and is not an admin until roles land (`actorFor` in `createHubServer` overrides this).
 
 ## Issue history
 
@@ -605,6 +605,8 @@ credential an admin saved). An **admin** — a GitHub login listed in `--admin-g
 | `off` | the instance credential |
 | `user-first` | per provider: the starter's own credential for the provider the run uses, else the instance credential for that provider |
 | `user-only` | the starter's own credential for the provider the run uses; with none saved for it the run is refused before it is queued |
+
+A hub-board task started by the scheduler counts its owner as the starter (see [Who a task runs as](#who-a-task-runs-as)).
 
 Resolution is per provider: a user who saved only `OPENAI_API_KEY` runs Codex on their key and Claude on the
 instance's `CLAUDE_CODE_OAUTH_TOKEN` (`credentialSource` records `user` / `instance` for the run's provider).
@@ -700,3 +702,53 @@ that option's commands, and remembers the choice in the browser with the rest of
 An `export` line only takes effect for a hub started after it: the hub reads its environment at
 start. After exporting, restart the hub (or save the key in Settings → credentials, where that
 exists) and then press **Check again**.
+
+## Hub board: tasks, dependencies and start dates
+
+A project whose task source is **Hub board** (Settings → Task source, `taskSource: hub` in `.taskcell/app.json`) has its tasks in the hub itself instead of a tracker. With such a project open (the project named in the top bar), the Board shows a **New hub task** form (title and what to do) in place of the tracker's **New Task**; a card's quick view has a **Schedule** section, and **Full page** shows the task's text. Projects on GitHub, GitLab or Linear are not touched by any of this: the hub-board commands refuse them and the scheduler never looks at them.
+
+### Where tasks live
+
+Tasks are stored in the hub's config directory, one file per project (`<config dir>/hub-tasks/<hash of the repository path>.json`, mode 0600), not in the repository. Nothing a checkout contains can add a task, change one or start a run: a repository that commits `.taskcell/app.json` with `taskSource: hub` only gets an empty hub board until someone creates a task through the hub. The file is keyed by the repository's resolved path, so moving the repository leaves its tasks behind. Each write goes to a fresh, exclusively created temporary file that is renamed over the store. A store that exists but cannot be read or parsed is an error on the Board and for the scheduler and is never overwritten; entries in it that are not valid tasks are kept in the file, shown as one red card, and never run. A board holds at most 1000 tasks; a title is at most 300 characters, the text 64 KiB, and a task is blocked by at most 50 others.
+
+### Dependencies and start date
+
+Each task has a **blocked by** list (ids such as `hub-1`, other tasks of the same project) and an optional **start date** (`YYYY-MM-DD`, read as 00:00 in the hub's time zone, or a full ISO instant with a zone). Both are edited under **Schedule** (`hub_task_schedule`, audited as `task-schedule`); `hub_task_create` adds a task (audited as `task-create`).
+
+The Board reads `list_tasks` through the same planner the scheduler uses (`src/hub/schedule.ts`), so a card always shows what the scheduler will do:
+
+| Card says | Meaning |
+| --- | --- |
+| `blocked by hub-1` | a dependency is not done (a failed dependency never unblocks) |
+| `waits until Tue 18.11 (Europe/Berlin)` | the start date is in the future; the hub time zone is named |
+| `waits for a free slot` | ready, but the project already has as many tasks with the run session as it can hold |
+| `starts next` | ready; the next scheduler pass hands it to the run session |
+| `queued behind another run (position 1)` | handed over, waiting in the run queue; shown in **Queued**, not **Running** |
+| `not started: …` | the last start was refused (no credential under `user-only`, the run queue is full, the owner no longer reaches the repository); the task stays to do and is tried again on every pass |
+| `failed: …` (red) | the run failed, was cancelled, was held back by the secret scan or a red base branch, or changed nothing; the reason is shown. **Retry** in the quick view (`hub_task_retry`) puts it back to do |
+| `cannot start: …` (red) | a missing reference, a dependency cycle (`a → b → a`, also shown on tasks that wait behind the cycle) or an invalid date; the reason is shown and the task never starts |
+
+### What the scheduler starts, and how many at once
+
+Every 15 seconds the hub starts each task that is valid, has every dependency done and has reached its start date. A task without dependencies or a date starts as soon as there is room.
+
+Hub runs go through the same run session as a run started by hand, and that session runs **one run at a time for the whole hub**, holds **one queued run per project** and at most `TASKCELL_HUB_MAX_QUEUE` queued runs in total. So a hub-board project has at most one task running and one more queued; the rest wait. Independent tasks therefore run one after the other, not side by side. The project's `concurrency` setting can lower this to 1 (nothing queued ahead) but cannot raise it. A start the session refuses is not a failure: the task stays to do with the reason on its card.
+
+### Who a task runs as
+
+A task runs as its **owner**: the person who created it, or the last one to save its schedule or retry it. At start the hub applies what `api_create_run` applies to a request: the owner's teams must still include the repository, the [credential policy](#per-user-provider-credentials) picks the credential (under `user-only`, an owner with none saved for the provider is refused, and the card says so), the admission is written to the audit log as `run-start` or `run-queue` under the owner's login (a refusal as `run-start` / `refused`, once per reason), and the run records carry the owner as `startedBy`. The provider is the project's `provider` setting. A client cannot start a hub run directly: the `hub` transport is not accepted by `api_create_run`.
+
+### The run and its result
+
+The run gets the stored title and text as its task, the way a tracker run gets an issue; no tracker is asked, so a repository with no remote works. It runs the standard implement, verify and review pipeline in the sandbox.
+
+- **The repository has a github.com `origin`**: the branch is pushed and a pull request is opened, as for a GitHub issue. The task is done and its card shows the pull request address.
+- **Otherwise**: the result is committed on a local branch of the repository (`chore/vanguard-hub-<n>-<id>`), nothing is pushed, and the card shows `branch <name>`. Review and merge it yourself.
+
+A task is **done** when its run delivered a result, not when that result is merged, so a dependent task starts from the base branch as it is then. Merge the first task's result before the next should build on it, or set a start date on the dependent.
+
+### Restart
+
+The run session's active run and queue live in memory, so no run survives a hub restart. On start the hub puts every task stored as running back to do (its card says its run ended with the hub), and the scheduler starts it again. While the hub runs, a task marked running that the hub holds no run for is reset the same way on the next pass.
+
+Cards from GitHub show the dependencies the issue body already reports (`Depends on #n`, `Start: YYYY-MM-DD`, see `src/tasks/dependencies.ts`); these are display only, GitHub's own gate still decides.

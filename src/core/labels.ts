@@ -129,6 +129,9 @@ export async function resolveAdds(
 }
 
 /** The heading the factory's review comment opens with, and the pre-rename one still recognised on existing PRs. */
+/** The label that sends a PR through a revise round. */
+export const NEEDS_REVISION_LABEL = 'needs revision';
+
 export const REVIEW_HEADING = '## Taskcell Review';
 const LEGACY_REVIEW_HEADING = '## Vanguard Review';
 
