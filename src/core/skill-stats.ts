@@ -1,4 +1,5 @@
 import { alignTable } from './table.js';
+import { sanitizeSkillIds } from './skills-used.js';
 import type { MetricRecord } from './stats.js';
 
 /** One run (the stage records sharing a taskId and run timestamp) folded to what `stats --skills` compares. */
@@ -38,22 +39,22 @@ export function withinWindow(records: readonly MetricRecord[], windowMs: number 
 }
 
 /**
- * Group stage records into runs by `taskId|ts` (as lessons-stats does). A run none of whose records
+ * Group stage records into runs by `taskId|ts`; a record without `ts` is its own run (as lessons-stats does). A run none of whose records
  * carry `skillsUsed` predates the field: its skills are unknown, so it is left out, not counted as "without".
  */
 function summarize(records: readonly MetricRecord[]): RunSummary[] {
   const runs = new Map<string, RunSummary & { known: boolean }>();
-  for (const r of records) {
-    const key = `${r.taskId}|${r.ts ?? ''}`;
+  records.forEach((r, i) => {
+    const key = r.ts === undefined ? `#${i}` : `${r.taskId}|${r.ts}`;
     const run = runs.get(key) ?? { skills: new Set<string>(), costUsd: 0, repairRounds: 0, verdicts: [], known: false };
-    for (const s of r.skillsUsed ?? []) run.skills.add(s);
+    for (const s of sanitizeSkillIds(r.skillsUsed ?? [])) run.skills.add(s);
     if (r.skillsUsed !== undefined) run.known = true;
     run.costUsd += r.costUsd;
     // Gate repairs and resumes fold into one stage record as extra attempts.
     run.repairRounds += Math.max(0, (r.attempts ?? 1) - 1);
     if (r.verdict !== undefined) run.verdicts.push(r.verdict);
     runs.set(key, run);
-  }
+  });
   return [...runs.values()].filter((r) => r.known);
 }
 
@@ -83,9 +84,11 @@ export function aggregateSkills(records: readonly MetricRecord[]): SkillRow[] {
 const pct = (g: SkillGroup): string => (g.passRate === undefined ? '-' : `${(g.passRate * 100).toFixed(0)}%`);
 
 export function formatSkillStats(rows: readonly SkillRow[]): string {
-  if (rows.length === 0) return 'No skill usage recorded yet.';
+  // One id at a time: the cap bounds a record's list, not the number of table rows.
+  const safeRows = rows.filter((row) => sanitizeSkillIds([row.skill]).length === 1);
+  if (safeRows.length === 0) return 'No skill usage recorded yet.';
   const header = ['skill', 'runs', 'pass', 'repairs', 'cost', '|', 'runs w/o', 'pass w/o', 'repairs w/o', 'cost w/o'];
-  const body = rows.map((r) => [
+  const body = safeRows.map((r) => [
     r.skill,
     String(r.with.runs),
     pct(r.with),

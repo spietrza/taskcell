@@ -1,5 +1,6 @@
 import { cacheEfficiency } from '../agents/provider.js';
 import { roundUsd } from './usd.js';
+import { parseSkillsUsed, sanitizeSkillIds } from './skills-used.js';
 import type { ExitReason, RunResult } from './types.js';
 
 /** Flat, single-source metric shape consumed by metrics.jsonl, the run summary, and logs. */
@@ -83,6 +84,10 @@ export function mergeAttempts(prior: RunResult, next: RunResult): RunResult {
       : undefined;
   const costUsd = sumOpt(prior.costUsd, next.costUsd);
   const durationMs = sumOpt(prior.durationMs, next.durationMs);
+  const skillsUsed = sanitizeSkillIds([
+    ...(prior.skillsUsed ?? parseSkillsUsed(prior.transcript)),
+    ...(next.skillsUsed ?? parseSkillsUsed(next.transcript)),
+  ]);
   return {
     ...next,
     turns: prior.turns + next.turns,
@@ -91,5 +96,6 @@ export function mergeAttempts(prior: RunResult, next: RunResult): RunResult {
     ...(usage !== undefined ? { usage, cacheEfficiency: cacheEfficiency(usage) } : {}),
     ...(costUsd !== undefined ? { costUsd: roundUsd(costUsd) } : {}),
     ...(durationMs !== undefined ? { durationMs } : {}),
+    skillsUsed,
   };
 }

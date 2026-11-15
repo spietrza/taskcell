@@ -875,7 +875,7 @@ describe('parseCli', () => {
 
   it('accepts stats --skills after global flags and refuses ignored combinations', () => {
     expect(parseCli(['--json', 'stats', '--skills'], '/work')).toMatchObject({ kind: 'stats', json: true, skills: true });
-    for (const argv of [['stats', '--since', '30d'], ['stats', '--skills', '--approver'], ['stats', '--skills', '--github-repo', 'a/b'], ['stats', '--skills=foo'], ['stats', '--skills', './skills']]) {
+    for (const argv of [['stats', '--since', '30d'], ['stats', '--skills', '--approver'], ['stats', '--skills', '--github-repo', 'a/b'], ['stats', '--skills', '--feedback-authors', 'a'], ['stats', '--skills=foo'], ['stats', '--skills', './skills'], ['stats', '--skills', '-']]) {
       expect(parseCli(argv, '/work').kind).toBe('error');
     }
     // The string --skills without a value, and the internal --skill-stats name, are not options.
@@ -885,8 +885,16 @@ describe('parseCli', () => {
   });
 
   it('decides --skills by the parsed command, not by a stats token in argv', () => {
+    expect(parseCli(['run', '--linear', 'TES-1', '--skills', './dir'], '/work')).toMatchObject({ kind: 'run', skillsDir: './dir' });
+    expect(parseCli(['run', '--linear', 'TES-1', '--skills', '-'], '/work')).toMatchObject({ kind: 'run', skillsDir: '-' });
+    expect(parseCli(['watch', '--label', 'x', '--skills', './dir'], '/work')).toMatchObject({ kind: 'watch', skillsDir: './dir' });
+    expect(parseCli(['watch', '--label', 'x', '--skills', '-'], '/work')).toMatchObject({ kind: 'watch', skillsDir: '-' });
     expect(parseCli(['watch', '--label', 'stats', '--skills', './skills'], '/work')).toMatchObject({ kind: 'watch', skillsDir: './skills' });
     expect(parseCli(['watch', '--label', 'x', '--skills', 'stats'], '/work')).toMatchObject({ kind: 'watch', skillsDir: 'stats' });
+  });
+
+  it('rejects a malformed stats --since during argument parsing', () => {
+    expect(parseCli(['stats', '--skills', '--since', 'soon'], '/work')).toMatchObject({ kind: 'error', message: expect.stringContaining('--since') });
   });
 
   it('parses stats --github-repo (lead-time rollup)', () => {

@@ -79,8 +79,14 @@ describe('beginRun — writing', () => {
 
   it('writes skillsUsed and the review verdict on the metric line', async () => {
     const metricOf = async (): Promise<Record<string, unknown>> => JSON.parse((await readFile(join(runsRoot(repo), 'metrics.jsonl'), 'utf8')).trim().split('\n').at(-1) as string);
-    const transcript = JSON.stringify({ type: 'assistant', message: { content: [{ type: 'tool_use', name: 'Skill', input: { skill: 'simplify' } }] } });
-    await beginRun(repo, 'TES-S1', TS).writeStages([{ name: 'reviewer', result: { ...result, transcript, finalText: 'No blocking issues.\n' } }]);
+    const transcript = JSON.stringify({ type: 'assistant', message: { content: [
+      { type: 'tool_use', name: 'Skill', input: { skill: 'simplify' } },
+      { type: 'tool_use', name: 'Skill', input: { skill: 'not-in-registry' } },
+    ] } });
+    await beginRun(repo, 'TES-S1', TS).writeStages(
+      [{ name: 'reviewer', result: { ...result, transcript, finalText: 'No blocking issues.\n' } }],
+      { skillIds: ['simplify'] },
+    );
     expect(await metricOf()).toMatchObject({ skillsUsed: ['simplify'], verdict: 'pass' });
     await beginRun(repo, 'TES-S2', TS).writeStages([{ name: 'implementer', result: { ...result, transcript: 'unknown format' } }]);
     const plain = await metricOf();
@@ -309,6 +315,8 @@ describe('beginRun — writing', () => {
       const record = JSON.parse(await readFile(join(runsRoot(repo), 'TES-1', `${PREFIX}-implementer.json`), 'utf8'));
       expect(record.diffOmitted).toBe('secret-blocked');
       expect(record.finalText).toBe('[withheld: secret-blocked]');
+      const metrics = (await readFile(join(runsRoot(repo), 'metrics.jsonl'), 'utf8')).trim().split('\n').map((line) => JSON.parse(line) as Record<string, unknown>);
+      expect(metrics.every((metric) => !Object.hasOwn(metric, 'skillsUsed'))).toBe(true);
     }),
   );
 

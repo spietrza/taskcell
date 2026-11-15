@@ -63,11 +63,6 @@ export async function statsCommand(cmd: StatsCommand): Promise<void> {
   const records = parseMetrics(text);
   if (cmd.skills) {
     const windowMs = cmd.since !== undefined ? parseSince(cmd.since) : undefined;
-    if (cmd.since !== undefined && windowMs === undefined) {
-      console.error(`stats --since must look like 30d or 12h, got '${cmd.since}'.`);
-      process.exitCode = 1;
-      return;
-    }
     const rows = aggregateSkills(withinWindow(records, windowMs));
     console.log(cmd.json ? JSON.stringify(rows, null, 2) : formatSkillStats(rows));
     return;

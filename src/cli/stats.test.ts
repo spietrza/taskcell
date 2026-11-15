@@ -137,12 +137,8 @@ describe('stats --skills', () => {
     expect(logs.join('\n')).toContain('Observational, not causal');
   });
 
-  it('rejects a malformed --since', async () => {
-    vi.mocked(readBranchMetrics).mockResolvedValue(rec({ taskId: 't', skillsUsed: ['s'] }));
-    const err = vi.spyOn(console, 'error').mockImplementation(() => undefined);
-    await runCli(['stats', '--skills', '--branch', 'm', '--since', 'soon']);
-    expect(err).toHaveBeenCalledWith(expect.stringContaining('--since'));
-    expect(logs).toEqual([]);
-    process.exitCode = undefined;
+  it('rejects a malformed --since before reading metrics', () => {
+    expect(parseCli(['stats', '--skills', '--branch', 'm', '--since', 'soon'], '/work')).toMatchObject({ kind: 'error' });
+    expect(readBranchMetrics).not.toHaveBeenCalled();
   });
 });

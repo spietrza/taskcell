@@ -19,7 +19,7 @@ import type { VerificationResult } from '../pipeline/verify.js';
 import type { VisualProofResult } from '../pipeline/visual-proof.js';
 import { ciRunUrl, diffUrlFor, httpsUrl } from './links.js';
 import { reviewVerdictOf } from '../pipeline/review-verdict.js';
-import { parseSkillsUsed } from './skills-used.js';
+import { parseSkillsUsed, sanitizeSkillIds } from './skills-used.js';
 import type { DecisionProbeResult } from './decision-probe.js';
 import type { BaseMergeEvent } from './conflict-stats.js';
 import type { Finding, Proof, RunDetail, RunRecord, RunSummary, StageDetail, VisualProof } from '../wire.js';
@@ -363,6 +363,8 @@ export interface WriteStagesOptions {
   omitDiff?: boolean;
   /** Ids of the lessons injected into the run's prompts, recorded on every stage. */
   lessonIds?: readonly string[];
+  /** Ids in the registry injected for this run; transcript claims outside it are discarded. */
+  skillIds?: readonly string[];
 }
 
 /** A handle for one run: owns its timestamp, so every record it writes shares one prefix. */
@@ -396,6 +398,7 @@ interface WriteRecordOptions {
   credentialSource?: 'instance' | 'user';
   startedBy?: string;
   lessonIds?: readonly string[];
+  skillIds?: readonly string[];
 }
 
 /**
@@ -410,7 +413,7 @@ async function writeRecord(repoPath: string, taskId: string, timestamp: string, 
   const root = runsRoot(repoPath);
   const taskDir = await ensureStateDir(repoPath, join(root, taskId));
 
-  const { diff, transcript, ...meta } = result;
+  const { diff, transcript, skillsUsed: priorSkillsUsed, ...meta } = result;
   // Why the diff (and bundle) are withheld, recorded on run.json so the hub and a human can tell
   // "withheld" from "no diff" or "bundle creation failed":
   //  - 'secret-blocked': the caller's publish gate fired (opts.omitDiff).
@@ -500,9 +503,11 @@ async function writeRecord(repoPath: string, taskId: string, timestamp: string, 
     // A reported cost is the agent CLI's own figure at list prices, never a provider's invoice.
     ...(result.costUsd === undefined ? { costUnknown: true } : { costKind: 'estimated' }),
     ...(opts.prUrl !== undefined ? { prUrl: opts.prUrl } : {}),
-    // Parsed on the host from the raw transcript; [] when none, unrecognised or the transcript is withheld.
-    // `verdict` feeds `stats --skills`.
-    skillsUsed: diffOmitted === undefined ? parseSkillsUsed(transcript).map((id) => redactForPublish(id, opts.secretValues)) : [],
+    // Parsed on the host from every folded attempt. A withheld transcript is unknown, so omit the
+    // field; an available but unrecognised transcript is the known empty list. `verdict` feeds stats.
+    ...(diffOmitted === undefined
+      ? { skillsUsed: sanitizeSkillIds([...(priorSkillsUsed ?? []), ...parseSkillsUsed(transcript)], opts.skillIds).map((id) => redactForPublish(id, opts.secretValues)) }
+      : {}),
     ...(review !== undefined ? { verdict: review.verdict } : {}),
     // Implement/revise runs pass their lesson ids (possibly none): how many the run loaded, 0 when none.
     ...(opts.lessonIds !== undefined ? { lessonsLoaded: opts.lessonIds.length, ...(opts.lessonIds.length > 0 ? { lessonIds: [...opts.lessonIds] } : {}) } : {}),
@@ -549,11 +554,12 @@ export function beginRun(
           ...(opts.credentialSource !== undefined ? { credentialSource: opts.credentialSource } : {}),
           ...(runOpts.startedBy !== undefined ? { startedBy: runOpts.startedBy } : {}),
           ...(opts.lessonIds !== undefined ? { lessonIds: opts.lessonIds } : {}),
+          ...(opts.skillIds !== undefined ? { skillIds: opts.skillIds } : {}),
         });
       }
       const first = outcomes[0];
       if (first === undefined) return;
-      const { omitDiff: _omitDiff, baseBranch: _baseBranch, lessonIds: _lessonIds, ...trace } = opts;
+      const { omitDiff: _omitDiff, baseBranch: _baseBranch, lessonIds: _lessonIds, skillIds: _skillIds, ...trace } = opts;
       await exportRunTrace({
         taskId,
         timestamp,

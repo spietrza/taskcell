@@ -570,7 +570,11 @@ export async function runSourcedIssue(
         ...(deps.credentialSource !== undefined ? { credentialSource: deps.credentialSource } : {}),
       };
       // Lessons are only all known once the gate repairs have run, so read them at write time.
-      const stageMeta = (): typeof runMeta & { lessonIds: string[] } => ({ ...runMeta, lessonIds: [...lessonIds] });
+      const stageMeta = (): typeof runMeta & { lessonIds: string[]; skillIds: string[] } => ({
+        ...runMeta,
+        lessonIds: [...lessonIds],
+        skillIds: skills.ids(),
+      });
       // One RunWriter for the whole run: it owns the timestamp, so proof.json, visual-proof.json and
       // every stage record share one prefix and the hub/desktop readers can match a run's proof to
       // its stage records by name.

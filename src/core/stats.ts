@@ -1,6 +1,7 @@
 import { cacheEfficiency } from '../agents/provider.js';
 import { alignTable } from './table.js';
 import { DIFFICULTY_LEVELS } from './decision-probe.js';
+import { sanitizeSkillIds } from './skills-used.js';
 
 /** One parsed `run_complete` line from .taskcell/runs/metrics.jsonl. */
 export interface MetricRecord {
@@ -113,7 +114,7 @@ export function parseMetrics(text: string): MetricRecord[] {
       ...(typeof parsed.prUrl === 'string' ? { prUrl: parsed.prUrl } : {}),
       ...(typeof parsed.lessonsLoaded === 'number' ? { lessonsLoaded: parsed.lessonsLoaded } : {}),
       ...(Array.isArray(parsed.lessonIds) ? { lessonIds: parsed.lessonIds.filter((x): x is string => typeof x === 'string') } : {}),
-      ...(Array.isArray(parsed.skillsUsed) ? { skillsUsed: parsed.skillsUsed.filter((x): x is string => typeof x === 'string') } : {}),
+      ...(Array.isArray(parsed.skillsUsed) ? { skillsUsed: sanitizeSkillIds(parsed.skillsUsed) } : {}),
       ...(typeof parsed.verdict === 'string' ? { verdict: parsed.verdict } : {}),
       costUsd: num(parsed.costUsd),
       inputTokens: num(parsed.inputTokens),

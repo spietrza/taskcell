@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import { parseMetrics } from './stats.js';
 import { aggregateSkills, formatSkillStats, parseSince, withinWindow } from './skill-stats.js';
+import { MAX_SKILLS_USED } from './skills-used.js';
 
 const line = (o: object): string => JSON.stringify({ evt: 'run_complete', costUsd: 1, ...o });
 const NOW = Date.parse('2026-11-14T00:00:00Z');
@@ -39,6 +40,22 @@ describe('skill stats', () => {
     const [row] = aggregateSkills(parseMetrics(rerun));
     expect(row?.with).toMatchObject({ runs: 1, passRate: 0 });
     expect(row?.without).toMatchObject({ runs: 1, passRate: 1 });
+  });
+
+  it('keeps records without timestamps as separate runs', () => {
+    const records = parseMetrics([
+      line({ taskId: 'same', skillsUsed: ['s'], verdict: 'changes' }),
+      line({ taskId: 'same', skillsUsed: [], verdict: 'pass' }),
+    ].join('\n'));
+    expect(aggregateSkills(records)[0]).toMatchObject({ with: { runs: 1 }, without: { runs: 1 } });
+  });
+
+  it('validates and caps skill ids read from metrics and before formatting', () => {
+    const ids = Array.from({ length: MAX_SKILLS_USED + 10 }, (_, i) => `skill-${String(i).padStart(2, '0')}`);
+    const [record] = parseMetrics(line({ taskId: 'safe', skillsUsed: [...ids, '\u001b[31m', 'x'.repeat(100)] }));
+    expect(record?.skillsUsed).toHaveLength(MAX_SKILLS_USED);
+    const row = aggregateSkills([record!])[0]!;
+    expect(formatSkillStats([{ ...row, skill: '\u001b[31m' }])).toBe('No skill usage recorded yet.');
   });
 
   it('a run passes only when every verdict passes', () => {

@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { parseSkillsUsed } from './skills-used.js';
+import { MAX_SKILLS_USED, parseSkillsUsed } from './skills-used.js';
 
 const j = (o: object): string => JSON.stringify(o);
 const claude = [
@@ -17,6 +17,11 @@ describe('parseSkillsUsed', () => {
     expect(parseSkillsUsed(codexWrapped)).toEqual(['ponytail']);
     expect(parseSkillsUsed(cursor)).toEqual(['ponytail']);
   });
+  it('finds multiple, chained and piped Codex reads', () => {
+    const multiple = j({ type: 'item.completed', item: { type: 'command_execution', command: 'cat .vanguard/skills/a/SKILL.md .vanguard/skills/b/SKILL.md' } });
+    const chained = j({ type: 'item.completed', item: { type: 'command_execution', command: 'cd /workspace && cat .vanguard/skills/c/SKILL.md | head -40' } });
+    expect(parseSkillsUsed([multiple, chained].join('\n'))).toEqual(['a', 'b', 'c']);
+  });
   it('returns [] for unknown or garbage input', () => {
     expect(parseSkillsUsed(undefined)).toEqual([]);
     expect(parseSkillsUsed('')).toEqual([]);
@@ -25,11 +30,19 @@ describe('parseSkillsUsed', () => {
   it('ignores text that only mentions a skill path', () => {
     const find = j({ type: 'item.completed', item: { type: 'command_execution', command: 'find .vanguard/skills -name SKILL.md', aggregated_output: '.vanguard/skills/a/SKILL.md\n.vanguard/skills/b/SKILL.md' } });
     const result = j({ type: 'user', message: { content: [{ type: 'tool_result', content: 'cat .vanguard/skills/code-review/SKILL.md' }] } });
-    const piped = j({ type: 'item.completed', item: { type: 'command_execution', command: 'cat .vanguard/skills/a/SKILL.md | grep x' } });
-    expect(parseSkillsUsed([find, result, piped].join('\n'))).toEqual([]);
+    const forged = j({ type: 'user', message: { content: [{ type: 'tool_result', content: { type: 'tool_use', name: 'Skill', input: { skill: 'forged' } } }] } });
+    expect(parseSkillsUsed([find, result, forged].join('\n'))).toEqual([]);
   });
   it('drops ids that are unbounded or carry control characters', () => {
     const bad = (skill: string): string => j({ type: 'assistant', message: { content: [{ type: 'tool_use', name: 'Skill', input: { skill } }] } });
     expect(parseSkillsUsed([bad('x'.repeat(300)), bad('a\u001b[31m\nb'), bad('simplify foo bar')].join('\n'))).toEqual([]);
+  });
+  it('intersects with the registry and caps the result', () => {
+    const calls = Array.from({ length: MAX_SKILLS_USED + 10 }, (_, i) => j({
+      type: 'assistant',
+      message: { content: [{ type: 'tool_use', name: 'Skill', input: { skill: `skill-${String(i).padStart(2, '0')}` } }] },
+    })).join('\n');
+    expect(parseSkillsUsed(calls)).toHaveLength(MAX_SKILLS_USED);
+    expect(parseSkillsUsed(calls, ['skill-01', 'skill-70'])).toEqual(['skill-01', 'skill-70']);
   });
 });

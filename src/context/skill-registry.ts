@@ -236,6 +236,11 @@ async function injectCursor(entries: SkillEntry[], sandbox: IsolatedSandboxProvi
 export class SkillRegistry {
   constructor(private readonly skills: Record<string, string>) {}
 
+  /** Stable ids available to this run, used to validate transcript-derived telemetry. */
+  ids(): string[] {
+    return Object.keys(this.skills).sort();
+  }
+
   /** Inject the named skills to /workspace/.vanguard/skills (explicit, targeted). */
   async inject(ids: string[], sandbox: IsolatedSandboxProvider): Promise<void> {
     const resolved = ids.map((id) => {
