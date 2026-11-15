@@ -170,7 +170,13 @@ test.each([
 
 test('Retry now refuses when the hold vanished without any trigger or started label', async () => {
   const { gh, calls } = fakeGh({ labels: ['taskcell:rate-limited'], labelsOnReread: ['bug'], comments: [{ author: 'factory-bot', body: marker() }] });
-  await expect(retryPausedTask('o/r', 7, triggers, gh)).rejects.toThrow('no longer paused; nothing was changed');
+  await expect(retryPausedTask('o/r', 7, triggers, gh)).rejects.toThrow(/^#7 is no longer paused; nothing was changed\.$/);
+  expect(edits(calls)).toEqual([]);
+});
+
+test('Retry now accepts a re-triggered issue whose trigger label differs only in case', async () => {
+  const { gh, calls } = fakeGh({ labels: ['taskcell:rate-limited'], labelsOnReread: ['Ready for agent'], comments: [{ author: 'factory-bot', body: marker() }] });
+  expect(await retryPausedTask('o/r', 7, triggers, gh)).toEqual({ label: 'ready for agent' });
   expect(edits(calls)).toEqual([]);
 });
 

@@ -136,6 +136,9 @@ const STARTED_LABELS: readonly string[] = [GITHUB_CLAIMED_LABEL, GITHUB_REVIEW_L
  * rely on the watch's claim to ignore it: a second claim of an already claimed issue is "taken" and skipped,
  * so the extra event does not start a second run.
  */
+/** The hold was released meanwhile and nothing re-triggered the issue: reported as is, not as "stays paused". */
+class NoLongerPaused extends BadRequestError {}
+
 export async function retryPausedTask(repoSlug: string, number: number, triggerLabels: readonly string[], gh: GhRunner = defaultGhRunner): Promise<RetryPausedResult> {
   assertRepoSlug(repoSlug);
   if (!Number.isInteger(number) || number <= 0) throw new BadRequestError(`number must be a positive integer, got ${String(number)}`);
@@ -169,14 +172,15 @@ export async function retryPausedTask(repoSlug: string, number: number, triggerL
     const now = (JSON.parse(await gh(['api', `repos/${repoSlug}/issues/${n}`])) as { labels: { name: string }[] }).labels.map((l) => l.name);
     if (!now.some((x) => sameLabel(x, GITHUB_RATE_LIMITED_LABEL))) {
       // The hold went away meanwhile: succeed only if something re-triggered the issue (the sweep), not if a person just removed it.
-      const retriggered = now.some((x) => sameLabel(x, trigger) || STARTED_LABELS.some((s) => sameLabel(s, x)));
-      if (!retriggered) throw new BadRequestError(`#${n} is no longer paused; nothing was changed.`);
+      const retriggered = now.some((x) => x.toLowerCase() === trigger.toLowerCase() || STARTED_LABELS.some((s) => sameLabel(s, x)));
+      if (!retriggered) throw new NoLongerPaused(`#${n} is no longer paused; nothing was changed.`);
       return { label: trigger };
     }
     const stale = now.filter((name) => triggerLabels.some((candidate) => candidate.toLowerCase() === name.toLowerCase()) || isTriggerLabel(name));
     for (const label of stale) await edit('--remove-label', label);
     await edit('--add-label', trigger);
   } catch (error) {
+    if (error instanceof NoLongerPaused) throw error; // "stays paused" would be false here
     throw new BadRequestError(`#${n} stays paused: ${failureReason(error)}`);
   }
   try {
