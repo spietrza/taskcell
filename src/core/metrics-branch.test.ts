@@ -182,6 +182,19 @@ describe('tip fetch', () => {
     expect(ref.stdout).toMatch(/^[0-9a-f]{40}$/);
   });
 
+  it('retries a fetch whose ref lock another process holds, instead of reading as empty', async () => {
+    await appendBranchLines(repo, ['{"id":0}'], { file: 'decisions.jsonl' });
+    // The remote tip moves past this repo's tip ref, so the next read must update (and lock) that ref.
+    await appendBranchLines(await clone('other'), ['{"id":1}'], { file: 'decisions.jsonl' });
+    // The lock file another process's fetch of the same tip ref would hold; it lets go shortly after.
+    const lockDir = join(repo, '.git', 'refs', 'taskcell', 'tips', 'origin');
+    await mkdir(lockDir, { recursive: true });
+    const lock = join(lockDir, `${METRICS_BRANCH_DEFAULT}.lock`);
+    await writeFile(lock, '');
+    setTimeout(() => void rm(lock, { force: true }), 300); // past git's own 100 ms lock wait
+    expect((await readBranchFile(repo, { file: 'decisions.jsonl' })).trim().split('\n')).toEqual(['{"id":0}', '{"id":1}']);
+  });
+
   it('concurrent reads never come back blank while the remote tip keeps moving', async () => {
     const other = await clone('other');
     await appendBranchLines(other, ['{"id":0}'], { file: 'decisions.jsonl' });

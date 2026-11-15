@@ -153,18 +153,22 @@ test('a project in both teams stays selected across a team switch, while the new
   const [p1, p2] = [projects[0]!, projects[1]!];
   let release: (list: unknown[]) => void = () => {};
   const slow = new Promise<unknown[]>((r) => (release = r));
+  const asked: (string | undefined)[] = [];
   stubTeamHub(
     [
       { id: 'a', name: 'Alpha', members: [], repositories: [p2.path] },
       { id: 'b', name: 'Beta', members: [], repositories: [p1.path, p2.path] },
     ],
     // The unscoped list is another team's: it has none of these repositories, so the stand-in is empty.
-    (teamId) => (teamId === 'a' ? [p2] : teamId === 'b' ? slow : []),
+    (teamId) => {
+      asked.push(teamId);
+      return teamId === 'a' ? [p2] : teamId === 'b' ? slow : [];
+    },
   );
   render(<App />);
   expect(await screen.findByText(`RUN${p2.path}`)).toBeInTheDocument();
   fireEvent.change(screen.getByLabelText('Team'), { target: { value: 'b' } });
-  await new Promise((r) => setTimeout(r, 50));
+  await waitFor(() => expect(asked).toContain('b'));
   release([p1, p2]);
   await screen.findByText(p1.name);
   await new Promise((r) => setTimeout(r, 50));
@@ -176,7 +180,6 @@ test('a project in both teams stays selected across a team switch, while the new
 test('a rail Running entry clicked from Settings opens the live run', async () => {
   const p = projects[0]!;
   const { cmds } = stubTeamHub([], () => [p]);
-  Element.prototype.scrollIntoView = vi.fn(); // jsdom has none; the live run view scrolls to its tail
   render(<App />);
   const entry = await screen.findByText(`RUN${p.path}`);
   await waitFor(() => expect(navButton('Settings')).toBeEnabled());
