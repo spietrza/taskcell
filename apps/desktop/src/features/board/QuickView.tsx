@@ -8,6 +8,7 @@ import { MergeButton, ReplyBox, canUseNeedsYou } from '../needs-you/NeedsYou';
 import { receipt } from './receipt';
 import { repairAttempts, stageLine, type StageStatus } from './stageLine';
 import { taskRefKey } from './taskref';
+import { ScheduleEditor, ScheduleLines } from './Schedule';
 
 export const TRACKER_NAME = { github: 'GitHub', gitlab: 'GitLab', linear: 'Linear' } as const;
 
@@ -50,12 +51,15 @@ export function QuickView({
   project,
   onClose,
   onFullPage,
+  onChanged,
   ref,
 }: {
   task: QuickTask;
   project: string;
   onClose: () => void;
   onFullPage: () => void;
+  /** The task was edited: the board reloads. */
+  onChanged?: () => void;
   ref?: Ref<HTMLElement>;
 }) {
   const repoPath = task.repoPath ?? project;
@@ -166,6 +170,17 @@ export function QuickView({
               ))}
             </dl>
           </section>
+        )}
+
+        {task.schedule !== undefined && onChanged !== undefined ? (
+          <ScheduleEditor repoPath={repoPath} task={task} onSaved={onChanged} />
+        ) : (
+          (!!task.blockedBy?.length || task.startDate !== undefined) && (
+            <section aria-label="Schedule" className="space-y-1">
+              <h4 className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">Schedule</h4>
+              <ScheduleLines task={task} />
+            </section>
+          )
         )}
 
         <ol aria-label="Stage line" className="space-y-2">
