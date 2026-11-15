@@ -45,6 +45,9 @@ interface FakeOptions {
   lsTree?: string;
   /** `git status --untracked-files=all -- <callers>` output: local files at the caller paths. */
   localCallers?: string;
+  /** `gh label list --jq .[].name` output: the repo's labels, one per line. */
+  labels?: string;
+  labelListFails?: boolean;
 }
 
 const doctorRun = (id: number, event = 'workflow_dispatch', name = 'Taskcell Doctor'): unknown => ({
@@ -77,6 +80,10 @@ function fakeExec(calls: Call[], opts: FakeOptions = {}): FactoryExec {
     }
     if (file === 'git' && args[0] === 'rev-parse') {
       return { stdout: 'feature/wip\n', stderr: '' };
+    }
+    if (file === 'gh' && args[0] === 'label' && args[1] === 'list') {
+      if (opts.labelListFails) throw new Error('gh: HTTP 502');
+      return { stdout: opts.labels ?? '', stderr: '' };
     }
     if (file === 'gh' && args[0] === 'pr' && args[1] === 'list') {
       return { stdout: `${opts.openPr ?? ''}\n`, stderr: '' };
@@ -223,6 +230,21 @@ describe('applyGithubFactory', () => {
       expect(content).toContain('octocat');
       expect(content).not.toContain('YOUR_LOGIN');
     }
+  });
+
+  it('keeps the pre-rename review trigger on a repo that already has it, so its own gates still fire', async () => {
+    const { repoPath, plan, calls } = await plannedRepo();
+    const result = await applyGithubFactory(repoPath, plan, { exec: fakeExec(calls, { labels: 'bug\nready for vanguard review\n' }) });
+    const created = calls.filter((c) => c.file === 'gh' && c.args[0] === 'label' && c.args[1] === 'create').map((c) => c.args[2]);
+    expect(created).toContain('ready for vanguard review');
+    expect(created).not.toContain('ready for taskcell review');
+    expect(result.labelsCreated).toContain('ready for vanguard review');
+  });
+
+  it('fails instead of guessing the trigger spelling when the repo labels cannot be listed', async () => {
+    const { repoPath, plan, calls } = await plannedRepo();
+    await expect(applyGithubFactory(repoPath, plan, { exec: fakeExec(calls, { labelListFails: true }) })).rejects.toThrow();
+    expect(calls.some((c) => c.file === 'gh' && c.args[0] === 'label' && c.args[1] === 'create')).toBe(false);
   });
 
   it('never pushes to the default branch', async () => {

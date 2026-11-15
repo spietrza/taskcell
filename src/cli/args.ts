@@ -1637,7 +1637,7 @@ Commands:
          against a saved result instead of an absolute number, --save-baseline publishes one.
   migrate-labels Rename a repo's old vanguard:* labels to taskcell:*: --github-repo <owner/repo>;
          dry-run by default, --apply renames. The old names stay recognised either way. "ready for vanguard review"
-         is kept: the PR-review workflows trigger on that name.
+         becomes "ready for taskcell review": every workflow gating on the old name must accept the new one first.
   resume-rate-limited Re-apply the trigger label on issues/PRs a provider limit parked, once the reset passed, and on issues
          parked as taskcell:waiting (unmet Depends on #N / native blocked-by, future Start: YYYY-MM-DD) once they are clear
          (--trigger-labels a,b names custom triggers; --claimed-state, --review-state, --spec-claimed-label as given to watch).
@@ -1751,7 +1751,7 @@ ${MAX_REPAIR_ITERATIONS_USAGE}
     --gc-before            Reap stale sandboxes + prune worktrees before starting (clean slate)
     --egress               Restrict sandbox egress to an allowlist (anthropic/github/linear/registries)
     --llm-proxy            Hold the Anthropic credential in a trusted sidecar; the sandbox gets only a per-run nonce (implies --egress, Claude + Codex; Cursor stays direct)
-    --reuse                Reuse an existing chore/vanguard-<taskId>-* branch/worktree instead of minting a new run id
+    --reuse                Reuse an existing chore/taskcell-<taskId>-* (or pre-rename chore/vanguard-) branch/worktree instead of minting a new run id
     --repo <path>          Local git repo to work in (default: cwd)
     --skills <dir>         Skills directory to inject (Linear: the linear-cli skill); the repo's .github/vanguard-skills/ is merged in
     --github-repo <o/r>    GitHub repo slug (default: detected from origin)

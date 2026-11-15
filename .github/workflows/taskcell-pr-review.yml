@@ -35,7 +35,7 @@ jobs:
         env:
           GH_TOKEN: ${{ github.event.sender.login == 'taskcell[bot]' && secrets.VANGUARD_PUSH_TOKEN || github.token }}
           PR: ${{ github.event.pull_request.number }}
-        run: gh api -X POST "repos/$GITHUB_REPOSITORY/issues/$PR/labels" -f 'labels[]=ready for vanguard review' --silent
+        run: gh api -X POST "repos/$GITHUB_REPOSITORY/issues/$PR/labels" -f 'labels[]=ready for taskcell review' --silent
 
   review:
     needs: label-factory-pr

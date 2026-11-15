@@ -7,21 +7,21 @@ const LEGACY = 'vanguard';
 const LEGACY_REVIEW_TRIGGER = 'ready for vanguard review';
 
 /**
- * The PR-review trigger as the factory WRITES it: still the pre-rename name. GitHub starts a workflow on the
- * label's name, and the shipped caller workflows listen for this one only, so it is neither written under the new
- * name nor migrated until they accept both. Reading accepts both spellings like every other label.
+ * The PR-review trigger under its current name. GitHub starts a workflow on the label's name and a caller's
+ * workflow may still listen for `ready for vanguard review` only, so the factory writes the spelling the repo
+ * already has (resolveAdds) and creates this one only on a repo that has neither. Reading accepts both.
  */
-export const REVIEW_TRIGGER_LABEL = LEGACY_REVIEW_TRIGGER;
+export const REVIEW_TRIGGER_LABEL = 'ready for taskcell review';
 
 /** The pre-rename spelling of a `taskcell…` label, or the label itself when it has none. */
 export function legacyLabel(label: string): string {
-  if (label === 'ready for taskcell review') return LEGACY_REVIEW_TRIGGER;
+  if (label === REVIEW_TRIGGER_LABEL) return LEGACY_REVIEW_TRIGGER;
   return label.startsWith(`${CURRENT}:`) ? LEGACY + label.slice(CURRENT.length) : label;
 }
 
 /** The current spelling of a (possibly legacy) label. */
 export function currentLabel(label: string): string {
-  if (label === LEGACY_REVIEW_TRIGGER) return 'ready for taskcell review';
+  if (label === LEGACY_REVIEW_TRIGGER) return REVIEW_TRIGGER_LABEL;
   return label.startsWith(`${LEGACY}:`) ? CURRENT + label.slice(LEGACY.length) : label;
 }
 
@@ -92,8 +92,7 @@ export async function resolveRemovals(
 /**
  * What to pass to `--add-label` for `add`: `gh ... --add-label` fails on a label the repo never created, and a
  * repo set up before the rename has only the `vanguard` spellings. A label with a legacy twin is added under the
- * spelling the repo has (the current one when it has both; the legacy one for the review trigger, see
- * REVIEW_TRIGGER_LABEL); when it has neither, that preferred spelling is created first. The repo's labels are
+ * spelling the repo has (the current one when it has both); when it has neither, the current one is created first. The repo's labels are
  * listed lazily (only when a label has a twin); names compare case-insensitively and the repo's own spelling is
  * returned. When they cannot be listed, the names are returned as given; those also named in `ensure` are first
  * force-created (best effort), for the callers whose add must land on a repo that lacks the label.
@@ -109,8 +108,11 @@ export async function resolveAdds(
   try {
     have = (JSON.parse(await gh(['label', 'list', '--repo', repoSlug, '--limit', '1000', '--json', 'name'])) as { name: string }[]).map((l) => l.name);
   } catch {
-    for (const label of add) if (ensure.includes(label)) await gh(['label', 'create', label, '--repo', repoSlug, '--force']).catch(() => undefined);
-    return [...add];
+    // Unlistable: an ensured review trigger is created and written under the legacy spelling, which every review gate
+    // reads; force-creating the new one would flip an old-only repo for good. Unensured labels go out as given.
+    const fallback = add.map((label) => (ensure.includes(label) && sameLabel(label, REVIEW_TRIGGER_LABEL) ? LEGACY_REVIEW_TRIGGER : label));
+    for (const [i, label] of fallback.entries()) if (ensure.includes(add[i]!)) await gh(['label', 'create', label, '--repo', repoSlug, '--force']).catch(() => undefined);
+    return [...new Set(fallback)];
   }
   const resolved: string[] = [];
   for (const label of add) {
@@ -119,7 +121,7 @@ export async function resolveAdds(
       resolved.push(label);
       continue;
     }
-    const preferred = legacy === REVIEW_TRIGGER_LABEL ? [legacy, current] : [current, legacy];
+    const preferred = [current, legacy];
     const found = preferred.map((form) => have.find((name) => typeof name === 'string' && name.toLowerCase() === form.toLowerCase())).find((name) => name !== undefined);
     // No `--force`: it would reset an existing label's color. A failed create surfaces as the failed add.
     if (found === undefined) await gh(['label', 'create', preferred[0]!, '--repo', repoSlug]).catch(() => undefined);
