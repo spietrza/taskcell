@@ -78,6 +78,12 @@ describe('stageMetric', () => {
     });
     expect(stageMetric(baseResult, 'plan', {})).not.toHaveProperty('stageCapUsd');
   });
+
+  it('carries the structured provider-limit stop into metrics', () => {
+    expect(stageMetric({ ...baseResult, completed: false, exitReason: 'error', stoppedBy: 'provider-limit' })).toMatchObject({
+      stoppedBy: 'provider-limit',
+    });
+  });
 });
 
 describe('mergeAttempts', () => {

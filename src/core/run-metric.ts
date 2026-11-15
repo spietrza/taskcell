@@ -29,6 +29,8 @@ export interface StageMetric {
   stageCapUsd?: number;
   /** Remaining global budget before this stage started; present only when the global budget is finite. */
   remainingBudgetUsd?: number;
+  /** Typed reason this stage stopped, when it was not a change failure. */
+  stoppedBy?: 'provider-limit';
 }
 
 export type StageBudgetInfo = Pick<StageMetric, 'stageCapUsd' | 'remainingBudgetUsd'>;
@@ -58,6 +60,7 @@ export function stageMetric(result: RunResult, stageName?: string, extras?: Stag
       : {}),
     ...(extras?.stageCapUsd !== undefined ? { stageCapUsd: extras.stageCapUsd } : {}),
     ...(extras?.remainingBudgetUsd !== undefined ? { remainingBudgetUsd: extras.remainingBudgetUsd } : {}),
+    ...(result.stoppedBy !== undefined ? { stoppedBy: result.stoppedBy } : {}),
   };
 }
 

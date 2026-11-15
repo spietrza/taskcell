@@ -15,6 +15,7 @@ export interface MetricRecord {
   /** Agent calls folded into the stage (resumes/repairs); absent = 1. */
   attempts?: number;
   firstExitReason?: string;
+  stoppedBy?: 'provider-limit';
   costUsd: number;
   inputTokens: number;
   outputTokens: number;
@@ -111,6 +112,7 @@ export function parseMetrics(text: string): MetricRecord[] {
       ...(typeof parsed.exitReason === 'string' ? { exitReason: parsed.exitReason } : {}),
       ...(typeof parsed.attempts === 'number' ? { attempts: parsed.attempts } : {}),
       ...(typeof parsed.firstExitReason === 'string' ? { firstExitReason: parsed.firstExitReason } : {}),
+      ...(parsed.stoppedBy === 'provider-limit' ? { stoppedBy: parsed.stoppedBy } : {}),
       ...(typeof parsed.prUrl === 'string' ? { prUrl: parsed.prUrl } : {}),
       ...(typeof parsed.lessonsLoaded === 'number' ? { lessonsLoaded: parsed.lessonsLoaded } : {}),
       ...(Array.isArray(parsed.lessonIds) ? { lessonIds: parsed.lessonIds.filter((x): x is string => typeof x === 'string') } : {}),
@@ -148,7 +150,8 @@ export function parseProbes(text: string): ProbeRecord[] {
 export function probeReport(records: ReadonlyArray<MetricRecord>, probes: ReadonlyArray<ProbeRecord>): ProbeBucket[] {
   const implementersByTask = new Map<string, MetricRecord[]>();
   for (const r of records) {
-    if (r.stage !== 'implementer' || r.ts === undefined) continue;
+    // A provider-limit stop says nothing about the task's difficulty.
+    if (r.stage !== 'implementer' || r.ts === undefined || r.stoppedBy !== undefined) continue;
     implementersByTask.set(r.taskId, [...(implementersByTask.get(r.taskId) ?? []), r]);
   }
   for (const list of implementersByTask.values()) list.sort((a, b) => (a.ts ?? '').localeCompare(b.ts ?? ''));

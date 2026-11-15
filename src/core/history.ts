@@ -53,6 +53,8 @@ export interface HistoryRun {
   ciUrl?: string;
   startedBy?: string;
   anyFailed: boolean;
+  /** The run ended on a provider limit (RunSummary.stoppedBy): paused, not failed. */
+  stoppedBy?: 'provider-limit';
   stages: { name: string; verdict?: string; timestamp: string }[];
 }
 
@@ -212,7 +214,7 @@ export function buildIssueHistory(input: HistoryInput): IssueHistory {
     const spec = /^spec-/i.test(run.taskId);
     const label = revision ? 'revise round' : spec ? 'spec run' : /^pr-review-/.test(run.taskId) ? 'PR review run' : 'run';
     if (revision || !logged.has(run.taskId)) {
-      add({ time: run.timestamp, kind: revision ? 'revision' : spec ? 'spec' : 'run-end', actor, chain: 'none', source, what: `${label} recorded: ${run.anyFailed ? 'failed' : 'passed'} (${run.stages.map((s) => s.name).join(', ')})` });
+      add({ time: run.timestamp, kind: revision ? 'revision' : spec ? 'spec' : 'run-end', actor, chain: 'none', source, what: `${label} recorded: ${run.stoppedBy !== undefined ? 'paused: provider limit' : run.anyFailed ? 'failed' : 'passed'} (${run.stages.map((s) => s.name).join(', ')})` });
     }
     for (const st of run.stages) {
       if (st.verdict === undefined) continue;
@@ -329,6 +331,7 @@ async function runSources(repoPath: string, repo: string, issue: number): Promis
       taskId: s.taskId,
       timestamp: s.timestamp,
       anyFailed: s.anyFailed,
+      ...(s.stoppedBy !== undefined ? { stoppedBy: s.stoppedBy } : {}),
       ...(s.prUrl !== undefined ? { prUrl: s.prUrl } : {}),
       ...(s.ciUrl !== undefined ? { ciUrl: s.ciUrl } : {}),
       ...(s.startedBy !== undefined ? { startedBy: s.startedBy } : {}),

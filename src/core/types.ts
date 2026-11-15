@@ -61,4 +61,6 @@ export interface RunResult {
   attempts?: number;
   /** Exit reason of the FIRST attempt when more than one was folded in — keeps a truncation visible after a repair. */
   firstExitReason?: ExitReason;
+  /** Set from a typed provider/usage-cap signal when this stage ended on a limit; never inferred from text. */
+  stoppedBy?: 'provider-limit';
 }

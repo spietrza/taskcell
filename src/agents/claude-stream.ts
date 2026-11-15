@@ -1,5 +1,5 @@
 import { constants } from 'node:os';
-import { AgentError } from '../core/errors.js';
+import { AgentError, ProviderLimitError, isRateLimitError } from '../core/errors.js';
 import { redactForPublish } from '../core/secret-scan.js';
 import type { AgentRunInput, AgentTurn, AgentRunOutput, AgentUsage } from './provider.js';
 import { shellQuote, assistantText } from './shell.js';
@@ -179,7 +179,10 @@ export async function* runClaudeCli(
   // zero cost. Resuming replays the same failing request, so fail loudly with the CLI's own message
   // instead of surfacing it as an `incomplete` stage and spending the resume budget on it.
   if (turns > 0 && realTurns === 0) {
-    throw new AgentError(`Provider returned no completion (exit ${res.exitCode}): ${finalText.trim().slice(0, 600)}`);
+    const message = `Provider returned no completion (exit ${res.exitCode}): ${finalText.trim().slice(0, 600)}`;
+    // Synthetic assistant messages are the Claude CLI's structured provider-error channel. Only
+    // this payload may become a typed limit; crash diagnostics and stdout/stderr tails never do.
+    throw isRateLimitError(new AgentError(finalText)) ? new ProviderLimitError(message) : new AgentError(message);
   }
 
   const output: AgentRunOutput = { finalText, turns, transcript: res.stdout };

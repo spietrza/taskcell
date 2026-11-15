@@ -204,7 +204,11 @@ async function parseRunSummaries(root: string): Promise<RunSummary[]> {
       if (first === undefined) continue;
       const stages = records.map((r) => r.stage ?? 'run').sort();
       const totalCostUsd = records.reduce((sum, r) => sum + (r.costUsd ?? 0), 0);
-      const anyFailed = records.some((r) => !r.completed);
+      const failed = records.filter((r) => !r.completed);
+      const anyFailed = failed.length > 0;
+      // Only the flag the run recorded itself: the final text is agent prose, which may well quote a limit.
+      // Every failed stage must carry it: a later provider stop must not hide a genuine stage failure.
+      const providerLimit = failed.length > 0 && failed.every((r) => r.stoppedBy === 'provider-limit');
       const prUrl = httpsUrl(records.find((r) => r.prUrl !== undefined)?.prUrl);
       const ciUrl = httpsUrl(records.find((r) => r.ciUrl !== undefined)?.ciUrl);
       const startedBy = records.find((r) => r.startedBy !== undefined)?.startedBy;
@@ -214,6 +218,7 @@ async function parseRunSummaries(root: string): Promise<RunSummary[]> {
         stages,
         totalCostUsd,
         anyFailed,
+        ...(providerLimit ? { stoppedBy: 'provider-limit' as const } : {}),
         ...(prUrl !== undefined ? { prUrl } : {}),
         ...(ciUrl !== undefined ? { ciUrl } : {}),
         ...(startedBy !== undefined ? { startedBy } : {}),
