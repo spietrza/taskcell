@@ -517,7 +517,7 @@ The views work at phone width (the quick view is a bottom drawer).
 
 **Enable factory** on a project card (hub only) turns on the GitHub Actions factory for that repo in
 four steps, following [onboarding-another-repo.md](onboarding-another-repo.md)
-(`src/hub/enable-factory.ts`). GitLab CI has its own flow, below; Linear shows as planned.
+(`src/hub/enable-factory.ts`). GitLab CI has its own flow, below; Linear shows as planned. **Self-hosted (watch)** is a read-only checklist, described under [Self-hosted (watch)](#self-hosted-watch).
 
 1. **Plan** reads the repo with `gh` and changes nothing: the slug, the default branch, the signed-in
    `gh` login (it becomes the callers' actor gate), the package manager and scripts, and the caller
@@ -564,6 +564,59 @@ Each step shows its state; the dialog polls the MR merge and the pipeline, "Chec
 Apply and verify change the remote, so they are gated like `clone_project`: loopback only, unless
 `TASKCELL_HUB_ALLOW_ADD=1`. The `gh` login must be able to push workflow files (classic `repo` and
 `workflow` scopes), create labels, open a PR and dispatch a workflow.
+
+### Self-hosted (watch)
+
+Picking **Self-hosted (watch)** (`enable_factory_watch`, `src/hub/watch-worker.ts`) shows a checklist for a
+worker *you* run with `taskcell watch`, on a server or any always-on machine with Docker. The hub starts and
+installs nothing on another machine, and the RPC writes nothing (it is read-only, so it is not in the audit list).
+
+**Which worker.** The checklist follows the project's task source (Settings → Task source; when none is set,
+the code host of `origin`). The code host is read the same way as for the other run locations: GitHub means
+`github.com`, GitLab means `gitlab.com` or the host in the hub's `GITLAB_HOST`.
+
+| Task source | Worker | Needs `origin` on |
+| --- | --- | --- |
+| GitHub Issues | `--source=github --github-repo=<owner/repo>` | github.com |
+| GitLab Issues | `--source=gitlab --gitlab-project=<group/project> --label=vanguard` | GitLab |
+| Linear | `--source=linear --label=vanguard` (PRs go to GitLab when `origin` is on GitLab, else GitHub) | any |
+| GitHub Projects | not generated: the hub does not know the project number; run `taskcell watch --source project --project <number>` by hand | github.com |
+| Hub board | none: a watch worker cannot read the hub board; the hub runs those tasks itself | — |
+
+The repository slug must look like `owner/repo` (GitHub) or `group/project` (GitLab) before it is put in the
+command; a remote with anything else is refused with one sentence.
+
+The checklist shows:
+
+1. **Credentials**, by name only: `CLAUDE_CODE_OAUTH_TOKEN`, the token of the forge the runs publish to
+   (`GH_TOKEN`, or `GITLAB_TOKEN` when `origin` is on GitLab, also for Linear), and `LINEAR_API_KEY` for Linear.
+   Values never pass through the hub.
+2. **Compose snippet** for this repository, in the shape of `docker/compose.yaml`: the same image, socket and
+   clone mounts, `mem_limit: 1024m` and `VANGUARD_MAX_SANDBOXES: "1"`. A self-hosted GitLab adds `GITLAB_HOST`.
+   **Or run it directly** gives the same worker as one `taskcell watch` command for a clone of the repository.
+3. **Worker seen**: whether the hub can read a run record for the repository from the last 7 days that a
+   `taskcell watch` worker wrote (`taskcell watch` stamps its records `trigger: "watch"`; hub-started and manual
+   `taskcell run` records do not count). It answers *yes* (with the time), *not recently* (with the newest time),
+   or *cannot tell* when it reads no such record. A worker on another machine writes its records into its own
+   clone, so they show up only if they reach this hub's checkout; "cannot tell" is not proof the worker is down.
+   Workers on a version from before the stamp also read as "cannot tell". **Check again** re-reads; **Back**
+   returns to the run locations.
+
+**Setting the worker up, end to end:**
+
+1. On the worker machine, build or load the images (`docker/build.sh`; see [deploy.md](deploy.md#what-you-need-on-the-host)).
+2. Make a deploy directory, clone the repository into `./target-repo` next to where the compose file will be,
+   and let `git push` use the token: `git -C target-repo config credential."https://github.com".helper '!gh auth git-credential'`
+   for GitHub ([deploy.md, step 4](deploy.md#4-clone-the-target-repo-the-nas-has-no-git-so-use-the-runner-image)), or
+   `git -C target-repo config credential."https://<gitlab host>".helper '!glab auth git-credential'` for GitLab, with an
+   `https://` clone URL (`glab` reads `GITLAB_TOKEN`; the runner image ships the same pinned `glab` as the hub image).
+   Running the command directly instead of in the image needs `gh` or `glab` signed in, and for Linear
+   `SKILLS_DIR` pointing at the linear-cli skills (the image sets `SKILLS_DIR=/opt/skills`).
+3. Put the values of the listed credentials in a `.env` next to the compose file (`chmod 600`, never committed).
+4. Copy the compose snippet into `compose.yaml` there and run `docker compose up -d`.
+5. Check the log (`docker compose logs -f taskcell-watch`) for `watch[<source>]: polling every 120s`, then label
+   an issue as [deploy.md, step 6](deploy.md#6-start-and-verify) describes. Back in the hub, **Check again**
+   says *yes* once the worker's run records are in this checkout.
 
 ## Approver card
 
@@ -648,7 +701,7 @@ A run on the starter's own credential never reads the hub's provider keys: a pro
 
 When the switch is on, each signed-in user saves their own provider credentials in Settings. They are
 keyed by the hub (Better Auth) user id — a GitHub, GitLab or Google user alike — and stored encrypted (AES-256-GCM) in `credentials.enc.json` in the hub
-config dir. When `TASKCELL_HUB_SECRET` is set, that operator-held 32-byte base64 key protects this store as it protected the retired `credentials.enc`; keep the same value across restarts and outside the config directory. A store first written under `credentials.key` is re-encrypted under the secret on the next start and the stale key file is removed; the re-key waits until any retired `credentials.enc` has been migrated, so one secret always opens everything. A store that cannot be decrypted (a different secret value, or the secret removed) is never overwritten, and Settings and the setup guide say which key recovers it. Runs then start only on a provider key in the hub's start-up environment (with the switch `off` or `user-first`); a run that needs a stored credential is refused with that reason. A secret that is not 32 bytes is not used: the store stays on `credentials.key` and the reason is shown. Without it, the hub uses `credentials.key` (mode 0600, generated on first write) beside the store, so a copy of the config directory yields every saved key; keep it out of backups and shares. This is the hub's only credential store (instance and per-user). Credentials are write-only:
+config dir. When `TASKCELL_HUB_SECRET` is set, that operator-held 32-byte base64 key protects this store as it protected the retired `credentials.enc`; keep the same value across restarts and outside the config directory. A store first written under `credentials.key` is re-encrypted under the secret on the next start and the stale key file is removed; the re-key waits until any retired `credentials.enc` has been migrated, so one secret always opens everything. Once the store is read or written under the secret the hub records that in `credentials.keyed` beside it (best effort), so after a restart a `credentials.key` plus store planted in the config directory is not adopted; the marker is removed when the store is written under `credentials.key` again, and anyone who can delete it can still plant a key, so keep the config directory write-protected. While a retired `credentials.enc` is unmigrated, saves into a store not yet under the secret stay under `credentials.key`. A store that cannot be decrypted (a different secret value, or the secret removed) is never overwritten, and Settings and the setup guide say which key recovers it. Runs then start only on a provider key in the hub's start-up environment (with the switch `off` or `user-first`); a run that needs a stored credential is refused with that reason. A secret that is not 32 bytes is not used: the store stays on `credentials.key` and the reason is shown. Without it, the hub uses `credentials.key` (mode 0600, generated on first write) beside the store, so a copy of the config directory yields every saved key; keep it out of backups and shares. This is the hub's only credential store (instance and per-user). Credentials are write-only:
 the hub lists which variable names are saved, never a value, and no RPC takes a user id, so one user
 cannot read, overwrite or use another's. The switch and every instance-credential RPC (`get_credential_policy`, `set_credential_policy`, `instance_credentials_status`, `save_instance_credential`, `delete_instance_credential`) share one gate: the **hub owner** (the hub-token holder, or local mode) or an **admin**; anyone else gets 403. The token owner remains able to manage instance credentials so a token-only hub does not need a configured sign-in admin. The owner's writes (and the switch) are also refused on a non-loopback bind unless `TASKCELL_HUB_ALLOW_ADD=1`, as `set_credential` was. Saved instance credentials are passed explicitly to the provider-specific run and doc-chat child that consume them; the Fleet screen's spawns (any agent CLI) get every saved instance credential the same way. They are not exported into the hub process environment, so host-side `git`/`gh`/`glab` calls, which read none of them, do not inherit them. Removing a saved value makes those consumers fall back to the hub's start-up environment. Settings shows one Credentials panel, including a value-free migration/decryption reason when the store needs operator attention, and the run detail says which credential funded the run. The run record carries `credentialSource: 'instance' | 'user'`, never the value.
 

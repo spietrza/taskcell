@@ -46,6 +46,8 @@ export const tipRef = (remote: string, branch: string): string => `refs/taskcell
 
 // One fetch of a given tip ref at a time: two racing fetches of a moved tip fail with "cannot lock ref".
 const tipLock = keyedLock();
+/** Wait before the one retry of a fetch whose ref lock another process held past git's own 100 ms (the lock above is per process). */
+const TIP_LOCK_RETRY_MS = 500;
 
 /** The lock key of a tip fetch. By the repository's real path: a symlinked or relative spelling of it is the same repository. */
 export function tipLockKey(cwd: string, remote: string, branch: string): string {
@@ -61,9 +63,17 @@ export function tipLockKey(cwd: string, remote: string, branch: string): string 
 /** The branch tip's commit sha, or undefined when the remote has no such branch yet. */
 function fetchTip(cwd: string, remote: string, branch: string): Promise<string | undefined> {
   return tipLock(tipLockKey(cwd, remote, branch), async () => {
+    const ref = tipRef(remote, branch);
+    const fetch = (): Promise<string> => git(cwd, ['fetch', '--quiet', remote, `+refs/heads/${branch}:${ref}`]);
     try {
-      const ref = tipRef(remote, branch);
-      await git(cwd, ['fetch', '--quiet', remote, `+refs/heads/${branch}:${ref}`]);
+      try {
+        await fetch();
+      } catch (err) {
+        // Another process (a CLI run beside the hub) fetching the same ref: retry once rather than read as empty.
+        if (!/cannot lock ref/i.test(String((err as { stderr?: unknown }).stderr ?? ''))) throw err;
+        await new Promise((r) => setTimeout(r, TIP_LOCK_RETRY_MS));
+        await fetch();
+      }
       return await git(cwd, ['rev-parse', ref]);
     } catch {
       return undefined;

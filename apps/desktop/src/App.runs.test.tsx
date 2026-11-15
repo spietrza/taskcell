@@ -89,7 +89,6 @@ test('a run started from the Board shows its live strip on Runs; the rail\'s Run
   expect(screen.queryByRole('button', { name: /Back to runs/ })).toBeNull();
 
   // A running row opened while the strip is folded: one chip says a run is live, not "running" beside "running — view".
-  Element.prototype.scrollIntoView = vi.fn(); // jsdom has none; the live run view scrolls to its tail
   results.list_active = [{ taskId: 'gh-7', sessionFile: '/s', lastActivityMs: Date.now() }];
   results.read_session = { entries: [], inputTokens: 0, outputTokens: 0, cacheReadTokens: 0, estCostUsd: 0 };
   fireEvent.click(screen.getByRole('button', { name: 'Reload' }));

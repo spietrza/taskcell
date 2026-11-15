@@ -162,7 +162,15 @@ function findClosestProofFile(fileNames: readonly string[], suffix: string, stag
   return best?.name;
 }
 
+let runTrigger: 'watch' | undefined;
+
+/** Stamp every run record this process writes from now on with `trigger` (`taskcell watch` sets `'watch'`). */
+export function setRunTrigger(trigger: 'watch' | undefined): void {
+  runTrigger = trigger;
+}
+
 /** Best-effort parse of a run record file; returns undefined on any read or JSON error. */
+
 async function tryReadRecord(path: string): Promise<RunRecord | undefined> {
   try {
     const contents = await readTextNoSymlink(path);
@@ -223,6 +231,7 @@ async function parseRunSummaries(root: string): Promise<RunSummary[]> {
       const prUrl = httpsUrl(records.find((r) => r.prUrl !== undefined)?.prUrl);
       const ciUrl = httpsUrl(records.find((r) => r.ciUrl !== undefined)?.ciUrl);
       const startedBy = records.find((r) => r.startedBy !== undefined)?.startedBy;
+      const trigger = records.some((r) => r.trigger === 'watch') ? 'watch' : undefined;
       summaries.push({
         taskId: first.taskId,
         timestamp,
@@ -236,6 +245,7 @@ async function parseRunSummaries(root: string): Promise<RunSummary[]> {
         ...(prUrl !== undefined ? { prUrl } : {}),
         ...(ciUrl !== undefined ? { ciUrl } : {}),
         ...(startedBy !== undefined ? { startedBy } : {}),
+        ...(trigger !== undefined ? { trigger } : {}),
       });
     }
   }
@@ -495,6 +505,7 @@ async function writeRecord(repoPath: string, taskId: string, timestamp: string, 
     ...(opts.credentialSource !== undefined ? { credentialSource: opts.credentialSource } : {}),
     ...(diffOmitted !== undefined ? { diffOmitted } : {}),
     ...(opts.startedBy !== undefined ? { startedBy: opts.startedBy } : {}),
+    ...(runTrigger !== undefined ? { trigger: runTrigger } : {}),
     ...(opts.lessonIds !== undefined && opts.lessonIds.length > 0 ? { lessonIds: [...opts.lessonIds] } : {}),
     ...(opts.skills !== undefined ? { skills: opts.skills } : {}),
   };

@@ -23,6 +23,7 @@ vi.mock('./preflight.js', () => ({
   formatPreflightReport: vi.fn(() => []),
 }));
 vi.mock('./provider-choice.js', () => ({ loadProviderChoice: vi.fn(async () => ({})) }));
+vi.mock('../core/run-store.js', async (importOriginal) => ({ ...(await importOriginal<object>()), setRunTrigger: vi.fn() }));
 
 import { watchLinear, watchGithub, watchGithubProject, watchGitlab, watchLinearLoopV1, watchGithubLoopV1, watchGitlabLoopV1 } from '../runners/watch.js';
 import {
@@ -35,6 +36,7 @@ import {
   watchGitlabSource,
 } from './watch.js';
 import { RUN_OPTIONS } from './run-options.fixture.js';
+import { setRunTrigger } from '../core/run-store.js';
 import type { Command } from './args.js';
 import type { SandboxContext } from '../sandbox/sandbox-context.js';
 
@@ -149,6 +151,20 @@ describe('specOnlyReviewNote', () => {
 });
 
 describe('watchCommand', () => {
+  it('stamps its run records as watch-started before it dispatches to the source', async () => {
+    vi.stubEnv('CLAUDE_CODE_OAUTH_TOKEN', 'token');
+    const log = vi.spyOn(console, 'log').mockImplementation(() => {});
+    const once = vi.spyOn(process, 'once').mockImplementation(() => process);
+    try {
+      await runWatchCommand(watchCommand({ source: 'github', repoSlug: 'acme/widgets' }));
+      expect(setRunTrigger).toHaveBeenCalledWith('watch');
+      expect(vi.mocked(setRunTrigger).mock.invocationCallOrder[0]).toBeLessThan(vi.mocked(watchGithub).mock.invocationCallOrder[0]!);
+    } finally {
+      log.mockRestore();
+      once.mockRestore();
+    }
+  });
+
   it('prints the spec-only review note before it dispatches to the source', async () => {
     vi.stubEnv('LINEAR_API_KEY', 'key');
     vi.stubEnv('CLAUDE_CODE_OAUTH_TOKEN', 'token');

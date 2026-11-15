@@ -1,15 +1,16 @@
-import type { IsolatedSandboxProvider } from '../sandbox/provider.js';
+/** What a signal must tear down: a sandbox, or a sidecar whose teardown does more than `rm` (the chatgpt LLM proxy). */
+type Destroyable = { destroy: () => Promise<void> };
 
-const live = new Set<IsolatedSandboxProvider>();
+const live = new Set<Destroyable>();
 let installed = false;
 
 /** Track a started sandbox so a termination signal can destroy it (a `finally` block misses SIGINT/SIGTERM). */
-export function trackSandbox(sandbox: IsolatedSandboxProvider): void {
+export function trackSandbox(sandbox: Destroyable): void {
   live.add(sandbox);
 }
 
 /** Stop tracking a sandbox once it has been destroyed (or intentionally handed off). */
-export function untrackSandbox(sandbox: IsolatedSandboxProvider): void {
+export function untrackSandbox(sandbox: Destroyable): void {
   live.delete(sandbox);
 }
 
