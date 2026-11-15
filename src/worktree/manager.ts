@@ -21,12 +21,8 @@ export const TASKCELL_BRANCH_PREFIX = 'chore/taskcell-';
 /** Prefix of runs minted before the rename; branches and open PRs under it are still recognised. */
 export const LEGACY_BRANCH_PREFIX = 'chore/vanguard-';
 
-/**
- * Prefix new branches are minted under. Still the pre-rename one: this repo's CI gates accept both prefixes, but
- * the shipped approver policy default and callers' own gates may still match `chore/vanguard-` only; switch to
- * TASKCELL_BRANCH_PREFIX once those are updated. Both prefixes are recognised everywhere regardless.
- */
-export const MINT_BRANCH_PREFIX = LEGACY_BRANCH_PREFIX;
+/** Prefix new branches are minted under. Both prefixes are recognised everywhere (`--reuse`, gc, the approver). */
+export const MINT_BRANCH_PREFIX = TASKCELL_BRANCH_PREFIX;
 
 /** Both factory prefixes, new first. */
 export const FACTORY_BRANCH_PREFIXES: readonly string[] = [TASKCELL_BRANCH_PREFIX, LEGACY_BRANCH_PREFIX];
