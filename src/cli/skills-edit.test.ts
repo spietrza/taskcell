@@ -65,8 +65,9 @@ const skillTree = (body: string) => async (tree: string): Promise<void> => {
   await writeFile(join(tree, 'README.md'), 'not part of the skill');
 };
 const readLock = async (d = dir): Promise<{ skills: Array<{ commit: string; sha256: string }> }> => JSON.parse(await readFile(join(d, 'skills.lock.json'), 'utf-8'));
-const add = (source: SkillSource, extra: Record<string, string> = {}, d = dir): Promise<void> =>
-  skillsAdd({ dir: d, source: SRC, path: 'skills/a', ...extra }, { source, today: () => '2026-01-01' }, () => {});
+const add = async (source: SkillSource, extra: Record<string, string> = {}, d = dir): Promise<void> => {
+  await skillsAdd({ dir: d, source: SRC, path: 'skills/a', ...extra }, { source, today: () => '2026-01-01' }, () => {});
+};
 
 describe('skills add', () => {
   it('copies only the skill directory and writes the lock', async () => {

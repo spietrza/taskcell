@@ -7,8 +7,9 @@ import type { TeamScreen } from './Members';
 import { WorkflowEditor } from '../workflow/WorkflowEditor';
 import { AuditLog } from '../audit/AuditLog';
 import { Lessons } from '../lessons/Lessons';
+import { Skills } from '../skills/Skills';
 
-type Section = 'general' | 'line' | 'runners' | 'lessons' | 'audit';
+type Section = 'general' | 'line' | 'runners' | 'lessons' | 'skills' | 'audit';
 
 /**
  * Settings, with the sections the prototype puts under it: General (the project's settings), Line (the
@@ -35,7 +36,7 @@ export function SettingsScreen({
     { key: 'general', label: 'General' },
     { key: 'line', label: 'Line' },
     { key: 'runners', label: 'Runners' },
-    ...(canUseNeedsYou() ? [{ key: 'lessons' as const, label: 'Lessons' }, { key: 'audit' as const, label: 'Audit' }] : []),
+    ...(canUseNeedsYou() ? [{ key: 'lessons' as const, label: 'Lessons' }, { key: 'skills' as const, label: 'Skills' }, { key: 'audit' as const, label: 'Audit' }] : []),
   ];
   // Switching sections unmounts a dirty editor, so it confirms like any other navigation.
   const choose = (key: Section): void => {
@@ -94,6 +95,10 @@ export function SettingsScreen({
       ) : section === 'lessons' ? (
         <div className="flex min-h-0 flex-1 flex-col">
           <Lessons project={project} />
+        </div>
+      ) : section === 'skills' ? (
+        <div className="flex min-h-0 flex-1 flex-col">
+          <Skills project={project} />
         </div>
       ) : (
         <div className="flex min-h-0 flex-1 flex-col">

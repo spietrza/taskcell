@@ -156,6 +156,10 @@ const commandHandlers = {
   read_issue_history: () => ({ repo: 'acme/app', issue: 1, prs: [], entries: [], chains: [], unavailable: [] }),
   list_needs_you: () => ({ items: waitingNeedsYou }),
   list_lessons: () => ({ lessons: mockLessons, branchFound: true }),
+  list_repo_skills: () => ({ skills: [] }),
+  update_skill_pr: () => ({ prUrl: 'https://github.com/acme/app/pull/1' }),
+  add_skill_pr: () => ({ prUrl: 'https://github.com/acme/app/pull/1' }),
+  remove_skill_pr: () => ({ prUrl: 'https://github.com/acme/app/pull/1' }),
   dismiss_lesson: (args: { id?: string } | undefined) => {
     mockLessons = mockLessons.filter((l) => l.id !== args?.id);
   },
@@ -238,6 +242,7 @@ const demoOverrides: Record<string, (args: unknown) => unknown> = {
   api_active_run: () => ({ runId: DEMO_RUN_ID, repoPath: DEMO_REPO_PATH }),
   api_run_backlog: () => demoRunBacklog,
   fetch_spec: (args) => ({ spec: demoSpec((args as { taskId?: string } | undefined)?.taskId) }),
+  list_repo_skills: () => ({ skills: [] }),
   list_lessons: (args) => ({ lessons: demoLessonsFor((args as { taskText?: string } | undefined)?.taskText), branchFound: true }),
   factory_state: () => demoFactoryState,
   // The live run's detail and its strip show one cost (`DEMO_LIVE_COST_USD`).
