@@ -15,10 +15,10 @@
 .taskcell-base:
   # `test` is GitLab's default stage; the hub swaps in a stage the project has when its `stages:` lacks `test`.
   stage: test
-  # Do not pick up the including project's `default:` (image, hooks...) or global `variables:` (GIT_STRATEGY...);
-  # `tags` are still inherited so runners that only take tagged jobs keep picking these up.
+  # Do not pick up the including project's `default:` (image, hooks, tags...) or global `variables:` (GIT_STRATEGY...):
+  # the credential-carrying jobs never go to a runner the project's defaults pick.
   inherit:
-    default: [tags]
+    default: false
     variables: false
   image: node:24-bookworm
   services:

@@ -289,7 +289,7 @@ describe('applyGitlabFactory', () => {
   it('writes a stage the project has when its stages lack test', async () => {
     const dir = await repo();
     await applyGitlabFactory(dir, plan, { exec: fake({ show: { '.gitlab-ci.yml': 'stages: [build, deploy]\n' } }).exec });
-    expect(await readFile(join(dir, '.gitlab/taskcell.yml'), 'utf8')).toMatch(/\.taskcell-base:\n(?:.*\n)*?  stage: build\n(?:.*\n)*?  inherit:\n    default: \[tags\]\n    variables: false/);
+    expect(await readFile(join(dir, '.gitlab/taskcell.yml'), 'utf8')).toMatch(/\.taskcell-base:\n(?:.*\n)*?  stage: build\n(?:.*\n)*?  inherit:\n    default: false\n    variables: false/);
   });
   it('turns an empty include: into a one-entry list', async () => {
     const dir = await repo();
