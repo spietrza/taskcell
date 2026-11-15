@@ -67,6 +67,12 @@ export interface CreateRunParams {
   transport?: string;
   maxTurns?: number;
   baseBranch?: string;
+  /**
+   * The run's whole hand-picked skill list (installed ids, loaded on top of the automatic selection). When
+   * present it replaces the issue body's `Skills:` line, which the form preselects, so a skill unticked
+   * there is not loaded. An unknown id fails the run before any model call.
+   */
+  skills?: string[];
   /** Hub only: who started the run. Set server-side from the request's actor, never from the client. */
   startedBy?: string;
   /** Hub only: the stored hub-board task a `hub` transport run implements. Set by the hub's scheduler; a client
@@ -277,6 +283,8 @@ export interface BoardTask {
   chips?: BoardChip[];
   /** The branch this card's PR targets: its `taskcell:base=` label, else the repo default. Absent when neither is set (`main`). */
   baseBranch?: string;
+  /** Skills the task names by hand (its `Skills:` line). Absent when none. */
+  skills?: string[];
   /** The tracker the card came from; names the "Open in …" link. */
   source?: 'github' | 'gitlab' | 'linear';
   /** The issue's address in that tracker, as the tracker returned it. Absent ⇒ no link. */
@@ -376,6 +384,12 @@ export interface RunRecord {
   attempts?: number;
   /** Ids of the lessons injected into this run's prompts (`taskcell lessons list` counts them). */
   lessonIds?: string[];
+  /**
+   * `named`: the skills named by hand that the run loaded. `available`: the other installed skills the
+   * agent could pick from (not what it used). `notes`: an ignored `Skills:` line, or a provider that
+   * reads no skills. Absent on older records.
+   */
+  skills?: { named: string[]; available: string[]; notes?: string[] };
 }
 
 export interface Proof {
@@ -597,6 +611,7 @@ export type AuditAction =
   | 'needs-reply'
   | 'needs-merge'
   | 'task-create'
+  | 'task-edit'
   | 'task-schedule'
   | 'enable-factory'
   | 'approver-mode';

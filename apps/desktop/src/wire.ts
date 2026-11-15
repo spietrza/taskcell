@@ -68,6 +68,12 @@ export interface CreateRunParams {
   transport?: string;
   maxTurns?: number;
   baseBranch?: string;
+  /**
+   * The run's whole hand-picked skill list (installed ids, loaded on top of the automatic selection). When
+   * present it replaces the issue body's `Skills:` line, which the form preselects, so a skill unticked
+   * there is not loaded. An unknown id fails the run before any model call.
+   */
+  skills?: string[];
   /** Hub only: who started the run. Set server-side from the request's actor, never from the client. */
   startedBy?: string;
   /** Hub only: the stored hub-board task a `hub` transport run implements. Set by the hub's scheduler; a client
@@ -278,6 +284,8 @@ export interface BoardTask {
   chips?: BoardChip[];
   /** The branch this card's PR targets: its `taskcell:base=` label, else the repo default. Absent when neither is set (`main`). */
   baseBranch?: string;
+  /** Skills the task names by hand (its `Skills:` line). Absent when none. */
+  skills?: string[];
   /** The tracker the card came from; names the "Open in …" link. */
   source?: 'github' | 'gitlab' | 'linear';
   /** The issue's address in that tracker, as the tracker returned it. Absent ⇒ no link. */
@@ -377,6 +385,12 @@ export interface RunRecord {
   attempts?: number;
   /** Ids of the lessons injected into this run's prompts (`taskcell lessons list` counts them). */
   lessonIds?: string[];
+  /**
+   * `named`: the skills named by hand that the run loaded. `available`: the other installed skills the
+   * agent could pick from (not what it used). `notes`: an ignored `Skills:` line, or a provider that
+   * reads no skills. Absent on older records.
+   */
+  skills?: { named: string[]; available: string[]; notes?: string[] };
 }
 
 export interface Proof {
@@ -598,6 +612,7 @@ export type AuditAction =
   | 'needs-reply'
   | 'needs-merge'
   | 'task-create'
+  | 'task-edit'
   | 'task-schedule'
   | 'enable-factory'
   | 'approver-mode';
@@ -1154,6 +1169,10 @@ export interface Commands {
   hub_task_retry: { args: { repoPath: string; id: string }; result: { id: string } };
   /** HUB_ONLY: apply a trigger label to a GitHub issue of the project (src/hub/start-task.ts). */
   start_task: { args: { repoPath: string; number: number; label: string }; result: StartTaskResult };
+  /** HUB_ONLY, read-only: the ids of the skills a run of this project can load (what a hand-picked list is checked against). */
+  list_skills: { args: { repoPath: string }; result: { skills: string[] } };
+  /** HUB_ONLY: write a card's hand-picked skills to its task as the body's `Skills:` line (an empty list removes it). */
+  set_task_skills: { args: { repoPath: string; taskId: string; skills: string[] }; result: { skills: string[] } };
   /** HUB_ONLY: token-only mode has exactly one team and the caller acts as its admin. */
   list_teams: { args: undefined; result: Team[] };
   /** HUB_ONLY: one team by id (`null` when unknown). */
@@ -1233,6 +1252,7 @@ export const COMMAND_NAMES = [
   'list_remote_runs',
   'list_runs',
   'list_runs_all',
+  'list_skills',
   'list_spawns',
   'list_tasks',
   'list_tasks_all',
@@ -1259,6 +1279,7 @@ export const COMMAND_NAMES = [
   'set_approver_mode',
   'set_credential',
   'set_credential_policy',
+  'set_task_skills',
   'setup_status',
   'spawn_run',
   'start_task',

@@ -647,7 +647,7 @@ taskcell hub rotate-token --token-file <path>
 A missing or unbuilt `--ui-dir` fails at startup, naming `pnpm --dir apps/desktop build`
 (run `pnpm build:ui`) rather than failing on the first request. Binding a non-loopback host
 requires sign-in (warning at startup if no provider or allowlist is configured) and disables `add_project`/`browse_dirs`/`clone_project`,
-`enable_factory_apply`/`enable_factory_verify`/`enable_factory_start`, `reply_needs_you`, `merge_needs_you` and `start_task` unless
+`enable_factory_apply`/`enable_factory_verify`/`enable_factory_start`, `reply_needs_you`, `merge_needs_you`, `set_task_skills` and `start_task` unless
 `TASKCELL_HUB_ALLOW_ADD=1`. `SIGINT`/`SIGTERM` close the listener, every connected SSE client,
 and the project file watchers.
 
@@ -702,6 +702,19 @@ that option's commands, and remembers the choice in the browser with the rest of
 An `export` line only takes effect for a hub started after it: the hub reads its environment at
 start. After exporting, restart the hub (or save the key in Settings → credentials, where that
 exists) and then press **Check again**.
+
+## Choosing skills
+
+Skills are picked automatically for a run. To make a task use specific ones, pick them in the hub:
+
+- **On the card.** Open a card on the Board (its quick view; a bottom drawer on a phone). The **Skills** section lists the installed skills as checkboxes; tick the ones the task must use and press **Save skills**. The hub writes them to the task itself, as a `Skills: a, b` line in the issue body (GitHub, GitLab or Linear), so a run started later from the hub, from CI or by `taskcell watch` uses them too. Unticking everything removes the line. The card then shows `skills: a, b`. The card must belong to the project's own task source (and, on Linear, its team). A GitLab issue whose description has a line starting with a quick action such as `/close` is refused; edit its `Skills:` line on GitLab instead.
+- **In the New Run form.** Under **Advanced**, the same checkboxes. Opened from a card, the card's skills are already ticked and appear in the command preview as `--skill <id>`; untick one and that run does not load it. What is ticked when you press **Run** is the run's whole hand-picked list. Opened without a card and with nothing ticked, the run reads the issue's own `Skills:` line.
+
+The list comes from the hub's `SKILLS_DIR` plus the project's `.github/vanguard-skills/`, and hub runs on every task source (GitHub, GitLab, Linear) load and check against that same set, so a skill the picker offers is one the run accepts. When the list cannot be read (a missing `SKILLS_DIR` directory, a `skills.lock.json` mismatch) the picker says why instead of showing nothing; fix the directory (see [skills.md](skills.md)) and reopen it. A skill that is ticked but not installed is marked "(not installed)"; a run with it is refused before any model call, with the installed names.
+
+A provider that cannot load skills still runs; the run shows a warning and its record carries the note. The same goes for a `Skills:` line in the issue that is not a list of skill ids: it is ignored, with a warning on the run.
+
+Calls: `list_skills` (`repoPath`; read-only, not audited) returns the installed ids; `set_task_skills` (`repoPath`, `taskId`, `skills`) writes the card's line as the hub's own tracker identity and is audited as `task-edit`. `api_create_run` takes `skills`; an id that is not installed is refused before the run's sandbox context is created.
 
 ## Hub board: tasks, dependencies and start dates
 
