@@ -49,6 +49,8 @@ export interface RunResult {
   durationMs?: number;
   /** Raw agent output (stream-json), persisted as the run transcript; omitted from run.json. */
   transcript?: string;
+  /** Host-parsed skill ids carried across folded attempts; persisted only to the stage metric. */
+  skillsUsed?: string[];
   /** Model actually used for the run: the provider-reported model, falling back to the configured one. */
   model?: string;
   /** The CLI's own classification of why the turn ended (e.g. 'success', 'error_max_turns'). See AgentRunOutput.stopReason. */

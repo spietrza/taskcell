@@ -1923,7 +1923,15 @@ describe('runRevisePullRequest — skills', () => {
         repoSlug: 'o/r',
         gh,
         _sandbox: sandbox,
-        _agent: agentThatCompletes([]),
+        // The transcript claims an installed skill and one that is not installed.
+        _agent: {
+          name: 'claude-code',
+          async *run(): AsyncGenerator<AgentTurn, AgentRunOutput, void> {
+            yield { text: 'applying fix' };
+            const call = (skill: string): object => ({ type: 'tool_use', name: 'Skill', input: { skill } });
+            return { finalText: 'done <promise>COMPLETE</promise>', turns: 1, transcript: JSON.stringify({ type: 'assistant', message: { content: [call('deploy'), call('forged')] } }) };
+          },
+        },
         _worktrees: new WorktreeManager(repo),
         _baseBranch: 'feature-branch',
         provider: 'claude',
@@ -1931,6 +1939,8 @@ describe('runRevisePullRequest — skills', () => {
         skillsDir: join(bundled, 'skills'),
       });
       expect(copied).toEqual(expect.arrayContaining(['/root/.claude/skills/code-review', '/root/.claude/skills/deploy']));
+      const metrics = (await readFile(join(repo, '.taskcell', 'runs', 'metrics.jsonl'), 'utf8')).trim().split('\n').map((l) => JSON.parse(l) as Record<string, unknown>);
+      expect(metrics.find((m) => m.stage === 'implementer')?.skillsUsed).toEqual(['deploy']);
     } finally {
       await rm(bundled, { recursive: true, force: true });
     }
