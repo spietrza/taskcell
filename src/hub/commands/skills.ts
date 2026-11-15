@@ -1,11 +1,11 @@
-// Hub commands: the skills of a repository (src/cli/skills.ts): status, usage, and PR-only changes. One module per feature —
+// Hub commands: the skills of a repository (src/core/skills.ts): status, usage, and PR-only changes. One module per feature —
 // contract, validation and handler live here; `pnpm gen:wire` derives Commands, COMMAND_NAMES and dispatch from it (see CONTRIBUTING.md).
 import { stat } from 'node:fs/promises';
 import { join } from 'node:path';
 import { assertMutationsAllowed } from '../allowlist.js';
 import { aggregateSkills } from '../../core/skill-stats.js';
 import { parseMetrics } from '../../core/stats.js';
-import { recordedMetrics, skillsAddPr, skillsChecked, skillsRemovePr, skillsUpdate } from '../../cli/skills.js';
+import { recordedMetrics, skillsAddPr, skillsChecked, skillsRemovePr, skillsUpdate, type SkillsPrResult } from '../../core/skills.js';
 import type { RepoSkill } from '../../wire.js';
 import { defineCommands, optionalString, requireString, repoItemTarget, repoTarget } from '../command-kit.js';
 import { safeUrl } from '../audit.js';
@@ -25,13 +25,10 @@ export interface SkillsCommands {
 
 const skillsDir = (repo: string): string => join(repo, 'skills');
 
-/** The PR URL the command printed; a run that opened none (nothing to change) is an error carrying its output. */
-async function prUrlOf(run: (out: (line: string) => void) => Promise<void>, what: string): Promise<{ prUrl: string }> {
-  const lines: string[] = [];
-  await run((line) => lines.push(line));
-  const opened = lines.map((l) => /^opened (\S+)$/.exec(l)?.[1]).find((u) => u !== undefined);
-  if (opened === undefined) throw new BadRequestError(`${what} opened no pull request: ${lines.join(' | ').slice(0, 500) || 'nothing to change'}`);
-  return { prUrl: opened };
+/** The PR the command opened; a run that opened none is an error carrying the command's report (why nothing moved). */
+function prUrlOf({ prUrl }: SkillsPrResult, what: string, lines: string[] = []): { prUrl: string } {
+  if (prUrl === undefined) throw new BadRequestError(`${what} opened no pull request: ${lines.join(' | ').slice(0, 500) || 'nothing to change'}`);
+  return { prUrl };
 }
 
 export const commands = defineCommands<SkillsCommands>({
@@ -60,7 +57,8 @@ export const commands = defineCommands<SkillsCommands>({
     const real = await allow(requireString(args, 'repoPath'));
     const name = requireString(args, 'name');
     // Always `--pr`, never a dry run: the skill is never updated without opening a PR.
-    return prUrlOf((out) => skillsUpdate({ dir: skillsDir(real), repo: real, name, dryRun: false, pr: true }, {}, out), 'The update');
+    const lines: string[] = [];
+    return prUrlOf(await skillsUpdate({ dir: skillsDir(real), repo: real, name, dryRun: false, pr: true }, {}, (line) => lines.push(line)), 'The update', lines);
   },
   add_skill_pr: async ({ ctx, args, caller, allow }) => {
     assertMutationsAllowed(ctx.bind);
@@ -71,7 +69,7 @@ export const commands = defineCommands<SkillsCommands>({
     const path = optionalString(args, 'path');
     const name = optionalString(args, 'name');
     return prUrlOf(
-      (out) => skillsAddPr({ dir: skillsDir(real), repo: real, source, ...(ref !== undefined ? { ref } : {}), ...(path !== undefined ? { path } : {}), ...(name !== undefined ? { name } : {}) }, {}, out),
+      await skillsAddPr({ dir: skillsDir(real), repo: real, source, ...(ref !== undefined ? { ref } : {}), ...(path !== undefined ? { path } : {}), ...(name !== undefined ? { name } : {}) }),
       'The add',
     );
   },
@@ -80,7 +78,7 @@ export const commands = defineCommands<SkillsCommands>({
     teams.assertOwner(caller);
     const real = await allow(requireString(args, 'repoPath'));
     const name = requireString(args, 'name');
-    return prUrlOf((out) => skillsRemovePr({ dir: skillsDir(real), repo: real, name }, {}, out), 'The remove');
+    return prUrlOf(await skillsRemovePr({ dir: skillsDir(real), repo: real, name }), 'The remove');
   },
 }, {
   update_skill_pr: { action: 'settings-change', target: repoItemTarget('name') },
