@@ -175,9 +175,9 @@ async function resumeWaiting(ctx: { opts: ResumeRateLimitedOptions; gh: GhRunner
         record('skipped', 'skip -> no trusted waiting marker naming an allowed trigger');
         continue;
       }
-      // Parked for a failed lookup: `watch` could not read a dependency, so re-triggering would only park it again.
-      if (park?.[2] !== undefined) {
-        record('skipped', `skip -> parked for a failed dependency lookup; re-apply "${trigger}" by hand once watch can read every dependency`);
+      // The lookup failed again right after an earlier resume: re-triggering would only park it again.
+      if (park?.[2] === 'error-repeat') {
+        record('skipped', `skip -> dependency lookup failed again after a resume; re-apply "${trigger}" by hand once watch can read every dependency`);
         continue;
       }
       const task = { id, title: view.title ?? '', description: view.body ?? '', labels, children: [], comments: [], ref: String(number) };

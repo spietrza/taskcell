@@ -4,6 +4,7 @@ import type { GhRunner } from '../tasks/github.js';
 
 const marker = '<!-- taskcell:waiting trigger="ready for agent" -->';
 const errorPark = '<!-- taskcell:waiting trigger="ready for agent" kind="error" -->';
+const repeatPark = '<!-- taskcell:waiting trigger="ready for agent" kind="error-repeat" -->';
 const bot = { author: { login: 'github-actions[bot]' }, authorAssociation: 'NONE', createdAt: '2030-01-01T00:00:00Z' };
 
 function setup(opts: { labels?: string[]; comments?: object[]; blocker?: object; body?: string; recheckLabels?: string[] } = {}) {
@@ -64,13 +65,18 @@ describe('resume of dependency-waiting issues', () => {
     };
     expect((await run(failing)).failed).toEqual(['o/r#7']);
   });
-  it('leaves an issue whose newest trusted park is for a failed lookup alone, so it cannot loop', async () => {
-    const { gh, calls } = setup({ comments: [{ ...bot, body: `waiting\n${marker}` }, { ...bot, createdAt: '2030-01-02T00:00:00Z', body: `lookup failed\n${errorPark}` }] });
+  it('resumes an issue parked for a transient failed lookup once the lookup works', async () => {
+    const { gh, calls } = setup({ comments: [{ ...bot, body: `lookup failed\n${errorPark}` }] });
+    expect((await run(gh)).resumed).toEqual(['o/r#7']);
+    expect(calls).toContain('issue edit 7 --repo o/r --add-label ready for agent');
+  });
+  it('leaves an issue whose lookup failed again after a resume alone, so it cannot loop', async () => {
+    const { gh, calls } = setup({ comments: [{ ...bot, body: `lookup failed\n${errorPark}` }, { ...bot, createdAt: '2030-01-02T00:00:00Z', body: `failed again\n${repeatPark}` }] });
     expect((await run(gh)).skipped).toEqual(['o/r#7']);
     expect(calls.some((c) => c.startsWith('issue edit') || c.startsWith('api'))).toBe(false);
   });
-  it('resumes again once a newer trusted park is not an error park', async () => {
-    const { gh } = setup({ comments: [{ ...bot, body: `lookup failed\n${errorPark}` }, { ...bot, createdAt: '2030-01-02T00:00:00Z', body: `waiting\n${marker}` }] });
+  it('resumes again once a newer trusted park is not a repeat park', async () => {
+    const { gh } = setup({ comments: [{ ...bot, body: `failed again\n${repeatPark}` }, { ...bot, createdAt: '2030-01-02T00:00:00Z', body: `waiting\n${marker}` }] });
     expect((await run(gh)).resumed).toEqual(['o/r#7']);
   });
   it('honours custom started labels', async () => {

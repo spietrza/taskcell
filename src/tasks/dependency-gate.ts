@@ -27,7 +27,9 @@ export type DependencyVerdict =
 /**
  * The escalation rule, the same on every source: only a real invalid dependency moves an issue to
  * needs-info. A failed lookup (an outage, a token that cannot read a cross-repo issue) is held and
- * re-checked, however many polls in a row it fails.
+ * re-checked, however many polls in a row it fails. (On GitHub a lookup that fails again right after
+ * the resume sweep re-triggered it is parked with `kind="error-repeat"`, which the sweep skips; it
+ * still does not go to needs-info.)
  */
 export const escalatesToNeedsInfo = (verdict: DependencyVerdict): boolean => verdict.status === 'invalid';
 

@@ -148,11 +148,13 @@ export async function checkDependencies(repo: string, task: Task, gh: GhRunner =
 
 /**
  * Hidden marker on the wait comment: names the label the resume sweep restores. `kind="error"` marks a
- * park for a failed lookup, which the sweep leaves alone until a human acts (it may read with a token
- * `watch` lacks, so re-triggering would only park the issue again, forever).
+ * park for a failed lookup, which the sweep resumes like any other park. `kind="error-repeat"` marks a
+ * lookup that failed again right after such a resume (the sweep may read with a token `watch` lacks):
+ * the sweep leaves that park alone until a human re-applies the trigger, so it cannot loop.
  */
-export const waitingMarker = (trigger: string, kind?: 'error'): string => `<!-- taskcell:waiting trigger="${trigger}"${kind === 'error' ? ' kind="error"' : ''} -->`;
-export const WAITING_MARKER_RE = /<!-- (?:taskcell|vanguard):waiting trigger="([^"]+)"( kind="error")? -->/;
+export type WaitingKind = 'error' | 'error-repeat';
+export const waitingMarker = (trigger: string, kind?: WaitingKind): string => `<!-- taskcell:waiting trigger="${trigger}"${kind !== undefined ? ` kind="${kind}"` : ''} -->`;
+export const WAITING_MARKER_RE = /<!-- (?:taskcell|vanguard):waiting trigger="([^"]+)"(?: kind="(error|error-repeat)")? -->/;
 
 export interface DependencyGateOptions {
   repo: string;
@@ -170,11 +172,11 @@ export interface DependencyGateOptions {
   overlap?: { check: (task: Task) => Promise<OverlapHold[]>; holdMs: number };
 }
 
-const ERROR_NOTE = (trigger: string): string =>
-  `The resume sweep does not re-apply \`${trigger}\` after a failed lookup: once the token \`watch\` runs with can read every dependency, re-apply it by hand.\n\n${waitingMarker(trigger, 'error')}`;
+const REPEAT_NOTE = (trigger: string): string =>
+  `The lookup failed again right after the resume sweep re-applied \`${trigger}\`, so the sweep leaves this issue alone now: once the token \`watch\` runs with can read every dependency, re-apply \`${trigger}\` by hand.\n\n${waitingMarker(trigger, 'error-repeat')}`;
 
-const RESUME_NOTE = (trigger: string): string =>
-  `The scheduled resume sweep (\`resume-rate-limited\`, e.g. taskcell-resume.yml) re-applies \`${trigger}\` and drops \`${GITHUB_WAITING_LABEL}\` once this is resolved; if no such sweep runs for this repo, re-apply the label by hand.\n\n${waitingMarker(trigger)}`;
+const RESUME_NOTE = (trigger: string, kind?: 'error'): string =>
+  `The scheduled resume sweep (\`resume-rate-limited\`, e.g. taskcell-resume.yml) re-applies \`${trigger}\` and drops \`${GITHUB_WAITING_LABEL}\` once this is resolved; if no such sweep runs for this repo, re-apply the label by hand.\n\n${waitingMarker(trigger, kind)}`;
 
 /** Trusted comment bodies on the issue, newest first (a marker is plain text anyone can paste). */
 async function trustedComments(repo: string, task: Task, gh: GhRunner): Promise<string[]> {
@@ -193,8 +195,11 @@ async function trustedComments(repo: string, task: Task, gh: GhRunner): Promise<
  * label is present or when the newest trusted comment already says the same); `resume-rate-limited`
  * swaps it back once the blockers are done. Only a real invalid dependency (a cycle, a missing
  * reference, a blocker closed without completing, a bad date) goes to needs-info; a failed lookup is
- * held however often it recurs. Ready issues leave the gate with a stale waiting label removed, so a
- * later sweep cannot start them a second time. Issues without dependencies pass through untouched.
+ * held however often it recurs. A lookup that fails again right after the sweep resumed an earlier
+ * failed lookup is parked with `kind="error-repeat"`, which the sweep skips (it may read with a token
+ * this run lacks, which would otherwise loop). Ready issues leave the gate with a stale waiting label
+ * removed, so a later sweep cannot start them a second time. Issues without dependencies pass through
+ * untouched.
  */
 export async function applyDependencyGate(tasks: Task[], opts: DependencyGateOptions): Promise<Task[]> {
   const gh = opts.gh ?? defaultGhRunner;
@@ -230,7 +235,10 @@ export async function applyDependencyGate(tasks: Task[], opts: DependencyGateOpt
         if (verdict.status === 'invalid') {
           await park(opts.needsInfoLabel, `Taskcell cannot start this issue: ${verdict.reason}. Fix it and re-apply \`${opts.trigger}\`.`, waitingBefore ? [GITHUB_WAITING_LABEL] : []);
         } else if (verdict.status === 'error') {
-          await park(GITHUB_WAITING_LABEL, waitingBefore ? undefined : `Taskcell could not check this issue's dependencies: ${verdict.reason}. It is labelled \`${GITHUB_WAITING_LABEL}\` and will not start until the check succeeds and its dependencies are met. ${ERROR_NOTE(opts.trigger)}`, []);
+          // Resumed from an earlier failed-lookup park and failing again: mark it so the sweep stops re-triggering it.
+          const repeat = WAITING_MARKER_RE.exec(comments[0] ?? '')?.[2] !== undefined;
+          const note = repeat ? REPEAT_NOTE(opts.trigger) : RESUME_NOTE(opts.trigger, 'error');
+          await park(GITHUB_WAITING_LABEL, waitingBefore ? undefined : `Taskcell could not check this issue's dependencies: ${verdict.reason}. It is labelled \`${GITHUB_WAITING_LABEL}\` and will not start until the check succeeds and its dependencies are met. ${note}`, []);
         } else if (verdict.status === 'waiting') {
           await park(GITHUB_WAITING_LABEL, waitingBefore ? undefined : `Taskcell will not start this issue yet: it ${waitingClause(verdict, refText)}. It is labelled \`${GITHUB_WAITING_LABEL}\`. ${RESUME_NOTE(opts.trigger)}`, []);
         }

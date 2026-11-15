@@ -162,8 +162,31 @@ describe('applyDependencyGate', () => {
     const calls = (gh as ReturnType<typeof vi.fn>).mock.calls.map((c) => (c[0] as string[]).join(' '));
     expect(calls.some((c) => c.includes('needs info'))).toBe(false);
     expect(calls.some((c) => c.includes('--add-label taskcell:waiting'))).toBe(true);
+    expect(calls.find((c) => c.startsWith('issue comment'))).toContain('<!-- taskcell:waiting trigger="ready for agent" kind="error-repeat" -->');
   });
-  it('marks the park for a failed lookup as an error park, which the resume sweep leaves alone', async () => {
+  it('does not mark a repeat while the issue is still labelled waiting (no resume happened)', async () => {
+    const marker = '<!-- taskcell:waiting trigger="ready for agent" kind="error" -->';
+    const gh = vi.fn(async (args: string[]) => {
+      if (args[0] === 'api') throw new Error('HTTP 403 SAML');
+      if (args[1] === 'view') return JSON.stringify({ comments: [{ author: { login: 'github-actions[bot]' }, authorAssociation: 'NONE', body: `x ${marker}` }] });
+      return '';
+    }) as unknown as GhRunner;
+    await applyDependencyGate([task(1, 'Depends on #2', ['ready for agent', 'taskcell:waiting'])], { repo: 'o/r', trigger: 'ready for agent', gh, log: vi.fn() });
+    const calls = (gh as ReturnType<typeof vi.fn>).mock.calls.map((c) => (c[0] as string[]).join(' '));
+    expect(calls.some((c) => c.startsWith('issue comment'))).toBe(false);
+  });
+  it('trusts only the bot for the earlier error park', async () => {
+    const marker = '<!-- taskcell:waiting trigger="ready for agent" kind="error" -->';
+    const gh = vi.fn(async (args: string[]) => {
+      if (args[0] === 'api') throw new Error('HTTP 403 SAML');
+      if (args[1] === 'view') return JSON.stringify({ comments: [{ author: { login: 'mallory' }, authorAssociation: 'NONE', body: `x ${marker}` }] });
+      return '';
+    }) as unknown as GhRunner;
+    await applyDependencyGate([task(1, 'Depends on #2')], { repo: 'o/r', trigger: 'ready for agent', gh, log: vi.fn() });
+    const comment = (gh as ReturnType<typeof vi.fn>).mock.calls.map((c) => (c[0] as string[]).join(' ')).find((c) => c.startsWith('issue comment'));
+    expect(comment).not.toContain('error-repeat');
+  });
+  it('marks the first park for a failed lookup as a resumable error park', async () => {
     const gh = vi.fn(async (args: string[]) => {
       if (args[0] === 'api') throw new Error('HTTP 403 SAML');
       if (args[0] === 'issue' && args[1] === 'view') return JSON.stringify({ comments: [] });
