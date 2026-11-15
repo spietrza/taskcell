@@ -526,7 +526,8 @@ async function writeRecord(repoPath: string, taskId: string, timestamp: string, 
     ...(opts.prUrl !== undefined ? { prUrl: opts.prUrl } : {}),
     // Parsed on the host from every folded attempt. A withheld transcript is unknown, so omit the
     // field; an available but unrecognised transcript is the known empty list. `verdict` feeds stats.
-    ...(diffOmitted === undefined
+    // No registry (`skills`/`skillIds` both absent) means the installed set is unknown: omit too.
+    ...(diffOmitted === undefined && (opts.skills !== undefined || opts.skillIds !== undefined)
       ? { skillsUsed: sanitizeSkillIds([...(priorSkillsUsed ?? []), ...parseSkillsUsed(transcript)], installedSkillIds).map((id) => redactForPublish(id, opts.secretValues)) }
       : {}),
     ...(review !== undefined ? { verdict: review.verdict } : {}),

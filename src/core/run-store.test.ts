@@ -96,7 +96,7 @@ describe('beginRun — writing', () => {
     expect((await metricOf()).skillsUsed).toEqual(['earlier', 'simplify']);
     await beginRun(repo, 'TES-S2', TS).writeStages([{ name: 'implementer', result: { ...result, transcript: 'unknown format' } }]);
     const plain = await metricOf();
-    expect(plain.skillsUsed).toEqual([]);
+    expect(plain).not.toHaveProperty('skillsUsed');
     expect(plain).not.toHaveProperty('verdict');
   });
 
