@@ -72,8 +72,9 @@ export async function renderHub() {
   }
   globalThis.IS_REACT_ACT_ENVIRONMENT = true;
 
+  // Production mode: import.meta.env.DEV is false, so dev-only markup (TailwindDebugScreens' viewport badge) stays out of the page.
   let scene;
-  const server = await createServer({ root: desktop, configFile: join(desktop, 'vite.config.ts'), server: { middlewareMode: true, hmr: false, watch: null }, appType: 'custom', logLevel: 'error', optimizeDeps: { noDiscovery: true } });
+  const server = await createServer({ mode: 'production', define: { 'import.meta.env.DEV': 'false', 'import.meta.env.PROD': 'true' }, root: desktop, configFile: join(desktop, 'vite.config.ts'), server: { middlewareMode: true, hmr: false, watch: null }, appType: 'custom', logLevel: 'error', optimizeDeps: { noDiscovery: true } });
   try {
     scene = await (await server.ssrLoadModule('/src/dev/landingScene.tsx')).renderHubScene();
   } finally {

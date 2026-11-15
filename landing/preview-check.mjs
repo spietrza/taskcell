@@ -10,6 +10,7 @@ const read = (p) => readFileSync(new URL(p, import.meta.url), 'utf8');
 const desktop = (p) => read(`../apps/desktop/src/${p}`);
 const pages = { en: read('./dist/index.html'), pl: read('./dist/pl/index.html') };
 const css = read('./dist/hub-app.css');
+const { JSDOM } = createRequire(fileURLToPath(new URL('../apps/desktop/package.json', import.meta.url)))('jsdom');
 const app = (html) => html.slice(html.indexOf('id="hub-app"'), html.indexOf('<ul class="hub-screens">'));
 
 // The app's names, from its own source.
@@ -38,6 +39,9 @@ for (const [lang, html] of Object.entries(pages)) {
   assert.doesNotMatch(hub, /cache\s*\d|cache %|Repositories|repair 1:|\bsealed in\b/i, `${lang}: only what the app shows`);
   assert.doesNotMatch(hub, /\bstyle="/, `${lang}: no inline style (the CSP forbids it)`);
   assert.doesNotMatch(hub, /<script/i, `${lang}: markup only`);
+  // Production render: no dev-only overlay (TailwindDebugScreens' viewport badge is `fixed`, and would pin to the visitor's viewport).
+  const fixed = [...hub.matchAll(/class="([^"]*)"/g)].filter((m) => m[1].split(/\s+/).includes('fixed'));
+  assert.deepEqual(fixed.map((m) => m[1]), [], `${lang}: no fixed (dev debug) element in the Hub section`);
   // The control and the sample label sit on the page; the app's own demo banner says it is sample data.
   assert.match(html, /id="hub-pause"[^>]*>(Play preview|Odtwórz podgląd)</);
   assert.match(hub, /Demo project — sample data, read-only/);
@@ -45,6 +49,19 @@ for (const [lang, html] of Object.entries(pages)) {
 assert.match(pages.en, /<button class="pause" id="hub-pause" type="button" hidden>Play preview<\/button>/);
 assert.match(read('./src/site.js'), /'Pause preview'/, 'the pause control reads "Pause preview"');
 assert.match(read('./dist/pl/site.js'), /'Pauza podglądu'/);
+// /pl/ stays Polish around the app's (English) markup: every English string the page itself writes in the Hub section, and
+// both pause controls' labels in site.js, have a pl.mjs pair.
+{
+  const { PL } = await import('./i18n/pl.mjs');
+  const english = [...PL['index.html'], ...PL['*.html']].map(([en]) => en);
+  const section = new JSDOM(read('./src/index.html')).window.document.getElementById('hub');
+  const walker = section.ownerDocument.createTreeWalker(section, 4 /* text */);
+  const strings = [];
+  for (let n = walker.nextNode(); n; n = walker.nextNode()) strings.push(n.textContent.trim());
+  for (const el of section.querySelectorAll('[aria-label], [title], [alt]')) strings.push(...['aria-label', 'title', 'alt'].map((a) => el.getAttribute(a)));
+  for (const s of strings.filter(Boolean)) assert.ok(english.some((en) => en.includes(s)), `pl.mjs: no pair for the Hub section's "${s}"`);
+  assert.doesNotMatch(read('./dist/pl/site.js'), /'(Play|Pause)( preview)?'/, 'pl: a pause control label is English');
+}
 assert.doesNotMatch(read('./src/hub-data.js') + read('./src/site.js'), /from 'react|react-dom/, 'no React on the page');
 
 // Theme follows the page: tokens live on the section, light by default and dark under the page's data-theme.
@@ -74,7 +91,6 @@ for (const [theme, t] of Object.entries({ light, dark })) {
 assert.notEqual(light.background, dark.background, 'two themes');
 
 // The animator, on the built page in jsdom: each step shows the stage line, column and counts the app would.
-const { JSDOM } = createRequire(fileURLToPath(new URL('../apps/desktop/package.json', import.meta.url)))('jsdom');
 const { hubAnimator, STEPS, COLUMN_AT } = await import('./src/hub-data.js');
 const dom = new JSDOM(pages.en);
 const root = dom.window.document.getElementById('hub-app');

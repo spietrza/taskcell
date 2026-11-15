@@ -101,6 +101,7 @@ const site = [
   ["await document.fonts.load('500 40px \"IBM Plex Mono\"')", "await document.fonts.load('500 40px \"IBM Plex Mono\"', 'aąęłśżź')"],
   ["b.textContent = 'Pause';", "b.textContent = 'Pauza';"],
   ["b.textContent = on ? 'Play' : 'Pause';", "b.textContent = on ? 'Odtwórz' : 'Pauza';"],
+  ["labels = ['Play', 'Pause']", "labels = ['Odtwórz', 'Pauza']"],
   ["['Play preview', 'Pause preview']", "['Odtwórz podgląd', 'Pauza podglądu']"],
   ["chipText.textContent = 'Following ' + info;", "chipText.textContent = 'Śledzisz ' + info;"],
   ["b.textContent = 'Copy';", "b.textContent = 'Kopiuj';"],
@@ -237,9 +238,11 @@ const index = [
   ['<dt>Verdict</dt>', '<dt>Werdykt</dt>'],
 
   // hub
+  ['data-reveal>The Hub</p>', 'data-reveal>Hub</p>'],
+  ['Your factory, on one screen', 'Twoja fabryka na jednym ekranie'],
   ['<code>taskcell hub</code> shows your projects, the Board with a card for every task, and each run with its stages, record and cost.', '<code>taskcell hub</code> pokazuje twoje projekty, tablicę (Board) z kartą dla każdego zadania i każdy run z jego etapami, zapisem i kosztem.'],
   ['Preview with sample data, drawn by the same components as the app. A card moves from Queued to Review while its drawer steps through Card, Spec, Sealed cell, Gates, Review and Pull request. Pause preview holds it.',
-    'Podgląd na przykładowych danych, rysowany tymi samymi komponentami co aplikacja (interfejs aplikacji jest po angielsku). Karta przechodzi z Queued do Review, a jej panel przechodzi przez etapy Card, Spec, Sealed cell, Gates, Review i Pull request. Pause preview zatrzymuje podgląd.'],
+    'Podgląd na przykładowych danych, rysowany tymi samymi komponentami co aplikacja (interfejs aplikacji jest po angielsku). Karta przechodzi z Queued do Review, a jej panel przechodzi przez etapy Card, Spec, Sealed cell, Gates, Review i Pull request. Pauza podglądu zatrzymuje podgląd.'],
   ['<span>Sample data</span><button class="pause" id="hub-pause" type="button" hidden>Play preview</button>', '<span>Przykładowe dane</span><button class="pause" id="hub-pause" type="button" hidden>Odtwórz podgląd</button>'],
   ['aria-label="The Taskcell Hub with sample data: the Board in six columns and the quick view of a card stepping through its stages"', 'aria-label="Taskcell Hub na przykładowych danych: Board w sześciu kolumnach i panel karty przechodzącej przez swoje etapy"'],
   ["<b>Board</b>Your tracker's issues as cards in six columns, with New Task and a count of what is running and waiting.",
