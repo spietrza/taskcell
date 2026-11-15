@@ -323,6 +323,11 @@
       <a href="https://github.com/spietrza/taskcell#security">Security model</a>
       <a href="https://github.com/spietrza/taskcell/blob/main/docs/security/owasp-mapping.md">OWASP mapping</a>
     </div>
+    <ul class="chips scores" aria-label="Independent security scores">
+      <li class="chip"><a href="https://scorecard.dev/viewer/?uri=github.com/spietrza/taskcell">OpenSSF Scorecard <b data-score="scorecard">6.8</b>/10</a></li>
+      <li class="chip"><a href="https://www.bestpractices.dev/projects/16734">OpenSSF Best Practices: <b data-score="bestpractices">passing</b></a></li>
+      <li class="chip"><a href="https://developer.mozilla.org/en-US/observatory/analyze?host=taskcell.dev">Mozilla Observatory <b data-score="observatory">A+</b></a></li>
+    </ul>
   </div>
 </section>
 
@@ -341,6 +346,10 @@ pnpm install &amp;&amp; pnpm build
 docker/build.sh       <span class="c"># the sandbox image</span>
 pnpm link --global    <span class="c"># puts taskcell on your PATH</span></code></pre>
     <p>Also needed: <code>gh</code> for GitHub, <code>glab</code> for GitLab or the <code>linear</code> CLI for Linear.</p>
+    <p class="cmd-label">Or let your agent set it up</p>
+<pre class="cmd"><code>Set up Taskcell for me: https://github.com/spietrza/taskcell
+Follow the setup-taskcell skill: https://taskcell.dev/.well-known/agent-skills/setup-taskcell/SKILL.md</code></pre>
+    <p>Paste it into Claude Code, Codex or another coding agent. It asks where your code and tasks are, runs each step and checks it, and stops for what only you can do: tokens, OAuth apps, DNS.</p>
   </div>
 
   <ul class="ways">

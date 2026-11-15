@@ -4,6 +4,7 @@ import { RepoPicker } from './RepoPicker';
 import type { DirListing } from './taskcell-output';
 
 vi.mock('./ipc', () => ({ browseDirs: vi.fn() }));
+vi.mock('./transport', () => ({ subscribe: vi.fn().mockResolvedValue(() => {}) }));
 import { browseDirs } from './ipc';
 const mockBrowseDirs = vi.mocked(browseDirs);
 
@@ -36,6 +37,25 @@ beforeEach(() => {
 afterEach(() => vi.unstubAllGlobals());
 
 describe('RepoPicker', () => {
+  test('a failed first listing is shown, with the folder tabs kept', async () => {
+    mockBrowseDirs.mockRejectedValue(new Error('browse is disabled'));
+    render(<RepoPicker onAdd={vi.fn()} onClone={vi.fn()} onClose={() => {}} />);
+    expect(await screen.findByRole('alert')).toHaveTextContent('Could not open that folder: browse is disabled');
+    expect(screen.getByRole('tab', { name: /existing folder/i })).toBeInTheDocument();
+  });
+
+  test('a hub admin (browse refused as owner-only) gets a clone-only dialog that clones with no parent folder', async () => {
+    mockBrowseDirs.mockRejectedValue(new Error('only the hub owner can do this'));
+    const onClone = vi.fn().mockResolvedValue(undefined);
+    render(<RepoPicker onAdd={vi.fn()} onClone={onClone} onClose={() => {}} />);
+    const url = await screen.findByLabelText('Repository URL');
+    expect(screen.queryByRole('tab', { name: /existing folder/i })).not.toBeInTheDocument();
+    expect(screen.queryByLabelText('Folder path')).not.toBeInTheDocument();
+    fireEvent.change(url, { target: { value: 'https://github.com/o/r' } });
+    fireEvent.click(screen.getByRole('button', { name: /clone & add/i }));
+    await vi.waitFor(() => expect(onClone).toHaveBeenCalledWith('https://github.com/o/r', '', undefined));
+  });
+
   test('T-96 badges render per entry, and Add is disabled until a git-repo row is entered', async () => {
     install();
     const onAdd = vi.fn().mockResolvedValue(undefined);

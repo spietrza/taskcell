@@ -629,7 +629,7 @@ export default function App() {
             offerStarter(list.find((p) => p.path === path));
           }}
           onClone={async (url, parentDir, name) => {
-            const project = await cloneProject(url, parentDir, name);
+            const project = await cloneProject(url, parentDir, name, team?.id);
             setProjects((prev) => [...prev, project]);
             await adoptProject(project.path);
             setShowRepoPicker(false);

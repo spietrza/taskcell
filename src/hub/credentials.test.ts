@@ -586,3 +586,21 @@ describe('createHubServer migration wiring', () => {
     }
   });
 });
+
+describe('hub admins by sign-in identity', () => {
+  const user = (over: Record<string, unknown>) => ({ id: 'u1', email: 'a@x.com', name: 'A', ...over });
+  it('matches github/gitlab logins, and e-mail or domain only when verified', async () => {
+    const svc = createCredentialService(await dir(), ['Octo'], undefined, ['gitlab:alice', 'bob@example.com', '@corp.com']);
+    expect(svc.isAdmin(user({ login: 'gitlab:Alice' }))).toBe(true);
+    expect(svc.isAdmin(user({ login: 'github:octo' }))).toBe(true); // --admin-github-login
+    expect(svc.isAdmin(user({ login: 'gitlab:octo' }))).toBe(false);
+    expect(svc.isAdmin(user({ login: 'github:alice' }))).toBe(false);
+    expect(svc.isAdmin(user({ email: 'bob@example.com', emailVerified: true }))).toBe(true);
+    expect(svc.isAdmin(user({ email: 'bob@example.com', emailVerified: false }))).toBe(false);
+    expect(svc.isAdmin(user({ email: 'c@corp.com', emailVerified: true }))).toBe(true);
+    expect(svc.isAdmin(user({ email: 'c@corp.com' }))).toBe(false);
+    expect(svc.isAdmin(undefined)).toBe(false);
+    expect(() => svc.assertManager(user({ login: 'gitlab:alice' }), false)).not.toThrow();
+    expect(() => svc.assertManager(user({ login: 'gitlab:mallory' }), false)).toThrow('hub admin');
+  });
+});

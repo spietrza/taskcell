@@ -46,7 +46,7 @@ services:
   # Optional external-PR review loop. It is disabled by default; start it with:
   #   docker compose --profile pr-review up -d vanguard-watch-prs
   # Preflight it first with:
-  #   docker compose --profile pr-review run --rm vanguard-watch-prs doctor-prs --github-repo=OWNER/REPO --label="ready for vanguard review" --repo=/work/repo
+  #   docker compose --profile pr-review run --rm vanguard-watch-prs doctor-prs --github-repo=OWNER/REPO --label="ready for taskcell review" --repo=/work/repo
   vanguard-watch-prs:
     profiles: ["pr-review"]
     image: vanguard-runner:latest
@@ -67,7 +67,7 @@ services:
     command:
       - watch-prs
       - --github-repo=OWNER/REPO
-      - --label=ready for vanguard review
+      - --label=ready for taskcell review
       - --repo=/work/repo
       - --interval=120
       - --llm-proxy

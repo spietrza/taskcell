@@ -34,6 +34,8 @@ export function RepoPicker({
   // hub that predates it) the flag of the row that was clicked to get here.
   const [currentIsGit, setCurrentIsGit] = useState(false);
   const [typedPath, setTypedPath] = useState('');
+  // The hub refused the first listing: a signed-in hub admin may clone (into the hub's own folder) but not browse its disk.
+  const [cloneOnly, setCloneOnly] = useState(false);
 
   const [url, setUrl] = useState('');
   const [folderName, setFolderName] = useState('');
@@ -47,6 +49,12 @@ export function RepoPicker({
       setCurrentIsGit(next.isGitRepo ?? isGitRepo);
       setError(null);
     } catch (err) {
+      // Only a hub admin's refusal (browsing is the token holder's) leaves clone-only; any other failure is shown.
+      if (path === undefined && listing === null && /only the hub owner/.test(errorMessage(err))) {
+        setCloneOnly(true);
+        setMode('clone');
+        return;
+      }
       setError(`Could not open that folder: ${errorMessage(err)}`);
     }
   };
@@ -86,12 +94,12 @@ export function RepoPicker({
   };
 
   const clone = async (): Promise<void> => {
-    if (!listing || url.trim() === '') return;
+    if ((!listing && !cloneOnly) || url.trim() === '') return;
     setError(null);
     setProgress([]);
     setCloning(true);
     try {
-      await onClone(url.trim(), listing.path, folderName.trim() || undefined);
+      await onClone(url.trim(), listing?.path ?? '', folderName.trim() || undefined);
     } catch (err) {
       setError(`Clone failed: ${errorMessage(err)} — check the URL and that you have access, then try again.`);
     } finally {
@@ -123,7 +131,7 @@ export function RepoPicker({
           setError(null); // an error belongs to the tab it happened on
         }} className="flex flex-col">
           <Tabs.List className="shrink-0 px-3 pt-2">
-            <Tabs.Tab value="existing">Existing folder</Tabs.Tab>
+            {!cloneOnly && <Tabs.Tab value="existing">Existing folder</Tabs.Tab>}
             <Tabs.Tab value="clone">Clone repository</Tabs.Tab>
             <Tabs.Indicator />
           </Tabs.List>
@@ -149,19 +157,19 @@ export function RepoPicker({
           )}
 
           <div className="flex items-center gap-2 border-b border-border px-3 py-2">
-            <Button
+            {!cloneOnly && <Button
               variant="text"
               aria-label="Parent directory"
               disabled={!listing?.parent || cloning}
               onClick={() => navigate(listing?.parent)}
             >
               <ArrowUp className="size-4" />
-            </Button>
+            </Button>}
             <span className="truncate text-sm text-muted-foreground">
-              {mode === 'clone' ? `Clone into: ${listing?.path ?? 'Loading…'}` : listing?.path ?? 'Loading…'}
+              {cloneOnly ? 'Cloned into the hub’s own folder' : `${mode === 'clone' ? 'Clone into: ' : ''}${listing?.path ?? 'Loading…'}`}
             </span>
           </div>
-          <form
+          {!cloneOnly && <form
             className="flex items-center gap-2 border-b border-border px-3 py-2"
             onSubmit={(e) => {
               e.preventDefault();
@@ -178,7 +186,7 @@ export function RepoPicker({
             <Button type="submit" variant="text" disabled={typedPath.trim() === '' || cloning}>
               Go
             </Button>
-          </form>
+          </form>}
           <div className="max-h-80 overflow-auto p-1">
             {error && <div role="alert" className="px-3 py-2 text-sm text-destructive-text">{error}</div>}
             {listing?.entries.map((entry) => (
@@ -230,7 +238,7 @@ export function RepoPicker({
                 {alreadyAdded ? 'Already added' : 'Add this repo'}
               </Button>
             ) : (
-              <Button onClick={clone} disabled={!listing || url.trim() === '' || cloning || cloneProblem !== null}>
+              <Button onClick={clone} disabled={(!listing && !cloneOnly) || url.trim() === '' || cloning || cloneProblem !== null}>
                 {cloning ? 'Cloning…' : 'Clone & add'}
               </Button>
             )}
