@@ -63,6 +63,8 @@ export interface HubServerOptions {
   /** GitHub logins allowed to see/change the per-user-credentials switch and the instance
    * credentials (`--admin-github-login`), matched against the signed-in user's GitHub login. */
   adminGithubLogins?: readonly string[];
+  /** Hub admins by sign-in identity (`TASKCELL_HUB_ADMINS`): sign-up allowlist entry syntax. */
+  hubAdmins?: readonly string[];
   /** Overrides who an authenticated request acts as. Default: the owner (token, or local mode) is the
    * shared `token` admin identity; any other signed-in user is a non-admin under their e-mail until
    * roles land (#841). */
@@ -380,8 +382,10 @@ async function handleRequest(
     // (and the events cookie they buy) see everything.
     let visible: ((data: unknown) => boolean) | undefined;
     if (user !== undefined && !tokenValid) {
-      const roots = await callerRepoRoots(ctx.configDir, { user, owner: false });
+      const roots = await callerRepoRoots(ctx.configDir, { user, owner: false, hubAdmin: ctx.userCredentials?.isAdmin(user) === true });
       visible = (data) => {
+        // A clone's progress names no repository yet: it goes to whoever started it.
+        if ((data as { cloneBy?: unknown } | null)?.cloneBy === user.id) return true;
         const p = eventRepoPath(data, runRepos);
         return p !== undefined && repoInRoots(roots, p);
       };
@@ -397,7 +401,7 @@ async function handleRequest(
     if (user === undefined) return unauthorized();
     // The caller's identity rides on a per-request context: credential RPCs act on THIS user only. The
     // token holder is the owner (admin of every team); a session user is limited to their teams.
-    await handleRpcRequest({ ...ctx, user, actor: actorOf(user) }, req, res, pathname.slice('/rpc/'.length), { user, owner: tokenValid });
+    await handleRpcRequest({ ...ctx, user, actor: actorOf(user) }, req, res, pathname.slice('/rpc/'.length), { user, owner: tokenValid, hubAdmin: !tokenValid && ctx.userCredentials?.isAdmin(user) === true });
     return;
   }
 
@@ -461,7 +465,7 @@ export function createHubServer(opts: HubServerOptions): HubServer {
     return eventBus.publish(name, payload);
   };
   const hubSecret = opts.hubSecret ?? readEnv('TASKCELL_HUB_SECRET');
-  const userCredentials = createCredentialService(opts.configDir, opts.adminGithubLogins, hubSecret);
+  const userCredentials = createCredentialService(opts.configDir, opts.adminGithubLogins, hubSecret, opts.hubAdmins);
   const completeRegistry = new CompleteRegistry(opts.spawnComplete, undefined, undefined, () => userCredentials.childEnv('claude'));
   if (opts.fleet === true && !opts.bind.isLoopback) throw new Error('fleet requires a loopback bind');
   const spawnRegistry = opts.fleet === true ? new SpawnRegistry(publish) : undefined;
@@ -502,7 +506,9 @@ export function createHubServer(opts: HubServerOptions): HubServer {
     ? undefined
     : async (c: Caller): Promise<Caller | undefined> => {
       const user = await userById(c.user.id);
-      return user === undefined ? undefined : { user, owner: c.owner && user.id === identity.owner.id };
+      if (user === undefined) return undefined;
+      const owner = c.owner && user.id === identity.owner.id;
+      return { user, owner, hubAdmin: !owner && userCredentials.isAdmin(user) };
     };
   const sweepHubTasks = async (): Promise<void> => {
     await sweepHubBoards({

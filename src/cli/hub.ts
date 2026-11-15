@@ -104,6 +104,9 @@ export async function hubCommand(command: Extract<Command, { kind: 'hub' }>): Pr
     ...parseHostList(readEnv('TASKCELL_HUB_ADMIN_GITHUB_LOGINS')),
   ];
 
+  const hubAdmins = parseHostList(readEnv('TASKCELL_HUB_ADMINS'));
+  parseSignupAllowlist(hubAdmins, 'TASKCELL_HUB_ADMINS'); // an invalid entry stops the start
+
   const isLoopback = LOOPBACK_HOSTS.includes(command.host);
   // Server mode = sign-in required: any non-loopback bind, or a loopback bind behind a same-host
   // reverse proxy that sets TASKCELL_HUB_SERVER_MODE=1. Only a plain loopback bind is local mode.
@@ -162,6 +165,7 @@ export async function hubCommand(command: Extract<Command, { kind: 'hub' }>): Pr
     uiDir,
     allowedHosts,
     adminGithubLogins,
+    hubAdmins,
     fleet,
     demo,
     configDir,
