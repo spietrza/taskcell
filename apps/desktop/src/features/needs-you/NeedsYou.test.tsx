@@ -1,12 +1,10 @@
 import { test, expect, afterEach, vi } from 'vitest';
 import { render, screen, fireEvent } from '@testing-library/react';
-import { clearMocks } from '@tauri-apps/api/mocks';
 import { needsYouItems } from '../../dev/fixtures';
 import type { NeedsYouItem } from '../../wire';
 import { NeedsYou } from './NeedsYou';
 
 afterEach(() => {
-  clearMocks();
   vi.unstubAllGlobals();
   delete window.__TASKCELL_HUB__;
 });

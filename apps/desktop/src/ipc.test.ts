@@ -1,16 +1,16 @@
-import { test, expect, afterEach } from 'vitest';
-import { mockIPC, clearMocks } from '@tauri-apps/api/mocks';
+import { test, expect, afterEach, vi } from 'vitest';
+import { mockRpc } from './testRpc';
 import { apiCapabilitiesCached, apiListFlows, apiReadFlow, apiWriteFlow, browseDirs, importRemoteRun, listProjects, listRuns, listRunsAll, readRun } from './ipc';
 import type { RunSummary } from './taskcell-output';
 
-afterEach(() => clearMocks());
+afterEach(() => vi.unstubAllGlobals());
 
 test('listRuns forwards camelCase repoPath and returns typed summaries', async () => {
   const captured: Record<string, unknown> = {};
   const sample: RunSummary[] = [
     { taskId: 'task-7', timestamp: '2026-07-06T19:12:02.123Z', stages: ['implement'], totalCostUsd: 0.12, anyFailed: false },
   ];
-  mockIPC((cmd, args) => {
+  mockRpc((cmd, args) => {
     Object.assign(captured, { cmd, args });
     return sample;
   });
@@ -22,7 +22,7 @@ test('listRuns forwards camelCase repoPath and returns typed summaries', async (
 
 test('readRun forwards repoPath and the ref flattened into taskId, timestamp and source', async () => {
   const captured: Record<string, unknown> = {};
-  mockIPC((cmd, args) => {
+  mockRpc((cmd, args) => {
     Object.assign(captured, { cmd, args });
     return { taskId: 't', timestamp: 'ts', stages: [] };
   });
@@ -36,7 +36,7 @@ test('readRun forwards repoPath and the ref flattened into taskId, timestamp and
 
 test('flow-file wrappers forward camelCase args to their commands (S5)', async () => {
   const calls: { cmd: unknown; args: unknown }[] = [];
-  mockIPC((cmd, args) => {
+  mockRpc((cmd, args) => {
     calls.push({ cmd, args });
     if (cmd === 'api_list_flows') return { flows: [] };
     if (cmd === 'api_read_flow') return { doc: { name: 'f', label: 'L', stages: [], loops: [] }, source: 's' };
@@ -53,7 +53,7 @@ test('flow-file wrappers forward camelCase args to their commands (S5)', async (
 
 test('T-95 browseDirs and importRemoteRun call the right command names with camelCase args', async () => {
   const calls: { cmd: unknown; args: unknown }[] = [];
-  mockIPC((cmd, args) => {
+  mockRpc((cmd, args) => {
     calls.push({ cmd, args });
     if (cmd === 'browse_dirs') return { path: '/repo', entries: [] };
     return { runId: 42, taskIds: [], runs: [], cachedAt: 'now' };
@@ -66,7 +66,7 @@ test('T-95 browseDirs and importRemoteRun call the right command names with came
 
 test('apiCapabilitiesCached does not pin a rejected promise — a transient failure recovers on the next call', async () => {
   let fail = true;
-  mockIPC((cmd) => {
+  mockRpc((cmd) => {
     if (cmd !== 'api_capabilities') return undefined;
     if (fail) throw new Error('sidecar briefly unavailable');
     return { providers: ['claude'], flows: [], stages: [], transports: [], defaults: { provider: 'claude', maxTurns: 30, maxCostUsd: 5, baseBranch: 'main' } };
@@ -78,7 +78,7 @@ test('apiCapabilitiesCached does not pin a rejected promise — a transient fail
 
 test('the hub list wrappers send the selected team id, and nothing without one', async () => {
   const calls: { cmd: unknown; args: unknown }[] = [];
-  mockIPC((cmd, args) => {
+  mockRpc((cmd, args) => {
     calls.push({ cmd, args });
     return cmd === 'list_projects' ? [] : { runs: [], failures: [] };
   });

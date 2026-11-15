@@ -107,6 +107,8 @@ export function CredentialsPanel() {
   const [instanceNames, setInstanceNames] = useState<string[]>([]);
   const [instanceReason, setInstanceReason] = useState<string | undefined>();
   const [error, setError] = useState<string | undefined>();
+  // A failed policy change keeps the panel (and its retry) on screen; a failed load or refresh replaces it.
+  const [policyError, setPolicyError] = useState<string | undefined>();
 
   const refresh = useCallback(async (): Promise<void> => {
     try {
@@ -141,7 +143,8 @@ export function CredentialsPanel() {
               value={policy}
               onChange={(e) => {
                 const next = e.target.value as CredentialPolicy;
-                void setCredentialPolicy(next).then(refresh, (err) => setError(String(err)));
+                setPolicyError(undefined);
+                void setCredentialPolicy(next).then(refresh, (err) => setPolicyError(String(err)));
               }}
             >
               {(Object.keys(POLICY_LABELS) as CredentialPolicy[]).map((p) => (
@@ -150,6 +153,7 @@ export function CredentialsPanel() {
                 </option>
               ))}
             </select>
+            {policyError !== undefined && <span role="alert" className="block text-xs text-destructive-text">{policyError} — pick the option again to retry.</span>}
           </label>
           <CredentialEditor
             title="Instance credentials"

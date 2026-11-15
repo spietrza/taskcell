@@ -7,7 +7,6 @@ import { TranscriptView } from './TranscriptView';
 import { SpecPane } from './SpecPane';
 import { AppliedLessons } from '../lessons/Lessons';
 import { ExternalLink, hostName } from '../../components/ExternalLink';
-import { isHubMode } from '../../transport';
 import type { RunDetail as RunDetailT } from '../../taskcell-output';
 
 export function RunDetail({ detail, project }: { detail: RunDetailT; project: string }) {
@@ -43,7 +42,7 @@ export function RunDetail({ detail, project }: { detail: RunDetailT; project: st
             Gate config changed: <code className="rounded bg-muted px-1 py-0.5">{configPaths.join(', ')}</code>
           </div>
         )}
-        {isHubMode() && credentialSource !== undefined && (
+        {credentialSource !== undefined && (
           <div className="text-sm text-muted-foreground">
             Funded by the {credentialSource === 'user' ? "starter's own credential" : 'instance credential or hub environment'}
           </div>

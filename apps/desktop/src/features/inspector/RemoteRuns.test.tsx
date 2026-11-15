@@ -1,19 +1,17 @@
 import { test, expect, afterEach, vi } from 'vitest';
 import { render, screen, fireEvent, within } from '@testing-library/react';
-import { clearMocks } from '@tauri-apps/api/mocks';
-import { install } from '../../dev/mockBackend';
 import { remoteImport, remoteRuns, runs } from '../../dev/fixtures';
 import { RemoteRuns } from './RemoteRuns';
 import { NO_REMOTE_MESSAGE } from '../../wire';
 
 afterEach(() => {
-  clearMocks();
   vi.unstubAllGlobals();
   delete window.__TASKCELL_HUB__;
+  delete window.__TASKCELL_MOCK__;
 });
 
 test('Fetch records imports the artifact, expands the row, and opens a record by its CI source', async () => {
-  install();
+  window.__TASKCELL_MOCK__ = true;
   const onOpenRun = vi.fn();
   render(<RemoteRuns project="/repo" onOpenRun={onOpenRun} />);
 
@@ -84,7 +82,7 @@ test('an imported record stopped by a provider limit is not shown as failed', as
   runs[0]!.anyFailed = true;
   runs[0]!.stoppedBy = 'provider-limit';
   try {
-    install();
+    window.__TASKCELL_MOCK__ = true;
     render(<RemoteRuns project="/repo" onOpenRun={vi.fn()} />);
     fireEvent.click(await screen.findByRole('button', { name: /fetch records/i }));
     const row = (await screen.findByText(runs[0]!.taskId)).closest('button');

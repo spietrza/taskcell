@@ -36,7 +36,7 @@ export function useAsync<T>(fn: () => Promise<T>, deps: unknown[]): AsyncState<T
  * Load a project's AppConfig into editable local state; reloads when the project changes.
  * `status` (S6 guard a/b): consumers that WRITE the config (Settings) must gate Save on 'ready' —
  * a save while 'loading' would write the {} seed over the file, and 'error' means the file exists
- * but does not parse (Rust read_strict), where a save would replace the user's hand-edited JSON.
+ * but does not parse (the hub's strict read), where a save would replace the user's hand-edited JSON.
  * Read-only consumers may ignore it (they just see defaults).
  */
 export function useAppConfig(
