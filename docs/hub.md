@@ -504,12 +504,12 @@ Replies and merges are a remote mutation, gated like `clone_project`: loopback o
 
 ## Paused by a provider limit
 
-When a run ends on a provider usage or rate limit, the issue gets `taskcell:rate-limited` (or the older `vanguard:rate-limited`) and a comment carrying a hidden `taskcell-rate-limited until=<ISO time> trigger="…"` marker; the scheduled `resume-rate-limited` retries it after that time. The Board's `list_tasks` / `list_tasks_all` read this from labels and the marker comment only (no model call) and return `paused: { reason: 'provider-limit', until?, trigger? }` on the card. The time comes from the newest marker written by the factory's own login (the hub's `gh` user, the CI identity, configured bot logins); a marker from anyone else is ignored. At most 30 paused cards per list read their comments; the others show as paused without a time.
+When a run ends on a provider usage or rate limit, the issue or pull request gets `taskcell:rate-limited` (or the older `vanguard:rate-limited`) and a comment or review carrying a hidden `taskcell-rate-limited until=<ISO time> trigger="…"` marker; the scheduled `resume-rate-limited` retries it after that time. The Board's `list_tasks` / `list_tasks_all` read this from labels and the marker only (no model call) and return `paused: { reason: 'provider-limit', until?, trigger? }` on the card. The time comes from the newest valid marker written by the hub's `gh` user or Taskcell's GitHub Actions identity; a marker from anyone else is ignored. One `list_tasks` or `list_tasks_all` call reads markers for at most 30 paused cards in total, shared across repositories; the others still show as paused without a time.
 
-- **Card and quick view / task detail:** "Paused: provider limit", with "retries automatically after HH:MM" in local time ("soon" once that time has passed; no time when the marker is missing).
+- **Card and quick view / task detail:** "Paused: provider limit", with "retries automatically after HH:MM" in local time (the date is included when it is not today; "soon" once that time has passed; no time when the marker is missing).
 - **Banner:** on the Board and on Home, one banner when at least one task of the shown repositories is paused: how many, the latest retry time, and what you can do (wait, or add credit / switch the model in Settings). No banner when none is paused.
-- **Retry now:** `retry_paused_task` (`{ repoPath, number }`) removes the rate-limited label and re-applies the marker's recorded trigger, as the comment describes. It has Start's rules: loopback only unless `TASKCELL_HUB_ALLOW_ADD=1`, GitHub issues only, refused for a closed or already-started issue; it also refuses an issue that is not paused, one with no marker from the factory, and a trigger that is not one of the project's. It is audited as `task-retry`.
-- **Runs:** a run that ended on a provider limit shows "stopped: provider limit" instead of "failed" (`stoppedBy` on the run summary). Only the structured `stoppedBy` flag the run wrote on its own stage record counts (set where the run caught the provider-limit error it parks the task on); the final text is agent prose and is never matched, so a stage that merely mentions a limit stays "failed".
+- **Retry now:** `retry_paused_task` (`{ repoPath, number }`) ensures the recorded trigger exists, removes any stale trigger, adds the trigger, and only then removes the rate-limited label. A failed write leaves the hold in place and returns the reason. It has Start's rules: loopback only unless `TASKCELL_HUB_ALLOW_ADD=1`, GitHub issues only, refused for a closed or already-started issue; it also refuses an issue that is not paused, one with no marker from the factory, and a trigger that is not one of the project's. It is audited as `task-retry`.
+- **Runs:** a run that ended on a provider limit shows "stopped: provider limit" instead of "failed" (`stoppedBy` on the run summary), including local, imported and metrics-branch CI rows. The flag is written from a typed provider/usage-cap signal at the point the stage stops; final text and crash diagnostics are never matched. If any failed stage in the same run lacks that flag, the run remains failed. Provider-limit stops do not enter the Failed / Needs you filters or project failure count.
 
 The views work at phone width (the quick view is a bottom drawer).
 
@@ -656,7 +656,7 @@ taskcell hub rotate-token --token-file <path>
 A missing or unbuilt `--ui-dir` fails at startup, naming `pnpm --dir apps/desktop build`
 (run `pnpm build:ui`) rather than failing on the first request. Binding a non-loopback host
 requires sign-in (warning at startup if no provider or allowlist is configured) and disables `add_project`/`browse_dirs`/`clone_project`,
-`enable_factory_apply`/`enable_factory_verify`/`enable_factory_start`, `reply_needs_you`, `merge_needs_you` and `start_task` unless
+`enable_factory_apply`/`enable_factory_verify`/`enable_factory_start`, `reply_needs_you`, `merge_needs_you`, `start_task` and `retry_paused_task` unless
 `TASKCELL_HUB_ALLOW_ADD=1`. `SIGINT`/`SIGTERM` close the listener, every connected SSE client,
 and the project file watchers.
 

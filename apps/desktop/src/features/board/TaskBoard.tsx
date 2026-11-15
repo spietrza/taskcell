@@ -74,10 +74,11 @@ export function TaskBoard({
   /** Opens `project`'s Settings, for the "no task source yet" hint. */
   onOpenSettings?: () => void;
 }) {
+  const [refreshNonce, setRefreshNonce] = useState(0);
   const { data, error, loading } = useAsync(
     (): Promise<BoardList> =>
       allRepos ? listTasksAll(teamId).then((l) => ({ ...l, tasks: inRepos(l.tasks, repos), failures: inRepos(l.failures, repos) })) : listTasks(project).then((r) => ({ ...r, failures: [] })),
-    [project, allRepos, teamId, repos.join('\n')],
+    [project, allRepos, teamId, repos.join('\n'), refreshNonce],
   );
   const approver = useApproverDecisions(project, !allRepos);
   const allTasks = data?.tasks;
@@ -281,6 +282,10 @@ export function TaskBoard({
           task={selected}
           project={project}
           onClose={close}
+          onRetried={() => {
+            setSelected(null);
+            setRefreshNonce((nonce) => nonce + 1);
+          }}
           onFullPage={() => onOpenTask(selected.id, selected.repoPath)}
         />
       )}

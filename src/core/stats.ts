@@ -14,6 +14,7 @@ export interface MetricRecord {
   /** Agent calls folded into the stage (resumes/repairs); absent = 1. */
   attempts?: number;
   firstExitReason?: string;
+  stoppedBy?: 'provider-limit';
   costUsd: number;
   inputTokens: number;
   outputTokens: number;
@@ -106,6 +107,7 @@ export function parseMetrics(text: string): MetricRecord[] {
       ...(typeof parsed.exitReason === 'string' ? { exitReason: parsed.exitReason } : {}),
       ...(typeof parsed.attempts === 'number' ? { attempts: parsed.attempts } : {}),
       ...(typeof parsed.firstExitReason === 'string' ? { firstExitReason: parsed.firstExitReason } : {}),
+      ...(parsed.stoppedBy === 'provider-limit' ? { stoppedBy: parsed.stoppedBy } : {}),
       ...(typeof parsed.prUrl === 'string' ? { prUrl: parsed.prUrl } : {}),
       ...(typeof parsed.lessonsLoaded === 'number' ? { lessonsLoaded: parsed.lessonsLoaded } : {}),
       ...(Array.isArray(parsed.lessonIds) ? { lessonIds: parsed.lessonIds.filter((x): x is string => typeof x === 'string') } : {}),

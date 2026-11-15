@@ -15,7 +15,7 @@ import { prepareContext, disposeContext } from '../core/taskcell.js';
 import { probeTaskDifficulty, decisionProbeConfig } from '../core/decision-probe.js';
 import { decisionModelConfig, decisionEgressAllowed, decisionModelMissing, DECISION_MODEL_DEFAULT, type DecisionModelConfig } from '../core/decision-model.js';
 import { TaskcellError } from '../core/errors.js';
-import { isRateLimitHold } from '../core/rate-limit-marker.js';
+import { isStructuredProviderLimit } from '../core/rate-limit-marker.js';
 import { decisionDiffScorer } from '../evals/decision-judge.js';
 import { runStages, assembleReviewPipeline, withPrimaryFallback, sandboxComplete, withStageMaxTurns, withStageResumeUntilComplete, reviewFinalDiff, STAGE } from '../pipeline/pipeline.js';
 import { FLOWS } from '../api/capabilities.js';
@@ -518,6 +518,8 @@ export async function runSourcedIssue(
       });
     };
     let markerWrites = Promise.resolve();
+    let activeStage = 'run';
+    let persistProviderStop: (() => Promise<void>) | undefined;
     try {
       const turnScoped = deps.maxTurns !== undefined ? withStageMaxTurns(baseStages, deps.maxTurns) : baseStages;
       // --max-repair-iterations also drives auto-resume of an incomplete implementer (not just the gate
@@ -580,6 +582,7 @@ export async function runSourcedIssue(
         ...(deps.startedBy !== undefined ? { startedBy: deps.startedBy } : {}),
       });
       const onEvent = (event: RunEvent): void => {
+        if (event.type === 'stage-start') activeStage = event.name;
         markerWrites = markerWrites.then(async () => {
           if (event.type === 'stage-start') {
             await writeStageMarker(deps.repoPath, {
@@ -591,6 +594,25 @@ export async function runSourcedIssue(
           }
         }).catch(() => undefined);
         deps.onEvent?.(event);
+      };
+      persistProviderStop = async (): Promise<void> => {
+        const stopped: StageOutcome = {
+          name: activeStage,
+          result: {
+            taskId: task.id,
+            completed: false,
+            exitReason: 'error',
+            turns: 0,
+            worktreePath: ctx.worktreePath,
+            worktreePreserved: true,
+            finalText: 'The provider stopped this stage because its usage or rate limit was reached.',
+            stoppedBy: 'provider-limit',
+          },
+        };
+        const recorded = outcomes.some((outcome) => outcome.name === activeStage && !outcome.result.completed)
+          ? outcomes
+          : [...outcomes, stopped];
+        await writer.writeStages(recorded.length > 0 ? recorded : [stopped], stageMeta());
       };
       onEvent({
         type: 'run-start',
@@ -837,7 +859,7 @@ export async function runSourcedIssue(
             worktreePath: ctx.worktreePath,
             worktreePreserved: true,
             finalText: `Review unavailable: ${redactForPublish(String(error))}`,
-            ...(isRateLimitHold(error) ? { stoppedBy: 'provider-limit' as const } : {}),
+            ...(isStructuredProviderLimit(error) ? { stoppedBy: 'provider-limit' as const } : {}),
           };
         }
         // Appended, never swapped in over the first review: both reviews' cost and turns stay in the
@@ -981,6 +1003,9 @@ export async function runSourcedIssue(
       onEvent({ type: 'run-end', prUrl: pr.prUrl });
       return { task, prUrl: pr.prUrl };
     } catch (error) {
+      if (isStructuredProviderLimit(error)) {
+        await persistProviderStop?.();
+      }
       await stepSummary('error', { error: String(error) });
       throw error;
     } finally {

@@ -51,12 +51,14 @@ export function QuickView({
   project,
   onClose,
   onFullPage,
+  onRetried,
   ref,
 }: {
   task: QuickTask;
   project: string;
   onClose: () => void;
   onFullPage: () => void;
+  onRetried: () => void;
   ref?: Ref<HTMLElement>;
 }) {
   const repoPath = task.repoPath ?? project;
@@ -142,7 +144,7 @@ export function QuickView({
       </div>
 
       <div className="flex min-h-0 flex-1 flex-col gap-4 overflow-y-auto p-3">
-        <PausedPanel repoPath={repoPath} task={task} />
+        <PausedPanel repoPath={repoPath} task={task} onRetried={onRetried} />
         {needsYouError && <div className="text-xs text-muted-foreground">Could not check whether this card waits for you.</div>}
         {item !== null && (
           <div className="space-y-2">

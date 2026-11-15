@@ -7,6 +7,12 @@ import { canUseNeedsYou } from '../needs-you/NeedsYou';
 import type { BoardTask, PausedState } from '../../wire';
 
 const clock = (ms: number): string => new Date(ms).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
+const day = (ms: number): string => new Date(ms).toLocaleDateString([], { month: 'short', day: 'numeric' });
+const sameLocalDay = (a: number, b: number): boolean => {
+  const x = new Date(a);
+  const y = new Date(b);
+  return x.getFullYear() === y.getFullYear() && x.getMonth() === y.getMonth() && x.getDate() === y.getDate();
+};
 
 /** When the scheduled resume retries, in local time: "after HH:MM", "soon" once that time has passed, nothing when the marker is missing. */
 export function retryWords(paused: PausedState, now: number = Date.now()): string | undefined {
@@ -14,7 +20,7 @@ export function retryWords(paused: PausedState, now: number = Date.now()): strin
   return Number.isNaN(ms) ? undefined : whenWords(ms, now);
 }
 
-const whenWords = (ms: number, now: number): string => (ms <= now ? 'soon' : `after ${clock(ms)}`);
+const whenWords = (ms: number, now: number): string => (ms <= now ? 'soon' : `after ${sameLocalDay(ms, now) ? '' : `${day(ms)}, `}${clock(ms)}`);
 
 /** "retries automatically after 18:30", or just "retries automatically" without a time. */
 export function retryLine(paused: PausedState, now?: number): string {
@@ -115,6 +121,7 @@ export function PausedPanel({ repoPath, task, onRetried }: { repoPath: string; t
 
 /** The full-page detail has only the task id: read its card to show the paused state. */
 export function TaskDetailPaused({ project, taskId }: { project: string; taskId: string }) {
-  const { data } = useAsync(async (): Promise<BoardTask | undefined> => (canUseNeedsYou() ? (await listTasks(project).catch(() => ({ tasks: [] as BoardTask[] }))).tasks.find((t) => t.id === taskId) : undefined), [project, taskId]);
-  return data == null ? null : <PausedPanel repoPath={project} task={data} />;
+  const [nonce, setNonce] = useState(0);
+  const { data } = useAsync(async (): Promise<BoardTask | undefined> => (canUseNeedsYou() ? (await listTasks(project).catch(() => ({ tasks: [] as BoardTask[] }))).tasks.find((t) => t.id === taskId) : undefined), [project, taskId, nonce]);
+  return data == null ? null : <PausedPanel repoPath={project} task={data} onRetried={() => setNonce((n) => n + 1)} />;
 }

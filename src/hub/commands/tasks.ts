@@ -6,7 +6,7 @@ import { BASE_LABEL_PREFIX, assertAllowedBase, assertSafeBaseBranch, readAllowed
 import { readAppConfig } from '../app-config.js';
 import * as projects from '../projects.js';
 import { startGithubTask, triggerLabelsFor } from '../start-task.js';
-import { retryPausedTask, withPausedTimes } from '../paused.js';
+import { markerReadBudget, retryPausedTask, withPausedTasks, type MarkerReadBudget } from '../paused.js';
 import type { BoardTask, CreatedTask, RepoReadFailure, RepoStamp, RetryPausedResult, StartTaskResult } from '../../wire.js';
 import { defineCommands, requireString, optionalString, optionalNumber, githubSlug, repoTarget, assertHasRemote } from '../command-kit.js';
 
@@ -25,10 +25,9 @@ export interface TasksCommands {
 }
 
 /** Fill the retry time of paused cards from the factory's marker comment (GitHub only; costs nothing when none is paused). */
-async function withPaused(real: string, tasks: BoardTask[]): Promise<BoardTask[]> {
-  if (!tasks.some((t) => t.paused !== undefined)) return tasks;
+async function withPaused(real: string, tasks: BoardTask[], budget: MarkerReadBudget): Promise<BoardTask[]> {
   const slug = await githubSlug(real);
-  return slug === undefined ? tasks : withPausedTimes(slug, tasks);
+  return slug === undefined ? tasks : withPausedTasks(slug, tasks, undefined, budget);
 }
 
 /** GitHub's cap on a label name. */
@@ -44,17 +43,18 @@ export const commands = defineCommands<TasksCommands>({
   list_tasks: async ({ ctx, args, allow }) => {
     const real = await allow(requireString(args, 'repoPath'));
     const r = (await invokeCoreMethod(ctx.deps, 'listTasks', { repoPath: real })) as { tasks: BoardTask[]; capped: boolean };
-    return { ...r, tasks: await withPaused(real, r.tasks) };
+    return { ...r, tasks: await withPaused(real, r.tasks, markerReadBudget()) };
   },
   list_tasks_all: async ({ ctx, allow, scope }) => {
     let capped = false;
+    const budget = markerReadBudget();
     const { items, failures } = await projects.listAcrossProjects(
       ctx.configDir,
       allow,
       async (real) => {
         const r = (await invokeCoreMethod(ctx.deps, 'listTasks', { repoPath: real })) as { tasks: BoardTask[]; capped: boolean };
         capped ||= r.capped;
-        return withPaused(real, r.tasks);
+        return withPaused(real, r.tasks, budget);
       },
       await scope(),
     );

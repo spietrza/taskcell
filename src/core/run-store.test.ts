@@ -536,6 +536,17 @@ describe('beginRun → listRuns/readRun round trip', () => {
     expect(byId.get('TES-3')!.stoppedBy).toBeUndefined();
   });
 
+  it('keeps a run failed when one failed stage is genuine and another stopped on a provider limit', async () => {
+    const failed = { ...result, taskId: 'TES-MIXED', completed: false, exitReason: 'error' as const, finalText: 'tests failed' };
+    const limited = { ...failed, finalText: 'provider stopped', stoppedBy: 'provider-limit' as const };
+    await beginRun(repo, 'TES-MIXED', TS).writeStages([
+      { name: 'implementer', result: failed },
+      { name: 'reviewer', result: limited },
+    ]);
+    expect((await listRuns(runsRoot(repo))).find((run) => run.taskId === 'TES-MIXED')).toMatchObject({ anyFailed: true });
+    expect((await listRuns(runsRoot(repo))).find((run) => run.taskId === 'TES-MIXED')?.stoppedBy).toBeUndefined();
+  });
+
   it('agent prose quoting a limit stays a plain failure: only the recorded flag counts', async () => {
     const prose = [
       'added handling for `rate_limit_error` and a test for HTTP 429; still to do: the retry banner',

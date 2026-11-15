@@ -88,7 +88,7 @@ export async function aggregate(repoPath: string, now: Date = new Date()): Promi
     tasks.add(s.taskId);
     totalCostUsd += s.totalCostUsd;
     if (s.source === 'ci') ciRunCount += 1;
-    if (s.anyFailed) {
+    if (s.anyFailed && s.stoppedBy === undefined) {
       failedCount += 1;
     }
     if (lastRun === undefined || s.timestamp > lastRun) {

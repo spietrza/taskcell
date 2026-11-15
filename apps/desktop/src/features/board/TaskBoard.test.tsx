@@ -1,5 +1,5 @@
-import { describe, expect, test, vi } from 'vitest';
-import { fireEvent, render, screen, within } from '@testing-library/react';
+import { afterEach, beforeEach, describe, expect, test, vi } from 'vitest';
+import { fireEvent, render, screen, waitFor, within } from '@testing-library/react';
 import { TaskBoard } from './TaskBoard';
 import type { BoardTask } from '../../wire';
 
@@ -9,9 +9,13 @@ vi.mock('../../ipc', () => ({
   listRuns: vi.fn().mockResolvedValue([]),
   readRun: vi.fn(),
   listNeedsYou: vi.fn().mockResolvedValue({ items: [] }),
+  retryPausedTask: vi.fn().mockResolvedValue({ label: 'ready for agent' }),
 }));
-import { listTasks, listTasksAll } from '../../ipc';
+import { listTasks, listTasksAll, retryPausedTask } from '../../ipc';
 const mockListTasks = vi.mocked(listTasks);
+
+beforeEach(() => vi.clearAllMocks());
+afterEach(() => vi.useRealTimers());
 
 // A lane is the column container carrying `rounded-xl`; scope queries to it so a task asserted
 // "in Running" really renders under Running, not just somewhere on the board.
@@ -299,6 +303,19 @@ describe('TaskBoard paused by a provider limit', () => {
     mockListTasks.mockResolvedValue({ tasks: TASKS, capped: false });
     render(<TaskBoard project="/repo" repos={[]} onOpenTask={() => {}} onNewTask={() => {}} />);
     await screen.findByText('Queued one');
+    expect(screen.queryByRole('status')).toBeNull();
+    expect(screen.queryByText('Paused: provider limit')).toBeNull();
+  });
+
+  test('Retry now refreshes the card and banner', async () => {
+    mockListTasks
+      .mockResolvedValueOnce({ tasks: [paused('gh-7')], capped: false })
+      .mockResolvedValueOnce({ tasks: [{ id: 'gh-7', title: 'Paused gh-7', column: 'queued', state: 'ready for agent' }], capped: false });
+    render(<TaskBoard project="/repo" repos={[]} onOpenTask={() => {}} onNewTask={() => {}} />);
+    fireEvent.click(await screen.findByText('Paused gh-7'));
+    fireEvent.click(await screen.findByRole('button', { name: 'Retry now' }));
+    await waitFor(() => expect(retryPausedTask).toHaveBeenCalledWith('/repo', 7));
+    await waitFor(() => expect(mockListTasks).toHaveBeenCalledTimes(2));
     expect(screen.queryByRole('status')).toBeNull();
     expect(screen.queryByText('Paused: provider limit')).toBeNull();
   });

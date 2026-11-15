@@ -5,26 +5,48 @@ import { defaultGhRunner } from '../tasks/github.js';
 import type { GhRunner } from '../tasks/github.js';
 import { BadRequestError } from '../sidecar/sidecar.js';
 import { GITHUB_CLAIMED_LABEL, GITHUB_RATE_LIMITED_LABEL, GITHUB_REVIEW_LABEL, GITHUB_RESEARCHING_LABEL, GITHUB_SPEC_CLAIMED_LABEL } from '../github-labels.js';
-import { latestRateLimitedMarker } from '../core/rate-limit-marker.js';
+import { parseRateLimitedMarker } from '../core/rate-limit-marker.js';
 import type { RateLimitedMarker } from '../core/rate-limit-marker.js';
-import { sameLabel } from '../core/labels.js';
-import { assertRepoSlug, ensureLabel, ownLogins } from './needs-you.js';
+import { hasLabel, sameLabel } from '../core/labels.js';
+import { failureReason } from '../core/errors.js';
+import { httpsUrl } from '../core/links.js';
+import { columnFor, isTriggerLabel } from '../tasks/board.js';
+import { assertRepoSlug, ownLogins } from './needs-you.js';
 import type { BoardTask, PausedState, RetryPausedResult } from '../wire.js';
 
 /** Only this many paused cards cost a `gh` comment read; the rest still show as paused, without a time. */
-const MAX_MARKER_READS = 30;
+export const MAX_MARKER_READS = 30;
 const MARKER_READ_CONCURRENCY = 4;
+
+/** Shared by every repository in one list call, so the all-repositories view cannot multiply the cap. */
+export interface MarkerReadBudget {
+  remaining: number;
+}
+
+export const markerReadBudget = (): MarkerReadBudget => ({ remaining: MAX_MARKER_READS });
 
 interface GhCommentLite {
   body?: string | null;
   author?: { login?: string } | null;
+  createdAt?: string | null;
+  submittedAt?: string | null;
 }
 
 /** The newest marker written by the factory's own login on issue/PR `number`; anyone else's is ignored. */
 export async function ownRateLimitMarker(repoSlug: string, kind: 'issue' | 'pr', number: number, own: ReadonlySet<string>, gh: GhRunner): Promise<RateLimitedMarker | undefined> {
-  const out = await gh([kind, 'view', String(number), '--repo', repoSlug, '--json', 'comments']);
-  const comments = (JSON.parse(out) as { comments?: GhCommentLite[] }).comments ?? [];
-  return latestRateLimitedMarker(comments.filter((c) => own.has((c.author?.login ?? '').toLowerCase())).map((c) => c.body ?? ''));
+  const fields = kind === 'pr' ? 'comments,reviews' : 'comments';
+  const out = await gh([kind, 'view', String(number), '--repo', repoSlug, '--json', fields]);
+  const parsed = JSON.parse(out) as { comments?: GhCommentLite[]; reviews?: GhCommentLite[] };
+  const entries = [...(parsed.comments ?? []), ...(kind === 'pr' ? (parsed.reviews ?? []) : [])]
+    .flatMap((entry) => {
+      if (!own.has((entry.author?.login ?? '').toLowerCase())) return [];
+      const at = Date.parse(entry.createdAt ?? entry.submittedAt ?? '');
+      if (Number.isNaN(at)) return [];
+      const marker = parseRateLimitedMarker(entry.body ?? '');
+      return marker === undefined ? [] : [{ at, marker }];
+    })
+    .sort((a, b) => b.at - a.at);
+  return entries[0]?.marker;
 }
 
 export const pausedFrom = (marker: RateLimitedMarker | undefined): PausedState => ({
@@ -32,27 +54,64 @@ export const pausedFrom = (marker: RateLimitedMarker | undefined): PausedState =
   ...(marker !== undefined ? { until: marker.until.toISOString(), trigger: marker.trigger } : {}),
 });
 
-const numberOf = (id: string): number | undefined => {
-  const m = /^gh-(\d+)$/.exec(id);
-  return m ? Number(m[1]) : undefined;
+const refOf = (id: string): { kind: 'issue' | 'pr'; number: number } | undefined => {
+  const issue = /^gh-(\d+)$/.exec(id);
+  if (issue !== null) return { kind: 'issue', number: Number(issue[1]) };
+  const pr = /^gh-pr-(\d+)$/.exec(id);
+  return pr === null ? undefined : { kind: 'pr', number: Number(pr[1]) };
 };
 
 /** Fill `until`/`trigger` on every paused card from the factory's marker. A failed read leaves the card paused without a time. */
-export async function withPausedTimes<T extends BoardTask>(repoSlug: string, tasks: T[], gh: GhRunner = defaultGhRunner): Promise<T[]> {
-  const paused = tasks.filter((t) => t.paused !== undefined).slice(0, MAX_MARKER_READS);
+export async function withPausedTimes<T extends BoardTask>(repoSlug: string, tasks: T[], gh: GhRunner = defaultGhRunner, budget: MarkerReadBudget = markerReadBudget()): Promise<T[]> {
+  const fetches = Math.min(tasks.filter((t) => t.paused !== undefined).length, budget.remaining);
+  const paused = tasks.filter((t) => t.paused !== undefined).slice(0, fetches);
   if (paused.length === 0) return tasks;
+  budget.remaining -= paused.length;
   const own = await ownLogins(gh, []);
   const found = new Map<T, PausedState>();
   for (let i = 0; i < paused.length; i += MARKER_READ_CONCURRENCY) {
     await Promise.all(
       paused.slice(i, i + MARKER_READ_CONCURRENCY).map(async (t) => {
-        const n = numberOf(t.id);
-        if (n === undefined) return;
-        found.set(t, pausedFrom(await ownRateLimitMarker(repoSlug, 'issue', n, own, gh).catch(() => undefined)));
+        const ref = refOf(t.id);
+        if (ref === undefined) return;
+        found.set(t, pausedFrom(await ownRateLimitMarker(repoSlug, ref.kind, ref.number, own, gh).catch(() => undefined)));
       }),
     );
   }
   return tasks.map((t) => (found.has(t) ? { ...t, paused: found.get(t)! } : t));
+}
+
+interface GhPrLite {
+  number: number;
+  title: string;
+  url?: string;
+  labels?: Array<{ name: string }>;
+}
+
+/** Open GitHub pull requests parked by a provider limit, which `gh issue list` does not return. */
+export async function pausedPullRequests(repoSlug: string, gh: GhRunner = defaultGhRunner): Promise<BoardTask[]> {
+  const out = await gh(['pr', 'list', '--repo', repoSlug, '--state', 'open', '--limit', '100', '--json', 'number,title,url,labels']);
+  return (JSON.parse(out) as GhPrLite[]).flatMap((pr) => {
+    const labels = (pr.labels ?? []).map((label) => label.name);
+    if (!hasLabel(labels, GITHUB_RATE_LIMITED_LABEL)) return [];
+    const url = httpsUrl(pr.url);
+    return [{
+      id: `gh-pr-${pr.number}`,
+      title: pr.title,
+      column: columnFor(labels.join(' ')),
+      state: labels[0] ?? 'open',
+      source: 'github' as const,
+      paused: { reason: 'provider-limit' as const },
+      ...(url !== undefined ? { url } : {}),
+    }];
+  });
+}
+
+/** Add paused PR cards, then fill marker times for paused issues and PRs under one shared budget. */
+export async function withPausedTasks(repoSlug: string, tasks: BoardTask[], gh: GhRunner = defaultGhRunner, budget: MarkerReadBudget = markerReadBudget()): Promise<BoardTask[]> {
+  const prs = await pausedPullRequests(repoSlug, gh).catch(() => []);
+  const ids = new Set(tasks.map((task) => task.id));
+  return withPausedTimes(repoSlug, [...tasks, ...prs.filter((pr) => !ids.has(pr.id))], gh, budget);
 }
 
 /** Labels meaning the factory already took the issue (as start-task.ts). */
@@ -81,11 +140,21 @@ export async function retryPausedTask(repoSlug: string, number: number, triggerL
   if (trigger === undefined) throw new BadRequestError(`"${marker.trigger}" is not a trigger label of this project (${triggerLabels.join(', ')}); nothing was changed.`);
 
   const edit = (flag: string, l: string): Promise<string> => gh(['issue', 'edit', n, '--repo', repoSlug, flag, l]);
-  // Hold first (as resume-rate-limited): once it is gone no sweep fires the same marker twice. Then drop and re-add the
-  // trigger: GitHub sends no `labeled` event for a label the issue already has.
-  for (const h of held) await edit('--remove-label', h);
-  for (const stale of names.filter((x) => triggerLabels.some((t) => t.toLowerCase() === x.toLowerCase()))) await edit('--remove-label', stale);
-  await ensureLabel(repoSlug, trigger, gh);
-  await edit('--add-label', trigger);
+  try {
+    // Establish the label before touching the issue. Unlike the shared best-effort helper, every
+    // read/create failure surfaces: the hold must remain the durable state until the trigger lands.
+    const repoLabels = (JSON.parse(await gh(['label', 'list', '--repo', repoSlug, '--limit', '1000', '--json', 'name'])) as Array<{ name: string }>).map((label) => label.name);
+    if (!repoLabels.some((label) => label.toLowerCase() === trigger.toLowerCase())) {
+      await gh(['label', 'create', trigger, '--repo', repoSlug]);
+    }
+    // GitHub sends no `labeled` event for a label already present. Remove any stale trigger while the
+    // hold is still on, add the recorded trigger, and only then release the provider-limit hold.
+    const stale = names.filter((name) => triggerLabels.some((candidate) => candidate.toLowerCase() === name.toLowerCase()) || isTriggerLabel(name));
+    for (const label of stale) await edit('--remove-label', label);
+    await edit('--add-label', trigger);
+    for (const hold of held) await edit('--remove-label', hold);
+  } catch (error) {
+    throw new BadRequestError(`#${n} stays paused: ${failureReason(error)}`);
+  }
   return { label: trigger };
 }

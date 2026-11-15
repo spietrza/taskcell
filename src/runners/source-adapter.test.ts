@@ -5,7 +5,7 @@ import { mkdir, mkdtemp, writeFile, rm } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { startProviderProxies } from '../sandbox/llm-proxy.js';
-import { AgentError } from '../core/errors.js';
+import { AgentError, ProviderLimitError } from '../core/errors.js';
 import { resolveVerifyCommand, runVerification } from '../pipeline/verify.js';
 import { resolveBaselineVerify } from '../pipeline/baseline-verify.js';
 import { resolveAndRunVisualProof } from '../pipeline/visual-proof.js';
@@ -1122,9 +1122,25 @@ describe('runSourcedIssue', () => {
       await runSourcedIssue('group/project#1', { repoPath: '/repo' }, adapter);
       return vi.mocked(adapter.publishVerdict).mock.calls.at(-1)?.[0]?.reviewerOutcome?.result ?? {};
     };
-    expect((await rereviewOf(new AgentError("You've hit your session limit · resets 9pm (UTC)"))).stoppedBy).toBe('provider-limit');
+    expect((await rereviewOf(new ProviderLimitError("You've hit your session limit · resets 9pm (UTC)"))).stoppedBy).toBe('provider-limit');
     expect((await rereviewOf(new AgentError('crashed after adding handling for usage limit reached'))).stoppedBy).toBeUndefined();
+    expect((await rereviewOf(new AgentError('process crashed; stdout tail: rate_limit_error status code 429'))).stoppedBy).toBeUndefined();
     consoleError.mockRestore();
+  });
+
+  it('persists a stopped stage when a typed provider limit aborts the run', async () => {
+    runStages.mockImplementationOnce(async (_ctx: unknown, _stages: unknown, opts: { onEvent: (event: RunEvent) => void }) => {
+      opts.onEvent({ type: 'stage-start', name: 'implementer', index: 0, of: 2 });
+      throw new ProviderLimitError('structured provider refusal');
+    });
+    await expect(runSourcedIssue('group/project#1', { repoPath: '/repo' }, fakeAdapter([], STAGES))).rejects.toThrow('structured provider refusal');
+    const persisted = writeStages.mock.calls.at(-1) as unknown as [StageOutcome[]] | undefined;
+    expect(persisted?.[0]).toEqual([
+      expect.objectContaining({
+        name: 'implementer',
+        result: expect.objectContaining({ completed: false, stoppedBy: 'provider-limit' }),
+      }),
+    ]);
   });
 
   it('a red base branch stops the run before implementing, signalling the issue instead of opening a PR (#2024)', async () => {

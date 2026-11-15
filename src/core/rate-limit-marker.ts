@@ -4,7 +4,7 @@
  * it back up to hours later, long after the run's own process and logs are gone.
  */
 
-import { AgentError, isRateLimitError, rateLimitResetDelayMs } from './errors.js';
+import { AgentError, ProviderLimitError, isRateLimitError, rateLimitResetDelayMs } from './errors.js';
 import { UsageCapError, usageCapMessage } from './usage-cap.js';
 
 const RESET_RELATIVE_RE = /try again in\s+(\d+)\s*(h|hr|hrs|hour|hours|m|min|mins|minute|minutes|s|sec|secs|second|seconds)\b/i;
@@ -46,15 +46,18 @@ export function rateLimitedMarker(until: Date, trigger: string): string {
   return `<!-- taskcell-rate-limited until=${until.toISOString()} trigger="${trigger}" -->`;
 }
 
-const RATE_LIMITED_MARKER_RE = /<!--\s*(?:taskcell|vanguard)-rate-limited\s+until=(\S+)\s+trigger="([^"]*)"\s*-->/;
+const RATE_LIMITED_MARKER_RE = /<!--\s*(?:taskcell|vanguard)-rate-limited\s+until=(\S+)\s+trigger="([^"]*)"\s*-->/g;
 
 /** Parse a single rate-limited marker out of a comment body, or undefined when absent or malformed. */
 export function parseRateLimitedMarker(body: string): RateLimitedMarker | undefined {
-  const match = RATE_LIMITED_MARKER_RE.exec(body);
-  if (match === null) return undefined;
-  const until = new Date(match[1]!);
-  if (Number.isNaN(until.getTime())) return undefined;
-  return { until, trigger: match[2]! };
+  let found: RateLimitedMarker | undefined;
+  for (const match of body.matchAll(RATE_LIMITED_MARKER_RE)) {
+    const until = new Date(match[1]!);
+    const trigger = match[2]!.trim();
+    if (Number.isNaN(until.getTime()) || trigger === '' || trigger.length > 50 || /[\r\n]/.test(trigger)) continue;
+    found = { until, trigger };
+  }
+  return found;
 }
 
 /** The newest marker among comment bodies in chronological (oldest-first) order, as `gh` lists them. */
@@ -80,6 +83,11 @@ export function rateLimitedComment(until: Date, trigger: string): string {
 /** True for a failure that parks the task for `resume-rate-limited`: a provider 429 or our own usage cap. */
 export function isRateLimitHold(error: unknown): error is AgentError {
   return error instanceof AgentError && (error instanceof UsageCapError || isRateLimitError(error));
+}
+
+/** A limit the run may persist: typed at the provider/usage-cap boundary, never inferred from prose. */
+export function isStructuredProviderLimit(error: unknown): error is ProviderLimitError | UsageCapError {
+  return error instanceof ProviderLimitError || error instanceof UsageCapError;
 }
 
 /** Comment posted when a stage was not started because its provider is at the user's usage cap. */

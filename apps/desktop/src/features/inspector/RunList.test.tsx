@@ -129,4 +129,6 @@ test('a run stopped by a provider limit is labelled as such, not as a plain fail
   const runs: RunSummary[] = [{ taskId: 'task-9', timestamp: '2026-07-06T19:12:02.123Z', stages: ['implement'], totalCostUsd: 0.1, anyFailed: true, stoppedBy: 'provider-limit' }];
   render(<RunList runs={runs} active={[]} onSelect={noop} onOpenActive={noop} />);
   expect(screen.getByText('stopped: provider limit')).toBeInTheDocument();
+  fireEvent.click(screen.getByRole('button', { name: 'failed' }));
+  expect(screen.queryByText('task-9')).toBeNull();
 });
