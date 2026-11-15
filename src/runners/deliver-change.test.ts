@@ -1,5 +1,5 @@
 import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
-import { mkdtemp, rm, writeFile, mkdir } from 'node:fs/promises';
+import { mkdtemp, readFile, rm, writeFile, mkdir } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { execa } from 'execa';
@@ -53,6 +53,12 @@ async function withWork(content: string | undefined, run: (ctx: Awaited<ReturnTy
     await disposeContext(ctx);
   }
 }
+
+/** gh gets the PR body as a file that is gone after the call: record it inline as `--body`. */
+const withBody = async (file: string, a: string[]): Promise<string[]> => {
+  const i = a.indexOf('--body-file');
+  return file === 'gh' && i >= 0 ? [...a.slice(0, i), '--body', await readFile(a[i + 1]!, 'utf8'), ...a.slice(i + 2)] : a;
+};
 
 describe('deliverChange', () => {
   it('local-branch: commits on the run branch and pushes nothing; the branch outlives the worktree', async () => {
@@ -199,7 +205,7 @@ describe('deliverChange', () => {
           draft: true,
           body: ({ commitLeaks }) => `Part of #7\n\nleaks=${commitLeaks.length}`,
           runner: async (file, a) => {
-            calls.push([file, ...a]);
+            calls.push([file, ...(await withBody(file, a))]);
             if (file === 'gh') return 'https://github.com/o/r/pull/9';
             // Only the branch-head read after the push rebase reports the rewritten commit.
             if (a[0] === 'rev-parse' && String(a[1]).startsWith('refs/heads/')) return 'rebasedhead';
@@ -237,7 +243,7 @@ describe('deliverChange', () => {
             scope: credential,
             body: () => `body ${credential}`,
             runner: async (file, a) => {
-              calls.push([file, ...a]);
+              calls.push([file, ...(await withBody(file, a))]);
               return file === 'gh' ? 'https://github.com/o/r/pull/9' : '';
             },
           },

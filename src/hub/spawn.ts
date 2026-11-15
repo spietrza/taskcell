@@ -30,10 +30,10 @@ export class SpawnRegistry {
 
   /** Run `argv` in `cwd` with NO shell (argv is built from repo config, so each element stays one
    * argument), merging stdout+stderr line by line into `spawn:output`; `spawn:exit` on end. */
-  spawn(cwd: string, argv: readonly string[]): Promise<number> {
+  spawn(cwd: string, argv: readonly string[], env: NodeJS.ProcessEnv = process.env): Promise<number> {
     const { program, args } = resolveProgram(argv);
     return new Promise((resolve, reject) => {
-      const child = spawn(program, args, { cwd, stdio: ['ignore', 'pipe', 'pipe'] });
+      const child = spawn(program, args, { cwd, env, stdio: ['ignore', 'pipe', 'pipe'] });
       child.once('error', reject);
       child.once('spawn', () => {
         const pid = child.pid!;

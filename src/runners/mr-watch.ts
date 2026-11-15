@@ -1,8 +1,13 @@
 import { labelForms } from '../core/labels.js';
 import { fanOut } from '../pipeline/fan-out.js';
 import { failureReason } from '../core/errors.js';
-import { defaultGlabRunner, neutralizeQuickActions } from '../tasks/gitlab.js';
-import { MergeRequestReviewIncompleteError, hasMergeRequestReviewForHead } from './mr-review.js';
+import { defaultGlabRunner, encodeProject, glabUser, neutralizeQuickActions } from '../tasks/gitlab.js';
+import {
+  MergeRequestReviewIncompleteError,
+  hasMergeRequestReviewForHead,
+  hasMergeRequestReviewIncompleteMarker,
+  mergeRequestReviewIncompleteMarker,
+} from './mr-review.js';
 import { stripReviewMarkers } from './review-prompt.js';
 import type { GlabRunner } from '../tasks/gitlab.js';
 import type { MergeRequestReviewTarget } from './mr-review.js';
@@ -62,6 +67,17 @@ interface GlabMrListItem {
   sha?: string;
   labels?: string[];
 }
+
+interface GlabMrNoteItem {
+  body?: string | null;
+  system?: boolean;
+  author?: { username?: string } | null;
+}
+
+const INCOMPLETE_RETRY_LIMIT = 3;
+const NOTES_PER_PAGE = 100;
+const NOTE_PAGES = 5;
+const MR_INCOMPLETE_CAP_MARKER_RE = /^<!--[ \t]*taskcell-mr-review-incomplete-cap:[ \t]*([a-fA-F0-9]+)[ \t]*-->$/gm;
 
 function mrId(item: MergeRequestWatchItem): string {
   return `${item.project}!${item.iid}`;
@@ -128,6 +144,41 @@ async function hasExistingReviewForHead(
   }
 }
 
+async function incompleteReviewAttempts(
+  glab: GlabRunner,
+  item: MergeRequestWatchItem,
+): Promise<{ attempts: number; capPosted: boolean }> {
+  const self = await glabUser(glab);
+  let attempts = 0;
+  let capPosted = false;
+  for (let page = 1; page <= NOTE_PAGES; page++) {
+    const out = await glab([
+      'api',
+      `projects/${encodeProject(item.project)}/merge_requests/${item.iid}/notes?per_page=${NOTES_PER_PAGE}&page=${page}&sort=desc&order_by=created_at`,
+    ]);
+    const notes = JSON.parse(out) as GlabMrNoteItem[];
+    if (!Array.isArray(notes)) throw new Error('the response is not a list of notes');
+    attempts += notes.filter(
+      (note) =>
+        !note.system &&
+        note.author?.username === self &&
+        note.body !== undefined &&
+        note.body !== null &&
+        hasMergeRequestReviewIncompleteMarker(note.body, item.sha),
+    ).length;
+    capPosted ||= notes.some(
+      (note) =>
+        !note.system &&
+        note.author?.username === self &&
+        note.body !== undefined &&
+        note.body !== null &&
+        Array.from(note.body.matchAll(MR_INCOMPLETE_CAP_MARKER_RE)).some((match) => match[1] === item.sha),
+    );
+    if (notes.length < NOTES_PER_PAGE) break;
+  }
+  return { attempts, capPosted };
+}
+
 /**
  * GitLab-backed MR review watch primitives. Scoped labels (`taskcell::reviewing`,
  * `taskcell::reviewed`) replace each other automatically on the GitLab side.
@@ -187,17 +238,32 @@ export function gitlabMergeRequestWatchPrimitives(
         add: [opts.reviewedLabel],
       }).then(() => {}),
     onFailure: async (item, error) => {
-      // An incomplete review (no verdict after two passes — output truncation or a genuinely oversized diff) would fail the same way on every
-      // poll, at two agent runs each. Leave the trigger label off so it waits for a human to re-add it, but
-      // only once the note that tells them so is posted; otherwise the MR would sit with no label and no note.
-      let terminal = error instanceof MergeRequestReviewIncompleteError;
+      const incomplete = error instanceof MergeRequestReviewIncompleteError;
+      // Without a count (no head SHA, or the notes or the user cannot be read) the cap does not apply on this sweep.
+      let terminal = false;
+      let capDue = false;
+      if (incomplete && item.sha !== '') {
+        try {
+          const state = await incompleteReviewAttempts(glab, item);
+          terminal = state.capPosted || state.attempts + 1 >= INCOMPLETE_RETRY_LIMIT;
+          capDue = terminal && !state.capPosted;
+        } catch (countError) {
+          log?.(`watch-mrs ${mrId(item)}: incomplete-attempt count failed -> retrying (${failureReason(countError)})`);
+        }
+      }
+      const retryInstruction = terminal
+        ? ` Re-add the "${opts.label}" label to re-trigger the review.`
+        : '';
+      const incompleteMarker = incomplete && item.sha !== '' ? `\n\n${mergeRequestReviewIncompleteMarker(item.sha)}` : '';
+      // Once the cap note exists, a further incomplete attempt still gets its failure note, without a second cap marker.
+      const capMarker = capDue ? `\n<!-- taskcell-mr-review-incomplete-cap: ${item.sha} -->` : '';
       try {
         await glab([
           'mr', 'note', 'create',
           String(item.iid),
           '--repo', item.project,
           // This note is written by the glab user, so a marker quoted in the error would count for the dedupe.
-          '-m', neutralizeQuickActions(`Taskcell MR review failed: ${redactForPublish(stripReviewMarkers(String(error)))}${terminal ? ` Re-add the "${opts.label}" label to retry.` : ''}`),
+          '-m', neutralizeQuickActions(`Taskcell MR review failed: ${redactForPublish(stripReviewMarkers(String(error)))}${retryInstruction}${incompleteMarker}${capMarker}`),
         ]);
       } catch {
         // note posting is best-effort; always fix the labels

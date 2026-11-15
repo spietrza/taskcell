@@ -15,6 +15,7 @@ export const commands = defineCommands<SetupCommands>({
   setup_status: async ({ ctx, caller }) => {
     teams.assertOwner(caller);
     assertMutationsAllowed(ctx.bind);
-    return detectSetup(await ctx.credentials.summary());
+    const credentials = ctx.userCredentials === undefined ? { names: [] } : await ctx.userCredentials.instanceStatus();
+    return detectSetup(credentials.names, process.env, undefined, credentials.reason);
   },
 });

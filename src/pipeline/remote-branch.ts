@@ -1,3 +1,6 @@
+import { mkdtemp, rm, writeFile } from 'node:fs/promises';
+import { tmpdir } from 'node:os';
+import { join } from 'node:path';
 import { execa } from 'execa';
 import { redactTokens } from '../core/secret-scan.js';
 import { releaseToken } from '../core/push-token.js';
@@ -284,27 +287,38 @@ export async function publishForReview(ctx: RunContext, opts: PublishOptions): P
   await gitPush(run, pushArgs, ctx.worktreePath, undefined);
   const body = [opts.body, droppedCiPathsNote(ctx.droppedCiPaths), rebased ? rebasedNote(remote, base) : undefined]
     .filter((part) => part !== undefined && part !== '').join('\n\n');
-  let args: string[];
-  if (tool === 'glab') {
-    args = [
-      'mr', 'create',
-      '--source-branch', ctx.branch,
-      '--target-branch', base,
-      '--title', opts.title,
-      '--description', neutralizeQuickActions(body),
-    ];
+  // gh reads the body from a file: one argv string is capped (128 KiB on Linux) and the branch is already pushed.
+  const bodyDir = tool === 'gh' ? await mkdtemp(join(tmpdir(), 'vg-pr-body-')) : undefined;
+  let out: string;
+  try {
+    let args: string[];
+    if (bodyDir === undefined) {
+      args = [
+        'mr', 'create',
+        '--source-branch', ctx.branch,
+        '--target-branch', base,
+        '--title', opts.title,
+        '--description', neutralizeQuickActions(body),
+      ];
+    } else {
+      const bodyFile = join(bodyDir, 'body.md');
+      await writeFile(bodyFile, body);
+      args = [
+        'pr', 'create',
+        '--head', ctx.branch,
+        '--base', base,
+        '--title', opts.title,
+        '--body-file', bodyFile,
+      ];
+    }
     if (opts.draft === true) args.push('--draft');
-  } else {
-    args = [
-      'pr', 'create',
-      '--head', ctx.branch,
-      '--base', base,
-      '--title', opts.title,
-      '--body', body,
-    ];
-    if (opts.draft === true) args.push('--draft');
+    out = await openReview(run, tool, args, ctx, opts);
+  } catch (cause) {
+    // The push is done: name the branch, since nothing local will once the worktree is removed.
+    throw new Error(`Opening the review failed after pushing ${remote}/${ctx.branch}: ${errorMessage(cause)}`, { cause });
+  } finally {
+    if (bodyDir !== undefined) await rm(bodyDir, { recursive: true, force: true });
   }
-  const out = await openReview(run, tool, args, ctx, opts);
   const prUrl =
     out
       .split('\n')

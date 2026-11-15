@@ -7,11 +7,13 @@ import { TranscriptView } from './TranscriptView';
 import { SpecPane } from './SpecPane';
 import { AppliedLessons } from '../lessons/Lessons';
 import { ExternalLink, hostName } from '../../components/ExternalLink';
+import { isHubMode } from '../../transport';
 import type { RunDetail as RunDetailT } from '../../taskcell-output';
 
 export function RunDetail({ detail, project }: { detail: RunDetailT; project: string }) {
   const [tab, setTab] = useState('overview');
   const baseBranch = detail.stages.find((s) => s.record.baseBranch !== undefined)?.record.baseBranch;
+  const credentialSource = detail.stages.find((s) => s.record.credentialSource !== undefined)?.record.credentialSource;
   const diffStages = detail.stages.filter((s) => s.diff || s.record.diffOmitted);
   const transcriptStages = detail.stages.filter((s) => s.transcript);
 
@@ -33,6 +35,11 @@ export function RunDetail({ detail, project }: { detail: RunDetailT; project: st
         {baseBranch && (
           <div className="text-sm text-muted-foreground">
             Target branch <code className="rounded bg-muted px-1 py-0.5">{baseBranch}</code>
+          </div>
+        )}
+        {isHubMode() && credentialSource !== undefined && (
+          <div className="text-sm text-muted-foreground">
+            Funded by the {credentialSource === 'user' ? "starter's own credential" : 'instance credential or hub environment'}
           </div>
         )}
         {(detail.prUrl !== undefined || detail.ciUrl !== undefined) && (
