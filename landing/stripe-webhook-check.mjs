@@ -21,10 +21,14 @@ const ORDERS = {
 const env = { ORDERS, STRIPE_WEBHOOK_SECRET_TEST: SECRET, STRIPE_KEY_TEST: 'sk_test_x' };
 
 const credits = [];
+let chargeReads = 0;
+const pending = [];
+const ctx = { waitUntil: (p) => pending.push(p) };
 let creditFails = false;
 globalThis.fetch = async (url, init) => {
   if (String(url).includes('/line_items')) return Response.json({ data: [{ price: { lookup_key: 'solo_pass' } }] });
-  if (String(url).includes('/charges?')) return Response.json({ data: [{ paid: true, amount: 800, balance_transaction: { net: 3150, currency: 'pln' } }] });
+  // The first read finds the charge without its balance transaction yet, as Stripe sometimes answers right after a checkout.
+  if (String(url).includes('/charges?')) return Response.json({ data: [{ paid: true, amount: 800, balance_transaction: chargeReads++ ? { net: 3150, currency: 'pln' } : null }] });
   if (creditFails) return new Response('down', { status: 500 });
   credits.push(init.body.get('amount'));
   return Response.json({});
@@ -32,7 +36,7 @@ globalThis.fetch = async (url, init) => {
 
 const event = JSON.stringify({ id: 'evt_1', type: 'checkout.session.completed', livemode: false, data: { object: { id: 'cs_1', payment_status: 'paid', customer: 'cus_1', amount_total: 800, currency: 'eur' } } });
 const sign = (body, secret = SECRET, t = Math.floor(Date.now() / 1000)) => `t=${t},v1=${createHmac('sha256', secret).update(`${t}.${body}`).digest('hex')}`;
-const post = (body, signature) => handleStripeWebhook(new Request('https://taskcell.dev/stripe/webhook', { method: 'POST', body, headers: { 'stripe-signature': signature } }), env);
+const post = (body, signature) => handleStripeWebhook(new Request('https://taskcell.dev/stripe/webhook', { method: 'POST', body, headers: { 'stripe-signature': signature } }), env, ctx);
 
 assert.equal((await post(event, sign(event, 'whsec_other'))).status, 400, 'a wrong secret is refused');
 assert.equal((await post(event, sign(event, SECRET, 1))).status, 400, 'an old timestamp is refused');
@@ -47,5 +51,6 @@ assert.equal((await post(event, sign(event))).status, 200);
 assert.equal((await post(event, sign(event))).status, 200);
 assert.equal(rows.size, 1, 'two deliveries, one order');
 assert.deepEqual(credits, ['-800'], 'the pass is credited once');
+await Promise.all(pending);
 assert.deepEqual([...rows.values()].map((r) => [r.paid, r.payout, r.payoutCurrency]), [[800, 3150, 'pln']], 'charged and paid-out amounts are kept side by side');
 console.log('stripe-webhook-check: ok');
