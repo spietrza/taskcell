@@ -945,6 +945,8 @@ export interface FactoryPlan {
   gitlabManualInclude?: boolean;
   /** Runner tags written under `.taskcell-base` (`tags:`); pre-filled from the project's `default: tags`, editable, empty = no `tags:` key. */
   gitlabRunnerTags?: string[];
+  /** Why `gitlabRunnerTags` starts empty: the project's `default: tags` could not be copied (e.g. a `!reference`). */
+  gitlabRunnerTagsNote?: string;
   /** Top-level GitLab jobs without `rules:`; starting the doctor requires an explicit UI confirmation when non-empty. */
   gitlabUnruledJobs?: string[];
   labels: string[];

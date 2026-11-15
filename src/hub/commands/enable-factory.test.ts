@@ -192,6 +192,25 @@ describe('enable_factory RPCs', () => {
     }
   });
 
+  test('verify keeps the runner tags the user applied when it stores the re-derived plan', async () => {
+    const repo = await tmpRepo();
+    const { ctx } = await makeCtx(repo);
+    const applied = spyProvider(undefined, { gitlabRunnerTags: ['arm64'] });
+    try {
+      await dispatchRpc(ctx, 'enable_factory_apply', { repoPath: repo, plan: validPlan });
+    } finally {
+      applied.mock.mockRestore();
+    }
+    const { mock } = spyProvider(undefined, { gitlabRunnerTags: ['docker'], gitlabUnruledJobs: ['deploy'] });
+    try {
+      await expect(dispatchRpc(ctx, 'enable_factory_verify', { repoPath: repo, plan: validPlan })).rejects.toThrow(/deploy/);
+      const state = (await dispatchRpc(ctx, 'factory_state', { repoPath: repo })) as { plan?: FactoryPlan };
+      expect(state.plan).toMatchObject({ gitlabRunnerTags: ['arm64'], gitlabUnruledJobs: ['deploy'] });
+    } finally {
+      mock.mockRestore();
+    }
+  });
+
   test('verify with a foreign slug is refused and never changes the stored slug or secret command', async () => {
     const repo = await tmpRepo();
     const { ctx } = await makeCtx(repo);

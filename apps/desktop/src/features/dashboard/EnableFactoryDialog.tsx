@@ -389,6 +389,7 @@ export function EnableFactoryDialog({ project, onClose }: { project: { path: str
                   placeholder="none"
                   onChange={(e) => setTags(e.target.value)}
                 />
+                {plan.gitlabRunnerTagsNote !== undefined && <p className="mt-1 text-xs text-warning-text">{plan.gitlabRunnerTagsNote}</p>}
                 <p className="mt-1 text-xs text-muted-foreground">
                   Comma-separated; written as <code>tags:</code> under <code>.taskcell-base</code>. Pre-filled from the project's <code>default: tags</code>; clear it for no tags.
                 </p>

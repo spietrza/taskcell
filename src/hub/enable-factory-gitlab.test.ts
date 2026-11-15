@@ -19,6 +19,7 @@ import {
   verifyGitlabFactory,
 } from './enable-factory-gitlab.js';
 import type { FactoryExec, FactoryPlan } from './enable-factory.js';
+import { callersPresent } from './factory-checklist.js';
 
 const roots: string[] = [];
 afterEach(async () => {
@@ -319,17 +320,45 @@ describe('applyGitlabFactory', () => {
   it('validates runner tags', () => {
     expect(validateRunnerTags(undefined)).toEqual([]);
     expect(validateRunnerTags(['secure:prod', '$VAR', 'a+b', 'a b'])).toEqual(['secure:prod', '$VAR', 'a+b', 'a b']);
-    for (const bad of ['', 'a"b', 'x,y', ' pad', 'a\nb', 'a\\b', 'x'.repeat(256)]) expect(() => validateRunnerTags([bad])).toThrow(/runner tags/);
+    for (const bad of ['', 'a"b', 'x,y', ' pad', 'a\nb', 'a\\b', 'a\u0085b', 'a\u2028b', 'a\u2029b', 'x'.repeat(256)]) expect(() => validateRunnerTags([bad])).toThrow(/runner tags/);
     expect(() => validateRunnerTags('docker')).toThrow(/runner tags/);
     expect(() => validateRunnerTags(Array.from({ length: 51 }, (_, n) => `t${n}`))).toThrow(/runner tags/);
   });
-  it('keeps string-looking and unusual default tags, and refuses ones it cannot copy', async () => {
+  it('keeps string-looking and unusual default tags, and pre-fills an empty field with a note when it cannot copy them', async () => {
     const dir = await repo();
-    const tagsOf = async (ci: string): Promise<string[] | undefined> => (await planGitlabFactory(dir, { exec: fake({ show: { '.gitlab-ci.yml': ci } }).exec })).gitlabRunnerTags;
-    expect(await tagsOf('default:\n  tags: ["123", "secure:prod", docker]\n')).toEqual(['123', 'secure:prod', 'docker']);
-    await expect(tagsOf('default:\n  tags: docker\n')).rejects.toThrow(/default: tags/);
-    await expect(tagsOf('default:\n  tags: [123]\n')).rejects.toThrow(/default: tags/);
-    await expect(tagsOf('default:\n  tags: ["a,b"]\n')).rejects.toThrow(/default: tags/);
+    const planOf = async (ci: string): Promise<FactoryPlan> => planGitlabFactory(dir, { exec: fake({ show: { '.gitlab-ci.yml': ci } }).exec });
+    expect((await planOf('default:\n  tags: ["123", "secure:prod", docker]\n')).gitlabRunnerTags).toEqual(['123', 'secure:prod', 'docker']);
+    // Aliases and merge keys are resolved.
+    expect((await planOf('.t: &t [docker, linux]\ndefault:\n  tags: *t\n')).gitlabRunnerTags).toEqual(['docker', 'linux']);
+    expect((await planOf('.b: &b\n  tags: [arm64]\ndefault:\n  <<: *b\n')).gitlabRunnerTags).toEqual(['arm64']);
+    for (const ci of [
+      'default:\n  tags: docker\n',
+      'default:\n  tags: [123]\n',
+      'default:\n  tags: ["a,b"]\n',
+      'default:\n  tags: ["a\\u2028b"]\n',
+      'default:\n  tags: !reference [.runner, tags]\n',
+      'default:\n  tags: [docker, !reference [.runner, tags]]\n',
+    ]) {
+      const p = await planOf(ci);
+      expect(p.gitlabRunnerTags, ci).toEqual([]);
+      expect(p.gitlabRunnerTagsNote, ci).toMatch(/default: tags/);
+    }
+    expect((await planOf('default:\n  tags: [docker]\n')).gitlabRunnerTagsNote).toBeUndefined();
+  });
+  it('still plans, verifies and starts with unreadable default tags when the jobs file exists', async () => {
+    const dir = await repo();
+    const { exec } = fake({ show: { '.gitlab/taskcell.yml': 'x', '.gitlab-ci.yml': 'include:\n  - local: .gitlab/taskcell.yml\ndefault:\n  tags: !reference [.runner, tags]\n' } });
+    const p = await planGitlabFactory(dir, { exec });
+    expect(p.existingCallerFiles).toEqual(['.gitlab/taskcell.yml', '.gitlab-ci.yml']);
+    expect(callersPresent(p)).toBe(true);
+    expect((await verifyGitlabFactory(dir, p, { exec, sleep: async () => undefined })).dispatched).toBe(true);
+  });
+  it('writes tags and the login verbatim, never as replacement patterns', async () => {
+    const dir = await repo();
+    await applyGitlabFactory(dir, { ...plan, gitlabRunnerTags: ['$$CI_TAG', '$&', "$'", '$1'] }, { exec: fake().exec });
+    const out = await readFile(join(dir, '.gitlab/taskcell.yml'), 'utf8');
+    expect(out).toMatch(/^ {2}stage: test\n {2}tags: \["\$\$CI_TAG", "\$&", "\$'", "\$1"\]$/m);
+    expect(parse(out)['.taskcell-base'].tags).toEqual(['$$CI_TAG', '$&', "$'", '$1']);
   });
   it('turns an empty include: into a one-entry list', async () => {
     const dir = await repo();

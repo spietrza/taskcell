@@ -278,6 +278,15 @@ describe('EnableFactoryDialog', () => {
     await vi.waitFor(() => expect(enableFactoryApply).toHaveBeenCalledWith(project.path, expect.objectContaining({ gitlabRunnerTags: ['arm64', 'secure:prod', 'big runner'] })));
   });
 
+  test('GitLab: default tags the hub could not copy leave the field empty with the note', async () => {
+    vi.mocked(enableFactoryHost).mockResolvedValue({ host: 'gitlab' });
+    vi.mocked(enableFactoryPlan).mockResolvedValue({ ...gitlabFactoryPlan, gitlabRunnerTags: [], gitlabRunnerTagsNote: 'The project\'s `default: tags` could not be copied' });
+    render(<EnableFactoryDialog project={project} onClose={() => {}} />);
+    fireEvent.click(await screen.findByRole('button', { name: /GitLab CI/ }));
+    expect(await screen.findByLabelText('Runner tags')).toHaveValue('');
+    expect(screen.getByText(/could not be copied/)).toBeInTheDocument();
+  });
+
   test('GitLab: the runner tags field is not offered when the jobs file is already on the default branch', async () => {
     vi.mocked(enableFactoryHost).mockResolvedValue({ host: 'gitlab' });
     vi.mocked(enableFactoryPlan).mockResolvedValue({ ...gitlabFactoryPlan, existingCallerFiles: ['.gitlab/taskcell.yml'] });

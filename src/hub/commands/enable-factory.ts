@@ -139,7 +139,8 @@ export const commands = defineCommands<EnableFactoryCommands>({
     const unconfirmed = (plan.gitlabUnruledJobs ?? []).filter((job) => !seen.includes(job));
     if (unconfirmed.length > 0) {
       // Keep the fresh list in the record so the dialog shows what it must confirm.
-      await updateFactoryRecord(real, plan, (r) => ({ ...r, plan }));
+      // The re-derived plan carries the default-tags pre-fill; keep the tags the user applied.
+      await updateFactoryRecord(real, plan, (r) => ({ ...r, plan: { ...plan, ...(r.plan.gitlabRunnerTags !== undefined ? { gitlabRunnerTags: r.plan.gitlabRunnerTags } : {}) } }));
       throw new BadRequestError(`the doctor pipeline would also run ${unconfirmed.join(', ')} (no rules:); review the list and run the doctor again to confirm`);
     }
     const result = await provider.verify(plan);
