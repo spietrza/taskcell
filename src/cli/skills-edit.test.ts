@@ -758,6 +758,18 @@ describe('hardened git source', () => {
     await expect(src.fetch(url, head, 'skills/a')).rejects.toThrow(/Could not fetch.*not a git repository/s);
     await src.dispose?.();
   });
+  it('lists a path starting with ":" literally, so a symlink in it is refused', async () => {
+    const { url, up, g } = await upstream();
+    await mkdir(join(up, ':foo'));
+    await writeFile(join(up, ':foo/SKILL.md'), 'x');
+    await symlink('/etc/passwd', join(up, ':foo/link'));
+    await g('--literal-pathspecs', 'add', '--', ':foo');
+    await g('commit', '-m', 'colon');
+    const src = createGitSkillSource('file');
+    const head = (await src.resolve(url)) ?? '';
+    await expect(src.fetch(url, head, ':foo')).rejects.toThrow(/:foo\/link is a symlink/);
+    await src.dispose?.();
+  });
   it('ignores env that redirects git or injects config, and follows a rewrite from a config file', async () => {
     const { url, up } = await upstream();
     const config = join(root, 'gitconfig');

@@ -147,7 +147,8 @@ export function createGitSkillSource(protocol: 'https' | 'file' = 'https'): Skil
         }
         // Before any file content is transferred: the file limit, and no symlink in the skill. An
         // absent path lists nothing (exit 0), so any ls-tree failure is a real one; readSkillFiles reports the rest.
-        const listing = await git(['ls-tree', '-r', '-z', 'FETCH_HEAD', ...(rel === '.' ? [] : ['--', rel])], tree.dir);
+        // Literal: a path such as `:foo` is a directory name, not pathspec magic.
+        const listing = await git(['--literal-pathspecs', 'ls-tree', '-r', '-z', 'FETCH_HEAD', ...(rel === '.' ? [] : ['--', rel])], tree.dir);
         const entries = listing.split('\0').filter((e) => e !== '');
         if (entries.length > MAX_FILES) throw new TaskcellError(TOO_BIG);
         const link = entries.find((e) => e.startsWith('120000 '));
