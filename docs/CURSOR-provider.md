@@ -91,8 +91,8 @@ Grok 4.7. Run records and `stats` show the model Auto actually routed to, taken 
 - **No cost.** Stage cost is 0, so the run cost cap (`maxCostUsd`) and the per-stage caps never stop a
   cursor stage. Only the stage timeout does. `$or-est` shows `n/a`.
 - **No max turns.** The CLI has no turn cap, so `maxTurns` is not enforced.
-- **Not proxied.** Under `--llm-proxy` the Cursor key is still injected into the sandbox. The run still
-  needs a primary-sidecar credential (Claude, z.ai or OpenRouter), even when every stage is cursor.
+- **Not proxied.** Under `--llm-proxy` the Cursor key is still injected into the sandbox. `--llm-proxy` with
+  cursor refuses to start (the run names the provider) rather than leave the key in the sandbox.
 - **Hub live view.** The view reads Claude session files, so cursor stages do not stream there.
 
 ## Verified

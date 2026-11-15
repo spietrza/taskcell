@@ -25,7 +25,7 @@ This works without path tricks because the controller streams the worktree into 
 ## What you need on the host
 
 1. Docker. Synology: Container Manager. Hetzner: `apt install docker.io` or Docker CE.
-2. Two images on the host daemon, matching the host CPU architecture: `vanguard-sandbox:latest` and `vanguard-runner:latest`. Build them on the host, or build elsewhere and transfer (see Synology below). Synology and most Hetzner cloud boxes are `x86_64`/`amd64`. An Apple Silicon Mac builds `arm64` by default, which will not run on an amd64 host, so build with `--platform linux/amd64`.
+2. Two images on the host daemon, matching the host CPU architecture: `vanguard-sandbox:latest` and `vanguard-runner:latest`. Build them on the host, or build elsewhere and transfer (see Synology below). Synology and most Hetzner cloud boxes are `x86_64`/`amd64`. An Apple Silicon Mac builds `arm64` by default, which will not run on an amd64 host, so build with `--platform linux/amd64`. The runner image builds only on `amd64` or `arm64` (any other architecture is refused) and needs gitlab.com reachable at build time (it downloads `glab`), even for a GitHub-only worker.
 3. A git clone of the target repo the agent edits, mounted into the controller at `/work/repo`.
 4. Secrets in the environment: `CLAUDE_CODE_OAUTH_TOKEN` (subscription, the default here), `GH_TOKEN` for git push, PRs, labels, and PR reviews, and `LINEAR_API_KEY` only when running the Linear source.
 

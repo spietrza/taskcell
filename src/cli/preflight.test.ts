@@ -463,9 +463,19 @@ describe('runPreflight', () => {
     expect(report.ok).toBe(true);
   });
 
-  it('fails llm auth for a codex-only review under llmProxy with no Anthropic token (primary sidecar)', async () => {
+  it('passes llm auth for a codex-only review under llmProxy: review-pr starts no primary sidecar', async () => {
     const report = await runPreflight(doctorPrs({ provider: 'codex', llmProxy: true }), {
       env: { GH_TOKEN: 'gh', OPENAI_API_KEY: 'sk-test' },
+      nodeVersion: '24.11.1',
+      run: makeRunner(['ready for taskcell review', 'taskcell:reviewing', 'taskcell:reviewed']),
+    });
+
+    expect(report.checks.find((c) => c.name === 'llm auth')?.ok).toBe(true);
+  });
+
+  it('still fails llm auth for a cursor review under llmProxy with no Anthropic token (its key has no sidecar)', async () => {
+    const report = await runPreflight(doctorPrs({ provider: 'cursor', llmProxy: true }), {
+      env: { GH_TOKEN: 'gh', CURSOR_API_KEY: 'k' },
       nodeVersion: '24.11.1',
       run: makeRunner(['ready for taskcell review', 'taskcell:reviewing', 'taskcell:reviewed']),
     });

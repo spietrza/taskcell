@@ -43,8 +43,25 @@ const COLUMNS: Column[] = [
   { key: 'done', label: 'Done', dot: 'bg-success', pill: 'bg-success/15 text-success-text', cardHover: 'hover:border-success' },
 ];
 
+/** How often an open hub board re-reads its tasks: their statuses change in the hub's store, not here. */
+const HUB_POLL_MS = 5000;
+/** How often a tracker board (GitHub, GitLab, Linear) and the all-repositories view re-read theirs: slower, to spare the trackers' rate limits. */
+const TRACKER_POLL_MS = 20000;
+
 /** One repository's board, or every repository's (cards stamped with their repository). */
 type BoardList = { tasks: (BoardTask & Partial<RepoStamp>)[]; capped: boolean; failures: RepoReadFailure[]; hubBoard?: true; hubBoards?: string[] };
+
+/** A poll of every repository, keeping the shown cards (and hub-board flag) of each repository it could not read. */
+function keepUnread(shown: BoardList | null, next: BoardList): BoardList {
+  const unread = new Set(next.failures.map((f) => f.repoPath));
+  if (shown === null || unread.size === 0) return next;
+  const kept = (path: string | undefined): boolean => path !== undefined && unread.has(path);
+  return {
+    ...next,
+    tasks: [...next.tasks, ...shown.tasks.filter((t) => kept(t.repoPath))],
+    hubBoards: [...(next.hubBoards ?? []), ...(shown.hubBoards ?? []).filter(kept)],
+  };
+}
 
 export function TaskBoard({
   project,
@@ -76,11 +93,42 @@ export function TaskBoard({
   onOpenSettings?: () => void;
 }) {
   const [reloads, setReloads] = useState(0);
-  const { data, error, loading } = useAsync(
-    (): Promise<BoardList> =>
-      allRepos ? listTasksAll(teamId).then((l) => ({ ...l, tasks: inRepos(l.tasks, repos), failures: inRepos(l.failures, repos) })) : listTasks(project).then((r) => ({ ...r, failures: [] })),
-    [project, allRepos, teamId, repos.join('\n'), reloads],
-  );
+  const reposKey = repos.join('\n');
+  const read = (): Promise<BoardList> =>
+    allRepos ? listTasksAll(teamId).then((l) => ({ ...l, tasks: inRepos(l.tasks, repos), failures: inRepos(l.failures, repos) })) : listTasks(project).then((r) => ({ ...r, failures: [] }));
+  const { data: loaded, error, loading } = useAsync(read, [project, allRepos, teamId, reposKey, reloads]);
+  // Every board is re-read quietly, one read at a time, while the window is visible, so a card follows its task without
+  // a reload: a hub board fast, a tracker board and the all-repositories view slower. A fresh load supersedes the last
+  // poll. A failed poll keeps the cards on screen (nothing unmounts, a typed draft survives), marks them stale and is
+  // tried again on the next interval. So is a repository the all-repositories poll could not read: its last good cards
+  // stay until a user action or a successful read of it drops them.
+  const [polled, setPolled] = useState<BoardList | null>(null);
+  const [stale, setStale] = useState(false);
+  useEffect(() => { setPolled(null); setStale(false); }, [loaded]);
+  const data = polled ?? loaded;
+  const shownRef = useRef(data);
+  shownRef.current = data;
+  const polling = data !== null;
+  const pollMs = !allRepos && data?.hubBoard === true ? HUB_POLL_MS : TRACKER_POLL_MS;
+  useEffect(() => {
+    if (!polling) return;
+    let alive = true;
+    let busy = false;
+    const id = setInterval(() => {
+      if (busy || document.hidden) return;
+      busy = true;
+      read().then(
+        (r) => {
+          if (!alive) return;
+          setPolled(keepUnread(shownRef.current, r));
+          setStale(r.failures.some((f) => !isNoTaskSource(f.error)));
+        },
+        () => { if (alive) setStale(true); },
+      ).finally(() => { busy = false; });
+    }, pollMs);
+    return () => { alive = false; clearInterval(id); };
+    // `read` changes only with these deps, as for the load above.
+  }, [polling, pollMs, project, allRepos, teamId, reposKey, reloads]);
   const approver = useApproverDecisions(project, !allRepos);
   // Skills saved from a card's quick view, shown at once: the tracker is not re-read for it.
   const [savedSkills, setSavedSkills] = useState<Record<string, string[]>>({});
@@ -149,6 +197,11 @@ export function TaskBoard({
   const header = (
     <>
     <div className="mb-2 flex shrink-0 items-center">
+      {stale && (
+        <span role="status" className="mr-3 text-xs text-muted-foreground" title="The last refresh failed; the board retries on its own.">
+          Not refreshed — retrying
+        </span>
+      )}
       {counts !== null && (
         // A capped list is one page, so both numbers are lower bounds — `Running 3+ · Waiting 12+`.
         <span className="text-xs tabular-nums text-muted-foreground">

@@ -1,4 +1,4 @@
-import type { FactoryState, FactoryStepId } from '../../wire';
+import type { FactoryState, FactoryStepId, LocalWorkerState } from '../../wire';
 
 export const FACTORY_STEP_LABEL: Record<FactoryStepId, string> = {
   pr: 'Callers PR opened',
@@ -23,4 +23,12 @@ export function factoryLabel(f: FactoryState): string {
     case 'broken':
       return `Factory: broken — ${f.reason ?? 'unknown'}`;
   }
+}
+
+/** The project card's Local hub worker line: off / on with the last pick-up and the last error. */
+export function localWorkerLabel(w: LocalWorkerState): string {
+  const at = (iso: string): string => (Number.isFinite(Date.parse(iso)) ? new Date(iso).toLocaleString() : iso);
+  const pick = w.lastPickupAt ? `last pick-up ${w.lastPickup ?? ''} ${at(w.lastPickupAt)}`.replace('  ', ' ') : undefined;
+  if (!w.enabled) return pick ? `Local worker: off — ${pick}` : 'Local worker: off';
+  return `Local worker: on — ${pick ?? 'no pick-up yet'}${w.lastError ? `; last error: ${w.lastError}` : ''}`;
 }

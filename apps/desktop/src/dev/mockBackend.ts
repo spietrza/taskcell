@@ -24,12 +24,14 @@ import {
   factoryVerify,
   factoryStateNone,
   factoryStateSettingUp,
+  taskSpecs,
+  minsAgo,
 } from './fixtures';
 import { demoProject, demoRuns, demoRunDetails, demoActiveRuns, demoBoardTasks, demoFactoryState, demoLessonsFor, demoNeedsYou, demoRunBacklog, demoSession, demoSpec, DEMO_REPO_PATH, DEMO_RUN_ID, DEMO_WRITE_COMMANDS } from './demoData';
 
 let waitingNeedsYou = [...needsYouItems];
 let mockLessons: RepoLesson[] = [
-  { id: 'l1', rule: 'Add a test for every new link.', why: 'Links shipped untested.', evidence: 'https://github.com/acme/app/pull/12', paths: ['apps/desktop/**'], stage: 'review', prNumber: 12, timestamp: '2026-07-01T10:00:00Z' },
+  { id: 'l1', rule: 'Add a test for every new link.', why: 'Links shipped untested.', evidence: 'https://github.com/acme/app/pull/12', paths: ['apps/desktop/**'], stage: 'review', prNumber: 12, timestamp: minsAgo(60 * 24 * 3) },
 ];
 
 const READ_DRAFT = JSON.stringify({ id: 'draft-001', title: 'Draft task', body: 'Some draft content here.' });
@@ -97,7 +99,7 @@ const commandHandlers = {
   },
   list_tasks: () => ({ tasks: boardTasks, capped: false }),
   list_tasks_all: () => ({ tasks: boardTasks.map((t) => ({ ...t, ...mockStamp() })), capped: false, failures: [] }),
-  fetch_spec: () => ({ spec: '## Task\n\nFix the login bug when the JWT token expires after inactivity.\n\n**Acceptance criteria:**\n- [ ] Login still works after token refresh\n- [ ] Tests pass\n- [ ] No regressions in the auth flow\n' }),
+  fetch_spec: (args: { taskId?: string } | undefined) => ({ spec: taskSpecs[args?.taskId ?? ''] ?? taskSpecs['LINEAR-123']! }),
   list_spawns: () => [],
   spawn_run: () => 42,
   kill_run: () => undefined,
@@ -151,7 +153,7 @@ const commandHandlers = {
     runCount: 0, taskCount: 0, totalCostUsd: 0, failedCount: 0, runningCount: 0, runsLast24h: 0,
   }),
   read_audit: () => [
-    { time: '2026-07-06T19:12:02.123Z', login: 'token', action: 'run-start', target: 'run-0', outcome: 'ok' },
+    { time: minsAgo(30), login: 'token', action: 'run-start', target: 'run-0', outcome: 'ok' },
   ],
   read_issue_history: () => ({ repo: 'acme/app', issue: 1, prs: [], entries: [], chains: [], unavailable: [] }),
   list_needs_you: () => ({ items: waitingNeedsYou }),
@@ -180,6 +182,9 @@ const commandHandlers = {
   // Hub-only Enable factory flow (EnableFactoryDialog).
   enable_factory_host: () => ({ host: 'github' as const }),
   enable_factory_watch: () => ({ repoSlug: 'acme/widgets', source: 'github' as const, compose: 'services:\n  taskcell-watch: {}', command: 'taskcell watch --source=github', credentials: ['CLAUDE_CODE_OAUTH_TOKEN', 'GH_TOKEN'], seen: 'unknown' as const }),
+  local_worker_state: () => ({ enabled: false, source: 'github' as const, credentials: { names: ['CLAUDE_CODE_OAUTH_TOKEN'], present: true } }),
+  local_worker_set: (args: { enabled?: boolean } | undefined) => ({ enabled: args?.enabled === true, source: 'github' as const, credentials: { names: ['CLAUDE_CODE_OAUTH_TOKEN'], present: true } }),
+  local_worker_doctor: () => ({ enabled: false, source: 'github' as const, credentials: { names: ['CLAUDE_CODE_OAUTH_TOKEN'], present: true }, doctor: { at: '2026-11-15T10:00:00.000Z', ok: true, failed: [] } }),
   enable_factory_plan: () => factoryPlan,
   enable_factory_apply: () => factoryApplyResult,
   enable_factory_verify: () => factoryVerify,

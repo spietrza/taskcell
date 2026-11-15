@@ -1,5 +1,5 @@
 import { afterEach, beforeEach, describe, expect, test, vi } from 'vitest';
-import { fireEvent, render, screen, waitFor, within } from '@testing-library/react';
+import { act, fireEvent, render, screen, waitFor, within } from '@testing-library/react';
 import { TaskBoard } from './TaskBoard';
 import type { BoardTask } from '../../wire';
 
@@ -15,7 +15,7 @@ vi.mock('../../ipc', () => ({
   hubTaskCreate: vi.fn().mockResolvedValue({ id: 'hub-2' }),
   hubTaskSchedule: vi.fn().mockResolvedValue({ id: 'hub-1' }),
 }));
-import { listTasks, listTasksAll, retryPausedTask } from '../../ipc';
+import { listNeedsYou, listTasks, listTasksAll, retryPausedTask } from '../../ipc';
 const mockListTasks = vi.mocked(listTasks);
 
 beforeEach(() => {
@@ -68,6 +68,86 @@ describe('TaskBoard on a hub-board project', () => {
     mockListTasks.mockResolvedValueOnce({ tasks: [card('blocked by hub-2')], capped: false, hubBoard: true });
     fireEvent.click(screen.getByRole('button', { name: 'Save schedule' }));
     await vi.waitFor(() => expect(within(screen.getByRole('region', { name: 'Schedule' })).getByText('blocked by hub-2')).toBeInTheDocument());
+  });
+
+  test('re-reads an open hub board, so a status change shows without a reload', async () => {
+    vi.useFakeTimers();
+    mockListTasks.mockResolvedValueOnce({ tasks: [{ ...card('starts next'), title: 'Before' }], capped: false, hubBoard: true });
+    mockListTasks.mockResolvedValue({ tasks: [{ ...card('not started: no credential'), title: 'After' }], capped: false, hubBoard: true });
+    render(<TaskBoard project="/repo" repos={[]} onOpenTask={() => {}} onNewTask={() => {}} />);
+    await act(() => vi.advanceTimersByTimeAsync(0));
+    expect(screen.getByText('Before')).toBeInTheDocument();
+    await act(() => vi.advanceTimersByTimeAsync(5000));
+    expect(screen.getByText('After')).toBeInTheDocument();
+  });
+
+  test('polls the all-repositories view and a tracker board too, at the slower tracker cadence', async () => {
+    vi.useFakeTimers();
+    vi.mocked(listTasksAll).mockResolvedValueOnce({ tasks: [], capped: false, failures: [], hubBoards: [] });
+    vi.mocked(listTasksAll).mockResolvedValue({ tasks: [{ ...TASKS[0]!, repoPath: '/r/alpha', repoName: 'alpha' }], capped: false, failures: [], hubBoards: [] });
+    const { unmount } = render(<TaskBoard project="/r/alpha" allRepos repos={['/r/alpha']} onOpenTask={() => {}} onNewTask={() => {}} />);
+    await act(() => vi.advanceTimersByTimeAsync(0));
+    await act(() => vi.advanceTimersByTimeAsync(5000));
+    expect(vi.mocked(listTasksAll)).toHaveBeenCalledTimes(1);
+    await act(() => vi.advanceTimersByTimeAsync(15000));
+    expect(vi.mocked(listTasksAll)).toHaveBeenCalledTimes(2);
+    expect(screen.getByText('Queued one')).toBeInTheDocument();
+    unmount();
+
+    mockListTasks.mockResolvedValueOnce({ tasks: [], capped: false });
+    mockListTasks.mockResolvedValue({ tasks: [TASKS[1]!], capped: false });
+    render(<TaskBoard project="/repo" repos={[]} onOpenTask={() => {}} onNewTask={() => {}} />);
+    await act(() => vi.advanceTimersByTimeAsync(0));
+    await act(() => vi.advanceTimersByTimeAsync(20000));
+    expect(mockListTasks).toHaveBeenCalledTimes(2);
+    expect(screen.getByText('Queued two')).toBeInTheDocument();
+  });
+
+  test('a failed poll keeps the board and a typed draft, shows it is stale, and polling resumes', async () => {
+    vi.useFakeTimers();
+    mockListTasks.mockResolvedValueOnce({ tasks: [card('starts next')], capped: false, hubBoard: true });
+    mockListTasks.mockRejectedValueOnce(new Error('hub down'));
+    mockListTasks.mockResolvedValue({ tasks: [{ ...card('starts next'), title: 'Back' }], capped: false, hubBoard: true });
+    render(<TaskBoard project="/repo" repos={[]} onOpenTask={() => {}} onNewTask={() => {}} />);
+    await act(() => vi.advanceTimersByTimeAsync(0));
+    const title = within(screen.getByRole('form', { name: 'New hub task' })).getByLabelText('Title');
+    fireEvent.change(title, { target: { value: 'my draft' } });
+    await act(() => vi.advanceTimersByTimeAsync(5000));
+    expect(mockListTasks).toHaveBeenCalledTimes(2);
+    expect(screen.getByText('Hub one')).toBeInTheDocument();
+    expect(screen.queryByText('Loading tasks…')).not.toBeInTheDocument();
+    expect(screen.getByText('Not refreshed — retrying')).toBeInTheDocument();
+    expect(within(screen.getByRole('form', { name: 'New hub task' })).getByLabelText('Title')).toBe(title);
+    expect(title).toHaveValue('my draft');
+    await act(() => vi.advanceTimersByTimeAsync(5000));
+    expect(mockListTasks).toHaveBeenCalledTimes(3);
+    expect(screen.getByText('Back')).toBeInTheDocument();
+    expect(screen.queryByText('Not refreshed — retrying')).not.toBeInTheDocument();
+    expect(title).toHaveValue('my draft');
+  });
+
+  test('an all-repositories poll that cannot read one repository keeps its cards, the open quick view and typed text', async () => {
+    vi.useFakeTimers();
+    const seven = { id: 'gh-7', title: 'Seven', column: 'review' as const, state: 'review', source: 'github' as const, repoPath: '/r/alpha', repoName: 'alpha' };
+    vi.mocked(listNeedsYou).mockResolvedValueOnce({ items: [{ id: 'o/r#7', kind: 'issue', number: 7, repoSlug: 'o/r', title: 'Seven', url: 'u', reason: 'taskcell:verify-failed' }] });
+    vi.mocked(listTasksAll).mockResolvedValueOnce({ tasks: [seven], capped: false, failures: [], hubBoards: ['/r/alpha'] });
+    vi.mocked(listTasksAll).mockResolvedValue({ tasks: [], capped: false, failures: [{ repoPath: '/r/alpha', repoName: 'alpha', error: 'hub down' }], hubBoards: [] });
+    render(<TaskBoard project="/r/alpha" allRepos repos={['/r/alpha']} onOpenTask={() => {}} onNewTask={() => {}} />);
+    await act(() => vi.advanceTimersByTimeAsync(0));
+    fireEvent.click(screen.getByText('Seven').closest('button')!);
+    await act(() => vi.advanceTimersByTimeAsync(0));
+    const reply = screen.getByLabelText('reply to o/r#7');
+    fireEvent.change(reply, { target: { value: 'my reply' } });
+    const title = within(screen.getByRole('form', { name: 'New hub task' })).getByLabelText('Title');
+    fireEvent.change(title, { target: { value: 'my draft' } });
+    await act(() => vi.advanceTimersByTimeAsync(20000));
+    expect(vi.mocked(listTasksAll)).toHaveBeenCalledTimes(2);
+    expect(screen.getByRole('complementary', { name: /Quick view: Seven/ })).toBeInTheDocument();
+    expect(screen.getByLabelText('reply to o/r#7')).toBe(reply);
+    expect(reply).toHaveValue('my reply');
+    expect(within(screen.getByRole('form', { name: 'New hub task' })).getByLabelText('Title')).toBe(title);
+    expect(title).toHaveValue('my draft');
+    expect(screen.getByText('Not refreshed — retrying')).toBeInTheDocument();
   });
 
   test('a tracker board keeps New Task and has no hub form', async () => {

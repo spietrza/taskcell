@@ -47,3 +47,22 @@ test('no handler falls through to the unhandled-command warn path', async () => 
   expect(warn.mock.calls.map((args) => String(args[0])), 'mockBackend.ts warned on a command it claims to handle').toEqual([]);
   warn.mockRestore();
 });
+
+test('fixtures: no vanguard name and a spec per board task', async () => {
+  const fx = await import('./fixtures');
+  expect(JSON.stringify(fx)).not.toMatch(/vanguard/i);
+  expect(new Set(fx.boardTasks.map((t) => fx.taskSpecs[t.id])).size).toBe(fx.boardTasks.length);
+  expect(fx.taskSpecs['LINEAR-124']).toMatch(/dark mode/i);
+  expect(Date.now() - Date.parse(fx.runs[0]!.timestamp)).toBeLessThan(86_400_000);
+});
+
+test('lesson and audit times are relative to now, so they never age', async () => {
+  install();
+  const ago = (iso: string): number => Date.now() - Date.parse(iso);
+  const { lessons } = await invoke<{ lessons: { timestamp: string }[] }>('list_lessons', { repoPath: '/x' });
+  expect(lessons.length).toBeGreaterThan(0);
+  for (const l of lessons) expect(ago(l.timestamp)).toBeLessThan(7 * 86_400_000);
+  const audit = await invoke<{ time: string }[]>('read_audit', { repoPath: '/x' });
+  expect(audit.length).toBeGreaterThan(0);
+  for (const a of audit) expect(ago(a.time)).toBeLessThan(86_400_000);
+});

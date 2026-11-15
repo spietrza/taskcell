@@ -985,6 +985,25 @@ export interface WatchWorkerChecklist {
   lastRunAt?: string;
 }
 
+/** The "Local hub" run location for a repository: the hub's built-in worker (src/hub/local-worker.ts). Names only: no credential value is included. */
+export interface LocalWorkerState {
+  /** The per-project switch; off by default. */
+  enabled: boolean;
+  /** The task source the worker reads, when it can serve this project; absent when it cannot (see `blocked`). */
+  source?: 'github' | 'hub';
+  /** Why the switch cannot be turned on, in one sentence; absent when it can. */
+  blocked?: string;
+  /** Credential names that would fund a run (any one is enough); `present` says whether the hub has one. */
+  credentials: { names: string[]; present: boolean };
+  /** The doctor checks run on this machine: when, whether they passed and the failing checks. Absent = not run yet. */
+  doctor?: { at: string; ok: boolean; failed: string[] };
+  /** Newest pick-up: when and what (an issue `#n` or hub task ids). */
+  lastPickupAt?: string;
+  lastPickup?: string;
+  /** Newest pick-up error; cleared by the next successful pick-up. */
+  lastError?: string;
+}
+
 /** The four steps of the in-app Enable factory checklist, in order. */
 export type FactoryStepId = 'pr' | 'secret' | 'merged' | 'doctor';
 
@@ -1173,6 +1192,12 @@ export interface Commands {
   list_lessons: { args: { repoPath: string; taskText?: string }; result: { lessons: RepoLesson[]; branchFound: boolean } };
   /** HUB_ONLY: dismiss a lesson (same effect as `taskcell lessons dismiss <id>`): later runs no longer receive it. */
   dismiss_lesson: { args: { repoPath: string; id: string }; result: void };
+  /** The Local hub checklist: the switch, whether a credential and a task source are there, the last doctor result, last pick-up and last error. No network. */
+  local_worker_state: { args: { repoPath: string }; result: LocalWorkerState };
+  /** HUB_ONLY: run the doctor's preflight checks on the hub's machine and keep the result in the checklist. */
+  local_worker_doctor: { args: { repoPath: string }; result: LocalWorkerState };
+  /** HUB_ONLY: turn the project's built-in worker on or off. On is refused, with the reason, for a project with no servable task source or no credential. Off stops new pick-ups and leaves a running task alone. */
+  local_worker_set: { args: { repoPath: string; enabled: boolean }; result: LocalWorkerState };
   /** HUB_ONLY: rename the repo's old `vanguard:*` labels to `taskcell:*` (as `taskcell migrate-labels`). Dry-run unless `apply`. */
   migrate_labels: { args: { repoPath: string; apply?: boolean }; result: MigrateLabelsReport };
   /** HUB_ONLY: the hub "Needs you" read model (src/hub/needs-you.ts) — `gh` and labels only, no model call. */
@@ -1347,6 +1372,9 @@ export const COMMAND_NAMES = [
   'list_tasks',
   'list_tasks_all',
   'list_teams',
+  'local_worker_doctor',
+  'local_worker_set',
+  'local_worker_state',
   'merge_needs_you',
   'migrate_labels',
   'read_app_config',

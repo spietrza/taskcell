@@ -3,8 +3,9 @@ import { githubDepsFromEnv } from '../runners/github.js';
 import { gitlabDepsFromEnv } from '../runners/gitlab.js';
 import { pickRunOptions } from '../runners/source-adapter.js';
 import { startSandboxContext } from '../sandbox/sandbox-context.js';
+import { ciRunUrl } from '../core/links.js';
 import { setRunTrigger } from '../core/run-store.js';
-import { agentAuthFromEnv } from '../agents/auth.js';
+import { agentAuthFromEnv, refuseLlmProxyWithoutPrimarySidecar } from '../agents/auth.js';
 import { customEgressHosts } from '../agents/registry.js';
 import { loadProviderChoice } from './provider-choice.js';
 import { LinearCliTaskFetcher } from '../tasks/linear-cli.js';
@@ -31,13 +32,16 @@ export async function watchCommand(cmd: WatchCommand): Promise<void> {
   const choice = await loadProviderChoice(cmd);
   cmd = choice.customProviders !== undefined ? { ...cmd, customProviders: choice.customProviders } : cmd;
 
+  // Before preflight, whose llm-auth check would otherwise report a missing Claude key.
+  refuseLlmProxyWithoutPrimarySidecar(cmd.llmProxy, choice);
   const report = await runPreflight(cmd);
   for (const line of formatPreflightReport(report)) console.log(line);
   if (!report.ok) throw new Error('preflight failed');
 
   const auth = agentAuthFromEnv(choice);
-  // The hub's Enable factory checklist counts only these records as "worker seen".
-  setRunTrigger('watch');
+  // The hub's Enable factory checklist counts only these records as "worker seen". The CI factory
+  // (implement.yml runs `watch --once`) is not a self-hosted worker, so a run inside CI is not stamped.
+  setRunTrigger(ciRunUrl() === undefined ? 'watch' : undefined);
 
   const controller = new AbortController();
   const stop = (): void => controller.abort();

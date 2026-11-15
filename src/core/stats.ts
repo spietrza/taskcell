@@ -33,6 +33,8 @@ export interface MetricRecord {
   skillsUsed?: string[];
   /** Review verdict, on reviewer/conformance stages only. */
   verdict?: string;
+  /** `'watch'` when a long-running `taskcell watch` worker wrote the line (not a `--once` CI sweep). */
+  trigger?: 'watch';
 }
 
 /** Aggregated totals for a group of metric records. */
@@ -138,6 +140,7 @@ export function parseMetrics(text: string): MetricRecord[] {
       ...(Array.isArray(parsed.lessonIds) ? { lessonIds: parsed.lessonIds.filter((x): x is string => typeof x === 'string') } : {}),
       ...(Array.isArray(parsed.skillsUsed) ? { skillsUsed: sanitizeSkillIds(parsed.skillsUsed) } : {}),
       ...(typeof parsed.verdict === 'string' ? { verdict: parsed.verdict } : {}),
+      ...(parsed.trigger === 'watch' ? { trigger: 'watch' as const } : {}),
       costUsd: num(parsed.costUsd),
       ...(typeof parsed.estCostUsd === 'number' && Number.isFinite(parsed.estCostUsd) && parsed.estCostUsd >= 0 && !costReported(parsed) ? { estCostUsd: parsed.estCostUsd } : {}),
       inputTokens: num(parsed.inputTokens),
