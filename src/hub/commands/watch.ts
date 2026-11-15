@@ -19,6 +19,9 @@ export const commands = defineCommands<WatchCommands>({
     return null;
   },
 }, {
+  watch_project: { write: true, repo: 'repoPath' },
+  unwatch_project: { write: true, repo: 'repoPath' },
+}, {
   watch_project: { action: 'project-watch', target: repoTarget },
   unwatch_project: { action: 'project-unwatch', target: repoTarget },
 });

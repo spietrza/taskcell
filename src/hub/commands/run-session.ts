@@ -80,6 +80,13 @@ export const commands = defineCommands<RunSessionCommands>({
     return null;
   },
 }, {
+  api_capabilities: { write: false },
+  api_create_run: { write: true, gatedBy: 'the handler resolves params.repoPath, so a refusal is audited as run-start', unaudited: 'audits itself, once the run is admitted or refused' },
+  api_active_run: { write: false, gatedBy: 'filtered to the caller\'s repositories' },
+  api_run_backlog: { write: false, gatedBy: 'assertRunVisible: the run\'s repository is the caller\'s' },
+  api_queue: { write: false, gatedBy: 'filtered to the caller\'s repositories' },
+  api_cancel: { write: true, gatedBy: 'assertRunVisible: the run\'s repository is the caller\'s (an unknown run: owner only)' },
+}, {
   api_cancel: {
     action: 'run-cancel',
     target: (a) => optionalString(a, 'runId'),

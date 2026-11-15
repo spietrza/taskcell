@@ -1,6 +1,6 @@
 // Hub commands: the hub project list: add, remove, clone, browse. One module per feature — contract, validation and handler live here;
 // `pnpm gen:wire` derives Commands, COMMAND_NAMES and dispatch from it (see CONTRIBUTING.md).
-import { assertGitWorkTreeDir, assertMutationsAllowed } from '../allowlist.js';
+import { assertGitWorkTreeDir } from '../allowlist.js';
 import { assertWithinBrowseRoot, browseDirs } from '../browse.js';
 import { mkdir } from 'node:fs/promises';
 import { join } from 'node:path';
@@ -37,16 +37,12 @@ export const commands = defineCommands<ProjectsCommands>({
   list_projects: async ({ ctx, scope }) => {
     return projects.list(ctx.configDir, await scope());
   },
-  add_project: async ({ ctx, args, caller }) => {
-    assertMutationsAllowed(ctx.bind);
-    teams.assertOwner(caller);
+  add_project: async ({ ctx, args }) => {
     const real = await assertWithinBrowseRoot(ctx.browseRoot, requireString(args, 'path'), ctx.browseAnywhere);
     await assertGitWorkTreeDir(real);
     return projects.add(ctx.configDir, real);
   },
   clone_project: async ({ ctx, args, caller }) => {
-    assertMutationsAllowed(ctx.bind);
-    teams.assertOwnerOrHubAdmin(caller);
     const url = requireString(args, 'url');
     // A hub admin does not choose where on the server's disk: the clone goes into one folder under the browse
     // root, never a dot-folder (`.ssh`) of it.
@@ -74,18 +70,21 @@ export const commands = defineCommands<ProjectsCommands>({
     }
     return projects.aggregate(target);
   },
-  remove_project: async ({ ctx, args, caller }) => {
-    teams.assertOwner(caller);
+  remove_project: async ({ ctx, args }) => {
     const path = requireString(args, 'path');
     await teams.purgeRepository(ctx.configDir, path);
     return projects.remove(ctx.configDir, path);
   },
-  browse_dirs: async ({ ctx, args, caller }) => {
-    assertMutationsAllowed(ctx.bind);
-    // Feeds add_project / clone_project only, which are the owner's: a member must not list the host.
-    teams.assertOwner(caller);
+  browse_dirs: async ({ ctx, args }) => {
     return browseDirs(ctx.browseRoot, optionalString(args, 'path'), ctx.browseAnywhere);
   },
+}, {
+  list_projects: { write: false },
+  add_project: { write: true, remote: true, owner: true },
+  clone_project: { write: true, remote: true, owner: 'or-hub-admin' },
+  remove_project: { write: true, owner: true },
+  // Feeds add_project / clone_project only, which are the owner's: a member must not list the host.
+  browse_dirs: { write: false, remote: true, owner: true },
 }, {
   add_project: { action: 'project-add', target: (a) => optionalString(a, 'path') },
   clone_project: { action: 'clone', target: (a) => optionalString(a, 'url') },

@@ -3,6 +3,7 @@ import { randomUUID } from 'node:crypto';
 import { copyFile, mkdir, readFile, realpath, rename, writeFile } from 'node:fs/promises';
 import { join, sep } from 'node:path';
 import { BadRequestError } from '../sidecar/sidecar.js';
+import { ForbiddenError } from './credentials.js';
 import type { Team, TeamMember, TeamRole } from '../wire.js';
 import type { HubUser } from './auth.js';
 import { loadPaths } from './projects.js';
@@ -156,22 +157,22 @@ export async function callerTeams(configDir: string, caller: Caller): Promise<Te
 export async function selectTeam(configDir: string, caller: Caller, teamId?: string): Promise<Team> {
   const mine = await callerTeams(configDir, caller);
   const team = teamId === undefined ? mine[0] : mine.find((t) => t.id === teamId);
-  if (team === undefined) throw new BadRequestError(teamId === undefined ? 'you are not a member of any team' : `not a member of team: ${teamId}`);
+  if (team === undefined) throw new ForbiddenError(teamId === undefined ? 'you are not a member of any team' : `not a member of team: ${teamId}`);
   return team;
 }
 
 /** The hub-wide commands (credentials, fleet, project registry) are the owner's. */
 export function assertOwner(caller: Caller): void {
-  if (!caller.owner) throw new BadRequestError('only the hub owner can do this');
+  if (!caller.owner) throw new ForbiddenError('only the hub owner can do this');
 }
 
 /** `clone_project` for a signed-in hub admin as well as the owner; the file-system commands stay `assertOwner`. */
 export function assertOwnerOrHubAdmin(caller: Caller): void {
-  if (!caller.owner && caller.hubAdmin !== true) throw new BadRequestError('only the hub owner or a hub admin can do this');
+  if (!caller.owner && caller.hubAdmin !== true) throw new ForbiddenError('only the hub owner or a hub admin can do this');
 }
 
 function assertAdmin(team: Team, caller: Caller): void {
-  if (!caller.owner && roleOf(team, caller) !== 'admin') throw new BadRequestError(`only a team admin can change team ${team.id}`);
+  if (!caller.owner && roleOf(team, caller) !== 'admin') throw new ForbiddenError(`only a team admin can change team ${team.id}`);
 }
 
 /** The realpath'd repositories of the caller's teams; `undefined` = unrestricted (the owner). Compute
@@ -189,7 +190,7 @@ export function repoInRoots(roots: readonly string[] | undefined, path: string):
 
 /** Refuse a repository (or a path inside one) that none of the caller's teams holds. */
 export function assertRepoInRoots(roots: readonly string[] | undefined, repoPath: string): void {
-  if (!repoInRoots(roots, repoPath)) throw new BadRequestError(`repository is not in any of your teams: ${repoPath}`);
+  if (!repoInRoots(roots, repoPath)) throw new ForbiddenError(`repository is not in any of your teams: ${repoPath}`);
 }
 
 /** Authorise (inside the write queue, so a concurrent demotion cannot slip past), edit, persist. The
@@ -198,7 +199,7 @@ function change(configDir: string, caller: Caller, id: string, edit: (t: Team) =
   return serialised(async () => {
     const all = await ensure(configDir);
     const team = all.find((t) => t.id === id);
-    if (team === undefined || (!caller.owner && roleOf(team, caller) === undefined)) throw new BadRequestError(`not a member of team: ${id}`);
+    if (team === undefined || (!caller.owner && roleOf(team, caller) === undefined)) throw new ForbiddenError(`not a member of team: ${id}`);
     assertAdmin(team, caller);
     const hadAdmin = team.members.some((m) => m.role === 'admin');
     // A hub admin filling an empty team stays in it: the team's first member row is theirs.

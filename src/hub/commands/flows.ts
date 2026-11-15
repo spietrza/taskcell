@@ -37,6 +37,12 @@ export const commands = defineCommands<FlowsCommands>({
     return invokeCoreMethod(ctx.deps, 'deleteFlow', { repoPath: real, file });
   },
 }, {
+  api_list_flows: { write: false, repo: 'repoPath' },
+  api_list_providers: { write: false, repo: 'repoPath' },
+  api_read_flow: { write: false, repo: 'repoPath' },
+  api_write_flow: { write: true, repo: 'repoPath' },
+  api_delete_flow: { write: true, repo: 'repoPath' },
+}, {
   api_write_flow: { action: 'settings-change', target: repoItemTarget('file') },
   api_delete_flow: { action: 'settings-change', target: repoItemTarget('file') },
 });
