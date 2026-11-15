@@ -208,6 +208,42 @@ function factoryStage(ci: string | undefined): string {
   return names.find((name) => /^[A-Za-z0-9_][A-Za-z0-9_.-]*$/.test(name)) ?? 'test';
 }
 
+/** One runner tag: non-empty, at most 255 characters, no edge whitespace, and none of `,`, `"`, `\`, control characters or line separators (the tags are written double-quoted, comma-separated in the field). */
+export const GITLAB_RUNNER_TAG = /^[^\s",\\\x00-\x1f\x7f-\x9f\u2028\u2029](?:[^",\\\x00-\x1f\x7f-\x9f\u2028\u2029]{0,253}[^\s",\\\x00-\x1f\x7f-\x9f\u2028\u2029])?$/;
+/** GitLab's own limit on tags per job. */
+const MAX_RUNNER_TAGS = 50;
+export const RUNNER_TAGS_RULE = `runner tags must be non-empty, at most 255 characters, at most ${MAX_RUNNER_TAGS} in all, with no leading or trailing space and none of , " \\, control characters or line separators`;
+
+/** The validated tag list, or an error naming the rule. */
+export function validateRunnerTags(raw: unknown): string[] {
+  if (raw === undefined) return [];
+  if (!Array.isArray(raw) || raw.length > MAX_RUNNER_TAGS || !raw.every((t) => typeof t === 'string' && GITLAB_RUNNER_TAG.test(t))) throw new BadRequestError(RUNNER_TAGS_RULE);
+  return raw as string[];
+}
+
+/** A GitLab `!reference` node: its value lives elsewhere (another job, an include), so it is never copied as literal tags. */
+class CiReference {}
+const resolveReference = (): CiReference => new CiReference();
+const REFERENCE_TAGS = [
+  { tag: '!reference', collection: 'seq' as const, resolve: resolveReference },
+  { tag: '!reference', resolve: resolveReference },
+];
+const RUNNER_TAGS_UNREADABLE = 'The project\'s `default: tags` could not be copied (not a plain list of valid tags, e.g. a `!reference`), so the field starts empty: enter the tags of the runners that should take the jobs.';
+
+/** `default: tags:` of the project's own CI file (top-level `default:` only, aliases and merge keys resolved, no includes).
+ * A value the hub cannot copy faithfully is never trimmed (dropping a tag would widen the runners that take the jobs):
+ * the field starts empty with a note and the plan goes on, since the tags only matter for a new jobs file. */
+function defaultTags(ci: string | undefined): { tags: string[]; note?: string } {
+  if (ci === undefined || pipelineYaml(ci) === undefined) return { tags: [] };
+  try {
+    const field = (obj: unknown, key: string): unknown => (typeof obj === 'object' && obj !== null ? (obj as Record<string, unknown>)[key] : undefined);
+    const tags = field(field(parseAllDocuments(ci, { customTags: REFERENCE_TAGS, merge: true }).at(-1)?.toJS(), 'default'), 'tags');
+    return { tags: tags === undefined || tags === null ? [] : validateRunnerTags(tags) };
+  } catch {
+    return { tags: [], note: RUNNER_TAGS_UNREADABLE };
+  }
+}
+
 function unruledJobs(ci: string | undefined): string[] {
   if (ci === undefined) return [];
   const root = pipelineYaml(ci)?.at(-1)?.contents;
@@ -252,6 +288,7 @@ export async function planGitlabFactory(repoPath: string, deps: GitlabFactoryDep
   ]);
   const isWired = wired(base.ci);
   const unruled = unruledJobs(base.ci);
+  const runnerTags = defaultTags(base.ci);
   const autoDevopsWithoutFile = project.auto_devops_enabled === true && base.ci === undefined;
   const gitlabManualInclude = !isWired && (
     gitlabCiPath !== GITLAB_CI_FILE || autoDevopsWithoutFile || (base.ci !== undefined && withInclude(base.ci) === undefined)
@@ -265,6 +302,8 @@ export async function planGitlabFactory(repoPath: string, deps: GitlabFactoryDep
     gitlabProjectId,
     gitlabCiPath,
     ...(gitlabManualInclude ? { gitlabManualInclude: true } : {}),
+    gitlabRunnerTags: runnerTags.tags,
+    ...(runnerTags.note !== undefined ? { gitlabRunnerTagsNote: runnerTags.note } : {}),
     ...(unruled.length > 0 ? { gitlabUnruledJobs: unruled } : {}),
     packageManager,
     ...(verifyCommand !== undefined ? { verifyCommand } : {}),
@@ -370,6 +409,8 @@ export async function applyGitlabFactory(repoPath: string, plan: FactoryPlan, de
 
   await guarded(() => git(exec, repoPath, ['fetch', 'origin', plan.defaultBranch]));
   const base = await baseState(exec, repoPath, plan.defaultBranch, ciPath);
+  const tags = plan.gitlabRunnerTags ?? [];
+  const tagsLine = tags.length > 0 ? `\n  tags: [${tags.map((tag) => JSON.stringify(tag)).join(', ')}]` : '';
   let changed: boolean;
   let manualInclude = false;
   await guarded(() => git(exec, repoPath, ['checkout', '-B', branch, `origin/${plan.defaultBranch}`]));
@@ -378,7 +419,7 @@ export async function applyGitlabFactory(repoPath: string, plan: FactoryPlan, de
     const written: string[] = [];
     if (!base.includeFile) {
       await mkdir(join(repoPath, '.gitlab'), { recursive: true });
-      await writeFile(join(repoPath, GITLAB_INCLUDE_FILE), (await readFile(TEMPLATE, 'utf8')).replaceAll(LOGIN_PLACEHOLDER, plan.login).replace(/^ {2}stage: test$/m, `  stage: ${factoryStage(base.ci)}`));
+      await writeFile(join(repoPath, GITLAB_INCLUDE_FILE), (await readFile(TEMPLATE, 'utf8')).replaceAll(LOGIN_PLACEHOLDER, () => plan.login).replace(/^ {2}stage: test$/m, () => `  stage: ${factoryStage(base.ci)}${tagsLine}`));
       written.push(GITLAB_INCLUDE_FILE);
     }
     const canEditCi = ciPath === GITLAB_CI_FILE && plan.gitlabManualInclude !== true;

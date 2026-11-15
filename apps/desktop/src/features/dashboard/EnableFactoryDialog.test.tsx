@@ -156,7 +156,7 @@ describe('EnableFactoryDialog', () => {
     expect(screen.getByText('.gitlab/taskcell.yml')).toBeInTheDocument();
     expect(screen.getByText(/never edits CI config itself/)).toBeInTheDocument();
     fireEvent.click(screen.getByRole('button', { name: 'Open merge request' }));
-    await vi.waitFor(() => expect(enableFactoryApply).toHaveBeenCalledWith(project.path, gitlabFactoryPlan));
+    await vi.waitFor(() => expect(enableFactoryApply).toHaveBeenCalledWith(project.path, { ...gitlabFactoryPlan, gitlabRunnerTags: [] }));
   });
 
   test('GitLab: a CI file the hub cannot edit is named with the exact include line; no MR is offered when only that line is missing', async () => {
@@ -288,6 +288,44 @@ describe('EnableFactoryDialog', () => {
     render(<EnableFactoryDialog project={project} onClose={() => {}} />);
     expect(await screen.findByText('the callers PR was closed without merging', { exact: false })).toBeInTheDocument();
     expect(screen.getByRole('button', { name: 'Open PR again' })).toBeInTheDocument();
+  });
+
+  test('GitLab: the runner tags are pre-filled, parsed on apply, and hidden when the jobs file already exists', async () => {
+    vi.mocked(enableFactoryHost).mockResolvedValue({ host: 'gitlab' });
+    vi.mocked(enableFactoryPlan).mockResolvedValue({ ...gitlabFactoryPlan, gitlabRunnerTags: ['docker', 'linux'] });
+    render(<EnableFactoryDialog project={project} onClose={() => {}} />);
+    fireEvent.click(await screen.findByRole('button', { name: /GitLab CI/ }));
+    const field = await screen.findByLabelText('Runner tags');
+    expect(field).toHaveValue('docker, linux');
+    fireEvent.change(field, { target: { value: ' arm64 , secure:prod ,, big runner' } });
+    fireEvent.click(screen.getByRole('button', { name: 'Open merge request' }));
+    await vi.waitFor(() => expect(enableFactoryApply).toHaveBeenCalledWith(project.path, expect.objectContaining({ gitlabRunnerTags: ['arm64', 'secure:prod', 'big runner'] })));
+  });
+
+  test('GitLab: default tags the hub could not copy leave the field empty with the note', async () => {
+    vi.mocked(enableFactoryHost).mockResolvedValue({ host: 'gitlab' });
+    vi.mocked(enableFactoryPlan).mockResolvedValue({ ...gitlabFactoryPlan, gitlabRunnerTags: [], gitlabRunnerTagsNote: 'The project\'s `default: tags` could not be copied' });
+    render(<EnableFactoryDialog project={project} onClose={() => {}} />);
+    fireEvent.click(await screen.findByRole('button', { name: /GitLab CI/ }));
+    expect(await screen.findByLabelText('Runner tags')).toHaveValue('');
+    expect(screen.getByText(/could not be copied/)).toBeInTheDocument();
+  });
+
+  test('GitLab: the runner tags field is not offered when the jobs file is already on the default branch', async () => {
+    vi.mocked(enableFactoryHost).mockResolvedValue({ host: 'gitlab' });
+    vi.mocked(enableFactoryPlan).mockResolvedValue({ ...gitlabFactoryPlan, existingCallerFiles: ['.gitlab/taskcell.yml'] });
+    render(<EnableFactoryDialog project={project} onClose={() => {}} />);
+    fireEvent.click(await screen.findByRole('button', { name: /GitLab CI/ }));
+    await screen.findByText('acme/my-app');
+    expect(screen.queryByLabelText('Runner tags')).not.toBeInTheDocument();
+  });
+
+  test('GitLab: "Open MR again" after a reopen re-applies the saved plan\'s tags', async () => {
+    const saved = { ...gitlabFactoryPlan, gitlabRunnerTags: ['docker', 'linux'] };
+    vi.mocked(factoryState).mockResolvedValue(at(['done', 'current', 'failed', 'pending'], { state: 'broken', step: 'merged', reason: 'the callers MR was closed without merging', plan: saved }));
+    render(<EnableFactoryDialog project={project} onClose={() => {}} />);
+    fireEvent.click(await screen.findByRole('button', { name: 'Open MR again' }));
+    await vi.waitFor(() => expect(enableFactoryApply).toHaveBeenCalledWith(project.path, saved));
   });
 
   test('a failed step shows its error and keeps the dialog on the same step', async () => {

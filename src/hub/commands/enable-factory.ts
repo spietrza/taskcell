@@ -3,7 +3,7 @@
 import { BadRequestError } from '../../sidecar/sidecar.js';
 import { assertMutationsAllowed } from '../allowlist.js';
 import { factoryPlanTargets, GITHUB_REPO_SLUG, noScripts } from '../enable-factory.js';
-import { factoryHostOf, factoryProviderFor, GITLAB_HOSTNAME, GITLAB_LOGIN, GITLAB_PROJECT_PATH, gitlabPlanTargets } from '../enable-factory-gitlab.js';
+import { factoryHostOf, factoryProviderFor, GITLAB_HOSTNAME, GITLAB_LOGIN, GITLAB_PROJECT_PATH, gitlabPlanTargets, validateRunnerTags } from '../enable-factory-gitlab.js';
 import { watchWorkerChecklist } from '../watch-worker.js';
 import { factoryState, callersPresent, newFactoryRecord, refreshFactory, updateFactoryRecord, writeFactoryRecord } from '../factory-checklist.js';
 import type { WatchWorkerChecklist, FactoryApplyResult, FactoryHost, FactoryPlan, FactoryProviderId, FactorySecretStep, FactoryState, FactoryVerifyResult } from '../../wire.js';
@@ -99,6 +99,8 @@ export const commands = defineCommands<EnableFactoryCommands>({
     assertMutationsAllowed(ctx.bind);
     const real = await allow(requireString(args, 'repoPath'));
     const shown = requirePlan(args, 'plan');
+    // The tags are the user's edit of the plan's pre-fill, so they come from the shown plan (validated: they reach the generated YAML).
+    const tags = shown.provider === 'gitlab' ? validateRunnerTags((args.plan as Record<string, unknown>).gitlabRunnerTags) : [];
     const provider = factoryProviderFor(real, shown.provider);
     // `login` becomes the callers' actor gate: apply a plan re-derived here, never the client's echo,
     // and refuse one that no longer matches what the user was shown.
@@ -106,6 +108,7 @@ export const commands = defineCommands<EnableFactoryCommands>({
     if (plan.login !== shown.login || plan.repoSlug !== shown.repoSlug || plan.defaultBranch !== shown.defaultBranch) {
       throw new BadRequestError('the plan no longer matches the repository (sign-in, repo or default branch changed); review the new plan and apply again');
     }
+    if (plan.provider === 'gitlab') plan.gitlabRunnerTags = tags;
     const result = await provider.apply(plan);
     await updateFactoryRecord(real, plan, (r) => {
       // A new PR starts the merge and doctor steps over: drop the previous doctor result.
@@ -136,7 +139,8 @@ export const commands = defineCommands<EnableFactoryCommands>({
     const unconfirmed = (plan.gitlabUnruledJobs ?? []).filter((job) => !seen.includes(job));
     if (unconfirmed.length > 0) {
       // Keep the fresh list in the record so the dialog shows what it must confirm.
-      await updateFactoryRecord(real, plan, (r) => ({ ...r, plan }));
+      // The re-derived plan carries the default-tags pre-fill; keep the tags the user applied.
+      await updateFactoryRecord(real, plan, (r) => ({ ...r, plan: { ...plan, ...(r.plan.gitlabRunnerTags !== undefined ? { gitlabRunnerTags: r.plan.gitlabRunnerTags } : {}) } }));
       throw new BadRequestError(`the doctor pipeline would also run ${unconfirmed.join(', ')} (no rules:); review the list and run the doctor again to confirm`);
     }
     const result = await provider.verify(plan);

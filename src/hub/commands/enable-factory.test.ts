@@ -192,6 +192,25 @@ describe('enable_factory RPCs', () => {
     }
   });
 
+  test('verify keeps the runner tags the user applied when it stores the re-derived plan', async () => {
+    const repo = await tmpRepo();
+    const { ctx } = await makeCtx(repo);
+    const applied = spyProvider(undefined, { gitlabRunnerTags: ['arm64'] });
+    try {
+      await dispatchRpc(ctx, 'enable_factory_apply', { repoPath: repo, plan: validPlan });
+    } finally {
+      applied.mock.mockRestore();
+    }
+    const { mock } = spyProvider(undefined, { gitlabRunnerTags: ['docker'], gitlabUnruledJobs: ['deploy'] });
+    try {
+      await expect(dispatchRpc(ctx, 'enable_factory_verify', { repoPath: repo, plan: validPlan })).rejects.toThrow(/deploy/);
+      const state = (await dispatchRpc(ctx, 'factory_state', { repoPath: repo })) as { plan?: FactoryPlan };
+      expect(state.plan).toMatchObject({ gitlabRunnerTags: ['arm64'], gitlabUnruledJobs: ['deploy'] });
+    } finally {
+      mock.mockRestore();
+    }
+  });
+
   test('verify with a foreign slug is refused and never changes the stored slug or secret command', async () => {
     const repo = await tmpRepo();
     const { ctx } = await makeCtx(repo);
@@ -251,6 +270,14 @@ describe('enable_factory RPCs for GitLab', () => {
     packageManager: 'pnpm',
     scripts: { typecheck: true, lint: true, test: true, build: true },
   };
+
+  test('enable_factory_apply refuses invalid runner tags before touching the repo', async () => {
+    const repo = await tmpRepo();
+    const { ctx } = await makeCtx(repo);
+    for (const bad of [['a"b'], [''], ['x,y'], [' pad'], 'docker', [1], Array.from({ length: 51 }, (_, n) => `t${n}`)]) {
+      await expect(dispatchRpc(ctx, 'enable_factory_apply', { repoPath: repo, plan: { ...glPlan, gitlabRunnerTags: bad } })).rejects.toThrow(/runner tags/);
+    }
+  });
 
   test('enable_factory_host reports the host of origin', async () => {
     const repo = await tmpRepo();

@@ -16,7 +16,8 @@
   # `test` is GitLab's default stage; the hub swaps in a stage the project has when its `stages:` lacks `test`.
   stage: test
   # Do not pick up the including project's `default:` (image, hooks, tags...) or global `variables:` (GIT_STRATEGY...):
-  # the credential-carrying jobs never go to a runner the project's defaults pick.
+  # the credential-carrying jobs never follow a later change to them. Runner tags are the one exception, written
+  # explicitly by the hub's Enable factory (copied from the project's `default: tags`, editable there).
   inherit:
     default: false
     variables: false

@@ -15,9 +15,11 @@ import {
   NO_DOCTOR_JOB,
   pipelineResult,
   planGitlabFactory,
+  validateRunnerTags,
   verifyGitlabFactory,
 } from './enable-factory-gitlab.js';
 import type { FactoryExec, FactoryPlan } from './enable-factory.js';
+import { callersPresent } from './factory-checklist.js';
 
 const roots: string[] = [];
 afterEach(async () => {
@@ -290,6 +292,73 @@ describe('applyGitlabFactory', () => {
     const dir = await repo();
     await applyGitlabFactory(dir, plan, { exec: fake({ show: { '.gitlab-ci.yml': 'stages: [build, deploy]\n' } }).exec });
     expect(await readFile(join(dir, '.gitlab/taskcell.yml'), 'utf8')).toMatch(/\.taskcell-base:\n(?:.*\n)*?  stage: build\n(?:.*\n)*?  inherit:\n    default: false\n    variables: false/);
+  });
+  it('pre-fills the runner tags from default: tags and writes them under .taskcell-base', async () => {
+    const dir = await repo();
+    const ci = 'default:\n  tags: [docker, linux]\n';
+    const { exec } = fake({ show: { '.gitlab-ci.yml': ci } });
+    const shown = await planGitlabFactory(dir, { exec });
+    expect(shown.gitlabRunnerTags).toEqual(['docker', 'linux']);
+    await applyGitlabFactory(dir, shown, { exec });
+    expect(await readFile(join(dir, '.gitlab/taskcell.yml'), 'utf8')).toMatch(/\.taskcell-base:\n(?:.*\n)*?  stage: test\n  tags: \["docker", "linux"\]\n(?:.*\n)*?  inherit:\n    default: false\n    variables: false/);
+  });
+  it('plans empty tags and writes no tags: key without default tags', async () => {
+    const dir = await repo();
+    const { exec } = fake({ show: { '.gitlab-ci.yml': 'stages: [a]\n' } });
+    const shown = await planGitlabFactory(dir, { exec });
+    expect(shown.gitlabRunnerTags).toEqual([]);
+    await applyGitlabFactory(dir, shown, { exec });
+    const out = await readFile(join(dir, '.gitlab/taskcell.yml'), 'utf8');
+    expect(out).not.toMatch(/^ {2}tags:/m);
+    expect(out).toMatch(/inherit:\n    default: false/);
+  });
+  it('writes an edited tag list as given, quoted so 123 or true stay strings', async () => {
+    const dir = await repo();
+    await applyGitlabFactory(dir, { ...plan, gitlabRunnerTags: ['arm64', '123', 'true', 'secure:prod', '$RUNNER', 'a b'] }, { exec: fake().exec });
+    expect(await readFile(join(dir, '.gitlab/taskcell.yml'), 'utf8')).toMatch(/^ {2}tags: \["arm64", "123", "true", "secure:prod", "\$RUNNER", "a b"\]$/m);
+  });
+  it('validates runner tags', () => {
+    expect(validateRunnerTags(undefined)).toEqual([]);
+    expect(validateRunnerTags(['secure:prod', '$VAR', 'a+b', 'a b'])).toEqual(['secure:prod', '$VAR', 'a+b', 'a b']);
+    for (const bad of ['', 'a"b', 'x,y', ' pad', 'a\nb', 'a\\b', 'a\u0085b', 'a\u2028b', 'a\u2029b', 'x'.repeat(256)]) expect(() => validateRunnerTags([bad])).toThrow(/runner tags/);
+    expect(() => validateRunnerTags('docker')).toThrow(/runner tags/);
+    expect(() => validateRunnerTags(Array.from({ length: 51 }, (_, n) => `t${n}`))).toThrow(/runner tags/);
+  });
+  it('keeps string-looking and unusual default tags, and pre-fills an empty field with a note when it cannot copy them', async () => {
+    const dir = await repo();
+    const planOf = async (ci: string): Promise<FactoryPlan> => planGitlabFactory(dir, { exec: fake({ show: { '.gitlab-ci.yml': ci } }).exec });
+    expect((await planOf('default:\n  tags: ["123", "secure:prod", docker]\n')).gitlabRunnerTags).toEqual(['123', 'secure:prod', 'docker']);
+    // Aliases and merge keys are resolved.
+    expect((await planOf('.t: &t [docker, linux]\ndefault:\n  tags: *t\n')).gitlabRunnerTags).toEqual(['docker', 'linux']);
+    expect((await planOf('.b: &b\n  tags: [arm64]\ndefault:\n  <<: *b\n')).gitlabRunnerTags).toEqual(['arm64']);
+    for (const ci of [
+      'default:\n  tags: docker\n',
+      'default:\n  tags: [123]\n',
+      'default:\n  tags: ["a,b"]\n',
+      'default:\n  tags: ["a\\u2028b"]\n',
+      'default:\n  tags: !reference [.runner, tags]\n',
+      'default:\n  tags: [docker, !reference [.runner, tags]]\n',
+    ]) {
+      const p = await planOf(ci);
+      expect(p.gitlabRunnerTags, ci).toEqual([]);
+      expect(p.gitlabRunnerTagsNote, ci).toMatch(/default: tags/);
+    }
+    expect((await planOf('default:\n  tags: [docker]\n')).gitlabRunnerTagsNote).toBeUndefined();
+  });
+  it('still plans, verifies and starts with unreadable default tags when the jobs file exists', async () => {
+    const dir = await repo();
+    const { exec } = fake({ show: { '.gitlab/taskcell.yml': 'x', '.gitlab-ci.yml': 'include:\n  - local: .gitlab/taskcell.yml\ndefault:\n  tags: !reference [.runner, tags]\n' } });
+    const p = await planGitlabFactory(dir, { exec });
+    expect(p.existingCallerFiles).toEqual(['.gitlab/taskcell.yml', '.gitlab-ci.yml']);
+    expect(callersPresent(p)).toBe(true);
+    expect((await verifyGitlabFactory(dir, p, { exec, sleep: async () => undefined })).dispatched).toBe(true);
+  });
+  it('writes tags and the login verbatim, never as replacement patterns', async () => {
+    const dir = await repo();
+    await applyGitlabFactory(dir, { ...plan, gitlabRunnerTags: ['$$CI_TAG', '$&', "$'", '$1'] }, { exec: fake().exec });
+    const out = await readFile(join(dir, '.gitlab/taskcell.yml'), 'utf8');
+    expect(out).toMatch(/^ {2}stage: test\n {2}tags: \["\$\$CI_TAG", "\$&", "\$'", "\$1"\]$/m);
+    expect(parse(out)['.taskcell-base'].tags).toEqual(['$$CI_TAG', '$&', "$'", '$1']);
   });
   it('turns an empty include: into a one-entry list', async () => {
     const dir = await repo();
