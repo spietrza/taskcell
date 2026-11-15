@@ -1,5 +1,5 @@
 import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
-import { mkdtemp, rm, writeFile, mkdir } from 'node:fs/promises';
+import { mkdtemp, readFile, rm, writeFile, mkdir } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { execa } from 'execa';
@@ -54,7 +54,25 @@ async function withWork(content: string | undefined, run: (ctx: Awaited<ReturnTy
   }
 }
 
+/** gh gets the PR body as a file that is gone after the call: record it inline as `--body`. */
+const withBody = async (file: string, a: string[]): Promise<string[]> => {
+  const i = a.indexOf('--body-file');
+  return file === 'gh' && i >= 0 ? [...a.slice(0, i), '--body', await readFile(a[i + 1]!, 'utf8'), ...a.slice(i + 2)] : a;
+};
+
 describe('deliverChange', () => {
+  it('local-branch: commits on the run branch and pushes nothing; the branch outlives the worktree', async () => {
+    let branch = '';
+    await withWork('hello', async (ctx) => {
+      const r = await deliverChange(ctx, { taskId: 'hub-1', commitMessage: 'feat: x (hub-1)', target: { kind: 'local-branch' } });
+      expect(r).toMatchObject({ kind: 'delivered-local', branch: ctx.branch });
+      branch = ctx.branch;
+    });
+    expect((await execa('git', ['log', '-1', '--format=%s', branch], { cwd: repo })).stdout).toBe('feat: x (hub-1)');
+    expect((await execa('git', ['show', `${branch}:feature.txt`], { cwd: repo })).stdout).toBe('hello');
+    expect((await execa('git', ['remote'], { cwd: repo })).stdout).toBe(''); // a repository with no remote at all
+  });
+
   it('blocks on a secret in the outgoing diff before anything is committed or pushed', async () => {
     const spy = vi.spyOn(console, 'error').mockImplementation(() => {});
     const calls: string[][] = [];
@@ -187,7 +205,7 @@ describe('deliverChange', () => {
           draft: true,
           body: ({ commitLeaks }) => `Part of #7\n\nleaks=${commitLeaks.length}`,
           runner: async (file, a) => {
-            calls.push([file, ...a]);
+            calls.push([file, ...(await withBody(file, a))]);
             if (file === 'gh') return 'https://github.com/o/r/pull/9';
             // Only the branch-head read after the push rebase reports the rewritten commit.
             if (a[0] === 'rev-parse' && String(a[1]).startsWith('refs/heads/')) return 'rebasedhead';
@@ -225,7 +243,7 @@ describe('deliverChange', () => {
             scope: credential,
             body: () => `body ${credential}`,
             runner: async (file, a) => {
-              calls.push([file, ...a]);
+              calls.push([file, ...(await withBody(file, a))]);
               return file === 'gh' ? 'https://github.com/o/r/pull/9' : '';
             },
           },

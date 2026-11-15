@@ -36,6 +36,28 @@ afterEach(async () => {
 });
 
 describe('CompleteRegistry', () => {
+  test('passes instance credentials only in the completion child environment', async () => {
+    const fake = new FakeChild();
+    let childEnv: NodeJS.ProcessEnv | undefined;
+    const registry = new CompleteRegistry((env) => {
+      childEnv = env;
+      return fake as unknown as ChildProcess;
+    }, undefined, undefined, () => ({ ...process.env, CLAUDE_CODE_OAUTH_TOKEN: 'child-only' }));
+    const original = process.env.CLAUDE_CODE_OAUTH_TOKEN;
+    delete process.env.CLAUDE_CODE_OAUTH_TOKEN;
+    try {
+      const promise = registry.complete(repoPath, { messages: [], model: 'm' });
+      await requestSent(fake);
+      expect(childEnv?.CLAUDE_CODE_OAUTH_TOKEN).toBe('child-only');
+      expect(process.env.CLAUDE_CODE_OAUTH_TOKEN).toBeUndefined();
+      fake.stdout.write(`${JSON.stringify({ text: 'ok' })}\n`);
+      await expect(promise).resolves.toEqual({ text: 'ok' });
+    } finally {
+      if (original === undefined) delete process.env.CLAUDE_CODE_OAUTH_TOKEN;
+      else process.env.CLAUDE_CODE_OAUTH_TOKEN = original;
+    }
+  });
+
   test('sends the allowlisted request fields and resolves on the first JSON line', async () => {
     const fake = new FakeChild();
     let written = '';

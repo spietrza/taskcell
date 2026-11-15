@@ -1,7 +1,6 @@
 import { useRef, useState, type ReactNode } from 'react';
 import { Button, Input } from '@/ui';
 import { isHubMode } from '../../transport';
-import { Credentials } from './Credentials';
 import { Members, type TeamScreen } from './Members';
 import { writeAppConfig } from '../../ipc';
 import { useAppConfig } from '../../hooks';
@@ -139,8 +138,6 @@ export function Settings({ project, teamScreen }: { project: string; teamScreen?
       )}
 
       {isHubMode() && teamScreen && <Members {...teamScreen} />}
-
-      {isHubMode() && <Credentials />}
 
       {isHubMode() && <AutoMerge project={project} />}
 

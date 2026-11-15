@@ -22,7 +22,10 @@ import { startSandboxContext } from '../sandbox/sandbox-context.js';
 import { githubDepsFromEnv, runGithubIssue } from '../runners/github.js';
 import { gitlabDepsFromEnv, runGitlabIssue } from '../runners/gitlab.js';
 import { runLinearIssue } from '../runners/linear.js';
+import { runHubTask } from '../runners/hub.js';
 import { agentAuthFromEnv } from '../agents/auth.js';
+import { assertSkillsInstalled } from '../context/named-skills.js';
+import { hubSkillsDir, skillRegistryForRun } from '../context/skill-registry.js';
 import { BadRequestError } from './sidecar.js';
 import { CREDENTIAL_NAMES } from '../hub/credentials.js';
 import { codexAuthSecretValues, forgetInjectedSecretValue, registerInjectedSecretValue } from '../core/secret-scan.js';
@@ -126,7 +129,7 @@ function linearExtras(
   if (linearKey === undefined || linearKey === '') {
     throw new Error('Set LINEAR_API_KEY so the in-sandbox linear CLI can read the issue.');
   }
-  const skillsDir = process.env.SKILLS_DIR;
+  const skillsDir = hubSkillsDir();
   if (skillsDir === undefined) {
     throw new Error('Set SKILLS_DIR (a clone of schpet/linear-cli /skills) for --linear runs.');
   }
@@ -151,6 +154,7 @@ export function productionDeps(): SidecarDeps {
         title: params.title,
         body: params.body,
         ...(params.labels !== undefined && params.labels.length > 0 ? { labels: params.labels } : {}),
+        ...(params.dependsOn !== undefined && params.dependsOn.length > 0 ? { dependsOn: params.dependsOn } : {}),
       };
       if (params.source === 'linear') {
         // Labels are NOT applied on Linear: IssueCreateInput takes labelIds (uuids), not the names
@@ -264,6 +268,16 @@ export function productionDeps(): SidecarDeps {
       // non-chatgpt-shaped auth.json even with it on. A ChatGPT-plan credential under an active proxy
       // is fronted by its own chatgpt sidecar instead, so it no longer shows up here.
       const subscriptionProvider = subscriptionCredentialProvider(choice, authEnv, { proxyMode: llmProxy });
+      // A skill the hub named that is not installed costs nothing: refused before the sandbox context exists.
+      // (A `Skills:` line is only known once the issue is fetched; runSourcedIssue refuses that before any model call.)
+      const skillsDir = hubSkillsDir();
+      if (params.skills !== undefined && params.skills.length > 0) {
+        try {
+          assertSkillsInstalled(params.skills, (await skillRegistryForRun(skillsDir, repoPath)).ids());
+        } catch (error) {
+          throw new BadRequestError(error instanceof Error ? error.message : String(error));
+        }
+      }
       const signal = beginRun();
       let ctx: SandboxContext;
       try {
@@ -300,6 +314,9 @@ export function productionDeps(): SidecarDeps {
           ...(customProviders !== undefined ? { customProviders } : {}),
           ...(params.maxTurns !== undefined ? { maxTurns: params.maxTurns } : {}),
           ...(params.baseBranch !== undefined ? { baseBranch: params.baseBranch } : {}),
+          // The hub's list is the run's whole hand-picked list; the same skills dir list_skills offered it from.
+          ...(params.skills !== undefined ? { namedSkills: params.skills, namedSkillsOnly: true } : {}),
+          ...(skillsDir !== undefined ? { skillsDir } : {}),
           ...(params.startedBy !== undefined ? { startedBy: params.startedBy } : {}),
           // Named-flow dispatch: pass the validated flow key straight through. runSourcedIssue
           // resolves it via FLOWS[flow].build() (Subsystem 2). Any registered FLOWS entry works with
@@ -320,6 +337,12 @@ export function productionDeps(): SidecarDeps {
         }
         if (transport === 'linear') {
           return await runLinearIssue(params.issueRef, { ...common, ...linearExtras(repoPath, auth) });
+        }
+        // A hub-board task: the hub's scheduler passes the stored task; there is no tracker to fetch it from.
+        // `hub` is not a client transport (validateCreateRun refuses it), so a client's `hubTask` never lands here.
+        if (transport === 'hub') {
+          if (params.hubTask === undefined) throw new BadRequestError('a hub run needs its stored task');
+          return await runHubTask(params.hubTask, { ...common, repoPath, ...(auth !== undefined ? { auth } : {}) });
         }
         const deps = await githubDepsFromEnv(repoPath, undefined, authChoice, authEnv);
         return await runGithubIssue(params.issueRef, { ...deps, ...common });

@@ -1,4 +1,6 @@
 import { execa } from 'execa';
+import { mkdir, writeFile } from 'node:fs/promises';
+import { join } from 'node:path';
 import { describe, expect, test, vi } from 'vitest';
 import { classifyError, type RpcContext } from '../rpc.js';
 import { writeAppConfig } from '../app-config.js';
@@ -28,6 +30,50 @@ describe('tasks', () => {
       label: 'nope',
     });
     expect(captured).toMatchObject({ source: 'linear', team: 'DEV', labels: ['vanguard-ready'], title: 'hello', body: 'world' });
+  });
+
+  test('api_create_task forwards dependsOn; api_create_tasks creates in order and turns positions into the created ids', async () => {
+    const repo = await tmpRepo();
+    const seen: { title: string; dependsOn?: string[] }[] = [];
+    const { ctx } = await makeCtx(repo, {
+      depsOverrides: {
+        createTask: async (p) => {
+          seen.push({ title: p.title, ...(p.dependsOn !== undefined ? { dependsOn: p.dependsOn } : {}) });
+          return { id: `ENG-${seen.length}`, url: 'https://x' };
+        },
+      },
+    });
+    await writeAppConfig(repo, { source: 'linear', team: 'DEV' });
+    await dispatchRpc(ctx, 'api_create_task', { repoPath: repo, title: 'one', body: 'b', dependsOn: ['ENG-7'] });
+    const out = await dispatchRpc(ctx, 'api_create_tasks', {
+      repoPath: repo,
+      tasks: [{ title: 'a', body: '' }, { title: 'b', body: '', dependsOn: [0] }, { title: 'c', body: '', dependsOn: [0, 1, 1] }],
+    });
+    expect(seen).toEqual([{ title: 'one', dependsOn: ['ENG-7'] }, { title: 'a' }, { title: 'b', dependsOn: ['ENG-2'] }, { title: 'c', dependsOn: ['ENG-2', 'ENG-3'] }]);
+    expect(out).toMatchObject({ tasks: [{ id: 'ENG-2' }, { id: 'ENG-3' }, { id: 'ENG-4' }] });
+  });
+
+  test.each([
+    ['a forward reference', [{ title: 'a', body: '', dependsOn: [1] }, { title: 'b', body: '' }]],
+    ['a self reference', [{ title: 'a', body: '', dependsOn: [0] }]],
+    ['a task without a title', [{ title: 'a', body: '' }, { title: ' ', body: '' }]],
+    ['an empty list', []],
+    ['too many tasks', Array.from({ length: 21 }, () => ({ title: 'a', body: '' }))],
+  ])('api_create_tasks refuses %s before creating anything', async (_name, tasks) => {
+    const repo = await tmpRepo();
+    let created = 0;
+    const { ctx } = await makeCtx(repo, { depsOverrides: { createTask: async () => (created++, { id: 'x', url: 'https://x' }) } });
+    await writeAppConfig(repo, { source: 'linear', team: 'DEV' });
+    await expect(dispatchRpc(ctx, 'api_create_tasks', { repoPath: repo, tasks })).rejects.toThrow(/tasks/);
+    expect(created).toBe(0);
+  });
+
+  test('api_create_tasks names what was already created when a later task fails', async () => {
+    const repo = await tmpRepo();
+    let n = 0;
+    const { ctx } = await makeCtx(repo, { depsOverrides: { createTask: async () => (++n === 2 ? Promise.reject(new Error('tracker down')) : { id: `ENG-${n}`, url: 'https://x' }) } });
+    await writeAppConfig(repo, { source: 'linear', team: 'DEV' });
+    await expect(dispatchRpc(ctx, 'api_create_tasks', { repoPath: repo, tasks: [{ title: 'a', body: '' }, { title: 'b', body: '' }] })).rejects.toThrow(/task 2 of 2 .*tracker down.*ENG-1/);
   });
 
   test.each([
@@ -148,6 +194,34 @@ describe('tasks', () => {
       expect(await dispatchRpc(ctx, 'read_app_config', { repoPath: repo })).toMatchObject({ baseBranches: ['uat'] });
     });
 
+    test('list_skills names the skills a run of the project can load', async () => {
+      const repo = await tmpRepo();
+      const { ctx } = await makeCtx(repo);
+      await mkdir(join(repo, '.github/vanguard-skills/db'), { recursive: true });
+      await writeFile(join(repo, '.github/vanguard-skills/db/SKILL.md'), '---\nname: db\n---\n');
+      expect(((await dispatchRpc(ctx, 'list_skills', { repoPath: repo })) as { skills: string[] }).skills).toContain('db');
+    });
+    test('list_skills says why when the skills dir cannot be read, instead of an empty list', async () => {
+      const repo = await tmpRepo();
+      const { ctx } = await makeCtx(repo);
+      vi.stubEnv('SKILLS_DIR', join(repo, 'no-such-dir'));
+      const err: unknown = await dispatchRpc(ctx, 'list_skills', { repoPath: repo }).catch((e: unknown) => e).finally(() => vi.unstubAllEnvs());
+      expect(classifyError(err)).toMatchObject({ kind: 'bad-request', message: expect.stringMatching(/^Skills cannot be listed: .*no-such-dir/) });
+    });
+    test.each([
+      ['a value that is not a list', { taskId: 'gh-1', skills: 'db' }, 'skills must be an array'],
+      ['a value that is not a skill id', { taskId: 'gh-1', skills: ['../x'] }, 'expects a skill id'],
+      ['a card of no tracker', { taskId: 'draft-1', skills: [] }, 'names no GitHub, GitLab or Linear task'],
+      ['a skill that is not installed', { taskId: 'gh-1', skills: ['nope'] }, 'Unknown skill: nope. Installed skills: db.'],
+      ['a card of another tracker than the project\'s', { taskId: 'linear-dev-9', skills: ['db'] }, 'not on the project\'s task source'],
+    ])('set_task_skills refuses %s before any write', async (_n, extra, message) => {
+      const repo = await tmpRepo();
+      const { ctx } = await makeCtx(repo);
+      await mkdir(join(repo, '.github/vanguard-skills/db'), { recursive: true });
+      await writeFile(join(repo, '.github/vanguard-skills/db/SKILL.md'), '---\nname: db\n---\n');
+      const err: unknown = await dispatchRpc(ctx, 'set_task_skills', { repoPath: repo, ...extra }).catch((e: unknown) => e);
+      expect(classifyError(err)).toMatchObject({ kind: 'bad-request', message: expect.stringContaining(message) });
+    });
     test('list_branches offers only the allowlisted targets plus the configured default', async () => {
       const repo = await tmpRepo();
       const { ctx } = await makeCtx(repo);

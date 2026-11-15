@@ -921,3 +921,105 @@ describe('mergeTree', () => {
     expect((await mergeTree(repo, 'deadbeef'.repeat(5), headSha)).clean).not.toBe(true);
   });
 });
+
+describe('merge order (task dependencies)', () => {
+  beforeEach(() => setup(POLICY, { 'src.ts': 'export const x = 1;\n' }));
+
+  const HEAD = 'chore/vanguard-gh-o-r-7-x';
+  const issue = (body: string, state = 'open'): string => JSON.stringify({ title: 't', body, state });
+  /** fakeGh plus the merge-order reads: issues (a function sees how often the issue was read), empty blocked-by lists, the open PR list, and PR #2. */
+  function depGh(calls: string[][], state: PrState, issues: Record<number, string | ((read: number) => string)>, prs: object[] = [], pr2?: object): GhRunner {
+    const base = fakeGh(calls, state);
+    const reads = new Map<number, number>();
+    return async (args) => {
+      const m = /^repos\/o\/r\/issues\/(\d+)(\/dependencies\/blocked_by)?$/.exec(args[1] ?? '');
+      if (args[0] === 'api' && m !== null) {
+        calls.push(args);
+        if (m[2] !== undefined) return '[]';
+        const n = Number(m[1]);
+        reads.set(n, (reads.get(n) ?? 0) + 1);
+        const found = issues[n] ?? issue('');
+        return typeof found === 'string' ? found : found(reads.get(n)!);
+      }
+      if (args[0] === 'pr' && args[1] === 'list') {
+        calls.push(args);
+        return JSON.stringify(prs);
+      }
+      if (args[0] === 'pr' && args[1] === 'view' && args[2] === '2' && !args.includes('comments')) {
+        calls.push(args);
+        return JSON.stringify(pr2);
+      }
+      return base(args);
+    };
+  }
+  const dependencyReads = (calls: string[][]): string[][] => calls.filter((a) => (a[0] === 'api' && (a[1] ?? '').includes('/issues/')) || (a[0] === 'pr' && a[1] === 'list'));
+
+  it('a PR with a task but no dependencies merges as before', async () => {
+    const calls: string[][] = [];
+    await run(depGh(calls, pr({ headRefName: HEAD }), { 7: issue('plain') }));
+    expect(writes(calls, 'merge')).toHaveLength(1);
+    expect(writes(calls, 'comment')).toEqual([]);
+    expect(await actions()).toEqual(['merge']);
+  });
+
+  it('holds a PR whose task has an unmerged dependency: no merge, one comment naming it', async () => {
+    const calls: string[][] = [];
+    await run(depGh(calls, pr({ headRefName: HEAD }), { 7: issue('Depends on #3') }));
+    expect(writes(calls, 'merge')).toEqual([]);
+    expect(writes(calls, 'comment')).toHaveLength(1);
+    expect(writes(calls, 'comment')[0]!.join(' ')).toContain('depends on o/r#');
+    expect((await records()).find((r) => r.action === 'left-for-human')).toMatchObject({ reasonCode: 'dependency-unmerged' });
+  });
+
+  it('holds when the dependencies cannot be read (fails closed)', async () => {
+    const calls: string[][] = [];
+    const gh = depGh(calls, pr({ headRefName: HEAD }), {});
+    await run(async (args) => (args[0] === 'api' && (args[1] ?? '').endsWith('/issues/7') ? Promise.reject(new Error('HTTP 403')) : gh(args)));
+    expect(writes(calls, 'merge')).toEqual([]);
+    expect((await records()).find((r) => r.action === 'left-for-human')).toMatchObject({ reasonCode: 'dependency-read-failed' });
+  });
+
+  it('checks the dependencies again right before the merge', async () => {
+    const calls: string[][] = [];
+    await run(depGh(calls, pr({ headRefName: HEAD }), { 7: (read) => issue(read === 1 ? 'plain' : 'Depends on #3') }));
+    expect(writes(calls, 'merge')).toEqual([]);
+    expect(writes(calls, 'comment')[0]!.join(' ')).toContain('changed before the merge');
+  });
+
+  it('after the merge, brings an open dependent up to date and logs it under the dependent', async () => {
+    const seed = join(root, 'seed');
+    await git(seed, ['checkout', '--quiet', '-b', 'dep', 'main']);
+    await writeFile(join(seed, 'dep.ts'), 'export const d = 1;\n');
+    await git(seed, ['add', '.']);
+    await git(seed, ['commit', '--quiet', '-m', 'dependent']);
+    const depSha = await git(seed, ['rev-parse', 'HEAD']);
+    await git(seed, ['push', '--quiet', origin, 'dep:refs/pull/2/head']);
+    const pr2 = {
+      number: 2, title: 'feat: y', state: 'OPEN', isDraft: false, mergeStateStatus: 'BEHIND', headRefName: 'chore/vanguard-gh-o-r-8-y', headRefOid: depSha,
+      baseRefName: 'main', baseRefOid: baseSha, headRepository: { name: 'r' }, headRepositoryOwner: { login: 'o' }, author: { login: 'app/taskcell' }, labels: [], reviews: [],
+    };
+    const open = [
+      { number: 2, headRefName: 'chore/vanguard-gh-o-r-8-y', isCrossRepository: false, author: { login: 'app/taskcell' } },
+      { number: 3, headRefName: 'chore/vanguard-gh-o-r-9-z', isCrossRepository: true, author: { login: 'outsider' } },
+    ];
+    const calls: string[][] = [];
+    await run(depGh(calls, pr({ headRefName: HEAD }), { 7: issue('plain'), 8: issue('Depends on #7'), 9: issue('Depends on #7') }, open, pr2));
+    const order = calls.filter((a) => a[0] === 'pr' && ['merge', 'list', 'update-branch'].includes(a[1]!)).map((a) => `${a[1]} ${a[1] === 'list' ? '' : a[2]}`.trim());
+    expect(order).toEqual(['merge 1', 'list', 'update-branch 2']);
+    expect(calls.some((a) => a.join(' ').includes('issues/9') || a[2] === '3')).toBe(false); // the fork PR is never read or written
+    expect((await records()).filter((r) => r.action !== undefined).map((r) => [r.action, r.prNumber, r.headSha])).toEqual([['merge', 1, headSha], ['update-branch', 2, depSha]]);
+  });
+
+  it('shadow mode reads no dependencies and writes nothing to any PR but its decision comment', async () => {
+    for (const policy of [POLICY, { ...POLICY, act: false }]) {
+      await rm(root, { recursive: true, force: true });
+      await setup(policy, { 'src.ts': 'export const x = 1;\n' });
+      const calls: string[][] = [];
+      const open = [{ number: 2, headRefName: 'chore/vanguard-gh-o-r-8-y', isCrossRepository: false, author: { login: 'app/taskcell' } }];
+      await run(depGh(calls, pr({ headRefName: HEAD }), { 7: issue('Depends on #3'), 8: issue('Depends on #7') }, open), policy === POLICY ? 'shadow' : 'act');
+      expect(dependencyReads(calls)).toEqual([]);
+      expect(calls.filter((a) => a[0] === 'pr' && !['view', 'comment'].includes(a[1]!))).toEqual([]);
+      expect(writes(calls, 'comment').every((a) => a[2] === '1' && a.join(' ').includes('shadow mode'))).toBe(true);
+    }
+  });
+});
