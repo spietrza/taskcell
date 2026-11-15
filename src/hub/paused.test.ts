@@ -167,3 +167,18 @@ test.each([
   await expect(retryPausedTask('o/r', 7, triggers, gh)).rejects.toThrow(message);
   expect(edits(calls)).toEqual([]);
 });
+
+test('Retry now refuses when the hold vanished without any trigger or started label', async () => {
+  const { gh, calls } = fakeGh({ labels: ['taskcell:rate-limited'], labelsOnReread: ['bug'], comments: [{ author: 'factory-bot', body: marker() }] });
+  await expect(retryPausedTask('o/r', 7, triggers, gh)).rejects.toThrow('no longer paused; nothing was changed');
+  expect(edits(calls)).toEqual([]);
+});
+
+test('two reads within the cache window spawn one set of calls, the two spellings listed in parallel', async () => {
+  const { gh, calls } = fakeGh({ prs: [{ number: 3, title: 'p', labels: ['taskcell:rate-limited'] }], comments: [{ author: 'factory-bot', body: marker() }] });
+  await withPausedTasks('cache/repo', [], gh);
+  const first = calls.length;
+  expect(calls.filter((c) => c[0] === 'pr' && c[1] === 'list').length).toBeGreaterThan(1);
+  await withPausedTasks('cache/repo', [], gh);
+  expect(calls.length).toBe(first);
+});

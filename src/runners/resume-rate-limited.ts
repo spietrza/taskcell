@@ -80,10 +80,8 @@ async function listLabeled(kind: ParkedKind, repoSlug: string, label: string, gh
 /** `listLabeled` with the `--json` fields the caller needs (always including `number`), one item per number. */
 export async function listLabeledItems<T extends { number: number }>(kind: ParkedKind, repoSlug: string, label: string, gh: GhRunner, fields: string): Promise<T[]> {
   const items = new Map<number, T>();
-  for (const form of labelForms(label)) {
-    const out = await gh([kind, 'list', '--repo', repoSlug, '--state', 'open', '--label', form, '--limit', LIST_LIMIT, '--json', fields]);
-    for (const item of JSON.parse(out) as Partial<T>[]) if (item.number !== undefined) items.set(item.number, item as T);
-  }
+  const outs = await Promise.all(labelForms(label).map((form) => gh([kind, 'list', '--repo', repoSlug, '--state', 'open', '--label', form, '--limit', LIST_LIMIT, '--json', fields])));
+  for (const out of outs) for (const item of JSON.parse(out) as Partial<T>[]) if (item.number !== undefined) items.set(item.number, item as T);
   return [...items.values()];
 }
 
