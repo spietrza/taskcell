@@ -2,6 +2,7 @@ import { describe, it, expect } from 'vitest';
 import { OpenRouterProvider, OPENROUTER_DEFAULT_MODEL, OPENROUTER_BASE_URL, toOpenRouterModel } from './openrouter.js';
 import type { IsolatedSandboxProvider, ExecResult } from '../sandbox/provider.js';
 import type { AgentRunInput, AgentRunOutput } from './provider.js';
+import { CODEX_PRICED_MODELS, OPENROUTER_PRICING } from '../core/openrouter-pricing.js';
 
 function fakeSandbox(stdout: string, exitCode: number = 0): IsolatedSandboxProvider {
   return {
@@ -72,6 +73,34 @@ describe('OpenRouterProvider', () => {
     const cmd = await captureCommand({ model: 'haiku' });
     expect(cmd).toContain('anthropic/claude-haiku-5.5');
     expect(cmd).not.toMatch(/--model haiku\b/);
+  });
+
+  it('maps exactly the bare names it mapped before the Codex price rows were added', () => {
+    // toOpenRouterModel's behaviour on main, written out: the Codex (gpt-*) rows price estimates only.
+    const mapped: Record<string, string> = {
+      opus: 'anthropic/claude-opus-5.5',
+      sonnet: 'anthropic/claude-sonnet-5.5',
+      haiku: 'anthropic/claude-haiku-5.5',
+      'claude-sonnet-5-5': 'anthropic/claude-sonnet-5.5',
+      'claude-opus-5-5': 'anthropic/claude-opus-5.5',
+      'claude-haiku-5-5': 'anthropic/claude-haiku-5.5',
+      'claude-fable-5-1': 'anthropic/claude-fable-5.1',
+      'claude-fable-5': 'anthropic/claude-fable-5',
+      'claude-opus-4-8': 'anthropic/claude-opus-4.8',
+      'claude-sonnet-4-6': 'anthropic/claude-sonnet-4.6',
+      'claude-sonnet-5': 'anthropic/claude-sonnet-5',
+      'claude-haiku-4-5-20251001': 'anthropic/claude-haiku-4.5',
+      'glm-5.2': 'z-ai/glm-5.2',
+      // A slug passes through untouched, priced or not.
+      'openai/gpt-5': 'openai/gpt-5',
+      'anthropic/claude-sonnet-4.6': 'anthropic/claude-sonnet-4.6',
+    };
+    for (const [name, slug] of Object.entries(mapped)) expect(toOpenRouterModel(name), name).toBe(slug);
+    expect(Object.keys(OPENROUTER_PRICING).filter((k) => !k.includes('/')).sort()).toEqual(Object.keys(mapped).filter((k) => !k.includes('/')).sort());
+    for (const name of [...Object.keys(CODEX_PRICED_MODELS), 'gpt-4o-mini', 'o4-mini']) {
+      expect(() => toOpenRouterModel(name), name).toThrow(/not an OpenRouter slug/);
+    }
+    expect(() => toOpenRouterModel('gpt-5')).toThrow(/one of: (?!.*gpt-)/);
   });
 
   it('respects an explicit --provider-model override', async () => {

@@ -13,6 +13,11 @@ const baseResult: RunResult = {
 };
 
 describe('summarizeOutcomes', () => {
+  it('fills $or-est for a Codex run with usage and a priced model', () => {
+    const result: RunResult = { ...baseResult, model: 'gpt-5', usage: { inputTokens: 1_000_000, outputTokens: 100_000, cacheReadInputTokens: 0 } };
+    expect(summarizeOutcomes([{ name: 'review', result }])).toContain('2.2500');
+  });
+
   it('renders one row per stage with its numbers plus a summing TOTAL', () => {
     const implementer: RunResult = {
       ...baseResult,
@@ -133,7 +138,7 @@ describe('summarizeOutcomes', () => {
       durationMs: 500,
       usage: { inputTokens: 1000, outputTokens: 1000, cacheReadInputTokens: 1000 },
     };
-    const out = summarizeOutcomes([{ name: 'stage', result, model: 'gpt-5.3-codex' }]);
+    const out = summarizeOutcomes([{ name: 'stage', result, model: 'gpt-4o-mini' }]);
     expect(out).toContain('n/a');
   });
 

@@ -2,6 +2,7 @@ import { Chip, Collapsible } from '@/ui'
 import { AlertCircle, CheckCircle, ChevronDown } from 'lucide-react'
 import { AgentText } from '../../components/AgentText'
 import type { StageDetail } from '../../taskcell-output'
+import { estTitle } from '../../cost'
 import { buildStageMeta } from './stage-meta'
 
 export function StageCard({ stage }: { stage: StageDetail }) {
@@ -26,7 +27,7 @@ export function StageCard({ stage }: { stage: StageDetail }) {
         <div className="pt-0 border-l border-border pl-4">
           <div className="mb-1 flex flex-wrap gap-x-3 gap-y-1 text-xs tabular-nums text-muted-foreground">
             {meta.map((m, i) => (
-              <span key={i}>{m}</span>
+              <span key={i} {...estTitle(m)}>{m}</span>
             ))}
           </div>
           {!!r.findings?.length && <ul>{r.findings.map((finding, i) => (
