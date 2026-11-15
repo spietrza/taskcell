@@ -170,7 +170,6 @@ export function setRunTrigger(trigger: 'watch' | undefined): void {
 }
 
 /** Best-effort parse of a run record file; returns undefined on any read or JSON error. */
-
 async function tryReadRecord(path: string): Promise<RunRecord | undefined> {
   try {
     const contents = await readTextNoSymlink(path);
@@ -551,6 +550,7 @@ async function writeRecord(repoPath: string, taskId: string, timestamp: string, 
     // A reported cost is the agent CLI's own figure at list prices, never a provider's invoice.
     ...(result.costUsd === undefined ? { costUnknown: true } : { costKind: 'estimated' }),
     ...(opts.prUrl !== undefined ? { prUrl: opts.prUrl } : {}),
+    ...(runTrigger !== undefined ? { trigger: runTrigger } : {}),
     // Parsed on the host from every folded attempt. A withheld transcript is unknown, so omit the
     // field; an available but unrecognised transcript is the known empty list. `verdict` feeds stats.
     // No registry (`skills`/`skillIds` both absent) means the installed set is unknown: omit too.

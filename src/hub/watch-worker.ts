@@ -4,12 +4,13 @@
 // says whether run records show the worker picking up work lately.
 import { parseGitlabProjectFromRemote, remoteHostname } from '../runners/gitlab.js';
 import { shellQuote } from '../agents/shell.js';
-import { NO_REMOTE_MESSAGE, type RunSummary, type WatchWorkerChecklist } from '../wire.js';
+import { NO_REMOTE_MESSAGE, type WatchWorkerChecklist } from '../wire.js';
 import { BadRequestError } from '../sidecar/sidecar.js';
 import { readAppConfig } from './app-config.js';
 import { defaultExec, GITHUB_REPO_SLUG, type FactoryExec } from './enable-factory.js';
 import { GITLAB_HOSTNAME, GITLAB_PROJECT_PATH, hostOfOrigin, readOrigin } from './enable-factory-gitlab.js';
 import { resolveTaskSource } from './projects.js';
+import { readCiRecords } from './ci-metrics.js';
 import { defaultRunsRoot, listRunSummaries } from './runs.js';
 
 /** A worker counts as recently seen when a run record is newer than this. */
@@ -66,11 +67,22 @@ export function composeSnippet(t: WatchTarget): string {
   ].join('\n');
 }
 
-/** Worker-seen state from run records: newest run a watch worker started → recent / not recent; none, or an unreadable time → unknown. */
-export function workerSeen(runs: ReadonlyArray<RunSummary>, now: number = Date.now()): { seen: WatchWorkerChecklist['seen']; lastRunAt?: string } {
-  const stamps = runs.filter((r) => r.trigger === 'watch').map((r) => Date.parse(r.timestamp)).filter(Number.isFinite);
-  if (stamps.length === 0) return { seen: 'unknown' };
-  const at = Math.max(...stamps);
+/**
+ * Worker-seen state from watch-run timestamps (local records and the metrics branch): the newest one → recent / stale;
+ * none, an unreadable time or one further ahead of `now` than a clock skew (5 min) → unknown.
+ */
+/** A remote worker's clock may run slightly ahead; beyond this a timestamp is not believed. */
+const CLOCK_SKEW_MS = 5 * 60 * 1000;
+/** The metrics-branch read is a `git fetch`; the checklist does not wait on it longer than this. */
+const REMOTE_READ_TIMEOUT_MS = 5000;
+
+export function workerSeen(timestamps: ReadonlyArray<string>, now: number = Date.now()): { seen: WatchWorkerChecklist['seen']; lastRunAt?: string } {
+  let at = -Infinity;
+  for (const t of timestamps) {
+    const ms = Date.parse(t);
+    if (Number.isFinite(ms) && ms <= now + CLOCK_SKEW_MS && Math.min(ms, now) > at) at = Math.min(ms, now);
+  }
+  if (at === -Infinity) return { seen: 'unknown' };
   return { seen: now - at <= WORKER_RECENT_MS ? 'recent' : 'stale', lastRunAt: new Date(at).toISOString() };
 }
 
@@ -111,15 +123,28 @@ function workerGitlabHost(host: string | undefined): string | undefined {
   return GITLAB_HOSTNAME.test(host) ? host : undefined;
 }
 
-export async function watchWorkerChecklist(repoPath: string, exec: FactoryExec = defaultExec, now: number = Date.now()): Promise<WatchWorkerChecklist> {
+type RemoteRecords = (repoPath: string, now: number) => Promise<Awaited<ReturnType<typeof readCiRecords>>>;
+
+/** Timestamps of watch-stamped lines on the metrics branch (e.g. a worker host running `taskcell metrics push`); empty when unreadable or slow. */
+async function remoteWatchTimestamps(repoPath: string, now: number, read: RemoteRecords): Promise<string[]> {
+  let timer: number | undefined;
+  const timeout = new Promise<undefined>((resolve) => {
+    timer = setTimeout(resolve, REMOTE_READ_TIMEOUT_MS);
+  });
+  const records = await Promise.race([read(repoPath, now).catch(() => undefined), timeout]).finally(() => clearTimeout(timer));
+  return (records ?? []).flatMap((r) => (r.record.trigger === 'watch' && r.record.ts !== undefined ? [r.record.ts] : []));
+}
+
+export async function watchWorkerChecklist(repoPath: string, exec: FactoryExec = defaultExec, now: number = Date.now(), readRemote: RemoteRecords = readCiRecords): Promise<WatchWorkerChecklist> {
   const target = watchTarget(await readOrigin(exec, repoPath), resolveTaskSource(await readAppConfig(repoPath)));
-  const runs = await listRunSummaries(defaultRunsRoot(repoPath)).catch(() => []);
+  const [runs, remote] = await Promise.all([listRunSummaries(defaultRunsRoot(repoPath)).catch(() => []), remoteWatchTimestamps(repoPath, now, readRemote)]);
+  const local = runs.filter((r) => r.trigger === 'watch').map((r) => r.timestamp);
   return {
     repoSlug: target.slug,
     source: target.source,
     compose: composeSnippet(target),
     command: watchCommandLine(target),
     credentials: workerCredentials(target),
-    ...workerSeen(runs, now),
+    ...workerSeen([...local, ...remote], now),
   };
 }

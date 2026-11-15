@@ -165,6 +165,23 @@ describe('watchCommand', () => {
     }
   });
 
+  it('does not stamp a run inside CI (the GitHub Actions factory) as a self-hosted worker', async () => {
+    vi.stubEnv('CLAUDE_CODE_OAUTH_TOKEN', 'token');
+    vi.stubEnv('GITHUB_ACTIONS', 'true');
+    vi.stubEnv('GITHUB_SERVER_URL', 'https://github.com');
+    vi.stubEnv('GITHUB_REPOSITORY', 'acme/widgets');
+    vi.stubEnv('GITHUB_RUN_ID', '42');
+    const log = vi.spyOn(console, 'log').mockImplementation(() => {});
+    const once = vi.spyOn(process, 'once').mockImplementation(() => process);
+    try {
+      await runWatchCommand(watchCommand({ source: 'github', repoSlug: 'acme/widgets', once: true }));
+      expect(setRunTrigger).toHaveBeenCalledWith(undefined);
+    } finally {
+      log.mockRestore();
+      once.mockRestore();
+    }
+  });
+
   it('prints the spec-only review note before it dispatches to the source', async () => {
     vi.stubEnv('LINEAR_API_KEY', 'key');
     vi.stubEnv('CLAUDE_CODE_OAUTH_TOKEN', 'token');

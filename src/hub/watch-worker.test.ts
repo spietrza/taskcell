@@ -1,13 +1,12 @@
 import { mkdir, writeFile } from 'node:fs/promises';
 import { join } from 'node:path';
 import { afterEach, describe, expect, test } from 'vitest';
-import type { RunSummary } from '../wire.js';
 import { NO_REMOTE_MESSAGE } from '../wire.js';
 import { BadRequestError } from '../sidecar/sidecar.js';
 import { tmpGitRepo, tmpRepo } from './test-kit.js';
+import { listRunSummaries } from './runs.js';
 import { composeSnippet, watchArgs, watchCommandLine, watchTarget, watchWorkerChecklist, workerCredentials, workerSeen, WORKER_RECENT_MS, type WatchTarget } from './watch-worker.js';
 
-const run = (timestamp: string, extra: Partial<RunSummary> = {}): RunSummary => ({ taskId: 't', timestamp, stages: [], totalCostUsd: 0, anyFailed: false, trigger: 'watch', ...extra });
 const gh: WatchTarget = { source: 'github', forge: 'github', slug: 'acme/widgets' };
 
 describe('watch worker checklist', () => {
@@ -85,18 +84,25 @@ describe('watch worker checklist', () => {
     const now = Date.parse('2026-11-15T00:00:00Z');
     expect(workerSeen([], now)).toEqual({ seen: 'unknown' });
     const recent = new Date(now - 1000).toISOString();
-    expect(workerSeen([run(recent)], now)).toEqual({ seen: 'recent', lastRunAt: recent });
+    expect(workerSeen([recent], now)).toEqual({ seen: 'recent', lastRunAt: recent });
     const old = new Date(now - WORKER_RECENT_MS - 1000).toISOString();
-    expect(workerSeen([run(old)], now)).toEqual({ seen: 'stale', lastRunAt: old });
+    expect(workerSeen([old], now)).toEqual({ seen: 'stale', lastRunAt: old });
   });
 
-  test('only watch-started runs count; an unreadable time is unknown, not stale', () => {
+  test('an unreadable or future-dated time is unknown, not recent', () => {
     const now = Date.now();
     const ts = new Date(now).toISOString();
-    const { trigger: _trigger, ...manual } = run(ts);
-    expect(workerSeen([manual, { ...manual, startedBy: 'owner' }], now).seen).toBe('unknown');
-    expect(workerSeen([run('garbage')], now)).toEqual({ seen: 'unknown' });
-    expect(workerSeen([run('garbage'), run(ts)], now)).toEqual({ seen: 'recent', lastRunAt: ts });
+    expect(workerSeen(['garbage'], now)).toEqual({ seen: 'unknown' });
+    expect(workerSeen(['garbage', ts], now)).toEqual({ seen: 'recent', lastRunAt: ts });
+    const future = new Date(now + 60 * 60_000).toISOString();
+    expect(workerSeen([future], now)).toEqual({ seen: 'unknown' });
+    expect(workerSeen([future, ts], now)).toEqual({ seen: 'recent', lastRunAt: ts });
+  });
+
+  test('a timestamp a little ahead (clock skew) counts as now; far ahead is unknown', () => {
+    const now = Date.now();
+    const soon = new Date(now + 60_000).toISOString();
+    expect(workerSeen([soon], now)).toEqual({ seen: 'recent', lastRunAt: new Date(now).toISOString() });
   });
 });
 
@@ -114,9 +120,27 @@ describe('watchWorkerChecklist', () => {
     await writeFile(join(repo, '.taskcell', 'app.json'), JSON.stringify({ taskSource: 'linear', source: 'github' }));
     const at = '2026-11-14T12:00:00.000Z';
     await writeFile(join(repo, '.taskcell', 'runs', 'LIN-1', '2026-11-14T12-00-00-000Z-implement.json'), JSON.stringify({ taskId: 'LIN-1', timestamp: at, completed: true, stage: 'implement', trigger: 'watch' }));
-    const c = await watchWorkerChecklist(repo, undefined, Date.parse('2026-11-15T00:00:00Z'));
+    const c = await watchWorkerChecklist(repo, undefined, Date.parse('2026-11-15T00:00:00Z'), async () => undefined);
     expect(c).toMatchObject({ source: 'linear', repoSlug: 'acme/widgets', credentials: ['CLAUDE_CODE_OAUTH_TOKEN', 'GITLAB_TOKEN', 'LINEAR_API_KEY'], seen: 'recent', lastRunAt: at });
     expect(c.command).toContain('--source=linear');
+  });
+
+  test('the record listing is cached while the tree is unchanged, so opening and Check again do not re-read it', async () => {
+    const repo = await tmpRepo();
+    const root = join(repo, '.taskcell', 'runs');
+    await mkdir(join(root, 'T-1'), { recursive: true });
+    await writeFile(join(root, 'T-1', '2026-11-14T12-00-00-000Z.json'), JSON.stringify({ taskId: 'T-1', timestamp: '2026-11-14T12:00:00.000Z', completed: true, trigger: 'watch' }));
+    const first = await listRunSummaries(root);
+    expect(await listRunSummaries(root)).toBe(first);
+  });
+
+  test('a worker on another machine is seen through the metrics branch; a CI sweep carries no stamp', async () => {
+    const repo = await tmpGitRepo('https://github.com/acme/widgets.git');
+    const at = '2026-11-14T12:00:00.000Z';
+    const now = Date.parse('2026-11-15T00:00:00Z');
+    const remote = (trigger?: 'watch') => async () => [{ record: { taskId: 'T-1', ts: at, costUsd: 0, inputTokens: 0, outputTokens: 0, cacheReadInputTokens: 0, durationMs: 0, ...(trigger !== undefined ? { trigger } : {}) }, costKnown: false }];
+    expect(await watchWorkerChecklist(repo, undefined, now, remote('watch'))).toMatchObject({ seen: 'recent', lastRunAt: at });
+    expect((await watchWorkerChecklist(repo, undefined, now, remote())).seen).toBe('unknown');
   });
 
   test('no remote is a 400 with one sentence', async () => {
