@@ -7,6 +7,7 @@ import {
   CALLER_NAMES,
   enableFactory,
   FACTORY_LABELS,
+  fillCaller,
   githubSecretCommand,
   planGithubFactory,
   verifyGithubFactory,
@@ -229,6 +230,7 @@ describe('applyGithubFactory', () => {
       const content = await readFile(join(repoPath, '.github', 'workflows', `taskcell-${name}.yml`), 'utf8');
       expect(content).toContain('octocat');
       expect(content).not.toContain('YOUR_LOGIN');
+      expect(content).not.toContain('YOUR_APP_SLUG');
     }
   });
 
@@ -415,5 +417,19 @@ describe('enableFactory', () => {
       (c) => c.file === 'gh' && c.args.includes('secret') && c.args.includes('set'),
     );
     expect(secretSets).toHaveLength(0);
+  });
+});
+
+describe('fillCaller', () => {
+  const raw = `contains(fromJSON('["YOUR_LOGIN","github-actions[bot]","YOUR_APP_SLUG[bot]"]'), x)`;
+  it('substitutes the App slug when configured', () => {
+    expect(fillCaller(raw, 'octocat', 'my-app')).toBe(`contains(fromJSON('["octocat","github-actions[bot]","my-app[bot]"]'), x)`);
+  });
+  it('drops the entry when no (or an invalid) slug is configured', () => {
+    for (const slug of [undefined, '', 'Bad Slug"']) {
+      const out = fillCaller(raw, 'octocat', slug);
+      expect(out).toBe(`contains(fromJSON('["octocat","github-actions[bot]"]'), x)`);
+      expect(out).not.toContain('YOUR_APP_SLUG');
+    }
   });
 });
