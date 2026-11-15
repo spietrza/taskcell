@@ -91,11 +91,21 @@ describe('costBreakdown', () => {
     expect(b.byStage.find((r) => r.key === '(none)')).toMatchObject({ estCostUsd: 0.4, estPartial: true });
   });
 
+  it('a zero-token costUnknown line (provider-limit stop) does not mark the run estPartial', async () => {
+    clearCiMetricsCache();
+    await push([
+      line({ ts: '2026-11-12T10:00:00.000Z', taskId: 'Z', model: 'gpt-5', costUsd: 0.5, inputTokens: 10, outputTokens: 5 }),
+      line({ ts: '2026-11-12T10:01:00.000Z', taskId: 'Z', model: 'gpt-5', costUsd: 0, costUnknown: true, inputTokens: 0, outputTokens: 0 }),
+    ]);
+    const run = (await withCiRuns(repo, [])).find((r) => r.taskId === 'Z');
+    expect(run?.estPartial).toBeUndefined();
+  });
+
   it('the breakdown and the run rows agree: an estimate on a line with a reported cost, or a negative one, counts in neither', async () => {
     clearCiMetricsCache();
     await push([
       line({ ts: '2026-11-12T10:00:00.000Z', taskId: 'G', model: 'gpt-5', costUsd: 2, costKind: 'billed', estCostUsd: 0.4 }),
-      line({ ts: '2026-11-12T10:01:00.000Z', taskId: 'G', model: 'gpt-5', costUsd: 0, costUnknown: true, estCostUsd: -1 }),
+      line({ ts: '2026-11-12T10:01:00.000Z', taskId: 'G', model: 'gpt-5', costUsd: 0, inputTokens: 10, costUnknown: true, estCostUsd: -1 }),
       line({ ts: '2026-11-12T10:02:00.000Z', taskId: 'G', model: 'gpt-5', costUsd: 0, costUnknown: true, estCostUsd: 0.1 }),
     ]);
     const b = await costBreakdown(repo, 'all', NOW);
@@ -109,7 +119,7 @@ describe('costBreakdown', () => {
     clearCiMetricsCache();
     await push([
       line({ ts: '2026-11-12T10:00:00.000Z', taskId: 'H', model: 'gpt-5', costUsd: 2, costKind: 'billed' }),
-      line({ ts: '2026-11-12T10:01:00.000Z', taskId: 'H', model: 'mystery', costUsd: 0, costUnknown: true }),
+      line({ ts: '2026-11-12T10:01:00.000Z', taskId: 'H', model: 'mystery', costUsd: 0, inputTokens: 10, costUnknown: true }),
     ]);
     const run = (await withCiRuns(repo, [])).find((r) => r.taskId === 'H');
     expect(run).toMatchObject({ totalCostUsd: 2, estPartial: true });

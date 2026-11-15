@@ -73,7 +73,7 @@ async function sessionModel(
   execOpts: ExecOptions,
 ): Promise<string | undefined> {
   if (!/^[0-9A-Za-z-]+$/.test(threadId)) return undefined; // interpolated into the command below
-  const command = `grep -rhoE -m1 '"model":"[^"]+"' "${'$'}{CODEX_HOME:-${'$'}HOME/.codex}/sessions" --include='*${threadId}*.jsonl' | head -n 1`;
+  const command = `timeout 10 grep -rhoE -m1 '"model":"[^"]+"' "${'$'}{CODEX_HOME:-${'$'}HOME/.codex}/sessions" --include='*${threadId}*.jsonl' | head -n 1`;
   try {
     const res = await sh(command, { ...execOpts, timeoutMs: SESSION_LOOKUP_TIMEOUT_MS });
     // The agent can write that file, and this string is published unredacted: accept a model-id shape only.
