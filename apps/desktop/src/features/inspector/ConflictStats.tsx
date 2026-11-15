@@ -1,20 +1,10 @@
-import { useEffect, useState } from 'react';
+import { useAsync } from '../../hooks';
 import { conflictStats } from '../../ipc';
-import type { ConflictStats as Stats } from '../../wire';
 
 /** Conflicts with the base, as `taskcell stats` prints them: totals plus the most-conflicted files. Hidden until a base merge was recorded. */
 export function ConflictStats({ repoPath, refreshKey }: { repoPath: string; refreshKey?: number }) {
-  const [stats, setStats] = useState<Stats | null>(null);
-  useEffect(() => {
-    let live = true;
-    conflictStats(repoPath).then(
-      (s) => live && setStats(s),
-      () => live && setStats(null),
-    );
-    return () => {
-      live = false;
-    };
-  }, [repoPath, refreshKey]);
+  // A failed read hides the line (data stays null); the error text is the shared hook's.
+  const { data: stats } = useAsync(() => conflictStats(repoPath), [repoPath, refreshKey], { keepPrevious: true });
   if (stats === null || stats.total.merges === 0) return null;
   const { total, topFiles } = stats;
   return (

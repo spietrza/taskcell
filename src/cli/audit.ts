@@ -1,7 +1,8 @@
-import { readdir } from 'node:fs/promises';
-import { join } from 'node:path';
 import {
+  allRunEventFiles,
   branchAdapter,
+  hubAuditFile,
+  metricsFile,
   exportRecords,
   filterByTime,
   localAdapter,
@@ -12,7 +13,6 @@ import {
 } from '../core/audit.js';
 import { DECISIONS_FILE } from '../approver/ledger.js';
 import { LESSONS_FILE } from '../core/lessons.js';
-import { stateDir } from '../core/state-path.js';
 import { defaultHubConfigDir } from '../hub/audit.js';
 import type { Command } from './args.js';
 
@@ -26,19 +26,11 @@ async function adaptersFor(cmd: AuditCommand, name: string): Promise<AuditAdapte
   const branch = cmd.branch !== undefined ? { branch: cmd.branch } : {};
   switch (name) {
     case 'hub':
-      return [localAdapter({ file: join(cmd.configDir ?? defaultHubConfigDir(), 'audit.jsonl') })];
+      return [localAdapter({ file: hubAuditFile(cmd.configDir ?? defaultHubConfigDir()) })];
     case 'metrics':
-      return [localAdapter({ file: join(stateDir(cmd.repoPath), 'runs', 'metrics.jsonl'), repoPath: cmd.repoPath })];
-    case 'run-events': {
-      const runs = join(stateDir(cmd.repoPath), 'runs');
-      const out: AuditAdapter[] = [];
-      for (const task of await readdir(runs).catch(() => [] as string[])) {
-        for (const f of await readdir(join(runs, task)).catch(() => [] as string[])) {
-          if (f.startsWith('events-') && f.endsWith('.jsonl')) out.push(localAdapter({ file: join(runs, task, f), repoPath: cmd.repoPath }));
-        }
-      }
-      return out;
-    }
+      return [localAdapter({ file: metricsFile(cmd.repoPath), repoPath: cmd.repoPath })];
+    case 'run-events':
+      return (await allRunEventFiles(cmd.repoPath)).map((file) => localAdapter({ file, repoPath: cmd.repoPath }));
     case 'decisions':
       return [branchAdapter(cmd.repoPath, { ...branch, file: DECISIONS_FILE })];
     default:
