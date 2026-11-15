@@ -18,7 +18,7 @@ export interface NeedsYouCommands {
   list_needs_you_all: { args: { teamId?: string } | undefined; result: { items: (NeedsYouItem & RepoStamp)[]; failures: RepoReadFailure[] } };
   /** HUB_ONLY: post a reply with the caller's own `gh` identity and move the item on. */
   reply_needs_you: { args: { repoPath: string; id: string; kind: 'issue' | 'pr'; body: string }; result: void };
-  /** HUB_ONLY: merge a waiting PR (refused when not in "Needs you" or required checks are not green). */
+  /** HUB_ONLY: merge a waiting PR (refused when not in "Needs you", verify failed on it, or required checks are not green). */
   merge_needs_you: { args: { repoPath: string; id: string }; result: void };
 }
 

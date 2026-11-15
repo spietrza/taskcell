@@ -454,6 +454,37 @@ export interface VisualProof {
   artifacts: VisualProofArtifact[];
 }
 
+/** One thing the caller may do; `reason` says why not when `allowed` is false. */
+export interface CallerCapability {
+  allowed: boolean;
+  reason?: string;
+}
+
+/** What the caller may do on the hub (`caller_capabilities`), and, when asked about a repository, on that project. */
+export interface CallerCapabilities {
+  /** The hub accepts remote writes (false on a non-loopback bind without TASKCELL_HUB_ALLOW_ADD=1). */
+  mutationsAllowed: boolean;
+  mutationsReason?: string;
+  owner: boolean;
+  /** Hub owner, hub admin or credentials admin. */
+  admin: boolean;
+  /** Owner (add or clone) or hub admin (clone only: the picker opens in clone-only mode). */
+  canAddProject: CallerCapability;
+  /** The caller's role per team id (owner: admin of every team); a team the caller is not in is absent. */
+  teamRoles: Record<string, TeamRole>;
+  project?: {
+    /** The caller's best role in a team holding the project; the owner is an admin. */
+    teamRole: TeamRole | null;
+    canReply: CallerCapability;
+    /** Hub-wide ability to merge; a PR the hub refuses by itself carries `mergeBlocked`. */
+    canMerge: CallerCapability;
+    canEnableFactory: CallerCapability;
+    canUpdateSkill: CallerCapability;
+    /** Add or remove a skill. */
+    canEditSkills: CallerCapability;
+  };
+}
+
 /** Which repository an item of an all-repositories list belongs to. */
 export interface RepoStamp {
   repoPath: string;
@@ -916,6 +947,8 @@ export interface NeedsYouItem {
   lastComment?: { author: string; body: string };
   /** The branch the PR targets (a PR's base), or the one the card asks for (`taskcell:base=`). Absent when unknown. */
   baseBranch?: string;
+  /** Why the hub refuses to merge this PR (set only when it would); the UI shows it instead of offering Merge. */
+  mergeBlocked?: string;
 }
 
 /** A Fleet-screen spawned process (Fleet is enabled only on the desktop app's local hub). */
@@ -1139,6 +1172,8 @@ export interface Commands {
   set_approver_mode: { args: { repoPath: string; mode: 'off' | 'shadow' | 'act'; confirmBelowBar?: boolean }; result: ApproverModeChange };
   /** HUB_ONLY, admin-only (403 otherwise): the audit log newest first, optionally for one login. */
   read_audit: { args: { login?: string; limit?: number }; result: AuditEntry[] };
+  /** HUB_ONLY, read-only: what the caller may do on the hub and, with `repoPath`, on that project. Every `false` carries its reason. */
+  caller_capabilities: { args: { repoPath?: string } | undefined; result: CallerCapabilities };
   /** HUB_ONLY, read-only: a project's cost by model and by stage for a period (default `all`), read from the metrics branch like `taskcell stats --branch`; cached, never a model call. A repo without the branch answers `status: 'no-branch'` with a setup hint. */
   read_cost_breakdown: { args: { repoPath: string; period?: CostPeriod }; result: CostBreakdown };
   /** HUB_ONLY, read-only: installed vs latest claude/codex/cursor CLI in the local sandbox image (3-day soak applied; `enabled: false`, and no lookups, when TASKCELL_CLI_VERSION_CHECK is off). Refused on a non-loopback bind without TASKCELL_HUB_ALLOW_ADD. */
@@ -1221,7 +1256,7 @@ export interface Commands {
   list_needs_you_all: { args: { teamId?: string } | undefined; result: { items: (NeedsYouItem & RepoStamp)[]; failures: RepoReadFailure[] } };
   /** HUB_ONLY: post a reply with the caller's own `gh` identity and move the item on. */
   reply_needs_you: { args: { repoPath: string; id: string; kind: 'issue' | 'pr'; body: string }; result: void };
-  /** HUB_ONLY: merge a waiting PR (refused when not in "Needs you" or required checks are not green). */
+  /** HUB_ONLY: merge a waiting PR (refused when not in "Needs you", verify failed on it, or required checks are not green). */
   merge_needs_you: { args: { repoPath: string; id: string }; result: void };
   list_projects: { args: { teamId?: string } | undefined; result: Project[] };
   add_project: { args: { path: string }; result: Project[] };
@@ -1347,6 +1382,7 @@ export const COMMAND_NAMES = [
   'api_run_backlog',
   'api_write_flow',
   'browse_dirs',
+  'caller_capabilities',
   'clear_draft_assets',
   'clone_project',
   'conflict_stats',

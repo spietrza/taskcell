@@ -4,6 +4,7 @@ import { Button, Card, Chip, Textarea } from '@/ui';
 import { errorClause } from '../../errors';
 import { RefreshCw } from 'lucide-react';
 import { listNeedsYou, listNeedsYouAll, mergeNeedsYou, replyNeedsYou, type NeedsYouItem, type RepoReadFailure, type RepoStamp } from '../../ipc';
+import { gateProps, useCallerCapabilities } from '../../hooks';
 import { inRepos } from '../../repoFilter';
 import { RepoFailures, RepoLabel } from '../../RepoViews';
 import { isDemoLink, isHubMode } from '../../transport';
@@ -26,6 +27,7 @@ export function ReplyBox({ project, item, onReplied }: { project: string; item: 
   const [body, setBody] = useState('');
   const [sending, setSending] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const gate = useCallerCapabilities(project)?.project?.canReply;
 
   const send = async (): Promise<void> => {
     setSending(true);
@@ -52,9 +54,10 @@ export function ReplyBox({ project, item, onReplied }: { project: string; item: 
       />
       <div className="flex items-center gap-2">
         {/* Outlined: the screen has one Reply per item, so none of them is the screen's primary action. */}
-        <Button variant="outlined" disabled={sending || body.trim() === ''} onClick={() => void send()}>
+        <Button variant="outlined" {...gateProps(gate)} disabled={sending || body.trim() === '' || gate?.allowed === false} onClick={() => void send()}>
           {sending ? 'Sending…' : 'Reply'}
         </Button>
+        {gate?.allowed === false && gate.reason && <span className="text-xs text-muted-foreground">{gate.reason}</span>}
         {error && (
           <span role="alert" className="text-xs text-destructive-text">
             Reply not sent: {errorClause(error)}. Refresh — the item may no longer be waiting.
@@ -70,7 +73,10 @@ export function MergeButton({ project, item, onMerged }: { project: string; item
   const [merging, setMerging] = useState(false);
   const [confirming, setConfirming] = useState(false);
   const [error, setError] = useState<string | null>(null);
-  const verifyFailed = REASON_TEXT[item.reason] === 'verify failed';
+  const gate = useCallerCapabilities(project)?.project?.canMerge;
+  // The hub decides: `canMerge` for the caller, `mergeBlocked` for this PR (it refuses a merge on a verify-failed one).
+  const blocked = gate?.allowed === false ? gate.reason : item.mergeBlocked;
+  const refused = gate?.allowed === false || item.mergeBlocked !== undefined;
 
   const merge = async (): Promise<void> => {
     setMerging(true);
@@ -89,7 +95,7 @@ export function MergeButton({ project, item, onMerged }: { project: string; item
   return (
     <div className="flex items-center gap-2">
       {/* Outlined, like Reply: the screen has one per item. A merge is irreversible, so it takes a second click. */}
-      <Button variant="outlined" disabled={merging || verifyFailed} onClick={() => (confirming ? void merge() : setConfirming(true))}>
+      <Button variant="outlined" disabled={merging || refused} title={blocked} onClick={() => (confirming ? void merge() : setConfirming(true))}>
         {merging ? 'Merging…' : `${confirming ? 'Confirm merge' : 'Merge'}${item.baseRef ? ` into ${item.baseRef}` : ''}`}
       </Button>
       {confirming && (
@@ -97,7 +103,7 @@ export function MergeButton({ project, item, onMerged }: { project: string; item
           Cancel
         </Button>
       )}
-      {verifyFailed && <span className="text-xs text-muted-foreground">Verify failed on this PR: fix it before merging.</span>}
+      {refused && blocked && <span className="text-xs text-muted-foreground">{blocked}</span>}
       {error && (
         <span role="alert" className="text-xs text-destructive-text">
           Not merged: {error}

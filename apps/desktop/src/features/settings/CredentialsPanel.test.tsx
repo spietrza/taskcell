@@ -5,6 +5,7 @@ import * as ipc from '../../ipc';
 
 vi.mock('../../ipc.js', () => ({
   userCredentialsStatus: vi.fn(),
+  callerCapabilities: vi.fn(),
   saveUserCredential: vi.fn(async () => {}),
   deleteUserCredential: vi.fn(async () => {}),
   getCredentialPolicy: vi.fn(async () => ({ policy: 'user-first' })),
@@ -14,8 +15,14 @@ vi.mock('../../ipc.js', () => ({
   deleteInstanceCredential: vi.fn(async () => {}),
 }));
 
+/** The status the hub answers, and the caller's admin flag it reports through `caller_capabilities`. */
+function asUser(status: { enabled: boolean; admin: boolean; names: string[] }): void {
+  vi.mocked(ipc.userCredentialsStatus).mockResolvedValue(status);
+  vi.mocked(ipc.callerCapabilities).mockResolvedValue({ admin: status.admin } as never);
+}
+
 test('a non-admin sees only their own credentials — no switch, no instance credentials, no admin calls', async () => {
-  vi.mocked(ipc.userCredentialsStatus).mockResolvedValue({ enabled: true, admin: false, names: ['OPENAI_API_KEY'] });
+  asUser({ enabled: true, admin: false, names: ['OPENAI_API_KEY'] });
   render(<CredentialsPanel />);
   await waitFor(() => expect(screen.getByText('Your credentials')).toBeInTheDocument());
   expect(screen.queryByText('Per-user credentials')).not.toBeInTheDocument();
@@ -25,7 +32,7 @@ test('a non-admin sees only their own credentials — no switch, no instance cre
 });
 
 test('an admin sees the switch and instance credentials; values are write-only and cleared after save', async () => {
-  vi.mocked(ipc.userCredentialsStatus).mockResolvedValue({ enabled: true, admin: true, names: [] });
+  asUser({ enabled: true, admin: true, names: [] });
   render(<CredentialsPanel />);
   await waitFor(() => expect(screen.getByText('Per-user credentials')).toBeInTheDocument());
   expect(screen.getByText('Instance credentials')).toBeInTheDocument();
@@ -38,14 +45,14 @@ test('an admin sees the switch and instance credentials; values are write-only a
 });
 
 test('an admin sees a value-free store migration or decryption reason', async () => {
-  vi.mocked(ipc.userCredentialsStatus).mockResolvedValue({ enabled: false, admin: true, names: [] });
+  asUser({ enabled: false, admin: true, names: [] });
   vi.mocked(ipc.instanceCredentialsStatus).mockResolvedValueOnce({ names: [], reason: 'credential store cannot be decrypted' });
   render(<CredentialsPanel />);
   expect(await screen.findByRole('alert')).toHaveTextContent('credential store cannot be decrypted');
 });
 
 test('with the switch off a user is told so and gets no editor', async () => {
-  vi.mocked(ipc.userCredentialsStatus).mockResolvedValue({ enabled: false, admin: false, names: [] });
+  asUser({ enabled: false, admin: false, names: [] });
   render(<CredentialsPanel />);
   await waitFor(() => expect(screen.getByText(/are off on this hub/)).toBeInTheDocument());
   expect(screen.queryByText('Your credentials')).not.toBeInTheDocument();

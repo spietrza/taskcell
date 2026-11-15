@@ -453,6 +453,37 @@ export interface VisualProof {
   artifacts: VisualProofArtifact[];
 }
 
+/** One thing the caller may do; `reason` says why not when `allowed` is false. */
+export interface CallerCapability {
+  allowed: boolean;
+  reason?: string;
+}
+
+/** What the caller may do on the hub (`caller_capabilities`), and, when asked about a repository, on that project. */
+export interface CallerCapabilities {
+  /** The hub accepts remote writes (false on a non-loopback bind without TASKCELL_HUB_ALLOW_ADD=1). */
+  mutationsAllowed: boolean;
+  mutationsReason?: string;
+  owner: boolean;
+  /** Hub owner, hub admin or credentials admin. */
+  admin: boolean;
+  /** Owner (add or clone) or hub admin (clone only: the picker opens in clone-only mode). */
+  canAddProject: CallerCapability;
+  /** The caller's role per team id (owner: admin of every team); a team the caller is not in is absent. */
+  teamRoles: Record<string, TeamRole>;
+  project?: {
+    /** The caller's best role in a team holding the project; the owner is an admin. */
+    teamRole: TeamRole | null;
+    canReply: CallerCapability;
+    /** Hub-wide ability to merge; a PR the hub refuses by itself carries `mergeBlocked`. */
+    canMerge: CallerCapability;
+    canEnableFactory: CallerCapability;
+    canUpdateSkill: CallerCapability;
+    /** Add or remove a skill. */
+    canEditSkills: CallerCapability;
+  };
+}
+
 /** Which repository an item of an all-repositories list belongs to. */
 export interface RepoStamp {
   repoPath: string;
@@ -915,6 +946,8 @@ export interface NeedsYouItem {
   lastComment?: { author: string; body: string };
   /** The branch the PR targets (a PR's base), or the one the card asks for (`taskcell:base=`). Absent when unknown. */
   baseBranch?: string;
+  /** Why the hub refuses to merge this PR (set only when it would); the UI shows it instead of offering Merge. */
+  mergeBlocked?: string;
 }
 
 /** A Fleet-screen spawned process (Fleet is enabled only on the desktop app's local hub). */

@@ -1,5 +1,6 @@
 import { useEffect, useState, type Dispatch, type SetStateAction } from 'react';
-import { readAppConfigStrict } from './ipc';
+import { callerCapabilities, readAppConfigStrict } from './ipc';
+import type { CallerCapabilities, CallerCapability } from './wire';
 import { errorMessage } from './errors';
 import type { AppConfig } from './taskcell-output';
 
@@ -61,4 +62,16 @@ export function useAppConfig(
     };
   }, [project]);
   return [cfg, setCfg, status];
+}
+
+/** What the hub says the caller may do (`caller_capabilities`), on the hub and, with `repoPath`, on that project.
+ * `null` while loading or when it cannot be read: every gate then stays open and the hub's own refusal shows. */
+export function useCallerCapabilities(repoPath?: string, refetchKey?: string): CallerCapabilities | null {
+  const { data } = useAsync(() => callerCapabilities(repoPath), [repoPath, refetchKey]);
+  return data;
+}
+
+/** The `disabled`/`title` of a button gated on one capability: closed (with the hub's reason as the tooltip) when refused. */
+export function gateProps(cap: CallerCapability | undefined): { disabled?: true; title?: string } {
+  return cap === undefined || cap.allowed ? {} : { disabled: true, ...(cap.reason !== undefined ? { title: cap.reason } : {}) };
 }

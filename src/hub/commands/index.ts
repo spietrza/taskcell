@@ -2,6 +2,7 @@
 import { commands as appConfig, type AppConfigCommands } from './app-config.js';
 import { commands as approver, type ApproverCommands } from './approver.js';
 import { commands as audit, type AuditCommands } from './audit.js';
+import { commands as callerCapabilities, type CallerCapabilitiesCommands } from './caller-capabilities.js';
 import { commands as ciCost, type CiCostCommands } from './ci-cost.js';
 import { commands as cliVersions, type CliVersionsCommands } from './cli-versions.js';
 import { commands as complete, type CompleteCommands } from './complete.js';
@@ -30,6 +31,7 @@ export interface Commands extends
   AppConfigCommands,
   ApproverCommands,
   AuditCommands,
+  CallerCapabilitiesCommands,
   CiCostCommands,
   CliVersionsCommands,
   CompleteCommands,
@@ -79,6 +81,7 @@ export const COMMAND_NAMES = [
   'api_run_backlog',
   'api_write_flow',
   'browse_dirs',
+  'caller_capabilities',
   'clear_draft_assets',
   'clone_project',
   'conflict_stats',
@@ -170,6 +173,7 @@ export const HUB_COMMANDS: { readonly [K in keyof Commands]: CommandHandler } = 
   ...appConfig.handlers,
   ...approver.handlers,
   ...audit.handlers,
+  ...callerCapabilities.handlers,
   ...ciCost.handlers,
   ...cliVersions.handlers,
   ...complete.handlers,
@@ -198,6 +202,7 @@ export const HUB_AUDITED: { readonly [K in keyof Commands]?: AuditSpec } = {
   ...appConfig.audit,
   ...approver.audit,
   ...audit.audit,
+  ...callerCapabilities.audit,
   ...ciCost.audit,
   ...cliVersions.audit,
   ...complete.audit,

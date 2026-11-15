@@ -15,6 +15,7 @@ import { Onboarding } from './features/onboarding/Onboarding';
 import { StarterTaskDialog } from './features/onboarding/StarterTaskDialog';
 import { loadOnboarding, saveOnboarding, showOnFirstRun, type OnboardingStored } from './features/onboarding/steps';
 import { EnableFactoryDialog } from './features/dashboard/EnableFactoryDialog';
+import { useCallerCapabilities } from './hooks';
 import { listProjects, addProject, cloneProject, removeProject, listActive, listNeedsYou, listNeedsYouAll, listTeams, teamAddRepository, factoryState, localWorkerState } from './ipc';
 import { loadTeamId, resolveTeam, saveTeamId, teamProjects } from './teams';
 import type { FactoryState, LocalWorkerState, Team } from './wire';
@@ -369,6 +370,10 @@ export default function App() {
   };
 
   const active = projects.find((p) => p.path === activeProject) ?? null;
+  // The hub's answer on what this caller may do; every Add project / Enable factory gate reads it.
+  const caps = useCallerCapabilities(active?.path);
+  const addGate = caps?.canAddProject;
+  const factoryGate = caps?.project?.canEnableFactory ?? (caps === null ? undefined : { allowed: caps.mutationsAllowed, ...(caps.mutationsReason !== undefined ? { reason: caps.mutationsReason } : {}) });
   const showHome = screen === 'home' || !active;
   const titleBar = !showHome && active ? projectColor(active) : null;
   const allowAll = canUseAllRepos();
@@ -542,8 +547,10 @@ export default function App() {
                   }
                   onOpen={(p) => enterProject(p.path)}
                   onAdd={add}
+                  addGate={addGate}
                   onRemove={remove}
                   onEnableFactory={setFactoryProject}
+                  factoryGate={factoryGate}
                   factory={factoryStates}
                   localWorker={localWorkers}
                 />
@@ -610,10 +617,10 @@ export default function App() {
                     setScreen('task');
                     setNewTaskNonce((n) => n + 1);
                   }),
-                onEnableFactory: () => setFactoryProject({ path: active.path, name: active.name }),
+                ...(factoryGate?.allowed === false ? {} : { onEnableFactory: () => setFactoryProject({ path: active.path, name: active.name }) }),
               }
             : {})}
-          onAddProject={add}
+          {...(addGate?.allowed === false ? {} : { onAddProject: add })}
           onToggleTheme={toggleTheme}
           onClose={() => setPalette(false)}
         />
