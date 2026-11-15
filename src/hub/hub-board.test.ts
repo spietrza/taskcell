@@ -65,9 +65,20 @@ test('an unreadable store fails loudly and is never overwritten; invalid entries
   const bad = { id: 'hub-2', title: 'B', body: '', status: 'Todo', blockedBy: [] };
   await writeFile(file, JSON.stringify({ repoPath: repo, tasks: [{ id: 'hub-1', title: 'A', body: '', status: 'todo', blockedBy: [] }, bad] }));
   expect(await readHubTasks(cfg, repo)).toMatchObject({ tasks: [{ id: 'hub-1' }], invalid: 1 });
-  await add('C');
+  expect((await add('C')).id).toBe('hub-3'); // the invalid entry's id is not reused
   expect((JSON.parse(await readFile(file, 'utf8')) as { tasks: unknown[] }).tasks).toContainEqual(bad);
   expect((await listHubBoard(cfg, repo)).tasks.at(-1)).toMatchObject({ schedule: { state: 'invalid', reason: expect.stringContaining('1 entry') } });
+});
+
+test('a malformed long id in an invalid entry does not break numbering; running out of ids is refused', async () => {
+  await add('A');
+  const file = await storeFile();
+  const a = { id: 'hub-1', title: 'A', body: '', status: 'todo', blockedBy: [] };
+  await writeFile(file, JSON.stringify({ repoPath: repo, tasks: [a, { id: 'hub-12345678901', title: 'X', status: 'todo' }] }));
+  expect((await add('B')).id).toBe('hub-2');
+  expect((await readHubTasks(cfg, repo)).tasks.map((t) => t.id)).toEqual(['hub-1', 'hub-2']);
+  await writeFile(file, JSON.stringify({ repoPath: repo, tasks: [{ ...a, id: 'hub-999999999' }] }));
+  await expect(add('C')).rejects.toThrow(/out of task ids/);
 });
 
 test('a symlink in place of the store is refused, and a write never goes through it', async () => {

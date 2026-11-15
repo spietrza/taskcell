@@ -168,8 +168,10 @@ export function createHubTask(configDir: string, repoPath: string, input: { titl
     const store = await read(file);
     if (store.tasks.length >= MAX_TASKS) throw new BadRequestError(`this board already holds ${MAX_TASKS} tasks`);
     // Numbered past invalid entries too: an id a hand edit left in the file is never reused.
-    const used = [...store.tasks, ...store.invalid].map((t) => Number(/^hub-(\d+)$/.exec(String((t as { id?: unknown } | null)?.id))?.[1] ?? 0));
-    const n = Math.max(0, ...used) + 1;
+    // Only well-formed ids count: a hand-edited `hub-12345678901` must not push every new id past HUB_TASK_ID.
+    const used = [...store.tasks, ...store.invalid].map((t) => String((t as { id?: unknown } | null)?.id)).filter((id) => HUB_TASK_ID.test(id)).map((id) => Number(id.slice(4)));
+    const n = used.reduce((max, v) => Math.max(max, v), 0) + 1;
+    if (!HUB_TASK_ID.test(`hub-${n}`)) throw new BadRequestError('this board has run out of task ids');
     const task: HubTask = { id: `hub-${n}`, title: input.title, body: input.body ?? '', status: 'todo', blockedBy: input.blockedBy ?? [], owner: input.owner, ...(input.startDate !== undefined ? { startDate: input.startDate } : {}) };
     store.tasks.push(task);
     await save(file, repoPath, store);
