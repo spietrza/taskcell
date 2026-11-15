@@ -519,6 +519,20 @@ function parseCommitAuthor(raw: string | boolean | undefined): { name: string; e
 }
 
 /**
+ * `stats --skills` is a flag, but `--skills <dir>` elsewhere takes a value. Rename only a `--skills` with no
+ * value (last, or followed by another option) to the boolean `--skill-stats`: that shape already fails for the
+ * string option, so no valid input changes meaning. Whether the command is `stats` is checked after parsing.
+ */
+function renameValuelessSkills(argv: readonly string[]): string[] {
+  const end = argv.indexOf('--');
+  return argv.map((a, i) => {
+    if (a !== '--skills' || (end !== -1 && i > end)) return a;
+    const next = argv[i + 1];
+    return next === undefined || next.startsWith('-') ? '--skill-stats' : a;
+  });
+}
+
+/**
  * Parse argv (without the node/script prefix) into a typed command. Pure: cwd is passed in so this is
  * unit-testable. Unknown options or a missing/unknown command resolve to `help`; invalid flag
  * combinations for a recognised command resolve to `error` with an actionable message.
@@ -530,8 +544,7 @@ export function parseCli(argv: string[], cwd: string): Command {
   let positionals: string[];
   try {
     const parsed = parseArgs({
-      // `stats --skills` is a flag, but `--skills <dir>` elsewhere takes a value: rename it for stats only.
-      args: argv.includes('stats') ? argv.map((a) => (a === '--skills' ? '--skill-stats' : a)) : argv,
+      args: renameValuelessSkills(argv),
       allowPositionals: true,
       options: {
         // gc
@@ -710,7 +723,8 @@ export function parseCli(argv: string[], cwd: string): Command {
   if (values['spec-only'] === true && positionals[0] !== 'watch' && positionals[0] !== 'doctor') {
     return fail('--spec-only is only supported with watch and doctor.');
   }
-  if (values['skill-stats'] !== undefined && positionals[0] !== 'stats') return fail('--skill-stats is not an option.');
+  // Only `stats` has the valueless --skills; elsewhere it is the string option missing its value, which parses as help.
+  if (values['skill-stats'] !== undefined && positionals[0] !== 'stats') return { kind: 'help' };
   for (const flag of ['dir', 'strict']) {
     if (values[flag] !== undefined && positionals[0] !== 'skills') return fail(`--${flag} is only supported with skills.`);
   }

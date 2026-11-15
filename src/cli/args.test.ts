@@ -875,9 +875,18 @@ describe('parseCli', () => {
 
   it('accepts stats --skills after global flags and refuses ignored combinations', () => {
     expect(parseCli(['--json', 'stats', '--skills'], '/work')).toMatchObject({ kind: 'stats', json: true, skills: true });
-    for (const argv of [['stats', '--since', '30d'], ['stats', '--skills', '--approver'], ['stats', '--skills', '--github-repo', 'a/b'], ['stats', '--skills=foo'], ['gc', '--skill-stats']]) {
+    for (const argv of [['stats', '--since', '30d'], ['stats', '--skills', '--approver'], ['stats', '--skills', '--github-repo', 'a/b'], ['stats', '--skills=foo'], ['stats', '--skills', './skills']]) {
       expect(parseCli(argv, '/work').kind).toBe('error');
     }
+    // The string --skills without a value, and the internal --skill-stats name, are not options.
+    for (const argv of [['gc', '--skill-stats'], ['watch', '--skills'], ['watch', '--skills', '--json']]) {
+      expect(parseCli(argv, '/work').kind).toBe('help');
+    }
+  });
+
+  it('decides --skills by the parsed command, not by a stats token in argv', () => {
+    expect(parseCli(['watch', '--label', 'stats', '--skills', './skills'], '/work')).toMatchObject({ kind: 'watch', skillsDir: './skills' });
+    expect(parseCli(['watch', '--label', 'x', '--skills', 'stats'], '/work')).toMatchObject({ kind: 'watch', skillsDir: 'stats' });
   });
 
   it('parses stats --github-repo (lead-time rollup)', () => {
