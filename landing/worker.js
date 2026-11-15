@@ -2,11 +2,11 @@
 // answers agents that ask for Markdown on the home page with llms.txt,
 // writes the visitor's country on <html data-country> for the language detection in theme.js,
 // writes the visitor's currency on <html data-currency> and, when a checkout is open, data-checkout (checkout.js),
-// serves the live security badges on /badges/<name>.svg (badges.js), opens a Stripe checkout on /checkout, takes Stripe's payment events on /stripe/webhook (stripe-webhook.js),
+// writes the live security scores into <span data-score> (badges.js), opens a Stripe checkout on /checkout, takes Stripe's payment events on /stripe/webhook (stripe-webhook.js),
 // and serves everything else from dist/, where _headers sets the security and cache headers.
 import { checkoutMode, currencyFor, handleCheckout } from './checkout.js';
 import { handleStripeWebhook } from './stripe-webhook.js';
-import { handleBadge } from './badges.js';
+import { scoreValue } from './badges.js';
 
 export default {
   async fetch(request, env, ctx) {
@@ -17,8 +17,6 @@ export default {
     }
     if (url.pathname === '/stripe/webhook') return handleStripeWebhook(request, env, ctx);
     if (url.pathname === '/checkout') return handleCheckout(request, env, url);
-    const badge = url.pathname.match(/^\/badges\/([a-z]+)\.svg$/);
-    if (badge) return handleBadge(env, badge[1]);
     const wantsMarkdown = (request.headers.get('accept') ?? '').includes('text/markdown');
     if (wantsMarkdown && (url.pathname === '/' || url.pathname === '/index.html')) {
       const md = await env.ASSETS.fetch(new URL('/llms.txt', url));
@@ -38,6 +36,12 @@ export default {
         if (country) el.setAttribute('data-country', country);
         el.setAttribute('data-currency', currencyFor(country));
         if (checkout) el.setAttribute('data-checkout', checkout);
+      },
+    }).on('[data-score]', {
+      // Only pages that show a score wait for it; an unknown or failed value keeps the page's own text.
+      element: async (el) => {
+        const value = await scoreValue(el.getAttribute('data-score') ?? '');
+        if (value !== undefined) el.setInnerContent(value);
       },
     }).transform(res);
   },

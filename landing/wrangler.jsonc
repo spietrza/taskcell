@@ -19,7 +19,7 @@
   ],
   // Who gets a Stripe checkout (checkout.js): "test" = only links carrying test=1, against the sandbox.
   // Hosting is not open: do not set "live" before servers can be provisioned and the page copy says it is open.
-  "vars": { "CHECKOUT": "test", "BESTPRACTICES_ID": "16734" },
+  "vars": { "CHECKOUT": "test" },
   "routes": [
     { "pattern": "taskcell.dev", "custom_domain": true },
     { "pattern": "www.taskcell.dev", "custom_domain": true }
