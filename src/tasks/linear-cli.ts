@@ -1,7 +1,7 @@
 import { hasLabel } from '../core/labels.js';
 import { execa } from 'execa';
 import { TaskcellError } from '../core/errors.js';
-import type { Task, TaskComment, TaskFetcher, TaskFilter } from './fetcher.js';
+import type { Task, TaskComment, TaskFetcher, TaskFilter, TaskRef } from './fetcher.js';
 import { redactForPublish } from '../core/secret-scan.js';
 
 /** Runs the `linear` CLI and returns stdout. Injected for testing. */
@@ -68,6 +68,12 @@ function parseComments(comments: LinearCliIssue['comments']): TaskComment[] {
     .filter((comment) => comment.body !== ''); // attachment-only comments have no body; skip for v1
 }
 
+/** A Linear identifier `DEV-12` as a ref: the team key is the `repo`, the issue number the `number`. */
+export function parseIdentifier(identifier: string): TaskRef | undefined {
+  const m = /^([A-Za-z0-9]+)-(\d+)$/.exec(identifier);
+  return m === null ? undefined : { repo: m[1]!, number: Number(m[2]) };
+}
+
 function toTask(issue: LinearCliIssue): Task {
   const labels = (issue.labels?.nodes ?? []).map((label) => label.name ?? '').filter((name) => name !== '');
   const children = (issue.children?.nodes ?? [])
@@ -90,6 +96,22 @@ function toTask(issue: LinearCliIssue): Task {
 
 /** One Linear GraphQL round-trip. Injected for testing; the default posts to the public API. */
 export type LinearGraphql = (body: { query: string; variables: Record<string, unknown> }) => Promise<unknown>;
+
+/** A non-2xx Linear response, with the GraphQL `errors` of its body ([] when the body is not Linear's JSON, e.g. a proxy's page). */
+export class LinearGraphqlRequestError extends TaskcellError {
+  constructor(message: string, readonly errors: { message?: string; extensions?: { code?: string } | null }[]) {
+    super(message);
+  }
+}
+
+function graphqlErrors(body: string): LinearGraphqlRequestError['errors'] {
+  try {
+    const errors = (JSON.parse(body) as { errors?: unknown } | null)?.errors;
+    return Array.isArray(errors) ? errors.filter((e): e is LinearGraphqlRequestError['errors'][number] => typeof e === 'object' && e !== null) : [];
+  } catch {
+    return [];
+  }
+}
 
 const LINEAR_API = 'https://api.linear.app/graphql';
 
@@ -132,7 +154,10 @@ async function postGraphql(token: string, body: { query: string; variables: Reco
     // Linear puts the actionable reason (bad key, missing scope) in the BODY. Throwing on the status
     // line alone turns a fixable auth problem into a bare "401 Unauthorized" on every watch poll.
     const detail = await res.text().catch(() => '');
-    throw new TaskcellError(`Linear API request failed: ${res.status} ${res.statusText}${detail === '' ? '' : ` — ${detail.slice(0, 300)}`}`);
+    throw new LinearGraphqlRequestError(
+      `Linear API request failed: ${res.status} ${res.statusText}${detail === '' ? '' : ` — ${detail.slice(0, 300)}`}`,
+      graphqlErrors(detail),
+    );
   }
   return res.json();
 }

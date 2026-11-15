@@ -9,6 +9,8 @@ export class TaskcellError extends Error {
 export class SandboxError extends TaskcellError {}
 export class WorktreeError extends TaskcellError {}
 export class AgentError extends TaskcellError {}
+/** A provider refusal identified from the provider CLI's structured error event, not diagnostic text. */
+export class ProviderLimitError extends AgentError {}
 /**
  * The primary provider failed and the fallback provider failed too, for its own (non-limit) reason.
  * The message carries both, so a primary rate limit still parks the run while the comment says the
@@ -179,4 +181,3 @@ export function isProviderLimitError(error: unknown): boolean {
   const message = error instanceof Error ? error.message : String(error);
   return isRateLimitError(error) || SESSION_LIMIT_PATTERNS.some((re) => re.test(message));
 }
-

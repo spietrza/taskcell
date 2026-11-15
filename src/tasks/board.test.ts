@@ -1,4 +1,4 @@
-import { describe, expect, it } from 'vitest';
+import { describe, expect, it, test } from 'vitest';
 import { columnFor, isTriggerLabel, mintBoardId, resolveTaskRef, taskRefKey, toBoardTask } from './board.js';
 import { boardFilterFor, BOARD_FETCH_CAP, fetchTaskSpec, listBoardTasks, readBoardConfig } from './board-list.js';
 import { mkdtemp, mkdir, writeFile } from 'node:fs/promises';
@@ -109,6 +109,12 @@ describe('mintBoardId / resolveTaskRef', () => {
   ] as const)('%s %s mints %s and resolves back', (source, ref, id) => {
     expect(mintBoardId(source, ref)).toBe(id);
     expect(resolveTaskRef(id)).toEqual({ source, reference: ref });
+  });
+
+  it('refuses a paused pull request card id: it is not an issue', () => {
+    expect(resolveTaskRef('gh-pr-12')).toBeUndefined();
+    expect(resolveTaskRef('GH-PR-12')).toBeUndefined();
+    expect(resolveTaskRef('gh-pr-tools-12')).toEqual({ source: 'github', reference: '12' });
   });
 
   it('resolves RUN-RECORD ids (sanitized full slug) via trailing-number semantics — RunDetail depends on it', () => {
@@ -329,5 +335,16 @@ describe('toBoardTask url', () => {
   it('has no url when the tracker returned none or a non-https one', () => {
     expect('url' in toBoardTask('github', { ...base, ref: '1' })).toBe(false);
     expect('url' in toBoardTask('github', { ...base, ref: '1', url: 'javascript:alert(1)' })).toBe(false);
+  });
+});
+
+describe('toBoardTask paused', () => {
+  const base = { id: 'o/r#1', title: 't', description: '', children: [], comments: [], ref: '1', state: 'open' };
+  test.each(['taskcell:rate-limited', 'vanguard:rate-limited'])('%s marks a github card paused by a provider limit', (label) => {
+    expect(toBoardTask('github', { ...base, labels: [label] }).paused).toEqual({ reason: 'provider-limit' });
+  });
+  test('no label, or a closed card, is not paused', () => {
+    expect(toBoardTask('github', { ...base, labels: ['bug'] }).paused).toBeUndefined();
+    expect(toBoardTask('github', { ...base, state: 'closed', labels: ['taskcell:rate-limited'] }).paused).toBeUndefined();
   });
 });

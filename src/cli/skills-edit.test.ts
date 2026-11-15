@@ -8,7 +8,7 @@ import { sha256Hex, type SkillLockEntry } from '../context/skill-lock.js';
 import type { SkillSource } from '../context/skill-source.js';
 import { WorktreeManager } from '../worktree/manager.js';
 import { parseCli } from './args.js';
-import { commitLink, skillsAdd, skillsCheck, skillsCommand, skillsList, skillsRemove, skillsUpdate, skillUpdateBody, type SkillsDeps, type SkillUpdate } from './skills.js';
+import { commitLink, skillsAdd, skillsCheck, skillsCommand, skillsList, skillsRemove, recordedMetrics, skillsUpdate, skillUpdateBody, type SkillsDeps, type SkillUpdate } from './skills.js';
 
 // A rename that can be made to fail, for the install rollback tests.
 const fsHook = vi.hoisted(() => ({ failRename: undefined as ((from: string, to: string) => boolean) | undefined }));
@@ -649,6 +649,41 @@ describe('PR body', () => {
     expect(commitLink('https://github.com/o/r.git?x=1#frag', C1)).toBe(`[${C1.slice(0, 7)}](https://github.com/o/r/commit/${C1})`);
     expect(commitLink('https://gitlab.example.com/g/sub/r', C1)).toBe(`[${C1.slice(0, 7)}](https://gitlab.example.com/g/sub/r/-/commit/${C1})`);
     expect(commitLink('https://git.example.com/o/r', C1)).toBe(`\`${C1.slice(0, 7)}\``);
+  });
+  it('adds recent recorded usage for each updated skill with records', () => {
+    const now = Date.parse('2026-11-15T00:00:00Z');
+    const ts = '2026-11-10T00:00:00Z';
+    const metrics = [
+      JSON.stringify({ evt: 'run_complete', taskId: 't', ts, skillsUsed: ['a'], costUsd: 1 }),
+      JSON.stringify({ evt: 'run_complete', taskId: 't', ts, skillsUsed: [], verdict: 'pass', costUsd: 1 }),
+    ].join('\n');
+    expect(skillUpdateBody([moved('a', '')], metrics, now)).toContain('Usage, last 30 days: 1 run, 100% pass rate.');
+    const unreviewed = JSON.stringify({ evt: 'run_complete', taskId: 'u', ts, skillsUsed: ['a'], costUsd: 1 });
+    expect(skillUpdateBody([moved('a', ''), moved('b', '')], unreviewed, now)).toContain('Usage, last 30 days: 1 run, no review verdict recorded.');
+    // Records older than the window do not count.
+    expect(skillUpdateBody([moved('a', '')], metrics, now + 40 * 86_400_000)).not.toContain('Usage, last 30 days');
+  });
+  it('reads usage from the metrics branch when the local file is missing or records no skills', async () => {
+    const dir = await mkdtemp(join(tmpdir(), 'tc-usage-'));
+    try {
+      const withSkills = JSON.stringify({ evt: 'run_complete', taskId: 'b', skillsUsed: ['a'], costUsd: 1 });
+      const branch = async (): Promise<string> => withSkills;
+      expect(await recordedMetrics(dir, branch)).toBe(withSkills);
+      await mkdir(join(dir, '.taskcell', 'runs'), { recursive: true });
+      const old = JSON.stringify({ evt: 'run_complete', taskId: 'l', costUsd: 1 });
+      await writeFile(join(dir, '.taskcell', 'runs', 'metrics.jsonl'), old);
+      expect(await recordedMetrics(dir, branch)).toBe(withSkills);
+      expect(await recordedMetrics(dir, async () => { throw new Error('no remote'); })).toBe(old);
+      const local = JSON.stringify({ evt: 'run_complete', taskId: 'l', skillsUsed: [], costUsd: 1 });
+      await writeFile(join(dir, '.taskcell', 'runs', 'metrics.jsonl'), local);
+      expect(await recordedMetrics(dir, branch)).toBe(local);
+    } finally {
+      await rm(dir, { recursive: true, force: true });
+    }
+  });
+  it('omits recent usage when the updated skill has no records', () => {
+    const metrics = JSON.stringify({ evt: 'run_complete', taskId: 't', ts: '2026-11-10T00:00:00Z', skillsUsed: ['other'], costUsd: 1 });
+    expect(skillUpdateBody([moved('a', '')], metrics, Date.parse('2026-11-15T00:00:00Z'))).not.toContain('Usage, last 30 days');
   });
 });
 

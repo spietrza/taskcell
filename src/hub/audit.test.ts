@@ -52,11 +52,12 @@ describe('audit log', () => {
     await expect(dispatchRpc(ctx, 'write_app_config', { repoPath: '/not/allowed', config: { token: CANARY, label: 'x' } })).rejects.toThrow();
     await dispatchRpc(ctx, 'api_cancel', { runId: 'run-9' });
     await expect(dispatchRpc(ctx, 'start_task', { repoPath: repo, label: 'l', number: 1, token: CANARY })).rejects.toThrow();
+    await expect(dispatchRpc(ctx, 'retry_paused_task', { repoPath: repo, number: 1 })).rejects.toThrow();
     await expect(dispatchRpc(ctx, 'api_create_run', { params: { repoPath: '/not/allowed', issueRef: CANARY } })).rejects.toThrow();
     const out = await lines(configDir);
-    expect(out).toHaveLength(7);
+    expect(out).toHaveLength(8);
     const parsed = out.map((l) => JSON.parse(l) as { login: string; action: string; outcome: string });
-    expect(parsed.map((p) => p.action)).toEqual(['project-add', 'clone', 'project-remove', 'settings-change', 'run-cancel', 'task-start', 'run-start']);
+    expect(parsed.map((p) => p.action)).toEqual(['project-add', 'clone', 'project-remove', 'settings-change', 'run-cancel', 'task-start', 'task-retry', 'run-start']);
     expect(parsed.every((p) => p.login === 'alice')).toBe(true);
     expect(parsed[0]!.outcome).toBe('refused');
     expect(parsed[2]!.outcome).toBe('ok');

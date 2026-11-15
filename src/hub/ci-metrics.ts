@@ -68,12 +68,15 @@ export function ciRunSummaries(records: ReadonlyArray<CiRecord>): RunSummary[] {
     // Branch data is never trusted to be a link: only an https URL reaches the UI, as for local records.
     const prUrl = httpsUrl(rs.find((r) => r.record.prUrl !== undefined)?.record.prUrl);
     const known = rs.some((r) => r.costKnown);
+    const failed = rs.filter((r) => r.record.exitReason !== undefined && r.record.exitReason !== 'completed');
+    const providerLimit = failed.length > 0 && failed.every((r) => r.record.stoppedBy === 'provider-limit');
     return {
       taskId,
       timestamp: stamps[stamps.length - 1] ?? new Date(0).toISOString(),
       stages: [...new Set(rs.flatMap((r) => (r.record.stage !== undefined ? [r.record.stage] : [])))],
       totalCostUsd: rs.reduce((n, r) => n + r.record.costUsd, 0),
-      anyFailed: rs.some((r) => r.record.exitReason !== undefined && r.record.exitReason !== 'completed'),
+      anyFailed: failed.length > 0,
+      ...(providerLimit ? { stoppedBy: 'provider-limit' as const } : {}),
       ...(prUrl !== undefined ? { prUrl } : {}),
       source: 'ci' as const,
       ...(known ? {} : { costUnknown: true as const }),
