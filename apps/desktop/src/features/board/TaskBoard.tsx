@@ -235,7 +235,8 @@ export function TaskBoard({
   // A repository with no task source chosen is a setup step, not a read failure.
   const unset = (data?.failures ?? []).filter((f) => isNoTaskSource(f.error));
   // Hint only about the repositories in view: those the Projects filter selects, or else the open project.
-  const inView = filter.repos.length > 0 ? filter.repos : [project];
+  // An empty Projects filter means every repository (filterState.ts), so all of them are in view.
+  const inView = filter.repos.length > 0 ? filter.repos : allRepos ? repos : [project];
   const hinted = unset.filter((f) => inView.includes(f.repoPath));
   const failed = (data?.failures ?? []).filter((f) => !isNoTaskSource(f.error));
 

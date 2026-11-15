@@ -338,10 +338,12 @@ describe('TaskBoard task-source hint scope', () => {
     vi.mocked(listTasksAll).mockResolvedValue({ tasks: [beta], capped: false, failures });
   });
 
-  test('another project open and no Projects filter: no hint about the unset repositories', async () => {
+  test('another project open and no Projects filter: every repository is in view, so the hint names all unset ones', async () => {
     board('/r/beta');
-    await screen.findByText('From beta');
-    expect(screen.queryByRole('note')).not.toBeInTheDocument();
+    const note = await screen.findByRole('note');
+    expect(note).toHaveTextContent('alpha');
+    expect(note).toHaveTextContent('qa-repo');
+    expect(within(note).queryByRole('button', { name: 'Open Settings' })).toBeNull();
   });
 
   test('the Projects filter excludes an unset repository: no hint about it', async () => {
