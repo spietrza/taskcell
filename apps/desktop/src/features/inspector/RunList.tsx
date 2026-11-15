@@ -6,7 +6,7 @@ import { RepoLabel } from '../../RepoViews';
 import { FilterBar, NoMatch } from '../../FilterBar';
 import { DEFAULT_FILTER, canClearFilters, clearFilters, filterActive, filterNames, filterRuns, groupRows, runKeys, type HubFilter } from '../../filterState';
 import { ExternalLink, hostName } from '../../components/ExternalLink';
-import { costLabel } from '../../cost';
+import { costLabel, estTitle } from '../../cost';
 import type { ActiveRun, RunSummary } from '../../taskcell-output';
 import type { RepoStamp } from '../../wire';
 
@@ -139,7 +139,7 @@ export function RunList({
                     <Timestamp ms={Date.parse(r.timestamp)} />
                   </Table.Cell>
                   <Table.Cell className="text-muted-foreground">{r.stages.join(', ')}</Table.Cell>
-                  <Table.Cell className="text-right tabular-nums">{costLabel(r)}</Table.Cell>
+                  <Table.Cell className="text-right tabular-nums" {...estTitle(costLabel(r))}>{costLabel(r)}</Table.Cell>
                   <Table.Cell>
                     <Chip color={verdictColor(!r.anyFailed)} variant="outlined">
                       {verdictWord(!r.anyFailed)}

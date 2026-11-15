@@ -7,7 +7,7 @@ export function buildStageMeta(r: RunRecord): string[] {
     `${r.turns} turns`,
     `${seconds}s`,
     r.usage ? `${r.usage.inputTokens}/${r.usage.outputTokens} tok` : null,
-    r.costUsd != null ? `$${r.costUsd.toFixed(2)}` : r.estCostUsd != null && r.estCostUsd > 0 ? `≈$${r.estCostUsd.toFixed(2)}` : null,
+    r.costUsd != null ? `$${r.costUsd.toFixed(2)}` : typeof r.estCostUsd === 'number' && r.estCostUsd > 0 ? `≈$${r.estCostUsd.toFixed(2)}` : null,
     r.model ?? 'unknown model',
   ].filter((x): x is string => x !== null)
 }

@@ -2,7 +2,7 @@ import { mkdtemp, mkdir, writeFile, rm } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { describe, it, expect, afterEach } from 'vitest';
-import { OPENROUTER_PRICING, PRICED_MODELS } from './openrouter-pricing.js';
+import { CODEX_PRICED_MODELS, OPENROUTER_PRICING, PRICED_MODELS } from './openrouter-pricing.js';
 import {
   computeDrift,
   formatDriftReport,
@@ -16,7 +16,7 @@ import {
 } from './openrouter-pricing-check.js';
 
 function payloadFromTable(): OpenRouterModelsResponse {
-  const data: OpenRouterModel[] = Object.values(PRICED_MODELS).map((row) => ({
+  const data: OpenRouterModel[] = Object.values({ ...PRICED_MODELS, ...CODEX_PRICED_MODELS }).map((row) => ({
     id: row.openRouterModel,
     pricing: {
       prompt: String(row.input / 1_000_000),
@@ -61,7 +61,15 @@ describe('computeDrift', () => {
     const report = computeDrift(payloadFromTable(), new Set());
     expect(report.stale).toEqual([]);
     expect(report.missingLive).toEqual([]);
-    expect(report.checkedRows).toBe(Object.keys(PRICED_MODELS).length);
+    expect(report.checkedRows).toBe(Object.keys(PRICED_MODELS).length + Object.keys(CODEX_PRICED_MODELS).length);
+  });
+
+  it('checks the Codex rows against the live list and counts them as priced', () => {
+    const payload = payloadFromTable();
+    payload.data.find((m) => m.id === 'openai/gpt-5')!.pricing!.prompt = '0.000002';
+    const report = computeDrift(payload, new Set(['gpt-5']));
+    expect(report.stale).toEqual([{ tableKey: 'gpt-5', slug: 'openai/gpt-5', field: 'input', stored: 1.25, live: 2 }]);
+    expect(report.unpriced).toEqual([]);
   });
 
   it('flags exactly one stale field when one price drifts', () => {

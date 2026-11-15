@@ -85,6 +85,24 @@ describe('costBreakdown', () => {
     expect(b.totalEstCostUsd).toBe(0.4);
     expect(b.byModel.find((r) => r.key === 'gpt-5')).toMatchObject({ costUsd: 0, estCostUsd: 0.4, unknownEntries: 1 });
     expect(b.byModel.find((r) => r.key === 'mystery')?.estCostUsd).toBeUndefined();
+    // One of the two entries without a reported cost has no estimate: the total says so, the fully priced row does not.
+    expect(b.estPartial).toBe(true);
+    expect(b.byModel.find((r) => r.key === 'gpt-5')?.estPartial).toBeUndefined();
+    expect(b.byStage.find((r) => r.key === '(none)')).toMatchObject({ estCostUsd: 0.4, estPartial: true });
+  });
+
+  it('the breakdown and the run rows agree: an estimate on a line with a reported cost, or a negative one, counts in neither', async () => {
+    clearCiMetricsCache();
+    await push([
+      line({ ts: '2026-11-12T10:00:00.000Z', taskId: 'G', model: 'gpt-5', costUsd: 2, costKind: 'billed', estCostUsd: 0.4 }),
+      line({ ts: '2026-11-12T10:01:00.000Z', taskId: 'G', model: 'gpt-5', costUsd: 0, costUnknown: true, estCostUsd: -1 }),
+      line({ ts: '2026-11-12T10:02:00.000Z', taskId: 'G', model: 'gpt-5', costUsd: 0, costUnknown: true, estCostUsd: 0.1 }),
+    ]);
+    const b = await costBreakdown(repo, 'all', NOW);
+    const run = (await withCiRuns(repo, [])).find((r) => r.taskId === 'G');
+    expect(b).toMatchObject({ totalCostUsd: 2, totalEstCostUsd: 0.1, estPartial: true });
+    expect(run).toMatchObject({ totalCostUsd: 2, estCostUsd: 0.1, estPartial: true });
+    expect(run?.costUnknown).toBeUndefined();
   });
 
   it('says whether the number is estimated, billed, mixed or unknown', async () => {

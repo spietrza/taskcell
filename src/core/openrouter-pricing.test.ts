@@ -67,8 +67,11 @@ describe('estimateOpenRouterCost', () => {
     expect(estimateOpenRouterCost(usage, 'claude-sonnet-4-6')).toBeCloseTo(18.3, 6);
     // claude-haiku-4-5-20251001: (1 + 5 + 0.1) = 6.1
     expect(estimateOpenRouterCost(usage, 'claude-haiku-4-5-20251001')).toBeCloseTo(6.1, 6);
-    // gpt-5.6-sol, the documented Codex review model: (4 + 20 + 0.4) = 24.4
-    expect(estimateOpenRouterCost(usage, 'gpt-5.6-sol')).toBeCloseTo(24.4, 6);
+    // gpt-5.6-sol, the documented Codex review model. Codex counts the cached 1M inside the 1M input,
+    // so no input is left at the full rate: (0 * 4.4 + 22 + 0.44) = 22.44
+    expect(estimateOpenRouterCost(usage, 'gpt-5.6-sol')).toBeCloseTo(22.44, 6);
+    // 1M input of which 0.9M cached, on gpt-5: 0.1 * 1.25 + 0.9 * 0.125 = 0.2375
+    expect(estimateOpenRouterCost({ inputTokens: 1_000_000, outputTokens: 0, cacheReadInputTokens: 900_000 }, 'gpt-5')).toBeCloseTo(0.2375, 6);
     // glm-5.2: (0.93 + 3 + 0.18) = 4.11
     expect(estimateOpenRouterCost(usage, 'glm-5.2')).toBeCloseTo(4.11, 6);
   });
@@ -77,6 +80,9 @@ describe('estimateOpenRouterCost', () => {
     expect(estimateOpenRouterCost({ inputTokens: 1000, outputTokens: 1000, cacheReadInputTokens: 1000 }, 'gpt-4o-mini')).toBeUndefined();
     expect(estimateOpenRouterCost({ inputTokens: 1000, outputTokens: 1000, cacheReadInputTokens: 1000 }, 'glm-4.6')).toBeUndefined();
     expect(estimateOpenRouterCost({ inputTokens: 1000, outputTokens: 1000, cacheReadInputTokens: 1000 }, 'unknown-model')).toBeUndefined();
+    expect(estimateOpenRouterCost({ inputTokens: 1000, outputTokens: 1000, cacheReadInputTokens: 1000 }, 'constructor')).toBeUndefined();
+    // An OpenAI slug is what `--provider openrouter` runs; as on main it has no estimate.
+    expect(estimateOpenRouterCost({ inputTokens: 1000, outputTokens: 1000, cacheReadInputTokens: 1000 }, 'openai/gpt-5')).toBeUndefined();
   });
 
   it('returns undefined for undefined model', () => {

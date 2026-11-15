@@ -446,8 +446,10 @@ export interface RunSummary {
   source?: 'ci';
   /** The run's metrics carry no cost data, so `totalCostUsd` (0) is not a cost: show "unknown", not $0. */
   costUnknown?: true;
-  /** Sum of the run's API-price estimates (see RunRecord.estCostUsd); shown as `≈` when there is no reported cost. */
+  /** Sum of the run's API-price estimates (see RunRecord.estCostUsd); shown as `≈`, next to the reported cost when some stages have one. */
   estCostUsd?: number;
+  /** Some entries without a reported cost have no estimate either (an unpriced model): the `≈` figure covers only the priced ones. */
+  estPartial?: true;
 }
 
 /** Period a cost breakdown covers: the last 7 / 30 days, or everything on the branch. */
@@ -462,6 +464,8 @@ export interface CostRow {
   unknownEntries: number;
   /** API-price estimate of the entries without a reported cost; absent when none. */
   estCostUsd?: number;
+  /** Some entries without a reported cost have no estimate either (an unpriced model): the `≈` figure covers only the priced ones. */
+  estPartial?: true;
 }
 
 /**
@@ -481,6 +485,8 @@ export interface CostBreakdown {
   unknownEntries: number;
   /** Estimated (≈) cost of the entries without a reported cost; absent when none. */
   totalEstCostUsd?: number;
+  /** Some entries without a reported cost have no estimate either (an unpriced model): the `≈` figure covers only the priced ones. */
+  estPartial?: true;
   byModel: CostRow[];
   byStage: CostRow[];
 }

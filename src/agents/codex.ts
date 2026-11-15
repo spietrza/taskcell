@@ -54,14 +54,12 @@ function buildArgs(input: AgentRunInput): string[] {
   return args;
 }
 
-/** Codex's `input_tokens` INCLUDES `cached_input_tokens`; AgentUsage keeps them apart (as Claude reports them). */
 function toUsage(raw: CodexEvent['usage']): AgentUsage | undefined {
   if (raw === undefined) return undefined;
-  const cached = raw.cached_input_tokens ?? 0;
   return {
-    inputTokens: Math.max(0, (raw.input_tokens ?? 0) - cached),
+    inputTokens: raw.input_tokens ?? 0,
     outputTokens: raw.output_tokens ?? 0,
-    cacheReadInputTokens: cached,
+    cacheReadInputTokens: raw.cached_input_tokens ?? 0,
   };
 }
 
@@ -75,7 +73,8 @@ async function sessionModel(
   const command = `grep -rhoE -m1 '"model":"[^"]+"' "${'$'}{CODEX_HOME:-${'$'}HOME/.codex}/sessions" --include='*${threadId}*.jsonl' | head -n 1`;
   try {
     const res = await sh(command, execOpts);
-    return /^"model":"([^"]+)"$/m.exec(res.stdout)?.[1];
+    // The agent can write that file, and this string is published unredacted: accept a model-id shape only.
+    return /^"model":"([A-Za-z0-9._:/-]{1,100})"\n?$/.exec(res.stdout)?.[1];
   } catch {
     return undefined;
   }

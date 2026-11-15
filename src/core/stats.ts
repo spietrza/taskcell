@@ -36,6 +36,8 @@ export interface Bucket {
   costUsd: number;
   /** Sum of API-price estimates (records without a reported cost); never included in `costUsd`. */
   estCostUsd: number;
+  /** How many records carry an estimate. */
+  estEntries: number;
   inputTokens: number;
   outputTokens: number;
   cacheReadInputTokens: number;
@@ -97,6 +99,19 @@ export function parseJsonlLines(text: string, onSkip?: (line: string) => void): 
   return lines;
 }
 
+/**
+ * Whether a metric line carries a reported cost. A line stamped `costUnknown`, or an older unstamped
+ * line with `costUsd: 0` and no `costKind`, does not; only such a line may carry an estimate.
+ */
+export function costReported(line: Record<string, unknown>): boolean {
+  return (
+    line.costUnknown !== true &&
+    typeof line.costUsd === 'number' &&
+    Number.isFinite(line.costUsd) &&
+    !(line.costUsd === 0 && line.costKind === undefined)
+  );
+}
+
 /** Parse metrics.jsonl text into records, tolerating blank and malformed lines. Keeps run_complete. */
 export function parseMetrics(text: string): MetricRecord[] {
   const records: MetricRecord[] = [];
@@ -115,7 +130,7 @@ export function parseMetrics(text: string): MetricRecord[] {
       ...(typeof parsed.lessonsLoaded === 'number' ? { lessonsLoaded: parsed.lessonsLoaded } : {}),
       ...(Array.isArray(parsed.lessonIds) ? { lessonIds: parsed.lessonIds.filter((x): x is string => typeof x === 'string') } : {}),
       costUsd: num(parsed.costUsd),
-      ...(typeof parsed.estCostUsd === 'number' && Number.isFinite(parsed.estCostUsd) ? { estCostUsd: parsed.estCostUsd } : {}),
+      ...(typeof parsed.estCostUsd === 'number' && Number.isFinite(parsed.estCostUsd) && parsed.estCostUsd >= 0 && !costReported(parsed) ? { estCostUsd: parsed.estCostUsd } : {}),
       inputTokens: num(parsed.inputTokens),
       outputTokens: num(parsed.outputTokens),
       cacheReadInputTokens: num(parsed.cacheReadInputTokens),
@@ -182,13 +197,14 @@ export function probeReport(records: ReadonlyArray<MetricRecord>, probes: Readon
 }
 
 function emptyBucket(): Bucket {
-  return { entries: 0, costUsd: 0, estCostUsd: 0, inputTokens: 0, outputTokens: 0, cacheReadInputTokens: 0, durationMs: 0 };
+  return { entries: 0, costUsd: 0, estCostUsd: 0, estEntries: 0, inputTokens: 0, outputTokens: 0, cacheReadInputTokens: 0, durationMs: 0 };
 }
 
 function add(bucket: Bucket, record: MetricRecord): void {
   bucket.entries += 1;
   bucket.costUsd += record.costUsd;
   bucket.estCostUsd += record.estCostUsd ?? 0;
+  if (record.estCostUsd !== undefined) bucket.estEntries += 1;
   bucket.inputTokens += record.inputTokens;
   bucket.outputTokens += record.outputTokens;
   bucket.cacheReadInputTokens += record.cacheReadInputTokens;

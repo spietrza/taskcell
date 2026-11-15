@@ -171,6 +171,12 @@ async function tryReadRecord(path: string): Promise<RunRecord | undefined> {
   }
 }
 
+/** A record's estimate: a finite, non-negative number on a record without a reported cost (the JSON is not trusted). */
+function recordEst(r: RunRecord): number | undefined {
+  const est: unknown = r.estCostUsd;
+  return r.costUsd === undefined && typeof est === 'number' && Number.isFinite(est) && est >= 0 ? est : undefined;
+}
+
 async function parseRunSummaries(root: string): Promise<RunSummary[]> {
   const summaries: RunSummary[] = [];
 
@@ -203,9 +209,11 @@ async function parseRunSummaries(root: string): Promise<RunSummary[]> {
       if (first === undefined) continue;
       const stages = records.map((r) => r.stage ?? 'run').sort();
       const totalCostUsd = records.reduce((sum, r) => sum + (r.costUsd ?? 0), 0);
-      const estCostUsd = records.reduce((sum, r) => sum + (r.costUsd === undefined ? (r.estCostUsd ?? 0) : 0), 0);
-      // No stage reported a cost: the estimate stands in for it (the hub shows `≈`, not $0.00).
-      const costUnknown = estCostUsd > 0 && records.every((r) => r.costUsd === undefined);
+      const estCostUsd = records.reduce((sum, r) => sum + (recordEst(r) ?? 0), 0);
+      // Stages that used tokens but have neither a reported cost nor an estimate (an unpriced model).
+      const unpriced = records.some((r) => r.costUsd === undefined && r.usage !== undefined && recordEst(r) === undefined);
+      // No stage reported a cost: the estimate stands in for it, or the cost is unknown (never $0.00).
+      const costUnknown = (estCostUsd > 0 || unpriced) && records.every((r) => r.costUsd === undefined);
       const anyFailed = records.some((r) => !r.completed);
       const prUrl = httpsUrl(records.find((r) => r.prUrl !== undefined)?.prUrl);
       const ciUrl = httpsUrl(records.find((r) => r.ciUrl !== undefined)?.ciUrl);
@@ -216,6 +224,7 @@ async function parseRunSummaries(root: string): Promise<RunSummary[]> {
         stages,
         totalCostUsd,
         ...(estCostUsd > 0 ? { estCostUsd } : {}),
+        ...(estCostUsd > 0 && unpriced ? { estPartial: true as const } : {}),
         ...(costUnknown ? { costUnknown: true as const } : {}),
         anyFailed,
         ...(prUrl !== undefined ? { prUrl } : {}),

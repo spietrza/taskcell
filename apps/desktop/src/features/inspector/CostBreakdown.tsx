@@ -66,7 +66,8 @@ export function CostBreakdown({ project }: { project: string }) {
         <p className="text-sm text-muted-foreground">No CI runs in this period.</p>
       ) : (
         <>
-          <p className="mb-2 text-xs text-muted-foreground">{costKindNote(data.costKind)}</p>
+          {/* "their cost is unknown" would contradict the estimate shown next to it. */}
+          {!(data.costKind === 'unknown' && data.totalEstCostUsd !== undefined) && <p className="mb-2 text-xs text-muted-foreground">{costKindNote(data.costKind)}</p>}
           {data.totalEstCostUsd !== undefined && <p className="mb-2 text-xs text-muted-foreground">{EST_COST_NOTE}</p>}
           <div className="flex flex-wrap gap-x-6 gap-y-3">
             <Rows title="By model" rows={data.byModel} />

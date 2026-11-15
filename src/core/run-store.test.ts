@@ -89,6 +89,44 @@ describe('beginRun — estimate', () => {
     expect(summary).toMatchObject({ totalCostUsd: 0, estCostUsd: 1.25, costUnknown: true });
   });
 
+  it('summarises a local run on an unpriced model as unknown, not $0.00', async () => {
+    await beginRun(repo, 'TES-U', TS).writeStages([{ name: 'implementer', result: { ...codex, taskId: 'TES-U', model: 'mystery' } }]);
+    const [summary] = await listRuns(runsRoot(repo));
+    expect(summary).toMatchObject({ totalCostUsd: 0, costUnknown: true });
+    expect(summary?.estCostUsd).toBeUndefined();
+  });
+
+  it('a run with reported and estimated stages carries both, and says when a stage has neither', async () => {
+    await beginRun(repo, 'TES-M', TS).writeStages([
+      { name: 'implementer', result: { ...result, taskId: 'TES-M' } },
+      { name: 'reviewer', result: { ...codex, taskId: 'TES-M' } },
+    ]);
+    const [mixed] = await listRuns(runsRoot(repo));
+    expect(mixed).toMatchObject({ totalCostUsd: result.costUsd, estCostUsd: 1.25 });
+    expect(mixed?.costUnknown).toBeUndefined();
+    expect(mixed?.estPartial).toBeUndefined();
+    await beginRun(repo, 'TES-P', TS).writeStages([
+      { name: 'a', result: { ...codex, taskId: 'TES-P' } },
+      { name: 'b', result: { ...codex, taskId: 'TES-P', model: 'mystery' } },
+    ]);
+    const partial = (await listRuns(runsRoot(repo))).find((r) => r.taskId === 'TES-P');
+    expect(partial).toMatchObject({ estCostUsd: 1.25, costUnknown: true, estPartial: true });
+  });
+
+  it('ignores an estimate in a record that is negative, not a number, or next to a reported cost', async () => {
+    await beginRun(repo, 'TES-E', TS).writeStages([{ name: 'a', result: codex }, { name: 'b', result: codex }, { name: 'c', result: codex }]);
+    const edit = async (stage: string, patch: Record<string, unknown>): Promise<void> => {
+      const path = join(runsRoot(repo), 'TES-E', `${PREFIX}-${stage}.json`);
+      await writeFile(path, JSON.stringify({ ...JSON.parse(await readFile(path, 'utf8')), ...patch }));
+    };
+    await edit('a', { estCostUsd: -5 });
+    await edit('b', { estCostUsd: '7' });
+    await edit('c', { estCostUsd: 9, costUsd: 0.5 });
+    const [summary] = await listRuns(runsRoot(repo));
+    expect(summary?.totalCostUsd).toBe(0.5);
+    expect(summary?.estCostUsd).toBeUndefined();
+  });
+
   it('writes no estimate for a reported cost or an unpriced model', async () => {
     await beginRun(repo, 'TES-R', TS).writeStages([{ name: 'a', result }, { name: 'b', result: { ...codex, model: 'mystery' } }]);
     for (const stage of ['a', 'b']) {

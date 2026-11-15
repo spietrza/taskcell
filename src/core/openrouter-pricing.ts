@@ -24,10 +24,16 @@ export const PRICED_MODELS = {
   // Still $2/$10 live on 2026-10-07 (the introductory rate was announced to end 2026-08-31; it did not).
   'claude-sonnet-5': { input: 2, output: 10, cacheRead: 0.2, openRouterModel: 'anthropic/claude-sonnet-5' },
   'claude-haiku-4-5-20251001': { input: 1, output: 5, cacheRead: 0.1, openRouterModel: 'anthropic/claude-haiku-4.5' },
-  // OpenAI models Codex runs on — checked 2026-11-15 against openrouter.ai/api/v1/models. A Codex run
-  // reports tokens but no cost; these price them as an estimate (never written to `costUsd`).
+  'glm-5.2': { input: 0.93, output: 3, cacheRead: 0.18, openRouterModel: 'z-ai/glm-5.2' },
+} satisfies Record<string, ModelPricing>;
+
+// OpenAI models Codex runs on — checked 2026-11-15 against openrouter.ai/api/v1/models. A Codex run
+// reports tokens but no cost; these price them as an estimate (never written to `costUsd`). Kept out
+// of OPENROUTER_PRICING: that table is also the bare-name map of `--provider openrouter`, which
+// runs the Claude CLI and must keep rejecting a bare `gpt-*` name.
+export const CODEX_PRICED_MODELS = {
   // The review model the docs recommend.
-  'gpt-5.6-sol': { input: 4, output: 20, cacheRead: 0.4, openRouterModel: 'openai/gpt-5.6-sol' },
+  'gpt-5.6-sol': { input: 4.4, output: 22, cacheRead: 0.44, openRouterModel: 'openai/gpt-5.6-sol' },
   'gpt-6.1-sol': { input: 2, output: 10, cacheRead: 0.1, openRouterModel: 'openai/gpt-6.1-sol' },
   'gpt-6.1-terra': { input: 1, output: 5, cacheRead: 0.05, openRouterModel: 'openai/gpt-6.1-terra' },
   'gpt-5': { input: 1.25, output: 10, cacheRead: 0.125, openRouterModel: 'openai/gpt-5' },
@@ -35,10 +41,10 @@ export const PRICED_MODELS = {
   'gpt-5.4': { input: 2.5, output: 15, cacheRead: 0.25, openRouterModel: 'openai/gpt-5.4' },
   'gpt-5.3-codex': { input: 1.75, output: 14, cacheRead: 0.175, openRouterModel: 'openai/gpt-5.3-codex' },
   'gpt-5.2-codex': { input: 1.75, output: 14, cacheRead: 0.175, openRouterModel: 'openai/gpt-5.2-codex' },
+  // cacheRead 0.13 and 0.03 (codex, codex-mini) are what the live API returns (checked 2026-11-15), not 0.125 / 0.025 rounded.
   'gpt-5.1-codex': { input: 1.25, output: 10, cacheRead: 0.13, openRouterModel: 'openai/gpt-5.1-codex' },
   'gpt-5.1-codex-max': { input: 1.25, output: 10, cacheRead: 0.125, openRouterModel: 'openai/gpt-5.1-codex-max' },
   'gpt-5.1-codex-mini': { input: 0.25, output: 2, cacheRead: 0.03, openRouterModel: 'openai/gpt-5.1-codex-mini' },
-  'glm-5.2': { input: 0.93, output: 3, cacheRead: 0.18, openRouterModel: 'z-ai/glm-5.2' },
 } satisfies Record<string, ModelPricing>;
 
 export const OPENROUTER_PRICING: Record<string, ModelPricing> = {
@@ -63,10 +69,11 @@ export interface EstimateUsage {
 /** OpenRouter-priced estimate in USD, or undefined for an unknown/unmapped model. */
 export function estimateOpenRouterCost(usage: EstimateUsage, model: string | undefined): number | undefined {
   if (model === undefined) return undefined;
-  const p = OPENROUTER_PRICING[model];
+  // Codex counts cached tokens inside `inputTokens` (the recorded meaning); split them out for pricing only.
+  const codex = Object.hasOwn(CODEX_PRICED_MODELS, model);
+  const table: Record<string, ModelPricing> = codex ? CODEX_PRICED_MODELS : OPENROUTER_PRICING;
+  const p = Object.hasOwn(table, model) ? table[model] : undefined; // own keys only: `constructor` is not a model
   if (p === undefined) return undefined;
-  return (
-    (usage.inputTokens * p.input + usage.outputTokens * p.output + usage.cacheReadInputTokens * p.cacheRead) /
-    1_000_000
-  );
+  const input = codex ? Math.max(0, usage.inputTokens - usage.cacheReadInputTokens) : usage.inputTokens;
+  return (input * p.input + usage.outputTokens * p.output + usage.cacheReadInputTokens * p.cacheRead) / 1_000_000;
 }

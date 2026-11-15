@@ -99,6 +99,19 @@ describe('estimated cost', () => {
     expect(out).toContain('≈0.5000');
     expect(out).toContain('not billed per token');
   });
+  it('drops a negative or non-numeric estimate, and one on a line that carries a reported cost', () => {
+    const parsed = parseMetrics(
+      [
+        line({ taskId: 'neg', costUsd: 0, estCostUsd: -3 }),
+        line({ taskId: 'str', costUsd: 0, estCostUsd: '0.5' }),
+        line({ taskId: 'reported', costUsd: 1, estCostUsd: 0.5 }),
+        line({ taskId: 'stamped', costUsd: 0, costKind: 'estimated', estCostUsd: 0.5 }),
+        line({ taskId: 'ok', costUsd: 0, costUnknown: true, estCostUsd: 0.5 }),
+      ].join('\n'),
+    );
+    expect(parsed.filter((r) => r.estCostUsd !== undefined).map((r) => r.taskId)).toEqual(['ok']);
+    expect(aggregateMetrics(parsed).total).toMatchObject({ costUsd: 1, estCostUsd: 0.5, estEntries: 1 });
+  });
   it('adds no estimate column when none exists', () => {
     expect(formatStats(aggregateMetrics(records.slice(0, 1)))).not.toContain('$est');
   });
