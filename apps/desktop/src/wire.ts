@@ -413,6 +413,8 @@ export interface RunRecord {
   findings?: Finding[];
   /** The branch the run's PR targets. Absent on records written before the target branch was recorded. */
   baseBranch?: string;
+  /** Gate-config files (test/lint/type-check config) the run's delivered diff changed; absent when none. */
+  configPaths?: string[];
   /** Agent calls folded into this stage (auto-resumes and gate repairs); absent when the stage ran once. */
   attempts?: number;
   /** Ids of the lessons injected into this run's prompts (`taskcell lessons list` counts them). */

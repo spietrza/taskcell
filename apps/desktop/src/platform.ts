@@ -40,6 +40,11 @@ export function runLocationOf(v: string | null | undefined): RunLocationId {
   return v != null && runLocationIds.includes(v) ? (v as RunLocationId) : DEFAULT_RUN_LOCATION;
 }
 
+/** The run location a project effectively has: the hub runs a Hub-board project's tasks itself, so an unset location is the local hub, not the GitHub Actions default. */
+export function effectiveRunLocation(source: string | null | undefined, location: string | null | undefined): RunLocationId {
+  return location == null && source === 'hub' ? 'local' : runLocationOf(location);
+}
+
 export const taskSourceLabel = (v: string | null | undefined): string => TASK_SOURCES.find((s) => s.id === taskSourceOf(v))!.label;
 export const runLocationLabel = (v: string | null | undefined): string => RUN_LOCATIONS.find((r) => r.id === runLocationOf(v))!.label;
 
