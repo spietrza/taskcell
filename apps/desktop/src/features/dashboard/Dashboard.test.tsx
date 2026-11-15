@@ -31,6 +31,19 @@ describe('Dashboard platform', () => {
   });
 });
 
+describe('Dashboard hub-board project', () => {
+  const hub = { ...first!, taskSource: 'hub' as const, runLocation: undefined };
+
+  test('an unset run location reads as Local hub, with no CI mismatch note and no "not enabled" line', () => {
+    render(<Dashboard projects={[hub]} onOpen={() => {}} onAdd={() => {}} onRemove={() => {}} onEnableFactory={() => {}} factory={{ [hub.path]: factoryStateNone }} />);
+    expect(screen.getByText('Hub board')).toBeInTheDocument();
+    expect(screen.getByText('Local hub')).toBeInTheDocument();
+    expect(screen.queryByText('GitHub Actions')).toBeNull();
+    expect(screen.queryByTestId('factory-state')).toBeNull();
+    expect(screen.getByRole('button', { name: /Hub worker/ })).toBeInTheDocument();
+  });
+});
+
 describe('Dashboard project card', () => {
   test('opens from the keyboard: the project name is a focusable button', () => {
     const { onOpen } = setup();

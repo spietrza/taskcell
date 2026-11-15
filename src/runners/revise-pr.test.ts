@@ -2689,6 +2689,51 @@ describe('runRevisePullRequest base conflicts', () => {
     });
   });
 
+  describe('a merge-only round on a cleanly merging branch whose base changed CI config', () => {
+    /** Branch `head` adds a file (authored as `email`); main gains a workflow file: git merges the two cleanly. */
+    async function cleanWithWorkflow(head: string, email: string): Promise<void> {
+      origin = await mkdtemp(join(tmpdir(), 'vg-origin-'));
+      await execa('git', ['init', '--bare', '-b', 'main'], { cwd: origin });
+      await execa('git', ['remote', 'add', 'origin', origin], { cwd: repo });
+      await execa('git', ['checkout', '-B', head, 'feature-branch'], { cwd: repo });
+      await writeFile(join(repo, 'feature.txt'), 'feature\n');
+      await execa('git', ['add', '.'], { cwd: repo });
+      await execa('git', ['-c', `user.email=${email}`, '-c', 'user.name=x', 'commit', '-m', 'feature'], { cwd: repo });
+      await execa('git', ['checkout', 'main'], { cwd: repo });
+      await mkdir(join(repo, '.github', 'workflows'), { recursive: true });
+      await writeFile(join(repo, '.github', 'workflows', 'ci.yml'), 'on: push\n');
+      await commitAll('main workflow');
+      await execa('git', ['push', 'origin', 'main'], { cwd: repo });
+    }
+
+    it('factory branch: rewritten onto the base (no merge commit), force-pushed with a lease, the summary says rebased', async () => {
+      await cleanWithWorkflow('chore/vanguard-x', 'vanguard@local');
+      const { result, pushed, parents, ghCalls, tree } = await run({}, { body: CONFLICT_ITEM, noop: true, headRef: 'chore/vanguard-x' });
+      expect(result.pushed).toBe(true);
+      expect(pushed).toEqual(['push --no-verify --force-with-lease=refs/heads/chore/vanguard-x:deadbeef origin HEAD:refs/heads/chore/vanguard-x']);
+      expect(parents[0]).toBe('0');
+      expect(tree).toContain('.github/workflows/ci.yml');
+      expect(tree).toContain('feature.txt');
+      const text = comments(ghCalls);
+      expect(text).toContain('### Rebased onto base');
+      expect(text).not.toContain('### Merged base');
+    });
+
+    it.each([
+      ['a same-prefix branch with human commits', 'chore/vanguard-x', 't@t'],
+      ['a human-named branch', 'feature-branch', 'vanguard@local'],
+    ])('%s: nothing merged or pushed, held for a human', async (_label, head, email) => {
+      await cleanWithWorkflow(head, email);
+      const { result, pushed, ghCalls, prompt } = await run({}, { body: CONFLICT_ITEM, noop: true, headRef: head });
+      expect(prompt).toBe('');
+      expect(pushed).toEqual([]);
+      expect(result.pushed).toBe(false);
+      expect(result.conflictUnresolved).toEqual([]);
+      expect(comments(ghCalls)).toContain('Could not resolve the conflict with `main`');
+      expect(comments(ghCalls)).toContain('base changed CI config');
+    });
+  });
+
   it('conflict the agent could not resolve: nothing pushed, "could not resolve" comment, needs revision kept', async () => {
     await diverge('shared.txt');
     const { result, pushed, ghCalls } = await run({ 'shared.txt': '<<<<<<< HEAD\nfeature line\n=======\nmain line\n>>>>>>> FETCH_HEAD\n' });

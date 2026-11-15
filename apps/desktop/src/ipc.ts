@@ -570,7 +570,7 @@ export function readApproverScorecard(repoPath: string, period: ApproverPeriod):
 }
 
 /** HUB_ONLY: what the approver decided for each PR on the metrics branch. */
-export function readApproverDecisions(repoPath: string): Promise<{ decisions: ApproverPrDecision[] }> {
+export function readApproverDecisions(repoPath: string): Promise<{ decisions: ApproverPrDecision[]; mode: ApproverMode }> {
   return call('read_approver_decisions', { repoPath });
 }
 

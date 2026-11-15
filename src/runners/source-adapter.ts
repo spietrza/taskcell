@@ -644,7 +644,7 @@ export async function runSourcedIssue(
       };
       persistProviderStop = async (): Promise<void> => {
         // A step after its stage returned (e.g. a repair): a record under that stage's name would overwrite the real one.
-        // `after-<stage>` cannot collide with a flow stage name.
+        // `after-<stage>` cannot collide with a flow stage name: `lowerFlow` reserves the `after-` prefix on the lowered name.
         const stopped: StageOutcome = {
           name: outcomes.some((outcome) => outcome.name === activeStage) ? `after-${activeStage}` : activeStage,
           result: {
@@ -1016,17 +1016,18 @@ export async function runSourcedIssue(
         onEvent({ type: 'run-end' });
         return { task };
       }
+      // Computed before the delivery-kind split: a local branch is flagged like a PR (which also gets the label).
+      const configPaths = delivery.kind === 'delivered-local' || delivery.kind === 'delivered-pr'
+        ? gateConfigPaths(diffFilesWithPatches(delivery.outgoingDiff), extraGlobs)
+        : [];
       if (delivery.kind === 'delivered-local') {
-        await writer.writeStages(outcomes, stageMeta());
+        await writer.writeStages(outcomes, { ...stageMeta(), ...(configPaths.length > 0 ? { configPaths } : {}) });
         await stepSummary(verificationFailed ? 'verify-failed' : 'completed');
         onEvent({ type: 'run-end' });
         return { task, branch: delivery.branch, ...(verificationFailed ? { verificationFailed: true } : {}) };
       }
       if (delivery.kind !== 'delivered-pr') throw new TaskcellError(`unexpected delivery outcome ${delivery.kind} for a new-pr target`);
       const pr = { prUrl: delivery.prUrl, headSha: delivery.headSha };
-      // Read back from the delivered diff, not a binding the `body` callback above would have to mutate
-      // as a side effect: a future reorder or target kind can never leave this silently empty.
-      const configPaths = gateConfigPaths(diffFilesWithPatches(delivery.outgoingDiff), extraGlobs);
       // White-label mode delivers a plain PR: no Taskcell review comment and no issue link-back comment.
       // A flow without a `reviewer` stage (e.g. flow-b: adversary+repairer) has no verdict to surface,
       // so skip the verdict comment entirely. So does a red pre-review gate, which skipped the reviewer (the
@@ -1047,7 +1048,7 @@ export async function runSourcedIssue(
           ...(deps.reviewGate === true ? { gate: true } : {}),
         });
       }
-      await writer.writeStages(outcomes, { ...stageMeta(), prUrl: pr.prUrl });
+      await writer.writeStages(outcomes, { ...stageMeta(), prUrl: pr.prUrl, ...(configPaths.length > 0 ? { configPaths } : {}) });
       await stepSummary(verificationFailed ? 'verify-failed' : 'completed', { prUrl: pr.prUrl });
       if (verification !== undefined && !verification.passed) await adapter.addFailureLabel(pr.prUrl, 'verify');
       if (visualProofFailed) await adapter.addFailureLabel(pr.prUrl, 'visual-proof');

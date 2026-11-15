@@ -1331,7 +1331,7 @@ export function parseCli(argv: string[], cwd: string): Command {
     // Exactly one source is required.
     const picked = sources[0];
     if (sources.length !== 1 || picked === undefined) {
-      return fail('run requires exactly one of --linear <id>, --github <ref>, or --project <number>.');
+      return fail('run requires exactly one of --linear <id>, --github <ref>, --gitlab <ref>, or --project <number>.');
     }
     if (values.parent === true && picked[0] !== 'linear') {
       return fail('--parent is only supported with --linear.');
@@ -1486,7 +1486,7 @@ export function parseCli(argv: string[], cwd: string): Command {
       }
       // Existing single-pass validation: label is required for linear/github/gitlab; optional for project.
       if (source !== 'project' && label === undefined) {
-        return fail(`${commandKind} --source ${source} requires --label <name>.`);
+        return fail(`${commandKind} --source ${source} requires --label <name>${commandKind === 'doctor' && source === 'linear' ? ' (or pick a source: --source github --github-repo <owner/repo>)' : ''}.`);
       }
     }
 

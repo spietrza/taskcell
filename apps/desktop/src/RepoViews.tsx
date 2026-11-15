@@ -23,7 +23,7 @@ export function TaskSourceHint({ repoNames, onOpenSettings }: { repoNames: strin
     <div role="note" className="mb-2 flex shrink-0 flex-wrap items-center gap-2 rounded border border-border bg-muted/30 px-3 py-2 text-sm text-muted-foreground">
       <span>
         {repoNames.length > 0 ? `${repoNames.join(', ')} has no task source yet.` : 'This project has no task source yet.'} Choose one
-        (GitHub Issues, GitLab Issues or Linear) in Settings and its cards show up here.
+        (GitHub Issues, GitLab Issues, Linear or Hub board) in Settings and its cards show up here.
       </span>
       {onOpenSettings && (
         <Button variant="outlined" className="ml-auto" onClick={onOpenSettings}>

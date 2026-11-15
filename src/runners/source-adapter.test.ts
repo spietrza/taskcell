@@ -1606,6 +1606,14 @@ describe('runSourcedIssue', () => {
     expect(adapter.addFailureLabel).toHaveBeenCalledWith(MR_URL, 'visual-proof');
   });
 
+  it('records gate-config paths on a local delivery', async () => {
+    wmDiff.mockResolvedValue('diff --git a/vitest.config.ts b/vitest.config.ts\n--- a/vitest.config.ts\n+++ b/vitest.config.ts\n@@ -1 +1 @@\n-old\n+new\n');
+    const adapter = { ...fakeAdapter([], STAGES), delivery: 'local' as const };
+    const result = await runSourcedIssue('group/project#1', { repoPath: '/repo' }, adapter);
+    expect(result.prUrl).toBeUndefined();
+    expect((writeStages.mock.calls.at(-1) as unknown[] | undefined)?.[1]).toEqual(expect.objectContaining({ configPaths: ['vitest.config.ts'] }));
+  });
+
   it.each(['skills/review/SKILL.md', '.github/vanguard-skills/review/SKILL.md', 'skills.lock.json'])('labels and discloses protected config %s', async (path) => {
     wmDiff.mockResolvedValue(`diff --git a/${path} b/${path}\n--- a/${path}\n+++ b/${path}\n@@ -1 +1 @@\n-old\n+new\n`);
     const adapter = fakeAdapter([], STAGES);

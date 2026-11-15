@@ -13,6 +13,7 @@ import type { RunDetail as RunDetailT } from '../../taskcell-output';
 export function RunDetail({ detail, project }: { detail: RunDetailT; project: string }) {
   const [tab, setTab] = useState('overview');
   const baseBranch = detail.stages.find((s) => s.record.baseBranch !== undefined)?.record.baseBranch;
+  const configPaths = detail.stages.find((s) => s.record.configPaths !== undefined)?.record.configPaths;
   const credentialSource = detail.stages.find((s) => s.record.credentialSource !== undefined)?.record.credentialSource;
   const diffStages = detail.stages.filter((s) => s.diff || s.record.diffOmitted);
   const transcriptStages = detail.stages.filter((s) => s.transcript);
@@ -35,6 +36,11 @@ export function RunDetail({ detail, project }: { detail: RunDetailT; project: st
         {baseBranch && (
           <div className="text-sm text-muted-foreground">
             Target branch <code className="rounded bg-muted px-1 py-0.5">{baseBranch}</code>
+          </div>
+        )}
+        {configPaths !== undefined && configPaths.length > 0 && (
+          <div className="text-sm text-amber-600">
+            Gate config changed: <code className="rounded bg-muted px-1 py-0.5">{configPaths.join(', ')}</code>
           </div>
         )}
         {isHubMode() && credentialSource !== undefined && (
