@@ -62,17 +62,56 @@ describe('mergeBaseIntoWorktree', () => {
     expect((await g(['status', '--porcelain'])).stdout).toBe('');
   });
 
-  it('mergeClean: a base that changed CI config is not merged, even when the merge is clean', async () => {
-    await writeFile(join(repo, 'a.txt'), 'a\n');
-    await commit('feature');
-    await landOnMain(async () => {
-      await mkdir(join(repo, '.github', 'workflows'), { recursive: true });
-      await writeFile(join(repo, '.github', 'workflows', 'ci.yml'), 'on: push\n');
+  describe('mergeClean + a base that changed CI config (the merge itself is clean)', () => {
+    const cleanWithWorkflow = async (): Promise<void> => {
+      await writeFile(join(repo, 'a.txt'), 'a\n');
+      await commit('feature');
+      await landOnMain(async () => {
+        await mkdir(join(repo, '.github', 'workflows'), { recursive: true });
+        await writeFile(join(repo, '.github', 'workflows', 'ci.yml'), 'on: push\n');
+      });
+    };
+
+    it.each([
+      ['not factory-owned', {}],
+      ['factory-owned, but the commits are not the factory\'s', { factoryOwned: true }],
+    ])('%s: held, nothing merged', async (_label, extra) => {
+      await cleanWithWorkflow();
+      const head = (await g(['rev-parse', 'HEAD'])).stdout;
+      expect(await mergeBaseIntoWorktree(repo, 'main', { mergeClean: true, ...extra })).toEqual({ status: 'conflicted', files: [], unresolvable: [], reason: expect.stringContaining('base changed CI config') });
+      expect((await g(['rev-parse', 'HEAD'])).stdout).toBe(head);
+      expect((await g(['status', '--porcelain'])).stdout).toBe('');
     });
-    const head = (await g(['rev-parse', 'HEAD'])).stdout;
-    expect(await mergeBaseIntoWorktree(repo, 'main', { mergeClean: true })).toEqual({ status: 'skipped', reason: expect.stringContaining('base changed CI config') });
-    expect((await g(['rev-parse', 'HEAD'])).stdout).toBe(head);
-    expect((await g(['status', '--porcelain'])).stdout).toBe('');
+
+    it('factory-owned: rebased onto the base, no merge commit and no workflow change vs the base', async () => {
+      await cleanWithWorkflow();
+      expect(await mergeBaseIntoWorktree(repo, 'main', { mergeClean: true, factoryOwned: true, authorEmail: 't@t' })).toEqual({ status: 'clean', merged: true, rebased: true });
+      expect((await g(['rev-list', '--merges', 'FETCH_HEAD..HEAD'])).stdout).toBe('');
+      await g(['merge-base', '--is-ancestor', 'FETCH_HEAD', 'HEAD']);
+      expect((await g(['diff', '--name-only', 'FETCH_HEAD', 'HEAD'])).stdout).toBe('a.txt');
+      expect((await g(['status', '--porcelain'])).stdout).toBe('');
+    });
+
+    it('factory-owned with an earlier merge commit: rebuilt as one commit on the base with the merge tree', async () => {
+      await writeFile(join(repo, 'gone.txt'), 'f\n');
+      await commit('touch gone');
+      await landOnMain(() => writeFile(join(repo, 'extra.txt'), 'extra\n'));
+      await g(['fetch', 'origin', 'main']);
+      await g(['merge', '--no-ff', '-m', 'Merge main into the branch', 'FETCH_HEAD']);
+      await writeFile(join(repo, 'gone.txt'), 'x\n');
+      await commit('revert gone');
+      await landOnMain(async () => {
+        await writeFile(join(repo, 'gone.txt'), 'main\n');
+        await mkdir(join(repo, '.github', 'workflows'), { recursive: true });
+        await writeFile(join(repo, '.github', 'workflows', 'ci.yml'), 'on: push\n');
+      });
+      const result = await mergeBaseIntoWorktree(repo, 'main', { mergeClean: true, factoryOwned: true, authorEmail: 't@t' });
+      expect(result).toEqual({ status: 'clean', merged: true, rebased: true });
+      expect((await g(['rev-list', '--merges', 'FETCH_HEAD..HEAD'])).stdout).toBe('');
+      await g(['merge-base', '--is-ancestor', 'FETCH_HEAD', 'HEAD']);
+      expect((await g(['diff', '--name-only', 'FETCH_HEAD', 'HEAD'])).stdout).not.toContain('.github');
+      expect((await g(['status', '--porcelain'])).stdout).toBe('');
+    });
   });
 
   it('conflict: commits a merge taking the branch side, leaving only the marked file as an uncommitted edit', async () => {
