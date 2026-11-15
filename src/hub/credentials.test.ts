@@ -273,6 +273,9 @@ describe('re-review hardening', () => {
       const refused = await service.resolveForRun(undefined, 'meridian').catch((e: unknown) => e);
       expect(refused).toBeInstanceOf(BadRequestError);
       expect((refused as Error).message).toContain('saved under a different TASKCELL_HUB_SECRET value');
+      process.env.CLAUDE_CODE_OAUTH_TOKEN = 'unrelated';
+      await expect(service.resolveForRun(undefined, 'meridian')).rejects.toBeInstanceOf(BadRequestError);
+      await expect(service.resolveForRun(undefined, 'my-custom')).rejects.toBeInstanceOf(BadRequestError);
       process.env.MERIDIAN_API_KEY = 'startup';
       expect(await service.resolveForRun(undefined, 'meridian')).toEqual({ source: 'instance', env: {} });
     } finally {

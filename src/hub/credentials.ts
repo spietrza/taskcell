@@ -427,7 +427,9 @@ export function createCredentialService(configDir: string, adminLogins: readonly
         } catch (error) {
           // An unreadable store does not stop a run the hub's start-up environment can fund (as before the secret
           // keyed this store); with no key there either, the run needs the store and is refused with the reason.
-          if (!(names ?? CREDENTIAL_NAMES).some((n) => (process.env[n] ?? '') !== '')) throw new BadRequestError(shownReason(error, STORE_UNREADABLE));
+          // Only names this provider can use count: a Claude key cannot fund a meridian run; a custom provider has none.
+          const fundable = names ?? (provider === 'meridian' ? ['MERIDIAN_API_KEY'] : []);
+          if (!fundable.some((n) => (process.env[n] ?? '') !== '')) throw new BadRequestError(shownReason(error, STORE_UNREADABLE));
         }
         return { source: 'instance', env: names === undefined ? env : pick(env, names) };
       };
