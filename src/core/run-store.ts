@@ -281,10 +281,15 @@ export async function listRuns(root: string): Promise<RunSummary[]> {
   return summaries;
 }
 
+/** How many record files older than the window `recentWatchTimestamps` opens, newest first, to find the last watch run. */
+const OLDER_WATCH_SCAN_CAP = 50;
+
 /**
  * Timestamps of `taskcell watch`-stamped records under `root` whose file name (the sanitized run
  * timestamp) is at or after `sinceMs`. Older files, and names that carry no timestamp, are skipped
- * before any read, so the work is bounded by the window rather than the history.
+ * before any read, so the work is bounded by the window rather than the history. When no in-window
+ * record is watch-stamped, up to `OLDER_WATCH_SCAN_CAP` older files are opened newest first and the
+ * first watch-stamped one's name time is returned, so a worker that stopped a while ago still reads stale.
  */
 export async function recentWatchTimestamps(root: string, sinceMs: number): Promise<string[]> {
   let taskDirs;
@@ -294,6 +299,7 @@ export async function recentWatchTimestamps(root: string, sinceMs: number): Prom
     return [];
   }
   const out: string[] = [];
+  const older: Array<{ ms: number; path: string }> = [];
   for (const task of taskDirs) {
     if (!task.isDirectory()) continue;
     const taskPath = join(root, task.name);
@@ -302,12 +308,21 @@ export async function recentWatchTimestamps(root: string, sinceMs: number): Prom
       if (!isRunRecordFile(name)) continue;
       // `<sanitized timestamp>[-<stage>].json`: the name opens with the timestamp.
       const ms = parseSanitizedTimestampMs(name.slice(0, SANITIZED_TIMESTAMP_LENGTH));
-      if (ms === undefined || ms < sinceMs) continue;
+      if (ms === undefined) continue;
+      if (ms < sinceMs) {
+        older.push({ ms, path: join(taskPath, name) });
+        continue;
+      }
       const record = await tryReadRecord(join(taskPath, name));
       if (record?.trigger === 'watch' && typeof record.timestamp === 'string') out.push(record.timestamp);
     }
   }
-  return out;
+  if (out.length > 0) return out;
+  // The name, not the record body, dates an older file: it cannot claim a time inside the window.
+  for (const { ms, path } of older.sort((a, b) => b.ms - a.ms).slice(0, OLDER_WATCH_SCAN_CAP)) {
+    if ((await tryReadRecord(path))?.trigger === 'watch') return [new Date(ms).toISOString()];
+  }
+  return [];
 }
 
 /**

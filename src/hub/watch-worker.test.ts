@@ -126,17 +126,42 @@ describe('watchWorkerChecklist', () => {
     expect(c.command).toContain('--source=linear');
   });
 
-  test('only record files inside the window are read: an older file is skipped by its name, whatever it holds', async () => {
+  test('an older record file is dated by its name, whatever it holds; an in-window record wins', async () => {
     const repo = await tmpGitRepo('https://github.com/acme/widgets.git');
     const dir = join(repo, '.taskcell', 'runs', 'T-1');
     await mkdir(dir, { recursive: true });
     const now = Date.parse('2026-11-15T00:00:00Z');
-    // Named 30 days back but claiming a recent watch run: it is only "seen" if the file is opened.
+    // Named 30 days back but claiming a recent watch run: the name, not the body, dates it.
     await writeFile(join(dir, '2026-10-16T00-00-00-000Z-implement.json'), JSON.stringify({ taskId: 'T-1', timestamp: '2026-11-14T12:00:00.000Z', completed: true, trigger: 'watch' }));
-    expect((await watchWorkerChecklist(repo, undefined, now, async () => '')).seen).toBe('unknown');
+    expect(await watchWorkerChecklist(repo, undefined, now, async () => '')).toMatchObject({ seen: 'stale', lastRunAt: '2026-10-16T00:00:00.000Z' });
     const at = '2026-11-14T12:00:00.000Z';
     await writeFile(join(dir, '2026-11-14T12-00-00-000Z-implement.json'), JSON.stringify({ taskId: 'T-1', timestamp: at, completed: true, trigger: 'watch' }));
     expect(await watchWorkerChecklist(repo, undefined, now, async () => '')).toMatchObject({ seen: 'recent', lastRunAt: at });
+  });
+
+  test('a local worker that stopped 10 days ago reads stale with its last run, past newer unstamped records', async () => {
+    const repo = await tmpGitRepo('https://github.com/acme/widgets.git');
+    const now = Date.parse('2026-11-15T00:00:00Z');
+    const write = async (task: string, name: string, body: object): Promise<void> => {
+      await mkdir(join(repo, '.taskcell', 'runs', task), { recursive: true });
+      await writeFile(join(repo, '.taskcell', 'runs', task, name), JSON.stringify(body));
+    };
+    const at = '2026-11-05T00:00:00.000Z';
+    await write('T-1', '2026-10-01T00-00-00-000Z-implement.json', { taskId: 'T-1', timestamp: '2026-10-01T00:00:00.000Z', completed: true, trigger: 'watch' });
+    await write('T-2', '2026-11-05T00-00-00-000Z-implement.json', { taskId: 'T-2', timestamp: at, completed: true, trigger: 'watch' });
+    await write('T-3', '2026-11-06T00-00-00-000Z-implement.json', { taskId: 'T-3', timestamp: '2026-11-06T00:00:00.000Z', completed: true });
+    await write('T-3', '2026-11-14T00-00-00-000Z-implement.json', { taskId: 'T-3', timestamp: '2026-11-14T00:00:00.000Z', completed: true });
+    expect(await watchWorkerChecklist(repo, undefined, now, async () => '')).toMatchObject({ seen: 'stale', lastRunAt: at });
+  });
+
+  test('a remote worker that stopped 10 days ago reads stale with its last run; the older scan is capped', async () => {
+    const repo = await tmpGitRepo('https://github.com/acme/widgets.git');
+    const now = Date.parse('2026-11-15T00:00:00Z');
+    const at = '2026-11-05T00:00:00.000Z';
+    const text = [line('2026-10-01T00:00:00.000Z', 'watch'), line(at, 'watch'), line('2026-11-06T00:00:00.000Z'), line('2026-11-14T00:00:00.000Z'), ''].join('\n');
+    expect(await watchWorkerChecklist(repo, undefined, now, async () => text)).toMatchObject({ seen: 'stale', lastRunAt: at });
+    const buried = [line(at, 'watch'), ...Array.from({ length: 500 }, () => line('2026-11-06T00:00:00.000Z')), ''].join('\n');
+    expect((await watchWorkerChecklist(repo, undefined, now, async () => buried)).seen).toBe('unknown');
   });
 
   test('a worker on another machine is seen through the metrics branch; a CI sweep carries no stamp', async () => {
@@ -153,8 +178,8 @@ describe('watchWorkerChecklist', () => {
     const now = Date.parse('2026-11-15T00:00:00Z');
     const recent = '2026-11-14T12:00:00.000Z';
     const old = '2026-10-01T00:00:00.000Z';
-    // Head lines are never parsed (a malformed one does not matter); the old line ends the scan, so the
-    // out-of-order watch line before it is not reached either.
+    // A malformed line does not matter; past the old line only an older watch line counts, so the out-of-order
+    // (in-window) watch line before it cannot make the worker recent.
     const text = ['{not json', line(recent, 'watch'), line(old), line(recent), ''].join('\n');
     expect((await watchWorkerChecklist(repo, undefined, now, async () => text)).seen).toBe('unknown');
     const withTail = `${text}${line('2026-11-14T13:00:00.000Z', 'watch')}\n`;

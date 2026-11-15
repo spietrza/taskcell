@@ -76,6 +76,8 @@ export function composeSnippet(t: WatchTarget): string {
 const CLOCK_SKEW_MS = 5 * 60 * 1000;
 /** The metrics-branch read is a `git fetch`; the checklist does not wait on it longer than this. */
 const REMOTE_READ_TIMEOUT_MS = 5000;
+/** How many metrics-branch lines past the window the scan reads, newest first, to find the last watch run. */
+const OLDER_LINE_SCAN_CAP = 200;
 
 export function workerSeen(timestamps: ReadonlyArray<string>, now: number = Date.now()): { seen: WatchWorkerChecklist['seen']; lastRunAt?: string } {
   let at = -Infinity;
@@ -129,7 +131,9 @@ type RemoteText = (repoPath: string) => Promise<string>;
 /**
  * Timestamps of watch-stamped lines on the metrics branch (e.g. a worker host running `taskcell metrics push`)
  * at or after `sinceMs`. The file is append-only and never rotated, so it is scanned from the end and the scan
- * stops at the first line older than the window: only the tail is parsed. Empty when unreadable or slow.
+ * stops at the first line older than the window: only the tail is parsed. When the tail holds no watch line, the scan
+ * goes on newest first through at most OLDER_LINE_SCAN_CAP more lines and returns the first watch-stamped one dated
+ * before the window, so a worker that stopped a while ago reads stale. Empty when unreadable or slow.
  */
 async function remoteWatchTimestamps(repoPath: string, sinceMs: number, read: RemoteText): Promise<string[]> {
   let timer: NodeJS.Timeout | undefined;
@@ -139,11 +143,14 @@ async function remoteWatchTimestamps(repoPath: string, sinceMs: number, read: Re
   const text = await Promise.race([read(repoPath).catch(() => undefined), timeout]).finally(() => clearTimeout(timer));
   if (typeof text !== 'string') return [];
   const out: string[] = [];
+  let pastWindow = false;
+  let olderRead = 0;
   for (let end = text.length; end > 0; ) {
     const start = text.lastIndexOf('\n', end - 1) + 1;
     const line = text.slice(start, end).trim();
     end = start - 1;
     if (line === '') continue;
+    if (pastWindow && ++olderRead > OLDER_LINE_SCAN_CAP) break;
     let parsed: unknown;
     try {
       parsed = JSON.parse(line);
@@ -153,15 +160,22 @@ async function remoteWatchTimestamps(repoPath: string, sinceMs: number, read: Re
     if (parsed === null || typeof parsed !== 'object') continue;
     const { ts, trigger } = parsed as { ts?: unknown; trigger?: unknown };
     if (typeof ts !== 'string') continue;
-    if (Date.parse(ts) < sinceMs) break;
-    if (trigger === 'watch') out.push(ts);
+    const ms = Date.parse(ts);
+    if (!pastWindow && ms < sinceMs) {
+      if (out.length > 0) break;
+      pastWindow = true;
+    }
+    // Past the window boundary only an older line counts: an out-of-order line cannot claim a recent time.
+    if (trigger !== 'watch') continue;
+    if (!pastWindow) out.push(ts);
+    else if (ms < sinceMs) return [ts];
   }
   return out;
 }
 
 export async function watchWorkerChecklist(repoPath: string, exec: FactoryExec = defaultExec, now: number = Date.now(), readRemote: RemoteText = readBranchMetrics): Promise<WatchWorkerChecklist> {
   const target = watchTarget(await readOrigin(exec, repoPath), resolveTaskSource(await readAppConfig(repoPath)));
-  // Only records inside the window are read: a run older than WORKER_RECENT_MS cannot make the worker "recent".
+  // Records inside the window are read; past it only a capped newest-first scan for the last watch run (so "stale" keeps its date).
   const since = now - WORKER_RECENT_MS;
   const [local, remote] = await Promise.all([recentWatchTimestamps(defaultRunsRoot(repoPath), since), remoteWatchTimestamps(repoPath, since, readRemote)]);
   return {
