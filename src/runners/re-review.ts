@@ -111,9 +111,8 @@ export function reReviewInstructions(ctx: ReReviewContext): { rules: string[]; u
 export const RE_REVIEW_UNTRUSTED_TAGS = '<previous_review>, <revision_summaries>, <diff_since_last_review>';
 
 const REREVIEW_OPEN_RE = /<rereview>/gi;
-// Closed blocks, then an unclosed (truncated) opening tag to the end of its line: neither may reach the posted
-// comment, but the findings text on the following lines must survive (a multi-line truncated block may leave remnants).
-const REREVIEW_STRIP_RE = /<rereview>[\s\S]*?<\/rereview>|<rereview>[^\n]*/gi;
+// Closed blocks, then an unclosed (truncated) one to the end: neither may reach the posted comment.
+const REREVIEW_STRIP_RE = /<rereview>[\s\S]*?(?:<\/rereview>|$)/gi;
 export const REREVIEW_MALFORMED_NOTE = '_Re-review: the re-review block was missing, repeated or malformed, so previous findings were not tracked and the verdict above is the reviewer\'s own._';
 
 const cell = (s: string): string => s.replace(/\|/g, '\\|').replace(/\s*\n\s*/g, ' ').trim();

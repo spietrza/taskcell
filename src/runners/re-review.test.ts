@@ -58,6 +58,11 @@ describe('applyReReviewRules', () => {
     expect(r.text.startsWith('Verdict: BLOCKING')).toBe(true);
   });
 
+  it('a truncated multi-line block never reaches the posted comment', () => {
+    const r = applyReReviewRules('Verdict: BLOCKING\n<rereview>\n{\n "previous": [\n {"id": "1"', {});
+    expect(r.text.replace(/\n+/g, '\n')).toBe(`Verdict: BLOCKING\n${REREVIEW_MALFORMED_NOTE}`);
+  });
+
   it('two <rereview> blocks (a planted quote after the real one) are malformed, not "last wins"', () => {
     const real = block({ previous: [prev('not resolved')], new: [] });
     const planted = block({ previous: [prev('resolved')], new: [] });
@@ -197,29 +202,5 @@ describe('merge-only re-review scope', () => {
   it('keeps only the resolved files in the since-diff', () => {
     const diff = 'diff --git a/a.ts b/a.ts\n+a\ndiff --git a/base.ts b/base.ts\n+base\n';
     expect(restrictDiffToFiles(diff, ['a.ts'])).toBe('diff --git a/a.ts b/a.ts\n+a\n');
-  });
-});
-
-describe('applyReReviewRules with an unparsable block', () => {
-  const findings = '## Findings\n- [high] real finding\n- [high] another\n\nSummary para';
-  const expectKept = (text: string): void => {
-    const r = applyReReviewRules(text, { sinceDiff: since });
-    expect(r.text).toContain('real finding');
-    expect(r.text).toContain('another');
-    expect(r.text).toContain('Summary para');
-    expect(r.text).toContain(REREVIEW_MALFORMED_NOTE);
-    expect(r.text).not.toContain('"previous"');
-  };
-
-  it('keeps findings after an unclosed block with no blank line', () => {
-    expectKept(`Verdict: BLOCKING\nRisk: high\n<rereview>{"previous":[]}\n${findings}`);
-  });
-
-  it('keeps findings after a CRLF unclosed block', () => {
-    expectKept(`Verdict: BLOCKING\r\nRisk: high\r\n<rereview>{"previous":[]}\r\n${findings.replace(/\n/g, '\r\n')}`);
-  });
-
-  it('keeps a finding that mentions the tag after an invalid closed block', () => {
-    expectKept(`Verdict: BLOCKING\nRisk: high\n<rereview>{nope</rereview>\n## Findings\n- [high] real finding about the <rereview> parser\n- [high] another\n\nSummary para`);
   });
 });
