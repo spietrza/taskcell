@@ -176,6 +176,17 @@ export function mergeRequestReviewMarker(sha: string): string {
   return `<!-- taskcell-mr-review: ${sha} -->`;
 }
 
+const MR_REVIEW_INCOMPLETE_MARKER_RE = /^<!--[ \t]*taskcell-mr-review-incomplete:[ \t]*([a-fA-F0-9]+)[ \t]*-->$/gm;
+
+/** Head-specific marker used by watch-mrs to count incomplete review attempts across sweeps. */
+export function mergeRequestReviewIncompleteMarker(sha: string): string {
+  return `<!-- taskcell-mr-review-incomplete: ${sha} -->`;
+}
+
+export function hasMergeRequestReviewIncompleteMarker(body: string, sha: string): boolean {
+  return Array.from(body.matchAll(MR_REVIEW_INCOMPLETE_MARKER_RE)).some((match) => match[1] === sha);
+}
+
 export function hasMergeRequestReviewMarker(body: string, sha: string): boolean {
   return Array.from(body.matchAll(MR_REVIEW_MARKER_RE)).some((m) => m[1] === sha);
 }
@@ -218,7 +229,7 @@ export async function hasMergeRequestReviewForHead(
 export function buildMergeRequestReviewComment(agentText: string, sha?: string, opts: { completed?: boolean } = {}): string {
   const body = stripReviewMarkers(agentText.replace(PROMISE_RE, '')).trim();
   const note = opts.completed === false ? `${VERDICT_WITHOUT_COMPLETION_NOTE}\n\n` : '';
-  const visible = `${REVIEW_HEADING}\n\n${note}${body === '' ? 'No blocking findings.' : body}`;
+  const visible = `${REVIEW_HEADING}\n\n${note}${body}`;
   return sha === undefined || sha === '' ? visible : `${visible}\n\n${mergeRequestReviewMarker(sha)}`;
 }
 

@@ -69,7 +69,7 @@ describe('linked issue steering', () => {
       if (args[0] === 'pr' && args[1] === 'diff') return 'diff --git a/x b/x';
       return ghStub()(args);
     };
-    const reviewer = async (): Promise<string> => '**Verdict: APPROVE**\nNo blocking findings.\n<promise>COMPLETE</promise>';
+    const reviewer = async (): Promise<string> => 'Verdict: NO BLOCKING FINDINGS\nNo blocking findings.\n<promise>COMPLETE</promise>';
     const withIssue = await reviewPullRequest('12', { repoSlug: 'o/r', gh: prGh, reviewer, publish: false });
     expect(withIssue.commentBody).toContain('Linked issue checked: o/r#774.');
     expect(withIssue.commentBody).toContain('names a different issue (o/r#5)');
@@ -139,7 +139,7 @@ describe('wiring', () => {
 
   it('reviewPullRequest passes allowedAuthors through and survives a failed issue fetch', async () => {
     const seen: PullRequestForReview[] = [];
-    const reviewer = async (p: PullRequestForReview): Promise<string> => { seen.push(p); return '**Verdict: APPROVE**\nNo blocking findings.\n<promise>COMPLETE</promise>'; };
+    const reviewer = async (p: PullRequestForReview): Promise<string> => { seen.push(p); return 'Verdict: NO BLOCKING FINDINGS\nNo blocking findings.\n<promise>COMPLETE</promise>'; };
     const untrusted = ghStub({ association: 'NONE', login: 'rando' });
     await reviewPullRequest('12', { repoSlug: 'o/r', gh: prGh('Closes #774', untrusted), reviewer, publish: false, allowedAuthors: ['rando'] });
     expect(seen[0]?.linkedIssue).toBeDefined();
