@@ -206,11 +206,8 @@ describe('setTaskSkills', () => {
     expect(calls).toHaveLength(1);
   });
 
-  it('GitLab: a quick action only inside a plain ``` block can be saved; one outside, or in any other fence form, is refused', async () => {
-    await setTaskSkills('/repo', 'gl-3', ['db'], cli(JSON.stringify({ description: 'run:\n```sh\n/close\n```\n' })));
-    expect(calls.at(-1)?.args).toContain('update');
-    calls.splice(0);
-    for (const description of ['```\n/close\n```\n/close\n', '~~~\n/close\n~~~\n', '``` x`y`\n/close\n```\n', '1. x\n   ```\n/close\n\n```\n```\n']) {
+  it('GitLab: a quick action anywhere, fenced or not, is refused (fail closed)', async () => {
+    for (const description of ['run:\n```sh\n/close\n```\n', '~~~\n```\n~~~\n/close\n```\nx\n```\n', '```\ncode\n ```\n/close\n```\nx\n```\n', '```\n/close\n``` \ntext\n']) {
       await expect(setTaskSkills('/repo', 'gl-3', ['db'], cli(JSON.stringify({ description })))).rejects.toThrow(/quick action|could not be written/);
     }
     expect(calls.every((c) => c.args[1] === 'view')).toBe(true);

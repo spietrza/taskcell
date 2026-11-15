@@ -265,17 +265,6 @@ const DESCRIPTION_QUERY = `query($id: String!) { issue(id: $id) { description } 
 const DESCRIPTION_MUTATION = `mutation($id: String!, $d: String!) { issueUpdate(id: $id, input: { description: $d }) { success } }`;
 
 /**
- * Whether a line starts with a GitLab quick action (`/close`, `/assign @x`) once the blocks GitLab's own extractor
- * skips are removed: a fence of exactly ``` at column 0 (optional plain language tag) through the next ``` at column 0.
- * Any other fence form (~~~, indented, a backtick in the info string, unclosed) is not trusted and its lines count, so
- * this errs on the side of refusing.
- */
-function hasQuickAction(body: string): boolean {
-  const outside = body.replace(/^```[\w-]*[ \t]*\n[\s\S]*?\n```[ \t]*$/gm, '');
-  return /^[ \t]*\/[a-z_]+([ \t]|$)/im.test(outside);
-}
-
-/**
  * Write a card's hand-picked skills to its task as the body's `Skills:` line (an empty list removes
  * it), in whichever tracker the board id names. The body is read first and only that line changes.
  * A GitLab description holding a quick-action line is refused: saved as the hub's identity it would run with
@@ -315,7 +304,8 @@ export async function setTaskSkills(
   } else if (source === 'gitlab') {
     const issue = JSON.parse(await run('glab', ['issue', 'view', reference, '--output', 'json'], { cwd: repoPath })) as { description?: string | null };
     const body = next(issue.description ?? '');
-    if (body !== undefined && hasQuickAction(body)) {
+    // shortcut: fenced lines are refused too (fail closed); track fences if that turns out to bother users.
+    if (body !== undefined && /^[ \t]*\/[a-z_]+([ \t]|$)/im.test(body)) {
       throw new TaskcellError('This GitLab issue has a line starting with `/` (a quick action); edit its Skills: line on GitLab instead.');
     }
     if (body !== undefined) await run('glab', ['issue', 'update', reference, '--description', body], { cwd: repoPath });
