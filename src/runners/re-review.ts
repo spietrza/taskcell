@@ -173,23 +173,44 @@ function balancedJsonEnd(text: string, start: number): number | undefined {
   return undefined;
 }
 
-/** Strip only the metadata block at the required header position, never later tag mentions in findings. */
-function stripHeaderBlock(text: string): string {
+const BLOCK_OPEN_RE = /^<rereview>[ \t\r\n]*(?:```(?:json)?[ \t\r\n]*)?\{/i;
+const BLOCK_CLOSE_RE = /^[ \t\r\n]*(?:```[ \t\r\n]*)?<\/rereview>/i;
+// Not directly after a backtick: a finding that names the tag in inline code is prose, not a block.
+const CLOSED_BLOCK_OPEN_RE = new RegExp('(?<!`)' + BLOCK_OPEN_RE.source.slice(1), 'gi');
+
+/** Remove every well-formed closed block (tag, JSON object, closing tag) wherever it sits: none may reach the posted comment. */
+function stripClosedBlocks(text: string): string {
+  let out = '';
+  let from = 0;
+  for (const open of text.matchAll(CLOSED_BLOCK_OPEN_RE)) {
+    if (open.index < from) continue;
+    const jsonEnd = balancedJsonEnd(text, open.index + open[0].length - 1);
+    const closing = jsonEnd === undefined ? null : BLOCK_CLOSE_RE.exec(text.slice(jsonEnd));
+    if (jsonEnd === undefined || closing === null) continue;
+    out += text.slice(from, open.index);
+    from = jsonEnd + closing[0].length;
+  }
+  return out + text.slice(from);
+}
+
+/** Strip the metadata block at the required header position, closed or not, then any other closed block; a tag only mentioned in findings stays. */
+function stripBlocks(text: string): string {
   const block = headerBlock(text);
-  if (block === undefined) return text;
+  if (block === undefined) return stripClosedBlocks(text);
   const blockStart = text.indexOf(block);
-  const jsonPrefix = /^<rereview>[ \t\r\n]*(?:```(?:json)?[ \t\r\n]*)?\{/i.exec(block);
+  const jsonPrefix = BLOCK_OPEN_RE.exec(block);
   const jsonStart = jsonPrefix === null ? undefined : jsonPrefix[0].length - 1;
   const jsonEnd = jsonStart === undefined ? undefined : balancedJsonEnd(block, jsonStart);
   let blockEnd: number;
   if (jsonEnd !== undefined) {
-    const closing = /^[ \t\r\n]*(?:```[ \t]*\r?\n?)?[ \t\r\n]*<\/rereview>/i.exec(block.slice(jsonEnd));
+    // No closing tag: a fenced block's closing fence goes with it, or it would open a code block over the findings.
+    const closing = BLOCK_CLOSE_RE.exec(block.slice(jsonEnd)) ?? (jsonPrefix?.[0].includes('```') === true ? /^[ \t\r\n]*```/.exec(block.slice(jsonEnd)) : null);
     blockEnd = jsonEnd + (closing?.[0].length ?? 0);
   } else {
     const contentBoundary = /\n(?=(?:#{1,6}[ \t]+|[ \t]*(?:(?:[-*]|\d+[.)])[ \t]+)?\[(?:critical|high|medium|low)\](?:[ \t]|$)))/i.exec(block);
     blockEnd = contentBoundary?.index ?? block.length;
   }
-  return `${text.slice(0, blockStart)}${block.slice(blockEnd)}`.replace(/^[ \t]*<\/rereview>[ \t]*$/gim, '');
+  return stripClosedBlocks(`${text.slice(0, blockStart)}${block.slice(blockEnd)}`).replace(/^[ \t]*<\/rereview>[ \t]*$/gim, '');
 }
 
 // The previous comment opens with the review heading (and, when it ended without completion, a one-line note).
@@ -227,7 +248,7 @@ export function applyReReviewRules(
   text: string,
   ctx: Pick<ReReviewContext, 'sinceDiff'> & Partial<Pick<ReReviewContext, 'previousBody' | 'changedFiles'>> & { prFiles?: readonly string[] },
 ): { text: string; downgraded: number } {
-  const peeled = peelVerdict(stripHeaderBlock(text));
+  const peeled = peelVerdict(stripBlocks(text));
   let parsed: z.infer<typeof reReviewSchema> | undefined;
   try {
     const block = headerBlock(text);

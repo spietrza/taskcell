@@ -434,6 +434,39 @@ describe('githubPullRequestWatchPrimitives', () => {
     expect(calls.find((args) => args[0] === 'pr' && args[1] === 'edit')).not.toContain('--add-label');
   });
 
+  it.each([
+    ['the cap comment already exists', (): string => JSON.stringify({ comments: [{ ...BOT, body: 'stopped\n\n<!-- taskcell-pr-review-incomplete-cap: abc123 -->' }], reviews: [] })],
+    ['the attempts cannot be counted', (): string => { throw new Error('HTTP 502'); }],
+  ])('leaves the trigger label off without a second cap comment when %s', async (_n, view) => {
+    const calls: string[][] = [];
+    const gh: GhRunner = async (args) => {
+      calls.push(args);
+      if (args[0] === 'pr' && args[1] === 'view' && args.at(-1) === 'comments,reviews') return view();
+      if (args[0] === 'pr' && args[1] === 'view') return JSON.stringify({ labels: [{ name: 'taskcell:reviewing' }] });
+      return '';
+    };
+    const primitives = githubPullRequestWatchPrimitives({
+      repoSlug: 'o/r',
+      label: 'ready for taskcell review',
+      reviewingLabel: 'taskcell:reviewing',
+      reviewedLabel: 'taskcell:reviewed',
+      gh,
+      reviewOne: async () => {},
+    });
+    const item = { ...pr(12), headRefOid: 'abc123' };
+    const incomplete = new PullRequestReviewIncompleteError(
+      { ...item, body: '', url: '', headRefName: 'branch', baseRefName: 'main', isCrossRepository: false, headRepositoryOwner: 'o', diff: '' },
+      'incomplete',
+    );
+
+    await primitives.onFailure(item, incomplete);
+
+    expect(calls.some((args) => args[0] === 'pr' && args[1] === 'comment')).toBe(false);
+    const edit = calls.find((args) => args[0] === 'pr' && args[1] === 'edit');
+    expect(edit).toContain('--remove-label');
+    expect(edit).not.toContain('--add-label');
+  });
+
   it('resets the incomplete-attempt cap for a new head', async () => {
     const calls: string[][] = [];
     const gh: GhRunner = async (args) => {

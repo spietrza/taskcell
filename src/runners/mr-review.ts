@@ -6,7 +6,7 @@ import { TaskcellError } from '../core/errors.js';
 import type { GlabRunner } from '../tasks/gitlab.js';
 import { defaultGlabRunner, encodeProject, glabUser, neutralizeQuickActions } from '../tasks/gitlab.js';
 import { GITLAB_GATE_CONFIG_LABEL } from '../gitlab-labels.js';
-import { AUTHORITATIVE_BLOCK_INSTRUCTION, GATE_CONFIG_REVIEW_INSTRUCTION, labelNames, RETRY_TRIAGE_INSTRUCTION, VERDICT_INSTRUCTION, VERDICT_WITHOUT_COMPLETION_NOTE, neutralizePromptTags, omitGeneratedFiles, outputTail, reviewOutcomeUsable, stripReviewMarkers, VERDICT_CONTRADICTION_LOG, verdictContradictsFindings } from './review-prompt.js';
+import { AUTHORITATIVE_BLOCK_INSTRUCTION, GATE_CONFIG_REVIEW_INSTRUCTION, labelNames, RETRY_TRIAGE_INSTRUCTION, VERDICT_INSTRUCTION, VERDICT_WITHOUT_COMPLETION_NOTE, hoistReviewVerdict, neutralizePromptTags, omitGeneratedFiles, outputTail, reviewOutcomeUsable, stripReviewMarkers, VERDICT_CONTRADICTION_LOG, verdictContradictsFindings } from './review-prompt.js';
 import { redactForPublish } from '../core/secret-scan.js';
 
 export interface MergeRequestReviewTarget {
@@ -42,7 +42,8 @@ export type MergeRequestReviewer = (
 ) => Promise<string | MergeRequestReviewOutcome>;
 
 function normalizeMergeRequestReviewOutcome(outcome: string | MergeRequestReviewOutcome): MergeRequestReviewOutcome {
-  return typeof outcome === 'string' ? { text: outcome, completed: true } : outcome;
+  const o = typeof outcome === 'string' ? { text: outcome, completed: true } : outcome;
+  return { ...o, text: hoistReviewVerdict(o.text) };
 }
 
 export interface ReviewMergeRequestDeps {

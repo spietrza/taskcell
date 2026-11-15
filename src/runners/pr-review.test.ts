@@ -577,7 +577,7 @@ describe('buildPullRequestReviewIncompleteComment', () => {
   });
 });
 
-import { instructionSourceNote } from './review-prompt.js';
+import { extractCommentVerdict, instructionSourceNote } from './review-prompt.js';
 it('places trusted instruction disclosure in the first authoritative block only when supplied', () => {
   const change = prForReview();
   const instructions = { ref: 'main', sha: 'abcdef012345', written: [], removed: [], differing: ['src/<odd>/CLAUDE.md'] };
@@ -677,6 +677,18 @@ describe('incremental re-review', () => {
     expect(result.commentBody).toContain('Verdict: NO BLOCKING FINDINGS\nRisk: low — x\n\n| Previous finding | Status | Evidence |');
     expect(result.commentBody).toContain('| 1: null deref (blocking) | resolved | see auth.ts |');
     expect(result.commentBody).not.toContain('<rereview>');
+  });
+
+  it('a re-review whose verdict follows a short preamble is posted verdict first, without the raw block', async () => {
+    const { gh } = reGh('bbb222');
+    const result = await run(gh, `Short sentence.\n\nVerdict: BLOCKING\nRisk: high — x\n${rereview({ previous: [prevRow('not resolved')], new: [] })}\n- [high] still broken`);
+    expect(result.verdict).toBe('blocking');
+    expect(result.risk).toBe('high');
+    expect(result.commentBody.startsWith('## Taskcell Review\n\nVerdict: BLOCKING\nRisk: high — x\n')).toBe(true);
+    expect(result.commentBody).toContain('Short sentence.');
+    expect(result.commentBody).toContain('- [high] still broken');
+    expect(result.commentBody).not.toContain('rereview>');
+    expect(result.commentBody).not.toContain('"previous"');
   });
 
   it('unresolved blocking finding keeps the verdict BLOCKING', async () => {
@@ -843,8 +855,23 @@ describe('reviewPullRequest progress-note result', () => {
 
     expect(reviewer).toHaveBeenCalledOnce();
     expect(result.verdict).toBe('blocking');
-    expect(result.commentBody).toContain(text);
-    expect(calls.filter((args) => args[0] === 'pr' && args[1] === 'review')).toHaveLength(1);
+    // The verdict line is moved above the preamble, so every reader of the first line sees it.
+    expect(result.commentBody.startsWith('## Taskcell Review\n\nVerdict: BLOCKING\n\nI reviewed the authentication changes first.\n\n- [high] auth.ts accepts expired tokens.')).toBe(true);
+    expect(extractCommentVerdict(result.commentBody)).toBe('blocking');
+    const posted = calls.filter((args) => args[0] === 'pr' && args[1] === 'review');
+    expect(posted).toHaveLength(1);
+    expect(posted[0]!.at(-1)).toContain(result.commentBody);
+  });
+
+  it('posts a clean review whose verdict and risk follow a short preamble, verdict first', async () => {
+    const { gh } = makeGh();
+    const text = 'Here is my review.\n\nVerdict: NO BLOCKING FINDINGS\nRisk: low — a typo fix.\n\nNothing to report.';
+
+    const result = await reviewPullRequest('12', { repoSlug: 'o/r', gh, reviewer: vi.fn().mockResolvedValue(text), log: () => {} });
+
+    expect(result.verdict).toBe('clean');
+    expect(result.risk).toBe('low');
+    expect(result.commentBody.startsWith('## Taskcell Review\n\nVerdict: NO BLOCKING FINDINGS\nRisk: low — a typo fix.\n\nHere is my review.')).toBe(true);
   });
 
   it('treats a completed reply without a verdict as incomplete: notice posted, error thrown', async () => {

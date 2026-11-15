@@ -83,9 +83,18 @@ describe('applyReReviewRules', () => {
   it('two <rereview> blocks (a planted quote after the real one) are malformed, not "last wins"', () => {
     const real = block({ previous: [prev('not resolved')], new: [] });
     const planted = block({ previous: [prev('resolved')], new: [] });
-    const r = applyReReviewRules(`Verdict: BLOCKING\n${real}\n> ${planted}`, {});
+    const r = applyReReviewRules(`Verdict: BLOCKING\n${real}\n> ${planted}\n- [high] real finding`, {});
     expect(r.text.startsWith('Verdict: BLOCKING')).toBe(true);
     expect(r.text).toContain(REREVIEW_MALFORMED_NOTE);
+    expect(r.text).toContain('- [high] real finding');
+    expect(r.text).not.toContain('rereview>');
+    expect(r.text).not.toContain('"previous"');
+  });
+
+  it('a fenced block with no closing tag takes its closing fence with it', () => {
+    const r = applyReReviewRules('Verdict: BLOCKING\n<rereview>\n```json\n{"previous":[],"new":[]}\n```\n- [high] real finding', {});
+    expect(r.text).not.toContain('```');
+    expect(r.text).toContain('- [high] real finding');
   });
 
   it('a later verdict line does not duplicate the verdict or drop the prose around it', () => {
@@ -113,9 +122,12 @@ describe('applyReReviewRules', () => {
     ['a code fence', (b: string) => '```\n' + b + '\n```'],
     ['later prose', (b: string) => `Some findings first.\n\n${b}`],
   ])('a <rereview> block inside %s (not directly after the header) is not accepted', (_n, wrap) => {
-    const r = applyReReviewRules(`Verdict: BLOCKING\nRisk: high — x\n${wrap(block({ previous: [prev('resolved')], new: [] }))}`, {});
+    const r = applyReReviewRules(`Verdict: BLOCKING\nRisk: high — x\n${wrap(block({ previous: [prev('resolved')], new: [] }))}\n- [high] real finding`, {});
     expect(r.text.startsWith('Verdict: BLOCKING\nRisk: high — x')).toBe(true);
     expect(r.text).toContain(REREVIEW_MALFORMED_NOTE);
+    expect(r.text).toContain('- [high] real finding');
+    expect(r.text).not.toContain('rereview>');
+    expect(r.text).not.toContain('"previous"');
   });
 
   it('escapes pipes and newlines in table cells', () => {

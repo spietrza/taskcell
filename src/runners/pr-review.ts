@@ -15,8 +15,9 @@ import {
   VERDICT_INSTRUCTION,
   VERDICT_WITHOUT_COMPLETION_NOTE,
   diffLineCount,
-  extractReviewOutcomeVerdict,
   extractReviewRisk,
+  extractReviewVerdict,
+  hoistReviewVerdict,
   labelNames,
   neutralizePromptTags,
   omitGeneratedFiles,
@@ -139,7 +140,8 @@ const PR_REVIEW_MARKER_RE = /^<!--[ \t]*(?:taskcell|vanguard)-pr-review:[ \t]*([
 const PR_REVIEW_HEADING = REVIEW_HEADING;
 
 function normalizePullRequestReviewOutcome(outcome: string | PullRequestReviewOutcome): PullRequestReviewOutcome {
-  return typeof outcome === 'string' ? { text: outcome, completed: true } : outcome;
+  const o = typeof outcome === 'string' ? { text: outcome, completed: true } : outcome;
+  return { ...o, text: hoistReviewVerdict(o.text) };
 }
 
 /** Build a target from a `(owner/repo, number)` capture pair, or null if the match didn't capture both. */
@@ -609,7 +611,7 @@ export async function reviewPullRequest(ref: string, deps: ReviewPullRequestDeps
   if (reviewed.downgraded === 0 && verdictContradictsFindings(reviewed.text)) {
     deps.log?.(`review-pr ${id}: ${VERDICT_CONTRADICTION_LOG} — ${deps.publish !== false ? 'posted as written' : 'not posted (publish disabled)'}`);
   }
-  const verdict = extractReviewOutcomeVerdict(reviewed.text);
+  const verdict = extractReviewVerdict(reviewed.text);
   const risk = extractReviewRisk(reviewed.text);
   return { pr, commentBody, ...(verdict !== undefined ? { verdict } : {}), ...(risk !== undefined ? { risk } : {}) };
 }

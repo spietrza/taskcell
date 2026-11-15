@@ -239,32 +239,33 @@ export function gitlabMergeRequestWatchPrimitives(
       }).then(() => {}),
     onFailure: async (item, error) => {
       const incomplete = error instanceof MergeRequestReviewIncompleteError;
-      let terminal = false;
-      let capPosted = false;
+      // Without a count (no head SHA, or the notes or the user cannot be read) the retries have no bound, so an
+      // incomplete review then waits for a human to re-add the label instead of running again every poll.
+      let terminal = incomplete;
+      let capDue = false;
       if (incomplete && item.sha !== '') {
         try {
           const state = await incompleteReviewAttempts(glab, item);
           terminal = state.capPosted || state.attempts + 1 >= INCOMPLETE_RETRY_LIMIT;
-          capPosted = state.capPosted;
+          capDue = terminal && !state.capPosted;
         } catch (countError) {
-          log?.(`watch-mrs ${mrId(item)}: incomplete-attempt count failed -> retrying (${failureReason(countError)})`);
+          log?.(`watch-mrs ${mrId(item)}: incomplete-attempt count failed -> not retrying (${failureReason(countError)})`);
         }
       }
       const retryInstruction = terminal
         ? ` Re-add the "${opts.label}" label to re-trigger the review.`
         : '';
       const incompleteMarker = incomplete && item.sha !== '' ? `\n\n${mergeRequestReviewIncompleteMarker(item.sha)}` : '';
-      const capMarker = terminal && item.sha !== '' ? `\n<!-- taskcell-mr-review-incomplete-cap: ${item.sha} -->` : '';
+      // Once the cap note exists, a further incomplete attempt still gets its failure note, without a second cap marker.
+      const capMarker = capDue ? `\n<!-- taskcell-mr-review-incomplete-cap: ${item.sha} -->` : '';
       try {
-        if (!terminal || !capPosted) {
-          await glab([
-            'mr', 'note', 'create',
-            String(item.iid),
-            '--repo', item.project,
-            // This note is written by the glab user, so a marker quoted in the error would count for the dedupe.
-            '-m', neutralizeQuickActions(`Taskcell MR review failed: ${redactForPublish(stripReviewMarkers(String(error)))}${retryInstruction}${incompleteMarker}${capMarker}`),
-          ]);
-        }
+        await glab([
+          'mr', 'note', 'create',
+          String(item.iid),
+          '--repo', item.project,
+          // This note is written by the glab user, so a marker quoted in the error would count for the dedupe.
+          '-m', neutralizeQuickActions(`Taskcell MR review failed: ${redactForPublish(stripReviewMarkers(String(error)))}${retryInstruction}${incompleteMarker}${capMarker}`),
+        ]);
       } catch {
         // note posting is best-effort; always fix the labels
         terminal = false;

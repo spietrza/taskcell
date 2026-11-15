@@ -317,32 +317,33 @@ export function githubPullRequestWatchPrimitives(opts: GitHubPullRequestWatchOpt
         await commentPullRequest(item, hold.comment, gh);
         return;
       }
-      if (error instanceof PullRequestReviewIncompleteError && item.headRefOid !== '') {
-        try {
-          const state = await incompleteReviewState(gh, item, opts.allowedAuthors);
-          if (state.capPosted || state.attempts >= INCOMPLETE_RETRY_LIMIT) {
-            let notified = state.capPosted;
-            if (!state.capPosted) {
+      if (error instanceof PullRequestReviewIncompleteError) {
+        // Without a count (no head SHA, or the comments cannot be read) the retries have no bound, so the PR then
+        // waits for a human: the incomplete notice review-pr posted already says to re-add the label.
+        let stop = true;
+        if (item.headRefOid !== '') {
+          try {
+            const state = await incompleteReviewState(gh, item, opts.allowedAuthors);
+            stop = state.capPosted || state.attempts >= INCOMPLETE_RETRY_LIMIT;
+            if (stop && !state.capPosted) {
               try {
                 await commentPullRequest(
                   item,
                   `Taskcell stopped automatic review retries after ${INCOMPLETE_RETRY_LIMIT} incomplete attempts for head ${item.headRefOid.slice(0, 7)}. Remove and re-add the "${opts.label}" label to re-trigger the review.\n\n<!-- taskcell-pr-review-incomplete-cap: ${item.headRefOid} -->`,
                   gh,
                 );
-                notified = true;
               } catch (commentError) {
                 opts.log?.(`watch-prs ${prId(item)}: retry-cap comment failed -> retrying (${failureReason(commentError)})`);
+                stop = false;
               }
             }
-            if (notified) {
-              await editPullRequestLabels(gh, item.repoSlug, item.number, {
-                remove: [opts.reviewingLabel],
-              }, opts.log);
-              return;
-            }
+          } catch (countError) {
+            opts.log?.(`watch-prs ${prId(item)}: incomplete-attempt count failed -> not retrying (${failureReason(countError)})`);
           }
-        } catch (countError) {
-          opts.log?.(`watch-prs ${prId(item)}: incomplete-attempt count failed -> retrying (${failureReason(countError)})`);
+        }
+        if (stop) {
+          await editPullRequestLabels(gh, item.repoSlug, item.number, { remove: [opts.reviewingLabel] }, opts.log);
+          return;
         }
       }
       await editPullRequestLabels(gh, item.repoSlug, item.number, {

@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { extractCommentVerdict, extractReviewVerdict, extractReviewRisk, reviewOutcomeUsable, outputTail, verdictContradictsFindings, hasBlockingFinding, VERDICT_INSTRUCTION, VERDICT_WITHOUT_COMPLETION_NOTE } from './review-prompt.js';
+import { extractCommentVerdict, extractReviewVerdict, extractReviewRisk, reviewOutcomeUsable, hoistReviewVerdict, outputTail, verdictContradictsFindings, hasBlockingFinding, VERDICT_INSTRUCTION, VERDICT_WITHOUT_COMPLETION_NOTE } from './review-prompt.js';
 import { adversarySystemPrompt } from '../pipeline/pipeline.js';
 import { renderConformanceSection } from '../pipeline/review-publish.js';
 import { publishGitlabVerdict } from './gitlab.js';
@@ -375,6 +375,18 @@ describe('extractReviewVerdict', () => {
     expect(reviewOutcomeUsable({ text: 'I checked the risky paths first.\n\nVerdict: BLOCKING\n…' })).toBe(true);
     expect(reviewOutcomeUsable({ text: 'The PR quoted this:\n```\nVerdict: BLOCKING\n```' })).toBe(false);
     expect(reviewOutcomeUsable({ text: 'still reading' })).toBe(false);
+    // A verdict echoed inside a ~~~ fence, or a longer fence holding a ``` line, is not the model's own.
+    expect(reviewOutcomeUsable({ text: 'Quoted:\n~~~\nVerdict: BLOCKING\n~~~' })).toBe(false);
+    expect(reviewOutcomeUsable({ text: 'Quoted:\n````\n```\nVerdict: BLOCKING\n````' })).toBe(false);
+  });
+
+  it('hoistReviewVerdict: moves a verdict after a short preamble (and its risk line) to the top, and nothing else', () => {
+    expect(hoistReviewVerdict('Preamble.\n\nVerdict: BLOCKING\nRisk: high — x\n\n- [high] f')).toBe('Verdict: BLOCKING\nRisk: high — x\n\nPreamble.\n\n- [high] f');
+    expect(hoistReviewVerdict('Preamble.\nVerdict: NO BLOCKING FINDINGS\nfine')).toBe('Verdict: NO BLOCKING FINDINGS\n\nPreamble.\n\nfine');
+    const opens = 'Verdict: BLOCKING\nRisk: low — x\n\nbody';
+    expect(hoistReviewVerdict(opens)).toBe(opens);
+    const none = 'still reading\n```\nVerdict: BLOCKING\n```';
+    expect(hoistReviewVerdict(none)).toBe(none);
   });
 
   it('hasBlockingFinding: a [high]/[critical] label counts only when it opens a line or list item (a quoted diff hunk does not)', () => {

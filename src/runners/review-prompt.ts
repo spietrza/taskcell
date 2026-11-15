@@ -61,21 +61,43 @@ export function extractReviewRisk(text: string): ReviewRisk | undefined {
   return m === null ? undefined : (m[1]!.toLowerCase() as ReviewRisk);
 }
 
-/** The verdict stated in the reply's opening lines, allowing a short prose preamble before a plain verdict line. */
-export function extractReviewOutcomeVerdict(text: string): ReviewVerdict | undefined {
-  const openingVerdict = extractReviewVerdict(text);
-  if (openingVerdict !== undefined) return openingVerdict;
-  let codeFence = false;
-  for (const line of text.split('\n', MAX_VERDICT_PREAMBLE_LINES + 1)) {
-    if (/^[ \t]*```/.test(line)) {
-      codeFence = !codeFence;
+/** Index of a plain verdict line after a short prose preamble, outside any code fence (``` or ~~~, closed only by the same or a longer run). */
+function preambleVerdictIndex(lines: readonly string[]): number | undefined {
+  let open: string | undefined;
+  for (let i = 0; i < lines.length && i <= MAX_VERDICT_PREAMBLE_LINES; i++) {
+    const fence = /^[ \t]*(`{3,}|~{3,})/.exec(lines[i]!)?.[1];
+    if (fence !== undefined) {
+      if (open === undefined) open = fence;
+      else if (fence[0] === open[0] && fence.length >= open.length) open = undefined;
       continue;
     }
-    if (codeFence) continue;
-    const match = PREAMBLE_VERDICT_RE.exec(line);
-    if (match !== null) return match[1]!.toUpperCase() === 'BLOCKING' ? 'blocking' : 'clean';
+    if (open === undefined && PREAMBLE_VERDICT_RE.test(lines[i]!)) return i;
   }
   return undefined;
+}
+
+/** The verdict stated in the reply's opening lines, allowing a short prose preamble before a plain verdict line. */
+export function extractReviewOutcomeVerdict(text: string): ReviewVerdict | undefined {
+  return extractReviewVerdict(hoistReviewVerdict(text));
+}
+
+/**
+ * Move a verdict line stated after a short preamble (and the risk line directly after it) to the top of the
+ * reply. Applied once where the reviewer's reply enters the runner, so the re-review rules, the posted comment
+ * and every later reader of the first line see the same verdict. A reply that opens with its verdict is unchanged.
+ */
+export function hoistReviewVerdict(text: string): string {
+  if (extractReviewVerdict(text) !== undefined) return text;
+  const lines = text.split('\n');
+  const at = preambleVerdictIndex(lines);
+  if (at === undefined) return text;
+  let risk = at + 1;
+  while (risk < lines.length && lines[risk]!.trim() === '') risk++;
+  const end = risk < lines.length && RISK_RE.test(lines[risk]!) ? risk + 1 : at + 1;
+  const header = end === risk + 1 ? [lines[at]!, lines[risk]!] : [lines[at]!];
+  const preamble = lines.slice(0, at).join('\n').trim();
+  const rest = lines.slice(end).join('\n').replace(/^(?:[ \t]*\n)+/, '');
+  return [header.join('\n'), preamble, rest].filter((part) => part !== '').join('\n\n');
 }
 
 /** A review is usable only when its opening lines state a verdict; a completion signal alone does not make a progress note a review. */
