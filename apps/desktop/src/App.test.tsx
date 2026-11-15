@@ -1,7 +1,7 @@
 import { afterEach, beforeEach, expect, test, vi } from 'vitest';
 import { cleanup, fireEvent, render, screen, waitFor, within } from '@testing-library/react';
 import App from './App';
-import { projects } from './dev/fixtures';
+import { projects, runDetail, runs } from './dev/fixtures';
 import { STARTER_TASK } from './features/onboarding/steps';
 import type { Team } from './wire';
 
@@ -95,6 +95,7 @@ test('adding the first project offers the starter task, created only on click', 
 function stubTeamHub(
   teams: Team[],
   listProjects: (teamId: string | undefined) => Promise<unknown[]> | unknown[],
+  extra: Record<string, unknown> = {},
 ): { cmds: string[] } {
   const cmds: string[] = [];
   window.__TASKCELL_HUB__ = true;
@@ -119,6 +120,7 @@ function stubTeamHub(
         setup_status: SETUP,
         read_app_config_strict: {},
         read_session: { entries: [], inputTokens: 0, outputTokens: 0, estCostUsd: 0 },
+        ...extra,
       };
       const result = cmd === 'list_projects' ? await listProjects(args.teamId) : (results[cmd] ?? null);
       return new Response(JSON.stringify({ result }), { status: 200, headers: { 'content-type': 'application/json' } });
@@ -191,6 +193,28 @@ test('a rail Running entry clicked from Settings opens the live run', async () =
   await waitFor(() => expect(cmds).toContain('read_session'));
   await new Promise((r) => setTimeout(r, 50));
   expect(screen.getByText('running')).toBeInTheDocument();
+});
+
+test('a rail Running entry clicked from an open run detail opens the live run, on every click', async () => {
+  const p = projects[0]!;
+  const run = { ...runs[0]!, repoPath: p.path, repoName: p.name };
+  stubTeamHub([], () => [p], { list_runs_all: { runs: [run], failures: [] }, read_run: runDetail });
+  render(<App />);
+  const entry = await screen.findByText(`RUN${p.path}`);
+  await waitFor(() => expect(navButton('Runs')).toBeEnabled());
+  const crumbs = (): HTMLElement => screen.getByRole('navigation', { name: /breadcrumb/i });
+  // Click the same entry twice, each time from an open run detail.
+  for (let i = 0; i < 2; i++) {
+    fireEvent.click(navButton('Runs'));
+    fireEvent.click(await screen.findByText(run.taskId));
+    await waitFor(() => expect(crumbs()).toHaveTextContent(run.taskId));
+    expect(screen.getAllByText('passed').length).toBeGreaterThan(0);
+    fireEvent.click(entry);
+    await waitFor(() => expect(crumbs()).toHaveTextContent(`RUN${p.path}`));
+    expect(crumbs()).not.toHaveTextContent(run.taskId);
+    expect(screen.getAllByText('running').length).toBeGreaterThan(0);
+    expect(screen.queryAllByText('passed')).toEqual([]);
+  }
 });
 
 test('a tab the hub refuses shows only how to reconnect, not an empty project list', async () => {
