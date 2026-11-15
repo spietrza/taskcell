@@ -1,9 +1,12 @@
 import { fileURLToPath } from 'node:url';
 import { randomUUID } from 'node:crypto';
 import { SandboxError } from '../core/errors.js';
-import { startSidecar } from './sidecar.js';
+import { startSidecar, defaultDocker } from './sidecar.js';
+import { reportRotation } from './codex-rotation.js';
+import { trackSandbox, untrackSandbox } from '../core/cleanup.js';
 import type { DockerRunner } from './sidecar.js';
 import type { ProviderProxySecrets } from '../agents/registry.js';
+import { REFRESH_FAILED_PREFIX, REFRESH_RECOVERED, REFRESH_REFUSED_PREFIX } from './llm-proxy-rewrite.mjs';
 import type { Upstream } from './llm-proxy-rewrite.mjs';
 
 export type { DockerRunner } from './sidecar.js';
@@ -13,7 +16,7 @@ const PROXY_PORT = 8088;
 const SECRET_FILE = '/run/vanguard-llm/secret';
 // Chatgpt-plan sidecars only: where the sidecar persists its own rotated copy of the real credential
 // (resolveUpstream in llm-proxy-server.mjs requires AUTH_FILE to sit inside this same tmpfs
-// directory). Never read back by this run — see llm-proxy-server.mjs's persistChatgptAuth doc.
+// directory). Read back once, at teardown, to hand a rotated credential to the host (reportRotation).
 const CHATGPT_AUTH_FILE = '/run/vanguard-llm/auth.json';
 // Resolves to dist/sandbox/llm-proxy-server.mjs (built) or src/... (tsx) — next to this module.
 const PROXY_SCRIPT = fileURLToPath(new URL('./llm-proxy-server.mjs', import.meta.url));
@@ -85,6 +88,8 @@ export async function startLlmProxy(opts: {
   upstream?: Upstream;
   image?: string;
   docker?: DockerRunner;
+  /** Where a rotated chatgpt credential is reported and handed back (default `process.env`); injectable for tests. */
+  env?: NodeJS.ProcessEnv;
 }): Promise<LlmProxy> {
   const upstream: Upstream = opts.upstream ?? 'anthropic';
   const id = randomUUID().slice(0, 8);
@@ -121,13 +126,49 @@ export async function startLlmProxy(opts: {
       secret: { path: SECRET_FILE, body: secretBody },
       env: { LLM_PROXY_SECRET_FILE: SECRET_FILE, PORT: String(PROXY_PORT) },
       cmd: ['node', '/tmp/llm-proxy.mjs'],
+      // Only the chatgpt sidecar's log is read (at teardown); every other sidecar starts as it always did.
+      ...('kind' in auth ? { forwardLogs: true } : {}),
     });
+    const docker = opts.docker ?? defaultDocker;
+    // Chatgpt: before the container (and its tmpfs) is removed, relay the sidecar's errors to the host
+    // log and hand a rotated credential back — otherwise both die with the container.
+    let destroy = sidecar.destroy;
+    if ('kind' in auth) {
+      const { refreshToken } = auth;
+      // Tracked so SIGINT/SIGTERM runs the same teardown: a cancelled run still hands a rotation back.
+      const teardown = async (): Promise<void> => {
+        untrackSandbox(tracked);
+        try {
+          // Each step is best effort: the container holding the real credential must always be removed.
+          // Only stderr is routed to the container log (see forwardLogs), so the tail is small.
+          const logs = await docker(['logs', '--tail', '200', name]).catch(() => undefined);
+          let lines = new Set<string>();
+          for (const line of `${logs?.stdout ?? ''}\n${logs?.stderr ?? ''}`.split('\n')) {
+            // A later successful refresh makes the failures before it moot.
+            if (line === REFRESH_RECOVERED) lines = new Set();
+            else if (line.startsWith(REFRESH_REFUSED_PREFIX) || line.startsWith(REFRESH_FAILED_PREFIX)) lines.add(line);
+          }
+          // A refusal is an error; a failed exchange that may pass is a warning (the run may have succeeded).
+          for (const line of lines) (line.startsWith(REFRESH_REFUSED_PREFIX) ? console.error : console.warn)(line);
+          const rotated = await docker(['exec', name, 'cat', CHATGPT_AUTH_FILE]).catch(() => undefined);
+          if (rotated?.exitCode === 0 && rotated.stdout !== '') await reportRotation(rotated.stdout, refreshToken, opts.env);
+        } finally {
+          await sidecar.destroy();
+        }
+      };
+      // Once only: a signal and the runner's `finally` can both ask; the second gets the first's promise,
+      // so nothing is reported twice and no second hand-back races the first.
+      let done: Promise<void> | undefined;
+      const tracked = { destroy: (): Promise<void> => (done ??= teardown()) };
+      trackSandbox(tracked);
+      destroy = tracked.destroy;
+    }
     return {
       url: `http://${name}:${PROXY_PORT}`,
       nonce,
       host: name,
       ...chatgptFields,
-      destroy: sidecar.destroy,
+      destroy,
     };
   } catch (cause) {
     // The sidecar runs the sandbox image (startSidecar's default), so a missing/stale build is the
@@ -170,6 +211,8 @@ export async function startProviderProxies(opts: {
   network?: string;
   image?: string;
   docker?: DockerRunner;
+  /** Passed to startLlmProxy (rotation hand-back); injectable for tests. */
+  env?: NodeJS.ProcessEnv;
 }): Promise<ProviderProxies> {
   const openaiKey = opts.proxySecrets.codex;
   const chatgptAuth = opts.proxySecrets.codexChatgpt;
@@ -182,6 +225,7 @@ export async function startProviderProxies(opts: {
   const extra = {
     ...(opts.image !== undefined ? { image: opts.image } : {}),
     ...(opts.docker !== undefined ? { docker: opts.docker } : {}),
+    ...(opts.env !== undefined ? { env: opts.env } : {}),
   };
   const destroys: Array<() => Promise<void>> = [];
   let openai: LlmProxyDep | undefined;
