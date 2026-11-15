@@ -10,6 +10,7 @@ const execFileP = promisify(execFile);
 
 const MAX_FILES = 200;
 const MAX_BYTES = 5 * 1024 * 1024;
+const TOO_BIG = `Refusing skill: more than ${MAX_FILES} files or ${MAX_BYTES} bytes.`;
 
 /** The upstream could not be reached or the commit not fetched: update keeps the pin. */
 export class SkillFetchError extends TaskcellError {}
@@ -17,12 +18,14 @@ export class SkillFetchError extends TaskcellError {}
 /**
  * Where a skill's upstream lives. Host-only: the real one shells out to git; tests stub it. `resolve`
  * maps a ref (default: the head of the default branch) to a full commit sha, undefined when the ref
- * does not exist, and throws a SkillFetchError when git itself fails; `fetch` checks that commit out
- * into a fresh directory the caller removes.
+ * does not exist, and throws a SkillFetchError when git itself fails; `fetch` checks out `path`
+ * (default: the whole repo) of that commit and returns the tree's root. The source owns the trees it
+ * fetched and may hand the same one out again for the same source and commit; `dispose` removes them.
  */
 export interface SkillSource {
   resolve(source: string, ref?: string): Promise<string | undefined>;
-  fetch(source: string, commit: string): Promise<string>;
+  fetch(source: string, commit: string, path?: string): Promise<string>;
+  dispose?(): Promise<void>;
 }
 
 /** A source must be https without credentials: they would be written to the lock and printed. */
@@ -46,62 +49,136 @@ export function assertRepoPath(path: string): string {
   return rel.length > 1 ? rel.replace(/[\\/]+$/, '') : rel;
 }
 
-const firstLine = (cause: unknown): string => (cause instanceof Error ? cause.message.split('\n')[0] ?? '' : String(cause));
+/** Why git failed: its stderr (the `fatal:` line), else the error's first line. Raw upstream text: sanitise where it is printed. */
+function gitFailure(cause: unknown): string {
+  const stderr = (cause as { stderr?: unknown } | null)?.stderr;
+  const text = typeof stderr === 'string' && stderr.trim() !== '' ? stderr : cause instanceof Error ? cause.message.split('\n')[0] ?? '' : String(cause);
+  const lines = text.split('\n').map((l) => l.trim()).filter((l) => l !== '');
+  return lines.slice(-3).join('; ').slice(0, 500);
+}
+
+/** `ls-remote` treats its ref arguments as glob patterns, so a ref from input must be a plain name. */
+const REF_RE = /^[A-Za-z0-9][A-Za-z0-9._/+@-]*$/;
 
 /**
- * Host git over one protocol (https; tests pass 'file' for a local repo). The allow-list is explicit
- * so a URL rewrite (`url.<base>.insteadOf`) or a redirect cannot reach ssh, ext or file transports.
+ * Variables that point git at another repository or inject config for one command. The fetch and
+ * checkout of an untrusted tree run without them; config files (user, system, or the ones
+ * GIT_CONFIG_GLOBAL / GIT_CONFIG_SYSTEM name) still apply, so that is where an operator's
+ * `url.<base>.insteadOf` rewrite or credential helper has to live.
+ */
+const SCRUBBED_ENV = /^GIT_(DIR|WORK_TREE|INDEX_FILE|OBJECT_DIRECTORY|ALTERNATE_OBJECT_DIRECTORIES|COMMON_DIR|NAMESPACE|CONFIG|CONFIG_COUNT|CONFIG_PARAMETERS|CONFIG_KEY_\d+|CONFIG_VALUE_\d+)$/;
+
+function untrustedTreeEnv(base: NodeJS.ProcessEnv = process.env): NodeJS.ProcessEnv {
+  return { ...Object.fromEntries(Object.entries(base).filter(([key]) => !SCRUBBED_ENV.test(key))), GIT_TERMINAL_PROMPT: '0', GIT_LFS_SKIP_SMUDGE: '1' };
+}
+
+/**
+ * Host git for an upstream nobody has reviewed yet. On top of hostGitArgs (no hooks, no fsmonitor):
+ * no symlink is ever created on the host (`core.symlinks=false`; fetch refuses a skill that contains
+ * one from the tree listing), the LFS filter is off, and the transports are an explicit allow-list:
+ * https, plus ssh so an operator's own `url.<ssh>.insteadOf` rewrite of an https source keeps working
+ * (the source itself must still be https; a redirect cannot change the transport). ext and file are
+ * never reachable. Tests pass 'file' for a local repo.
+ * shortcut: a smudge filter other than LFS that the operator defined globally still runs if the
+ * upstream's .gitattributes names it; read the blobs with cat-file instead of a checkout if that matters.
  */
 export function createGitSkillSource(protocol: 'https' | 'file' = 'https'): SkillSource {
+  const config = [
+    'core.symlinks=false',
+    'filter.lfs.smudge=',
+    'filter.lfs.process=',
+    'filter.lfs.required=false',
+    'protocol.allow=never',
+    `protocol.${protocol}.allow=always`,
+    ...(protocol === 'https' ? ['protocol.ssh.allow=always'] : []),
+  ];
   const git = async (args: string[], cwd?: string): Promise<string> =>
     (
-      await execFileP('git', hostGitArgs(['-c', 'protocol.allow=never', '-c', `protocol.${protocol}.allow=always`, ...args]), {
+      await execFileP('git', hostGitArgs([...config.flatMap((c) => ['-c', c]), ...args]), {
         ...(cwd !== undefined ? { cwd } : {}),
-        env: { ...process.env, GIT_TERMINAL_PROMPT: '0' },
+        env: untrustedTreeEnv(),
         timeout: 120_000,
+        maxBuffer: 64 * 1024 * 1024,
       })
     ).stdout;
   const check = (source: string): void => {
     if (protocol === 'https') assertHttpsSource(source);
   };
+  // One tree per source and commit for the life of a command: skills sharing them share the fetch.
+  const trees = new Map<string, { dir: string; patterns: string[] }>();
   return {
     async resolve(source, ref) {
       check(source);
       if (ref !== undefined && /^[0-9a-f]{40}$/.test(ref)) return ref;
+      if (ref !== undefined && (!REF_RE.test(ref) || ref.includes('..'))) throw new TaskcellError(`Invalid ref "${ref}": use a branch name, a tag name or a full commit sha.`);
       const names = ref === undefined ? ['HEAD'] : [`refs/tags/${ref}^{}`, `refs/tags/${ref}`, `refs/heads/${ref}`];
       let out: string;
       try {
-        out = await git(['ls-remote', source, ...names]);
+        out = await git(['ls-remote', '--', source, ...names]);
       } catch (cause) {
-        throw new SkillFetchError(`git ls-remote ${source} failed: ${firstLine(cause)}`);
+        throw new SkillFetchError(`git ls-remote ${source} failed: ${gitFailure(cause)}`);
       }
-      const lines = out.split('\n').filter((l) => l !== '');
+      // ls-remote matches by tail (`HEAD` also matches refs/remotes/origin/HEAD): only the exact names count.
+      const shas = new Map(out.split('\n').map((l): [string, string] => [l.slice(l.indexOf('\t') + 1), l.slice(0, l.indexOf('\t'))]));
       // An annotated tag's peeled commit (^{}) wins over the tag object; a tag over a same-named branch.
-      const pick = lines.find((l) => l.endsWith('^{}')) ?? lines.find((l) => l.includes('refs/tags/')) ?? lines[0];
-      const sha = pick?.split(/\s/)[0];
+      const sha = names.map((n) => shas.get(n)).find((s) => s !== undefined);
       return sha !== undefined && /^[0-9a-f]{40}$/.test(sha) ? sha : undefined;
     },
-    async fetch(source, commit) {
+    async fetch(source, commit, path = '.') {
       check(source);
-      const dir = await mkdtemp(join(tmpdir(), 'vg-skill-'));
+      const rel = assertRepoPath(path).split(sep).join('/');
+      const key = `${commit} ${source}`;
       try {
-        await git(['init', '-q'], dir);
-        await git(['fetch', '-q', '--depth', '1', source, commit], dir);
-        // Symlinks are checked out as symlinks (never followed) so readSkillFiles can refuse them.
-        await git(['checkout', '-q', '--detach', 'FETCH_HEAD'], dir);
-        return dir;
+        let tree = trees.get(key);
+        if (tree === undefined) {
+          const dir = await mkdtemp(join(tmpdir(), 'vg-skill-'));
+          try {
+            await git(['init', '-q'], dir);
+            await git(['remote', 'add', '--', 'origin', source], dir);
+            // Only the pinned commit and its trees: the blobs come with the checkout, for the sparse
+            // path alone. A server without filter support sends the commit's whole snapshot instead.
+            await git(['fetch', '-q', '--depth', '1', '--filter=blob:none', 'origin', commit], dir);
+          } catch (cause) {
+            await rm(dir, { recursive: true, force: true });
+            throw cause;
+          }
+          tree = { dir, patterns: [] };
+          trees.set(key, tree);
+        }
+        // Before any file content is transferred: the file limit, and no symlink in the skill. A path
+        // that is not a directory in this commit lists nothing; readSkillFiles reports it.
+        const listing = await git(['ls-tree', '-r', '-z', rel === '.' ? 'FETCH_HEAD' : `FETCH_HEAD:${rel}`], tree.dir).catch(() => '');
+        const entries = listing.split('\0').filter((e) => e !== '');
+        if (entries.length > MAX_FILES) throw new TaskcellError(TOO_BIG);
+        const link = entries.find((e) => e.startsWith('120000 '));
+        if (link !== undefined) throw new TaskcellError(`Refusing skill: ${link.slice(link.indexOf('\t') + 1)} is a symlink.`);
+        tree.patterns.push(rel === '.' ? '/*' : `/${rel.replace(/[\\*?[]/g, '\\$&')}/`);
+        await git(['sparse-checkout', 'set', '--no-cone', ...tree.patterns], tree.dir);
+        await git(['checkout', '-q', '--detach', 'FETCH_HEAD'], tree.dir);
+        return tree.dir;
       } catch (cause) {
-        await rm(dir, { recursive: true, force: true });
-        throw new SkillFetchError(`Could not fetch ${source} @ ${commit.slice(0, 7)}: ${firstLine(cause)}`);
+        if (cause instanceof TaskcellError) throw cause;
+        throw new SkillFetchError(`Could not fetch ${source} @ ${commit.slice(0, 7)}: ${gitFailure(cause)}`);
       }
+    },
+    async dispose() {
+      const dirs = [...trees.values()].map((t) => t.dir);
+      trees.clear();
+      for (const dir of dirs) await rm(dir, { recursive: true, force: true });
     },
   };
 }
 
 export const gitSkillSource: SkillSource = createGitSkillSource();
 
-/** Files of one skill: path relative to the skill directory (posix) -> bytes. */
-export type SkillFiles = Map<string, Buffer>;
+/** One file of a skill: its bytes and whether it is executable (the one mode bit git tracks). */
+export interface SkillFile {
+  data: Buffer;
+  exec: boolean;
+}
+
+/** Files of one skill: path relative to the skill directory (posix) -> file. */
+export type SkillFiles = Map<string, SkillFile>;
 
 /**
  * Read the skill at `path` inside a directory. Only that directory's regular files are taken; a
@@ -132,9 +209,10 @@ export async function readSkillFiles(tree: string, path: string): Promise<SkillF
       if (entry.isSymbolicLink()) throw new TaskcellError(`Refusing skill: ${name} is a symlink.`);
       if (entry.isDirectory()) await walk(full, `${name}/`);
       else if (entry.isFile()) {
-        bytes += (await lstat(full)).size;
-        if (files.size >= MAX_FILES || bytes > MAX_BYTES) throw new TaskcellError(`Refusing skill: more than ${MAX_FILES} files or ${MAX_BYTES} bytes.`);
-        files.set(name, await readFile(full));
+        const info = await lstat(full);
+        bytes += info.size;
+        if (files.size >= MAX_FILES || bytes > MAX_BYTES) throw new TaskcellError(TOO_BIG);
+        files.set(name, { data: await readFile(full), exec: (info.mode & 0o111) !== 0 });
       } else throw new TaskcellError(`Refusing skill: ${name} is not a regular file.`);
     }
   };
