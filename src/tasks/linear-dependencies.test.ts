@@ -73,6 +73,12 @@ describe('parsing', () => {
     expect(parseLinearBodyDependencies(line)).toEqual([{ repo: 'DEV', number: 1 }]);
     expect(Date.now() - started).toBeLessThan(1000);
   });
+  it('reads a very long all-letter token in linear time, bare and inside a URL', () => {
+    const letters = 'a'.repeat(200_000);
+    const started = Date.now();
+    expect(parseLinearBodyDependencies(`Depends on ${letters} https://linear.app/x/issue/${letters}`)).toEqual([]);
+    expect(Date.now() - started).toBeLessThan(1000);
+  });
 });
 
 describe('checkLinearDependencies', () => {
@@ -464,6 +470,9 @@ describe('gate state across polls', () => {
     await applyLinearDependencyGate([task('DEV-3')], { ...shared, now: new Date(now.getTime() + 11 * 60_000) });
     expect([...shared.logged.keys()]).toEqual(['DEV-3']);
     expect([...shared.reported.keys()]).toEqual(['DEV-3']);
+    // DEV-3 was listed, so it was neither logged nor commented-checked again after the gap.
+    expect(logs).toHaveLength(2);
+    expect(send.mock.calls.filter(([b]) => b.query.includes('comments(')).length).toBe(2);
   });
   it('comments and logs again when an invalid issue is moved to needs info and comes back unfixed', async () => {
     const comments = new Map<string, string>();

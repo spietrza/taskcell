@@ -21,8 +21,8 @@ const dedupe = (refs: TaskRef[]): TaskRef[] => {
 };
 const isoDay = (date: Date): string => date.toISOString().slice(0, 10);
 
-/** `DEV-12` (team key as `parseIdentifier` reads it, so `2FA-12` counts; an all-digit key such as `2024-11` is prose, not a reference) or a Linear issue URL (`https://linear.app/team/issue/DEV-12/slug`). The slug excludes `.,;` so it cannot overlap the trailing punctuation (no quadratic backtracking). */
-const REF_TOKEN = /^(?:([A-Za-z0-9]*[A-Za-z][A-Za-z0-9]*-\d+)|https:\/\/linear\.app\/[\w.-]+\/issue\/([A-Za-z0-9]*[A-Za-z][A-Za-z0-9]*-\d+)(?:\/[^\s/.,;]*)?\/?)[.,;]*$/i;
+/** `DEV-12` (team key as `parseIdentifier` reads it, so `2FA-12` counts; an all-digit key such as `2024-11` is prose, not a reference) or a Linear issue URL (`https://linear.app/team/issue/DEV-12/slug`). The slug excludes `.,;` so it cannot overlap the trailing punctuation, and the key's leading digits stop at its first letter (no quadratic backtracking). */
+const REF_TOKEN = /^(?:(\d*[A-Za-z][A-Za-z0-9]*-\d+)|https:\/\/linear\.app\/[\w.-]+\/issue\/(\d*[A-Za-z][A-Za-z0-9]*-\d+)(?:\/[^\s/.,;]*)?\/?)[.,;]*$/i;
 
 /**
  * `Depends on DEV-12` lines (lists separated by commas, spaces or "and"; also `- Depends on:` and
@@ -430,8 +430,10 @@ export async function applyLinearDependencyGate(tasks: Task[], opts: LinearDepen
   const lookups = opts.lookups ?? lookupCache;
   const now = opts.now ?? new Date();
   const at = now.getTime();
+  const listed = new Set(tasks.map((task) => task.id));
   for (const [id, entry] of logged) {
-    if (at - entry.seenAt <= FORGET_AFTER_MS) continue;
+    // An issue in this list is never forgotten: a long tick or --interval must not reset its dedupe or failure count.
+    if (listed.has(id) || at - entry.seenAt <= FORGET_AFTER_MS) continue;
     logged.delete(id);
     reported.delete(id);
   }
