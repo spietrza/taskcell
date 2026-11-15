@@ -1,4 +1,4 @@
-import { failureReason } from '../core/errors.js';
+import { failureReason, NoRetryError } from '../core/errors.js';
 import { hasLabel, NEEDS_REVISION_LABEL } from '../core/labels.js';
 import { linkedIssueNumber } from '../runners/linked-issue.js';
 import { checkDependencies, directDependencies, refText } from '../tasks/dependencies.js';
@@ -20,11 +20,11 @@ interface IssueView {
 }
 
 /** `gh` limited to issues of `repo` and the policy's `dependencyRepos`: a slug from an issue body or a relation never points a read anywhere else. */
-function scopedGh(gh: GhRunner, repo: string, policy: Pick<ApproverPolicy, 'dependencyRepos'>): GhRunner {
+export function scopedGh(gh: GhRunner, repo: string, policy: Pick<ApproverPolicy, 'dependencyRepos'>): GhRunner {
   const allowed = [repo, ...(policy.dependencyRepos ?? [])].map((r) => r.toLowerCase());
   return async (args) => {
     const slug = /^repos\/([^/]+\/[^/]+)\//.exec(args[1] ?? '')?.[1];
-    if (args[0] !== 'api' || slug === undefined || !allowed.includes(slug.toLowerCase())) throw new Error(`${slug ?? 'this call'} is outside the repos the approver reads dependencies from (HTTP 403)`);
+    if (args[0] !== 'api' || slug === undefined || !allowed.includes(slug.toLowerCase())) throw new NoRetryError(`${slug ?? 'this call'} is outside the repos the approver reads dependencies from`);
     return gh(args);
   };
 }
@@ -60,6 +60,10 @@ export async function dependencyHolds(repo: string, pr: { headRefName: string },
     return { reasons: [`its task #${number} could not be read to check its dependencies: ${failureReason(error)}`], code: 'dependency-read-failed' };
   }
 }
+
+const REVISING_LABEL = 'taskcell:revising';
+/** A revise round is running: `revising` (either spelling), which the run sets only after its image build. */
+const inFlight = (labels: readonly string[]): boolean => hasLabel(labels.map((l) => l.toLowerCase()), REVISING_LABEL);
 
 interface OpenPr {
   number: number;
@@ -129,7 +133,7 @@ export async function rebaseDependents(input: RebaseDependentsInput): Promise<Re
       const excluded = [
         ...(pr.state !== 'OPEN' ? [`the PR is ${pr.state}`] : []),
         ...(pr.baseRefName !== input.merged.baseRefName ? ['another base branch'] : []),
-        ...((pr.labels ?? []).some((l) => ['taskcell:revising', 'vanguard:revising'].includes(l.toLowerCase())) ? ['a revise round is in flight'] : []),
+        ...(inFlight(pr.labels ?? []) ? ['a revise round is in flight'] : []),
         ...(facts.isFactoryPr ? [] : ['not a same-repo factory branch']),
         ...(diff.gitFactsFailed || diff.headMoved ? ['its diff could not be read'] : []),
         ...hardExclusions(facts, policy, reviews, { mergeState: false }),
@@ -138,12 +142,19 @@ export async function rebaseDependents(input: RebaseDependentsInput): Promise<Re
         done('skipped', excluded.join('; '));
         continue;
       }
+      // The labels were read before the diff fetch: read them again right before a write, so a round that started meanwhile is left alone.
+      const roundStarted = async (): Promise<boolean> => inFlight((await input.readPr(candidate.pr)).labels ?? []);
       const revise = async (): Promise<void> => {
         // Once per head: the marker dedupes the comment, and a label already applied for this head is left alone.
+        const fresh = (await input.readPr(candidate.pr)).labels ?? [];
+        if (inFlight(fresh)) {
+          done('skipped', 'a revise round is in flight');
+          return;
+        }
         const marker = `<!-- taskcell-approver-act: ${pr.headSha}:revise:dependent-conflict -->`;
         const why = `this PR conflicts with the base after its dependency #${merged} merged`;
         const posted = await commentOnce(gh, repo, candidate.pr, marker, `## Taskcell Approver (act mode)\n\nSending this PR to a revise round: ${escapeForComment(why)}.\n\n${marker}`, policy.approverLogins);
-        const labelled = hasLabel(pr.labels ?? [], NEEDS_REVISION_LABEL);
+        const labelled = hasLabel(fresh, NEEDS_REVISION_LABEL);
         if (posted || !labelled) {
           // Re-applied, not left: only a new `labeled` event can start a revise round for this head.
           if (labelled) await gh(['pr', 'edit', String(candidate.pr), '--repo', repo, '--remove-label', NEEDS_REVISION_LABEL]);
@@ -155,6 +166,10 @@ export async function rebaseDependents(input: RebaseDependentsInput): Promise<Re
         await revise();
       } else if (pr.mergeStateStatus === 'BEHIND' || (diff.mergeBase !== '' && diff.baseSha !== '' && diff.mergeBase !== diff.baseSha)) {
         // Without strict branch protection a stale PR reads CLEAN, so the merge-base is compared with the base tip too.
+        if (await roundStarted()) {
+          done('skipped', 'a revise round is in flight');
+          continue;
+        }
         try {
           await gh(['pr', 'update-branch', String(candidate.pr), '--repo', repo]);
           done('updated', `dependency #${merged} merged; merged the base into the head`);

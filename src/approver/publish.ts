@@ -141,14 +141,24 @@ interface GhComment {
   body?: string;
   author?: { login?: string } | null;
   authorAssociation?: string;
+  viewerDidAuthor?: boolean;
 }
 
-/** Post `body` unless a trusted author (or one of `botLogins`, the approver's own App login) already posted `marker` (anyone can post the marker text to suppress a comment, so an untrusted one does not dedupe). True when it posted. */
+const bareLogin = (login: string): string => login.toLowerCase().replace(/^app\//, '').replace(/\[bot\]$/, '');
+
+/**
+ * Post `body` unless a trusted author already posted `marker`. The approver's own comments count as trusted when gh says the
+ * token's identity wrote them (`viewerDidAuthor`, no config), or when the author's login is in `botLogins` (case-insensitive;
+ * `app/x`, `x[bot]` and `x` are one entry). gh reports only the login for a comment author, so a listed login cannot tell the App
+ * from a user account of the same name: hold that user login too (see docs/approver-policy.md). Anyone can post the marker text to suppress a comment, so an untrusted author does not dedupe. True when it posted.
+ */
 export async function commentOnce(gh: GhRunner, repoSlug: string, prNumber: number, marker: string, body: string, botLogins: readonly string[] = []): Promise<boolean> {
   try {
     const out = await gh(['pr', 'view', String(prNumber), '--repo', repoSlug, '--json', 'comments']);
     const parsed = JSON.parse(out) as { comments?: GhComment[] };
-    const trusted = (c: GhComment): boolean => classifyAuthor(c.author?.login ?? '', c.authorAssociation ?? '', { botLogins }) !== 'untrusted';
+    const apps = botLogins.map(bareLogin);
+    const ownApp = (c: GhComment): boolean => c.viewerDidAuthor === true || apps.includes(bareLogin(c.author?.login ?? ''));
+    const trusted = (c: GhComment): boolean => ownApp(c) || classifyAuthor(c.author?.login ?? '', c.authorAssociation ?? '') !== 'untrusted';
     if ((parsed.comments ?? []).some((c) => (c.body?.includes(marker) === true || c.body?.includes(marker.replace('taskcell-', 'vanguard-')) === true) && trusted(c))) return false;
   } catch {
     // best-effort dedupe lookup; fall through and post
@@ -164,8 +174,9 @@ export async function commentDecision(
   prNumber: number,
   decision: Decision,
   record: DecisionRecord,
+  approverLogins: readonly string[] = [],
 ): Promise<void> {
-  await commentOnce(shadowSafeGhRunner(gh), repoSlug, prNumber, `<!-- taskcell-approver: ${record.headSha ?? 'none'} -->`, commentBody(decision, record));
+  await commentOnce(shadowSafeGhRunner(gh), repoSlug, prNumber, `<!-- taskcell-approver: ${record.headSha ?? 'none'} -->`, commentBody(decision, record), approverLogins);
 }
 
 export { defaultGhRunner };

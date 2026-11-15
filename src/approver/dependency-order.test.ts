@@ -1,5 +1,7 @@
 import { describe, it, expect, vi } from 'vitest';
-import { dependencyHolds, rebaseDependents, MAX_DEPENDENTS } from './dependency-order.js';
+import { NoRetryError } from '../core/errors.js';
+import { checkDependencies } from '../tasks/dependencies.js';
+import { dependencyHolds, rebaseDependents, scopedGh, MAX_DEPENDENTS } from './dependency-order.js';
 import { actSafeGhRunner, assertActSafeGhArgs } from './act.js';
 import { assertShadowSafeGhArgs } from './publish.js';
 import { emptyDiffFacts } from './diff-facts.js';
@@ -26,6 +28,8 @@ interface Fake {
   /** Trusted comments already on a PR. */
   comments?: Record<number, string[]>;
   fail?: (args: string[]) => boolean;
+  /** Who the trusted comments come back from (default: a repo owner). */
+  commentAuthor?: { login: string; association: string };
 }
 
 /** A gh double behind act mode's allow-list: issue reads, empty blocked-by lists, the open PR list, comments; every call is recorded. */
@@ -34,7 +38,7 @@ const fakeGh = (calls: string[][], f: Fake): GhRunner =>
     calls.push(args);
     if (f.fail?.(args) === true) throw new Error('gh: boom (HTTP 403)');
     if (args[0] === 'pr' && args[1] === 'list') return JSON.stringify(f.prs ?? []);
-    if (args[0] === 'pr' && args[1] === 'view') return JSON.stringify({ comments: (f.comments?.[Number(args[2])] ?? []).map((body) => ({ body, author: { login: 'o' }, authorAssociation: 'OWNER' })) });
+    if (args[0] === 'pr' && args[1] === 'view') return JSON.stringify({ comments: (f.comments?.[Number(args[2])] ?? []).map((body) => ({ body, author: { login: f.commentAuthor?.login ?? 'o' }, authorAssociation: f.commentAuthor?.association ?? 'OWNER' })) });
     if (args[0] === 'pr') return '';
     const m = /^repos\/o\/r\/issues\/(\d+)(\/dependencies\/blocked_by)?$/.exec(args[1] ?? '');
     if (args[0] === 'api' && m !== null) return m[2] !== undefined ? '[]' : (f.issues[Number(m[1])] ?? issue(''));
@@ -66,6 +70,19 @@ describe('dependencyHolds', () => {
     const hold = await dependencyHolds(R, { headRefName: HEAD }, fakeGh([], { issues: { 7: issue('plain') }, fail: (a) => (a[1] ?? '').endsWith('blocked_by') }));
     expect(hold.code).toBe('dependency-check-failed');
     expect(hold.reasons).toHaveLength(1);
+  });
+
+  it('an out-of-scope read is a typed no-retry error with no HTTP status, and is not retried', async () => {
+    const hold = await dependencyHolds(R, { headRefName: HEAD }, fakeGh([], { issues: { 7: issue('Depends on evil/other#3') } }));
+    expect(hold.reasons.join()).not.toMatch(/HTTP \d{3}/);
+    await expect(scopedGh(async () => '', R, {})(['api', 'repos/evil/other/issues/3'])).rejects.toBeInstanceOf(NoRetryError);
+    let attempts = 0;
+    const gh: GhRunner = async () => {
+      attempts += 1;
+      throw new NoRetryError('refused');
+    };
+    await checkDependencies(R, { id: 'o/r#7', title: '', description: 'Depends on #3', labels: [], children: [], comments: [], ref: '7' }, gh);
+    expect(attempts).toBe(1);
   });
 
   it('never reads a repo named in the issue body unless the policy lists it', async () => {
@@ -161,6 +178,7 @@ describe('rebaseDependents', () => {
     ['the hold label', { labels: ['taskcell:hold'] }, {}],
     ['a draft', { isDraft: true }, {}],
     ['a revise round in flight', { labels: ['taskcell:revising'] }, {}],
+    ['a revise round in flight (legacy label)', { labels: ['vanguard:revising'] }, {}],
     ['a head in another repo', { headRepo: 'fork/r' }, {}],
     ['another base branch', { baseRefName: 'release' }, {}],
     ['a requested change', { reviews: [{ author: 'human', body: '', submittedAt: '1', state: 'CHANGES_REQUESTED' }] }, {}],
@@ -172,6 +190,33 @@ describe('rebaseDependents', () => {
     const out = await run(calls, { issues, prs: [open(20, 8)] }, { 20: facts(20, 8, { mergeStateStatus: 'DIRTY', ...over }) });
     expect(out.map((d) => d.action)).toEqual(['skipped']);
     expect(writes(calls)).toEqual([]);
+  });
+
+  it('a lingering needs revision label does not stop update-branch on a behind dependent', async () => {
+    diff(21, { mergeTreeHeadClean: false });
+    diff(20, { mergeBase: 'b0' });
+    diff(22, { mergeBase: 'b0' });
+    const calls: string[][] = [];
+    const out = await run(calls, { issues, prs: [open(21, 9), open(20, 8), open(22, 11)] }, {
+      21: [facts(21, 9, { mergeStateStatus: 'DIRTY' }), facts(21, 9, { labels: ['vanguard:revising'] })],
+      20: [facts(20, 8), facts(20, 8, { labels: ['needs revision'] })],
+      22: [facts(22, 11), facts(22, 11, { labels: ['Taskcell:Revising'] })],
+    });
+    expect(out.map((d) => [d.pr, d.action])).toEqual([[21, 'skipped'], [20, 'updated'], [22, 'skipped']]);
+    expect(writes(calls)).toEqual(['update-branch 20']);
+  });
+
+  it('dedupes the revise comment under an App identity named in the policy approverLogins', async () => {
+    diff(21, { mergeTreeHeadClean: false });
+    const marker = '<!-- taskcell-approver-act: head21:revise:dependent-conflict -->';
+    const f: Fake = { issues, prs: [open(21, 9)], comments: { 21: [marker] }, commentAuthor: { login: 'my-app', association: 'NONE' } };
+    const labelled = facts(21, 9, { labels: ['needs revision'] });
+    const without: string[][] = [];
+    await run(without, f, { 21: labelled });
+    expect(writes(without)).toContain('comment 21 --body');
+    const withLogins: string[][] = [];
+    await run(withLogins, f, { 21: labelled }, { ...POLICY, approverLogins: ['My-App'] });
+    expect(writes(withLogins)).toEqual([]);
   });
 
   it('does nothing when the policy has act off or is disabled', async () => {
