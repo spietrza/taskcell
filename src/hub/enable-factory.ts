@@ -1,12 +1,12 @@
 // Enable factory (#hub): turn on the Taskcell factory on the platform the user picks, from the
-// hub's "Add project" -> "Enable factory" action. GitHub Actions only for now (the ticket's scope);
-// GitLab and Linear plug into the same `FactoryProvider` seam later (see docs/hub.md).
+// hub's "Add project" -> "Enable factory" action. This file is the GitHub Actions adapter; GitLab CI
+// is in enable-factory-gitlab.ts and Linear is planned. Both implement `FactoryProvider`.
 //
-// Three steps, matching docs/onboarding-another-repo.md: plan (read the repo, show what will
-// change), apply (branch + the five callers from templates/github/ + a PR + the routing labels —
-// NEVER a push to the default branch), secret (print the `gh secret set` command text — the hub
-// never reads, prints or stores a secret value), verify (dispatch the doctor workflow once the PR
-// is merged, report the run that dispatch created).
+// Steps, matching docs/onboarding-another-repo.md: plan (read the repo, show what will change),
+// apply (branch + the five callers from templates/github/ + a PR + the routing labels — NEVER a push
+// to the default branch), secret (print the `gh secret set` command text — the hub never reads,
+// prints or stores a secret value), verify (dispatch the doctor workflow once the PR is merged,
+// report the run that dispatch created).
 import { execa } from 'execa';
 import { mkdir, readFile, writeFile } from 'node:fs/promises';
 import { basename, join } from 'node:path';
@@ -46,7 +46,7 @@ const LOGIN_PLACEHOLDER = 'YOUR_LOGIN';
 
 /** Injectable shell-out, defaulting to the real `execa` — tests pass a fake (no network, no git). */
 export interface FactoryExec {
-  (file: string, args: string[], options?: { cwd?: string; timeout?: number }): Promise<{ stdout: string; stderr: string }>;
+  (file: string, args: string[], options?: { cwd?: string; timeout?: number; env?: NodeJS.ProcessEnv }): Promise<{ stdout: string; stderr: string }>;
 }
 
 export const defaultExec: FactoryExec = (file, args, options) => execa(file, args, options);
@@ -57,7 +57,7 @@ export interface GithubFactoryDeps {
   sleep?: (ms: number) => Promise<void>;
 }
 
-/** The provider-adapter seam: GitLab and Linear (UI "coming soon") implement this later. */
+/** The provider-adapter seam: GitHub Actions and GitLab CI (enable-factory-gitlab.ts) implement it; Linear is planned. */
 export interface FactoryProvider {
   plan(): Promise<FactoryPlan>;
   apply(plan: FactoryPlan): Promise<FactoryApplyResult>;
@@ -112,7 +112,7 @@ function strField(obj: unknown, path: string[]): string {
 }
 
 /** Read the target repo's package.json scripts — plan-only, no exec: a plain file read. */
-async function detectScripts(repoPath: string): Promise<{ packageManager: string; scripts: FactoryPlan['scripts'] }> {
+export async function detectScripts(repoPath: string): Promise<{ packageManager: string; scripts: FactoryPlan['scripts'] }> {
   let raw: string | undefined;
   try {
     raw = await readFile(join(repoPath, 'package.json'), 'utf8');
@@ -310,8 +310,10 @@ export function githubSecretCommand(plan: FactoryPlan): FactorySecretStep {
   };
 }
 
-const VERIFY_POLLS = 5;
-const VERIFY_POLL_MS = 2000;
+export const VERIFY_POLLS = 5;
+export const VERIFY_POLL_MS = 2000;
+/** Clock skew allowance when matching a dispatched doctor run by creation time. */
+export const DISPATCH_SKEW_MS = 60_000;
 
 /** Dispatch the doctor workflow and report the run that dispatch created (called once the PR above
  * is merged). A run listed before the dispatch is never reported; if the new run has not appeared
@@ -336,8 +338,7 @@ export async function verifyGithubFactory(repoPath: string, plan: FactoryPlan, d
   return { dispatched: true };
 }
 
-/** Build a `FactoryProvider` for GitHub Actions, bound to one repo. GitLab/Linear are "coming
- * soon" in the UI — no provider object for them exists yet (see docs/task-sources.md, docs/onboarding-linear.md). */
+/** Build a `FactoryProvider` for GitHub Actions, bound to one repo (GitLab CI: enable-factory-gitlab.ts; Linear has none yet). */
 export function githubFactoryProvider(repoPath: string, deps: GithubFactoryDeps = {}): FactoryProvider {
   return {
     plan: () => planGithubFactory(repoPath, deps),

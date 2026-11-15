@@ -1,6 +1,6 @@
 // The Enable factory checklist (#hub): callers PR opened -> secret set -> PR merged -> doctor passed.
 // `deriveFactoryState` is the pure state machine over a persisted `FactoryRecord`; `refreshFactory`
-// re-checks the outstanding steps against GitHub (secret by NAME only — the hub never reads a secret
+// re-checks the outstanding steps against GitHub or GitLab (secret by NAME only — the hub never reads a secret
 // value; PR state; doctor run status) and persists the result, so progress survives the dialog and a
 // hub restart. The record lives in the hub's config dir, not in the repo: it never dirties the user's
 // working tree and no committed file can feed it.
@@ -9,7 +9,8 @@ import { mkdir, readFile, rename, writeFile } from 'node:fs/promises';
 import { join, resolve } from 'node:path';
 import { keyedLock } from '../core/keyed-lock.js';
 import { defaultHubConfigDir } from './audit.js';
-import { defaultExec, GITHUB_REPO_SLUG, githubSecretCommand, type FactoryExec } from './enable-factory.js';
+import { defaultExec, DISPATCH_SKEW_MS, GITHUB_REPO_SLUG, githubSecretCommand, type FactoryExec } from './enable-factory.js';
+import { GITLAB_HOSTNAME, GITLAB_MR_URL, GITLAB_PIPELINE_URL, GITLAB_PROJECT_PATH, gitlabFound, gitlabSecretCommand } from './enable-factory-gitlab.js';
 import { listRemoteRuns } from './remote.js';
 import type { FactoryPlan, FactoryState, FactoryStep, FactoryStepId } from '../wire.js';
 
@@ -52,7 +53,7 @@ export function deriveFactoryState(rec: FactoryRecord | null): FactoryState {
   const doctorPassed = doctorDone && rec.doctor?.conclusion === 'success';
   const failed: { id: FactoryStepId; reason: string } | undefined =
     rec.prClosed === true && !rec.merged
-      ? { id: 'merged', reason: 'the callers PR was closed without merging' }
+      ? { id: 'merged', reason: `the callers ${rec.plan.provider === 'gitlab' ? 'MR' : 'PR'} was closed without merging` }
       : doctorDone && !doctorPassed
         ? { id: 'doctor', reason: `the doctor run ${rec.doctor?.conclusion || 'did not pass'}` }
         : undefined;
@@ -72,7 +73,7 @@ export function deriveFactoryState(rec: FactoryRecord | null): FactoryState {
     steps,
     plan: rec.plan,
     ...(rec.prUrl !== undefined ? { prUrl: rec.prUrl } : {}),
-    secret: githubSecretCommand(rec.plan),
+    secret: rec.plan.provider === 'gitlab' ? gitlabSecretCommand(rec.plan) : githubSecretCommand(rec.plan),
     ...(rec.doctor !== undefined ? { doctor: rec.doctor } : {}),
     ...(rec.doctorDispatchedAt !== undefined && rec.doctor === undefined ? { doctorPending: true } : {}),
   };
@@ -92,12 +93,15 @@ function validRecord(raw: unknown): raw is FactoryRecord {
   const r = raw as Partial<FactoryRecord> | null;
   if (typeof r !== 'object' || r === null || typeof r.plan !== 'object' || r.plan === null) return false;
   const p = r.plan;
-  if (typeof p.repoSlug !== 'string' || !GITHUB_REPO_SLUG.test(p.repoSlug)) return false;
+  const gitlab = p.provider === 'gitlab';
+  if (typeof p.repoSlug !== 'string' || !(gitlab ? GITLAB_PROJECT_PATH : GITHUB_REPO_SLUG).test(p.repoSlug)) return false;
+  if (gitlab && (typeof p.gitlabHost !== 'string' || !GITLAB_HOSTNAME.test(p.gitlabHost))) return false;
+  if (gitlab && (typeof p.gitlabProjectId !== 'number' || !Number.isSafeInteger(p.gitlabProjectId) || p.gitlabProjectId <= 0)) return false;
   if (typeof r.secretSet !== 'boolean' || typeof r.merged !== 'boolean') return false;
-  if (r.prUrl !== undefined && !(typeof r.prUrl === 'string' && PR_URL.test(r.prUrl))) return false;
+  if (r.prUrl !== undefined && !(typeof r.prUrl === 'string' && (gitlab ? GITLAB_MR_URL : PR_URL).test(r.prUrl))) return false;
   if (r.doctor !== undefined) {
     const d = r.doctor;
-    if (typeof d !== 'object' || d === null || typeof d.url !== 'string' || !RUN_URL.test(d.url) || typeof d.status !== 'string' || typeof d.conclusion !== 'string') return false;
+    if (typeof d !== 'object' || d === null || typeof d.url !== 'string' || !(gitlab ? GITLAB_PIPELINE_URL : RUN_URL).test(d.url) || typeof d.status !== 'string' || typeof d.conclusion !== 'string') return false;
   }
   return true;
 }
@@ -131,7 +135,10 @@ export function writeFactoryRecord(repoPath: string, rec: FactoryRecord): Promis
 /** Read-modify-write one project's record (creating it from `plan` when absent). */
 export function updateFactoryRecord(repoPath: string, plan: FactoryPlan, change: (r: FactoryRecord) => FactoryRecord): Promise<FactoryRecord> {
   return withLock(repoPath, async () => {
-    const next = change((await readFactoryRecord(repoPath)) ?? newFactoryRecord(plan));
+    const current = await readFactoryRecord(repoPath);
+    // A provider switch starts a new checklist: the old facts would put a GitLab pipeline URL under a
+    // GitHub plan (or vice versa), a record `validRecord` rejects on the next read.
+    const next = change(current !== null && current.plan.provider === plan.provider ? current : newFactoryRecord(plan));
     await writeFactoryRecordFile(repoPath, next);
     return next;
   });
@@ -141,16 +148,8 @@ export async function factoryState(repoPath: string): Promise<FactoryState> {
   return deriveFactoryState(await readFactoryRecord(repoPath));
 }
 
-/** Clock skew allowance when matching a dispatched doctor run by creation time. */
-const DISPATCH_SKEW_MS = 60_000;
-
-/** Re-check what is outstanding, persist, and return the new state. A check that fails (offline,
- * `gh` signed out) leaves its step as it was: the checklist never goes backwards on a network error. */
-export async function refreshFactory(repoPath: string, deps: { exec?: FactoryExec } = {}): Promise<FactoryState> {
-  const exec = deps.exec ?? defaultExec;
-  const rec = await readFactoryRecord(repoPath);
-  if (rec === null) return deriveFactoryState(null);
-  // Only the facts learned here are applied, onto a fresh read, so a concurrent update is not lost.
+/** The facts a GitHub record's refresh learns: the secret by name, the PR state, the doctor run. */
+async function githubFound(repoPath: string, rec: FactoryRecord, exec: FactoryExec): Promise<Partial<FactoryRecord>> {
   const found: Partial<FactoryRecord> = {};
 
   if (!rec.secretSet) {
@@ -194,6 +193,17 @@ export async function refreshFactory(repoPath: string, deps: { exec?: FactoryExe
       if (run !== undefined) found.doctor = { url: run.url, status: run.status, conclusion: run.conclusion };
     } catch { /* keep as is */ }
   }
+  return found;
+}
+
+/** Re-check what is outstanding, persist, and return the new state. A check that fails (offline,
+ * `gh` signed out) leaves its step as it was: the checklist never goes backwards on a network error. */
+export async function refreshFactory(repoPath: string, deps: { exec?: FactoryExec } = {}): Promise<FactoryState> {
+  const exec = deps.exec ?? defaultExec;
+  const rec = await readFactoryRecord(repoPath);
+  if (rec === null) return deriveFactoryState(null);
+  // Only the facts learned here are applied, onto a fresh read, so a concurrent update is not lost.
+  const found = rec.plan.provider === 'gitlab' ? await gitlabFound(repoPath, rec, exec) : await githubFound(repoPath, rec, exec);
 
   const next = await updateFactoryRecord(repoPath, rec.plan, (fresh) => {
     const merged = fresh.merged || found.merged === true;

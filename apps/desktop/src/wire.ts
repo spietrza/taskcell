@@ -68,8 +68,17 @@ export interface CreateRunParams {
   transport?: string;
   maxTurns?: number;
   baseBranch?: string;
+  /**
+   * The run's whole hand-picked skill list (installed ids, loaded on top of the automatic selection). When
+   * present it replaces the issue body's `Skills:` line, which the form preselects, so a skill unticked
+   * there is not loaded. An unknown id fails the run before any model call.
+   */
+  skills?: string[];
   /** Hub only: who started the run. Set server-side from the request's actor, never from the client. */
   startedBy?: string;
+  /** Hub only: the stored hub-board task a `hub` transport run implements. Set by the hub's scheduler; a client
+   * cannot reach it, because `hub` is not one of `TRANSPORTS` and the protocol validator refuses it. */
+  hubTask?: { id: string; title: string; body: string };
 }
 
 /** Hub-only, server-set (never part of the client's params): the credential a run uses. `env` holds
@@ -83,6 +92,10 @@ export interface RunCredential {
 export interface CreateRunResult {
   prUrl?: string;
   secretBlocked?: boolean;
+  /** A hub-board task in a repository with no GitHub origin: the local branch that holds the result (no PR). */
+  branch?: string;
+  /** The run stopped before implementing because the base branch's verify command already fails. */
+  baseRed?: boolean;
 }
 
 /** Per-stage routing/budget overrides expressible in HCL (snake_case keys map to these camelCase fields). */
@@ -271,10 +284,34 @@ export interface BoardTask {
   chips?: BoardChip[];
   /** The branch this card's PR targets: its `taskcell:base=` label, else the repo default. Absent when neither is set (`main`). */
   baseBranch?: string;
+  /** Skills the task names by hand (its `Skills:` line). Absent when none. */
+  skills?: string[];
   /** The tracker the card came from; names the "Open in …" link. */
   source?: 'github' | 'gitlab' | 'linear';
   /** The issue's address in that tracker, as the tracker returned it. Absent ⇒ no link. */
   url?: string;
+  /** Tasks this one waits for: the hub board's field, or what a GitHub issue's body names (`Depends on #n`). */
+  blockedBy?: string[];
+  /** Start date as stored (`YYYY-MM-DD` or an ISO instant). Absent ⇒ none. */
+  startDate?: string;
+  /** Hub-board tasks: what the scheduler does with the card, with its reason. */
+  schedule?: TaskSchedule;
+  /** The hub's time zone, for dates shown on the card. */
+  timeZone?: string;
+}
+
+/** The scheduler's answer for one hub-board task; `label` is pre-rendered ("waits until Tue 18.11 (Europe/Berlin)"). */
+export interface TaskSchedule {
+  /** `queued`: handed to the run session, waiting behind another run. `refused`: its last start was refused; retried every tick. */
+  state: 'running' | 'queued' | 'done' | 'failed' | 'ready' | 'refused' | 'blocked' | 'waits-date' | 'waits-slot' | 'invalid';
+  label: string;
+  /** `invalid`: a missing reference, a cycle or a bad date. `failed` / `refused`: why. */
+  reason?: string;
+  /** `done`: the pull request URL, or `branch <name>` for a repository with no GitHub origin. */
+  result?: string;
+  blockedBy?: string[];
+  /** `waits-date`: the instant the task may start (ISO). */
+  until?: string;
 }
 
 /** The reviewer's persisted verdict: `changes` ⇔ the merge gate would request changes. */
@@ -350,6 +387,14 @@ export interface RunRecord {
   attempts?: number;
   /** Ids of the lessons injected into this run's prompts (`taskcell lessons list` counts them). */
   lessonIds?: string[];
+  /** Which kind of credential funded the run (hub per-user credentials); never the value. Absent on CLI/CI runs. */
+  credentialSource?: 'instance' | 'user';
+  /**
+   * `named`: the skills named by hand that the run loaded. `available`: the other installed skills the
+   * agent could pick from (not what it used). `notes`: an ignored `Skills:` line, or a provider that
+   * reads no skills. Absent on older records.
+   */
+  skills?: { named: string[]; available: string[]; notes?: string[] };
 }
 
 export interface Proof {
@@ -577,6 +622,8 @@ export type AuditAction =
   | 'needs-reply'
   | 'needs-merge'
   | 'task-create'
+  | 'task-edit'
+  | 'task-schedule'
   | 'enable-factory'
   | 'approver-mode';
 export type AuditOutcome = 'ok' | 'refused' | 'failed';
@@ -821,29 +868,41 @@ export interface SpawnInfo {
   command: string;
 }
 
-/** Enable-factory provider seam (hub § "Enable factory"): GitHub Actions is implemented; GitLab and
- * Linear are "planned" in the UI and never reach `enable_factory_*` (see docs/task-sources.md,
+/** Enable-factory provider seam (hub § "Enable factory"): GitHub Actions and GitLab CI are
+ * implemented; Linear is "planned" in the UI and never reaches `enable_factory_*` (see
  * docs/onboarding-linear.md). */
 export type FactoryProviderId = 'github' | 'gitlab' | 'linear';
 
 /** What `enable_factory_plan` detected and what `enable_factory_apply` will do with it. */
 export interface FactoryPlan {
-  provider: 'github';
+  provider: 'github' | 'gitlab';
+  /** `owner/repo` (GitHub) or the `group/subgroup/project` path (GitLab). */
   repoSlug: string;
   defaultBranch: string;
   login: string;
   packageManager: string;
   verifyCommand?: string;
   scripts: { typecheck: boolean; lint: boolean; test: boolean; build: boolean };
-  /** Repo-relative paths `apply` will add, e.g. `.github/workflows/taskcell-implement.yml`. */
+  /** Repo-relative paths `apply` will add or edit, e.g. `.github/workflows/taskcell-implement.yml` (GitLab: `.gitlab-ci.yml`, `.gitlab/taskcell.yml`). */
   callerFiles: string[];
   /** The callers already on the default branch, under the `taskcell-` or legacy `vanguard-` name — `apply` leaves those untouched. */
   existingCallerFiles?: string[];
+  /** GitLab host selected from `origin`; passed to glab so a self-hosted project cannot fall back to another configured host. */
+  gitlabHost?: string;
+  /** Numeric GitLab project id; open-MR reuse requires the source project to match it, excluding fork MRs. */
+  gitlabProjectId?: number;
+  /** GitLab's configured CI entry point. The hub only edits the default `.gitlab-ci.yml`. */
+  gitlabCiPath?: string;
+  /** The CI entry point cannot be edited safely; the user must add the displayed local include. */
+  gitlabManualInclude?: boolean;
+  /** Top-level GitLab jobs without `rules:`; starting the doctor requires an explicit UI confirmation when non-empty. */
+  gitlabUnruledJobs?: string[];
   labels: string[];
 }
 
 export interface FactoryApplyResult {
   branch: string;
+  /** The pull request (GitLab: merge request) URL. */
   prUrl: string;
   labelsCreated: string[];
 }
@@ -858,6 +917,9 @@ export interface FactoryVerifyResult {
   dispatched: boolean;
   run?: { url: string; status: string; conclusion: string };
 }
+
+/** Which code host a project's `origin` is on, for the Enable factory dialog's run-location choice. */
+export type FactoryHost = 'github' | 'gitlab' | 'other' | 'none';
 
 /** The four steps of the in-app Enable factory checklist, in order. */
 export type FactoryStepId = 'pr' | 'secret' | 'merged' | 'doctor';
@@ -932,24 +994,12 @@ export interface SetupToolStatus {
 export interface SetupStatus {
   tools: SetupToolStatus[];
   /** Whether a model credential is already present for each provider (a boolean, not the value).
-   * A credential a hub run can use: for Codex `CODEX_AUTH_JSON`, `CODEX_API_KEY` or `OPENAI_API_KEY`, or one saved in Settings. */
+   * A credential a hub run can use: for Codex `CODEX_AUTH_JSON`, `CODEX_API_KEY` or `OPENAI_API_KEY`, or one saved in Settings → Credentials. */
   models: { claude: boolean; codex: boolean };
   /** `codex login` left its auth file on the hub's machine. A run does not read it: it becomes usable as `CODEX_AUTH_JSON`. */
   codexSignInFile?: boolean;
-}
-
-/** Instance provider credentials (hub only, write-only: a value is never returned). */
-export type CredentialProvider = 'claude' | 'codex' | 'zai' | 'openrouter';
-export interface CredentialStatus {
-  provider: CredentialProvider;
-  set: boolean;
-  last4?: string;
-  env: boolean;
-}
-export interface CredentialsSummary {
-  enabled: boolean;
-  reason?: string;
-  providers: CredentialStatus[];
+  /** A value-free reason saved instance credentials could not be loaded or migrated. */
+  credentialReason?: string;
 }
 
 /** The admin `per-user credentials` switch: off, user's own first then the instance's, or user's own only. */
@@ -997,15 +1047,11 @@ export interface Commands {
   agent_cli_versions: { args: undefined; result: CliVersionReport };
   api_complete: { args: { repoPath: string; req: CompleteCallArgs; callId?: string }; result: CompleteResponse };
   api_cancel_complete: { args: { callId: string }; result: void };
-  /** HUB_ONLY: instance provider credentials (src/hub/credentials.ts) — write-only; reads return set + last four. */
-  get_credentials: { args: undefined; result: CredentialsSummary };
-  set_credential: { args: { provider: CredentialProvider; value: string }; result: CredentialsSummary };
-  delete_credential: { args: { provider: CredentialProvider }; result: CredentialsSummary };
-  /** HUB_ONLY, admin only (403 otherwise): the `per-user credentials` switch. */
+  /** HUB_ONLY, hub owner or admin only (403 otherwise — one gate for the switch and every instance-credential RPC): the `per-user credentials` switch. */
   get_credential_policy: { args: undefined; result: { policy: CredentialPolicy } };
   set_credential_policy: { args: { policy: CredentialPolicy }; result: void };
-  /** HUB_ONLY, admin only: instance provider credentials. Write-only — status lists names, never values. */
-  instance_credentials_status: { args: undefined; result: { names: string[] } };
+  /** HUB_ONLY, hub owner or admin only: instance provider credentials. Write-only — status lists names, never values. */
+  instance_credentials_status: { args: undefined; result: { names: string[]; reason?: string } };
   save_instance_credential: { args: { name: string; value: string }; result: void };
   delete_instance_credential: { args: { name: string }; result: void };
   /** HUB_ONLY: the signed-in user's OWN credentials (no RPC takes a user id). Write-only. */
@@ -1018,17 +1064,19 @@ export interface Commands {
   delete_draft: { args: { repoPath: string; id: string }; result: void };
   write_draft_asset: { args: { repoPath: string; id: string; name: string; bytes: number[] }; result: string };
   clear_draft_assets: { args: { repoPath: string; id: string }; result: void };
+  /** Which code host the project's `origin` is on (`github`, `gitlab`, `other`, or `none` without a remote): the dialog offers GitLab CI only for `gitlab`. */
+  enable_factory_host: { args: { repoPath: string }; result: { host: FactoryHost } };
   /** HUB_ONLY: read the repo (default branch, package manager, verify command) and report what
-   *  `enable_factory_apply` would change — no writes yet. GitHub only; `provider` is accepted for
-   *  forward compatibility with GitLab/Linear, which the UI marks "coming soon" instead of calling this. */
+   *  `enable_factory_apply` would change — no writes yet. GitHub Actions or GitLab CI (through `glab`);
+   *  Linear has no adapter and the UI marks it planned instead of calling this. */
   enable_factory_plan: { args: { repoPath: string; provider: FactoryProviderId }; result: FactoryPlan };
-  /** HUB_ONLY: create a branch, add the five caller workflows, open a PR (never push to the default
+  /** HUB_ONLY: create a branch, add the five caller workflows (GitLab: the include and `.gitlab-ci.yml` edit), open a PR/MR (never push to the default
    *  branch) and create the routing labels. */
   enable_factory_apply: { args: { repoPath: string; plan: FactoryPlan }; result: FactoryApplyResult };
-  /** HUB_ONLY: the `gh secret set` command text for the user to run themselves — the hub never
+  /** HUB_ONLY: the `gh secret set` (GitLab: `glab variable set`) command text for the user to run themselves — the hub never
    *  reads, prints or stores the secret value. */
   enable_factory_secret: { args: { repoPath: string; plan: FactoryPlan }; result: FactorySecretStep };
-  /** HUB_ONLY: dispatch the doctor workflow (once the PR above is merged) and report the run that dispatch created. */
+  /** HUB_ONLY: dispatch the doctor workflow, or start the doctor pipeline on GitLab (once the PR/MR above is merged) and report the run that dispatch created. */
   enable_factory_verify: { args: { repoPath: string; plan: FactoryPlan }; result: FactoryVerifyResult };
   /** HUB_ONLY: start (or restart) the project's persisted checklist from a freshly derived plan —
    *  used when the callers are already on the default branch and there is no PR to open. */
@@ -1110,15 +1158,32 @@ export interface Commands {
   conflict_stats: { args: { repoPath: string }; result: ConflictStats };
   /** HUB_ONLY, owner only, read-only: whether `gh`, `glab`, a Linear key and a model credential (Claude, or a Codex key or sign-in file) are present on the hub host. Booleans only — never a secret value. Spawns `gh`/`glab` on the host, so it is refused on a non-loopback bind without TASKCELL_HUB_ALLOW_ADD. */
   setup_status: { args: undefined; result: SetupStatus };
-  list_tasks: { args: { repoPath: string }; result: { tasks: BoardTask[]; capped: boolean } };
-  /** HUB_ONLY: `list_tasks` across every hub repository, each card stamped with its repository. */
-  list_tasks_all: { args: { teamId?: string } | undefined; result: { tasks: (BoardTask & RepoStamp)[]; capped: boolean; failures: RepoReadFailure[] } };
+  /** `hubBoard`: the project's task source is the hub's own board (its cards are created and scheduled in the hub). */
+  list_tasks: { args: { repoPath: string }; result: { tasks: BoardTask[]; capped: boolean; hubBoard?: true } };
+  /** HUB_ONLY: `list_tasks` across every hub repository, each card stamped with its repository. `hubBoards`: the repositories whose task source is the hub board. */
+  list_tasks_all: { args: { teamId?: string } | undefined; result: { tasks: (BoardTask & RepoStamp)[]; capped: boolean; failures: RepoReadFailure[]; hubBoards?: string[] } };
   fetch_spec: { args: { repoPath: string; taskId: string }; result: { spec: string } };
-  api_create_task: { args: { repoPath: string; title: string; body: string; baseBranch?: string }; result: CreatedTask };
+  /** `dependsOn`: ids of existing tasks this one depends on (`owner/repo#N`, `group/project#N`, `TEAM-N`), written as a `Depends on` line plus a native relation. */
+  api_create_task: { args: { repoPath: string; title: string; body: string; baseBranch?: string; dependsOn?: string[] }; result: CreatedTask };
+  /**
+   * HUB_ONLY: split one piece of work into several tasks, created in order. A task's `dependsOn` lists the
+   * positions (0-based) of earlier tasks in the same call; each becomes a dependency on the task just created.
+   */
+  api_create_tasks: { args: { repoPath: string; tasks: { title: string; body: string; dependsOn?: number[] }[]; baseBranch?: string }; result: { tasks: CreatedTask[] } };
   /** HUB_ONLY, read-only: the target branches a card may name (repo default + `baseBranches` allowlist) and the configured default, for the new-card form. */
   list_branches: { args: { repoPath: string }; result: { branches: string[]; default?: string } };
+  /** HUB_ONLY: add a task to the project's hub board (task source `hub`). The caller becomes the task's owner: it runs as them. */
+  hub_task_create: { args: { repoPath: string; title: string; body?: string }; result: { id: string } };
+  /** HUB_ONLY: set a hub-board task's dependencies (ids of the project's other tasks) and/or start date (`null` clears it). The caller becomes its owner. */
+  hub_task_schedule: { args: { repoPath: string; id: string; blockedBy?: string[]; startDate?: string | null }; result: { id: string } };
+  /** HUB_ONLY: put a failed hub-board task back to `todo`, to run as the caller. */
+  hub_task_retry: { args: { repoPath: string; id: string }; result: { id: string } };
   /** HUB_ONLY: apply a trigger label to a GitHub issue of the project (src/hub/start-task.ts). */
   start_task: { args: { repoPath: string; number: number; label: string }; result: StartTaskResult };
+  /** HUB_ONLY, read-only: the ids of the skills a run of this project can load (what a hand-picked list is checked against). */
+  list_skills: { args: { repoPath: string }; result: { skills: string[] } };
+  /** HUB_ONLY: write a card's hand-picked skills to its task as the body's `Skills:` line (an empty list removes it). */
+  set_task_skills: { args: { repoPath: string; taskId: string; skills: string[] }; result: { skills: string[] } };
   /** HUB_ONLY: token-only mode has exactly one team and the caller acts as its admin. */
   list_teams: { args: undefined; result: Team[] };
   /** HUB_ONLY: one team by id (`null` when unknown). */
@@ -1151,6 +1216,7 @@ export const COMMAND_NAMES = [
   'api_complete',
   'api_create_run',
   'api_create_task',
+  'api_create_tasks',
   'api_delete_flow',
   'api_list_flows',
   'api_list_providers',
@@ -1165,12 +1231,12 @@ export const COMMAND_NAMES = [
   'clear_draft_assets',
   'clone_project',
   'conflict_stats',
-  'delete_credential',
   'delete_draft',
   'delete_instance_credential',
   'delete_user_credential',
   'dismiss_lesson',
   'enable_factory_apply',
+  'enable_factory_host',
   'enable_factory_plan',
   'enable_factory_secret',
   'enable_factory_start',
@@ -1179,8 +1245,10 @@ export const COMMAND_NAMES = [
   'factory_state',
   'fetch_spec',
   'get_credential_policy',
-  'get_credentials',
   'get_team',
+  'hub_task_create',
+  'hub_task_retry',
+  'hub_task_schedule',
   'import_remote_run',
   'instance_credentials_status',
   'kill_run',
@@ -1194,6 +1262,7 @@ export const COMMAND_NAMES = [
   'list_remote_runs',
   'list_runs',
   'list_runs_all',
+  'list_skills',
   'list_spawns',
   'list_tasks',
   'list_tasks_all',
@@ -1218,8 +1287,8 @@ export const COMMAND_NAMES = [
   'save_instance_credential',
   'save_user_credential',
   'set_approver_mode',
-  'set_credential',
   'set_credential_policy',
+  'set_task_skills',
   'setup_status',
   'spawn_run',
   'start_task',

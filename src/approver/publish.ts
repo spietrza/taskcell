@@ -16,7 +16,7 @@ const ALLOWED_API: Record<string, RegExp> = {
 };
 
 /** Method and endpoint of a `gh api` argv, the way gh resolves them: a body without -X means POST. */
-function parseApiCall(args: string[]): { method: string; endpoints: string[] } {
+export function parseApiCall(args: string[]): { method: string; endpoints: string[] } {
   let method: string | undefined;
   let hasBody = false;
   const endpoints: string[] = [];
@@ -143,17 +143,18 @@ interface GhComment {
   authorAssociation?: string;
 }
 
-/** Post `body` unless a trusted author already posted `marker` (anyone can post the marker text to suppress a comment, so an untrusted one does not dedupe). */
-export async function commentOnce(gh: GhRunner, repoSlug: string, prNumber: number, marker: string, body: string): Promise<void> {
+/** Post `body` unless a trusted author already posted `marker` (anyone can post the marker text to suppress a comment, so an untrusted one does not dedupe). True when it posted. */
+export async function commentOnce(gh: GhRunner, repoSlug: string, prNumber: number, marker: string, body: string): Promise<boolean> {
   try {
     const out = await gh(['pr', 'view', String(prNumber), '--repo', repoSlug, '--json', 'comments']);
     const parsed = JSON.parse(out) as { comments?: GhComment[] };
     const trusted = (c: GhComment): boolean => classifyAuthor(c.author?.login ?? '', c.authorAssociation ?? '') !== 'untrusted';
-    if ((parsed.comments ?? []).some((c) => (c.body?.includes(marker) === true || c.body?.includes(marker.replace('taskcell-', 'vanguard-')) === true) && trusted(c))) return;
+    if ((parsed.comments ?? []).some((c) => (c.body?.includes(marker) === true || c.body?.includes(marker.replace('taskcell-', 'vanguard-')) === true) && trusted(c))) return false;
   } catch {
     // best-effort dedupe lookup; fall through and post
   }
   await gh(['pr', 'comment', String(prNumber), '--repo', repoSlug, '--body', body]);
+  return true;
 }
 
 /** A human-readable copy of the decision, deduped per head SHA by a hidden marker. Nothing ever parses this comment. */

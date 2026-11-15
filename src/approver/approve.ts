@@ -9,6 +9,7 @@ import { decide } from './rules.js';
 import { buildDecisionRecord, appendDecision, appendAction, reasonKey } from './record.js';
 import type { ActionKind } from './record.js';
 import { publishCheckRun, commentDecision, commentOnce, shadowSafeGhRunner } from './publish.js';
+import { dependencyHolds, rebaseDependents } from './dependency-order.js';
 import { actSafeGhRunner, actExclusions, reviewExact, escapeForComment, NO_DEDICATED_REVIEWER } from './act.js';
 import { redactForPublish } from '../core/secret-scan.js';
 import { TaskcellError } from '../core/errors.js';
@@ -82,11 +83,11 @@ export async function runApprover(input: RunApproverInput, state: { updated: boo
 
   const sleep = input.sleep ?? ((ms: number): Promise<void> => new Promise((resolve) => setTimeout(resolve, ms)));
   // Read the PR again; GitHub computes mergeStateStatus lazily, so UNKNOWN is retried a few times before it counts.
-  const readPr = async (): Promise<PrFacts> => {
-    let current = await collectPrFacts(gh, input.repoSlug, input.prNumber);
+  const readPr = async (number: number = input.prNumber): Promise<PrFacts> => {
+    let current = await collectPrFacts(gh, input.repoSlug, number);
     for (let i = 0; i < UNKNOWN_RETRIES && current.mergeStateStatus === 'UNKNOWN'; i += 1) {
       await sleep(UNKNOWN_RETRY_MS);
-      current = await collectPrFacts(gh, input.repoSlug, input.prNumber);
+      current = await collectPrFacts(gh, input.repoSlug, number);
     }
     return current;
   };
@@ -124,8 +125,8 @@ export async function runApprover(input: RunApproverInput, state: { updated: boo
 
   acting = actRequested && policy.act === true;
   const actGh = actSafeGhRunner(rawGh);
-  const logAction = (action: ActionKind, reason: string, headSha: string, reasonCode?: string): Promise<void> =>
-    appendAction(input.repoPath, { schemaVersion: 1, kind: 'action', mode: 'act', repo: input.repoSlug, prNumber: input.prNumber, headSha, action, reason, ...(reasonCode !== undefined && reasonCode !== reason ? { reasonCode } : {}), timestamp }, branchOpts);
+  const logAction = (action: ActionKind, reason: string, headSha: string, reasonCode?: string, prNumber: number = input.prNumber): Promise<void> =>
+    appendAction(input.repoPath, { schemaVersion: 1, kind: 'action', mode: 'act', repo: input.repoSlug, prNumber, headSha, action, reason, ...(reasonCode !== undefined && reasonCode !== reason ? { reasonCode } : {}), timestamp }, branchOpts);
   // `code` is the stable part of a reason (default: the reason itself): it keys the marker and the log, so a different code on the
   // same head is reported while free-form detail (a gh error) does not make every run comment again.
   const tell = async (action: ActionKind, reason: string, headSha: string, code: string = reason): Promise<void> => {
@@ -195,6 +196,12 @@ export async function runApprover(input: RunApproverInput, state: { updated: boo
   const excluded = actExclusions(facts, decision, policy, prFacts.reviews);
   if (excluded.length > 0) {
     await tell('left-for-human', excluded.join('; '), diff.headSha);
+    return result;
+  }
+  // A task's PR never merges before the PRs of the tasks it depends on.
+  const hold = await dependencyHolds(input.repoSlug, prFacts, actGh, policy);
+  if (hold.reasons.length > 0) {
+    await tell('left-for-human', hold.reasons.join('; '), diff.headSha, hold.code);
     return result;
   }
 
@@ -271,12 +278,29 @@ export async function runApprover(input: RunApproverInput, state: { updated: boo
     console.error(`taskcell approve: #${input.prNumber} was merged, but logging it failed: ${errorText(err)}`);
     await tell('error', `merged, but the action log failed: ${errorText(err)}`, diff.headSha, 'merge-log-failed');
   }
+  await rebaseDependentPrs();
   return result;
+
+  // Open PRs of tasks that depend on this one: bring them up to date, or send a conflicting one through revise. Never fails the merge.
+  async function rebaseDependentPrs(): Promise<void> {
+    try {
+      const done = await rebaseDependents({ repo: input.repoSlug, repoPath: input.repoPath, merged: prFacts, policy, gh: actGh, readPr });
+      for (const d of done) {
+        const reason = redactForPublish(d.reason);
+        if (d.action === 'skipped' || d.pr === 0) console.error(`taskcell approve: dependent${d.pr === 0 ? 's' : ` #${d.pr}`} of #${input.prNumber} not touched: ${reason}`);
+        else await logAction(d.action === 'updated' ? 'update-branch' : d.action === 'revise' ? 'revise' : 'error', reason, d.headSha, d.action === 'failed' ? 'dependent-update-failed' : undefined, d.pr);
+      }
+    } catch (err) {
+      console.error(`taskcell approve: #${input.prNumber} was merged, but updating its dependents failed: ${errorText(err)}`);
+    }
+  }
 
   // `code` is set only when the reasons carry free-form error text; every other reason is stable and keys itself.
   async function staleBeforeMerge(): Promise<{ reasons: string[]; code?: string }> {
     try {
-      return { reasons: await staleReasons() };
+      const reasons = await staleReasons();
+      if (reasons.length > 0) return { reasons };
+      return dependencyHolds(input.repoSlug, prFacts, actGh, policy);
     } catch (err) {
       return { reasons: [`could not re-read the PR: ${errorText(err)}`], code: 'pre-merge-read-failed' };
     }

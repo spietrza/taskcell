@@ -27,7 +27,7 @@ export interface CompleteResult {
 /** Wall-clock cap on one doc-chat turn — the same cap the desktop's former Rust sidecar used. */
 export const COMPLETE_TIMEOUT_MS = 180_000;
 
-export type SpawnComplete = () => ChildProcess;
+export type SpawnComplete = (env: NodeJS.ProcessEnv) => ChildProcess;
 
 // ponytail: at most 3 doc-chat turns in flight per hub — each is a child process holding a model
 // call for up to COMPLETE_TIMEOUT_MS, so an unbounded caller could fork without limit.
@@ -44,12 +44,12 @@ export class CompleteBusyError extends BadRequestError {
 /** Resolve the `taskcell __complete` entry point without assuming `taskcell` is on PATH: the hub may
  * run from `dist/cli/index.js` or under `tsx`, so re-invoke the current process's own entry script.
  * Falls back to `taskcell` on PATH when the current script path is unknown (e.g. a REPL). */
-function defaultSpawnComplete(): ChildProcess {
+function defaultSpawnComplete(env: NodeJS.ProcessEnv): ChildProcess {
   const selfScript = process.argv[1];
   if (selfScript !== undefined) {
-    return spawn(process.execPath, [selfScript, '__complete'], { stdio: ['pipe', 'pipe', 'inherit'] });
+    return spawn(process.execPath, [selfScript, '__complete'], { env, stdio: ['pipe', 'pipe', 'inherit'] });
   }
-  return spawn('taskcell', ['__complete'], { stdio: ['pipe', 'pipe', 'inherit'] });
+  return spawn('taskcell', ['__complete'], { env, stdio: ['pipe', 'pipe', 'inherit'] });
 }
 
 function exchange(child: ChildProcess, req: unknown, timeoutMs: number): Promise<CompleteResult> {
@@ -115,13 +115,14 @@ export class CompleteRegistry {
     private readonly spawnComplete: SpawnComplete = defaultSpawnComplete,
     private readonly timeoutMs: number = COMPLETE_TIMEOUT_MS,
     private readonly maxConcurrent: number = MAX_CONCURRENT_COMPLETES,
+    private readonly childEnv: () => NodeJS.ProcessEnv = () => process.env,
   ) {}
 
   async complete(repoPath: string, params: CompleteParams, callId?: string): Promise<CompleteResult> {
     if (this.inFlight >= this.maxConcurrent) throw new CompleteBusyError();
     // Spawn + register BEFORE any await: a Stop click racing this call must always find the child it
     // is trying to cancel, so registration cannot wait on an async read (readAppConfig below).
-    const child = this.spawnComplete();
+    const child = this.spawnComplete(this.childEnv());
     this.inFlight += 1;
     if (callId !== undefined) {
       this.children.set(callId, child);
