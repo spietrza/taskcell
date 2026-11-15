@@ -14,7 +14,8 @@ import * as projects from '../projects.js';
 import { listHubBoard } from '../hub-board.js';
 import { HUB_TASK_ID, MAX_BLOCKED_BY, MAX_BODY_LENGTH, MAX_TITLE_LENGTH, createHubTask, editHubTask, listHubTasks, updateHubTask, type HubTaskOwner } from '../hub-tasks.js';
 import { startGithubTask, triggerLabelsFor } from '../start-task.js';
-import type { BoardTask, CreatedTask, RepoReadFailure, RepoStamp, StartTaskResult } from '../../wire.js';
+import { markerReadBudget, retryPausedTask, withPausedTasks, type MarkerReadBudget } from '../paused.js';
+import type { BoardTask, CreatedTask, RepoReadFailure, RepoStamp, RetryPausedResult, StartTaskResult } from '../../wire.js';
 import { defineCommands, requireString, requireMatch, optionalString, optionalNumber, actorOf, githubSlug, repoTarget, repoItemTarget, assertHasRemote, type CommandCall } from '../command-kit.js';
 
 export interface TasksCommands {
@@ -40,16 +41,28 @@ export interface TasksCommands {
   hub_task_retry: { args: { repoPath: string; id: string }; result: { id: string } };
   /** HUB_ONLY: apply a trigger label to a GitHub issue of the project (src/hub/start-task.ts). */
   start_task: { args: { repoPath: string; number: number; label: string }; result: StartTaskResult };
+  /** HUB_ONLY: "Retry now" on a task paused by a provider limit — remove the rate-limited label, re-apply the marker's trigger (src/hub/paused.ts). Refused where `start_task` is. */
+  retry_paused_task: { args: { repoPath: string; number: number }; result: RetryPausedResult };
   /** HUB_ONLY, read-only: the ids of the skills a run of this project can load (what a hand-picked list is checked against). */
   list_skills: { args: { repoPath: string }; result: { skills: string[] } };
   /** HUB_ONLY: write a card's hand-picked skills to its task as the body's `Skills:` line (an empty list removes it). */
   set_task_skills: { args: { repoPath: string; taskId: string; skills: string[] }; result: { skills: string[] } };
 }
 
+/** Fill the retry time of paused cards from the factory's marker comment (GitHub only). A label-filtered `gh pr list` per spelling finds paused pull requests; marker reads only for paused cards. */
+async function withPaused(ctx: RpcContext, real: string, tasks: BoardTask[], budget: MarkerReadBudget): Promise<BoardTask[]> {
+  // Only a GitHub task source: a Linear or GitLab project with a github.com origin has no paused cards to read here.
+  if (((await readAppConfig(real)).source ?? 'github') !== 'github') return tasks;
+  const slug = await githubSlug(real);
+  return slug === undefined ? tasks : withPausedTasks(slug, tasks, ctx.gh, budget);
+}
+
 /** GitHub's cap on a label name. */
 const MAX_LABEL_LENGTH = 50;
 /** Tasks one `api_create_tasks` call may create: each is an irreversible write. */
 const MAX_SPLIT_TASKS = 20;
+/** Dependencies one `api_create_tasks` call may declare in all: each costs CLI calls, and a client that times out and retries would duplicate issues. */
+const MAX_SPLIT_DEPENDENCIES = 40;
 
 /** Everything a create needs but the card's own text: tracker, team and labels from app.json, the target branch checked. Nothing is created here. */
 async function createTaskBase(real: string, args: Record<string, unknown>): Promise<Omit<CreateTaskParams, 'title' | 'body'>> {
@@ -153,10 +166,12 @@ export const commands = defineCommands<TasksCommands>({
   },
   list_tasks: async ({ ctx, args, allow }) => {
     const real = await allow(requireString(args, 'repoPath'));
-    return boardOf(ctx, real);
+    const r = await boardOf(ctx, real);
+    return r.hubBoard === true ? r : { ...r, tasks: await withPaused(ctx, real, r.tasks, markerReadBudget()) };
   },
   list_tasks_all: async ({ ctx, allow, scope }) => {
     let capped = false;
+    const budget = markerReadBudget();
     const hubBoards: string[] = [];
     // Named as registered (the path the UI knows the project by), not as resolved.
     const registered = new Map<string, string>();
@@ -170,8 +185,11 @@ export const commands = defineCommands<TasksCommands>({
       async (real) => {
         const r = await boardOf(ctx, real);
         capped ||= r.capped;
-        if (r.hubBoard === true) hubBoards.push(registered.get(real) ?? real);
-        return r.tasks;
+        if (r.hubBoard === true) {
+          hubBoards.push(registered.get(real) ?? real);
+          return r.tasks;
+        }
+        return withPaused(ctx, real, r.tasks, budget);
       },
       await scope(),
     );
@@ -209,6 +227,7 @@ export const commands = defineCommands<TasksCommands>({
       if (!Array.isArray(deps) || deps.some((d) => !Number.isInteger(d) || d < 0 || d >= i)) throw new BadRequestError(`tasks[${i}].dependsOn must list positions of earlier tasks in this call`);
       return { title: t.title, body: t.body, dependsOn: deps as number[] };
     });
+    if (items.reduce((n, i) => n + new Set(i.dependsOn).size, 0) > MAX_SPLIT_DEPENDENCIES) throw new BadRequestError(`tasks may declare at most ${MAX_SPLIT_DEPENDENCIES} dependencies in all`);
     const base = await createTaskBase(real, args);
     const created: CreatedTask[] = [];
     for (const item of items) {
@@ -273,6 +292,19 @@ export const commands = defineCommands<TasksCommands>({
     if (repoSlug === undefined) throw new BadRequestError('start_task: this project has no GitHub remote');
     return startGithubTask(repoSlug, number, label, triggerLabelsFor(cfg.label));
   },
+  retry_paused_task: async ({ ctx, args, allow }) => {
+    // Edits labels as the hub's `gh` identity — a remote mutation, gated like start_task.
+    assertMutationsAllowed(ctx.bind);
+    const real = await allow(requireString(args, 'repoPath'));
+    const number = optionalNumber(args, 'number');
+    if (number === undefined) throw new BadRequestError('number is required and must be a number');
+    const cfg = await readAppConfig(real);
+    const source = cfg.source ?? 'github';
+    if (source !== 'github') throw new BadRequestError(`retry_paused_task: ${source} is not supported yet`);
+    const repoSlug = await githubSlug(real);
+    if (repoSlug === undefined) throw new BadRequestError('retry_paused_task: this project has no GitHub remote');
+    return retryPausedTask(repoSlug, number, triggerLabelsFor(cfg.label));
+  },
 }, {
   api_create_task: { action: 'task-create', target: repoTarget },
   set_task_skills: { action: 'task-edit', target: repoItemTarget('taskId'), detail: async () => ['skills'] },
@@ -281,4 +313,5 @@ export const commands = defineCommands<TasksCommands>({
   hub_task_schedule: { action: 'task-schedule', target: repoItemTarget('id') },
   hub_task_retry: { action: 'task-schedule', target: repoItemTarget('id') },
   start_task: { action: 'task-start', target: (a) => `${repoTarget(a) ?? ''}#${String(optionalNumber(a, 'number') ?? '')}` },
+  retry_paused_task: { action: 'task-retry', target: (a) => `${repoTarget(a) ?? ''}#${String(optionalNumber(a, 'number') ?? '')}` },
 });

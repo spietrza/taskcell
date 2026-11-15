@@ -1,4 +1,5 @@
 // Shared fixtures for the hub RPC tests (rpc.test.ts and src/hub/commands/*.test.ts).
+import type { GhRunner } from '../tasks/github.js';
 import { dispatchRpc as dispatch, type RpcContext } from './rpc.js';
 import type { Caller } from './teams.js';
 import { EventEmitter } from 'node:events';
@@ -62,7 +63,7 @@ export const cleanups: string[] = [];
 
 export async function makeCtx(
   repoPath: string,
-  opts: { depsOverrides?: Partial<SidecarDeps>; bind?: { isLoopback: boolean; allowAdd: boolean }; spawnComplete?: () => ChildProcess } = {},
+  opts: { depsOverrides?: Partial<SidecarDeps>; bind?: { isLoopback: boolean; allowAdd: boolean }; spawnComplete?: () => ChildProcess; gh?: GhRunner } = {},
 ): Promise<{ ctx: RpcContext; published: { name: string; payload: unknown }[]; deps: SidecarDeps }> {
   const configDir = await mkdtemp(join(tmpdir(), 'vanguard-hub-cfg-'));
   const browseRoot = await mkdtemp(join(tmpdir(), 'vanguard-hub-browse-'));
@@ -82,6 +83,8 @@ export async function makeCtx(
     browseRoot,
     bind: opts.bind ?? { isLoopback: true, allowAdd: false },
     publish,
+    // Never the machine's `gh`: the Board's paused-task read gets an empty answer unless a test supplies one.
+    gh: opts.gh ?? (async () => '[]'),
   };
   return { ctx, published, deps };
 }

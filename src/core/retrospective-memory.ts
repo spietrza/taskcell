@@ -101,7 +101,8 @@ function parseRelevantMetrics(text: string): MetricEvent[] {
       // still a failure signal worth remembering, even though the stage ended 'completed'.
       const firstExitReason = typeof parsed.firstExitReason === 'string' ? parsed.firstExitReason : exitReason;
       const attempts = typeof parsed.attempts === 'number' ? parsed.attempts : 1;
-      if (firstExitReason !== 'completed') {
+      // A provider-limit stop is the provider's refusal, not a failure of the task: nothing to learn from it.
+      if (firstExitReason !== 'completed' && parsed.stoppedBy !== 'provider-limit') {
         events.push({
           kind: 'failed_run',
           ts: parsed.ts,

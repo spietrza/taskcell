@@ -93,3 +93,15 @@ describe('docker/Dockerfile npm global installs', () => {
     expect(dockerfile.slice(claudeArg).match(/npm install -g/g)).toHaveLength(1);
   });
 });
+
+describe('controller images install glab', () => {
+  // The hub's Self-hosted (watch) checklist names vanguard-runner for GitLab workers, whose preflight and MR publish need glab.
+  it('installs the same checksum-verified glab release in runner and hub images', async () => {
+    const lines = async (f: string): Promise<string[]> =>
+      (await readFile(new URL(`../../docker/${f}`, import.meta.url), 'utf8')).split('\n').filter((l) => /GLAB_|glab/.test(l) && !l.startsWith('#'));
+    const runner = await lines('runner.Dockerfile');
+    expect(runner).toEqual(await lines('hub.Dockerfile'));
+    expect(runner.join('\n')).toContain('sha256sum -c -');
+    expect(runner.join('\n')).toContain('dpkg -i /tmp/glab.deb');
+  });
+});

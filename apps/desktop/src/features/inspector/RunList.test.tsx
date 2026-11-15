@@ -62,6 +62,15 @@ test('a CI run is marked, links its PR/MR, is not openable, and an unpriced one 
   expect(onSelect).not.toHaveBeenCalled();
 });
 
+test('a run row shows the estimate next to the reported cost, with the explanation on the cell', () => {
+  const base: RunSummary = { taskId: 'local-1', timestamp: '2026-07-06T19:12:02.123Z', stages: ['implementer', 'reviewer'], totalCostUsd: 1.5, anyFailed: false };
+  const codexOnly: RunSummary = { ...base, taskId: 'local-2', totalCostUsd: 0, costUnknown: true, estCostUsd: 0.4 };
+  render(<RunList runs={[{ ...base, estCostUsd: 0.2 }, codexOnly, { ...base, taskId: 'local-3' }]} active={[]} onSelect={noop} onOpenActive={noop} />);
+  expect(screen.getByText('$1.50 + ≈$0.20')).toHaveAttribute('title', expect.stringMatching(/not billed per token/));
+  expect(screen.getByText('≈$0.40')).toHaveAttribute('title', expect.stringMatching(/estimate at API prices/));
+  expect(screen.getByText('$1.50')).not.toHaveAttribute('title');
+});
+
 test('a search that empties the list is named, with a button that clears it; the box says what it matches', () => {
   const runs: RunSummary[] = [{ taskId: 'task-7', timestamp: '2026-07-06T19:12:02.123Z', stages: ['implement'], totalCostUsd: 0.1, anyFailed: false }];
   const onHub = vi.fn();
@@ -123,4 +132,12 @@ test('the search box says it matches the task id only, here and on the Board tha
   const hub = { triage: 'all' as const, repos: [], sources: [], query: '', group: 'none' as const };
   render(<RunList runs={runs} active={[]} hub={hub} onHub={noop} onSelect={noop} onOpenActive={noop} />);
   expect(screen.getByLabelText('Search task id')).toHaveAttribute('title', expect.stringContaining('task id only'));
+});
+
+test('a run stopped by a provider limit is labelled as such, not as a plain failure', () => {
+  const runs: RunSummary[] = [{ taskId: 'task-9', timestamp: '2026-07-06T19:12:02.123Z', stages: ['implement'], totalCostUsd: 0.1, anyFailed: true, stoppedBy: 'provider-limit' }];
+  render(<RunList runs={runs} active={[]} onSelect={noop} onOpenActive={noop} />);
+  expect(screen.getByText('stopped: provider limit')).toBeInTheDocument();
+  fireEvent.click(screen.getByRole('button', { name: 'failed' }));
+  expect(screen.queryByText('task-9')).toBeNull();
 });

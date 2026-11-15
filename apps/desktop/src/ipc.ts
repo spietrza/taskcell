@@ -19,6 +19,7 @@ import type {
   CredentialPolicy,
   FactoryApplyResult,
   FactoryHost,
+  WatchWorkerChecklist,
   FactoryPlan,
   FactoryProviderId,
   FactoryState,
@@ -100,6 +101,11 @@ export function enableFactoryHost(repoPath: string): Promise<{ host: FactoryHost
   return call('enable_factory_host', { repoPath });
 }
 
+/** Self-hosted (watch) checklist: compose snippet, command, credential names, worker-seen state. Read-only. */
+export function enableFactoryWatch(repoPath: string): Promise<WatchWorkerChecklist> {
+  return call('enable_factory_watch', { repoPath });
+}
+
 export function enableFactoryPlan(repoPath: string, provider: FactoryProviderId): Promise<FactoryPlan> {
   return call('enable_factory_plan', { repoPath, provider });
 }
@@ -169,6 +175,11 @@ export function mergeNeedsYou(repoPath: string, id: string): Promise<void> {
  *  on a non-trigger label, a closed or already-started issue, or a non-GitHub project. */
 export function startTask(repoPath: string, number: number, label: string): Promise<StartTaskResult> {
   return call('start_task', { repoPath, number, label });
+}
+
+/** Hub-only: "Retry now" on a task paused by a provider limit (src/hub/paused.ts). Throws where `startTask` would refuse, or when the factory's marker is missing. */
+export function retryPausedTask(repoPath: string, number: number): Promise<Commands['retry_paused_task']['result']> {
+  return call('retry_paused_task', { repoPath, number });
 }
 
 export function listActive(repoPath: string): Promise<ActiveRun[]> {

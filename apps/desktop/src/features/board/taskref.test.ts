@@ -7,6 +7,9 @@ describe('taskRefKey', () => {
     expect(taskRefKey('gh-904')).toBe(taskRefKey('gh-owner-repo-904'));
     expect(taskRefKey('gl-5')).toBe(taskRefKey('gl-group-proj-5'));
   });
+  it('keeps a paused pull request card apart from the issue with the same number', () => {
+    expect(taskRefKey('gh-pr-12')).not.toBe(taskRefKey('gh-12'));
+  });
 
   it('keeps the trailing issue number, not a digit inside the slug', () => {
     expect(taskRefKey('gh-repo2-904')).toBe('gh-904');

@@ -44,6 +44,8 @@ export interface RunResult {
   finalText: string;
   usage?: AgentUsage;
   costUsd?: number;
+  /** In-memory only (never persisted): API-price estimate carried across merged attempts that ran on different models; null = not priceable. */
+  mergedEstCostUsd?: number | null;
   cacheEfficiency?: number;
   /** Wall-clock duration of the agent run, in milliseconds. */
   durationMs?: number;
@@ -61,4 +63,6 @@ export interface RunResult {
   attempts?: number;
   /** Exit reason of the FIRST attempt when more than one was folded in — keeps a truncation visible after a repair. */
   firstExitReason?: ExitReason;
+  /** Set from a typed provider/usage-cap signal when this stage ended on a limit; never inferred from text. */
+  stoppedBy?: 'provider-limit';
 }

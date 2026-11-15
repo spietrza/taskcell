@@ -7,7 +7,46 @@ import { writeAppConfig } from '../app-config.js';
 import { dispatchRpc, makeCtx, tmpRepo, tmpGitRepo } from '../test-kit.js';
 import { NO_REMOTE_MESSAGE } from '../../wire.js';
 
+vi.mock('../paused.js', async (importOriginal) => {
+  const actual = await importOriginal<typeof import('../paused.js')>();
+  return {
+    ...actual,
+    retryPausedTask: vi.fn(actual.retryPausedTask),
+    withPausedTasks: vi.fn(actual.withPausedTasks),
+  };
+});
+
+import { retryPausedTask, withPausedTasks } from '../paused.js';
+
 describe('tasks', () => {
+  test('list_tasks wires paused marker details into the command result', async () => {
+    const repo = await tmpGitRepo('https://github.com/allowed/repo.git');
+    const base = { id: 'gh-7', title: 'Paused', column: 'queued' as const, state: 'taskcell:rate-limited', paused: { reason: 'provider-limit' as const } };
+    const enriched = { ...base, paused: { ...base.paused, until: '2026-11-15T12:00:00.000Z', trigger: 'ready for agent' } };
+    vi.mocked(withPausedTasks).mockResolvedValueOnce([enriched]);
+    const { ctx } = await makeCtx(repo, { depsOverrides: { listTasks: async () => ({ tasks: [base], capped: false }) } });
+    const result = await dispatchRpc(ctx, 'list_tasks', { repoPath: repo });
+    expect(result).toEqual({ tasks: [enriched], capped: false });
+    expect(withPausedTasks).toHaveBeenCalledWith('allowed/repo', [base], ctx.gh, expect.objectContaining({ remaining: 30 }));
+  });
+
+  test('list_tasks reads paused pull requests through the injected gh runner, only for a GitHub task source', async () => {
+    const repo = await tmpGitRepo('https://github.com/allowed/repo.git');
+    const calls: string[][] = [];
+    const gh = async (args: string[]): Promise<string> => {
+      calls.push(args);
+      return '[]';
+    };
+    const { ctx } = await makeCtx(repo, { gh, depsOverrides: { listTasks: async () => ({ tasks: [], capped: false }) } });
+    expect(await dispatchRpc(ctx, 'list_tasks', { repoPath: repo })).toEqual({ tasks: [], capped: false });
+    expect(calls.map((c) => c.slice(0, 2))).toEqual([['pr', 'list'], ['pr', 'list']]);
+    // A project whose task source is not GitHub spawns nothing, github.com origin or not.
+    calls.length = 0;
+    await writeAppConfig(repo, { source: 'linear' });
+    await dispatchRpc(ctx, 'list_tasks', { repoPath: repo });
+    expect(calls).toEqual([]);
+  });
+
   test('T-60 api_create_task substitutes source/team/label from app.json and ignores client values', async () => {
     const repo = await tmpRepo();
     let captured: unknown;
@@ -59,6 +98,7 @@ describe('tasks', () => {
     ['a task without a title', [{ title: 'a', body: '' }, { title: ' ', body: '' }]],
     ['an empty list', []],
     ['too many tasks', Array.from({ length: 21 }, () => ({ title: 'a', body: '' }))],
+    ['too many dependencies', Array.from({ length: 20 }, (_, i) => ({ title: 'a', body: '', dependsOn: Array.from({ length: i }, (_, j) => j) }))],
   ])('api_create_tasks refuses %s before creating anything', async (_name, tasks) => {
     const repo = await tmpRepo();
     let created = 0;
@@ -288,5 +328,36 @@ describe('start_task', () => {
     await writeAppConfig(repo, { label: 'go' });
     const { ctx } = await makeCtx(repo);
     await expect(call(ctx, repo, { label: 'bug' })).rejects.toThrow('"bug" is not a trigger label of this project (ready for agent, ready for spec, go)');
+  });
+});
+
+describe('retry_paused_task', () => {
+  const call = (ctx: RpcContext, repo: string): Promise<unknown> =>
+    dispatchRpc(ctx, 'retry_paused_task', { repoPath: repo, number: 7 });
+
+  test('refuses on a non-loopback bind before touching GitHub', async () => {
+    const repo = await tmpGitRepo('https://github.com/allowed/repo.git');
+    const { ctx } = await makeCtx(repo, { bind: { isLoopback: false, allowAdd: false } });
+    vi.mocked(retryPausedTask).mockClear();
+    await expect(call(ctx, repo)).rejects.toThrow('disabled on a non-loopback bind');
+    expect(retryPausedTask).not.toHaveBeenCalled();
+  });
+
+  test.each(['gitlab', 'linear'])('refuses the %s source before touching GitHub', async (source) => {
+    const repo = await tmpGitRepo('https://github.com/allowed/repo.git');
+    await writeAppConfig(repo, { source });
+    const { ctx } = await makeCtx(repo);
+    vi.mocked(retryPausedTask).mockClear();
+    await expect(call(ctx, repo)).rejects.toThrow(`retry_paused_task: ${source} is not supported yet`);
+    expect(retryPausedTask).not.toHaveBeenCalled();
+  });
+
+  test('delegates with the project trigger labels', async () => {
+    const repo = await tmpGitRepo('https://github.com/allowed/repo.git');
+    await writeAppConfig(repo, { label: 'ship it' });
+    const { ctx } = await makeCtx(repo);
+    vi.mocked(retryPausedTask).mockResolvedValueOnce({ label: 'ship it' });
+    await expect(call(ctx, repo)).resolves.toEqual({ label: 'ship it' });
+    expect(retryPausedTask).toHaveBeenCalledWith('allowed/repo', 7, ['ready for agent', 'ready for spec', 'ship it']);
   });
 });

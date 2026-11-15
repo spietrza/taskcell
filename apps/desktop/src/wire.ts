@@ -305,6 +305,8 @@ export interface BoardTask {
   source?: 'github' | 'gitlab' | 'linear';
   /** The issue's address in that tracker, as the tracker returned it. Absent ⇒ no link. */
   url?: string;
+  /** Parked by a provider usage/rate limit (the `rate-limited` label); the factory retries it by itself. Absent when not paused. */
+  paused?: PausedState;
   /** Tasks this one waits for: the hub board's field, or what a GitHub issue's body names (`Depends on #n`). */
   blockedBy?: string[];
   /** Start date as stored (`YYYY-MM-DD` or an ISO instant). Absent ⇒ none. */
@@ -327,6 +329,15 @@ export interface TaskSchedule {
   blockedBy?: string[];
   /** `waits-date`: the instant the task may start (ISO). */
   until?: string;
+}
+
+/** Why a task is paused and when the scheduled resume retries it. `until`/`trigger` come from the factory's marker comment; absent when it is missing. */
+export interface PausedState {
+  reason: 'provider-limit';
+  /** ISO time after which the scheduled resume retries. */
+  until?: string;
+  /** The label the retry re-applies. */
+  trigger?: string;
 }
 
 /** The reviewer's persisted verdict: `changes` ⇔ the merge gate would request changes. */
@@ -370,6 +381,8 @@ export interface RunRecord {
   finalText: string;
   usage?: AgentUsage;
   costUsd?: number;
+  /** API-price estimate for a run that reported no cost (a subscription run is not billed per token); never a billed figure. */
+  estCostUsd?: number;
   cacheEfficiency?: number;
   durationMs?: number;
   model?: string;
@@ -388,6 +401,8 @@ export interface RunRecord {
   diffOmitted?: 'secret-blocked' | 'secret-scan';
   /** Hub login (or `token`) that started the run from the hub; absent for CLI/CI runs. */
   startedBy?: string;
+  /** `'watch'` when a `taskcell watch` worker started the run; absent for every other run. */
+  trigger?: 'watch';
   /** Verdict-bearing stages (reviewer, conformance) only: the merge gate's own reading of this
    *  stage's reply, persisted so the hub and the PR body never re-derive it. */
   verdict?: ReviewVerdict;
@@ -400,6 +415,8 @@ export interface RunRecord {
   attempts?: number;
   /** Ids of the lessons injected into this run's prompts (`taskcell lessons list` counts them). */
   lessonIds?: string[];
+  /** The run's own structured flag that this stage ended on a provider rate/usage limit (core RunResult.stoppedBy). */
+  stoppedBy?: 'provider-limit';
   /** Which kind of credential funded the run (hub per-user credentials); never the value. Absent on CLI/CI runs. */
   credentialSource?: 'instance' | 'user';
   /**
@@ -454,12 +471,20 @@ export interface RunSummary {
   ciUrl?: string;
   /** Hub login (or `token`) that started the run; absent for runs not started from the hub. */
   startedBy?: string;
+  /** `'watch'` when a `taskcell watch` worker started the run. */
+  trigger?: 'watch';
   /** `'merged'` when the run's card is done (its pull request merged); set by the hub's list commands, absent when unknown or not merged. */
   prState?: 'merged';
   /** `'ci'` for a run known only from the metrics branch (no local record to open); `prUrl` links its PR/MR. */
   source?: 'ci';
+  /** `'provider-limit'` when the run ended on a provider usage or rate limit: not a failure of the change. */
+  stoppedBy?: 'provider-limit';
   /** The run's metrics carry no cost data, so `totalCostUsd` (0) is not a cost: show "unknown", not $0. */
   costUnknown?: true;
+  /** Sum of the run's API-price estimates (see RunRecord.estCostUsd); shown as `≈`, next to the reported cost when some stages have one. */
+  estCostUsd?: number;
+  /** Some entries without a reported cost have no estimate either (an unpriced model): the `≈` figure covers only the priced ones. */
+  estPartial?: true;
 }
 
 /** Period a cost breakdown covers: the last 7 / 30 days, or everything on the branch. */
@@ -472,6 +497,10 @@ export interface CostRow {
   costUsd: number;
   /** Entries without cost data (counted in `entries`, add nothing to `costUsd`). */
   unknownEntries: number;
+  /** API-price estimate of the entries without a reported cost; absent when none. */
+  estCostUsd?: number;
+  /** Some entries without a reported cost have no estimate either (an unpriced model): the `≈` figure covers only the priced ones. */
+  estPartial?: true;
 }
 
 /**
@@ -489,6 +518,10 @@ export interface CostBreakdown {
   runs: number;
   totalCostUsd: number;
   unknownEntries: number;
+  /** Estimated (≈) cost of the entries without a reported cost; absent when none. */
+  totalEstCostUsd?: number;
+  /** Some entries without a reported cost have no estimate either (an unpriced model): the `≈` figure covers only the priced ones. */
+  estPartial?: true;
   byModel: CostRow[];
   byStage: CostRow[];
 }
@@ -625,6 +658,7 @@ export type AuditAction =
   | 'run-queue'
   | 'run-cancel'
   | 'task-start'
+  | 'task-retry'
   | 'settings-change'
   | 'needs-reply'
   | 'needs-merge'
@@ -838,6 +872,11 @@ export interface DirListing {
   entries: DirEntry[];
 }
 
+/** What `retry_paused_task` did: the trigger label re-applied. */
+export interface RetryPausedResult {
+  label: string;
+}
+
 /** What `start_task` did (src/hub/start-task.ts). `waitingOn` names the unmet dependencies (`owner/repo#N`) of a dependency-parked issue. */
 export interface StartTaskResult {
   status: 'labelled' | 'retried';
@@ -927,6 +966,22 @@ export interface FactoryVerifyResult {
 
 /** Which code host a project's `origin` is on, for the Enable factory dialog's run-location choice. */
 export type FactoryHost = 'github' | 'gitlab' | 'other' | 'none';
+
+/** The "Self-hosted (watch)" checklist for a repository. Names only: no credential value is ever included. */
+export interface WatchWorkerChecklist {
+  /** `owner/repo` or `group/project`; empty for a Linear worker whose origin names none. */
+  repoSlug: string;
+  source: 'github' | 'gitlab' | 'linear';
+  /** Compose service for the user to run on their own machine; the hub starts nothing. */
+  compose: string;
+  /** The same worker as a `taskcell watch` command run from a clone of the repo. */
+  command: string;
+  credentials: string[];
+  /** Whether run records show a watch worker at work: `unknown` = no watch-started record the hub can read, so it cannot tell. */
+  seen: 'recent' | 'stale' | 'unknown';
+  /** Time of the newest watch-started run record the hub could read, when any. */
+  lastRunAt?: string;
+}
 
 /** The four steps of the in-app Enable factory checklist, in order. */
 export type FactoryStepId = 'pr' | 'secret' | 'merged' | 'doctor';
@@ -1073,6 +1128,8 @@ export interface Commands {
   clear_draft_assets: { args: { repoPath: string; id: string }; result: void };
   /** Which code host the project's `origin` is on (`github`, `gitlab`, `other`, or `none` without a remote): the dialog offers GitLab CI only for `gitlab`. */
   enable_factory_host: { args: { repoPath: string }; result: { host: FactoryHost } };
+  /** Read-only checklist for a self-hosted `taskcell watch` worker: compose snippet, command, credential names and whether run records show it working. Starts nothing. */
+  enable_factory_watch: { args: { repoPath: string }; result: WatchWorkerChecklist };
   /** HUB_ONLY: read the repo (default branch, package manager, verify command) and report what
    *  `enable_factory_apply` would change — no writes yet. GitHub Actions or GitLab CI (through `glab`);
    *  Linear has no adapter and the UI marks it planned instead of calling this. */
@@ -1195,6 +1252,8 @@ export interface Commands {
   hub_task_retry: { args: { repoPath: string; id: string }; result: { id: string } };
   /** HUB_ONLY: apply a trigger label to a GitHub issue of the project (src/hub/start-task.ts). */
   start_task: { args: { repoPath: string; number: number; label: string }; result: StartTaskResult };
+  /** HUB_ONLY: "Retry now" on a task paused by a provider limit — remove the rate-limited label, re-apply the marker's trigger (src/hub/paused.ts). Refused where `start_task` is. */
+  retry_paused_task: { args: { repoPath: string; number: number }; result: RetryPausedResult };
   /** HUB_ONLY, read-only: the ids of the skills a run of this project can load (what a hand-picked list is checked against). */
   list_skills: { args: { repoPath: string }; result: { skills: string[] } };
   /** HUB_ONLY: write a card's hand-picked skills to its task as the body's `Skills:` line (an empty list removes it). */
@@ -1257,6 +1316,7 @@ export const COMMAND_NAMES = [
   'enable_factory_secret',
   'enable_factory_start',
   'enable_factory_verify',
+  'enable_factory_watch',
   'factory_refresh',
   'factory_state',
   'fetch_spec',
@@ -1302,6 +1362,7 @@ export const COMMAND_NAMES = [
   'remove_team_member',
   'remove_team_repository',
   'reply_needs_you',
+  'retry_paused_task',
   'save_instance_credential',
   'save_user_credential',
   'set_approver_mode',

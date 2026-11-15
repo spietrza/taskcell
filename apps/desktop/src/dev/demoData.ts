@@ -265,8 +265,8 @@ export const demoLessonsFor = (taskText: string | undefined): RepoLesson[] =>
 /** Commands that would write to a repo, remote or the hub's store: refused in demo mode. */
 export const DEMO_WRITE_COMMANDS: readonly string[] = [
   'add_project', 'remove_project', 'clone_project', 'write_app_config', 'spawn_run', 'kill_run',
-  'api_create_run', 'api_create_task', 'api_write_flow', 'api_delete_flow', 'api_cancel',
-  'reply_needs_you', 'merge_needs_you', 'dismiss_lesson', 'update_skill_pr', 'add_skill_pr', 'remove_skill_pr', 'start_task', 'set_task_skills', 'import_remote_run',
+  'api_create_run', 'api_create_task', 'api_create_tasks', 'api_write_flow', 'api_delete_flow', 'api_cancel',
+  'reply_needs_you', 'merge_needs_you', 'dismiss_lesson', 'update_skill_pr', 'add_skill_pr', 'remove_skill_pr', 'start_task', 'retry_paused_task', 'set_task_skills', 'import_remote_run',
   'enable_factory_plan', 'enable_factory_apply', 'enable_factory_secret', 'enable_factory_verify', 'enable_factory_start',
   'save_user_credential', 'delete_user_credential',
   'set_credential_policy', 'save_instance_credential', 'delete_instance_credential',

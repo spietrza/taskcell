@@ -42,7 +42,8 @@ export interface SidecarSpec {
   env?: Readonly<Record<string, string>>;
   /** Extra `docker create` flags (e.g. `--restart on-failure:10`). */
   createArgs?: readonly string[];
-  /** The sidecar process; PID 1 of the container so docker records its output and `--restart` revives it. */
+  /** The sidecar process. Without `secret` it is PID 1 of the container, so docker records its output and
+   *  `--restart` revives it; with `secret` it is a detached `exec` (see `forwardLogs` for its output). */
   cmd: readonly string[];
   /**
    * A secret written over stdin into an in-RAM file (umask 077) before the process starts — never via
@@ -51,6 +52,11 @@ export interface SidecarSpec {
    * dedicated tmpfs so the secret never lands in the container's writable layer (`docker commit`/`cp`).
    */
   secret?: { path: string; body: string };
+  /** With `secret`: route the detached process's stderr to PID 1's so `docker logs` shows it (a detached
+   *  `exec` otherwise logs nowhere). stdout is not routed: a sidecar logs one line per request there, which
+   *  the untrusted cell could use to grow the container log. Warns and runs the plain command if PID 1's
+   *  stderr cannot be opened. */
+  forwardLogs?: boolean;
   /** Teardown hook for resources created alongside the container (e.g. a network), run after `rm -f`. */
   alsoDestroy?: () => Promise<void>;
 }
@@ -98,7 +104,15 @@ export async function startSidecar(spec: SidecarSpec): Promise<Sidecar> {
       if (spec.network !== undefined) await must(['network', 'connect', spec.network, name]);
       for (const f of spec.files) await must(['cp', f.src, `${name}:${f.dest}`]);
       await must(['exec', '-i', name, 'sh', '-c', `umask 077; cat > ${spec.secret.path}`], { input: spec.secret.body });
-      await must(['exec', '-d', ...envArgs, name, ...spec.cmd]);
+      let run = spec.cmd;
+      if (spec.forwardLogs === true) {
+        // Probed here, not inside the detached shell: a redirect that fails there kills the shell behind
+        // `exec -d`'s exit 0, leaving a sidecar that reports started and never listens.
+        const probe = await docker(['exec', name, 'sh', '-c', ': 2>>/proc/1/fd/2']);
+        if (probe.exitCode === 0) run = ['sh', '-c', 'exec "$@" 2>>/proc/1/fd/2', 'sh', ...spec.cmd];
+        else console.warn(`taskcell: sidecar ${name} cannot write to its container log; its errors will not be relayed to the run log.`);
+      }
+      await must(['exec', '-d', ...envArgs, name, ...run]);
     }
     return { name, destroy: teardown };
   } catch (cause) {

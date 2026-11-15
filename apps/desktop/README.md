@@ -38,8 +38,8 @@ releases override it with `pnpm bundle --config '{"version":"X.Y.Z"}' -- --locke
 
 Release builds must use the committed `Cargo.lock` (see the release job below). `tauri-plugin-updater` is required at
 `>= 2.14.1` in `Cargo.toml`, which depends on `zip` ^9 (Windows installer only). That range still admits `zip`
-9.0.0–9.0.4, vulnerable to GHSA-m665-v7pm-7grj, so only the committed lock guarantees `zip` >= 9.0.5: keep it
-resolved there. Updater 2.14.1 needs `tauri` >= 2.12, and `tauri build` refuses a `tauri` crate and `@tauri-apps/api`
+9.0.0–9.0.4, vulnerable to GHSA-m665-v7pm-7grj, so `Cargo.toml` also requires `zip` >= 9.0.5 for Windows: a fresh
+resolve cannot pick a vulnerable one. Updater 2.14.1 needs `tauri` >= 2.12, and `tauri build` refuses a `tauri` crate and `@tauri-apps/api`
 on different minor versions, so `package.json` requires `@tauri-apps/api` and `@tauri-apps/cli` `^2.12.0` and `Cargo.toml` `tauri` 2.12; bump both sides together.
 
 Desktop builds made before this lock was committed re-resolved versions on the builder's machine, so their `zip`
