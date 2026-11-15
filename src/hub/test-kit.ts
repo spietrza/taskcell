@@ -3,7 +3,6 @@ import { dispatchRpc as dispatch, type RpcContext } from './rpc.js';
 import type { Caller } from './teams.js';
 import { EventEmitter } from 'node:events';
 
-import { CredentialStore } from './credentials.js';
 import { mkdtemp, realpath } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
@@ -74,7 +73,6 @@ export async function makeCtx(
     published.push({ name, payload });
   };
   const ctx: RpcContext = {
-    credentials: new CredentialStore(configDir, undefined, {}),
     allowlist: new ProjectAllowlist(async () => [], repoPath),
     watchRegistry: new WatchRegistry(),
     runSession: createRunSession(deps, publish),

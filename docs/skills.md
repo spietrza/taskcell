@@ -54,6 +54,36 @@ An instruction that a stage must follow on every run belongs in the stage prompt
 
 To see which skills a run used, search its transcripts in `.taskcell/runs/<taskId>/`. A Claude-family stage logs each Skill tool call as `"skill":"<id>"`. Codex and Cursor read the body from `.vanguard/skills/<id>/SKILL.md`, so search for that path instead.
 
+## Do the skills help: `stats --skills`
+
+Taskcell records which installed skills each stage used and prints a comparison per skill. Nothing has to be switched on: every run writes the record.
+
+1. Run some tasks. Locally the records land in `.taskcell/runs/metrics.jsonl`; in CI, `taskcell metrics push` saves them to the `taskcell-metrics` branch.
+2. Print the table:
+
+   ```bash
+   taskcell stats --skills                                        # local records
+   taskcell stats --skills --branch taskcell-metrics --since 30d  # records from CI, last 30 days
+   ```
+
+   ```
+   skill        runs  pass  repairs  cost    |  runs w/o  pass w/o  repairs w/o  cost w/o
+   code-review  12    83%   0.25     0.4100  |  5         60%       0.60         0.5200
+   linear-cli   3     -     0.00     0.3000  |  14        77%       0.43         0.4600
+   ```
+
+3. Read a row left to right. Left of the bar are the runs that used the skill, right of it the runs that did not:
+   - `runs`: how many runs. A handful of runs proves nothing; wait for more before acting.
+   - `pass`: the share of reviewed runs where every review verdict was PASS. `-` means none of those runs had a review.
+   - `repairs`: average extra agent attempts per run (gate repairs and resumes). Lower is better.
+   - `cost`: average USD per run.
+
+The table is observational, not causal. A skill that only hard tasks reach for will look worse than it is, so treat a gap as a reason to look at the runs, not as proof. A skill with no row was never used in the window: check its `description`, or remove it.
+
+What counts as "used": a Claude-family agent calling the Skill tool, and Codex or Cursor reading `.vanguard/skills/<id>/SKILL.md`. Only skills installed for the run are counted, over all attempts of a stage. Runs are left out of both sides when their skills are unknown: runs from before this record existed, and runs whose transcript was withheld by the secret scan. `--since` takes days or hours (`30d`, `12h`); `--json` prints the rows as JSON. On `stats`, `--skills` takes no value; on every other command it is still `--skills <dir>`.
+
+`taskcell skills update --pr` puts the same numbers in the PR it opens: under each updated skill, a line such as `Usage, last 30 days: 12 runs, 83% pass rate.`, from the local records or, when there are none, from the `taskcell-metrics` branch. A skill with no recorded run in that window gets no line.
+
 ## Example: the linear-cli skill
 
 [schpet/linear-cli](https://github.com/schpet/linear-cli) ships a skill at `skills/linear-cli/` that teaches the agent to drive the `linear` CLI directly. The sandbox image already includes the `linear` CLI, so you only inject the skill and forward `LINEAR_API_KEY`:
@@ -170,7 +200,7 @@ Run these in the repo that holds the skills. The examples use `.github/vanguard-
   - `pinned commit <sha> can no longer be fetched … → skipped`: the source no longer serves the pinned commit (it was force-pushed away, or the server refuses a fetch by sha), so the local files cannot be compared with it. Rerun with `--force` to update anyway: `SKILL.md` must still match the hash in the lock, and only the other files are replaced unchecked;
   - `invalid skill name → skipped`: the lock names something that is not a plain directory name.
 - `--dry-run` prints the same and writes nothing.
-- `--pr` does the update in a throwaway worktree on a new branch and opens a PR through the normal delivery path (secret scan, commit, push, `gh pr create`). The skills directory must be inside the repo (`--repo`, default the current directory). The PR targets the repo's base branch (`--base`, else the repo's configured one; `--base` without `--pr` is an error); Taskcell never pushes to it and never merges. The body has, per skill, the `SKILL.md` diff, the list of other changed files and the old and new upstream commits, linked for GitHub and GitLab sources. Upstream text is escaped like other untrusted text (`<` becomes `&lt;`, `@mentions` are defused) and fenced so it cannot break out of the block. The whole body is kept under GitHub's size limit: long diffs and lists are cut with a note that says so. Your checkout is not modified, and the worktree and its local branch are removed whether the PR was opened, nothing moved, or the run failed or was blocked by the secret scan. A lock on the base branch with an invalid skill name is refused before anything is pushed. Review the diff before merging: a skill steers an agent that has repo access.
+- `--pr` does the update in a throwaway worktree on a new branch and opens a PR through the normal delivery path (secret scan, commit, push, `gh pr create`). The skills directory must be inside the repo (`--repo`, default the current directory). The PR targets the repo's base branch (`--base`, else the repo's configured one; `--base` without `--pr` is an error); Taskcell never pushes to it and never merges. The body has, per skill, the `SKILL.md` diff, the list of other changed files and the old and new upstream commits, linked for GitHub and GitLab sources. When runs in the last 30 days used the skill, it also has a `Usage, last 30 days` line with the run count and review pass rate (see [Do the skills help](#do-the-skills-help-stats---skills)). Upstream text is escaped like other untrusted text (`<` becomes `&lt;`, `@mentions` are defused) and fenced so it cannot break out of the block. The whole body is kept under GitHub's size limit: long diffs and lists are cut with a note that says so. Your checkout is not modified, and the worktree and its local branch are removed whether the PR was opened, nothing moved, or the run failed or was blocked by the secret scan. A lock on the base branch with an invalid skill name is refused before anything is pushed. Review the diff before merging: a skill steers an agent that has repo access.
 - `--dry-run --pr` makes the plan against the base branch, as the PR would, prints it, and commits, pushes and opens nothing.
 
 A relative `--dir` is taken under `--repo` by `add`, `remove` and `update`; `list` and `check` read it as given (relative to the current directory).
@@ -182,3 +212,28 @@ Installing is safe to fail: the new content is staged in a hidden directory next
 `add` and `update` fetch a repo nobody has reviewed yet, so they run git with hooks, fsmonitor, symlink creation and the LFS filter off, and without the environment variables that point git at another repository (`GIT_DIR`, `GIT_WORK_TREE`, …) or inject config for one command (`GIT_CONFIG_COUNT`/`GIT_CONFIG_KEY_n`/`GIT_CONFIG_VALUE_n`, `GIT_CONFIG_PARAMETERS`). They fetch only the pinned commit (depth 1), without file contents where the server supports partial clone, and check out only the skill's path; skills that share a source and commit share one fetch.
 
 The transports are https and ssh. ssh is there for one case: an operator's own `url."git@github.com:".insteadOf "https://github.com/"` rewrite, the usual way to reach a private repo. The source in the lock must still be https. For `add` and `update` that rewrite (and any credential helper) has to be in a git config file: `~/.gitconfig`, the system config, or the file `GIT_CONFIG_GLOBAL` names. Config passed through `GIT_CONFIG_COUNT` variables is honoured by `skills check` only, which makes no checkout and runs plain `git ls-remote`.
+
+## Naming skills for a task
+
+Selection is automatic by default. There are four ways to make a task use specific skills; pick whichever fits where you work:
+
+1. **A line in the issue** (GitHub, GitLab, Linear). Add this to the issue body, on a line of its own:
+
+   ```
+   Skills: db-migrations, release
+   ```
+
+   Every run of that issue then loads them: from CI, `taskcell watch`, the CLI or the hub.
+2. **The card in the hub.** Open the card on the Board, tick the skills under **Skills** and press **Save skills**. The hub writes the line above into the issue for you. See [hub.md](hub.md#choosing-skills).
+3. **The hub's New Run form.** Under **Advanced**, tick the skills for this one run. A card's skills are already ticked; untick one to leave it out of this run.
+4. **The CLI flag**, for a one-off: `taskcell run --github owner/repo#12 --skill db-migrations --skill release`. The flag and the issue line are merged.
+
+Named skills load in addition to the automatic selection, and the implementer's prompt tells the agent it must use them, in every flow (the built-in ones and a repo's `.taskcell/flows/*.hcl`).
+
+Rules for the issue line:
+
+- It must start the line with `Skills:` (capital S, no indent, not inside a code block or a `>` quote), and hold skill ids separated by commas, at most 20. When the line is repeated, the last one wins.
+- Anything else is not a selection. An issue that says `Skills: good communication, SQL knowledge` in prose runs exactly as it did before; the run summary notes that the line was ignored.
+- Every id must be installed (the `--skills` dir, or `SKILLS_DIR` for a hub, plus the repo's `.github/vanguard-skills/`; `tech-spec` is spec-only and counts as not installed). A well-formed id that is not installed stops the run before any model call and prints the installed ids, so a typo is never a silent skip. `taskcell skills list` shows what is installed.
+
+The run record has `skills: { named, available, notes }`: `named` is the hand-picked ids the run loaded, `available` the other installed ids the agent could pick from (it is not a list of what the agent used), `notes` what the summary says about the list. A provider whose CLI reads no skills (the `pi` stub) says so in the run summary, on the hub run and in `notes`, and its record lists no skill as loaded.

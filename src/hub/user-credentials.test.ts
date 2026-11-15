@@ -90,7 +90,7 @@ let repoPath: string;
 const alice = '1:alice';
 const bob = '2:bob';
 const root = '99:root';
-/** The hub token: the owner user (no GitHub login, so never an admin). */
+/** The hub token: the owner (no GitHub login, so not an admin, but the owner passes the gate). */
 const OWNER = undefined;
 /** No token and no session. */
 const ANON = 'anon';
@@ -111,7 +111,7 @@ async function rpc(as: string | undefined, cmd: string, args: unknown = {}): Pro
 const run = (as: string | undefined) => rpc(as, 'api_create_run', { params: { issueRef: '#1', repoPath } });
 const setPolicy = (policy: string) => rpc(root, 'set_credential_policy', { policy });
 
-describe('admin gating', () => {
+describe('instance-credential gate (hub owner or admin)', () => {
   const adminCalls: [string, unknown][] = [
     ['get_credential_policy', {}],
     ['set_credential_policy', { policy: 'user-only' }],
@@ -120,10 +120,10 @@ describe('admin gating', () => {
     ['delete_instance_credential', { name: 'ANTHROPIC_API_KEY' }],
   ];
 
-  test.each(adminCalls)('%s is 403 for a non-admin, a GitLab namesake and the token owner; 401 signed out', async (cmd, args) => {
+  test.each(adminCalls)('%s is 403 for a non-admin and a GitLab namesake, 200 for the token owner and an admin; 401 signed out', async (cmd, args) => {
     expect((await rpc(alice, cmd, args)).status).toBe(403);
     expect((await rpc('98:gitlab:root', cmd, args)).status).toBe(403);
-    expect((await rpc(OWNER, cmd, args)).status).toBe(403);
+    expect((await rpc(OWNER, cmd, args)).status).toBe(200);
     expect((await rpc(ANON, cmd, args)).status).toBe(401);
     expect((await rpc(root, cmd, args)).status).toBe(200);
   });
@@ -134,6 +134,10 @@ describe('admin gating', () => {
 
   test('the switch defaults to off', async () => {
     expect((await rpc(root, 'get_credential_policy')).body.result).toEqual({ policy: 'off' });
+  });
+
+  test('user_credentials_status marks the token owner as a manager', async () => {
+    expect((await rpc(OWNER, 'user_credentials_status')).body.result).toEqual({ enabled: false, admin: true, names: [] });
   });
 });
 

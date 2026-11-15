@@ -88,6 +88,12 @@ describe('beginRun — writing', () => {
       { skillIds: ['simplify'] },
     );
     expect(await metricOf()).toMatchObject({ skillsUsed: ['simplify'], verdict: 'pass' });
+    // A repaired stage: the earlier attempts' skills ride on the merged result; the run's skills record is the registry.
+    await beginRun(repo, 'TES-S3', TS).writeStages(
+      [{ name: 'implementer', result: { ...result, transcript, skillsUsed: ['earlier', 'gone'] } }],
+      { skills: { named: ['earlier'], available: ['simplify'] } },
+    );
+    expect((await metricOf()).skillsUsed).toEqual(['earlier', 'simplify']);
     await beginRun(repo, 'TES-S2', TS).writeStages([{ name: 'implementer', result: { ...result, transcript: 'unknown format' } }]);
     const plain = await metricOf();
     expect(plain.skillsUsed).toEqual([]);

@@ -236,9 +236,9 @@ async function injectCursor(entries: SkillEntry[], sandbox: IsolatedSandboxProvi
 export class SkillRegistry {
   constructor(private readonly skills: Record<string, string>) {}
 
-  /** Stable ids available to this run, used to validate transcript-derived telemetry. */
+  /** The ids of every installed skill. */
   ids(): string[] {
-    return Object.keys(this.skills).sort();
+    return Object.keys(this.skills);
   }
 
   /** Inject the named skills to /workspace/.vanguard/skills (explicit, targeted). */
@@ -274,6 +274,14 @@ export class SkillRegistry {
     if (families.has('cursor')) promises.push(bodyEntriesP.then((e) => injectCursor(e, sandbox)));
     await Promise.all(promises);
   }
+}
+
+/**
+ * The skills dir of a hub: SKILLS_DIR. One source for the skills the hub lists (`list_skills`) and the
+ * ones its runs load and validate against, on every transport.
+ */
+export function hubSkillsDir(env: NodeJS.ProcessEnv = process.env): string | undefined {
+  return env.SKILLS_DIR !== undefined && env.SKILLS_DIR !== '' ? env.SKILLS_DIR : undefined;
 }
 
 /** Where a target repo keeps its own skills, relative to the repo root. Merged in by skillRegistryForRun. */

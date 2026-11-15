@@ -549,6 +549,10 @@ describe('PR body', () => {
       JSON.stringify({ evt: 'run_complete', taskId: 't', ts, skillsUsed: [], verdict: 'pass', costUsd: 1 }),
     ].join('\n');
     expect(skillUpdateBody([moved('a', '')], metrics, now)).toContain('Usage, last 30 days: 1 run, 100% pass rate.');
+    const unreviewed = JSON.stringify({ evt: 'run_complete', taskId: 'u', ts, skillsUsed: ['a'], costUsd: 1 });
+    expect(skillUpdateBody([moved('a', ''), moved('b', '')], unreviewed, now)).toContain('Usage, last 30 days: 1 run, no review verdict recorded.');
+    // Records older than the window do not count.
+    expect(skillUpdateBody([moved('a', '')], metrics, now + 40 * 86_400_000)).not.toContain('Usage, last 30 days');
   });
   it('omits recent usage when the updated skill has no records', () => {
     const metrics = JSON.stringify({ evt: 'run_complete', taskId: 't', ts: '2026-11-10T00:00:00Z', skillsUsed: ['other'], costUsd: 1 });

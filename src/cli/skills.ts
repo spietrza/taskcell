@@ -14,6 +14,7 @@ import { deliverChange } from '../runners/deliver-change.js';
 import type { IsolatedSandboxProvider } from '../sandbox/provider.js';
 import { hostGitArgs } from '../worktree/host-git.js';
 import { stateDir } from '../core/state-path.js';
+import { readBranchMetrics } from '../core/metrics-branch.js';
 import { parseMetrics } from '../core/stats.js';
 import { aggregateSkills, withinWindow } from '../core/skill-stats.js';
 import type { Command } from './args.js';
@@ -392,8 +393,8 @@ function clip(text: string, max: number, what: string): string {
 function movedSection(p: SkillUpdate & { entry: SkillLockEntry; diff: LineDiff }, share: number, usage?: { runs: number; passRate?: number }): string {
   const blocks = [`### ${code(p.name)}\n\n${untrusted(oneLine(p.detail))}`, `Upstream: ${commitLink(p.entry.source, p.from)} → ${commitLink(p.entry.source, p.entry.commit)}`];
   if (usage !== undefined) {
-    const passRate = usage.passRate === undefined ? '-' : `${(usage.passRate * 100).toFixed(0)}%`;
-    blocks.push(`Usage, last 30 days: ${usage.runs} run${usage.runs === 1 ? '' : 's'}, ${passRate} pass rate.`);
+    const passRate = usage.passRate === undefined ? 'no review verdict recorded' : `${(usage.passRate * 100).toFixed(0)}% pass rate`;
+    blocks.push(`Usage, last 30 days: ${usage.runs} run${usage.runs === 1 ? '' : 's'}, ${passRate}.`);
   }
   // What is left after the heading, less the fences, labels and truncation notes below.
   let room = Math.max(0, share - blocks.join('\n\n').length - 500);
@@ -456,6 +457,18 @@ export interface SkillsUpdateOptions {
 }
 
 /**
+ * The run metrics behind the PR body's usage line: the local copy, else the one `metrics push` keeps on
+ * the metrics branch. Best effort: the line is optional, so an unreadable source means no line.
+ */
+async function recordedMetrics(repo: string): Promise<string> {
+  try {
+    return await readFile(join(stateDir(repo), 'runs', 'metrics.jsonl'), 'utf8');
+  } catch {
+    return readBranchMetrics(repo).catch(() => '');
+  }
+}
+
+/**
  * Update pinned skills in place, print only (--dry-run), or deliver as a PR (--pr). With both --pr and
  * --dry-run the plan is made against the base branch, as the PR would be, and nothing is committed,
  * pushed or opened.
@@ -491,12 +504,7 @@ async function skillsUpdatePr(opts: SkillsUpdateOptions, deps: SkillsDeps, out: 
     printPlans(plans, out);
     const moved = plans.filter((p) => p.entry !== undefined);
     if (moved.length === 0 || opts.dryRun) return;
-    let metricsText = '';
-    try {
-      metricsText = await readFile(join(stateDir(opts.repo), 'runs', 'metrics.jsonl'), 'utf8');
-    } catch (error) {
-      if ((error as NodeJS.ErrnoException).code !== 'ENOENT') throw error;
-    }
+    const metricsText = await recordedMetrics(opts.repo);
     await applySkillUpdates(wtDir, plans);
     const title = `chore(skills): update ${moved.map((p) => p.name).join(', ')}`.slice(0, 100);
     const result = await deliverChange(ctx, {

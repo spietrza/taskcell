@@ -39,8 +39,9 @@ export function withinWindow(records: readonly MetricRecord[], windowMs: number 
 }
 
 /**
- * Group stage records into runs by `taskId|ts`; a record without `ts` is its own run (as lessons-stats does). A run none of whose records
- * carry `skillsUsed` predates the field: its skills are unknown, so it is left out, not counted as "without".
+ * Group stage records into runs by `taskId|ts`; a record without `ts` is its own run (as lessons-stats
+ * does). A run none of whose records carry `skillsUsed` (recorded before the field, or its transcript
+ * was withheld) has unknown skills, so it is left out, not counted as "without".
  */
 function summarize(records: readonly MetricRecord[]): RunSummary[] {
   const runs = new Map<string, RunSummary & { known: boolean }>();

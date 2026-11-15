@@ -1,19 +1,19 @@
 import type { RunLocationId, TaskSourceId } from './wire';
 
 /** Per-project factory setup: where tasks come from and where work runs (docs/task-sources.md). */
-/** `planned` = nothing reads it yet (no board, no task creation, no runner): Settings lists it but does not let it be picked. */
+/** `planned` = nothing reads it yet (no board, no task creation, no runner): Settings lists it but does not let it be picked. None is today. */
 export const TASK_SOURCES: { id: TaskSourceId; label: string; planned?: true }[] = [
   { id: 'github', label: 'GitHub Issues' },
   { id: 'github-project', label: 'GitHub Projects' },
   { id: 'gitlab', label: 'GitLab Issues' },
   { id: 'linear', label: 'Linear' },
-  { id: 'hub', label: 'Hub board', planned: true },
+  { id: 'hub', label: 'Hub board' },
 ];
 
 /** `implemented` = Enable factory can set it up from the hub; the rest link to where it is tracked. */
 export const RUN_LOCATIONS: { id: RunLocationId; label: string; implemented: boolean; trackingUrl?: string }[] = [
   { id: 'github-actions', label: 'GitHub Actions', implemented: true },
-  { id: 'gitlab-ci', label: 'GitLab CI', implemented: false, trackingUrl: 'https://github.com/spietrza/taskcell/issues/911' },
+  { id: 'gitlab-ci', label: 'GitLab CI', implemented: true },
   { id: 'watch', label: 'Self-hosted (watch)', implemented: false, trackingUrl: 'https://github.com/spietrza/taskcell/issues/912' },
   { id: 'local', label: 'Local hub', implemented: false, trackingUrl: 'https://github.com/spietrza/taskcell/issues/913' },
 ];

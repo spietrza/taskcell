@@ -138,6 +138,7 @@ describe('stats --skills', () => {
   });
 
   it('rejects a malformed --since before reading metrics', () => {
+    vi.mocked(readBranchMetrics).mockClear();
     expect(parseCli(['stats', '--skills', '--branch', 'm', '--since', 'soon'], '/work')).toMatchObject({ kind: 'error' });
     expect(readBranchMetrics).not.toHaveBeenCalled();
   });

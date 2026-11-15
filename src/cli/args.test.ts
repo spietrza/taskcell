@@ -884,13 +884,43 @@ describe('parseCli', () => {
     }
   });
 
-  it('decides --skills by the parsed command, not by a stats token in argv', () => {
-    expect(parseCli(['run', '--linear', 'TES-1', '--skills', './dir'], '/work')).toMatchObject({ kind: 'run', skillsDir: './dir' });
-    expect(parseCli(['run', '--linear', 'TES-1', '--skills', '-'], '/work')).toMatchObject({ kind: 'run', skillsDir: '-' });
-    expect(parseCli(['watch', '--label', 'x', '--skills', './dir'], '/work')).toMatchObject({ kind: 'watch', skillsDir: './dir' });
-    expect(parseCli(['watch', '--label', 'x', '--skills', '-'], '/work')).toMatchObject({ kind: 'watch', skillsDir: '-' });
-    expect(parseCli(['watch', '--label', 'stats', '--skills', './skills'], '/work')).toMatchObject({ kind: 'watch', skillsDir: './skills' });
-    expect(parseCli(['watch', '--label', 'x', '--skills', 'stats'], '/work')).toMatchObject({ kind: 'watch', skillsDir: 'stats' });
+  // Expected values are what main's parseCli returns for the same argv: `--skills` is a boolean only when
+  // the parsed command is `stats`, so nothing else changes.
+  it.each<[string[], Record<string, unknown>]>([
+    [['run', '--linear', 'TES-1', '--skills', './dir'], { kind: 'run', skillsDir: './dir' }],
+    [['run', '--linear', 'TES-1', '--skills', '-'], { kind: 'run', skillsDir: '-' }],
+    [['run', '--linear', 'TES-1', '--skills', 'stats'], { kind: 'run', skillsDir: 'stats' }],
+    [['run', '--linear', 'TES-1', '--skills=stats'], { kind: 'run', skillsDir: 'stats' }],
+    [['run', '--linear', 'TES-1', '--skills', './skills', '--repo', 'stats'], { kind: 'run', skillsDir: './skills', repoPath: 'stats' }],
+    [['--skills', 'stats', 'run', '--linear', 'TES-1'], { kind: 'run', skillsDir: 'stats' }],
+    [['--skills', './dir', 'run', '--linear', 'TES-1'], { kind: 'run', skillsDir: './dir' }],
+    [['--skills', '-', 'watch', '--label', 'x'], { kind: 'watch', skillsDir: '-', label: 'x' }],
+    [['watch', '--label', 'x', '--skills', './dir'], { kind: 'watch', skillsDir: './dir', label: 'x' }],
+    [['watch', '--label', 'x', '--skills', '-'], { kind: 'watch', skillsDir: '-', label: 'x' }],
+    [['watch', '--label', 'x', '--skills', 'stats'], { kind: 'watch', skillsDir: 'stats', label: 'x' }],
+    [['watch', '--label', 'stats', '--skills', './skills'], { kind: 'watch', skillsDir: './skills', label: 'stats' }],
+    [['watch', '--skills'], { kind: 'help' }],
+    [['watch', '--skills', '--json'], { kind: 'help' }],
+    [['watch', '--skills', '-x'], { kind: 'help' }],
+    [['watch', '--skills', '--', 'x'], { kind: 'help' }],
+    [['watch-prs', '--skills', 'stats'], { kind: 'error', message: 'watch-prs requires --github-repo <owner/repo> and --label <name>.' }],
+    [['review-pr', '1', '--skills', 'stats'], { kind: 'review-pr', prRef: '1', repoPath: '/work', skillsDir: 'stats', egress: false }],
+    [['doctor', '--skills', 'stats'], { kind: 'error', message: 'doctor --source linear requires --label <name>.' }],
+    [['skills', 'list', '--skills', 'stats'], { kind: 'skills', action: 'list', dir: '/work/skills', strict: false }],
+    [['skills', 'update', '--pr', '--skills', './dir'], { kind: 'skills', action: 'update', dir: '/work/skills', pr: true }],
+    [['--pr', 'skills', 'update', '--skills', 'stats'], { kind: 'skills', action: 'update', dir: '/work/skills', pr: true }],
+    [['gc', '--skills', 'stats'], { kind: 'gc', repoPath: '/work' }],
+    [['--skills', 'stats'], { kind: 'help' }],
+    [['gc', '--skill-stats'], { kind: 'help' }],
+    [['stats'], { kind: 'stats', repoPath: '/work', json: false, approver: false }],
+    [['stats', 'extra'], { kind: 'stats', repoPath: '/work', json: false, approver: false }],
+    [['stats', '--branch', 'stats'], { kind: 'stats', repoPath: '/work', json: false, approver: false, branch: 'stats' }],
+    [['--repo', 'stats', 'stats'], { kind: 'stats', repoPath: 'stats', json: false, approver: false }],
+  ])('parses %j as main does', (argv, expected) => {
+    const parsed = parseCli(argv, '/work');
+    expect(parsed).toMatchObject(expected);
+    if (parsed.kind === 'stats') expect(parsed).toEqual(expected);
+    if (!('skillsDir' in expected)) expect(parsed).not.toHaveProperty('skillsDir');
   });
 
   it('rejects a malformed stats --since during argument parsing', () => {

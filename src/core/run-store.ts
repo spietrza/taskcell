@@ -339,6 +339,16 @@ export async function readRunRecords(root: string, taskId: string, timestamp: st
 // Writing
 // ---------------------------------------------------------------------------
 
+/** The skills of a run: the ones named by hand that it loaded, and the other installed ones the agent could pick from. */
+export interface RunSkills {
+  /** Named by hand (`Skills:` line, `--skill`, the hub) and loaded. Empty when the provider reads no skills. */
+  named: string[];
+  /** The other installed skills, available to the automatic selection. Not a list of what the agent used. */
+  available: string[];
+  /** What the run summary says about the hand-picked list: an ignored `Skills:` line, a provider that reads no skills. */
+  notes?: string[];
+}
+
 export interface WriteStagesOptions {
   /** The PR opened for this run, if any. */
   prUrl?: string;
@@ -363,7 +373,8 @@ export interface WriteStagesOptions {
   omitDiff?: boolean;
   /** Ids of the lessons injected into the run's prompts, recorded on every stage. */
   lessonIds?: readonly string[];
-  /** Ids in the registry injected for this run; transcript claims outside it are discarded. */
+  skills?: RunSkills;
+  /** Ids of the installed skills, for a run that passes no `skills`; `skillsUsed` keeps only installed ids. */
   skillIds?: readonly string[];
 }
 
@@ -398,6 +409,7 @@ interface WriteRecordOptions {
   credentialSource?: 'instance' | 'user';
   startedBy?: string;
   lessonIds?: readonly string[];
+  skills?: RunSkills;
   skillIds?: readonly string[];
 }
 
@@ -414,6 +426,8 @@ async function writeRecord(repoPath: string, taskId: string, timestamp: string, 
   const taskDir = await ensureStateDir(repoPath, join(root, taskId));
 
   const { diff, transcript, skillsUsed: priorSkillsUsed, ...meta } = result;
+  // The skills installed for the run; a transcript's claim of any other id is discarded.
+  const installedSkillIds = opts.skillIds ?? (opts.skills !== undefined ? [...opts.skills.named, ...opts.skills.available] : undefined);
   // Why the diff (and bundle) are withheld, recorded on run.json so the hub and a human can tell
   // "withheld" from "no diff" or "bundle creation failed":
   //  - 'secret-blocked': the caller's publish gate fired (opts.omitDiff).
@@ -460,6 +474,7 @@ async function writeRecord(repoPath: string, taskId: string, timestamp: string, 
     ...(diffOmitted !== undefined ? { diffOmitted } : {}),
     ...(opts.startedBy !== undefined ? { startedBy: opts.startedBy } : {}),
     ...(opts.lessonIds !== undefined && opts.lessonIds.length > 0 ? { lessonIds: [...opts.lessonIds] } : {}),
+    ...(opts.skills !== undefined ? { skills: opts.skills } : {}),
   };
   const suffix = opts.label !== undefined ? `-${opts.label}` : '';
   const base = join(taskDir, `${sanitizeTimestamp(timestamp)}${suffix}`);
@@ -506,7 +521,7 @@ async function writeRecord(repoPath: string, taskId: string, timestamp: string, 
     // Parsed on the host from every folded attempt. A withheld transcript is unknown, so omit the
     // field; an available but unrecognised transcript is the known empty list. `verdict` feeds stats.
     ...(diffOmitted === undefined
-      ? { skillsUsed: sanitizeSkillIds([...(priorSkillsUsed ?? []), ...parseSkillsUsed(transcript)], opts.skillIds).map((id) => redactForPublish(id, opts.secretValues)) }
+      ? { skillsUsed: sanitizeSkillIds([...(priorSkillsUsed ?? []), ...parseSkillsUsed(transcript)], installedSkillIds).map((id) => redactForPublish(id, opts.secretValues)) }
       : {}),
     ...(review !== undefined ? { verdict: review.verdict } : {}),
     // Implement/revise runs pass their lesson ids (possibly none): how many the run loaded, 0 when none.
@@ -554,12 +569,13 @@ export function beginRun(
           ...(opts.credentialSource !== undefined ? { credentialSource: opts.credentialSource } : {}),
           ...(runOpts.startedBy !== undefined ? { startedBy: runOpts.startedBy } : {}),
           ...(opts.lessonIds !== undefined ? { lessonIds: opts.lessonIds } : {}),
+          ...(opts.skills !== undefined ? { skills: opts.skills } : {}),
           ...(opts.skillIds !== undefined ? { skillIds: opts.skillIds } : {}),
         });
       }
       const first = outcomes[0];
       if (first === undefined) return;
-      const { omitDiff: _omitDiff, baseBranch: _baseBranch, lessonIds: _lessonIds, skillIds: _skillIds, ...trace } = opts;
+      const { omitDiff: _omitDiff, baseBranch: _baseBranch, lessonIds: _lessonIds, skills: _skills, skillIds: _skillIds, ...trace } = opts;
       await exportRunTrace({
         taskId,
         timestamp,
