@@ -39,6 +39,9 @@ import {
   buildCodexAuthJson,
   CODEX_CLIENT_ID,
   CODEX_REFRESH_PATH,
+  REFRESH_REFUSED_PREFIX,
+  REFRESH_FAILED_PREFIX,
+  REFRESH_RECOVERED,
 } from './llm-proxy-rewrite.mjs';
 
 const MAX_BODY_BYTES = 32 * 1024 * 1024; // 32 MiB
@@ -62,6 +65,7 @@ const DEFAULT_CREDENTIAL_DIR = '/run/vanguard-llm';
 // path) are placed into HTTP headers, JSON bodies or syscalls; reject control chars up front to
 // prevent header/JSON/path injection.
 const CONTROL_CHARS = /[\x00-\x1f\x7f]/;
+const IDP_RESPONSE_TOO_LARGE = 'idp response exceeds the size cap';
 
 function parseSecretFile(text) {
   const out = {};
@@ -161,7 +165,7 @@ async function readCappedResponse(response, maxBytes) {
     total += value.byteLength;
     if (total > maxBytes) {
       await reader.cancel().catch(() => {});
-      throw new Error('idp response exceeds the size cap');
+      throw new Error(IDP_RESPONSE_TOO_LARGE);
     }
     chunks.push(value);
   }
@@ -226,6 +230,8 @@ export function createLlmProxyServer(secretText, options = {}) {
   let floorTimer;
   let pendingRefresh;
   let refreshAttempts = 0;
+  let lastRefusal; // the last IdP refusal, replayed while backing off
+  let failureLogged = false; // a failed IdP exchange was logged and no refresh has succeeded since
   let consecutiveFailures = 0;
   let backoffUntil = 0;
   let refreshCount = 0;
@@ -248,9 +254,9 @@ export function createLlmProxyServer(secretText, options = {}) {
     console.log(`${req.method} ${path} -> ${status} (${size}${ms}ms)`);
   }
 
-  /** Writes the sidecar's own copy of the rotated real chatgpt credential — the host-side
-   *  persistence part 2's launcher reads back on the next run so a logged-in session survives past
-   *  this one container's lifetime. Real access/refresh tokens plus a loadable synthetic id_token.
+  /** Writes the sidecar's own copy of the rotated real chatgpt credential — what the host launcher
+   *  reads back at teardown (startLlmProxy's destroy) so a logged-in session survives past this one
+   *  container's lifetime. Real access/refresh tokens plus a loadable synthetic id_token.
    *  Written to a sibling temp file, chmod'd 0600 explicitly (the `mode:` option is masked by umask
    *  and ignored for an existing file) and renamed into place, so a crash mid-write can never leave
    *  a truncated — or briefly world-readable — credential behind. AUTH_FILE was validated at boot to
@@ -264,36 +270,104 @@ export function createLlmProxyServer(secretText, options = {}) {
     renameSync(tmpFile, chatgptState.authFile);
   }
 
+  /** A failure whose message is a fixed string of ours — the only kind that may reach the cell or the
+   *  log. Anything else (JSON.parse/fetch errors) can quote the IdP's response, which holds real tokens. */
+  const safeError = (message, extra = {}) => Object.assign(new Error(message), { safe: true }, extra);
+
+  /** The OAuth codes that mean the refresh token itself is dead, each with our own fixed wording. */
+  const REFUSALS = {
+    invalid_grant: 'the refresh token is no longer valid',
+    refresh_token_reused: 'the refresh token was already used (another run or a newer sign-in rotated it)',
+    refresh_token_expired: 'the refresh token has expired',
+    refresh_token_invalidated: 'the refresh token was revoked',
+  };
+
+  /** Classifies a 400/401/403 body: a known OAuth refusal → its code and our fixed reason; anything
+   *  else (a WAF page, `invalid_request`, ...) → undefined, which is not a refusal. Nothing the IdP
+   *  wrote is relayed — the body only selects between fixed strings. */
+  function idpRefusal(text) {
+    let code;
+    try {
+      const e = JSON.parse(text)?.error;
+      code = typeof e === 'string' ? e : e?.code;
+    } catch {
+      return undefined;
+    }
+    if (typeof code !== 'string') return undefined;
+    if (Object.hasOwn(REFUSALS, code)) return { code, reason: REFUSALS[code] };
+    return code.startsWith('refresh_token_') ? { code: 'refresh_token_refused', reason: 'the refresh token was refused' } : undefined;
+  }
+
+  /** What a failed refresh means for the cell. Only a known IdP refusal is a 401 that says to sign in
+   *  again; anything else keeps the 502 with a fixed cause. */
+  function refreshFailure(error) {
+    const refused = error?.refused;
+    if (refused !== undefined) {
+      return { status: 401, code: refused.code, message: `the ChatGPT sign-in was refused: ${refused.reason}. Sign in again (codex login) and re-run.` };
+    }
+    const cause = error?.safe === true ? error.message : 'unexpected error';
+    return { status: 502, code: 'refresh_failed', message: `the ChatGPT token refresh failed (${cause}); retry the run` };
+  }
+
+  /** Tell the cell (its CLI prints this) why a refresh failed. Not logged here: only a real IdP
+   *  exchange is (refreshFromIdp), so replies replayed inside the backoff/cap cannot grow the log. */
+  function failRefresh(req, res, started, error) {
+    const { status, code, message } = refreshFailure(error);
+    const json = JSON.stringify({ error: { code, message } });
+    res.writeHead(status, { 'content-type': 'application/json' });
+    res.end(json);
+    log(req, status, Buffer.byteLength(json), started);
+  }
+
   async function callIdp(path, body) {
-    const res = await fetch(`${idpBaseUrl}${path}`, {
-      method: 'POST',
-      headers: { 'content-type': 'application/json' },
-      body: JSON.stringify(body),
-      signal: AbortSignal.timeout(IDP_TIMEOUT_MS),
-      // Never follow a redirect: the real refresh token is in the request body, so a 30x (even to a
-      // same-looking host) must never cause it to be re-sent to wherever that redirect points.
-      // `fetch` throws on a redirect response instead of following it.
-      redirect: 'error',
-    });
-    const text = await readCappedResponse(res, MAX_IDP_RESPONSE_BYTES);
-    return { ok: res.ok, text };
+    try {
+      const res = await fetch(`${idpBaseUrl}${path}`, {
+        method: 'POST',
+        headers: { 'content-type': 'application/json' },
+        body: JSON.stringify(body),
+        signal: AbortSignal.timeout(IDP_TIMEOUT_MS),
+        // Never follow a redirect: the real refresh token is in the request body, so a 30x (even to a
+        // same-looking host) must never cause it to be re-sent to wherever that redirect points.
+        // `fetch` throws on a redirect response instead of following it.
+        redirect: 'error',
+      });
+      const text = await readCappedResponse(res, MAX_IDP_RESPONSE_BYTES);
+      return { ok: res.ok, status: res.status, text };
+    } catch (error) {
+      // Name the cause with fixed strings only (a fetch error can quote the URL or the response).
+      if (error?.name === 'TimeoutError') throw safeError('the IdP did not answer in time');
+      if (error?.message === IDP_RESPONSE_TOO_LARGE) throw safeError(IDP_RESPONSE_TOO_LARGE);
+      throw safeError('the IdP could not be reached, or it answered with a redirect');
+    }
   }
 
   /** The actual refresh exchange against the real IdP: the ONLY place the real refresh token is ever
    *  presented to auth.openai.com. Rotates + persists the result, then arms the floor timer. */
   async function doRefresh() {
-    const { ok, text } = await callIdp(CODEX_REFRESH_PATH, {
+    const { ok, status, text } = await callIdp(CODEX_REFRESH_PATH, {
       grant_type: 'refresh_token',
       refresh_token: chatgptState.refreshToken,
       client_id: CODEX_CLIENT_ID,
     });
-    if (!ok) throw new Error('idp refresh failed');
-    const parsed = JSON.parse(text);
+    if (!ok) {
+      // Only a 400/401/403 whose body is a known OAuth refusal ("refresh token was already used", ...)
+      // means the credential is dead. Anything else (429, 408, 5xx, a WAF 403, `invalid_request`) may
+      // pass and must not tell the user to sign in again.
+      const refused = status === 400 || status === 401 || status === 403 ? idpRefusal(text) : undefined;
+      if (refused === undefined) throw safeError(`idp answered HTTP ${status}`);
+      throw safeError('idp refresh refused', { refused });
+    }
+    let parsed;
+    try {
+      parsed = JSON.parse(text);
+    } catch {
+      throw safeError('invalid idp refresh response');
+    }
     if (parsed === null || typeof parsed !== 'object' || Array.isArray(parsed) ||
         typeof parsed.access_token !== 'string' || !parsed.access_token || CONTROL_CHARS.test(parsed.access_token) ||
         (parsed.refresh_token !== undefined &&
           (typeof parsed.refresh_token !== 'string' || !parsed.refresh_token || CONTROL_CHARS.test(parsed.refresh_token)))) {
-      throw new Error('invalid idp refresh response');
+      throw safeError('invalid idp refresh response');
     }
     const rotated = parsed.refresh_token !== undefined && parsed.refresh_token !== chatgptState.refreshToken;
     chatgptState.accessToken = parsed.access_token;
@@ -331,19 +405,30 @@ export function createLlmProxyServer(secretText, options = {}) {
     if (cachedRefresh !== undefined) return Promise.resolve(cachedRefresh);
     if (pendingRefresh !== undefined) return pendingRefresh;
     if (refreshAttempts >= maxRefreshesPerRun) {
-      return Promise.reject(new Error('idp refresh cap reached for this run'));
+      return Promise.reject(lastRefusal ?? safeError('idp refresh cap reached for this run'));
     }
     if (Date.now() < backoffUntil) {
-      return Promise.reject(new Error('idp refresh backoff in effect after a prior failure'));
+      return Promise.reject(lastRefusal ?? safeError('idp refresh backoff in effect after a prior failure'));
     }
     refreshAttempts += 1;
     pendingRefresh = doRefresh()
       .then((payload) => {
+        // The host drops the failures logged before this line: the run got its token after all.
+        if (failureLogged) console.error(REFRESH_RECOVERED);
+        failureLogged = false;
         consecutiveFailures = 0;
         backoffUntil = 0;
+        lastRefusal = undefined;
         return payload;
       })
       .catch((error) => {
+        // One line per real exchange (at most maxRefreshesPerRun): a refusal is an error, anything else
+        // may pass and is a warning.
+        const { status, message } = refreshFailure(error);
+        console.error(`${status === 401 ? REFRESH_REFUSED_PREFIX : REFRESH_FAILED_PREFIX}${message}`);
+        failureLogged = true;
+        // A refused token stays refused: later calls inside the backoff/cap get this same answer.
+        lastRefusal = error?.refused !== undefined ? error : undefined;
         consecutiveFailures += 1;
         const backoffMs = Math.min(refreshBackoffBaseMs * 2 ** (consecutiveFailures - 1), refreshBackoffMaxMs);
         backoffUntil = Date.now() + backoffMs;
@@ -401,8 +486,8 @@ export function createLlmProxyServer(secretText, options = {}) {
       res.writeHead(200, { 'content-type': 'application/json' });
       res.end(json);
       log(req, 200, Buffer.byteLength(json), started);
-    } catch {
-      finish(req, res, 502, started);
+    } catch (error) {
+      failRefresh(req, res, started, error);
     }
   }
 
