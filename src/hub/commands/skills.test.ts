@@ -10,7 +10,7 @@ const cli = vi.hoisted(() => ({
   skillsRemovePr: vi.fn(),
   recordedMetrics: vi.fn(async () => ''),
 }));
-vi.mock('../../cli/skills.js', () => cli);
+vi.mock('../../core/skills.js', () => cli);
 
 const outsider: typeof OWNER = { user: { id: 'u2', email: 'u2@x.test', name: 'Member' }, owner: false };
 const PR = 'https://github.com/o/r/pull/9';
@@ -51,7 +51,7 @@ test('only allowlisted projects are covered', async () => {
 test('update_skill_pr always asks for a PR and never a dry run, and returns its URL', async () => {
   const repo = await tmpGitRepo('https://github.com/allowed/repo.git');
   const { ctx } = await makeCtx(repo);
-  cli.skillsUpdate.mockImplementation(async (_o: unknown, _d: unknown, out: (l: string) => void) => out(`opened ${PR}`));
+  cli.skillsUpdate.mockImplementation(async () => ({ prUrl: PR }));
   expect(await dispatchRpc(ctx, 'update_skill_pr', { repoPath: repo, name: 'a', pr: false })).toEqual({ prUrl: PR });
   expect(cli.skillsUpdate).toHaveBeenCalledWith(expect.objectContaining({ name: 'a', pr: true, dryRun: false }), {}, expect.any(Function));
 });
@@ -59,15 +59,18 @@ test('update_skill_pr always asks for a PR and never a dry run, and returns its 
 test('an update that opens no PR is an error, not a silent success', async () => {
   const repo = await tmpGitRepo('https://github.com/allowed/repo.git');
   const { ctx } = await makeCtx(repo);
-  cli.skillsUpdate.mockImplementation(async (_o: unknown, _d: unknown, out: (l: string) => void) => out('a\tcurrent'));
-  await expect(dispatchRpc(ctx, 'update_skill_pr', { repoPath: repo, name: 'a' })).rejects.toThrow('opened no pull request');
+  cli.skillsUpdate.mockImplementation(async (_o: unknown, _d: unknown, out: (l: string) => void) => {
+    out('a\tmodified locally → skipped');
+    return {};
+  });
+  await expect(dispatchRpc(ctx, 'update_skill_pr', { repoPath: repo, name: 'a' })).rejects.toThrow('opened no pull request: a\tmodified locally → skipped');
 });
 
 test('add and remove open a PR and show its link; a failed add carries the command reason', async () => {
   const repo = await tmpGitRepo('https://github.com/allowed/repo.git');
   const { ctx } = await makeCtx(repo);
-  cli.skillsAddPr.mockImplementation(async (_o: unknown, _d: unknown, out: (l: string) => void) => out(`opened ${PR}`));
-  cli.skillsRemovePr.mockImplementation(async (_o: unknown, _d: unknown, out: (l: string) => void) => out(`opened ${PR}`));
+  cli.skillsAddPr.mockImplementation(async () => ({ prUrl: PR }));
+  cli.skillsRemovePr.mockImplementation(async () => ({ prUrl: PR }));
   expect(await dispatchRpc(ctx, 'add_skill_pr', { repoPath: repo, source: 'https://github.com/o/s' })).toEqual({ prUrl: PR });
   expect(await dispatchRpc(ctx, 'remove_skill_pr', { repoPath: repo, name: 'a' })).toEqual({ prUrl: PR });
   const { TaskcellError } = await import('../../core/errors.js');
