@@ -11,6 +11,7 @@ import { execa } from 'execa';
 import { mkdir, readFile, writeFile } from 'node:fs/promises';
 import { basename, join } from 'node:path';
 import { BadRequestError } from '../sidecar/sidecar.js';
+import { readEnv } from '../core/env.js';
 import { REVIEW_TRIGGER_LABEL, labelForms } from '../core/labels.js';
 import { packageManagerOf, resolveVerifyCommand } from '../pipeline/verify.js';
 import { listRemoteRuns } from './remote.js';
@@ -43,6 +44,16 @@ const TEMPLATES_DIR = new URL('../../templates/github/', import.meta.url);
 
 /** Placeholder every template carries; `apply` replaces it with the signed-in gh login. */
 const LOGIN_PLACEHOLDER = 'YOUR_LOGIN';
+
+/** The revise gate's optional App-bot author entry: filled from TASKCELL_APP_SLUG, dropped when unset/invalid. */
+const APP_BOT_ENTRY = ',"YOUR_APP_SLUG[bot]"';
+const APP_SLUG_PATTERN = /^[a-z0-9][a-z0-9-]*$/;
+
+/** Fill a caller template's placeholders: the gh login, and the App bot entry (kept only for a valid slug). */
+export function fillCaller(raw: string, login: string, appSlug: string | undefined): string {
+  const bot = appSlug !== undefined && APP_SLUG_PATTERN.test(appSlug) ? `,"${appSlug}[bot]"` : '';
+  return raw.replaceAll(APP_BOT_ENTRY, bot).replaceAll(LOGIN_PLACEHOLDER, login);
+}
 
 /** Injectable shell-out, defaulting to the real `execa` — tests pass a fake (no network, no git). */
 export interface FactoryExec {
@@ -240,7 +251,7 @@ export async function applyGithubFactory(repoPath: string, plan: FactoryPlan, de
     for (const name of CALLER_NAMES) {
       if (existing.has(name)) continue;
       const templateRaw = await readFile(new URL(`${name}.yml`, TEMPLATES_DIR), 'utf8');
-      const content = templateRaw.split(LOGIN_PLACEHOLDER).join(plan.login);
+      const content = fillCaller(templateRaw, plan.login, readEnv('TASKCELL_APP_SLUG'));
       await writeFile(join(workflowsDir, workflowFileName(name)), content);
       written.push(workflowPath(workflowFileName(name)));
     }

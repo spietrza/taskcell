@@ -13,7 +13,7 @@
     { "id": "spec", "type": "frontend", "label": "ready for spec", "sublabel": "issue: plan, then build", "pos": [36, 148], "size": [190, 52] },
     { "id": "agent", "type": "frontend", "label": "ready for agent", "sublabel": "issue: build it", "pos": [36, 236], "size": [190, 52] },
     { "id": "revision", "type": "frontend", "label": "needs revision", "sublabel": "PR: opened by Taskcell", "pos": [36, 340], "size": [190, 52] },
-    { "id": "vreview", "type": "frontend", "label": "ready for vanguard review", "sublabel": "PR: any; auto if ready", "pos": [36, 428], "size": [190, 52] },
+    { "id": "vreview", "type": "frontend", "label": "ready for taskcell review", "sublabel": "PR: any; old name still accepted", "pos": [36, 428], "size": [190, 52] },
     { "id": "researching", "type": "backend", "label": "vanguard:researching", "sublabel": "posts findings, rests", "pos": [266, 60], "size": [190, 52] },
     { "id": "speccing", "type": "backend", "label": "vanguard:speccing", "sublabel": "writes the tech spec", "pos": [266, 148], "size": [190, 52] },
     { "id": "running", "type": "backend", "label": "vanguard:running", "sublabel": "builds in the sandbox", "pos": [266, 236], "size": [190, 52] },
