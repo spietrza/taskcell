@@ -1,8 +1,10 @@
 // The hub board's own tasks (project `taskSource: hub`). The store is the hub's, not the repository's: one JSON file
-// per project under `<configDir>/hub-tasks/`, so nothing a checkout commits can add a task, change one or redirect a
-// write. Dependencies and the start date are plain fields here; src/hub/schedule.ts decides what may start.
+// per project under `<configDir>/hub-tasks/`, plus a journal of the edits since that file was last written, so nothing
+// a checkout commits can add a task, change one or redirect a write, and one edit appends a line instead of rewriting a
+// large file. Dependencies and the start date are plain fields here; src/hub/schedule.ts decides what may start.
 import { createHash, randomUUID } from 'node:crypto';
-import { appendFile, lstat, mkdir, open, readFile, readdir, rename, rm, writeFile } from 'node:fs/promises';
+import { constants } from 'node:fs';
+import { lstat, mkdir, open, readFile, readdir, rename, rm, writeFile } from 'node:fs/promises';
 import { dirname, join } from 'node:path';
 import { BadRequestError } from '../sidecar/sidecar.js';
 import { keyedLock } from '../core/keyed-lock.js';
@@ -42,13 +44,17 @@ export const HUB_TASK_ID = /^hub-[1-9]\d{0,8}$/;
 export const MAX_TITLE_LENGTH = 300;
 export const MAX_BODY_LENGTH = 64 * 1024;
 export const MAX_BLOCKED_BY = 50;
-/** Tasks one project's board holds; the whole file is rewritten on every change (archive or delete done tasks to make room). */
+/** Tasks one project's board holds (archive or delete done tasks to make room). */
 export const MAX_TASKS = 1000;
 
 const STATUSES: readonly string[] = ['todo', 'running', 'done', 'failed'];
 const storeDir = (configDir: string): string => join(configDir, 'hub-tasks');
 /** Archived tasks, one JSON line each, appended: never read by the scheduler and never rewritten (not `.json`, so not a board). */
 const archiveFor = (file: string): string => `${file.slice(0, -'.json'.length)}.archive.jsonl`;
+/** Edits since the store was last written whole, one JSON line each (not `.json`, so not a board); folded in on read. */
+const journalFor = (file: string): string => `${file.slice(0, -'.json'.length)}.journal.jsonl`;
+/** The journal is folded into the store once it outgrows the store (and this floor): writes stay small on average. */
+const COMPACT_FLOOR = 64 * 1024;
 /** One file, and one write lock, per repository path: callers pass the realpath the allowlist resolved. */
 const fileFor = (configDir: string, repoPath: string): string => join(storeDir(configDir), `${createHash('sha256').update(repoPath).digest('hex').slice(0, 32)}.json`);
 
@@ -82,7 +88,14 @@ interface Store {
   invalid: unknown[];
   /** The highest task number ever issued, so an id removed from the board is never reused. */
   lastId: number;
+  /** Bytes of the store file (undefined: none yet) and of its journal; a torn journal ends in a line cut short by a crash. */
+  size: number | undefined;
+  journal: number;
+  torn: boolean;
 }
+
+/** One journal line: a task as it now is, or the id of a task taken off the board. */
+type JournalEntry = { set: HubTask } | { remove: string };
 
 function isTask(r: unknown, seen: Set<string>): r is HubTask {
   if (typeof r !== 'object' || r === null) return false;
@@ -99,33 +112,80 @@ function isTask(r: unknown, seen: Set<string>): r is HubTask {
  * Strict read: a missing file is an empty board; a file that exists but cannot be read or parsed throws, so no later
  * save replaces it (the `readAppConfigStrict` rule).
  */
-async function read(file: string): Promise<Store> {
-  let raw: string;
+async function readOptional(file: string): Promise<string | undefined> {
   try {
     if ((await lstat(file)).isSymbolicLink()) throw new Error('it is a symlink');
-    raw = await readFile(file, 'utf8');
+    return await readFile(file, 'utf8');
   } catch (e) {
-    if ((e as NodeJS.ErrnoException).code === 'ENOENT') return { tasks: [], invalid: [], lastId: 0 };
+    if ((e as NodeJS.ErrnoException).code === 'ENOENT') return undefined;
     throw new BadRequestError(`the hub task store ${file} is unreadable: ${String(e)}`);
   }
-  let parsed: unknown;
-  try {
-    parsed = JSON.parse(raw);
-  } catch (e) {
-    throw new BadRequestError(`the hub task store ${file} is unreadable: ${String(e)}`);
+}
+
+const idNumber = (id: string): number => Number(id.slice(4));
+
+async function read(file: string): Promise<Store> {
+  const raw = await readOptional(file);
+  const store: Store = { tasks: [], invalid: [], lastId: 0, size: raw === undefined ? undefined : Buffer.byteLength(raw), journal: 0, torn: false };
+  if (raw !== undefined) {
+    let parsed: unknown;
+    try {
+      parsed = JSON.parse(raw);
+    } catch (e) {
+      throw new BadRequestError(`the hub task store ${file} is unreadable: ${String(e)}`);
+    }
+    const entries = (parsed as { tasks?: unknown } | null)?.tasks;
+    if (!Array.isArray(entries)) throw new BadRequestError(`the hub task store ${file} is unreadable: it holds no "tasks" list`);
+    const lastId = (parsed as { lastId?: unknown }).lastId;
+    if (typeof lastId === 'number' && Number.isInteger(lastId) && lastId > 0) store.lastId = lastId;
+    const seen = new Set<string>();
+    for (const r of entries as unknown[]) {
+      if (isTask(r, seen)) {
+        seen.add(r.id);
+        store.tasks.push(r);
+      } else store.invalid.push(r);
+    }
   }
-  const entries = (parsed as { tasks?: unknown } | null)?.tasks;
-  if (!Array.isArray(entries)) throw new BadRequestError(`the hub task store ${file} is unreadable: it holds no "tasks" list`);
-  const lastId = (parsed as { lastId?: unknown }).lastId;
-  const store: Store = { tasks: [], invalid: [], lastId: typeof lastId === 'number' && Number.isInteger(lastId) && lastId > 0 ? lastId : 0 };
-  const seen = new Set<string>();
-  for (const r of entries as unknown[]) {
-    if (isTask(r, seen)) {
-      seen.add(r.id);
-      store.tasks.push(r);
-    } else store.invalid.push(r);
+  const journalFile = journalFor(file);
+  const journal = await readOptional(journalFile);
+  if (journal === undefined) return store;
+  store.journal = Buffer.byteLength(journal);
+  const lines = journal.split('\n');
+  // The last piece is '' after a complete line; anything else is an append a crash cut short, and is dropped.
+  store.torn = lines.pop() !== '';
+  for (const line of lines) {
+    let e: unknown;
+    try {
+      e = JSON.parse(line);
+    } catch (err) {
+      throw new BadRequestError(`the hub task journal ${journalFile} is unreadable: ${String(err)}`);
+    }
+    const set = (e as { set?: unknown } | null)?.set;
+    const remove = (e as { remove?: unknown } | null)?.remove;
+    let id: string;
+    if (isTask(set, new Set())) {
+      id = set.id;
+      const at = store.tasks.findIndex((t) => t.id === id);
+      if (at >= 0) store.tasks[at] = set;
+      else store.tasks.push(set);
+    } else if (typeof remove === 'string' && HUB_TASK_ID.test(remove)) {
+      id = remove;
+      store.tasks = store.tasks.filter((t) => t.id !== id);
+    } else throw new BadRequestError(`the hub task journal ${journalFile} is unreadable: a line is neither a task nor a removal`);
+    store.lastId = Math.max(store.lastId, idNumber(id));
   }
   return store;
+}
+
+/** Append without following a link, created 0600 if missing. */
+async function appendLines(file: string, text: string): Promise<void> {
+  await mkdir(dirname(file), { recursive: true, mode: 0o700 });
+  const fh = await open(file, constants.O_WRONLY | constants.O_APPEND | constants.O_CREAT | (constants.O_NOFOLLOW ?? 0), 0o600);
+  try {
+    await fh.writeFile(text);
+  } finally {
+    await fh.close();
+  }
 }
 
 async function save(file: string, repoPath: string, store: Store): Promise<void> {
@@ -139,6 +199,18 @@ async function save(file: string, repoPath: string, store: Store): Promise<void>
     await rm(tmp, { force: true });
     throw e;
   }
+  // The store now holds every journal entry; were this removal lost, replaying them again changes nothing.
+  await rm(journalFor(file), { force: true });
+}
+
+/**
+ * Record `entries` (the tasks they touch already changed in `store`): appended to the journal, so an edit writes one
+ * line; the whole store is written instead when there is none yet, the journal ends torn, or it outgrows the store.
+ */
+async function commit(file: string, repoPath: string, store: Store, entries: readonly JournalEntry[]): Promise<void> {
+  const text = entries.map((e) => `${JSON.stringify(e)}\n`).join('');
+  if (store.size === undefined || store.torn || store.journal + Buffer.byteLength(text) > Math.max(COMPACT_FLOOR, store.size)) return save(file, repoPath, store);
+  await appendLines(journalFor(file), text);
 }
 
 // One write at a time per file: read-modify-write must not interleave (the scheduler and the UI both write).
@@ -194,13 +266,13 @@ export async function createHubTask(configDir: string, repoPath: string, input: 
     if (store.tasks.length >= MAX_TASKS) throw new BadRequestError(`this board already holds ${MAX_TASKS} tasks`);
     // Numbered past invalid entries too: an id a hand edit left in the file is never reused.
     // Only well-formed ids count: a hand-edited `hub-12345678901` must not push every new id past HUB_TASK_ID.
-    const used = [...store.tasks, ...store.invalid].map((t) => String((t as { id?: unknown } | null)?.id)).filter((id) => HUB_TASK_ID.test(id)).map((id) => Number(id.slice(4)));
+    const used = [...store.tasks, ...store.invalid].map((t) => String((t as { id?: unknown } | null)?.id)).filter((id) => HUB_TASK_ID.test(id)).map(idNumber);
     const n = used.reduce((max, v) => Math.max(max, v), store.lastId) + 1;
     if (!HUB_TASK_ID.test(`hub-${n}`)) throw new BadRequestError('this board has run out of task ids');
     const task: HubTask = { id: `hub-${n}`, title: input.title, body: input.body ?? '', status: 'todo', blockedBy: input.blockedBy ?? [], owner: input.owner, ...(input.startDate !== undefined ? { startDate: input.startDate } : {}) };
     store.tasks.push(task);
     store.lastId = n;
-    await save(file, repoPath, store);
+    await commit(file, repoPath, store, [{ set: task }]);
     return task;
   });
 }
@@ -213,7 +285,7 @@ export function editHubTask(configDir: string, repoPath: string, id: string, edi
     const task = store.tasks.find((t) => t.id === id);
     if (task === undefined) return undefined;
     edit(task);
-    await save(file, repoPath, store);
+    await commit(file, repoPath, store, [{ set: task }]);
     return task;
   });
 }
@@ -255,16 +327,15 @@ export function resetAndListHubTasks(configDir: string, repoPath: string, isLive
       delete t.runId;
       t.reason = 'its run ended with the hub process before it finished; it may already have pushed a branch or opened a pull request (check the repository), then press Retry to run it again';
     }
-    await save(file, repoPath, store);
+    await commit(file, repoPath, store, stale.map((t) => ({ set: t })));
     return { reset: stale.map((t) => t.id), tasks: store.tasks };
   });
 }
 
 /**
  * Take a task off the board. `archive` (a `done` task only) first appends it to the project's archive file, which is
- * never read back or rewritten; either way the store shrinks, which frees room under MAX_TASKS and makes every later
- * edit cheaper. A running task cannot go. A task an open task waits on cannot go; a `done` one is dropped from its
- * dependents' `blockedBy` (it was satisfied).
+ * never read back or rewritten; either way the board shrinks, which frees room under MAX_TASKS. A running task cannot
+ * go. A task an open task waits on cannot go; a `done` one is dropped from its dependents' `blockedBy` (it was satisfied).
  */
 export function removeHubTask(configDir: string, repoPath: string, id: string, mode: 'archive' | 'delete'): Promise<void> {
   const file = fileFor(configDir, repoPath);
@@ -280,11 +351,9 @@ export function removeHubTask(configDir: string, repoPath: string, id: string, m
       if (open.length > 0) throw new BadRequestError(`${open.map((t) => t.id).join(', ')} ${open.length > 1 ? 'are' : 'is'} blocked by ${id}; remove that dependency first`);
     }
     for (const t of dependents) t.blockedBy = t.blockedBy.filter((d) => d !== id);
-    if (mode === 'archive') {
-      await mkdir(dirname(file), { recursive: true, mode: 0o700 });
-      await appendFile(archiveFor(file), `${JSON.stringify(task)}\n`, { mode: 0o600 });
-    }
+    if (mode === 'archive') await appendLines(archiveFor(file), `${JSON.stringify(task)}\n`);
     store.tasks = store.tasks.filter((t) => t !== task);
-    await save(file, repoPath, store);
+    // The removal last: a crash that cuts it off leaves the task on the board, its done dependency already dropped.
+    await commit(file, repoPath, store, [...dependents.map((t) => ({ set: t })), { remove: id }]);
   });
 }

@@ -1,4 +1,4 @@
-import { chmod, mkdtemp, rm } from 'node:fs/promises';
+import { chmod, mkdtemp, readdir, rm } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { afterEach, beforeEach, expect, test, vi } from 'vitest';
@@ -21,10 +21,13 @@ test('a run whose end could not be stored keeps its real result: the next tick w
   const start = (_t: unknown, admitted: (id: string) => void): Promise<{ branch: string }> => new Promise((r) => { admitted('run-1'); end = r; });
   vi.spyOn(console, 'error').mockImplementation(() => undefined);
   await scheduleTick(state, dir, repo, start as never, { limit: 1 });
-  await chmod(join(dir, 'hub-tasks'), 0o500); // the store cannot be replaced now
+  // Neither the store nor its journal can be written now.
+  for (const name of await readdir(join(dir, 'hub-tasks'))) await chmod(join(dir, 'hub-tasks', name), 0o400);
+  await chmod(join(dir, 'hub-tasks'), 0o500);
   end({ branch: 'chore/a' });
   await vi.waitFor(() => expect(state.pending.size).toBe(1));
   await chmod(join(dir, 'hub-tasks'), 0o700);
+  for (const name of await readdir(join(dir, 'hub-tasks'))) await chmod(join(dir, 'hub-tasks', name), 0o600);
   await scheduleTick(state, dir, repo, start as never, { limit: 1 });
   expect(await listHubTasks(dir, repo)).toMatchObject([{ status: 'done', result: 'branch chore/a' }]);
   expect(state.pending.size).toBe(0);
