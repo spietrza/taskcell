@@ -47,3 +47,11 @@ test('no handler falls through to the unhandled-command warn path', async () => 
   expect(warn.mock.calls.map((args) => String(args[0])), 'mockBackend.ts warned on a command it claims to handle').toEqual([]);
   warn.mockRestore();
 });
+
+test('fixtures: no vanguard name and a spec per board task', async () => {
+  const fx = await import('./fixtures');
+  expect(JSON.stringify(fx)).not.toMatch(/vanguard/i);
+  expect(new Set(fx.boardTasks.map((t) => fx.taskSpecs[t.id])).size).toBe(fx.boardTasks.length);
+  expect(fx.taskSpecs['LINEAR-124']).toMatch(/dark mode/i);
+  expect(Date.now() - Date.parse(fx.runs[0]!.timestamp)).toBeLessThan(86_400_000);
+});

@@ -24,6 +24,7 @@ import {
   factoryVerify,
   factoryStateNone,
   factoryStateSettingUp,
+  taskSpecs,
 } from './fixtures';
 import { demoProject, demoRuns, demoRunDetails, demoActiveRuns, demoBoardTasks, demoFactoryState, demoLessonsFor, demoNeedsYou, demoRunBacklog, demoSession, demoSpec, DEMO_REPO_PATH, DEMO_RUN_ID, DEMO_WRITE_COMMANDS } from './demoData';
 
@@ -97,7 +98,7 @@ const commandHandlers = {
   },
   list_tasks: () => ({ tasks: boardTasks, capped: false }),
   list_tasks_all: () => ({ tasks: boardTasks.map((t) => ({ ...t, ...mockStamp() })), capped: false, failures: [] }),
-  fetch_spec: () => ({ spec: '## Task\n\nFix the login bug when the JWT token expires after inactivity.\n\n**Acceptance criteria:**\n- [ ] Login still works after token refresh\n- [ ] Tests pass\n- [ ] No regressions in the auth flow\n' }),
+  fetch_spec: (args: { taskId?: string } | undefined) => ({ spec: taskSpecs[args?.taskId ?? ''] ?? taskSpecs['LINEAR-123']! }),
   list_spawns: () => [],
   spawn_run: () => 42,
   kill_run: () => undefined,

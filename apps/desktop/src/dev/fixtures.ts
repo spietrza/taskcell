@@ -25,6 +25,9 @@ import type {
   FactoryVerifyResult,
 } from '../wire';
 
+/** Fixture times are relative to now, so they never age into "489d ago". */
+const minsAgo = (m: number): string => new Date(Date.now() - m * 60_000).toISOString();
+
 const REPO_PATH = '/home/user/projects/my-app';
 const REPO_PATH_2 = '/home/user/projects/api-service';
 
@@ -36,7 +39,7 @@ export const projects: Project[] = [
     taskCount: 7,
     totalCostUsd: 12.34,
     failedCount: 3,
-    lastRun: '2026-07-14T10:30:00.000Z',
+    lastRun: minsAgo(5),
     runningCount: 1,
     runsLast24h: 5,
     color: '#4f46e5',
@@ -48,7 +51,7 @@ export const projects: Project[] = [
     taskCount: 2,
     totalCostUsd: 4.56,
     failedCount: 0,
-    lastRun: '2026-07-13T15:20:00.000Z',
+    lastRun: minsAgo(1200),
     runningCount: 0,
     runsLast24h: 2,
     color: '#059669',
@@ -60,7 +63,7 @@ export const projects: Project[] = [
 export const runs: RunSummary[] = [
   {
     taskId: 'task-001',
-    timestamp: '2026-07-14T10:30:00.000Z',
+    timestamp: minsAgo(5),
     stages: ['planner', 'implement', 'reviewer'],
     totalCostUsd: 0.28,
     anyFailed: false,
@@ -68,14 +71,14 @@ export const runs: RunSummary[] = [
   },
   {
     taskId: 'task-002',
-    timestamp: '2026-07-14T09:00:00.000Z',
+    timestamp: minsAgo(90),
     stages: ['implement'],
     totalCostUsd: 0.12,
     anyFailed: false,
   },
   {
     taskId: 'task-003',
-    timestamp: '2026-07-13T18:45:00.000Z',
+    timestamp: minsAgo(1000),
     stages: ['planner', 'implement'],
     totalCostUsd: 0.35,
     anyFailed: true,
@@ -96,7 +99,7 @@ const baseRecord: RunRecord = {
   cacheEfficiency: 0.27,
   durationMs: 180000,
   model: 'claude-sonnet-4-6',
-  timestamp: '2026-07-14T10:30:00.000Z',
+  timestamp: minsAgo(5),
   prUrl: 'https://github.com/org/my-app/pull/123',
 };
 
@@ -127,7 +130,7 @@ const REVIEWER_TRANSCRIPT = lines(
 
 export const runDetail: RunDetail = {
   taskId: 'task-001',
-  timestamp: '2026-07-14T10:30:00.000Z',
+  timestamp: minsAgo(5),
   stages: [
     {
       record: { ...baseRecord, stage: 'planner', turns: 4, costUsd: 0.04 },
@@ -156,7 +159,7 @@ export const activeRuns: ActiveRun[] = [
   {
     taskId: 'task-active-001',
     sessionFile: `${REPO_PATH}/.taskcell/sessions/task-active-001.jsonl`,
-    lastActivityMs: 1752530000000,
+    lastActivityMs: Date.now(),
   },
 ];
 
@@ -199,8 +202,8 @@ export const remoteRuns: RemoteRun[] = [
     conclusion: 'success',
     title: 'Fix login bug [LINEAR-123]',
     branch: 'feat/fix-login',
-    workflow: 'vanguard.yml',
-    createdAt: '2026-07-14T08:00:00.000Z',
+    workflow: 'taskcell.yml',
+    createdAt: minsAgo(180),
     event: 'workflow_dispatch',
     url: 'https://github.com/org/my-app/actions/runs/12345',
     cached: false,
@@ -211,13 +214,21 @@ export const remoteRuns: RemoteRun[] = [
     conclusion: 'failure',
     title: 'Add dark mode [LINEAR-456]',
     branch: 'feat/dark-mode',
-    workflow: 'vanguard.yml',
-    createdAt: '2026-07-13T14:00:00.000Z',
+    workflow: 'taskcell.yml',
+    createdAt: minsAgo(1300),
     event: 'workflow_dispatch',
     url: 'https://github.com/org/my-app/actions/runs/12344',
     cached: true,
   },
 ];
+
+/** Specs by board task id, so each card opens its own. */
+export const taskSpecs: Record<string, string> = {
+  'LINEAR-123': '## Task\n\nFix the login bug when the JWT token expires after inactivity.\n\n**Acceptance criteria:**\n- [ ] Login still works after token refresh\n- [ ] Tests pass\n- [ ] No regressions in the auth flow\n',
+  'LINEAR-124': '## Task\n\nAdd dark mode support with a theme toggle that follows the system setting.\n\n**Acceptance criteria:**\n- [ ] Toggle switches between light and dark\n- [ ] Choice persists across reloads\n- [ ] Tests pass\n',
+  'LINEAR-125': '## Task\n\nImprove search performance for large workspaces.\n\n**Acceptance criteria:**\n- [ ] Search returns in under 200ms for 10k items\n- [ ] Results stay correct\n- [ ] Tests pass\n',
+  'LINEAR-126': '## Task\n\nRefactor the auth middleware into smaller, testable functions.\n\n**Acceptance criteria:**\n- [ ] Behaviour unchanged\n- [ ] Each function has a unit test\n',
+};
 
 export const boardTasks: BoardTask[] = [
   { id: 'LINEAR-123', title: 'Fix login bug when token expires', column: 'done', state: 'Done' },
@@ -272,7 +283,7 @@ export const needsYouItems: NeedsYouItem[] = [
     title: 'Dark mode toggle flickers on load',
     url: 'https://github.com/acme/my-app/issues/42',
     reason: 'needs info',
-    lastComment: { author: 'vanguard[bot]', body: 'Which browser and OS does this reproduce on?' },
+    lastComment: { author: 'taskcell[bot]', body: 'Which browser and OS does this reproduce on?' },
   },
   {
     id: 'acme/my-app#57',
@@ -283,7 +294,7 @@ export const needsYouItems: NeedsYouItem[] = [
     url: 'https://github.com/acme/my-app/pull/57',
     reason: 'taskcell:needs-human-review',
     baseRef: 'main',
-    lastComment: { author: 'vanguard[bot]', body: 'Review complete — one finding needs a human call on scope.' },
+    lastComment: { author: 'taskcell[bot]', body: 'Review complete — one finding needs a human call on scope.' },
   },
 ];
 
@@ -303,12 +314,12 @@ export const dirListing: DirListing = {
   ],
 };
 
-/** An `import_remote_run` import of a CI run's `vanguard-runs` artifact. */
+/** An `import_remote_run` import of a CI run's `taskcell-runs` artifact. */
 export const remoteImport: RemoteImport = {
   runId: 12345,
   taskIds: [...new Set(runs.map((r) => r.taskId))],
   runs,
-  cachedAt: '2026-07-14T08:05:00.000Z',
+  cachedAt: minsAgo(175),
 };
 
 /** Enable factory (hub mode): a plan for a pnpm repo, the PR it opens, the secret command, and a verify run. */
@@ -321,7 +332,7 @@ export const factoryPlan: FactoryPlan = {
   verifyCommand: 'pnpm typecheck && pnpm lint && pnpm test',
   scripts: { typecheck: true, lint: true, test: true, build: true },
   callerFiles: ['implement', 'doctor', 'pr-review', 'revise', 'resume'].map((n) => `.github/workflows/taskcell-${n}.yml`),
-  labels: ['ready for agent', 'needs revision', 'needs info', 'ready for spec', 'ready for vanguard review'],
+  labels: ['ready for agent', 'needs revision', 'needs info', 'ready for spec', 'ready for taskcell review'],
 };
 
 export const gitlabFactoryPlan: FactoryPlan = {
@@ -339,7 +350,7 @@ export const gitlabFactoryPlan: FactoryPlan = {
 };
 
 export const factoryApplyResult: FactoryApplyResult = {
-  branch: 'vanguard/enable-factory',
+  branch: 'taskcell/enable-factory',
   prUrl: 'https://github.com/acme/my-app/pull/42',
   labelsCreated: factoryPlan.labels,
 };
