@@ -1,11 +1,11 @@
 import { createCipheriv, randomBytes } from 'node:crypto';
-import { copyFile, mkdir, mkdtemp, readFile, rm, writeFile } from 'node:fs/promises';
+import { chmod, copyFile, mkdir, mkdtemp, readFile, rm, stat, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import type { AddressInfo } from 'node:net';
 import { BadRequestError, type SidecarDeps } from '../sidecar/sidecar.js';
-import { createCredentialService, migrateLegacyCredentials, parseCredentialInput, ScopedCredentialStore } from './credentials.js';
+import { CREDENTIAL_NAMES, createCredentialService, migrateLegacyCredentials, parseCredentialInput, ScopedCredentialStore } from './credentials.js';
 import { createHubServer } from './server.js';
 import { localOnlyIdentity } from './auth.js';
 
@@ -234,6 +234,85 @@ describe('re-review hardening', () => {
     for (const name of ['credentials.key', 'credentials.enc.json']) await copyFile(join(planted, name), join(d, name));
     await expect(store.values('instance')).rejects.toThrow('cannot be decrypted');
     expect((await readFile(join(d, 'credentials.enc.json'))).equals(await readFile(join(planted, 'credentials.enc.json')))).toBe(true);
+  });
+
+  it('keeps refusing a planted credentials.key after a restart', async () => {
+    const d = await dir();
+    const planted = await dir();
+    const secret = randomBytes(32).toString('base64');
+    await new ScopedCredentialStore(d, secret).put('instance', 'CLAUDE_CODE_OAUTH_TOKEN', SECRET_VALUE);
+    await new ScopedCredentialStore(planted).put('instance', 'CLAUDE_CODE_OAUTH_TOKEN', 'attacker');
+    for (const name of ['credentials.key', 'credentials.enc.json']) await copyFile(join(planted, name), join(d, name));
+    await expect(new ScopedCredentialStore(d, secret).values('instance')).rejects.toThrow('cannot be decrypted');
+    expect((await readFile(join(d, 'credentials.enc.json'))).equals(await readFile(join(planted, 'credentials.enc.json')))).toBe(true);
+  });
+
+  it('a first save into an empty store stays on credentials.key while credentials.enc is unmigrated', async () => {
+    const d = await dir();
+    const oldSecret = randomBytes(32).toString('base64');
+    await legacyFile(d, oldSecret, { zai: 'zai-legacy' });
+    const error = quiet();
+    try {
+      await createCredentialService(d, [], randomBytes(32).toString('base64')).putInstance('OPENROUTER_API_KEY', 'or-key');
+      expect(await new ScopedCredentialStore(d).values('instance')).toEqual({ OPENROUTER_API_KEY: 'or-key' });
+      const restored = createCredentialService(d, [], oldSecret);
+      await restored.migrateLegacy();
+      expect(await restored.instanceStatus()).toEqual({ names: ['OPENROUTER_API_KEY', 'ZAI_API_KEY'] });
+    } finally {
+      error.mockRestore();
+    }
+  });
+
+  it('resolveForRun surfaces a store read error for custom providers unless the start-up environment funds them', async () => {
+    const saved = Object.fromEntries(CREDENTIAL_NAMES.map((n) => [n, process.env[n]]));
+    try {
+      for (const n of CREDENTIAL_NAMES) delete process.env[n];
+      const d = await dir();
+      await new ScopedCredentialStore(d, randomBytes(32).toString('base64')).put('instance', 'X', 'v');
+      const service = createCredentialService(d, [], randomBytes(32).toString('base64'));
+      const refused = await service.resolveForRun(undefined, 'meridian').catch((e: unknown) => e);
+      expect(refused).toBeInstanceOf(BadRequestError);
+      expect((refused as Error).message).toContain('saved under a different TASKCELL_HUB_SECRET value');
+      process.env.CLAUDE_CODE_OAUTH_TOKEN = 'unrelated';
+      await expect(service.resolveForRun(undefined, 'meridian')).rejects.toBeInstanceOf(BadRequestError);
+      await expect(service.resolveForRun(undefined, 'my-custom')).rejects.toBeInstanceOf(BadRequestError);
+      process.env.MERIDIAN_API_KEY = 'startup';
+      expect(await service.resolveForRun(undefined, 'meridian')).toEqual({ source: 'instance', env: {} });
+    } finally {
+      for (const [n, v] of Object.entries(saved)) {
+        if (v === undefined) delete process.env[n];
+        else process.env[n] = v;
+      }
+    }
+  });
+
+  it('reads a store under the secret even when the marker cannot be written', async () => {
+    if (process.getuid?.() === 0) return; // root ignores directory modes
+    const d = await dir();
+    const secret = randomBytes(32).toString('base64');
+    await new ScopedCredentialStore(d, secret).put('instance', 'X', 'v');
+    await rm(join(d, 'credentials.keyed'));
+    await chmod(d, 0o555);
+    try {
+      expect(await new ScopedCredentialStore(d, secret).values('instance')).toEqual({ X: 'v' });
+    } finally {
+      await chmod(d, 0o755);
+    }
+  });
+
+  it('does not rewrite the marker on reads, and a stale marker does not block a later re-key', async () => {
+    const d = await dir();
+    const a = randomBytes(32).toString('base64');
+    const store = new ScopedCredentialStore(d, a);
+    await store.put('instance', 'X', 'v');
+    const before = (await stat(join(d, 'credentials.keyed'))).mtimeMs;
+    await new Promise((r) => setTimeout(r, 20));
+    await store.values('instance');
+    expect((await stat(join(d, 'credentials.keyed'))).mtimeMs).toBe(before);
+    await rm(join(d, 'credentials.enc.json'));
+    await new ScopedCredentialStore(d).put('instance', 'X', 'w');
+    await expect(stat(join(d, 'credentials.keyed'))).rejects.toThrow();
+    expect(await new ScopedCredentialStore(d, randomBytes(32).toString('base64')).values('instance')).toEqual({ X: 'w' });
   });
 
   it('shows a fixed reason without paths for a file-system failure, and doc chat keeps the last good values', async () => {
