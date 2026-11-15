@@ -372,6 +372,8 @@ export interface RunRecord {
   diffOmitted?: 'secret-blocked' | 'secret-scan';
   /** Hub login (or `token`) that started the run from the hub; absent for CLI/CI runs. */
   startedBy?: string;
+  /** `'watch'` when a `taskcell watch` worker started the run; absent for every other run. */
+  trigger?: 'watch';
   /** Verdict-bearing stages (reviewer, conformance) only: the merge gate's own reading of this
    *  stage's reply, persisted so the hub and the PR body never re-derive it. */
   verdict?: ReviewVerdict;
@@ -438,6 +440,8 @@ export interface RunSummary {
   ciUrl?: string;
   /** Hub login (or `token`) that started the run; absent for runs not started from the hub. */
   startedBy?: string;
+  /** `'watch'` when a `taskcell watch` worker started the run. */
+  trigger?: 'watch';
   /** `'merged'` when the run's card is done (its pull request merged); set by the hub's list commands, absent when unknown or not merged. */
   prState?: 'merged';
   /** `'ci'` for a run known only from the metrics branch (no local record to open); `prUrl` links its PR/MR. */
@@ -909,11 +913,12 @@ export interface FactoryVerifyResult {
   run?: { url: string; status: string; conclusion: string };
 }
 
-/** Whether run records show a self-hosted watch worker at work: `unknown` = no records the hub can read, so it cannot tell. */
-export type WatchWorkerSeen = 'recent' | 'stale' | 'unknown';
+/** Which code host a project's `origin` is on, for the Enable factory dialog's run-location choice. */
+export type FactoryHost = 'github' | 'gitlab' | 'other' | 'none';
 
 /** The "Self-hosted (watch)" checklist for a repository. Names only: no credential value is ever included. */
 export interface WatchWorkerChecklist {
+  /** `owner/repo` or `group/project`; empty for a Linear worker whose origin names none. */
   repoSlug: string;
   source: 'github' | 'gitlab' | 'linear';
   /** Compose service for the user to run on their own machine; the hub starts nothing. */
@@ -921,13 +926,11 @@ export interface WatchWorkerChecklist {
   /** The same worker as a `taskcell watch` command run from a clone of the repo. */
   command: string;
   credentials: string[];
-  seen: WatchWorkerSeen;
-  /** Timestamp of the newest run record the hub could read, when any. */
+  /** Whether run records show a watch worker at work: `unknown` = no watch-started record the hub can read, so it cannot tell. */
+  seen: 'recent' | 'stale' | 'unknown';
+  /** Time of the newest watch-started run record the hub could read, when any. */
   lastRunAt?: string;
 }
-
-/** Which code host a project's `origin` is on, for the Enable factory dialog's run-location choice. */
-export type FactoryHost = 'github' | 'gitlab' | 'other' | 'none';
 
 /** The four steps of the in-app Enable factory checklist, in order. */
 export type FactoryStepId = 'pr' | 'secret' | 'merged' | 'doctor';

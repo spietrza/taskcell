@@ -4,9 +4,10 @@ import { enableFactoryApply, enableFactoryHost, enableFactoryPlan, enableFactory
 import { factoryStepLabel } from './factoryLabel';
 import { ExternalLink } from '../../components/ExternalLink';
 import { RUN_LOCATIONS } from '../../platform';
+import { absTime, relTime } from '../../time';
 import type { RunLocationId, WatchWorkerChecklist, FactoryHost, FactoryPlan, FactoryProviderId, FactoryState } from '../../wire';
 
-/** GitHub Actions and GitLab CI have `enable_factory_*` adapters; every other run location is listed as planned. */
+/** GitHub Actions and GitLab CI have `enable_factory_*` adapters; Self-hosted (watch) has its own read-only checklist; the rest are listed as planned. */
 const PROVIDER_OF: Partial<Record<RunLocationId, FactoryProviderId>> = { 'github-actions': 'github', 'gitlab-ci': 'gitlab' };
 
 /** Why GitLab CI cannot be set up for a project whose remote is not on GitLab (one plain sentence). */
@@ -31,6 +32,12 @@ function Section({ title, children }: { title: string; children: ReactNode }) {
   );
 }
 
+/** `2026-11-14 12:00 (11h ago)`: when the newest watch run record was written. */
+function seenAt(iso: string | undefined): string {
+  const ms = iso === undefined ? Number.NaN : Date.parse(iso);
+  return Number.isFinite(ms) ? `${absTime(ms)} (${relTime(ms)})` : 'an unknown time';
+}
+
 function errorText(err: unknown): string {
   return err instanceof Error ? err.message : String(err);
 }
@@ -50,7 +57,8 @@ export function EnableFactoryDialog({ project, onClose }: { project: { path: str
   const [host, setHost] = useState<FactoryHost | null>(null);
   // Self-hosted (watch): read-only checklist; the hub starts nothing on another machine.
   const [watch, setWatch] = useState<WatchWorkerChecklist | null>(null);
-  const [copied, setCopied] = useState(false);
+  // The text whose Copy button was just pressed, so only that button says "Copied".
+  const [copied, setCopied] = useState<string | null>(null);
   const [doctorConfirmed, setDoctorConfirmed] = useState(false);
   const [busy, setBusy] = useState<Busy>(null);
   const [error, setError] = useState<string | null>(null);
@@ -146,8 +154,8 @@ export function EnableFactoryDialog({ project, onClose }: { project: { path: str
     }
     navigator.clipboard.writeText(text).then(
       () => {
-        setCopied(true);
-        setTimeout(() => setCopied(false), 1500);
+        setCopied(text);
+        setTimeout(() => setCopied((c) => (c === text ? null : c)), 1500);
       },
       () => setError('Could not copy; select the command and copy it by hand.'),
     );
@@ -197,7 +205,7 @@ export function EnableFactoryDialog({ project, onClose }: { project: { path: str
                       <CodeBlock code={checklist.secret.command} lang="bash" />
                       <div className="mt-1 flex gap-2">
                         <Button variant="outlined" color="secondary" className="h-7 px-2 text-xs" onClick={() => copy(checklist.secret!.command)}>
-                          {copied ? 'Copied' : 'Copy'}
+                          {copied === checklist.secret.command ? 'Copied' : 'Copy'}
                         </Button>
                         <Button variant="outlined" color="secondary" className="h-7 px-2 text-xs" onClick={() => void checkSecret()} loading={busy === 'secret'} disabled={busy !== null}>
                           Check again
@@ -237,7 +245,7 @@ export function EnableFactoryDialog({ project, onClose }: { project: { path: str
         ) : watch !== null ? (
           <>
             <p className="mt-1 text-xs text-muted-foreground">
-              {watch.repoSlug} — you run the worker yourself, on your own machine. The hub starts and installs nothing there.
+              {watch.repoSlug || project.name} — you run the worker yourself, on your own machine. The hub starts and installs nothing there.
             </p>
             <Section title="1. Credentials the worker needs (names only)">
               <div className="flex flex-wrap gap-1">
@@ -247,19 +255,19 @@ export function EnableFactoryDialog({ project, onClose }: { project: { path: str
             </Section>
             <Section title="2. Compose snippet">
               <CodeBlock code={watch.compose} lang="yaml" />
-              <Button variant="outlined" color="secondary" className="mt-1 h-7 px-2 text-xs" onClick={() => copy(watch.compose)}>{copied ? 'Copied' : 'Copy'}</Button>
+              <Button variant="outlined" color="secondary" className="mt-1 h-7 px-2 text-xs" onClick={() => copy(watch.compose)}>{copied === watch.compose ? 'Copied' : 'Copy'}</Button>
             </Section>
             <Section title="Or run it directly">
               <CodeBlock code={watch.command} lang="bash" />
-              <Button variant="outlined" color="secondary" className="mt-1 h-7 px-2 text-xs" onClick={() => copy(watch.command)}>{copied ? 'Copied' : 'Copy'}</Button>
+              <Button variant="outlined" color="secondary" className="mt-1 h-7 px-2 text-xs" onClick={() => copy(watch.command)}>{copied === watch.command ? 'Copied' : 'Copy'}</Button>
             </Section>
             <Section title="3. Worker seen">
               <p data-seen={watch.seen}>
                 {watch.seen === 'recent'
-                  ? `Yes: the hub last saw a run record for this repository at ${watch.lastRunAt}.`
+                  ? `Yes: a watch worker last recorded a run for this repository ${seenAt(watch.lastRunAt)}.`
                   : watch.seen === 'stale'
-                    ? `Not recently: the newest run record the hub can read is from ${watch.lastRunAt}.`
-                    : 'Cannot tell: the hub reads no run records for this repository. A worker on another machine shows up only if its records reach this hub.'}
+                    ? `Not recently: the newest watch run record the hub can read is from ${seenAt(watch.lastRunAt)}.`
+                    : 'Cannot tell: the hub reads no run records from a watch worker for this repository. A worker on another machine shows up only if its records reach this hub.'}
               </p>
               <Button variant="outlined" color="secondary" className="mt-1 h-7 px-2 text-xs" onClick={() => void loadWatch()} loading={busy === 'watch'} disabled={busy !== null}>
                 Check again
@@ -272,6 +280,14 @@ export function EnableFactoryDialog({ project, onClose }: { project: { path: str
             <div className="mt-3 space-y-2">
               {RUN_LOCATIONS.map((p) => {
                 const provider = PROVIDER_OF[p.id];
+                if (p.id === 'watch' && host === 'none') {
+                  return (
+                    <div key={p.id} className="flex w-full items-center justify-between gap-2 rounded-md border border-border px-3 py-2 text-sm opacity-80">
+                      <span className="font-medium">{p.label}</span>
+                      <span className="text-xs text-muted-foreground">This project has no remote; add one first.</span>
+                    </div>
+                  );
+                }
                 if (p.id === 'watch') {
                   return (
                     <button
@@ -375,6 +391,11 @@ export function EnableFactoryDialog({ project, onClose }: { project: { path: str
           <Button variant="text" color="secondary" onClick={onClose} disabled={busy !== null}>
             {showChecklist || watch !== null ? 'Close' : 'Cancel'}
           </Button>
+          {!showChecklist && watch !== null && (
+            <Button variant="outlined" color="secondary" onClick={() => setWatch(null)} disabled={busy !== null}>
+              Back
+            </Button>
+          )}
           {showChecklist && status('merged') === 'failed' && (
             <Button onClick={() => void apply(checklistPlan)} loading={busy === 'apply'} disabled={busy !== null}>
               Open {mr} again

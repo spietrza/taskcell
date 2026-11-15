@@ -53,27 +53,73 @@ describe('EnableFactoryDialog', () => {
     expect(await screen.findByRole('button', { name: /GitHub Actions/ })).toBeEnabled();
   });
 
+  const watchList = {
+    repoSlug: 'acme/widgets',
+    source: 'github' as const,
+    compose: 'services:\n  taskcell-watch:\n    mem_limit: 1024m',
+    command: 'taskcell watch --github-repo=acme/widgets',
+    credentials: ['CLAUDE_CODE_OAUTH_TOKEN', 'GH_TOKEN'],
+    seen: 'unknown' as const,
+  };
+
   test('Self-hosted (watch) shows the snippet, command, credential names and worker-seen state', async () => {
-    vi.mocked(enableFactoryWatch).mockResolvedValue({
-      repoSlug: 'acme/widgets',
-      source: 'github',
-      compose: 'services:\n  taskcell-watch: {}',
-      command: 'taskcell watch --github-repo=acme/widgets',
-      credentials: ['CLAUDE_CODE_OAUTH_TOKEN', 'GH_TOKEN'],
-      seen: 'unknown',
-    });
+    vi.mocked(enableFactoryWatch).mockReset().mockResolvedValue(watchList);
     render(<EnableFactoryDialog project={project} onClose={() => {}} />);
     fireEvent.click(await screen.findByRole('button', { name: /Self-hosted \(watch\)/ }));
     expect(await screen.findByText('GH_TOKEN')).toBeInTheDocument();
     expect(screen.getByText('CLAUDE_CODE_OAUTH_TOKEN')).toBeInTheDocument();
+    const text = screen.getByRole('dialog').textContent ?? '';
+    expect(text).toContain('mem_limit: 1024m');
+    expect(text).toContain('taskcell watch --github-repo=acme/widgets');
     expect(screen.getByText(/Cannot tell/)).toBeInTheDocument();
     expect(enableFactoryPlan).not.toHaveBeenCalled();
   });
 
-  test('a project with no remote says so', async () => {
+  test('Check again re-reads the worker state: recent and stale say when, in plain time', async () => {
+    const recent = new Date(Date.now() - 60_000).toISOString();
+    vi.mocked(enableFactoryWatch).mockReset()
+      .mockResolvedValueOnce({ ...watchList, seen: 'stale', lastRunAt: '2026-10-01T08:30:00.000Z' })
+      .mockResolvedValueOnce({ ...watchList, seen: 'recent', lastRunAt: recent });
+    render(<EnableFactoryDialog project={project} onClose={() => {}} />);
+    fireEvent.click(await screen.findByRole('button', { name: /Self-hosted \(watch\)/ }));
+    expect(await screen.findByText(/Not recently: .* from 2026-10-01 08:30 \(/)).toBeInTheDocument();
+    fireEvent.click(screen.getByRole('button', { name: 'Check again' }));
+    expect(await screen.findByText(/Yes: a watch worker last recorded a run .*\(1m ago\)/)).toBeInTheDocument();
+    expect(enableFactoryWatch).toHaveBeenCalledTimes(2);
+  });
+
+  test('a failed watch read shows the hub\'s sentence and Back returns to the picker', async () => {
+    vi.mocked(enableFactoryWatch).mockReset()
+      .mockRejectedValueOnce(new Error('A `taskcell watch` worker cannot read the hub board; the hub runs its own tasks.'))
+      .mockResolvedValueOnce(watchList);
+    render(<EnableFactoryDialog project={project} onClose={() => {}} />);
+    fireEvent.click(await screen.findByRole('button', { name: /Self-hosted \(watch\)/ }));
+    expect(await screen.findByRole('alert')).toHaveTextContent(/cannot read the hub board/);
+    fireEvent.click(screen.getByRole('button', { name: /Self-hosted \(watch\)/ }));
+    await screen.findByText('GH_TOKEN');
+    fireEvent.click(screen.getByRole('button', { name: 'Back' }));
+    expect(await screen.findByRole('button', { name: /GitHub Actions/ })).toBeInTheDocument();
+  });
+
+  test('only the pressed Copy button says Copied', async () => {
+    const writeText = vi.fn().mockResolvedValue(undefined);
+    Object.defineProperty(navigator, 'clipboard', { value: { writeText }, configurable: true });
+    vi.mocked(enableFactoryWatch).mockReset().mockResolvedValue(watchList);
+    render(<EnableFactoryDialog project={project} onClose={() => {}} />);
+    fireEvent.click(await screen.findByRole('button', { name: /Self-hosted \(watch\)/ }));
+    await screen.findByText('GH_TOKEN');
+    const copyButtons = screen.getAllByRole('button', { name: 'Copy' });
+    fireEvent.click(copyButtons[copyButtons.length - 1]!);
+    expect(await screen.findByRole('button', { name: 'Copied' })).toBeInTheDocument();
+    expect(writeText).toHaveBeenCalledWith(watchList.command);
+    expect(screen.getAllByRole('button', { name: 'Copied' })).toHaveLength(1);
+  });
+
+  test('a project with no remote says so, and offers no watch checklist', async () => {
     vi.mocked(enableFactoryHost).mockResolvedValue({ host: 'none' });
     render(<EnableFactoryDialog project={project} onClose={() => {}} />);
-    expect(await screen.findByText(/no remote/)).toBeInTheDocument();
+    expect((await screen.findAllByText(/no remote/)).length).toBe(2);
+    expect(screen.queryByRole('button', { name: /Self-hosted \(watch\)/ })).not.toBeInTheDocument();
   });
 
   test('GitLab CI is offered for a GitLab remote and plans through the gitlab provider', async () => {

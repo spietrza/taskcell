@@ -4,7 +4,7 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { createHash } from 'node:crypto';
 import { execa } from 'execa';
-import { VERDICT_STAGES, beginRun, listRuns, readRun, runsRoot, persistBaseMerge, persistDecisionProbe, persistRunRecord, persistStageOutcomes } from './run-store.js';
+import { VERDICT_STAGES, beginRun, listRuns, readRun, runsRoot, setRunTrigger, persistBaseMerge, persistDecisionProbe, persistRunRecord, persistStageOutcomes } from './run-store.js';
 import { STAGE } from '../pipeline/pipeline.js';
 import type { RunResult } from './types.js';
 
@@ -109,6 +109,19 @@ describe('beginRun — writing', () => {
     const record = JSON.parse(await readFile(join(runsRoot(repo), 'TES-1', `${PREFIX}-implementer.json`), 'utf8'));
     expect(record.startedBy).toBe('alice');
     expect((await listRuns(runsRoot(repo)))[0]?.startedBy).toBe('alice');
+  });
+
+  it('stamps the watch trigger on records written after setRunTrigger, and only then', async () => {
+    await beginRun(repo, 'TES-2', TS).writeStages([{ name: 'implementer', result }]);
+    setRunTrigger('watch');
+    try {
+      await beginRun(repo, 'TES-1', TS).writeStages([{ name: 'implementer', result }]);
+    } finally {
+      setRunTrigger(undefined);
+    }
+    const runs = await listRuns(runsRoot(repo));
+    expect(runs.find((r) => r.taskId === 'TES-1')?.trigger).toBe('watch');
+    expect(runs.find((r) => r.taskId === 'TES-2')?.trigger).toBeUndefined();
   });
 
   it('writes a per-stage JSON (without the diff) and appends a metric line', async () => {
