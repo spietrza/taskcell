@@ -34,6 +34,7 @@ export async function detectSetup(
   savedNames: readonly string[],
   env: NodeJS.ProcessEnv = process.env,
   probe: SetupProbe = defaultProbe,
+  credentialReason?: string,
 ): Promise<SetupStatus> {
   const [gh, glab, codexSignIn] = await Promise.all([probe('gh'), probe('glab'), hasCodexSignIn(env)]);
   const has = (p: 'claude' | 'codex'): boolean => PROVIDER_NAMES[p]!.some((n) => savedNames.includes(n) || (env[n] ?? '') !== '');
@@ -46,5 +47,6 @@ export async function detectSetup(
     // The sign-in file alone runs nothing: a hub run takes Codex credentials from these variables only.
     models: { claude: has('claude'), codex: has('codex') },
     codexSignInFile: codexSignIn,
+    ...(credentialReason !== undefined ? { credentialReason } : {}),
   };
 }

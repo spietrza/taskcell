@@ -129,12 +129,23 @@ describe('audit log', () => {
     expect(out[1]!.target).toBe('https://h.example/p');
   });
 
-  test('a credential write is a settings-change naming the variable, never the value', async () => {
+  test('credential and policy writes are settings changes naming no value and do not mutate process.env', async () => {
     const { ctx, configDir } = await setup();
+    const original = process.env.CLAUDE_CODE_OAUTH_TOKEN;
     await dispatchRpc(ctx, 'save_instance_credential', { name: 'CLAUDE_CODE_OAUTH_TOKEN', value: CANARY });
+    await dispatchRpc(ctx, 'set_credential_policy', { policy: 'user-only' });
+    await expect(dispatchRpc(ctx, 'save_instance_credential', { name: CANARY, value: CANARY })).rejects.toThrow();
+    await expect(dispatchRpc(ctx, 'set_credential_policy', { policy: CANARY })).rejects.toThrow();
     const raw = await readFile(join(configDir, 'audit.jsonl'), 'utf8');
-    expect(JSON.parse(raw.trim())).toMatchObject({ action: 'settings-change', target: 'credential:CLAUDE_CODE_OAUTH_TOKEN' });
+    const entries = raw.trim().split('\n').map((line) => JSON.parse(line) as { action: string; target: string });
+    expect(entries).toEqual([
+      expect.objectContaining({ action: 'settings-change', target: 'credential:CLAUDE_CODE_OAUTH_TOKEN' }),
+      expect.objectContaining({ action: 'settings-change', target: 'credential-policy:user-only' }),
+      expect.objectContaining({ action: 'settings-change', target: 'credential' }),
+      expect.objectContaining({ action: 'settings-change', target: 'credential-policy' }),
+    ]);
     expect(raw).not.toContain(CANARY);
+    expect(process.env.CLAUDE_CODE_OAUTH_TOKEN).toBe(original);
   });
 
   test('settings-change detail lists only keys that changed', async () => {

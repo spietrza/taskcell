@@ -16,7 +16,7 @@ import { encodeError, encodeResult, HUB_EVENTS_SESSION_PATH, HUB_SIGN_IN_REQUIRE
 import { ProjectAllowlist, type BindOptions } from './allowlist.js';
 import { WatchRegistry, type WatchOptions } from './watch.js';
 import { readEnv } from '../core/env.js';
-import { createCredentialService, migrateLegacyCredentials, applyInstanceEnv, ForbiddenError } from './credentials.js';
+import { createCredentialService, migrateLegacyCredentials, ForbiddenError } from './credentials.js';
 import { createRunSession } from './run-session.js';
 import { CompleteBusyError, CompleteRegistry, type SpawnComplete } from './complete.js';
 import { loadPaths } from './projects.js';
@@ -67,7 +67,7 @@ export interface HubServerOptions {
   fleet?: boolean;
   /** `hub --demo`: the served page runs on bundled fixtures only. */
   demo?: boolean;
-  /** `TASKCELL_HUB_SECRET` (base64, 32 bytes) decrypting the retired `credentials.enc` for its one-time migration; defaults to the env var. */
+  /** `TASKCELL_HUB_SECRET` (base64, 32 bytes) protecting the credential store and decrypting retired `credentials.enc`; defaults to the env var. */
   hubSecret?: string;
 }
 
@@ -453,7 +453,9 @@ export function createHubServer(opts: HubServerOptions): HubServer {
     if (name === 'api:event') recordRunRepo(runRepos, payload);
     return eventBus.publish(name, payload);
   };
-  const completeRegistry = new CompleteRegistry(opts.spawnComplete);
+  const hubSecret = opts.hubSecret ?? readEnv('TASKCELL_HUB_SECRET');
+  const userCredentials = createCredentialService(opts.configDir, opts.adminGithubLogins, hubSecret);
+  const completeRegistry = new CompleteRegistry(opts.spawnComplete, undefined, undefined, () => userCredentials.childEnv('claude'));
   if (opts.fleet === true && !opts.bind.isLoopback) throw new Error('fleet requires a loopback bind');
   const spawnRegistry = opts.fleet === true ? new SpawnRegistry(publish) : undefined;
   const allowlist = new ProjectAllowlist(() => loadPaths(opts.configDir), opts.seedRepoPath);
@@ -463,12 +465,19 @@ export function createHubServer(opts: HubServerOptions): HubServer {
     await allowlist.assertAllowed(p.repoPath);
   }, join(opts.configDir, 'run-counter'));
 
-  const userCredentials = createCredentialService(opts.configDir, opts.adminGithubLogins);
-  // The retired credentials.enc moves into the one store; a failure is reported on stderr and the file is kept.
-  const credentialsReady = migrateLegacyCredentials(opts.configDir, userCredentials.store, opts.hubSecret ?? readEnv('TASKCELL_HUB_SECRET')).then(
-    (moved) => { if (moved > 0) console.error(`vanguard-hub: migrated ${moved} credential(s) from credentials.enc into the credential store`); },
-    (e: unknown) => console.error(`vanguard-hub: ${(e as Error).message}`),
-  ).then(() => applyInstanceEnv(userCredentials.store)).catch((e: unknown) => console.error(`vanguard-hub: ${(e as Error).message}`));
+  // The retired credentials.enc moves into the one store; a failure is reported and exposed in Settings, and the file is kept.
+  const credentialsReady = (async (): Promise<void> => {
+    try {
+      const { moved, skipped } = await migrateLegacyCredentials(opts.configDir, userCredentials.store, hubSecret);
+      if (moved.length > 0) console.error(`vanguard-hub: migrated credentials from credentials.enc: ${moved.join(', ')}`);
+      if (skipped.length > 0) console.error(`vanguard-hub: kept existing credentials while migrating credentials.enc: ${skipped.join(', ')}`);
+    } catch (error) {
+      const reason = error instanceof Error ? error.message : 'credential migration failed';
+      userCredentials.setMigrationIssue(reason);
+      console.error(`vanguard-hub: ${reason}`);
+    }
+    await userCredentials.instanceStatus();
+  })();
 
   const ctx: RpcContext = {
     allowlist,

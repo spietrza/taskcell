@@ -135,6 +135,10 @@ describe('instance-credential gate (hub owner or admin)', () => {
   test('the switch defaults to off', async () => {
     expect((await rpc(root, 'get_credential_policy')).body.result).toEqual({ policy: 'off' });
   });
+
+  test('user_credentials_status marks the token owner as a manager', async () => {
+    expect((await rpc(OWNER, 'user_credentials_status')).body.result).toEqual({ enabled: false, admin: true, names: [] });
+  });
 });
 
 describe('run credential choice', () => {

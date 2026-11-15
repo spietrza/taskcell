@@ -49,6 +49,12 @@ describe('Onboarding', () => {
     expect(screen.getAllByText('Needs action').length).toBeGreaterThanOrEqual(2);
   });
 
+  test('a credential store that cannot be read shows its reason on the model step', async () => {
+    vi.mocked(setupStatus).mockResolvedValueOnce({ tools: [], models: { claude: false, codex: false }, credentialReason: 'credential store cannot be decrypted' });
+    render(<Onboarding projectCount={0} stored={EMPTY_STORED} onStored={() => {}} onAddRepo={() => {}} onClose={() => {}} />);
+    expect(await screen.findByRole('alert')).toHaveTextContent('credential store cannot be decrypted');
+  });
+
   test('the repo step opens the picker; Dismiss completes onboarding', async () => {
     const onAddRepo = vi.fn();
     const onStored = vi.fn();

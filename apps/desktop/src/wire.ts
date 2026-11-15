@@ -930,6 +930,8 @@ export interface SetupStatus {
   models: { claude: boolean; codex: boolean };
   /** `codex login` left its auth file on the hub's machine. A run does not read it: it becomes usable as `CODEX_AUTH_JSON`. */
   codexSignInFile?: boolean;
+  /** A value-free reason saved instance credentials could not be loaded or migrated. */
+  credentialReason?: string;
 }
 
 /** The admin `per-user credentials` switch: off, user's own first then the instance's, or user's own only. */
@@ -981,7 +983,7 @@ export interface Commands {
   get_credential_policy: { args: undefined; result: { policy: CredentialPolicy } };
   set_credential_policy: { args: { policy: CredentialPolicy }; result: void };
   /** HUB_ONLY, hub owner or admin only: instance provider credentials. Write-only — status lists names, never values. */
-  instance_credentials_status: { args: undefined; result: { names: string[] } };
+  instance_credentials_status: { args: undefined; result: { names: string[]; reason?: string } };
   save_instance_credential: { args: { name: string; value: string }; result: void };
   delete_instance_credential: { args: { name: string }; result: void };
   /** HUB_ONLY: the signed-in user's OWN credentials (no RPC takes a user id). Write-only. */

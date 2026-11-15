@@ -365,7 +365,7 @@ request is replayed, so a run is never started twice.
 | `TASKCELL_HUB_CONFIG_DIR` | `$XDG_CONFIG_HOME/vanguard-hub` else `~/.config/vanguard-hub` |
 | `TASKCELL_HUB_WATCH_POLL` | — |
 | `TASKCELL_HUB_WATCH_INTERVAL_MS` | `2000` |
-| `TASKCELL_HUB_SECRET` | — (32 bytes, base64: `openssl rand -base64 32`. Only for upgrading: the retired `<config dir>/.vanguard-hub/credentials.enc` is decrypted with it once on start, its keys move into the [credential store](#per-user-provider-credentials) (`instance` scope) and the file is deleted. If the file is present and the secret is missing or wrong, the hub says so on stderr, keeps the file and starts) |
+| `TASKCELL_HUB_SECRET` | — (32 bytes, base64: `openssl rand -base64 32`. When set, this operator-held key protects the [credential store](#per-user-provider-credentials); keep it stable across restarts and outside the config directory. It also decrypts the retired `<config dir>/.vanguard-hub/credentials.enc` once on start so its keys can move into the unified store. If migration cannot complete, the hub reports a value-free reason, keeps the legacy file and starts) |
 | `TASKCELL_HUB_BROWSE_ROOT` | `$HOME` (where the Add-project picker opens, and the limit of what it can browse, add or clone into. A drive or share root such as `D:\` confines to that drive or share) |
 | `TASKCELL_HUB_BROWSE_ANYWHERE` | — (`1` on a loopback bind without server mode lifts that limit: the browse root is then only where the picker opens. Set by the desktop app for its own hub) |
 | `TASKCELL_HUB_ALLOW_ADD` | — |
@@ -614,9 +614,9 @@ A run on the starter's own credential never reads the hub's provider keys: a pro
 
 When the switch is on, each signed-in user saves their own provider credentials in Settings. They are
 keyed by the hub (Better Auth) user id — a GitHub, GitLab or Google user alike — and stored encrypted (AES-256-GCM) in `credentials.enc.json` in the hub
-config dir, with the key in `credentials.key` (mode 0600, generated on first write) beside it — so a copy of the config directory yields every saved key; keep it out of backups and shares. This is the hub's only credential store (instance and per-user). Credentials are write-only:
+config dir. When `TASKCELL_HUB_SECRET` is set, that operator-held 32-byte base64 key protects this store as it protected the retired `credentials.enc`; keep the same value across restarts and outside the config directory. Without it, the hub uses `credentials.key` (mode 0600, generated on first write) beside the store, so a copy of the config directory yields every saved key; keep it out of backups and shares. This is the hub's only credential store (instance and per-user). Credentials are write-only:
 the hub lists which variable names are saved, never a value, and no RPC takes a user id, so one user
-cannot read, overwrite or use another's. The switch and every instance-credential RPC (`get_credential_policy`, `set_credential_policy`, `instance_credentials_status`, `save_instance_credential`, `delete_instance_credential`) share one gate: the **hub owner** (the hub-token holder, or local mode) or an **admin**; anyone else gets 403. The owner's writes (and the switch) are also refused on a non-loopback bind unless `TASKCELL_HUB_ALLOW_ADD=1`, as `set_credential` was. Saved instance credentials are also exported to the hub process environment (so doc chat and fleet spawns use them), overriding the start-up variable until removed. Settings shows one Credentials panel, and the run detail says which credential funded the run. The run record carries `credentialSource: 'instance' | 'user'`, never the value.
+cannot read, overwrite or use another's. The switch and every instance-credential RPC (`get_credential_policy`, `set_credential_policy`, `instance_credentials_status`, `save_instance_credential`, `delete_instance_credential`) share one gate: the **hub owner** (the hub-token holder, or local mode) or an **admin**; anyone else gets 403. The token owner remains able to manage instance credentials so a token-only hub does not need a configured sign-in admin. The owner's writes (and the switch) are also refused on a non-loopback bind unless `TASKCELL_HUB_ALLOW_ADD=1`, as `set_credential` was. Saved instance credentials are passed explicitly to the provider-specific run and doc-chat child that consume them; they are not exported into the hub process environment or inherited by Fleet and unrelated host-side commands. Removing a saved value makes those consumers fall back to the hub's start-up environment. Settings shows one Credentials panel, including a value-free migration/decryption reason when the store needs operator attention, and the run detail says which credential funded the run. The run record carries `credentialSource: 'instance' | 'user'`, never the value.
 
 Admin and per-user credentials need a sign-in to identify the caller (`HubServerOptions.identify`); without a
 signed-in user there is no admin (the hub owner still manages instance credentials) and no per-user credential.
@@ -688,7 +688,8 @@ GitHub Actions or GitLab CI. Only `http:` and `https:` addresses are passed on. 
 
 On a hub with no projects the app opens a "Get started" guide: Git host and tasks, model
 credential, first repository. Detection is one read-only owner command, `setup_status`, that
-returns booleans only. The model step is Done when a model credential is
+returns booleans only (plus, when the credential store cannot be decrypted or migrated, a value-free
+reason shown on the model step; saved credentials then count as absent). The model step is Done when a model credential is
 present: for Claude, `CLAUDE_CODE_OAUTH_TOKEN` or one saved in Settings → credentials; for Codex,
 `CODEX_AUTH_JSON`, `CODEX_API_KEY` or `OPENAI_API_KEY` (or a key saved in Settings → credentials). A
 `codex login` sign-in alone does not count, because a hub run never reads `$CODEX_HOME/auth.json`

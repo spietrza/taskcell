@@ -20,8 +20,9 @@ describe('detectSetup', () => {
   });
 
   test('a failing auth status means needs-login; no Linear key likewise', async () => {
-    const r = await detectSetup(creds, {}, async () => 'needs-login');
+    const r = await detectSetup(creds, {}, async () => 'needs-login', 'credential store cannot be decrypted');
     expect(r.tools.map((t) => t.state)).toEqual(['needs-login', 'needs-login', 'needs-login']);
+    expect(r.credentialReason).toBe('credential store cannot be decrypted');
   });
 
   test('a Codex auth file alone is not a credential a run can use: reported apart, its content never returned', async () => {

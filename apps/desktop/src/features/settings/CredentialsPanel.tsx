@@ -105,6 +105,7 @@ export function CredentialsPanel() {
   const [status, setStatus] = useState<{ enabled: boolean; admin: boolean; names: string[] } | undefined>();
   const [policy, setPolicy] = useState<CredentialPolicy>('off');
   const [instanceNames, setInstanceNames] = useState<string[]>([]);
+  const [instanceReason, setInstanceReason] = useState<string | undefined>();
   const [error, setError] = useState<string | undefined>();
 
   const refresh = useCallback(async (): Promise<void> => {
@@ -113,7 +114,9 @@ export function CredentialsPanel() {
       setStatus(s);
       if (s.admin) {
         setPolicy((await getCredentialPolicy()).policy);
-        setInstanceNames((await instanceCredentialsStatus()).names);
+        const instance = await instanceCredentialsStatus();
+        setInstanceNames(instance.names);
+        setInstanceReason(instance.reason);
       }
     } catch (e) {
       setError(String(e));
@@ -160,6 +163,7 @@ export function CredentialsPanel() {
               await refresh();
             }}
           />
+          {instanceReason !== undefined && <p role="alert" className="text-xs text-destructive-text">{instanceReason}</p>}
         </>
       )}
       {status.enabled ? (

@@ -9,7 +9,10 @@ beforeEach(() => {
   })));
 });
 
-afterEach(() => vi.unstubAllGlobals());
+afterEach(() => {
+  delete (window as unknown as { __TASKCELL_HUB__?: boolean }).__TASKCELL_HUB__;
+  vi.unstubAllGlobals();
+});
 
 function stage(diffOmitted?: StageDetail['record']['diffOmitted'], diff?: string): StageDetail {
   return {

@@ -2,17 +2,17 @@
 // `pnpm gen:wire` derives Commands, COMMAND_NAMES and dispatch from it (see CONTRIBUTING.md).
 import { BadRequestError } from '../../sidecar/sidecar.js';
 import { assertMutationsAllowed } from '../allowlist.js';
-import { USER_SCOPE, applyInstanceEnv, CREDENTIAL_POLICIES, parseCredentialInput, parseCredentialName, type CredentialService, type HubUser } from '../credentials.js';
+import { USER_SCOPE, CREDENTIAL_NAMES, CREDENTIAL_POLICIES, parseCredentialInput, parseCredentialName, type CredentialService, type HubUser } from '../credentials.js';
 import type { CredentialPolicy } from '../../wire.js';
 import type { RpcContext } from '../rpc.js';
-import { defineCommands, optionalString, type AuditSpec } from '../command-kit.js';
+import { defineCommands, type AuditSpec } from '../command-kit.js';
 
 export interface CredentialsCommands {
   /** HUB_ONLY, hub owner or admin only (403 otherwise — one gate for the switch and every instance-credential RPC): the `per-user credentials` switch. */
   get_credential_policy: { args: undefined; result: { policy: CredentialPolicy } };
   set_credential_policy: { args: { policy: CredentialPolicy }; result: void };
   /** HUB_ONLY, hub owner or admin only: instance provider credentials. Write-only — status lists names, never values. */
-  instance_credentials_status: { args: undefined; result: { names: string[] } };
+  instance_credentials_status: { args: undefined; result: { names: string[]; reason?: string } };
   save_instance_credential: { args: { name: string; value: string }; result: void };
   delete_instance_credential: { args: { name: string }; result: void };
   /** HUB_ONLY: the signed-in user's OWN credentials (no RPC takes a user id). Write-only. */
@@ -40,7 +40,18 @@ function requirePolicy(args: Record<string, unknown>): CredentialPolicy {
 }
 
 /** A credential write names the variable only — the value never reaches the log. */
-const CREDENTIAL_AUDIT: AuditSpec = { action: 'settings-change', target: (a) => `credential:${optionalString(a, 'name') ?? ''}` };
+const CREDENTIAL_AUDIT: AuditSpec = {
+  action: 'settings-change',
+  target: (args) => typeof args.name === 'string' && (CREDENTIAL_NAMES as readonly string[]).includes(args.name)
+    ? `credential:${args.name}`
+    : 'credential',
+};
+const CREDENTIAL_POLICY_AUDIT: AuditSpec = {
+  action: 'settings-change',
+  target: (args) => (CREDENTIAL_POLICIES as readonly unknown[]).includes(args.policy)
+    ? `credential-policy:${String(args.policy)}`
+    : 'credential-policy',
+};
 
 export const commands = defineCommands<CredentialsCommands>({
   get_credential_policy: async ({ ctx, caller }) => {
@@ -58,23 +69,21 @@ export const commands = defineCommands<CredentialsCommands>({
   instance_credentials_status: async ({ ctx, caller }) => {
     const svc = requireCredentials(ctx);
     svc.assertManager(ctx.user, caller.owner);
-    return { names: await svc.store.names('instance') };
+    return svc.instanceStatus();
   },
   save_instance_credential: async ({ ctx, args, caller }) => {
     const svc = requireCredentials(ctx);
     svc.assertManager(ctx.user, caller.owner);
     if (caller.owner) assertMutationsAllowed(ctx.bind);
     const { name, value } = parseCredentialInput(args);
-    await svc.store.put('instance', name, value);
-    await applyInstanceEnv(svc.store);
+    await svc.putInstance(name, value);
     return null;
   },
   delete_instance_credential: async ({ ctx, args, caller }) => {
     const svc = requireCredentials(ctx);
     svc.assertManager(ctx.user, caller.owner);
     if (caller.owner) assertMutationsAllowed(ctx.bind);
-    await svc.store.remove('instance', parseCredentialName(args));
-    await applyInstanceEnv(svc.store);
+    await svc.removeInstance(parseCredentialName(args));
     return null;
   },
   user_credentials_status: async ({ ctx, caller }) => {
@@ -97,6 +106,7 @@ export const commands = defineCommands<CredentialsCommands>({
     return null;
   },
 }, {
+  set_credential_policy: CREDENTIAL_POLICY_AUDIT,
   save_instance_credential: CREDENTIAL_AUDIT,
   delete_instance_credential: CREDENTIAL_AUDIT,
 });

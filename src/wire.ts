@@ -929,6 +929,8 @@ export interface SetupStatus {
   models: { claude: boolean; codex: boolean };
   /** `codex login` left its auth file on the hub's machine. A run does not read it: it becomes usable as `CODEX_AUTH_JSON`. */
   codexSignInFile?: boolean;
+  /** A value-free reason saved instance credentials could not be loaded or migrated. */
+  credentialReason?: string;
 }
 
 /** The admin `per-user credentials` switch: off, user's own first then the instance's, or user's own only. */

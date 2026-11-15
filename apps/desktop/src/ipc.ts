@@ -428,7 +428,7 @@ export function apiRepoOk(repoPath: string): Promise<boolean> {
 }
 
 // Per-user provider credentials (hub-only, write-only: status returns names, never values). The
-// instance/policy calls are admin-only — the hub answers 403 to anyone else.
+// instance/policy calls are owner-or-admin-only — the hub answers 403 to anyone else.
 export function userCredentialsStatus(): Promise<{ enabled: boolean; admin: boolean; names: string[] }> {
   return call('user_credentials_status', undefined);
 }
@@ -449,7 +449,7 @@ export function setCredentialPolicy(policy: CredentialPolicy): Promise<void> {
   return call('set_credential_policy', { policy });
 }
 
-export function instanceCredentialsStatus(): Promise<{ names: string[] }> {
+export function instanceCredentialsStatus(): Promise<{ names: string[]; reason?: string }> {
   return call('instance_credentials_status', undefined);
 }
 
