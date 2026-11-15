@@ -640,7 +640,7 @@ export async function runSourcedIssue(
       };
       persistProviderStop = async (): Promise<void> => {
         // A step after its stage returned (e.g. a repair): a record under that stage's name would overwrite the real one.
-        // `after-<stage>` cannot collide with a flow stage name.
+        // `after-<stage>` cannot collide with a flow stage name: `lowerFlow` reserves the `after-` prefix on the lowered name.
         const stopped: StageOutcome = {
           name: outcomes.some((outcome) => outcome.name === activeStage) ? `after-${activeStage}` : activeStage,
           result: {

@@ -109,3 +109,17 @@ test('rejects a prototype-key stage name instead of lowering Object.prototype in
     /unknown stage "toString"/,
   );
 });
+
+test('rejects a ref export whose own name takes the reserved "after-" prefix, whatever the HCL block is called', async () => {
+  const repo = await mkdtemp(join(tmpdir(), 'vg-ref-'));
+  try {
+    const dir = join(repo, '.vanguard', 'scripts');
+    await mkdir(dir, { recursive: true });
+    await writeFile(join(dir, 'after.mjs'), "export const stage = { name: 'after-planner', promptTemplate: 'x' };\n", 'utf8');
+    await expect(lowerFlow(doc([{ name: 'x', ref: 'scripts/after.mjs#stage', overrides: {} }]), { repoPath: repo })).rejects.toThrow(
+      /stage name "after-planner" is reserved/,
+    );
+  } finally {
+    await rm(repo, { recursive: true, force: true });
+  }
+});
