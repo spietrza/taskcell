@@ -4,7 +4,7 @@
   "type": "module",
   "scripts": {
     "build": "node build.mjs",
-    "check": "node build.mjs && node quiz-check.mjs && node preview-check.mjs && node stripe-webhook-check.mjs",
+    "check": "node build.mjs && node quiz-check.mjs && node preview-check.mjs && node stripe-webhook-check.mjs && node checkout-check.mjs",
     "serve": "node build.mjs && python3 -m http.server 4173 -d dist",
     "dev": "node build.mjs && pnpm dlx wrangler@4 dev",
     "deploy": "pnpm run check && pnpm dlx wrangler@4 deploy"

@@ -382,6 +382,7 @@ p { max-width: 62ch; }
 .plans .tag { align-self: flex-start; margin-bottom: 16px; }
 .plans .tag.now { border-color: var(--accent); color: var(--accent); }
 .plans .price { margin-top: 20px; font-family: var(--font-display); font-weight: 800; font-size: clamp(2.5rem, 1.9rem + 1.4vw, 3.5rem); letter-spacing: -0.03em; line-height: 1; font-variant-numeric: tabular-nums; }
+.plans.long .price { font-size: clamp(2rem, 1.5rem + 1vw, 2.6rem); }
 .plans .price small { margin-left: 6px; font-family: var(--font-text); font-weight: 400; font-size: 16px; letter-spacing: 0; color: var(--muted); }
 .plans .per { margin-top: 8px; font-size: 14px; color: var(--muted); }
 .plans ul { margin: 20px 0 24px; display: grid; gap: 8px; font-size: 16px; }

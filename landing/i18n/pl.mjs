@@ -41,6 +41,9 @@ const hosting = [
     'Hosting Taskcell jest w planach i jeszcze nie ruszył. Ta strona pokazuje formularz zgłoszenia i planowane plany, ale niczego nie wysyła. Self-host działa już dziś.'],
   ['<link rel="canonical" href="https://taskcell.dev/hosting/">', '<link rel="canonical" href="https://taskcell.dev/pl/hosting/">'],
   ['<h1>Request a hosted factory</h1>', '<h1>Poproś o fabrykę w hostingu</h1>'],
+  ['<b>Test payment received. No money moved.</b> This was a test checkout: hosting is not open yet, so no server was started.',
+    '<b>Płatność testowa przyjęta. Żadne pieniądze nie zostały pobrane.</b> To była płatność testowa: hosting jeszcze nie ruszył, więc żaden serwer nie został uruchomiony.'],
+  ['>Continue to Solo with the pass credited</a>', '>Przejdź do Solo z zaliczonym dostępem</a>'],
   ['Hosting is planned and not open yet. The form below is a placeholder: it shows what we will ask for, and it sends nothing. When you press the button, the page only tells you that requests are not open; your answers stay in this browser.',
     'Hosting jest w planach i jeszcze nie ruszył. Formularz poniżej to makieta: pokazuje, o co zapytamy, i niczego nie wysyła. Po naciśnięciu przycisku strona tylko poinformuje, że zgłoszenia nie są jeszcze przyjmowane. Odpowiedzi zostają w tej przeglądarce.'],
   ['What works today: <a href="/#install">install Taskcell on your own machine</a> for free, or read the <a href="/#pricing">planned prices</a>.',
@@ -60,14 +63,15 @@ const hosting = [
 ];
 
 const prices = [
+  ["const num = (n) => (Number.isInteger(n) ? String(n) : n.toFixed(2));", "const num = (n) => (Number.isInteger(n) ? String(n) : n.toFixed(2).replace('.', ','));"],
   ['/** "€14" or "€11.20". */', '/** "14\u00a0€" or "11,20\u00a0€". */'],
-  ["export const euro = (n) => '€' + (Number.isInteger(n) ? n : n.toFixed(2));",
-    "export const euro = (n) => (Number.isInteger(n) ? String(n) : n.toFixed(2).replace('.', ',')) + '\u00a0€';"],
+  ["export const euro = (n) => '€' + num(n);", "export const euro = (n) => num(n) + '\u00a0€';"],
+  ["CURRENCY === 'usd' ? '$' + num(n)", "CURRENCY === 'usd' ? num(n) + '\u00a0$'"],
 ];
 
 const quiz = [
-  ['name: `${name}, ${euro(PRICES[id])} a month`,', 'name: `${name}, ${euro(PRICES[id])} miesięcznie`,'],
-  ['note: `${limits} ${euro(PRICES[id] * YEARLY)} a month when billed yearly.`,', 'note: `${limits} ${euro(PRICES[id] * YEARLY)} miesięcznie przy płatności rocznej.`,'],
+  ['name: `${name}, ${money(PRICES[id])} a month`,', 'name: `${name}, ${money(PRICES[id])} miesięcznie`,'],
+  ['note: `${limits} ${money(PRICES[id] * YEARLY)} a month when billed yearly.`,', 'note: `${limits} ${money(PRICES[id] * YEARLY)} miesięcznie przy płatności rocznej.`,'],
   ['action: `Request ${name}`,', 'action: `Poproś o ${name}`,'],
   ["'1 run at a time, 1 person.'", "'1 run naraz, 1 osoba.'"],
   ["'3 runs at a time, no limit on people.'", "'3 runy naraz, bez limitu osób.'"],
@@ -89,8 +93,8 @@ const quiz = [
   ["'Agent code runs in a sealed Docker cell, and its edits to CI configuration are dropped.'", "'Kod agenta działa w zamkniętej komórce Dockera, a jego zmiany w konfiguracji CI są odrzucane.'"],
   ["'Lessons from failed runs and review notes are fed into later runs.'", "'Wnioski z nieudanych runów i uwagi z recenzji trafiają do kolejnych runów.'"],
   ["'Before you pay for anything: self-host for €0 on your own machine and fix the list.'", "'Zanim za cokolwiek zapłacisz: self-host za 0\u00a0€ na własnym komputerze i popraw to, co jest na liście.'"],
-  ['`A cheaper first step: the planned 7-day Solo pass for ${euro(PASS)}, credited toward your first month if you stay.`',
-    '`Tańszy pierwszy krok: planowany 7-dniowy dostęp Solo za ${euro(PASS)}, zaliczany na poczet pierwszego miesiąca, jeśli zostaniesz.`'],
+  ['`A cheaper first step: the planned 7-day Solo pass for ${money(PASS)}, credited toward your first month if you stay.`',
+    '`Tańszy pierwszy krok: planowany 7-dniowy dostęp Solo za ${money(PASS)}, zaliczany na poczet pierwszego miesiąca, jeśli zostaniesz.`'],
 ];
 
 const hubData = [

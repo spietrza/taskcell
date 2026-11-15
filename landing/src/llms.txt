@@ -27,7 +27,7 @@ Taskcell is free and MIT licensed. It runs on the model plan or keys you already
 
 ## Planned, not available yet
 
-Hosting by us is planned and cannot be bought today: Solo (EUR 14 a month), Team (EUR 39), Pro (EUR 79), 20% off when billed yearly, and a 7-day Solo pass (EUR 8). The plan is a dedicated server per customer with daily backups and updates done for you, running on your own model keys. The request form on the site is a placeholder and sends nothing.
+Hosting by us is planned and cannot be bought today: Solo (EUR 14 a month), Team (EUR 39), Pro (EUR 79), 20% off when billed yearly, and a 7-day Solo pass (EUR 8). The same plans are priced in US dollars (16, 45, 89 a month; pass 9) and Polish zloty (59, 169, 349; pass 35), and all prices include VAT. The plan is a dedicated server per customer with daily backups and updates done for you, running on your own model keys. The request form on the site is a placeholder and sends nothing.
 
 ## Get started
 
