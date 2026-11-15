@@ -5,13 +5,24 @@
 // except to the run that uses it (`RunCredential.env`, never persisted). The retired `credentials.enc` (key from
 // `TASKCELL_HUB_SECRET`) is migrated into the `instance` scope on start.
 import { createCipheriv, createDecipheriv, randomBytes } from 'node:crypto';
-import { chmod, mkdir, readFile, rename, rm, unlink, writeFile } from 'node:fs/promises';
+import { access, chmod, mkdir, readFile, rename, rm, writeFile } from 'node:fs/promises';
 import { join } from 'node:path';
 import { BadRequestError } from '../sidecar/sidecar.js';
 import type { RunCredential } from '../wire.js';
 import type { HubUser } from './auth.js';
 
 const LEGACY_MAGIC = 'VHC1';
+const SECRET_FORMAT = 'TASKCELL_HUB_SECRET must be 32 bytes, base64-encoded (e.g. `openssl rand -base64 32`)';
+const legacyPath = (configDir: string): string => join(configDir, '.vanguard-hub', 'credentials.enc');
+
+/** A store or migration failure whose message is fixed and value-free (no path, no credential), so it can be shown
+ * to a user as is; a bad request, so the RPC is refused with the reason rather than failing. */
+export class CredentialStoreError extends BadRequestError {}
+
+/** The reason to show for a store failure: our own fixed message, never raw error text (file-system errors carry paths). */
+const shownReason = (error: unknown, fallback: string): string => (error instanceof CredentialStoreError ? error.message : fallback);
+const STORE_UNREADABLE = 'credential store cannot be read: a file in the hub config directory is unreadable (see the hub log)';
+const MIGRATION_FAILED = 'credentials.enc could not be migrated: a file in the hub config directory is unreadable (see the hub log)';
 
 /** The env var each legacy `credentials.enc` provider slot held. */
 const LEGACY_ENV: Record<string, string> = {
@@ -23,14 +34,14 @@ const LEGACY_ENV: Record<string, string> = {
 
 function decryptLegacy(secret: string, blob: Buffer): Record<string, unknown> {
   const key = Buffer.from(secret.trim(), 'base64');
-  if (key.length !== 32) throw new Error('TASKCELL_HUB_SECRET must be 32 bytes, base64-encoded (e.g. `openssl rand -base64 32`)');
+  if (key.length !== 32) throw new CredentialStoreError(SECRET_FORMAT);
   try {
     if (blob.length < 4 + 12 + 16 || blob.subarray(0, 4).toString() !== LEGACY_MAGIC) throw new Error('bad magic');
     const decipher = createDecipheriv('aes-256-gcm', key, blob.subarray(4, 16));
     decipher.setAuthTag(blob.subarray(16, 32));
     return JSON.parse(Buffer.concat([decipher.update(blob.subarray(32)), decipher.final()]).toString('utf8')) as Record<string, unknown>;
   } catch {
-    throw new Error('credentials.enc cannot be decrypted: TASKCELL_HUB_SECRET is wrong or the file is corrupt');
+    throw new CredentialStoreError('credentials.enc cannot be decrypted: TASKCELL_HUB_SECRET is wrong or the file is corrupt');
   }
 }
 
@@ -43,7 +54,7 @@ export interface CredentialMigrationResult {
  * `instance` scope of the scoped store. A name already saved in the scoped store wins. The legacy file is deleted
  * only after every write was read back; partial work is safe to resume. Throws (file kept) on any failure. */
 export async function migrateLegacyCredentials(configDir: string, store: ScopedCredentialStore, secret: string | undefined): Promise<CredentialMigrationResult> {
-  const file = join(configDir, '.vanguard-hub', 'credentials.enc');
+  const file = legacyPath(configDir);
   let blob: Buffer;
   try {
     blob = await readFile(file);
@@ -52,7 +63,7 @@ export async function migrateLegacyCredentials(configDir: string, store: ScopedC
     throw e;
   }
   if (secret === undefined || secret.trim() === '') {
-    throw new Error('credentials.enc is no longer read: set TASKCELL_HUB_SECRET once so it can be migrated into the credential store');
+    throw new CredentialStoreError('credentials.enc is no longer read: set TASKCELL_HUB_SECRET once so it can be migrated into the credential store');
   }
   const legacy = decryptLegacy(secret, blob);
   const existing = await store.values('instance');
@@ -61,7 +72,7 @@ export async function migrateLegacyCredentials(configDir: string, store: ScopedC
   for (const [provider, value] of Object.entries(legacy)) {
     if (!Object.hasOwn(LEGACY_ENV, provider)) continue;
     const name = LEGACY_ENV[provider]!;
-    if (typeof value !== 'string') throw new Error(`credentials.enc contains a non-string value for ${name}`);
+    if (typeof value !== 'string') throw new CredentialStoreError(`credentials.enc contains a non-string value for ${name}`);
     if (value === '') continue;
     if (existing[name] !== undefined) {
       skipped.push(name);
@@ -74,10 +85,10 @@ export async function migrateLegacyCredentials(configDir: string, store: ScopedC
   for (const name of moved) {
     const provider = Object.keys(LEGACY_ENV).find((key) => LEGACY_ENV[key] === name)!;
     if (verified[name] !== legacy[provider]) {
-      throw new Error(`credentials.enc migration could not verify ${name}`);
+      throw new CredentialStoreError(`credentials.enc migration could not verify ${name}`);
     }
   }
-  await unlink(file);
+  await rm(file, { force: true });
   return { moved: moved.sort(), skipped: skipped.sort() };
 }
 
@@ -127,18 +138,30 @@ export class ScopedCredentialStore {
     return join(this.dir, 'credentials.enc.json');
   }
 
+  /** Set once this store has read or written under the operator's secret: from then on `credentials.key` is never
+   * tried again, so a planted key file plus store cannot replace the saved credentials.
+   * shortcut: in-memory, so it holds for the hub's lifetime only; persist a marker outside the config dir to cover restarts. */
+  private operatorKeyed = false;
+  /** The last load read a disk-key store whose re-key is put off (a legacy file is still unmigrated): saves stay under `credentials.key`. */
+  private rekeyDeferred = false;
+
+  /** Why a set `TASKCELL_HUB_SECRET` is not used (the store then stays on `credentials.key`, as before the secret keyed it). */
+  get secretIssue(): string | undefined {
+    const secret = this.secret?.trim() ?? '';
+    return secret !== '' && Buffer.from(secret, 'base64').length !== 32 ? `${SECRET_FORMAT}; until it is, the credential store uses credentials.key` : undefined;
+  }
+
   private operatorKey(): Buffer | undefined {
     if (this.secret === undefined || this.secret.trim() === '') return undefined;
     const key = Buffer.from(this.secret.trim(), 'base64');
-    if (key.length !== 32) throw new Error('TASKCELL_HUB_SECRET must be 32 bytes, base64-encoded (e.g. `openssl rand -base64 32`)');
-    return key;
+    return key.length === 32 ? key : undefined;
   }
 
   private async diskKey(create: boolean): Promise<Buffer> {
     const path = join(this.dir, 'credentials.key');
     try {
       const key = Buffer.from((await readFile(path, 'utf8')).trim(), 'hex');
-      if (key.length !== 32) throw new Error('credentials.key must contain a 32-byte hex key');
+      if (key.length !== 32) throw new CredentialStoreError('credentials.key must contain a 32-byte hex key');
       return key;
     } catch (error) {
       if ((error as NodeJS.ErrnoException).code !== 'ENOENT' || !create) throw error;
@@ -151,7 +174,7 @@ export class ScopedCredentialStore {
     } catch (error) {
       if ((error as NodeJS.ErrnoException).code !== 'EEXIST') throw error;
       const key = Buffer.from((await readFile(path, 'utf8')).trim(), 'hex');
-      if (key.length !== 32) throw new Error('credentials.key must contain a 32-byte hex key');
+      if (key.length !== 32) throw new CredentialStoreError('credentials.key must contain a 32-byte hex key');
       return key;
     }
   }
@@ -172,31 +195,43 @@ export class ScopedCredentialStore {
       if ((error as NodeJS.ErrnoException).code === 'ENOENT') return {};
       throw error;
     }
+    this.rekeyDeferred = false;
     const operatorKey = this.operatorKey();
     if (operatorKey !== undefined) {
       try {
-        return this.decrypt(raw, operatorKey);
+        const all = this.decrypt(raw, operatorKey);
+        this.operatorKeyed = true;
+        return all;
       } catch {
+        const undecryptable = new CredentialStoreError('credential store cannot be decrypted: it was saved under a different TASKCELL_HUB_SECRET value (or under the on-disk credentials.key, now absent), or the file is corrupt. Restore that value to recover it; the store is left untouched');
+        // The store is left as it is: nothing here overwrites or deletes what cannot be read.
+        if (this.operatorKeyed) throw undecryptable;
         let legacy: Secrets;
         try {
           legacy = this.decrypt(raw, await this.diskKey(false));
         } catch {
-          // The store is left as it is: nothing here overwrites or deletes what cannot be read.
-          throw new Error('credential store cannot be decrypted: it was saved under a different TASKCELL_HUB_SECRET value (or under the on-disk credentials.key, now absent), or the file is corrupt. Restore that value to recover it; the store is left untouched');
+          throw undecryptable;
+        }
+        // While credentials.enc is unmigrated the secret may not be the one that opens it: re-keying now could leave
+        // two files that no single secret reads, so the store stays under credentials.key until the migration is done.
+        if (await access(legacyPath(this.dir)).then(() => true, () => false)) {
+          this.rekeyDeferred = true;
+          return legacy;
         }
         // Re-key under the operator's secret; credentials.key goes only once the new file reads back.
         await this.saveWithKey(legacy, operatorKey);
         if (JSON.stringify(this.decrypt(await readFile(this.file, 'utf8'), operatorKey)) !== JSON.stringify(legacy)) {
-          throw new Error('credential store could not be verified after re-keying under TASKCELL_HUB_SECRET');
+          throw new CredentialStoreError('credential store could not be verified after re-keying under TASKCELL_HUB_SECRET');
         }
         await rm(join(this.dir, 'credentials.key'), { force: true });
+        this.operatorKeyed = true;
         return legacy;
       }
     }
     try {
       return this.decrypt(raw, await this.diskKey(false));
     } catch {
-      throw new Error('credential store cannot be decrypted: it was saved under a TASKCELL_HUB_SECRET value that is no longer set, or credentials.key is missing or wrong, or the file is corrupt. Restore that secret or key to recover it; the store is left untouched');
+      throw new CredentialStoreError('credential store cannot be decrypted: it was saved under a TASKCELL_HUB_SECRET value that is no longer set, or credentials.key is missing or wrong, or the file is corrupt. Restore that secret or key to recover it; the store is left untouched');
     }
   }
 
@@ -213,7 +248,9 @@ export class ScopedCredentialStore {
   }
 
   private async save(all: Secrets): Promise<void> {
-    await this.saveWithKey(all, this.operatorKey() ?? await this.diskKey(true));
+    const operatorKey = this.rekeyDeferred ? undefined : this.operatorKey();
+    await this.saveWithKey(all, operatorKey ?? await this.diskKey(true));
+    if (operatorKey !== undefined) this.operatorKeyed = true;
   }
 
   /** Serialize read-modify-write cycles so two saves never lose each other's update. */
@@ -286,6 +323,7 @@ export function createCredentialService(configDir: string, adminLogins: readonly
   const admins = new Set(adminLogins.map((l) => l.trim().toLowerCase()).filter(Boolean));
   const policyFile = join(configDir, 'credential-policy.json');
   let migrationIssue: string | undefined;
+  let migrating: Promise<void> | undefined;
   let instanceValues: Record<string, string> = {};
   const service: CredentialService = {
     store,
@@ -313,24 +351,31 @@ export function createCredentialService(configDir: string, adminLogins: readonly
       if (migrationIssue !== undefined) await service.migrateLegacy();
       try {
         instanceValues = await store.values('instance');
-        const names = Object.keys(instanceValues).sort();
-        return { names, ...(migrationIssue !== undefined ? { reason: migrationIssue } : {}) };
+        const reason = migrationIssue ?? store.secretIssue;
+        return { names: Object.keys(instanceValues).sort(), ...(reason !== undefined ? { reason } : {}) };
       } catch (error) {
-        instanceValues = {};
-        return { names: [], reason: error instanceof Error ? error.message : 'credential store cannot be read' };
+        // `instanceValues` keeps the last good read, so doc chat and Fleet do not silently drop to the start-up environment.
+        if (!(error instanceof CredentialStoreError)) console.error(`vanguard-hub: ${(error as Error).message}`);
+        return { names: [], reason: shownReason(error, STORE_UNREADABLE) };
       }
     },
-    async migrateLegacy() {
-      try {
-        const { moved, skipped } = await migrateLegacyCredentials(configDir, store, secret);
-        if (moved.length > 0) console.error(`vanguard-hub: migrated credentials from credentials.enc: ${moved.join(', ')}`);
-        if (skipped.length > 0) console.error(`vanguard-hub: kept existing credentials while migrating credentials.enc: ${skipped.join(', ')}`);
-        migrationIssue = undefined;
-      } catch (error) {
-        const reason = error instanceof Error ? error.message : 'credential migration failed';
-        if (reason !== migrationIssue) console.error(`vanguard-hub: ${reason}`);
-        migrationIssue = reason;
-      }
+    migrateLegacy() {
+      // Single-flight: two status reads retrying at once share one migration.
+      migrating ??= (async (): Promise<void> => {
+        try {
+          const { moved, skipped } = await migrateLegacyCredentials(configDir, store, secret);
+          if (moved.length > 0) console.error(`vanguard-hub: migrated credentials from credentials.enc: ${moved.join(', ')}`);
+          if (skipped.length > 0) console.error(`vanguard-hub: kept existing credentials while migrating credentials.enc: ${skipped.join(', ')}`);
+          migrationIssue = undefined;
+        } catch (error) {
+          const reason = shownReason(error, MIGRATION_FAILED);
+          if (reason !== migrationIssue) console.error(`vanguard-hub: ${error instanceof Error ? error.message : reason}`);
+          migrationIssue = reason;
+        }
+      })().finally(() => {
+        migrating = undefined;
+      });
+      return migrating;
     },
     async putInstance(name, value) {
       await store.put('instance', name, value);
@@ -349,7 +394,14 @@ export function createCredentialService(configDir: string, adminLogins: readonly
       const policy = await service.policy();
       const names = PROVIDER_NAMES[provider];
       const instance = async (): Promise<RunCredential> => {
-        const env = await store.values('instance');
+        let env: Record<string, string> = {};
+        try {
+          env = await store.values('instance');
+        } catch (error) {
+          // An unreadable store does not stop a run the hub's start-up environment can fund (as before the secret
+          // keyed this store); with no key there either, the run needs the store and is refused with the reason.
+          if (names !== undefined && !names.some((n) => (process.env[n] ?? '') !== '')) throw new BadRequestError(shownReason(error, STORE_UNREADABLE));
+        }
         return { source: 'instance', env: names === undefined ? env : pick(env, names) };
       };
       if (policy === 'off') return instance();
@@ -357,7 +409,12 @@ export function createCredentialService(configDir: string, adminLogins: readonly
         if (policy === 'user-only') throw new BadRequestError(SIGN_IN_REQUIRED);
         return instance();
       }
-      const own = await store.values(USER_SCOPE(user));
+      let own: Record<string, string> = {};
+      try {
+        own = await store.values(USER_SCOPE(user));
+      } catch (error) {
+        if (policy === 'user-only') throw new BadRequestError(shownReason(error, STORE_UNREADABLE));
+      }
       // Meridian / custom providers (no `names`): any saved credential makes it a user run (credentialEnv refuses it if unusable).
       const mine = names === undefined ? own : pick(own, names);
       if (Object.keys(mine).length > 0) return { source: 'user', env: mine };

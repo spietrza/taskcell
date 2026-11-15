@@ -1,10 +1,10 @@
 import { createCipheriv, randomBytes } from 'node:crypto';
-import { mkdir, mkdtemp, readFile, rm, writeFile } from 'node:fs/promises';
+import { copyFile, mkdir, mkdtemp, readFile, rm, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import type { AddressInfo } from 'node:net';
-import type { SidecarDeps } from '../sidecar/sidecar.js';
+import { BadRequestError, type SidecarDeps } from '../sidecar/sidecar.js';
 import { createCredentialService, migrateLegacyCredentials, parseCredentialInput, ScopedCredentialStore } from './credentials.js';
 import { createHubServer } from './server.js';
 import { localOnlyIdentity } from './auth.js';
@@ -150,6 +150,104 @@ describe('ScopedCredentialStore at-rest keys', () => {
       await rm(file);
       expect(await service.instanceStatus()).toEqual({ names: [] });
       expect(error.mock.calls.flat().join(' ')).not.toContain(SECRET_VALUE);
+    } finally {
+      error.mockRestore();
+    }
+  });
+});
+
+describe('re-review hardening', () => {
+  const quiet = (): ReturnType<typeof vi.spyOn> => vi.spyOn(console, 'error').mockImplementation(() => undefined);
+
+  it('does not re-key or drop credentials.key while credentials.enc is unmigrated, so one secret recovers everything', async () => {
+    const d = await dir();
+    const oldSecret = randomBytes(32).toString('base64');
+    await legacyFile(d, oldSecret, { zai: 'zai-legacy' });
+    await new ScopedCredentialStore(d).put('instance', 'CLAUDE_CODE_OAUTH_TOKEN', SECRET_VALUE);
+    const error = quiet();
+    try {
+      const mismatched = createCredentialService(d, [], randomBytes(32).toString('base64'));
+      await mismatched.migrateLegacy();
+      expect(await mismatched.instanceStatus()).toEqual({ names: ['CLAUDE_CODE_OAUTH_TOKEN'], reason: expect.stringContaining('credentials.enc cannot be decrypted') });
+      await mismatched.putInstance('OPENROUTER_API_KEY', 'or-key');
+      expect((await readFile(join(d, 'credentials.key'), 'utf8')).trim()).toHaveLength(64);
+      expect(Object.keys(await new ScopedCredentialStore(d).values('instance')).sort()).toEqual(['CLAUDE_CODE_OAUTH_TOKEN', 'OPENROUTER_API_KEY']);
+
+      const restored = createCredentialService(d, [], oldSecret);
+      await restored.migrateLegacy();
+      expect(await restored.instanceStatus()).toEqual({ names: ['CLAUDE_CODE_OAUTH_TOKEN', 'OPENROUTER_API_KEY', 'ZAI_API_KEY'] });
+      await expect(readFile(join(d, 'credentials.key'))).rejects.toThrow();
+      expect(Object.keys(await new ScopedCredentialStore(d, oldSecret).values('instance'))).toHaveLength(3);
+    } finally {
+      error.mockRestore();
+    }
+  });
+
+  it('an unusable or mismatched secret does not stop a run the start-up environment or the disk-key store can fund', async () => {
+    const original = process.env.CLAUDE_CODE_OAUTH_TOKEN;
+    try {
+      const d = await dir();
+      await new ScopedCredentialStore(d).put('instance', 'CLAUDE_CODE_OAUTH_TOKEN', SECRET_VALUE);
+      const short = createCredentialService(d, [], 'c2hvcnQ=');
+      expect(await short.resolveForRun(undefined)).toEqual({ source: 'instance', env: { CLAUDE_CODE_OAUTH_TOKEN: SECRET_VALUE } });
+      expect(await short.instanceStatus()).toEqual({ names: ['CLAUDE_CODE_OAUTH_TOKEN'], reason: expect.stringContaining('32 bytes') });
+
+      const locked = await dir();
+      await new ScopedCredentialStore(locked, randomBytes(32).toString('base64')).put('instance', 'CLAUDE_CODE_OAUTH_TOKEN', SECRET_VALUE);
+      const wrong = createCredentialService(locked, [], randomBytes(32).toString('base64'));
+      process.env.CLAUDE_CODE_OAUTH_TOKEN = 'startup';
+      expect(await wrong.resolveForRun(undefined)).toEqual({ source: 'instance', env: {} });
+      delete process.env.CLAUDE_CODE_OAUTH_TOKEN;
+      const refused = await wrong.resolveForRun(undefined).catch((e: unknown) => e);
+      expect(refused).toBeInstanceOf(BadRequestError);
+      expect((refused as Error).message).toContain('saved under a different TASKCELL_HUB_SECRET value');
+      process.env.CLAUDE_CODE_OAUTH_TOKEN = 'startup';
+      await wrong.setPolicy('user-only');
+      await expect(wrong.resolveForRun({ id: 'u1', email: 'u@example.com', name: 'U' })).rejects.toBeInstanceOf(BadRequestError);
+    } finally {
+      if (original === undefined) delete process.env.CLAUDE_CODE_OAUTH_TOKEN;
+      else process.env.CLAUDE_CODE_OAUTH_TOKEN = original;
+    }
+  });
+
+  it('concurrent migration attempts share one run and leave no reason', async () => {
+    const d = await dir();
+    const secret = randomBytes(32).toString('base64');
+    await legacyFile(d, secret, { claude: SECRET_VALUE });
+    const error = quiet();
+    try {
+      const service = createCredentialService(d, [], secret);
+      await Promise.all([service.migrateLegacy(), service.migrateLegacy()]);
+      expect(error.mock.calls.flat().filter((line) => String(line).includes('migrated credentials'))).toHaveLength(1);
+      expect(await service.instanceStatus()).toEqual({ names: ['CLAUDE_CODE_OAUTH_TOKEN'] });
+    } finally {
+      error.mockRestore();
+    }
+  });
+
+  it('never falls back to a credentials.key once the store was keyed under the secret', async () => {
+    const d = await dir();
+    const planted = await dir();
+    const store = new ScopedCredentialStore(d, randomBytes(32).toString('base64'));
+    await store.put('instance', 'CLAUDE_CODE_OAUTH_TOKEN', SECRET_VALUE);
+    await new ScopedCredentialStore(planted).put('instance', 'CLAUDE_CODE_OAUTH_TOKEN', 'attacker');
+    for (const name of ['credentials.key', 'credentials.enc.json']) await copyFile(join(planted, name), join(d, name));
+    await expect(store.values('instance')).rejects.toThrow('cannot be decrypted');
+    expect((await readFile(join(d, 'credentials.enc.json'))).equals(await readFile(join(planted, 'credentials.enc.json')))).toBe(true);
+  });
+
+  it('shows a fixed reason without paths for a file-system failure, and doc chat keeps the last good values', async () => {
+    const d = await dir();
+    const service = createCredentialService(d);
+    await service.putInstance('CLAUDE_CODE_OAUTH_TOKEN', 'saved');
+    await rm(join(d, 'credentials.enc.json'));
+    await mkdir(join(d, 'credentials.enc.json'));
+    const error = quiet();
+    try {
+      const status = await service.instanceStatus();
+      expect(status).toEqual({ names: [], reason: expect.stringContaining('cannot be read') });
+      expect(status.reason).not.toContain(d);
+      expect(service.childEnv('claude').CLAUDE_CODE_OAUTH_TOKEN).toBe('saved');
     } finally {
       error.mockRestore();
     }
