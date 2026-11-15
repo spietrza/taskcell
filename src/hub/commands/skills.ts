@@ -4,21 +4,33 @@ import { stat } from 'node:fs/promises';
 import { join } from 'node:path';
 import { aggregateSkills } from '../../core/skill-stats.js';
 import { parseMetrics } from '../../core/stats.js';
-import { recordedMetrics, skillsAddPr, skillsChecked, skillsRemovePr, skillsUpdate, type SkillsPrResult } from '../../core/skills.js';
+import { cachedResolver, recordedMetrics, skillsAddPr, skillsChecked, skillsRemovePr, skillsUpdate, type SkillsPrResult } from '../../core/skills.js';
 import type { RepoSkill } from '../../wire.js';
 import { defineCommands, optionalString, requireString, repoItemTarget, repoTarget } from '../command-kit.js';
 import { safeUrl } from '../audit.js';
 import { BadRequestError } from '../../sidecar/sidecar.js';
 
 export interface SkillsCommands {
-  /** HUB_ONLY, read-only: the skills of a repo with their lock status, upstream check and usage. */
+  /** HUB_ONLY, read-only: the skills of a repo (as in the hub checkout's working tree) with their lock status, upstream check and usage. */
   list_repo_skills: { args: { repoPath: string }; result: { skills: RepoSkill[] } };
-  /** HUB_ONLY: `skills update <name> --pr`; the skill only ever changes on a new branch, delivered as a PR. Resolves to its URL. */
+  /** HUB_ONLY, owner only: `skills update <name> --pr`; the skill only ever changes on a new branch, delivered as a PR. Resolves to its URL. */
   update_skill_pr: { args: { repoPath: string; name: string }; result: { prUrl: string } };
   /** HUB_ONLY, owner only: `skills add` delivered as a PR. A failure carries the command's reason. */
   add_skill_pr: { args: { repoPath: string; source: string; ref?: string; path?: string; name?: string }; result: { prUrl: string } };
   /** HUB_ONLY, owner only: `skills remove` delivered as a PR. */
   remove_skill_pr: { args: { repoPath: string; name: string }; result: { prUrl: string } };
+}
+
+// One cache for the hub's lifetime: each pinned skill costs a `git ls-remote`.
+const upstreamHead = cachedResolver();
+
+/** `<git-url>[#ref]` as the CLI takes it; an explicit `ref` wins over the fragment. */
+export function splitSource(source: string, ref?: string): { source: string; ref?: string } {
+  const hash = source.indexOf('#');
+  if (hash === -1) return { source, ...(ref !== undefined ? { ref } : {}) };
+  const frag = source.slice(hash + 1);
+  if (frag === '') throw new BadRequestError('empty #ref in the skill source');
+  return { source: source.slice(0, hash), ref: ref ?? frag };
 }
 
 const skillsDir = (repo: string): string => join(repo, 'skills');
@@ -35,7 +47,7 @@ export const commands = defineCommands<SkillsCommands>({
     const dir = skillsDir(real);
     // A project without a skills directory has no skills: the empty state, not an error.
     const present = await stat(dir).then((st) => st.isDirectory(), () => false);
-    const [rows, metrics] = await Promise.all([present ? skillsChecked(dir) : Promise.resolve([]), recordedMetrics(real)]);
+    const [rows, metrics] = await Promise.all([present ? skillsChecked(dir, upstreamHead) : Promise.resolve([]), recordedMetrics(real)]);
     const usage = new Map(aggregateSkills(parseMetrics(metrics)).map((r) => [r.skill, r.with]));
     const skills = rows.map((r): RepoSkill => {
       const u = usage.get(r.name);
@@ -59,8 +71,7 @@ export const commands = defineCommands<SkillsCommands>({
   },
   add_skill_pr: async ({ args, allow }) => {
     const real = await allow(requireString(args, 'repoPath'));
-    const source = requireString(args, 'source');
-    const ref = optionalString(args, 'ref');
+    const { source, ref } = splitSource(requireString(args, 'source'), optionalString(args, 'ref'));
     const path = optionalString(args, 'path');
     const name = optionalString(args, 'name');
     return prUrlOf(
@@ -75,9 +86,7 @@ export const commands = defineCommands<SkillsCommands>({
   },
 }, {
   list_repo_skills: { write: false, repo: 'repoPath' },
-  // Intended: a team member may update (the desktop Skills screen offers Update to them). Unlike add and remove, an update only
-  // re-fetches a skill from the source already pinned in its lock, so it brings in no new source; it is still a remote write.
-  update_skill_pr: { write: true, remote: true, repo: 'repoPath' },
+  update_skill_pr: { write: true, remote: true, owner: true, repo: 'repoPath' },
   add_skill_pr: { write: true, remote: true, owner: true, repo: 'repoPath' },
   remove_skill_pr: { write: true, remote: true, owner: true, repo: 'repoPath' },
 }, {

@@ -9,6 +9,7 @@ const cli = vi.hoisted(() => ({
   skillsAddPr: vi.fn(),
   skillsRemovePr: vi.fn(),
   recordedMetrics: vi.fn(async () => ''),
+  cachedResolver: vi.fn(() => async () => undefined),
 }));
 vi.mock('../../core/skills.js', () => cli);
 
@@ -77,6 +78,15 @@ test('add and remove open a PR and show its link; a failed add carries the comma
   await expect(dispatchRpc(ctx, 'add_skill_pr', { repoPath: repo, source: 'https://github.com/o/s' })).rejects.toThrow('Cannot resolve HEAD');
 });
 
+test('a #ref on the source is split off as in the CLI', async () => {
+  const repo = await tmpGitRepo('https://github.com/allowed/repo.git');
+  const { ctx } = await makeCtx(repo);
+  cli.skillsAddPr.mockImplementation(async () => ({ prUrl: PR }));
+  await dispatchRpc(ctx, 'add_skill_pr', { repoPath: repo, source: 'https://github.com/o/s#v1' });
+  expect(cli.skillsAddPr).toHaveBeenLastCalledWith(expect.objectContaining({ source: 'https://github.com/o/s', ref: 'v1' }));
+  await expect(dispatchRpc(ctx, 'add_skill_pr', { repoPath: repo, source: 'https://github.com/o/s#' })).rejects.toThrow('empty #ref');
+});
+
 test('the audit target of an add never carries credentials or a query from the source', async () => {
   const { commands } = await import('./skills.js');
   const target = commands.audit.add_skill_pr!.target!;
@@ -86,9 +96,11 @@ test('the audit target of an add never carries credentials or a query from the s
   expect(t).not.toContain(secret);
 });
 
-test('without the owner role, add and remove are refused before anything runs', async () => {
+test('without the owner role, update, add and remove are refused before anything runs', async () => {
   const repo = await tmpGitRepo('https://github.com/allowed/repo.git');
   const { ctx } = await makeCtx(repo);
+  await expect(dispatchRpc(ctx, 'update_skill_pr', { repoPath: repo, name: 'a' }, outsider)).rejects.toThrow('only the hub owner');
+  expect(cli.skillsUpdate).not.toHaveBeenCalled();
   await expect(dispatchRpc(ctx, 'add_skill_pr', { repoPath: repo, source: 'https://github.com/o/s' }, outsider)).rejects.toThrow('only the hub owner');
   await expect(dispatchRpc(ctx, 'remove_skill_pr', { repoPath: repo, name: 'a' }, outsider)).rejects.toThrow('only the hub owner');
   expect(cli.skillsAddPr).not.toHaveBeenCalled();

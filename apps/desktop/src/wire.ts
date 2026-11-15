@@ -140,7 +140,7 @@ export interface RepoSkill {
   name: string;
   /** Git URL it is pinned to; '-' for a local skill. */
   source: string;
-  /** Short pinned commit; '-' when none. */
+  /** Short pinned commit; empty when none. */
   commit: string;
   /** Lock status: pinned, locally modified, or not in the lock. */
   status: 'pinned' | 'local' | 'modified';
@@ -1267,9 +1267,9 @@ export interface Commands {
   conflict_stats: { args: { repoPath: string }; result: ConflictStats };
   /** HUB_ONLY, owner only, read-only: whether `gh`, `glab`, a Linear key and a model credential (Claude, or a Codex key or sign-in file) are present on the hub host. Booleans only — never a secret value. Spawns `gh`/`glab` on the host, so it is refused on a non-loopback bind without TASKCELL_HUB_ALLOW_ADD. */
   setup_status: { args: undefined; result: SetupStatus };
-  /** HUB_ONLY, read-only: the skills of a repo with their lock status, upstream check and usage. */
+  /** HUB_ONLY, read-only: the skills of a repo (as in the hub checkout's working tree) with their lock status, upstream check and usage. */
   list_repo_skills: { args: { repoPath: string }; result: { skills: RepoSkill[] } };
-  /** HUB_ONLY: `skills update <name> --pr`; the skill only ever changes on a new branch, delivered as a PR. Resolves to its URL. */
+  /** HUB_ONLY, owner only: `skills update <name> --pr`; the skill only ever changes on a new branch, delivered as a PR. Resolves to its URL. */
   update_skill_pr: { args: { repoPath: string; name: string }; result: { prUrl: string } };
   /** HUB_ONLY, owner only: `skills add` delivered as a PR. A failure carries the command's reason. */
   add_skill_pr: { args: { repoPath: string; source: string; ref?: string; path?: string; name?: string }; result: { prUrl: string } };
