@@ -154,9 +154,15 @@ export async function approverPrDecisions(repoPath: string): Promise<ApproverPrD
   const slug = await githubSlug(repoPath);
   const merged = new Set<number>();
   const latest = new Map<number, { verdict: 'APPROVE' | 'ESCALATE'; rules: string[]; ts: string }>();
+  // Act mode records a hold as a separate `left-for-human` action after the APPROVE verdict.
+  const held = new Map<number, { reason: string; ts: string }>();
   for (const line of parseJsonlLines(text)) {
     if (typeof line.prNumber !== 'number' || !isOwnRepo(line.repo, slug)) continue;
     if (line.action === 'merge') merged.add(line.prNumber);
+    if (line.action === 'left-for-human' && typeof line.timestamp === 'string') {
+      const prior = held.get(line.prNumber);
+      if (prior === undefined || prior.ts.localeCompare(line.timestamp) <= 0) held.set(line.prNumber, { reason: typeof line.reason === 'string' ? line.reason : '', ts: line.timestamp });
+    }
     if (line.verdict !== 'APPROVE' && line.verdict !== 'ESCALATE') continue;
     if (typeof line.timestamp !== 'string') continue;
     const prior = latest.get(line.prNumber);
@@ -167,8 +173,10 @@ export async function approverPrDecisions(repoPath: string): Promise<ApproverPrD
   const out: ApproverPrDecision[] = [];
   for (const prNumber of new Set([...latest.keys(), ...merged])) {
     const d = latest.get(prNumber);
-    const outcome = merged.has(prNumber) ? 'merged' : d?.verdict === 'APPROVE' ? 'would-merge' : 'left';
-    out.push({ prNumber, outcome, reasons: outcome === 'left' ? (d?.rules ?? []) : [] });
+    const h = held.get(prNumber);
+    const holds = h !== undefined && d?.verdict === 'APPROVE' && h.ts.localeCompare(d.ts) >= 0;
+    const outcome = merged.has(prNumber) ? 'merged' : d?.verdict === 'APPROVE' && !holds ? 'would-merge' : 'left';
+    out.push({ prNumber, outcome, reasons: outcome !== 'left' ? [] : holds && h.reason !== '' ? [h.reason] : (d?.rules ?? []) });
   }
   return out.sort((a, b) => a.prNumber - b.prNumber);
 }

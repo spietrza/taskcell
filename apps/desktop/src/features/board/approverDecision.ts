@@ -1,4 +1,4 @@
-import type { ApproverPrDecision, RunSummary } from '../../wire';
+import type { ApproverMode, ApproverPrDecision, RunSummary } from '../../wire';
 import { taskRefKey } from './taskref';
 
 /** The PR number a run's https PR URL names, or undefined. */
@@ -18,8 +18,8 @@ export function decisionForTask(taskId: string, runs: RunSummary[], decisions: A
   return decisions.find((d) => d.prNumber === pr);
 }
 
-export function decisionWords(d: ApproverPrDecision): string {
+export function decisionWords(d: ApproverPrDecision, mode: ApproverMode = 'shadow'): string {
   if (d.outcome === 'merged') return 'Merged automatically';
-  if (d.outcome === 'would-merge') return 'Approver approved it (shadow mode: left for you to merge)';
+  if (d.outcome === 'would-merge') return `Approver approved it (${mode === 'act' ? 'act' : 'shadow'} mode: left for you to merge)`;
   return `Left for you: ${d.reasons.length > 0 ? d.reasons.join(', ') : 'no reason recorded'}`;
 }

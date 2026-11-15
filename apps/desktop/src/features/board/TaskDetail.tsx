@@ -65,7 +65,7 @@ export function TaskDetail({
           {decision !== undefined && (
             <div className="mb-3 rounded-lg border border-border p-3 text-sm" data-approver={decision.outcome}>
               <div className="caption">Approver</div>
-              {decisionWords(decision)}
+              {decisionWords(decision, approver.mode)}
             </div>
           )}
           <div className="mb-2 caption">

@@ -323,7 +323,7 @@ export function TaskBoard({
                           )}
                           {(() => {
                             const d = decisionForTask(t.id, approver.runs, approver.decisions);
-                            return d !== undefined && <div className="text-[11px] text-muted-foreground" data-approver={d.outcome}>{decisionWords(d)}</div>;
+                            return d !== undefined && <div className="text-[11px] text-muted-foreground" data-approver={d.outcome}>{decisionWords(d, approver.mode)}</div>;
                           })()}
                           {t.paused && <PausedLine paused={t.paused} />}
                           {t.skills && (
