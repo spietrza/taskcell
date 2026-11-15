@@ -111,6 +111,7 @@ const commandHandlers = {
   api_complete: () => ({ text: 'Here is my analysis of the requested change. The implementation looks sound.' }),
   api_cancel_complete: () => undefined,
   api_create_task: () => createdTask,
+  api_create_tasks: () => ({ tasks: [createdTask] }),
   list_branches: () => ({ branches: ['dev', 'main'], default: 'main' }),
   list_drafts: () => ['draft-001'],
   read_draft: () => READ_DRAFT,
@@ -168,6 +169,9 @@ const commandHandlers = {
   merge_needs_you: (args: { id?: string } | undefined) => {
     waitingNeedsYou = waitingNeedsYou.filter((i) => i.id !== args?.id);
   },
+  hub_task_schedule: (args: { id?: string } | undefined) => ({ id: args?.id ?? 'hub-1' }),
+  hub_task_create: () => ({ id: 'hub-1' }),
+  hub_task_retry: (args: { id?: string } | undefined) => ({ id: args?.id ?? 'hub-1' }),
   start_task: (args: { label?: string } | undefined) => ({ status: 'labelled', label: args?.label ?? 'ready for agent', waitingOn: [] }),
   // Hub-only Enable factory flow (EnableFactoryDialog).
   enable_factory_plan: () => factoryPlan,

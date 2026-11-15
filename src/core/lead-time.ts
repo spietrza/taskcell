@@ -5,7 +5,7 @@
  * revise rounds). Parsing is pure and fixture-tested (lead-time.test.ts); fetching the raw GitHub
  * timeline lives in lead-time-github.ts, which is the only part that shells to `gh`.
  */
-import { sameLabel } from './labels.js';
+import { NEEDS_REVISION_LABEL, sameLabel } from './labels.js';
 
 /** One event off `GET /repos/{owner}/{repo}/issues/{number}/timeline` (PRs are issues there too). Only
  * the fields this module reads; GitHub's timeline carries many more per event type. */
@@ -50,7 +50,7 @@ export interface LeadTimeRollup {
 }
 
 const DEFAULT_TRIGGER_LABELS: ReadonlySet<string> = new Set(['ready for agent', 'ready for spec', 'ready for taskcell review', 'ready for vanguard review']);
-export const DEFAULT_REVISE_LABEL = 'needs revision';
+export const DEFAULT_REVISE_LABEL = NEEDS_REVISION_LABEL;
 
 /** Earliest `labeled` event in `events` whose label name is in `labels`, or undefined if none. */
 export function earliestLabelAt(events: ReadonlyArray<TimelineEvent>, labels: ReadonlySet<string>): string | undefined {

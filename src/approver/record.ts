@@ -97,7 +97,7 @@ async function appendRecord(repoPath: string, record: DecisionRecord | ActionRec
   await appendAudit(STREAMS.decisions, adapter, { ...record }, { actor: BOT_ACTOR, subject: { repo: record.repo, pr: record.prNumber } });
 }
 
-export type ActionKind = 'update-branch' | 'merge' | 'merge-failed' | 'left-for-human' | 'checks-failed' | 'base-moved' | 'error';
+export type ActionKind = 'update-branch' | 'merge' | 'revise' | 'merge-failed' | 'left-for-human' | 'checks-failed' | 'base-moved' | 'error';
 
 export interface ActionRecord {
   schemaVersion: 1;

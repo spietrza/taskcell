@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { createGithubIssue, createGitlabIssue, createLinearIssue, MAX_BODY_BYTES, MAX_TITLE_BYTES } from './create.js';
+import { createGithubIssue, createGitlabIssue, createLinearIssue, MAX_BODY_BYTES, MAX_DEPENDS_ON, MAX_TITLE_BYTES } from './create.js';
 import type { LinearGraphql } from './linear-cli.js';
 
 describe('createGithubIssue', () => {
@@ -176,5 +176,75 @@ describe('title guard', () => {
       }),
     ).rejects.toThrow(/title is .* limit is/);
     expect(called).toBe(false); // a raw E2BIG on the irreversible path tells the user nothing
+  });
+});
+
+describe('dependsOn', () => {
+  it('writes a Depends on line and a native GitHub relation', async () => {
+    const calls: string[][] = [];
+    let stdin: string | undefined;
+    await createGithubIssue('/repo', { title: 't', body: 'b', dependsOn: ['o/r#3'] }, async (_bin, args, opts) => {
+      calls.push(args);
+      stdin = opts.stdin ?? stdin;
+      return args[0] === 'issue' ? 'https://github.com/o/r/issues/9\n' : '555\n';
+    });
+    expect(stdin).toBe('b\n\nDepends on o/r#3\n');
+    expect(calls.at(-1)).toEqual(['api', '-X', 'POST', 'repos/o/r/issues/9/dependencies/blocked_by', '-F', 'issue_id=555']);
+  });
+
+  it('keeps the issue when relations are unavailable, and rejects a malformed ref', async () => {
+    const task = await createGithubIssue('/repo', { title: 't', body: 'b', dependsOn: ['o/r#3'] }, async (_bin, args) => {
+      if (args[0] === 'api') throw new Error('HTTP 404');
+      return 'https://github.com/o/r/issues/9\n';
+    });
+    expect(task.id).toBe('o/r#9');
+    await expect(createGithubIssue('/repo', { title: 't', body: 'b', dependsOn: ['x\nDepends on #1'] }, async () => '')).rejects.toThrow(/is not a github task reference/);
+  });
+
+  it('puts the Depends on line in a GitLab description and links the blocker by its plain project path', async () => {
+    let desc = '';
+    const calls: string[][] = [];
+    await createGitlabIssue('/repo', { title: 't', body: 'b', dependsOn: ['g/sub/p#2'] }, async (_bin, args) => {
+      calls.push(args);
+      if (args[0] === 'issue') desc = args[args.indexOf('--description') + 1]!;
+      return 'https://gitlab.com/g/p/-/issues/7\n';
+    });
+    expect(desc).toContain('Depends on g/sub/p#2');
+    // The project in the path is URL-encoded; the target project is a field, which glab encodes itself.
+    expect(calls.at(-1)).toEqual(['api', '-X', 'POST', 'projects/g%2Fp/issues/7/links', '-f', 'target_project_id=g/sub/p', '-f', 'target_issue_iid=2', '-f', 'link_type=is_blocked_by']);
+  });
+
+  it('writes the line and a "blocks" relation on Linear, and keeps the issue when the relation fails', async () => {
+    const sent: { query: string; variables?: Record<string, unknown> }[] = [];
+    const task = await createLinearIssue('ENG', { title: 't', body: 'b  \n\n', dependsOn: ['ENG-3'] }, async (req) => {
+      sent.push(req as (typeof sent)[number]);
+      if (req.query.includes('teams(')) return { data: { teams: { nodes: [{ id: 'team-1' }] } } };
+      if (req.query.includes('issueRelationCreate')) throw new Error('relation refused');
+      return { data: { issueCreate: { success: true, issue: { identifier: 'ENG-9', url: 'https://linear.app/x/issue/ENG-9' } } } };
+    });
+    expect(task.id).toBe('ENG-9');
+    expect(sent[1]!.variables).toMatchObject({ i: { description: 'b\n\nDepends on ENG-3\n' } });
+    expect(sent[2]!.variables).toEqual({ i: { issueId: 'ENG-3', relatedIssueId: 'ENG-9', type: 'blocks' } });
+  });
+
+  it('rejects refs of another source, path tricks and too many dependencies before anything is created', async () => {
+    let ran = false;
+    const run = async (): Promise<string> => ((ran = true), '');
+    for (const dep of ['o/../r#3', '../r#3', 'ENG-3', 'g/sub/p#3', '#3']) {
+      await expect(createGithubIssue('/repo', { title: 't', body: 'b', dependsOn: [dep] }, run)).rejects.toThrow(/task reference/);
+    }
+    await expect(createGitlabIssue('/repo', { title: 't', body: 'b', dependsOn: ['g/../p#3'] }, run)).rejects.toThrow(/task reference/);
+    await expect(createLinearIssue('ENG', { title: 't', body: 'b', dependsOn: ['o/r#3'] }, async () => ((ran = true), {}))).rejects.toThrow(/task reference/);
+    await expect(createGithubIssue('/repo', { title: 't', body: 'b', dependsOn: Array.from({ length: MAX_DEPENDS_ON + 1 }, (_, i) => `o/r#${i + 1}`) }, run)).rejects.toThrow(/at most/);
+    expect(ran).toBe(false);
+  });
+
+  it('does not pass a blocker id that is not a number to -F', async () => {
+    const calls: string[][] = [];
+    await createGithubIssue('/repo', { title: 't', body: 'b', dependsOn: ['o/r#3'] }, async (_bin, args) => {
+      calls.push(args);
+      return args[0] === 'issue' ? 'https://github.com/o/r/issues/9\n' : '@/etc/passwd\n';
+    });
+    expect(calls.some((a) => a.includes('-F'))).toBe(false);
   });
 });

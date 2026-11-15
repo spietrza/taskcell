@@ -226,6 +226,9 @@ export interface SourceAdapter {
   variables?(issueRef: string, task: Task): Record<string, string>;
   /** Whether the review body should include source-control auto-close syntax for this task id. */
   closeIssueOnMerge?: boolean;
+  /** `local`: the result stays a local branch — nothing is pushed and no PR/MR is opened (a hub-board task in a
+   * repository with no GitHub origin). Default: push and open one. */
+  delivery?: 'local';
   /** CLI used to open the draft PR/MR for review. Default 'gh'. GitLab supplies 'glab'. */
   reviewCli?: 'gh' | 'glab';
   /** Post the reviewer verdict (+ optional conformance section) onto the opened PR/MR. */
@@ -262,6 +265,8 @@ export interface RunIssueResult {
   task: Task;
   /** Absent when the agent produced no changes (no PR opened). */
   prUrl?: string;
+  /** A `local` delivery: the branch that holds the committed result. */
+  branch?: string;
   /** True when a PR was withheld because the secret scan flagged the outgoing diff — NOT "no changes". */
   secretBlocked?: boolean;
   /** True when the run stopped before implementing because the base branch is already red — NOT "no changes". */
@@ -904,7 +909,7 @@ export async function runSourcedIssue(
         ...(partial ? { closingKeywordScan: true } : {}),
         // A custom provider's key env var is repo-configured: the secret gate cannot know its name.
         secretEnvVars: providerKeyEnvNames(deps),
-        target: {
+        target: adapter.delivery === 'local' ? { kind: 'local-branch' } : {
           kind: 'new-pr',
           title: `${task.title} (${task.id})`,
           bugLabel,
@@ -941,6 +946,12 @@ export async function runSourcedIssue(
         await stepSummary('no-changes');
         onEvent({ type: 'run-end' });
         return { task };
+      }
+      if (delivery.kind === 'delivered-local') {
+        await writer.writeStages(outcomes, stageMeta());
+        await stepSummary(verificationFailed ? 'verify-failed' : 'completed');
+        onEvent({ type: 'run-end' });
+        return { task, branch: delivery.branch };
       }
       if (delivery.kind !== 'delivered-pr') throw new TaskcellError(`unexpected delivery outcome ${delivery.kind} for a new-pr target`);
       const pr = { prUrl: delivery.prUrl, headSha: delivery.headSha };
