@@ -1,5 +1,6 @@
 // Hub commands: the skills of a repository (src/cli/skills.ts): status, usage, and PR-only changes. One module per feature —
 // contract, validation and handler live here; `pnpm gen:wire` derives Commands, COMMAND_NAMES and dispatch from it (see CONTRIBUTING.md).
+import { stat } from 'node:fs/promises';
 import { join } from 'node:path';
 import { assertMutationsAllowed } from '../allowlist.js';
 import { aggregateSkills } from '../../core/skill-stats.js';
@@ -36,7 +37,10 @@ async function prUrlOf(run: (out: (line: string) => void) => Promise<void>, what
 export const commands = defineCommands<SkillsCommands>({
   list_repo_skills: async ({ args, allow }) => {
     const real = await allow(requireString(args, 'repoPath'));
-    const [rows, metrics] = await Promise.all([skillsChecked(skillsDir(real)), recordedMetrics(real)]);
+    const dir = skillsDir(real);
+    // A project without a skills directory has no skills: the empty state, not an error.
+    const present = await stat(dir).then((st) => st.isDirectory(), () => false);
+    const [rows, metrics] = await Promise.all([present ? skillsChecked(dir) : Promise.resolve([]), recordedMetrics(real)]);
     const usage = new Map(aggregateSkills(parseMetrics(metrics)).map((r) => [r.skill, r.with]));
     const skills = rows.map((r): RepoSkill => {
       const u = usage.get(r.name);

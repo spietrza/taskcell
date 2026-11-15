@@ -1,3 +1,5 @@
+import { mkdir } from 'node:fs/promises';
+import { join } from 'node:path';
 import { beforeEach, expect, test, vi } from 'vitest';
 import { dispatchRpc, makeCtx, tmpGitRepo, tmpRepo, type OWNER } from '../test-kit.js';
 
@@ -27,6 +29,8 @@ beforeEach(() => {
 test('list_repo_skills joins status, check and usage', async () => {
   const repo = await tmpGitRepo('https://github.com/allowed/repo.git');
   const { ctx } = await makeCtx(repo);
+  expect(await dispatchRpc(ctx, 'list_repo_skills', { repoPath: repo })).toEqual({ skills: [] }); // no skills/ yet: empty state
+  await mkdir(join(repo, 'skills'));
   const { skills } = (await dispatchRpc(ctx, 'list_repo_skills', { repoPath: repo })) as { skills: { name: string; commit: string; check: string; usage?: { runs: number } }[] };
   expect(skills.map((s) => [s.name, s.commit, s.check, s.usage?.runs])).toEqual([['a', 'abcdef1', 'outdated', 1], ['b', '', 'local', undefined]]);
 });
