@@ -348,6 +348,7 @@ const index = [
   ['>Report a vulnerability</a>', '>Zgłoś podatność</a>'],
   ['>Security model</a>', '>Model bezpieczeństwa</a>'],
   ['>OWASP mapping</a>', '>Mapowanie OWASP</a>'],
+  ['aria-label="Independent security scores"', 'aria-label="Niezależne oceny bezpieczeństwa"'],
 
   // self-host
   ['Your machine. Your plan.', 'Twój komputer. Twój plan.'],
