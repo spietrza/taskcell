@@ -127,6 +127,8 @@ export interface DecisionRecord {
   schemaVersion: 1;
   mode: Mode;
   repo: string;
+  /** Node id of the repository (stable across a rename); absent on records written before it was recorded. */
+  repoId?: string;
   prNumber: number;
   headSha: string | null;
   baseSha: string | null;

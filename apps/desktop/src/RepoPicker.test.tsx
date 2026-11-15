@@ -37,6 +37,23 @@ beforeEach(() => {
 afterEach(() => vi.unstubAllGlobals());
 
 describe('RepoPicker', () => {
+  test('on Windows the parent of a drive root lists the drives, and a drive opens from there', async () => {
+    const DRIVES: DirListing = {
+      path: 'drives:',
+      entries: [
+        { name: 'C:\\', path: 'C:\\', isGitRepo: false, hasTaskcell: false },
+        { name: 'D:\\', path: 'D:\\', isGitRepo: false, hasTaskcell: false },
+      ],
+    };
+    const C_ROOT: DirListing = { path: 'C:\\', parent: 'drives:', entries: [] };
+    mockBrowseDirs.mockImplementation(async (path?: string) => (path === 'drives:' ? DRIVES : C_ROOT));
+    render(<RepoPicker onAdd={vi.fn()} onClone={vi.fn()} onClose={() => {}} />);
+    await screen.findByText('C:\\');
+    fireEvent.click(screen.getByLabelText('Parent directory'));
+    expect(await screen.findByText('D:\\')).toBeInTheDocument();
+    expect(mockBrowseDirs).toHaveBeenLastCalledWith('drives:');
+  });
+
   test('a failed first listing is shown, with the folder tabs kept', async () => {
     mockBrowseDirs.mockRejectedValue(new Error('browse is disabled'));
     render(<RepoPicker onAdd={vi.fn()} onClone={vi.fn()} onClose={() => {}} />);

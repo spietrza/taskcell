@@ -1,5 +1,5 @@
 // The hub's folder browser behind the Add-project picker (`browse_dirs`) and its confinement guard.
-import { lstat, readdir, realpath } from 'node:fs/promises';
+import { lstat, readdir, realpath, stat } from 'node:fs/promises';
 import { homedir } from 'node:os';
 import { dirname, isAbsolute, join, resolve, sep } from 'node:path';
 import { BadRequestError } from '../sidecar/sidecar.js';
@@ -25,6 +25,17 @@ export interface DirListing {
   /** true if the listed directory itself directly contains a `.git` entry. */
   isGitRepo?: boolean;
   entries: DirEntry[];
+}
+
+/** The `path` a Windows listing sends for "above the drive roots": `browseDirs` answers it with the drive list. */
+export const DRIVES_PATH = 'drives:';
+
+/** The drive roots that exist (`C:\`, `D:\`, …), probed A to Z. */
+export async function listDriveRoots(): Promise<string[]> {
+  const found = await Promise.all(
+    Array.from({ length: 26 }, (_, i) => `${String.fromCharCode(65 + i)}:\\`).map(async (root) => ((await stat(root).then((s) => s.isDirectory()).catch(() => false)) ? root : undefined)),
+  );
+  return found.filter((r): r is string => r !== undefined);
 }
 
 /** True if `child` is `root` itself or a real descendant of it (both already realpath'd, so absolute).
@@ -89,7 +100,18 @@ async function hasMarker(dir: string, name: string): Promise<boolean> {
  * (the desktop app's own hub) `root` is only where the picker opens: any directory may be listed,
  * and `parent` goes up to the filesystem root.
  */
-export async function browseDirs(root: string, requestedPath?: string, anywhere = false): Promise<DirListing> {
+export async function browseDirs(
+  root: string,
+  requestedPath?: string,
+  anywhere = false,
+  platform: NodeJS.Platform = process.platform,
+  driveRoots: () => Promise<string[]> = listDriveRoots,
+): Promise<DirListing> {
+  // On Windows an unconfined hub (the desktop app's own) can go above a drive root, to the list of drives.
+  if (anywhere && platform === 'win32' && requestedPath === DRIVES_PATH) {
+    const drives = await driveRoots();
+    return { path: DRIVES_PATH, entries: drives.map((path) => ({ name: path, path, isGitRepo: false, hasTaskcell: false })) };
+  }
   const realRoot = await realpath(root);
   const target = requestedPath ? await realTypedPath(realRoot, requestedPath) : realRoot;
 
@@ -119,9 +141,8 @@ export async function browseDirs(root: string, requestedPath?: string, anywhere 
   if (anywhere || target !== realRoot) {
     const parentDir = dirname(target);
     const realParent = await realpath(parentDir);
-    if (realParent !== target) {
-      listing.parent = realParent;
-    }
+    if (realParent !== target) listing.parent = realParent;
+    else if (anywhere && platform === 'win32') listing.parent = DRIVES_PATH;
   }
 
   return listing;

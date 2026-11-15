@@ -6,7 +6,8 @@ import { readBranchFile, readBranchMetrics, METRICS_BRANCH_DEFAULT } from '../co
 import { DECISIONS_FILE } from '../approver/ledger.js';
 import { parseDecisions, formatApproverScorecard } from '../approver/scorecard.js';
 import { collectApproverScorecard } from '../approver/outcome.js';
-import { leadTimeRollupForPrUrls } from '../core/lead-time-github.js';
+import { defaultGhRunner } from '../tasks/github.js';
+import { leadTimeRollupForPrUrls, memoizePrView } from '../core/lead-time-github.js';
 import { aggregateLessons, fetchFirstPass, formatLessonsStats } from '../core/lessons-stats.js';
 import { formatLeadTime } from '../core/lead-time.js';
 import { aggregateSkills, formatSkillStats, parseSince, withinWindow } from '../core/skill-stats.js';
@@ -69,8 +70,9 @@ export async function statsCommand(cmd: StatsCommand): Promise<void> {
   }
   const report = aggregateMetrics(records, parseProbes(text));
   const prUrls = records.flatMap((r) => (r.prUrl !== undefined ? [r.prUrl] : []));
-  const leadTime = cmd.githubRepo !== undefined ? await leadTimeRollupForPrUrls(cmd.githubRepo, prUrls) : undefined;
-  const firstPass = cmd.githubRepo !== undefined ? await fetchFirstPass(cmd.githubRepo, prUrls, undefined, cmd.feedbackAuthors) : undefined;
+  const gh = memoizePrView(defaultGhRunner);
+  const leadTime = cmd.githubRepo !== undefined ? await leadTimeRollupForPrUrls(cmd.githubRepo, prUrls, {}, gh) : undefined;
+  const firstPass = cmd.githubRepo !== undefined ? await fetchFirstPass(cmd.githubRepo, prUrls, gh, cmd.feedbackAuthors) : undefined;
   const lessons = aggregateLessons(records, firstPass?.firstPass, firstPass?.failed);
   const merges = parseBaseMerges(text);
   const conflicts = merges.length > 0 ? aggregateConflicts(merges) : undefined;
