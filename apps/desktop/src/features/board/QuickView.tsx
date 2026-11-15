@@ -1,11 +1,13 @@
 import { useEffect, useState, type Ref } from 'react';
 import { Button, cn } from '@/ui';
 import { Check, Circle, CircleDot, X } from 'lucide-react';
-import { listNeedsYou, listRuns, readRun, type NeedsYouItem } from '../../ipc';
+import { apiSetTaskSkills, listNeedsYou, listRuns, readRun, type NeedsYouItem } from '../../ipc';
+import { errorMessage } from '../../errors';
 import type { BoardTask, RepoStamp, RunDetail } from '../../wire';
 import { ExternalLink, hostName } from '../../components/ExternalLink';
 import { MergeButton, ReplyBox, canUseNeedsYou } from '../needs-you/NeedsYou';
 import { receipt } from './receipt';
+import { SkillPicker } from './SkillPicker';
 import { repairAttempts, stageLine, type StageStatus } from './stageLine';
 import { taskRefKey } from './taskref';
 import { ScheduleEditor, ScheduleLines } from './Schedule';
@@ -45,12 +47,49 @@ const FACT_TONE = { pass: '', fail: 'text-destructive-text', none: 'text-muted-f
 
 type RunState = { prUrl?: string; totalCostUsd?: number; detail?: RunDetail };
 
+/**
+ * The card's skills: tick the installed ones, Save writes them to the task as its `Skills:` line
+ * (through the tracker, so a run started from CI or `watch` sees them too).
+ */
+function CardSkills({ task, repoPath, onSaved }: { task: QuickTask; repoPath: string; onSaved?: ((skills: string[]) => void) | undefined }) {
+  const [saved, setSaved] = useState(task.skills ?? []);
+  const [skills, setSkills] = useState(saved);
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+  const dirty = skills.length !== saved.length || skills.some((s) => !saved.includes(s));
+  const save = (): void => {
+    setBusy(true);
+    setError(null);
+    apiSetTaskSkills(repoPath, task.id, skills)
+      .then((r) => {
+        setSaved(r.skills);
+        setSkills(r.skills);
+        onSaved?.(r.skills);
+      })
+      .catch((e: unknown) => setError(errorMessage(e)))
+      .finally(() => setBusy(false));
+  };
+  return (
+    <section aria-label="Skills" className="space-y-1.5">
+      <h4 className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">Skills</h4>
+      <SkillPicker project={repoPath} value={skills} onChange={setSkills} disabled={busy} />
+      {dirty && (
+        <Button variant="outlined" disabled={busy} onClick={save}>
+          Save skills
+        </Button>
+      )}
+      {error !== null && <div role="alert" className="break-words text-xs text-destructive-text">{error}</div>}
+    </section>
+  );
+}
+
 /** The card's quick view: side panel beside the Board, a bottom drawer on phones. No transcript or diff tabs. */
 export function QuickView({
   task,
   project,
   onClose,
   onFullPage,
+  onSkillsSaved,
   onChanged,
   ref,
 }: {
@@ -58,6 +97,8 @@ export function QuickView({
   project: string;
   onClose: () => void;
   onFullPage: () => void;
+  /** The card's skills were written to its task. */
+  onSkillsSaved?: (skills: string[]) => void;
   /** The task was edited: the board reloads. */
   onChanged?: () => void;
   ref?: Ref<HTMLElement>;
@@ -199,6 +240,8 @@ export function QuickView({
             </li>
           ))}
         </ol>
+
+        {task.source !== undefined && <CardSkills key={`${repoPath}:${task.id}`} task={task} repoPath={repoPath} onSaved={onSkillsSaved} />}
       </div>
 
       {/* Pinned to the bottom edge: Merge and "Open in …". */}

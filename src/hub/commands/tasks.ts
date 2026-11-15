@@ -1,12 +1,16 @@
 // Hub commands: the task board and creating/starting tasks. One module per feature — contract, validation and handler live here;
 // `pnpm gen:wire` derives Commands, COMMAND_NAMES and dispatch from it (see CONTRIBUTING.md).
+import { assertSkillsInstalled, namedSkillsProblem } from '../../context/named-skills.js';
+import { hubSkillsDir, skillRegistryForRun } from '../../context/skill-registry.js';
+import { TaskcellError, visibleError } from '../../core/errors.js';
+import { resolveTaskRef } from '../../tasks/board.js';
+import { setTaskSkills } from '../../tasks/create.js';
 import { BadRequestError, invokeCoreMethod, type CreateTaskParams } from '../../sidecar/sidecar.js';
 import { assertMutationsAllowed } from '../allowlist.js';
 import { BASE_LABEL_PREFIX, assertAllowedBase, assertSafeBaseBranch, readAllowedBases, readRepoBaseBranch } from '../../core/base-branch.js';
 import { readAppConfig } from '../app-config.js';
 import type { RpcContext } from '../rpc.js';
 import * as projects from '../projects.js';
-import { TaskcellError } from '../../core/errors.js';
 import { listHubBoard } from '../hub-board.js';
 import { HUB_TASK_ID, MAX_BLOCKED_BY, MAX_BODY_LENGTH, MAX_TITLE_LENGTH, createHubTask, editHubTask, listHubTasks, updateHubTask, type HubTaskOwner } from '../hub-tasks.js';
 import { startGithubTask, triggerLabelsFor } from '../start-task.js';
@@ -36,6 +40,10 @@ export interface TasksCommands {
   hub_task_retry: { args: { repoPath: string; id: string }; result: { id: string } };
   /** HUB_ONLY: apply a trigger label to a GitHub issue of the project (src/hub/start-task.ts). */
   start_task: { args: { repoPath: string; number: number; label: string }; result: StartTaskResult };
+  /** HUB_ONLY, read-only: the ids of the skills a run of this project can load (what a hand-picked list is checked against). */
+  list_skills: { args: { repoPath: string }; result: { skills: string[] } };
+  /** HUB_ONLY: write a card's hand-picked skills to its task as the body's `Skills:` line (an empty list removes it). */
+  set_task_skills: { args: { repoPath: string; taskId: string; skills: string[] }; result: { skills: string[] } };
 }
 
 /** GitHub's cap on a label name. */
@@ -74,6 +82,15 @@ async function createTaskBase(real: string, args: Record<string, unknown>): Prom
   return base;
 }
 
+/** The skills a run of this project loads: the hub's skills dir plus the repo's own. A broken dir or lock is the caller's to fix (400, with the reason). */
+async function installedSkills(repoPath: string): Promise<string[]> {
+  try {
+    return (await skillRegistryForRun(hubSkillsDir(), repoPath)).ids().sort();
+  } catch (error) {
+    throw new BadRequestError(`Skills cannot be listed: ${error instanceof Error ? error.message : String(error)}`);
+  }
+}
+
 /** The targets a card may name (the allowlist a run enforces, see readAllowedBases), plus the repo's configured default. */
 async function listBranches(repoPath: string): Promise<{ branches: string[]; default?: string }> {
   const [allowed, dflt] = await Promise.all([readAllowedBases(repoPath), readRepoBaseBranch(repoPath)]);
@@ -99,6 +116,41 @@ async function boardOf(ctx: RpcContext, real: string): Promise<{ tasks: BoardTas
 }
 
 export const commands = defineCommands<TasksCommands>({
+  list_skills: async ({ args, allow }) => {
+    const real = await allow(requireString(args, 'repoPath'));
+    return { skills: await installedSkills(real) };
+  },
+  set_task_skills: async ({ ctx, args, allow }) => {
+    // Edits the issue body as the hub's tracker identity — a remote mutation. Every refusal happens before any write.
+    assertMutationsAllowed(ctx.bind);
+    const real = await allow(requireString(args, 'repoPath'));
+    const taskId = requireString(args, 'taskId');
+    const skills = args.skills;
+    if (!Array.isArray(skills) || skills.some((s) => typeof s !== 'string')) throw new BadRequestError('skills must be an array of skill ids');
+    const names = [...new Set(skills as string[])];
+    const problem = namedSkillsProblem(names);
+    if (problem !== undefined) throw new BadRequestError(`skills ${problem}`);
+    const ref = resolveTaskRef(taskId);
+    const source = ref?.source;
+    if (ref === undefined || source === undefined) throw new BadRequestError(`taskId ${JSON.stringify(taskId.slice(0, 80))} names no GitHub, GitLab or Linear task`);
+    // The tracker is the project's, never the caller's choice: a prefix alone would let any repo's user edit any issue the hub's key reaches.
+    const cfg = await readAppConfig(real);
+    if (cfg.taskSource === 'hub' || source !== (cfg.source ?? 'github')) throw new BadRequestError('this task is not on the project\'s task source');
+    if (source === 'linear' && (cfg.team === undefined || !ref.reference.toUpperCase().startsWith(`${cfg.team.toUpperCase()}-`))) throw new BadRequestError('this task is not in the project\'s Linear team');
+    try {
+      assertSkillsInstalled(names, await installedSkills(real));
+    } catch (error) {
+      if (error instanceof TaskcellError) throw new BadRequestError(error.message);
+      throw error;
+    }
+    if (source !== 'linear') await assertHasRemote(real, source === 'github');
+    try {
+      return await setTaskSkills(real, taskId, names);
+    } catch (error) {
+      // gh/glab/Linear failures (not signed in, no such issue) are the caller's to fix: one line, like the board's.
+      throw new BadRequestError(visibleError(error).message);
+    }
+  },
   list_tasks: async ({ ctx, args, allow }) => {
     const real = await allow(requireString(args, 'repoPath'));
     return boardOf(ctx, real);
@@ -223,6 +275,7 @@ export const commands = defineCommands<TasksCommands>({
   },
 }, {
   api_create_task: { action: 'task-create', target: repoTarget },
+  set_task_skills: { action: 'task-edit', target: repoItemTarget('taskId'), detail: async () => ['skills'] },
   api_create_tasks: { action: 'task-create', target: repoTarget },
   hub_task_create: { action: 'task-create', target: repoTarget },
   hub_task_schedule: { action: 'task-schedule', target: repoItemTarget('id') },
