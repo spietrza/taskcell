@@ -1,18 +1,12 @@
-import { MARKER_PREFIX_RE, hasLabel, withoutLabel } from '../core/labels.js';
+import { hasLabel, withoutLabel } from '../core/labels.js';
 import { failureReason } from '../core/errors.js';
-import { redactForPublish } from '../core/secret-scan.js';
-import { fanOut } from '../pipeline/fan-out.js';
 import { GITLAB_WAITING_LABEL } from '../gitlab-labels.js';
-import { directiveLines, parseStartDate, refText } from './dependencies.js';
+import { dedupeRefs, escalatesToNeedsInfo, evaluateDependencies, invalidStart, isSilentError, lookupFailed, parseStartDate, postUnlessRepeated, readWithRetry, runDependencyGate, waitingClause } from './dependency-gate.js';
+import { directiveLines, refText } from './dependencies.js';
 import { commentGitlabIssue, defaultGlabRunner, editGitlabLabels, encodeProject, glabUser, neutralizeQuickActions } from './gitlab.js';
-import type { StartDate } from './dependencies.js';
+import type { DependencyVerdict, StartDate, WalkAdapter } from './dependency-gate.js';
 import type { GitLabNote, GlabRunner } from './gitlab.js';
 import type { Task, TaskRef } from './fetcher.js';
-
-const MAX_NODES = 50;
-const LOOKUP_ATTEMPTS = 3;
-const RETRY_DELAY_MS = 250;
-const CHECK_CONCURRENCY = 4;
 
 /** `group[/subgroup]/project` with real name characters; rejects `..`-style segments before they reach an API path. */
 const validProject = (project: string): boolean => /^[\w.-]+(?:\/[\w.-]+)+$/.test(project) && project.split('/').every((part) => !/^\.+$/.test(part));
@@ -70,11 +64,7 @@ interface GitlabLink {
   references?: { full?: string };
 }
 
-const same = (a: TaskRef, b: TaskRef): boolean => a.repo.toLowerCase() === b.repo.toLowerCase() && a.number === b.number;
-const dedupe = (refs: TaskRef[]): TaskRef[] => refs.filter((ref, i) => refs.findIndex((other) => same(other, ref)) === i);
-const isoDay = (date: Date): string => date.toISOString().slice(0, 10);
 const api = (ref: TaskRef, suffix = ''): string => `projects/${encodeProject(ref.repo)}/issues/${ref.number}${suffix}`;
-const keyOf = (ref: TaskRef): string => refText(ref).toLowerCase();
 const selfRef = (project: string, task: Task): TaskRef => ({ repo: project, number: Number(task.ref ?? task.id.slice(task.id.indexOf('#') + 1)) });
 
 /**
@@ -88,17 +78,11 @@ const httpStatus = (error: unknown): number | undefined => {
 };
 
 /** Retries a glab read with backoff: one transient 5xx must not hold an issue. A 4xx is final. */
-async function read(glab: GlabRunner, args: string[]): Promise<string> {
-  for (let attempt = 1; ; attempt += 1) {
-    try {
-      return await glab(args);
-    } catch (error) {
-      const status = httpStatus(error);
-      if (attempt >= LOOKUP_ATTEMPTS || (status !== undefined && status >= 400 && status < 500)) throw error;
-      await new Promise((resolve) => setTimeout(resolve, RETRY_DELAY_MS * attempt));
-    }
-  }
-}
+const read = (glab: GlabRunner, args: string[]): Promise<string> =>
+  readWithRetry(() => glab(args), (error) => {
+    const status = httpStatus(error);
+    return status !== undefined && status >= 400 && status < 500;
+  });
 
 async function getIssue(ref: TaskRef, glab: GlabRunner): Promise<GitlabDepIssue | 'missing'> {
   try {
@@ -129,44 +113,28 @@ async function nativeBlockers(ref: TaskRef, glab: GlabRunner): Promise<TaskRef[]
     });
 }
 
-export type GitlabDependencyVerdict =
-  | { status: 'ready'; dependsOn: TaskRef[] }
-  | { status: 'waiting'; blockers: TaskRef[]; startsAt?: Date; reason: string }
-  /** Cycle, missing or unreadable reference, merge request, blocker moved or closed as duplicate, bad start date: a human must fix the issue. */
-  | { status: 'invalid'; reason: string }
-  /** Lookup failed (403, network, a link naming no project): not knowable, never silently skipped. */
-  | { status: 'error'; reason: string };
+export type GitlabDependencyVerdict = DependencyVerdict;
 
-type Walk = { problem: string } | { problem?: undefined; direct: Map<string, GitlabDepIssue> };
-
-/** Depth-first walk; beyond the root only native links are followed (a dependency's body may be written by anyone). */
-async function walk(self: TaskRef, direct: TaskRef[], glab: GlabRunner): Promise<Walk> {
-  const fetched = new Map<string, GitlabDepIssue>();
-  const seen = new Set<string>();
-  let visited = 0;
-  const visit = async (ref: TaskRef, refs: TaskRef[], path: TaskRef[]): Promise<string | undefined> => {
-    for (const dep of refs) {
-      if (path.some((p) => same(p, dep))) return `dependency cycle: ${[...path, dep].map(refText).join(' → ')}`;
-      const key = keyOf(dep);
-      if (ref !== self && seen.has(key)) continue;
-      if (++visited > MAX_NODES) return `dependency chain too large (more than ${MAX_NODES} issues)`;
-      const issue = fetched.get(key) ?? (await getIssue(dep, glab));
-      if (issue === 'missing') {
-        // A 404 in another project may just be a token that cannot read it: say so instead of "does not exist".
-        if (dep.repo.toLowerCase() !== self.repo.toLowerCase()) return `${refText(dep)} was not found or is not readable with this token (referenced by ${refText(ref)})`;
-        return `${refText(dep)} does not exist (referenced by ${refText(ref)})`;
-      }
-      if (ref === self) fetched.set(key, issue);
-      seen.add(key);
-      if (issue.state?.toLowerCase() === 'closed') continue;
-      const problem = await visit(dep, await nativeBlockers(dep, glab), [...path, dep]);
-      if (problem !== undefined) return problem;
+/** The GitLab side of the shared walk: reads issues and "is blocked by" links through `glab`. */
+const gitlabAdapter = (self: TaskRef, glab: GlabRunner): WalkAdapter<GitlabDepIssue> => ({
+  text: refText,
+  async fetch(dep, referencedBy) {
+    const issue = await getIssue(dep, glab);
+    if (issue !== 'missing') return { issue };
+    // A 404 in another project may just be a token that cannot read it: say so instead of "does not exist".
+    if (dep.repo.toLowerCase() !== self.repo.toLowerCase()) return { problem: `${refText(dep)} was not found or is not readable with this token (referenced by ${refText(referencedBy)})` };
+    return { problem: `${refText(dep)} does not exist (referenced by ${refText(referencedBy)})` };
+  },
+  finished: (issue) => issue.state?.toLowerCase() === 'closed',
+  blockers: (ref) => nativeBlockers(ref, glab),
+  judge(issue, ref) {
+    if (issue.state?.toLowerCase() !== 'closed') return 'open';
+    if (issue.moved_to_id != null || issue.duplicated_to_id != null) {
+      return { invalid: `${refText(ref)} was closed without being completed (${issue.moved_to_id != null ? 'moved' : 'duplicate'})` };
     }
-    return undefined;
-  };
-  const problem = await visit(self, direct, [self]);
-  return problem === undefined ? { direct: fetched } : { problem };
-}
+    return 'met';
+  },
+});
 
 /** The issue's own start date (`start_date`, where the API returns one), else the `Start:` line; both validated the same way. */
 function startDate(task: Task): StartDate | undefined {
@@ -184,27 +152,13 @@ export async function checkGitlabDependencies(project: string, task: Task, glab:
     const declared = parseDirectives(project, task.description, task.url !== undefined && URL.canParse(task.url) ? new URL(task.url).host : undefined);
     if (declared.problems.length > 0) return { status: 'invalid', reason: declared.problems.join('; ') };
     const start = startDate(task);
-    if (start !== undefined && 'invalid' in start) return { status: 'invalid', reason: start.invalid };
-    const direct = task.dependsOn ?? dedupe([...(await nativeBlockers(self, glab)), ...declared.refs]);
-    const walked = await walk(self, direct, glab);
-    if (walked.problem !== undefined) return { status: 'invalid', reason: walked.problem };
-    const blockers: TaskRef[] = [];
-    for (const ref of direct) {
-      const issue = walked.direct.get(keyOf(ref))!;
-      if (issue.state?.toLowerCase() !== 'closed') blockers.push(ref);
-      else if (issue.moved_to_id != null || issue.duplicated_to_id != null) {
-        return { status: 'invalid', reason: `${refText(ref)} was closed without being completed (${issue.moved_to_id != null ? 'moved' : 'duplicate'})` };
-      }
-    }
-    const startsAt = start !== undefined && start.date.getTime() > now.getTime() ? start.date : undefined;
-    if (blockers.length === 0 && startsAt === undefined) return { status: 'ready', dependsOn: direct };
-    const parts = [
-      ...(blockers.length > 0 ? [`waiting for ${blockers.map(refText).join(', ')}`] : []),
-      ...(startsAt !== undefined ? [`start date ${isoDay(startsAt)}`] : []),
-    ];
-    return { status: 'waiting', blockers, ...(startsAt !== undefined ? { startsAt } : {}), reason: parts.join('; ') };
+    const bad = invalidStart(start);
+    if (bad !== undefined) return bad;
+    const adapter = gitlabAdapter(self, glab);
+    const direct = task.dependsOn ?? dedupeRefs(adapter, [...(await nativeBlockers(self, glab)), ...declared.refs]);
+    return await evaluateDependencies(adapter, { self, direct, start, now });
   } catch (error) {
-    return { status: 'error', reason: `dependency lookup failed: ${failureReason(error)}` };
+    return lookupFailed(error);
   }
 }
 
@@ -217,10 +171,6 @@ export interface GitlabDependencyGateOptions {
   now?: Date;
   log?: (line: string) => void;
 }
-
-/** Hidden marker on the note for a failed lookup, so the gate can tell when the next check fails too. */
-const ERROR_MARKER = '<!-- taskcell-waiting kind="error" -->';
-const ERROR_MARKER_RE = new RegExp(`<!-- ${MARKER_PREFIX_RE}-waiting kind="error" -->`);
 
 /** Text the issue author or a CLI controls, as inline code without `@`: it can neither mention anyone nor render markup. */
 const quoted = (text: string): string => `\`${text.replace(/[\`@]/g, '').replace(/\s+/g, ' ').trim()}\``;
@@ -238,72 +188,65 @@ async function newestOwnNote(project: string, task: Task, glab: GlabRunner): Pro
  * Keeps GitLab issues with unmet dependencies (or a future start date) from starting. A waiting issue
  * keeps its trigger label, gains `taskcell::waiting` and one note (not repeated while the label is
  * present or when the newest note by the bot already says the same), and starts on the first poll
- * after the blockers close, with no human step. A failed lookup is held the same way with its reason;
- * when the next check fails too it goes to needs-info, as do cycles, missing or unreadable references
- * and merge requests. An issue that declares nothing and whose links cannot be read is neither held
- * nor commented on: it stays triggered for the next poll. `taskcell::waiting` is a scoped label, so a
- * trigger label in the same scope would be removed by adding it: such an issue is held by the note alone.
+ * after the blockers close, with no human step. A failed lookup is held the same way with its reason
+ * and checked again on every poll, however often it fails; only a real invalid dependency (a cycle, a
+ * missing or unreadable reference, a merge request, a blocker moved or closed as a duplicate, a bad
+ * date) goes to needs-info. An issue that declares nothing and whose links cannot be read is neither
+ * held nor commented on: it stays triggered for the next poll. `taskcell::waiting` is a scoped label,
+ * so a trigger label in the same scope would be removed by adding it: such an issue is held by the note alone.
  */
 export async function applyGitlabDependencyGate(tasks: Task[], opts: GitlabDependencyGateOptions): Promise<Task[]> {
   const glab = opts.glab ?? defaultGlabRunner;
   const log = opts.log ?? console.log;
   const scopedTrigger = /^(?:taskcell|vanguard)::/i.test(opts.trigger);
-  const checked = await fanOut(tasks, (task) => checkGitlabDependencies(opts.project, task, glab, opts.now), { concurrency: CHECK_CONCURRENCY });
-  const ready: Task[] = [];
-  for (const outcome of checked) {
-    const task = outcome.item;
-    let verdict: GitlabDependencyVerdict = outcome.status === 'fulfilled' ? outcome.value : { status: 'error', reason: failureReason(outcome.reason) };
-    const waitingBefore = hasLabel(task.labels, GITLAB_WAITING_LABEL);
-    if (verdict.status === 'ready') {
-      ready.push({ ...task, dependsOn: verdict.dependsOn, labels: withoutLabel(task.labels, GITLAB_WAITING_LABEL) });
+  return runDependencyGate(tasks, {
+    check: (task) => checkGitlabDependencies(opts.project, task, glab, opts.now),
+    async release(task, verdict) {
+      const waitingBefore = hasLabel(task.labels, GITLAB_WAITING_LABEL);
       if (waitingBefore) await editGitlabLabels(opts.project, task.id, { remove: [GITLAB_WAITING_LABEL] }, glab).catch(() => undefined);
-      continue;
-    }
-    if (verdict.status === 'error' && parseGitlabBodyDependencies(opts.project, task.description).length === 0 && startDate(task) === undefined) {
-      // Only the links read failed and the issue declares nothing: do not hold (or comment on) an issue
-      // that most likely has no dependencies; it stays triggered for the next poll.
-      log(`taskcell: ${task.id} skipped this poll -> ${verdict.reason}`);
-      continue;
-    }
-    if (verdict.status === 'waiting' && waitingBefore) {
-      log(`taskcell: ${task.id} skipped -> ${verdict.reason}`);
-      continue;
-    }
-    try {
-      const newest = await newestOwnNote(opts.project, task, glab);
-      if (verdict.status === 'error' && ERROR_MARKER_RE.test(newest)) {
-        verdict = { status: 'invalid', reason: `${verdict.reason} (failed again on the next check; the token watch runs with must be able to read every dependency)` };
+      return { ...task, dependsOn: verdict.dependsOn, labels: withoutLabel(task.labels, GITLAB_WAITING_LABEL) };
+    },
+    async hold(task, verdict) {
+      if (verdict.status === 'ready') return;
+      const waitingBefore = hasLabel(task.labels, GITLAB_WAITING_LABEL);
+      if (isSilentError(verdict, parseGitlabBodyDependencies(opts.project, task.description).length > 0 || startDate(task) !== undefined)) {
+        // Only the links read failed and the issue declares nothing: do not hold (or comment on) an issue
+        // that most likely has no dependencies; it stays triggered for the next poll.
+        log(`taskcell: ${task.id} skipped this poll -> ${verdict.reason}`);
+        return;
       }
-      log(`taskcell: ${task.id} skipped -> ${verdict.status === 'invalid' ? 'needs info: ' : ''}${verdict.reason}`);
-      // Note first: if it fails nothing has moved and the next poll retries. A body identical to the
-      // newest note by the bot is not posted again (a label edit that failed last poll).
-      const hold = async (body: string, labels: { add?: string[]; remove?: string[] }): Promise<void> => {
-        if (neutralizeQuickActions(redactForPublish(body)).trim() !== newest) await commentGitlabIssue(opts.project, task.id, body, glab);
-        await editGitlabLabels(opts.project, task.id, labels, glab);
-      };
-      if (verdict.status === 'invalid') {
-        await hold(`Taskcell cannot start this issue: ${quoted(verdict.reason)}. Fix it and re-apply \`${opts.trigger}\`.`, {
-          remove: [opts.trigger, GITLAB_WAITING_LABEL],
-          ...(opts.needsInfoLabel !== undefined ? { add: [opts.needsInfoLabel] } : {}),
-        });
-        continue;
+      if (verdict.status === 'waiting' && waitingBefore) {
+        log(`taskcell: ${task.id} skipped -> ${verdict.reason}`);
+        return;
       }
-      // Created before the note: `glab issue update --label` silently skips a label the project lacks.
-      if (!scopedTrigger) await glab(['label', 'create', '--repo', opts.project, '--name', GITLAB_WAITING_LABEL]).catch(() => undefined);
-      const held = scopedTrigger ? `It keeps \`${opts.trigger}\`` : `It is labelled \`${GITLAB_WAITING_LABEL}\``;
-      const what = verdict.status === 'error' ? '' : [
-        ...(verdict.blockers.length > 0 ? [`is blocked by ${verdict.blockers.map(refText).join(', ')}`] : []),
-        ...(verdict.startsAt !== undefined ? [`has a start date of ${isoDay(verdict.startsAt)}`] : []),
-      ].join(' and ');
-      await hold(
-        verdict.status === 'error'
-          ? `Taskcell could not check this issue's dependencies: ${quoted(verdict.reason)}. ${held} and is checked again on the next poll; if that check fails too, it goes to needs info.\n\n${ERROR_MARKER}`
-          : `Taskcell will not start this issue yet: it ${what}. ${held} and starts on a later poll once that is resolved.`,
-        scopedTrigger ? {} : { add: [GITLAB_WAITING_LABEL] },
-      );
-    } catch (error) {
-      log(`taskcell: ${task.id} dependency hold could not be recorded: ${failureReason(error)}`);
-    }
-  }
-  return ready;
+      try {
+        const newest = await newestOwnNote(opts.project, task, glab);
+        log(`taskcell: ${task.id} skipped -> ${escalatesToNeedsInfo(verdict) ? 'needs info: ' : ''}${verdict.reason}`);
+        // Note first: if it fails nothing has moved and the next poll retries. A body identical to the
+        // newest note by the bot is not posted again (a label edit that failed last poll).
+        const hold = async (body: string, labels: { add?: string[]; remove?: string[] }): Promise<void> => {
+          await postUnlessRepeated(body, newest, (published) => neutralizeQuickActions(published).trim(), (text) => commentGitlabIssue(opts.project, task.id, text, glab));
+          await editGitlabLabels(opts.project, task.id, labels, glab);
+        };
+        if (verdict.status === 'invalid') {
+          await hold(`Taskcell cannot start this issue: ${quoted(verdict.reason)}. Fix it and re-apply \`${opts.trigger}\`.`, {
+            remove: [opts.trigger, GITLAB_WAITING_LABEL],
+            ...(opts.needsInfoLabel !== undefined ? { add: [opts.needsInfoLabel] } : {}),
+          });
+          return;
+        }
+        // Created before the note: `glab issue update --label` silently skips a label the project lacks.
+        if (!scopedTrigger) await glab(['label', 'create', '--repo', opts.project, '--name', GITLAB_WAITING_LABEL]).catch(() => undefined);
+        const held = scopedTrigger ? `It keeps \`${opts.trigger}\`` : `It is labelled \`${GITLAB_WAITING_LABEL}\``;
+        await hold(
+          verdict.status === 'error'
+            ? `Taskcell could not check this issue's dependencies: ${quoted(verdict.reason)}. ${held} and is checked again on every poll until the check succeeds.`
+            : `Taskcell will not start this issue yet: it ${waitingClause(verdict, refText)}. ${held} and starts on a later poll once that is resolved.`,
+          scopedTrigger ? {} : { add: [GITLAB_WAITING_LABEL] },
+        );
+      } catch (error) {
+        log(`taskcell: ${task.id} dependency hold could not be recorded: ${failureReason(error)}`);
+      }
+    },
+  });
 }

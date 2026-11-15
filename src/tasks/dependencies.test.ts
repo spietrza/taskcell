@@ -151,7 +151,7 @@ describe('applyDependencyGate', () => {
     expect(calls.some((c) => c.startsWith('issue comment'))).toBe(false);
     expect(calls.some((c) => c.includes('--add-label taskcell:waiting'))).toBe(true);
   });
-  it('sends a lookup that fails again right after a resume to needs info instead of looping', async () => {
+  it('never sends a lookup that keeps failing to needs info (it is held again after a resume)', async () => {
     const marker = '<!-- taskcell:waiting trigger="ready for agent" kind="error" -->';
     const gh = vi.fn(async (args: string[]) => {
       if (args[0] === 'api') throw new Error('HTTP 403 SAML');
@@ -160,8 +160,8 @@ describe('applyDependencyGate', () => {
     }) as unknown as GhRunner;
     await applyDependencyGate([task(1, 'Depends on #2')], { repo: 'o/r', trigger: 'ready for agent', needsInfoLabel: 'needs info', gh, log: vi.fn() });
     const calls = (gh as ReturnType<typeof vi.fn>).mock.calls.map((c) => (c[0] as string[]).join(' '));
-    expect(calls.some((c) => c.includes('--add-label needs info'))).toBe(true);
-    expect(calls.some((c) => c.includes('taskcell:waiting'))).toBe(false);
+    expect(calls.some((c) => c.includes('needs info'))).toBe(false);
+    expect(calls.some((c) => c.includes('--add-label taskcell:waiting'))).toBe(true);
   });
   it('leaves an issue with no declared dependencies triggered when only the blocked-by probe fails', async () => {
     const gh = vi.fn(async (args: string[]) => {
