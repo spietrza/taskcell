@@ -492,7 +492,8 @@ export default function App() {
             // The sixth navigation path (review round 1) — also discards a dirty editor.
             navigate(() => {
               setScreen('runs');
-              setFocusRunning(r);
+              // A fresh object per click, so a repeat click on the same entry still reopens the live run.
+              setFocusRunning({ ...r });
             });
           }}
         />

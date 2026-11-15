@@ -1143,7 +1143,7 @@ export interface Commands {
    *  reads, prints or stores the secret value. */
   enable_factory_secret: { args: { repoPath: string; plan: FactoryPlan }; result: FactorySecretStep };
   /** HUB_ONLY: dispatch the doctor workflow, or start the doctor pipeline on GitLab (once the PR/MR above is merged) and report the run that dispatch created. */
-  enable_factory_verify: { args: { repoPath: string; plan: FactoryPlan }; result: FactoryVerifyResult };
+  enable_factory_verify: { args: { repoPath: string; plan: FactoryPlan; confirmedJobs?: string[] }; result: FactoryVerifyResult };
   /** HUB_ONLY: start (or restart) the project's persisted checklist from a freshly derived plan —
    *  used when the callers are already on the default branch and there is no PR to open. */
   enable_factory_start: { args: { repoPath: string; plan: FactoryPlan }; result: FactoryState };
