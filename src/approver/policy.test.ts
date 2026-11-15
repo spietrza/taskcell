@@ -28,6 +28,14 @@ async function fixture(content: string): Promise<string> {
   return repo;
 }
 
+describe('dependencyRepos', () => {
+  it('refuses dot-only path segments', () => {
+    const base = JSON.parse(raw) as Record<string, unknown>;
+    expect(approverPolicySchema.safeParse({ ...base, dependencyRepos: ['o/r'] }).success).toBe(true);
+    for (const r of ['../x', 'o/..', './x']) expect(approverPolicySchema.safeParse({ ...base, dependencyRepos: [r] }).success).toBe(false);
+  });
+});
+
 describe('approver policy', () => {
   it('validates the shipped policy, tolerates extra keys and rejects other versions', () => {
     expect(approverPolicySchema.parse({ ...policy, extra: true })).toEqual(policy);
