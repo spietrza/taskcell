@@ -1,6 +1,8 @@
 import { execa } from 'execa';
 import { BASE_LABEL_PREFIX } from '../core/base-branch.js';
 import { TaskcellError } from '../core/errors.js';
+import { parseSkillsLine, setSkillsLine } from '../context/named-skills.js';
+import { resolveTaskRef } from './board.js';
 import { linearGraphql } from './linear-cli.js';
 import { neutralizeQuickActions } from './gitlab.js';
 import type { LinearGraphql } from './linear-cli.js';
@@ -258,4 +260,60 @@ export async function createLinearIssue(
     await send({ query: RELATION_MUTATION, variables: { i: { issueId: dep, relatedIssueId: issue.identifier, type: 'blocks' } } }).catch(() => undefined);
   }
   return { id: issue.identifier, url: issue.url };
+}
+
+const DESCRIPTION_QUERY = `query($id: String!) { issue(id: $id) { description } }`;
+const DESCRIPTION_MUTATION = `mutation($id: String!, $d: String!) { issueUpdate(id: $id, input: { description: $d }) { success } }`;
+
+/**
+ * Write a card's hand-picked skills to its task as the body's `Skills:` line (an empty list removes
+ * it), in whichever tracker the board id names. The body is read first and only that line changes.
+ * A GitLab description holding a quick-action line is refused: saved as the hub's identity it would run with
+ * the hub's rights, and neutralising it would rewrite the author's text.
+ */
+export async function setTaskSkills(
+  repoPath: string,
+  taskId: string,
+  skills: readonly string[],
+  run: CliRunner = defaultCli,
+  graphql?: LinearGraphql,
+): Promise<{ skills: string[] }> {
+  const resolved = resolveTaskRef(taskId);
+  if (resolved === undefined) throw new TaskcellError(`Couldn't resolve a Task Source from task id \`${taskId}\`.`);
+  const { source, reference } = resolved;
+  const next = (body: string): string | undefined => {
+    // The stored body is the tracker's (untrusted): size first, setSkillsLine rescans it per Skills: line.
+    if (Buffer.byteLength(body, 'utf8') > MAX_BODY_BYTES) throw new TaskcellError(`Task body is over the ${MAX_BODY_BYTES}-byte limit; edit its Skills: line on the tracker.`);
+    const out = setSkillsLine(body, skills);
+    if (out === body) return undefined;
+    const bytes = Buffer.byteLength(out, 'utf8');
+    if (bytes > MAX_BODY_BYTES) throw new TaskcellError(`Task body would be ${bytes} bytes; the limit is ${MAX_BODY_BYTES}.`);
+    // An unclosed code fence swallows the appended line: the run would not read what the card shows.
+    if (parseSkillsLine(out).skills.join() !== skills.join()) throw new TaskcellError('The Skills: line could not be written where a run reads it (unclosed code block?); edit it on the tracker.');
+    return out;
+  };
+  if (source === 'linear') {
+    if (!/^[A-Z0-9]+-\d+$/.test(reference)) throw new TaskcellError(`Invalid Linear id in task \`${taskId}\`.`);
+    const send = graphql ?? (await linearGraphql());
+    const read = (await send({ query: DESCRIPTION_QUERY, variables: { id: reference } })) as { data?: { issue?: { description?: string | null } | null } };
+    if (read.data?.issue == null) throw new TaskcellError(`Linear issue ${reference} was not found.`);
+    const body = next(read.data.issue.description ?? '');
+    if (body !== undefined) {
+      const done = (await send({ query: DESCRIPTION_MUTATION, variables: { id: reference, d: body } })) as { data?: { issueUpdate?: { success?: boolean } } };
+      if (done.data?.issueUpdate?.success !== true) throw new TaskcellError('Linear did not confirm the issue was updated.');
+    }
+  } else if (source === 'gitlab') {
+    const issue = JSON.parse(await run('glab', ['issue', 'view', reference, '--output', 'json'], { cwd: repoPath })) as { description?: string | null };
+    const body = next(issue.description ?? '');
+    // shortcut: fenced lines are refused too (fail closed); track fences if that turns out to bother users.
+    if (body !== undefined && /^[ \t]*\/[a-z_]+([ \t]|$)/im.test(body)) {
+      throw new TaskcellError('This GitLab issue has a line starting with `/` (a quick action); edit its Skills: line on GitLab instead.');
+    }
+    if (body !== undefined) await run('glab', ['issue', 'update', reference, '--description', body], { cwd: repoPath });
+  } else {
+    const issue = JSON.parse(await run('gh', ['issue', 'view', reference, '--json', 'body'], { cwd: repoPath })) as { body?: string | null };
+    const body = next(issue.body ?? '');
+    if (body !== undefined) await run('gh', ['issue', 'edit', reference, '--body-file', '-'], { cwd: repoPath, stdin: body });
+  }
+  return { skills: [...skills] };
 }

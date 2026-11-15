@@ -7,6 +7,7 @@ import type { RunOptions } from '../runners/source-adapter.js';
 import type { LessonsCommand } from './lessons.js';
 import { assertSafeBaseBranch } from '../core/base-branch.js';
 import { parseUsageCap } from '../core/usage-cap.js';
+import { namedSkillsProblem, normalizeSkillNames } from '../context/named-skills.js';
 import { GITHUB_CLAIMED_LABEL, GITHUB_REVIEW_LABEL, GITHUB_SPEC_CLAIMED_LABEL } from '../github-labels.js';
 import { readEnv } from '../core/env.js';
 
@@ -383,7 +384,7 @@ function parseForkScorer(raw: unknown): 'llm' | 'decision' | undefined | null {
  * RunOptions keys only `run` sets: one spec file describes one task, and fork variants need one
  * implementer stage. watch processes every ready ticket per poll and never forks, so it rejects them.
  */
-type RunOnlyKey = 'forkScorer' | 'specFile';
+type RunOnlyKey = 'forkScorer' | 'specFile' | 'namedSkills';
 
 /**
  * The RunOptions run and watch read off the same flags. `customProviders` is loaded from the target
@@ -415,6 +416,12 @@ function present<T extends object>(exhaustive: Exhaustive<T>): T {
 type CheckedRunFlags = Exhaustive<
   Pick<SharedRunOptions, 'provider' | 'reviewProvider' | 'fallbackProvider' | 'fallbackModel' | 'commitAuthor' | 'flow' | 'maxTurns' | 'maxRepairIterations'>
 >;
+
+/** `--skill a --skill b` (repeatable) -> ['a','b']; none -> undefined, not []. */
+function parseNamedSkills(value: string | boolean | (string | boolean)[] | undefined): string[] | undefined {
+  const names = normalizeSkillNames((Array.isArray(value) ? value : [value]).filter((v): v is string => typeof v === 'string'));
+  return names.length > 0 ? names : undefined;
+}
 
 /** `--feedback-authors a, b ,A` -> ['a','b']; an empty or separator-only value -> undefined, not []. */
 function parseFeedbackAuthors(value: string | boolean | undefined): string[] | undefined {
@@ -527,6 +534,7 @@ export function parseCli(argv: string[], cwd: string): Command {
   let values: Record<string, string | boolean | undefined>;
   let allowedHosts: string[] | undefined;
   let adminGithubLogins: string[] | undefined;
+  let skills: string[] = [];
   let positionals: string[];
   try {
     // `--pr` takes a number everywhere else; on `skills` it is a bare switch. A lenient first pass finds the
@@ -584,6 +592,7 @@ export function parseCli(argv: string[], cwd: string): Command {
         // watch loop-v1
         'spec-label': { type: 'string' },
         'spec-file': { type: 'string' },
+        skill: { type: 'string', multiple: true },
         'feedback-authors': { type: 'string' },
         'agent-label': { type: 'string' },
         'needs-info-label': { type: 'string' },
@@ -687,9 +696,10 @@ export function parseCli(argv: string[], cwd: string): Command {
       },
     });
     const parsed = parseWith(parseWith(false, false).positionals[0] === 'skills' || parseWith(true, false).positionals[0] === 'skills', true);
-    const { 'allowed-host': hosts, 'admin-github-login': admins, ...singleValues } = parsed.values as Record<string, string | boolean | string[] | undefined>;
+    const { 'allowed-host': hosts, 'admin-github-login': admins, skill, ...singleValues } = parsed.values as Record<string, string | boolean | string[] | undefined>;
     allowedHosts = hosts as string[] | undefined;
     adminGithubLogins = admins as string[] | undefined;
+    skills = parseNamedSkills(skill) ?? [];
     values = singleValues as Record<string, string | boolean | undefined>;
     positionals = parsed.positionals;
   } catch {
@@ -716,6 +726,7 @@ export function parseCli(argv: string[], cwd: string): Command {
   if (values['spec-only'] === true && positionals[0] !== 'watch' && positionals[0] !== 'doctor') {
     return fail('--spec-only is only supported with watch and doctor.');
   }
+  if (skills.length > 0 && positionals[0] !== 'run' && positionals[0] !== 'watch') return fail('--skill is only supported with run.');
   for (const flag of ['dir', 'strict', 'path', 'name', 'force']) {
     if (values[flag] !== undefined && positionals[0] !== 'skills') return fail(`--${flag} is only supported with skills.`);
   }
@@ -1308,6 +1319,9 @@ export function parseCli(argv: string[], cwd: string): Command {
     if (typeof values['spec-file'] === 'string' && (picked[0] === 'project' || values.parent === true)) {
       return fail('--spec-file is only supported for a single-issue run (not --parent / --project fan-out).');
     }
+    if (skills.length > 0 && (picked[0] === 'project' || values.parent === true)) {
+      return fail('--skill is only supported for a single-issue run (not --parent / --project fan-out); use a "Skills:" line in each issue.');
+    }
     if (picked[0] === 'project') {
       const projectNum = Number(picked[1]);
       if (!Number.isInteger(projectNum) || projectNum < 1) {
@@ -1323,9 +1337,12 @@ export function parseCli(argv: string[], cwd: string): Command {
     // consulted, so the flag would be accepted and silently never fire.
     if (fallbackProvider !== undefined && Number.isFinite(forkN) && forkN >= 2) return fail('--fallback-provider does not apply to --fork variants; drop one of them.');
     // The single-task RunOptions (see RunOnlyKey): typed exhaustively so a new run-only field lands here.
+    const skillProblem = namedSkillsProblem(skills);
+    if (skillProblem !== undefined) return fail(`--skill ${skillProblem}.`);
     const runOnly = present<Pick<RunOptions, RunOnlyKey>>({
       forkScorer,
       specFile: typeof values['spec-file'] === 'string' ? values['spec-file'] : undefined,
+      namedSkills: skills.length > 0 ? skills : undefined,
     });
     return {
       kind: 'run',
@@ -1481,6 +1498,7 @@ export function parseCli(argv: string[], cwd: string): Command {
     if (values['fork-scorer'] !== undefined) return fail(`--fork-scorer applies to \`run --fork <n>\` only; ${commandKind} does not fork.`);
     if (values.fork !== undefined) return fail(`--fork applies to run only; ${commandKind} does not fork.`);
     if (values['spec-file'] !== undefined) return fail(`--spec-file applies to a single-issue run only; ${commandKind} has no single issue to attach it to.`);
+    if (skills.length > 0) return fail(`--skill applies to a single-issue run only; ${commandKind} names no one task. Put a "Skills: a, b" line in the issue body instead.`);
     type WatchCommon = Omit<Extract<Command, { kind: 'watch' }>, 'kind' | 'concurrency' | 'intervalMs' | 'once' | 'egress'>;
     const common: WatchCommon = {
       source,
@@ -1726,6 +1744,7 @@ ${MAX_REPAIR_ITERATIONS_USAGE}
                              decision model (clef; needs CLOUDFLARE_ACCOUNT_ID+CLOUDFLARE_AUTH_TOKEN or TASKCELL_DECISION_URL)
     --feedback-authors <a,b> Extra GitHub/GitLab logins whose PR feedback and <spec_manifest>/<tech_spec> comments are trusted, beyond OWNER/MEMBER/COLLABORATOR and the issue author (pass the workflow's allowed-actors here)
     --spec-file <file>       Inject a local spec file as a virtual issue comment (implementer + conformance read it; nothing is posted to the tracker)
+    --skill <id>             Load this installed skill for the run, on top of the automatic selection (repeatable; an unknown id fails the run before any model call, listing the installed skills)
 
   review-pr options:
     <url-or-number>        GitHub PR URL, owner/repo#number, or bare number with --github-repo
