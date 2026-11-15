@@ -96,6 +96,8 @@ export interface CreateRunResult {
   branch?: string;
   /** The run stopped before implementing because the base branch's verify command already fails. */
   baseRed?: boolean;
+  /** The result was delivered (a PR or a local branch) but its verify command failed. */
+  verificationFailed?: boolean;
 }
 
 /** Per-stage routing/budget overrides expressible in HCL (snake_case keys map to these camelCase fields). */
@@ -131,6 +133,21 @@ export interface FlowDoc {
   stages: StageDecl[];
   loops: LoopDecl[];
   meta?: Record<string, unknown>;
+}
+
+/** One skill of a repository's skills directory on the wire: `skills list`, `skills check` and `stats --skills` joined. */
+export interface RepoSkill {
+  name: string;
+  /** Git URL it is pinned to; '-' for a local skill. */
+  source: string;
+  /** Short pinned commit; '-' when none. */
+  commit: string;
+  /** Lock status: pinned, locally modified, or not in the lock. */
+  status: 'pinned' | 'local' | 'modified';
+  /** Against the upstream head; 'unknown' when it could not be resolved. */
+  check: 'local' | 'current' | 'outdated' | 'unknown';
+  /** Runs recorded with the skill; absent when none used it. */
+  usage?: { runs: number; passRate?: number; avgRepairRounds: number; avgCostUsd: number };
 }
 
 /** One live lesson (src/core/lessons.ts) on the wire. */
@@ -1207,6 +1224,14 @@ export interface Commands {
   conflict_stats: { args: { repoPath: string }; result: ConflictStats };
   /** HUB_ONLY, owner only, read-only: whether `gh`, `glab`, a Linear key and a model credential (Claude, or a Codex key or sign-in file) are present on the hub host. Booleans only — never a secret value. Spawns `gh`/`glab` on the host, so it is refused on a non-loopback bind without TASKCELL_HUB_ALLOW_ADD. */
   setup_status: { args: undefined; result: SetupStatus };
+  /** HUB_ONLY, read-only: the skills of a repo with their lock status, upstream check and usage. */
+  list_repo_skills: { args: { repoPath: string }; result: { skills: RepoSkill[] } };
+  /** HUB_ONLY: `skills update <name> --pr`; the skill only ever changes on a new branch, delivered as a PR. Resolves to its URL. */
+  update_skill_pr: { args: { repoPath: string; name: string }; result: { prUrl: string } };
+  /** HUB_ONLY, owner only: `skills add` delivered as a PR. A failure carries the command's reason. */
+  add_skill_pr: { args: { repoPath: string; source: string; ref?: string; path?: string; name?: string }; result: { prUrl: string } };
+  /** HUB_ONLY, owner only: `skills remove` delivered as a PR. */
+  remove_skill_pr: { args: { repoPath: string; name: string }; result: { prUrl: string } };
   /** `hubBoard`: the project's task source is the hub's own board (its cards are created and scheduled in the hub). */
   list_tasks: { args: { repoPath: string }; result: { tasks: BoardTask[]; capped: boolean; hubBoard?: true } };
   /** HUB_ONLY: `list_tasks` across every hub repository, each card stamped with its repository. `hubBoards`: the repositories whose task source is the hub board. */
@@ -1221,8 +1246,8 @@ export interface Commands {
   api_create_tasks: { args: { repoPath: string; tasks: { title: string; body: string; dependsOn?: number[] }[]; baseBranch?: string }; result: { tasks: CreatedTask[] } };
   /** HUB_ONLY, read-only: the target branches a card may name (repo default + `baseBranches` allowlist) and the configured default, for the new-card form. */
   list_branches: { args: { repoPath: string }; result: { branches: string[]; default?: string } };
-  /** HUB_ONLY: add a task to the project's hub board (task source `hub`). The caller becomes the task's owner: it runs as them. */
-  hub_task_create: { args: { repoPath: string; title: string; body?: string }; result: { id: string } };
+  /** HUB_ONLY: add a task to the project's hub board (task source `hub`), with its dependencies and start date set before the scheduler can see it. The caller becomes the task's owner: it runs as them. */
+  hub_task_create: { args: { repoPath: string; title: string; body?: string; blockedBy?: string[]; startDate?: string }; result: { id: string } };
   /** HUB_ONLY: set a hub-board task's dependencies (ids of the project's other tasks) and/or start date (`null` clears it). The caller becomes its owner. */
   hub_task_schedule: { args: { repoPath: string; id: string; blockedBy?: string[]; startDate?: string | null }; result: { id: string } };
   /** HUB_ONLY: put a failed hub-board task back to `todo`, to run as the caller. */
@@ -1257,6 +1282,7 @@ export interface Commands {
  * the `satisfies` rejects a name not in `Commands`, and `_Exhaustive` rejects a missing one. */
 export const COMMAND_NAMES = [
   'add_project',
+  'add_skill_pr',
   'add_team_member',
   'add_team_repository',
   'agent_cli_versions',
@@ -1312,6 +1338,7 @@ export const COMMAND_NAMES = [
   'list_needs_you_all',
   'list_projects',
   'list_remote_runs',
+  'list_repo_skills',
   'list_runs',
   'list_runs_all',
   'list_skills',
@@ -1333,6 +1360,7 @@ export const COMMAND_NAMES = [
   'read_run_events',
   'read_session',
   'remove_project',
+  'remove_skill_pr',
   'remove_team_member',
   'remove_team_repository',
   'reply_needs_you',
@@ -1347,6 +1375,7 @@ export const COMMAND_NAMES = [
   'start_task',
   'team_role',
   'unwatch_project',
+  'update_skill_pr',
   'user_credentials_status',
   'watch_project',
   'write_app_config',

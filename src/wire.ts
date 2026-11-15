@@ -95,6 +95,8 @@ export interface CreateRunResult {
   branch?: string;
   /** The run stopped before implementing because the base branch's verify command already fails. */
   baseRed?: boolean;
+  /** The result was delivered (a PR or a local branch) but its verify command failed. */
+  verificationFailed?: boolean;
 }
 
 /** Per-stage routing/budget overrides expressible in HCL (snake_case keys map to these camelCase fields). */
@@ -130,6 +132,21 @@ export interface FlowDoc {
   stages: StageDecl[];
   loops: LoopDecl[];
   meta?: Record<string, unknown>;
+}
+
+/** One skill of a repository's skills directory on the wire: `skills list`, `skills check` and `stats --skills` joined. */
+export interface RepoSkill {
+  name: string;
+  /** Git URL it is pinned to; '-' for a local skill. */
+  source: string;
+  /** Short pinned commit; '-' when none. */
+  commit: string;
+  /** Lock status: pinned, locally modified, or not in the lock. */
+  status: 'pinned' | 'local' | 'modified';
+  /** Against the upstream head; 'unknown' when it could not be resolved. */
+  check: 'local' | 'current' | 'outdated' | 'unknown';
+  /** Runs recorded with the skill; absent when none used it. */
+  usage?: { runs: number; passRate?: number; avgRepairRounds: number; avgCostUsd: number };
 }
 
 /** One live lesson (src/core/lessons.ts) on the wire. */

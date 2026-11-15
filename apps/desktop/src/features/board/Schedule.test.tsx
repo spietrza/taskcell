@@ -78,7 +78,7 @@ describe('NewHubTask', () => {
     fireEvent.change(screen.getByLabelText(/What to do/), { target: { value: 'GET /healthz answers 200' } });
     fireEvent.click(screen.getByRole('button', { name: 'Add task' }));
     await waitFor(() => expect(onCreated).toHaveBeenCalled());
-    expect(hubTaskCreate).toHaveBeenCalledWith('/r', 'Add a health endpoint', 'GET /healthz answers 200');
+    expect(hubTaskCreate).toHaveBeenCalledWith('/r', 'Add a health endpoint', 'GET /healthz answers 200', {});
     expect(screen.getByLabelText('Title')).toHaveValue('');
   });
   test('a refusal is shown', async () => {

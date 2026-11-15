@@ -52,6 +52,7 @@ export function ScheduleEditor({ repoPath, task, onSaved }: { repoPath: string; 
         Start date{task.timeZone !== undefined ? ` (${instant ? 'hub time zone' : '00:00 in the hub time zone,'} ${task.timeZone})` : ''}
         <input type={instant ? 'text' : 'date'} className={cn(FIELD, !instant && 'w-auto')} value={date} onChange={(e) => setDate(e.target.value)} />
       </label>
+      <p className="text-[11px] text-muted-foreground">Saving or retrying makes you the task's owner: it runs as you, on your credential.</p>
       {error !== null && <div role="alert" className="text-xs text-destructive-text">{error}</div>}
       <div className="flex flex-wrap gap-2">
         <Button variant="outlined" onClick={save}>Save schedule</Button>
@@ -65,14 +66,19 @@ export function ScheduleEditor({ repoPath, task, onSaved }: { repoPath: string; 
 export function NewHubTask({ repoPath, onCreated }: { repoPath: string; onCreated: () => void }) {
   const [title, setTitle] = useState('');
   const [body, setBody] = useState('');
+  const [blockedBy, setBlockedBy] = useState('');
+  const [date, setDate] = useState('');
   const [error, setError] = useState<string | null>(null);
   const add = (e: React.FormEvent): void => {
     e.preventDefault();
     setError(null);
-    hubTaskCreate(repoPath, title, body).then(
+    const ids = blockedBy.split(/[\s,]+/).filter((x) => x !== '');
+    hubTaskCreate(repoPath, title, body, { ...(ids.length > 0 ? { blockedBy: ids } : {}), ...(date !== '' ? { startDate: date } : {}) }).then(
       () => {
         setTitle('');
         setBody('');
+        setBlockedBy('');
+        setDate('');
         onCreated();
       },
       (err: unknown) => setError(errorMessage(err)),
@@ -87,6 +93,14 @@ export function NewHubTask({ repoPath, onCreated }: { repoPath: string; onCreate
       <label className="block min-w-0 flex-1 text-xs">
         What to do, with acceptance criteria
         <textarea className={FIELD} rows={2} value={body} onChange={(e) => setBody(e.target.value)} />
+      </label>
+      <label className="block min-w-0 text-xs sm:w-32">
+        Blocked by
+        <input className={FIELD} value={blockedBy} onChange={(e) => setBlockedBy(e.target.value)} placeholder="hub-1, hub-2" />
+      </label>
+      <label className="block text-xs">
+        Start date
+        <input type="date" className={cn(FIELD, 'w-auto')} value={date} onChange={(e) => setDate(e.target.value)} />
       </label>
       <div className="sm:pt-4">
         <Button type="submit" disabled={title.trim() === ''}>Add task</Button>
