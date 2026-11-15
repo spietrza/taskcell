@@ -16,8 +16,6 @@ import type {
   BoardTask,
   Commands,
   CompleteResponse,
-  CredentialProvider,
-  CredentialsSummary,
   CredentialPolicy,
   FactoryApplyResult,
   FactoryHost,
@@ -190,18 +188,6 @@ export function readAppConfig(repoPath: string): Promise<AppConfig> {
  *  that will write the whole object back. */
 export function readAppConfigStrict(repoPath: string): Promise<AppConfig> {
   return call('read_app_config_strict', { repoPath });
-}
-
-export function getCredentials(): Promise<CredentialsSummary> {
-  return call('get_credentials', undefined);
-}
-
-export function setCredential(provider: CredentialProvider, value: string): Promise<CredentialsSummary> {
-  return call('set_credential', { provider, value });
-}
-
-export function deleteCredential(provider: CredentialProvider): Promise<CredentialsSummary> {
-  return call('delete_credential', { provider });
 }
 
 export function writeAppConfig(repoPath: string, config: AppConfig): Promise<void> {
@@ -456,7 +442,7 @@ export function apiRepoOk(repoPath: string): Promise<boolean> {
 }
 
 // Per-user provider credentials (hub-only, write-only: status returns names, never values). The
-// instance/policy calls are admin-only — the hub answers 403 to anyone else.
+// instance/policy calls are owner-or-admin-only — the hub answers 403 to anyone else.
 export function userCredentialsStatus(): Promise<{ enabled: boolean; admin: boolean; names: string[] }> {
   return call('user_credentials_status', undefined);
 }
@@ -477,7 +463,7 @@ export function setCredentialPolicy(policy: CredentialPolicy): Promise<void> {
   return call('set_credential_policy', { policy });
 }
 
-export function instanceCredentialsStatus(): Promise<{ names: string[] }> {
+export function instanceCredentialsStatus(): Promise<{ names: string[]; reason?: string }> {
   return call('instance_credentials_status', undefined);
 }
 

@@ -90,11 +90,11 @@ describe('dispatchRpc team scoping', () => {
     await expect(dispatchRpc(ctx, 'add_team_member', { teamId: 'one', login: 'ann', role: 'member' }, ann)).rejects.toThrow(/at least one admin/);
   });
 
-  test('project add/remove/clone and credentials are owner-only; a hub-wide remove leaves every team', async () => {
+  test('project add/remove/clone are owner-only; a hub-wide remove leaves every team', async () => {
     const { ctx, b } = await setup();
     const ann = user('ann');
     const owner = /only the hub owner/;
-    for (const [cmd, args] of [['add_project', { path: b }], ['remove_project', { path: b }], ['clone_project', { url: 'u', parentDir: 'p' }], ['get_credentials', {}], ['set_credential', { provider: 'claude', value: 'x' }], ['delete_credential', { provider: 'claude' }], ['list_spawns', {}], ['browse_dirs', {}]] as const) {
+    for (const [cmd, args] of [['add_project', { path: b }], ['remove_project', { path: b }], ['clone_project', { url: 'u', parentDir: 'p' }], ['list_spawns', {}], ['browse_dirs', {}]] as const) {
       await expect(dispatchRpc(ctx, cmd, args, ann)).rejects.toThrow(owner);
     }
     await dispatchRpc(ctx, 'remove_project', { path: b });

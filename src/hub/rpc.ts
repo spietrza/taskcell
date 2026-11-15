@@ -11,7 +11,7 @@ import type { CompleteRegistry } from './complete.js';
 import * as teams from './teams.js';
 import { AuditWriteError } from '../core/audit.js';
 import { auditActorOf, reportAuditFailure, type AuditLog, type Actor, type AuditOutcome } from './audit.js';
-import { ForbiddenError, type CredentialService, type CredentialStore, type HubUser } from './credentials.js';
+import { ForbiddenError, type CredentialService, type HubUser } from './credentials.js';
 import { UnknownCommandError, actorOf, classifyError, obj, optionalString, outcomeOf, type CommandCall } from './command-kit.js';
 import { HUB_AUDITED, HUB_COMMANDS } from './commands/index.js';
 
@@ -36,8 +36,6 @@ export interface RpcContext {
   bind: BindOptions;
   /** Hosts `clone_project` accepts beyond `DEFAULT_CLONE_HOSTS` (a self-hosted GitHub/GitLab). */
   cloneHosts?: readonly string[];
-  /** Instance provider credentials (write-only; see credentials.ts). */
-  credentials: CredentialStore;
   /** Publish a server->client event (wired to the hub's EventBus). */
   publish: (name: string, payload: unknown) => void;
   /** Per-user credential switch + encrypted store; absent, runs use the host environment as before. */

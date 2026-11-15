@@ -9,7 +9,7 @@ import { ProjectAllowlist } from './allowlist.js';
 import { WatchRegistry } from './watch.js';
 import { createRunSession } from './run-session.js';
 import { CompleteRegistry } from './complete.js';
-import { CredentialStore } from './credentials.js';
+import { createCredentialService } from './credentials.js';
 import type { SidecarDeps } from '../sidecar/sidecar.js';
 import type { Caller } from './teams.js';
 
@@ -24,7 +24,6 @@ async function setup(actor?: { login: string; admin: boolean }, createRun?: Side
   const deps = { createRun: createRun ?? (async () => ({})) } as unknown as SidecarDeps;
   const audit = new AuditLog(configDir);
   const ctx: RpcContext = {
-    credentials: new CredentialStore(configDir, undefined, {}),
     allowlist: new ProjectAllowlist(async () => [], repo),
     watchRegistry: new WatchRegistry(),
     runSession: createRunSession(deps, () => undefined),
@@ -34,6 +33,7 @@ async function setup(actor?: { login: string; admin: boolean }, createRun?: Side
     browseRoot: configDir,
     bind: { isLoopback: true, allowAdd: false },
     publish: () => undefined,
+    userCredentials: createCredentialService(configDir),
     audit,
     ...(actor !== undefined ? { actor } : {}),
   };
@@ -129,13 +129,23 @@ describe('audit log', () => {
     expect(out[1]!.target).toBe('https://h.example/p');
   });
 
-  test('a credential write is a settings-change naming the provider, never the value', async () => {
+  test('credential and policy writes are settings changes naming no value and do not mutate process.env', async () => {
     const { ctx, configDir } = await setup();
-    ctx.bind = { isLoopback: true, allowAdd: true };
-    await dispatchRpc(ctx, 'set_credential', { provider: 'claude', value: CANARY }).catch(() => undefined);
+    const original = process.env.CLAUDE_CODE_OAUTH_TOKEN;
+    await dispatchRpc(ctx, 'save_instance_credential', { name: 'CLAUDE_CODE_OAUTH_TOKEN', value: CANARY });
+    await dispatchRpc(ctx, 'set_credential_policy', { policy: 'user-only' });
+    await expect(dispatchRpc(ctx, 'save_instance_credential', { name: CANARY, value: CANARY })).rejects.toThrow();
+    await expect(dispatchRpc(ctx, 'set_credential_policy', { policy: CANARY })).rejects.toThrow();
     const raw = await readFile(join(configDir, 'audit.jsonl'), 'utf8');
-    expect(JSON.parse(raw.trim())).toMatchObject({ action: 'settings-change', target: 'credential:claude' });
+    const entries = raw.trim().split('\n').map((line) => JSON.parse(line) as { action: string; target: string });
+    expect(entries).toEqual([
+      expect.objectContaining({ action: 'settings-change', target: 'credential:CLAUDE_CODE_OAUTH_TOKEN' }),
+      expect.objectContaining({ action: 'settings-change', target: 'credential-policy:user-only' }),
+      expect.objectContaining({ action: 'settings-change', target: 'credential' }),
+      expect.objectContaining({ action: 'settings-change', target: 'credential-policy' }),
+    ]);
     expect(raw).not.toContain(CANARY);
+    expect(process.env.CLAUDE_CODE_OAUTH_TOKEN).toBe(original);
   });
 
   test('settings-change detail lists only keys that changed', async () => {
