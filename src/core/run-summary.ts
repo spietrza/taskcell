@@ -53,7 +53,7 @@ export function summarizeOutcomes(outcomes: ReadonlyArray<SummaryOutcome>): stri
 
     // Prefer the model the provider actually ran (RunResult.model); fall back to the configured
     // stage model. This makes the estimate work on default-model runs where no model flag was passed.
-    const est = estimateOpenRouterCost(m, result.model ?? model);
+    const est = estimateOpenRouterCost(m, result.model ?? model, result.cachedInInput === true);
     if (est !== undefined) {
       totalEstimate += est;
       estimateKnownCount++;

@@ -215,6 +215,20 @@ describe('CodexProvider', () => {
     expect(commands.some((c) => c.includes('codex-thread-1'))).toBe(true);
   });
 
+  it('gives the rollout lookup its own timeout and flags cached tokens as inside input', async () => {
+    const seen: Array<{ command: string; timeoutMs?: number }> = [];
+    const sandbox = {
+      exec: async (command: string, o?: ExecOptions): Promise<ExecResult> => {
+        seen.push({ command, ...(o?.timeoutMs !== undefined ? { timeoutMs: o.timeoutMs } : {}) });
+        return { stdout: command.includes('/sessions') ? '"model":"gpt-6.1-sol"\n' : cannedJsonl, stderr: '', exitCode: 0 };
+      },
+    } as unknown as IsolatedSandboxProvider;
+    const { out } = await drain(sandbox);
+    expect(out.cachedInInput).toBe(true);
+    expect(seen.find((c) => c.command.includes('/sessions'))?.timeoutMs).toBeGreaterThan(0);
+    expect(seen.find((c) => !c.command.includes('/sessions'))?.timeoutMs).toBeUndefined();
+  });
+
   it('records no model when the rollout cannot be read, and does not look when -m was passed', async () => {
     expect((await drain(fakeSandbox(cannedJsonl))).out.model).toBeUndefined();
     const commands: string[] = [];
