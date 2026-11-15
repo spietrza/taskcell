@@ -33,7 +33,7 @@ is "the PR body describes the needed edit for a human to apply".
 
 ### Dependencies
 
-When the work splits into several issues, state which issue depends on which (`Depends on #N`, or `owner/repo#N`), so each is written as a dependency (body line, plus a native relation where the source has one) and merges in order.
+When the work splits into several issues, state which issue depends on which, one `Depends on #N` (or `owner/repo#N`) line per dependent issue. The factory starts and merges issues in that order when those lines (or native blocked-by relations) are on the issues; this spec does not create them.
 
 ### Tests
 Test cases and scenarios that must pass, including edge cases, failure paths, and integration

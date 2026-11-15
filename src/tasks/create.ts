@@ -11,8 +11,10 @@ export interface CreateTaskInput {
   body: string;
   labels?: string[];
   /**
-   * Tasks this one depends on, as the ids `create*Issue` returns (`o/r#12`, `g/p#12`, `ENG-12`). Written as a
-   * `Depends on` line (what the dependency gate reads on every source) and, best effort, as a native relation.
+   * Tasks this one depends on, as the ids `create*Issue` returns (`o/r#12`, `g/p#12`, `ENG-12`), at most
+   * MAX_DEPENDS_ON. Written as a `Depends on` line, which the GitHub and GitLab dependency gates read, and,
+   * best effort, as a native relation. Linear has no dependency gate yet: there the line and the "blocks"
+   * relation are for people.
    */
   dependsOn?: string[];
 }
@@ -57,14 +59,32 @@ const defaultCli: CliRunner = async (bin, args, opts) =>
     })
   ).stdout;
 
-const DEP_REF_RE = /^(?:[\w.-]+(?:\/[\w.-]+)+#\d+|[A-Z][A-Z0-9]*-\d+)$/;
+/** Each dependency costs up to two sequential CLI calls after the create. */
+export const MAX_DEPENDS_ON = 20;
 
-/** The body with a trailing `Depends on` line for `input.dependsOn`; the refs are shape-checked so a value cannot smuggle text into the body. */
-function bodyWithDependencies(input: CreateTaskInput): string {
+type Source = 'github' | 'gitlab' | 'linear';
+// Path segments are name characters and never dot-only (`..`): the ref goes into an API path.
+const SEGMENT = '(?!\\.+(?:[/#]|$))[\\w.-]+';
+const DEP_REF_RE: Record<Source, RegExp> = {
+  github: new RegExp(`^${SEGMENT}/${SEGMENT}#\\d+$`),
+  gitlab: new RegExp(`^${SEGMENT}(?:/${SEGMENT})+#\\d+$`),
+  linear: /^[A-Z][A-Z0-9]*-\d+$/,
+};
+
+/**
+ * The body with a trailing `Depends on` line for `input.dependsOn`. The raw input is size-checked first; the
+ * refs are shape-checked for the source, so a value cannot smuggle text into the body or a path into an API call.
+ */
+function bodyWithDependencies(input: CreateTaskInput, source: Source): string {
+  assertCreatable(input);
   const deps = input.dependsOn ?? [];
-  const bad = deps.find((d) => !DEP_REF_RE.test(d));
-  if (bad !== undefined) throw new TaskcellError(`"${bad}" is not a task reference (expected owner/repo#N, group/project#N or TEAM-N).`);
-  return deps.length === 0 ? input.body : `${input.body.replace(/\s+$/, '')}\n\nDepends on ${deps.join(', ')}\n`;
+  if (deps.length === 0) return input.body;
+  if (deps.length > MAX_DEPENDS_ON) throw new TaskcellError(`A task can depend on at most ${MAX_DEPENDS_ON} tasks (got ${deps.length}).`);
+  const bad = deps.find((d) => !DEP_REF_RE[source].test(d));
+  if (bad !== undefined) throw new TaskcellError(`"${bad.slice(0, 80)}" is not a ${source} task reference (expected ${source === 'linear' ? 'TEAM-N' : source === 'gitlab' ? 'group/project#N' : 'owner/repo#N'}).`);
+  const body = `${input.body.trimEnd()}\n\nDepends on ${deps.join(', ')}\n`;
+  assertCreatable({ ...input, body });
+  return body;
 }
 
 function assertCreatable(input: CreateTaskInput): void {
@@ -109,6 +129,8 @@ async function linkGithubBlockers(repoPath: string, id: string, deps: string[], 
     const [depRepo, depNumber] = dep.split('#') as [string, string];
     try {
       const blockerId = (await run('gh', ['api', `repos/${depRepo}/issues/${depNumber}`, '--jq', '.id'], { cwd: repoPath })).trim();
+      // `-F` reads a file for a value starting with `@`.
+      if (!/^\d+$/.test(blockerId)) continue;
       await run('gh', ['api', '-X', 'POST', `repos/${repo}/issues/${number}/dependencies/blocked_by`, '-F', `issue_id=${blockerId}`], { cwd: repoPath });
     } catch {
       // Relations unavailable on this host/plan, or the blocker is in a repo this token cannot read.
@@ -122,7 +144,8 @@ async function linkGitlabBlockers(repoPath: string, id: string, deps: string[], 
   for (const dep of deps) {
     const [depProject, depIid] = dep.split('#') as [string, string];
     try {
-      await run('glab', ['api', '-X', 'POST', `projects/${encodeURIComponent(project)}/issues/${iid}/links`, '-f', `target_project_id=${encodeURIComponent(depProject)}`, '-f', `target_issue_iid=${depIid}`, '-f', 'link_type=is_blocked_by'], { cwd: repoPath });
+      // The target project goes as a field, which glab encodes itself: the plain path, not a pre-encoded one.
+      await run('glab', ['api', '-X', 'POST', `projects/${encodeURIComponent(project)}/issues/${iid}/links`, '-f', `target_project_id=${depProject}`, '-f', `target_issue_iid=${depIid}`, '-f', 'link_type=is_blocked_by'], { cwd: repoPath });
     } catch {
       // Not supported on this tier.
     }
@@ -138,8 +161,7 @@ export async function createGithubIssue(
   input: CreateTaskInput,
   run: CliRunner = defaultCli,
 ): Promise<CreatedTask> {
-  const body = bodyWithDependencies(input);
-  assertCreatable({ ...input, body });
+  const body = bodyWithDependencies(input, 'github');
   const args = ['issue', 'create', '--title', input.title, '--body-file', '-'];
   for (const label of input.labels ?? []) {
     // `gh issue create --label` fails on a label that does not exist; a card's target branch is a new one per branch.
@@ -164,8 +186,7 @@ export async function createGitlabIssue(
   input: CreateTaskInput,
   run: CliRunner = defaultCli,
 ): Promise<CreatedTask> {
-  const body = bodyWithDependencies(input);
-  assertCreatable({ ...input, body });
+  const body = bodyWithDependencies(input, 'gitlab');
   const args = ['issue', 'create', '--title', input.title, '--description', neutralizeQuickActions(body)];
   const labels = input.labels ?? [];
   if (labels.length > 0) args.push('--label', labels.join(','));
@@ -204,8 +225,7 @@ export async function createLinearIssue(
   input: CreateTaskInput,
   graphql?: LinearGraphql,
 ): Promise<CreatedTask> {
-  const body = bodyWithDependencies(input);
-  assertCreatable({ ...input, body });
+  const body = bodyWithDependencies(input, 'linear');
   const send = graphql ?? (await linearGraphql());
 
   // IssueCreateInput takes a teamId (a uuid), not the team key the user configures — so resolve it.
