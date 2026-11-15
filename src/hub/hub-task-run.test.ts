@@ -82,7 +82,8 @@ beforeEach(async () => {
 
 afterEach(async () => {
   await hub.close();
-  for (const d of dirs) await rm(d, { recursive: true, force: true });
+  // A run still open at the end of a test can write to the config directory while it is removed.
+  for (const d of dirs) await rm(d, { recursive: true, force: true, maxRetries: 5, retryDelay: 50 });
 });
 
 const alice = '1:alice';
