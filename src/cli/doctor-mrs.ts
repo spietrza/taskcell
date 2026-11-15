@@ -1,4 +1,4 @@
-import { formatPreflightReport, runPreflight } from './preflight.js';
+import { formatPreflightReport, preflightFailed, runPreflight } from './preflight.js';
 import type { Command } from './args.js';
 import type { PreflightOptions } from './preflight.js';
 
@@ -13,5 +13,5 @@ export async function doctorMrsCommand(cmd: DoctorMrsCommand, opts: DoctorMrsOpt
   const report = await runPreflight(cmd, opts);
   const log = opts.log ?? console.log;
   for (const line of formatPreflightReport(report)) log(line);
-  if (!report.ok) throw new Error('preflight failed');
+  if (!report.ok) throw preflightFailed();
 }

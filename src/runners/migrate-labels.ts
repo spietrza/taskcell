@@ -24,7 +24,7 @@ export async function migrateLabels(opts: MigrateLabelsOptions): Promise<Migrate
   const dryRun = opts.apply !== true;
   const names = (JSON.parse(await gh(['label', 'list', '--repo', opts.repoSlug, '--limit', '1000', '--json', 'name'])) as { name: string }[]).map((l) => l.name);
   const existing = new Set(names);
-  const report: MigrateLabelsReport = { renamed: [], skipped: [], failed: [], dryRun };
+  const report: MigrateLabelsReport = { renamed: [], skipped: [], failed: [], dryRun, warnings: [] };
   for (const from of names) {
     const to = currentLabel(from);
     if (to === from) continue;
@@ -34,7 +34,11 @@ export async function migrateLabels(opts: MigrateLabelsOptions): Promise<Migrate
       continue;
     }
     // GitHub starts the PR-review workflow on this label's name: a gate that knows only the old one stops firing.
-    if (to === REVIEW_TRIGGER_LABEL) log(`migrate-labels ${opts.repoSlug}: warning: every workflow gating on "${from}" must accept "${to}" before this rename`);
+    if (to === REVIEW_TRIGGER_LABEL) {
+      const warning = `every workflow gating on "${from}" must accept "${to}" before this rename`;
+      log(`migrate-labels ${opts.repoSlug}: warning: ${warning}`);
+      report.warnings.push(warning);
+    }
     try {
       if (!dryRun) await gh(['label', 'edit', from, '--repo', opts.repoSlug, '--name', to]);
       log(`migrate-labels ${opts.repoSlug}: ${dryRun ? 'would rename' : 'renamed'} "${from}" -> "${to}"`);

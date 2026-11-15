@@ -14,3 +14,9 @@ test('a task maps to its PR through its run, and the decision reads in plain wor
   expect(decisionWords(decisions[1]!)).toBe('Merged automatically');
   expect(decisionForTask('gh-6', [run('gh-6', 'https://github.com/a/b/pull/99')], decisions)).toBeUndefined();
 });
+
+test('the would-merge wording follows the repository mode', () => {
+  const d = { prNumber: 1, outcome: 'would-merge' as const, reasons: [] };
+  expect(decisionWords(d)).toContain('shadow mode');
+  expect(decisionWords(d, 'act')).not.toContain('shadow');
+});

@@ -234,13 +234,17 @@ export function TaskBoard({
   }
   // A repository with no task source chosen is a setup step, not a read failure.
   const unset = (data?.failures ?? []).filter((f) => isNoTaskSource(f.error));
+  // Hint only about the repositories in view: those the Projects filter selects, or else the open project.
+  // An empty Projects filter means every repository (filterState.ts), so all of them are in view.
+  const inView = filter.repos.length > 0 ? filter.repos : allRepos ? repos : [project];
+  const hinted = unset.filter((f) => inView.includes(f.repoPath));
   const failed = (data?.failures ?? []).filter((f) => !isNoTaskSource(f.error));
 
   return (
     <div className="flex min-h-0 flex-1 flex-col">
       {header}
-      {unset.length > 0 && (
-        <TaskSourceHint repoNames={unset.map((f) => f.repoName)} onOpenSettings={unset.some((f) => f.repoPath === project) ? onOpenSettings : undefined} />
+      {hinted.length > 0 && (
+        <TaskSourceHint repoNames={hinted.map((f) => f.repoName)} onOpenSettings={hinted.some((f) => f.repoPath === project) ? onOpenSettings : undefined} />
       )}
       <RepoFailures failures={failed} total={repos.length - unset.length} />
       {allTasks?.length === 0 && (data?.failures.length ?? 0) === 0 && !hubBoard && (
@@ -319,7 +323,7 @@ export function TaskBoard({
                           )}
                           {(() => {
                             const d = decisionForTask(t.id, approver.runs, approver.decisions);
-                            return d !== undefined && <div className="text-[11px] text-muted-foreground" data-approver={d.outcome}>{decisionWords(d)}</div>;
+                            return d !== undefined && <div className="text-[11px] text-muted-foreground" data-approver={d.outcome}>{decisionWords(d, approver.mode)}</div>;
                           })()}
                           {t.paused && <PausedLine paused={t.paused} />}
                           {t.skills && (

@@ -2,7 +2,7 @@ import { useState, type CSSProperties } from 'react';
 import { Button, Card, Chip, Empty } from '@/ui';
 import { Factory, FolderPlus, LayoutGrid, X } from 'lucide-react';
 import { projectColor } from '../../color';
-import { combinationNote, runLocationLabel, taskSourceLabel } from '../../platform';
+import { combinationNote, effectiveRunLocation, runLocationLabel, taskSourceLabel } from '../../platform';
 import { relTime } from '../../time';
 import type { Project } from '../../taskcell-output';
 import type { FactoryState, LocalWorkerState } from '../../wire';
@@ -120,7 +120,8 @@ export function Dashboard({
 
           <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
             {projects.map((p) => {
-              const note = combinationNote(p.taskSource, p.runLocation);
+              const location = effectiveRunLocation(p.taskSource, p.runLocation);
+              const note = combinationNote(p.taskSource, location);
               const fs = factory?.[p.path];
               const lw = localWorker?.[p.path];
               const last = p.lastRun ? relTime(new Date(p.lastRun).getTime()) : null;
@@ -212,10 +213,10 @@ export function Dashboard({
                       {/* Unset is not GitHub Issues: the board asks for an explicit source, and Settings shows it as "—". */}
                       <Chip color="secondary" variant="outlined">{p.taskSource ? taskSourceLabel(p.taskSource) : 'No task source'}</Chip>
                       <span className="text-xs text-muted-foreground" aria-hidden>→</span>
-                      <Chip color="secondary" variant="outlined">{runLocationLabel(p.runLocation)}</Chip>
+                      <Chip color="secondary" variant="outlined">{runLocationLabel(location)}</Chip>
                     </div>
                     {note && <p className="mt-1 text-xs text-muted-foreground">{note}</p>}
-                    {fs && (
+                    {fs && !(p.taskSource === 'hub' && fs.state === 'none') && (
                       <p
                         data-testid="factory-state"
                         className={`mt-1 text-xs ${fs.state === 'broken' ? 'text-destructive-text' : fs.state === 'ready' ? 'text-success-text' : 'text-muted-foreground'}`}
@@ -223,7 +224,7 @@ export function Dashboard({
                         {factoryLabel(fs)}
                       </p>
                     )}
-                    {lw && (lw.enabled || lw.lastPickupAt !== undefined || p.runLocation === 'local') && <p data-testid="local-worker-state" className={`mt-1 text-xs ${lw.enabled && lw.lastError ? 'text-destructive-text' : 'text-muted-foreground'}`}>{localWorkerLabel(lw)}</p>}
+                    {lw && (lw.enabled || lw.lastPickupAt !== undefined || location === 'local') && <p data-testid="local-worker-state" className={`mt-1 text-xs ${lw.enabled && lw.lastError ? 'text-destructive-text' : 'text-muted-foreground'}`}>{localWorkerLabel(lw)}</p>}
                     {onEnableFactory && (
                       <Button
                         className="relative z-10 mt-3 h-7 px-2 text-xs"
@@ -235,7 +236,7 @@ export function Dashboard({
                           onEnableFactory({ path: p.path, name: p.name });
                         }}
                       >
-                        {fs && fs.state !== 'none' ? 'Factory checklist' : 'Enable factory'}
+                        {fs && fs.state !== 'none' ? 'Factory checklist' : p.taskSource === 'hub' ? 'Hub worker' : 'Enable factory'}
                       </Button>
                     )}
                   </Card.Content>

@@ -3,7 +3,7 @@
 import * as projects from '../projects.js';
 import * as teams from '../teams.js';
 import type { Team, TeamRole } from '../../wire.js';
-import { defineCommands, requireString, requireOneOf } from '../command-kit.js';
+import { defineCommands, requireString, requireOneOf, optionalString, type AuditSpec } from '../command-kit.js';
 
 export interface TeamsCommands {
   /** HUB_ONLY: token-only mode has exactly one team and the caller acts as its admin. */
@@ -21,6 +21,9 @@ export interface TeamsCommands {
   /** HUB_ONLY, team admin only. */
   remove_team_repository: { args: { teamId: string; path: string }; result: Team };
 }
+
+/** `<teamId>:<a[key]>` — the login or repository path goes in the target: `detail` only keeps bare names, so an e-mail or a path would be dropped. */
+const teamItemTarget = (key: string): AuditSpec['target'] => (a) => `${optionalString(a, 'teamId') ?? ''}:${optionalString(a, key) ?? ''}`;
 
 export const commands = defineCommands<TeamsCommands>({
   list_teams: async ({ ctx, caller }) => {
@@ -51,4 +54,9 @@ export const commands = defineCommands<TeamsCommands>({
     const path = (await projects.registeredPath(ctx.configDir, input)) ?? input;
     return teams.removeRepository(ctx.configDir, caller, requireString(args, 'teamId'), path);
   },
+}, {
+  add_team_member: { action: 'team-member-add', target: teamItemTarget('login'), detail: async (_ctx, a) => [optionalString(a, 'role') ?? ''].filter(Boolean) },
+  remove_team_member: { action: 'team-member-remove', target: teamItemTarget('login') },
+  add_team_repository: { action: 'team-repository-add', target: teamItemTarget('path') },
+  remove_team_repository: { action: 'team-repository-remove', target: teamItemTarget('path') },
 });

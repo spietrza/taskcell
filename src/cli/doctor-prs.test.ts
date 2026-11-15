@@ -1,5 +1,6 @@
 import { describe, it, expect } from 'vitest';
 import { doctorPrsCommand } from './doctor-prs.js';
+import { CliUsageError } from '../core/errors.js';
 import type { Command } from './args.js';
 import type { PreflightRunner } from './preflight.js';
 
@@ -52,7 +53,7 @@ describe('doctorPrsCommand', () => {
         run: runner,
         log: (line) => logs.push(line),
       }),
-    ).rejects.toThrow('preflight failed');
+    ).rejects.toSatisfy((e: unknown) => e instanceof CliUsageError && e.message.includes('preflight failed'));
 
     expect(logs).toContain('preflight: llm auth missing -> stop before claim');
   });

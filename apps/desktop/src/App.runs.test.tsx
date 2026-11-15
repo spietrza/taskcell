@@ -40,7 +40,7 @@ test('a run started from the Board shows its live strip on Runs; the rail\'s Run
     api_list_providers: { providers: [] },
     fetch_spec: { spec: 'spec' },
     list_lessons: { lessons: [], branchFound: true },
-    read_approver_decisions: { decisions: [] },
+    read_approver_decisions: { decisions: [], mode: 'shadow' },
     read_issue_history: { repo: 'o/r', issue: 7, prs: [], entries: [], chains: [], unavailable: [] },
   };
   vi.stubGlobal(

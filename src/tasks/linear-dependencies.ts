@@ -136,7 +136,8 @@ function createIssueLookup(send: LinearGraphql, cache: LookupCache = new Map(), 
   return (ref, fresh = false) => {
     const key = refText(ref);
     const hit = fresh ? undefined : cache.get(key);
-    if (hit !== undefined && now - hit.at < LOOKUP_TTL_MS) return Promise.resolve(hit.issue);
+    // An entry from the future (the wall clock stepped back) is stale, not extra fresh.
+    if (hit !== undefined && now >= hit.at && now - hit.at < LOOKUP_TTL_MS) return Promise.resolve(hit.issue);
     const pending =
       pollCache.get(key) ??
       loadIssue(ref, send).then((issue) => {
@@ -232,7 +233,19 @@ export async function checkLinearDependencies(
   now: Date = new Date(),
   known?: KnownIssue,
   lookup: IssueLookup = createIssueLookup(send),
+  /** The reason this issue was already confirmed invalid by fresh reads less than a TTL ago: not read again for the same reason. */
+  confirmedInvalid?: string,
 ): Promise<LinearDependencyVerdict> {
+  const verdict = await checkOnce(task, send, now, known, lookup);
+  if (verdict.status !== 'ready' && verdict.status !== 'invalid') return verdict;
+  if (verdict.status === 'invalid' && verdict.reason === confirmedInvalid) return verdict;
+  // A verdict that lets an issue start, or parks it for a human, is never taken from cached blockers: read them again.
+  // Reads already made this poll are shared, so only cached ones cost a lookup.
+  return checkOnce(task, send, now, known, (ref) => lookup(ref, true));
+}
+
+/** One pass over the issue's blockers with `lookup` (cached or fresh); the verdict is not yet confirmed. */
+async function checkOnce(task: Task, send: LinearGraphql, now: Date, known: KnownIssue | undefined, lookup: IssueLookup): Promise<LinearDependencyVerdict> {
   try {
     const selfId = parseIdentifier(task.ref ?? task.id);
     if (selfId === undefined) return { status: 'invalid', reason: `${task.id} is not a Linear identifier such as DEV-12, so its dependencies cannot be checked` };
@@ -354,6 +367,10 @@ interface LoggedReason {
   reason: string;
   /** Consecutive polls the lookup failed (0 for a verdict that is no error). */
   failures: number;
+  /** The raw reason of an invalid verdict and when fresh reads confirmed it (ms). */
+  invalid?: { reason: string; at: number };
+  /** An error comment was posted for the current failure streak. */
+  commented?: boolean;
   /** Last poll that listed the issue (ms); entries unlisted for `FORGET_AFTER_MS` are dropped. */
   seenAt: number;
 }
@@ -365,8 +382,8 @@ const REPORT_AFTER = 3;
 const WAIT_PREFIX = 'Taskcell will not start this issue yet:';
 const INVALID_PREFIX = 'Taskcell cannot start this issue:';
 const ERROR_PREFIX = 'Taskcell could not check the dependencies of this issue';
-/** Longest reason put into a comment. */
-const MAX_REASON = 300;
+/** Longest reason put into a comment: room for about 100 blockers or a long cycle path of Taskcell's own text, still bounded for author text. */
+const MAX_REASON = 1000;
 
 const RECENT_COMMENTS = 5;
 /** Both ends of the connection, so the recent comments are among them whichever way Linear orders it. */
@@ -385,7 +402,14 @@ interface RecentCommentsResponse {
 const comparable = (text: string): string => text.replace(/[^\p{L}\p{N}]+/gu, '');
 
 /** The comments Taskcell posts to hold an issue; only the newest of them says what the issue is held for. */
-const isHoldComment = (body: string): boolean => [WAIT_PREFIX, INVALID_PREFIX, ERROR_PREFIX].some((prefix) => body.startsWith(prefix));
+const HOLD_PREFIXES = [WAIT_PREFIX, INVALID_PREFIX, ERROR_PREFIX].map(comparable);
+const isHoldComment = (body: string): boolean => {
+  // Leading whitespace and emphasis are re-rendering; a quote ("> ...") or any other lead-in is a reply, not our comment.
+  const text = body.replace(/^[\s*_\\]+/, '');
+  if (!/^\p{L}/u.test(text)) return false;
+  const flat = comparable(text);
+  return HOLD_PREFIXES.some((prefix) => flat.startsWith(prefix));
+};
 
 /** Posts `body` unless the newest Taskcell hold comment on the issue already says the same, so a restart or `watch --once` does not repeat it. */
 async function commentOnce(id: string, body: string, send: LinearGraphql, opts: LinearDependencyGateOptions): Promise<void> {
@@ -398,7 +422,7 @@ async function commentOnce(id: string, body: string, send: LinearGraphql, opts: 
   // Oldest first by timestamp; nodes without one keep Linear's order.
   const newest = [...issue.first.nodes, ...issue.last.nodes]
     .filter((node) => isHoldComment(node.body ?? ''))
-    .sort((a, b) => (a.createdAt != null && b.createdAt != null ? a.createdAt.localeCompare(b.createdAt) : 0))
+    .sort((a, b) => (a.createdAt != null && b.createdAt != null ? Number(a.createdAt > b.createdAt) - Number(a.createdAt < b.createdAt) : 0))
     .at(-1);
   if (newest === undefined || comparable(newest.body ?? '') !== published) await commentLinearIssue(id, body, opts.linear);
   reported.set(id, published);
@@ -406,7 +430,7 @@ async function commentOnce(id: string, body: string, send: LinearGraphql, opts: 
 
 /** Text the issue author controls, as inline code: it can neither mention anyone nor render markup. */
 const quoted = (text: string): string => {
-  const clean = text.replace(/\p{Cc}+/gu, ' ').replace(/[`@]/g, '').replace(/\s+/g, ' ').trim();
+  const clean = text.replace(/\p{Cc}+/gu, ' ').replace(/(?![\u200c\u200d])\p{Cf}|[`@]/gu, '').replace(/\s+/g, ' ').trim();
   const chars = [...clean];
   return `\`${chars.length > MAX_REASON ? `${chars.slice(0, MAX_REASON).join('').trimEnd()}…` : clean}\``;
 };
@@ -417,8 +441,9 @@ const quoted = (text: string): string => {
  * itself once the blockers are done and the date reached. A cycle, a missing reference, a canceled
  * blocker, an impossible date or an unreadable identifier gets one comment with the reason and moves
  * to the needs-info state. A failed probe or lookup is logged and the issue skipped for this poll; one
- * that fails on 3 polls in a row is also commented on, and logged again every 10. Blockers read in the
- * last 2 minutes are not read again.
+ * that fails on 3 polls in a row is also commented on (not while two or more issues fail in the same poll: a shared
+ * outage), and logged again every 10. Blockers read in the last 2 minutes are reused, except that
+ * an `invalid` or `ready` verdict built on them is re-checked with fresh reads.
  * Only when Linear rejects both the probe and the lookup as queries (a validation error: the gate's
  * queries do not fit the schema, which no retry fixes) are native relations not honoured, so that a
  * wrong query cannot stop every Linear watch; `Depends on` and `Start:` lines still hold.
@@ -437,7 +462,7 @@ export async function applyLinearDependencyGate(tasks: Task[], opts: LinearDepen
     logged.delete(id);
     reported.delete(id);
   }
-  for (const [key, entry] of lookups) if (at - entry.at >= LOOKUP_TTL_MS) lookups.delete(key);
+  for (const [key, entry] of lookups) if (at < entry.at || at - entry.at >= LOOKUP_TTL_MS) lookups.delete(key);
   if (tasks.length === 0) return tasks;
   const send = opts.graphql ?? (await linearGraphql(opts.linear));
   const refs = new Map(tasks.map((task) => [task, parseIdentifier(task.ref ?? task.id)]));
@@ -452,12 +477,19 @@ export async function applyLinearDependencyGate(tasks: Task[], opts: LinearDepen
       for (const ref of probed.rejected) probed.known.set(refText(ref), { nativeBlockers: [] });
     }
   }
+  const confirmedFor = (task: Task): string | undefined => {
+    const invalid = logged.get(task.id)?.invalid;
+    return invalid !== undefined && at >= invalid.at && at - invalid.at < LOOKUP_TTL_MS ? invalid.reason : undefined;
+  };
   const check = (task: Task): Promise<LinearDependencyVerdict> => {
     const ref = refs.get(task);
-    return checkLinearDependencies(task, send, now, ref !== undefined ? probed.known.get(refText(ref)) : undefined, lookup);
+    return checkLinearDependencies(task, send, now, ref !== undefined ? probed.known.get(refText(ref)) : undefined, lookup, confirmedFor(task));
   };
   const checked = await fanOut(tasks, check, { concurrency: CHECK_CONCURRENCY });
   const ready: Task[] = [];
+  // Two or more issues whose lookup threw in the same poll is a shared outage (Linear or the network), not something about each issue: no comment yet.
+  const isFailure = (outcome: (typeof checked)[number]): boolean => outcome.status === 'rejected' || (outcome.value.status === 'error' && outcome.value.reason.startsWith('dependency lookup failed'));
+  const sharedOutage = checked.filter(isFailure).length > 1;
   for (const outcome of checked) {
     const task = outcome.item;
     const verdict: LinearDependencyVerdict = outcome.status === 'fulfilled' ? outcome.value : { status: 'error', reason: failureReason(outcome.reason) };
@@ -472,11 +504,14 @@ export async function applyLinearDependencyGate(tasks: Task[], opts: LinearDepen
     const previous = logged.get(task.id);
     const failed = verdict.status === 'error' ? (previous?.failures ?? 0) + 1 : 0;
     if (previous?.reason !== reason || (failed > 0 && failed % LOG_EVERY === 0)) log(`taskcell: ${task.id} skipped -> ${reason}`);
-    logged.set(task.id, { reason, failures: failed, seenAt: at });
+    const invalid = verdict.status === 'invalid' ? { reason: verdict.reason, at: previous?.invalid?.reason === verdict.reason && confirmedFor(task) !== undefined ? previous.invalid.at : at } : undefined;
+    const entry: LoggedReason = { reason, failures: failed, seenAt: at, ...(invalid !== undefined ? { invalid } : {}), ...(failed > 0 && previous?.commented === true ? { commented: true } : {}) };
+    logged.set(task.id, entry);
     if (verdict.status === 'error') {
       // The comment names no reason (it may change every poll), so one comment covers the whole outage; retried only every LOG_EVERY polls.
-      if (failed !== REPORT_AFTER && !(failed > REPORT_AFTER && failed % LOG_EVERY === 0)) continue;
+      if (sharedOutage || failed < REPORT_AFTER || (entry.commented === true && failed % LOG_EVERY !== 0)) continue;
       try {
+        entry.commented = true;
         await commentOnce(task.id, `${ERROR_PREFIX} on repeated polls: Linear could not be read. It stays in its trigger state and is checked again on every poll.`, send, opts);
       } catch (error) {
         log(`taskcell: ${task.id} dependency hold could not be recorded: ${failureReason(error)}`);
@@ -492,7 +527,7 @@ export async function applyLinearDependencyGate(tasks: Task[], opts: LinearDepen
       await commentOnce(task.id, `${INVALID_PREFIX} ${quoted(verdict.reason)}. ${next}`, send, opts);
       if (opts.moveToNeedsInfo !== undefined) {
         await opts.moveToNeedsInfo(task.id);
-        // It left the trigger state: if it comes back unfixed it is commented on and moved again.
+        // It left the trigger state: if it comes back unfixed it is logged and moved again; the comment is not repeated while it is still the newest hold comment.
         logged.delete(task.id);
         reported.delete(task.id);
       }

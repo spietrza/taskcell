@@ -7,6 +7,7 @@ import { isKnownGitlabRemote, parseGitlabProjectFromRemote, redactRemote, remote
 import { GITHUB_CLAIMED_LABEL, GITHUB_REVIEW_LABEL, GITHUB_SPEC_CLAIMED_LABEL } from '../github-labels.js';
 import { labelForms } from '../core/labels.js';
 import type { CustomProviderEntry } from '../agents/registry.js';
+import { CliUsageError } from '../core/errors.js';
 import type { Command } from './args.js';
 
 type WatchCommand = Extract<Command, { kind: 'watch' }>;
@@ -41,6 +42,9 @@ export interface PreflightReport {
 
 const MIN_NODE_MAJOR = 24;
 /** Name of the sandbox CLI-version check; `doctor --fix` keys off it. */
+/** Thrown when a preflight report is not ok: a usage error, so the CLI prints one line and no stack. */
+export const preflightFailed = (): CliUsageError => new CliUsageError('preflight failed; fix the failing checks above and re-run');
+
 export const SANDBOX_CLI_CHECK = 'sandbox claude cli';
 export const SANDBOX_CURSOR_CLI_CHECK = 'sandbox cursor cli';
 export const SANDBOX_LINEAR_CLI_CHECK = 'sandbox linear cli';

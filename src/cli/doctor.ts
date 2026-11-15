@@ -1,4 +1,4 @@
-import { formatPreflightReport, runPreflight, SANDBOX_CLI_CHECK } from './preflight.js';
+import { formatPreflightReport, preflightFailed, runPreflight, SANDBOX_CLI_CHECK } from './preflight.js';
 import {
   SANDBOX_CLAUDE_VERSION,
   SANDBOX_CODEX_VERSION,
@@ -8,6 +8,7 @@ import {
 } from '../sandbox/docker.js';
 import { checkCliVersions, formatCliVersions, installedCliVersions } from '../sandbox/cli-versions.js';
 import type { Command } from './args.js';
+import { CliUsageError } from '../core/errors.js';
 import type { PreflightOptions } from './preflight.js';
 
 type DoctorCommand = Extract<Command, { kind: 'doctor' }>;
@@ -63,6 +64,6 @@ export async function doctorCommand(cmd: DoctorCommand, opts: DoctorOptions = {}
   // The report first: the version check needs Docker and the network, and must not delay it.
   for (const line of formatPreflightReport(report)) log(line);
   for (const line of formatCliVersions(await (opts.cliVersions ?? checkCliVersions)(dockerOpts))) log(line);
-  if (!report.ok) throw new Error('preflight failed');
-  if (codexFixFailed) throw new Error('doctor --fix: codex install failed');
+  if (!report.ok) throw preflightFailed();
+  if (codexFixFailed) throw new CliUsageError('doctor --fix: codex install failed');
 }
