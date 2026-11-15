@@ -24,8 +24,10 @@ export const PRICED_MODELS = {
   // Still $2/$10 live on 2026-10-07 (the introductory rate was announced to end 2026-08-31; it did not).
   'claude-sonnet-5': { input: 2, output: 10, cacheRead: 0.2, openRouterModel: 'anthropic/claude-sonnet-5' },
   'claude-haiku-4-5-20251001': { input: 1, output: 5, cacheRead: 0.1, openRouterModel: 'anthropic/claude-haiku-4.5' },
-  // OpenAI models Codex runs on — fetched 2026-11-14 from openrouter.ai/api/v1/models. A Codex run
+  // OpenAI models Codex runs on — checked 2026-11-15 against openrouter.ai/api/v1/models. A Codex run
   // reports tokens but no cost; these price them as an estimate (never written to `costUsd`).
+  // The review model the docs recommend.
+  'gpt-5.6-sol': { input: 4, output: 20, cacheRead: 0.4, openRouterModel: 'openai/gpt-5.6-sol' },
   'gpt-6.1-sol': { input: 2, output: 10, cacheRead: 0.1, openRouterModel: 'openai/gpt-6.1-sol' },
   'gpt-6.1-terra': { input: 1, output: 5, cacheRead: 0.05, openRouterModel: 'openai/gpt-6.1-terra' },
   'gpt-5': { input: 1.25, output: 10, cacheRead: 0.125, openRouterModel: 'openai/gpt-5' },

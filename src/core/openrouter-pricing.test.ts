@@ -67,6 +67,8 @@ describe('estimateOpenRouterCost', () => {
     expect(estimateOpenRouterCost(usage, 'claude-sonnet-4-6')).toBeCloseTo(18.3, 6);
     // claude-haiku-4-5-20251001: (1 + 5 + 0.1) = 6.1
     expect(estimateOpenRouterCost(usage, 'claude-haiku-4-5-20251001')).toBeCloseTo(6.1, 6);
+    // gpt-5.6-sol, the documented Codex review model: (4 + 20 + 0.4) = 24.4
+    expect(estimateOpenRouterCost(usage, 'gpt-5.6-sol')).toBeCloseTo(24.4, 6);
     // glm-5.2: (0.93 + 3 + 0.18) = 4.11
     expect(estimateOpenRouterCost(usage, 'glm-5.2')).toBeCloseTo(4.11, 6);
   });
