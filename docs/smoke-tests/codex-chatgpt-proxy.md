@@ -26,4 +26,7 @@ taskcell review-pr OWNER/REPO#PR --repo /path/to/clone --provider codex --llm-pr
 
 ## Recorded run
 
-None yet. No run with a real ChatGPT-plan credential has been made for this document; the behaviour above is covered by tests against a fake IdP and a fake Docker runner, and the log routing was checked once in a real `taskcell-sandbox:latest` container without credentials. When you run the steps, record here: date, Taskcell version, PR reviewed, whether a rotation occurred, and the outcome.
+- **2026-11-15**, Taskcell main `61d4c2cd` (1.16.0 before release), maintainer's Mac, ChatGPT-plan `CODEX_AUTH_JSON`, no Claude/z.ai/OpenRouter key in the environment.
+- `review-pr spietrza/taskcell#1065 --provider codex --llm-proxy`: the egress-confined sandbox started, the review stage completed in 12 s (2 turns, model `gpt-6.1-sol`, cost $0 on the plan, estimate $0.015) and a review was posted on #1065.
+- No refresh-token rotation occurred: `~/.codex/auth.json` kept the same key names (compared by name only) and mode 0600.
+- Not exercised: a rotation write-back and a refused refresh (both still covered only by tests against a fake IdP).
