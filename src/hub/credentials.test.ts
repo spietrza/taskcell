@@ -1,9 +1,9 @@
-import { mkdtemp, readFile, rm } from 'node:fs/promises';
+import { mkdtemp, readFile, rm, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { randomBytes } from 'node:crypto';
 import { afterEach, describe, expect, it } from 'vitest';
-import { CredentialStore } from './credentials.js';
+import { CredentialStore, createCredentialService } from './credentials.js';
 import { dispatchRpc as dispatch, type RpcContext } from './rpc.js';
 import type { Caller } from './teams.js';
 
@@ -95,5 +95,14 @@ describe('credential RPCs never return a stored value', () => {
   it('refuses mutations on a non-loopback bind', async () => {
     const ctx = { credentials: new CredentialStore(await dir(), secret(), {}), bind: { isLoopback: false, allowAdd: false } } as unknown as RpcContext;
     await expect(dispatchRpc(ctx, 'set_credential', { provider: 'claude', value: 'x' })).rejects.toThrow();
+  });
+});
+
+describe('resolveForRun read errors', () => {
+  it.each(['custom', 'meridian'])('surfaces a store read error for %s providers', async (provider) => {
+    const d = await dir();
+    await writeFile(join(d, 'credentials.enc.json'), 'not json');
+    const service = createCredentialService(d);
+    await expect(service.resolveForRun(undefined, provider)).rejects.toThrow();
   });
 });
