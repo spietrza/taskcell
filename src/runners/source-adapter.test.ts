@@ -1221,7 +1221,7 @@ describe('runSourcedIssue', () => {
     });
     await expect(runSourcedIssue('group/project#1', { repoPath: '/repo' }, fakeAdapter([], STAGES))).rejects.toThrow('structured provider refusal');
     const persisted = (writeStages.mock.calls.at(-1) as unknown as [StageOutcome[]])[0];
-    expect(persisted.map((o) => o.name)).toEqual(['implementer', 'repair']);
+    expect(persisted.map((o) => o.name)).toEqual(['implementer', 'after-implementer']);
     expect(persisted[0]?.result).toMatchObject({ completed: true, turns: 7, costUsd: 1.25 });
     expect(persisted[1]?.result).toMatchObject({ completed: false, stoppedBy: 'provider-limit' });
   });
