@@ -77,6 +77,34 @@ describe('costBreakdown', () => {
     expect(only.costKind).toBe('estimated');
   });
 
+  it('shows the estimate instead of unknown, never in costUsd', async () => {
+    clearCiMetricsCache();
+    await push([line({ ts: '2026-11-12T10:00:00.000Z', taskId: 'E', model: 'gpt-5', costUsd: 0, costUnknown: true, estCostUsd: 0.4 }), line({ ts: '2026-11-12T10:01:00.000Z', taskId: 'F', model: 'mystery', costUsd: 0, costUnknown: true })]);
+    const b = await costBreakdown(repo, 'all', NOW);
+    expect(b.totalCostUsd).toBe(0);
+    expect(b.totalEstCostUsd).toBe(0.4);
+    expect(b.byModel.find((r) => r.key === 'gpt-5')).toMatchObject({ costUsd: 0, estCostUsd: 0.4, unknownEntries: 1 });
+    expect(b.byModel.find((r) => r.key === 'mystery')?.estCostUsd).toBeUndefined();
+    // One of the two entries without a reported cost has no estimate: the total says so, the fully priced row does not.
+    expect(b.estPartial).toBe(true);
+    expect(b.byModel.find((r) => r.key === 'gpt-5')?.estPartial).toBeUndefined();
+    expect(b.byStage.find((r) => r.key === '(none)')).toMatchObject({ estCostUsd: 0.4, estPartial: true });
+  });
+
+  it('the breakdown and the run rows agree: an estimate on a line with a reported cost, or a negative one, counts in neither', async () => {
+    clearCiMetricsCache();
+    await push([
+      line({ ts: '2026-11-12T10:00:00.000Z', taskId: 'G', model: 'gpt-5', costUsd: 2, costKind: 'billed', estCostUsd: 0.4 }),
+      line({ ts: '2026-11-12T10:01:00.000Z', taskId: 'G', model: 'gpt-5', costUsd: 0, costUnknown: true, estCostUsd: -1 }),
+      line({ ts: '2026-11-12T10:02:00.000Z', taskId: 'G', model: 'gpt-5', costUsd: 0, costUnknown: true, estCostUsd: 0.1 }),
+    ]);
+    const b = await costBreakdown(repo, 'all', NOW);
+    const run = (await withCiRuns(repo, [])).find((r) => r.taskId === 'G');
+    expect(b).toMatchObject({ totalCostUsd: 2, totalEstCostUsd: 0.1, estPartial: true });
+    expect(run).toMatchObject({ totalCostUsd: 2, estCostUsd: 0.1, estPartial: true });
+    expect(run?.costUnknown).toBeUndefined();
+  });
+
   it('says whether the number is estimated, billed, mixed or unknown', async () => {
     const kind = async (lines: string[]): Promise<string> => {
       clearCiMetricsCache();
@@ -102,6 +130,12 @@ describe('costBreakdown', () => {
     expect(runs.find((r) => r.taskId === 'B')?.costUnknown).toBeUndefined();
   });
 
+  it('a CI run summary carries the estimate of its unreported records', async () => {
+    await push([line({ ts: '2026-11-12T10:00:00.000Z', taskId: 'E', model: 'gpt-5', costUsd: 0, costUnknown: true, estCostUsd: 0.4 })]);
+    const run = (await withCiRuns(repo, [])).find((r) => r.taskId === 'E');
+    expect(run).toMatchObject({ totalCostUsd: 0, estCostUsd: 0.4, costUnknown: true });
+  });
+
   it('only unpriced records: costKind is unknown', async () => {
     await push([line({ ts: '2026-11-12T10:00:00.000Z', taskId: 'A' })]);
     expect((await costBreakdown(repo, 'all', NOW)).costKind).toBe('unknown');
@@ -120,6 +154,17 @@ describe('withCiRuns / projects.aggregate', () => {
     expect(runs.find((r) => r.taskId === 'T-2')?.anyFailed).toBe(true);
     expect(runs.find((r) => r.taskId === 'T-4')?.costUnknown).toBe(true);
     expect(runs.find((r) => r.taskId === 'T-1')?.costUnknown).toBeUndefined();
+  });
+
+  it('surfaces an all-limited CI run, but not a mixed genuine failure, as stopped by provider limit', async () => {
+    await push([
+      line({ ts: '2026-11-12T10:00:00.000Z', taskId: 'LIMIT', stage: 'implementer', exitReason: 'error', stoppedBy: 'provider-limit' }),
+      line({ ts: '2026-11-12T10:00:00.000Z', taskId: 'MIXED', stage: 'implementer', exitReason: 'error' }),
+      line({ ts: '2026-11-12T10:00:00.000Z', taskId: 'MIXED', stage: 'reviewer', exitReason: 'error', stoppedBy: 'provider-limit' }),
+    ]);
+    const runs = await withCiRuns(repo, []);
+    expect(runs.find((run) => run.taskId === 'LIMIT')).toMatchObject({ anyFailed: true, stoppedBy: 'provider-limit', source: 'ci' });
+    expect(runs.find((run) => run.taskId === 'MIXED')?.stoppedBy).toBeUndefined();
   });
 
   it('drops a prUrl that is not http(s) (the same link gate as local records)', async () => {

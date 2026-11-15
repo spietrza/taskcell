@@ -1,5 +1,5 @@
 import { test, expect, afterEach, vi } from 'vitest';
-import { render, screen, fireEvent } from '@testing-library/react';
+import { render, screen, fireEvent, within } from '@testing-library/react';
 import { clearMocks } from '@tauri-apps/api/mocks';
 import { install } from '../../dev/mockBackend';
 import { remoteImport, remoteRuns, runs } from '../../dev/fixtures';
@@ -78,4 +78,20 @@ test('a repository with no git remote shows the hub\'s own sentence, not the con
   render(<RemoteRuns project="/repo" onOpenRun={vi.fn()} />);
   expect(await screen.findByRole('alert')).toHaveTextContent(NO_REMOTE_MESSAGE);
   expect(screen.queryByText("Couldn't load remote runs")).toBeNull();
+});
+
+test('an imported record stopped by a provider limit is not shown as failed', async () => {
+  runs[0]!.anyFailed = true;
+  runs[0]!.stoppedBy = 'provider-limit';
+  try {
+    install();
+    render(<RemoteRuns project="/repo" onOpenRun={vi.fn()} />);
+    fireEvent.click(await screen.findByRole('button', { name: /fetch records/i }));
+    const row = (await screen.findByText(runs[0]!.taskId)).closest('button');
+    expect(row).not.toBeNull();
+    expect(within(row!).getByText('stopped: provider limit')).toBeInTheDocument();
+  } finally {
+    runs[0]!.anyFailed = false;
+    delete runs[0]!.stoppedBy;
+  }
 });

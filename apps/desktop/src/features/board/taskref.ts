@@ -7,6 +7,8 @@
 export function taskRefKey(taskId: string): string {
   const lower = taskId.toLowerCase();
   if (lower.startsWith('linear-')) return lower;
+  // A paused pull request's card: not issue N, so it must not fold onto that issue's runs.
+  if (/^gh-pr-\d+$/.test(lower)) return lower;
   const m = lower.match(/^(gh|gl)-.*?(\d+)$/);
   return m ? `${m[1]}-${m[2]}` : lower;
 }

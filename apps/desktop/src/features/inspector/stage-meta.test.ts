@@ -33,3 +33,10 @@ test('shows zero cost when costUsd is 0', () => {
   const meta = buildStageMeta({ ...base, costUsd: 0 })
   expect(meta).toContain('$0.00')
 })
+
+test('shows an estimate marked ≈ when there is no reported cost, but not a zero estimate', () => {
+  expect(buildStageMeta({ ...base, estCostUsd: 0.5 })).toContain('≈$0.50')
+  expect(buildStageMeta({ ...base, estCostUsd: 0 }).some((m) => m.startsWith('≈'))).toBe(false)
+  // An imported record is not trusted to hold a number there.
+  expect(buildStageMeta({ ...base, estCostUsd: '5' as unknown as number }).some((m) => m.startsWith('≈'))).toBe(false)
+})

@@ -1,6 +1,7 @@
 import { AgentError } from '../core/errors.js';
 import { redactForPublish } from '../core/secret-scan.js';
 import type { AgentProvider, AgentRunInput, AgentTurn, AgentRunOutput, AgentUsage } from './provider.js';
+import type { ExecOptions, ExecResult } from '../sandbox/provider.js';
 import { shellQuote } from './shell.js';
 import { parseCodexUtilization, recordUtilization } from '../core/usage-cap.js';
 
@@ -60,6 +61,25 @@ function toUsage(raw: CodexEvent['usage']): AgentUsage | undefined {
     outputTokens: raw.output_tokens ?? 0,
     cacheReadInputTokens: raw.cached_input_tokens ?? 0,
   };
+}
+
+/** Best-effort: the model recorded in the thread's session rollout, or undefined when it cannot be read. */
+async function sessionModel(
+  sh: (command: string, opts?: ExecOptions) => Promise<ExecResult>,
+  threadId: string,
+  execOpts: ExecOptions,
+): Promise<string | undefined> {
+  if (!/^[0-9A-Za-z-]+$/.test(threadId)) return undefined; // interpolated into the command below
+  const command = `grep -rhoE -m1 '"model":"[^"]+"' "${'$'}{CODEX_HOME:-${'$'}HOME/.codex}/sessions" --include='*${threadId}*.jsonl' | head -n 1`;
+  try {
+    const res = await sh(command, execOpts);
+    // The agent can write that file, and this string is published unredacted: accept a model-id shape only.
+    const model = /^"model":"([A-Za-z0-9._:/-]{1,100})"\n?$/.exec(res.stdout)?.[1];
+    // The rollout is agent-writable: never record a value the secret scan would redact.
+    return model !== undefined && redactForPublish(model) === model ? model : undefined;
+  } catch {
+    return undefined;
+  }
 }
 
 export class CodexProvider implements AgentProvider {
@@ -139,6 +159,12 @@ export class CodexProvider implements AgentProvider {
     }
 
     const output: AgentRunOutput = { finalText, turns, transcript: res.stdout };
+    // `exec --json` names no model in its events or on stderr; with no `-m`, read it from the session
+    // rollout codex writes (the `turn_context` line), so the run can be priced.
+    if (input.model === undefined && sessionId !== undefined) {
+      const model = await sessionModel(sh, sessionId, execOpts);
+      if (model !== undefined) output.model = model;
+    }
     if (sessionId !== undefined) output.sessionId = sessionId;
     if (usage !== undefined) output.usage = usage;
     return output;

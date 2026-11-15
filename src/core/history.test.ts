@@ -101,6 +101,15 @@ describe('task ids', () => {
     expect(prRunOf(reviewId('x/y', 9), 'o/r')).toBeUndefined();
     expect(prRunOf(reviseId('x/y', 9), 'o/r')).toBeUndefined();
   });
+  it('prints a run stopped by a provider limit as paused, not failed', () => {
+    const { input } = fixture();
+    input.runs.push({ taskId: 'gh-o-r-8', timestamp: '2026-01-05T09:30:00Z', anyFailed: true, stoppedBy: 'provider-limit', stages: [] });
+    input.runs.push({ taskId: 'gh-o-r-9', timestamp: '2026-01-05T10:30:00Z', anyFailed: true, stages: [] });
+    const whats = buildIssueHistory(input).entries.map((e) => e.what);
+    expect(whats).toContain('run recorded: paused: provider limit ()');
+    expect(whats).toContain('run recorded: failed ()');
+  });
+
   it('labels a spec run and a revise run', () => {
     const { input } = fixture();
     input.runs.push({ taskId: specId('o/r#7'), timestamp: '2026-01-01T09:30:00Z', anyFailed: false, stages: [] });
