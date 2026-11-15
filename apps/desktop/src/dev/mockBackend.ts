@@ -168,6 +168,7 @@ const commandHandlers = {
   merge_needs_you: (args: { id?: string } | undefined) => {
     waitingNeedsYou = waitingNeedsYou.filter((i) => i.id !== args?.id);
   },
+  retry_paused_task: () => ({ label: 'ready for agent' }),
   hub_task_schedule: (args: { id?: string } | undefined) => ({ id: args?.id ?? 'hub-1' }),
   hub_task_create: () => ({ id: 'hub-1' }),
   hub_task_retry: (args: { id?: string } | undefined) => ({ id: args?.id ?? 'hub-1' }),

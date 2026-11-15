@@ -131,6 +131,7 @@ export const COMMAND_NAMES = [
   'remove_team_member',
   'remove_team_repository',
   'reply_needs_you',
+  'retry_paused_task',
   'save_instance_credential',
   'save_user_credential',
   'set_approver_mode',

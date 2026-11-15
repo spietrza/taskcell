@@ -119,6 +119,16 @@ describe('decision probe join', () => {
     expect(aggregateMetrics(parseMetrics(text))).not.toHaveProperty('probes');
   });
 
+  it('leaves a provider-limit stop out of the observed first-try rate', () => {
+    const text = [
+      probe('a', 1.0, 0.9, T(0)), run('a', T(1), { exitReason: 'error', stoppedBy: 'provider-limit' }), // parked by the limit
+      probe('a', 1.0, 0.9, T(2)), run('a', T(3)), // the retry, clean
+    ].join('\n');
+    expect(probeReport(parseMetrics(text), parseProbes(text))).toEqual([
+      { level: 'Routine', runs: 1, repaired: 0, predictedFirstTry: 0.9, observedFirstTry: 1 },
+    ]);
+  });
+
   it('joins each probe to the run it preceded, so a re-run task yields one pair per run', () => {
     const text = [
       probe('a', 1.0, 0.9, T(0)), run('a', T(1), { attempts: 2 }), // 1st run: repaired

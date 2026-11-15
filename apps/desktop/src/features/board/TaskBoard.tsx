@@ -11,6 +11,7 @@ import { decisionForTask, decisionWords } from './approverDecision';
 import { QuickView, TRACKER_NAME, type QuickTask } from './QuickView';
 import { NewHubTask, ScheduleLines } from './Schedule';
 import { boardCountLabels } from './counts';
+import { PausedBanner, PausedLine } from './paused';
 import { ExternalLink } from '../../components/ExternalLink';
 import { FilterBar, NoMatch } from '../../FilterBar';
 import { DEFAULT_FILTER, canClearFilters, cardKeys, clearFilters, filterCards, filterNames, groupRows, type HubFilter } from '../../filterState';
@@ -196,6 +197,7 @@ export function TaskBoard({
           <Button className="mt-2" onClick={onNewTask}>Create a task</Button>
         </div>
       )}
+      <PausedBanner tasks={allTasks ?? []} />
       {capped && (
         <div className="mb-2 shrink-0 text-xs text-muted-foreground">
           {allRepos
@@ -266,6 +268,7 @@ export function TaskBoard({
                             const d = decisionForTask(t.id, approver.runs, approver.decisions);
                             return d !== undefined && <div className="text-[11px] text-muted-foreground" data-approver={d.outcome}>{decisionWords(d)}</div>;
                           })()}
+                          {t.paused && <PausedLine paused={t.paused} />}
                           {t.skills && (
                             <div className="break-words pt-0.5 text-[11px] text-muted-foreground">skills: {t.skills.join(', ')}</div>
                           )}

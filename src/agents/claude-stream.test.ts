@@ -2,6 +2,7 @@ import { describe, it, expect } from 'vitest';
 import { runClaudeCli } from './claude-stream.js';
 import type { IsolatedSandboxProvider, ExecResult } from '../sandbox/provider.js';
 import type { AgentRunInput, AgentRunOutput } from './provider.js';
+import { AgentError, ProviderLimitError } from '../core/errors.js';
 
 function fakeSandbox(stdout: string, exitCode: number = 0): IsolatedSandboxProvider {
   return {
@@ -172,6 +173,32 @@ describe('runClaudeCli', () => {
     ].join('\n');
     await expectRunRejects(fakeSandbox(syntheticOnly, 0), /Provider returned no completion/);
     await expectRunRejects(fakeSandbox(syntheticOnly, 0), /API Error: 500 upstream stream closed/);
+  });
+
+  it('types only a structured synthetic refusal as a provider limit, never a crash diagnostic tail', async () => {
+    const limited = [
+      JSON.stringify({ type: 'assistant', message: { model: '<synthetic>', content: [{ type: 'text', text: 'API Error: 429 rate_limit_error' }] } }),
+      JSON.stringify({ type: 'result', subtype: 'success', result: '' }),
+    ].join('\n');
+    const drainError = async (stdout: string, exitCode: number): Promise<unknown> => {
+      const gen = runClaudeCli(input(fakeSandbox(stdout, exitCode)), noArgs);
+      return (async () => {
+        for await (const turn of gen) void turn;
+      })().catch((error: unknown) => error);
+    };
+    expect(await drainError(limited, 0)).toBeInstanceOf(ProviderLimitError);
+    const crash = JSON.stringify({ type: 'system', subtype: 'init', session_id: 'sess-1' });
+    const sandbox = {
+      exec: async (): Promise<ExecResult> => ({ stdout: crash, stderr: 'process crashed after logging rate_limit_error status code 429', exitCode: 1 }),
+    } as unknown as IsolatedSandboxProvider;
+    const error = await (async () => {
+      const gen = runClaudeCli(input(sandbox), noArgs);
+      return (async () => {
+        for await (const turn of gen) void turn;
+      })().catch((caught: unknown) => caught);
+    })();
+    expect(error).toBeInstanceOf(AgentError);
+    expect(error).not.toBeInstanceOf(ProviderLimitError);
   });
 
   it('does not fire the synthetic guard when a real assistant turn also streamed', async () => {

@@ -1,6 +1,9 @@
 import { describe, it, expect } from 'vitest';
 import { execa } from 'execa';
 import { readEnv } from '../core/env.js';
+import { LinearCliTaskFetcher, linearGraphql } from './linear-cli.js';
+import { applyLinearDependencyGate, checkLinearDependencies } from './linear-dependencies.js';
+import type { LinearGraphql } from './linear-cli.js';
 
 /**
  * The test that would have caught the bug this file exists because of.
@@ -39,5 +42,33 @@ describe.skipIf(!IT)('linear CLI contract (integration)', () => {
     // If this ever starts passing, the CLI grew the command back. Do not go back to it: GraphQL is
     // version-independent, and this whole outage was a CLI-version mismatch.
     expect(await exitCode(['issue', 'query', '--json'])).not.toBe(0);
+  });
+});
+
+/**
+ * The dependency gate's queries against the real API (read-only: the `linear` runner is a stub, so
+ * nothing is commented or moved). Every unit test answers them from a fake, which accepts a field or
+ * a filter Linear would reject.
+ */
+describe.skipIf(!IT)('Linear dependency queries (integration)', () => {
+  it('Linear accepts the probe, the issue lookup and the newest-comment query, and reports a missing issue as expected', async () => {
+    const real = await linearGraphql();
+    const errors: string[] = [];
+    const send: LinearGraphql = async (body) => {
+      const res = (await real(body)) as { errors?: { message?: string }[] };
+      errors.push(...(res.errors ?? []).map((e) => e.message ?? ''));
+      return res;
+    };
+    const [first] = await new LinearCliTaskFetcher({ graphql: send }).list({ limit: 1 });
+    if (first === undefined) return; // an empty workspace has nothing to probe
+    const logs: string[] = [];
+    const gate = { graphql: send, linear: async (): Promise<string> => '', reported: new Map<string, string>(), log: (line: string): void => void logs.push(line) };
+    await applyLinearDependencyGate([first], gate);
+    // A far start date makes the issue wait, which reads its newest comment (unless it is in a cycle).
+    await applyLinearDependencyGate([{ ...first, description: 'Start: 2999-01-01' }], gate);
+    expect(logs.filter((line) => /probe failed|could not be recorded|lookup failed/.test(line))).toEqual([]);
+    expect(await checkLinearDependencies(first, send)).not.toMatchObject({ status: 'error' });
+    expect(await checkLinearDependencies({ ...first, description: 'Depends on ZZZZZ-999999' }, send)).toMatchObject({ status: 'invalid' });
+    expect(errors.filter((message) => !/entity not found/i.test(message))).toEqual([]);
   });
 });

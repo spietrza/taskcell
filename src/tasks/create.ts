@@ -14,9 +14,8 @@ export interface CreateTaskInput {
   labels?: string[];
   /**
    * Tasks this one depends on, as the ids `create*Issue` returns (`o/r#12`, `g/p#12`, `ENG-12`), at most
-   * MAX_DEPENDS_ON. Written as a `Depends on` line, which the GitHub and GitLab dependency gates read, and,
-   * best effort, as a native relation. Linear has no dependency gate yet: there the line and the "blocks"
-   * relation are for people.
+   * MAX_DEPENDS_ON. Written as a `Depends on` line, which the GitHub, GitLab and Linear dependency gates read,
+   * and, best effort, as a native relation.
    */
   dependsOn?: string[];
 }

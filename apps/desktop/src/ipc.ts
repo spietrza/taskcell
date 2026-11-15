@@ -177,6 +177,11 @@ export function startTask(repoPath: string, number: number, label: string): Prom
   return call('start_task', { repoPath, number, label });
 }
 
+/** Hub-only: "Retry now" on a task paused by a provider limit (src/hub/paused.ts). Throws where `startTask` would refuse, or when the factory's marker is missing. */
+export function retryPausedTask(repoPath: string, number: number): Promise<Commands['retry_paused_task']['result']> {
+  return call('retry_paused_task', { repoPath, number });
+}
+
 export function listActive(repoPath: string): Promise<ActiveRun[]> {
   return call('list_active', { repoPath });
 }
