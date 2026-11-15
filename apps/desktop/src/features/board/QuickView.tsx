@@ -9,7 +9,7 @@ import { MergeButton, ReplyBox } from '../needs-you/NeedsYou';
 import { PausedPanel } from './paused';
 import { receipt } from './receipt';
 import { SkillPicker } from './SkillPicker';
-import { repairAttempts, stageLine, type StageStatus } from './stageLine';
+import { repairAttempts, repairCap, stageLine, type StageStatus } from './stageLine';
 import { taskRefKey } from './taskref';
 import { ScheduleEditor, ScheduleLines } from './Schedule';
 
@@ -162,7 +162,7 @@ export function QuickView({
     };
   }, [task.id, repoPath, mayWait, run, prUrl, nonce]);
 
-  const steps = stageLine(task, { prExists: prUrl !== undefined, repairs: repairAttempts(run?.detail) });
+  const steps = stageLine(task, { prExists: prUrl !== undefined, repairs: repairAttempts(run?.detail), maxRepairs: repairCap(run?.detail) });
   const facts = receipt(run?.detail, run?.totalCostUsd);
   const repo = task.repoName ?? repoPath.split('/').filter(Boolean).pop() ?? repoPath;
   const reload = (): void => setNonce((n) => n + 1);

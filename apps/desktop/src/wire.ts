@@ -415,6 +415,8 @@ export interface RunRecord {
   baseBranch?: string;
   /** Gate-config files (test/lint/type-check config) the run's delivered diff changed; absent when none. */
   configPaths?: string[];
+  /** The run's gate-repair cap (`--max-repair-iterations`); absent on older records (the default cap applies). */
+  maxRepairIterations?: number;
   /** Agent calls folded into this stage (auto-resumes and gate repairs); absent when the stage ran once. */
   attempts?: number;
   /** Ids of the lessons injected into this run's prompts (`taskcell lessons list` counts them). */

@@ -33,6 +33,10 @@ describe('stageLine', () => {
     expect(gates).toMatchObject({ status: 'current', note: 'repair 1 of 2' });
   });
 
+  test('reads the repair cap from the run', () => {
+    expect(stageLine({ column: 'running', stage: 'implementer' }, { repairs: 4, maxRepairs: 5 })[3]?.note).toBe('repair 4 of 5');
+  });
+
   test('no repair, no note', () => {
     expect(stageLine({ column: 'running', stage: 'conformance' })[3]).not.toHaveProperty('note');
   });
