@@ -12,6 +12,13 @@ export interface CreateTaskInput {
   title: string;
   body: string;
   labels?: string[];
+  /**
+   * Tasks this one depends on, as the ids `create*Issue` returns (`o/r#12`, `g/p#12`, `ENG-12`), at most
+   * MAX_DEPENDS_ON. Written as a `Depends on` line, which the GitHub and GitLab dependency gates read, and,
+   * best effort, as a native relation. Linear has no dependency gate yet: there the line and the "blocks"
+   * relation are for people.
+   */
+  dependsOn?: string[];
 }
 
 // CreatedTask lives in src/wire.ts (the shared desktop contract — S7).
@@ -54,6 +61,34 @@ const defaultCli: CliRunner = async (bin, args, opts) =>
     })
   ).stdout;
 
+/** Each dependency costs up to two sequential CLI calls after the create. */
+export const MAX_DEPENDS_ON = 20;
+
+type Source = 'github' | 'gitlab' | 'linear';
+// Path segments are name characters and never dot-only (`..`): the ref goes into an API path.
+const SEGMENT = '(?!\\.+(?:[/#]|$))[\\w.-]+';
+const DEP_REF_RE: Record<Source, RegExp> = {
+  github: new RegExp(`^${SEGMENT}/${SEGMENT}#\\d+$`),
+  gitlab: new RegExp(`^${SEGMENT}(?:/${SEGMENT})+#\\d+$`),
+  linear: /^[A-Z][A-Z0-9]*-\d+$/,
+};
+
+/**
+ * The body with a trailing `Depends on` line for `input.dependsOn`. The raw input is size-checked first; the
+ * refs are shape-checked for the source, so a value cannot smuggle text into the body or a path into an API call.
+ */
+function bodyWithDependencies(input: CreateTaskInput, source: Source): string {
+  assertCreatable(input);
+  const deps = input.dependsOn ?? [];
+  if (deps.length === 0) return input.body;
+  if (deps.length > MAX_DEPENDS_ON) throw new TaskcellError(`A task can depend on at most ${MAX_DEPENDS_ON} tasks (got ${deps.length}).`);
+  const bad = deps.find((d) => !DEP_REF_RE[source].test(d));
+  if (bad !== undefined) throw new TaskcellError(`"${bad.slice(0, 80)}" is not a ${source} task reference (expected ${source === 'linear' ? 'TEAM-N' : source === 'gitlab' ? 'group/project#N' : 'owner/repo#N'}).`);
+  const body = `${input.body.trimEnd()}\n\nDepends on ${deps.join(', ')}\n`;
+  assertCreatable({ ...input, body });
+  return body;
+}
+
 function assertCreatable(input: CreateTaskInput): void {
   if (input.title.trim() === '') throw new TaskcellError('A task needs a title.');
   const titleBytes = Buffer.byteLength(input.title, 'utf8');
@@ -89,6 +124,36 @@ function refFromIssueUrl(url: string, what: string): string {
   return `${m[1]}#${m[2]}`;
 }
 
+/** Native "blocked by" relations for a new GitHub issue. Best effort: the `Depends on` line already in the body is the fallback where relations are unavailable. */
+async function linkGithubBlockers(repoPath: string, id: string, deps: string[], run: CliRunner): Promise<void> {
+  const [repo, number] = id.split('#') as [string, string];
+  for (const dep of deps) {
+    const [depRepo, depNumber] = dep.split('#') as [string, string];
+    try {
+      const blockerId = (await run('gh', ['api', `repos/${depRepo}/issues/${depNumber}`, '--jq', '.id'], { cwd: repoPath })).trim();
+      // `-F` reads a file for a value starting with `@`.
+      if (!/^\d+$/.test(blockerId)) continue;
+      await run('gh', ['api', '-X', 'POST', `repos/${repo}/issues/${number}/dependencies/blocked_by`, '-F', `issue_id=${blockerId}`], { cwd: repoPath });
+    } catch {
+      // Relations unavailable on this host/plan, or the blocker is in a repo this token cannot read.
+    }
+  }
+}
+
+/** Native "is blocked by" links for a new GitLab issue (Premium; on Free the `Depends on` line in the description carries it). Best effort. */
+async function linkGitlabBlockers(repoPath: string, id: string, deps: string[], run: CliRunner): Promise<void> {
+  const [project, iid] = id.split('#') as [string, string];
+  for (const dep of deps) {
+    const [depProject, depIid] = dep.split('#') as [string, string];
+    try {
+      // The target project goes as a field, which glab encodes itself: the plain path, not a pre-encoded one.
+      await run('glab', ['api', '-X', 'POST', `projects/${encodeURIComponent(project)}/issues/${iid}/links`, '-f', `target_project_id=${depProject}`, '-f', `target_issue_iid=${depIid}`, '-f', 'link_type=is_blocked_by'], { cwd: repoPath });
+    } catch {
+      // Not supported on this tier.
+    }
+  }
+}
+
 /**
  * Create a GitHub issue. The body goes over **stdin** (`--body-file -`), not argv: a doc-sized markdown
  * body on the command line is an ARG_MAX gamble, and `gh` gives us a clean way not to take it.
@@ -98,7 +163,7 @@ export async function createGithubIssue(
   input: CreateTaskInput,
   run: CliRunner = defaultCli,
 ): Promise<CreatedTask> {
-  assertCreatable(input);
+  const body = bodyWithDependencies(input, 'github');
   const args = ['issue', 'create', '--title', input.title, '--body-file', '-'];
   for (const label of input.labels ?? []) {
     // `gh issue create --label` fails on a label that does not exist; a card's target branch is a new one per branch.
@@ -107,8 +172,10 @@ export async function createGithubIssue(
     if (label.startsWith(BASE_LABEL_PREFIX)) await run('gh', ['label', 'create', label, '--force'], { cwd: repoPath }).catch(() => undefined);
     args.push('--label', label);
   }
-  const url = issueUrl(await run('gh', args, { cwd: repoPath, stdin: input.body }), 'gh issue create');
-  return { id: refFromIssueUrl(url, 'gh issue create'), url };
+  const url = issueUrl(await run('gh', args, { cwd: repoPath, stdin: body }), 'gh issue create');
+  const id = refFromIssueUrl(url, 'gh issue create');
+  await linkGithubBlockers(repoPath, id, input.dependsOn ?? [], run);
+  return { id, url };
 }
 
 /**
@@ -121,16 +188,21 @@ export async function createGitlabIssue(
   input: CreateTaskInput,
   run: CliRunner = defaultCli,
 ): Promise<CreatedTask> {
-  assertCreatable(input);
-  const args = ['issue', 'create', '--title', input.title, '--description', neutralizeQuickActions(input.body)];
+  const body = bodyWithDependencies(input, 'gitlab');
+  const args = ['issue', 'create', '--title', input.title, '--description', neutralizeQuickActions(body)];
   const labels = input.labels ?? [];
   if (labels.length > 0) args.push('--label', labels.join(','));
   const url = issueUrl(await run('glab', args, { cwd: repoPath }), 'glab issue create');
-  return { id: refFromIssueUrl(url, 'glab issue create'), url };
+  const id = refFromIssueUrl(url, 'glab issue create');
+  await linkGitlabBlockers(repoPath, id, input.dependsOn ?? [], run);
+  return { id, url };
 }
 
 const CREATE_MUTATION = `mutation($i: IssueCreateInput!) {
   issueCreate(input: $i) { success issue { identifier url } }
+}`;
+const RELATION_MUTATION = `mutation($i: IssueRelationCreateInput!) {
+  issueRelationCreate(input: $i) { success }
 }`;
 const TEAM_QUERY = `query($key: String!) { teams(filter: { key: { eq: $key } }) { nodes { id } } }`;
 
@@ -155,7 +227,7 @@ export async function createLinearIssue(
   input: CreateTaskInput,
   graphql?: LinearGraphql,
 ): Promise<CreatedTask> {
-  assertCreatable(input);
+  const body = bodyWithDependencies(input, 'linear');
   const send = graphql ?? (await linearGraphql());
 
   // IssueCreateInput takes a teamId (a uuid), not the team key the user configures — so resolve it.
@@ -171,7 +243,7 @@ export async function createLinearIssue(
   // ever pass them here, they will NOT be applied. Resolve them to ids first.
   const created = (await send({
     query: CREATE_MUTATION,
-    variables: { i: { teamId, title: input.title, description: input.body } },
+    variables: { i: { teamId, title: input.title, description: body } },
   })) as CreateResp;
   const errors = created.errors;
   if (errors !== undefined && errors.length > 0) {
@@ -182,6 +254,10 @@ export async function createLinearIssue(
     // Never report success we cannot prove: the caller is about to tell a human "created", and this is
     // the one action in the app that cannot be undone from inside it.
     throw new TaskcellError('Linear did not confirm the issue was created.');
+  }
+  // Native relation: the dependency "blocks" the new issue. Best effort, like the other sources; the `Depends on` line stays in the description.
+  for (const dep of input.dependsOn ?? []) {
+    await send({ query: RELATION_MUTATION, variables: { i: { issueId: dep, relatedIssueId: issue.identifier, type: 'blocks' } } }).catch(() => undefined);
   }
   return { id: issue.identifier, url: issue.url };
 }

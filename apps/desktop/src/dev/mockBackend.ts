@@ -111,6 +111,7 @@ const commandHandlers = {
   api_complete: () => ({ text: 'Here is my analysis of the requested change. The implementation looks sound.' }),
   api_cancel_complete: () => undefined,
   api_create_task: () => createdTask,
+  api_create_tasks: () => ({ tasks: [createdTask] }),
   list_branches: () => ({ branches: ['dev', 'main'], default: 'main' }),
   list_skills: () => ({ skills: ['code-review', 'ponytail', 'simplify'] }),
   set_task_skills: (args: { skills?: string[] } | undefined) => ({ skills: args?.skills ?? [] }),

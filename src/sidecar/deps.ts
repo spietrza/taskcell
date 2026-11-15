@@ -154,6 +154,7 @@ export function productionDeps(): SidecarDeps {
         title: params.title,
         body: params.body,
         ...(params.labels !== undefined && params.labels.length > 0 ? { labels: params.labels } : {}),
+        ...(params.dependsOn !== undefined && params.dependsOn.length > 0 ? { dependsOn: params.dependsOn } : {}),
       };
       if (params.source === 'linear') {
         // Labels are NOT applied on Linear: IssueCreateInput takes labelIds (uuids), not the names
