@@ -26,6 +26,8 @@ export class FallbackFailedError extends AgentError {
     super(`fallback provider ${fallback} failed (${fallbackMessage}) after primary provider ${primary} failed: ${primaryMessage}`);
   }
 }
+/** A call refused before any request was made: retrying cannot help. */
+export class NoRetryError extends TaskcellError {}
 export class NotImplementedError extends TaskcellError {}
 export class StructuredOutputError extends TaskcellError {}
 export class WorkflowGuardError extends TaskcellError {}
