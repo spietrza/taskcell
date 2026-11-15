@@ -71,6 +71,15 @@ test('add and remove open a PR and show its link; a failed add carries the comma
   await expect(dispatchRpc(ctx, 'add_skill_pr', { repoPath: repo, source: 'https://github.com/o/s' })).rejects.toThrow('Cannot resolve HEAD');
 });
 
+test('the audit target of an add never carries credentials or a query from the source', async () => {
+  const { commands } = await import('./skills.js');
+  const target = commands.audit.add_skill_pr!.target!;
+  const secret = 'ghp_' + 'A1b2'.repeat(9);
+  const t = target({ repoPath: '/r', source: `https://${secret}@github.com/o/s?token=${secret}` });
+  expect(t).toBe('/r:https://github.com/o/s');
+  expect(t).not.toContain(secret);
+});
+
 test('without the owner role, add and remove are refused before anything runs', async () => {
   const repo = await tmpGitRepo('https://github.com/allowed/repo.git');
   const { ctx } = await makeCtx(repo);

@@ -6,7 +6,8 @@ import { aggregateSkills } from '../../core/skill-stats.js';
 import { parseMetrics } from '../../core/stats.js';
 import { recordedMetrics, skillsAddPr, skillsChecked, skillsRemovePr, skillsUpdate } from '../../cli/skills.js';
 import type { RepoSkill } from '../../wire.js';
-import { defineCommands, optionalString, requireString, repoItemTarget } from '../command-kit.js';
+import { defineCommands, optionalString, requireString, repoItemTarget, repoTarget } from '../command-kit.js';
+import { safeUrl } from '../audit.js';
 import { BadRequestError } from '../../sidecar/sidecar.js';
 import * as teams from '../teams.js';
 
@@ -79,6 +80,7 @@ export const commands = defineCommands<SkillsCommands>({
   },
 }, {
   update_skill_pr: { action: 'settings-change', target: repoItemTarget('name') },
-  add_skill_pr: { action: 'settings-change', target: repoItemTarget('source') },
+  // The source may carry credentials (even a refused one is audited): log only scheme, host and path.
+  add_skill_pr: { action: 'settings-change', target: (a) => `${repoTarget(a) ?? ''}:${safeUrl(optionalString(a, 'source') ?? '')}` },
   remove_skill_pr: { action: 'settings-change', target: repoItemTarget('name') },
 });
