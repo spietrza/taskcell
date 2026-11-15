@@ -1,0 +1,15 @@
+/* The few Tailwind preflight rules the app's markup relies on, scoped to the Hub section and at zero specificity so
+   the app's utilities win over them and over the page's own element rules. The app's own CSS follows (generated). */
+:where(.hub-app), :where(.hub-app) *, :where(.hub-app) ::before, :where(.hub-app) ::after { box-sizing: border-box; margin: 0; padding: 0; border: 0 solid; }
+:where(.hub-app) { font-family: var(--font-sans); line-height: 1.5; font-size: 16px; color: var(--foreground); background: var(--background); -webkit-font-smoothing: antialiased; }
+:where(.hub-app) :is(h1, h2, h3, h4) { font-family: var(--font-heading); font-size: inherit; font-weight: inherit; line-height: inherit; letter-spacing: -0.01em; }
+:where(.hub-app) p { max-width: none; }
+:where(.hub-app) :is(ul, ol) { list-style: none; }
+:where(.hub-app) :is(button, input, select, textarea) { font: inherit; letter-spacing: inherit; color: inherit; background: transparent; border-radius: 0; }
+:where(.hub-app) button { cursor: default; text-align: inherit; }
+:where(.hub-app) :is(svg, img) { display: block; max-width: none; vertical-align: middle; }
+:where(.hub-app) a { color: inherit; text-decoration: inherit; }
+:where(.hub-app) :is(code, pre) { font-family: var(--font-mono); font-size: 1em; }
+:where(.hub-app) :is(b, strong) { font-weight: bolder; }
+:where(.hub-app) table { border-collapse: collapse; text-indent: 0; }
+:where(.hub-app) :is(dl, dd) { margin: 0; }

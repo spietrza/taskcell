@@ -1,64 +1,117 @@
-// Checks the Hub preview's sample rules: node preview-check.mjs (no dependencies, no browser). Run node build.mjs
-// first: the Polish page and sample it writes to dist/pl/ are checked too.
+// Checks the Hub section: node preview-check.mjs (run node build.mjs first; it reads dist/). The section is the app's own
+// markup, rendered from apps/desktop at build time, so this compares what the page shows with the app's sources: a renamed
+// stage or column in apps/desktop changes the page, and a hook the animator needs going missing fails the build or here.
 import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
-import { STAGES, advance, clock, column, cost, elapsed, log, sample } from './src/hub-data.js';
+import { createRequire } from 'node:module';
+import { fileURLToPath } from 'node:url';
 
-const runs = sample();
-const count = (col) => runs.filter((r) => column(r) === col).length;
-const counts = () => ['Queued', 'Claimed', 'Running', 'Verify failed', 'Review', 'Done'].map(count);
-assert.deepEqual(counts(), [2, 1, 5, 0, 2, 3]);
-assert.equal(STAGES.length, 5);
+const read = (p) => readFileSync(new URL(p, import.meta.url), 'utf8');
+const desktop = (p) => read(`../apps/desktop/src/${p}`);
+const pages = { en: read('./dist/index.html'), pl: read('./dist/pl/index.html') };
+const css = read('./dist/hub-app.css');
+const { JSDOM } = createRequire(fileURLToPath(new URL('../apps/desktop/package.json', import.meta.url)))('jsdom');
+const app = (html) => html.slice(html.indexOf('id="hub-app"'), html.indexOf('<ul class="hub-screens">'));
 
-// The page's rows are the same runs, in the columns the sample starts in.
-const html = readFileSync(new URL('./src/index.html', import.meta.url), 'utf8');
-const rows = [...html.matchAll(/data-run="([^"]+)" data-col="([^"]+)"/g)].map((m) => `${m[1]}:${m[2]}`);
-assert.deepEqual(rows, runs.map((r) => `${r.id}:${column(r)}`));
+// The app's names, from its own source.
+const stageLabels = [...desktop('features/board/stageLine.ts').matchAll(/^\s+(?:card|spec|cell|gates|review|pr): '([^']+)',$/gm)].map((m) => m[1]);
+const columnLabels = [...desktop('features/board/TaskBoard.tsx').matchAll(/key: '[a-z-]+', label: '([^']+)'/g)].map((m) => m[1]);
+assert.equal(stageLabels.length, 6, 'six stages in stageLine.ts');
+assert.equal(columnLabels.length, 6, 'six columns in TaskBoard.tsx');
 
-// So are the cost records and the counts the page shows before the script runs.
-const costs = Object.fromEntries([...html.matchAll(/data-run="([^"]+)"[^>]*data-cost="([^"]+)"/g)].map((m) => [m[1], m[2]]));
-assert.deepEqual(costs, Object.fromEntries(runs.filter((r) => cost(r)).map((r) => [r.id, cost(r)])));
-const shown = [...html.matchAll(/data-col="([^"]+)" aria-pressed="false">[^<]+<em>(\d+)<\/em>/g)].map((m) => [m[1], Number(m[2])]);
-assert.deepEqual(shown, ['Queued', 'Claimed', 'Running', 'Verify failed', 'Review', 'Done'].map((col) => [col, count(col)]));
-assert.ok(html.includes(`All runs<em>${runs.length}</em>`));
-for (const [repo, n] of html.matchAll(/data-repo="([^"]+)" aria-pressed="false">[^<]+<em>(\d+)<\/em>/g).map((m) => [m[1], Number(m[2])]))
-  assert.equal([...html.matchAll(new RegExp(`data-run="[^"]+" data-col="[^"]+" data-repo="${repo}"`, 'g'))].length, n, `${repo} count`);
-
-for (const r of runs) {
-  assert.ok(log(r).length >= 1 && log(r).length <= 12);
-  assert.equal(cost(r) !== '', r.p >= 5, 'only a finished run has a cost record');
+for (const [lang, html] of Object.entries(pages)) {
+  const hub = app(html);
+  // The shell: top bar, rail with team and navigation, six-column Board, the card drawer.
+  assert.match(hub, /aria-label="Taskcell Hub — home"/, `${lang}: top bar`);
+  assert.match(hub, /aria-label="Search \/ command palette"/, `${lang}: ⌘K`);
+  assert.match(hub, /aria-label="Breadcrumb"/, `${lang}: breadcrumb`);
+  assert.match(hub, /role="combobox"[^>]*title="[^"]+"/, `${lang}: project combobox`);
+  for (const nav of ['Home', 'Board', 'Runs', 'Settings']) assert.match(hub, new RegExp(`<span class="truncate">${nav}</span>`), `${lang}: rail ${nav}`);
+  assert.match(hub, /<div class="truncate px-2 py-1 text-sm font-semibold" title="[^"]+">/, `${lang}: team name`);
+  const cols = [...hub.matchAll(/data-hub-col="([^"]+)"/g)].map((m) => m[1]);
+  assert.deepEqual(cols, columnLabels, `${lang}: board columns are the app's`);
+  assert.match(hub, /aria-label="Quick view: /, `${lang}: card drawer`);
+  const frames = [...hub.matchAll(/<template data-hub-step="(\d)">(.*?)<\/template>/g)];
+  assert.equal(frames.length, 7, `${lang}: a stage line per step`);
+  for (const [, , frame] of frames) assert.deepEqual([...frame.matchAll(/<span class="[^"]*">([^<]+)<\/span><span class="sr-only">/g)].map((m) => m[1]), stageLabels);
+  assert.deepEqual([...hub.matchAll(/data-status="([a-z]+)"/g)].slice(0, 6).length, 6);
+  // Nothing the app does not show.
+  assert.doesNotMatch(hub, /cache\s*\d|cache %|Repositories|repair 1:|\bsealed in\b/i, `${lang}: only what the app shows`);
+  assert.doesNotMatch(hub, /\bstyle="/, `${lang}: no inline style (the CSP forbids it)`);
+  assert.doesNotMatch(hub, /<script/i, `${lang}: markup only`);
+  // Production render: no dev-only overlay (TailwindDebugScreens' viewport badge is `fixed`, and would pin to the visitor's viewport).
+  const fixed = [...hub.matchAll(/class="([^"]*)"/g)].filter((m) => m[1].split(/\s+/).includes('fixed'));
+  assert.deepEqual(fixed.map((m) => m[1]), [], `${lang}: no fixed (dev debug) element in the Hub section`);
+  // The control and the sample label sit on the page; the app's own demo banner says it is sample data.
+  assert.match(html, /id="hub-pause"[^>]*>(Play preview|Odtwórz podgląd)</);
+  assert.match(hub, /Demo project — sample data, read-only/);
 }
-
-// Playback: never more than five cells busy; every started card ends as a pull request for a person to merge.
-let steps = 0;
-while (advance(runs, 0.25)) {
-  assert.ok(count('Running') <= 5, 'at most five cells busy');
-  assert.ok(++steps < 2000, 'the sample ends');
+assert.match(pages.en, /<button class="pause" id="hub-pause" type="button" hidden>Play preview<\/button>/);
+assert.match(read('./src/site.js'), /'Pause preview'/, 'the pause control reads "Pause preview"');
+assert.match(read('./dist/pl/site.js'), /'Pauza podglądu'/);
+// /pl/ stays Polish around the app's (English) markup: every English string the page itself writes in the Hub section, and
+// both pause controls' labels in site.js, have a pl.mjs pair.
+{
+  const { PL } = await import('./i18n/pl.mjs');
+  const english = [...PL['index.html'], ...PL['*.html']].map(([en]) => en);
+  const section = new JSDOM(read('./src/index.html')).window.document.getElementById('hub');
+  const walker = section.ownerDocument.createTreeWalker(section, 4 /* text */);
+  const strings = [];
+  for (let n = walker.nextNode(); n; n = walker.nextNode()) strings.push(n.textContent.trim());
+  for (const el of section.querySelectorAll('[aria-label], [title], [alt]')) strings.push(...['aria-label', 'title', 'alt'].map((a) => el.getAttribute(a)));
+  for (const s of strings.filter(Boolean)) assert.ok(english.some((en) => en.includes(s)), `pl.mjs: no pair for the Hub section's "${s}"`);
+  assert.doesNotMatch(read('./dist/pl/site.js'), /'(Play|Pause)( preview)?'/, 'pl: a pause control label is English');
 }
-assert.deepEqual(counts(), [0, 1, 0, 0, 9, 3]);
-// The open run written in index.html is the first sample run as the script paints it.
-const first = sample()[0];
-assert.deepEqual([...html.matchAll(/<li>([^<]+)<\/li>/g)].map((m) => m[1]).filter((t) => log(first).includes(t)), log(first));
-assert.equal(log(runs.find((r) => r.id === 'TC-53')).at(-1), 'PR #220 opened, ready for review');
-assert.equal(cost(runs[0]), '$1.02 · cache 96% · Claude, Codex review');
+assert.doesNotMatch(read('./src/hub-data.js') + read('./src/site.js'), /from 'react|react-dom/, 'no React on the page');
 
-// A fresh sample is untouched by the played one.
-assert.equal(sample()[6].p, -1);
-assert.equal(clock(59), '59s');
-assert.equal(clock(422), '7m 02s');
-assert.equal(elapsed({ p: 1.5 }, 1), 211);
-assert.equal(elapsed({ p: 1.5 }, 2), 0);
+// Theme follows the page: tokens live on the section, light by default and dark under the page's data-theme.
+assert.match(css, /:root\[data-theme=dark\] \.hub-app\{/);
+assert.doesNotMatch(css.replace(/\.dark\\:/g, ''), /:root\{|\.dark[{ ,]/);
+const tokens = (re) => {
+  const out = {};
+  for (const [, body] of css.matchAll(re)) for (const [, name, value] of body.matchAll(/--([a-z-]+):\s*(#[0-9a-f]{6})\b/g)) out[name] = value;
+  return out;
+};
+const light = tokens(/(?:^|[}\n])\.hub-app\{([^}]*)\}/g);
+const dark = { ...light, ...tokens(/:root\[data-theme=dark\] \.hub-app\{([^}]*)\}/g) };
+const lum = (hex) => {
+  const [r, g, b] = [1, 3, 5].map((i) => parseInt(hex.slice(i, i + 2), 16) / 255).map((c) => (c <= 0.03928 ? c / 12.92 : ((c + 0.055) / 1.055) ** 2.4));
+  return 0.2126 * r + 0.7152 * g + 0.0722 * b;
+};
+const ratio = (a, b) => {
+  const [hi, lo] = [lum(a), lum(b)].sort((x, y) => y - x);
+  return (hi + 0.05) / (lo + 0.05);
+};
+for (const [theme, t] of Object.entries({ light, dark })) {
+  for (const [fg, bg] of [['foreground', 'background'], ['foreground', 'muted'], ['muted-foreground', 'background'], ['muted-foreground', 'muted'], ['caption', 'background'], ['primary-foreground', 'primary']]) {
+    assert.ok(t[fg] && t[bg], `${theme}: ${fg} and ${bg} are tokens`);
+    assert.ok(ratio(t[fg], t[bg]) >= 4.5, `${theme}: ${fg} on ${bg} is ${ratio(t[fg], t[bg]).toFixed(2)}:1, under 4.5:1`);
+  }
+}
+assert.notEqual(light.background, dark.background, 'two themes');
 
-// Polish: the page under dist/pl/ shows the same runs, in the same columns, with its own sample's cost lines and log.
-const plHtml = readFileSync(new URL('./dist/pl/index.html', import.meta.url), 'utf8');
-const pl = await import('./dist/pl/hub-data.js');
-const plRuns = pl.sample();
-assert.deepEqual([...plHtml.matchAll(/data-run="([^"]+)" data-col="([^"]+)"/g)].map((m) => `${m[1]}:${m[2]}`), plRuns.map((r) => `${r.id}:${pl.column(r)}`));
-const plCosts = Object.fromEntries([...plHtml.matchAll(/data-run="([^"]+)"[^>]*data-cost="([^"]+)"/g)].map((m) => [m[1], m[2]]));
-assert.deepEqual(plCosts, Object.fromEntries(plRuns.filter((r) => pl.cost(r)).map((r) => [r.id, pl.cost(r)])));
-assert.deepEqual([...plHtml.matchAll(/data-col="([^"]+)" aria-pressed="false">[^<]+<em>(\d+)<\/em>/g)].map((m) => Number(m[2])), [2, 1, 5, 0, 2, 3]);
-assert.deepEqual([...plHtml.matchAll(/<li>([^<]+)<\/li>/g)].map((m) => m[1]).filter((t) => pl.log(plRuns[0]).includes(t)), pl.log(plRuns[0]));
-assert.match(pl.log({ ...plRuns[5], p: 1 }).join('\n'), /5 kryteriów akceptacji/);
-assert.equal(pl.cost(plRuns[10]), '$1.27 · cache 96% · Claude, 1 naprawa');
-
+// The animator, on the built page in jsdom: each step shows the stage line, column and counts the app would.
+const { hubAnimator, STEPS, COLUMN_AT } = await import('./src/hub-data.js');
+const dom = new JSDOM(pages.en);
+const root = dom.window.document.getElementById('hub-app');
+const hub = hubAnimator(root);
+assert.ok(hub, 'the animator finds its hooks in the built markup');
+assert.equal(STEPS, 7);
+const stageStatuses = () => [...root.querySelectorAll('[data-hub-stages] > li')].map((li) => li.dataset.status).join(' ');
+const sizes = () => [...root.querySelectorAll('[data-hub-col]')].map((c) => c.querySelectorAll('[data-hub-card]').length);
+const before = sizes();
+assert.equal(before.reduce((a, b) => a + b, 0), 10);
+for (let step = 0; step < STEPS; step++) {
+  hub.paint(step);
+  const states = stageStatuses().split(' ');
+  assert.equal(states.length, 6);
+  assert.deepEqual(states.map((s) => s === 'done').lastIndexOf(true) + 1, step === 6 ? 6 : step, `step ${step}: stages before the current one are done`);
+  assert.equal(root.querySelector('[data-hub-open]').closest('[data-hub-col]').dataset.hubCol, columnLabels[COLUMN_AT[step]]);
+  assert.equal(sizes().reduce((a, b) => a + b, 0), 10, 'cards move, none appear or vanish');
+  const counts = [...root.querySelectorAll('[data-hub-count]')].map((c) => Number(c.textContent));
+  assert.deepEqual(counts, sizes(), `step ${step}: the column counts follow the cards`);
+  assert.match(root.querySelector('[data-hub-counts]').textContent, /^Running \d+ · Waiting \d+$/);
+}
+hub.paint(2);
+assert.deepEqual(sizes(), before, 'the app’s own frame is step 2');
 console.log('preview rules ok');

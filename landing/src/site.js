@@ -1,6 +1,6 @@
 // taskcell.dev page script: entrance reveals, and the factory scene loaded after first paint.
 // Phones get the poster and a button; reduced motion gets one still frame; no WebGL keeps the poster.
-import { STAGES, advance, clock, column, cost, elapsed, log, sample, share } from './hub-data.js';
+import { STEPS, hubAnimator } from './hub-data.js';
 import { PRICES, YEARLY, localise, money } from './prices.js';
 import { evaluate } from './quiz.js';
 
@@ -270,12 +270,12 @@ const text = (el, t) => {
   if (el.textContent !== t) el.textContent = t;
 };
 /** Plays a preview while it is on screen and the visitor has not paused it. Phones and reduced motion start paused. */
-const playOnScreen = (host, button, play) => {
+const playOnScreen = (host, button, play, labels = ['Play', 'Pause']) => {
   let wanted = !phone && !reduced;
   let playing = false;
   const set = (on) => {
     playing = on;
-    button.textContent = on ? 'Pause' : 'Play';
+    button.textContent = on ? labels[1] : labels[0];
     play(on);
   };
   button.hidden = false;
@@ -346,87 +346,18 @@ for (const heading of document.querySelectorAll('[data-letters]')) {
   heading.replaceChildren(...words.flatMap((span, i) => (i ? [' ', span] : [span])));
 }
 
-// ---------- Hub preview: views filter the run list, a row opens that run's own stages, log and cost (sample data) ----------
-const win = document.querySelector('.win');
-const views = [...win.querySelectorAll('.views button')];
-const runRows = [...win.querySelectorAll('.rows button')];
-let runs = sample();
-let view = views[0];
-let openRow = runRows[0];
-const runOf = (row) => runs.find((r) => r.id === row.dataset.run);
-/** The board columns as the page names them; the English names stay the data (data-col, column()). */
-const COL = { Queued: 'Queued', Claimed: 'Claimed', Running: 'Running', 'Verify failed': 'Verify failed', Review: 'Review', Done: 'Done' };
-/** A view shows one board column, one repository, or (All runs) everything. */
-const shows = (v, row) => (v.dataset.col ? row.dataset.col === v.dataset.col : !v.dataset.repo || row.dataset.repo === v.dataset.repo);
-
-// The open run's five stages are the tiles written in index.html; each gets a bar for when it runs.
-const stageRows = [...byId('run-stages').children].map((li) => ({ li, status: li.querySelector('span'), bar: li.appendChild(document.createElement('i')) }));
-const paintOpen = () => {
-  const { run: id, col, repo, cost: spent } = openRow.dataset;
-  const r = runOf(openRow);
-  const total = STAGES.reduce((sum, _, i) => sum + elapsed(r, i), 0);
-  text(byId('run-where'), total ? `${repo} / ${id} · ${clock(total)}` : `${repo} / ${id}`);
-  text(byId('run-col'), COL[col]);
-  text(byId('run-title'), openRow.querySelector('b').textContent);
-  stageRows.forEach(({ li, status, bar }, i) => {
-    const done = share(r, i) === 1;
-    const now = !done && r.p >= i;
-    li.className = done ? 'done' : now ? (r.hold ? 'now hold' : 'now') : '';
-    text(status, done || (now && !r.hold) ? clock(elapsed(r, i)) : now ? 'for you to read' : r.p < 0 ? 'not started' : 'waiting');
-    bar.style.width = now && !r.hold ? `${share(r, i) * 100}%` : '0';
-  });
-  const lines = log(r);
-  if (byId('run-log').textContent !== lines.join('')) fill(byId('run-log'), lines);
-  text(byId('run-cost'), spent ? `Cost ${spent}` : col === 'Queued' ? 'No run yet, so no cost.' : 'No cost record yet: the run is still going.');
-};
-/** Brings the rows, the counts and the open run in line with the sample's current state. */
-const paintHub = () => {
-  for (const row of runRows) {
-    const r = runOf(row);
-    const col = column(r);
-    if (row.dataset.col === col) continue;
-    row.dataset.col = col;
-    row.querySelector('.st').textContent = COL[col];
-    row.querySelector('.cost').textContent = cost(r).split(' ')[0];
-    if (cost(r)) row.dataset.cost = cost(r);
-    else delete row.dataset.cost;
-  }
-  for (const v of views) text(v.querySelector('em'), String(runRows.filter((row) => shows(v, row)).length)); // counts come from the list itself
-  for (const row of runRows) {
-    const hide = !shows(view, row);
-    if (hide && row === document.activeElement) view.focus(); // a run that left the view takes the focus with it otherwise
-    row.parentElement.hidden = hide;
-  }
-  byId('win-empty').hidden = runRows.some((row) => shows(view, row));
-  paintOpen();
-};
-for (const v of views) {
-  v.addEventListener('click', () => {
-    view = v;
-    for (const other of views) other.setAttribute('aria-pressed', other === v);
-    paintHub();
-  });
-}
-for (const row of runRows) {
-  row.addEventListener('click', () => {
-    openRow = row;
-    for (const other of runRows) other.setAttribute('aria-pressed', other === row);
-    paintOpen();
-  });
-}
-paintHub();
-
-// Playback: four steps a second; the finished sample is held for four seconds, then starts over as written.
-let timer = 0;
-let rest = 0;
-const tick = () => {
-  if (rest > 0) {
-    rest -= 1;
-    if (rest === 0) runs = sample();
-  } else if (!advance(runs, 0.25)) rest = 16;
-  paintHub();
-};
-playOnScreen(win, byId('hub-pause'), (on) => {
-  clearInterval(timer);
-  timer = on ? setInterval(tick, 250) : 0;
-});
+// ---------- Hub preview: the app's own Board and card drawer (built from apps/desktop); the card steps through its stages ----------
+const hub = hubAnimator(byId('hub-app'));
+if (hub) {
+  let step = hub.from;
+  let timer = 0;
+  playOnScreen(byId('hub-app'), byId('hub-pause'), (on) => {
+    clearInterval(timer);
+    timer = on
+      ? setInterval(() => {
+          step = (step + 1) % (STEPS + 1); // one beat of rest on the finished card, then it starts over
+          hub.paint(Math.min(step, STEPS - 1));
+        }, 2200)
+      : 0;
+  }, ['Play preview', 'Pause preview']);
+} else byId('hub-pause').remove();
