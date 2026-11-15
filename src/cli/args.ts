@@ -705,6 +705,8 @@ export function parseCli(argv: string[], cwd: string): Command {
     if (statsCommand && argv.some((arg) => arg.startsWith('--skills='))) return fail('stats --skills takes no value.');
     const skillsCommand = !statsCommand && (parseWith(false, false, false).positionals[0] === 'skills' || parseWith(true, false, false).positionals[0] === 'skills');
     const parsed = parseWith(skillsCommand, statsCommand, true);
+    // `--skills <value> stats`: the strict pass shifts the value into the command slot; refuse instead of running it.
+    if (statsCommand && parsed.positionals[0] !== 'stats') return fail('stats --skills takes no value.');
     const { 'allowed-host': hosts, 'admin-github-login': admins, skill, ...singleValues } = parsed.values as Record<string, string | boolean | string[] | undefined>;
     allowedHosts = hosts as string[] | undefined;
     adminGithubLogins = admins as string[] | undefined;
