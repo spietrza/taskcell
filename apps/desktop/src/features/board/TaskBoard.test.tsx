@@ -1,6 +1,7 @@
 import { afterEach, beforeEach, describe, expect, test, vi } from 'vitest';
 import { act, fireEvent, render, screen, waitFor, within } from '@testing-library/react';
 import { TaskBoard } from './TaskBoard';
+import { DEFAULT_FILTER } from '../../filterState';
 import type { BoardTask } from '../../wire';
 
 vi.mock('../../ipc', () => ({
@@ -318,6 +319,51 @@ test('a project with no task source gets a setup hint with a way to Settings, no
   render(<TaskBoard project="/r/alpha" repos={[]} onOpenTask={() => {}} onNewTask={() => {}} />);
   expect(await screen.findByRole('note')).toHaveTextContent('This project has no task source yet.');
   expect(screen.queryByRole('alert')).not.toBeInTheDocument();
+});
+
+describe('TaskBoard task-source hint scope', () => {
+  const unset = 'Set a Task Source in Settings to load the board.';
+  const failures = [
+    { repoPath: '/r/alpha', repoName: 'alpha', error: unset },
+    { repoPath: '/r/qa', repoName: 'qa-repo', error: unset },
+  ];
+  const repos = ['/r/alpha', '/r/beta', '/r/qa'];
+  const beta = { id: 't-1', title: 'From beta', column: 'queued' as const, state: 'Todo', repoPath: '/r/beta', repoName: 'beta' };
+  // Renders the board under "All repositories" with `project` open and, when given, a Projects filter.
+  const board = (project: string, filterRepos?: string[]): void => {
+    const filter = filterRepos && { ...DEFAULT_FILTER, repos: filterRepos };
+    render(<TaskBoard project={project} allRepos repos={repos} filter={filter} onOpenTask={() => {}} onNewTask={() => {}} onOpenSettings={() => {}} />);
+  };
+  beforeEach(() => {
+    vi.mocked(listTasksAll).mockResolvedValue({ tasks: [beta], capped: false, failures });
+  });
+
+  test('another project open and no Projects filter: no hint about the unset repositories', async () => {
+    board('/r/beta');
+    await screen.findByText('From beta');
+    expect(screen.queryByRole('note')).not.toBeInTheDocument();
+  });
+
+  test('the Projects filter excludes an unset repository: no hint about it', async () => {
+    board('/r/qa', ['/r/beta']);
+    await screen.findByText('From beta');
+    expect(screen.queryByRole('note')).not.toBeInTheDocument();
+  });
+
+  test('the Projects filter selects unset repositories: the hint names only those, and offers Settings for the open project', async () => {
+    board('/r/qa', ['/r/qa', '/r/beta']);
+    const note = await screen.findByRole('note');
+    expect(note).toHaveTextContent(/^qa-repo has no task source yet\./);
+    expect(note).not.toHaveTextContent('alpha');
+    expect(within(note).getByRole('button', { name: 'Open Settings' })).toBeInTheDocument();
+  });
+
+  test('a filtered-in unset repository other than the open project is named without a Settings button', async () => {
+    board('/r/beta', ['/r/alpha']);
+    const note = await screen.findByRole('note');
+    expect(note).toHaveTextContent(/^alpha has no task source yet\./);
+    expect(within(note).queryByRole('button', { name: 'Open Settings' })).toBeNull();
+  });
 });
 
 describe('TaskBoard team scope', () => {

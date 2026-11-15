@@ -234,16 +234,16 @@ export function TaskBoard({
   }
   // A repository with no task source chosen is a setup step, not a read failure.
   const unset = (data?.failures ?? []).filter((f) => isNoTaskSource(f.error));
-  // Hint about the open project's own repo when it is among them; otherwise about all.
-  const unsetHere = unset.filter((f) => f.repoPath === project);
-  const hinted = unsetHere.length > 0 ? unsetHere : unset;
+  // Hint only about the repositories in view: those the Projects filter selects, or else the open project.
+  const inView = filter.repos.length > 0 ? filter.repos : [project];
+  const hinted = unset.filter((f) => inView.includes(f.repoPath));
   const failed = (data?.failures ?? []).filter((f) => !isNoTaskSource(f.error));
 
   return (
     <div className="flex min-h-0 flex-1 flex-col">
       {header}
-      {unset.length > 0 && (
-        <TaskSourceHint repoNames={hinted.map((f) => f.repoName)} onOpenSettings={unsetHere.length > 0 ? onOpenSettings : undefined} />
+      {hinted.length > 0 && (
+        <TaskSourceHint repoNames={hinted.map((f) => f.repoName)} onOpenSettings={hinted.some((f) => f.repoPath === project) ? onOpenSettings : undefined} />
       )}
       <RepoFailures failures={failed} total={repos.length - unset.length} />
       {allTasks?.length === 0 && (data?.failures.length ?? 0) === 0 && !hubBoard && (
