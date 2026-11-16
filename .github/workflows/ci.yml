@@ -80,3 +80,7 @@ jobs:
         uses: actions/dependency-review-action@a1d282b36b6f3519aa1f3fc636f609c47dddb294 # v4
         with:
           fail-on-severity: high
+          # axios 1.13.5 pinned by @schpet/linear-cli 3.1.0's own npm-shrinkwrap (docker/cli/linear);
+          # overrides cannot lift it, it only downloads the linear binary at image build, and it shipped
+          # in the image before the lockfile made it visible. Allowed by Seba 2026-11-16; remove with #1200.
+          allow-ghsas: GHSA-35jp-ww65-95wh, GHSA-3g43-6gmg-66jw, GHSA-3pq3-5fj3-cg6v, GHSA-542g-h47m-68v8, GHSA-6chq-wfr3-2hj9, GHSA-777c-7fjr-54vf, GHSA-hfxv-24rg-xrqf, GHSA-j5f8-grm9-p9fc, GHSA-p92q-9vqr-4j8v, GHSA-pf86-5x62-jrwf, GHSA-pmwg-cvhr-8vh7, GHSA-q8qp-cvcw-x6jj
