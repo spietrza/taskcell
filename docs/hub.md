@@ -835,7 +835,7 @@ Calls: `list_skills` (`repoPath`; read-only, not audited) returns the installed 
 
 **Precedence.** A stage's `model`/`provider` set in the flow beats the run-level `--provider-model`, `--review-model` and `--escalate-model` (a flow-pinned implementer is also not escalated on repair). A stage that leaves a field unset inherits the run-level value, as before. A model chosen by the Workflow editor therefore wins over the factory workflow's `provider-model` / `review-model` / `escalate-model` inputs.
 
-**GitHub Actions factory.** The reusable `implement.yml` takes an optional `flow` input (empty = today's behaviour) that is passed as `--flow`. Maintainers add it by hand, since the factory never edits `.github/workflows/`: an `inputs.flow` string input (default `''`) on `workflow_call`, and `${FLOW:+--flow "$FLOW"}` on the `taskcell` command line with `FLOW: ${{ inputs.flow }}` in the step's `env:` (never interpolate the input into `run:`). Callers then set `flow: <name>` under `with:`, naming a built-in or a flow committed under `.taskcell/flows/`.
+**GitHub Actions factory.** The reusable `implement.yml` takes an optional `flow` input (empty = today's behaviour) that is passed as `--flow`, e.g. `flow: my-flow` under `with:` in your caller workflow. The flow file must be on the default branch the run checks out.
 
 ## Hub board: tasks, dependencies and start dates
 

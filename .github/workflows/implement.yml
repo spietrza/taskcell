@@ -53,6 +53,10 @@ on:
         description: 'Model the run escalates to after repeated failures (--escalate-model). Empty = off (the CLI default); pass a model of the implementation provider.'
         type: string
         default: ''
+      flow:
+        description: 'Named flow the runs use (--flow): a built-in one or a repo .taskcell/flows/*.hcl flow. Its per-stage model/provider beat the run-level model inputs. Empty = the source default flow.'
+        type: string
+        default: ''
       conformance:
         description: 'Run the opt-in conformance review pass (--conformance).'
         type: boolean
@@ -269,6 +273,7 @@ jobs:
           IN_REVIEW_PROVIDER: ${{ inputs.review-provider }}
           IN_REVIEW_MODEL: ${{ inputs.review-model }}
           IN_ESCALATE_MODEL: ${{ inputs.escalate-model }}
+          IN_FLOW: ${{ inputs.flow }}
           IN_FALLBACK_PROVIDER: ${{ inputs.fallback-provider }}
           IN_FALLBACK_MODEL: ${{ inputs.fallback-model }}
           IN_CONFORMANCE: ${{ inputs.conformance }}
@@ -293,6 +298,7 @@ jobs:
           [ -n "$IN_REVIEW_PROVIDER" ] && args+=(--review-provider "$IN_REVIEW_PROVIDER")
           [ -n "$IN_REVIEW_MODEL" ] && args+=(--review-model "$IN_REVIEW_MODEL")
           [ -n "$IN_ESCALATE_MODEL" ] && args+=(--escalate-model "$IN_ESCALATE_MODEL")
+          [ -n "$IN_FLOW" ] && args+=(--flow "$IN_FLOW")
           [ -n "$IN_FALLBACK_PROVIDER" ] && args+=(--fallback-provider "$IN_FALLBACK_PROVIDER")
           [ -n "$IN_FALLBACK_MODEL" ] && args+=(--fallback-model "$IN_FALLBACK_MODEL")
           [ "$IN_CONFORMANCE" = "true" ] && args+=(--conformance)
