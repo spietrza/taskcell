@@ -4,7 +4,7 @@
 // large file. Dependencies and the start date are plain fields here; src/hub/schedule.ts decides what may start.
 import { createHash, randomUUID } from 'node:crypto';
 import { constants } from 'node:fs';
-import { mkdir, open, readdir, rename, rm, writeFile } from 'node:fs/promises';
+import { lstat, mkdir, open, readdir, rename, rm, writeFile } from 'node:fs/promises';
 import { dirname, join } from 'node:path';
 import { BadRequestError } from '../sidecar/sidecar.js';
 import { keyedLock } from '../core/keyed-lock.js';
@@ -122,6 +122,8 @@ async function readOptional(file: string): Promise<string | undefined> {
     // O_NOFOLLOW refuses a symlink (ELOOP) in the open itself, so no lstat-then-read race.
     const fh = await open(file, constants.O_RDONLY | (constants.O_NOFOLLOW ?? 0));
     try {
+      // Windows has no O_NOFOLLOW: refuse a link after the open too (a check after the open is no read race).
+      if ((await lstat(file)).isSymbolicLink()) throw Object.assign(new Error('symlink'), { code: 'ELOOP' });
       return await fh.readFile('utf8');
     } finally {
       await fh.close();
