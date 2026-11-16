@@ -21,6 +21,7 @@ import { join } from 'node:path';
 import { startSandboxContext } from '../sandbox/sandbox-context.js';
 import { prepareContext, runAgent } from '../core/taskcell.js';
 import { mergeRequestReviewMarker, reviewMergeRequest } from '../runners/mr-review.js';
+import { recordUtilization, resetUtilization, UsageCapError } from '../core/usage-cap.js';
 import { reviewMrCommand } from './review-mr.js';
 import type { GlabRunner } from '../tasks/gitlab.js';
 
@@ -207,4 +208,42 @@ it('a failed default-branch API call posts neither a verdict nor an incomplete n
     await expect(reviewMrCommand({ kind: 'review-mr', iid: 5, project: 'g/p', repoPath: '/repo', egress: false }, { glab, headDedupe: false, log: () => undefined })).rejects.toThrow('Cannot establish the repository default branch');
     expect(calls.some((args) => args[1] === 'note')).toBe(false);
   } finally { vi.unstubAllEnvs(); }
+});
+
+describe('reviewMrCommand usage cap', () => {
+  const glab: GlabRunner = async (args) => {
+    if (args[0] === 'mr' && args[1] === 'view') return JSON.stringify({ iid: 5, sha: 'abc123def4567890' });
+    if (args[0] === 'api' && args[1] === 'projects/g%2Fp') return JSON.stringify({ default_branch: 'main' });
+    if (args[0] === 'api' && args[1] === 'user') return JSON.stringify({ username: 'vanguard-bot' });
+    if (args[0] === 'api') return '[]';
+    return '';
+  };
+  const run = (): Promise<void> =>
+    reviewMrCommand(
+      { kind: 'review-mr', iid: 5, project: 'g/p', repoPath: '/repo', egress: true },
+      { glab, reviewMergeRequest: (ref, deps) => reviewMergeRequest(ref, { ...deps, glab }), log: () => undefined },
+    );
+  beforeEach(() => {
+    vi.mocked(runAgent).mockReset();
+    vi.mocked(startSandboxContext).mockResolvedValue({ destroy: async () => undefined } as never);
+    vi.stubEnv('CLAUDE_CODE_OAUTH_TOKEN', 'sk-ant-oat-test');
+    vi.stubEnv('TASKCELL_USAGE_CAP_PCT', '80');
+  });
+  afterEach(() => {
+    vi.unstubAllEnvs();
+    resetUtilization();
+  });
+
+  it('starts no agent when the provider is over the cap', async () => {
+    recordUtilization('claude-code', { pct: 95, resetsAt: new Date(Date.now() + 3_600_000) });
+    await expect(run()).rejects.toBeInstanceOf(UsageCapError);
+    expect(runAgent).not.toHaveBeenCalled();
+  });
+
+  it('runs the agent when the provider is under the cap', async () => {
+    recordUtilization('claude-code', { pct: 10, resetsAt: new Date(Date.now() + 3_600_000) });
+    vi.mocked(runAgent).mockResolvedValue({ completed: true, finalText: 'Verdict: NO BLOCKING FINDINGS\nOk.' } as never);
+    await run();
+    expect(runAgent).toHaveBeenCalledTimes(1);
+  });
 });
