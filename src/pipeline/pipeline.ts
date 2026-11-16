@@ -52,6 +52,8 @@ export interface PipelineStage {
   effort?: ReasoningEffort;
   maxTurns?: number;
   model?: string;
+  /** Set by flow lowering when the flow document itself names this stage's `model`: it beats the run-level `--provider-model` / `--review-model` / `--escalate-model`. */
+  modelFromFlow?: boolean;
   /** System prompt appended for this stage (role/policy/guidelines/tradeoffs). */
   systemPrompt?: string;
   /** Resume the previous stage's session so this stage keeps context. Default true. */
@@ -862,6 +864,8 @@ export interface ReviewPipelineDeps {
    * served there, so those stages take `providerModel` or, failing that, this forced model.
    */
   providerForcedModel?: string;
+  /** `providerModel` is a per-task label pin (a human call): it overrides a flow-set stage model, unlike the run-level `--provider-model`. */
+  providerModelIsLabel?: boolean;
 }
 
 /**
@@ -929,6 +933,7 @@ export function assembleReviewPipeline(
       deps.reviewProvider !== undefined && deps.reviewProvider !== (deps.provider ?? 'claude');
     for (const stage of pipeline) {
       if (crossProviderReview && stage.name === STAGE.REVIEWER) continue;
+      if (stage.modelFromFlow === true && deps.providerModelIsLabel !== true && deps.providerForcedModel === undefined) continue;
       const pinnedPlannerTier = PLANNER_TIER.has(stage.name) && stage.model !== undefined;
       if (pinnedPlannerTier && deps.providerForcedModel === undefined) continue;
       const model = deps.providerModel ?? (pinnedPlannerTier ? deps.providerForcedModel : undefined);
@@ -948,7 +953,9 @@ export function assembleReviewPipeline(
     });
   }
   // reviewModel overrides providerModel on the reviewer only.
-  if (deps.reviewModel !== undefined) route(STAGE.REVIEWER, { model: deps.reviewModel });
+  if (deps.reviewModel !== undefined && pipeline.find((s) => s.name === STAGE.REVIEWER)?.modelFromFlow !== true) {
+    route(STAGE.REVIEWER, { model: deps.reviewModel });
+  }
   // conformanceModel wins over providerModel on the conformance stage (last-writer-wins).
   if (deps.conformanceModel !== undefined) route(STAGE.CONFORMANCE, { model: deps.conformanceModel });
 

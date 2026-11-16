@@ -1,7 +1,7 @@
-import { useRef, useState, type ReactNode } from 'react';
+import { useEffect, useRef, useState, type ReactNode } from 'react';
 import { Button, Input } from '@/ui';
 import { Members, type TeamScreen } from './Members';
-import { writeAppConfig } from '../../ipc';
+import { apiCapabilitiesCached, apiListFlows, writeAppConfig } from '../../ipc';
 import { gateProps, useAppConfig, useCallerCapabilities } from '../../hooks';
 import { useDiscardGuard } from '../../navGuard';
 import { CredentialsPanel } from './CredentialsPanel';
@@ -71,6 +71,22 @@ export function Settings({ project, teamScreen }: { project: string; teamScreen?
 
   // Shell navigation unmounts this screen — see useDiscardGuard (S8 seam, #339 follow-up).
   useDiscardGuard(dirty, () => window.confirm('Discard unsaved changes to .taskcell/app.json?'));
+
+  // Built-in flows (capabilities) + this repo's `.taskcell/flows/*.hcl`; a load failure just leaves the picker with the stored value.
+  const [flowNames, setFlowNames] = useState<string[]>([]);
+  useEffect(() => {
+    let live = true;
+    void (async () => {
+      try {
+        const [caps, repo] = await Promise.all([apiCapabilitiesCached(), apiListFlows(project)]);
+        const names = [...caps.flows.map((f) => f.name), ...repo.flows.flatMap((f) => (f.name !== undefined && f.error === undefined ? [f.name] : []))];
+        if (live) setFlowNames([...new Set(names)]);
+      } catch {
+        /* keep the empty list */
+      }
+    })();
+    return () => { live = false; };
+  }, [project]);
 
   const set = <K extends keyof AppConfig>(k: K, v: AppConfig[K]): void => {
     setCfg((c) => ({ ...c, [k]: v }));
@@ -272,6 +288,14 @@ export function Settings({ project, teamScreen }: { project: string; teamScreen?
             />
           </Field>
         </div>
+        <Field label="Flow" hint="— runs the Hub starts for this project use it, so the models set in the Workflow editor apply; — = the source default">
+          <Select
+            value={cfg.flow ?? ''}
+            onChange={(v) => set('flow', v || undefined)}
+            options={flowNames}
+            danglingLabel={(v) => `${v} (not found)`}
+          />
+        </Field>
         <Field label="Verify command override" hint="— the Proof of Work">
           <Input
             value={cfg.verifyCmd ?? ''}

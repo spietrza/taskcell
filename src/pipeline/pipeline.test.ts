@@ -1012,6 +1012,29 @@ describe('assembleReviewPipeline', () => {
   const agent = stubAgent('claude');
   const reviewAgent = stubAgent('codex');
 
+  it('a flow-pinned model yields to a per-task label model and to a provider-forced model', () => {
+    const flowBase: PipelineStage[] = [{ name: 'implementer', promptTemplate: 'i', model: 'opus', modelFromFlow: true }];
+    expect(assembleReviewPipeline(flowBase, { agent }, { providerModel: 'label-m', providerModelIsLabel: true })[0]?.model).toBe('label-m');
+    expect(assembleReviewPipeline([{ name: 'planner', promptTemplate: 'p', model: 'opus', modelFromFlow: true }], { agent }, { providerForcedModel: 'glm' })[0]?.model).toBe('glm');
+  });
+
+  it('a stage model set in the flow beats --provider-model / --review-model; unset stages inherit them', () => {
+    const flowBase: PipelineStage[] = [
+      { name: 'implementer', promptTemplate: 'impl', model: 'opus', modelFromFlow: true },
+      { name: 'reviewer', promptTemplate: 'review', model: 'haiku', modelFromFlow: true },
+      { name: 'simplifier', promptTemplate: 'simplify' },
+    ];
+    const result = assembleReviewPipeline(flowBase, { agent }, { providerModel: 'sonnet', reviewModel: 'sonnet-r' });
+    expect(result.find((s) => s.name === 'implementer')?.model).toBe('opus');
+    expect(result.find((s) => s.name === 'reviewer')?.model).toBe('haiku');
+    expect(result.find((s) => s.name === 'simplifier')?.model).toBe('sonnet');
+    const inherit = assembleReviewPipeline(
+      [{ name: 'implementer', promptTemplate: 'i' }, { name: 'reviewer', promptTemplate: 'r' }],
+      { agent },
+      { providerModel: 'sonnet', reviewModel: 'sonnet-r' },
+    );
+    expect(inherit.map((s) => s.model)).toEqual(['sonnet', 'sonnet-r']);
+  });
   it('returns base untouched when no reviewAgent and no models are set', () => {
     const result = assembleReviewPipeline(base, { agent }, {});
     expect(result).toEqual(base);

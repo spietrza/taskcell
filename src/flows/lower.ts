@@ -86,6 +86,7 @@ function applyOverrides(
   return {
     ...base,
     ...rest,
+    ...(rest.model !== undefined ? { modelFromFlow: true } : {}),
     ...(provider !== undefined ? { provider: resolveProvider(provider, base.name, customs) } : {}),
   };
 }

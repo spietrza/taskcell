@@ -11,11 +11,11 @@ import { createHash } from 'node:crypto';
 import { lstat, mkdir, open, readFile, readdir, rename, rm, stat } from 'node:fs/promises';
 import { setTimeout as sleep } from 'node:timers/promises';
 import { userInfo } from 'node:os';
-import { basename, dirname } from 'node:path';
+import { basename, dirname, join } from 'node:path';
 import { TaskcellError } from './errors.js';
 import { injectedSecretValues, redactForPublish } from './secret-scan.js';
 import { parseJsonlLines } from './stats.js';
-import { assertStatePath, ensureStateDir } from './state-path.js';
+import { assertStatePath, ensureStateDir, stateDir } from './state-path.js';
 import { appendBranchLines, readBranchFile, type BranchFileOptions } from './metrics-branch.js';
 
 /** `audit` streams fsync and fail closed; `telemetry` streams are best-effort. A property of the stream. */
@@ -528,4 +528,24 @@ export function branchAdapter(repoPath: string, opts: BranchAdapterOptions): Aud
       return res.pushed;
     },
   };
+}
+
+// Where each stream lives on disk: the one place the layout is written.
+
+/** The hub's audit log under its config dir. */
+export const hubAuditFile = (configDir: string): string => join(configDir, 'audit.jsonl');
+
+/** The repo's metrics stream. */
+export const metricsFile = (repoPath: string): string => join(stateDir(repoPath), 'runs', 'metrics.jsonl');
+
+/** One task's run-event logs (each run's log is its own chain), sorted. */
+export async function runEventFiles(repoPath: string, taskId: string): Promise<string[]> {
+  const dir = join(stateDir(repoPath), 'runs', taskId);
+  return (await readdir(dir).catch(() => [] as string[])).filter((f) => f.startsWith('events-') && f.endsWith('.jsonl')).sort().map((f) => join(dir, f));
+}
+
+/** Every run-event log in the repo's state dir. */
+export async function allRunEventFiles(repoPath: string): Promise<string[]> {
+  const tasks = await readdir(join(stateDir(repoPath), 'runs')).catch(() => [] as string[]);
+  return (await Promise.all(tasks.map((t) => runEventFiles(repoPath, t)))).flat();
 }

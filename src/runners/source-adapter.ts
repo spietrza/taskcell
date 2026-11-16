@@ -581,7 +581,7 @@ export async function runSourcedIssue(
       }
       let pipeline = assembleReviewPipeline(scopedStages, agents, {
         ...deps,
-        ...(labelModel !== undefined ? { providerModel: labelModel } : {}),
+        ...(labelModel !== undefined ? { providerModel: labelModel, providerModelIsLabel: true } : {}),
         ...(providerForcedModel !== undefined ? { providerForcedModel } : {}),
       });
       // Implementer fallback: on an AgentError from the primary provider (outage, usage limit, revoked
@@ -792,7 +792,7 @@ export async function runSourcedIssue(
           ...(deps.escalateModel !== undefined && fallbackHolder === undefined ? { escalateModel: deps.escalateModel } : {}),
           // A per-task label is the human's own escalation call; the fleet-wide --escalate-model does not
           // override it (it could even downgrade).
-          modelPinned: labelModel !== undefined,
+          modelPinned: labelModel !== undefined || pipeline.find((s) => s.name === STAGE.IMPLEMENTER)?.modelFromFlow === true,
           ...(deps.signal !== undefined ? { signal: deps.signal } : {}),
         };
       };
