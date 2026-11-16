@@ -1395,6 +1395,12 @@ describe('buildRevisionChecklist — Markdown review', () => {
     expect(ck('## Blocking\n- a\n```ts\n- b')).toEqual(['a', 'b']);
   });
 
+  it('counts bold numbered paragraphs as findings and their bullets as detail', () => {
+    const review = '## Blocking\n\n**1. First** (a.ts)\n- x\n- y\n\n**2. Second** (b.ts)\n- z\n\n**3. Third**\n- w\n- v';
+    expect(ck(review)).toEqual(['**1. First** (a.ts)', '**2. Second** (b.ts)', '**3. Third**']);
+    expect(ck('## Blocking\n\n**B1.** One\n- x\n\n**B2.** Two\n- y')).toEqual(['**B1.** One', '**B2.** Two']);
+  });
+
   it('handles indented fences, Blocking: detail fields, mixed-count parents, label forms and section names', () => {
     expect(ck('## Blocking\n- a\n    ```\n    # h\n    - fake\n    ```\n- b')).toEqual(['a', 'b']);
     expect(ck('## Blocking\n### parse() drops the last row\n- Blocking: yes\n- **Blocking:** x.ts:12')).toEqual(['parse() drops the last row']);
