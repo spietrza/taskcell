@@ -24,7 +24,8 @@ RUN apt-get update \
  && rm /tmp/glab.deb \
  && rm -rf /var/lib/apt/lists/*
 
-RUN npm install -g pnpm@10.32.1
+ARG PNPM_VERSION=10.32.1
+RUN npm install -g pnpm@${PNPM_VERSION}
 
 WORKDIR /app
 COPY . .

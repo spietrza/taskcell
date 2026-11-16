@@ -25,9 +25,11 @@ RUN apt-get update \
  && rm /tmp/glab.deb \
  && rm -rf /var/lib/apt/lists/*
 
-# Exact versions (bump: `npm view <pkg> version`). linear-cli stays on 2.x: src/tasks/linear-cli.ts is
-# verified against the 2.0 command surface.
-RUN npm install -g pnpm@10.32.1 @schpet/linear-cli@2.0.0
+# Exact versions (bump: `npm view <pkg> version`); keep in sync with docker/Dockerfile (dockerfile-pins.test.ts).
+# pnpm stays on 10.x: pnpm 12 rejects the root pnpm-lock.yaml under --frozen-lockfile ("overrides" mismatch).
+ARG PNPM_VERSION=10.32.1
+ARG LINEAR_CLI_VERSION=3.1.0
+RUN npm install -g pnpm@${PNPM_VERSION} @schpet/linear-cli@${LINEAR_CLI_VERSION}
 
 WORKDIR /app
 COPY . .

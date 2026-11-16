@@ -24,7 +24,7 @@ RUN chmod +x /tmp/retry.sh
 # verify and ends up confabulating completion. Codex authenticates with CODEX_API_KEY: in direct mode
 # it is forwarded into the sandbox when codex is selected; under --llm-proxy the key is held by a
 # trusted sidecar and the sandbox receives only a per-run nonce.
-ARG PNPM_VERSION=12.18.0
+ARG PNPM_VERSION=10.32.1
 RUN /tmp/retry.sh 5 15 -- npm install -g pnpm@${PNPM_VERSION} && npm cache clean --force && rm -rf /root/.npm
 
 ARG BUN_VERSION=1.4.4
