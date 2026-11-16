@@ -12,6 +12,10 @@ on:
         description: 'JSON array of GitHub logins allowed to trigger this workflow, e.g. ["octocat"]. Enforced here as a backstop to the caller if:.'
         type: string
         required: true
+      pinned-only:
+        description: 'Review only the PR named by the label event (--pinned-only), no label scan of other PRs. Set it with a per-PR concurrency group (one run per labelled PR), so a third request cannot cancel a pending run and leave its PR unreviewed (#1070). A dispatch run (no event PR) still sweeps every labelled PR.'
+        type: boolean
+        default: false
       review-concurrency:
         description: 'How many labelled PRs one run reviews in parallel (--concurrency). Empty = CLI default (2).'
         type: string
@@ -207,6 +211,7 @@ jobs:
           IN_SANDBOX_READONLY: ${{ inputs.sandbox-readonly }}
           IN_SKILLS: ${{ inputs.skills }}
           IN_CONCURRENCY: ${{ inputs.review-concurrency }}
+          IN_PINNED_ONLY: ${{ inputs.pinned-only }}
           IN_ALLOWED_ACTORS: ${{ inputs.allowed-actors }}
         run: |
           # Allowed actors also count as trusted PR authors (repo members always do).
@@ -220,6 +225,7 @@ jobs:
               --repo "$GITHUB_WORKSPACE")
             [ -n "$IN_SKILLS" ] && args+=(--skills "$IN_SKILLS")
             [ -n "$IN_CONCURRENCY" ] && args+=(--concurrency "$IN_CONCURRENCY")
+            [ "$IN_PINNED_ONLY" = "true" ] && args+=(--pinned-only)
             [ -n "$IN_AUTHOR" ] && args+=(--author "$IN_AUTHOR")
             [ -n "$feedback_authors" ] && args+=(--feedback-authors "$feedback_authors")
             [ -n "$provider" ] && args+=(--provider "$provider")

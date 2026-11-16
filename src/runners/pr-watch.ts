@@ -65,6 +65,8 @@ export interface GitHubPullRequestWatchOptions {
    * the label was deliberately (re-)added.
    */
   hintPr?: number;
+  /** With hintPr set, review only that PR: no label scan (each labelled PR has its own CI run, #1070). */
+  pinnedOnly?: boolean;
   /**
    * Extra PR-author logins trusted beyond OWNER/MEMBER/COLLABORATOR (--feedback-authors; the workflow's
    * allowed-actors). A PR by anyone else is skipped, as the label-triggered path's author gate does.
@@ -167,6 +169,7 @@ async function fetchHintedPullRequest(
   gh: GhRunner,
   opts: GitHubPullRequestWatchOptions,
   number: number,
+  onFetchError?: () => void,
 ): Promise<PullRequestWatchItem | undefined> {
   const id = `${opts.repoSlug}#${number}`;
   let view: GhPullRequestViewItem;
@@ -176,6 +179,7 @@ async function fetchHintedPullRequest(
     ) as GhPullRequestViewItem;
   } catch (error) {
     opts.log?.(`watch-prs ${id}: hint fetch failed -> ${error instanceof Error ? error.message : String(error)}`);
+    onFetchError?.();
     return undefined;
   }
   if (view.state !== undefined && view.state !== 'OPEN') {
@@ -241,7 +245,7 @@ export function githubPullRequestWatchPrimitives(opts: GitHubPullRequestWatchOpt
     listReady: async () => {
       // A trigger label renamed from `vanguard` to `taskcell`: list under both spellings, so a PR still carrying the old one runs.
       const listed = new Map<number, GhPullRequestListItem>();
-      for (const form of labelForms(opts.label)) {
+      for (const form of opts.pinnedOnly === true && opts.hintPr !== undefined ? [] : labelForms(opts.label)) {
         const listArgs = [
           'pr',
           'list',
@@ -265,11 +269,15 @@ export function githubPullRequestWatchPrimitives(opts: GitHubPullRequestWatchOpt
         opts.label,
         opts.author,
       );
+      let hintFetchFailed = false;
       if (opts.hintPr !== undefined && !candidates.some((item) => item.number === opts.hintPr)) {
-        const hinted = await fetchHintedPullRequest(gh, opts, opts.hintPr);
+        const hinted = await fetchHintedPullRequest(gh, opts, opts.hintPr, () => {
+          hintFetchFailed = true;
+        });
         if (hinted !== undefined) candidates.push(hinted);
       }
-      listFailures = [];
+      // Pinned-only has no label scan to fall back on: a failed fetch of the pin must fail the run, not end green.
+      listFailures = hintFetchFailed && opts.pinnedOnly === true ? [`${opts.repoSlug}#${opts.hintPr}`] : [];
       const authorGate = async (item: PullRequestWatchItem): Promise<PullRequestWatchItem | undefined> => {
         const author = await isTrustedIssueAuthor(item.repoSlug, item.number, opts.allowedAuthors, gh);
         if (author.trusted) return item;

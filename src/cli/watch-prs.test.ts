@@ -108,6 +108,40 @@ describe('watchPrsCommand', () => {
       await watchPrsCommand(cmd, { reviewPr: vi.fn(async () => {}), watchPullRequests, log: (line) => logs.push(line) });
       expect(logs).toContain('watch-prs[github]: o/r#316 pinned from --pr — reviewed even if the label scan misses it.');
       expect(process.exitCode).toBe(1);
+      expect(watchPullRequests).toHaveBeenCalledOnce(); // without --pinned-only the next sweep retries
+    } finally {
+      process.exitCode = previousExitCode;
+    }
+  });
+
+  it('with --pinned-only retries a failed pin in the same run, up to 3 passes', async () => {
+    const previousExitCode = process.exitCode;
+    const base: Extract<Command, { kind: 'watch-prs' }> = {
+      kind: 'watch-prs', repoSlug: 'o/r', repoPath: '/repo', label: 'ready for taskcell review',
+      reviewingLabel: 'taskcell:reviewing', reviewedLabel: 'taskcell:reviewed', pr: 316, pinnedOnly: true,
+      concurrency: 1, intervalMs: 1000, once: true, egress: true,
+    };
+    try {
+      const alwaysFails = vi.fn(async () => ({ reviewed: [], failed: ['o/r#316'], skipped: [] }));
+      await watchPrsCommand(base, { reviewPr: vi.fn(async () => {}), watchPullRequests: alwaysFails, log: () => {} });
+      expect(alwaysFails).toHaveBeenCalledTimes(3);
+      expect(process.exitCode).toBe(1);
+
+      process.exitCode = undefined;
+      const secondWorks = vi.fn()
+        .mockResolvedValueOnce({ reviewed: [], failed: ['o/r#316'], skipped: [] })
+        .mockResolvedValueOnce({ reviewed: ['o/r#316'], failed: [], skipped: [] });
+      await watchPrsCommand(base, { reviewPr: vi.fn(async () => {}), watchPullRequests: secondWorks, log: () => {} });
+      expect(secondWorks).toHaveBeenCalledTimes(2);
+      expect(process.exitCode).toBeUndefined();
+
+      // Label not restored after the failure: the retry finds nothing, and the job must stay red.
+      const secondEmpty = vi.fn()
+        .mockResolvedValueOnce({ reviewed: [], failed: ['o/r#316'], skipped: [] })
+        .mockResolvedValueOnce({ reviewed: [], failed: [], skipped: [] });
+      await watchPrsCommand(base, { reviewPr: vi.fn(async () => {}), watchPullRequests: secondEmpty, log: () => {} });
+      expect(secondEmpty).toHaveBeenCalledTimes(2);
+      expect(process.exitCode).toBe(1);
     } finally {
       process.exitCode = previousExitCode;
     }
