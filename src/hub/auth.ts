@@ -42,8 +42,8 @@ export interface HubIdentity {
   readonly providers: readonly AuthProviderId[];
   /** The signed-in user of this request's session cookie, if any. Always undefined in local mode. */
   sessionUser(req: IncomingMessage): Promise<HubUser | undefined>;
-  /** The user with this id as the store holds them now (undefined: gone). For work that runs later as a stored user. */
-  userById?(id: string): Promise<HubUser | undefined>;
+  /** The user with this id as the store holds them now (undefined: gone, or no longer allowed to have an account). For work that runs later as a stored user; required, so no identity can skip the check. */
+  userById(id: string): Promise<HubUser | undefined>;
   /** Better Auth's node handler for `/api/auth/*`; undefined in local mode (no sign-in). */
   readonly handler: ((req: IncomingMessage, res: ServerResponse) => Promise<void>) | undefined;
   close(): void;
@@ -275,7 +275,11 @@ export async function createHubIdentity(opts: CreateIdentityOptions): Promise<Hu
     },
     userById: async (userId) => {
       const u = await ctx.internalAdapter.findUserById(userId);
-      return u === null || u === undefined ? undefined : toHubUser(u);
+      if (u === null || u === undefined) return undefined;
+      const user = toHubUser(u);
+      // An account the sign-up allowlist no longer names is as good as gone (the owner is not an OAuth account).
+      if (user.id !== owner.id && !(user.logins ?? [undefined]).some((login) => allowed({ email: user.email, emailVerified: user.emailVerified === true, login }))) return undefined;
+      return user;
     },
     close: () => db.close(),
   };

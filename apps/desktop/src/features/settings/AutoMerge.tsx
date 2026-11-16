@@ -1,7 +1,7 @@
 import { useRef, useState } from 'react';
 import { Button, ErrorNote, useFocusTrap } from '@/ui';
 import { readApproverScorecard, setApproverMode } from '../../ipc';
-import { useAsync } from '../../hooks';
+import { gateProps, useAsync, useCallerCapabilities } from '../../hooks';
 import { errorMessage } from '../../errors';
 import { ExternalLink } from '../../components/ExternalLink';
 import type { ApproverMode, ApproverScorecard } from '../../wire';
@@ -74,6 +74,7 @@ export function AutoMerge({ project: repo }: { project: string }) {
   const { data, error, loading } = useAsync(() => readApproverScorecard(repo, '90d'), [repo]);
   const [target, setTarget] = useState<ApproverMode | null>(null);
   const [prUrl, setPrUrl] = useState<string | null>(null);
+  const gate = useCallerCapabilities(repo)?.project?.canChangeSettings;
 
   return (
     <section aria-label="Auto-merge" className="space-y-2 rounded-lg border border-border p-3">
@@ -94,7 +95,7 @@ export function AutoMerge({ project: repo }: { project: string }) {
           )}
           <div className="flex flex-wrap gap-2" role="group" aria-label="Approver mode">
             {(['off', 'shadow', 'act'] as const).map((m) => (
-              <Button key={m} variant="outlined" disabled={data.mode === m || !data.policyFound || (m === 'act' && !data.actOffered)} onClick={() => setTarget(m)}>
+              <Button key={m} variant="outlined" {...gateProps(gate)} disabled={gate?.allowed === false || data.mode === m || !data.policyFound || (m === 'act' && !data.actOffered)} onClick={() => setTarget(m)}>
                 {m === 'off' ? 'Turn off' : m === 'shadow' ? 'Shadow' : 'Act'}
               </Button>
             ))}

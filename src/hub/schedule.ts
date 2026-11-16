@@ -81,7 +81,7 @@ export function planSchedule(tasks: readonly HubTask[], opts: { now: Date; limit
       continue;
     }
     if (t.status === 'done') { out.set(t.id, { state: 'done', label: 'done', ...(t.result !== undefined ? { result: t.result } : {}) }); continue; }
-    if (t.status === 'failed') { out.set(t.id, { state: 'failed', label: t.reason !== undefined ? `failed: ${t.reason}` : 'failed', ...(t.reason !== undefined ? { reason: t.reason } : {}) }); continue; }
+    if (t.status === 'failed') { out.set(t.id, { state: 'failed', label: t.reason !== undefined ? `failed: ${t.reason}` : 'failed', ...(t.reason !== undefined ? { reason: t.reason } : {}), ...(t.result !== undefined ? { result: t.result } : {}) }); continue; }
     const missing = t.blockedBy.filter((d) => !byId.has(d));
     const start = t.startDate === undefined ? undefined : parseStart(t.startDate, opts.timeZone);
     const reason =

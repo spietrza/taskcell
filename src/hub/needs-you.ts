@@ -32,7 +32,12 @@ export interface NeedsYouItem {
   lastComment?: { author: string; body: string };
   /** The branch the PR targets (a PR's base), or the one the card asks for (`taskcell:base=`). Absent when unknown. */
   baseBranch?: string;
+  /** Why the hub refuses to merge this PR (set only when it would); the UI shows it instead of offering Merge. */
+  mergeBlocked?: string;
 }
+
+/** The one merge rule that depends on the item, not the caller: a PR whose verify failed is fixed, not merged. */
+const VERIFY_FAILED_MERGE_BLOCK = 'Verify failed on this PR: fix it before merging.';
 
 export interface NeedsYouOptions {
   /** Extra logins that are the factory's own voice, as ActionableOptions.botLogins. */
@@ -150,6 +155,7 @@ function toItem(
     ...(raw.baseRefName !== undefined ? { baseRef: raw.baseRefName } : {}),
     ...(lastComment !== undefined ? { lastComment } : {}),
     ...(baseBranch !== undefined && baseBranch !== '' ? { baseBranch } : {}),
+    ...(kind === 'pr' && reason === GITHUB_VERIFY_FAILED_LABEL ? { mergeBlocked: VERIFY_FAILED_MERGE_BLOCK } : {}),
   };
 }
 
@@ -233,10 +239,11 @@ async function issueIsWaiting(repoSlug: string, number: string, gh: GhRunner): P
 }
 
 /** The PR's head commit when it is open and waiting for a human, else undefined. */
-async function waitingPrHead(repoSlug: string, number: string, gh: GhRunner): Promise<{ headRefOid?: string } | undefined> {
+async function waitingPrHead(repoSlug: string, number: string, gh: GhRunner): Promise<{ headRefOid?: string; reason: string } | undefined> {
   const out = await gh(['pr', 'view', number, '--repo', repoSlug, '--json', 'state,labels,reviewDecision,headRefOid']);
   const pr = JSON.parse(out) as { state: string; labels: GhLabelLite[]; reviewDecision?: string | null; headRefOid?: string };
-  return pr.state === 'OPEN' && prReason(pr) !== undefined ? pr : undefined;
+  const reason = prReason(pr);
+  return pr.state === 'OPEN' && reason !== undefined ? { ...pr, reason } : undefined;
 }
 
 const prIsWaiting = async (repoSlug: string, number: string, gh: GhRunner): Promise<boolean> =>
@@ -298,6 +305,7 @@ export async function mergeNeedsYou(repoSlug: string, id: string, gh: GhRunner =
   if (head === undefined) {
     throw new TaskcellError(`${id} is not waiting for you, so the hub will not merge it.`);
   }
+  if (head.reason === GITHUB_VERIFY_FAILED_LABEL) throw new TaskcellError(`${id}: ${VERIFY_FAILED_MERGE_BLOCK}`);
   // `--required` limits to the required checks. With `--json` the buckets carry the verdict; `gh` only
   // errors when it has nothing to report (no checks at all, or none required) — nothing to wait for.
   // Any other error (auth, network, old gh) is not a verdict on the checks and surfaces as itself.

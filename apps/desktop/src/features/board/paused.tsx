@@ -2,7 +2,7 @@ import { useState } from 'react';
 import { Button } from '@/ui';
 import { listTasks, listTasksAll, retryPausedTask } from '../../ipc';
 import { inRepos } from '../../repoFilter';
-import { useAsync } from '../../hooks';
+import { gateProps, useAsync, useCallerCapabilities } from '../../hooks';
 import type { BoardTask, PausedState } from '../../wire';
 
 const clock = (ms: number): string => new Date(ms).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
@@ -74,6 +74,7 @@ export function RetryNowButton({ repoPath, task, onRetried }: { repoPath: string
   const [busy, setBusy] = useState(false);
   const [done, setDone] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const gate = useCallerCapabilities(repoPath)?.project?.canStartTask;
   const number = /^gh-(\d+)$/.exec(task.id)?.[1];
   if (number === undefined) return null;
   const retry = async (): Promise<void> => {
@@ -91,7 +92,7 @@ export function RetryNowButton({ repoPath, task, onRetried }: { repoPath: string
   };
   return (
     <div className="flex flex-wrap items-center gap-2">
-      <Button variant="outlined" disabled={busy || done} onClick={() => void retry()}>
+      <Button variant="outlined" {...gateProps(gate)} disabled={busy || done || gate?.allowed === false} onClick={() => void retry()}>
         {busy ? 'Retrying…' : done ? 'Retry requested' : 'Retry now'}
       </Button>
       {error && (

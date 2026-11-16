@@ -357,6 +357,13 @@ describe('mergeNeedsYou', () => {
     expect(calls.at(-1)).toEqual(['pr', 'merge', '5', '--repo', 'o/r', '--squash', '--match-head-commit', 'abc123']);
   });
 
+  it('refuses a verify-failed PR even when its required checks are green', async () => {
+    const calls: string[][] = [];
+    const pr = { ...waitingPr, labels: [{ name: 'taskcell:verify-failed' }] };
+    await expect(mergeNeedsYou('o/r', 'o/r#5', mergeGh({ pr }, calls))).rejects.toThrow('Verify failed');
+    expect(merged(calls)).toBe(false);
+  });
+
   it('uses the next allowed method, and refuses when none is allowed', async () => {
     const calls: string[][] = [];
     await mergeNeedsYou('o/r', 'o/r#5', mergeGh({ methods: { squashMergeAllowed: false, mergeCommitAllowed: false, rebaseMergeAllowed: true } }, calls));

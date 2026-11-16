@@ -36,7 +36,8 @@ export function CommandPalette({
   onNewTask?: () => void;
   /** Hub only: opens the Enable factory dialog for the open project. */
   onEnableFactory?: () => void;
-  onAddProject: () => void;
+  /** Omitted when the hub refuses it (`caller_capabilities`). */
+  onAddProject?: () => void;
   onToggleTheme: () => void;
   onClose: () => void;
 }) {
@@ -62,7 +63,7 @@ export function CommandPalette({
         : []),
       ...(onNewTask ? [{ id: 'new-task', label: `New task · ${projectName}`, icon: <FilePlus className="size-4" />, run: onNewTask }] : []),
       ...(onEnableFactory ? [{ id: 'factory', label: `Enable factory · ${projectName}`, icon: <Factory className="size-4" />, run: onEnableFactory }] : []),
-      { id: 'add', label: 'Add project', icon: <FolderPlus className="size-4" />, run: onAddProject },
+      ...(onAddProject ?[{ id: 'add', label: 'Add project', icon: <FolderPlus className="size-4" />, run: onAddProject }] : []),
       { id: 'theme', label: 'Toggle theme', icon: <SunMoon className="size-4" />, run: onToggleTheme },
       ...projects.map((p) => ({
         id: `p:${p.path}`,

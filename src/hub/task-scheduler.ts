@@ -2,10 +2,10 @@
 // the run session, as the person each task runs as and under the same gates as `api_create_run`.
 import { BadRequestError, type CreateRunParams, type CreateRunResult, type SidecarDeps } from '../sidecar/sidecar.js';
 import { configuredFlow, readAppConfig } from './app-config.js';
-import { auditActorOf, reportAuditFailure, type AuditAction, type AuditLog, type AuditOutcome } from './audit.js';
+import { auditActorOf, reportAuditFailure, type Actor, type AuditAction, type AuditLog, type AuditOutcome } from './audit.js';
 import type { ProjectAllowlist } from './allowlist.js';
 import type { CredentialService } from './credentials.js';
-import { editHubTask, hubTimeZone, listHubBoards, listHubTasks, resetStaleRunning, type HubTask } from './hub-tasks.js';
+import { editHubTask, hubTimeZone, listHubBoards, resetAndListHubTasks, resetStaleRunning, type HubTask } from './hub-tasks.js';
 import { parallelLimit } from './hub-board.js';
 import { failureMessage } from './projects.js';
 import type { RunSession } from './run-session.js';
@@ -27,14 +27,16 @@ export interface SchedulerState {
   ticking: Set<string>;
   /** Tasks this hub holds a run for. A `running` task that is not here has no live run. */
   live: Set<string>;
+  /** Ends of runs the store could not record yet; written first on the next tick, and the task stays live until then. */
+  pending: Map<string, Pick<HubTask, 'status' | 'reason' | 'result'>>;
 }
-export const schedulerState = (): SchedulerState => ({ ticking: new Set(), live: new Set() });
+export const schedulerState = (): SchedulerState => ({ ticking: new Set(), live: new Set(), pending: new Map() });
 const key = (repoPath: string, id: string): string => `${repoPath}\n${id}`;
 
 function ended(result: CreateRunResult): Pick<HubTask, 'status' | 'reason' | 'result'> {
   if (result.verificationFailed === true && (result.prUrl !== undefined || result.branch !== undefined)) {
     const where = result.prUrl ?? `branch ${result.branch}`;
-    return { status: 'failed', reason: `verify failed on the delivered result (${where}); dependents do not start`, result: where };
+    return { status: 'failed', reason: `verify failed on the delivered result (${where}); dependents do not start. Accept the result to mark it done, or Retry (a second run delivers a second branch or pull request)`, result: where };
   }
   if (result.prUrl !== undefined) return { status: 'done', result: result.prUrl };
   if (result.branch !== undefined) return { status: 'done', result: `branch ${result.branch}` };
@@ -44,12 +46,20 @@ function ended(result: CreateRunResult): Pick<HubTask, 'status' | 'reason' | 're
 }
 
 /** Start what may start now; resolves with the ids the run session took, once they are marked running (not when they end). */
-export async function scheduleTick({ ticking, live }: SchedulerState, configDir: string, repoPath: string, start: StartTask, opts: { limit: number; now?: Date }): Promise<string[]> {
+export async function scheduleTick({ ticking, live, pending }: SchedulerState, configDir: string, repoPath: string, start: StartTask, opts: { limit: number; now?: Date }): Promise<string[]> {
   if (ticking.has(repoPath)) return [];
   ticking.add(repoPath);
   try {
-    await resetStaleRunning(configDir, repoPath, (id) => live.has(key(repoPath, id)));
-    const tasks = await listHubTasks(configDir, repoPath);
+    for (const [k, end] of [...pending]) {
+      if (!k.startsWith(`${repoPath}\n`)) continue;
+      await editHubTask(configDir, repoPath, k.slice(repoPath.length + 1), (t) => {
+        delete t.runId;
+        Object.assign(t, end);
+      });
+      pending.delete(k);
+      live.delete(k);
+    }
+    const { tasks } = await resetAndListHubTasks(configDir, repoPath, (id) => live.has(key(repoPath, id)));
     const plan = planSchedule(tasks, { now: opts.now ?? new Date(), limit: opts.limit, timeZone: hubTimeZone() });
     const started: string[] = [];
     for (const id of plan.start) {
@@ -79,11 +89,16 @@ export async function scheduleTick({ ticking, live }: SchedulerState, configDir:
           delete t.runId;
           Object.assign(t, end);
         });
-      void run
-        .then((result) => record(ended(result)), (e: unknown) => record({ status: 'failed', reason: failureMessage(e) }))
-        // The store could not be written: the task is marked failed once this process no longer holds its run.
-        .catch((e: unknown) => console.error(`vanguard-hub: scheduler: could not record the end of ${id} in ${repoPath}: ${failureMessage(e)}`))
-        .finally(() => live.delete(k));
+      const finish = (end: Pick<HubTask, 'status' | 'reason' | 'result'>): Promise<void> =>
+        record(end).then(
+          () => { live.delete(k); },
+          (e: unknown) => {
+            // The store could not be written: keep the real end and the task live; the next tick writes it.
+            pending.set(k, end);
+            console.error(`vanguard-hub: scheduler: could not record the end of ${id} in ${repoPath}: ${failureMessage(e)}`);
+          },
+        );
+      void run.then((result) => finish(ended(result)), (e: unknown) => finish({ status: 'failed', reason: failureMessage(e) }));
     }
     return started;
   } finally {
@@ -100,8 +115,8 @@ export interface SweepContext {
   deps?: Pick<SidecarDeps, 'checkRun'>;
   userCredentials?: CredentialService;
   audit?: AuditLog;
-  /** Re-resolves the stored owner at start (current account and owner flag); undefined: no longer valid, the task does not run. Absent: the stored caller is trusted. */
-  recheckCaller?: (stored: teams.Caller) => Promise<teams.Caller | undefined>;
+  /** Re-resolves the stored owner at start (current account and owner flag); undefined: no longer valid, the task does not run. */
+  recheckCaller: (stored: teams.Caller) => Promise<teams.Caller | undefined>;
   /** A project the sweep may serve (default: all). The local worker's switch, when set off, stops a board's pick-ups. */
   served?: (repoPath: string) => Promise<boolean>;
   /** Called with the ids a tick started. */
@@ -115,23 +130,25 @@ export interface SweepContext {
  */
 async function startHubTask(ctx: SweepContext, repoPath: string, task: HubTask, admitted: (runId: string) => void): Promise<CreateRunResult> {
   const who = task.owner;
+  // The stored actor is a snapshot; once the owner is re-resolved, the login and name are the account's current ones.
+  let actor: Actor | undefined = who?.actor;
   let logged = false;
   const log = (action: AuditAction, target: string, outcome: AuditOutcome): void => {
-    if (who === undefined) return;
+    if (who === undefined || actor === undefined) return;
     logged = true;
-    void ctx.audit?.record({ login: who.actor.login, actor: auditActorOf(who.actor), action, target, outcome }).catch(reportAuditFailure);
+    void ctx.audit?.record({ login: actor.login, actor: auditActorOf(actor), action, target, outcome }).catch(reportAuditFailure);
   };
   try {
     if (who === undefined) throw new BadRequestError('this task has no owner on this hub — save its schedule to run it as you');
-    const caller = ctx.recheckCaller !== undefined ? await ctx.recheckCaller(who.caller) : who.caller;
-    if (caller === undefined) throw new BadRequestError('the owner of this task no longer has an account on this hub — save its schedule to run it as you');
+    const caller = await ctx.recheckCaller(who.caller);
+    if (caller === undefined) throw new BadRequestError('the owner of this task no longer has an account on this hub (or is no longer allowed on it) — save its schedule to run it as you');
+    if (who.actor.id !== undefined) actor = { ...who.actor, login: caller.user.email, name: caller.user.name };
     teams.assertRepoInRoots(await teams.callerRepoRoots(ctx.configDir, caller), repoPath);
     const config = await readAppConfig(repoPath);
-    const configured = config.provider;
-    const provider = typeof configured === 'string' && configured.trim() !== '' ? configured : undefined;
+    const provider = typeof config.provider === 'string' && config.provider.trim() !== '' ? config.provider : undefined;
     const flow = configuredFlow(config);
     const credential = ctx.userCredentials !== undefined ? await ctx.userCredentials.resolveForRun(caller.user, provider) : undefined;
-    const params: CreateRunParams = { issueRef: task.id, repoPath, transport: HUB_TRANSPORT, hubTask: { id: task.id, title: task.title, body: task.body }, ...(task.skills !== undefined ? { skills: task.skills } : {}), startedBy: who.actor.login, ...(provider !== undefined ? { provider } : {}), ...(flow !== undefined ? { flow } : {}) };
+    const params: CreateRunParams = { issueRef: task.id, repoPath, transport: HUB_TRANSPORT, hubTask: { id: task.id, title: task.title, body: task.body }, ...(task.skills !== undefined ? { skills: task.skills } : {}), startedBy: actor!.login, ...(provider !== undefined ? { provider } : {}), ...(flow !== undefined ? { flow } : {}) };
     await ctx.deps?.checkRun?.(params, credential);
     return await ctx.runSession.createRun(
       params,
@@ -144,7 +161,7 @@ async function startHubTask(ctx: SweepContext, repoPath: string, task: HubTask, 
     );
   } catch (err) {
     // One refusal line per reason, not one per tick: the same refusal is retried every tick.
-    if (!logged && failureMessage(err) !== task.reason) log('run-start', repoPath, 'refused');
+    if (!logged && failureMessage(err) !== task.reason) log('run-start', `${repoPath} ${task.id}`, 'refused');
     throw err;
   }
 }

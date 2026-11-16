@@ -1,8 +1,8 @@
 import { beforeEach, expect, test, vi } from 'vitest';
 import { fireEvent, render, screen, waitFor } from '@testing-library/react';
 
-vi.mock('../../ipc', () => ({ listTasks: vi.fn(), listTasksAll: vi.fn(), retryPausedTask: vi.fn().mockResolvedValue({ label: 'ready for agent' }) }));
-import { listTasks, retryPausedTask } from '../../ipc';
+vi.mock('../../ipc', () => ({ listTasks: vi.fn(), listTasksAll: vi.fn(), retryPausedTask: vi.fn().mockResolvedValue({ label: 'ready for agent' }), callerCapabilities: vi.fn(async () => ({})) }));
+import { callerCapabilities, listTasks, retryPausedTask } from '../../ipc';
 import { HomePausedBanner, PausedPanel, TaskDetailPaused, retryWords } from './paused';
 
 beforeEach(() => {
@@ -20,6 +20,14 @@ test('the detail shows the state and Retry now calls the hub with the issue numb
 test('Retry now is not offered for a card that is not a GitHub issue', () => {
   render(<PausedPanel repoPath="/r" task={{ id: 'linear-dev-7', paused: { reason: 'provider-limit' } }} />);
   expect(screen.queryByRole('button', { name: 'Retry now' })).toBeNull();
+});
+
+test('Retry now is closed, with the reason, when the hub refuses remote writes', async () => {
+  vi.mocked(callerCapabilities).mockResolvedValueOnce({ project: { canStartTask: { allowed: false, reason: 'the hub refuses remote writes' } } } as never);
+  render(<PausedPanel repoPath="/r" task={{ id: 'gh-7', paused: { reason: 'provider-limit' } }} />);
+  const button = screen.getByRole('button', { name: 'Retry now' });
+  await waitFor(() => expect(button).toBeDisabled());
+  expect(button).toHaveAttribute('title', 'the hub refuses remote writes');
 });
 
 test('a refusal shows inline', async () => {

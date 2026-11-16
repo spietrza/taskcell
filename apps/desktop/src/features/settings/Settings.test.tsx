@@ -6,6 +6,7 @@ import * as ipc from '../../ipc';
 vi.mock('../../ipc.js', () => ({
   readAppConfigStrict: vi.fn(async () => ({})),
   writeAppConfig: vi.fn(async () => {}),
+  callerCapabilities: vi.fn(async () => ({})),
 }));
 
 // Hub panels with their own reads; not under test here.
@@ -202,4 +203,14 @@ test('Enter in a single-line field saves a valid form, and does nothing while th
   fireEvent.keyDown(label, { key: 'Enter' });
   await waitFor(() => expect(write).toHaveBeenCalledWith('/repo', expect.objectContaining({ label: 'ready-label', usageCapPct: 50 })));
   expect(await screen.findByRole('button', { name: 'Saved' })).toBeDisabled();
+});
+
+test('Save is closed, with the reason, when the hub refuses remote writes', async () => {
+  vi.mocked(ipc.callerCapabilities).mockResolvedValueOnce({ project: { canChangeSettings: { allowed: false, reason: 'the hub refuses remote writes' } } } as never);
+  read.mockResolvedValueOnce({});
+  render(<Settings project="/repo" />);
+  fireEvent.change(await screen.findByPlaceholderText('taskcell-ready'), { target: { value: 'go' } });
+  const save = screen.getByRole('button', { name: /save/i });
+  await waitFor(() => expect(save).toHaveAttribute('title', 'the hub refuses remote writes'));
+  expect(save).toBeDisabled();
 });

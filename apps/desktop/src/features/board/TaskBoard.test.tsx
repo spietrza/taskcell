@@ -5,6 +5,7 @@ import { DEFAULT_FILTER } from '../../filterState';
 import type { BoardTask } from '../../wire';
 
 vi.mock('../../ipc', () => ({
+  callerCapabilities: vi.fn(async () => ({ mutationsAllowed: true, owner: true, admin: true, canAddProject: { allowed: true }, teamRoles: {} })),
   listTasks: vi.fn(),
   listTasksAll: vi.fn(),
   listRuns: vi.fn().mockResolvedValue([]),
