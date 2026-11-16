@@ -155,7 +155,7 @@ export async function runVerification(
   // The counter is cumulative over the container's life (baseline, agent sessions, earlier verifies),
   // so read it before the command too and report only the delta.
   const oomBefore = await readOomKillCount(sh);
-  const res = await sh(command, { cwd: WORKDIR, ...(signal !== undefined ? { signal } : {}) });
+  const res = await sh(command, { cwd: WORKDIR, loginShell: false, ...(signal !== undefined ? { signal } : {}) });
   const output = `${res.stdout}\n${res.stderr}`;
   const sha256 = createHash('sha256').update(output).digest('hex');
   const passed = res.exitCode === 0;
@@ -185,7 +185,7 @@ export async function runVerification(
 /** The sandbox cgroup's `oom_kill` counter (cgroup v2 `memory.events`); undefined if unreadable. */
 async function readOomKillCount(sh: IsolatedSandboxProvider['exec']): Promise<number | undefined> {
   try {
-    const r = await sh('cat /sys/fs/cgroup/memory.events 2>/dev/null');
+    const r = await sh('cat /sys/fs/cgroup/memory.events 2>/dev/null', { loginShell: false });
     const m = /^oom_kill\s+(\d+)/m.exec(r.stdout);
     return m ? Number(m[1]) : undefined;
   } catch {

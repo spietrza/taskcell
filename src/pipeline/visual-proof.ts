@@ -39,7 +39,7 @@ const ARTIFACT_EXTENSIONS = new Set([
 /** A bound `sandbox.exec`; runs a command INSIDE the sandbox (never throws on non-zero exit). */
 type SandboxRun = (
   command: string,
-  options?: { cwd?: string; signal?: AbortSignal },
+  options?: { cwd?: string; signal?: AbortSignal; loginShell?: boolean },
 ) => Promise<ExecResult>;
 
 /**
@@ -71,7 +71,7 @@ export async function runVisualProof(
 ): Promise<VisualProofResult> {
   const sh: SandboxRun = sandbox.exec.bind(sandbox);
   const signal = opts?.signal;
-  const res = await sh(command, { cwd: WORKDIR, ...(signal !== undefined ? { signal } : {}) });
+  const res = await sh(command, { cwd: WORKDIR, loginShell: false, ...(signal !== undefined ? { signal } : {}) });
   const output = `${res.stdout}\n${res.stderr}`;
   const sha256 = createHash('sha256').update(output).digest('hex');
   const outputTail = output.split('\n').slice(-40).join('\n').trimEnd();
@@ -89,7 +89,7 @@ export async function runVisualProof(
 /** List + hash allowlisted artifacts under `dir`, hashing each in place. Never throws. */
 async function listArtifacts(sh: SandboxRun, dir: string): Promise<VisualProofArtifact[]> {
   try {
-    const found = await sh(`find ${shellQuote(dir)} -type f`, { cwd: WORKDIR });
+    const found = await sh(`find ${shellQuote(dir)} -type f`, { cwd: WORKDIR, loginShell: false });
     const paths = found.stdout
       .split('\n')
       .map((line) => line.replace(/\r$/, ''))
@@ -98,8 +98,8 @@ async function listArtifacts(sh: SandboxRun, dir: string): Promise<VisualProofAr
 
     const artifacts: VisualProofArtifact[] = [];
     for (const path of paths) {
-      const hashRes = await sh(`sha256sum ${shellQuote(path)}`, { cwd: WORKDIR });
-      const sizeRes = await sh(`wc -c ${shellQuote(path)}`, { cwd: WORKDIR });
+      const hashRes = await sh(`sha256sum ${shellQuote(path)}`, { cwd: WORKDIR, loginShell: false });
+      const sizeRes = await sh(`wc -c ${shellQuote(path)}`, { cwd: WORKDIR, loginShell: false });
       const sha = hashRes.stdout.trim().split(/\s+/)[0] ?? '';
       const bytes = Number.parseInt(sizeRes.stdout.trim().split(/\s+/)[0] ?? '', 10);
       if (sha === '' || Number.isNaN(bytes)) continue;

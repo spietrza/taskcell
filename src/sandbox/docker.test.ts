@@ -5,6 +5,7 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import {
   DockerSandboxProvider,
+  shellArgv,
   isBenignTarExit,
   toExecResult,
   isOlderVersion,
@@ -445,6 +446,20 @@ suite('DockerSandboxProvider', () => {
     }
   }, 120_000);
 
+  it('verify (loginShell: false) skips the agent-writable secrets file, so a planted exit 0 cannot forge a PASS (#1180)', async () => {
+    const sec = new DockerSandboxProvider({ image: 'alpine:3.20', secrets: { VG_SECRET: 'topsecret' } });
+    try {
+      await sec.start();
+      expect((await sec.exec("printf '\\nexit 0\\n' >> /run/vanguard/secrets.env")).exitCode).toBe(0);
+      expect((await sec.exec('exit 3')).exitCode).toBe(0); // the forged PASS through the wrapped login shell
+      const verify = await sec.exec('echo "[$VG_SECRET]"; exit 3', { loginShell: false });
+      expect(verify.exitCode).toBe(3);
+      expect(verify.stdout.trim()).toBe('[]');
+    } finally {
+      await sec.destroy();
+    }
+  }, 120_000);
+
   it('keeps shell metacharacters in secret values literal (no injection)', async () => {
     const tricky = "a'b$(echo pwned);c`d`";
     const sec = new DockerSandboxProvider({ image: 'alpine:3.20', secrets: { VG_TRICKY: tricky } });
@@ -730,5 +745,26 @@ describe('toExecResult on a real execa 10 result (reject: false)', () => {
   it('normalises a failed subprocess result exactly as it did under execa 9', async () => {
     const raw = await execa('node', ['-e', 'process.stderr.write("boom"); process.exit(7)'], { reject: false });
     expect(toExecResult(raw)).toEqual({ stdout: '', stderr: 'boom', exitCode: 7 });
+  });
+});
+
+describe('shellArgv (#1180)', () => {
+  it('a planted $HOME/.profile that exits 0 cannot turn a failing verify into a PASS', async () => {
+    const home = await mkdtemp(join(tmpdir(), 'tc-profile-'));
+    try {
+      await writeFile(join(home, '.profile'), 'exit 0\n');
+      const run = async (argv: string[]): Promise<number | undefined> =>
+        (await execa(argv[0]!, argv.slice(1), { reject: false, env: { HOME: home } })).exitCode;
+      expect(await run(shellArgv('exit 3'))).toBe(0); // the forged PASS the login shell allows
+      expect(await run(shellArgv('exit 3', false))).toBe(3);
+      expect(await run(shellArgv('command -v sh >/dev/null', false))).toBe(0); // PATH still resolves
+      expect((await execa('sh', shellArgv('echo $NPM_CONFIG_USERCONFIG', false).slice(1), { env: { HOME: home } })).stdout).toBe('/dev/null');
+    } finally {
+      await rm(home, { recursive: true, force: true });
+    }
+  });
+
+  it('keeps the login shell by default for agent CLIs', () => {
+    expect(shellArgv('claude -p x')).toEqual(['sh', '-lc', 'claude -p x']);
   });
 });

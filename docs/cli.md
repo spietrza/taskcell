@@ -278,6 +278,8 @@ The check is deliberately **not** an auto-update. Refreshing an image needs the 
 
 `TASKCELL_SANDBOX_IMAGE` overrides the image name used everywhere the sandbox runs (main sandbox, preflight, and the llm-proxy/egress sidecars) — set it to an image ID (`sha256:...`) in CI so a job pins the exact image it just built instead of the mutable `vanguard-sandbox:latest` tag, which another pipeline on a shared Docker host could overwrite between build and run.
 
+In a custom image, put tool paths in `ENV PATH` or `/etc/profile.d/`, not in `~/.profile`: the verify command runs in a non-login shell that reads only `/etc/profile` and ignores `$HOME` dotfiles (`~/.profile`, `~/.npmrc`, `~/.config`, `~/.gitconfig`), so the agent cannot plant one of these to forge a PASS (#1180). Keep private-registry auth in the project `.npmrc` or image `ENV`, and give tests that commit a repo-local git identity; provider secrets are not in the verify environment.
+
 ## Cost and limits
 
 Two cost dimensions: **GitHub Actions minutes** (only when you run via Actions) and **model usage**.

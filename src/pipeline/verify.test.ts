@@ -204,6 +204,13 @@ describe('runVerification', () => {
     expect(result.command).toBe('pnpm test');
   });
 
+  it('runs the verify command in a non-login shell (#1180)', async () => {
+    const calls: unknown[] = [];
+    const sandbox = { exec: async (_c: string, o?: unknown): Promise<ExecResult> => { calls.push(o); return { stdout: '', stderr: '', exitCode: 0 }; } } as unknown as IsolatedSandboxProvider;
+    await runVerification(sandbox, 'pnpm test');
+    expect(calls).toContainEqual(expect.objectContaining({ loginShell: false }));
+  });
+
   it('returns passed=false and non-zero exitCode on failure', async () => {
     const sandbox = fakeSandbox('', 'FAILED 3 tests', 1);
     const result = await runVerification(sandbox, 'pnpm test');
