@@ -1,5 +1,5 @@
 import { expect, test } from 'vitest';
-import { fmtDuration, foldRunEvents, stagesFromRecords, toLogLines, transcriptLines, type LoggedEvent } from './runStages';
+import { fmtDuration, foldRunEvents, stageLabel, stagesFromRecords, toLogLines, transcriptLines, withGateSteps, type LoggedEvent } from './runStages';
 import type { StageDetail } from '../../taskcell-output';
 
 let id = 0;
@@ -51,20 +51,40 @@ test('a finished run reads its stages from the records, with each stage\'s own d
     record: { taskId: 't', completed, exitReason: 'x', turns: 1, worktreePath: '/w', worktreePreserved: false, finalText: '', timestamp: 't', stage, ...(durationMs !== undefined ? { durationMs } : {}) },
   });
   expect(stagesFromRecords([rec('implementer', true, 27_277), rec('reviewer', false)])).toEqual([
-    { name: 'implementer', phase: 'done', ms: 27_277 },
-    { name: 'reviewer', phase: 'failed' },
+    { name: 'implementer', src: 0, phase: 'done', ms: 27_277 },
+    { name: 'reviewer', src: 1, phase: 'failed' },
   ]);
 });
 
-test('log lines: a tool call is a command, the agent\'s reply its first line, empties dropped, only the tail kept', () => {
+test('log lines: tool calls and the agent\'s first line only (no results, no cost line), empties dropped, only the tail kept', () => {
   const lines = toLogLines([
     { role: 'tool', text: 'Bash · pnpm test' },
     { role: 'tool_result', text: '14 passed' },
     { role: 'assistant', text: '\nAll green.\nMore words' },
     { role: 'assistant', text: '   ' },
+    { role: 'result', text: 'success · $0.32' },
   ]);
-  expect(lines).toEqual([{ cmd: true, text: 'Bash · pnpm test' }, { cmd: false, text: '14 passed' }, { cmd: false, text: 'All green.' }]);
+  expect(lines).toEqual([{ cmd: true, text: 'Bash · pnpm test' }, { cmd: false, text: 'All green.' }]);
   expect(toLogLines(Array.from({ length: 30 }, (_, i) => ({ role: 'tool', text: `c${i}` })), 5).map((l) => l.text)).toEqual(['c25', 'c26', 'c27', 'c28', 'c29']);
   expect(transcriptLines(undefined)).toEqual([]);
   expect(transcriptLines(JSON.stringify({ type: 'assistant', message: { content: [{ type: 'tool_use', name: 'Bash', input: { command: 'ls' } }] } }))).toEqual([{ cmd: true, text: 'Bash · ls' }]);
+});
+
+test('stage headings are words: Code, Review, Simplify, Plan, anything else capitalized', () => {
+  expect(['implementer', 'reviewer', 'simplifier', 'spec', 'planner', 'conformance'].map(stageLabel)).toEqual(['Code', 'Review', 'Simplify', 'Plan', 'Plan', 'Conformance']);
+});
+
+test('gate steps: Tests after the last implementing stage, PR last with its number; absent records add nothing', () => {
+  const st = stagesFromRecords([
+    { record: { taskId: 't', completed: true, exitReason: 'x', turns: 1, worktreePath: '/w', worktreePreserved: false, finalText: '', timestamp: 't', stage: 'implementer' } },
+    { record: { taskId: 't', completed: true, exitReason: 'x', turns: 1, worktreePath: '/w', worktreePreserved: false, finalText: '', timestamp: 't', stage: 'reviewer' } },
+  ]);
+  const proof = { command: 'pnpm test', exitCode: 0, passed: true, sha256: 'x', outputTail: '' };
+  expect(withGateSteps(st, undefined, undefined)).toEqual(st);
+  const full = withGateSteps(st, proof, 'https://github.com/o/r/pull/5');
+  expect(full.map((s) => s.name)).toEqual(['implementer', 'tests', 'reviewer', 'pr']);
+  expect(full[1]).toMatchObject({ phase: 'done', note: 'Passed' });
+  expect(full[1]).not.toHaveProperty('ms');
+  expect(full[3]).toMatchObject({ phase: 'done', note: '#5', href: 'https://github.com/o/r/pull/5' });
+  expect(withGateSteps(st, { ...proof, passed: false }, undefined)[1]).toMatchObject({ phase: 'failed', note: 'Failed' });
 });

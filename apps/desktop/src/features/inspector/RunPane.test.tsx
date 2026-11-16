@@ -45,10 +45,11 @@ test('a finished run: header, one card per stage record with its own duration, t
   expect(within(pane).getByText('Started by Hub')).toBeInTheDocument();
   expect(screen.queryByText(/\btoken\b/)).toBeNull();
   expect(within(pane).getAllByRole('link', { name: /Open in GitHub/ })[0]).toHaveAttribute('href', 'https://github.com/o/r/pull/5');
-  const cards = [0, 1, 2].map((i) => screen.getByTestId(`stage-${i}`));
-  expect(cards.map((c) => c.getAttribute('data-phase'))).toEqual(['done', 'done', 'done']);
-  expect(cards[0]).toHaveTextContent('implementer27s');
-  expect(cards[1]).toHaveTextContent('reviewer1m 15s');
+  const cards = [0, 1, 2, 3].map((i) => screen.getByTestId(`stage-${i}`));
+  expect(cards.map((c) => c.getAttribute('data-phase'))).toEqual(['done', 'done', 'done', 'done']);
+  expect(cards[3]).toHaveTextContent('PR#5');
+  expect(cards[0]).toHaveTextContent('Code27s');
+  expect(cards[1]).toHaveTextContent('Review1m 15s');
   expect(screen.getByLabelText('Total time')).toHaveTextContent('2m 16s');
   expect(screen.getByText('PR open')).toBeInTheDocument();
   expect(screen.queryByRole('button', { name: 'Cancel' })).toBeNull();

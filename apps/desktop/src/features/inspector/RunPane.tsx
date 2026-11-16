@@ -7,7 +7,7 @@ import { ExternalLink, hostName } from '../../components/ExternalLink';
 import { repoInitials, startedByLabel } from '../../runLabels';
 import { RunDetail } from './RunDetail';
 import { StageLine } from './StageLine';
-import { foldRunEvents, fmtDuration, stagesFromRecords, toLogLines, transcriptLines, type LoggedEvent, type LogLine } from './runStages';
+import { foldRunEvents, fmtDuration, stagesFromRecords, withGateSteps, toLogLines, transcriptLines, type LoggedEvent, type LogLine } from './runStages';
 import type { ActiveRun, RunDetail as RunDetailT, SessionRead } from '../../taskcell-output';
 
 /** The open run, for the Runs split view: header, stage line, log tail, and (finished) the full record below. */
@@ -88,13 +88,14 @@ export function RunPane({
     return () => clearInterval(id);
   }, [running]);
 
-  const stages = detail ? stagesFromRecords(detail.stages) : timeline.stages;
+  const stages = detail ? withGateSteps(stagesFromRecords(detail.stages), detail.proof, detail.prUrl) : timeline.stages;
   const lastSelectable = (() => {
-    const failed = stages.findIndex((s) => s.phase === 'failed');
-    return failed >= 0 ? failed : stages.length - 1;
+    // Only a stage with a record has a log to open: the first failed one, else the last.
+    const withLog = stages.flatMap((s, i) => (s.src !== undefined ? [i] : []));
+    return withLog.find((i) => stages[i]!.phase === 'failed') ?? withLog[withLog.length - 1] ?? 0;
   })();
   const selected = picked !== null && picked < stages.length ? picked : lastSelectable;
-  const lines: LogLine[] = detail ? transcriptLines(detail.stages[selected]?.transcript) : toLogLines(session?.entries ?? []);
+  const lines: LogLine[] = detail ? transcriptLines(detail.stages[stages[selected]?.src ?? -1]?.transcript) : toLogLines(session?.entries ?? []);
   useEffect(() => {
     tail.current?.scrollIntoView({ block: 'end' });
   }, [lines.length]);

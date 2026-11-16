@@ -1,7 +1,7 @@
 import { Fragment } from 'react';
 import { cn } from '@/ui';
 import { AlertCircle, CheckCircle2, Circle, CircleDot } from 'lucide-react';
-import { fmtDuration, type PaneStage } from './runStages';
+import { fmtDuration, stageLabel, type PaneStage } from './runStages';
 
 const ICON = {
   done: <CheckCircle2 className="size-4 shrink-0 text-success-text" aria-hidden />,
@@ -18,18 +18,22 @@ export function StageLine({ stages, now, selected, onSelect }: { stages: PaneSta
   return (
     <ol className="flex shrink-0 items-stretch overflow-x-auto pb-1" aria-label="Stages">
       {stages.map((s, i) => {
+        const label = s.label ?? stageLabel(s.name);
         const time =
+          s.note !== undefined ? s.note :
           s.phase === 'running' && s.startedAt !== undefined ? fmtDuration(now - s.startedAt) : s.ms !== undefined ? fmtDuration(s.ms) : s.phase === 'pending' ? 'Waiting' : '—';
-        const pickable = onSelect !== undefined && s.phase !== 'pending' && s.phase !== 'running';
+        const pickable = onSelect !== undefined && s.src !== undefined && s.phase !== 'pending' && s.phase !== 'running';
         const body = (
           <>
             <span className="flex items-center gap-2">
               {ICON[s.phase]}
-              <span className="truncate text-sm font-medium">{s.name}</span>
+              <span className="truncate text-sm font-medium">{label}</span>
             </span>
-            <span className="mt-1 block pl-6 text-sm tabular-nums">{time}</span>
+            <span className="mt-1 block pl-6 text-sm tabular-nums">
+              {s.href !== undefined ? <a href={s.href} target="_blank" rel="noreferrer" className="text-primary-text underline">{time}</a> : time}
+            </span>
             {s.phase === 'running' && (
-              <span className="mt-2 block h-1 overflow-hidden rounded-full bg-muted" role="progressbar" aria-label={`${s.name} in progress`}>
+              <span className="mt-2 block h-1 overflow-hidden rounded-full bg-muted" role="progressbar" aria-label={`${label} in progress`}>
                 <span className="block h-full w-1/3 animate-[stage-run_1.6s_ease-in-out_infinite] rounded-full bg-primary motion-reduce:animate-none motion-reduce:w-1/2" />
               </span>
             )}
