@@ -35,15 +35,17 @@ Things to know before copying:
 
 ### Permissions the caller must grant
 
-The reusable workflows declare no `permissions:` of their own — they run with whatever the caller grants. A caller that omits the block on a repo whose default `GITHUB_TOKEN` is read-only fails mid-run (at `gh label create`, `gh pr create` or the comment post), not at startup. What each one needs:
+Each reusable workflow's job declares the permissions it needs, as a ceiling: it never gets more, and GitHub refuses to start it (`The nested job … is requesting …`) when the calling job grants less. Grant them on the calling job and keep the workflow-level block at `permissions: {}` — OpenSSF Scorecard (Token-Permissions) scores write permissions at workflow level as high risk. What each one needs:
 
-| Reusable workflow | `contents` | `pull-requests` | `issues` |
-|---|---|---|---|
-| `implement.yml` | write | write | write |
-| `doctor.yml` | read | read | write |
-| `pr-review.yml` | read | write | write |
-| `research.yml` | read | — | write |
-| `revise.yml` | write (pushes the revision commit) | write | write |
+| Reusable workflow | `contents` | `pull-requests` | `issues` | `actions` |
+|---|---|---|---|---|
+| `implement.yml` | write | write | write | read (the `max-parallel` slot step) |
+| `doctor.yml` | read | read | write | — |
+| `pr-review.yml` | read | write | write | — |
+| `research.yml` | read | — | write | — |
+| `revise.yml` | write (pushes the revision commit) | write | write | — |
+
+**Required from 1.16.1:** an `implement` caller must grant `actions: read`, even without `max-parallel` — GitHub checks the declared permissions before the job starts, so a caller without it fails with `The nested job 'implement' is requesting 'actions: read', but is only allowed 'actions: none'`. Add it before moving to a `v1` that includes 1.16.1. Any other caller with a workflow-level block keeps working as long as it grants every scope above.
 
 
 ### `.github/workflows/taskcell-implement.yml` — does the work
@@ -56,12 +58,14 @@ on:
   issues:
     types: [labeled]
   workflow_dispatch:
-permissions:
-  contents: write
-  pull-requests: write
-  issues: write
+permissions: {}
 jobs:
   implement:
+    permissions:
+      contents: write
+      pull-requests: write
+      issues: write
+      actions: read
     if: >-
       (github.event_name == 'workflow_dispatch' && github.actor == 'YOUR_LOGIN') ||
       (github.event_name == 'issues' &&
@@ -108,7 +112,7 @@ The reusable workflow installs Taskcell with `pnpm install --ignore-workspace`, 
 | `skills` | string | `.vanguard-src/skills` | `--skills`: Taskcell's bundled skills; keep the default. Your repo's own skills go in `.github/vanguard-skills/<name>/SKILL.md` and are merged in automatically, no input needed ([Custom skills](skills.md#custom-skills-bring-your-own)). GitHub, GitLab and Projects runs used to ignore this input; they now read it, so a custom path that does not exist fails the run at startup |
 | `max-tasks` | string | `''` (no cap) | `--max-tasks`: cap ready issues claimed per phase in one run |
 | `issue` | string | `''` (sweep) | `--issue`: run only this issue. The template passes the labelled issue, so every issue gets its own run and its own concurrency group instead of queueing behind one shared group |
-| `max-parallel` | string | `''` (no limit) | with `issue`: at most this many runs work at once; later runs wait for a slot, first come first served (the cap can overshoot by one when two runs start in the same minute). The caller needs `actions: read` |
+| `max-parallel` | string | `''` (no limit) | with `issue`: at most this many runs work at once; later runs wait for a slot, first come first served (the cap can overshoot by one when two runs start in the same minute). Uses the `actions: read` every `implement` caller grants |
 | `sandbox-memory-mb` | string | `''` (CLI default: 2048–4096 by host RAM, 8192 with a read-only rootfs) | sandbox memory cap in MB (`TASKCELL_SANDBOX_MEMORY_MB`). A GitHub-hosted runner has 16 GB; long agent sessions or a full test suite inside the sandbox may need `'8192'` (at 2048 MB they can die with exit 134). Also on `revise.yml` |
 | `sandbox-readonly` | boolean | `false` | read-only root filesystem for the sandbox (`TASKCELL_SANDBOX_READONLY=1`); the default sandbox memory then rises to 8192 MB. Also on `revise.yml` and `pr-review.yml` |
 | `timeout-minutes` | number | `90` | job timeout. It also covers the wait for a free slot under `max-parallel`, so raise it for large tasks or a long queue (GitHub's ceiling is 360) |
@@ -132,15 +136,16 @@ Taskcell's own callers turn all three on; client repos should decide deliberatel
 name: Taskcell Doctor
 on:
   workflow_dispatch:
-permissions:
-  contents: read
-  issues: write
-  pull-requests: read
+permissions: {}
 concurrency:
   group: taskcell-doctor-${{ github.repository }}
   cancel-in-progress: true
 jobs:
   doctor:
+    permissions:
+      contents: read
+      issues: write
+      pull-requests: read
     if: github.actor == 'YOUR_LOGIN'
     uses: spietrza/taskcell/.github/workflows/doctor.yml@v1
     with:
@@ -163,15 +168,16 @@ on:
   pull_request_target:
     types: [labeled]
   workflow_dispatch:
-permissions:
-  contents: read
-  pull-requests: write
-  issues: write
+permissions: {}
 concurrency:
   group: taskcell-pr-review-${{ github.repository }}
   cancel-in-progress: false
 jobs:
   review:
+    permissions:
+      contents: read
+      pull-requests: write
+      issues: write
     if: >-
       (github.event_name == 'workflow_dispatch' && github.actor == 'YOUR_LOGIN') ||
       (github.event_name == 'pull_request_target' &&
@@ -247,12 +253,13 @@ on:
   workflow_dispatch:
     inputs:
       pr: { description: "PR number", required: true }
-permissions:
-  contents: write          # pushes the revision commit to the PR branch
-  pull-requests: write
-  issues: write
+permissions: {}
 jobs:
   revise:
+    permissions:
+      contents: write          # pushes the revision commit to the PR branch
+      pull-requests: write
+      issues: write
     if: >-
       (github.event_name == 'workflow_dispatch' && github.actor == 'YOUR_LOGIN') ||
       (github.event.label.name == 'needs revision' &&

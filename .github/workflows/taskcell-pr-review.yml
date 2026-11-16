@@ -8,16 +8,17 @@ on:
     types: [labeled, opened, ready_for_review]
   workflow_dispatch:
 
-permissions:
-  contents: read
-  pull-requests: write
-  issues: write
+permissions: {} # each job declares what it needs (OpenSSF Scorecard Token-Permissions)
 
 jobs:
   # A factory PR (a Vanguard branch in this repo, opened by an allowed login) that is not a draft gets the
   # trigger label here, so the review below runs without anyone labelling it. A label added with
   # GITHUB_TOKEN starts no new run (recursion guard), so this cannot trigger the review twice.
   label-factory-pr:
+    permissions:
+      contents: read
+      pull-requests: write
+      issues: write
     if: >-
       contains(fromJSON('["opened","ready_for_review"]'), github.event.action) &&
       github.event.pull_request.draft == false &&
@@ -38,6 +39,10 @@ jobs:
         run: gh api -X POST "repos/$GITHUB_REPOSITORY/issues/$PR/labels" -f 'labels[]=ready for taskcell review' --silent
 
   review:
+    permissions:
+      contents: read
+      pull-requests: write
+      issues: write
     needs: label-factory-pr
     if: >-
       !cancelled() && (

@@ -9,13 +9,14 @@ on:
     inputs:
       pr: { description: "PR number", required: true }
 
-permissions:
-  contents: write          # pushes the revision commit to the PR branch
-  pull-requests: write     # reply, resolve threads, gh pr ready
-  issues: write
+permissions: {} # each job declares what it needs (OpenSSF Scorecard Token-Permissions)
 
 jobs:
   revise:
+    permissions:
+      contents: write          # pushes the revision commit to the PR branch
+      pull-requests: write     # reply, resolve threads, gh pr ready
+      issues: write
     if: >-
       github.event_name == 'workflow_dispatch' ||
       (github.event.label.name == 'needs revision' &&

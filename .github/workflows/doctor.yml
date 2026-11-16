@@ -30,8 +30,16 @@ on:
       CODEX_AUTH_JSON:
         required: false
 
+# The job declares its permissions: a ceiling on what the caller grants. A caller must grant at least these
+# (GitHub refuses a called job that asks for more than its caller gave).
+permissions: {}
+
 jobs:
   doctor:
+    permissions:
+      contents: read
+      issues: write
+      pull-requests: read
     runs-on: ubuntu-latest
     timeout-minutes: 30
     env:

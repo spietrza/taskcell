@@ -1,0 +1,13 @@
+# Advisories in Tauri's Linux GTK3 stack with no fix available: Tauri 2.12.5 / wry 0.57.2 (latest) still
+# require gtk 0.18 (glib 0.18, proc-macro-error 1). Only the Linux build links GTK; macOS and Windows do not.
+# Remove these once Tauri moves to GTK4; ignoreUntil makes a scan flag them again for a recheck. OpenSSF Scorecard reads this file.
+
+[[IgnoredVulns]]
+id = "RUSTSEC-2024-0429"
+ignoreUntil = 2027-05-16 # recheck: has Tauri moved to GTK4?
+reason = "glib 0.18 VariantStrIter unsoundness; pulled in by tauri/wry gtk 0.18, linked only in the Linux build; no fixed release of the GTK3 stack exists."
+
+[[IgnoredVulns]]
+id = "RUSTSEC-2024-0370"
+ignoreUntil = 2027-05-16 # recheck with the entry above
+reason = "proc-macro-error is unmaintained (not a vulnerability); a build-time proc-macro dependency of gtk3-rs 0.18, no runtime exposure."

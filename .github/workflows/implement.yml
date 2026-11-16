@@ -11,7 +11,7 @@ name: Taskcell Implement (reusable)
 # builds it in the same invocation (carries the just-advanced id in memory, so it does not depend on
 # GitHub's eventually-consistent label index — see #143).
 #
-# The caller needs `permissions: contents: write, pull-requests: write, issues: write` and the repo
+# The calling job needs `permissions: contents: write, pull-requests: write, issues: write, actions: read` and the repo
 # setting "Allow GitHub Actions to create and approve pull requests".
 
 on:
@@ -102,7 +102,7 @@ on:
         type: string
         default: ''
       max-parallel:
-        description: 'With `issue` set: at most this many runs of the calling workflow do agent work at once; a later run waits (FIFO by run id) for a slot instead of being dropped. The caller needs `actions: read`. Empty = no limit.'
+        description: 'With `issue` set: at most this many runs of the calling workflow do agent work at once; a later run waits (FIFO by run id) for a slot instead of being dropped. Uses the `actions: read` every caller grants (the job declares it). Empty = no limit.'
         type: string
         default: ''
       skills:
@@ -133,8 +133,17 @@ on:
         description: 'Private key of the taskcell GitHub App (with repo variable TASKCELL_APP_CLIENT_ID). When both are set, factory PRs are opened by the App bot instead of the PAT owner; the CLI mints a short-lived token right before each use.'
         required: false
 
+# The job declares its permissions: a ceiling on what the caller grants. A caller must grant at least these
+# (GitHub refuses a called job that asks for more than its caller gave).
+permissions: {}
+
 jobs:
   implement:
+    permissions:
+      contents: write
+      pull-requests: write
+      issues: write
+      actions: read # the slot step counts in-progress runs (max-parallel)
     runs-on: ubuntu-latest
     timeout-minutes: ${{ inputs.timeout-minutes }}
     env:
