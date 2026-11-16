@@ -19,6 +19,8 @@ import { readEnv } from '../core/env.js';
 export interface RunApproverInput {
   repoPath: string;
   repoSlug: string;
+  /** The repository's node id, recorded with every decision so a rename does not orphan its history. */
+  repoId?: string;
   prNumber: number;
   /** `act` only takes effect when `.taskcell/approver.json` on the base branch also sets `act: true`; otherwise shadow. */
   mode: 'shadow' | 'act';
@@ -59,7 +61,7 @@ export async function runApprover(input: RunApproverInput, state: { updated: boo
 
   let acting = false;
   const finish = async (facts: ApproverFacts | undefined, decision: Decision, policyHash: string, publishHeadSha: string): Promise<RunApproverResult> => {
-    const record = buildDecisionRecord({ mode: acting ? 'act' : 'shadow', repo: input.repoSlug, prNumber: input.prNumber, headSha: publishHeadSha, facts, decision, policyHash, timestamp });
+    const record = buildDecisionRecord({ mode: acting ? 'act' : 'shadow', repo: input.repoSlug, ...(input.repoId !== undefined ? { repoId: input.repoId } : {}), prNumber: input.prNumber, headSha: publishHeadSha, facts, decision, policyHash, timestamp });
     if (input.dryRun) return { record };
     // Publish first, record last, and run every step even when one fails: a failed record append must not
     // hide the check run, and no failure is swallowed — they are reported together once all three ran.
@@ -126,7 +128,7 @@ export async function runApprover(input: RunApproverInput, state: { updated: boo
   acting = actRequested && policy.act === true;
   const actGh = actSafeGhRunner(rawGh);
   const logAction = (action: ActionKind, reason: string, headSha: string, reasonCode?: string, prNumber: number = input.prNumber): Promise<void> =>
-    appendAction(input.repoPath, { schemaVersion: 1, kind: 'action', mode: 'act', repo: input.repoSlug, prNumber, headSha, action, reason, ...(reasonCode !== undefined && reasonCode !== reason ? { reasonCode } : {}), timestamp }, branchOpts);
+    appendAction(input.repoPath, { schemaVersion: 1, kind: 'action', mode: 'act', repo: input.repoSlug, ...(input.repoId !== undefined ? { repoId: input.repoId } : {}), prNumber, headSha, action, reason, ...(reasonCode !== undefined && reasonCode !== reason ? { reasonCode } : {}), timestamp }, branchOpts);
   // `code` is the stable part of a reason (default: the reason itself): it keys the marker and the log, so a different code on the
   // same head is reported while free-form detail (a gh error) does not make every run comment again.
   const tell = async (action: ActionKind, reason: string, headSha: string, code: string = reason): Promise<void> => {

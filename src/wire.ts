@@ -139,7 +139,7 @@ export interface RepoSkill {
   name: string;
   /** Git URL it is pinned to; '-' for a local skill. */
   source: string;
-  /** Short pinned commit; '-' when none. */
+  /** Short pinned commit; empty when none. */
   commit: string;
   /** Lock status: pinned, locally modified, or not in the lock. */
   status: 'pinned' | 'local' | 'modified';
@@ -823,6 +823,8 @@ export interface AppConfig {
   color?: string | null;
   provider?: string | null;
   reviewProvider?: string | null;
+  /** Flow the Hub runs this project with: a built-in or `.taskcell/flows/<name>.hcl`; unset = the source default. */
+  flow?: string | null;
   verifyCmd?: string | null;
   concurrency?: number | null;
   budgetUsd?: number | null;

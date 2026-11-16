@@ -16,7 +16,8 @@ export async function skillsCommand(cmd: SkillsCommand): Promise<number> {
       return 0;
     }
     if (cmd.action === 'update') {
-      const { prUrl } = await skillsUpdate({ dir: cmd.dir, repo: cmd.repo, dryRun: cmd.dryRun, pr: cmd.pr, force: cmd.force, ...(cmd.name !== undefined ? { name: cmd.name } : {}), ...(cmd.baseBranch !== undefined ? { baseBranch: cmd.baseBranch } : {}) });
+      const { action: _a, kind: _k, ...opts } = cmd;
+      const { prUrl } = await skillsUpdate(opts);
       if (prUrl !== undefined) console.log(`opened ${prUrl}`);
       return 0;
     }

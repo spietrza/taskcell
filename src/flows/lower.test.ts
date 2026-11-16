@@ -123,3 +123,12 @@ test('rejects a ref export whose own name takes the reserved "after-" prefix, wh
     await rm(repo, { recursive: true, force: true });
   }
 });
+
+test('marks a stage whose model the flow sets (modelFromFlow), not a library default', async () => {
+  const stages = await lowerFlow(
+    doc([{ name: 'planner', overrides: { model: 'sonnet' } }, { name: 'implementer', overrides: {} }]),
+    { repoPath: REPO },
+  );
+  expect(stages[0]?.modelFromFlow).toBe(true);
+  expect(stages[1]?.modelFromFlow).toBeUndefined();
+});

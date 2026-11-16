@@ -40,6 +40,13 @@ const provider = (cfg: AppConfig): string => {
   return p;
 };
 
+/** `--flow <name>` for a project that picked a flow, validated like the provider (app.json is repo content). */
+const flowArgs = (cfg: AppConfig): string[] => {
+  if (!cfg.flow) return [];
+  if (!FLOW_NAME_RE.test(cfg.flow)) throw new Error(`Invalid flow "${cfg.flow}" — pick one in Settings.`);
+  return ['--flow', cfg.flow];
+};
+
 const checkSource = (source: string): string => {
   if (!SOURCES.includes(source)) {
     throw new Error(`Invalid Task Source "${source}" — set github / gitlab / linear in Settings.`);
@@ -49,7 +56,7 @@ const checkSource = (source: string): string => {
 
 /** Default `taskcell run` command for a New Run — `<issue>` is left for the user to fill. */
 export function runCommand(cfg: AppConfig, source: string = cfg.source ?? 'github'): string {
-  return ['taskcell run', `--${checkSource(source)}`, '<issue>', '--provider', provider(cfg), '--max-turns', String(MAX_TURNS), ...usageCapArgs(cfg)].join(' ');
+  return ['taskcell run', `--${checkSource(source)}`, '<issue>', '--provider', provider(cfg), '--max-turns', String(MAX_TURNS), ...flowArgs(cfg), ...usageCapArgs(cfg)].join(' ');
 }
 
 /**
@@ -72,6 +79,7 @@ export function watchArgv(
     provider(cfg),
     '--max-turns',
     String(MAX_TURNS),
+    ...flowArgs(cfg),
     ...usageCapArgs(cfg),
   ];
 }

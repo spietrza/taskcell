@@ -3,7 +3,7 @@ import { emitFlowDoc } from './emit-doc.js';
 import type { StageDecl, StageOverrides } from './types.js';
 
 /** Fields the library re-supplies on parse; never emitted (their absence from HCL is by design). */
-const IDENTITY = new Set(['name', 'promptTemplate', 'systemPrompt']);
+const IDENTITY = new Set(['name', 'promptTemplate', 'systemPrompt', 'modelFromFlow']);
 
 /** Emittable override fields. HCL keys are the snake_case of these. */
 const EMITTABLE = ['model', 'effort', 'maxTurns', 'provider', 'resumePrevious'] as const;

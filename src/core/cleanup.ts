@@ -20,12 +20,13 @@ export function untrackSandbox(sandbox: Destroyable): void {
 /** Destroy every tracked sandbox, swallowing errors. Returns how many were tracked. */
 export async function destroyAllTracked(): Promise<number> {
   const sandboxes = [...live];
-  const proxies = [...liveProxies];
   live.clear();
-  liveProxies.clear();
   const destroy = (all: Destroyable[]): Promise<unknown> => Promise.all(all.map((d) => d.destroy().catch(() => undefined)));
   // Sandboxes first: a cell still running could rotate the token between the proxy's read-back and its removal.
   await destroy(sandboxes);
+  // Snapshotted after the sandbox phase so a proxy started meanwhile is not missed.
+  const proxies = [...liveProxies];
+  liveProxies.clear();
   await destroy(proxies);
   return sandboxes.length + proxies.length;
 }

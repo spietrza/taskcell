@@ -72,6 +72,12 @@ export declare const REFRESH_REFUSED_PREFIX: string;
 export declare const REFRESH_FAILED_PREFIX: string;
 export declare const REFRESH_RECOVERED: string;
 
+/** C0/C1 controls, line/paragraph separators and bidi overrides (non-global, for `.test`). */
+export declare const CONTROL_CHARS: RegExp;
+
+/** `v` without control, separator and bidi-override characters. */
+export declare function stripControlChars(v: string): string;
+
 /** Which chatgpt-plan IdP route (if any) this request targets; undefined for anything else. */
 export declare function chatgptIdpRoute(method: string, path: string | undefined): 'refresh' | 'revoke' | undefined;
 
