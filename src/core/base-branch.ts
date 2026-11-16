@@ -253,8 +253,8 @@ async function fetchWithLockRetry(repoPath: string, refspec: string, remoteRef: 
 
 async function runFetch(repoPath: string, refspec: string): Promise<FetchResult> {
   // `refspec` is built from a base resolveRemoteBaseRef already passed through assertSafeBaseBranch
-  // (refuses a leading "-"); `--end-of-options` is the second guard.
-  const r = await execa('git', ['fetch', '--end-of-options', 'origin', refspec], { cwd: repoPath, reject: false, env: FETCH_ENV, timeout: FETCH_TIMEOUT_MS });
+  // (refuses a leading "-"); the `--` before the positionals is the second guard.
+  const r = await execa('git', ['fetch', '--', 'origin', refspec], { cwd: repoPath, reject: false, env: FETCH_ENV, timeout: FETCH_TIMEOUT_MS });
   return { exitCode: r.exitCode, stderr: r.stderr, timedOut: r.timedOut, lockLost: r.exitCode !== 0 && !r.timedOut && REF_LOCK_RE.test(r.stderr) };
 }
 

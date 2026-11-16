@@ -4,7 +4,7 @@
 // large file. Dependencies and the start date are plain fields here; src/hub/schedule.ts decides what may start.
 import { createHash, randomUUID } from 'node:crypto';
 import { constants } from 'node:fs';
-import { lstat, mkdir, open, readFile, readdir, rename, rm, writeFile } from 'node:fs/promises';
+import { mkdir, open, readdir, rename, rm, writeFile } from 'node:fs/promises';
 import { dirname, join } from 'node:path';
 import { BadRequestError } from '../sidecar/sidecar.js';
 import { keyedLock } from '../core/keyed-lock.js';
@@ -119,11 +119,17 @@ function isTask(r: unknown, seen: Set<string>): r is HubTask {
  */
 async function readOptional(file: string): Promise<string | undefined> {
   try {
-    if ((await lstat(file)).isSymbolicLink()) throw new Error('it is a symlink');
-    return await readFile(file, 'utf8');
+    // O_NOFOLLOW refuses a symlink (ELOOP) in the open itself, so no lstat-then-read race.
+    const fh = await open(file, constants.O_RDONLY | (constants.O_NOFOLLOW ?? 0));
+    try {
+      return await fh.readFile('utf8');
+    } finally {
+      await fh.close();
+    }
   } catch (e) {
-    if ((e as NodeJS.ErrnoException).code === 'ENOENT') return undefined;
-    throw new BadRequestError(`the hub task store ${file} is unreadable: ${String(e)}`);
+    const code = (e as NodeJS.ErrnoException).code;
+    if (code === 'ENOENT') return undefined;
+    throw new BadRequestError(`the hub task store ${file} is unreadable: ${code === 'ELOOP' ? 'it is a symlink' : String(e)}`);
   }
 }
 
@@ -247,11 +253,12 @@ async function repoPathOf(file: string): Promise<unknown> {
     const { bytesRead } = await fh.read(buf, 0, buf.length, 0);
     const m = HEAD_REPO_PATH.exec(buf.toString('utf8', 0, bytesRead));
     if (m !== null) return JSON.parse(m[1]!);
+    // A hand-edited store with another key order, or a very long path: the full parse, through the same
+    // handle (the positional read above left its position at 0).
+    return (JSON.parse(await fh.readFile('utf8')) as { repoPath?: unknown }).repoPath;
   } finally {
     await fh.close();
   }
-  // A hand-edited store with another key order, or a very long path: the full parse.
-  return (JSON.parse(await readFile(file, 'utf8')) as { repoPath?: unknown }).repoPath;
 }
 
 /** The repositories that have a hub task store. An unreadable store is reported and skipped. */

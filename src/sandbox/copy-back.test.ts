@@ -390,3 +390,20 @@ describe('CI_CONFIG_RULE linear time', () => {
     expect(Date.now() - t).toBeLessThan(500);
   });
 });
+
+describe('exportWorkspace dropped CI config comparison', () => {
+  it('reports a same-size edit and a file replacing a symlink, never an identical file', async () => {
+    const worktree = await mkdtemp(join(tmpdir(), 'vg-copyback-wt-'));
+    const staging = await mkdtemp(join(tmpdir(), 'vg-copyback-staging-'));
+    try {
+      await seedRepo(worktree);
+      await writeTree(worktree, { '.github/workflows/same.yml': 'on: push\n', '.github/workflows/edit.yml': 'on: push\n', 'target.yml': 'on: push\n', '.github/workflows/link.yml': { link: '../../target.yml' } });
+      const files = { 'README.md': '# r\n', '.github/workflows/same.yml': 'on: push\n', '.github/workflows/edit.yml': 'on: pull\n', '.github/workflows/link.yml': 'on: push\n' };
+      const report = await exportWorkspace(fakeSandbox(files), '/workspace', staging, worktree);
+      expect([...report.dropped].sort()).toEqual(['.github/workflows/edit.yml', '.github/workflows/link.yml']);
+    } finally {
+      await rm(worktree, { recursive: true, force: true });
+      await rm(staging, { recursive: true, force: true });
+    }
+  });
+});

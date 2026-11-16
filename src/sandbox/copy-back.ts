@@ -1,4 +1,5 @@
-import { cp, lstat, readFile, readdir, readlink, realpath, rm, rmdir } from 'node:fs/promises';
+import { constants } from 'node:fs';
+import { cp, lstat, open, readdir, readlink, realpath, rm, rmdir } from 'node:fs/promises';
 import { dirname, isAbsolute, join, relative, sep } from 'node:path';
 import { SandboxError } from '../core/errors.js';
 import type { IsolatedSandboxProvider } from './provider.js';
@@ -167,12 +168,30 @@ async function collectChangedFiles(staging: string, worktree: string, rel: strin
     if ((await readlink(src)) !== (await readlink(dest).catch(() => undefined))) changed.push(rel);
     return;
   }
-  const destInfo = info.isFile() ? await lstat(dest).catch(() => undefined) : undefined;
-  if (destInfo?.isFile() !== true || destInfo.size !== info.size || info.size > MAX_COMPARED_BYTES) {
-    changed.push(rel);
-    return;
+  if (!info.isFile() || !(await sameFileContent(src, dest))) changed.push(rel);
+}
+
+/** Opened without following a link, and without blocking should a FIFO have replaced the file. */
+const COMPARE_OPEN_FLAGS = constants.O_RDONLY | (constants.O_NOFOLLOW ?? 0) | (constants.O_NONBLOCK ?? 0);
+
+/** Size and content are both read through one handle per file, so what is checked is what is read
+ * (no lstat-then-readFile race). A missing or non-regular `dest` counts as different. */
+async function sameFileContent(src: string, dest: string): Promise<boolean> {
+  const a = await open(src, COMPARE_OPEN_FLAGS);
+  try {
+    const b = await open(dest, COMPARE_OPEN_FLAGS).catch(() => undefined);
+    if (b === undefined) return false;
+    try {
+      const [sa, sb] = await Promise.all([a.stat(), b.stat()]);
+      if (!sa.isFile() || !sb.isFile() || sa.size !== sb.size || sa.size > MAX_COMPARED_BYTES) return false;
+      const [ca, cb] = await Promise.all([a.readFile(), b.readFile()]);
+      return ca.equals(cb);
+    } finally {
+      await b.close();
+    }
+  } finally {
+    await a.close();
   }
-  if (!(await readFile(src)).equals(await readFile(dest))) changed.push(rel);
 }
 
 export interface CopyBackReport {
