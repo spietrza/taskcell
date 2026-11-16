@@ -28,9 +28,14 @@ function parseArgDefaults(dockerfile: string): Map<string, string> {
   return new Map([...dockerfile.matchAll(/^ARG (\w+)=(.*)$/gm)].map((match) => [match[1]!, match[2]!]));
 }
 
+/** Substitute `${ARG}` references with their build-argument defaults. */
+function resolveSpec(spec: string, argDefaults: Map<string, string>): string {
+  return spec.replace(/\$\{(\w+)\}/g, (_, name: string) => argDefaults.get(name) ?? '');
+}
+
 /** Resolve build-argument defaults before checking for an exact release version. */
 function isPinned(spec: string, argDefaults: Map<string, string>): boolean {
-  const resolved = spec.replace(/\$\{(\w+)\}/g, (_, name: string) => argDefaults.get(name) ?? '');
+  const resolved = resolveSpec(spec, argDefaults);
   return /^(?:@[^/\s]+\/)?[^@\s]+@\d+\.\d+\.\d+(?:-[\w.-]+)?(?:\+[\w.-]+)?$/.test(resolved);
 }
 
@@ -42,14 +47,14 @@ async function readDockerfileSpecs(): Promise<{ dockerfile: string; specs: strin
 
 describe('docker/Dockerfile npm global installs', () => {
   it.each([
-    ['pnpm@12.18.0', true],
+    ['pnpm@10.32.1', true],
     ['@scope/cli@1.2.3-rc.1', true],
     ['bun@${BUN_VERSION}', true],
     ['pnpm', false],
     ['@scope/cli', false],
     ['pnpm@', false],
     ['pnpm@latest', false],
-    ['pnpm@^12.18.0', false],
+    ['pnpm@^10.32.1', false],
     ['bun@${MISSING}', false],
     ['bun@${FLOATING}', false],
   ])('checks exact versions: %s', (spec, expected) => {
@@ -103,5 +108,25 @@ describe('controller images install glab', () => {
     expect(runner).toEqual(await lines('hub.Dockerfile'));
     expect(runner.join('\n')).toContain('sha256sum -c -');
     expect(runner.join('\n')).toContain('dpkg -i /tmp/glab.deb');
+  });
+});
+
+describe('controller images pin the same CLIs as docker/Dockerfile', () => {
+  const read = (f: string): Promise<string> => readFile(new URL(`../../docker/${f}`, import.meta.url), 'utf8');
+  const versions = (dockerfile: string): Map<string, string> => {
+    const args = parseArgDefaults(dockerfile);
+    const out = new Map<string, string>();
+    for (const spec of npmGlobalInstallArgs(dockerfile)) {
+      expect(isPinned(spec, args), spec).toBe(true);
+      out.set(spec.slice(0, spec.lastIndexOf('@')), resolveSpec(spec, args));
+    }
+    return out;
+  };
+
+  it.each(['hub.Dockerfile', 'runner.Dockerfile'])('%s pins exact versions matching docker/Dockerfile', async (file) => {
+    const base = versions(await read('Dockerfile'));
+    const other = versions(await read(file));
+    expect(other.size).toBeGreaterThan(0);
+    for (const [name, spec] of other) expect(spec).toBe(base.get(name));
   });
 });
