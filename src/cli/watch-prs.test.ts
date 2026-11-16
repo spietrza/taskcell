@@ -134,6 +134,14 @@ describe('watchPrsCommand', () => {
       await watchPrsCommand(base, { reviewPr: vi.fn(async () => {}), watchPullRequests: secondWorks, log: () => {} });
       expect(secondWorks).toHaveBeenCalledTimes(2);
       expect(process.exitCode).toBeUndefined();
+
+      // Label not restored after the failure: the retry finds nothing, and the job must stay red.
+      const secondEmpty = vi.fn()
+        .mockResolvedValueOnce({ reviewed: [], failed: ['o/r#316'], skipped: [] })
+        .mockResolvedValueOnce({ reviewed: [], failed: [], skipped: [] });
+      await watchPrsCommand(base, { reviewPr: vi.fn(async () => {}), watchPullRequests: secondEmpty, log: () => {} });
+      expect(secondEmpty).toHaveBeenCalledTimes(2);
+      expect(process.exitCode).toBe(1);
     } finally {
       process.exitCode = previousExitCode;
     }
