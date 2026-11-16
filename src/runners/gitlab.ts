@@ -19,7 +19,7 @@ import type { Task } from '../tasks/fetcher.js';
 import type { ProviderChoice } from '../agents/registry.js';
 import type { GlabRunner } from '../tasks/gitlab.js';
 import type { SecretBlock } from '../core/secret-scan.js';
-import type { RunIssueDeps, RunIssueResult, SourceAdapter, PublishVerdictInput, ProofFailureKind } from './source-adapter.js';
+import type { RunIssueDeps, RunIssueResult, Tracker, ReviewHost, PublishVerdictInput, ProofFailureKind } from './source-adapter.js';
 
 /** Everything needed to run a single GitLab issue end to end. */
 export interface RunGitlabIssueDeps extends RunIssueDeps {
@@ -30,8 +30,18 @@ export interface RunGitlabIssueDeps extends RunIssueDeps {
 /** The shared run result, unnarrowed: `secretBlocked` must reach the watch loop so a withheld MR is not read as "no changes". */
 export type RunGitlabIssueResult = RunIssueResult;
 
+/** The GitLab review host (`glab`): draft MR, verdict note and labels. Shared by every source whose result is a GitLab MR. */
+export function gitlabReviewHost(project: string, glab?: GlabRunner): ReviewHost {
+  return {
+    kind: 'glab',
+    publishVerdict: (input: PublishVerdictInput) => publishGitlabVerdict(project, input, glab),
+    addFailureLabel: (mrUrl: string, kind: ProofFailureKind) => addGitlabFailureLabel(project, mrUrl, kind, glab),
+    addGateConfigLabel: (mrUrl: string) => addGitlabGateConfigLabel(project, mrUrl, glab),
+  };
+}
+
 /** @internal Exported for unit tests; production callers use runGitlabIssue. */
-export function gitlabAdapter(deps: RunGitlabIssueDeps, glab?: GlabRunner): SourceAdapter {
+export function gitlabTracker(deps: RunGitlabIssueDeps, glab?: GlabRunner): Tracker {
   return {
     async prepare(issueRef: string) {
       const task = await new GitLabTaskFetcher(deps.project, glab).fetch(issueRef);
@@ -40,10 +50,6 @@ export function gitlabAdapter(deps: RunGitlabIssueDeps, glab?: GlabRunner): Sour
     taskId: (task: Task) => `gl-${task.id.replace(/[^a-zA-Z0-9]/g, '-')}`,
     stages: implementReviewSimplifyStages,
     closeIssueOnMerge: true,
-    reviewCli: 'glab',
-    publishVerdict: (input: PublishVerdictInput) => publishGitlabVerdict(deps.project, input, glab),
-    addFailureLabel: (mrUrl: string, kind: ProofFailureKind) => addGitlabFailureLabel(deps.project, mrUrl, kind, glab),
-    addGateConfigLabel: (mrUrl: string) => addGitlabGateConfigLabel(deps.project, mrUrl, glab),
     async linkPr(issueRef: string, _task: Task, mrUrl: string) {
       await linkMergeRequest(deps.project, issueRef, mrUrl, glab);
     },
@@ -59,7 +65,7 @@ export function gitlabAdapter(deps: RunGitlabIssueDeps, glab?: GlabRunner): Sour
       await Promise.all([label, commentGitlabIssue(deps.project, issueRef, renderSecretBlockComment(block), glab).catch(() => undefined)]);
     },
     async signalBaseRed(issueRef: string, _task: Task, body: string) {
-      // Note only, no label (see SourceAdapter); best-effort, like every other issue write-back.
+      // Note only, no label (see Tracker); best-effort, like every other issue write-back.
       await commentGitlabIssue(deps.project, issueRef, body, glab).catch(() => undefined);
     },
   };
@@ -132,7 +138,7 @@ export async function addGitlabFailureLabel(
 /**
  * Flag a GitLab MR as touching gate config; `project` resolves a bare MR iid. Unlike
  * addGitlabFailureLabel nothing is swallowed — not a bad URL, not a failed flip (see
- * SourceAdapter#addGateConfigLabel).
+ * ReviewHost#addGateConfigLabel).
  */
 export async function addGitlabGateConfigLabel(project: string, mrUrl: string, glab?: GlabRunner): Promise<void> {
   const target = parseMergeRequestRef(mrUrl, project);
@@ -145,7 +151,7 @@ export async function addGitlabGateConfigLabel(project: string, mrUrl: string, g
  * the MR link back onto the issue.
  */
 export async function runGitlabIssue(issueRef: string, deps: RunGitlabIssueDeps): Promise<RunGitlabIssueResult> {
-  return runSourcedIssue(issueRef, deps, gitlabAdapter(deps));
+  return runSourcedIssue(issueRef, deps, gitlabTracker(deps), gitlabReviewHost(deps.project));
 }
 
 /** Extract `group/project` from a scp-like SSH remote or any `scheme://` remote URL (HTTPS, `ssh://` with a port). */

@@ -11,7 +11,8 @@ import {
   knownGitlabProjectFromOrigin,
   redactRemote,
   runGitlabIssue,
-  gitlabAdapter,
+  gitlabTracker,
+  gitlabReviewHost,
   gitlabDepsFromEnv,
 } from './gitlab.js';
 import type { RunGitlabIssueDeps } from './gitlab.js';
@@ -173,22 +174,20 @@ function makeGlab(ret = '{}'): { glab: GlabRunner; calls: string[][] } {
   return { calls, glab };
 }
 
-describe('gitlabAdapter', () => {
+describe('gitlabTracker', () => {
   it('taskId sanitises issue ref to gl- prefix', () => {
-    const adapter = gitlabAdapter(makeDeps());
+    const adapter = gitlabTracker(makeDeps());
     expect(adapter.taskId({ id: 'group/project#42', title: 't', description: '', labels: [], children: [], comments: [] }))
       .toBe('gl-group-project-42');
   });
 
-  it('has reviewCli glab and closeIssueOnMerge true', () => {
-    const adapter = gitlabAdapter(makeDeps());
-    expect(adapter.reviewCli).toBe('glab');
-    expect(adapter.closeIssueOnMerge).toBe(true);
+  it('has closeIssueOnMerge true', () => {
+    expect(gitlabTracker(makeDeps()).closeIssueOnMerge).toBe(true);
   });
 
   it('signalSecretBlock creates the secret-blocked label before adding it, and posts the masked note', async () => {
     const { calls, glab } = makeGlab();
-    const adapter = gitlabAdapter(makeDeps(), glab);
+    const adapter = gitlabTracker(makeDeps(), glab);
     const task = { id: 'group/project#7', title: 't', description: '', labels: [], children: [], comments: [] };
 
     await adapter.signalSecretBlock('group/project#7', task, {
@@ -213,7 +212,7 @@ describe('gitlabAdapter', () => {
       if (args[0] === 'label') throw new Error('403');
       return '{}';
     };
-    const adapter = gitlabAdapter(makeDeps(), glab);
+    const adapter = gitlabTracker(makeDeps(), glab);
     const task = { id: 'group/project#7', title: 't', description: '', labels: [], children: [], comments: [] };
 
     await expect(adapter.signalSecretBlock('group/project#7', task, { reason: 'scan-error', message: 'gitleaks missing' })).resolves.toBeUndefined();
@@ -222,10 +221,36 @@ describe('gitlabAdapter', () => {
     expect(calls.some((c) => c[0] === 'issue' && c[1] === 'note')).toBe(true);
   });
 
+  it('linkPr calls glab to post MR note on the issue', async () => {
+    const calls: string[][] = [];
+    const glab: GlabRunner = async (args) => {
+      calls.push(args);
+      return '';
+    };
+    const adapter = gitlabTracker(makeDeps(), glab);
+    await adapter.linkPr('group/project#5', { id: 'group/project#5', title: 't', description: '', labels: [], children: [], comments: [] }, 'https://gitlab.com/group/project/-/merge_requests/9');
+    expect(calls.some((c) => c.join(' ').includes('opened an MR'))).toBe(true);
+  });
+
+  it('signalBaseRed posts a note only, no label', async () => {
+    const { calls, glab } = makeGlab();
+    const task = { id: 'group/project#7', title: 't', description: '', labels: [], children: [], comments: [] };
+    await gitlabTracker(makeDeps(), glab).signalBaseRed('group/project#7', task, 'base is red');
+    expect(calls).toHaveLength(1);
+    expect(calls[0]?.slice(0, 2)).toEqual(['issue', 'note']);
+    expect(calls[0]?.at(-1)).toContain('base is red');
+  });
+});
+
+describe('gitlabReviewHost', () => {
+  it('is the glab host', () => {
+    expect(gitlabReviewHost('group/project').kind).toBe('glab');
+  });
+
   it('publishVerdict throws when reviewerOutcome is missing', async () => {
-    const adapter = gitlabAdapter(makeDeps());
+    const host = gitlabReviewHost('group/project');
     await expect(
-      adapter.publishVerdict({
+      host.publishVerdict({
         prUrl: 'https://gitlab.com/group/project/-/merge_requests/1',
         headSha: 'abc123',
         attribution: 'claude',
@@ -235,8 +260,8 @@ describe('gitlabAdapter', () => {
 
   it('publishVerdict posts a note containing ## Taskcell Review and attribution', async () => {
     const { calls, glab } = makeGlab();
-    const adapter = gitlabAdapter(makeDeps(), glab);
-    await adapter.publishVerdict({
+    const host = gitlabReviewHost('group/project', glab);
+    await host.publishVerdict({
       prUrl: 'https://gitlab.com/group/project/-/merge_requests/7',
       headSha: 'abcdef1234567890',
       reviewerOutcome: stageOutcome('reviewer', 'No blocking findings.'),
@@ -251,8 +276,8 @@ describe('gitlabAdapter', () => {
 
   it('publishVerdict appends ## Conformance section when conformance outcome is present', async () => {
     const { calls, glab } = makeGlab();
-    const adapter = gitlabAdapter(makeDeps(), glab);
-    await adapter.publishVerdict({
+    const host = gitlabReviewHost('group/project', glab);
+    await host.publishVerdict({
       prUrl: 'https://gitlab.com/group/project/-/merge_requests/7',
       headSha: 'abcdef1234567890',
       reviewerOutcome: stageOutcome('reviewer', 'No blocking findings.'),
@@ -269,8 +294,8 @@ describe('gitlabAdapter', () => {
 
   it('publishVerdict adds gate degradation warning on blocking findings when gate=true', async () => {
     const { calls, glab } = makeGlab();
-    const adapter = gitlabAdapter(makeDeps(), glab);
-    await adapter.publishVerdict({
+    const host = gitlabReviewHost('group/project', glab);
+    await host.publishVerdict({
       prUrl: 'https://gitlab.com/group/project/-/merge_requests/7',
       headSha: 'abcdef1234567890',
       reviewerOutcome: stageOutcome(
@@ -286,8 +311,8 @@ describe('gitlabAdapter', () => {
 
   it('publishVerdict does not add gate warning when no blocking findings', async () => {
     const { calls, glab } = makeGlab();
-    const adapter = gitlabAdapter(makeDeps(), glab);
-    await adapter.publishVerdict({
+    const host = gitlabReviewHost('group/project', glab);
+    await host.publishVerdict({
       prUrl: 'https://gitlab.com/group/project/-/merge_requests/7',
       headSha: 'abcdef1234567890',
       reviewerOutcome: stageOutcome('reviewer', 'No blocking findings.'),
@@ -300,7 +325,7 @@ describe('gitlabAdapter', () => {
 
   it('maps gate-config to its own scoped label', async () => {
     const { calls, glab } = makeGlab('');
-    await gitlabAdapter(makeDeps(), glab).addFailureLabel('https://gitlab.com/group/project/-/merge_requests/1', 'gate-config');
+    await gitlabReviewHost('group/project', glab).addFailureLabel('https://gitlab.com/group/project/-/merge_requests/1', 'gate-config');
     expect(calls).toEqual([
       ['label', 'create', '--repo', 'group/project', '--name', 'taskcell::gate-config-changed'],
       ['mr', 'update', '1', '--repo', 'group/project', '--label', 'taskcell::gate-config-changed'],
@@ -309,7 +334,7 @@ describe('gitlabAdapter', () => {
 
   it('addGateConfigLabel pre-creates and adds the gate-config label', async () => {
     const { calls, glab } = makeGlab('');
-    await gitlabAdapter(makeDeps(), glab).addGateConfigLabel('https://gitlab.com/group/project/-/merge_requests/1');
+    await gitlabReviewHost('group/project', glab).addGateConfigLabel('https://gitlab.com/group/project/-/merge_requests/1');
     expect(calls).toEqual([
       ['label', 'create', '--repo', 'group/project', '--name', 'taskcell::gate-config-changed'],
       ['mr', 'update', '1', '--repo', 'group/project', '--label', 'taskcell::gate-config-changed'],
@@ -321,16 +346,16 @@ describe('gitlabAdapter', () => {
       if (args[0] === 'mr') throw new Error('glab: 403');
       return '';
     };
-    await expect(gitlabAdapter(makeDeps(), glab).addGateConfigLabel('https://gitlab.com/group/project/-/merge_requests/1'))
+    await expect(gitlabReviewHost('group/project', glab).addGateConfigLabel('https://gitlab.com/group/project/-/merge_requests/1'))
       .rejects.toThrow('glab: 403');
     // A bad URL is not swallowed either (addGitlabFailureLabel returns silently there).
-    await expect(gitlabAdapter(makeDeps(), makeGlab('').glab).addGateConfigLabel('not-a-url')).rejects.toThrow();
+    await expect(gitlabReviewHost('group/project', makeGlab('').glab).addGateConfigLabel('not-a-url')).rejects.toThrow();
   });
 
   it('addFailureLabel maps verify → taskcell::verify-failed and pre-creates the label', async () => {
     const { calls, glab } = makeGlab('');
-    const adapter = gitlabAdapter(makeDeps(), glab);
-    await adapter.addFailureLabel('https://gitlab.com/group/project/-/merge_requests/1', 'verify');
+    const host = gitlabReviewHost('group/project', glab);
+    await host.addFailureLabel('https://gitlab.com/group/project/-/merge_requests/1', 'verify');
     // pre-create the scoped label, then add it to the MR — both routed through the injected GlabRunner.
     expect(calls).toEqual([
       ['label', 'create', '--repo', 'group/project', '--name', 'taskcell::verify-failed'],
@@ -340,23 +365,12 @@ describe('gitlabAdapter', () => {
 
   it('addFailureLabel maps visual-proof → taskcell::visual-proof-failed', async () => {
     const { calls, glab } = makeGlab('');
-    const adapter = gitlabAdapter(makeDeps(), glab);
-    await adapter.addFailureLabel('https://gitlab.com/group/project/-/merge_requests/2', 'visual-proof');
+    const host = gitlabReviewHost('group/project', glab);
+    await host.addFailureLabel('https://gitlab.com/group/project/-/merge_requests/2', 'visual-proof');
     expect(calls).toEqual([
       ['label', 'create', '--repo', 'group/project', '--name', 'taskcell::visual-proof-failed'],
       ['mr', 'update', '2', '--repo', 'group/project', '--label', 'taskcell::visual-proof-failed'],
     ]);
-  });
-
-  it('linkPr calls glab to post MR note on the issue', async () => {
-    const calls: string[][] = [];
-    const glab: GlabRunner = async (args) => {
-      calls.push(args);
-      return '';
-    };
-    const adapter = gitlabAdapter(makeDeps(), glab);
-    await adapter.linkPr('group/project#5', { id: 'group/project#5', title: 't', description: '', labels: [], children: [], comments: [] }, 'https://gitlab.com/group/project/-/merge_requests/9');
-    expect(calls.some((c) => c.join(' ').includes('opened an MR'))).toBe(true);
   });
 });
 
