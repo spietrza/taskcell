@@ -1,4 +1,10 @@
-import { LinearCliTaskFetcher, linkLinearIssue, commentLinearIssue } from '../tasks/linear-cli.js';
+import { LinearCliTaskFetcher, linkLinearIssue, commentLinearIssue, setLinearState, linearGraphql } from '../tasks/linear-cli.js';
+import { applyLinearDependencyGate } from '../tasks/linear-dependencies.js';
+import { runSpecGenerator } from './spec.js';
+import { NO_CHANGE_MSG, holdMessage, commentAndRevert, failureOrCapComment, runSpecCore, triageAgentRun } from './watch-shared.js';
+import type { WatchPrimitives, SpecWatchPrimitives, GenerateSpec } from './watch-shared.js';
+import type { RunSpecGeneratorDeps } from './spec.js';
+import type { LinearCliRunner, LinearGraphql } from '../tasks/linear-cli.js';
 import { implementReviewSimplifyStages, retrospectiveMemoryBlock } from '../pipeline/pipeline.js';
 import { publishReviewVerdict } from '../pipeline/review-publish.js';
 import { addPrFailureLabel, addPrGateLabel } from '../tasks/github.js';
@@ -139,4 +145,177 @@ export function linearDepsFromEnv(provider?: string, customProviders?: readonly 
     throw new Error('Set SKILLS_DIR to a directory of skills (e.g. a clone of schpet/linear-cli /skills).');
   }
   return { ...(auth !== undefined ? { auth } : {}), linearKey, skillsDir, repoPath: process.env.REPO_PATH ?? process.cwd() };
+}
+
+export interface WatchLinearOptions {
+  deps: RunLinearIssueDeps;
+  label: string;
+  /** Linear state TYPE to poll (triage/backlog/unstarted/started/...); default 'unstarted' (Todo-like). */
+  triggerState?: string;
+  /**
+   * The display NAME of the same state as `triggerState` (which is a TYPE). Needed because
+   * `setLinearState` takes a state NAME, not a type. Used by `onNoChange` to revert a genuine
+   * no-change issue back to the trigger state so a later poll re-picks it. Absent => onNoChange
+   * only comments (no state revert).
+   */
+  triggerStateName?: string;
+  /** State NAME to move an issue to on claim, e.g. 'In Progress'. */
+  claimedState: string;
+  /** State NAME after a PR opens, e.g. 'In Review'. */
+  reviewState: string;
+  /**
+   * Loop-v1 agent-pass triage gate (optional). When set, runOne first triages the ticket in 'agent'
+   * mode; a vague ticket is commented + moved to this state and NO implement budget is spent (returns
+   * no PR). Absent => behaviour is unchanged (no triage, straight to runLinearIssue).
+   */
+  needsInfoState?: string;
+  team?: string;
+  concurrency?: number;
+  intervalMs?: number;
+  once?: boolean;
+  /** Cap the number of ready tasks claimed and processed per poll (unset: process all). */
+  maxTasks?: number;
+  signal?: AbortSignal;
+  linear?: LinearCliRunner;
+  /** Injected for tests: the GraphQL sender for list and the dependency gate. */
+  graphql?: LinearGraphql;
+}
+
+interface LinearReadyOptions {
+  label: string;
+  state: string;
+  team?: string;
+  linear?: LinearCliRunner;
+  graphql?: LinearGraphql;
+  moveToNeedsInfo?: (id: string) => Promise<void>;
+}
+
+/** List and dependency-check with one resolved GraphQL sender for the whole poll. */
+async function listLinearReady(opts: LinearReadyOptions): Promise<Task[]> {
+  const graphql = opts.graphql ?? (await linearGraphql(opts.linear));
+  const fetcher = new LinearCliTaskFetcher({
+    ...(opts.team !== undefined ? { team: opts.team } : {}),
+    ...(opts.linear !== undefined ? { linear: opts.linear } : {}),
+    graphql,
+  });
+  return applyLinearDependencyGate(await fetcher.list({ labels: [opts.label], state: opts.state }), {
+    ...(opts.moveToNeedsInfo !== undefined ? { moveToNeedsInfo: opts.moveToNeedsInfo } : {}),
+    ...(opts.linear !== undefined ? { linear: opts.linear } : {}),
+    graphql,
+  });
+}
+
+/** Build the real Linear-backed primitives: state+label trigger, claim and review via state changes. */
+export function linearWatchPrimitives(opts: WatchLinearOptions): WatchPrimitives {
+  const fetcher = new LinearCliTaskFetcher({
+    ...(opts.team !== undefined ? { team: opts.team } : {}),
+    ...(opts.linear !== undefined ? { linear: opts.linear } : {}),
+    ...(opts.graphql !== undefined ? { graphql: opts.graphql } : {}),
+  });
+  const trigger = opts.triggerState ?? 'unstarted';
+  const needsInfoState = opts.needsInfoState;
+  return {
+    listReady: () =>
+      listLinearReady({
+        label: opts.label,
+        state: trigger,
+        ...(opts.team !== undefined ? { team: opts.team } : {}),
+        ...(needsInfoState !== undefined ? { moveToNeedsInfo: (id: string) => setLinearState(id, needsInfoState, opts.linear) } : {}),
+        ...(opts.linear !== undefined ? { linear: opts.linear } : {}),
+        ...(opts.graphql !== undefined ? { graphql: opts.graphql } : {}),
+      }),
+    claim: (id) => setLinearState(id, opts.claimedState, opts.linear),
+    runOne:
+      needsInfoState === undefined
+        ? (id) => runLinearIssue(id, opts.deps)
+        : (id) =>
+            triageAgentRun(id, fetcher, (i) => runLinearIssue(i, opts.deps), {
+              comment: (body) => commentLinearIssue(id, body, opts.linear),
+              toNeedsInfo: () => setLinearState(id, needsInfoState, opts.linear),
+            }, opts.deps.feedbackAuthors),
+    review: (id) => setLinearState(id, opts.reviewState, opts.linear),
+    onNoChange: (id) =>
+      commentAndRevert(
+        commentLinearIssue(id, NO_CHANGE_MSG, opts.linear),
+        opts.triggerStateName !== undefined ? setLinearState(id, opts.triggerStateName, opts.linear) : undefined,
+      ),
+    // Linear has no blocked state and reverting to the trigger state would re-list the issue next
+    // poll, so the hold keeps the claimed state; the comment names the exact state to move back to.
+    // Holding is only safe while `claimedState` (a state NAME) does not resolve to the `triggerState`
+    // TYPE that listReady filters on — the same assumption the claim itself and onFailure rest on.
+    onSecretBlocked: (id) =>
+      commentLinearIssue(
+        id,
+        holdMessage(
+          `It stays in "${opts.claimedState}" so the watch will not re-run it.`,
+          `move it back to ${opts.triggerStateName !== undefined ? `"${opts.triggerStateName}"` : 'its trigger state'}`,
+        ),
+        opts.linear,
+      ),
+    onFailure: (id, error) => commentLinearIssue(id, failureOrCapComment('Taskcell run failed', error), opts.linear),
+  };
+}
+
+export interface WatchLinearSpecOptions {
+  /** Deps for the spec generator (no PR is opened in the spec pass). */
+  deps: RunSpecGeneratorDeps;
+  label: string;
+  /** Linear state TYPE to poll for spec-ready issues (e.g. 'triage'). */
+  specTriggerState?: string;
+  /**
+   * The display NAME of the same state as `specTriggerState` (which is a TYPE). Needed because
+   * `issue update --state` takes a state NAME, not a type — this is the name the issue is reverted to
+   * on failure so a later poll re-picks it. E.g. specTriggerState: 'triage', specTriggerStateName: 'Spec'.
+   */
+  specTriggerStateName: string;
+  /** State NAME to move an issue to on claim, e.g. 'Speccing'. */
+  claimedState: string;
+  /** State NAME after a spec is generated — the agent-pass trigger, e.g. 'Todo'. */
+  agentState: string;
+  /** State NAME when triage flags the ticket as too vague, e.g. 'Needs Info'. */
+  needsInfoState: string;
+  team?: string;
+  linear?: LinearCliRunner;
+  graphql?: LinearGraphql;
+  /** Injected for tests so the spec pass runs without a sandbox. Defaults to the real generator. */
+  generateSpec?: GenerateSpec;
+}
+
+/**
+ * Linear SPEC primitives: poll a state+label trigger, triage each issue, then either generate+post a
+ * tech spec and advance the issue to the agent state, or request clarification and move it to
+ * needs-info. On failure the issue is reverted to its spec-trigger state so a later poll retries it.
+ */
+export function linearSpecPrimitives(opts: WatchLinearSpecOptions): SpecWatchPrimitives {
+  const fetcher = new LinearCliTaskFetcher({
+    ...(opts.team !== undefined ? { team: opts.team } : {}),
+    ...(opts.linear !== undefined ? { linear: opts.linear } : {}),
+    ...(opts.graphql !== undefined ? { graphql: opts.graphql } : {}),
+  });
+  const trigger = opts.specTriggerState ?? 'triage';
+  const generate = opts.generateSpec ?? runSpecGenerator;
+  return {
+    listReady: () =>
+      listLinearReady({
+        label: opts.label,
+        state: trigger,
+        ...(opts.team !== undefined ? { team: opts.team } : {}),
+        moveToNeedsInfo: (id) => setLinearState(id, opts.needsInfoState, opts.linear),
+        ...(opts.linear !== undefined ? { linear: opts.linear } : {}),
+        ...(opts.graphql !== undefined ? { graphql: opts.graphql } : {}),
+      }),
+    claim: (id) => setLinearState(id, opts.claimedState, opts.linear),
+    runSpec: async (id) => {
+      const task = await fetcher.fetch(id);
+      return runSpecCore(task, id, opts.deps, generate, {
+        postComment: (body) => commentLinearIssue(id, body, opts.linear),
+        advance: () => setLinearState(id, opts.agentState, opts.linear),
+        toNeedsInfo: () => setLinearState(id, opts.needsInfoState, opts.linear),
+      });
+    },
+    onFailure: async (id, error) => {
+      await commentLinearIssue(id, failureOrCapComment('Taskcell spec failed', error), opts.linear);
+      await setLinearState(id, opts.specTriggerStateName, opts.linear);
+    },
+  };
 }
