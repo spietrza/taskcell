@@ -53,25 +53,25 @@ describe('run deps builders thread RunOptions', () => {
   it('linearDeps carries every option field', () => {
     process.env.LINEAR_API_KEY = 'key';
     const cmd = runCommand({ source: 'linear', skillsDir: '/skills' });
-    const deps = linearDeps(cmd, undefined, undefined, undefined, undefined);
+    const deps = linearDeps(cmd, undefined, { proxyMode: false });
     expect(deps).toMatchObject({ ...RUN_OPTIONS, forkScorer: 'decision' });
   });
 
   it('runGithub carries every option field', async () => {
-    await runGithub(runCommand(), undefined, undefined, undefined);
+    await runGithub(runCommand(), { proxyMode: false });
     const deps = vi.mocked(runGithubIssue).mock.calls[0]![1];
     expect(deps).toMatchObject({ ...RUN_OPTIONS, forkScorer: 'decision' });
   });
 
   it('runGitlab carries every option field', async () => {
-    await runGitlab(runCommand({ source: 'gitlab', project: 'g/p' }), undefined, undefined, undefined);
+    await runGitlab(runCommand({ source: 'gitlab', project: 'g/p' }), { proxyMode: false });
     const deps = vi.mocked(runGitlabIssue).mock.calls[0]![1];
     expect(deps).toMatchObject({ ...RUN_OPTIONS, forkScorer: 'decision' });
   });
 
   // AC-5 / T4: runProject silently dropped conformance/conformanceModel before this refactor.
   it('runProject carries every option field, including conformance', async () => {
-    await runProject(runCommand({ source: 'project' }), undefined, undefined, undefined);
+    await runProject(runCommand({ source: 'project' }), { proxyMode: false });
     const deps = vi.mocked(runGithubProject).mock.calls[0]![0];
     expect(deps).toMatchObject({ ...RUN_OPTIONS, forkScorer: 'decision' });
   });

@@ -109,8 +109,7 @@ export async function watchLinearSource(
     linearKey,
     skillsDir,
     repoPath: cmd.repoPath,
-    ...(ctx.proxyUrl !== undefined && ctx.network !== undefined ? { proxyUrl: ctx.proxyUrl, network: ctx.network } : {}),
-    ...(ctx.llmProxy !== undefined ? { llmProxy: ctx.llmProxy } : {}),
+    sandboxContext: ctx,
     ...pickRunOptions(cmd),
   };
 
@@ -127,8 +126,7 @@ export async function watchLinearSource(
         ...(cmd.team !== undefined ? { team: cmd.team } : {}),
       }),
       sandboxSecrets: { LINEAR_API_KEY: linearKey },
-      ...(ctx.proxyUrl !== undefined && ctx.network !== undefined ? { proxyUrl: ctx.proxyUrl, network: ctx.network } : {}),
-      ...(ctx.llmProxy !== undefined ? { llmProxy: ctx.llmProxy } : {}),
+      sandboxContext: ctx,
       ...(cmd.provider !== undefined ? { provider: cmd.provider } : {}),
       ...(cmd.customProviders !== undefined ? { customProviders: cmd.customProviders } : {}),
       ...(cmd.specModel !== undefined ? { specModel: cmd.specModel } : {}),
@@ -187,11 +185,7 @@ export async function watchLinearSource(
 export async function buildGithubDeps(cmd: WatchCommand, auth: AgentAuth | undefined, ctx: SandboxContext) {
   const deps = await githubDepsFromEnv(cmd.repoPath, cmd.repoSlug, cmd);
   if (auth !== undefined) deps.auth = auth;
-  if (ctx.proxyUrl !== undefined && ctx.network !== undefined) {
-    deps.proxyUrl = ctx.proxyUrl;
-    deps.network = ctx.network;
-  }
-  if (ctx.llmProxy !== undefined) deps.llmProxy = ctx.llmProxy;
+  deps.sandboxContext = ctx;
   Object.assign(deps, pickRunOptions(cmd));
   return deps;
 }
@@ -215,8 +209,7 @@ export async function watchGithubSource(
       ...(auth !== undefined ? { auth } : {}),
       repoPath: cmd.repoPath,
       fetcher: new GitHubTaskFetcher(repoSlug),
-      ...(ctx.proxyUrl !== undefined && ctx.network !== undefined ? { proxyUrl: ctx.proxyUrl, network: ctx.network } : {}),
-      ...(ctx.llmProxy !== undefined ? { llmProxy: ctx.llmProxy } : {}),
+      sandboxContext: ctx,
       ...(cmd.provider !== undefined ? { provider: cmd.provider } : {}),
       ...(cmd.customProviders !== undefined ? { customProviders: cmd.customProviders } : {}),
       ...(cmd.specModel !== undefined ? { specModel: cmd.specModel } : {}),
@@ -304,11 +297,7 @@ export async function watchGitlabSource(
 ): Promise<void> {
   const deps = await gitlabDepsFromEnv(cmd.repoPath, cmd.project, cmd);
   if (auth !== undefined) deps.auth = auth;
-  if (ctx.proxyUrl !== undefined && ctx.network !== undefined) {
-    deps.proxyUrl = ctx.proxyUrl;
-    deps.network = ctx.network;
-  }
-  if (ctx.llmProxy !== undefined) deps.llmProxy = ctx.llmProxy;
+  deps.sandboxContext = ctx;
   Object.assign(deps, pickRunOptions(cmd));
 
   // Loop v1: activated when --spec-label is supplied.
@@ -321,8 +310,7 @@ export async function watchGitlabSource(
       ...(auth !== undefined ? { auth } : {}),
       repoPath: cmd.repoPath,
       fetcher: new GitLabTaskFetcher(deps.project),
-      ...(ctx.proxyUrl !== undefined && ctx.network !== undefined ? { proxyUrl: ctx.proxyUrl, network: ctx.network } : {}),
-      ...(ctx.llmProxy !== undefined ? { llmProxy: ctx.llmProxy } : {}),
+      sandboxContext: ctx,
       ...(cmd.provider !== undefined ? { provider: cmd.provider } : {}),
       ...(cmd.customProviders !== undefined ? { customProviders: cmd.customProviders } : {}),
       ...(cmd.specModel !== undefined ? { specModel: cmd.specModel } : {}),

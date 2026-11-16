@@ -73,6 +73,11 @@ export function readRun(repoPath: string, ref: RunRef): Promise<RunDetail> {
   return call('read_run', { repoPath, taskId: ref.taskId, timestamp: ref.timestamp, source: ref.source });
 }
 
+/** HUB_ONLY: a run's persisted event log (stage starts and ends with their times), `timestamp` picking that run, default the newest. */
+export function readRunEvents(repoPath: string, taskId: string, timestamp?: string): Promise<Commands['read_run_events']['result']> {
+  return call('read_run_events', { repoPath, taskId, ...(timestamp !== undefined ? { timestamp } : {}) });
+}
+
 /** Hub-only: a native-dialog stand-in (src/hub/browse.ts) — lists `path`'s subdirectories, confined
  * to the hub's browse root, for `RepoPicker`. `path` omitted lists the root itself. */
 export function browseDirs(path?: string): Promise<DirListing> {

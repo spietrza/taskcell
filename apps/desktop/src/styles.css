@@ -79,3 +79,9 @@ body {
 *::-webkit-scrollbar-thumb:hover {
   background-color: color-mix(in oklab, currentColor 35%, transparent);
 }
+
+/* The running stage's progress bar (StageLine): a bar sliding across its track, since a stage reports no percentage. */
+@keyframes stage-run {
+  0% { transform: translateX(-100%); }
+  100% { transform: translateX(300%); }
+}

@@ -60,9 +60,7 @@ export async function revisePrCommand(cmd: RevisePrCommand, deps: RevisePrComman
     const result = await runRevise(cmd.prRef, {
       ...baseDeps,
       ...(auth !== undefined ? { auth } : {}),
-      ...(cmd.llmProxy === true ? { llmProxy: sandboxContext.llmProxy } : {}),
-      ...(sandboxContext.proxyUrl !== undefined ? { proxyUrl: sandboxContext.proxyUrl } : {}),
-      ...(sandboxContext.network !== undefined ? { network: sandboxContext.network } : {}),
+      sandboxContext,
     });
     logResult(result, log);
   } finally {
