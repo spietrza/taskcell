@@ -11,6 +11,23 @@ export interface LeadTimeOptions {
   reviseLabel?: string;
 }
 
+/** The one field list both the lead-time and the first-pass reads ask `gh pr view` for, so `memoizePrView` serves them from one call. */
+export const PR_VIEW_FIELDS = 'number,createdAt,mergedAt,closingIssuesReferences,reviews,comments';
+
+/** A runner that runs each identical `gh pr view` once (concurrent callers share the call); anything else passes through. */
+export function memoizePrView(gh: GhRunner): GhRunner {
+  const seen = new Map<string, Promise<string>>();
+  return (args, env) => {
+    if (args[0] !== 'pr' || args[1] !== 'view') return gh(args, env);
+    const key = args.join('\0');
+    const hit = seen.get(key);
+    if (hit !== undefined) return hit;
+    const call = gh(args, env);
+    seen.set(key, call);
+    return call;
+  };
+}
+
 interface GhPrLeadView {
   number: number;
   createdAt: string;
@@ -47,7 +64,7 @@ export async function fetchPrLeadTime(
   gh: GhRunner = defaultGhRunner,
 ): Promise<IssueLeadTime | undefined> {
   const view = JSON.parse(
-    await gh(['pr', 'view', String(prNumber), '--repo', repoSlug, '--json', 'number,createdAt,mergedAt,closingIssuesReferences']),
+    await gh(['pr', 'view', String(prNumber), '--repo', repoSlug, '--json', PR_VIEW_FIELDS]),
   ) as GhPrLeadView;
   // Only the first closing issue is measured: one PR, one lead-time record.
   const issueNumber = view.closingIssuesReferences?.[0]?.number;

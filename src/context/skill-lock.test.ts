@@ -5,7 +5,8 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { parseSkillLock, readSkillLock, sha256Hex, SKILL_LOCK_FILE } from './skill-lock.js';
 import { skillRegistryForRun } from './skill-registry.js';
 import { parseCli } from '../cli/args.js';
-import { skillsCheck, skillsCommand, skillsList } from '../cli/skills.js';
+import { skillsCommand } from '../cli/skills.js';
+import { skillsCheck, skillsList } from '../core/skills.js';
 
 const entry = (over: Record<string, unknown> = {}): Record<string, unknown> => ({
   name: 'a',

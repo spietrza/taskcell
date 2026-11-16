@@ -19,4 +19,6 @@ export const commands = defineCommands<CiCostCommands>({
     if (!PERIODS.includes(period)) throw new BadRequestError("period must be '7d', '30d' or 'all'");
     return costBreakdown(real, period as CostPeriod);
   },
+}, {
+  read_cost_breakdown: { write: false, repo: 'repoPath' },
 });

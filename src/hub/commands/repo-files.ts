@@ -38,4 +38,8 @@ export const commands = defineCommands<RepoFilesCommands>({
       return false;
     }
   },
+}, {
+  api_list_repo_files: { write: false, repo: 'repoPath' },
+  api_read_repo_file: { write: false, repo: 'repoPath' },
+  api_repo_ok: { write: false, gatedBy: 'the handler: a repository the caller may not touch answers false, not an error' },
 });

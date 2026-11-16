@@ -37,6 +37,11 @@ export const commands = defineCommands<AppConfigCommands>({
     return null;
   },
 }, {
+  read_app_config: { write: false, repo: 'repoPath' },
+  read_app_config_strict: { write: false, repo: 'repoPath' },
+  // app.json steers the tracker, labels and target branches the hub acts on, so it is a server write like the others.
+  write_app_config: { write: true, remote: true, repo: 'repoPath' },
+}, {
   write_app_config: {
     action: 'settings-change',
     target: repoTarget,

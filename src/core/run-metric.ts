@@ -101,7 +101,7 @@ export function mergeAttempts(prior: RunResult, next: RunResult): RunResult {
   const costUsd = sumOpt(prior.costUsd, next.costUsd);
   const durationMs = sumOpt(prior.durationMs, next.durationMs);
   // Attempts on different models (a cross-provider fallback) are priced each at its own rate.
-  const mixedModels = prior.model !== next.model || prior.mergedEstCostUsd !== undefined || next.mergedEstCostUsd !== undefined;
+  const mixedModels = prior.model !== next.model || prior.cachedInInput !== next.cachedInInput || prior.mergedEstCostUsd !== undefined || next.mergedEstCostUsd !== undefined;
   // An attempt without usage (it died before reporting any) adds nothing; it does not make the rest unpriceable.
   const attemptEst = (r: RunResult): number | undefined => (r.usage === undefined ? 0 : estimatedCostUsd(r));
   const priorEst = attemptEst(prior);

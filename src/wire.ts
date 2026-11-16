@@ -139,7 +139,7 @@ export interface RepoSkill {
   name: string;
   /** Git URL it is pinned to; '-' for a local skill. */
   source: string;
-  /** Short pinned commit; '-' when none. */
+  /** Short pinned commit; empty when none. */
   commit: string;
   /** Lock status: pinned, locally modified, or not in the lock. */
   status: 'pinned' | 'local' | 'modified';
@@ -488,7 +488,7 @@ export interface RunSummary {
   costUnknown?: true;
   /** Sum of the run's API-price estimates (see RunRecord.estCostUsd); shown as `≈`, next to the reported cost when some stages have one. */
   estCostUsd?: number;
-  /** Some entries without a reported cost have no estimate either (an unpriced model): the `≈` figure covers only the priced ones. */
+  /** Some entries without a reported cost have no estimate either (an unpriced model): the `≈` figure covers only the priced ones. On a run row it can be set with no `estCostUsd` (nothing priced). */
   estPartial?: true;
 }
 

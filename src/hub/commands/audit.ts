@@ -16,4 +16,6 @@ export const commands = defineCommands<AuditCommands>({
     const limit = optionalNumber(args, 'limit');
     return ctx.audit === undefined ? [] : ctx.audit.read({ ...(login ? { login } : {}), ...(limit !== undefined ? { limit } : {}) });
   },
+}, {
+  read_audit: { write: false, gatedBy: 'admin actor only (403), checked in the handler' },
 });

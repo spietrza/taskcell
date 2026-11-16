@@ -202,7 +202,7 @@ describe('applyGitlabDependencyGate', () => {
       expect(notesPosted(glab)[0]).toContain(reason);
     }
   });
-  it('comments once on a lookup error, keeps the trigger, and sends a repeat to needs info', async () => {
+  it('comments once on a lookup error, keeps the trigger, and never sends a repeat to needs info', async () => {
     const first = forbidden();
     expect(await applyGitlabDependencyGate([task(1, 'Depends on #2')], { ...opts, glab: first })).toEqual([]);
     expect(notesPosted(first)).toHaveLength(1);
@@ -211,15 +211,8 @@ describe('applyGitlabDependencyGate', () => {
     expect(labelEdits(first)[0]).not.toContain('--unlabel');
     const again = forbidden(notesPosted(first));
     await applyGitlabDependencyGate([task(1, 'Depends on #2', ['ready for agent', 'taskcell::waiting'])], { ...opts, glab: again });
-    expect(notesPosted(again)[0]).toContain('failed again');
-    expect(labelEdits(again)[0]).toContain('--label needs info --unlabel ready for agent --unlabel taskcell::waiting');
-  });
-  it('trusts only the bot for the repeat marker', async () => {
-    const base = forbidden();
-    const glab: GlabRunner = vi.fn(async (args: string[]) =>
-      /\/notes\?/.test(args[1] ?? '') ? JSON.stringify([{ body: '<!-- taskcell-waiting kind="error" -->', system: false, author: { username: 'outsider' } }]) : base(args));
-    await applyGitlabDependencyGate([task(1, 'Depends on #2')], { ...opts, glab });
-    expect(labelEdits(glab)[0]).not.toContain('needs info');
+    expect(notesPosted(again)).toHaveLength(0);
+    expect(labelEdits(again).join(' ')).not.toContain('needs info');
   });
   it('leaves an issue that declares nothing triggered and untouched when its links cannot be read', async () => {
     const glab = forbidden();

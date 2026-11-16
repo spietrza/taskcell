@@ -125,6 +125,19 @@ describe('CompleteRegistry', () => {
     expect(fake.killed).toBe(true);
   });
 
+  test('cancel() by another actor leaves the call running; the starting actor can stop it', async () => {
+    const fake = new FakeChild();
+    const registry = new CompleteRegistry(() => fake as unknown as ChildProcess);
+    const promise = registry.complete(repoPath, { messages: [], model: 'm' }, 'call-x', 'ann');
+    registry.cancel('call-x', 'mia');
+    expect(fake.killed).toBe(false);
+    registry.cancel('call-x', 'ann');
+    expect(fake.killed).toBe(true);
+    await requestSent(fake);
+    fake.emit('close');
+    await expect(promise).rejects.toThrow();
+  });
+
   test('cancel() kills exactly the child registered under its callId, leaving others alone', async () => {
     const fakeA = new FakeChild();
     const fakeB = new FakeChild();

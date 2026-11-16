@@ -476,7 +476,7 @@ describe('team caller wiring', () => {
       expect(((await post(h, 'list_projects', { 'x-test-user': 'ann' })).json.result as unknown[]).length).toBe(1);
       expect((await post(h, 'list_projects', { 'x-test-user': 'stranger' })).json.result).toEqual([]);
       const add = { teamId: 'default', login: 'zed', role: 'member' };
-      expect((await post(h, 'add_team_member', { 'x-test-user': 'mia' }, add)).status).toBe(400);
+      expect((await post(h, 'add_team_member', { 'x-test-user': 'mia' }, add)).status).toBe(403);
       expect((await post(h, 'add_team_member', { 'x-test-user': 'ann' }, add)).status).toBe(200);
       expect((await post(h, 'instance_credentials_status', { 'x-test-user': 'ann' })).status).toBe(403);
       expect((await post(h, 'instance_credentials_status', tok)).status).toBe(200);

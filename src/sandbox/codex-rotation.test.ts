@@ -20,6 +20,13 @@ describe('reportRotation sanitising', () => {
   it.each([
     ['a control character in a token', { tokens: { access_token: 'a\x1b[0m', refresh_token: 'new-refresh' } }],
     ['a non-string refresh token', { tokens: { access_token: 'a', refresh_token: 5 } }],
+    ['a control character in the refresh token', { tokens: { access_token: 'a', refresh_token: 'new\x1brefresh' } }],
+    ['an empty refresh token', { tokens: { access_token: 'a', refresh_token: '' } }],
+    ['a C1 control in a token', { tokens: { access_token: 'a\u009b', refresh_token: 'new-refresh' } }],
+    ['a bidi override in a token', { tokens: { access_token: 'a\u202e', refresh_token: 'new-refresh' } }],
+    ['an over-long token', { tokens: { access_token: 'a'.repeat(9000), refresh_token: 'new-refresh' } }],
+    ['a control character in last_refresh', { tokens: { access_token: 'a', refresh_token: 'new-refresh' }, last_refresh: '2026\x1b[0m' }],
+    ['an over-long last_refresh', { tokens: { access_token: 'a', refresh_token: 'new-refresh' }, last_refresh: '2'.repeat(100) }],
     ['a non-string last_refresh', { tokens: { access_token: 'a', refresh_token: 'new-refresh' }, last_refresh: { x: 1 } }],
   ])('leaves the host file alone on %s', async (_n, bad) => {
     vi.spyOn(console, 'warn').mockImplementation(() => {});

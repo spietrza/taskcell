@@ -1,7 +1,6 @@
 // Hub commands: enabling the factory on a repository (plan, apply, secret, verify). One module per feature — contract, validation and handler live here;
 // `pnpm gen:wire` derives Commands, COMMAND_NAMES and dispatch from it (see CONTRIBUTING.md).
 import { BadRequestError } from '../../sidecar/sidecar.js';
-import { assertMutationsAllowed } from '../allowlist.js';
 import { factoryPlanTargets, GITHUB_REPO_SLUG, noScripts } from '../enable-factory.js';
 import { factoryHostOf, factoryProviderFor, GITLAB_HOSTNAME, GITLAB_LOGIN, GITLAB_PROJECT_PATH, gitlabPlanTargets, validateRunnerTags } from '../enable-factory-gitlab.js';
 import { watchWorkerChecklist } from '../watch-worker.js';
@@ -94,9 +93,7 @@ export const commands = defineCommands<EnableFactoryCommands>({
     if (id !== 'gitlab') await assertHasRemote(real);
     return provider.plan();
   },
-  enable_factory_apply: async ({ ctx, args, allow }) => {
-    // Writes a branch, a commit and a PR in the target repo — a mutation, like clone_project.
-    assertMutationsAllowed(ctx.bind);
+  enable_factory_apply: async ({ args, allow }) => {
     const real = await allow(requireString(args, 'repoPath'));
     const shown = requirePlan(args, 'plan');
     // The tags are the user's edit of the plan's pre-fill, so they come from the shown plan (validated: they reach the generated YAML).
@@ -122,9 +119,7 @@ export const commands = defineCommands<EnableFactoryCommands>({
     const plan = requirePlan(args, 'plan');
     return factoryProviderFor(real, plan.provider).secretCommand(plan);
   },
-  enable_factory_verify: async ({ ctx, args, allow }) => {
-    // Dispatches the doctor workflow, so it mutates the remote too.
-    assertMutationsAllowed(ctx.bind);
+  enable_factory_verify: async ({ args, allow }) => {
     const real = await allow(requireString(args, 'repoPath'));
     const shown = requirePlan(args, 'plan');
     // Re-derive the plan server-side, as apply and start do: the record (and its copy-ready
@@ -151,8 +146,7 @@ export const commands = defineCommands<EnableFactoryCommands>({
     });
     return result;
   },
-  enable_factory_start: async ({ ctx, args, allow }) => {
-    assertMutationsAllowed(ctx.bind);
+  enable_factory_start: async ({ args, allow }) => {
     const real = await allow(requireString(args, 'repoPath'));
     const shown = requirePlan(args, 'plan');
     const plan = await factoryProviderFor(real, shown.provider).plan();
@@ -166,6 +160,16 @@ export const commands = defineCommands<EnableFactoryCommands>({
   },
   factory_state: async ({ args, allow }) => factoryState(await allow(requireString(args, 'repoPath'))),
   factory_refresh: async ({ args, allow }) => refreshFactory(await allow(requireString(args, 'repoPath'))),
+}, {
+  enable_factory_host: { write: false, repo: 'repoPath' },
+  enable_factory_watch: { write: false, repo: 'repoPath' },
+  enable_factory_plan: { write: false, repo: 'repoPath' },
+  enable_factory_apply: { write: true, remote: true, repo: 'repoPath' },
+  enable_factory_secret: { write: false, repo: 'repoPath' },
+  enable_factory_verify: { write: true, remote: true, repo: 'repoPath' },
+  enable_factory_start: { write: true, remote: true, repo: 'repoPath' },
+  factory_state: { write: false, repo: 'repoPath' },
+  factory_refresh: { write: false, repo: 'repoPath' },
 }, {
   enable_factory_apply: { action: 'enable-factory', target: repoTarget },
   enable_factory_verify: { action: 'enable-factory', target: repoTarget },
