@@ -1,5 +1,17 @@
 # Changelog
 
+## [1.16.3](https://github.com/spietrza/taskcell/compare/v1.16.2...v1.16.3) (2026-11-16)
+
+
+### Features
+
+* hub Sealed cell stage, pending stages, split view for a started run ([#1203](https://github.com/spietrza/taskcell/issues/1203)) ([#1205](https://github.com/spietrza/taskcell/issues/1205)) ([cc3e69f](https://github.com/spietrza/taskcell/commit/cc3e69fcc0744e44c658033f921605353cbf3373))
+
+
+### Miscellaneous
+
+* release 1.16.3 ([#1206](https://github.com/spietrza/taskcell/issues/1206)) ([02c8aac](https://github.com/spietrza/taskcell/commit/02c8aac269279601f3ed89d3ac15e7b8dc387f11))
+
 ## [1.16.2](https://github.com/spietrza/taskcell/compare/v1.16.1...v1.16.2) (2026-11-16)
 
 

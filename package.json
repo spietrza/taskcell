@@ -1,6 +1,6 @@
 {
   "name": "vanguard",
-  "version": "1.16.2",
+  "version": "1.16.3",
   "main": "dist/index.js",
   "bin": {
     "vanguard": "dist/cli/vanguard.js",
