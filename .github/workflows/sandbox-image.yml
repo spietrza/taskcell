@@ -10,11 +10,7 @@ on:
     paths: ['docker/**']
   workflow_dispatch:
 
-permissions:
-  contents: read
-  packages: write
-  id-token: write       # build provenance (Sigstore)
-  attestations: write
+permissions: {} # each job declares what it needs (OpenSSF Scorecard Token-Permissions)
 
 concurrency:
   group: sandbox-image
@@ -22,6 +18,11 @@ concurrency:
 
 jobs:
   publish:
+    permissions:
+      contents: read
+      packages: write
+      id-token: write       # build provenance (Sigstore)
+      attestations: write
     if: github.event_name == 'push' || github.actor == 'spietrza'
     runs-on: ubuntu-latest
     timeout-minutes: 30

@@ -22,14 +22,15 @@ on:
     inputs:
       pr: { description: "PR number", required: true }
 
-permissions:
-  contents: write        # append decisions.jsonl to the taskcell-metrics branch
-  checks: write          # the vanguard/approver check run
-  pull-requests: write   # the decision comment
-  issues: write
+permissions: {} # each job declares what it needs (OpenSSF Scorecard Token-Permissions)
 
 jobs:
   approve:
+    permissions:
+      contents: write        # append decisions.jsonl to the taskcell-metrics branch
+      checks: write          # the vanguard/approver check run
+      pull-requests: write   # the decision comment
+      issues: write
     if: >-
       (github.event_name == 'workflow_dispatch' && github.actor == 'spietrza') ||
       (github.event_name == 'workflow_run' &&
