@@ -180,7 +180,7 @@ describe('doctorCommand --fix', () => {
       { env: { TASKCELL_CLI_VERSION_CHECK: 'off', GH_TOKEN: 'gh', CLAUDE_CODE_OAUTH_TOKEN: 'token' }, nodeVersion: '24.11.1', run, log: (l) => lines.push(l) },
     );
 
-    expect(calls.some((c) => c.includes('npm install -g @anthropic-ai/claude-code@2.1.322'))).toBe(true);
+    expect(calls.some((c) => c.includes('npm install -g --force @anthropic-ai/claude-code@2.1.322'))).toBe(true);
     // USER/WorkingDir are restored from the original image, never hardcoded — a commit without them
     // bakes root into the image and the new CLI then refuses to start.
     expect(calls.some((c) => c.startsWith('docker commit') && c.includes('USER '))).toBe(true);

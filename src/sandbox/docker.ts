@@ -79,14 +79,14 @@ export async function resolveSandboxImage(image: string, exists: ImageExists = d
 }
 
 /**
- * Claude CLI the sandbox image is built with — keep in sync with docker/Dockerfile's
- * ARG CLAUDE_CLI_VERSION. The pin moves in the repo but a built image does not, and the drift only
+ * Claude CLI the sandbox image is built with — keep in sync with docker/cli/claude/package.json
+ * (and its lockfile). The pin moves in the repo but a built image does not, and the drift only
  * surfaces deep inside a run as a gateway error (live case: 2.1.165 answered every Meridian request
  * with `400 This session advanced while the request was waiting`, burning ~50 min per attempt).
  */
 export const SANDBOX_CLAUDE_VERSION = '2.1.322';
 
-/** Codex CLI the sandbox image is built with — keep in sync with docker/Dockerfile's ARG CODEX_CLI_VERSION. */
+/** Codex CLI the sandbox image is built with — keep in sync with docker/cli/codex/package.json. */
 export const SANDBOX_CODEX_VERSION = '0.167.2';
 
 /** True when `actual` sorts below `expected`; unparseable parts count as older. */
@@ -166,7 +166,8 @@ async function refreshSandboxNpmCli(opts: SandboxRefreshOptions & { pkg: string;
 
   await run('docker', ['rm', '-f', helper], { cwd }).catch(() => undefined);
   try {
-    await run('docker', ['run', '--name', helper, '-u', '0', image, 'npm', 'install', '-g', `${opts.pkg}@${opts.version}`], { cwd });
+    // --force: an image built with `npm ci` has this CLI's bin symlinked into /usr/local/bin, which npm would not overwrite.
+    await run('docker', ['run', '--name', helper, '-u', '0', image, 'npm', 'install', '-g', '--force', `${opts.pkg}@${opts.version}`], { cwd });
     const changes = [
       ...(user !== '' ? ['--change', `USER ${user}`] : []),
       ...(workdir !== '' ? ['--change', `WORKDIR ${workdir}`] : []),
@@ -408,7 +409,7 @@ export class DockerSandboxProvider implements IsolatedSandboxProvider {
       `Sandbox image ${image} has claude ${found}, but this repo pins ${SANDBOX_CLAUDE_VERSION}. ` +
         `A stale CLI fails mid-run against a gateway. Fix it with:\n` +
         `  taskcell doctor --fix\n` +
-        `or rebuild: CLAUDE_CLI_VERSION=${SANDBOX_CLAUDE_VERSION} ./docker/build.sh. ` +
+        `or rebuild: ./docker/build.sh. ` +
         `Set TASKCELL_SKIP_IMAGE_CHECK=1 to bypass.`,
     );
   }

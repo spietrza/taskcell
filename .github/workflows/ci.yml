@@ -80,3 +80,8 @@ jobs:
         uses: actions/dependency-review-action@a1d282b36b6f3519aa1f3fc636f609c47dddb294 # v4
         with:
           fail-on-severity: high
+          # axios, brace-expansion, minimatch and form-data pinned by @schpet/linear-cli 3.1.0's own
+          # npm-shrinkwrap (docker/cli/linear); overrides cannot lift them, they only download the linear
+          # binary at image build, and they shipped in the image before the lockfile made them visible.
+          # Allowed by Seba 2026-11-16; remove with #1200.
+          allow-ghsas: GHSA-35jp-ww65-95wh, GHSA-3g43-6gmg-66jw, GHSA-3pq3-5fj3-cg6v, GHSA-542g-h47m-68v8, GHSA-6chq-wfr3-2hj9, GHSA-777c-7fjr-54vf, GHSA-hfxv-24rg-xrqf, GHSA-j5f8-grm9-p9fc, GHSA-p92q-9vqr-4j8v, GHSA-pf86-5x62-jrwf, GHSA-pmwg-cvhr-8vh7, GHSA-q8qp-cvcw-x6jj, GHSA-3jxr-9vmj-r5cp, GHSA-6j4f-fj2g-mc7p, GHSA-mh99-v99m-4gvg, GHSA-qhr7-859c-m2p7, GHSA-rgw5-rvv9-x895, GHSA-hmw2-7cc7-3qxx, GHSA-23c5-xmqv-rm74, GHSA-3ppc-4f35-3m26, GHSA-7r86-cg39-jmmj

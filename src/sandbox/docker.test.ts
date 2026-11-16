@@ -169,9 +169,14 @@ describe('refreshSandboxCodexCli', () => {
 
 describe('sandbox CLI pins', () => {
   it('pins the same codex and claude versions as the Dockerfile', async () => {
-    const dockerfile = await readFile(join(__dirname, '..', '..', 'docker', 'Dockerfile'), 'utf8');
-    expect(/^ARG CODEX_CLI_VERSION=(.+)$/m.exec(dockerfile)?.[1]).toBe(SANDBOX_CODEX_VERSION);
-    expect(/^ARG CLAUDE_CLI_VERSION=(.+)$/m.exec(dockerfile)?.[1]).toBe(SANDBOX_CLAUDE_VERSION);
+    const pin = async (dir: string, pkg: string): Promise<string | undefined> => {
+      const manifest = JSON.parse(await readFile(join(__dirname, '..', '..', 'docker', 'cli', dir, 'package.json'), 'utf8')) as {
+        dependencies: Record<string, string>;
+      };
+      return manifest.dependencies[pkg];
+    };
+    expect(await pin('codex', '@openai/codex')).toBe(SANDBOX_CODEX_VERSION);
+    expect(await pin('claude', '@anthropic-ai/claude-code')).toBe(SANDBOX_CLAUDE_VERSION);
   });
 });
 

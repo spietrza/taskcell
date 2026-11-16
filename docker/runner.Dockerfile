@@ -25,11 +25,13 @@ RUN apt-get update \
  && rm /tmp/glab.deb \
  && rm -rf /var/lib/apt/lists/*
 
-# Exact versions (bump: `npm view <pkg> version`); keep in sync with docker/Dockerfile (dockerfile-pins.test.ts).
-# pnpm stays on 10.x: pnpm 12 rejects the root pnpm-lock.yaml under --frozen-lockfile ("overrides" mismatch).
-ARG PNPM_VERSION=10.32.1
-ARG LINEAR_CLI_VERSION=3.1.0
-RUN npm install -g pnpm@${PNPM_VERSION} @schpet/linear-cli@${LINEAR_CLI_VERSION}
+# The same committed manifests + lockfiles as docker/Dockerfile (hash-checked by `npm ci`), so the pins
+# cannot drift (dockerfile-pins.test.ts). pnpm stays on 10.x: pnpm 12 rejects the root pnpm-lock.yaml
+# under --frozen-lockfile ("overrides" mismatch).
+COPY docker/cli/pnpm /opt/cli/pnpm
+COPY docker/cli/linear /opt/cli/linear
+RUN npm ci --prefix /opt/cli/pnpm && npm ci --prefix /opt/cli/linear \
+ && ln -s /opt/cli/pnpm/node_modules/.bin/* /opt/cli/linear/node_modules/.bin/* /usr/local/bin/
 
 WORKDIR /app
 COPY . .
@@ -37,7 +39,7 @@ RUN pnpm install --frozen-lockfile && pnpm build
 
 # Assemble the skills the factory injects into every sandbox: linear-cli (read Linear) + this repo's
 # code-review and simplify skills (so the review/simplify stages are skill-driven out of the box).
-# The skill is pinned to a commit (tag v3.1.0, matching the sandbox's LINEAR_CLI_VERSION), not HEAD.
+# The skill is pinned to a commit (tag v3.1.0, matching docker/cli/linear/package.json), not HEAD.
 # Bump: `git ls-remote https://github.com/schpet/linear-cli refs/tags/vX.Y.Z` and copy the sha.
 ARG LINEAR_CLI_SKILL_SHA=02571d34be662e5487204841fb80bf23ed79b4f0
 RUN git init -q /opt/linear-cli \

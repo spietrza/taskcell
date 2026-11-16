@@ -2,3 +2,5 @@
 # Dockerfile copies: keeps an operator .env and docker/target-repo out of the build context.
 *
 !retry.sh
+!cli
+!cli/**

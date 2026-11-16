@@ -52,7 +52,7 @@ async function runBuild(
     await writeFile(join(bin, 'git'), FAKE_GIT, { mode: 0o755 });
     await writeFile(join(bin, 'gh'), FAKE_GH, { mode: 0o755 });
     await writeFile(log, '');
-    // extendEnv: false — an ambient CLAUDE_CLI_VERSION/LINEAR_RETRY in the developer's shell is
+    // extendEnv: false — an ambient LINEAR_RETRY/CURSOR_CLI_VERSION in the developer's shell is
     // exactly what the script treats as "build, do not pull", so inheriting it would flip the cases.
     // reject: false — the network-failure case below exits non-zero on purpose; execa would otherwise throw.
     const result = await execa('bash', [BUILD_SH], {

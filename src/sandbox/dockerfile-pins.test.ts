@@ -1,132 +1,87 @@
 import { describe, it, expect } from 'vitest';
-import { readFile } from 'node:fs/promises';
+import { readFile, readdir } from 'node:fs/promises';
 
-// Guards the "never `latest`" contract the Dockerfile's own comment states: every `npm install -g`
-// package must carry an explicit version (literal or `${ARG}`), so a rebuild can't silently pull a
-// new (or hijacked) release of a global CLI like pnpm/bun that nothing else in the repo pins.
-const DOCKERFILE_PATH = new URL('../../docker/Dockerfile', import.meta.url);
+// Guards the "never `latest`, always hash-checked" contract: every global CLI in the images comes from a
+// committed docker/cli/<name>/package.json + package-lock.json installed with `npm ci`, never from a bare
+// `npm install -g`, which resolves (and trusts) whatever the registry serves at build time.
+const DOCKER_DIR = new URL('../../docker/', import.meta.url);
+const DOCKERFILES = ['Dockerfile', 'hub.Dockerfile', 'runner.Dockerfile'];
+const EXACT_VERSION = /^\d+\.\d+\.\d+(?:-[\w.-]+)?(?:\+[\w.-]+)?$/;
 
-/** Package specs passed to every `npm install -g` invocation in the Dockerfile, e.g. `pnpm@10.32.1`. */
-function npmGlobalInstallArgs(dockerfile: string): string[] {
-  const specs: string[] = [];
-  const regex = /npm install -g((?:[ \t]*\\\r?\n|[^\n])*)/g;
-  for (const match of dockerfile.matchAll(regex)) {
-    const tokens = (match[1] ?? '')
-      .split(/\\\r?\n|[ \t]+/)
-      .map((token) => token.trim())
-      .filter(Boolean);
-    for (const token of tokens) {
-      if (token === '&&' || /^[<>|]/.test(token)) break;
-      specs.push(token);
-    }
-  }
-  return specs;
+const read = (file: string): Promise<string> => readFile(new URL(file, DOCKER_DIR), 'utf8');
+
+/** True when `dockerfile` installs a package globally with npm (install/i/add, any flags, `--global`). */
+function hasGlobalNpmInstall(dockerfile: string): boolean {
+  const instructions = dockerfile.replace(/\\\r?\n/g, ' ').split('\n').filter((line) => !line.trimStart().startsWith('#'));
+  return instructions.some((line) => /\bnpm\s+(?:install|i|add)\b[^&;|]*(?:\s-g\b|\s--global\b)/.test(line));
 }
 
-/** Build-argument defaults declared as `ARG NAME=value` in the Dockerfile. */
-function parseArgDefaults(dockerfile: string): Map<string, string> {
-  return new Map([...dockerfile.matchAll(/^ARG (\w+)=(.*)$/gm)].map((match) => [match[1]!, match[2]!]));
+interface CliLock {
+  packages: Record<string, { version?: string; integrity?: string }>;
 }
 
-/** Substitute `${ARG}` references with their build-argument defaults. */
-function resolveSpec(spec: string, argDefaults: Map<string, string>): string {
-  return spec.replace(/\$\{(\w+)\}/g, (_, name: string) => argDefaults.get(name) ?? '');
-}
-
-/** Resolve build-argument defaults before checking for an exact release version. */
-function isPinned(spec: string, argDefaults: Map<string, string>): boolean {
-  const resolved = resolveSpec(spec, argDefaults);
-  return /^(?:@[^/\s]+\/)?[^@\s]+@\d+\.\d+\.\d+(?:-[\w.-]+)?(?:\+[\w.-]+)?$/.test(resolved);
-}
-
-/** The Dockerfile's contents and the npm-install specs parsed out of it. */
-async function readDockerfileSpecs(): Promise<{ dockerfile: string; specs: string[] }> {
-  const dockerfile = await readFile(DOCKERFILE_PATH, 'utf8');
-  return { dockerfile, specs: npmGlobalInstallArgs(dockerfile) };
-}
-
-describe('docker/Dockerfile npm global installs', () => {
+describe('hasGlobalNpmInstall', () => {
   it.each([
-    ['pnpm@10.32.1', true],
-    ['@scope/cli@1.2.3-rc.1', true],
-    ['bun@${BUN_VERSION}', true],
-    ['pnpm', false],
-    ['@scope/cli', false],
-    ['pnpm@', false],
-    ['pnpm@latest', false],
-    ['pnpm@^10.32.1', false],
-    ['bun@${MISSING}', false],
-    ['bun@${FLOATING}', false],
-  ])('checks exact versions: %s', (spec, expected) => {
-    const argDefaults = parseArgDefaults('ARG BUN_VERSION=1.4.4\nARG FLOATING=latest');
-    expect(isPinned(spec, argDefaults)).toBe(expected);
+    ['RUN npm install -g pnpm@10.32.1', true],
+    ['RUN /tmp/retry.sh 5 15 -- npm install -g bun@${BUN_VERSION} && npm cache clean --force', true],
+    ['RUN npm i -g pnpm', true],
+    ['RUN npm install --global pnpm', true],
+    ['RUN npm install --no-audit -g \\\n    pnpm', true],
+    ['RUN npm ci --prefix /opt/cli/pnpm', false],
+    ['# npm install -g pnpm (never do this)', false],
+    ['RUN npm ci --prefix /opt/cli/x && ln -s /a/* /b/ # no -g here', false],
+  ])('%s -> %s', (line, expected) => {
+    expect(hasGlobalNpmInstall(line)).toBe(expected);
+  });
+});
+
+describe('Dockerfile npm installs', () => {
+  it.each(DOCKERFILES)('%s has no bare `npm install -g`', async (file) => {
+    expect(hasGlobalNpmInstall(await read(file))).toBe(false);
   });
 
-  it('pins every `npm install -g` package to an exact version', async () => {
-    const { dockerfile, specs } = await readDockerfileSpecs();
-
-    expect(specs.length).toBeGreaterThan(0);
-    const argDefaults = parseArgDefaults(dockerfile);
-    const unpinned = specs.filter((spec) => !isPinned(spec, argDefaults));
-    expect(unpinned).toEqual([]);
+  it('installs each sandbox CLI with `npm ci` from its committed directory, one layer each', async () => {
+    const dockerfile = await read('Dockerfile');
+    const installs = [...dockerfile.matchAll(/npm ci --prefix \/opt\/cli\/(\w+)/g)].map((m) => m[1]);
+    expect(installs).toEqual(['pnpm', 'bun', 'codex', 'linear', 'claude']);
+    for (const name of installs) expect(dockerfile).toContain(`COPY cli/${name} /opt/cli/${name}`);
+    // Version bumps must not invalidate earlier layers, and no npm cache may be committed into one.
+    const layers = dockerfile.replace(/\\\r?\n/g, ' ').split('\n').filter((line) => /^RUN .*npm ci/.test(line) && !line.includes('linear'));
+    expect(layers).toHaveLength(4);
+    for (const layer of layers) expect(layer).toContain('npm cache clean --force && rm -rf /root/.npm');
   });
 
-  it('pins pnpm and bun specifically (regression: both used to install unpinned)', async () => {
-    const { specs } = await readDockerfileSpecs();
-
-    const pnpm = specs.find((spec) => spec.startsWith('pnpm@'));
-    const bun = specs.find((spec) => spec.startsWith('bun@'));
-    expect(pnpm).toBeDefined();
-    expect(bun).toBeDefined();
+  it.each(['hub.Dockerfile', 'runner.Dockerfile'])('%s installs the same committed pnpm directory as the sandbox', async (file) => {
+    expect(await read(file)).toContain('COPY docker/cli/pnpm /opt/cli/pnpm');
   });
+});
 
-  // Version arguments must not invalidate earlier tool installations.
-  it('isolates CLI layers and cleans their npm caches before committing them', async () => {
-    const { dockerfile } = await readDockerfileSpecs();
-    const instructions = dockerfile.replace(/\\\r?\n/g, ' ').split('\n');
-    const installs = instructions.filter((line) => line.startsWith('RUN ') && line.includes('npm install -g'));
-    expect(installs).toHaveLength(5);
-    expect(installs.flatMap(npmGlobalInstallArgs).map((spec) => spec.split('@$')[0])).toEqual([
-      'pnpm', 'bun', '@openai/codex', '@schpet/linear-cli', '@anthropic-ai/claude-code',
-    ]);
-    for (const install of installs) {
-      expect(npmGlobalInstallArgs(install)).toHaveLength(1);
-      expect(install).toContain('npm cache clean --force && rm -rf /root/.npm');
+describe('docker/cli lockfiles', () => {
+  it('has a manifest pinning one exact version and a lockfile with integrity hashes for every CLI', async () => {
+    const names = await readdir(new URL('cli/', DOCKER_DIR));
+    expect([...names].sort()).toEqual(['bun', 'claude', 'codex', 'linear', 'pnpm']);
+    for (const name of names) {
+      const manifest = JSON.parse(await read(`cli/${name}/package.json`)) as { dependencies: Record<string, string> };
+      const entries = Object.entries(manifest.dependencies);
+      expect(entries, name).toHaveLength(1);
+      const [pkg, version] = entries[0]!;
+      expect(version, `${name}: ${pkg}`).toMatch(EXACT_VERSION);
+
+      const lock = JSON.parse(await read(`cli/${name}/package-lock.json`)) as CliLock;
+      expect(lock.packages[`node_modules/${pkg}`]?.version, `${name} lock`).toBe(version);
+      const unhashed = Object.entries(lock.packages).filter(([path, p]) => path !== '' && p.integrity === undefined);
+      expect(unhashed.map(([path]) => path), `${name} lock has unhashed packages`).toEqual([]);
     }
-    const claudeArg = dockerfile.indexOf('ARG CLAUDE_CLI_VERSION=');
-    expect(claudeArg).toBeGreaterThan(dockerfile.lastIndexOf('npm install -g @schpet/linear-cli'));
-    expect(dockerfile.slice(claudeArg).match(/npm install -g/g)).toHaveLength(1);
   });
 });
 
 describe('controller images install glab', () => {
   // The hub's Self-hosted (watch) checklist names vanguard-runner for GitLab workers, whose preflight and MR publish need glab.
   it('installs the same checksum-verified glab release in runner and hub images', async () => {
-    const lines = async (f: string): Promise<string[]> =>
-      (await readFile(new URL(`../../docker/${f}`, import.meta.url), 'utf8')).split('\n').filter((l) => /GLAB_|glab/.test(l) && !l.startsWith('#'));
+    const lines = async (f: string): Promise<string[]> => (await read(f)).split('\n').filter((l) => /GLAB_|glab/.test(l) && !l.startsWith('#'));
     const runner = await lines('runner.Dockerfile');
     expect(runner).toEqual(await lines('hub.Dockerfile'));
     expect(runner.join('\n')).toContain('sha256sum -c -');
     expect(runner.join('\n')).toContain('dpkg -i /tmp/glab.deb');
-  });
-});
-
-describe('controller images pin the same CLIs as docker/Dockerfile', () => {
-  const read = (f: string): Promise<string> => readFile(new URL(`../../docker/${f}`, import.meta.url), 'utf8');
-  const versions = (dockerfile: string): Map<string, string> => {
-    const args = parseArgDefaults(dockerfile);
-    const out = new Map<string, string>();
-    for (const spec of npmGlobalInstallArgs(dockerfile)) {
-      expect(isPinned(spec, args), spec).toBe(true);
-      out.set(spec.slice(0, spec.lastIndexOf('@')), resolveSpec(spec, args));
-    }
-    return out;
-  };
-
-  it.each(['hub.Dockerfile', 'runner.Dockerfile'])('%s pins exact versions matching docker/Dockerfile', async (file) => {
-    const base = versions(await read('Dockerfile'));
-    const other = versions(await read(file));
-    expect(other.size).toBeGreaterThan(0);
-    for (const [name, spec] of other) expect(spec).toBe(base.get(name));
   });
 });
