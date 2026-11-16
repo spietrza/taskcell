@@ -1,4 +1,5 @@
-import { cp, lstat, readFile, readdir, readlink, realpath, rm, rmdir } from 'node:fs/promises';
+import { constants } from 'node:fs';
+import { cp, lstat, open, readdir, readlink, realpath, rm, rmdir } from 'node:fs/promises';
 import { dirname, isAbsolute, join, relative, sep } from 'node:path';
 import { SandboxError } from '../core/errors.js';
 import type { IsolatedSandboxProvider } from './provider.js';
@@ -19,17 +20,30 @@ import type { IsolatedSandboxProvider } from './provider.js';
  */
 export interface PathSkipRule {
   readonly name?: string;
-  readonly match: RegExp;
+  readonly match: { test(path: string): boolean };
+}
+
+const CI_CONFIG_RE = /(^|[\\/])\.github[\\/]workflows([\\/]|$)|(^|[\\/])\.github[\\/]actions([\\/]|$)|(^|[\\/])\.gitlab-ci\.yml$/i;
+const GITLAB_DIR_RE = /(^|[\\/])\.gitlab[\\/]/i;
+const YAML_EXT_RE = /\.ya?ml$/i;
+
+/**
+ * Any .yml/.yaml under `.gitlab/` at any depth. Two linear scans instead of one
+ * `\.gitlab[\\/].*\.ya?ml$` regex, which retries `.*` from every `/.gitlab/` in the path (quadratic).
+ */
+function isGitlabYaml(path: string): boolean {
+  const m = GITLAB_DIR_RE.exec(path);
+  return m !== null && YAML_EXT_RE.test(path.slice(m.index + m[0].length));
 }
 
 /**
  * Hard security boundary (see CLAUDE.md): an agent must never be able to write CI config that gets
- * committed and pushed. Case-insensitive and `s` lets `.*` cross a newline in a file name, so nothing
- * slips past on a case-insensitive filesystem or via a crafted name. The one rule whose drops are
- * reported rather than silent, and the one `isCiConfigPath` answers for the final-diff backstop.
+ * committed and pushed. Case-insensitive, so nothing slips past on a case-insensitive filesystem or
+ * via a crafted name. The one rule whose drops are reported rather than silent, and the one
+ * `isCiConfigPath` answers for the final-diff backstop.
  */
 export const CI_CONFIG_RULE: PathSkipRule = {
-  match: /(^|[\\/])\.github[\\/]workflows([\\/]|$)|(^|[\\/])\.github[\\/]actions([\\/]|$)|(^|[\\/])\.gitlab-ci\.yml$|(^|[\\/])\.gitlab[\\/].*\.ya?ml$/is,
+  match: { test: (path: string): boolean => CI_CONFIG_RE.test(path) || isGitlabYaml(path) },
 };
 
 export const PATH_POLICY: readonly PathSkipRule[] = [
@@ -154,12 +168,30 @@ async function collectChangedFiles(staging: string, worktree: string, rel: strin
     if ((await readlink(src)) !== (await readlink(dest).catch(() => undefined))) changed.push(rel);
     return;
   }
-  const destInfo = info.isFile() ? await lstat(dest).catch(() => undefined) : undefined;
-  if (destInfo?.isFile() !== true || destInfo.size !== info.size || info.size > MAX_COMPARED_BYTES) {
-    changed.push(rel);
-    return;
+  if (!info.isFile() || !(await sameFileContent(src, dest))) changed.push(rel);
+}
+
+/** Opened without following a link, and without blocking should a FIFO have replaced the file. */
+const COMPARE_OPEN_FLAGS = constants.O_RDONLY | (constants.O_NOFOLLOW ?? 0) | (constants.O_NONBLOCK ?? 0);
+
+/** Size and content are both read through one handle per file, so what is checked is what is read
+ * (no lstat-then-readFile race). A missing or non-regular `dest` counts as different. */
+async function sameFileContent(src: string, dest: string): Promise<boolean> {
+  const a = await open(src, COMPARE_OPEN_FLAGS);
+  try {
+    const b = await open(dest, COMPARE_OPEN_FLAGS).catch(() => undefined);
+    if (b === undefined) return false;
+    try {
+      const [sa, sb] = await Promise.all([a.stat(), b.stat()]);
+      if (!sa.isFile() || !sb.isFile() || sa.size !== sb.size || sa.size > MAX_COMPARED_BYTES) return false;
+      const [ca, cb] = await Promise.all([a.readFile(), b.readFile()]);
+      return ca.equals(cb);
+    } finally {
+      await b.close();
+    }
+  } finally {
+    await a.close();
   }
-  if (!(await readFile(src)).equals(await readFile(dest))) changed.push(rel);
 }
 
 export interface CopyBackReport {

@@ -29,6 +29,10 @@ describe('assertSafeBaseBranch', () => {
 });
 
 describe('resolveRemoteBaseRef', () => {
+  it('refuses an option-like base before git runs', async () => {
+    await expect(resolveRemoteBaseRef('/nonexistent', '--upload-pack=x')).rejects.toThrow('Invalid base branch');
+  });
+
   const dirs: string[] = [];
   const mk = async (prefix: string): Promise<string> => {
     const d = await mkdtemp(join(tmpdir(), prefix));
