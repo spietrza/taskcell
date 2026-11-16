@@ -829,6 +829,14 @@ A provider that cannot load skills still runs; the run shows a warning and its r
 
 Calls: `list_skills` (`repoPath`; read-only, not audited) returns the installed ids; `set_task_skills` (`repoPath`, `taskId`, `skills`) writes the card's line as the hub's own tracker identity and is audited as `task-edit`. `api_create_run` takes `skills`; an id that is not installed is refused before the run's sandbox context is created.
 
+## Per-project flow and model precedence
+
+**Picking a flow.** Settings → **Flow** (`flow` in `.taskcell/app.json`) lists the built-in flows and the repo's `.taskcell/flows/*.hcl`. Unset keeps the source's default flow. Every run the Hub starts for the project, board tasks and the local worker alike, runs with `--flow <name>`, so the `model`/`provider` set per stage in the Workflow editor take effect. The New Run and Fleet commands carry the same `--flow <name>`. An unknown or invalid name fails the run with the usual unknown-flow / invalid-flow message; it never falls back to the default.
+
+**Precedence.** A stage's `model`/`provider` set in the flow beats the run-level `--provider-model`, `--review-model` and `--escalate-model` (a flow-pinned implementer is also not escalated on repair). A stage that leaves a field unset inherits the run-level value, as before. A model chosen by the Workflow editor therefore wins over the factory workflow's `provider-model` / `review-model` / `escalate-model` inputs.
+
+**GitHub Actions factory.** The reusable `implement.yml` takes an optional `flow` input (empty = today's behaviour) that is passed as `--flow`, e.g. `flow: my-flow` under `with:` in your caller workflow. The flow file must be on the default branch the run checks out.
+
 ## Hub board: tasks, dependencies and start dates
 
 A project whose task source is **Hub board** (Settings → Task source, `taskSource: hub` in `.taskcell/app.json`) has its tasks in the hub itself instead of a tracker. With such a project open (the project named in the top bar), the Board shows a **New hub task** form (title and what to do) in place of the tracker's **New Task**; a card's quick view has a **Schedule** section, and **Full page** shows the task's text. Projects on GitHub, GitLab or Linear are not touched by any of this: the hub-board commands refuse them and the scheduler never looks at them.

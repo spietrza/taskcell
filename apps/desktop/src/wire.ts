@@ -824,6 +824,8 @@ export interface AppConfig {
   color?: string | null;
   provider?: string | null;
   reviewProvider?: string | null;
+  /** Flow the Hub runs this project with: a built-in or `.taskcell/flows/<name>.hcl`; unset = the source default. */
+  flow?: string | null;
   verifyCmd?: string | null;
   concurrency?: number | null;
   budgetUsd?: number | null;

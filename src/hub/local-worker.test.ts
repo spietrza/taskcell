@@ -180,3 +180,12 @@ test('the doctor command targets the project: its repo, the GitHub source, the t
   const cmd = localDoctorCommand('/p/widgets', 'acme/widgets', 'ready for agent', 'codex') as unknown as Record<string, unknown>;
   expect(cmd).toMatchObject({ kind: 'doctor', repoPath: '/p/widgets', source: 'github', repoSlug: 'acme/widgets', label: 'ready for agent', provider: 'codex' });
 });
+
+test('a pick-up runs with the project\'s flow (--flow)', async () => {
+  const repo = await githubRepo({ flow: 'my-flow' });
+  await setLocalWorker(cfg, repo, true, undefined, deps());
+  const params: unknown[] = [];
+  const session = { createRun: (p: unknown, hooks?: { onStarted?: (id: string) => void }) => { params.push(p); hooks?.onStarted?.('run-1'); return new Promise<CreateRunResult>(() => {}); } } as unknown as RunSession;
+  await sweepLocalWorkers(ctxOf(repo, session, async () => issues(5)));
+  expect(params[0]).toEqual(expect.objectContaining({ issueRef: '5', flow: 'my-flow' }));
+});

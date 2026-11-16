@@ -84,3 +84,16 @@ describe('command builder', () => {
     ]);
   });
 });
+
+describe('flow', () => {
+  it('carries --flow <name> in run and watch commands', () => {
+    expect(runCommand({ flow: 'my-flow' })).toContain('--flow my-flow');
+    expect(watchArgv({ flow: 'my-flow' }, { source: 'github', concurrency: 1, loopV1: false })).toEqual(
+      expect.arrayContaining(['--flow', 'my-flow']),
+    );
+  });
+  it('omits --flow when unset and rejects an invalid name', () => {
+    expect(runCommand({})).not.toContain('--flow');
+    expect(() => runCommand({ flow: 'x; id' })).toThrow(/Invalid flow/);
+  });
+});
