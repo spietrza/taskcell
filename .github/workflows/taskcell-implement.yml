@@ -18,15 +18,16 @@ on:
     types: [labeled]
   workflow_dispatch:
 
-permissions:
-  contents: write
-  pull-requests: write
-  issues: write
-  # Read-only: the reusable workflow's slot step lists this workflow's in-progress runs (max-parallel).
-  actions: read
+permissions: {} # each job declares what it needs (OpenSSF Scorecard Token-Permissions)
 
 jobs:
   implement:
+    permissions:
+      contents: write
+      pull-requests: write
+      issues: write
+      # Read-only: the reusable workflow's slot step lists this workflow's in-progress runs (max-parallel).
+      actions: read
     if: >-
       (github.event_name == 'workflow_dispatch' && github.actor == 'spietrza') ||
       (github.event_name == 'issues' &&

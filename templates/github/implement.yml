@@ -16,14 +16,15 @@ on:
     types: [labeled]
   workflow_dispatch:
 
-permissions:
-  contents: write
-  pull-requests: write
-  issues: write
-  actions: read # the slot step counts this workflow's in-progress runs (max-parallel)
+permissions: {} # each job declares what it needs (OpenSSF Scorecard Token-Permissions)
 
 jobs:
   implement:
+    permissions:
+      contents: write
+      pull-requests: write
+      issues: write
+      actions: read # the slot step counts this workflow's in-progress runs (max-parallel)
     if: >-
       (github.event_name == 'workflow_dispatch' && github.actor == 'YOUR_LOGIN') ||
       (github.event_name == 'issues' &&
