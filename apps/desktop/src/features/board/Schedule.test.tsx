@@ -7,8 +7,11 @@ vi.mock('../../ipc', () => ({
   hubTaskSchedule: vi.fn().mockResolvedValue({ id: 'hub-2' }),
   hubTaskRetry: vi.fn().mockResolvedValue({ id: 'hub-2' }),
   hubTaskCreate: vi.fn().mockResolvedValue({ id: 'hub-3' }),
+  hubTaskAccept: vi.fn().mockResolvedValue({ id: 'hub-2' }),
+  hubTaskArchive: vi.fn().mockResolvedValue({ id: 'hub-2' }),
+  hubTaskDelete: vi.fn().mockResolvedValue({ id: 'hub-2' }),
 }));
-import { hubTaskCreate, hubTaskRetry, hubTaskSchedule } from '../../ipc';
+import { hubTaskAccept, hubTaskArchive, hubTaskCreate, hubTaskDelete, hubTaskRetry, hubTaskSchedule } from '../../ipc';
 
 const base: BoardTask = { id: 'hub-2', title: 'B', column: 'queued', state: '' };
 
@@ -61,6 +64,22 @@ describe('ScheduleEditor', () => {
     await waitFor(() => expect(onSaved).toHaveBeenCalled());
     expect(hubTaskRetry).toHaveBeenCalledWith('/r', 'hub-2');
   });
+  test('a verify-failed result can be accepted; a done task archived; a task deleted, but not a running one', async () => {
+    const onSaved = vi.fn();
+    const failed = render(<ScheduleEditor repoPath="/r" task={{ ...base, schedule: { state: 'failed', label: 'failed: verify', result: 'branch b' } }} onSaved={onSaved} />);
+    fireEvent.click(screen.getByRole('button', { name: 'Accept result' }));
+    await waitFor(() => expect(hubTaskAccept).toHaveBeenCalledWith('/r', 'hub-2'));
+    fireEvent.click(screen.getByRole('button', { name: 'Delete' }));
+    await waitFor(() => expect(hubTaskDelete).toHaveBeenCalledWith('/r', 'hub-2'));
+    failed.unmount();
+    const done = render(<ScheduleEditor repoPath="/r" task={{ ...base, schedule: { state: 'done', label: 'done' } }} onSaved={onSaved} />);
+    fireEvent.click(screen.getByRole('button', { name: 'Archive' }));
+    await waitFor(() => expect(hubTaskArchive).toHaveBeenCalledWith('/r', 'hub-2'));
+    done.unmount();
+    render(<ScheduleEditor repoPath="/r" task={{ ...base, schedule: { state: 'running', label: 'running' } }} onSaved={onSaved} />);
+    expect(screen.queryByRole('button', { name: 'Delete' })).toBeNull();
+    expect(screen.queryByRole('button', { name: 'Accept result' })).toBeNull();
+  });
   test('a refusal is shown', async () => {
     vi.mocked(hubTaskSchedule).mockRejectedValueOnce(new Error('startDate must be YYYY-MM-DD'));
     render(<ScheduleEditor repoPath="/r" task={base} onSaved={() => {}} />);
@@ -80,6 +99,16 @@ describe('NewHubTask', () => {
     await waitFor(() => expect(onCreated).toHaveBeenCalled());
     expect(hubTaskCreate).toHaveBeenCalledWith('/r', 'Add a health endpoint', 'GET /healthz answers 200', {});
     expect(screen.getByLabelText('Title')).toHaveValue('');
+  });
+  test('sends blocked-by ids and the start date, and names the time zone of the date', async () => {
+    vi.mocked(hubTaskCreate).mockClear();
+    render(<NewHubTask repoPath="/r" onCreated={() => {}} />);
+    expect(screen.getByLabelText(/Start date \(00:00 in the hub time zone\)/)).toBeInTheDocument();
+    fireEvent.change(screen.getByLabelText('Title'), { target: { value: 'T' } });
+    fireEvent.change(screen.getByLabelText(/Blocked by/), { target: { value: 'hub-1, hub-2' } });
+    fireEvent.change(screen.getByLabelText(/Start date/), { target: { value: '2026-11-18' } });
+    fireEvent.click(screen.getByRole('button', { name: 'Add task' }));
+    await waitFor(() => expect(hubTaskCreate).toHaveBeenCalledWith('/r', 'T', '', { blockedBy: ['hub-1', 'hub-2'], startDate: '2026-11-18' }));
   });
   test('a refusal is shown', async () => {
     vi.mocked(hubTaskCreate).mockRejectedValueOnce(new Error('title must be at most 300 characters'));
