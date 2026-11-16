@@ -8,10 +8,7 @@ name: Taskcell Doctor
 on:
   workflow_dispatch:
 
-permissions:
-  contents: read
-  issues: write
-  pull-requests: read
+permissions: {} # each job declares what it needs (OpenSSF Scorecard Token-Permissions)
 
 concurrency:
   group: taskcell-doctor-${{ github.repository }}
@@ -19,6 +16,10 @@ concurrency:
 
 jobs:
   doctor:
+    permissions:
+      contents: read
+      issues: write
+      pull-requests: read
     if: github.actor == 'spietrza'
     uses: ./.github/workflows/doctor.yml
     with:
