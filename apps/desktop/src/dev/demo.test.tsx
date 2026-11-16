@@ -4,7 +4,8 @@ import App from '../App';
 import { Dashboard } from '../features/dashboard/Dashboard';
 import { handleDemo } from './mockBackend';
 import { isDemoMode, invoke } from '../transport';
-import { DEMO_REPO_PATH, DEMO_WRITE_COMMANDS, demoActiveRuns, demoBoardTasks, demoNeedsYou, demoProject, demoRunDetails, demoRuns } from './demoData';
+import { WRITE_COMMAND_NAMES } from '../wire';
+import { DEMO_REPO_PATH, DEMO_LOCAL_WRITES, demoActiveRuns, demoBoardTasks, demoNeedsYou, demoProject, demoRunDetails, demoRuns } from './demoData';
 
 afterEach(() => {
   cleanup(); // unmount while demo mode is still on, so effect cleanups stay in-browser
@@ -45,10 +46,13 @@ test('demo data is consistent: one name, the demo repository, a spec per card, m
 test('demo mode refuses every write command and never fetches', async () => {
   window.__TASKCELL_DEMO__ = true;
   const fetchSpy = vi.spyOn(globalThis, 'fetch');
-  for (const cmd of DEMO_WRITE_COMMANDS) {
+  expect(WRITE_COMMAND_NAMES.length).toBeGreaterThan(0);
+  for (const cmd of WRITE_COMMAND_NAMES.filter((c) => !DEMO_LOCAL_WRITES.has(c))) {
     // eslint-disable-next-line no-await-in-loop
     await expect(invoke(cmd, { repoPath: DEMO_REPO_PATH })).rejects.toMatch(/read-only/);
   }
+  // Drafts are scratch text, answered in-browser so autosave keeps working.
+  for (const cmd of DEMO_LOCAL_WRITES) await expect(invoke(cmd, { repoPath: DEMO_REPO_PATH, id: 'draft-001' })).resolves.not.toBeInstanceOf(Error);
   expect(fetchSpy).not.toHaveBeenCalled();
   expect(() => handleDemo('read_run', { taskId: 'DEMO-101' })).not.toThrow();
 });

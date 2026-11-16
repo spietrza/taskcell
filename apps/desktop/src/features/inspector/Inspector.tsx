@@ -259,7 +259,7 @@ export function Inspector({
     const unlistenReset = onStreamReset(() => void refreshRef.current());
     return () => {
       setWatching(false);
-      watchedRef.current.forEach((p) => void unwatchProject(p));
+      watchedRef.current.forEach((p) => void unwatchProject(p).catch(() => {}));
       watchedRef.current = new Set();
       void unlisten.then((f) => f());
       void unlistenReset.then((f) => f());
@@ -273,7 +273,7 @@ export function Inspector({
     const next = new Set(watchKey.split('\n').filter((p) => p !== ''));
     const prev = watchedRef.current;
     const added = [...next].filter((p) => !prev.has(p));
-    [...prev].filter((p) => !next.has(p)).forEach((p) => void unwatchProject(p));
+    [...prev].filter((p) => !next.has(p)).forEach((p) => void unwatchProject(p).catch(() => {}));
     watchedRef.current = next;
     void Promise.all(added.map((p) => watchProject(p)))
       .then(() => setWatching(true))

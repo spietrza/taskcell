@@ -1,6 +1,8 @@
 import { labelForms } from '../core/labels.js';
 import { fanOut } from '../pipeline/fan-out.js';
 import { failureReason } from '../core/errors.js';
+import { UsageCapError } from '../core/usage-cap.js';
+import { failureOrCapComment } from './watch-shared.js';
 import { defaultGlabRunner, encodeProject, glabUser, neutralizeQuickActions } from '../tasks/gitlab.js';
 import {
   MergeRequestReviewIncompleteError,
@@ -254,6 +256,9 @@ export function gitlabMergeRequestWatchPrimitives(
       const retryInstruction = terminal
         ? ` Re-add the "${opts.label}" label to re-trigger the review.`
         : '';
+      // A usage-cap pause is not a failure and a re-poll would hit the cap again: one pause note, no re-queue (re-label after the reset).
+      const capPause = error instanceof UsageCapError;
+      if (capPause) terminal = true;
       const incompleteMarker = incomplete && item.sha !== '' ? `\n\n${mergeRequestReviewIncompleteMarker(item.sha)}` : '';
       // Once the cap note exists, a further incomplete attempt still gets its failure note, without a second cap marker.
       const capMarker = capDue ? `\n<!-- taskcell-mr-review-incomplete-cap: ${item.sha} -->` : '';
@@ -263,7 +268,9 @@ export function gitlabMergeRequestWatchPrimitives(
           String(item.iid),
           '--repo', item.project,
           // This note is written by the glab user, so a marker quoted in the error would count for the dedupe.
-          '-m', neutralizeQuickActions(`Taskcell MR review failed: ${redactForPublish(stripReviewMarkers(String(error)))}${retryInstruction}${incompleteMarker}${capMarker}`),
+          '-m', neutralizeQuickActions(capPause
+            ? failureOrCapComment('Taskcell MR review', error)
+            : `Taskcell MR review failed: ${redactForPublish(stripReviewMarkers(String(error)))}${retryInstruction}${incompleteMarker}${capMarker}`),
         ]);
       } catch {
         // note posting is best-effort; always fix the labels

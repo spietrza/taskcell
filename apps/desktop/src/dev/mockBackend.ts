@@ -26,7 +26,7 @@ import {
   taskSpecs,
   minsAgo,
 } from './fixtures';
-import { demoProject, demoRuns, demoRunDetails, demoActiveRuns, demoBoardTasks, demoFactoryState, demoLessonsFor, demoNeedsYou, demoRunBacklog, demoSession, demoSpec, DEMO_REPO_PATH, DEMO_RUN_ID, DEMO_WRITE_COMMANDS } from './demoData';
+import { demoProject, demoRuns, demoRunDetails, demoActiveRuns, demoBoardTasks, demoFactoryState, demoLessonsFor, demoNeedsYou, demoRunBacklog, demoSession, demoSpec, DEMO_REPO_PATH, DEMO_RUN_ID, DEMO_REFUSED_WRITES } from './demoData';
 
 let waitingNeedsYou = [...needsYouItems];
 let mockLessons: RepoLesson[] = [
@@ -255,7 +255,7 @@ const demoOverrides: Record<string, (args: unknown) => unknown> = {
   read_app_config: () => ({ ...appConfig, label: 'storefront (demo)' }),
   read_app_config_strict: () => ({ ...appConfig, label: 'storefront (demo)' }),
   ...Object.fromEntries(
-    DEMO_WRITE_COMMANDS.map((cmd) => [cmd, (): never => { throw DEMO_READ_ONLY_MESSAGE; }]),
+    DEMO_REFUSED_WRITES.map((cmd) => [cmd, (): never => { throw DEMO_READ_ONLY_MESSAGE; }]),
   ),
 };
 

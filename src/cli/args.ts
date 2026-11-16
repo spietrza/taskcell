@@ -118,6 +118,8 @@ export type Command =
       author?: string;
       /** Review this PR even when the label-filtered scan misses it (from --pr or the CI label event). */
       pr?: number;
+      /** With a pinned PR (--pr or the CI label event), review only it: no label scan of other PRs. */
+      pinnedOnly?: boolean;
       /** PR-author logins trusted beyond OWNER/MEMBER/COLLABORATOR (pass the workflow's allowed-actors here). */
       feedbackAuthors?: string[];
       concurrency: number;
@@ -1118,6 +1120,7 @@ export function parseCli(argv: string[], cwd: string): Command {
       egress: values.egress === true,
       ...(typeof values.author === 'string' ? { author: values.author } : {}),
       ...(prNumber !== undefined ? { pr: prNumber } : {}),
+      ...(values['pinned-only'] === true ? { pinnedOnly: true } : {}),
       ...(proxyMode ? { llmProxy: true } : {}),
       ...(builtinProvider !== undefined ? { provider: builtinProvider } : {}),
       ...(typeof values['review-model'] === 'string' ? { reviewModel: values['review-model'] } : {}),

@@ -71,6 +71,7 @@ const OPT = {
   since: str('<date>', 'Only entries at or after this date or window'),
   limit: str('<n>', 'Maximum number of entries'),
   pr: str('<n>', 'PR number'),
+  'pinned-only': bool('With a pinned PR, review only it and skip the label scan (per-PR CI concurrency group, one run per labelled PR)'),
   'config-dir': str('<dir>', 'The hub config dir holding the hub audit log (default: the hub\'s own)'),
   'spec-model': str('<m>', 'Model for the tech-spec stage'),
   'trigger-state': str('<x>', 'Status option name for ready items (project default "Todo"; linear: state type, default "unstarted")'),
@@ -167,7 +168,7 @@ export const COMMANDS: readonly CommandDecl[] = [
     'github-pr': str('<n>', 'PR number (or pass the PR as a positional)'),
     'max-rounds': str('<n>', 'Maximum revision rounds'),
   }, { out: { help: 'Dry-run: write the diff and proposed thread replies to this file; push and comment nothing' } }, '<PR ref>'),
-  command('watch-prs', 'Poll GitHub PRs by label and run the non-blocking review loop.', [...REVIEW_SHARED, 'github-repo', 'label', 'reviewing-label', 'reviewed-label', 'author', 'concurrency', 'interval', 'once', 'feedback-authors', 'pr'], {}, {
+  command('watch-prs', 'Poll GitHub PRs by label and run the non-blocking review loop.', [...REVIEW_SHARED, 'github-repo', 'label', 'reviewing-label', 'reviewed-label', 'author', 'concurrency', 'interval', 'once', 'feedback-authors', 'pr', 'pinned-only'], {}, {
     pr: { help: 'Also review this PR even if the label scan misses it' },
     label: { help: 'Required trigger label (e.g. "ready for taskcell review")' },
   }),

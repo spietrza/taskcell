@@ -617,6 +617,8 @@ describe('parseCli', () => {
   it('parses watch-prs --pr as a pinned PR number', () => {
     const cmd = parseCli(['watch-prs', '--github-repo', 'o/r', '--label', 'x', '--pr', '316'], '/work');
     expect(cmd).toMatchObject({ kind: 'watch-prs', pr: 316 });
+    expect(cmd).not.toHaveProperty('pinnedOnly');
+    expect(parseCli(['watch-prs', '--github-repo', 'o/r', '--label', 'x', '--pinned-only'], '/work')).toMatchObject({ kind: 'watch-prs', pinnedOnly: true });
   });
 
   it('rejects a watch-prs --pr that is not a positive PR number', () => {

@@ -58,8 +58,10 @@ jobs:
       (startsWith(github.event.pull_request.head.ref, 'chore/vanguard-') || startsWith(github.event.pull_request.head.ref, 'chore/taskcell-'))))))
     # Job-level, not workflow-level: a run whose jobs are all skipped (any other label, any other opened PR)
     # never joins the group, so it cannot cancel a review that is waiting in it.
+    # One group per PR: GitHub keeps one pending run per group, so a shared group cancelled the waiting
+    # review when a third PR was labelled (#1070). Each run then reviews only its own PR (pinned-only).
     concurrency:
-      group: taskcell-pr-review-${{ github.repository }}
+      group: taskcell-pr-review-${{ github.repository }}-${{ github.event.pull_request.number || 'sweep' }}
       cancel-in-progress: false
     uses: ./.github/workflows/pr-review.yml
     with:
@@ -73,6 +75,7 @@ jobs:
       fallback-model: gpt-5.6-sol
       # One run reviews every labelled PR; four at a time instead of two.
       review-concurrency: '4'
+      pinned-only: true
     secrets:
       CLAUDE_CODE_OAUTH_TOKEN: ${{ secrets.CLAUDE_CODE_OAUTH_TOKEN }}
       CODEX_AUTH_JSON: ${{ secrets.CODEX_AUTH_JSON }}
