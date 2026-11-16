@@ -1,5 +1,34 @@
 # Changelog
 
+## [1.16.2](https://github.com/spietrza/taskcell/compare/v1.16.1...v1.16.2) (2026-11-16)
+
+
+### Features
+
+* hub Runs split view with stage line and live log, cell logo favicon ([#1192](https://github.com/spietrza/taskcell/issues/1192), [#1191](https://github.com/spietrza/taskcell/issues/1191)) ([#1199](https://github.com/spietrza/taskcell/issues/1199)) ([321e066](https://github.com/spietrza/taskcell/commit/321e066d6c7753259ebd89748d6731c9c4f59483))
+
+
+### Bug Fixes
+
+* gate exec bound once, clean lockfile reinstall before verify ([#1187](https://github.com/spietrza/taskcell/issues/1187), [#1183](https://github.com/spietrza/taskcell/issues/1183)) ([#1195](https://github.com/spietrza/taskcell/issues/1195)) ([608db8b](https://github.com/spietrza/taskcell/commit/608db8b4c179497ac76d04b8289c9be34a367667))
+* install image CLIs from committed lockfiles with npm ci ([#1181](https://github.com/spietrza/taskcell/issues/1181)) ([#1194](https://github.com/spietrza/taskcell/issues/1194)) ([7e89629](https://github.com/spietrza/taskcell/commit/7e8962970d5b002dfb7e11470eae75292c5625b2))
+
+
+### Documentation
+
+* list the verify install's remaining trust gaps ([#1201](https://github.com/spietrza/taskcell/issues/1201)) ([4f6a792](https://github.com/spietrza/taskcell/commit/4f6a79245fd48495acdd7ddd4e95b9e8f591bdbb))
+
+
+### Code Refactoring
+
+* pure parseCli, pinned retry and delivery target behind seams ([#1188](https://github.com/spietrza/taskcell/issues/1188), [#1189](https://github.com/spietrza/taskcell/issues/1189)) ([#1193](https://github.com/spietrza/taskcell/issues/1193)) ([8f4ae56](https://github.com/spietrza/taskcell/commit/8f4ae5650bfa1df74155fe0c08dd8f4f235e90a8))
+* sandbox context as one session option, shared review runner ([#1185](https://github.com/spietrza/taskcell/issues/1185), [#1186](https://github.com/spietrza/taskcell/issues/1186)) ([#1197](https://github.com/spietrza/taskcell/issues/1197)) ([eaa684b](https://github.com/spietrza/taskcell/commit/eaa684ba7849cb721ab868c5fa9b0cbe8a40b6c8))
+
+
+### Miscellaneous
+
+* release 1.16.2 ([#1202](https://github.com/spietrza/taskcell/issues/1202)) ([fa63fe3](https://github.com/spietrza/taskcell/commit/fa63fe33059276845049b16a243264ce7587efe2))
+
 ## [1.16.1](https://github.com/spietrza/taskcell/compare/v1.16.0...v1.16.1) (2026-11-16)
 
 
