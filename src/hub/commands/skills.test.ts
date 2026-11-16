@@ -9,8 +9,9 @@ const cli = vi.hoisted(() => ({
   skillsAddPr: vi.fn(),
   skillsRemovePr: vi.fn(),
   recordedMetrics: vi.fn(async () => ''),
+  cachedResolver: vi.fn(() => async () => undefined),
 }));
-vi.mock('../../cli/skills.js', () => cli);
+vi.mock('../../core/skills.js', () => cli);
 
 const outsider: typeof OWNER = { user: { id: 'u2', email: 'u2@x.test', name: 'Member' }, owner: false };
 const PR = 'https://github.com/o/r/pull/9';
@@ -43,7 +44,6 @@ test('only allowlisted projects are covered', async () => {
     await expect(dispatchRpc(ctx, cmd, { repoPath: elsewhere, ...args })).rejects.toThrow();
   }
   expect(cli.skillsChecked).not.toHaveBeenCalled();
-  expect(cli.skillsUpdate).not.toHaveBeenCalled();
   expect(cli.skillsAddPr).not.toHaveBeenCalled();
   expect(cli.skillsRemovePr).not.toHaveBeenCalled();
 });
@@ -51,7 +51,7 @@ test('only allowlisted projects are covered', async () => {
 test('update_skill_pr always asks for a PR and never a dry run, and returns its URL', async () => {
   const repo = await tmpGitRepo('https://github.com/allowed/repo.git');
   const { ctx } = await makeCtx(repo);
-  cli.skillsUpdate.mockImplementation(async (_o: unknown, _d: unknown, out: (l: string) => void) => out(`opened ${PR}`));
+  cli.skillsUpdate.mockImplementation(async () => ({ prUrl: PR }));
   expect(await dispatchRpc(ctx, 'update_skill_pr', { repoPath: repo, name: 'a', pr: false })).toEqual({ prUrl: PR });
   expect(cli.skillsUpdate).toHaveBeenCalledWith(expect.objectContaining({ name: 'a', pr: true, dryRun: false }), {}, expect.any(Function));
 });
@@ -59,20 +59,32 @@ test('update_skill_pr always asks for a PR and never a dry run, and returns its 
 test('an update that opens no PR is an error, not a silent success', async () => {
   const repo = await tmpGitRepo('https://github.com/allowed/repo.git');
   const { ctx } = await makeCtx(repo);
-  cli.skillsUpdate.mockImplementation(async (_o: unknown, _d: unknown, out: (l: string) => void) => out('a\tcurrent'));
-  await expect(dispatchRpc(ctx, 'update_skill_pr', { repoPath: repo, name: 'a' })).rejects.toThrow('opened no pull request');
+  cli.skillsUpdate.mockImplementation(async (_o: unknown, _d: unknown, out: (l: string) => void) => {
+    out('a\tmodified locally → skipped');
+    return {};
+  });
+  await expect(dispatchRpc(ctx, 'update_skill_pr', { repoPath: repo, name: 'a' })).rejects.toThrow('opened no pull request: a\tmodified locally → skipped');
 });
 
 test('add and remove open a PR and show its link; a failed add carries the command reason', async () => {
   const repo = await tmpGitRepo('https://github.com/allowed/repo.git');
   const { ctx } = await makeCtx(repo);
-  cli.skillsAddPr.mockImplementation(async (_o: unknown, _d: unknown, out: (l: string) => void) => out(`opened ${PR}`));
-  cli.skillsRemovePr.mockImplementation(async (_o: unknown, _d: unknown, out: (l: string) => void) => out(`opened ${PR}`));
+  cli.skillsAddPr.mockImplementation(async () => ({ prUrl: PR }));
+  cli.skillsRemovePr.mockImplementation(async () => ({ prUrl: PR }));
   expect(await dispatchRpc(ctx, 'add_skill_pr', { repoPath: repo, source: 'https://github.com/o/s' })).toEqual({ prUrl: PR });
   expect(await dispatchRpc(ctx, 'remove_skill_pr', { repoPath: repo, name: 'a' })).toEqual({ prUrl: PR });
   const { TaskcellError } = await import('../../core/errors.js');
   cli.skillsAddPr.mockRejectedValue(new TaskcellError('Cannot resolve HEAD of https://github.com/o/s.'));
   await expect(dispatchRpc(ctx, 'add_skill_pr', { repoPath: repo, source: 'https://github.com/o/s' })).rejects.toThrow('Cannot resolve HEAD');
+});
+
+test('a #ref on the source is split off as in the CLI', async () => {
+  const repo = await tmpGitRepo('https://github.com/allowed/repo.git');
+  const { ctx } = await makeCtx(repo);
+  cli.skillsAddPr.mockImplementation(async () => ({ prUrl: PR }));
+  await dispatchRpc(ctx, 'add_skill_pr', { repoPath: repo, source: 'https://github.com/o/s#v1' });
+  expect(cli.skillsAddPr).toHaveBeenLastCalledWith(expect.objectContaining({ source: 'https://github.com/o/s', ref: 'v1' }));
+  await expect(dispatchRpc(ctx, 'add_skill_pr', { repoPath: repo, source: 'https://github.com/o/s#' })).rejects.toThrow('empty #ref');
 });
 
 test('the audit target of an add never carries credentials or a query from the source', async () => {
@@ -84,9 +96,11 @@ test('the audit target of an add never carries credentials or a query from the s
   expect(t).not.toContain(secret);
 });
 
-test('without the owner role, add and remove are refused before anything runs', async () => {
+test('without the owner role, update, add and remove are refused before anything runs', async () => {
   const repo = await tmpGitRepo('https://github.com/allowed/repo.git');
   const { ctx } = await makeCtx(repo);
+  await expect(dispatchRpc(ctx, 'update_skill_pr', { repoPath: repo, name: 'a' }, outsider)).rejects.toThrow('only the hub owner');
+  expect(cli.skillsUpdate).not.toHaveBeenCalled();
   await expect(dispatchRpc(ctx, 'add_skill_pr', { repoPath: repo, source: 'https://github.com/o/s' }, outsider)).rejects.toThrow('only the hub owner');
   await expect(dispatchRpc(ctx, 'remove_skill_pr', { repoPath: repo, name: 'a' }, outsider)).rejects.toThrow('only the hub owner');
   expect(cli.skillsAddPr).not.toHaveBeenCalled();

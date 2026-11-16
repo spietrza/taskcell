@@ -60,24 +60,30 @@ export function tipLockKey(cwd: string, remote: string, branch: string): string 
   return `${real}\0${remote}\0${branch}`;
 }
 
+const isLockError = (err: unknown): boolean => /cannot lock ref/i.test(String((err as { stderr?: unknown }).stderr ?? ''));
+
 /** The branch tip's commit sha, or undefined when the remote has no such branch yet. */
 function fetchTip(cwd: string, remote: string, branch: string): Promise<string | undefined> {
   return tipLock(tipLockKey(cwd, remote, branch), async () => {
     const ref = tipRef(remote, branch);
     const fetch = (): Promise<string> => git(cwd, ['fetch', '--quiet', remote, `+refs/heads/${branch}:${ref}`]);
+    const revParse = (args: string[]): Promise<string | undefined> => git(cwd, ['rev-parse', ...args, ref]).catch(() => undefined);
     try {
+      await fetch();
+    } catch (err) {
+      if (!isLockError(err)) return undefined;
+      // Another process (a CLI run beside the hub) fetching the same ref: retry once rather than read as empty.
+      await new Promise((r) => setTimeout(r, TIP_LOCK_RETRY_MS));
       try {
         await fetch();
-      } catch (err) {
-        // Another process (a CLI run beside the hub) fetching the same ref: retry once rather than read as empty.
-        if (!/cannot lock ref/i.test(String((err as { stderr?: unknown }).stderr ?? ''))) throw err;
-        await new Promise((r) => setTimeout(r, TIP_LOCK_RETRY_MS));
-        await fetch();
+      } catch (again) {
+        if (!isLockError(again)) return undefined;
+        // Still locked: read the tip ref as it stands (possibly behind) rather than report the branch absent.
+        // With no tip ref yet the lock failure propagates: it is not "no such branch".
+        return (await revParse(['--verify', '--quiet'])) ?? Promise.reject(again);
       }
-      return await git(cwd, ['rev-parse', ref]);
-    } catch {
-      return undefined;
     }
+    return revParse([]);
   });
 }
 

@@ -97,12 +97,6 @@ describe('QuickView skills', () => {
     fireEvent.click(within(section).getByRole('button', { name: 'Save skills' }));
     await vi.waitFor(() => expect(apiSetTaskSkills).toHaveBeenCalledWith('/repo', 'hub-3', ['db', 'release']));
   });
-  test('no skills section is rendered outside hub mode', async () => {
-    delete window.__TASKCELL_HUB__;
-    open({ ...task, skills: ['db'] });
-    await screen.findByRole('list', { name: 'Stage line' });
-    expect(screen.queryByRole('region', { name: 'Skills' })).not.toBeInTheDocument();
-  });
   test('a card of no tracker has no skills section', async () => {
     const { source: _source, ...draft } = task;
     open(draft);

@@ -1,11 +1,7 @@
-import { test, expect, afterEach, vi } from 'vitest';
+import { test, expect, vi } from 'vitest';
 import ipcSource from '../ipc.ts?raw';
-import { clearMocks } from '@tauri-apps/api/mocks';
-import { invoke } from '@tauri-apps/api/core';
-import { install, HANDLED_COMMANDS } from './mockBackend';
+import { handle, HANDLED_COMMANDS } from './mockBackend';
 import type { Commands } from '../wire';
-
-afterEach(() => clearMocks());
 
 // The real coverage guard: derive the command surface from ipc.ts (the source of truth) — NOT from
 // the handler map, which would be tautological. A new call() added to ipc.ts without a matching
@@ -35,14 +31,13 @@ const wrongResultShape: Handler<'list_runs'> = () => [{ taskId: 42, timestamp: '
 void wrongResultShape;
 
 test('no handler falls through to the unhandled-command warn path', async () => {
-  install();
   // Commands whose wire result is `void` legitimately resolve undefined now that the handler map is
   // typed against the catalogue (`null` is not a `void` result), so the warn path itself is the
   // signal — not an undefined return value.
   const warn = vi.spyOn(console, 'warn').mockImplementation(() => {});
   for (const cmd of HANDLED_COMMANDS) {
     // eslint-disable-next-line no-await-in-loop
-    await invoke(cmd);
+    await handle(cmd, undefined);
   }
   expect(warn.mock.calls.map((args) => String(args[0])), 'mockBackend.ts warned on a command it claims to handle').toEqual([]);
   warn.mockRestore();
@@ -57,12 +52,11 @@ test('fixtures: no vanguard name and a spec per board task', async () => {
 });
 
 test('lesson and audit times are relative to now, so they never age', async () => {
-  install();
   const ago = (iso: string): number => Date.now() - Date.parse(iso);
-  const { lessons } = await invoke<{ lessons: { timestamp: string }[] }>('list_lessons', { repoPath: '/x' });
+  const { lessons } = handle('list_lessons', { repoPath: '/x' }) as { lessons: { timestamp: string }[] };
   expect(lessons.length).toBeGreaterThan(0);
   for (const l of lessons) expect(ago(l.timestamp)).toBeLessThan(7 * 86_400_000);
-  const audit = await invoke<{ time: string }[]>('read_audit', { repoPath: '/x' });
+  const audit = handle('read_audit', { repoPath: '/x' }) as { time: string }[];
   expect(audit.length).toBeGreaterThan(0);
   for (const a of audit) expect(ago(a.time)).toBeLessThan(86_400_000);
 });

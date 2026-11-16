@@ -329,20 +329,22 @@ describe('startProviderProxies', () => {
 
     it('strips control characters, caps relayed lines, and appends hub or CI advice to the refusal', async () => {
       const error = vi.spyOn(console, 'error').mockImplementation(() => {});
+      const warn = vi.spyOn(console, 'warn').mockImplementation(() => {});
       try {
-        const logs = `llm-proxy: ERROR codex bad\x1b[31m${'x'.repeat(1000)}`;
-        for (const [env, expected] of [[{ CI: '', GITHUB_ACTIONS: '' }, 'Settings → Credentials'], [{ CI: 'true' }, 'gh secret set']] as const) {
+        const logs = `llm-proxy: ERROR codex bad\x1b[31m\u009b\u2028\u202e${'x'.repeat(1000)}`;
+        for (const [env, expected] of [[{ CI: '', GITHUB_ACTIONS: '' }, 'Settings → Credentials'], [{ CI: 'true' }, 'GitLab']] as const) {
           error.mockClear();
           const d = dockerWith(logs);
           const proxies = await startProviderProxies({ proxySecrets: { codexChatgpt: REAL_CHATGPT_AUTH }, network: 'n', docker: d.run, env: { ...env, CODEX_AUTH_FILE: '/nonexistent/auth.json' } });
           await proxies.destroy();
           const out = error.mock.calls.flat().join('\n');
           expect(out).toContain(expected);
-          expect(out).not.toContain('\x1b');
+          expect(out).not.toMatch(/[\x1b\u009b\u2028\u202e]/);
           expect(out.length).toBeLessThan(600);
         }
       } finally {
         error.mockRestore();
+        warn.mockRestore();
       }
     });
 

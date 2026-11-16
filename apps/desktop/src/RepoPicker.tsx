@@ -109,6 +109,9 @@ export function RepoPicker({
 
   const alreadyAdded = listing !== null && added.includes(listing.path);
 
+  // Windows, above the drive roots: the hub lists the drives under this stand-in path, which is no folder to clone into.
+  const atDrives = listing?.path === 'drives:';
+
   // What the hub would refuse (src/hub/clone.ts), said before the click.
   const cloneProblem = /[\s\\]/.test(url.trim())
     ? 'A repository URL has no spaces or backslashes.'
@@ -166,7 +169,7 @@ export function RepoPicker({
               <ArrowUp className="size-4" />
             </Button>}
             <span className="truncate text-sm text-muted-foreground">
-              {cloneOnly ? 'Cloned into the hub’s own folder' : `${mode === 'clone' ? 'Clone into: ' : ''}${listing?.path ?? 'Loading…'}`}
+              {cloneOnly ? 'Cloned into the hub’s own folder' : `${mode === 'clone' ? 'Clone into: ' : ''}${listing === null ? 'Loading…' : atDrives ? 'Drives' : listing.path}`}
             </span>
           </div>
           {!cloneOnly && <form
@@ -238,7 +241,7 @@ export function RepoPicker({
                 {alreadyAdded ? 'Already added' : 'Add this repo'}
               </Button>
             ) : (
-              <Button onClick={clone} disabled={(!listing && !cloneOnly) || url.trim() === '' || cloning || cloneProblem !== null}>
+              <Button onClick={clone} disabled={(!listing && !cloneOnly) || atDrives || url.trim() === '' || cloning || cloneProblem !== null}>
                 {cloning ? 'Cloning…' : 'Clone & add'}
               </Button>
             )}

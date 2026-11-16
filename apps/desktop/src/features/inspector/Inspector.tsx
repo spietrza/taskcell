@@ -1,7 +1,7 @@
 import { useEffect, useRef, useState } from 'react';
 import { Button, Chip, PAGE_CLASS, Timestamp, cn } from '@/ui';
 import { ArrowLeft, FilePlus, RefreshCw } from 'lucide-react';
-import { canUseFleet, isDemoMode, isHubMode, subscribe, onStreamReset } from '../../transport';
+import { canUseFleet, isDemoMode, subscribe, onStreamReset } from '../../transport';
 import { DEMO_READ_ONLY_MESSAGE } from '../../errors';
 import {
   listRuns,
@@ -337,14 +337,14 @@ export function Inspector({
         let runId = active !== null && active.repoPath === project ? active.runId : undefined;
         if (active !== null && runId === undefined) {
           // Another project's run holds the sidecar. Don't fold its backlog — surface a note
-          // instead; New-run stays enabled (Tauri's single-in-flight guard rejects with a clear
-          // error, the hub queues the run — either beats disabling the button for an unseen run).
+          // instead; New-run stays enabled (the hub queues the run — better than disabling the
+          // button for an unseen run).
           setForeignRun(active.repoPath);
         }
-        // Hub: no active run of ours, but one may be waiting in the queue — re-attach that instead,
+        // No active run of ours, but one may be waiting in the queue — re-attach that instead,
         // or a reload would leave it with no strip and no way to cancel it. The hub allows at most
         // one queued run per project (run-session.ts), so `find` cannot miss a second one.
-        if (runId === undefined && isHubMode()) runId = (await apiQueue()).find((q) => q.repoPath === project)?.runId;
+        if (runId === undefined) runId = (await apiQueue()).find((q) => q.repoPath === project)?.runId;
         if (runId === undefined) return;
         const backlog = (await apiRunBacklog(runId)) as { runId: string; event: RunEvent }[];
         // Fold BEFORE flipping checkedIdle: between the two the button's guard would see
@@ -355,7 +355,7 @@ export function Inspector({
       } catch {
         // Treat an unverifiable idle-check as idle: a rejected apiActiveRun (sidecar not up yet, IPC
         // error) must not leave the New-run button disabled forever. A second concurrent run is still
-        // rejected (Tauri's busy guard) or queued (hub), so the worst case is confusion, not corruption.
+        // queued (hub), so the worst case is confusion, not corruption.
       } finally {
         setCheckedIdle(true);
       }
@@ -375,7 +375,7 @@ export function Inspector({
     //
     // checkedIdle is part of the guard, not just the button's disabled state: during mount re-attach
     // a run can be live in the sidecar while typedRunRef is still null, and a board-path launch in
-    // that window would set a fresh strip, get rejected by the Rust busy guard, and wipe the strip
+    // that window would set a fresh strip, get rejected by the hub, and wipe the strip
     // the re-attach effect is concurrently folding the backlog into.
     // The demo refuses every write; say so here, where its sample live run would otherwise answer first.
     if (isDemoMode()) {
@@ -423,15 +423,14 @@ export function Inspector({
       })
       .catch((e) => {
         if (runGen.current !== gen) return; // a newer run owns the strip
-        // apiCreateRun rejects on BOTH a pre-start rejection (Tauri's single-in-flight guard or a full
-        // hub queue, both before any run event) AND a run that started then errored/cancelled
+        // apiCreateRun rejects on BOTH a pre-start rejection (a full hub queue, before any run event) AND a run that started then errored/cancelled
         // (resolve_terminal returns Err for those). Only the former needs clearing + a banner — it never
         // adopted a runId. A real error/cancel already folded run-accepted, so its runId is set and the
         // terminal EVENT renders it in the strip; don't wipe it or double-report.
         //
         // Asymmetry with .then above, on purpose: this path does NOT synthesize a terminal backstop. A
         // lost run-error/run-cancelled would spin the strip forever, and we lean on the S0.5 guarantee
-        // that Rust buffers a terminal on every in-session path rather than guessing one here.
+        // that the hub buffers a terminal on every in-session path rather than guessing one here.
         if (typedRunRef.current?.runId === undefined) {
           setError(String(e));
           setTypedRun(null);
@@ -523,7 +522,7 @@ export function Inspector({
       {foreignRun !== null && typedRun === null && screen === 'runs' && (
         <div className="mb-2 rounded border border-border bg-muted/40 px-3 py-2 text-xs text-muted-foreground">
           a run is live in <code className="font-mono">{foreignRun}</code> —{' '}
-          {isHubMode() ? 'a run started here will be queued until it finishes' : 'starting one here will be rejected until it finishes'}
+          a run started here will be queued until it finishes
         </div>
       )}
       {typedRun !== null && screen === 'runs' && !stripMinimized ? (

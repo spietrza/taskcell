@@ -20,4 +20,6 @@ export const commands = defineCommands<HistoryCommands>({
     if (repo === undefined) throw new BadRequestError('the project has no GitHub origin to read the issue history from');
     return readIssueHistory({ repoPath: real, repo, localRepo: repo, issue, ...(actorOf(ctx).admin ? { hubConfigDir: ctx.configDir } : {}) });
   },
+}, {
+  read_issue_history: { write: false, repo: 'repoPath' },
 });

@@ -2,7 +2,6 @@ import { beforeEach, expect, test, vi } from 'vitest';
 import { fireEvent, render, screen, waitFor } from '@testing-library/react';
 
 vi.mock('../../ipc', () => ({ listTasks: vi.fn(), listTasksAll: vi.fn(), retryPausedTask: vi.fn().mockResolvedValue({ label: 'ready for agent' }) }));
-vi.mock('../needs-you/NeedsYou', () => ({ canUseNeedsYou: () => true }));
 import { listTasks, retryPausedTask } from '../../ipc';
 import { HomePausedBanner, PausedPanel, TaskDetailPaused, retryWords } from './paused';
 

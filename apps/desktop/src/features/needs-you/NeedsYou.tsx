@@ -1,5 +1,4 @@
 import { useEffect, useState } from 'react';
-import { isTauri } from '@tauri-apps/api/core';
 import { Button, Card, Chip, Textarea } from '@/ui';
 import { errorClause } from '../../errors';
 import { RefreshCw } from 'lucide-react';
@@ -7,13 +6,8 @@ import { listNeedsYou, listNeedsYouAll, mergeNeedsYou, replyNeedsYou, type Needs
 import { gateProps, useCallerCapabilities } from '../../hooks';
 import { inRepos } from '../../repoFilter';
 import { RepoFailures, RepoLabel } from '../../RepoViews';
-import { isDemoLink, isHubMode } from '../../transport';
+import { isDemoLink } from '../../transport';
 import { ExternalLink } from '../../components/ExternalLink';
-
-/** `list_needs_you`/`reply_needs_you` are served by the hub only; outside it only the browser dev build's mock answers them. */
-export function canUseNeedsYou(): boolean {
-  return isHubMode() || (import.meta.env.DEV && !isTauri());
-}
 
 /** Plain words for the factory's waiting labels (src/hub/needs-you.ts); anything else shows as-is. */
 const REASON_TEXT: Record<string, string> = {

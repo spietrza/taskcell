@@ -140,7 +140,7 @@ export interface RepoSkill {
   name: string;
   /** Git URL it is pinned to; '-' for a local skill. */
   source: string;
-  /** Short pinned commit; '-' when none. */
+  /** Short pinned commit; empty when none. */
   commit: string;
   /** Lock status: pinned, locally modified, or not in the lock. */
   status: 'pinned' | 'local' | 'modified';
@@ -415,6 +415,8 @@ export interface RunRecord {
   baseBranch?: string;
   /** Gate-config files (test/lint/type-check config) the run's delivered diff changed; absent when none. */
   configPaths?: string[];
+  /** The run's gate-repair cap (`--max-repair-iterations`); absent on older records (the default cap applies). */
+  maxRepairIterations?: number;
   /** Agent calls folded into this stage (auto-resumes and gate repairs); absent when the stage ran once. */
   attempts?: number;
   /** Ids of the lessons injected into this run's prompts (`taskcell lessons list` counts them). */
@@ -518,7 +520,7 @@ export interface RunSummary {
   costUnknown?: true;
   /** Sum of the run's API-price estimates (see RunRecord.estCostUsd); shown as `≈`, next to the reported cost when some stages have one. */
   estCostUsd?: number;
-  /** Some entries without a reported cost have no estimate either (an unpriced model): the `≈` figure covers only the priced ones. */
+  /** Some entries without a reported cost have no estimate either (an unpriced model): the `≈` figure covers only the priced ones. On a run row it can be set with no `estCostUsd` (nothing priced). */
   estPartial?: true;
 }
 
@@ -1300,9 +1302,9 @@ export interface Commands {
   conflict_stats: { args: { repoPath: string }; result: ConflictStats };
   /** HUB_ONLY, owner only, read-only: whether `gh`, `glab`, a Linear key and a model credential (Claude, or a Codex key or sign-in file) are present on the hub host. Booleans only — never a secret value. Spawns `gh`/`glab` on the host, so it is refused on a non-loopback bind without TASKCELL_HUB_ALLOW_ADD. */
   setup_status: { args: undefined; result: SetupStatus };
-  /** HUB_ONLY, read-only: the skills of a repo with their lock status, upstream check and usage. */
+  /** HUB_ONLY, read-only: the skills of a repo (as in the hub checkout's working tree) with their lock status, upstream check and usage. */
   list_repo_skills: { args: { repoPath: string }; result: { skills: RepoSkill[] } };
-  /** HUB_ONLY: `skills update <name> --pr`; the skill only ever changes on a new branch, delivered as a PR. Resolves to its URL. */
+  /** HUB_ONLY, owner only: `skills update <name> --pr`; the skill only ever changes on a new branch, delivered as a PR. Resolves to its URL. */
   update_skill_pr: { args: { repoPath: string; name: string }; result: { prUrl: string } };
   /** HUB_ONLY, owner only: `skills add` delivered as a PR. A failure carries the command's reason. */
   add_skill_pr: { args: { repoPath: string; source: string; ref?: string; path?: string; name?: string }; result: { prUrl: string } };

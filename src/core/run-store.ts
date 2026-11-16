@@ -433,6 +433,8 @@ export interface WriteStagesOptions {
   baseBranch?: string;
   /** Gate-config files the delivered diff changed; recorded on every stage (any delivery kind). */
   configPaths?: readonly string[];
+  /** The run's gate-repair cap (`--max-repair-iterations`), recorded on every stage. */
+  maxRepairIterations?: number;
   /** The sandbox image's content digest (IsolatedSandboxProvider.imageDigest), recorded on every
    *  stage of the run so a run record can be traced back to the exact image it executed against. */
   imageDigest?: string;
@@ -483,6 +485,7 @@ interface WriteRecordOptions {
   imageDigest?: string;
   baseBranch?: string;
   configPaths?: readonly string[];
+  maxRepairIterations?: number;
   credentialSource?: 'instance' | 'user';
   startedBy?: string;
   lessonIds?: readonly string[];
@@ -502,7 +505,7 @@ async function writeRecord(repoPath: string, taskId: string, timestamp: string, 
   const root = runsRoot(repoPath);
   const taskDir = await ensureStateDir(repoPath, join(root, taskId));
 
-  const { diff, transcript, mergedEstCostUsd: _merged, skillsUsed: priorSkillsUsed, ...meta } = result;
+  const { diff, transcript, mergedEstCostUsd: _merged, cachedInInput: _cached, skillsUsed: priorSkillsUsed, ...meta } = result;
   // The skills installed for the run; a transcript's claim of any other id is discarded, so a caller
   // that passes no registry records none.
   const installedSkillIds = opts.skillIds ?? (opts.skills !== undefined ? [...opts.skills.named, ...opts.skills.available] : []);
@@ -551,6 +554,7 @@ async function writeRecord(repoPath: string, taskId: string, timestamp: string, 
     ...(opts.imageDigest !== undefined ? { imageDigest: opts.imageDigest } : {}),
     ...(opts.baseBranch !== undefined ? { baseBranch: opts.baseBranch } : {}),
     ...(opts.configPaths !== undefined && opts.configPaths.length > 0 ? { configPaths: [...opts.configPaths] } : {}),
+    ...(opts.maxRepairIterations !== undefined ? { maxRepairIterations: opts.maxRepairIterations } : {}),
     ...(opts.credentialSource !== undefined ? { credentialSource: opts.credentialSource } : {}),
     ...(diffOmitted !== undefined ? { diffOmitted } : {}),
     ...(opts.startedBy !== undefined ? { startedBy: opts.startedBy } : {}),
@@ -651,6 +655,7 @@ export function beginRun(
           ...(opts.imageDigest !== undefined ? { imageDigest: opts.imageDigest } : {}),
           ...(opts.baseBranch !== undefined ? { baseBranch: opts.baseBranch } : {}),
           ...(opts.configPaths !== undefined ? { configPaths: opts.configPaths } : {}),
+          ...(opts.maxRepairIterations !== undefined ? { maxRepairIterations: opts.maxRepairIterations } : {}),
           ...(opts.credentialSource !== undefined ? { credentialSource: opts.credentialSource } : {}),
           ...(runOpts.startedBy !== undefined ? { startedBy: runOpts.startedBy } : {}),
           ...(opts.lessonIds !== undefined ? { lessonIds: opts.lessonIds } : {}),
@@ -660,7 +665,7 @@ export function beginRun(
       }
       const first = outcomes[0];
       if (first === undefined) return;
-      const { omitDiff: _omitDiff, baseBranch: _baseBranch, configPaths: _configPaths, lessonIds: _lessonIds, skills: _skills, skillIds: _skillIds, ...trace } = opts;
+      const { omitDiff: _omitDiff, baseBranch: _baseBranch, configPaths: _configPaths, maxRepairIterations: _maxRepairIterations, lessonIds: _lessonIds, skills: _skills, skillIds: _skillIds, ...trace } = opts;
       await exportRunTrace({
         taskId,
         timestamp,

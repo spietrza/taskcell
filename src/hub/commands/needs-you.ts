@@ -1,7 +1,6 @@
 // Hub commands: the "Needs you" read model and its reply/merge actions. One module per feature — contract, validation and handler live here;
 // `pnpm gen:wire` derives Commands, COMMAND_NAMES and dispatch from it (see CONTRIBUTING.md).
 import { BadRequestError } from '../../sidecar/sidecar.js';
-import { assertMutationsAllowed } from '../allowlist.js';
 import { listNeedsYou, mergeNeedsYou, replyNeedsYou, MAX_COMMENT_FETCHES } from '../needs-you.js';
 import { readAppConfig } from '../app-config.js';
 import * as projects from '../projects.js';
@@ -23,11 +22,9 @@ export interface NeedsYouCommands {
 }
 
 export const commands = defineCommands<NeedsYouCommands>({
-  migrate_labels: async ({ ctx, args, allow }) => {
+  migrate_labels: async ({ args, allow }) => {
     const real = await allow(requireString(args, 'repoPath'));
     const apply = args.apply === true;
-    // A dry-run only lists labels; renaming them is a remote mutation.
-    if (apply) assertMutationsAllowed(ctx.bind);
     const repoSlug = await githubSlug(real);
     if (repoSlug === undefined) throw new BadRequestError('migrate_labels: this project has no GitHub remote');
     return migrateLabels({ repoSlug, apply, log: () => {} });
@@ -52,9 +49,7 @@ export const commands = defineCommands<NeedsYouCommands>({
     );
     return { items, failures };
   },
-  reply_needs_you: async ({ ctx, args, allow }) => {
-    // Comments under the hub's `gh` identity and adds a trigger label — a remote mutation.
-    assertMutationsAllowed(ctx.bind);
+  reply_needs_you: async ({ args, allow }) => {
     const real = await allow(requireString(args, 'repoPath'));
     const id = requireString(args, 'id');
     const kind = requireString(args, 'kind');
@@ -69,9 +64,7 @@ export const commands = defineCommands<NeedsYouCommands>({
     await replyNeedsYou(repoSlug, id, kind, body, undefined, label?.trim() ? label : undefined);
     return null;
   },
-  merge_needs_you: async ({ ctx, args, allow }) => {
-    // Merges under the hub's `gh` identity — a remote mutation.
-    assertMutationsAllowed(ctx.bind);
+  merge_needs_you: async ({ args, allow }) => {
     const real = await allow(requireString(args, 'repoPath'));
     const id = requireString(args, 'id');
     const repoSlug = await githubSlug(real);
@@ -79,6 +72,13 @@ export const commands = defineCommands<NeedsYouCommands>({
     await mergeNeedsYou(repoSlug, id);
     return null;
   },
+}, {
+  // A dry run only lists labels; renaming them is a remote mutation.
+  migrate_labels: { write: true, remote: true, remoteWhen: (a) => a.apply === true, repo: 'repoPath' },
+  list_needs_you: { write: false, repo: 'repoPath' },
+  list_needs_you_all: { write: false },
+  reply_needs_you: { write: true, remote: true, repo: 'repoPath' },
+  merge_needs_you: { write: true, remote: true, repo: 'repoPath' },
 }, {
   // A dry run only lists labels and writes nothing, so only `apply: true` is audited.
   migrate_labels: { action: 'labels-migrate', target: repoTarget, applies: (a) => a.apply === true },

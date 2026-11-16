@@ -87,6 +87,14 @@ describe('stageMetric', () => {
 });
 
 describe('mergeAttempts', () => {
+  it('prices attempts with different cachedInInput flags each on its own', () => {
+    const usage = { inputTokens: 1000, outputTokens: 100, cacheReadInputTokens: 800 };
+    const prior: RunResult = { ...baseResult, model: 'gpt-5', usage };
+    const merged = mergeAttempts(prior, { ...baseResult, model: 'gpt-5', usage, cachedInInput: true });
+    expect(merged.cachedInInput).toBe(true);
+    expect(merged.mergedEstCostUsd).not.toBeUndefined();
+  });
+
   it('sums cost/turns/tokens/duration and keeps the follow-up attempt identity', () => {
     const prior: RunResult = {
       ...baseResult, completed: false, exitReason: 'incomplete', turns: 4, sessionId: 's1', costUsd: 0.3,

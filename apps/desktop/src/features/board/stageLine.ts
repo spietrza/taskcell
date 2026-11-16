@@ -11,7 +11,7 @@ export interface StageStep {
   note?: string;
 }
 
-/** The factory's default number of gate repairs (`--max-repair-iterations`); the run record does not carry an override. */
+/** The factory's default number of gate repairs (`--max-repair-iterations`), for records that predate the run carrying its own cap. */
 const DEFAULT_MAX_REPAIRS = 2;
 
 const LABEL: Record<StageKey, string> = {
@@ -32,6 +32,11 @@ function runningIndex(stage: string | undefined): number {
   return 2;
 }
 
+/** The run's own repair cap (`--max-repair-iterations`), else the default. */
+export function repairCap(run?: Pick<RunDetail, 'stages'>): number {
+  return run?.stages.find((s) => s.record.maxRepairIterations !== undefined)?.record.maxRepairIterations ?? DEFAULT_MAX_REPAIRS;
+}
+
 /** Gate repairs so far: gate repairs fold into the implementer record as extra attempts (`attempts`). */
 export function repairAttempts(run?: Pick<RunDetail, 'stages'>): number {
   const attempts = run?.stages.find((s) => s.record.stage === 'implementer')?.record.attempts ?? 1;
@@ -44,7 +49,7 @@ export function repairAttempts(run?: Pick<RunDetail, 'stages'>): number {
  */
 export function stageLine(
   task: Pick<BoardTask, 'column' | 'stage'>,
-  opts: { prExists?: boolean; repairs?: number } = {},
+  opts: { prExists?: boolean; repairs?: number; maxRepairs?: number } = {},
 ): StageStep[] {
   // `at` is the current stage; stages before it are done, after it waiting.
   let at: number;
@@ -58,10 +63,11 @@ export function stageLine(
     case 'done': at = STAGE_KEYS.length; break;
   }
   const repairs = opts.repairs ?? 0;
+  const cap = opts.maxRepairs ?? DEFAULT_MAX_REPAIRS;
   return STAGE_KEYS.map((key, i): StageStep => {
     const status: StageStatus = i < at ? 'done' : i > at ? 'waiting' : failed ? 'failed' : 'current';
     const step: StageStep = { key, label: LABEL[key], status };
-    if (key === 'gates' && repairs > 0 && status === 'current') step.note = `repair ${Math.min(repairs, DEFAULT_MAX_REPAIRS)} of ${DEFAULT_MAX_REPAIRS}`;
+    if (key === 'gates' && repairs > 0 && status === 'current') step.note = `repair ${Math.min(repairs, cap)} of ${cap}`;
     return step;
   });
 }

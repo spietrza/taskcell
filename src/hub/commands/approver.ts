@@ -1,7 +1,6 @@
 // Hub commands: the approver's scorecard and auto-merge switch (project settings, task cards). One module per feature — contract, validation and handler live here;
 // `pnpm gen:wire` derives Commands, COMMAND_NAMES and dispatch from it (see CONTRIBUTING.md).
 import { BadRequestError } from '../../sidecar/sidecar.js';
-import { assertMutationsAllowed } from '../allowlist.js';
 import { ACT_BLOCKING_ISSUES, approverPrDecisions, approverScorecard, openApproverModePr, readApproverMode, unreadScorecard } from '../approver-card.js';
 import type { ApproverMode, ApproverModeChange, ApproverPeriod, ApproverPrDecision, ApproverScorecard } from '../../wire.js';
 import { defineCommands, requireString, optionalString, repoTarget } from '../command-kit.js';
@@ -29,9 +28,7 @@ export const commands = defineCommands<ApproverCommands>({
     const repo = await allow(requireString(args, 'repoPath'));
     return { decisions: await approverPrDecisions(repo), mode: (await readApproverMode(repo)).mode };
   },
-  set_approver_mode: async ({ ctx, args, allow }) => {
-    // Pushes a branch and opens a PR as the hub's `gh` identity — a mutation, like enable_factory_apply.
-    assertMutationsAllowed(ctx.bind);
+  set_approver_mode: async ({ args, allow }) => {
     const real = await allow(requireString(args, 'repoPath'));
     const mode = requireString(args, 'mode');
     if (!(MODES as readonly string[]).includes(mode)) throw new BadRequestError("mode must be 'off', 'shadow' or 'act'");
@@ -48,6 +45,10 @@ export const commands = defineCommands<ApproverCommands>({
     }
     return openApproverModePr({ repoPath: real, mode: target, card });
   },
+}, {
+  read_approver_scorecard: { write: false, repo: 'repoPath' },
+  read_approver_decisions: { write: false, repo: 'repoPath' },
+  set_approver_mode: { write: true, remote: true, repo: 'repoPath' },
 }, {
   set_approver_mode: { action: 'approver-mode', target: repoTarget, detail: async (_ctx, a) => {
       const mode = optionalString(a, 'mode');

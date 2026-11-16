@@ -1,7 +1,6 @@
 import { useState, type ReactNode } from 'react';
 import { Button, cn } from '@/ui';
 import { useNavGuardRegistry } from '../../navGuard';
-import { canUseNeedsYou } from '../needs-you/NeedsYou';
 import { Settings } from './Settings';
 import type { TeamScreen } from './Members';
 import { WorkflowEditor } from '../workflow/WorkflowEditor';
@@ -36,7 +35,9 @@ export function SettingsScreen({
     { key: 'general', label: 'General' },
     { key: 'line', label: 'Line' },
     { key: 'runners', label: 'Runners' },
-    ...(canUseNeedsYou() ? [{ key: 'lessons' as const, label: 'Lessons' }, { key: 'skills' as const, label: 'Skills' }, { key: 'audit' as const, label: 'Audit' }] : []),
+    { key: 'lessons', label: 'Lessons' },
+    { key: 'skills', label: 'Skills' },
+    { key: 'audit', label: 'Audit' },
   ];
   // Switching sections unmounts a dirty editor, so it confirms like any other navigation.
   const choose = (key: Section): void => {

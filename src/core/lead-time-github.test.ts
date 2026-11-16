@@ -1,5 +1,6 @@
 import { describe, expect, it } from 'vitest';
-import { fetchLeadTimes, fetchPrLeadTime, leadTimeRollupForPrUrls, parsePrUrl, prNumbersForRepo } from './lead-time-github.js';
+import { fetchLeadTimes, fetchPrLeadTime, leadTimeRollupForPrUrls, memoizePrView, parsePrUrl, prNumbersForRepo } from './lead-time-github.js';
+import { fetchFirstPass } from './lessons-stats.js';
 import type { GhRunner } from '../tasks/github.js';
 
 describe('parsePrUrl', () => {
@@ -124,5 +125,20 @@ describe('leadTimeRollupForPrUrls', () => {
     );
     expect(rollup.items).toHaveLength(1);
     expect(rollup.firstTryRate).toBe(1);
+  });
+});
+
+describe('memoizePrView', () => {
+  it('makes one gh pr view per PR when lead time and first pass both read it', async () => {
+    const calls: string[][] = [];
+    const raw: GhRunner = async (args) => {
+      calls.push(args);
+      return args[0] === 'pr' ? JSON.stringify({ number: Number(args[2]), createdAt: '2024-01-01T00:00:00Z', closingIssuesReferences: [], comments: [] }) : '[]';
+    };
+    const gh = memoizePrView(raw);
+    const urls = [1, 2, 3].map((n) => `https://github.com/o/r/pull/${n}`);
+    await leadTimeRollupForPrUrls('o/r', urls, {}, gh);
+    await fetchFirstPass('o/r', urls, gh);
+    expect(calls.filter((a) => a[0] === 'pr' && a[1] === 'view')).toHaveLength(3);
   });
 });

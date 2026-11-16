@@ -35,10 +35,10 @@ export type { NeedsYouItem, RepoReadFailure, RepoStamp } from './wire';
  * The one typed seam over the transport (S7): `cmd` must name a command in the wire's `Commands`
  * catalogue, and its args/result are that command's — so a renamed field, a forgotten argument or a
  * wrapper that claims the wrong result shape is a `tsc` error here instead of a runtime surprise in
- * whichever backend answers (Tauri, hub, or dev/mockBackend.ts).
+ * whichever backend answers (the hub, or dev/mockBackend.ts).
  *
  * The cast is the single place the per-command arg type is erased: `invoke` dispatches by string
- * name and takes a plain record, exactly like Rust's `invoke` and the hub's `POST /rpc/<cmd>`.
+ * name and takes a plain record, exactly like the hub's `POST /rpc/<cmd>`.
  */
 function call<K extends keyof Commands>(cmd: K, args: Commands[K]['args']): Promise<Commands[K]['result']> {
   return invoke<Commands[K]['result']>(cmd, args as Record<string, unknown> | undefined);
@@ -272,7 +272,7 @@ export function unwatchProject(repoPath: string): Promise<void> {
 }
 
 // Typed core API over the `taskcell __sidecar` child (no stdout scraping). Run events arrive on the
-// `api:event` Tauri channel — subscribe with `listen('api:event', …)` where the run UI needs them
+// `api:event` hub event — subscribe with `subscribe('api:event', …)` where the run UI needs them
 // (that consumption is Subsystem 1; this only exposes the wrappers).
 // Wire types come from the GENERATED src/wire.ts (S7) — no more hand-mirrors. Feature code keeps
 // importing them from this module.
@@ -327,7 +327,7 @@ export function apiCreateRun(params: CreateRunParams): Promise<CreateRunResult> 
  *
  * No `baseUrl` here on purpose: the completion runs with the inherited Anthropic credential, so a
  * caller-supplied base URL would be a way for anything running in the webview to redirect that token
- * to a host of its choosing. Rust reads `chatBaseUrl` from `app.json` itself — hence `repoPath`.
+ * to a host of its choosing. The hub reads `chatBaseUrl` from `app.json` itself — hence `repoPath`.
  *
  * `req` is wire's `CompleteCallArgs`: an ALLOWLIST, deliberately not `Omit<CompleteRequest, …>` —
  * every field in it is one the renderer is permitted to send, so a new `CompleteRequest` field must
@@ -336,7 +336,7 @@ export function apiCreateRun(params: CreateRunParams): Promise<CreateRunResult> 
 export function apiComplete(
   repoPath: string,
   params: CompleteCallArgs,
-  // Opaque per-turn handle. When present, Rust tracks the spawned `__complete` child under it so
+  // Opaque per-turn handle. When present, the hub tracks the spawned `__complete` child under it so
   // `apiCancelComplete(callId)` can kill exactly this turn (the Stop button). Omitted for
   // fire-and-forget completions (the auto-title) that are never cancelled.
   callId?: string,
@@ -357,7 +357,7 @@ export function apiCancelComplete(callId: string): Promise<void> {
  * Create a task on the configured transport. The app's first WRITE to an external system, and it cannot
  * be undone from here — so the caller must confirm first, and it must never fire as a side effect.
  *
- * Only title/body cross: `source`, `team` and `label` are read from app.json in Rust. The renderer does
+ * Only title/body cross: `source`, `team` and `label` are read from app.json by the hub. The renderer does
  * not choose which tracker gets written to. (Same rule as CompleteCallArgs — and it matters more here.)
  */
 export function apiCreateTask(repoPath: string, title: string, body: string, baseBranch?: string, dependsOn?: string[]): Promise<import('./wire').CreatedTask> {
@@ -398,7 +398,7 @@ export function clearDraftAssets(repoPath: string, id: string): Promise<void> {
 }
 
 // Task drafts (S10): one JSON file per draft under `.taskcell/drafts/`; the webview owns the shape
-// (see features/task/draftStore.ts), Rust is dumb storage.
+// (see features/task/draftStore.ts), the hub is dumb storage.
 export function listDrafts(repoPath: string): Promise<string[]> {
   return call('list_drafts', { repoPath });
 }
@@ -454,7 +454,7 @@ export function apiQueue(): Promise<{ runId: string; repoPath: string; position:
 }
 
 /** Cancel one run: `runId` given cancels exactly that run (active or queued, hub-only for the
- * latter); omitted cancels the active run (out-of-band SIGUSR2 to the sidecar child on Tauri). */
+ * latter); omitted cancels the active run (out-of-band SIGUSR2 to the sidecar child). */
 export function apiCancel(runId?: string): Promise<void> {
   return call('api_cancel', { runId });
 }

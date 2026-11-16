@@ -15,6 +15,8 @@ export const AUTO_MERGE_STREAK_THRESHOLD = 30;
 /** The subset of a decision record the scorecard needs — a superset like `DecisionRecord` satisfies it. */
 export interface ShadowDecision {
   repo: string;
+  /** Repository node id, when the record carries one. */
+  repoId?: string;
   prNumber: number;
   verdict: 'APPROVE' | 'ESCALATE';
   rulesFired: string[];
@@ -82,6 +84,7 @@ export function parseDecisions(text: string): ShadowDecision[] {
     const rulesFired = Array.isArray(parsed.rulesFired) ? parsed.rulesFired.filter((r): r is string => typeof r === 'string') : [];
     decisions.push({
       repo: parsed.repo,
+      ...(typeof parsed.repoId === 'string' && parsed.repoId !== '' ? { repoId: parsed.repoId } : {}),
       prNumber: parsed.prNumber,
       verdict: parsed.verdict,
       rulesFired,

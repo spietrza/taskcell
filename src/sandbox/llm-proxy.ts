@@ -6,7 +6,7 @@ import { isCi, reportRotation } from './codex-rotation.js';
 import { trackSandbox, untrackSandbox } from '../core/cleanup.js';
 import type { DockerRunner } from './sidecar.js';
 import type { ProviderProxySecrets } from '../agents/registry.js';
-import { REFRESH_FAILED_PREFIX, REFRESH_RECOVERED, REFRESH_REFUSED_PREFIX } from './llm-proxy-rewrite.mjs';
+import { REFRESH_FAILED_PREFIX, REFRESH_RECOVERED, REFRESH_REFUSED_PREFIX, stripControlChars } from './llm-proxy-rewrite.mjs';
 import type { Upstream } from './llm-proxy-rewrite.mjs';
 
 export type { DockerRunner } from './sidecar.js';
@@ -24,9 +24,8 @@ const PROXY_SCRIPT = fileURLToPath(new URL('./llm-proxy-server.mjs', import.meta
 // /tmp dir so that relative import resolves inside the container.
 const PROXY_LOGIC = fileURLToPath(new URL('./llm-proxy-rewrite.mjs', import.meta.url));
 
-const CONTROL_CHARS = /[\x00-\x1f\x7f]/g;
 const MAX_RELAYED_LINE = 300;
-const CI_ADVICE = 'In CI, re-set the stored secret: gh secret set CODEX_AUTH_JSON < ~/.codex/auth.json.';
+const CI_ADVICE = 'In CI, re-set the stored CODEX_AUTH_JSON secret from ~/.codex/auth.json (GitHub: gh secret set CODEX_AUTH_JSON; GitLab: Settings → CI/CD → Variables).';
 const HUB_ADVICE = 'On a hub run with a stored credential, save it again in Settings → Credentials.';
 
 /** A fresh credential-shaped token (hyphen-free uuid): the sandbox-facing nonce, the refresh placeholder. */
@@ -152,7 +151,7 @@ export async function startLlmProxy(opts: {
         let lines = new Set<string>();
         for (const raw of `${logs?.stdout ?? ''}\n${logs?.stderr ?? ''}`.split('\n')) {
           // The sidecar faces the untrusted cell: strip control characters and cap what reaches the host terminal.
-          const line = raw.replace(CONTROL_CHARS, '').slice(0, MAX_RELAYED_LINE);
+          const line = stripControlChars(raw).slice(0, MAX_RELAYED_LINE);
           // A later successful refresh makes the failures before it moot.
           if (line === REFRESH_RECOVERED) lines = new Set();
           else if (line.startsWith(REFRESH_REFUSED_PREFIX) || line.startsWith(REFRESH_FAILED_PREFIX)) lines.add(line);
