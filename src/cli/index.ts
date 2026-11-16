@@ -28,6 +28,8 @@ async function main(): Promise<void> {
   // Before anything spawns: the taskcell App private key must not be inherited by docker/git/gh children.
   takeAppKey();
   const command = parseCli(process.argv.slice(2), process.cwd());
+  // The cap is read from the environment at stage start, so the flag and TASKCELL_USAGE_CAP_PCT share one path.
+  if (command.usageCapPct !== undefined) process.env['TASKCELL_USAGE_CAP_PCT'] = command.usageCapPct;
   if (command.kind === 'help') {
     const decl = findCommand(command.command);
     console.log(decl === undefined ? USAGE : commandUsage(decl));

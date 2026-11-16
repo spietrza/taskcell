@@ -141,12 +141,11 @@ describe('parseCli', () => {
     expect(cmd.kind === 'run' && cmd.reviewProvider).toBe('codex');
   });
 
-  it('validates --usage-cap and exports it as TASKCELL_USAGE_CAP_PCT', () => {
+  it('validates --usage-cap and returns it on the command without touching process.env', () => {
     delete process.env['TASKCELL_USAGE_CAP_PCT'];
     expect(parseCli(['run', '--linear', 'TES-1', '--usage-cap', '0'], '/work').kind).toBe('error');
-    expect(parseCli(['run', '--linear', 'TES-1', '--usage-cap', '80'], '/work').kind).not.toBe('error');
-    expect(process.env['TASKCELL_USAGE_CAP_PCT']).toBe('80');
-    delete process.env['TASKCELL_USAGE_CAP_PCT'];
+    expect(parseCli(['run', '--linear', 'TES-1', '--usage-cap', '80'], '/work')).toMatchObject({ kind: 'run', usageCapPct: '80' });
+    expect(process.env['TASKCELL_USAGE_CAP_PCT']).toBeUndefined();
   });
 
   it('accepts model pools on --provider-model/--review-model/--escalate-model and refuses bad ones', () => {
