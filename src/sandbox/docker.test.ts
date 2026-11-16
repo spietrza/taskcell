@@ -5,6 +5,7 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import {
   DockerSandboxProvider,
+  shellArgv,
   isBenignTarExit,
   toExecResult,
   isOlderVersion,
@@ -730,5 +731,25 @@ describe('toExecResult on a real execa 10 result (reject: false)', () => {
   it('normalises a failed subprocess result exactly as it did under execa 9', async () => {
     const raw = await execa('node', ['-e', 'process.stderr.write("boom"); process.exit(7)'], { reject: false });
     expect(toExecResult(raw)).toEqual({ stdout: '', stderr: 'boom', exitCode: 7 });
+  });
+});
+
+describe('shellArgv (#1180)', () => {
+  it('a planted $HOME/.profile that exits 0 cannot turn a failing verify into a PASS', async () => {
+    const home = await mkdtemp(join(tmpdir(), 'tc-profile-'));
+    try {
+      await writeFile(join(home, '.profile'), 'exit 0\n');
+      const run = async (argv: string[]): Promise<number | undefined> =>
+        (await execa(argv[0]!, argv.slice(1), { reject: false, env: { HOME: home } })).exitCode;
+      expect(await run(shellArgv('exit 3'))).toBe(0); // the forged PASS the login shell allows
+      expect(await run(shellArgv('exit 3', false))).toBe(3);
+      expect(await run(shellArgv('command -v sh >/dev/null', false))).toBe(0); // PATH still resolves
+    } finally {
+      await rm(home, { recursive: true, force: true });
+    }
+  });
+
+  it('keeps the login shell by default for agent CLIs', () => {
+    expect(shellArgv('claude -p x')).toEqual(['sh', '-lc', 'claude -p x']);
   });
 });

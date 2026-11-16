@@ -34,6 +34,8 @@ export interface ExecOptions {
   timeoutMs?: number;
   input?: string;
   signal?: AbortSignal;
+  /** false: skip the login shell, so agent-owned profile files ($HOME/.profile) cannot change the result (verify, #1180). */
+  loginShell?: boolean;
 }
 
 export interface ExecResult {
