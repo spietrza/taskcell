@@ -533,7 +533,7 @@ describe('gitSkillSource', () => {
 describe('parseCli skills edge cases', () => {
   it('finds the command after leading options and refuses --pr=value', () => {
     expect(parseCli(['--repo', '/x', 'skills', 'update', '--pr'], '/w')).toMatchObject({ kind: 'skills', action: 'update', repo: '/x', pr: true });
-    expect(parseCli(['skills', 'update', '--pr=1'], '/w')).toEqual({ kind: 'help' });
+    expect(parseCli(['skills', 'update', '--pr=1'], '/w')).toEqual({ kind: 'error', message: 'skills --pr takes no value.' });
     expect(parseCli(['skills', 'update', '--pr', '--base', 'dev'], '/w')).toMatchObject({ baseBranch: 'dev' });
   });
   it('reports each misuse by name', () => {
