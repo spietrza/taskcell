@@ -12,7 +12,9 @@ const DIRS = ['.github/workflows', 'templates/github'];
 const files = DIRS.flatMap((d) => readdirSync(join(ROOT, d)).filter((f) => f.endsWith('.yml')).map((f) => join(d, f)));
 const load = (path: string): Workflow => parse(readFileSync(join(ROOT, path), 'utf8')) as Workflow;
 const RANK: Record<string, number> = { none: 0, read: 1, write: 2 };
-const asMap = (p: Perms): Record<string, string> => (typeof p === 'object' ? p : {});
+const asMap = (p: Perms): Record<string, string> => (typeof p === 'object' && p !== null ? p : {});
+/** A scope's level; `read-all`/`write-all` grant it to every scope. */
+const levelOf = (p: Perms, scope: string): number => (typeof p === 'string' ? RANK[p.replace('-all', '')] ?? 0 : RANK[asMap(p)[scope] ?? 'none']!);
 /** The reusable body a job calls, local (`./`) or the published `spietrza/taskcell/...@v1` one. */
 const bodyOf = (uses: string): string | undefined => /^(?:\.\/|spietrza\/taskcell\/)(\.github\/workflows\/[\w.-]+\.yml)/.exec(uses)?.[1];
 
@@ -20,6 +22,7 @@ describe('workflow token permissions (OpenSSF Scorecard Token-Permissions, #1122
   it.each(files)('%s grants nothing above read at the top level', (file) => {
     const top = load(file).permissions;
     expect(top, 'set a top-level permissions block ({} or read-only)').toBeDefined();
+    expect(top, 'no write-all at the top level').not.toBe('write-all');
     expect(Object.entries(asMap(top)).filter(([, v]) => v === 'write')).toEqual([]);
   });
 
@@ -27,11 +30,10 @@ describe('workflow token permissions (OpenSSF Scorecard Token-Permissions, #1122
     for (const [name, job] of Object.entries(load(file).jobs)) {
       const body = job.uses === undefined ? undefined : bodyOf(job.uses);
       if (body === undefined) continue;
-      const granted = asMap(job.permissions);
       for (const [bodyJob, { permissions }] of Object.entries(load(body).jobs)) {
-        expect(permissions, `${body} job ${bodyJob} must declare its permissions`).toBeDefined();
+        expect(typeof permissions, `${body} job ${bodyJob} must declare its permissions per scope`).toBe('object');
         for (const [scope, level] of Object.entries(asMap(permissions))) {
-          expect(RANK[granted[scope] ?? 'none'], `${file} job ${name} must grant ${scope}: ${level} (${body})`).toBeGreaterThanOrEqual(RANK[level]!);
+          expect(levelOf(job.permissions, scope), `${file} job ${name} must grant ${scope}: ${level} (${body})`).toBeGreaterThanOrEqual(RANK[level]!);
         }
       }
     }

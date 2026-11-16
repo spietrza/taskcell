@@ -45,7 +45,7 @@ Each reusable workflow's job declares the permissions it needs, as a ceiling: it
 | `research.yml` | read | — | write | — |
 | `revise.yml` | write (pushes the revision commit) | write | write | — |
 
-A caller from before 1.16.1 with a workflow-level block keeps working as long as it grants every scope above; an `implement` caller without `actions: read` must add it.
+**Required from 1.16.1:** an `implement` caller must grant `actions: read`, even without `max-parallel` — GitHub checks the declared permissions before the job starts, so a caller without it fails with `The nested job 'implement' is requesting 'actions: read', but is only allowed 'actions: none'`. Add it before moving to a `v1` that includes 1.16.1. Any other caller with a workflow-level block keeps working as long as it grants every scope above.
 
 
 ### `.github/workflows/taskcell-implement.yml` — does the work
@@ -112,7 +112,7 @@ The reusable workflow installs Taskcell with `pnpm install --ignore-workspace`, 
 | `skills` | string | `.vanguard-src/skills` | `--skills`: Taskcell's bundled skills; keep the default. Your repo's own skills go in `.github/vanguard-skills/<name>/SKILL.md` and are merged in automatically, no input needed ([Custom skills](skills.md#custom-skills-bring-your-own)). GitHub, GitLab and Projects runs used to ignore this input; they now read it, so a custom path that does not exist fails the run at startup |
 | `max-tasks` | string | `''` (no cap) | `--max-tasks`: cap ready issues claimed per phase in one run |
 | `issue` | string | `''` (sweep) | `--issue`: run only this issue. The template passes the labelled issue, so every issue gets its own run and its own concurrency group instead of queueing behind one shared group |
-| `max-parallel` | string | `''` (no limit) | with `issue`: at most this many runs work at once; later runs wait for a slot, first come first served (the cap can overshoot by one when two runs start in the same minute). The caller needs `actions: read` |
+| `max-parallel` | string | `''` (no limit) | with `issue`: at most this many runs work at once; later runs wait for a slot, first come first served (the cap can overshoot by one when two runs start in the same minute). Uses the `actions: read` every `implement` caller grants |
 | `sandbox-memory-mb` | string | `''` (CLI default: 2048–4096 by host RAM, 8192 with a read-only rootfs) | sandbox memory cap in MB (`TASKCELL_SANDBOX_MEMORY_MB`). A GitHub-hosted runner has 16 GB; long agent sessions or a full test suite inside the sandbox may need `'8192'` (at 2048 MB they can die with exit 134). Also on `revise.yml` |
 | `sandbox-readonly` | boolean | `false` | read-only root filesystem for the sandbox (`TASKCELL_SANDBOX_READONLY=1`); the default sandbox memory then rises to 8192 MB. Also on `revise.yml` and `pr-review.yml` |
 | `timeout-minutes` | number | `90` | job timeout. It also covers the wait for a free slot under `max-parallel`, so raise it for large tasks or a long queue (GitHub's ceiling is 360) |
