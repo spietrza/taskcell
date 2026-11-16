@@ -1,4 +1,4 @@
-import { diffFilesWithPatches, gateConfigPaths, gateConfigChangedBlock, loadGateConfigExtraGlobs } from '../context/gate-config.js';
+import { loadGateConfigExtraGlobs } from '../context/gate-config.js';
 import { clearStageMarker, writeStageMarker } from '../core/run-stage-marker.js';
 import { reviewVerdictLine, reviewVerdictOf } from '../pipeline/review-verdict.js';
 import { trustedSpecText, isTrustedComment } from '../tasks/comment-trust.js';
@@ -978,6 +978,7 @@ export async function runSourcedIssue(
         ...(partial ? { closingKeywordScan: true } : {}),
         // A custom provider's key env var is repo-configured: the secret gate cannot know its name.
         secretEnvVars: providerKeyEnvNames(deps),
+        gateConfigExtraGlobs: extraGlobs,
         target: adapter.delivery === 'local' ? { kind: 'local-branch' } : {
           kind: 'new-pr',
           title: `${task.title} (${task.id})`,
@@ -990,10 +991,7 @@ export async function runSourcedIssue(
           // Same PAT revise pushes with: a PR it opens fires the repo's pull_request workflows (CI).
           // Minted (App) or read (PAT) at each use, never cached: an App token lives 1 h, a run up to 180 min.
           tokenProvider: tokenProviderFor(deps.repoPath),
-          body: ({ commitLeaks, outgoingDiff }) => {
-            const diffFiles = diffFilesWithPatches(outgoingDiff);
-            const configPaths = gateConfigPaths(diffFiles, extraGlobs);
-            const configBlock = gateConfigChangedBlock(diffFiles.filter((file) => configPaths.includes(file.path)));
+          body: ({ commitLeaks, facts: { configBlock } }) => {
             // The PR-body gap block carries no branding, so white-label keeps it like the gate-config block.
             return whiteLabel
               ? [baseBody, configBlock, prBodyGapBlock].filter(Boolean).join('\n\n')
@@ -1018,7 +1016,7 @@ export async function runSourcedIssue(
       }
       // Computed before the delivery-kind split: a local branch is flagged like a PR (which also gets the label).
       const configPaths = delivery.kind === 'delivered-local' || delivery.kind === 'delivered-pr'
-        ? gateConfigPaths(diffFilesWithPatches(delivery.outgoingDiff), extraGlobs)
+        ? delivery.facts.configPaths
         : [];
       if (delivery.kind === 'delivered-local') {
         await writer.writeStages(outcomes, { ...stageMeta(), ...(configPaths.length > 0 ? { configPaths } : {}) });

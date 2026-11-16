@@ -3,7 +3,7 @@ import { mkdtemp, rm, mkdir, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { dirname, join } from 'node:path';
 import { execa } from 'execa';
-import { diffFilesWithPatches, extractGateConfigBlock, gateConfigChangedBlock, gateConfigPaths, loadGateConfigExtraGlobs } from './gate-config.js';
+import { deliveredChangeFacts, diffFilesWithPatches, extractGateConfigBlock, gateConfigChangedBlock, gateConfigPaths, loadGateConfigExtraGlobs } from './gate-config.js';
 
 describe('gate config detection', () => {
   it.each([
@@ -210,5 +210,38 @@ describe('loadGateConfigExtraGlobs', () => {
   it('keeps only the string entries of extraGlobs', async () => {
     await seedConfig(JSON.stringify({ extraGlobs: ['**/codecov.yml', 3, null, { glob: 'x' }, 'sonar-project.properties'] }));
     expect(await loadGateConfigExtraGlobs(repo, 'main')).toEqual(['**/codecov.yml', 'sonar-project.properties']);
+  });
+});
+
+describe('deliveredChangeFacts', () => {
+  const diff = [
+    'diff --git a/vitest.config.ts b/vitest.config.ts',
+    '--- a/vitest.config.ts',
+    '+++ b/vitest.config.ts',
+    '@@ -1 +1 @@',
+    '-a',
+    '+b',
+    'diff --git a/src/x.ts b/src/x.ts',
+    '--- a/src/x.ts',
+    '+++ b/src/x.ts',
+    '@@ -1 +1 @@',
+    '-a',
+    '+b',
+    '',
+  ].join('\n');
+
+  it('computes paths and block together, matching the primitives', () => {
+    const files = diffFilesWithPatches(diff);
+    const facts = deliveredChangeFacts(diff);
+    expect(facts.configPaths).toEqual(['vitest.config.ts']);
+    expect(facts.configBlock).toBe(gateConfigChangedBlock(files.filter((f) => f.path === 'vitest.config.ts')));
+  });
+
+  it('honours extra globs', () => {
+    expect(deliveredChangeFacts(diff, ['src/**']).configPaths).toEqual(['src/x.ts', 'vitest.config.ts']);
+  });
+
+  it('is empty for a diff without gate config', () => {
+    expect(deliveredChangeFacts('').configPaths).toEqual([]);
   });
 });

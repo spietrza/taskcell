@@ -43,6 +43,21 @@ export const DEFAULT_GATE_CONFIG_GLOBS: readonly string[] = [
   '.vanguard/approver.json',
 ];
 
+/** The delivered change's facts, computed once from its outgoing diff and published as-is by every consumer. */
+export interface DeliveredChangeFacts {
+  /** Gate-config paths the diff touches (see gateConfigPaths). */
+  configPaths: string[];
+  /** The PR-body disclosure block for those paths ('' when none). */
+  configBlock: string;
+}
+
+/** The one computation of the delivered change's facts from its outgoing diff. */
+export function deliveredChangeFacts(outgoingDiff: string, extraGlobs: readonly string[] = []): DeliveredChangeFacts {
+  const files = diffFilesWithPatches(outgoingDiff);
+  const configPaths = gateConfigPaths(files, extraGlobs);
+  return { configPaths, configBlock: gateConfigChangedBlock(files.filter((file) => configPaths.includes(file.path))) };
+}
+
 /** The heading gateConfigChangedBlock emits. */
 const GATE_CONFIG_HEADING = '## Gate config changed';
 /**

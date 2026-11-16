@@ -1,3 +1,4 @@
+import { deliveredChangeFacts, type DeliveredChangeFacts } from '../context/gate-config.js';
 import { commitStage } from '../pipeline/pipeline.js';
 import { publishForReview, pushToExistingBranch } from '../pipeline/remote-branch.js';
 import {
@@ -38,7 +39,7 @@ export type DeliveryTarget =
       /** Optional Conventional-Commits scope, e.g. the spec's primary module (`runners`, `hub`). */
       scope?: string;
       /** Built after the commit so it can carry the closing-keyword leaks found in the new commits. */
-      body: (info: { commitLeaks: CommitClosingLeak[]; outgoingDiff: string }) => string;
+      body: (info: { commitLeaks: CommitClosingLeak[]; outgoingDiff: string; facts: DeliveredChangeFacts }) => string;
       draft?: boolean;
       cli?: PublishOptions['cli'];
       tokenProvider?: PublishOptions['tokenProvider'];
@@ -71,6 +72,8 @@ export interface DeliverChangeOptions {
    * statically — a custom provider's `keyEnv` is repo-configured (registry.providerKeyEnvNames).
    */
   secretEnvVars?: readonly string[];
+  /** Repo-configured gate-config globs (loadGateConfigExtraGlobs) the delivered change's facts are computed with. */
+  gateConfigExtraGlobs?: readonly string[];
 }
 
 export type DeliverChangeResult =
@@ -82,9 +85,9 @@ export type DeliverChangeResult =
    * need to act on it again (e.g. deciding whether to flip a gate label) read it from here rather than
    * re-deriving it from a mutable binding captured inside `body`.
    */
-  | { kind: 'delivered-pr'; sha: string; headSha: string; prUrl: string; commitLeaks: CommitClosingLeak[]; outgoingDiff: string }
+  | { kind: 'delivered-pr'; sha: string; headSha: string; prUrl: string; commitLeaks: CommitClosingLeak[]; outgoingDiff: string; facts: DeliveredChangeFacts }
   /** local-branch: committed on `branch` in the local repository; nothing left it. */
-  | { kind: 'delivered-local'; sha: string; branch: string; commitLeaks: CommitClosingLeak[]; outgoingDiff: string }
+  | { kind: 'delivered-local'; sha: string; branch: string; commitLeaks: CommitClosingLeak[]; outgoingDiff: string; facts: DeliveredChangeFacts }
   /** existing-branch: the commit was pushed onto the PR head. */
   | { kind: 'delivered-push'; sha: string; headSha: string; commitLeaks: CommitClosingLeak[] };
 
@@ -152,6 +155,7 @@ export async function deliverChange(ctx: RunContext, opts: DeliverChangeOptions)
   // rendered as text throughout, so an agent-written .gitattributes cannot hide a file from the scan.
   const secretEnvVars = opts.secretEnvVars ?? [];
   const outgoingDiff = await ctx.wm.outgoingDiff(ctx.worktreePath);
+  const facts = deliveredChangeFacts(outgoingDiff, opts.gateConfigExtraGlobs);
   const block = scanOutgoingForSecrets(
     outgoingDiff,
     opts.taskId,
@@ -184,11 +188,11 @@ export async function deliverChange(ctx: RunContext, opts: DeliverChangeOptions)
     : [];
 
   const { target } = opts;
-  if (target.kind === 'local-branch') return { kind: 'delivered-local', sha, branch: ctx.branch, commitLeaks, outgoingDiff };
+  if (target.kind === 'local-branch') return { kind: 'delivered-local', sha, branch: ctx.branch, commitLeaks, outgoingDiff, facts };
   if (target.kind === 'new-pr') {
     const pr = await publishForReview(ctx, {
       title: redact(conventionalPrTitle(target.title, target), 'PR title'),
-      body: redact(target.body({ commitLeaks, outgoingDiff }), 'PR body'),
+      body: redact(target.body({ commitLeaks, outgoingDiff, facts }), 'PR body'),
       ...(target.draft !== undefined ? { draft: target.draft } : {}),
       ...(target.cli !== undefined ? { cli: target.cli } : {}),
       ...(target.tokenProvider !== undefined ? { tokenProvider: target.tokenProvider } : {}),
@@ -197,7 +201,7 @@ export async function deliverChange(ctx: RunContext, opts: DeliverChangeOptions)
       ...identity,
     });
     // The pre-push rebase may have rewritten the commit; the review marker must name the pushed head.
-    return { kind: 'delivered-pr', sha, headSha: pr.headSha ?? sha, prUrl: pr.prUrl, commitLeaks, outgoingDiff };
+    return { kind: 'delivered-pr', sha, headSha: pr.headSha ?? sha, prUrl: pr.prUrl, commitLeaks, outgoingDiff, facts };
   }
   await pushToExistingBranch(ctx, {
     prHeadRef: target.prHeadRef,
