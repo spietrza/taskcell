@@ -86,6 +86,11 @@ describe('githubReviewHost', () => {
     expect(host.publishVerdict).toBe(publishReviewVerdict);
   });
 
+  it('newPrTarget: gh, with the push-token provider', () => {
+    const target = githubReviewHost('/repo').newPrTarget({ title: 't', body: () => 'b', draft: true });
+    expect(target).toMatchObject({ kind: 'new-pr', cli: 'gh', title: 't', draft: true, tokenProvider: expect.any(Function) });
+  });
+
   it('addFailureLabel labels the PR with the GitHub label for the proof kind', async () => {
     vi.mocked(addPrFailureLabel).mockClear();
     await githubReviewHost('/repo').addFailureLabel('https://github.com/owner/repo/pull/7', 'verify');
