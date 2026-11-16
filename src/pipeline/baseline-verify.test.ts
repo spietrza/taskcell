@@ -4,6 +4,7 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { stateDir } from '../core/state-path.js';
 import { resolveBaselineVerify } from './baseline-verify.js';
+import { CLEAN_INSTALL_SCRIPT } from './verify.js';
 import type { IsolatedSandboxProvider, ExecResult } from '../sandbox/provider.js';
 
 const SHA = 'a'.repeat(40);
@@ -16,7 +17,7 @@ function countingSandbox(result: ExecResult): { sandbox: IsolatedSandboxProvider
   let calls = 0;
   const sandbox = {
     exec: async (cmd: string): Promise<ExecResult> => {
-      if (cmd.includes('memory.events')) return { stdout: '', stderr: '', exitCode: 0 };
+      if (cmd.includes('memory.events') || cmd === CLEAN_INSTALL_SCRIPT) return { stdout: '', stderr: '', exitCode: 0 };
       calls += 1;
       return result;
     },

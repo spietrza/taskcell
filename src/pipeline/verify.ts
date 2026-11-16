@@ -2,6 +2,7 @@ import { createHash } from 'node:crypto';
 import { readFile } from 'node:fs/promises';
 import { join } from 'node:path';
 import { redactForPublish } from '../core/secret-scan.js';
+import { gateExec, type GateExec } from '../sandbox/gate-exec.js';
 import type { IsolatedSandboxProvider } from '../sandbox/provider.js';
 import { readEnv } from '../core/env.js';
 
@@ -145,17 +146,45 @@ function lastLines(text: string, n: number): string {
   return text.trimEnd().split('\n').slice(-n).join('\n');
 }
 
+/**
+ * Rebuild `node_modules` from the lockfile before the gate command, so an untracked, agent-edited
+ * `node_modules/.bin/<test-runner>` (absent from the PR diff) cannot forge a PASS (#1183). No lockfile:
+ * nothing to do. Run in gate mode; a failure here fails the verify (closed), it is never skipped.
+ */
+export const CLEAN_INSTALL_SCRIPT = [
+  'if [ -f pnpm-lock.yaml ]; then pm="pnpm install --frozen-lockfile";',
+  'elif [ -f package-lock.json ]; then pm="npm ci";',
+  `elif [ -f yarn.lock ]; then if grep -q '^__metadata:' yarn.lock; then pm="yarn install --immutable"; else pm="yarn install --frozen-lockfile"; fi;`,
+  'else exit 0; fi;',
+  `find . -name .git -prune -o -name node_modules \\( -type d -o -type l \\) -prune -exec rm -rf {} + && $pm`,
+].join(' ');
+
 /** Run the command inside the sandbox (host-driven) and attest the result. */
 export async function runVerification(
   sandbox: IsolatedSandboxProvider,
   command: string,
   signal?: AbortSignal,
 ): Promise<VerificationResult> {
-  const sh = sandbox.exec.bind(sandbox);
+  const sh = gateExec(sandbox);
   // The counter is cumulative over the container's life (baseline, agent sessions, earlier verifies),
   // so read it before the command too and report only the delta.
   const oomBefore = await readOomKillCount(sh);
-  const res = await sh(command, { cwd: WORKDIR, loginShell: false, ...(signal !== undefined ? { signal } : {}) });
+  // TASKCELL_VERIFY_REINSTALL=0 opts out (offline hosts without a warm package store); see docs/security/boundaries.md.
+  if (readEnv('TASKCELL_VERIFY_REINSTALL') !== '0') {
+    const install = await sh(CLEAN_INSTALL_SCRIPT, { cwd: WORKDIR, ...(signal !== undefined ? { signal } : {}) });
+    if (install.exitCode !== 0) {
+      const output = `${install.stdout}\n${install.stderr}`;
+      return {
+        command,
+        exitCode: install.exitCode,
+        passed: false,
+        sha256: createHash('sha256').update(output).digest('hex'),
+        outputTail: `Clean dependency install from the lockfile failed, so the verify command did not run:\n${lastLines(output, 30)}`,
+        firstErrorLines: extractFirstErrorLines(output),
+      };
+    }
+  }
+  const res = await sh(command, { cwd: WORKDIR, ...(signal !== undefined ? { signal } : {}) });
   const output = `${res.stdout}\n${res.stderr}`;
   const sha256 = createHash('sha256').update(output).digest('hex');
   const passed = res.exitCode === 0;
@@ -183,9 +212,9 @@ export async function runVerification(
 }
 
 /** The sandbox cgroup's `oom_kill` counter (cgroup v2 `memory.events`); undefined if unreadable. */
-async function readOomKillCount(sh: IsolatedSandboxProvider['exec']): Promise<number | undefined> {
+async function readOomKillCount(sh: GateExec): Promise<number | undefined> {
   try {
-    const r = await sh('cat /sys/fs/cgroup/memory.events 2>/dev/null', { loginShell: false });
+    const r = await sh('cat /sys/fs/cgroup/memory.events 2>/dev/null');
     const m = /^oom_kill\s+(\d+)/m.exec(r.stdout);
     return m ? Number(m[1]) : undefined;
   } catch {

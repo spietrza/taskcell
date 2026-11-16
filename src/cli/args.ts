@@ -17,7 +17,10 @@ import type { CommandDecl } from './commands.js';
 
 type WatchSource = 'linear' | 'github' | 'project' | 'gitlab';
 
-export type Command =
+/** A parsed command; `usageCapPct` is the validated `--usage-cap` value, applied to the environment by the CLI entry (parseCli stays pure). */
+export type Command = CommandKind & { usageCapPct?: string };
+
+type CommandKind =
   | { kind: 'gc'; repoPath: string; maxAgeMs: number; remoteRepo?: string; dryRun: boolean; abandoned: boolean }
   | { kind: 'migrate-labels'; repoSlug: string; apply: boolean }
   | { kind: 'resume-rate-limited'; repoSlug: string; dryRun: boolean; triggerLabels?: string[]; startedLabels?: string[] }
@@ -559,6 +562,12 @@ function commandWord(argv: string[]): string | undefined {
  * combinations for a recognised command resolve to `error` with an actionable message.
  */
 export function parseCli(argv: string[], cwd: string): Command {
+  const cap: { pct?: string } = {};
+  const command = parseCommand(argv, cwd, cap);
+  return cap.pct === undefined || command.kind === 'error' || command.kind === 'help' ? command : { ...command, usageCapPct: cap.pct };
+}
+
+function parseCommand(argv: string[], cwd: string, cap: { pct?: string }): Command {
   const name = commandWord(argv);
   const decl = findCommand(name) ?? (name === '__sidecar' || name === '__complete' ? HIDDEN_COMMAND : undefined);
   if (decl === undefined) return { kind: 'help' };
@@ -683,8 +692,7 @@ export function parseCli(argv: string[], cwd: string): Command {
   const usageCapRaw = values['usage-cap'];
   if (typeof usageCapRaw === 'string') {
     if (parseUsageCap(usageCapRaw) === undefined) return fail(`--usage-cap must be a number from 1 to 100, got "${usageCapRaw}".`);
-    // The cap is read from the environment at stage start, so the flag and TASKCELL_USAGE_CAP_PCT share one path.
-    process.env['TASKCELL_USAGE_CAP_PCT'] = usageCapRaw;
+    cap.pct = usageCapRaw;
   }
 
   // Opt-in overrides to let a single run finish a large task (run + watch). Positive integers only;
