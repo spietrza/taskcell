@@ -98,9 +98,27 @@ test('a journal line cut short by a crash is dropped, and the next edit rewrites
 
 test('a journal line that is neither a task nor a removal makes the store unreadable, and nothing overwrites it', async () => {
   await createHubTask(dir, repo, { title: 'A', owner });
-  const journal = (await storeFile()).replace(/\.json$/, '.journal.jsonl');
-  await writeFile(journal, '{"set":{"id":"nope"}}\n');
+  const file = await storeFile();
+  const journal = file.replace(/\.json$/, '.journal.jsonl');
+  const { generation } = JSON.parse(await readFile(file, 'utf8')) as { generation: string };
+  const bad = `${JSON.stringify({ of: generation, set: { id: 'nope' } })}\n`;
+  await writeFile(journal, bad);
   await expect(listHubTasks(dir, repo)).rejects.toThrow(/journal .* unreadable/);
   await expect(editHubTask(dir, repo, 'hub-1', (t) => { t.title = 'B'; })).rejects.toThrow(/unreadable/);
-  expect(await readFile(journal, 'utf8')).toBe('{"set":{"id":"nope"}}\n');
+  expect(await readFile(journal, 'utf8')).toBe(bad);
+});
+
+test('a journal a crash left behind after a full store write is not replayed over the newer store', async () => {
+  await createHubTask(dir, repo, { title: 'A', owner });
+  await createHubTask(dir, repo, { title: 'B', owner });
+  const file = await storeFile();
+  const journal = file.replace(/\.json$/, '.journal.jsonl');
+  await editHubTask(dir, repo, 'hub-1', (t) => { t.title = 'A2'; });
+  const stale = await readFile(journal, 'utf8');
+  // A torn line forces the next edit to write the store whole; the crash then comes before the journal is removed.
+  await writeFile(journal, `${stale}{"set"`);
+  await editHubTask(dir, repo, 'hub-1', (t) => { t.title = 'A3'; });
+  await removeHubTask(dir, repo, 'hub-2', 'delete');
+  await writeFile(journal, `${stale}${await readFile(journal, 'utf8').catch(() => '')}`);
+  expect((await listHubTasks(dir, repo)).map((t) => [t.id, t.title])).toEqual([['hub-1', 'A3']]);
 });

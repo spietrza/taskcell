@@ -92,6 +92,11 @@ interface Store {
   size: number | undefined;
   journal: number;
   torn: boolean;
+  /**
+   * A fresh id each time the store is written whole; journal lines carry it, and lines of another id are skipped, so a
+   * journal a crash left behind after a full write (its lines already in the store) is never replayed over newer state.
+   */
+  generation: string | undefined;
 }
 
 /** One journal line: a task as it now is, or the id of a task taken off the board. */
@@ -126,7 +131,7 @@ const idNumber = (id: string): number => Number(id.slice(4));
 
 async function read(file: string): Promise<Store> {
   const raw = await readOptional(file);
-  const store: Store = { tasks: [], invalid: [], lastId: 0, size: raw === undefined ? undefined : Buffer.byteLength(raw), journal: 0, torn: false };
+  const store: Store = { tasks: [], invalid: [], lastId: 0, size: raw === undefined ? undefined : Buffer.byteLength(raw), journal: 0, torn: false, generation: undefined };
   if (raw !== undefined) {
     let parsed: unknown;
     try {
@@ -138,6 +143,8 @@ async function read(file: string): Promise<Store> {
     if (!Array.isArray(entries)) throw new BadRequestError(`the hub task store ${file} is unreadable: it holds no "tasks" list`);
     const lastId = (parsed as { lastId?: unknown }).lastId;
     if (typeof lastId === 'number' && Number.isInteger(lastId) && lastId > 0) store.lastId = lastId;
+    const generation = (parsed as { generation?: unknown }).generation;
+    if (typeof generation === 'string' && generation !== '') store.generation = generation;
     const seen = new Set<string>();
     for (const r of entries as unknown[]) {
       if (isTask(r, seen)) {
@@ -154,14 +161,16 @@ async function read(file: string): Promise<Store> {
   // The last piece is '' after a complete line; anything else is an append a crash cut short, and is dropped.
   store.torn = lines.pop() !== '';
   for (const line of lines) {
-    let e: unknown;
+    let e: { of?: unknown; set?: unknown; remove?: unknown } | null;
     try {
-      e = JSON.parse(line);
+      e = JSON.parse(line) as typeof e;
     } catch (err) {
       throw new BadRequestError(`the hub task journal ${journalFile} is unreadable: ${String(err)}`);
     }
-    const set = (e as { set?: unknown } | null)?.set;
-    const remove = (e as { remove?: unknown } | null)?.remove;
+    // A line of another generation is already in the store (a crash came between a full write and the journal's removal).
+    if (store.generation === undefined || e?.of !== store.generation) continue;
+    const set = e?.set;
+    const remove = e?.remove;
     let id: string;
     if (isTask(set, new Set())) {
       id = set.id;
@@ -192,24 +201,26 @@ async function save(file: string, repoPath: string, store: Store): Promise<void>
   await mkdir(dirname(file), { recursive: true, mode: 0o700 });
   // A fresh name created exclusively, then renamed over the file: never a write through an existing file or link.
   const tmp = `${file}.${randomUUID()}.tmp`;
+  const generation = randomUUID();
   try {
-    await writeFile(tmp, `${JSON.stringify({ repoPath, lastId: store.lastId, tasks: [...store.tasks, ...store.invalid] }, null, 2)}\n`, { flag: 'wx', mode: 0o600 });
+    await writeFile(tmp, `${JSON.stringify({ repoPath, lastId: store.lastId, generation, tasks: [...store.tasks, ...store.invalid] }, null, 2)}\n`, { flag: 'wx', mode: 0o600 });
     await rename(tmp, file);
   } catch (e) {
     await rm(tmp, { force: true });
     throw e;
   }
-  // The store now holds every journal entry; were this removal lost, replaying them again changes nothing.
+  // The store now holds every journal entry; were this removal lost, the new generation keeps them from being replayed.
   await rm(journalFor(file), { force: true });
 }
 
 /**
  * Record `entries` (the tasks they touch already changed in `store`): appended to the journal, so an edit writes one
- * line; the whole store is written instead when there is none yet, the journal ends torn, or it outgrows the store.
+ * line; the whole store is written instead when there is none yet (or it predates generations), the journal ends torn,
+ * or it outgrows the store.
  */
 async function commit(file: string, repoPath: string, store: Store, entries: readonly JournalEntry[]): Promise<void> {
-  const text = entries.map((e) => `${JSON.stringify(e)}\n`).join('');
-  if (store.size === undefined || store.torn || store.journal + Buffer.byteLength(text) > Math.max(COMPACT_FLOOR, store.size)) return save(file, repoPath, store);
+  const text = entries.map((e) => `${JSON.stringify({ of: store.generation, ...e })}\n`).join('');
+  if (store.size === undefined || store.generation === undefined || store.torn || store.journal + Buffer.byteLength(text) > Math.max(COMPACT_FLOOR, store.size)) return save(file, repoPath, store);
   await appendLines(journalFor(file), text);
 }
 
