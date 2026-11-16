@@ -39,7 +39,7 @@ export type DeliveryTarget =
       /** Optional Conventional-Commits scope, e.g. the spec's primary module (`runners`, `hub`). */
       scope?: string;
       /** Built after the commit so it can carry the closing-keyword leaks found in the new commits. */
-      body: (info: { commitLeaks: CommitClosingLeak[]; outgoingDiff: string; facts: DeliveredChangeFacts }) => string;
+      body: (info: { commitLeaks: CommitClosingLeak[]; facts: DeliveredChangeFacts }) => string;
       draft?: boolean;
       cli?: PublishOptions['cli'];
       tokenProvider?: PublishOptions['tokenProvider'];
@@ -81,15 +81,15 @@ export type DeliverChangeResult =
   | { kind: 'no-changes' }
   /**
    * new-pr: the branch was pushed and a PR/MR opened; headSha is the pushed head (rebase may have
-   * rewritten the commit). `outgoingDiff` is the exact diff `target.body` was built from — callers that
-   * need to act on it again (e.g. deciding whether to flip a gate label) read it from here rather than
-   * re-deriving it from a mutable binding captured inside `body`.
+   * rewritten the commit). `facts` are the exact facts `target.body` was built from — callers that
+   * need to act on them again (e.g. deciding whether to flip a gate label) read them from here rather
+   * than re-deriving them from the diff.
    */
-  | { kind: 'delivered-pr'; sha: string; headSha: string; prUrl: string; commitLeaks: CommitClosingLeak[]; outgoingDiff: string; facts: DeliveredChangeFacts }
+  | { kind: 'delivered-pr'; sha: string; headSha: string; prUrl: string; commitLeaks: CommitClosingLeak[]; facts: DeliveredChangeFacts }
   /** local-branch: committed on `branch` in the local repository; nothing left it. */
-  | { kind: 'delivered-local'; sha: string; branch: string; commitLeaks: CommitClosingLeak[]; outgoingDiff: string; facts: DeliveredChangeFacts }
+  | { kind: 'delivered-local'; sha: string; branch: string; commitLeaks: CommitClosingLeak[]; facts: DeliveredChangeFacts }
   /** existing-branch: the commit was pushed onto the PR head. */
-  | { kind: 'delivered-push'; sha: string; headSha: string; commitLeaks: CommitClosingLeak[] };
+  | { kind: 'delivered-push'; sha: string; headSha: string; commitLeaks: CommitClosingLeak[]; facts: DeliveredChangeFacts };
 
 const CONVENTIONAL_TYPES = ['feat', 'fix', 'docs', 'style', 'refactor', 'perf', 'test', 'build', 'ci', 'chore', 'revert'];
 const CONVENTIONAL_PREFIX_RE = new RegExp(`^(${CONVENTIONAL_TYPES.join('|')})(\\([^)]+\\))?!?:\\s`);
@@ -188,11 +188,11 @@ export async function deliverChange(ctx: RunContext, opts: DeliverChangeOptions)
     : [];
 
   const { target } = opts;
-  if (target.kind === 'local-branch') return { kind: 'delivered-local', sha, branch: ctx.branch, commitLeaks, outgoingDiff, facts };
+  if (target.kind === 'local-branch') return { kind: 'delivered-local', sha, branch: ctx.branch, commitLeaks, facts };
   if (target.kind === 'new-pr') {
     const pr = await publishForReview(ctx, {
       title: redact(conventionalPrTitle(target.title, target), 'PR title'),
-      body: redact(target.body({ commitLeaks, outgoingDiff, facts }), 'PR body'),
+      body: redact(target.body({ commitLeaks, facts }), 'PR body'),
       ...(target.draft !== undefined ? { draft: target.draft } : {}),
       ...(target.cli !== undefined ? { cli: target.cli } : {}),
       ...(target.tokenProvider !== undefined ? { tokenProvider: target.tokenProvider } : {}),
@@ -201,7 +201,7 @@ export async function deliverChange(ctx: RunContext, opts: DeliverChangeOptions)
       ...identity,
     });
     // The pre-push rebase may have rewritten the commit; the review marker must name the pushed head.
-    return { kind: 'delivered-pr', sha, headSha: pr.headSha ?? sha, prUrl: pr.prUrl, commitLeaks, outgoingDiff, facts };
+    return { kind: 'delivered-pr', sha, headSha: pr.headSha ?? sha, prUrl: pr.prUrl, commitLeaks, facts };
   }
   await pushToExistingBranch(ctx, {
     prHeadRef: target.prHeadRef,
@@ -210,5 +210,5 @@ export async function deliverChange(ctx: RunContext, opts: DeliverChangeOptions)
     ...(target.forceWithLease !== undefined ? { forceWithLease: target.forceWithLease } : {}),
     ...(target.runner !== undefined ? { runner: target.runner } : {}),
   });
-  return { kind: 'delivered-push', sha, headSha: sha, commitLeaks };
+  return { kind: 'delivered-push', sha, headSha: sha, commitLeaks, facts };
 }
