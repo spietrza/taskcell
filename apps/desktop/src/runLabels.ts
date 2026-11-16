@@ -1,0 +1,23 @@
+import { taskRefKey } from './features/board/taskref';
+
+/** Who started a run, in plain words: the hub's shared `token` identity and the local worker are not names. */
+export function startedByLabel(startedBy: string | undefined): string | undefined {
+  if (startedBy === 'token') return 'Hub';
+  if (startedBy === 'local-worker') return 'Local worker';
+  return startedBy;
+}
+
+/** The issue number a run's task id ends in (`gh-owner-repo-904` -> 904); undefined for a task id without one. */
+export function issueNumber(taskId: string): number | undefined {
+  const m = /^(?:gh|gl)-(\d+)$/.exec(taskRefKey(taskId));
+  return m ? Number(m[1]) : undefined;
+}
+
+/** Key of a board card for a run: the repository plus the folded task id (see taskRefKey). */
+export const titleKey = (repoPath: string | undefined, taskId: string): string => `${repoPath ?? ''}|${taskRefKey(taskId)}`;
+
+/** Two letters for a repository's avatar (`taskcell-demo-form` -> `TD`). */
+export function repoInitials(name: string | undefined): string {
+  const words = (name ?? '?').split(/[^A-Za-z0-9]+/).filter(Boolean);
+  return ((words[0]?.[0] ?? '?') + (words[1]?.[0] ?? words[0]?.[1] ?? '')).toUpperCase();
+}

@@ -1,5 +1,5 @@
 import { test, expect, afterEach, vi } from 'vitest';
-import { render, screen, fireEvent, waitFor, cleanup } from '@testing-library/react';
+import { render, screen, fireEvent, waitFor, cleanup, within } from '@testing-library/react';
 import App from '../App';
 import { Dashboard } from '../features/dashboard/Dashboard';
 import { handleDemo } from './mockBackend';
@@ -84,8 +84,8 @@ test('every main screen opens in demo mode without errors', async () => {
   // A click on the rail's Runs item while it is open shows the list; and from a run detail it goes back to the list.
   fireEvent.click(screen.getByRole('button', { name: /^Runs/ }));
   await waitFor(() => expect(screen.queryByRole('button', { name: /Back to runs/ })).not.toBeInTheDocument());
-  fireEvent.click(await screen.findByText('DEMO-101'));
-  expect(await screen.findByText('reviewer')).toBeInTheDocument();
+  fireEvent.click(within(await screen.findByRole('list', { name: 'Runs' })).getByText('Fix cart total rounding'));
+  expect((await screen.findAllByText('reviewer')).length).toBeGreaterThan(0);
   fireEvent.click(screen.getByRole('button', { name: /^Runs/ }));
   await waitFor(() => expect(screen.queryByText('reviewer')).not.toBeInTheDocument());
   expect(screen.getByPlaceholderText(/^Search/)).toBeInTheDocument();
@@ -178,10 +178,10 @@ test('opening a run from its row with Enter leaves focus on the run, not on the 
   render(<App />);
   fireEvent.click(await screen.findByText('storefront (demo)', { selector: '*' }));
   fireEvent.click(await screen.findByRole('button', { name: /^Runs/ }));
-  const row = (await screen.findByText('DEMO-101')).closest('tr')!;
+  const row = within(await screen.findByRole('list', { name: 'Runs' })).getByText('Fix cart total rounding').closest('li')!;
   row.focus();
   fireEvent.keyDown(row, { key: 'Enter' });
-  expect(await screen.findByText('reviewer')).toBeInTheDocument();
+  expect((await screen.findAllByText('reviewer')).length).toBeGreaterThan(0);
   await waitFor(() => expect(document.activeElement).not.toBe(document.body));
   vi.unstubAllGlobals();
 }, 30000);
