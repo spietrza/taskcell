@@ -335,7 +335,7 @@ function stripParens(text: string): string {
 const isNumberedHeading = (text: string): boolean => /^[A-Za-z]{0,2}\d+[.):]\s/.test(text);
 
 /** A bold numbered paragraph that is itself one finding: `**1. Title**` or `**B1.** Title`. */
-const BOLD_NUMBERED_RE =/^\*\*\s*[A-Za-z]{0,2}\d+[.):]/;
+const BOLD_NUMBERED_RE = /^\*\*\s*[A-Za-z]{0,2}\d+[.):](?:\s|\*\*)/;
 
 const LABEL = String.raw`((?:no[nt][- ]?)?blocking)`;
 const LEADING_LABEL_RE = new RegExp(String.raw`^(?:\[\s*${LABEL}\s*\]|\(\s*${LABEL}\s*\)|${LABEL}[*_]*\s+[—–-]\s)`, 'i');
