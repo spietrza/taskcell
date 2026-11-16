@@ -89,7 +89,7 @@ export async function runVisualProof(
 /** List + hash allowlisted artifacts under `dir`, hashing each in place. Never throws. */
 async function listArtifacts(sh: SandboxRun, dir: string): Promise<VisualProofArtifact[]> {
   try {
-    const found = await sh(`find ${shellQuote(dir)} -type f`, { cwd: WORKDIR });
+    const found = await sh(`find ${shellQuote(dir)} -type f`, { cwd: WORKDIR, loginShell: false });
     const paths = found.stdout
       .split('\n')
       .map((line) => line.replace(/\r$/, ''))
@@ -98,8 +98,8 @@ async function listArtifacts(sh: SandboxRun, dir: string): Promise<VisualProofAr
 
     const artifacts: VisualProofArtifact[] = [];
     for (const path of paths) {
-      const hashRes = await sh(`sha256sum ${shellQuote(path)}`, { cwd: WORKDIR });
-      const sizeRes = await sh(`wc -c ${shellQuote(path)}`, { cwd: WORKDIR });
+      const hashRes = await sh(`sha256sum ${shellQuote(path)}`, { cwd: WORKDIR, loginShell: false });
+      const sizeRes = await sh(`wc -c ${shellQuote(path)}`, { cwd: WORKDIR, loginShell: false });
       const sha = hashRes.stdout.trim().split(/\s+/)[0] ?? '';
       const bytes = Number.parseInt(sizeRes.stdout.trim().split(/\s+/)[0] ?? '', 10);
       if (sha === '' || Number.isNaN(bytes)) continue;
