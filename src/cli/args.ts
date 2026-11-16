@@ -116,6 +116,8 @@ export type Command =
       author?: string;
       /** Review this PR even when the label-filtered scan misses it (from --pr or the CI label event). */
       pr?: number;
+      /** With a pinned PR (--pr or the CI label event), review only it: no label scan of other PRs. */
+      pinnedOnly?: boolean;
       /** PR-author logins trusted beyond OWNER/MEMBER/COLLABORATOR (pass the workflow's allowed-actors here). */
       feedbackAuthors?: string[];
       concurrency: number;
@@ -581,6 +583,8 @@ export function parseCli(argv: string[], cwd: string): Command {
         concurrency: { type: 'string' },
         // watch-prs: review this PR even when the label-filtered scan misses it
         pr: { type: skillsCommand ? 'boolean' : 'string' },
+        // watch-prs: with a pinned PR, review only it (per-PR CI concurrency groups, #1070)
+        'pinned-only': { type: 'boolean' },
         // watch: run only this GitHub issue instead of sweeping every ready issue
         issue: { type: 'string' },
         // watch
@@ -1256,6 +1260,7 @@ export function parseCli(argv: string[], cwd: string): Command {
       egress: values.egress === true,
       ...(typeof values.author === 'string' ? { author: values.author } : {}),
       ...(prNumber !== undefined ? { pr: prNumber } : {}),
+      ...(values['pinned-only'] === true ? { pinnedOnly: true } : {}),
       ...(proxyMode ? { llmProxy: true } : {}),
       ...(builtinProvider !== undefined ? { provider: builtinProvider } : {}),
       ...(typeof values['review-model'] === 'string' ? { reviewModel: values['review-model'] } : {}),
@@ -1853,6 +1858,8 @@ ${MAX_REPAIR_ITERATIONS_USAGE}
                            workflow's allowed-actors here)
     --pr <number>          Also review this PR even if the label scan misses it (label-triggered
                            CI runs pin the event's PR automatically via GITHUB_EVENT_PATH)
+    --pinned-only          With a pinned PR, review only it and skip the label scan (for a per-PR CI
+                           concurrency group, where each labelled PR gets its own run)
     --interval <seconds>   Poll interval (default: 60); --once does a single pass
     --concurrency <n>      Max PRs reviewed at once (default: 2)
     --provider <claude|codex|cursor|zai|openrouter|meridian>          Provider used for PR review (default: claude)

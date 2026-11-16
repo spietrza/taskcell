@@ -14,7 +14,7 @@ on:
 permissions: {} # each job declares what it needs (OpenSSF Scorecard Token-Permissions)
 
 concurrency:
-  group: taskcell-pr-review-${{ github.repository }}
+  group: taskcell-pr-review-${{ github.repository }}-${{ github.event.pull_request.number || 'sweep' }}
   cancel-in-progress: false
 
 jobs:
@@ -34,6 +34,7 @@ jobs:
     uses: spietrza/taskcell/.github/workflows/pr-review.yml@v1
     with:
       allowed-actors: '["YOUR_LOGIN"]'
+      pinned-only: true # one run per labelled PR (the per-PR concurrency group above)
       author: YOUR_LOGIN
       llm-proxy: true
     secrets:
