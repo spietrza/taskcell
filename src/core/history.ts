@@ -2,16 +2,14 @@
 // issue, PR, run), plus the run records and the Git host's own events where no stream has a record
 // (a human applying a label). It copies nothing: every call reads the sources and builds the list.
 // `buildIssueHistory` is pure; `readIssueHistory` does the reading.
-import { readdir } from 'node:fs/promises';
-import { basename, join } from 'node:path';
-import { branchAdapter, localAdapter, verifyFiles, type AuditActor, type AuditFile } from './audit.js';
+import { basename } from 'node:path';
+import { branchAdapter, hubAuditFile, localAdapter, runEventFiles, verifyFiles, type AuditActor, type AuditFile } from './audit.js';
 import { DECISIONS_FILE } from '../approver/ledger.js';
 import { readRunRecords, listRuns, runsRoot } from './run-store.js';
 import { fetchTimeline, parsePrUrl } from './lead-time-github.js';
 import { resolveTaskRef } from '../tasks/board.js';
 import { defaultGhRunner, type GhRunner } from '../tasks/github.js';
 import { detectRepoSlug } from '../runners/github.js';
-import { stateDir } from './state-path.js';
 import { parseJsonlLines } from './stats.js';
 import type { ChainStatus, HistoryChain, HistoryEntry, HistoryKind, IssueHistory } from '../wire.js';
 
@@ -370,10 +368,9 @@ export async function readIssueHistory(opts: ReadHistoryOptions): Promise<IssueH
     });
     runs = found.runs;
     for (const taskId of found.taskIds) {
-      const dir = join(stateDir(opts.repoPath), 'runs', taskId);
-      for (const f of (await readdir(dir).catch(() => [] as string[])).sort()) {
-        if (!f.startsWith('events-') || !f.endsWith('.jsonl')) continue;
-        const files = await guard(`run-events ${taskId}`, () => localAdapter({ file: join(dir, f), repoPath: opts.repoPath }).files());
+      for (const file of await runEventFiles(opts.repoPath, taskId)) {
+        const f = basename(file);
+        const files = await guard(`run-events ${taskId}`, () => localAdapter({ file, repoPath: opts.repoPath }).files());
         units.push({ stream: 'run-events', name: `${taskId}/${f}`, files });
       }
     }
@@ -381,7 +378,7 @@ export async function readIssueHistory(opts: ReadHistoryOptions): Promise<IssueH
     if (decisions.some((f) => f.text !== '')) units.push({ stream: 'decisions', name: 'decisions', files: decisions });
     // Hub lines reach an issue only through a run id of one of its run-event logs, so with none the (large) log is not read.
     if (opts.hubConfigDir !== undefined && units.some((u) => u.stream === 'run-events')) {
-      const files = await guard('hub', () => localAdapter({ file: join(opts.hubConfigDir!, 'audit.jsonl') }).files());
+      const files = await guard('hub', () => localAdapter({ file: hubAuditFile(opts.hubConfigDir!) }).files());
       if (files.some((f) => f.text !== '')) units.push({ stream: 'hub', name: 'hub', files });
     }
   }
