@@ -1,7 +1,7 @@
 // Starts hub-board tasks: every tick plans the project's tasks (src/hub/schedule.ts) and hands those that may run to
 // the run session, as the person each task runs as and under the same gates as `api_create_run`.
 import { BadRequestError, type CreateRunParams, type CreateRunResult, type SidecarDeps } from '../sidecar/sidecar.js';
-import { readAppConfig } from './app-config.js';
+import { configuredFlow, readAppConfig } from './app-config.js';
 import { auditActorOf, reportAuditFailure, type Actor, type AuditAction, type AuditLog, type AuditOutcome } from './audit.js';
 import type { ProjectAllowlist } from './allowlist.js';
 import type { CredentialService } from './credentials.js';
@@ -144,10 +144,11 @@ async function startHubTask(ctx: SweepContext, repoPath: string, task: HubTask, 
     if (caller === undefined) throw new BadRequestError('the owner of this task no longer has an account on this hub (or is no longer allowed on it) — save its schedule to run it as you');
     if (who.actor.id !== undefined) actor = { ...who.actor, login: caller.user.email, name: caller.user.name };
     teams.assertRepoInRoots(await teams.callerRepoRoots(ctx.configDir, caller), repoPath);
-    const configured = (await readAppConfig(repoPath)).provider;
-    const provider = typeof configured === 'string' && configured.trim() !== '' ? configured : undefined;
+    const config = await readAppConfig(repoPath);
+    const provider = typeof config.provider === 'string' && config.provider.trim() !== '' ? config.provider : undefined;
+    const flow = configuredFlow(config);
     const credential = ctx.userCredentials !== undefined ? await ctx.userCredentials.resolveForRun(caller.user, provider) : undefined;
-    const params: CreateRunParams = { issueRef: task.id, repoPath, transport: HUB_TRANSPORT, hubTask: { id: task.id, title: task.title, body: task.body }, ...(task.skills !== undefined ? { skills: task.skills } : {}), startedBy: actor!.login, ...(provider !== undefined ? { provider } : {}) };
+    const params: CreateRunParams = { issueRef: task.id, repoPath, transport: HUB_TRANSPORT, hubTask: { id: task.id, title: task.title, body: task.body }, ...(task.skills !== undefined ? { skills: task.skills } : {}), startedBy: actor!.login, ...(provider !== undefined ? { provider } : {}), ...(flow !== undefined ? { flow } : {}) };
     await ctx.deps?.checkRun?.(params, credential);
     return await ctx.runSession.createRun(
       params,
