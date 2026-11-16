@@ -25,3 +25,19 @@ test('renders nothing before any base merge was recorded', async () => {
   });
   expect(container.textContent).toBe('');
 });
+
+test('hides the last stats when a refresh fails', async () => {
+  conflictStats.mockResolvedValueOnce({
+    weeks: [],
+    total: { merges: 4, conflicts: 3, autoResolved: 2, leftForHuman: 1 },
+    topFiles: [],
+  });
+  const { rerender, container } = render(<ConflictStats repoPath="/r" refreshKey={0} />);
+  await screen.findByTestId('conflict-stats');
+  conflictStats.mockRejectedValueOnce(new Error('boom'));
+  await act(async () => {
+    rerender(<ConflictStats repoPath="/r" refreshKey={1} />);
+    await conflictStats.mock.results.at(-1)!.value.catch(() => undefined);
+  });
+  expect(container.textContent).toBe('');
+});
