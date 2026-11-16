@@ -4,6 +4,7 @@ import { QuickView, matchNeedsYou, waitingWhy, type QuickTask } from './QuickVie
 import type { NeedsYouItem, RunDetail, RunSummary } from '../../wire';
 
 vi.mock('../../ipc', () => ({
+  callerCapabilities: vi.fn(async () => ({ mutationsAllowed: true, owner: true, admin: true, canAddProject: { allowed: true }, teamRoles: {} })),
   listRuns: vi.fn(),
   readRun: vi.fn(),
   listNeedsYou: vi.fn(),

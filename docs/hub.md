@@ -141,6 +141,12 @@ reachable by everyone the proxy serves, so set `TASKCELL_HUB_SERVER_MODE=1`: the
 in server mode (sign-in required, `add_project` and the other writes need `TASKCELL_HUB_ALLOW_ADD=1`).
 Also set `TASKCELL_HUB_PUBLIC_URL` and `--allowed-host` to the public name.
 
+**What the UI offers.** The web UI asks the hub `caller_capabilities` (`{ repoPath? }`, read-only) what
+the signed-in caller may do, and disables each button the hub would refuse, with the hub's reason as its
+tooltip: Add project, Enable factory, Create task (draft and starter task), Retry now, Save settings, the
+Auto-merge mode switch, reply and merge, and the skill buttons (owner only). The commands still enforce
+their own rules; when the capabilities cannot be read, the buttons stay open and the hub's refusal shows.
+
 **Providers.** Each is enabled by the operator from env; a provider without both halves is hidden from
 the sign-in page. Any enabled provider can sign in — one hub may hold GitHub and GitLab projects, and
 Google is for people who only work on cards (e.g. Linear). Setup suggests the provider matching the

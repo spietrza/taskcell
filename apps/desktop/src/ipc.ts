@@ -1,5 +1,5 @@
 import { invoke } from './transport';
-import type { ApproverMode, ApproverModeChange, ApproverPeriod, ApproverPrDecision, ApproverScorecard, CostBreakdown, CostPeriod, SetupStatus, Team, TeamRole } from './wire';
+import type { ApproverMode, CallerCapabilities, ApproverModeChange, ApproverPeriod, ApproverPrDecision, ApproverScorecard, CostBreakdown, CostPeriod, SetupStatus, Team, TeamRole } from './wire';
 import type {
   RunSummary,
   RunDetail,
@@ -617,4 +617,9 @@ export function hubTaskDelete(repoPath: string, id: string): Promise<{ id: strin
 /** HUB_ONLY: set a hub-board task's dependencies and start date (`null` clears it). */
 export function hubTaskSchedule(repoPath: string, id: string, patch: { blockedBy?: string[]; startDate?: string | null }): Promise<{ id: string }> {
   return call('hub_task_schedule', { repoPath, id, ...patch });
+}
+
+/** Hub-only, read-only: what the caller may do on the hub and, with `repoPath`, on that project. Every UI gate reads this. */
+export function callerCapabilities(repoPath?: string): Promise<CallerCapabilities> {
+  return call('caller_capabilities', repoPath === undefined ? undefined : { repoPath });
 }
