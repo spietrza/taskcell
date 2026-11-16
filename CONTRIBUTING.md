@@ -34,9 +34,10 @@ Optional environment variables:
 
 | Variable | Default | Description |
 |---|---|---|
-| `CLAUDE_CLI_VERSION` | `2.1.322` | `@anthropic-ai/claude-code` version to install |
 | `TAG` | `taskcell-sandbox:latest` | Docker image tag |
 | `ALIAS_TAG` | `vanguard-sandbox:latest` (only when `TAG` is unset) | Extra tag on the same image; setting `TAG` yourself drops the pre-rename alias unless you pass `ALIAS_TAG` too. `ALIAS_TAG=` skips the alias |
+
+The CLIs in the images (claude, codex, linear, pnpm, bun) are not installed with a bare `npm install -g`: each has a committed `docker/cli/<name>/package.json` + `package-lock.json` that the Dockerfiles install with `npm ci`, so every package is hash-checked. To bump one, run `scripts/bump-agent-clis.sh` (claude, codex) or edit the version in the manifest and run `npm install --package-lock-only --ignore-scripts` in that directory.
 
 The script builds the image and smoke-tests it (`claude --version`, `git --version`) before returning.
 

@@ -24,8 +24,9 @@ RUN apt-get update \
  && rm /tmp/glab.deb \
  && rm -rf /var/lib/apt/lists/*
 
-ARG PNPM_VERSION=10.32.1
-RUN npm install -g pnpm@${PNPM_VERSION}
+# pnpm from the same committed manifest + lockfile as docker/Dockerfile, hash-checked by `npm ci`.
+COPY docker/cli/pnpm /opt/cli/pnpm
+RUN npm ci --prefix /opt/cli/pnpm && ln -s /opt/cli/pnpm/node_modules/.bin/* /usr/local/bin/
 
 WORKDIR /app
 COPY . .

@@ -252,7 +252,7 @@ taskcell run --linear TES-1 --fork 3
 
 ## Keeping the sandbox image current
 
-`docker/Dockerfile` pins the Claude CLI that ships inside `vanguard-sandbox:latest`. The pin moves with the repo; a built image does not. A stale CLI does not fail loudly — it fails *mid-run*, against the model gateway, after the sandbox is up and the prompt is rendered. One such drift answered every request with `API Error: 400 This session advanced while the request was waiting`, which reads like a gateway or session bug and is neither.
+`docker/cli/claude/package.json` (with its `package-lock.json`, installed by `npm ci` so every package is hash-checked) pins the Claude CLI that ships inside `vanguard-sandbox:latest`. The pin moves with the repo; a built image does not. A stale CLI does not fail loudly — it fails *mid-run*, against the model gateway, after the sandbox is up and the prompt is rendered. One such drift answered every request with `API Error: 400 This session advanced while the request was waiting`, which reads like a gateway or session bug and is neither.
 
 So every sandbox start reads `claude --version` out of the container and refuses to continue when it predates the pin. `taskcell doctor` reports the same thing as a `sandbox claude cli` check.
 
@@ -271,7 +271,7 @@ After the preflight report, `taskcell doctor` prints installed vs latest for the
 A full rebuild still works where the network allows it:
 
 ```bash
-CLAUDE_CLI_VERSION=2.1.322 ./docker/build.sh
+./docker/build.sh
 ```
 
 The check is deliberately **not** an auto-update. Refreshing an image needs the network at run start and rewrites an image that concurrent sandboxes share — on the machines where this drift actually bites, the build is itself the unreliable step, so doing it automatically would turn a rare manual command into a recurring mid-run failure. `TASKCELL_SKIP_IMAGE_CHECK=1` bypasses the gate if you are deliberately running an older image.

@@ -1,10 +1,14 @@
 # Taskcell sandbox image: node + git + the claude, codex and (normally) linear CLIs, non-root user.
-# Single stage so the global npm bins and their node_modules stay consistent (the linear-cli
+# Single stage so the CLI bins and their node_modules stay consistent (the linear-cli
 # launcher resolves a sibling binary, which breaks when bins are copied across build stages).
 # Pinned by digest for a reproducible, tamper-evident base (the tag is kept for readability).
 FROM node:24-bookworm-slim@sha256:01d566e8d94d8c619591d78652babfccd3c6992a3dffa9ed5ab39e11cf6c70e9
-# Exact CLI versions, never `latest`, so a rebuild cannot silently pull a new (or hijacked) release.
-# Bump: `npm view <pkg> version`, update the default here (or pass --build-arg), rebuild, run build.sh.
+# Every CLI is one committed docker/cli/<name>/{package.json,package-lock.json}, installed with `npm ci`:
+# exact versions, never `latest`, and every package (CLI plus its dependencies) is hash-checked, so a
+# rebuild cannot silently pull a new (or hijacked) release. Bump: scripts/bump-agent-clis.sh, or
+# `npm install --package-lock-only --ignore-scripts` in the CLI's directory, then rebuild and run build.sh.
+# The bins are symlinked into /usr/local/bin, which `sh -lc` keeps on PATH (a login shell resets PATH
+# from /etc/profile, so an `ENV PATH` entry would not survive).
 
 # xz-utils + ca-certificates: the linear-cli npm package downloads and untars an .xz release binary.
 RUN apt-get update \
@@ -24,26 +28,26 @@ RUN chmod +x /tmp/retry.sh
 # verify and ends up confabulating completion. Codex authenticates with CODEX_API_KEY: in direct mode
 # it is forwarded into the sandbox when codex is selected; under --llm-proxy the key is held by a
 # trusted sidecar and the sandbox receives only a per-run nonce.
-ARG PNPM_VERSION=10.32.1
-RUN /tmp/retry.sh 5 15 -- npm install -g pnpm@${PNPM_VERSION} && npm cache clean --force && rm -rf /root/.npm
+COPY cli/pnpm /opt/cli/pnpm
+RUN /tmp/retry.sh 5 15 -- npm ci --prefix /opt/cli/pnpm && ln -s /opt/cli/pnpm/node_modules/.bin/* /usr/local/bin/ && npm cache clean --force && rm -rf /root/.npm
 
-ARG BUN_VERSION=1.4.4
-RUN /tmp/retry.sh 5 15 -- npm install -g bun@${BUN_VERSION} && npm cache clean --force && rm -rf /root/.npm
+COPY cli/bun /opt/cli/bun
+RUN /tmp/retry.sh 5 15 -- npm ci --prefix /opt/cli/bun && ln -s /opt/cli/bun/node_modules/.bin/* /usr/local/bin/ && npm cache clean --force && rm -rf /root/.npm
 
-ARG CODEX_CLI_VERSION=0.167.2
-RUN /tmp/retry.sh 5 15 -- npm install -g @openai/codex@${CODEX_CLI_VERSION} && npm cache clean --force && rm -rf /root/.npm
+COPY cli/codex /opt/cli/codex
+RUN /tmp/retry.sh 5 15 -- npm ci --prefix /opt/cli/codex && ln -s /opt/cli/codex/node_modules/.bin/* /usr/local/bin/ && npm cache clean --force && rm -rf /root/.npm
 
 # linear-cli's postinstall downloads its binary from GitHub Releases, which can return 5xx for long
 # stretches (#657). Only `--linear` runs need it, so when every attempt failed on that download (and
 # only then) the image is built without it; `doctor` and run preflight report it for a `--linear` run.
 # An integrity or missing-version error on any attempt still fails the build. LINEAR_RETRY changes the layer's
 # cache key, so `LINEAR_RETRY=1 docker/build.sh` retries a cached build that skipped it.
-ARG LINEAR_CLI_VERSION=3.1.0
 ARG LINEAR_RETRY=
+COPY cli/linear /opt/cli/linear
 RUN echo "linear-retry=${LINEAR_RETRY}" >/dev/null; : >/tmp/linear-install.log; \
     for i in 1 2 3 4 5; do \
-      npm install -g @schpet/linear-cli@${LINEAR_CLI_VERSION} >/tmp/linear-attempt.log 2>&1 \
-        && linear --version >/dev/null && npm cache clean --force && rm -rf /root/.npm \
+      npm ci --prefix /opt/cli/linear >/tmp/linear-attempt.log 2>&1 \
+        && ln -sf /opt/cli/linear/node_modules/.bin/linear /usr/local/bin/linear && linear --version >/dev/null && npm cache clean --force && rm -rf /root/.npm \
         && rm -f /tmp/linear-*.log && exit 0; \
       cat /tmp/linear-attempt.log >&2; cat /tmp/linear-attempt.log >>/tmp/linear-install.log; \
       [ "$i" -lt 5 ] || break; \
@@ -52,8 +56,7 @@ RUN echo "linear-retry=${LINEAR_RETRY}" >/dev/null; : >/tmp/linear-install.log; 
     if grep -qE 'EINTEGRITY|E404|ETARGET|Integrity check failed' /tmp/linear-install.log; then exit 1; fi; \
     grep -qE 'Error fetching release: Request failed with status code 5[0-9][0-9]' /tmp/linear-install.log || exit 1; \
     rm -f /tmp/linear-*.log; \
-    npm uninstall -g @schpet/linear-cli >&2 || true; \
-    rm -f "$(npm prefix -g)/bin/linear"; \
+    rm -rf /opt/cli/linear /usr/local/bin/linear; \
     if command -v linear >/dev/null; then echo "linear still on PATH after uninstall" >&2; exit 1; fi; \
     npm cache clean --force && rm -rf /root/.npm || exit 1; \
     echo "WARNING: GitHub Releases unavailable; image built WITHOUT linear-cli (--linear runs will fail preflight)" >&2
@@ -92,8 +95,8 @@ RUN groupadd -g 10001 agent \
  && chown -R agent:agent /workspace /home/agent
 
 # Most frequently bumped CLI goes last; scope its ARG to this layer.
-ARG CLAUDE_CLI_VERSION=2.1.322
-RUN /tmp/retry.sh 5 15 -- npm install -g @anthropic-ai/claude-code@${CLAUDE_CLI_VERSION} && npm cache clean --force && rm -rf /root/.npm
+COPY cli/claude /opt/cli/claude
+RUN /tmp/retry.sh 5 15 -- npm ci --prefix /opt/cli/claude && ln -s /opt/cli/claude/node_modules/.bin/* /usr/local/bin/ && npm cache clean --force && rm -rf /root/.npm
 
 # Last use of the retry helper: drop it so it never lands in the final image.
 RUN rm -f /tmp/retry.sh

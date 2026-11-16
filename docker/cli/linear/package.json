@@ -1,0 +1,6 @@
+{
+  "private": true,
+  "dependencies": {
+    "@schpet/linear-cli": "3.1.0"
+  }
+}

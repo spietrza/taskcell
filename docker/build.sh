@@ -1,6 +1,7 @@
 #!/usr/bin/env bash
 set -euo pipefail
-VERSION="${CLAUDE_CLI_VERSION:-2.1.322}"
+# The claude pin lives in docker/cli/claude/package.json + package-lock.json (installed with `npm ci`).
+VERSION="$(sed -n 's/.*"@anthropic-ai\/claude-code": "\([^"]*\)".*/\1/p' "$(dirname "$0")/cli/claude/package.json")"
 # Opt-in: empty skips the Cursor CLI (~550 MB); set e.g. CURSOR_CLI_VERSION=2026.10.16-e3cb207 for --provider cursor.
 CURSOR_VERSION="${CURSOR_CLI_VERSION:-}"
 # Alias tag on the same image, kept for hosts/scripts still looking for the pre-rename name. Only
@@ -26,7 +27,7 @@ LINEAR_RETRY="${LINEAR_RETRY:+$(date +%s)}"
 # does, and this run may not add one) — push it by hand or point GHCR_SANDBOX_IMAGE at your own
 # registry; until then the pull just fails and the build below runs as before.
 # The tag is the git tree hash of `docker/`, so it is only valid for a committed, clean tree; any
-# build-arg override (CLAUDE_CLI_VERSION, Cursor, LINEAR_RETRY) asks for something other than the
+# build-arg override (Cursor, LINEAR_RETRY) asks for something other than the
 # published default, so those build. Every failure path — no tag, no registry access, no git, a `git`
 # that errors — leaves the chain and builds.
 GHCR_IMAGE="${GHCR_SANDBOX_IMAGE:-ghcr.io/spietrza/taskcell-sandbox}"
@@ -40,7 +41,7 @@ verify_provenance() {
     --signer-workflow "${ATTEST_REPO}/.github/workflows/sandbox-image.yml" >/dev/null 2>&1 \
     || { echo "WARNING: no verifiable provenance for $1; building instead" >&2; return 1; }
 }
-if [ -z "${CLAUDE_CLI_VERSION:-}${CURSOR_VERSION}${CURSOR_CLI_SHA256_X64:-}${CURSOR_CLI_SHA256_ARM64:-}${LINEAR_RETRY}" ] \
+if [ -z "${CURSOR_VERSION}${CURSOR_CLI_SHA256_X64:-}${CURSOR_CLI_SHA256_ARM64:-}${LINEAR_RETRY}" ] \
   && DOCKER_TREE="$(git -C "${HERE}" rev-parse HEAD:docker 2>/dev/null)" \
   && DOCKER_DIRTY="$(git -C "${HERE}" status --porcelain -- "${HERE}")" \
   && [ -z "${DOCKER_DIRTY}" ] \
@@ -57,7 +58,7 @@ else
   # (set above) keep `$?` below the real `docker build` exit code, not tee's.
   BUILD_LOG="$(mktemp)"
   trap 'rm -f "${BUILD_LOG}"' EXIT
-  docker build --build-arg "CLAUDE_CLI_VERSION=${VERSION}" --build-arg "LINEAR_RETRY=${LINEAR_RETRY}" --build-arg "CURSOR_CLI_VERSION=${CURSOR_VERSION}" \
+  docker build --build-arg "LINEAR_RETRY=${LINEAR_RETRY}" --build-arg "CURSOR_CLI_VERSION=${CURSOR_VERSION}" \
     ${CURSOR_SHA_ARGS[@]+"${CURSOR_SHA_ARGS[@]}"} "${TAG_ARGS[@]}" "${HERE}" 2>&1 | tee "${BUILD_LOG}" && BUILD_STATUS=0 || BUILD_STATUS=$?
   if [ "${BUILD_STATUS}" -ne 0 ]; then
     if grep -q 'RETRY_EXHAUSTED_NETWORK' "${BUILD_LOG}"; then
