@@ -1,27 +1,22 @@
 import { taskToVariables } from '../tasks/fetcher.js';
 import { escapePromptTags } from '../context/escape.js';
-import { DockerSandboxProvider, sandboxImage } from '../sandbox/docker.js';
-import { sandboxNetworkConfig } from '../sandbox/limits.js';
-import { forcedProviderModel, providerKeyEnvNames, selectAgents } from '../agents/registry.js';
-import { prepareContext, disposeContext } from '../core/taskcell.js';
+import { openAgentSession } from './agent-session.js';
+import { forcedProviderModel, providerKeyEnvNames } from '../agents/registry.js';
 import { runStages, techSpecStage } from '../pipeline/pipeline.js';
-import { authSecrets } from '../agents/auth.js';
 import { beginRun } from '../core/run-store.js';
 import { summarizeOutcomes } from '../core/run-summary.js';
 import { loadRetrospectiveMemory, refreshRetrospectiveMemory } from '../core/retrospective-memory.js';
-import { llmProxySandboxEnv } from '../sandbox/egress-proxy.js';
 import { extractTag, extractTagLenient } from '../structured/extract.js';
 import { TaskcellError } from '../core/errors.js';
 import { SPEC_TAG } from '../tasks/triage.js';
 import { SPEC_MANIFEST_TAG } from '../pipeline/conformance-gate.js';
 import type { Task, TaskFetcher } from '../tasks/fetcher.js';
 import type { AgentAuth } from '../agents/auth.js';
-import type { ProviderChoice, ProviderProxySecrets } from '../agents/registry.js';
-import { startProviderProxies } from '../sandbox/llm-proxy.js';
-import type { LlmProxyDep, ProviderProxyDeps } from '../sandbox/llm-proxy.js';
+import type { ProviderChoice, SelectedAgents } from '../agents/registry.js';
 import type { IsolatedSandboxProvider } from '../sandbox/provider.js';
 import type { AgentProvider } from '../agents/provider.js';
 import type { RunDeps } from '../core/taskcell.js';
+import type { LlmProxyDep } from '../sandbox/llm-proxy.js';
 import type { TaskcellLogger } from '../core/logger.js';
 import { resolveTargetBase } from '../core/base-branch.js';
 import { skillRegistryForRun } from '../context/skill-registry.js';
@@ -70,26 +65,6 @@ export interface RunSpecGeneratorDeps extends ProviderChoice {
   contextDeps?: RunDeps;
 }
 
-/** Build the default Docker sandbox for the spec pass — same shape as the issue runners. */
-export function defaultSandboxFactory(
-  deps: RunSpecGeneratorDeps,
-  secrets: Record<string, string>,
-  providerProxies: ProviderProxyDeps,
-  injectAnthropicAuth: boolean,
-): IsolatedSandboxProvider {
-  const env = llmProxySandboxEnv(deps.proxyUrl, deps.llmProxy, providerProxies);
-  return new DockerSandboxProvider({
-    image: sandboxImage(),
-    // In llm-proxy mode the real Claude secret stays in the sidecar — the sandbox gets only the nonce.
-    secrets: {
-      ...(deps.llmProxy === undefined && deps.auth !== undefined && injectAnthropicAuth ? authSecrets(deps.auth) : {}),
-      ...secrets,
-    },
-    ...(env !== undefined ? { env } : {}),
-    ...sandboxNetworkConfig(deps.network),
-  });
-}
-
 /**
  * Run the read-only SPEC pass for one task: fetch it, research the codebase in an isolated sandbox via
  * the tech-spec stage, and return the generated technical specification markdown. This is the front
@@ -105,41 +80,30 @@ export function defaultSandboxFactory(
 export async function runSpecGenerator(id: string, deps: RunSpecGeneratorDeps): Promise<string> {
   const task: Task = await deps.fetcher.fetch(id);
 
-  // When the agent is injected (tests), use it directly and skip selectAgents (which checks API keys).
-  // When it is not, run selectAgents to pick the provider and collect its secrets.
-  let agent = deps.agent;
-  let secrets: Record<string, string> = deps.sandboxSecrets ?? {};
-  // Proxied provider keys (held by sidecars in proxy mode); only set when selectAgents runs (not the
-  // injected-agent test path), so injected runs never start a real sidecar.
-  let proxySecrets: ProviderProxySecrets = {};
-  // Whether the runner should layer Anthropic authSecrets into the sandbox. Defaults to true (the
-  // injected-agent test path mimics a Claude run); set from selectAgents when it runs.
-  let injectAnthropicAuth = true;
-  if (agent === undefined) {
-    const selected = selectAgents(deps, process.env, { proxyMode: deps.llmProxy !== undefined });
-    agent = selected.agent;
-    secrets = { ...selected.secrets, ...secrets };
-    proxySecrets = selected.proxySecrets;
-    injectAnthropicAuth = selected.injectAnthropicAuth;
-  }
-  if (agent === undefined) throw new TaskcellError('No agent available for the spec pass');
-
-  // Per-run provider sidecars (e.g. OpenAI for Codex) hold the real key out of the sandbox. Created
-  // before prepareContext so the finally below tears them down even if context provisioning throws.
-  const providerProxies = await startProviderProxies({
-    proxySecrets,
+  // An injected agent (tests) skips selectAgents (which checks API keys) and starts no real sidecar.
+  const injectedAgents: SelectedAgents | undefined =
+    deps.agent !== undefined ? { agent: deps.agent, secrets: {}, proxySecrets: {}, injectAnthropicAuth: true } : undefined;
+  const session = await openAgentSession({
+    choice: deps,
+    repoPath: deps.repoPath,
+    usageCap: 'stages',
+    ...(deps.auth !== undefined ? { auth: deps.auth } : {}),
+    ...(deps.proxyUrl !== undefined ? { proxyUrl: deps.proxyUrl } : {}),
     ...(deps.network !== undefined ? { network: deps.network } : {}),
+    ...(deps.llmProxy !== undefined ? { llmProxy: deps.llmProxy } : {}),
+    ...(deps.sandboxSecrets !== undefined ? { secrets: deps.sandboxSecrets } : {}),
+    ...(injectedAgents !== undefined ? { agents: injectedAgents } : {}),
+    ...(deps.sandboxFactory !== undefined ? { sandboxFactory: deps.sandboxFactory } : {}),
   });
+  // The session owns the provider sidecars, sandbox and context: closed on every exit path below.
   try {
-    const sandbox = (deps.sandboxFactory ?? ((s) => defaultSandboxFactory(deps, s, providerProxies, injectAnthropicAuth)))(secrets);
+    const { agent } = session.agents;
 
     const [retrospectiveMemory, skills] = await Promise.all([loadRetrospectiveMemory(deps.repoPath, { taskText: `${task.title}\n${task.description}` }), skillRegistryForRun(deps.skillsDir, deps.repoPath, { includeSpecSkills: true })]);
-    const ctx = await prepareContext(
+    const ctx = await session.prepare(
       {
         taskId: `spec-${task.id.replace(/[^a-zA-Z0-9]/g, '-').toLowerCase()}`,
         localRepoPath: deps.repoPath,
-        sandbox,
-        agentName: agent.name,
         // The spec is researched against origin's view of the base, never a local copy that is ahead of
         // it (the very reason a spec diverges from a branch someone else is actively pushing to).
         baseBranch: await resolveTargetBase(deps.repoPath, task.labels, deps.baseBranch),
@@ -207,9 +171,8 @@ export async function runSpecGenerator(id: string, deps: RunSpecGeneratorDeps): 
       await refreshRetrospectiveMemory(deps.repoPath).catch((err: unknown) => {
         deps.logger?.warn({ err }, 'retrospective memory refresh failed (non-fatal)');
       });
-      await disposeContext(ctx);
     }
   } finally {
-    await providerProxies.destroy();
+    await session.close();
   }
 }

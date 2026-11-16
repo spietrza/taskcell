@@ -5,18 +5,16 @@ import { trustedSpecText, isTrustedComment } from '../tasks/comment-trust.js';
 import { readFile } from 'node:fs/promises';
 import { taskToVariables } from '../tasks/fetcher.js';
 import { escapePromptTags } from '../context/escape.js';
-import { DockerSandboxProvider, sandboxImage } from '../sandbox/docker.js';
-import { pnpmStoreConfig, sandboxNetworkConfig } from '../sandbox/limits.js';
-import { selectAgents, forcedProviderModel, providerKeyEnvNames, isProviderName } from '../agents/registry.js';
+import { forcedProviderModel, isProviderName } from '../agents/registry.js';
 import { tokenProviderFor } from '../core/push-token.js';
 import { hasLabel, labelValue } from '../core/labels.js';
 import { resolveTargetBase } from '../core/base-branch.js';
-import { prepareContext, disposeContext } from '../core/taskcell.js';
+import { openAgentSession, coolPoolEntries } from './agent-session.js';
 import { probeTaskDifficulty, decisionProbeConfig } from '../core/decision-probe.js';
 import { decisionModelConfig, decisionEgressAllowed, decisionModelMissing, DECISION_MODEL_DEFAULT, type DecisionModelConfig } from '../core/decision-model.js';
 import { TaskcellError } from '../core/errors.js';
 import { isStructuredProviderLimit } from '../core/rate-limit-marker.js';
-import { readCooldowns, recordCooldown, cooldownUntil, poolTaskKey, entryKey } from '../core/model-pool.js';
+import { readCooldowns, recordCooldown, poolTaskKey, entryKey } from '../core/model-pool.js';
 import { routeModelPools, resolveFlowStagePools } from './model-pool-routing.js';
 import type { PoolRouting, StagePick } from './model-pool-routing.js';
 import { decisionDiffScorer } from '../evals/decision-judge.js';
@@ -25,22 +23,19 @@ import { FLOWS } from '../api/capabilities.js';
 import { resolveRepoFlow, unknownFlowError } from '../flows/repo.js';
 import { buildReviewerAttribution, hasBlockingFinding } from '../pipeline/review-publish.js';
 import { stripReviewMarkers } from './review-prompt.js';
-import { authSecrets } from '../agents/auth.js';
 import { beginRun, persistDecisionProbe } from '../core/run-store.js';
 import type { RunSkills } from '../core/run-store.js';
 import type { SecretBlock } from '../core/secret-scan.js';
-import { injectedSecretValues, redactForPublish } from '../core/secret-scan.js';
+import { redactForPublish } from '../core/secret-scan.js';
 import { summarizeOutcomes } from '../core/run-summary.js';
 import { appendStepSummary } from '../core/step-summary.js';
 import type { StepSummary, StepSummaryExit } from '../core/step-summary.js';
 import { loadLessonsForTask } from '../core/lessons.js';
 import { loadRetrospectiveMemory, refreshRetrospectiveMemory } from '../core/retrospective-memory.js';
-import { llmProxySandboxEnv } from '../sandbox/egress-proxy.js';
 import { resolveVerifyCommand, runVerification, renderVerificationFeedback, proofBlock, verifySkippedBlock, baseRedBlock } from '../pipeline/verify.js';
 import { resolveBaselineVerify } from '../pipeline/baseline-verify.js';
 
 import { resolveAndRunVisualProof, visualProofBlock } from '../pipeline/visual-proof.js';
-import { startProviderProxies } from '../sandbox/llm-proxy.js';
 import { reviewRequestBody } from './review-body.js';
 import { repairUntilGreen } from '../pipeline/repair-gate.js';
 import { deliverChange, conventionalPrTitle, scanOutgoingForSecrets } from './deliver-change.js';
@@ -181,29 +176,8 @@ export function pickRunOptions(cmd: Readonly<Partial<RunOptions>>): RunOptions {
   };
 }
 
-/** The credentials one run reads its provider keys from and redacts, built once at run start. */
-export interface RunCredentialContext {
-  /** Which kind of credential funded the run; undefined outside the hub. */
-  source: 'instance' | 'user' | undefined;
-  /** Env every provider key is read from: a hub run's resolved credential env, else process.env. */
-  env: NodeJS.ProcessEnv;
-  /** Env var names of keys the static injected-secret list cannot know (a custom provider's `keyEnv`). */
-  keyEnvNames: string[];
-  /** Every credential value to mask: the run env's and the host's (a user run's env omits the host keys). */
-  secretValues: () => string[];
-}
-
-/** Build a run's {@link RunCredentialContext} from its deps. */
-export function runCredentialContext(deps: ProviderChoice & Pick<RunIssueDeps, 'credentialSource' | 'providerEnv'>): RunCredentialContext {
-  const env = deps.providerEnv ?? process.env;
-  const keyEnvNames = providerKeyEnvNames(deps);
-  return {
-    source: deps.credentialSource,
-    env,
-    keyEnvNames,
-    secretValues: () => [...new Set([...injectedSecretValues(env, keyEnvNames), ...injectedSecretValues(process.env, keyEnvNames)])],
-  };
-}
+export { runCredentialContext } from './agent-session.js';
+export type { RunCredentialContext } from './agent-session.js';
 
 /** Shared dependencies for all source-backed issue runners. */
 export interface RunIssueDeps extends RunOptions {
@@ -554,8 +528,18 @@ async function runSourcedIssueAttempt(
   const choice = { ...deps, ...(stagePinned.length > 0 ? { stageProviders: stagePinned } : {}) };
   // One credential context for the whole run: every provider key reader (agents, rotation, fork scorer,
   // difficulty probe) and every secret gate/redaction below takes it from here.
-  const credentials = runCredentialContext(choice);
-  const agents = selectAgents(choice, credentials.env, { proxyMode: deps.llmProxy !== undefined });
+  const session = await openAgentSession({
+    choice,
+    repoPath: deps.repoPath,
+    usageCap: 'stages',
+    ...(deps.auth !== undefined ? { auth: deps.auth } : {}),
+    ...(deps.proxyUrl !== undefined ? { proxyUrl: deps.proxyUrl } : {}),
+    ...(deps.network !== undefined ? { network: deps.network } : {}),
+    ...(deps.llmProxy !== undefined ? { llmProxy: deps.llmProxy } : {}),
+    ...(deps.pnpmStore !== undefined ? { pnpmStore: deps.pnpmStore } : {}),
+    ...(adapter.secrets !== undefined ? { secrets: adapter.secrets } : {}),
+  });
+  const { agents, credentials } = session;
   // The pool entry a stage draws on: its flow-pool pick, the reviewer pick, else the implementer pick.
   // Undefined when that stage's tier has no pool (a stage pinned to its own provider, an unpooled reviewer).
   const tierPick = (stage: string): StagePick | undefined => {
@@ -585,37 +569,11 @@ async function runSourcedIssueAttempt(
     ...(skillNotes.length > 0 ? { notes: skillNotes } : {}),
   };
 
-  // Per-run provider sidecars (e.g. OpenAI for Codex) hold the real key out of the sandbox. Created
-  // before prepareContext so the finally below tears them down even if context provisioning throws.
-  const providerProxies = await startProviderProxies({
-    proxySecrets: agents.proxySecrets,
-    // A hub user's stored credential: the rotation updates the run's own env and never a host auth
-    // file. Any other run (an instance credential, desktop) reports against process.env, so later runs
-    // of this process pick up the rotated token.
-    ...(credentials.source === 'user' ? { env: credentials.env, storedCredential: true } : {}),
-    ...(deps.network !== undefined ? { network: deps.network } : {}),
-  });
+  // The session owns the provider sidecars, sandbox and context: closed on every exit path below.
   try {
     // The target branch: --base, else the card's `taskcell:base=` label, else app.json's default. An unsafe
     // value is refused here, before the sandbox, so nothing runs against the wrong branch.
     const baseBranch = await resolveTargetBase(deps.repoPath, task.labels, deps.baseBranch);
-    const env = llmProxySandboxEnv(deps.proxyUrl, deps.llmProxy, providerProxies);
-    // Keyed on the local repo path: every source (github/linear/gitlab) has one, and it is already
-    // the one thing that pins "this target repo" regardless of tracker.
-    const pnpmStore = pnpmStoreConfig(deps.repoPath, deps.pnpmStore);
-    const sandbox = new DockerSandboxProvider({
-      image: sandboxImage(),
-      // In llm-proxy mode the real Claude secret stays in the sidecar — the sandbox gets only the nonce.
-      secrets: {
-        ...(deps.llmProxy === undefined && deps.auth !== undefined && agents.injectAnthropicAuth ? authSecrets(deps.auth) : {}),
-        ...(adapter.secrets ?? {}),
-        ...agents.secrets,
-      },
-      ...(env !== undefined ? { env } : {}),
-      ...(pnpmStore !== undefined ? { pnpmStore } : {}),
-      ...sandboxNetworkConfig(deps.network),
-    });
-
     // A decision-model fork scorer needs credentials; resolve them BEFORE the sandbox is built so a
     // missing key fails in a second, not after a full implementer run.
     const forkScore =
@@ -639,12 +597,10 @@ async function runSourcedIssueAttempt(
       config: decisionProbeConfig(credentials.env, { whiteLabel }),
       ...(deps.signal !== undefined ? { signal: deps.signal } : {}),
     });
-    const ctx = await prepareContext(
+    const ctx = await session.prepare(
       {
         taskId: adapter.taskId(task),
         localRepoPath: deps.repoPath,
-        sandbox,
-        agentName: agents.agent.name,
         ...(agents.reviewAgent !== undefined ? { reviewAgentName: agents.reviewAgent.name } : {}),
         ...(agents.fallbackAgent !== undefined ? { fallbackAgentName: agents.fallbackAgent.name } : {}),
         // Cut from origin's copy of the base when it is ahead of the local one (on Actions the checkout is
@@ -1181,12 +1137,8 @@ async function runSourcedIssueAttempt(
         // or the default hour. Then this task moves on to the next entry, then the fallback chain.
         const pick = tierPick(activeStage);
         if (pick !== undefined) {
-          const until = cooldownUntil(error instanceof Error ? error.message : String(error));
           const out = [pick, ...(pick === routing.picks.implementer && routing.picks.fallback !== undefined ? [routing.picks.fallback] : [])];
-          for (const entry of out) {
-            exhausted.add(entryKey(entry));
-            await recordCooldown(deps.repoPath, entry, until).catch(() => undefined);
-          }
+          for (const key of await coolPoolEntries(deps.repoPath, out, error)) exhausted.add(key);
           // Re-route with those entries out: a tier still landing on an exhausted entry means every entry and fallback is out.
           const next = routePools();
           const nextFlow = routeFlowPools(next.options.provider ?? 'claude');
@@ -1210,10 +1162,9 @@ async function runSourcedIssueAttempt(
       });
       await markerWrites;
       await clearStageMarker(deps.repoPath, adapter.taskId(task)).catch(() => undefined);
-      await disposeContext(ctx);
     }
   } finally {
-    await providerProxies.destroy();
+    await session.close();
   }
 }
 

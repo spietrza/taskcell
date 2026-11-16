@@ -1,12 +1,8 @@
-import { DockerSandboxProvider, sandboxImage } from '../sandbox/docker.js';
-import { sandboxNetworkConfig } from '../sandbox/limits.js';
-import { llmProxySandboxEnv } from '../sandbox/egress-proxy.js';
-import { startProviderProxies } from '../sandbox/llm-proxy.js';
 import { startSandboxContext } from '../sandbox/sandbox-context.js';
-import { agentAuthFromEnv, authSecrets } from '../agents/auth.js';
-import { llmProxyNeedsNoPrimarySidecar, selectAgents } from '../agents/registry.js';
-import { prepareContext, runAgent, disposeContext } from '../core/taskcell.js';
-import { enforceUsageCap } from '../core/usage-cap.js';
+import { agentAuthFromEnv } from '../agents/auth.js';
+import { llmProxyNeedsNoPrimarySidecar } from '../agents/registry.js';
+import { runAgent } from '../core/taskcell.js';
+import { openAgentSession } from '../runners/agent-session.js';
 import { DEFAULT_BASE_BRANCH } from '../core/base-branch.js';
 import { literalPrompt } from '../context/prompt-engine.js';
 import { runResearch } from '../runners/research.js';
@@ -71,42 +67,31 @@ async function runDefaultResearcher(
   auth: AgentAuth | undefined,
   sandboxContext: SandboxContext,
 ): Promise<string> {
-  const agents = selectAgents(cmd, process.env, { proxyMode: cmd.llmProxy === true });
-  // Research is a new agent run: not started when the provider is at the usage cap.
-  enforceUsageCap(agents.agent.name);
-
-  const providerProxies = await startProviderProxies({
-    proxySecrets: agents.proxySecrets,
+  const session = await openAgentSession({
+    choice: cmd,
+    repoPath: cmd.repoPath,
+    ...(auth !== undefined ? { auth } : {}),
+    ...(sandboxContext.proxyUrl !== undefined ? { proxyUrl: sandboxContext.proxyUrl } : {}),
     ...(sandboxContext.network !== undefined ? { network: sandboxContext.network } : {}),
+    ...(sandboxContext.llmProxy !== undefined ? { llmProxy: sandboxContext.llmProxy } : {}),
+    proxyMode: cmd.llmProxy === true,
   });
+  // The session owns the provider sidecars, sandbox and context: closed on every exit path below.
   try {
-    const env = llmProxySandboxEnv(sandboxContext.proxyUrl, sandboxContext.llmProxy, providerProxies);
-    const sandbox = new DockerSandboxProvider({
-      image: sandboxImage(),
-      secrets: {
-        ...(sandboxContext.llmProxy === undefined && auth !== undefined && agents.injectAnthropicAuth ? authSecrets(auth) : {}),
-        ...agents.secrets,
-      },
-      ...(env !== undefined ? { env } : {}),
-      ...sandboxNetworkConfig(sandboxContext.network),
-    });
+    const { agents } = session;
     const taskId = `research-${cmd.issueRef.replace(/[^a-zA-Z0-9]/g, '-')}`;
     // research has no --base: the codebase is read at the default base as origin has it, like every other run.
-    const ctx = await prepareContext({ taskId, localRepoPath: cmd.repoPath, sandbox, agentName: agents.agent.name, baseBranch: DEFAULT_BASE_BRANCH, start: 'base' });
-    try {
-      const result = await runAgent(ctx, {
-        stageName: 'research',
-        agent: agents.agent,
-        ...literalPrompt(prompt),
-        maxTurns: 12,
-        copyBack: false,
-        ...(cmd.researchModel !== undefined ? { model: cmd.researchModel } : {}),
-      });
-      return result.finalText;
-    } finally {
-      await disposeContext(ctx);
-    }
+    const ctx = await session.prepare({ taskId, localRepoPath: cmd.repoPath, baseBranch: DEFAULT_BASE_BRANCH, start: 'base' });
+    const result = await runAgent(ctx, {
+      stageName: 'research',
+      agent: agents.agent,
+      ...literalPrompt(prompt),
+      maxTurns: 12,
+      copyBack: false,
+      ...(cmd.researchModel !== undefined ? { model: cmd.researchModel } : {}),
+    });
+    return result.finalText;
   } finally {
-    await providerProxies.destroy();
+    await session.close();
   }
 }
