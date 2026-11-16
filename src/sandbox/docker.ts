@@ -209,11 +209,12 @@ export function pnpmStoreVolumeName(repoKey: string): string {
 /** Runs an isolated command environment as a detached Docker container. */
 /**
  * `sh` argv for one sandbox command. The login shell (default) keeps PATH setup for agent CLIs and custom
- * images; `loginShell: false` sources only the root-owned /etc/profile, never the agent-owned $HOME/.profile,
- * so a planted profile cannot turn a failing verify into a PASS (#1180).
+ * images. `loginShell: false` (verify) sources only the root-owned /etc/profile, never the agent-owned
+ * $HOME/.profile, and points npm/pnpm/git user config away from agent-owned HOME dotfiles, so a planted file
+ * cannot turn a failing verify into a PASS (#1180). Its callers also skip `wrap`: the secrets file is agent-writable.
  */
 export function shellArgv(command: string, loginShell = true): string[] {
-  return loginShell ? ['sh', '-lc', command] : ['sh', '-c', `[ -r /etc/profile ] && . /etc/profile; ${command}`];
+  return loginShell ? ['sh', '-lc', command] : ['sh', '-c', `[ -r /etc/profile ] && . /etc/profile; export NPM_CONFIG_USERCONFIG=/dev/null GIT_CONFIG_GLOBAL=/dev/null XDG_CONFIG_HOME=/nonexistent; ${command}`];
 }
 
 export class DockerSandboxProvider implements IsolatedSandboxProvider {
@@ -412,7 +413,7 @@ export class DockerSandboxProvider implements IsolatedSandboxProvider {
     if (options.cwd !== undefined) args.push('-w', options.cwd);
     for (const [k, v] of Object.entries(options.env ?? {})) args.push('-e', `${k}=${v}`);
     if (options.input !== undefined) args.push('-i');
-    args.push(this.name, ...shellArgv(this.wrap(command), options.loginShell));
+    args.push(this.name, ...shellArgv(options.loginShell === false ? command : this.wrap(command), options.loginShell));
     const result = await execa('docker', args, {
       reject: false,
       ...(options.input !== undefined ? { input: options.input } : {}),
@@ -426,7 +427,7 @@ export class DockerSandboxProvider implements IsolatedSandboxProvider {
     const args = ['exec'];
     if (options.cwd !== undefined) args.push('-w', options.cwd);
     for (const [k, v] of Object.entries(options.env ?? {})) args.push('-e', `${k}=${v}`);
-    args.push(this.name, ...shellArgv(this.wrap(command), options.loginShell));
+    args.push(this.name, ...shellArgv(options.loginShell === false ? command : this.wrap(command), options.loginShell));
     const child = execa('docker', args, {
       reject: false,
       ...(options.timeoutMs !== undefined ? { timeout: options.timeoutMs } : {}),

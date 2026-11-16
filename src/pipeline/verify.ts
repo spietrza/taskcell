@@ -185,7 +185,7 @@ export async function runVerification(
 /** The sandbox cgroup's `oom_kill` counter (cgroup v2 `memory.events`); undefined if unreadable. */
 async function readOomKillCount(sh: IsolatedSandboxProvider['exec']): Promise<number | undefined> {
   try {
-    const r = await sh('cat /sys/fs/cgroup/memory.events 2>/dev/null');
+    const r = await sh('cat /sys/fs/cgroup/memory.events 2>/dev/null', { loginShell: false });
     const m = /^oom_kill\s+(\d+)/m.exec(r.stdout);
     return m ? Number(m[1]) : undefined;
   } catch {

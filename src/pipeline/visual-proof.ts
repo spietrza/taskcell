@@ -39,7 +39,7 @@ const ARTIFACT_EXTENSIONS = new Set([
 /** A bound `sandbox.exec`; runs a command INSIDE the sandbox (never throws on non-zero exit). */
 type SandboxRun = (
   command: string,
-  options?: { cwd?: string; signal?: AbortSignal },
+  options?: { cwd?: string; signal?: AbortSignal; loginShell?: boolean },
 ) => Promise<ExecResult>;
 
 /**
@@ -71,7 +71,7 @@ export async function runVisualProof(
 ): Promise<VisualProofResult> {
   const sh: SandboxRun = sandbox.exec.bind(sandbox);
   const signal = opts?.signal;
-  const res = await sh(command, { cwd: WORKDIR, ...(signal !== undefined ? { signal } : {}) });
+  const res = await sh(command, { cwd: WORKDIR, loginShell: false, ...(signal !== undefined ? { signal } : {}) });
   const output = `${res.stdout}\n${res.stderr}`;
   const sha256 = createHash('sha256').update(output).digest('hex');
   const outputTail = output.split('\n').slice(-40).join('\n').trimEnd();
