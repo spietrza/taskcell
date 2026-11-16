@@ -53,6 +53,9 @@ export interface WatchPrsCommandDeps {
   log?: (line: string) => void;
 }
 
+/** Passes a --pinned-only --once run makes over a failed pinned PR (matches pr-watch's incomplete-review cap). */
+const PINNED_PASSES = 3;
+
 /** Poll GitHub pull requests by label and run Taskcell's non-blocking review on each claimed PR. */
 export async function watchPrsCommand(cmd: WatchPrsCommand, deps: WatchPrsCommandDeps = {}): Promise<void> {
   const log = deps.log ?? console.log;
@@ -97,15 +100,23 @@ export async function watchPrsCommand(cmd: WatchPrsCommand, deps: WatchPrsComman
     log(`watch-prs[github]: ${cmd.repoSlug}#${hintPr} pinned from ${cmd.pr !== undefined ? '--pr' : 'the label event'} — reviewed even if the label scan misses it.`);
   }
   try {
-    const tick = await runWatchPullRequests(primitives, {
-      concurrency: cmd.concurrency,
-      intervalMs: cmd.intervalMs,
-      once: cmd.once,
-      signal: controller.signal,
-      log,
-    });
-    // --once is the CI mode: a failed review must fail the step (the trigger label was restored and
-    // the next sweep retries) instead of reporting green with nothing posted.
+    const pass = (): ReturnType<typeof runWatchPullRequests> =>
+      runWatchPullRequests(primitives, {
+        concurrency: cmd.concurrency,
+        intervalMs: cmd.intervalMs,
+        once: cmd.once,
+        signal: controller.signal,
+        log,
+      });
+    let tick = await pass();
+    // A pinned-only run has no later sweep to retry its failed review (the next PR's run reviews only that PR),
+    // so retry the pin here: up to PINNED_PASSES in all, the same budget the incomplete-review cap allows.
+    for (let n = 1; cmd.pinnedOnly === true && cmd.once && hintPr !== undefined && tick !== undefined && tick.failed.length > 0 && n < PINNED_PASSES; n++) {
+      log(`watch-prs[github]: ${cmd.repoSlug}#${hintPr} failed -> retry ${n} of ${PINNED_PASSES - 1} (pinned-only)`);
+      tick = await pass();
+    }
+    // --once is the CI mode: a failed review must fail the step (the trigger label was restored; without
+    // --pinned-only the next sweep retries) instead of reporting green with nothing posted.
     if (cmd.once && tick !== undefined && tick.failed.length > 0) process.exitCode = 1;
   } finally {
     process.off('SIGINT', stop);

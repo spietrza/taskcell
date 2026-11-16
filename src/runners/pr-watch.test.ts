@@ -647,6 +647,32 @@ describe('githubPullRequestWatchPrimitives', () => {
 
     expect((await primitives.listReady()).map((item) => item.number)).toEqual([316]);
     expect(calls.some((c) => c[0] === 'pr' && c[1] === 'list')).toBe(false);
+    expect(primitives.takeListFailures?.()).toEqual([]);
+  });
+
+  it('with pinnedOnly a failed fetch of the pin is a list failure, not a green "0 ready"', async () => {
+    const gh: GhRunner = async (args) => {
+      if (args[0] === 'pr' && args[1] === 'view') throw new Error('HTTP 502');
+      return trustedAuthorApi(args);
+    };
+    const base = { repoSlug: 'o/r', label: 'ready for taskcell review', reviewingLabel: 'taskcell:reviewing', reviewedLabel: 'taskcell:reviewed', hintPr: 316, gh, reviewOne: async (): Promise<void> => {} };
+    const pinned = githubPullRequestWatchPrimitives({ ...base, pinnedOnly: true });
+    expect(await pinned.listReady()).toEqual([]);
+    expect(pinned.takeListFailures?.()).toEqual(['o/r#316']);
+  });
+
+  it('pinnedOnly without a pin still scans by label', async () => {
+    const calls: string[][] = [];
+    const gh: GhRunner = async (args) => {
+      calls.push(args);
+      return args[0] === 'pr' && args[1] === 'list' ? '[]' : trustedAuthorApi(args);
+    };
+    const primitives = githubPullRequestWatchPrimitives({
+      repoSlug: 'o/r', label: 'ready for taskcell review', reviewingLabel: 'taskcell:reviewing', reviewedLabel: 'taskcell:reviewed',
+      pinnedOnly: true, gh, reviewOne: async () => {},
+    });
+    expect(await primitives.listReady()).toEqual([]);
+    expect(calls.some((c) => c[0] === 'pr' && c[1] === 'list')).toBe(true);
   });
 
   it('pins the hinted PR when the label scan misses it (eventually consistent search)', async () => {
