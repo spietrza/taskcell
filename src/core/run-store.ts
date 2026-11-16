@@ -454,6 +454,15 @@ export interface WriteStagesOptions {
   skills?: RunSkills;
   /** Ids of the installed skills, for a run that passes no `skills`; `skillsUsed` keeps only installed ids. */
   skillIds?: readonly string[];
+  /** Per stage name: the provider/model it ran on and why (model pools: rotation, skip-limit, fallback, label, config). */
+  modelPicks?: Readonly<Record<string, StageModelPick>>;
+}
+
+/** The model a stage actually used and why it was picked; recorded as `modelPick` on the record and `provider`/`pick` on the metric line. */
+export interface StageModelPick {
+  provider: string;
+  model?: string;
+  pick: string;
 }
 
 /** A handle for one run: owns its timestamp, so every record it writes shares one prefix. */
@@ -491,6 +500,7 @@ interface WriteRecordOptions {
   lessonIds?: readonly string[];
   skills?: RunSkills;
   skillIds?: readonly string[];
+  modelPick?: StageModelPick;
 }
 
 /**
@@ -561,6 +571,7 @@ async function writeRecord(repoPath: string, taskId: string, timestamp: string, 
     ...(runTrigger !== undefined ? { trigger: runTrigger } : {}),
     ...(opts.lessonIds !== undefined && opts.lessonIds.length > 0 ? { lessonIds: [...opts.lessonIds] } : {}),
     ...(opts.skills !== undefined ? { skills: opts.skills } : {}),
+    ...(opts.modelPick !== undefined ? { modelPick: opts.modelPick } : {}),
   };
   const suffix = opts.label !== undefined ? `-${opts.label}` : '';
   const base = join(taskDir, `${sanitizeTimestamp(timestamp)}${suffix}`);
@@ -612,6 +623,7 @@ async function writeRecord(repoPath: string, taskId: string, timestamp: string, 
       ? { skillsUsed: sanitizeSkillIds([...(priorSkillsUsed ?? []), ...parseSkillsUsed(transcript)], installedSkillIds).map((id) => redactForPublish(id, opts.secretValues)) }
       : {}),
     ...(review !== undefined ? { verdict: review.verdict } : {}),
+    ...(opts.modelPick !== undefined ? { provider: opts.modelPick.provider, pick: opts.modelPick.pick } : {}),
     // Implement/revise runs pass their lesson ids (possibly none): how many the run loaded, 0 when none.
     ...(opts.lessonIds !== undefined ? { lessonsLoaded: opts.lessonIds.length, ...(opts.lessonIds.length > 0 ? { lessonIds: [...opts.lessonIds] } : {}) } : {}),
   };
@@ -661,11 +673,12 @@ export function beginRun(
           ...(opts.lessonIds !== undefined ? { lessonIds: opts.lessonIds } : {}),
           ...(opts.skills !== undefined ? { skills: opts.skills } : {}),
           ...(opts.skillIds !== undefined ? { skillIds: opts.skillIds } : {}),
+          ...(opts.modelPicks?.[outcome.name] !== undefined ? { modelPick: opts.modelPicks[outcome.name] } : {}),
         });
       }
       const first = outcomes[0];
       if (first === undefined) return;
-      const { omitDiff: _omitDiff, baseBranch: _baseBranch, configPaths: _configPaths, maxRepairIterations: _maxRepairIterations, lessonIds: _lessonIds, skills: _skills, skillIds: _skillIds, ...trace } = opts;
+      const { omitDiff: _omitDiff, baseBranch: _baseBranch, configPaths: _configPaths, maxRepairIterations: _maxRepairIterations, lessonIds: _lessonIds, skills: _skills, skillIds: _skillIds, modelPicks: _modelPicks, ...trace } = opts;
       await exportRunTrace({
         taskId,
         timestamp,

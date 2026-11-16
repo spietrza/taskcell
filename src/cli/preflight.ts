@@ -1,6 +1,6 @@
 import { execa } from 'execa';
 import { authFromEnv } from '../agents/auth.js';
-import { assertProvidersResolvable, claudeCliKeyEnv, llmProxyNeedsNoPrimarySidecar, needsAnthropicAuth, providerSecrets, requiresApiKey, validateProviderChoice } from '../agents/registry.js';
+import { assertProvidersResolvable, claudeCliKeyEnv, fallbackProviderNames, llmProxyNeedsNoPrimarySidecar, needsAnthropicAuth, providerSecrets, requiresApiKey, validateProviderChoice } from '../agents/registry.js';
 import { loadCustomProviders } from '../agents/custom.js';
 import { SANDBOX_CLAUDE_VERSION, isOlderVersion, resolveSandboxImage, sandboxImage } from '../sandbox/docker.js';
 import { isKnownGitlabRemote, parseGitlabProjectFromRemote, redactRemote, remoteHostname } from '../runners/gitlab.js';
@@ -237,7 +237,7 @@ function secondaryProviders(cmd: PreflightCommand): { reviewProvider?: string; f
 
 function collectProviders(cmd: PreflightCommand, customs: readonly CustomProviderEntry[]): string[] {
   const { reviewProvider, fallbackProvider } = secondaryProviders(cmd);
-  const candidates = cmd.kind === 'doctor-prs' ? [cmd.provider] : [cmd.provider, reviewProvider, fallbackProvider];
+  const candidates = cmd.kind === 'doctor-prs' ? [cmd.provider] : [cmd.provider, reviewProvider, ...fallbackProviderNames(fallbackProvider)];
   // Zai is excluded here: it rides the Claude transport and its key is already covered by the
   // provider-aware 'llm auth' check above. Codex/Cursor still get a dedicated 'provider auth' check.
   return candidates.filter((name): name is string => name !== undefined && requiresApiKey(name, customs));

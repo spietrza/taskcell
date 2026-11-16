@@ -1,6 +1,6 @@
 import { readFile } from 'node:fs/promises';
 import { join } from 'node:path';
-import { parseMetrics, parseProbes, aggregateMetrics, formatStats } from '../core/stats.js';
+import { parseMetrics, parseProbes, aggregateMetrics, formatStats, modelPickReport, formatModelPicks } from '../core/stats.js';
 import { parseBaseMerges, aggregateConflicts, formatConflictStats } from '../core/conflict-stats.js';
 import { readBranchFile, readBranchMetrics, METRICS_BRANCH_DEFAULT } from '../core/metrics-branch.js';
 import { DECISIONS_FILE } from '../approver/ledger.js';
@@ -77,7 +77,7 @@ export async function statsCommand(cmd: StatsCommand): Promise<void> {
   const merges = parseBaseMerges(text);
   const conflicts = merges.length > 0 ? aggregateConflicts(merges) : undefined;
   if (cmd.json) {
-    console.log(JSON.stringify({ ...report, lessons, ...(leadTime !== undefined ? { leadTime } : {}), ...(conflicts !== undefined ? { conflicts } : {}) }, null, 2));
+    console.log(JSON.stringify({ ...report, modelPicks: modelPickReport(text), lessons, ...(leadTime !== undefined ? { leadTime } : {}), ...(conflicts !== undefined ? { conflicts } : {}) }, null, 2));
     return;
   }
   if (records.length === 0) {
@@ -86,6 +86,8 @@ export async function statsCommand(cmd: StatsCommand): Promise<void> {
     return;
   }
   console.log(formatStats(report));
+  const picks = formatModelPicks(modelPickReport(text));
+  if (picks !== '') console.log(`\n${picks}`);
   console.log(`\n${formatLessonsStats(lessons)}`);
   if (conflicts !== undefined) console.log(`\n${formatConflictStats(conflicts)}`);
   if (leadTime !== undefined) console.log(`\n${formatLeadTime(leadTime)}`);

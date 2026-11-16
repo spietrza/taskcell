@@ -9,6 +9,7 @@ import {
 import { checkCliVersions, formatCliVersions, installedCliVersions } from '../sandbox/cli-versions.js';
 import type { Command } from './args.js';
 import { CliUsageError } from '../core/errors.js';
+import { fallbackProviderNames } from '../agents/registry.js';
 import type { PreflightOptions } from './preflight.js';
 
 type DoctorCommand = Extract<Command, { kind: 'doctor' }>;
@@ -21,7 +22,7 @@ export interface DoctorOptions extends PreflightOptions {
 
 /** Codex runs as the implementer, the reviewer or the implementer fallback. */
 function usesCodex(cmd: DoctorCommand): boolean {
-  return [cmd.provider, cmd.reviewProvider, 'fallbackProvider' in cmd ? cmd.fallbackProvider : undefined].includes('codex');
+  return [cmd.provider, cmd.reviewProvider, ...fallbackProviderNames('fallbackProvider' in cmd ? cmd.fallbackProvider : undefined)].includes('codex');
 }
 
 /** Print AFK-readiness checks and fail before any task can be claimed. */

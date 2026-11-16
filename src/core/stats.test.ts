@@ -1,5 +1,6 @@
 import { describe, it, expect } from 'vitest';
 import { parseMetrics, parseProbes, aggregateMetrics, formatStats, modelKey, probeReport } from './stats.js';
+import { modelPickReport, formatModelPicks } from './stats.js';
 
 const line = (o: Record<string, unknown>): string => JSON.stringify({ evt: 'run_complete', ...o });
 
@@ -174,5 +175,28 @@ describe('decision probe join', () => {
     expect(probeReport(parseMetrics(text), parseProbes(text))).toEqual([
       { level: 'Routine', runs: 2, repaired: 1, predictedFirstTry: 0.9, observedFirstTry: 0.5 },
     ]);
+  });
+});
+
+describe('modelPickReport', () => {
+  it('compares models per stage and pick on cost, gate pass, review verdict and revise rounds', () => {
+    const lines = [
+      { evt: 'run_complete', taskId: 'a', ts: 't1', stage: 'implementer', requestedModel: 'sonnet', provider: 'claude', pick: 'rotation', costUsd: 1 },
+      { evt: 'verify', taskId: 'a', ts: 't1', passed: true },
+      { evt: 'run_complete', taskId: 'a', ts: 't1', stage: 'reviewer', verdict: 'pass', costUsd: 0.1 },
+      { evt: 'run_complete', taskId: 'a', ts: 't2', stage: 'revise', costUsd: 0.2 },
+      { evt: 'run_complete', taskId: 'b', ts: 't3', stage: 'implementer', requestedModel: 'qwen', provider: 'openrouter', pick: 'rotation', costUsd: 0.1 },
+      { evt: 'verify', taskId: 'b', ts: 't3', passed: false },
+      { evt: 'run_complete', taskId: 'c', ts: 't4', stage: 'implementer', model: 'x', costUsd: 1 },
+    ];
+    const rows = modelPickReport(lines.map((l) => JSON.stringify(l)).join('\n'));
+    expect(rows).toEqual([
+      { stage: 'implementer', model: 'claude/sonnet', pick: 'rotation', runs: 1, costUsd: 1, gateRuns: 1, gatePassed: 1, reviewed: 1, reviewPassed: 1, reviseRounds: 1 },
+      { stage: 'implementer', model: 'openrouter/qwen', pick: 'rotation', runs: 1, costUsd: 0.1, gateRuns: 1, gatePassed: 0, reviewed: 0, reviewPassed: 0, reviseRounds: 0 },
+    ]);
+    const out = formatModelPicks(rows);
+    expect(out).toContain('BY MODEL PER STAGE');
+    expect(out).toContain('100% (1/1)');
+    expect(formatModelPicks([])).toBe('');
   });
 });

@@ -60,6 +60,8 @@ describe('agentAuthFromEnv', () => {
       'Set CLAUDE_CODE_OAUTH_TOKEN (subscription) or ANTHROPIC_API_KEY (API) before running with --review-provider claude.',
     );
     expect(() => agentAuthFromEnv({ provider: 'codex', fallbackProvider: 'claude' }, {})).toThrow(/with --fallback-provider claude\.$/);
+    // A fallback list names the entry that wants the Anthropic credential, not the raw list.
+    expect(() => agentAuthFromEnv({ provider: 'codex', fallbackProvider: 'cursor,claude' }, {})).toThrow(/with --fallback-provider claude\.$/);
     expect(() => agentAuthFromEnv({}, {})).toThrow(/with --provider claude\.$/);
   });
 

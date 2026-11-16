@@ -14,6 +14,7 @@ import { loadRetrospectiveMemory } from '../core/retrospective-memory.js';
 import { pickRunOptions, runSourcedIssue, conventionalCommitMessage, modelFromLabels, runCredentialContext } from './source-adapter.js';
 import type { RunIssueDeps, SourceAdapter } from './source-adapter.js';
 import { extractPrBodyItemsBlock } from '../pipeline/conformance-gate.js';
+import { readCooldowns } from '../core/model-pool.js';
 import type { Task } from '../tasks/fetcher.js';
 import type { PipelineStage, StageOutcome } from '../pipeline/pipeline.js';
 import type { RunEvent } from '../pipeline/events.js';
@@ -149,6 +150,10 @@ vi.mock('../agents/registry.js', () => ({
   selectAgents: vi.fn(() => ({ agent: { name: 'claude' }, secrets: {}, proxySecrets: {}, injectAnthropicAuth: false })),
   forcedProviderModel: vi.fn(() => undefined),
   providerKeyEnvNames: vi.fn(() => []),
+  isProviderName: vi.fn((n: string) => ['claude', 'codex', 'cursor'].includes(n)),
+  validateProviderChoice: vi.fn(),
+  makeProvider: vi.fn((name: string) => ({ name })),
+  claudeCliKeyEnv: vi.fn(() => undefined),
 }));
 const { wmDiff, wmCommitMessages } = vi.hoisted(() => ({
   wmDiff: vi.fn(async () => ''),
@@ -528,6 +533,84 @@ describe('runSourcedIssue', () => {
     await runSourcedIssue('group/project#1', { repoPath: '/repo', forkN: 2 }, fakeAdapter([], STAGES));
     const plain = runStages.mock.calls[1]?.[2] as { fork?: { score?: unknown } };
     expect(plain.fork?.score).toBeUndefined();
+  });
+
+  it('a model pool resolves to one provider/model before the agents are selected', async () => {
+    await runSourcedIssue('group/project#1', { repoPath: '/repo', providerModel: 'codex/gpt-5.6-sol:1' }, fakeAdapter([], STAGES));
+    expect(selectAgents).toHaveBeenLastCalledWith(expect.objectContaining({ provider: 'codex', providerModel: 'gpt-5.6-sol' }), expect.anything(), expect.anything());
+  });
+
+  describe('model pool limits', () => {
+    const limitOnce = (): void => {
+      runStages.mockImplementationOnce(async (_ctx: unknown, _stages: unknown, opts: { onEvent: (event: RunEvent) => void }) => {
+        opts.onEvent({ type: 'stage-start', name: 'implementer', index: 0, of: 2 });
+        throw new ProviderLimitError("You've hit your usage limit");
+      });
+    };
+    const picked = (): Array<{ provider?: string; providerModel?: string; fallbackProvider?: string }> =>
+      vi.mocked(selectAgents).mock.calls.map(([choice]) => choice);
+
+    it('a limit on the picked entry re-runs the task on the next pool entry', async () => {
+      limitOnce();
+      await runSourcedIssue('group/project#1', { repoPath: '/repo', providerModel: 'claude/sonnet:1, claude/opus:1' }, fakeAdapter([], STAGES));
+      expect(picked().map((c) => c.providerModel).sort()).toEqual(['opus', 'sonnet']);
+      expect(publishForReview).toHaveBeenCalledTimes(1);
+    });
+
+    it('once the pool and its in-run fallback are out, the task moves down the fallback chain', async () => {
+      limitOnce();
+      await runSourcedIssue('group/project#1', { repoPath: '/repo', providerModel: 'claude/sonnet:1', fallbackProvider: 'codex,cursor' }, fakeAdapter([], STAGES));
+      expect(picked()).toMatchObject([{ provider: 'claude', fallbackProvider: 'codex' }, { provider: 'cursor' }]);
+      expect(publishForReview).toHaveBeenCalledTimes(1);
+    });
+
+    it('fails on the limit only when every entry and fallback is out', async () => {
+      limitOnce();
+      limitOnce();
+      const run = runSourcedIssue('group/project#1', { repoPath: '/repo', providerModel: 'claude/sonnet:1', fallbackProvider: 'codex,cursor' }, fakeAdapter([], STAGES));
+      await expect(run).rejects.toBeInstanceOf(ProviderLimitError);
+      expect(picked().map((c) => c.provider)).toEqual(['claude', 'cursor']);
+      expect(publishForReview).not.toHaveBeenCalled();
+    });
+
+    it('a simplifier limit cools the run-level entry, not the flow implementer pool named like the tier', async () => {
+      const repo = await mkdtemp(join(tmpdir(), 'pool-flow-'));
+      try {
+        const stages: PipelineStage[] = [
+          { ...STAGES[0]!, model: 'claude/sonnet:1, codex/gpt-5.6-sol:1' },
+          { name: 'simplifier', promptTemplate: '', maxTurns: 10 },
+          STAGES[1]!,
+        ];
+        runStages.mockImplementationOnce(async (_ctx: unknown, _stages: unknown, opts: { onEvent: (event: RunEvent) => void }) => {
+          opts.onEvent({ type: 'stage-start', name: 'simplifier', index: 1, of: 3 });
+          throw new ProviderLimitError("You've hit your usage limit");
+        });
+        const run = runSourcedIssue('group/project#1', { repoPath: repo, provider: 'claude', providerModel: 'claude/opus:1' }, fakeAdapter([], stages));
+        await expect(run).rejects.toBeInstanceOf(ProviderLimitError);
+        expect([...(await readCooldowns(repo)).keys()]).toEqual(['claude/opus']);
+        // The run-level pool is out, so no restart on a flow-pool re-route.
+        expect(runStages).toHaveBeenCalledTimes(1);
+      } finally {
+        await rm(repo, { recursive: true, force: true });
+      }
+    });
+
+    it('cools an entry only when its stage hit a limit, never a healthy run whose reviewer shares the fallback provider', async () => {
+      const repo = await mkdtemp(join(tmpdir(), 'pool-cool-'));
+      try {
+        const deps = { repoPath: repo, providerModel: 'claude/sonnet:1', reviewProvider: 'codex' as const, fallbackProvider: 'codex,cursor' };
+        runStages.mockResolvedValueOnce([{ ...stageOutcome('implementer'), providerName: 'claude' }, { ...stageOutcome('reviewer'), providerName: 'codex' }]);
+        await runSourcedIssue('group/project#1', deps, fakeAdapter([], STAGES));
+        expect(await readCooldowns(repo)).toEqual(new Map());
+        // The implementer's own provider hit a limit and the fallback ran it: that entry cools until the reset.
+        const reset = new Date(Date.now() + 3_600_000).toISOString();
+        runStages.mockResolvedValueOnce([{ ...stageOutcome('implementer'), providerName: 'codex', primaryLimitResetAt: reset }, { ...stageOutcome('reviewer'), providerName: 'codex' }]);
+        await runSourcedIssue('group/project#1', deps, fakeAdapter([], STAGES));
+        expect([...(await readCooldowns(repo)).keys()]).toEqual(['claude/sonnet']);
+      } finally {
+        await rm(repo, { recursive: true, force: true });
+      }
+    });
   });
 
   it('the difficulty probe is log-only: persisted with the implementer model, never routing', async () => {
