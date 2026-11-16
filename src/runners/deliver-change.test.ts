@@ -111,6 +111,37 @@ describe('deliverChange', () => {
     expect(Object.values(seen[0] ?? {})).toContain(`AUTHORIZATION: basic ${Buffer.from('x-access-token:PROVIDED').toString('base64')}`);
   });
 
+  it('computes the gate-config facts of the delivered change once with the repo globs, hands them to the body and returns them', async () => {
+    let seen: unknown;
+    await withWork('work', async (ctx) => {
+      const r = await deliverChange(ctx, {
+        taskId: 'o/r#7',
+        commitMessage: 'feat: thing',
+        gateConfigExtraGlobs: ['feature.txt'],
+        target: {
+          kind: 'new-pr',
+          title: 'thing (o/r#7)',
+          body: ({ facts }) => { seen = facts; return facts.configBlock; },
+          runner: async (file) => (file === 'gh' ? 'https://github.com/o/r/pull/9' : ''),
+        },
+      });
+      if (r.kind !== 'delivered-pr') throw new Error(r.kind);
+      expect(r.facts.configPaths).toEqual(['feature.txt']);
+      expect(r.facts.configBlock).toContain('feature.txt');
+      expect(seen).toBe(r.facts);
+    });
+    await withWork('work', async (ctx) => {
+      const r = await deliverChange(ctx, {
+        taskId: 'T-4',
+        commitMessage: 'feat: x',
+        gateConfigExtraGlobs: ['feature.txt'],
+        target: { kind: 'existing-branch', prHeadRef: 'pr-head', runner: async () => '' },
+      });
+      if (r.kind !== 'delivered-push') throw new Error(r.kind);
+      expect(r.facts.configPaths).toEqual(['feature.txt']);
+    });
+  });
+
   it('forwards forceWithLease to the existing-branch push', async () => {
     const calls: string[][] = [];
     await withWork('hello', async (ctx) => {
@@ -218,7 +249,7 @@ describe('deliverChange', () => {
       expect(r.prUrl).toBe('https://github.com/o/r/pull/9');
       expect(r.headSha).toBe('rebasedhead');
       expect(r.commitLeaks.length).toBeGreaterThan(0);
-      expect(r.outgoingDiff).toContain('+work');
+      expect(r.facts).toEqual({ configPaths: [], configBlock: '' });
     });
     const gh = calls.find((c) => c[0] === 'gh');
     expect(gh?.[gh.indexOf('--title') + 1]).toBe('feat: thing (o/r#7)');
