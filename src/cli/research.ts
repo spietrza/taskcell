@@ -6,6 +6,7 @@ import { startSandboxContext } from '../sandbox/sandbox-context.js';
 import { agentAuthFromEnv, authSecrets } from '../agents/auth.js';
 import { llmProxyNeedsNoPrimarySidecar, selectAgents } from '../agents/registry.js';
 import { prepareContext, runAgent, disposeContext } from '../core/taskcell.js';
+import { enforceUsageCap } from '../core/usage-cap.js';
 import { DEFAULT_BASE_BRANCH } from '../core/base-branch.js';
 import { literalPrompt } from '../context/prompt-engine.js';
 import { runResearch } from '../runners/research.js';
@@ -71,6 +72,8 @@ async function runDefaultResearcher(
   sandboxContext: SandboxContext,
 ): Promise<string> {
   const agents = selectAgents(cmd, process.env, { proxyMode: cmd.llmProxy === true });
+  // Research is a new agent run: not started when the provider is at the usage cap.
+  enforceUsageCap(agents.agent.name);
 
   const providerProxies = await startProviderProxies({
     proxySecrets: agents.proxySecrets,

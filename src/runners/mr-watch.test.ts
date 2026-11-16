@@ -1,6 +1,7 @@
 import { describe, it, expect } from 'vitest';
 import { getEventListeners } from 'node:events';
 import { gitlabMergeRequestWatchPrimitives, watchMergeRequests, watchMergeRequestsOnce } from './mr-watch.js';
+import { UsageCapError } from '../core/usage-cap.js';
 import { MergeRequestReviewIncompleteError, mergeRequestReviewIncompleteMarker } from './mr-review.js';
 
 describe('gitlabMergeRequestWatchPrimitives', () => {
@@ -86,6 +87,15 @@ describe('gitlabMergeRequestWatchPrimitives', () => {
       const { glab, calls } = makeGlab();
       await primitivesWith(glab).onFailure(item, new Error('sandbox died'));
       expect(update(calls)).toEqual(['mr', 'update', '1', '--repo', 'g/p', '--unlabel', 'taskcell::reviewing', '--unlabel', 'vanguard::reviewing', '--label', 'ready for review']);
+    });
+
+    it('posts one pause note and does not re-queue the MR when the provider is at the usage cap', async () => {
+      const { glab, calls } = makeGlab();
+      await primitivesWith(glab).onFailure(item, new UsageCapError('claude-code', 95, 80, new Date('2026-11-16T20:00:00Z')));
+      expect(update(calls)).toEqual(['mr', 'update', '1', '--repo', 'g/p', '--unlabel', 'taskcell::reviewing', '--unlabel', 'vanguard::reviewing']);
+      const note = calls.find((c) => c[0] === 'mr' && c[1] === 'note');
+      expect(note?.at(-1)).toContain('usage cap');
+      expect(note?.at(-1)).not.toContain('review failed');
     });
 
     it('restores the trigger label after an incomplete review, so the next sweep retries', async () => {
