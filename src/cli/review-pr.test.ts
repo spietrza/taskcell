@@ -4,18 +4,13 @@ vi.mock('../sandbox/sandbox-context.js', async (importOriginal) => ({
   ...(await importOriginal<typeof import('../sandbox/sandbox-context.js')>()),
   startSandboxContext: vi.fn(async () => ({ destroy: async () => undefined })),
 }));
-vi.mock('../sandbox/llm-proxy.js', async (importOriginal) => ({
-  ...(await importOriginal<typeof import('../sandbox/llm-proxy.js')>()),
-  startProviderProxies: vi.fn(async () => ({ destroy: async () => undefined })),
-}));
 vi.mock('../core/taskcell.js', async (importOriginal) => ({
   ...(await importOriginal<typeof import('../core/taskcell.js')>()),
-  prepareContext: vi.fn(async () => ({})),
   runAgent: vi.fn(),
-  disposeContext: vi.fn(async () => undefined),
 }));
 
-import { prepareContext, runAgent } from '../core/taskcell.js';
+import { runAgent } from '../core/taskcell.js';
+import { fakeSessionOpener } from './fake-session.fixture.js';
 import { execa } from 'execa';
 import { mkdir, mkdtemp, readFile, realpath, rm, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
@@ -148,13 +143,14 @@ describe('reviewPrCommand', () => {
     process.env.CLAUDE_CODE_OAUTH_TOKEN = 'sk-ant-oat-test';
     const warn = vi.spyOn(console, 'warn').mockImplementation(() => undefined);
     try {
-      vi.mocked(prepareContext).mockClear();
+      const session = fakeSessionOpener();
       const attempt = { taskId: 't', exitReason: 'completed', turns: 1, worktreePath: '/wt', worktreePreserved: false } as const;
       vi.mocked(runAgent).mockResolvedValue({ ...attempt, completed: true, finalText: 'Verdict: NO BLOCKING FINDINGS\nNo blocking findings.' });
       const cmd: Extract<Command, { kind: 'review-pr' }> = { kind: 'review-pr', prRef: '12', repoSlug: 'o/r', repoPath: '/repo', egress: false };
       // The injected runner hands the default reviewer a PR against `release`, then one with no base at all.
       for (const baseRefName of ['release', '']) {
         await reviewPrCommand(cmd, {
+          openSession: session.open,
           gh: async () => JSON.stringify({ defaultBranchRef: { name: 'main' } }),
           reviewPullRequest: async (_ref, deps) => {
             await deps.reviewer({ ...fakeResult().pr, baseRefName }, { isRetry: false });
@@ -163,10 +159,10 @@ describe('reviewPrCommand', () => {
           log: () => undefined,
         });
       }
-      const prepared = vi.mocked(prepareContext).mock.calls.map(([opts]) => [opts.baseBranch, opts.start]);
+      const prepared = session.prepare.mock.calls.map(([opts]) => [opts.baseBranch, opts.start]);
       expect(prepared).toEqual([['release', 'base'], ['main', 'base']]);
-      expect(vi.mocked(prepareContext).mock.calls[0]?.[1]?.seedWorktree).toBeTypeOf('function');
-      expect(vi.mocked(prepareContext).mock.calls[1]?.[1]?.seedWorktree).toBeUndefined();
+      expect(session.prepare.mock.calls[0]?.[1]?.seedWorktree).toBeTypeOf('function');
+      expect(session.prepare.mock.calls[1]?.[1]?.seedWorktree).toBeUndefined();
       expect(vi.mocked(runAgent).mock.calls.at(-1)?.[1].variables?.PROMPT).not.toContain('were taken from the default branch');
       expect(warn).toHaveBeenCalledWith(expect.stringContaining('PR o/r#12 carries no base branch'));
     } finally {
@@ -192,7 +188,7 @@ describe('reviewPrCommand', () => {
         await mkdir(dir, { recursive: true });
         await writeFile(join(dir, 'SKILL.md'), '---\nname: s\ndescription: d\n---\n');
       }
-      vi.mocked(prepareContext).mockClear();
+      const session = fakeSessionOpener();
       const attempt = { taskId: 't', exitReason: 'completed', turns: 1, worktreePath: '/wt', worktreePreserved: false } as const;
       vi.mocked(runAgent).mockResolvedValue({ ...attempt, completed: true, finalText: 'Verdict: NO BLOCKING FINDINGS\nNo blocking findings.' });
       const cmd: Extract<Command, { kind: 'review-pr' }> = {
@@ -204,6 +200,7 @@ describe('reviewPrCommand', () => {
         skillsDir: join(root, 'bundled'),
       };
       await reviewPrCommand(cmd, {
+        openSession: session.open,
         gh: async () => JSON.stringify({ defaultBranchRef: { name: 'main' } }),
         reviewPullRequest: async (_ref, deps) => {
           await deps.reviewer(fakeResult().pr, { isRetry: false });
@@ -212,7 +209,7 @@ describe('reviewPrCommand', () => {
         log: () => undefined,
       });
       // prepareContext gets a resolver: repo skills are read from the worktree it cuts, not the host checkout.
-      const resolve = vi.mocked(prepareContext).mock.calls[0]?.[1]?.skills;
+      const resolve = session.prepare.mock.calls[0]?.[1]?.skills;
       if (typeof resolve !== 'function') throw new Error('expected a worktree skill resolver');
       const copied: string[][] = [];
       await (await resolve(join(root, 'worktree'))).inject(['code-review', 'deploy'], { copyIn: async (from: string, to: string) => { copied.push([from, to]); } } as never);
@@ -303,7 +300,7 @@ describe('reviewPrCommand', () => {
 
       await reviewPrCommand(
         { kind: 'review-pr', prRef: 'o/r#12', repoPath: '/repo', egress: true, ...(maxTurns !== undefined ? { maxTurns } : {}) },
-        { gh, reviewPullRequest: (ref, deps) => reviewPullRequest(ref, { ...deps, gh }), log: () => undefined },
+        { gh, openSession: fakeSessionOpener().open, reviewPullRequest: (ref, deps) => reviewPullRequest(ref, { ...deps, gh }), log: () => undefined },
       );
 
       expect(vi.mocked(runAgent).mock.calls.map(([, input]) => input.maxTurns)).toEqual(caps);
@@ -337,7 +334,8 @@ it('seeds real default-branch skills before resolving the review registry and di
     await git(['add', '.']);
     await git(['commit', '-qm', 'base']);
     await git(['worktree', 'add', '-qb', 'review', worktreePath]);
-    vi.mocked(prepareContext).mockImplementationOnce(async (_opts, deps) => {
+    const session = fakeSessionOpener();
+    session.prepare.mockImplementationOnce(async (_opts, deps) => {
       await deps?.seedWorktree?.(worktreePath);
       if (typeof deps?.skills !== 'function') throw new Error('expected skill resolver');
       const registry = await deps.skills(worktreePath);
@@ -349,6 +347,7 @@ it('seeds real default-branch skills before resolving the review registry and di
     });
     vi.mocked(runAgent).mockResolvedValue({ completed: true, finalText: 'Verdict: NO BLOCKING FINDINGS\nNo blocking findings.' } as never);
     await reviewPrCommand({ kind: 'review-pr', prRef: '12', repoPath, egress: false }, {
+      openSession: session.open,
       gh: async () => JSON.stringify({ defaultBranchRef: { name: 'main' } }),
       reviewPullRequest: async (_ref, deps) => {
         await deps.reviewer({ ...fakeResult().pr, baseRefName: 'release' }, { isRetry: false });
@@ -373,7 +372,7 @@ it('a failed default-branch API call posts neither a verdict nor an incomplete n
     return '';
   };
   try {
-    await expect(reviewPrCommand({ kind: 'review-pr', prRef: 'o/r#12', repoPath: '/repo', egress: false }, { gh, log: () => undefined })).rejects.toThrow('Cannot establish the repository default branch');
+    await expect(reviewPrCommand({ kind: 'review-pr', prRef: 'o/r#12', repoPath: '/repo', egress: false }, { gh, openSession: fakeSessionOpener().open, log: () => undefined })).rejects.toThrow('Cannot establish the repository default branch');
     expect(calls.some((args) => args[1] === 'review' || args[1] === 'comment')).toBe(false);
   } finally { vi.unstubAllEnvs(); }
 });

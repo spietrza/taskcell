@@ -9,6 +9,7 @@ import { runResearch } from '../runners/research.js';
 import type { SandboxContext } from '../sandbox/sandbox-context.js';
 import type { AgentAuth } from '../agents/auth.js';
 import type { Researcher } from '../runners/research.js';
+import type { OpenAgentSession } from './review-agent.js';
 import type { Command } from './args.js';
 
 type ResearchCommand = Extract<Command, { kind: 'research' }>;
@@ -16,6 +17,8 @@ type ResearchCommand = Extract<Command, { kind: 'research' }>;
 export interface ResearchCommandDeps {
   researcher?: Researcher;
   log?: (line: string) => void;
+  /** Opens the agent session (default: a real sandboxed one). */
+  openSession?: OpenAgentSession;
 }
 
 /** Run external research on a GitHub issue and post findings as a comment. Does not auto-advance. */
@@ -48,7 +51,7 @@ export async function researchCommand(cmd: ResearchCommand, deps: ResearchComman
     ...(cmd.provider !== undefined ? { provider: cmd.provider } : {}),
   });
   try {
-    await runWith((prompt) => runDefaultResearcher(prompt, cmd, auth, sandboxContext));
+    await runWith((prompt) => runDefaultResearcher(prompt, cmd, auth, sandboxContext, deps.openSession ?? openAgentSession));
   } finally {
     await sandboxContext.destroy();
   }
@@ -66,15 +69,13 @@ async function runDefaultResearcher(
   cmd: ResearchCommand,
   auth: AgentAuth | undefined,
   sandboxContext: SandboxContext,
+  openSession: OpenAgentSession,
 ): Promise<string> {
-  const session = await openAgentSession({
+  const session = await openSession({
     choice: cmd,
     repoPath: cmd.repoPath,
     ...(auth !== undefined ? { auth } : {}),
-    ...(sandboxContext.proxyUrl !== undefined ? { proxyUrl: sandboxContext.proxyUrl } : {}),
-    ...(sandboxContext.network !== undefined ? { network: sandboxContext.network } : {}),
-    ...(sandboxContext.llmProxy !== undefined ? { llmProxy: sandboxContext.llmProxy } : {}),
-    proxyMode: cmd.llmProxy === true,
+    sandboxContext,
   });
   // The session owns the provider sidecars, sandbox and context: closed on every exit path below.
   try {

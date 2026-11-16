@@ -9,7 +9,7 @@ import { customEgressHosts } from '../agents/registry.js';
 import { loadProviderChoice } from './provider-choice.js';
 import { pickRunOptions } from '../runners/source-adapter.js';
 import type { RunLinearIssueDeps } from '../runners/linear.js';
-import type { LlmProxyDep } from '../sandbox/llm-proxy.js';
+import type { SandboxWiring } from '../sandbox/sandbox-context.js';
 import type { AgentAuth } from '../agents/auth.js';
 import type { FanOutOutcome } from '../pipeline/fan-out.js';
 import type { Command } from './args.js';
@@ -48,13 +48,13 @@ export async function runCommand(cmd: RunCommand): Promise<void> {
 
   try {
     if (cmd.source === 'linear') {
-      await runLinear(cmdWithCustoms, auth, ctx.proxyUrl, ctx.network, ctx.llmProxy);
+      await runLinear(cmdWithCustoms, auth, ctx);
     } else if (cmd.source === 'project') {
-      await runProject(cmdWithCustoms, ctx.proxyUrl, ctx.network, ctx.llmProxy);
+      await runProject(cmdWithCustoms, ctx);
     } else if (cmd.source === 'gitlab') {
-      await runGitlab(cmdWithCustoms, ctx.proxyUrl, ctx.network, ctx.llmProxy);
+      await runGitlab(cmdWithCustoms, ctx);
     } else {
-      await runGithub(cmdWithCustoms, ctx.proxyUrl, ctx.network, ctx.llmProxy);
+      await runGithub(cmdWithCustoms, ctx);
     }
   } finally {
     await ctx.destroy();
@@ -64,9 +64,7 @@ export async function runCommand(cmd: RunCommand): Promise<void> {
 export function linearDeps(
   cmd: RunCommand,
   auth: AgentAuth | undefined,
-  proxyUrl: string | undefined,
-  network: string | undefined,
-  llmProxy: LlmProxyDep | undefined,
+  sandboxContext: SandboxWiring,
 ): RunLinearIssueDeps {
   const linearKey = process.env.LINEAR_API_KEY;
   if (linearKey === undefined || linearKey === '') {
@@ -81,9 +79,7 @@ export function linearDeps(
     linearKey,
     skillsDir,
     repoPath: cmd.repoPath,
-    ...(proxyUrl !== undefined ? { proxyUrl } : {}),
-    ...(network !== undefined ? { network } : {}),
-    ...(llmProxy !== undefined ? { llmProxy } : {}),
+    sandboxContext,
     ...(cmd.reuse === true ? { reuse: true } : {}),
     ...(cmd.forkN !== undefined ? { forkN: cmd.forkN } : {}),
     ...pickRunOptions(cmd),
@@ -93,11 +89,9 @@ export function linearDeps(
 async function runLinear(
   cmd: RunCommand,
   auth: AgentAuth | undefined,
-  proxyUrl: string | undefined,
-  network: string | undefined,
-  llmProxy: LlmProxyDep | undefined,
+  sandboxContext: SandboxWiring,
 ): Promise<void> {
-  const deps = linearDeps(cmd, auth, proxyUrl, network, llmProxy);
+  const deps = linearDeps(cmd, auth, sandboxContext);
   if (!cmd.parent) {
     const result = await runLinearIssue(cmd.id, deps);
     report(result);
@@ -110,14 +104,10 @@ async function runLinear(
 
 export async function runGithub(
   cmd: RunCommand,
-  proxyUrl: string | undefined,
-  network: string | undefined,
-  llmProxy: LlmProxyDep | undefined,
+  sandboxContext: SandboxWiring,
 ): Promise<void> {
   const deps = await githubDepsFromEnv(cmd.repoPath, cmd.repoSlug, cmd);
-  if (proxyUrl !== undefined) deps.proxyUrl = proxyUrl;
-  if (network !== undefined) deps.network = network;
-  if (llmProxy !== undefined) deps.llmProxy = llmProxy;
+  deps.sandboxContext = sandboxContext;
   if (cmd.reuse === true) deps.reuse = true;
   if (cmd.forkN !== undefined) deps.forkN = cmd.forkN;
   Object.assign(deps, pickRunOptions(cmd));
@@ -127,9 +117,7 @@ export async function runGithub(
 
 export async function runGitlab(
   cmd: RunCommand,
-  proxyUrl: string | undefined,
-  network: string | undefined,
-  llmProxy: LlmProxyDep | undefined,
+  sandboxContext: SandboxWiring,
 ): Promise<void> {
   if (cmd.parent) throw new Error('--parent is not supported with --gitlab.');
   // If --gitlab-project is absent, extract project from the ref prefix (group/project#42).
@@ -137,9 +125,7 @@ export async function runGitlab(
     ? cmd.id.split('#')[0]
     : undefined;
   const deps = await gitlabDepsFromEnv(cmd.repoPath, cmd.project ?? projectFromRef, cmd);
-  if (proxyUrl !== undefined) deps.proxyUrl = proxyUrl;
-  if (network !== undefined) deps.network = network;
-  if (llmProxy !== undefined) deps.llmProxy = llmProxy;
+  deps.sandboxContext = sandboxContext;
   if (cmd.reuse === true) deps.reuse = true;
   if (cmd.forkN !== undefined) deps.forkN = cmd.forkN;
   Object.assign(deps, pickRunOptions(cmd));
@@ -149,15 +135,11 @@ export async function runGitlab(
 
 export async function runProject(
   cmd: RunCommand,
-  proxyUrl: string | undefined,
-  network: string | undefined,
-  llmProxy: LlmProxyDep | undefined,
+  sandboxContext: SandboxWiring,
 ): Promise<void> {
   const projectNumber = Number(cmd.id);
   const deps = await githubDepsFromEnv(cmd.repoPath, cmd.repoSlug, cmd);
-  if (proxyUrl !== undefined) deps.proxyUrl = proxyUrl;
-  if (network !== undefined) deps.network = network;
-  if (llmProxy !== undefined) deps.llmProxy = llmProxy;
+  deps.sandboxContext = sandboxContext;
   if (cmd.forkN !== undefined) deps.forkN = cmd.forkN;
   Object.assign(deps, pickRunOptions(cmd));
   const { tasks, outcomes } = await runGithubProject(deps, {

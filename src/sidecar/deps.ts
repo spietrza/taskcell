@@ -331,9 +331,7 @@ export function productionDeps(): SidecarDeps {
           // no per-flow wiring here; validation happened in sidecar.ts::validateCreateRun.
           ...(params.flow !== undefined ? { flow: params.flow } : {}),
           ...(credential !== undefined ? { credentialSource: credential.source, providerEnv: authEnv } : {}),
-          ...(ctx.proxyUrl !== undefined ? { proxyUrl: ctx.proxyUrl } : {}),
-          ...(ctx.network !== undefined ? { network: ctx.network } : {}),
-          ...(ctx.llmProxy !== undefined ? { llmProxy: ctx.llmProxy } : {}),
+          sandboxContext: ctx,
         };
         const authChoice = {
           ...(provider !== undefined ? { provider } : {}),
