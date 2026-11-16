@@ -34,6 +34,7 @@ export type RunGitlabIssueResult = RunIssueResult;
 export function gitlabReviewHost(project: string, glab?: GlabRunner): ReviewHost {
   return {
     kind: 'glab',
+    newPrTarget: (pr) => ({ kind: 'new-pr', ...pr, cli: 'glab' }),
     publishVerdict: (input: PublishVerdictInput) => publishGitlabVerdict(project, input, glab),
     addFailureLabel: (mrUrl: string, kind: ProofFailureKind) => addGitlabFailureLabel(project, mrUrl, kind, glab),
     addGateConfigLabel: (mrUrl: string) => addGitlabGateConfigLabel(project, mrUrl, glab),

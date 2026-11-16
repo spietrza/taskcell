@@ -6,6 +6,7 @@ import { beginRun as beginStoredRun, runsRoot, sanitizeTimestamp } from '../core
 import { invokeCoreMethod } from './sidecar.js';
 import type { RunResult } from '../core/types.js';
 import type { RunEvent } from '../pipeline/events.js';
+import type { SandboxWiring } from '../sandbox/sandbox-context.js';
 
 // The S6 fail-fast contract: provider resolution is a FIRST statement of the createRun dep —
 // before beginRun() (no armed AbortController left behind) and before the sandbox. These mocks
@@ -16,6 +17,7 @@ vi.mock('./cancel.js', () => ({ beginRun: (): AbortSignal => beginRun(), endRun:
 // Mirrors startSandboxContext's real shape just enough to exercise deps.ts: when the caller asks for
 // llmProxy, hand back a nonce-bearing dep (never the real credential) like the trusted sidecar would.
 const startSandboxContext = vi.fn(async (opts: { llmProxy?: boolean }) => ({
+  proxyMode: opts.llmProxy === true,
   destroy: async (): Promise<void> => {},
   ...(opts.llmProxy === true ? { llmProxy: { url: 'http://proxy.internal', nonce: 'nonce-xyz', host: 'proxy.internal' } } : {}),
 }));
@@ -193,7 +195,7 @@ describe('createRun always runs with the LLM proxy (#584)', () => {
     expect(events.filter((e) => e.type === 'warning')).toEqual([]);
     expect(startSandboxContext).toHaveBeenCalledWith(expect.objectContaining({ egress: true, llmProxy: true }));
     const [, opts] = runGithubIssue.mock.calls[0] ?? [];
-    expect(opts?.llmProxy).toEqual({ url: 'http://proxy.internal', nonce: 'nonce-xyz', host: 'proxy.internal' });
+    expect((opts?.sandboxContext as SandboxWiring | undefined)?.llmProxy).toEqual({ url: 'http://proxy.internal', nonce: 'nonce-xyz', host: 'proxy.internal' });
     // The real credential reaches the trusted sidecar only: nothing the runner (hence the sandbox) sees.
     expect(JSON.stringify(runGithubIssue.mock.calls)).not.toContain('sk-ant-oat01-REAL-TOKEN');
   });

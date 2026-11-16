@@ -137,6 +137,18 @@ describe('bin name', () => {
   });
 });
 
+describe('usage cap', () => {
+  it('the entry applies the parsed --usage-cap to TASKCELL_USAGE_CAP_PCT', async () => {
+    delete process.env['TASKCELL_USAGE_CAP_PCT'];
+    try {
+      await dispatch({ ...commands.gc, usageCapPct: '80' });
+      expect(process.env['TASKCELL_USAGE_CAP_PCT']).toBe('80');
+    } finally {
+      delete process.env['TASKCELL_USAGE_CAP_PCT'];
+    }
+  });
+});
+
 describe('CLI dispatch', () => {
   for (const kind of Object.keys(allHandlers) as Array<keyof typeof allHandlers>) {
     it(`routes kind "${kind}" to its handler and no other handler`, async () => {

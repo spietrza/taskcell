@@ -49,8 +49,14 @@ describe('startSandboxContext extraEgressHosts (S6)', () => {
   });
 
   it('neither flag: no enclave at all', async () => {
-    await startSandboxContext({ egress: false, llmProxy: false, extraEgressHosts: ['llm.example.com'] });
+    const ctx = await startSandboxContext({ egress: false, llmProxy: false, extraEgressHosts: ['llm.example.com'] });
     expect(startEgressEnclave).not.toHaveBeenCalled();
+    expect(ctx.proxyMode).toBe(false);
+  });
+
+  it('records proxyMode from the llm-proxy flag only', async () => {
+    expect((await startSandboxContext({ egress: true, llmProxy: false })).proxyMode).toBe(false);
+    expect((await startSandboxContext({ egress: true, llmProxy: true, auth: { mode: 'subscription', token: 't' } })).proxyMode).toBe(true);
   });
 });
 
@@ -145,6 +151,8 @@ describe('startSandboxContext --llm-proxy without a primary-sidecar credential',
     const ctx = await startSandboxContext({ egress: true, llmProxy: true, provider: 'codex', skipPrimarySidecar: true });
     expect(startLlmProxy).not.toHaveBeenCalled();
     expect(ctx.llmProxy).toBeUndefined();
+    // The proxy mode is the requested flag, not whether a primary sidecar exists.
+    expect(ctx.proxyMode).toBe(true);
     expect(ctx.network).toBe('vg-egr-test');
     const allowlist = startEgressEnclave.mock.calls[0]?.[0]?.allowlist ?? [];
     for (const host of ['api.anthropic.com', 'api.openai.com', 'chatgpt.com']) expect(allowlist).not.toContain(host);

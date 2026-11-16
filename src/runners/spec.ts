@@ -16,7 +16,7 @@ import type { ProviderChoice, SelectedAgents } from '../agents/registry.js';
 import type { IsolatedSandboxProvider } from '../sandbox/provider.js';
 import type { AgentProvider } from '../agents/provider.js';
 import type { RunDeps } from '../core/taskcell.js';
-import type { LlmProxyDep } from '../sandbox/llm-proxy.js';
+import type { SandboxWiring } from '../sandbox/sandbox-context.js';
 import type { TaskcellLogger } from '../core/logger.js';
 import { resolveTargetBase } from '../core/base-branch.js';
 import { skillRegistryForRun } from '../context/skill-registry.js';
@@ -35,15 +35,8 @@ export interface RunSpecGeneratorDeps extends ProviderChoice {
   fetcher: TaskFetcher;
   /** Extra secrets to forward into the sandbox (e.g. LINEAR_API_KEY for the Linear source). */
   sandboxSecrets?: Record<string, string>;
-  /** When set, route the sandbox's egress through this proxy URL (HTTPS_PROXY). */
-  proxyUrl?: string;
-  /** When set, join the sandbox to this docker network (the hard egress enclave). */
-  network?: string;
-  /**
-   * When set, route Claude through a trusted LLM-proxy sidecar: the real Anthropic credential stays
-   * out of the sandbox, which authenticates with the per-run nonce against the proxy host instead.
-   */
-  llmProxy?: LlmProxyDep;
+  /** Egress enclave + llm-proxy wiring from `startSandboxContext`; absent = direct mode. */
+  sandboxContext?: SandboxWiring;
   /** Model for the tech-spec stage (default: techSpecStage's own default). */
   specModel?: string;
   /** Override the tech-spec stage turn cap (default: techSpecStage's own default). Backs --max-turns. */
@@ -88,9 +81,7 @@ export async function runSpecGenerator(id: string, deps: RunSpecGeneratorDeps): 
     repoPath: deps.repoPath,
     usageCap: 'stages',
     ...(deps.auth !== undefined ? { auth: deps.auth } : {}),
-    ...(deps.proxyUrl !== undefined ? { proxyUrl: deps.proxyUrl } : {}),
-    ...(deps.network !== undefined ? { network: deps.network } : {}),
-    ...(deps.llmProxy !== undefined ? { llmProxy: deps.llmProxy } : {}),
+    ...(deps.sandboxContext !== undefined ? { sandboxContext: deps.sandboxContext } : {}),
     ...(deps.sandboxSecrets !== undefined ? { secrets: deps.sandboxSecrets } : {}),
     ...(injectedAgents !== undefined ? { agents: injectedAgents } : {}),
     ...(deps.sandboxFactory !== undefined ? { sandboxFactory: deps.sandboxFactory } : {}),

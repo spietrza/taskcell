@@ -12,7 +12,8 @@ import type { AgentAuth } from '../agents/auth.js';
 import type { ProviderChoice, SelectedAgents } from '../agents/registry.js';
 import type { RunContext, PrepareOptions, RunDeps } from '../core/taskcell.js';
 import type { IsolatedSandboxProvider } from '../sandbox/provider.js';
-import type { LlmProxyDep, ProviderProxyDeps } from '../sandbox/llm-proxy.js';
+import type { ProviderProxyDeps } from '../sandbox/llm-proxy.js';
+import type { SandboxWiring } from '../sandbox/sandbox-context.js';
 
 type PoolEntry = { provider: string; model?: string };
 
@@ -54,11 +55,8 @@ export interface AgentSessionOptions {
   /** Local repo: keys the pnpm store volume. */
   repoPath: string;
   auth?: AgentAuth;
-  proxyUrl?: string;
-  network?: string;
-  llmProxy?: LlmProxyDep;
-  /** Select in llm-proxy mode (default: whether `llmProxy` is set; the CLI commands also pass it when the sidecar is per-provider). */
-  proxyMode?: boolean;
+  /** The egress enclave, llm-proxy sidecar and proxy mode from `startSandboxContext`; absent = direct mode. */
+  sandboxContext?: SandboxWiring;
   /**
    * Where the usage cap is enforced. 'open' (default): refuse to open when the provider is capped, for
    * callers with one agent and no fallback. 'stages': leave it to runStages, which checks before each stage
@@ -92,23 +90,23 @@ export interface AgentSession {
 
 /** Build the sandbox for a session: Docker, with the session's secrets, env, network and pnpm store. */
 export function buildSessionSandbox(
-  opts: Pick<AgentSessionOptions, 'repoPath' | 'auth' | 'proxyUrl' | 'network' | 'llmProxy' | 'pnpmStore'>,
+  opts: Pick<AgentSessionOptions, 'repoPath' | 'auth' | 'sandboxContext' | 'pnpmStore'>,
   secrets: Record<string, string>,
   providerProxies: ProviderProxyDeps,
   injectAnthropicAuth: boolean,
 ): IsolatedSandboxProvider {
-  const env = llmProxySandboxEnv(opts.proxyUrl, opts.llmProxy, providerProxies);
+  const env = llmProxySandboxEnv(opts.sandboxContext?.proxyUrl, opts.sandboxContext?.llmProxy, providerProxies);
   const pnpmStore = pnpmStoreConfig(opts.repoPath, opts.pnpmStore);
   return new DockerSandboxProvider({
     image: sandboxImage(),
     // In llm-proxy mode the real Claude secret stays in the sidecar — the sandbox gets only the nonce.
     secrets: {
-      ...(opts.llmProxy === undefined && opts.auth !== undefined && injectAnthropicAuth ? authSecrets(opts.auth) : {}),
+      ...(opts.sandboxContext?.llmProxy === undefined && opts.auth !== undefined && injectAnthropicAuth ? authSecrets(opts.auth) : {}),
       ...secrets,
     },
     ...(env !== undefined ? { env } : {}),
     ...(pnpmStore !== undefined ? { pnpmStore } : {}),
-    ...sandboxNetworkConfig(opts.network),
+    ...sandboxNetworkConfig(opts.sandboxContext?.network),
   });
 }
 
@@ -120,7 +118,7 @@ export function buildSessionSandbox(
 export async function openAgentSession(opts: AgentSessionOptions): Promise<AgentSession> {
   const credentials = runCredentialContext(opts.choice);
   const agents: SelectedAgents =
-    opts.agents ?? selectAgents(opts.choice, credentials.env, { proxyMode: opts.proxyMode ?? opts.llmProxy !== undefined });
+    opts.agents ?? selectAgents(opts.choice, credentials.env, { proxyMode: opts.sandboxContext?.proxyMode === true });
   if (opts.usageCap !== 'stages') enforceUsageCap(agents.agent.name);
 
   // Per-run provider sidecars (e.g. OpenAI for Codex) hold the real key out of the sandbox.
@@ -130,7 +128,7 @@ export async function openAgentSession(opts: AgentSessionOptions): Promise<Agent
     // file. Any other run (an instance credential, desktop) reports against process.env, so later runs
     // of this process pick up the rotated token.
     ...(credentials.source === 'user' ? { env: credentials.env, storedCredential: true } : {}),
-    ...(opts.network !== undefined ? { network: opts.network } : {}),
+    ...(opts.sandboxContext?.network !== undefined ? { network: opts.sandboxContext.network } : {}),
   });
   let ctx: RunContext | undefined;
   let closed = false;

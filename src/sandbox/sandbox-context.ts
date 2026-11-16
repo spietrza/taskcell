@@ -25,8 +25,16 @@ export interface SandboxContext {
   network?: string;
   /** LLM-proxy sidecar wiring (absent unless `--llm-proxy`). */
   llmProxy?: LlmProxyDep;
+  /**
+   * Whether `--llm-proxy` was requested, so providers select in proxy mode. Recorded here, once: it can
+   * be true while `llmProxy` is absent (every credential routes to a per-provider sidecar the caller starts).
+   */
+  proxyMode: boolean;
   destroy: () => Promise<void>;
 }
+
+/** The sandbox wiring a session or runner consumes: a {@link SandboxContext} without its teardown. */
+export type SandboxWiring = Omit<SandboxContext, 'destroy'>;
 
 /** Options for {@link startSandboxContext}. */
 export interface SandboxContextOptions {
@@ -76,7 +84,7 @@ export async function startSandboxContext(opts: SandboxContextOptions): Promise<
     // alone): that run gets no other sandbox-posture log line, so report the decision here as well.
     const profile = resolveSandboxProfile(process.env);
     if (profile.security.readOnlyRootfs) logRootfsNote(profile.note);
-    return { destroy: async (): Promise<void> => {} };
+    return { proxyMode: false, destroy: async (): Promise<void> => {} };
   }
 
   // The primary sidecar's upstream follows the provider; the credential comes uniformly from `auth`.
@@ -99,12 +107,12 @@ export async function startSandboxContext(opts: SandboxContextOptions): Promise<
   logRootfsNote(resolveSandboxProfile(process.env).note);
 
   if (!opts.llmProxy) {
-    return { proxyUrl: enclave.proxyUrl, network: enclave.network, destroy: enclave.destroy };
+    return { proxyUrl: enclave.proxyUrl, network: enclave.network, proxyMode: false, destroy: enclave.destroy };
   }
 
   if (opts.auth === undefined) {
     // skipPrimarySidecar: the caller starts the per-provider sidecars (Codex's); nothing to hold here.
-    return { proxyUrl: enclave.proxyUrl, network: enclave.network, destroy: enclave.destroy };
+    return { proxyUrl: enclave.proxyUrl, network: enclave.network, proxyMode: true, destroy: enclave.destroy };
   }
   const upstream: Upstream = providerUpstream(opts.provider);
   const auth = llmProxyAuth(opts.auth);
@@ -123,6 +131,7 @@ export async function startSandboxContext(opts: SandboxContextOptions): Promise<
     proxyUrl: enclave.proxyUrl,
     network: enclave.network,
     llmProxy: { url: llmProxy.url, nonce: llmProxy.nonce, host: llmProxy.host },
+    proxyMode: true,
     // Destroy the llm-proxy before the enclave (it lives on the enclave's network).
     destroy: async (): Promise<void> => {
       await llmProxy.destroy();

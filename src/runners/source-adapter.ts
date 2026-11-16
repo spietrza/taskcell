@@ -6,7 +6,6 @@ import { readFile } from 'node:fs/promises';
 import { taskToVariables } from '../tasks/fetcher.js';
 import { escapePromptTags } from '../context/escape.js';
 import { forcedProviderModel, isProviderName } from '../agents/registry.js';
-import { tokenProviderFor } from '../core/push-token.js';
 import { hasLabel, labelValue } from '../core/labels.js';
 import { resolveTargetBase } from '../core/base-branch.js';
 import { openAgentSession, coolPoolEntries } from './agent-session.js';
@@ -40,6 +39,7 @@ import { resolveAndRunVisualProof, visualProofBlock } from '../pipeline/visual-p
 import { reviewRequestBody } from './review-body.js';
 import { repairUntilGreen } from '../pipeline/repair-gate.js';
 import { deliverChange, conventionalPrTitle, scanOutgoingForSecrets } from './deliver-change.js';
+import type { DeliveryTarget } from './deliver-change.js';
 import {
   parseSpecManifest,
   primaryModuleScope,
@@ -50,7 +50,7 @@ import {
   prBodyGapWarningBlock,
   PASSING_RESULT,
 } from '../pipeline/conformance-gate.js';
-import type { LlmProxyDep } from '../sandbox/llm-proxy.js';
+import type { SandboxWiring } from '../sandbox/sandbox-context.js';
 import type { ConformanceResult } from '../pipeline/conformance-gate.js';
 import type { VerificationResult } from '../pipeline/verify.js';
 import type { Task } from '../tasks/fetcher.js';
@@ -185,9 +185,8 @@ export interface RunIssueDeps extends RunOptions, CredentialDeps {
   namedSkillsOnly?: boolean;
   auth?: AgentAuth;
   repoPath: string;
-  proxyUrl?: string;
-  network?: string;
-  llmProxy?: LlmProxyDep;
+  /** Egress enclave + llm-proxy wiring from `startSandboxContext`; absent = direct mode. */
+  sandboxContext?: SandboxWiring;
   reuse?: boolean;
   /** Keep a local base that is ahead of/diverged from origin (default: outside CI only). See resolveRemoteBaseRef. */
   keepLocalIfAhead?: boolean;
@@ -218,10 +217,15 @@ export interface PublishVerdictInput {
   gate?: boolean;
 }
 
+/** What a run decides about its new PR/MR; the host adds the CLI and push credential. */
+export type NewPrTarget = Omit<Extract<DeliveryTarget, { kind: 'new-pr' }>, 'kind' | 'cli' | 'tokenProvider'>;
+
 /** The review surface a run delivers to: opens/labels/annotates the PR or MR. Written once per host, picked by the caller. */
 export interface ReviewHost {
   /** `gh`/`glab`: the CLI that opens the draft PR/MR. `local`: the result stays a local branch — nothing is pushed and no PR/MR is opened (a hub-board task in a repository with no GitHub origin). */
   kind: 'gh' | 'glab' | 'local';
+  /** Where a new change goes: this host's PR/MR (CLI and push credential included), or a local branch. */
+  newPrTarget(pr: NewPrTarget): DeliveryTarget;
   /** Post the reviewer verdict (+ optional conformance section) onto the opened PR/MR. */
   publishVerdict(input: PublishVerdictInput): Promise<void>;
   /** Add a proof-failure label to the opened PR/MR (best-effort; must never throw). */
@@ -238,7 +242,7 @@ export interface ReviewHost {
 const none = async (): Promise<void> => undefined;
 
 /** No review host: the result is a local branch, so there is no verdict to post and nothing to label. */
-export const localReviewHost: ReviewHost = { kind: 'local', publishVerdict: none, addFailureLabel: none, addGateConfigLabel: none };
+export const localReviewHost: ReviewHost = { kind: 'local', newPrTarget: () => ({ kind: 'local-branch' }), publishVerdict: none, addFailureLabel: none, addGateConfigLabel: none };
 
 /** Per-source seam (the issue tracker): fetch/prepare, extra secrets, id derivation, stage set, extra variables, PR link-back. */
 export interface Tracker {
@@ -528,9 +532,7 @@ async function runSourcedIssueAttempt(
     repoPath: deps.repoPath,
     usageCap: 'stages',
     ...(deps.auth !== undefined ? { auth: deps.auth } : {}),
-    ...(deps.proxyUrl !== undefined ? { proxyUrl: deps.proxyUrl } : {}),
-    ...(deps.network !== undefined ? { network: deps.network } : {}),
-    ...(deps.llmProxy !== undefined ? { llmProxy: deps.llmProxy } : {}),
+    ...(deps.sandboxContext !== undefined ? { sandboxContext: deps.sandboxContext } : {}),
     ...(deps.pnpmStore !== undefined ? { pnpmStore: deps.pnpmStore } : {}),
     ...(tracker.secrets !== undefined ? { secrets: tracker.secrets } : {}),
   });
@@ -1047,18 +1049,13 @@ async function runSourcedIssueAttempt(
         // A custom provider's key env var is repo-configured: the secret gate cannot know its name.
         secretEnvVars: credentials.keyEnvNames,
         gateConfigExtraGlobs: extraGlobs,
-        target: host.kind === 'local' ? { kind: 'local-branch' } : {
-          kind: 'new-pr',
+        target: host.newPrTarget({
           title: `${task.title} (${task.id})`,
           bugLabel,
           ...(scope !== undefined ? { scope } : {}),
           // Ready for review only after verification, every configured proof and the review verdict
           // landed: an unavailable re-review ships as a draft too.
           draft: partial || verifyCmd === undefined || visualProofFailed || reviewUnavailable,
-          cli: host.kind,
-          // Same PAT revise pushes with: a PR it opens fires the repo's pull_request workflows (CI).
-          // Minted (App) or read (PAT) at each use, never cached: an App token lives 1 h, a run up to 180 min.
-          tokenProvider: tokenProviderFor(deps.repoPath),
           body: ({ commitLeaks, facts: { configBlock } }) => {
             // The PR-body gap block carries no branding, so white-label keeps it like the gate-config block.
             return whiteLabel
@@ -1073,7 +1070,7 @@ async function runSourcedIssueAttempt(
                 reviewerOutcome !== undefined ? reviewVerdictLine(reviewVerdictOf(reviewerOutcome.result.finalText)) : undefined,
               ].filter((s): s is string => s !== undefined && s !== '').join('\n\n');
           },
-        },
+        }),
       });
       if (delivery.kind === 'secret-blocked') return await endSecretBlocked(delivery.block);
       if (delivery.kind === 'no-changes') {

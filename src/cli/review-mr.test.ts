@@ -10,16 +10,17 @@ vi.mock('../sandbox/llm-proxy.js', async (importOriginal) => ({
 }));
 vi.mock('../core/taskcell.js', async (importOriginal) => ({
   ...(await importOriginal<typeof import('../core/taskcell.js')>()),
-  prepareContext: vi.fn(async () => ({})),
   runAgent: vi.fn(),
-  disposeContext: vi.fn(async () => undefined),
 }));
 
 import { mkdir, mkdtemp, realpath, rm, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { startSandboxContext } from '../sandbox/sandbox-context.js';
-import { prepareContext, runAgent } from '../core/taskcell.js';
+import { runAgent } from '../core/taskcell.js';
+import { fakeSessionOpener } from './fake-session.fixture.js';
+import { openAgentSession } from '../runners/agent-session.js';
+import type { OpenAgentSession } from './review-agent.js';
 import { mergeRequestReviewMarker, reviewMergeRequest } from '../runners/mr-review.js';
 import { recordUtilization, resetUtilization, UsageCapError } from '../core/usage-cap.js';
 import { reviewMrCommand } from './review-mr.js';
@@ -68,6 +69,7 @@ describe('reviewMrCommand', () => {
     process.env.CLAUDE_CODE_OAUTH_TOKEN = 'sk-ant-oat-test';
     const destroy = vi.fn(async () => undefined);
     vi.mocked(startSandboxContext).mockResolvedValue({ destroy } as never);
+    const session = fakeSessionOpener();
     const attempt = { taskId: 't', exitReason: 'completed', turns: 1, worktreePath: '/wt', worktreePreserved: false } as const;
     vi.mocked(runAgent)
       .mockResolvedValueOnce({ ...attempt, completed: false, finalText: 'Partial' })
@@ -85,13 +87,16 @@ describe('reviewMrCommand', () => {
 
     await reviewMrCommand(
       { kind: 'review-mr', iid: 5, project: 'g/p', repoPath: '/repo', egress: true },
-      { glab, reviewMergeRequest: (ref, deps) => reviewMergeRequest(ref, { ...deps, glab }), log: () => undefined },
+      { glab, openSession: session.open, reviewMergeRequest: (ref, deps) => reviewMergeRequest(ref, { ...deps, glab }), log: () => undefined },
     );
 
     expect(vi.mocked(runAgent).mock.calls.map(([, input]) => input.maxTurns)).toEqual([30, 45]);
     expect(vi.mocked(runAgent).mock.calls.map(([, input]) => input.allowedTools)).toEqual([['Read', 'Grep', 'Glob'], ['Read', 'Grep', 'Glob']]);
     expect(startSandboxContext).toHaveBeenCalledTimes(1);
     expect(destroy).toHaveBeenCalledTimes(1);
+    // Each attempt opens its own session on the one shared sandbox context, and closes it.
+    expect(session.opened).toHaveLength(2);
+    expect(session.close).toHaveBeenCalledTimes(2);
     expect(calls.filter((c) => c[0] === 'mr' && c[1] === 'note')).toHaveLength(1);
   });
 
@@ -100,7 +105,7 @@ describe('reviewMrCommand', () => {
     vi.mocked(startSandboxContext).mockResolvedValue({ destroy: async () => undefined } as never);
     const warn = vi.spyOn(console, 'warn').mockImplementation(() => undefined);
     try {
-      vi.mocked(prepareContext).mockClear();
+      const session = fakeSessionOpener();
       const attempt = { taskId: 't', exitReason: 'completed', turns: 1, worktreePath: '/wt', worktreePreserved: false } as const;
       vi.mocked(runAgent).mockResolvedValue({ ...attempt, completed: true, finalText: 'Verdict: NO BLOCKING FINDINGS\nNo blocking findings.' });
       for (const targetBranch of ['release', undefined]) {
@@ -113,13 +118,13 @@ describe('reviewMrCommand', () => {
         };
         await reviewMrCommand(
           { kind: 'review-mr', iid: 5, project: 'g/p', repoPath: '/repo', egress: true },
-          { glab, reviewMergeRequest: (ref, deps) => reviewMergeRequest(ref, { ...deps, glab }), log: () => undefined },
+          { glab, openSession: session.open, reviewMergeRequest: (ref, deps) => reviewMergeRequest(ref, { ...deps, glab }), log: () => undefined },
         );
       }
-      const prepared = vi.mocked(prepareContext).mock.calls.map(([opts]) => [opts.baseBranch, opts.start]);
+      const prepared = session.prepare.mock.calls.map(([opts]) => [opts.baseBranch, opts.start]);
       expect(prepared).toEqual([['release', 'base'], ['main', 'base']]);
-      expect(vi.mocked(prepareContext).mock.calls[0]?.[1]?.seedWorktree).toBeTypeOf('function');
-      expect(vi.mocked(prepareContext).mock.calls[1]?.[1]?.seedWorktree).toBeUndefined();
+      expect(session.prepare.mock.calls[0]?.[1]?.seedWorktree).toBeTypeOf('function');
+      expect(session.prepare.mock.calls[1]?.[1]?.seedWorktree).toBeUndefined();
       expect(vi.mocked(runAgent).mock.calls.at(-1)?.[1].variables?.PROMPT).not.toContain('were taken from the default branch');
       expect(warn).toHaveBeenCalledWith(expect.stringContaining('MR g/p!5 carries no base branch'));
     } finally {
@@ -143,7 +148,7 @@ describe('reviewMrCommand', () => {
         await mkdir(dir, { recursive: true });
         await writeFile(join(dir, 'SKILL.md'), '---\nname: s\ndescription: d\n---\n');
       }
-      vi.mocked(prepareContext).mockClear();
+      const session = fakeSessionOpener();
       const attempt = { taskId: 't', exitReason: 'completed', turns: 1, worktreePath: '/wt', worktreePreserved: false } as const;
       vi.mocked(runAgent).mockResolvedValue({ ...attempt, completed: true, finalText: 'Verdict: NO BLOCKING FINDINGS\nNo blocking findings.' });
       const glab: GlabRunner = async (args) => {
@@ -155,10 +160,10 @@ describe('reviewMrCommand', () => {
       };
       await reviewMrCommand(
         { kind: 'review-mr', iid: 5, project: 'g/p', repoPath: join(root, 'repo'), egress: true, skillsDir: join(root, 'bundled') },
-        { glab, reviewMergeRequest: (ref, deps) => reviewMergeRequest(ref, { ...deps, glab }), log: () => undefined },
+        { glab, openSession: session.open, reviewMergeRequest: (ref, deps) => reviewMergeRequest(ref, { ...deps, glab }), log: () => undefined },
       );
       // prepareContext gets a resolver: repo skills are read from the worktree it cuts, not the host checkout.
-      const resolve = vi.mocked(prepareContext).mock.calls[0]?.[1]?.skills;
+      const resolve = session.prepare.mock.calls[0]?.[1]?.skills;
       if (typeof resolve !== 'function') throw new Error('expected a worktree skill resolver');
       const copied: string[][] = [];
       await (await resolve(join(root, 'worktree'))).inject(['code-review', 'deploy'], { copyIn: async (from: string, to: string) => { copied.push([from, to]); } } as never);
@@ -173,6 +178,7 @@ describe('reviewMrCommand', () => {
 
   it('--max-turns sets the first attempt cap and 1.5x for the retry', async () => {
     process.env.CLAUDE_CODE_OAUTH_TOKEN = 'sk-ant-oat-test';
+    const session = fakeSessionOpener();
     vi.mocked(startSandboxContext).mockResolvedValue({ destroy: async () => undefined } as never);
     const attempt = { taskId: 't', exitReason: 'completed', turns: 1, worktreePath: '/wt', worktreePreserved: false } as const;
     vi.mocked(runAgent)
@@ -188,7 +194,7 @@ describe('reviewMrCommand', () => {
 
     await reviewMrCommand(
       { kind: 'review-mr', iid: 5, project: 'g/p', repoPath: '/repo', egress: true, maxTurns: 41 },
-      { glab, reviewMergeRequest: (ref, deps) => reviewMergeRequest(ref, { ...deps, glab }), log: () => undefined },
+      { glab, openSession: session.open, reviewMergeRequest: (ref, deps) => reviewMergeRequest(ref, { ...deps, glab }), log: () => undefined },
     );
 
     expect(vi.mocked(runAgent).mock.calls.map(([, input]) => input.maxTurns)).toEqual([41, 62]);
@@ -206,7 +212,7 @@ it('a failed default-branch API call posts neither a verdict nor an incomplete n
     return '';
   };
   try {
-    await expect(reviewMrCommand({ kind: 'review-mr', iid: 5, project: 'g/p', repoPath: '/repo', egress: false }, { glab, headDedupe: false, log: () => undefined })).rejects.toThrow('Cannot establish the repository default branch');
+    await expect(reviewMrCommand({ kind: 'review-mr', iid: 5, project: 'g/p', repoPath: '/repo', egress: false }, { glab, openSession: fakeSessionOpener().open, headDedupe: false, log: () => undefined })).rejects.toThrow('Cannot establish the repository default branch');
     expect(calls.some((args) => args[1] === 'note')).toBe(false);
   } finally { vi.unstubAllEnvs(); }
 });
@@ -219,10 +225,12 @@ describe('reviewMrCommand usage cap', () => {
     if (args[0] === 'api') return '[]';
     return '';
   };
+  // The real session open (it is what enforces the cap), without cutting a worktree.
+  const openSession: OpenAgentSession = async (opts) => ({ ...(await openAgentSession(opts)), prepare: async () => ({}) as never });
   const run = (): Promise<void> =>
     reviewMrCommand(
       { kind: 'review-mr', iid: 5, project: 'g/p', repoPath: '/repo', egress: true },
-      { glab, reviewMergeRequest: (ref, deps) => reviewMergeRequest(ref, { ...deps, glab }), log: () => undefined },
+      { glab, openSession, reviewMergeRequest: (ref, deps) => reviewMergeRequest(ref, { ...deps, glab }), log: () => undefined },
     );
   beforeEach(() => {
     vi.mocked(runAgent).mockReset();

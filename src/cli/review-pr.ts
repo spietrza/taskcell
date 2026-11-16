@@ -1,18 +1,12 @@
 import { githubDefaultBranch, defaultGhRunner } from '../tasks/github.js';
 import type { GhRunner } from '../tasks/github.js';
-import { overlayInstructionFiles } from '../context/instruction-files.js';
-import type { InstructionOverlay } from '../context/instruction-files.js';
 import { mkdir, writeFile } from 'node:fs/promises';
 import { dirname, resolve } from 'node:path';
 import { startSandboxContext } from '../sandbox/sandbox-context.js';
 import { agentAuthFromEnv } from '../agents/auth.js';
 import { llmProxyNeedsNoPrimarySidecar } from '../agents/registry.js';
-import { runAgent } from '../core/taskcell.js';
 import { openAgentSession } from '../runners/agent-session.js';
-import { skillRegistryForRun } from '../context/skill-registry.js';
 import { baseBranchOrDefault } from '../core/base-branch.js';
-import { literalPrompt } from '../context/prompt-engine.js';
-import { adversarySystemPrompt } from '../pipeline/pipeline.js';
 import { buildPullRequestReviewPrompt, PullRequestReviewIncompleteError, reviewPullRequest } from '../runners/pr-review.js';
 import { appendStepSummary } from '../core/step-summary.js';
 import type { StepSummary, StepSummaryExit } from '../core/step-summary.js';
@@ -20,13 +14,12 @@ import type { SummaryOutcome } from '../core/run-summary.js';
 import type { SandboxContext } from '../sandbox/sandbox-context.js';
 import type { AgentAuth } from '../agents/auth.js';
 import type { PullRequestForReview, PullRequestReviewAttempt, PullRequestReviewOutcome, PullRequestReviewer, ReviewPullRequestDeps, ReviewPullRequestResult } from '../runners/pr-review.js';
-import { DEFAULT_REVIEW_MAX_TURNS } from './args.js';
+import { runReviewAgent } from './review-agent.js';
+import type { OpenAgentSession } from './review-agent.js';
 import type { Command } from './args.js';
 
 type ReviewPrCommand = Extract<Command, { kind: 'review-pr' }>;
 
-/** The reviewer may read the repository for context but never execute anything (no Bash/Write/Edit). */
-export const PR_REVIEW_TOOLS: readonly string[] = ['Read', 'Grep', 'Glob'];
 type ReviewPullRequestRunner = (ref: string, deps: ReviewPullRequestDeps) => Promise<ReviewPullRequestResult>;
 
 export interface ReviewPrCommandDeps {
@@ -34,6 +27,8 @@ export interface ReviewPrCommandDeps {
   reviewer?: PullRequestReviewer;
   reviewPullRequest?: ReviewPullRequestRunner;
   log?: (line: string) => void;
+  /** Opens the agent session (default: a real sandboxed one). */
+  openSession?: OpenAgentSession;
 }
 
 /** Review an existing GitHub PR and post a non-blocking GitHub review comment. */
@@ -119,7 +114,7 @@ export async function reviewPrCommand(cmd: ReviewPrCommand, deps: ReviewPrComman
     ...(cmd.provider !== undefined ? { provider: cmd.provider } : {}),
   });
   try {
-    await runAndDeliver((pr, opts) => runDefaultReviewer(pr, cmd, auth, sandboxContext, opts, outcomes, deps.gh ?? defaultGhRunner));
+    await runAndDeliver((pr, opts) => runDefaultReviewer(pr, cmd, auth, sandboxContext, opts, outcomes, deps.gh ?? defaultGhRunner, deps.openSession ?? openAgentSession));
   } finally {
     await sandboxContext.destroy();
   }
@@ -133,57 +128,38 @@ async function runDefaultReviewer(
   opts: PullRequestReviewAttempt,
   outcomes: SummaryOutcome[],
   gh: GhRunner,
+  openSession: OpenAgentSession,
 ): Promise<PullRequestReviewOutcome> {
-  const session = await openAgentSession({
+  const session = await openSession({
     choice: cmd,
     repoPath: cmd.repoPath,
     ...(auth !== undefined ? { auth } : {}),
-    ...(sandboxContext.proxyUrl !== undefined ? { proxyUrl: sandboxContext.proxyUrl } : {}),
-    ...(sandboxContext.network !== undefined ? { network: sandboxContext.network } : {}),
-    ...(sandboxContext.llmProxy !== undefined ? { llmProxy: sandboxContext.llmProxy } : {}),
-    proxyMode: cmd.llmProxy === true,
+    sandboxContext,
   });
-  // The session owns the provider sidecars, sandbox and context: closed on every exit path below.
-  try {
-    const { agents } = session;
-    const taskId = `pr-review-${pr.repoSlug.replace(/[^a-zA-Z0-9]/g, '-')}-${pr.number}`;
+  const result = await runReviewAgent(session, {
+    stageName: 'pr-review',
+    taskId: `pr-review-${pr.repoSlug.replace(/[^a-zA-Z0-9]/g, '-')}-${pr.number}`,
+    repoPath: cmd.repoPath,
     // The reviewer reads the tree the change lands on: the PR's base as origin has it.
-    const baseBranch = baseBranchOrDefault(pr.baseRefName, `PR ${pr.repoSlug}#${pr.number}`);
-    const instructionRef = await githubDefaultBranch(pr.repoSlug, gh);
-    let overlay: InstructionOverlay | undefined;
-    const ctx = await session.prepare({ taskId, localRepoPath: cmd.repoPath, baseBranch, start: 'base' }, {
-      // Load repo skills after the trusted default-branch instructions have been overlaid.
-      skills: (worktreePath) => skillRegistryForRun(cmd.skillsDir, worktreePath),
-      ...(instructionRef !== baseBranch ? { seedWorktree: async (worktreePath: string) => {
-        overlay = await overlayInstructionFiles({ repoPath: cmd.repoPath, worktreePath, ref: instructionRef });
-      } } : {}),
-    });
-    const baseTurns = cmd.maxTurns ?? DEFAULT_REVIEW_MAX_TURNS;
-    const result = await runAgent(ctx, {
-      stageName: 'pr-review',
-      agent: agents.agent,
-      ...literalPrompt(buildPullRequestReviewPrompt(pr, { retryTriage: opts.isRetry, ...(overlay !== undefined ? { instructions: overlay } : {}) })),
-      systemPrompt: adversarySystemPrompt(),
-      effort: opts.isRetry ? 'xhigh' : 'high',
-      maxTurns: opts.isRetry ? Math.min(Math.ceil(baseTurns * 1.5), Number.MAX_SAFE_INTEGER) : baseTurns,
-      copyBack: false,
-      // Read-only: the PR code is untrusted and never run. With Bash the reviewer installs node_modules
-      // and runs the project instead of reviewing the diff it was given.
-      allowedTools: [...PR_REVIEW_TOOLS],
-      ...(cmd.reviewModel !== undefined ? { model: cmd.reviewModel } : {}),
-    });
-    outcomes.push({ name: opts.isRetry ? 'pr-review-retry' : 'pr-review', result, ...(cmd.reviewModel !== undefined ? { model: cmd.reviewModel } : {}) });
-    return {
-      text: result.finalText,
-      completed: result.completed,
-      turns: result.turns,
-      ...(result.usage !== undefined ? { outputTokens: result.usage.outputTokens } : {}),
-      ...(result.stopReason !== undefined ? { stopReason: result.stopReason } : {}),
-      ...(result.lastBlock !== undefined ? { lastBlock: result.lastBlock } : {}),
-      // The model the provider reported, not the requested one: a gateway or alias can serve another.
-      ...(result.model !== undefined ? { model: result.model } : {}),
-    };
-  } finally {
-    await session.close();
-  }
+    target: async () => ({
+      baseBranch: baseBranchOrDefault(pr.baseRefName, `PR ${pr.repoSlug}#${pr.number}`),
+      instructionRef: await githubDefaultBranch(pr.repoSlug, gh),
+    }),
+    ...(cmd.skillsDir !== undefined ? { skillsDir: cmd.skillsDir } : {}),
+    ...(cmd.maxTurns !== undefined ? { maxTurns: cmd.maxTurns } : {}),
+    ...(cmd.reviewModel !== undefined ? { reviewModel: cmd.reviewModel } : {}),
+    isRetry: opts.isRetry,
+    prompt: (overlay) => buildPullRequestReviewPrompt(pr, { retryTriage: opts.isRetry, ...(overlay !== undefined ? { instructions: overlay } : {}) }),
+  });
+  outcomes.push({ name: opts.isRetry ? 'pr-review-retry' : 'pr-review', result, ...(cmd.reviewModel !== undefined ? { model: cmd.reviewModel } : {}) });
+  return {
+    text: result.finalText,
+    completed: result.completed,
+    turns: result.turns,
+    ...(result.usage !== undefined ? { outputTokens: result.usage.outputTokens } : {}),
+    ...(result.stopReason !== undefined ? { stopReason: result.stopReason } : {}),
+    ...(result.lastBlock !== undefined ? { lastBlock: result.lastBlock } : {}),
+    // The model the provider reported, not the requested one: a gateway or alias can serve another.
+    ...(result.model !== undefined ? { model: result.model } : {}),
+  };
 }
