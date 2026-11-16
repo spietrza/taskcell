@@ -27,7 +27,7 @@ export function StageLine({ stages, now, selected, onSelect }: { stages: PaneSta
           <>
             <span className="flex items-center gap-2">
               {ICON[s.phase]}
-              <span className="truncate text-sm font-medium">{label}</span>
+              <span className="min-w-0 break-words text-sm font-medium">{label}</span>
             </span>
             <span className="mt-1 block pl-6 text-sm tabular-nums">
               {s.href !== undefined ? <a href={s.href} target="_blank" rel="noreferrer" className="text-primary-text underline">{time}</a> : time}
@@ -40,7 +40,7 @@ export function StageLine({ stages, now, selected, onSelect }: { stages: PaneSta
           </>
         );
         const cls = cn(
-          'block min-w-28 flex-1 rounded-lg border p-3 text-left',
+          'block min-w-24 flex-1 rounded-lg border p-3 text-left',
           s.phase === 'running' ? 'border-primary bg-primary/5 text-foreground' : s.phase === 'pending' ? 'border-border/60 text-muted-foreground' : 'border-border',
           s.phase === 'failed' && 'border-destructive/50',
           selected === i && s.phase !== 'running' && 'border-foreground/60 bg-muted/40',
@@ -49,7 +49,7 @@ export function StageLine({ stages, now, selected, onSelect }: { stages: PaneSta
         return (
           <Fragment key={i}>
             {i > 0 && <li aria-hidden className="w-3 shrink-0 self-center border-t border-border" />}
-            <li data-testid={`stage-${i}`} data-phase={s.phase} className="flex min-w-28 flex-1">
+            <li data-testid={`stage-${i}`} data-phase={s.phase} className="flex min-w-24 flex-1">
               {pickable ? (
                 <button type="button" className={cls} aria-pressed={selected === i} onClick={() => onSelect(i)}>
                   {body}

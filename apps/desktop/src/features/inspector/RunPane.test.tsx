@@ -124,3 +124,39 @@ test('the back button is the way out on a narrow screen', async () => {
   expect(onBack).toHaveBeenCalled();
   await waitFor(() => expect(readRunEvents).toHaveBeenCalled());
 });
+
+const sealedEvents = (tail: Record<string, unknown>[] = []) => {
+  const at = (s: number): string => new Date(Date.UTC(2026, 10, 16, 10, 0, s)).toISOString();
+  const e = (n: number, s: number, event: Record<string, unknown>) => ({ id: n, ts: at(s), event: 'api:event', data: { runId: 'run-9', event } });
+  return {
+    events: [
+      e(1, 0, { type: 'stage-start', name: 'sandbox', index: 0, of: 1 }),
+      e(2, 4, { type: 'stage-end', name: 'sandbox', index: 0, of: 1, outcome: 'completed' }),
+      e(3, 5, { type: 'run-start', taskId: 'gh-r-3', stages: ['sandbox', 'implementer', 'reviewer', 'simplifier'] }),
+      ...tail.map((t, i) => e(4 + i, 6 + i, t)),
+    ],
+    nextAfter: 9,
+    hasMore: false,
+    truncated: false,
+  };
+};
+
+test('a finished run keeps its Sealed cell card from the event log; a run logged without it has none', async () => {
+  vi.mocked(readRunEvents).mockResolvedValue(sealedEvents());
+  const { unmount } = render(<RunPane {...props} detail={detail} />);
+  await waitFor(() => expect(screen.getByTestId('stage-0')).toHaveTextContent('Sealed cell4s'));
+  expect(screen.getByTestId('stage-1')).toHaveTextContent('Code27s');
+  expect(screen.getByTestId('stage-4')).toHaveTextContent('PR#5');
+  unmount();
+  vi.mocked(readRunEvents).mockResolvedValue(noEvents);
+  render(<RunPane {...props} detail={detail} />);
+  expect(screen.getByTestId('stage-0')).toHaveTextContent('Code');
+});
+
+test('the Tests and PR cards stay when the live run turns terminal', async () => {
+  vi.mocked(readRunEvents).mockResolvedValue(sealedEvents([{ type: 'run-error', message: 'boom' }]));
+  render(<RunPane {...props} active={{ taskId: 'gh-r-3', sessionFile: '/s.jsonl', lastActivityMs: Date.now() }} />);
+  await waitFor(() => expect(screen.getByTestId('stage-5')).toHaveTextContent('PR'));
+  expect(screen.getByTestId('stage-0')).toHaveTextContent('Sealed cell');
+  expect(screen.getByTestId('stage-2')).toHaveTextContent('Tests');
+});
