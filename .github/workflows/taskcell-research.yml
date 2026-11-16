@@ -9,9 +9,7 @@ on:
     inputs:
       issue: { description: "issue number", required: true }
 
-permissions:
-  contents: read
-  issues: write
+permissions: {} # each job declares what it needs (OpenSSF Scorecard Token-Permissions)
 
 concurrency:
   group: taskcell-research-${{ github.repository }}
@@ -19,6 +17,9 @@ concurrency:
 
 jobs:
   research:
+    permissions:
+      contents: read
+      issues: write
     if: >-
       github.event_name == 'workflow_dispatch' ||
       (github.event.label.name == 'needs research' &&

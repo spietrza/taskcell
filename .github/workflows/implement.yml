@@ -133,8 +133,17 @@ on:
         description: 'Private key of the taskcell GitHub App (with repo variable TASKCELL_APP_CLIENT_ID). When both are set, factory PRs are opened by the App bot instead of the PAT owner; the CLI mints a short-lived token right before each use.'
         required: false
 
+# The job declares its permissions: a ceiling on what the caller grants. A caller must grant at least these
+# (GitHub refuses a called job that asks for more than its caller gave).
+permissions: {}
+
 jobs:
   implement:
+    permissions:
+      contents: write
+      pull-requests: write
+      issues: write
+      actions: read # the slot step counts in-progress runs (max-parallel)
     runs-on: ubuntu-latest
     timeout-minutes: ${{ inputs.timeout-minutes }}
     env:

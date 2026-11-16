@@ -35,15 +35,17 @@ Things to know before copying:
 
 ### Permissions the caller must grant
 
-The reusable workflows declare no `permissions:` of their own — they run with whatever the caller grants. A caller that omits the block on a repo whose default `GITHUB_TOKEN` is read-only fails mid-run (at `gh label create`, `gh pr create` or the comment post), not at startup. What each one needs:
+Each reusable workflow's job declares the permissions it needs, as a ceiling: it never gets more, and GitHub refuses to start it (`The nested job … is requesting …`) when the calling job grants less. Grant them on the calling job and keep the workflow-level block at `permissions: {}` — OpenSSF Scorecard (Token-Permissions) scores write permissions at workflow level as high risk. What each one needs:
 
-| Reusable workflow | `contents` | `pull-requests` | `issues` |
-|---|---|---|---|
-| `implement.yml` | write | write | write |
-| `doctor.yml` | read | read | write |
-| `pr-review.yml` | read | write | write |
-| `research.yml` | read | — | write |
-| `revise.yml` | write (pushes the revision commit) | write | write |
+| Reusable workflow | `contents` | `pull-requests` | `issues` | `actions` |
+|---|---|---|---|---|
+| `implement.yml` | write | write | write | read (the `max-parallel` slot step) |
+| `doctor.yml` | read | read | write | — |
+| `pr-review.yml` | read | write | write | — |
+| `research.yml` | read | — | write | — |
+| `revise.yml` | write (pushes the revision commit) | write | write | — |
+
+A caller from before 1.16.1 with a workflow-level block keeps working as long as it grants every scope above; an `implement` caller without `actions: read` must add it.
 
 
 ### `.github/workflows/taskcell-implement.yml` — does the work
@@ -56,12 +58,14 @@ on:
   issues:
     types: [labeled]
   workflow_dispatch:
-permissions:
-  contents: write
-  pull-requests: write
-  issues: write
+permissions: {}
 jobs:
   implement:
+    permissions:
+      contents: write
+      pull-requests: write
+      issues: write
+      actions: read
     if: >-
       (github.event_name == 'workflow_dispatch' && github.actor == 'YOUR_LOGIN') ||
       (github.event_name == 'issues' &&
@@ -132,15 +136,16 @@ Taskcell's own callers turn all three on; client repos should decide deliberatel
 name: Taskcell Doctor
 on:
   workflow_dispatch:
-permissions:
-  contents: read
-  issues: write
-  pull-requests: read
+permissions: {}
 concurrency:
   group: taskcell-doctor-${{ github.repository }}
   cancel-in-progress: true
 jobs:
   doctor:
+    permissions:
+      contents: read
+      issues: write
+      pull-requests: read
     if: github.actor == 'YOUR_LOGIN'
     uses: spietrza/taskcell/.github/workflows/doctor.yml@v1
     with:
@@ -163,15 +168,16 @@ on:
   pull_request_target:
     types: [labeled]
   workflow_dispatch:
-permissions:
-  contents: read
-  pull-requests: write
-  issues: write
+permissions: {}
 concurrency:
   group: taskcell-pr-review-${{ github.repository }}
   cancel-in-progress: false
 jobs:
   review:
+    permissions:
+      contents: read
+      pull-requests: write
+      issues: write
     if: >-
       (github.event_name == 'workflow_dispatch' && github.actor == 'YOUR_LOGIN') ||
       (github.event_name == 'pull_request_target' &&
@@ -247,12 +253,13 @@ on:
   workflow_dispatch:
     inputs:
       pr: { description: "PR number", required: true }
-permissions:
-  contents: write          # pushes the revision commit to the PR branch
-  pull-requests: write
-  issues: write
+permissions: {}
 jobs:
   revise:
+    permissions:
+      contents: write          # pushes the revision commit to the PR branch
+      pull-requests: write
+      issues: write
     if: >-
       (github.event_name == 'workflow_dispatch' && github.actor == 'YOUR_LOGIN') ||
       (github.event.label.name == 'needs revision' &&
