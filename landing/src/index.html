@@ -316,12 +316,13 @@
   </ul>
 
   <div class="report" data-reveal>
-    <p>No third-party audit yet. The boundaries are written down in the README, in a self-hosted security review and in a control-by-control mapping to the OWASP Top 10 for agentic and LLM applications. Found a hole? Report it privately; you get an answer within 7 days.</p>
+    <p>No third-party audit yet. Our own multi-agent security review found 14 issues, 2 of them high; 13 are fixed and shipped, one low is open. The boundaries are written down in the README, in that review and in a control-by-control mapping to the OWASP Top 10 for agentic and LLM applications. Found a hole? Report it privately; you get an answer within 7 days.</p>
     <div class="links-row">
       <a href="https://github.com/spietrza/taskcell/security/advisories/new">Report a vulnerability</a>
       <a href="https://github.com/spietrza/taskcell/blob/main/SECURITY.md">Security policy</a>
       <a href="https://github.com/spietrza/taskcell#security">Security model</a>
       <a href="https://github.com/spietrza/taskcell/blob/main/docs/security/owasp-mapping.md">OWASP mapping</a>
+      <a href="https://github.com/spietrza/taskcell/blob/main/docs/security/review-2026-11.md">Security review</a>
     </div>
     <ul class="chips scores" aria-label="Independent security scores">
       <li class="chip"><a href="https://scorecard.dev/viewer/?uri=github.com/spietrza/taskcell">OpenSSF Scorecard <b data-score="scorecard">6.8</b>/10</a></li>
@@ -652,7 +653,7 @@ taskcell hub --repo ../app
     </details>
     <details>
       <summary>Is it audited?</summary>
-      <p>Not by a third party. The security model and its limits are documented in the repository, and vulnerabilities can be reported privately through GitHub.</p>
+      <p>Not by a third party. Our own multi-agent security review (November 2026) confirmed 14 findings; 13 are fixed and shipped, one low is open. The security model and its limits are documented in the repository, and vulnerabilities can be reported privately through GitHub.</p>
     </details>
   </div>
 </section>
