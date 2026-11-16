@@ -149,6 +149,10 @@ vi.mock('../agents/registry.js', () => ({
   selectAgents: vi.fn(() => ({ agent: { name: 'claude' }, secrets: {}, proxySecrets: {}, injectAnthropicAuth: false })),
   forcedProviderModel: vi.fn(() => undefined),
   providerKeyEnvNames: vi.fn(() => []),
+  isProviderName: vi.fn((n: string) => ['claude', 'codex', 'cursor'].includes(n)),
+  validateProviderChoice: vi.fn(),
+  makeProvider: vi.fn((name: string) => ({ name })),
+  claudeCliKeyEnv: vi.fn(() => undefined),
 }));
 const { wmDiff, wmCommitMessages } = vi.hoisted(() => ({
   wmDiff: vi.fn(async () => ''),
@@ -528,6 +532,11 @@ describe('runSourcedIssue', () => {
     await runSourcedIssue('group/project#1', { repoPath: '/repo', forkN: 2 }, fakeAdapter([], STAGES));
     const plain = runStages.mock.calls[1]?.[2] as { fork?: { score?: unknown } };
     expect(plain.fork?.score).toBeUndefined();
+  });
+
+  it('a model pool resolves to one provider/model before the agents are selected', async () => {
+    await runSourcedIssue('group/project#1', { repoPath: '/repo', providerModel: 'codex/gpt-5.6-sol:1' }, fakeAdapter([], STAGES));
+    expect(selectAgents).toHaveBeenLastCalledWith(expect.objectContaining({ provider: 'codex', providerModel: 'gpt-5.6-sol' }), expect.anything(), expect.anything());
   });
 
   it('the difficulty probe is log-only: persisted with the implementer model, never routing', async () => {

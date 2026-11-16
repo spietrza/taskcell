@@ -72,7 +72,9 @@ import { sandboxNetworkConfig } from '../sandbox/limits.js';
 import { llmProxySandboxEnv } from '../sandbox/egress-proxy.js';
 import { startProviderProxies } from '../sandbox/llm-proxy.js';
 import { authSecrets } from '../agents/auth.js';
-import { selectAgents, providerKeyEnvNames } from '../agents/registry.js';
+import { selectAgents, providerKeyEnvNames, isProviderName } from '../agents/registry.js';
+import { readCooldowns, poolTaskKey } from '../core/model-pool.js';
+import { routeModelPools } from './model-pool-routing.js';
 import { GITHUB_REVIEW_LABEL } from '../github-labels.js';
 import { WorktreeManager } from '../worktree/manager.js';
 import { TaskcellError } from '../core/errors.js';
@@ -480,6 +482,17 @@ export async function runRevisePullRequest(prRef: string, deps: ReviseGithubPrDe
   const labelModel = await modelFromSourceIssue(target.repoSlug, pr.body, gh, log, `${target.repoSlug}#${target.number}`);
   if (labelModel !== undefined) {
     log(`revise-pr ${target.repoSlug}#${target.number}: pins the implementer model to ${labelModel} via label (overrides --provider-model)`);
+  }
+  // Model pools: keyed on the issue the PR implements, so the revision runs on the entry the implement run picked.
+  if (deps._agent === undefined) {
+    const cooldowns = await readCooldowns(deps.repoPath).catch(() => new Map<string, Date>());
+    const customs = deps.customProviders ?? [];
+    const routing = routeModelPools(deps, poolTaskKey(extractTaskIdFromPrBody(pr.body) ?? `${target.repoSlug}#${target.number}`), {
+      isProvider: (name) => isProviderName(name) || customs.some((c) => c.name === name),
+      cooling: (key) => cooldowns.has(key),
+      ...(labelModel !== undefined ? { labelModel } : {}),
+    });
+    deps = routing.options;
   }
   const effectiveModel = labelModel ?? deps.providerModel;
 

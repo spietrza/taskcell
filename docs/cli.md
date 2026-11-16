@@ -34,6 +34,22 @@ By default `run` uses the implement → review → simplify pipeline (the implem
 taskcell run --github o/r#1 --plan --review-model opus   # plan on opus, implement on sonnet, review on opus
 ```
 
+### Model pools per stage
+
+`--provider-model`, `--review-model` and `--escalate-model` (on `run` and `watch`; `--provider-model`/`--review-model` also on `revise-pr`; and the reusable workflows' `provider-model` / `review-model` / `escalate-model` inputs, which pass the value through) take either one model, as before, or a **pool** of weighted `provider/model` entries:
+
+```sh
+taskcell run --github-repo o/r --issue 42 \
+  --provider-model 'claude/sonnet:3, codex/gpt-5.6-sol:1' \
+  --fallback-provider cursor --fallback-model auto
+```
+
+- **Syntax.** Entries are separated by commas; each is `provider/model[:weight]` with a positive integer weight (default 1). The provider is a built-in name or a repo custom provider. A value with no comma and no `:<weight>` suffix is one plain model and behaves exactly as before — so `openrouter/auto` or `anthropic/claude-sonnet-4.6` stay model ids. To pin one entry to a provider, give it a weight: `codex/gpt-5.6-sol:1`. A bad entry (no `/`, empty model, weight 0, unknown provider) is refused before the run starts, naming the entry.
+- **Rotation.** The entry is picked by weight from a stable hash of the task's issue number (or id), so a resume or a `revise-pr` round of the same issue runs on the same entry; across many issues the split follows the weights (3:1 above ≈ 75% Sonnet). The reviewer and escalate pools rotate independently. An escalate pool only offers entries on the implementer's provider. There is no predictive routing: rotation is weight-only.
+- **Out-of-quota entries are skipped.** When an entry hits a provider limit (`ProviderLimitError`, or a usage-cap/rate-limit refusal) the run moves on: the next pool entry (listed order after the pick), then the fallback chain. `--fallback-provider` and `--fallback-model` accept comma lists (`--fallback-provider codex,cursor --fallback-model gpt-5.6-sol,` — an empty slot is that provider's default). Inside one run the next candidate runs as the stage fallback, so it must sit on a different transport than the picked entry (a later entry sharing the transport, e.g. `claude` and `openrouter`, is skipped in that run and serves later runs). The limit is recorded in `.taskcell/model-pool-cooldowns.json` with the reset time the provider named (`parseProviderRateLimitReset`) or a default one-hour cool-down; until then no new run picks that entry and rotation moves to the next entry with quota. The run fails (and parks as today) only when every entry and fallback is out. On GitHub Actions the cool-down file lives only as long as the job; a parked issue resumes through `taskcell:rate-limited` as before.
+- **Label beats the pool.** A `taskcell:model=<m>` label still pins the implementer model for that task; the provider is the rotation's pick.
+- **Comparison data.** Every stage record carries `modelPick: { provider, model, pick }` and its metric line `provider` and `pick`, where `pick` is `rotation`, `skip-limit` (a later pool entry after a limit), `fallback`, `label`, `flow` (a Workflow-editor stage pool) or `config` (a plain setting). `taskcell stats` prints **BY MODEL PER STAGE** below **BY MODEL**: one row per stage × `provider/model` × pick, with runs, `$cost`, **gate pass** (the run's verify gate, joined on task + run timestamp), **review pass** (the run's reviewer verdict `pass`) and **revise/run** (later `revise` records of the same task). Compare a cheaper implementer's row against the default one on those four columns; `--json` carries the same rows as `modelPicks`.
+
 ## Providers
 
 The agent behind each stage is a swappable `AgentProvider`: `claude` (Claude Code CLI, default), `codex` (OpenAI Codex CLI), `cursor` (Cursor CLI; see [CURSOR-provider.md](CURSOR-provider.md)), `zai` (z.ai GLM Coding Plan), `openrouter` (OpenRouter's Anthropic skin), or `meridian` (self-hosted [Meridian](https://github.com/rynfar/meridian) proxy — share a Claude Max subscription from another host; see [MERIDIAN-provider.md](MERIDIAN-provider.md)). Selection is **by provider, not by model** — each provider runs on its own default model. Two modes:

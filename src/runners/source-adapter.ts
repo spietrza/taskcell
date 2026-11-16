@@ -7,7 +7,7 @@ import { taskToVariables } from '../tasks/fetcher.js';
 import { escapePromptTags } from '../context/escape.js';
 import { DockerSandboxProvider, sandboxImage } from '../sandbox/docker.js';
 import { pnpmStoreConfig, sandboxNetworkConfig } from '../sandbox/limits.js';
-import { selectAgents, forcedProviderModel, providerKeyEnvNames } from '../agents/registry.js';
+import { selectAgents, forcedProviderModel, providerKeyEnvNames, isProviderName } from '../agents/registry.js';
 import { tokenProviderFor } from '../core/push-token.js';
 import { hasLabel, labelValue } from '../core/labels.js';
 import { resolveTargetBase } from '../core/base-branch.js';
@@ -16,6 +16,9 @@ import { probeTaskDifficulty, decisionProbeConfig } from '../core/decision-probe
 import { decisionModelConfig, decisionEgressAllowed, decisionModelMissing, DECISION_MODEL_DEFAULT, type DecisionModelConfig } from '../core/decision-model.js';
 import { TaskcellError } from '../core/errors.js';
 import { isStructuredProviderLimit } from '../core/rate-limit-marker.js';
+import { readCooldowns, recordCooldown, cooldownUntil, poolTaskKey } from '../core/model-pool.js';
+import { routeModelPools, resolveFlowStagePools } from './model-pool-routing.js';
+import type { StagePick } from './model-pool-routing.js';
 import { decisionDiffScorer } from '../evals/decision-judge.js';
 import { runStages, assembleReviewPipeline, withPrimaryFallback, sandboxComplete, withStageMaxTurns, withStageResumeUntilComplete, reviewFinalDiff, STAGE } from '../pipeline/pipeline.js';
 import { FLOWS } from '../api/capabilities.js';
@@ -415,13 +418,14 @@ export function resolveForkScorerConfig(whiteLabel: boolean, env: NodeJS.Process
 /** Shared pipeline body for GitHub and Linear issue runners, parameterised by a SourceAdapter. */
 export async function runSourcedIssue(
   issueRef: string,
-  deps: RunIssueDeps,
+  configuredDeps: RunIssueDeps,
   adapter: SourceAdapter,
 ): Promise<RunIssueResult> {
   // Named-flow dispatch, resolved FIRST: a flow typo must fail before the tracker fetch, the
   // provider proxies, and the sandbox spin-up (the CLI mirror of the sidecar fail-fast, S5 D6).
   // `--flow <name>` selects a FLOWS builder or a repo `.taskcell/flows/*.hcl` flow; `--plan` is
   // the back-compat alias for flow 'plan'.
+  let deps = configuredDeps;
   const flow = deps.flow ?? (deps.plan === true ? 'plan' : undefined);
   const baseStages = await resolveBaseStages(flow, deps.repoPath, adapter, deps.customProviders);
 
@@ -452,7 +456,38 @@ export async function runSourcedIssue(
   // A hub run reads every provider key (agents, fork scorer, difficulty probe) from its resolved
   // credential env, so a `user` run never spends the host's key.
   const providerEnv = deps.providerEnv ?? process.env;
-  const agents = selectAgents(deps, providerEnv, { proxyMode: deps.llmProxy !== undefined });
+  // Model pools (`--provider-model claude/sonnet:3,codex/gpt-5.6-sol:1`): resolved here, per task, into
+  // the one provider/model each tier runs on. A plain model leaves deps untouched.
+  const labelModel = modelFromLabels(task.labels, (label) =>
+    console.warn(`taskcell: ${task.id} ignoring malformed model label ${JSON.stringify(label)}`),
+  );
+  const poolProvider = (name: string): boolean => isProviderName(name) || (deps.customProviders ?? []).some((c) => c.name === name);
+  const cooldowns = await readCooldowns(deps.repoPath).catch(() => new Map<string, Date>());
+  const routing = routeModelPools(deps, poolTaskKey(task.id), {
+    isProvider: poolProvider,
+    cooling: (key) => cooldowns.has(key),
+    ...(labelModel !== undefined ? { labelModel } : {}),
+  });
+  deps = routing.options;
+  for (const [tier, p] of Object.entries(routing.picks)) {
+    console.log(`taskcell: ${task.id} ${tier} → ${p.provider}${p.model !== undefined ? `/${p.model}` : ''} (${p.pick})`);
+  }
+  // A flow stage whose model is a pool (Workflow editor) resolves to one entry for this task; an entry on
+  // another provider pins the stage to it, and that provider's credential joins the run's secrets.
+  const flowPools = resolveFlowStagePools(baseStages, poolTaskKey(task.id), {
+    runProvider: deps.provider ?? 'claude',
+    isProvider: poolProvider,
+    cooling: (key) => cooldowns.has(key),
+    ...(deps.customProviders !== undefined ? { customProviders: deps.customProviders } : {}),
+  });
+  for (const [name, p] of Object.entries(flowPools.picks)) {
+    routing.picks[name] = { ...p, pick: p.pick === 'rotation' ? 'flow' : p.pick };
+    console.log(`taskcell: ${task.id} ${name} → ${p.provider}/${p.model ?? ''} (flow pool, ${p.pick})`);
+  }
+  const stagePinned = [...new Set(Object.values(flowPools.picks).map((p) => p.provider))].filter((n) => n !== (deps.provider ?? 'claude'));
+  const agents = selectAgents({ ...deps, ...(stagePinned.length > 0 ? { stageProviders: stagePinned } : {}) }, providerEnv, { proxyMode: deps.llmProxy !== undefined });
+  const primaryEntry = (): { provider: string; model?: string } => ({ provider: agents.agent.name, ...(deps.providerModel !== undefined ? { model: deps.providerModel } : {}) });
+  const fallbackEntry = (provider: string): { provider: string; model?: string } => ({ provider, ...(deps.fallbackModel !== undefined ? { model: deps.fallbackModel } : {}) });
   // What the run says about the hand-picked list (run summary, run event, run record) instead of dropping it silently.
   const lineReplaced = deps.namedSkillsOnly === true && skillsLine.skills.some((id) => !namedSkills.includes(id));
   // Every provider an agent stage can run on: one whose CLI reads no skills cannot honour the list.
@@ -521,9 +556,6 @@ export async function runSourcedIssue(
     // Log-only difficulty probe (decision model, opt-in via env): kicked off here so its round trip
     // hides under sandbox + worktree provisioning; awaited once the pipeline is assembled. Recorded
     // next to the run so stats can later tell whether it predicts repairs/escalation. Never routes.
-    const labelModel = modelFromLabels(task.labels, (label) =>
-      console.warn(`taskcell: ${task.id} ignoring malformed model label ${JSON.stringify(label)}`),
-    );
     const probePromise = probeTaskDifficulty(task, labelModel ?? deps.providerModel, {
       config: decisionProbeConfig(providerEnv, { whiteLabel }),
       ...(deps.signal !== undefined ? { signal: deps.signal } : {}),
@@ -567,7 +599,7 @@ export async function runSourcedIssue(
     let persistProviderStop: (() => Promise<void>) | undefined;
     try {
       // Appended here, not as a template placeholder, so every flow's implementer is told (repo .hcl flows included).
-      const skillStages = withNamedSkills(baseStages, namedSkills);
+      const skillStages = withNamedSkills(flowPools.stages, namedSkills);
       const turnScoped = deps.maxTurns !== undefined ? withStageMaxTurns(skillStages, deps.maxTurns) : skillStages;
       // --max-repair-iterations also drives auto-resume of an incomplete implementer (not just the gate
       // loop): an under-budget stage that stopped without <promise>COMPLETE</promise> gets nudged to finish.
@@ -620,7 +652,13 @@ export async function runSourcedIssue(
         ...(deps.credentialSource !== undefined ? { credentialSource: deps.credentialSource } : {}),
       };
       // Lessons are only all known once the gate repairs have run, so read them at write time.
-      const stageMeta = (): typeof runMeta & { lessonIds: string[]; skills: RunSkills; maxRepairIterations: number } => ({ ...runMeta, lessonIds: [...lessonIds], skills: skillsRecord, maxRepairIterations: deps.maxRepairIterations ?? MAX_REPAIR_ITERATIONS });
+      const stageMeta = (): typeof runMeta & { lessonIds: string[]; skills: RunSkills; maxRepairIterations: number; modelPicks?: Record<string, StagePick> } => ({
+        ...runMeta,
+        lessonIds: [...lessonIds],
+        skills: skillsRecord,
+        maxRepairIterations: deps.maxRepairIterations ?? MAX_REPAIR_ITERATIONS,
+        ...(routing.pooled || labelModel !== undefined || Object.keys(routing.picks).length > 0 ? { modelPicks: stagePicks(outcomes, routing.picks, agents.agent.name, labelModel) } : {}),
+      });
       // One RunWriter for the whole run: it owns the timestamp, so proof.json, visual-proof.json and
       // every stage record share one prefix and the hub/desktop readers can match a run's proof to
       // its stage records by name.
@@ -1063,10 +1101,23 @@ export async function runSourcedIssue(
       if (isStructuredProviderLimit(error)) {
         // Best effort: a failed write must not replace the limit error the caller parks the task on.
         await persistProviderStop?.().catch(() => undefined);
+        // A pooled run cools down the entry that hit the limit (the fallback when one took over), so
+        // the next task's rotation skips it until the named reset or the default hour.
+        // A limit only escapes the stage once its fallback (when there is one) is out too.
+        if (routing.pooled) {
+          const until = cooldownUntil(error instanceof Error ? error.message : String(error));
+          for (const entry of [primaryEntry(), ...(agents.fallbackAgent !== undefined ? [fallbackEntry(agents.fallbackAgent.name)] : [])]) {
+            await recordCooldown(deps.repoPath, entry, until).catch(() => undefined);
+          }
+        }
       }
       await stepSummary('error', { error: String(error) });
       throw error;
     } finally {
+      // The fallback took over a stage: the primary entry is out (limit or outage), so new runs skip it for the default cool-down.
+      if (routing.pooled && agents.fallbackAgent !== undefined && outcomes.some((o) => o.providerName === agents.fallbackAgent?.name)) {
+        await recordCooldown(deps.repoPath, primaryEntry(), cooldownUntil('')).catch(() => undefined);
+      }
       await refreshRetrospectiveMemory(deps.repoPath).catch((err: unknown) => {
         console.error('retrospective memory refresh failed (non-fatal):', err);
       });
@@ -1077,4 +1128,43 @@ export async function runSourcedIssue(
   } finally {
     await providerProxies.destroy();
   }
+}
+
+/** Stages that run on the primary agent's tier (the rest carry their own provider/model). */
+const REVIEW_TIER: ReadonlySet<string> = new Set([STAGE.REVIEWER, STAGE.CONFORMANCE]);
+
+/**
+ * Per stage that ran: the provider/model actually used and why it was picked (rotation, skip after a
+ * limit, fallback, label, flow pin, or plain config). Written to every stage record of the run so
+ * `taskcell stats` can compare a cheaper entry on cost, gate pass rate, verdict and revise rounds.
+ */
+export function stagePicks(
+  outcomes: readonly StageOutcome[],
+  picks: Readonly<Record<string, StagePick>>,
+  primaryName: string,
+  labelModel?: string,
+): Record<string, StagePick> {
+  const out: Record<string, StagePick> = {};
+  for (const o of outcomes) {
+    const provider = o.providerName ?? primaryName;
+    const model = o.model;
+    const own = picks[o.name];
+    if (own !== undefined && own.provider === provider) {
+      out[o.name] = { provider, ...(model !== undefined ? { model } : {}), pick: own.pick };
+      continue;
+    }
+    const tier = REVIEW_TIER.has(o.name) && picks.reviewer !== undefined && picks.reviewer.provider === provider ? picks.reviewer : undefined;
+    const fell = picks.fallback !== undefined && provider === picks.fallback.provider && provider !== primaryName;
+    const pick = fell
+      ? picks.fallback!.pick
+      : tier !== undefined
+        ? tier.pick
+        : provider === primaryName && picks.implementer !== undefined && (model === undefined || model === picks.implementer.model)
+          ? picks.implementer.pick
+          : labelModel !== undefined && model === labelModel
+            ? 'label'
+            : 'config';
+    out[o.name] = { provider, ...(model !== undefined ? { model } : {}), pick };
+  }
+  return out;
 }

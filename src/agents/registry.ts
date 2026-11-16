@@ -464,13 +464,20 @@ export interface ProviderChoice {
   customProviders?: readonly CustomProviderEntry[];
 }
 
+/** A choice plus the providers a flow stage is pinned to by its model pool (resolved per run); they need their credentials too. */
+export interface StagedProviderChoice extends ProviderChoice {
+  stageProviders?: readonly string[];
+}
+
 /** Every provider name a run may start: implementer, reviewer, implementer fallback. The one list
  *  behind the credential, egress-host and plain-http checks, so a fallback can never slip past one. */
-export function usedProviderNames(choice: ProviderChoice): string[] {
+export function usedProviderNames(choice: StagedProviderChoice): string[] {
   return [
     choice.provider ?? 'claude',
     ...(choice.reviewProvider !== undefined ? [choice.reviewProvider] : []),
-    ...(choice.fallbackProvider !== undefined ? [choice.fallbackProvider] : []),
+    // A fallback list (`codex,cursor`, model pools) counts every entry: each may run, so each needs its credential.
+    ...(choice.fallbackProvider !== undefined ? choice.fallbackProvider.split(',').map((n) => n.trim()) : []),
+    ...(choice.stageProviders ?? []),
   ];
 }
 
@@ -538,7 +545,8 @@ export function validateProviderChoice(choice: ProviderChoice, opts: ProviderSec
   // e.g. one ANTHROPIC_BASE_URL — Claude, zai, openrouter, meridian and customs all drive the claude CLI
   // through it). Every pair among implementer, reviewer and implementer-fallback must differ in slot:
   // claude+zai (both 'claude-cli') is the case this rejects.
-  const fallback = choice.fallbackProvider;
+  // A fallback list is resolved per run (routeModelPools keeps only entries one sandbox can host), so only a single fallback is paired here.
+  const fallback = choice.fallbackProvider?.includes(',') === true ? undefined : choice.fallbackProvider;
   const roles: Array<[string, string]> = [
     ...(review !== undefined ? [['cross-provider review', review] as [string, string]] : []),
     ...(fallback !== undefined ? [['implementer fallback', fallback] as [string, string]] : []),
@@ -696,7 +704,7 @@ export function subscriptionCredentialProvider(
  * Anthropic-auth suppression in one place — all derived from the PROVIDERS table (no per-runner copy).
  */
 export function selectAgents(
-  choice: ProviderChoice,
+  choice: StagedProviderChoice,
   env: NodeJS.ProcessEnv = process.env,
   opts: ProviderSecretOptions = {},
 ): SelectedAgents {

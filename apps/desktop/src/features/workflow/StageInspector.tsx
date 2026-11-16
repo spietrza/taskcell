@@ -1,6 +1,7 @@
 import { useState, type ReactNode } from 'react';
 import { Button, Input } from '@/ui';
-import { Trash2 } from 'lucide-react';
+import { Plus, Trash2 } from 'lucide-react';
+import { formatPoolRows, isPoolValue, parsePoolRows, type PoolRow } from './modelPool';
 import { EnumSelect } from '../inspector/EnumSelect';
 import type { StageDecl, StageOverrides } from '../../ipc';
 
@@ -48,6 +49,15 @@ export function StageInspector({
   // Draft for an in-progress invalid max_turns. The PARENT must key this component by the
   // selected index (WorkflowEditor does) so a lingering draft never displays on another stage.
   const [maxTurnsDraft, setMaxTurnsDraft] = useState<string | null>(null);
+  // Model pool (entries + weights), stored in the flow as the stage's `model`: `claude/sonnet:3, codex/gpt-5.6-sol:1`.
+  const [poolMode, setPoolMode] = useState(isPoolValue(o.model));
+  const [poolRows, setPoolRows] = useState<PoolRow[]>(isPoolValue(o.model) ? parsePoolRows(o.model ?? '') : []);
+  const setRows = (rows: PoolRow[]): void => {
+    setPoolRows(rows);
+    onSetOverride('model', formatPoolRows(rows));
+  };
+  const updateRow = (i: number, patch: Partial<PoolRow>): void => setRows(poolRows.map((r, j) => (j === i ? { ...r, ...patch } : r)));
+  const newRow = (model: string): PoolRow => ({ provider: providers[0] ?? 'claude', model, weight: 1 });
 
   return (
     <div className="space-y-3">
@@ -62,9 +72,45 @@ export function StageInspector({
           className="w-full font-mono text-xs"
         />
       </Field>
-      <Field label="model (empty = library default)">
-        <Input value={o.model ?? ''} onChange={(e) => onSetOverride('model', e.target.value || undefined)} className="w-full" />
+      <Field label="pool (weighted rotation across providers)">
+        <EnumSelect
+          value={poolMode ? 'pool' : 'single'}
+          onValueChange={(v) => {
+            const pool = v === 'pool';
+            setPoolMode(pool);
+            if (pool && !isPoolValue(o.model)) {
+              setRows([newRow(o.model ?? '')]);
+            } else if (!pool && isPoolValue(o.model)) {
+              onSetOverride('model', undefined);
+            }
+          }}
+          options={[{ value: 'single', label: 'off: one model' }, { value: 'pool', label: 'on: entries + weights' }]}
+        />
       </Field>
+      {poolMode ? (
+          <div className="space-y-1" aria-label="model pool">
+            {poolRows.map((row, i) => (
+              <div key={i} className="flex items-center gap-1">
+                <EnumSelect
+                  value={row.provider}
+                  onValueChange={(v) => updateRow(i, { provider: v })}
+                  options={[...new Set([...providers, ...(row.provider !== '' ? [row.provider] : [])])].map((p) => ({ value: p, label: p }))}
+                />
+                <Input aria-label={`pool entry ${i + 1} id`} value={row.model} onChange={(e) => updateRow(i, { model: e.target.value })} className="flex-1 font-mono text-xs" placeholder="id" />
+                <Input aria-label={`pool weight ${i + 1}`} type="number" min={1} value={row.weight} onChange={(e) => updateRow(i, { weight: Number(e.target.value) })} className="w-16" />
+                <Button variant="text" color="secondary" aria-label={`remove pool entry ${i + 1}`} onClick={() => setRows(poolRows.filter((_, j) => j !== i))} startIcon={<Trash2 className="size-4" />} />
+              </div>
+            ))}
+            <Button variant="text" color="secondary" onClick={() => setRows([...poolRows, newRow('')])} startIcon={<Plus className="size-4" />}>
+              Add entry
+            </Button>
+            <span className="block text-xs text-muted-foreground">Each run picks one entry by weight from its task id; an entry out of quota is skipped until its reset.</span>
+          </div>
+      ) : (
+        <Field label="model (empty = library default)">
+          <Input value={o.model ?? ''} onChange={(e) => onSetOverride('model', e.target.value || undefined)} className="w-full" />
+        </Field>
+      )}
       <Field label="effort">
         <EnumSelect
           value={o.effort ?? INHERIT}
