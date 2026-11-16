@@ -401,7 +401,7 @@ export async function runRevisePullRequest(prRef: string, deps: ReviseGithubPrDe
   });
 
   const ignoredFeedback = [...new Map(ignoredAuthors.map((item) => [
-    `${item.author} ${item.authorAssociation}`,
+    `${item.author}\0${item.authorAssociation}`,
     { author: item.author, association: item.authorAssociation },
   ])).values()];
   const notes = ignoredFeedback.map(({ author, association }) =>
