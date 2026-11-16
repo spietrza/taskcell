@@ -77,6 +77,16 @@ describe('teardown', () => {
     expect(destroy).toHaveBeenCalledTimes(1);
   });
 
+  it('prepare is single-use: a second call throws instead of leaking the first context', async () => {
+    const core = await import('../core/taskcell.js');
+    vi.spyOn(core, 'prepareContext').mockResolvedValue(ctxFor(vi.fn(async () => {})));
+    const s = await openAgentSession({ choice: {}, repoPath: '/x', agents: injected, sandbox: fakeSandbox });
+    const input = { taskId: 't', localRepoPath: '/x', baseBranch: 'main', start: 'base' } as const;
+    await s.prepare(input);
+    await expect(s.prepare(input)).rejects.toThrow();
+    await s.close();
+  });
+
   it('close without a prepared context does not throw', async () => {
     const s = await openAgentSession({ choice: {}, repoPath: '/x', agents: injected, sandbox: fakeSandbox });
     await expect(s.close()).resolves.toBeUndefined();

@@ -11,7 +11,8 @@ import { resolveVerifyCommand, runVerification } from '../pipeline/verify.js';
 import { resolveBaselineVerify } from '../pipeline/baseline-verify.js';
 import { resolveAndRunVisualProof } from '../pipeline/visual-proof.js';
 import { loadRetrospectiveMemory } from '../core/retrospective-memory.js';
-import { pickRunOptions, runSourcedIssue as runWith, conventionalCommitMessage, modelFromLabels, runCredentialContext } from './source-adapter.js';
+import { pickRunOptions, runSourcedIssue as runWith, conventionalCommitMessage, modelFromLabels } from './source-adapter.js';
+import { runCredentialContext } from './agent-session.js';
 import type { RunIssueDeps, Tracker, ReviewHost } from './source-adapter.js';
 import { extractPrBodyItemsBlock } from '../pipeline/conformance-gate.js';
 import { readCooldowns } from '../core/model-pool.js';
@@ -1292,7 +1293,7 @@ describe('runSourcedIssue', () => {
       r.result.finalText = '<findings>' + JSON.stringify({ findings: [{ severity: 'high', kind: 'correctness', title: 'x', evidence: 'y' }] }) + '</findings>';
       return r;
     };
-    const rereviewOf = async (error: Error): Promise<{ stoppedBy?: string }> => {
+    const rereviewOf = async (error: Error): Promise<{ stoppedBy?: string; taskId?: string }> => {
       runStages.mockResolvedValueOnce([stageOutcome('implementer', 'sess-1'), reviewer()]);
       vi.mocked(resolveVerifyCommand).mockResolvedValue('npm test');
       vi.mocked(runVerification).mockResolvedValue({ passed: true } as never);
@@ -1302,7 +1303,10 @@ describe('runSourcedIssue', () => {
       await runSourcedIssue('group/project#1', { repoPath: '/repo' }, adapter);
       return vi.mocked(adapter.publishVerdict).mock.calls.at(-1)?.[0]?.reviewerOutcome?.result ?? {};
     };
-    expect((await rereviewOf(new ProviderLimitError("You've hit your session limit · resets 9pm (UTC)"))).stoppedBy).toBe('provider-limit');
+    const limited = await rereviewOf(new ProviderLimitError("You've hit your session limit · resets 9pm (UTC)"));
+    expect(limited.stoppedBy).toBe('provider-limit');
+    // The synthetic outcome carries the run's task id (what the real stages use), not the issue's: stats key on it.
+    expect(limited.taskId).toBe('gl-1');
     expect((await rereviewOf(new AgentError('crashed after adding handling for usage limit reached'))).stoppedBy).toBeUndefined();
     expect((await rereviewOf(new AgentError('process crashed; stdout tail: rate_limit_error status code 429'))).stoppedBy).toBeUndefined();
     consoleError.mockRestore();
@@ -1318,7 +1322,7 @@ describe('runSourcedIssue', () => {
     expect(persisted?.[0]).toEqual([
       expect.objectContaining({
         name: 'implementer',
-        result: expect.objectContaining({ completed: false, stoppedBy: 'provider-limit', worktreePreserved: false }),
+        result: expect.objectContaining({ taskId: 'gl-1', completed: false, stoppedBy: 'provider-limit', worktreePreserved: false }),
       }),
     ]);
   });

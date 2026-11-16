@@ -10,6 +10,7 @@ import { tokenProviderFor } from '../core/push-token.js';
 import { hasLabel, labelValue } from '../core/labels.js';
 import { resolveTargetBase } from '../core/base-branch.js';
 import { openAgentSession, coolPoolEntries } from './agent-session.js';
+import type { CredentialDeps } from './agent-session.js';
 import { probeTaskDifficulty, decisionProbeConfig } from '../core/decision-probe.js';
 import { decisionModelConfig, decisionEgressAllowed, decisionModelMissing, DECISION_MODEL_DEFAULT, type DecisionModelConfig } from '../core/decision-model.js';
 import { TaskcellError } from '../core/errors.js';
@@ -95,7 +96,7 @@ export interface RunOptions extends ProviderChoice {
   /**
    * Named flow key (a `FLOWS` registry entry, e.g. 'flow-b'). Set via `--flow`. `--plan` is the
    * back-compat alias for `flow: 'plan'`. When set, `FLOWS[flow].build()` supplies the base stages
-   * instead of the adapter's — EXCEPT `'default'`, which means "the adapter's own stages" (an adapter
+   * instead of the tracker's — EXCEPT `'default'`, which means "the tracker's own stages" (a tracker
    * may customize them; Linear does). Validated at the CLI/sidecar boundary.
    */
   flow?: string;
@@ -176,15 +177,8 @@ export function pickRunOptions(cmd: Readonly<Partial<RunOptions>>): RunOptions {
   };
 }
 
-export { runCredentialContext } from './agent-session.js';
-export type { RunCredentialContext } from './agent-session.js';
-
 /** Shared dependencies for all source-backed issue runners. */
-export interface RunIssueDeps extends RunOptions {
-  /** Which kind of credential funded the run (hub per-user credentials); recorded on the run record, never the value. */
-  credentialSource?: 'instance' | 'user';
-  /** Env the provider keys are read from (default process.env): a hub run's resolved credential env. */
-  providerEnv?: NodeJS.ProcessEnv;
+export interface RunIssueDeps extends RunOptions, CredentialDeps {
   /** The hub login (or `token`) that started this run; stamped on its run records. */
   startedBy?: string;
   /** `namedSkills` is the whole hand-picked list (the hub form, which preselects the card's skills): the body's `Skills:` line is not merged in. */
@@ -205,7 +199,7 @@ export interface RunIssueDeps extends RunOptions {
   signal?: AbortSignal;
 }
 
-/** Semantic kind of a PR/MR triage signal; adapters map it to a platform label string. */
+/** Semantic kind of a PR/MR triage signal; trackers map it to a platform label string. */
 export type ProofFailureKind = 'verify' | 'visual-proof' | 'gate-config';
 
 /** Input to the per-source publishVerdict hook (platform-neutral subset of PublishReviewVerdictInput). */
@@ -381,7 +375,7 @@ export function conventionalCommitMessage(title: string, taskId: string, opts: {
 
 /**
  * Resolve a flow name to its base stage array. 'default' (and no flow at all) means "this
- * adapter's own stages", NOT FLOWS.default.build. They are not the same: the Linear adapter's
+ * tracker's own stages", NOT FLOWS.default.build. They are not the same: the Linear tracker's
  * stages() swaps in an implementer that reads the issue via the linear-cli skill, while
  * FLOWS.default.build is the generic implementReviewSimplifyStages. Selecting 'default' by name —
  * the natural thing for a name-driven UI — must not silently downgrade a Linear run to an
@@ -391,10 +385,10 @@ export function conventionalCommitMessage(title: string, taskId: string, opts: {
 async function resolveBaseStages(
   flow: string | undefined,
   repoPath: string,
-  adapter: Tracker,
+  tracker: Tracker,
   customProviders?: readonly CustomProviderEntry[],
 ): Promise<PipelineStage[]> {
-  if (flow === undefined || flow === 'default') return adapter.stages();
+  if (flow === undefined || flow === 'default') return tracker.stages();
   if (Object.hasOwn(FLOWS, flow)) return FLOWS[flow]!.build();
   const stages = await resolveRepoFlow(flow, repoPath, customProviders);
   if (stages === undefined) throw await unknownFlowError(flow, repoPath);
@@ -434,14 +428,14 @@ class PoolEntryLimited extends Error {
 export async function runSourcedIssue(
   issueRef: string,
   configuredDeps: RunIssueDeps,
-  adapter: Tracker,
+  tracker: Tracker,
   host: ReviewHost,
 ): Promise<RunIssueResult> {
   // Entries that hit a limit during this run: skipped by the next attempt even when the cool-down file cannot be written.
   const exhausted = new Set<string>();
   for (;;) {
     try {
-      return await runSourcedIssueAttempt(issueRef, configuredDeps, adapter, host, exhausted);
+      return await runSourcedIssueAttempt(issueRef, configuredDeps, tracker, host, exhausted);
     } catch (error) {
       if (!(error instanceof PoolEntryLimited)) throw error;
       console.log(`taskcell: ${issueRef} ${error.message}; retrying on the next pool entry`);
@@ -452,7 +446,7 @@ export async function runSourcedIssue(
 async function runSourcedIssueAttempt(
   issueRef: string,
   configuredDeps: RunIssueDeps,
-  adapter: Tracker,
+  tracker: Tracker,
   host: ReviewHost,
   exhausted: Set<string>,
 ): Promise<RunIssueResult> {
@@ -462,10 +456,10 @@ async function runSourcedIssueAttempt(
   // the back-compat alias for flow 'plan'.
   let deps = configuredDeps;
   const flow = deps.flow ?? (deps.plan === true ? 'plan' : undefined);
-  const baseStages = await resolveBaseStages(flow, deps.repoPath, adapter, deps.customProviders);
+  const baseStages = await resolveBaseStages(flow, deps.repoPath, tracker, deps.customProviders);
 
   // Every source gets the same skills: the --skills dir plus the repo's own .github/vanguard-skills/.
-  const [{ task: fetchedTask }, skills] = await Promise.all([adapter.prepare(issueRef), skillRegistryForRun(deps.skillsDir, deps.repoPath)]);
+  const [{ task: fetchedTask }, skills] = await Promise.all([tracker.prepare(issueRef), skillRegistryForRun(deps.skillsDir, deps.repoPath)]);
   // Skills named by hand: `--skill` plus the task body's `Skills:` line. An unknown id stops the run here,
   // before the provider proxies, the sandbox and any model call.
   // A `Skills:` line that is not a list of skill ids (prose) selects nothing and leaves a note; it never refuses the run.
@@ -482,6 +476,7 @@ async function runSourcedIssueAttempt(
           ...fetchedTask,
           comments: [...fetchedTask.comments, { author: 'spec-file', authorAssociation: 'OWNER', body: await readSpecFile(deps.specFile) }],
         };
+  const runTaskId = tracker.taskId(task);
 
   // White-label mode (triggered by --commit-author): the PR is delivered as a plain, human-looking PR.
   // Branch becomes `feat/<issue-number>-<hash>`, the "by Taskcell" attribution and the Taskcell review
@@ -537,7 +532,7 @@ async function runSourcedIssueAttempt(
     ...(deps.network !== undefined ? { network: deps.network } : {}),
     ...(deps.llmProxy !== undefined ? { llmProxy: deps.llmProxy } : {}),
     ...(deps.pnpmStore !== undefined ? { pnpmStore: deps.pnpmStore } : {}),
-    ...(adapter.secrets !== undefined ? { secrets: adapter.secrets } : {}),
+    ...(tracker.secrets !== undefined ? { secrets: tracker.secrets } : {}),
   });
   const { agents, credentials } = session;
   // The pool entry a stage draws on: its flow-pool pick, the reviewer pick, else the implementer pick.
@@ -599,7 +594,7 @@ async function runSourcedIssueAttempt(
     });
     const ctx = await session.prepare(
       {
-        taskId: adapter.taskId(task),
+        taskId: runTaskId,
         localRepoPath: deps.repoPath,
         ...(agents.reviewAgent !== undefined ? { reviewAgentName: agents.reviewAgent.name } : {}),
         ...(agents.fallbackAgent !== undefined ? { fallbackAgentName: agents.fallbackAgent.name } : {}),
@@ -609,7 +604,7 @@ async function runSourcedIssueAttempt(
         baseBranch,
         start: deps.reuse === true ? 'reuse' : 'base',
         ...(deps.keepLocalIfAhead !== undefined ? { keepLocalIfAhead: deps.keepLocalIfAhead } : {}),
-        ...(whiteLabel ? { branchPrefix: 'feat/', branchId: branchIdFromTaskId(adapter.taskId(task)) } : {}),
+        ...(whiteLabel ? { branchPrefix: 'feat/', branchId: branchIdFromTaskId(runTaskId) } : {}),
       },
       { skills },
     );
@@ -663,7 +658,7 @@ async function runSourcedIssueAttempt(
       }
       const probe = await probePromise;
       if (probe !== undefined && deps.signal?.aborted !== true) {
-        await persistDecisionProbe(deps.repoPath, adapter.taskId(task), probe).catch(() => undefined);
+        await persistDecisionProbe(deps.repoPath, runTaskId, probe).catch(() => undefined);
         console.log(
           `taskcell: ${task.id} difficulty probe (${probe.model}, ${probe.latencyMs}ms): first-try ${probe.completesFirstTry.toFixed(2)}, difficulty ${probe.difficulty.toFixed(2)}/4, spec clear ${probe.specClear.toFixed(2)}`,
         );
@@ -697,7 +692,7 @@ async function runSourcedIssueAttempt(
       // One RunWriter for the whole run: it owns the timestamp, so proof.json, visual-proof.json and
       // every stage record share one prefix and the hub/desktop readers can match a run's proof to
       // its stage records by name.
-      const writer = beginRun(deps.repoPath, adapter.taskId(task), undefined, {
+      const writer = beginRun(deps.repoPath, runTaskId, undefined, {
         secretEnvVars: credentials.keyEnvNames,
         ...(deps.startedBy !== undefined ? { startedBy: deps.startedBy } : {}),
       });
@@ -706,11 +701,11 @@ async function runSourcedIssueAttempt(
         markerWrites = markerWrites.then(async () => {
           if (event.type === 'stage-start') {
             await writeStageMarker(deps.repoPath, {
-              taskId: adapter.taskId(task), stage: event.name, index: event.index, of: event.of,
+              taskId: runTaskId, stage: event.name, index: event.index, of: event.of,
               updatedAt: new Date().toISOString(),
             });
           } else if (event.type === 'run-end' || event.type === 'run-error' || event.type === 'run-cancelled') {
-            await clearStageMarker(deps.repoPath, adapter.taskId(task));
+            await clearStageMarker(deps.repoPath, runTaskId);
           }
         }).catch(() => undefined);
         deps.onEvent?.(event);
@@ -721,7 +716,7 @@ async function runSourcedIssueAttempt(
         const stopped: StageOutcome = {
           name: outcomes.some((outcome) => outcome.name === activeStage) ? `after-${activeStage}` : activeStage,
           result: {
-            taskId: task.id,
+            taskId: runTaskId,
             completed: false,
             exitReason: 'error',
             turns: 0,
@@ -738,7 +733,7 @@ async function runSourcedIssueAttempt(
       };
       onEvent({
         type: 'run-start',
-        taskId: adapter.taskId(task),
+        taskId: runTaskId,
         ...runMeta,
         stages: pipeline.map((s) => s.name),
       });
@@ -764,7 +759,7 @@ async function runSourcedIssueAttempt(
             `taskcell: ${task.id} base branch is red — \`${verifyCmd}\` already fails on ${ctx.baseBranch}@${ctx.startRef.slice(0, 7)} (exit ${baselineVerify.exitCode}); stopping before implementing instead of starting a repair loop.`,
           );
           console.log(redactForPublish(renderVerificationFeedback(baselineVerify)));
-          if (!whiteLabel) await adapter.signalBaseRed(issueRef, task, baseRedBlock(ctx.baseBranch, ctx.startRef, baselineVerify));
+          if (!whiteLabel) await tracker.signalBaseRed(issueRef, task, baseRedBlock(ctx.baseBranch, ctx.startRef, baselineVerify));
           await writer.writeProof(baselineVerify, { baseRed: true });
           await stepSummary('base-red', {});
           onEvent({ type: 'run-end' });
@@ -775,7 +770,7 @@ async function runSourcedIssueAttempt(
       // reviewer prompt, so it must see the same task.
       const variables = {
         ...taskToVariables(task, { allowedAuthors: deps.feedbackAuthors }),
-        ...(adapter.variables?.(issueRef, task) ?? {}),
+        ...(tracker.variables?.(issueRef, task) ?? {}),
         RETROSPECTIVE_MEMORY: escapePromptTags(retrospectiveMemory),
       };
       // Deterministic spec-manifest vs diff conformance gate, joined with the verify command into a
@@ -887,7 +882,7 @@ async function runSourcedIssueAttempt(
         await stepSummary('secret-blocked');
         // White-label runs keep the automation invisible in the client repo: no secret-blocked label,
         // no branded comment. The operator still gets the masked findings on stderr + run record.
-        if (!whiteLabel) await adapter.signalSecretBlock(issueRef, task, block);
+        if (!whiteLabel) await tracker.signalSecretBlock(issueRef, task, block);
         onEvent({ type: 'run-end', secretBlocked: true });
         return { task, secretBlocked: true };
       };
@@ -975,7 +970,7 @@ async function runSourcedIssueAttempt(
           console.error(`taskcell: re-review of the final diff failed for ${task.id} — publishing as a draft with an incomplete review: ${redactForPublish(String(error))}`);
           reviewUnavailable = true;
           rereviewed = {
-            taskId: task.id,
+            taskId: runTaskId,
             completed: false,
             exitReason: 'incomplete',
             turns: 0,
@@ -1021,7 +1016,7 @@ async function runSourcedIssueAttempt(
       const prBodyGapBlock = prBodyGapWarningBlock(delivered.missingPrBody);
       const partial = !gatePassed || untrustedManifestDropped || !delivered.pass;
       const baseBody = reviewRequestBody(task.id, {
-        closeIssueOnMerge: !!adapter.closeIssueOnMerge,
+        closeIssueOnMerge: !!tracker.closeIssueOnMerge,
         ...(untrustedManifestDropped ? { untrustedManifest: true } : {}),
         ...(manifest !== undefined ? { conformance: delivered, manifest } : {}),
         ...(verificationFailed ? { verificationFailed: true } : {}),
@@ -1045,7 +1040,7 @@ async function runSourcedIssueAttempt(
         // White-label additionally lower-cases the subject and caps the header at 100 chars so a target
         // repo's commitlint passes.
         commitMessage: whiteLabel
-          ? conventionalCommitMessage(task.title, adapter.taskId(task), { bugLabel })
+          ? conventionalCommitMessage(task.title, runTaskId, { bugLabel })
           : `${conventionalPrTitle(task.title, { bugLabel, ...(scope !== undefined ? { scope } : {}) })} (${task.id})`,
         ...(deps.commitAuthor !== undefined ? { commitAuthor: deps.commitAuthor } : {}),
         ...(partial ? { closingKeywordScan: true } : {}),
@@ -1127,7 +1122,7 @@ async function runSourcedIssueAttempt(
       // human review relies on (GATE_CONFIG_REVIEW_INSTRUCTION keys off it), so a failed flip is
       // reported rather than handing back an unflagged PR for review.
       if (configPaths.length > 0) await host.addGateConfigLabel(pr.prUrl);
-      if (!whiteLabel) await adapter.linkPr(issueRef, task, pr.prUrl);
+      if (!whiteLabel) await tracker.linkPr(issueRef, task, pr.prUrl);
       onEvent({ type: 'run-end', prUrl: pr.prUrl });
       return { task, prUrl: pr.prUrl, ...(verificationFailed ? { verificationFailed: true } : {}) };
     } catch (error) {
@@ -1161,7 +1156,7 @@ async function runSourcedIssueAttempt(
         console.error('retrospective memory refresh failed (non-fatal):', err);
       });
       await markerWrites;
-      await clearStageMarker(deps.repoPath, adapter.taskId(task)).catch(() => undefined);
+      await clearStageMarker(deps.repoPath, runTaskId).catch(() => undefined);
     }
   } finally {
     await session.close();
