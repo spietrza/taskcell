@@ -11,8 +11,8 @@ import { resolveVerifyCommand, runVerification } from '../pipeline/verify.js';
 import { resolveBaselineVerify } from '../pipeline/baseline-verify.js';
 import { resolveAndRunVisualProof } from '../pipeline/visual-proof.js';
 import { loadRetrospectiveMemory } from '../core/retrospective-memory.js';
-import { pickRunOptions, runSourcedIssue, conventionalCommitMessage, modelFromLabels, runCredentialContext } from './source-adapter.js';
-import type { RunIssueDeps, SourceAdapter } from './source-adapter.js';
+import { pickRunOptions, runSourcedIssue as runWith, conventionalCommitMessage, modelFromLabels, runCredentialContext } from './source-adapter.js';
+import type { RunIssueDeps, Tracker, ReviewHost } from './source-adapter.js';
 import { extractPrBodyItemsBlock } from '../pipeline/conformance-gate.js';
 import { readCooldowns } from '../core/model-pool.js';
 import type { Task } from '../tasks/fetcher.js';
@@ -247,8 +247,13 @@ function stageOutcome(name: string, sessionId?: string): StageOutcome {
   };
 }
 
+/** One fake standing in for both seams: the tracker and the review host. */
+type SourceAdapter = Tracker & ReviewHost;
+const runSourcedIssue = (issueRef: string, deps: RunIssueDeps, adapter: SourceAdapter): ReturnType<typeof runWith> => runWith(issueRef, deps, adapter, adapter);
+
 function fakeAdapter(order: string[], stages: PipelineStage[]): SourceAdapter {
   return {
+    kind: 'gh',
     prepare: vi.fn(async () => ({ task })),
     taskId: () => 'gl-1',
     stages: () => stages,
@@ -1717,7 +1722,7 @@ describe('runSourcedIssue', () => {
 
   it('records gate-config paths on a local delivery', async () => {
     wmDiff.mockResolvedValue('diff --git a/vitest.config.ts b/vitest.config.ts\n--- a/vitest.config.ts\n+++ b/vitest.config.ts\n@@ -1 +1 @@\n-old\n+new\n');
-    const adapter = { ...fakeAdapter([], STAGES), delivery: 'local' as const };
+    const adapter = { ...fakeAdapter([], STAGES), kind: 'local' as const };
     const result = await runSourcedIssue('group/project#1', { repoPath: '/repo' }, adapter);
     expect(result.prUrl).toBeUndefined();
     expect((writeStages.mock.calls.at(-1) as unknown[] | undefined)?.[1]).toEqual(expect.objectContaining({ configPaths: ['vitest.config.ts'] }));

@@ -2,10 +2,12 @@ import { describe, it, expect, vi } from 'vitest';
 vi.mock('../tasks/github.js', async (importOriginal) => ({
   ...(await importOriginal<typeof import('../tasks/github.js')>()),
   addPrGateLabel: vi.fn(async () => {}),
+  addPrFailureLabel: vi.fn(async () => {}),
 }));
-import { addPrGateLabel } from '../tasks/github.js';
-import { githubAdapter, sameRepoTasks } from './github.js';
-import { GITHUB_GATE_CONFIG_LABEL, GITHUB_SECRET_BLOCKED_LABEL } from '../github-labels.js';
+import { addPrFailureLabel, addPrGateLabel } from '../tasks/github.js';
+import { publishReviewVerdict } from '../pipeline/review-publish.js';
+import { githubTracker, githubReviewHost, sameRepoTasks } from './github.js';
+import { GITHUB_GATE_CONFIG_LABEL, GITHUB_SECRET_BLOCKED_LABEL, GITHUB_VERIFY_FAILED_LABEL } from '../github-labels.js';
 import type { RunGithubIssueDeps } from './github.js';
 import type { GhRunner } from '../tasks/github.js';
 import type { Task } from '../tasks/fetcher.js';
@@ -26,10 +28,10 @@ function makeGh(failOn?: (args: string[]) => boolean): { gh: GhRunner; calls: st
 
 const task: Task = { id: 'owner/repo#7', title: 't', description: '', labels: [], children: [], comments: [] };
 
-describe('githubAdapter', () => {
+describe('githubTracker', () => {
   it('signalSecretBlock creates the secret-blocked label before adding it, and posts the masked comment', async () => {
     const { gh, calls } = makeGh();
-    const adapter = githubAdapter(makeDeps(), gh);
+    const adapter = githubTracker(makeDeps(), gh);
 
     await adapter.signalSecretBlock('owner/repo#7', task, {
       reason: 'findings',
@@ -48,7 +50,7 @@ describe('githubAdapter', () => {
 
   it('signalSecretBlock never throws: a failed label create still attempts the add and the comment', async () => {
     const { gh, calls } = makeGh((args) => args[0] === 'label');
-    const adapter = githubAdapter(makeDeps(), gh);
+    const adapter = githubTracker(makeDeps(), gh);
 
     await expect(adapter.signalSecretBlock('owner/repo#7', task, { reason: 'scan-error', message: 'gitleaks missing' })).resolves.toBeUndefined();
 
@@ -58,14 +60,42 @@ describe('githubAdapter', () => {
 
   it('signalSecretBlock never throws when every gh call fails', async () => {
     const { gh } = makeGh(() => true);
-    const adapter = githubAdapter(makeDeps(), gh);
+    const adapter = githubTracker(makeDeps(), gh);
 
     await expect(adapter.signalSecretBlock('owner/repo#7', task, { reason: 'scan-error', message: 'x' })).resolves.toBeUndefined();
   });
 
+  it('taskId sanitises the issue ref to a gh- prefix and the issue closes on merge', () => {
+    const tracker = githubTracker(makeDeps());
+    expect(tracker.taskId(task)).toBe('gh-owner-repo-7');
+    expect(tracker.closeIssueOnMerge).toBe(true);
+  });
+
+  it('signalBaseRed comments only, and never throws', async () => {
+    const { gh, calls } = makeGh((a) => a[0] === 'issue');
+    await expect(githubTracker(makeDeps(), gh).signalBaseRed('owner/repo#7', task, 'base is red')).resolves.toBeUndefined();
+    expect(calls).toHaveLength(1);
+    expect(calls[0]?.slice(0, 2)).toEqual(['issue', 'comment']);
+  });
+});
+
+describe('githubReviewHost', () => {
+  it('opens PRs with gh and posts the verdict through the shared publisher', () => {
+    const host = githubReviewHost('/repo');
+    expect(host.kind).toBe('gh');
+    expect(host.publishVerdict).toBe(publishReviewVerdict);
+  });
+
+  it('addFailureLabel labels the PR with the GitHub label for the proof kind', async () => {
+    vi.mocked(addPrFailureLabel).mockClear();
+    await githubReviewHost('/repo').addFailureLabel('https://github.com/owner/repo/pull/7', 'verify');
+
+    expect(addPrFailureLabel).toHaveBeenCalledWith('/repo', 'https://github.com/owner/repo/pull/7', GITHUB_VERIFY_FAILED_LABEL);
+  });
+
   it('addGateConfigLabel flags the PR with the gate-config label', async () => {
     vi.mocked(addPrGateLabel).mockClear();
-    await githubAdapter(makeDeps()).addGateConfigLabel('https://github.com/owner/repo/pull/7');
+    await githubReviewHost('/repo').addGateConfigLabel('https://github.com/owner/repo/pull/7');
 
     expect(addPrGateLabel).toHaveBeenCalledWith('/repo', 'https://github.com/owner/repo/pull/7', GITHUB_GATE_CONFIG_LABEL);
   });
@@ -73,7 +103,7 @@ describe('githubAdapter', () => {
   it('addGateConfigLabel is not best-effort: a failed flip rejects rather than leaving the PR unflagged', async () => {
     vi.mocked(addPrGateLabel).mockRejectedValueOnce(new Error('gh: 403'));
 
-    await expect(githubAdapter(makeDeps()).addGateConfigLabel('https://github.com/owner/repo/pull/7')).rejects.toThrow('gh: 403');
+    await expect(githubReviewHost('/repo').addGateConfigLabel('https://github.com/owner/repo/pull/7')).rejects.toThrow('gh: 403');
   });
 });
 
