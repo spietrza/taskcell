@@ -1,5 +1,59 @@
 # Changelog
 
+## [1.16.1](https://github.com/spietrza/taskcell/compare/v1.16.0...v1.16.1) (2026-11-16)
+
+
+### Features
+
+* 1.16.0 review: small follow-ups (spietrza/taskcell[#1113](https://github.com/spietrza/taskcell/issues/1113)) ([#1133](https://github.com/spietrza/taskcell/issues/1133)) ([c615234](https://github.com/spietrza/taskcell/commit/c6152340026e9ca6a437022af57412ee574973a9))
+* 1.16.0 review: small follow-ups (spietrza/taskcell[#1113](https://github.com/spietrza/taskcell/issues/1113)) ([#1146](https://github.com/spietrza/taskcell/issues/1146)) ([40eeb26](https://github.com/spietrza/taskcell/commit/40eeb267842ac7d4ce937e3714498ed7de45799f))
+* CLI: each command declares its own options; help generated from them (spietrza/taskcell[#1171](https://github.com/spietrza/taskcell/issues/1171)) ([#1175](https://github.com/spietrza/taskcell/issues/1175)) ([2c8634e](https://github.com/spietrza/taskcell/commit/2c8634edf58314bbba34a26d4031322d604f3b5b))
+* CodeQL: fix or dismiss the open high alerts in base-branch.ts and copy-back.ts (spietrza/taskcell[#1153](https://github.com/spietrza/taskcell/issues/1153)) ([#1155](https://github.com/spietrza/taskcell/issues/1155)) ([ee2665c](https://github.com/spietrza/taskcell/commit/ee2665c27e0c0afa5bc8dcb44f4e0b14d19c5570))
+* Codex cost estimate: persisted cachedInInput, CI partial marker, attempt merge (follow-ups from the [#1056](https://github.com/spietrza/taskcell/issues/1056) review) (spietrza/taskcell[#1059](https://github.com/spietrza/taskcell/issues/1059)) ([#1139](https://github.com/spietrza/taskcell/issues/1139)) ([1ec3474](https://github.com/spietrza/taskcell/commit/1ec3474d37b8ccbab05f32fe4a97d82d20d7645b))
+* credentials: one credential context per run (spietrza/taskcell[#1149](https://github.com/spietrza/taskcell/issues/1149)) ([#1150](https://github.com/spietrza/taskcell/issues/1150)) ([768351c](https://github.com/spietrza/taskcell/commit/768351c9d9fa49d3c5eca0650889af8a00b58807))
+* delivery: compute the delivered change's facts once (spietrza/taskcell[#1148](https://github.com/spietrza/taskcell/issues/1148)) ([#1151](https://github.com/spietrza/taskcell/issues/1151)) ([65b348f](https://github.com/spietrza/taskcell/commit/65b348f6d4a8d1a6fd179e7076ca080c68a33967))
+* desktop demo: refuse writes from the command policy, not a hand list (spietrza/taskcell[#1169](https://github.com/spietrza/taskcell/issues/1169)) ([#1176](https://github.com/spietrza/taskcell/issues/1176)) ([08338eb](https://github.com/spietrza/taskcell/commit/08338eb8bc4acae4df7ef13306a57d4b217f69ec))
+* desktop: delete the Tauri invoke transport branch (spietrza/taskcell[#1111](https://github.com/spietrza/taskcell/issues/1111)) ([#1132](https://github.com/spietrza/taskcell/issues/1132)) ([6e9c88f](https://github.com/spietrza/taskcell/commit/6e9c88f33b3b808b108f0bab813825d510a5a6e9))
+* docker: pin the same CLI versions in hub and runner images (spietrza/taskcell[#1165](https://github.com/spietrza/taskcell/issues/1165)) ([#1167](https://github.com/spietrza/taskcell/issues/1167)) ([7dfc945](https://github.com/spietrza/taskcell/commit/7dfc945f8e353dc2e48dc4d13e9300e17fc6f66f))
+* Follow-ups left from [#967](https://github.com/spietrza/taskcell/issues/967) (scorecard rename, picker drives, runs search, stats calls) (spietrza/taskcell[#1031](https://github.com/spietrza/taskcell/issues/1031)) ([#1145](https://github.com/spietrza/taskcell/issues/1145)) ([5dad33d](https://github.com/spietrza/taskcell/commit/5dad33db7d52629d12ee8c17490ba09570688e81))
+* hub skills: tests for add/remove PRs, #ref, ls-remote cost, update permissions (follow-ups from the [#1035](https://github.com/spietrza/taskcell/issues/1035) review) (spietrza/taskcell[#1058](https://github.com/spietrza/taskcell/issues/1058)) ([#1140](https://github.com/spietrza/taskcell/issues/1140)) ([e43026b](https://github.com/spietrza/taskcell/commit/e43026b572ccd967e2d6d65143c19cd04812d589))
+* hub tasks: store cost and archive, owner re-check gaps, accept a verify-failed result (from [#1011](https://github.com/spietrza/taskcell/issues/1011) item 5 and the [#1053](https://github.com/spietrza/taskcell/issues/1053) review) (spietrza/taskcell[#1057](https://github.com/spietrza/taskcell/issues/1057)) ([#1143](https://github.com/spietrza/taskcell/issues/1143)) ([e8a6609](https://github.com/spietrza/taskcell/commit/e8a660918d520fc0261e1d0057759b24b6c03f34))
+* hub: enforce command policy at dispatch, not in each handler (spietrza/taskcell[#1108](https://github.com/spietrza/taskcell/issues/1108)) ([#1141](https://github.com/spietrza/taskcell/issues/1141)) ([77c9c7f](https://github.com/spietrza/taskcell/commit/77c9c7ff58c0f8599b84d56638ad7e2d824a2ca3))
+* hub: per-project flow, so models set in the Workflow editor drive Hub and factory runs (spietrza/taskcell[#1126](https://github.com/spietrza/taskcell/issues/1126)) ([#1136](https://github.com/spietrza/taskcell/issues/1136)) ([d60e767](https://github.com/spietrza/taskcell/commit/d60e7670e4547500cea4ba6de72416f8bb720dc1))
+* hub: put the caller's capabilities on the wire and gate the UI on them (spietrza/taskcell[#1110](https://github.com/spietrza/taskcell/issues/1110)) ([#1138](https://github.com/spietrza/taskcell/issues/1138)) ([ddb0915](https://github.com/spietrza/taskcell/commit/ddb0915f7bb6381bf934d7a013ec3b9f5e01987c))
+* LLM proxy Codex plan: wider sanitiser, order test, one control-char regex (follow-ups from the [#1060](https://github.com/spietrza/taskcell/issues/1060) review) (spietrza/taskcell[#1063](https://github.com/spietrza/taskcell/issues/1063)) ([#1144](https://github.com/spietrza/taskcell/issues/1144)) ([69e294d](https://github.com/spietrza/taskcell/commit/69e294d8acac572320cae613d6bd39c36d50b793))
+* metrics branch: cheaper stale-lock path, lock vs absent branch (follow-ups from the [#1032](https://github.com/spietrza/taskcell/issues/1032) review) (spietrza/taskcell[#1049](https://github.com/spietrza/taskcell/issues/1049)) ([#1142](https://github.com/spietrza/taskcell/issues/1142)) ([dd2925a](https://github.com/spietrza/taskcell/commit/dd2925a6ea0b41b8a4653f9d262bf0dbfb97c9d4))
+* model pools per stage: weighted rotation across providers, skip out-of-quota models, then fallback (spietrza/taskcell[#1131](https://github.com/spietrza/taskcell/issues/1131)) ([#1154](https://github.com/spietrza/taskcell/issues/1154)) ([590b2c4](https://github.com/spietrza/taskcell/commit/590b2c48e7bde848c2d9c31b1897993b51dc9fbe))
+* revise-pr.ts: replace the raw NUL byte that hides the file from grep (spietrza/taskcell[#1170](https://github.com/spietrza/taskcell/issues/1170)) ([#1173](https://github.com/spietrza/taskcell/issues/1173)) ([3bd1143](https://github.com/spietrza/taskcell/commit/3bd1143fb187afa4f795a5103ceab4a078bafe90))
+* runners: one agent-session module instead of six hand-built copies (spietrza/taskcell[#1172](https://github.com/spietrza/taskcell/issues/1172)) ([#1178](https://github.com/spietrza/taskcell/issues/1178)) ([a9ee447](https://github.com/spietrza/taskcell/commit/a9ee44713aeb49b274780e081a835d823c8e4962))
+* skills: hub gets the PR result from a core module, not by parsing CLI output (spietrza/taskcell[#1112](https://github.com/spietrza/taskcell/issues/1112)) ([#1134](https://github.com/spietrza/taskcell/issues/1134)) ([9eb40a7](https://github.com/spietrza/taskcell/commit/9eb40a731b62a383b04a862181d1421793380ce6))
+* tasks: one dependency gate for GitHub, GitLab and Linear (spietrza/taskcell[#1109](https://github.com/spietrza/taskcell/issues/1109)) ([#1137](https://github.com/spietrza/taskcell/issues/1137)) ([d6a3542](https://github.com/spietrza/taskcell/commit/d6a35429660a2253b757d5bd13f004d2977675c1))
+* watch: move per-source primitives to their source modules (spietrza/taskcell[#1147](https://github.com/spietrza/taskcell/issues/1147)) ([#1152](https://github.com/spietrza/taskcell/issues/1152)) ([4cc4172](https://github.com/spietrza/taskcell/commit/4cc4172b3b7c7d29ca5cc7e9c2d2dc9a3dfc85fd))
+
+
+### Bug Fixes
+
+* move workflow token permissions to job level; an implement caller must now grant actions: read (spietrza/taskcell[#1122](https://github.com/spietrza/taskcell/issues/1122)) ([0016470](https://github.com/spietrza/taskcell/commit/0016470be04ec3dd5f77d5cc17cffe904b855d82))
+* MR reviewer gets read-only tools like the PR reviewer ([#1184](https://github.com/spietrza/taskcell/issues/1184)) ([b8eb285](https://github.com/spietrza/taskcell/commit/b8eb285415e7135a4237fe8656be46dcfbe0e20a))
+* one review run per labelled PR so none is dropped ([#1166](https://github.com/spietrza/taskcell/issues/1166)) ([7f2d4c7](https://github.com/spietrza/taskcell/commit/7f2d4c7dba31f5aac289647e868a5b0e6cca80cb))
+* raise the review turn cap to 30 for Opus on large PRs ([#1156](https://github.com/spietrza/taskcell/issues/1156)) ([10db1ca](https://github.com/spietrza/taskcell/commit/10db1cadf90a91d6b5a58ce196a40bb709d887c7))
+* review-mr and research respect the usage cap (spietrza/taskcell[#1168](https://github.com/spietrza/taskcell/issues/1168)) ([967ccdc](https://github.com/spietrza/taskcell/commit/967ccdc3c454513cd3f28ab8cbae9885726bef1f))
+* revise: count bullets under a bold numbered finding as its detail, not as separate blocking items (spietrza/taskcell[#1157](https://github.com/spietrza/taskcell/issues/1157)) ([78dd45e](https://github.com/spietrza/taskcell/commit/78dd45e2e36c0d1572209ab37f465095b4306c6d))
+* run the verify gate in a non-login shell ([#1180](https://github.com/spietrza/taskcell/issues/1180)) ([#1182](https://github.com/spietrza/taskcell/issues/1182)) ([73638a6](https://github.com/spietrza/taskcell/commit/73638a64206a5a6af74f114410f2729f00278e38))
+
+
+### Documentation
+
+* note the review turn cap ([#1159](https://github.com/spietrza/taskcell/issues/1159)) ([4c0008a](https://github.com/spietrza/taskcell/commit/4c0008a6b4b468ebf3cb12f51ea7e97241218002))
+* publish the internal security review summary ([#1179](https://github.com/spietrza/taskcell/issues/1179)) ([286c7a7](https://github.com/spietrza/taskcell/commit/286c7a78c1fe9c409ef0a9718e0e87a43332197c))
+* static Observatory badge in README ([#1163](https://github.com/spietrza/taskcell/issues/1163)) ([cee2f4a](https://github.com/spietrza/taskcell/commit/cee2f4a7f54ce4ba0391dfd14639ace74be38dbd))
+
+
+### Code Refactoring
+
+* finish the Tracker rename, one task id for synthetic stages ([#1190](https://github.com/spietrza/taskcell/issues/1190)) ([31821a7](https://github.com/spietrza/taskcell/commit/31821a79f562da04569d2a6e4cabd756b4cc5c28))
+* split SourceAdapter into Tracker and ReviewHost ([#1177](https://github.com/spietrza/taskcell/issues/1177)) ([8e19f9f](https://github.com/spietrza/taskcell/commit/8e19f9f88286a6a7d4937b94992a19641928f840))
+
 ## [1.16.0](https://github.com/spietrza/taskcell/compare/v1.15.3...v1.16.0) (2026-11-15)
 
 
