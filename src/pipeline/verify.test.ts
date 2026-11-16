@@ -1,10 +1,11 @@
 import { describe, it, expect, beforeEach, afterEach } from 'vitest';
-import { mkdtemp, rm, writeFile } from 'node:fs/promises';
+import { chmod, mkdir, mkdtemp, rm, writeFile } from 'node:fs/promises';
+import { execFile } from 'node:child_process';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { createHash } from 'node:crypto';
 import type { IsolatedSandboxProvider, ExecResult } from '../sandbox/provider.js';
-import { resolveVerifyCommand, runVerification, renderVerificationFeedback, proofBlock, extractFirstErrorLines, failingTaskName } from './verify.js';
+import { CLEAN_INSTALL_SCRIPT, resolveVerifyCommand, runVerification, renderVerificationFeedback, proofBlock, extractFirstErrorLines, failingTaskName } from './verify.js';
 
 // ---------------------------------------------------------------------------
 // Fake sandbox
@@ -208,7 +209,48 @@ describe('runVerification', () => {
     const calls: unknown[] = [];
     const sandbox = { exec: async (_c: string, o?: unknown): Promise<ExecResult> => { calls.push(o); return { stdout: '', stderr: '', exitCode: 0 }; } } as unknown as IsolatedSandboxProvider;
     await runVerification(sandbox, 'pnpm test');
-    expect(calls).toContainEqual(expect.objectContaining({ loginShell: false }));
+    expect(calls.length).toBeGreaterThan(0);
+    for (const o of calls) expect(o).toMatchObject({ loginShell: false });
+  });
+
+  describe('clean install before the gate (#1183)', () => {
+    // A sandbox that really runs commands in tmpDir/ws, with a fake `pnpm` that "installs" a failing test binary.
+    async function localSandbox(installOk: boolean): Promise<IsolatedSandboxProvider> {
+      const bin = join(tmpDir, 'fakebin');
+      await mkdir(bin, { recursive: true });
+      await writeFile(join(bin, 'pnpm'), installOk
+        ? '#!/bin/sh\nmkdir -p node_modules/.bin && printf "#!/bin/sh\\nexit 1\\n" > node_modules/.bin/runner && chmod +x node_modules/.bin/runner\n'
+        : '#!/bin/sh\necho registry unreachable >&2\nexit 7\n');
+      await chmod(join(bin, 'pnpm'), 0o755);
+      return {
+        exec: (command: string): Promise<ExecResult> => new Promise((resolve) => {
+          execFile('sh', ['-c', command], { cwd: join(tmpDir, 'ws'), env: { ...process.env, PATH: `${bin}:${process.env['PATH'] ?? ''}` } }, (err, stdout, stderr) => {
+            resolve({ stdout, stderr, exitCode: err === null ? 0 : (typeof err.code === 'number' ? err.code : 1) });
+          });
+        }),
+      } as unknown as IsolatedSandboxProvider;
+    }
+    async function plantForgedBinary(): Promise<void> {
+      await mkdir(join(tmpDir, 'ws/node_modules/.bin'), { recursive: true });
+      await writeFile(join(tmpDir, 'ws/pnpm-lock.yaml'), 'lockfileVersion: 9\n');
+      await writeFile(join(tmpDir, 'ws/node_modules/.bin/runner'), '#!/bin/sh\nexit 0\n');
+      await chmod(join(tmpDir, 'ws/node_modules/.bin/runner'), 0o755);
+    }
+
+    it('a planted node_modules/.bin binary that exits 0 does not turn a failing verify into PASS', async () => {
+      await plantForgedBinary();
+      const result = await runVerification(await localSandbox(true), 'node_modules/.bin/runner');
+      expect(result.passed).toBe(false);
+      expect(result.exitCode).toBe(1);
+    });
+
+    it('fails closed with a clear message when the install fails', async () => {
+      await plantForgedBinary();
+      const result = await runVerification(await localSandbox(false), 'node_modules/.bin/runner');
+      expect(result.passed).toBe(false);
+      expect(result.exitCode).toBe(7);
+      expect(result.outputTail).toContain('Clean dependency install from the lockfile failed');
+    });
   });
 
   it('returns passed=false and non-zero exitCode on failure', async () => {
@@ -378,6 +420,7 @@ describe('OOM evidence after a failed verify', () => {
     let i = 0;
     return {
       exec: async (cmd: string) => {
+        if (cmd === CLEAN_INSTALL_SCRIPT) return { stdout: '', stderr: '', exitCode: 0 };
         if (!cmd.includes('memory.events')) return { stdout: '', stderr: 'EPIPE', exitCode: code };
         const c = counters[Math.min(i++, counters.length - 1)] as string | Error;
         if (c instanceof Error) throw c;
