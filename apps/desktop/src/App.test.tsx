@@ -192,7 +192,7 @@ test('a rail Running entry clicked from Settings opens the live run', async () =
   // The live run view reads the run's session; the runs list never does.
   await waitFor(() => expect(cmds).toContain('read_session'));
   await new Promise((r) => setTimeout(r, 50));
-  expect(screen.getByText('running')).toBeInTheDocument();
+  expect(screen.getAllByText('running').length).toBeGreaterThan(0);
 });
 
 test('a rail Running entry clicked from an open run detail opens the live run, on every click', async () => {
@@ -213,7 +213,8 @@ test('a rail Running entry clicked from an open run detail opens the live run, o
     await waitFor(() => expect(crumbs()).toHaveTextContent(`RUN${p.path}`));
     expect(crumbs()).not.toHaveTextContent(run.taskId);
     expect(screen.getAllByText('running').length).toBeGreaterThan(0);
-    expect(screen.queryAllByText('passed')).toEqual([]);
+    // The list's own "passed" pill is a button; no status chip says passed for the live run.
+    expect(screen.queryAllByText('passed', { selector: ':not(button)' })).toEqual([]);
   }
 });
 

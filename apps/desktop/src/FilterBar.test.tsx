@@ -83,8 +83,8 @@ test('Board and Runs apply the same filter and group', async () => {
   expect(screen.getByRole('region', { name: 'b' })).toBeInTheDocument();
   board.unmount();
   render(<RunList runs={runs} active={[]} hub={f} onHub={() => {}} projects={repos} onSelect={() => {}} onOpenActive={() => {}} />);
-  expect(screen.getByText('gh-1', { selector: 'td' })).toBeInTheDocument();
-  expect(screen.queryByText('gl-2', { selector: 'td' })).toBeNull();
+  expect(screen.getByText('gh-1')).toBeInTheDocument();
+  expect(screen.queryByText('gl-2')).toBeNull();
 });
 
 test('a grouped Board with no matching card says so, and a grouped Runs table has lane rows', async () => {
@@ -100,8 +100,8 @@ test('a grouped Board with no matching card says so, and a grouped Runs table ha
   bySource.unmount();
   const runs = [{ taskId: 'gh-1', timestamp: 't', stages: [], totalCostUsd: 0, anyFailed: false }, { taskId: 'gl-2', timestamp: 't2', stages: [], totalCostUsd: 0, anyFailed: false }];
   render(<RunList runs={runs} active={[]} hub={{ ...DEFAULT_FILTER, group: 'source' }} onHub={() => {}} onSelect={() => {}} onOpenActive={() => {}} />);
-  expect(screen.getByText('GitHub', { selector: 'td' })).toBeInTheDocument();
-  expect(screen.getByText('GitLab', { selector: 'td' })).toBeInTheDocument();
+  expect(screen.getByText('GitHub', { selector: 'li' })).toBeInTheDocument();
+  expect(screen.getByText('GitLab', { selector: 'li' })).toBeInTheDocument();
 });
 
 test('Escape closes the Projects popup and returns focus to its button', () => {

@@ -15,15 +15,6 @@ test('renders a selectable row per run with task id and failure marker', () => {
   expect(screen.getAllByText('failed').length).toBeGreaterThan(0);
 });
 
-test('shows who started a run only when some run has startedBy', () => {
-  const base: RunSummary = { taskId: 'task-7', timestamp: '2026-07-06T19:12:02.123Z', stages: ['implement'], totalCostUsd: 0.1, anyFailed: false };
-  const { rerender } = render(<RunList runs={[base]} active={[]} onSelect={noop} onOpenActive={noop} />);
-  expect(screen.queryByText('Started by')).toBeNull();
-  rerender(<RunList runs={[{ ...base, startedBy: 'alice' }]} active={[]} onSelect={noop} onOpenActive={noop} />);
-  expect(screen.getByText('Started by')).toBeInTheDocument();
-  expect(screen.getByText('alice')).toBeInTheDocument();
-});
-
 test('renders in-flight runs as a running row', () => {
   const active: ActiveRun[] = [{ taskId: 'task-live', sessionFile: '/x.jsonl', lastActivityMs: Date.now() }];
   render(<RunList runs={[]} active={active} onSelect={noop} onOpenActive={noop} />);
@@ -97,13 +88,13 @@ test('rows are keyboard stops: Enter opens a run, a CI-only row is not one', () 
   const onOpenActive = vi.fn();
   const active: ActiveRun[] = [{ taskId: 'task-live', sessionFile: '/x.jsonl', lastActivityMs: Date.now() }];
   render(<RunList runs={[run, { ...run, taskId: 'task-ci', source: 'ci' }]} active={active} onSelect={onSelect} onOpenActive={onOpenActive} />);
-  const row = screen.getByText('task-7').closest('tr')!;
+  const row = screen.getByText('task-7').closest('li')!;
   expect(row).toHaveAttribute('tabindex', '0');
   fireEvent.keyDown(row, { key: 'Enter' });
   expect(onSelect).toHaveBeenCalledWith(run);
-  fireEvent.keyDown(screen.getByText('task-live').closest('tr')!, { key: ' ' });
+  fireEvent.keyDown(screen.getByText('task-live').closest('li')!, { key: ' ' });
   expect(onOpenActive).toHaveBeenCalledWith(active[0]);
-  expect(screen.getByText('task-ci').closest('tr')).not.toHaveAttribute('tabindex');
+  expect(screen.getByText('task-ci').closest('li')).not.toHaveAttribute('tabindex');
 });
 
 test('the result pills say "All results", so Runs has one "All" (triage) beside the shared filter bar', () => {

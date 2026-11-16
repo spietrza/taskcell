@@ -92,8 +92,8 @@ test('a run started from the Board shows its live strip on Runs; the rail\'s Run
   results.list_active = [{ taskId: 'gh-7', sessionFile: '/s', lastActivityMs: Date.now() }];
   results.read_session = { entries: [], inputTokens: 0, outputTokens: 0, cacheReadTokens: 0, estCostUsd: 0 };
   fireEvent.click(screen.getByRole('button', { name: 'Reload' }));
-  fireEvent.click(await screen.findByText('gh-7', { selector: 'td' }));
-  await waitFor(() => expect(screen.queryByText('gh-7', { selector: 'td' })).toBeNull());
+  fireEvent.click(await screen.findByText('Seven'));
+  // The run opens in the pane beside the list; the toolbar chip is the strip's alone.
+  expect(await screen.findByRole('region', { name: 'Run gh-7' })).toBeInTheDocument();
   expect(screen.getByText('running — view')).toBeInTheDocument();
-  expect(screen.queryByText('running')).toBeNull();
 });

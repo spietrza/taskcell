@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState } from 'react';
-import { Button, Chip, PAGE_CLASS, Timestamp, cn } from '@/ui';
+import { Button, Chip, PAGE_CLASS, cn } from '@/ui';
 import { ArrowLeft, FilePlus, RefreshCw } from 'lucide-react';
 import { canUseFleet, isDemoMode, subscribe, onStreamReset } from '../../transport';
 import { DEMO_READ_ONLY_MESSAGE } from '../../errors';
@@ -7,6 +7,8 @@ import {
   listRuns,
   listRunsAll,
   listActive,
+  listTasks,
+  listTasksAll,
   readRun,
   watchProject,
   unwatchProject,
@@ -20,7 +22,9 @@ import {
   type Capabilities,
   type CreateRunParams,
 } from '../../ipc';
-import { RunList } from './RunList';
+import { RunList, activeKey, runKey } from './RunList';
+import { RunPane } from './RunPane';
+import { issueNumber, titleKey } from '../../runLabels';
 import { CostBreakdown } from './CostBreakdown';
 import { ConflictStats } from './ConflictStats';
 import { RunDetail } from './RunDetail';
@@ -129,8 +133,14 @@ export function Inspector({
     if (!detail) openRef.current = null;
   }, [detail]);
 
+  // Task titles from the board, for the Runs rows (a run record has none). Best effort: a failed read leaves the task ids.
+  const [titles, setTitles] = useState<Map<string, string>>(new Map());
+  // Wide screens open a run by themselves, once per visit: the running one, else the newest finished one.
+  const autoPicked = useRef(false);
+
   // Rail navigation drops any open drill-down.
   useEffect(() => {
+    autoPicked.current = false;
     setDetail(null);
     setLiveRun(null);
     setTaskDetailId(null);
@@ -166,6 +176,7 @@ export function Inspector({
   useEffect(() => {
     if (clearNonce === seenClear.current) return;
     seenClear.current = clearNonce;
+    autoPicked.current = true;
     setDetail(null);
     setLiveRun(null);
     setTaskDetailId(null);
@@ -208,6 +219,7 @@ export function Inspector({
 
   const load = async (): Promise<void> => {
     setError(null);
+    autoPicked.current = false;
     setDetail(null);
     setLiveRun(null);
     setLoading(true);
@@ -244,6 +256,34 @@ export function Inspector({
     void load();
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [project, allRepos, teamId]);
+
+  const taskCount = runs.length + active.length;
+  useEffect(() => {
+    if (screen !== 'runs') return;
+    let alive = true;
+    const read = allRepos
+      ? listTasksAll(teamId).then((r) => r.tasks)
+      : listTasks(project).then((r) => r.tasks.map((t) => ({ ...t, repoPath: project })));
+    read
+      .then((tasks) => alive && setTitles(new Map(tasks.map((t) => [titleKey(t.repoPath, t.id), t.title]))))
+      .catch(() => {});
+    return () => {
+      alive = false;
+    };
+  }, [screen, project, allRepos, teamId, taskCount]);
+
+  useEffect(() => {
+    if (screen !== 'runs' || loading || autoPicked.current || detail || liveRun || typedRun !== null) return;
+    // Narrow screens show the list first: a run opens only when the user picks it.
+    if (window.matchMedia?.('(max-width: 767px)').matches) return;
+    const a = active[0];
+    const r = runs.find((x) => x.source !== 'ci');
+    if (!a && !r) return;
+    autoPicked.current = true;
+    if (a) setLiveRun(a);
+    else if (r) void open(r);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [screen, loading, runs, active]);
 
   // The listener is registered once, so it reaches the latest render's `refresh` through a ref.
   const refreshRef = useRef(refresh);
@@ -443,7 +483,9 @@ export function Inspector({
     setError(null);
     const ref: RunRef = { source, taskId: r.taskId, timestamp: r.timestamp };
     try {
-      setDetail(await readRun(repo, ref));
+      const d = await readRun(repo, ref);
+      setLiveRun(null);
+      setDetail(d);
       setDetailRepo(repo);
       openRef.current = { ref, repo };
     } catch (e) {
@@ -451,8 +493,20 @@ export function Inspector({
     }
   };
 
-  const detailPassed =
-    detail && (detail.proof ? detail.proof.passed : !detail.stages.some((s) => !s.record.completed));
+  // Narrow screens: the pane's back button. The list stays on screen after it, so nothing is picked for the user again.
+  const closeRun = (): void => {
+    autoPicked.current = true;
+    setDetail(null);
+    setLiveRun(null);
+  };
+  const openActive = (a: ActiveRun & Partial<RepoStamp>): void => {
+    setDetail(null);
+    setLiveRun(a);
+  };
+  const repoNameOf = (path: string): string | undefined => projects.find((p) => p.path === path)?.name;
+  const titleOf = (repo: string, taskId: string): string | undefined => titles.get(titleKey(repo, taskId));
+  const selectedKey = detail ? runKey(detailRepo, detail.taskId, detail.timestamp) : liveRun ? activeKey(liveRun.repoPath ?? project, liveRun.taskId) : undefined;
+  const cancelRun = (runId: string): void => (isDemoMode() ? setError(DEMO_READ_ONLY_MESSAGE) : void apiCancel(runId));
 
   return (
     // Fixed-height frame: chrome (toolbar / banners) is shrink-0; the content region below owns scroll.
@@ -462,11 +516,11 @@ export function Inspector({
         'flex h-full min-h-0 flex-col gap-4',
         PAGE_CLASS,
         // The board's columns scroll sideways, so it (and the task screen) drop the width cap only.
-        (screen === 'board' || screen === 'task') && 'max-w-none',
+        (screen === 'board' || screen === 'task' || screen === 'runs') && 'max-w-none',
       )}
     >
       {screen === 'runs' && (
-      <div className="flex shrink-0 flex-wrap items-center gap-3">
+      <div className={cn('flex shrink-0 flex-wrap items-center gap-3', (detail !== null || liveRun !== null) && 'max-md:hidden')}>
         {watching && (
           <span className="flex items-center gap-1 text-xs text-muted-foreground" title="Watching .taskcell for changes">
             <span className="size-2 animate-pulse rounded-full bg-success" />
@@ -475,9 +529,6 @@ export function Inspector({
         )}
 
         <div className="ml-auto flex flex-wrap items-center justify-end gap-3">
-          {detail && <Timestamp ms={Date.parse(detail.timestamp)} className="tabular-nums text-xs text-muted-foreground" />}
-          {/* One chip: the minimized strip's "running — view" already says a run is live. */}
-          {liveRun && !(typedRun !== null && stripMinimized && typedRun.terminal === undefined) && <Chip color="success" variant="outlined">running</Chip>}
           {typedRun !== null && stripMinimized && (
             <button
               onClick={() => setStripMinimized(false)}
@@ -489,7 +540,6 @@ export function Inspector({
               </Chip>
             </button>
           )}
-          {detail && <Chip color={detailPassed ? 'success' : 'destructive'}>{detailPassed ? 'passed' : 'failed'}</Chip>}
           {/* S10 (D3): the toolbar path to the provider form is gone — runs start from the board
               (TaskDetail keeps the only setShowNewRun entry). Authoring starts here instead. */}
           <Button
@@ -551,11 +601,12 @@ export function Inspector({
             onCancel={() => (isDemoMode() ? setError(DEMO_READ_ONLY_MESSAGE) : void apiCancel(typedRun.runId))}
           />
         </div>
-      ) : detail ? (
+      ) : detail && screen !== 'runs' ? (
+        // A CI run imported from Settings opens as the plain detail; on Runs the record is the split view's right pane.
         <div ref={detailRef} tabIndex={-1} className="flex min-h-0 flex-1 flex-col outline-none">
           <RunDetail detail={detail} project={detailRepo} />
         </div>
-      ) : liveRun ? (
+      ) : liveRun && screen !== 'runs' ? (
         <div className="flex min-h-0 flex-1 flex-col">
           <LiveRun active={liveRun} refreshKey={tick} budgetUsd={cfg.budgetUsd} />
         </div>
@@ -582,7 +633,29 @@ export function Inspector({
           <RepoFailures failures={failures} total={projects.length} />
           {!allRepos && <CostBreakdown project={project} />}
           {!allRepos && <ConflictStats repoPath={project} refreshKey={tick} />}
-          <RunList runs={runs} active={active} showRepo={allRepos} hub={filter} onHub={onFilter} projects={allRepos ? projects : []} onSelect={open} onOpenActive={setLiveRun} onNewTask={onNewTask} />
+          <RunList
+            runs={runs}
+            active={active}
+            showRepo={allRepos}
+            hub={filter}
+            onHub={onFilter}
+            projects={allRepos ? projects : []}
+            onSelect={open}
+            onOpenActive={openActive}
+            onNewTask={onNewTask}
+            selected={selectedKey}
+            titles={titles}
+            paneOpen={detail !== null || liveRun !== null}
+            pane={
+              detail ? (
+                <RunPane key={selectedKey} repo={detailRepo} repoName={repoNameOf(detailRepo)} taskId={detail.taskId} title={titleOf(detailRepo, detail.taskId)} issue={issueNumber(detail.taskId)} detail={detail} tick={tick} onBack={closeRun} onCancel={cancelRun} />
+              ) : liveRun ? (
+                <RunPane key={selectedKey} repo={liveRun.repoPath ?? project} repoName={liveRun.repoName ?? repoNameOf(liveRun.repoPath ?? project)} taskId={liveRun.taskId} title={titleOf(liveRun.repoPath ?? project, liveRun.taskId)} issue={issueNumber(liveRun.taskId)} active={liveRun} tick={tick} onBack={closeRun} onCancel={cancelRun} />
+              ) : (
+                <div className="grid h-full place-items-center text-sm text-muted-foreground">Select a run to see its stages and log.</div>
+              )
+            }
+          />
         </div>
       ) : screen === 'board' ? (
         <TaskBoard
