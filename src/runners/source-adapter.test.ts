@@ -255,6 +255,7 @@ const runSourcedIssue = (issueRef: string, deps: RunIssueDeps, adapter: SourceAd
 function fakeAdapter(order: string[], stages: PipelineStage[]): SourceAdapter {
   return {
     kind: 'gh',
+    newPrTarget: (pr) => ({ kind: 'new-pr', ...pr, cli: 'gh' }),
     prepare: vi.fn(async () => ({ task })),
     taskId: () => 'gl-1',
     stages: () => stages,
@@ -1726,7 +1727,7 @@ describe('runSourcedIssue', () => {
 
   it('records gate-config paths on a local delivery', async () => {
     wmDiff.mockResolvedValue('diff --git a/vitest.config.ts b/vitest.config.ts\n--- a/vitest.config.ts\n+++ b/vitest.config.ts\n@@ -1 +1 @@\n-old\n+new\n');
-    const adapter = { ...fakeAdapter([], STAGES), kind: 'local' as const };
+    const adapter = { ...fakeAdapter([], STAGES), kind: 'local' as const, newPrTarget: () => ({ kind: 'local-branch' as const }) };
     const result = await runSourcedIssue('group/project#1', { repoPath: '/repo' }, adapter);
     expect(result.prUrl).toBeUndefined();
     expect((writeStages.mock.calls.at(-1) as unknown[] | undefined)?.[1]).toEqual(expect.objectContaining({ configPaths: ['vitest.config.ts'] }));

@@ -25,6 +25,7 @@ describe('hubReviewHost', () => {
   test('without a GitHub origin the result stays a local branch and nothing is labelled or posted', async () => {
     const host = hubReviewHost('/repos/app', undefined);
     expect(host.kind).toBe('local');
+    expect(host.newPrTarget({ title: 't', body: () => 'b' })).toEqual({ kind: 'local-branch' });
     await expect(host.addGateConfigLabel('https://example/pr/1')).resolves.toBeUndefined();
     await expect(host.addFailureLabel('https://example/pr/1', 'verify')).resolves.toBeUndefined();
   });
