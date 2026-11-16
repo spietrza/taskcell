@@ -33,7 +33,7 @@
     GITLAB_HOST: $CI_SERVER_HOST
     TASKCELL_REF: v1
     GLAB_VERSION: "1.50.0"
-    PNPM_VERSION: "10.32.1"
+    PNPM_VERSION: "10.34.9"
   before_script:
     # Keep the credentials out of the environment of apt, curl, npm and the build. before_script and
     # script share one shell, so each job puts them back right before the Taskcell command.
