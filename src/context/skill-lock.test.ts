@@ -149,7 +149,7 @@ describe('skills flags', () => {
   it.each([['--dir', '/s'], ['--strict']])('rejects %s outside skills', (...flag) => {
     expect(parseCli(['run', '--linear', 'TES-1', ...flag], '/work')).toEqual({
       kind: 'error',
-      message: `${flag[0]} is only supported with skills.`,
+      message: `run does not accept ${flag[0]}; see \`taskcell run --help\`.`,
     });
   });
 });

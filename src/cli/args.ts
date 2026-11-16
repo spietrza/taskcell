@@ -12,6 +12,8 @@ import { namedSkillsProblem, normalizeSkillNames } from '../context/named-skills
 import { GITHUB_CLAIMED_LABEL, GITHUB_REVIEW_LABEL, GITHUB_SPEC_CLAIMED_LABEL } from '../github-labels.js';
 import { readEnv } from '../core/env.js';
 import { parseSince } from '../core/skill-stats.js';
+import { KNOWN_OPTIONS, GLOBAL_OPTION_TYPES, findCommand } from './commands.js';
+import type { CommandDecl } from './commands.js';
 
 type WatchSource = 'linear' | 'github' | 'project' | 'gitlab';
 
@@ -375,7 +377,8 @@ export type Command =
   | { kind: 'complete' }
   | { kind: 'hub'; repoPath: string; host: string; port: number; uiDir?: string; open: boolean; allowedHosts?: string[]; tokenFile?: string; adminGithubLogins?: string[]; demo?: boolean }
   | { kind: 'hub-rotate-token'; tokenFile: string }
-  | { kind: 'help' }
+  /** Print help: one command's usage when `command` is set (`taskcell <command> --help`), else the full text. */
+  | { kind: 'help'; command?: string }
   | { kind: 'error'; message: string };
 
 /** The repo-configured provider-name grammar (S6, mirrors custom.ts) — every built-in matches too. */
@@ -532,197 +535,63 @@ function parseCommitAuthor(raw: string | boolean | undefined): { name: string; e
   return { name, email };
 }
 
+/** Hidden entrypoints (__sidecar, __complete): no options besides --help, so they are not in the generated help. */
+const HIDDEN_COMMAND: CommandDecl = { name: '', summary: '', options: { help: { type: 'boolean', help: '' } } };
+
+/**
+ * The command word: the first argument that is not an option or an option's value (options may precede it).
+ * `--pr skills` is the one value-looking pair read the other way, as skills' boolean `--pr` before its command.
+ */
+function commandWord(argv: string[]): string | undefined {
+  for (let i = 0; i < argv.length; i++) {
+    const arg = argv[i]!;
+    if (arg === '--') return argv[i + 1];
+    if (!arg.startsWith('-')) return arg;
+    const flag = arg.startsWith('--') && !arg.includes('=') ? arg.slice(2) : undefined;
+    if (flag !== undefined && GLOBAL_OPTION_TYPES.get(flag) === 'string' && !(flag === 'pr' && argv[i + 1] === 'skills')) i++;
+  }
+  return undefined;
+}
+
 /**
  * Parse argv (without the node/script prefix) into a typed command. Pure: cwd is passed in so this is
  * unit-testable. Unknown options or a missing/unknown command resolve to `help`; invalid flag
  * combinations for a recognised command resolve to `error` with an actionable message.
  */
 export function parseCli(argv: string[], cwd: string): Command {
+  const name = commandWord(argv);
+  const decl = findCommand(name) ?? (name === '__sidecar' || name === '__complete' ? HIDDEN_COMMAND : undefined);
+  if (decl === undefined) return { kind: 'help' };
   let values: Record<string, string | boolean | undefined>;
   let allowedHosts: string[] | undefined;
   let adminGithubLogins: string[] | undefined;
   let skills: string[] = [];
   let positionals: string[];
   try {
-    // `--pr` is boolean only on `skills`, and `--skills` is boolean only on `stats`. Lenient passes find
-    // the parsed command (options may precede it), then the strict pass uses that command's option types.
-    // Running `--pr` both ways preserves a leading `--pr skills ...`, where its string form swallows the command.
-    const parseWith = (skillsCommand: boolean, statsCommand: boolean, strict: boolean): ReturnType<typeof parseArgs> => parseArgs({
+    const parsed = parseArgs({
       args: argv,
-      strict,
       allowPositionals: true,
-      options: {
-        // gc
-        repo: { type: 'string' },
-        'max-age-hours': { type: 'string' },
-        remote: { type: 'string' },
-        'dry-run': { type: 'boolean' },
-        apply: { type: 'boolean' },
-        abandoned: { type: 'boolean' },
-        // run
-        linear: { type: 'string' },
-        github: { type: 'string' },
-        gitlab: { type: 'string' },
-        'github-pr': { type: 'string' },
-        'gitlab-project': { type: 'string' },
-        mr: { type: 'string' },
-        project: { type: 'string' },
-        source: { type: 'string' },
-        parent: { type: 'boolean' },
-        'gc-before': { type: 'boolean' },
-        egress: { type: 'boolean' },
-        'llm-proxy': { type: 'boolean' },
-        reuse: { type: 'boolean' },
-        skills: { type: statsCommand ? 'boolean' : 'string' },
-        'github-repo': { type: 'string' },
-        'trigger-labels': { type: 'string' },
-        label: { type: 'string' },
-        'reviewing-label': { type: 'string' },
-        'reviewed-label': { type: 'string' },
-        author: { type: 'string' },
-        concurrency: { type: 'string' },
-        // watch-prs: review this PR even when the label-filtered scan misses it
-        pr: { type: skillsCommand ? 'boolean' : 'string' },
-        // watch-prs: with a pinned PR, review only it (per-PR CI concurrency groups, #1070)
-        'pinned-only': { type: 'boolean' },
-        // watch: run only this GitHub issue instead of sweeping every ready issue
-        issue: { type: 'string' },
-        // watch
-        team: { type: 'string' },
-        'trigger-state': { type: 'string' },
-        'trigger-state-name': { type: 'string' },
-        'claimed-state': { type: 'string' },
-        'review-state': { type: 'string' },
-        interval: { type: 'string' },
-        once: { type: 'boolean' },
-        'max-tasks': { type: 'string' },
-        fix: { type: 'boolean' },
-        'loop-v1': { type: 'boolean' },
-        // watch loop-v1
-        'spec-label': { type: 'string' },
-        'spec-file': { type: 'string' },
-        skill: { type: 'string', multiple: true },
-        'feedback-authors': { type: 'string' },
-        'agent-label': { type: 'string' },
-        'needs-info-label': { type: 'string' },
-        'spec-claimed-label': { type: 'string' },
-        'spec-state': { type: 'string' },
-        'spec-state-name': { type: 'string' },
-        'agent-state': { type: 'string' },
-        'needs-info-state': { type: 'string' },
-        'spec-claimed-state': { type: 'string' },
-        'spec-model': { type: 'string' },
-        'spec-only': { type: 'boolean' },
-        // provider selection (run + watch)
-        provider: { type: 'string' },
-        'review-provider': { type: 'string' },
-        'fallback-provider': { type: 'string' },
-        // stop starting work at this % of the provider's plan window (run, watch, watch-prs); 1-100
-        'usage-cap': { type: 'string' },
-        'fallback-model': { type: 'string' },
-        // model selection per stage (run + watch)
-        'provider-model': { type: 'string' },
-        'review-model': { type: 'string' },
-        // model for the 2nd+ gate repair — escalate only once the cheap model has demonstrably failed
-        'escalate-model': { type: 'string' },
-        // fork-variant scorer: 'llm' (one-shot agent verdict, default) or 'decision' (decision model)
-        'fork-scorer': { type: 'string' },
-        // skip the simplifier stage (lean run: implement -> review only)
-        'no-simplify': { type: 'boolean' },
-        // conformance review pass (opt-in; planner-tier model checks diff against spec)
-        conformance: { type: 'boolean' },
-        'conformance-model': { type: 'string' },
-        // git author for the commit (run + watch); default `Taskcell <vanguard@local>`
-        'commit-author': { type: 'string' },
-        // run a dedicated opus planning stage before implement/review (run + watch)
-        plan: { type: 'boolean' },
-        // named workflow selection (run + watch); a FLOWS registry key, e.g. flow-b. --plan == --flow plan
-        flow: { type: 'string' },
-        // base branch to branch off and target the PR at (run + watch); default main
-        base: { type: 'string' },
-        // opt-in overrides to let a single run finish a large task (run + watch)
-        'max-turns': { type: 'string' },
-        'max-repair-iterations': { type: 'string' },
-        // fork-and-select (run)
-        fork: { type: 'string' },
-        // proof-of-work verification (run + watch)
-        verify: { type: 'string' },
-        'visual-proof': { type: 'string' },
-        // opt-in persistent pnpm store, one per repo (run + watch); see docs/cli.md
-        'pnpm-store': { type: 'boolean' },
-        // research
-        web: { type: 'boolean' },
-        'research-model': { type: 'string' },
-        // revise-pr
-        'max-rounds': { type: 'string' },
-        // stats / memory / metrics
-        json: { type: 'boolean' },
-        // stats --approver: the shadow-verdict-vs-human scorecard instead of the cost/token rollup
-        approver: { type: 'boolean' },
-        // stats --branch / metrics push --branch: the orphan branch that holds durable metrics
-        branch: { type: 'string' },
-        limit: { type: 'string' },
-        // approve
-        mode: { type: 'string' },
-        // eval
-        'judge-model': { type: 'string' },
-        'produce-model': { type: 'string' },
-        // eval --suggest
-        suggest: { type: 'boolean' },
-        out: { type: 'string' },
-        since: { type: 'string' },
-        // skills list|check|add|remove|update
-        dir: { type: 'string' },
-        path: { type: 'string' },
-        name: { type: 'string' },
-        strict: { type: 'boolean' },
-        force: { type: 'boolean' },
-        // audit verify|export
-        stream: { type: 'string' },
-        until: { type: 'string' },
-        format: { type: 'string' },
-        'config-dir': { type: 'string' },
-        // history
-        offline: { type: 'boolean' },
-        markdown: { type: 'boolean' },
-        // eval --baseline
-        baseline: { type: 'string' },
-        'max-drop': { type: 'string' },
-        'allow-corpus-change': { type: 'boolean' },
-        'save-baseline': { type: 'boolean' },
-        // hub
-        port: { type: 'string' },
-        host: { type: 'string' },
-        'ui-dir': { type: 'string' },
-        'no-open': { type: 'boolean' },
-        demo: { type: 'boolean' },
-        'token-file': { type: 'string' },
-        // removed (approve): accepted by the parser only so it is refused by name below instead of printing help
-        'review-run-id': { type: 'string' },
-        'allowed-host': { type: 'string', multiple: true },
-        'admin-github-login': { type: 'string', multiple: true },
-        help: { type: 'boolean' },
-      },
+      options: Object.fromEntries(Object.entries(decl.options).map(([key, o]) => [key, { type: o.type, ...(o.multiple === true ? { multiple: true } : {}) }])),
     });
-    // The command is found with `--skills` as the string it is everywhere else, so `--skills stats run …`
-    // still names a directory; only an argv whose command is `stats` gets the boolean.
-    const statsCommand = parseWith(false, false, false).positionals[0] === 'stats';
-    if (statsCommand && argv.some((arg) => arg.startsWith('--skills='))) return fail('stats --skills takes no value.');
-    const skillsCommand = !statsCommand && (parseWith(false, false, false).positionals[0] === 'skills' || parseWith(true, false, false).positionals[0] === 'skills');
-    const parsed = parseWith(skillsCommand, statsCommand, true);
-    // `--skills <value> stats`: the strict pass shifts the value into the command slot; refuse instead of running it.
-    if (statsCommand && parsed.positionals[0] !== 'stats') return fail('stats --skills takes no value.');
     const { 'allowed-host': hosts, 'admin-github-login': admins, skill, ...singleValues } = parsed.values as Record<string, string | boolean | string[] | undefined>;
     allowedHosts = hosts as string[] | undefined;
     adminGithubLogins = admins as string[] | undefined;
     skills = parseNamedSkills(skill) ?? [];
     values = singleValues as Record<string, string | boolean | undefined>;
     positionals = parsed.positionals;
-  } catch {
+  } catch (error) {
+    // A flag another command declares is refused by name; a typo or a malformed value prints help.
+    const message = error instanceof Error ? error.message : '';
+    const unknown = /Unknown option '--([^'=]+)/.exec(message)?.[1];
+    if (unknown !== undefined && KNOWN_OPTIONS.has(unknown)) return fail(`${decl.name} does not accept --${unknown}; see \`taskcell ${decl.name} --help\`.`);
+    const valued = /Option '--([^' ]+)' does not take an argument/.exec(message)?.[1];
+    if (valued !== undefined) return fail(`${decl.name} --${valued} takes no value.`);
     return { kind: 'help' };
   }
 
-  if (values.help === true) return { kind: 'help' };
+  if (values.help === true) return decl === HIDDEN_COMMAND ? { kind: 'help' } : { kind: 'help', command: decl.name };
+  // An option before the command that takes a value elsewhere swallows its neighbour: `--skills ./d stats`.
+  if (positionals[0] !== name) return fail(`${decl.name}: "${positionals[0] ?? ''}" is not the command; put options after \`${decl.name}\`.`);
 
   // Hidden desktop entrypoint: a persistent stdio JSON server (not a documented subcommand). Takes no
   // flags; parsed before provider validation so it never touches the run/watch surface.
@@ -733,18 +602,9 @@ export function parseCli(argv: string[], cwd: string): Command {
 
   const repoPath = typeof values.repo === 'string' ? values.repo : cwd;
 
-  // An unknown option prints help and exits 0, so a workflow still passing this one would end green having decided nothing.
+  // Declared (approve only) so it is refused by name here: help would exit 0 and a workflow still passing it would end green having decided nothing.
   if (values['review-run-id'] !== undefined) {
     return fail('--review-run-id was removed: act mode reads the run stamp on the review itself. Drop the flag.');
-  }
-
-  // The option table is shared, so every other command would accept --spec-only and silently do its full work.
-  if (values['spec-only'] === true && positionals[0] !== 'watch' && positionals[0] !== 'doctor') {
-    return fail('--spec-only is only supported with watch and doctor.');
-  }
-  if (skills.length > 0 && positionals[0] !== 'run' && positionals[0] !== 'watch') return fail('--skill is only supported with run.');
-  for (const flag of ['dir', 'strict', 'path', 'name', 'force']) {
-    if (values[flag] !== undefined && positionals[0] !== 'skills') return fail(`--${flag} is only supported with skills.`);
   }
 
   // Provider flags. run/watch/doctor also accept repo-configured custom provider names (S6): those
@@ -1538,11 +1398,6 @@ export function parseCli(argv: string[], cwd: string): Command {
         );
       }
     }
-    // The single-task flags (RunOnlyKey + --fork): on watch each would be a silent no-op or a spurious failure.
-    if (values['fork-scorer'] !== undefined) return fail(`--fork-scorer applies to \`run --fork <n>\` only; ${commandKind} does not fork.`);
-    if (values.fork !== undefined) return fail(`--fork applies to run only; ${commandKind} does not fork.`);
-    if (values['spec-file'] !== undefined) return fail(`--spec-file applies to a single-issue run only; ${commandKind} has no single issue to attach it to.`);
-    if (skills.length > 0) return fail(`--skill applies to a single-issue run only; ${commandKind} names no one task. Put a "Skills: a, b" line in the issue body instead.`);
     type WatchCommon = Omit<Extract<Command, { kind: 'watch' }>, 'kind' | 'concurrency' | 'intervalMs' | 'once' | 'egress'>;
     const common: WatchCommon = {
       source,
@@ -1595,441 +1450,4 @@ export function parseCli(argv: string[], cwd: string): Command {
   return { kind: 'help' };
 }
 
-/** Option lines run and watch print verbatim — one source, so the two usage blocks cannot drift either. */
-const SHARED_RUN_OPTIONS_USAGE = `    --provider <claude|codex|cursor|zai|openrouter|meridian>          Provider that runs every stage (default: claude)
-                           run/watch/doctor also accept a custom provider name from the repo's
-                           .taskcell/app.json customProviders (S6) — direct mode only.
-    --review-provider <claude|codex|cursor|zai|openrouter|meridian>   Run only the review stage on this provider (cross-provider review)
-    --fallback-provider <name>  Retry on this provider when the primary one fails (outage, limit, revoked credential) — the implementer and every other stage on its provider; must sit on a different transport (e.g. codex for a claude implementer); a comma list (codex,cursor) is a fallback chain after the model pool
-    --fallback-model <model>    Model for every stage that fell back (default: that provider's default); a comma list pairs with --fallback-provider's
-    --usage-cap <pct>        Stop starting tasks/stages once the provider's plan window is at/over this % (1-100; env TASKCELL_USAGE_CAP_PCT; default: no cap)
-    --provider-model <m>     Model for the implementer/simplifier stages (default: provider's default; zai -> glm-5.2), or a pool
-                             of weighted provider/model entries rotated per task: claude/sonnet:3,codex/gpt-5.6-sol:1 (see docs/cli.md)
-    --review-model <m>       Model for the review stage (default: provider's default), or a pool as for --provider-model
-    --escalate-model <m>     Model for the 2nd and later gate repairs, once a repair on the implementer
-                             model has failed (default: stay on the implementer model)
-    --no-simplify            Skip the simplifier stage (lean: implement -> review only)
-    --verify <cmd>           Verification command for Proof of Work (overrides TASKCELL_VERIFY_CMD and auto-detect)
-    --visual-proof <cmd>     Visual proof command for UI artifacts (overrides TASKCELL_VISUAL_PROOF_CMD)
-    --conformance            Run the conformance pass (planner-tier model checks diff against spec; opt-in)
-    --conformance-model <m>  Model for the conformance stage (default: same as implementer; 'opus' for planner-tier)
-    --commit-author <a>      Git author for the commit, "Name <email>" (also enables white-label mode: feat/<n> branch, no Taskcell branding/review comment)
-    --plan                   Add a dedicated planning stage first (opus, high effort) before implement/review
-    --flow <name>            Run a named workflow (e.g. flow-b: plan -> implement -> adversary -> repair). --plan == --flow plan`;
-
-/** Printed after each section's own --base/--max-turns lines. */
-const MAX_REPAIR_ITERATIONS_USAGE = '    --max-repair-iterations <n> Override the conformance/verify repair loop-back cap (default: 2)';
-
-export const USAGE = `taskcell <command>
-
-Commands:
-  run    Run an agent on a task and open a draft PR for review.
-  watch  Poll Linear or GitHub and run each newly-ready issue automatically (the AFK factory loop).
-  doctor Check whether watch can run AFK before any issue is claimed.
-  review-pr Review an existing GitHub PR and post a non-blocking Taskcell review comment.
-  revise-pr Read human review feedback on a Taskcell draft PR, apply fixes, and hand it back ready to merge.
-  watch-prs Poll GitHub PRs by label and run the non-blocking Taskcell review loop.
-  doctor-prs Check whether watch-prs can run AFK before any PR is claimed.
-  review-mr Review an existing GitLab MR and post a non-blocking Taskcell review comment.
-  watch-mrs Poll GitLab MRs by label and run the non-blocking Taskcell review loop.
-  doctor-mrs Check whether watch-mrs can run AFK before any MR is claimed.
-  stats  Aggregate .taskcell/runs/metrics.jsonl into a cost/token/time rollup (per task, per stage,
-         per model, probe); --branch reads the durable copy from the metrics branch instead.
-         --approver prints the shadow approver scorecard instead (verdict vs human outcome).
-  metrics push  Append this checkout's metrics.jsonl lines to the orphan taskcell-metrics branch and
-         push, so an ephemeral CI run leaves a durable trace (idempotent; needs push rights).
-  approve Compute a deterministic APPROVE/ESCALATE decision for a factory PR from typed facts and the
-         base-branch policy; publish a neutral check run + PR comment and record the decision
-         (shadow mode, the default, never merges, approves, or edits labels; --mode act merges, see docs/autonomous-loop.md).
-  skills list | check  List skills with source, short commit and status (pinned, local, modified), or check each
-         pinned source's default branch head (current, outdated, unknown; --strict exits 1 on outdated or
-         modified); --dir <skills dir> (default <repo>/skills); see docs/skills.md.
-  skills add <git-url>[#ref] [--path <dir>] [--name <name>] | remove <name> | update [name] [--dry-run] [--pr] [--force]
-         Pin a skill from an https git source, remove one, or move pinned skills to their source's head
-         (--pr opens a PR with the SKILL.md diff instead of editing in place; --force when the pinned
-         commit can no longer be fetched); all take --dir <skills dir>; see docs/skills.md.
-  audit verify | export  Check the hash chains of the audit streams (hub, run-events, metrics, decisions,
-         lessons) or export them with --since/--until as jsonl or csv; see docs/audit.md.
-  history <owner/repo#N>  One issue's history over the audit streams (trigger, runs, reviews, approver,
-         merge) with actor and source per entry, and whether the chains verify; --json; see docs/audit.md.
-  memory Refresh .taskcell/memory/retrospective.md from run artifacts and print it.
-  lessons record  Distil 0-3 lessons from a closed factory PR or GitLab MR (one cheap model call; none for a clean
-         first-round merge), append them to lessons.jsonl on the metrics branch and comment them on
-         the PR. Later runs read the relevant ones into their retrospective memory.
-  lessons list | dismiss <id>  Show the live lessons, or dismiss a wrong one so no run gets it again.
-  eval   Run the committed eval corpus and print a per-kind pass-rate report; --baseline gates the run
-         against a saved result instead of an absolute number, --save-baseline publishes one.
-  migrate-labels Rename a repo's old vanguard:* labels to taskcell:*: --github-repo <owner/repo>;
-         dry-run by default, --apply renames. The old names stay recognised either way. "ready for vanguard review"
-         becomes "ready for taskcell review": every workflow gating on the old name must accept the new one first.
-  resume-rate-limited Re-apply the trigger label on issues/PRs a provider limit parked, once the reset passed, and on issues
-         parked as taskcell:waiting (unmet Depends on #N / native blocked-by, future Start: YYYY-MM-DD) once they are clear
-         (--trigger-labels a,b names custom triggers; --claimed-state, --review-state, --spec-claimed-label as given to watch).
-  gc     Reap stale sandbox containers, prune worktrees, and (with --remote) delete merged
-         remote chore/taskcell-* (or pre-rename chore/vanguard-*) branches.
-  hub    Serve the Inspector UI over HTTP/SSE (node:http), backed by a real .taskcell/ directory.
-         --token-file <path> (TASKCELL_HUB_TOKEN_FILE) keeps one token across restarts (created 0600 if missing);
-         "hub rotate-token --token-file <path>" writes a new one, picked up on the next restart.
-         --demo opens a read-only demo project on bundled sample data (no repo, remote or hub store is touched).
-
-  watch options (trigger = state/label + label):
-    --source <linear|github|project|gitlab>  Task source (default: linear)
-    --label <name>         Required for linear/github; optional label-filter for project
-    --team <KEY>           (linear) limit to a team
-    --github-repo <o/r>    (github/project) repo slug (default: detected from origin)
-    --project <number>     (project) GitHub Projects v2 project number (required with --source project)
-    --trigger-state <x>    Status option name for ready items (project default: "Todo";
-                           linear: state type, default "unstarted")
-    --trigger-state-name <x>
-                           Linear display state name matching --trigger-state; used to restore
-                           no-change issues (default for Linear single-pass: "Todo")
-    --claimed-state <x>    Status/label set on claim (project default: "In Progress";
-                           linear: state default "In Progress"; github: label "taskcell:running")
-    --review-state <x>     Status/label set after a PR opens (project default: "In Review";
-                           linear: "In Review"; github: "taskcell:needs-human-review")
-    --interval <seconds>   Poll interval (default: 60); --once does a single pass
-    --max-tasks <n>        Cap the ready tasks claimed and processed per poll, for each phase
-                           (spec, then agent); the rest stay unclaimed for the next poll
-                           (default: unlimited)
-    --issue <ref>          (--source github only) Run only this issue (owner/repo#n matching
-                           --github-repo, or a bare number) instead of sweeping every ready issue —
-                           same gates as the sweep (open state, labels, author trust, triage).
-                           Already claimed by another run? Skipped with a log line; that check is
-                           best effort, the claim itself is what catches a run that claimed in
-                           between. Implies --once. Without this flag, behaviour is unchanged (the
-                           sweep).
-    --loop-v1              Use Loop v1 defaults (GitHub labels "ready for spec"/"ready for agent"/
-                           "needs info"; Linear ownership label "vanguard", state type "triage",
-                           state name "Spec", needs-info state "Needs Info"). For GitHub, a repo-only
-                           watch without --label also uses the routing-label defaults.
-    --skills <dir> --repo <path> --concurrency <n> --egress   (as for run)
-${SHARED_RUN_OPTIONS_USAGE}
-    --base <branch>          Base branch to branch off and target the PR at; also the loop-v1 spec pass's research baseline (default: main)
-    --max-turns <n>            Override the implementer (or loop-v1 spec pass's tech-spec) stage turn cap (default: 30; opt-in, higher cost)
-${MAX_REPAIR_ITERATIONS_USAGE}
-    Note (project): Status option names must match the project's Status field exactly.
-      Resolve field and option IDs with: gh project field-list <number> --owner <owner> --format json
-
-  watch loop-v1 options (add --loop-v1 or any routing flag to activate; spec pass runs first each tick):
-    GitHub loop-v1 (--source github):
-      --spec-label <name>        Label that triggers the spec pass (e.g. "ready for spec")
-      --agent-label <name>       Label set after spec generation — the agent-pass trigger (e.g. "ready for agent")
-      --needs-info-label <name>  Label set when a ticket is too vague for spec or agent (e.g. "needs info")
-      --label <name>             OWNERSHIP label: issues must carry this label in addition to the routing label
-                                 (e.g. "vanguard"; optional for repo-scoped GitHub watch).
-                                 --claimed-state / --review-state still apply to the agent pass.
-      --spec-claimed-label <l>   Label the spec pass moves a claimed issue to while speccing
-                                 (default: "taskcell:speccing"); use this if your workspace uses a different label.
-
-    Linear loop-v1 (--source linear):
-      --spec-state <type>        State TYPE that triggers the spec pass (e.g. "triage")
-      --spec-state-name <name>   Display NAME of that state, for failure revert (e.g. "Spec")
-      --needs-info-state <name>  State NAME for tickets that are too vague (e.g. "Needs Info")
-      --agent-state <name>       State NAME the spec pass advances to (default: "Todo"); the agent
-                                 triggers on the TYPE given by --trigger-state (default: "unstarted")
-      --spec-claimed-state <s>   State NAME the spec pass moves a claimed issue to while speccing
-                                 (default: "Speccing"); use this if your workspace lacks that state.
-      (--label, --trigger-state, --claimed-state, --review-state still apply to the agent pass)
-
-    Shared:
-      --spec-model <m>           Cheap model for the spec-generation stage (e.g. "haiku")
-      --spec-only                Run only the spec pass each tick; never list, claim or run the agent pass
-                                 (works with --once; --max-tasks then caps the spec pass only). Flags only the
-                                 agent pass reads (--claimed-state, --review-state, --plan, --flow, ...) have no effect.
-                                 Review window: a spec-only job advances specced issues to a review state/label
-                                 (--agent-state/--agent-label), a human moves approved ones to the agent trigger,
-                                 and a separate single-pass watch builds them. --spec-only requires --agent-state
-                                 (Linear) or --agent-label (GitHub/GitLab) other than the default build trigger,
-                                 which would give no review window. Only the default is checked: Taskcell cannot
-                                 see a build job that triggers on another state or label. On Linear both passes
-                                 list issues by state type, so the review state's type must differ from the
-                                 --spec-state type (or it is specced again on every poll) and from the build job's
-                                 trigger type (unstarted by default). With the default --spec-state triage, use a
-                                 backlog-type review state. On GitHub/GitLab the build job's --label must be the
-                                 approval label a human applies (e.g. "ready for agent"), not the loop-v1 ownership
-                                 --label: the spec pass leaves that label on every issue, so a build job on it would
-                                 also build issues in review and issues not yet specced.
-
-    Example (GitHub, defaults):
-      taskcell watch --source github --github-repo owner/repo
-
-    Example (GitHub, custom labels/model):
-      taskcell watch --source github --github-repo owner/repo --label vanguard \\
-        --agent-label "ready for agent" --spec-label "ready for spec" \\
-        --needs-info-label "needs info" --spec-model haiku
-
-    Example (Linear, defaults):
-      taskcell watch --loop-v1 --label vanguard
-
-    Example (Linear, custom state names/model):
-      taskcell watch --loop-v1 --label vanguard --spec-state triage --spec-state-name Spec \\
-        --needs-info-state "Needs Info" --agent-state Todo --spec-model haiku
-
-  run options (exactly one source):
-    --linear <ID>          Run a Linear issue (reads it via the in-sandbox linear-cli skill)
-    --github <owner/repo#n> Run a GitHub issue
-    --gitlab <group/project#n> Run a GitLab issue
-    --project <number>     Run every issue on a GitHub Projects v2 board (one run + PR each)
-    --parent               (Linear) fan the issue's sub-tasks out, one run + PR each
-    --label <name>         (project) only run board items with this label
-    --gc-before            Reap stale sandboxes + prune worktrees before starting (clean slate)
-    --egress               Restrict sandbox egress to an allowlist (anthropic/github/linear/registries)
-    --llm-proxy            Hold the Anthropic credential in a trusted sidecar; the sandbox gets only a per-run nonce (implies --egress, Claude + Codex; Cursor stays direct)
-    --reuse                Reuse an existing chore/taskcell-<taskId>-* (or pre-rename chore/vanguard-) branch/worktree instead of minting a new run id
-    --repo <path>          Local git repo to work in (default: cwd)
-    --skills <dir>         Skills directory to inject (Linear: the linear-cli skill); the repo's .github/vanguard-skills/ is merged in
-    --github-repo <o/r>    GitHub repo slug (default: detected from origin)
-    --concurrency <n>      (parent/project) max tasks at once (default: 2)
-${SHARED_RUN_OPTIONS_USAGE}
-    --base <branch>          Base branch to branch off and target the PR at (default: main)
-    --max-turns <n>            Override the implementer stage turn cap (default: 30; opt-in, higher cost)
-${MAX_REPAIR_ITERATIONS_USAGE}
-    --fork <n>               Run the implementer as n variants (n>=2) and keep the best-scored diff
-    --fork-scorer <llm|decision>  How --fork variants are scored: a one-shot LLM verdict (default) or a
-                             decision model (clef; needs CLOUDFLARE_ACCOUNT_ID+CLOUDFLARE_AUTH_TOKEN or TASKCELL_DECISION_URL)
-    --feedback-authors <a,b> Extra GitHub/GitLab logins whose PR feedback and <spec_manifest>/<tech_spec> comments are trusted, beyond OWNER/MEMBER/COLLABORATOR and the issue author (pass the workflow's allowed-actors here)
-    --spec-file <file>       Inject a local spec file as a virtual issue comment (implementer + conformance read it; nothing is posted to the tracker)
-    --skill <id>             Load this installed skill for the run, on top of the automatic selection (repeatable; an unknown id fails the run before any model call, listing the installed skills)
-
-  review-pr options:
-    <url-or-number>        GitHub PR URL, owner/repo#number, or bare number with --github-repo
-    --github <ref>         PR ref (alternative to positional; same as spec/run/research)
-    --github-pr <n>        PR number (alternative to positional)
-    --github-repo <o/r>    Required for bare PR numbers
-    --provider <claude|codex|cursor|zai|openrouter|meridian>          Provider used for the PR review (default: claude)
-    --review-model <m>     Model for the PR review
-    --max-turns <n>        Agent CLI turn cap for the first review attempt (default: ${DEFAULT_REVIEW_MAX_TURNS}; opt-in, higher cost).
-                           Tool calls count as turns. The retry after an incomplete review gets 1.5x
-    --feedback-authors <a,b> Extra logins trusted beyond OWNER/MEMBER/COLLABORATOR as authors of the linked issue the review checks (pass the workflow's allowed-actors here)
-    --out <file>           Write the review to this local file instead of posting a PR comment (no trace on the tracker)
-    --egress --llm-proxy --skills <dir> --repo <path>  As for run/watch (--skills: the repo's .github/vanguard-skills/ is merged in)
-
-  research options:
-    <owner/repo#number>     GitHub issue to research
-    --github <ref>          Issue ref (alternative to positional)
-    --github-repo <o/r>     Required for bare issue numbers
-    --web                   Declare that web egress/search is available; otherwise comments say model-knowledge only
-    --research-model <m>    Model for the research pass
-    --commit-author <a>     White-label the comment (drop "Taskcell" heading/marker); the author value is unused
-    --provider <claude|codex|cursor|zai|openrouter|meridian>          Provider used for research (default: claude)
-    --egress --llm-proxy --repo <path>         As for run/watch
-
-  spec options:
-    <owner/repo#number>     GitHub issue to spec: researches the codebase read-only and posts a tech-spec comment on the issue. One-shot — no labels are read or written (unlike the watch spec pass)
-    --github <ref>          Issue ref (alternative to positional)
-    --github-repo <o/r>     Required for bare issue numbers
-    --spec-model <m>        Model for the tech-spec stage (e.g. a planner-tier model)
-    --max-turns <n>         Override the tech-spec stage turn cap (default: 30; opt-in, higher cost)
-    --base <branch>         Branch to research against — the "baseline" the spec is written from (default: main)
-    --out <file>            Write the spec to this local file instead of posting an issue comment (pairs with run --spec-file)
-    --commit-author <a>     White-label the comment (drop the "Taskcell" heading); the author value is unused
-    --provider <claude|codex|cursor|zai|openrouter|meridian>          Provider used for the spec pass (default: claude)
-    --egress --llm-proxy --skills <dir> --repo <path>  As for run/watch (--skills: the repo's .github/vanguard-skills/ is merged in)
-
-  revise-pr options:
-    <url-or-number>        GitHub PR URL, owner/repo#number, or bare number with --github-repo
-    --github <ref>         PR ref (alternative to positional; same as spec/run/review-pr)
-    --github-pr <n>        PR number (alternative to positional)
-    --commit-author <a>    White-label: author the revision commits as this identity and drop the "taskcell" token from the revision marker (for client repos)
-    --out <file>           Dry-run: write the diff + proposed thread replies to this file; push and comment NOTHING (review, then re-run without --out to apply)
-    --github-repo <o/r>    Required for bare PR numbers
-    --provider <claude|codex|cursor|zai|openrouter|meridian>          Provider for the implementer/review stages (default: claude)
-    --fallback-provider <name>  Retry on this provider when the primary one fails (outage, limit, revoked credential, rate limit) — must sit on a different transport
-    --fallback-model <model>    Model for every stage that fell back (default: that provider's default)
-    --provider-model <m>   Model for the implementer/simplifier stages, as for run (default: provider's default); a taskcell:model=<m> label on the issue the PR references overrides it
-    --review-model <m>     Model for the review stage
-    --feedback-authors <a,b> Extra GitHub/GitLab logins whose PR feedback and <spec_manifest>/<tech_spec> comments are trusted, beyond OWNER/MEMBER/COLLABORATOR and the issue author (pass the workflow's allowed-actors here)
-    --max-rounds <n>       Maximum revision rounds (default: 2)
-    --egress --llm-proxy --skills <dir> --repo <path>  As for run/watch (--skills: the repo's .github/vanguard-skills/ is merged in)
-
-    Triggered by the "needs revision" label on a Taskcell draft PR. Reads feedback from
-    review threads, review summaries, and PR comments; applies fixes to the existing PR branch;
-    replies to and resolves addressed threads; un-drafts the PR; and sets the label to
-    "taskcell:needs-human-review" for the next human action.
-
-  watch-prs options:
-    --github-repo <o/r>    Required repo slug
-    --label <name>         Required trigger label (e.g. "ready for taskcell review")
-    --reviewing-label <l>  Label added while a PR is being reviewed (default: "taskcell:reviewing")
-    --reviewed-label <l>   Label added after review succeeds (default: "taskcell:reviewed")
-    --author <login>       Only review PRs opened by this GitHub login (self-review-only when set)
-    --feedback-authors <a,b> Logins trusted beyond OWNER/MEMBER/COLLABORATOR: PR authors (a PR by anyone else
-                           is skipped) and authors of the linked issue the review checks (pass the
-                           workflow's allowed-actors here)
-    --pr <number>          Also review this PR even if the label scan misses it (label-triggered
-                           CI runs pin the event's PR automatically via GITHUB_EVENT_PATH)
-    --pinned-only          With a pinned PR, review only it and skip the label scan (for a per-PR CI
-                           concurrency group, where each labelled PR gets its own run)
-    --interval <seconds>   Poll interval (default: 60); --once does a single pass
-    --concurrency <n>      Max PRs reviewed at once (default: 2)
-    --provider <claude|codex|cursor|zai|openrouter|meridian>          Provider used for PR review (default: claude)
-    --review-model <m>     Model for the PR review
-    --usage-cap <pct>      As for run/watch
-    --max-turns <n>        As for review-pr
-    --egress --llm-proxy --skills <dir> --repo <path>  As for run/watch (--skills: the repo's .github/vanguard-skills/ is merged in)
-
-    Example:
-      taskcell watch-prs --github-repo owner/repo --label "ready for taskcell review"
-
-    Dedupe: successful Taskcell reviews include a hidden head SHA marker; watch-prs skips
-      the same PR commit if the trigger label is re-added accidentally. The PR pinned by --pr or
-      the triggering label event is always reviewed, and incomplete notices carry no marker, so a
-      failed review is retried on the next re-label or sweep. Only markers from trusted authors
-      (repo members, --feedback-authors, Taskcell's bot) count.
-
-  doctor-prs options:
-    Uses the same repo and label routing flags as watch-prs, but only runs AFK preflight checks and exits.
-    Example:
-      taskcell doctor-prs --github-repo owner/repo --label "ready for taskcell review"
-
-  review-mr options:
-    --mr <iid>               GitLab MR IID (integer)
-    --gitlab-project <g/p>   GitLab project path (required, e.g. group/project)
-    --provider --review-model --max-turns --egress --llm-proxy --skills --repo  As for review-pr
-
-  watch-mrs options:
-    --gitlab-project <g/p>   Required project path (e.g. group/project)
-    --label <name>           Required trigger label (e.g. "ready for review")
-    --reviewing-label <l>    Label added while an MR is being reviewed (default: "taskcell::reviewing")
-    --reviewed-label <l>     Label added after review succeeds (default: "taskcell::reviewed")
-    --author <username>      Only review MRs opened by this GitLab username
-    --interval <seconds>     Poll interval (default: 60); --once does a single pass
-    --concurrency <n>        Max MRs reviewed at once (default: 2)
-    --provider <claude|codex|cursor|zai|openrouter|meridian>          Provider used for MR review (default: claude)
-    --review-model <m>       Model for the MR review
-    --max-turns <n>          As for review-pr
-    --egress --llm-proxy --skills <dir> --repo <path>  As for run/watch (--skills: the repo's .github/vanguard-skills/ is merged in)
-
-    Example:
-      taskcell watch-mrs --gitlab-project group/project --label "ready for review"
-
-  doctor-mrs options:
-    Uses the same flags as watch-mrs, but only runs AFK preflight checks and exits.
-    Example:
-      taskcell doctor-mrs --gitlab-project group/project --label "ready for review"
-
-  watch options (--source gitlab):
-    --source gitlab              GitLab issue watch source
-    --gitlab-project <g/p>       Required: GitLab project path (e.g. group/project)
-    --label <name>               Trigger label; issues must carry this label
-    --claimed-state / --review-state still apply (label-based, as for --source github).
-    GitLab boards are label-based — use --source gitlab --label <column-label> to watch a board column.
-    Example:
-      taskcell watch --source gitlab --gitlab-project group/project --label vanguard
-
-  gc options:
-    --repo <path>          Git repo to prune worktrees / reap branches in (default: cwd)
-    --max-age-hours <n>    Only reap resources older than n hours (default: 6). Does not apply
-                           to empty egress networks: they are reaped after 10 minutes
-    --remote <owner/repo>  Also delete merged remote chore/taskcell-* (or pre-rename chore/vanguard-*) branches (needs gh)
-    --dry-run              List what would be reaped without removing anything
-    --abandoned            Also delete branches whose PR is closed-unmerged (not just merged)
-
-  stats options:
-    --repo <path>          Repo whose .taskcell/runs/metrics.jsonl to read (default: cwd)
-    --branch <name>        Read metrics.jsonl from this remote branch instead (what 'metrics push' wrote;
-                           default name: taskcell-metrics)
-    --json                 Emit the aggregated report as JSON instead of tables
-    --github-repo <o/r>    Also read each recorded PR of this repo from GitHub: lead times and the
-                           LESSONS first-pass rate (needs gh)
-    --feedback-authors <a,b> Extra trusted logins whose review verdicts count for the first-pass rate,
-                           beyond OWNER/MEMBER/COLLABORATOR and Taskcell's bot (as on lessons record)
-    --skills               Per skill: runs that used it, review pass rate, average repair rounds and cost, next to
-                           the same numbers for runs without it (observational, not causal); with --branch and --since
-    --since <window>       With --skills: only runs from the last window, e.g. 30d or 12h
-    --approver             Shadow approver scorecard instead of the cost/token rollup: per factory PR,
-                           the shadow verdict and reasons next to what the human did, and per risk class
-                           how many APPROVEs were right, how many ESCALATEs the human merged unchanged,
-                           and the current correct-APPROVE streak (needs gh; reads decisions.jsonl from
-                           the metrics branch plus live PR/revert history)
-
-  audit options:
-    --repo <path>          Repo whose state dir and metrics branch to check (default: cwd)
-    --stream <name>        One of hub, run-events, metrics, decisions, lessons (default: all)
-    --config-dir <dir>     The hub config dir holding the hub audit log (default: the hub's)
-    --branch <name>        Metrics-branch override for decisions/lessons
-    --since <date> --until <date> --format jsonl|csv   (export) time window and format
-
-  history options:
-    --repo <path>          Repo whose state dir and metrics branch to read (default: cwd)
-    --config-dir <dir>     The hub config dir holding the hub audit log (default: the hub's)
-    --branch <name>        Metrics-branch override for decisions
-    --offline              Do not ask the Git host (no label/comment/merge events)
-    --json                 Machine-readable history
-
-  metrics push options:
-    --repo <path>          Repo whose .taskcell/runs/metrics.jsonl to persist (default: cwd)
-    --branch <name>        Target branch (default: taskcell-metrics)
-
-  approve options:
-    --pr <n>               Required: PR number (bare positional also accepted)
-    --github-repo <o/r>    Required repo slug — the approver never infers the repo it judges
-    --mode <shadow|act>   "act" merges APPROVEd factory PRs, only if approver.json sets act:true (default: shadow)
-    --repo <path>          Local git repo checked out from the base branch (default: cwd)
-    --branch <name>        Metrics branch override (default: taskcell-metrics)
-    --json                 Print the decision record to stdout
-    --dry-run              Compute and print the decision; publish and record nothing (backtest/local inspection)
-
-  lessons options:
-    --pr <n>               record: PR number (bare positional also accepted)
-    --github-repo <o/r>    record: required repo slug (GitHub)
-    --gitlab-project <g/p> record: GitLab project instead; with --mr <n> (needs glab)
-    --provider-model <m>   record: model for the lesson call (default: haiku)
-    --feedback-authors <a,b>  record: extra trusted logins whose PR comments may inform a lesson
-    --dry-run              record: print the lessons, store and post nothing
-    --repo <path>          Local git repo whose origin holds the metrics branch (default: cwd)
-    --branch <name>        Metrics branch override (default: taskcell-metrics)
-    --json                 list: print JSON
-
-  memory options:
-    --repo <path>          Repo to read run artifacts from (default: cwd)
-    --limit <n>            Max entries to keep in the report (default: 10)
-    --json                 Emit the raw report object as JSON instead of markdown
-
-  eval options:
-    --json                   Emit the raw EvalReport as JSON instead of a table
-    --judge-model <m>        Model used to judge agent outputs (default: pinned claude-haiku-4-5-20251001; override for
-                             experiments; clef|clef-flash judges with a decision model — calibrated probabilities, no JSON to parse)
-    --produce-model <m>      Model under test whose outputs are judged (default: claude-sonnet-5-5)
-    --suggest                Draft eval-corpus candidates from retrospective memory and, with --github-repo, from GitHub
-                             (closed-unmerged factory PRs, PRs that ended needs-human-review, reverted factory commits);
-                             suggest-only, never writes the corpus
-    --repo <path>            Repo to read run artifacts from (with --suggest; default: cwd)
-    --limit <n>              Max retrospective entries to consider (with --suggest; default: 10)
-    --out <path>             Also write drafts to this scratch file (refuses paths under src/evals/corpus/)
-    --github-repo <o/r>      With --suggest: also draft candidates from this GitHub repo's closed/reverted factory PRs
-    --since <date>           With --suggest: only consider entries/PRs/commits at or after this ISO date
-    --markdown               With --suggest: print one Markdown document (default already markdown unless --json)
-    --baseline <file|main>   Gate this run against a saved baseline: a local JSON file, or "main" for the
-                             latest one pushed to the metrics branch. Exits non-zero when the pass rate
-                             drops by more than --max-drop points, a refusal case that passed now fails, or
-                             the corpus hash differs (without --allow-corpus-change). Prints every case that
-                             flipped verdict, in either direction.
-    --max-drop <points>      Max tolerated drop in overall pass rate with --baseline, in points (default 5)
-    --allow-corpus-change    With --baseline, compare anyway when the corpus hash differs (a changed corpus
-                             normally needs a new baseline, not a comparison)
-    --save-baseline          Push this run's report to the metrics branch, keyed by the current commit
-                             (same mechanism as 'metrics push'); read back later with --baseline main
-    --branch <name>          Metrics branch override for --baseline main / --save-baseline (default: taskcell-metrics)
-
-    Temperature note: the claude CLI exposes no --temperature flag; run the suite 3× on a known-good
-    state to measure pass-rate variance before relying on absolute regression thresholds (phase 2).
-
-  doctor options:
-    Uses the same source/routing flags as watch, but only runs AFK preflight checks and exits.
-    Like watch, it rejects the run-only flags --fork, --fork-scorer and --spec-file.
-    Add --spec-only to check a spec-only loop-v1 watch: it skips the checks that only guard publishing.
-    Example (GitHub): taskcell doctor --source github --github-repo owner/repo
-    Example (Linear): taskcell doctor --loop-v1 --label vanguard --skills ./skills
-
-Env: CLAUDE_CODE_OAUTH_TOKEN or ANTHROPIC_API_KEY (auth); LINEAR_API_KEY (for --linear);
-     GITLAB_TOKEN (auth for glab; GITLAB_HOST for self-hosted GitLab instances);
-     CODEX_API_KEY / CURSOR_API_KEY (when --provider/--review-provider selects codex/cursor;
-       under --llm-proxy the Codex/OpenAI key is held by the sidecar and the sandbox gets a nonce,
-       while Cursor's key is still injected directly);
-     ZAI_API_KEY (when --provider/--review-provider selects zai; runs the Claude Code CLI against
-       z.ai's GLM Coding Plan endpoint, so no Anthropic token is required. Under --llm-proxy the
-       z.ai key is held by the sidecar and the sandbox gets a nonce);
-     TASKCELL_VERIFY_CMD (verification command for Proof of Work; overridden by --verify);
-     TASKCELL_VISUAL_PROOF_CMD (visual proof command for UI artifacts; overridden by --visual-proof).
-`;
+export { USAGE } from './commands.js';

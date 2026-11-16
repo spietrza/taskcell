@@ -1,5 +1,6 @@
 #!/usr/bin/env node
 import { parseCli, USAGE } from './args.js';
+import { commandUsage, findCommand } from './commands.js';
 import { runGc } from './gc.js';
 import { runCommand } from './run.js';
 import { resolveForkScorerConfig } from '../runners/source-adapter.js';
@@ -28,7 +29,8 @@ async function main(): Promise<void> {
   takeAppKey();
   const command = parseCli(process.argv.slice(2), process.cwd());
   if (command.kind === 'help') {
-    console.log(USAGE);
+    const decl = findCommand(command.command);
+    console.log(decl === undefined ? USAGE : commandUsage(decl));
     return;
   }
   if (command.kind === 'error') {

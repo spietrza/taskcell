@@ -1,6 +1,7 @@
 import { describe, it, expect, assert, afterEach } from 'vitest';
 import { parseCli, USAGE } from './args.js';
 import type { SharedRunOptions } from './args.js';
+import { commandUsage, findCommand } from './commands.js';
 
 describe('parseCli', () => {
   it('uses taskcell in help and command examples', () => {
@@ -154,7 +155,7 @@ describe('parseCli', () => {
     expect(parseCli(['run', '--linear', 'TES-1', '--provider-model', 'openrouter/auto'], '/work')).toMatchObject({ kind: 'run', providerModel: 'openrouter/auto' });
     expect(parseCli(['run', '--linear', 'TES-1', '--provider-model', 'claude/sonnet:0'], '/work')).toMatchObject({ kind: 'error', message: expect.stringContaining('positive integer weight') });
     expect(parseCli(['run', '--linear', 'TES-1', '--escalate-model', 'sonnet:2'], '/work')).toMatchObject({ kind: 'error', message: expect.stringContaining('provider/model[:weight]') });
-    expect(parseCli(['revise-pr', '--pr', '1', '--provider-model', 'Bad!/x:1'], '/work')).toMatchObject({ kind: 'error', message: expect.stringContaining('unknown provider') });
+    expect(parseCli(['revise-pr', '1', '--provider-model', 'Bad!/x:1'], '/work')).toMatchObject({ kind: 'error', message: expect.stringContaining('unknown provider') });
   });
 
   it('accepts a --fallback-provider list and refuses an unknown entry in it', () => {
@@ -301,7 +302,7 @@ describe('parseCli', () => {
     const run = parseCli(['run', '--linear', 'TES-1', '--fork', '3', '--fork-scorer', 'decision'], '/work');
     expect(run.kind === 'run' && run.forkScorer).toBe('decision');
     const watch = parseCli(['watch', '--label', 'vanguard', '--fork-scorer', 'llm'], '/work');
-    expect(watch.kind === 'error' && watch.message).toMatch(/watch does not fork/);
+    expect(watch.kind === 'error' && watch.message).toMatch(/watch does not accept --fork-scorer/);
     const bare = parseCli(['run', '--linear', 'TES-1'], '/work');
     expect(bare.kind === 'run' && 'forkScorer' in bare).toBe(false);
     const bad = parseCli(['run', '--linear', 'TES-1', '--fork-scorer', 'coin'], '/work');
@@ -394,23 +395,17 @@ describe('parseCli', () => {
   it('rejects the run-only flags on watch and doctor instead of ignoring them', () => {
     for (const command of ['watch', 'doctor']) {
       const base = [command, '--source', 'linear', '--label', 'vanguard'];
-      expect(parseCli([...base, '--spec-file', 's.md'], '/work')).toMatchObject({ kind: 'error', message: expect.stringContaining('--spec-file applies to a single-issue run only') });
-      expect(parseCli([...base, '--fork', '3'], '/work')).toMatchObject({ kind: 'error', message: expect.stringContaining(`--fork applies to run only; ${command} does not fork`) });
-      expect(parseCli([...base, '--fork-scorer', 'llm'], '/work')).toMatchObject({ kind: 'error', message: expect.stringContaining(`${command} does not fork`) });
+      expect(parseCli([...base, '--spec-file', 's.md'], '/work')).toMatchObject({ kind: 'error', message: expect.stringContaining(`${command} does not accept --spec-file`) });
+      expect(parseCli([...base, '--fork', '3'], '/work')).toMatchObject({ kind: 'error', message: expect.stringContaining(`${command} does not accept --fork;`) });
+      expect(parseCli([...base, '--fork-scorer', 'llm'], '/work')).toMatchObject({ kind: 'error', message: expect.stringContaining(`${command} does not accept --fork-scorer`) });
     }
     // The same flags are fine on run.
     expect(parseCli(['run', '--github', 'o/r#1', '--spec-file', 's.md', '--fork', '3', '--fork-scorer', 'llm'], '/work')).toMatchObject({ kind: 'run', specFile: 's.md', forkN: 3, forkScorer: 'llm' });
   });
 
   it('documents the shared flags under both run and watch, and the run-only ones under run only', () => {
-    const watchStart = USAGE.indexOf('watch options (trigger');
-    const runStart = USAGE.indexOf('run options (exactly one source)');
-    const runEnd = USAGE.indexOf('review-pr options:');
-    expect(watchStart).toBeGreaterThan(-1);
-    expect(runStart).toBeGreaterThan(watchStart);
-    expect(runEnd).toBeGreaterThan(runStart);
-    const watchBlock = USAGE.slice(watchStart, runStart);
-    const runBlock = USAGE.slice(runStart, runEnd);
+    const runBlock = commandUsage(findCommand('run')!);
+    const watchBlock = commandUsage(findCommand('watch')!);
     for (const flag of ['--fallback-provider <name>', '--conformance-model <m>', '--max-repair-iterations <n>', '--base <branch>', '--max-turns <n>']) {
       expect(runBlock).toContain(flag);
       expect(watchBlock).toContain(flag);
@@ -922,10 +917,10 @@ describe('parseCli', () => {
     [['watch-prs', '--skills', 'stats'], { kind: 'error', message: 'watch-prs requires --github-repo <owner/repo> and --label <name>.' }],
     [['review-pr', '1', '--skills', 'stats'], { kind: 'review-pr', prRef: '1', repoPath: '/work', skillsDir: 'stats', egress: false }],
     [['doctor', '--skills', 'stats'], { kind: 'error', message: 'doctor --source linear requires --label <name> (or pick a source: --source github --github-repo <owner/repo>).' }],
-    [['skills', 'list', '--skills', 'stats'], { kind: 'skills', action: 'list', dir: '/work/skills', strict: false }],
-    [['skills', 'update', '--pr', '--skills', './dir'], { kind: 'skills', action: 'update', dir: '/work/skills', pr: true }],
-    [['--pr', 'skills', 'update', '--skills', 'stats'], { kind: 'skills', action: 'update', dir: '/work/skills', pr: true }],
-    [['gc', '--skills', 'stats'], { kind: 'gc', repoPath: '/work' }],
+    [['skills', 'list', '--skills', 'stats'], { kind: 'error', message: 'skills does not accept --skills; see `taskcell skills --help`.' }],
+    [['skills', 'update', '--pr', '--base', 'dev'], { kind: 'skills', action: 'update', dir: '/work/skills', pr: true, baseBranch: 'dev' }],
+    [['--pr', 'skills', 'update', '--dir', 'stats'], { kind: 'skills', action: 'update', dir: '/work/stats', pr: true }],
+    [['gc', '--skills', 'stats'], { kind: 'error', message: 'gc does not accept --skills; see `taskcell gc --help`.' }],
     [['--skills', 'stats'], { kind: 'help' }],
     [['gc', '--skill-stats'], { kind: 'help' }],
     [['stats'], { kind: 'stats', repoPath: '/work', json: false, approver: false }],
@@ -1638,7 +1633,7 @@ describe('parseCli', () => {
   ])('rejects --spec-only on %s, which would otherwise ignore it', (...argv) => {
     expect(parseCli([...argv, '--spec-only'], '/work')).toEqual({
       kind: 'error',
-      message: '--spec-only is only supported with watch and doctor.',
+      message: `${argv[0]} does not accept --spec-only; see \`taskcell ${argv[0]} --help\`.`,
     });
   });
 

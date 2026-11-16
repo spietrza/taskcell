@@ -39,7 +39,7 @@ taskcell run --github o/r#1 --plan --review-model opus   # plan on opus, impleme
 `--provider-model`, `--review-model` and `--escalate-model` (on `run` and `watch`; `--provider-model`/`--review-model` also on `revise-pr`; and the reusable workflows' `provider-model` / `review-model` / `escalate-model` inputs, which pass the value through) take either one model, as before, or a **pool** of weighted `provider/model` entries:
 
 ```sh
-taskcell run --github-repo o/r --issue 42 \
+taskcell run --github o/r#42 \
   --provider-model 'claude/sonnet:3, codex/gpt-5.6-sol:1' \
   --fallback-provider cursor --fallback-model auto
 ```
@@ -399,3 +399,18 @@ A parked issue (`taskcell:waiting` or `taskcell:rate-limited`) is the exception,
 ## Choosing a flow (`--flow`)
 
 `taskcell run|watch --flow <name>` runs a built-in flow or the repo's `.taskcell/flows/<name>.hcl`; an unknown or invalid name fails the run. In the Hub, set the project's **Flow** in Settings and its runs pass `--flow` for you. A stage's `model`/`provider` in the flow beats `--provider-model`, `--review-model` and `--escalate-model`; stages that set none inherit them. In the GitHub Actions factory the same applies once the reusable `implement.yml` has a `flow` input (see [hub.md](hub.md#per-project-flow-and-model-precedence)).
+
+## Options by command
+
+Each command declares its own options and parses strictly against them: an option a command does not declare is an error that names the command (`gc does not accept --fix`). `taskcell --help` lists every command's options and `taskcell <command> --help` prints one command's; both are generated from the declarations in `src/cli/commands.ts`, so they cannot drift from what the parser accepts. A few options used to be missing from the help:
+
+| Command | Option | Meaning |
+| --- | --- | --- |
+| `hub` | `--host <addr>` | Address to bind (env `TASKCELL_HUB_HOST`; default `127.0.0.1`). |
+| `hub` | `--port <port>` | Port to bind, 1-65535 (env `TASKCELL_HUB_PORT`; default `7777`). |
+| `hub` | `--ui-dir <dir>` | Serve the Inspector UI from this directory instead of the bundled one. |
+| `hub` | `--no-open` | Do not open the browser. |
+| `hub` | `--allowed-host <host>` | Extra `Host` header accepted on a non-loopback bind (repeatable). |
+| `hub` | `--admin-github-login <login>` | GitHub login granted admin access (repeatable). |
+| `run`, `watch`, `doctor` | `--pnpm-store` | Mount a persistent pnpm store, one per repo (see [above](#persistent-pnpm-store-opt-in)). |
+| `doctor` | `--fix` | Install the repo-pinned agent CLIs in the sandbox image if it is stale, then re-check. |
