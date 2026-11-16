@@ -80,24 +80,31 @@ test('a running run: the stage line comes from the persisted events, the running
   const e = (n: number, s: number, event: Record<string, unknown>) => ({ id: n, ts: at(s), event: 'api:event', data: { runId: 'run-9', event } });
   vi.mocked(readRunEvents).mockResolvedValue({
     events: [
-      e(1, 0, { type: 'run-start', taskId: 'gh-r-3', stages: ['implementer', 'reviewer', 'simplifier'] }),
-      e(2, 1, { type: 'stage-start', name: 'implementer', index: 0, of: 3 }),
-      e(3, 31, { type: 'stage-end', name: 'implementer', index: 0, of: 3, outcome: 'completed' }),
-      e(4, 32, { type: 'stage-start', name: 'reviewer', index: 1, of: 3 }),
+      e(1, 0, { type: 'stage-start', name: 'sandbox', index: 0, of: 1 }),
+      e(2, 4, { type: 'stage-end', name: 'sandbox', index: 0, of: 1, outcome: 'completed' }),
+      e(3, 5, { type: 'run-start', taskId: 'gh-r-3', stages: ['sandbox', 'implementer', 'reviewer', 'simplifier'] }),
+      e(4, 6, { type: 'stage-start', name: 'implementer', index: 1, of: 4 }),
+      e(5, 36, { type: 'stage-end', name: 'implementer', index: 1, of: 4, outcome: 'completed' }),
+      e(6, 37, { type: 'stage-start', name: 'reviewer', index: 2, of: 4 }),
     ],
-    nextAfter: 4,
+    nextAfter: 6,
     hasMore: false,
     truncated: false,
   });
   vi.mocked(readSession).mockResolvedValue({ entries: [{ role: 'tool', text: 'Read · src/a.ts' }], inputTokens: 0, outputTokens: 0, cacheReadTokens: 0, estCostUsd: 0 });
   const onCancel = vi.fn();
   render(<RunPane {...props} active={{ taskId: 'gh-r-3', sessionFile: '/s.jsonl', lastActivityMs: Date.now() }} onCancel={onCancel} />);
-  await waitFor(() => expect(screen.getByTestId('stage-1')).toHaveAttribute('data-phase', 'running'));
+  // Sandbox, Code, Tests (pending), Review (running), Simplify, PR (pending).
+  await waitFor(() => expect(screen.getByTestId('stage-3')).toHaveAttribute('data-phase', 'running'));
+  expect(screen.getByTestId('stage-0')).toHaveTextContent('Sealed cell');
   expect(screen.getByTestId('stage-0')).toHaveAttribute('data-phase', 'done');
-  expect(screen.getByTestId('stage-0')).toHaveTextContent('30s');
+  expect(screen.getByTestId('stage-1')).toHaveTextContent('30s');
+  expect(screen.getByTestId('stage-2')).toHaveTextContent('Tests');
   expect(screen.getByTestId('stage-2')).toHaveAttribute('data-phase', 'pending');
-  expect(screen.getByTestId('stage-2')).toHaveTextContent('Waiting');
-  expect(within(screen.getByTestId('stage-1')).getByRole('progressbar')).toBeInTheDocument();
+  expect(screen.getByTestId('stage-4')).toHaveTextContent('Waiting');
+  expect(screen.getByTestId('stage-5')).toHaveTextContent('PR');
+  expect(screen.getByTestId('stage-5')).toHaveAttribute('data-phase', 'pending');
+  expect(within(screen.getByTestId('stage-3')).getByRole('progressbar')).toBeInTheDocument();
   expect(screen.getByLabelText('Total time')).toHaveTextContent('1m 0');
   await waitFor(() => expect(screen.getByRole('log', { name: 'Live log' })).toHaveTextContent('Read · src/a.ts'));
   fireEvent.click(screen.getByRole('button', { name: 'Cancel' }));
@@ -116,4 +123,40 @@ test('the back button is the way out on a narrow screen', async () => {
   fireEvent.click(screen.getByRole('button', { name: /Back to runs/ }));
   expect(onBack).toHaveBeenCalled();
   await waitFor(() => expect(readRunEvents).toHaveBeenCalled());
+});
+
+const sealedEvents = (tail: Record<string, unknown>[] = []) => {
+  const at = (s: number): string => new Date(Date.UTC(2026, 10, 16, 10, 0, s)).toISOString();
+  const e = (n: number, s: number, event: Record<string, unknown>) => ({ id: n, ts: at(s), event: 'api:event', data: { runId: 'run-9', event } });
+  return {
+    events: [
+      e(1, 0, { type: 'stage-start', name: 'sandbox', index: 0, of: 1 }),
+      e(2, 4, { type: 'stage-end', name: 'sandbox', index: 0, of: 1, outcome: 'completed' }),
+      e(3, 5, { type: 'run-start', taskId: 'gh-r-3', stages: ['sandbox', 'implementer', 'reviewer', 'simplifier'] }),
+      ...tail.map((t, i) => e(4 + i, 6 + i, t)),
+    ],
+    nextAfter: 9,
+    hasMore: false,
+    truncated: false,
+  };
+};
+
+test('a finished run keeps its Sealed cell card from the event log; a run logged without it has none', async () => {
+  vi.mocked(readRunEvents).mockResolvedValue(sealedEvents());
+  const { unmount } = render(<RunPane {...props} detail={detail} />);
+  await waitFor(() => expect(screen.getByTestId('stage-0')).toHaveTextContent('Sealed cell4s'));
+  expect(screen.getByTestId('stage-1')).toHaveTextContent('Code27s');
+  expect(screen.getByTestId('stage-4')).toHaveTextContent('PR#5');
+  unmount();
+  vi.mocked(readRunEvents).mockResolvedValue(noEvents);
+  render(<RunPane {...props} detail={detail} />);
+  expect(screen.getByTestId('stage-0')).toHaveTextContent('Code');
+});
+
+test('the Tests and PR cards stay when the live run turns terminal', async () => {
+  vi.mocked(readRunEvents).mockResolvedValue(sealedEvents([{ type: 'run-error', message: 'boom' }]));
+  render(<RunPane {...props} active={{ taskId: 'gh-r-3', sessionFile: '/s.jsonl', lastActivityMs: Date.now() }} />);
+  await waitFor(() => expect(screen.getByTestId('stage-5')).toHaveTextContent('PR'));
+  expect(screen.getByTestId('stage-0')).toHaveTextContent('Sealed cell');
+  expect(screen.getByTestId('stage-2')).toHaveTextContent('Tests');
 });

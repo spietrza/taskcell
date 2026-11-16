@@ -1,5 +1,5 @@
 import { expect, test } from 'vitest';
-import { fmtDuration, foldRunEvents, stageLabel, stagesFromRecords, toLogLines, transcriptLines, withGateSteps, type LoggedEvent } from './runStages';
+import { fmtDuration, foldRunEvents, stageLabel, stagesFromRecords, toLogLines, transcriptLines, withGateSteps, withPendingGateSteps, type LoggedEvent } from './runStages';
 import type { StageDetail } from '../../taskcell-output';
 
 let id = 0;
@@ -87,4 +87,20 @@ test('gate steps: Tests after the last implementing stage, PR last with its numb
   expect(full[1]).not.toHaveProperty('ms');
   expect(full[3]).toMatchObject({ phase: 'done', note: '#5', href: 'https://github.com/o/r/pull/5' });
   expect(withGateSteps(st, { ...proof, passed: false }, undefined)[1]).toMatchObject({ phase: 'failed', note: 'Failed' });
+});
+
+test('the sandbox stage logged before run-start leads the stage line, and Tests and PR wait as pending cards', () => {
+  const t = foldRunEvents([
+    ev('2026-11-16T10:00:00.000Z', { type: 'stage-start', name: 'sandbox', index: 0, of: 1 }),
+    ev('2026-11-16T10:00:04.000Z', { type: 'stage-end', name: 'sandbox', index: 0, of: 1, outcome: 'completed' }),
+    ev('2026-11-16T10:00:05.000Z', { type: 'run-start', taskId: 't', stages: ['sandbox', 'implementer', 'reviewer'] }),
+    ev('2026-11-16T10:00:06.000Z', { type: 'stage-start', name: 'implementer', index: 1, of: 3 }),
+  ]);
+  expect(t.stages).toEqual([
+    { name: 'sandbox', phase: 'done', ms: 4000 },
+    { name: 'implementer', phase: 'running', startedAt: Date.parse('2026-11-16T10:00:06.000Z') },
+    { name: 'reviewer', phase: 'pending' },
+  ]);
+  expect(stageLabel('sandbox')).toBe('Sealed cell');
+  expect(withPendingGateSteps(t.stages).map((s) => `${s.name}:${s.phase}`)).toEqual(['sandbox:done', 'implementer:running', 'tests:pending', 'reviewer:pending', 'pr:pending']);
 });

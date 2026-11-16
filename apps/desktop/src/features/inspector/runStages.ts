@@ -34,7 +34,7 @@ export interface LoggedEvent {
   data: unknown;
 }
 
-const STAGE_LABEL: Record<string, string> = { implementer: 'Code', reviewer: 'Review', simplifier: 'Simplify', spec: 'Plan', planner: 'Plan' };
+const STAGE_LABEL: Record<string, string> = { sandbox: 'Sealed cell', implementer: 'Code', reviewer: 'Review', simplifier: 'Simplify', spec: 'Plan', planner: 'Plan' };
 /** A stage's heading in words: `implementer` -> Code, any unknown name capitalized. */
 export function stageLabel(name: string): string {
   return STAGE_LABEL[name.toLowerCase()] ?? name.charAt(0).toUpperCase() + name.slice(1);
@@ -63,12 +63,15 @@ export function foldRunEvents(events: LoggedEvent[]): RunTimeline {
     if (t.runId === undefined && typeof d?.runId === 'string') t.runId = d.runId;
     t.startedAt ??= at;
     const i = Number(e.index);
-    const prev = t.stages[i];
+    // The sandbox starts before the run does: its events precede `run-start` and are kept for it.
+    const prev = t.stages[i] ?? (e.name === 'sandbox' && i === 0 ? { name: 'sandbox', phase: 'pending' as const } : undefined);
     switch (e.type) {
-      case 'run-start':
-        t.startedAt = at;
-        t.stages = (Array.isArray(e.stages) ? (e.stages as string[]) : []).map((name) => ({ name, phase: 'pending' as const }));
+      case 'run-start': {
+        const early = t.stages[0]?.name === 'sandbox' ? t.stages[0] : undefined;
+        if (!early) t.startedAt = at;
+        t.stages = (Array.isArray(e.stages) ? (e.stages as string[]) : []).map((name, n) => (n === 0 && early && name === 'sandbox' ? early : { name, phase: 'pending' as const }));
         break;
+      }
       case 'stage-start':
         if (prev) t.stages[i] = { name: prev.name, phase: 'running', startedAt: at };
         break;
@@ -91,6 +94,15 @@ export function foldRunEvents(events: LoggedEvent[]): RunTimeline {
     }
   }
   return t;
+}
+
+/** A live run's Tests and PR cards, pending from the start (Tests after the last implementing stage, PR last). */
+export function withPendingGateSteps(stages: PaneStage[]): PaneStage[] {
+  const out = [...stages];
+  const at = out.map((s) => /implement/i.test(s.name)).lastIndexOf(true);
+  out.splice(at < 0 ? out.length : at + 1, 0, { name: 'tests', label: 'Tests', phase: 'pending' });
+  out.push({ name: 'pr', label: 'PR', phase: 'pending' });
+  return out;
 }
 
 /** A finished run's stage line, from its stage records (one per stage, with the stage's own duration). */

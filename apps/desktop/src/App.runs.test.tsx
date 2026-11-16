@@ -17,7 +17,7 @@ afterEach(() => {
   delete window.__TASKCELL_HUB__;
 });
 
-test('a run started from the Board shows its live strip on Runs; the rail\'s Runs item then shows the list', async () => {
+test('a run started from the Board lands in the Runs split view, not the old strip', async () => {
   const p = projects[0]!;
   window.__TASKCELL_HUB__ = true;
   vi.stubGlobal('EventSource', class { addEventListener(): void {} removeEventListener(): void {} close(): void {} });
@@ -60,40 +60,16 @@ test('a run started from the Board shows its live strip on Runs; the rail\'s Run
   fireEvent.change(await screen.findByPlaceholderText(/issue ref/), { target: { value: '7' } });
   await waitFor(() => expect(screen.getByRole('button', { name: /^run$/i })).toBeEnabled());
   fireEvent.click(screen.getByRole('button', { name: /^run$/i }));
-  // As on main: going to Runs after the launch shows the live strip.
+  // Going to Runs after the launch shows the split view, never the old full-screen strip.
   fireEvent.click(navButton('Runs'));
-  expect(await screen.findByRole('button', { name: /Back to runs/ })).toBeInTheDocument();
-  expect(screen.getByText('starting…')).toBeInTheDocument();
-  // The same from New Task, and with a New Run form open: the strip, as from any other screen.
-  fireEvent.click(screen.getByRole('button', { name: 'New Task' }));
-  await waitFor(() => expect(window.location.search).toBe('?screen=task'));
-  fireEvent.click(navButton('Runs'));
-  expect(await screen.findByRole('button', { name: /Back to runs/ })).toBeInTheDocument();
-  fireEvent.click(navButton('Board'));
-  fireEvent.click((await screen.findByText('Seven')).closest('button')!);
-  fireEvent.click(await screen.findByRole('button', { name: 'Full page' }));
-  fireEvent.click(await screen.findByRole('button', { name: 'New Run' }));
-  expect(await screen.findByRole('heading', { name: 'New run' })).toBeInTheDocument();
-  fireEvent.click(navButton('Runs'));
-  expect(await screen.findByRole('button', { name: /Back to runs/ })).toBeInTheDocument();
-  expect(screen.queryByRole('heading', { name: 'New run' })).toBeNull();
-  // The rail item, clicked with the strip open, shows the list; the run is one click away on its chip.
-  fireEvent.click(navButton('Runs'));
-  await waitFor(() => expect(screen.queryByRole('button', { name: /Back to runs/ })).not.toBeInTheDocument());
-  expect(screen.getByRole('button', { name: 'show live run' })).toBeInTheDocument();
-  // A strip the user folded stays folded across another screen and back.
-  fireEvent.click(navButton('Board'));
-  await screen.findByText('Seven');
-  fireEvent.click(navButton('Runs'));
-  expect(await screen.findByRole('button', { name: 'show live run' })).toBeInTheDocument();
-  expect(screen.queryByRole('button', { name: /Back to runs/ })).toBeNull();
-
-  // A running row opened while the strip is folded: one chip says a run is live, not "running" beside "running — view".
+  expect(await screen.findByRole('button', { name: 'Reload' })).toBeInTheDocument();
+  expect(screen.queryByText('starting…')).toBeNull();
+  expect(screen.queryByRole('button', { name: 'show live run' })).toBeNull();
+  // A running row opens in the pane beside the list, with no "running — view" chip.
   results.list_active = [{ taskId: 'gh-7', sessionFile: '/s', lastActivityMs: Date.now() }];
   results.read_session = { entries: [], inputTokens: 0, outputTokens: 0, cacheReadTokens: 0, estCostUsd: 0 };
   fireEvent.click(screen.getByRole('button', { name: 'Reload' }));
   fireEvent.click(await screen.findByText('Seven'));
-  // The run opens in the pane beside the list; the toolbar chip is the strip's alone.
   expect(await screen.findByRole('region', { name: 'Run gh-7' })).toBeInTheDocument();
-  expect(screen.getByText('running — view')).toBeInTheDocument();
+  expect(screen.queryByText('running — view')).toBeNull();
 });

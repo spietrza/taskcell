@@ -19,6 +19,7 @@ import {
 import { createGithubIssue, createGitlabIssue, createLinearIssue } from '../tasks/create.js';
 import { beginRun, endRun } from './cancel.js';
 import { startSandboxContext } from '../sandbox/sandbox-context.js';
+import { SANDBOX_STAGE, withSandboxStage } from './sandbox-stage.js';
 import { githubDepsFromEnv, runGithubIssue } from '../runners/github.js';
 import { gitlabDepsFromEnv, runGitlabIssue } from '../runners/gitlab.js';
 import { runLinearIssue } from '../runners/linear.js';
@@ -288,6 +289,8 @@ export function productionDeps(): SidecarDeps {
       }
       const signal = beginRun();
       let ctx: SandboxContext;
+      // The container start is the run's first stage; the log holds these two events until `run-start` names the task.
+      onEvent({ type: 'stage-start', name: SANDBOX_STAGE, index: 0, of: 1 });
       try {
         ctx = await startSandboxContext({
           egress: true,
@@ -303,8 +306,10 @@ export function productionDeps(): SidecarDeps {
         // startSandboxContext raises is a SandboxError, which classifyCoreError already reports
         // bad-request, so wrapping could only relabel a genuine internal fault as a caller mistake.
         endRun();
+        onEvent({ type: 'stage-end', name: SANDBOX_STAGE, index: 0, of: 1, outcome: 'error' });
         throw error;
       }
+      onEvent({ type: 'stage-end', name: SANDBOX_STAGE, index: 0, of: 1, outcome: 'completed' });
       const exposed = exposureReason({ provider, subscriptionProvider, proxySupported, llmProxy });
       if (exposed !== undefined) {
         onEvent({ type: 'warning', message: `${exposed} to the agent inside the sandbox for this run.` });
@@ -316,7 +321,7 @@ export function productionDeps(): SidecarDeps {
       try {
         // The RunOptions the sidecar exposes + the sandbox wiring + the event seam, shared across transports.
         const common = {
-          onEvent,
+          onEvent: withSandboxStage(onEvent),
           signal,
           ...(provider !== undefined ? { provider } : {}),
           ...(customProviders !== undefined ? { customProviders } : {}),
