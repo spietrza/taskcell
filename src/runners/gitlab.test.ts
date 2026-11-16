@@ -247,6 +247,12 @@ describe('gitlabReviewHost', () => {
     expect(gitlabReviewHost('group/project').kind).toBe('glab');
   });
 
+  it('newPrTarget: glab, with no GitHub push-token provider', () => {
+    const target = gitlabReviewHost('group/project').newPrTarget({ title: 't', body: () => 'b' });
+    expect(target).toMatchObject({ kind: 'new-pr', cli: 'glab', title: 't' });
+    expect(target).not.toHaveProperty('tokenProvider');
+  });
+
   it('publishVerdict throws when reviewerOutcome is missing', async () => {
     const host = gitlabReviewHost('group/project');
     await expect(

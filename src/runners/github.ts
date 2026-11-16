@@ -24,6 +24,7 @@ import type { GhRunner } from '../tasks/github.js';
 import type { ProviderChoice } from '../agents/registry.js';
 import type { FanOutOutcome } from '../pipeline/fan-out.js';
 import type { SecretBlock } from '../core/secret-scan.js';
+import { tokenProviderFor } from '../core/push-token.js';
 import type { RunIssueDeps, RunIssueResult, Tracker, ReviewHost, ProofFailureKind } from './source-adapter.js';
 
 /** Everything needed to run a single GitHub issue end to end. */
@@ -38,6 +39,9 @@ export type RunGithubIssueResult = RunIssueResult;
 export function githubReviewHost(repoPath: string): ReviewHost {
   return {
     kind: 'gh',
+    // Same PAT revise pushes with: a PR it opens fires the repo's pull_request workflows (CI).
+    // Minted (App) or read (PAT) at each use, never cached: an App token lives 1 h, a run up to 180 min.
+    newPrTarget: (pr) => ({ kind: 'new-pr', ...pr, cli: 'gh', tokenProvider: tokenProviderFor(repoPath) }),
     publishVerdict: publishReviewVerdict,
     async addFailureLabel(prUrl: string, kind: ProofFailureKind) {
       await addPrFailureLabel(repoPath, prUrl, githubFailureLabel(kind));
