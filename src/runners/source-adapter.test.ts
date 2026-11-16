@@ -1276,6 +1276,14 @@ describe('runSourcedIssue', () => {
     expect(result.baseRed).toBe(true);
   });
 
+  it('base-red redaction reads the run credential env, not process.env', async () => {
+    vi.mocked(resolveVerifyCommand).mockResolvedValue('npm install --frozen-lockfile && npm test');
+    const key = 'sk-ant-run-credential-0123456789abcdef';
+    await runSourcedIssue('group/project#1', { repoPath: '/repo', providerEnv: { ANTHROPIC_API_KEY: key } }, fakeAdapter([], STAGES));
+    const secrets = vi.mocked(resolveBaselineVerify).mock.calls.at(-1)?.[5] as string[] | undefined;
+    expect(secrets).toContain(key);
+  });
+
   it('an operator-supplied verify command that installs nothing skips the base-red check', async () => {
     runStages.mockResolvedValueOnce([stageOutcome('implementer', 'sess-1'), stageOutcome('reviewer')]);
     vi.mocked(resolveVerifyCommand).mockResolvedValue('pnpm typecheck && pnpm test');

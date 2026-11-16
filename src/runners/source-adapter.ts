@@ -685,7 +685,7 @@ export async function runSourcedIssue(
       const baselineCmd = resolvedBase !== undefined && SELF_INSTALLING_VERIFY_RE.test(resolvedBase) ? resolvedBase : undefined;
       if (baselineCmd !== undefined) {
         const verifyCmd = baselineCmd;
-        const baselineVerify = await resolveBaselineVerify(deps.repoPath, ctx.startRef, ctx.sandbox, verifyCmd, deps.signal, injectedSecretValues(process.env, providerKeyEnvNames(deps)));
+        const baselineVerify = await resolveBaselineVerify(deps.repoPath, ctx.startRef, ctx.sandbox, verifyCmd, deps.signal, injectedSecretValues(providerEnv, providerKeyEnvNames(deps)));
         if (!baselineVerify.passed) {
           console.log(
             `taskcell: ${task.id} base branch is red — \`${verifyCmd}\` already fails on ${ctx.baseBranch}@${ctx.startRef.slice(0, 7)} (exit ${baselineVerify.exitCode}); stopping before implementing instead of starting a repair loop.`,
