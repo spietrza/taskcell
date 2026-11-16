@@ -479,7 +479,7 @@ const DEFAULT_LINEAR_NEEDS_INFO_STATE = 'Needs Info';
 /** State NAME the Linear spec pass advances to when --agent-state is absent. */
 export const DEFAULT_LINEAR_AGENT_STATE = 'Todo';
 /** First-attempt turn cap of a review-pr or review-mr run without --max-turns; the retry gets 1.5x. */
-export const DEFAULT_REVIEW_MAX_TURNS = 16;
+export const DEFAULT_REVIEW_MAX_TURNS = 30; // Opus 5.5 hit 16 (then 24 on retry) on large PRs with no verdict (#1136, #1154)
 const DEFAULT_PR_REVIEWING_LABEL = 'taskcell:reviewing';
 const DEFAULT_PR_REVIEWED_LABEL = 'taskcell:reviewed';
 const DEFAULT_GITLAB_MR_REVIEWING_LABEL = 'taskcell::reviewing';
