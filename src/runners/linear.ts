@@ -6,21 +6,18 @@ import type { WatchPrimitives, SpecWatchPrimitives, GenerateSpec } from './watch
 import type { RunSpecGeneratorDeps } from './spec.js';
 import type { LinearCliRunner, LinearGraphql } from '../tasks/linear-cli.js';
 import { implementReviewSimplifyStages, retrospectiveMemoryBlock } from '../pipeline/pipeline.js';
-import { publishReviewVerdict } from '../pipeline/review-publish.js';
-import { addPrFailureLabel, addPrGateLabel } from '../tasks/github.js';
 import { fanOut } from '../pipeline/fan-out.js';
 import { agentAuthFromEnv } from '../agents/auth.js';
 import { runSourcedIssue } from './source-adapter.js';
-import { knownGitlabProjectFromOrigin, publishGitlabVerdict, addGitlabFailureLabel, addGitlabGateConfigLabel } from './gitlab.js';
+import { knownGitlabProjectFromOrigin, gitlabReviewHost } from './gitlab.js';
+import { githubReviewHost } from './github.js';
 import { renderSecretBlockComment } from '../core/secret-scan.js';
-import { githubFailureLabel, GITHUB_GATE_CONFIG_LABEL } from '../github-labels.js';
 import type { PipelineStage } from '../pipeline/pipeline.js';
 import type { Task, SubTask } from '../tasks/fetcher.js';
 import type { CustomProviderEntry } from '../agents/registry.js';
 import type { FanOutOutcome } from '../pipeline/fan-out.js';
 import type { SecretBlock } from '../core/secret-scan.js';
-import type { GlabRunner } from '../tasks/gitlab.js';
-import type { RunIssueDeps, RunIssueResult, SourceAdapter, PublishVerdictInput, ProofFailureKind } from './source-adapter.js';
+import type { RunIssueDeps, RunIssueResult, Tracker } from './source-adapter.js';
 
 /** Everything needed to run a single Linear issue end to end. */
 export interface RunLinearIssueDeps extends RunIssueDeps {
@@ -64,12 +61,8 @@ async function commentBestEffort(taskId: string, body: string): Promise<void> {
   } catch { /* best-effort */ }
 }
 
-/**
- * @internal Exported for unit tests; production callers use runLinearIssue. `gitlabProject` is set
- * when origin is on gitlab.com or GITLAB_HOST: the draft MR, verdict note and failure labels then go
- * through glab.
- */
-export function linearAdapter(deps: RunLinearIssueDeps, gitlabProject?: string, glab?: GlabRunner): SourceAdapter {
+/** @internal Exported for unit tests; production callers use runLinearIssue. */
+export function linearTracker(deps: RunLinearIssueDeps): Tracker {
   return {
     async prepare(issueRef: string) {
       return { task: await new LinearCliTaskFetcher().fetch(issueRef) };
@@ -78,20 +71,6 @@ export function linearAdapter(deps: RunLinearIssueDeps, gitlabProject?: string, 
     taskId: (task) => `linear-${task.id.toLowerCase()}`,
     stages: linearStages,
     variables: (issueRef: string) => ({ ISSUE: issueRef }),
-    ...(gitlabProject !== undefined ? { reviewCli: 'glab' as const } : {}),
-    publishVerdict: gitlabProject === undefined
-      ? publishReviewVerdict
-      : (input: PublishVerdictInput) => publishGitlabVerdict(gitlabProject, input, glab),
-    async addFailureLabel(prUrl: string, kind: ProofFailureKind) {
-      if (gitlabProject !== undefined) return addGitlabFailureLabel(gitlabProject, prUrl, kind, glab);
-      await addPrFailureLabel(deps.repoPath, prUrl, githubFailureLabel(kind));
-    },
-    // Linear itself has no labels, but the gate lives on the review surface — the same PR/MR label the
-    // GitHub/GitLab reviewer keys off — so this labels there, strictly, like the two native adapters.
-    async addGateConfigLabel(prUrl: string) {
-      if (gitlabProject !== undefined) return addGitlabGateConfigLabel(gitlabProject, prUrl, glab);
-      await addPrGateLabel(deps.repoPath, prUrl, GITHUB_GATE_CONFIG_LABEL);
-    },
     async linkPr(_issueRef: string, task: Task, prUrl: string) {
       await linkLinearIssue(task.id, prUrl);
     },
@@ -114,7 +93,10 @@ export function linearAdapter(deps: RunLinearIssueDeps, gitlabProject?: string, 
  * (see runLinearParent).
  */
 export async function runLinearIssue(issueRef: string, deps: RunLinearIssueDeps): Promise<RunLinearIssueResult> {
-  return runSourcedIssue(issueRef, deps, linearAdapter(deps, await knownGitlabProjectFromOrigin(deps.repoPath)));
+  // The review host follows origin: a draft MR through glab on gitlab.com or GITLAB_HOST, else a GitHub PR.
+  const gitlabProject = await knownGitlabProjectFromOrigin(deps.repoPath);
+  const host = gitlabProject === undefined ? githubReviewHost(deps.repoPath) : gitlabReviewHost(gitlabProject);
+  return runSourcedIssue(issueRef, deps, linearTracker(deps), host);
 }
 
 /** Fan a Linear parent issue out into one independent run (and PR) per sub-issue. */

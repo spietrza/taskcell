@@ -250,8 +250,30 @@ export interface PublishVerdictInput {
   gate?: boolean;
 }
 
-/** Per-source seam: fetch/prepare, extra secrets, id derivation, stage set, extra variables, PR link-back. */
-export interface SourceAdapter {
+/** The review surface a run delivers to: opens/labels/annotates the PR or MR. Written once per host, picked by the caller. */
+export interface ReviewHost {
+  /** `gh`/`glab`: the CLI that opens the draft PR/MR. `local`: the result stays a local branch — nothing is pushed and no PR/MR is opened (a hub-board task in a repository with no GitHub origin). */
+  kind: 'gh' | 'glab' | 'local';
+  /** Post the reviewer verdict (+ optional conformance section) onto the opened PR/MR. */
+  publishVerdict(input: PublishVerdictInput): Promise<void>;
+  /** Add a proof-failure label to the opened PR/MR (best-effort; must never throw). */
+  addFailureLabel(prUrl: string, kind: ProofFailureKind): Promise<void>;
+  /**
+   * Flag the opened PR/MR as touching gate config. Unlike addFailureLabel this is NOT best-effort:
+   * the label IS the gate a human review keys off (GATE_CONFIG_REVIEW_INSTRUCTION in pr-review.ts /
+   * mr-review.ts), so a failed flip must throw rather than hand back an unflagged PR. A no-op on a
+   * host that has no labelable review surface.
+   */
+  addGateConfigLabel(prUrl: string): Promise<void>;
+}
+
+const none = async (): Promise<void> => undefined;
+
+/** No review host: the result is a local branch, so there is no verdict to post and nothing to label. */
+export const localReviewHost: ReviewHost = { kind: 'local', publishVerdict: none, addFailureLabel: none, addGateConfigLabel: none };
+
+/** Per-source seam (the issue tracker): fetch/prepare, extra secrets, id derivation, stage set, extra variables, PR link-back. */
+export interface Tracker {
   /** Fetch the task. Runs on the host. */
   prepare(issueRef: string): Promise<{ task: Task }>;
   /** Extra sandbox secrets merged in before agent secrets (e.g. LINEAR_API_KEY). */
@@ -264,22 +286,6 @@ export interface SourceAdapter {
   variables?(issueRef: string, task: Task): Record<string, string>;
   /** Whether the review body should include source-control auto-close syntax for this task id. */
   closeIssueOnMerge?: boolean;
-  /** `local`: the result stays a local branch — nothing is pushed and no PR/MR is opened (a hub-board task in a
-   * repository with no GitHub origin). Default: push and open one. */
-  delivery?: 'local';
-  /** CLI used to open the draft PR/MR for review. Default 'gh'. GitLab supplies 'glab'. */
-  reviewCli?: 'gh' | 'glab';
-  /** Post the reviewer verdict (+ optional conformance section) onto the opened PR/MR. */
-  publishVerdict(input: PublishVerdictInput): Promise<void>;
-  /** Add a proof-failure label to the opened PR/MR (best-effort; must never throw). */
-  addFailureLabel(prUrl: string, kind: ProofFailureKind): Promise<void>;
-  /**
-   * Flag the opened PR/MR as touching gate config. Unlike addFailureLabel this is NOT best-effort:
-   * the label IS the gate a human review keys off (GATE_CONFIG_REVIEW_INSTRUCTION in pr-review.ts /
-   * mr-review.ts), so a failed flip must throw rather than hand back an unflagged PR. A no-op on a
-   * source that has no labelable review surface.
-   */
-  addGateConfigLabel(prUrl: string): Promise<void>;
   /**
    * Surface a secret-scan block on the source issue (label + masked comment). Best-effort: must
    * never throw (mirrors addFailureLabel). Called for BOTH the findings block and the scan-error
@@ -411,7 +417,7 @@ export function conventionalCommitMessage(title: string, taskId: string, opts: {
 async function resolveBaseStages(
   flow: string | undefined,
   repoPath: string,
-  adapter: SourceAdapter,
+  adapter: Tracker,
   customProviders?: readonly CustomProviderEntry[],
 ): Promise<PipelineStage[]> {
   if (flow === undefined || flow === 'default') return adapter.stages();
@@ -447,20 +453,21 @@ class PoolEntryLimited extends Error {
 }
 
 /**
- * Shared pipeline body for GitHub and Linear issue runners, parameterised by a SourceAdapter. A model
+ * Shared pipeline body for GitHub and Linear issue runners, parameterised by a Tracker and a ReviewHost. A model
  * pool whose entry hits a provider limit is re-run on the next entry, then on the fallback chain; the
  * limit escapes (as today) only once every entry the stage can use is out.
  */
 export async function runSourcedIssue(
   issueRef: string,
   configuredDeps: RunIssueDeps,
-  adapter: SourceAdapter,
+  adapter: Tracker,
+  host: ReviewHost,
 ): Promise<RunIssueResult> {
   // Entries that hit a limit during this run: skipped by the next attempt even when the cool-down file cannot be written.
   const exhausted = new Set<string>();
   for (;;) {
     try {
-      return await runSourcedIssueAttempt(issueRef, configuredDeps, adapter, exhausted);
+      return await runSourcedIssueAttempt(issueRef, configuredDeps, adapter, host, exhausted);
     } catch (error) {
       if (!(error instanceof PoolEntryLimited)) throw error;
       console.log(`taskcell: ${issueRef} ${error.message}; retrying on the next pool entry`);
@@ -471,7 +478,8 @@ export async function runSourcedIssue(
 async function runSourcedIssueAttempt(
   issueRef: string,
   configuredDeps: RunIssueDeps,
-  adapter: SourceAdapter,
+  adapter: Tracker,
+  host: ReviewHost,
   exhausted: Set<string>,
 ): Promise<RunIssueResult> {
   // Named-flow dispatch, resolved FIRST: a flow typo must fail before the tracker fetch, the
@@ -1088,7 +1096,7 @@ async function runSourcedIssueAttempt(
         // A custom provider's key env var is repo-configured: the secret gate cannot know its name.
         secretEnvVars: credentials.keyEnvNames,
         gateConfigExtraGlobs: extraGlobs,
-        target: adapter.delivery === 'local' ? { kind: 'local-branch' } : {
+        target: host.kind === 'local' ? { kind: 'local-branch' } : {
           kind: 'new-pr',
           title: `${task.title} (${task.id})`,
           bugLabel,
@@ -1096,7 +1104,7 @@ async function runSourcedIssueAttempt(
           // Ready for review only after verification, every configured proof and the review verdict
           // landed: an unavailable re-review ships as a draft too.
           draft: partial || verifyCmd === undefined || visualProofFailed || reviewUnavailable,
-          ...(adapter.reviewCli !== undefined ? { cli: adapter.reviewCli } : {}),
+          cli: host.kind,
           // Same PAT revise pushes with: a PR it opens fires the repo's pull_request workflows (CI).
           // Minted (App) or read (PAT) at each use, never cached: an App token lives 1 h, a run up to 180 min.
           tokenProvider: tokenProviderFor(deps.repoPath),
@@ -1145,7 +1153,7 @@ async function runSourcedIssueAttempt(
       const pipelineHasReviewer = pipeline.some((s) => s.name === STAGE.REVIEWER);
       if (!whiteLabel && pipelineHasReviewer && !reviewerSkipped) {
         const conformanceOutcome = outcomes.find((o) => o.name === STAGE.CONFORMANCE);
-        await adapter.publishVerdict({
+        await host.publishVerdict({
           prUrl: pr.prUrl,
           // The pre-push rebase may have rewritten the commit; the marker names the pushed head.
           headSha: pr.headSha,
@@ -1157,12 +1165,12 @@ async function runSourcedIssueAttempt(
       }
       await writer.writeStages(outcomes, { ...stageMeta(), prUrl: pr.prUrl, ...(configPaths.length > 0 ? { configPaths } : {}) });
       await stepSummary(verificationFailed ? 'verify-failed' : 'completed', { prUrl: pr.prUrl });
-      if (verification !== undefined && !verification.passed) await adapter.addFailureLabel(pr.prUrl, 'verify');
-      if (visualProofFailed) await adapter.addFailureLabel(pr.prUrl, 'visual-proof');
+      if (verification !== undefined && !verification.passed) await host.addFailureLabel(pr.prUrl, 'verify');
+      if (visualProofFailed) await host.addFailureLabel(pr.prUrl, 'visual-proof');
       // Unlike addFailureLabel (best-effort), this must not be swallowed: the label IS the gate a
       // human review relies on (GATE_CONFIG_REVIEW_INSTRUCTION keys off it), so a failed flip is
       // reported rather than handing back an unflagged PR for review.
-      if (configPaths.length > 0) await adapter.addGateConfigLabel(pr.prUrl);
+      if (configPaths.length > 0) await host.addGateConfigLabel(pr.prUrl);
       if (!whiteLabel) await adapter.linkPr(issueRef, task, pr.prUrl);
       onEvent({ type: 'run-end', prUrl: pr.prUrl });
       return { task, prUrl: pr.prUrl, ...(verificationFailed ? { verificationFailed: true } : {}) };

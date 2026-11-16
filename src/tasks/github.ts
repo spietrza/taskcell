@@ -152,7 +152,7 @@ export async function linkPullRequest(
 
 /**
  * Add a label to a PR under the spelling the repo has, surfacing a failed add. For labels that are themselves a
- * review gate (see SourceAdapter#addGateConfigLabel): an unflagged PR reaching a human is worse than
+ * review gate (see ReviewHost#addGateConfigLabel): an unflagged PR reaching a human is worse than
  * a failing run. resolveAdds creates a `taskcell:` label the repo lacks in both spellings (tolerantly; a label
  * with no legacy twin is not created); `gh pr edit --add-label` must succeed.
  */

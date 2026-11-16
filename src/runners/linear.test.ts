@@ -8,101 +8,43 @@ vi.mock('./source-adapter.js', async (importOriginal) => ({
   ...(await importOriginal<typeof import('./source-adapter.js')>()),
   runSourcedIssue: vi.fn(async () => ({ task: { id: 'ENG-1' } })),
 }));
-vi.mock('../tasks/github.js', async (importOriginal) => ({
-  ...(await importOriginal<typeof import('../tasks/github.js')>()),
-  addPrFailureLabel: vi.fn(async () => {}),
-  addPrGateLabel: vi.fn(async () => {}),
+vi.mock('../tasks/linear-cli.js', async (importOriginal) => ({
+  ...(await importOriginal<typeof import('../tasks/linear-cli.js')>()),
+  linkLinearIssue: vi.fn(async () => {}),
+  commentLinearIssue: vi.fn(async () => {}),
 }));
 
 import { runSourcedIssue } from './source-adapter.js';
-import { addPrFailureLabel, addPrGateLabel } from '../tasks/github.js';
-import { publishReviewVerdict } from '../pipeline/review-publish.js';
-import { GITHUB_GATE_CONFIG_LABEL, GITHUB_VERIFY_FAILED_LABEL } from '../github-labels.js';
-import { linearAdapter, runLinearIssue } from './linear.js';
+import { linkLinearIssue, commentLinearIssue } from '../tasks/linear-cli.js';
+import { linearTracker, runLinearIssue } from './linear.js';
 import type { RunLinearIssueDeps } from './linear.js';
-import type { GlabRunner } from '../tasks/gitlab.js';
-import type { StageOutcome } from '../pipeline/pipeline.js';
+import type { ReviewHost } from './source-adapter.js';
 
 function makeDeps(overrides: Partial<RunLinearIssueDeps> = {}): RunLinearIssueDeps {
   return { repoPath: '/repo', linearKey: 'lin_key', skillsDir: '/skills', ...overrides };
 }
 
-function makeGlab(): { glab: GlabRunner; calls: string[][] } {
-  const calls: string[][] = [];
-  const glab: GlabRunner = async (args) => { calls.push(args); return ''; };
-  return { calls, glab };
-}
-
-function reviewerOutcome(finalText: string): StageOutcome {
-  return {
-    name: 'reviewer',
-    result: { taskId: 't', completed: true, exitReason: 'completed', turns: 1, worktreePath: '/tmp/wt', worktreePreserved: true, finalText },
-  };
-}
-
 beforeEach(() => {
   vi.mocked(runSourcedIssue).mockClear();
-  vi.mocked(addPrFailureLabel).mockClear();
-  vi.mocked(addPrGateLabel).mockClear();
+  vi.mocked(linkLinearIssue).mockClear();
+  vi.mocked(commentLinearIssue).mockClear();
 });
 
-describe('linearAdapter on a GitLab remote', () => {
-  it('opens the MR with glab and posts the verdict as a GitLab MR note', async () => {
-    const { calls, glab } = makeGlab();
-    const adapter = linearAdapter(makeDeps(), 'group/project', glab);
-    expect(adapter.reviewCli).toBe('glab');
-
-    await adapter.publishVerdict({
-      prUrl: 'https://gitlab.com/group/project/-/merge_requests/7',
-      headSha: 'abcdef1234567890',
-      reviewerOutcome: reviewerOutcome('No blocking findings.'),
-      attribution: 'claude',
-    });
-    expect(calls).toHaveLength(1);
-    expect(calls[0]?.slice(0, 6)).toEqual(['mr', 'note', 'create', '7', '--repo', 'group/project']);
-    expect(calls[0]?.at(-1)).toContain('<!-- taskcell-mr-review: abcdef1234567890 -->');
+describe('linearTracker', () => {
+  it('derives a linear- task id and reads the issue through the skill variable', () => {
+    const tracker = linearTracker(makeDeps());
+    expect(tracker.taskId({ id: 'ENG-1', title: 't', description: '', labels: [], children: [], comments: [] })).toBe('linear-eng-1');
+    expect(tracker.variables?.('ENG-1', { id: 'ENG-1', title: 't', description: '', labels: [], children: [], comments: [] })).toEqual({ ISSUE: 'ENG-1' });
+    expect(tracker.secrets).toEqual({ LINEAR_API_KEY: 'lin_key' });
   });
 
-  it('labels a failed proof on the MR with the GitLab scoped label', async () => {
-    const { calls, glab } = makeGlab();
-    const adapter = linearAdapter(makeDeps(), 'group/project', glab);
-    await adapter.addFailureLabel('https://gitlab.com/group/project/-/merge_requests/7', 'verify');
-    expect(calls).toEqual([
-      ['label', 'create', '--repo', 'group/project', '--name', 'taskcell::verify-failed'],
-      ['mr', 'update', '7', '--repo', 'group/project', '--label', 'taskcell::verify-failed'],
-    ]);
-    expect(addPrFailureLabel).not.toHaveBeenCalled();
-  });
-
-  it('flags gate config on the MR — Linear has no labels, so the gate lives on the review surface', async () => {
-    const { calls, glab } = makeGlab();
-    const adapter = linearAdapter(makeDeps(), 'group/project', glab);
-    await adapter.addGateConfigLabel('https://gitlab.com/group/project/-/merge_requests/7');
-    expect(calls).toEqual([
-      ['label', 'create', '--repo', 'group/project', '--name', 'taskcell::gate-config-changed'],
-      ['mr', 'update', '7', '--repo', 'group/project', '--label', 'taskcell::gate-config-changed'],
-    ]);
-    expect(addPrGateLabel).not.toHaveBeenCalled();
-  });
-});
-
-describe('linearAdapter on a GitHub remote', () => {
-  it('keeps the gh PR, the GitHub PR review and the GitHub failure label', async () => {
-    const adapter = linearAdapter(makeDeps());
-    expect('reviewCli' in adapter).toBe(false);
-    expect(adapter.publishVerdict).toBe(publishReviewVerdict);
-
-    await adapter.addFailureLabel('https://github.com/owner/repo/pull/3', 'verify');
-    expect(addPrFailureLabel).toHaveBeenCalledWith('/repo', 'https://github.com/owner/repo/pull/3', GITHUB_VERIFY_FAILED_LABEL);
-  });
-
-  it('flags gate config on the PR, and does not swallow a failed flip', async () => {
-    const adapter = linearAdapter(makeDeps());
-    await adapter.addGateConfigLabel('https://github.com/owner/repo/pull/3');
-    expect(addPrGateLabel).toHaveBeenCalledWith('/repo', 'https://github.com/owner/repo/pull/3', GITHUB_GATE_CONFIG_LABEL);
-
-    vi.mocked(addPrGateLabel).mockRejectedValueOnce(new Error('gh: 403'));
-    await expect(adapter.addGateConfigLabel('https://github.com/owner/repo/pull/3')).rejects.toThrow('gh: 403');
+  it('links the PR and posts the base-red notice as Linear comments', async () => {
+    const task = { id: 'ENG-1', title: 't', description: '', labels: [], children: [], comments: [] };
+    const tracker = linearTracker(makeDeps());
+    await tracker.linkPr('ENG-1', task, 'https://github.com/owner/repo/pull/3');
+    await tracker.signalBaseRed('ENG-1', task, 'base is red');
+    expect(linkLinearIssue).toHaveBeenCalledWith('ENG-1', 'https://github.com/owner/repo/pull/3');
+    expect(commentLinearIssue).toHaveBeenCalledWith('ENG-1', 'base is red');
   });
 });
 
@@ -118,46 +60,36 @@ describe('runLinearIssue review surface', () => {
     await rm(repo, { recursive: true, force: true });
   });
 
-  async function adapterFor(origin: string | undefined): Promise<ReturnType<typeof linearAdapter>> {
+  async function hostFor(origin: string | undefined): Promise<ReviewHost> {
     if (origin !== undefined) await execa('git', ['remote', 'add', 'origin', origin], { cwd: repo });
     await runLinearIssue('ENG-1', makeDeps({ repoPath: repo }));
-    const adapter = vi.mocked(runSourcedIssue).mock.calls[0]?.[2];
-    if (adapter === undefined) throw new Error('runSourcedIssue was not called');
-    return adapter;
+    const host = vi.mocked(runSourcedIssue).mock.calls[0]?.[3];
+    if (host === undefined) throw new Error('runSourcedIssue was not called');
+    return host;
   }
 
   it('picks glab when origin is on gitlab.com', async () => {
-    const adapter = await adapterFor('git@gitlab.com:group/project.git');
-    expect(adapter.reviewCli).toBe('glab');
-    expect(adapter.publishVerdict).not.toBe(publishReviewVerdict);
+    expect((await hostFor('git@gitlab.com:group/project.git')).kind).toBe('glab');
   });
 
   it('keeps the GitHub path for a GitHub Enterprise remote', async () => {
-    const adapter = await adapterFor('git@github.corp.com:o/r.git');
-    expect('reviewCli' in adapter).toBe(false);
-    expect(adapter.publishVerdict).toBe(publishReviewVerdict);
+    expect((await hostFor('git@github.corp.com:o/r.git')).kind).toBe('gh');
   });
 
   it('picks glab for a self-hosted remote that matches GITLAB_HOST', async () => {
     vi.stubEnv('GITLAB_HOST', 'https://git.example.com:8443');
-    const adapter = await adapterFor('git@git.example.com:group/project.git');
-    expect(adapter.reviewCli).toBe('glab');
+    expect((await hostFor('git@git.example.com:group/project.git')).kind).toBe('glab');
   });
 
   it('keeps the GitHub path for a self-hosted remote when GITLAB_HOST is unset', async () => {
-    const adapter = await adapterFor('git@git.example.com:group/project.git');
-    expect('reviewCli' in adapter).toBe(false);
-    expect(adapter.publishVerdict).toBe(publishReviewVerdict);
+    expect((await hostFor('git@git.example.com:group/project.git')).kind).toBe('gh');
   });
 
   it('keeps the GitHub path when origin is a GitHub remote', async () => {
-    const adapter = await adapterFor('https://github.com/owner/repo.git');
-    expect('reviewCli' in adapter).toBe(false);
-    expect(adapter.publishVerdict).toBe(publishReviewVerdict);
+    expect((await hostFor('https://github.com/owner/repo.git')).kind).toBe('gh');
   });
 
   it('keeps the GitHub path when there is no origin remote', async () => {
-    const adapter = await adapterFor(undefined);
-    expect('reviewCli' in adapter).toBe(false);
+    expect((await hostFor(undefined)).kind).toBe('gh');
   });
 });

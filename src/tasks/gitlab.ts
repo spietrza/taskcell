@@ -176,7 +176,7 @@ export async function linkMergeRequest(
  * Without the pre-create, `glab mr update --label` is a silent no-op on a project lacking the label
  * (matching GitHub's `gh label create --force` pre-step); the pre-create itself stays tolerant, as it
  * already exists on a project that labelled an MR before. For labels that are themselves a review
- * gate — see SourceAdapter#addGateConfigLabel and addPrGateLabel, the GitHub twin.
+ * gate — see ReviewHost#addGateConfigLabel and addPrGateLabel, the GitHub twin.
  */
 export async function addMrGateLabel(
   project: string,

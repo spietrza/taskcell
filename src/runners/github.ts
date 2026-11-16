@@ -24,7 +24,7 @@ import type { GhRunner } from '../tasks/github.js';
 import type { ProviderChoice } from '../agents/registry.js';
 import type { FanOutOutcome } from '../pipeline/fan-out.js';
 import type { SecretBlock } from '../core/secret-scan.js';
-import type { RunIssueDeps, RunIssueResult, SourceAdapter, ProofFailureKind } from './source-adapter.js';
+import type { RunIssueDeps, RunIssueResult, Tracker, ReviewHost, ProofFailureKind } from './source-adapter.js';
 
 /** Everything needed to run a single GitHub issue end to end. */
 export interface RunGithubIssueDeps extends RunIssueDeps {
@@ -34,12 +34,25 @@ export interface RunGithubIssueDeps extends RunIssueDeps {
 /** The shared run result, unnarrowed: `secretBlocked` must reach the watch loop so a withheld PR is not read as "no changes". */
 export type RunGithubIssueResult = RunIssueResult;
 
+/** The GitHub review host (`gh`): draft PR, verdict comment and labels. Shared by every source whose result is a GitHub PR. */
+export function githubReviewHost(repoPath: string): ReviewHost {
+  return {
+    kind: 'gh',
+    publishVerdict: publishReviewVerdict,
+    async addFailureLabel(prUrl: string, kind: ProofFailureKind) {
+      await addPrFailureLabel(repoPath, prUrl, githubFailureLabel(kind));
+    },
+    async addGateConfigLabel(prUrl: string) {
+      await addPrGateLabel(repoPath, prUrl, GITHUB_GATE_CONFIG_LABEL);
+    },
+  };
+}
+
 /**
- * @internal Exported for unit tests; production callers use runGithubIssue. Only `signalSecretBlock`
- * goes through the injected `gh`; `prepare`, `linkPr`, `addFailureLabel` and `addGateConfigLabel`
- * still reach the real CLI.
+ * @internal Exported for unit tests; production callers use runGithubIssue. Only the issue
+ * write-backs go through the injected `gh`; `prepare` and `linkPr` still reach the real CLI.
  */
-export function githubAdapter(deps: RunGithubIssueDeps, gh: GhRunner = defaultGhRunner): SourceAdapter {
+export function githubTracker(deps: RunGithubIssueDeps, gh: GhRunner = defaultGhRunner): Tracker {
   return {
     async prepare(issueRef: string) {
       const task = await new GitHubTaskFetcher(deps.repoSlug).fetch(issueRef);
@@ -48,13 +61,6 @@ export function githubAdapter(deps: RunGithubIssueDeps, gh: GhRunner = defaultGh
     taskId: (task) => `gh-${task.id.replace(/[^a-zA-Z0-9]/g, '-')}`,
     stages: implementReviewSimplifyStages,
     closeIssueOnMerge: true,
-    publishVerdict: publishReviewVerdict,
-    async addFailureLabel(prUrl: string, kind: ProofFailureKind) {
-      await addPrFailureLabel(deps.repoPath, prUrl, githubFailureLabel(kind));
-    },
-    async addGateConfigLabel(prUrl: string) {
-      await addPrGateLabel(deps.repoPath, prUrl, GITHUB_GATE_CONFIG_LABEL);
-    },
     async linkPr(issueRef: string, _task: Task, prUrl: string) {
       await linkPullRequest(deps.repoSlug, issueRef, prUrl);
     },
@@ -69,7 +75,7 @@ export function githubAdapter(deps: RunGithubIssueDeps, gh: GhRunner = defaultGh
       await Promise.all([label, commentGithubIssue(deps.repoSlug, issueRef, renderSecretBlockComment(block), gh).catch(() => undefined)]);
     },
     async signalBaseRed(issueRef: string, _task: Task, body: string) {
-      // Comment only, no label (see SourceAdapter); best-effort, like every other issue write-back.
+      // Comment only, no label (see Tracker); best-effort, like every other issue write-back.
       await commentGithubIssue(deps.repoSlug, issueRef, body, gh).catch(() => undefined);
     },
   };
@@ -81,7 +87,7 @@ export function githubAdapter(deps: RunGithubIssueDeps, gh: GhRunner = defaultGh
  * the PR link back onto the issue. GitHub is both the source and the review surface.
  */
 export async function runGithubIssue(issueRef: string, deps: RunGithubIssueDeps): Promise<RunGithubIssueResult> {
-  return runSourcedIssue(issueRef, deps, githubAdapter(deps));
+  return runSourcedIssue(issueRef, deps, githubTracker(deps), githubReviewHost(deps.repoPath));
 }
 
 /**
