@@ -1,3 +1,4 @@
+import { readFileSync } from 'node:fs';
 import { describe, it, expect, vi } from 'vitest';
 import {
   fetchPullRequestFeedback,
@@ -1393,6 +1394,22 @@ describe('buildRevisionChecklist — Markdown review', () => {
     expect(ck('## Blocking\n- a\n````\n```\n- fake\n```\n````\n- b')).toEqual(['a', 'b']);
     expect(ck('## Blocking\n- a\n```foo()``` returns null\n- b\n- c')).toEqual(['a', 'b', 'c']);
     expect(ck('## Blocking\n- a\n```ts\n- b')).toEqual(['a', 'b']);
+  });
+
+  it('counts bold numbered paragraphs as findings and their bullets as detail', () => {
+    const review = '## Blocking\n\n**1. First** (a.ts)\n- x\n- y\n\n**2. Second** (b.ts)\n- z\n\n**3. Third**\n- w\n- v';
+    expect(ck(review)).toEqual(['**1. First** (a.ts)', '**2. Second** (b.ts)', '**3. Third**']);
+    expect(ck('## Blocking\n\n**B1.** One\n- x\n\n**B2.** Two\n- y')).toEqual(['**B1.** One', '**B2.** Two']);
+    // A bold number that is not a finding title (no space after the punctuation) hides nothing.
+    expect(ck('## Blocking\n- real A\n**1.5x slowdown on startup**\n- real B')).toEqual(['real A', 'real B']);
+  });
+
+  it('reads the real #1154 review (3 bold findings, their detail bullets) as 3 items', () => {
+    // Body of the review that made the reviser report "14 blocking item(s)" (#1157).
+    const body = readFileSync(new URL('./fixtures/review-1154.md', import.meta.url), 'utf8').replace(/^## Taskcell Review\n+/, '');
+    const items = buildRevisionChecklist(makeFeedback({ items: [review(body)] }), []);
+    expect(items).toHaveLength(3);
+    expect(items.map((i) => i.slice(0, 5))).toEqual(['**1. ', '**2. ', '**3. ']);
   });
 
   it('handles indented fences, Blocking: detail fields, mixed-count parents, label forms and section names', () => {

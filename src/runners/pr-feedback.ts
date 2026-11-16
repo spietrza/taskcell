@@ -334,6 +334,9 @@ function stripParens(text: string): string {
 /** A heading that is itself one finding: numbered like `1.`, `B1.` or `B1:`. */
 const isNumberedHeading = (text: string): boolean => /^[A-Za-z]{0,2}\d+[.):]\s/.test(text);
 
+/** A bold numbered paragraph that is itself one finding: `**1. Title**` or `**B1.** Title`. */
+const BOLD_NUMBERED_RE = /^\*\*\s*[A-Za-z]{0,2}\d+[.):](?:\s|\*\*)/;
+
 const LABEL = String.raw`((?:no[nt][- ]?)?blocking)`;
 const LEADING_LABEL_RE = new RegExp(String.raw`^(?:\[\s*${LABEL}\s*\]|\(\s*${LABEL}\s*\)|${LABEL}[*_]*\s+[—–-]\s)`, 'i');
 
@@ -393,6 +396,7 @@ function proseBlockingFindings(body: string): string[] {
   let inBlockingSection = false;
   let sectionLevel = 0;
   let detailOnly = false;
+  let boldFinding = false;
   let group: { heading: string; items: string[] } | undefined;
   const flush = (): void => {
     if (group === undefined) return;
@@ -406,6 +410,7 @@ function proseBlockingFindings(body: string): string[] {
     const match = HEADING_RE.exec(line);
     if (match !== null) {
       flush();
+      boldFinding = false;
       const level = match[1]!.length;
       const heading = oneLine(match[2]!);
       const blocking = isBlockingLabel(heading);
@@ -427,7 +432,13 @@ function proseBlockingFindings(body: string): string[] {
       continue;
     }
     const item = TOP_LIST_ITEM_RE.exec(line)?.[1];
-    if (item === undefined) continue;
+    // A bold numbered paragraph (`**1. Title** (path)`) is one finding; the bullets below it are its detail.
+    if (item === undefined && inBlockingSection && !detailOnly && group === undefined && BOLD_NUMBERED_RE.test(line)) {
+      boldFinding = true;
+      if (!/\bnon[- ]?blocking\b/i.test(line)) out.push(oneLine(line));
+      continue;
+    }
+    if (item === undefined || boldFinding) continue;
     if (group !== undefined) group.items.push(oneLine(item));
     else if (!detailOnly && (inBlockingSection || EXPLICIT_BLOCKING_RE.test(item))) out.push(oneLine(item));
   }
