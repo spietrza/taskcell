@@ -98,7 +98,29 @@ interface GhPullRequestReviewView {
 }
 
 type PullRequestWatchKind = 'reviewed' | 'failed' | 'skipped';
-const INCOMPLETE_RETRY_LIMIT = 3;
+/** Incomplete-review attempts per head, and the passes a failed pinned review gets in one run: one budget. */
+export const INCOMPLETE_RETRY_LIMIT = 3;
+
+/**
+ * Run `pass` and, for a pinned-only run (no later sweep to retry its failed review), retry the pin until it
+ * stops failing or INCOMPLETE_RETRY_LIMIT passes are used. `pinUnreviewed` is true when a retry left the pin
+ * neither reviewed nor failed (label not restored, rate-limit hold, incomplete-review cap): the caller keeps
+ * the job red instead of letting the earlier failure turn green.
+ */
+export async function passWithPinnedRetry(
+  pass: () => Promise<PullRequestWatchTick | undefined>,
+  pin: { id: string; retry: boolean },
+  log: (line: string) => void,
+): Promise<{ tick: PullRequestWatchTick | undefined; pinUnreviewed: boolean }> {
+  let tick = await pass();
+  let retried = false;
+  for (let n = 1; pin.retry && tick !== undefined && tick.failed.length > 0 && n < INCOMPLETE_RETRY_LIMIT; n++) {
+    log(`watch-prs[github]: ${pin.id} failed -> retry ${n} of ${INCOMPLETE_RETRY_LIMIT - 1} (pinned-only)`);
+    retried = true;
+    tick = await pass();
+  }
+  return { tick, pinUnreviewed: retried && tick !== undefined && !tick.reviewed.includes(pin.id) };
+}
 const PR_INCOMPLETE_CAP_MARKER_RE = /^<!--[ \t]*taskcell-pr-review-incomplete-cap:[ \t]*([a-fA-F0-9]+)[ \t]*-->$/gm;
 
 function prId(item: PullRequestWatchItem): string {
