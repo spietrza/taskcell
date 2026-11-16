@@ -65,6 +65,8 @@ export interface GitHubPullRequestWatchOptions {
    * the label was deliberately (re-)added.
    */
   hintPr?: number;
+  /** With hintPr set, review only that PR: no label scan (each labelled PR has its own CI run, #1070). */
+  pinnedOnly?: boolean;
   /**
    * Extra PR-author logins trusted beyond OWNER/MEMBER/COLLABORATOR (--feedback-authors; the workflow's
    * allowed-actors). A PR by anyone else is skipped, as the label-triggered path's author gate does.
@@ -241,7 +243,7 @@ export function githubPullRequestWatchPrimitives(opts: GitHubPullRequestWatchOpt
     listReady: async () => {
       // A trigger label renamed from `vanguard` to `taskcell`: list under both spellings, so a PR still carrying the old one runs.
       const listed = new Map<number, GhPullRequestListItem>();
-      for (const form of labelForms(opts.label)) {
+      for (const form of opts.pinnedOnly === true && opts.hintPr !== undefined ? [] : labelForms(opts.label)) {
         const listArgs = [
           'pr',
           'list',

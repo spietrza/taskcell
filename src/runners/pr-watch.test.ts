@@ -621,6 +621,34 @@ describe('githubPullRequestWatchPrimitives', () => {
     expect(logs).toContain('watch-prs o/r#12: skip -> head abc123 already reviewed');
   });
 
+  it('with pinnedOnly reviews only the hinted PR and skips the label scan', async () => {
+    const calls: string[][] = [];
+    const gh: GhRunner = async (args) => {
+      calls.push(args);
+      if (args[0] === 'pr' && args[1] === 'list') throw new Error('no label scan expected');
+      if (args[0] === 'pr' && args[1] === 'view') {
+        return JSON.stringify({
+          number: 316, title: 'Pinned', isDraft: false, author: { login: 'alice' }, headRefOid: 'abc123',
+          labels: [{ name: 'ready for taskcell review' }], state: 'OPEN',
+        });
+      }
+      return trustedAuthorApi(args);
+    };
+    const primitives = githubPullRequestWatchPrimitives({
+      repoSlug: 'o/r',
+      label: 'ready for taskcell review',
+      reviewingLabel: 'taskcell:reviewing',
+      reviewedLabel: 'taskcell:reviewed',
+      hintPr: 316,
+      pinnedOnly: true,
+      gh,
+      reviewOne: async () => {},
+    });
+
+    expect((await primitives.listReady()).map((item) => item.number)).toEqual([316]);
+    expect(calls.some((c) => c[0] === 'pr' && c[1] === 'list')).toBe(false);
+  });
+
   it('pins the hinted PR when the label scan misses it (eventually consistent search)', async () => {
     const calls: string[][] = [];
     const gh: GhRunner = async (args) => {

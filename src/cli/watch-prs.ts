@@ -70,6 +70,7 @@ export async function watchPrsCommand(cmd: WatchPrsCommand, deps: WatchPrsComman
     reviewedLabel: cmd.reviewedLabel,
     log,
     ...(hintPr !== undefined ? { hintPr } : {}),
+    ...(cmd.pinnedOnly === true ? { pinnedOnly: true } : {}),
     ...(cmd.author !== undefined ? { author: cmd.author } : {}),
     ...(cmd.feedbackAuthors !== undefined ? { allowedAuthors: cmd.feedbackAuthors } : {}),
     ...(deps.gh !== undefined ? { gh: deps.gh } : {}),

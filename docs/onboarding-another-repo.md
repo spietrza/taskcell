@@ -170,7 +170,7 @@ on:
   workflow_dispatch:
 permissions: {}
 concurrency:
-  group: taskcell-pr-review-${{ github.repository }}
+  group: taskcell-pr-review-${{ github.repository }}-${{ github.event.pull_request.number || 'sweep' }}
   cancel-in-progress: false
 jobs:
   review:
@@ -188,6 +188,7 @@ jobs:
     uses: spietrza/taskcell/.github/workflows/pr-review.yml@v1
     with:
       allowed-actors: '["YOUR_LOGIN"]'
+      pinned-only: true # one run per labelled PR (the per-PR concurrency group above)
       author: YOUR_LOGIN
       provider: codex
       review-model: gpt-5.6-sol
@@ -198,7 +199,9 @@ jobs:
       CODEX_AUTH_JSON: ${{ secrets.CODEX_AUTH_JSON }}
 ```
 
-Inputs: `allowed-actors` (required), `provider`, `review-model`, `fallback-provider`, `fallback-model`, `author` (`--author`), `llm-proxy`, `skills` (default `.vanguard-src/skills`, as for `implement.yml`: keep the default; a custom path that does not exist fails the review step), `vanguard-ref`. Leave the fallback inputs empty for no fallback. The fallback provider is preflighted too; if its *credential* is missing the job warns (step annotation + run summary) and reviews without a fallback rather than failing before the primary provider runs, so a Codex primary keeps working while the Claude secret is unset. Any other fallback preflight failure — an unknown provider name, a malformed `CODEX_AUTH_JSON` — fails the run, as for the primary. The fallback fires whenever the first attempt exits non-zero. It keeps the event hint, so the just-labeled PR is found even when the label search lags behind the label restore the failed attempt made; a head the first attempt already reviewed no longer carries the trigger label and is skipped. The one residual: a review that posted but whose label update then failed gets a second review. Do not combine `llm-proxy` with a Codex subscription (see the Full tier below).
+**One run per labelled PR.** The concurrency group carries the PR number and `pinned-only: true` makes each run review only its own PR. With one shared group, GitHub keeps a single pending run, so a third PR labelled while a review runs and another waits cancelled the waiting one, and that PR never got a review (#1070). A `workflow_dispatch` run has no event PR, shares the `-sweep` group and still reviews every labelled PR. Several PRs labelled at once now review in parallel (one runner each), so plan for that many concurrent model sessions.
+
+Inputs: `allowed-actors` (required), `pinned-only`, `provider`, `review-model`, `fallback-provider`, `fallback-model`, `author` (`--author`), `llm-proxy`, `skills` (default `.vanguard-src/skills`, as for `implement.yml`: keep the default; a custom path that does not exist fails the review step), `vanguard-ref`. Leave the fallback inputs empty for no fallback. The fallback provider is preflighted too; if its *credential* is missing the job warns (step annotation + run summary) and reviews without a fallback rather than failing before the primary provider runs, so a Codex primary keeps working while the Claude secret is unset. Any other fallback preflight failure — an unknown provider name, a malformed `CODEX_AUTH_JSON` — fails the run, as for the primary. The fallback fires whenever the first attempt exits non-zero. It keeps the event hint, so the just-labeled PR is found even when the label search lags behind the label restore the failed attempt made; a head the first attempt already reviewed no longer carries the trigger label and is skipped. The one residual: a review that posted but whose label update then failed gets a second review. Do not combine `llm-proxy` with a Codex subscription (see the Full tier below).
 
 ### `taskcell-research.yml` and `taskcell-revise.yml` (optional)
 
