@@ -22,10 +22,13 @@ const modules = readCommandModules(commandsDir);
 writeFileSync(join(commandsDir, 'index.ts'), commandIndexSource(modules));
 console.log(`wrote ${join(commandsDir, 'index.ts')}`);
 
+// Policies are runtime values (shared consts, spreads), so read them from the index just written.
+const { HUB_POLICY } = (await import('../src/hub/commands/index.js')) as typeof import('../src/hub/commands/index.js');
+
 for (const file of FILES) {
   const header = `// GENERATED from src/${file} — do not edit; run pnpm gen:wire\n`;
   const target = join(root, 'apps', 'desktop', 'src', file);
-  const tail = file === 'wire.ts' ? desktopCommandsSource(modules) : '';
+  const tail = file === 'wire.ts' ? desktopCommandsSource(modules, HUB_POLICY) : '';
   writeFileSync(target, header + readFileSync(join(root, 'src', file), 'utf8') + tail);
   console.log(`wrote ${target}`);
 }

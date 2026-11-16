@@ -2,7 +2,7 @@ import { readFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { describe, expect, expectTypeOf, it } from 'vitest';
 import { WIRE_PROVIDER_NAMES } from './wire.js';
-import type { Commands } from './hub/commands/index.js';
+import { HUB_POLICY, type Commands } from './hub/commands/index.js';
 import { commandIndexSource, desktopCommandsSource, readCommandModules } from './hub/command-codegen.js';
 import type { AppConfig, BoardChip, BoardTask, CompleteCallArgs, Finding, Project, ReviewVerdict, RunRecord } from './wire.js';
 import { PROVIDER_NAMES } from './agents/registry.js';
@@ -43,7 +43,7 @@ describe('wire contract (S7)', () => {
   });
 
   it('desktop copy is byte-identical to header + core source (codegen drift guard — run pnpm gen:wire)', () => {
-    assertByteIdenticalCopy('wire.ts', desktopCommandsSource(commandModules()));
+    assertByteIdenticalCopy('wire.ts', desktopCommandsSource(commandModules(), HUB_POLICY));
   });
 
   it('the hub command index is the generated one (run pnpm gen:wire)', () => {
