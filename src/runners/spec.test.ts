@@ -12,8 +12,7 @@ import {
   linearWatchPrimitives,
   githubIssueWatchPrimitives,
 } from './watch.js';
-import { runSpecGenerator, defaultSandboxFactory } from './spec.js';
-import type { DockerSandboxProvider } from '../sandbox/docker.js';
+import { runSpecGenerator } from './spec.js';
 import { parseSpecManifest } from '../pipeline/conformance-gate.js';
 import { GITHUB_CLAIMED_LABEL, GITHUB_REVIEW_LABEL, GITHUB_SPEC_CLAIMED_LABEL } from '../github-labels.js';
 import type { SpecWatchPrimitives, WatchPrimitives, GenerateSpec } from './watch.js';
@@ -790,43 +789,6 @@ describe('runSpecGenerator', () => {
     } finally {
       await rm(bundled, { recursive: true, force: true });
     }
-  });
-});
-
-// Runs without Docker: the runner-built sandbox's argv. Proves the opt-in reaches
-// `buildRunArgs` through config.security (limits.test.ts/docker.test.ts cover the pieces in isolation).
-describe('defaultSandboxFactory wires the opt-in read-only rootfs', () => {
-  // Pin both vars so the host env cannot opt in or resize under the test.
-  beforeEach(() => {
-    vi.stubEnv('TASKCELL_SANDBOX_READONLY', undefined);
-    vi.stubEnv('TASKCELL_SANDBOX_MEMORY_MB', undefined);
-  });
-  afterEach(() => vi.unstubAllEnvs());
-  const runArgs = (deps: Partial<RunSpecGeneratorDeps>): string[] => {
-    const fetcher = { fetch: vi.fn() } as unknown as TaskFetcher;
-    const sandbox = defaultSandboxFactory({ repoPath: '/nowhere', fetcher, ...deps } as RunSpecGeneratorDeps, {}, {}, false);
-    return (sandbox as DockerSandboxProvider).buildRunArgs();
-  };
-
-  it('--egress/--llm-proxy (enclave network set) alone keeps the rootfs writable: read-only is opt-in', () => {
-    expect(runArgs({ network: 'vg-egr-1' })).not.toContain('--read-only');
-  });
-
-  it('--egress/--llm-proxy with TASKCELL_SANDBOX_READONLY=1: --read-only plus the three tmpfs mounts', () => {
-    vi.stubEnv('TASKCELL_SANDBOX_READONLY', '1');
-    const args = runArgs({ network: 'vg-egr-1' });
-    expect(args).toContain('--read-only');
-    const tmpfs = args.filter((_, i) => args[i - 1] === '--tmpfs');
-    for (const path of ['/workspace:', '/home/agent:', '/tmp:']) expect(tmpfs.some((t) => t.startsWith(path))).toBe(true);
-  });
-
-  it('TASKCELL_SANDBOX_READONLY=0 keeps it off in hardened mode', () => {
-    vi.stubEnv('TASKCELL_SANDBOX_READONLY', '0');
-    expect(runArgs({ network: 'vg-egr-1' })).not.toContain('--read-only');
-  });
-
-  it('without the flags the rootfs stays writable, as before', () => {
-    expect(runArgs({})).not.toContain('--read-only');
   });
 });
 

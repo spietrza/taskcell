@@ -2,16 +2,12 @@ import { gitlabDefaultBranch, defaultGlabRunner } from '../tasks/gitlab.js';
 import type { GlabRunner } from '../tasks/gitlab.js';
 import { overlayInstructionFiles } from '../context/instruction-files.js';
 import type { InstructionOverlay } from '../context/instruction-files.js';
-import { DockerSandboxProvider, sandboxImage } from '../sandbox/docker.js';
-import { sandboxNetworkConfig } from '../sandbox/limits.js';
-import { llmProxySandboxEnv } from '../sandbox/egress-proxy.js';
-import { startProviderProxies } from '../sandbox/llm-proxy.js';
 import { startSandboxContext } from '../sandbox/sandbox-context.js';
-import { agentAuthFromEnv, authSecrets } from '../agents/auth.js';
-import { llmProxyNeedsNoPrimarySidecar, selectAgents } from '../agents/registry.js';
-import { prepareContext, runAgent, disposeContext } from '../core/taskcell.js';
+import { agentAuthFromEnv } from '../agents/auth.js';
+import { llmProxyNeedsNoPrimarySidecar } from '../agents/registry.js';
+import { runAgent } from '../core/taskcell.js';
+import { openAgentSession } from '../runners/agent-session.js';
 import { skillRegistryForRun } from '../context/skill-registry.js';
-import { enforceUsageCap } from '../core/usage-cap.js';
 import { baseBranchOrDefault } from '../core/base-branch.js';
 import { literalPrompt } from '../context/prompt-engine.js';
 import { adversarySystemPrompt } from '../pipeline/pipeline.js';
@@ -91,33 +87,24 @@ async function runDefaultMrReviewer(
   opts: MergeRequestReviewAttempt,
   glab: GlabRunner,
 ): Promise<MergeRequestReviewOutcome> {
-  const agents = selectAgents(cmd, process.env, { proxyMode: cmd.llmProxy === true });
-  // A review is a new agent run: not started when the provider is at the usage cap (the error ends the review; nothing is posted).
-  enforceUsageCap(agents.agent.name);
-
-  // Per-run provider sidecars (e.g. OpenAI for Codex) hold the real key out of the sandbox. Created
-  // before prepareContext so the finally below tears them down even if context provisioning throws.
-  const providerProxies = await startProviderProxies({
-    proxySecrets: agents.proxySecrets,
+  const session = await openAgentSession({
+    choice: cmd,
+    repoPath: cmd.repoPath,
+    ...(auth !== undefined ? { auth } : {}),
+    ...(sandboxContext.proxyUrl !== undefined ? { proxyUrl: sandboxContext.proxyUrl } : {}),
     ...(sandboxContext.network !== undefined ? { network: sandboxContext.network } : {}),
+    ...(sandboxContext.llmProxy !== undefined ? { llmProxy: sandboxContext.llmProxy } : {}),
+    proxyMode: cmd.llmProxy === true,
   });
+  // The session owns the provider sidecars, sandbox and context: closed on every exit path below.
   try {
-    const env = llmProxySandboxEnv(sandboxContext.proxyUrl, sandboxContext.llmProxy, providerProxies);
-    const sandbox = new DockerSandboxProvider({
-      image: sandboxImage(),
-      secrets: {
-        ...(sandboxContext.llmProxy === undefined && auth !== undefined && agents.injectAnthropicAuth ? authSecrets(auth) : {}),
-        ...agents.secrets,
-      },
-      ...(env !== undefined ? { env } : {}),
-      ...sandboxNetworkConfig(sandboxContext.network),
-    });
+    const { agents } = session;
     const taskId = `mr-review-${mr.project.replace(/[^a-zA-Z0-9]/g, '-')}-${mr.iid}`;
     // The reviewer reads the tree the change lands on: the MR's target branch as origin has it.
     const baseBranch = baseBranchOrDefault(mr.targetBranch, `MR ${mr.project}!${mr.iid}`);
     const instructionRef = await gitlabDefaultBranch(mr.project, glab);
     let overlay: InstructionOverlay | undefined;
-    const ctx = await prepareContext({ taskId, localRepoPath: cmd.repoPath, sandbox, agentName: agents.agent.name, baseBranch, start: 'base' }, {
+    const ctx = await session.prepare({ taskId, localRepoPath: cmd.repoPath, baseBranch, start: 'base' }, {
       // Load repo skills after the trusted default-branch instructions have been overlaid.
       skills: (worktreePath) => skillRegistryForRun(cmd.skillsDir, worktreePath),
       ...(instructionRef !== baseBranch ? { seedWorktree: async (worktreePath: string) => {
@@ -125,22 +112,18 @@ async function runDefaultMrReviewer(
       } } : {}),
     });
     const baseTurns = cmd.maxTurns ?? DEFAULT_REVIEW_MAX_TURNS;
-    try {
-      const result = await runAgent(ctx, {
-        stageName: 'mr-review',
-        agent: agents.agent,
-        ...literalPrompt(buildMergeRequestReviewPrompt(mr, { retryTriage: opts.isRetry, ...(overlay !== undefined ? { instructions: overlay } : {}) })),
-        systemPrompt: adversarySystemPrompt(),
-        effort: opts.isRetry ? 'xhigh' : 'high',
-        maxTurns: opts.isRetry ? Math.min(Math.ceil(baseTurns * 1.5), Number.MAX_SAFE_INTEGER) : baseTurns,
-        copyBack: false,
-        ...(cmd.reviewModel !== undefined ? { model: cmd.reviewModel } : {}),
-      });
-      return { text: result.finalText, completed: result.completed };
-    } finally {
-      await disposeContext(ctx);
-    }
+    const result = await runAgent(ctx, {
+      stageName: 'mr-review',
+      agent: agents.agent,
+      ...literalPrompt(buildMergeRequestReviewPrompt(mr, { retryTriage: opts.isRetry, ...(overlay !== undefined ? { instructions: overlay } : {}) })),
+      systemPrompt: adversarySystemPrompt(),
+      effort: opts.isRetry ? 'xhigh' : 'high',
+      maxTurns: opts.isRetry ? Math.min(Math.ceil(baseTurns * 1.5), Number.MAX_SAFE_INTEGER) : baseTurns,
+      copyBack: false,
+      ...(cmd.reviewModel !== undefined ? { model: cmd.reviewModel } : {}),
+    });
+    return { text: result.finalText, completed: result.completed };
   } finally {
-    await providerProxies.destroy();
+    await session.close();
   }
 }

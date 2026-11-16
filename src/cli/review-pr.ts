@@ -4,15 +4,11 @@ import { overlayInstructionFiles } from '../context/instruction-files.js';
 import type { InstructionOverlay } from '../context/instruction-files.js';
 import { mkdir, writeFile } from 'node:fs/promises';
 import { dirname, resolve } from 'node:path';
-import { DockerSandboxProvider, sandboxImage } from '../sandbox/docker.js';
-import { sandboxNetworkConfig } from '../sandbox/limits.js';
-import { llmProxySandboxEnv } from '../sandbox/egress-proxy.js';
-import { startProviderProxies } from '../sandbox/llm-proxy.js';
 import { startSandboxContext } from '../sandbox/sandbox-context.js';
-import { agentAuthFromEnv, authSecrets } from '../agents/auth.js';
-import { llmProxyNeedsNoPrimarySidecar, selectAgents } from '../agents/registry.js';
-import { prepareContext, runAgent, disposeContext } from '../core/taskcell.js';
-import { enforceUsageCap } from '../core/usage-cap.js';
+import { agentAuthFromEnv } from '../agents/auth.js';
+import { llmProxyNeedsNoPrimarySidecar } from '../agents/registry.js';
+import { runAgent } from '../core/taskcell.js';
+import { openAgentSession } from '../runners/agent-session.js';
 import { skillRegistryForRun } from '../context/skill-registry.js';
 import { baseBranchOrDefault } from '../core/base-branch.js';
 import { literalPrompt } from '../context/prompt-engine.js';
@@ -138,33 +134,24 @@ async function runDefaultReviewer(
   outcomes: SummaryOutcome[],
   gh: GhRunner,
 ): Promise<PullRequestReviewOutcome> {
-  const agents = selectAgents(cmd, process.env, { proxyMode: cmd.llmProxy === true });
-  // A review is a new agent run: not started when the provider is at the usage cap (watch-prs parks the PR).
-  enforceUsageCap(agents.agent.name);
-
-  // Per-run provider sidecars (e.g. OpenAI for Codex) hold the real key out of the sandbox. Created
-  // before prepareContext so the finally below tears them down even if context provisioning throws.
-  const providerProxies = await startProviderProxies({
-    proxySecrets: agents.proxySecrets,
+  const session = await openAgentSession({
+    choice: cmd,
+    repoPath: cmd.repoPath,
+    ...(auth !== undefined ? { auth } : {}),
+    ...(sandboxContext.proxyUrl !== undefined ? { proxyUrl: sandboxContext.proxyUrl } : {}),
     ...(sandboxContext.network !== undefined ? { network: sandboxContext.network } : {}),
+    ...(sandboxContext.llmProxy !== undefined ? { llmProxy: sandboxContext.llmProxy } : {}),
+    proxyMode: cmd.llmProxy === true,
   });
+  // The session owns the provider sidecars, sandbox and context: closed on every exit path below.
   try {
-    const env = llmProxySandboxEnv(sandboxContext.proxyUrl, sandboxContext.llmProxy, providerProxies);
-    const sandbox = new DockerSandboxProvider({
-      image: sandboxImage(),
-      secrets: {
-        ...(sandboxContext.llmProxy === undefined && auth !== undefined && agents.injectAnthropicAuth ? authSecrets(auth) : {}),
-        ...agents.secrets,
-      },
-      ...(env !== undefined ? { env } : {}),
-      ...sandboxNetworkConfig(sandboxContext.network),
-    });
+    const { agents } = session;
     const taskId = `pr-review-${pr.repoSlug.replace(/[^a-zA-Z0-9]/g, '-')}-${pr.number}`;
     // The reviewer reads the tree the change lands on: the PR's base as origin has it.
     const baseBranch = baseBranchOrDefault(pr.baseRefName, `PR ${pr.repoSlug}#${pr.number}`);
     const instructionRef = await githubDefaultBranch(pr.repoSlug, gh);
     let overlay: InstructionOverlay | undefined;
-    const ctx = await prepareContext({ taskId, localRepoPath: cmd.repoPath, sandbox, agentName: agents.agent.name, baseBranch, start: 'base' }, {
+    const ctx = await session.prepare({ taskId, localRepoPath: cmd.repoPath, baseBranch, start: 'base' }, {
       // Load repo skills after the trusted default-branch instructions have been overlaid.
       skills: (worktreePath) => skillRegistryForRun(cmd.skillsDir, worktreePath),
       ...(instructionRef !== baseBranch ? { seedWorktree: async (worktreePath: string) => {
@@ -172,35 +159,31 @@ async function runDefaultReviewer(
       } } : {}),
     });
     const baseTurns = cmd.maxTurns ?? DEFAULT_REVIEW_MAX_TURNS;
-    try {
-      const result = await runAgent(ctx, {
-        stageName: 'pr-review',
-        agent: agents.agent,
-        ...literalPrompt(buildPullRequestReviewPrompt(pr, { retryTriage: opts.isRetry, ...(overlay !== undefined ? { instructions: overlay } : {}) })),
-        systemPrompt: adversarySystemPrompt(),
-        effort: opts.isRetry ? 'xhigh' : 'high',
-        maxTurns: opts.isRetry ? Math.min(Math.ceil(baseTurns * 1.5), Number.MAX_SAFE_INTEGER) : baseTurns,
-        copyBack: false,
-        // Read-only: the PR code is untrusted and never run. With Bash the reviewer installs node_modules
-        // and runs the project instead of reviewing the diff it was given.
-        allowedTools: [...PR_REVIEW_TOOLS],
-        ...(cmd.reviewModel !== undefined ? { model: cmd.reviewModel } : {}),
-      });
-      outcomes.push({ name: opts.isRetry ? 'pr-review-retry' : 'pr-review', result, ...(cmd.reviewModel !== undefined ? { model: cmd.reviewModel } : {}) });
-      return {
-        text: result.finalText,
-        completed: result.completed,
-        turns: result.turns,
-        ...(result.usage !== undefined ? { outputTokens: result.usage.outputTokens } : {}),
-        ...(result.stopReason !== undefined ? { stopReason: result.stopReason } : {}),
-        ...(result.lastBlock !== undefined ? { lastBlock: result.lastBlock } : {}),
-        // The model the provider reported, not the requested one: a gateway or alias can serve another.
-        ...(result.model !== undefined ? { model: result.model } : {}),
-      };
-    } finally {
-      await disposeContext(ctx);
-    }
+    const result = await runAgent(ctx, {
+      stageName: 'pr-review',
+      agent: agents.agent,
+      ...literalPrompt(buildPullRequestReviewPrompt(pr, { retryTriage: opts.isRetry, ...(overlay !== undefined ? { instructions: overlay } : {}) })),
+      systemPrompt: adversarySystemPrompt(),
+      effort: opts.isRetry ? 'xhigh' : 'high',
+      maxTurns: opts.isRetry ? Math.min(Math.ceil(baseTurns * 1.5), Number.MAX_SAFE_INTEGER) : baseTurns,
+      copyBack: false,
+      // Read-only: the PR code is untrusted and never run. With Bash the reviewer installs node_modules
+      // and runs the project instead of reviewing the diff it was given.
+      allowedTools: [...PR_REVIEW_TOOLS],
+      ...(cmd.reviewModel !== undefined ? { model: cmd.reviewModel } : {}),
+    });
+    outcomes.push({ name: opts.isRetry ? 'pr-review-retry' : 'pr-review', result, ...(cmd.reviewModel !== undefined ? { model: cmd.reviewModel } : {}) });
+    return {
+      text: result.finalText,
+      completed: result.completed,
+      turns: result.turns,
+      ...(result.usage !== undefined ? { outputTokens: result.usage.outputTokens } : {}),
+      ...(result.stopReason !== undefined ? { stopReason: result.stopReason } : {}),
+      ...(result.lastBlock !== undefined ? { lastBlock: result.lastBlock } : {}),
+      // The model the provider reported, not the requested one: a gateway or alias can serve another.
+      ...(result.model !== undefined ? { model: result.model } : {}),
+    };
   } finally {
-    await providerProxies.destroy();
+    await session.close();
   }
 }

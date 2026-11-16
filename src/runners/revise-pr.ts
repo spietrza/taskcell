@@ -25,7 +25,7 @@ import {
   guardedPoint,
 } from './pr-feedback.js';
 import type { FeedbackItem } from './pr-feedback.js';
-import { prepareContext, disposeContext, refreshSandboxWorkspace } from '../core/taskcell.js';
+import { refreshSandboxWorkspace } from '../core/taskcell.js';
 import { mergeBaseIntoWorktree, filesWithConflictMarkers, formatConflictFiles } from './base-merge.js';
 import type { RunContext } from '../core/taskcell.js';
 import { isFactoryBranch } from '../worktree/manager.js';
@@ -67,14 +67,12 @@ import {
 import { droppedCiPathsNote, pushToExistingBranch } from '../pipeline/remote-branch.js';
 import { defaultGhRunner, GitHubTaskFetcher } from '../tasks/github.js';
 import { modelFromLabels } from './source-adapter.js';
-import { DockerSandboxProvider, sandboxImage } from '../sandbox/docker.js';
-import { sandboxNetworkConfig } from '../sandbox/limits.js';
-import { llmProxySandboxEnv } from '../sandbox/egress-proxy.js';
-import { startProviderProxies } from '../sandbox/llm-proxy.js';
-import { authSecrets } from '../agents/auth.js';
-import { selectAgents, providerKeyEnvNames, isProviderName } from '../agents/registry.js';
-import { readCooldowns, poolTaskKey } from '../core/model-pool.js';
+import { providerKeyEnvNames, isProviderName } from '../agents/registry.js';
+import { readCooldowns, recordCooldown, poolTaskKey } from '../core/model-pool.js';
+import { openAgentSession, coolPoolEntries } from './agent-session.js';
+import { isStructuredProviderLimit } from '../core/rate-limit-marker.js';
 import { routeModelPools } from './model-pool-routing.js';
+import type { StagePick } from './model-pool-routing.js';
 import { GITHUB_REVIEW_LABEL } from '../github-labels.js';
 import { WorktreeManager } from '../worktree/manager.js';
 import { TaskcellError } from '../core/errors.js';
@@ -83,7 +81,7 @@ import type { PullRequestForReview } from './pr-review.js';
 import type { CommandRunner } from '../pipeline/remote-branch.js';
 import type { LlmProxyDep } from '../sandbox/llm-proxy.js';
 import type { AgentAuth } from '../agents/auth.js';
-import type { ProviderChoice, SelectedAgents } from '../agents/registry.js';
+import type { ProviderChoice } from '../agents/registry.js';
 import type { IsolatedSandboxProvider } from '../sandbox/provider.js';
 import type { AgentProvider } from '../agents/provider.js';
 
@@ -128,6 +126,8 @@ export interface ReviseGithubPrDeps extends ProviderChoice {
   out?: string;
   /** Skip the simplifier stage. */
   noSimplify?: boolean;
+  /** Mount the shared pnpm store into the sandbox (`--pnpm-store`; TASKCELL_PNPM_STORE=1 also enables it). */
+  pnpmStore?: boolean;
   /** Maximum revision rounds before capping (default 2). */
   maxRounds?: number;
   /** Explicit verification command (else auto-detected from the worktree). */
@@ -484,6 +484,7 @@ export async function runRevisePullRequest(prRef: string, deps: ReviseGithubPrDe
     log(`revise-pr ${target.repoSlug}#${target.number}: pins the implementer model to ${labelModel} via label (overrides --provider-model)`);
   }
   // Model pools: keyed on the issue the PR implements, so the revision runs on the entry the implement run picked.
+  let poolPicks: Record<string, StagePick> = {};
   if (deps._agent === undefined) {
     const cooldowns = await readCooldowns(deps.repoPath).catch(() => new Map<string, Date>());
     const customs = deps.customProviders ?? [];
@@ -493,38 +494,25 @@ export async function runRevisePullRequest(prRef: string, deps: ReviseGithubPrDe
       ...(labelModel !== undefined ? { labelModel } : {}),
     });
     deps = routing.options;
+    poolPicks = routing.picks;
   }
   const effectiveModel = labelModel ?? deps.providerModel;
 
-  const agents: SelectedAgents =
-    deps._agent !== undefined
-      ? {
-          agent: deps._agent,
-          secrets: {},
-          proxySecrets: {},
-          injectAnthropicAuth: true,
-        }
-      : selectAgents(deps, process.env, { proxyMode: deps.llmProxy !== undefined });
-
-  const providerProxies = await startProviderProxies({
-    proxySecrets: agents.proxySecrets,
+  const session = await openAgentSession({
+    choice: deps,
+    repoPath: deps.repoPath,
+    usageCap: 'stages',
+    ...(deps.auth !== undefined ? { auth: deps.auth } : {}),
+    ...(deps.proxyUrl !== undefined ? { proxyUrl: deps.proxyUrl } : {}),
     ...(deps.network !== undefined ? { network: deps.network } : {}),
+    ...(deps.llmProxy !== undefined ? { llmProxy: deps.llmProxy } : {}),
+    ...(deps.pnpmStore !== undefined ? { pnpmStore: deps.pnpmStore } : {}),
+    ...(deps._agent !== undefined ? { agents: { agent: deps._agent, secrets: {}, proxySecrets: {}, injectAnthropicAuth: true } } : {}),
+    ...(deps._sandbox !== undefined ? { sandbox: deps._sandbox } : {}),
   });
+  // The session owns the provider sidecars, sandbox and context: closed on every exit path below.
   try {
-    const env = llmProxySandboxEnv(deps.proxyUrl, deps.llmProxy, providerProxies);
-    const sandbox =
-      deps._sandbox ??
-      new DockerSandboxProvider({
-        image: sandboxImage(),
-        secrets: {
-          ...(deps.llmProxy === undefined && deps.auth !== undefined && agents.injectAnthropicAuth
-            ? authSecrets(deps.auth)
-            : {}),
-          ...agents.secrets,
-        },
-        ...(env !== undefined ? { env } : {}),
-        ...sandboxNetworkConfig(deps.network),
-      });
+    const { agents } = session;
 
     const taskId = `revise-pr-${target.repoSlug.replace(/[^a-zA-Z0-9]/g, '-')}-${target.number}`;
     // One RunWriter for the whole revision round, shared by the (mutually exclusive) writeStages
@@ -561,12 +549,10 @@ export async function runRevisePullRequest(prRef: string, deps: ReviseGithubPrDe
       }
       const skills = await skillRegistryForRun(deps.skillsDir, deps.repoPath);
       revisionStageMeta.skillIds = skills.ids();
-      ctx = await prepareContext(
+      ctx = await session.prepare(
         {
           taskId,
           localRepoPath: deps.repoPath,
-          sandbox,
-          agentName: agents.agent.name,
           // The worktree starts from the PR head as fetched from origin, not the base (see prepareContext
           // for the same-repo caveat). Tests point it at a local branch instead, which has no origin.
           ...(deps._baseBranch !== undefined
@@ -994,6 +980,10 @@ export async function runRevisePullRequest(prRef: string, deps: ReviseGithubPrDe
       };
     } catch (error) {
       await stepSummary('error', { error: String(error) });
+      // A limit no fallback rescued cools the entry (and its fallback) so the next round and other runs skip it.
+      if (isStructuredProviderLimit(error) && poolPicks.implementer !== undefined) {
+        await coolPoolEntries(deps.repoPath, [poolPicks.implementer, ...(poolPicks.fallback !== undefined ? [poolPicks.fallback] : [])], error);
+      }
       // A rate or session limit (or the usage cap) that no fallback rescued ends the round with the PR still carrying
       // `taskcell:revising` and nothing said on it, so the work sits until someone notices (#615,
       // #656). Mark it `vanguard:rate-limited` with a notice carrying the parsed reset time (posted
@@ -1013,9 +1003,14 @@ export async function runRevisePullRequest(prRef: string, deps: ReviseGithubPrDe
       }
       throw error;
     } finally {
-      await disposeContext(ctx);
+      // A stage whose own provider hit a limit and was rescued by its fallback: cool its pool entry until
+      // the limit resets, so new runs skip it. An outage, or a healthy stage, cools nothing.
+      for (const o of outcomes) {
+        const pick = o.primaryLimitResetAt !== undefined ? (o.name === STAGE.REVIEWER ? poolPicks.reviewer : poolPicks.implementer) : undefined;
+        if (pick !== undefined) await recordCooldown(deps.repoPath, pick, new Date(o.primaryLimitResetAt!)).catch(() => undefined);
+      }
     }
   } finally {
-    await providerProxies.destroy();
+    await session.close();
   }
 }
