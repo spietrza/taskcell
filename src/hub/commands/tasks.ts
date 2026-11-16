@@ -11,7 +11,7 @@ import { readAppConfig } from '../app-config.js';
 import type { RpcContext } from '../rpc.js';
 import * as projects from '../projects.js';
 import { listHubBoard } from '../hub-board.js';
-import { HUB_TASK_ID, MAX_BLOCKED_BY, MAX_BODY_LENGTH, MAX_TITLE_LENGTH, createHubTask, editHubTask, listHubTasks, updateHubTask, type HubTaskOwner } from '../hub-tasks.js';
+import { HUB_TASK_ID, MAX_BLOCKED_BY, MAX_BODY_LENGTH, MAX_TITLE_LENGTH, createHubTask, editHubTask, listHubTasks, removeHubTask, updateHubTask, type HubTaskOwner } from '../hub-tasks.js';
 import { startGithubTask, triggerLabelsFor } from '../start-task.js';
 import { markerReadBudget, retryPausedTask, withPausedTasks, type MarkerReadBudget } from '../paused.js';
 import type { BoardTask, CreatedTask, RepoReadFailure, RepoStamp, RetryPausedResult, StartTaskResult } from '../../wire.js';
@@ -37,8 +37,14 @@ export interface TasksCommands {
   hub_task_create: { args: { repoPath: string; title: string; body?: string; blockedBy?: string[]; startDate?: string }; result: { id: string } };
   /** HUB_ONLY: set a hub-board task's dependencies (ids of the project's other tasks) and/or start date (`null` clears it). The caller becomes its owner. */
   hub_task_schedule: { args: { repoPath: string; id: string; blockedBy?: string[]; startDate?: string | null }; result: { id: string } };
-  /** HUB_ONLY: put a failed hub-board task back to `todo`, to run as the caller. */
+  /** HUB_ONLY: put a failed hub-board task back to `todo`, to run as the caller; its old result is cleared. */
   hub_task_retry: { args: { repoPath: string; id: string }; result: { id: string } };
+  /** HUB_ONLY: accept the delivered result of a hub-board task that failed verification: it becomes done (its dependents may start) without a second run. */
+  hub_task_accept: { args: { repoPath: string; id: string }; result: { id: string } };
+  /** HUB_ONLY: move a done hub-board task to the project's archive file, freeing room on the board. */
+  hub_task_archive: { args: { repoPath: string; id: string }; result: { id: string } };
+  /** HUB_ONLY: delete a hub-board task that is not running. */
+  hub_task_delete: { args: { repoPath: string; id: string }; result: { id: string } };
   /** HUB_ONLY: apply a trigger label to a GitHub issue of the project (src/hub/start-task.ts). */
   start_task: { args: { repoPath: string; number: number; label: string }; result: StartTaskResult };
   /** HUB_ONLY: "Retry now" on a task paused by a provider limit — remove the rate-limited label, re-apply the marker's trigger (src/hub/paused.ts). Refused where `start_task` is. */
@@ -283,7 +289,7 @@ export const commands = defineCommands<TasksCommands>({
     const blockedBy = scheduleBlockedBy(call.args.blockedBy);
     const startDate = call.args.startDate;
     if (startDate !== undefined && typeof startDate !== 'string') throw new BadRequestError('startDate must be a string');
-    return { id: (await createHubTask(call.ctx.configDir, real, { title, body, ...(blockedBy !== undefined ? { blockedBy: [...new Set(blockedBy)] } : {}), ...(startDate !== undefined && startDate !== '' ? { startDate } : {}), owner: ownerOf(call) })).id };
+    return { id: (await createHubTask(call.ctx.configDir, real, { title, body, ...(blockedBy !== undefined ? { blockedBy: [...new Set(blockedBy)] } : {}), ...(startDate !== undefined ? { startDate } : {}), owner: ownerOf(call) })).id };
   },
   hub_task_schedule: async (call) => {
     const real = await hubBoardRepo(call);
@@ -302,9 +308,31 @@ export const commands = defineCommands<TasksCommands>({
       if (t.status !== 'failed') throw new BadRequestError(`${id} is ${t.status}, not failed`);
       t.status = 'todo';
       delete t.reason;
+      delete t.result;
       t.owner = ownerOf(call);
     });
     if (task === undefined) throw new BadRequestError(`no hub task ${id}`);
+    return { id };
+  },
+  hub_task_accept: async (call) => {
+    const real = await hubBoardRepo(call);
+    const id = requireMatch(call.args, 'id', HUB_TASK_ID, 'hub task id');
+    const task = await editHubTask(call.ctx.configDir, real, id, (t) => {
+      if (t.status !== 'failed' || t.result === undefined) throw new BadRequestError(`${id} has no failed result to accept`);
+      t.status = 'done';
+      delete t.reason;
+    });
+    if (task === undefined) throw new BadRequestError(`no hub task ${id}`);
+    return { id };
+  },
+  hub_task_archive: async (call) => {
+    const id = requireMatch(call.args, 'id', HUB_TASK_ID, 'hub task id');
+    await removeHubTask(call.ctx.configDir, await hubBoardRepo(call), id, 'archive');
+    return { id };
+  },
+  hub_task_delete: async (call) => {
+    const id = requireMatch(call.args, 'id', HUB_TASK_ID, 'hub task id');
+    await removeHubTask(call.ctx.configDir, await hubBoardRepo(call), id, 'delete');
     return { id };
   },
   list_branches: async ({ args, allow }) => {
@@ -347,6 +375,9 @@ export const commands = defineCommands<TasksCommands>({
   hub_task_create: { write: true, repo: 'repoPath' },
   hub_task_schedule: { write: true, repo: 'repoPath' },
   hub_task_retry: { write: true, repo: 'repoPath' },
+  hub_task_accept: { write: true, repo: 'repoPath' },
+  hub_task_archive: { write: true, repo: 'repoPath' },
+  hub_task_delete: { write: true, repo: 'repoPath' },
   list_branches: { write: false, repo: 'repoPath' },
   start_task: { write: true, remote: true, repo: 'repoPath' },
   retry_paused_task: { write: true, remote: true, repo: 'repoPath' },
@@ -357,6 +388,9 @@ export const commands = defineCommands<TasksCommands>({
   hub_task_create: { action: 'task-create', target: repoTarget },
   hub_task_schedule: { action: 'task-schedule', target: repoItemTarget('id') },
   hub_task_retry: { action: 'task-schedule', target: repoItemTarget('id') },
+  hub_task_accept: { action: 'task-schedule', target: repoItemTarget('id') },
+  hub_task_archive: { action: 'task-edit', target: repoItemTarget('id') },
+  hub_task_delete: { action: 'task-edit', target: repoItemTarget('id') },
   start_task: { action: 'task-start', target: (a) => `${repoTarget(a) ?? ''}#${String(optionalNumber(a, 'number') ?? '')}` },
   retry_paused_task: { action: 'task-retry', target: (a) => `${repoTarget(a) ?? ''}#${String(optionalNumber(a, 'number') ?? '')}` },
 });

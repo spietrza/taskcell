@@ -218,7 +218,7 @@ export async function checkLinearDependencies(
 }
 
 /** One pass over the issue's blockers with `lookup` (cached or fresh); the verdict is not yet confirmed. */
-async function checkOnce(task: Task, send: LinearGraphql, now: Date, known: KnownIssue | undefined, lookup: IssueLookup): Promise<LinearDependencyVerdict> {
+async function checkOnce(task: Task, _send: LinearGraphql, now: Date, known: KnownIssue | undefined, lookup: IssueLookup): Promise<LinearDependencyVerdict> {
   try {
     const selfId = parseIdentifier(task.ref ?? task.id);
     if (selfId === undefined) return { status: 'invalid', reason: `${task.id} is not a Linear identifier such as DEV-12, so its dependencies cannot be checked` };

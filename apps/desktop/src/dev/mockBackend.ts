@@ -182,6 +182,9 @@ const commandHandlers = {
   retry_paused_task: () => ({ label: 'ready for agent' }),
   hub_task_schedule: (args: { id?: string } | undefined) => ({ id: args?.id ?? 'hub-1' }),
   hub_task_create: () => ({ id: 'hub-1' }),
+  hub_task_accept: (args: { id?: string } | undefined) => ({ id: args?.id ?? 'hub-1' }),
+  hub_task_archive: (args: { id?: string } | undefined) => ({ id: args?.id ?? 'hub-1' }),
+  hub_task_delete: (args: { id?: string } | undefined) => ({ id: args?.id ?? 'hub-1' }),
   hub_task_retry: (args: { id?: string } | undefined) => ({ id: args?.id ?? 'hub-1' }),
   start_task: (args: { label?: string } | undefined) => ({ status: 'labelled', label: args?.label ?? 'ready for agent', waitingOn: [] }),
   // Hub-only Enable factory flow (EnableFactoryDialog).

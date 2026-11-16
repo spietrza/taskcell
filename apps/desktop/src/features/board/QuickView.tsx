@@ -224,7 +224,7 @@ export function QuickView({
         {task.schedule !== undefined && !isInvalidHubCard(task.id) && onChanged !== undefined ? (
           <ScheduleEditor repoPath={repoPath} task={task} onSaved={onChanged} />
         ) : (
-          (!!task.blockedBy?.length || task.startDate !== undefined) && (
+          (!!task.blockedBy?.length || task.startDate !== undefined || isInvalidHubCard(task.id)) && (
             <section aria-label="Schedule" className="space-y-1">
               <h4 className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">Schedule</h4>
               <ScheduleLines task={task} />

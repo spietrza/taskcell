@@ -194,6 +194,22 @@ describe('server mode', () => {
     expect((await rpc({ cookie })).status).toBe(200);
   });
 
+  test('userById resolves a user only while the sign-up allowlist still names them; the owner always resolves', async () => {
+    await start(['github:octo']);
+    const { cookie } = await signIn();
+    const user = await identity!.sessionUser({ headers: { cookie } } as IncomingMessage);
+    expect(await identity!.userById(user!.id)).toMatchObject({ id: user!.id });
+    expect(await identity!.userById('no-such-user')).toBeUndefined();
+    // The operator removes the account from the allowlist and restarts: it still exists, but no longer runs tasks.
+    const narrowed = await createHubIdentity({ configDir: dir, baseURL: origin, providers: { github: { clientId: 'a', clientSecret: 'b' } }, allowlist: parseSignupAllowlist(['someone@else.test']) });
+    try {
+      expect(await narrowed.userById(user!.id)).toBeUndefined();
+      expect(await narrowed.userById(narrowed.owner.id)).toMatchObject({ id: narrowed.owner.id });
+    } finally {
+      narrowed.close();
+    }
+  });
+
   test('a provider profile cannot claim the owner user by e-mail', async () => {
     await start(['@hub.invalid']);
     profile = { login: 'evil', email: OWNER_EMAIL, verified: true };

@@ -272,7 +272,8 @@ test('a task created with dependencies and a start date is held by them from its
   expect((await rpc(alice, 'hub_task_create', { repoPath: repo, title: 'C', startDate: 'soon' })).status).toBe(400);
   await hub.sweepHubTasks();
   expect(runs).toHaveLength(1); // only A
-  expect((await board())['hub-2']).toMatchObject({ blockedBy: ['hub-1'], startDate: '2999-01-01' });
+  expect((await board())['hub-2']).toMatchObject({ blockedBy: ['hub-1'], startDate: '2999-01-01', schedule: { state: 'blocked' } });
+  expect((await rpc(alice, 'hub_task_create', { repoPath: repo, title: 'D', startDate: '' })).status).toBe(400);
 });
 
 test('a run whose verify failed is failed, not done: its dependent does not start', async () => {
@@ -340,4 +341,74 @@ test('clearing a hub task\'s skills removes them from its card and sends none to
   expect((await board())['hub-1']).not.toHaveProperty('skills');
   await hub.sweepHubTasks();
   expect(runs[0]!.params).toMatchObject({ skills: [] });
+});
+
+test('a verify-failed result can be accepted without a second run; its dependent then starts, and a retry clears the old result', async () => {
+  await useHubBoard();
+  await create('A');
+  await create('B');
+  await rpc(alice, 'hub_task_schedule', { repoPath: repo, id: 'hub-2', blockedBy: ['hub-1'] });
+  await hub.sweepHubTasks();
+  expect(runs).toHaveLength(1);
+  runs[0]!.end({ prUrl: 'https://github.com/o/r/pull/1', verificationFailed: true });
+  await vi.waitFor(async () => expect((await board())['hub-1']).toMatchObject({ schedule: { state: 'failed', result: 'https://github.com/o/r/pull/1', reason: expect.stringContaining('Accept the result') } }));
+  expect((await rpc(alice, 'hub_task_accept', { repoPath: repo, id: 'hub-2' })).status).toBe(400); // not failed
+  expect((await rpc(alice, 'hub_task_accept', { repoPath: repo, id: 'hub-1' })).status).toBe(200);
+  expect((await board())['hub-1']).toMatchObject({ column: 'done', schedule: { state: 'done', result: 'https://github.com/o/r/pull/1' } });
+  await hub.sweepHubTasks();
+  expect(runs.map((r) => r.params.issueRef)).toEqual(['hub-1', 'hub-2']); // no second run of hub-1
+
+  // A retry clears the stored result.
+  runs[1]!.end({ branch: 'b', verificationFailed: true });
+  await vi.waitFor(async () => expect((await board())['hub-2']).toMatchObject({ schedule: { state: 'failed', result: 'branch b' } }));
+  await rpc(alice, 'hub_task_retry', { repoPath: repo, id: 'hub-2' });
+  const stored = (await board())['hub-2'];
+  expect(stored?.schedule?.result).toBeUndefined();
+});
+
+test('a failed task without a delivered result cannot be accepted', async () => {
+  await useHubBoard();
+  await create('A');
+  await hub.sweepHubTasks();
+  runs[0]!.end({});
+  await vi.waitFor(async () => expect((await board())['hub-1']).toMatchObject({ schedule: { state: 'failed' } }));
+  expect((await rpc(alice, 'hub_task_accept', { repoPath: repo, id: 'hub-1' })).status).toBe(400);
+});
+
+test('a board at the cap can delete or archive tasks, and creation works again', async () => {
+  await useHubBoard();
+  await create('A');
+  await create('B');
+  await rpc(alice, 'hub_task_schedule', { repoPath: repo, id: 'hub-2', blockedBy: ['hub-1'] });
+  expect((await rpc(alice, 'hub_task_delete', { repoPath: repo, id: 'hub-1' })).status).toBe(400); // hub-2 waits on it
+  expect((await rpc(alice, 'hub_task_archive', { repoPath: repo, id: 'hub-1' })).status).toBe(400); // not done
+  await hub.sweepHubTasks();
+  expect((await rpc(alice, 'hub_task_delete', { repoPath: repo, id: 'hub-1' })).status).toBe(400); // running
+  runs[0]!.end({ branch: 'b' });
+  await vi.waitFor(async () => expect((await board())['hub-1']).toMatchObject({ schedule: { state: 'done' } }));
+  expect((await rpc(alice, 'hub_task_archive', { repoPath: repo, id: 'hub-1' })).status).toBe(200);
+  expect(Object.keys(await board())).toEqual(['hub-2']);
+  expect((await rpc(alice, 'hub_task_delete', { repoPath: repo, id: 'hub-2' })).status).toBe(200);
+  expect(Object.keys(await board())).toEqual([]);
+});
+
+test('the audit and startedBy use the account as it is now, and the refusal line names the task', async () => {
+  await useHubBoard();
+  await create('A');
+  await hub.close();
+  options = { ...options, identity: { ...options.identity!, userById: async (id) => ({ id, email: 'new@example.com', name: 'New' }) } };
+  await listen();
+  await hub.sweepHubTasks();
+  expect(runs[0]!.params.startedBy).toBe('new@example.com');
+  expect(await audit()).toContainEqual(expect.objectContaining({ login: 'new@example.com', action: 'run-start', target: expect.stringContaining('hub-1') }));
+});
+
+test('a refused start is audited against the task as well as the repository', async () => {
+  await hub.close();
+  options = { ...options, identity: { ...options.identity!, userById: async () => undefined } };
+  await listen();
+  await useHubBoard();
+  await create('A');
+  await hub.sweepHubTasks();
+  expect(await audit()).toContainEqual(expect.objectContaining({ action: 'run-start', outcome: 'refused', target: `${repo} hub-1` }));
 });

@@ -1338,8 +1338,14 @@ export interface Commands {
   hub_task_create: { args: { repoPath: string; title: string; body?: string; blockedBy?: string[]; startDate?: string }; result: { id: string } };
   /** HUB_ONLY: set a hub-board task's dependencies (ids of the project's other tasks) and/or start date (`null` clears it). The caller becomes its owner. */
   hub_task_schedule: { args: { repoPath: string; id: string; blockedBy?: string[]; startDate?: string | null }; result: { id: string } };
-  /** HUB_ONLY: put a failed hub-board task back to `todo`, to run as the caller. */
+  /** HUB_ONLY: put a failed hub-board task back to `todo`, to run as the caller; its old result is cleared. */
   hub_task_retry: { args: { repoPath: string; id: string }; result: { id: string } };
+  /** HUB_ONLY: accept the delivered result of a hub-board task that failed verification: it becomes done (its dependents may start) without a second run. */
+  hub_task_accept: { args: { repoPath: string; id: string }; result: { id: string } };
+  /** HUB_ONLY: move a done hub-board task to the project's archive file, freeing room on the board. */
+  hub_task_archive: { args: { repoPath: string; id: string }; result: { id: string } };
+  /** HUB_ONLY: delete a hub-board task that is not running. */
+  hub_task_delete: { args: { repoPath: string; id: string }; result: { id: string } };
   /** HUB_ONLY: apply a trigger label to a GitHub issue of the project (src/hub/start-task.ts). */
   start_task: { args: { repoPath: string; number: number; label: string }; result: StartTaskResult };
   /** HUB_ONLY: "Retry now" on a task paused by a provider limit — remove the rate-limited label, re-apply the marker's trigger (src/hub/paused.ts). Refused where `start_task` is. */
@@ -1413,7 +1419,10 @@ export const COMMAND_NAMES = [
   'fetch_spec',
   'get_credential_policy',
   'get_team',
+  'hub_task_accept',
+  'hub_task_archive',
   'hub_task_create',
+  'hub_task_delete',
   'hub_task_retry',
   'hub_task_schedule',
   'import_remote_run',
