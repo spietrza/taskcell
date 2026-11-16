@@ -89,6 +89,7 @@ describe('reviewMrCommand', () => {
     );
 
     expect(vi.mocked(runAgent).mock.calls.map(([, input]) => input.maxTurns)).toEqual([30, 45]);
+    expect(vi.mocked(runAgent).mock.calls.map(([, input]) => input.allowedTools)).toEqual([['Read', 'Grep', 'Glob'], ['Read', 'Grep', 'Glob']]);
     expect(startSandboxContext).toHaveBeenCalledTimes(1);
     expect(destroy).toHaveBeenCalledTimes(1);
     expect(calls.filter((c) => c[0] === 'mr' && c[1] === 'note')).toHaveLength(1);

@@ -23,6 +23,7 @@ import type {
   ReviewMergeRequestResult,
 } from '../runners/mr-review.js';
 import { DEFAULT_REVIEW_MAX_TURNS } from './args.js';
+import { PR_REVIEW_TOOLS } from './review-pr.js';
 import type { Command } from './args.js';
 
 type ReviewMrCommand = Extract<Command, { kind: 'review-mr' }>;
@@ -120,6 +121,8 @@ async function runDefaultMrReviewer(
       effort: opts.isRetry ? 'xhigh' : 'high',
       maxTurns: opts.isRetry ? Math.min(Math.ceil(baseTurns * 1.5), Number.MAX_SAFE_INTEGER) : baseTurns,
       copyBack: false,
+      // Read-only like the PR reviewer: the diff is untrusted, and Bash would let an injected instruction run code.
+      allowedTools: [...PR_REVIEW_TOOLS],
       ...(cmd.reviewModel !== undefined ? { model: cmd.reviewModel } : {}),
     });
     return { text: result.finalText, completed: result.completed };
