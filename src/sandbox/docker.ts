@@ -206,7 +206,6 @@ export function pnpmStoreVolumeName(repoKey: string): string {
   return `taskcell-pnpm-store-${hash}`;
 }
 
-/** Runs an isolated command environment as a detached Docker container. */
 /**
  * `sh` argv for one sandbox command. The login shell (default) keeps PATH setup for agent CLIs and custom
  * images. `loginShell: false` (verify) sources only the root-owned /etc/profile, never the agent-owned
@@ -217,6 +216,7 @@ export function shellArgv(command: string, loginShell = true): string[] {
   return loginShell ? ['sh', '-lc', command] : ['sh', '-c', `[ -r /etc/profile ] && . /etc/profile; export NPM_CONFIG_USERCONFIG=/dev/null GIT_CONFIG_GLOBAL=/dev/null XDG_CONFIG_HOME=/nonexistent; ${command}`];
 }
 
+/** Runs an isolated command environment as a detached Docker container. */
 export class DockerSandboxProvider implements IsolatedSandboxProvider {
   readonly id: string;
   private readonly image: string;
@@ -280,6 +280,11 @@ export class DockerSandboxProvider implements IsolatedSandboxProvider {
     return Object.entries(this.secrets)
       .map(([key, value]) => `${key}='${value.replace(/'/g, "'\\''")}'`)
       .join('\n');
+  }
+
+  /** `sh` argv for a command, wrapped with the secrets sourcing unless it runs in a non-login shell. */
+  private shellFor(command: string, options: { loginShell?: boolean }): string[] {
+    return shellArgv(options.loginShell === false ? command : this.wrap(command), options.loginShell);
   }
 
   /** In tmpfs mode, source the in-RAM secrets file so values reach the command env without docker-inspect exposure. */
@@ -413,7 +418,7 @@ export class DockerSandboxProvider implements IsolatedSandboxProvider {
     if (options.cwd !== undefined) args.push('-w', options.cwd);
     for (const [k, v] of Object.entries(options.env ?? {})) args.push('-e', `${k}=${v}`);
     if (options.input !== undefined) args.push('-i');
-    args.push(this.name, ...shellArgv(options.loginShell === false ? command : this.wrap(command), options.loginShell));
+    args.push(this.name, ...this.shellFor(command, options));
     const result = await execa('docker', args, {
       reject: false,
       ...(options.input !== undefined ? { input: options.input } : {}),
@@ -427,7 +432,7 @@ export class DockerSandboxProvider implements IsolatedSandboxProvider {
     const args = ['exec'];
     if (options.cwd !== undefined) args.push('-w', options.cwd);
     for (const [k, v] of Object.entries(options.env ?? {})) args.push('-e', `${k}=${v}`);
-    args.push(this.name, ...shellArgv(options.loginShell === false ? command : this.wrap(command), options.loginShell));
+    args.push(this.name, ...this.shellFor(command, options));
     const child = execa('docker', args, {
       reject: false,
       ...(options.timeoutMs !== undefined ? { timeout: options.timeoutMs } : {}),

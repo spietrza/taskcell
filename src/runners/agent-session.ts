@@ -149,6 +149,7 @@ export async function openAgentSession(opts: AgentSessionOptions): Promise<Agent
         return ctx;
       },
       async prepare(prepareOpts, deps) {
+        if (ctx !== undefined) throw new Error('agent session already prepared');
         ctx = await prepareContext({ ...prepareOpts, sandbox, agentName: agents.agent.name }, deps);
         return ctx;
       },

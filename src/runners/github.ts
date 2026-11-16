@@ -70,7 +70,7 @@ export function githubTracker(deps: RunGithubIssueDeps, gh: GhRunner = defaultGh
       // spelling (forced when the labels cannot be listed); every step stays best-effort.
       const label = editGithubLabels(deps.repoSlug, issueRef, { add: [GITHUB_SECRET_BLOCKED_LABEL], ensure: [GITHUB_SECRET_BLOCKED_LABEL] }, gh)
         .catch(() => undefined);
-      // No recovery procedure here: this adapter also serves one-shot `taskcell run` and Projects,
+      // No recovery procedure here: this tracker also serves one-shot `taskcell run` and Projects,
       // whose release steps differ. The watch primitive that holds the issue posts the resume line.
       await Promise.all([label, commentGithubIssue(deps.repoSlug, issueRef, renderSecretBlockComment(block), gh).catch(() => undefined)]);
     },
@@ -338,7 +338,7 @@ export function githubIssueWatchPrimitives(opts: WatchGithubOptions, log?: (msg:
     // best-effort, as in addPrFailureLabel). If the swap fails it throws
     // into onFailure and the claimed marker stays. The trigger label was removed on claim and is
     // not restored; the comment names the label to re-apply. Same in white-label mode: the claim
-    // label is already the watch's own marker, and a white-label adapter posts no findings, so this
+    // label is already the watch's own marker, and a white-label tracker posts no findings, so this
     // comment is the human's only signal.
     onSecretBlocked: async (id) => {
       await editGithubLabels(repo, id, { remove: [opts.claimedLabel], add: [GITHUB_SECRET_BLOCKED_LABEL], ensure: [GITHUB_SECRET_BLOCKED_LABEL] }, opts.gh, log);
@@ -570,7 +570,7 @@ export function githubProjectWatchPrimitives(opts: WatchGithubProjectOptions, lo
     onNoChange: (id) => commentAndRevert(commentGithubIssue(repo, id, NO_CHANGE_MSG, gh), setStatus(id, opts.triggerStatus)),
     // The only configured statuses are trigger/claimed/review and reverting to the trigger status
     // would re-list the item next poll, so the hold keeps the claimed status; the comment names the
-    // status to move back to. The adapter already added the secret-blocked label + masked findings.
+    // status to move back to. The tracker already added the secret-blocked label + masked findings.
     onSecretBlocked: (id) =>
       commentGithubIssue(
         repo,

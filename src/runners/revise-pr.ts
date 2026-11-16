@@ -67,7 +67,7 @@ import {
 import { droppedCiPathsNote, pushToExistingBranch } from '../pipeline/remote-branch.js';
 import { defaultGhRunner, GitHubTaskFetcher } from '../tasks/github.js';
 import { modelFromLabels } from './source-adapter.js';
-import { providerKeyEnvNames, isProviderName } from '../agents/registry.js';
+import { isProviderName } from '../agents/registry.js';
 import { readCooldowns, recordCooldown, poolTaskKey } from '../core/model-pool.js';
 import { openAgentSession, coolPoolEntries } from './agent-session.js';
 import { isStructuredProviderLimit } from '../core/rate-limit-marker.js';
@@ -517,7 +517,7 @@ export async function runRevisePullRequest(prRef: string, deps: ReviseGithubPrDe
     const taskId = `revise-pr-${target.repoSlug.replace(/[^a-zA-Z0-9]/g, '-')}-${target.number}`;
     // One RunWriter for the whole revision round, shared by the (mutually exclusive) writeStages
     // calls below, for consistency with runSourcedIssue's writer.
-    const writer = beginRun(deps.repoPath, taskId, undefined, { secretEnvVars: providerKeyEnvNames(deps) });
+    const writer = beginRun(deps.repoPath, taskId, undefined, { secretEnvVars: session.credentials.keyEnvNames });
     const revisionStageMeta: { flow: string; provider: string; lessonIds?: string[]; skillIds?: string[] } = { flow: 'revise', provider: agents.agent.name, lessonIds: [] };
     let outcomes: StageOutcome[] = [];
     // For paths where the secret scan never ran: keep the cost trace, keep the diff off disk.
@@ -763,7 +763,7 @@ export async function runRevisePullRequest(prRef: string, deps: ReviseGithubPrDe
       // and the routing labels handed back, so the PR does not sit in `taskcell:revising`. Residual gaps,
       // shared with the first delivery: scanForSecrets skips `*.test.ts` / `tests/**` (isTestPath).
       // A custom provider's key env var is repo-configured: the secret gate cannot know its name.
-      const secretEnvVars = providerKeyEnvNames(deps);
+      const secretEnvVars = session.credentials.keyEnvNames;
       const block = scanOutgoingForSecrets(gateDiff, `${target.repoSlug}#${target.number}`, 'revise push', secretEnvVars);
       // Repair cost merged into the implementer outcome by the gate reaches `taskcell stats` only if
       // the outcomes are persisted — the first delivery does this in runSourcedIssue. Persisted after

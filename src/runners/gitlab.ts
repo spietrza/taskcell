@@ -341,7 +341,7 @@ export function gitlabWatchPrimitives(opts: WatchGitlabOptions): WatchPrimitives
     // One edit swaps claimed -> secret-blocked so the claim is never released without the hold
     // label landing. `glab issue update --label` is a silent no-op on a project lacking the label
     // (the `--unlabel` in the same call still lands, releasing the claim with no hold), and the
-    // adapter only pre-creates it when it posts findings (not in white-label mode), so ensure it
+    // tracker only pre-creates it when it posts findings (not in white-label mode), so ensure it
     // here first (best-effort, as addMrFailureLabel does). A failing swap throws into onFailure
     // and the claimed marker stays. Trigger label not restored (removed on claim); the note names
     // the label to re-apply. Same in white-label mode (see githubIssueWatchPrimitives).

@@ -1,7 +1,7 @@
 import { taskToVariables } from '../tasks/fetcher.js';
 import { escapePromptTags } from '../context/escape.js';
 import { openAgentSession } from './agent-session.js';
-import { forcedProviderModel, providerKeyEnvNames } from '../agents/registry.js';
+import { forcedProviderModel } from '../agents/registry.js';
 import { runStages, techSpecStage } from '../pipeline/pipeline.js';
 import { beginRun } from '../core/run-store.js';
 import { summarizeOutcomes } from '../core/run-summary.js';
@@ -133,7 +133,7 @@ export async function runSpecGenerator(id: string, deps: RunSpecGeneratorDeps): 
       // Persisted under the 'spec' label (not the stage's library name) so `taskcell stats` keys it as before.
       const persistSpec = async (): Promise<void> => {
         const imageDigest = await ctx.sandbox.imageDigest?.();
-        await beginRun(deps.repoPath, ctx.taskId, undefined, { secretEnvVars: providerKeyEnvNames(deps) }).writeStages(
+        await beginRun(deps.repoPath, ctx.taskId, undefined, { secretEnvVars: session.credentials.keyEnvNames }).writeStages(
           [{ ...specOutcome, name: 'spec' }],
           { flow: 'spec', provider: agent.name, skillIds: skills.ids(), ...(imageDigest !== undefined ? { imageDigest } : {}) },
         );
