@@ -81,7 +81,8 @@ ${mods.map((m) => `  ...${m.binding}.audit,`).join('\n')}
 }
 
 /** Appended to the desktop copy of wire.ts (which cannot import hub code): the same \`Commands\` and \`COMMAND_NAMES\`, inlined. */
-export function desktopCommandsSource(mods: CommandModuleInfo[]): string {
+export function desktopCommandsSource(mods: CommandModuleInfo[], policy: Record<string, { write?: boolean }>): string {
+  const writeNames = Object.keys(policy).filter((n) => policy[n]?.write).sort();
   return `
 /**
  * Shared command catalogue for the Tauri, hub and mock adapters: the union of the hub command
@@ -91,5 +92,10 @@ export interface Commands {
 ${mods.map((m) => m.members).join('\n')}
 }
 
-${namesBlock(mods)}`;
+${namesBlock(mods)}
+/** Every command whose hub policy declares \`write: true\` (HUB_POLICY), derived by \`pnpm gen:wire\`: demo mode refuses exactly these. */
+export const WRITE_COMMAND_NAMES: readonly (typeof COMMAND_NAMES)[number][] = [
+${writeNames.map((n) => `  '${n}',`).join('\n')}
+];
+`;
 }

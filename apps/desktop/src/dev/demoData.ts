@@ -2,7 +2,7 @@
 // project with realistic history. Served by the in-browser fixture backend (mockBackend.ts), so
 // nothing here ever reaches a repo, remote or hub store. Everything is labelled "demo" in the UI.
 import type { Project, ActiveRun, RunSummary, RunDetail, RunRecord } from '../taskcell-output';
-import type { BoardTask, FactoryState, NeedsYouItem, RepoLesson, RunEvent, SessionRead } from '../wire';
+import { WRITE_COMMAND_NAMES, type BoardTask, type FactoryState, type NeedsYouItem, type RepoLesson, type RunEvent, type SessionRead } from '../wire';
 import { DEMO_REPO_URL } from '../transport';
 
 export const DEMO_REPO_PATH = '/demo/storefront';
@@ -262,13 +262,8 @@ export const demoLessons: RepoLesson[] = [
 export const demoLessonsFor = (taskText: string | undefined): RepoLesson[] =>
   taskText === undefined || /cart|checkout|receipt/i.test(taskText) ? demoLessons : [];
 
-/** Commands that would write to a repo, remote or the hub's store: refused in demo mode. */
-export const DEMO_WRITE_COMMANDS: readonly string[] = [
-  'add_project', 'remove_project', 'clone_project', 'write_app_config', 'spawn_run', 'kill_run',
-  'api_create_run', 'api_create_task', 'api_create_tasks', 'api_write_flow', 'api_delete_flow', 'api_cancel',
-  'reply_needs_you', 'merge_needs_you', 'dismiss_lesson', 'update_skill_pr', 'add_skill_pr', 'remove_skill_pr', 'start_task', 'retry_paused_task', 'set_task_skills', 'import_remote_run',
-  'enable_factory_plan', 'enable_factory_apply', 'enable_factory_secret', 'enable_factory_verify', 'enable_factory_start',
-  'save_user_credential', 'delete_user_credential',
-  'set_credential_policy', 'save_instance_credential', 'delete_instance_credential',
-  'add_team_member', 'remove_team_member', 'add_team_repository', 'remove_team_repository',
-];
+/** Write commands demo mode still answers in-browser: drafts are scratch text that never reaches a repository, and autosave must keep working. */
+export const DEMO_LOCAL_WRITES: ReadonlySet<string> = new Set(['write_draft', 'delete_draft', 'write_draft_asset', 'clear_draft_assets']);
+
+/** The write commands demo mode refuses: the hub's generated write set, minus the in-browser ones. */
+export const DEMO_REFUSED_WRITES: readonly string[] = WRITE_COMMAND_NAMES.filter((c) => !DEMO_LOCAL_WRITES.has(c));
