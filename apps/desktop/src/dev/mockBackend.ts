@@ -55,7 +55,11 @@ const commandHandlers = {
   conflict_stats: () => ({ weeks: [], total: { merges: 0, conflicts: 0, autoResolved: 0, leftForHuman: 0 }, topFiles: [] }),
   list_runs_all: () => ({ runs: runs.map((r) => ({ ...r, ...mockStamp() })), failures: [] }),
   read_run: () => runDetail,
-  read_run_events: () => ({ events: [], nextAfter: 0, hasMore: false, truncated: false }),
+  // The live demo run's log: the typed-run backlog, one second apart ending now.
+  read_run_events: () => {
+    const events = demoRunBacklog.map((b, i) => ({ id: i + 1, ts: new Date(Date.now() - (demoRunBacklog.length - i) * 1000).toISOString(), event: 'api:event', data: b }));
+    return { events, nextAfter: events.length, hasMore: false, truncated: false };
+  },
   read_cost_breakdown: (args: unknown) => ({
     status: 'no-branch' as const, branch: 'taskcell-metrics', period: (args as { period?: 'all' } | undefined)?.period ?? 'all',
     hint: 'Run `taskcell metrics push` from your CI workflow (it writes the taskcell-metrics branch) and CI runs will show up here.',

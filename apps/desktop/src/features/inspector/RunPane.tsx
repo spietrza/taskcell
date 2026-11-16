@@ -7,7 +7,7 @@ import { ExternalLink, hostName } from '../../components/ExternalLink';
 import { repoInitials, startedByLabel } from '../../runLabels';
 import { RunDetail } from './RunDetail';
 import { StageLine } from './StageLine';
-import { foldRunEvents, fmtDuration, stagesFromRecords, withGateSteps, toLogLines, transcriptLines, type LoggedEvent, type LogLine } from './runStages';
+import { foldRunEvents, fmtDuration, stagesFromRecords, withGateSteps, withPendingGateSteps, toLogLines, transcriptLines, type LoggedEvent, type LogLine } from './runStages';
 import type { ActiveRun, RunDetail as RunDetailT, SessionRead } from '../../taskcell-output';
 
 /** The open run, for the Runs split view: header, stage line, log tail, and (finished) the full record below. */
@@ -88,7 +88,7 @@ export function RunPane({
     return () => clearInterval(id);
   }, [running]);
 
-  const stages = detail ? withGateSteps(stagesFromRecords(detail.stages), detail.proof, detail.prUrl) : timeline.stages;
+  const stages = detail ? withGateSteps(stagesFromRecords(detail.stages), detail.proof, detail.prUrl) : timeline.terminal === undefined && timeline.stages.length > 0 ? withPendingGateSteps(timeline.stages) : timeline.stages;
   const lastSelectable = (() => {
     // Only a stage with a record has a log to open: the first failed one, else the last.
     const withLog = stages.flatMap((s, i) => (s.src !== undefined ? [i] : []));

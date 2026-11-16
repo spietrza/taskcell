@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState } from 'react';
-import { Button, Chip, PAGE_CLASS, cn } from '@/ui';
-import { ArrowLeft, FilePlus, RefreshCw } from 'lucide-react';
+import { Button, PAGE_CLASS, cn } from '@/ui';
+import { FilePlus, RefreshCw } from 'lucide-react';
 import { canUseFleet, isDemoMode, subscribe, onStreamReset } from '../../transport';
 import { DEMO_READ_ONLY_MESSAGE } from '../../errors';
 import {
@@ -36,7 +36,6 @@ import { TaskBoard } from '../board/TaskBoard';
 import { TaskDetail } from '../board/TaskDetail';
 import { TaskDraftScreen } from '../task/TaskDraftScreen';
 import { NewRunForm } from './NewRunForm';
-import { RunStrip } from './RunStrip';
 import { foldLiveEvent, reduceTypedRun, initialTypedRun, type TypedRunState, type RunEvent, type AppRunEvent } from './typedRunReducer';
 import { useAppConfig } from '../../hooks';
 import { inRepos } from '../../repoFilter';
@@ -113,9 +112,6 @@ export function Inspector({
   // Typed run (S1): capabilities for the form, the single in-flight typed run, and the idle-check.
   const [caps, setCaps] = useState<Capabilities | null>(null);
   const [typedRun, setTypedRun] = useState<TypedRunState | null>(null);
-  // Live-run strip minimized to reveal the runs list. Distinct from dismissal: events keep folding,
-  // so restoring the strip (or the run finishing) loses nothing. Dismissal is terminal-only.
-  const [stripMinimized, setStripMinimized] = useState(false);
   const [checkedIdle, setCheckedIdle] = useState(false); // false until apiActiveRun() resolves on mount
   const [foreignRun, setForeignRun] = useState<string | null>(null); // repoPath of another project's live run (S8)
   const typedRunRef = useRef<TypedRunState | null>(null); // latest typedRun, readable in async callbacks
@@ -180,7 +176,6 @@ export function Inspector({
     setDetail(null);
     setLiveRun(null);
     setTaskDetailId(null);
-    setStripMinimized(true);
   }, [clearNonce]);
 
   // `projects` is the selected team's repositories; the hub's all-repositories lists span every team.
@@ -284,6 +279,18 @@ export function Inspector({
     else if (r) void open(r);
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [screen, loading, runs, active]);
+
+  // A run launched from the board opens in the split pane as soon as the run list shows it (once per
+  // launch, so a later pick of another run is not overridden).
+  const adoptedGen = useRef(-1);
+  useEffect(() => {
+    if (screen !== 'runs' || typedRun?.taskId === undefined || adoptedGen.current === runGen.current) return;
+    const a = active.find((x) => x.taskId === typedRun.taskId);
+    if (!a) return;
+    adoptedGen.current = runGen.current;
+    setDetail(null);
+    setLiveRun(a);
+  }, [screen, typedRun?.taskId, active]);
 
   // The listener is registered once, so it reaches the latest render's `refresh` through a ref.
   const refreshRef = useRef(refresh);
@@ -443,7 +450,6 @@ export function Inspector({
     const started = initialTypedRun();
     typedRunRef.current = started; // sync in-flight marker (the effect-synced ref lags a render)
     setTypedRun(started); // "starting…" — "run live" derives from this
-    setStripMinimized(false); // a fresh launch always shows its strip
     setDetail(null);
     setLiveRun(null);
     void apiCreateRun(params)
@@ -529,17 +535,6 @@ export function Inspector({
         )}
 
         <div className="ml-auto flex flex-wrap items-center justify-end gap-3">
-          {typedRun !== null && stripMinimized && (
-            <button
-              onClick={() => setStripMinimized(false)}
-              aria-label={typedRun.terminal === undefined ? 'show live run' : 'show finished run'}
-              className="cursor-pointer"
-            >
-              <Chip color="success" variant="outlined">
-                {typedRun.terminal === undefined ? 'running — view' : 'run finished — view'}
-              </Chip>
-            </button>
-          )}
           {/* S10 (D3): the toolbar path to the provider form is gone — runs start from the board
               (TaskDetail keeps the only setShowNewRun entry). Authoring starts here instead. */}
           <Button
@@ -575,33 +570,7 @@ export function Inspector({
           a run started here will be queued until it finishes
         </div>
       )}
-      {typedRun !== null && screen === 'runs' && !stripMinimized ? (
-        <div className="flex min-h-0 flex-1 flex-col gap-2">
-          <button
-            onClick={() => {
-              if (typedRun.terminal !== undefined) {
-                // Record the runId as dismissed so a late event can't resurrect the closed strip.
-                if (typedRun.runId !== undefined) dismissedRunId.current = typedRun.runId;
-                setTypedRun(null);
-              } else {
-                // Run still live: minimize, don't dismiss — events keep folding and the toolbar
-                // chip restores the strip (dogfood: the live strip trapped the user fullscreen).
-                setStripMinimized(true);
-              }
-            }}
-            className="flex w-fit items-center gap-1 text-xs text-muted-foreground hover:text-foreground"
-          >
-            <ArrowLeft className="size-3.5" />
-            Back to runs
-          </button>
-          <RunStrip
-            state={typedRun}
-            // Always by id: with a hub queue, an id-less cancel hits whatever run is active NOW, which
-            // may be the next one promoted after this run ended. Unset only while "starting…".
-            onCancel={() => (isDemoMode() ? setError(DEMO_READ_ONLY_MESSAGE) : void apiCancel(typedRun.runId))}
-          />
-        </div>
-      ) : detail && screen !== 'runs' ? (
+      {detail && screen !== 'runs' ? (
         // A CI run imported from Settings opens as the plain detail; on Runs the record is the split view's right pane.
         <div ref={detailRef} tabIndex={-1} className="flex min-h-0 flex-1 flex-col outline-none">
           <RunDetail detail={detail} project={detailRepo} />

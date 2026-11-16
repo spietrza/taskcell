@@ -77,8 +77,8 @@ test('every main screen opens in demo mode without errors', async () => {
   // A project opens on Runs. The run in progress opens first, as after a reload with a live run: DEMO-104 with its stages, not an empty box.
   expect(await screen.findByRole('button', { name: /Back to runs/ })).toBeInTheDocument();
   expect(screen.getAllByText('DEMO-104').length).toBeGreaterThan(0);
-  expect(screen.getByTestId('stage-0')).toHaveAttribute('data-phase', 'done');
-  expect(screen.getByTestId('stage-1')).toHaveTextContent('implement');
+  expect(await screen.findByTestId('stage-0')).toHaveAttribute('data-phase', 'done');
+  expect(screen.getByTestId('stage-1')).toHaveTextContent('Implement');
   expect(screen.getByTestId('stage-1')).toHaveAttribute('data-phase', 'running');
   expect(screen.queryByText('starting…')).not.toBeInTheDocument();
   // A click on the rail's Runs item while it is open shows the list; and from a run detail it goes back to the list.
