@@ -1,4 +1,5 @@
 import { join, resolve } from 'node:path';
+import { poolOf } from '../core/model-pool.js';
 import { parseArgs } from 'node:util';
 import { STREAMS } from '../core/audit.js';
 import { isProviderName, validateProviderChoice, PROVIDER_NAMES } from '../agents/registry.js';
@@ -761,14 +762,31 @@ export function parseCli(argv: string[], cwd: string): Command {
     return fail(`Unknown review-provider "${reviewProviderRaw}". Choose one of: ${PROVIDER_NAMES.join(', ')}.`);
   }
   const provider: string | undefined = providerRaw;
-  if (fallbackProviderRaw !== undefined && !isProviderName(fallbackProviderRaw)) {
-    return fail(`Unknown fallback-provider "${fallbackProviderRaw}". Choose one of: ${PROVIDER_NAMES.join(', ')}.`);
+  const fallbackNames = fallbackProviderRaw?.split(',').map((n) => n.trim()) ?? [];
+  const badFallback = fallbackNames.find((n) => !isProviderName(n));
+  if (badFallback !== undefined) {
+    return fail(`Unknown fallback-provider "${badFallback}". Choose one of: ${PROVIDER_NAMES.join(', ')}.`);
+  }
+  if (fallbackModel !== undefined && fallbackModel.split(',').length > Math.max(1, fallbackNames.length)) {
+    return fail('--fallback-model lists more models than --fallback-provider lists providers.');
+  }
+  // Model pools (`provider/model:weight, …`) are checked here so a typo fails before any run starts.
+  const isPoolProvider = (name: string): boolean => isProviderName(name) || (customsAllowed && CUSTOM_NAME_RE.test(name));
+  for (const flag of ['provider-model', 'review-model', 'escalate-model'] as const) {
+    const value = values[flag];
+    if (typeof value !== 'string') continue;
+    try {
+      poolOf(value, isPoolProvider, `--${flag}`);
+    } catch (error) {
+      return fail(error instanceof Error ? error.message : String(error));
+    }
   }
   if (fallbackModel !== undefined && fallbackProviderRaw === undefined) {
     return fail('--fallback-model needs --fallback-provider.');
   }
   const reviewProvider: ProviderName | undefined = reviewProviderRaw;
-  const fallbackProvider: ProviderName | undefined = fallbackProviderRaw;
+  // A comma list (`codex,cursor`) passed the per-name gate above; the type names one provider for the single case.
+  const fallbackProvider = fallbackProviderRaw as ProviderName | undefined;
   // Closed-set shapes: the gate above guarantees a built-in there; this re-narrow is for the compiler.
   const builtinProvider: ProviderName | undefined =
     provider !== undefined && isProviderName(provider) ? provider : undefined;
@@ -1577,11 +1595,12 @@ const SHARED_RUN_OPTIONS_USAGE = `    --provider <claude|codex|cursor|zai|openro
                            run/watch/doctor also accept a custom provider name from the repo's
                            .taskcell/app.json customProviders (S6) — direct mode only.
     --review-provider <claude|codex|cursor|zai|openrouter|meridian>   Run only the review stage on this provider (cross-provider review)
-    --fallback-provider <name>  Retry on this provider when the primary one fails (outage, limit, revoked credential) — the implementer and every other stage on its provider; must sit on a different transport (e.g. codex for a claude implementer)
-    --fallback-model <model>    Model for every stage that fell back (default: that provider's default)
+    --fallback-provider <name>  Retry on this provider when the primary one fails (outage, limit, revoked credential) — the implementer and every other stage on its provider; must sit on a different transport (e.g. codex for a claude implementer); a comma list (codex,cursor) is a fallback chain after the model pool
+    --fallback-model <model>    Model for every stage that fell back (default: that provider's default); a comma list pairs with --fallback-provider's
     --usage-cap <pct>        Stop starting tasks/stages once the provider's plan window is at/over this % (1-100; env TASKCELL_USAGE_CAP_PCT; default: no cap)
-    --provider-model <m>     Model for the implementer/simplifier stages (default: provider's default; zai -> glm-5.2)
-    --review-model <m>       Model for the review stage (default: provider's default)
+    --provider-model <m>     Model for the implementer/simplifier stages (default: provider's default; zai -> glm-5.2), or a pool
+                             of weighted provider/model entries rotated per task: claude/sonnet:3,codex/gpt-5.6-sol:1 (see docs/cli.md)
+    --review-model <m>       Model for the review stage (default: provider's default), or a pool as for --provider-model
     --escalate-model <m>     Model for the 2nd and later gate repairs, once a repair on the implementer
                              model has failed (default: stay on the implementer model)
     --no-simplify            Skip the simplifier stage (lean: implement -> review only)

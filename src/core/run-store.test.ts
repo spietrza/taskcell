@@ -6,6 +6,7 @@ import { createHash } from 'node:crypto';
 import { execa } from 'execa';
 import { VERDICT_STAGES, beginRun, listRuns, readRun, runsRoot, setRunTrigger, persistBaseMerge, persistDecisionProbe, persistRunRecord, persistStageOutcomes } from './run-store.js';
 import { STAGE } from '../pipeline/pipeline.js';
+import { parseMetrics } from './stats.js';
 import type { RunResult } from './types.js';
 
 const TS = '2026-06-06T10:00:00.000Z';
@@ -69,6 +70,29 @@ const vpResult = {
 async function recordFiles(taskId: string): Promise<string[]> {
   return (await readdir(join(runsRoot(repo), taskId))).sort();
 }
+
+describe('beginRun — model pick', () => {
+  it('writes the stage model pick to the record and the metric line, and stats reads it back', async () => {
+    await beginRun(repo, 'TES-PK', TS).writeStages([{ name: 'implementer', result: { ...result, taskId: 'TES-PK' }, model: 'sonnet' }], {
+      modelPicks: { implementer: { provider: 'claude', model: 'sonnet', pick: 'rotation' } },
+    });
+    const record = JSON.parse(await readFile(join(runsRoot(repo), 'TES-PK', `${PREFIX}-implementer.json`), 'utf8'));
+    expect(record.modelPick).toEqual({ provider: 'claude', model: 'sonnet', pick: 'rotation' });
+    const text = await readFile(join(runsRoot(repo), 'metrics.jsonl'), 'utf8');
+    expect(JSON.parse(text.trim().split('\n').pop() ?? '')).toMatchObject({ provider: 'claude', pick: 'rotation' });
+    expect(parseMetrics(text).at(-1)).toMatchObject({ provider: 'claude', pick: 'rotation' });
+  });
+
+  it('a run without picks (older or plain run) records neither field', async () => {
+    await beginRun(repo, 'TES-NP', TS).writeStages([{ name: 'implementer', result: { ...result, taskId: 'TES-NP' } }]);
+    const record = JSON.parse(await readFile(join(runsRoot(repo), 'TES-NP', `${PREFIX}-implementer.json`), 'utf8'));
+    expect(record.modelPick).toBeUndefined();
+    const text = await readFile(join(runsRoot(repo), 'metrics.jsonl'), 'utf8');
+    const metric = parseMetrics(text).at(-1);
+    expect(metric?.pick).toBeUndefined();
+    expect(metric?.provider).toBeUndefined();
+  });
+});
 
 describe('beginRun — estimate', () => {
   const codex: RunResult = { ...result, taskId: 'TES-E', model: 'gpt-5', cachedInInput: true, usage: { inputTokens: 1_000_000, outputTokens: 0, cacheReadInputTokens: 0 } };

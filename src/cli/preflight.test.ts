@@ -624,6 +624,16 @@ describe('runPreflight provider combo check', () => {
     expect(ok.checks.filter((c) => ['llm auth', 'provider auth', 'provider combo'].includes(c.name)).every((c) => c.ok)).toBe(true);
   });
 
+  it('a --fallback-provider list (codex,cursor) is preflighted entry by entry, so watch starts with it', async () => {
+    const base = { nodeVersion: '24.11.1', run: makeRunner() };
+    const watch = githubWatch({ provider: 'claude', fallbackProvider: 'codex,cursor' as 'codex' });
+    const ok = await runPreflight(watch, { ...base, env: { GH_TOKEN: 'gh', CLAUDE_CODE_OAUTH_TOKEN: 'token', CODEX_API_KEY: 'c-key', CURSOR_API_KEY: 'cur' } });
+    expect(ok.checks.filter((c) => ['llm auth', 'provider auth', 'provider combo'].includes(c.name)).every((c) => c.ok)).toBe(true);
+    // Each entry needs its own credential: the missing cursor key fails provider auth, not "unknown provider".
+    const noCursor = await runPreflight(watch, { ...base, env: { GH_TOKEN: 'gh', CLAUDE_CODE_OAUTH_TOKEN: 'token', CODEX_API_KEY: 'c-key' } });
+    expect(noCursor.checks.find((c) => c.name === 'provider auth')).toMatchObject({ ok: false, reason: expect.stringContaining('CURSOR_API_KEY') });
+  });
+
   it('passes provider combo when codex implements and zai reviews (different transports)', async () => {
     const report = await runPreflight(
       githubWatch({ provider: 'codex', reviewProvider: 'zai' }),

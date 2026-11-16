@@ -1,5 +1,5 @@
 import { CliUsageError } from '../core/errors.js';
-import { claudeCliKeyEnv, llmProxyNeedsNoPrimarySidecar, needsAnthropicAuth, requiresApiKey } from './registry.js';
+import { claudeCliKeyEnv, fallbackProviderNames, llmProxyNeedsNoPrimarySidecar, needsAnthropicAuth, requiresApiKey } from './registry.js';
 import type { ProviderChoice } from './registry.js';
 
 export type AgentAuth = { mode: 'subscription'; token: string } | { mode: 'api'; apiKey: string };
@@ -66,7 +66,7 @@ function anthropicConsumer(choice: ProviderChoice): string {
   const roles: [string, string | undefined][] = [
     primary,
     ['--review-provider', choice.reviewProvider],
-    ['--fallback-provider', choice.fallbackProvider],
+    ...fallbackProviderNames(choice.fallbackProvider).map((n): [string, string] => ['--fallback-provider', n]),
   ];
   const [flag, name] = roles.find(([, n]) => n !== undefined && !requiresApiKey(n, choice.customProviders)) ?? primary;
   return `${flag} ${name}`;

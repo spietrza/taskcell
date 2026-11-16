@@ -35,6 +35,9 @@ export interface MetricRecord {
   verdict?: string;
   /** `'watch'` when a long-running `taskcell watch` worker wrote the line (not a `--once` CI sweep). */
   trigger?: 'watch';
+  /** Provider the stage actually ran on and why its model was picked (model pools); absent on older lines and plain runs. */
+  provider?: string;
+  pick?: string;
 }
 
 /** Aggregated totals for a group of metric records. */
@@ -141,6 +144,8 @@ export function parseMetrics(text: string): MetricRecord[] {
       ...(Array.isArray(parsed.skillsUsed) ? { skillsUsed: sanitizeSkillIds(parsed.skillsUsed) } : {}),
       ...(typeof parsed.verdict === 'string' ? { verdict: parsed.verdict } : {}),
       ...(parsed.trigger === 'watch' ? { trigger: 'watch' as const } : {}),
+      ...(typeof parsed.provider === 'string' ? { provider: parsed.provider } : {}),
+      ...(typeof parsed.pick === 'string' ? { pick: parsed.pick } : {}),
       costUsd: num(parsed.costUsd),
       ...(typeof parsed.estCostUsd === 'number' && Number.isFinite(parsed.estCostUsd) && parsed.estCostUsd >= 0 && !costReported(parsed) ? { estCostUsd: parsed.estCostUsd } : {}),
       inputTokens: num(parsed.inputTokens),
@@ -328,4 +333,73 @@ export function formatStats(report: StatsReport): string {
     sections.push('', probeTable);
   }
   return sections.join('\n');
+}
+
+/** One row of the per-stage model comparison: a stage × provider/model × pick reason. */
+export interface ModelPickRow {
+  stage: string;
+  model: string;
+  pick: string;
+  runs: number;
+  costUsd: number;
+  /** Runs of this row whose verify gate ran / passed (same run: same taskId + timestamp). */
+  gateRuns: number;
+  gatePassed: number;
+  /** Runs whose reviewer verdict is known / was `pass`. */
+  reviewed: number;
+  reviewPassed: number;
+  /** Revise records of the same task after this run. */
+  reviseRounds: number;
+}
+
+/**
+ * Compare models per stage (the comparison data behind model pools): every metric line that names
+ * its provider and pick, grouped by stage, provider/model and pick, with cost, verify gate pass rate,
+ * reviewer verdict and later revise rounds of the same run. `text` is metrics.jsonl (verify lines join on taskId + ts).
+ */
+export function modelPickReport(text: string): ModelPickRow[] {
+  const lines = parseJsonlLines(text);
+  const gate = new Map<string, boolean>();
+  for (const l of lines) {
+    if (l.evt === 'verify' && typeof l.taskId === 'string' && typeof l.ts === 'string' && typeof l.passed === 'boolean') gate.set(`${l.taskId}|${l.ts}`, l.passed);
+  }
+  const records = parseMetrics(text);
+  const verdicts = new Map<string, string>();
+  for (const r of records) if (r.stage === 'reviewer' && r.verdict !== undefined && r.ts !== undefined) verdicts.set(`${r.taskId}|${r.ts}`, r.verdict);
+  const reviseTs = new Map<string, string[]>();
+  for (const r of records) if ((r.stage ?? '').startsWith('revis')) reviseTs.set(r.taskId, [...(reviseTs.get(r.taskId) ?? []), r.ts ?? '']);
+  const rows = new Map<string, ModelPickRow>();
+  for (const r of records) {
+    if (r.pick === undefined || r.provider === undefined) continue;
+    const stage = r.stage ?? '(none)';
+    const model = `${r.provider}/${r.requestedModel ?? r.model ?? 'default'}`;
+    const key = `${stage}|${model}|${r.pick}`;
+    const row = rows.get(key) ?? { stage, model, pick: r.pick, runs: 0, costUsd: 0, gateRuns: 0, gatePassed: 0, reviewed: 0, reviewPassed: 0, reviseRounds: 0 };
+    row.runs += 1;
+    row.costUsd += r.costUsd;
+    const run = `${r.taskId}|${r.ts ?? ''}`;
+    const passed = gate.get(run);
+    if (passed !== undefined) {
+      row.gateRuns += 1;
+      if (passed) row.gatePassed += 1;
+    }
+    const verdict = verdicts.get(run);
+    if (verdict !== undefined) {
+      row.reviewed += 1;
+      if (verdict === 'pass') row.reviewPassed += 1;
+    }
+    row.reviseRounds += (reviseTs.get(r.taskId) ?? []).filter((ts) => ts > (r.ts ?? '')).length;
+    rows.set(key, row);
+  }
+  return [...rows.values()].sort((a, b) => a.stage.localeCompare(b.stage) || a.model.localeCompare(b.model) || a.pick.localeCompare(b.pick));
+}
+
+/** Render the per-stage model comparison; empty string when no line names a pick. */
+export function formatModelPicks(rows: readonly ModelPickRow[]): string {
+  if (rows.length === 0) return '';
+  const rate = (n: number, of: number): string => (of === 0 ? '-' : `${Math.round((n / of) * 100)}% (${n}/${of})`);
+  return alignTable([
+    ['BY MODEL PER STAGE', 'model', 'pick', 'runs', '$cost', 'gate pass', 'review pass', 'revise/run'],
+    ...rows.map((r) => [r.stage, r.model, r.pick, String(r.runs), r.costUsd.toFixed(4), rate(r.gatePassed, r.gateRuns), rate(r.reviewPassed, r.reviewed), (r.reviseRounds / r.runs).toFixed(2)]),
+  ]);
 }
