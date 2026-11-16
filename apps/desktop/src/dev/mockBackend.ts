@@ -75,7 +75,7 @@ const commandHandlers = {
     const yes = { allowed: true };
     return {
       mutationsAllowed: true, owner: true, admin: true, canAddProject: yes, teamRoles: { default: 'admin' as const },
-      ...(args?.repoPath !== undefined ? { project: { teamRole: 'admin' as const, canReply: yes, canMerge: yes, canEnableFactory: yes, canUpdateSkill: yes, canEditSkills: yes } } : {}),
+      ...(args?.repoPath !== undefined ? { project: { teamRole: 'admin' as const, canReply: yes, canMerge: yes, canEnableFactory: yes, canCreateTask: yes, canStartTask: yes, canChangeSettings: yes, canUpdateSkill: yes, canEditSkills: yes } } : {}),
     };
   },
   add_team_member: () => mockTeam,

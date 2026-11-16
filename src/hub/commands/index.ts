@@ -202,6 +202,7 @@ export const HUB_POLICY: { readonly [K in keyof Commands]: CommandPolicy } = {
   ...appConfig.policy,
   ...approver.policy,
   ...audit.policy,
+  ...callerCapabilities.policy,
   ...ciCost.policy,
   ...cliVersions.policy,
   ...complete.policy,

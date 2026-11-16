@@ -8,6 +8,7 @@ import { deferred } from '../../testUtils';
 vi.mock('../../ipc.js', () => ({
   readAppConfigStrict: vi.fn(async () => ({})),
   writeAppConfig: vi.fn(async () => {}),
+  callerCapabilities: vi.fn(async () => ({})),
 }));
 
 // Hub panels with their own reads; not under test here.

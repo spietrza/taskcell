@@ -57,3 +57,11 @@ test('with the switch off a user is told so and gets no editor', async () => {
   await waitFor(() => expect(screen.getByText(/are off on this hub/)).toBeInTheDocument());
   expect(screen.queryByText('Your credentials')).not.toBeInTheDocument();
 });
+
+test('a failing caller_capabilities leaves the panel on the status alone', async () => {
+  vi.mocked(ipc.userCredentialsStatus).mockResolvedValue({ enabled: true, admin: false, names: [] });
+  vi.mocked(ipc.callerCapabilities).mockRejectedValueOnce(new Error('unknown command'));
+  render(<CredentialsPanel />);
+  await waitFor(() => expect(screen.getByText('Your credentials')).toBeInTheDocument());
+  expect(screen.queryByText('unknown command')).not.toBeInTheDocument();
+});

@@ -3,8 +3,8 @@ import { fireEvent, render, screen, waitFor } from '@testing-library/react';
 import { StarterTaskDialog } from './StarterTaskDialog';
 import { STARTER_TASK } from './steps';
 
-vi.mock('../../ipc', () => ({ apiCreateTask: vi.fn() }));
-import { apiCreateTask } from '../../ipc';
+vi.mock('../../ipc', () => ({ apiCreateTask: vi.fn(), callerCapabilities: vi.fn(async () => ({})) }));
+import { apiCreateTask, callerCapabilities } from '../../ipc';
 
 const project = { path: '/r/app', name: 'app' };
 
@@ -18,6 +18,14 @@ describe('StarterTaskDialog', () => {
     fireEvent.click(screen.getByRole('button', { name: 'Create this task' }));
     await waitFor(() => expect(onCreated).toHaveBeenCalled());
     expect(apiCreateTask).toHaveBeenCalledWith('/r/app', STARTER_TASK.title, STARTER_TASK.body);
+  });
+
+  test('Create this task is closed, with the reason, when the hub refuses remote writes', async () => {
+    vi.mocked(callerCapabilities).mockResolvedValueOnce({ project: { canCreateTask: { allowed: false, reason: 'the hub refuses remote writes' } } } as never);
+    render(<StarterTaskDialog project={project} onCreated={() => {}} onClose={() => {}} />);
+    const button = screen.getByRole('button', { name: 'Create this task' });
+    await waitFor(() => expect(button).toBeDisabled());
+    expect(button).toHaveAttribute('title', 'the hub refuses remote writes');
   });
 
   test('a refusal shows inline and keeps the dialog open', async () => {

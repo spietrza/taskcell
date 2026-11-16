@@ -54,7 +54,13 @@ export const commands = defineCommands<CallerCapabilitiesCommands>({
     const roles = holding.map((id) => out.teamRoles[id]);
     const teamRole: TeamRole | null = owner || roles.includes('admin') ? 'admin' : roles.length > 0 ? 'member' : null;
     const write = capability(mutationsAllowed, mutationsReason);
-    out.project = { teamRole, canReply: write, canMerge: write, canEnableFactory: write, canUpdateSkill: write, canEditSkills: ownerWrite };
+    out.project = {
+      teamRole, canReply: write, canMerge: write, canEnableFactory: write, canCreateTask: write, canStartTask: write, canChangeSettings: write,
+      canUpdateSkill: ownerWrite, canEditSkills: ownerWrite,
+    };
     return out;
   },
+}, {
+  // No `repo:`: repoPath is optional and the handler checks it with allow() itself.
+  caller_capabilities: { write: false },
 });

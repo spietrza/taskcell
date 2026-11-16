@@ -611,11 +611,15 @@ export default function App() {
             ? {
                 projectName: active.name,
                 onScreen: (s: 'board' | 'runs' | 'settings') => navigate(() => setScreen(s)),
-                onNewTask: () =>
-                  navigate(() => {
-                    setScreen('task');
-                    setNewTaskNonce((n) => n + 1);
-                  }),
+                ...(caps?.project?.canCreateTask.allowed === false
+                  ? {}
+                  : {
+                      onNewTask: () =>
+                        navigate(() => {
+                          setScreen('task');
+                          setNewTaskNonce((n) => n + 1);
+                        }),
+                    }),
                 ...(factoryGate?.allowed === false ? {} : { onEnableFactory: () => setFactoryProject({ path: active.path, name: active.name }) }),
               }
             : {})}

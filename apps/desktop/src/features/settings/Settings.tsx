@@ -2,7 +2,7 @@ import { useRef, useState, type ReactNode } from 'react';
 import { Button, Input } from '@/ui';
 import { Members, type TeamScreen } from './Members';
 import { writeAppConfig } from '../../ipc';
-import { useAppConfig } from '../../hooks';
+import { gateProps, useAppConfig, useCallerCapabilities } from '../../hooks';
 import { useDiscardGuard } from '../../navGuard';
 import { CredentialsPanel } from './CredentialsPanel';
 import { AutoMerge } from './AutoMerge';
@@ -67,6 +67,7 @@ export function Settings({ project, teamScreen }: { project: string; teamScreen?
   const [dirty, setDirty] = useState(false);
   const [saved, setSaved] = useState(false);
   const [saveError, setSaveError] = useState<string | null>(null);
+  const saveGate = useCallerCapabilities(project)?.project?.canChangeSettings;
 
   // Shell navigation unmounts this screen — see useDiscardGuard (S8 seam, #339 follow-up).
   useDiscardGuard(dirty, () => window.confirm('Discard unsaved changes to .taskcell/app.json?'));
@@ -126,7 +127,7 @@ export function Settings({ project, teamScreen }: { project: string; teamScreen?
       <div className="sticky top-0 z-10 flex items-center gap-3 bg-background py-1">
         <h2 className="text-xl font-semibold">Settings</h2>
         <code className="text-xs text-muted-foreground">.taskcell/app.json</code>
-        <Button className="ml-auto" onClick={save} disabled={!savable}>
+        <Button className="ml-auto" {...gateProps(saveGate)} onClick={save} disabled={!savable || saveGate?.allowed === false}>
           {saved ? 'Saved' : 'Save'}
         </Button>
       </div>

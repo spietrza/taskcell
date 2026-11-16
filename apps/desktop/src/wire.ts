@@ -481,6 +481,13 @@ export interface CallerCapabilities {
     /** Hub-wide ability to merge; a PR the hub refuses by itself carries `mergeBlocked`. */
     canMerge: CallerCapability;
     canEnableFactory: CallerCapability;
+    /** Create a tracker task (`api_create_task`): the draft's Create task and the starter task. */
+    canCreateTask: CallerCapability;
+    /** Start a task or retry a paused one (`start_task`, `retry_paused_task`). */
+    canStartTask: CallerCapability;
+    /** Change the project's settings (`write_app_config`) or approver mode (`set_approver_mode`). */
+    canChangeSettings: CallerCapability;
+    /** Owner only, like `update_skill_pr`. */
     canUpdateSkill: CallerCapability;
     /** Add or remove a skill. */
     canEditSkills: CallerCapability;

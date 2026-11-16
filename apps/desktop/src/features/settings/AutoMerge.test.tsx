@@ -68,3 +68,10 @@ test('a command in the hub hint is shown as code, and a locked switch says why',
   expect(screen.getByText(/The mode cannot be changed yet/)).toBeInTheDocument();
   screen.getAllByRole('button').forEach((b) => expect(b).toBeDisabled());
 });
+
+test('the mode switch is closed, with the reason, when the hub refuses remote writes', async () => {
+  mockRpc((cmd) => (cmd === 'read_approver_scorecard' ? card() : cmd === 'caller_capabilities' ? { project: { canChangeSettings: { allowed: false, reason: 'the hub refuses remote writes' } } } : undefined));
+  render(<AutoMerge project="/repo" />);
+  await waitFor(() => expect(screen.getByRole('button', { name: 'Turn off' })).toHaveAttribute('title', 'the hub refuses remote writes'));
+  expect(screen.getByRole('button', { name: 'Turn off' })).toBeDisabled();
+});
