@@ -469,6 +469,11 @@ export interface StagedProviderChoice extends ProviderChoice {
   stageProviders?: readonly string[];
 }
 
+/** The provider names in a `--fallback-provider` value: one name, or a fallback chain `codex,cursor`. */
+export function fallbackProviderNames(value: string | undefined): string[] {
+  return value !== undefined ? value.split(',').map((n) => n.trim()) : [];
+}
+
 /** Every provider name a run may start: implementer, reviewer, implementer fallback. The one list
  *  behind the credential, egress-host and plain-http checks, so a fallback can never slip past one. */
 export function usedProviderNames(choice: StagedProviderChoice): string[] {
@@ -476,7 +481,7 @@ export function usedProviderNames(choice: StagedProviderChoice): string[] {
     choice.provider ?? 'claude',
     ...(choice.reviewProvider !== undefined ? [choice.reviewProvider] : []),
     // A fallback list (`codex,cursor`, model pools) counts every entry: each may run, so each needs its credential.
-    ...(choice.fallbackProvider !== undefined ? choice.fallbackProvider.split(',').map((n) => n.trim()) : []),
+    ...fallbackProviderNames(choice.fallbackProvider),
     ...(choice.stageProviders ?? []),
   ];
 }

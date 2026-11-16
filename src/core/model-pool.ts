@@ -1,4 +1,4 @@
-import { createHash } from 'node:crypto';
+import { createHash, randomUUID } from 'node:crypto';
 import { readFile, writeFile, rename } from 'node:fs/promises';
 import { join } from 'node:path';
 import { assertStatePath, ensureStateDir } from './state-path.js';
@@ -24,7 +24,8 @@ export type ModelPick = 'config' | 'rotation' | 'skip-limit' | 'fallback' | 'lab
 export class ModelPoolError extends Error {}
 
 const WEIGHT_RE = /:(\d+)\s*$/;
-const PROVIDER_RE = /^[a-z][a-z0-9-]{0,39}$/;
+// Same shape as a repo custom provider name (args.ts CUSTOM_NAME_RE), so every valid custom can join a pool.
+const PROVIDER_RE = /^[a-z0-9][a-z0-9._-]*$/;
 const MODEL_RE = /^[A-Za-z0-9][A-Za-z0-9._:/-]{0,79}$/;
 
 /** True when `value` uses the pool syntax (a comma, or a `:<weight>` suffix); otherwise it is one plain model. */
@@ -150,7 +151,7 @@ export async function recordCooldown(repoPath: string, entry: { provider: string
   const file = cooldownPath(repoPath);
   await ensureStateDir(repoPath, join(repoPath, '.taskcell'));
   await assertStatePath(repoPath, file);
-  const tmp = `${file}.${process.pid}.tmp`;
+  const tmp = `${file}.${process.pid}.${randomUUID()}.tmp`;
   await assertStatePath(repoPath, tmp);
   await writeFile(tmp, `${JSON.stringify(Object.fromEntries([...current].map(([k, d]) => [k, d.toISOString()])), null, 2)}\n`);
   await rename(tmp, file);

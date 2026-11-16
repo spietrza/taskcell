@@ -8,7 +8,8 @@ import { buildXmlPrompt } from '../context/xml-prompt.js';
 import { diffForPrompt } from '../context/escape.js';
 import { extractJson } from '../structured/extract.js';
 import { verdictSchema } from '../evals/judges.js';
-import { AgentError, FallbackFailedError, isRateLimitError, rateLimitResetDelayMs } from '../core/errors.js';
+import { AgentError, FallbackFailedError, isProviderLimitError, isRateLimitError, rateLimitResetDelayMs } from '../core/errors.js';
+import { parseProviderRateLimitReset } from '../core/rate-limit-marker.js';
 import { enforceUsageCap, UsageCapError } from '../core/usage-cap.js';
 import { roundUsd } from '../core/usd.js';
 import type { RunContext } from '../core/taskcell.js';
@@ -118,6 +119,8 @@ export interface StageOutcome {
   result: RunResult;
   providerName?: string;
   model?: string;
+  /** Set when the stage's own provider hit a usage/rate limit and its fallback ran it: when that limit resets (ISO). */
+  primaryLimitResetAt?: string;
 }
 
 export interface FrozenRun {
@@ -412,6 +415,7 @@ export async function runBudgetedStages(
     // only when the fallback is under its own cap; otherwise the UsageCapError parks the task.
     // A cap fallback already moved to the fallback: a failure there is rethrown, not retried on the fallback again.
     let onCapFallback = false;
+    let primaryLimitResetAt: string | undefined;
     try {
       enforceUsageCap(effectiveAgent.name, ctx.log);
     } catch (capErr) {
@@ -455,6 +459,7 @@ export async function runBudgetedStages(
         // (Anthropic's caps are partly per model), so it may well succeed right away.
         const sameAccountAndModel = stage.fallback.provider.name === effectiveAgent.name && stage.fallback.model === effectiveModel;
         const waitMs = rateLimited && sameAccountAndModel ? rateLimitResetDelayMs(err) : undefined;
+        if (isProviderLimitError(err)) primaryLimitResetAt = parseProviderRateLimitReset(err.message).toISOString();
         effectiveAgent = stage.fallback.provider;
         effectiveModel = stage.fallback.model;
         if (stage.provider === undefined) primaryDown = true;
@@ -530,6 +535,7 @@ export async function runBudgetedStages(
       result,
       providerName: effectiveAgent.name,
       ...(effectiveModel !== undefined ? { model: effectiveModel } : {}),
+      ...(primaryLimitResetAt !== undefined ? { primaryLimitResetAt } : {}),
     });
     previous = result;
     if (stage.copyBack !== false) previousDiff = result.diff ?? '';

@@ -16,9 +16,9 @@ import { probeTaskDifficulty, decisionProbeConfig } from '../core/decision-probe
 import { decisionModelConfig, decisionEgressAllowed, decisionModelMissing, DECISION_MODEL_DEFAULT, type DecisionModelConfig } from '../core/decision-model.js';
 import { TaskcellError } from '../core/errors.js';
 import { isStructuredProviderLimit } from '../core/rate-limit-marker.js';
-import { readCooldowns, recordCooldown, cooldownUntil, poolTaskKey } from '../core/model-pool.js';
+import { readCooldowns, recordCooldown, cooldownUntil, poolTaskKey, entryKey } from '../core/model-pool.js';
 import { routeModelPools, resolveFlowStagePools } from './model-pool-routing.js';
-import type { StagePick } from './model-pool-routing.js';
+import type { PoolRouting, StagePick } from './model-pool-routing.js';
 import { decisionDiffScorer } from '../evals/decision-judge.js';
 import { runStages, assembleReviewPipeline, withPrimaryFallback, sandboxComplete, withStageMaxTurns, withStageResumeUntilComplete, reviewFinalDiff, STAGE } from '../pipeline/pipeline.js';
 import { FLOWS } from '../api/capabilities.js';
@@ -439,11 +439,40 @@ export function resolveForkScorerConfig(whiteLabel: boolean, env: NodeJS.Process
   return config;
 }
 
-/** Shared pipeline body for GitHub and Linear issue runners, parameterised by a SourceAdapter. */
+/** Thrown by one attempt when a pool entry hit a limit and another entry or fallback still has quota. */
+class PoolEntryLimited extends Error {
+  constructor(readonly limit: unknown, readonly keys: readonly string[]) {
+    super(`pool entries out of quota: ${keys.join(', ')}`);
+  }
+}
+
+/**
+ * Shared pipeline body for GitHub and Linear issue runners, parameterised by a SourceAdapter. A model
+ * pool whose entry hits a provider limit is re-run on the next entry, then on the fallback chain; the
+ * limit escapes (as today) only once every entry the stage can use is out.
+ */
 export async function runSourcedIssue(
   issueRef: string,
   configuredDeps: RunIssueDeps,
   adapter: SourceAdapter,
+): Promise<RunIssueResult> {
+  // Entries that hit a limit during this run: skipped by the next attempt even when the cool-down file cannot be written.
+  const exhausted = new Set<string>();
+  for (;;) {
+    try {
+      return await runSourcedIssueAttempt(issueRef, configuredDeps, adapter, exhausted);
+    } catch (error) {
+      if (!(error instanceof PoolEntryLimited)) throw error;
+      console.log(`taskcell: ${issueRef} ${error.message}; retrying on the next pool entry`);
+    }
+  }
+}
+
+async function runSourcedIssueAttempt(
+  issueRef: string,
+  configuredDeps: RunIssueDeps,
+  adapter: SourceAdapter,
+  exhausted: Set<string>,
 ): Promise<RunIssueResult> {
   // Named-flow dispatch, resolved FIRST: a flow typo must fail before the tracker fetch, the
   // provider proxies, and the sandbox spin-up (the CLI mirror of the sidecar fail-fast, S5 D6).
@@ -484,23 +513,28 @@ export async function runSourcedIssue(
   );
   const poolProvider = (name: string): boolean => isProviderName(name) || (deps.customProviders ?? []).some((c) => c.name === name);
   const cooldowns = await readCooldowns(deps.repoPath).catch(() => new Map<string, Date>());
-  const routing = routeModelPools(deps, poolTaskKey(task.id), {
-    isProvider: poolProvider,
-    cooling: (key) => cooldowns.has(key),
-    ...(labelModel !== undefined ? { labelModel } : {}),
-  });
+  const cooling = (key: string): boolean => cooldowns.has(key) || exhausted.has(key);
+  const routePools = (): PoolRouting<RunIssueDeps> =>
+    routeModelPools(configuredDeps, poolTaskKey(task.id), {
+      isProvider: poolProvider,
+      cooling,
+      ...(labelModel !== undefined ? { labelModel } : {}),
+    });
+  const routing = routePools();
   deps = routing.options;
   for (const [tier, p] of Object.entries(routing.picks)) {
     console.log(`taskcell: ${task.id} ${tier} → ${p.provider}${p.model !== undefined ? `/${p.model}` : ''} (${p.pick})`);
   }
   // A flow stage whose model is a pool (Workflow editor) resolves to one entry for this task; an entry on
   // another provider pins the stage to it, and that provider's credential joins the run's secrets.
-  const flowPools = resolveFlowStagePools(baseStages, poolTaskKey(task.id), {
-    runProvider: deps.provider ?? 'claude',
-    isProvider: poolProvider,
-    cooling: (key) => cooldowns.has(key),
-    ...(deps.customProviders !== undefined ? { customProviders: deps.customProviders } : {}),
-  });
+  const routeFlowPools = (runProvider: string): ReturnType<typeof resolveFlowStagePools> =>
+    resolveFlowStagePools(baseStages, poolTaskKey(task.id), {
+      runProvider,
+      isProvider: poolProvider,
+      cooling,
+      ...(deps.customProviders !== undefined ? { customProviders: deps.customProviders } : {}),
+    });
+  const flowPools = routeFlowPools(deps.provider ?? 'claude');
   for (const [name, p] of Object.entries(flowPools.picks)) {
     routing.picks[name] = { ...p, pick: p.pick === 'rotation' ? 'flow' : p.pick };
     console.log(`taskcell: ${task.id} ${name} → ${p.provider}/${p.model ?? ''} (flow pool, ${p.pick})`);
@@ -511,8 +545,17 @@ export async function runSourcedIssue(
   // difficulty probe) and every secret gate/redaction below takes it from here.
   const credentials = runCredentialContext(choice);
   const agents = selectAgents(choice, credentials.env, { proxyMode: deps.llmProxy !== undefined });
-  const primaryEntry = (): { provider: string; model?: string } => ({ provider: agents.agent.name, ...(deps.providerModel !== undefined ? { model: deps.providerModel } : {}) });
-  const fallbackEntry = (provider: string): { provider: string; model?: string } => ({ provider, ...(deps.fallbackModel !== undefined ? { model: deps.fallbackModel } : {}) });
+  // The pool entry a stage draws on: its flow-pool pick, the reviewer pick, else the implementer pick.
+  // Undefined when that stage's tier has no pool (a stage pinned to its own provider, an unpooled reviewer).
+  const tierPick = (stage: string): StagePick | undefined => {
+    const flowPick = flowPools.picks[stage];
+    if (flowPick !== undefined) return flowPick;
+    if (REVIEW_TIER.has(stage)) {
+      const ownReviewer = deps.reviewProvider !== undefined && deps.reviewProvider !== agents.agent.name;
+      return routing.picks.reviewer ?? (ownReviewer ? undefined : routing.picks.implementer);
+    }
+    return flowPools.stages.some((s) => s.name === stage && s.provider !== undefined) ? undefined : routing.picks.implementer;
+  };
   // What the run says about the hand-picked list (run summary, run event, run record) instead of dropping it silently.
   const lineReplaced = deps.namedSkillsOnly === true && skillsLine.skills.some((id) => !namedSkills.includes(id));
   // Every provider an agent stage can run on: one whose CLI reads no skills cannot honour the list.
@@ -1122,24 +1165,34 @@ export async function runSourcedIssue(
       return { task, prUrl: pr.prUrl, ...(verificationFailed ? { verificationFailed: true } : {}) };
     } catch (error) {
       if (isStructuredProviderLimit(error)) {
-        // Best effort: a failed write must not replace the limit error the caller parks the task on.
-        await persistProviderStop?.().catch(() => undefined);
-        // A pooled run cools down the entry that hit the limit (the fallback when one took over), so
-        // the next task's rotation skips it until the named reset or the default hour.
-        // A limit only escapes the stage once its fallback (when there is one) is out too.
-        if (routing.pooled) {
+        // A pooled stage cools down the entry that hit the limit (and the implementer's fallback: a limit
+        // only escapes the stage once its fallback is out too), so new runs skip it until the named reset
+        // or the default hour. Then this task moves on to the next entry, then the fallback chain.
+        const pick = tierPick(activeStage);
+        if (pick !== undefined) {
           const until = cooldownUntil(error instanceof Error ? error.message : String(error));
-          for (const entry of [primaryEntry(), ...(agents.fallbackAgent !== undefined ? [fallbackEntry(agents.fallbackAgent.name)] : [])]) {
+          const out = [pick, ...(pick === routing.picks.implementer && routing.picks.fallback !== undefined ? [routing.picks.fallback] : [])];
+          for (const entry of out) {
+            exhausted.add(entryKey(entry));
             await recordCooldown(deps.repoPath, entry, until).catch(() => undefined);
           }
+          // Re-route with those entries out: a tier still landing on an exhausted entry means every entry and fallback is out.
+          const next = routePools();
+          const nextFlow = routeFlowPools(next.options.provider ?? 'claude');
+          const stuck = [next.picks.implementer, next.picks.reviewer, ...Object.values(nextFlow.picks)].some((p) => p !== undefined && exhausted.has(entryKey(p)));
+          if (!stuck) throw new PoolEntryLimited(error, out.map(entryKey));
         }
+        // Best effort: a failed write must not replace the limit error the caller parks the task on.
+        await persistProviderStop?.().catch(() => undefined);
       }
       await stepSummary('error', { error: String(error) });
       throw error;
     } finally {
-      // The fallback took over a stage: the primary entry is out (limit or outage), so new runs skip it for the default cool-down.
-      if (routing.pooled && agents.fallbackAgent !== undefined && outcomes.some((o) => o.providerName === agents.fallbackAgent?.name)) {
-        await recordCooldown(deps.repoPath, primaryEntry(), cooldownUntil('')).catch(() => undefined);
+      // A stage whose own provider hit a limit and was rescued by its fallback: cool that stage's pool entry
+      // until the limit resets, so new runs skip it. An outage, or a healthy stage, cools nothing.
+      for (const o of outcomes) {
+        const pick = o.primaryLimitResetAt !== undefined ? tierPick(o.name) : undefined;
+        if (pick !== undefined) await recordCooldown(deps.repoPath, pick, new Date(o.primaryLimitResetAt!)).catch(() => undefined);
       }
       await refreshRetrospectiveMemory(deps.repoPath).catch((err: unknown) => {
         console.error('retrospective memory refresh failed (non-fatal):', err);

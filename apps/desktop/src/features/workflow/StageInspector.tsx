@@ -97,7 +97,7 @@ export function StageInspector({
                   options={[...new Set([...providers, ...(row.provider !== '' ? [row.provider] : [])])].map((p) => ({ value: p, label: p }))}
                 />
                 <Input aria-label={`pool entry ${i + 1} id`} value={row.model} onChange={(e) => updateRow(i, { model: e.target.value })} className="flex-1 font-mono text-xs" placeholder="id" />
-                <Input aria-label={`pool weight ${i + 1}`} type="number" min={1} value={row.weight} onChange={(e) => updateRow(i, { weight: Number(e.target.value) })} className="w-16" />
+                <Input aria-label={`pool weight ${i + 1}`} type="number" min={1} value={row.weight} onChange={(e) => updateRow(i, { weight: Math.max(1, Math.trunc(Number(e.target.value)) || 1) })} className="w-16" />
                 <Button variant="text" color="secondary" aria-label={`remove pool entry ${i + 1}`} onClick={() => setRows(poolRows.filter((_, j) => j !== i))} startIcon={<Trash2 className="size-4" />} />
               </div>
             ))}
