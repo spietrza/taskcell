@@ -3,7 +3,7 @@ import { Button, Chip, Input, ScrollTable, Table } from '@/ui';
 import { RefreshCw } from 'lucide-react';
 import { addSkillPr, listRepoSkills, removeSkillPr, updateSkillPr } from '../../ipc';
 import { errorClause, errorMessage } from '../../errors';
-import { useAsync } from '../../hooks';
+import { gateProps, useAsync, useCallerCapabilities } from '../../hooks';
 import { ExternalLink } from '../../components/ExternalLink';
 import type { RepoSkill } from '../../wire';
 
@@ -25,6 +25,7 @@ export function Skills({ project }: { project: string }) {
   const [busy, setBusy] = useState<string | null>(null);
   const [outcome, setOutcome] = useState<Record<string, Outcome>>({});
   const { data, error, loading } = useAsync(() => listRepoSkills(project), [project, nonce]);
+  const caps = useCallerCapabilities(project)?.project;
   const shown = (data?.skills ?? []).filter((s) => !onlyOutdated || isOutdated(s));
 
   const run = async (key: string, action: () => Promise<{ prUrl: string }>): Promise<void> => {
@@ -65,7 +66,7 @@ export function Skills({ project }: { project: string }) {
       <p className="text-xs text-muted-foreground">Shows the hub checkout's working tree; every change here opens a pull request off the default branch, which can differ.</p>
       <div className="flex flex-wrap items-center gap-2">
         <Input aria-label="Skill source" placeholder="https://github.com/org/skill-repo" value={source} onChange={(e) => setSource(e.target.value)} className="max-w-md" />
-        <Button variant="outlined" disabled={busy !== null || source.trim() === ''} onClick={() => void run('add', () => addSkillPr(project, source.trim()))}>
+        <Button variant="outlined" {...gateProps(caps?.canEditSkills)} disabled={busy !== null || source.trim() === '' || caps?.canEditSkills.allowed === false} onClick={() => void run('add', () => addSkillPr(project, source.trim()))}>
           {busy === 'add' ? 'Adding…' : 'Add skill'}
         </Button>
         {result('add')}
@@ -113,11 +114,11 @@ export function Skills({ project }: { project: string }) {
                   <Table.Cell>
                     <div className="flex flex-wrap items-center gap-2">
                       {isOutdated(s) && (
-                        <Button variant="outlined" disabled={busy !== null} onClick={() => void run(`update:${s.name}`, () => updateSkillPr(project, s.name))}>
+                        <Button variant="outlined" {...gateProps(caps?.canUpdateSkill)} disabled={busy !== null || caps?.canUpdateSkill.allowed === false} onClick={() => void run(`update:${s.name}`, () => updateSkillPr(project, s.name))}>
                           {busy === `update:${s.name}` ? 'Opening…' : 'Open update PR'}
                         </Button>
                       )}
-                      <Button variant="text" color="secondary" disabled={busy !== null} onClick={() => void run(`remove:${s.name}`, () => removeSkillPr(project, s.name))}>
+                      <Button variant="text" color="secondary" {...gateProps(caps?.canEditSkills)} disabled={busy !== null || caps?.canEditSkills.allowed === false} onClick={() => void run(`remove:${s.name}`, () => removeSkillPr(project, s.name))}>
                         {busy === `remove:${s.name}` ? 'Opening…' : 'Remove (PR)'}
                       </Button>
                       {result(`update:${s.name}`)}

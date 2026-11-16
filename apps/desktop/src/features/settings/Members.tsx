@@ -1,7 +1,8 @@
 import type { ReactElement } from 'react';
-import { useEffect, useState } from 'react';
+import { useState } from 'react';
 import { Button, Input } from '@/ui';
-import { teamAddMember, teamAddRepository, teamRemoveMember, teamRemoveRepository, teamRole, teamSetRole } from '../../ipc';
+import { teamAddMember, teamAddRepository, teamRemoveMember, teamRemoveRepository, teamSetRole } from '../../ipc';
+import { useCallerCapabilities } from '../../hooks';
 import type { Project } from '../../taskcell-output';
 import type { Team, TeamRole } from '../../wire';
 
@@ -17,21 +18,14 @@ export interface TeamScreen {
 
 /** Members and repositories of the selected team. Only an admin sees controls; a member reads the list. */
 export function Members({ team, allProjects, onTeam, confirmRemoveRepo }: TeamScreen): ReactElement {
-  const [role, setRole] = useState<TeamRole | null>(null);
   const [login, setLogin] = useState('');
   const [repo, setRepo] = useState('');
   const [error, setError] = useState<string>();
   // The member whose removal is awaiting its second click (the project card's inline confirm).
   const [confirmRemove, setConfirmRemove] = useState<string | null>(null);
 
-  useEffect(() => {
-    let alive = true;
-    teamRole(team.id).then((r) => alive && setRole(r), () => alive && setRole(null));
-    return () => {
-      alive = false;
-    };
-    // Refetch on every edit: the caller may just have demoted themselves.
-  }, [team]);
+  // Re-read on every edit: the caller may just have demoted themselves.
+  const role = useCallerCapabilities(undefined, JSON.stringify(team.members))?.teamRoles[team.id];
 
   const edit = (action: Promise<Team>, after?: () => void): void => {
     setError(undefined);

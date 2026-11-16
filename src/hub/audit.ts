@@ -4,7 +4,7 @@
 import { homedir } from 'node:os';
 import { join } from 'node:path';
 import { parseJsonlLines } from '../core/stats.js';
-import { appendAudit, localAdapter, STREAMS, TOKEN_AUDIT_ACTOR, type AuditActor, type AuditAdapter, type AuditSubject } from '../core/audit.js';
+import { appendAudit, hubAuditFile, localAdapter, STREAMS, TOKEN_AUDIT_ACTOR, type AuditActor, type AuditAdapter, type AuditSubject } from '../core/audit.js';
 import type { AuditAction, AuditEntry, AuditOutcome } from '../wire.js';
 import { readEnv } from '../core/env.js';
 
@@ -59,7 +59,7 @@ export class AuditLog {
     opts: { maxBytes?: number; retentionDays?: number } = {},
   ) {
     this.adapter = localAdapter({
-      file: join(configDir, 'audit.jsonl'),
+      file: hubAuditFile(configDir),
       maxBytes: opts.maxBytes ?? AUDIT_MAX_BYTES,
       ...(opts.retentionDays !== undefined ? { retentionDays: opts.retentionDays } : {}),
     });

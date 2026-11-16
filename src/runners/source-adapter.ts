@@ -1,4 +1,4 @@
-import { diffFilesWithPatches, gateConfigPaths, gateConfigChangedBlock, loadGateConfigExtraGlobs } from '../context/gate-config.js';
+import { loadGateConfigExtraGlobs } from '../context/gate-config.js';
 import { clearStageMarker, writeStageMarker } from '../core/run-stage-marker.js';
 import { reviewVerdictLine, reviewVerdictOf } from '../pipeline/review-verdict.js';
 import { trustedSpecText, isTrustedComment } from '../tasks/comment-trust.js';
@@ -178,6 +178,30 @@ export function pickRunOptions(cmd: Readonly<Partial<RunOptions>>): RunOptions {
     ...(cmd.skillsDir !== undefined ? { skillsDir: cmd.skillsDir } : {}),
     ...(cmd.namedSkills !== undefined ? { namedSkills: cmd.namedSkills } : {}),
     ...(cmd.pnpmStore !== undefined ? { pnpmStore: cmd.pnpmStore } : {}),
+  };
+}
+
+/** The credentials one run reads its provider keys from and redacts, built once at run start. */
+export interface RunCredentialContext {
+  /** Which kind of credential funded the run; undefined outside the hub. */
+  source: 'instance' | 'user' | undefined;
+  /** Env every provider key is read from: a hub run's resolved credential env, else process.env. */
+  env: NodeJS.ProcessEnv;
+  /** Env var names of keys the static injected-secret list cannot know (a custom provider's `keyEnv`). */
+  keyEnvNames: string[];
+  /** Every credential value to mask: the run env's and the host's (a user run's env omits the host keys). */
+  secretValues: () => string[];
+}
+
+/** Build a run's {@link RunCredentialContext} from its deps. */
+export function runCredentialContext(deps: ProviderChoice & Pick<RunIssueDeps, 'credentialSource' | 'providerEnv'>): RunCredentialContext {
+  const env = deps.providerEnv ?? process.env;
+  const keyEnvNames = providerKeyEnvNames(deps);
+  return {
+    source: deps.credentialSource,
+    env,
+    keyEnvNames,
+    secretValues: () => [...new Set([...injectedSecretValues(env, keyEnvNames), ...injectedSecretValues(process.env, keyEnvNames)])],
   };
 }
 
@@ -453,9 +477,6 @@ export async function runSourcedIssue(
   // comment / issue link-back are suppressed. Off by default — everything stays branded as Taskcell.
   const whiteLabel = deps.commitAuthor !== undefined;
 
-  // A hub run reads every provider key (agents, fork scorer, difficulty probe) from its resolved
-  // credential env, so a `user` run never spends the host's key.
-  const providerEnv = deps.providerEnv ?? process.env;
   // Model pools (`--provider-model claude/sonnet:3,codex/gpt-5.6-sol:1`): resolved here, per task, into
   // the one provider/model each tier runs on. A plain model leaves deps untouched.
   const labelModel = modelFromLabels(task.labels, (label) =>
@@ -485,7 +506,11 @@ export async function runSourcedIssue(
     console.log(`taskcell: ${task.id} ${name} → ${p.provider}/${p.model ?? ''} (flow pool, ${p.pick})`);
   }
   const stagePinned = [...new Set(Object.values(flowPools.picks).map((p) => p.provider))].filter((n) => n !== (deps.provider ?? 'claude'));
-  const agents = selectAgents({ ...deps, ...(stagePinned.length > 0 ? { stageProviders: stagePinned } : {}) }, providerEnv, { proxyMode: deps.llmProxy !== undefined });
+  const choice = { ...deps, ...(stagePinned.length > 0 ? { stageProviders: stagePinned } : {}) };
+  // One credential context for the whole run: every provider key reader (agents, rotation, fork scorer,
+  // difficulty probe) and every secret gate/redaction below takes it from here.
+  const credentials = runCredentialContext(choice);
+  const agents = selectAgents(choice, credentials.env, { proxyMode: deps.llmProxy !== undefined });
   const primaryEntry = (): { provider: string; model?: string } => ({ provider: agents.agent.name, ...(deps.providerModel !== undefined ? { model: deps.providerModel } : {}) });
   const fallbackEntry = (provider: string): { provider: string; model?: string } => ({ provider, ...(deps.fallbackModel !== undefined ? { model: deps.fallbackModel } : {}) });
   // What the run says about the hand-picked list (run summary, run event, run record) instead of dropping it silently.
@@ -513,7 +538,7 @@ export async function runSourcedIssue(
     // A hub user's stored credential: the rotation updates the run's own env and never a host auth
     // file. Any other run (an instance credential, desktop) reports against process.env, so later runs
     // of this process pick up the rotated token.
-    ...(deps.credentialSource === 'user' ? { env: providerEnv, storedCredential: true } : {}),
+    ...(credentials.source === 'user' ? { env: credentials.env, storedCredential: true } : {}),
     ...(deps.network !== undefined ? { network: deps.network } : {}),
   });
   try {
@@ -540,7 +565,7 @@ export async function runSourcedIssue(
     // A decision-model fork scorer needs credentials; resolve them BEFORE the sandbox is built so a
     // missing key fails in a second, not after a full implementer run.
     const forkScore =
-      deps.forkN !== undefined && deps.forkScorer === 'decision' ? decisionDiffScorer(resolveForkScorerConfig(whiteLabel, providerEnv), deps.signal !== undefined ? { signal: deps.signal } : {}) : undefined;
+      deps.forkN !== undefined && deps.forkScorer === 'decision' ? decisionDiffScorer(resolveForkScorerConfig(whiteLabel, credentials.env), deps.signal !== undefined ? { signal: deps.signal } : {}) : undefined;
     // Lessons are picked by the files the spec plans to change as well as the paths the issue names;
     // the ids actually injected (first delivery + gate repairs) land on the run record.
     const lessonIds = new Set<string>();
@@ -557,7 +582,7 @@ export async function runSourcedIssue(
     // hides under sandbox + worktree provisioning; awaited once the pipeline is assembled. Recorded
     // next to the run so stats can later tell whether it predicts repairs/escalation. Never routes.
     const probePromise = probeTaskDifficulty(task, labelModel ?? deps.providerModel, {
-      config: decisionProbeConfig(providerEnv, { whiteLabel }),
+      config: decisionProbeConfig(credentials.env, { whiteLabel }),
       ...(deps.signal !== undefined ? { signal: deps.signal } : {}),
     });
     const ctx = await prepareContext(
@@ -663,7 +688,7 @@ export async function runSourcedIssue(
       // every stage record share one prefix and the hub/desktop readers can match a run's proof to
       // its stage records by name.
       const writer = beginRun(deps.repoPath, adapter.taskId(task), undefined, {
-        secretEnvVars: providerKeyEnvNames(deps),
+        secretEnvVars: credentials.keyEnvNames,
         ...(deps.startedBy !== undefined ? { startedBy: deps.startedBy } : {}),
       });
       const onEvent = (event: RunEvent): void => {
@@ -723,7 +748,7 @@ export async function runSourcedIssue(
       const baselineCmd = resolvedBase !== undefined && SELF_INSTALLING_VERIFY_RE.test(resolvedBase) ? resolvedBase : undefined;
       if (baselineCmd !== undefined) {
         const verifyCmd = baselineCmd;
-        const baselineVerify = await resolveBaselineVerify(deps.repoPath, ctx.startRef, ctx.sandbox, verifyCmd, deps.signal, injectedSecretValues(process.env, providerKeyEnvNames(deps)));
+        const baselineVerify = await resolveBaselineVerify(deps.repoPath, ctx.startRef, ctx.sandbox, verifyCmd, deps.signal, credentials.secretValues());
         if (!baselineVerify.passed) {
           console.log(
             `taskcell: ${task.id} base branch is red — \`${verifyCmd}\` already fails on ${ctx.baseBranch}@${ctx.startRef.slice(0, 7)} (exit ${baselineVerify.exitCode}); stopping before implementing instead of starting a repair loop.`,
@@ -843,7 +868,7 @@ export async function runSourcedIssue(
       // is not resumed, the reviewer never runs and the run ends as secret-blocked (endSecretBlocked).
       let preReviewSecretBlock: SecretBlock | undefined;
       const scanBeforeReview = async (): Promise<boolean> => {
-        preReviewSecretBlock = scanOutgoingForSecrets(await ctx.wm.outgoingDiff(ctx.worktreePath), task.id, 'pre-review gate', providerKeyEnvNames(deps));
+        preReviewSecretBlock = scanOutgoingForSecrets(await ctx.wm.outgoingDiff(ctx.worktreePath), task.id, 'pre-review gate', credentials.keyEnvNames);
         return preReviewSecretBlock === undefined;
       };
       const endSecretBlocked = async (block: SecretBlock): Promise<RunIssueResult> => {
@@ -1015,7 +1040,8 @@ export async function runSourcedIssue(
         ...(deps.commitAuthor !== undefined ? { commitAuthor: deps.commitAuthor } : {}),
         ...(partial ? { closingKeywordScan: true } : {}),
         // A custom provider's key env var is repo-configured: the secret gate cannot know its name.
-        secretEnvVars: providerKeyEnvNames(deps),
+        secretEnvVars: credentials.keyEnvNames,
+        gateConfigExtraGlobs: extraGlobs,
         target: adapter.delivery === 'local' ? { kind: 'local-branch' } : {
           kind: 'new-pr',
           title: `${task.title} (${task.id})`,
@@ -1028,10 +1054,7 @@ export async function runSourcedIssue(
           // Same PAT revise pushes with: a PR it opens fires the repo's pull_request workflows (CI).
           // Minted (App) or read (PAT) at each use, never cached: an App token lives 1 h, a run up to 180 min.
           tokenProvider: tokenProviderFor(deps.repoPath),
-          body: ({ commitLeaks, outgoingDiff }) => {
-            const diffFiles = diffFilesWithPatches(outgoingDiff);
-            const configPaths = gateConfigPaths(diffFiles, extraGlobs);
-            const configBlock = gateConfigChangedBlock(diffFiles.filter((file) => configPaths.includes(file.path)));
+          body: ({ commitLeaks, facts: { configBlock } }) => {
             // The PR-body gap block carries no branding, so white-label keeps it like the gate-config block.
             return whiteLabel
               ? [baseBody, configBlock, prBodyGapBlock].filter(Boolean).join('\n\n')
@@ -1056,7 +1079,7 @@ export async function runSourcedIssue(
       }
       // Computed before the delivery-kind split: a local branch is flagged like a PR (which also gets the label).
       const configPaths = delivery.kind === 'delivered-local' || delivery.kind === 'delivered-pr'
-        ? gateConfigPaths(diffFilesWithPatches(delivery.outgoingDiff), extraGlobs)
+        ? delivery.facts.configPaths
         : [];
       if (delivery.kind === 'delivered-local') {
         await writer.writeStages(outcomes, { ...stageMeta(), ...(configPaths.length > 0 ? { configPaths } : {}) });

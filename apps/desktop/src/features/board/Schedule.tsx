@@ -1,6 +1,6 @@
 import { useState } from 'react';
 import { Button, cn } from '@/ui';
-import { hubTaskCreate, hubTaskRetry, hubTaskSchedule } from '../../ipc';
+import { hubTaskAccept, hubTaskArchive, hubTaskCreate, hubTaskDelete, hubTaskRetry, hubTaskSchedule } from '../../ipc';
 import { errorMessage } from '../../errors';
 import type { BoardTask } from '../../wire';
 
@@ -56,7 +56,10 @@ export function ScheduleEditor({ repoPath, task, onSaved }: { repoPath: string; 
       {error !== null && <div role="alert" className="text-xs text-destructive-text">{error}</div>}
       <div className="flex flex-wrap gap-2">
         <Button variant="outlined" onClick={save}>Save schedule</Button>
+        {task.schedule?.state === 'failed' && task.schedule.result !== undefined && <Button variant="outlined" onClick={() => done(hubTaskAccept(repoPath, task.id))}>Accept result</Button>}
         {task.schedule?.state === 'failed' && <Button variant="outlined" onClick={() => done(hubTaskRetry(repoPath, task.id))}>Retry</Button>}
+        {task.schedule?.state === 'done' && <Button variant="outlined" onClick={() => done(hubTaskArchive(repoPath, task.id))}>Archive</Button>}
+        {task.schedule?.state !== 'running' && <Button variant="outlined" onClick={() => done(hubTaskDelete(repoPath, task.id))}>Delete</Button>}
       </div>
     </section>
   );
@@ -99,7 +102,7 @@ export function NewHubTask({ repoPath, onCreated }: { repoPath: string; onCreate
         <input className={FIELD} value={blockedBy} onChange={(e) => setBlockedBy(e.target.value)} placeholder="hub-1, hub-2" />
       </label>
       <label className="block text-xs">
-        Start date
+        Start date (00:00 in the hub time zone)
         <input type="date" className={cn(FIELD, 'w-auto')} value={date} onChange={(e) => setDate(e.target.value)} />
       </label>
       <div className="sm:pt-4">

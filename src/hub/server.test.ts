@@ -7,7 +7,7 @@ import { request } from 'node:http';
 import { PassThrough } from 'node:stream';
 import type { ChildProcess } from 'node:child_process';
 import { afterEach, beforeEach, describe, expect, test, vi } from 'vitest';
-import { createHubServer, eventRepoPath, MAX_RPC_BODY_BYTES, type HubServer } from './server.js';
+import { callerRechecker, createHubServer, eventRepoPath, MAX_RPC_BODY_BYTES, type HubServer } from './server.js';
 import { listRunSummaries, defaultRunsRoot } from './runs.js';
 import { MAX_CONCURRENT_COMPLETES } from './complete.js';
 import { localOnlyIdentity } from './auth.js';
@@ -466,6 +466,7 @@ describe('team caller wiring', () => {
         const id = req.headers['x-test-user'];
         return typeof id === 'string' ? { id, email: `${id}@x.test`, name: id } : undefined;
       },
+      userById: async (id: string) => ({ id, email: `${id}@x.test`, name: id }),
       close: () => undefined,
     };
     const h = createHubServer({ uiDir, configDir, browseRoot, bind: { isLoopback: true, allowAdd: false }, seedRepoPath: repo, deps: unimplementedDeps(), token: TOKEN, identity });
@@ -483,6 +484,26 @@ describe('team caller wiring', () => {
     } finally {
       await h.close();
     }
+  });
+});
+
+describe('callerRechecker', () => {
+  const noAdmins = { isAdmin: (): boolean => false };
+  const stored = { user: { id: 'old-owner', email: 'owner@hub.invalid', name: 'Owner' }, owner: true, hubAdmin: false };
+
+  test('a stored owner: true whose user id is no longer the identity owner is not the owner', async () => {
+    // A local/server mode switch or a recreated auth.sqlite: the identity's owner now has another id.
+    const identity = { owner: { id: 'new-owner', email: 'owner@hub.invalid', name: 'Owner' }, userById: async (id: string) => ({ id, email: 'owner@hub.invalid', name: 'Owner' }) };
+    expect(await callerRechecker(identity, noAdmins)(stored)).toMatchObject({ user: { id: 'old-owner' }, owner: false });
+    // The same id is still the owner.
+    expect(await callerRechecker({ ...identity, owner: { ...identity.owner, id: 'old-owner' } }, noAdmins)(stored)).toMatchObject({ owner: true, hubAdmin: false });
+  });
+
+  test('the user is the one userById returns now: a refreshed emailVerified replaces the snapshot', async () => {
+    const identity = { owner: { id: 'owner', email: 'o@x.test', name: 'O' }, userById: async (id: string) => ({ id, email: 'new@x.test', name: 'Ann', emailVerified: true }) };
+    const snapshot = { user: { id: 'ann', email: 'old@x.test', name: 'Ann', emailVerified: false }, owner: false, hubAdmin: false };
+    expect(await callerRechecker(identity, noAdmins)(snapshot)).toEqual({ user: { id: 'ann', email: 'new@x.test', name: 'Ann', emailVerified: true }, owner: false, hubAdmin: false });
+    expect(await callerRechecker({ ...identity, userById: async () => undefined }, noAdmins)(snapshot)).toBeUndefined();
   });
 });
 

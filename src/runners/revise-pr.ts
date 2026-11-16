@@ -44,7 +44,7 @@ import type { StageOutcome } from '../pipeline/pipeline.js';
 import { GITHUB_GATE_CONFIG_LABEL, GITHUB_SECRET_BLOCKED_LABEL, GITHUB_RATE_LIMITED_LABEL } from '../github-labels.js';
 import { isRateLimitHold, rateLimitHold } from '../core/rate-limit-marker.js';
 import { UsageCapError } from '../core/usage-cap.js';
-import { diffFilesWithPatches, extractGateConfigBlock, gateConfigChangedBlock, gateConfigPaths, loadGateConfigExtraGlobs } from '../context/gate-config.js';
+import { extractGateConfigBlock, loadGateConfigExtraGlobs } from '../context/gate-config.js';
 import { renderSecretBlockComment } from '../core/secret-scan.js';
 import { credentialLabel, releaseToken, tokenProviderFor } from '../core/push-token.js';
 import { resolveToken } from '../pipeline/remote-branch.js';
@@ -853,12 +853,14 @@ export async function runRevisePullRequest(prRef: string, deps: ReviseGithubPrDe
         pushedWith = credentialLabel(token);
         return token;
       };
+      const gateConfigExtraGlobs = await loadGateConfigExtraGlobs(deps.repoPath, baseBranchOrDefault(pr.baseRefName, `PR ${target.repoSlug}#${target.number}`));
       // deliverChange owns the order: secret scan on the revision diff → commit → push onto the PR branch.
       const delivery = await deliverChange(ctx, {
         taskId: `${target.repoSlug}#${target.number}`,
         commitMessage: `fix: address review feedback${mergedBase !== undefined ? ` and ${mergedBase.rebased === true ? 'rebase onto' : 'merge'} ${baseName}` : ''} (${target.repoSlug}#${target.number})`,
         ...(deps.commitAuthor !== undefined ? { commitAuthor: deps.commitAuthor } : {}),
         secretEnvVars,
+        gateConfigExtraGlobs,
         target: {
           kind: 'existing-branch',
           prHeadRef: pr.headRefName,
@@ -886,6 +888,8 @@ export async function runRevisePullRequest(prRef: string, deps: ReviseGithubPrDe
       }
       // After a clean merge the round is merge-only only if nothing but the merge commit goes out.
       const mergeOnly = mergeOnlyDiff && (!cleanMerged || delivery.kind === 'no-changes');
+      // The delivered change's facts (deliverChange); a no-changes round has no outgoing diff, so none.
+      const { configPaths, configBlock } = delivery.kind === 'delivered-push' ? delivery.facts : { configPaths: [], configBlock: '' };
       let sha: string;
       if (delivery.kind === 'delivered-push') {
         sha = delivery.sha;
@@ -968,12 +972,6 @@ export async function runRevisePullRequest(prRef: string, deps: ReviseGithubPrDe
       // or the human gate is bypassed by simply pushing it a round later. Both go out before the
       // hand-back below, so a failure to post leaves the PR in `taskcell:revising` with the round's
       // error rather than silently handing an unflagged change back for review.
-      const configFiles = diffFilesWithPatches(gateDiff);
-      const configPaths = gateConfigPaths(
-        configFiles,
-        await loadGateConfigExtraGlobs(deps.repoPath, baseBranchOrDefault(pr.baseRefName, `PR ${target.repoSlug}#${target.number}`)),
-      );
-      const configBlock = gateConfigChangedBlock(configFiles.filter((file) => configPaths.includes(file.path)));
       await commentPullRequest(target, [summaryText, configBlock, droppedCiPathsNote(ctx.droppedCiPaths)].filter((part) => part !== '').join('\n\n'), gh);
       if (configPaths.length > 0) await addGateConfigLabel(gh, target.repoSlug, target.number, log);
 

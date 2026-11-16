@@ -1,6 +1,11 @@
-import { REVIEW_HEADING } from '../core/labels.js';
+import { REVIEW_HEADING, hasLabel } from '../core/labels.js';
 import { execa } from 'execa';
 import { agentAuthFromEnv } from '../agents/auth.js';
+import { applyGitlabDependencyGate } from '../tasks/gitlab-dependencies.js';
+import { runSpecGenerator } from './spec.js';
+import { NO_CHANGE_MSG, holdMessage, failureOrCapComment, runSpecCore, triageAgentRun } from './watch-shared.js';
+import type { WatchPrimitives, SpecWatchPrimitives, GenerateSpec } from './watch-shared.js';
+import type { RunSpecGeneratorDeps } from './spec.js';
 import { GitLabTaskFetcher, linkMergeRequest, addMrFailureLabel, addMrGateLabel, editGitlabLabels, commentGitlabIssue, defaultGlabRunner } from '../tasks/gitlab.js';
 import { implementReviewSimplifyStages } from '../pipeline/pipeline.js';
 import { parseMergeRequestRef, postMergeRequestNote, mergeRequestReviewMarker } from './mr-review.js';
@@ -248,5 +253,159 @@ export async function gitlabDepsFromEnv(repoPath: string, project: string | unde
     project: resolvedProject,
     ...(choice.provider !== undefined ? { provider: choice.provider } : {}),
     ...(choice.reviewProvider !== undefined ? { reviewProvider: choice.reviewProvider } : {}),
+  };
+}
+
+export interface WatchGitlabOptions {
+  deps: RunGitlabIssueDeps;
+  /** Trigger label: open issues carrying this label are picked for running. */
+  label: string;
+  /**
+   * Ownership label (optional). When set, issues must carry BOTH this label AND `label`.
+   * Absent => only `label` is required.
+   */
+  ownerLabel?: string;
+  /** Label added on claim (trigger label removed) so re-polls skip it. */
+  claimedLabel: string;
+  /** Label added after an MR opens (claimed label auto-removed by GitLab scoped-label rule when same scope). */
+  reviewLabel: string;
+  /**
+   * Loop-v1 agent-pass triage gate (optional). When set, runOne first triages the ticket in 'agent'
+   * mode; a vague ticket is commented + swapped to this label and NO implement budget is spent.
+   * Absent => behaviour is unchanged (no triage, straight to runGitlabIssue).
+   */
+  needsInfoLabel?: string;
+  concurrency?: number;
+  intervalMs?: number;
+  once?: boolean;
+  /** Cap the number of ready tasks claimed and processed per poll (unset: process all). */
+  maxTasks?: number;
+  signal?: AbortSignal;
+  /** Injectable runner for tests. Defaults to `defaultGlabRunner`. */
+  gl?: GlabRunner;
+}
+
+/** GitLab issue primitives: trigger by label, claim/review by swapping scoped labels. */
+export function gitlabWatchPrimitives(opts: WatchGitlabOptions): WatchPrimitives {
+  const project = opts.deps.project;
+  const glab = opts.gl ?? defaultGlabRunner;
+  const fetcher = new GitLabTaskFetcher(project, glab);
+  const needsInfoLabel = opts.needsInfoLabel;
+  const agentLabels = opts.ownerLabel !== undefined ? [opts.ownerLabel, opts.label] : [opts.label];
+  // Ready issues still carrying the hold label from an earlier secret block (re-triggered by a
+  // human): the claim clears it too. See githubIssueWatchPrimitives.
+  const heldBefore = new Set<string>();
+  return {
+    listReady: async () => {
+      const tasks = await applyGitlabDependencyGate(await fetcher.list({ labels: agentLabels }), {
+        project,
+        trigger: opts.label,
+        ...(needsInfoLabel !== undefined ? { needsInfoLabel } : {}),
+        glab,
+      });
+      heldBefore.clear();
+      for (const task of tasks) if (hasLabel(task.labels, GITLAB_SECRET_BLOCKED_LABEL)) heldBefore.add(task.id);
+      return tasks.map((task) => ({ id: task.id }));
+    },
+    claim: (id) =>
+      // Explicitly remove trigger label so future polls don't pick it up again.
+      // GitLab scoped :: only auto-removes within the same scope prefix.
+      editGitlabLabels(
+        project,
+        id,
+        { remove: heldBefore.has(id) ? [opts.label, GITLAB_SECRET_BLOCKED_LABEL] : [opts.label], add: [opts.claimedLabel] },
+        glab,
+      ),
+    runOne:
+      needsInfoLabel === undefined
+        ? (id) => runGitlabIssue(id, opts.deps)
+        : (id) =>
+            triageAgentRun(id, fetcher, (i) => runGitlabIssue(i, opts.deps), {
+              comment: (body) => commentGitlabIssue(project, id, body, glab),
+              toNeedsInfo: () =>
+                editGitlabLabels(project, id, { remove: [opts.claimedLabel], add: [needsInfoLabel] }, glab),
+            }, opts.deps.feedbackAuthors),
+    review: (id) =>
+      // Explicitly remove claimedLabel for robustness when non-scoped labels are configured.
+      editGitlabLabels(project, id, { remove: [opts.claimedLabel], add: [opts.reviewLabel] }, glab),
+    onNoChange: async (id) => {
+      await commentGitlabIssue(project, id, NO_CHANGE_MSG, glab);
+      await editGitlabLabels(project, id, { remove: [opts.claimedLabel] }, glab);
+    },
+    // One edit swaps claimed -> secret-blocked so the claim is never released without the hold
+    // label landing. `glab issue update --label` is a silent no-op on a project lacking the label
+    // (the `--unlabel` in the same call still lands, releasing the claim with no hold), and the
+    // adapter only pre-creates it when it posts findings (not in white-label mode), so ensure it
+    // here first (best-effort, as addMrFailureLabel does). A failing swap throws into onFailure
+    // and the claimed marker stays. Trigger label not restored (removed on claim); the note names
+    // the label to re-apply. Same in white-label mode (see githubIssueWatchPrimitives).
+    onSecretBlocked: async (id) => {
+      await glab(['label', 'create', '--repo', project, '--name', GITLAB_SECRET_BLOCKED_LABEL]).catch(() => undefined);
+      await editGitlabLabels(project, id, { remove: [opts.claimedLabel], add: [GITLAB_SECRET_BLOCKED_LABEL] }, glab);
+      await commentGitlabIssue(
+        project,
+        id,
+        holdMessage(`Swapped \`${opts.claimedLabel}\` for \`${GITLAB_SECRET_BLOCKED_LABEL}\`.`, `re-apply the \`${opts.label}\` label`),
+        glab,
+      );
+    },
+    onFailure: (id, error) =>
+      commentGitlabIssue(project, id, failureOrCapComment('Taskcell run failed', error), glab),
+  };
+}
+
+export interface WatchGitlabSpecOptions {
+  /** Deps for the spec generator (no MR is opened in the spec pass). */
+  deps: RunSpecGeneratorDeps;
+  /** GitLab project path, e.g. `group/project`. */
+  project: string;
+  /** Trigger label: open issues with this label are picked for speccing. */
+  specLabel: string;
+  /**
+   * Ownership label (optional). When set, issues must carry BOTH this label AND `specLabel`.
+   * Absent => only `specLabel` is required.
+   */
+  ownerLabel?: string;
+  /** Label added on claim (spec label removed) so re-polls skip it. */
+  claimedLabel: string;
+  /** Label added after a spec is generated — the agent-pass trigger. */
+  agentLabel: string;
+  /** Label added when triage flags the ticket as too vague. */
+  needsInfoLabel: string;
+  gl?: GlabRunner;
+  /** Injected for tests so the spec pass runs without a sandbox. Defaults to the real generator. */
+  generateSpec?: GenerateSpec;
+}
+
+/**
+ * GitLab-issue SPEC primitives: trigger by label, triage each issue, then either generate+post a tech
+ * spec and swap to the agent label, or request clarification and swap to needs-info. On failure the
+ * trigger label is restored so a later poll retries it.
+ */
+export function gitlabSpecPrimitives(opts: WatchGitlabSpecOptions): SpecWatchPrimitives {
+  const glab = opts.gl ?? defaultGlabRunner;
+  const fetcher = opts.deps.fetcher;
+  const generate = opts.generateSpec ?? runSpecGenerator;
+  const specLabels = opts.ownerLabel !== undefined ? [opts.ownerLabel, opts.specLabel] : [opts.specLabel];
+  return {
+    listReady: async () =>
+      (await applyGitlabDependencyGate(await fetcher.list({ labels: specLabels }), { project: opts.project, trigger: opts.specLabel, needsInfoLabel: opts.needsInfoLabel, glab })).map((task) => ({ id: task.id })),
+    claim: (id) =>
+      editGitlabLabels(opts.project, id, { remove: [opts.specLabel], add: [opts.claimedLabel] }, glab),
+    runSpec: async (id) => {
+      const task = await fetcher.fetch(id);
+      return runSpecCore(task, id, opts.deps, generate, {
+        postComment: (body) => commentGitlabIssue(opts.project, id, body, glab),
+        advance: () =>
+          editGitlabLabels(opts.project, id, { remove: [opts.claimedLabel], add: [opts.agentLabel] }, glab),
+        toNeedsInfo: () =>
+          editGitlabLabels(opts.project, id, { remove: [opts.claimedLabel], add: [opts.needsInfoLabel] }, glab),
+      });
+    },
+    onFailure: async (id, error) => {
+      await commentGitlabIssue(opts.project, id, failureOrCapComment('Taskcell spec failed', error), glab);
+      // Restore spec label so next poll retries
+      await editGitlabLabels(opts.project, id, { remove: [opts.claimedLabel], add: [opts.specLabel] }, glab);
+    },
   };
 }

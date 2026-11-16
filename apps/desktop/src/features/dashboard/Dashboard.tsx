@@ -5,7 +5,8 @@ import { projectColor } from '../../color';
 import { combinationNote, effectiveRunLocation, runLocationLabel, taskSourceLabel } from '../../platform';
 import { relTime } from '../../time';
 import type { Project } from '../../taskcell-output';
-import type { FactoryState, LocalWorkerState } from '../../wire';
+import { gateProps } from '../../hooks';
+import type { CallerCapability, FactoryState, LocalWorkerState } from '../../wire';
 import { factoryLabel, localWorkerLabel } from './factoryLabel';
 
 function Stat({
@@ -44,8 +45,10 @@ export function Dashboard({
   projects,
   onOpen,
   onAdd,
+  addGate,
   onRemove,
   onEnableFactory,
+  factoryGate,
   onOpenSetup,
   onOpenRunning,
   factory,
@@ -54,9 +57,13 @@ export function Dashboard({
   projects: Project[];
   onOpen: (p: { path: string; name: string }) => void;
   onAdd: () => void;
+  /** The hub's answer on adding a project: refused, the buttons are disabled with its reason. */
+  addGate?: CallerCapability | undefined;
   onRemove: (path: string) => void;
   /** Hub-only (the `enable_factory_*` commands are HUB_ONLY): omitted, the card has no button. */
   onEnableFactory?: (p: { path: string; name: string }) => void;
+  /** The hub's answer on enabling a factory. */
+  factoryGate?: CallerCapability | undefined;
   /** Opens the first-run guide; offered in the empty state. */
   onOpenSetup?: () => void;
   /** Opens Runs filtered to the running ones (the Running tile). */
@@ -80,7 +87,7 @@ export function Dashboard({
     <div className="space-y-4">
       <div className="flex items-center gap-3">
         <h2 className="text-xl font-semibold">Projects</h2>
-        <Button className="ml-auto" onClick={onAdd} startIcon={<FolderPlus className="size-4" />}>
+        <Button className="ml-auto" {...gateProps(addGate)} onClick={onAdd} startIcon={<FolderPlus className="size-4" />}>
           Add project
         </Button>
       </div>
@@ -95,7 +102,7 @@ export function Dashboard({
             Add a git repository (an existing folder, or clone one) to track its factory runs, tasks and spend. The setup guide also checks your sign-ins.
           </Empty.Description>
           <Empty.Actions>
-            <Button onClick={onAdd} startIcon={<FolderPlus className="size-4" />}>
+            <Button {...gateProps(addGate)} onClick={onAdd} startIcon={<FolderPlus className="size-4" />}>
               Add project
             </Button>
             {onOpenSetup && (
@@ -230,6 +237,7 @@ export function Dashboard({
                         className="relative z-10 mt-3 h-7 px-2 text-xs"
                         variant="outlined"
                         color="secondary"
+                        {...gateProps(factoryGate)}
                         startIcon={<Factory className="size-3.5" />}
                         onClick={(e) => {
                           e.stopPropagation();

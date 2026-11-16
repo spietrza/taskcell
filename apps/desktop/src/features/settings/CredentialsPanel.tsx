@@ -9,6 +9,7 @@ import {
   saveUserCredential,
   setCredentialPolicy,
   userCredentialsStatus,
+  callerCapabilities,
 } from '../../ipc';
 import type { CredentialPolicy } from '../../wire';
 
@@ -112,9 +113,11 @@ export function CredentialsPanel() {
 
   const refresh = useCallback(async (): Promise<void> => {
     try {
-      const s = await userCredentialsStatus();
-      setStatus(s);
-      if (s.admin) {
+      // An unreadable caller_capabilities falls back to the status's own admin flag rather than taking the panel down.
+      const [s, caps] = await Promise.all([userCredentialsStatus(), callerCapabilities().catch(() => null)]);
+      const admin = caps?.admin ?? s.admin;
+      setStatus({ ...s, admin });
+      if (admin) {
         setPolicy((await getCredentialPolicy()).policy);
         const instance = await instanceCredentialsStatus();
         setInstanceNames(instance.names);

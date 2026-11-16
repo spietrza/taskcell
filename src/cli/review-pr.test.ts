@@ -285,7 +285,7 @@ describe('reviewPrCommand', () => {
   });
 
   it.each([
-    { maxTurns: undefined, caps: [16, 24] },
+    { maxTurns: undefined, caps: [30, 45] },
     { maxTurns: 41, caps: [41, 62] },
     { maxTurns: Number.MAX_SAFE_INTEGER, caps: [Number.MAX_SAFE_INTEGER, Number.MAX_SAFE_INTEGER] },
   ])('--max-turns $maxTurns gives caps $caps for the first attempt and the retry', async ({ maxTurns, caps }) => {

@@ -10,6 +10,7 @@ import * as ipc from '../../ipc.js';
 const files = new Map<string, string>();
 
 vi.mock('../../ipc.js', () => ({
+  callerCapabilities: vi.fn(async () => ({})),
   listDrafts: vi.fn(async () => [...files.keys()]),
   readDraft: vi.fn(async (_p: string, id: string) => {
     const f = files.get(id);
@@ -332,6 +333,17 @@ test('create task archives the draft ON DISK even when the user switches drafts 
   const filed = JSON.parse(files.get(filedId)!) as DraftData;
   expect(filed.archived).toBe(true); // the id-keyed write landed despite the switch
   expect(filed.created).toEqual({ id: 'gh-9', url: 'https://github.com/o/r/issues/9' });
+});
+
+test('Create task is closed, with the reason, when the hub refuses remote writes', async () => {
+  vi.mocked(ipc.callerCapabilities).mockResolvedValueOnce({ project: { canCreateTask: { allowed: false, reason: 'the hub refuses remote writes' } } } as never);
+  renderFresh();
+  await drawerReady();
+  type('# File me\n');
+  await settle();
+  const button = screen.getByRole('button', { name: /create task/i });
+  expect(button).toBeDisabled();
+  expect(button).toHaveAttribute('title', 'the hub refuses remote writes');
 });
 
 test('after filing, a stale debounced save cannot un-archive the draft (G14)', async () => {

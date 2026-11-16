@@ -70,6 +70,14 @@ const commandHandlers = {
   list_projects: () => projects,
   list_teams: () => [{ ...mockTeam, repositories: projects.map((p) => p.path) }],
   team_role: () => 'admin' as const,
+  // The dev mock is the hub owner on a loopback bind: everything is allowed.
+  caller_capabilities: (args: { repoPath?: string } | undefined) => {
+    const yes = { allowed: true };
+    return {
+      mutationsAllowed: true, owner: true, admin: true, canAddProject: yes, teamRoles: { default: 'admin' as const },
+      ...(args?.repoPath !== undefined ? { project: { teamRole: 'admin' as const, canReply: yes, canMerge: yes, canEnableFactory: yes, canCreateTask: yes, canStartTask: yes, canChangeSettings: yes, canUpdateSkill: yes, canEditSkills: yes } } : {}),
+    };
+  },
   add_team_member: () => mockTeam,
   remove_team_member: () => mockTeam,
   add_team_repository: () => mockTeam,
@@ -174,6 +182,9 @@ const commandHandlers = {
   retry_paused_task: () => ({ label: 'ready for agent' }),
   hub_task_schedule: (args: { id?: string } | undefined) => ({ id: args?.id ?? 'hub-1' }),
   hub_task_create: () => ({ id: 'hub-1' }),
+  hub_task_accept: (args: { id?: string } | undefined) => ({ id: args?.id ?? 'hub-1' }),
+  hub_task_archive: (args: { id?: string } | undefined) => ({ id: args?.id ?? 'hub-1' }),
+  hub_task_delete: (args: { id?: string } | undefined) => ({ id: args?.id ?? 'hub-1' }),
   hub_task_retry: (args: { id?: string } | undefined) => ({ id: args?.id ?? 'hub-1' }),
   start_task: (args: { label?: string } | undefined) => ({ status: 'labelled', label: args?.label ?? 'ready for agent', waitingOn: [] }),
   // Hub-only Enable factory flow (EnableFactoryDialog).

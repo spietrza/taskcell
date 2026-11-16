@@ -142,7 +142,7 @@ test('the empty state links to the Board', async () => {
 });
 
 test('a PR whose verify failed keeps its Merge button, disabled, with the reason beside it', async () => {
-  const pr = { ...needsYouItems[1], reason: 'taskcell:verify-failed', baseRef: 'main' };
+  const pr = { ...needsYouItems[1], reason: 'taskcell:verify-failed', baseRef: 'main', mergeBlocked: 'Verify failed on this PR: fix it before merging.' };
   const calls = stubHub([pr]);
   render(<NeedsYou project="/repo" repos={[]} />);
   const merge = await screen.findByRole('button', { name: 'Merge into main' });
