@@ -22,6 +22,8 @@ vi.mock('../runners/research.js', () => ({
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { runAgent } from '../core/taskcell.js';
 import { recordUtilization, resetUtilization, UsageCapError } from '../core/usage-cap.js';
+import { startSandboxContext } from '../sandbox/sandbox-context.js';
+import { fakeSessionOpener } from './fake-session.fixture.js';
 import { researchCommand } from './research.js';
 
 describe('researchCommand usage cap', () => {
@@ -48,5 +50,15 @@ describe('researchCommand usage cap', () => {
     vi.mocked(runAgent).mockResolvedValue({ finalText: 'findings' } as never);
     await researchCommand(cmd, { log: () => undefined });
     expect(runAgent).toHaveBeenCalledTimes(1);
+  });
+
+  it('hands the sandbox context to the session as one value, proxy mode included', async () => {
+    const context = { proxyUrl: 'http://p', network: 'n', proxyMode: true, destroy: async () => undefined };
+    vi.mocked(startSandboxContext).mockResolvedValueOnce(context);
+    vi.mocked(runAgent).mockResolvedValue({ finalText: 'findings' } as never);
+    const session = fakeSessionOpener();
+    await researchCommand(cmd, { log: () => undefined, openSession: session.open });
+    expect(session.opened[0]?.sandboxContext).toBe(context);
+    expect(session.close).toHaveBeenCalledTimes(1);
   });
 });
