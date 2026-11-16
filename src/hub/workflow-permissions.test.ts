@@ -31,7 +31,7 @@ describe('workflow token permissions (OpenSSF Scorecard Token-Permissions, #1122
       const body = job.uses === undefined ? undefined : bodyOf(job.uses);
       if (body === undefined) continue;
       for (const [bodyJob, { permissions }] of Object.entries(load(body).jobs)) {
-        expect(typeof permissions, `${body} job ${bodyJob} must declare its permissions per scope`).toBe('object');
+        expect(permissions !== null && typeof permissions === 'object', `${body} job ${bodyJob} must declare its permissions per scope`).toBe(true);
         for (const [scope, level] of Object.entries(asMap(permissions))) {
           expect(levelOf(job.permissions, scope), `${file} job ${name} must grant ${scope}: ${level} (${body})`).toBeGreaterThanOrEqual(RANK[level]!);
         }
