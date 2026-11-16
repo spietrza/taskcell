@@ -1,12 +1,13 @@
 import { useState } from 'react';
 import { Table, Chip, Input, ScrollTable, Timestamp } from '@/ui';
-import { readAudit } from '../../ipc';
+import { callerCapabilities, readAudit } from '../../ipc';
 import { useAsync } from '../../hooks';
 
-/** Read-only audit view (admins; a non-admin's read is refused with 403 and shows the error). */
+/** Read-only audit view, for admins: the hub's `caller_capabilities` says whether the caller is one. */
 export function AuditLog() {
   const [login, setLogin] = useState('');
-  const { data, error, loading } = useAsync(() => readAudit(login.trim() || undefined), [login]);
+  const { data, error, loading } = useAsync(async () => ((await callerCapabilities()).admin ? readAudit(login.trim() || undefined) : 'not-admin' as const), [login]);
+  if (data === 'not-admin') return <div className="py-8 text-center text-sm text-muted-foreground">The audit log is for hub admins.</div>;
 
   return (
     <div className="flex min-h-0 flex-1 flex-col gap-3">

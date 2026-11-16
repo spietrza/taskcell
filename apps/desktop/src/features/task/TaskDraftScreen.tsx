@@ -27,6 +27,7 @@ import { TaskDrawer, type DrawerTab, type HistoryRow } from './TaskDrawer.js';
 import { retitleDoc, titleFromDoc, isTransport, MAX_BODY_BYTES, MAX_TITLE_BYTES } from './docTask.js';
 import { reduceDocChat, initialDocChat, lastUserIndex } from './useDocChat.js';
 import { DraftWriter, draftLabel, emptyDraft, mintDraftId, parseDraft, type DraftData } from './draftStore.js';
+import { gateProps, useCallerCapabilities } from '../../hooks.js';
 
 const DEFAULT_CHAT_MODEL = 'claude-sonnet-5';
 
@@ -118,6 +119,7 @@ export function TaskDraftScreen({
   const draftRef = useRef<DraftData>(emptyDraft());
 
   const [saveError, setSaveError] = useState<string | null>(null);
+  const createGate = useCallerCapabilities(project)?.project?.canCreateTask;
   // Recreated when `project` changes (review #349 r9 note): today Inspector's key remounts this
   // screen per project, but a stale-repoPath writer silently writing into the previous repo must
   // not be load-bearing on a remount decided elsewhere.
@@ -987,8 +989,10 @@ export function TaskDraftScreen({
             </>
           ) : (
             <Button
+              {...gateProps(createGate)}
               onClick={() => setConfirming(true)}
               disabled={
+                createGate?.allowed === false ||
                 docTitle === undefined ||
                 tooBig ||
                 titleTooLong ||

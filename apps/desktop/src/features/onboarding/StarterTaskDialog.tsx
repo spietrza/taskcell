@@ -2,6 +2,7 @@ import { useEffect, useRef, useState } from 'react';
 import { Button, useFocusTrap } from '@/ui';
 import { apiCreateTask } from '../../ipc';
 import { errorMessage } from '../../errors';
+import { gateProps, useCallerCapabilities } from '../../hooks';
 import { STARTER_TASK } from './steps';
 
 /** Offered after the first project is added: a small task with acceptance criteria the factory can deliver quickly. */
@@ -10,6 +11,7 @@ export function StarterTaskDialog({ project, onCreated, onClose }: { project: { 
   useFocusTrap(ref);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const gate = useCallerCapabilities(project.path)?.project?.canCreateTask;
   useEffect(() => {
     const onKey = (e: KeyboardEvent): void => {
       if (e.key === 'Escape' && !busy) onClose();
@@ -40,7 +42,7 @@ export function StarterTaskDialog({ project, onCreated, onClose }: { project: { 
         {error && <p role="alert" className="text-xs text-destructive-text">Task not created: {error}</p>}
         <div className="flex justify-end gap-2">
           <Button variant="text" color="secondary" disabled={busy} onClick={onClose}>Not now</Button>
-          <Button disabled={busy} onClick={() => void create()}>{busy ? 'Creating…' : 'Create this task'}</Button>
+          <Button {...gateProps(gate)} disabled={busy || gate?.allowed === false} onClick={() => void create()}>{busy ? 'Creating…' : 'Create this task'}</Button>
         </div>
       </div>
     </div>

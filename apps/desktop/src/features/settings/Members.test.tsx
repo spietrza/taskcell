@@ -7,7 +7,7 @@ import type { Team } from '../../wire';
 
 const mocks = vi.hoisted(() => ({ role: 'admin' as 'admin' | 'member' }));
 vi.mock('../../ipc', () => ({
-  teamRole: vi.fn(async () => mocks.role),
+  callerCapabilities: vi.fn(async () => ({ mutationsAllowed: true, owner: false, admin: false, canAddProject: { allowed: false }, teamRoles: { t: mocks.role, default: mocks.role } })),
   teamAddMember: vi.fn(),
   teamSetRole: vi.fn(),
   teamRemoveMember: vi.fn(),
@@ -46,7 +46,7 @@ test('an admin sees the controls', async () => {
 test('a member sees the list read-only, with no controls', async () => {
   mocks.role = 'member';
   show();
-  await waitFor(() => expect(ipc.teamRole).toHaveBeenCalledWith('t'));
+  await waitFor(() => expect(ipc.callerCapabilities).toHaveBeenCalled());
   // Let the role resolve: a still-pending role would also show no controls.
   await Promise.resolve();
   expect(await screen.findByText('bob')).toBeInTheDocument();

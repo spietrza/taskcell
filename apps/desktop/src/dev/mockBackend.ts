@@ -70,6 +70,14 @@ const commandHandlers = {
   list_projects: () => projects,
   list_teams: () => [{ ...mockTeam, repositories: projects.map((p) => p.path) }],
   team_role: () => 'admin' as const,
+  // The dev mock is the hub owner on a loopback bind: everything is allowed.
+  caller_capabilities: (args: { repoPath?: string } | undefined) => {
+    const yes = { allowed: true };
+    return {
+      mutationsAllowed: true, owner: true, admin: true, canAddProject: yes, teamRoles: { default: 'admin' as const },
+      ...(args?.repoPath !== undefined ? { project: { teamRole: 'admin' as const, canReply: yes, canMerge: yes, canEnableFactory: yes, canCreateTask: yes, canStartTask: yes, canChangeSettings: yes, canUpdateSkill: yes, canEditSkills: yes } } : {}),
+    };
+  },
   add_team_member: () => mockTeam,
   remove_team_member: () => mockTeam,
   add_team_repository: () => mockTeam,
