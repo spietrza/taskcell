@@ -11,7 +11,7 @@ import { resolveVerifyCommand, runVerification } from '../pipeline/verify.js';
 import { resolveBaselineVerify } from '../pipeline/baseline-verify.js';
 import { resolveAndRunVisualProof } from '../pipeline/visual-proof.js';
 import { loadRetrospectiveMemory } from '../core/retrospective-memory.js';
-import { pickRunOptions, runSourcedIssue, conventionalCommitMessage, modelFromLabels } from './source-adapter.js';
+import { pickRunOptions, runSourcedIssue, conventionalCommitMessage, modelFromLabels, runCredentialContext } from './source-adapter.js';
 import type { RunIssueDeps, SourceAdapter } from './source-adapter.js';
 import { extractPrBodyItemsBlock } from '../pipeline/conformance-gate.js';
 import type { Task } from '../tasks/fetcher.js';
@@ -1284,6 +1284,24 @@ describe('runSourcedIssue', () => {
     expect(secrets).toContain(key);
   });
 
+  it('base-red redaction still masks the host provider key on a hub user run', async () => {
+    vi.mocked(resolveVerifyCommand).mockResolvedValue('npm install --frozen-lockfile && npm test');
+    const hostKey = 'sk-ant-host-instance-key-0123456789abcdef';
+    const userKey = 'sk-ant-user-stored-key-0123456789abcdef';
+    vi.stubEnv('ANTHROPIC_API_KEY', hostKey);
+    try {
+      await runSourcedIssue(
+        'group/project#1',
+        { repoPath: '/repo', credentialSource: 'user', providerEnv: { ANTHROPIC_API_KEY: userKey } },
+        fakeAdapter([], STAGES),
+      );
+    } finally {
+      vi.unstubAllEnvs();
+    }
+    const secrets = vi.mocked(resolveBaselineVerify).mock.calls.at(-1)?.[5] as string[] | undefined;
+    expect(secrets).toEqual(expect.arrayContaining([hostKey, userKey]));
+  });
+
   it('an operator-supplied verify command that installs nothing skips the base-red check', async () => {
     runStages.mockResolvedValueOnce([stageOutcome('implementer', 'sess-1'), stageOutcome('reviewer')]);
     vi.mocked(resolveVerifyCommand).mockResolvedValue('pnpm typecheck && pnpm test');
@@ -1631,4 +1649,25 @@ describe('runSourcedIssue', () => {
     expect(publishForReview.mock.calls[0]?.[1]?.body).toContain(path);
   });
 
+});
+
+describe('runCredentialContext', () => {
+  it('reads keys from the run env and masks both the run and the host keys', () => {
+    const hostKey = 'sk-ant-host-instance-key-0123456789abcdef';
+    const userKey = 'sk-ant-user-stored-key-0123456789abcdef';
+    vi.stubEnv('ANTHROPIC_API_KEY', hostKey);
+    try {
+      const env = { ANTHROPIC_API_KEY: userKey };
+      const credentials = runCredentialContext({ credentialSource: 'user', providerEnv: env });
+      expect(credentials.env).toBe(env);
+      expect(credentials.source).toBe('user');
+      expect(credentials.secretValues()).toEqual(expect.arrayContaining([hostKey, userKey]));
+    } finally {
+      vi.unstubAllEnvs();
+    }
+  });
+
+  it('falls back to process.env outside the hub', () => {
+    expect(runCredentialContext({}).env).toBe(process.env);
+  });
 });
