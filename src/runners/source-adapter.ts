@@ -535,8 +535,11 @@ async function runSourcedIssueAttempt(
       ...(deps.customProviders !== undefined ? { customProviders: deps.customProviders } : {}),
     });
   const flowPools = routeFlowPools(deps.provider ?? 'claude');
+  // Kept apart from routing.picks: flow stages are named like tiers (`implementer`), and the run-level picks must
+  // stay what simplifier/repair/conformance draw on. Merged only into what the run record shows.
+  const recordedPicks: Record<string, StagePick> = { ...routing.picks };
   for (const [name, p] of Object.entries(flowPools.picks)) {
-    routing.picks[name] = { ...p, pick: p.pick === 'rotation' ? 'flow' : p.pick };
+    recordedPicks[name] = { ...p, pick: p.pick === 'rotation' ? 'flow' : p.pick };
     console.log(`taskcell: ${task.id} ${name} → ${p.provider}/${p.model ?? ''} (flow pool, ${p.pick})`);
   }
   const stagePinned = [...new Set(Object.values(flowPools.picks).map((p) => p.provider))].filter((n) => n !== (deps.provider ?? 'claude'));
@@ -725,7 +728,7 @@ async function runSourcedIssueAttempt(
         lessonIds: [...lessonIds],
         skills: skillsRecord,
         maxRepairIterations: deps.maxRepairIterations ?? MAX_REPAIR_ITERATIONS,
-        ...(routing.pooled || labelModel !== undefined || Object.keys(routing.picks).length > 0 ? { modelPicks: stagePicks(outcomes, routing.picks, agents.agent.name, labelModel) } : {}),
+        ...(routing.pooled || labelModel !== undefined || Object.keys(recordedPicks).length > 0 ? { modelPicks: stagePicks(outcomes, recordedPicks, agents.agent.name, labelModel) } : {}),
       });
       // One RunWriter for the whole run: it owns the timestamp, so proof.json, visual-proof.json and
       // every stage record share one prefix and the hub/desktop readers can match a run's proof to

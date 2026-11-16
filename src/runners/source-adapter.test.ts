@@ -573,6 +573,28 @@ describe('runSourcedIssue', () => {
       expect(publishForReview).not.toHaveBeenCalled();
     });
 
+    it('a simplifier limit cools the run-level entry, not the flow implementer pool named like the tier', async () => {
+      const repo = await mkdtemp(join(tmpdir(), 'pool-flow-'));
+      try {
+        const stages: PipelineStage[] = [
+          { ...STAGES[0]!, model: 'claude/sonnet:1, codex/gpt-5.6-sol:1' },
+          { name: 'simplifier', promptTemplate: '', maxTurns: 10 },
+          STAGES[1]!,
+        ];
+        runStages.mockImplementationOnce(async (_ctx: unknown, _stages: unknown, opts: { onEvent: (event: RunEvent) => void }) => {
+          opts.onEvent({ type: 'stage-start', name: 'simplifier', index: 1, of: 3 });
+          throw new ProviderLimitError("You've hit your usage limit");
+        });
+        const run = runSourcedIssue('group/project#1', { repoPath: repo, provider: 'claude', providerModel: 'claude/opus:1' }, fakeAdapter([], stages));
+        await expect(run).rejects.toBeInstanceOf(ProviderLimitError);
+        expect([...(await readCooldowns(repo)).keys()]).toEqual(['claude/opus']);
+        // The run-level pool is out, so no restart on a flow-pool re-route.
+        expect(runStages).toHaveBeenCalledTimes(1);
+      } finally {
+        await rm(repo, { recursive: true, force: true });
+      }
+    });
+
     it('cools an entry only when its stage hit a limit, never a healthy run whose reviewer shares the fallback provider', async () => {
       const repo = await mkdtemp(join(tmpdir(), 'pool-cool-'));
       try {
