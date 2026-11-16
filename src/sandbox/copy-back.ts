@@ -19,17 +19,30 @@ import type { IsolatedSandboxProvider } from './provider.js';
  */
 export interface PathSkipRule {
   readonly name?: string;
-  readonly match: RegExp;
+  readonly match: { test(path: string): boolean };
+}
+
+const CI_CONFIG_RE = /(^|[\\/])\.github[\\/]workflows([\\/]|$)|(^|[\\/])\.github[\\/]actions([\\/]|$)|(^|[\\/])\.gitlab-ci\.yml$/i;
+const GITLAB_DIR_RE = /(^|[\\/])\.gitlab[\\/]/i;
+const YAML_EXT_RE = /\.ya?ml$/i;
+
+/**
+ * Any .yml/.yaml under `.gitlab/` at any depth. Two linear scans instead of one
+ * `\.gitlab[\\/].*\.ya?ml$` regex, which retries `.*` from every `/.gitlab/` in the path (quadratic).
+ */
+function isGitlabYaml(path: string): boolean {
+  const m = GITLAB_DIR_RE.exec(path);
+  return m !== null && YAML_EXT_RE.test(path.slice(m.index + m[0].length));
 }
 
 /**
  * Hard security boundary (see CLAUDE.md): an agent must never be able to write CI config that gets
- * committed and pushed. Case-insensitive and `s` lets `.*` cross a newline in a file name, so nothing
- * slips past on a case-insensitive filesystem or via a crafted name. The one rule whose drops are
- * reported rather than silent, and the one `isCiConfigPath` answers for the final-diff backstop.
+ * committed and pushed. Case-insensitive, so nothing slips past on a case-insensitive filesystem or
+ * via a crafted name. The one rule whose drops are reported rather than silent, and the one
+ * `isCiConfigPath` answers for the final-diff backstop.
  */
 export const CI_CONFIG_RULE: PathSkipRule = {
-  match: /(^|[\\/])\.github[\\/]workflows([\\/]|$)|(^|[\\/])\.github[\\/]actions([\\/]|$)|(^|[\\/])\.gitlab-ci\.yml$|(^|[\\/])\.gitlab[\\/].*\.ya?ml$/is,
+  match: { test: (path: string): boolean => CI_CONFIG_RE.test(path) || isGitlabYaml(path) },
 };
 
 export const PATH_POLICY: readonly PathSkipRule[] = [

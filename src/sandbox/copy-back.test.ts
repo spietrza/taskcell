@@ -380,3 +380,13 @@ describe('exportWorkspace deletion sync', () => {
     }
   });
 });
+
+describe('CI_CONFIG_RULE linear time', () => {
+  it('matches 10,000 /.gitlab/ repetitions quickly', () => {
+    const path = '.gitlab' + '/.gitlab'.repeat(10_000) + '/x.txt';
+    const t = Date.now();
+    expect(CI_CONFIG_RULE.match.test(path)).toBe(false);
+    expect(CI_CONFIG_RULE.match.test(`${path}.yml`)).toBe(true);
+    expect(Date.now() - t).toBeLessThan(500);
+  });
+});
