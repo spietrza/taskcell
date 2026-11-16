@@ -50,7 +50,7 @@ describe('credential source', () => {
 
   it('defaults to process.env and passes proxyMode through', async () => {
     const spy = vi.spyOn(registry, 'selectAgents').mockReturnValue(injected);
-    const s = await openAgentSession({ choice: {}, repoPath: '/x', sandbox: fakeSandbox, proxyMode: true });
+    const s = await openAgentSession({ choice: {}, repoPath: '/x', sandbox: fakeSandbox, sandboxContext: { proxyMode: true } });
     expect(spy).toHaveBeenLastCalledWith(expect.anything(), process.env, { proxyMode: true });
     await s.close();
   });
@@ -103,9 +103,9 @@ describe('sandbox', () => {
     (buildSessionSandbox({ repoPath: '/nowhere', ...opts }, {}, {}, false) as DockerSandboxProvider).buildRunArgs();
 
   it('read-only rootfs stays opt-in with an enclave network', () => {
-    expect(runArgs({ network: 'vg-egr-1' })).not.toContain('--read-only');
+    expect(runArgs({ sandboxContext: { network: 'vg-egr-1', proxyMode: false } })).not.toContain('--read-only');
     vi.stubEnv('TASKCELL_SANDBOX_READONLY', '1');
-    expect(runArgs({ network: 'vg-egr-1' })).toContain('--read-only');
+    expect(runArgs({ sandboxContext: { network: 'vg-egr-1', proxyMode: false } })).toContain('--read-only');
   });
 
   it('mounts the pnpm store only when asked', () => {

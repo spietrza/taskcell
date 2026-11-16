@@ -77,9 +77,7 @@ export async function specCommand(cmd: SpecCommand, deps: SpecCommandDeps = {}):
     const spec = await runSpecGenerator(cmd.issueRef, {
       ...generatorDeps,
       ...(auth !== undefined ? { auth } : {}),
-      ...(sandboxContext.proxyUrl !== undefined ? { proxyUrl: sandboxContext.proxyUrl } : {}),
-      ...(sandboxContext.network !== undefined ? { network: sandboxContext.network } : {}),
-      ...(sandboxContext.llmProxy !== undefined ? { llmProxy: sandboxContext.llmProxy } : {}),
+      sandboxContext,
     });
     await deliver(spec);
   } finally {

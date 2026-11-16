@@ -79,7 +79,7 @@ import { TaskcellError } from '../core/errors.js';
 import type { GhRunner } from '../tasks/github.js';
 import type { PullRequestForReview } from './pr-review.js';
 import type { CommandRunner } from '../pipeline/remote-branch.js';
-import type { LlmProxyDep } from '../sandbox/llm-proxy.js';
+import type { SandboxWiring } from '../sandbox/sandbox-context.js';
 import type { AgentAuth } from '../agents/auth.js';
 import type { ProviderChoice } from '../agents/registry.js';
 import type { IsolatedSandboxProvider } from '../sandbox/provider.js';
@@ -104,12 +104,8 @@ export interface ReviseGithubPrDeps extends ProviderChoice {
   repoPath: string;
   repoSlug?: string;
   gh?: GhRunner;
-  /** LLM-proxy sidecar wiring (from startSandboxContext when --llm-proxy is active). */
-  llmProxy?: LlmProxyDep;
-  /** Egress proxy URL for the sandbox (from startSandboxContext when --egress is active). */
-  proxyUrl?: string;
-  /** Docker network for the sandbox (from startSandboxContext). */
-  network?: string;
+  /** Egress enclave + llm-proxy wiring from `startSandboxContext`; absent = direct mode. */
+  sandboxContext?: SandboxWiring;
   /**
    * Model for the implementer/simplifier stages, as in `implement`. Overridden by a
    * `taskcell:model=<m>` label on the issue the PR body references (Closes/Part of #N) — same
@@ -503,9 +499,7 @@ export async function runRevisePullRequest(prRef: string, deps: ReviseGithubPrDe
     repoPath: deps.repoPath,
     usageCap: 'stages',
     ...(deps.auth !== undefined ? { auth: deps.auth } : {}),
-    ...(deps.proxyUrl !== undefined ? { proxyUrl: deps.proxyUrl } : {}),
-    ...(deps.network !== undefined ? { network: deps.network } : {}),
-    ...(deps.llmProxy !== undefined ? { llmProxy: deps.llmProxy } : {}),
+    ...(deps.sandboxContext !== undefined ? { sandboxContext: deps.sandboxContext } : {}),
     ...(deps.pnpmStore !== undefined ? { pnpmStore: deps.pnpmStore } : {}),
     ...(deps._agent !== undefined ? { agents: { agent: deps._agent, secrets: {}, proxySecrets: {}, injectAnthropicAuth: true } } : {}),
     ...(deps._sandbox !== undefined ? { sandbox: deps._sandbox } : {}),

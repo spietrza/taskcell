@@ -50,7 +50,7 @@ import {
   prBodyGapWarningBlock,
   PASSING_RESULT,
 } from '../pipeline/conformance-gate.js';
-import type { LlmProxyDep } from '../sandbox/llm-proxy.js';
+import type { SandboxWiring } from '../sandbox/sandbox-context.js';
 import type { ConformanceResult } from '../pipeline/conformance-gate.js';
 import type { VerificationResult } from '../pipeline/verify.js';
 import type { Task } from '../tasks/fetcher.js';
@@ -185,9 +185,8 @@ export interface RunIssueDeps extends RunOptions, CredentialDeps {
   namedSkillsOnly?: boolean;
   auth?: AgentAuth;
   repoPath: string;
-  proxyUrl?: string;
-  network?: string;
-  llmProxy?: LlmProxyDep;
+  /** Egress enclave + llm-proxy wiring from `startSandboxContext`; absent = direct mode. */
+  sandboxContext?: SandboxWiring;
   reuse?: boolean;
   /** Keep a local base that is ahead of/diverged from origin (default: outside CI only). See resolveRemoteBaseRef. */
   keepLocalIfAhead?: boolean;
@@ -528,9 +527,7 @@ async function runSourcedIssueAttempt(
     repoPath: deps.repoPath,
     usageCap: 'stages',
     ...(deps.auth !== undefined ? { auth: deps.auth } : {}),
-    ...(deps.proxyUrl !== undefined ? { proxyUrl: deps.proxyUrl } : {}),
-    ...(deps.network !== undefined ? { network: deps.network } : {}),
-    ...(deps.llmProxy !== undefined ? { llmProxy: deps.llmProxy } : {}),
+    ...(deps.sandboxContext !== undefined ? { sandboxContext: deps.sandboxContext } : {}),
     ...(deps.pnpmStore !== undefined ? { pnpmStore: deps.pnpmStore } : {}),
     ...(tracker.secrets !== undefined ? { secrets: tracker.secrets } : {}),
   });
