@@ -4,7 +4,8 @@ import { STATIONS } from '../../stations';
 
 describe('stationSummary', () => {
   it('says what an unset value means, for every station', () => {
-    expect(stationSummary('card', {})).toEqual(['label ready for agent', 'no card source']);
+    expect(stationSummary('card', {})).toEqual(['label "ready for agent"', 'no card source']);
+    expect(stationSummary('card', { taskSource: 'hub' })).toEqual(['Taskcell board']);
     expect(stationSummary('spec', {})).toEqual(['source default flow']);
     expect(stationSummary('cell', { taskSource: 'github' })).toEqual(['engine default', 'no budget cap', 'runner GitHub Actions']);
     expect(stationSummary('gates', {})).toEqual(['default verify', 'secret scan']);
@@ -13,7 +14,7 @@ describe('stationSummary', () => {
   });
 
   it('shows the saved values', () => {
-    expect(stationSummary('card', { taskSource: 'github', label: 'go' })[0]).toBe('label go');
+    expect(stationSummary('card', { taskSource: 'github', label: 'go' })[0]).toBe('label "go"');
     expect(stationSummary('spec', { flow: 'plan' })).toEqual(['flow plan']);
     expect(stationSummary('cell', { provider: 'codex', budgetUsd: 4 }).slice(0, 2)).toEqual(['engine codex', 'budget $4']);
     expect(stationSummary('gates', { verifyCmd: 'pnpm verify' })[0]).toBe('pnpm verify');

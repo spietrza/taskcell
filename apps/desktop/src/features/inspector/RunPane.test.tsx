@@ -54,7 +54,7 @@ test('a finished run: header with the issue link and one PR chip, the six statio
   expect(stations.map((s) => s.getAttribute('data-status'))).toEqual(['done', 'done', 'done', 'done', 'done', 'current']);
   const receipt = screen.getByRole('region', { name: 'Receipt' });
   expect(within(receipt).getByText('Cost').nextSibling).toHaveTextContent('$0.50');
-  expect(within(receipt).getByText('Spec').nextSibling).toHaveTextContent('from the issue');
+  expect(within(receipt).getByText('Spec').nextSibling).toHaveTextContent('from the card');
   expect(within(receipt).queryByText('Skills used')).toBeNull(); // recorded before the field
   expect(screen.getByRole('tab', { name: 'What the factory did', selected: true })).toBeInTheDocument();
   expect(screen.getByTestId('step-0')).toHaveTextContent('Code');

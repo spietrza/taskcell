@@ -74,7 +74,7 @@ export function receiptRows(run: RunDetail, cost: string | undefined, live = fal
 
   return [
     // A finished run without a spec stage built from the card itself.
-    row('Spec', spec?.record.model ?? (live ? undefined : 'from the issue')),
+    row('Spec', spec?.record.model ?? (live ? undefined : 'from the card')),
     row('Author', author?.record.model),
     reviewer === undefined
       ? row('Reviewer', undefined)

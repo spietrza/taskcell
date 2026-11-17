@@ -474,7 +474,7 @@ export default function App() {
     crumbs.push({ label: SCREEN_LABEL[screen] });
     crumbs.push({
       label: taskCrumb.name,
-      edit: { placeholder: 'Name this card…', ariaLabel: 'rename card', onCommit: taskCrumb.onRename },
+      edit: { placeholder: 'Name the card…', ariaLabel: 'rename card', onCommit: taskCrumb.onRename },
     });
   } else if (active && screen !== 'home') {
     if (crumb) {

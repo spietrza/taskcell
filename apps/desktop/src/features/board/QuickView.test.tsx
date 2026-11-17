@@ -43,6 +43,14 @@ describe('QuickView', () => {
     expect(await screen.findByText('stopped to ask')).toBeInTheDocument();
   });
 
+  test('a queued-column card says "Queued" only when the factory has it queued, else "Not started"', () => {
+    const { unmount } = open({ ...task, column: 'queued' });
+    expect(screen.getByText('Not started')).toHaveAttribute('data-column', 'queued');
+    unmount();
+    open({ ...task, column: 'queued', waiting: true });
+    expect(screen.getByText('Queued')).toHaveAttribute('data-column', 'queued');
+  });
+
   test('a tracker comment is plain text: markdown images and links stay literal', async () => {
     const body = 'see ![x](http://evil/img) and [a](javascript:alert(1))';
     vi.mocked(listNeedsYou).mockResolvedValue({ items: [item({ kind: 'issue', id: 'o/r#7', number: 7, url: 'https://github.com/o/r/issues/7', lastComment: { author: 'someone', body } })] });

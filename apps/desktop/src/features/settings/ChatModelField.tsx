@@ -31,7 +31,7 @@ export function ChatModelField({ project, value, onChange }: { project: string; 
 
   return (
     <div className="space-y-2">
-      <Field label="Doc chat model" hint="— the Docs editor chat (uses your Claude auth from the environment); pick one or type any model id">
+      <Field label="Doc chat model" hint="— the chat beside a new card (uses your Claude auth from the environment); pick one or type any model id">
         <Input value={value} onChange={(e) => onChange(e.target.value || undefined)} className="w-full font-mono text-xs" placeholder="claude-sonnet-5" />
       </Field>
       <div className="flex flex-wrap items-center gap-2">

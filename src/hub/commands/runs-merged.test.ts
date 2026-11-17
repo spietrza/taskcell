@@ -19,3 +19,9 @@ test('a passed run whose card is done without a PR is marked cardDone; a hub boa
   const out = await markMerged(depsWith(new Error('core not used')), '/r3', runs, async () => [{ id: 'hub-1', column: 'done' }, { id: 'hub-2', column: 'done' }]);
   expect(out.map((r) => [r.prState, r.cardDone])).toEqual([[undefined, true], [undefined, undefined]]);
 });
+
+test('an asked run whose card is done no longer waits for an answer', async () => {
+  const runs = [{ ...run('hub-4'), anyFailed: true, asked: 'Which file?' }, { ...run('hub-5'), anyFailed: true, asked: 'Which file?' }];
+  const out = await markMerged(depsWith(new Error('core not used')), '/r4', runs, async () => [{ id: 'hub-4', column: 'done' }, { id: 'hub-5', column: 'verify-failed' }]);
+  expect(out.map((r) => [r.asked, r.cardDone])).toEqual([['Which file?', true], ['Which file?', undefined]]);
+});

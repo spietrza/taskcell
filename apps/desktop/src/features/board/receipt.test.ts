@@ -49,8 +49,8 @@ describe('receiptRows', () => {
   const rows = (r: RunDetail, cost?: string): Record<string, string> => Object.fromEntries(receiptRows(r, cost).map((x) => [x.label, x.value]));
   const diff = 'diff --git a/src/a.ts b/src/a.ts\n+x\ndiff --git a/.github/workflows/ci.yml b/.github/workflows/ci.yml\n-y\n';
 
-  test('a finished empty record: "not recorded", Spec "from the issue", no Skills used row; a live one: all "not yet"', () => {
-    expect(rows(run())).toEqual({ Spec: 'from the issue', Author: 'not recorded', Reviewer: 'not recorded', Gates: 'not recorded', 'Secret scan': 'not recorded', 'CI config': 'not recorded', Diff: 'not recorded', Cost: 'not recorded' });
+  test('a finished empty record: "not recorded", Spec "from the card", no Skills used row; a live one: all "not yet"', () => {
+    expect(rows(run())).toEqual({ Spec: 'from the card', Author: 'not recorded', Reviewer: 'not recorded', Gates: 'not recorded', 'Secret scan': 'not recorded', 'CI config': 'not recorded', Diff: 'not recorded', Cost: 'not recorded' });
     expect(new Set(receiptRows(run(), undefined, true).map((x) => x.value))).toEqual(new Set(['not yet']));
   });
 

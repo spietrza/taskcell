@@ -550,7 +550,8 @@ export interface RunSummary {
   trigger?: 'watch';
   /** `'merged'` when the run's card is done (its pull request merged); set by the hub's list commands, absent when unknown or not merged. */
   prState?: 'merged';
-  /** The run passed and its card is done without a pull request (a hub card's local branch); set by the hub's list commands. */
+  /** The run's card is done without a pull request (a hub card's local branch): the run passed, or its agent stopped to ask
+   *  and the card moved on, so it waits on no answer; set by the hub's list commands. */
   cardDone?: true;
   /** `'ci'` for a run known only from the metrics branch (no local record to open); `prUrl` links its PR/MR. */
   source?: 'ci';

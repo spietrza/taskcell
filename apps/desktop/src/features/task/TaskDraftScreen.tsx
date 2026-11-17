@@ -1015,7 +1015,7 @@ export function TaskDraftScreen({
             <MessageSquare size={14} className="mr-1" />
             Chat
             {!drawerOpen && activity && (
-              <span aria-label="chat activity" className="absolute -right-1 -top-1 h-2 w-2 rounded-full bg-primary" />
+              <span aria-label="chat activity" className="absolute -right-1 -top-1 h-2 w-2 rounded-full bg-foreground" />
             )}
           </Button>
         </div>

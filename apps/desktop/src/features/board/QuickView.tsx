@@ -39,7 +39,7 @@ export const isInvalidHubCard = (id: string): boolean => id === 'hub-invalid';
 
 export const TRACKER_NAME = { github: taskSourceLabel('github'), gitlab: taskSourceLabel('gitlab'), linear: taskSourceLabel('linear') } as const;
 
-/** The board's column names: the Board's headers and the quick view's status share them. */
+/** The tracker column of a card, as the quick view's status chip says it (the Board's headers are the stations). */
 export const COLUMN_LABEL: Record<BoardTask['column'], string> = {
   queued: 'Queued',
   claimed: 'Claimed',
@@ -326,7 +326,8 @@ export function QuickView({
               <span data-column={task.column} className={cn('shrink-0 font-sans', NEEDS_YOU_CHIP)}>{ASKED_WORDS}</span>
             ) : (
               <span data-column={task.column} className={cn('shrink-0 rounded px-1.5 py-0.5 font-sans', task.column === 'verify-failed' ? 'bg-destructive/15 text-destructive-text' : task.column === 'done' ? 'bg-success/15 text-success-text' : 'bg-muted text-foreground')}>
-                {COLUMN_LABEL[task.column]}
+                {/* "Queued" only when the factory has it queued (the Board header's count); else it has not started. */}
+                {task.column === 'queued' && task.waiting !== true ? 'Not started' : COLUMN_LABEL[task.column]}
               </span>
             )}
           </div>

@@ -153,12 +153,13 @@ export function Dashboard({
                   </Card.Header>
                   <Card.Content className="pt-0">
                     <div className="flex flex-wrap items-center gap-x-3 gap-y-1 text-xs tabular-nums text-muted-foreground">
-                      <span>{p.runCount} {p.runCount === 1 ? 'run' : 'runs'}</span>
-                      <span>{p.taskCount} {p.taskCount === 1 ? 'card' : 'cards'}</span>
+                      {/* taskCount counts the cards that have runs, not the board's open cards. */}
+                      <span>{p.runCount} {p.runCount === 1 ? 'run' : 'runs'} on {p.taskCount} {p.taskCount === 1 ? 'card' : 'cards'}</span>
                       <span>${p.totalCostUsd.toFixed(2)} spent</span>
                       {p.ciRunCount !== undefined && <span>{p.ciRunCount} in CI</span>}
                       {p.failedCount > 0 && <span className="text-destructive-text">{p.failedCount} failed</span>}
-                      {p.askedCount !== undefined && p.askedCount > 0 && <span className="text-primary-text">{p.askedCount} stopped to ask</span>}
+                      {/* A count over all runs, answered ones too: neutral, the orange "waits for you" is Home's inbox. */}
+                      {p.askedCount !== undefined && p.askedCount > 0 && <span>{p.askedCount} stopped to ask</span>}
                       {p.runsLast24h > 0 && <Chip color="secondary" variant="outlined">{p.runsLast24h} {p.runsLast24h === 1 ? 'run' : 'runs'} in 24h</Chip>}
                       {last && <span className="ml-auto">{last}</span>}
                     </div>

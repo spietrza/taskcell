@@ -7,7 +7,9 @@ export function stationSummary(station: Station, cfg: AppConfig): string[] {
   switch (station) {
     case 'card': {
       const source = resolveTaskSource(cfg);
-      return [`label ${cfg.label || 'ready for agent'}`, source === undefined ? 'no card source' : taskSourceLabel(source)];
+      // A Taskcell board card needs no trigger label: Start run (or auto-run) picks it up.
+      const label = source === 'hub' ? [] : [`label "${cfg.label || 'ready for agent'}"`];
+      return [...label, source === undefined ? 'no card source' : taskSourceLabel(source)];
     }
     case 'spec':
       return [cfg.flow ? `flow ${cfg.flow}` : 'source default flow'];

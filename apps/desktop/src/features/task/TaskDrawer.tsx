@@ -70,7 +70,7 @@ export function TaskDrawer({
       <div
         key={t.id}
         className={`flex shrink-0 items-center gap-1 border-b-2 px-2 py-1 text-sm ${
-          active ? 'border-primary' : 'border-transparent text-muted-foreground'
+          active ? 'border-foreground' : 'border-transparent text-muted-foreground'
         }`}
       >
         {editing?.id === t.id ? (
@@ -99,7 +99,7 @@ export function TaskDrawer({
             {t.label}
           </button>
         )}
-        {t.dot && <span aria-label={`${t.label} activity`} className="h-1.5 w-1.5 rounded-full bg-primary" />}
+        {t.dot && <span aria-label={`${t.label} activity`} className="h-1.5 w-1.5 rounded-full bg-foreground" />}
         <button aria-label={`close ${t.label}`} onClick={() => onCloseTab(t.id)} className="hover:text-destructive">
           <X size={12} />
         </button>
@@ -151,14 +151,14 @@ export function TaskDrawer({
         <button
           aria-label="history"
           onClick={onShowHistory}
-          className={`shrink-0 border-b-2 p-2 ${panel === 'history' ? 'border-primary' : 'border-transparent text-muted-foreground'}`}
+          className={`shrink-0 border-b-2 p-2 ${panel === 'history' ? 'border-foreground' : 'border-transparent text-muted-foreground'}`}
         >
           <Clock size={14} />
         </button>
         <div className="flex min-w-0 flex-1 items-center overflow-x-auto">
           {tabs.map(tab)}
           {activeId === null && panel === 'chat' && (
-            <span className="shrink-0 border-b-2 border-primary px-2 py-1 text-sm text-muted-foreground">
+            <span className="shrink-0 border-b-2 border-foreground px-2 py-1 text-sm text-muted-foreground">
               New card…
             </span>
           )}

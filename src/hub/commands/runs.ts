@@ -53,7 +53,7 @@ const doneCache = new Map<string, { at: number; done: Set<string> }>();
 
 /**
  * Runs whose card sits in the board's Done column: one with a PR is marked merged, a passed one without a PR (a hub card's
- * local branch) `cardDone`. Best effort: a board that cannot be read leaves them unmarked. `listBoard` reads a hub board
+ * local branch) or one whose agent stopped to ask `cardDone`. Best effort: a board that cannot be read leaves them unmarked. `listBoard` reads a hub board
  * (its tasks are the hub's, not the tracker's); absent, the tracker is read through core.
  */
 export async function markMerged<T extends RunSummary>(deps: Parameters<typeof invokeCoreMethod>[0], repoPath: string, runs: T[], listBoard?: () => Promise<{ id: string; column: string }[]>): Promise<T[]> {
@@ -69,7 +69,8 @@ export async function markMerged<T extends RunSummary>(deps: Parameters<typeof i
     return runs.map((r) => {
       if (!done.has(taskRefKey(r.taskId))) return r;
       if (r.prUrl !== undefined) return { ...r, prState: 'merged' as const };
-      return r.anyFailed ? r : { ...r, cardDone: true as const };
+      // A done card waits on no answer (Home's inbox drops it too): its asked run is marked so it reads "stopped to ask".
+      return r.anyFailed && r.asked === undefined ? r : { ...r, cardDone: true as const };
     });
   } catch {
     return runs;

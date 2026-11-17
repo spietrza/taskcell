@@ -42,7 +42,8 @@ export const NEEDS_YOU_CHIP = 'rounded bg-primary/15 px-1.5 py-0.5 font-medium t
 /** A finished run's state word, one source for the Runs row and the run header: the hub's `prState` decides merged. */
 export function runStateWord(r: { anyFailed: boolean; stoppedBy?: string; prState?: string; prUrl?: string; verifyFailed?: true; cardDone?: true; asked?: string }): string {
   if (r.stoppedBy !== undefined) return 'stopped: provider limit';
-  if (r.asked !== undefined) return ASKED_WORDS;
+  // Once its card is done the run waits on no answer: neutral history, as the card panel says it.
+  if (r.asked !== undefined) return r.cardDone === true ? 'stopped to ask' : ASKED_WORDS;
   if (r.anyFailed || r.verifyFailed === true) return 'failed';
   return r.prState === 'merged' ? 'merged' : r.prUrl !== undefined ? 'PR open' : r.cardDone === true ? 'done, no PR' : 'passed';
 }
@@ -51,16 +52,20 @@ export function runStateWord(r: { anyFailed: boolean; stoppedBy?: string; prStat
 export function runStateTone(word: string): 'success' | 'destructive' | 'secondary' | 'primary' {
   if (word === 'failed') return 'destructive';
   if (word === ASKED_WORDS) return 'primary';
-  if (word === 'running') return 'primary';
-  if (word === 'cancelled' || word.startsWith('stopped')) return 'secondary';
+  // Orange is only for the person's turn: a running run is neutral.
+  if (word === 'running' || word === 'cancelled' || word.startsWith('stopped')) return 'secondary';
   return 'success';
 }
 
-/** What a run that stopped to ask says to the person: the summary's `asked`, else the implementer record's last reply. */
+/**
+ * What a run that stopped to ask says to the person: the summary's `asked`, else the implementer record's last reply.
+ * Nothing once its card is done (`cardDone`): it waits on no answer.
+ */
 export function askedOf(
-  summary: { asked?: string } | undefined,
+  summary: { asked?: string; cardDone?: true } | undefined,
   detail: { stages: { record: { stage?: string; exitReason?: string; stoppedBy?: string; finalText?: string } }[] } | undefined,
 ): string | undefined {
+  if (summary?.cardDone === true) return undefined;
   if (summary?.asked !== undefined) return summary.asked;
   const r = detail?.stages.find((s) => s.record.stage === 'implementer' && s.record.exitReason === 'incomplete' && s.record.stoppedBy === undefined)?.record;
   return r?.finalText?.trim() || undefined;

@@ -1,5 +1,5 @@
 import { expect, test } from 'vitest';
-import { cardIdOf, issueNumber, repoInitials, runStateTone, runStateWord, startedByLabel, titleKey } from './runLabels';
+import { askedOf, cardIdOf, issueNumber, repoInitials, runStateTone, runStateWord, startedByLabel, titleKey } from './runLabels';
 
 test('"started by" names a person only: the shared hub identity and the local worker show nothing', () => {
   expect(startedByLabel('token')).toBeUndefined();
@@ -35,7 +35,12 @@ test('the state word and its colour are one reading: a failed run is never green
   expect(runStateWord({ anyFailed: true, asked: 'which file?' })).toBe('Waiting for your answer');
   expect(tone({ anyFailed: true, asked: 'which file?' })).toBe('primary');
   expect(runStateWord({ anyFailed: false, cardDone: true })).toBe('done, no PR');
+  // Its card is done: the ask is history, not the person's turn.
+  expect(runStateWord({ anyFailed: true, asked: 'which file?', cardDone: true })).toBe('stopped to ask');
+  expect(tone({ anyFailed: true, asked: 'which file?', cardDone: true })).toBe('secondary');
   expect(tone({ anyFailed: false, prState: 'merged', prUrl: 'u' })).toBe('success');
+  // Orange (primary) is only the person's turn.
+  expect(runStateTone('running')).toBe('secondary');
 });
 
 test('a run\'s card id is the one the Board shows', () => {
@@ -48,4 +53,11 @@ test('repoInitials skips the leading words the shown names share', () => {
   expect(repoInitials('taskcell-demo-form', ['taskcell-demo-form', 'taskcell-demo-local'])).toBe('FO');
   expect(repoInitials('taskcell-demo-local', ['taskcell-demo-form', 'taskcell-demo-local'])).toBe('LO');
   expect(repoInitials('acme-shop', ['acme-shop', 'billing'])).toBe('AS');
+});
+
+test('askedOf: a run whose card is done waits on no answer', () => {
+  const detail = { stages: [{ record: { stage: 'implementer', exitReason: 'incomplete', finalText: 'Which file?' } }] };
+  expect(askedOf(undefined, detail)).toBe('Which file?');
+  expect(askedOf({ asked: 'Which file?' }, detail)).toBe('Which file?');
+  expect(askedOf({ asked: 'Which file?', cardDone: true }, detail)).toBeUndefined();
 });

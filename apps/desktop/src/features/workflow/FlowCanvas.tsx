@@ -85,10 +85,10 @@ export function FlowCanvas({
                     data-testid={`stage-block-${i}`}
                     className={`w-44 cursor-grab rounded-md border bg-background p-3 transition-colors ${
                       selected === i
-                        ? 'border-primary ring-1 ring-primary/40'
+                        ? 'border-foreground ring-1 ring-foreground/30'
                         : unknown
                           ? 'border-warning/60 hover:border-warning'
-                          : 'border-border hover:border-primary/40'
+                          : 'border-border hover:border-foreground/40'
                     }`}
                   >
                     <button
@@ -97,7 +97,7 @@ export function FlowCanvas({
                       aria-label={`select ${stage.name}`}
                     >
                       <span className="flex items-center gap-2 text-sm font-medium">
-                        <span className={`size-2 rounded-full ${unknown ? 'bg-warning' : 'bg-primary/70'}`} />
+                        <span className={`size-2 rounded-full ${unknown ? 'bg-warning' : 'bg-muted-foreground'}`} />
                         <span className="truncate">{stage.name}</span>
                         {stage.ref !== undefined && (
                           <span className="ml-auto inline-flex items-center gap-1 rounded bg-secondary px-1 py-0.5 text-[10px] text-secondary-foreground">
