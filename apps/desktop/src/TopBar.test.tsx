@@ -13,3 +13,11 @@ test('the command palette button takes focus when clicked, so the palette can ha
   expect(button).toHaveFocus();
   vi.unstubAllGlobals();
 });
+
+test('the nav and the switchers render in their slots', () => {
+  vi.stubGlobal('matchMedia', vi.fn(() => ({ matches: false, addEventListener: vi.fn(), removeEventListener: vi.fn() })));
+  render(<TopBar nav={<nav aria-label="Main" />} switchers={<span>switchers</span>} crumbs={[]} onHome={() => {}} onCommandK={() => {}} theme="light" onToggleTheme={() => {}} />);
+  expect(screen.getByRole('navigation', { name: 'Main' })).toBeInTheDocument();
+  expect(screen.getByText('switchers')).toBeInTheDocument();
+  vi.unstubAllGlobals();
+});

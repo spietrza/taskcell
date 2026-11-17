@@ -3,31 +3,34 @@ import { isTauri } from '@tauri-apps/api/core';
 import { getCurrentWindow } from '@tauri-apps/api/window';
 import { PAGE_CLASS, cn, type Theme } from '@/ui';
 import { TopBar, type Crumb } from './TopBar';
-import { Rail, resolveScreen, type Screen } from './Rail';
+import { MainNav, type Screen } from './MainNav';
+import { ServerSwitcher } from './ServerSwitcher';
+import { TeamSwitcher } from './TeamSwitcher';
 import { CommandPalette } from './CommandPalette';
 import { RepoPicker } from './RepoPicker';
 import { TailwindDebugScreens } from './components/TailwindDebugScreens';
 import { Dashboard } from './features/dashboard/Dashboard';
-import { NeedsYou } from './features/needs-you/NeedsYou';
-import { HomePausedBanner } from './features/board/paused';
+import { Home } from './features/home/Home';
+import type { SettingsSection } from './features/settings/sections';
 import { Inspector } from './features/inspector/Inspector';
 import { Onboarding } from './features/onboarding/Onboarding';
 import { StarterTaskDialog } from './features/onboarding/StarterTaskDialog';
 import { loadOnboarding, saveOnboarding, showOnFirstRun, type OnboardingStored } from './features/onboarding/steps';
 import { EnableFactoryDialog } from './features/dashboard/EnableFactoryDialog';
 import { useCallerCapabilities } from './hooks';
-import { listProjects, addProject, cloneProject, removeProject, listActive, listNeedsYouAll, listTeams, teamAddRepository, factoryState, localWorkerState } from './ipc';
+import { listProjects, addProject, cloneProject, removeProject, listNeedsYouAll, listTeams, teamAddRepository, factoryState, localWorkerState } from './ipc';
 import { loadTeamId, resolveTeam, saveTeamId, teamProjects } from './teams';
-import type { FactoryState, LocalWorkerState, Team } from './wire';
+import type { FactoryState, LocalWorkerState, RepoReadFailure, Team } from './wire';
 import { projectColor, contrastColor } from './color';
 import { createNavGuardRegistry, NavGuardContext } from './navGuard';
 import { ProjectCombobox } from './ProjectCombobox';
 import { inRepos } from './repoFilter';
 import { loadFilter, saveFilter, type HubFilter } from './filterState';
-import { screenFromUrl, urlForScreen } from './screenUrl';
+import { resolveScreen, screenFromUrl, settingsSectionFromUrl, urlForScreen } from './screenUrl';
 import { hubSignedIn, isDemoMode, hubSignOut, onHubRestart, onHubConnectionIssue } from './transport';
 import { applyTheme, initialTheme, saveTheme } from './theme';
 import type { Project, ActiveRun } from './taskcell-output';
+import type { StampedNeeds } from './features/home/homeModel';
 
 export default function App() {
   const [allProjects, setProjects] = useState<Project[]>([]);
@@ -55,9 +58,12 @@ export default function App() {
   // The filter Home, Board and Runs share (persisted): triage, projects, card source, search, grouping.
   const [filter, setFilter] = useState<HubFilter>(loadFilter);
   const [screen, setScreen] = useState<Screen>(screenFromUrl);
-  // How many items wait on the user (Home's Needs you section); badges Home in the rail.
-  const [needsCount, setNeedsCount] = useState(0);
-  const [railRunning, setRailRunning] = useState<ActiveRun[]>([]);
+  const [settingsSection, setSettingsSection] = useState<SettingsSection>(settingsSectionFromUrl);
+  // What waits on the user: the one poll behind Home's Waiting for you list, its sentence and the Home badge.
+  const [needs, setNeeds] = useState<{ items: StampedNeeds[]; failures: RepoReadFailure[] } | null>(null);
+  const [needsError, setNeedsError] = useState<string | null>(null);
+  const [needsNonce, setNeedsNonce] = useState(0);
+  const needsCount = needs?.items.length ?? 0;
   const [focusRunning, setFocusRunning] = useState<ActiveRun | null>(null);
   const [crumb, setCrumb] = useState<string | null>(null);
   // The task screen's trailing breadcrumb: the open conversation's name, click-to-rename
@@ -87,16 +93,24 @@ export default function App() {
   // The address names the open screen: a reload restores it, and Back/Forward move between screens.
   const screenRef = useRef(screen);
   screenRef.current = screen;
+  const sectionRef = useRef(settingsSection);
+  sectionRef.current = settingsSection;
   useEffect(() => {
-    if (screenFromUrl() !== screen) window.history.pushState(window.history.state, '', urlForScreen(screen));
-  }, [screen]);
+    // A screen change is a history step; a Settings section change only rewrites the address (Back leaves Settings, not a section).
+    if (screenFromUrl() !== screen) window.history.pushState(window.history.state, '', urlForScreen(screen, settingsSection));
+    else if (screen === 'settings' && settingsSectionFromUrl() !== settingsSection) window.history.replaceState(window.history.state, '', urlForScreen(screen, settingsSection));
+  }, [screen, settingsSection]);
   useEffect(() => {
     const onPop = (): void => {
       const to = screenFromUrl();
-      if (to === screenRef.current) return;
-      if (navGuard.current.confirm()) setScreen(to);
+      const section = settingsSectionFromUrl();
+      if (to === screenRef.current && (to !== 'settings' || section === sectionRef.current)) return;
+      if (navGuard.current.confirm()) {
+        setScreen(to);
+        setSettingsSection(section);
+      }
       // Unsaved work kept: the address goes back to the screen that stays open.
-      else window.history.pushState(window.history.state, '', urlForScreen(screenRef.current));
+      else window.history.pushState(window.history.state, '', urlForScreen(screenRef.current, sectionRef.current));
     };
     window.addEventListener('popstate', onPop);
     return () => window.removeEventListener('popstate', onPop);
@@ -203,28 +217,6 @@ export default function App() {
     setFilter(f);
     saveFilter(f);
   };
-
-  // Poll the current project's in-flight runs for the rail's Running section.
-  useEffect(() => {
-    if (!activeProject) {
-      setRailRunning([]);
-      return;
-    }
-    let alive = true;
-    const tick = (): void => {
-      listActive(activeProject)
-        .then((a) => {
-          if (alive) setRailRunning(a);
-        })
-        .catch(() => {});
-    };
-    tick();
-    const id = setInterval(tick, 5000);
-    return () => {
-      alive = false;
-      clearInterval(id);
-    };
-  }, [activeProject]);
 
   // Window close is the third discard path. Tauri/WKWebView does not reliably fire beforeunload
   // on native close, so onCloseRequested is the primary hook (beforeunload kept as a belt) — and
@@ -382,20 +374,22 @@ export default function App() {
   const repoPaths = projects.map((p) => p.path).filter((p) => filter.repos.length === 0 || filter.repos.includes(p));
   const repoKey = repoPaths.join('\n');
 
-  // Keep the rail badge current: Home's section reports its own changes, this catches new items elsewhere.
+  // The one read of what waits on the user (30 s, and after a reply or merge): Home's list, its sentence and the badge.
   useEffect(() => {
     if (!needsYou || !activeProject) {
-      setNeedsCount(0);
+      setNeeds(null);
       return;
     }
     let alive = true;
     const repos = repoKey.split('\n');
     const tick = (): void => {
-      listNeedsYouAll(scopeId).then((l) => inRepos(l.items, repos))
-        .then((items) => {
-          if (alive) setNeedsCount(items.length);
+      listNeedsYouAll(scopeId)
+        .then((l) => {
+          if (!alive) return;
+          setNeeds({ items: inRepos(l.items, repos), failures: inRepos(l.failures, repos) });
+          setNeedsError(null);
         })
-        .catch(() => {});
+        .catch((e) => alive && setNeedsError(String(e)));
     };
     tick();
     const id = setInterval(tick, 30000);
@@ -403,7 +397,7 @@ export default function App() {
       alive = false;
       clearInterval(id);
     };
-  }, [needsYou, activeProject, scopeId, repoKey]);
+  }, [needsYou, activeProject, scopeId, repoKey, needsNonce]);
 
   const SCREEN_LABEL: Record<Screen, string> = {
     home: 'Home',
@@ -428,8 +422,6 @@ export default function App() {
       crumbs.push({ label: SCREEN_LABEL[screen] });
     }
   }
-  // Where the hub lists every repository (Home, Board, Runs), the filter bar narrows them; the switcher still names the active project (New Task, the rail).
-  const allRepos = screen === 'home' || screen === 'board' || screen === 'runs';
   const projectSwitcher =
     active ? (
       <ProjectCombobox projects={projects} active={active} onSelect={(v) => navigate(() => setActiveProject(v))} />
@@ -480,6 +472,33 @@ export default function App() {
       {!(hubRestarted && projects.length === 0) && (
       <>
       <TopBar
+        nav={
+          <MainNav
+            screen={showHome ? 'home' : screen}
+            needsCount={needsCount}
+            hasProject={active !== null}
+            onScreen={(sc) =>
+              navigate(() => {
+                // A click on the screen already open leaves its drill-down (a run detail, a live strip) for the list.
+                if (!showHome && sc === screen) setClearNonce((n) => n + 1);
+                setScreen(sc);
+              })
+            }
+            onSettings={(section) =>
+              navigate(() => {
+                setSettingsSection(section);
+                setScreen('settings');
+              })
+            }
+          />
+        }
+        // Always shown: the server and team switchers live here, even when the selected team has no project yet.
+        switchers={
+          <>
+            <ServerSwitcher />
+            <TeamSwitcher teams={teams} active={team} onSelect={chooseTeam} />
+          </>
+        }
         crumbs={crumbs}
         projectSwitcher={projectSwitcher}
         onHome={() => goto('home')}
@@ -489,41 +508,41 @@ export default function App() {
         {...(signedIn ? { onSignOut: () => void hubSignOut() } : {})}
       />
       <div className="flex min-h-0 flex-1 max-md:flex-col">
-        {/* Always shown: the server and team switchers live here, even when the selected team has no project yet. */}
-        <Rail
-          projects={projects}
-          activePath={activeProject}
-          screen={showHome ? 'home' : screen}
-          running={railRunning}
-          needsCount={needsCount}
-          teams={teams}
-          team={team}
-          onTeam={chooseTeam}
-          onScreen={(sc) =>
-            navigate(() => {
-              // A click on the screen already open leaves its drill-down (a run detail, a live strip) for the list.
-              if (!showHome && sc === screen) setClearNonce((n) => n + 1);
-              setScreen(sc);
-            })
-          }
-          onOpenRunning={(r) => {
-            // The sixth navigation path (review round 1) — also discards a dirty editor.
-            navigate(() => {
-              setScreen('runs');
-              // A fresh object per click, so a repeat click on the same entry still reopens the live run.
-              setFocusRunning({ ...r });
-            });
-          }}
-        />
-        <main className="flex min-w-0 flex-1 flex-col overflow-hidden">
+        <main className="flex min-w-0 flex-1 flex-col overflow-hidden max-md:pb-16">
           {showHome ? (
-            <div className="h-full overflow-y-auto">
-              <div className={cn(PAGE_CLASS, 'space-y-4')}>
-                {/* Home starts with what needs the user; with nothing waiting it says so in one line. */}
-                {needsYou && (
-                  <NeedsYou project={active.path} allRepos={allRepos} repos={repoPaths} teamId={scopeId} onCount={setNeedsCount} onOpenBoard={() => goto('board')} />
+            <div className="h-full overflow-y-auto max-md:pb-16">
+              {/* One tree whether or not a project is active, so the project cards do not remount when one is picked. */}
+              <div className={cn(PAGE_CLASS, 'space-y-6')}>
+                {active && (
+                  <Home
+                    project={active.path}
+                    projects={projects}
+                    repoPaths={repoPaths}
+                    teamId={scopeId}
+                    needs={needs}
+                    needsError={needsError}
+                    onReloadNeeds={() => setNeedsNonce((n) => n + 1)}
+                    factoryStates={factoryStates}
+                    localWorkers={localWorkers}
+                    onOpenRunning={(r) =>
+                      // The sixth navigation path (review round 1) — also discards a dirty editor.
+                      navigate(() => {
+                        setScreen('runs');
+                        // A fresh object per click, so a repeat click on the same row still reopens the live run.
+                        setFocusRunning({ ...r });
+                      })
+                    }
+                    onEnterProject={(path) => enterProject(path, 'board')}
+                    onSeeAllMoving={() =>
+                      navigate(() => {
+                        changeFilter({ ...filter, triage: 'running', repos: [] });
+                        setScreen('board');
+                      })
+                    }
+                    onOpenFactory={setFactoryProject}
+                    onOpenBoard={() => goto('board')}
+                  />
                 )}
-                {active && <HomePausedBanner project={active.path} allRepos={allRepos} repos={repoPaths} teamId={scopeId} />}
                 {showSetup && (
                   <Onboarding
                     projectCount={projects.length}
@@ -536,15 +555,6 @@ export default function App() {
                 <Dashboard
                   projects={projects}
                   onOpenSetup={() => setSetupOpen(true)}
-                  onOpenRunning={
-                    active
-                      ? () =>
-                          navigate(() => {
-                            changeFilter({ ...filter, triage: 'running' });
-                            setScreen('runs');
-                          })
-                      : undefined
-                  }
                   onOpen={(p) => enterProject(p.path)}
                   onAdd={add}
                   addGate={addGate}
@@ -578,6 +588,8 @@ export default function App() {
                     }
                   : {})}
                 screen={screen}
+                settingsSection={settingsSection}
+                onSettingsSection={setSettingsSection}
                 focusRunning={focusRunning}
                 clearNonce={clearNonce}
                 newTaskNonce={newTaskNonce}

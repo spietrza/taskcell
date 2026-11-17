@@ -1,8 +1,22 @@
+import { useEffect, useState } from 'react';
 import { test, expect, afterEach, vi } from 'vitest';
 import { render, screen, fireEvent } from '@testing-library/react';
 import { needsYouItems } from '../../dev/fixtures';
-import type { NeedsYouItem } from '../../wire';
+import { listNeedsYouAll } from '../../ipc';
+import type { NeedsYouItem, RepoReadFailure, RepoStamp } from '../../wire';
 import { NeedsYou } from './NeedsYou';
+
+/** What the app does: it owns the read and passes the list down; a reply or merge asks it to read again. */
+function Host({ project = '/repo', teamId, onOpenBoard }: { project?: string; teamId?: string; onOpenBoard?: () => void }) {
+  const [state, setState] = useState<{ items: (NeedsYouItem & Partial<RepoStamp>)[]; failures: RepoReadFailure[] } | null>(null);
+  const [nonce, setNonce] = useState(0);
+  useEffect(() => void listNeedsYouAll(teamId).then(setState), [nonce, teamId]);
+  return <NeedsYou project={project} items={state?.items ?? null} failures={state?.failures ?? []} error={null} repoCount={1} onReload={() => setNonce((n) => n + 1)} onOpenBoard={onOpenBoard} />;
+}
+
+const open = (item: NeedsYouItem): void => {
+  fireEvent.click(screen.getByRole('button', { name: new RegExp(`^(Review|Answer) ${item.title}$`) }));
+};
 
 afterEach(() => {
   vi.unstubAllGlobals();
@@ -27,7 +41,7 @@ function stubHub(initial: NeedsYouItem[], failReply = false, failMerge = false):
         return new Response(JSON.stringify({ error: { kind: 'internal', message: 'has failing or pending required checks' } }), { status: 500 });
       }
       if (cmd === 'reply_needs_you' || cmd === 'merge_needs_you') items = items.filter((i) => i.id !== body?.id);
-      const result = cmd === 'list_needs_you' ? { items } : cmd === 'list_needs_you_all' ? { items, failures: [] } : null;
+      const result = cmd === 'list_needs_you_all' ? { items, failures: [] } : null;
       return new Response(JSON.stringify({ result }), { status: 200, headers: { 'content-type': 'application/json' } });
     }),
   );
@@ -44,12 +58,14 @@ test('shows the factory question as text; a reply to an issue and to a PR each r
   const question = '<img src=x onerror=alert(1)> Which browser?';
   const [issue, pr] = [{ ...needsYouItems[0], lastComment: { author: 'vanguard[bot]', body: question } }, needsYouItems[1]];
   const calls = stubHub([issue, pr]);
-  const { container } = render(<NeedsYou project="/repo" repos={[]} />);
+  const { container } = render(<Host />);
 
+  await screen.findByText(issue.title);
+  expect(screen.getByRole('status')).toHaveTextContent('2 waiting');
+  open(issue);
   // Untrusted text renders verbatim as a text node, never as markup.
   expect(await screen.findByText(question)).toBeInTheDocument();
   expect(container.querySelector('img')).toBeNull();
-  expect(screen.getByRole('status')).toHaveTextContent('2 waiting');
 
   reply(issue, 'Safari on macOS');
   await vi.waitFor(() => expect(screen.queryByText(question)).not.toBeInTheDocument());
@@ -57,36 +73,44 @@ test('shows the factory question as text; a reply to an issue and to a PR each r
     expect.objectContaining({ repoPath: '/repo', id: issue.id, kind: 'issue', body: 'Safari on macOS' }),
   );
 
+  open(pr);
   reply(pr, 'Keep the scope as is');
   expect(await screen.findByText(/Nothing needs you/)).toBeInTheDocument();
   expect(calls.filter((c) => c.cmd === 'reply_needs_you').at(-1)?.body).toEqual(expect.objectContaining({ id: pr.id, kind: 'pr' }));
-  expect(calls.filter((c) => c.cmd === 'list_needs_you')).toHaveLength(3);
+  expect(calls.filter((c) => c.cmd === 'list_needs_you_all')).toHaveLength(3);
 });
 
 test('a refused reply keeps the item and says why', async () => {
   const item = needsYouItems[0];
   stubHub([item], true);
-  render(<NeedsYou project="/repo" repos={[]} />);
+  render(<Host />);
   await screen.findByText(item.title);
+  open(item);
   reply(item, 'late answer');
   expect(await screen.findByRole('alert')).toHaveTextContent('Reply not sent');
   expect(screen.getByText(item.title)).toBeInTheDocument();
 });
 
-test('a known factory label reads as plain words; an unknown one shows as-is', async () => {
-  stubHub([needsYouItems[1], { ...needsYouItems[1], id: 'acme/my-app#58', number: 58, reason: 'custom:label' }]);
-  render(<NeedsYou project="/repo" repos={[]} />);
-  expect(await screen.findByText('needs a human review')).toHaveAttribute('title', 'taskcell:needs-human-review');
-  expect(screen.queryByText('taskcell:needs-human-review')).toBeNull();
-  expect(screen.getByText('custom:label')).toBeInTheDocument();
+test('each waiting item has a caption naming what it is', async () => {
+  stubHub([needsYouItems[0], needsYouItems[1], { ...needsYouItems[1], id: 'acme/my-app#58', number: 58, title: 'Broken one', reason: 'taskcell:verify-failed' }, { ...needsYouItems[1], id: 'acme/my-app#59', number: 59, title: 'Needs edits', reason: 'changes requested' }]);
+  render(<Host />);
+  await screen.findByText(needsYouItems[0].title);
+  expect(screen.getByText('Question')).toBeInTheDocument();
+  expect(screen.getByText('PR ready')).toBeInTheDocument();
+  expect(screen.getByText('Verify failed')).toBeInTheDocument();
+  expect(screen.getByText('Changes requested')).toBeInTheDocument();
+  // Review / Answer opens the row; nothing else of the row is on screen before.
+  expect(screen.queryByRole('button', { name: /^Merge/ })).toBeNull();
+  expect(screen.getByRole('button', { name: `Review ${needsYouItems[1].title}` })).toHaveAttribute('aria-expanded', 'false');
 });
 
 test('under "All repositories" an item names its repository and a reply targets that repository', async () => {
   const item = { ...needsYouItems[0], repoPath: '/r/beta', repoName: 'beta' };
   const calls = stubHub([item]);
-  render(<NeedsYou project="/r/alpha" allRepos repos={['/r/alpha', '/r/beta']} />);
+  render(<Host project="/r/alpha" />);
   await screen.findByText(item.title);
   expect(screen.getByText('beta')).toBeInTheDocument();
+  open(item);
   reply(item, 'go ahead');
   await vi.waitFor(() => expect(calls.some((c) => c.cmd === 'reply_needs_you')).toBe(true));
   expect(calls.find((c) => c.cmd === 'reply_needs_you')?.body).toEqual(expect.objectContaining({ repoPath: '/r/beta' }));
@@ -96,7 +120,9 @@ test('under "All repositories" an item names its repository and a reply targets 
 test('Merge names the PR base branch, merges, and the item leaves the list', async () => {
   const pr = { ...needsYouItems[1], baseRef: 'release/2' };
   const calls = stubHub([pr]);
-  render(<NeedsYou project="/repo" repos={[]} />);
+  render(<Host />);
+  await screen.findByText(pr.title);
+  open(pr);
   fireEvent.click(await screen.findByRole('button', { name: 'Merge into release/2' }));
   fireEvent.click(screen.getByRole('button', { name: 'Confirm merge into release/2' }));
   expect(await screen.findByText(/Nothing needs you/)).toBeInTheDocument();
@@ -106,8 +132,11 @@ test('Merge names the PR base branch, merges, and the item leaves the list', asy
 test('a refused merge keeps the item and says why; an issue has no Merge button', async () => {
   const [issue, pr] = [needsYouItems[0], needsYouItems[1]];
   stubHub([issue, pr], false, true);
-  render(<NeedsYou project="/repo" repos={[]} />);
+  render(<Host />);
   await screen.findByText(pr.title);
+  open(issue);
+  expect(screen.queryByRole('button', { name: /^Merge/ })).toBeNull();
+  open(pr);
   expect(screen.getAllByRole('button').filter((b) => b.textContent?.startsWith('Merge'))).toHaveLength(1);
   fireEvent.click(screen.getByRole('button', { name: /^Merge/ }));
   fireEvent.click(screen.getByRole('button', { name: /^Confirm merge/ }));
@@ -115,19 +144,18 @@ test('a refused merge keeps the item and says why; an issue has no Merge button'
   expect(screen.getByText(pr.title)).toBeInTheDocument();
 });
 
-test('the Home section reports how many items wait, and says so in one line when none do', async () => {
+test('the section says how many items wait', async () => {
   stubHub([needsYouItems[0], needsYouItems[1]]);
-  const onCount = vi.fn();
-  render(<NeedsYou project="/repo" repos={[]} onCount={onCount} />);
-  expect(await screen.findByRole('heading', { name: 'Needs you' })).toBeInTheDocument();
-  await vi.waitFor(() => expect(onCount).toHaveBeenLastCalledWith(2));
+  render(<Host />);
+  expect(await screen.findByRole('heading', { name: 'Waiting for you' })).toBeInTheDocument();
+  await screen.findByText(needsYouItems[0].title);
   expect(screen.getByRole('status')).toHaveTextContent('2 waiting');
 });
 
 test('under "All repositories" the selected team is sent to the hub, so a second team is not read as the first', async () => {
   const item = { ...needsYouItems[0], repoPath: '/r/beta', repoName: 'beta' };
   const calls = stubHub([item]);
-  render(<NeedsYou project="/r/beta" allRepos repos={['/r/beta']} teamId="b" />);
+  render(<Host project="/r/beta" teamId="b" />);
   await screen.findByText(item.title);
   expect(calls.find((c) => c.cmd === 'list_needs_you_all')?.body).toEqual({ teamId: 'b' });
 });
@@ -135,7 +163,7 @@ test('under "All repositories" the selected team is sent to the hub, so a second
 test('the empty state links to the Board', async () => {
   stubHub([]);
   const onOpenBoard = vi.fn();
-  render(<NeedsYou project="/repo" repos={[]} onOpenBoard={onOpenBoard} />);
+  render(<Host onOpenBoard={onOpenBoard} />);
   await screen.findByText(/Nothing needs you/);
   fireEvent.click(screen.getByRole('button', { name: 'Board' }));
   expect(onOpenBoard).toHaveBeenCalled();
@@ -144,7 +172,9 @@ test('the empty state links to the Board', async () => {
 test('a PR whose verify failed keeps its Merge button, disabled, with the reason beside it', async () => {
   const pr = { ...needsYouItems[1], reason: 'taskcell:verify-failed', baseRef: 'main', mergeBlocked: 'Verify failed on this PR: fix it before merging.' };
   const calls = stubHub([pr]);
-  render(<NeedsYou project="/repo" repos={[]} />);
+  render(<Host />);
+  await screen.findByText(pr.title);
+  open(pr);
   const merge = await screen.findByRole('button', { name: 'Merge into main' });
   expect(merge).toBeDisabled();
   expect(screen.getByText('Verify failed on this PR: fix it before merging.')).toBeInTheDocument();

@@ -5,7 +5,7 @@ import { projects, runDetail, runs } from './dev/fixtures';
 import { STARTER_TASK } from './features/onboarding/steps';
 import type { Team } from './wire';
 
-// Settings is its own test target; here it only has to be a screen the rail can leave.
+// Settings is its own test target; here it only has to be a screen the nav can leave.
 vi.mock('./features/settings/SettingsScreen', () => ({ SettingsScreen: () => <div>settings screen</div> }));
 
 const SETUP = { tools: [], models: { claude: false, codex: false } };
@@ -28,6 +28,8 @@ function stubHub(listProjects: () => Promise<unknown[]> | unknown[], onAdd?: () 
     list_tasks_all: () => ({ tasks: [], capped: false, failures: [] }),
   };
   window.__TASKCELL_HUB__ = true;
+  // Home subscribes to the hub's event stream.
+  vi.stubGlobal('EventSource', class { addEventListener(): void {} removeEventListener(): void {} close(): void {} });
   vi.stubGlobal(
     'fetch',
     vi.fn(async (url: string) => {
@@ -42,6 +44,7 @@ function stubHub(listProjects: () => Promise<unknown[]> | unknown[], onAdd?: () 
 
 beforeEach(() => {
   localStorage.clear();
+  window.history.replaceState(null, '', '/');
   vi.stubGlobal('matchMedia', vi.fn(() => ({ matches: false, addEventListener: vi.fn(), removeEventListener: vi.fn() })));
 });
 afterEach(() => {
@@ -129,10 +132,10 @@ function stubTeamHub(
   return { cmds };
 }
 
-// The rail's entry (Runs carries a count beside its label).
-const navButton = (name: string): HTMLElement => within(screen.getByRole('complementary')).getByRole('button', { name: new RegExp(`^${name}`) });
+// The main navigation's entry (Home carries its waiting count in its name).
+const navButton = (name: string): HTMLElement => within(screen.getByRole('navigation', { name: 'Main' })).getByRole('button', { name: new RegExp(`^${name}`) });
 
-test('switching to a team with no repositories clears the rail’s running runs and disables the project screens', async () => {
+test('switching to a team with no repositories clears Home’s live runs and disables the project screens', async () => {
   const p = projects[0]!;
   stubTeamHub(
     [
@@ -168,48 +171,45 @@ test('a project in both teams stays selected across a team switch, while the new
     },
   );
   render(<App />);
-  expect(await screen.findByText(`RUN${p2.path}`)).toBeInTheDocument();
+  expect(await screen.findByTitle(p2.name)).toBeInTheDocument();
   fireEvent.change(screen.getByLabelText('Team'), { target: { value: 'b' } });
   await waitFor(() => expect(asked).toContain('b'));
   release([p1, p2]);
   await screen.findByText(p1.name);
   await new Promise((r) => setTimeout(r, 50));
-  // Still the shared project, not the new team's first.
-  expect(screen.getByText(`RUN${p2.path}`)).toBeInTheDocument();
-  expect(screen.queryByText(`RUN${p1.path}`)).toBeNull();
+  // Still the shared project in the switcher, not the new team's first.
+  expect(screen.getByTitle(p2.name)).toBeInTheDocument();
+  expect(screen.queryByTitle(p1.name)).toBeNull();
 });
 
-test('a rail Running entry clicked from Settings opens the live run', async () => {
+test('a Moving row with a live run opens it', async () => {
   const p = projects[0]!;
   const { cmds } = stubTeamHub([], () => [p]);
   render(<App />);
-  const entry = await screen.findByText(`RUN${p.path}`);
-  await waitFor(() => expect(navButton('Settings')).toBeEnabled());
-  fireEvent.click(navButton('Settings'));
-  expect(await screen.findByText('settings screen')).toBeInTheDocument();
-  await new Promise((r) => setTimeout(r, 50));
-  fireEvent.click(entry);
+  fireEvent.click(await screen.findByText(`RUN${p.path}`));
   // The live run view reads the run's session; the runs list never does.
   await waitFor(() => expect(cmds).toContain('read_session'));
   await new Promise((r) => setTimeout(r, 50));
   expect(screen.getAllByText('running').length).toBeGreaterThan(0);
+  expect(window.location.search).toBe('?screen=runs');
 });
 
-test('a rail Running entry clicked from an open run detail opens the live run, on every click', async () => {
+test('a Moving row clicked after an open run detail opens the live run, on every click', async () => {
   const p = projects[0]!;
   const run = { ...runs[0]!, repoPath: p.path, repoName: p.name };
   stubTeamHub([], () => [p], { list_runs_all: { runs: [run], failures: [] }, read_run: runDetail });
   render(<App />);
-  const entry = await screen.findByText(`RUN${p.path}`);
+  await screen.findByText(`RUN${p.path}`);
   await waitFor(() => expect(navButton('Runs')).toBeEnabled());
   const crumbs = (): HTMLElement => screen.getByRole('navigation', { name: /breadcrumb/i });
-  // Click the same entry twice, each time from an open run detail.
+  // Open a run's detail, go Home and click the same row, twice.
   for (let i = 0; i < 2; i++) {
     fireEvent.click(navButton('Runs'));
     fireEvent.click(await screen.findByText(run.taskId));
     await waitFor(() => expect(crumbs()).toHaveTextContent(run.taskId));
     expect(screen.getAllByText('passed').length).toBeGreaterThan(0);
-    fireEvent.click(entry);
+    fireEvent.click(navButton('Home'));
+    fireEvent.click(await screen.findByText(`RUN${p.path}`));
     await waitFor(() => expect(crumbs()).toHaveTextContent(`RUN${p.path}`));
     expect(crumbs()).not.toHaveTextContent(run.taskId);
     expect(screen.getAllByText('running').length).toBeGreaterThan(0);
@@ -267,15 +267,16 @@ test('switching team clears the previous team’s runs at once, before the new t
   expect(await screen.findByText('B-RUN')).toBeInTheDocument();
 });
 
-test('Home’s Running tile opens Runs with the Running filter on; the address names the screen, and Back returns Home', async () => {
+test('Home’s “See all on the Board” opens the Board with the Running filter on; the address names the screen, and Back returns Home', async () => {
   const p = projects[0]!;
-  stubTeamHub([], () => [p]);
+  const running = { id: 'gh-9', title: 'Moving card', column: 'running', state: 'x', repoPath: p.path, repoName: p.name };
+  stubTeamHub([], () => [p], { list_tasks_all: { tasks: [running], capped: false, failures: [] } });
   render(<App />);
-  const tile = await screen.findByRole('button', { name: /^Running/ });
-  await waitFor(() => expect(navButton('Runs')).toBeEnabled());
-  fireEvent.click(tile);
+  const see = await screen.findByRole('button', { name: /^See all \d+ on the Board/ });
+  await waitFor(() => expect(navButton('Board')).toBeEnabled());
+  fireEvent.click(see);
   expect(await screen.findByRole('button', { name: 'Running', pressed: true })).toBeInTheDocument();
-  expect(window.location.search).toBe('?screen=runs');
+  expect(window.location.search).toBe('?screen=board');
   // Back: the browser restores the previous address and tells the page.
   window.history.replaceState(null, '', '/');
   fireEvent(window, new PopStateEvent('popstate'));
@@ -293,4 +294,18 @@ test('a reload restores the screen the address names, keeping other parameters a
   await waitFor(() => expect(window.location.search + window.location.hash).toBe('?x=1&screen=board#keep=1'));
   fireEvent.click(navButton('Home'));
   await waitFor(() => expect(window.location.search + window.location.hash).toBe('?x=1#keep=1'));
+});
+
+test('the address names a Settings section; picking another from the Settings menu rewrites it in place', async () => {
+  const p = projects[0]!;
+  stubTeamHub([], () => [p]);
+  window.history.replaceState(null, '', '/?screen=settings&section=line');
+  render(<App />);
+  expect(await screen.findByText('settings screen')).toBeInTheDocument();
+  const history = window.history.length;
+  fireEvent.click(navButton('Settings'));
+  fireEvent.click(await screen.findByRole('menuitem', { name: 'Runners' }));
+  await waitFor(() => expect(window.location.search).toBe('?screen=settings&section=runners'));
+  // A section change replaces the address; Back leaves Settings, not a section.
+  expect(window.history.length).toBe(history);
 });

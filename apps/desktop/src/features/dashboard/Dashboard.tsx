@@ -9,38 +9,6 @@ import { gateProps } from '../../hooks';
 import type { CallerCapability, FactoryState, LocalWorkerState } from '../../wire';
 import { factoryLabel, localWorkerLabel } from './factoryLabel';
 
-function Stat({
-  label,
-  value,
-  accent,
-  dot,
-  onClick,
-}: {
-  label: string;
-  value: string | number;
-  accent?: boolean;
-  dot?: boolean;
-  /** Makes the tile a button. */
-  onClick?: (() => void) | undefined;
-}) {
-  const body = (
-    <>
-      <div className="caption">{label}</div>
-      <div className={`mt-1 flex items-center gap-1.5 text-2xl font-semibold tabular-nums ${accent ? 'text-success-text' : ''}`}>
-        {dot && <span className="size-2 rounded-full bg-success" />}
-        {value}
-      </div>
-    </>
-  );
-  return onClick ? (
-    <button type="button" onClick={onClick} className="rounded-lg border border-border p-4 text-left transition-colors hover:bg-muted/40">
-      {body}
-    </button>
-  ) : (
-    <div className="rounded-lg border border-border p-4">{body}</div>
-  );
-}
-
 export function Dashboard({
   projects,
   onOpen,
@@ -50,7 +18,6 @@ export function Dashboard({
   onEnableFactory,
   factoryGate,
   onOpenSetup,
-  onOpenRunning,
   factory,
   localWorker,
 }: {
@@ -66,8 +33,6 @@ export function Dashboard({
   factoryGate?: CallerCapability | undefined;
   /** Opens the first-run guide; offered in the empty state. */
   onOpenSetup?: () => void;
-  /** Opens Runs filtered to the running ones (the Running tile). */
-  onOpenRunning?: (() => void) | undefined;
   /** Each project's factory checklist state by path (hub-only); a project without an entry shows no factory line. */
   factory?: Record<string, FactoryState>;
   /** Each project's Local hub worker state by path (hub-only); shown on cards whose switch is on or has an error. */
@@ -75,14 +40,6 @@ export function Dashboard({
 }) {
   // Path of the card whose × was clicked: removal waits for a second, explicit click.
   const [confirmRemove, setConfirmRemove] = useState<string | null>(null);
-  const totals = {
-    projects: projects.length,
-    running: projects.reduce((n, p) => n + p.runningCount, 0),
-    runs: projects.reduce((n, p) => n + p.runCount, 0),
-    last24h: projects.reduce((n, p) => n + p.runsLast24h, 0),
-    spend: projects.reduce((n, p) => n + p.totalCostUsd, 0),
-  };
-
   return (
     <div className="space-y-4">
       <div className="flex items-center gap-3">
@@ -117,14 +74,6 @@ export function Dashboard({
         </Empty.Root>
       ) : (
         <>
-          <div className="grid grid-cols-2 gap-3 sm:grid-cols-3 lg:grid-cols-5">
-            <Stat label="Projects" value={totals.projects} />
-            <Stat label="Running" value={totals.running} accent={totals.running > 0} dot={totals.running > 0} onClick={onOpenRunning} />
-            <Stat label="Runs" value={totals.runs} />
-            <Stat label="Last 24h" value={totals.last24h} />
-            <Stat label="Spend" value={`$${totals.spend.toFixed(2)}`} />
-          </div>
-
           <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
             {projects.map((p) => {
               const location = effectiveRunLocation(p.taskSource, p.runLocation);

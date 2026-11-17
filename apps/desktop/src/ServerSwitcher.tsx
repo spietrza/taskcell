@@ -13,8 +13,8 @@ import {
   type ServerState,
 } from './servers';
 
-/** Top of the rail: Local or a saved remote hub. Desktop app only; renders nothing in a browser. */
-export function ServerSwitcher({ collapsed }: { collapsed: boolean }): ReactNode {
+/** In the top bar: Local or a saved remote hub. Desktop app only; renders nothing in a browser. */
+export function ServerSwitcher(): ReactNode {
   const [state, setState] = useState<ServerState | null>(null);
   const [open, setOpen] = useState(false);
   const [adding, setAdding] = useState(false);
@@ -42,9 +42,9 @@ export function ServerSwitcher({ collapsed }: { collapsed: boolean }): ReactNode
   const label = current?.name ?? 'Local';
   const editable = canEditServers();
   const toggle = (): void => {
-    // The rail scrolls and clips, so the menu is portalled and fixed under the trigger.
+    // The bar clips, so the menu is portalled and fixed under the trigger (kept inside the window's right edge).
     const r = trigger.current?.getBoundingClientRect();
-    if (r) setPos({ left: r.left, top: r.bottom + 4 });
+    if (r) setPos({ left: Math.max(8, Math.min(r.left, window.innerWidth - 264)), top: r.bottom + 4 });
     setOpen((o) => !o);
   };
   const run = (fn: () => Promise<unknown>): void => {
@@ -70,7 +70,7 @@ export function ServerSwitcher({ collapsed }: { collapsed: boolean }): ReactNode
   };
 
   return (
-    <div className="px-2 pb-2">
+    <div>
       <button
         ref={trigger}
         type="button"
@@ -80,13 +80,12 @@ export function ServerSwitcher({ collapsed }: { collapsed: boolean }): ReactNode
         aria-label={`Server: ${label}`}
         title={`Server: ${label}`}
         className={cn(
-          'flex w-full items-center rounded border border-border py-1.5 text-sm hover:bg-muted/60',
-          collapsed ? 'justify-center px-0' : 'gap-2 px-2',
+          'flex h-8 max-w-40 items-center gap-2 rounded border border-border px-2 text-sm hover:bg-muted/60',
         )}
       >
         {current ? <ServerIcon className="size-4 shrink-0" /> : <HardDrive className="size-4 shrink-0" />}
-        {!collapsed && <span className="truncate font-medium">{label}</span>}
-        {!collapsed && <ChevronsUpDown className="ml-auto size-3.5 shrink-0 text-muted-foreground" />}
+        <span className="truncate font-medium max-md:hidden">{label}</span>
+        <ChevronsUpDown className="size-3.5 shrink-0 text-muted-foreground max-md:hidden" />
       </button>
       {open &&
         createPortal(

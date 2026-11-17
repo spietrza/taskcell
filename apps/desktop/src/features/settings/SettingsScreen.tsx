@@ -1,14 +1,13 @@
-import { useState, type ReactNode } from 'react';
+import type { ReactNode } from 'react';
 import { Button, cn } from '@/ui';
 import { useNavGuardRegistry } from '../../navGuard';
+import { SETTINGS_SECTIONS, type SettingsSection } from './sections';
 import { Settings } from './Settings';
 import type { TeamScreen } from './Members';
 import { WorkflowEditor } from '../workflow/WorkflowEditor';
 import { AuditLog } from '../audit/AuditLog';
 import { Lessons } from '../lessons/Lessons';
 import { Skills } from '../skills/Skills';
-
-type Section = 'general' | 'line' | 'runners' | 'lessons' | 'skills' | 'audit';
 
 /**
  * Settings, with the sections the prototype puts under it: General (the project's settings), Line (the
@@ -20,6 +19,8 @@ export function SettingsScreen({
   onOpenSetup,
   fleet,
   remote,
+  section,
+  onSection,
 }: {
   project: string;
   /** The selected team's Members section (hub), shown under General. */
@@ -28,27 +29,21 @@ export function SettingsScreen({
   onOpenSetup?: () => void;
   fleet: ReactNode;
   remote: ReactNode;
+  /** The open section: owned by the app so the address and the top bar's menu can name it. */
+  section: SettingsSection;
+  onSection: (s: SettingsSection) => void;
 }) {
-  const [section, setSection] = useState<Section>('general');
   const registry = useNavGuardRegistry();
-  const sections: { key: Section; label: string }[] = [
-    { key: 'general', label: 'General' },
-    { key: 'line', label: 'Line' },
-    { key: 'runners', label: 'Runners' },
-    { key: 'lessons', label: 'Lessons' },
-    { key: 'skills', label: 'Skills' },
-    { key: 'audit', label: 'Audit' },
-  ];
   // Switching sections unmounts a dirty editor, so it confirms like any other navigation.
-  const choose = (key: Section): void => {
+  const choose = (key: SettingsSection): void => {
     if (key === section || registry?.confirm() === false) return;
-    setSection(key);
+    onSection(key);
   };
 
   return (
     <div className="flex h-full min-h-0 flex-col gap-4">
       <div role="tablist" aria-label="Settings sections" className="flex shrink-0 gap-1 border-b border-border">
-        {sections.map((s) => (
+        {SETTINGS_SECTIONS.map((s) => (
           <button
             key={s.key}
             type="button"

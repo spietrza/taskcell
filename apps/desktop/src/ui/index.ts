@@ -14,6 +14,7 @@ export {
   cn,
   Empty,
   Input,
+  Menu,
   Select,
   Table,
   Tabs,

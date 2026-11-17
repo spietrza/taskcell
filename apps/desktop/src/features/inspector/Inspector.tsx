@@ -32,6 +32,7 @@ import { LiveRun } from './LiveRun';
 import { RemoteRuns } from './RemoteRuns';
 import { Fleet } from '../fleet/Fleet';
 import { SettingsScreen } from '../settings/SettingsScreen';
+import type { SettingsSection } from '../settings/sections';
 import { TaskBoard } from '../board/TaskBoard';
 import { TaskDetail } from '../board/TaskDetail';
 import { TaskDraftScreen } from '../task/TaskDraftScreen';
@@ -55,6 +56,8 @@ export function Inspector({
   filter,
   onFilter,
   screen,
+  settingsSection,
+  onSettingsSection,
   focusRunning,
   clearNonce,
   newTaskNonce,
@@ -79,6 +82,9 @@ export function Inspector({
   filter: HubFilter;
   onFilter: (f: HubFilter) => void;
   screen: 'runs' | 'board' | 'task' | 'settings';
+  /** Settings only: the open section, owned by the app (the address names it). */
+  settingsSection: SettingsSection;
+  onSettingsSection: (s: SettingsSection) => void;
   focusRunning: ActiveRun | null;
   clearNonce: number;
   newTaskNonce: number;
@@ -698,6 +704,8 @@ export function Inspector({
           project={project}
           {...(teamScreen ? { teamScreen } : {})}
           {...(onOpenSetup ? { onOpenSetup } : {})}
+          section={settingsSection}
+          onSection={onSettingsSection}
           fleet={canUseFleet() ? <Fleet project={project} active={active} /> : null}
           remote={<RemoteRuns project={project} onOpenRun={open} />}
         />

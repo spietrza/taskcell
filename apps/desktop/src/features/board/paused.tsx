@@ -1,7 +1,6 @@
 import { useState } from 'react';
 import { Button } from '@/ui';
-import { listTasks, listTasksAll, retryPausedTask } from '../../ipc';
-import { inRepos } from '../../repoFilter';
+import { listTasks, retryPausedTask } from '../../ipc';
 import { gateProps, useAsync, useCallerCapabilities } from '../../hooks';
 import type { BoardTask, PausedState } from '../../wire';
 
@@ -52,21 +51,6 @@ export function PausedBanner({ tasks }: { tasks: Pick<BoardTask, 'paused'>[] }) 
       <p className="mt-1 text-muted-foreground">They retry automatically; you can wait, or add credit or switch the model in Settings.</p>
     </div>
   );
-}
-
-/** Home's banner: reads the shown repositories' cards itself and says nothing when none is paused or the list cannot be read. */
-export function HomePausedBanner({ project, allRepos, repos, teamId }: { project: string; allRepos: boolean; repos: string[]; teamId?: string }) {
-  const { data } = useAsync(
-    async (): Promise<Pick<BoardTask, 'paused'>[]> => {
-      try {
-        return allRepos ? inRepos((await listTasksAll(teamId)).tasks, repos) : (await listTasks(project)).tasks;
-      } catch {
-        return [];
-      }
-    },
-    [project, allRepos, teamId, repos.join('\n')],
-  );
-  return <PausedBanner tasks={data ?? []} />;
 }
 
 /** "Retry now": removes the limit hold and re-applies the recorded trigger, as `Start` would. A refusal shows inline. */

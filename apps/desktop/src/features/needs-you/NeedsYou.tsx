@@ -1,21 +1,13 @@
-import { useEffect, useState } from 'react';
-import { Button, Card, Chip, Textarea } from '@/ui';
+import { useState } from 'react';
+import { Button, Textarea } from '@/ui';
 import { errorClause } from '../../errors';
 import { RefreshCw } from 'lucide-react';
-import { listNeedsYou, listNeedsYouAll, mergeNeedsYou, replyNeedsYou, type NeedsYouItem, type RepoReadFailure, type RepoStamp } from '../../ipc';
+import { mergeNeedsYou, replyNeedsYou, type NeedsYouItem, type RepoReadFailure, type RepoStamp } from '../../ipc';
 import { gateProps, useCallerCapabilities } from '../../hooks';
-import { inRepos } from '../../repoFilter';
-import { RepoFailures, RepoLabel } from '../../RepoViews';
+import { RepoFailures } from '../../RepoViews';
+import { inboxKind } from '../home/homeModel';
 import { isDemoLink } from '../../transport';
 import { ExternalLink } from '../../components/ExternalLink';
-
-/** Plain words for the factory's waiting labels (src/hub/needs-you.ts); anything else shows as-is. */
-const REASON_TEXT: Record<string, string> = {
-  'taskcell:needs-human-review': 'needs a human review',
-  'taskcell:verify-failed': 'verify failed',
-  'vanguard:needs-human-review': 'needs a human review',
-  'vanguard:verify-failed': 'verify failed',
-};
 
 export function ReplyBox({ project, item, onReplied }: { project: string; item: NeedsYouItem; onReplied: () => void }) {
   const [body, setBody] = useState('');
@@ -107,58 +99,42 @@ export function MergeButton({ project, item, onMerged }: { project: string; item
   );
 }
 
-/** Home's "Needs you" section: what the factory waits on, with a reply per item. `onCount` reports the list length. */
+/**
+ * Home's "Waiting for you" inbox: what the factory waits on, one row per item (caption, title, repository and
+ * PR, actions). Review / Answer opens the row to its last factory comment, Merge and a reply. The owner of the
+ * data (the app's poll) passes `items` (null = not loaded) and `onReload` after a reply or merge.
+ */
 export function NeedsYou({
   project,
-  allRepos = false,
-  repos,
-  teamId,
-  onCount,
+  items,
+  failures,
+  error,
+  repoCount,
+  onReload,
   onOpenBoard,
 }: {
+  /** Where an item without its own repository is replied to. */
   project: string;
-  allRepos?: boolean;
-  repos: string[];
-  /** The selected team (hub): "All repositories" is read for it. */
-  teamId?: string;
-  onCount?: (n: number) => void;
+  items: (NeedsYouItem & Partial<RepoStamp>)[] | null;
+  failures: RepoReadFailure[];
+  error: string | null;
+  repoCount: number;
+  onReload: () => void;
   /** Where the empty state sends the user to start work. */
   onOpenBoard?: () => void;
 }) {
-  const [items, setItems] = useState<(NeedsYouItem & Partial<RepoStamp>)[] | null>(null);
-  const [failures, setFailures] = useState<RepoReadFailure[]>([]);
-  const [error, setError] = useState<string | null>(null);
-  const [nonce, setNonce] = useState(0);
-  const reload = (): void => setNonce((n) => n + 1);
-
-  useEffect(() => {
-    let alive = true;
-    (allRepos ? listNeedsYouAll(teamId).then((l) => ({ items: inRepos(l.items, repos), failures: inRepos(l.failures, repos) })) : listNeedsYou(project).then((r) => ({ ...r, failures: [] })))
-      .then((r) => {
-        if (!alive) return;
-        setItems(r.items);
-        onCount?.(r.items.length);
-        setFailures(r.failures);
-        setError(null);
-      })
-      .catch((e) => {
-        if (alive) setError(String(e));
-      });
-    return () => {
-      alive = false;
-    };
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [project, allRepos, nonce, teamId, repos.join('\n')]);
+  const [open, setOpen] = useState<string | null>(null);
 
   return (
-    <section id="needs-you" aria-label="Needs you" className="w-full space-y-3">
+    <section id="needs-you" aria-label="Waiting for you" className="w-full space-y-3">
       <div className="flex items-center gap-3">
-        <h2 className="text-xl font-semibold">Needs you</h2>
+        <h2 className="text-xl font-semibold">Waiting for you</h2>
         {/* Announces the count when it changes, e.g. after a reply or a refresh finds new items. */}
         <span role="status" className="text-xs tabular-nums text-muted-foreground">
           {items === null ? '' : `${items.length} waiting`}
         </span>
-        <Button className="ml-auto" variant="text" color="secondary" onClick={reload} startIcon={<RefreshCw className="size-4" />}>
+        <span className="caption max-md:hidden">across {repoCount} {repoCount === 1 ? 'project' : 'projects'}</span>
+        <Button className="ml-auto" variant="text" color="secondary" onClick={onReload} startIcon={<RefreshCw className="size-4" />}>
           Refresh
         </Button>
       </div>
@@ -167,7 +143,7 @@ export function NeedsYou({
           Could not load what the factory is waiting on: {errorClause(error)}. Check the hub's `gh` login, then Refresh.
         </div>
       )}
-      <RepoFailures failures={failures} total={repos.length} />
+      <RepoFailures failures={failures} total={repoCount} />
       {items === null && !error && <div className="text-sm text-muted-foreground">Loading…</div>}
       {items?.length === 0 && (
         <p className="text-sm text-muted-foreground">
@@ -184,38 +160,58 @@ export function NeedsYou({
           .
         </p>
       )}
-      {items?.map((item) => (
-        // py-0: Card.Root's own vertical padding doubled Card.Content's p-4 into a gap above the chips.
-        <Card.Root key={`${item.repoPath ?? ''}:${item.id}`} className="py-0">
-          <Card.Content className="space-y-2 p-4">
-            <div className="flex flex-wrap items-center gap-2">
-              {allRepos && item.repoName !== undefined && <RepoLabel name={item.repoName} />}
-              <Chip color="secondary" variant="outlined">
-                {item.kind === 'pr' ? 'PR' : 'Task'} <span className="font-mono tabular-nums">#{item.number}</span>
-              </Chip>
-              {item.baseBranch && (
-                <span className="font-mono text-xs text-muted-foreground" title="target branch">→ {item.baseBranch}</span>
-              )}
-              <Chip color="warning" variant="outlined" title={item.reason}>
-                {REASON_TEXT[item.reason] ?? item.reason}
-              </Chip>
-              <a href={isDemoLink(item.url) ? undefined : item.url || undefined} target="_blank" rel="noreferrer" className="min-w-0 truncate font-medium hover:underline max-md:basis-full max-md:whitespace-normal max-md:break-words">
-                {item.title}
-              </a>
-              <ExternalLink href={item.url} className="ml-auto shrink-0">Open in GitHub</ExternalLink>
-            </div>
-            {item.lastComment && (
-              // Untrusted GitHub text, rendered as a plain text node (React escapes it), never as HTML/Markdown.
-              <div className="rounded bg-muted/40 px-3 py-2 text-sm">
-                <div className="text-xs text-muted-foreground">{item.lastComment.author}</div>
-                <div className="whitespace-pre-wrap break-words">{item.lastComment.body}</div>
-              </div>
-            )}
-            {item.kind === 'pr' && <MergeButton project={item.repoPath ?? project} item={item} onMerged={reload} />}
-            <ReplyBox project={item.repoPath ?? project} item={item} onReplied={reload} />
-          </Card.Content>
-        </Card.Root>
-      ))}
+      {items && items.length > 0 && (
+        <ul className="divide-y divide-border rounded-lg border border-border">
+          {items.map((item) => {
+            const key = `${item.repoPath ?? ''}:${item.id}`;
+            const kind = inboxKind(item);
+            const expanded = open === key;
+            return (
+              <li key={key} className="space-y-3 p-4">
+                <div className="flex flex-wrap items-center gap-x-4 gap-y-2">
+                  <span className={`caption w-36 shrink-0 max-md:w-full ${kind.broken ? 'text-destructive-text' : 'text-warning-text'}`}>{kind.caption}</span>
+                  <div className="min-w-0 flex-1 max-md:basis-full">
+                    <a href={isDemoLink(item.url) ? undefined : item.url || undefined} target="_blank" rel="noreferrer" className="block break-words font-medium hover:underline">
+                      {item.title}
+                    </a>
+                    <div className="mt-0.5 flex flex-wrap items-center gap-x-2 text-xs text-muted-foreground">
+                      {item.repoName !== undefined && <span className="font-mono">{item.repoName}</span>}
+                      <span>
+                        {item.kind === 'pr' ? 'PR' : 'Task'} <span className="font-mono tabular-nums">#{item.number}</span>
+                      </span>
+                      {item.baseBranch && <span className="font-mono" title="target branch">→ {item.baseBranch}</span>}
+                    </div>
+                  </div>
+                  <div className="flex items-center gap-2 max-md:w-full">
+                    <Button
+                      variant={kind.action === 'Review' && !kind.broken ? 'contained' : 'outlined'}
+                      aria-expanded={expanded}
+                      aria-label={`${kind.action} ${item.title}`}
+                      onClick={() => setOpen(expanded ? null : key)}
+                    >
+                      {kind.action}
+                    </Button>
+                    <ExternalLink href={item.url}>Open in GitHub</ExternalLink>
+                  </div>
+                </div>
+                {expanded && (
+                  <div className="space-y-2">
+                    {item.lastComment && (
+                      // Untrusted GitHub text, rendered as a plain text node (React escapes it), never as HTML/Markdown.
+                      <div className="rounded bg-muted/40 px-3 py-2 text-sm">
+                        <div className="text-xs text-muted-foreground">{item.lastComment.author}</div>
+                        <div className="whitespace-pre-wrap break-words">{item.lastComment.body}</div>
+                      </div>
+                    )}
+                    {item.kind === 'pr' && <MergeButton project={item.repoPath ?? project} item={item} onMerged={onReload} />}
+                    <ReplyBox project={item.repoPath ?? project} item={item} onReplied={onReload} />
+                  </div>
+                )}
+              </li>
+            );
+          })}
+        </ul>
+      )}
     </section>
   );
 }

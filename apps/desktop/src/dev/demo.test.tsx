@@ -36,7 +36,7 @@ test('demo data is consistent: one name, the demo repository, a spec per card, m
   expect(all).not.toMatch(/vanguard|acme/);
   expect(handleDemo('fetch_spec', { taskId: 'DEMO-101' })).not.toEqual(handleDemo('fetch_spec', { taskId: 'DEMO-102' }));
   expect(handleDemo('list_drafts', {})).toEqual([]);
-  // The rail's Runs badge counts what the Runs list shows: finished runs plus the one in flight.
+  // The project's run count is what the Runs list shows: finished runs plus the one in flight.
   expect(demoProject.runCount).toBe(demoRuns.length + demoActiveRuns.length);
   // The Board header's "Running" counts the cards the factory holds; one is shown as running.
   expect(demoBoardTasks.filter((t) => t.column === 'claimed' || t.column === 'running')).toHaveLength(demoActiveRuns.length);
@@ -81,7 +81,7 @@ test('every main screen opens in demo mode without errors', async () => {
   expect(screen.getByTestId('stage-1')).toHaveTextContent('Implement');
   expect(screen.getByTestId('stage-1')).toHaveAttribute('data-phase', 'running');
   expect(screen.queryByText('starting…')).not.toBeInTheDocument();
-  // A click on the rail's Runs item while it is open shows the list; and from a run detail it goes back to the list.
+  // A click on the nav's Runs item while it is open shows the list; and from a run detail it goes back to the list.
   fireEvent.click(screen.getByRole('button', { name: /^Runs/ }));
   await waitFor(() => expect(screen.queryByRole('button', { name: /Back to runs/ })).not.toBeInTheDocument());
   fireEvent.click(within(await screen.findByRole('list', { name: 'Runs' })).getByText('Fix cart total rounding'));
@@ -95,10 +95,10 @@ test('every main screen opens in demo mode without errors', async () => {
   expect(screen.getByText('Add wishlist to the account page')).toBeInTheDocument();
 
   fireEvent.click(screen.getByRole('button', { name: /^Settings/ }));
-  fireEvent.click(await screen.findByRole('tab', { name: 'Line' }));
+  fireEvent.click(await screen.findByRole('menuitem', { name: 'Line' }));
   await waitFor(() => expect(screen.getByRole('tab', { name: 'Line' })).toHaveAttribute('aria-selected', 'true'));
 
-  // Home carries both the Needs you section and the project list.
+  // Home carries both the Waiting for you section and the project list.
   fireEvent.click(screen.getByRole('button', { name: /^Home/ }));
   expect(await screen.findByText('Case-insensitive product search')).toBeInTheDocument();
   expect(await screen.findByRole('heading', { name: 'Projects' })).toBeInTheDocument();
@@ -166,7 +166,7 @@ test('demo: Stop says read-only; the New Run form closes on Cancel and on naviga
 
   await openForm();
   fireEvent.click(screen.getByRole('button', { name: /^run$/i }));
-  fireEvent.click(screen.getByRole('button', { name: /^Settings/ }));
+  fireEvent.click(screen.getByRole('button', { name: /^Runs/ }));
   await waitFor(() => expect(screen.queryByRole('heading', { name: 'New run' })).toBeNull());
   expect(screen.queryByText(/Demo project is read-only/)).toBeNull();
   vi.unstubAllGlobals();
